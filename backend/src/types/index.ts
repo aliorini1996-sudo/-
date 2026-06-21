@@ -1,0 +1,32 @@
+import { Request } from 'express';
+
+export interface AuthPayload {
+  id: string;
+  role: 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
+  name: string;
+}
+
+export interface AuthRequest extends Request {
+  user?: AuthPayload;
+}
+
+export interface PaginationQuery {
+  page?: string;
+  limit?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface ApiResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  errors?: unknown;
+  pagination?: {
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+  };
+}

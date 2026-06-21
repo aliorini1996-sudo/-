@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// القيم المسموحة موثّقة بجانب كل حقل
+
+model Admin {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("ADMIN") // ADMIN | MANAGER | ACCOUNTANT
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("admins")
+}
+
+model SalesRep {
+  id           String   @id @default(uuid())
+  name         String
+  phone        String   @unique
+  email        String?  @unique
+  username     String   @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  fcmToken     String?
+
+  // Sales permissions
+  canCreateInvoice  Boolean @default(true)
+  canEditInvoice    Boolean @default(false)
+  canDeleteInvoice  Boolean @default(false)
+  canCancelInvoice  Boolean @default(false)
+
+  // Pricing permissions
+  canChangePrice    Boolean @default(false)
+  maxDiscountPct    Float   @default(0)
+  canSellBelowPrice Boolean @default(false)
+
+  // Collection permissions
+  canCreateReceipt  Boolean @default(true)
+  canEditReceipt    Boolean @default(false)
+  canCancelReceipt  Boolean @default(false)
+
+  // Customer permissions
+  canAddCustomer    Boolean @default(false)
+  canEditCustomer   Boolean @default(false)
+  canViewStatement  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices      Invoice[]
+  receipts      Receipt[]
+  notifications Notification[]
+
+  @@map("sales_reps")
+}
+
+model ProductCategory {
+  id        String    @id @default(uuid())
+  name      String
+  createdAt DateTime  @default(now())
+  products  Product[]
+
+  @@map("product_categories")
+}
+
+model Product {
+  id           String         @id @default(uuid())
+  code         String         @unique
+  name         String
+  barcode      String?
+  unit         String
+  basePrice    Float
+  taxPct       Float          @default(15)
+  status       String         @default("ACTIVE") // ACTIVE | INACTIVE
+  categoryId   String?
+  category     ProductCategory? @relation(fields: [categoryId], references: [id])
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  priceTiers     PriceTier[]
+  customerPrices CustomerPrice[]
+  invoiceItems   InvoiceItem[]
+
+  @@map("products")
+}
+
+model PriceTier {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  minQty    Float
+  maxQty    Float?
+  price     Float
+  createdAt DateTime @default(now())
+
+  @@map("price_tiers")
+}
+
+model Customer {
+  id             String         @id @default(uuid())
+  code           String         @unique @default(cuid())
+  name           String
+  businessName   String?
+  commercialReg  String?
+  taxNumber      String?
+  phone          String
+  altPhone       String?
+  email          String?
+  city           String?
+  district       String?
+  address        String?
+  status         String         @default("ACTIVE") // ACTIVE | INACTIVE | BLOCKED
+
+  creditLimit    Float @default(0)
+  paymentDays    Int   @default(30)
+  balance        Float @default(0)
+  totalSales     Float @default(0)
+  totalCollected Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customerPrices CustomerPrice[]
+  invoices       Invoice[]
+  receipts       Receipt[]
+  accountEntries AccountEntry[]
+  notifications  Notification[]
+
+  @@map("customers")
+}
+
+model CustomerPrice {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  price      Float
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([customerId, productId])
+  @@map("customer_prices")
+}
+
+model Invoice {
+  id          String   @id @default(uuid())
+  number      String   @unique
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  salesRepId  String
+  salesRep    SalesRep @relation(fields: [salesRepId], references: [id])
+  type        String   @default("CREDIT") // CASH | CREDIT
+  status      String   @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
+  invoiceDate DateTime @default(now())
+  dueDate     DateTime?
+  notes       String?
+
+  subtotal     Float
+  discountPct  Float @default(0)
+  discountAmt  Float @default(0)
+  taxAmt       Float @default(0)
+  total        Float
+  paidAmt      Float @default(0)
+  remainingAmt Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items          InvoiceItem[]
+  receiptItems   ReceiptInvoice[]
+  accountEntries AccountEntry[]
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  qty         Float
+  unitPrice   Float
+  discountPct Float   @default(0)
+  discountAmt Float   @default(0)
+  taxPct      Float
+  taxAmt      Float
+  lineTotal   Float
+
+  @@map("invoice_items")
+}
+
+model Receipt {
+  id            String   @id @default(uuid())
+  number        String   @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  salesRepId    String
+  salesRep      SalesRep @relation(fields: [salesRepId], references: [id])
+  receiptDate   DateTime @default(now())
+  amount        Float
+  paymentMethod String   @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
+  chequeNumber  String?
+  bankName      String?
+  notes         String?
+  status        String   @default("ACTIVE") // ACTIVE | CANCELLED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoiceItems   ReceiptInvoice[]
+  accountEntries AccountEntry[]
+
+  @@map("receipts")
+}
+
+model ReceiptInvoice {
+  id        String  @id @default(uuid())
+  receiptId String
+  receipt   Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  amount    Float
+
+  @@unique([receiptId, invoiceId])
+  @@map("receipt_invoices")
+}
+
+model AccountEntry {
+  id          String   @id @default(uuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  invoiceId   String?
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id])
+  receiptId   String?
+  receipt     Receipt? @relation(fields: [receiptId], references: [id])
+  type        String   // INVOICE_DEBIT | INVOICE_CREDIT | RECEIPT_CREDIT | RECEIPT_DEBIT | ADJUSTMENT_DEBIT | ADJUSTMENT_CREDIT
+  debit       Float    @default(0)
+  credit      Float    @default(0)
+  balance     Float
+  description String
+  entryDate   DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@map("account_entries")
+}
+
+model CompanySettings {
+  id            String   @id @default("company")
+  name          String
+  address       String?
+  taxNumber     String?
+  commercialReg String?
+  phone         String?
+  email         String?
+  logo          String?  // شعار الشركة (base64 data URL)
+  primaryColor  String?  // لون الترويسة الأساسي (hex)
+  headerStyle   String?  @default("classic") // classic | banner | minimal
+  updatedAt     DateTime @updatedAt
+
+  @@map("company_settings")
+}
+
+model Notification {
+  id         String    @id @default(uuid())
+  type       String    // CREDIT_LIMIT_EXCEEDED | DISCOUNT_LIMIT_EXCEEDED | OVERDUE_PAYMENT | INVOICE_CANCELLED | PRICE_MODIFIED | RECEIPT_CANCELLED
+  title      String
+  body       String
+  salesRepId String?
+  salesRep   SalesRep? @relation(fields: [salesRepId], references: [id])
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  isRead     Boolean   @default(false)
+  data       String?   // JSON كنص
+  createdAt  DateTime  @default(now())
+
+  @@map("notifications")
+}

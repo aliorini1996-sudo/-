@@ -1,0 +1,107 @@
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import {
+  LayoutDashboard, Users, Package, UserCheck, FileText,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, TrendingUp, Building2,
+} from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
+import { useState } from 'react';
+
+const navItems = [
+  { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', exact: true },
+  { to: '/customers', icon: Users, label: 'العملاء' },
+  { to: '/products', icon: Package, label: 'المنتجات' },
+  { to: '/sales-reps', icon: UserCheck, label: 'المناديب' },
+  { to: '/invoices', icon: FileText, label: 'الفواتير' },
+  { to: '/receipts', icon: Receipt, label: 'سندات القبض' },
+  { to: '/reports', icon: BarChart3, label: 'التقارير' },
+  { to: '/company', icon: Building2, label: 'إعدادات الشركة' },
+];
+
+export default function MainLayout() {
+  const { user, logout } = useAuthStore();
+  const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-slate-100" dir="rtl">
+      {/* Sidebar */}
+      <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-gradient-to-b from-blue-900 to-blue-800 text-white flex flex-col transition-all duration-300`}>
+        {/* Logo */}
+        <div className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 ${collapsed ? 'justify-center' : ''}`}>
+          <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
+            <TrendingUp size={18} className="text-white" />
+          </div>
+          {!collapsed && (
+            <div>
+              <p className="font-bold text-sm leading-tight">نظام المبيعات</p>
+              <p className="text-blue-200 text-xs">DSD System</p>
+            </div>
+          )}
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+          {navItems.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.exact}
+              className={({ isActive }) =>
+                `sidebar-link ${isActive ? 'active' : ''} ${collapsed ? 'justify-center px-2' : ''}`
+              }
+              title={collapsed ? item.label : undefined}
+            >
+              <item.icon size={18} className="flex-shrink-0" />
+              {!collapsed && <span>{item.label}</span>}
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* User */}
+        <div className="p-2 border-t border-white/10 space-y-1">
+          <NavLink
+            to="/notifications"
+            className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''} ${collapsed ? 'justify-center px-2' : ''}`}
+          >
+            <Bell size={18} />
+            {!collapsed && <span>الإشعارات</span>}
+          </NavLink>
+          {!collapsed && (
+            <div className="px-4 py-2">
+              <p className="text-xs text-blue-200">مرحباً،</p>
+              <p className="text-sm font-semibold truncate">{user?.name}</p>
+            </div>
+          )}
+          <button
+            onClick={handleLogout}
+            className={`sidebar-link w-full text-red-300 hover:bg-red-500/20 hover:text-red-200 ${collapsed ? 'justify-center px-2' : ''}`}
+          >
+            <LogOut size={18} />
+            {!collapsed && <span>تسجيل خروج</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="absolute top-6 right-[230px] z-10 w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center text-gray-500 hover:text-blue-600 transition-all"
+        style={{ right: collapsed ? '52px' : '228px' }}
+      >
+        <ChevronLeft size={14} className={`transition-transform ${collapsed ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Main */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="p-6">
+          <Outlet />
+        </div>
+      </main>
+    </div>
+  );
+}

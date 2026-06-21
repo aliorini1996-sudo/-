@@ -1,0 +1,75 @@
+name: dsd_sales_app
+description: DSD Sales & Collection App for Field Representatives
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Network
+  dio: ^5.4.3+1
+  retrofit: ^4.1.0
+
+  # Local DB (Offline)
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+
+  # Auth
+  shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.0.0
+
+  # UI
+  google_fonts: ^6.2.1
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.19.0
+  gap: ^3.0.1
+  shimmer: ^3.0.0
+  cached_network_image: ^3.3.1
+
+  # Printing (Bluetooth)
+  flutter_blue_plus: ^1.32.12
+  bluetooth_print: ^4.4.0
+  pdf: ^3.11.0
+  printing: ^5.13.1
+
+  # Firebase (Notifications)
+  firebase_core: ^3.1.1
+  firebase_messaging: ^15.0.2
+  flutter_local_notifications: ^17.1.2
+
+  # Utils
+  connectivity_plus: ^6.0.3
+  permission_handler: ^11.3.1
+  uuid: ^4.4.0
+  intl_phone_field: ^3.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.11
+  riverpod_generator: ^2.4.0
+  retrofit_generator: ^8.1.0
+  json_serializable: ^6.8.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+  fonts:
+    - family: IBM Plex Sans Arabic
+      fonts:
+        - asset: assets/fonts/IBMPlexSansArabic-Regular.ttf
+        - asset: assets/fonts/IBMPlexSansArabic-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/IBMPlexSansArabic-Bold.ttf
+          weight: 700
