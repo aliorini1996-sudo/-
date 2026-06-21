@@ -8,6 +8,9 @@ export interface AuthPayload {
 
 export interface AuthRequest extends Request {
   user?: AuthPayload;
+  query: Record<string, any>;
+  params: Record<string, any>;
+  body: any;
 }
 
 export interface PaginationQuery {
