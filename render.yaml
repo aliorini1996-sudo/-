@@ -8,10 +8,9 @@ services:
   - type: web
     name: dsd-backend
     runtime: node
-    rootDir: backend
     plan: free
-    buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npx prisma db push --accept-data-loss && node dist/index.js
+    buildCommand: cd backend && npm install && npx prisma generate && npm run build && cd ../web-admin && npm install && npm run build
+    startCommand: cd backend && npx prisma db push --accept-data-loss && node dist/index.js
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -25,5 +24,3 @@ services:
         value: production
       - key: PORT
         value: 3000
-      - key: FRONTEND_URL
-        value: https://dsd-sales.vercel.app

@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import http from 'http';
+import path from 'path';
 import { Server } from 'socket.io';
 import bcrypt from 'bcryptjs';
 import prisma from './config/database';
@@ -28,7 +29,7 @@ export const io = new Server(server, {
   cors: { origin: process.env.FRONTEND_URL || '*', credentials: true },
 });
 
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
@@ -46,6 +47,14 @@ app.use('/api/notifications', notificationsRouter);
 app.use('/api/company', companyRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+
+// عرض موقع الواجهة (web-admin) المبني — كل شيء على نفس الرابط
+const webDist = path.join(__dirname, '../../web-admin/dist');
+app.use(express.static(webDist));
+// أي مسار غير /api يُعيد index.html ليتولّى React التوجيه (SPA)
+app.get(/^(?!\/api).*/, (_req, res) => {
+  res.sendFile(path.join(webDist, 'index.html'));
+});
 
 app.use(errorHandler);
 
