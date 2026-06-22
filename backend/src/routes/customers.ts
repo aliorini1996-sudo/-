@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requireAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 
@@ -85,6 +85,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // المندوب يحتاج صلاحية "تعديل العميل"؛ الإدارة مسموح لها دائماً
+    if (req.user?.role === 'SALES_REP') {
+      const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canEditCustomer: true } });
+      if (!rep?.canEditCustomer) {
+        res.status(403).json({ success: false, message: 'ليس لديك صلاحية تعديل العملاء' });
+        return;
+      }
+    }
     const data = customerSchema.partial().parse(req.body);
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
@@ -124,7 +132,7 @@ router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err); }
 });
 
-router.put('/:id/prices', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { prices } = req.body as { prices: { productId: string; price: number }[] };
     await prisma.$transaction(

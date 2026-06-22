@@ -1,12 +1,12 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requireAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 
 const router = Router();
-router.use(authenticate);
+router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
 
 const productSchema = z.object({
   code: z.string().min(1),
@@ -34,7 +34,7 @@ router.get('/categories', async (_req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err); }
 });
 
-router.post('/categories', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/categories', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const data = categorySchema.parse(req.body);
     const cat = await prisma.productCategory.create({ data });
@@ -87,7 +87,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const data = productSchema.parse(req.body);
     const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null }, include: { category: true } });
@@ -95,7 +95,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   } catch (err) { next(err); }
 });
 
-router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const data = productSchema.partial().parse(req.body);
     const updateData: Record<string, unknown> = { ...data };
@@ -109,7 +109,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
-router.put('/:id/price-tiers', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tiers = priceTierSchema.parse(req.body.tiers);
     await prisma.$transaction([

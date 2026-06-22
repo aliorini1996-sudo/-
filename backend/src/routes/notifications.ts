@@ -20,7 +20,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
 router.patch('/:id/read', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } });
+    // المندوب لا يعلّم إلا إشعاراته؛ الإدارة أي إشعار
+    const where = req.user?.role === 'SALES_REP'
+      ? { id: req.params.id, salesRepId: req.user.id }
+      : { id: req.params.id };
+    await prisma.notification.updateMany({ where, data: { isRead: true } });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
