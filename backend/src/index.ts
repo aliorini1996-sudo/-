@@ -65,15 +65,30 @@ io.on('connection', socket => {
   socket.on('disconnect', () => {});
 });
 
-async function seedAdmin() {
+async function seedDefaults() {
   try {
-    const count = await prisma.admin.count();
-    if (count === 0) {
+    // حساب الأدمن الافتراضي
+    if (await prisma.admin.count() === 0) {
       const hash = await bcrypt.hash('admin123', 10);
       await prisma.admin.create({
         data: { name: 'مدير النظام', email: 'admin@dsd.com', passwordHash: hash, role: 'ADMIN' },
       });
       console.log('✅ Admin created: admin@dsd.com / admin123');
+    }
+
+    // مندوب تجريبي افتراضي بكامل الصلاحيات
+    if (await prisma.salesRep.count() === 0) {
+      const hash = await bcrypt.hash('rep123', 10);
+      await prisma.salesRep.create({
+        data: {
+          name: 'مندوب تجريبي', phone: '0500000000', username: 'rep1', passwordHash: hash,
+          isActive: true, canCreateInvoice: true, canEditInvoice: true, canCancelInvoice: true,
+          canChangePrice: true, canSellBelowPrice: true, maxDiscountPct: 100,
+          canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
+          canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
+        },
+      });
+      console.log('✅ Sales rep created: rep1 / rep123');
     }
   } catch (e) {
     console.error('Seed error:', e);
@@ -83,7 +98,7 @@ async function seedAdmin() {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`🚀 DSD API running on port ${PORT}`);
-  await seedAdmin();
+  await seedDefaults();
 });
 
 export default app;
