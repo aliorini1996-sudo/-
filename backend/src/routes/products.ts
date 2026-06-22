@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 
@@ -28,23 +28,26 @@ const priceTierSchema = z.array(z.object({
   price: z.number().min(0),
 }));
 
-router.get('/categories', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/categories', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const cats = await prisma.productCategory.findMany({ orderBy: { name: 'asc' } });
+    const tid = tenantId(req);
+    const cats = await prisma.productCategory.findMany({ where: { tenantId: tid }, orderBy: { name: 'asc' } });
     res.json({ success: true, data: cats });
   } catch (err) { next(err); }
 });
 
 router.post('/categories', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const data = categorySchema.parse(req.body);
-    const cat = await prisma.productCategory.create({ data });
+    const cat = await prisma.productCategory.create({ data: { ...data, tenantId: tid } });
     res.status(201).json({ success: true, data: cat });
   } catch (err) { next(err); }
 });
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 50;
     const search = req.query.search as string | undefined;
@@ -52,6 +55,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const status = req.query.status as string | undefined;
 
     const where = {
+      tenantId: tid,
       ...(search && {
         OR: [
           { name: { contains: search } },
@@ -79,8 +83,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const product = await prisma.product.findUnique({
-      where: { id: req.params.id },
+    const tid = tenantId(req);
+    const product = await prisma.product.findFirst({
+      where: { id: req.params.id, tenantId: tid },
       include: { category: true, priceTiers: { orderBy: { minQty: 'asc' } } },
     });
     if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
@@ -90,14 +95,18 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
 router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const data = productSchema.parse(req.body);
-    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null }, include: { category: true } });
+    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null, tenantId: tid }, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
 
 router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
+    const exists = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     const data = productSchema.partial().parse(req.body);
     const updateData: Record<string, unknown> = { ...data };
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
@@ -113,6 +122,9 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
 
 router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
+    const exists = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
     const tiers = priceTierSchema.parse(req.body.tiers);
     await prisma.$transaction([
       prisma.priceTier.deleteMany({ where: { productId: req.params.id } }),

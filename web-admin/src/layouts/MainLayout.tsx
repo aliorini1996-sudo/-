@@ -39,7 +39,7 @@ export default function MainLayout() {
           {!collapsed && (
             <div>
               <p className="font-bold text-sm leading-tight">نظام المبيعات</p>
-              <p className="text-blue-200 text-xs">DSD System</p>
+              <p className="text-blue-200 text-xs truncate max-w-[160px]">{user?.companyName || 'DSD System'}</p>
             </div>
           )}
         </div>

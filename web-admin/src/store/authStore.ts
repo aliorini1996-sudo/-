@@ -7,6 +7,7 @@ interface AuthState {
   login: (token: string, user: User) => void;
   logout: () => void;
   isAdmin: () => boolean;
+  isSuperAdmin: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -28,4 +29,5 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const u = get().user;
     return !!u && ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(u.role);
   },
+  isSuperAdmin: () => get().user?.role === 'SUPER_ADMIN',
 }));

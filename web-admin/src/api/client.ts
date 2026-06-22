@@ -96,3 +96,12 @@ export const companyApi = {
   get: () => api.get('/company'),
   update: (data: unknown) => api.put('/company', data),
 };
+
+// إدارة الشركات — لمالك المنصّة (السوبر أدمن)
+export const tenantApi = {
+  list: () => api.get('/tenants'),
+  get: (id: string) => api.get(`/tenants/${id}`),
+  create: (data: unknown) => api.post('/tenants', data),
+  update: (id: string, data: unknown) => api.put(`/tenants/${id}`, data),
+  resetAdmin: (id: string, data: { adminId: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),
+};

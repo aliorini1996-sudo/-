@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate } from '../middleware/auth';
+import { authenticate, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal } from '../utils/helpers';
 import { postInvoiceEntries, reverseInvoiceEntries, postReturnEntries, reverseReturnEntries } from '../services/accounting';
@@ -30,6 +30,7 @@ const createInvoiceSchema = z.object({
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const search = req.query.search as string | undefined;
@@ -43,6 +44,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const isSalesRep = req.user?.role === 'SALES_REP';
 
     const where = {
+      tenantId: tid,
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
@@ -77,8 +79,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: req.params.id },
+    const tid = tenantId(req);
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: req.params.id, tenantId: tid },
       include: {
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
@@ -87,21 +90,31 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    // المندوب يرى فواتيره فقط
+    if (req.user?.role === 'SALES_REP' && invoice.salesRepId !== req.user.id) {
+      res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
+    }
     res.json({ success: true, data: invoice });
   } catch (err) { next(err); }
 });
 
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const body = createInvoiceSchema.parse(req.body);
     // المندوب يستخدم معرّفه؛ الأدمن يجب أن يحدّد مندوباً (الفاتورة تُنسب لمندوب)
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
-    const rep = await prisma.salesRep.findUnique({ where: { id: salesRepId } });
+    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
-    const customer = await prisma.customer.findUnique({ where: { id: body.customerId } });
+    const customer = await prisma.customer.findFirst({ where: { id: body.customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+
+    // التحقق أن كل الأصناف تخص الشركة
+    const productIds = [...new Set(body.items.map(i => i.productId))];
+    const prodCount = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
+    if (prodCount !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود' }); return; }
 
     let subtotal = 0;
     const items = body.items.map(item => {
@@ -118,21 +131,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const taxableSubtotal = subtotal - discountAmt;
 
     let taxAmt = 0;
-    const finalItems = items.map(item => {
-      taxAmt += item.taxAmt;
-      return item;
-    });
+    const finalItems = items.map(item => { taxAmt += item.taxAmt; return item; });
 
     const total = roundDecimal(taxableSubtotal + taxAmt);
     const isReturn = body.type === 'RETURN';
-    const number = isReturn ? await generateReturnNumber() : await generateInvoiceNumber();
-    const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined; // تاريخ مخصّص (قديم) إن وُجد
+    const number = isReturn ? await generateReturnNumber(tid) : await generateInvoiceNumber(tid);
+    const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
 
     const creditCheck = !isReturn && Number(customer.balance) + total > Number(customer.creditLimit) && Number(customer.creditLimit) > 0;
 
     const invoice = await prisma.$transaction(async tx => {
       const inv = await tx.invoice.create({
         data: {
+          tenantId: tid,
           number,
           customerId: body.customerId,
           salesRepId,
@@ -145,7 +156,6 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           discountAmt,
           taxAmt,
           total,
-          // المرتجع لا يُعدّ مديونية: لا مدفوع ولا متبقٍّ
           paidAmt: isReturn ? 0 : (body.type === 'CASH' ? total : 0),
           remainingAmt: isReturn ? 0 : (body.type === 'CASH' ? 0 : total),
           items: {
@@ -165,13 +175,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       });
 
       if (isReturn) {
-        // المرتجع قيد دائن يُخفّض رصيد العميل
-        await postReturnEntries(tx as never, inv.id, body.customerId, total, docDate);
+        await postReturnEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
       } else {
-        await postInvoiceEntries(tx as never, inv.id, body.customerId, total, docDate);
+        await postInvoiceEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
         if (creditCheck) {
           await tx.notification.create({
             data: {
+              tenantId: tid,
               type: 'CREDIT_LIMIT_EXCEEDED',
               title: 'تجاوز الحد الائتماني',
               body: `العميل ${customer.name} تجاوز حده الائتماني`,
@@ -192,23 +202,22 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
 router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+    const tid = tenantId(req);
+    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid } });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
     if (invoice.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'الفاتورة ملغاة مسبقاً' }); return; }
     if (Number(invoice.paidAmt) > 0) { res.status(400).json({ success: false, message: 'لا يمكن إلغاء فاتورة تم تحصيل جزء منها' }); return; }
 
     const updated = await prisma.$transaction(async tx => {
-      const inv = await tx.invoice.update({
-        where: { id: req.params.id },
-        data: { status: 'CANCELLED' },
-      });
+      const inv = await tx.invoice.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
       if (inv.type === 'RETURN') {
-        await reverseReturnEntries(tx as never, inv.id, inv.customerId, Number(inv.total));
+        await reverseReturnEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
       } else {
-        await reverseInvoiceEntries(tx as never, inv.id, inv.customerId, Number(inv.total));
+        await reverseInvoiceEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
       }
       await tx.notification.create({
         data: {
+          tenantId: tid,
           type: 'INVOICE_CANCELLED',
           title: 'إلغاء فاتورة',
           body: `تم إلغاء الفاتورة رقم ${inv.number}`,

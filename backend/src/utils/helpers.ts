@@ -23,9 +23,10 @@ function prefixFor(kind: 'INV' | 'RCP' | 'RET'): string {
   return `${kind}-${yy}${mm}-`;
 }
 
-async function nextInvoiceLike(prefix: string): Promise<string> {
+// الترقيم لكل شركة منفصل — يُفلتر بـ tenantId
+async function nextInvoiceLike(tenantId: string, prefix: string): Promise<string> {
   const last = await prisma.invoice.findFirst({
-    where: { number: { startsWith: prefix } },
+    where: { tenantId, number: { startsWith: prefix } },
     orderBy: { number: 'desc' },
     select: { number: true },
   });
@@ -33,18 +34,18 @@ async function nextInvoiceLike(prefix: string): Promise<string> {
   return prefix + String(lastSeq + 1).padStart(6, '0');
 }
 
-export async function generateInvoiceNumber(): Promise<string> {
-  return nextInvoiceLike(prefixFor('INV'));
+export async function generateInvoiceNumber(tenantId: string): Promise<string> {
+  return nextInvoiceLike(tenantId, prefixFor('INV'));
 }
 
-export async function generateReturnNumber(): Promise<string> {
-  return nextInvoiceLike(prefixFor('RET'));
+export async function generateReturnNumber(tenantId: string): Promise<string> {
+  return nextInvoiceLike(tenantId, prefixFor('RET'));
 }
 
-export async function generateReceiptNumber(): Promise<string> {
+export async function generateReceiptNumber(tenantId: string): Promise<string> {
   const prefix = prefixFor('RCP');
   const last = await prisma.receipt.findFirst({
-    where: { number: { startsWith: prefix } },
+    where: { tenantId, number: { startsWith: prefix } },
     orderBy: { number: 'desc' },
     select: { number: true },
   });

@@ -9,8 +9,48 @@ datasource db {
 
 // القيم المسموحة موثّقة بجانب كل حقل
 
+// مالك المنصّة (بائع النظام) — يدير كل الشركات والاشتراكات
+model SuperAdmin {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("super_admins")
+}
+
+// الشركة المشتركة في النظام — الكيان الأعلى لعزل البيانات
+model Tenant {
+  id            String    @id @default(uuid())
+  name          String    // اسم الشركة المشتركة
+  isActive      Boolean   @default(true)  // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
+  plan          String    @default("basic") // basic | pro | enterprise
+  subscriptionEndsAt DateTime?            // تاريخ انتهاء الاشتراك (null = غير محدود)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  admins          Admin[]
+  salesReps       SalesRep[]
+  categories      ProductCategory[]
+  products        Product[]
+  customers       Customer[]
+  invoices        Invoice[]
+  receipts        Receipt[]
+  accountEntries  AccountEntry[]
+  notifications   Notification[]
+  settings        CompanySettings?
+
+  @@map("tenants")
+}
+
 model Admin {
   id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name         String
   email        String   @unique
   passwordHash String
@@ -19,14 +59,17 @@ model Admin {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  @@index([tenantId])
   @@map("admins")
 }
 
 model SalesRep {
   id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name         String
-  phone        String   @unique
-  email        String?  @unique
+  phone        String
+  email        String?
   username     String   @unique
   passwordHash String
   isActive     Boolean  @default(true)
@@ -60,21 +103,27 @@ model SalesRep {
   receipts      Receipt[]
   notifications Notification[]
 
+  @@index([tenantId])
   @@map("sales_reps")
 }
 
 model ProductCategory {
   id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name      String
   createdAt DateTime  @default(now())
   products  Product[]
 
+  @@index([tenantId])
   @@map("product_categories")
 }
 
 model Product {
   id           String         @id @default(uuid())
-  code         String         @unique
+  tenantId     String
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code         String
   name         String
   barcode      String?
   unit         String
@@ -91,6 +140,8 @@ model Product {
   customerPrices CustomerPrice[]
   invoiceItems   InvoiceItem[]
 
+  @@unique([tenantId, code])
+  @@index([tenantId])
   @@map("products")
 }
 
@@ -108,7 +159,9 @@ model PriceTier {
 
 model Customer {
   id             String         @id @default(uuid())
-  code           String         @unique @default(cuid())
+  tenantId       String
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code           String         @default(cuid())
   name           String
   businessName   String?
   commercialReg  String?
@@ -136,6 +189,8 @@ model Customer {
   accountEntries AccountEntry[]
   notifications  Notification[]
 
+  @@unique([tenantId, code])
+  @@index([tenantId])
   @@map("customers")
 }
 
@@ -155,12 +210,14 @@ model CustomerPrice {
 
 model Invoice {
   id          String   @id @default(uuid())
-  number      String   @unique
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number      String
   customerId  String
   customer    Customer @relation(fields: [customerId], references: [id])
   salesRepId  String
   salesRep    SalesRep @relation(fields: [salesRepId], references: [id])
-  type        String   @default("CREDIT") // CASH | CREDIT
+  type        String   @default("CREDIT") // CASH | CREDIT | RETURN
   status      String   @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
   invoiceDate DateTime @default(now())
   dueDate     DateTime?
@@ -181,6 +238,8 @@ model Invoice {
   receiptItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
 
+  @@unique([tenantId, number])
+  @@index([tenantId])
   @@map("invoices")
 }
 
@@ -203,7 +262,9 @@ model InvoiceItem {
 
 model Receipt {
   id            String   @id @default(uuid())
-  number        String   @unique
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number        String
   customerId    String
   customer      Customer @relation(fields: [customerId], references: [id])
   salesRepId    String
@@ -222,6 +283,8 @@ model Receipt {
   invoiceItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
 
+  @@unique([tenantId, number])
+  @@index([tenantId])
   @@map("receipts")
 }
 
@@ -239,6 +302,8 @@ model ReceiptInvoice {
 
 model AccountEntry {
   id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customerId  String
   customer    Customer @relation(fields: [customerId], references: [id])
   invoiceId   String?
@@ -253,11 +318,14 @@ model AccountEntry {
   entryDate   DateTime @default(now())
   createdAt   DateTime @default(now())
 
+  @@index([tenantId])
   @@map("account_entries")
 }
 
 model CompanySettings {
-  id            String   @id @default("company")
+  id            String   @id @default(uuid())
+  tenantId      String   @unique
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name          String
   address       String?
   taxNumber     String?
@@ -274,6 +342,8 @@ model CompanySettings {
 
 model Notification {
   id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   type       String    // CREDIT_LIMIT_EXCEEDED | DISCOUNT_LIMIT_EXCEEDED | OVERDUE_PAYMENT | INVOICE_CANCELLED | PRICE_MODIFIED | RECEIPT_CANCELLED
   title      String
   body       String
@@ -285,5 +355,6 @@ model Notification {
   data       String?   // JSON كنص
   createdAt  DateTime  @default(now())
 
+  @@index([tenantId])
   @@map("notifications")
 }

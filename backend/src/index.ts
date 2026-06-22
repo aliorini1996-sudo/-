@@ -21,6 +21,7 @@ import dashboardRouter from './routes/dashboard';
 import reportsRouter from './routes/reports';
 import notificationsRouter from './routes/notifications';
 import companyRouter from './routes/company';
+import tenantsRouter from './routes/tenants';
 import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
@@ -46,6 +47,7 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/company', companyRouter);
+app.use('/api/tenants', tenantsRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
@@ -67,28 +69,34 @@ io.on('connection', socket => {
 
 async function seedDefaults() {
   try {
-    // حساب الأدمن الافتراضي
-    if (await prisma.admin.count() === 0) {
-      const hash = await bcrypt.hash('admin123', 10);
-      await prisma.admin.create({
-        data: { name: 'مدير النظام', email: 'admin@dsd.com', passwordHash: hash, role: 'ADMIN' },
+    // مالك المنصّة (السوبر أدمن) — يدير كل الشركات
+    if (await prisma.superAdmin.count() === 0) {
+      const hash = await bcrypt.hash('owner123', 10);
+      await prisma.superAdmin.create({
+        data: { name: 'مالك المنصّة', email: 'owner@dsd.com', passwordHash: hash },
       });
-      console.log('✅ Admin created: admin@dsd.com / admin123');
+      console.log('✅ Super admin created: owner@dsd.com / owner123');
     }
 
-    // مندوب تجريبي افتراضي بكامل الصلاحيات
-    if (await prisma.salesRep.count() === 0) {
-      const hash = await bcrypt.hash('rep123', 10);
+    // شركة تجريبية أولى + أدمنها + مندوبها + إعداداتها
+    if (await prisma.tenant.count() === 0) {
+      const adminHash = await bcrypt.hash('admin123', 10);
+      const repHash = await bcrypt.hash('rep123', 10);
+      const tenant = await prisma.tenant.create({ data: { name: 'الشركة التجريبية', plan: 'pro' } });
+      await prisma.companySettings.create({ data: { tenantId: tenant.id, name: 'الشركة التجريبية' } });
+      await prisma.admin.create({
+        data: { tenantId: tenant.id, name: 'مدير الشركة', email: 'admin@dsd.com', passwordHash: adminHash, role: 'ADMIN' },
+      });
       await prisma.salesRep.create({
         data: {
-          name: 'مندوب تجريبي', phone: '0500000000', username: 'rep1', passwordHash: hash,
+          tenantId: tenant.id, name: 'مندوب تجريبي', phone: '0500000000', username: 'rep1', passwordHash: repHash,
           isActive: true, canCreateInvoice: true, canEditInvoice: true, canCancelInvoice: true,
           canChangePrice: true, canSellBelowPrice: true, maxDiscountPct: 100,
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
         },
       });
-      console.log('✅ Sales rep created: rep1 / rep123');
+      console.log('✅ Demo tenant created: admin@dsd.com / admin123 — rep1 / rep123');
     }
   } catch (e) {
     console.error('Seed error:', e);

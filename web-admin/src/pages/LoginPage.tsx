@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/authStore';
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuthStore();
+  const [mode, setMode] = useState<'admin' | 'super_admin'>('admin');
   const [form, setForm] = useState({ username: '', password: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -20,11 +21,11 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const res = await authApi.login({ ...form, role: 'admin' });
+      const res = await authApi.login({ ...form, role: mode });
       const { token, user } = res.data.data;
       login(token, user);
       toast.success(`مرحباً ${user.name}`);
-      navigate('/');
+      navigate(user.role === 'SUPER_ADMIN' ? '/platform' : '/');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ في تسجيل الدخول';
       toast.error(msg);
@@ -47,11 +48,23 @@ export default function LoginPage() {
 
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-xl font-bold text-gray-800 mb-6">تسجيل الدخول</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">تسجيل الدخول</h2>
+
+          {/* تبويب نوع الحساب */}
+          <div className="flex gap-2 mb-5 bg-gray-100 rounded-xl p-1">
+            <button type="button" onClick={() => setMode('admin')}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${mode === 'admin' ? 'bg-white text-blue-700 shadow' : 'text-gray-500'}`}>
+              دخول الشركة
+            </button>
+            <button type="button" onClick={() => setMode('super_admin')}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${mode === 'super_admin' ? 'bg-white text-blue-700 shadow' : 'text-gray-500'}`}>
+              مالك المنصّة
+            </button>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="label">البريد الإلكتروني / اسم المستخدم</label>
+              <label className="label">البريد الإلكتروني{mode === 'admin' ? ' / اسم المستخدم' : ''}</label>
               <input
                 type="text"
                 className="input"
@@ -99,8 +112,11 @@ export default function LoginPage() {
 
           <div className="mt-6 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
             <p className="font-semibold mb-1">بيانات تجريبية:</p>
-            <p>البريد: admin@dsd.com</p>
-            <p>كلمة المرور: admin123</p>
+            {mode === 'admin' ? (
+              <><p>البريد: admin@dsd.com</p><p>كلمة المرور: admin123</p></>
+            ) : (
+              <><p>البريد: owner@dsd.com</p><p>كلمة المرور: owner123</p></>
+            )}
           </div>
         </div>
       </div>

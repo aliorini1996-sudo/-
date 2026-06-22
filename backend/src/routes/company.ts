@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -19,17 +19,19 @@ const companySchema = z.object({
   headerStyle: z.enum(['classic', 'banner', 'minimal']).nullish(),
 });
 
-// متاح لأي مستخدم مسجّل (المندوب يحتاجه لطباعة المستندات)
-router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+// إعدادات شركة المستخدم الحالي — متاح لأي مستخدم مسجّل (المندوب يحتاجه للطباعة)
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const company = await prisma.companySettings.findUnique({ where: { id: 'company' } });
+    const tid = tenantId(req);
+    const company = await prisma.companySettings.findUnique({ where: { tenantId: tid } });
     res.json({ success: true, data: company });
   } catch (err) { next(err); }
 });
 
-// التعديل للإدارة فقط
+// التعديل للإدارة فقط — ضمن شركة المستخدم
 router.put('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const data = companySchema.parse(req.body);
     const clean = {
       ...data,
@@ -38,9 +40,9 @@ router.put('/', requireAdmin, async (req: AuthRequest, res: Response, next: Next
       primaryColor: data.primaryColor || null,
     };
     const company = await prisma.companySettings.upsert({
-      where: { id: 'company' },
+      where: { tenantId: tid },
       update: clean,
-      create: { id: 'company', ...clean },
+      create: { tenantId: tid, ...clean },
     });
     res.json({ success: true, data: company });
   } catch (err) { next(err); }

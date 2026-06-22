@@ -11,11 +11,22 @@ import ReceiptsPage from './pages/ReceiptsPage';
 import ReportsPage from './pages/ReportsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
+import PlatformPage from './pages/PlatformPage';
 import RepApp from './rep/RepApp';
 
+// المسارات الإدارية للشركة — يُحوّل السوبر أدمن للوحة المنصّة
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
   if (!token) return <Navigate to="/login" replace />;
+  if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
+  return <>{children}</>;
+}
+
+// لوحة المالك — للسوبر أدمن فقط
+function SuperAdminRoute({ children }: { children: React.ReactNode }) {
+  const { token, user } = useAuthStore();
+  if (!token) return <Navigate to="/login" replace />;
+  if (user?.role !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -25,6 +36,7 @@ export default function App() {
       <Routes>
         <Route path="/rep" element={<RepApp />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
         <Route path="/" element={
           <ProtectedRoute>
             <MainLayout />

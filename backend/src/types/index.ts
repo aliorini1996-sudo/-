@@ -2,8 +2,9 @@ import { Request } from 'express';
 
 export interface AuthPayload {
   id: string;
-  role: 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
   name: string;
+  tenantId?: string; // معرّف الشركة — غير موجود للسوبر أدمن
 }
 
 export interface AuthRequest extends Request {

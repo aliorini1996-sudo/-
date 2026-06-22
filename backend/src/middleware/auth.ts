@@ -32,3 +32,18 @@ export function requireSalesRep(req: AuthRequest, res: Response, next: NextFunct
   }
   next();
 }
+
+// مالك المنصّة فقط (إدارة الشركات والاشتراكات)
+export function requireSuperAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN') {
+    res.status(403).json({ success: false, message: 'غير مسموح' });
+    return;
+  }
+  next();
+}
+
+// يضمن وجود معرّف شركة لكل مستخدم (عدا السوبر أدمن) — حارس ضد تسريب البيانات
+export function tenantId(req: AuthRequest): string {
+  if (!req.user?.tenantId) throw new Error('لا توجد شركة مرتبطة بالحساب');
+  return req.user.tenantId;
+}

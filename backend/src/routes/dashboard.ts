@@ -1,17 +1,17 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 
 const router = Router();
 router.use(authenticate, requireAdmin);
 
-router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endOfDay = new Date(startOfDay.getTime() + 86400000 - 1);
-
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
     const [
@@ -20,43 +20,39 @@ router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => 
       topReps, topCustomers, recentInvoices,
     ] = await Promise.all([
       prisma.invoice.aggregate({
-        where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfDay, lte: endOfDay } },
+        where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfDay, lte: endOfDay } },
         _sum: { total: true }, _count: { id: true },
       }),
       prisma.receipt.aggregate({
-        where: { status: 'ACTIVE', receiptDate: { gte: startOfDay, lte: endOfDay } },
+        where: { tenantId: tid, status: 'ACTIVE', receiptDate: { gte: startOfDay, lte: endOfDay } },
         _sum: { amount: true }, _count: { id: true },
       }),
       prisma.invoice.aggregate({
-        where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } },
+        where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } },
         _sum: { total: true }, _count: { id: true },
       }),
       prisma.receipt.aggregate({
-        where: { status: 'ACTIVE', receiptDate: { gte: startOfMonth } },
+        where: { tenantId: tid, status: 'ACTIVE', receiptDate: { gte: startOfMonth } },
         _sum: { amount: true }, _count: { id: true },
       }),
-      prisma.customer.count({ where: { status: 'ACTIVE' } }),
-      prisma.customer.count({ where: { status: 'ACTIVE', balance: { gt: 0 } } }),
+      prisma.customer.count({ where: { tenantId: tid, status: 'ACTIVE' } }),
+      prisma.customer.count({ where: { tenantId: tid, status: 'ACTIVE', balance: { gt: 0 } } }),
       prisma.customer.count({
-        where: {
-          status: 'ACTIVE',
-          creditLimit: { gt: 0 },
-          balance: { gt: prisma.customer.fields.creditLimit as never },
-        },
+        where: { tenantId: tid, status: 'ACTIVE', creditLimit: { gt: 0 }, balance: { gt: prisma.customer.fields.creditLimit as never } },
       }).catch(() => 0),
       prisma.salesRep.findMany({
+        where: { tenantId: tid },
         take: 5,
         select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } }, select: { total: true } } },
       }),
       prisma.customer.findMany({
-        take: 5,
-        orderBy: { totalSales: 'desc' },
+        where: { tenantId: tid },
+        take: 5, orderBy: { totalSales: 'desc' },
         select: { id: true, name: true, totalSales: true, balance: true },
       }),
       prisma.invoice.findMany({
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        where: { status: 'CONFIRMED', type: { not: 'RETURN' } },
+        where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' } },
+        take: 10, orderBy: { createdAt: 'desc' },
         include: { customer: { select: { name: true } }, salesRep: { select: { name: true } } },
       }),
     ]);
@@ -94,12 +90,13 @@ router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => 
 
 router.get('/sales-trend', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const days = parseInt(req.query.days as string) || 30;
     const from = new Date();
     from.setDate(from.getDate() - days);
 
     const invoices = await prisma.invoice.findMany({
-      where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: from } },
+      where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: from } },
       select: { invoiceDate: true, total: true },
       orderBy: { invoiceDate: 'asc' },
     });

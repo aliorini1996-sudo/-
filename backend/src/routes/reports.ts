@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -8,11 +8,13 @@ router.use(authenticate, requireAdmin);
 
 router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const { from, to, salesRepId, customerId, groupBy } = req.query as Record<string, string>;
     const dateFilter = from && to ? { gte: new Date(from), lte: new Date(to) } : undefined;
 
     const invoices = await prisma.invoice.findMany({
       where: {
+        tenantId: tid,
         status: 'CONFIRMED',
         type: { not: 'RETURN' }, // تقرير المبيعات لا يشمل المرتجعات
         ...(dateFilter && { invoiceDate: dateFilter }),
@@ -77,11 +79,13 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
 
 router.get('/collections', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const { from, to, salesRepId, paymentMethod } = req.query as Record<string, string>;
     const dateFilter = from && to ? { gte: new Date(from), lte: new Date(to) } : undefined;
 
     const receipts = await prisma.receipt.findMany({
       where: {
+        tenantId: tid,
         status: 'ACTIVE',
         ...(dateFilter && { receiptDate: dateFilter }),
         ...(salesRepId && { salesRepId }),
@@ -109,6 +113,7 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
 
 router.get('/balances', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const { type } = req.query as Record<string, string>;
 
     let where = {};
@@ -116,7 +121,7 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
     if (type === 'exceeded') where = { creditLimit: { gt: 0 } };
 
     const customers = await prisma.customer.findMany({
-      where: { status: 'ACTIVE', ...where },
+      where: { tenantId: tid, status: 'ACTIVE', ...where },
       select: { id: true, name: true, phone: true, balance: true, creditLimit: true, paymentDays: true, totalSales: true, totalCollected: true },
       orderBy: { balance: 'desc' },
     });
@@ -131,11 +136,12 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
 
 router.get('/rep-performance', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
     const dateFilter = from && to ? { gte: new Date(from), lte: new Date(to) } : undefined;
 
     const reps = await prisma.salesRep.findMany({
-      where: { isActive: true },
+      where: { tenantId: tid, isActive: true },
       select: {
         id: true, name: true,
         invoices: {

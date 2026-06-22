@@ -2,7 +2,21 @@ export interface User {
   id: string;
   name: string;
   email?: string;
-  role: 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
+  tenantId?: string;
+  companyName?: string;
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
+  isActive: boolean;
+  plan: 'basic' | 'pro' | 'enterprise';
+  subscriptionEndsAt?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  admins?: { id?: string; name: string; email: string; isActive?: boolean }[];
+  _count?: { admins?: number; salesReps?: number; customers?: number; invoices?: number; receipts?: number; products?: number };
 }
 
 export interface Customer {
