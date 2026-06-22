@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, TrendingUp, Building2,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, TrendingUp, Building2, Eye, ArrowRight,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
@@ -18,7 +18,7 @@ const navItems = [
 ];
 
 export default function MainLayout() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, impersonating, stopImpersonating } = useAuthStore();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -27,8 +27,25 @@ export default function MainLayout() {
     navigate('/login');
   };
 
+  const backToPlatform = () => {
+    stopImpersonating();
+    navigate('/platform');
+  };
+
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-100" dir="rtl">
+    <div className="h-screen flex flex-col" dir="rtl">
+      {/* شريط وضع المالك (عند تصفّح شركة) */}
+      {impersonating && (
+        <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
+          <span className="flex items-center gap-2 font-medium">
+            <Eye size={16} /> أنت تتصفّح شركة «{impersonating}» كمالك المنصّة
+          </span>
+          <button onClick={backToPlatform} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 font-semibold">
+            <ArrowRight size={14} /> العودة للوحة المالك
+          </button>
+        </div>
+      )}
+    <div className="flex flex-1 overflow-hidden bg-slate-100">
       {/* Sidebar */}
       <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-gradient-to-b from-blue-900 to-blue-800 text-white flex flex-col transition-all duration-300`}>
         {/* Logo */}
@@ -102,6 +119,7 @@ export default function MainLayout() {
           <Outlet />
         </div>
       </main>
+    </div>
     </div>
   );
 }

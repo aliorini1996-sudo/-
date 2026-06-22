@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
@@ -99,6 +100,26 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     }
     const tenant = await prisma.tenant.update({ where: { id: req.params.id }, data });
     res.json({ success: true, data: tenant });
+  } catch (err) { next(err); }
+});
+
+// دخول المالك إلى لوحة الشركة (انتحال) — يُصدر توكن بصلاحيات أدمن الشركة
+router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+    if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+    const admin = await prisma.admin.findFirst({ where: { tenantId: tenant.id }, orderBy: { createdAt: 'asc' } });
+    if (!admin) { res.status(404).json({ success: false, message: 'لا يوجد مدير لهذه الشركة' }); return; }
+
+    const token = jwt.sign(
+      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, impersonated: true },
+      process.env.JWT_SECRET!,
+      { expiresIn: '2h' }
+    );
+    res.json({
+      success: true,
+      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, companyName: tenant.name } },
+    });
   } catch (err) { next(err); }
 });
 
