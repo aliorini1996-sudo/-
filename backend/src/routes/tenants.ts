@@ -123,6 +123,34 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
   } catch (err) { next(err); }
 });
 
+// حذف شركة نهائياً مع كل بياناتها (بترتيب آمن لقيود المفاتيح الأجنبية)
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = req.params.id;
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid } });
+    if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+
+    await prisma.$transaction([
+      prisma.receiptInvoice.deleteMany({ where: { receipt: { tenantId: tid } } }),
+      prisma.invoiceItem.deleteMany({ where: { invoice: { tenantId: tid } } }),
+      prisma.accountEntry.deleteMany({ where: { tenantId: tid } }),
+      prisma.receipt.deleteMany({ where: { tenantId: tid } }),
+      prisma.invoice.deleteMany({ where: { tenantId: tid } }),
+      prisma.customerPrice.deleteMany({ where: { customer: { tenantId: tid } } }),
+      prisma.priceTier.deleteMany({ where: { product: { tenantId: tid } } }),
+      prisma.notification.deleteMany({ where: { tenantId: tid } }),
+      prisma.customer.deleteMany({ where: { tenantId: tid } }),
+      prisma.product.deleteMany({ where: { tenantId: tid } }),
+      prisma.productCategory.deleteMany({ where: { tenantId: tid } }),
+      prisma.companySettings.deleteMany({ where: { tenantId: tid } }),
+      prisma.salesRep.deleteMany({ where: { tenantId: tid } }),
+      prisma.admin.deleteMany({ where: { tenantId: tid } }),
+      prisma.tenant.delete({ where: { id: tid } }),
+    ]);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
 // إعادة تعيين كلمة مرور أدمن الشركة
 router.post('/:id/reset-admin', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

@@ -86,6 +86,36 @@ router.post('/refresh-fcm', authenticate, async (req: AuthRequest, res: Response
   }
 });
 
+// تغيير كلمة المرور للحساب الحالي (سوبر أدمن / أدمن شركة / مندوب)
+router.post('/change-password', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if ((req.user as { impersonated?: boolean })?.impersonated) {
+      res.status(403).json({ success: false, message: 'غير متاح أثناء تصفّح شركة كمالك' });
+      return;
+    }
+    const schema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(6) });
+    const { currentPassword, newPassword } = schema.parse(req.body);
+    const role = req.user!.role;
+
+    const record = role === 'SUPER_ADMIN'
+      ? await prisma.superAdmin.findUnique({ where: { id: req.user!.id } })
+      : role === 'SALES_REP'
+        ? await prisma.salesRep.findUnique({ where: { id: req.user!.id } })
+        : await prisma.admin.findUnique({ where: { id: req.user!.id } });
+    if (!record) { res.status(404).json({ success: false, message: 'الحساب غير موجود' }); return; }
+
+    const valid = await bcrypt.compare(currentPassword, record.passwordHash);
+    if (!valid) { res.status(400).json({ success: false, message: 'كلمة المرور الحالية غير صحيحة' }); return; }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    if (role === 'SUPER_ADMIN') await prisma.superAdmin.update({ where: { id: req.user!.id }, data: { passwordHash } });
+    else if (role === 'SALES_REP') await prisma.salesRep.update({ where: { id: req.user!.id }, data: { passwordHash } });
+    else await prisma.admin.update({ where: { id: req.user!.id }, data: { passwordHash } });
+
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
 router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.user) { res.status(401).json({ success: false }); return; }

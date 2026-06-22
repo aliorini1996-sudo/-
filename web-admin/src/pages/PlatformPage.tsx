@@ -6,10 +6,11 @@ import { formatDate } from '../utils/format';
 import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
-  CheckCircle2, Copy, Check, X, Calendar, ShieldCheck, LogIn,
+  CheckCircle2, Copy, Check, X, Calendar, ShieldCheck, LogIn, Trash2, KeyRound, AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import ChangePasswordModal from '../components/ChangePasswordModal';
 
 const PLAN_LABELS: Record<string, string> = { basic: 'أساسي', pro: 'احترافي', enterprise: 'مؤسسي' };
 
@@ -18,6 +19,8 @@ export default function PlatformPage() {
   const navigate = useNavigate();
   const { user, logout, impersonate } = useAuthStore();
   const [showCreate, setShowCreate] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [createdInfo, setCreatedInfo] = useState<{ company: string; email: string; password: string } | null>(null);
 
   const { data: tenants, isLoading } = useQuery({
@@ -43,7 +46,13 @@ export default function PlatformPage() {
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الدخول للشركة'),
   });
 
-  const handleLogout = () => { logout(); navigate('/login'); };
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => tenantApi.remove(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tenants'] }); toast.success('تم حذف الشركة'); setDeleteTarget(null); },
+    onError: () => toast.error('تعذّر حذف الشركة'),
+  });
+
+  const handleLogout = () => { logout(); navigate('/owner'); };
 
   const activeCount = tenants?.filter(t => t.isActive).length ?? 0;
   const totalReps = tenants?.reduce((s, t) => s + (t._count?.salesReps ?? 0), 0) ?? 0;
@@ -69,9 +78,14 @@ export default function PlatformPage() {
               <p className="text-slate-300 text-xs">{user?.name}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
-            <LogOut size={18} /> خروج
-          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setShowPassword(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
+              <KeyRound size={16} /> كلمة المرور
+            </button>
+            <button onClick={handleLogout} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
+              <LogOut size={18} /> خروج
+            </button>
+          </div>
         </div>
       </header>
 
@@ -135,6 +149,12 @@ export default function PlatformPage() {
                             title={t.isActive ? 'إيقاف الاشتراك' : 'تفعيل الاشتراك'}>
                             <Power size={15} />
                           </button>
+                          <button
+                            onClick={() => setDeleteTarget(t)}
+                            className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+                            title="حذف الشركة نهائياً">
+                            <Trash2 size={15} />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -153,6 +173,51 @@ export default function PlatformPage() {
         />
       )}
       {createdInfo && <CredentialsModal info={createdInfo} onClose={() => setCreatedInfo(null)} />}
+      {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
+      {deleteTarget && (
+        <DeleteConfirmModal
+          tenant={deleteTarget}
+          loading={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate(deleteTarget.id)}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// تأكيد حذف الشركة — يتطلب كتابة اسم الشركة لمنع الحذف الخاطئ
+function DeleteConfirmModal({ tenant, loading, onConfirm, onClose }: { tenant: Tenant; loading: boolean; onConfirm: () => void; onClose: () => void }) {
+  const [confirmText, setConfirmText] = useState('');
+  const matches = confirmText.trim() === tenant.name.trim();
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="p-6 text-center border-b border-gray-100">
+          <div className="w-14 h-14 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+            <AlertTriangle size={28} className="text-red-600" />
+          </div>
+          <h2 className="text-lg font-bold text-gray-800">حذف الشركة نهائياً</h2>
+          <p className="text-sm text-gray-500 mt-1">{tenant.name}</p>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="bg-red-50 text-red-700 rounded-lg px-3 py-2.5 text-xs leading-relaxed">
+            تحذير: سيُحذف كل شيء يخص هذه الشركة نهائياً — المدير، المناديب، العملاء، المنتجات، الفواتير، السندات. لا يمكن التراجع.
+          </div>
+          <div>
+            <label className="label">اكتب اسم الشركة للتأكيد:</label>
+            <input className="input" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder={tenant.name} />
+          </div>
+        </div>
+        <div className="flex gap-3 p-6 pt-0">
+          <button onClick={onConfirm} disabled={!matches || loading}
+            className="flex-1 justify-center py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-semibold flex items-center gap-2">
+            {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Trash2 size={15} />}
+            حذف نهائي
+          </button>
+          <button onClick={onClose} className="btn-secondary">إلغاء</button>
+        </div>
+      </div>
     </div>
   );
 }

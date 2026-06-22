@@ -90,6 +90,7 @@ export const notificationApi = {
 export const authApi = {
   login: (data: { username: string; password: string; role: string }) => api.post('/auth/login', data),
   me: () => api.get('/auth/me'),
+  changePassword: (data: { currentPassword: string; newPassword: string }) => api.post('/auth/change-password', data),
 };
 
 export const companyApi = {
@@ -105,4 +106,5 @@ export const tenantApi = {
   update: (id: string, data: unknown) => api.put(`/tenants/${id}`, data),
   resetAdmin: (id: string, data: { adminId: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
+  remove: (id: string) => api.delete(`/tenants/${id}`),
 };

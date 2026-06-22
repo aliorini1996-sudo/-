@@ -1,10 +1,11 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, TrendingUp, Building2, Eye, ArrowRight,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, TrendingUp, Building2, Eye, ArrowRight, KeyRound,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
+import ChangePasswordModal from '../components/ChangePasswordModal';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', exact: true },
@@ -21,6 +22,7 @@ export default function MainLayout() {
   const { user, logout, impersonating, stopImpersonating } = useAuthStore();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -95,6 +97,17 @@ export default function MainLayout() {
               <p className="text-sm font-semibold truncate">{user?.name}</p>
             </div>
           )}
+          {/* تغيير كلمة المرور — يُخفى أثناء تصفّح المالك لشركة (لأنه ليس حسابه) */}
+          {!impersonating && (
+            <button
+              onClick={() => setShowPassword(true)}
+              className={`sidebar-link w-full ${collapsed ? 'justify-center px-2' : ''}`}
+              title={collapsed ? 'تغيير كلمة المرور' : undefined}
+            >
+              <KeyRound size={18} />
+              {!collapsed && <span>تغيير كلمة المرور</span>}
+            </button>
+          )}
           <button
             onClick={handleLogout}
             className={`sidebar-link w-full text-red-300 hover:bg-red-500/20 hover:text-red-200 ${collapsed ? 'justify-center px-2' : ''}`}
@@ -121,6 +134,7 @@ export default function MainLayout() {
         </div>
       </main>
     </div>
+    {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
     </div>
   );
 }
