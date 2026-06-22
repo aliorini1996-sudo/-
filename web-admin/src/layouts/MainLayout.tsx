@@ -29,7 +29,8 @@ export default function MainLayout() {
 
   const backToPlatform = () => {
     stopImpersonating();
-    navigate('/platform');
+    // إعادة تحميل كاملة لتجنّب سباق إعادة التقييم عند استعادة هوية المالك
+    window.location.href = '/platform';
   };
 
   return (

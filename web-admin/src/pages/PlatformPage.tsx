@@ -37,7 +37,8 @@ export default function PlatformPage() {
     onSuccess: (res) => {
       const { token, user: companyUser } = res.data.data;
       impersonate(token, companyUser, companyUser.companyName);
-      navigate('/');
+      // إعادة تحميل كاملة على '/' لتجنّب إعادة تقييم حارس المالك أثناء تبديل الهوية
+      window.location.href = '/';
     },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الدخول للشركة'),
   });
