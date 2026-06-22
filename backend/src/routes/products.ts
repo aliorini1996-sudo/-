@@ -15,6 +15,7 @@ const productSchema = z.object({
   unit: z.string().min(1),
   basePrice: z.number().min(0),
   taxPct: z.number().min(0).max(100).default(15),
+  image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   categoryId: z.string().optional(),
 });
@@ -90,7 +91,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const data = productSchema.parse(req.body);
-    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null }, include: { category: true } });
+    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null }, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
@@ -100,6 +101,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     const data = productSchema.partial().parse(req.body);
     const updateData: Record<string, unknown> = { ...data };
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
+    if ('image' in updateData) updateData.image = updateData.image || null;
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data: updateData,

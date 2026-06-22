@@ -80,6 +80,7 @@ model Product {
   unit         String
   basePrice    Float
   taxPct       Float          @default(15)
+  image        String?        // صورة الصنف (base64 data URL)
   status       String         @default("ACTIVE") // ACTIVE | INACTIVE
   categoryId   String?
   category     ProductCategory? @relation(fields: [categoryId], references: [id])

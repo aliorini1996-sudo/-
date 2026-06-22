@@ -35,6 +35,7 @@ export interface Product {
   unit: string;
   basePrice: number;
   taxPct: number;
+  image?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
   categoryId?: string;
   category?: { id: string; name: string };

@@ -5,7 +5,7 @@ import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDo
 import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Search, Plus, Trash2, ArrowRight, LogOut, RefreshCw, Receipt as ReceiptIcon,
-  User, Phone, Wallet, FileDown, FileBarChart2, RotateCcw,
+  User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
 } from 'lucide-react';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers';
@@ -336,16 +336,22 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
   const isReturn = mode === 'return';
   const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
   const [search, setSearch] = useState('');
-  const [results, setResults] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
+  const [showCart, setShowCart] = useState(false); // عرض الأصناف المختارة للمراجعة قبل الإصدار
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
+  // جلب المنتجات كشبكة أيقونات (مصفّاة بالبحث) — أسلوب نقطة البيع
   useEffect(() => {
-    if (!search) { setResults([]); return; }
     const t = setTimeout(async () => {
-      const res = await repApi.get('/products', { params: { search, status: 'ACTIVE', limit: 8 } });
-      setResults(res.data.data);
+      setLoadingProducts(true);
+      try {
+        const res = await repApi.get('/products', { params: { search: search || undefined, status: 'ACTIVE', limit: 60 } });
+        setProducts(res.data.data);
+      } catch { /* */ }
+      setLoadingProducts(false);
     }, 250);
     return () => clearTimeout(t);
   }, [search]);
@@ -354,16 +360,18 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const preTax = (l: any) => l.unitPrice / (1 + l.taxPct / 100);
   const lineTotal = (l: any) => l.qty * l.unitPrice * (1 - l.discountPct / 100); // شامل الضريبة
+  const inclPrice = (p: any) => round2(Number(p.basePrice) * (1 + Number(p.taxPct) / 100)); // السعر شامل الضريبة
 
   const addProduct = (p: any) => {
-    const incl = round2(Number(p.basePrice) * (1 + Number(p.taxPct) / 100)); // السعر شامل الضريبة
     const idx = lines.findIndex(l => l.productId === p.id);
     if (idx >= 0) { const c = [...lines]; c[idx].qty++; setLines(c); }
-    else setLines([...lines, { productId: p.id, name: p.name, unit: p.unit, qty: 1, unitPrice: incl, discountPct: 0, taxPct: Number(p.taxPct) }]);
-    setSearch(''); setResults([]);
+    else setLines([...lines, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }]);
   };
 
   const upd = (i: number, f: string, v: number) => { const c = [...lines]; c[i][f] = v; setLines(c); };
+
+  const qtyInCart = (id: string) => lines.find(l => l.productId === id)?.qty || 0;
+  const itemCount = lines.reduce((s, l) => s + l.qty, 0);
 
   const subtotal = lines.reduce((s, l) => s + l.qty * preTax(l), 0); // قبل الضريبة وقبل الخصم
   const discount = lines.reduce((s, l) => s + l.qty * preTax(l) * l.discountPct / 100, 0);
@@ -393,82 +401,131 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
   return (
     <div className="h-full flex flex-col bg-gray-50">
       <div className={`${isReturn ? 'bg-amber-700' : 'bg-blue-900'} text-white p-4 flex items-center gap-3`}>
-        <button onClick={onClose}><ArrowRight size={20} /></button>
-        <span className="font-bold">{isReturn ? 'فاتورة إرجاع' : 'فاتورة جديدة'}</span>
+        <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
+        <span className="font-bold">{showCart ? 'مراجعة الأصناف' : isReturn ? 'فاتورة إرجاع' : 'فاتورة جديدة'}</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className={`${isReturn ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'} rounded-xl p-3 mb-3 flex items-center gap-2 border`}>
-          <User size={16} className={isReturn ? 'text-amber-700' : 'text-blue-600'} />
-          <span className="font-semibold text-sm text-gray-800">{customer.name}</span>
-        </div>
+      {/* ===== شاشة اختيار المنتجات (شبكة أيقونات) ===== */}
+      {!showCart ? (
+        <>
+          <div className="px-3 pt-3">
+            <div className={`${isReturn ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'} rounded-xl p-2.5 mb-2 flex items-center gap-2 border`}>
+              <User size={15} className={isReturn ? 'text-amber-700' : 'text-blue-600'} />
+              <span className="font-semibold text-xs text-gray-800">{customer.name}</span>
+            </div>
 
-        {isReturn ? (
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-2.5 mb-3 text-xs text-amber-800 text-center">
-            مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm text-gray-600">النوع:</span>
-            <button onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>آجل</button>
-            <button onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>نقدي</button>
-          </div>
-        )}
+            {isReturn ? (
+              <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2 text-[11px] text-amber-800 text-center">
+                مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs text-gray-600">النوع:</span>
+                <button onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>آجل</button>
+                <button onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>نقدي</button>
+              </div>
+            )}
 
-        <div className="relative mb-3">
-          <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input pr-9" placeholder="ابحث عن صنف..." value={search} onChange={e => setSearch(e.target.value)} />
-          {results.length > 0 && (
-            <div className="absolute top-full right-0 left-0 z-10 bg-white border border-gray-200 rounded-xl mt-1 shadow-lg overflow-hidden">
-              {results.map(p => (
-                <button key={p.id} onClick={() => addProduct(p)} className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm border-b border-gray-50">
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-gray-400 text-xs"> • {formatCurrency(Number(p.basePrice) * (1 + Number(p.taxPct) / 100))} شامل</span>
-                </button>
-              ))}
+            <div className="relative mb-2">
+              <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input className="input pr-9" placeholder="ابحث عن صنف..." value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+          </div>
+
+          {/* شبكة المنتجات */}
+          <div className="flex-1 overflow-y-auto px-3 pb-28">
+            {loadingProducts ? (
+              <div className="text-center text-gray-400 py-10 text-sm">جاري التحميل...</div>
+            ) : products.length === 0 ? (
+              <div className="text-center text-gray-400 py-10 text-sm">لا توجد أصناف</div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {products.map(p => {
+                  const q = qtyInCart(p.id);
+                  return (
+                    <button key={p.id} onClick={() => addProduct(p)}
+                      className={`relative bg-white rounded-xl border overflow-hidden text-right transition-all ${q > 0 ? (isReturn ? 'border-amber-400 ring-1 ring-amber-300' : 'border-blue-400 ring-1 ring-blue-300') : 'border-gray-100'}`}>
+                      <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center overflow-hidden">
+                        {p.image
+                          ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                          : <ImageIcon size={26} className="text-gray-300" />}
+                        {q > 0 && (
+                          <span className={`absolute top-1 left-1 ${isReturn ? 'bg-amber-600' : 'bg-blue-600'} text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow`}>
+                            {q}
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-1.5">
+                        <p className="text-[11px] font-semibold text-gray-800 leading-tight line-clamp-2 h-7">{p.name}</p>
+                        <p className={`text-[11px] font-bold mt-0.5 ${isReturn ? 'text-amber-600' : 'text-blue-600'}`}>{formatCurrency(inclPrice(p))}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* شريط العربة السفلي */}
+          {lines.length > 0 && (
+            <div className="absolute bottom-0 right-0 left-0 p-3 bg-white border-t shadow-lg">
+              <button onClick={() => setShowCart(true)}
+                className={`w-full ${isReturn ? 'bg-amber-600' : 'bg-blue-600'} text-white font-semibold py-3 rounded-xl flex items-center justify-between px-4`}>
+                <span className="flex items-center gap-2">
+                  <span className="bg-white/25 w-6 h-6 rounded-full flex items-center justify-center text-xs">{itemCount}</span>
+                  مراجعة وإصدار
+                </span>
+                <span className="font-bold">{formatCurrency(total)}</span>
+              </button>
             </div>
           )}
-        </div>
-
-        {lines.map((l, i) => (
-          <div key={l.productId} className="bg-white rounded-xl p-3 mb-2 border border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-sm">{l.name}</span>
-              <button onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-red-400"><Trash2 size={15} /></button>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[['الكمية', 'qty'], ['السعر شامل الضريبة', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => (
-                <div key={f}>
-                  <label className="text-[10px] text-gray-400">{lbl}</label>
-                  <input type="number" className="input text-center !py-1.5 text-sm" value={l[f]}
-                    onChange={e => upd(i, f, Number(e.target.value))} />
+        </>
+      ) : (
+        /* ===== شاشة مراجعة الأصناف المختارة ===== */
+        <>
+          <div className="flex-1 overflow-y-auto p-4">
+            {lines.map((l, i) => (
+              <div key={l.productId} className="bg-white rounded-xl p-3 mb-2 border border-gray-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {l.image ? <img src={l.image} alt="" className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-gray-300" />}
+                  </div>
+                  <span className="font-semibold text-sm flex-1">{l.name}</span>
+                  <button onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-red-400"><Trash2 size={15} /></button>
                 </div>
-              ))}
-            </div>
-            <div className="flex justify-between items-center mt-2 text-xs">
-              <span className="text-gray-400">منها ضريبة: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
-              <span className="font-bold text-blue-600">{formatCurrency(lineTotal(l))}</span>
-            </div>
-          </div>
-        ))}
+                <div className="grid grid-cols-3 gap-2">
+                  {[['الكمية', 'qty'], ['السعر شامل', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => (
+                    <div key={f}>
+                      <label className="text-[10px] text-gray-400">{lbl}</label>
+                      <input type="number" className="input text-center !py-1.5 text-sm" value={l[f]}
+                        onChange={e => upd(i, f, Number(e.target.value))} />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center mt-2 text-xs">
+                  <span className="text-gray-400">منها ضريبة: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
+                  <span className="font-bold text-blue-600">{formatCurrency(lineTotal(l))}</span>
+                </div>
+              </div>
+            ))}
 
-        {lines.length > 0 && (
-          <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
-            <div className="flex justify-between text-gray-500"><span>قبل الخصم</span><span>{formatCurrency(subtotal)}</span></div>
-            <div className="flex justify-between text-red-500"><span>الخصم</span><span>- {formatCurrency(discount)}</span></div>
-            <div className="flex justify-between text-blue-600"><span>الضريبة 15%</span><span>{formatCurrency(tax)}</span></div>
-            <div className="flex justify-between font-bold text-base border-t pt-2"><span>الإجمالي</span><span>{formatCurrency(total)}</span></div>
+            <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
+              <div className="flex justify-between text-gray-500"><span>قبل الخصم</span><span>{formatCurrency(subtotal)}</span></div>
+              <div className="flex justify-between text-red-500"><span>الخصم</span><span>- {formatCurrency(discount)}</span></div>
+              <div className="flex justify-between text-blue-600"><span>الضريبة 15%</span><span>{formatCurrency(tax)}</span></div>
+              <div className="flex justify-between font-bold text-base border-t pt-2"><span>الإجمالي</span><span>{formatCurrency(total)}</span></div>
+            </div>
+            {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
           </div>
-        )}
-        {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
-      </div>
 
-      <div className="p-4 border-t bg-white">
-        <button onClick={submit} disabled={loading} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-blue-600 disabled:bg-blue-400'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
-          {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-          {isReturn ? 'إصدار فاتورة الإرجاع' : 'إصدار الفاتورة'}
-        </button>
-      </div>
+          <div className="p-4 border-t bg-white">
+            <button onClick={submit} disabled={loading} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-blue-600 disabled:bg-blue-400'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
+              {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
+              {isReturn ? 'إصدار فاتورة الإرجاع' : 'إصدار الفاتورة'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
