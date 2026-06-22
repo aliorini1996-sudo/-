@@ -6,6 +6,7 @@ import compression from 'compression';
 import morgan from 'morgan';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { Server } from 'socket.io';
 import bcrypt from 'bcryptjs';
 import prisma from './config/database';
@@ -48,13 +49,14 @@ app.use('/api/company', companyRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
-// عرض موقع الواجهة (web-admin) المبني — كل شيء على نفس الرابط
+// عرض الواجهة المبنيّة إن وُجدت (اختياري — الواجهة الرسمية على Vercel)
 const webDist = path.join(__dirname, '../../web-admin/dist');
-app.use(express.static(webDist));
-// أي مسار غير /api يُعيد index.html ليتولّى React التوجيه (SPA)
-app.get(/^(?!\/api).*/, (_req, res) => {
-  res.sendFile(path.join(webDist, 'index.html'));
-});
+if (fs.existsSync(path.join(webDist, 'index.html'))) {
+  app.use(express.static(webDist));
+  app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(path.join(webDist, 'index.html'));
+  });
+}
 
 app.use(errorHandler);
 
