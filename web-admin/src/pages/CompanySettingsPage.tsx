@@ -70,7 +70,7 @@ export default function CompanySettingsPage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" />
     </div>
   );
 
@@ -91,8 +91,8 @@ export default function CompanySettingsPage() {
         <div className="space-y-5">
           <div className="card">
             <div className="flex items-center gap-3 mb-5 pb-4 border-b border-gray-100">
-              <div className="w-11 h-11 bg-blue-100 rounded-xl flex items-center justify-center">
-                <Building2 size={22} className="text-blue-600" />
+              <div className="w-11 h-11 bg-[#FBEBE2] rounded-xl flex items-center justify-center">
+                <Building2 size={22} className="text-[#E15A30]" />
               </div>
               <div>
                 <p className="font-semibold text-gray-800">بيانات الشركة</p>
@@ -189,7 +189,7 @@ export default function CompanySettingsPage() {
               <div className="grid grid-cols-3 gap-2">
                 {STYLES.map(s => (
                   <button key={s.id} type="button" onClick={() => setHeaderStyle(s.id)}
-                    className={`text-right p-3 rounded-xl border-2 transition-all ${headerStyle === s.id ? 'border-blue-500 bg-blue-50' : 'border-gray-100 hover:border-gray-200'}`}>
+                    className={`text-right p-3 rounded-xl border-2 transition-all ${headerStyle === s.id ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-gray-100 hover:border-gray-200'}`}>
                     <p className="font-semibold text-sm text-gray-800">{s.label}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5">{s.desc}</p>
                   </button>

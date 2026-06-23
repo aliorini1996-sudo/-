@@ -66,7 +66,7 @@ export default function ReportsPage() {
       <div className="flex gap-1 mb-4 bg-white rounded-xl p-1 border border-gray-100 w-fit">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-[#E15A30] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
             <t.icon size={15} />{t.label}
           </button>
         ))}
@@ -130,7 +130,7 @@ export default function ReportsPage() {
                         <tr key={i}>
                           <td className="font-medium text-gray-800">{row.name}</td>
                           <td className="text-gray-600">{row.count ?? row.qty ?? '-'}</td>
-                          <td className="font-semibold text-blue-600">{formatCurrency(row.total)}</td>
+                          <td className="font-semibold text-[#E15A30]">{formatCurrency(row.total)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -188,7 +188,7 @@ export default function ReportsPage() {
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-gray-100 rounded-full h-1.5">
                             <div
-                              className={`h-1.5 rounded-full ${Number(c.balance) > Number(c.creditLimit) ? 'bg-red-500' : 'bg-blue-500'}`}
+                              className={`h-1.5 rounded-full ${Number(c.balance) > Number(c.creditLimit) ? 'bg-red-500' : 'bg-[#E15A30]'}`}
                               style={{ width: `${Math.min(100, (Number(c.balance) / Number(c.creditLimit)) * 100)}%` }}
                             />
                           </div>
@@ -223,7 +223,7 @@ export default function ReportsPage() {
                     <tr key={r.id}>
                       <td className="font-medium text-gray-800">{r.name}</td>
                       <td className="text-gray-600">{r.invoicesCount}</td>
-                      <td className="font-semibold text-blue-600">{formatCurrency(r.salesTotal)}</td>
+                      <td className="font-semibold text-[#E15A30]">{formatCurrency(r.salesTotal)}</td>
                       <td className="text-green-600">{formatCurrency(r.collectionsTotal)}</td>
                       <td>
                         <div className="flex items-center gap-2">

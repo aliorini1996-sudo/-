@@ -168,7 +168,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               {showCustomerList && customers && customers.length > 0 && (
                 <div className="absolute top-full right-0 left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
                   {customers.map(c => (
-                    <button key={c.id} className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm"
+                    <button key={c.id} className="w-full text-right px-3 py-2 hover:bg-[#FBEBE2] text-sm"
                       onClick={() => { setSelectedCustomer(c); setCustomerId(c.id); setShowCustomerList(false); }}>
                       <span className="font-medium">{c.name}</span>
                       <span className="text-gray-400 mr-2 text-xs">{c.phone}</span>
@@ -214,7 +214,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 {showProductList && products && products.length > 0 && (
                   <div className="absolute top-full right-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 w-80 max-h-48 overflow-y-auto">
                     {products.map(p => (
-                      <button key={p.id} className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm"
+                      <button key={p.id} className="w-full text-right px-3 py-2 hover:bg-[#FBEBE2] text-sm"
                         onClick={() => addProduct(p)}>
                         <span className="font-medium">{p.name}</span>
                         <span className="text-gray-400 mr-2 text-xs">{p.code} • {formatCurrency(p.basePrice)}</span>
@@ -270,7 +270,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 <input type="number" className="input w-20 text-center" min="0" max="100" value={discountPct} onChange={e => setDiscountPct(Number(e.target.value))} />
               </div>
               <div className="flex justify-between text-red-500"><span>إجمالي الخصم</span><span>- {formatCurrency(totalDiscount)}</span></div>
-              <div className="flex justify-between text-blue-600"><span>ضريبة القيمة المضافة</span><span>{formatCurrency(taxTotal)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>ضريبة القيمة المضافة</span><span>{formatCurrency(taxTotal)}</span></div>
               <div className="flex justify-between font-bold text-lg border-t pt-2"><span>الإجمالي النهائي</span><span>{formatCurrency(total)}</span></div>
             </div>
           </div>

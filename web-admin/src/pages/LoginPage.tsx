@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
-import { BrandIcon } from '../components/BrandLogo';
+import { BrandIcon, BrandWordmark } from '../components/BrandLogo';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -15,10 +15,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.username || !form.password) {
-      toast.error('يرجى ملء جميع الحقول');
-      return;
-    }
+    if (!form.username || !form.password) { toast.error('يرجى ملء جميع الحقول'); return; }
     setLoading(true);
     try {
       const res = await authApi.login({ ...form, role: 'admin' });
@@ -35,75 +32,92 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0d2440] via-[#0f2942] to-[#13284a] flex items-center justify-center p-4" dir="rtl">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center mb-4">
-            <BrandIcon size={76} />
+    <div className="min-h-screen flex bg-[#FAF7F0]" dir="rtl">
+      {/* ===== اللوحة التعريفية (تظهر على الشاشات الكبيرة) ===== */}
+      <div className="hidden lg:flex lg:w-[52%] relative overflow-hidden bg-[#1F1A13] items-center justify-center">
+        <div className="absolute inset-0" style={{ background: 'radial-gradient(130% 130% at 82% 8%, rgba(225,90,48,.28), transparent 55%)' }} />
+        {/* دوائر عائمة بألوان الهوية */}
+        <span className="absolute rounded-full" style={{ width: 230, height: 230, top: '8%', left: '6%', background: 'rgba(225,90,48,.16)' }} />
+        <span className="absolute rounded-full" style={{ width: 130, height: 130, bottom: '14%', left: '20%', background: 'rgba(30,122,82,.18)' }} />
+        <span className="absolute rounded-full" style={{ width: 90, height: 90, top: '22%', right: '14%', background: 'rgba(224,160,44,.20)' }} />
+        <span className="absolute rounded-full" style={{ width: 60, height: 60, bottom: '26%', right: '24%', background: 'rgba(250,247,240,.10)' }} />
+
+        <div className="relative z-10 px-14 text-center max-w-lg">
+          <div className="inline-flex mb-7" style={{ filter: 'drop-shadow(0 16px 40px rgba(225,90,48,.45))' }}>
+            <BrandIcon size={96} radius={0.26} />
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight">
-            <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
-          </h1>
-          <p className="text-slate-300 mt-1 text-sm">منصّة إدارة مبيعات المناديب</p>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif" }} className="text-4xl font-bold tracking-tight">
+            <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
+          </div>
+          <p className="text-[#C9BEAC] mt-4 text-[15px] leading-relaxed">
+            منصّتك المتكاملة لإدارة وتتبّع مبيعات المناديب الميدانيين — من الطلب والتحصيل إلى الفوترة والتقارير.
+          </p>
+
+          {/* بطاقات معاينة زجاجية */}
+          <div className="mt-10 space-y-3 text-right">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur p-4 flex items-center justify-between">
+              <div>
+                <p className="text-[#9A8F7E] text-xs">مبيعات اليوم</p>
+                <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>٨٬٤٥٠ <span className="text-xs text-[#C9BEAC]">ر.س</span></p>
+              </div>
+              <span className="w-10 h-10 rounded-xl bg-[#E15A30]/20 flex items-center justify-center text-[#E89B7E] text-lg">↗</span>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur p-4 flex items-center justify-between">
+              <div>
+                <p className="text-[#9A8F7E] text-xs">التحصيل اليوم</p>
+                <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>٦٬٢٠٠ <span className="text-xs text-[#C9BEAC]">ر.س</span></p>
+              </div>
+              <span className="w-10 h-10 rounded-xl bg-[#1E7A52]/25 flex items-center justify-center text-[#5FBE92] text-lg">✓</span>
+            </div>
+          </div>
         </div>
+      </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-xl font-bold text-gray-800 mb-6">تسجيل دخول الشركة</h2>
+      {/* ===== لوحة النموذج ===== */}
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="w-full max-w-sm">
+          <div className="flex justify-center lg:justify-start mb-8">
+            <BrandWordmark iconSize={50} />
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <h1 className="text-2xl font-bold text-[#1F1A13]">مرحباً بك 👋</h1>
+          <p className="text-[#6E6557] mt-1.5 text-sm">سجّل دخولك للمتابعة إلى لوحة التحكم</p>
+
+          <form onSubmit={handleSubmit} className="space-y-4 mt-7">
             <div>
               <label className="label">البريد الإلكتروني</label>
-              <input
-                type="text"
-                className="input"
-                placeholder="أدخل البريد الإلكتروني"
-                value={form.username}
-                onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                autoComplete="username"
-                dir="ltr"
-              />
+              <div className="relative">
+                <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
+                <input type="text" className="input pr-9" placeholder="admin@company.com"
+                  value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                  autoComplete="username" dir="ltr" />
+              </div>
             </div>
 
             <div>
               <label className="label">كلمة المرور</label>
               <div className="relative">
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  className="input pl-10"
-                  placeholder="أدخل كلمة المرور"
-                  value={form.password}
-                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  autoComplete="current-password"
-                  dir="ltr"
-                />
-                <button
-                  type="button"
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  onClick={() => setShowPass(s => !s)}
-                >
+                <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
+                <input type={showPass ? 'text' : 'password'} className="input pr-9 pl-9" placeholder="••••••••"
+                  value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  autoComplete="current-password" dir="ltr" />
+                <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E] hover:text-[#1F1A13]"
+                  onClick={() => setShowPass(s => !s)}>
                   {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <span className="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : null}
-              دخول
+            <button type="submit" disabled={loading}
+              className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2">
+              {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <>دخول <ArrowLeft size={17} /></>}
             </button>
           </form>
 
-          <div className="mt-6 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+          <div className="mt-6 p-3 bg-[#FBEBE2] rounded-xl text-xs text-[#9C4423]">
             <p className="font-semibold mb-1">بيانات تجريبية:</p>
-            <p>البريد: admin@dsd.com</p>
-            <p>كلمة المرور: admin123</p>
+            <p>البريد: admin@dsd.com · كلمة المرور: admin123</p>
           </div>
         </div>
       </div>

@@ -51,16 +51,16 @@ export default function MainLayout() {
       )}
     <div className="flex flex-1 overflow-hidden bg-slate-100">
       {/* Sidebar */}
-      <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-gradient-to-b from-[#0d2440] to-[#15315a] text-white flex flex-col transition-all duration-300`}>
+      <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-[#1F1A13] text-white flex flex-col transition-all duration-300`}>
         {/* Logo */}
         <div className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 ${collapsed ? 'justify-center' : ''}`}>
           <BrandIcon size={36} radius={0.28} />
           {!collapsed && (
             <div>
-              <p className="font-extrabold text-sm leading-tight">
-                <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
+              <p className="text-sm leading-tight" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
+                <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
               </p>
-              <p className="text-blue-200 text-xs truncate max-w-[150px]">{user?.companyName || ''}</p>
+              <p className="text-[#9A8F7E] text-xs truncate max-w-[150px]">{user?.companyName || ''}</p>
             </div>
           )}
         </div>

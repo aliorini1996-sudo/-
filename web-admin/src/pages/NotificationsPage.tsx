@@ -68,8 +68,8 @@ export default function NotificationsPage() {
             <p>لا توجد إشعارات</p>
           </div>
         ) : data?.map(n => (
-          <div key={n.id} className={`flex items-start gap-4 p-4 ${!n.isRead ? 'bg-blue-50/50' : ''}`}>
-            <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.isRead ? 'bg-blue-500' : 'bg-gray-200'}`} />
+          <div key={n.id} className={`flex items-start gap-4 p-4 ${!n.isRead ? 'bg-[#FBEBE2]/50' : ''}`}>
+            <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.isRead ? 'bg-[#E15A30]' : 'bg-gray-200'}`} />
             <div className="flex-1">
               <div className="flex items-start justify-between gap-2">
                 <div>

@@ -45,7 +45,7 @@ export default function DashboardPage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" />
     </div>
   );
 
@@ -70,9 +70,9 @@ export default function DashboardPage() {
       <div>
         <h2 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">إحصائيات اليوم</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={DollarSign} label="المبيعات اليوم" value={formatCurrency(d.today.salesTotal)} sub={`${d.today.invoicesCount} فاتورة`} color="bg-blue-500" />
+          <StatCard icon={DollarSign} label="المبيعات اليوم" value={formatCurrency(d.today.salesTotal)} sub={`${d.today.invoicesCount} فاتورة`} color="bg-[#E15A30]" />
           <StatCard icon={CreditCard} label="التحصيل اليوم" value={formatCurrency(d.today.collectionsTotal)} sub={`${d.today.receiptsCount} سند`} color="bg-green-500" />
-          <StatCard icon={ShoppingCart} label="مبيعات الشهر" value={formatCurrency(d.month.salesTotal)} sub={`${d.month.invoicesCount} فاتورة`} color="bg-indigo-500" />
+          <StatCard icon={ShoppingCart} label="مبيعات الشهر" value={formatCurrency(d.month.salesTotal)} sub={`${d.month.invoicesCount} فاتورة`} color="bg-[#E15A30]" />
           <StatCard icon={TrendingUp} label="تحصيل الشهر" value={formatCurrency(d.month.collectionsTotal)} sub={`${d.month.receiptsCount} سند`} color="bg-teal-500" />
         </div>
       </div>
@@ -114,14 +114,14 @@ export default function DashboardPage() {
           <div className="space-y-3">
             {d.topReps.slice(0, 5).map((rep, i) => (
               <div key={rep.id} className="flex items-center gap-3">
-                <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#FBEBE2] text-[#C94E28] flex items-center justify-center text-xs font-bold flex-shrink-0">
                   {i + 1}
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{rep.name}</p>
                   <p className="text-xs text-gray-400">{rep.invoicesCount} فاتورة</p>
                 </div>
-                <span className="text-sm font-semibold text-blue-600 whitespace-nowrap">
+                <span className="text-sm font-semibold text-[#E15A30] whitespace-nowrap">
                   {formatCurrency(rep.salesTotal)}
                 </span>
               </div>

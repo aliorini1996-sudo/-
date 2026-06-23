@@ -10,7 +10,7 @@ interface Props { rep: SalesRep | null; onClose: () => void; onSave: (data: Form
 const PermToggle = forwardRef<HTMLInputElement, { label: string } & React.InputHTMLAttributes<HTMLInputElement>>(
   ({ label, ...props }, ref) => (
     <label className="flex items-center gap-2 cursor-pointer">
-      <input ref={ref} type="checkbox" className="w-4 h-4 rounded text-blue-600" {...props} />
+      <input ref={ref} type="checkbox" className="w-4 h-4 rounded text-[#E15A30]" {...props} />
       <span className="text-sm text-gray-700">{label}</span>
     </label>
   )
@@ -70,7 +70,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
               <div>
                 <div className="flex items-center justify-between">
                   <label className="label">كلمة المرور {!rep && '*'}</label>
-                  <button type="button" onClick={generatePassword} className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 mb-1">
+                  <button type="button" onClick={generatePassword} className="text-xs text-[#E15A30] hover:text-[#C94E28] flex items-center gap-1 mb-1">
                     <RefreshCw size={11} /> توليد
                   </button>
                 </div>

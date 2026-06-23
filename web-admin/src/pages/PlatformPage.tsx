@@ -66,16 +66,16 @@ export default function PlatformPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100" dir="rtl">
+    <div className="min-h-screen bg-[#FAF7F0]" dir="rtl">
       {/* Top bar */}
-      <header className="bg-gradient-to-l from-slate-900 to-slate-700 text-white">
+      <header className="bg-[#1F1A13] text-white">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <BrandIcon size={40} radius={0.28} />
             <div>
-              <p className="font-extrabold">
-                <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
-                <span className="text-slate-400 font-normal text-sm"> · لوحة المالك</span>
+              <p style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
+                <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
+                <span className="text-[#9A8F7E] font-normal text-sm"> · لوحة المالك</span>
               </p>
               <p className="text-slate-300 text-xs">{user?.name}</p>
             </div>
@@ -94,7 +94,7 @@ export default function PlatformPage() {
       <div className="max-w-6xl mx-auto px-6 py-6">
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <StatBox icon={Building2} label="إجمالي الشركات" value={String(tenants?.length ?? 0)} color="bg-blue-500" />
+          <StatBox icon={Building2} label="إجمالي الشركات" value={String(tenants?.length ?? 0)} color="bg-[#E15A30]" />
           <StatBox icon={CheckCircle2} label="اشتراكات نشطة" value={String(activeCount)} color="bg-green-500" />
           <StatBox icon={Users} label="إجمالي المناديب" value={String(totalReps)} color="bg-purple-500" />
           <StatBox icon={FileText} label="إجمالي الفواتير" value={String(totalInvoices)} color="bg-orange-500" />
@@ -141,7 +141,7 @@ export default function PlatformPage() {
                           <button
                             onClick={() => enterMutation.mutate(t.id)}
                             disabled={enterMutation.isPending}
-                            className="flex items-center gap-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-2.5 py-1.5 font-semibold"
+                            className="flex items-center gap-1 text-xs bg-[#E15A30] hover:bg-[#C94E28] text-white rounded-lg px-2.5 py-1.5 font-semibold"
                             title="الدخول إلى لوحة الشركة والاطلاع على بياناتها">
                             <LogIn size={13} /> دخول
                           </button>
@@ -336,7 +336,7 @@ function CredentialsModal({ info, onClose }: { info: { company: string; email: s
           <p className="text-sm text-gray-500 mt-1">{info.company}</p>
         </div>
         <div className="p-6 space-y-3">
-          <p className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">سلّم هذه البيانات لمدير الشركة ليدخل من تبويب «دخول الشركة»</p>
+          <p className="text-xs text-[#C94E28] bg-[#FBEBE2] rounded-lg px-3 py-2">سلّم هذه البيانات لمدير الشركة ليدخل من تبويب «دخول الشركة»</p>
           <Row label="البريد الإلكتروني" value={info.email} />
           <Row label="كلمة المرور" value={info.password} />
         </div>

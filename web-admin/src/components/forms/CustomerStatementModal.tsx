@@ -52,7 +52,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
         <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 border-b">
           <div className="text-center">
             <p className="text-xs text-gray-500">إجمالي المبيعات</p>
-            <p className="font-bold text-blue-600">{formatCurrency(data?.customer.totalSales ?? 0)}</p>
+            <p className="font-bold text-[#E15A30]">{formatCurrency(data?.customer.totalSales ?? 0)}</p>
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500">إجمالي التحصيل</p>

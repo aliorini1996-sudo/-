@@ -34,40 +34,48 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
   };
 
   return (
-    <div className="h-full bg-gradient-to-b from-[#0d2440] via-[#0f2942] to-[#1d4f9c] flex flex-col items-center justify-center px-6">
-      <BrandIcon size={74} radius={0.28} />
-      <h1 className="text-2xl font-extrabold tracking-tight mt-3">
-        <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
-      </h1>
-      <p className="text-blue-200 text-xs mb-8">إدارة مبيعات المناديب</p>
+    <div className="h-full relative overflow-hidden bg-[#1F1A13] flex flex-col items-center justify-center px-6">
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(120% 90% at 50% 0%, rgba(225,90,48,.26), transparent 55%)' }} />
+      <span className="absolute rounded-full" style={{ width: 170, height: 170, top: -40, right: -30, background: 'rgba(225,90,48,.14)' }} />
+      <span className="absolute rounded-full" style={{ width: 120, height: 120, bottom: 40, left: -30, background: 'rgba(224,160,44,.10)' }} />
 
-      <form onSubmit={submit} className="w-full bg-white rounded-3xl p-6 shadow-2xl">
-        <h2 className="font-bold text-blue-900 mb-5">تسجيل الدخول</h2>
-        <div className="space-y-3">
-          <div className="relative">
-            <User size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder="اسم المستخدم" dir="ltr"
-              value={username} onChange={e => setUsername(e.target.value)} />
-          </div>
-          <div className="relative">
-            <input className="input pr-3 pl-9" type={showPass ? 'text' : 'password'} placeholder="كلمة المرور" dir="ltr"
-              value={password} onChange={e => setPassword(e.target.value)} />
-            <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              onClick={() => setShowPass(s => !s)}>
-              {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
+      <div className="relative z-10 w-full flex flex-col items-center">
+        <div style={{ filter: 'drop-shadow(0 12px 30px rgba(225,90,48,.45))' }}>
+          <BrandIcon size={76} radius={0.26} />
         </div>
-        {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
-        <button type="submit" disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl mt-5 flex items-center justify-center gap-2 disabled:bg-blue-400">
-          {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-          دخول
-        </button>
-        <div className="mt-4 p-2.5 bg-blue-50 rounded-lg text-[11px] text-blue-700">
-          تجريبي: <b>rep1</b> / <b>rep123</b>
-        </div>
-      </form>
+        <h1 className="text-2xl tracking-tight mt-3" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
+          <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
+        </h1>
+        <p className="text-[#9A8F7E] text-xs mb-8">إدارة مبيعات المناديب</p>
+
+        <form onSubmit={submit} className="w-full bg-white rounded-3xl p-6 shadow-2xl">
+          <h2 className="font-bold text-[#1F1A13] mb-5">تسجيل دخول المندوب</h2>
+          <div className="space-y-3">
+            <div className="relative">
+              <User size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
+              <input className="input pr-9" placeholder="اسم المستخدم" dir="ltr"
+                value={username} onChange={e => setUsername(e.target.value)} />
+            </div>
+            <div className="relative">
+              <input className="input pr-3 pl-9" type={showPass ? 'text' : 'password'} placeholder="كلمة المرور" dir="ltr"
+                value={password} onChange={e => setPassword(e.target.value)} />
+              <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]"
+                onClick={() => setShowPass(s => !s)}>
+                {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+          {error && <p className="text-[#C0392B] text-xs mt-2">{error}</p>}
+          <button type="submit" disabled={loading}
+            className="w-full bg-[#E15A30] hover:bg-[#C94E28] text-white font-bold py-3 rounded-xl mt-5 flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+            {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+            دخول
+          </button>
+          <div className="mt-4 p-2.5 bg-[#FBEBE2] rounded-lg text-[11px] text-[#9C4423]">
+            تجريبي: <b>rep1</b> / <b>rep123</b>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -130,14 +138,14 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
   return (
     <div className="p-4 space-y-5 overflow-y-auto h-full pb-24">
       {/* Greeting */}
-      <div className="bg-gradient-to-l from-blue-900 to-blue-600 rounded-3xl p-5 flex items-center justify-between">
+      <div className="bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 flex items-center justify-between">
         <div>
-          <p className="text-blue-200 text-xs">مرحباً،</p>
+          <p className="text-[#E8C9BC] text-xs">مرحباً،</p>
           <p className="text-white text-lg font-bold">{user.name}</p>
           {syncing && (
             <div className="flex items-center gap-1.5 mt-1">
               <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              <span className="text-blue-200 text-[11px]">مزامنة...</span>
+              <span className="text-[#E8C9BC] text-[11px]">مزامنة...</span>
             </div>
           )}
         </div>
@@ -148,9 +156,9 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
 
       {/* Stats */}
       <div>
-        <p className="text-blue-900 font-bold text-sm mb-3">إحصائيات اليوم</p>
+        <p className="text-[#1F1A13] font-bold text-sm mb-3">إحصائيات اليوم</p>
         <div className="grid grid-cols-2 gap-3">
-          {stat('المبيعات', formatCurrency(stats.salesTotal), TrendingUp, 'text-blue-600', 'bg-blue-50 border-blue-100')}
+          {stat('المبيعات', formatCurrency(stats.salesTotal), TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
           {stat('التحصيل', formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
           {stat('الفواتير', String(stats.invCount), FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
           {stat('سندات القبض', String(stats.rcpCount), CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
@@ -159,9 +167,9 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
 
       {/* Quick actions */}
       <div>
-        <p className="text-blue-900 font-bold text-sm mb-3">إجراءات سريعة</p>
+        <p className="text-[#1F1A13] font-bold text-sm mb-3">إجراءات سريعة</p>
         <div className="grid grid-cols-3 gap-3">
-          {quick('فاتورة', FileText, 'text-blue-600', 'bg-blue-50 border-blue-100', 'invoices')}
+          {quick('فاتورة', FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
           {quick('سند قبض', CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
           {quick('العملاء', Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
         </div>
@@ -197,7 +205,7 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
         </div>
         {canAdd && (
           <button onClick={onAdd} title="إضافة عميل"
-            className="flex-shrink-0 w-10 h-10 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex items-center justify-center">
+            className="flex-shrink-0 w-10 h-10 bg-[#E15A30] hover:bg-[#C94E28] text-white rounded-xl flex items-center justify-center">
             <Plus size={20} />
           </button>
         )}
@@ -209,8 +217,8 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
           <div className="text-center text-gray-400 py-10 text-sm">لا توجد نتائج</div>
         ) : customers.map(c => (
           <button key={c.id} onClick={() => onSelect(c)}
-            className="w-full flex items-center gap-3 bg-white rounded-2xl p-3 mb-2 border border-gray-100 text-right hover:border-blue-200">
-            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold flex-shrink-0">
+            className="w-full flex items-center gap-3 bg-white rounded-2xl p-3 mb-2 border border-gray-100 text-right hover:border-[#E8C9BC]">
+            <div className="w-10 h-10 rounded-full bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center font-bold flex-shrink-0">
               {c.name.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
@@ -251,36 +259,36 @@ function CustomerDetail({ customer, repName, company, onClose, onInvoice, onRece
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
-      <div className="bg-blue-900 text-white p-4 flex items-center gap-3">
+      <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
         <span className="font-bold">{customer.name}</span>
       </div>
 
       <div className="p-4 overflow-y-auto flex-1 pb-4">
         {/* Summary */}
-        <div className="bg-gradient-to-l from-blue-900 to-blue-600 rounded-3xl p-5 text-white">
+        <div className="bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 text-white">
           <p className="font-bold text-lg">{customer.name}</p>
-          {customer.businessName && <p className="text-blue-200 text-sm">{customer.businessName}</p>}
-          <p className="text-blue-200 text-xs mb-4">{customer.phone}</p>
+          {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
+          <p className="text-[#E8C9BC] text-xs mb-4">{customer.phone}</p>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <p className={`font-bold text-sm ${Number(customer.balance) > 0 ? 'text-red-300' : 'text-green-300'}`}>{formatCurrency(customer.balance)}</p>
-              <p className="text-blue-200 text-[10px]">الرصيد</p>
+              <p className="text-[#E8C9BC] text-[10px]">الرصيد</p>
             </div>
             <div>
               <p className="font-bold text-sm">{formatCurrency(customer.creditLimit)}</p>
-              <p className="text-blue-200 text-[10px]">الحد الائتماني</p>
+              <p className="text-[#E8C9BC] text-[10px]">الحد الائتماني</p>
             </div>
             <div>
               <p className="font-bold text-sm">{customer.paymentDays} يوم</p>
-              <p className="text-blue-200 text-[10px]">فترة السداد</p>
+              <p className="text-[#E8C9BC] text-[10px]">فترة السداد</p>
             </div>
           </div>
         </div>
 
         {/* Actions */}
         <div className="grid grid-cols-2 gap-3 mt-4">
-          <button onClick={onInvoice} className="bg-blue-600 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+          <button onClick={onInvoice} className="bg-[#E15A30] text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
             <FileText size={16} /> فاتورة جديدة
           </button>
           <button onClick={onReceipt} className="bg-green-600 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
@@ -401,7 +409,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
-      <div className={`${isReturn ? 'bg-amber-700' : 'bg-blue-900'} text-white p-4 flex items-center gap-3`}>
+      <div className={`${isReturn ? 'bg-amber-700' : 'bg-[#1F1A13]'} text-white p-4 flex items-center gap-3`}>
         <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
         <span className="font-bold">{showCart ? 'مراجعة الأصناف' : isReturn ? 'فاتورة إرجاع' : 'فاتورة جديدة'}</span>
       </div>
@@ -410,8 +418,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
       {!showCart ? (
         <>
           <div className="px-3 pt-3">
-            <div className={`${isReturn ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'} rounded-xl p-2.5 mb-2 flex items-center gap-2 border`}>
-              <User size={15} className={isReturn ? 'text-amber-700' : 'text-blue-600'} />
+            <div className={`${isReturn ? 'bg-amber-50 border-amber-100' : 'bg-[#FBEBE2] border-[#F5DACE]'} rounded-xl p-2.5 mb-2 flex items-center gap-2 border`}>
+              <User size={15} className={isReturn ? 'text-amber-700' : 'text-[#E15A30]'} />
               <span className="font-semibold text-xs text-gray-800">{customer.name}</span>
             </div>
 
@@ -445,20 +453,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
                   const q = qtyInCart(p.id);
                   return (
                     <button key={p.id} onClick={() => addProduct(p)}
-                      className={`relative bg-white rounded-xl border overflow-hidden text-right transition-all ${q > 0 ? (isReturn ? 'border-amber-400 ring-1 ring-amber-300' : 'border-blue-400 ring-1 ring-blue-300') : 'border-gray-100'}`}>
+                      className={`relative bg-white rounded-xl border overflow-hidden text-right transition-all ${q > 0 ? (isReturn ? 'border-amber-400 ring-1 ring-amber-300' : 'border-[#E15A30] ring-1 ring-[#F5C9BA]') : 'border-gray-100'}`}>
                       <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center overflow-hidden">
                         {p.image
                           ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
                           : <ImageIcon size={26} className="text-gray-300" />}
                         {q > 0 && (
-                          <span className={`absolute top-1 left-1 ${isReturn ? 'bg-amber-600' : 'bg-blue-600'} text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow`}>
+                          <span className={`absolute top-1 left-1 ${isReturn ? 'bg-amber-600' : 'bg-[#E15A30]'} text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow`}>
                             {q}
                           </span>
                         )}
                       </div>
                       <div className="p-1.5">
                         <p className="text-[11px] font-semibold text-gray-800 leading-tight line-clamp-2 h-7">{p.name}</p>
-                        <p className={`text-[11px] font-bold mt-0.5 ${isReturn ? 'text-amber-600' : 'text-blue-600'}`}>{formatCurrency(inclPrice(p))}</p>
+                        <p className={`text-[11px] font-bold mt-0.5 ${isReturn ? 'text-amber-600' : 'text-[#E15A30]'}`}>{formatCurrency(inclPrice(p))}</p>
                       </div>
                     </button>
                   );
@@ -471,7 +479,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
           {lines.length > 0 && (
             <div className="absolute bottom-0 right-0 left-0 p-3 bg-white border-t shadow-lg">
               <button onClick={() => setShowCart(true)}
-                className={`w-full ${isReturn ? 'bg-amber-600' : 'bg-blue-600'} text-white font-semibold py-3 rounded-xl flex items-center justify-between px-4`}>
+                className={`w-full ${isReturn ? 'bg-amber-600' : 'bg-[#E15A30]'} text-white font-semibold py-3 rounded-xl flex items-center justify-between px-4`}>
                 <span className="flex items-center gap-2">
                   <span className="bg-white/25 w-6 h-6 rounded-full flex items-center justify-center text-xs">{itemCount}</span>
                   مراجعة وإصدار
@@ -505,7 +513,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
                   <span className="text-gray-400">منها ضريبة: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
-                  <span className="font-bold text-blue-600">{formatCurrency(lineTotal(l))}</span>
+                  <span className="font-bold text-[#E15A30]">{formatCurrency(lineTotal(l))}</span>
                 </div>
               </div>
             ))}
@@ -513,14 +521,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
             <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500"><span>قبل الخصم</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between text-red-500"><span>الخصم</span><span>- {formatCurrency(discount)}</span></div>
-              <div className="flex justify-between text-blue-600"><span>الضريبة 15%</span><span>{formatCurrency(tax)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>الضريبة 15%</span><span>{formatCurrency(tax)}</span></div>
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>الإجمالي</span><span>{formatCurrency(total)}</span></div>
             </div>
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
           </div>
 
           <div className="p-4 border-t bg-white">
-            <button onClick={submit} disabled={loading} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-blue-600 disabled:bg-blue-400'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
+            <button onClick={submit} disabled={loading} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-[#E15A30] disabled:bg-[#E89B7E]'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
               {isReturn ? 'إصدار فاتورة الإرجاع' : 'إصدار الفاتورة'}
             </button>
@@ -649,7 +657,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
-      <div className="bg-blue-900 text-white p-4 flex items-center gap-3">
+      <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
         <span className="font-bold">إضافة عميل جديد</span>
       </div>
@@ -693,7 +701,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       </div>
 
       <div className="p-4 border-t bg-white">
-        <button onClick={submit} disabled={loading} className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-blue-400">
+        <button onClick={submit} disabled={loading} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
           حفظ العميل
         </button>
@@ -729,9 +737,9 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
           const isReturn = kind === 'invoice' && it.type === 'RETURN';
           return (
           <button key={it.id} onClick={() => open(it.id)}
-            className="w-full text-right bg-white rounded-2xl p-3 mb-2 border border-gray-100 flex items-center justify-between hover:border-blue-200">
+            className="w-full text-right bg-white rounded-2xl p-3 mb-2 border border-gray-100 flex items-center justify-between hover:border-[#E8C9BC]">
             <div className="flex items-center gap-3">
-              <span className={`w-9 h-9 rounded-full flex items-center justify-center ${isReturn ? 'bg-amber-50 text-amber-600' : kind === 'invoice' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
+              <span className={`w-9 h-9 rounded-full flex items-center justify-center ${isReturn ? 'bg-amber-50 text-amber-600' : kind === 'invoice' ? 'bg-[#FBEBE2] text-[#E15A30]' : 'bg-green-50 text-green-600'}`}>
                 {isReturn ? <RotateCcw size={16} /> : kind === 'invoice' ? <FileText size={16} /> : <ReceiptIcon size={16} />}
               </span>
               <div>
@@ -747,7 +755,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
                 {isReturn ? '- ' : ''}{formatCurrency(kind === 'invoice' ? it.total : it.amount)}
               </p>
               {openingId === it.id
-                ? <span className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+                ? <span className="w-4 h-4 border-2 border-gray-300 border-t-[#E15A30] rounded-full animate-spin" />
                 : <FileDown size={16} className="text-gray-400" />}
             </div>
           </button>
@@ -826,12 +834,12 @@ export default function RepApp() {
           ) : (
             <>
               {/* Top bar */}
-              <div className="bg-[#0d2440] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+              <div className="bg-[#1F1A13] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
                 <span className="flex items-center gap-2">
                   <BrandIcon size={26} radius={0.3} />
-                  <span className="font-extrabold text-sm"><span className="text-white">Field</span><span className="text-sky-400">Sales</span></span>
+                  <span className="text-sm" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}><span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span></span>
                 </span>
-                <button onClick={logout} className="text-blue-200 hover:text-white"><LogOut size={18} /></button>
+                <button onClick={logout} className="text-[#9A8F7E] hover:text-white"><LogOut size={18} /></button>
               </div>
 
               {/* Body */}
@@ -849,7 +857,7 @@ export default function RepApp() {
                   const active = screen === t.id;
                   return (
                     <button key={t.id} onClick={() => setScreen(t.id)}
-                      className={`flex flex-col items-center gap-0.5 py-1.5 rounded-xl ${active ? 'text-blue-600' : 'text-gray-400'}`}>
+                      className={`flex flex-col items-center gap-0.5 py-1.5 rounded-xl ${active ? 'text-[#E15A30]' : 'text-gray-400'}`}>
                       <Icon size={20} />
                       <span className="text-[10px] font-medium">{t.label}</span>
                     </button>

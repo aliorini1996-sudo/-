@@ -96,7 +96,7 @@ export default function SalesRepsPage() {
                   <td className="text-center">{perm(r.canAddCustomer)}</td>
                   <td><span className={r.isActive ? 'badge-active' : 'badge-inactive'}>{r.isActive ? 'نشط' : 'غير نشط'}</span></td>
                   <td>
-                    <button onClick={() => { setSelected(r); setShowModal(true); }} className="p-1.5 hover:bg-blue-50 rounded text-blue-600"><Edit size={14} /></button>
+                    <button onClick={() => { setSelected(r); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]"><Edit size={14} /></button>
                   </td>
                 </tr>
               ))}
@@ -139,7 +139,7 @@ function CredentialsModal({ creds, onClose }: { creds: Creds; onClose: () => voi
         <p className="text-[11px] text-gray-400">{label}</p>
         <p className="font-mono font-semibold text-gray-800" dir="ltr">{value}</p>
       </div>
-      <button onClick={() => copy(key, value)} className="p-1.5 hover:bg-white rounded text-blue-600" title="نسخ">
+      <button onClick={() => copy(key, value)} className="p-1.5 hover:bg-white rounded text-[#E15A30]" title="نسخ">
         {copied === key ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
       </button>
     </div>
@@ -157,7 +157,7 @@ function CredentialsModal({ creds, onClose }: { creds: Creds; onClose: () => voi
         </div>
 
         <div className="p-6 space-y-3">
-          <div className="flex items-center gap-2 text-blue-700 bg-blue-50 rounded-lg px-3 py-2 text-xs">
+          <div className="flex items-center gap-2 text-[#C94E28] bg-[#FBEBE2] rounded-lg px-3 py-2 text-xs">
             <KeyRound size={14} />
             سلّم هذه البيانات للمندوب ليدخل بها على التطبيق — كلمة المرور لن تظهر مرة أخرى
           </div>

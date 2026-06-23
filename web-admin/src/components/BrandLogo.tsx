@@ -1,43 +1,46 @@
-// شعار منصّة FieldSales — أيقونة F + اسم، بهوية موحّدة عبر كل الواجهات
+// شعار منصّة FieldSales — رمز «المسار الصاعد» مطابق لدليل الهوية الرسمي
 
-export function BrandIcon({ size = 40, radius = 0.22 }: { size?: number; radius?: number }) {
+// الأيقونة المربّعة (مربع مرجاني + مسار التوزيع الصاعد + نقاط)
+export function BrandIcon({ size = 40, radius = 0.233 }: { size?: number; radius?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
-      <defs>
-        <linearGradient id="fsBg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#2f72d8" />
-          <stop offset="1" stopColor="#13284a" />
-        </linearGradient>
-      </defs>
-      <rect width="512" height="512" rx={512 * radius} fill="url(#fsBg)" />
-      <g fill="#4aa3ff">
-        <rect x="118" y="190" width="96" height="28" rx="14" />
-        <rect x="118" y="250" width="128" height="28" rx="14" />
-        <rect x="118" y="310" width="80" height="28" rx="14" />
-      </g>
-      <g fill="#ffffff">
-        <rect x="292" y="148" width="50" height="216" rx="16" />
-        <rect x="292" y="148" width="122" height="50" rx="16" />
-        <rect x="292" y="232" width="94" height="46" rx="14" />
-      </g>
+    <svg width={size} height={size} viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
+      <rect x="0" y="0" width="120" height="120" rx={120 * radius} fill="#E15A30" />
+      <polyline points="32,88 60,60 90,32" stroke="#1F1A13" strokeWidth="13" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <circle cx="32" cy="88" r="8" fill="#FAF7F0" />
+      <circle cx="60" cy="60" r="6" fill="#FAF7F0" />
+      <circle cx="90" cy="32" r="12" fill="#1F1A13" />
+      <circle cx="90" cy="32" r="5.5" fill="#FAF7F0" />
     </svg>
   );
 }
 
-// الشعار الكامل: الأيقونة + الاسم (FieldSales) + سطر فرعي اختياري
+// الرمز المعكوس بلا خلفية — للاستخدام على الخلفيات الداكنة (مسار مرجاني)
+export function BrandMark({ size = 40 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
+      <polyline points="32,88 60,60 90,32" stroke="#E15A30" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <circle cx="32" cy="88" r="8" fill="#FAF7F0" />
+      <circle cx="60" cy="60" r="6" fill="#FAF7F0" />
+      <circle cx="90" cy="32" r="12" fill="#E15A30" />
+      <circle cx="90" cy="32" r="5.5" fill="#1F1A13" />
+    </svg>
+  );
+}
+
+// الاسم اللفظي FieldSales — Field (حبر) + Sales (مرجاني)
 export function BrandWordmark({
-  iconSize = 42, dark = false, subtitle = 'إدارة مبيعات المناديب', showSubtitle = true,
+  iconSize = 44, dark = false, subtitle = 'إدارة مبيعات المناديب', showSubtitle = true,
 }: { iconSize?: number; dark?: boolean; subtitle?: string; showSubtitle?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <BrandIcon size={iconSize} />
       <div className="leading-tight">
-        <div className="font-extrabold tracking-tight" style={{ fontSize: iconSize * 0.5 }}>
-          <span style={{ color: dark ? '#ffffff' : '#0d2440' }}>Field</span>
-          <span style={{ color: dark ? '#38bdf8' : '#2563eb' }}>Sales</span>
+        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700, fontSize: iconSize * 0.5, letterSpacing: '-0.5px' }}>
+          <span style={{ color: dark ? '#FAF7F0' : '#1F1A13' }}>Field</span>
+          <span style={{ color: '#E15A30' }}> Sales</span>
         </div>
         {showSubtitle && (
-          <div style={{ fontSize: iconSize * 0.26, color: dark ? '#94a3b8' : '#64748b' }}>{subtitle}</div>
+          <div style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif", fontSize: iconSize * 0.27, color: dark ? '#9A8F7E' : '#6E6557', marginTop: 2 }}>{subtitle}</div>
         )}
       </div>
     </div>

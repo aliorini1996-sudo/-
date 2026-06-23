@@ -115,7 +115,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
             {showCustomerList && customers && customers.length > 0 && (
               <div className="absolute top-full right-0 left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
                 {customers.map(c => (
-                  <button key={c.id} className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm"
+                  <button key={c.id} className="w-full text-right px-3 py-2 hover:bg-[#FBEBE2] text-sm"
                     onClick={() => { setSelectedCustomer(c); setCustomerId(c.id); setCustomerSearch(''); setShowCustomerList(false); setAllocations({}); }}>
                     <span className="font-medium">{c.name}</span>
                     {Number(c.balance) > 0 && <span className="text-red-500 text-xs mr-2">رصيد: {formatCurrency(c.balance)}</span>}

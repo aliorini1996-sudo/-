@@ -42,7 +42,7 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
         <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><KeyRound size={18} className="text-blue-600" /> تغيير كلمة المرور</h2>
+          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><KeyRound size={18} className="text-[#E15A30]" /> تغيير كلمة المرور</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">

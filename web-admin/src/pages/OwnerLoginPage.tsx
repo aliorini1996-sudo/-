@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { BrandIcon } from '../components/BrandLogo';
 
-// مدخل سرّي لمالك المنصّة فقط — رابط /owner (لا يظهر للعملاء)
+// مدخل سرّي لمالك المنصّة فقط — رابط /owner
 export default function OwnerLoginPage() {
   const navigate = useNavigate();
   const { login } = useAuthStore();
@@ -33,56 +33,50 @@ export default function OwnerLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 flex items-center justify-center p-4" dir="rtl">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen relative overflow-hidden bg-[#1F1A13] flex items-center justify-center p-6" dir="rtl">
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(120% 120% at 50% 0%, rgba(225,90,48,.22), transparent 55%)' }} />
+      <span className="absolute rounded-full" style={{ width: 260, height: 260, top: '-60px', right: '-40px', background: 'rgba(225,90,48,.12)' }} />
+      <span className="absolute rounded-full" style={{ width: 180, height: 180, bottom: '-30px', left: '-20px', background: 'rgba(224,160,44,.10)' }} />
+
+      <div className="relative z-10 w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center mb-4">
-            <BrandIcon size={68} />
+          <div className="inline-flex mb-5" style={{ filter: 'drop-shadow(0 14px 36px rgba(225,90,48,.4))' }}>
+            <BrandIcon size={78} radius={0.26} />
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight">
-            <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
-          </h1>
-          <p className="text-slate-400 mt-1 text-sm">لوحة مالك المنصّة — دخول خاص</p>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif" }} className="text-3xl font-bold tracking-tight">
+            <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
+          </div>
+          <p className="text-[#9A8F7E] mt-2 text-sm flex items-center justify-center gap-1.5">
+            <ShieldCheck size={14} /> لوحة مالك المنصّة — دخول خاص
+          </p>
         </div>
 
-        <div className="bg-slate-800/60 backdrop-blur border border-white/10 rounded-2xl shadow-2xl p-8">
+        <div className="bg-white/[0.04] backdrop-blur border border-white/10 rounded-2xl p-7">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-sm text-slate-300 mb-1.5 block">البريد الإلكتروني</label>
-              <input
-                type="text"
-                className="w-full bg-slate-900/70 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-slate-400"
-                placeholder="owner@..."
-                value={form.username}
-                onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                autoComplete="username"
-                dir="ltr"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm text-slate-300 mb-1.5 block">كلمة المرور</label>
+              <label className="text-sm text-[#C9BEAC] mb-1.5 block">البريد الإلكتروني</label>
               <div className="relative">
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  className="w-full bg-slate-900/70 border border-white/10 rounded-xl px-3 py-2.5 pl-10 text-white placeholder-slate-500 focus:outline-none focus:border-slate-400"
-                  placeholder="••••••••"
-                  value={form.password}
-                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  autoComplete="current-password"
-                  dir="ltr"
-                />
-                <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-                  onClick={() => setShowPass(s => !s)}>
-                  {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
+                <input type="text" dir="ltr" placeholder="owner@..."
+                  className="w-full bg-[#15110b] border border-white/10 rounded-xl px-3 py-2.5 pr-9 text-white placeholder-[#6E6557] focus:outline-none focus:border-[#E15A30]"
+                  value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} autoComplete="username" />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm text-[#C9BEAC] mb-1.5 block">كلمة المرور</label>
+              <div className="relative">
+                <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
+                <input type={showPass ? 'text' : 'password'} dir="ltr" placeholder="••••••••"
+                  className="w-full bg-[#15110b] border border-white/10 rounded-xl px-3 py-2.5 pr-9 pl-9 text-white placeholder-[#6E6557] focus:outline-none focus:border-[#E15A30]"
+                  value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="current-password" />
+                <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E] hover:text-white" onClick={() => setShowPass(s => !s)}>
+                  {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </div>
-
             <button type="submit" disabled={loading}
-              className="w-full bg-white text-slate-900 hover:bg-slate-100 disabled:opacity-60 font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
-              {loading ? <span className="inline-block w-5 h-5 border-2 border-slate-400 border-t-slate-900 rounded-full animate-spin" /> : null}
-              دخول
+              className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-1">
+              {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'دخول'}
             </button>
           </form>
         </div>

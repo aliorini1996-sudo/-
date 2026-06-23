@@ -47,7 +47,7 @@ export default function ReceiptsPage() {
 
   const methodBadge = (m: string) => {
     const colors: Record<string, string> = {
-      CASH: 'bg-green-100 text-green-700', BANK_TRANSFER: 'bg-blue-100 text-blue-700',
+      CASH: 'bg-green-100 text-green-700', BANK_TRANSFER: 'bg-[#FBEBE2] text-[#C94E28]',
       POS: 'bg-purple-100 text-purple-700', CHEQUE: 'bg-orange-100 text-orange-700',
     };
     return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[m] || ''}`}>{paymentMethodLabels[m]}</span>;
@@ -89,8 +89,8 @@ export default function ReceiptsPage() {
                   </td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openReceiptPdf(r.id)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="عرض / PDF">
-                        {openingId === r.id ? <span className="w-3.5 h-3.5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin inline-block" /> : <FileText size={14} />}
+                      <button onClick={() => openReceiptPdf(r.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="عرض / PDF">
+                        {openingId === r.id ? <span className="w-3.5 h-3.5 border-2 border-[#F5C9BA] border-t-[#E15A30] rounded-full animate-spin inline-block" /> : <FileText size={14} />}
                       </button>
                       {r.status === 'ACTIVE' && (
                         <button

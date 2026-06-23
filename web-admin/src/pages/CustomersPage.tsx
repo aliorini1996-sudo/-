@@ -123,7 +123,7 @@ export default function CustomersPage() {
                   <td>{statusBadge(c.status)}</td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openEdit(c)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="تعديل">
+                      <button onClick={() => openEdit(c)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل">
                         <Edit size={14} />
                       </button>
                       <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title="كشف حساب (عرض)">

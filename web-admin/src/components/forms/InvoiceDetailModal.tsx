@@ -70,7 +70,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
               {Number(invoice.discountAmt) > 0 && (
                 <div className="flex justify-between text-red-500"><span>الخصم</span><span>- {formatCurrency(invoice.discountAmt)}</span></div>
               )}
-              <div className="flex justify-between text-blue-600"><span>الضريبة</span><span>{formatCurrency(invoice.taxAmt)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>الضريبة</span><span>{formatCurrency(invoice.taxAmt)}</span></div>
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>الإجمالي</span><span>{formatCurrency(invoice.total)}</span></div>
               <div className="flex justify-between text-green-600"><span>المدفوع</span><span>{formatCurrency(invoice.paidAmt)}</span></div>
               {Number(invoice.remainingAmt) > 0 && (

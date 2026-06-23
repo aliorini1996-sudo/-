@@ -104,7 +104,7 @@ export default function InvoicesPage() {
                 <tr><td colSpan={10} className="text-center py-12 text-gray-400">لا توجد فواتير</td></tr>
               ) : data?.data.map(inv => (
                 <tr key={inv.id}>
-                  <td className="font-mono text-sm text-blue-600">{inv.number}</td>
+                  <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
                   <td className="font-medium text-gray-800">{inv.customer.name}</td>
                   <td className="text-gray-600 text-sm">{inv.salesRep.name}</td>
                   <td>{typeBadge(inv.type)}</td>
@@ -117,8 +117,8 @@ export default function InvoicesPage() {
                   <td>{statusBadge(inv.status)}</td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openInvoicePdf(inv.id)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="عرض / PDF">
-                        {openingId === inv.id ? <span className="w-3.5 h-3.5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin inline-block" /> : <FileText size={14} />}
+                      <button onClick={() => openInvoicePdf(inv.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="عرض / PDF">
+                        {openingId === inv.id ? <span className="w-3.5 h-3.5 border-2 border-[#F5C9BA] border-t-[#E15A30] rounded-full animate-spin inline-block" /> : <FileText size={14} />}
                       </button>
                       {inv.status === 'CONFIRMED' && (
                         <button

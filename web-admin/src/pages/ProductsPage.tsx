@@ -62,11 +62,11 @@ export default function ProductsPage() {
                   </td>
                   <td className="text-gray-500 text-sm">{p.category?.name || '-'}</td>
                   <td className="text-gray-600">{p.unit}</td>
-                  <td className="font-semibold text-blue-600">{formatCurrency(p.basePrice)}</td>
+                  <td className="font-semibold text-[#E15A30]">{formatCurrency(p.basePrice)}</td>
                   <td className="text-gray-600">{p.taxPct}%</td>
                   <td><span className={p.status === 'ACTIVE' ? 'badge-active' : 'badge-inactive'}>{statusLabels[p.status]}</span></td>
                   <td>
-                    <button onClick={() => { setSelected(p); setShowModal(true); }} className="p-1.5 hover:bg-blue-50 rounded text-blue-600"><Edit size={14} /></button>
+                    <button onClick={() => { setSelected(p); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]"><Edit size={14} /></button>
                   </td>
                 </tr>
               ))}
