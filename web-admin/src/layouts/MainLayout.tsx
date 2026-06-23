@@ -1,11 +1,12 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, TrendingUp, Building2, Eye, ArrowRight, KeyRound,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import { BrandIcon } from '../components/BrandLogo';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', exact: true },
@@ -50,16 +51,16 @@ export default function MainLayout() {
       )}
     <div className="flex flex-1 overflow-hidden bg-slate-100">
       {/* Sidebar */}
-      <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-gradient-to-b from-blue-900 to-blue-800 text-white flex flex-col transition-all duration-300`}>
+      <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-gradient-to-b from-[#0d2440] to-[#15315a] text-white flex flex-col transition-all duration-300`}>
         {/* Logo */}
         <div className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <TrendingUp size={18} className="text-white" />
-          </div>
+          <BrandIcon size={36} radius={0.28} />
           {!collapsed && (
             <div>
-              <p className="font-bold text-sm leading-tight">نظام المبيعات</p>
-              <p className="text-blue-200 text-xs truncate max-w-[160px]">{user?.companyName || 'DSD System'}</p>
+              <p className="font-extrabold text-sm leading-tight">
+                <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
+              </p>
+              <p className="text-blue-200 text-xs truncate max-w-[150px]">{user?.companyName || ''}</p>
             </div>
           )}
         </div>

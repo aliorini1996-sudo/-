@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
+import { BrandIcon } from '../components/BrandLogo';
 
 // مدخل سرّي لمالك المنصّة فقط — رابط /owner (لا يظهر للعملاء)
 export default function OwnerLoginPage() {
@@ -35,11 +36,13 @@ export default function OwnerLoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 flex items-center justify-center p-4" dir="rtl">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-white/10 rounded-2xl mb-4 backdrop-blur-sm border border-white/10">
-            <ShieldCheck size={32} className="text-white" />
+          <div className="inline-flex items-center justify-center mb-4">
+            <BrandIcon size={68} />
           </div>
-          <h1 className="text-2xl font-bold text-white">لوحة مالك المنصّة</h1>
-          <p className="text-slate-400 mt-1 text-sm">دخول خاص — إدارة الشركات والاشتراكات</p>
+          <h1 className="text-3xl font-extrabold tracking-tight">
+            <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
+          </h1>
+          <p className="text-slate-400 mt-1 text-sm">لوحة مالك المنصّة — دخول خاص</p>
         </div>
 
         <div className="bg-slate-800/60 backdrop-blur border border-white/10 rounded-2xl shadow-2xl p-8">

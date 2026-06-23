@@ -6,11 +6,12 @@ import { formatDate } from '../utils/format';
 import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
-  CheckCircle2, Copy, Check, X, Calendar, ShieldCheck, LogIn, Trash2, KeyRound, AlertTriangle,
+  CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import { BrandIcon } from '../components/BrandLogo';
 
 const PLAN_LABELS: Record<string, string> = { basic: 'أساسي', pro: 'احترافي', enterprise: 'مؤسسي' };
 
@@ -70,11 +71,12 @@ export default function PlatformPage() {
       <header className="bg-gradient-to-l from-slate-900 to-slate-700 text-white">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/15 rounded-xl flex items-center justify-center">
-              <ShieldCheck size={22} />
-            </div>
+            <BrandIcon size={40} radius={0.28} />
             <div>
-              <p className="font-bold">لوحة مالك المنصّة</p>
+              <p className="font-extrabold">
+                <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
+                <span className="text-slate-400 font-normal text-sm"> · لوحة المالك</span>
+              </p>
               <p className="text-slate-300 text-xs">{user?.name}</p>
             </div>
           </div>

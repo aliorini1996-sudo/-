@@ -4,9 +4,10 @@ import { formatCurrency, formatDate } from '../utils/format';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
-  Search, Plus, Trash2, ArrowRight, LogOut, RefreshCw, Receipt as ReceiptIcon,
+  Search, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
 } from 'lucide-react';
+import { BrandIcon } from '../components/BrandLogo';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer';
@@ -33,12 +34,12 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
   };
 
   return (
-    <div className="h-full bg-gradient-to-b from-blue-900 via-blue-800 to-blue-600 flex flex-col items-center justify-center px-6">
-      <div className="w-16 h-16 bg-white/20 rounded-3xl flex items-center justify-center mb-3">
-        <TrendingUp size={36} className="text-white" />
-      </div>
-      <h1 className="text-white text-xl font-bold">نظام المبيعات الميداني</h1>
-      <p className="text-blue-200 text-xs mb-8">DSD Sales System</p>
+    <div className="h-full bg-gradient-to-b from-[#0d2440] via-[#0f2942] to-[#1d4f9c] flex flex-col items-center justify-center px-6">
+      <BrandIcon size={74} radius={0.28} />
+      <h1 className="text-2xl font-extrabold tracking-tight mt-3">
+        <span className="text-white">Field</span><span className="text-sky-400">Sales</span>
+      </h1>
+      <p className="text-blue-200 text-xs mb-8">إدارة مبيعات المناديب</p>
 
       <form onSubmit={submit} className="w-full bg-white rounded-3xl p-6 shadow-2xl">
         <h2 className="font-bold text-blue-900 mb-5">تسجيل الدخول</h2>
@@ -825,8 +826,11 @@ export default function RepApp() {
           ) : (
             <>
               {/* Top bar */}
-              <div className="bg-blue-900 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
-                <span className="font-bold text-sm">نظام المبيعات الميداني</span>
+              <div className="bg-[#0d2440] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+                <span className="flex items-center gap-2">
+                  <BrandIcon size={26} radius={0.3} />
+                  <span className="font-extrabold text-sm"><span className="text-white">Field</span><span className="text-sky-400">Sales</span></span>
+                </span>
                 <button onClick={logout} className="text-blue-200 hover:text-white"><LogOut size={18} /></button>
               </div>
 
