@@ -1,6 +1,8 @@
 import { forwardRef, useRef, useState } from 'react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
+import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { Share2, Download, Check, ArrowRight } from 'lucide-react';
 
 export interface Company {
@@ -190,9 +192,24 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   const td: React.CSSProperties = { padding: '9px 8px', fontSize: 13, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
 
   const addr = fullAddress(doc.customer);
+  // تصنيف الفاتورة وفق ZATCA: مبسّطة (B2C) إن لم يكن للعميل رقم ضريبي، وقياسية (B2B) إن وُجد
+  const isSimplified = !doc.customer.taxNumber;
+  const docTitle = doc.isReturn
+    ? 'إشعار دائن (مرتجع)'
+    : (isSimplified ? 'فاتورة ضريبية مبسطة' : 'فاتورة ضريبية');
+  // رمز QR وفق هيئة الزكاة والضريبة — يظهر فقط إذا كان للشركة رقم ضريبي
+  const qrValue = doc.company?.taxNumber
+    ? buildZatcaQr({
+        sellerName: doc.company.name || '',
+        vatNumber: doc.company.taxNumber,
+        timestamp: zatcaTimestamp(doc.date),
+        total: doc.total,
+        vatTotal: doc.tax,
+      })
+    : null;
   return (
     <div ref={ref} style={PAGE}>
-      <Header title={doc.isReturn ? 'فاتورة مرتجع' : 'فاتورة ضريبية'} company={doc.company} />
+      <Header title={docTitle} company={doc.company} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 20 }}>
         <div style={{ flex: 1, background: doc.isReturn ? '#fffbeb' : '#eff6ff', borderRadius: 10, padding: 14 }}>
@@ -244,11 +261,25 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         </tbody>
       </table>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 20 }}>
+        {/* رمز QR للفاتورة الضريبية (ZATCA) */}
+        {qrValue ? (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'inline-block' }}>
+              <QRCodeCanvas value={qrValue} size={108} level="M" />
+            </div>
+            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>رمز الاستجابة السريعة للفاتورة الضريبية</div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 10.5, color: '#9ca3af', maxWidth: 170, lineHeight: 1.6 }}>
+            أضف الرقم الضريبي للشركة في إعدادات الشركة لإظهار رمز الفاتورة الضريبية المعتمد.
+          </div>
+        )}
+
         <div style={{ width: 300, fontSize: 14 }}>
           <Row label="المجموع قبل الخصم" value={formatCurrency(doc.subtotal)} />
           {doc.discount > 0 && <Row label="الخصم" value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
-          <Row label="ضريبة القيمة المضافة 15%" value={formatCurrency(doc.tax)} color="#2563eb" />
+          <Row label="ضريبة القيمة المضافة 15%" value={formatCurrency(doc.tax)} color="#1E7A52" />
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
             <span>{doc.isReturn ? 'إجمالي المرتجع (دائن)' : 'الإجمالي النهائي'}</span>
             <span>{formatCurrency(doc.total)}</span>
