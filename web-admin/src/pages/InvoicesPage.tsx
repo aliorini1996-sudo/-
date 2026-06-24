@@ -1,20 +1,23 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoiceApi, companyApi } from '../api/client';
-import { Invoice } from '../types';
+import { invoiceApi, companyApi, salesRepApi } from '../api/client';
+import { Invoice, SalesRep } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
 import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import InvoiceModal from '../components/forms/InvoiceModal';
 import DocumentModal from '../components/DocumentModal';
 import { InvoiceDoc, invoiceDocFromDetail, Company } from '../rep/RepDocuments';
-import { exportExcel, num } from '../utils/excel';
+import { shareOrDownloadExcel, num } from '../utils/excel';
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('CONFIRMED');
   const [type, setType] = useState('');
+  const [salesRepId, setSalesRepId] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [docResult, setDocResult] = useState<InvoiceDoc | null>(null);
@@ -26,10 +29,26 @@ export default function InvoicesPage() {
     queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
   });
 
+  const { data: reps } = useQuery({
+    queryKey: ['sales-reps-all'],
+    queryFn: async () => { const res = await salesRepApi.list({ limit: 200 }); return res.data.data as SalesRep[]; },
+  });
+
+  // معاملات التصفية المشتركة (تُستخدم في الجدول والتصدير)
+  const filters = () => {
+    const f: Record<string, string | number> = {};
+    if (search) f.search = search;
+    if (status) f.status = status;
+    if (type) f.type = type;
+    if (salesRepId) f.salesRepId = salesRepId;
+    if (from && to) { f.from = from; f.to = to; }
+    return f;
+  };
+
   const { data, isLoading } = useQuery({
-    queryKey: ['invoices', search, status, type, page],
+    queryKey: ['invoices', search, status, type, salesRepId, from, to, page],
     queryFn: async () => {
-      const res = await invoiceApi.list({ search, status, type, page, limit: 15 });
+      const res = await invoiceApi.list({ ...filters(), page, limit: 15 });
       return res.data as { data: Invoice[]; pagination: { total: number; pages: number } };
     },
   });
@@ -53,11 +72,11 @@ export default function InvoicesPage() {
     },
   });
 
-  // تصدير الفواتير (وفق الفلاتر الحالية) إلى ملف Excel
+  // تصدير/مشاركة الفواتير (وفق الفلاتر الحالية)
   const handleExport = async () => {
     setExporting(true);
     try {
-      const res = await invoiceApi.list({ search, status, type, limit: 5000 });
+      const res = await invoiceApi.list({ ...filters(), limit: 5000 });
       const invoices = res.data.data as Invoice[];
       if (!invoices.length) { toast.error('لا توجد فواتير للتصدير'); setExporting(false); return; }
       const rows = invoices.map(inv => ({
@@ -71,11 +90,11 @@ export default function InvoicesPage() {
         'المتبقي': num(inv.remainingAmt),
         'الحالة': statusLabels[inv.status] || inv.status,
       }));
-      await exportExcel(
+      const res2 = await shareOrDownloadExcel(
         [{ name: 'الفواتير', rows, colWidths: [18, 24, 16, 10, 16, 12, 12, 12, 10] }],
         `الفواتير-${new Date().toISOString().slice(0, 10)}`
       );
-      toast.success(`تم تصدير ${rows.length} فاتورة`);
+      toast.success(res2 === 'shared' ? 'تمت المشاركة' : `تم تصدير ${rows.length} فاتورة`);
     } catch { toast.error('تعذّر التصدير'); }
     setExporting(false);
   };
@@ -118,6 +137,23 @@ export default function InvoicesPage() {
             <option value="CASH">نقدي</option>
             <option value="CREDIT">آجل</option>
           </select>
+          <select className="input w-40" value={salesRepId} onChange={e => { setSalesRepId(e.target.value); setPage(1); }}>
+            <option value="">كل المناديب</option>
+            {reps?.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-3 flex-wrap items-end mt-3 pt-3 border-t border-[#F1EBDF]">
+          <div>
+            <label className="label text-xs">من تاريخ</label>
+            <input type="date" className="input w-40" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} />
+          </div>
+          <div>
+            <label className="label text-xs">إلى تاريخ</label>
+            <input type="date" className="input w-40" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} />
+          </div>
+          {(from || to || salesRepId) && (
+            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setPage(1); }}>مسح الفلاتر</button>
+          )}
         </div>
       </div>
 

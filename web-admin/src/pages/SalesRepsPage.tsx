@@ -6,7 +6,7 @@ import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileB
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import { formatCurrency, formatDate, statusLabels, paymentMethodLabels } from '../utils/format';
-import { exportExcel, num } from '../utils/excel';
+import { shareOrDownloadExcel, num } from '../utils/excel';
 
 interface Creds { name: string; username: string; password: string; }
 
@@ -178,12 +178,12 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
       'طريقة الدفع': paymentMethodLabels[r.paymentMethod] || r.paymentMethod,
       'التاريخ': formatDate(r.receiptDate), 'المبلغ': num(r.amount),
     }));
-    await exportExcel([
+    const out = await shareOrDownloadExcel([
       { name: 'الملخص', rows: summary, colWidths: [22, 16] },
       { name: 'الفواتير', rows: invRows, colWidths: [18, 24, 10, 16, 12, 12, 12] },
       { name: 'سندات القبض', rows: rcpRows, colWidths: [18, 24, 14, 16, 12] },
     ], `كشف-${rep.name}-${new Date().toISOString().slice(0, 10)}`);
-    toast.success('تم تصدير كشف المندوب');
+    toast.success(out === 'shared' ? 'تمت المشاركة' : 'تم تصدير كشف المندوب');
   };
 
   // طباعة الكشف العادي (A4)

@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/client';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency } from '../utils/format';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, Package, UserCheck } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck } from 'lucide-react';
+import { shareOrDownloadExcel, num } from '../utils/excel';
+import toast from 'react-hot-toast';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
+const methodLabel = (m: string) => m === 'CASH' ? 'نقدي' : m === 'BANK_TRANSFER' ? 'تحويل بنكي' : m === 'POS' ? 'شبكة' : 'شيك';
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>('sales');
@@ -56,10 +59,44 @@ export default function ReportsPage() {
     enabled: tab === 'performance',
   });
 
+  // تصدير/مشاركة بيانات التبويب النشط إلى Excel
+  const handleExport = async () => {
+    let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
+    let fname = 'تقرير';
+    if (tab === 'performance' && perfData?.length) {
+      sheets = [{ name: 'أداء المناديب', rows: perfData.map(r => ({
+        'المندوب': r.name, 'عدد الفواتير': r.invoicesCount, 'إجمالي المبيعات': num(r.salesTotal),
+        'التحصيل': num(r.collectionsTotal), 'نسبة التحصيل %': r.collectionRate, 'متوسط الفاتورة': num(r.avgInvoice),
+      })), colWidths: [22, 12, 16, 14, 14, 16] }];
+      fname = 'أداء-المناديب';
+    } else if (tab === 'sales' && Array.isArray(salesData) && salesData.length) {
+      sheets = [{ name: 'المبيعات', rows: (salesData as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
+        'الاسم': r.name, 'العدد/الكمية': r.count ?? r.qty ?? '', 'الإجمالي': num(r.total),
+      })), colWidths: [28, 14, 16] }];
+      fname = 'تقرير-المبيعات';
+    } else if (tab === 'balances' && balancesData?.length) {
+      sheets = [{ name: 'أرصدة العملاء', rows: balancesData.map(c => ({
+        'العميل': c.name, 'الجوال': c.phone, 'الرصيد': num(c.balance), 'الحد الائتماني': num(c.creditLimit),
+      })), colWidths: [24, 16, 14, 16] }];
+      fname = 'أرصدة-العملاء';
+    } else if (tab === 'collections' && collectData) {
+      sheets = [{ name: 'التحصيل', rows: [
+        { 'البند': 'إجمالي التحصيل', 'القيمة': num(collectData.summary.total) },
+        { 'البند': 'عدد السندات', 'القيمة': collectData.summary.count },
+        ...Object.entries(collectData.summary.byMethod).map(([m, v]) => ({ 'البند': methodLabel(m), 'القيمة': num(v) })),
+      ], colWidths: [20, 16] }];
+      fname = 'تقرير-التحصيل';
+    }
+    if (!sheets) { toast.error('لا توجد بيانات للتصدير'); return; }
+    const out = await shareOrDownloadExcel(sheets, `${fname}-${new Date().toISOString().slice(0, 10)}`);
+    toast.success(out === 'shared' ? 'تمت المشاركة' : 'تم التصدير');
+  };
+
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">التقارير</h1>
+        <button className="btn-secondary" onClick={handleExport}><Download size={16} /> تصدير Excel</button>
       </div>
 
       {/* Tabs */}

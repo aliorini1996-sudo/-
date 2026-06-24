@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { customerApi } from '../../api/client';
 import { Customer, AccountEntry } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/format';
-import { X, Printer } from 'lucide-react';
+import { X, Printer, Download } from 'lucide-react';
+import { shareOrDownloadExcel, num } from '../../utils/excel';
+import toast from 'react-hot-toast';
 
 interface Props { customer: Customer; onClose: () => void; }
 
@@ -21,6 +23,31 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
 
   const handlePrint = () => window.print();
 
+  // تصدير/مشاركة كشف الحساب إلى Excel (ورقة ملخص + ورقة حركات)
+  const exportStatement = async () => {
+    if (!data) return;
+    const summary = [
+      { 'البند': 'العميل', 'القيمة': customer.name },
+      { 'البند': 'الجوال', 'القيمة': customer.phone },
+      { 'البند': 'إجمالي المبيعات', 'القيمة': num(data.customer.totalSales) },
+      { 'البند': 'إجمالي التحصيل', 'القيمة': num(data.customer.totalCollected) },
+      { 'البند': 'الرصيد الحالي', 'القيمة': num(data.customer.balance) },
+    ];
+    const rows = data.entries.map(e => ({
+      'التاريخ': formatDate(e.entryDate),
+      'البيان': e.description,
+      'رقم المستند': e.invoice?.number || e.receipt?.number || '-',
+      'مدين': num(e.debit),
+      'دائن': num(e.credit),
+      'الرصيد': num(e.balance),
+    }));
+    const out = await shareOrDownloadExcel([
+      { name: 'الملخص', rows: summary, colWidths: [18, 22] },
+      { name: 'الحركات', rows, colWidths: [16, 30, 16, 12, 12, 12] },
+    ], `كشف-حساب-${customer.name}-${new Date().toISOString().slice(0, 10)}`);
+    toast.success(out === 'shared' ? 'تمت المشاركة' : 'تم تصدير كشف الحساب');
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
@@ -31,6 +58,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
             <p className="text-sm text-gray-500">{customer.name} • {customer.phone}</p>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={exportStatement} disabled={isLoading} className="btn-secondary"><Download size={15} />Excel</button>
             <button onClick={handlePrint} className="btn-secondary"><Printer size={15} />طباعة</button>
             <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
           </div>
