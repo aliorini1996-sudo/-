@@ -3,7 +3,8 @@ import { QRCodeCanvas } from 'qrcode.react';
 import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
-import { Share2, Download, Check, ArrowRight } from 'lucide-react';
+import { printThermalInvoice, printThermalReceipt } from './thermal';
+import { Share2, Download, Check, ArrowRight, Printer } from 'lucide-react';
 
 export interface Company {
   name: string;
@@ -533,9 +534,19 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
 
   const isReceipt = doc.kind === 'receipt';
   const isStatement = doc.kind === 'statement';
-  const headerBg = isReceipt ? 'bg-green-700' : 'bg-blue-900';
-  const accentBtn = isReceipt ? 'bg-green-600' : 'bg-blue-600';
-  const confirmBg = isReceipt ? 'bg-green-50 border-green-100' : 'bg-blue-50 border-blue-100';
+  const headerBg = 'bg-[#1F1A13]';
+  const accentBtn = isReceipt ? 'bg-[#1E7A52] hover:bg-[#176A46]' : 'bg-[#E15A30] hover:bg-[#C94E28]';
+  const confirmBg = isReceipt ? 'bg-[#E4F1EA] border-[#cfe8db]' : 'bg-[#FBEBE2] border-[#F5DACE]';
+  const canThermal = doc.kind === 'invoice' || doc.kind === 'receipt';
+
+  const printThermal = async () => {
+    setBusy(true); setStatus('');
+    try {
+      if (doc.kind === 'invoice') await printThermalInvoice(doc);
+      else if (doc.kind === 'receipt') await printThermalReceipt(doc);
+    } catch { setStatus('تعذّرت الطباعة، تأكد من إعداد الطابعة'); }
+    setBusy(false);
+  };
 
   const isReturnDoc = doc.kind === 'invoice' && doc.isReturn;
   const title = doc.kind === 'invoice' ? `${isReturnDoc ? 'فاتورة مرتجع' : 'الفاتورة'} — ${doc.number}`
@@ -597,6 +608,12 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
 
       {/* أزرار */}
       <div className="p-4 border-t bg-white space-y-2">
+        {canThermal && (
+          <button onClick={printThermal} disabled={busy}
+            className="w-full bg-white border-2 border-[#DED5C4] text-[#1F1A13] font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60">
+            <Printer size={17} /> طباعة حرارية (58 مم)
+          </button>
+        )}
         <button onClick={makePdf} disabled={busy}
           className={`w-full ${accentBtn} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60`}>
           {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Share2 size={17} />}
