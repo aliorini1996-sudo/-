@@ -3,11 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, companyApi } from '../api/client';
 import { Invoice } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
-import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import InvoiceModal from '../components/forms/InvoiceModal';
 import DocumentModal from '../components/DocumentModal';
 import { InvoiceDoc, invoiceDocFromDetail, Company } from '../rep/RepDocuments';
+import { exportExcel, num } from '../utils/excel';
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
@@ -18,6 +19,7 @@ export default function InvoicesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [docResult, setDocResult] = useState<InvoiceDoc | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const { data: company } = useQuery({
     queryKey: ['company'],
@@ -51,6 +53,33 @@ export default function InvoicesPage() {
     },
   });
 
+  // تصدير الفواتير (وفق الفلاتر الحالية) إلى ملف Excel
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await invoiceApi.list({ search, status, type, limit: 5000 });
+      const invoices = res.data.data as Invoice[];
+      if (!invoices.length) { toast.error('لا توجد فواتير للتصدير'); setExporting(false); return; }
+      const rows = invoices.map(inv => ({
+        'رقم الفاتورة': inv.number,
+        'العميل': inv.customer.name,
+        'المندوب': inv.salesRep.name,
+        'النوع': statusLabels[inv.type] || inv.type,
+        'التاريخ': formatDate(inv.invoiceDate),
+        'الإجمالي': num(inv.total),
+        'المدفوع': num(inv.paidAmt),
+        'المتبقي': num(inv.remainingAmt),
+        'الحالة': statusLabels[inv.status] || inv.status,
+      }));
+      await exportExcel(
+        [{ name: 'الفواتير', rows, colWidths: [18, 24, 16, 10, 16, 12, 12, 12, 10] }],
+        `الفواتير-${new Date().toISOString().slice(0, 10)}`
+      );
+      toast.success(`تم تصدير ${rows.length} فاتورة`);
+    } catch { toast.error('تعذّر التصدير'); }
+    setExporting(false);
+  };
+
   const typeBadge = (t: string) => <span className={`badge-${t.toLowerCase()}`}>{statusLabels[t]}</span>;
   const statusBadge = (s: string) => {
     const map: Record<string, string> = { CONFIRMED: 'badge-confirmed', CANCELLED: 'badge-cancelled', DRAFT: 'badge-inactive' };
@@ -61,7 +90,13 @@ export default function InvoicesPage() {
     <div>
       <div className="page-header">
         <h1 className="page-title">إدارة الفواتير</h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} />فاتورة جديدة</button>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
+            {exporting ? <span className="w-4 h-4 border-2 border-gray-300 border-t-[#E15A30] rounded-full animate-spin" /> : <Download size={16} />}
+            تصدير Excel
+          </button>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} />فاتورة جديدة</button>
+        </div>
       </div>
 
       {/* Filters */}
