@@ -4,7 +4,7 @@ import { formatCurrency, formatDate } from '../utils/format';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
-  Search, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
+  Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
@@ -195,28 +195,37 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
 
 // ============ قائمة العملاء ============
 function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void; canAdd: boolean; onAdd: () => void }) {
-  const [search, setSearch] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(async () => {
+    (async () => {
       setLoading(true);
       try {
-        const res = await repApi.get('/customers', { params: { search, limit: 30 } });
+        const res = await repApi.get('/customers', { params: { limit: 1000 } });
         setCustomers(res.data.data);
       } catch { /* */ }
       setLoading(false);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [search]);
+    })();
+  }, []);
 
   return (
     <div className="h-full flex flex-col">
       <div className="p-3 flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input pr-9" placeholder="بحث عن عميل..." value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="flex-1">
+          <SearchableSelect
+            placeholder="اختر العميل"
+            searchPlaceholder="اكتب اسم أو جوال العميل…"
+            value=""
+            resetOnSelect
+            options={customers.map(c => ({
+              value: c.id,
+              label: c.name,
+              hint: Number(c.balance) > 0 ? `رصيد ${formatCurrency(c.balance)}` : c.phone,
+              hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
+            }))}
+            onChange={(v) => { const c = customers.find(x => x.id === v); if (c) onSelect(c); }}
+          />
         </div>
         {canAdd && (
           <button onClick={onAdd} title="إضافة عميل"
