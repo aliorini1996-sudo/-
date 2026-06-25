@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
   Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound,
@@ -21,13 +21,13 @@ const navItems = [
 
 export default function MainLayout() {
   const { user, logout, impersonating, stopImpersonating } = useAuthStore();
-  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    // إعادة تحميل كاملة لمسح ذاكرة React Query ومنع تسرّب بيانات بين الجلسات
+    window.location.replace('/login');
   };
 
   const backToPlatform = () => {

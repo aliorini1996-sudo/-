@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
@@ -7,7 +6,6 @@ import { useAuthStore } from '../store/authStore';
 import { BrandIcon, BrandWordmark } from '../components/BrandLogo';
 
 export default function LoginPage() {
-  const navigate = useNavigate();
   const { login } = useAuthStore();
   const [form, setForm] = useState({ username: '', password: '' });
   const [showPass, setShowPass] = useState(false);
@@ -22,7 +20,8 @@ export default function LoginPage() {
       const { token, user } = res.data.data;
       login(token, user);
       toast.success(`مرحباً ${user.name}`);
-      navigate('/');
+      // إعادة تحميل كاملة لمساحة الشركة — تضمن تهيئة الجلسة من token بلا أي تداخل
+      window.location.replace('/');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ في تسجيل الدخول';
       toast.error(msg);

@@ -7,8 +7,18 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// مفاتيح الجلسة حسب المساحة الحالية: لوحة المالك (sa_) أو لوحة الشركة (token)
+// يطابق العزل في store/authStore.ts ويمنع تداخل جلستي المالك والأدمن.
+function spaceKeys() {
+  const p = window.location.pathname;
+  const platform = p.startsWith('/platform') || p.startsWith('/owner');
+  return platform
+    ? { tokenKey: 'sa_token', userKey: 'sa_user', loginPath: '/owner' }
+    : { tokenKey: 'token', userKey: 'user', loginPath: '/login' };
+}
+
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem(spaceKeys().tokenKey);
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -16,10 +26,12 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   r => r,
   err => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+    // لا نتعامل مع 401 لطلب تسجيل الدخول نفسه (لتظهر رسالة «بيانات غير صحيحة» في مكانها بلا إعادة توجيه)
+    const isLogin = (err.config?.url as string | undefined)?.includes('/auth/login');
+    if (err.response?.status === 401 && !isLogin) {
+      const { tokenKey, userKey, loginPath } = spaceKeys();
+      [tokenKey, userKey, 'impersonating'].forEach(k => localStorage.removeItem(k));
+      window.location.href = loginPath; // المالك→/owner ، الأدمن→/login (كلٌّ لمدخله الصحيح)
     }
     return Promise.reject(err);
   }

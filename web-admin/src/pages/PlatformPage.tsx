@@ -10,7 +10,6 @@ import {
   BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { BrandIcon } from '../components/BrandLogo';
 
@@ -18,7 +17,6 @@ const PLAN_LABELS: Record<string, string> = { basic: 'أساسي', pro: 'احت�
 
 export default function PlatformPage() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const { user, logout, impersonate } = useAuthStore();
   const [showCreate, setShowCreate] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -55,7 +53,7 @@ export default function PlatformPage() {
     onError: () => toast.error('تعذّر حذف الشركة'),
   });
 
-  const handleLogout = () => { logout(); navigate('/owner'); };
+  const handleLogout = () => { logout(); window.location.replace('/owner'); };
 
   const activeCount = tenants?.filter(t => t.isActive).length ?? 0;
   const totalReps = tenants?.reduce((s, t) => s + (t._count?.salesReps ?? 0), 0) ?? 0;
