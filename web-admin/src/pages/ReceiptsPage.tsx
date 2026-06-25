@@ -7,6 +7,7 @@ import { Plus, XCircle, ChevronLeft, ChevronRight, FileText, Download } from 'lu
 import toast from 'react-hot-toast';
 import ReceiptModal from '../components/forms/ReceiptModal';
 import DocumentModal from '../components/DocumentModal';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { ReceiptDoc, receiptDocFromDetail, Company } from '../rep/RepDocuments';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 
@@ -20,6 +21,7 @@ export default function ReceiptsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [docResult, setDocResult] = useState<ReceiptDoc | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [cancelId, setCancelId] = useState<string | null>(null);
 
   const { data: company } = useQuery({
     queryKey: ['company'],
@@ -163,7 +165,7 @@ export default function ReceiptsPage() {
                       </button>
                       {r.status === 'ACTIVE' && (
                         <button
-                          onClick={() => { if (confirm('إلغاء السند؟')) cancelMutation.mutate(r.id); }}
+                          onClick={() => setCancelId(r.id)}
                           className="p-1.5 hover:bg-red-50 rounded text-red-500"
                           title="إلغاء"
                         >
@@ -200,6 +202,17 @@ export default function ReceiptsPage() {
         />
       )}
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
+      {cancelId && (
+        <ConfirmDialog
+          title="إلغاء سند القبض"
+          message="هل تريد إلغاء هذا السند؟ سيُعكس أثره على رصيد العميل."
+          confirmLabel="نعم، إلغاء"
+          danger
+          loading={cancelMutation.isPending}
+          onConfirm={() => { cancelMutation.mutate(cancelId, { onSettled: () => setCancelId(null) }); }}
+          onClose={() => setCancelId(null)}
+        />
+      )}
     </div>
   );
 }

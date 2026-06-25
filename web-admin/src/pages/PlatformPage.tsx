@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tenantApi } from '../api/client';
 import { Tenant } from '../types';
-import { formatDate } from '../utils/format';
+import { formatDate, formatCurrency } from '../utils/format';
 import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -22,6 +23,7 @@ export default function PlatformPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
+  const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
   const [createdInfo, setCreatedInfo] = useState<{ company: string; email: string; password: string } | null>(null);
 
   const { data: tenants, isLoading } = useQuery({
@@ -146,6 +148,12 @@ export default function PlatformPage() {
                             <LogIn size={13} /> دخول
                           </button>
                           <button
+                            onClick={() => setPerfTarget(t)}
+                            className="p-1.5 rounded text-[#1E7A52] hover:bg-green-50"
+                            title="أداء الشركة">
+                            <BarChart3 size={15} />
+                          </button>
+                          <button
                             onClick={() => toggleMutation.mutate({ id: t.id, isActive: !t.isActive })}
                             className={`p-1.5 rounded ${t.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
                             title={t.isActive ? 'إيقاف الاشتراك' : 'تفعيل الاشتراك'}>
@@ -175,6 +183,7 @@ export default function PlatformPage() {
         />
       )}
       {createdInfo && <CredentialsModal info={createdInfo} onClose={() => setCreatedInfo(null)} />}
+      {perfTarget && <PerformanceModal tenant={perfTarget} onClose={() => setPerfTarget(null)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal
@@ -220,6 +229,140 @@ function DeleteConfirmModal({ tenant, loading, onConfirm, onClose }: { tenant: T
           <button onClick={onClose} className="btn-secondary">إلغاء</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// بيانات أداء الشركة من الخادم
+interface PerfData {
+  company: { name: string; plan: string; isActive: boolean; subscriptionEndsAt: string | null; createdAt: string };
+  counts: { customers: number; products: number; salesReps: number };
+  invoicesCount: number;
+  salesTotal: number;
+  returnsCount: number;
+  returnsTotal: number;
+  receiptsCount: number;
+  collectionsTotal: number;
+  topReps: { id: string; name: string; invoicesCount: number; salesTotal: number }[];
+}
+
+// نافذة أداء عمل الشركة — للسوبر أدمن
+function PerformanceModal({ tenant, onClose }: { tenant: Tenant; onClose: () => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['tenant-performance', tenant.id],
+    queryFn: async () => { const res = await tenantApi.performance(tenant.id); return res.data.data as PerfData; },
+  });
+
+  const netSales = (data?.salesTotal ?? 0) - (data?.returnsTotal ?? 0);
+  const outstanding = netSales - (data?.collectionsTotal ?? 0);
+  const collectionRate = netSales > 0 ? Math.round(((data?.collectionsTotal ?? 0) / netSales) * 100) : 0;
+  const maxRepSales = Math.max(1, ...(data?.topReps ?? []).map(r => r.salesTotal));
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3] sticky top-0 bg-white rounded-t-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 bg-[#FBEBE2] rounded-xl flex items-center justify-center">
+              <BarChart3 size={22} className="text-[#E15A30]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-[#1F1A13]">أداء الشركة</h2>
+              <p className="text-sm text-[#6E6557]">{tenant.name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+
+        {isLoading ? (
+          <div className="py-16 text-center text-gray-400">جاري تحميل بيانات الأداء...</div>
+        ) : isError || !data ? (
+          <div className="py-16 text-center text-red-500">تعذّر تحميل بيانات الأداء</div>
+        ) : (
+          <div className="p-5 space-y-5">
+            {/* المؤشرات المالية */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <PerfCard icon={TrendingUp} label="صافي المبيعات" value={formatCurrency(netSales)} color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
+              <PerfCard icon={Wallet} label="إجمالي التحصيل" value={formatCurrency(data.collectionsTotal)} color="text-[#1E7A52]" bg="bg-green-50" />
+              <PerfCard icon={FileText} label="المتبقي على العملاء" value={formatCurrency(outstanding)} color="text-amber-600" bg="bg-amber-50" />
+              <PerfCard icon={RotateCcw} label="المرتجعات" value={formatCurrency(data.returnsTotal)} color="text-red-500" bg="bg-red-50" />
+            </div>
+
+            {/* نسبة التحصيل */}
+            <div className="bg-[#FAF7F0] rounded-xl p-4 border border-[#E9E1D3]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-[#1F1A13]">نسبة التحصيل من صافي المبيعات</span>
+                <span className="text-sm font-bold text-[#1E7A52]">{collectionRate}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-[#E9E1D3] rounded-full overflow-hidden">
+                <div className="h-full bg-[#1E7A52] rounded-full transition-all" style={{ width: `${Math.min(100, collectionRate)}%` }} />
+              </div>
+            </div>
+
+            {/* عدّادات النشاط */}
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+              <CountChip icon={Users} label="مناديب" value={data.counts.salesReps} />
+              <CountChip icon={Building2} label="عملاء" value={data.counts.customers} />
+              <CountChip icon={Package} label="منتجات" value={data.counts.products} />
+              <CountChip icon={FileText} label="فواتير" value={data.invoicesCount} />
+              <CountChip icon={Wallet} label="سندات" value={data.receiptsCount} />
+            </div>
+
+            {/* أفضل المناديب */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Trophy size={16} className="text-[#E15A30]" />
+                <h3 className="text-sm font-bold text-[#1F1A13]">أفضل المناديب أداءً</h3>
+              </div>
+              {data.topReps.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">لا يوجد مناديب بعد</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {data.topReps.map((r, i) => (
+                    <div key={r.id} className="flex items-center gap-3">
+                      <span className={`w-6 h-6 shrink-0 rounded-full text-xs font-bold flex items-center justify-center ${i === 0 ? 'bg-[#E15A30] text-white' : 'bg-[#FBEBE2] text-[#C94E28]'}`}>{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-[#1F1A13] truncate">{r.name}</span>
+                          <span className="text-sm font-bold text-[#1F1A13]">{formatCurrency(r.salesTotal)}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-[#F1EBDF] rounded-full overflow-hidden">
+                          <div className="h-full bg-[#E15A30] rounded-full" style={{ width: `${(r.salesTotal / maxRepSales) * 100}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-400 shrink-0">{r.invoicesCount} فاتورة</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-gray-400 text-center pt-1">
+              الشركة منشأة منذ {formatDate(data.company.createdAt)} · الخطة: {PLAN_LABELS[data.company.plan] || data.company.plan}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PerfCard({ icon: Icon, label, value, color, bg }: { icon: React.ElementType; label: string; value: string; color: string; bg: string }) {
+  return (
+    <div className="bg-white rounded-xl p-3.5 border border-[#E9E1D3]">
+      <div className={`w-9 h-9 ${bg} rounded-lg flex items-center justify-center mb-2`}><Icon size={18} className={color} /></div>
+      <p className={`text-base font-bold ${color}`}>{value}</p>
+      <p className="text-[11px] text-[#6E6557] mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+function CountChip({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: number }) {
+  return (
+    <div className="bg-[#FAF7F0] rounded-xl p-3 text-center border border-[#E9E1D3]">
+      <Icon size={16} className="text-[#9A8F7E] mx-auto mb-1" />
+      <p className="text-lg font-bold text-[#1F1A13]">{value}</p>
+      <p className="text-[11px] text-[#6E6557]">{label}</p>
     </div>
   );
 }

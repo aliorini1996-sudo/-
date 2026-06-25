@@ -151,6 +151,50 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 });
 
+// أداء شركة معيّنة — إحصائيات شاملة للسوبر أدمن
+router.get('/:id/performance', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = req.params.id;
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid } });
+    if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+
+    const [customers, products, salesReps, sales, returns, receipts, topReps] = await Promise.all([
+      prisma.customer.count({ where: { tenantId: tid } }),
+      prisma.product.count({ where: { tenantId: tid } }),
+      prisma.salesRep.count({ where: { tenantId: tid } }),
+      prisma.invoice.aggregate({ where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' } }, _count: { id: true }, _sum: { total: true } }),
+      prisma.invoice.aggregate({ where: { tenantId: tid, status: 'CONFIRMED', type: 'RETURN' }, _count: { id: true }, _sum: { total: true } }),
+      prisma.receipt.aggregate({ where: { tenantId: tid, status: 'ACTIVE' }, _count: { id: true }, _sum: { amount: true } }),
+      prisma.salesRep.findMany({
+        where: { tenantId: tid },
+        take: 5,
+        select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' } }, select: { total: true } } },
+      }),
+    ]);
+
+    const reps = topReps.map(r => ({
+      id: r.id, name: r.name,
+      invoicesCount: r.invoices.length,
+      salesTotal: r.invoices.reduce((s, i) => s + Number(i.total), 0),
+    })).sort((a, b) => b.salesTotal - a.salesTotal);
+
+    res.json({
+      success: true,
+      data: {
+        company: { name: tenant.name, plan: tenant.plan, isActive: tenant.isActive, subscriptionEndsAt: tenant.subscriptionEndsAt, createdAt: tenant.createdAt },
+        counts: { customers, products, salesReps },
+        invoicesCount: sales._count.id,
+        salesTotal: Number(sales._sum.total ?? 0),
+        returnsCount: returns._count.id,
+        returnsTotal: Number(returns._sum.total ?? 0),
+        receiptsCount: receipts._count.id,
+        collectionsTotal: Number(receipts._sum.amount ?? 0),
+        topReps: reps,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 // إعادة تعيين كلمة مرور أدمن الشركة
 router.post('/:id/reset-admin', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

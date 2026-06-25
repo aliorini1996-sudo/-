@@ -7,6 +7,7 @@ import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download } 
 import toast from 'react-hot-toast';
 import InvoiceModal from '../components/forms/InvoiceModal';
 import DocumentModal from '../components/DocumentModal';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { InvoiceDoc, invoiceDocFromDetail, Company } from '../rep/RepDocuments';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 
@@ -23,6 +24,7 @@ export default function InvoicesPage() {
   const [docResult, setDocResult] = useState<InvoiceDoc | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [cancelId, setCancelId] = useState<string | null>(null);
 
   const { data: company } = useQuery({
     queryKey: ['company'],
@@ -193,7 +195,7 @@ export default function InvoicesPage() {
                       </button>
                       {inv.status === 'CONFIRMED' && (
                         <button
-                          onClick={() => { if (confirm('هل تريد إلغاء هذه الفاتورة؟')) cancelMutation.mutate(inv.id); }}
+                          onClick={() => setCancelId(inv.id)}
                           className="p-1.5 hover:bg-red-50 rounded text-red-500"
                           title="إلغاء"
                         >
@@ -231,6 +233,17 @@ export default function InvoicesPage() {
         />
       )}
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
+      {cancelId && (
+        <ConfirmDialog
+          title="إلغاء الفاتورة"
+          message="هل تريد إلغاء هذه الفاتورة؟ سيُعكس أثرها على رصيد العميل."
+          confirmLabel="نعم، إلغاء"
+          danger
+          loading={cancelMutation.isPending}
+          onConfirm={() => { cancelMutation.mutate(cancelId, { onSettled: () => setCancelId(null) }); }}
+          onClose={() => setCancelId(null)}
+        />
+      )}
     </div>
   );
 }
