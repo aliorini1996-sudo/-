@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
-  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
@@ -20,6 +20,7 @@ export default function PlatformPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
+  const [editTarget, setEditTarget] = useState<Tenant | null>(null);
   const [createdInfo, setCreatedInfo] = useState<{ company: string; email: string; password: string } | null>(null);
 
   const { data: tenants, isLoading } = useQuery({
@@ -155,6 +156,12 @@ export default function PlatformPage() {
                             <BarChart3 size={15} />
                           </button>
                           <button
+                            onClick={() => setEditTarget(t)}
+                            className="p-1.5 rounded text-[#C94E28] hover:bg-[#FBEBE2]"
+                            title="تعديل الشركة (عدد المناديب والاشتراك)">
+                            <Pencil size={15} />
+                          </button>
+                          <button
                             onClick={() => toggleMutation.mutate({ id: t.id, isActive: !t.isActive })}
                             className={`p-1.5 rounded ${t.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
                             title={t.isActive ? 'إيقاف الاشتراك' : 'تفعيل الاشتراك'}>
@@ -185,6 +192,13 @@ export default function PlatformPage() {
       )}
       {createdInfo && <CredentialsModal info={createdInfo} onClose={() => setCreatedInfo(null)} />}
       {perfTarget && <PerformanceModal tenant={perfTarget} onClose={() => setPerfTarget(null)} />}
+      {editTarget && (
+        <EditTenantModal
+          tenant={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
+        />
+      )}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal
@@ -375,6 +389,83 @@ function StatBox({ icon: Icon, label, value, color }: { icon: React.ElementType;
       <div>
         <p className="text-lg font-bold text-gray-800">{value}</p>
         <p className="text-xs text-gray-500">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+// تعديل شركة قائمة — عدد المناديب المسموح وتاريخ انتهاء الاشتراك (للسوبر أدمن)
+function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose: () => void; onSaved: () => void }) {
+  const [unlimitedReps, setUnlimitedReps] = useState(tenant.maxSalesReps == null);
+  const [maxSalesReps, setMaxSalesReps] = useState(tenant.maxSalesReps != null ? String(tenant.maxSalesReps) : '');
+  const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
+    tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
+  );
+  const currentReps = tenant._count?.salesReps ?? 0;
+
+  const mutation = useMutation({
+    mutationFn: () => tenantApi.update(tenant.id, {
+      maxSalesReps: unlimitedReps ? null : Number(maxSalesReps),
+      subscriptionEndsAt: subscriptionEndsAt || null,
+    }),
+    onSuccess: () => { toast.success('تم تحديث بيانات الشركة'); onSaved(); },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر التحديث'),
+  });
+
+  const submit = () => {
+    if (!unlimitedReps && (!Number.isInteger(Number(maxSalesReps)) || Number(maxSalesReps) < 1)) {
+      toast.error('حدّد عدد مناديب صحيحاً (1 أو أكثر) أو اختر «غير محدود»'); return;
+    }
+    if (!unlimitedReps && Number(maxSalesReps) < currentReps) {
+      toast.error(`الشركة لديها ${currentReps} مندوباً حالياً — لا يمكن جعل الحد أقل من ذلك`); return;
+    }
+    mutation.mutate();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center">
+              <Pencil size={18} className="text-[#E15A30]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-[#1F1A13]">تعديل الشركة</h2>
+              <p className="text-sm text-[#6E6557]">{tenant.name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="label flex items-center gap-1"><Users size={12} /> عدد المناديب المسموح</label>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0 select-none">
+                <input type="checkbox" className="w-4 h-4 accent-[#E15A30]"
+                  checked={unlimitedReps} onChange={e => setUnlimitedReps(e.target.checked)} />
+                غير محدود
+              </label>
+              {!unlimitedReps && (
+                <input type="number" min={1} className="input flex-1" placeholder="مثال: 5" autoFocus
+                  value={maxSalesReps} onChange={e => setMaxSalesReps(e.target.value)} />
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">المناديب الحاليون: {currentReps}</p>
+          </div>
+          <div>
+            <label className="label flex items-center gap-1"><Calendar size={12} /> انتهاء الاشتراك</label>
+            <input type="date" className="input" value={subscriptionEndsAt} onChange={e => setSubscriptionEndsAt(e.target.value)} />
+            <p className="text-xs text-gray-400 mt-1">اتركه فارغاً لاشتراك غير محدود المدة</p>
+          </div>
+        </div>
+        <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
+          <button onClick={submit} disabled={mutation.isPending} className="btn-primary flex-1 justify-center py-2.5">
+            {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
+            حفظ التعديلات
+          </button>
+          <button onClick={onClose} className="btn-secondary">إلغاء</button>
+        </div>
       </div>
     </div>
   );
