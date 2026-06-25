@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
+import SearchableSelect from '../components/SearchableSelect';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer';
@@ -358,7 +359,6 @@ function CustomerDetail({ customer, repName, company, onClose, onInvoice, onRece
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
   const isReturn = mode === 'return';
   const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
-  const [search, setSearch] = useState('');
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
@@ -366,18 +366,17 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
-  // جلب المنتجات كشبكة أيقونات (مصفّاة بالبحث) — أسلوب نقطة البيع
+  // جلب قائمة المنتجات كاملة (الاختيار عبر قائمة منسدلة بالتصفية + شبكة للتصفّح)
   useEffect(() => {
-    const t = setTimeout(async () => {
+    (async () => {
       setLoadingProducts(true);
       try {
-        const res = await repApi.get('/products', { params: { search: search || undefined, status: 'ACTIVE', limit: 60 } });
+        const res = await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } });
         setProducts(res.data.data);
       } catch { /* */ }
       setLoadingProducts(false);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [search]);
+    })();
+  }, []);
 
   // السعر الذي يُدخله المندوب شامل الضريبة؛ نشتقّ السعر قبل الضريبة للنظام
   const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -459,9 +458,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
               </div>
             )}
 
-            <div className="relative mb-2">
-              <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input className="input pr-9" placeholder="ابحث عن صنف..." value={search} onChange={e => setSearch(e.target.value)} />
+            <div className="mb-2">
+              <SearchableSelect
+                placeholder="اختر صنفاً لإضافته"
+                searchPlaceholder="اكتب اسم الصنف…"
+                value=""
+                resetOnSelect
+                options={products.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
+                onChange={(v) => { const p = products.find(x => x.id === v); if (p) addProduct(p); }}
+              />
             </div>
           </div>
 

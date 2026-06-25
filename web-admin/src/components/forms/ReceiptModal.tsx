@@ -4,16 +4,15 @@ import { receiptApi, customerApi, invoiceApi, salesRepApi, companyApi } from '..
 import { Customer, Invoice, SalesRep } from '../../types';
 import { formatCurrency } from '../../utils/format';
 import { ReceiptDoc, Company } from '../../rep/RepDocuments';
-import { X, Search, Plus } from 'lucide-react';
+import { X, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import SearchableSelect from '../SearchableSelect';
 
 interface Props { onClose: () => void; onSaved: (doc: ReceiptDoc) => void; }
 
 export default function ReceiptModal({ onClose, onSaved }: Props) {
   const [customerId, setCustomerId] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [showCustomerList, setShowCustomerList] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [chequeNumber, setChequeNumber] = useState('');
@@ -37,12 +36,11 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
   });
 
   const { data: customers } = useQuery({
-    queryKey: ['customers-search', customerSearch],
+    queryKey: ['customers-all'],
     queryFn: async () => {
-      const res = await customerApi.list({ search: customerSearch, limit: 8 });
+      const res = await customerApi.list({ limit: 1000 });
       return res.data.data as Customer[];
     },
-    enabled: customerSearch.length > 0,
   });
 
   const { data: openInvoices } = useQuery({
@@ -102,27 +100,20 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
 
         <div className="p-5 space-y-4">
           {/* Customer */}
-          <div className="relative">
+          <div>
             <label className="label">العميل *</label>
-            <div className="relative">
-              <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input className="input pr-9" placeholder="ابحث عن عميل..."
-                value={selectedCustomer ? selectedCustomer.name : customerSearch}
-                onChange={e => { setCustomerSearch(e.target.value); setSelectedCustomer(null); setCustomerId(''); setShowCustomerList(true); }}
-                onFocus={() => setShowCustomerList(true)}
-              />
-            </div>
-            {showCustomerList && customers && customers.length > 0 && (
-              <div className="absolute top-full right-0 left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
-                {customers.map(c => (
-                  <button key={c.id} className="w-full text-right px-3 py-2 hover:bg-[#FBEBE2] text-sm"
-                    onClick={() => { setSelectedCustomer(c); setCustomerId(c.id); setCustomerSearch(''); setShowCustomerList(false); setAllocations({}); }}>
-                    <span className="font-medium">{c.name}</span>
-                    {Number(c.balance) > 0 && <span className="text-red-500 text-xs mr-2">رصيد: {formatCurrency(c.balance)}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
+            <SearchableSelect
+              placeholder="اختر العميل"
+              searchPlaceholder="اكتب اسم أو جوال العميل…"
+              value={customerId}
+              options={(customers || []).map(c => ({
+                value: c.id,
+                label: c.name,
+                hint: Number(c.balance) > 0 ? `رصيد ${formatCurrency(c.balance)}` : c.phone,
+                hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
+              }))}
+              onChange={(v) => { setCustomerId(v); setSelectedCustomer((customers || []).find(c => c.id === v) || null); setAllocations({}); }}
+            />
           </div>
 
           {/* Sales Rep */}

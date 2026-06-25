@@ -4,8 +4,9 @@ import { invoiceApi, customerApi, productApi, salesRepApi, companyApi } from '..
 import { Customer, Product, SalesRep } from '../../types';
 import { formatCurrency } from '../../utils/format';
 import { InvoiceDoc, Company } from '../../rep/RepDocuments';
-import { X, Plus, Trash2, Search } from 'lucide-react';
+import { X, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import SearchableSelect from '../SearchableSelect';
 
 interface LineItem {
   productId: string;
@@ -31,14 +32,10 @@ function calcLine(qty: number, price: number, discPct: number, taxPct: number) {
 
 export default function InvoiceModal({ onClose, onSaved }: Props) {
   const [customerId, setCustomerId] = useState('');
-  const [customerSearch, setCustomerSearch] = useState('');
   const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
   const [discountPct, setDiscountPct] = useState(0);
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<LineItem[]>([]);
-  const [productSearch, setProductSearch] = useState('');
-  const [showCustomerList, setShowCustomerList] = useState(false);
-  const [showProductList, setShowProductList] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [salesRepId, setSalesRepId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(''); // فارغ = اليوم؛ يسمح بإصدار قديم
@@ -56,22 +53,21 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
   });
 
+  // نجلب القائمة كاملة لتعمل القائمة المنسدلة بالتصفية المحلية بالكتابة
   const { data: customers } = useQuery({
-    queryKey: ['customers-search', customerSearch],
+    queryKey: ['customers-all'],
     queryFn: async () => {
-      const res = await customerApi.list({ search: customerSearch, limit: 10 });
+      const res = await customerApi.list({ limit: 1000 });
       return res.data.data as Customer[];
     },
-    enabled: customerSearch.length > 0,
   });
 
   const { data: products } = useQuery({
-    queryKey: ['products-search', productSearch],
+    queryKey: ['products-all'],
     queryFn: async () => {
-      const res = await productApi.list({ search: productSearch, status: 'ACTIVE', limit: 10 });
+      const res = await productApi.list({ status: 'ACTIVE', limit: 1000 });
       return res.data.data as Product[];
     },
-    enabled: productSearch.length > 0,
   });
 
   const mutation = useMutation({
@@ -110,8 +106,6 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         lineTotal: calcLine(1, Number(p.basePrice), 0, Number(p.taxPct)),
       }]);
     }
-    setProductSearch('');
-    setShowProductList(false);
   };
 
   const updateLine = (idx: number, field: keyof LineItem, value: number) => {
@@ -153,30 +147,20 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         <div className="p-5 space-y-5">
           {/* Customer + Rep + Type + Date */}
           <div className="grid grid-cols-4 gap-4">
-            <div className="relative">
+            <div>
               <label className="label">العميل *</label>
-              <div className="relative">
-                <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  className="input pr-9"
-                  placeholder="ابحث عن عميل..."
-                  value={selectedCustomer ? selectedCustomer.name : customerSearch}
-                  onChange={e => { setCustomerSearch(e.target.value); setSelectedCustomer(null); setCustomerId(''); setShowCustomerList(true); }}
-                  onFocus={() => setShowCustomerList(true)}
-                />
-              </div>
-              {showCustomerList && customers && customers.length > 0 && (
-                <div className="absolute top-full right-0 left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
-                  {customers.map(c => (
-                    <button key={c.id} className="w-full text-right px-3 py-2 hover:bg-[#FBEBE2] text-sm"
-                      onClick={() => { setSelectedCustomer(c); setCustomerId(c.id); setShowCustomerList(false); }}>
-                      <span className="font-medium">{c.name}</span>
-                      <span className="text-gray-400 mr-2 text-xs">{c.phone}</span>
-                      {Number(c.balance) > 0 && <span className="text-red-500 text-xs"> • رصيد: {formatCurrency(c.balance)}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <SearchableSelect
+                placeholder="اختر العميل"
+                searchPlaceholder="اكتب اسم أو جوال العميل…"
+                value={customerId}
+                options={(customers || []).map(c => ({
+                  value: c.id,
+                  label: c.name,
+                  hint: c.phone + (Number(c.balance) > 0 ? ` • رصيد ${formatCurrency(c.balance)}` : ''),
+                  hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
+                }))}
+                onChange={(v) => { setCustomerId(v); setSelectedCustomer((customers || []).find(c => c.id === v) || null); }}
+              />
             </div>
             <div>
               <label className="label">المندوب *</label>
@@ -202,26 +186,15 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="label mb-0">الأصناف</label>
-              <div className="relative w-64">
-                <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  className="input pr-9 text-sm"
-                  placeholder="ابحث عن صنف..."
-                  value={productSearch}
-                  onChange={e => { setProductSearch(e.target.value); setShowProductList(true); }}
-                  onFocus={() => setShowProductList(true)}
+              <div className="w-72">
+                <SearchableSelect
+                  placeholder="أضف صنفاً"
+                  searchPlaceholder="اكتب اسم أو كود الصنف…"
+                  value=""
+                  resetOnSelect
+                  options={(products || []).map(p => ({ value: p.id, label: p.name, hint: `${p.code} • ${formatCurrency(p.basePrice)}` }))}
+                  onChange={(v) => { const p = (products || []).find(x => x.id === v); if (p) addProduct(p); }}
                 />
-                {showProductList && products && products.length > 0 && (
-                  <div className="absolute top-full right-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 w-80 max-h-48 overflow-y-auto">
-                    {products.map(p => (
-                      <button key={p.id} className="w-full text-right px-3 py-2 hover:bg-[#FBEBE2] text-sm"
-                        onClick={() => addProduct(p)}>
-                        <span className="font-medium">{p.name}</span>
-                        <span className="text-gray-400 mr-2 text-xs">{p.code} • {formatCurrency(p.basePrice)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
 
@@ -236,7 +209,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 </thead>
                 <tbody>
                   {lines.length === 0 && (
-                    <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">ابحث عن صنف وأضفه</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">اختر صنفاً من القائمة لإضافته</td></tr>
                   )}
                   {lines.map((l, i) => (
                     <tr key={l.productId}>
