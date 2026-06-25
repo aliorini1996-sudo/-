@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import ResetPasswordModal from '../components/ResetPasswordModal';
 import { BrandIcon } from '../components/BrandLogo';
 
 export default function PlatformPage() {
@@ -21,6 +22,7 @@ export default function PlatformPage() {
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);
+  const [resetTarget, setResetTarget] = useState<Tenant | null>(null);
   const [createdInfo, setCreatedInfo] = useState<{ company: string; email: string; password: string } | null>(null);
 
   const { data: tenants, isLoading } = useQuery({
@@ -162,6 +164,12 @@ export default function PlatformPage() {
                             <Pencil size={15} />
                           </button>
                           <button
+                            onClick={() => setResetTarget(t)}
+                            className="p-1.5 rounded text-amber-600 hover:bg-amber-50"
+                            title="إعادة تعيين كلمة مرور مدير الشركة">
+                            <KeyRound size={15} />
+                          </button>
+                          <button
                             onClick={() => toggleMutation.mutate({ id: t.id, isActive: !t.isActive })}
                             className={`p-1.5 rounded ${t.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
                             title={t.isActive ? 'إيقاف الاشتراك' : 'تفعيل الاشتراك'}>
@@ -197,6 +205,14 @@ export default function PlatformPage() {
           tenant={editTarget}
           onClose={() => setEditTarget(null)}
           onSaved={() => { setEditTarget(null); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
+        />
+      )}
+      {resetTarget && (
+        <ResetPasswordModal
+          title="إعادة تعيين كلمة مرور مدير الشركة"
+          subject={`${resetTarget.name} · ${resetTarget.admins?.[0]?.email || 'المدير الرئيسي'}`}
+          onConfirm={async (newPassword) => { await tenantApi.resetAdmin(resetTarget.id, { newPassword }); }}
+          onClose={() => setResetTarget(null)}
         />
       )}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}

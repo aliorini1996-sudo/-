@@ -4,12 +4,14 @@ import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { BrandIcon, BrandWordmark } from '../components/BrandLogo';
+import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 
 export default function LoginPage() {
   const { login } = useAuthStore();
   const [form, setForm] = useState({ username: '', password: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,12 +116,19 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 p-3 bg-[#FBEBE2] rounded-xl text-xs text-[#9C4423]">
+          <button type="button" onClick={() => setShowForgot(true)}
+            className="text-sm text-[#6E6557] hover:text-[#E15A30] mt-4 mx-auto block transition-colors">
+            نسيت كلمة المرور؟
+          </button>
+
+          <div className="mt-5 p-3 bg-[#FBEBE2] rounded-xl text-xs text-[#9C4423]">
             <p className="font-semibold mb-1">بيانات تجريبية:</p>
             <p>البريد: admin@dsd.com · كلمة المرور: admin123</p>
           </div>
         </div>
       </div>
+
+      {showForgot && <ForgotPasswordDialog role="admin" onClose={() => setShowForgot(false)} />}
     </div>
   );
 }

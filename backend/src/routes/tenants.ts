@@ -198,12 +198,15 @@ router.get('/:id/performance', async (req: AuthRequest, res: Response, next: Nex
 // إعادة تعيين كلمة مرور أدمن الشركة
 router.post('/:id/reset-admin', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const schema = z.object({ adminId: z.string(), newPassword: z.string().min(6) });
+    const schema = z.object({ adminId: z.string().optional(), newPassword: z.string().min(6) });
     const { adminId, newPassword } = schema.parse(req.body);
-    const admin = await prisma.admin.findFirst({ where: { id: adminId, tenantId: req.params.id } });
+    // إن لم يُحدَّد adminId نعيد تعيين كلمة مرور المدير الرئيسي (الأقدم) للشركة
+    const admin = adminId
+      ? await prisma.admin.findFirst({ where: { id: adminId, tenantId: req.params.id } })
+      : await prisma.admin.findFirst({ where: { tenantId: req.params.id }, orderBy: { createdAt: 'asc' } });
     if (!admin) { res.status(404).json({ success: false, message: 'المدير غير موجود' }); return; }
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await prisma.admin.update({ where: { id: adminId }, data: { passwordHash } });
+    await prisma.admin.update({ where: { id: admin.id }, data: { passwordHash } });
     res.json({ success: true });
   } catch (err) { next(err); }
 });

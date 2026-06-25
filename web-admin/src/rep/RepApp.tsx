@@ -8,6 +8,7 @@ import {
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
+import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer';
@@ -21,6 +22,7 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showForgot, setShowForgot] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,11 +73,17 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
             {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
             دخول
           </button>
-          <div className="mt-4 p-2.5 bg-[#FBEBE2] rounded-lg text-[11px] text-[#9C4423]">
+          <button type="button" onClick={() => setShowForgot(true)}
+            className="w-full text-center text-xs text-[#6E6557] hover:text-[#E15A30] mt-3 transition-colors">
+            نسيت كلمة المرور؟
+          </button>
+          <div className="mt-3 p-2.5 bg-[#FBEBE2] rounded-lg text-[11px] text-[#9C4423]">
             تجريبي: <b>rep1</b> / <b>rep123</b>
           </div>
         </form>
       </div>
+
+      {showForgot && <ForgotPasswordDialog role="rep" onClose={() => setShowForgot(false)} />}
     </div>
   );
 }

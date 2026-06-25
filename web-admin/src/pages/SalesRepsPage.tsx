@@ -5,6 +5,7 @@ import { SalesRep, Invoice, Receipt } from '../types';
 import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
+import ResetPasswordModal from '../components/ResetPasswordModal';
 import { formatCurrency, formatDate, statusLabels, paymentMethodLabels } from '../utils/format';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 
@@ -17,6 +18,7 @@ export default function SalesRepsPage() {
   const [selected, setSelected] = useState<SalesRep | null>(null);
   const [createdCreds, setCreatedCreds] = useState<Creds | null>(null);
   const [statementRep, setStatementRep] = useState<SalesRep | null>(null);
+  const [resetRep, setResetRep] = useState<SalesRep | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['sales-reps', search],
@@ -102,6 +104,7 @@ export default function SalesRepsPage() {
                     <div className="flex items-center gap-1">
                       <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title="كشف الأداء والمبيعات"><FileBarChart2 size={14} /></button>
                       <button onClick={() => { setSelected(r); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل"><Edit size={14} /></button>
+                      <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title="إعادة تعيين كلمة المرور"><KeyRound size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -126,6 +129,15 @@ export default function SalesRepsPage() {
 
       {statementRep && (
         <RepStatementModal rep={statementRep} onClose={() => setStatementRep(null)} />
+      )}
+
+      {resetRep && (
+        <ResetPasswordModal
+          title="إعادة تعيين كلمة مرور المندوب"
+          subject={`${resetRep.name} · ${resetRep.username}`}
+          onConfirm={async (newPassword) => { await salesRepApi.update(resetRep.id, { password: newPassword }); }}
+          onClose={() => setResetRep(null)}
+        />
       )}
     </div>
   );

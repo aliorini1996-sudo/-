@@ -117,7 +117,7 @@ export const tenantApi = {
   performance: (id: string) => api.get(`/tenants/${id}/performance`),
   create: (data: unknown) => api.post('/tenants', data),
   update: (id: string, data: unknown) => api.put(`/tenants/${id}`, data),
-  resetAdmin: (id: string, data: { adminId: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),
+  resetAdmin: (id: string, data: { adminId?: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
   remove: (id: string) => api.delete(`/tenants/${id}`),
 };
