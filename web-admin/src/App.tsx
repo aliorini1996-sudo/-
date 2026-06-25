@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import MainLayout from './layouts/MainLayout';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
@@ -18,7 +19,11 @@ import RepApp from './rep/RepApp';
 // المسارات الإدارية للشركة — يُحوّل السوبر أدمن للوحة المنصّة
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore();
-  if (!token) return <Navigate to="/login" replace />;
+  const location = useLocation();
+  if (!token) {
+    // الجذر "/" يعرض صفحة الهبوط التسويقية للزوّار؛ المسارات الفرعية المحمية تُوجّه لتسجيل الدخول
+    return location.pathname === '/' ? <LandingPage /> : <Navigate to="/login" replace />;
+  }
   if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
   return <>{children}</>;
 }
