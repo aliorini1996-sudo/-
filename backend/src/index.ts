@@ -27,12 +27,22 @@ import { errorHandler } from './middleware/errorHandler';
 const app = express();
 const server = http.createServer(app);
 
+// الأصول المسموح بها: FRONTEND_URL (قائمة مفصولة بفواصل) أو * للسماح للجميع.
+// يُسمح دائماً بمعاينات Vercel وبالطلبات بلا أصل (تطبيقات الجوال/الأدوات).
+const allowedOrigins = (process.env.FRONTEND_URL || '*').split(',').map(s => s.trim()).filter(Boolean);
+const corsOrigin = allowedOrigins.includes('*')
+  ? '*'
+  : (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin || allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) cb(null, true);
+      else cb(new Error('Not allowed by CORS'));
+    };
+
 export const io = new Server(server, {
-  cors: { origin: process.env.FRONTEND_URL || '*', credentials: true },
+  cors: { origin: corsOrigin, credentials: true },
 });
 
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));

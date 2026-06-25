@@ -26,4 +26,4 @@ services:
       - key: PORT
         value: 3000
       - key: FRONTEND_URL
-        value: "*"
+        value: "https://fieldsa.net,https://www.fieldsa.net"
