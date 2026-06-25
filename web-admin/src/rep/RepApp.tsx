@@ -13,7 +13,13 @@ import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer';
 
-interface RepUser { id: string; name: string; phone?: string; canAddCustomer?: boolean }
+interface RepUser {
+  id: string; name: string; phone?: string;
+  canAddCustomer?: boolean;
+  canChangePrice?: boolean;
+  canSellBelowPrice?: boolean;
+  maxDiscountPct?: number;
+}
 
 // ============ تسجيل الدخول ============
 function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void }) {
@@ -349,7 +355,7 @@ function CustomerDetail({ customer, repName, company, onClose, onInvoice, onRece
 }
 
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
-function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
+function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
   const isReturn = mode === 'return';
   const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
   const [search, setSearch] = useState('');
@@ -382,10 +388,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
   const addProduct = (p: any) => {
     const idx = lines.findIndex(l => l.productId === p.id);
     if (idx >= 0) { const c = [...lines]; c[idx].qty++; setLines(c); }
-    else setLines([...lines, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }]);
+    else setLines([...lines, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), refPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }]);
   };
 
-  const upd = (i: number, f: string, v: number) => { const c = [...lines]; c[i][f] = v; setLines(c); };
+  // حدود صلاحيات المندوب (تُفرض أيضاً في الخادم كحارس نهائي)
+  const maxDisc = perms?.maxDiscountPct ?? 0;
+  const upd = (i: number, f: string, v: number) => {
+    const c = [...lines];
+    if (f === 'discountPct') v = Math.max(0, Math.min(v || 0, maxDisc));        // حدّ الخصم المسموح
+    if (f === 'unitPrice') {
+      if (!perms?.canChangePrice) return;                                       // لا يملك تغيير السعر
+      if (!perms?.canSellBelowPrice) v = Math.max(v || 0, c[i].refPrice);       // لا يبيع بأقل من السعر
+    }
+    c[i][f] = v; setLines(c);
+  };
 
   const qtyInCart = (id: string) => lines.find(l => l.productId === id)?.qty || 0;
   const itemCount = lines.reduce((s, l) => s + l.qty, 0);
@@ -511,13 +527,19 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', onClose, onD
                   <button onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-red-400"><Trash2 size={15} /></button>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {[['الكمية', 'qty'], ['السعر شامل', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => (
-                    <div key={f}>
-                      <label className="text-[10px] text-gray-400">{lbl}</label>
-                      <input type="number" className="input text-center !py-1.5 text-sm" value={l[f]}
-                        onChange={e => upd(i, f, Number(e.target.value))} />
-                    </div>
-                  ))}
+                  {[['الكمية', 'qty'], ['السعر شامل', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => {
+                    const locked = (f === 'unitPrice' && !perms?.canChangePrice) || (f === 'discountPct' && maxDisc === 0);
+                    return (
+                      <div key={f}>
+                        <label className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                          {lbl}{f === 'discountPct' && maxDisc > 0 && <span className="text-[#E15A30]">(حد {maxDisc}%)</span>}
+                        </label>
+                        <input type="number" readOnly={locked} max={f === 'discountPct' ? maxDisc : undefined} min={0}
+                          className={`input text-center !py-1.5 text-sm ${locked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? 'غير مصرّح لك بتعديل هذا الحقل' : undefined} />
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
                   <span className="text-gray-400">منها ضريبة: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
@@ -828,10 +850,10 @@ export default function RepApp() {
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
               onStatement={(doc) => { setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (
-            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} onClose={() => setModal('customerDetail')}
+            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReturn' && selectedCustomer ? (
-            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" onClose={() => setModal('customerDetail')}
+            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" perms={user} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReceipt' && selectedCustomer ? (
             <CreateReceipt customer={selectedCustomer} repName={user.name} company={company} onClose={() => setModal('customerDetail')}

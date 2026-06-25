@@ -111,10 +111,43 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const customer = await prisma.customer.findFirst({ where: { id: body.customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
 
-    // التحقق أن كل الأصناف تخص الشركة
+    // التحقق أن كل الأصناف تخص الشركة + جلب الأسعار المرجعية لفرض صلاحيات التسعير
     const productIds = [...new Set(body.items.map(i => i.productId))];
-    const prodCount = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
-    if (prodCount !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود' }); return; }
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds }, tenantId: tid },
+      select: { id: true, basePrice: true, priceTiers: { select: { price: true } } },
+    });
+    if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود' }); return; }
+
+    // فرض صلاحيات الخصم والتسعير على المندوب (الأدمن غير مقيّد) — حارس أمني خلف الواجهة
+    if (req.user!.role === 'SALES_REP') {
+      const cps = await prisma.customerPrice.findMany({
+        where: { customerId: body.customerId, productId: { in: productIds } },
+        select: { productId: true, price: true },
+      });
+      const cpMap = new Map(cps.map(c => [c.productId, c.price]));
+      const maxD = rep.maxDiscountPct || 0;
+      const TOL = 0.01; // تسامح تقريب بسيط
+      const fail = (msg: string) => { res.status(403).json({ success: false, message: msg }); };
+
+      // حد الخصم — على مستوى الفاتورة وعلى مستوى كل صنف
+      if (body.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}%`); return; }
+
+      for (const it of body.items) {
+        if (it.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}% على الأصناف`); return; }
+        const p = products.find(x => x.id === it.productId)!;
+        const ref = cpMap.has(it.productId) ? cpMap.get(it.productId)! : p.basePrice; // السعر الرسمي للعميل
+        const minTier = p.priceTiers.length ? Math.min(...p.priceTiers.map(t => t.price)) : ref;
+        const minAllowed = Math.min(ref, minTier); // أدنى سعر رسمي مسموح
+        if (!rep.canChangePrice) {
+          // لا يملك تغيير السعر: يجب أن يبقى ضمن الأسعار الرسمية للصنف
+          if (it.unitPrice < minAllowed - TOL || it.unitPrice > ref + TOL) { fail('لا تملك صلاحية تغيير سعر البيع'); return; }
+        } else if (!rep.canSellBelowPrice && it.unitPrice < minAllowed - TOL) {
+          // يملك التغيير لكن لا يملك البيع بأقل من السعر
+          fail('لا تملك صلاحية البيع بأقل من السعر المحدّد'); return;
+        }
+      }
+    }
 
     let subtotal = 0;
     const items = body.items.map(item => {
