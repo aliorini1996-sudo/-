@@ -12,7 +12,7 @@ router.use(authenticate, requireSuperAdmin);
 
 const createTenantSchema = z.object({
   companyName: z.string().min(1),       // اسم الشركة
-  plan: z.enum(['basic', 'pro', 'enterprise']).default('basic'),
+  maxSalesReps: z.number().int().min(1).nullable().optional(), // null/غياب = عدد مناديب غير محدود
   subscriptionEndsAt: z.string().optional(), // ISO date — فارغ = غير محدود
   notes: z.string().optional(),
   // بيانات أدمن الشركة الأول
@@ -24,7 +24,7 @@ const createTenantSchema = z.object({
 const updateTenantSchema = z.object({
   name: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
-  plan: z.enum(['basic', 'pro', 'enterprise']).optional(),
+  maxSalesReps: z.number().int().min(1).nullable().optional(),
   subscriptionEndsAt: z.string().nullish(),
   notes: z.string().nullish(),
 });
@@ -71,7 +71,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const t = await tx.tenant.create({
         data: {
           name: body.companyName,
-          plan: body.plan,
+          maxSalesReps: body.maxSalesReps ?? null,
           subscriptionEndsAt: body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null,
           notes: body.notes,
         },

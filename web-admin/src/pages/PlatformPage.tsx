@@ -13,8 +13,6 @@ import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { BrandIcon } from '../components/BrandLogo';
 
-const PLAN_LABELS: Record<string, string> = { basic: 'أساسي', pro: 'احترافي', enterprise: 'مؤسسي' };
-
 export default function PlatformPage() {
   const qc = useQueryClient();
   const { user, logout, impersonate } = useAuthStore();
@@ -111,7 +109,8 @@ export default function PlatformPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>الشركة</th><th>المدير</th><th>الخطة</th>
+                  <th>الشركة</th><th>المدير</th>
+                  <th className="text-center">المناديب المسموح</th>
                   <th className="text-center">مناديب</th>
                   <th className="text-center">عملاء</th>
                   <th>انتهاء الاشتراك</th><th>الحالة</th><th>إجراءات</th>
@@ -131,7 +130,11 @@ export default function PlatformPage() {
                         <p className="text-xs text-gray-400">{formatDate(t.createdAt)}</p>
                       </td>
                       <td className="text-sm text-gray-600">{t.admins?.[0]?.email || '-'}</td>
-                      <td><span className="badge-active">{PLAN_LABELS[t.plan] || t.plan}</span></td>
+                      <td className="text-center">
+                        {t.maxSalesReps == null
+                          ? <span className="badge-active">غير محدود</span>
+                          : <span className="font-semibold text-gray-700">{t.maxSalesReps}</span>}
+                      </td>
                       <td className="text-center text-gray-600">{t._count?.salesReps ?? 0}</td>
                       <td className="text-center text-gray-600">{t._count?.customers ?? 0}</td>
                       <td className="text-sm text-gray-500">{t.subscriptionEndsAt ? formatDate(t.subscriptionEndsAt) : 'غير محدود'}</td>
@@ -336,7 +339,7 @@ function PerformanceModal({ tenant, onClose }: { tenant: Tenant; onClose: () => 
             </div>
 
             <p className="text-[11px] text-gray-400 text-center pt-1">
-              الشركة منشأة منذ {formatDate(data.company.createdAt)} · الخطة: {PLAN_LABELS[data.company.plan] || data.company.plan}
+              الشركة منشأة في {formatDate(data.company.createdAt)}
             </p>
           </div>
         )}
@@ -378,13 +381,14 @@ function StatBox({ icon: Icon, label, value, color }: { icon: React.ElementType;
 }
 
 function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCreated: (info: { company: string; email: string; password: string }) => void }) {
-  const [form, setForm] = useState({ companyName: '', adminName: '', adminEmail: '', adminPassword: '', plan: 'basic', subscriptionEndsAt: '' });
+  const [form, setForm] = useState({ companyName: '', adminName: '', adminEmail: '', adminPassword: '', maxSalesReps: '', unlimitedReps: true, subscriptionEndsAt: '' });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const mutation = useMutation({
     mutationFn: () => tenantApi.create({
       companyName: form.companyName, adminName: form.adminName, adminEmail: form.adminEmail,
-      adminPassword: form.adminPassword, plan: form.plan,
+      adminPassword: form.adminPassword,
+      maxSalesReps: form.unlimitedReps ? null : Number(form.maxSalesReps),
       ...(form.subscriptionEndsAt && { subscriptionEndsAt: form.subscriptionEndsAt }),
     }),
     onSuccess: () => onCreated({ company: form.companyName, email: form.adminEmail, password: form.adminPassword }),
@@ -393,6 +397,9 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
 
   const submit = () => {
     if (!form.companyName.trim()) { toast.error('اسم الشركة مطلوب'); return; }
+    if (!form.unlimitedReps && (!Number.isInteger(Number(form.maxSalesReps)) || Number(form.maxSalesReps) < 1)) {
+      toast.error('حدّد عدد مناديب صحيحاً (1 أو أكثر) أو اختر «غير محدود»'); return;
+    }
     if (!form.adminName.trim()) { toast.error('اسم المدير مطلوب'); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.adminEmail)) { toast.error('بريد المدير غير صحيح'); return; }
     if (form.adminPassword.length < 6) { toast.error('كلمة المرور 6 أحرف على الأقل'); return; }
@@ -414,19 +421,24 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
                 <label className="label">اسم الشركة *</label>
                 <input className="input" value={form.companyName} onChange={e => set('companyName', e.target.value)} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">الخطة</label>
-                  <select className="input" value={form.plan} onChange={e => set('plan', e.target.value)}>
-                    <option value="basic">أساسي</option>
-                    <option value="pro">احترافي</option>
-                    <option value="enterprise">مؤسسي</option>
-                  </select>
+              <div>
+                <label className="label flex items-center gap-1"><Users size={12} /> عدد المناديب المسموح</label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0 select-none">
+                    <input type="checkbox" className="w-4 h-4 accent-[#E15A30]"
+                      checked={form.unlimitedReps}
+                      onChange={e => setForm(f => ({ ...f, unlimitedReps: e.target.checked }))} />
+                    غير محدود
+                  </label>
+                  {!form.unlimitedReps && (
+                    <input type="number" min={1} className="input flex-1" placeholder="مثال: 5" autoFocus
+                      value={form.maxSalesReps} onChange={e => set('maxSalesReps', e.target.value)} />
+                  )}
                 </div>
-                <div>
-                  <label className="label flex items-center gap-1"><Calendar size={12} /> انتهاء الاشتراك</label>
-                  <input type="date" className="input" value={form.subscriptionEndsAt} onChange={e => set('subscriptionEndsAt', e.target.value)} title="اتركه فارغاً لاشتراك غير محدود" />
-                </div>
+              </div>
+              <div>
+                <label className="label flex items-center gap-1"><Calendar size={12} /> انتهاء الاشتراك</label>
+                <input type="date" className="input" value={form.subscriptionEndsAt} onChange={e => set('subscriptionEndsAt', e.target.value)} title="اتركه فارغاً لاشتراك غير محدود" />
               </div>
             </div>
           </div>

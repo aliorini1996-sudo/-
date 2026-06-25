@@ -77,6 +77,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
     if (password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
 
+    // فرض الحد الأقصى لعدد المناديب المسموح للشركة (إن وُجد)
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { maxSalesReps: true } });
+    if (tenant?.maxSalesReps != null) {
+      const current = await prisma.salesRep.count({ where: { tenantId: tid } });
+      if (current >= tenant.maxSalesReps) {
+        res.status(403).json({ success: false, message: `بلغت الشركة الحد الأقصى المسموح للمناديب (${tenant.maxSalesReps}). تواصل مع مزوّد الخدمة لرفع الحد.` });
+        return;
+      }
+    }
+
     const dup = await checkRepDuplicates(tid, rest.username, rest.phone, rest.email);
     if (dup) { res.status(409).json({ success: false, message: dup }); return; }
 

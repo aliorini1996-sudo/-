@@ -11,7 +11,7 @@ export interface Tenant {
   id: string;
   name: string;
   isActive: boolean;
-  plan: 'basic' | 'pro' | 'enterprise';
+  maxSalesReps?: number | null; // null = عدد مناديب غير محدود
   subscriptionEndsAt?: string | null;
   notes?: string | null;
   createdAt: string;
