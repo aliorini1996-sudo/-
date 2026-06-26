@@ -5,6 +5,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { sendMail, mailLayout } from '../services/mailer';
 
 const router = Router();
 
@@ -109,6 +110,19 @@ router.post('/signup', async (req: Request, res: Response, next: NextFunction) =
       await tx.companySettings.create({ data: { tenantId: tenant.id, name: body.companyName, phone: body.phone } });
       return { tenant, admin };
     });
+
+    // إشعار بريدي بطلب التجربة الجديد (لا يُعطّل التسجيل إن تعذّر)
+    sendMail({
+      subject: `🎉 طلب تجربة مجانية جديد — ${body.companyName}`,
+      replyTo: body.email,
+      html: mailLayout('طلب تجربة مجانية جديد', [
+        ['الشركة', body.companyName],
+        ['المسؤول', body.adminName],
+        ['البريد', body.email],
+        ['الجوال', body.phone || ''],
+        ['تنتهي التجربة', trialEndsAt.toISOString().slice(0, 10)],
+      ]),
+    }).catch(() => { /* تجاهل */ });
 
     const token = signToken({ id: created.admin.id, role: created.admin.role, name: created.admin.name, tenantId: created.tenant.id });
     res.status(201).json({

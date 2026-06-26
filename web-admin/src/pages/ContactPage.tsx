@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { siteContentApi } from '../api/client';
+import { siteContentApi, contactApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { BrandIcon } from '../components/BrandLogo';
-import { ArrowLeft, Mail, Phone, MapPin, MessageCircle, LifeBuoy } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, MessageCircle, LifeBuoy, Send, CheckCircle2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
-// صفحة التواصل مع الشركة — بياناتها من CMS
+// صفحة التواصل مع الشركة — بياناتها من CMS + نموذج يرسل رسالة لبريد الشركة
 export default function ContactPage() {
   const { data } = useQuery({
     queryKey: ['site-content'],
@@ -14,6 +16,28 @@ export default function ContactPage() {
   });
   const content = (data || defaultContent) as typeof defaultContent;
   const c = content.contact || defaultContent.contact;
+
+  const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim()) { toast.error('الاسم مطلوب'); return; }
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.email)) { toast.error('البريد الإلكتروني غير صحيح'); return; }
+    if (!form.message.trim()) { toast.error('اكتب رسالتك'); return; }
+    setSending(true);
+    try {
+      await contactApi.send({ name: form.name.trim(), email: form.email.trim(), phone: form.phone || undefined, message: form.message.trim() });
+      setSent(true);
+      toast.success('تم إرسال رسالتك — سنردّ عليك قريباً');
+    } catch {
+      toast.error('تعذّر إرسال الرسالة، حاول مجدداً');
+    } finally {
+      setSending(false);
+    }
+  };
 
   const cards = [
     c.email && { icon: Mail, label: 'البريد الإلكتروني', value: c.email, href: `mailto:${c.email}` },
@@ -25,7 +49,7 @@ export default function ContactPage() {
   return (
     <div dir="rtl" className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">
-        <div className="max-w-4xl mx-auto px-5 h-16 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <BrandIcon size={34} />
             <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }} className="text-lg">
@@ -38,7 +62,7 @@ export default function ContactPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-5 py-16">
+      <main className="max-w-5xl mx-auto px-5 py-14">
         <div className="text-center mb-10">
           <div className="w-16 h-16 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-4">
             <LifeBuoy size={30} className="text-[#E15A30]" />
@@ -47,32 +71,67 @@ export default function ContactPage() {
           <p className="text-[#6E6557] mt-3 max-w-xl mx-auto leading-relaxed">{c.intro}</p>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
-          {cards.map((card, i) => {
-            const inner = (
-              <div className="bg-white rounded-2xl border border-[#E9E1D3] p-6 flex items-center gap-4 hover:border-[#E8C9BC] transition-colors h-full">
-                <div className="w-12 h-12 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0">
-                  <card.icon size={22} className="text-[#E15A30]" />
+        <div className="grid lg:grid-cols-2 gap-6 items-start">
+          {/* بطاقات التواصل */}
+          <div className="space-y-3">
+            {cards.map((card, i) => {
+              const inner = (
+                <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5 flex items-center gap-4 hover:border-[#E8C9BC] transition-colors">
+                  <div className="w-12 h-12 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0">
+                    <card.icon size={22} className="text-[#E15A30]" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-[#9A8F7E] mb-0.5">{card.label}</p>
+                    <p className="font-semibold text-[#1F1A13] truncate" dir="ltr" style={{ textAlign: 'right' }}>{card.value}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs text-[#9A8F7E] mb-0.5">{card.label}</p>
-                  <p className="font-semibold text-[#1F1A13] truncate" dir="ltr" style={{ textAlign: 'right' }}>{card.value}</p>
-                </div>
-              </div>
-            );
-            return card.href
-              ? <a key={i} href={card.href} target={card.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer">{inner}</a>
-              : <div key={i}>{inner}</div>;
-          })}
-        </div>
-
-        {c.email && (
-          <div className="text-center mt-10">
-            <a href={`mailto:${c.email}`} className="inline-flex items-center gap-2 px-7 py-3.5 rounded-2xl font-bold text-white bg-[#E15A30] hover:bg-[#C94E28] transition-colors shadow-lg shadow-[#E15A30]/25">
-              <Mail size={18} /> أرسل لنا رسالة
-            </a>
+              );
+              return card.href
+                ? <a key={i} href={card.href} target={card.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer" className="block">{inner}</a>
+                : <div key={i}>{inner}</div>;
+            })}
           </div>
-        )}
+
+          {/* نموذج التواصل */}
+          <div className="bg-white rounded-2xl border border-[#E9E1D3] p-6 lg:p-7">
+            {sent ? (
+              <div className="text-center py-10">
+                <div className="w-14 h-14 rounded-2xl bg-green-100 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle2 size={28} className="text-green-600" />
+                </div>
+                <h3 className="text-lg font-bold text-[#1F1A13]">تم إرسال رسالتك</h3>
+                <p className="text-sm text-[#6E6557] mt-2">شكراً لتواصلك معنا، سنردّ عليك في أقرب وقت.</p>
+              </div>
+            ) : (
+              <form onSubmit={submit} className="space-y-3.5">
+                <h3 className="font-bold text-[#1F1A13] mb-1">أرسل لنا رسالة</h3>
+                <div>
+                  <label className="label">الاسم *</label>
+                  <input className="input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="اسمك" />
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">البريد الإلكتروني *</label>
+                    <input type="email" dir="ltr" className="input text-right" value={form.email} onChange={e => set('email', e.target.value)} placeholder="you@email.com" />
+                  </div>
+                  <div>
+                    <label className="label">الجوال</label>
+                    <input dir="ltr" className="input text-right" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+9665XXXXXXXX" />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">رسالتك *</label>
+                  <textarea className="input" rows={4} value={form.message} onChange={e => set('message', e.target.value)} placeholder="كيف يمكننا مساعدتك؟" />
+                </div>
+                <button type="submit" disabled={sending}
+                  className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+                  {sending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={17} />}
+                  إرسال الرسالة
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
       </main>
 
       <footer className="border-t border-[#E9E1D3] py-6 text-center text-xs text-[#9A8F7E]">

@@ -128,3 +128,8 @@ export const siteContentApi = {
   get: () => api.get('/site-content'),
   update: (data: unknown) => api.put('/site-content', data),
 };
+
+// رسائل التواصل من الصفحة التعريفية
+export const contactApi = {
+  send: (data: { name: string; email: string; phone?: string; message: string }) => api.post('/contact', data),
+};
