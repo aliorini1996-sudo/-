@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import MainLayout from './layouts/MainLayout';
 import LandingPage from './pages/LandingPage';
@@ -15,18 +15,15 @@ import ReceiptsPage from './pages/ReceiptsPage';
 import ReportsPage from './pages/ReportsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
+import VanStockPage from './pages/VanStockPage';
 import PlatformPage from './pages/PlatformPage';
 import OwnerLoginPage from './pages/OwnerLoginPage';
 import RepApp from './rep/RepApp';
 
-// المسارات الإدارية للشركة — يُحوّل السوبر أدمن للوحة المنصّة
+// لوحة الأدمن على /app — الجذر "/" يبقى دائماً الصفحة التعريفية
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore();
-  const location = useLocation();
-  if (!token) {
-    // الجذر "/" يعرض صفحة الهبوط التسويقية للزوّار؛ المسارات الفرعية المحمية تُوجّه لتسجيل الدخول
-    return location.pathname === '/' ? <LandingPage /> : <Navigate to="/login" replace />;
-  }
+  if (!token) return <Navigate to="/login" replace />;
   if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
   return <>{children}</>;
 }
@@ -42,6 +39,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* الجذر دائماً الصفحة التعريفية التسويقية */}
+        <Route path="/" element={<LandingPage />} />
         <Route path="/rep" element={<RepApp />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
@@ -53,7 +52,8 @@ export default function App() {
         <Route path="/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
-        <Route path="/" element={
+        {/* لوحة الأدمن على /app */}
+        <Route path="/app" element={
           <ProtectedRoute>
             <MainLayout />
           </ProtectedRoute>
@@ -65,6 +65,7 @@ export default function App() {
           <Route path="invoices" element={<InvoicesPage />} />
           <Route path="receipts" element={<ReceiptsPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="van-stock" element={<VanStockPage />} />
           <Route path="company" element={<CompanySettingsPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>

@@ -5,9 +5,14 @@ import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { BrandIcon, BrandWordmark } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
+import LanguageToggle from '../components/LanguageToggle';
+import { useT } from '../i18n/strings';
+import { useDir } from '../i18n/lang';
 
 export default function LoginPage() {
   const { login } = useAuthStore();
+  const t = useT();
+  const dir = useDir();
   const [form, setForm] = useState({ username: '', password: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -15,17 +20,17 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.username || !form.password) { toast.error('يرجى ملء جميع الحقول'); return; }
+    if (!form.username || !form.password) { toast.error(t('login.fillAll')); return; }
     setLoading(true);
     try {
       const res = await authApi.login({ ...form, role: 'admin' });
       const { token, user } = res.data.data;
       login(token, user);
-      toast.success(`مرحباً ${user.name}`);
+      toast.success(`${t('login.welcomeName')} ${user.name}`);
       // إعادة تحميل كاملة لمساحة الشركة — تضمن تهيئة الجلسة من token بلا أي تداخل
-      window.location.replace('/');
+      window.location.replace('/app');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ في تسجيل الدخول';
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('login.error');
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -33,7 +38,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-[#FAF7F0]" dir="rtl">
+    <div className="min-h-screen flex bg-[#FAF7F0]" dir={dir}>
       {/* ===== اللوحة التعريفية (تظهر على الشاشات الكبيرة) ===== */}
       <div className="hidden lg:flex lg:w-[52%] relative overflow-hidden bg-[#1F1A13] items-center justify-center">
         <div className="absolute inset-0" style={{ background: 'radial-gradient(130% 130% at 82% 8%, rgba(225,90,48,.28), transparent 55%)' }} />
@@ -50,22 +55,20 @@ export default function LoginPage() {
           <div style={{ fontFamily: "'IBM Plex Sans', sans-serif" }} className="text-4xl font-bold tracking-tight">
             <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
           </div>
-          <p className="text-[#C9BEAC] mt-4 text-[15px] leading-relaxed">
-            منصّتك المتكاملة لإدارة وتتبّع مبيعات المناديب الميدانيين — من الطلب والتحصيل إلى الفوترة والتقارير.
-          </p>
+          <p className="text-[#C9BEAC] mt-4 text-[15px] leading-relaxed">{t('login.heroLead')}</p>
 
           {/* بطاقات معاينة زجاجية */}
-          <div className="mt-10 space-y-3 text-right">
+          <div className="mt-10 space-y-3" style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
             <div className="rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur p-4 flex items-center justify-between">
               <div>
-                <p className="text-[#9A8F7E] text-xs">مبيعات اليوم</p>
+                <p className="text-[#9A8F7E] text-xs">{t('login.salesToday')}</p>
                 <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>٨٬٤٥٠ <span className="text-xs text-[#C9BEAC]">ر.س</span></p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-[#E15A30]/20 flex items-center justify-center text-[#E89B7E] text-lg">↗</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur p-4 flex items-center justify-between">
               <div>
-                <p className="text-[#9A8F7E] text-xs">التحصيل اليوم</p>
+                <p className="text-[#9A8F7E] text-xs">{t('login.collectToday')}</p>
                 <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>٦٬٢٠٠ <span className="text-xs text-[#C9BEAC]">ر.س</span></p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-[#1E7A52]/25 flex items-center justify-center text-[#5FBE92] text-lg">✓</span>
@@ -75,18 +78,19 @@ export default function LoginPage() {
       </div>
 
       {/* ===== لوحة النموذج ===== */}
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 flex items-center justify-center p-6 relative">
+        <div className="absolute top-4" style={{ insetInlineEnd: '16px' }}><LanguageToggle /></div>
         <div className="w-full max-w-sm">
           <div className="flex justify-center lg:justify-start mb-8">
             <BrandWordmark iconSize={50} />
           </div>
 
-          <h1 className="text-2xl font-bold text-[#1F1A13]">مرحباً بك 👋</h1>
-          <p className="text-[#6E6557] mt-1.5 text-sm">سجّل دخولك للمتابعة إلى لوحة التحكم</p>
+          <h1 className="text-2xl font-bold text-[#1F1A13]">{t('login.welcome')}</h1>
+          <p className="text-[#6E6557] mt-1.5 text-sm">{t('login.subtitle')}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4 mt-7">
             <div>
-              <label className="label">البريد الإلكتروني</label>
+              <label className="label">{t('login.email')}</label>
               <div className="relative">
                 <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
                 <input type="text" className="input pr-9" placeholder="admin@company.com"
@@ -96,7 +100,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="label">كلمة المرور</label>
+              <label className="label">{t('login.password')}</label>
               <div className="relative">
                 <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
                 <input type={showPass ? 'text' : 'password'} className="input pr-9 pl-9" placeholder="••••••••"
@@ -112,18 +116,18 @@ export default function LoginPage() {
             <button type="submit" disabled={loading}
               className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2">
               {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <>دخول <ArrowLeft size={17} /></>}
+                : <>{t('login.submit')} <ArrowLeft size={17} className={dir === 'rtl' ? '' : 'rotate-180'} /></>}
             </button>
           </form>
 
           <button type="button" onClick={() => setShowForgot(true)}
             className="text-sm text-[#6E6557] hover:text-[#E15A30] mt-4 mx-auto block transition-colors">
-            نسيت كلمة المرور؟
+            {t('login.forgot')}
           </button>
 
           <div className="mt-5 p-3 bg-[#FBEBE2] rounded-xl text-xs text-[#9C4423]">
-            <p className="font-semibold mb-1">بيانات تجريبية:</p>
-            <p>البريد: admin@dsd.com · كلمة المرور: admin123</p>
+            <p className="font-semibold mb-1">{t('login.demoTitle')}</p>
+            <p dir="ltr" style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>admin@dsd.com · admin123</p>
           </div>
         </div>
       </div>

@@ -14,6 +14,7 @@ import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import SiteContentEditor from '../components/SiteContentEditor';
 import { BrandIcon } from '../components/BrandLogo';
+import LanguageToggle from '../components/LanguageToggle';
 
 export default function PlatformPage() {
   const qc = useQueryClient();
@@ -44,8 +45,8 @@ export default function PlatformPage() {
     onSuccess: (res) => {
       const { token, user: companyUser } = res.data.data;
       impersonate(token, companyUser, companyUser.companyName);
-      // إعادة تحميل كاملة على '/' لتجنّب إعادة تقييم حارس المالك أثناء تبديل الهوية
-      window.location.href = '/';
+      // إعادة تحميل كاملة على لوحة الأدمن لتجنّب إعادة تقييم حارس المالك أثناء تبديل الهوية
+      window.location.href = '/app';
     },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الدخول للشركة'),
   });
@@ -84,6 +85,7 @@ export default function PlatformPage() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <LanguageToggle variant="dark" />
             <button onClick={() => setShowContent(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
               <Globe size={16} /> محتوى الصفحة
             </button>

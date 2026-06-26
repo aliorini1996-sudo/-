@@ -1,26 +1,30 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { BrandIcon } from '../components/BrandLogo';
+import LanguageToggle from '../components/LanguageToggle';
+import { useT } from '../i18n/strings';
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', exact: true },
-  { to: '/customers', icon: Users, label: 'العملاء' },
-  { to: '/products', icon: Package, label: 'المنتجات' },
-  { to: '/sales-reps', icon: UserCheck, label: 'المناديب' },
-  { to: '/invoices', icon: FileText, label: 'الفواتير' },
-  { to: '/receipts', icon: Receipt, label: 'سندات القبض' },
-  { to: '/reports', icon: BarChart3, label: 'التقارير' },
-  { to: '/company', icon: Building2, label: 'إعدادات الشركة' },
+  { to: '/app', icon: LayoutDashboard, label: 'nav.dashboard', exact: true },
+  { to: '/app/customers', icon: Users, label: 'nav.customers' },
+  { to: '/app/products', icon: Package, label: 'nav.products' },
+  { to: '/app/sales-reps', icon: UserCheck, label: 'nav.reps' },
+  { to: '/app/van-stock', icon: Truck, label: 'nav.vanStock' },
+  { to: '/app/invoices', icon: FileText, label: 'nav.invoices' },
+  { to: '/app/receipts', icon: Receipt, label: 'nav.receipts' },
+  { to: '/app/reports', icon: BarChart3, label: 'nav.reports' },
+  { to: '/app/company', icon: Building2, label: 'nav.company' },
 ];
 
 export default function MainLayout() {
   const { user, logout, impersonating, stopImpersonating } = useAuthStore();
+  const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -42,10 +46,10 @@ export default function MainLayout() {
       {impersonating && (
         <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
           <span className="flex items-center gap-2 font-medium">
-            <Eye size={16} /> أنت تتصفّح شركة «{impersonating}» كمالك المنصّة
+            <Eye size={16} /> {t('nav.impersonating')} «{impersonating}» {t('nav.asOwner')}
           </span>
           <button onClick={backToPlatform} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 font-semibold">
-            <ArrowRight size={14} /> العودة للوحة المالك
+            <ArrowRight size={14} /> {t('nav.backToPlatform')}
           </button>
         </div>
       )}
@@ -75,10 +79,10 @@ export default function MainLayout() {
               className={({ isActive }) =>
                 `sidebar-link ${isActive ? 'active' : ''} ${collapsed ? 'justify-center px-2' : ''}`
               }
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? t(item.label) : undefined}
             >
               <item.icon size={18} className="flex-shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && <span>{t(item.label)}</span>}
             </NavLink>
           ))}
         </nav>
@@ -86,15 +90,19 @@ export default function MainLayout() {
         {/* User */}
         <div className="p-2 border-t border-white/10 space-y-1">
           <NavLink
-            to="/notifications"
+            to="/app/notifications"
             className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''} ${collapsed ? 'justify-center px-2' : ''}`}
           >
             <Bell size={18} />
-            {!collapsed && <span>الإشعارات</span>}
+            {!collapsed && <span>{t('nav.notifications')}</span>}
           </NavLink>
+          {/* تبديل اللغة */}
+          <div className={collapsed ? 'flex justify-center' : ''}>
+            <LanguageToggle variant="dark" />
+          </div>
           {!collapsed && (
             <div className="px-4 py-2">
-              <p className="text-xs text-blue-200">مرحباً،</p>
+              <p className="text-xs text-[#9A8F7E]">{t('login.welcomeName')}،</p>
               <p className="text-sm font-semibold truncate">{user?.name}</p>
             </div>
           )}
@@ -103,10 +111,10 @@ export default function MainLayout() {
             <button
               onClick={() => setShowPassword(true)}
               className={`sidebar-link w-full ${collapsed ? 'justify-center px-2' : ''}`}
-              title={collapsed ? 'تغيير كلمة المرور' : undefined}
+              title={collapsed ? t('nav.changePassword') : undefined}
             >
               <KeyRound size={18} />
-              {!collapsed && <span>تغيير كلمة المرور</span>}
+              {!collapsed && <span>{t('nav.changePassword')}</span>}
             </button>
           )}
           <button
@@ -114,7 +122,7 @@ export default function MainLayout() {
             className={`sidebar-link w-full text-red-300 hover:bg-red-500/20 hover:text-red-200 ${collapsed ? 'justify-center px-2' : ''}`}
           >
             <LogOut size={18} />
-            {!collapsed && <span>تسجيل خروج</span>}
+            {!collapsed && <span>{t('nav.logout')}</span>}
           </button>
         </div>
       </aside>

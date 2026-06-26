@@ -57,6 +57,16 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][] }[] = [
     ['contact.email', 'البريد الإلكتروني'], ['contact.phone', 'الهاتف'],
     ['contact.whatsapp', 'واتساب'], ['contact.address', 'العنوان'],
   ] },
+  { title: 'روابط التواصل الاجتماعي', fields: [
+    ['social.whatsapp', 'واتساب (رقم فقط، مثال: 9665XXXXXXXX)'],
+    ['social.x', 'منصّة X (تويتر) — الرابط'],
+    ['social.instagram', 'إنستغرام — الرابط'],
+    ['social.snapchat', 'سناب شات — الرابط'],
+    ['social.tiktok', 'تيك توك — الرابط'],
+    ['social.linkedin', 'لينكدإن — الرابط'],
+    ['social.youtube', 'يوتيوب — الرابط'],
+    ['social.facebook', 'فيسبوك — الرابط'],
+  ] },
   { title: 'الصفحات الفرعية', fields: [
     ['pages.about.title', 'من نحن — العنوان'], ['pages.about.body', 'من نحن — المحتوى', true],
     ['pages.terms.title', 'الشروط والأحكام — العنوان'], ['pages.terms.body', 'الشروط والأحكام — المحتوى', true],
@@ -74,7 +84,10 @@ const setIn = (obj: Draft, path: string, val: string): Draft => {
   const keys = path.split('.');
   const clone = structuredClone(obj);
   let o = clone as Record<string, unknown>;
-  for (let i = 0; i < keys.length - 1; i++) o = o[keys[i]] as Record<string, unknown>;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (o[keys[i]] == null || typeof o[keys[i]] !== 'object') o[keys[i]] = {};
+    o = o[keys[i]] as Record<string, unknown>;
+  }
   o[keys[keys.length - 1]] = val;
   return clone;
 };

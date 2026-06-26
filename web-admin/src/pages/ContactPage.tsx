@@ -3,19 +3,28 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi, contactApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
+import { defaultContentEn } from '../landing/defaultContentEn';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Mail, Phone, MapPin, MessageCircle, LifeBuoy, Send, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import LanguageToggle from '../components/LanguageToggle';
+import { useLang, useDir } from '../i18n/lang';
+import { useT } from '../i18n/strings';
 
 // صفحة التواصل مع الشركة — بياناتها من CMS + نموذج يرسل رسالة لبريد الشركة
 export default function ContactPage() {
+  const lang = useLang((s) => s.lang);
+  const dir = useDir();
+  const t = useT();
   const { data } = useQuery({
     queryKey: ['site-content'],
     queryFn: async () => { const r = await siteContentApi.get(); return r.data.data as unknown; },
     staleTime: 60_000,
   });
   const content = (data || defaultContent) as typeof defaultContent;
-  const c = content.contact || defaultContent.contact;
+  const cms = content.contact || defaultContent.contact;
+  // المقدمة بالإنجليزية من المحتوى الإنجليزي، وبيانات التواصل (بريد/هاتف) من CMS دائماً
+  const c = lang === 'en' ? { ...cms, intro: defaultContentEn.contact.intro } : cms;
 
   const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
   const [sending, setSending] = useState(false);
@@ -24,30 +33,30 @@ export default function ContactPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) { toast.error('الاسم مطلوب'); return; }
-    if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.email)) { toast.error('البريد الإلكتروني غير صحيح'); return; }
-    if (!form.message.trim()) { toast.error('اكتب رسالتك'); return; }
+    if (!form.name.trim()) { toast.error(t('contact.errName')); return; }
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.email)) { toast.error(t('contact.errEmail')); return; }
+    if (!form.message.trim()) { toast.error(t('contact.errMsg')); return; }
     setSending(true);
     try {
       await contactApi.send({ name: form.name.trim(), email: form.email.trim(), phone: form.phone || undefined, message: form.message.trim() });
       setSent(true);
-      toast.success('تم إرسال رسالتك — سنردّ عليك قريباً');
+      toast.success(t('contact.successToast'));
     } catch {
-      toast.error('تعذّر إرسال الرسالة، حاول مجدداً');
+      toast.error(t('contact.failToast'));
     } finally {
       setSending(false);
     }
   };
 
   const cards = [
-    c.email && { icon: Mail, label: 'البريد الإلكتروني', value: c.email, href: `mailto:${c.email}` },
-    c.phone && { icon: Phone, label: 'الهاتف', value: c.phone, href: `tel:${c.phone}` },
-    c.whatsapp && { icon: MessageCircle, label: 'واتساب', value: c.whatsapp, href: `https://wa.me/${String(c.whatsapp).replace(/[^0-9]/g, '')}` },
-    c.address && { icon: MapPin, label: 'العنوان', value: c.address, href: undefined },
+    c.email && { icon: Mail, label: t('contact.cardEmail'), value: c.email, href: `mailto:${c.email}` },
+    c.phone && { icon: Phone, label: t('contact.cardPhone'), value: c.phone, href: `tel:${c.phone}` },
+    c.whatsapp && { icon: MessageCircle, label: t('contact.cardWhatsapp'), value: c.whatsapp, href: `https://wa.me/${String(c.whatsapp).replace(/[^0-9]/g, '')}` },
+    c.address && { icon: MapPin, label: t('contact.cardAddress'), value: c.address, href: undefined },
   ].filter(Boolean) as { icon: React.ElementType; label: string; value: string; href?: string }[];
 
   return (
-    <div dir="rtl" className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
@@ -56,9 +65,12 @@ export default function ContactPage() {
               <span className="text-[#1F1A13]">Field</span><span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
-          <Link to="/" className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
-            العودة للرئيسية <ArrowLeft size={15} />
-          </Link>
+          <div className="flex items-center gap-2">
+            <LanguageToggle />
+            <Link to="/" className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
+              {t('common.backHome')} <ArrowLeft size={15} className={dir === 'rtl' ? '' : 'rotate-180'} />
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -67,7 +79,7 @@ export default function ContactPage() {
           <div className="w-16 h-16 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-4">
             <LifeBuoy size={30} className="text-[#E15A30]" />
           </div>
-          <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight">تواصل معنا</h1>
+          <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight">{t('contact.title')}</h1>
           <p className="text-[#6E6557] mt-3 max-w-xl mx-auto leading-relaxed">{c.intro}</p>
         </div>
 
@@ -82,7 +94,7 @@ export default function ContactPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs text-[#9A8F7E] mb-0.5">{card.label}</p>
-                    <p className="font-semibold text-[#1F1A13] truncate" dir="ltr" style={{ textAlign: 'right' }}>{card.value}</p>
+                    <p className="font-semibold text-[#1F1A13] truncate" dir="ltr" style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>{card.value}</p>
                   </div>
                 </div>
               );
@@ -99,34 +111,34 @@ export default function ContactPage() {
                 <div className="w-14 h-14 rounded-2xl bg-green-100 flex items-center justify-center mx-auto mb-4">
                   <CheckCircle2 size={28} className="text-green-600" />
                 </div>
-                <h3 className="text-lg font-bold text-[#1F1A13]">تم إرسال رسالتك</h3>
-                <p className="text-sm text-[#6E6557] mt-2">شكراً لتواصلك معنا، سنردّ عليك في أقرب وقت.</p>
+                <h3 className="text-lg font-bold text-[#1F1A13]">{t('contact.sentTitle')}</h3>
+                <p className="text-sm text-[#6E6557] mt-2">{t('contact.sentBody')}</p>
               </div>
             ) : (
               <form onSubmit={submit} className="space-y-3.5">
-                <h3 className="font-bold text-[#1F1A13] mb-1">أرسل لنا رسالة</h3>
+                <h3 className="font-bold text-[#1F1A13] mb-1">{t('contact.formTitle')}</h3>
                 <div>
-                  <label className="label">الاسم *</label>
-                  <input className="input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="اسمك" />
+                  <label className="label">{t('contact.name')} *</label>
+                  <input className="input" value={form.name} onChange={e => set('name', e.target.value)} placeholder={t('contact.namePh')} />
                 </div>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="label">البريد الإلكتروني *</label>
-                    <input type="email" dir="ltr" className="input text-right" value={form.email} onChange={e => set('email', e.target.value)} placeholder="you@email.com" />
+                    <label className="label">{t('contact.email')} *</label>
+                    <input type="email" dir="ltr" className={dir === 'rtl' ? 'input text-right' : 'input text-left'} value={form.email} onChange={e => set('email', e.target.value)} placeholder="you@email.com" />
                   </div>
                   <div>
-                    <label className="label">الجوال</label>
-                    <input dir="ltr" className="input text-right" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+9665XXXXXXXX" />
+                    <label className="label">{t('contact.phone')}</label>
+                    <input dir="ltr" className={dir === 'rtl' ? 'input text-right' : 'input text-left'} value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+9665XXXXXXXX" />
                   </div>
                 </div>
                 <div>
-                  <label className="label">رسالتك *</label>
-                  <textarea className="input" rows={4} value={form.message} onChange={e => set('message', e.target.value)} placeholder="كيف يمكننا مساعدتك؟" />
+                  <label className="label">{t('contact.message')} *</label>
+                  <textarea className="input" rows={4} value={form.message} onChange={e => set('message', e.target.value)} placeholder={t('contact.messagePh')} />
                 </div>
                 <button type="submit" disabled={sending}
                   className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
                   {sending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={17} />}
-                  إرسال الرسالة
+                  {t('contact.send')}
                 </button>
               </form>
             )}

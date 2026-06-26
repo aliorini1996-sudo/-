@@ -123,6 +123,16 @@ export const tenantApi = {
   remove: (id: string) => api.delete(`/tenants/${id}`),
 };
 
+// مخزون سيارة المندوب — ملخّص ومخزون وحركة لكل مندوب
+export const vanStockApi = {
+  summary: () => api.get('/van-stock/summary'),
+  current: (salesRepId: string) => api.get('/van-stock/current', { params: { salesRepId } }),
+  loads: (salesRepId?: string) => api.get('/van-stock/loads', { params: salesRepId ? { salesRepId } : {} }),
+  movements: (salesRepId: string) => api.get('/van-stock/movements', { params: { salesRepId } }),
+  createLoad: (data: { salesRepId?: string; type?: string; note?: string; items: { productId: string; qty: number }[] }) =>
+    api.post('/van-stock/loads', data),
+};
+
 // محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك
 export const siteContentApi = {
   get: () => api.get('/site-content'),

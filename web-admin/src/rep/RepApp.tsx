@@ -6,12 +6,15 @@ import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
+  Truck, Package, ArrowDownToLine, Check,
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
+import LanguageToggle from '../components/LanguageToggle';
+import { useT } from '../i18n/strings';
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer';
 
 interface RepUser {
@@ -24,6 +27,7 @@ interface RepUser {
 
 // ============ تسجيل الدخول ============
 function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void }) {
+  const t = useT();
   const [username, setUsername] = useState('rep1');
   const [password, setPassword] = useState('rep123');
   const [showPass, setShowPass] = useState(false);
@@ -38,12 +42,13 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
       const res = await repApi.post('/auth/login', { username, password, role: 'sales_rep' });
       onLogin(res.data.data.token, res.data.data.user);
     } catch {
-      setError('بيانات الدخول غير صحيحة');
+      setError(t('rep.badCreds'));
     } finally { setLoading(false); }
   };
 
   return (
     <div className="h-full relative overflow-hidden bg-[#1F1A13] flex flex-col items-center justify-center px-6">
+      <div className="absolute top-3 z-20" style={{ insetInlineEnd: '12px' }}><LanguageToggle variant="dark" /></div>
       <div className="absolute inset-0" style={{ background: 'radial-gradient(120% 90% at 50% 0%, rgba(225,90,48,.26), transparent 55%)' }} />
       <span className="absolute rounded-full" style={{ width: 170, height: 170, top: -40, right: -30, background: 'rgba(225,90,48,.14)' }} />
       <span className="absolute rounded-full" style={{ width: 120, height: 120, bottom: 40, left: -30, background: 'rgba(224,160,44,.10)' }} />
@@ -55,18 +60,18 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
         <h1 className="text-2xl tracking-tight mt-3" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
           <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
         </h1>
-        <p className="text-[#9A8F7E] text-xs mb-8">إدارة مبيعات المناديب</p>
+        <p className="text-[#9A8F7E] text-xs mb-8">{t('rep.tagline')}</p>
 
         <form onSubmit={submit} className="w-full bg-white rounded-3xl p-6 shadow-2xl">
-          <h2 className="font-bold text-[#1F1A13] mb-5">تسجيل دخول المندوب</h2>
+          <h2 className="font-bold text-[#1F1A13] mb-5">{t('rep.loginTitle')}</h2>
           <div className="space-y-3">
             <div className="relative">
               <User size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
-              <input className="input pr-9" placeholder="اسم المستخدم" dir="ltr"
+              <input className="input pr-9" placeholder={t('rep.username')} dir="ltr"
                 value={username} onChange={e => setUsername(e.target.value)} />
             </div>
             <div className="relative">
-              <input className="input pr-3 pl-9" type={showPass ? 'text' : 'password'} placeholder="كلمة المرور" dir="ltr"
+              <input className="input pr-3 pl-9" type={showPass ? 'text' : 'password'} placeholder={t('login.password')} dir="ltr"
                 value={password} onChange={e => setPassword(e.target.value)} />
               <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]"
                 onClick={() => setShowPass(s => !s)}>
@@ -78,11 +83,11 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
           <button type="submit" disabled={loading}
             className="w-full bg-[#E15A30] hover:bg-[#C94E28] text-white font-bold py-3 rounded-xl mt-5 flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
             {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-            دخول
+            {t('login.submit')}
           </button>
           <button type="button" onClick={() => setShowForgot(true)}
             className="w-full text-center text-xs text-[#6E6557] hover:text-[#E15A30] mt-3 transition-colors">
-            نسيت كلمة المرور؟
+            {t('login.forgot')}
           </button>
           <div className="mt-3 p-2.5 bg-[#FBEBE2] rounded-lg text-[11px] text-[#9C4423]">
             تجريبي: <b>rep1</b> / <b>rep123</b>
@@ -810,6 +815,115 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 }
 
 // ============ التطبيق الرئيسي ============
+// ============ مخزون سيارتي ============
+function RepVanStock() {
+  const [view, setView] = useState<'list' | 'load'>('list');
+  const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string }[]>([]);
+  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string }[]>([]);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const loadStock = useCallback(async () => {
+    setLoading(true);
+    try { const r = await repApi.get('/van-stock/current'); setStock(r.data.data); } catch { /* offline */ }
+    setLoading(false);
+  }, []);
+  useEffect(() => { loadStock(); }, [loadStock]);
+  useEffect(() => { repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } }).then(r => setProducts(r.data.data)).catch(() => {}); }, []);
+
+  const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
+
+  const addProduct = (id: string) => {
+    if (!id || rows.some(r => r.productId === id)) return;
+    const p = products.find(x => x.id === id); if (!p) return;
+    setRows(rs => [...rs, { productId: id, name: p.name, unit: p.unit, qty: '1' }]);
+  };
+
+  const submit = async () => {
+    const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0);
+    if (!items.length) { setMsg({ ok: false, text: 'أضف صنفاً وكمية صحيحة' }); return; }
+    setSaving(true); setMsg(null);
+    try {
+      await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
+      setRows([]); setNote(''); setView('list'); loadStock();
+      setMsg({ ok: true, text: 'تم تسجيل التحميل بنجاح' });
+    } catch (e) {
+      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الحفظ' });
+    }
+    setSaving(false);
+  };
+
+  if (view === 'load') {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="p-3 flex items-center gap-2 border-b border-gray-100">
+          <button onClick={() => setView('list')} className="p-1.5 text-[#6E6557]"><ArrowRight size={18} /></button>
+          <span className="font-bold text-[#1F1A13]">تحميل بضاعة للسيارة</span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-28">
+          <div>
+            <label className="text-xs font-semibold text-[#6E6557] mb-1 block">إضافة صنف</label>
+            <SearchableSelect dark resetOnSelect value="" onChange={addProduct}
+              options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
+              placeholder="ابحث وأضف صنفاً…" searchPlaceholder="اكتب اسم/كود الصنف…" />
+          </div>
+          {rows.map((r, i) => (
+            <div key={r.productId} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl p-2.5 shadow-sm">
+              <div className="flex-1 min-w-0"><p className="text-sm font-semibold truncate">{r.name}</p><p className="text-[10px] text-gray-400">{r.unit}</p></div>
+              <input type="number" min="0" step="any" inputMode="decimal" value={r.qty}
+                onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))}
+                className="w-20 text-center border border-gray-200 rounded-lg py-1.5" />
+              <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 p-1"><Trash2 size={16} /></button>
+            </div>
+          ))}
+          {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">لم تُضف أي صنف بعد</p>}
+          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder="ملاحظة (اختياري)" value={note} onChange={e => setNote(e.target.value)} />
+          {msg && <p className={`text-xs text-center ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
+        </div>
+        <div className="p-3 border-t border-gray-100">
+          <button onClick={submit} disabled={saving || rows.length === 0} className="w-full bg-[#E15A30] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
+            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={18} />} حفظ التحميل
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="p-3 flex items-center justify-between border-b border-gray-100">
+        <span className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> مخزون سيارتي</span>
+        <button onClick={() => { setView('load'); setMsg(null); }} className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1"><Plus size={14} /> تحميل</button>
+      </div>
+      {msg && msg.ok && <div className="mx-3 mt-3 bg-green-50 text-green-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5"><Check size={14} /> {msg.text}</div>}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24">
+        {loading ? <p className="text-center text-gray-400 text-sm py-8">جارٍ التحميل…</p>
+          : stock.length === 0 ? (
+            <div className="text-center py-10">
+              <Package size={40} className="mx-auto text-gray-300 mb-2" />
+              <p className="text-gray-400 text-sm">لا توجد بضاعة في سيارتك بعد.</p>
+              <p className="text-gray-400 text-xs mt-1">اضغط «تحميل» لتسجيل ما حمَّلته.</p>
+            </div>
+          ) : stock.map(s => (
+            <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
+                <p className="text-[11px] text-gray-400">محمَّل {fmt(s.loaded)} · مُباع {fmt(s.sold)} {s.unit}</p>
+              </div>
+              <div className="text-left shrink-0">
+                <p className={`text-lg font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{fmt(s.remaining)}</p>
+                <p className="text-[10px] text-gray-400">متبقّي</p>
+              </div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 export default function RepApp() {
   const [token, setToken] = useState(localStorage.getItem('rep_token'));
   const [user, setUser] = useState<RepUser | null>(() => {
@@ -842,6 +956,7 @@ export default function RepApp() {
     { id: 'invoices', label: 'الفواتير', icon: FileText },
     { id: 'receipts', label: 'التحصيل', icon: CreditCard },
     { id: 'customers', label: 'العملاء', icon: Users },
+    { id: 'vanstock', label: 'مخزوني', icon: Truck },
   ];
 
   // Phone frame
@@ -892,10 +1007,11 @@ export default function RepApp() {
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => setDocResult(invoiceDocFromDetail(d, user.name, company))} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => setDocResult(receiptDocFromDetail(d, user.name, company))} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}
+                {screen === 'vanstock' && <RepVanStock />}
               </div>
 
               {/* Bottom nav */}
-              <div className="flex-shrink-0 bg-white border-t border-gray-100 grid grid-cols-4 px-2 py-1.5">
+              <div className="flex-shrink-0 bg-white border-t border-gray-100 grid grid-cols-5 px-2 py-1.5">
                 {tabs.map(t => {
                   const Icon = t.icon;
                   const active = screen === t.id;

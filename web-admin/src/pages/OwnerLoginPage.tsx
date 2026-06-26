@@ -4,27 +4,32 @@ import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { BrandIcon } from '../components/BrandLogo';
+import LanguageToggle from '../components/LanguageToggle';
+import { useT } from '../i18n/strings';
+import { useDir } from '../i18n/lang';
 
 // مدخل سرّي لمالك المنصّة فقط — رابط /owner
 export default function OwnerLoginPage() {
   const { login } = useAuthStore();
+  const t = useT();
+  const dir = useDir();
   const [form, setForm] = useState({ username: '', password: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.username || !form.password) { toast.error('يرجى ملء جميع الحقول'); return; }
+    if (!form.username || !form.password) { toast.error(t('login.fillAll')); return; }
     setLoading(true);
     try {
       const res = await authApi.login({ ...form, role: 'super_admin' });
       const { token, user } = res.data.data;
       login(token, user);
-      toast.success(`مرحباً ${user.name}`);
+      toast.success(`${t('login.welcomeName')} ${user.name}`);
       // إعادة تحميل كاملة لمساحة المالك — تضمن تهيئة الجلسة من sa_token بلا أي تداخل
       window.location.replace('/platform');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ في تسجيل الدخول';
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('login.error');
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -32,7 +37,8 @@ export default function OwnerLoginPage() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-[#1F1A13] flex items-center justify-center p-6" dir="rtl">
+    <div className="min-h-screen relative overflow-hidden bg-[#1F1A13] flex items-center justify-center p-6" dir={dir}>
+      <div className="absolute top-4 z-20" style={{ insetInlineEnd: '16px' }}><LanguageToggle variant="dark" /></div>
       <div className="absolute inset-0" style={{ background: 'radial-gradient(120% 120% at 50% 0%, rgba(225,90,48,.22), transparent 55%)' }} />
       <span className="absolute rounded-full" style={{ width: 260, height: 260, top: '-60px', right: '-40px', background: 'rgba(225,90,48,.12)' }} />
       <span className="absolute rounded-full" style={{ width: 180, height: 180, bottom: '-30px', left: '-20px', background: 'rgba(224,160,44,.10)' }} />
@@ -46,14 +52,14 @@ export default function OwnerLoginPage() {
             <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
           </div>
           <p className="text-[#9A8F7E] mt-2 text-sm flex items-center justify-center gap-1.5">
-            <ShieldCheck size={14} /> لوحة مالك المنصّة — دخول خاص
+            <ShieldCheck size={14} /> {t('owner.title')}
           </p>
         </div>
 
         <div className="bg-white/[0.04] backdrop-blur border border-white/10 rounded-2xl p-7">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-sm text-[#C9BEAC] mb-1.5 block">البريد الإلكتروني</label>
+              <label className="text-sm text-[#C9BEAC] mb-1.5 block">{t('login.email')}</label>
               <div className="relative">
                 <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
                 <input type="text" dir="ltr" placeholder="owner@..."
@@ -62,7 +68,7 @@ export default function OwnerLoginPage() {
               </div>
             </div>
             <div>
-              <label className="text-sm text-[#C9BEAC] mb-1.5 block">كلمة المرور</label>
+              <label className="text-sm text-[#C9BEAC] mb-1.5 block">{t('login.password')}</label>
               <div className="relative">
                 <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
                 <input type={showPass ? 'text' : 'password'} dir="ltr" placeholder="••••••••"
@@ -75,7 +81,7 @@ export default function OwnerLoginPage() {
             </div>
             <button type="submit" disabled={loading}
               className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-1">
-              {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'دخول'}
+              {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : t('login.submit')}
             </button>
           </form>
         </div>

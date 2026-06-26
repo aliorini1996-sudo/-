@@ -44,6 +44,7 @@ model Tenant {
   accountEntries  AccountEntry[]
   notifications   Notification[]
   settings        CompanySettings?
+  vanLoads        VanLoad[]
 
   @@map("tenants")
 }
@@ -100,9 +101,13 @@ model SalesRep {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Van stock permission — هل يستطيع المندوب إدارة مخزون سيارته
+  canManageVanStock Boolean @default(true)
+
   invoices      Invoice[]
   receipts      Receipt[]
   notifications Notification[]
+  vanLoads      VanLoad[]
 
   @@index([tenantId])
   @@map("sales_reps")
@@ -140,6 +145,7 @@ model Product {
   priceTiers     PriceTier[]
   customerPrices CustomerPrice[]
   invoiceItems   InvoiceItem[]
+  vanLoadItems   VanLoadItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -367,4 +373,35 @@ model Notification {
 
   @@index([tenantId])
   @@map("notifications")
+}
+
+// تحميل بضاعة لسيارة المندوب — حركة مخزون (LOAD=تحميل، UNLOAD=تنزيل للمستودع، ADJUST=تسوية)
+model VanLoad {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId  String
+  salesRep    SalesRep @relation(fields: [salesRepId], references: [id])
+  type        String   @default("LOAD") // LOAD | UNLOAD | ADJUST
+  note        String?
+  createdBy   String?  // "REP" | "ADMIN" — من سجّل الحركة
+  createdAt   DateTime @default(now())
+
+  items VanLoadItem[]
+
+  @@index([tenantId])
+  @@index([salesRepId])
+  @@map("van_loads")
+}
+
+model VanLoadItem {
+  id        String  @id @default(uuid())
+  vanLoadId String
+  vanLoad   VanLoad @relation(fields: [vanLoadId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  qty       Float   // موجب للتحميل/التسوية الزائدة، يُفسَّر حسب نوع VanLoad
+
+  @@index([vanLoadId])
+  @@map("van_load_items")
 }
