@@ -4,6 +4,7 @@ import MainLayout from './layouts/MainLayout';
 import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
 import ContactPage from './pages/ContactPage';
+import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/rep" element={<RepApp />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
         {/* الصفحات التعريفية الفرعية (عامة) */}
         <Route path="/about" element={<InfoPage pageKey="about" />} />
         <Route path="/terms" element={<InfoPage pageKey="terms" />} />

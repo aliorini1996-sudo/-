@@ -14,6 +14,16 @@ const loginSchema = z.object({
   role: z.enum(['super_admin', 'admin', 'sales_rep']),
 });
 
+// التسجيل الذاتي للتجربة المجانية (إنشاء شركة جديدة + أدمنها)
+const signupSchema = z.object({
+  companyName: z.string().min(2),
+  adminName: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(6),
+  phone: z.string().optional(),
+});
+const TRIAL_DAYS = 14;
+
 function signToken(payload: object): string {
   return jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
 }
@@ -72,6 +82,45 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
   } catch (err) {
     next(err);
   }
+});
+
+// تسجيل ذاتي — إنشاء شركة بتجربة مجانية والدخول مباشرة
+router.post('/signup', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const body = signupSchema.parse(req.body);
+    const taken = await prisma.admin.findUnique({ where: { email: body.email } });
+    if (taken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً — سجّل الدخول' }); return; }
+
+    const passwordHash = await bcrypt.hash(body.password, 10);
+    const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+
+    const created = await prisma.$transaction(async tx => {
+      const tenant = await tx.tenant.create({
+        data: {
+          name: body.companyName,
+          plan: 'basic',
+          subscriptionEndsAt: trialEndsAt,
+          notes: body.phone ? `تجربة مجانية — جوال: ${body.phone}` : 'تجربة مجانية (تسجيل ذاتي)',
+        },
+      });
+      const admin = await tx.admin.create({
+        data: { tenantId: tenant.id, name: body.adminName, email: body.email, passwordHash, role: 'ADMIN' },
+      });
+      await tx.companySettings.create({ data: { tenantId: tenant.id, name: body.companyName, phone: body.phone } });
+      return { tenant, admin };
+    });
+
+    const token = signToken({ id: created.admin.id, role: created.admin.role, name: created.admin.name, tenantId: created.tenant.id });
+    res.status(201).json({
+      success: true,
+      data: {
+        token,
+        user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, companyName: created.tenant.name },
+        trialEndsAt,
+        trialDays: TRIAL_DAYS,
+      },
+    });
+  } catch (err) { next(err); }
 });
 
 router.post('/refresh-fcm', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
