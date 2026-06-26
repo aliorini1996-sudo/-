@@ -121,3 +121,9 @@ export const tenantApi = {
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
   remove: (id: string) => api.delete(`/tenants/${id}`),
 };
+
+// محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك
+export const siteContentApi = {
+  get: () => api.get('/site-content'),
+  update: (data: unknown) => api.put('/site-content', data),
+};

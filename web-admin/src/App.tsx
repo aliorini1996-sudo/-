@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { useAuthStore } from './store/authStore';
 import MainLayout from './layouts/MainLayout';
 import LandingPage from './pages/LandingPage';
+import InfoPage from './pages/InfoPage';
+import ContactPage from './pages/ContactPage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
@@ -42,6 +44,12 @@ export default function App() {
         <Route path="/rep" element={<RepApp />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
+        {/* الصفحات التعريفية الفرعية (عامة) */}
+        <Route path="/about" element={<InfoPage pageKey="about" />} />
+        <Route path="/terms" element={<InfoPage pageKey="terms" />} />
+        <Route path="/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
+        <Route path="/privacy" element={<InfoPage pageKey="privacy" />} />
+        <Route path="/contact" element={<ContactPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
         <Route path="/" element={
           <ProtectedRoute>

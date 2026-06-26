@@ -7,11 +7,12 @@ import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
-  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
+import SiteContentEditor from '../components/SiteContentEditor';
 import { BrandIcon } from '../components/BrandLogo';
 
 export default function PlatformPage() {
@@ -19,6 +20,7 @@ export default function PlatformPage() {
   const { user, logout, impersonate } = useAuthStore();
   const [showCreate, setShowCreate] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showContent, setShowContent] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);
@@ -82,6 +84,9 @@ export default function PlatformPage() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <button onClick={() => setShowContent(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
+              <Globe size={16} /> محتوى الصفحة
+            </button>
             <button onClick={() => setShowPassword(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
               <KeyRound size={16} /> كلمة المرور
             </button>
@@ -215,6 +220,7 @@ export default function PlatformPage() {
           onClose={() => setResetTarget(null)}
         />
       )}
+      {showContent && <SiteContentEditor onClose={() => setShowContent(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal

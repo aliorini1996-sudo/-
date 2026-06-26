@@ -209,6 +209,15 @@ model CustomerPrice {
   @@map("customer_prices")
 }
 
+// محتوى الصفحة التعريفية التسويقية والصفحات التابعة (CMS) — صف واحد بمعرّف ثابت "main"
+model SiteContent {
+  id        String   @id @default("main")
+  data      String   // JSON كامل لكل محتوى الصفحة التعريفية والصفحات الفرعية
+  updatedAt DateTime @updatedAt @default(now())
+
+  @@map("site_content")
+}
+
 model Invoice {
   id          String   @id @default(uuid())
   tenantId    String
