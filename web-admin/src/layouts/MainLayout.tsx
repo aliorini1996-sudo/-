@@ -1,11 +1,12 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin, LifeBuoy,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import SupportModal from '../components/SupportModal';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
@@ -28,6 +29,7 @@ export default function MainLayout() {
   const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -119,6 +121,14 @@ export default function MainLayout() {
             </button>
           )}
           <button
+            onClick={() => setShowSupport(true)}
+            className={`sidebar-link w-full ${collapsed ? 'justify-center px-2' : ''}`}
+            title={collapsed ? t('nav.support') : undefined}
+          >
+            <LifeBuoy size={18} />
+            {!collapsed && <span>{t('nav.support')}</span>}
+          </button>
+          <button
             onClick={handleLogout}
             className={`sidebar-link w-full text-red-300 hover:bg-red-500/20 hover:text-red-200 ${collapsed ? 'justify-center px-2' : ''}`}
           >
@@ -145,6 +155,7 @@ export default function MainLayout() {
       </main>
     </div>
     {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
+    {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
     </div>
   );
 }

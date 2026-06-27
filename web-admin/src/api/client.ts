@@ -151,3 +151,8 @@ export const siteContentApi = {
 export const contactApi = {
   send: (data: { name: string; email: string; phone?: string; message: string }) => api.post('/contact', data),
 };
+
+// طلبات الدعم الفني من لوحة الأدمن — تصل إلى help@fieldsa.net
+export const supportApi = {
+  send: (data: { subject?: string; category?: string; message: string }) => api.post('/support', data),
+};

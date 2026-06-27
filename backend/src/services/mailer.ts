@@ -18,10 +18,11 @@ interface MailInput {
   subject: string;
   html: string;
   replyTo?: string;
+  to?: string; // المستقبِل (افتراضياً MAIL_TO/info@fieldsa.net)
 }
 
-export async function sendMail({ subject, html, replyTo }: MailInput): Promise<boolean> {
-  const to = process.env.MAIL_TO || 'info@fieldsa.net';
+export async function sendMail({ subject, html, replyTo, to: toOverride }: MailInput): Promise<boolean> {
+  const to = toOverride || process.env.MAIL_TO || 'info@fieldsa.net';
 
   // 1) عبر SMTP (Zoho وغيره)
   if (transporter) {
