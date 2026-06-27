@@ -6,13 +6,14 @@ import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
-  Truck, Package, ArrowDownToLine, Check,
+  Truck, Package, ArrowDownToLine, Check, MapPin,
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
+import { useRepTracking } from './useRepTracking';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer';
@@ -936,6 +937,9 @@ export default function RepApp() {
   const [docResult, setDocResult] = useState<InvoiceDoc | ReceiptDoc | StatementDoc | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
 
+  // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
+  const trackStatus = useRepTracking(!!token && !!user);
+
   useEffect(() => {
     if (!token) return;
     repApi.get('/company').then(res => setCompany(res.data.data)).catch(() => {});
@@ -998,7 +1002,19 @@ export default function RepApp() {
                   <BrandIcon size={26} radius={0.3} />
                   <span className="text-sm" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}><span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span></span>
                 </span>
-                <button onClick={logout} className="text-[#9A8F7E] hover:text-white"><LogOut size={18} /></button>
+                <div className="flex items-center gap-3">
+                  {(trackStatus === 'active' || trackStatus === 'requesting') && (
+                    <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title="مشاركة موقعك مفعّلة">
+                      <span className={`w-2 h-2 rounded-full bg-[#5FBE92] ${trackStatus === 'active' ? 'animate-pulse' : ''}`} /> <MapPin size={12} />
+                    </span>
+                  )}
+                  {trackStatus === 'denied' && (
+                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title="فعّل إذن الموقع من إعدادات المتصفح">
+                      <MapPin size={12} /> الموقع متوقّف
+                    </span>
+                  )}
+                  <button onClick={logout} className="text-[#9A8F7E] hover:text-white"><LogOut size={18} /></button>
+                </div>
               </div>
 
               {/* Body */}

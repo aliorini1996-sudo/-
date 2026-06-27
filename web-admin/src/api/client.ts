@@ -123,6 +123,14 @@ export const tenantApi = {
   remove: (id: string) => api.delete(`/tenants/${id}`),
 };
 
+// تتبّع المناديب عبر GPS
+export const trackingApi = {
+  settings: () => api.get('/tracking/settings'),
+  setEnabled: (enabled: boolean) => api.patch('/tracking/settings', { enabled }),
+  live: () => api.get('/tracking/live'),
+  route: (salesRepId: string, date?: string) => api.get('/tracking/route', { params: { salesRepId, ...(date ? { date } : {}) } }),
+};
+
 // مخزون سيارة المندوب — ملخّص ومخزون وحركة لكل مندوب
 export const vanStockApi = {
   summary: () => api.get('/van-stock/summary'),

@@ -1,7 +1,7 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
@@ -16,6 +16,7 @@ const navItems = [
   { to: '/app/products', icon: Package, label: 'nav.products' },
   { to: '/app/sales-reps', icon: UserCheck, label: 'nav.reps' },
   { to: '/app/van-stock', icon: Truck, label: 'nav.vanStock' },
+  { to: '/app/tracking', icon: MapPin, label: 'nav.tracking' },
   { to: '/app/invoices', icon: FileText, label: 'nav.invoices' },
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts' },
   { to: '/app/reports', icon: BarChart3, label: 'nav.reports' },

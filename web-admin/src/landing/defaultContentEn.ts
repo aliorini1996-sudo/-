@@ -19,6 +19,7 @@ export const defaultContentEn = {
       { title: 'Reports & statements', desc: 'A detailed statement per customer, plus rep, sales, and collection performance reports at the click of a button.' },
       { title: 'Reps & permissions', desc: 'Create rep accounts and finely control each one’s permissions: discounts, selling below price, adding customers, and a max discount limit.' },
       { title: 'Van inventory', desc: 'Reps log what they loaded into their van per product; stock auto-decreases with every sale, and managers track the remaining quantities and goods movement (what went out and when) in real time.' },
+      { title: 'Live GPS rep tracking', desc: 'Follow reps’ live locations on the map and each rep’s daily route via GPS while they work in the field.' },
     ],
   },
   how: {

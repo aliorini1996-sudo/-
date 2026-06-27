@@ -45,6 +45,7 @@ model Tenant {
   notifications   Notification[]
   settings        CompanySettings?
   vanLoads        VanLoad[]
+  repLocations    RepLocation[]
 
   @@map("tenants")
 }
@@ -104,10 +105,17 @@ model SalesRep {
   // Van stock permission — هل يستطيع المندوب إدارة مخزون سيارته
   canManageVanStock Boolean @default(true)
 
+  // GPS tracking — آخر موقع معروف + إتاحة التتبّع لهذا المندوب
+  canBeTracked Boolean   @default(true)
+  lastLat      Float?
+  lastLng      Float?
+  lastSeenAt   DateTime?
+
   invoices      Invoice[]
   receipts      Receipt[]
   notifications Notification[]
   vanLoads      VanLoad[]
+  locations     RepLocation[]
 
   @@index([tenantId])
   @@map("sales_reps")
@@ -351,6 +359,7 @@ model CompanySettings {
   logo          String?  // شعار الشركة (base64 data URL)
   primaryColor  String?  // لون الترويسة الأساسي (hex)
   headerStyle   String?  @default("classic") // classic | banner | minimal
+  trackingEnabled Boolean @default(false) // تفعيل تتبّع مواقع المناديب GPS على مستوى الشركة
   updatedAt     DateTime @updatedAt
 
   @@map("company_settings")
@@ -404,4 +413,22 @@ model VanLoadItem {
 
   @@index([vanLoadId])
   @@map("van_load_items")
+}
+
+// نقطة موقع GPS للمندوب — سجلّ زمني لرسم خطّ السير ومعرفة الموقع الحالي
+model RepLocation {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  lat        Float
+  lng        Float
+  accuracy   Float?   // دقة الموقع بالأمتار
+  speed      Float?   // السرعة م/ث إن توفّرت
+  capturedAt DateTime // وقت التقاط الموقع على جهاز المندوب
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, salesRepId, capturedAt])
+  @@map("rep_locations")
 }
