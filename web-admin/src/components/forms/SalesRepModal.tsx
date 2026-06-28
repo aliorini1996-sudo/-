@@ -20,7 +20,7 @@ PermToggle.displayName = 'PermToggle';
 export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) {
   const [showPass, setShowPass] = useState(false);
   const defaults: FormData = rep
-    ? { ...rep, canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true }
+    ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true }
     : {
       isActive: true,
       canCreateInvoice: true,

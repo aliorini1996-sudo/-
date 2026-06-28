@@ -9,10 +9,12 @@ import { paginate, paginationMeta } from '../utils/helpers';
 const router = Router();
 router.use(authenticate, requireAdmin);
 
+const emailSchema = z.preprocess(value => value === null ? '' : value, z.string().email().optional().or(z.literal('')));
+
 const repSchema = z.object({
   name: z.string().min(1),
   phone: z.string().min(9),
-  email: z.string().email().optional().or(z.literal('')),
+  email: emailSchema,
   username: z.string().min(4),
   password: z.string().optional(), // طول كلمة المرور يُفحص في المعالج لرسالة أوضح
   isActive: z.boolean().optional(),
