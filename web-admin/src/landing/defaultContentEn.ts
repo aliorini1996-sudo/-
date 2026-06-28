@@ -20,6 +20,10 @@ export const defaultContentEn = {
       { title: 'Reps & permissions', desc: 'Create rep accounts and finely control each one’s permissions: discounts, selling below price, adding customers, and a max discount limit.' },
       { title: 'Van inventory', desc: 'Reps log what they loaded into their van per product; stock auto-decreases with every sale, and managers track the remaining quantities and goods movement (what went out and when) in real time.' },
       { title: 'Live GPS rep tracking', desc: 'Follow reps’ live locations on the map and each rep’s daily route via GPS while they work in the field.' },
+      { title: 'Customers & statements', desc: 'An organized customer base with credit limits, balances, and a detailed statement per customer — updated automatically with every invoice and payment, with alerts when a customer exceeds their credit limit.' },
+      { title: 'Product catalog & pricing', desc: 'A unified product catalog with tiered pricing by quantity and special prices per customer, reaching reps in the field instantly.' },
+      { title: 'Company team & roles', desc: 'Add admin, manager, and accountant users with granular per-section permissions — each member sees and does exactly what you allow.' },
+      { title: 'ERP integration', desc: 'Sync your customers, products, invoices, and receipts to your ERP system over a secure connection, with detailed sync logs.' },
     ],
   },
   how: {
@@ -27,21 +31,21 @@ export const defaultContentEn = {
     subtitle: 'Three steps stand between you and fully managing your field team.',
     steps: [
       { title: 'Create your account', desc: 'Register your company and add your products, customers, and reps in minutes.' },
-      { title: 'Reps hit the road', desc: 'Each rep receives their route, creates orders, and collects payments from their phone.' },
+      { title: 'Reps hit the road', desc: 'Each rep visits their customers, creates orders, and collects payments from their phone.' },
       { title: 'Track & analyze', desc: 'Monitor sales, collection, and performance in real time from a single dashboard.' },
     ],
   },
   roles: {
     title: 'An interface designed for every role',
     items: [
-      { title: 'Field rep', desc: 'A lightweight mobile app: route, orders, collection, and invoices — even offline.' },
+      { title: 'Field rep', desc: 'A lightweight mobile app: customers, orders, collection, and ZATCA invoices — straight from the phone.' },
       { title: 'Sales manager', desc: 'A complete dashboard to follow teams, targets, collection, and each rep’s performance.' },
       { title: 'Executives', desc: 'Executive reports and growth indicators for decision-making across all branches and regions.' },
     ],
   },
   pricing: {
     title: 'Plans that grow with your company',
-    subtitle: 'Start free for 14 days — no credit card.',
+    subtitle: 'Start free for 10 days — no credit card.',
     plans: [
       { name: 'Starter', price: '299', limit: 'Up to 5 reps' },
       { name: 'Professional', price: '799', limit: 'Up to 20 reps', badge: 'Most popular' },
@@ -52,7 +56,7 @@ export const defaultContentEn = {
     title: 'Frequently asked questions',
     items: [
       { q: 'Are the invoices ZATCA-compliant?', a: 'Yes, the system issues Phase 2 tax invoices compliant with ZATCA e-invoicing requirements, with a QR code.' },
-      { q: 'Does the app work offline?', a: 'Yes, invoices can be issued and thermally printed from the field via a 58mm Bluetooth or built-in printer.' },
+      { q: 'Do I need special hardware?', a: 'No — the app runs on any smartphone. For field printing, a 58mm thermal printer (Bluetooth or built-in) is all you need.' },
       { q: 'How long does setup take?', a: 'You can set up your company, products, and reps in minutes and start issuing invoices right away.' },
       { q: 'Can I try the system before subscribing?', a: 'Yes, reach us at info@fieldsa.net and we’ll help you try the system before subscribing.' },
     ],
@@ -61,7 +65,7 @@ export const defaultContentEn = {
     title: 'Ready to double your field team’s efficiency?',
     subtitle: 'Issue your tax invoices, collect your payments, and track your field team — all from one platform.',
     ctaSecondary: 'Book a demo',
-    note: '14 days free · No credit card · Cancel anytime',
+    note: '10 days free · No credit card · Cancel anytime',
   },
   footer: {
     desc: 'A complete Saudi platform for managing distribution field sales — from order to collection.',

@@ -23,7 +23,7 @@ export const DICT: Record<string, { ar: string; en: string }> = {
   'login.collectToday': { ar: 'التحصيل اليوم', en: "Today's collection" },
 
   // التسجيل الذاتي
-  'signup.badge': { ar: 'تجربة مجانية 14 يوماً', en: '14-day free trial' },
+  'signup.badge': { ar: 'تجربة مجانية 10 أيام', en: '10-day free trial' },
   'signup.title': { ar: 'ابدأ تجربتك المجانية', en: 'Start your free trial' },
   'signup.subtitle': { ar: 'أنشئ حساب شركتك في دقيقة — بدون بطاقة ائتمان.', en: 'Create your company account in a minute — no credit card required.' },
   'signup.company': { ar: 'اسم الشركة', en: 'Company name' },
@@ -40,7 +40,7 @@ export const DICT: Record<string, { ar: string; en: string }> = {
   'signup.haveAccount': { ar: 'هل لديك حساب بالفعل؟', en: 'Already have an account?' },
   'signup.signin': { ar: 'تسجيل الدخول', en: 'Sign in' },
   'signup.heroLead': { ar: 'جرّب المنصّة كاملةً مجاناً، وأدِر فريقك الميداني من أول يوم.', en: 'Try the full platform free, and run your field team from day one.' },
-  'signup.perk1': { ar: '14 يوماً مجاناً بالكامل', en: 'Full 14 days free' },
+  'signup.perk1': { ar: '10 أيام مجاناً بالكامل', en: 'Full 10 days free' },
   'signup.perk2': { ar: 'بدون بطاقة ائتمان', en: 'No credit card' },
   'signup.perk3': { ar: 'كل المميزات مفعّلة', en: 'All features enabled' },
   'signup.perk4': { ar: 'إلغاء في أي وقت', en: 'Cancel anytime' },

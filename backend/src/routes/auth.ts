@@ -50,7 +50,7 @@ const signupSchema = z.object({
   password: z.string().min(6),
   phone: z.string().optional(),
 });
-const TRIAL_DAYS = 14;
+const TRIAL_DAYS = 10;
 
 const adminPermissionSelect = {
   canAccessDashboard: true,
