@@ -28,8 +28,8 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4" dir={dir}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+    <div className="fixed inset-0 bg-black/50 z-[2000] flex items-center justify-center p-4" dir={dir}>
+      <div className="relative z-[2001] bg-white rounded-2xl shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><LifeBuoy size={20} className="text-[#E15A30]" /></div>
