@@ -33,7 +33,7 @@ interface RepUser {
   maxDiscountPct?: number;
 }
 
-// ============ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ ============
+// ============ تسجيل الدخول ============
 function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void }) {
   const t = useT();
   const [username, setUsername] = useState('');
@@ -105,7 +105,7 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
   );
 }
 
-// ============ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© ============
+// ============ الرئيسية ============
 function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => void }) {
   const [stats, setStats] = useState({ salesTotal: 0, collectTotal: 0, invCount: 0, rcpCount: 0 });
   const [syncing, setSyncing] = useState(false);
@@ -113,7 +113,7 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
   const load = useCallback(async () => {
     setSyncing(true);
     try {
-      // Ø­Ø¯ÙˆØ¯ "Ø§Ù„ÙŠÙˆÙ…" Ø¨Ø§Ù„ØªÙˆÙ‚ÙŠØª Ø§Ù„Ù…Ø­Ù„ÙŠ Ù„Ù„Ù…Ù†Ø¯ÙˆØ¨ (ÙˆÙ„ÙŠØ³ UTC) Ø­ØªÙ‰ Ù„Ø§ ØªÙØ­ØªØ³Ø¨ ÙØ§ØªÙˆØ±Ø© Ø§Ù„ÙØ¬Ø± Ø¶Ù…Ù† Ø£Ù…Ø³
+      // حدود "اليوم" بالتوقيت المحلي للمندوب حتى لا تُحسب فاتورة الفجر ضمن أمس.
       const start = new Date(); start.setHours(0, 0, 0, 0);
       const end = new Date(); end.setHours(23, 59, 59, 999);
       const isToday = (iso: string) => { const d = new Date(iso); return d >= start && d <= end; };
@@ -125,7 +125,7 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       const invoices = inv.data.data as { total: number; invoiceDate: string; type: string }[];
       const receipts = rcp.data.data as { amount: number; receiptDate: string }[];
       const todayRcp = receipts.filter(r => isToday(r.receiptDate));
-      // Ù…Ø¨ÙŠØ¹Ø§Øª Ø§Ù„ÙŠÙˆÙ…: ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ø¨ÙŠØ¹ ÙÙ‚Ø· (ØªÙØ³ØªØ«Ù†Ù‰ ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹)
+      // مبيعات اليوم: فواتير البيع فقط (تُستثنى فواتير الإرجاع)
       const todaySales = invoices.filter(i => isToday(i.invoiceDate) && i.type !== 'RETURN');
       setStats({
         salesTotal: todaySales.reduce((s, i) => s + Number(i.total), 0),
@@ -165,12 +165,12 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       {/* Greeting */}
       <div className="bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 flex items-center justify-between">
         <div>
-          <p className="text-[#E8C9BC] text-xs">Ù…Ø±Ø­Ø¨Ø§Ù‹ØŒ</p>
+          <p className="text-[#E8C9BC] text-xs">مرحباً،</p>
           <p className="text-white text-lg font-bold">{user.name}</p>
           {syncing && (
             <div className="flex items-center gap-1.5 mt-1">
               <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              <span className="text-[#E8C9BC] text-[11px]">Ù…Ø²Ø§Ù…Ù†Ø©...</span>
+              <span className="text-[#E8C9BC] text-[11px]">مزامنة...</span>
             </div>
           )}
         </div>
@@ -181,29 +181,29 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
 
       {/* Stats */}
       <div>
-        <p className="text-[#1F1A13] font-bold text-sm mb-3">Ø¥Ø­ØµØ§Ø¦ÙŠØ§Øª Ø§Ù„ÙŠÙˆÙ…</p>
+        <p className="text-[#1F1A13] font-bold text-sm mb-3">إحصائيات اليوم</p>
         <div className="grid grid-cols-2 gap-3">
-          {stat('Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª', formatCurrency(stats.salesTotal), TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
-          {stat('Ø§Ù„ØªØ­ØµÙŠÙ„', formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
-          {stat('Ø§Ù„ÙÙˆØ§ØªÙŠØ±', String(stats.invCount), FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
-          {stat('Ø³Ù†Ø¯Ø§Øª Ø§Ù„Ù‚Ø¨Ø¶', String(stats.rcpCount), CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
+          {stat('المبيعات', formatCurrency(stats.salesTotal), TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
+          {stat('التحصيل', formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
+          {stat('الفواتير', String(stats.invCount), FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
+          {stat('سندات القبض', String(stats.rcpCount), CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
         </div>
       </div>
 
       {/* Quick actions */}
       <div>
-        <p className="text-[#1F1A13] font-bold text-sm mb-3">Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª Ø³Ø±ÙŠØ¹Ø©</p>
+        <p className="text-[#1F1A13] font-bold text-sm mb-3">إجراءات سريعة</p>
         <div className="grid grid-cols-3 gap-3">
-          {quick('ÙØ§ØªÙˆØ±Ø©', FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
-          {quick('Ø³Ù†Ø¯ Ù‚Ø¨Ø¶', CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
-          {quick('Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡', Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
+          {quick('فاتورة', FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
+          {quick('سند قبض', CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
+          {quick('العملاء', Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
         </div>
       </div>
     </div>
   );
 }
 
-// ============ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ ============
+// ============ قائمة العملاء ============
 function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void; canAdd: boolean; onAdd: () => void }) {
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -224,21 +224,21 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
       <div className="p-3 flex items-center gap-2">
         <div className="flex-1">
           <SearchableSelect
-            placeholder="Ø§Ø®ØªØ± Ø§Ù„Ø¹Ù…ÙŠÙ„"
-            searchPlaceholder="Ø§ÙƒØªØ¨ Ø§Ø³Ù… Ø£Ùˆ Ø¬ÙˆØ§Ù„ Ø§Ù„Ø¹Ù…ÙŠÙ„â€¦"
+            placeholder="اختر العميل"
+            searchPlaceholder="اكتب اسم أو جوال العميل…"
             value=""
             resetOnSelect
             options={customers.map(c => ({
               value: c.id,
               label: c.name,
-              hint: Number(c.balance) > 0 ? `Ø±ØµÙŠØ¯ ${formatCurrency(c.balance)}` : c.phone,
+              hint: Number(c.balance) > 0 ? `رصيد ${formatCurrency(c.balance)}` : c.phone,
               hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
             }))}
             onChange={(v) => { const c = customers.find(x => x.id === v); if (c) onSelect(c); }}
           />
         </div>
         {canAdd && (
-          <button onClick={onAdd} title="Ø¥Ø¶Ø§ÙØ© Ø¹Ù…ÙŠÙ„"
+          <button onClick={onAdd} title="إضافة عميل"
             className="flex-shrink-0 w-10 h-10 bg-[#E15A30] hover:bg-[#C94E28] text-white rounded-xl flex items-center justify-center">
             <Plus size={20} />
           </button>
@@ -246,9 +246,9 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-24">
         {loading ? (
-          <div className="text-center text-gray-400 py-10 text-sm">Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</div>
+          <div className="text-center text-gray-400 py-10 text-sm">جاري التحميل...</div>
         ) : customers.length === 0 ? (
-          <div className="text-center text-gray-400 py-10 text-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ù†ØªØ§Ø¦Ø¬</div>
+          <div className="text-center text-gray-400 py-10 text-sm">لا توجد نتائج</div>
         ) : customers.map(c => (
           <button key={c.id} onClick={() => onSelect(c)}
             className="w-full flex items-center gap-3 bg-white rounded-2xl p-3 mb-2 border border-gray-100 text-right hover:border-[#E8C9BC]">
@@ -257,13 +257,13 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-gray-800 text-sm truncate">{c.name}</p>
-              <p className="text-xs text-gray-400">{c.phone} â€¢ {c.city || ''}</p>
+              <p className="text-xs text-gray-400">{c.phone} • {c.city || ''}</p>
             </div>
             <div className="text-left">
               <p className={`text-sm font-bold ${Number(c.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {formatCurrency(c.balance)}
               </p>
-              <p className="text-[10px] text-gray-400">Ø§Ù„Ø±ØµÙŠØ¯</p>
+              <p className="text-[10px] text-gray-400">الرصيد</p>
             </div>
           </button>
         ))}
@@ -272,7 +272,7 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
   );
 }
 
-// ============ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø¹Ù…ÙŠÙ„ ============
+// ============ تفاصيل العميل ============
 function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement }: {
   customer: any; repName: string; company: Company | null;
   perms: RepUser;
@@ -313,15 +313,15 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <p className={`font-bold text-sm ${Number(customer.balance) > 0 ? 'text-red-300' : 'text-green-300'}`}>{formatCurrency(customer.balance)}</p>
-              <p className="text-[#E8C9BC] text-[10px]">Ø§Ù„Ø±ØµÙŠØ¯</p>
+              <p className="text-[#E8C9BC] text-[10px]">الرصيد</p>
             </div>
             <div>
               <p className="font-bold text-sm">{formatCurrency(customer.creditLimit)}</p>
-              <p className="text-[#E8C9BC] text-[10px]">Ø§Ù„Ø­Ø¯ Ø§Ù„Ø§Ø¦ØªÙ…Ø§Ù†ÙŠ</p>
+              <p className="text-[#E8C9BC] text-[10px]">الحد الائتماني</p>
             </div>
             <div>
-              <p className="font-bold text-sm">{customer.paymentDays} ÙŠÙˆÙ…</p>
-              <p className="text-[#E8C9BC] text-[10px]">ÙØªØ±Ø© Ø§Ù„Ø³Ø¯Ø§Ø¯</p>
+              <p className="font-bold text-sm">{customer.paymentDays} يوم</p>
+              <p className="text-[#E8C9BC] text-[10px]">فترة السداد</p>
             </div>
           </div>
         </div>
@@ -330,39 +330,39 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         <div className="grid grid-cols-2 gap-3 mt-4">
           <button onClick={onInvoice} disabled={!canCreateInvoice || !canSellAnyType}
             className="bg-[#E15A30] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <FileText size={16} /> ÙØ§ØªÙˆØ±Ø© Ø¬Ø¯ÙŠØ¯Ø©
+            <FileText size={16} /> فاتورة جديدة
           </button>
           <button onClick={onReceipt} disabled={!canCreateReceipt} className="bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <CreditCard size={16} /> Ø³Ù†Ø¯ Ù‚Ø¨Ø¶
+            <CreditCard size={16} /> سند قبض
           </button>
         </div>
         <div className="grid grid-cols-2 gap-3 mt-3">
           <button onClick={onReturn} className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <RotateCcw size={16} /> ÙØ§ØªÙˆØ±Ø© Ø¥Ø±Ø¬Ø§Ø¹
+            <RotateCcw size={16} /> فاتورة إرجاع
           </button>
           <button
             onClick={() => onStatement(statementDocFromData(customer, entries, repName, company))}
             disabled={loading || !canViewStatement}
             className="bg-slate-700 hover:bg-slate-800 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
-            <FileBarChart2 size={16} /> ÙƒØ´Ù Ø­Ø³Ø§Ø¨
+            <FileBarChart2 size={16} /> كشف حساب
           </button>
         </div>
 
         {/* Statement */}
-        <p className="font-bold text-gray-700 text-sm mt-5 mb-2">ÙƒØ´Ù Ø§Ù„Ø­Ø³Ø§Ø¨</p>
+        <p className="font-bold text-gray-700 text-sm mt-5 mb-2">كشف الحساب</p>
         {!canViewStatement ? (
           <p className="text-center text-gray-400 py-6 text-sm">لا تملك صلاحية عرض كشف الحساب</p>
         ) : loading ? (
-          <p className="text-center text-gray-400 py-6 text-sm">Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</p>
+          <p className="text-center text-gray-400 py-6 text-sm">جاري التحميل...</p>
         ) : entries.length === 0 ? (
-          <p className="text-center text-gray-400 py-6 text-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø­Ø±ÙƒØ§Øª</p>
+          <p className="text-center text-gray-400 py-6 text-sm">لا توجد حركات</p>
         ) : entries.map(e => {
           const isDebit = Number(e.debit) > 0;
           return (
             <div key={e.id} className="bg-white rounded-xl p-3 mb-2 border border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center ${isDebit ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
-                  {isDebit ? 'â†‘' : 'â†“'}
+                  {isDebit ? '↑' : '↓'}
                 </span>
                 <div>
                   <p className="text-xs font-medium text-gray-700">{e.description}</p>
@@ -373,7 +373,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
                 <p className={`text-xs font-bold ${isDebit ? 'text-red-600' : 'text-green-600'}`}>
                   {isDebit ? formatCurrency(e.debit) : formatCurrency(e.credit)}
                 </p>
-                <p className="text-[10px] text-gray-400">Ø±ØµÙŠØ¯: {formatCurrency(e.balance)}</p>
+                <p className="text-[10px] text-gray-400">رصيد: {formatCurrency(e.balance)}</p>
               </div>
             </div>
           );
@@ -383,7 +383,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   );
 }
 
-// ============ Ø¥Ù†Ø´Ø§Ø¡ ÙØ§ØªÙˆØ±Ø© (Ø¨ÙŠØ¹ Ø£Ùˆ Ø¥Ø±Ø¬Ø§Ø¹) ============
+// ============ إنشاء فاتورة (بيع أو إرجاع) ============
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
   const isReturn = mode === 'return';
   const canSellOnCredit = perms.canSellOnCredit !== false;
@@ -393,11 +393,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
-  const [showCart, setShowCart] = useState(false); // Ø¹Ø±Ø¶ Ø§Ù„Ø£ØµÙ†Ø§Ù Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ù‚Ø¨Ù„ Ø§Ù„Ø¥ØµØ¯Ø§Ø±
+  const [showCart, setShowCart] = useState(false); // عرض الأصناف المختارة للمراجعة قبل الإصدار
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
-  // Ø¬Ù„Ø¨ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª ÙƒØ§Ù…Ù„Ø© (Ø§Ù„Ø§Ø®ØªÙŠØ§Ø± Ø¹Ø¨Ø± Ù‚Ø§Ø¦Ù…Ø© Ù…Ù†Ø³Ø¯Ù„Ø© Ø¨Ø§Ù„ØªØµÙÙŠØ© + Ø´Ø¨ÙƒØ© Ù„Ù„ØªØµÙÙ‘Ø­)
+  // جلب قائمة المنتجات كاملة (الاختيار عبر قائمة منسدلة بالتصفية + شبكة للتصفّح)
   useEffect(() => {
     (async () => {
       setLoadingProducts(true);
@@ -409,11 +409,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     })();
   }, []);
 
-  // Ø§Ù„Ø³Ø¹Ø± Ø§Ù„Ø°ÙŠ ÙŠÙØ¯Ø®Ù„Ù‡ Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ Ø´Ø§Ù…Ù„ Ø§Ù„Ø¶Ø±ÙŠØ¨Ø©Ø› Ù†Ø´ØªÙ‚Ù‘ Ø§Ù„Ø³Ø¹Ø± Ù‚Ø¨Ù„ Ø§Ù„Ø¶Ø±ÙŠØ¨Ø© Ù„Ù„Ù†Ø¸Ø§Ù…
+  // السعر الذي يُدخله المندوب شامل الضريبة؛ نشتقّ السعر قبل الضريبة للنظام
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const preTax = (l: any) => l.unitPrice / (1 + l.taxPct / 100);
-  const lineTotal = (l: any) => l.qty * l.unitPrice * (1 - l.discountPct / 100); // Ø´Ø§Ù…Ù„ Ø§Ù„Ø¶Ø±ÙŠØ¨Ø©
-  const inclPrice = (p: any) => round2(Number(p.basePrice) * (1 + Number(p.taxPct) / 100)); // Ø§Ù„Ø³Ø¹Ø± Ø´Ø§Ù…Ù„ Ø§Ù„Ø¶Ø±ÙŠØ¨Ø©
+  const lineTotal = (l: any) => l.qty * l.unitPrice * (1 - l.discountPct / 100); // شامل الضريبة
+  const inclPrice = (p: any) => round2(Number(p.basePrice) * (1 + Number(p.taxPct) / 100)); // السعر شامل الضريبة
 
   const addProduct = (p: any) => {
     const idx = lines.findIndex(l => l.productId === p.id);
@@ -421,14 +421,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     else setLines([...lines, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), refPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }]);
   };
 
-  // Ø­Ø¯ÙˆØ¯ ØµÙ„Ø§Ø­ÙŠØ§Øª Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ (ØªÙÙØ±Ø¶ Ø£ÙŠØ¶Ø§Ù‹ ÙÙŠ Ø§Ù„Ø®Ø§Ø¯Ù… ÙƒØ­Ø§Ø±Ø³ Ù†Ù‡Ø§Ø¦ÙŠ)
+  // حدود صلاحيات المندوب (تُفرض أيضاً في الخادم كحارس نهائي)
   const maxDisc = perms?.maxDiscountPct ?? 0;
   const upd = (i: number, f: string, v: number) => {
     const c = [...lines];
-    if (f === 'discountPct') v = Math.max(0, Math.min(v || 0, maxDisc));        // Ø­Ø¯Ù‘ Ø§Ù„Ø®ØµÙ… Ø§Ù„Ù…Ø³Ù…ÙˆØ­
+    if (f === 'discountPct') v = Math.max(0, Math.min(v || 0, maxDisc));        // حدّ الخصم المسموح
     if (f === 'unitPrice') {
-      if (!perms?.canChangePrice) return;                                       // Ù„Ø§ ÙŠÙ…Ù„Ùƒ ØªØºÙŠÙŠØ± Ø§Ù„Ø³Ø¹Ø±
-      if (!perms?.canSellBelowPrice) v = Math.max(v || 0, c[i].refPrice);       // Ù„Ø§ ÙŠØ¨ÙŠØ¹ Ø¨Ø£Ù‚Ù„ Ù…Ù† Ø§Ù„Ø³Ø¹Ø±
+      if (!perms?.canChangePrice) return;                                       // لا يملك تغيير السعر
+      if (!perms?.canSellBelowPrice) v = Math.max(v || 0, c[i].refPrice);       // لا يبيع بأقل من السعر
     }
     c[i][f] = v; setLines(c);
   };
@@ -436,22 +436,22 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const qtyInCart = (id: string) => lines.find(l => l.productId === id)?.qty || 0;
   const itemCount = lines.reduce((s, l) => s + l.qty, 0);
 
-  const subtotal = lines.reduce((s, l) => s + l.qty * preTax(l), 0); // Ù‚Ø¨Ù„ Ø§Ù„Ø¶Ø±ÙŠØ¨Ø© ÙˆÙ‚Ø¨Ù„ Ø§Ù„Ø®ØµÙ…
+  const subtotal = lines.reduce((s, l) => s + l.qty * preTax(l), 0); // قبل الضريبة وقبل الخصم
   const discount = lines.reduce((s, l) => s + l.qty * preTax(l) * l.discountPct / 100, 0);
   const tax = lines.reduce((s, l) => s + l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100, 0);
-  const total = subtotal - discount + tax; // = Ù…Ø¬Ù…ÙˆØ¹ Ø§Ù„Ø£Ø³Ø¹Ø§Ø± Ø§Ù„Ø´Ø§Ù…Ù„Ø©
+  const total = subtotal - discount + tax; // = مجموع الأسعار الشاملة
 
   const submit = async () => {
-    if (lines.length === 0) { setMsg('Ø£Ø¶Ù ØµÙ†ÙØ§Ù‹'); return; }
-    if (perms.canCreateInvoice === false) { setMsg('Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø¥Ù†Ø´Ø§Ø¡ ÙØ§ØªÙˆØ±Ø©'); return; }
-    if (!isReturn && !canSellAnyType) { setMsg('Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø¨ÙŠØ¹ Ø§Ù„Ù†Ù‚Ø¯ÙŠ Ø£Ùˆ Ø§Ù„Ø¢Ø¬Ù„'); return; }
-    if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg('Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø¨ÙŠØ¹ Ø§Ù„Ø¢Ø¬Ù„'); return; }
-    if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg('Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø¨ÙŠØ¹ Ø§Ù„Ù†Ù‚Ø¯ÙŠ'); return; }
+    if (lines.length === 0) { setMsg('أضف صنفاً'); return; }
+    if (perms.canCreateInvoice === false) { setMsg('لا تملك صلاحية إنشاء فاتورة'); return; }
+    if (!isReturn && !canSellAnyType) { setMsg('لا تملك صلاحية البيع النقدي أو الآجل'); return; }
+    if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg('لا تملك صلاحية البيع الآجل'); return; }
+    if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg('لا تملك صلاحية البيع النقدي'); return; }
     setLoading(true); setMsg('');
     try {
       const res = await repApi.post('/invoices', {
         customerId: customer.id, type: isReturn ? 'RETURN' : type, discountPct: 0,
-        // Ù†Ø±Ø³Ù„ Ø§Ù„Ø³Ø¹Ø± Ù‚Ø¨Ù„ Ø§Ù„Ø¶Ø±ÙŠØ¨Ø© (Ù…Ø´ØªÙ‚Ù‘Ø§Ù‹ Ù…Ù† Ø§Ù„Ø³Ø¹Ø± Ø§Ù„Ø´Ø§Ù…Ù„)
+        // نرسل السعر قبل الضريبة (مشتقّاً من السعر الشامل)
         items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
       });
       const inv = res.data.data;
@@ -462,17 +462,17 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         subtotal, discount, tax, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
       });
-    } catch (err: any) { setMsg(err?.response?.data?.message || 'ØªØ¹Ø°Ù‘Ø± Ø¥ØµØ¯Ø§Ø± Ø§Ù„Ù…Ø³ØªÙ†Ø¯ØŒ Ø­Ø§ÙˆÙ„ Ù…Ø¬Ø¯Ø¯Ø§Ù‹'); setLoading(false); }
+    } catch (err: any) { setMsg(err?.response?.data?.message || 'تعذّر إصدار المستند، حاول مجدداً'); setLoading(false); }
   };
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
       <div className={`${isReturn ? 'bg-amber-700' : 'bg-[#1F1A13]'} text-white p-4 flex items-center gap-3`}>
         <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
-        <span className="font-bold">{showCart ? 'Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø£ØµÙ†Ø§Ù' : isReturn ? 'ÙØ§ØªÙˆØ±Ø© Ø¥Ø±Ø¬Ø§Ø¹' : 'ÙØ§ØªÙˆØ±Ø© Ø¬Ø¯ÙŠØ¯Ø©'}</span>
+        <span className="font-bold">{showCart ? 'مراجعة الأصناف' : isReturn ? 'فاتورة إرجاع' : 'فاتورة جديدة'}</span>
       </div>
 
-      {/* ===== Ø´Ø§Ø´Ø© Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª (Ø´Ø¨ÙƒØ© Ø£ÙŠÙ‚ÙˆÙ†Ø§Øª) ===== */}
+      {/* ===== شاشة اختيار المنتجات (شبكة أيقونات) ===== */}
       {!showCart ? (
         <>
           <div className="px-3 pt-3">
@@ -483,21 +483,21 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
             {isReturn ? (
               <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2 text-[11px] text-amber-800 text-center">
-                Ù…Ø±ØªØ¬Ø¹ Ù…Ø¨ÙŠØ¹Ø§Øª â€” Ø³ÙŠÙØ®ÙÙ‘Ø¶ Ø±ØµÙŠØ¯ Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ù‚ÙŠÙ…Ø© Ø§Ù„Ù…Ø±ØªØ¬Ø¹
+                مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع
               </div>
             ) : (
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-gray-600">Ø§Ù„Ù†ÙˆØ¹:</span>
-                <button disabled={!canSellOnCredit} onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>Ø¢Ø¬Ù„</button>
-                <button disabled={!canSellInCash} onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>Ù†Ù‚Ø¯ÙŠ</button>
+                <span className="text-xs text-gray-600">النوع:</span>
+                <button disabled={!canSellOnCredit} onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>آجل</button>
+                <button disabled={!canSellInCash} onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>نقدي</button>
               </div>
             )}
-            {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø¨ÙŠØ¹ Ø§Ù„Ù†Ù‚Ø¯ÙŠ Ø£Ùˆ Ø§Ù„Ø¢Ø¬Ù„.</p>}
+            {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">لا تملك صلاحية البيع النقدي أو الآجل.</p>}
 
             <div className="mb-2">
               <SearchableSelect
-                placeholder="Ø§Ø®ØªØ± ØµÙ†ÙØ§Ù‹ Ù„Ø¥Ø¶Ø§ÙØªÙ‡"
-                searchPlaceholder="Ø§ÙƒØªØ¨ Ø§Ø³Ù… Ø§Ù„ØµÙ†Ùâ€¦"
+                placeholder="اختر صنفاً لإضافته"
+                searchPlaceholder="اكتب اسم الصنف…"
                 value=""
                 resetOnSelect
                 options={products.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
@@ -506,12 +506,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             </div>
           </div>
 
-          {/* Ø´Ø¨ÙƒØ© Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª */}
+          {/* شبكة المنتجات */}
           <div className="flex-1 overflow-y-auto px-3 pb-28">
             {loadingProducts ? (
-              <div className="text-center text-gray-400 py-10 text-sm">Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</div>
+              <div className="text-center text-gray-400 py-10 text-sm">جاري التحميل...</div>
             ) : products.length === 0 ? (
-              <div className="text-center text-gray-400 py-10 text-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø£ØµÙ†Ø§Ù</div>
+              <div className="text-center text-gray-400 py-10 text-sm">لا توجد أصناف</div>
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {products.map(p => {
@@ -540,14 +540,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             )}
           </div>
 
-          {/* Ø´Ø±ÙŠØ· Ø§Ù„Ø¹Ø±Ø¨Ø© Ø§Ù„Ø³ÙÙ„ÙŠ */}
+          {/* شريط العربة السفلي */}
           {lines.length > 0 && (
             <div className="absolute bottom-0 right-0 left-0 p-3 bg-white border-t shadow-lg">
               <button onClick={() => setShowCart(true)}
                 className={`w-full ${isReturn ? 'bg-amber-600' : 'bg-[#E15A30]'} text-white font-semibold py-3 rounded-xl flex items-center justify-between px-4`}>
                 <span className="flex items-center gap-2">
                   <span className="bg-white/25 w-6 h-6 rounded-full flex items-center justify-center text-xs">{itemCount}</span>
-                  Ù…Ø±Ø§Ø¬Ø¹Ø© ÙˆØ¥ØµØ¯Ø§Ø±
+                  مراجعة وإصدار
                 </span>
                 <span className="font-bold">{formatCurrency(total)}</span>
               </button>
@@ -555,7 +555,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           )}
         </>
       ) : (
-        /* ===== Ø´Ø§Ø´Ø© Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø£ØµÙ†Ø§Ù Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© ===== */
+        /* ===== شاشة مراجعة الأصناف المختارة ===== */
         <>
           <div className="flex-1 overflow-y-auto p-4">
             {lines.map((l, i) => (
@@ -568,32 +568,32 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   <button onClick={() => setLines(lines.filter((_, j) => j !== i))} className="text-red-400"><Trash2 size={15} /></button>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {[['Ø§Ù„ÙƒÙ…ÙŠØ©', 'qty'], ['Ø§Ù„Ø³Ø¹Ø± Ø´Ø§Ù…Ù„', 'unitPrice'], ['Ø®ØµÙ…%', 'discountPct']].map(([lbl, f]) => {
+                  {[['الكمية', 'qty'], ['السعر شامل', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => {
                     const locked = (f === 'unitPrice' && !perms?.canChangePrice) || (f === 'discountPct' && maxDisc === 0);
                     return (
                       <div key={f}>
                         <label className="text-[10px] text-gray-400 flex items-center gap-0.5">
-                          {lbl}{f === 'discountPct' && maxDisc > 0 && <span className="text-[#E15A30]">(Ø­Ø¯ {maxDisc}%)</span>}
+                          {lbl}{f === 'discountPct' && maxDisc > 0 && <span className="text-[#E15A30]">(حد {maxDisc}%)</span>}
                         </label>
                         <input type="number" readOnly={locked} max={f === 'discountPct' ? maxDisc : undefined} min={0}
                           className={`input text-center !py-1.5 text-sm ${locked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? 'ØºÙŠØ± Ù…ØµØ±Ù‘Ø­ Ù„Ùƒ Ø¨ØªØ¹Ø¯ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„Ø­Ù‚Ù„' : undefined} />
+                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? 'غير مصرّح لك بتعديل هذا الحقل' : undefined} />
                       </div>
                     );
                   })}
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
-                  <span className="text-gray-400">Ù…Ù†Ù‡Ø§ Ø¶Ø±ÙŠØ¨Ø©: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
+                  <span className="text-gray-400">منها ضريبة: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
                   <span className="font-bold text-[#E15A30]">{formatCurrency(lineTotal(l))}</span>
                 </div>
               </div>
             ))}
 
             <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
-              <div className="flex justify-between text-gray-500"><span>Ù‚Ø¨Ù„ Ø§Ù„Ø®ØµÙ…</span><span>{formatCurrency(subtotal)}</span></div>
-              <div className="flex justify-between text-red-500"><span>Ø§Ù„Ø®ØµÙ…</span><span>- {formatCurrency(discount)}</span></div>
-              <div className="flex justify-between text-[#E15A30]"><span>Ø§Ù„Ø¶Ø±ÙŠØ¨Ø© 15%</span><span>{formatCurrency(tax)}</span></div>
-              <div className="flex justify-between font-bold text-base border-t pt-2"><span>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</span><span>{formatCurrency(total)}</span></div>
+              <div className="flex justify-between text-gray-500"><span>قبل الخصم</span><span>{formatCurrency(subtotal)}</span></div>
+              <div className="flex justify-between text-red-500"><span>الخصم</span><span>- {formatCurrency(discount)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>الضريبة 15%</span><span>{formatCurrency(tax)}</span></div>
+              <div className="flex justify-between font-bold text-base border-t pt-2"><span>الإجمالي</span><span>{formatCurrency(total)}</span></div>
             </div>
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
           </div>
@@ -601,7 +601,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           <div className="p-4 border-t bg-white">
             <button onClick={submit} disabled={loading || (!isReturn && (perms.canCreateInvoice === false || !canSellAnyType))} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-[#E15A30] disabled:bg-[#E89B7E]'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-              {isReturn ? 'Ø¥ØµØ¯Ø§Ø± ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹' : 'Ø¥ØµØ¯Ø§Ø± Ø§Ù„ÙØ§ØªÙˆØ±Ø©'}
+              {isReturn ? 'إصدار فاتورة الإرجاع' : 'إصدار الفاتورة'}
             </button>
           </div>
         </>
@@ -610,7 +610,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   );
 }
 
-// ============ Ø¥Ù†Ø´Ø§Ø¡ Ø³Ù†Ø¯ Ù‚Ø¨Ø¶ ============
+// ============ إنشاء سند قبض ============
 function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; perms: RepUser; onClose: () => void; onDone: (doc: ReceiptDoc) => void }) {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('CASH');
@@ -620,7 +620,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 
   const submit = async () => {
     if (perms.canCreateReceipt === false) { setMsg('لا تملك صلاحية إصدار سند قبض'); return; }
-    if (!amount || Number(amount) <= 0) { setMsg('Ø£Ø¯Ø®Ù„ Ù…Ø¨Ù„ØºØ§Ù‹ ØµØ­ÙŠØ­Ø§Ù‹'); return; }
+    if (!amount || Number(amount) <= 0) { setMsg('أدخل مبلغاً صحيحاً'); return; }
     setLoading(true); setMsg('');
     try {
       const res = await repApi.post('/receipts', { customerId: customer.id, amount: Number(amount), paymentMethod: method, notes: notes || undefined });
@@ -629,16 +629,16 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         kind: 'receipt', number: rcp.number, date: rcp.receiptDate,
         company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
       });
-    } catch (err: any) { setMsg(err?.response?.data?.message || 'ØªØ¹Ø°Ù‘Ø± Ø¥ØµØ¯Ø§Ø± Ø§Ù„Ø³Ù†Ø¯ØŒ Ø­Ø§ÙˆÙ„ Ù…Ø¬Ø¯Ø¯Ø§Ù‹'); setLoading(false); }
+    } catch (err: any) { setMsg(err?.response?.data?.message || 'تعذّر إصدار السند، حاول مجدداً'); setLoading(false); }
   };
 
-  const methods = [['CASH', 'Ù†Ù‚Ø¯ÙŠ'], ['BANK_TRANSFER', 'ØªØ­ÙˆÙŠÙ„'], ['POS', 'Ø´Ø¨ÙƒØ©'], ['CHEQUE', 'Ø´ÙŠÙƒ']];
+  const methods = [['CASH', 'نقدي'], ['BANK_TRANSFER', 'تحويل'], ['POS', 'شبكة'], ['CHEQUE', 'شيك']];
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
       <div className="bg-green-700 text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
-        <span className="font-bold">Ø¥ØµØ¯Ø§Ø± Ø³Ù†Ø¯ Ù‚Ø¨Ø¶</span>
+        <span className="font-bold">إصدار سند قبض</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -647,16 +647,16 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
             <User size={16} className="text-green-700" />
             <span className="font-semibold text-sm">{customer.name}</span>
           </div>
-          <span className="text-xs text-gray-500">Ø±ØµÙŠØ¯: {formatCurrency(customer.balance)}</span>
+          <span className="text-xs text-gray-500">رصيد: {formatCurrency(customer.balance)}</span>
         </div>
 
         <div>
-          <label className="label">Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ø­ØµÙ‘Ù„</label>
+          <label className="label">المبلغ المحصّل</label>
           <input type="number" className="input text-lg font-bold" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
         </div>
 
         <div>
-          <label className="label">Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹</label>
+          <label className="label">طريقة الدفع</label>
           <div className="flex flex-wrap gap-2">
             {methods.map(([v, lbl]) => (
               <button key={v} onClick={() => setMethod(v)}
@@ -668,7 +668,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         </div>
 
         <div>
-          <label className="label">Ù…Ù„Ø§Ø­Ø¸Ø§Øª</label>
+          <label className="label">ملاحظات</label>
           <textarea className="input" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
         </div>
         {msg && <p className="text-red-500 text-xs text-center">{msg}</p>}
@@ -677,14 +677,14 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       <div className="p-4 border-t bg-white">
         <button onClick={submit} disabled={loading} className="w-full bg-green-600 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-green-400">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-          Ø¥ØµØ¯Ø§Ø± Ø§Ù„Ø³Ù†Ø¯
+          إصدار السند
         </button>
       </div>
     </div>
   );
 }
 
-// ============ Ø¥Ø¶Ø§ÙØ© Ø¹Ù…ÙŠÙ„ Ø¬Ø¯ÙŠØ¯ ============
+// ============ إضافة عميل جديد ============
 function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (c: any) => void }) {
   const [form, setForm] = useState({
     name: '', businessName: '', phone: '', commercialReg: '', taxNumber: '',
@@ -696,8 +696,8 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const submit = async () => {
-    if (!form.name.trim()) { setMsg('Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„ Ù…Ø·Ù„ÙˆØ¨'); return; }
-    if (form.phone.trim().length < 9) { setMsg('Ø±Ù‚Ù… Ø¬ÙˆØ§Ù„ ØµØ­ÙŠØ­ Ù…Ø·Ù„ÙˆØ¨ (9 Ø£Ø±Ù‚Ø§Ù… Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„)'); return; }
+    if (!form.name.trim()) { setMsg('اسم العميل مطلوب'); return; }
+    if (form.phone.trim().length < 9) { setMsg('رقم جوال صحيح مطلوب (9 أرقام على الأقل)'); return; }
     setLoading(true); setMsg('');
     try {
       const res = await repApi.post('/customers', {
@@ -714,7 +714,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       });
       onCreated(res.data.data);
     } catch (err: any) {
-      setMsg(err?.response?.data?.message || 'ØªØ¹Ø°Ù‘Ø± Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ø¹Ù…ÙŠÙ„');
+      setMsg(err?.response?.data?.message || 'تعذّر إضافة العميل');
       setLoading(false);
     }
   };
@@ -731,41 +731,41 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
     <div className="h-full flex flex-col bg-gray-50">
       <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
-        <span className="font-bold">Ø¥Ø¶Ø§ÙØ© Ø¹Ù…ÙŠÙ„ Ø¬Ø¯ÙŠØ¯</span>
+        <span className="font-bold">إضافة عميل جديد</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">البيانات الأساسية</p>
           <div className="space-y-3">
-            {field('Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„', 'name', { required: true })}
-            {field('Ø§Ø³Ù… Ø§Ù„Ù…Ù†Ø´Ø£Ø©', 'businessName')}
-            {field('Ø±Ù‚Ù… Ø§Ù„Ø¬ÙˆØ§Ù„', 'phone', { required: true, ltr: true })}
+            {field('اسم العميل', 'name', { required: true })}
+            {field('اسم المنشأة', 'businessName')}
+            {field('رقم الجوال', 'phone', { required: true, ltr: true })}
           </div>
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù†Ø¸Ø§Ù…ÙŠØ©</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">البيانات النظامية</p>
           <div className="grid grid-cols-2 gap-3">
-            {field('Ø§Ù„Ø³Ø¬Ù„ Ø§Ù„ØªØ¬Ø§Ø±ÙŠ', 'commercialReg', { ltr: true })}
-            {field('Ø§Ù„Ø±Ù‚Ù… Ø§Ù„Ø¶Ø±ÙŠØ¨ÙŠ', 'taxNumber', { ltr: true })}
+            {field('السجل التجاري', 'commercialReg', { ltr: true })}
+            {field('الرقم الضريبي', 'taxNumber', { ltr: true })}
           </div>
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">Ø§Ù„Ø¹Ù†ÙˆØ§Ù†</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">العنوان</p>
           <div className="grid grid-cols-2 gap-3">
-            {field('Ø§Ù„Ù…Ø¯ÙŠÙ†Ø©', 'city')}
-            {field('Ø§Ù„Ø­ÙŠ', 'district')}
+            {field('المدينة', 'city')}
+            {field('الحي', 'district')}
           </div>
-          <div className="mt-3">{field('Ø§Ù„Ø¹Ù†ÙˆØ§Ù† Ø§Ù„ØªÙØµÙŠÙ„ÙŠ', 'address')}</div>
+          <div className="mt-3">{field('العنوان التفصيلي', 'address')}</div>
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ©</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">البيانات المالية</p>
           <div className="grid grid-cols-2 gap-3">
-            {field('Ø§Ù„Ø­Ø¯ Ø§Ù„Ø§Ø¦ØªÙ…Ø§Ù†ÙŠ', 'creditLimit', { type: 'number', ltr: true })}
-            {field('ÙØªØ±Ø© Ø§Ù„Ø³Ø¯Ø§Ø¯ (ÙŠÙˆÙ…)', 'paymentDays', { type: 'number', ltr: true })}
+            {field('الحد الائتماني', 'creditLimit', { type: 'number', ltr: true })}
+            {field('فترة السداد (يوم)', 'paymentDays', { type: 'number', ltr: true })}
           </div>
         </div>
 
@@ -775,14 +775,14 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       <div className="p-4 border-t bg-white">
         <button onClick={submit} disabled={loading} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-          Ø­ÙØ¸ Ø§Ù„Ø¹Ù…ÙŠÙ„
+          حفظ العميل
         </button>
       </div>
     </div>
   );
 }
 
-// ============ Ù‚Ø§Ø¦Ù…Ø© Ø¨Ø³ÙŠØ·Ø© (ÙÙˆØ§ØªÙŠØ±/Ø³Ù†Ø¯Ø§Øª) ============
+// ============ قائمة بسيطة (فواتير/سندات) ============
 function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoice' | 'receipt'; onOpen: (detail: any) => void }) {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -803,8 +803,8 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 
   return (
     <div className="h-full overflow-y-auto p-3 pb-24">
-      {loading ? <div className="text-center text-gray-400 py-10 text-sm">Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</div>
-        : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª</div>
+      {loading ? <div className="text-center text-gray-400 py-10 text-sm">جاري التحميل...</div>
+        : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">لا توجد بيانات</div>
         : items.map(it => {
           const isReturn = kind === 'invoice' && it.type === 'RETURN';
           return (
@@ -817,9 +817,9 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
               <div>
                 <p className="font-semibold text-xs text-gray-800 flex items-center gap-1.5">
                   {it.number}
-                  {isReturn && <span className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0.5 rounded-full">Ù…Ø±ØªØ¬Ø¹</span>}
+                  {isReturn && <span className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0.5 rounded-full">مرتجع</span>}
                 </p>
-                <p className="text-[11px] text-gray-400">{it.customer?.name} â€¢ {formatDate(kind === 'invoice' ? it.invoiceDate : it.receiptDate)}</p>
+                <p className="text-[11px] text-gray-400">{it.customer?.name} • {formatDate(kind === 'invoice' ? it.invoiceDate : it.receiptDate)}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -837,8 +837,8 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
   );
 }
 
-// ============ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ ============
-// ============ Ù…Ø®Ø²ÙˆÙ† Ø³ÙŠØ§Ø±ØªÙŠ ============
+// ============ التطبيق الرئيسي ============
+// ============ مخزون سيارتي ============
 function RepVanStock({ canLoad }: { canLoad: boolean }) {
   const [view, setView] = useState<'list' | 'load'>('list');
   const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number }[]>([]);
@@ -867,16 +867,16 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   };
 
   const submit = async () => {
-    if (!canLoad) { setMsg({ ok: false, text: 'Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© ØªØ­Ù…ÙŠÙ„ Ù…Ø®Ø²ÙˆÙ† Ø§Ù„Ø³ÙŠØ§Ø±Ø©' }); return; }
+    if (!canLoad) { setMsg({ ok: false, text: 'لا تملك صلاحية تحميل مخزون السيارة' }); return; }
     const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0);
-    if (!items.length) { setMsg({ ok: false, text: 'Ø£Ø¶Ù ØµÙ†ÙØ§Ù‹ ÙˆÙƒÙ…ÙŠØ© ØµØ­ÙŠØ­Ø©' }); return; }
+    if (!items.length) { setMsg({ ok: false, text: 'أضف صنفاً وكمية صحيحة' }); return; }
     setSaving(true); setMsg(null);
     try {
       await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
       setRows([]); setNote(''); setView('list'); loadStock();
-      setMsg({ ok: true, text: 'ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„ØªØ­Ù…ÙŠÙ„ Ø¨Ù†Ø¬Ø§Ø­' });
+      setMsg({ ok: true, text: 'تم تسجيل التحميل بنجاح' });
     } catch (e) {
-      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ØªØ¹Ø°Ù‘Ø± Ø§Ù„Ø­ÙØ¸' });
+      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الحفظ' });
     }
     setSaving(false);
   };
@@ -886,14 +886,14 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
       <div className="h-full flex flex-col">
         <div className="p-3 flex items-center gap-2 border-b border-gray-100">
           <button onClick={() => setView('list')} className="p-1.5 text-[#6E6557]"><ArrowRight size={18} /></button>
-          <span className="font-bold text-[#1F1A13]">ØªØ­Ù…ÙŠÙ„ Ø¨Ø¶Ø§Ø¹Ø© Ù„Ù„Ø³ÙŠØ§Ø±Ø©</span>
+          <span className="font-bold text-[#1F1A13]">تحميل بضاعة للسيارة</span>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-28">
           <div>
-            <label className="text-xs font-semibold text-[#6E6557] mb-1 block">Ø¥Ø¶Ø§ÙØ© ØµÙ†Ù</label>
+            <label className="text-xs font-semibold text-[#6E6557] mb-1 block">إضافة صنف</label>
             <SearchableSelect dark resetOnSelect value="" onChange={addProduct}
-              options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} Â· ${p.unit}` }))}
-              placeholder="Ø§Ø¨Ø­Ø« ÙˆØ£Ø¶Ù ØµÙ†ÙØ§Ù‹â€¦" searchPlaceholder="Ø§ÙƒØªØ¨ Ø§Ø³Ù…/ÙƒÙˆØ¯ Ø§Ù„ØµÙ†Ùâ€¦" />
+              options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
+              placeholder="ابحث وأضف صنفاً…" searchPlaceholder="اكتب اسم/كود الصنف…" />
           </div>
           {rows.map((r, i) => (
             <div key={r.productId} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl p-2.5 shadow-sm">
@@ -904,13 +904,13 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
               <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 p-1"><Trash2 size={16} /></button>
             </div>
           ))}
-          {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">Ù„Ù… ØªÙØ¶Ù Ø£ÙŠ ØµÙ†Ù Ø¨Ø¹Ø¯</p>}
-          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder="Ù…Ù„Ø§Ø­Ø¸Ø© (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)" value={note} onChange={e => setNote(e.target.value)} />
+          {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">لم تُضف أي صنف بعد</p>}
+          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder="ملاحظة (اختياري)" value={note} onChange={e => setNote(e.target.value)} />
           {msg && <p className={`text-xs text-center ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
         </div>
         <div className="p-3 border-t border-gray-100">
           <button onClick={submit} disabled={saving || rows.length === 0} className="w-full bg-[#E15A30] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={18} />} Ø­ÙØ¸ Ø§Ù„ØªØ­Ù…ÙŠÙ„
+            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={18} />} حفظ التحميل
           </button>
         </div>
       </div>
@@ -920,35 +920,35 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   return (
     <div className="h-full flex flex-col">
       <div className="p-3 flex items-center justify-between border-b border-gray-100">
-        <span className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> Ù…Ø®Ø²ÙˆÙ† Ø³ÙŠØ§Ø±ØªÙŠ</span>
+        <span className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> مخزون سيارتي</span>
         <button
           onClick={() => { if (canLoad) { setView('load'); setMsg(null); } }}
           disabled={!canLoad}
-          title={canLoad ? undefined : 'Ù„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© ØªØ­Ù…ÙŠÙ„ Ù…Ø®Ø²ÙˆÙ† Ø§Ù„Ø³ÙŠØ§Ø±Ø©'}
+          title={canLoad ? undefined : 'لا تملك صلاحية تحميل مخزون السيارة'}
           className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
         >
-          <Plus size={14} /> ØªØ­Ù…ÙŠÙ„
+          <Plus size={14} /> تحميل
         </button>
       </div>
       {msg && msg.ok && <div className="mx-3 mt-3 bg-green-50 text-green-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5"><Check size={14} /> {msg.text}</div>}
-      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">ÙŠÙ…ÙƒÙ†Ùƒ Ø¹Ø±Ø¶ Ù…Ø®Ø²ÙˆÙ† Ø§Ù„Ø³ÙŠØ§Ø±Ø© ÙÙ‚Ø·ØŒ ÙˆÙ„Ø§ ØªÙ…Ù„Ùƒ ØµÙ„Ø§Ø­ÙŠØ© ØªØ³Ø¬ÙŠÙ„ ØªØ­Ù…ÙŠÙ„ Ø¬Ø¯ÙŠØ¯.</div>}
+      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">يمكنك عرض مخزون السيارة فقط، ولا تملك صلاحية تسجيل تحميل جديد.</div>}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24">
-        {loading ? <p className="text-center text-gray-400 text-sm py-8">Ø¬Ø§Ø±Ù Ø§Ù„ØªØ­Ù…ÙŠÙ„â€¦</p>
+        {loading ? <p className="text-center text-gray-400 text-sm py-8">جارٍ التحميل…</p>
           : stock.length === 0 ? (
             <div className="text-center py-10">
               <Package size={40} className="mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-400 text-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨Ø¶Ø§Ø¹Ø© ÙÙŠ Ø³ÙŠØ§Ø±ØªÙƒ Ø¨Ø¹Ø¯.</p>
-              {canLoad && <p className="text-gray-400 text-xs mt-1">Ø§Ø¶ØºØ· Â«ØªØ­Ù…ÙŠÙ„Â» Ù„ØªØ³Ø¬ÙŠÙ„ Ù…Ø§ Ø­Ù…ÙŽÙ‘Ù„ØªÙ‡.</p>}
+              <p className="text-gray-400 text-sm">لا توجد بضاعة في سيارتك بعد.</p>
+              {canLoad && <p className="text-gray-400 text-xs mt-1">اضغط «تحميل» لتسجيل ما حمَّلته.</p>}
             </div>
           ) : stock.map(s => (
             <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
-                <p className="text-[11px] text-gray-400">Ù…Ø­Ù…ÙŽÙ‘Ù„ {fmt(s.loaded)} Â· Ù…ÙØ¨Ø§Ø¹ {fmt(s.sold)} {s.unit}</p>
+                <p className="text-[11px] text-gray-400">محمَّل {fmt(s.loaded)} · مُباع {fmt(s.sold)} {s.unit}</p>
               </div>
               <div className="text-left shrink-0">
                 <p className={`text-lg font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{fmt(s.remaining)}</p>
-                <p className="text-[10px] text-gray-400">Ù…ØªØ¨Ù‚Ù‘ÙŠ</p>
+                <p className="text-[10px] text-gray-400">متبقّي</p>
               </div>
             </div>
           ))}
@@ -969,7 +969,7 @@ export default function RepApp() {
   const [docResult, setDocResult] = useState<InvoiceDoc | ReceiptDoc | StatementDoc | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
 
-  // ØªØªØ¨Ù‘Ø¹ GPS â€” ÙŠØ¹Ù…Ù„ ÙÙ‚Ø· Ø¹Ù†Ø¯ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ ÙˆØªÙØ¹ÙŠÙ„ Ø§Ù„Ø´Ø±ÙƒØ© Ù„Ù„ØªØªØ¨Ù‘Ø¹ ÙˆÙ…ÙˆØ§ÙÙ‚Ø© Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨
+  // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
   const trackStatus = useRepTracking(!!token && !!user);
 
   useEffect(() => {
@@ -988,11 +988,11 @@ export default function RepApp() {
   };
 
   const tabs: { id: Screen; label: string; icon: React.ElementType }[] = [
-    { id: 'home', label: 'Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©', icon: Home },
-    { id: 'invoices', label: 'Ø§Ù„ÙÙˆØ§ØªÙŠØ±', icon: FileText },
-    { id: 'receipts', label: 'Ø§Ù„ØªØ­ØµÙŠÙ„', icon: CreditCard },
-    { id: 'customers', label: 'Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡', icon: Users },
-    { id: 'vanstock', label: 'Ù…Ø®Ø²ÙˆÙ†ÙŠ', icon: Truck },
+    { id: 'home', label: 'الرئيسية', icon: Home },
+    { id: 'invoices', label: 'الفواتير', icon: FileText },
+    { id: 'receipts', label: 'التحصيل', icon: CreditCard },
+    { id: 'customers', label: 'العملاء', icon: Users },
+    { id: 'vanstock', label: 'مخزوني', icon: Truck },
   ];
 
   // Phone frame
@@ -1036,13 +1036,13 @@ export default function RepApp() {
                 </span>
                 <div className="flex items-center gap-3">
                   {(trackStatus === 'active' || trackStatus === 'requesting') && (
-                    <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title="Ù…Ø´Ø§Ø±ÙƒØ© Ù…ÙˆÙ‚Ø¹Ùƒ Ù…ÙØ¹Ù‘Ù„Ø©">
+                    <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title="مشاركة موقعك مفعّلة">
                       <span className={`w-2 h-2 rounded-full bg-[#5FBE92] ${trackStatus === 'active' ? 'animate-pulse' : ''}`} /> <MapPin size={12} />
                     </span>
                   )}
                   {trackStatus === 'denied' && (
-                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title="ÙØ¹Ù‘Ù„ Ø¥Ø°Ù† Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ù…Ù† Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù…ØªØµÙØ­">
-                      <MapPin size={12} /> Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ù…ØªÙˆÙ‚Ù‘Ù
+                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title="فعّل إذن الموقع من إعدادات المتصفح">
+                      <MapPin size={12} /> الموقع متوقّف
                     </span>
                   )}
                   <button onClick={logout} className="text-[#9A8F7E] hover:text-white"><LogOut size={18} /></button>
