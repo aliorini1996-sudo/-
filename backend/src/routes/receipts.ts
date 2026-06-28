@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
@@ -24,6 +24,14 @@ const receiptSchema = z.object({
     amount: z.number().positive(),
   })).optional(),
 });
+
+function groupAllocations(allocations: { invoiceId: string; amount: number }[] = []) {
+  const grouped = new Map<string, number>();
+  for (const alloc of allocations) {
+    grouped.set(alloc.invoiceId, (grouped.get(alloc.invoiceId) || 0) + alloc.amount);
+  }
+  return [...grouped.entries()].map(([invoiceId, amount]) => ({ invoiceId, amount }));
+}
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -88,14 +96,46 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const body = receiptSchema.parse(req.body);
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    if (req.user?.role === 'SALES_REP' && !rep.canCreateReceipt) {
+      res.status(403).json({ success: false, message: 'لا تملك صلاحية إصدار سند قبض' }); return;
+    }
+
     const customer = await prisma.customer.findFirst({ where: { id: body.customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+
+    const allocations = groupAllocations((body.invoiceAllocations ?? []) as { invoiceId: string; amount: number }[]);
+    const allocatedTotal = allocations.reduce((sum, item) => sum + item.amount, 0);
+    if (allocatedTotal > body.amount + 0.001) {
+      res.status(400).json({ success: false, message: 'مجموع تخصيص الفواتير أكبر من مبلغ السند' }); return;
+    }
+
     const number = await generateReceiptNumber(tid);
     const docDate = body.receiptDate ? new Date(body.receiptDate) : undefined;
 
     const receipt = await prisma.$transaction(async tx => {
+      if (allocations.length) {
+        const invoices = await tx.invoice.findMany({
+          where: {
+            id: { in: allocations.map(a => a.invoiceId) },
+            tenantId: tid,
+            customerId: body.customerId,
+            status: 'CONFIRMED',
+            type: 'CREDIT',
+          },
+          select: { id: true, remainingAmt: true },
+        });
+        if (invoices.length !== allocations.length) throw new Error('توجد فاتورة غير صالحة في التخصيص');
+
+        const remainingById = new Map(invoices.map(inv => [inv.id, Number(inv.remainingAmt)]));
+        for (const alloc of allocations) {
+          const remaining = remainingById.get(alloc.invoiceId) ?? 0;
+          if (alloc.amount > remaining + 0.001) throw new Error('مبلغ التخصيص أكبر من المتبقي على إحدى الفواتير');
+        }
+      }
+
       const rcp = await tx.receipt.create({
         data: {
           tenantId: tid,
@@ -111,17 +151,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         },
       });
 
-      if (body.invoiceAllocations?.length) {
-        // التحقق أن الفواتير المخصّصة تخص نفس الشركة
-        const allocIds = body.invoiceAllocations.map(a => a.invoiceId);
-        const valid = await tx.invoice.count({ where: { id: { in: allocIds }, tenantId: tid } });
-        if (valid !== allocIds.length) throw new Error('فاتورة غير صالحة في التخصيص');
-
+      if (allocations.length) {
         await tx.receiptInvoice.createMany({
-          data: body.invoiceAllocations.map(a => ({ receiptId: rcp.id, invoiceId: a.invoiceId, amount: a.amount })),
+          data: allocations.map(a => ({ receiptId: rcp.id, invoiceId: a.invoiceId, amount: a.amount })),
         });
 
-        for (const alloc of body.invoiceAllocations) {
+        for (const alloc of allocations) {
           await tx.invoice.update({
             where: { id: alloc.invoiceId },
             data: { paidAmt: { increment: alloc.amount }, remainingAmt: { decrement: alloc.amount } },
@@ -147,6 +182,12 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     if (!receipt) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }
     if (receipt.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'السند ملغى مسبقاً' }); return; }
 
+    if (req.user?.role === 'SALES_REP') {
+      if (receipt.salesRepId !== req.user.id) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }
+      const rep = await prisma.salesRep.findFirst({ where: { id: req.user.id, tenantId: tid }, select: { canCancelReceipt: true } });
+      if (!rep?.canCancelReceipt) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إلغاء سند قبض' }); return; }
+    }
+
     const updated = await prisma.$transaction(async tx => {
       const rcp = await tx.receipt.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
 
@@ -158,6 +199,17 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       }
 
       await reverseReceiptEntries(tx as never, tid, rcp.id, rcp.customerId, Number(rcp.amount));
+      await tx.notification.create({
+        data: {
+          tenantId: tid,
+          type: 'RECEIPT_CANCELLED',
+          title: 'إلغاء سند قبض',
+          body: `تم إلغاء سند القبض رقم ${rcp.number}`,
+          salesRepId: rcp.salesRepId,
+          customerId: rcp.customerId,
+          data: JSON.stringify({ receiptId: rcp.id }),
+        },
+      });
       return rcp;
     });
 
@@ -166,3 +218,4 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
 });
 
 export default router;
+

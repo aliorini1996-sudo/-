@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
@@ -19,7 +19,7 @@ const companySchema = z.object({
   headerStyle: z.enum(['classic', 'banner', 'minimal']).nullish(),
 });
 
-// إعدادات شركة المستخدم الحالي — متاح لأي مستخدم مسجّل (المندوب يحتاجه للطباعة)
+// Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø´Ø±ÙƒØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ø­Ø§Ù„ÙŠ â€” Ù…ØªØ§Ø­ Ù„Ø£ÙŠ Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø³Ø¬Ù‘Ù„ (Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ ÙŠØ­ØªØ§Ø¬Ù‡ Ù„Ù„Ø·Ø¨Ø§Ø¹Ø©)
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -28,7 +28,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-// التعديل للإدارة فقط — ضمن شركة المستخدم
+// Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ Ù„Ù„Ø¥Ø¯Ø§Ø±Ø© ÙÙ‚Ø· â€” Ø¶Ù…Ù† Ø´Ø±ÙƒØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
 router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -42,10 +42,11 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
     const company = await prisma.companySettings.upsert({
       where: { tenantId: tid },
       update: clean,
-      create: { tenantId: tid, ...clean },
+      create: { tenantId: tid, ...clean } as any,
     });
     res.json({ success: true, data: company });
   } catch (err) { next(err); }
 });
 
 export default router;
+

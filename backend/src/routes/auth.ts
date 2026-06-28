@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+﻿import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -15,7 +15,6 @@ const loginSchema = z.object({
   role: z.enum(['super_admin', 'admin', 'sales_rep']),
 });
 
-// التسجيل الذاتي للتجربة المجانية (إنشاء شركة جديدة + أدمنها)
 const signupSchema = z.object({
   companyName: z.string().min(2),
   adminName: z.string().min(2),
@@ -40,15 +39,17 @@ const adminPermissionSelect = {
 } as const;
 
 function signToken(payload: object): string {
-  return jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is required');
+  const options: jwt.SignOptions = { expiresIn: (process.env.JWT_EXPIRES_IN || '8h') as jwt.SignOptions['expiresIn'] };
+  return jwt.sign(payload, secret as jwt.Secret, options);
 }
 
-// يتحقق أن اشتراك الشركة نشط وغير منتهٍ — يُرجع رسالة الخطأ أو null
 function tenantBlockReason(tenant: { isActive: boolean; subscriptionEndsAt: Date | null } | null): string | null {
   if (!tenant) return 'الشركة غير موجودة';
-  if (!tenant.isActive) return 'اشتراك الشركة موقوف — تواصل مع مزوّد الخدمة';
+  if (!tenant.isActive) return 'اشتراك الشركة موقوف - تواصل مع مزود الخدمة';
   if (tenant.subscriptionEndsAt && tenant.subscriptionEndsAt.getTime() < Date.now()) {
-    return 'انتهى اشتراك الشركة — تواصل مع مزوّد الخدمة';
+    return 'انتهى اشتراك الشركة - تواصل مع مزود الخدمة';
   }
   return null;
 }
@@ -57,7 +58,6 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
   try {
     const { username, password, role } = loginSchema.parse(req.body);
 
-    // ===== مالك المنصّة =====
     if (role === 'super_admin') {
       const sa = await prisma.superAdmin.findUnique({ where: { email: username } });
       if (!sa || !sa.isActive || !(await bcrypt.compare(password, sa.passwordHash))) {
@@ -69,7 +69,6 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       return;
     }
 
-    // ===== أدمن شركة =====
     if (role === 'admin') {
       const admin = await prisma.admin.findUnique({ where: { email: username }, include: { tenant: true } });
       if (!admin || !admin.isActive || !(await bcrypt.compare(password, admin.passwordHash))) {
@@ -79,11 +78,24 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       const block = tenantBlockReason(admin.tenant);
       if (block) { res.status(403).json({ success: false, message: block }); return; }
       const token = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId });
-      res.json({ success: true, data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: admin.tenantId, companyName: admin.tenant.name, ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, (admin as any)[key]])) } } });
+      res.json({
+        success: true,
+        data: {
+          token,
+          user: {
+            id: admin.id,
+            name: admin.name,
+            email: admin.email,
+            role: admin.role,
+            tenantId: admin.tenantId,
+            companyName: admin.tenant.name,
+            ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, (admin as any)[key]])),
+          },
+        },
+      });
       return;
     }
 
-    // ===== مندوب =====
     const rep = await prisma.salesRep.findUnique({ where: { username }, include: { tenant: true } });
     if (!rep || !rep.isActive || !(await bcrypt.compare(password, rep.passwordHash))) {
       res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة' });
@@ -94,17 +106,14 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     const token = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId });
     const { passwordHash: _ph, tenant: _t, ...repData } = rep;
     res.json({ success: true, data: { token, user: { ...repData, role: 'SALES_REP', companyName: rep.tenant.name } } });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// تسجيل ذاتي — إنشاء شركة بتجربة مجانية والدخول مباشرة
 router.post('/signup', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = signupSchema.parse(req.body);
     const taken = await prisma.admin.findUnique({ where: { email: body.email } });
-    if (taken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً — سجّل الدخول' }); return; }
+    if (taken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً - سجل الدخول' }); return; }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
     const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
@@ -113,21 +122,22 @@ router.post('/signup', async (req: Request, res: Response, next: NextFunction) =
       const tenant = await tx.tenant.create({
         data: {
           name: body.companyName,
-          plan: 'basic',
+          plan: 'trial',
           subscriptionEndsAt: trialEndsAt,
-          notes: body.phone ? `تجربة مجانية — جوال: ${body.phone}` : 'تجربة مجانية (تسجيل ذاتي)',
+          maxSalesReps: 5,
+          maxAdminUsers: 1,
         },
       });
       const admin = await tx.admin.create({
-        data: { tenantId: tenant.id, name: body.adminName, email: body.email, passwordHash, role: 'ADMIN' },
+        data: { tenantId: tenant.id, name: body.adminName, email: body.email, passwordHash, role: 'ADMIN' } as any,
       });
-      await tx.companySettings.create({ data: { tenantId: tenant.id, name: body.companyName, phone: body.phone } });
+      await tx.companySettings.create({ data: { tenantId: tenant.id, name: body.companyName, phone: body.phone } as any });
       return { tenant, admin };
     });
 
-    // إشعار بريدي بطلب التجربة الجديد (لا يُعطّل التسجيل إن تعذّر)
-    sendMail({
-      subject: `🎉 طلب تجربة مجانية جديد — ${body.companyName}`,
+    const mailSent = await sendMail({
+      to: 'info@fieldsa.net',
+      subject: `طلب تجربة مجانية جديد - ${body.companyName}`,
       replyTo: body.email,
       html: mailLayout('طلب تجربة مجانية جديد', [
         ['الشركة', body.companyName],
@@ -136,7 +146,8 @@ router.post('/signup', async (req: Request, res: Response, next: NextFunction) =
         ['الجوال', body.phone || ''],
         ['تنتهي التجربة', trialEndsAt.toISOString().slice(0, 10)],
       ]),
-    }).catch(() => { /* تجاهل */ });
+    });
+    if (!mailSent) console.error('[mail] فشل إرسال إشعار تسجيل شركة تجريبية إلى info@fieldsa.net');
 
     const token = signToken({ id: created.admin.id, role: created.admin.role, name: created.admin.name, tenantId: created.tenant.id });
     res.status(201).json({
@@ -146,6 +157,7 @@ router.post('/signup', async (req: Request, res: Response, next: NextFunction) =
         user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, companyName: created.tenant.name },
         trialEndsAt,
         trialDays: TRIAL_DAYS,
+        mailSent,
       },
     });
   } catch (err) { next(err); }
@@ -158,16 +170,13 @@ router.post('/refresh-fcm', authenticate, async (req: AuthRequest, res: Response
       await prisma.salesRep.update({ where: { id: req.user.id }, data: { fcmToken } });
     }
     res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// تغيير كلمة المرور للحساب الحالي (سوبر أدمن / أدمن شركة / مندوب)
 router.post('/change-password', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if ((req.user as { impersonated?: boolean })?.impersonated) {
-      res.status(403).json({ success: false, message: 'غير متاح أثناء تصفّح شركة كمالك' });
+      res.status(403).json({ success: false, message: 'غير متاح أثناء تصفح شركة كمالك' });
       return;
     }
     const schema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(6) });
@@ -220,9 +229,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
       });
       res.json({ success: true, data: admin });
     }
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 export default router;

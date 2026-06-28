@@ -1,11 +1,11 @@
-{
+﻿{
   "name": "dsd-backend",
   "version": "1.0.0",
   "description": "DSD Sales System Backend API",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc || true",
+    "build": "tsc",
     "start": "node dist/index.js",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -46,3 +46,4 @@
     "typescript": "^5.5.2"
   }
 }
+

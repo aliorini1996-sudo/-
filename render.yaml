@@ -1,4 +1,4 @@
-databases:
+﻿databases:
   - name: dsd-db
     plan: free
     databaseName: dsd_sales
@@ -11,7 +11,7 @@ services:
     rootDir: backend
     plan: free
     buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npx prisma db push --accept-data-loss && node dist/index.js
+    startCommand: node dist/index.js
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -25,5 +25,18 @@ services:
         value: production
       - key: PORT
         value: 3000
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 465
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
       - key: FRONTEND_URL
         value: "https://fieldsa.net,https://www.fieldsa.net"
+
+
+

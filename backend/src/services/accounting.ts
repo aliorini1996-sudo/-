@@ -1,15 +1,19 @@
-import { PrismaClient } from '@prisma/client';
+﻿import { PrismaClient } from '@prisma/client';
 
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
-export async function postInvoiceEntries(
-  tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
-) {
+async function currentBalance(tx: Tx, customerId: string) {
   const lastEntry = await tx.accountEntry.findFirst({
     where: { customerId },
     orderBy: { entryDate: 'desc' },
   });
-  const prevBalance = Number(lastEntry?.balance ?? 0);
+  return Number(lastEntry?.balance ?? 0);
+}
+
+export async function postInvoiceEntries(
+  tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
+) {
+  const prevBalance = await currentBalance(tx, customerId);
   const newBalance = prevBalance + total;
 
   await tx.accountEntry.create({
@@ -17,7 +21,7 @@ export async function postInvoiceEntries(
       tenantId, customerId, invoiceId,
       type: 'INVOICE_DEBIT',
       debit: total, credit: 0, balance: newBalance,
-      description: `فاتورة مبيعات`,
+      description: 'فاتورة مبيعات آجلة',
       ...(date && { entryDate: date }),
     },
   });
@@ -28,14 +32,41 @@ export async function postInvoiceEntries(
   });
 }
 
+export async function postCashInvoiceEntries(
+  tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
+) {
+  const prevBalance = await currentBalance(tx, customerId);
+
+  await tx.accountEntry.create({
+    data: {
+      tenantId, customerId, invoiceId,
+      type: 'INVOICE_DEBIT',
+      debit: total, credit: 0, balance: prevBalance + total,
+      description: 'فاتورة مبيعات نقدية',
+      ...(date && { entryDate: date }),
+    },
+  });
+
+  await tx.accountEntry.create({
+    data: {
+      tenantId, customerId, invoiceId,
+      type: 'RECEIPT_CREDIT',
+      debit: 0, credit: total, balance: prevBalance,
+      description: 'تحصيل نقدي لفاتورة مبيعات',
+      ...(date && { entryDate: date }),
+    },
+  });
+
+  await tx.customer.update({
+    where: { id: customerId },
+    data: { totalSales: { increment: total }, totalCollected: { increment: total } },
+  });
+}
+
 export async function reverseInvoiceEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
 ) {
-  const lastEntry = await tx.accountEntry.findFirst({
-    where: { customerId },
-    orderBy: { entryDate: 'desc' },
-  });
-  const prevBalance = Number(lastEntry?.balance ?? 0);
+  const prevBalance = await currentBalance(tx, customerId);
   const newBalance = prevBalance - total;
 
   await tx.accountEntry.create({
@@ -43,7 +74,7 @@ export async function reverseInvoiceEntries(
       tenantId, customerId, invoiceId,
       type: 'INVOICE_CREDIT',
       debit: 0, credit: total, balance: newBalance,
-      description: `إلغاء فاتورة مبيعات`,
+      description: 'إلغاء فاتورة مبيعات آجلة',
     },
   });
 
@@ -53,14 +84,39 @@ export async function reverseInvoiceEntries(
   });
 }
 
+export async function reverseCashInvoiceEntries(
+  tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
+) {
+  const prevBalance = await currentBalance(tx, customerId);
+
+  await tx.accountEntry.create({
+    data: {
+      tenantId, customerId, invoiceId,
+      type: 'INVOICE_CREDIT',
+      debit: 0, credit: total, balance: prevBalance - total,
+      description: 'إلغاء فاتورة مبيعات نقدية',
+    },
+  });
+
+  await tx.accountEntry.create({
+    data: {
+      tenantId, customerId, invoiceId,
+      type: 'RECEIPT_DEBIT',
+      debit: total, credit: 0, balance: prevBalance,
+      description: 'عكس تحصيل نقدي لفاتورة مبيعات',
+    },
+  });
+
+  await tx.customer.update({
+    where: { id: customerId },
+    data: { totalSales: { decrement: total }, totalCollected: { decrement: total } },
+  });
+}
+
 export async function postReceiptEntries(
   tx: Tx, tenantId: string, receiptId: string, customerId: string, amount: number, date?: Date
 ) {
-  const lastEntry = await tx.accountEntry.findFirst({
-    where: { customerId },
-    orderBy: { entryDate: 'desc' },
-  });
-  const prevBalance = Number(lastEntry?.balance ?? 0);
+  const prevBalance = await currentBalance(tx, customerId);
   const newBalance = prevBalance - amount;
 
   await tx.accountEntry.create({
@@ -68,7 +124,7 @@ export async function postReceiptEntries(
       tenantId, customerId, receiptId,
       type: 'RECEIPT_CREDIT',
       debit: 0, credit: amount, balance: newBalance,
-      description: `سند قبض - تحصيل`,
+      description: 'سند قبض - تحصيل',
       ...(date && { entryDate: date }),
     },
   });
@@ -82,11 +138,7 @@ export async function postReceiptEntries(
 export async function reverseReceiptEntries(
   tx: Tx, tenantId: string, receiptId: string, customerId: string, amount: number
 ) {
-  const lastEntry = await tx.accountEntry.findFirst({
-    where: { customerId },
-    orderBy: { entryDate: 'desc' },
-  });
-  const prevBalance = Number(lastEntry?.balance ?? 0);
+  const prevBalance = await currentBalance(tx, customerId);
   const newBalance = prevBalance + amount;
 
   await tx.accountEntry.create({
@@ -94,7 +146,7 @@ export async function reverseReceiptEntries(
       tenantId, customerId, receiptId,
       type: 'RECEIPT_DEBIT',
       debit: amount, credit: 0, balance: newBalance,
-      description: `إلغاء سند قبض`,
+      description: 'إلغاء سند قبض',
     },
   });
 
@@ -104,15 +156,10 @@ export async function reverseReceiptEntries(
   });
 }
 
-// فاتورة مرتجع: قيد دائن يُخفّض رصيد العميل ومبيعاته
 export async function postReturnEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
 ) {
-  const lastEntry = await tx.accountEntry.findFirst({
-    where: { customerId },
-    orderBy: { entryDate: 'desc' },
-  });
-  const prevBalance = Number(lastEntry?.balance ?? 0);
+  const prevBalance = await currentBalance(tx, customerId);
   const newBalance = prevBalance - total;
 
   await tx.accountEntry.create({
@@ -120,7 +167,7 @@ export async function postReturnEntries(
       tenantId, customerId, invoiceId,
       type: 'INVOICE_CREDIT',
       debit: 0, credit: total, balance: newBalance,
-      description: `فاتورة مرتجع مبيعات`,
+      description: 'فاتورة مرتجع مبيعات',
       ...(date && { entryDate: date }),
     },
   });
@@ -131,15 +178,10 @@ export async function postReturnEntries(
   });
 }
 
-// إلغاء فاتورة مرتجع: عكس القيد (قيد مدين يُعيد الرصيد)
 export async function reverseReturnEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
 ) {
-  const lastEntry = await tx.accountEntry.findFirst({
-    where: { customerId },
-    orderBy: { entryDate: 'desc' },
-  });
-  const prevBalance = Number(lastEntry?.balance ?? 0);
+  const prevBalance = await currentBalance(tx, customerId);
   const newBalance = prevBalance + total;
 
   await tx.accountEntry.create({
@@ -147,7 +189,7 @@ export async function reverseReturnEntries(
       tenantId, customerId, invoiceId,
       type: 'INVOICE_DEBIT',
       debit: total, credit: 0, balance: newBalance,
-      description: `إلغاء فاتورة مرتجع`,
+      description: 'إلغاء فاتورة مرتجع',
     },
   });
 

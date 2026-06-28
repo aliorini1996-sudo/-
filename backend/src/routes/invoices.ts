@@ -1,10 +1,17 @@
-import { Router, Response, NextFunction } from 'express';
+﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal } from '../utils/helpers';
-import { postInvoiceEntries, reverseInvoiceEntries, postReturnEntries, reverseReturnEntries } from '../services/accounting';
+import {
+  postInvoiceEntries,
+  postCashInvoiceEntries,
+  reverseInvoiceEntries,
+  reverseCashInvoiceEntries,
+  postReturnEntries,
+  reverseReturnEntries,
+} from '../services/accounting';
 
 const router = Router();
 router.use(authenticate);
@@ -20,8 +27,8 @@ const invoiceItemSchema = z.object({
 
 const createInvoiceSchema = z.object({
   customerId: z.string(),
-  salesRepId: z.string().optional(), // يحدّده الأدمن؛ المندوب يُستخدم معرّفه تلقائياً
-  invoiceDate: z.string().optional(), // يسمح للأدمن بإصدار فاتورة بتاريخ قديم
+  salesRepId: z.string().optional(),
+  invoiceDate: z.string().optional(),
   type: z.enum(['CASH', 'CREDIT', 'RETURN']).default('CREDIT'),
   dueDate: z.string().optional(),
   notes: z.string().optional(),
@@ -41,7 +48,6 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const customerId = req.query.customerId as string | undefined;
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
-
     const isSalesRep = req.user?.role === 'SALES_REP';
 
     const where = {
@@ -50,7 +56,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
       ...(status && { status: status as 'DRAFT' | 'CONFIRMED' | 'CANCELLED' }),
-      ...(type && { type: type as 'CASH' | 'CREDIT' }),
+      ...(type && { type: type as 'CASH' | 'CREDIT' | 'RETURN' }),
       ...(search && {
         OR: [
           { number: { contains: search } },
@@ -91,7 +97,6 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
-    // المندوب يرى فواتيره فقط
     if (req.user?.role === 'SALES_REP' && invoice.salesRepId !== req.user.id) {
       res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
     }
@@ -103,37 +108,27 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const tid = tenantId(req);
     const body = createInvoiceSchema.parse(req.body);
-    // المندوب يستخدم معرّفه؛ الأدمن يجب أن يحدّد مندوباً (الفاتورة تُنسب لمندوب)
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     const customer = await prisma.customer.findFirst({ where: { id: body.customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    if (customer.status === 'BLOCKED') { res.status(400).json({ success: false, message: 'العميل محظور' }); return; }
 
-    // التحقق أن كل الأصناف تخص الشركة + جلب الأسعار المرجعية لفرض صلاحيات التسعير
     const productIds = [...new Set(body.items.map(i => i.productId))];
     const products = await prisma.product.findMany({
-      where: { id: { in: productIds }, tenantId: tid },
+      where: { id: { in: productIds }, tenantId: tid, status: 'ACTIVE' },
       select: { id: true, basePrice: true, priceTiers: { select: { price: true } } },
     });
-    if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود' }); return; }
+    if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
 
-    // فرض صلاحيات الخصم والتسعير على المندوب (الأدمن غير مقيّد) — حارس أمني خلف الواجهة
     if (req.user!.role === 'SALES_REP') {
-      if (!rep.canCreateInvoice) {
-        res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' });
-        return;
-      }
-      if (body.type === 'CREDIT' && !rep.canSellOnCredit) {
-        res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع الآجل' });
-        return;
-      }
-      if (body.type === 'CASH' && !rep.canSellInCash) {
-        res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع النقدي' });
-        return;
-      }
+      if (!rep.canCreateInvoice) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' }); return; }
+      if (body.type === 'CREDIT' && !rep.canSellOnCredit) { res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع الآجل' }); return; }
+      if (body.type === 'CASH' && !rep.canSellInCash) { res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع النقدي' }); return; }
 
       const cps = await prisma.customerPrice.findMany({
         where: { customerId: body.customerId, productId: { in: productIds } },
@@ -141,24 +136,21 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       });
       const cpMap = new Map(cps.map(c => [c.productId, c.price]));
       const maxD = rep.maxDiscountPct || 0;
-      const TOL = 0.01; // تسامح تقريب بسيط
+      const TOL = 0.01;
       const fail = (msg: string) => { res.status(403).json({ success: false, message: msg }); };
 
-      // حد الخصم — على مستوى الفاتورة وعلى مستوى كل صنف
       if (body.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}%`); return; }
 
       for (const it of body.items) {
         if (it.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}% على الأصناف`); return; }
         const p = products.find(x => x.id === it.productId)!;
-        const ref = cpMap.has(it.productId) ? cpMap.get(it.productId)! : p.basePrice; // السعر الرسمي للعميل
+        const ref = cpMap.has(it.productId) ? cpMap.get(it.productId)! : p.basePrice;
         const minTier = p.priceTiers.length ? Math.min(...p.priceTiers.map(t => t.price)) : ref;
-        const minAllowed = Math.min(ref, minTier); // أدنى سعر رسمي مسموح
+        const minAllowed = Math.min(ref, minTier);
         if (!rep.canChangePrice) {
-          // لا يملك تغيير السعر: يجب أن يبقى ضمن الأسعار الرسمية للصنف
           if (it.unitPrice < minAllowed - TOL || it.unitPrice > ref + TOL) { fail('لا تملك صلاحية تغيير سعر البيع'); return; }
         } else if (!rep.canSellBelowPrice && it.unitPrice < minAllowed - TOL) {
-          // يملك التغيير لكن لا يملك البيع بأقل من السعر
-          fail('لا تملك صلاحية البيع بأقل من السعر المحدّد'); return;
+          fail('لا تملك صلاحية البيع بأقل من السعر المحدد'); return;
         }
       }
     }
@@ -176,16 +168,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const discountAmt = roundDecimal(subtotal * body.discountPct / 100);
     const taxableSubtotal = subtotal - discountAmt;
-
     let taxAmt = 0;
     const finalItems = items.map(item => { taxAmt += item.taxAmt; return item; });
-
     const total = roundDecimal(taxableSubtotal + taxAmt);
     const isReturn = body.type === 'RETURN';
     const number = isReturn ? await generateReturnNumber(tid) : await generateInvoiceNumber(tid);
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
-
-    const creditCheck = !isReturn && Number(customer.balance) + total > Number(customer.creditLimit) && Number(customer.creditLimit) > 0;
+    const creditCheck = body.type === 'CREDIT' && Number(customer.balance) + total > Number(customer.creditLimit) && Number(customer.creditLimit) > 0;
 
     const invoice = await prisma.$transaction(async tx => {
       const inv = await tx.invoice.create({
@@ -223,6 +212,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
       if (isReturn) {
         await postReturnEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
+      } else if (body.type === 'CASH') {
+        await postCashInvoiceEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
       } else {
         await postInvoiceEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
         if (creditCheck) {
@@ -250,15 +241,32 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid } });
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+      include: { receiptItems: true },
+    });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
     if (invoice.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'الفاتورة ملغاة مسبقاً' }); return; }
-    if (Number(invoice.paidAmt) > 0) { res.status(400).json({ success: false, message: 'لا يمكن إلغاء فاتورة تم تحصيل جزء منها' }); return; }
+
+    if (req.user?.role === 'SALES_REP') {
+      if (invoice.salesRepId !== req.user.id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+      const rep = await prisma.salesRep.findFirst({ where: { id: req.user.id, tenantId: tid }, select: { canCancelInvoice: true } });
+      if (!rep?.canCancelInvoice) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إلغاء الفواتير' }); return; }
+    }
+
+    if (invoice.type === 'CREDIT' && Number(invoice.paidAmt) > 0) {
+      res.status(400).json({ success: false, message: 'لا يمكن إلغاء فاتورة آجلة تم تحصيل جزء منها' }); return;
+    }
+    if (invoice.receiptItems.length > 0) {
+      res.status(400).json({ success: false, message: 'لا يمكن إلغاء فاتورة مرتبطة بسند قبض' }); return;
+    }
 
     const updated = await prisma.$transaction(async tx => {
       const inv = await tx.invoice.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
       if (inv.type === 'RETURN') {
         await reverseReturnEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
+      } else if (inv.type === 'CASH') {
+        await reverseCashInvoiceEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
       } else {
         await reverseInvoiceEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
       }

@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
@@ -66,7 +66,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       where: { id: req.params.id, tenantId: tid },
       include: { customerPrices: { include: { product: true } } },
     });
-    if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    if (!customer) { res.status(404).json({ success: false, message: 'Ø§Ù„Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
     res.json({ success: true, data: customer });
   } catch (err) { next(err); }
 });
@@ -74,16 +74,16 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    // المندوب يحتاج صلاحية "إضافة عميل"؛ الإدارة مسموح لها دائماً
+    // Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ ÙŠØ­ØªØ§Ø¬ ØµÙ„Ø§Ø­ÙŠØ© "Ø¥Ø¶Ø§ÙØ© Ø¹Ù…ÙŠÙ„"Ø› Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ù…Ø³Ù…ÙˆØ­ Ù„Ù‡Ø§ Ø¯Ø§Ø¦Ù…Ø§Ù‹
     if (req.user?.role === 'SALES_REP') {
       const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canAddCustomer: true } });
       if (!rep?.canAddCustomer) {
-        res.status(403).json({ success: false, message: 'ليس لديك صلاحية إضافة عملاء' });
+        res.status(403).json({ success: false, message: 'Ù„ÙŠØ³ Ù„Ø¯ÙŠÙƒ ØµÙ„Ø§Ø­ÙŠØ© Ø¥Ø¶Ø§ÙØ© Ø¹Ù…Ù„Ø§Ø¡' });
         return;
       }
     }
     const data = customerSchema.parse(req.body);
-    const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, tenantId: tid } });
+    const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, tenantId: tid } as any });
     res.status(201).json({ success: true, data: customer });
   } catch (err) { next(err); }
 });
@@ -91,17 +91,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    // المندوب يحتاج صلاحية "تعديل العميل"؛ الإدارة مسموح لها دائماً
+    // Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ ÙŠØ­ØªØ§Ø¬ ØµÙ„Ø§Ø­ÙŠØ© "ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø¹Ù…ÙŠÙ„"Ø› Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ù…Ø³Ù…ÙˆØ­ Ù„Ù‡Ø§ Ø¯Ø§Ø¦Ù…Ø§Ù‹
     if (req.user?.role === 'SALES_REP') {
       const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canEditCustomer: true } });
       if (!rep?.canEditCustomer) {
-        res.status(403).json({ success: false, message: 'ليس لديك صلاحية تعديل العملاء' });
+        res.status(403).json({ success: false, message: 'Ù„ÙŠØ³ Ù„Ø¯ÙŠÙƒ ØµÙ„Ø§Ø­ÙŠØ© ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡' });
         return;
       }
     }
-    // التحقق أن العميل يخص شركة المستخدم قبل التعديل
+    // Ø§Ù„ØªØ­Ù‚Ù‚ Ø£Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ ÙŠØ®Øµ Ø´Ø±ÙƒØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ù‚Ø¨Ù„ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„
     const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
-    if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    if (!exists) { res.status(404).json({ success: false, message: 'Ø§Ù„Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
     const data = customerSchema.partial().parse(req.body);
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
@@ -115,6 +115,10 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
   try {
     const tid = tenantId(req);
     const { from, to } = req.query;
+    if (req.user?.role === 'SALES_REP') {
+      const rep = await prisma.salesRep.findFirst({ where: { id: req.user.id, tenantId: tid }, select: { canViewStatement: true } });
+      if (!rep?.canViewStatement) { res.status(403).json({ success: false, message: 'لا تملك صلاحية عرض كشف الحساب' }); return; }
+    }
     const where = {
       customerId: req.params.id,
       tenantId: tid,
@@ -128,7 +132,7 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       orderBy: { entryDate: 'asc' },
     });
     const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid } });
-    if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    if (!customer) { res.status(404).json({ success: false, message: 'Ø§Ù„Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
     res.json({ success: true, data: { customer, entries } });
   } catch (err) { next(err); }
 });
@@ -149,7 +153,7 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
   try {
     const tid = tenantId(req);
     const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
-    if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    if (!exists) { res.status(404).json({ success: false, message: 'Ø§Ù„Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
     const { prices } = req.body as { prices: { productId: string; price: number }[] };
     await prisma.$transaction(
       prices.map(p =>
@@ -165,3 +169,5 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
 });
 
 export default router;
+
+

@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
@@ -6,7 +6,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 
 const router = Router();
-router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
+router.use(authenticate); // Ø§Ù„Ù‚Ø±Ø§Ø¡Ø© Ù…ØªØ§Ø­Ø© Ù„Ù„Ù…Ù†Ø¯ÙˆØ¨ (Ù„Ù„Ø¨Ø­Ø« Ø¹Ù†Ø¯ Ø¥ØµØ¯Ø§Ø± Ø§Ù„ÙØ§ØªÙˆØ±Ø©)Ø› Ø§Ù„ÙƒØªØ§Ø¨Ø© Ù„Ù„Ø¥Ø¯Ø§Ø±Ø© ÙÙ‚Ø·
 router.use(requireAdminPermission('canManageProducts'));
 
 const productSchema = z.object({
@@ -16,7 +16,7 @@ const productSchema = z.object({
   unit: z.string().min(1),
   basePrice: z.number().min(0),
   taxPct: z.number().min(0).max(100).default(15),
-  image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
+  image: z.string().nullish().or(z.literal('')), // ØµÙˆØ±Ø© Ø§Ù„ØµÙ†Ù (base64 data URL)
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   categoryId: z.string().optional(),
 });
@@ -41,7 +41,7 @@ router.post('/categories', requireAdmin, async (req: AuthRequest, res: Response,
   try {
     const tid = tenantId(req);
     const data = categorySchema.parse(req.body);
-    const cat = await prisma.productCategory.create({ data: { ...data, tenantId: tid } });
+    const cat = await prisma.productCategory.create({ data: { ...data, tenantId: tid } as any });
     res.status(201).json({ success: true, data: cat });
   } catch (err) { next(err); }
 });
@@ -89,7 +89,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       where: { id: req.params.id, tenantId: tid },
       include: { category: true, priceTiers: { orderBy: { minQty: 'asc' } } },
     });
-    if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    if (!product) { res.status(404).json({ success: false, message: 'Ø§Ù„ØµÙ†Ù ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
     res.json({ success: true, data: product });
   } catch (err) { next(err); }
 });
@@ -98,7 +98,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
   try {
     const tid = tenantId(req);
     const data = productSchema.parse(req.body);
-    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null, tenantId: tid }, include: { category: true } });
+    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null, tenantId: tid } as any, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
@@ -107,7 +107,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
   try {
     const tid = tenantId(req);
     const exists = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
-    if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    if (!exists) { res.status(404).json({ success: false, message: 'Ø§Ù„ØµÙ†Ù ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
     const data = productSchema.partial().parse(req.body);
     const updateData: Record<string, unknown> = { ...data };
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
@@ -125,14 +125,15 @@ router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Respo
   try {
     const tid = tenantId(req);
     const exists = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
-    if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    if (!exists) { res.status(404).json({ success: false, message: 'Ø§Ù„ØµÙ†Ù ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
     const tiers = priceTierSchema.parse(req.body.tiers);
     await prisma.$transaction([
       prisma.priceTier.deleteMany({ where: { productId: req.params.id } }),
-      ...tiers.map(t => prisma.priceTier.create({ data: { productId: req.params.id, ...t } })),
+      ...tiers.map(t => prisma.priceTier.create({ data: { productId: req.params.id, ...t } as any })),
     ]);
     res.json({ success: true });
   } catch (err) { next(err); }
 });
 
 export default router;
+
