@@ -120,6 +120,7 @@ export default function PlatformPage() {
               <thead>
                 <tr>
                   <th>الشركة</th><th>المدير</th>
+                  <th className="text-center">مستخدمي الشركة</th>
                   <th className="text-center">المناديب المسموح</th>
                   <th className="text-center">مناديب</th>
                   <th className="text-center">عملاء</th>
@@ -128,9 +129,9 @@ export default function PlatformPage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={8} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
+                  <tr><td colSpan={9} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
                 ) : tenants?.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-12 text-gray-400">لا توجد شركات — أضف أول شركة</td></tr>
+                  <tr><td colSpan={9} className="text-center py-12 text-gray-400">لا توجد شركات — أضف أول شركة</td></tr>
                 ) : tenants?.map(t => {
                   const st = subStatus(t);
                   return (
@@ -140,6 +141,11 @@ export default function PlatformPage() {
                         <p className="text-xs text-gray-400">{formatDate(t.createdAt)}</p>
                       </td>
                       <td className="text-sm text-gray-600">{t.admins?.[0]?.email || '-'}</td>
+                      <td className="text-center">
+                        {t.maxAdminUsers == null
+                          ? <span className="badge-active">غير محدود</span>
+                          : <span className="font-semibold text-gray-700">{t._count?.admins ?? 0} / {t.maxAdminUsers}</span>}
+                      </td>
                       <td className="text-center">
                         {t.maxSalesReps == null
                           ? <span className="badge-active">غير محدود</span>
@@ -422,14 +428,18 @@ function StatBox({ icon: Icon, label, value, color }: { icon: React.ElementType;
 function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose: () => void; onSaved: () => void }) {
   const [unlimitedReps, setUnlimitedReps] = useState(tenant.maxSalesReps == null);
   const [maxSalesReps, setMaxSalesReps] = useState(tenant.maxSalesReps != null ? String(tenant.maxSalesReps) : '');
+  const [unlimitedUsers, setUnlimitedUsers] = useState(tenant.maxAdminUsers == null);
+  const [maxAdminUsers, setMaxAdminUsers] = useState(tenant.maxAdminUsers != null ? String(tenant.maxAdminUsers) : '');
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
   );
   const currentReps = tenant._count?.salesReps ?? 0;
+  const currentUsers = tenant._count?.admins ?? 0;
 
   const mutation = useMutation({
     mutationFn: () => tenantApi.update(tenant.id, {
       maxSalesReps: unlimitedReps ? null : Number(maxSalesReps),
+      maxAdminUsers: unlimitedUsers ? null : Number(maxAdminUsers),
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success('تم تحديث بيانات الشركة'); onSaved(); },
@@ -442,6 +452,12 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
     }
     if (!unlimitedReps && Number(maxSalesReps) < currentReps) {
       toast.error(`الشركة لديها ${currentReps} مندوباً حالياً — لا يمكن جعل الحد أقل من ذلك`); return;
+    }
+    if (!unlimitedUsers && (!Number.isInteger(Number(maxAdminUsers)) || Number(maxAdminUsers) < 1)) {
+      toast.error('حدّد عدد مستخدمين صحيحاً (1 أو أكثر) أو اختر «غير محدود»'); return;
+    }
+    if (!unlimitedUsers && Number(maxAdminUsers) < currentUsers) {
+      toast.error(`الشركة لديها ${currentUsers} مستخدم حالياً — لا يمكن جعل الحد أقل من ذلك`); return;
     }
     mutation.mutate();
   };
@@ -478,6 +494,21 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             <p className="text-xs text-gray-400 mt-1">المناديب الحاليون: {currentReps}</p>
           </div>
           <div>
+            <label className="label flex items-center gap-1"><Users size={12} /> عدد مستخدمي الشركة المسموح</label>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0 select-none">
+                <input type="checkbox" className="w-4 h-4 accent-[#E15A30]"
+                  checked={unlimitedUsers} onChange={e => setUnlimitedUsers(e.target.checked)} />
+                غير محدود
+              </label>
+              {!unlimitedUsers && (
+                <input type="number" min={1} className="input flex-1" placeholder="مثال: 3"
+                  value={maxAdminUsers} onChange={e => setMaxAdminUsers(e.target.value)} />
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">المستخدمون الحاليون: {currentUsers}</p>
+          </div>
+          <div>
             <label className="label flex items-center gap-1"><Calendar size={12} /> انتهاء الاشتراك</label>
             <input type="date" className="input" value={subscriptionEndsAt} onChange={e => setSubscriptionEndsAt(e.target.value)} />
             <p className="text-xs text-gray-400 mt-1">اتركه فارغاً لاشتراك غير محدود المدة</p>
@@ -496,7 +527,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
 }
 
 function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCreated: (info: { company: string; email: string; password: string }) => void }) {
-  const [form, setForm] = useState({ companyName: '', adminName: '', adminEmail: '', adminPassword: '', maxSalesReps: '', unlimitedReps: true, subscriptionEndsAt: '' });
+  const [form, setForm] = useState({ companyName: '', adminName: '', adminEmail: '', adminPassword: '', maxSalesReps: '', unlimitedReps: true, maxAdminUsers: '', unlimitedUsers: true, subscriptionEndsAt: '' });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const mutation = useMutation({
@@ -504,6 +535,7 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
       companyName: form.companyName, adminName: form.adminName, adminEmail: form.adminEmail,
       adminPassword: form.adminPassword,
       maxSalesReps: form.unlimitedReps ? null : Number(form.maxSalesReps),
+      maxAdminUsers: form.unlimitedUsers ? null : Number(form.maxAdminUsers),
       ...(form.subscriptionEndsAt && { subscriptionEndsAt: form.subscriptionEndsAt }),
     }),
     onSuccess: () => onCreated({ company: form.companyName, email: form.adminEmail, password: form.adminPassword }),
@@ -514,6 +546,9 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
     if (!form.companyName.trim()) { toast.error('اسم الشركة مطلوب'); return; }
     if (!form.unlimitedReps && (!Number.isInteger(Number(form.maxSalesReps)) || Number(form.maxSalesReps) < 1)) {
       toast.error('حدّد عدد مناديب صحيحاً (1 أو أكثر) أو اختر «غير محدود»'); return;
+    }
+    if (!form.unlimitedUsers && (!Number.isInteger(Number(form.maxAdminUsers)) || Number(form.maxAdminUsers) < 1)) {
+      toast.error('حدّد عدد مستخدمين صحيحاً (1 أو أكثر) أو اختر «غير محدود»'); return;
     }
     if (!form.adminName.trim()) { toast.error('اسم المدير مطلوب'); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.adminEmail)) { toast.error('بريد المدير غير صحيح'); return; }
@@ -548,6 +583,21 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
                   {!form.unlimitedReps && (
                     <input type="number" min={1} className="input flex-1" placeholder="مثال: 5" autoFocus
                       value={form.maxSalesReps} onChange={e => set('maxSalesReps', e.target.value)} />
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="label flex items-center gap-1"><Users size={12} /> عدد مستخدمي الشركة المسموح</label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0 select-none">
+                    <input type="checkbox" className="w-4 h-4 accent-[#E15A30]"
+                      checked={form.unlimitedUsers}
+                      onChange={e => setForm(f => ({ ...f, unlimitedUsers: e.target.checked }))} />
+                    غير محدود
+                  </label>
+                  {!form.unlimitedUsers && (
+                    <input type="number" min={1} className="input flex-1" placeholder="مثال: 3"
+                      value={form.maxAdminUsers} onChange={e => set('maxAdminUsers', e.target.value)} />
                   )}
                 </div>
               </div>

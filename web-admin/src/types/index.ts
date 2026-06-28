@@ -23,6 +23,7 @@ export interface Tenant {
   name: string;
   isActive: boolean;
   maxSalesReps?: number | null; // null = عدد مناديب غير محدود
+  maxAdminUsers?: number | null; // null = عدد مستخدمي شركة غير محدود
   subscriptionEndsAt?: string | null;
   notes?: string | null;
   createdAt: string;

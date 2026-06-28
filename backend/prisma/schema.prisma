@@ -29,6 +29,7 @@ model Tenant {
   isActive      Boolean   @default(true)  // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
   plan          String    @default("basic") // basic | pro | enterprise (لم يعد يُعرض في الواجهة)
   maxSalesReps  Int?                          // الحد الأقصى لعدد المناديب (null = غير محدود)
+  maxAdminUsers Int?                          // الحد الأقصى لمستخدمي لوحة الشركة (null = غير محدود)
   subscriptionEndsAt DateTime?            // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes         String?
   createdAt     DateTime  @default(now())

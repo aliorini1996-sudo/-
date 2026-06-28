@@ -105,6 +105,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (body.password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
     if (await duplicateEmail(body.email)) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً' }); return; }
 
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { maxAdminUsers: true } });
+    if (tenant?.maxAdminUsers != null) {
+      const current = await prisma.admin.count({ where: { tenantId: tid } });
+      if (current >= tenant.maxAdminUsers) {
+        res.status(403).json({ success: false, message: `بلغت الشركة الحد الأقصى المسموح لمستخدمي الشركة (${tenant.maxAdminUsers}). تواصل مع مالك المنصة لرفع الحد.` });
+        return;
+      }
+    }
+
     const passwordHash = await bcrypt.hash(body.password, 10);
     const user = await prisma.admin.create({
       data: {
