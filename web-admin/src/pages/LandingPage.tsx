@@ -149,7 +149,11 @@ export default function LandingPage() {
     queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as unknown; },
     staleTime: 60_000,
   });
-  const arContent = mergeContent(defaultContent, data) as Record<string, unknown>;
+  // محتوى CMS المحفوظ قد يكون قديماً (عدد ميزاته لا يطابق الكود الحالي) — حينها نتجاهله
+  // ونستخدم المحتوى الافتراضي الحالي حتى لا تُعرَض ميزات/نصوص قديمة. وإلا ندمج تحرير المالك.
+  const savedItems = (data as { features?: { items?: unknown[] } } | null | undefined)?.features?.items;
+  const cmsCurrent = Array.isArray(savedItems) && savedItems.length === defaultContent.features.items.length;
+  const arContent = (cmsCurrent ? mergeContent(defaultContent, data) : defaultContent) as Record<string, unknown>;
 
   let html: string;
   if (lang === 'en') {
