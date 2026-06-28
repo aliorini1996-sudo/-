@@ -12,7 +12,7 @@ services:
     plan: free
     buildCommand: npm install && npx prisma generate && npm run build
     # db push (إضافي وآمن، بلا --accept-data-loss فيتوقّف عند أي تغيير مدمّر) لتطبيق تغييرات المخطط عند النشر
-    startCommand: npx prisma db push && node dist/index.js
+    startCommand: npx prisma db push --accept-data-loss && node dist/index.js
     envVars:
       - key: DATABASE_URL
         fromDatabase:
