@@ -25,6 +25,10 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][] }[] = [
     ['features.items.5.title', 'ميزة ٦ — العنوان'], ['features.items.5.desc', 'ميزة ٦ — الوصف', true],
     ['features.items.6.title', 'ميزة ٧ — العنوان'], ['features.items.6.desc', 'ميزة ٧ — الوصف', true],
     ['features.items.7.title', 'ميزة ٨ — العنوان'], ['features.items.7.desc', 'ميزة ٨ — الوصف', true],
+    ['features.items.8.title', 'ميزة ٩ — العنوان'], ['features.items.8.desc', 'ميزة ٩ — الوصف', true],
+    ['features.items.9.title', 'ميزة ١٠ — العنوان'], ['features.items.9.desc', 'ميزة ١٠ — الوصف', true],
+    ['features.items.10.title', 'ميزة ١١ — العنوان'], ['features.items.10.desc', 'ميزة ١١ — الوصف', true],
+    ['features.items.11.title', 'ميزة ١٢ — العنوان'], ['features.items.11.desc', 'ميزة ١٢ — الوصف', true],
   ] },
   { title: 'كيف يعمل', fields: [
     ['how.title', 'عنوان القسم'], ['how.subtitle', 'الوصف', true],
@@ -106,7 +110,12 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
   });
 
   useEffect(() => {
-    if (data !== undefined) setDraft(structuredClone((data || defaultContent) as Draft));
+    if (data === undefined) return;
+    // إن كان المحتوى المحفوظ قديماً (عدد ميزاته لا يطابق الكود الحالي) نبدأ من المحتوى
+    // الافتراضي الحالي الصحيح بدل القديم؛ وإلا نحمّل تحرير المالك. حفظه يجعله محدّثاً ويُعرَض.
+    const savedItems = (data as { features?: { items?: unknown[] } } | null)?.features?.items;
+    const cmsCurrent = Array.isArray(savedItems) && savedItems.length === defaultContent.features.items.length;
+    setDraft(structuredClone((cmsCurrent ? data : defaultContent) as Draft));
   }, [data]);
 
   const save = useMutation({
