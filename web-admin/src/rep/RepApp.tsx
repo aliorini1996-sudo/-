@@ -29,8 +29,8 @@ interface RepUser {
 // ============ تسجيل الدخول ============
 function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void }) {
   const t = useT();
-  const [username, setUsername] = useState('rep1');
-  const [password, setPassword] = useState('rep123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -90,9 +90,6 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
             className="w-full text-center text-xs text-[#6E6557] hover:text-[#E15A30] mt-3 transition-colors">
             {t('login.forgot')}
           </button>
-          <div className="mt-3 p-2.5 bg-[#FBEBE2] rounded-lg text-[11px] text-[#9C4423]">
-            تجريبي: <b>rep1</b> / <b>rep123</b>
-          </div>
         </form>
       </div>
 

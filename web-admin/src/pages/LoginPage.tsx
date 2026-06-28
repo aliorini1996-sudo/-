@@ -125,10 +125,6 @@ export default function LoginPage() {
             {t('login.forgot')}
           </button>
 
-          <div className="mt-5 p-3 bg-[#FBEBE2] rounded-xl text-xs text-[#9C4423]">
-            <p className="font-semibold mb-1">{t('login.demoTitle')}</p>
-            <p dir="ltr" style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>admin@dsd.com · admin123</p>
-          </div>
         </div>
       </div>
 
