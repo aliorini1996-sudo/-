@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import SupportModal from '../components/SupportModal';
+import EmailVerifyBanner from '../components/EmailVerifyBanner';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
@@ -58,6 +59,7 @@ export default function MainLayout() {
           </button>
         </div>
       )}
+      <EmailVerifyBanner />
     <div className="flex flex-1 overflow-hidden bg-slate-100">
       {/* Sidebar */}
       <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-[#1F1A13] text-white flex flex-col transition-all duration-300`}>

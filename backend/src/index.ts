@@ -30,8 +30,11 @@ import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
 import { errorHandler } from './middleware/errorHandler';
+import { apiLimiter } from './middleware/rateLimits';
 
 const app = express();
+// خلف بروكسي Render — لاحتساب IP الحقيقي في حدود المعدّل
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // الأصول المسموح بها: FRONTEND_URL (قائمة مفصولة بفواصل) أو * للسماح للجميع.
@@ -53,6 +56,9 @@ app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+// حدّ عام واقٍ لكل واجهة API (حدود أدق على الدخول/التسجيل داخل كل مسار)
+app.use('/api', apiLimiter);
 
 app.use('/api/auth', authRouter);
 app.use('/api/customers', customersRouter);

@@ -6,6 +6,7 @@ import InfoPage from './pages/InfoPage';
 import ContactPage from './pages/ContactPage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
 import ProductsPage from './pages/ProductsPage';
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         {/* الصفحات التعريفية الفرعية (عامة) */}
         <Route path="/about" element={<InfoPage pageKey="about" />} />
         <Route path="/terms" element={<InfoPage pageKey="terms" />} />

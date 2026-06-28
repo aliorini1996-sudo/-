@@ -6,8 +6,36 @@ import prisma from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { sendMail, mailLayout } from '../services/mailer';
+import { authLimiter, signupLimiter, mailLimiter } from '../middleware/rateLimits';
 
 const router = Router();
+
+// رابط الواجهة الأساسي (أول قيمة في FRONTEND_URL)
+function frontendBase(): string {
+  return (process.env.FRONTEND_URL || 'https://fieldsa.net').split(',')[0].trim().replace(/\/$/, '');
+}
+
+// رمز تأكيد البريد (JWT بلا تخزين إضافي) صالح يومين
+function signVerifyToken(adminId: string): string {
+  return jwt.sign({ id: adminId, purpose: 'verify-email' }, process.env.JWT_SECRET as jwt.Secret, { expiresIn: '2d' });
+}
+
+// قالب بريد تأكيد البريد الإلكتروني
+function verifyEmailHtml(name: string, url: string): string {
+  return `<div dir="rtl" style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#FAF7F0;padding:24px">
+    <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E9E1D3;border-radius:16px;overflow:hidden">
+      <div style="background:#1F1A13;padding:20px;color:#fff;font-size:18px;font-weight:700">FieldSales — تأكيد البريد الإلكتروني</div>
+      <div style="padding:24px;color:#3a342b;font-size:15px;line-height:1.9">
+        مرحباً ${name}،<br>شكراً لتسجيلك في FieldSales. لتأكيد بريدك الإلكتروني اضغط الزر التالي:
+        <div style="text-align:center;margin:24px 0">
+          <a href="${url}" style="background:#E15A30;color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:12px;display:inline-block">تأكيد البريد الإلكتروني</a>
+        </div>
+        أو انسخ الرابط في متصفّحك:<br><span style="color:#6E6557;word-break:break-all">${url}</span><br><br>
+        الرابط صالح لمدة يومين. إن لم تكن أنت من سجّل، تجاهل هذه الرسالة.
+      </div>
+    </div>
+  </div>`;
+}
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -54,7 +82,7 @@ function tenantBlockReason(tenant: { isActive: boolean; subscriptionEndsAt: Date
   return null;
 }
 
-router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/login', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { username, password, role } = loginSchema.parse(req.body);
 
@@ -89,6 +117,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
             role: admin.role,
             tenantId: admin.tenantId,
             companyName: admin.tenant.name,
+            emailVerified: (admin as any).emailVerified ?? true,
             ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, (admin as any)[key]])),
           },
         },
@@ -109,7 +138,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
   } catch (err) { next(err); }
 });
 
-router.post('/signup', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/signup', signupLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = signupSchema.parse(req.body);
     const taken = await prisma.admin.findUnique({ where: { email: body.email } });
@@ -149,17 +178,56 @@ router.post('/signup', async (req: Request, res: Response, next: NextFunction) =
     });
     if (!mailSent) console.error('[mail] فشل إرسال إشعار تسجيل شركة تجريبية إلى info@fieldsa.net');
 
+    // بريد تأكيد للعميل — يحقّق ملكية البريد (دخول فوري + لافتة تأكيد بالواجهة)
+    const verifyUrl = `${frontendBase()}/verify-email?token=${signVerifyToken(created.admin.id)}`;
+    const verifySent = await sendMail({
+      to: body.email,
+      subject: 'تأكيد بريدك الإلكتروني — FieldSales',
+      html: verifyEmailHtml(body.adminName, verifyUrl),
+    });
+
     const token = signToken({ id: created.admin.id, role: created.admin.role, name: created.admin.name, tenantId: created.tenant.id });
     res.status(201).json({
       success: true,
       data: {
         token,
-        user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, companyName: created.tenant.name },
+        user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, companyName: created.tenant.name, emailVerified: false },
         trialEndsAt,
         trialDays: TRIAL_DAYS,
         mailSent,
+        verifySent,
       },
     });
+  } catch (err) { next(err); }
+});
+
+// تأكيد البريد عبر الرمز (عام) — يستدعيه صفحة /verify-email
+router.post('/verify-email', mailLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
+    let payload: { id?: string; purpose?: string };
+    try { payload = jwt.verify(token, process.env.JWT_SECRET as jwt.Secret) as { id?: string; purpose?: string }; }
+    catch { res.status(400).json({ success: false, message: 'رابط التأكيد غير صالح أو منتهي الصلاحية' }); return; }
+    if (payload.purpose !== 'verify-email' || !payload.id) { res.status(400).json({ success: false, message: 'رابط غير صالح' }); return; }
+    const admin = await prisma.admin.findUnique({ where: { id: payload.id }, select: { id: true, emailVerified: true } });
+    if (!admin) { res.status(404).json({ success: false, message: 'الحساب غير موجود' }); return; }
+    if (!admin.emailVerified) await prisma.admin.update({ where: { id: admin.id }, data: { emailVerified: true } as any });
+    res.json({ success: true, data: { verified: true } });
+  } catch (err) { next(err); }
+});
+
+// إعادة إرسال بريد التأكيد (للأدمن المسجّل)
+router.post('/resend-verification', authenticate, mailLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user || req.user.role === 'SUPER_ADMIN' || req.user.role === 'SALES_REP') {
+      res.status(403).json({ success: false, message: 'غير متاح' }); return;
+    }
+    const admin = await prisma.admin.findUnique({ where: { id: req.user.id }, select: { id: true, name: true, email: true, emailVerified: true } });
+    if (!admin) { res.status(404).json({ success: false, message: 'الحساب غير موجود' }); return; }
+    if (admin.emailVerified) { res.json({ success: true, data: { alreadyVerified: true } }); return; }
+    const verifyUrl = `${frontendBase()}/verify-email?token=${signVerifyToken(admin.id)}`;
+    const sent = await sendMail({ to: admin.email, subject: 'تأكيد بريدك الإلكتروني — FieldSales', html: verifyEmailHtml(admin.name, verifyUrl) });
+    res.json({ success: true, data: { sent } });
   } catch (err) { next(err); }
 });
 
@@ -225,7 +293,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
     } else {
       const admin = await prisma.admin.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, role: true, tenantId: true, ...adminPermissionSelect }
+        select: { id: true, name: true, email: true, role: true, tenantId: true, emailVerified: true, ...adminPermissionSelect }
       });
       res.json({ success: true, data: admin });
     }

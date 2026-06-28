@@ -62,6 +62,7 @@ model Admin {
   passwordHash String
   role         String   @default("ADMIN") // ADMIN | MANAGER | ACCOUNTANT
   isActive     Boolean  @default(true)
+  emailVerified Boolean @default(false) // تأكيد ملكية البريد (تحقّق التسجيل الذاتي)
 
   // Company admin permissions
   canAccessDashboard       Boolean @default(true)

@@ -11,7 +11,8 @@ services:
     rootDir: backend
     plan: free
     buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: node dist/index.js
+    # db push (إضافي وآمن، بلا --accept-data-loss فيتوقّف عند أي تغيير مدمّر) لتطبيق تغييرات المخطط عند النشر
+    startCommand: npx prisma db push && node dist/index.js
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -25,8 +26,15 @@ services:
         value: production
       - key: PORT
         value: 3000
-      - key: MAIL_FROM
+      # البريد — يكفي ضبط RESEND_API_KEY (يُدخَل يدوياً) لتفعيل الإرسال. أو SMTP_* كبديل.
+      - key: RESEND_API_KEY
         sync: false
+      - key: MAIL_FROM
+        value: "FieldSales <info@fieldsa.net>"
+      - key: MAIL_TO
+        value: "info@fieldsa.net"
+      - key: SUPPORT_EMAIL
+        value: "help@fieldsa.net"
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
