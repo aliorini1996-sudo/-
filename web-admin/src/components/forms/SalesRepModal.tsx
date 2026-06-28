@@ -19,11 +19,20 @@ PermToggle.displayName = 'PermToggle';
 
 export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) {
   const [showPass, setShowPass] = useState(false);
+  const defaults: FormData = rep
+    ? { ...rep, canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true }
+    : {
+      isActive: true,
+      canCreateInvoice: true,
+      canSellOnCredit: true,
+      canSellInCash: true,
+      canCreateReceipt: true,
+      canViewStatement: true,
+      canAddCustomer: false,
+      maxDiscountPct: 0,
+    };
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>({
-    defaultValues: rep || {
-      isActive: true, canCreateInvoice: true, canSellOnCredit: true, canSellInCash: true, canCreateReceipt: true,
-      canViewStatement: true, canAddCustomer: false, maxDiscountPct: 0,
-    },
+    defaultValues: defaults,
   });
 
   // يولّد كلمة مرور قوية عشوائية لتسهيل إنشاء الحساب

@@ -49,7 +49,7 @@ export default function SalesRepsPage() {
     },
   });
 
-  const perm = (val: boolean) => val
+  const perm = (val?: boolean) => val !== false
     ? <Check size={14} className="text-green-500" />
     : <XIcon size={14} className="text-gray-300" />;
 
@@ -107,7 +107,7 @@ export default function SalesRepsPage() {
                   <td>
                     <div className="flex items-center gap-1">
                       <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title="كشف الأداء والمبيعات"><FileBarChart2 size={14} /></button>
-                      <button onClick={() => { setSelected(r); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل"><Edit size={14} /></button>
+                      <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل"><Edit size={14} /></button>
                       <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title="إعادة تعيين كلمة المرور"><KeyRound size={14} /></button>
                     </div>
                   </td>
