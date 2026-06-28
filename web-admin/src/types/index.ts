@@ -50,6 +50,38 @@ export interface CompanyUser {
   createdAt: string;
 }
 
+export interface ErpIntegration {
+  id?: string;
+  enabled: boolean;
+  provider: 'CUSTOM' | 'ODOO' | 'SAP' | 'ZOHO' | 'OTHER';
+  baseUrl?: string | null;
+  authType: 'NONE' | 'API_KEY' | 'BEARER' | 'BASIC';
+  basicUsername?: string | null;
+  customersEndpoint?: string | null;
+  productsEndpoint?: string | null;
+  invoicesEndpoint?: string | null;
+  receiptsEndpoint?: string | null;
+  syncCustomers: boolean;
+  syncProducts: boolean;
+  syncInvoices: boolean;
+  syncReceipts: boolean;
+  lastSyncAt?: string | null;
+  hasApiKey?: boolean;
+  hasBearerToken?: boolean;
+  hasBasicPassword?: boolean;
+}
+
+export interface ErpSyncLog {
+  id: string;
+  resource: string;
+  direction: string;
+  status: 'SUCCESS' | 'FAILED';
+  count: number;
+  message?: string | null;
+  startedAt: string;
+  finishedAt?: string | null;
+}
+
 export interface Customer {
   id: string;
   code: string;

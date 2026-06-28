@@ -16,6 +16,7 @@ import ReportsPage from './pages/ReportsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
 import CompanyUsersPage from './pages/CompanyUsersPage';
+import ErpIntegrationPage from './pages/ErpIntegrationPage';
 import VanStockPage from './pages/VanStockPage';
 import TrackingPage from './pages/TrackingPage';
 import PlatformPage from './pages/PlatformPage';
@@ -83,6 +84,7 @@ export default function App() {
           <Route path="van-stock" element={<PermissionRoute permission="canManageVanStock"><VanStockPage /></PermissionRoute>} />
           <Route path="tracking" element={<PermissionRoute permission="canManageTracking"><TrackingPage /></PermissionRoute>} />
           <Route path="company-users" element={<PermissionRoute permission="canManageCompanyUsers"><CompanyUsersPage /></PermissionRoute>} />
+          <Route path="erp" element={<PermissionRoute permission="canManageCompanySettings"><ErpIntegrationPage /></PermissionRoute>} />
           <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>

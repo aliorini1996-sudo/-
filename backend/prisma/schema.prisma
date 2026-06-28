@@ -44,6 +44,8 @@ model Tenant {
   accountEntries  AccountEntry[]
   notifications   Notification[]
   settings        CompanySettings?
+  erpIntegration  ErpIntegration?
+  erpSyncLogs     ErpSyncLog[]
   vanLoads        VanLoad[]
   repLocations    RepLocation[]
 
@@ -379,6 +381,51 @@ model CompanySettings {
   updatedAt     DateTime @updatedAt
 
   @@map("company_settings")
+}
+
+model ErpIntegration {
+  id                String   @id @default(uuid())
+  tenantId          String   @unique
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enabled           Boolean  @default(false)
+  provider          String   @default("CUSTOM") // CUSTOM | ODOO | SAP | ZOHO | OTHER
+  baseUrl           String?
+  authType          String   @default("NONE") // NONE | API_KEY | BEARER | BASIC
+  apiKey            String?
+  bearerToken       String?
+  basicUsername     String?
+  basicPassword     String?
+  customersEndpoint String?
+  productsEndpoint  String?
+  invoicesEndpoint  String?
+  receiptsEndpoint  String?
+  syncCustomers     Boolean  @default(true)
+  syncProducts      Boolean  @default(true)
+  syncInvoices      Boolean  @default(true)
+  syncReceipts      Boolean  @default(true)
+  lastSyncAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("erp_integrations")
+}
+
+model ErpSyncLog {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resource   String    // customers | products | invoices | receipts | connection
+  direction  String    @default("OUTBOUND")
+  status     String    // SUCCESS | FAILED
+  count      Int       @default(0)
+  message    String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([tenantId])
+  @@index([resource])
+  @@map("erp_sync_logs")
 }
 
 model Notification {

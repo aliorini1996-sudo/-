@@ -1,7 +1,7 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin, LifeBuoy, UserCog,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin, LifeBuoy, UserCog, DatabaseZap,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
@@ -22,6 +22,7 @@ const navItems = [
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts', permission: 'canManageReceipts' },
   { to: '/app/reports', icon: BarChart3, label: 'nav.reports', permission: 'canViewReports' },
   { to: '/app/company-users', icon: UserCog, label: 'nav.companyUsers', permission: 'canManageCompanyUsers' },
+  { to: '/app/erp', icon: DatabaseZap, label: 'nav.erp', permission: 'canManageCompanySettings' },
   { to: '/app/company', icon: Building2, label: 'nav.company', permission: 'canManageCompanySettings' },
 ];
 

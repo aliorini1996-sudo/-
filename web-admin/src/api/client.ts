@@ -118,6 +118,14 @@ export const companyUserApi = {
   update: (id: string, data: unknown) => api.put(`/company-users/${id}`, data),
 };
 
+export const erpApi = {
+  settings: () => api.get('/erp/settings'),
+  saveSettings: (data: unknown) => api.put('/erp/settings', data),
+  test: () => api.post('/erp/test'),
+  sync: (resource: 'all' | 'customers' | 'products' | 'invoices' | 'receipts') => api.post('/erp/sync', { resource }),
+  logs: () => api.get('/erp/logs'),
+};
+
 // إدارة الشركات — لمالك المنصّة (السوبر أدمن)
 export const tenantApi = {
   list: () => api.get('/tenants'),

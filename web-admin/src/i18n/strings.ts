@@ -96,6 +96,7 @@ export const DICT: Record<string, { ar: string; en: string }> = {
   'nav.receipts': { ar: 'سندات القبض', en: 'Receipts' },
   'nav.reports': { ar: 'التقارير', en: 'Reports' },
   'nav.companyUsers': { ar: 'مستخدمو الشركة', en: 'Company users' },
+  'nav.erp': { ar: 'تكامل ERP', en: 'ERP integration' },
   'nav.company': { ar: 'إعدادات الشركة', en: 'Company settings' },
   'nav.notifications': { ar: 'الإشعارات', en: 'Notifications' },
   'nav.logout': { ar: 'تسجيل الخروج', en: 'Sign out' },
