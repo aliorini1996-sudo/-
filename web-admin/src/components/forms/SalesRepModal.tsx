@@ -20,13 +20,14 @@ PermToggle.displayName = 'PermToggle';
 export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) {
   const [showPass, setShowPass] = useState(false);
   const defaults: FormData = rep
-    ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true }
+    ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true, canManageVanStock: rep.canManageVanStock ?? true }
     : {
       isActive: true,
       canCreateInvoice: true,
       canSellOnCredit: true,
       canSellInCash: true,
       canCreateReceipt: true,
+      canManageVanStock: true,
       canViewStatement: true,
       canAddCustomer: false,
       maxDiscountPct: 0,
@@ -139,6 +140,13 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
               <PermToggle label="إصدار سند قبض" {...register('canCreateReceipt')} />
               <PermToggle label="تعديل سند قبض" {...register('canEditReceipt')} />
               <PermToggle label="إلغاء سند قبض" {...register('canCancelReceipt')} />
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات مخزون السيارة</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <PermToggle label="تحميل مخزون السيارة" {...register('canManageVanStock')} />
             </div>
           </div>
 

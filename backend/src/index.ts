@@ -114,6 +114,7 @@ async function seedDefaults() {
           canSellOnCredit: true, canSellInCash: true,
           canChangePrice: true, canSellBelowPrice: true, maxDiscountPct: 100,
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
+          canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
         },
       });

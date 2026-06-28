@@ -30,6 +30,7 @@ const repSchema = z.object({
   canCreateReceipt: z.boolean().optional(),
   canEditReceipt: z.boolean().optional(),
   canCancelReceipt: z.boolean().optional(),
+  canManageVanStock: z.boolean().optional(),
   canAddCustomer: z.boolean().optional(),
   canEditCustomer: z.boolean().optional(),
   canViewStatement: z.boolean().optional(),
@@ -41,6 +42,7 @@ const repSelect = {
   canEditInvoice: true, canDeleteInvoice: true, canCancelInvoice: true,
   canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true,
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
+  canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
   createdAt: true,
 } as const;

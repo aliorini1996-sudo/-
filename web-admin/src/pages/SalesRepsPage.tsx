@@ -80,6 +80,7 @@ export default function SalesRepsPage() {
                 <th className="text-center">تحصيل</th>
                 <th className="text-center">تغيير سعر</th>
                 <th className="text-center">خصم أقصى</th>
+                <th className="text-center">مخزون السيارة</th>
                 <th className="text-center">إضافة عميل</th>
                 <th>الحالة</th>
                 <th>إجراءات</th>
@@ -87,7 +88,7 @@ export default function SalesRepsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={12} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
+                <tr><td colSpan={13} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
               ) : data?.map(r => (
                 <tr key={r.id}>
                   <td>
@@ -102,12 +103,13 @@ export default function SalesRepsPage() {
                   <td className="text-center">{perm(r.canCreateReceipt)}</td>
                   <td className="text-center">{perm(r.canChangePrice)}</td>
                   <td className="text-center text-sm text-gray-600">{r.maxDiscountPct}%</td>
+                  <td className="text-center">{perm(r.canManageVanStock)}</td>
                   <td className="text-center">{perm(r.canAddCustomer)}</td>
                   <td><span className={r.isActive ? 'badge-active' : 'badge-inactive'}>{r.isActive ? 'نشط' : 'غير نشط'}</span></td>
                   <td>
                     <div className="flex items-center gap-1">
                       <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title="كشف الأداء والمبيعات"><FileBarChart2 size={14} /></button>
-                      <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل"><Edit size={14} /></button>
+                      <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true, canManageVanStock: r.canManageVanStock ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل"><Edit size={14} /></button>
                       <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title="إعادة تعيين كلمة المرور"><KeyRound size={14} /></button>
                     </div>
                   </td>

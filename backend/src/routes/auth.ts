@@ -195,6 +195,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canSellOnCredit: true, canSellInCash: true,
           canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true,
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
+          canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true }
       });
       res.json({ success: true, data: { ...rep, role: 'SALES_REP' } });

@@ -24,6 +24,7 @@ interface RepUser {
   canCreateInvoice?: boolean;
   canSellOnCredit?: boolean;
   canSellInCash?: boolean;
+  canManageVanStock?: boolean;
   canChangePrice?: boolean;
   canSellBelowPrice?: boolean;
   maxDiscountPct?: number;
@@ -829,7 +830,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 
 // ============ التطبيق الرئيسي ============
 // ============ مخزون سيارتي ============
-function RepVanStock() {
+function RepVanStock({ canLoad }: { canLoad: boolean }) {
   const [view, setView] = useState<'list' | 'load'>('list');
   const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -846,6 +847,7 @@ function RepVanStock() {
   }, []);
   useEffect(() => { loadStock(); }, [loadStock]);
   useEffect(() => { repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } }).then(r => setProducts(r.data.data)).catch(() => {}); }, []);
+  useEffect(() => { if (!canLoad && view === 'load') setView('list'); }, [canLoad, view]);
 
   const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 
@@ -856,6 +858,7 @@ function RepVanStock() {
   };
 
   const submit = async () => {
+    if (!canLoad) { setMsg({ ok: false, text: 'لا تملك صلاحية تحميل مخزون السيارة' }); return; }
     const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0);
     if (!items.length) { setMsg({ ok: false, text: 'أضف صنفاً وكمية صحيحة' }); return; }
     setSaving(true); setMsg(null);
@@ -909,16 +912,24 @@ function RepVanStock() {
     <div className="h-full flex flex-col">
       <div className="p-3 flex items-center justify-between border-b border-gray-100">
         <span className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> مخزون سيارتي</span>
-        <button onClick={() => { setView('load'); setMsg(null); }} className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1"><Plus size={14} /> تحميل</button>
+        <button
+          onClick={() => { if (canLoad) { setView('load'); setMsg(null); } }}
+          disabled={!canLoad}
+          title={canLoad ? undefined : 'لا تملك صلاحية تحميل مخزون السيارة'}
+          className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+        >
+          <Plus size={14} /> تحميل
+        </button>
       </div>
       {msg && msg.ok && <div className="mx-3 mt-3 bg-green-50 text-green-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5"><Check size={14} /> {msg.text}</div>}
+      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">يمكنك عرض مخزون السيارة فقط، ولا تملك صلاحية تسجيل تحميل جديد.</div>}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24">
         {loading ? <p className="text-center text-gray-400 text-sm py-8">جارٍ التحميل…</p>
           : stock.length === 0 ? (
             <div className="text-center py-10">
               <Package size={40} className="mx-auto text-gray-300 mb-2" />
               <p className="text-gray-400 text-sm">لا توجد بضاعة في سيارتك بعد.</p>
-              <p className="text-gray-400 text-xs mt-1">اضغط «تحميل» لتسجيل ما حمَّلته.</p>
+              {canLoad && <p className="text-gray-400 text-xs mt-1">اضغط «تحميل» لتسجيل ما حمَّلته.</p>}
             </div>
           ) : stock.map(s => (
             <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">
@@ -1035,7 +1046,7 @@ export default function RepApp() {
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => setDocResult(invoiceDocFromDetail(d, user.name, company))} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => setDocResult(receiptDocFromDetail(d, user.name, company))} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}
-                {screen === 'vanstock' && <RepVanStock />}
+                {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
               </div>
 
               {/* Bottom nav */}

@@ -82,6 +82,7 @@ export interface SalesRep {
   canCreateReceipt: boolean;
   canEditReceipt: boolean;
   canCancelReceipt: boolean;
+  canManageVanStock: boolean;
   canAddCustomer: boolean;
   canEditCustomer: boolean;
   canViewStatement: boolean;
