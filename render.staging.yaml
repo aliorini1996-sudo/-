@@ -1,0 +1,42 @@
+# Blueprint بيئة Staging — خادم وقاعدة بيانات معزولان تماماً عن الإنتاج.
+# الاستخدام في Render: New > Blueprint > اربط المستودع واختر هذا الملف (الفرع staging).
+# (أو أنشئ خدمة Web يدوياً بنفس هذه الإعدادات وفرع staging وقاعدة بيانات staging جديدة.)
+databases:
+  - name: dsd-db-staging
+    plan: free
+    databaseName: dsd_sales_staging
+    user: dsd_user_staging
+
+services:
+  - type: web
+    name: dsd-backend-staging
+    runtime: node
+    rootDir: backend
+    plan: free
+    branch: staging                       # ← ينشر فرع staging (لا master)
+    buildCommand: npm install && npx prisma generate && npm run build
+    # db push على قاعدة بيانات staging المعزولة — هنا نختبر تغييرات المخطط بأمان
+    startCommand: npx prisma db push --accept-data-loss && node dist/index.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dsd-db-staging
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true                # سرّ مختلف عن الإنتاج
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: FRONTEND_URL
+        value: "*"                          # staging مفتوح للمعاينات (بيئة اختبار)
+      # بريد staging: نتركه بلا RESEND_API_KEY فلا تُرسَل رسائل حقيقية (تُسجَّل فقط)،
+      # كي لا تصل إشعارات اختبار إلى info@ الحقيقي. القيم أدناه للمرجع فقط.
+      - key: MAIL_FROM
+        value: "FieldSales Staging <info@fieldsa.net>"
+      - key: MAIL_TO
+        value: "info@fieldsa.net"
+      - key: SUPPORT_EMAIL
+        value: "help@fieldsa.net"
