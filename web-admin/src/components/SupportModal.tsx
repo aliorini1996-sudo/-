@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from '@tanstack/react-query';
 import { supportApi } from '../api/client';
 import { LifeBuoy, X, Send, CheckCircle2 } from 'lucide-react';
@@ -27,7 +28,7 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
     send.mutate();
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 bg-black/50 z-[2000] flex items-center justify-center p-4" dir={dir}>
       <div className="relative z-[2001] bg-white rounded-2xl shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
@@ -82,6 +83,7 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
