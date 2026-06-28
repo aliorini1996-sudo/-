@@ -117,6 +117,24 @@ function injectLangButton(html: string, label: string): string {
   );
 }
 
+function mergeContent<T>(base: T, saved: unknown): T {
+  if (Array.isArray(base)) {
+    const savedArray = Array.isArray(saved) ? saved : [];
+    return base.map((item, index) => mergeContent(item, savedArray[index])) as T;
+  }
+
+  if (base && typeof base === 'object') {
+    const savedObj = saved && typeof saved === 'object' ? saved as Record<string, unknown> : {};
+    const out: Record<string, unknown> = { ...savedObj };
+    for (const [key, value] of Object.entries(base as Record<string, unknown>)) {
+      out[key] = mergeContent(value, savedObj[key]);
+    }
+    return out as T;
+  }
+
+  return (saved == null || saved === '') ? base : saved as T;
+}
+
 // صفحة الهبوط التعريفية التسويقية — تصميم Field Sales، محتواها يُدار من لوحة المالك (CMS)
 export default function LandingPage() {
   const lang = useLang((s) => s.lang);
@@ -131,7 +149,7 @@ export default function LandingPage() {
     queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as unknown; },
     staleTime: 60_000,
   });
-  const arContent = (data || defaultContent) as Record<string, unknown>;
+  const arContent = mergeContent(defaultContent, data) as Record<string, unknown>;
 
   let html: string;
   if (lang === 'en') {

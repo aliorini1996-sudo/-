@@ -23,6 +23,8 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][] }[] = [
     ['features.items.3.title', 'ميزة ٤ — العنوان'], ['features.items.3.desc', 'ميزة ٤ — الوصف', true],
     ['features.items.4.title', 'ميزة ٥ — العنوان'], ['features.items.4.desc', 'ميزة ٥ — الوصف', true],
     ['features.items.5.title', 'ميزة ٦ — العنوان'], ['features.items.5.desc', 'ميزة ٦ — الوصف', true],
+    ['features.items.6.title', 'ميزة ٧ — العنوان'], ['features.items.6.desc', 'ميزة ٧ — الوصف', true],
+    ['features.items.7.title', 'ميزة ٨ — العنوان'], ['features.items.7.desc', 'ميزة ٨ — الوصف', true],
   ] },
   { title: 'كيف يعمل', fields: [
     ['how.title', 'عنوان القسم'], ['how.subtitle', 'الوصف', true],
