@@ -25,6 +25,20 @@ const signupSchema = z.object({
 });
 const TRIAL_DAYS = 14;
 
+const adminPermissionSelect = {
+  canAccessDashboard: true,
+  canManageCustomers: true,
+  canManageProducts: true,
+  canManageSalesReps: true,
+  canManageInvoices: true,
+  canManageReceipts: true,
+  canViewReports: true,
+  canManageVanStock: true,
+  canManageTracking: true,
+  canManageCompanySettings: true,
+  canManageCompanyUsers: true,
+} as const;
+
 function signToken(payload: object): string {
   return jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
 }
@@ -65,7 +79,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       const block = tenantBlockReason(admin.tenant);
       if (block) { res.status(403).json({ success: false, message: block }); return; }
       const token = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId });
-      res.json({ success: true, data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: admin.tenantId, companyName: admin.tenant.name } } });
+      res.json({ success: true, data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: admin.tenantId, companyName: admin.tenant.name, ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, (admin as any)[key]])) } } });
       return;
     }
 
@@ -202,7 +216,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
     } else {
       const admin = await prisma.admin.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, role: true, tenantId: true }
+        select: { id: true, name: true, email: true, role: true, tenantId: true, ...adminPermissionSelect }
       });
       res.json({ success: true, data: admin });
     }

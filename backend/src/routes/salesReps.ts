@@ -2,12 +2,12 @@ import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 
 const router = Router();
-router.use(authenticate, requireAdmin);
+router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesReps'));
 
 const emailSchema = z.preprocess(value => value === null ? '' : value, z.string().email().optional().or(z.literal('')));
 

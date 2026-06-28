@@ -1,13 +1,14 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, tenantId } from '../middleware/auth';
+import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal } from '../utils/helpers';
 import { postInvoiceEntries, reverseInvoiceEntries, postReturnEntries, reverseReturnEntries } from '../services/accounting';
 
 const router = Router();
 router.use(authenticate);
+router.use(requireAdminPermission('canManageInvoices'));
 
 const invoiceItemSchema = z.object({
   productId: z.string(),

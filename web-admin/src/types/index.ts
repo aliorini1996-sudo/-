@@ -5,6 +5,17 @@ export interface User {
   role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
   tenantId?: string;
   companyName?: string;
+  canAccessDashboard?: boolean;
+  canManageCustomers?: boolean;
+  canManageProducts?: boolean;
+  canManageSalesReps?: boolean;
+  canManageInvoices?: boolean;
+  canManageReceipts?: boolean;
+  canViewReports?: boolean;
+  canManageVanStock?: boolean;
+  canManageTracking?: boolean;
+  canManageCompanySettings?: boolean;
+  canManageCompanyUsers?: boolean;
 }
 
 export interface Tenant {
@@ -25,6 +36,17 @@ export interface CompanyUser {
   email: string;
   role: 'ADMIN' | 'MANAGER' | 'ACCOUNTANT';
   isActive: boolean;
+  canAccessDashboard: boolean;
+  canManageCustomers: boolean;
+  canManageProducts: boolean;
+  canManageSalesReps: boolean;
+  canManageInvoices: boolean;
+  canManageReceipts: boolean;
+  canViewReports: boolean;
+  canManageVanStock: boolean;
+  canManageTracking: boolean;
+  canManageCompanySettings: boolean;
+  canManageCompanyUsers: boolean;
   createdAt: string;
 }
 

@@ -1,11 +1,12 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 
 const router = Router();
 router.use(authenticate);
+router.use(requireAdminPermission('canManageTracking'));
 
 // إعدادات التتبّع — هل التتبّع مفعّل على مستوى الشركة
 router.get('/settings', async (req: AuthRequest, res: Response, next: NextFunction) => {

@@ -14,6 +14,17 @@ type FormValues = {
   role: 'ADMIN' | 'MANAGER' | 'ACCOUNTANT';
   password?: string;
   isActive: boolean;
+  canAccessDashboard: boolean;
+  canManageCustomers: boolean;
+  canManageProducts: boolean;
+  canManageSalesReps: boolean;
+  canManageInvoices: boolean;
+  canManageReceipts: boolean;
+  canViewReports: boolean;
+  canManageVanStock: boolean;
+  canManageTracking: boolean;
+  canManageCompanySettings: boolean;
+  canManageCompanyUsers: boolean;
 };
 
 const roleLabels: Record<CompanyUser['role'], string> = {
@@ -21,6 +32,20 @@ const roleLabels: Record<CompanyUser['role'], string> = {
   MANAGER: 'مشرف',
   ACCOUNTANT: 'محاسب',
 };
+
+const permissionItems: { key: keyof FormValues; label: string }[] = [
+  { key: 'canAccessDashboard', label: 'لوحة التحكم' },
+  { key: 'canManageCustomers', label: 'العملاء' },
+  { key: 'canManageProducts', label: 'المنتجات' },
+  { key: 'canManageSalesReps', label: 'المناديب' },
+  { key: 'canManageInvoices', label: 'الفواتير' },
+  { key: 'canManageReceipts', label: 'سندات القبض' },
+  { key: 'canViewReports', label: 'التقارير' },
+  { key: 'canManageVanStock', label: 'مخزون السيارات' },
+  { key: 'canManageTracking', label: 'تتبع المناديب' },
+  { key: 'canManageCompanySettings', label: 'إعدادات الشركة' },
+  { key: 'canManageCompanyUsers', label: 'مستخدمي الشركة' },
+];
 
 export default function CompanyUsersPage() {
   const qc = useQueryClient();
@@ -158,6 +183,17 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
     role: user?.role || 'MANAGER',
     password: '',
     isActive: user?.isActive ?? true,
+    canAccessDashboard: user?.canAccessDashboard ?? true,
+    canManageCustomers: user?.canManageCustomers ?? true,
+    canManageProducts: user?.canManageProducts ?? true,
+    canManageSalesReps: user?.canManageSalesReps ?? true,
+    canManageInvoices: user?.canManageInvoices ?? true,
+    canManageReceipts: user?.canManageReceipts ?? true,
+    canViewReports: user?.canViewReports ?? true,
+    canManageVanStock: user?.canManageVanStock ?? true,
+    canManageTracking: user?.canManageTracking ?? true,
+    canManageCompanySettings: user?.canManageCompanySettings ?? true,
+    canManageCompanyUsers: user?.canManageCompanyUsers ?? false,
   });
   const [showPass, setShowPass] = useState(false);
   const [err, setErr] = useState('');
@@ -224,6 +260,32 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
             <input type="checkbox" checked={form.isActive} disabled={isSelf} onChange={e => set('isActive', e.target.checked)} />
             الحساب نشط
           </label>
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase">صلاحيات المستخدم</h3>
+              <div className="flex items-center gap-3 text-xs">
+                <button type="button" onClick={() => setForm(f => ({ ...f, ...Object.fromEntries(permissionItems.map(p => [p.key, true])) } as FormValues))} className="text-[#E15A30] hover:text-[#C94E28]">تحديد الكل</button>
+                <button type="button" onClick={() => setForm(f => ({ ...f, ...Object.fromEntries(permissionItems.map(p => [p.key, false])), canManageCompanyUsers: isSelf ? f.canManageCompanyUsers : false } as FormValues))} className="text-gray-500 hover:text-gray-700">إلغاء الكل</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {permissionItems.map(p => {
+                const disabled = isSelf && p.key === 'canManageCompanyUsers';
+                return (
+                  <label key={p.key} className={`flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm ${disabled ? 'text-gray-400' : 'text-gray-700'}`}>
+                    <input
+                      type="checkbox"
+                      checked={!!form[p.key]}
+                      disabled={disabled}
+                      onChange={e => set(p.key, e.target.checked)}
+                    />
+                    {p.label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
           {isSelf && <p className="text-xs text-amber-600">لا يمكنك تعطيل حسابك أو تغيير دورك من هذه النافذة.</p>}
           {err && <p className="text-[#C0392B] text-xs">{err}</p>}
         </div>

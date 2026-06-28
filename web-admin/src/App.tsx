@@ -37,6 +37,19 @@ function SuperAdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function PermissionRoute({ permission, children }: { permission: keyof NonNullable<ReturnType<typeof useAuthStore.getState>['user']>; children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  if (user?.[permission] === false) {
+    return (
+      <div className="card max-w-xl">
+        <h1 className="text-lg font-bold text-[#1F1A13]">غير مسموح</h1>
+        <p className="text-sm text-gray-500 mt-1">لا تملك صلاحية الوصول لهذا القسم.</p>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -60,17 +73,17 @@ export default function App() {
             <MainLayout />
           </ProtectedRoute>
         }>
-          <Route index element={<DashboardPage />} />
-          <Route path="customers" element={<CustomersPage />} />
-          <Route path="products" element={<ProductsPage />} />
-          <Route path="sales-reps" element={<SalesRepsPage />} />
-          <Route path="invoices" element={<InvoicesPage />} />
-          <Route path="receipts" element={<ReceiptsPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="van-stock" element={<VanStockPage />} />
-          <Route path="tracking" element={<TrackingPage />} />
-          <Route path="company-users" element={<CompanyUsersPage />} />
-          <Route path="company" element={<CompanySettingsPage />} />
+          <Route index element={<PermissionRoute permission="canAccessDashboard"><DashboardPage /></PermissionRoute>} />
+          <Route path="customers" element={<PermissionRoute permission="canManageCustomers"><CustomersPage /></PermissionRoute>} />
+          <Route path="products" element={<PermissionRoute permission="canManageProducts"><ProductsPage /></PermissionRoute>} />
+          <Route path="sales-reps" element={<PermissionRoute permission="canManageSalesReps"><SalesRepsPage /></PermissionRoute>} />
+          <Route path="invoices" element={<PermissionRoute permission="canManageInvoices"><InvoicesPage /></PermissionRoute>} />
+          <Route path="receipts" element={<PermissionRoute permission="canManageReceipts"><ReceiptsPage /></PermissionRoute>} />
+          <Route path="reports" element={<PermissionRoute permission="canViewReports"><ReportsPage /></PermissionRoute>} />
+          <Route path="van-stock" element={<PermissionRoute permission="canManageVanStock"><VanStockPage /></PermissionRoute>} />
+          <Route path="tracking" element={<PermissionRoute permission="canManageTracking"><TrackingPage /></PermissionRoute>} />
+          <Route path="company-users" element={<PermissionRoute permission="canManageCompanyUsers"><CompanyUsersPage /></PermissionRoute>} />
+          <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

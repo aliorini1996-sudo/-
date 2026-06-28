@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -29,7 +29,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 // التعديل للإدارة فقط — ضمن شركة المستخدم
-router.put('/', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const data = companySchema.parse(req.body);

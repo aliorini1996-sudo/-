@@ -59,6 +59,20 @@ model Admin {
   passwordHash String
   role         String   @default("ADMIN") // ADMIN | MANAGER | ACCOUNTANT
   isActive     Boolean  @default(true)
+
+  // Company admin permissions
+  canAccessDashboard       Boolean @default(true)
+  canManageCustomers       Boolean @default(true)
+  canManageProducts        Boolean @default(true)
+  canManageSalesReps       Boolean @default(true)
+  canManageInvoices        Boolean @default(true)
+  canManageReceipts        Boolean @default(true)
+  canViewReports           Boolean @default(true)
+  canManageVanStock        Boolean @default(true)
+  canManageTracking        Boolean @default(true)
+  canManageCompanySettings Boolean @default(true)
+  canManageCompanyUsers    Boolean @default(true)
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

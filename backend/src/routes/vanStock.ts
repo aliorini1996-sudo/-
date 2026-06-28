@@ -1,11 +1,12 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 
 const router = Router();
 router.use(authenticate);
+router.use(requireAdminPermission('canManageVanStock'));
 
 const loadSchema = z.object({
   salesRepId: z.string().optional(), // الأدمن يحدّده؛ المندوب يُستخدم معرّفه تلقائياً
