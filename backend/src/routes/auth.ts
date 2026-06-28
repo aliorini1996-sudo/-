@@ -164,19 +164,23 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
       return { tenant, admin };
     });
 
+    // إشعار «عميل تجريبي جديد» إلى البريد الرئيسي للشركة
     const mailSent = await sendMail({
-      to: 'info@fieldsa.net',
-      subject: `طلب تجربة مجانية جديد - ${body.companyName}`,
+      to: process.env.MAIL_TO || 'info@fieldsa.net',
+      subject: `🎉 عميل تجريبي جديد: ${body.companyName}`,
       replyTo: body.email,
-      html: mailLayout('طلب تجربة مجانية جديد', [
+      html: mailLayout('🎉 عميل تجريبي جديد', [
         ['الشركة', body.companyName],
         ['المسؤول', body.adminName],
         ['البريد', body.email],
-        ['الجوال', body.phone || ''],
+        ['الجوال', body.phone || '—'],
+        ['الباقة', 'تجريبية مجانية'],
+        ['مدة التجربة', `${TRIAL_DAYS} أيام`],
+        ['تاريخ التسجيل', new Date().toISOString().slice(0, 10)],
         ['تنتهي التجربة', trialEndsAt.toISOString().slice(0, 10)],
-      ]),
+      ], 'سجّل عميل جديد للتجربة المجانية عبر fieldsa.net — يُنصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك.'),
     });
-    if (!mailSent) console.error('[mail] فشل إرسال إشعار تسجيل شركة تجريبية إلى info@fieldsa.net');
+    if (!mailSent) console.error('[mail] فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
 
     // بريد تأكيد للعميل — يحقّق ملكية البريد (دخول فوري + لافتة تأكيد بالواجهة)
     const verifyUrl = `${frontendBase()}/verify-email?token=${signVerifyToken(created.admin.id)}`;
