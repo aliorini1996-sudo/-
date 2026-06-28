@@ -192,6 +192,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
         where: { id: req.user.id },
         select: { id: true, name: true, phone: true, email: true, username: true, tenantId: true,
           canCreateInvoice: true, canEditInvoice: true, canDeleteInvoice: true, canCancelInvoice: true,
+          canSellOnCredit: true, canSellInCash: true,
           canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true,
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true }

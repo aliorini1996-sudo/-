@@ -21,6 +21,9 @@ type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'crea
 interface RepUser {
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
+  canCreateInvoice?: boolean;
+  canSellOnCredit?: boolean;
+  canSellInCash?: boolean;
   canChangePrice?: boolean;
   canSellBelowPrice?: boolean;
   maxDiscountPct?: number;
@@ -266,13 +269,16 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
 }
 
 // ============ تفاصيل العميل ============
-function CustomerDetail({ customer, repName, company, onClose, onInvoice, onReceipt, onReturn, onStatement }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement }: {
   customer: any; repName: string; company: Company | null;
+  perms: RepUser;
   onClose: () => void; onInvoice: () => void; onReceipt: () => void; onReturn: () => void;
   onStatement: (doc: StatementDoc) => void;
 }) {
   const [entries, setEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const canCreateInvoice = perms.canCreateInvoice !== false;
+  const canSellAnyType = perms.canSellOnCredit !== false || perms.canSellInCash !== false;
 
   useEffect(() => {
     (async () => {
@@ -315,7 +321,8 @@ function CustomerDetail({ customer, repName, company, onClose, onInvoice, onRece
 
         {/* Actions */}
         <div className="grid grid-cols-2 gap-3 mt-4">
-          <button onClick={onInvoice} className="bg-[#E15A30] text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+          <button onClick={onInvoice} disabled={!canCreateInvoice || !canSellAnyType}
+            className="bg-[#E15A30] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
             <FileText size={16} /> فاتورة جديدة
           </button>
           <button onClick={onReceipt} className="bg-green-600 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
@@ -370,7 +377,10 @@ function CustomerDetail({ customer, repName, company, onClose, onInvoice, onRece
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
   const isReturn = mode === 'return';
-  const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
+  const canSellOnCredit = perms.canSellOnCredit !== false;
+  const canSellInCash = perms.canSellInCash !== false;
+  const canSellAnyType = canSellOnCredit || canSellInCash;
+  const [type, setType] = useState<'CASH' | 'CREDIT'>(canSellOnCredit ? 'CREDIT' : 'CASH');
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
@@ -424,6 +434,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   const submit = async () => {
     if (lines.length === 0) { setMsg('أضف صنفاً'); return; }
+    if (perms.canCreateInvoice === false) { setMsg('لا تملك صلاحية إنشاء فاتورة'); return; }
+    if (!isReturn && !canSellAnyType) { setMsg('لا تملك صلاحية البيع النقدي أو الآجل'); return; }
+    if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg('لا تملك صلاحية البيع الآجل'); return; }
+    if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg('لا تملك صلاحية البيع النقدي'); return; }
     setLoading(true); setMsg('');
     try {
       const res = await repApi.post('/invoices', {
@@ -465,10 +479,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             ) : (
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xs text-gray-600">النوع:</span>
-                <button onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>آجل</button>
-                <button onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>نقدي</button>
+                <button disabled={!canSellOnCredit} onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>آجل</button>
+                <button disabled={!canSellInCash} onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>نقدي</button>
               </div>
             )}
+            {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">لا تملك صلاحية البيع النقدي أو الآجل.</p>}
 
             <div className="mb-2">
               <SearchableSelect
@@ -575,7 +590,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           </div>
 
           <div className="p-4 border-t bg-white">
-            <button onClick={submit} disabled={loading} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-[#E15A30] disabled:bg-[#E89B7E]'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
+            <button onClick={submit} disabled={loading || (!isReturn && (perms.canCreateInvoice === false || !canSellAnyType))} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-[#E15A30] disabled:bg-[#E89B7E]'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
               {isReturn ? 'إصدار فاتورة الإرجاع' : 'إصدار الفاتورة'}
             </button>
@@ -976,7 +991,7 @@ export default function RepApp() {
               setScreen(k === 'invoice' ? 'invoices' : k === 'receipt' ? 'receipts' : 'customers');
             }} />
           ) : modal === 'customerDetail' && selectedCustomer ? (
-            <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} onClose={() => setModal(null)}
+            <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal(null)}
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
               onStatement={(doc) => { setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (

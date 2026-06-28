@@ -121,6 +121,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // فرض صلاحيات الخصم والتسعير على المندوب (الأدمن غير مقيّد) — حارس أمني خلف الواجهة
     if (req.user!.role === 'SALES_REP') {
+      if (!rep.canCreateInvoice) {
+        res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' });
+        return;
+      }
+      if (body.type === 'CREDIT' && !rep.canSellOnCredit) {
+        res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع الآجل' });
+        return;
+      }
+      if (body.type === 'CASH' && !rep.canSellInCash) {
+        res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع النقدي' });
+        return;
+      }
+
       const cps = await prisma.customerPrice.findMany({
         where: { customerId: body.customerId, productId: { in: productIds } },
         select: { productId: true, price: true },

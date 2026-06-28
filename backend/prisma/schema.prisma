@@ -80,6 +80,8 @@ model SalesRep {
 
   // Sales permissions
   canCreateInvoice  Boolean @default(true)
+  canSellOnCredit   Boolean @default(true)
+  canSellInCash     Boolean @default(true)
   canEditInvoice    Boolean @default(false)
   canDeleteInvoice  Boolean @default(false)
   canCancelInvoice  Boolean @default(false)

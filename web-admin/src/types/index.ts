@@ -71,6 +71,8 @@ export interface SalesRep {
   username: string;
   isActive: boolean;
   canCreateInvoice: boolean;
+  canSellOnCredit: boolean;
+  canSellInCash: boolean;
   canEditInvoice: boolean;
   canDeleteInvoice: boolean;
   canCancelInvoice: boolean;

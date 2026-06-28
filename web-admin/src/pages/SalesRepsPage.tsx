@@ -75,6 +75,8 @@ export default function SalesRepsPage() {
               <tr>
                 <th>المندوب</th><th>الجوال</th><th>اسم المستخدم</th>
                 <th className="text-center">فاتورة</th>
+                <th className="text-center">آجل</th>
+                <th className="text-center">نقدي</th>
                 <th className="text-center">تحصيل</th>
                 <th className="text-center">تغيير سعر</th>
                 <th className="text-center">خصم أقصى</th>
@@ -85,7 +87,7 @@ export default function SalesRepsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={10} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
+                <tr><td colSpan={12} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
               ) : data?.map(r => (
                 <tr key={r.id}>
                   <td>
@@ -95,6 +97,8 @@ export default function SalesRepsPage() {
                   <td className="font-mono text-sm text-gray-600">{r.phone}</td>
                   <td className="font-mono text-sm text-gray-500">{r.username}</td>
                   <td className="text-center">{perm(r.canCreateInvoice)}</td>
+                  <td className="text-center">{perm(r.canSellOnCredit)}</td>
+                  <td className="text-center">{perm(r.canSellInCash)}</td>
                   <td className="text-center">{perm(r.canCreateReceipt)}</td>
                   <td className="text-center">{perm(r.canChangePrice)}</td>
                   <td className="text-center text-sm text-gray-600">{r.maxDiscountPct}%</td>

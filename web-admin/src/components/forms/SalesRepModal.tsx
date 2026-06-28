@@ -21,7 +21,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
   const [showPass, setShowPass] = useState(false);
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>({
     defaultValues: rep || {
-      isActive: true, canCreateInvoice: true, canCreateReceipt: true,
+      isActive: true, canCreateInvoice: true, canSellOnCredit: true, canSellInCash: true, canCreateReceipt: true,
       canViewStatement: true, canAddCustomer: false, maxDiscountPct: 0,
     },
   });
@@ -104,6 +104,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات المبيعات</h3>
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label="إنشاء فاتورة" {...register('canCreateInvoice')} />
+              <PermToggle label="البيع الآجل" {...register('canSellOnCredit')} />
+              <PermToggle label="البيع النقدي" {...register('canSellInCash')} />
               <PermToggle label="تعديل فاتورة" {...register('canEditInvoice')} />
               <PermToggle label="إلغاء فاتورة" {...register('canCancelInvoice')} />
               <PermToggle label="حذف فاتورة" {...register('canDeleteInvoice')} />

@@ -111,6 +111,7 @@ async function seedDefaults() {
         data: {
           tenantId: tenant.id, name: 'مندوب تجريبي', phone: '0500000000', username: 'rep1', passwordHash: repHash,
           isActive: true, canCreateInvoice: true, canEditInvoice: true, canCancelInvoice: true,
+          canSellOnCredit: true, canSellInCash: true,
           canChangePrice: true, canSellBelowPrice: true, maxDiscountPct: 100,
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
