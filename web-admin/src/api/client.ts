@@ -111,6 +111,13 @@ export const companyApi = {
   update: (data: unknown) => api.put('/company', data),
 };
 
+// مستخدمو الشركة الذين يدخلون لوحة الإدارة
+export const companyUserApi = {
+  list: () => api.get('/company-users'),
+  create: (data: unknown) => api.post('/company-users', data),
+  update: (id: string, data: unknown) => api.put(`/company-users/${id}`, data),
+};
+
 // إدارة الشركات — لمالك المنصّة (السوبر أدمن)
 export const tenantApi = {
   list: () => api.get('/tenants'),

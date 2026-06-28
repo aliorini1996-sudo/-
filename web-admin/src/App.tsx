@@ -15,6 +15,7 @@ import ReceiptsPage from './pages/ReceiptsPage';
 import ReportsPage from './pages/ReportsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
+import CompanyUsersPage from './pages/CompanyUsersPage';
 import VanStockPage from './pages/VanStockPage';
 import TrackingPage from './pages/TrackingPage';
 import PlatformPage from './pages/PlatformPage';
@@ -68,6 +69,7 @@ export default function App() {
           <Route path="reports" element={<ReportsPage />} />
           <Route path="van-stock" element={<VanStockPage />} />
           <Route path="tracking" element={<TrackingPage />} />
+          <Route path="company-users" element={<CompanyUsersPage />} />
           <Route path="company" element={<CompanySettingsPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>

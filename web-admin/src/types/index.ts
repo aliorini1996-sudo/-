@@ -19,6 +19,15 @@ export interface Tenant {
   _count?: { admins?: number; salesReps?: number; customers?: number; invoices?: number; receipts?: number; products?: number };
 }
 
+export interface CompanyUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'MANAGER' | 'ACCOUNTANT';
+  isActive: boolean;
+  createdAt: string;
+}
+
 export interface Customer {
   id: string;
   code: string;

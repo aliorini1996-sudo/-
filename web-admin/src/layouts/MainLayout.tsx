@@ -1,7 +1,7 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin, LifeBuoy,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin, LifeBuoy, UserCog,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/app/invoices', icon: FileText, label: 'nav.invoices' },
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts' },
   { to: '/app/reports', icon: BarChart3, label: 'nav.reports' },
+  { to: '/app/company-users', icon: UserCog, label: 'nav.companyUsers', adminOnly: true },
   { to: '/app/company', icon: Building2, label: 'nav.company' },
 ];
 
@@ -74,7 +75,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.map(item => (
+          {navItems.filter(item => !item.adminOnly || user?.role === 'ADMIN').map(item => (
             <NavLink
               key={item.to}
               to={item.to}

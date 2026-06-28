@@ -27,6 +27,7 @@ import contactRouter from './routes/contact';
 import vanStockRouter from './routes/vanStock';
 import trackingRouter from './routes/tracking';
 import supportRouter from './routes/support';
+import companyUsersRouter from './routes/companyUsers';
 import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
@@ -68,6 +69,7 @@ app.use('/api/contact', contactRouter);
 app.use('/api/van-stock', vanStockRouter);
 app.use('/api/tracking', trackingRouter);
 app.use('/api/support', supportRouter);
+app.use('/api/company-users', companyUsersRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
