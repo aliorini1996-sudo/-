@@ -281,7 +281,8 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         {/* رمز QR للفاتورة الضريبية (ZATCA) */}
         {qrValue ? (
           <div style={{ textAlign: 'center' }}>
-            <div style={{ background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'inline-block' }}>
+            {/* display:block (لا inline-block) — html2canvas يُسقط inline-block المحاط بحدّ فيختفي الرمز في الـPDF */}
+            <div style={{ background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'block', width: 'fit-content', margin: '0 auto' }}>
               <QrImage value={qrValue} size={108} />
             </div>
             <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>رمز الاستجابة السريعة للفاتورة الضريبية</div>
