@@ -16,7 +16,7 @@ const repSchema = z.object({
   phone: z.string().min(9),
   email: emailSchema,
   username: z.string().min(4),
-  password: z.string().optional(), // Ø·ÙˆÙ„ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ÙŠÙÙØ­Øµ ÙÙŠ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬ Ù„Ø±Ø³Ø§Ù„Ø© Ø£ÙˆØ¶Ø­
+  password: z.string().optional(), // طول كلمة المرور يُفحص في المعالج لرسالة أوضح
   isActive: z.boolean().optional(),
   canCreateInvoice: z.boolean().optional(),
   canSellOnCredit: z.boolean().optional(),
@@ -72,7 +72,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: repSelect });
-    if (!rep) { res.status(404).json({ success: false, message: 'Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     res.json({ success: true, data: rep });
   } catch (err) { next(err); }
 });
@@ -81,15 +81,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const tid = tenantId(req);
     const { password, ...rest } = repSchema.parse(req.body);
-    if (!password) { res.status(400).json({ success: false, message: 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ù…Ø·Ù„ÙˆØ¨Ø©' }); return; }
-    if (password.length < 6) { res.status(400).json({ success: false, message: 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± 6 Ø£Ø­Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„' }); return; }
+    if (!password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
+    if (password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
 
-    // ÙØ±Ø¶ Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ù„Ø¹Ø¯Ø¯ Ø§Ù„Ù…Ù†Ø§Ø¯ÙŠØ¨ Ø§Ù„Ù…Ø³Ù…ÙˆØ­ Ù„Ù„Ø´Ø±ÙƒØ© (Ø¥Ù† ÙˆÙØ¬Ø¯)
+    // فرض الحد الأقصى لعدد المناديب المسموح للشركة (إن وُجد)
     const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { maxSalesReps: true } });
     if (tenant?.maxSalesReps != null) {
       const current = await prisma.salesRep.count({ where: { tenantId: tid } });
       if (current >= tenant.maxSalesReps) {
-        res.status(403).json({ success: false, message: `Ø¨Ù„ØºØª Ø§Ù„Ø´Ø±ÙƒØ© Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ø§Ù„Ù…Ø³Ù…ÙˆØ­ Ù„Ù„Ù…Ù†Ø§Ø¯ÙŠØ¨ (${tenant.maxSalesReps}). ØªÙˆØ§ØµÙ„ Ù…Ø¹ Ù…Ø²ÙˆÙ‘Ø¯ Ø§Ù„Ø®Ø¯Ù…Ø© Ù„Ø±ÙØ¹ Ø§Ù„Ø­Ø¯.` });
+        res.status(403).json({ success: false, message: `بلغت الشركة الحد الأقصى المسموح للمناديب (${tenant.maxSalesReps}). تواصل مع مزوّد الخدمة لرفع الحد.` });
         return;
       }
     }
@@ -106,12 +106,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   } catch (err) { next(err); }
 });
 
-// ØªÙØ±Ù‘Ø¯ Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø¹Ø§Ù„Ù…ÙŠ (Ù„Ù„Ø¯Ø®ÙˆÙ„)ØŒ ÙˆØ§Ù„Ø¬ÙˆØ§Ù„/Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø¶Ù…Ù† Ø§Ù„Ø´Ø±ÙƒØ©
+// تفرّد اسم المستخدم عالمي (للدخول)، والجوال/البريد ضمن الشركة
 async function checkRepDuplicates(tid: string, username: string, phone: string, email?: string, excludeId?: string): Promise<string | null> {
   const notSelf = excludeId ? { id: { not: excludeId } } : {};
-  if (await prisma.salesRep.findFirst({ where: { username, ...notSelf } })) return 'Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø³Ø¨Ù‚Ø§Ù‹';
-  if (await prisma.salesRep.findFirst({ where: { tenantId: tid, phone, ...notSelf } })) return 'Ø±Ù‚Ù… Ø§Ù„Ø¬ÙˆØ§Ù„ Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø³Ø¨Ù‚Ø§Ù‹';
-  if (email && await prisma.salesRep.findFirst({ where: { tenantId: tid, email, ...notSelf } })) return 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø³Ø¨Ù‚Ø§Ù‹';
+  if (await prisma.salesRep.findFirst({ where: { username, ...notSelf } })) return 'اسم المستخدم مستخدم مسبقاً، اختر اسماً آخر';
+  if (await prisma.salesRep.findFirst({ where: { tenantId: tid, phone, ...notSelf } })) return 'رقم الجوال مستخدم مسبقاً لمندوب آخر';
+  if (email && await prisma.salesRep.findFirst({ where: { tenantId: tid, email, ...notSelf } })) return 'البريد الإلكتروني مستخدم مسبقاً';
   return null;
 }
 
@@ -119,10 +119,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const current = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid } });
-    if (!current) { res.status(404).json({ success: false, message: 'Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' }); return; }
+    if (!current) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     const { password, ...rest } = repSchema.partial().parse(req.body);
-    if (password && password.length < 6) { res.status(400).json({ success: false, message: 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± 6 Ø£Ø­Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„' }); return; }
+    if (password && password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
     if (rest.username || rest.phone || rest.email) {
       const dup = await checkRepDuplicates(
         tid,

@@ -19,7 +19,7 @@ const companySchema = z.object({
   headerStyle: z.enum(['classic', 'banner', 'minimal']).nullish(),
 });
 
-// Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø´Ø±ÙƒØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ø­Ø§Ù„ÙŠ â€” Ù…ØªØ§Ø­ Ù„Ø£ÙŠ Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø³Ø¬Ù‘Ù„ (Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ ÙŠØ­ØªØ§Ø¬Ù‡ Ù„Ù„Ø·Ø¨Ø§Ø¹Ø©)
+// إعدادات شركة المستخدم الحالي â€” متاح لأي مستخدم مسجّل (المندوب يحتاجه للطباعة)
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -28,7 +28,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-// Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ Ù„Ù„Ø¥Ø¯Ø§Ø±Ø© ÙÙ‚Ø· â€” Ø¶Ù…Ù† Ø´Ø±ÙƒØ© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
+// التعديل للإدارة فقط â€” ضمن شركة المستخدم
 router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
