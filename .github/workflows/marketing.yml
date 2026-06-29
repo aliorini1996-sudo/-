@@ -1,6 +1,9 @@
 name: FieldSales — تسويق X اليومي
 
 on:
+  push:
+    branches: [master]
+    paths: ["marketing/**", ".github/workflows/marketing.yml"]   # مؤقّت: لإطلاق تشغيلة على أحدث كود
   schedule:
     # 16:00 UTC = 7:00 مساءً بتوقيت السعودية (UTC+3). غيّر الساعة كما تشاء.
     - cron: "0 16 * * *"
