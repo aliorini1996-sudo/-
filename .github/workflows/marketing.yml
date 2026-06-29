@@ -1,0 +1,39 @@
+name: FieldSales — تسويق X اليومي
+
+on:
+  schedule:
+    # 16:00 UTC = 7:00 مساءً بتوقيت السعودية (UTC+3). غيّر الساعة كما تشاء.
+    - cron: "0 16 * * *"
+  workflow_dispatch: {}   # زر تشغيل يدوي للاختبار
+
+# لا يتداخل مع أي شيء آخر: يعمل فقط بالجدولة أو يدويًا — لا يتأثر بدفعات الكود.
+permissions:
+  contents: read
+
+concurrency:
+  group: fieldsales-marketing
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r marketing/requirements.txt
+
+      - name: Generate & post
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: python marketing/post.py
