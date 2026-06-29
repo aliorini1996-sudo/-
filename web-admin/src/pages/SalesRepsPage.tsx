@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi } from '../api/client';
 import { SalesRep, Invoice, Receipt } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { formatCurrency, formatDate, statusLabels, paymentMethodLabels } from '../utils/format';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 
@@ -19,6 +20,7 @@ export default function SalesRepsPage() {
   const [createdCreds, setCreatedCreds] = useState<Creds | null>(null);
   const [statementRep, setStatementRep] = useState<SalesRep | null>(null);
   const [resetRep, setResetRep] = useState<SalesRep | null>(null);
+  const [deleting, setDeleting] = useState<SalesRep | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['sales-reps', search],
@@ -46,6 +48,20 @@ export default function SalesRepsPage() {
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'حدث خطأ';
       toast.error(msg);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => salesRepApi.remove(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sales-reps'] });
+      toast.success('تم حذف المندوب');
+      setDeleting(null);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر حذف المندوب';
+      toast.error(msg);
+      setDeleting(null);
     },
   });
 
@@ -111,6 +127,7 @@ export default function SalesRepsPage() {
                       <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title="كشف الأداء والمبيعات"><FileBarChart2 size={14} /></button>
                       <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true, canManageVanStock: r.canManageVanStock ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل"><Edit size={14} /></button>
                       <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title="إعادة تعيين كلمة المرور"><KeyRound size={14} /></button>
+                      <button onClick={() => setDeleting(r)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title="حذف المندوب"><Trash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -143,6 +160,18 @@ export default function SalesRepsPage() {
           subject={`${resetRep.name} · ${resetRep.username}`}
           onConfirm={async (newPassword) => { await salesRepApi.update(resetRep.id, { password: newPassword }); }}
           onClose={() => setResetRep(null)}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          danger
+          title="حذف المندوب"
+          message={`سيتم حذف المندوب «${deleting.name}» نهائياً ولا يمكن التراجع. إن كانت لديه فواتير أو سندات فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.`}
+          confirmLabel="حذف نهائي"
+          loading={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
         />
       )}
     </div>

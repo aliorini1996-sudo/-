@@ -47,6 +47,7 @@ export const customerApi = {
   statement: (id: string, params?: Record<string, string>) => api.get(`/customers/${id}/statement`, { params }),
   invoices: (id: string) => api.get(`/customers/${id}/invoices`),
   updatePrices: (id: string, prices: unknown) => api.put(`/customers/${id}/prices`, { prices }),
+  remove: (id: string) => api.delete(`/customers/${id}`),
 };
 
 export const productApi = {
@@ -65,6 +66,7 @@ export const salesRepApi = {
   create: (data: unknown) => api.post('/sales-reps', data),
   update: (id: string, data: unknown) => api.put(`/sales-reps/${id}`, data),
   stats: (id: string, params?: Record<string, string>) => api.get(`/sales-reps/${id}/stats`, { params }),
+  remove: (id: string) => api.delete(`/sales-reps/${id}`),
 };
 
 export const invoiceApi = {

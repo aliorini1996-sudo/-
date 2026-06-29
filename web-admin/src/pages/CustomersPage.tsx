@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customerApi, companyApi } from '../api/client';
 import { Customer } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
-import { Plus, Search, Edit, FileText, FileBarChart2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
+import ConfirmDialog from '../components/ConfirmDialog';
 import CustomerModal from '../components/forms/CustomerModal';
 import CustomerStatementModal from '../components/forms/CustomerStatementModal';
 import DocumentModal from '../components/DocumentModal';
@@ -22,6 +23,7 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<Customer | null>(null);
   const [docResult, setDocResult] = useState<StatementDoc | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Customer | null>(null);
 
   const { data: company } = useQuery({
     queryKey: ['company'],
@@ -46,6 +48,20 @@ export default function CustomersPage() {
       setSelected(null);
     },
     onError: () => toast.error('حدث خطأ'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => customerApi.remove(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      toast.success('تم حذف العميل');
+      setDeleting(null);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر حذف العميل';
+      toast.error(msg);
+      setDeleting(null);
+    },
   });
 
   const openEdit = (c: Customer) => { setSelected(c); setShowModal(true); };
@@ -132,6 +148,9 @@ export default function CustomersPage() {
                       <button onClick={() => openStatementPdf(c)} className="p-1.5 hover:bg-slate-100 rounded text-slate-600" title="كشف حساب PDF">
                         {openingId === c.id ? <span className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin inline-block" /> : <FileBarChart2 size={14} />}
                       </button>
+                      <button onClick={() => setDeleting(c)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title="حذف العميل">
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -171,6 +190,18 @@ export default function CustomersPage() {
       )}
 
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
+
+      {deleting && (
+        <ConfirmDialog
+          danger
+          title="حذف العميل"
+          message={`سيتم حذف العميل «${deleting.name}» نهائياً ولا يمكن التراجع. إن كان لديه فواتير أو سندات أو حركات في كشف حسابه فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.`}
+          confirmLabel="حذف نهائي"
+          loading={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
+        />
+      )}
     </div>
   );
 }

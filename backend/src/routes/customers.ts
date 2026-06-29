@@ -168,6 +168,34 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
   } catch (err) { next(err); }
 });
 
+// حذف عميل — للإدارة فقط (لا المناديب). يُمنع الحذف إن كانت له حركات مالية حفاظاً على سلامة السجلّات.
+router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, name: true } });
+    if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+
+    // منع الحذف عند وجود فواتير/سندات/حركات كشف حساب — يُقترح التعطيل بدلاً منه
+    const [invoices, receipts, entries] = await Promise.all([
+      prisma.invoice.count({ where: { customerId: req.params.id } }),
+      prisma.receipt.count({ where: { customerId: req.params.id } }),
+      prisma.accountEntry.count({ where: { customerId: req.params.id } }),
+    ]);
+    if (invoices > 0 || receipts > 0 || entries > 0) {
+      res.status(409).json({ success: false, message: 'لا يمكن حذف العميل لوجود فواتير أو سندات أو حركات في كشف حسابه. يمكنك تعطيله (تغيير حالته إلى «غير نشط») بدلاً من الحذف.' });
+      return;
+    }
+
+    // حذف البيانات التابعة غير المالية ثم العميل، في معاملة واحدة
+    await prisma.$transaction([
+      prisma.customerPrice.deleteMany({ where: { customerId: req.params.id } }),
+      prisma.notification.deleteMany({ where: { customerId: req.params.id } }),
+      prisma.customer.delete({ where: { id: req.params.id } }),
+    ]);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
 export default router;
 
 
