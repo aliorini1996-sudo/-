@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 صيد العملاء المحتملين لـFieldSales — يبحث يوميًا عن شركات التوزيع/الجملة في السعودية
-عبر HERE Maps (مجاني، بلا موزّع)، يؤهّلها بـClaude، ويحفظ الجدد فقط في Google Sheet خاص.
+عبر Google Places (New)، يؤهّلها بـClaude، ويحفظ الجدد فقط في Google Sheet خاص.
 بيانات أعمال عامّة فقط — قائمة لمراجعة فريق المبيعات (لا تواصل آلي).
 
-وضع الاختبار: إن لم تُضبط أسرار Google (الجدول)، يطبع عدد ونماذج النتائج فقط (لفحص التغطية).
+وضع الاختبار: إن لم تُضبط أسرار Google Sheet، يطبع عدد ونماذج النتائج فقط (لفحص التغطية).
 """
 import os
 import sys
@@ -15,15 +15,11 @@ import datetime
 
 import requests
 
-# مدن السعودية + إحداثيات مراكزها (لبحث HERE)
-CITIES = {
-    "الرياض": (24.7136, 46.6753), "جدة": (21.5433, 39.1728), "الدمام": (26.4207, 50.0888),
-    "مكة المكرمة": (21.3891, 39.8579), "المدينة المنورة": (24.5247, 39.5692), "الخبر": (26.2794, 50.2083),
-    "الطائف": (21.2854, 40.4183), "تبوك": (28.3838, 36.5550), "بريدة": (26.3260, 43.9750),
-    "خميس مشيط": (18.3060, 42.7290), "حائل": (27.5114, 41.7208), "الأحساء": (25.3833, 49.5867),
-    "نجران": (17.4924, 44.1277), "الجبيل": (27.0174, 49.6225), "ينبع": (24.0890, 38.0618),
-    "أبها": (18.2169, 42.5053),
-}
+CITIES = [
+    "الرياض", "جدة", "الدمام", "مكة المكرمة", "المدينة المنورة", "الخبر",
+    "الطائف", "تبوك", "بريدة", "خميس مشيط", "حائل", "الأحساء", "نجران",
+    "الجبيل", "ينبع", "أبها",
+]
 
 QUERIES = [
     "شركة توزيع مواد غذائية",
@@ -38,8 +34,9 @@ QUERIES = [
     "توزيع أدوية ومستلزمات طبية",
 ]
 
-HEADERS = ["here_id", "الاسم", "الهاتف", "الموقع الإلكتروني", "العنوان",
-           "المدينة", "النوع", "رابط الخريطة", "الملاءمة (1-10)", "ملاحظة", "تاريخ الإضافة"]
+HEADERS = ["place_id", "الاسم", "الهاتف", "الموقع الإلكتروني", "العنوان",
+           "التقييم", "عدد المراجعات", "النوع", "المدينة", "رابط الخريطة",
+           "الملاءمة (1-10)", "ملاحظة", "تاريخ الإضافة"]
 
 
 def env(name: str) -> str:
@@ -49,46 +46,29 @@ def env(name: str) -> str:
     return v
 
 
-# ------------------------------ HERE Discover ------------------------------ #
-def search_here(query: str, lat: float, lng: float, api_key: str) -> list:
-    try:
-        r = requests.get(
-            "https://discover.search.hereapi.com/v1/discover",
-            params={"q": query, "at": f"{lat},{lng}", "in": "countryCode:SAU",
-                    "limit": 100, "lang": "ar-SA", "apiKey": api_key},
-            timeout=40,
-        )
-        if not r.ok:
-            print(f"⚠️  بحث فشل ({query}): {r.status_code} {r.text[:160]}")
-            return []
-        return r.json().get("items", [])
-    except Exception as e:  # noqa: BLE001
-        print(f"⚠️  بحث فشل ({query}): {e}")
+# --------------------------- Google Places (New) --------------------------- #
+def search_places(query: str, api_key: str) -> list:
+    r = requests.post(
+        "https://places.googleapis.com/v1/places:searchText",
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": (
+                "places.id,places.displayName,places.formattedAddress,"
+                "places.internationalPhoneNumber,places.nationalPhoneNumber,"
+                "places.websiteUri,places.rating,places.userRatingCount,"
+                "places.googleMapsUri,places.primaryTypeDisplayName"
+            ),
+        },
+        json={"textQuery": query, "regionCode": "SA", "languageCode": "ar", "maxResultCount": 20},
+        timeout=60,
+    )
+    if not r.ok:
+        print(f"⚠️  بحث فشل ({query}): {r.status_code} {r.text[:160]}")
         return []
+    return r.json().get("places", [])
 
 
-def parse_item(it: dict, city: str) -> dict | None:
-    name = it.get("title")
-    if not name or not it.get("id"):
-        return None
-    contacts = (it.get("contacts") or [{}])[0]
-    phone = ((contacts.get("phone") or [{}])[0]).get("value", "")
-    www = ((contacts.get("www") or [{}])[0]).get("value", "")
-    pos = it.get("position") or {}
-    cat = ((it.get("categories") or [{}])[0]).get("name", "")
-    return {
-        "id": it["id"],
-        "name": name,
-        "phone": phone,
-        "website": www,
-        "address": (it.get("address") or {}).get("label", ""),
-        "city": (it.get("address") or {}).get("city", "") or city,
-        "type": cat,
-        "maps": f"https://www.google.com/maps/search/?api=1&query={pos.get('lat')},{pos.get('lng')}" if pos else "",
-    }
-
-
-# ------------------------------ Google Sheet ------------------------------ #
 def open_sheet():
     import gspread
     from google.oauth2.service_account import Credentials
@@ -99,7 +79,6 @@ def open_sheet():
     return gspread.authorize(creds).open_by_key(env("GOOGLE_SHEET_ID")).sheet1
 
 
-# ------------------------------ تأهيل (Claude) ------------------------------ #
 def qualify(leads: list) -> dict:
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not key or not leads:
@@ -130,13 +109,12 @@ def qualify(leads: list) -> dict:
         return {}
 
 
-# ------------------------------ الرئيسية ------------------------------ #
 def main():
-    api_key = env("HERE_API_KEY")
+    api_key = env("GOOGLE_MAPS_API_KEY")
     dry = not (os.environ.get("GOOGLE_SHEET_ID", "").strip() and os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip())
 
     if dry:
-        print("🧪 وضع الاختبار: لا أسرار Google بعد — سأطبع التغطية فقط دون الكتابة في الجدول.")
+        print("🧪 وضع الاختبار: لا أسرار Google Sheet بعد — سأطبع التغطية فقط دون الكتابة.")
         sh, existing_ids = None, set()
     else:
         sh = open_sheet()
@@ -147,16 +125,27 @@ def main():
             existing_ids = {row[0] for row in rows_all[1:] if row and row[0]}
 
     query = QUERIES[datetime.date.today().toordinal() % len(QUERIES)]
-    print(f"🔎 بحث اليوم: «{query}» في {len(CITIES)} مدينة (HERE)")
+    print(f"🔎 بحث اليوم: «{query}» في {len(CITIES)} مدينة (Google Places)")
 
     found = {}
-    for city, (lat, lng) in CITIES.items():
-        for it in search_here(query, lat, lng, api_key):
-            lead = parse_item(it, city)
-            if not lead or lead["id"] in existing_ids or lead["id"] in found:
+    for city in CITIES:
+        for p in search_places(f"{query} في {city}", api_key):
+            pid = p.get("id")
+            if not pid or pid in existing_ids or pid in found:
                 continue
-            found[lead["id"]] = lead
-        time.sleep(0.15)
+            found[pid] = {
+                "id": pid,
+                "name": (p.get("displayName") or {}).get("text", ""),
+                "phone": p.get("internationalPhoneNumber") or p.get("nationalPhoneNumber") or "",
+                "website": p.get("websiteUri", ""),
+                "address": p.get("formattedAddress", ""),
+                "rating": p.get("rating", ""),
+                "reviews": p.get("userRatingCount", ""),
+                "type": (p.get("primaryTypeDisplayName") or {}).get("text", ""),
+                "city": city,
+                "maps": p.get("googleMapsUri", ""),
+            }
+        time.sleep(0.2)
 
     leads = list(found.values())
     with_phone = sum(1 for l in leads if l["phone"])
@@ -177,9 +166,9 @@ def main():
     rows = []
     for i, l in enumerate(leads):
         score, note = scores.get(i, ("", ""))
-        rows.append([l["id"], l["name"], l["phone"], l["website"], l["address"],
-                     l["city"], l["type"], l["maps"], score, note, today])
-    rows.sort(key=lambda r: r[8] if isinstance(r[8], (int, float)) else 0, reverse=True)
+        rows.append([l["id"], l["name"], l["phone"], l["website"], l["address"], l["rating"],
+                     l["reviews"], l["type"], l["city"], l["maps"], score, note, today])
+    rows.sort(key=lambda r: r[10] if isinstance(r[10], (int, float)) else 0, reverse=True)
     sh.append_rows(rows, value_input_option="RAW")
     print(f"✅ أُضيف {len(rows)} عميلًا محتملاً إلى Google Sheet (الأعلى ملاءمة أولًا).")
 

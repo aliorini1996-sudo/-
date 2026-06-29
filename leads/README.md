@@ -1,59 +1,41 @@
-# 🎯 صيد العملاء المحتملين — FieldSales (مجاني · HERE Maps)
+# 🎯 صيد العملاء المحتملين — FieldSales (Google Places)
 
-يبحث **يوميًا** عن شركات التوزيع/الجملة في مدن السعودية عبر **HERE Maps** (مجاني، بلا موزّع، بلا بطاقة)، يؤهّلها بـ**Claude**، ويحفظ **الجدد فقط** في **Google Sheet خاص**.
-
-> Google Places محجوب في السعودية (يتطلّب موزّعًا) — لذا نستخدم HERE.
-
-## كيف يعمل
-`استعلام اليوم × كل المدن (HERE) → استبعاد المكرّر → تأهيل وترتيب بالملاءمة (Claude) → إضافة الجدد إلى Google Sheet`
+يبحث **يوميًا** عن شركات التوزيع/الجملة في مدن السعودية عبر **Google Places**، يؤهّلها بـ**Claude**، ويحفظ **الجدد فقط** في **Google Sheet خاص** — قائمة مؤهّلة لفريق مبيعاتك (الأعلى ملاءمة أولًا).
 
 - المنطق: [`leads/find_leads.py`](find_leads.py) — الجدولة: [`.github/workflows/leads.yml`](../.github/workflows/leads.yml).
 
 ## 💰 التكلفة
-| المكوّن | التكلفة |
-|---|---|
-| GitHub Actions | **مجاني** |
-| HERE Maps | **طبقة مجانية 1000 طلب/يوم — بلا بطاقة** (استخدامنا ~16/يوم) |
-| Google Sheets API | **مجاني** |
-| Claude (تأهيل) | ~سنتات/شهر |
+Google Places ضمن **$200/شهر مجانًا** (استخدامنا ~16 بحثًا/يوم → **$0 فعليًا**) · Sheets API مجاني · Claude سنتات · GitHub Actions مجاني.
 
 ---
 
-## 🧪 الخطوة الأولى: اختبار التغطية (مفتاح HERE فقط)
-قبل إعداد الجدول، نتأكّد أن HERE يغطّي السعودية جيدًا:
+## ⚠️ مهم للسعودية: مفتاح Google Maps
+حسابات Google Cloud ذات عنوان فوترة سعودي **تتعاقد عبر موزّع** (Maps reseller). خياراتك للحصول على `GOOGLE_MAPS_API_KEY`:
+- **موزّع Maps معتمد** (الأسرع منهم للـMaps فقط): Searce (`googlemaps@searce.com`) · SoftwareONE (`maps@g.softwareone.com`) · CNTXT (`maps@cntxt.com`) · iSolutions · OniGroup. راسلهم لطلب «Google Maps Platform API key».
+- **أو** حساب Google Cloud بعنوان فوترة خارج السعودية (إن كان لديك كيان/حساب كذلك) → تفعيل مباشر بلا موزّع.
 
-1. أنشئ حسابًا مجانيًا على [platform.here.com](https://platform.here.com) (Freemium — بلا بطاقة).
-2. من **Access Manager → Apps → Create app** → ثم **Create API key** → انسخ المفتاح.
-3. في GitHub: **Settings → Secrets and variables → Actions → New repository secret**:
-   - `HERE_API_KEY` = المفتاح.
-4. **Actions → «FieldSales — صيد العملاء المحتملين» → Run workflow.**
-5. افتح السجل → سيطبع **عدد النتائج وعيّنات** (وضع اختبار، بلا كتابة).
-   - تغطية جيدة؟ → أكمل الإعداد أدناه.
-   - ضعيفة؟ → أخبرني، نعود لـOpenStreetMap أو نفكّر ببديل.
+> بمجرد حصولك على المفتاح، تابع الخطوات التالية.
 
 ---
 
-## ⚙️ الإعداد الكامل (بعد نجاح الاختبار) — سرّان إضافيان
+## 🧪 الخطوة الأولى: اختبار التغطية (مفتاح Maps فقط)
+1. أضِف السرّ `GOOGLE_MAPS_API_KEY` في GitHub (**Settings → Secrets and variables → Actions**).
+2. فعّل في مشروع Google: **Places API (New)**.
+3. **Actions → «FieldSales — صيد العملاء المحتملين» → Run workflow** → السجل سيطبع **عدد النتائج + عيّنات** (وضع اختبار، بلا كتابة).
+4. تغطية جيدة؟ → أكمل إعداد Google Sheet أدناه.
 
-### Google Service Account + JSON
-1. [console.cloud.google.com](https://console.cloud.google.com) → مشروع `FieldSales` (تجاهل عروض الفوترة — لا نحتاجها لـSheets).
-2. **APIs & Services → Library** → فعّل **«Google Sheets API»**.
-3. **Credentials → Create credentials → Service account** → أنشئه → **Keys → Add key → JSON**.
-4. انسخ محتوى الـJSON كاملًا → سرّ `GOOGLE_SERVICE_ACCOUNT_JSON`. وانسخ بريد الحساب.
-
+## ⚙️ الإعداد الكامل (سرّان إضافيان)
+### Service Account + JSON
+**console.cloud.google.com** → فعّل **Google Sheets API** → **Credentials → Create credentials → Service account → Keys → JSON** → الصق محتواه في سرّ `GOOGLE_SERVICE_ACCOUNT_JSON`، وانسخ بريد الحساب.
 ### Google Sheet
-1. أنشئ جدولًا على [sheets.new](https://sheets.new).
-2. **Share** → أضِف بريد الـService Account (Editor).
-3. انسخ المعرّف من الرابط → سرّ `GOOGLE_SHEET_ID`.
+[sheets.new](https://sheets.new) → **Share** مع بريد الـService Account (Editor) → انسخ المعرّف من الرابط → سرّ `GOOGLE_SHEET_ID`.
 
-بعد إضافة السرّين، التشغيل التالي **يكتب العملاء في الجدول** تلقائيًا (الأعلى ملاءمة أولًا)، يوميًا.
-
-`ANTHROPIC_API_KEY` موجود مسبقًا. ✅
+`ANTHROPIC_API_KEY` موجود مسبقًا. ✅ بعدها التشغيل يكتب العملاء يوميًا تلقائيًا.
 
 ---
 
 ## 🛠️ تخصيص
-- المدن/القطاعات: عدّل `CITIES` و`QUERIES` في `find_leads.py`. التكرار: `cron` في `leads.yml`.
+المدن/القطاعات: `CITIES` و`QUERIES` في `find_leads.py`. التكرار: `cron` في `leads.yml`.
 
 ## 🔒 الامتثال
-بيانات أعمال عامّة فقط (اسم، هاتف عمل، عنوان) — لا بيانات شخصية. للمراجعة والتواصل المهني B2B، لا إرسال آلي. التزم بـPDPL وشروط HERE.
+بيانات أعمال عامّة فقط (اسم، هاتف عمل، عنوان) — لا بيانات شخصية. للمراجعة والتواصل المهني B2B، لا إرسال آلي. التزم بشروط Google Places وPDPL.
