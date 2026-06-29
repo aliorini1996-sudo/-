@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useT } from '../i18n/strings';
+import { useSeo } from '../lib/seo';
 
 // صفحة التواصل مع الشركة — بياناتها من CMS + نموذج يرسل رسالة لبريد الشركة
 export default function ContactPage() {
@@ -25,6 +26,14 @@ export default function ContactPage() {
   const cms = content.contact || defaultContent.contact;
   // المقدمة بالإنجليزية من المحتوى الإنجليزي، وبيانات التواصل (بريد/هاتف) من CMS دائماً
   const c = lang === 'en' ? { ...cms, intro: defaultContentEn.contact.intro } : cms;
+
+  useSeo({
+    title: 'تواصل معنا | FieldSales — اطلب عرضاً أو تجربة مجانية لنظام المبيعات الميدانية',
+    description: 'تواصل مع فريق FieldSales لطلب عرض توضيحي أو تجربة مجانية لنظام إدارة مبيعات المناديب والتوزيع: فواتير ZATCA، تحصيل المدفوعات، مخزون سيارة المندوب، وتتبّع المناديب.',
+    keywords: 'تواصل معنا, طلب عرض توضيحي, تجربة مجانية, دعم FieldSales, نظام مبيعات ميدانية, إدارة مناديب التوزيع',
+    canonical: 'https://fieldsa.net/contact',
+    image: 'https://fieldsa.net/og-image.png',
+  });
 
   const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
   const [sending, setSending] = useState(false);
@@ -61,8 +70,8 @@ export default function ContactPage() {
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <BrandIcon size={34} />
-            <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }} className="text-lg">
-              <span className="text-[#1F1A13]">Field</span><span className="text-[#E15A30]">Sales</span>
+            <span style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }} className="text-xl">
+              <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
           <div className="flex items-center gap-2">

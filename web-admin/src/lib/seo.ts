@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 interface SeoInput {
   title: string;
   description?: string;
+  keywords?: string;        // كلمات مفتاحية متعلّقة بخدمات الصفحة (مفصولة بفواصل)
   canonical?: string;       // الرابط الكامل https://fieldsa.net/...
   image?: string;           // صورة OG كاملة الرابط
   type?: 'website' | 'article';
@@ -22,7 +23,7 @@ function setLink(rel: string, href: string) {
   el.setAttribute('href', href);
 }
 
-export function useSeo({ title, description, canonical, image, type = 'website', jsonLd }: SeoInput) {
+export function useSeo({ title, description, keywords, canonical, image, type = 'website', jsonLd }: SeoInput) {
   useEffect(() => {
     document.title = title;
     setMeta('property', 'og:title', title);
@@ -33,6 +34,7 @@ export function useSeo({ title, description, canonical, image, type = 'website',
       setMeta('property', 'og:description', description);
       setMeta('name', 'twitter:description', description);
     }
+    if (keywords) setMeta('name', 'keywords', keywords);
     if (canonical) { setMeta('property', 'og:url', canonical); setLink('canonical', canonical); }
     if (image) { setMeta('property', 'og:image', image); setMeta('name', 'twitter:image', image); }
 
@@ -46,5 +48,5 @@ export function useSeo({ title, description, canonical, image, type = 'website',
     }
     return () => { if (script) script.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, description, canonical, image, type, JSON.stringify(jsonLd)]);
+  }, [title, description, keywords, canonical, image, type, JSON.stringify(jsonLd)]);
 }
