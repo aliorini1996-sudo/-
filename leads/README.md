@@ -1,36 +1,35 @@
-# 🎯 صيد العملاء المحتملين — FieldSales (Google Places)
+# 🎯 صيد العملاء المحتملين — FieldSales (HERE الآن · Google لاحقًا)
 
-يبحث **يوميًا** عن شركات التوزيع/الجملة في مدن السعودية عبر **Google Places**، يؤهّلها بـ**Claude**، ويحفظ **الجدد فقط** في **Google Sheet خاص** — قائمة مؤهّلة لفريق مبيعاتك (الأعلى ملاءمة أولًا).
+يبحث **يوميًا** عن شركات التوزيع/الجملة في مدن السعودية، يؤهّلها بـ**Claude**، ويحفظ **الجدد فقط** في **Google Sheet خاص** (الأعلى ملاءمة أولًا).
+
+## مصدران — تبديل تلقائي 🔄
+- إن وُجد سرّ **`GOOGLE_MAPS_API_KEY`** → يستخدم **Google Places** (تغطية أفضل).
+- وإلا إن وُجد **`HERE_API_KEY`** → يستخدم **HERE Maps** (مجاني، بلا موزّع، بلا بطاقة).
+
+> **الخطة:** ابدأ بـHERE اليوم مجانًا. متى حصلت على مفتاح Google لاحقًا، أضِفه فقط — يتحوّل النظام إليه تلقائيًا.
 
 - المنطق: [`leads/find_leads.py`](find_leads.py) — الجدولة: [`.github/workflows/leads.yml`](../.github/workflows/leads.yml).
 
-## 💰 التكلفة
-Google Places ضمن **$200/شهر مجانًا** (استخدامنا ~16 بحثًا/يوم → **$0 فعليًا**) · Sheets API مجاني · Claude سنتات · GitHub Actions مجاني.
+---
+
+## 🟢 المسار السريع: HERE الآن (مجاني، بلا بطاقة)
+1. [platform.here.com](https://platform.here.com) → **Sign up** (مجاني، بلا بطاقة).
+2. **Access Manager / Projects → Create app → Create API key** → انسخ المفتاح.
+3. GitHub: **Settings → Secrets and variables → Actions → New repository secret** → `HERE_API_KEY` = المفتاح.
+4. **Actions → «FieldSales — صيد العملاء المحتملين» → Run workflow** → السجل يطبع عدد النتائج (وضع اختبار).
+
+## 🔵 المسار الأفضل لاحقًا: Google Maps
+> في السعودية يتطلّب موزّع Maps (Searce `googlemaps@searce.com` / SoftwareONE `maps@g.softwareone.com`) أو حساب بفوترة خارج السعودية.
+- بعد الحصول على المفتاح: فعّل **Places API (New)** + أضِف سرّ `GOOGLE_MAPS_API_KEY`. النظام يفضّله تلقائيًا على HERE.
 
 ---
 
-## ⚠️ مهم للسعودية: مفتاح Google Maps
-حسابات Google Cloud ذات عنوان فوترة سعودي **تتعاقد عبر موزّع** (Maps reseller). خياراتك للحصول على `GOOGLE_MAPS_API_KEY`:
-- **موزّع Maps معتمد** (الأسرع منهم للـMaps فقط): Searce (`googlemaps@searce.com`) · SoftwareONE (`maps@g.softwareone.com`) · CNTXT (`maps@cntxt.com`) · iSolutions · OniGroup. راسلهم لطلب «Google Maps Platform API key».
-- **أو** حساب Google Cloud بعنوان فوترة خارج السعودية (إن كان لديك كيان/حساب كذلك) → تفعيل مباشر بلا موزّع.
+## 📊 الحفظ التلقائي في Google Sheet (بعد نجاح الاختبار)
+سرّان إضافيان (مجاني، بلا فوترة):
+1. **Service Account + JSON:** console.cloud.google.com → فعّل **Google Sheets API** → Credentials → Create → Service account → Keys → JSON → الصق محتواه في `GOOGLE_SERVICE_ACCOUNT_JSON`، وانسخ بريد الحساب.
+2. **Sheet:** [sheets.new](https://sheets.new) → Share مع بريد الـService Account (Editor) → انسخ المعرّف من الرابط → `GOOGLE_SHEET_ID`.
 
-> بمجرد حصولك على المفتاح، تابع الخطوات التالية.
-
----
-
-## 🧪 الخطوة الأولى: اختبار التغطية (مفتاح Maps فقط)
-1. أضِف السرّ `GOOGLE_MAPS_API_KEY` في GitHub (**Settings → Secrets and variables → Actions**).
-2. فعّل في مشروع Google: **Places API (New)**.
-3. **Actions → «FieldSales — صيد العملاء المحتملين» → Run workflow** → السجل سيطبع **عدد النتائج + عيّنات** (وضع اختبار، بلا كتابة).
-4. تغطية جيدة؟ → أكمل إعداد Google Sheet أدناه.
-
-## ⚙️ الإعداد الكامل (سرّان إضافيان)
-### Service Account + JSON
-**console.cloud.google.com** → فعّل **Google Sheets API** → **Credentials → Create credentials → Service account → Keys → JSON** → الصق محتواه في سرّ `GOOGLE_SERVICE_ACCOUNT_JSON`، وانسخ بريد الحساب.
-### Google Sheet
-[sheets.new](https://sheets.new) → **Share** مع بريد الـService Account (Editor) → انسخ المعرّف من الرابط → سرّ `GOOGLE_SHEET_ID`.
-
-`ANTHROPIC_API_KEY` موجود مسبقًا. ✅ بعدها التشغيل يكتب العملاء يوميًا تلقائيًا.
+بعدها التشغيل يكتب العملاء يوميًا تلقائيًا. `ANTHROPIC_API_KEY` موجود مسبقًا. ✅
 
 ---
 
@@ -38,4 +37,4 @@ Google Places ضمن **$200/شهر مجانًا** (استخدامنا ~16 بحث
 المدن/القطاعات: `CITIES` و`QUERIES` في `find_leads.py`. التكرار: `cron` في `leads.yml`.
 
 ## 🔒 الامتثال
-بيانات أعمال عامّة فقط (اسم، هاتف عمل، عنوان) — لا بيانات شخصية. للمراجعة والتواصل المهني B2B، لا إرسال آلي. التزم بشروط Google Places وPDPL.
+بيانات أعمال عامّة فقط (اسم، هاتف عمل، عنوان) — لا بيانات شخصية. للمراجعة والتواصل المهني B2B، لا إرسال آلي. التزم بشروط المصدر وPDPL.
