@@ -4,7 +4,33 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/icons/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>FieldSales | فيلد سيلز — إدارة مبيعات المناديب</title>
+
+    <!-- ===== SEO الأساسي ===== -->
+    <title>FieldSales فيلد سيلز | نظام إدارة مبيعات المناديب الميدانيين والتوزيع</title>
+    <meta name="description" content="فيلد سيلز (FieldSales) نظام سعودي متكامل لإدارة مبيعات مناديب التوزيع الميدانيين: فواتير ضريبية متوافقة مع ZATCA برمز QR، تحصيل المدفوعات، سندات قبض، إدارة العملاء والمنتجات، مخزون سيارة المندوب، وتتبّع المناديب على الخريطة. جرّبه مجاناً 10 أيام." />
+    <meta name="keywords" content="نظام مبيعات ميدانية, إدارة مناديب, نظام توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, تحصيل مدفوعات, سندات قبض, مخزون مندوب, تتبع مناديب, نظام مبيعات السعودية, تطبيق مندوب مبيعات, فيلد سيلز, FieldSales, إدارة مبيعات التوزيع" />
+    <meta name="author" content="FieldSales" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://fieldsa.net/" />
+
+    <!-- ===== Open Graph (مشاركة على واتساب/فيسبوك/لينكدإن) ===== -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="FieldSales — فيلد سيلز" />
+    <meta property="og:title" content="FieldSales فيلد سيلز | نظام إدارة المبيعات الميدانية والتوزيع" />
+    <meta property="og:description" content="نظام سعودي متكامل لإدارة مبيعات المناديب الميدانيين — فواتير ضريبية ZATCA، تحصيل، سندات قبض، مخزون السيارة، وتتبّع المناديب. جرّبه مجاناً 10 أيام." />
+    <meta property="og:url" content="https://fieldsa.net/" />
+    <meta property="og:image" content="https://fieldsa.net/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="ar_SA" />
+
+    <!-- ===== Twitter Card ===== -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FieldSales فيلد سيلز | نظام إدارة المبيعات الميدانية" />
+    <meta name="twitter:description" content="نظام سعودي متكامل لإدارة مبيعات المناديب — فواتير ZATCA، تحصيل، سندات، مخزون السيارة، وتتبّع. جرّبه مجاناً 10 أيام." />
+    <meta name="twitter:image" content="https://fieldsa.net/og-image.png" />
+
+    <!-- ===== PWA / الأجهزة ===== -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#E15A30" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -12,9 +38,75 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="FieldSales" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <!-- ===== الخطوط ===== -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- ===== بيانات منظّمة (Schema.org JSON-LD) للنتائج الغنية ===== -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://fieldsa.net/#organization",
+          "name": "FieldSales — فيلد سيلز",
+          "url": "https://fieldsa.net/",
+          "logo": "https://fieldsa.net/icons/icon-512.png",
+          "description": "منصة سعودية متكاملة لإدارة مبيعات مناديب التوزيع الميدانيين.",
+          "email": "info@fieldsa.net",
+          "areaServed": { "@type": "Country", "name": "Saudi Arabia" },
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "info@fieldsa.net",
+            "contactType": "sales"
+          }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "FieldSales — فيلد سيلز",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web, Android",
+          "url": "https://fieldsa.net/",
+          "description": "نظام إدارة مبيعات المناديب الميدانيين: فواتير ضريبية ZATCA، تحصيل، سندات قبض، إدارة عملاء ومنتجات، مخزون سيارة المندوب، وتتبّع المناديب.",
+          "offers": {
+            "@type": "Offer",
+            "price": "299",
+            "priceCurrency": "SAR",
+            "description": "تجربة مجانية 10 أيام، ثم اشتراك شهري يبدأ من 299 ر.س."
+          },
+          "publisher": { "@id": "https://fieldsa.net/#organization" }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "هل الفواتير متوافقة مع هيئة الزكاة والضريبة؟",
+              "acceptedAnswer": { "@type": "Answer", "text": "نعم، يصدر النظام فواتير ضريبية مرحلة (Phase 2) متوافقة مع متطلبات الفوترة الإلكترونية ZATCA مع رمز QR." }
+            },
+            {
+              "@type": "Question",
+              "name": "هل أحتاج أجهزة خاصة؟",
+              "acceptedAnswer": { "@type": "Answer", "text": "لا، التطبيق يعمل على أي جوال. وللطباعة الميدانية تكفي طابعة حرارية 58مم (بلوتوث أو مدمجة)." }
+            },
+            {
+              "@type": "Question",
+              "name": "كم يستغرق إعداد النظام؟",
+              "acceptedAnswer": { "@type": "Answer", "text": "يمكنك تجهيز شركتك ومنتجاتك ومناديبك خلال دقائق، والبدء بإصدار الفواتير فوراً." }
+            },
+            {
+              "@type": "Question",
+              "name": "هل يمكنني تجربة النظام قبل الاشتراك؟",
+              "acceptedAnswer": { "@type": "Answer", "text": "نعم، ابدأ تجربة مجانية 10 أيام عبر fieldsa.net أو تواصل معنا على info@fieldsa.net." }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

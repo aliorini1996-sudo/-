@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+# لوحات الدخول والتطبيق ليست للفهرسة
+Disallow: /app
+Disallow: /platform
+Disallow: /owner
+Disallow: /rep
+Disallow: /login
+Disallow: /signup
+Disallow: /verify-email
+
+Sitemap: https://fieldsa.net/sitemap.xml
