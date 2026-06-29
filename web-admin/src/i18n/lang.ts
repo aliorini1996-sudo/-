@@ -4,7 +4,12 @@ export type Lang = 'ar' | 'en';
 const KEY = 'app_lang';
 
 function initial(): Lang {
-  return localStorage.getItem(KEY) === 'en' ? 'en' : 'ar';
+  // اللغة مشتقّة من المسار (المسارات تحت /en إنجليزية) لتطابق الفهرسة الدولية بلا وميض
+  if (typeof window !== 'undefined') {
+    const p = window.location.pathname;
+    return p === '/en' || p.startsWith('/en/') ? 'en' : 'ar';
+  }
+  return 'ar';
 }
 
 // يضبط لغة واتجاه المستند (يؤثّر على عناصر تعتمد على html[dir])

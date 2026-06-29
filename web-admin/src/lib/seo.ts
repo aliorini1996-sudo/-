@@ -9,6 +9,8 @@ interface SeoInput {
   canonical?: string;       // الرابط الكامل https://fieldsa.net/...
   image?: string;           // صورة OG كاملة الرابط
   type?: 'website' | 'article';
+  locale?: 'ar' | 'en';     // لغة الصفحة (og:locale + html lang)
+  alternates?: { hreflang: string; href: string }[]; // روابط hreflang للنسخ اللغوية (دولي)
   jsonLd?: object;          // بيانات Schema.org منظّمة (Article/BreadcrumbList...)
 }
 
@@ -23,7 +25,7 @@ function setLink(rel: string, href: string) {
   el.setAttribute('href', href);
 }
 
-export function useSeo({ title, description, keywords, canonical, image, type = 'website', jsonLd }: SeoInput) {
+export function useSeo({ title, description, keywords, canonical, image, type = 'website', locale, alternates, jsonLd }: SeoInput) {
   useEffect(() => {
     document.title = title;
     setMeta('property', 'og:title', title);
@@ -37,6 +39,23 @@ export function useSeo({ title, description, keywords, canonical, image, type = 
     if (keywords) setMeta('name', 'keywords', keywords);
     if (canonical) { setMeta('property', 'og:url', canonical); setLink('canonical', canonical); }
     if (image) { setMeta('property', 'og:image', image); setMeta('name', 'twitter:image', image); }
+    if (locale) {
+      setMeta('property', 'og:locale', locale === 'en' ? 'en_US' : 'ar_SA');
+      document.documentElement.lang = locale;
+    }
+
+    // روابط hreflang للنسخ اللغوية — تُزال القديمة وتُعاد كتابتها لكل صفحة
+    document.head.querySelectorAll('link[rel="alternate"][data-seo-alt]').forEach((el) => el.remove());
+    if (alternates) {
+      for (const alt of alternates) {
+        const el = document.createElement('link');
+        el.setAttribute('rel', 'alternate');
+        el.setAttribute('hreflang', alt.hreflang);
+        el.setAttribute('href', alt.href);
+        el.setAttribute('data-seo-alt', '1');
+        document.head.appendChild(el);
+      }
+    }
 
     let script: HTMLScriptElement | null = null;
     if (jsonLd) {
@@ -48,5 +67,5 @@ export function useSeo({ title, description, keywords, canonical, image, type = 
     }
     return () => { if (script) script.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, description, keywords, canonical, image, type, JSON.stringify(jsonLd)]);
+  }, [title, description, keywords, canonical, image, type, locale, JSON.stringify(alternates), JSON.stringify(jsonLd)]);
 }

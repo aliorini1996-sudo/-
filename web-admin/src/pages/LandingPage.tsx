@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { LANDING_TEMPLATE } from '../landing/landingTemplate';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { useLang } from '../i18n/lang';
+import { seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 
 // مسارات أيقونات منصّات التواصل (SVG glyph واحد لكل منصّة)
@@ -139,26 +141,28 @@ function mergeContent<T>(base: T, saved: unknown): T {
 // صفحة الهبوط التعريفية التسويقية — تصميم Field Sales، محتواها يُدار من لوحة المالك (CMS)
 export default function LandingPage() {
   const lang = useLang((s) => s.lang);
+  const navigate = useNavigate();
+  const { canonical, alternates } = seoUrls('/', lang);
 
-  // SEO الصفحة الرئيسية — كلمات مفتاحية لكل خدمة يقدّمها النظام (ويعيد ضبط العنوان عند العودة من صفحة فرعية)
+  // SEO الصفحة الرئيسية — كلمات مفتاحية لكل خدمة + canonical/hreflang حسب اللغة (دولي)
   useSeo(lang === 'en' ? {
-    title: 'FieldSales | Field Sales & Distribution Management System — Saudi Arabia',
-    description: 'FieldSales is a Saudi platform to manage field distribution reps: ZATCA e-invoices with QR, payment collection, receipt vouchers, van stock, GPS rep tracking, customers, products, reports and ERP integration. Free 10-day trial.',
-    keywords: 'field sales system, sales rep management, distribution software, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock, GPS rep tracking, customer management, product catalog, ERP integration, Saudi Arabia',
-    canonical: 'https://fieldsa.net/',
+    title: 'FieldSales | Field Sales & Distribution Management System',
+    description: 'FieldSales is a complete platform to manage field distribution reps: ZATCA e-invoices, collection, van stock, GPS tracking and reports. Free 10-day trial.',
+    keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
+    locale: 'en', canonical, alternates,
     image: 'https://fieldsa.net/og-image.png',
   } : {
-    title: 'FieldSales فيلد سيلز | نظام إدارة مبيعات المناديب الميدانيين والتوزيع',
-    description: 'فيلد سيلز نظام سعودي متكامل لإدارة مبيعات مناديب التوزيع: فواتير ضريبية ZATCA برمز QR، تحصيل المدفوعات وإدارة الذمم، سندات قبض، إدارة العملاء والمنتجات، مخزون سيارة المندوب، وتتبّع المناديب عبر GPS. جرّبه مجاناً 10 أيام.',
+    title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
+    description: 'فيلد سيلز نظام سعودي لإدارة مبيعات مناديب التوزيع: فواتير ZATCA، تحصيل وإدارة الذمم، سندات قبض، مخزون سيارة المندوب، وتتبّع GPS. جرّبه مجاناً 10 أيام.',
     keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, طباعة حرارية للفواتير, نظام مبيعات السعودية, فيلد سيلز',
-    canonical: 'https://fieldsa.net/',
+    locale: 'ar', canonical, alternates,
     image: 'https://fieldsa.net/og-image.png',
   });
 
-  // إتاحة تبديل اللغة لزر HTML المحقون داخل شريط التنقّل
+  // زر تبديل اللغة المحقون في شريط التنقّل ينتقل بين / و/en (روابط منفصلة للفهرسة)
   useEffect(() => {
-    (window as unknown as { __fsToggleLang?: () => void }).__fsToggleLang = () => useLang.getState().toggle();
-  }, []);
+    (window as unknown as { __fsToggleLang?: () => void }).__fsToggleLang = () => navigate(lang === 'ar' ? '/en' : '/');
+  }, [lang, navigate]);
 
   const { data } = useQuery({
     queryKey: ['site-content'],

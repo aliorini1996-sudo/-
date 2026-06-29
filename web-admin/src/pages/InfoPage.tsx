@@ -9,34 +9,64 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useT } from '../i18n/strings';
 import { useSeo } from '../lib/seo';
+import { seoUrls } from '../i18n/locale';
 
 type PageKey = 'about' | 'terms' | 'serviceAgreement' | 'privacy';
+type SeoText = { title: string; description: string; keywords: string };
 
-// SEO لكل صفحة فرعية — عناوين وأوصاف فريدة بكلمات مفتاحية متعلّقة بالخدمات
-const PAGE_SEO: Record<PageKey, { path: string; title: string; description: string; keywords: string }> = {
+// SEO لكل صفحة فرعية — عناوين/أوصاف/كلمات فريدة بالعربية والإنجليزية
+const PAGE_SEO: Record<PageKey, { path: string; ar: SeoText; en: SeoText }> = {
   about: {
     path: 'about',
-    title: 'من نحن | FieldSales — نظام إدارة المبيعات الميدانية والتوزيع في السعودية',
-    description: 'تعرّف على FieldSales، المنصّة السعودية لإدارة مبيعات مناديب التوزيع: الطلبات، فواتير ZATCA، التحصيل، مخزون سيارة المندوب، وتتبّع المناديب — لإدارة فرقك الميدانية بكفاءة وشفافية.',
-    keywords: 'من نحن, FieldSales فيلد سيلز, نظام مبيعات ميدانية, شركة برمجيات توزيع, إدارة مناديب التوزيع, السعودية',
+    ar: {
+      title: 'من نحن | FieldSales — نظام إدارة المبيعات الميدانية والتوزيع في السعودية',
+      description: 'تعرّف على FieldSales، المنصّة السعودية لإدارة مبيعات مناديب التوزيع: الطلبات، فواتير ZATCA، التحصيل، مخزون سيارة المندوب، وتتبّع المناديب — لإدارة فرقك الميدانية بكفاءة وشفافية.',
+      keywords: 'من نحن, FieldSales فيلد سيلز, نظام مبيعات ميدانية, شركة برمجيات توزيع, إدارة مناديب التوزيع, السعودية',
+    },
+    en: {
+      title: 'About Us | FieldSales — Field Sales & Distribution Management System',
+      description: 'Learn about FieldSales, the platform to manage field distribution reps: orders, ZATCA invoices, payment collection, van stock and GPS tracking — run your field teams efficiently and transparently.',
+      keywords: 'about FieldSales, field sales system, distribution software company, sales rep management, route accounting',
+    },
   },
   terms: {
     path: 'terms',
-    title: 'الشروط والأحكام | FieldSales فيلد سيلز',
-    description: 'الشروط والأحكام لاستخدام منصّة FieldSales لإدارة المبيعات الميدانية والتوزيع، الفوترة الضريبية ZATCA، والتحصيل.',
-    keywords: 'الشروط والأحكام, شروط الاستخدام, اتفاقية المستخدم, FieldSales',
+    ar: {
+      title: 'الشروط والأحكام | FieldSales فيلد سيلز',
+      description: 'الشروط والأحكام لاستخدام منصّة FieldSales لإدارة المبيعات الميدانية والتوزيع، الفوترة الضريبية ZATCA، والتحصيل.',
+      keywords: 'الشروط والأحكام, شروط الاستخدام, اتفاقية المستخدم, FieldSales',
+    },
+    en: {
+      title: 'Terms & Conditions | FieldSales',
+      description: 'Terms and conditions for using the FieldSales field sales and distribution platform, e-invoicing and collection.',
+      keywords: 'terms and conditions, terms of use, user agreement, FieldSales',
+    },
   },
   serviceAgreement: {
     path: 'service-agreement',
-    title: 'اتفاقية الخدمة | FieldSales فيلد سيلز',
-    description: 'اتفاقية خدمة FieldSales: نطاق الخدمة ومستوى التوفّر والدعم لنظام إدارة مبيعات المناديب الميدانيين والتوزيع.',
-    keywords: 'اتفاقية الخدمة, مستوى الخدمة SLA, الدعم الفني, FieldSales',
+    ar: {
+      title: 'اتفاقية الخدمة | FieldSales فيلد سيلز',
+      description: 'اتفاقية خدمة FieldSales: نطاق الخدمة ومستوى التوفّر والدعم لنظام إدارة مبيعات المناديب الميدانيين والتوزيع.',
+      keywords: 'اتفاقية الخدمة, مستوى الخدمة SLA, الدعم الفني, FieldSales',
+    },
+    en: {
+      title: 'Service Agreement | FieldSales',
+      description: 'FieldSales service agreement: service scope, availability and support for the field sales and distribution management system.',
+      keywords: 'service agreement, SLA, technical support, FieldSales',
+    },
   },
   privacy: {
     path: 'privacy',
-    title: 'سياسة الخصوصية | FieldSales فيلد سيلز',
-    description: 'سياسة خصوصية FieldSales وحماية بيانات شركتك في نظام إدارة المبيعات الميدانية — عزل كامل لكل شركة واتصال مشفّر.',
-    keywords: 'سياسة الخصوصية, حماية البيانات, خصوصية البيانات, أمان المعلومات, FieldSales',
+    ar: {
+      title: 'سياسة الخصوصية | FieldSales فيلد سيلز',
+      description: 'سياسة خصوصية FieldSales وحماية بيانات شركتك في نظام إدارة المبيعات الميدانية — عزل كامل لكل شركة واتصال مشفّر.',
+      keywords: 'سياسة الخصوصية, حماية البيانات, خصوصية البيانات, أمان المعلومات, FieldSales',
+    },
+    en: {
+      title: 'Privacy Policy | FieldSales',
+      description: 'FieldSales privacy policy and how we protect your company data in the field sales management system — full per-company isolation and encrypted connections.',
+      keywords: 'privacy policy, data protection, data privacy, information security, FieldSales',
+    },
   },
 };
 
@@ -56,11 +86,15 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
     : (content.pages?.[pageKey] || defaultContent.pages[pageKey]);
 
   const seo = PAGE_SEO[pageKey];
+  const m = lang === 'en' ? seo.en : seo.ar;
+  const { canonical, alternates } = seoUrls(`/${seo.path}`, lang);
   useSeo({
-    title: seo.title,
-    description: seo.description,
-    keywords: seo.keywords,
-    canonical: `https://fieldsa.net/${seo.path}`,
+    title: m.title,
+    description: m.description,
+    keywords: m.keywords,
+    locale: lang,
+    canonical,
+    alternates,
     image: 'https://fieldsa.net/og-image.png',
   });
 

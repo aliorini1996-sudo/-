@@ -1,10 +1,15 @@
 import { Globe } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../i18n/lang';
+import { pathForLocale } from '../i18n/locale';
 
-// زر تبديل اللغة (عربي/English) — يظهر اللغة التي سيتحوّل إليها
+// زر تبديل اللغة (عربي/English) — ينتقل بين الرابط العربي و/en (روابط منفصلة للفهرسة الدولية)
 export default function LanguageToggle({ variant = 'light' }: { variant?: 'light' | 'dark' | 'floating' }) {
-  const { lang, toggle } = useLang();
+  const lang = useLang((s) => s.lang);
+  const loc = useLocation();
+  const navigate = useNavigate();
   const label = lang === 'ar' ? 'English' : 'العربية';
+  const toggle = () => navigate(pathForLocale(loc.pathname, lang === 'ar' ? 'en' : 'ar'));
 
   const base = 'inline-flex items-center gap-1.5 font-semibold transition-colors rounded-xl';
   const styles: Record<string, string> = {

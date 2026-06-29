@@ -11,6 +11,7 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useT } from '../i18n/strings';
 import { useSeo } from '../lib/seo';
+import { seoUrls } from '../i18n/locale';
 
 // صفحة التواصل مع الشركة — بياناتها من CMS + نموذج يرسل رسالة لبريد الشركة
 export default function ContactPage() {
@@ -27,11 +28,18 @@ export default function ContactPage() {
   // المقدمة بالإنجليزية من المحتوى الإنجليزي، وبيانات التواصل (بريد/هاتف) من CMS دائماً
   const c = lang === 'en' ? { ...cms, intro: defaultContentEn.contact.intro } : cms;
 
-  useSeo({
+  const seoUrl = seoUrls('/contact', lang);
+  useSeo(lang === 'en' ? {
+    title: 'Contact Us | FieldSales — Request a Demo or Free Trial',
+    description: 'Contact the FieldSales team to request a demo or free trial of the field sales & distribution management system: ZATCA invoices, payment collection, van stock and GPS rep tracking.',
+    keywords: 'contact FieldSales, request a demo, free trial, support, field sales system, sales rep management',
+    locale: 'en', canonical: seoUrl.canonical, alternates: seoUrl.alternates,
+    image: 'https://fieldsa.net/og-image.png',
+  } : {
     title: 'تواصل معنا | FieldSales — اطلب عرضاً أو تجربة مجانية لنظام المبيعات الميدانية',
     description: 'تواصل مع فريق FieldSales لطلب عرض توضيحي أو تجربة مجانية لنظام إدارة مبيعات المناديب والتوزيع: فواتير ZATCA، تحصيل المدفوعات، مخزون سيارة المندوب، وتتبّع المناديب.',
     keywords: 'تواصل معنا, طلب عرض توضيحي, تجربة مجانية, دعم FieldSales, نظام مبيعات ميدانية, إدارة مناديب التوزيع',
-    canonical: 'https://fieldsa.net/contact',
+    locale: 'ar', canonical: seoUrl.canonical, alternates: seoUrl.alternates,
     image: 'https://fieldsa.net/og-image.png',
   });
 

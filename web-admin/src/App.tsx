@@ -1,5 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
+import { useLang } from './i18n/lang';
+import { localeFromPath } from './i18n/locale';
 import MainLayout from './layouts/MainLayout';
 import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
@@ -54,9 +57,19 @@ function PermissionRoute({ permission, children }: { permission: keyof NonNullab
   return <>{children}</>;
 }
 
+// يضبط لغة الواجهة من المسار (المسارات تحت /en إنجليزية) — مصدر الحقيقة للّغة للفهرسة الدولية
+function LocaleSync() {
+  const { pathname } = useLocation();
+  const setLang = useLang((s) => s.setLang);
+  const locale = localeFromPath(pathname);
+  useEffect(() => { setLang(locale); }, [locale, setLang]);
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
+      <LocaleSync />
       <Routes>
         {/* الجذر دائماً الصفحة التعريفية التسويقية */}
         <Route path="/" element={<LandingPage />} />
@@ -73,6 +86,13 @@ export default function App() {
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />
         <Route path="/blog/:slug" element={<BlogPostPage />} />
+        {/* النسخة الإنجليزية على /en — نفس المكوّنات تُعرَض بالإنجليزية (دولي + hreflang) */}
+        <Route path="/en" element={<LandingPage />} />
+        <Route path="/en/about" element={<InfoPage pageKey="about" />} />
+        <Route path="/en/terms" element={<InfoPage pageKey="terms" />} />
+        <Route path="/en/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
+        <Route path="/en/privacy" element={<InfoPage pageKey="privacy" />} />
+        <Route path="/en/contact" element={<ContactPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
