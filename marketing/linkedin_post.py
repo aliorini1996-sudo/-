@@ -39,10 +39,16 @@ def ask_claude_linkedin(topic: dict) -> str:
     return r.json()["content"][0]["text"].strip().strip('"').strip()[:2900]
 
 
-# ------------------------------ النشر على LinkedIn ------------------------------ #
-def _org_urn() -> str:
-    oid = env("LINKEDIN_ORG_ID").strip()
-    return oid if oid.startswith("urn:") else f"urn:li:organization:{oid}"
+# ------------------------------ النشر على LinkedIn (الحساب الشخصي) ------------------------------ #
+def _person_urn(token: str) -> str:
+    """يجلب هوية صاحب الحساب من OpenID userinfo → urn:li:person:{sub} (نشر شخصي، بلا معرّف شركة)."""
+    r = requests.get(f"{LI}/v2/userinfo", headers={"Authorization": f"Bearer {token}"}, timeout=30)
+    if not r.ok:
+        sys.exit(f"❌ تعذّر جلب هوية المستخدم {r.status_code}: {r.text[:300]} (تأكّد من صلاحيات openid+profile)")
+    sub = (r.json() or {}).get("sub")
+    if not sub:
+        sys.exit("❌ userinfo لم يُرجع معرّف المستخدم (sub)")
+    return f"urn:li:person:{sub}"
 
 
 def _headers(token: str) -> dict:
@@ -78,7 +84,7 @@ def _upload_image(token: str, owner: str, image_path: str):
 
 def post_to_linkedin(text: str, image_path: str):
     token = env("LINKEDIN_ACCESS_TOKEN")
-    owner = _org_urn()
+    owner = _person_urn(token)
     asset = _upload_image(token, owner, image_path) if image_path else None
 
     share = {"shareCommentary": {"text": text}, "shareMediaCategory": "IMAGE" if asset else "NONE"}
