@@ -7,6 +7,8 @@ import ContactPage from './pages/ContactPage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
+import BlogIndexPage from './pages/BlogIndexPage';
+import BlogPostPage from './pages/BlogPostPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
 import ProductsPage from './pages/ProductsPage';
@@ -69,6 +71,8 @@ export default function App() {
         <Route path="/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
         <Route path="/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/blog" element={<BlogIndexPage />} />
+        <Route path="/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={

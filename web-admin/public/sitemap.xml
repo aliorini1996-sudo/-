@@ -19,6 +19,30 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://fieldsa.net/blog</loc>
+    <lastmod>2026-06-29</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/blog/zatca-einvoicing-distribution</loc>
+    <lastmod>2026-06-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/blog/manage-field-sales-reps</loc>
+    <lastmod>2026-06-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/blog/choose-field-sales-system</loc>
+    <lastmod>2026-06-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://fieldsa.net/terms</loc>
     <lastmod>2026-06-29</lastmod>
     <changefreq>yearly</changefreq>
