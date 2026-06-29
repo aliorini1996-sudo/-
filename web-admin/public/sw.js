@@ -1,5 +1,5 @@
 // Service Worker لتطبيق المندوب (PWA) — يجعله قابلاً للتثبيت ويُسرّع التحميل
-const CACHE = 'dsd-rep-v1';
+const CACHE = 'dsd-rep-v2';
 const ASSETS = ['/rep', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', event => {
