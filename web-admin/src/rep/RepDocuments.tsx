@@ -1,10 +1,25 @@
-import { forwardRef, useRef, useState } from 'react';
-import { QRCodeCanvas } from 'qrcode.react';
+import { forwardRef, useRef, useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { printThermalInvoice, printThermalReceipt } from './thermal';
 import { Share2, Download, Check, ArrowRight, Printer } from 'lucide-react';
+
+// رمز QR كصورة PNG (data URL) بدل <canvas> — لأن html2canvas لا يلتقط محتوى الـcanvas
+// عند توليد الـPDF فيختفي الرمز. الصورة (data URL) تُلتقط بثبات في PDF والطباعة والمشاركة.
+function QrImage({ value, size }: { value: string; size: number }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => {
+    let alive = true;
+    QRCode.toDataURL(value, { width: size * 3, margin: 1, errorCorrectionLevel: 'M' })
+      .then((url) => { if (alive) setSrc(url); })
+      .catch(() => { if (alive) setSrc(''); });
+    return () => { alive = false; };
+  }, [value, size]);
+  // عنصر بنفس المقاس دائماً (يحجز المساحة)، وتظهر الصورة فور جهوزيتها قبل ضغط زر المشاركة
+  return <img src={src || undefined} width={size} height={size} alt="QR" style={{ display: 'block', width: size, height: size }} />;
+}
 
 export interface Company {
   name: string;
@@ -267,7 +282,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         {qrValue ? (
           <div style={{ textAlign: 'center' }}>
             <div style={{ background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'inline-block' }}>
-              <QRCodeCanvas value={qrValue} size={108} level="M" />
+              <QrImage value={qrValue} size={108} />
             </div>
             <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>رمز الاستجابة السريعة للفاتورة الضريبية</div>
           </div>

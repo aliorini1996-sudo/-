@@ -1,8 +1,28 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
+// ينتظر تحميل كل الصور داخل العنصر (مثل رمز QR) قبل الالتقاط — كي لا تُلتقط فارغة
+async function waitForImages(el: HTMLElement, timeout = 4000): Promise<void> {
+  const imgs = Array.from(el.querySelectorAll('img'));
+  if (imgs.length === 0) return;
+  await Promise.race([
+    Promise.all(
+      imgs.map((img) =>
+        img.src && img.complete && img.naturalWidth > 0
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => {
+              img.addEventListener('load', () => resolve(), { once: true });
+              img.addEventListener('error', () => resolve(), { once: true });
+            })
+      )
+    ),
+    new Promise<void>((resolve) => setTimeout(resolve, timeout)),
+  ]);
+}
+
 // يحوّل عنصر DOM إلى PDF بصيغة Blob (صفحة A4، يدعم تعدد الصفحات)
 export async function elementToPdfBlob(el: HTMLElement): Promise<Blob> {
+  await waitForImages(el);
   const canvas = await html2canvas(el, {
     scale: 2,
     useCORS: true,
