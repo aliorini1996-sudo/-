@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 صيد العملاء المحتملين لـFieldSales — يبحث يوميًا عن شركات التوزيع/الجملة في السعودية
-عبر Google Places (New)، يؤهّلها بـClaude، ويحفظ الجدد فقط في Google Sheet خاص.
+عبر HERE Maps (مجاني، بلا موزّع)، يؤهّلها بـClaude، ويحفظ الجدد فقط في Google Sheet خاص.
 بيانات أعمال عامّة فقط — قائمة لمراجعة فريق المبيعات (لا تواصل آلي).
+
+وضع الاختبار: إن لم تُضبط أسرار Google (الجدول)، يطبع عدد ونماذج النتائج فقط (لفحص التغطية).
 """
 import os
 import sys
@@ -13,30 +15,31 @@ import datetime
 
 import requests
 
-# ------------------------------ الإعداد ------------------------------ #
-CITIES = [
-    "الرياض", "جدة", "الدمام", "مكة المكرمة", "المدينة المنورة", "الخبر",
-    "الطائف", "تبوك", "بريدة", "خميس مشيط", "حائل", "الأحساء", "نجران",
-    "الجبيل", "ينبع", "أبها",
-]
+# مدن السعودية + إحداثيات مراكزها (لبحث HERE)
+CITIES = {
+    "الرياض": (24.7136, 46.6753), "جدة": (21.5433, 39.1728), "الدمام": (26.4207, 50.0888),
+    "مكة المكرمة": (21.3891, 39.8579), "المدينة المنورة": (24.5247, 39.5692), "الخبر": (26.2794, 50.2083),
+    "الطائف": (21.2854, 40.4183), "تبوك": (28.3838, 36.5550), "بريدة": (26.3260, 43.9750),
+    "خميس مشيط": (18.3060, 42.7290), "حائل": (27.5114, 41.7208), "الأحساء": (25.3833, 49.5867),
+    "نجران": (17.4924, 44.1277), "الجبيل": (27.0174, 49.6225), "ينبع": (24.0890, 38.0618),
+    "أبها": (18.2169, 42.5053),
+}
 
-# استعلامات تستهدف العميل المثالي: شركات لديها مناديب توزيع ميدانيون
 QUERIES = [
-    "شركات توزيع مواد غذائية",
+    "شركة توزيع مواد غذائية",
     "تجارة جملة",
     "موزع مواد استهلاكية",
-    "مستودعات توزيع",
+    "مستودع توزيع",
     "شركة توزيع مشروبات",
     "موزع مستلزمات",
     "تاجر جملة",
     "شركة توريدات",
     "موزع منتجات تنظيف",
-    "شركة توزيع أدوية ومستلزمات طبية",
+    "توزيع أدوية ومستلزمات طبية",
 ]
 
-HEADERS = ["place_id", "الاسم", "الهاتف", "الموقع الإلكتروني", "العنوان",
-           "التقييم", "عدد المراجعات", "النوع", "المدينة", "رابط الخريطة",
-           "الملاءمة (1-10)", "ملاحظة", "تاريخ الإضافة"]
+HEADERS = ["here_id", "الاسم", "الهاتف", "الموقع الإلكتروني", "العنوان",
+           "المدينة", "النوع", "رابط الخريطة", "الملاءمة (1-10)", "ملاحظة", "تاريخ الإضافة"]
 
 
 def env(name: str) -> str:
@@ -46,27 +49,43 @@ def env(name: str) -> str:
     return v
 
 
-# --------------------------- Google Places (New) --------------------------- #
-def search_places(query: str, api_key: str) -> list:
-    r = requests.post(
-        "https://places.googleapis.com/v1/places:searchText",
-        headers={
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": api_key,
-            "X-Goog-FieldMask": (
-                "places.id,places.displayName,places.formattedAddress,"
-                "places.internationalPhoneNumber,places.nationalPhoneNumber,"
-                "places.websiteUri,places.rating,places.userRatingCount,"
-                "places.googleMapsUri,places.primaryTypeDisplayName"
-            ),
-        },
-        json={"textQuery": query, "regionCode": "SA", "languageCode": "ar", "maxResultCount": 20},
-        timeout=60,
-    )
-    if not r.ok:
-        print(f"⚠️  بحث فشل ({query}): {r.status_code} {r.text[:160]}")
+# ------------------------------ HERE Discover ------------------------------ #
+def search_here(query: str, lat: float, lng: float, api_key: str) -> list:
+    try:
+        r = requests.get(
+            "https://discover.search.hereapi.com/v1/discover",
+            params={"q": query, "at": f"{lat},{lng}", "in": "countryCode:SAU",
+                    "limit": 100, "lang": "ar-SA", "apiKey": api_key},
+            timeout=40,
+        )
+        if not r.ok:
+            print(f"⚠️  بحث فشل ({query}): {r.status_code} {r.text[:160]}")
+            return []
+        return r.json().get("items", [])
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️  بحث فشل ({query}): {e}")
         return []
-    return r.json().get("places", [])
+
+
+def parse_item(it: dict, city: str) -> dict | None:
+    name = it.get("title")
+    if not name or not it.get("id"):
+        return None
+    contacts = (it.get("contacts") or [{}])[0]
+    phone = ((contacts.get("phone") or [{}])[0]).get("value", "")
+    www = ((contacts.get("www") or [{}])[0]).get("value", "")
+    pos = it.get("position") or {}
+    cat = ((it.get("categories") or [{}])[0]).get("name", "")
+    return {
+        "id": it["id"],
+        "name": name,
+        "phone": phone,
+        "website": www,
+        "address": (it.get("address") or {}).get("label", ""),
+        "city": (it.get("address") or {}).get("city", "") or city,
+        "type": cat,
+        "maps": f"https://www.google.com/maps/search/?api=1&query={pos.get('lat')},{pos.get('lng')}" if pos else "",
+    }
 
 
 # ------------------------------ Google Sheet ------------------------------ #
@@ -80,7 +99,7 @@ def open_sheet():
     return gspread.authorize(creds).open_by_key(env("GOOGLE_SHEET_ID")).sheet1
 
 
-# --------------------------- تأهيل بالذكاء (Claude) --------------------------- #
+# ------------------------------ تأهيل (Claude) ------------------------------ #
 def qualify(leads: list) -> dict:
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not key or not leads:
@@ -88,9 +107,8 @@ def qualify(leads: list) -> dict:
     items = [{"i": i, "name": l["name"], "type": l["type"], "city": l["city"]} for i, l in enumerate(leads)]
     system = (
         "أنت محلّل مبيعات لمنصّة FieldSales (نظام سعودي لإدارة مبيعات مناديب التوزيع الميدانيين). "
-        "قيّم ملاءمة كل نشاط كعميل محتمل: شركات التوزيع/الجملة التي لديها مناديب ميدانيون وفواتير وتحصيل = الأعلى ملاءمة؛ "
-        "محلات التجزئة الصغيرة أو غير المتعلقة = الأقل. "
-        "أعِد JSON فقط: مصفوفة من {\"i\":رقم, \"score\":عدد 1-10, \"note\":\"سبب موجز جدًا بالعربية\"}."
+        "قيّم ملاءمة كل نشاط: شركات التوزيع/الجملة التي لديها مناديب ميدانيون = الأعلى؛ التجزئة الصغيرة/غير المتعلق = الأقل. "
+        "أعِد JSON فقط: مصفوفة {\"i\":رقم, \"score\":1-10, \"note\":\"سبب موجز جدًا بالعربية\"}."
     )
     user = "النشاطات:\n" + json.dumps(items, ensure_ascii=False)
     try:
@@ -102,7 +120,6 @@ def qualify(leads: list) -> dict:
             timeout=90,
         )
         if not r.ok:
-            print(f"⚠️  تأهيل Claude فشل: {r.status_code}")
             return {}
         import re
         m = re.search(r"\[.*\]", r.json()["content"][0]["text"], re.S)
@@ -115,55 +132,54 @@ def qualify(leads: list) -> dict:
 
 # ------------------------------ الرئيسية ------------------------------ #
 def main():
-    api_key = env("GOOGLE_MAPS_API_KEY")
-    sh = open_sheet()
+    api_key = env("HERE_API_KEY")
+    dry = not (os.environ.get("GOOGLE_SHEET_ID", "").strip() and os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip())
 
-    existing = sh.get_all_values()
-    if not existing:
-        sh.append_row(HEADERS)
-        existing_ids = set()
+    if dry:
+        print("🧪 وضع الاختبار: لا أسرار Google بعد — سأطبع التغطية فقط دون الكتابة في الجدول.")
+        sh, existing_ids = None, set()
     else:
-        existing_ids = {row[0] for row in existing[1:] if row and row[0]}
+        sh = open_sheet()
+        rows_all = sh.get_all_values()
+        if not rows_all:
+            sh.append_row(HEADERS); existing_ids = set()
+        else:
+            existing_ids = {row[0] for row in rows_all[1:] if row and row[0]}
 
-    # استعلام اليوم (تدوير) عبر كل المدن — يغطّي كل الاستعلامات×المدن خلال ~10 أيام ثم يلتقط الجديد
     query = QUERIES[datetime.date.today().toordinal() % len(QUERIES)]
-    print(f"🔎 بحث اليوم: «{query}» في {len(CITIES)} مدينة")
+    print(f"🔎 بحث اليوم: «{query}» في {len(CITIES)} مدينة (HERE)")
 
     found = {}
-    for city in CITIES:
-        for p in search_places(f"{query} في {city}", api_key):
-            pid = p.get("id")
-            if not pid or pid in existing_ids or pid in found:
+    for city, (lat, lng) in CITIES.items():
+        for it in search_here(query, lat, lng, api_key):
+            lead = parse_item(it, city)
+            if not lead or lead["id"] in existing_ids or lead["id"] in found:
                 continue
-            found[pid] = {
-                "id": pid,
-                "name": (p.get("displayName") or {}).get("text", ""),
-                "phone": p.get("internationalPhoneNumber") or p.get("nationalPhoneNumber") or "",
-                "website": p.get("websiteUri", ""),
-                "address": p.get("formattedAddress", ""),
-                "rating": p.get("rating", ""),
-                "reviews": p.get("userRatingCount", ""),
-                "type": (p.get("primaryTypeDisplayName") or {}).get("text", ""),
-                "city": city,
-                "maps": p.get("googleMapsUri", ""),
-            }
-        time.sleep(0.25)
+            found[lead["id"]] = lead
+        time.sleep(0.15)
 
     leads = list(found.values())
+    with_phone = sum(1 for l in leads if l["phone"])
+    print(f"🆕 نتائج: {len(leads)} | منها بهاتف: {with_phone}")
+
+    if dry:
+        for l in leads[:12]:
+            print(f"  - {l['name']} | {l['phone'] or 'بلا هاتف'} | {l['city']}")
+        print("✅ انتهى الاختبار. إن أعجبتك التغطية، أكمل إعداد Google Sheet لتُحفظ تلقائيًا.")
+        return
+
     if not leads:
         print("لا عملاء محتملين جدد اليوم.")
         return
-    print(f"🆕 عملاء محتملون جدد: {len(leads)}")
 
     scores = qualify(leads)
     today = datetime.date.today().isoformat()
     rows = []
     for i, l in enumerate(leads):
         score, note = scores.get(i, ("", ""))
-        rows.append([l["id"], l["name"], l["phone"], l["website"], l["address"], l["rating"],
-                     l["reviews"], l["type"], l["city"], l["maps"], score, note, today])
-    rows.sort(key=lambda r: r[10] if isinstance(r[10], (int, float)) else 0, reverse=True)
-
+        rows.append([l["id"], l["name"], l["phone"], l["website"], l["address"],
+                     l["city"], l["type"], l["maps"], score, note, today])
+    rows.sort(key=lambda r: r[8] if isinstance(r[8], (int, float)) else 0, reverse=True)
     sh.append_rows(rows, value_input_option="RAW")
     print(f"✅ أُضيف {len(rows)} عميلًا محتملاً إلى Google Sheet (الأعلى ملاءمة أولًا).")
 
