@@ -1,12 +1,14 @@
 import { Link, useParams, Navigate } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Clock, Calendar } from 'lucide-react';
-import { getPost } from '../blog/posts';
+import { normalizeContent } from '../blog/posts';
+import { useBlog } from '../blog/useBlog';
 import { useSeo } from '../lib/seo';
 
 // صفحة مقال /blog/:slug — مُحسّنة للـSEO (وسوم + بيانات Article منظّمة + محتوى في الـDOM)
 export default function BlogPostPage() {
   const { slug } = useParams();
+  const { getPost, isLoading } = useBlog();
   const post = getPost(slug || '');
 
   useSeo(post ? {
@@ -29,6 +31,10 @@ export default function BlogPostPage() {
     },
   } : { title: 'المقال غير موجود | FieldSales' });
 
+  // أثناء جلب محتوى الـCMS قد لا يكون المقال (المُضاف من اللوحة) جاهزاً بعد — لا نُعيد التوجيه قبل اكتمال التحميل
+  if (!post && isLoading) {
+    return <div dir="rtl" className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">جارٍ التحميل…</div>;
+  }
   if (!post) return <Navigate to="/blog" replace />;
 
   return (
@@ -48,8 +54,8 @@ export default function BlogPostPage() {
         <div className="max-w-3xl mx-auto px-5 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <BrandIcon size={34} />
-            <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }} className="text-lg">
-              <span className="text-[#1F1A13]">Field</span><span className="text-[#E15A30]">Sales</span>
+            <span style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }} className="text-xl">
+              <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
           <Link to="/blog" className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
@@ -66,7 +72,7 @@ export default function BlogPostPage() {
             <span className="flex items-center gap-1"><Clock size={13} /> {post.readMinutes} دقائق قراءة</span>
           </div>
 
-          <div className="article-prose mt-6" dangerouslySetInnerHTML={{ __html: post.contentHtml }} />
+          <div className="article-prose mt-6" dangerouslySetInnerHTML={{ __html: normalizeContent(post.contentHtml) }} />
 
           {/* CTA */}
           <div className="mt-10 bg-[#1F1A13] rounded-2xl p-7 text-center">

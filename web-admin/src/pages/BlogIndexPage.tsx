@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Clock, Calendar } from 'lucide-react';
-import { POSTS } from '../blog/posts';
+import { useBlog } from '../blog/useBlog';
 import { useSeo } from '../lib/seo';
 
 // فهرس المدوّنة /blog — يعرض المقالات ويربطها (للفهرسة والـSEO)
 export default function BlogIndexPage() {
+  const { posts } = useBlog();
   useSeo({
     title: 'المدوّنة | FieldSales — مقالات إدارة المبيعات الميدانية والتوزيع',
     description: 'مقالات ودلائل عملية في إدارة مبيعات المناديب الميدانيين، الفوترة الإلكترونية ZATCA، التحصيل، ومخزون التوزيع — من فريق FieldSales.',
@@ -19,8 +20,8 @@ export default function BlogIndexPage() {
         <div className="max-w-4xl mx-auto px-5 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <BrandIcon size={34} />
-            <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }} className="text-lg">
-              <span className="text-[#1F1A13]">Field</span><span className="text-[#E15A30]">Sales</span>
+            <span style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }} className="text-xl">
+              <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
           <Link to="/" className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
@@ -37,7 +38,7 @@ export default function BlogIndexPage() {
         </div>
 
         <div className="grid gap-5">
-          {POSTS.map(post => (
+          {posts.map(post => (
             <Link key={post.slug} to={`/blog/${post.slug}`}
               className="block bg-white rounded-2xl border border-[#E9E1D3] p-6 lg:p-7 hover:border-[#E8C9BC] hover:shadow-sm transition-all">
               <h2 className="text-xl lg:text-2xl font-bold text-[#1F1A13] leading-snug">{post.title}</h2>

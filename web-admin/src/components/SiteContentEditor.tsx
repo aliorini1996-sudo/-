@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
-import { X, Save, Globe } from 'lucide-react';
+import { POSTS, emptyPost, slugify, type BlogPost } from '../blog/posts';
+import { X, Save, Globe, Plus, Trash2, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-// أقسام المحرّر: [مسار الحقل، التسمية، نص طويل؟]
-const SECTIONS: { title: string; fields: [string, string, boolean?][] }[] = [
+// أقسام المحرّر: [مسار الحقل، التسمية، نص طويل؟] — والقسم المعلّم blog له محرّر مقالات مخصّص
+const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: boolean }[] = [
   { title: 'القسم الرئيسي (Hero)', fields: [
     ['hero.badge', 'الشارة العلوية'],
     ['hero.titleLine1', 'العنوان — السطر الأول'],
@@ -79,6 +80,7 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][] }[] = [
     ['pages.serviceAgreement.title', 'اتفاقية الخدمة — العنوان'], ['pages.serviceAgreement.body', 'اتفاقية الخدمة — المحتوى', true],
     ['pages.privacy.title', 'الخصوصية — العنوان'], ['pages.privacy.body', 'الخصوصية — المحتوى', true],
   ] },
+  { title: 'المدوّنة (المقالات)', fields: [], blog: true },
 ];
 
 type Draft = Record<string, unknown>;
@@ -98,6 +100,88 @@ const setIn = (obj: Draft, path: string, val: string): Draft => {
   return clone;
 };
 
+// محرّر مقالات المدوّنة — يضيف/يحرّر/يحذف مقالات تُخزَّن في محتوى الـCMS تحت المفتاح blog
+function BlogManager({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft | null>> }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const [confirmDel, setConfirmDel] = useState<number | null>(null);
+
+  // عند فتح القسم لأول مرّة: ثبّت القائمة الحالية (الافتراضية) في المسودّة لتُحفظ كاملة
+  useEffect(() => {
+    if (!Array.isArray(draft.blog)) setDraft(d => (d ? { ...d, blog: structuredClone(POSTS) } : d));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const list: BlogPost[] = Array.isArray(draft.blog) ? (draft.blog as BlogPost[]) : POSTS;
+  const mutate = (fn: (l: BlogPost[]) => BlogPost[]) => setDraft(d => {
+    if (!d) return d;
+    const cur = Array.isArray(d.blog) ? [...(d.blog as BlogPost[])] : structuredClone(POSTS);
+    return { ...d, blog: fn(cur) };
+  });
+  const update = (i: number, key: keyof BlogPost, val: string | number) =>
+    mutate(l => { l[i] = { ...l[i], [key]: val } as BlogPost; return l; });
+  const add = () => { mutate(l => { l.unshift(emptyPost()); return l; }); setOpen(0); };
+  const remove = (i: number) => { mutate(l => { l.splice(i, 1); return l; }); setOpen(null); setConfirmDel(null); };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-[#FBEBE2] border border-[#F1D9CC] rounded-xl p-3 text-xs text-[#8A4B33] leading-relaxed">
+        أضف أو حرّر مقالات تظهر على <b>fieldsa.net/blog</b>. في حقل «المحتوى» اكتب بصيغة بسيطة:
+        سطر يبدأ بـ <code className="font-mono">## </code> = عنوان فرعي، أسطر تبدأ بـ <code className="font-mono">- </code> = قائمة،
+        <code className="font-mono"> **نص** </code> = عريض، <code className="font-mono">[نص](رابط)</code> = رابط. أو الصق HTML مباشرةً.
+      </div>
+      <button onClick={add} className="btn-primary w-full justify-center py-2.5"><Plus size={16} /> مقال جديد</button>
+
+      {list.map((p, i) => {
+        const dup = !!p.slug && list.filter(x => x.slug === p.slug).length > 1;
+        return (
+          <div key={i} className="border border-[#E9E1D3] rounded-xl overflow-hidden">
+            <div className="flex items-center gap-1 p-3 bg-[#FBF8F2]">
+              <button onClick={() => setOpen(open === i ? null : i)} className="flex-1 text-right min-w-0">
+                <div className="font-semibold text-sm text-[#1F1A13] truncate">{p.title || '— مقال بلا عنوان —'}</div>
+                <div className="text-[11px] text-[#9A8F7E] truncate">/blog/{p.slug || '؟'} · {p.date}</div>
+              </button>
+              <button onClick={() => setOpen(open === i ? null : i)} className="p-1.5 text-[#6E6557]" title="فتح/طي">
+                <ChevronDown size={16} className={open === i ? 'rotate-180' : ''} />
+              </button>
+              {confirmDel === i
+                ? <button onClick={() => remove(i)} className="px-2.5 py-1 text-[11px] font-bold text-white bg-red-500 rounded-lg whitespace-nowrap">تأكيد الحذف</button>
+                : <button onClick={() => setConfirmDel(i)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="حذف"><Trash2 size={15} /></button>}
+            </div>
+            {open === i && (
+              <div className="p-4 space-y-3 border-t border-[#F1EBDF]">
+                <div><label className="label">العنوان</label>
+                  <input className="input" value={p.title} onChange={e => update(i, 'title', e.target.value)} /></div>
+                <div>
+                  <label className="label">المُعرّف في الرابط (بالإنجليزية، بدون مسافات)</label>
+                  <input className="input" dir="ltr" value={p.slug} placeholder="my-new-article"
+                    onChange={e => update(i, 'slug', slugify(e.target.value))} />
+                  {dup && <p className="text-[11px] text-red-500 mt-1">⚠ المُعرّف مكرّر — اجعله فريداً.</p>}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">التاريخ</label>
+                    <input className="input" type="date" value={p.date} onChange={e => update(i, 'date', e.target.value)} /></div>
+                  <div><label className="label">دقائق القراءة</label>
+                    <input className="input" type="number" min={1} value={p.readMinutes}
+                      onChange={e => update(i, 'readMinutes', Number(e.target.value) || 1)} /></div>
+                </div>
+                <div><label className="label">وصف Meta (يظهر في نتائج جوجل — نحو ١٥٥ حرفاً)</label>
+                  <textarea className="input" rows={2} value={p.description} onChange={e => update(i, 'description', e.target.value)} /></div>
+                <div><label className="label">مقتطف (يظهر في فهرس المدوّنة)</label>
+                  <textarea className="input" rows={2} value={p.excerpt} onChange={e => update(i, 'excerpt', e.target.value)} /></div>
+                <div><label className="label">كلمات مفتاحية (مفصولة بفواصل)</label>
+                  <input className="input" value={p.keywords} onChange={e => update(i, 'keywords', e.target.value)} /></div>
+                <div><label className="label">المحتوى</label>
+                  <textarea className="input font-mono text-xs leading-relaxed" rows={12}
+                    value={p.contentHtml} onChange={e => update(i, 'contentHtml', e.target.value)} /></div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // محرّر محتوى الصفحة التعريفية والصفحات التابعة (للمالك)
 export default function SiteContentEditor({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -115,7 +199,11 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
     // الافتراضي الحالي الصحيح بدل القديم؛ وإلا نحمّل تحرير المالك. حفظه يجعله محدّثاً ويُعرَض.
     const savedItems = (data as { features?: { items?: unknown[] } } | null)?.features?.items;
     const cmsCurrent = Array.isArray(savedItems) && savedItems.length === defaultContent.features.items.length;
-    setDraft(structuredClone((cmsCurrent ? data : defaultContent) as Draft));
+    const base = structuredClone((cmsCurrent ? data : defaultContent) as Draft);
+    // احتفظ بمقالات المدوّنة المحفوظة حتى لو عُدنا للمحتوى الافتراضي (كي لا تُفقد عند الحفظ)
+    const savedBlog = (data as { blog?: unknown } | null)?.blog;
+    if (Array.isArray(savedBlog) && savedBlog.length) base.blog = savedBlog;
+    setDraft(base);
   }, [data]);
 
   const save = useMutation({
@@ -163,7 +251,9 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
             {/* حقول القسم النشط */}
             <div className="flex-1 overflow-y-auto p-5 space-y-3.5">
               <h3 className="font-bold text-[#1F1A13] mb-1">{SECTIONS[active].title}</h3>
-              {SECTIONS[active].fields.map(field)}
+              {SECTIONS[active].blog
+                ? <BlogManager draft={draft} setDraft={setDraft} />
+                : SECTIONS[active].fields.map(field)}
             </div>
           </div>
         )}

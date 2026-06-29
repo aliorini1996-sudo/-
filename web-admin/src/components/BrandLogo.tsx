@@ -35,7 +35,7 @@ export function BrandWordmark({
     <div className="flex items-center gap-3">
       <BrandIcon size={iconSize} />
       <div className="leading-tight">
-        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700, fontSize: iconSize * 0.5, letterSpacing: '-0.5px' }}>
+        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, fontSize: iconSize * 0.5, letterSpacing: '-0.3px' }}>
           <span style={{ color: dark ? '#FAF7F0' : '#1F1A13' }}>Field</span>
           <span style={{ color: '#E15A30' }}> Sales</span>
         </div>
