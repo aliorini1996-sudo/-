@@ -144,6 +144,20 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const { canonical, alternates } = seoUrls('/', lang);
 
+  const { data } = useQuery({
+    queryKey: ['site-content'],
+    queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as unknown; },
+    staleTime: 60_000,
+  });
+  // sameAs لمحرّكات البحث — يُبنى من روابط التواصل في الـCMS (يربط العلامة بحساباتك الاجتماعية)
+  const social = (data as { social?: Record<string, string> } | null | undefined)?.social || {};
+  const sameAs = [social.x, social.instagram, social.linkedin, social.facebook, social.youtube, social.tiktok, social.snapchat,
+    social.whatsapp ? `https://wa.me/${String(social.whatsapp).replace(/[^0-9]/g, '')}` : '']
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  const orgJsonLd = sameAs.length
+    ? { '@context': 'https://schema.org', '@type': 'Organization', '@id': 'https://fieldsa.net/#organization', url: 'https://fieldsa.net/', sameAs }
+    : undefined;
+
   // SEO الصفحة الرئيسية — كلمات مفتاحية لكل خدمة + canonical/hreflang حسب اللغة (دولي)
   useSeo(lang === 'en' ? {
     title: 'FieldSales | Field Sales & Distribution Management System',
@@ -151,12 +165,14 @@ export default function LandingPage() {
     keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
     locale: 'en', canonical, alternates,
     image: 'https://fieldsa.net/og-image.png',
+    jsonLd: orgJsonLd,
   } : {
     title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
     description: 'فيلد سيلز نظام عربي لإدارة مبيعات مناديب التوزيع في السعودية ومصر والمغرب العربي: فواتير ضريبية، تحصيل وإدارة الذمم، سندات قبض، مخزون السيارة، وتتبّع المناديب GPS. جرّبه مجاناً.',
     keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات للأسواق العربية, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
     locale: 'ar', canonical, alternates,
     image: 'https://fieldsa.net/og-image.png',
+    jsonLd: orgJsonLd,
   });
 
   // زر تبديل اللغة المحقون في شريط التنقّل ينتقل بين / و/en (روابط منفصلة للفهرسة)
@@ -164,11 +180,6 @@ export default function LandingPage() {
     (window as unknown as { __fsToggleLang?: () => void }).__fsToggleLang = () => navigate(lang === 'ar' ? '/en' : '/');
   }, [lang, navigate]);
 
-  const { data } = useQuery({
-    queryKey: ['site-content'],
-    queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as unknown; },
-    staleTime: 60_000,
-  });
   // محتوى CMS المحفوظ قد يكون قديماً (عدد ميزاته لا يطابق الكود الحالي) — حينها نتجاهله
   // ونستخدم المحتوى الافتراضي الحالي حتى لا تُعرَض ميزات/نصوص قديمة. وإلا ندمج تحرير المالك.
   const savedItems = (data as { features?: { items?: unknown[] } } | null | undefined)?.features?.items;

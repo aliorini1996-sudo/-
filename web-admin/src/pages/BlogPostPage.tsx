@@ -1,9 +1,38 @@
+import { useState } from 'react';
 import { Link, useParams, Navigate } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
-import { ArrowLeft, Clock, Calendar } from 'lucide-react';
+import { ArrowLeft, Clock, Calendar, Share2, Linkedin, Facebook, Twitter, MessageCircle, Link2, Check } from 'lucide-react';
 import { normalizeContent, postView } from '../blog/posts';
 import { useBlog } from '../blog/useBlog';
 import { useSeo } from '../lib/seo';
+
+// شريط مشاركة المقال على منصّات التواصل — يزيد الانتشار الاجتماعي والزيارات
+function ShareBar({ url, title, en }: { url: string; title: string; en: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const u = encodeURIComponent(url);
+  const t = encodeURIComponent(title);
+  const links = [
+    { label: 'WhatsApp', Icon: MessageCircle, href: `https://wa.me/?text=${t}%20${u}`, color: '#25D366' },
+    { label: 'X', Icon: Twitter, href: `https://twitter.com/intent/tweet?text=${t}&url=${u}`, color: '#1F1A13' },
+    { label: 'LinkedIn', Icon: Linkedin, href: `https://www.linkedin.com/sharing/share-offsite/?url=${u}`, color: '#0A66C2' },
+    { label: 'Facebook', Icon: Facebook, href: `https://www.facebook.com/sharer/sharer.php?u=${u}`, color: '#1877F2' },
+  ];
+  return (
+    <div className="flex items-center gap-2 flex-wrap mt-8 pt-6 border-t border-[#E9E1D3]">
+      <span className="text-xs font-semibold text-[#6E6557] flex items-center gap-1.5"><Share2 size={14} /> {en ? 'Share this article' : 'شارك المقال'}</span>
+      {links.map(l => (
+        <a key={l.label} href={l.href} target="_blank" rel="noreferrer" title={l.label} aria-label={l.label}
+          className="w-9 h-9 rounded-lg flex items-center justify-center text-white hover:opacity-90 transition-opacity" style={{ background: l.color }}>
+          <l.Icon size={16} />
+        </a>
+      ))}
+      <button onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+        className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#EDE7DB] text-[#6E6557] hover:bg-[#E2D9C8] transition-colors" title={en ? 'Copy link' : 'نسخ الرابط'} aria-label={en ? 'Copy link' : 'نسخ الرابط'}>
+        {copied ? <Check size={16} className="text-[#1E7A52]" /> : <Link2 size={16} />}
+      </button>
+    </div>
+  );
+}
 
 // صفحة مقال — عربي على /blog/:slug وإنجليزي على /en/blog/:slug (ثنائي اللغة + hreflang + Article JSON-LD)
 export default function BlogPostPage() {
@@ -99,6 +128,8 @@ export default function BlogPostPage() {
           </div>
 
           <div className="article-prose mt-6" dangerouslySetInnerHTML={{ __html: normalizeContent(v!.contentHtml) }} />
+
+          <ShareBar url={base} title={v!.title} en={en} />
 
           {/* CTA */}
           <div className="mt-10 bg-[#1F1A13] rounded-2xl p-7 text-center">
