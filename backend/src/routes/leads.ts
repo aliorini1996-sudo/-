@@ -225,7 +225,7 @@ router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFu
 
 // ------------------------------- بحث آلي + استيراد ------------------------------- //
 const searchSchema = z.object({
-  provider: z.enum(['osm', 'google']).default('osm'),
+  provider: z.enum(['osm', 'here', 'google']).default('osm'),
   query: z.string().min(1),       // نوع النشاط: "تجارة جملة"، "food distributor"...
   country: z.string().optional(), // اسم الدولة بأي لغة
   city: z.string().optional(),

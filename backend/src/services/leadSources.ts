@@ -3,6 +3,7 @@
  *
  * المصادر المدعومة:
  *  - osm    : OpenStreetMap (Nominatim للجيوكودنق + Overpass للأنشطة) — مجاني تماماً، بلا مفتاح، عالمي.
+ *  - here   : HERE Discover — مجاني (مفتاح بلا بطاقة وبلا موزّع)، عالمي، أرقام هواتف أوفر من OSM.
  *  - google : Google Places Text Search (New) — رسمي، يتطلّب GOOGLE_MAPS_API_KEY.
  *
  * إضافة مصدر جديد = دالة search تُعيد RawLead[] ثم تسجيلها في SEARCH_PROVIDERS.
@@ -25,7 +26,7 @@ export interface RawLead {
   lat?: number;
   lng?: number;
   mapsUrl?: string;
-  source: 'osm' | 'google';
+  source: 'osm' | 'here' | 'google';
 }
 
 const UA = 'FieldSales-Leads/1.0 (https://fieldsa.net)';
@@ -140,6 +141,64 @@ interface OsmElement {
   tags?: Record<string, string>;
 }
 
+// ----------------------------- مصدر: HERE Discover ----------------------------- //
+export async function searchHERE(query: string, country?: string, city?: string, limit = 80): Promise<RawLead[]> {
+  const key = (process.env.HERE_API_KEY || '').trim();
+  if (!key) throw new Error('HERE_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر HERE.');
+  const box = await geocode(country, city);
+  if (!box) return [];
+  // HERE Discover يتطلّب سياق موقع: نستخدم صندوق الإحاطة (bbox:west,south,east,north)
+  const url = new URL('https://discover.search.hereapi.com/v1/discover');
+  url.searchParams.set('q', query);
+  url.searchParams.set('in', `bbox:${box.west},${box.south},${box.east},${box.north}`);
+  url.searchParams.set('limit', String(Math.min(limit, 100)));
+  url.searchParams.set('lang', 'ar');
+  url.searchParams.set('apiKey', key);
+
+  const r = await fetch(url.toString(), { headers: { 'User-Agent': UA } });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`HERE ${r.status}: ${t.slice(0, 160)}`);
+  }
+  const data = (await r.json()) as { items?: HereItem[] };
+  const out: RawLead[] = [];
+  for (const it of data.items ?? []) {
+    if (!it.id || !it.title) continue;
+    const c = (it.contacts || [])[0] || {};
+    const pos = it.position;
+    out.push({
+      sourceId: `here:${it.id}`,
+      name: it.title,
+      phone: ((c.phone || [])[0] || {}).value || undefined,
+      website: ((c.www || [])[0] || {}).value || undefined,
+      email: ((c.email || [])[0] || {}).value || undefined,
+      address: it.address?.label || undefined,
+      city: it.address?.city || city || undefined,
+      country: it.address?.countryName || box.country || country || undefined,
+      countryCode: box.cc || undefined, // alpha-2 من الجيوكودنق (اتساقاً مع OSM)
+      category: (it.categories || [])[0]?.name || undefined,
+      lat: pos?.lat,
+      lng: pos?.lng,
+      mapsUrl: pos ? `https://www.google.com/maps/search/?api=1&query=${pos.lat},${pos.lng}` : undefined,
+      source: 'here',
+    });
+  }
+  return out;
+}
+
+interface HereItem {
+  id?: string;
+  title?: string;
+  position?: { lat: number; lng: number };
+  address?: { label?: string; city?: string; countryName?: string; countryCode?: string };
+  categories?: Array<{ name?: string }>;
+  contacts?: Array<{
+    phone?: Array<{ value?: string }>;
+    www?: Array<{ value?: string }>;
+    email?: Array<{ value?: string }>;
+  }>;
+}
+
 // ----------------------------- مصدر: Google Places (New) ----------------------------- //
 export async function searchGoogle(query: string, country?: string, city?: string, limit = 20): Promise<RawLead[]> {
   const key = (process.env.GOOGLE_MAPS_API_KEY || '').trim();
@@ -202,7 +261,7 @@ interface GooglePlace {
 }
 
 // ----------------------------- موزّع المصادر ----------------------------- //
-export type LeadProvider = 'osm' | 'google';
+export type LeadProvider = 'osm' | 'here' | 'google';
 
 export async function runSearch(
   provider: LeadProvider,
@@ -214,6 +273,8 @@ export async function runSearch(
   switch (provider) {
     case 'google':
       return searchGoogle(query, country, city, limit);
+    case 'here':
+      return searchHERE(query, country, city, limit);
     case 'osm':
     default:
       return searchOSM(query, country, city, limit);
