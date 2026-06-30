@@ -520,3 +520,80 @@ model RepSettlement {
   @@index([tenantId, salesRepId])
   @@map("rep_settlements")
 }
+
+// ============================================================================
+// العملاء المحتملون (Leads) — على مستوى المنصّة (مالك المنصّة / السوبر أدمن)
+// شركات توزيع/جملة حول العالم قد تشترك في Field Sales. مستقلة عن أي Tenant.
+// ============================================================================
+
+// عميل محتمل واحد (شركة) — تُجمع من الخرائط/المصادر العامة أو يدوياً
+model Lead {
+  id          String  @id @default(uuid())
+  name        String  // اسم النشاط/الشركة
+  phone       String?
+  email       String?
+  website     String?
+  address     String?
+  city        String?
+  country     String? // اسم الدولة (للعرض)
+  countryCode String? // ISO-3166 alpha-2 (للتجميع والفلترة)
+  category    String? // نوع النشاط (تجارة جملة، موزّع...)
+  lat         Float?
+  lng         Float?
+  mapsUrl     String? // رابط الموقع على الخريطة
+
+  source   String  @default("manual") // manual | csv | osm | google | social | api
+  sourceId String? @unique            // مفتاح إزالة التكرار لكل مصدر (مثل "osm:node/123")
+
+  // خط أنابيب المبيعات
+  stage   String  @default("NEW") // NEW | CONTACTED | QUALIFIED | PROPOSAL | WON | LOST
+  score   Int?    // ملاءمة 1-10 (تأهيل آلي/يدوي)
+  scoreNote String?
+  assignedTo String? // معرّف/اسم مسؤول المتابعة (سوبر أدمن)
+  convertedTenantId String? // عند التحويل لمشترك فعلي
+  notes   String?
+  lastContactedAt DateTime?
+  nextFollowUpAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities LeadActivity[]
+
+  @@index([stage])
+  @@index([countryCode])
+  @@index([source])
+  @@index([nextFollowUpAt])
+  @@map("leads")
+}
+
+// سجلّ نشاط/متابعة على عميل محتمل (مكالمة، ملاحظة، تغيير مرحلة...)
+model LeadActivity {
+  id      String @id @default(uuid())
+  leadId  String
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type    String // NOTE | CALL | EMAIL | MEETING | STAGE_CHANGE | SCORE | IMPORT
+  content String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@map("lead_activities")
+}
+
+// سجلّ عملية بحث آلي (لتتبّع مصادر الجمع وتجنّب التكرار وعرض التاريخ)
+model LeadSearch {
+  id       String @id @default(uuid())
+  provider String // osm | google
+  query    String // نوع النشاط المبحوث عنه
+  country  String?
+  city     String?
+  status   String @default("done") // running | done | failed
+  found    Int    @default(0) // إجمالي النتائج من المصدر
+  imported Int    @default(0) // الجدد المُضافون بعد إزالة التكرار
+  error    String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@map("lead_searches")
+}

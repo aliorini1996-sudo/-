@@ -44,6 +44,9 @@ body {
   .label {
     @apply block text-sm font-medium text-[#44403a] mb-1;
   }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold;
+  }
   .badge-active {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#E4F1EA] text-[#1E7A52];
   }

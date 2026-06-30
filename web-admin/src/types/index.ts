@@ -32,6 +32,55 @@ export interface Tenant {
   _count?: { admins?: number; salesReps?: number; customers?: number; invoices?: number; receipts?: number; products?: number };
 }
 
+export type LeadStage = 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'PROPOSAL' | 'WON' | 'LOST';
+
+export interface Lead {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  countryCode?: string | null;
+  category?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  mapsUrl?: string | null;
+  source: string; // manual | csv | osm | google | social | api
+  stage: LeadStage;
+  score?: number | null;
+  scoreNote?: string | null;
+  assignedTo?: string | null;
+  convertedTenantId?: string | null;
+  notes?: string | null;
+  lastContactedAt?: string | null;
+  nextFollowUpAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  activities?: LeadActivity[];
+}
+
+export interface LeadActivity {
+  id: string;
+  leadId: string;
+  type: string; // NOTE | CALL | EMAIL | MEETING | STAGE_CHANGE | SCORE | IMPORT
+  content?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+export interface LeadStats {
+  total: number;
+  won: number;
+  due: number;
+  conversion: number;
+  stages: Record<LeadStage, number>;
+  sources: { source: string; count: number }[];
+  countries: { countryCode: string; count: number }[];
+}
+
 export interface CompanyUser {
   id: string;
   name: string;

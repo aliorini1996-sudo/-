@@ -7,12 +7,13 @@ import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
-  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Target,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import SiteContentEditor from '../components/SiteContentEditor';
+import LeadsPanel from '../components/LeadsPanel';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 
@@ -22,6 +23,7 @@ export default function PlatformPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
+  const [showLeads, setShowLeads] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);
@@ -86,6 +88,9 @@ export default function PlatformPage() {
           </div>
           <div className="flex items-center gap-4">
             <LanguageToggle variant="dark" />
+            <button onClick={() => setShowLeads(true)} className="flex items-center gap-2 text-[#E15A30] hover:text-[#f0703f] text-sm font-medium">
+              <Target size={16} /> العملاء المحتملون
+            </button>
             <button onClick={() => setShowContent(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
               <Globe size={16} /> محتوى الصفحة
             </button>
@@ -228,6 +233,7 @@ export default function PlatformPage() {
           onClose={() => setResetTarget(null)}
         />
       )}
+      {showLeads && <LeadsPanel onClose={() => setShowLeads(false)} />}
       {showContent && <SiteContentEditor onClose={() => setShowContent(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (

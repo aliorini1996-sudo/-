@@ -145,6 +145,21 @@ export const tenantApi = {
   remove: (id: string) => api.delete(`/tenants/${id}`),
 };
 
+// العملاء المحتملون (Leads) — لوحة المالك
+export const leadApi = {
+  list: (params?: Record<string, string | number | boolean>) => api.get('/leads', { params }),
+  stats: () => api.get('/leads/stats'),
+  get: (id: string) => api.get(`/leads/${id}`),
+  create: (data: unknown) => api.post('/leads', data),
+  update: (id: string, data: unknown) => api.put(`/leads/${id}`, data),
+  remove: (id: string) => api.delete(`/leads/${id}`),
+  addActivity: (id: string, data: unknown) => api.post(`/leads/${id}/activities`, data),
+  convert: (id: string, data?: unknown) => api.post(`/leads/${id}/convert`, data || {}),
+  search: (data: unknown) => api.post('/leads/search', data),
+  import: (leads: unknown[]) => api.post('/leads/import', { leads }),
+  exportUrl: () => `${BASE}/leads/export/csv`,
+};
+
 // تتبّع المناديب عبر GPS
 export const trackingApi = {
   settings: () => api.get('/tracking/settings'),
