@@ -30,6 +30,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
       canManageVanStock: true,
       canViewStatement: true,
       canAddCustomer: false,
+      showCollectionBalance: true,
       maxDiscountPct: 0,
     };
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>({
@@ -156,6 +157,13 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
               <PermToggle label="إضافة عميل" {...register('canAddCustomer')} />
               <PermToggle label="تعديل بيانات العميل" {...register('canEditCustomer')} />
               <PermToggle label="عرض كشف الحساب" {...register('canViewStatement')} />
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات التحصيل</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <PermToggle label="إظهار رصيد التحصيل المتراكم" {...register('showCollectionBalance')} />
             </div>
           </div>
 

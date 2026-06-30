@@ -49,6 +49,7 @@ model Tenant {
   erpSyncLogs     ErpSyncLog[]
   vanLoads        VanLoad[]
   repLocations    RepLocation[]
+  repSettlements  RepSettlement[]
 
   @@map("tenants")
 }
@@ -119,6 +120,9 @@ model SalesRep {
   canEditCustomer   Boolean @default(false)
   canViewStatement  Boolean @default(true)
 
+  // إظهار رصيد التحصيل المتراكم للمندوب على شاشته الرئيسية (يحدّده الأدمن لكل مندوب)
+  showCollectionBalance Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -136,6 +140,7 @@ model SalesRep {
   notifications Notification[]
   vanLoads      VanLoad[]
   locations     RepLocation[]
+  settlements   RepSettlement[]
 
   @@index([tenantId])
   @@map("sales_reps")
@@ -496,4 +501,22 @@ model RepLocation {
 
   @@index([tenantId, salesRepId, capturedAt])
   @@map("rep_locations")
+}
+
+// استلام تحصيل من المندوب — كل مرّة يسلّم فيها المندوب نقدًا للإدارة يُسجَّل هنا.
+// رصيد التحصيل لدى المندوب = مجموع سنداته النشطة − مجموع ما سُجّل هنا من استلامات.
+model RepSettlement {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  amount     Float
+  note       String?
+  createdBy  String?  // اسم/معرّف الأدمن الذي استلم
+  settledAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, salesRepId])
+  @@map("rep_settlements")
 }

@@ -67,6 +67,9 @@ export const salesRepApi = {
   update: (id: string, data: unknown) => api.put(`/sales-reps/${id}`, data),
   stats: (id: string, params?: Record<string, string>) => api.get(`/sales-reps/${id}/stats`, { params }),
   remove: (id: string) => api.delete(`/sales-reps/${id}`),
+  collection: (id: string) => api.get(`/sales-reps/${id}/collection`),
+  settle: (id: string, data: { amount: number; note?: string }) => api.post(`/sales-reps/${id}/settlements`, data),
+  settlements: (id: string) => api.get(`/sales-reps/${id}/settlements`),
 };
 
 export const invoiceApi = {

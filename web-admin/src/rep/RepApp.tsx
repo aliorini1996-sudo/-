@@ -107,7 +107,7 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
 
 // ============ الرئيسية ============
 function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => void }) {
-  const [stats, setStats] = useState({ salesTotal: 0, collectTotal: 0, invCount: 0, rcpCount: 0 });
+  const [stats, setStats] = useState({ salesTotal: 0, collectTotal: 0, collectBalance: 0, collectShow: true, invCount: 0, rcpCount: 0 });
   const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
@@ -118,9 +118,10 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       const end = new Date(); end.setHours(23, 59, 59, 999);
       const isToday = (iso: string) => { const d = new Date(iso); return d >= start && d <= end; };
 
-      const [inv, rcp] = await Promise.all([
+      const [inv, rcp, bal] = await Promise.all([
         repApi.get('/invoices', { params: { limit: 200, status: 'CONFIRMED' } }),
         repApi.get('/receipts', { params: { limit: 200 } }),
+        repApi.get('/receipts/collection-balance'),
       ]);
       const invoices = inv.data.data as { total: number; invoiceDate: string; type: string }[];
       const receipts = rcp.data.data as { amount: number; receiptDate: string }[];
@@ -130,6 +131,9 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       setStats({
         salesTotal: todaySales.reduce((s, i) => s + Number(i.total), 0),
         collectTotal: todayRcp.reduce((s, r) => s + Number(r.amount), 0),
+        // رصيد التحصيل المتراكم لدى المندوب — لا يُصفّر يوميًا، ينقص فقط عند استلام الإدارة
+        collectBalance: Number(bal.data.data?.outstanding ?? 0),
+        collectShow: bal.data.data?.enabled !== false, // الميزة اختيارية لكل مندوب
         invCount: todaySales.length,
         rcpCount: todayRcp.length,
       });
@@ -179,12 +183,26 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
         </div>
       </div>
 
+      {/* رصيد التحصيل المتراكم — لا يُصفّر يوميًا، ينقص فقط عند تسليمه للإدارة (اختياري حسب صلاحية المندوب) */}
+      {stats.collectShow && (
+        <div className="bg-white rounded-3xl p-5 border-2 border-green-100 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-500">رصيد التحصيل لديك</p>
+            <p className="text-2xl font-extrabold text-green-700 mt-1">{formatCurrency(stats.collectBalance)}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">المبلغ الذي عليك تسليمه للإدارة</p>
+          </div>
+          <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center">
+            <Wallet size={26} className="text-green-600" />
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div>
         <p className="text-[#1F1A13] font-bold text-sm mb-3">إحصائيات اليوم</p>
         <div className="grid grid-cols-2 gap-3">
           {stat('المبيعات', formatCurrency(stats.salesTotal), TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
-          {stat('التحصيل', formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
+          {stat('تحصيل اليوم', formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
           {stat('الفواتير', String(stats.invCount), FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
           {stat('سندات القبض', String(stats.rcpCount), CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
         </div>

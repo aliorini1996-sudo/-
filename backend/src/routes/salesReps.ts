@@ -34,6 +34,7 @@ const repSchema = z.object({
   canAddCustomer: z.boolean().optional(),
   canEditCustomer: z.boolean().optional(),
   canViewStatement: z.boolean().optional(),
+  showCollectionBalance: z.boolean().optional(),
 });
 
 const repSelect = {
@@ -44,6 +45,7 @@ const repSelect = {
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
+  showCollectionBalance: true,
   createdAt: true,
 } as const;
 
@@ -199,6 +201,57 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       prisma.salesRep.delete({ where: { id: req.params.id } }),
     ]);
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// رصيد التحصيل لدى المندوب = مجموع سنداته النشطة − مجموع ما استلمه الأدمن منه
+async function repCollection(tid: string, repId: string) {
+  const [collected, settled] = await Promise.all([
+    prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE' }, _sum: { amount: true } }),
+    prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId }, _sum: { amount: true } }),
+  ]);
+  const c = collected._sum.amount ?? 0;
+  const s = settled._sum.amount ?? 0;
+  return { collected: c, settled: s, outstanding: c - s };
+}
+
+// ملخّص رصيد التحصيل لمندوب (للإدارة)
+router.get('/:id/collection', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    res.json({ success: true, data: await repCollection(tid, req.params.id) });
+  } catch (err) { next(err); }
+});
+
+// استلام تحصيل من المندوب — يُسجّل المبلغ المستلم فينقص الرصيد المتراكم
+router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ success: false, message: 'أدخل مبلغاً صحيحاً أكبر من صفر' }); return; }
+    const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : undefined;
+    const by = req.user as { name?: string; id?: string } | undefined;
+    await prisma.repSettlement.create({
+      data: { tenantId: tid, salesRepId: req.params.id, amount, note, createdBy: by?.name || by?.id },
+    });
+    res.status(201).json({ success: true, data: await repCollection(tid, req.params.id) });
+  } catch (err) { next(err); }
+});
+
+// سجلّ استلامات التحصيل لمندوب
+router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const items = await prisma.repSettlement.findMany({
+      where: { tenantId: tid, salesRepId: req.params.id },
+      orderBy: { settledAt: 'desc' },
+      take: 100,
+    });
+    res.json({ success: true, data: items });
   } catch (err) { next(err); }
 });
 

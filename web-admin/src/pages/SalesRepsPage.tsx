@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi } from '../api/client';
 import { SalesRep, Invoice, Receipt } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2 } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -21,6 +21,7 @@ export default function SalesRepsPage() {
   const [statementRep, setStatementRep] = useState<SalesRep | null>(null);
   const [resetRep, setResetRep] = useState<SalesRep | null>(null);
   const [deleting, setDeleting] = useState<SalesRep | null>(null);
+  const [collectRep, setCollectRep] = useState<SalesRep | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['sales-reps', search],
@@ -124,6 +125,9 @@ export default function SalesRepsPage() {
                   <td><span className={r.isActive ? 'badge-active' : 'badge-inactive'}>{r.isActive ? 'نشط' : 'غير نشط'}</span></td>
                   <td>
                     <div className="flex items-center gap-1">
+                      {r.showCollectionBalance !== false && (
+                        <button onClick={() => setCollectRep(r)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title="استلام تحصيل"><Banknote size={14} /></button>
+                      )}
                       <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title="كشف الأداء والمبيعات"><FileBarChart2 size={14} /></button>
                       <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true, canManageVanStock: r.canManageVanStock ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل"><Edit size={14} /></button>
                       <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title="إعادة تعيين كلمة المرور"><KeyRound size={14} /></button>
@@ -174,6 +178,106 @@ export default function SalesRepsPage() {
           onClose={() => setDeleting(null)}
         />
       )}
+
+      {collectRep && (
+        <ReceiveCollectionModal rep={collectRep} onClose={() => setCollectRep(null)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['sales-reps'] })} />
+      )}
+    </div>
+  );
+}
+
+// ============ استلام تحصيل من المندوب ============
+function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClose: () => void; onDone: () => void }) {
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [filled, setFilled] = useState(false);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['rep-collection', rep.id],
+    queryFn: async () => {
+      const r = await salesRepApi.collection(rep.id);
+      return r.data.data as { collected: number; settled: number; outstanding: number };
+    },
+  });
+
+  // تعبئة الحقل تلقائياً بالرصيد المتبقّي (تسليم كامل) أول مرّة
+  if (data && !filled) { setAmount(String(Math.max(0, Number(data.outstanding.toFixed(2))))); setFilled(true); }
+
+  const settle = useMutation({
+    mutationFn: () => salesRepApi.settle(rep.id, { amount: Number(amount), note: note || undefined }),
+    onSuccess: () => {
+      toast.success('تم تسجيل الاستلام');
+      setNote(''); setFilled(false);
+      refetch();
+      onDone();
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر التسجيل';
+      toast.error(msg);
+    },
+  });
+
+  const outstanding = data?.outstanding ?? 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center"><Banknote size={20} className="text-green-600" /></div>
+            <div>
+              <h2 className="text-lg font-bold text-[#1F1A13]">استلام تحصيل</h2>
+              <p className="text-xs text-[#6E6557]">{rep.name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {isLoading ? (
+            <p className="text-center text-gray-400 py-6">جارٍ التحميل…</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[11px] text-gray-500">إجمالي التحصيل</p>
+                  <p className="font-bold text-sm text-gray-700 mt-1">{formatCurrency(data?.collected ?? 0)}</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[11px] text-gray-500">المُستلَم سابقاً</p>
+                  <p className="font-bold text-sm text-gray-700 mt-1">{formatCurrency(data?.settled ?? 0)}</p>
+                </div>
+                <div className="bg-green-50 rounded-xl p-3 border border-green-100">
+                  <p className="text-[11px] text-green-700">الرصيد المتبقّي</p>
+                  <p className="font-extrabold text-sm text-green-700 mt-1">{formatCurrency(outstanding)}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="label">المبلغ المُستلَم من المندوب</label>
+                <input className="input" type="number" min={0} step="0.01" value={amount}
+                  onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+                <p className="text-[11px] text-gray-400 mt-1">المبلغ مُعبّأ بالرصيد المتبقّي (تسليم كامل) — عدّله للتسليم الجزئي.</p>
+              </div>
+              <div>
+                <label className="label">ملاحظة (اختياري)</label>
+                <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder="مثال: نقدًا، تحويل بنكي…" />
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
+          <button onClick={() => settle.mutate()}
+            disabled={settle.isPending || isLoading || !(Number(amount) > 0)}
+            className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
+            {settle.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Banknote size={16} />}
+            تسجيل الاستلام
+          </button>
+          <button onClick={onClose} className="btn-secondary">إغلاق</button>
+        </div>
+      </div>
     </div>
   );
 }

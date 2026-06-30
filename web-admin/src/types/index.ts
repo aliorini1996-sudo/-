@@ -151,6 +151,7 @@ export interface SalesRep {
   canAddCustomer: boolean;
   canEditCustomer: boolean;
   canViewStatement: boolean;
+  showCollectionBalance?: boolean;
   createdAt: string;
 }
 

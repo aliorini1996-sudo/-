@@ -71,6 +71,29 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
+// رصيد التحصيل المتراكم لدى المندوب = مجموع سنداته النشطة − مجموع ما استلمه الأدمن منه.
+// متاح للمندوب (يخصّ نفسه) وللإدارة (تمرّر salesRepId). لا يُصفَّر يوميًا — ينقص فقط بتسجيل استلام.
+router.get('/collection-balance', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const isSalesRep = req.user?.role === 'SALES_REP';
+    const repId = isSalesRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    if (!repId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    // الميزة اختيارية لكل مندوب — إن لم يفعّلها الأدمن للمندوب لا تُعرض له
+    if (isSalesRep) {
+      const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { showCollectionBalance: true } });
+      if (!rep?.showCollectionBalance) { res.json({ success: true, data: { enabled: false } }); return; }
+    }
+    const [collected, settled] = await Promise.all([
+      prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE' }, _sum: { amount: true } }),
+      prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId }, _sum: { amount: true } }),
+    ]);
+    const c = collected._sum.amount ?? 0;
+    const s = settled._sum.amount ?? 0;
+    res.json({ success: true, data: { enabled: true, collected: c, settled: s, outstanding: c - s } });
+  } catch (err) { next(err); }
+});
+
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
