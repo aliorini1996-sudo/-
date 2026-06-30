@@ -41,9 +41,34 @@ def ask_claude_facebook(topic: dict) -> str:
 
 
 # ------------------------------ النشر على فيسبوك ------------------------------ #
+def resolve_page_token(page_id: str, token: str) -> str:
+    """يحوّل التوكن المُعطى إلى «رمز الصفحة» الصحيح.
+
+    يقبل السرّ FB_PAGE_ACCESS_TOKEN سواء كان رمز «مستخدم نظام» (System User)
+    أو رمز صفحة مباشر. يستعلم عن رمز الصفحة عبر {page_id}?fields=access_token؛
+    إن نجح استخدمه، وإلا أعاد التوكن كما هو (fallback آمن).
+    """
+    try:
+        r = requests.get(
+            f"{GRAPH}/{page_id}",
+            params={"fields": "access_token", "access_token": token},
+            timeout=30,
+        )
+        if r.ok:
+            page_token = (r.json() or {}).get("access_token")
+            if page_token:
+                print("🔑 تم اشتقاق رمز الصفحة من توكن مستخدم النظام")
+                return page_token
+        else:
+            print(f"ℹ️  تعذّر اشتقاق رمز الصفحة ({r.status_code})، سنستخدم التوكن كما هو")
+    except Exception as e:  # noqa: BLE001
+        print(f"ℹ️  خطأ أثناء اشتقاق رمز الصفحة، سنستخدم التوكن كما هو: {e}")
+    return token
+
+
 def post_to_facebook(text: str, image_path: str):
     page_id = env("FB_PAGE_ID").strip()
-    token = env("FB_PAGE_ACCESS_TOKEN")
+    token = resolve_page_token(page_id, env("FB_PAGE_ACCESS_TOKEN").strip())
 
     # محاولة نشر صورة + نص (caption)
     if image_path:
