@@ -110,6 +110,18 @@
   </url>
   <url>
     <loc>https://fieldsa.net/blog</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog"/>
+    <lastmod>2026-06-30</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog"/>
     <lastmod>2026-06-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -153,6 +165,60 @@
   <url>
     <loc>https://fieldsa.net/blog/gps-tracking-sales-reps</loc>
     <lastmod>2026-06-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/blog/field-sales-software-egypt</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/field-sales-software-egypt"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-egypt"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog/field-sales-software-egypt"/>
+    <lastmod>2026-06-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/field-sales-software-egypt</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/field-sales-software-egypt"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-egypt"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog/field-sales-software-egypt"/>
+    <lastmod>2026-06-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/blog/van-sales-distribution-maghreb</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/van-sales-distribution-maghreb"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/van-sales-distribution-maghreb"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog/van-sales-distribution-maghreb"/>
+    <lastmod>2026-06-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/van-sales-distribution-maghreb</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/van-sales-distribution-maghreb"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/van-sales-distribution-maghreb"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog/van-sales-distribution-maghreb"/>
+    <lastmod>2026-06-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/blog/what-is-field-sales-management-software</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/what-is-field-sales-management-software"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/what-is-field-sales-management-software"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog/what-is-field-sales-management-software"/>
+    <lastmod>2026-06-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/what-is-field-sales-management-software</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/what-is-field-sales-management-software"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/what-is-field-sales-management-software"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog/what-is-field-sales-management-software"/>
+    <lastmod>2026-06-30</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>

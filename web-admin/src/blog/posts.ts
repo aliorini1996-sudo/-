@@ -1,14 +1,23 @@
 // مقالات المدوّنة — محتوى ثابت محسّن لمحركات البحث (يُدرَج في sitemap ويُفهرَس مباشرةً).
 // لإضافة مقال: أضِف عنصراً هنا + أضِف رابطه في public/sitemap.xml.
-export interface BlogPost {
-  slug: string;
+// الحقول الأساسية عربية؛ والمقالات ثنائية اللغة تضيف نسخة إنجليزية في الحقل en (تظهر على /en/blog).
+export interface BlogL10n {
   title: string;
-  description: string;      // وصف Meta (يظهر في نتائج جوجل)
+  description: string;
+  keywords: string;
+  excerpt: string;
+  contentHtml: string;
+}
+export interface BlogPost extends BlogL10n {
+  slug: string;
   date: string;            // YYYY-MM-DD
   readMinutes: number;
-  keywords: string;
-  excerpt: string;         // مقتطف لصفحة الفهرس
-  contentHtml: string;     // محتوى المقال (HTML نظيف)
+  en?: BlogL10n;           // النسخة الإنجليزية (اختيارية) — للمقالات ثنائية اللغة
+}
+
+// يعيد حقول المقال باللغة المطلوبة (إنجليزي إن توفّر، وإلا العربي)
+export function postView(p: BlogPost, lang: 'ar' | 'en'): BlogL10n {
+  return lang === 'en' && p.en ? p.en : p;
 }
 
 export const POSTS: BlogPost[] = [
@@ -263,6 +272,191 @@ export const POSTS: BlogPost[] = [
 
       <p><strong>جرّب FieldSales مجاناً 10 أيام وأدِر فريقك الميداني بشفافية وكفاءة.</strong></p>
     `,
+  },
+  {
+    slug: 'field-sales-software-egypt',
+    date: '2026-06-30',
+    readMinutes: 7,
+    title: 'أفضل نظام لإدارة مناديب المبيعات والتوزيع في مصر',
+    description: 'دليل شركات التوزيع في مصر لاختيار نظام إدارة مناديب المبيعات: الطلبات، التحصيل وإدارة الذمم، مخزون سيارة المندوب، وتتبّع المناديب — لرفع كفاءة فريقك الميداني.',
+    keywords: 'نظام مبيعات مصر, إدارة مناديب مصر, نظام توزيع مصر, برنامج مبيعات مصر, البيع المتنقل, تحصيل الذمم, الفاتورة الإلكترونية مصر',
+    excerpt: 'سوق التوزيع في مصر ضخم وتنافسي. كيف تدير مناديبك من الطلب حتى التحصيل بنظام واحد يرفع الكفاءة ويمنع التسرّب؟',
+    contentHtml: `
+      <p>سوق التوزيع المصري من أكبر أسواق المنطقة وأكثرها تنافسية — آلاف المناديب يجوبون المحافظات يوميًا. لكن إدارة فريق ميداني بهذا الحجم بالورق أو بجداول منفصلة تتحوّل إلى فوضى وتسرّب مالي. إليك ما يحتاجه نظام إدارة المبيعات الميدانية في مصر.</p>
+
+      <h2>تحدّيات التوزيع في السوق المصري</h2>
+      <ul>
+        <li>تغطية جغرافية واسعة (القاهرة، الدلتا، الصعيد) يصعب متابعتها مركزيًا.</li>
+        <li>بيع آجل كثيف يراكم ذممًا مدينة ويهدّد السيولة.</li>
+        <li>صعوبة معرفة ما بِيع وما تبقّى في سيارة كل مندوب لحظيًا.</li>
+      </ul>
+
+      <h2>ما يجب أن يوفّره النظام للمندوب المصري</h2>
+      <ul>
+        <li><strong>تطبيق جوال</strong> ينشئ الطلب ويصدر الفاتورة وسند القبض من الميدان.</li>
+        <li><strong>تحصيل وإدارة ذمم</strong> بحدود ائتمان وكشف حساب لحظي لكل عميل.</li>
+        <li><strong>مخزون سيارة المندوب</strong> (البيع المتنقّل Van Sales) ينقص تلقائيًا مع كل بيع.</li>
+        <li><strong>تتبّع GPS</strong> للمواقع وخطوط السير أثناء العمل.</li>
+      </ul>
+
+      <h2>والفوترة الإلكترونية في مصر؟</h2>
+      <p>الفوترة الإلكترونية إلزامية في مصر عبر منظومة <strong>مصلحة الضرائب المصرية (ETA)</strong>. <a href="/signup">FieldSales</a> ينظّم فوترتك وتحصيلك ومخزونك ميدانيًا ويصدر فواتير برمز QR وسجلات رقمية موثّقة؛ ويبقى ربط منظومة ETA الرسمية حسب متطلبات كل منشأة. ميزة النظام الأساسية: ضبط الفريق الميداني من الطلب حتى التحصيل في منصّة واحدة.</p>
+
+      <p>اقرأ أيضًا: <a href="/blog/collection-receivables-distribution">إدارة التحصيل والذمم المدينة</a> و<a href="/blog/van-sales-guide">دليل البيع المتنقّل</a>.</p>
+
+      <p><strong>جرّب FieldSales مجانًا 10 أيام وأحكم سيطرتك على فريقك الميداني في مصر.</strong></p>
+    `,
+    en: {
+      title: 'Best Field Sales & Distribution Rep Management Software in Egypt',
+      description: 'A guide for distribution companies in Egypt to choose field sales rep management software: orders, collection and receivables, van stock, and GPS tracking to boost field team efficiency.',
+      keywords: 'field sales software Egypt, sales rep management Egypt, distribution software Egypt, van sales, accounts receivable, e-invoicing Egypt',
+      excerpt: 'Egypt’s distribution market is huge and competitive. How do you run your reps from order to collection in one system that boosts efficiency and stops leakage?',
+      contentHtml: `
+        <p>Egypt has one of the region’s largest, most competitive distribution markets — thousands of reps cover the governorates daily. Running a field team this size on paper or scattered spreadsheets turns into chaos and financial leakage. Here is what field sales management software needs to deliver in Egypt.</p>
+
+        <h2>Distribution challenges in the Egyptian market</h2>
+        <ul>
+          <li>Wide geographic coverage (Cairo, the Delta, Upper Egypt) that is hard to manage centrally.</li>
+          <li>Heavy credit sales that pile up receivables and threaten cash flow.</li>
+          <li>Difficulty knowing what each rep sold and what is left in the van in real time.</li>
+        </ul>
+
+        <h2>What the system must give the Egyptian rep</h2>
+        <ul>
+          <li>A <strong>mobile app</strong> to create orders and issue invoices and receipt vouchers from the field.</li>
+          <li><strong>Collection and receivables</strong> with credit limits and a live statement per customer.</li>
+          <li><strong>Van stock</strong> (van sales) that decreases automatically with every sale.</li>
+          <li><strong>GPS tracking</strong> of locations and daily routes during work.</li>
+        </ul>
+
+        <h2>What about e-invoicing in Egypt?</h2>
+        <p>E-invoicing is mandatory in Egypt through the <strong>Egyptian Tax Authority (ETA)</strong> system. <a href="/signup">FieldSales</a> organizes your field billing, collection and stock and issues QR-coded invoices and verifiable digital records; connecting the official ETA platform depends on each company’s requirements. The core value: control your field team from order to collection in one platform.</p>
+
+        <p>Read also: <a href="/en/blog/what-is-field-sales-management-software">What is field sales management software?</a></p>
+
+        <p><strong>Try FieldSales free for 10 days and take control of your field team in Egypt.</strong></p>
+      `,
+    },
+  },
+  {
+    slug: 'van-sales-distribution-maghreb',
+    date: '2026-06-30',
+    readMinutes: 7,
+    title: 'إدارة التوزيع والبيع المتنقّل في المغرب والجزائر وتونس',
+    description: 'كيف تدير شركات التوزيع في المغرب العربي مناديبها وسياراتها؟ دليل البيع المتنقّل Van Sales، التحصيل، ومخزون السيارة لرفع كفاءة الفرق الميدانية وتقليل الهدر.',
+    keywords: 'نظام توزيع المغرب, البيع المتنقل المغرب, إدارة مناديب الجزائر, نظام مبيعات تونس, Van Sales, توزيع المغرب العربي',
+    excerpt: 'في المغرب العربي تعتمد شركات التوزيع على البيع المتنقّل من السيارة. كيف تضبط المخزون والتحصيل وأداء كل مندوب؟',
+    contentHtml: `
+      <p>تعتمد شركات التوزيع في <strong>المغرب والجزائر وتونس</strong> بكثافة على نموذج <strong>البيع المتنقّل (Van Sales)</strong>: يحمّل المندوب البضاعة في سيارته ويبيعها مباشرةً في جولته. النموذج سريع لكنه يحتاج نظامًا يضبط المخزون المتحرّك والتحصيل.</p>
+
+      <h2>لماذا يحتاج المغرب العربي نظامًا ميدانيًا؟</h2>
+      <ul>
+        <li>سيارة كل مندوب = مستودع متحرّك يصعب جرده يدويًا.</li>
+        <li>التحصيل النقدي والآجل يحتاج توثيقًا فوريًا بسند قبض.</li>
+        <li>الإدارة تحتاج رؤية لحظية لمبيعات اليوم في كل مدينة.</li>
+      </ul>
+
+      <h2>دورة البيع المتنقّل الصحيحة</h2>
+      <ul>
+        <li><strong>تحميل:</strong> تسجيل ما حُمِّل في السيارة بداية اليوم.</li>
+        <li><strong>بيع:</strong> فاتورة فورية تنقص المخزون تلقائيًا.</li>
+        <li><strong>تحصيل:</strong> سند قبض رقمي يُخصم من رصيد العميل.</li>
+        <li><strong>تسوية:</strong> مطابقة المتبقّي آخر اليوم لكشف أي فرق.</li>
+      </ul>
+
+      <h2>كيف يساعد FieldSales؟</h2>
+      <p><a href="/signup">FieldSales</a> يجمع مخزون السيارة، التحصيل وإدارة الذمم، صلاحيات المناديب، وتتبّع GPS في منصّة واحدة تناسب أسواق المغرب العربي — بالعربية وبتطبيق جوال خفيف يعمل على أي جهاز.</p>
+
+      <p>اقرأ أيضًا: <a href="/blog/van-sales-guide">دليل إدارة مخزون سيارة المندوب</a>.</p>
+
+      <p><strong>ابدأ تجربتك المجانية 10 أيام وأحكم سيطرتك على أسطول التوزيع.</strong></p>
+    `,
+    en: {
+      title: 'Van Sales & Field Distribution Management in North Africa (Maghreb)',
+      description: 'How do distribution companies in Morocco, Algeria and Tunisia manage their reps and vans? A guide to van sales, collection and van stock to boost field efficiency and cut waste.',
+      keywords: 'van sales Morocco, distribution software Maghreb, sales rep management Algeria, field sales Tunisia, van stock, North Africa distribution',
+      excerpt: 'In the Maghreb, distributors rely on selling from the van. How do you control stock, collection and each rep’s performance?',
+      contentHtml: `
+        <p>Distribution companies across <strong>Morocco, Algeria and Tunisia</strong> rely heavily on the <strong>van sales</strong> model: the rep loads goods into the van and sells directly on the route. It is fast, but it needs a system to control mobile stock and collection.</p>
+
+        <h2>Why the Maghreb needs a field system</h2>
+        <ul>
+          <li>Each rep’s van is a moving warehouse that is hard to count manually.</li>
+          <li>Cash and credit collection need instant documentation with a receipt voucher.</li>
+          <li>Management needs a live view of today’s sales in each city.</li>
+        </ul>
+
+        <h2>The correct van sales cycle</h2>
+        <ul>
+          <li><strong>Load:</strong> record what was loaded into the van at the start of the day.</li>
+          <li><strong>Sell:</strong> an instant invoice decreases stock automatically.</li>
+          <li><strong>Collect:</strong> a digital receipt voucher is deducted from the customer balance.</li>
+          <li><strong>Reconcile:</strong> match the remaining stock at day end to reveal any gap.</li>
+        </ul>
+
+        <h2>How FieldSales helps</h2>
+        <p><a href="/signup">FieldSales</a> combines van stock, collection and receivables, rep permissions and GPS tracking in one platform suited to Maghreb markets — in Arabic, with a lightweight mobile app that runs on any device.</p>
+
+        <p>Read also: <a href="/en/blog/field-sales-software-egypt">Field sales software in Egypt</a>.</p>
+
+        <p><strong>Start your free 10-day trial and take control of your distribution fleet.</strong></p>
+      `,
+    },
+  },
+  {
+    slug: 'what-is-field-sales-management-software',
+    date: '2026-06-30',
+    readMinutes: 6,
+    title: 'ما هو نظام إدارة المبيعات الميدانية؟ دليل شامل',
+    description: 'شرح مبسّط لنظام إدارة المبيعات الميدانية: ما هو، كيف يعمل، وأهم مميزاته لشركات التوزيع — الطلبات، الفواتير، التحصيل، مخزون السيارة، وتتبّع المناديب.',
+    keywords: 'نظام إدارة المبيعات الميدانية, ما هو نظام المبيعات الميدانية, field sales management, نظام مناديب, أتمتة قوة المبيعات SFA',
+    excerpt: 'ما هو نظام إدارة المبيعات الميدانية ولماذا تحتاجه شركات التوزيع؟ دليل مبسّط يشرح المفهوم والمميزات الأساسية.',
+    contentHtml: `
+      <p><strong>نظام إدارة المبيعات الميدانية</strong> (Field Sales Management / SFA) هو برنامج يربط مندوب التوزيع في الميدان بالإدارة لحظيًا — من إنشاء الطلب حتى إصدار الفاتورة والتحصيل والتقارير، عبر تطبيق جوال ولوحة تحكّم.</p>
+
+      <h2>ما المشكلة التي يحلّها؟</h2>
+      <p>بدونه، تعتمد شركة التوزيع على الورق والمكالمات: طلبات تضيع، تحصيل بلا أثر، ومخزون سيارة مجهول. النظام يجعل كل عملية رقمية وموثّقة ولحظية.</p>
+
+      <h2>أهم المميزات</h2>
+      <ul>
+        <li>إدارة الطلبات الميدانية من تطبيق المندوب.</li>
+        <li>فواتير ضريبية برمز QR وسندات قبض رقمية.</li>
+        <li>تحصيل المدفوعات وإدارة الذمم وحدود الائتمان.</li>
+        <li>مخزون سيارة المندوب (البيع المتنقّل).</li>
+        <li>تتبّع المناديب عبر GPS وتقارير لحظية.</li>
+      </ul>
+
+      <h2>من يحتاجه؟</h2>
+      <p>أي شركة لديها مناديب يبيعون ويحصّلون ميدانيًا: التوزيع الغذائي، المشروبات، مواد البناء، الأدوية، ومستلزمات التجزئة.</p>
+
+      <p><a href="/signup">FieldSales</a> منصّة عربية متكاملة تجمع هذه المميزات كلها. <strong>جرّبها مجانًا 10 أيام.</strong></p>
+    `,
+    en: {
+      title: 'What Is Field Sales Management Software? A Complete Guide',
+      description: 'A simple explanation of field sales management software (SFA): what it is, how it works, and its key features for distribution companies — orders, invoices, collection, van stock and rep tracking.',
+      keywords: 'field sales management software, what is field sales software, SFA, sales force automation, distribution software, rep management',
+      excerpt: 'What is field sales management software and why do distribution companies need it? A simple guide to the concept and core features.',
+      contentHtml: `
+        <p><strong>Field sales management software</strong> (also called SFA — sales force automation) is software that connects the field distribution rep to management in real time — from creating the order to issuing the invoice, collecting payment and reporting, through a mobile app and a dashboard.</p>
+
+        <h2>What problem does it solve?</h2>
+        <p>Without it, a distribution company relies on paper and phone calls: orders get lost, collection has no trail, and van stock is unknown. The system makes every transaction digital, documented and real time.</p>
+
+        <h2>Key features</h2>
+        <ul>
+          <li>Field order management from the rep’s app.</li>
+          <li>QR tax invoices and digital receipt vouchers.</li>
+          <li>Payment collection, receivables and credit limits.</li>
+          <li>Van stock (van sales).</li>
+          <li>GPS rep tracking and real-time reports.</li>
+        </ul>
+
+        <h2>Who needs it?</h2>
+        <p>Any company with reps that sell and collect in the field: food and beverage distribution, building materials, pharma and retail supplies.</p>
+
+        <p><a href="/signup">FieldSales</a> is a complete platform that bundles all of these. <strong>Try it free for 10 days.</strong></p>
+      `,
+    },
   },
 ];
 

@@ -93,6 +93,8 @@ export default function App() {
         <Route path="/en/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
         <Route path="/en/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/en/contact" element={<ContactPage />} />
+        <Route path="/en/blog" element={<BlogIndexPage />} />
+        <Route path="/en/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={

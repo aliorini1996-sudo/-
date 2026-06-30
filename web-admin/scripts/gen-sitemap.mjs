@@ -21,13 +21,17 @@ const I18N_ROUTES = [
   { p: '/service-agreement', priority: '0.3', freq: 'yearly' },
 ];
 
-// يقرأ مقالات المدوّنة الافتراضية (slug + date) من posts.ts
+// يقرأ مقالات المدوّنة الافتراضية (slug + date + ثنائي اللغة) من posts.ts
 function staticPosts() {
   const src = fs.readFileSync(path.join(ROOT, 'src/blog/posts.ts'), 'utf8');
+  const start = src.indexOf('export const POSTS');
+  const body = start >= 0 ? src.slice(start) : src;
   const out = [];
-  const re = /slug:\s*'([^']+)',[\s\S]*?date:\s*'([^']+)'/g;
-  let m;
-  while ((m = re.exec(src))) out.push({ slug: m[1], date: m[2] });
+  for (const ch of body.split(/slug:\s*'/).slice(1)) {
+    const slug = ch.slice(0, ch.indexOf("'"));
+    const dm = ch.match(/date:\s*'([^']+)'/);
+    if (slug) out.push({ slug, date: dm ? dm[1] : today, bilingual: /\n\s*en:\s*\{/.test(ch) });
+  }
   return out;
 }
 
@@ -42,7 +46,7 @@ async function effectivePosts() {
     const blog = j?.data?.blog;
     if (Array.isArray(blog) && blog.length) {
       const valid = blog.filter((p) => p && p.slug && p.title)
-        .map((p) => ({ slug: p.slug, date: p.date || today }));
+        .map((p) => ({ slug: p.slug, date: p.date || today, bilingual: !!(p.en && p.en.title) }));
       if (valid.length) { console.log(`  مصدر المقالات: CMS الحيّ (${valid.length})`); return valid; }
     }
   } catch (e) {
@@ -52,6 +56,13 @@ async function effectivePosts() {
   console.log(`  مصدر المقالات: الافتراضية من posts.ts (${s.length})`);
   return s;
 }
+
+// روابط hreflang لمسار مدوّنة (عربي + /en)
+const blogAlt = (p) => [
+  `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}${p}"/>`,
+  `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}"/>`,
+  `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}"/>`,
+].join('\n');
 
 const alt = (arPath) => {
   const suffix = arPath === '/' ? '' : arPath;
@@ -78,10 +89,21 @@ async function main() {
     urls.push(urlEntry(ORIGIN + '/en' + (r.p === '/' ? '' : r.p), { freq: r.freq, priority: r.priority, alternates }));
   }
 
-  // المدوّنة (عربية فقط — المحتوى عربي)
-  urls.push(urlEntry(ORIGIN + '/blog', { freq: 'weekly', priority: '0.8' }));
+  // فهرس المدوّنة (عربي + /en مع hreflang)
+  const idxAlt = blogAlt('/blog');
+  urls.push(urlEntry(ORIGIN + '/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
+  urls.push(urlEntry(ORIGIN + '/en/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
+
+  // المقالات: ثنائية اللغة تُنشر بنسختين مع hreflang؛ والعربية فقط بنسخة واحدة
   for (const p of posts) {
-    urls.push(urlEntry(`${ORIGIN}/blog/${p.slug}`, { lastmod: p.date, freq: 'monthly', priority: '0.7' }));
+    const arLoc = `/blog/${p.slug}`;
+    if (p.bilingual) {
+      const a = blogAlt(arLoc);
+      urls.push(urlEntry(ORIGIN + arLoc, { lastmod: p.date, freq: 'monthly', priority: '0.7', alternates: a }));
+      urls.push(urlEntry(ORIGIN + '/en' + arLoc, { lastmod: p.date, freq: 'monthly', priority: '0.7', alternates: a }));
+    } else {
+      urls.push(urlEntry(ORIGIN + arLoc, { lastmod: p.date, freq: 'monthly', priority: '0.7' }));
+    }
   }
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls.join('\n')}\n</urlset>\n`;
