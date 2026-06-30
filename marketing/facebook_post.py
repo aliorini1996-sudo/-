@@ -45,24 +45,45 @@ def resolve_page_token(page_id: str, token: str) -> str:
     """يحوّل التوكن المُعطى إلى «رمز الصفحة» الصحيح.
 
     يقبل السرّ FB_PAGE_ACCESS_TOKEN سواء كان رمز «مستخدم نظام» (System User)
-    أو رمز صفحة مباشر. يستعلم عن رمز الصفحة عبر {page_id}?fields=access_token؛
-    إن نجح استخدمه، وإلا أعاد التوكن كما هو (fallback آمن).
+    أو رمز صفحة مباشر. النشر على صفحة يتطلّب «رمز صفحة» وليس رمز مستخدم/نظام،
+    لذا نشتقّه أولًا عبر me/accounts (الطريقة الموثّقة لمستخدمي النظام)،
+    ثم عبر {page_id}?fields=access_token، وإلا نُعيد التوكن كما هو (fallback).
     """
+    # (1) me/accounts — يُرجع الصفحات المُسندة لمستخدم النظام مع رمز كلٍّ منها
+    try:
+        url = f"{GRAPH}/me/accounts"
+        params = {"access_token": token, "limit": 100}
+        while url:
+            r = requests.get(url, params=params, timeout=30)
+            if not r.ok:
+                print(f"ℹ️  me/accounts ({r.status_code}): {r.text[:300]}")
+                break
+            body = r.json() or {}
+            for pg in body.get("data", []):
+                if str(pg.get("id")) == str(page_id) and pg.get("access_token"):
+                    print("🔑 تم الحصول على رمز الصفحة عبر me/accounts")
+                    return pg["access_token"]
+            url = (body.get("paging") or {}).get("next")
+            params = None  # رابط next يحمل الوسائط بنفسه
+    except Exception as e:  # noqa: BLE001
+        print(f"ℹ️  خطأ me/accounts: {e}")
+
+    # (2) استعلام مباشر عن عقدة الصفحة
     try:
         r = requests.get(
             f"{GRAPH}/{page_id}",
             params={"fields": "access_token", "access_token": token},
             timeout=30,
         )
-        if r.ok:
-            page_token = (r.json() or {}).get("access_token")
-            if page_token:
-                print("🔑 تم اشتقاق رمز الصفحة من توكن مستخدم النظام")
-                return page_token
-        else:
-            print(f"ℹ️  تعذّر اشتقاق رمز الصفحة ({r.status_code})، سنستخدم التوكن كما هو")
+        if r.ok and (r.json() or {}).get("access_token"):
+            print("🔑 تم اشتقاق رمز الصفحة من العقدة مباشرة")
+            return r.json()["access_token"]
+        print(f"ℹ️  اشتقاق مباشر ({r.status_code}): {r.text[:300]}")
     except Exception as e:  # noqa: BLE001
-        print(f"ℹ️  خطأ أثناء اشتقاق رمز الصفحة، سنستخدم التوكن كما هو: {e}")
+        print(f"ℹ️  خطأ الاشتقاق المباشر: {e}")
+
+    # (3) fallback
+    print("ℹ️  سنستخدم التوكن كما هو")
     return token
 
 
