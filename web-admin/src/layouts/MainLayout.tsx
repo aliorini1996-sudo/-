@@ -64,7 +64,7 @@ export default function MainLayout() {
       {/* Sidebar */}
       <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-[#1F1A13] text-white flex flex-col transition-all duration-300`}>
         {/* Logo */}
-        <div className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 ${collapsed ? 'justify-center' : ''}`}>
+        <div className={`flex items-center gap-3 px-4 py-3.5 border-b border-white/10 ${collapsed ? 'justify-center' : ''}`}>
           <BrandIcon size={36} radius={0.28} />
           {!collapsed && (
             <div>
@@ -108,9 +108,9 @@ export default function MainLayout() {
             <LanguageToggle variant="dark" />
           </div>
           {!collapsed && (
-            <div className="px-4 py-2">
-              <p className="text-xs text-[#9A8F7E]">{t('login.welcomeName')}،</p>
-              <p className="text-sm font-semibold truncate">{user?.name}</p>
+            <div className="px-4 py-1.5">
+              <p className="text-xs text-[#9A8F7E] leading-tight">{t('login.welcomeName')}،</p>
+              <p className="text-sm font-semibold truncate leading-tight">{user?.name}</p>
             </div>
           )}
           {/* تغيير كلمة المرور — يُخفى أثناء تصفّح المالك لشركة (لأنه ليس حسابه) */}

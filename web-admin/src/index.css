@@ -87,7 +87,7 @@ body {
     @apply hover:bg-[#FBEBE2]/40 transition-colors;
   }
   .sidebar-link {
-    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all;
+    @apply flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all;
   }
   .sidebar-link.active {
     @apply bg-[#E15A30] text-white shadow-sm;
