@@ -2,9 +2,10 @@
  * محرّك مصادر العملاء المحتملين (Leads) — قابل للتوسّع بموصّل لكل مصدر.
  *
  * المصادر المدعومة:
- *  - osm    : OpenStreetMap (Nominatim للجيوكودنق + Overpass للأنشطة) — مجاني تماماً، بلا مفتاح، عالمي.
- *  - here   : HERE Discover — مجاني (مفتاح بلا بطاقة وبلا موزّع)، عالمي، أرقام هواتف أوفر من OSM.
- *  - google : Google Places Text Search (New) — رسمي، يتطلّب GOOGLE_MAPS_API_KEY.
+ *  - osm      : OpenStreetMap (Nominatim للجيوكودنق + Overpass للأنشطة) — مجاني تماماً، بلا مفتاح، عالمي.
+ *  - geoapify : Geoapify Places — مجاني 3000/يوم بمفتاح بلا بطاقة وبلا موزّع، عالمي، هواتف/مواقع أنظف (مبني على OSM).
+ *  - here     : HERE Discover — يتطلّب HERE_API_KEY (مفتاح بلا موزّع)، عالمي.
+ *  - google   : Google Places Text Search (New) — رسمي، يتطلّب GOOGLE_MAPS_API_KEY (في السعودية عبر موزّع CNTXT).
  *
  * إضافة مصدر جديد = دالة search تُعيد RawLead[] ثم تسجيلها في SEARCH_PROVIDERS.
  *
@@ -26,7 +27,7 @@ export interface RawLead {
   lat?: number;
   lng?: number;
   mapsUrl?: string;
-  source: 'osm' | 'here' | 'google';
+  source: 'osm' | 'geoapify' | 'here' | 'google';
 }
 
 const UA = 'FieldSales-Leads/1.0 (https://fieldsa.net)';
@@ -139,6 +140,73 @@ interface OsmElement {
   lon?: number;
   center?: { lat: number; lon: number };
   tags?: Record<string, string>;
+}
+
+// ----------------------------- مصدر: Geoapify Places ----------------------------- //
+export async function searchGeoapify(query: string, country?: string, city?: string, limit = 80): Promise<RawLead[]> {
+  const key = (process.env.GEOAPIFY_API_KEY || '').trim();
+  if (!key) throw new Error('GEOAPIFY_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر Geoapify.');
+  const box = await geocode(country, city);
+  if (!box) return [];
+  // Geoapify يتطلّب تصنيفاً + صندوق إحاطة (rect:lon1,lat1,lon2,lat2 = west,south,east,north)
+  const url = new URL('https://api.geoapify.com/v2/places');
+  url.searchParams.set('categories', geoapifyCategoriesFor(query));
+  url.searchParams.set('filter', `rect:${box.west},${box.south},${box.east},${box.north}`);
+  url.searchParams.set('limit', String(Math.min(limit, 200)));
+  url.searchParams.set('lang', 'ar');
+  url.searchParams.set('apiKey', key);
+
+  const r = await fetch(url.toString(), { headers: { 'User-Agent': UA } });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Geoapify ${r.status}: ${t.slice(0, 160)}`);
+  }
+  const data = (await r.json()) as { features?: GeoapifyFeature[] };
+  const out: RawLead[] = [];
+  for (const f of data.features ?? []) {
+    const p = f.properties;
+    if (!p?.name || !p.place_id) continue;
+    const raw = p.datasource?.raw || {};
+    out.push({
+      sourceId: `geoapify:${p.place_id}`,
+      name: p.name,
+      phone: p.contact?.phone || raw['contact:phone'] || raw.phone || undefined,
+      email: p.contact?.email || raw['contact:email'] || raw.email || undefined,
+      website: p.website || raw.website || raw['contact:website'] || undefined,
+      address: p.formatted || undefined,
+      city: p.city || city || undefined,
+      country: p.country || box.country || country || undefined,
+      countryCode: (p.country_code || box.cc || '').toUpperCase() || undefined,
+      category: (p.categories || []).find((c) => c.startsWith('commercial')) || (p.categories || [])[0] || undefined,
+      lat: p.lat,
+      lng: p.lon,
+      mapsUrl: p.lat && p.lon ? `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lon}#map=18/${p.lat}/${p.lon}` : undefined,
+      source: 'geoapify',
+    });
+  }
+  return out;
+}
+
+// نُبقي التصنيف عند الأب «commercial» (يشمل المتاجر/الأسواق/الجملة) لتفادي أخطاء التصنيفات الفرعية غير الصالحة
+function geoapifyCategoriesFor(_query: string): string {
+  return 'commercial';
+}
+
+interface GeoapifyFeature {
+  properties?: {
+    name?: string;
+    country?: string;
+    country_code?: string;
+    city?: string;
+    formatted?: string;
+    lat?: number;
+    lon?: number;
+    website?: string;
+    categories?: string[];
+    place_id?: string;
+    contact?: { phone?: string; email?: string };
+    datasource?: { raw?: Record<string, string> };
+  };
 }
 
 // ----------------------------- مصدر: HERE Discover ----------------------------- //
@@ -261,7 +329,7 @@ interface GooglePlace {
 }
 
 // ----------------------------- موزّع المصادر ----------------------------- //
-export type LeadProvider = 'osm' | 'here' | 'google';
+export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google';
 
 export async function runSearch(
   provider: LeadProvider,
@@ -273,6 +341,8 @@ export async function runSearch(
   switch (provider) {
     case 'google':
       return searchGoogle(query, country, city, limit);
+    case 'geoapify':
+      return searchGeoapify(query, country, city, limit);
     case 'here':
       return searchHERE(query, country, city, limit);
     case 'osm':

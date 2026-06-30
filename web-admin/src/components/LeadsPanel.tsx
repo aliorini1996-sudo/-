@@ -22,7 +22,7 @@ const STAGE_CLS: Record<LeadStage, string> = {
   LOST: 'bg-red-100 text-red-700',
 };
 const SOURCE_LABEL: Record<string, string> = {
-  osm: 'خرائط OSM', here: 'HERE Maps', google: 'Google Maps', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
+  osm: 'خرائط OSM', geoapify: 'Geoapify', here: 'HERE Maps', google: 'Google Maps', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
 };
 
 export default function LeadsPanel({ onClose }: { onClose: () => void }) {
@@ -227,7 +227,8 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           <label className="label">المصدر</label>
           <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="input">
             <option value="osm">OpenStreetMap (مجاني · بلا مفتاح · عالمي)</option>
-            <option value="here">HERE Maps (مجاني · مفتاح بلا بطاقة · أرقام أوفر)</option>
+            <option value="geoapify">Geoapify (مجاني 3000/يوم · مفتاح بلا بطاقة · هواتف أنظف)</option>
+            <option value="here">HERE Maps (يتطلب مفتاح في الخادم)</option>
             <option value="google">Google Maps (يتطلب مفتاح في الخادم)</option>
           </select>
         </div>
