@@ -98,7 +98,7 @@ def main():
     topic = random.choice(TOPICS)
     print(f"📌 موضوع اليوم: {topic['title']}")
     text = ask_claude_facebook(topic)
-    img = render_card_png(build_card_html(topic), "card.jpg")
+    img = render_card_png(build_card_html(topic, "ar"), "card.jpg")
     post_to_facebook(text, img)
 
 
