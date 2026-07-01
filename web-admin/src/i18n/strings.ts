@@ -587,8 +587,7 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'التخصيص': { en: 'Allocation', fr: 'Répartition' },
   'موزع': { en: 'Allocated', fr: 'Réparti' },
   'إصدار السند': { en: 'Issue receipt', fr: 'Émettre le reçu' },
-  // مكوّنات مشتركة (تأكيد + إعادة تعيين كلمة المرور)
-  'تأكيد': { en: 'Confirm', fr: 'Confirmer' },
+  // مكوّنات مشتركة (إعادة تعيين كلمة المرور)
   'تم إعادة التعيين': { en: 'Reset done', fr: 'Réinitialisation effectuée' },
   'سلّم كلمة المرور الجديدة لصاحب الحساب — لن تظهر مرة أخرى بعد إغلاق النافذة.': { en: 'Give the new password to the account owner — it will not be shown again after closing.', fr: 'Remettez le nouveau mot de passe au titulaire du compte — il ne sera plus affiché après la fermeture.' },
   'كلمة المرور الجديدة': { en: 'New password', fr: 'Nouveau mot de passe' },
