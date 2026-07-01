@@ -385,6 +385,12 @@ function EmailModal({
   );
   const [limit, setLimit] = useState(50);
 
+  // مزوّد البريد التسويقي وحصّته
+  const { data: emailStatus } = useQuery({
+    queryKey: ['email-status'],
+    queryFn: async () => (await leadApi.emailStatus()).data.data as { provider: string; dailyCap: number },
+  });
+
   // عدد المستلمين (من لديهم بريد ضمن الفلاتر الحالية)
   const { data: count } = useQuery({
     queryKey: ['lead-email-count', filters],
@@ -439,6 +445,10 @@ function EmailModal({
           <label className="label">الحد الأقصى للإرسال دفعةً (حماية من تجاوز حصة البريد)</label>
           <input type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))} className="input w-32" />
         </div>
+        <p className="text-xs bg-slate-50 rounded p-2 text-slate-600">
+          📮 المُرسل الحالي: <b>{emailStatus?.provider === 'brevo' ? 'Brevo' : 'Resend'}</b> · الحصّة اليومية ~<b>{emailStatus?.dailyCap ?? 100}</b> بريد.
+          {emailStatus?.provider !== 'brevo' && <span className="text-amber-700"> — أضِف <code>BREVO_API_KEY</code> في الخادم لرفعها إلى 300/يوم وعزلها عن بريد النظام.</span>}
+        </p>
         <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
           ⚠️ إرسال بريد جماعي لعناوين عامة قد يؤثّر على سمعة نطاقك. أرسل دفعات صغيرة ونصّاً مهنياً غير مزعج.
         </p>

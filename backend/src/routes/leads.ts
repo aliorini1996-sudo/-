@@ -4,7 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { runSearch, qualifyLeads, LeadProvider, RawLead, providersReady } from '../services/leadSources';
-import { sendMail } from '../services/mailer';
+import { sendMarketingEmail, marketingProvider } from '../services/marketingMailer';
 import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate } from '../services/whatsapp';
 import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
 
@@ -147,6 +147,12 @@ router.get('/enrich-status', (_req: AuthRequest, res: Response) => {
 // أي مصادر البحث جاهزة (لها مفتاح)؟ — قبل /:id
 router.get('/sources-status', (_req: AuthRequest, res: Response) => {
   res.json({ success: true, data: providersReady() });
+});
+
+// مزوّد البريد التسويقي الحالي وحصّته اليومية — قبل /:id
+router.get('/email-status', (_req: AuthRequest, res: Response) => {
+  const provider = marketingProvider();
+  res.json({ success: true, data: { provider, dailyCap: provider === 'brevo' ? 300 : 100 } });
 });
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //
@@ -488,7 +494,7 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
     for (const l of targets) {
       const subject = personalize(body.subject, l);
       const html = marketingHtml(body.body, l);
-      const ok = await sendMail({ subject, html, to: l.email!, replyTo: body.replyTo });
+      const ok = await sendMarketingEmail({ subject, html, to: l.email!, replyTo: body.replyTo });
       if (ok) {
         sent++;
         await prisma.lead.update({
