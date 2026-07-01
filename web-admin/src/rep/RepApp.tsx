@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import repApi from './repApi';
 import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
@@ -12,7 +12,7 @@ import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
 import LanguageToggle from '../components/LanguageToggle';
-import { useT } from '../i18n/strings';
+import { useT, useTr } from '../i18n/strings';
 import { useRepTracking } from './useRepTracking';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock';
@@ -107,6 +107,7 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
 
 // ============ الرئيسية ============
 function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => void }) {
+  const tr = useTr();
   const [stats, setStats] = useState({ salesTotal: 0, collectTotal: 0, collectBalance: 0, collectShow: true, invCount: 0, rcpCount: 0 });
   const [syncing, setSyncing] = useState(false);
 
@@ -169,12 +170,12 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       {/* Greeting */}
       <div className="bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 flex items-center justify-between">
         <div>
-          <p className="text-[#E8C9BC] text-xs">مرحباً،</p>
+          <p className="text-[#E8C9BC] text-xs">{tr('مرحباً')}،</p>
           <p className="text-white text-lg font-bold">{user.name}</p>
           {syncing && (
             <div className="flex items-center gap-1.5 mt-1">
               <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              <span className="text-[#E8C9BC] text-[11px]">مزامنة...</span>
+              <span className="text-[#E8C9BC] text-[11px]">{tr('مزامنة...')}</span>
             </div>
           )}
         </div>
@@ -187,9 +188,9 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       {stats.collectShow && (
         <div className="bg-white rounded-3xl p-5 border-2 border-green-100 flex items-center justify-between">
           <div>
-            <p className="text-xs text-gray-500">رصيد التحصيل لديك</p>
+            <p className="text-xs text-gray-500">{tr('رصيد التحصيل لديك')}</p>
             <p className="text-2xl font-extrabold text-green-700 mt-1">{formatCurrency(stats.collectBalance)}</p>
-            <p className="text-[11px] text-gray-400 mt-0.5">المبلغ الذي عليك تسليمه للإدارة</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{tr('المبلغ الذي عليك تسليمه للإدارة')}</p>
           </div>
           <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center">
             <Wallet size={26} className="text-green-600" />
@@ -199,22 +200,22 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
 
       {/* Stats */}
       <div>
-        <p className="text-[#1F1A13] font-bold text-sm mb-3">إحصائيات اليوم</p>
+        <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إحصائيات اليوم')}</p>
         <div className="grid grid-cols-2 gap-3">
-          {stat('المبيعات', formatCurrency(stats.salesTotal), TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
-          {stat('تحصيل اليوم', formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
-          {stat('الفواتير', String(stats.invCount), FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
-          {stat('سندات القبض', String(stats.rcpCount), CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
+          {stat(tr('المبيعات'), formatCurrency(stats.salesTotal), TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
+          {stat(tr('تحصيل اليوم'), formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
+          {stat(tr('الفواتير'), String(stats.invCount), FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
+          {stat(tr('سندات القبض'), String(stats.rcpCount), CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
         </div>
       </div>
 
       {/* Quick actions */}
       <div>
-        <p className="text-[#1F1A13] font-bold text-sm mb-3">إجراءات سريعة</p>
+        <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إجراءات سريعة')}</p>
         <div className="grid grid-cols-3 gap-3">
-          {quick('فاتورة', FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
-          {quick('سند قبض', CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
-          {quick('العملاء', Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
+          {quick(tr('فاتورة'), FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
+          {quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
+          {quick(tr('العملاء'), Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
         </div>
       </div>
     </div>
@@ -223,6 +224,7 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
 
 // ============ قائمة العملاء ============
 function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void; canAdd: boolean; onAdd: () => void }) {
+  const tr = useTr();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -242,21 +244,21 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
       <div className="p-3 flex items-center gap-2">
         <div className="flex-1">
           <SearchableSelect
-            placeholder="اختر العميل"
-            searchPlaceholder="اكتب اسم أو جوال العميل…"
+            placeholder={tr('اختر العميل')}
+            searchPlaceholder={tr('اكتب اسم أو جوال العميل…')}
             value=""
             resetOnSelect
             options={customers.map(c => ({
               value: c.id,
               label: c.name,
-              hint: Number(c.balance) > 0 ? `رصيد ${formatCurrency(c.balance)}` : c.phone,
+              hint: Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : c.phone,
               hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
             }))}
             onChange={(v) => { const c = customers.find(x => x.id === v); if (c) onSelect(c); }}
           />
         </div>
         {canAdd && (
-          <button onClick={onAdd} title="إضافة عميل"
+          <button onClick={onAdd} title={tr('إضافة عميل')}
             className="flex-shrink-0 w-10 h-10 bg-[#E15A30] hover:bg-[#C94E28] text-white rounded-xl flex items-center justify-center">
             <Plus size={20} />
           </button>
@@ -264,9 +266,9 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-24">
         {loading ? (
-          <div className="text-center text-gray-400 py-10 text-sm">جاري التحميل...</div>
+          <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل...')}</div>
         ) : customers.length === 0 ? (
-          <div className="text-center text-gray-400 py-10 text-sm">لا توجد نتائج</div>
+          <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد نتائج')}</div>
         ) : customers.map(c => (
           <button key={c.id} onClick={() => onSelect(c)}
             className="w-full flex items-center gap-3 bg-white rounded-2xl p-3 mb-2 border border-gray-100 text-right hover:border-[#E8C9BC]">
@@ -281,7 +283,7 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
               <p className={`text-sm font-bold ${Number(c.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {formatCurrency(c.balance)}
               </p>
-              <p className="text-[10px] text-gray-400">الرصيد</p>
+              <p className="text-[10px] text-gray-400">{tr('الرصيد')}</p>
             </div>
           </button>
         ))}
@@ -297,6 +299,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   onClose: () => void; onInvoice: () => void; onReceipt: () => void; onReturn: () => void;
   onStatement: (doc: StatementDoc) => void;
 }) {
+  const tr = useTr();
   const [entries, setEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const canCreateInvoice = perms.canCreateInvoice !== false;
@@ -331,15 +334,15 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <p className={`font-bold text-sm ${Number(customer.balance) > 0 ? 'text-red-300' : 'text-green-300'}`}>{formatCurrency(customer.balance)}</p>
-              <p className="text-[#E8C9BC] text-[10px]">الرصيد</p>
+              <p className="text-[#E8C9BC] text-[10px]">{tr('الرصيد')}</p>
             </div>
             <div>
               <p className="font-bold text-sm">{formatCurrency(customer.creditLimit)}</p>
-              <p className="text-[#E8C9BC] text-[10px]">الحد الائتماني</p>
+              <p className="text-[#E8C9BC] text-[10px]">{tr('الحد الائتماني')}</p>
             </div>
             <div>
-              <p className="font-bold text-sm">{customer.paymentDays} يوم</p>
-              <p className="text-[#E8C9BC] text-[10px]">فترة السداد</p>
+              <p className="font-bold text-sm">{customer.paymentDays} {tr('يوم')}</p>
+              <p className="text-[#E8C9BC] text-[10px]">{tr('فترة السداد')}</p>
             </div>
           </div>
         </div>
@@ -348,32 +351,32 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         <div className="grid grid-cols-2 gap-3 mt-4">
           <button onClick={onInvoice} disabled={!canCreateInvoice || !canSellAnyType}
             className="bg-[#E15A30] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <FileText size={16} /> فاتورة جديدة
+            <FileText size={16} /> {tr('فاتورة جديدة')}
           </button>
           <button onClick={onReceipt} disabled={!canCreateReceipt} className="bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <CreditCard size={16} /> سند قبض
+            <CreditCard size={16} /> {tr('سند قبض')}
           </button>
         </div>
         <div className="grid grid-cols-2 gap-3 mt-3">
           <button onClick={onReturn} className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <RotateCcw size={16} /> فاتورة إرجاع
+            <RotateCcw size={16} /> {tr('فاتورة إرجاع')}
           </button>
           <button
             onClick={() => onStatement(statementDocFromData(customer, entries, repName, company))}
             disabled={loading || !canViewStatement}
             className="bg-slate-700 hover:bg-slate-800 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
-            <FileBarChart2 size={16} /> كشف حساب
+            <FileBarChart2 size={16} /> {tr('كشف حساب')}
           </button>
         </div>
 
         {/* Statement */}
-        <p className="font-bold text-gray-700 text-sm mt-5 mb-2">كشف الحساب</p>
+        <p className="font-bold text-gray-700 text-sm mt-5 mb-2">{tr('كشف الحساب')}</p>
         {!canViewStatement ? (
-          <p className="text-center text-gray-400 py-6 text-sm">لا تملك صلاحية عرض كشف الحساب</p>
+          <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تملك صلاحية عرض كشف الحساب')}</p>
         ) : loading ? (
-          <p className="text-center text-gray-400 py-6 text-sm">جاري التحميل...</p>
+          <p className="text-center text-gray-400 py-6 text-sm">{tr('جاري التحميل...')}</p>
         ) : entries.length === 0 ? (
-          <p className="text-center text-gray-400 py-6 text-sm">لا توجد حركات</p>
+          <p className="text-center text-gray-400 py-6 text-sm">{tr('لا توجد حركات')}</p>
         ) : entries.map(e => {
           const isDebit = Number(e.debit) > 0;
           return (
@@ -391,7 +394,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
                 <p className={`text-xs font-bold ${isDebit ? 'text-red-600' : 'text-green-600'}`}>
                   {isDebit ? formatCurrency(e.debit) : formatCurrency(e.credit)}
                 </p>
-                <p className="text-[10px] text-gray-400">رصيد: {formatCurrency(e.balance)}</p>
+                <p className="text-[10px] text-gray-400">{tr('رصيد')}: {formatCurrency(e.balance)}</p>
               </div>
             </div>
           );
@@ -403,6 +406,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
 
 // ============ إنشاء فاتورة (بيع أو إرجاع) ============
 function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void }) {
+  const tr = useTr();
   const isReturn = mode === 'return';
   const canSellOnCredit = perms.canSellOnCredit !== false;
   const canSellInCash = perms.canSellInCash !== false;
@@ -460,11 +464,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const total = subtotal - discount + tax; // = مجموع الأسعار الشاملة
 
   const submit = async () => {
-    if (lines.length === 0) { setMsg('أضف صنفاً'); return; }
-    if (perms.canCreateInvoice === false) { setMsg('لا تملك صلاحية إنشاء فاتورة'); return; }
-    if (!isReturn && !canSellAnyType) { setMsg('لا تملك صلاحية البيع النقدي أو الآجل'); return; }
-    if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg('لا تملك صلاحية البيع الآجل'); return; }
-    if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg('لا تملك صلاحية البيع النقدي'); return; }
+    if (lines.length === 0) { setMsg(tr('أضف صنفاً')); return; }
+    if (perms.canCreateInvoice === false) { setMsg(tr('لا تملك صلاحية إنشاء فاتورة')); return; }
+    if (!isReturn && !canSellAnyType) { setMsg(tr('لا تملك صلاحية البيع النقدي أو الآجل')); return; }
+    if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
+    if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg(tr('لا تملك صلاحية البيع النقدي')); return; }
     setLoading(true); setMsg('');
     try {
       const res = await repApi.post('/invoices', {
@@ -480,14 +484,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         subtotal, discount, tax, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
       });
-    } catch (err: any) { setMsg(err?.response?.data?.message || 'تعذّر إصدار المستند، حاول مجدداً'); setLoading(false); }
+    } catch (err: any) { setMsg(err?.response?.data?.message || tr('تعذّر إصدار المستند، حاول مجدداً')); setLoading(false); }
   };
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
       <div className={`${isReturn ? 'bg-amber-700' : 'bg-[#1F1A13]'} text-white p-4 flex items-center gap-3`}>
         <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
-        <span className="font-bold">{showCart ? 'مراجعة الأصناف' : isReturn ? 'فاتورة إرجاع' : 'فاتورة جديدة'}</span>
+        <span className="font-bold">{showCart ? tr('مراجعة الأصناف') : isReturn ? tr('فاتورة إرجاع') : tr('فاتورة جديدة')}</span>
       </div>
 
       {/* ===== شاشة اختيار المنتجات (شبكة أيقونات) ===== */}
@@ -501,21 +505,21 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
             {isReturn ? (
               <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2 text-[11px] text-amber-800 text-center">
-                مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع
+                {tr('مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع')}
               </div>
             ) : (
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-gray-600">النوع:</span>
-                <button disabled={!canSellOnCredit} onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>آجل</button>
-                <button disabled={!canSellInCash} onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>نقدي</button>
+                <span className="text-xs text-gray-600">{tr('النوع')}:</span>
+                <button disabled={!canSellOnCredit} onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('آجل')}</button>
+                <button disabled={!canSellInCash} onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('نقدي')}</button>
               </div>
             )}
-            {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">لا تملك صلاحية البيع النقدي أو الآجل.</p>}
+            {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي أو الآجل')}.</p>}
 
             <div className="mb-2">
               <SearchableSelect
-                placeholder="اختر صنفاً لإضافته"
-                searchPlaceholder="اكتب اسم الصنف…"
+                placeholder={tr('اختر صنفاً لإضافته')}
+                searchPlaceholder={tr('اكتب اسم الصنف…')}
                 value=""
                 resetOnSelect
                 options={products.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
@@ -527,9 +531,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           {/* شبكة المنتجات */}
           <div className="flex-1 overflow-y-auto px-3 pb-28">
             {loadingProducts ? (
-              <div className="text-center text-gray-400 py-10 text-sm">جاري التحميل...</div>
+              <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل...')}</div>
             ) : products.length === 0 ? (
-              <div className="text-center text-gray-400 py-10 text-sm">لا توجد أصناف</div>
+              <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد أصناف')}</div>
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {products.map(p => {
@@ -565,7 +569,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 className={`w-full ${isReturn ? 'bg-amber-600' : 'bg-[#E15A30]'} text-white font-semibold py-3 rounded-xl flex items-center justify-between px-4`}>
                 <span className="flex items-center gap-2">
                   <span className="bg-white/25 w-6 h-6 rounded-full flex items-center justify-center text-xs">{itemCount}</span>
-                  مراجعة وإصدار
+                  {tr('مراجعة وإصدار')}
                 </span>
                 <span className="font-bold">{formatCurrency(total)}</span>
               </button>
@@ -591,27 +595,27 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                     return (
                       <div key={f}>
                         <label className="text-[10px] text-gray-400 flex items-center gap-0.5">
-                          {lbl}{f === 'discountPct' && maxDisc > 0 && <span className="text-[#E15A30]">(حد {maxDisc}%)</span>}
+                          {tr(lbl)}{f === 'discountPct' && maxDisc > 0 && <span className="text-[#E15A30]">({tr('حد')} {maxDisc}%)</span>}
                         </label>
                         <input type="number" readOnly={locked} max={f === 'discountPct' ? maxDisc : undefined} min={0}
                           className={`input text-center !py-1.5 text-sm ${locked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? 'غير مصرّح لك بتعديل هذا الحقل' : undefined} />
+                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? tr('غير مصرّح لك بتعديل هذا الحقل') : undefined} />
                       </div>
                     );
                   })}
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
-                  <span className="text-gray-400">منها ضريبة: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
+                  <span className="text-gray-400">{tr('منها ضريبة')}: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
                   <span className="font-bold text-[#E15A30]">{formatCurrency(lineTotal(l))}</span>
                 </div>
               </div>
             ))}
 
             <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
-              <div className="flex justify-between text-gray-500"><span>قبل الخصم</span><span>{formatCurrency(subtotal)}</span></div>
-              <div className="flex justify-between text-red-500"><span>الخصم</span><span>- {formatCurrency(discount)}</span></div>
-              <div className="flex justify-between text-[#E15A30]"><span>الضريبة {subtotal - discount > 0 ? Math.round((tax / (subtotal - discount)) * 100) : 0}%</span><span>{formatCurrency(tax)}</span></div>
-              <div className="flex justify-between font-bold text-base border-t pt-2"><span>الإجمالي</span><span>{formatCurrency(total)}</span></div>
+              <div className="flex justify-between text-gray-500"><span>{tr('قبل الخصم')}</span><span>{formatCurrency(subtotal)}</span></div>
+              <div className="flex justify-between text-red-500"><span>{tr('الخصم')}</span><span>- {formatCurrency(discount)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')} {subtotal - discount > 0 ? Math.round((tax / (subtotal - discount)) * 100) : 0}%</span><span>{formatCurrency(tax)}</span></div>
+              <div className="flex justify-between font-bold text-base border-t pt-2"><span>{tr('الإجمالي')}</span><span>{formatCurrency(total)}</span></div>
             </div>
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
           </div>
@@ -619,7 +623,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           <div className="p-4 border-t bg-white">
             <button onClick={submit} disabled={loading || (!isReturn && (perms.canCreateInvoice === false || !canSellAnyType))} className={`w-full ${isReturn ? 'bg-amber-600 disabled:bg-amber-400' : 'bg-[#E15A30] disabled:bg-[#E89B7E]'} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2`}>
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-              {isReturn ? 'إصدار فاتورة الإرجاع' : 'إصدار الفاتورة'}
+              {isReturn ? tr('إصدار فاتورة الإرجاع') : tr('إصدار الفاتورة')}
             </button>
           </div>
         </>
@@ -630,6 +634,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
 // ============ إنشاء سند قبض ============
 function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: { customer: any; repName: string; company: Company | null; perms: RepUser; onClose: () => void; onDone: (doc: ReceiptDoc) => void }) {
+  const tr = useTr();
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('CASH');
   const [notes, setNotes] = useState('');
@@ -637,8 +642,8 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const [msg, setMsg] = useState('');
 
   const submit = async () => {
-    if (perms.canCreateReceipt === false) { setMsg('لا تملك صلاحية إصدار سند قبض'); return; }
-    if (!amount || Number(amount) <= 0) { setMsg('أدخل مبلغاً صحيحاً'); return; }
+    if (perms.canCreateReceipt === false) { setMsg(tr('لا تملك صلاحية إصدار سند قبض')); return; }
+    if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغاً صحيحاً')); return; }
     setLoading(true); setMsg('');
     try {
       const res = await repApi.post('/receipts', { customerId: customer.id, amount: Number(amount), paymentMethod: method, notes: notes || undefined });
@@ -647,7 +652,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         kind: 'receipt', number: rcp.number, date: rcp.receiptDate,
         company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
       });
-    } catch (err: any) { setMsg(err?.response?.data?.message || 'تعذّر إصدار السند، حاول مجدداً'); setLoading(false); }
+    } catch (err: any) { setMsg(err?.response?.data?.message || tr('تعذّر إصدار السند، حاول مجدداً')); setLoading(false); }
   };
 
   const methods = [['CASH', 'نقدي'], ['BANK_TRANSFER', 'تحويل'], ['POS', 'شبكة'], ['CHEQUE', 'شيك']];
@@ -656,7 +661,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
     <div className="h-full flex flex-col bg-gray-50">
       <div className="bg-green-700 text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
-        <span className="font-bold">إصدار سند قبض</span>
+        <span className="font-bold">{tr('إصدار سند قبض')}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -665,28 +670,28 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
             <User size={16} className="text-green-700" />
             <span className="font-semibold text-sm">{customer.name}</span>
           </div>
-          <span className="text-xs text-gray-500">رصيد: {formatCurrency(customer.balance)}</span>
+          <span className="text-xs text-gray-500">{tr('رصيد')}: {formatCurrency(customer.balance)}</span>
         </div>
 
         <div>
-          <label className="label">المبلغ المحصّل</label>
+          <label className="label">{tr('المبلغ المحصّل')}</label>
           <input type="number" className="input text-lg font-bold" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
         </div>
 
         <div>
-          <label className="label">طريقة الدفع</label>
+          <label className="label">{tr('طريقة الدفع')}</label>
           <div className="flex flex-wrap gap-2">
             {methods.map(([v, lbl]) => (
               <button key={v} onClick={() => setMethod(v)}
                 className={`px-4 py-2 rounded-full text-sm ${method === v ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                {lbl}
+                {tr(lbl)}
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <label className="label">ملاحظات</label>
+          <label className="label">{tr('ملاحظات')}</label>
           <textarea className="input" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
         </div>
         {msg && <p className="text-red-500 text-xs text-center">{msg}</p>}
@@ -695,7 +700,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       <div className="p-4 border-t bg-white">
         <button onClick={submit} disabled={loading} className="w-full bg-green-600 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-green-400">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-          إصدار السند
+          {tr('إصدار السند')}
         </button>
       </div>
     </div>
@@ -704,6 +709,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 
 // ============ إضافة عميل جديد ============
 function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (c: any) => void }) {
+  const tr = useTr();
   const [form, setForm] = useState({
     name: '', businessName: '', phone: '', commercialReg: '', taxNumber: '',
     city: '', district: '', address: '', creditLimit: '', paymentDays: '30',
@@ -714,8 +720,8 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const submit = async () => {
-    if (!form.name.trim()) { setMsg('اسم العميل مطلوب'); return; }
-    if (form.phone.trim().length < 9) { setMsg('رقم جوال صحيح مطلوب (9 أرقام على الأقل)'); return; }
+    if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
+    if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب (9 أرقام على الأقل)')); return; }
     setLoading(true); setMsg('');
     try {
       const res = await repApi.post('/customers', {
@@ -732,7 +738,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       });
       onCreated(res.data.data);
     } catch (err: any) {
-      setMsg(err?.response?.data?.message || 'تعذّر إضافة العميل');
+      setMsg(err?.response?.data?.message || tr('تعذّر إضافة العميل'));
       setLoading(false);
     }
   };
@@ -749,41 +755,41 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
     <div className="h-full flex flex-col bg-gray-50">
       <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
-        <span className="font-bold">إضافة عميل جديد</span>
+        <span className="font-bold">{tr('إضافة عميل جديد')}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">البيانات الأساسية</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات الأساسية')}</p>
           <div className="space-y-3">
-            {field('اسم العميل', 'name', { required: true })}
-            {field('اسم المنشأة', 'businessName')}
-            {field('رقم الجوال', 'phone', { required: true, ltr: true })}
+            {field(tr('اسم العميل'), 'name', { required: true })}
+            {field(tr('اسم المنشأة'), 'businessName')}
+            {field(tr('رقم الجوال'), 'phone', { required: true, ltr: true })}
           </div>
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">البيانات النظامية</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات النظامية')}</p>
           <div className="grid grid-cols-2 gap-3">
-            {field('السجل التجاري', 'commercialReg', { ltr: true })}
-            {field('الرقم الضريبي', 'taxNumber', { ltr: true })}
+            {field(tr('السجل التجاري'), 'commercialReg', { ltr: true })}
+            {field(tr('الرقم الضريبي'), 'taxNumber', { ltr: true })}
           </div>
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">العنوان</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('العنوان')}</p>
           <div className="grid grid-cols-2 gap-3">
-            {field('المدينة', 'city')}
-            {field('الحي', 'district')}
+            {field(tr('المدينة'), 'city')}
+            {field(tr('الحي'), 'district')}
           </div>
-          <div className="mt-3">{field('العنوان التفصيلي', 'address')}</div>
+          <div className="mt-3">{field(tr('العنوان التفصيلي'), 'address')}</div>
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">البيانات المالية</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات المالية')}</p>
           <div className="grid grid-cols-2 gap-3">
-            {field('الحد الائتماني', 'creditLimit', { type: 'number', ltr: true })}
-            {field('فترة السداد (يوم)', 'paymentDays', { type: 'number', ltr: true })}
+            {field(tr('الحد الائتماني'), 'creditLimit', { type: 'number', ltr: true })}
+            {field(tr('فترة السداد (يوم)'), 'paymentDays', { type: 'number', ltr: true })}
           </div>
         </div>
 
@@ -793,7 +799,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       <div className="p-4 border-t bg-white">
         <button onClick={submit} disabled={loading} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-          حفظ العميل
+          {tr('حفظ العميل')}
         </button>
       </div>
     </div>
@@ -802,6 +808,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
 // ============ قائمة بسيطة (فواتير/سندات) ============
 function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoice' | 'receipt'; onOpen: (detail: any) => void }) {
+  const tr = useTr();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingId, setOpeningId] = useState<string | null>(null);
@@ -821,8 +828,8 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 
   return (
     <div className="h-full overflow-y-auto p-3 pb-24">
-      {loading ? <div className="text-center text-gray-400 py-10 text-sm">جاري التحميل...</div>
-        : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">لا توجد بيانات</div>
+      {loading ? <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل...')}</div>
+        : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد بيانات')}</div>
         : items.map(it => {
           const isReturn = kind === 'invoice' && it.type === 'RETURN';
           return (
@@ -835,7 +842,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
               <div>
                 <p className="font-semibold text-xs text-gray-800 flex items-center gap-1.5">
                   {it.number}
-                  {isReturn && <span className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0.5 rounded-full">مرتجع</span>}
+                  {isReturn && <span className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0.5 rounded-full">{tr('مرتجع')}</span>}
                 </p>
                 <p className="text-[11px] text-gray-400">{it.customer?.name} • {formatDate(kind === 'invoice' ? it.invoiceDate : it.receiptDate)}</p>
               </div>
@@ -855,9 +862,9 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
   );
 }
 
-// ============ التطبيق الرئيسي ============
 // ============ مخزون سيارتي ============
 function RepVanStock({ canLoad }: { canLoad: boolean }) {
+  const tr = useTr();
   const [view, setView] = useState<'list' | 'load'>('list');
   const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -885,16 +892,16 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   };
 
   const submit = async () => {
-    if (!canLoad) { setMsg({ ok: false, text: 'لا تملك صلاحية تحميل مخزون السيارة' }); return; }
+    if (!canLoad) { setMsg({ ok: false, text: tr('لا تملك صلاحية تحميل مخزون السيارة') }); return; }
     const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0);
-    if (!items.length) { setMsg({ ok: false, text: 'أضف صنفاً وكمية صحيحة' }); return; }
+    if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفاً وكمية صحيحة') }); return; }
     setSaving(true); setMsg(null);
     try {
       await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
       setRows([]); setNote(''); setView('list'); loadStock();
-      setMsg({ ok: true, text: 'تم تسجيل التحميل بنجاح' });
+      setMsg({ ok: true, text: tr('تم تسجيل التحميل بنجاح') });
     } catch (e) {
-      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الحفظ' });
+      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ') });
     }
     setSaving(false);
   };
@@ -904,14 +911,14 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
       <div className="h-full flex flex-col">
         <div className="p-3 flex items-center gap-2 border-b border-gray-100">
           <button onClick={() => setView('list')} className="p-1.5 text-[#6E6557]"><ArrowRight size={18} /></button>
-          <span className="font-bold text-[#1F1A13]">تحميل بضاعة للسيارة</span>
+          <span className="font-bold text-[#1F1A13]">{tr('تحميل بضاعة للسيارة')}</span>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-28">
           <div>
-            <label className="text-xs font-semibold text-[#6E6557] mb-1 block">إضافة صنف</label>
+            <label className="text-xs font-semibold text-[#6E6557] mb-1 block">{tr('إضافة صنف')}</label>
             <SearchableSelect dark resetOnSelect value="" onChange={addProduct}
               options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
-              placeholder="ابحث وأضف صنفاً…" searchPlaceholder="اكتب اسم/كود الصنف…" />
+              placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
           </div>
           {rows.map((r, i) => (
             <div key={r.productId} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl p-2.5 shadow-sm">
@@ -922,13 +929,13 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
               <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 p-1"><Trash2 size={16} /></button>
             </div>
           ))}
-          {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">لم تُضف أي صنف بعد</p>}
-          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder="ملاحظة (اختياري)" value={note} onChange={e => setNote(e.target.value)} />
+          {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">{tr('لم تُضف أي صنف بعد')}</p>}
+          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder={tr('ملاحظة (اختياري)')} value={note} onChange={e => setNote(e.target.value)} />
           {msg && <p className={`text-xs text-center ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
         </div>
         <div className="p-3 border-t border-gray-100">
           <button onClick={submit} disabled={saving || rows.length === 0} className="w-full bg-[#E15A30] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={18} />} حفظ التحميل
+            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={18} />} {tr('حفظ التحميل')}
           </button>
         </div>
       </div>
@@ -938,35 +945,35 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   return (
     <div className="h-full flex flex-col">
       <div className="p-3 flex items-center justify-between border-b border-gray-100">
-        <span className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> مخزون سيارتي</span>
+        <span className="font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={18} className="text-[#E15A30]" /> {tr('مخزون سيارتي')}</span>
         <button
           onClick={() => { if (canLoad) { setView('load'); setMsg(null); } }}
           disabled={!canLoad}
-          title={canLoad ? undefined : 'لا تملك صلاحية تحميل مخزون السيارة'}
+          title={canLoad ? undefined : tr('لا تملك صلاحية تحميل مخزون السيارة')}
           className="bg-[#E15A30] text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
         >
-          <Plus size={14} /> تحميل
+          <Plus size={14} /> {tr('تحميل')}
         </button>
       </div>
       {msg && msg.ok && <div className="mx-3 mt-3 bg-green-50 text-green-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5"><Check size={14} /> {msg.text}</div>}
-      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">يمكنك عرض مخزون السيارة فقط، ولا تملك صلاحية تسجيل تحميل جديد.</div>}
+      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('يمكنك عرض مخزون السيارة فقط، ولا تملك صلاحية تسجيل تحميل جديد.')}</div>}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24">
-        {loading ? <p className="text-center text-gray-400 text-sm py-8">جارٍ التحميل…</p>
+        {loading ? <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
           : stock.length === 0 ? (
             <div className="text-center py-10">
               <Package size={40} className="mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-400 text-sm">لا توجد بضاعة في سيارتك بعد.</p>
-              {canLoad && <p className="text-gray-400 text-xs mt-1">اضغط «تحميل» لتسجيل ما حمَّلته.</p>}
+              <p className="text-gray-400 text-sm">{tr('لا توجد بضاعة في سيارتك بعد.')}</p>
+              {canLoad && <p className="text-gray-400 text-xs mt-1">{tr('اضغط «تحميل» لتسجيل ما حمَّلته.')}</p>}
             </div>
           ) : stock.map(s => (
             <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
-                <p className="text-[11px] text-gray-400">محمَّل {fmt(s.loaded)} · مُباع {fmt(s.sold)} {s.unit}</p>
+                <p className="text-[11px] text-gray-400">{tr('محمَّل')} {fmt(s.loaded)} · {tr('مُباع')} {fmt(s.sold)} {s.unit}</p>
               </div>
               <div className="text-left shrink-0">
                 <p className={`text-lg font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{fmt(s.remaining)}</p>
-                <p className="text-[10px] text-gray-400">متبقّي</p>
+                <p className="text-[10px] text-gray-400">{tr('متبقّي')}</p>
               </div>
             </div>
           ))}
@@ -976,6 +983,7 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
 }
 
 export default function RepApp() {
+  const tr = useTr();
   const [token, setToken] = useState(localStorage.getItem('rep_token'));
   const [user, setUser] = useState<RepUser | null>(() => {
     try { return JSON.parse(localStorage.getItem('rep_user') || 'null'); } catch { return null; }
@@ -1054,13 +1062,13 @@ export default function RepApp() {
                 </span>
                 <div className="flex items-center gap-3">
                   {(trackStatus === 'active' || trackStatus === 'requesting') && (
-                    <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title="مشاركة موقعك مفعّلة">
+                    <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title={tr('مشاركة موقعك مفعّلة')}>
                       <span className={`w-2 h-2 rounded-full bg-[#5FBE92] ${trackStatus === 'active' ? 'animate-pulse' : ''}`} /> <MapPin size={12} />
                     </span>
                   )}
                   {trackStatus === 'denied' && (
-                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title="فعّل إذن الموقع من إعدادات المتصفح">
-                      <MapPin size={12} /> الموقع متوقّف
+                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title={tr('فعّل إذن الموقع من إعدادات المتصفح')}>
+                      <MapPin size={12} /> {tr('الموقع متوقّف')}
                     </span>
                   )}
                   <button onClick={logout} className="text-[#9A8F7E] hover:text-white"><LogOut size={18} /></button>
@@ -1085,7 +1093,7 @@ export default function RepApp() {
                     <button key={t.id} onClick={() => setScreen(t.id)}
                       className={`flex flex-col items-center gap-0.5 py-1.5 rounded-xl ${active ? 'text-[#E15A30]' : 'text-gray-400'}`}>
                       <Icon size={20} />
-                      <span className="text-[10px] font-medium">{t.label}</span>
+                      <span className="text-[10px] font-medium">{tr(t.label)}</span>
                     </button>
                   );
                 })}
@@ -1097,8 +1105,3 @@ export default function RepApp() {
     </div>
   );
 }
-
-
-
-
-
