@@ -60,25 +60,36 @@ function osmTagsFor(query: string): string[] {
 
 interface Bbox { south: number; west: number; north: number; east: number; cc?: string; country?: string }
 
+// كاش جيوكودنق (المواقع ثابتة) — يمنع تكرار طلبات Nominatim عند البحث بعدّة مصادر/أنشطة (حدّ 1/ث)
+const geocodeCache = new Map<string, Bbox | null>();
+
 // جيوكودنق الموقع (دولة/مدينة) → صندوق إحاطة عبر Nominatim (مجاني)
 async function geocode(country?: string, city?: string): Promise<Bbox | null> {
   const q = [city, country].filter(Boolean).join(', ');
   if (!q) return null;
+  const cacheKey = q.toLowerCase();
+  if (geocodeCache.has(cacheKey)) return geocodeCache.get(cacheKey)!;
+
+  let result: Bbox | null = null;
   const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`;
   const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'ar,en' } });
-  if (!r.ok) return null;
-  const arr = (await r.json()) as Array<{
-    boundingbox?: [string, string, string, string];
-    address?: { country?: string; country_code?: string };
-  }>;
-  const hit = arr[0];
-  if (!hit?.boundingbox) return null;
-  const [s, n, w, e] = hit.boundingbox.map(Number); // Nominatim: [south, north, west, east]
-  return {
-    south: s, north: n, west: w, east: e,
-    cc: hit.address?.country_code?.toUpperCase(),
-    country: hit.address?.country,
-  };
+  if (r.ok) {
+    const arr = (await r.json()) as Array<{
+      boundingbox?: [string, string, string, string];
+      address?: { country?: string; country_code?: string };
+    }>;
+    const hit = arr[0];
+    if (hit?.boundingbox) {
+      const [s, n, w, e] = hit.boundingbox.map(Number); // Nominatim: [south, north, west, east]
+      result = {
+        south: s, north: n, west: w, east: e,
+        cc: hit.address?.country_code?.toUpperCase(),
+        country: hit.address?.country,
+      };
+    }
+  }
+  geocodeCache.set(cacheKey, result); // نُخزّن حتى النتيجة الفارغة لتجنّب إعادة المحاولة الفورية
+  return result;
 }
 
 // ----------------------------- مصدر: OpenStreetMap ----------------------------- //

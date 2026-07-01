@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { runSearch, qualifyLeads, LeadProvider } from '../services/leadSources';
+import { runSearch, qualifyLeads, LeadProvider, RawLead } from '../services/leadSources';
 import { sendMail } from '../services/mailer';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
@@ -236,33 +236,55 @@ router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFu
 });
 
 // ------------------------------- بحث آلي + استيراد ------------------------------- //
+const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google']);
 const searchSchema = z.object({
-  provider: z.enum(['osm', 'geoapify', 'here', 'google']).default('osm'),
-  query: z.string().min(1),       // نوع النشاط: "تجارة جملة"، "food distributor"...
-  country: z.string().optional(), // اسم الدولة بأي لغة
+  // يدعم عدّة مصادر وعدّة أنشطة معاً (مع توافق رجعي للـ provider/query المفردين)
+  providers: z.array(PROVIDER_ENUM).min(1).max(4).optional(),
+  provider: PROVIDER_ENUM.optional(),
+  queries: z.array(z.string().min(1)).min(1).max(10).optional(),
+  query: z.string().min(1).optional(), // نوع النشاط: "تجارة جملة"، "food distributor"...
+  country: z.string().optional(),       // اسم الدولة بأي لغة
   city: z.string().optional(),
   limit: z.number().int().min(1).max(120).optional(),
-  qualify: z.boolean().optional(), // تأهيل بـ Claude
+  qualify: z.boolean().optional(),      // تأهيل بـ Claude
+}).refine((d) => (d.providers?.length || d.provider) && (d.queries?.length || d.query), {
+  message: 'حدّد مصدراً واحداً على الأقل ونشاطاً واحداً على الأقل',
 });
 router.post('/search', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = searchSchema.parse(req.body);
+    const providers = (body.providers?.length ? body.providers : [body.provider!]) as LeadProvider[];
+    const queries = body.queries?.length ? body.queries : [body.query!];
+
     const search = await prisma.leadSearch.create({
       data: {
-        provider: body.provider, query: body.query, country: body.country, city: body.city,
+        provider: providers.join('+'), query: queries.join('، '), country: body.country, city: body.city,
         status: 'running', createdBy: req.user?.name,
       },
     });
 
-    let raw;
-    try {
-      raw = await runSearch(body.provider as LeadProvider, body.query, body.country, body.city, body.limit);
-    } catch (e) {
-      await prisma.leadSearch.update({
-        where: { id: search.id },
-        data: { status: 'failed', error: (e as Error).message },
-      });
-      res.status(502).json({ success: false, message: (e as Error).message });
+    // تشغيل كل التوليفات (مصدر × نشاط)، دمج النتائج، وجمع أخطاء المصادر دون إيقاف الباقي
+    const rawAll: RawLead[] = [];
+    const errors: string[] = [];
+    for (const p of providers) {
+      for (const q of queries) {
+        try {
+          const r = await runSearch(p, q, body.country, body.city, body.limit);
+          rawAll.push(...r);
+        } catch (e) {
+          errors.push(`${p} · «${q}»: ${(e as Error).message}`);
+        }
+      }
+    }
+
+    // إزالة التكرار الداخلي (نفس المكان من مصدر/نشاط مختلف)
+    const seen = new Set<string>();
+    const raw = rawAll.filter((r) => (seen.has(r.sourceId) ? false : (seen.add(r.sourceId), true)));
+
+    // إن فشلت كل التوليفات ولا نتائج → خطأ واضح
+    if (raw.length === 0 && errors.length) {
+      await prisma.leadSearch.update({ where: { id: search.id }, data: { status: 'failed', error: errors.join(' | ') } });
+      res.status(502).json({ success: false, message: errors.join(' | ') });
       return;
     }
 
@@ -306,10 +328,13 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
 
     await prisma.leadSearch.update({
       where: { id: search.id },
-      data: { status: 'done', found: raw.length, imported },
+      data: { status: 'done', found: raw.length, imported, error: errors.length ? errors.join(' | ') : null },
     });
 
-    res.json({ success: true, data: { found: raw.length, imported, duplicates: raw.length - fresh.length } });
+    res.json({
+      success: true,
+      data: { found: raw.length, imported, duplicates: raw.length - fresh.length, errors },
+    });
   } catch (err) {
     next(err);
   }

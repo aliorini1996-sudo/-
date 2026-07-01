@@ -247,17 +247,37 @@ function ScorePill({ score }: { score: number }) {
   return <span className={`badge ${cls}`}>{score}/10</span>;
 }
 
-// ----------------------------- بحث آلي ----------------------------- //
+// ----------------------------- بحث آلي (عدّة مصادر + عدّة أنشطة) ----------------------------- //
+const PROVIDER_OPTIONS: { value: string; label: string }[] = [
+  { value: 'osm', label: 'OpenStreetMap (مجاني · بلا مفتاح)' },
+  { value: 'geoapify', label: 'Geoapify (مجاني · هواتف أنظف)' },
+  { value: 'here', label: 'HERE Maps (يتطلب مفتاحاً)' },
+  { value: 'google', label: 'Google Maps (يتطلب مفتاحاً)' },
+];
+
 function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [form, setForm] = useState({ provider: 'osm', query: 'تجارة جملة', country: '', city: '', qualify: true });
+  const [providers, setProviders] = useState<string[]>(['osm', 'geoapify']);
+  const [queriesText, setQueriesText] = useState('تجارة جملة\nموزّع مواد غذائية');
+  const [country, setCountry] = useState('');
+  const [city, setCity] = useState('');
+  const [qualify, setQualify] = useState(true);
+
+  const queries = queriesText.split(/[\n,،]/).map((s) => s.trim()).filter(Boolean);
+  const combos = providers.length * queries.length;
+
+  const toggleProvider = (v: string) =>
+    setProviders((ps) => (ps.includes(v) ? ps.filter((p) => p !== v) : [...ps, v]));
+
   const mutation = useMutation({
     mutationFn: () => leadApi.search({
-      provider: form.provider, query: form.query, country: form.country || undefined,
-      city: form.city || undefined, qualify: form.qualify,
+      providers, queries, country: country || undefined, city: city || undefined, qualify,
     }),
     onSuccess: (res) => {
-      const { found, imported, duplicates } = res.data.data;
+      const { found, imported, duplicates, errors } = res.data.data as {
+        found: number; imported: number; duplicates: number; errors?: string[];
+      };
       toast.success(`نتائج: ${found} · جديد: ${imported} · مكرّر: ${duplicates}`);
+      if (errors && errors.length) toast.error(`تعذّر بعض المصادر: ${errors.join(' | ')}`, { duration: 6000 });
       onDone();
       if (imported > 0) onClose();
     },
@@ -268,35 +288,40 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
     <Modal title="بحث آلي عن عملاء محتملين" onClose={onClose}>
       <div className="space-y-3">
         <div>
-          <label className="label">المصدر</label>
-          <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="input">
-            <option value="osm">OpenStreetMap (مجاني · بلا مفتاح · عالمي)</option>
-            <option value="geoapify">Geoapify (مجاني 3000/يوم · مفتاح بلا بطاقة · هواتف أنظف)</option>
-            <option value="here">HERE Maps (يتطلب مفتاح في الخادم)</option>
-            <option value="google">Google Maps (يتطلب مفتاح في الخادم)</option>
-          </select>
+          <label className="label">المصادر (يمكن اختيار أكثر من واحد)</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PROVIDER_OPTIONS.map((o) => (
+              <label key={o.value} className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 cursor-pointer ${providers.includes(o.value) ? 'border-[#E15A30] bg-[#FBEBE2]/40' : 'border-[#E9E1D3]'}`}>
+                <input type="checkbox" checked={providers.includes(o.value)} onChange={() => toggleProvider(o.value)} />
+                <span className="text-gray-700">{o.label}</span>
+              </label>
+            ))}
+          </div>
         </div>
         <div>
-          <label className="label">نوع النشاط</label>
-          <input value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} className="input" placeholder="تجارة جملة، موزّع مواد غذائية، food distributor..." />
+          <label className="label">أنواع الأنشطة (نشاط بكل سطر أو مفصولة بفاصلة)</label>
+          <textarea value={queriesText} onChange={(e) => setQueriesText(e.target.value)} rows={3} className="input"
+            placeholder={'تجارة جملة\nموزّع مواد غذائية\nfood distributor\nwholesale'} />
+          <p className="text-xs text-gray-400 mt-1">{queries.length} نشاط × {providers.length} مصدر = <b>{combos}</b> عملية بحث.</p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">الدولة</label>
-            <input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="input" placeholder="مصر، المغرب، UAE..." />
+            <input value={country} onChange={(e) => setCountry(e.target.value)} className="input" placeholder="مصر، المغرب، UAE..." />
           </div>
           <div>
             <label className="label">المدينة (اختياري)</label>
-            <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="input" placeholder="القاهرة، دبي..." />
+            <input value={city} onChange={(e) => setCity(e.target.value)} className="input" placeholder="القاهرة، دبي..." />
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-gray-600">
-          <input type="checkbox" checked={form.qualify} onChange={(e) => setForm({ ...form, qualify: e.target.checked })} />
+          <input type="checkbox" checked={qualify} onChange={(e) => setQualify(e.target.checked)} />
           تأهيل تلقائي بالذكاء الاصطناعي (تقييم الملاءمة 1-10)
         </label>
-        <p className="text-xs text-gray-400">يبحث ضمن الدولة/المدينة المحدّدة. كلما حدّدت مدينة كانت النتائج أدقّ. بيانات أعمال عامّة فقط.</p>
+        <p className="text-xs text-gray-400">تُدمج نتائج كل المصادر والأنشطة وتُزال التكرارات تلقائياً. كلما زادت التوليفات طال وقت البحث.</p>
+        {combos > 12 && <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">⚠️ {combos} عملية قد تستغرق وقتاً طويلاً — قلّل المصادر أو الأنشطة أو حدّد مدينة.</p>}
         <div className="flex gap-2 pt-2">
-          <button disabled={mutation.isPending || !form.query} onClick={() => mutation.mutate()} className="btn-primary flex-1">
+          <button disabled={mutation.isPending || providers.length === 0 || queries.length === 0} onClick={() => mutation.mutate()} className="btn-primary flex-1">
             {mutation.isPending ? 'جارٍ البحث...' : <><Radar size={16} /> ابدأ البحث</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
