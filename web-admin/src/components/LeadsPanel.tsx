@@ -25,11 +25,30 @@ const SOURCE_LABEL: Record<string, string> = {
   osm: 'خرائط OSM', geoapify: 'Geoapify', here: 'HERE Maps', google: 'Google Maps', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
 };
 
+type Filters = {
+  stage: string; source: string; q: string; dueOnly: boolean;
+  hasEmail: boolean; hasPhone: boolean; hasWebsite: boolean; notEmailed: boolean;
+};
+const EMPTY_FILTERS: Filters = {
+  stage: '', source: '', q: '', dueOnly: false, hasEmail: false, hasPhone: false, hasWebsite: false, notEmailed: false,
+};
+// يحوّل حالة الفلاتر إلى معاملات API (تُستخدم في القائمة والتصدير وعدّ البريد)
+function toParams(f: Filters): Record<string, string | boolean> {
+  const p: Record<string, string | boolean> = {};
+  if (f.stage) p.stage = f.stage;
+  if (f.source) p.source = f.source;
+  if (f.q) p.q = f.q;
+  if (f.dueOnly) p.dueOnly = true;
+  if (f.hasEmail) p.hasEmail = true;
+  if (f.hasPhone) p.hasPhone = true;
+  if (f.hasWebsite) p.hasWebsite = true;
+  if (f.notEmailed) p.emailed = 'false';
+  return p;
+}
+
 export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
-  const [filters, setFilters] = useState<{ stage: string; source: string; q: string; dueOnly: boolean }>({
-    stage: '', source: '', q: '', dueOnly: false,
-  });
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -43,12 +62,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const { data: leadsRes, isLoading } = useQuery({
     queryKey: ['leads', filters],
     queryFn: async () => {
-      const params: Record<string, string | boolean> = {};
-      if (filters.stage) params.stage = filters.stage;
-      if (filters.source) params.source = filters.source;
-      if (filters.q) params.q = filters.q;
-      if (filters.dueOnly) params.dueOnly = true;
-      const res = await leadApi.list(params);
+      const res = await leadApi.list(toParams(filters));
       return res.data as { data: Lead[]; total: number };
     },
   });
@@ -61,7 +75,11 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
 
   const exportCsv = async () => {
     const token = localStorage.getItem('sa_token');
-    const r = await fetch(leadApi.exportUrl(), { headers: { Authorization: `Bearer ${token}` } });
+    const qs = new URLSearchParams(
+      Object.entries(toParams(filters)).map(([k, v]) => [k, String(v)]),
+    ).toString();
+    const endpoint = qs ? `${leadApi.exportUrl()}?${qs}` : leadApi.exportUrl();
+    const r = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -146,6 +164,18 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           <button onClick={exportCsv} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Download size={14} className="inline ml-1" /> تصدير</button>
         </div>
 
+        {/* Availability filter chips */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <span className="text-xs text-gray-500">تصفية:</span>
+          <FilterChip active={filters.hasEmail} onClick={() => setFilters((f) => ({ ...f, hasEmail: !f.hasEmail }))} label="متوفر بريد" />
+          <FilterChip active={filters.hasPhone} onClick={() => setFilters((f) => ({ ...f, hasPhone: !f.hasPhone }))} label="متوفر رقم" />
+          <FilterChip active={filters.hasWebsite} onClick={() => setFilters((f) => ({ ...f, hasWebsite: !f.hasWebsite }))} label="متوفر موقع" />
+          <FilterChip active={filters.notEmailed} onClick={() => setFilters((f) => ({ ...f, notEmailed: !f.notEmailed }))} label="لم يُراسَل بعد" />
+          {(filters.hasEmail || filters.hasPhone || filters.hasWebsite || filters.notEmailed || filters.dueOnly || filters.stage || filters.source || filters.q) && (
+            <button onClick={() => setFilters(EMPTY_FILTERS)} className="text-xs text-[#E15A30] hover:underline mr-1">مسح الكل</button>
+          )}
+        </div>
+
         {/* List */}
         <div className="card p-0 overflow-hidden">
           <div className="table-wrapper">
@@ -198,6 +228,17 @@ function Kpi({ icon: Icon, label, value, color }: { icon: typeof Target; label: 
         <div className="text-xs text-gray-500">{label}</div>
       </div>
     </div>
+  );
+}
+
+function FilterChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full text-xs border transition ${active ? 'bg-[#E15A30] text-white border-[#E15A30]' : 'bg-white border-[#E9E1D3] text-gray-600 hover:border-[#E15A30]'}`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -268,7 +309,7 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 // ----------------------------- بريد تسويقي جماعي ----------------------------- //
 function EmailModal({
   filters, onClose, onDone,
-}: { filters: { stage: string; source: string; q: string }; onClose: () => void; onDone: () => void }) {
+}: { filters: Filters; onClose: () => void; onDone: () => void }) {
   const [subject, setSubject] = useState('Field Sales — نظام إدارة مبيعات المناديب والتوزيع');
   const [body, setBody] = useState(
     'مرحباً {{name}}،\n\nنقدّم لكم Field Sales: نظام متكامل لإدارة مبيعات المناديب الميدانيين والتوزيع — فواتير، تحصيل وذمم، مخزون سيارة، وتتبّع GPS.\n\nيسعدنا أن نعرض عليكم النظام. جرّبوه مجاناً على fieldsa.net.\n\nمع التحية،\nفريق Field Sales',
@@ -279,7 +320,8 @@ function EmailModal({
   const { data: count } = useQuery({
     queryKey: ['lead-email-count', filters],
     queryFn: async () => {
-      const params: Record<string, string | number | boolean> = { hasEmail: true, pageSize: 1 };
+      // من لديه بريد ولم تسبق مراسلته (يطابق استهداف الخادم)
+      const params: Record<string, string | number | boolean> = { hasEmail: true, emailed: 'false', pageSize: 1 };
       if (filters.stage) params.stage = filters.stage;
       if (filters.source) params.source = filters.source;
       if (filters.q) params.q = filters.q;
@@ -311,9 +353,9 @@ function EmailModal({
     <Modal title="بريد تسويقي للعملاء المحتملين" onClose={onClose}>
       <div className="space-y-3">
         <div className="bg-[#FBEBE2] rounded-lg p-3 text-sm text-[#8a4a2f]">
-          سيُرسَل لمن لديه <b>بريد إلكتروني</b> ضمن الفلاتر الحالية:
+          سيُرسَل لمن لديه <b>بريد</b> و<b>لم تسبق مراسلته</b> ضمن الفلاتر الحالية:
           <b> {recipients}</b> مستلم متاح · سيُرسل الآن لـ<b> {willSend}</b> (حسب الحد).
-          <br />من يصله البريد يُنقل تلقائياً إلى <b>«تم التواصل»</b>.
+          <br />من يصله البريد يُنقل تلقائياً إلى <b>«تم التواصل»</b> ولا يُراسَل مجدداً.
         </div>
         <div>
           <label className="label">الموضوع</label>

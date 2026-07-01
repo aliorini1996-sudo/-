@@ -12,6 +12,32 @@ router.use(authenticate, requireSuperAdmin);
 
 const STAGES = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'] as const;
 
+// بناء شرط التصفية المشترك (تستخدمه القائمة والتصدير) من معاملات الاستعلام
+function buildLeadWhere(query: Record<string, string>): Record<string, unknown> {
+  const { stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, hasPhone, hasWebsite, emailed } = query;
+  const where: Record<string, unknown> = {};
+  if (stage && STAGES.includes(stage as typeof STAGES[number])) where.stage = stage;
+  if (source) where.source = source;
+  if (countryCode) where.countryCode = countryCode;
+  if (assignedTo) where.assignedTo = assignedTo;
+  if (dueOnly === 'true') where.nextFollowUpAt = { lte: new Date() };
+  if (hasEmail === 'true') where.email = { not: null };
+  if (hasPhone === 'true') where.phone = { not: null };
+  if (hasWebsite === 'true') where.website = { not: null };
+  // «تمت مراسلته / لم يُراسَل» عبر وجود نشاط EMAIL (بلا حاجة لعمود جديد)
+  if (emailed === 'true') where.activities = { some: { type: 'EMAIL' } };
+  else if (emailed === 'false') where.activities = { none: { type: 'EMAIL' } };
+  if (q) {
+    where.OR = [
+      { name: { contains: q, mode: 'insensitive' } },
+      { city: { contains: q, mode: 'insensitive' } },
+      { country: { contains: q, mode: 'insensitive' } },
+      { phone: { contains: q } },
+    ];
+  }
+  return where;
+}
+
 const leadCreateSchema = z.object({
   name: z.string().min(1),
   phone: z.string().optional().nullable(),
@@ -48,25 +74,9 @@ const leadUpdateSchema = z.object({
 // ------------------------------- قائمة + فلاتر ------------------------------- //
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { stage, source, countryCode, q, assignedTo, dueOnly } = req.query as Record<string, string>;
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 50));
-
-    const where: Record<string, unknown> = {};
-    if (stage && STAGES.includes(stage as typeof STAGES[number])) where.stage = stage;
-    if (source) where.source = source;
-    if (countryCode) where.countryCode = countryCode;
-    if (assignedTo) where.assignedTo = assignedTo;
-    if (dueOnly === 'true') where.nextFollowUpAt = { lte: new Date() };
-    if ((req.query.hasEmail as string) === 'true') where.email = { not: null };
-    if (q) {
-      where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { city: { contains: q, mode: 'insensitive' } },
-        { country: { contains: q, mode: 'insensitive' } },
-        { phone: { contains: q } },
-      ];
-    }
+    const where = buildLeadWhere(req.query as Record<string, string>);
 
     const [total, leads] = await Promise.all([
       prisma.lead.count({ where }),
@@ -372,7 +382,11 @@ function marketingHtml(bodyText: string, lead: { name: string; city?: string | n
 router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = emailSchema.parse(req.body);
-    const where: Record<string, unknown> = { email: { not: null } };
+    // يستهدف من لديه بريد ولم تسبق مراسلته (بلا نشاط EMAIL) — لا يُعاد الإرسال أبداً
+    const where: Record<string, unknown> = {
+      email: { not: null },
+      activities: { none: { type: 'EMAIL' } },
+    };
     if (body.ids?.length) {
       where.id = { in: body.ids };
     } else {
@@ -419,9 +433,11 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
 });
 
 // ------------------------------- تصدير CSV ------------------------------- //
-router.get('/export/csv', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const leads = await prisma.lead.findMany({ orderBy: { createdAt: 'desc' } });
+    // يحترم نفس فلاتر القائمة → «تصدير كل تصفية على حدة»
+    const where = buildLeadWhere(req.query as Record<string, string>);
+    const leads = await prisma.lead.findMany({ where, orderBy: { createdAt: 'desc' } });
     const cols = ['name', 'phone', 'email', 'website', 'address', 'city', 'country', 'category', 'stage', 'score', 'source', 'mapsUrl'];
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = [cols.join(',')];
