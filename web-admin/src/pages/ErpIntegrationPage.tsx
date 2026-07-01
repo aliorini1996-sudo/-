@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { erpApi } from '../api/client';
 import { ErpIntegration, ErpSyncLog } from '../types';
 import { formatDate } from '../utils/format';
+import { useTr } from '../i18n/strings';
 
 type FormState = ErpIntegration & {
   apiKey?: string;
@@ -42,6 +43,7 @@ const resourceLabels: Record<string, string> = {
 
 export default function ErpIntegrationPage() {
   const qc = useQueryClient();
+  const tr = useTr();
   const [form, setForm] = useState<FormState>(empty);
 
   const { data: settings, isLoading } = useQuery({
@@ -67,20 +69,20 @@ export default function ErpIntegrationPage() {
   const saveMutation = useMutation({
     mutationFn: () => erpApi.saveSettings(form),
     onSuccess: () => {
-      toast.success('تم حفظ إعدادات ERP');
+      toast.success(tr('تم حفظ إعدادات ERP'));
       qc.invalidateQueries({ queryKey: ['erp-settings'] });
     },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الحفظ'),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
   });
 
   const testMutation = useMutation({
     mutationFn: () => erpApi.test(),
     onSuccess: () => {
-      toast.success('تم اختبار الاتصال');
+      toast.success(tr('تم اختبار الاتصال'));
       qc.invalidateQueries({ queryKey: ['erp-logs'] });
     },
     onError: (err: unknown) => {
-      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل اختبار الاتصال');
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('فشل اختبار الاتصال'));
       qc.invalidateQueries({ queryKey: ['erp-logs'] });
     },
   });
@@ -88,11 +90,11 @@ export default function ErpIntegrationPage() {
   const syncMutation = useMutation({
     mutationFn: (resource: 'all' | 'customers' | 'products' | 'invoices' | 'receipts') => erpApi.sync(resource),
     onSuccess: () => {
-      toast.success('تم تشغيل المزامنة');
+      toast.success(tr('تم تشغيل المزامنة'));
       qc.invalidateQueries({ queryKey: ['erp-logs'] });
       qc.invalidateQueries({ queryKey: ['erp-settings'] });
     },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّرت المزامنة'),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّرت المزامنة')),
   });
 
   const set = (key: keyof FormState, value: string | boolean) => setForm(f => ({ ...f, [key]: value }));
@@ -102,12 +104,12 @@ export default function ErpIntegrationPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">تكامل ERP</h1>
-          <p className="text-sm text-gray-500 mt-1">اربط النظام مع أي ERP يدعم REST API لتصدير العملاء والمنتجات والفواتير والتحصيل.</p>
+          <h1 className="page-title">{tr('تكامل ERP')}</h1>
+          <p className="text-sm text-gray-500 mt-1">{tr('اربط النظام مع أي ERP يدعم REST API لتصدير العملاء والمنتجات والفواتير والتحصيل.')}</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary" disabled={busy || isLoading} onClick={() => testMutation.mutate()}><Activity size={16} />اختبار الاتصال</button>
-          <button className="btn-primary" disabled={busy || isLoading} onClick={() => saveMutation.mutate()}><Save size={16} />حفظ الإعدادات</button>
+          <button className="btn-secondary" disabled={busy || isLoading} onClick={() => testMutation.mutate()}><Activity size={16} />{tr('اختبار الاتصال')}</button>
+          <button className="btn-primary" disabled={busy || isLoading} onClick={() => saveMutation.mutate()}><Save size={16} />{tr('حفظ الإعدادات')}</button>
         </div>
       </div>
 
@@ -117,60 +119,60 @@ export default function ErpIntegrationPage() {
             <div className="flex items-center gap-3 mb-5">
               <div className="w-11 h-11 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><ServerCog size={20} /></div>
               <div>
-                <h2 className="font-bold text-[#1F1A13]">إعدادات الاتصال</h2>
-                <p className="text-xs text-gray-500">ضع رابط API الرئيسي ونوع المصادقة المعتمد في نظام ERP.</p>
+                <h2 className="font-bold text-[#1F1A13]">{tr('إعدادات الاتصال')}</h2>
+                <p className="text-xs text-gray-500">{tr('ضع رابط API الرئيسي ونوع المصادقة المعتمد في نظام ERP.')}</p>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <label className="flex items-center gap-2 col-span-2 text-sm text-gray-700">
                 <input type="checkbox" checked={form.enabled} onChange={e => set('enabled', e.target.checked)} />
-                تفعيل التكامل
+                {tr('تفعيل التكامل')}
               </label>
               <div>
-                <label className="label">النظام</label>
+                <label className="label">{tr('النظام')}</label>
                 <select className="input" value={form.provider} onChange={e => set('provider', e.target.value)}>
-                  <option value="CUSTOM">عام / مخصص</option>
+                  <option value="CUSTOM">{tr('عام / مخصص')}</option>
                   <option value="ODOO">Odoo</option>
                   <option value="SAP">SAP</option>
                   <option value="ZOHO">Zoho</option>
-                  <option value="OTHER">آخر</option>
+                  <option value="OTHER">{tr('آخر')}</option>
                 </select>
               </div>
               <div>
-                <label className="label">نوع المصادقة</label>
+                <label className="label">{tr('نوع المصادقة')}</label>
                 <select className="input" value={form.authType} onChange={e => set('authType', e.target.value)}>
-                  <option value="NONE">بدون</option>
+                  <option value="NONE">{tr('بدون')}</option>
                   <option value="API_KEY">API Key</option>
                   <option value="BEARER">Bearer Token</option>
                   <option value="BASIC">Basic Auth</option>
                 </select>
               </div>
               <div className="col-span-2">
-                <label className="label">رابط ERP الأساسي</label>
+                <label className="label">{tr('رابط ERP الأساسي')}</label>
                 <input className="input" dir="ltr" placeholder="https://erp.example.com/api" value={form.baseUrl || ''} onChange={e => set('baseUrl', e.target.value)} />
               </div>
               {form.authType === 'API_KEY' && (
                 <div className="col-span-2">
-                  <label className="label">API Key {form.hasApiKey && <span className="text-xs text-green-600">محفوظ سابقًا</span>}</label>
-                  <input className="input" dir="ltr" type="password" placeholder="اتركه فارغًا للإبقاء على المفتاح الحالي" value={form.apiKey || ''} onChange={e => set('apiKey', e.target.value)} />
+                  <label className="label">API Key {form.hasApiKey && <span className="text-xs text-green-600">{tr('محفوظ سابقًا')}</span>}</label>
+                  <input className="input" dir="ltr" type="password" placeholder={tr('اتركه فارغًا للإبقاء على المفتاح الحالي')} value={form.apiKey || ''} onChange={e => set('apiKey', e.target.value)} />
                 </div>
               )}
               {form.authType === 'BEARER' && (
                 <div className="col-span-2">
-                  <label className="label">Bearer Token {form.hasBearerToken && <span className="text-xs text-green-600">محفوظ سابقًا</span>}</label>
-                  <input className="input" dir="ltr" type="password" placeholder="اتركه فارغًا للإبقاء على الرمز الحالي" value={form.bearerToken || ''} onChange={e => set('bearerToken', e.target.value)} />
+                  <label className="label">Bearer Token {form.hasBearerToken && <span className="text-xs text-green-600">{tr('محفوظ سابقًا')}</span>}</label>
+                  <input className="input" dir="ltr" type="password" placeholder={tr('اتركه فارغًا للإبقاء على الرمز الحالي')} value={form.bearerToken || ''} onChange={e => set('bearerToken', e.target.value)} />
                 </div>
               )}
               {form.authType === 'BASIC' && (
                 <>
                   <div>
-                    <label className="label">اسم المستخدم</label>
+                    <label className="label">{tr('اسم المستخدم')}</label>
                     <input className="input" dir="ltr" value={form.basicUsername || ''} onChange={e => set('basicUsername', e.target.value)} />
                   </div>
                   <div>
-                    <label className="label">كلمة المرور {form.hasBasicPassword && <span className="text-xs text-green-600">محفوظة</span>}</label>
-                    <input className="input" dir="ltr" type="password" placeholder="اتركها فارغة للإبقاء عليها" value={form.basicPassword || ''} onChange={e => set('basicPassword', e.target.value)} />
+                    <label className="label">{tr('كلمة المرور')} {form.hasBasicPassword && <span className="text-xs text-green-600">{tr('محفوظة')}</span>}</label>
+                    <input className="input" dir="ltr" type="password" placeholder={tr('اتركها فارغة للإبقاء عليها')} value={form.basicPassword || ''} onChange={e => set('basicPassword', e.target.value)} />
                   </div>
                 </>
               )}
@@ -181,34 +183,34 @@ export default function ErpIntegrationPage() {
             <div className="flex items-center gap-3 mb-5">
               <div className="w-11 h-11 rounded-xl bg-[#E4F1EA] text-[#1E7A52] flex items-center justify-center"><DatabaseZap size={20} /></div>
               <div>
-                <h2 className="font-bold text-[#1F1A13]">مسارات المزامنة</h2>
-                <p className="text-xs text-gray-500">يُرسل النظام طلب POST يحتوي على البيانات إلى كل مسار.</p>
+                <h2 className="font-bold text-[#1F1A13]">{tr('مسارات المزامنة')}</h2>
+                <p className="text-xs text-gray-500">{tr('يُرسل النظام طلب POST يحتوي على البيانات إلى كل مسار.')}</p>
               </div>
             </div>
 
-            <EndpointRow label="العملاء" enabled={form.syncCustomers} endpoint={form.customersEndpoint || ''} onEnabled={v => set('syncCustomers', v)} onEndpoint={v => set('customersEndpoint', v)} />
-            <EndpointRow label="المنتجات" enabled={form.syncProducts} endpoint={form.productsEndpoint || ''} onEnabled={v => set('syncProducts', v)} onEndpoint={v => set('productsEndpoint', v)} />
-            <EndpointRow label="الفواتير" enabled={form.syncInvoices} endpoint={form.invoicesEndpoint || ''} onEnabled={v => set('syncInvoices', v)} onEndpoint={v => set('invoicesEndpoint', v)} />
-            <EndpointRow label="سندات القبض" enabled={form.syncReceipts} endpoint={form.receiptsEndpoint || ''} onEnabled={v => set('syncReceipts', v)} onEndpoint={v => set('receiptsEndpoint', v)} />
+            <EndpointRow label={tr('العملاء')} enabled={form.syncCustomers} endpoint={form.customersEndpoint || ''} onEnabled={v => set('syncCustomers', v)} onEndpoint={v => set('customersEndpoint', v)} />
+            <EndpointRow label={tr('المنتجات')} enabled={form.syncProducts} endpoint={form.productsEndpoint || ''} onEnabled={v => set('syncProducts', v)} onEndpoint={v => set('productsEndpoint', v)} />
+            <EndpointRow label={tr('الفواتير')} enabled={form.syncInvoices} endpoint={form.invoicesEndpoint || ''} onEnabled={v => set('syncInvoices', v)} onEndpoint={v => set('invoicesEndpoint', v)} />
+            <EndpointRow label={tr('سندات القبض')} enabled={form.syncReceipts} endpoint={form.receiptsEndpoint || ''} onEnabled={v => set('syncReceipts', v)} onEndpoint={v => set('receiptsEndpoint', v)} />
           </div>
         </div>
 
         <div className="space-y-6">
           <div className="card">
-            <h2 className="font-bold text-[#1F1A13] mb-4">تشغيل مزامنة يدوية</h2>
+            <h2 className="font-bold text-[#1F1A13] mb-4">{tr('تشغيل مزامنة يدوية')}</h2>
             <div className="grid grid-cols-2 gap-3">
               {(['all', 'customers', 'products', 'invoices', 'receipts'] as const).map(r => (
                 <button key={r} disabled={busy} onClick={() => syncMutation.mutate(r)} className="btn-secondary justify-center py-2.5">
-                  <Play size={14} /> {resourceLabels[r]}
+                  <Play size={14} /> {tr(resourceLabels[r])}
                 </button>
               ))}
             </div>
-            {settings?.lastSyncAt && <p className="text-xs text-gray-500 mt-4">آخر مزامنة: {formatDate(settings.lastSyncAt)}</p>}
+            {settings?.lastSyncAt && <p className="text-xs text-gray-500 mt-4">{tr('آخر مزامنة')}: {formatDate(settings.lastSyncAt)}</p>}
           </div>
 
           <div className="card p-0 overflow-hidden">
             <div className="p-4 border-b border-gray-100">
-              <h2 className="font-bold text-[#1F1A13]">سجل المزامنة</h2>
+              <h2 className="font-bold text-[#1F1A13]">{tr('سجل المزامنة')}</h2>
             </div>
             <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
               {logs?.length ? logs.map(log => (
@@ -216,14 +218,14 @@ export default function ErpIntegrationPage() {
                   {log.status === 'SUCCESS' ? <CheckCircle2 size={18} className="text-green-600 mt-0.5" /> : <XCircle size={18} className="text-red-500 mt-0.5" />}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3">
-                      <p className="font-semibold text-sm text-[#1F1A13]">{resourceLabels[log.resource] || log.resource}</p>
+                      <p className="font-semibold text-sm text-[#1F1A13]">{tr(resourceLabels[log.resource] || log.resource)}</p>
                       <span className="text-xs text-gray-400">{formatDate(log.startedAt)}</span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">{log.message || ''}</p>
-                    <p className="text-[11px] text-gray-400 mt-1">عدد السجلات: {log.count}</p>
+                    <p className="text-[11px] text-gray-400 mt-1">{tr('عدد السجلات')}: {log.count}</p>
                   </div>
                 </div>
-              )) : <p className="text-center text-gray-400 text-sm py-10">لا توجد عمليات مزامنة بعد</p>}
+              )) : <p className="text-center text-gray-400 text-sm py-10">{tr('لا توجد عمليات مزامنة بعد')}</p>}
             </div>
           </div>
         </div>
