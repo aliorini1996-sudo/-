@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { vanStockApi, productApi, salesRepApi } from '../api/client';
 import { formatDate } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
 import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -23,6 +24,7 @@ const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 
 // لوحة مخزون سيارات المناديب — ملخّص لكل مندوب + تفاصيل المخزون وحركته
 export default function VanStockPage() {
+  const tr = useTr();
   const [selected, setSelected] = useState<string>('');
   const [showLoad, setShowLoad] = useState(false);
 
@@ -50,33 +52,33 @@ export default function VanStockPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-[#1F1A13] flex items-center gap-2">
-            <Truck size={26} className="text-[#E15A30]" /> مخزون سيارات المناديب
+            <Truck size={26} className="text-[#E15A30]" /> {tr('مخزون سيارات المناديب')}
           </h1>
-          <p className="text-[#6E6557] text-sm mt-1">متابعة ما حمَّله كل مندوب في سيارته، وما تبقّى بعد المبيعات لحظياً.</p>
+          <p className="text-[#6E6557] text-sm mt-1">{tr('متابعة ما حمَّله كل مندوب في سيارته، وما تبقّى بعد المبيعات لحظياً.')}</p>
         </div>
-        <button onClick={() => setShowLoad(true)} className="btn-primary"><Plus size={17} /> تسجيل تحميل</button>
+        <button onClick={() => setShowLoad(true)} className="btn-primary"><Plus size={17} /> {tr('تسجيل تحميل')}</button>
       </div>
 
       {/* ملخّص المناديب */}
       <div className="card overflow-hidden p-0">
         <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
-          <Boxes size={17} className="text-[#E15A30]" /> ملخّص المخزون حسب المندوب
+          <Boxes size={17} className="text-[#E15A30]" /> {tr('ملخّص المخزون حسب المندوب')}
         </div>
         {summaryQ.isLoading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">جارٍ التحميل…</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
         ) : reps.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">لا يوجد مناديب بعد.</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('لا يوجد مناديب بعد.')}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#6E6557] text-xs bg-[#FAF7F0]">
-                  <th className="text-right font-semibold px-5 py-2.5">المندوب</th>
-                  <th className="text-center font-semibold px-3 py-2.5">أصناف بالسيارة</th>
-                  <th className="text-center font-semibold px-3 py-2.5">إجمالي محمَّل</th>
-                  <th className="text-center font-semibold px-3 py-2.5">إجمالي مُباع</th>
-                  <th className="text-center font-semibold px-3 py-2.5">المتبقّي</th>
-                  <th className="text-center font-semibold px-3 py-2.5">آخر تحميل</th>
+                  <th className="text-right font-semibold px-5 py-2.5">{tr('المندوب')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('أصناف بالسيارة')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي محمَّل')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي مُباع')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقّي')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -84,7 +86,7 @@ export default function VanStockPage() {
                   <tr key={r.salesRepId}
                     onClick={() => setSelected(r.salesRepId)}
                     className={`border-t border-[#F1EBDF] cursor-pointer transition-colors ${selected === r.salesRepId ? 'bg-[#FBEBE2]' : 'hover:bg-[#FAF7F0]'}`}>
-                    <td className="px-5 py-3 font-semibold text-[#1F1A13]">{r.repName}{!r.isActive && <span className="text-[10px] text-red-500 mr-2">موقوف</span>}</td>
+                    <td className="px-5 py-3 font-semibold text-[#1F1A13]">{r.repName}{!r.isActive && <span className="text-[10px] text-red-500 mr-2">{tr('موقوف')}</span>}</td>
                     <td className="text-center px-3 py-3">{r.productCount}</td>
                     <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalLoaded)}</td>
                     <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalSold)}</td>
@@ -104,22 +106,22 @@ export default function VanStockPage() {
           {/* المخزون الحالي */}
           <div className="card p-0 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
-              <Package size={17} className="text-[#E15A30]" /> مخزون «{selectedRep.repName}» الحالي
+              <Package size={17} className="text-[#E15A30]" /> {tr('مخزون المندوب الحالي')} — {selectedRep.repName}
             </div>
             {currentQ.isLoading ? (
-              <div className="p-8 text-center text-gray-400 text-sm">جارٍ التحميل…</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
             ) : (currentQ.data || []).length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">لا توجد بضاعة محمّلة لهذا المندوب.</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد بضاعة محمّلة لهذا المندوب.')}</div>
             ) : (
               <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0">
                     <tr className="text-[#6E6557] text-xs bg-[#FAF7F0]">
-                      <th className="text-right font-semibold px-5 py-2.5">الصنف</th>
-                      <th className="text-center font-semibold px-2 py-2.5">محمَّل</th>
-                      <th className="text-center font-semibold px-2 py-2.5">مُباع</th>
-                      <th className="text-center font-semibold px-2 py-2.5">مرتجع</th>
-                      <th className="text-center font-semibold px-3 py-2.5">المتبقّي</th>
+                      <th className="text-right font-semibold px-5 py-2.5">{tr('الصنف')}</th>
+                      <th className="text-center font-semibold px-2 py-2.5">{tr('محمَّل')}</th>
+                      <th className="text-center font-semibold px-2 py-2.5">{tr('مُباع')}</th>
+                      <th className="text-center font-semibold px-2 py-2.5">{tr('مرتجع')}</th>
+                      <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقّي')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -144,12 +146,12 @@ export default function VanStockPage() {
           {/* حركة المخزون (كم نزل ومتى) */}
           <div className="card p-0 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
-              <TrendingDown size={17} className="text-[#E15A30]" /> حركة البضاعة — ماذا نزل ومتى
+              <TrendingDown size={17} className="text-[#E15A30]" /> {tr('حركة البضاعة — ماذا نزل ومتى')}
             </div>
             {movementsQ.isLoading ? (
-              <div className="p-8 text-center text-gray-400 text-sm">جارٍ التحميل…</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
             ) : (movementsQ.data || []).length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">لا توجد حركة بعد.</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركة بعد.')}</div>
             ) : (
               <div className="max-h-[420px] overflow-y-auto divide-y divide-[#F1EBDF]">
                 {(movementsQ.data || []).map((m, i) => <MovementRow key={i} m={m} />)}
@@ -173,11 +175,12 @@ const KIND_META: Record<string, { label: string; color: string; sign: string }> 
 };
 
 function MovementRow({ m }: { m: Movement }) {
+  const tr = useTr();
   const meta = KIND_META[m.kind] || KIND_META.ADJUST;
   return (
     <div className="px-5 py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${meta.color}`}>{meta.label}</span>
+        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${meta.color}`}>{tr(meta.label)}</span>
         <span className="text-[11px] text-[#9A8F7E] flex items-center gap-1"><Calendar size={11} /> {formatDate(m.date)}</span>
       </div>
       {m.ref && <p className="text-xs text-[#6E6557] mt-1.5">{m.ref}</p>}
@@ -195,6 +198,7 @@ function MovementRow({ m }: { m: Movement }) {
 // نموذج تسجيل تحميل بضاعة لمندوب (للأدمن)
 function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: () => void }) {
   const qc = useQueryClient();
+  const tr = useTr();
   const [repId, setRepId] = useState(preselectRep);
   const [note, setNote] = useState('');
   const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string }[]>([]);
@@ -218,10 +222,10 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
       qc.invalidateQueries({ queryKey: ['van-summary'] });
       qc.invalidateQueries({ queryKey: ['van-current'] });
       qc.invalidateQueries({ queryKey: ['van-movements'] });
-      toast.success('تم تسجيل التحميل');
+      toast.success(tr('تم تسجيل التحميل'));
       onClose();
     },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الحفظ'),
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
   });
 
   const valid = repId && rows.length > 0 && rows.every(r => Number(r.qty) > 0);
@@ -230,22 +234,22 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
-          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><ArrowDownToLine size={20} className="text-[#E15A30]" /> تسجيل تحميل بضاعة</h2>
+          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><ArrowDownToLine size={20} className="text-[#E15A30]" /> {tr('تسجيل تحميل بضاعة')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
           <div>
-            <label className="label">المندوب</label>
+            <label className="label">{tr('المندوب')}</label>
             <SearchableSelect
               options={(repsQ.data || []).map(r => ({ value: r.id, label: r.name }))}
-              value={repId} onChange={(v) => setRepId(v)} placeholder="اختر المندوب…" />
+              value={repId} onChange={(v) => setRepId(v)} placeholder={tr('اختر المندوب…')} />
           </div>
           <div>
-            <label className="label">إضافة صنف</label>
+            <label className="label">{tr('إضافة صنف')}</label>
             <SearchableSelect
               options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
-              value="" onChange={addProduct} resetOnSelect placeholder="ابحث وأضف صنفاً…" searchPlaceholder="اكتب اسم/كود الصنف…" />
+              value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
           </div>
 
           {rows.length > 0 && (
@@ -266,17 +270,17 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
           )}
 
           <div>
-            <label className="label">ملاحظة (اختياري)</label>
-            <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder="مثال: تحميل صباح اليوم من المستودع" />
+            <label className="label">{tr('ملاحظة (اختياري)')}</label>
+            <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال: تحميل صباح اليوم من المستودع')} />
           </div>
         </div>
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
           <button onClick={() => save.mutate()} disabled={!valid || save.isPending} className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={16} />}
-            حفظ التحميل
+            {tr('حفظ التحميل')}
           </button>
-          <button onClick={onClose} className="btn-secondary">إلغاء</button>
+          <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>
       </div>
     </div>
