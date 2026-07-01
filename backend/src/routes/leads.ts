@@ -491,11 +491,12 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
 
     let sent = 0;
     let failed = 0;
+    const errors: string[] = [];
     for (const l of targets) {
       const subject = personalize(body.subject, l);
       const html = marketingHtml(body.body, l);
-      const ok = await sendMarketingEmail({ subject, html, to: l.email!, replyTo: body.replyTo });
-      if (ok) {
+      try {
+        await sendMarketingEmail({ subject, html, to: l.email!, replyTo: body.replyTo });
         sent++;
         await prisma.lead.update({
           where: { id: l.id },
@@ -504,12 +505,13 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
         await prisma.leadActivity.create({
           data: { leadId: l.id, type: 'EMAIL', content: `بريد تسويقي: ${subject}`, createdBy: req.user?.name },
         });
-      } else {
+      } catch (e) {
         failed++;
+        if (errors.length < 3) errors.push((e as Error).message);
       }
     }
 
-    res.json({ success: true, data: { targeted: targets.length, sent, failed } });
+    res.json({ success: true, data: { targeted: targets.length, sent, failed, errors } });
   } catch (err) {
     next(err);
   }

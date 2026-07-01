@@ -413,10 +413,11 @@ function EmailModal({
       q: filters.q || undefined,
     }),
     onSuccess: (res) => {
-      const { targeted, sent, failed } = res.data.data;
+      const { targeted, sent, failed, errors } = res.data.data as { targeted: number; sent: number; failed: number; errors?: string[] };
       toast.success(`أُرسل ${sent} من ${targeted}${failed ? ` · فشل ${failed}` : ''}`);
+      if (errors && errors.length) toast.error(errors.join(' | '), { duration: 8000 });
       onDone();
-      onClose();
+      if (sent > 0) onClose();
     },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل الإرسال'),
   });
