@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customerApi, companyApi } from '../api/client';
 import { Customer } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
@@ -14,6 +15,7 @@ import { StatementDoc, statementDocFromData, Company } from '../rep/RepDocuments
 
 export default function CustomersPage() {
   const qc = useQueryClient();
+  const tr = useTr();
   const { user } = useAuthStore();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -43,22 +45,22 @@ export default function CustomersPage() {
       selected ? customerApi.update(selected.id, values) : customerApi.create(values),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['customers'] });
-      toast.success(selected ? 'تم تحديث العميل' : 'تم إضافة العميل');
+      toast.success(selected ? tr('تم تحديث العميل') : tr('تم إضافة العميل'));
       setShowModal(false);
       setSelected(null);
     },
-    onError: () => toast.error('حدث خطأ'),
+    onError: () => toast.error(tr('حدث خطأ')),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => customerApi.remove(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['customers'] });
-      toast.success('تم حذف العميل');
+      toast.success(tr('تم حذف العميل'));
       setDeleting(null);
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر حذف العميل';
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف العميل');
       toast.error(msg);
       setDeleting(null);
     },
@@ -74,21 +76,21 @@ export default function CustomersPage() {
     try {
       const res = await customerApi.statement(c.id);
       const { customer, entries } = res.data.data;
-      setDocResult(statementDocFromData(customer, entries, user?.name || 'الإدارة', company));
-    } catch { toast.error('تعذّر فتح الكشف'); }
+      setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), company));
+    } catch { toast.error(tr('تعذّر فتح الكشف')); }
     setOpeningId(null);
   };
 
   const statusBadge = (s: string) => {
     const map: Record<string, string> = { ACTIVE: 'badge-active', INACTIVE: 'badge-inactive', BLOCKED: 'badge-blocked' };
-    return <span className={map[s] || ''}>{statusLabels[s]}</span>;
+    return <span className={map[s] || ''}>{tr(statusLabels[s])}</span>;
   };
 
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">إدارة العملاء</h1>
-        <button className="btn-primary" onClick={openAdd}><Plus size={16} />إضافة عميل</button>
+        <h1 className="page-title">{tr('إدارة العملاء')}</h1>
+        <button className="btn-primary" onClick={openAdd}><Plus size={16} />{tr('إضافة عميل')}</button>
       </div>
 
       {/* Filters */}
@@ -96,14 +98,14 @@ export default function CustomersPage() {
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder="بحث بالاسم أو الجوال أو الكود..." value={search}
+            <input className="input pr-9" placeholder={tr('بحث بالاسم أو الجوال أو الكود...')} value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <select className="input w-40" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
-            <option value="">جميع الحالات</option>
-            <option value="ACTIVE">نشط</option>
-            <option value="INACTIVE">غير نشط</option>
-            <option value="BLOCKED">محظور</option>
+            <option value="">{tr('جميع الحالات')}</option>
+            <option value="ACTIVE">{tr('نشط')}</option>
+            <option value="INACTIVE">{tr('غير نشط')}</option>
+            <option value="BLOCKED">{tr('محظور')}</option>
           </select>
         </div>
       </div>
@@ -114,15 +116,15 @@ export default function CustomersPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>الكود</th><th>العميل</th><th>الجوال</th><th>المدينة</th>
-                <th>الرصيد</th><th>الحد الائتماني</th><th>الحالة</th><th>إجراءات</th>
+                <th>{tr('الكود')}</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th>
+                <th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">لا توجد نتائج</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
               ) : data?.data.map(c => (
                 <tr key={c.id}>
                   <td className="font-mono text-xs text-gray-500">{c.code}</td>
@@ -139,16 +141,16 @@ export default function CustomersPage() {
                   <td>{statusBadge(c.status)}</td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openEdit(c)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="تعديل">
+                      <button onClick={() => openEdit(c)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}>
                         <Edit size={14} />
                       </button>
-                      <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title="كشف حساب (عرض)">
+                      <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('كشف حساب (عرض)')}>
                         <FileText size={14} />
                       </button>
-                      <button onClick={() => openStatementPdf(c)} className="p-1.5 hover:bg-slate-100 rounded text-slate-600" title="كشف حساب PDF">
+                      <button onClick={() => openStatementPdf(c)} className="p-1.5 hover:bg-slate-100 rounded text-slate-600" title={tr('كشف حساب PDF')}>
                         {openingId === c.id ? <span className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin inline-block" /> : <FileBarChart2 size={14} />}
                       </button>
-                      <button onClick={() => setDeleting(c)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title="حذف العميل">
+                      <button onClick={() => setDeleting(c)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title={tr('حذف العميل')}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -162,7 +164,7 @@ export default function CustomersPage() {
         {/* Pagination */}
         {data && data.pagination.pages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-            <p className="text-sm text-gray-500">إجمالي: {data.pagination.total} عميل</p>
+            <p className="text-sm text-gray-500">{tr('إجمالي')}: {data.pagination.total} {tr('عميل')}</p>
             <div className="flex items-center gap-1">
               <button className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
                 <ChevronRight size={16} />
@@ -194,9 +196,9 @@ export default function CustomersPage() {
       {deleting && (
         <ConfirmDialog
           danger
-          title="حذف العميل"
-          message={`سيتم حذف العميل «${deleting.name}» نهائياً ولا يمكن التراجع. إن كان لديه فواتير أو سندات أو حركات في كشف حسابه فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.`}
-          confirmLabel="حذف نهائي"
+          title={tr('حذف العميل')}
+          message={`${tr('سيتم حذف العميل')} «${deleting.name}» ${tr('نهائياً ولا يمكن التراجع. إن كان لديه فواتير أو سندات أو حركات في كشف حسابه فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.')}`}
+          confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}
           onClose={() => setDeleting(null)}
