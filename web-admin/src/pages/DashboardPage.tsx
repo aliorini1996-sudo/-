@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../api/client';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import { DashboardStats } from '../types';
 import {
   TrendingUp, ShoppingCart, DollarSign, Users,
@@ -26,6 +27,7 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
 }
 
 export default function DashboardPage() {
+  const tr = useTr();
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: async () => {
@@ -52,8 +54,8 @@ export default function DashboardPage() {
   // معالجة فشل التحميل (مثلاً انقطاع الخادم) بدل تعطّل الصفحة
   if (isError || !data) return (
     <div className="flex flex-col items-center justify-center h-64 text-center">
-      <p className="text-gray-500 mb-3">تعذّر تحميل بيانات لوحة التحكم</p>
-      <button onClick={() => refetch()} className="btn-primary">إعادة المحاولة</button>
+      <p className="text-gray-500 mb-3">{tr('تعذّر تحميل بيانات لوحة التحكم')}</p>
+      <button onClick={() => refetch()} className="btn-primary">{tr('إعادة المحاولة')}</button>
     </div>
   );
 
@@ -62,33 +64,33 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="page-header">
-        <h1 className="page-title">لوحة التحكم</h1>
+        <h1 className="page-title">{tr('لوحة التحكم')}</h1>
         <p className="text-sm text-gray-500">{new Intl.DateTimeFormat('ar-SA', { dateStyle: 'full' }).format(new Date())}</p>
       </div>
 
       {/* Today Stats */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">إحصائيات اليوم</h2>
+        <h2 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">{tr('إحصائيات اليوم')}</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={DollarSign} label="المبيعات اليوم" value={formatCurrency(d.today.salesTotal)} sub={`${d.today.invoicesCount} فاتورة`} color="bg-[#E15A30]" />
-          <StatCard icon={CreditCard} label="التحصيل اليوم" value={formatCurrency(d.today.collectionsTotal)} sub={`${d.today.receiptsCount} سند`} color="bg-green-500" />
-          <StatCard icon={ShoppingCart} label="مبيعات الشهر" value={formatCurrency(d.month.salesTotal)} sub={`${d.month.invoicesCount} فاتورة`} color="bg-[#E15A30]" />
-          <StatCard icon={TrendingUp} label="تحصيل الشهر" value={formatCurrency(d.month.collectionsTotal)} sub={`${d.month.receiptsCount} سند`} color="bg-teal-500" />
+          <StatCard icon={DollarSign} label={tr('المبيعات اليوم')} value={formatCurrency(d.today.salesTotal)} sub={`${d.today.invoicesCount} ${tr('فاتورة')}`} color="bg-[#E15A30]" />
+          <StatCard icon={CreditCard} label={tr('التحصيل اليوم')} value={formatCurrency(d.today.collectionsTotal)} sub={`${d.today.receiptsCount} ${tr('سند')}`} color="bg-green-500" />
+          <StatCard icon={ShoppingCart} label={tr('مبيعات الشهر')} value={formatCurrency(d.month.salesTotal)} sub={`${d.month.invoicesCount} ${tr('فاتورة')}`} color="bg-[#E15A30]" />
+          <StatCard icon={TrendingUp} label={tr('تحصيل الشهر')} value={formatCurrency(d.month.collectionsTotal)} sub={`${d.month.receiptsCount} ${tr('سند')}`} color="bg-teal-500" />
         </div>
       </div>
 
       {/* Customer Stats */}
       <div className="grid grid-cols-3 gap-4">
-        <StatCard icon={Users} label="العملاء النشطون" value={String(d.customers.total)} color="bg-purple-500" />
-        <StatCard icon={FileText} label="العملاء بأرصدة" value={String(d.customers.withBalance)} color="bg-orange-500" />
-        <StatCard icon={AlertTriangle} label="تجاوز الحد الائتماني" value={String(d.customers.creditExceeded)} color="bg-red-500" />
+        <StatCard icon={Users} label={tr('العملاء النشطون')} value={String(d.customers.total)} color="bg-purple-500" />
+        <StatCard icon={FileText} label={tr('العملاء بأرصدة')} value={String(d.customers.withBalance)} color="bg-orange-500" />
+        <StatCard icon={AlertTriangle} label={tr('تجاوز الحد الائتماني')} value={String(d.customers.creditExceeded)} color="bg-red-500" />
       </div>
 
       {/* Chart + Top Reps */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Sales Trend */}
         <div className="card lg:col-span-2">
-          <h3 className="font-semibold text-gray-700 mb-4">مبيعات آخر 30 يوم</h3>
+          <h3 className="font-semibold text-gray-700 mb-4">{tr('مبيعات آخر 30 يوم')}</h3>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={trendData || []}>
               <defs>
@@ -101,7 +103,7 @@ export default function DashboardPage() {
               <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={v => v.slice(5)} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
               <Tooltip formatter={(v: number) => formatCurrency(v)} labelStyle={{ direction: 'ltr' }} />
-              <Area type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={2} fill="url(#colorSales)" name="المبيعات" />
+              <Area type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={2} fill="url(#colorSales)" name={tr('المبيعات')} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -109,7 +111,7 @@ export default function DashboardPage() {
         {/* Top Reps */}
         <div className="card">
           <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <Trophy size={16} className="text-yellow-500" /> أفضل المناديب
+            <Trophy size={16} className="text-yellow-500" /> {tr('أفضل المناديب')}
           </h3>
           <div className="space-y-3">
             {d.topReps.slice(0, 5).map((rep, i) => (
@@ -119,7 +121,7 @@ export default function DashboardPage() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{rep.name}</p>
-                  <p className="text-xs text-gray-400">{rep.invoicesCount} فاتورة</p>
+                  <p className="text-xs text-gray-400">{rep.invoicesCount} {tr('فاتورة')}</p>
                 </div>
                 <span className="text-sm font-semibold text-[#E15A30] whitespace-nowrap">
                   {formatCurrency(rep.salesTotal)}
@@ -134,7 +136,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Recent Invoices */}
         <div className="card">
-          <h3 className="font-semibold text-gray-700 mb-4">آخر الفواتير</h3>
+          <h3 className="font-semibold text-gray-700 mb-4">{tr('آخر الفواتير')}</h3>
           <div className="space-y-2">
             {d.recentInvoices.slice(0, 6).map(inv => (
               <div key={inv.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
@@ -144,7 +146,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-left">
                   <p className="text-sm font-semibold text-gray-800">{formatCurrency(inv.total)}</p>
-                  <span className={`badge-${inv.type.toLowerCase()}`}>{statusLabels[inv.type]}</span>
+                  <span className={`badge-${inv.type.toLowerCase()}`}>{tr(statusLabels[inv.type])}</span>
                 </div>
               </div>
             ))}
@@ -154,7 +156,7 @@ export default function DashboardPage() {
         {/* Top Customers */}
         <div className="card">
           <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <Trophy size={16} className="text-orange-500" /> أفضل العملاء
+            <Trophy size={16} className="text-orange-500" /> {tr('أفضل العملاء')}
           </h3>
           <div className="space-y-3">
             {d.topCustomers.slice(0, 6).map((c, i) => (
@@ -164,7 +166,7 @@ export default function DashboardPage() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
-                  <p className="text-xs text-gray-400">الرصيد: {formatCurrency(c.balance)}</p>
+                  <p className="text-xs text-gray-400">{tr('الرصيد')}: {formatCurrency(c.balance)}</p>
                 </div>
                 <span className="text-sm font-semibold text-orange-600 whitespace-nowrap">
                   {formatCurrency(c.totalSales)}

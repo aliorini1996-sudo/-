@@ -259,6 +259,24 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'صنف': { en: 'item', fr: 'article' },
   'تم التحديث': { en: 'Updated', fr: 'Mis à jour' },
   'تم الإضافة': { en: 'Added', fr: 'Ajouté' },
+  // لوحة التحكم
+  'لوحة التحكم': { en: 'Dashboard', fr: 'Tableau de bord' },
+  'تعذّر تحميل بيانات لوحة التحكم': { en: 'Could not load dashboard data', fr: 'Impossible de charger les données du tableau de bord' },
+  'إعادة المحاولة': { en: 'Retry', fr: 'Réessayer' },
+  'إحصائيات اليوم': { en: "Today's stats", fr: 'Statistiques du jour' },
+  'المبيعات اليوم': { en: "Today's sales", fr: 'Ventes du jour' },
+  'التحصيل اليوم': { en: "Today's collection", fr: 'Encaissement du jour' },
+  'مبيعات الشهر': { en: 'Month sales', fr: 'Ventes du mois' },
+  'تحصيل الشهر': { en: 'Month collection', fr: 'Encaissement du mois' },
+  'سند': { en: 'receipt', fr: 'reçu' },
+  'العملاء النشطون': { en: 'Active customers', fr: 'Clients actifs' },
+  'العملاء بأرصدة': { en: 'Customers with balances', fr: 'Clients avec solde' },
+  'تجاوز الحد الائتماني': { en: 'Credit limit exceeded', fr: 'Limite de crédit dépassée' },
+  'مبيعات آخر 30 يوم': { en: 'Last 30 days sales', fr: 'Ventes des 30 derniers jours' },
+  'أفضل المناديب': { en: 'Top reps', fr: 'Meilleurs représentants' },
+  'المبيعات': { en: 'Sales', fr: 'Ventes' },
+  'آخر الفواتير': { en: 'Recent invoices', fr: 'Dernières factures' },
+  'أفضل العملاء': { en: 'Top customers', fr: 'Meilleurs clients' },
 };
 
 export function useTr() {
