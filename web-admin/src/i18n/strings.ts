@@ -576,7 +576,6 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'خصم عام %': { en: 'General discount %', fr: 'Remise générale %' },
   'إجمالي الخصم': { en: 'Total discount', fr: 'Remise totale' },
   'ضريبة القيمة المضافة': { en: 'VAT', fr: 'TVA' },
-  'ملاحظات': { en: 'Notes', fr: 'Remarques' },
   'إصدار الفاتورة': { en: 'Issue invoice', fr: 'Émettre la facture' },
 };
 
