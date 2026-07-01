@@ -277,6 +277,16 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'المبيعات': { en: 'Sales', fr: 'Ventes' },
   'آخر الفواتير': { en: 'Recent invoices', fr: 'Dernières factures' },
   'أفضل العملاء': { en: 'Top customers', fr: 'Meilleurs clients' },
+  // سندات القبض
+  'سندات القبض': { en: 'Receipts', fr: 'Reçus' },
+  'سند جديد': { en: 'New receipt', fr: 'Nouveau reçu' },
+  'رقم السند': { en: 'Receipt number', fr: 'N° de reçu' },
+  'لا توجد سندات': { en: 'No receipts', fr: 'Aucun reçu' },
+  'لا توجد سندات للتصدير': { en: 'No receipts to export', fr: 'Aucun reçu à exporter' },
+  'إلغاء سند القبض': { en: 'Cancel receipt', fr: 'Annuler le reçu' },
+  'هل تريد إلغاء هذا السند؟ سيُعكس أثره على رصيد العميل.': { en: 'Cancel this receipt? Its effect on the customer balance will be reversed.', fr: 'Annuler ce reçu ? Son effet sur le solde du client sera inversé.' },
+  'تم إلغاء السند': { en: 'Receipt cancelled', fr: 'Reçu annulé' },
+  'خطأ في الإلغاء': { en: 'Cancellation error', fr: 'Erreur d’annulation' },
 };
 
 export function useTr() {

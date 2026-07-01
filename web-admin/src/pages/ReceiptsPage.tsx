@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { receiptApi, companyApi, salesRepApi } from '../api/client';
 import { Receipt, SalesRep } from '../types';
 import { formatCurrency, formatDate, paymentMethodLabels } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import { Plus, XCircle, ChevronLeft, ChevronRight, FileText, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ReceiptModal from '../components/forms/ReceiptModal';
@@ -13,6 +14,7 @@ import { shareOrDownloadExcel, num } from '../utils/excel';
 
 export default function ReceiptsPage() {
   const qc = useQueryClient();
+  const tr = useTr();
   const [page, setPage] = useState(1);
   const [salesRepId, setSalesRepId] = useState('');
   const [from, setFrom] = useState('');
@@ -54,22 +56,22 @@ export default function ReceiptsPage() {
     try {
       const res = await receiptApi.list({ ...filters(), limit: 5000 });
       const receipts = res.data.data as Receipt[];
-      if (!receipts.length) { toast.error('لا توجد سندات للتصدير'); setExporting(false); return; }
+      if (!receipts.length) { toast.error(tr('لا توجد سندات للتصدير')); setExporting(false); return; }
       const rows = receipts.map(r => ({
-        'رقم السند': r.number,
-        'العميل': r.customer.name,
-        'المندوب': r.salesRep.name,
-        'المبلغ': num(r.amount),
-        'طريقة الدفع': paymentMethodLabels[r.paymentMethod] || r.paymentMethod,
-        'التاريخ': formatDate(r.receiptDate),
-        'الحالة': r.status === 'ACTIVE' ? 'نشط' : 'ملغي',
+        [tr('رقم السند')]: r.number,
+        [tr('العميل')]: r.customer.name,
+        [tr('المندوب')]: r.salesRep.name,
+        [tr('المبلغ')]: num(r.amount),
+        [tr('طريقة الدفع')]: tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod),
+        [tr('التاريخ')]: formatDate(r.receiptDate),
+        [tr('الحالة')]: r.status === 'ACTIVE' ? tr('نشط') : tr('ملغي'),
       }));
       const out = await shareOrDownloadExcel(
-        [{ name: 'سندات القبض', rows, colWidths: [18, 24, 16, 12, 14, 16, 10] }],
-        `سندات-القبض-${new Date().toISOString().slice(0, 10)}`
+        [{ name: tr('سندات القبض'), rows, colWidths: [18, 24, 16, 12, 14, 16, 10] }],
+        `${tr('سندات القبض')}-${new Date().toISOString().slice(0, 10)}`
       );
-      toast.success(out === 'shared' ? 'تمت المشاركة' : `تم تصدير ${rows.length} سند`);
-    } catch { toast.error('تعذّر التصدير'); }
+      toast.success(out === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('سند')}`);
+    } catch { toast.error(tr('تعذّر التصدير')); }
     setExporting(false);
   };
 
@@ -79,14 +81,14 @@ export default function ReceiptsPage() {
     try {
       const res = await receiptApi.get(id);
       setDocResult(receiptDocFromDetail(res.data.data, '', company));
-    } catch { toast.error('تعذّر فتح المستند'); }
+    } catch { toast.error(tr('تعذّر فتح المستند')); }
     setOpeningId(null);
   };
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => receiptApi.cancel(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['receipts'] }); toast.success('تم إلغاء السند'); },
-    onError: () => toast.error('خطأ في الإلغاء'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['receipts'] }); toast.success(tr('تم إلغاء السند')); },
+    onError: () => toast.error(tr('خطأ في الإلغاء')),
   });
 
   const methodBadge = (m: string) => {
@@ -94,19 +96,19 @@ export default function ReceiptsPage() {
       CASH: 'bg-green-100 text-green-700', BANK_TRANSFER: 'bg-[#FBEBE2] text-[#C94E28]',
       POS: 'bg-purple-100 text-purple-700', CHEQUE: 'bg-orange-100 text-orange-700',
     };
-    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[m] || ''}`}>{paymentMethodLabels[m]}</span>;
+    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[m] || ''}`}>{tr(paymentMethodLabels[m])}</span>;
   };
 
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">سندات القبض</h1>
+        <h1 className="page-title">{tr('سندات القبض')}</h1>
         <div className="flex gap-2">
           <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? <span className="w-4 h-4 border-2 border-gray-300 border-t-[#E15A30] rounded-full animate-spin" /> : <Download size={16} />}
-            تصدير Excel
+            {tr('تصدير Excel')}
           </button>
-          <button className="btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} />سند جديد</button>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} />{tr('سند جديد')}</button>
         </div>
       </div>
 
@@ -114,19 +116,19 @@ export default function ReceiptsPage() {
       <div className="card mb-4">
         <div className="flex gap-3 flex-wrap items-end">
           <select className="input w-40" value={salesRepId} onChange={e => { setSalesRepId(e.target.value); setPage(1); }}>
-            <option value="">كل المناديب</option>
+            <option value="">{tr('كل المناديب')}</option>
             {reps?.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
           <div>
-            <label className="label text-xs">من تاريخ</label>
+            <label className="label text-xs">{tr('من تاريخ')}</label>
             <input type="date" className="input w-40" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} />
           </div>
           <div>
-            <label className="label text-xs">إلى تاريخ</label>
+            <label className="label text-xs">{tr('إلى تاريخ')}</label>
             <input type="date" className="input w-40" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} />
           </div>
           {(from || to || salesRepId) && (
-            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setPage(1); }}>مسح الفلاتر</button>
+            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setPage(1); }}>{tr('مسح الفلاتر')}</button>
           )}
         </div>
       </div>
@@ -136,15 +138,15 @@ export default function ReceiptsPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>رقم السند</th><th>العميل</th><th>المندوب</th>
-                <th>المبلغ</th><th>طريقة الدفع</th><th>التاريخ</th><th>الحالة</th><th>إجراءات</th>
+                <th>{tr('رقم السند')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th>
+                <th>{tr('المبلغ')}</th><th>{tr('طريقة الدفع')}</th><th>{tr('التاريخ')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">لا توجد سندات</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('لا توجد سندات')}</td></tr>
               ) : data?.data.map(r => (
                 <tr key={r.id}>
                   <td className="font-mono text-sm text-green-600">{r.number}</td>
@@ -155,19 +157,19 @@ export default function ReceiptsPage() {
                   <td className="text-xs text-gray-400">{formatDate(r.receiptDate)}</td>
                   <td>
                     <span className={r.status === 'ACTIVE' ? 'badge-active' : 'badge-cancelled'}>
-                      {r.status === 'ACTIVE' ? 'نشط' : 'ملغي'}
+                      {r.status === 'ACTIVE' ? tr('نشط') : tr('ملغي')}
                     </span>
                   </td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openReceiptPdf(r.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="عرض / PDF">
+                      <button onClick={() => openReceiptPdf(r.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('عرض / PDF')}>
                         {openingId === r.id ? <span className="w-3.5 h-3.5 border-2 border-[#F5C9BA] border-t-[#E15A30] rounded-full animate-spin inline-block" /> : <FileText size={14} />}
                       </button>
                       {r.status === 'ACTIVE' && (
                         <button
                           onClick={() => setCancelId(r.id)}
                           className="p-1.5 hover:bg-red-50 rounded text-red-500"
-                          title="إلغاء"
+                          title={tr('إلغاء')}
                         >
                           <XCircle size={14} />
                         </button>
@@ -181,7 +183,7 @@ export default function ReceiptsPage() {
         </div>
         {data && data.pagination.pages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-            <p className="text-sm text-gray-500">إجمالي: {data.pagination.total} سند</p>
+            <p className="text-sm text-gray-500">{tr('إجمالي')}: {data.pagination.total} {tr('سند')}</p>
             <div className="flex items-center gap-1">
               <button className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
                 <ChevronRight size={16} />
@@ -204,9 +206,9 @@ export default function ReceiptsPage() {
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
       {cancelId && (
         <ConfirmDialog
-          title="إلغاء سند القبض"
-          message="هل تريد إلغاء هذا السند؟ سيُعكس أثره على رصيد العميل."
-          confirmLabel="نعم، إلغاء"
+          title={tr('إلغاء سند القبض')}
+          message={tr('هل تريد إلغاء هذا السند؟ سيُعكس أثره على رصيد العميل.')}
+          confirmLabel={tr('نعم، إلغاء')}
           danger
           loading={cancelMutation.isPending}
           onConfirm={() => { cancelMutation.mutate(cancelId, { onSettled: () => setCancelId(null) }); }}
