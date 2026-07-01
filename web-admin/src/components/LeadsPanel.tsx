@@ -272,6 +272,8 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
   const [qualify, setQualify] = useState(true);
+  const [enrich, setEnrich] = useState(true);
+  const [enrichHunter, setEnrichHunter] = useState(false);
 
   const queries = queriesText.split(/[\n,،]/).map((s) => s.trim()).filter(Boolean);
   const combos = providers.length * queries.length;
@@ -281,13 +283,13 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 
   const mutation = useMutation({
     mutationFn: () => leadApi.search({
-      providers, queries, country: country || undefined, city: city || undefined, qualify,
+      providers, queries, country: country || undefined, city: city || undefined, qualify, enrich, enrichHunter,
     }),
     onSuccess: (res) => {
-      const { found, imported, duplicates, errors } = res.data.data as {
-        found: number; imported: number; duplicates: number; errors?: string[];
+      const { found, imported, duplicates, enrichedEmail, errors } = res.data.data as {
+        found: number; imported: number; duplicates: number; enrichedEmail?: number; errors?: string[];
       };
-      toast.success(`نتائج: ${found} · جديد: ${imported} · مكرّر: ${duplicates}`);
+      toast.success(`نتائج: ${found} · جديد: ${imported} · مكرّر: ${duplicates}${enrichedEmail ? ` · بريد مُثرى: ${enrichedEmail}` : ''}`);
       if (errors && errors.length) toast.error(`تعذّر بعض المصادر: ${errors.join(' | ')}`, { duration: 6000 });
       onDone();
       if (imported > 0) onClose();
@@ -329,7 +331,19 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           <input type="checkbox" checked={qualify} onChange={(e) => setQualify(e.target.checked)} />
           تأهيل تلقائي بالذكاء الاصطناعي (تقييم الملاءمة 1-10)
         </label>
-        <p className="text-xs text-gray-400">تُدمج نتائج كل المصادر والأنشطة وتُزال التكرارات تلقائياً. كلما زادت التوليفات طال وقت البحث.</p>
+        <div className="bg-purple-50 rounded-lg p-2.5 space-y-1.5">
+          <label className="flex items-center gap-2 text-sm text-purple-800">
+            <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
+            🪄 إثراء تلقائي بعد البحث (زيارة مواقع الجدد لجلب البريد/الهاتف الناقص)
+          </label>
+          {enrich && (
+            <label className="flex items-center gap-2 text-sm text-purple-700 pr-6">
+              <input type="checkbox" checked={enrichHunter} onChange={(e) => setEnrichHunter(e.target.checked)} />
+              + استخدام Hunter.io للبريد الاحترافي (يتطلب مفتاحاً · حصة محدودة)
+            </label>
+          )}
+        </div>
+        <p className="text-xs text-gray-400">تُدمج نتائج كل المصادر والأنشطة وتُزال التكرارات تلقائياً. كلما زادت التوليفات والإثراء طال وقت البحث.</p>
         {combos > 12 && <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">⚠️ {combos} عملية قد تستغرق وقتاً طويلاً — قلّل المصادر أو الأنشطة أو حدّد مدينة.</p>}
         <div className="flex gap-2 pt-2">
           <button disabled={mutation.isPending || providers.length === 0 || queries.length === 0} onClick={() => mutation.mutate()} className="btn-primary flex-1">

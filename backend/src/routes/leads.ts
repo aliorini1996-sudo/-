@@ -257,7 +257,7 @@ router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFu
 const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google', 'apollo']);
 const searchSchema = z.object({
   // يدعم عدّة مصادر وعدّة أنشطة معاً (مع توافق رجعي للـ provider/query المفردين)
-  providers: z.array(PROVIDER_ENUM).min(1).max(4).optional(),
+  providers: z.array(PROVIDER_ENUM).min(1).max(5).optional(),
   provider: PROVIDER_ENUM.optional(),
   queries: z.array(z.string().min(1)).min(1).max(10).optional(),
   query: z.string().min(1).optional(), // نوع النشاط: "تجارة جملة"، "food distributor"...
@@ -265,6 +265,8 @@ const searchSchema = z.object({
   city: z.string().optional(),
   limit: z.number().int().min(1).max(120).optional(),
   qualify: z.boolean().optional(),      // تأهيل بـ Claude
+  enrich: z.boolean().optional(),       // إثراء تلقائي (زيارة المواقع) بعد الاستيراد
+  enrichHunter: z.boolean().optional(), // إضافة Hunter للإثراء التلقائي
 }).refine((d) => (d.providers?.length || d.provider) && (d.queries?.length || d.query), {
   message: 'حدّد مصدراً واحداً على الأقل ونشاطاً واحداً على الأقل',
 });
@@ -323,6 +325,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
 
     // إدراج الجدد
     let imported = 0;
+    const created: { id: string; website: string | null; email: string | null; phone: string | null }[] = [];
     for (let i = 0; i < fresh.length; i++) {
       const f = fresh[i];
       const sc = scores.get(i);
@@ -338,9 +341,33 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
         await prisma.leadActivity.create({
           data: { leadId: lead.id, type: 'IMPORT', content: `بحث آلي عبر ${f.source}`, createdBy: req.user?.name },
         });
+        created.push({ id: lead.id, website: lead.website, email: lead.email, phone: lead.phone });
         imported++;
       } catch {
         // تجاهل تصادم sourceId الفريد (سباق نادر)
+      }
+    }
+
+    // إثراء تلقائي بعد البحث (زيارة المواقع + Hunter اختياري) للجدد الذين لديهم موقع وينقصهم تواصل
+    let enrichedEmail = 0;
+    if (body.enrich) {
+      const toEnrich = created.filter((c) => c.website && (!c.email || !c.phone)).slice(0, 40);
+      for (const c of toEnrich) {
+        const found: { email?: string; phone?: string } = await enrichFromWebsite(c.website!);
+        if (body.enrichHunter && !found.email) {
+          const h = await hunterDomainSearch(c.website!);
+          found.email = found.email || h.email;
+          found.phone = found.phone || h.phone;
+        }
+        const data: Record<string, unknown> = {};
+        if (!c.email && found.email) { data.email = found.email; enrichedEmail++; }
+        if (!c.phone && found.phone) data.phone = found.phone;
+        if (Object.keys(data).length) {
+          await prisma.lead.update({ where: { id: c.id }, data });
+          await prisma.leadActivity.create({
+            data: { leadId: c.id, type: 'NOTE', content: `إثراء تلقائي: ${Object.keys(data).join('، ')}`, createdBy: req.user?.name },
+          });
+        }
       }
     }
 
@@ -351,7 +378,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
 
     res.json({
       success: true,
-      data: { found: raw.length, imported, duplicates: raw.length - fresh.length, errors },
+      data: { found: raw.length, imported, duplicates: raw.length - fresh.length, enrichedEmail, errors },
     });
   } catch (err) {
     next(err);
