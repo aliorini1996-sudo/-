@@ -259,10 +259,10 @@ router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFu
 });
 
 // ------------------------------- بحث آلي + استيراد ------------------------------- //
-const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google', 'apollo']);
+const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google', 'apollo', 'tomtom', 'serper', 'linkedin']);
 const searchSchema = z.object({
   // يدعم عدّة مصادر وعدّة أنشطة معاً (مع توافق رجعي للـ provider/query المفردين)
-  providers: z.array(PROVIDER_ENUM).min(1).max(5).optional(),
+  providers: z.array(PROVIDER_ENUM).min(1).max(8).optional(),
   provider: PROVIDER_ENUM.optional(),
   queries: z.array(z.string().min(1)).min(1).max(10).optional(),
   query: z.string().min(1).optional(), // نوع النشاط: "تجارة جملة"، "food distributor"...

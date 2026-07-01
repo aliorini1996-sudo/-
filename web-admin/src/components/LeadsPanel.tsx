@@ -22,7 +22,8 @@ const STAGE_CLS: Record<LeadStage, string> = {
   LOST: 'bg-red-100 text-red-700',
 };
 const SOURCE_LABEL: Record<string, string> = {
-  osm: 'خرائط OSM', geoapify: 'Geoapify', here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
+  osm: 'خرائط OSM', geoapify: 'Geoapify', tomtom: 'TomTom', serper: 'بحث الويب', linkedin: 'LinkedIn',
+  here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
 };
 
 type Filters = {
@@ -261,9 +262,9 @@ function ScorePill({ score }: { score: number }) {
 const PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: 'osm', label: 'OpenStreetMap · بلا مفتاح' },
   { value: 'geoapify', label: 'Geoapify · هواتف أنظف' },
-  { value: 'apollo', label: 'Apollo · LinkedIn (خطة مدفوعة)' },
-  { value: 'here', label: 'HERE Maps' },
-  { value: 'google', label: 'Google Maps' },
+  { value: 'tomtom', label: 'TomTom · أماكن تجارية' },
+  { value: 'serper', label: 'بحث الويب · مواقع الشركات' },
+  { value: 'linkedin', label: 'LinkedIn · صفحات الشركات' },
 ];
 
 function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {

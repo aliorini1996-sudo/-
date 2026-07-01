@@ -27,7 +27,15 @@ export interface RawLead {
   lat?: number;
   lng?: number;
   mapsUrl?: string;
-  source: 'osm' | 'geoapify' | 'here' | 'google' | 'apollo';
+  source: 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin';
+}
+
+function domainFromUrl(url: string): string {
+  try {
+    return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
+  } catch {
+    return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  }
 }
 
 const UA = 'FieldSales-Leads/1.0 (https://fieldsa.net)';
@@ -403,8 +411,128 @@ interface ApolloOrg {
   industry?: string;
 }
 
+// ----------------------------- مصدر: TomTom Search ----------------------------- //
+export async function searchTomTom(query: string, country?: string, city?: string, limit = 60): Promise<RawLead[]> {
+  const key = (process.env.TOMTOM_API_KEY || '').trim();
+  if (!key) throw new Error('TOMTOM_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر TomTom.');
+  const box = await geocode(country, city);
+  const params = new URLSearchParams({ key, limit: String(Math.min(limit, 100)) });
+  if (box?.cc) params.set('countrySet', box.cc);
+  if (box) {
+    params.set('lat', String((box.north + box.south) / 2));
+    params.set('lon', String((box.east + box.west) / 2));
+    params.set('radius', '200000');
+  }
+  const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json?${params.toString()}`;
+  const r = await fetch(url, { headers: { 'User-Agent': UA } });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`TomTom ${r.status}: ${t.slice(0, 160)}`);
+  }
+  const data = (await r.json()) as { results?: TomTomResult[] };
+  const out: RawLead[] = [];
+  for (const it of data.results || []) {
+    const poi = it.poi;
+    if (!poi?.name) continue;
+    const pos = it.position;
+    out.push({
+      sourceId: `tomtom:${it.id || poi.name}:${pos?.lat ?? ''}`,
+      name: poi.name,
+      phone: poi.phone || undefined,
+      website: poi.url ? (poi.url.startsWith('http') ? poi.url : `https://${poi.url}`) : undefined,
+      address: it.address?.freeformAddress || undefined,
+      city: it.address?.municipality || city || undefined,
+      country: it.address?.country || box?.country || country || undefined,
+      countryCode: it.address?.countryCode || box?.cc || undefined,
+      category: poi.categories?.[0] || undefined,
+      lat: pos?.lat, lng: pos?.lon,
+      mapsUrl: pos ? `https://www.google.com/maps/search/?api=1&query=${pos.lat},${pos.lon}` : undefined,
+      source: 'tomtom',
+    });
+  }
+  return out;
+}
+
+interface TomTomResult {
+  id?: string;
+  poi?: { name?: string; phone?: string; url?: string; categories?: string[] };
+  address?: { freeformAddress?: string; municipality?: string; country?: string; countryCode?: string };
+  position?: { lat?: number; lon?: number };
+}
+
+// ----------------------------- بحث الويب عبر Serper (Google) ----------------------------- //
+async function serperSearch(q: string, gl?: string, num = 20): Promise<Array<{ title: string; link: string }>> {
+  const key = (process.env.SERPER_API_KEY || '').trim();
+  if (!key) throw new Error('SERPER_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل بحث الويب/LinkedIn.');
+  const r = await fetch('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ q, num, ...(gl ? { gl } : {}) }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Serper ${r.status}: ${t.slice(0, 160)}`);
+  }
+  const data = (await r.json()) as { organic?: Array<{ title?: string; link?: string }> };
+  return (data.organic || []).filter((o) => o.title && o.link).map((o) => ({ title: o.title!, link: o.link! }));
+}
+
+const SERPER_SKIP = ['facebook.com', 'instagram.com', 'linkedin.com', 'youtube.com', 'twitter.com', 'x.com', 'tripadvisor', 'wikipedia', 'yelp.', 'pinterest', '.gov', 'google.com'];
+
+// اكتشاف مواقع الشركات عبر نتائج Google
+export async function searchSerper(query: string, country?: string, city?: string, limit = 20): Promise<RawLead[]> {
+  const box = await geocode(country, city);
+  const loc = [city, country].filter(Boolean).join(' ');
+  const results = await serperSearch(`${query} ${loc} شركة`, box?.cc?.toLowerCase(), Math.min(limit, 20));
+  const seen = new Set<string>();
+  const out: RawLead[] = [];
+  for (const res of results) {
+    if (SERPER_SKIP.some((s) => res.link.includes(s))) continue;
+    const domain = domainFromUrl(res.link);
+    if (!domain || seen.has(domain)) continue;
+    seen.add(domain);
+    out.push({
+      sourceId: `serper:${domain}`,
+      name: res.title.split('|')[0].split('–')[0].trim() || res.title,
+      website: `https://${domain}`,
+      city: city || undefined,
+      country: box?.country || country || undefined,
+      countryCode: box?.cc || undefined,
+      category: 'business',
+      source: 'serper',
+    });
+  }
+  return out;
+}
+
+// اكتشاف صفحات شركات LinkedIn العامة عبر Google (بلا سحب من LinkedIn نفسه)
+export async function searchLinkedIn(query: string, country?: string, city?: string, limit = 20): Promise<RawLead[]> {
+  const box = await geocode(country, city);
+  const loc = [city, country].filter(Boolean).join(' ');
+  const results = await serperSearch(`site:linkedin.com/company ${query} ${loc}`, box?.cc?.toLowerCase(), Math.min(limit, 20));
+  const seen = new Set<string>();
+  const out: RawLead[] = [];
+  for (const res of results) {
+    if (!res.link.includes('linkedin.com/company')) continue;
+    const slug = (res.link.match(/linkedin\.com\/company\/([^/?#]+)/) || [])[1];
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push({
+      sourceId: `linkedin:${slug}`,
+      name: res.title.split('|')[0].trim() || res.title,
+      city: city || undefined,
+      country: box?.country || country || undefined,
+      countryCode: box?.cc || undefined,
+      category: 'company',
+      mapsUrl: res.link.startsWith('http') ? res.link : `https://${res.link}`,
+      source: 'linkedin',
+    });
+  }
+  return out;
+}
+
 // ----------------------------- موزّع المصادر ----------------------------- //
-export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo';
+export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin';
 
 // أي المصادر جاهزة (لها مفتاح مضبوط)؟ OSM لا يتطلّب مفتاحاً
 export function providersReady(): Record<LeadProvider, boolean> {
@@ -415,6 +543,9 @@ export function providersReady(): Record<LeadProvider, boolean> {
     here: has('HERE_API_KEY'),
     google: has('GOOGLE_MAPS_API_KEY'),
     apollo: has('APOLLO_API_KEY'),
+    tomtom: has('TOMTOM_API_KEY'),
+    serper: has('SERPER_API_KEY'),
+    linkedin: has('SERPER_API_KEY'),
   };
 }
 
@@ -430,6 +561,12 @@ export async function runSearch(
       return searchGoogle(query, country, city, limit);
     case 'apollo':
       return searchApollo(query, country, city, limit);
+    case 'tomtom':
+      return searchTomTom(query, country, city, limit);
+    case 'serper':
+      return searchSerper(query, country, city, limit);
+    case 'linkedin':
+      return searchLinkedIn(query, country, city, limit);
     case 'geoapify':
       return searchGeoapify(query, country, city, limit);
     case 'here':
