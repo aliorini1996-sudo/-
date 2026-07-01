@@ -3,11 +3,16 @@ import { create } from 'zustand';
 export type Lang = 'ar' | 'en' | 'fr'; // الفرنسية للأسواق الفرنكوفونية (المغرب العربي) — LTR
 const KEY = 'app_lang';
 
+// مسارات التطبيق (لا SEO): الدخول/التسجيل/اللوحة/المندوب/المالك — تدعم اختيار اللغة يدويًا (بما فيها الفرنسية)
+export function isAppRoute(p: string): boolean {
+  return /^\/(app|rep|platform|login|signup|verify)/.test(p);
+}
+
 function initial(): Lang {
   if (typeof window !== 'undefined') {
     const p = window.location.pathname;
-    // داخل التطبيق (لا مسارات SEO): تُحترم اللغة المحفوظة يدويًا — تدعم الفرنسية أيضًا
-    if (p.startsWith('/app') || p.startsWith('/rep') || p.startsWith('/platform')) {
+    // داخل التطبيق: تُحترم اللغة المحفوظة يدويًا — تدعم الفرنسية أيضًا
+    if (isAppRoute(p)) {
       const saved = localStorage.getItem(KEY);
       if (saved === 'ar' || saved === 'en' || saved === 'fr') return saved;
     }

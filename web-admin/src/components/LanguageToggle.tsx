@@ -1,7 +1,7 @@
 import { Globe, Check } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useLang, type Lang } from '../i18n/lang';
+import { useLang, isAppRoute, type Lang } from '../i18n/lang';
 import { pathForLocale } from '../i18n/locale';
 
 const LANGS: { code: Lang; label: string }[] = [
@@ -19,7 +19,7 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
   const loc = useLocation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const inApp = /^\/(app|rep|platform)/.test(loc.pathname);
+  const inApp = isAppRoute(loc.pathname);
 
   const base = 'inline-flex items-center gap-1.5 font-semibold transition-colors rounded-xl';
   const styles: Record<string, string> = {
