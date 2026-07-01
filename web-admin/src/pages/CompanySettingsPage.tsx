@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi } from '../api/client';
 import { supportedCountries, getCountry } from '../i18n/countries';
+import { useTr } from '../i18n/strings';
 import { Building2, Save, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
@@ -25,6 +26,7 @@ const STYLES = [
 
 export default function CompanySettingsPage() {
   const qc = useQueryClient();
+  const tr = useTr();
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CompanyForm>();
   // الهوية البصرية تُدار بـ state عادي لضمان إرسالها بدقّة
   const [logo, setLogo] = useState('');
@@ -56,16 +58,16 @@ export default function CompanySettingsPage() {
     mutationFn: (values: CompanyForm) => companyApi.update({ ...values, logo, primaryColor, headerStyle, countryCode }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['company'] });
-      toast.success('تم حفظ بيانات الشركة');
+      toast.success(tr('تم حفظ بيانات الشركة'));
     },
-    onError: () => toast.error('حدث خطأ في الحفظ'),
+    onError: () => toast.error(tr('حدث خطأ في الحفظ')),
   });
 
   const onLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) { toast.error('الملف يجب أن يكون صورة'); return; }
-    if (file.size > 600 * 1024) { toast.error('حجم الشعار كبير — الحد 600 كيلوبايت'); return; }
+    if (!file.type.startsWith('image/')) { toast.error(tr('الملف يجب أن يكون صورة')); return; }
+    if (file.size > 600 * 1024) { toast.error(tr('حجم الشعار كبير — الحد 600 كيلوبايت')); return; }
     const reader = new FileReader();
     reader.onload = () => setLogo(reader.result as string);
     reader.readAsDataURL(file);
@@ -78,7 +80,7 @@ export default function CompanySettingsPage() {
   );
 
   const previewCompany = {
-    name: data?.name || 'اسم الشركة', address: data?.address, taxNumber: data?.taxNumber,
+    name: data?.name || tr('اسم الشركة'), address: data?.address, taxNumber: data?.taxNumber,
     commercialReg: data?.commercialReg, phone: data?.phone, email: data?.email,
     logo, primaryColor, headerStyle,
   };
@@ -86,7 +88,7 @@ export default function CompanySettingsPage() {
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">إعدادات الشركة</h1>
+        <h1 className="page-title">{tr('إعدادات الشركة')}</h1>
       </div>
 
       <form onSubmit={handleSubmit(values => mutation.mutate(values))} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -98,23 +100,23 @@ export default function CompanySettingsPage() {
                 <Building2 size={22} className="text-[#E15A30]" />
               </div>
               <div>
-                <p className="font-semibold text-gray-800">بيانات الشركة</p>
-                <p className="text-xs text-gray-400">تظهر في ترويسة كل المطبوعات</p>
+                <p className="font-semibold text-gray-800">{tr('بيانات الشركة')}</p>
+                <p className="text-xs text-gray-400">{tr('تظهر في ترويسة كل المطبوعات')}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="label">اسم الشركة *</label>
+                <label className="label">{tr('اسم الشركة')} *</label>
                 <input className="input" {...register('name', { required: true })} />
-                {errors.name && <p className="text-red-500 text-xs mt-1">مطلوب</p>}
+                {errors.name && <p className="text-red-500 text-xs mt-1">{tr('مطلوب')}</p>}
               </div>
               <div>
-                <label className="label">العنوان</label>
-                <input className="input" {...register('address')} placeholder="المدينة - الحي - الشارع" />
+                <label className="label">{tr('العنوان')}</label>
+                <input className="input" {...register('address')} placeholder={tr('المدينة - الحي - الشارع')} />
               </div>
               <div>
-                <label className="label">الدولة (تحدّد العملة والضريبة والفوترة الإلكترونية)</label>
+                <label className="label">{tr('الدولة (تحدّد العملة والضريبة والفوترة الإلكترونية)')}</label>
                 <select className="input" value={countryCode} onChange={e => setCountryCode(e.target.value)}>
                   {supportedCountries().map(c => (
                     <option key={c.code} value={c.code}>{c.nameAr} — {c.currency}</option>
@@ -122,26 +124,26 @@ export default function CompanySettingsPage() {
                 </select>
                 {(() => { const c = getCountry(countryCode); return (
                   <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed bg-[#FAF7F0] rounded-lg px-3 py-2 border border-[#E9E1D3]">
-                    العملة: <b>{c.symbolAr} ({c.currency})</b> · الضريبة الافتراضية: <b>{c.defaultVatPct}%</b><br />
-                    الفوترة الإلكترونية: <b>{c.einvoiceNoteAr}</b>
+                    {tr('العملة')}: <b>{c.symbolAr} ({c.currency})</b> · {tr('الضريبة الافتراضية')}: <b>{c.defaultVatPct}%</b><br />
+                    {tr('الفوترة الإلكترونية')}: <b>{c.einvoiceNoteAr}</b>
                   </p>
                 ); })()}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="label">الرقم الضريبي</label>
+                  <label className="label">{tr('الرقم الضريبي')}</label>
                   <input className="input" dir="ltr" {...register('taxNumber')} />
                 </div>
                 <div>
-                  <label className="label">السجل التجاري</label>
+                  <label className="label">{tr('السجل التجاري')}</label>
                   <input className="input" dir="ltr" {...register('commercialReg')} />
                 </div>
                 <div>
-                  <label className="label">رقم الهاتف</label>
+                  <label className="label">{tr('رقم الهاتف')}</label>
                   <input className="input" dir="ltr" {...register('phone')} />
                 </div>
                 <div>
-                  <label className="label">البريد الإلكتروني</label>
+                  <label className="label">{tr('البريد الإلكتروني')}</label>
                   <input className="input" type="email" dir="ltr" {...register('email')} />
                 </div>
               </div>
@@ -154,38 +156,38 @@ export default function CompanySettingsPage() {
                 <ImageIcon size={22} className="text-purple-600" />
               </div>
               <div>
-                <p className="font-semibold text-gray-800">هوية الشركة في المطبوعات</p>
-                <p className="text-xs text-gray-400">الشعار واللون والشكل</p>
+                <p className="font-semibold text-gray-800">{tr('هوية الشركة في المطبوعات')}</p>
+                <p className="text-xs text-gray-400">{tr('الشعار واللون والشكل')}</p>
               </div>
             </div>
 
             {/* الشعار */}
             <div className="mb-5">
-              <label className="label">شعار الشركة</label>
+              <label className="label">{tr('شعار الشركة')}</label>
               <div className="flex items-center gap-3">
                 <div className="w-16 h-16 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0">
                   {logo
-                    ? <img src={logo} alt="شعار" className="w-full h-full object-contain" />
+                    ? <img src={logo} alt={tr('شعار الشركة')} className="w-full h-full object-contain" />
                     : <ImageIcon size={22} className="text-gray-300" />}
                 </div>
                 <div className="flex flex-col gap-2">
                   <label className="btn-secondary cursor-pointer text-xs">
-                    <Upload size={14} /> اختيار صورة
+                    <Upload size={14} /> {tr('اختيار صورة')}
                     <input type="file" accept="image/*" className="hidden" onChange={onLogoChange} />
                   </label>
                   {logo && (
                     <button type="button" onClick={() => setLogo('')} className="text-red-500 text-xs flex items-center gap-1">
-                      <Trash2 size={12} /> إزالة الشعار
+                      <Trash2 size={12} /> {tr('إزالة الشعار')}
                     </button>
                   )}
-                  <span className="text-[10px] text-gray-400">PNG/JPG — الحد 600KB</span>
+                  <span className="text-[10px] text-gray-400">PNG/JPG — 600KB</span>
                 </div>
               </div>
             </div>
 
             {/* اللون */}
             <div className="mb-5">
-              <label className="label">لون الترويسة</label>
+              <label className="label">{tr('لون الترويسة')}</label>
               <div className="flex items-center gap-2 flex-wrap">
                 <input type="color" className="w-10 h-9 rounded border border-gray-200 cursor-pointer p-0.5"
                   value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} />
@@ -202,13 +204,13 @@ export default function CompanySettingsPage() {
 
             {/* الشكل */}
             <div>
-              <label className="label">شكل الترويسة</label>
+              <label className="label">{tr('شكل الترويسة')}</label>
               <div className="grid grid-cols-3 gap-2">
                 {STYLES.map(s => (
                   <button key={s.id} type="button" onClick={() => setHeaderStyle(s.id)}
                     className={`text-right p-3 rounded-xl border-2 transition-all ${headerStyle === s.id ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-gray-100 hover:border-gray-200'}`}>
-                    <p className="font-semibold text-sm text-gray-800">{s.label}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{s.desc}</p>
+                    <p className="font-semibold text-sm text-gray-800">{tr(s.label)}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{tr(s.desc)}</p>
                   </button>
                 ))}
               </div>
@@ -219,20 +221,20 @@ export default function CompanySettingsPage() {
             {mutation.isPending
               ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               : <Save size={16} />}
-            حفظ الإعدادات
+            {tr('حفظ الإعدادات')}
           </button>
         </div>
 
         {/* العمود الأيسر: المعاينة الحيّة */}
         <div className="space-y-3">
-          <p className="text-sm font-semibold text-gray-500">معاينة الترويسة (كما ستظهر في المطبوعات)</p>
+          <p className="text-sm font-semibold text-gray-500">{tr('معاينة الترويسة (كما ستظهر في المطبوعات)')}</p>
           <div className="card bg-white p-0 overflow-hidden">
             <div style={{ width: 754, transformOrigin: 'top right', transform: 'scale(0.62)' }} className="p-5">
-              <Header title="فاتورة ضريبية" company={previewCompany} />
+              <Header title={tr('فاتورة ضريبية')} company={previewCompany} />
             </div>
             <div style={{ height: 130 }} />
           </div>
-          <p className="text-xs text-gray-400">التغييرات تظهر فوراً هنا، وتنعكس على الفواتير وسندات القبض وكشوف الحساب بعد الحفظ.</p>
+          <p className="text-xs text-gray-400">{tr('التغييرات تظهر فوراً هنا، وتنعكس على الفواتير وسندات القبض وكشوف الحساب بعد الحفظ.')}</p>
         </div>
       </form>
     </div>
