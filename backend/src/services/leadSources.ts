@@ -117,15 +117,31 @@ export async function searchOSM(query: string, country?: string, city?: string, 
       return `nwr["${k}"="${v}"](${bbox});`;
     })
     .join('');
-  const ql = `[out:json][timeout:50];(${parts});out center ${limit};`;
+  const ql = `[out:json][timeout:40];(${parts});out center ${limit};`;
 
-  const r = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
-    body: `data=${encodeURIComponent(ql)}`,
-  });
-  if (!r.ok) throw new Error(`Overpass ${r.status}`);
-  const data = (await r.json()) as { elements?: OsmElement[] };
+  // نجرّب عدّة خوادم Overpass (الرئيسي يُرهق أحياناً فيرجع 504)
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  ];
+  let data: { elements?: OsmElement[] } | null = null;
+  let lastErr = '';
+  for (const ep of endpoints) {
+    try {
+      const r = await fetch(ep, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
+        body: `data=${encodeURIComponent(ql)}`,
+      });
+      if (!r.ok) { lastErr = `Overpass ${r.status}`; continue; }
+      data = (await r.json()) as { elements?: OsmElement[] };
+      break;
+    } catch (e) {
+      lastErr = (e as Error).message;
+    }
+  }
+  if (!data) throw new Error(lastErr || 'Overpass غير متاح مؤقتاً');
 
   const out: RawLead[] = [];
   for (const el of data.elements ?? []) {
@@ -506,10 +522,11 @@ export async function searchSerper(query: string, country?: string, city?: strin
 }
 
 // اكتشاف صفحات شركات LinkedIn العامة عبر Google (بلا سحب من LinkedIn نفسه)
+// ملاحظة: خطة Serper المجانية تمنع عامل site: — لذا نبحث بكلمات عادية ونفلتر روابط LinkedIn.
 export async function searchLinkedIn(query: string, country?: string, city?: string, limit = 20): Promise<RawLead[]> {
   const box = await geocode(country, city);
   const loc = [city, country].filter(Boolean).join(' ');
-  const results = await serperSearch(`site:linkedin.com/company ${query} ${loc}`, box?.cc?.toLowerCase(), Math.min(limit, 20));
+  const results = await serperSearch(`${query} ${loc} linkedin company`, box?.cc?.toLowerCase(), Math.min(limit, 20));
   const seen = new Set<string>();
   const out: RawLead[] = [];
   for (const res of results) {
