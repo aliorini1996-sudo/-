@@ -5,3 +5,7 @@ dist/
 *.db-journal
 .DS_Store
 Thumbs.db
+
+# ملفات مؤقتة
+web-admin/tsconfig.tsbuildinfo
+web-admin/.claude/

@@ -80,10 +80,12 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
     queryFn: async () => { const r = await siteContentApi.get(); return r.data.data as unknown; },
     staleTime: 60_000,
   });
-  const content = (data || defaultContent) as typeof defaultContent;
-  const page = lang === 'en'
-    ? defaultContentEn.pages[pageKey]
-    : (content.pages?.[pageKey] || defaultContent.pages[pageKey]);
+  // نُفضّل المحتوى الأغنى للعربية: إن كان نصّ الـCMS أطول من الافتراضي فهو تخصيص فعلي للمالك،
+  // وإلا نعرض الوثيقة الاحترافية من الكود (الوثائق القانونية المحدّثة) بدل نصّ CMS قديم قصير.
+  const cmsPage = (data as typeof defaultContent | null | undefined)?.pages?.[pageKey];
+  const defPage = defaultContent.pages[pageKey];
+  const arPage = cmsPage && (cmsPage.body?.length || 0) > (defPage.body?.length || 0) ? cmsPage : defPage;
+  const page = lang === 'en' ? defaultContentEn.pages[pageKey] : arPage;
 
   const seo = PAGE_SEO[pageKey];
   const m = lang === 'en' ? seo.en : seo.ar;

@@ -27,9 +27,11 @@ function staticPosts() {
   const start = src.indexOf('export const POSTS');
   const body = start >= 0 ? src.slice(start) : src;
   const out = [];
-  for (const ch of body.split(/slug:\s*'/).slice(1)) {
-    const slug = ch.slice(0, ch.indexOf("'"));
-    const dm = ch.match(/date:\s*'([^']+)'/);
+  // محايد للأقواس (مفردة أو مزدوجة) — يدعم المقالات المكتوبة يدوياً والمولَّدة تلقائياً
+  for (const ch of body.split(/slug:\s*['"]/).slice(1)) {
+    const q = ch.search(/['"]/);
+    const slug = q >= 0 ? ch.slice(0, q) : '';
+    const dm = ch.match(/date:\s*['"]([^'"]+)['"]/);
     if (slug) out.push({ slug, date: dm ? dm[1] : today, bilingual: /\n\s*en:\s*\{/.test(ch) });
   }
   return out;

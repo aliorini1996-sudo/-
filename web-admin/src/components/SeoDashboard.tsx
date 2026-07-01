@@ -64,7 +64,7 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
     { label: 'ملف robots.txt', ok: p.robots },
     { label: 'أيقونة الموقع (favicon)', ok: p.favicon },
     { label: 'عناوين ووصف فريدة لكل صفحة', ok: true },
-    { label: 'بيانات منظّمة (Schema)', ok: true, detail: '12 خدمة · 12 دولة' },
+    { label: 'بيانات منظّمة (Schema)', ok: true, detail: '12 خدمة · 50 دولة' },
     { label: 'مدوّنة ثنائية اللغة', ok: bilingual > 0, detail: `${bilingual} مقال ثنائي` },
     { label: 'أزرار مشاركة اجتماعية', ok: true },
     { label: 'تحقّق Google Search Console', ok: p.gscMeta },
@@ -119,7 +119,7 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
               <Kpi icon={Link2} value={p.loading ? '—' : String(p.sitemapUrls)} label="روابط في الخريطة" />
               <Kpi icon={FileText} value={`${totalArticles}`} label={`مقالات (${bilingual} ثنائية)`} />
               <Kpi icon={Languages} value="2" label="لغتان (عربي/EN)" />
-              <Kpi icon={MapPin} value="12" label="دولة مستهدفة" />
+              <Kpi icon={MapPin} value="50" label="دولة مستهدفة" />
             </div>
           </div>
 

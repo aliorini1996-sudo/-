@@ -6,6 +6,7 @@ import { LANDING_TEMPLATE } from '../landing/landingTemplate';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { useLang } from '../i18n/lang';
+import { useCurrency, type Currency } from '../i18n/currency';
 import { seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 
@@ -120,6 +121,48 @@ function injectLangButton(html: string, label: string): string {
   );
 }
 
+// ---- تبديل عملة عرض الأسعار (ريال ⇄ دولار) ----
+// الريال مربوط رسميًا بالدولار عند 3.75، فنحوّل القيمة نفسها دون تغيير التكلفة الفعلية.
+const SAR_PER_USD = 3.75;
+
+// يحوّل نصّ سعر بالريال (أرقام عربية أو لاتينية) إلى قيمته المكافئة بالدولار،
+// ويُعيد null لغير الأرقام («حسب الطلب / Custom») فتبقى كما هي.
+function sarToUsd(price: string): string | null {
+  const western = price.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+  const n = parseFloat(western.replace(/[^\d.]/g, ''));
+  if (isNaN(n)) return null;
+  const usd = n / SAR_PER_USD;
+  return Number.isInteger(usd) ? String(usd) : usd.toFixed(2); // خانتان عشريتان للحفاظ على القيمة بدقّة
+}
+
+// يستبدل أسعار الباقات بقيمتها المكافئة بالدولار عند اختيار USD (لا يمسّ «حسب الطلب/Custom»)
+function applyCurrency(content: Record<string, unknown>, cur: Currency): Record<string, unknown> {
+  if (cur === 'sar') return content;
+  const pricing = content.pricing as { plans?: Array<Record<string, unknown>> } | undefined;
+  if (!pricing?.plans) return content;
+  const plans = pricing.plans.map((p) => {
+    const usd = sarToUsd(p.price as string);
+    return usd ? { ...p, price: usd } : p;
+  });
+  return { ...content, pricing: { ...pricing, plans } };
+}
+
+// مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين، يُحقن داخل قسم الأسعار بجوار البطاقات
+function currencyToggle(currency: Currency, lang: 'ar' | 'en'): string {
+  const sarLabel = lang === 'en' ? 'SAR ﷼' : 'ريال ﷼';
+  const usdLabel = lang === 'en' ? 'USD $' : 'دولار $';
+  const pill = (active: boolean) =>
+    `padding:8px 22px; border:none; border-radius:9px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s;` +
+    (active ? 'background:#E15A30; color:#fff; box-shadow:0 1px 4px rgba(225,90,48,.35);' : 'background:transparent; color:#6E6557;');
+  return `<div style="text-align:center; margin-bottom:30px;"><div style="display:inline-flex; align-items:center; gap:4px; background:#F3EDE3; border:1.5px solid #DED5C4; border-radius:13px; padding:4px;"><button type="button" aria-label="SAR" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('sar')" style="${pill(currency === 'sar')}">${sarLabel}</button><button type="button" aria-label="USD" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('usd')" style="${pill(currency === 'usd')}">${usdLabel}</button></div></div>`;
+}
+
+// يحقن مبدّل العملة قبل شبكة بطاقات الباقات مباشرةً (المُحدِّد فريد في القالب)
+function injectCurrencyToggle(html: string, currency: Currency, lang: 'ar' | 'en'): string {
+  const anchor = '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:stretch;">';
+  return html.replace(anchor, `${currencyToggle(currency, lang)}${anchor}`);
+}
+
 function mergeContent<T>(base: T, saved: unknown): T {
   if (Array.isArray(base)) {
     const savedArray = Array.isArray(saved) ? saved : [];
@@ -141,6 +184,7 @@ function mergeContent<T>(base: T, saved: unknown): T {
 // صفحة الهبوط التعريفية التسويقية — تصميم Field Sales، محتواها يُدار من لوحة المالك (CMS)
 export default function LandingPage() {
   const lang = useLang((s) => s.lang);
+  const currency = useCurrency((s) => s.currency);
   const navigate = useNavigate();
   const { canonical, alternates } = seoUrls('/', lang);
 
@@ -180,6 +224,11 @@ export default function LandingPage() {
     (window as unknown as { __fsToggleLang?: () => void }).__fsToggleLang = () => navigate(lang === 'ar' ? '/en' : '/');
   }, [lang, navigate]);
 
+  // مبدّل العملة — يضبط الريال/الدولار محليًا دون تغيير المسار (يُحفظ الاختيار)
+  useEffect(() => {
+    (window as unknown as { __fsSetCurrency?: (c: Currency) => void }).__fsSetCurrency = (c) => useCurrency.getState().setCurrency(c);
+  }, []);
+
   // محتوى CMS المحفوظ قد يكون قديماً (عدد ميزاته لا يطابق الكود الحالي) — حينها نتجاهله
   // ونستخدم المحتوى الافتراضي الحالي حتى لا تُعرَض ميزات/نصوص قديمة. وإلا ندمج تحرير المالك.
   const savedItems = (data as { features?: { items?: unknown[] } } | null | undefined)?.features?.items;
@@ -190,11 +239,17 @@ export default function LandingPage() {
   if (lang === 'en') {
     // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط تواصل من CMS + ترجمة النص الثابت
     const enContent = { ...defaultContentEn, social: (arContent.social as Record<string, string>) || defaultContentEn.social };
-    html = translateChrome(applyContent(LANDING_TEMPLATE, enContent as Record<string, unknown>, 'en'));
+    html = translateChrome(applyContent(LANDING_TEMPLATE, applyCurrency(enContent as Record<string, unknown>, currency), 'en'));
     html = injectLangButton(html, 'العربية');
   } else {
-    html = applyContent(LANDING_TEMPLATE, arContent, 'ar');
+    html = applyContent(LANDING_TEMPLATE, applyCurrency(arContent, currency), 'ar');
     html = injectLangButton(html, 'English');
+  }
+
+  // مبدّل العملة داخل قسم الأسعار + ضبط لاحقة السعر حسب العملة (لاحقة « ر.س / شهريًا» ثابتة في القالب)
+  html = injectCurrencyToggle(html, currency, lang);
+  if (currency === 'usd') {
+    html = html.split(' ر.س / شهريًا').join(' دولار / شهريًا').split(' SAR / mo').join(' USD / mo');
   }
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
