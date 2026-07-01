@@ -379,9 +379,16 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 function EmailModal({
   filters, onClose, onDone,
 }: { filters: Filters; onClose: () => void; onDone: () => void }) {
-  const [subject, setSubject] = useState('Field Sales — نظام إدارة مبيعات المناديب والتوزيع');
+  const [subject, setSubject] = useState('Field Sales — نظام مبيعات المناديب والتوزيع | Field-sales & distribution platform');
   const [body, setBody] = useState(
-    'مرحباً {{name}}،\n\nنقدّم لكم Field Sales: نظام متكامل لإدارة مبيعات المناديب الميدانيين والتوزيع — فواتير، تحصيل وذمم، مخزون سيارة، وتتبّع GPS.\n\nيسعدنا أن نعرض عليكم النظام. جرّبوه مجاناً على fieldsa.net.\n\nمع التحية،\nفريق Field Sales',
+    'مرحباً فريق {{name}}،\n\n'
+    + 'Field Sales منصّة متكاملة لإدارة مبيعات المناديب الميدانيين والتوزيع: فواتير ضريبية متوافقة مع ZATCA، تحصيل وإدارة ذمم، مخزون سيارة المندوب، وتتبّع المواقع بالـGPS — في لوحة واحدة سهلة.\n\n'
+    + 'يسعدنا أن نعرض عليكم النظام في جولة قصيرة، أو جرّبوه مجاناً على fieldsa.net.\n\n'
+    + '— — —\n\n'
+    + 'Hello {{name}} team,\n\n'
+    + 'Field Sales is an all-in-one platform to run your field reps and distribution: ZATCA-compliant tax invoicing, collections & receivables, van inventory, and live GPS tracking — all in one simple dashboard.\n\n'
+    + "We'd be glad to give you a short demo, or start your free trial at fieldsa.net.\n\n"
+    + 'مع خالص التحية · Best regards,\nفريق Field Sales',
   );
   const [limit, setLimit] = useState(50);
 
