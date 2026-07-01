@@ -156,6 +156,7 @@ export const leadApi = {
   addActivity: (id: string, data: unknown) => api.post(`/leads/${id}/activities`, data),
   convert: (id: string, data?: unknown) => api.post(`/leads/${id}/convert`, data || {}),
   search: (data: unknown) => api.post('/leads/search', data),
+  sendEmail: (data: unknown) => api.post('/leads/email', data),
   import: (leads: unknown[]) => api.post('/leads/import', { leads }),
   exportUrl: () => `${BASE}/leads/export/csv`,
 };

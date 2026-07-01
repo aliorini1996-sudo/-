@@ -5,7 +5,7 @@ import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
 import { formatDate } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
-  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw,
+  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -33,6 +33,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showEmail, setShowEmail] = useState(false);
 
   const { data: stats } = useQuery({
     queryKey: ['lead-stats'],
@@ -139,6 +140,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
             <Bell size={14} className="inline ml-1" /> المستحقّة
           </button>
           <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>
+          <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
           <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
           <ImportButton onDone={refresh} />
           <button onClick={exportCsv} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Download size={14} className="inline ml-1" /> تصدير</button>
@@ -181,6 +183,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
 
       {selected && <LeadDrawer id={selected} onClose={() => setSelected(null)} onChanged={refresh} />}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} onDone={refresh} />}
+      {showEmail && <EmailModal filters={filters} onClose={() => setShowEmail(false)} onDone={refresh} />}
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
     </div>
   );
@@ -254,6 +257,83 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         <div className="flex gap-2 pt-2">
           <button disabled={mutation.isPending || !form.query} onClick={() => mutation.mutate()} className="btn-primary flex-1">
             {mutation.isPending ? 'جارٍ البحث...' : <><Radar size={16} /> ابدأ البحث</>}
+          </button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ----------------------------- بريد تسويقي جماعي ----------------------------- //
+function EmailModal({
+  filters, onClose, onDone,
+}: { filters: { stage: string; source: string; q: string }; onClose: () => void; onDone: () => void }) {
+  const [subject, setSubject] = useState('Field Sales — نظام إدارة مبيعات المناديب والتوزيع');
+  const [body, setBody] = useState(
+    'مرحباً {{name}}،\n\nنقدّم لكم Field Sales: نظام متكامل لإدارة مبيعات المناديب الميدانيين والتوزيع — فواتير، تحصيل وذمم، مخزون سيارة، وتتبّع GPS.\n\nيسعدنا أن نعرض عليكم النظام. جرّبوه مجاناً على fieldsa.net.\n\nمع التحية،\nفريق Field Sales',
+  );
+  const [limit, setLimit] = useState(50);
+
+  // عدد المستلمين (من لديهم بريد ضمن الفلاتر الحالية)
+  const { data: count } = useQuery({
+    queryKey: ['lead-email-count', filters],
+    queryFn: async () => {
+      const params: Record<string, string | number | boolean> = { hasEmail: true, pageSize: 1 };
+      if (filters.stage) params.stage = filters.stage;
+      if (filters.source) params.source = filters.source;
+      if (filters.q) params.q = filters.q;
+      const res = await leadApi.list(params);
+      return (res.data as { total: number }).total;
+    },
+  });
+
+  const mutation = useMutation({
+    mutationFn: () => leadApi.sendEmail({
+      subject, body, limit,
+      stage: filters.stage || undefined,
+      source: filters.source || undefined,
+      q: filters.q || undefined,
+    }),
+    onSuccess: (res) => {
+      const { targeted, sent, failed } = res.data.data;
+      toast.success(`أُرسل ${sent} من ${targeted}${failed ? ` · فشل ${failed}` : ''}`);
+      onDone();
+      onClose();
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل الإرسال'),
+  });
+
+  const recipients = count ?? 0;
+  const willSend = Math.min(recipients, limit);
+
+  return (
+    <Modal title="بريد تسويقي للعملاء المحتملين" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="bg-[#FBEBE2] rounded-lg p-3 text-sm text-[#8a4a2f]">
+          سيُرسَل لمن لديه <b>بريد إلكتروني</b> ضمن الفلاتر الحالية:
+          <b> {recipients}</b> مستلم متاح · سيُرسل الآن لـ<b> {willSend}</b> (حسب الحد).
+          <br />من يصله البريد يُنقل تلقائياً إلى <b>«تم التواصل»</b>.
+        </div>
+        <div>
+          <label className="label">الموضوع</label>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} className="input" />
+        </div>
+        <div>
+          <label className="label">نص الرسالة</label>
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={9} className="input" />
+          <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> اسم الشركة · <code>{'{{city}}'}</code> المدينة · <code>{'{{country}}'}</code> الدولة.</p>
+        </div>
+        <div>
+          <label className="label">الحد الأقصى للإرسال دفعةً (حماية من تجاوز حصة البريد)</label>
+          <input type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))} className="input w-32" />
+        </div>
+        <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
+          ⚠️ إرسال بريد جماعي لعناوين عامة قد يؤثّر على سمعة نطاقك. أرسل دفعات صغيرة ونصّاً مهنياً غير مزعج.
+        </p>
+        <div className="flex gap-2 pt-1">
+          <button disabled={mutation.isPending || !subject || !body || recipients === 0} onClick={() => mutation.mutate()} className="btn-primary flex-1">
+            {mutation.isPending ? 'جارٍ الإرسال...' : <><Mail size={16} /> إرسال لـ{willSend}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>

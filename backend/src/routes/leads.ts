@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { runSearch, qualifyLeads, LeadProvider } from '../services/leadSources';
+import { sendMail } from '../services/mailer';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -57,6 +58,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (countryCode) where.countryCode = countryCode;
     if (assignedTo) where.assignedTo = assignedTo;
     if (dueOnly === 'true') where.nextFollowUpAt = { lte: new Date() };
+    if ((req.query.hasEmail as string) === 'true') where.email = { not: null };
     if (q) {
       where.OR = [
         { name: { contains: q, mode: 'insensitive' } },
@@ -320,6 +322,97 @@ router.post('/import', async (req: AuthRequest, res: Response, next: NextFunctio
       }
     }
     res.json({ success: true, data: { imported, total: leads.length } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------- بريد تسويقي (إرسال جماعي) ------------------------------- //
+// يُرسل بريداً للعملاء المحتملين الذين لديهم بريد (ضمن الفلاتر أو قائمة معرّفات)،
+// ثم ينقل من كان في مرحلة «جديد» إلى «تم التواصل» ويسجّل النشاط.
+const emailSchema = z.object({
+  subject: z.string().min(1),
+  body: z.string().min(1),
+  replyTo: z.string().optional(),
+  ids: z.array(z.string()).optional(),   // إرسال لقائمة محدّدة
+  stage: z.string().optional(),          // أو ضمن فلاتر (مطابقة للقائمة)
+  source: z.string().optional(),
+  countryCode: z.string().optional(),
+  q: z.string().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+});
+
+// يستبدل عناصر نائبة بسيطة في النص ({{name}} / {{city}} / {{country}})
+function personalize(text: string, lead: { name: string; city?: string | null; country?: string | null }): string {
+  return text
+    .replace(/\{\{\s*name\s*\}\}/g, lead.name || '')
+    .replace(/\{\{\s*city\s*\}\}/g, lead.city || '')
+    .replace(/\{\{\s*country\s*\}\}/g, lead.country || '');
+}
+
+// قالب بريد تسويقي بهوية Field Sales
+function marketingHtml(bodyText: string, lead: { name: string; city?: string | null; country?: string | null }): string {
+  const safe = personalize(bodyText, lead)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+  return `<div dir="rtl" style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#FAF7F0;padding:24px">
+    <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #E9E1D3;border-radius:16px;overflow:hidden">
+      <div style="background:#1F1A13;padding:20px 24px"><span style="font-size:20px;font-weight:700;color:#fff">Field<span style="color:#E15A30"> Sales</span></span></div>
+      <div style="padding:22px 24px;color:#3a342b;font-size:15px;line-height:1.9">${safe}</div>
+      <div style="padding:16px 24px;border-top:1px solid #F1EBDF">
+        <a href="https://fieldsa.net" style="display:inline-block;background:#E15A30;color:#fff;text-decoration:none;padding:11px 24px;border-radius:10px;font-weight:600">اكتشف Field Sales</a>
+      </div>
+      <div style="padding:12px 24px;color:#9A8F7E;font-size:12px;border-top:1px solid #F1EBDF">
+        رسالة أعمال من Field Sales · fieldsa.net · إن لم ترغب بتلقّي رسائلنا، ردّ بكلمة «إلغاء».
+      </div>
+    </div>
+  </div>`;
+}
+
+router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const body = emailSchema.parse(req.body);
+    const where: Record<string, unknown> = { email: { not: null } };
+    if (body.ids?.length) {
+      where.id = { in: body.ids };
+    } else {
+      if (body.stage && STAGES.includes(body.stage as typeof STAGES[number])) where.stage = body.stage;
+      if (body.source) where.source = body.source;
+      if (body.countryCode) where.countryCode = body.countryCode;
+      if (body.q) {
+        where.OR = [
+          { name: { contains: body.q, mode: 'insensitive' } },
+          { city: { contains: body.q, mode: 'insensitive' } },
+          { country: { contains: body.q, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const cap = body.limit ?? 50;
+    const leads = await prisma.lead.findMany({ where, take: cap });
+    const targets = leads.filter((l) => l.email && l.email.includes('@'));
+
+    let sent = 0;
+    let failed = 0;
+    for (const l of targets) {
+      const subject = personalize(body.subject, l);
+      const html = marketingHtml(body.body, l);
+      const ok = await sendMail({ subject, html, to: l.email!, replyTo: body.replyTo });
+      if (ok) {
+        sent++;
+        await prisma.lead.update({
+          where: { id: l.id },
+          data: { lastContactedAt: new Date(), stage: l.stage === 'NEW' ? 'CONTACTED' : l.stage },
+        });
+        await prisma.leadActivity.create({
+          data: { leadId: l.id, type: 'EMAIL', content: `بريد تسويقي: ${subject}`, createdBy: req.user?.name },
+        });
+      } else {
+        failed++;
+      }
+    }
+
+    res.json({ success: true, data: { targeted: targets.length, sent, failed } });
   } catch (err) {
     next(err);
   }
