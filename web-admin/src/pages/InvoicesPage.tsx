@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, companyApi, salesRepApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import InvoiceModal from '../components/forms/InvoiceModal';
@@ -13,6 +14,7 @@ import { shareOrDownloadExcel, num } from '../utils/excel';
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
+  const tr = useTr();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('CONFIRMED');
   const [type, setType] = useState('');
@@ -61,15 +63,15 @@ export default function InvoicesPage() {
     try {
       const res = await invoiceApi.get(id);
       setDocResult(invoiceDocFromDetail(res.data.data, '', company));
-    } catch { toast.error('تعذّر فتح المستند'); }
+    } catch { toast.error(tr('تعذّر فتح المستند')); }
     setOpeningId(null);
   };
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => invoiceApi.cancel(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success('تم إلغاء الفاتورة'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success(tr('تم إلغاء الفاتورة')); },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ';
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ');
       toast.error(msg);
     },
   });
@@ -80,43 +82,43 @@ export default function InvoicesPage() {
     try {
       const res = await invoiceApi.list({ ...filters(), limit: 5000 });
       const invoices = res.data.data as Invoice[];
-      if (!invoices.length) { toast.error('لا توجد فواتير للتصدير'); setExporting(false); return; }
+      if (!invoices.length) { toast.error(tr('لا توجد فواتير للتصدير')); setExporting(false); return; }
       const rows = invoices.map(inv => ({
-        'رقم الفاتورة': inv.number,
-        'العميل': inv.customer.name,
-        'المندوب': inv.salesRep.name,
-        'النوع': statusLabels[inv.type] || inv.type,
-        'التاريخ': formatDate(inv.invoiceDate),
-        'الإجمالي': num(inv.total),
-        'المدفوع': num(inv.paidAmt),
-        'المتبقي': num(inv.remainingAmt),
-        'الحالة': statusLabels[inv.status] || inv.status,
+        [tr('رقم الفاتورة')]: inv.number,
+        [tr('العميل')]: inv.customer.name,
+        [tr('المندوب')]: inv.salesRep.name,
+        [tr('النوع')]: tr(statusLabels[inv.type] || inv.type),
+        [tr('التاريخ')]: formatDate(inv.invoiceDate),
+        [tr('الإجمالي')]: num(inv.total),
+        [tr('المدفوع')]: num(inv.paidAmt),
+        [tr('المتبقي')]: num(inv.remainingAmt),
+        [tr('الحالة')]: tr(statusLabels[inv.status] || inv.status),
       }));
       const res2 = await shareOrDownloadExcel(
-        [{ name: 'الفواتير', rows, colWidths: [18, 24, 16, 10, 16, 12, 12, 12, 10] }],
-        `الفواتير-${new Date().toISOString().slice(0, 10)}`
+        [{ name: tr('الفواتير'), rows, colWidths: [18, 24, 16, 10, 16, 12, 12, 12, 10] }],
+        `${tr('الفواتير')}-${new Date().toISOString().slice(0, 10)}`
       );
-      toast.success(res2 === 'shared' ? 'تمت المشاركة' : `تم تصدير ${rows.length} فاتورة`);
-    } catch { toast.error('تعذّر التصدير'); }
+      toast.success(res2 === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('فاتورة')}`);
+    } catch { toast.error(tr('تعذّر التصدير')); }
     setExporting(false);
   };
 
-  const typeBadge = (t: string) => <span className={`badge-${t.toLowerCase()}`}>{statusLabels[t]}</span>;
+  const typeBadge = (t: string) => <span className={`badge-${t.toLowerCase()}`}>{tr(statusLabels[t])}</span>;
   const statusBadge = (s: string) => {
     const map: Record<string, string> = { CONFIRMED: 'badge-confirmed', CANCELLED: 'badge-cancelled', DRAFT: 'badge-inactive' };
-    return <span className={map[s] || ''}>{statusLabels[s]}</span>;
+    return <span className={map[s] || ''}>{tr(statusLabels[s])}</span>;
   };
 
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">إدارة الفواتير</h1>
+        <h1 className="page-title">{tr('إدارة الفواتير')}</h1>
         <div className="flex gap-2">
           <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? <span className="w-4 h-4 border-2 border-gray-300 border-t-[#E15A30] rounded-full animate-spin" /> : <Download size={16} />}
-            تصدير Excel
+            {tr('تصدير Excel')}
           </button>
-          <button className="btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} />فاتورة جديدة</button>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} />{tr('فاتورة جديدة')}</button>
         </div>
       </div>
 
@@ -125,36 +127,36 @@ export default function InvoicesPage() {
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder="رقم الفاتورة أو اسم العميل..." value={search}
+            <input className="input pr-9" placeholder={tr('رقم الفاتورة أو اسم العميل...')} value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <select className="input w-36" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
-            <option value="">جميع الحالات</option>
-            <option value="CONFIRMED">معتمد</option>
-            <option value="CANCELLED">ملغي</option>
-            <option value="DRAFT">مسودة</option>
+            <option value="">{tr('جميع الحالات')}</option>
+            <option value="CONFIRMED">{tr('معتمد')}</option>
+            <option value="CANCELLED">{tr('ملغي')}</option>
+            <option value="DRAFT">{tr('مسودة')}</option>
           </select>
           <select className="input w-32" value={type} onChange={e => { setType(e.target.value); setPage(1); }}>
-            <option value="">جميع الأنواع</option>
-            <option value="CASH">نقدي</option>
-            <option value="CREDIT">آجل</option>
+            <option value="">{tr('جميع الأنواع')}</option>
+            <option value="CASH">{tr('نقدي')}</option>
+            <option value="CREDIT">{tr('آجل')}</option>
           </select>
           <select className="input w-40" value={salesRepId} onChange={e => { setSalesRepId(e.target.value); setPage(1); }}>
-            <option value="">كل المناديب</option>
+            <option value="">{tr('كل المناديب')}</option>
             {reps?.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         </div>
         <div className="flex gap-3 flex-wrap items-end mt-3 pt-3 border-t border-[#F1EBDF]">
           <div>
-            <label className="label text-xs">من تاريخ</label>
+            <label className="label text-xs">{tr('من تاريخ')}</label>
             <input type="date" className="input w-40" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} />
           </div>
           <div>
-            <label className="label text-xs">إلى تاريخ</label>
+            <label className="label text-xs">{tr('إلى تاريخ')}</label>
             <input type="date" className="input w-40" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} />
           </div>
           {(from || to || salesRepId) && (
-            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setPage(1); }}>مسح الفلاتر</button>
+            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setPage(1); }}>{tr('مسح الفلاتر')}</button>
           )}
         </div>
       </div>
@@ -165,16 +167,16 @@ export default function InvoicesPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>رقم الفاتورة</th><th>العميل</th><th>المندوب</th><th>النوع</th>
-                <th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>التاريخ</th>
-                <th>الحالة</th><th>إجراءات</th>
+                <th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th><th>{tr('النوع')}</th>
+                <th>{tr('الإجمالي')}</th><th>{tr('المدفوع')}</th><th>{tr('المتبقي')}</th><th>{tr('التاريخ')}</th>
+                <th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={10} className="text-center py-12 text-gray-400">جاري التحميل...</td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-12 text-gray-400">لا توجد فواتير</td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
               ) : data?.data.map(inv => (
                 <tr key={inv.id}>
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
@@ -190,14 +192,14 @@ export default function InvoicesPage() {
                   <td>{statusBadge(inv.status)}</td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openInvoicePdf(inv.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title="عرض / PDF">
+                      <button onClick={() => openInvoicePdf(inv.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('عرض / PDF')}>
                         {openingId === inv.id ? <span className="w-3.5 h-3.5 border-2 border-[#F5C9BA] border-t-[#E15A30] rounded-full animate-spin inline-block" /> : <FileText size={14} />}
                       </button>
                       {inv.status === 'CONFIRMED' && (
                         <button
                           onClick={() => setCancelId(inv.id)}
                           className="p-1.5 hover:bg-red-50 rounded text-red-500"
-                          title="إلغاء"
+                          title={tr('إلغاء')}
                         >
                           <XCircle size={14} />
                         </button>
@@ -212,7 +214,7 @@ export default function InvoicesPage() {
 
         {data && data.pagination.pages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-            <p className="text-sm text-gray-500">إجمالي: {data.pagination.total} فاتورة</p>
+            <p className="text-sm text-gray-500">{tr('إجمالي')}: {data.pagination.total} {tr('فاتورة')}</p>
             <div className="flex items-center gap-1">
               <button className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
                 <ChevronRight size={16} />
@@ -235,9 +237,9 @@ export default function InvoicesPage() {
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
       {cancelId && (
         <ConfirmDialog
-          title="إلغاء الفاتورة"
-          message="هل تريد إلغاء هذه الفاتورة؟ سيُعكس أثرها على رصيد العميل."
-          confirmLabel="نعم، إلغاء"
+          title={tr('إلغاء الفاتورة')}
+          message={tr('هل تريد إلغاء هذه الفاتورة؟ سيُعكس أثرها على رصيد العميل.')}
+          confirmLabel={tr('نعم، إلغاء')}
           danger
           loading={cancelMutation.isPending}
           onConfirm={() => { cancelMutation.mutate(cancelId, { onSettled: () => setCancelId(null) }); }}
