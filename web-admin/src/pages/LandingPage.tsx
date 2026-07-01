@@ -247,7 +247,7 @@ export default function LandingPage() {
   }
 
   // مبدّل العملة داخل قسم الأسعار + ضبط لاحقة السعر حسب العملة (لاحقة « ر.س / شهريًا» ثابتة في القالب)
-  html = injectCurrencyToggle(html, currency, lang);
+  html = injectCurrencyToggle(html, currency, lang === 'en' ? 'en' : 'ar');
   if (currency === 'usd') {
     html = html.split(' ر.س / شهريًا').join(' دولار / شهريًا').split(' SAR / mo').join(' USD / mo');
   }

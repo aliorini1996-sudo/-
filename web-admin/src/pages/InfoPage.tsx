@@ -94,7 +94,7 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
     title: m.title,
     description: m.description,
     keywords: m.keywords,
-    locale: lang,
+    locale: lang === 'en' ? 'en' : 'ar',
     canonical,
     alternates,
     image: 'https://fieldsa.net/og-image.png',

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Lang = 'ar' | 'en';
+export type Lang = 'ar' | 'en' | 'fr'; // الفرنسية للأسواق الفرنكوفونية (المغرب العربي) — LTR
 const KEY = 'app_lang';
 
 function initial(): Lang {
