@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { customerApi } from '../../api/client';
 import { Customer, AccountEntry } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/format';
+import { useTr } from '../../i18n/strings';
 import { X, Printer, Download } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../../utils/excel';
 import toast from 'react-hot-toast';
@@ -10,6 +11,7 @@ import toast from 'react-hot-toast';
 interface Props { customer: Customer; onClose: () => void; }
 
 export default function CustomerStatementModal({ customer, onClose }: Props) {
+  const tr = useTr();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -27,25 +29,25 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
   const exportStatement = async () => {
     if (!data) return;
     const summary = [
-      { 'البند': 'العميل', 'القيمة': customer.name },
-      { 'البند': 'الجوال', 'القيمة': customer.phone },
-      { 'البند': 'إجمالي المبيعات', 'القيمة': num(data.customer.totalSales) },
-      { 'البند': 'إجمالي التحصيل', 'القيمة': num(data.customer.totalCollected) },
-      { 'البند': 'الرصيد الحالي', 'القيمة': num(data.customer.balance) },
+      { [tr('البند')]: tr('العميل'), [tr('القيمة')]: customer.name },
+      { [tr('البند')]: tr('الجوال'), [tr('القيمة')]: customer.phone },
+      { [tr('البند')]: tr('إجمالي المبيعات'), [tr('القيمة')]: num(data.customer.totalSales) },
+      { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(data.customer.totalCollected) },
+      { [tr('البند')]: tr('الرصيد الحالي'), [tr('القيمة')]: num(data.customer.balance) },
     ];
     const rows = data.entries.map(e => ({
-      'التاريخ': formatDate(e.entryDate),
-      'البيان': e.description,
-      'رقم المستند': e.invoice?.number || e.receipt?.number || '-',
-      'مدين': num(e.debit),
-      'دائن': num(e.credit),
-      'الرصيد': num(e.balance),
+      [tr('التاريخ')]: formatDate(e.entryDate),
+      [tr('البيان')]: e.description,
+      [tr('رقم المستند')]: e.invoice?.number || e.receipt?.number || '-',
+      [tr('مدين')]: num(e.debit),
+      [tr('دائن')]: num(e.credit),
+      [tr('الرصيد')]: num(e.balance),
     }));
     const out = await shareOrDownloadExcel([
-      { name: 'الملخص', rows: summary, colWidths: [18, 22] },
-      { name: 'الحركات', rows, colWidths: [16, 30, 16, 12, 12, 12] },
-    ], `كشف-حساب-${customer.name}-${new Date().toISOString().slice(0, 10)}`);
-    toast.success(out === 'shared' ? 'تمت المشاركة' : 'تم تصدير كشف الحساب');
+      { name: tr('الملخص'), rows: summary, colWidths: [18, 22] },
+      { name: tr('الحركات'), rows, colWidths: [16, 30, 16, 12, 12, 12] },
+    ], `${tr('كشف حساب')}-${customer.name}-${new Date().toISOString().slice(0, 10)}`);
+    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم تصدير كشف الحساب'));
   };
 
   return (
@@ -54,12 +56,12 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <div>
-            <h2 className="text-lg font-bold text-gray-800">كشف حساب</h2>
+            <h2 className="text-lg font-bold text-gray-800">{tr('كشف حساب')}</h2>
             <p className="text-sm text-gray-500">{customer.name} • {customer.phone}</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={exportStatement} disabled={isLoading} className="btn-secondary"><Download size={15} />Excel</button>
-            <button onClick={handlePrint} className="btn-secondary"><Printer size={15} />طباعة</button>
+            <button onClick={handlePrint} className="btn-secondary"><Printer size={15} />{tr('طباعة')}</button>
             <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
           </div>
         </div>
@@ -67,11 +69,11 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
         {/* Filters */}
         <div className="flex gap-3 p-4 border-b border-gray-100">
           <div>
-            <label className="label">من</label>
+            <label className="label">{tr('من')}</label>
             <input type="date" className="input w-36" value={from} onChange={e => setFrom(e.target.value)} />
           </div>
           <div>
-            <label className="label">إلى</label>
+            <label className="label">{tr('إلى')}</label>
             <input type="date" className="input w-36" value={to} onChange={e => setTo(e.target.value)} />
           </div>
         </div>
@@ -79,15 +81,15 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
         {/* Balance Summary */}
         <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 border-b">
           <div className="text-center">
-            <p className="text-xs text-gray-500">إجمالي المبيعات</p>
+            <p className="text-xs text-gray-500">{tr('إجمالي المبيعات')}</p>
             <p className="font-bold text-[#E15A30]">{formatCurrency(data?.customer.totalSales ?? 0)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">إجمالي التحصيل</p>
+            <p className="text-xs text-gray-500">{tr('إجمالي التحصيل')}</p>
             <p className="font-bold text-green-600">{formatCurrency(data?.customer.totalCollected ?? 0)}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">الرصيد الحالي</p>
+            <p className="text-xs text-gray-500">{tr('الرصيد الحالي')}</p>
             <p className={`font-bold ${Number(data?.customer.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
               {formatCurrency(data?.customer.balance ?? 0)}
             </p>
@@ -99,15 +101,15 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
           <table className="table">
             <thead>
               <tr>
-                <th>التاريخ</th><th>البيان</th><th>رقم المستند</th>
-                <th>مدين</th><th>دائن</th><th>الرصيد</th>
+                <th>{tr('التاريخ')}</th><th>{tr('البيان')}</th><th>{tr('رقم المستند')}</th>
+                <th>{tr('مدين')}</th><th>{tr('دائن')}</th><th>{tr('الرصيد')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>
+                <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.entries.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-8 text-gray-400">لا توجد حركات</td></tr>
+                <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('لا توجد حركات')}</td></tr>
               ) : data?.entries.map(e => (
                 <tr key={e.id}>
                   <td className="text-xs text-gray-500">{formatDate(e.entryDate)}</td>

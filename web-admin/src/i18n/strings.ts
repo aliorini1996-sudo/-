@@ -620,6 +620,22 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'عرض كشف الحساب': { en: 'View statement', fr: 'Afficher le relevé' },
   'إظهار رصيد التحصيل المتراكم': { en: 'Show accumulated collection balance', fr: 'Afficher le solde d’encaissement cumulé' },
   'إضافة المندوب': { en: 'Add rep', fr: 'Ajouter le représentant' },
+  // نافذة تفاصيل الفاتورة + كشف الحساب
+  'فاتورة رقم': { en: 'Invoice No.', fr: 'Facture n°' },
+  'طباعة': { en: 'Print', fr: 'Imprimer' },
+  'خصم': { en: 'Discount', fr: 'Remise' },
+  'ضريبة': { en: 'Tax', fr: 'TVA' },
+  'قبل الخصم': { en: 'Before discount', fr: 'Avant remise' },
+  'الضريبة': { en: 'Tax', fr: 'TVA' },
+  'كشف حساب': { en: 'Account statement', fr: 'Relevé de compte' },
+  'الرصيد الحالي': { en: 'Current balance', fr: 'Solde actuel' },
+  'البيان': { en: 'Description', fr: 'Libellé' },
+  'رقم المستند': { en: 'Document number', fr: 'N° de document' },
+  'مدين': { en: 'Debit', fr: 'Débit' },
+  'دائن': { en: 'Credit', fr: 'Crédit' },
+  'الحركات': { en: 'Transactions', fr: 'Mouvements' },
+  'تم تصدير كشف الحساب': { en: 'Statement exported', fr: 'Relevé exporté' },
+  'لا توجد حركات': { en: 'No transactions', fr: 'Aucun mouvement' },
 };
 
 export function useTr() {
