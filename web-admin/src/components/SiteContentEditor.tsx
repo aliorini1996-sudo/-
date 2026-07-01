@@ -3,11 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { POSTS, emptyPost, slugify, type BlogPost } from '../blog/posts';
-import { X, Save, Globe, Plus, Trash2, ChevronDown } from 'lucide-react';
+import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+const DEFAULT_HERO = '/hero-rep-phones.svg';
+
 // أقسام المحرّر: [مسار الحقل، التسمية، نص طويل؟] — والقسم المعلّم blog له محرّر مقالات مخصّص
-const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: boolean }[] = [
+const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: boolean; heroImage?: boolean }[] = [
   { title: 'القسم الرئيسي (Hero)', fields: [
     ['hero.badge', 'الشارة العلوية'],
     ['hero.titleLine1', 'العنوان — السطر الأول'],
@@ -81,6 +83,7 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: bo
     ['pages.privacy.title', 'الخصوصية — العنوان'], ['pages.privacy.body', 'الخصوصية — المحتوى', true],
   ] },
   { title: 'المدوّنة (المقالات)', fields: [], blog: true },
+  { title: 'صورة الصفحة الرئيسية', fields: [], heroImage: true },
 ];
 
 type Draft = Record<string, unknown>;
@@ -182,6 +185,74 @@ function BlogManager({ draft, setDraft }: { draft: Draft; setDraft: React.Dispat
   );
 }
 
+// تغيير صورة الصفحة الرئيسية — رفع صورة (تُصغَّر وتُخزَّن في الـCMS) أو استعادة الافتراضية
+function HeroImageField({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft | null>> }) {
+  const [busy, setBusy] = useState(false);
+  const current = (typeof draft.heroImage === 'string' && draft.heroImage) ? (draft.heroImage as string) : DEFAULT_HERO;
+  const isCustom = current !== DEFAULT_HERO;
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('اختر ملف صورة (PNG/JPG/SVG)'); return; }
+    if (file.size > 6 * 1024 * 1024) { toast.error('الصورة كبيرة جداً (الحدّ 6MB)'); return; }
+    setBusy(true);
+    const reader = new FileReader();
+    reader.onerror = () => { setBusy(false); toast.error('تعذّرت قراءة الملف'); };
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      if (file.type === 'image/svg+xml') {
+        setDraft(d => d && ({ ...d, heroImage: result }));
+        setBusy(false); toast.success('تم اختيار الصورة — اضغط «حفظ» لنشرها');
+        return;
+      }
+      const img = new window.Image();
+      img.onerror = () => { setBusy(false); toast.error('تعذّر قراءة الصورة'); };
+      img.onload = () => {
+        const maxW = 1200;
+        const scale = Math.min(1, maxW / img.width);
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { setBusy(false); toast.error('تعذّرت معالجة الصورة'); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        const alpha = file.type === 'image/png' || file.type === 'image/webp';
+        const dataUrl = alpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.85);
+        setDraft(d => d && ({ ...d, heroImage: dataUrl }));
+        setBusy(false); toast.success('تم اختيار الصورة — اضغط «حفظ» لنشرها');
+      };
+      img.src = result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-[#FBEBE2] border border-[#F1D9CC] rounded-xl p-3 text-xs text-[#8A4B33] leading-relaxed">
+        الصورة المعروضة أسفل القسم الأول في الصفحة الرئيسية. يُفضَّل <b>PNG بخلفية شفّافة</b> بأبعاد عريضة (≈ 1000×740) لتندمج مع الصفحة.
+      </div>
+      <div className="rounded-2xl border border-[#E9E1D3] bg-[#FAF7F0] p-4 flex items-center justify-center min-h-[180px]">
+        <img src={current} alt="معاينة صورة الصفحة الرئيسية" className="max-h-64 max-w-full object-contain" />
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className={`btn-primary justify-center py-2.5 px-4 cursor-pointer ${busy ? 'opacity-60 pointer-events-none' : ''}`}>
+          {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ImageIcon size={16} />}
+          اختر صورة
+          <input type="file" accept="image/*" className="hidden" onChange={onFile} />
+        </label>
+        {isCustom && (
+          <button onClick={() => setDraft(d => d && ({ ...d, heroImage: '' }))} className="btn-secondary flex items-center gap-1.5">
+            <RotateCcw size={15} /> استعادة الافتراضية
+          </button>
+        )}
+        <span className="text-xs text-[#9A8F7E]">{isCustom ? 'صورة مخصّصة' : 'الصورة الافتراضية'}</span>
+      </div>
+    </div>
+  );
+}
+
 // محرّر محتوى الصفحة التعريفية والصفحات التابعة (للمالك)
 export default function SiteContentEditor({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -253,6 +324,8 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
               <h3 className="font-bold text-[#1F1A13] mb-1">{SECTIONS[active].title}</h3>
               {SECTIONS[active].blog
                 ? <BlogManager draft={draft} setDraft={setDraft} />
+                : SECTIONS[active].heroImage
+                ? <HeroImageField draft={draft} setDraft={setDraft} />
                 : SECTIONS[active].fields.map(field)}
             </div>
           </div>

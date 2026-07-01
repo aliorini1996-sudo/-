@@ -351,6 +351,7 @@ info@fieldsa.net`
 لأي استفسار حول الخصوصية أو بياناتك: info@fieldsa.net`
     }
   },
+  "heroImage": "/hero-rep-phones.svg",
   "social": {
     "x": "",
     "instagram": "",

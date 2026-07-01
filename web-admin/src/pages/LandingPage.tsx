@@ -238,7 +238,7 @@ export default function LandingPage() {
   let html: string;
   if (lang === 'en') {
     // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط تواصل من CMS + ترجمة النص الثابت
-    const enContent = { ...defaultContentEn, social: (arContent.social as Record<string, string>) || defaultContentEn.social };
+    const enContent = { ...defaultContentEn, social: (arContent.social as Record<string, string>) || defaultContentEn.social, heroImage: arContent.heroImage };
     html = translateChrome(applyContent(LANDING_TEMPLATE, applyCurrency(enContent as Record<string, unknown>, currency), 'en'));
     html = injectLangButton(html, 'العربية');
   } else {
