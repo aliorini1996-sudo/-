@@ -429,6 +429,13 @@ function EmailModal({
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل الإرسال'),
   });
 
+  const [testTo, setTestTo] = useState('ceo@fieldsa.net');
+  const testMutation = useMutation({
+    mutationFn: () => leadApi.emailTest({ to: testTo, subject, body }),
+    onSuccess: () => toast.success(`أُرسلت نسخة تجريبية إلى ${testTo} ✅`),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل الإرسال التجريبي'),
+  });
+
   const recipients = count ?? 0;
   const willSend = Math.min(recipients, limit);
 
@@ -457,6 +464,17 @@ function EmailModal({
           📮 المُرسل الحالي: <b>{emailStatus?.provider === 'brevo' ? 'Brevo' : 'Resend'}</b> · الحصّة اليومية ~<b>{emailStatus?.dailyCap ?? 100}</b> بريد.
           {emailStatus?.provider !== 'brevo' && <span className="text-amber-700"> — أضِف <code>BREVO_API_KEY</code> في الخادم لرفعها إلى 300/يوم وعزلها عن بريد النظام.</span>}
         </p>
+        {/* إرسال نسخة تجريبية للمعاينة */}
+        <div className="bg-blue-50 rounded-lg p-2.5">
+          <label className="label">معاينة في بريدك (نسخة تجريبية)</label>
+          <div className="flex gap-2">
+            <input value={testTo} onChange={(e) => setTestTo(e.target.value)} className="input flex-1" placeholder="ceo@fieldsa.net" dir="ltr" />
+            <button disabled={testMutation.isPending || !testTo} onClick={() => testMutation.mutate()} className="px-4 py-2 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap">
+              {testMutation.isPending ? '...' : 'إرسال تجريبي'}
+            </button>
+          </div>
+          <p className="text-[11px] text-blue-700 mt-1">يرسل نسخة واحدة لهذا العنوان فقط لمعاينة الشكل — لا يؤثّر على العملاء.</p>
+        </div>
         <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
           ⚠️ إرسال بريد جماعي لعناوين عامة قد يؤثّر على سمعة نطاقك. أرسل دفعات صغيرة ونصّاً مهنياً غير مزعج.
         </p>

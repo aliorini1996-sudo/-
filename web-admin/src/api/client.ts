@@ -158,6 +158,7 @@ export const leadApi = {
   search: (data: unknown) => api.post('/leads/search', data),
   sourcesStatus: () => api.get('/leads/sources-status'),
   sendEmail: (data: unknown) => api.post('/leads/email', data),
+  emailTest: (data: unknown) => api.post('/leads/email-test', data),
   emailStatus: () => api.get('/leads/email-status'),
   whatsappStatus: () => api.get('/leads/whatsapp-status'),
   whatsappSend: (data: unknown) => api.post('/leads/whatsapp-send', data),

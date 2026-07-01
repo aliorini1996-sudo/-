@@ -477,6 +477,28 @@ function marketingHtml(bodyText: string, lead: { name: string; city?: string | n
   </div>`;
 }
 
+// إرسال نسخة تجريبية من البريد التسويقي إلى عنوان محدّد (لمعاينته في صندوق الوارد)
+const emailTestSchema = z.object({
+  to: z.string().email(),
+  subject: z.string().min(1),
+  body: z.string().min(1),
+});
+router.post('/email-test', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { to, subject, body } = emailTestSchema.parse(req.body);
+    const sample = { name: 'شركتكم', city: '', country: '' };
+    const html = marketingHtml(body, sample);
+    try {
+      await sendMarketingEmail({ subject: `[تجربة] ${personalize(subject, sample)}`, html, to });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(502).json({ success: false, message: (e as Error).message });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = emailSchema.parse(req.body);
