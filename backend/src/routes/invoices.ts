@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal } from '../utils/helpers';
+import { getCountryTax } from '../config/countries';
 import {
   postInvoiceEntries,
   postCashInvoiceEntries,
@@ -22,7 +23,7 @@ const invoiceItemSchema = z.object({
   qty: z.number().positive(),
   unitPrice: z.number().min(0),
   discountPct: z.number().min(0).max(100).default(0),
-  taxPct: z.number().min(0).max(100).default(15),
+  taxPct: z.number().min(0).max(100).optional(), // يُورَث من ضريبة دولة الشركة عند الغياب
 });
 
 const createInvoiceSchema = z.object({
@@ -155,22 +156,31 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
 
+    // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب
+    const company = await prisma.companySettings.findUnique({
+      where: { tenantId: tid },
+      select: { defaultVatPct: true, countryCode: true },
+    });
+    const companyVat = company?.defaultVatPct ?? 15;
+    const dec = getCountryTax(company?.countryCode).currencyDecimals;
+
     let subtotal = 0;
     const items = body.items.map(item => {
-      const lineBase = roundDecimal(item.qty * item.unitPrice);
-      const lineDiscount = roundDecimal(lineBase * item.discountPct / 100);
+      const lineBase = roundDecimal(item.qty * item.unitPrice, dec);
+      const lineDiscount = roundDecimal(lineBase * item.discountPct / 100, dec);
       const lineAfterDiscount = lineBase - lineDiscount;
-      const lineTax = roundDecimal(lineAfterDiscount * item.taxPct / 100);
+      const itemTaxPct = item.taxPct ?? companyVat; // وراثة ضريبة الدولة عند الغياب
+      const lineTax = roundDecimal(lineAfterDiscount * itemTaxPct / 100, dec);
       const lineTotal = lineAfterDiscount + lineTax;
       subtotal += lineBase;
-      return { ...item, discountAmt: lineDiscount, taxAmt: lineTax, lineTotal };
+      return { ...item, taxPct: itemTaxPct, discountAmt: lineDiscount, taxAmt: lineTax, lineTotal };
     });
 
-    const discountAmt = roundDecimal(subtotal * body.discountPct / 100);
+    const discountAmt = roundDecimal(subtotal * body.discountPct / 100, dec);
     const taxableSubtotal = subtotal - discountAmt;
     let taxAmt = 0;
     const finalItems = items.map(item => { taxAmt += item.taxAmt; return item; });
-    const total = roundDecimal(taxableSubtotal + taxAmt);
+    const total = roundDecimal(taxableSubtotal + taxAmt, dec);
     const isReturn = body.type === 'RETURN';
     const number = isReturn ? await generateReturnNumber(tid) : await generateInvoiceNumber(tid);
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;

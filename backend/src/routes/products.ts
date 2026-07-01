@@ -15,7 +15,7 @@ const productSchema = z.object({
   barcode: z.string().optional(),
   unit: z.string().min(1),
   basePrice: z.number().min(0),
-  taxPct: z.number().min(0).max(100).default(15),
+  taxPct: z.number().min(0).max(100).optional(), // يُورَث من ضريبة دولة الشركة عند الغياب
   image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   categoryId: z.string().optional(),
@@ -98,6 +98,10 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
   try {
     const tid = tenantId(req);
     const data = productSchema.parse(req.body);
+    if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها
+      const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
+      data.taxPct = company?.defaultVatPct ?? 15;
+    }
     const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null, tenantId: tid } as any, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
