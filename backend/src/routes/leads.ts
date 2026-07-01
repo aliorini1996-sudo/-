@@ -448,15 +448,22 @@ function marketingHtml(bodyText: string, lead: { name: string; city?: string | n
   const safe = personalize(bodyText, lead)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\n/g, '<br>');
-  return `<div dir="rtl" style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#FAF7F0;padding:24px">
+  const feature = (t: string) => `<td style="padding:6px 8px;vertical-align:top;width:50%"><span style="color:#E15A30;font-weight:700">●</span> <span style="color:#3a342b;font-size:14px">${t}</span></td>`;
+  return `<div dir="rtl" style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#FAF7F0;padding:24px 12px">
     <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #E9E1D3;border-radius:16px;overflow:hidden">
-      <div style="background:#1F1A13;padding:20px 24px"><span style="font-size:20px;font-weight:700;color:#fff">Field<span style="color:#E15A30"> Sales</span></span></div>
+      <!-- بطاقة بصرية احترافية بنمط السوشال ميديا -->
+      <a href="https://fieldsa.net" style="display:block"><img src="https://fieldsa.net/email/hero.png" alt="Field Sales" width="600" style="width:100%;max-width:600px;display:block;border:0" /></a>
       <div style="padding:22px 24px;color:#3a342b;font-size:15px;line-height:1.9">${safe}</div>
-      <div style="padding:16px 24px;border-top:1px solid #F1EBDF">
-        <a href="https://fieldsa.net" style="display:inline-block;background:#E15A30;color:#fff;text-decoration:none;padding:11px 24px;border-radius:10px;font-weight:600">اكتشف Field Sales</a>
+      <!-- شريط ميزات -->
+      <table role="presentation" width="100%" style="border-collapse:collapse;padding:0 12px;margin:0 12px 4px">
+        <tr>${feature('فواتير ZATCA إلكترونية')}${feature('التحصيل وإدارة الذمم')}</tr>
+        <tr>${feature('مخزون سيارة المندوب')}${feature('تتبّع المناديب GPS')}</tr>
+      </table>
+      <div style="padding:16px 24px 22px;text-align:center">
+        <a href="https://fieldsa.net" style="display:inline-block;background:#E15A30;color:#fff;text-decoration:none;padding:13px 34px;border-radius:12px;font-weight:700;font-size:16px">جرّب Field Sales مجاناً</a>
       </div>
-      <div style="padding:12px 24px;color:#9A8F7E;font-size:12px;border-top:1px solid #F1EBDF">
-        رسالة أعمال من Field Sales · fieldsa.net · إن لم ترغب بتلقّي رسائلنا، ردّ بكلمة «إلغاء».
+      <div style="padding:12px 24px;color:#9A8F7E;font-size:12px;border-top:1px solid #F1EBDF;background:#FAF7F0">
+        رسالة أعمال من Field Sales · <a href="https://fieldsa.net" style="color:#6E6557">fieldsa.net</a> · إن لم ترغب بتلقّي رسائلنا، ردّ بكلمة «إلغاء».
       </div>
     </div>
   </div>`;
