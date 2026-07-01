@@ -557,6 +557,27 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'بدون فئة': { en: 'No category', fr: 'Sans catégorie' },
   'إضافة الصنف': { en: 'Add item', fr: 'Ajouter l’article' },
   'تعذّر معالجة الصورة': { en: 'Could not process the image', fr: 'Impossible de traiter l’image' },
+  // نافذة الفاتورة
+  'إنشاء فاتورة جديدة': { en: 'Create new invoice', fr: 'Créer une nouvelle facture' },
+  'تم إنشاء الفاتورة': { en: 'Invoice created', fr: 'Facture créée' },
+  'اختر العميل': { en: 'Choose customer', fr: 'Choisir le client' },
+  'اختر المندوب': { en: 'Choose rep', fr: 'Choisir le représentant' },
+  'اكتب اسم أو جوال العميل…': { en: 'Type customer name or mobile…', fr: 'Saisir le nom ou mobile du client…' },
+  'رصيد': { en: 'balance', fr: 'solde' },
+  'أضف صنفاً على الأقل': { en: 'Add at least one item', fr: 'Ajoutez au moins un article' },
+  'نوع الفاتورة': { en: 'Invoice type', fr: 'Type de facture' },
+  'اتركه فارغاً لتاريخ اليوم': { en: 'Leave empty for today’s date', fr: 'Laissez vide pour la date du jour' },
+  'الأصناف': { en: 'Items', fr: 'Articles' },
+  'أضف صنفاً': { en: 'Add an item', fr: 'Ajouter un article' },
+  'اكتب اسم أو كود الصنف…': { en: 'Type item name or code…', fr: 'Saisir le nom ou code de l’article…' },
+  'خصم%': { en: 'Disc%', fr: 'Rem%' },
+  'ضريبة%': { en: 'Tax%', fr: 'TVA%' },
+  'اختر صنفاً من القائمة لإضافته': { en: 'Choose an item from the list to add it', fr: 'Choisissez un article dans la liste pour l’ajouter' },
+  'خصم عام %': { en: 'General discount %', fr: 'Remise générale %' },
+  'إجمالي الخصم': { en: 'Total discount', fr: 'Remise totale' },
+  'ضريبة القيمة المضافة': { en: 'VAT', fr: 'TVA' },
+  'ملاحظات': { en: 'Notes', fr: 'Remarques' },
+  'إصدار الفاتورة': { en: 'Issue invoice', fr: 'Émettre la facture' },
 };
 
 export function useTr() {
