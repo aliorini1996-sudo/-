@@ -1,6 +1,7 @@
 import { forwardRef, useRef, useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { printThermalInvoice, printThermalReceipt } from './thermal';
@@ -122,6 +123,7 @@ export function brandColor(company?: Company | null): string {
 }
 
 export function Header({ title, company }: { title: string; company?: Company | null }) {
+  const tr = useTr();
   const brand = brandColor(company);
   const style = company?.headerStyle || 'classic';
   const logo = company?.logo || null;
@@ -135,11 +137,11 @@ export function Header({ title, company }: { title: string; company?: Company | 
 
   const infoLines = (light?: boolean) => (
     <>
-      {line('العنوان', company?.address, light)}
-      {line('الرقم الضريبي', company?.taxNumber, light)}
-      {line('السجل التجاري', company?.commercialReg, light)}
-      {line('هاتف', company?.phone, light)}
-      {line('البريد', company?.email, light)}
+      {line(tr('العنوان'), company?.address, light)}
+      {line(tr('الرقم الضريبي'), company?.taxNumber, light)}
+      {line(tr('السجل التجاري'), company?.commercialReg, light)}
+      {line(tr('هاتف'), company?.phone, light)}
+      {line(tr('البريد'), company?.email, light)}
     </>
   );
 
@@ -150,7 +152,7 @@ export function Header({ title, company }: { title: string; company?: Company | 
         <div style={{ background: brand, borderRadius: 12, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Logo size={46} />
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{company?.name || 'اسم الشركة'}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{company?.name || tr('اسم الشركة')}</div>
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{title}</div>
         </div>
@@ -166,7 +168,7 @@ export function Header({ title, company }: { title: string; company?: Company | 
         <div style={{ maxWidth: 440 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <Logo size={34} />
-            <div style={{ fontSize: 19, fontWeight: 700, color: '#1f2937' }}>{company?.name || 'اسم الشركة'}</div>
+            <div style={{ fontSize: 19, fontWeight: 700, color: '#1f2937' }}>{company?.name || tr('اسم الشركة')}</div>
           </div>
           {infoLines(false)}
         </div>
@@ -181,7 +183,7 @@ export function Header({ title, company }: { title: string; company?: Company | 
       <div style={{ maxWidth: 440 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <Logo size={42} />
-          <div style={{ fontSize: 20, fontWeight: 700, color: brand }}>{company?.name || 'اسم الشركة'}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: brand }}>{company?.name || tr('اسم الشركة')}</div>
         </div>
         {infoLines(false)}
       </div>
@@ -203,6 +205,7 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 
 // ============ قالب الفاتورة ============
 export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(({ doc }, ref) => {
+  const tr = useTr();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '10px 8px', fontSize: 13, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '9px 8px', fontSize: 13, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
@@ -211,8 +214,8 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   // تصنيف الفاتورة وفق ZATCA: مبسّطة (B2C) إن لم يكن للعميل رقم ضريبي، وقياسية (B2B) إن وُجد
   const isSimplified = !doc.customer.taxNumber;
   const docTitle = doc.isReturn
-    ? 'إشعار دائن (مرتجع)'
-    : (isSimplified ? 'فاتورة ضريبية مبسطة' : 'فاتورة ضريبية');
+    ? tr('إشعار دائن (مرتجع)')
+    : (isSimplified ? tr('فاتورة ضريبية مبسطة') : tr('فاتورة ضريبية'));
   // رمز QR وفق هيئة الزكاة والضريبة — يظهر فقط إذا كان للشركة رقم ضريبي
   const qrValue = doc.company?.taxNumber
     ? buildZatcaQr({
@@ -223,27 +226,28 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         vatTotal: doc.tax,
       })
     : null;
+  const vatRate = doc.subtotal - doc.discount > 0 ? Math.round((doc.tax / (doc.subtotal - doc.discount)) * 100) : 0;
   return (
     <div ref={ref} style={PAGE}>
       <Header title={docTitle} company={doc.company} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 20 }}>
         <div style={{ flex: 1, background: doc.isReturn ? '#fffbeb' : '#eff6ff', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{doc.isReturn ? 'بيانات المرتجع' : 'بيانات الفاتورة'}</div>
-          <InfoBox label={doc.isReturn ? 'رقم المرتجع' : 'رقم الفاتورة'} value={doc.number} />
-          <InfoBox label="التاريخ" value={formatDate(doc.date)} />
-          <InfoBox label="وقت الإصدار" value={formatTime(doc.date)} />
-          {!doc.isReturn && <InfoBox label="النوع" value={doc.type === 'CASH' ? 'نقدي' : 'آجل'} />}
-          <InfoBox label="المندوب" value={doc.repName} />
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{doc.isReturn ? tr('بيانات المرتجع') : tr('بيانات الفاتورة')}</div>
+          <InfoBox label={doc.isReturn ? tr('رقم المرتجع') : tr('رقم الفاتورة')} value={doc.number} />
+          <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
+          <InfoBox label={tr('وقت الإصدار')} value={formatTime(doc.date)} />
+          {!doc.isReturn && <InfoBox label={tr('النوع')} value={doc.type === 'CASH' ? tr('نقدي') : tr('آجل')} />}
+          <InfoBox label={tr('المندوب')} value={doc.repName} />
         </div>
         <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>بيانات العميل</div>
-          <InfoBox label="الاسم" value={doc.customer.name} />
-          {doc.customer.businessName && <InfoBox label="المنشأة" value={doc.customer.businessName} />}
-          {doc.customer.commercialReg && <InfoBox label="السجل التجاري" value={doc.customer.commercialReg} />}
-          {doc.customer.taxNumber && <InfoBox label="الرقم الضريبي" value={doc.customer.taxNumber} />}
-          {doc.customer.phone && <InfoBox label="الجوال" value={doc.customer.phone} />}
-          {addr && <InfoBox label="العنوان" value={addr} />}
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات العميل')}</div>
+          <InfoBox label={tr('الاسم')} value={doc.customer.name} />
+          {doc.customer.businessName && <InfoBox label={tr('المنشأة')} value={doc.customer.businessName} />}
+          {doc.customer.commercialReg && <InfoBox label={tr('السجل التجاري')} value={doc.customer.commercialReg} />}
+          {doc.customer.taxNumber && <InfoBox label={tr('الرقم الضريبي')} value={doc.customer.taxNumber} />}
+          {doc.customer.phone && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
+          {addr && <InfoBox label={tr('العنوان')} value={addr} />}
         </div>
       </div>
 
@@ -251,12 +255,12 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         <thead>
           <tr>
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
-            <th style={{ ...th, textAlign: 'right' }}>الصنف</th>
-            <th style={th}>الكمية</th>
-            <th style={th}>السعر</th>
-            <th style={th}>الخصم</th>
-            <th style={th}>الضريبة</th>
-            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>الإجمالي</th>
+            <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
+            <th style={th}>{tr('الكمية')}</th>
+            <th style={th}>{tr('السعر')}</th>
+            <th style={th}>{tr('الخصم')}</th>
+            <th style={th}>{tr('الضريبة')}</th>
+            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('الإجمالي')}</th>
           </tr>
         </thead>
         <tbody>
@@ -285,38 +289,38 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
             <div style={{ background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'block', width: 'fit-content', margin: '0 auto' }}>
               <QrImage value={qrValue} size={108} />
             </div>
-            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>رمز الاستجابة السريعة للفاتورة الضريبية</div>
+            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>{tr('رمز الاستجابة السريعة للفاتورة الضريبية')}</div>
           </div>
         ) : (
           <div style={{ fontSize: 10.5, color: '#9ca3af', maxWidth: 170, lineHeight: 1.6 }}>
-            أضف الرقم الضريبي للشركة في إعدادات الشركة لإظهار رمز الفاتورة الضريبية المعتمد.
+            {tr('أضف الرقم الضريبي للشركة في إعدادات الشركة لإظهار رمز الفاتورة الضريبية المعتمد.')}
           </div>
         )}
 
         <div style={{ width: 300, fontSize: 14 }}>
-          <Row label="المجموع قبل الخصم" value={formatCurrency(doc.subtotal)} />
-          {doc.discount > 0 && <Row label="الخصم" value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
-          <Row label={`ضريبة القيمة المضافة ${doc.subtotal - doc.discount > 0 ? Math.round((doc.tax / (doc.subtotal - doc.discount)) * 100) : 0}%`} value={formatCurrency(doc.tax)} color="#1E7A52" />
+          <Row label={tr('المجموع قبل الخصم')} value={formatCurrency(doc.subtotal)} />
+          {doc.discount > 0 && <Row label={tr('الخصم')} value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
+          <Row label={`${tr('ضريبة القيمة المضافة')} ${vatRate}%`} value={formatCurrency(doc.tax)} color="#1E7A52" />
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
-            <span>{doc.isReturn ? 'إجمالي المرتجع (دائن)' : 'الإجمالي النهائي'}</span>
+            <span>{doc.isReturn ? tr('إجمالي المرتجع (دائن)') : tr('الإجمالي النهائي')}</span>
             <span>{formatCurrency(doc.total)}</span>
           </div>
           {!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined && (
             <>
-              <Row label="المدفوع" value={formatCurrency(doc.paidAmt ?? 0)} color="#16a34a" />
-              <Row label="المتبقي" value={formatCurrency(doc.remainingAmt)} color="#dc2626" />
+              <Row label={tr('المدفوع')} value={formatCurrency(doc.paidAmt ?? 0)} color="#16a34a" />
+              <Row label={tr('المتبقي')} value={formatCurrency(doc.remainingAmt)} color="#dc2626" />
             </>
           )}
         </div>
       </div>
 
       <div style={{ marginTop: 60, display: 'flex', justifyContent: 'space-between', color: '#6b7280', fontSize: 13 }}>
-        <div>توقيع المستلم: ........................</div>
-        <div>توقيع المندوب: ........................</div>
+        <div>{tr('توقيع المستلم')}: ........................</div>
+        <div>{tr('توقيع المندوب')}: ........................</div>
       </div>
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
-        شكراً لتعاملكم معنا — {doc.company?.name || ''}
+        {tr('شكراً لتعاملكم معنا')} — {doc.company?.name || ''}
       </div>
     </div>
   );
@@ -325,40 +329,41 @@ PrintableInvoice.displayName = 'PrintableInvoice';
 
 // ============ قالب سند القبض ============
 export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(({ doc }, ref) => {
+  const tr = useTr();
   const brand = brandColor(doc.company);
   const addr = fullAddress(doc.customer);
   return (
     <div ref={ref} style={PAGE}>
-      <Header title="سند قبض" company={doc.company} />
+      <Header title={tr('سند قبض')} company={doc.company} />
 
       <div style={{ marginBottom: 20 }}>
-        <InfoBox label="رقم السند" value={doc.number} />
-        <InfoBox label="التاريخ" value={formatDate(doc.date)} />
-        <InfoBox label="وقت الإصدار" value={formatTime(doc.date)} />
-        <InfoBox label="المندوب" value={doc.repName} />
+        <InfoBox label={tr('رقم السند')} value={doc.number} />
+        <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
+        <InfoBox label={tr('وقت الإصدار')} value={formatTime(doc.date)} />
+        <InfoBox label={tr('المندوب')} value={doc.repName} />
       </div>
 
       <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: 14, padding: 24, textAlign: 'center', marginBottom: 20 }}>
-        <div style={{ color: '#15803d', fontSize: 14, marginBottom: 8 }}>المبلغ المستلم</div>
+        <div style={{ color: '#15803d', fontSize: 14, marginBottom: 8 }}>{tr('المبلغ المستلم')}</div>
         <div style={{ fontSize: 38, fontWeight: 700, color: '#15803d' }}>{formatCurrency(doc.amount)}</div>
       </div>
 
       <div style={{ background: '#f8fafc', borderRadius: 10, padding: 16, marginBottom: 20 }}>
-        <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>بيانات العميل</div>
-        <InfoBox label="استلمنا من السيد" value={doc.customer.name} />
-        {doc.customer.businessName && <InfoBox label="المنشأة" value={doc.customer.businessName} />}
-        {doc.customer.commercialReg && <InfoBox label="السجل التجاري" value={doc.customer.commercialReg} />}
-        {doc.customer.taxNumber && <InfoBox label="الرقم الضريبي" value={doc.customer.taxNumber} />}
-        {doc.customer.phone && <InfoBox label="الجوال" value={doc.customer.phone} />}
-        {addr && <InfoBox label="العنوان" value={addr} />}
+        <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات العميل')}</div>
+        <InfoBox label={tr('استلمنا من السيد')} value={doc.customer.name} />
+        {doc.customer.businessName && <InfoBox label={tr('المنشأة')} value={doc.customer.businessName} />}
+        {doc.customer.commercialReg && <InfoBox label={tr('السجل التجاري')} value={doc.customer.commercialReg} />}
+        {doc.customer.taxNumber && <InfoBox label={tr('الرقم الضريبي')} value={doc.customer.taxNumber} />}
+        {doc.customer.phone && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
+        {addr && <InfoBox label={tr('العنوان')} value={addr} />}
         <div style={{ height: 8 }} />
-        <InfoBox label="طريقة الدفع" value={paymentMethodLabels[doc.paymentMethod] || doc.paymentMethod} />
-        {doc.notes && <InfoBox label="ملاحظات" value={doc.notes} />}
+        <InfoBox label={tr('طريقة الدفع')} value={tr(paymentMethodLabels[doc.paymentMethod] || doc.paymentMethod)} />
+        {doc.notes && <InfoBox label={tr('ملاحظات')} value={doc.notes} />}
       </div>
 
       <div style={{ marginTop: 80, display: 'flex', justifyContent: 'space-between', color: '#6b7280', fontSize: 13 }}>
-        <div>توقيع الدافع: ........................</div>
-        <div>توقيع المستلم (المندوب): ........................</div>
+        <div>{tr('توقيع الدافع')}: ........................</div>
+        <div>{tr('توقيع المستلم (المندوب)')}: ........................</div>
       </div>
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
@@ -371,35 +376,36 @@ PrintableReceipt.displayName = 'PrintableReceipt';
 
 // ============ قالب كشف الحساب ============
 export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc }>(({ doc }, ref) => {
+  const tr = useTr();
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
   const addr = fullAddress(doc.customer);
-  const period = doc.fromDate && doc.toDate ? `${formatDate(doc.fromDate)} — ${formatDate(doc.toDate)}` : 'كل الفترات';
+  const period = doc.fromDate && doc.toDate ? `${formatDate(doc.fromDate)} — ${formatDate(doc.toDate)}` : tr('كل الفترات');
 
   return (
     <div ref={ref} style={PAGE}>
-      <Header title="كشف حساب" company={doc.company} />
+      <Header title={tr('كشف حساب')} company={doc.company} />
 
       {/* بيانات العميل + الفترة */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
         <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>بيانات العميل</div>
-          <InfoBox label="الاسم" value={doc.customer.name} />
-          {doc.customer.businessName && <InfoBox label="المنشأة" value={doc.customer.businessName} />}
-          {doc.customer.commercialReg && <InfoBox label="السجل التجاري" value={doc.customer.commercialReg} />}
-          {doc.customer.taxNumber && <InfoBox label="الرقم الضريبي" value={doc.customer.taxNumber} />}
-          {doc.customer.phone && <InfoBox label="الجوال" value={doc.customer.phone} />}
-          {addr && <InfoBox label="العنوان" value={addr} />}
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات العميل')}</div>
+          <InfoBox label={tr('الاسم')} value={doc.customer.name} />
+          {doc.customer.businessName && <InfoBox label={tr('المنشأة')} value={doc.customer.businessName} />}
+          {doc.customer.commercialReg && <InfoBox label={tr('السجل التجاري')} value={doc.customer.commercialReg} />}
+          {doc.customer.taxNumber && <InfoBox label={tr('الرقم الضريبي')} value={doc.customer.taxNumber} />}
+          {doc.customer.phone && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
+          {addr && <InfoBox label={tr('العنوان')} value={addr} />}
         </div>
         <div style={{ flex: 1, background: '#eff6ff', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>بيانات الكشف</div>
-          <InfoBox label="تاريخ الإصدار" value={formatDate(doc.date)} />
-          <InfoBox label="الفترة" value={period} />
-          <InfoBox label="المندوب" value={doc.repName} />
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات الكشف')}</div>
+          <InfoBox label={tr('تاريخ الإصدار')} value={formatDate(doc.date)} />
+          <InfoBox label={tr('الفترة')} value={period} />
+          <InfoBox label={tr('المندوب')} value={doc.repName} />
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #cbd5e1' }}>
-            <InfoBox label="إجمالي المبيعات" value={formatCurrency(doc.customer.totalSales ?? 0)} />
-            <InfoBox label="إجمالي التحصيل" value={formatCurrency(doc.customer.totalCollected ?? 0)} />
+            <InfoBox label={tr('إجمالي المبيعات')} value={formatCurrency(doc.customer.totalSales ?? 0)} />
+            <InfoBox label={tr('إجمالي التحصيل')} value={formatCurrency(doc.customer.totalCollected ?? 0)} />
           </div>
         </div>
       </div>
@@ -409,17 +415,17 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
         <thead>
           <tr>
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
-            <th style={th}>التاريخ</th>
-            <th style={{ ...th, textAlign: 'right' }}>البيان</th>
-            <th style={th}>المستند</th>
-            <th style={th}>مدين</th>
-            <th style={th}>دائن</th>
-            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>الرصيد</th>
+            <th style={th}>{tr('التاريخ')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{tr('البيان')}</th>
+            <th style={th}>{tr('المستند')}</th>
+            <th style={th}>{tr('مدين')}</th>
+            <th style={th}>{tr('دائن')}</th>
+            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('الرصيد')}</th>
           </tr>
         </thead>
         <tbody>
           {doc.entries.length === 0 ? (
-            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={7}>لا توجد حركات في هذه الفترة</td></tr>
+            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={7}>{tr('لا توجد حركات في هذه الفترة')}</td></tr>
           ) : doc.entries.map((e, i) => (
             <tr key={i}>
               <td style={td}>{i + 1}</td>
@@ -434,7 +440,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
         </tbody>
         <tfoot>
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
-            <td style={{ ...td, textAlign: 'center', borderTop: `2px solid ${brand}` }} colSpan={4}>الإجماليات</td>
+            <td style={{ ...td, textAlign: 'center', borderTop: `2px solid ${brand}` }} colSpan={4}>{tr('الإجماليات')}</td>
             <td style={{ ...td, color: '#dc2626', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalDebit)}</td>
             <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalCredit)}</td>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.finalBalance)}</td>
@@ -446,14 +452,14 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
       <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
         <div style={{ background: doc.finalBalance > 0 ? '#fef2f2' : '#f0fdf4', border: `2px solid ${doc.finalBalance > 0 ? '#fca5a5' : '#86efac'}`, borderRadius: 12, padding: '14px 24px', minWidth: 260 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, color: '#374151' }}>الرصيد المستحق على العميل</span>
+            <span style={{ fontSize: 14, color: '#374151' }}>{tr('الرصيد المستحق على العميل')}</span>
             <span style={{ fontSize: 22, fontWeight: 700, color: doc.finalBalance > 0 ? '#dc2626' : '#16a34a' }}>{formatCurrency(doc.finalBalance)}</span>
           </div>
         </div>
       </div>
 
       <div style={{ marginTop: 40, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
-        {doc.company?.name || ''} — تم الإصدار في {formatDateTime(doc.date)}
+        {doc.company?.name || ''} — {tr('تم الإصدار في')} {formatDateTime(doc.date)}
       </div>
     </div>
   );
@@ -481,7 +487,7 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     customer: inv.customer,
     repName: inv.salesRep?.name ?? repName,
     items: (inv.items ?? []).map((it: any) => ({
-      name: it.product?.name ?? 'صنف',
+      name: it.product?.name ?? '-',
       unit: it.product?.unit,
       qty: Number(it.qty),
       unitPrice: Number(it.unitPrice),
@@ -544,6 +550,7 @@ export function statementDocFromData(
 
 // ============ شاشة النتيجة (معاينة + مشاركة/حفظ PDF) ============
 export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => void }) {
+  const tr = useTr();
   const printRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -560,18 +567,18 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     try {
       if (doc.kind === 'invoice') await printThermalInvoice(doc);
       else if (doc.kind === 'receipt') await printThermalReceipt(doc);
-    } catch { setStatus('تعذّرت الطباعة، تأكد من إعداد الطابعة'); }
+    } catch { setStatus(tr('تعذّرت الطباعة، تأكد من إعداد الطابعة')); }
     setBusy(false);
   };
 
   const isReturnDoc = doc.kind === 'invoice' && doc.isReturn;
-  const title = doc.kind === 'invoice' ? `${isReturnDoc ? 'فاتورة مرتجع' : 'الفاتورة'} — ${doc.number}`
-    : doc.kind === 'receipt' ? `سند القبض — ${doc.number}`
-    : `كشف حساب — ${doc.customer.name}`;
-  const filename = (doc.kind === 'invoice' ? `${isReturnDoc ? 'مرتجع' : 'فاتورة'}-${doc.number}`
-    : doc.kind === 'receipt' ? `سند-قبض-${doc.number}`
-    : `كشف-حساب-${doc.customer.name}`) + '.pdf';
-  const confirmText = isStatement ? 'كشف الحساب جاهز' : 'تم الإصدار بنجاح';
+  const title = doc.kind === 'invoice' ? `${isReturnDoc ? tr('فاتورة مرتجع') : tr('الفاتورة')} — ${doc.number}`
+    : doc.kind === 'receipt' ? `${tr('سند القبض')} — ${doc.number}`
+    : `${tr('كشف حساب')} — ${doc.customer.name}`;
+  const filename = (doc.kind === 'invoice' ? `${isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
+    : doc.kind === 'receipt' ? `${tr('سند قبض')}-${doc.number}`
+    : `${tr('كشف حساب')}-${doc.customer.name}`) + '.pdf';
+  const confirmText = isStatement ? tr('كشف الحساب جاهز') : tr('تم الإصدار بنجاح');
 
   const renderDoc = (refProp?: React.Ref<HTMLDivElement>) => {
     if (doc.kind === 'invoice') return <PrintableInvoice ref={refProp} doc={doc} />;
@@ -585,9 +592,9 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     try {
       const blob = await elementToPdfBlob(printRef.current);
       const result = await shareOrDownloadPdf(blob, filename);
-      setStatus(result === 'shared' ? '✓ تمت المشاركة' : '✓ تم حفظ الملف في جهازك');
+      setStatus(result === 'shared' ? tr('✓ تمت المشاركة') : tr('✓ تم حفظ الملف في جهازك'));
     } catch {
-      setStatus('تعذّر إنشاء الملف، حاول مجدداً');
+      setStatus(tr('تعذّر إنشاء الملف، حاول مجدداً'));
     }
     setBusy(false);
   };
@@ -612,7 +619,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         </div>
 
         {/* معاينة مصغّرة للمستند */}
-        <p className="text-xs text-gray-400 mb-2">معاينة المستند:</p>
+        <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند:')}</p>
         <div className="mx-auto bg-white rounded-xl border border-gray-200 shadow-sm" style={{ width: 340, height: 470, overflow: 'hidden' }}>
           <div style={{ transform: 'scale(0.428)', transformOrigin: 'top right', width: 794 }}>
             {renderDoc()}
@@ -627,15 +634,15 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         {canThermal && (
           <button onClick={printThermal} disabled={busy}
             className="w-full bg-white border-2 border-[#DED5C4] text-[#1F1A13] font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60">
-            <Printer size={17} /> طباعة حرارية (58 مم)
+            <Printer size={17} /> {tr('طباعة حرارية (58 مم)')}
           </button>
         )}
         <button onClick={makePdf} disabled={busy}
           className={`w-full ${accentBtn} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60`}>
           {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Share2 size={17} />}
-          مشاركة / حفظ PDF
+          {tr('مشاركة / حفظ PDF')}
         </button>
-        <button onClick={onClose} className="w-full bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">تم</button>
+        <button onClick={onClose} className="w-full bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">{tr('تم')}</button>
       </div>
 
       {/* النسخة الكاملة (خارج الشاشة) للالتقاط */}
