@@ -530,6 +530,33 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'بيع': { en: 'Sale', fr: 'Vente' },
   'تنزيل للمستودع': { en: 'Unload to warehouse', fr: 'Déchargement vers l’entrepôt' },
   'تسوية': { en: 'Adjustment', fr: 'Ajustement' },
+  // نافذة العميل
+  'تعديل عميل': { en: 'Edit customer', fr: 'Modifier le client' },
+  'إضافة عميل جديد': { en: 'Add new customer', fr: 'Ajouter un nouveau client' },
+  'البيانات الأساسية': { en: 'Basic info', fr: 'Informations de base' },
+  'اسم العميل': { en: 'Customer name', fr: 'Nom du client' },
+  'اسم المنشأة': { en: 'Business name', fr: 'Nom de l’établissement' },
+  'رقم الجوال': { en: 'Mobile number', fr: 'Numéro de mobile' },
+  'رقم بديل': { en: 'Alt number', fr: 'Numéro alternatif' },
+  'الحي': { en: 'District', fr: 'Quartier' },
+  'العنوان التفصيلي': { en: 'Detailed address', fr: 'Adresse détaillée' },
+  'البيانات المالية': { en: 'Financial info', fr: 'Informations financières' },
+  'فترة السداد (يوم)': { en: 'Payment period (days)', fr: 'Délai de paiement (jours)' },
+  'إضافة العميل': { en: 'Add customer', fr: 'Ajouter le client' },
+  // نافذة المنتج
+  'تعديل صنف': { en: 'Edit item', fr: 'Modifier l’article' },
+  'إضافة صنف جديد': { en: 'Add new item', fr: 'Ajouter un nouvel article' },
+  'صورة الصنف': { en: 'Item image', fr: 'Image de l’article' },
+  'إزالة الصورة': { en: 'Remove image', fr: 'Supprimer l’image' },
+  'تُضغط تلقائياً — تظهر للمندوب عند البيع': { en: 'Auto-compressed — shown to the rep at sale', fr: 'Compressée automatiquement — affichée au représentant lors de la vente' },
+  'كود الصنف': { en: 'Item code', fr: 'Code de l’article' },
+  'باركود': { en: 'Barcode', fr: 'Code-barres' },
+  'وحدة القياس': { en: 'Unit of measure', fr: 'Unité de mesure' },
+  'كرتون / قطعة / كيلو': { en: 'Carton / Piece / Kilo', fr: 'Carton / Pièce / Kilo' },
+  'نسبة الضريبة %': { en: 'Tax rate %', fr: 'Taux de TVA %' },
+  'بدون فئة': { en: 'No category', fr: 'Sans catégorie' },
+  'إضافة الصنف': { en: 'Add item', fr: 'Ajouter l’article' },
+  'تعذّر معالجة الصورة': { en: 'Could not process the image', fr: 'Impossible de traiter l’image' },
 };
 
 export function useTr() {

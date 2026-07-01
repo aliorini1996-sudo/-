@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { productApi } from '../../api/client';
 import { Product } from '../../types';
+import { useTr } from '../../i18n/strings';
 import { X, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -36,6 +37,7 @@ function compressImage(file: File, maxSize = 400, quality = 0.7): Promise<string
 }
 
 export default function ProductModal({ product, onClose, onSave, loading }: Props) {
+  const tr = useTr();
   const { register, handleSubmit, formState: { errors } } = useForm<Partial<Product>>({
     defaultValues: product || { status: 'ACTIVE', taxPct: 15, basePrice: 0 },
   });
@@ -50,11 +52,11 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
   const onImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) { toast.error('الملف يجب أن يكون صورة'); return; }
+    if (!file.type.startsWith('image/')) { toast.error(tr('الملف يجب أن يكون صورة')); return; }
     try {
       const compressed = await compressImage(file);
       setImage(compressed);
-    } catch { toast.error('تعذّر معالجة الصورة'); }
+    } catch { toast.error(tr('تعذّر معالجة الصورة')); }
   };
 
   const submit = (data: Partial<Product>) => onSave({ ...data, image: image || null });
@@ -63,82 +65,82 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-bold text-gray-800">{product ? 'تعديل صنف' : 'إضافة صنف جديد'}</h2>
+          <h2 className="text-lg font-bold text-gray-800">{product ? tr('تعديل صنف') : tr('إضافة صنف جديد')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
         <form onSubmit={handleSubmit(submit)} className="p-5 space-y-4">
           {/* صورة الصنف */}
           <div>
-            <label className="label">صورة الصنف</label>
+            <label className="label">{tr('صورة الصنف')}</label>
             <div className="flex items-center gap-3">
               <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 flex-shrink-0">
                 {image
-                  ? <img src={image} alt="صورة" className="w-full h-full object-cover" />
+                  ? <img src={image} alt={tr('صورة الصنف')} className="w-full h-full object-cover" />
                   : <ImageIcon size={26} className="text-gray-300" />}
               </div>
               <div className="flex flex-col gap-2">
                 <label className="btn-secondary cursor-pointer text-xs">
-                  <Upload size={14} /> اختيار صورة
+                  <Upload size={14} /> {tr('اختيار صورة')}
                   <input type="file" accept="image/*" className="hidden" onChange={onImageChange} />
                 </label>
                 {image && (
                   <button type="button" onClick={() => setImage('')} className="text-red-500 text-xs flex items-center gap-1">
-                    <Trash2 size={12} /> إزالة الصورة
+                    <Trash2 size={12} /> {tr('إزالة الصورة')}
                   </button>
                 )}
-                <span className="text-[10px] text-gray-400">تُضغط تلقائياً — تظهر للمندوب عند البيع</span>
+                <span className="text-[10px] text-gray-400">{tr('تُضغط تلقائياً — تظهر للمندوب عند البيع')}</span>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="label">كود الصنف *</label>
+              <label className="label">{tr('كود الصنف')} *</label>
               <input className="input" {...register('code', { required: true })} />
-              {errors.code && <p className="text-red-500 text-xs mt-1">مطلوب</p>}
+              {errors.code && <p className="text-red-500 text-xs mt-1">{tr('مطلوب')}</p>}
             </div>
             <div>
-              <label className="label">اسم الصنف *</label>
+              <label className="label">{tr('اسم الصنف')} *</label>
               <input className="input" {...register('name', { required: true })} />
-              {errors.name && <p className="text-red-500 text-xs mt-1">مطلوب</p>}
+              {errors.name && <p className="text-red-500 text-xs mt-1">{tr('مطلوب')}</p>}
             </div>
             <div>
-              <label className="label">باركود</label>
+              <label className="label">{tr('باركود')}</label>
               <input className="input" dir="ltr" {...register('barcode')} />
             </div>
             <div>
-              <label className="label">وحدة القياس *</label>
-              <input className="input" {...register('unit', { required: true })} placeholder="كرتون / قطعة / كيلو" />
+              <label className="label">{tr('وحدة القياس')} *</label>
+              <input className="input" {...register('unit', { required: true })} placeholder={tr('كرتون / قطعة / كيلو')} />
             </div>
             <div>
-              <label className="label">السعر الأساسي *</label>
+              <label className="label">{tr('السعر الأساسي')} *</label>
               <input type="number" className="input" min="0" step="0.01" {...register('basePrice', { required: true, valueAsNumber: true })} />
             </div>
             <div>
-              <label className="label">نسبة الضريبة %</label>
+              <label className="label">{tr('نسبة الضريبة %')}</label>
               <input type="number" className="input" min="0" max="100" step="0.01" {...register('taxPct', { valueAsNumber: true })} />
             </div>
             <div>
-              <label className="label">الفئة</label>
+              <label className="label">{tr('الفئة')}</label>
               <select className="input" {...register('categoryId')}>
-                <option value="">بدون فئة</option>
+                <option value="">{tr('بدون فئة')}</option>
                 {categories?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="label">الحالة</label>
+              <label className="label">{tr('الحالة')}</label>
               <select className="input" {...register('status')}>
-                <option value="ACTIVE">نشط</option>
-                <option value="INACTIVE">غير نشط</option>
+                <option value="ACTIVE">{tr('نشط')}</option>
+                <option value="INACTIVE">{tr('غير نشط')}</option>
               </select>
             </div>
           </div>
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center py-2.5">
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
-              {product ? 'حفظ التعديلات' : 'إضافة الصنف'}
+              {product ? tr('حفظ التعديلات') : tr('إضافة الصنف')}
             </button>
-            <button type="button" onClick={onClose} className="btn-secondary">إلغاء</button>
+            <button type="button" onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
           </div>
         </form>
       </div>
