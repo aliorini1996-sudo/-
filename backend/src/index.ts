@@ -30,6 +30,7 @@ import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
 import leadsRouter from './routes/leads';
+import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimits';
@@ -81,6 +82,7 @@ app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/leads', leadsRouter);
+app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));

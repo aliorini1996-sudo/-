@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leadApi } from '../api/client';
 import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
 import { formatDate } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
-  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2,
+  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2, Repeat,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -57,6 +57,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const [showEmail, setShowEmail] = useState(false);
   const [showWhats, setShowWhats] = useState(false);
   const [showEnrich, setShowEnrich] = useState(false);
+  const [showHunt, setShowHunt] = useState(false);
 
   const { data: stats } = useQuery({
     queryKey: ['lead-stats'],
@@ -163,6 +164,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           </button>
           <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>
           <button onClick={() => setShowEnrich(true)} className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700"><Wand2 size={14} className="inline ml-1" /> إثراء البيانات</button>
+          <button onClick={() => setShowHunt(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1F1A13] text-white hover:bg-[#2c2620]"><Repeat size={14} className="inline ml-1" /> صيد مستمر</button>
           <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
           <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>
           <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
@@ -225,6 +227,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
       {showEmail && <EmailModal filters={filters} onClose={() => setShowEmail(false)} onDone={refresh} />}
       {showWhats && <WhatsAppModal filters={filters} onClose={() => setShowWhats(false)} onDone={refresh} />}
       {showEnrich && <EnrichModal filters={filters} onClose={() => setShowEnrich(false)} onDone={refresh} />}
+      {showHunt && <AutoHuntModal onClose={() => setShowHunt(false)} onDone={refresh} />}
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
     </div>
   );
@@ -687,6 +690,154 @@ function EnrichModal({
             {mutation.isPending ? 'جارٍ الإثراء...' : <><Wand2 size={16} /> إثراء {willRun}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ----------------------------- الصيد المستمر ----------------------------- //
+type HuntConfig = {
+  enabled: boolean; providers: string[]; countries: string[]; city: string | null;
+  keywordsPerRun: number; qualify: boolean; enrich: boolean; enrichHunter: boolean; limit: number;
+  lastRunAt: string | null; totalRuns: number; totalImported: number;
+};
+
+function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [cfg, setCfg] = useState<HuntConfig | null>(null);
+  const [countriesText, setCountriesText] = useState('');
+  const [live, setLive] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const liveRef = useRef(false);
+
+  const { data: ready } = useQuery({
+    queryKey: ['sources-status'],
+    queryFn: async () => (await leadApi.sourcesStatus()).data.data as Record<string, boolean>,
+  });
+
+  useEffect(() => {
+    leadApi.huntConfig().then((r) => {
+      const c = r.data.data as HuntConfig;
+      setCfg(c);
+      setCountriesText(c.countries.join('، '));
+    });
+  }, []);
+
+  const save = async (patch: Partial<HuntConfig>) => {
+    const res = await leadApi.huntUpdate(patch);
+    setCfg(res.data.data as HuntConfig);
+  };
+
+  const runOnce = async () => {
+    try {
+      const res = await leadApi.huntRun();
+      const d = res.data.data as { country: string; keywords: string[]; found: number; imported: number; enrichedEmail: number };
+      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join('، ')})`, ...l].slice(0, 25));
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['lead-stats'] });
+      onDone();
+      leadApi.huntConfig().then((r) => setCfg(r.data.data as HuntConfig));
+    } catch (e) {
+      setLog((l) => [`⚠️ فشل دفعة: ${(e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ'}`, ...l].slice(0, 25));
+    }
+  };
+
+  useEffect(() => {
+    liveRef.current = live;
+    if (!live) return;
+    let cancelled = false;
+    (async () => {
+      while (liveRef.current && !cancelled) {
+        await runOnce();
+        await new Promise((r) => setTimeout(r, 60000));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live]);
+
+  const toggleProvider = (v: string) => {
+    if (!cfg) return;
+    const has = cfg.providers.includes(v);
+    save({ providers: has ? cfg.providers.filter((p) => p !== v) : [...cfg.providers, v] });
+  };
+
+  if (!cfg) return <Modal title="الصيد المستمر" onClose={onClose}><div className="py-8 text-center text-gray-400">جارٍ التحميل...</div></Modal>;
+
+  return (
+    <Modal title="الصيد المستمر — جمع بلا توقّف" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="bg-[#1F1A13] text-white rounded-lg p-3 text-sm">
+          يولّد كلمات بحث جديدة تلقائياً (ذكاء اصطناعي) ويبحث بها عبر المصادر ودول متعدّدة بالتناوب — فيتزايد جمع العملاء بلا توقّف.
+          <div className="flex gap-4 mt-2 text-xs text-slate-300">
+            <span>دفعات: <b className="text-white">{cfg.totalRuns}</b></span>
+            <span>مضاف عبر الصيد: <b className="text-[#E15A30]">{cfg.totalImported}</b></span>
+            <span>آخر تشغيل: {cfg.lastRunAt ? new Date(cfg.lastRunAt).toLocaleString() : '—'}</span>
+          </div>
+        </div>
+
+        <div className={`rounded-lg p-3 border ${live ? 'border-green-400 bg-green-50' : 'border-[#E9E1D3]'}`}>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
+            {live ? '🟢 تشغيل مستمر جارٍ الآن (دفعة كل دقيقة أثناء فتح النافذة)' : 'تشغيل مستمر الآن (أثناء فتح النافذة)'}
+          </label>
+          <div className="flex gap-2 mt-2">
+            <button onClick={runOnce} className="px-3 py-1.5 rounded-lg text-sm bg-[#E15A30] text-white">شغّل دفعة الآن</button>
+          </div>
+          {log.length > 0 && (
+            <div className="mt-2 max-h-32 overflow-y-auto text-xs bg-white rounded border border-[#E9E1D3] p-2 space-y-1">
+              {log.map((l, i) => <div key={i} className="text-gray-600">{l}</div>)}
+            </div>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 text-sm bg-amber-50 rounded-lg p-2.5 text-amber-800">
+          <input type="checkbox" checked={cfg.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
+          تفعيل الصيد التلقائي 24/7 (عبر الجدولة الخارجية — يتطلب توكن في الخادم + workflow)
+        </label>
+
+        <div>
+          <label className="label">الدول (بالتناوب — مفصولة بفاصلة)</label>
+          <textarea value={countriesText} onChange={(e) => setCountriesText(e.target.value)}
+            onBlur={() => save({ countries: countriesText.split(/[،,\n]/).map((s) => s.trim()).filter(Boolean) })}
+            rows={2} className="input" />
+        </div>
+
+        <div>
+          <label className="label">المصادر</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PROVIDER_OPTIONS.map((o) => {
+              const rdy = ready?.[o.value] ?? (o.value === 'osm');
+              return (
+                <label key={o.value} className={`flex items-center gap-2 text-xs border rounded-lg px-2 py-1.5 ${!rdy ? 'opacity-40' : 'cursor-pointer'} ${cfg.providers.includes(o.value) ? 'border-[#E15A30] bg-[#FBEBE2]/40' : 'border-[#E9E1D3]'}`}>
+                  <input type="checkbox" disabled={!rdy} checked={cfg.providers.includes(o.value)} onChange={() => toggleProvider(o.value)} />
+                  {o.label}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">كلمات لكل دفعة</label>
+            <input type="number" min={1} max={6} value={cfg.keywordsPerRun} onChange={(e) => save({ keywordsPerRun: Math.max(1, Math.min(6, Number(e.target.value) || 1)) })} className="input w-24" />
+          </div>
+          <div>
+            <label className="label">حد النتائج لكل بحث</label>
+            <input type="number" min={1} max={80} value={cfg.limit} onChange={(e) => save({ limit: Math.max(1, Math.min(80, Number(e.target.value) || 40)) })} className="input w-24" />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={cfg.qualify} onChange={(e) => save({ qualify: e.target.checked })} /> تأهيل AI</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={cfg.enrich} onChange={(e) => save({ enrich: e.target.checked })} /> إثراء تلقائي</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={cfg.enrichHunter} onChange={(e) => save({ enrichHunter: e.target.checked })} /> + Hunter</label>
+        </div>
+
+        <p className="text-xs text-gray-400">💡 «تشغيل مستمر الآن» يعمل ما دامت النافذة مفتوحة. للعمل 24/7 بلا متصفّح، فعّل الخيار الكهرماني واضبط الجدولة.</p>
+        <div className="flex justify-end pt-1">
+          <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
         </div>
       </div>
     </Modal>

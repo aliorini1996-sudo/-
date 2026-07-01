@@ -1,0 +1,24 @@
+name: FieldSales — صيد مستمر للعملاء المحتملين
+
+# يشغّل دفعة صيد كل 30 دقيقة (يولّد كلمات جديدة ويبحث بها) — بلا توقّف 24/7.
+# يتطلّب سرّ AUTO_HUNT_TOKEN (نفس القيمة المضبوطة في متغيّرات Render).
+# لا يعمل إلا إذا فُعّل «الصيد التلقائي 24/7» من لوحة المالك (enabled=true).
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تشغيل دفعة صيد
+        run: |
+          echo "استدعاء محرّك الصيد المستمر..."
+          code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST \
+            https://api.fieldsa.net/api/leads-cron/run \
+            -H "x-autohunt-token: ${{ secrets.AUTO_HUNT_TOKEN }}" \
+            --max-time 280)
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          if [ "$code" != "200" ]; then echo "::warning::استجابة غير متوقّعة ($code)"; fi

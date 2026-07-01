@@ -164,6 +164,9 @@ export const leadApi = {
   whatsappSend: (data: unknown) => api.post('/leads/whatsapp-send', data),
   enrichStatus: () => api.get('/leads/enrich-status'),
   enrich: (data: unknown) => api.post('/leads/enrich', data),
+  huntConfig: () => api.get('/leads/auto-hunt'),
+  huntUpdate: (data: unknown) => api.put('/leads/auto-hunt', data),
+  huntRun: () => api.post('/leads/auto-hunt/run'),
   import: (leads: unknown[]) => api.post('/leads/import', { leads }),
   exportUrl: () => `${BASE}/leads/export/csv`,
 };

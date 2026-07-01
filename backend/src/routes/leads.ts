@@ -7,6 +7,7 @@ import { runSearch, qualifyLeads, LeadProvider, RawLead, providersReady } from '
 import { sendMarketingEmail, marketingProvider } from '../services/marketingMailer';
 import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate } from '../services/whatsapp';
 import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
+import { getHuntConfig, saveHuntConfig, runAutoHuntBatch } from '../services/leadHunter';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -153,6 +154,36 @@ router.get('/sources-status', (_req: AuthRequest, res: Response) => {
 router.get('/email-status', (_req: AuthRequest, res: Response) => {
   const provider = marketingProvider();
   res.json({ success: true, data: { provider, dailyCap: provider === 'brevo' ? 300 : 100 } });
+});
+
+// ------------------------------- الصيد المستمر (Auto-Hunt) — قبل /:id ------------------------------- //
+router.get('/auto-hunt', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await getHuntConfig() }); } catch (err) { next(err); }
+});
+
+const huntConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  providers: z.array(z.enum(['osm', 'geoapify', 'here', 'google', 'apollo', 'tomtom', 'serper', 'linkedin'])).optional(),
+  countries: z.array(z.string().min(1)).min(1).optional(),
+  city: z.string().nullish(),
+  keywordsPerRun: z.number().int().min(1).max(6).optional(),
+  qualify: z.boolean().optional(),
+  enrich: z.boolean().optional(),
+  enrichHunter: z.boolean().optional(),
+  limit: z.number().int().min(1).max(80).optional(),
+});
+router.put('/auto-hunt', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const patch = huntConfigSchema.parse(req.body);
+    const cfg = await getHuntConfig();
+    const merged = { ...cfg, ...patch, city: patch.city === undefined ? cfg.city : (patch.city || null) };
+    await saveHuntConfig(merged as typeof cfg);
+    res.json({ success: true, data: merged });
+  } catch (err) { next(err); }
+});
+
+router.post('/auto-hunt/run', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await runAutoHuntBatch('auto-hunt (يدوي)') }); } catch (err) { next(err); }
 });
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //
