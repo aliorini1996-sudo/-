@@ -18,9 +18,13 @@ const flag = (cc?: string | null): string => {
   return String.fromCodePoint(...[...cc.toUpperCase()].map((c) => 0x1f1e6 - 65 + c.charCodeAt(0)));
 };
 
-const fmtTime = (s: string) => {
+// وقت الزيارة بالساعة والدقيقة (بتوقيت المتصفّح المحلّي) + التاريخ
+const fmtDT = (s: string): { date: string; time: string } => {
   const d = new Date(s);
-  return d.toLocaleString('ar', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return {
+    date: d.toLocaleDateString('ar', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+    time: d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' }),
+  };
 };
 
 // لوحة تتبّع زيارات الموقع — لمالك المنصّة
@@ -119,14 +123,20 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
                     <tr><th className="text-right font-medium px-4 py-2">الوقت</th><th className="text-right font-medium py-2">الصفحة</th><th className="text-right font-medium py-2">المصدر</th><th className="text-right font-medium px-4 py-2">الدولة / المدينة</th></tr>
                   </thead>
                   <tbody>
-                    {data.recent.map((r, i) => (
+                    {data.recent.map((r, i) => {
+                      const dt = fmtDT(r.at);
+                      return (
                       <tr key={i} className="border-t border-[#F1EBDF]">
-                        <td className="px-4 py-2 text-[#6E6557] whitespace-nowrap">{fmtTime(r.at)}</td>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          <span className="font-bold text-[#1F1A13] tabular-nums">{dt.time}</span>
+                          <span className="text-[10px] text-[#9A8F7E] block">{dt.date}</span>
+                        </td>
                         <td className="py-2 text-[#1F1A13] font-mono text-[11px] truncate max-w-[120px]">{r.path}</td>
                         <td className="py-2 text-[#6E6557] truncate max-w-[110px]">{r.referrer}</td>
                         <td className="px-4 py-2 text-[#1F1A13] whitespace-nowrap">{flag(r.countryCode)} {r.city ? `${r.city}، ` : ''}{r.country || '—'}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
