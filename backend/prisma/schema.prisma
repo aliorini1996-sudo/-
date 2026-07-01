@@ -385,6 +385,13 @@ model CompanySettings {
   primaryColor  String?  // لون الترويسة الأساسي (hex)
   headerStyle   String?  @default("classic") // classic | banner | minimal
   trackingEnabled Boolean @default(false) // تفعيل تتبّع مواقع المناديب GPS على مستوى الشركة
+
+  // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
+  countryCode      String  @default("SA")    // ISO alpha-2: دولة الشركة
+  currency         String  @default("SAR")   // عملة الفوترة (مشتقّة من الدولة)
+  defaultVatPct    Float   @default(15)       // نسبة الضريبة الافتراضية للدولة
+  einvoiceProvider String  @default("zatca") // zatca | eta | peppol | ttn | none
+
   updatedAt     DateTime @updatedAt
 
   @@map("company_settings")

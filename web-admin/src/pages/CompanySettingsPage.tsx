@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi } from '../api/client';
+import { supportedCountries, getCountry } from '../i18n/countries';
 import { Building2, Save, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
@@ -29,12 +30,13 @@ export default function CompanySettingsPage() {
   const [logo, setLogo] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#1e3a8a');
   const [headerStyle, setHeaderStyle] = useState('classic');
+  const [countryCode, setCountryCode] = useState('SA'); // دولة الشركة (تُشتقّ منها العملة والضريبة)
 
   const { data, isLoading } = useQuery({
     queryKey: ['company'],
     queryFn: async () => {
       const res = await companyApi.get();
-      return res.data.data as (CompanyForm & { logo?: string; primaryColor?: string; headerStyle?: string }) | null;
+      return res.data.data as (CompanyForm & { logo?: string; primaryColor?: string; headerStyle?: string; countryCode?: string; currency?: string; defaultVatPct?: number }) | null;
     },
   });
 
@@ -47,10 +49,11 @@ export default function CompanySettingsPage() {
     setLogo(data.logo || '');
     setPrimaryColor(data.primaryColor || '#1e3a8a');
     setHeaderStyle(data.headerStyle || 'classic');
+    setCountryCode(data.countryCode || 'SA');
   }, [data, reset]);
 
   const mutation = useMutation({
-    mutationFn: (values: CompanyForm) => companyApi.update({ ...values, logo, primaryColor, headerStyle }),
+    mutationFn: (values: CompanyForm) => companyApi.update({ ...values, logo, primaryColor, headerStyle, countryCode }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['company'] });
       toast.success('تم حفظ بيانات الشركة');
@@ -109,6 +112,20 @@ export default function CompanySettingsPage() {
               <div>
                 <label className="label">العنوان</label>
                 <input className="input" {...register('address')} placeholder="المدينة - الحي - الشارع" />
+              </div>
+              <div>
+                <label className="label">الدولة (تحدّد العملة والضريبة والفوترة الإلكترونية)</label>
+                <select className="input" value={countryCode} onChange={e => setCountryCode(e.target.value)}>
+                  {supportedCountries().map(c => (
+                    <option key={c.code} value={c.code}>{c.nameAr} — {c.currency}</option>
+                  ))}
+                </select>
+                {(() => { const c = getCountry(countryCode); return (
+                  <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed bg-[#FAF7F0] rounded-lg px-3 py-2 border border-[#E9E1D3]">
+                    العملة: <b>{c.symbolAr} ({c.currency})</b> · الضريبة الافتراضية: <b>{c.defaultVatPct}%</b><br />
+                    الفوترة الإلكترونية: <b>{c.einvoiceNoteAr}</b>
+                  </p>
+                ); })()}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
