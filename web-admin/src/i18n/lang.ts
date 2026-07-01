@@ -4,9 +4,14 @@ export type Lang = 'ar' | 'en' | 'fr'; // الفرنسية للأسواق الف
 const KEY = 'app_lang';
 
 function initial(): Lang {
-  // اللغة مشتقّة من المسار (المسارات تحت /en إنجليزية) لتطابق الفهرسة الدولية بلا وميض
   if (typeof window !== 'undefined') {
     const p = window.location.pathname;
+    // داخل التطبيق (لا مسارات SEO): تُحترم اللغة المحفوظة يدويًا — تدعم الفرنسية أيضًا
+    if (p.startsWith('/app') || p.startsWith('/rep') || p.startsWith('/platform')) {
+      const saved = localStorage.getItem(KEY);
+      if (saved === 'ar' || saved === 'en' || saved === 'fr') return saved;
+    }
+    // على صفحات التسويق: اللغة مشتقّة من المسار (/en) لتطابق الفهرسة الدولية بلا وميض
     return p === '/en' || p.startsWith('/en/') ? 'en' : 'ar';
   }
   return 'ar';

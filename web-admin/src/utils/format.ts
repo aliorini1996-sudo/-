@@ -1,4 +1,11 @@
 import { currencyDecimals } from '../i18n/countries';
+import { useLang } from '../i18n/lang';
+
+// الـlocale الحالي حسب لغة الواجهة (لتنسيق الأرقام والتواريخ) — عربي/إنجليزي/فرنسي
+function locale(): string {
+  const l = useLang.getState().lang;
+  return l === 'en' ? 'en-US' : l === 'fr' ? 'fr-FR' : 'ar-SA';
+}
 
 // عملة العرض النشطة — تُضبط من إعدادات الشركة عند الإقلاع (افتراضي ر.س السعودي)
 let activeCurrency = 'SAR';
@@ -9,7 +16,7 @@ export function getActiveCurrency() { return activeCurrency; }
 export function formatCurrency(amount: number | string, currency?: string) {
   const cur = currency || activeCurrency;
   const dec = currencyDecimals(cur);
-  return new Intl.NumberFormat('ar-SA', {
+  return new Intl.NumberFormat(locale(), {
     style: 'currency', currency: cur,
     minimumFractionDigits: dec, maximumFractionDigits: dec,
   }).format(Number(amount));
@@ -18,7 +25,7 @@ export function formatCurrency(amount: number | string, currency?: string) {
 export function formatDate(date: string | Date) {
   const d = new Date(date);
   if (isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('ar-SA', {
+  return new Intl.DateTimeFormat(locale(), {
     year: 'numeric', month: 'short', day: 'numeric',
   }).format(d);
 }
@@ -26,7 +33,7 @@ export function formatDate(date: string | Date) {
 export function formatDateTime(date: string | Date) {
   const d = new Date(date);
   if (isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('ar-SA', {
+  return new Intl.DateTimeFormat(locale(), {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }).format(d);
 }
@@ -34,13 +41,13 @@ export function formatDateTime(date: string | Date) {
 export function formatTime(date: string | Date) {
   const d = new Date(date);
   if (isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('ar-SA', {
+  return new Intl.DateTimeFormat(locale(), {
     hour: '2-digit', minute: '2-digit',
   }).format(d);
 }
 
 export function formatNumber(n: number | string) {
-  return new Intl.NumberFormat('ar-SA').format(Number(n));
+  return new Intl.NumberFormat(locale()).format(Number(n));
 }
 
 export const statusLabels: Record<string, string> = {
