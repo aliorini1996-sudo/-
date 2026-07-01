@@ -186,15 +186,16 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th>الاسم</th><th>الدولة/المدينة</th><th>النوع</th><th>تواصل</th>
-                  <th className="text-center">المصدر</th><th className="text-center">الملاءمة</th><th>المرحلة</th>
+                  <th>الاسم</th><th>الدولة/المدينة</th><th>النوع</th>
+                  <th>الهاتف</th><th>البريد</th>
+                  <th className="text-center">الملاءمة</th><th className="text-center">المصدر</th><th>المرحلة</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={7} className="text-center py-10 text-gray-400">جارٍ التحميل...</td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">جارٍ التحميل...</td></tr>
                 ) : leads.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-10 text-gray-400">لا عملاء محتملون بعد — ابدأ بـ«بحث آلي» 🛰️</td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">لا عملاء محتملون بعد — ابدأ بـ«بحث آلي» 🛰️</td></tr>
                 ) : leads.map((l) => (
                   <tr key={l.id} className="cursor-pointer hover:bg-[#FBEBE2]/40" onClick={() => setSelected(l.id)}>
                     <td className="font-medium text-gray-800">{l.name}</td>
@@ -202,9 +203,10 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
                       {l.country || '—'}{l.city ? ` · ${l.city}` : ''} {l.countryCode ? <span className="text-gray-400">({l.countryCode})</span> : ''}
                     </td>
                     <td className="text-sm text-gray-500">{l.category || '—'}</td>
-                    <td className="text-sm text-gray-600">{l.phone || (l.website ? 'موقع' : '—')}</td>
-                    <td className="text-center"><span className="badge bg-slate-100 text-slate-600">{SOURCE_LABEL[l.source] || l.source}</span></td>
+                    <td className="text-sm text-gray-600">{l.phone ? <span dir="ltr" className="inline-block">{l.phone}</span> : <span className="text-gray-300">—</span>}</td>
+                    <td className="text-sm">{l.email ? <a href={`mailto:${l.email}`} dir="ltr" className="inline-block max-w-[180px] truncate align-bottom text-blue-600 hover:underline" onClick={(e) => e.stopPropagation()}>{l.email}</a> : <span className="text-gray-300">—</span>}</td>
                     <td className="text-center">{l.score != null ? <ScorePill score={l.score} /> : <span className="text-gray-300">—</span>}</td>
+                    <td className="text-center"><span className="badge bg-slate-100 text-slate-600">{SOURCE_LABEL[l.source] || l.source}</span></td>
                     <td><span className={`badge ${STAGE_CLS[l.stage]}`}>{STAGE_LABEL[l.stage]}</span></td>
                   </tr>
                 ))}
