@@ -14,7 +14,7 @@ const STAGES = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'] as c
 
 // بناء شرط التصفية المشترك (تستخدمه القائمة والتصدير) من معاملات الاستعلام
 function buildLeadWhere(query: Record<string, string>): Record<string, unknown> {
-  const { stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, hasPhone, hasWebsite, emailed } = query;
+  const { stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, hasPhone, hasWebsite, emailed, whatsapped } = query;
   const where: Record<string, unknown> = {};
   if (stage && STAGES.includes(stage as typeof STAGES[number])) where.stage = stage;
   if (source) where.source = source;
@@ -24,9 +24,13 @@ function buildLeadWhere(query: Record<string, string>): Record<string, unknown> 
   if (hasEmail === 'true') where.email = { not: null };
   if (hasPhone === 'true') where.phone = { not: null };
   if (hasWebsite === 'true') where.website = { not: null };
-  // «تمت مراسلته / لم يُراسَل» عبر وجود نشاط EMAIL (بلا حاجة لعمود جديد)
-  if (emailed === 'true') where.activities = { some: { type: 'EMAIL' } };
-  else if (emailed === 'false') where.activities = { none: { type: 'EMAIL' } };
+  // «تمت مراسلته / لم يُراسَل» عبر وجود نشاط (EMAIL/WHATSAPP) — تُدمج بـ AND لدعم الجمع بينها
+  const activityAnd: unknown[] = [];
+  if (emailed === 'true') activityAnd.push({ activities: { some: { type: 'EMAIL' } } });
+  else if (emailed === 'false') activityAnd.push({ activities: { none: { type: 'EMAIL' } } });
+  if (whatsapped === 'true') activityAnd.push({ activities: { some: { type: 'WHATSAPP' } } });
+  else if (whatsapped === 'false') activityAnd.push({ activities: { none: { type: 'WHATSAPP' } } });
+  if (activityAnd.length) where.AND = activityAnd;
   if (q) {
     where.OR = [
       { name: { contains: q, mode: 'insensitive' } },
@@ -193,7 +197,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 
 // ------------------------------- إضافة نشاط/متابعة ------------------------------- //
 const activitySchema = z.object({
-  type: z.enum(['NOTE', 'CALL', 'EMAIL', 'MEETING']).default('NOTE'),
+  type: z.enum(['NOTE', 'CALL', 'EMAIL', 'MEETING', 'WHATSAPP']).default('NOTE'),
   content: z.string().min(1),
   markContacted: z.boolean().optional(),
 });

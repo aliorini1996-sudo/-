@@ -5,7 +5,7 @@ import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
 import { formatDate } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
-  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail,
+  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, ExternalLink,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -27,10 +27,10 @@ const SOURCE_LABEL: Record<string, string> = {
 
 type Filters = {
   stage: string; source: string; q: string; dueOnly: boolean;
-  hasEmail: boolean; hasPhone: boolean; hasWebsite: boolean; notEmailed: boolean;
+  hasEmail: boolean; hasPhone: boolean; hasWebsite: boolean; notEmailed: boolean; notWhatsapped: boolean;
 };
 const EMPTY_FILTERS: Filters = {
-  stage: '', source: '', q: '', dueOnly: false, hasEmail: false, hasPhone: false, hasWebsite: false, notEmailed: false,
+  stage: '', source: '', q: '', dueOnly: false, hasEmail: false, hasPhone: false, hasWebsite: false, notEmailed: false, notWhatsapped: false,
 };
 // يحوّل حالة الفلاتر إلى معاملات API (تُستخدم في القائمة والتصدير وعدّ البريد)
 function toParams(f: Filters): Record<string, string | boolean> {
@@ -43,7 +43,16 @@ function toParams(f: Filters): Record<string, string | boolean> {
   if (f.hasPhone) p.hasPhone = true;
   if (f.hasWebsite) p.hasWebsite = true;
   if (f.notEmailed) p.emailed = 'false';
+  if (f.notWhatsapped) p.whatsapped = 'false';
   return p;
+}
+
+// تطبيع رقم الهاتف لصيغة wa.me (أرقام فقط، بلا + أو مسافات، وإزالة 00 البادئة)
+function waNumber(phone?: string | null): string {
+  if (!phone) return '';
+  let d = phone.replace(/[^\d]/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  return d;
 }
 
 export default function LeadsPanel({ onClose }: { onClose: () => void }) {
@@ -53,6 +62,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const [showSearch, setShowSearch] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
+  const [showWhats, setShowWhats] = useState(false);
 
   const { data: stats } = useQuery({
     queryKey: ['lead-stats'],
@@ -159,6 +169,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           </button>
           <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>
           <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
+          <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>
           <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
           <ImportButton onDone={refresh} />
           <button onClick={exportCsv} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Download size={14} className="inline ml-1" /> تصدير</button>
@@ -170,8 +181,9 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           <FilterChip active={filters.hasEmail} onClick={() => setFilters((f) => ({ ...f, hasEmail: !f.hasEmail }))} label="متوفر بريد" />
           <FilterChip active={filters.hasPhone} onClick={() => setFilters((f) => ({ ...f, hasPhone: !f.hasPhone }))} label="متوفر رقم" />
           <FilterChip active={filters.hasWebsite} onClick={() => setFilters((f) => ({ ...f, hasWebsite: !f.hasWebsite }))} label="متوفر موقع" />
-          <FilterChip active={filters.notEmailed} onClick={() => setFilters((f) => ({ ...f, notEmailed: !f.notEmailed }))} label="لم يُراسَل بعد" />
-          {(filters.hasEmail || filters.hasPhone || filters.hasWebsite || filters.notEmailed || filters.dueOnly || filters.stage || filters.source || filters.q) && (
+          <FilterChip active={filters.notEmailed} onClick={() => setFilters((f) => ({ ...f, notEmailed: !f.notEmailed }))} label="لم يُراسَل بريد" />
+          <FilterChip active={filters.notWhatsapped} onClick={() => setFilters((f) => ({ ...f, notWhatsapped: !f.notWhatsapped }))} label="لم يُراسَل واتساب" />
+          {(filters.hasEmail || filters.hasPhone || filters.hasWebsite || filters.notEmailed || filters.notWhatsapped || filters.dueOnly || filters.stage || filters.source || filters.q) && (
             <button onClick={() => setFilters(EMPTY_FILTERS)} className="text-xs text-[#E15A30] hover:underline mr-1">مسح الكل</button>
           )}
         </div>
@@ -214,6 +226,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
       {selected && <LeadDrawer id={selected} onClose={() => setSelected(null)} onChanged={refresh} />}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} onDone={refresh} />}
       {showEmail && <EmailModal filters={filters} onClose={() => setShowEmail(false)} onDone={refresh} />}
+      {showWhats && <WhatsAppModal filters={filters} onClose={() => setShowWhats(false)} onDone={refresh} />}
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
     </div>
   );
@@ -403,6 +416,89 @@ function EmailModal({
             {mutation.isPending ? 'جارٍ الإرسال...' : <><Mail size={16} /> إرسال لـ{willSend}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ----------------------------- واتساب تسويقي (روابط wa.me) ----------------------------- //
+function WhatsAppModal({
+  filters, onClose, onDone,
+}: { filters: Filters; onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [message, setMessage] = useState(
+    'مرحباً {{name}} 👋\nنقدّم لكم Field Sales: نظام إدارة مبيعات المناديب والتوزيع — فواتير، تحصيل وذمم، مخزون سيارة، وتتبّع GPS.\nجرّبوه مجاناً: https://fieldsa.net',
+  );
+
+  // العملاء الذين لديهم هاتف ولم تسبق مراسلتهم عبر واتساب (ضمن الفلاتر الحالية)
+  const { data: res, isLoading } = useQuery({
+    queryKey: ['wa-targets', filters],
+    queryFn: async () => {
+      const params: Record<string, string | number | boolean> = { hasPhone: true, whatsapped: 'false', pageSize: 200 };
+      if (filters.stage) params.stage = filters.stage;
+      if (filters.source) params.source = filters.source;
+      if (filters.q) params.q = filters.q;
+      return (await leadApi.list(params)).data as { data: Lead[]; total: number };
+    },
+  });
+  const targets = (res?.data ?? []).filter((l) => waNumber(l.phone));
+
+  const mark = useMutation({
+    mutationFn: (id: string) => leadApi.addActivity(id, {
+      type: 'WHATSAPP',
+      content: `واتساب تسويقي: ${message.split('\n')[0].slice(0, 60)}`,
+      markContacted: true,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wa-targets'] });
+      onDone();
+    },
+  });
+
+  const openLead = (lead: Lead) => {
+    const text = message
+      .replace(/\{\{\s*name\s*\}\}/g, lead.name || '')
+      .replace(/\{\{\s*city\s*\}\}/g, lead.city || '')
+      .replace(/\{\{\s*country\s*\}\}/g, lead.country || '');
+    window.open(`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(text)}`, '_blank');
+    mark.mutate(lead.id); // فتح المحادثة = نيّة الإرسال → يُنقل لـ«تم التواصل» ولا يظهر مجدداً
+  };
+
+  return (
+    <Modal title="واتساب تسويقي للعملاء المحتملين" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="bg-[#dcf8e8] rounded-lg p-3 text-sm text-[#166534]">
+          لديهم <b>رقم هاتف</b> و<b>لم تُراسَلهم</b> عبر واتساب: <b>{targets.length}</b>.
+          <br />اضغط «فتح واتساب» لكل عميل → تُفتح محادثة معبّأة بالرسالة، وبمجرّد الفتح يُنقل لـ<b>«تم التواصل»</b> ولا يظهر مجدداً.
+        </div>
+        <div>
+          <label className="label">نص الرسالة</label>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} className="input" />
+          <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> · <code>{'{{city}}'}</code> · <code>{'{{country}}'}</code></p>
+        </div>
+        <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
+          ⚠️ الإرسال يدوي (نقرة لكل عميل) — هذا يحافظ على رقمك من الحظر ويلتزم سياسة واتساب. الأرقام بلا رمز دولة قد لا تُفتح صحيحة.
+        </p>
+        <div className="border border-[#E9E1D3] rounded-lg max-h-72 overflow-y-auto divide-y divide-[#F1EBDF]">
+          {isLoading ? (
+            <div className="p-6 text-center text-gray-400 text-sm">جارٍ التحميل...</div>
+          ) : targets.length === 0 ? (
+            <div className="p-6 text-center text-gray-400 text-sm">لا عملاء بأرقام لم تُراسَلهم ضمن هذه الفلاتر.</div>
+          ) : targets.map((l) => (
+            <div key={l.id} className="flex items-center justify-between gap-2 p-2.5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-800 truncate">{l.name}</div>
+                <div className="text-xs text-gray-500 ltr:text-left" dir="ltr">{l.phone}</div>
+              </div>
+              <button onClick={() => openLead(l)} className="shrink-0 flex items-center gap-1 bg-[#25D366] text-white text-xs rounded-lg px-3 py-1.5 hover:bg-[#1eb356]">
+                <ExternalLink size={13} /> فتح واتساب
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600 text-sm">إغلاق</button>
         </div>
       </div>
     </Modal>
