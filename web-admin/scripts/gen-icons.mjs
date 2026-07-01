@@ -5,11 +5,11 @@ mkdirSync('public/icons', { recursive: true });
 
 // رمز «المسار الصاعد» — مطابق لدليل الهوية الرسمي (FieldSales)
 const route = (stroke, endDot) => `
-  <polyline points="32,88 60,60 90,32" stroke="${stroke}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <circle cx="32" cy="88" r="8" fill="#FAF7F0"/>
-  <circle cx="60" cy="60" r="6" fill="#FAF7F0"/>
-  <circle cx="90" cy="32" r="12" fill="${endDot}"/>
-  <circle cx="90" cy="32" r="5.5" fill="#FAF7F0"/>`;
+  <line x1="32" y1="88" x2="88" y2="32" stroke="${stroke}" stroke-width="15" stroke-linecap="round"/>
+  <circle cx="32" cy="88" r="10" fill="#FAF7F0"/>
+  <circle cx="60" cy="60" r="8" fill="#FAF7F0"/>
+  <circle cx="88" cy="32" r="13" fill="${endDot}"/>
+  <circle cx="88" cy="32" r="7" fill="#FAF7F0"/>`;
 
 const iconSvg = `<svg width="512" height="512" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
   <rect width="120" height="120" rx="26" fill="#E15A30"/>

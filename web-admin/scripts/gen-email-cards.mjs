@@ -28,16 +28,16 @@ const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http
   <circle cx="1140" cy="-40" r="260" fill="#E15A30" opacity="0.12"/>
   <circle cx="60" cy="520" r="220" fill="#1E7A52" opacity="0.10"/>
 
-  <!-- الشعار: رمز المسار الصاعد -->
+  <!-- الشعار: رمز المسار الصاعد (مطابق للهوية) -->
   <g transform="translate(90,80)">
-    <rect width="126" height="126" rx="30" fill="#E15A30"/>
-    <g transform="translate(14,14)">
-      <polyline points="27,74 50,50 76,27" stroke="#1F1A13" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      <circle cx="27" cy="74" r="7" fill="#FAF7F0"/>
-      <circle cx="50" cy="50" r="5" fill="#FAF7F0"/>
-      <circle cx="76" cy="27" r="10" fill="#1F1A13"/>
-      <circle cx="76" cy="27" r="4.5" fill="#FAF7F0"/>
-    </g>
+    <rect width="126" height="126" rx="27" fill="#E15A30"/>
+    <svg x="13" y="13" width="100" height="100" viewBox="0 0 120 120">
+      <line x1="32" y1="88" x2="88" y2="32" stroke="#1F1A13" stroke-width="15" stroke-linecap="round"/>
+      <circle cx="32" cy="88" r="10" fill="#FAF7F0"/>
+      <circle cx="60" cy="60" r="8" fill="#FAF7F0"/>
+      <circle cx="88" cy="32" r="13" fill="#1F1A13"/>
+      <circle cx="88" cy="32" r="7" fill="#FAF7F0"/>
+    </svg>
   </g>
 
   <text x="252" y="140" font-family="'Segoe UI',Arial,sans-serif" font-size="70" font-weight="700"><tspan fill="#FFFFFF">Field</tspan><tspan fill="#E15A30"> Sales</tspan></text>

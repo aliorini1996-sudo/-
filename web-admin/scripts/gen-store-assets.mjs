@@ -32,21 +32,21 @@ const lt = (x, y, s, w, fill, t) =>
 const icon = (x, y, s, rx = 0.233) => `
   <g transform="translate(${x},${y}) scale(${s / 120})">
     <rect width="120" height="120" rx="${120 * rx}" fill="${C.coral}"/>
-    <polyline points="32,88 60,60 90,32" stroke="${C.ink}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    <circle cx="32" cy="88" r="8" fill="${C.cream}"/>
-    <circle cx="60" cy="60" r="6" fill="${C.cream}"/>
-    <circle cx="90" cy="32" r="12" fill="${C.ink}"/>
-    <circle cx="90" cy="32" r="5.5" fill="${C.cream}"/>
+    <line x1="32" y1="88" x2="88" y2="32" stroke="${C.ink}" stroke-width="15" stroke-linecap="round"/>
+    <circle cx="32" cy="88" r="10" fill="${C.cream}"/>
+    <circle cx="60" cy="60" r="8" fill="${C.cream}"/>
+    <circle cx="88" cy="32" r="13" fill="${C.ink}"/>
+    <circle cx="88" cy="32" r="7" fill="${C.cream}"/>
   </g>`;
 
 // المسار المعكوس (بلا خلفية) للخلفيات الداكنة
 const markOnDark = (x, y, s) => `
   <g transform="translate(${x},${y}) scale(${s / 120})">
-    <polyline points="32,88 60,60 90,32" stroke="${C.coral}" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    <circle cx="32" cy="88" r="8" fill="${C.cream}"/>
-    <circle cx="60" cy="60" r="6" fill="${C.cream}"/>
-    <circle cx="90" cy="32" r="12" fill="${C.coral}"/>
-    <circle cx="90" cy="32" r="5.5" fill="${C.ink}"/>
+    <line x1="32" y1="88" x2="88" y2="32" stroke="${C.coral}" stroke-width="15" stroke-linecap="round"/>
+    <circle cx="32" cy="88" r="10" fill="${C.cream}"/>
+    <circle cx="60" cy="60" r="8" fill="${C.cream}"/>
+    <circle cx="88" cy="32" r="13" fill="${C.coral}"/>
+    <circle cx="88" cy="32" r="7" fill="${C.ink}"/>
   </g>`;
 
 // شريحة (chip) — نص متوسّط
