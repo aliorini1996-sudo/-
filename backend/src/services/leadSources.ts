@@ -34,25 +34,27 @@ const UA = 'FieldSales-Leads/1.0 (https://fieldsa.net)';
 
 // أوسمة Overpass الدالّة على شركات التوزيع/الجملة والأنشطة ذات المناديب الميدانيين
 const OSM_TAG_FILTERS = [
-  'shop=wholesale',
-  'shop=trade',
-  'office=company',
-  'office=wholesale',
-  'craft=distillery',
-  'man_made=works',
-  'industrial=warehouse',
-  'landuse=industrial',
+  'shop=wholesale', 'shop=trade', 'shop=doityourself', 'shop=hardware',
+  'office=company', 'office=wholesale', 'office=it', 'office=logistics',
+  'craft=distillery', 'man_made=works', 'industrial=warehouse', 'industrial=factory',
+  'building=warehouse', 'building=industrial', 'amenity=marketplace',
 ];
 
-// خرائط أنواع شائعة → استعلام Overpass (نُبقيها بسيطة وواسعة)
+// خرائط أنواع شائعة → أوسمة Overpass (وسّعناها لجلب نتائج أوفر)
 function osmTagsFor(query: string): string[] {
   const q = query.toLowerCase();
-  // كلمات دالّة على الجملة/التوزيع
-  if (/whole|توزيع|جمل|distrib|موزّع|موزع|مستودع|warehouse|supply|توريد/.test(q)) {
-    return ['shop=wholesale', 'shop=trade', 'office=wholesale', 'industrial=warehouse'];
+  // الجملة/التوزيع/التوريد
+  if (/whole|توزيع|جمل|distrib|موزّع|موزع|مستودع|warehouse|supply|توريد|logistic|لوجست/.test(q)) {
+    return ['shop=wholesale', 'shop=trade', 'office=wholesale', 'office=logistics', 'office=company',
+      'industrial=warehouse', 'building=warehouse', 'amenity=marketplace'];
   }
-  if (/food|غذائ|بقال|مواد/.test(q)) {
-    return ['shop=wholesale', 'shop=trade', 'shop=convenience'];
+  // مواد غذائية/بقالة
+  if (/food|غذائ|بقال|مواد|drink|مشروب|بيع/.test(q)) {
+    return ['shop=wholesale', 'shop=trade', 'shop=convenience', 'shop=supermarket', 'amenity=marketplace'];
+  }
+  // مصانع/صناعة
+  if (/factor|مصنع|صناع|manufact|produc|إنتاج/.test(q)) {
+    return ['man_made=works', 'industrial=factory', 'industrial=warehouse', 'building=industrial', 'office=company'];
   }
   // افتراضي: كل الأوسمة الدالّة
   return OSM_TAG_FILTERS;
@@ -100,11 +102,11 @@ export async function searchOSM(query: string, country?: string, city?: string, 
   const bbox = `${south},${west},${north},${east}`;
   const tags = osmTagsFor(query);
 
-  // بناء استعلام Overpass: عقد + طرق + علاقات لكل وسم ضمن الصندوق
+  // بناء استعلام Overpass: nwr = عقد + طرق + علاقات معاً لكل وسم ضمن الصندوق (تغطية أوفر)
   const parts = tags
     .map((t) => {
       const [k, v] = t.split('=');
-      return `node["${k}"="${v}"](${bbox});way["${k}"="${v}"](${bbox});`;
+      return `nwr["${k}"="${v}"](${bbox});`;
     })
     .join('');
   const ql = `[out:json][timeout:50];(${parts});out center ${limit};`;

@@ -159,6 +159,8 @@ export const leadApi = {
   sendEmail: (data: unknown) => api.post('/leads/email', data),
   whatsappStatus: () => api.get('/leads/whatsapp-status'),
   whatsappSend: (data: unknown) => api.post('/leads/whatsapp-send', data),
+  enrichStatus: () => api.get('/leads/enrich-status'),
+  enrich: (data: unknown) => api.post('/leads/enrich', data),
   import: (leads: unknown[]) => api.post('/leads/import', { leads }),
   exportUrl: () => `${BASE}/leads/export/csv`,
 };

@@ -6,6 +6,7 @@ import { AuthRequest } from '../types';
 import { runSearch, qualifyLeads, LeadProvider, RawLead } from '../services/leadSources';
 import { sendMail } from '../services/mailer';
 import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate } from '../services/whatsapp';
+import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -23,7 +24,9 @@ function buildLeadWhere(query: Record<string, string>): Record<string, unknown> 
   if (assignedTo) where.assignedTo = assignedTo;
   if (dueOnly === 'true') where.nextFollowUpAt = { lte: new Date() };
   if (hasEmail === 'true') where.email = { not: null };
+  else if (query.noEmail === 'true') where.email = null;
   if (hasPhone === 'true') where.phone = { not: null };
+  else if (query.noPhone === 'true') where.phone = null;
   if (hasWebsite === 'true') where.website = { not: null };
   // «تمت مراسلته / لم يُراسَل» عبر وجود نشاط (EMAIL/WHATSAPP) — تُدمج بـ AND لدعم الجمع بينها
   const activityAnd: unknown[] = [];
@@ -134,6 +137,11 @@ router.get('/stats', async (_req: AuthRequest, res: Response, next: NextFunction
 // هل واتساب مُعدّ في الخادم؟ (قبل /:id حتى لا يبتلعه) — لعرض تنبيه الإعداد في الواجهة
 router.get('/whatsapp-status', (_req: AuthRequest, res: Response) => {
   res.json({ success: true, data: { ready: whatsappReady() } });
+});
+
+// حالة الإثراء (هل Hunter مُعدّ؟) — قبل /:id
+router.get('/enrich-status', (_req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: { hunter: hunterReady() } });
 });
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //
@@ -547,6 +555,69 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
     }
 
     res.json({ success: true, data: { targeted: targets.length, sent, failed, errors } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------- إثراء البيانات (بريد/هاتف ناقص) ------------------------------- //
+// يزور موقع كل عميل (و/أو Hunter) ويملأ البريد/الهاتف الناقص فقط، لمن لديه موقع.
+const enrichSchema = z.object({
+  providers: z.array(z.enum(['website', 'hunter'])).min(1).default(['website']),
+  ids: z.array(z.string()).optional(),
+  stage: z.string().optional(),
+  source: z.string().optional(),
+  countryCode: z.string().optional(),
+  q: z.string().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+
+router.post('/enrich', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const body = enrichSchema.parse(req.body);
+    const useHunter = body.providers.includes('hunter');
+    const useWebsite = body.providers.includes('website');
+
+    // نستهدف من لديه موقع وينقصه بريد أو هاتف
+    const where: Record<string, unknown> = {
+      website: { not: null },
+      OR: [{ email: null }, { phone: null }],
+    };
+    if (body.ids?.length) where.id = { in: body.ids };
+    else {
+      if (body.stage && STAGES.includes(body.stage as typeof STAGES[number])) where.stage = body.stage;
+      if (body.source) where.source = body.source;
+      if (body.countryCode) where.countryCode = body.countryCode;
+    }
+
+    const cap = body.limit ?? 40;
+    const leads = await prisma.lead.findMany({ where, take: cap });
+
+    let processed = 0;
+    let emailFilled = 0;
+    let phoneFilled = 0;
+    for (const l of leads) {
+      if (!l.website) continue;
+      processed++;
+      const found: { email?: string; phone?: string } = {};
+      if (useWebsite) Object.assign(found, await enrichFromWebsite(l.website));
+      if (useHunter && (!found.email)) {
+        const h = await hunterDomainSearch(l.website);
+        found.email = found.email || h.email;
+        found.phone = found.phone || h.phone;
+      }
+      const data: Record<string, unknown> = {};
+      if (!l.email && found.email) { data.email = found.email; emailFilled++; }
+      if (!l.phone && found.phone) { data.phone = found.phone; phoneFilled++; }
+      if (Object.keys(data).length) {
+        await prisma.lead.update({ where: { id: l.id }, data });
+        await prisma.leadActivity.create({
+          data: { leadId: l.id, type: 'NOTE', content: `إثراء: ${Object.keys(data).join('، ')} من ${body.providers.join('+')}`, createdBy: req.user?.name },
+        });
+      }
+    }
+
+    res.json({ success: true, data: { processed, emailFilled, phoneFilled } });
   } catch (err) {
     next(err);
   }

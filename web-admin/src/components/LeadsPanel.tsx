@@ -5,7 +5,7 @@ import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
 import { formatDate } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
-  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle,
+  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -55,6 +55,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
   const [showWhats, setShowWhats] = useState(false);
+  const [showEnrich, setShowEnrich] = useState(false);
 
   const { data: stats } = useQuery({
     queryKey: ['lead-stats'],
@@ -160,6 +161,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
             <Bell size={14} className="inline ml-1" /> المستحقّة
           </button>
           <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>
+          <button onClick={() => setShowEnrich(true)} className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700"><Wand2 size={14} className="inline ml-1" /> إثراء البيانات</button>
           <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
           <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>
           <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
@@ -221,6 +223,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} onDone={refresh} />}
       {showEmail && <EmailModal filters={filters} onClose={() => setShowEmail(false)} onDone={refresh} />}
       {showWhats && <WhatsAppModal filters={filters} onClose={() => setShowWhats(false)} onDone={refresh} />}
+      {showEnrich && <EnrichModal filters={filters} onClose={() => setShowEnrich(false)} onDone={refresh} />}
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
     </div>
   );
@@ -530,6 +533,88 @@ function WhatsAppModal({
             className="flex-1 bg-[#25D366] text-white rounded-lg py-2 flex items-center justify-center gap-2 hover:bg-[#1eb356] disabled:opacity-50"
           >
             {mutation.isPending ? 'جارٍ الإرسال...' : <><MessageCircle size={16} /> إرسال آلي لـ{willSend}</>}
+          </button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ----------------------------- إثراء البيانات ----------------------------- //
+function EnrichModal({
+  filters, onClose, onDone,
+}: { filters: Filters; onClose: () => void; onDone: () => void }) {
+  const [useWebsite, setUseWebsite] = useState(true);
+  const [useHunter, setUseHunter] = useState(false);
+  const [limit, setLimit] = useState(40);
+
+  const { data: status } = useQuery({
+    queryKey: ['enrich-status'],
+    queryFn: async () => (await leadApi.enrichStatus()).data.data as { hunter: boolean },
+  });
+
+  // عدد المرشّحين: لديهم موقع وينقصهم بريد
+  const { data: count } = useQuery({
+    queryKey: ['enrich-count', filters],
+    queryFn: async () => {
+      const params: Record<string, string | number | boolean> = { hasWebsite: true, noEmail: 'true', pageSize: 1 };
+      if (filters.stage) params.stage = filters.stage;
+      if (filters.source) params.source = filters.source;
+      if (filters.q) params.q = filters.q;
+      return (await leadApi.list(params)).data as { total: number };
+    },
+  });
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const providers = [useWebsite && 'website', useHunter && 'hunter'].filter(Boolean);
+      return leadApi.enrich({
+        providers, limit,
+        stage: filters.stage || undefined,
+        source: filters.source || undefined,
+        q: filters.q || undefined,
+      });
+    },
+    onSuccess: (res) => {
+      const { processed, emailFilled, phoneFilled } = res.data.data as { processed: number; emailFilled: number; phoneFilled: number };
+      toast.success(`فُحص ${processed} · بريد جديد ${emailFilled} · هاتف جديد ${phoneFilled}`, { duration: 6000 });
+      onDone();
+      onClose();
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل الإثراء'),
+  });
+
+  const candidates = count?.total ?? 0;
+  const willRun = Math.min(candidates, limit);
+
+  return (
+    <Modal title="إثراء بيانات العملاء المحتملين" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="bg-purple-50 rounded-lg p-3 text-sm text-purple-800">
+          يبحث عن <b>البريد/الهاتف الناقص</b> لمن لديه <b>موقع إلكتروني</b> ضمن الفلاتر الحالية:
+          <b> {candidates}</b> مرشّح · سيُعالَج الآن <b> {willRun}</b>.
+          <br />يملأ الناقص فقط دون المساس بالموجود.
+        </div>
+        <div>
+          <label className="label">مصادر الإثراء</label>
+          <label className="flex items-center gap-2 text-sm border rounded-lg px-3 py-2 border-[#E9E1D3] mb-2">
+            <input type="checkbox" checked={useWebsite} onChange={(e) => setUseWebsite(e.target.checked)} />
+            <span>زيارة الموقع الإلكتروني واستخراج التواصل <span className="text-green-600 text-xs">(مجاني)</span></span>
+          </label>
+          <label className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 ${status?.hunter ? 'border-[#E9E1D3]' : 'border-[#E9E1D3] opacity-60'}`}>
+            <input type="checkbox" checked={useHunter} disabled={!status?.hunter} onChange={(e) => setUseHunter(e.target.checked)} />
+            <span>Hunter.io (بريد احترافي) {status?.hunter ? <span className="text-green-600 text-xs">(جاهز)</span> : <span className="text-red-500 text-xs">(أضِف HUNTER_API_KEY في الخادم)</span>}</span>
+          </label>
+        </div>
+        <div>
+          <label className="label">الحد الأقصى للمعالجة دفعةً</label>
+          <input type="number" min={1} max={100} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} className="input w-32" />
+        </div>
+        <p className="text-xs text-gray-400">قد تستغرق العملية وقتاً (زيارة كل موقع). ابدأ بدفعة صغيرة. بيانات تواصل أعمال عامّة فقط.</p>
+        <div className="flex gap-2 pt-1">
+          <button disabled={mutation.isPending || candidates === 0 || (!useWebsite && !useHunter)} onClick={() => mutation.mutate()} className="flex-1 bg-purple-600 text-white rounded-lg py-2 flex items-center justify-center gap-2 hover:bg-purple-700 disabled:opacity-50">
+            {mutation.isPending ? 'جارٍ الإثراء...' : <><Wand2 size={16} /> إثراء {willRun}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>
