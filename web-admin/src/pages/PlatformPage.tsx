@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import SiteContentEditor from '../components/SiteContentEditor';
+import SeoDashboard from '../components/SeoDashboard';
 import LeadsPanel from '../components/LeadsPanel';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
@@ -23,6 +24,7 @@ export default function PlatformPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
+  const [showSeo, setShowSeo] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
@@ -93,6 +95,9 @@ export default function PlatformPage() {
             </button>
             <button onClick={() => setShowContent(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
               <Globe size={16} /> محتوى الصفحة
+            </button>
+            <button onClick={() => setShowSeo(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
+              <TrendingUp size={16} /> متابعة SEO
             </button>
             <button onClick={() => setShowPassword(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
               <KeyRound size={16} /> كلمة المرور
@@ -235,6 +240,7 @@ export default function PlatformPage() {
       )}
       {showLeads && <LeadsPanel onClose={() => setShowLeads(false)} />}
       {showContent && <SiteContentEditor onClose={() => setShowContent(false)} />}
+      {showSeo && <SeoDashboard onClose={() => setShowSeo(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal
