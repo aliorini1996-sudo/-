@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback } from 'react';
 import repApi from './repApi';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
@@ -610,7 +610,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500"><span>قبل الخصم</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between text-red-500"><span>الخصم</span><span>- {formatCurrency(discount)}</span></div>
-              <div className="flex justify-between text-[#E15A30]"><span>الضريبة 15%</span><span>{formatCurrency(tax)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>الضريبة {subtotal - discount > 0 ? Math.round((tax / (subtotal - discount)) * 100) : 0}%</span><span>{formatCurrency(tax)}</span></div>
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>الإجمالي</span><span>{formatCurrency(total)}</span></div>
             </div>
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
@@ -992,7 +992,7 @@ export default function RepApp() {
 
   useEffect(() => {
     if (!token) return;
-    repApi.get('/company').then(res => setCompany(res.data.data)).catch(() => {});
+    repApi.get('/company').then(res => { setCompany(res.data.data); setActiveCurrency(res.data.data?.currency); }).catch(() => {});
   }, [token]);
 
   const login = (t: string, u: RepUser) => {

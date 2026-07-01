@@ -296,7 +296,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         <div style={{ width: 300, fontSize: 14 }}>
           <Row label="المجموع قبل الخصم" value={formatCurrency(doc.subtotal)} />
           {doc.discount > 0 && <Row label="الخصم" value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
-          <Row label="ضريبة القيمة المضافة 15%" value={formatCurrency(doc.tax)} color="#1E7A52" />
+          <Row label={`ضريبة القيمة المضافة ${doc.subtotal - doc.discount > 0 ? Math.round((doc.tax / (doc.subtotal - doc.discount)) * 100) : 0}%`} value={formatCurrency(doc.tax)} color="#1E7A52" />
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
             <span>{doc.isReturn ? 'إجمالي المرتجع (دائن)' : 'الإجمالي النهائي'}</span>
             <span>{formatCurrency(doc.total)}</span>

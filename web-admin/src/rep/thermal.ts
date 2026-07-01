@@ -1,13 +1,16 @@
 // طباعة حرارية 58 مم — تعمل مع الطابعة المدمجة أو طابعة بلوتوث عبر نظام الطباعة في الجهاز
 import QRCode from 'qrcode';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
-import { paymentMethodLabels } from '../utils/format';
+import { paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 
 function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 }
-function money(n: number): string { return (Number(n) || 0).toFixed(2); }
+// مبلغ بخانات عملة الشركة النشطة (٢/٣)، ورمز العملة النشط
+function money(n: number): string { return (Number(n) || 0).toFixed(currencyDecimals(getActiveCurrency())); }
+function curSym(): string { return currencySymbol(getActiveCurrency()); }
 function dt(d: string): string {
   const t = new Date(d);
   if (isNaN(t.getTime())) return '';
@@ -82,6 +85,10 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
       <div class="row"><span>${it.qty} × ${money(it.unitPrice)}${it.discountPct > 0 ? ` -${it.discountPct}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>
     </div>`).join('');
 
+  // نسبة الضريبة الفعلية مشتقّة من المبلغ (بدل نسبة ثابتة) — تدعم أي دولة
+  const vatBase = doc.subtotal - doc.discount;
+  const vatRate = vatBase > 0 ? Math.round((doc.tax / vatBase) * 100) : 0;
+
   printHTML(`
     ${head(doc.company)}
     <div class="sep"></div>
@@ -97,7 +104,7 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
     <div class="sep"></div>
     <div class="row"><span>المجموع قبل الضريبة</span><span>${money(doc.subtotal - doc.discount)}</span></div>
     ${doc.discount > 0 ? `<div class="row"><span>الخصم</span><span>${money(doc.discount)}</span></div>` : ''}
-    <div class="row"><span>ض.ق.م 15%</span><span>${money(doc.tax)}</span></div>
+    <div class="row"><span>ض.ق.م ${vatRate}%</span><span>${money(doc.tax)}</span></div>
     <div class="row b lg"><span>${doc.isReturn ? 'إجمالي المرتجع' : 'الإجمالي'}</span><span>${money(doc.total)}</span></div>
     ${!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined ? `
       <div class="row muted"><span>المدفوع</span><span>${money(doc.paidAmt ?? 0)}</span></div>
@@ -124,7 +131,7 @@ export async function printThermalReceipt(doc: ReceiptDoc): Promise<void> {
     ${doc.notes ? `<div class="row"><span>ملاحظات</span><span>${esc(doc.notes)}</span></div>` : ''}
     <div class="sep"></div>
     <div class="c muted">المبلغ المستلم</div>
-    <div class="c b xl">${money(doc.amount)} ر.س</div>
+    <div class="c b xl">${money(doc.amount)} ${curSym()}</div>
     <div class="sep"></div>
     <div class="c muted">${esc(doc.company?.name || '')}</div>
     <div class="c muted">شكراً لتعاملكم معنا</div>

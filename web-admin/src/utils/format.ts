@@ -1,6 +1,17 @@
-export function formatCurrency(amount: number | string, currency = 'SAR') {
+import { currencyDecimals } from '../i18n/countries';
+
+// عملة العرض النشطة — تُضبط من إعدادات الشركة عند الإقلاع (افتراضي ر.س السعودي)
+let activeCurrency = 'SAR';
+export function setActiveCurrency(c?: string | null) { if (c && c.trim()) activeCurrency = c; }
+export function getActiveCurrency() { return activeCurrency; }
+
+// ينسّق مبلغًا بعملة الشركة النشطة (أو عملة مُمرَّرة صراحةً) بخاناتها العشرية الصحيحة (٢/٣)
+export function formatCurrency(amount: number | string, currency?: string) {
+  const cur = currency || activeCurrency;
+  const dec = currencyDecimals(cur);
   return new Intl.NumberFormat('ar-SA', {
-    style: 'currency', currency, minimumFractionDigits: 2,
+    style: 'currency', currency: cur,
+    minimumFractionDigits: dec, maximumFractionDigits: dec,
   }).format(Number(amount));
 }
 

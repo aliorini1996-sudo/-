@@ -169,3 +169,10 @@ export function currencyDecimals(currency: string): number {
   if (match) return match.currencyDecimals;
   return THREE_DECIMAL.has(currency) ? 3 : 2;
 }
+
+// رمز عملة ISO (من السجلّ، أو رمز العملة نفسه احتياطًا)
+export function currencySymbol(currency: string, lang: 'ar' | 'en' = 'ar'): string {
+  const match = Object.values(COUNTRIES).find((c) => c.currency === currency);
+  if (!match) return currency;
+  return lang === 'en' ? match.symbolEn : match.symbolAr;
+}

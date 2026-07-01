@@ -4,7 +4,10 @@ import {
   Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin, LifeBuoy, UserCog, DatabaseZap,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { companyApi } from '../api/client';
+import { setActiveCurrency } from '../utils/format';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import SupportModal from '../components/SupportModal';
 import EmailVerifyBanner from '../components/EmailVerifyBanner';
@@ -31,6 +34,14 @@ export default function MainLayout() {
   const { user, logout, impersonating, stopImpersonating } = useAuthStore();
   const t = useT();
   const [collapsed, setCollapsed] = useState(false);
+
+  // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string } | null,
+    staleTime: 300_000,
+  });
+  useEffect(() => { setActiveCurrency(companyCfg?.currency); }, [companyCfg]);
   const [showPassword, setShowPassword] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
 
