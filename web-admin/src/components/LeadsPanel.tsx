@@ -261,7 +261,7 @@ function ScorePill({ score }: { score: number }) {
 const PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: 'osm', label: 'OpenStreetMap · بلا مفتاح' },
   { value: 'geoapify', label: 'Geoapify · هواتف أنظف' },
-  { value: 'apollo', label: 'Apollo · شركات + LinkedIn' },
+  { value: 'apollo', label: 'Apollo · LinkedIn (خطة مدفوعة)' },
   { value: 'here', label: 'HERE Maps' },
   { value: 'google', label: 'Google Maps' },
 ];
