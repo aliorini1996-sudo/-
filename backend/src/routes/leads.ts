@@ -5,6 +5,7 @@ import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { runSearch, qualifyLeads, LeadProvider, RawLead } from '../services/leadSources';
 import { sendMail } from '../services/mailer';
+import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate } from '../services/whatsapp';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -128,6 +129,11 @@ router.get('/stats', async (_req: AuthRequest, res: Response, next: NextFunction
   } catch (err) {
     next(err);
   }
+});
+
+// هل واتساب مُعدّ في الخادم؟ (قبل /:id حتى لا يبتلعه) — لعرض تنبيه الإعداد في الواجهة
+router.get('/whatsapp-status', (_req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: { ready: whatsappReady() } });
 });
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //
@@ -456,6 +462,91 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
     }
 
     res.json({ success: true, data: { targeted: targets.length, sent, failed } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------- واتساب تسويقي آلي (Cloud API) ------------------------------- //
+// إرسال جماعي آلي عبر WhatsApp Cloud API لمن لديه هاتف ولم تسبق مراسلته عبر واتساب،
+// ثم NEW→CONTACTED + نشاط WHATSAPP. يدعم قالباً معتمداً (للتسويق البارد) أو نصّاً (نافذة 24س).
+const waSendSchema = z.object({
+  mode: z.enum(['template', 'text']).default('template'),
+  text: z.string().optional(),          // وضع النص
+  templateName: z.string().optional(),  // وضع القالب
+  language: z.string().optional(),      // رمز لغة القالب (افتراضي ar)
+  useNameParam: z.boolean().optional(), // إدراج اسم العميل كأول متغيّر {{1}}
+  ids: z.array(z.string()).optional(),
+  stage: z.string().optional(),
+  source: z.string().optional(),
+  countryCode: z.string().optional(),
+  q: z.string().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+}).refine((d) => (d.mode === 'text' ? !!d.text : !!d.templateName), {
+  message: 'حدّد نص الرسالة (وضع النص) أو اسم القالب (وضع القالب)',
+});
+
+router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!whatsappReady()) {
+      res.status(400).json({
+        success: false,
+        message: 'واتساب غير مُعدّ — أضِف WHATSAPP_TOKEN و WHATSAPP_PHONE_NUMBER_ID في إعدادات الخادم.',
+      });
+      return;
+    }
+    const body = waSendSchema.parse(req.body);
+    const language = body.language || 'ar';
+
+    const where: Record<string, unknown> = {
+      phone: { not: null },
+      activities: { none: { type: 'WHATSAPP' } },
+    };
+    if (body.ids?.length) {
+      where.id = { in: body.ids };
+    } else {
+      if (body.stage && STAGES.includes(body.stage as typeof STAGES[number])) where.stage = body.stage;
+      if (body.source) where.source = body.source;
+      if (body.countryCode) where.countryCode = body.countryCode;
+      if (body.q) {
+        where.OR = [
+          { name: { contains: body.q, mode: 'insensitive' } },
+          { city: { contains: body.q, mode: 'insensitive' } },
+          { country: { contains: body.q, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const cap = body.limit ?? 50;
+    const leads = await prisma.lead.findMany({ where, take: cap });
+    const targets = leads.filter((l) => waNumber(l.phone));
+
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    for (const l of targets) {
+      const num = waNumber(l.phone);
+      try {
+        if (body.mode === 'text') {
+          await sendWhatsAppText(num, personalize(body.text!, l));
+        } else {
+          await sendWhatsAppTemplate(num, body.templateName!, language, body.useNameParam ? [l.name] : []);
+        }
+        sent++;
+        await prisma.lead.update({
+          where: { id: l.id },
+          data: { lastContactedAt: new Date(), stage: l.stage === 'NEW' ? 'CONTACTED' : l.stage },
+        });
+        await prisma.leadActivity.create({
+          data: { leadId: l.id, type: 'WHATSAPP', content: `واتساب تسويقي (${body.mode})`, createdBy: req.user?.name },
+        });
+      } catch (e) {
+        failed++;
+        if (errors.length < 3) errors.push(`${l.name}: ${(e as Error).message}`);
+      }
+    }
+
+    res.json({ success: true, data: { targeted: targets.length, sent, failed, errors } });
   } catch (err) {
     next(err);
   }

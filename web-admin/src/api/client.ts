@@ -157,6 +157,8 @@ export const leadApi = {
   convert: (id: string, data?: unknown) => api.post(`/leads/${id}/convert`, data || {}),
   search: (data: unknown) => api.post('/leads/search', data),
   sendEmail: (data: unknown) => api.post('/leads/email', data),
+  whatsappStatus: () => api.get('/leads/whatsapp-status'),
+  whatsappSend: (data: unknown) => api.post('/leads/whatsapp-send', data),
   import: (leads: unknown[]) => api.post('/leads/import', { leads }),
   exportUrl: () => `${BASE}/leads/export/csv`,
 };

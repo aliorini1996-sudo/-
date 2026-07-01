@@ -5,7 +5,7 @@ import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
 import { formatDate } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
-  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, ExternalLink,
+  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -45,14 +45,6 @@ function toParams(f: Filters): Record<string, string | boolean> {
   if (f.notEmailed) p.emailed = 'false';
   if (f.notWhatsapped) p.whatsapped = 'false';
   return p;
-}
-
-// تطبيع رقم الهاتف لصيغة wa.me (أرقام فقط، بلا + أو مسافات، وإزالة 00 البادئة)
-function waNumber(phone?: string | null): string {
-  if (!phone) return '';
-  let d = phone.replace(/[^\d]/g, '');
-  if (d.startsWith('00')) d = d.slice(2);
-  return d;
 }
 
 export default function LeadsPanel({ onClose }: { onClose: () => void }) {
@@ -422,83 +414,122 @@ function EmailModal({
   );
 }
 
-// ----------------------------- واتساب تسويقي (روابط wa.me) ----------------------------- //
+// ----------------------------- واتساب تسويقي آلي (Cloud API) ----------------------------- //
 function WhatsAppModal({
   filters, onClose, onDone,
 }: { filters: Filters; onClose: () => void; onDone: () => void }) {
-  const qc = useQueryClient();
-  const [message, setMessage] = useState(
-    'مرحباً {{name}} 👋\nنقدّم لكم Field Sales: نظام إدارة مبيعات المناديب والتوزيع — فواتير، تحصيل وذمم، مخزون سيارة، وتتبّع GPS.\nجرّبوه مجاناً: https://fieldsa.net',
+  const [mode, setMode] = useState<'template' | 'text'>('template');
+  const [templateName, setTemplateName] = useState('');
+  const [language, setLanguage] = useState('ar');
+  const [useNameParam, setUseNameParam] = useState(true);
+  const [text, setText] = useState(
+    'مرحباً {{name}} 👋\nنقدّم لكم Field Sales: نظام إدارة مبيعات المناديب والتوزيع. جرّبوه مجاناً: https://fieldsa.net',
   );
+  const [limit, setLimit] = useState(50);
 
-  // العملاء الذين لديهم هاتف ولم تسبق مراسلتهم عبر واتساب (ضمن الفلاتر الحالية)
-  const { data: res, isLoading } = useQuery({
-    queryKey: ['wa-targets', filters],
+  // هل واتساب مُعدّ في الخادم؟
+  const { data: status } = useQuery({
+    queryKey: ['wa-status'],
+    queryFn: async () => (await leadApi.whatsappStatus()).data.data as { ready: boolean },
+  });
+
+  // عدد المستهدفين: لديهم هاتف ولم يُراسَلوا واتساب (يطابق استهداف الخادم)
+  const { data: count } = useQuery({
+    queryKey: ['wa-count', filters],
     queryFn: async () => {
-      const params: Record<string, string | number | boolean> = { hasPhone: true, whatsapped: 'false', pageSize: 200 };
+      const params: Record<string, string | number | boolean> = { hasPhone: true, whatsapped: 'false', pageSize: 1 };
       if (filters.stage) params.stage = filters.stage;
       if (filters.source) params.source = filters.source;
       if (filters.q) params.q = filters.q;
-      return (await leadApi.list(params)).data as { data: Lead[]; total: number };
+      return (await leadApi.list(params)).data as { total: number };
     },
   });
-  const targets = (res?.data ?? []).filter((l) => waNumber(l.phone));
 
-  const mark = useMutation({
-    mutationFn: (id: string) => leadApi.addActivity(id, {
-      type: 'WHATSAPP',
-      content: `واتساب تسويقي: ${message.split('\n')[0].slice(0, 60)}`,
-      markContacted: true,
+  const mutation = useMutation({
+    mutationFn: () => leadApi.whatsappSend({
+      mode,
+      text: mode === 'text' ? text : undefined,
+      templateName: mode === 'template' ? templateName : undefined,
+      language, useNameParam, limit,
+      stage: filters.stage || undefined,
+      source: filters.source || undefined,
+      q: filters.q || undefined,
     }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['wa-targets'] });
+    onSuccess: (res) => {
+      const { targeted, sent, failed, errors } = res.data.data as { targeted: number; sent: number; failed: number; errors?: string[] };
+      toast.success(`أُرسل ${sent} من ${targeted}${failed ? ` · فشل ${failed}` : ''}`);
+      if (errors && errors.length) toast.error(errors.join(' | '), { duration: 7000 });
       onDone();
+      if (sent > 0) onClose();
     },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل الإرسال'),
   });
 
-  const openLead = (lead: Lead) => {
-    const text = message
-      .replace(/\{\{\s*name\s*\}\}/g, lead.name || '')
-      .replace(/\{\{\s*city\s*\}\}/g, lead.city || '')
-      .replace(/\{\{\s*country\s*\}\}/g, lead.country || '');
-    window.open(`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(text)}`, '_blank');
-    mark.mutate(lead.id); // فتح المحادثة = نيّة الإرسال → يُنقل لـ«تم التواصل» ولا يظهر مجدداً
-  };
+  const recipients = count?.total ?? 0;
+  const willSend = Math.min(recipients, limit);
+  const ready = status?.ready;
 
   return (
-    <Modal title="واتساب تسويقي للعملاء المحتملين" onClose={onClose}>
+    <Modal title="واتساب تسويقي آلي" onClose={onClose}>
       <div className="space-y-3">
+        {ready === false && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+            واتساب غير مُعدّ في الخادم. أضِف <code>WHATSAPP_TOKEN</code> و<code>WHATSAPP_PHONE_NUMBER_ID</code> في إعدادات الخادم (Meta Cloud API).
+          </div>
+        )}
         <div className="bg-[#dcf8e8] rounded-lg p-3 text-sm text-[#166534]">
-          لديهم <b>رقم هاتف</b> و<b>لم تُراسَلهم</b> عبر واتساب: <b>{targets.length}</b>.
-          <br />اضغط «فتح واتساب» لكل عميل → تُفتح محادثة معبّأة بالرسالة، وبمجرّد الفتح يُنقل لـ<b>«تم التواصل»</b> ولا يظهر مجدداً.
+          يُرسَل آلياً لمن لديه <b>هاتف</b> و<b>لم يُراسَل واتساب</b> ضمن الفلاتر الحالية:
+          <b> {recipients}</b> متاح · سيُرسل الآن لـ<b> {willSend}</b>.
+          <br />من يصله تُنقل حالته إلى <b>«تم التواصل»</b> ولا يُراسَل مجدداً.
         </div>
-        <div>
-          <label className="label">نص الرسالة</label>
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} className="input" />
-          <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> · <code>{'{{city}}'}</code> · <code>{'{{country}}'}</code></p>
+
+        {/* الوضع */}
+        <div className="flex gap-2">
+          <button onClick={() => setMode('template')} className={`flex-1 py-2 rounded-lg text-sm border ${mode === 'template' ? 'bg-[#25D366] text-white border-[#25D366]' : 'border-[#E9E1D3] text-gray-600'}`}>قالب معتمد (للتسويق)</button>
+          <button onClick={() => setMode('text')} className={`flex-1 py-2 rounded-lg text-sm border ${mode === 'text' ? 'bg-[#25D366] text-white border-[#25D366]' : 'border-[#E9E1D3] text-gray-600'}`}>نص مباشر (نافذة 24س)</button>
         </div>
-        <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
-          ⚠️ الإرسال يدوي (نقرة لكل عميل) — هذا يحافظ على رقمك من الحظر ويلتزم سياسة واتساب. الأرقام بلا رمز دولة قد لا تُفتح صحيحة.
-        </p>
-        <div className="border border-[#E9E1D3] rounded-lg max-h-72 overflow-y-auto divide-y divide-[#F1EBDF]">
-          {isLoading ? (
-            <div className="p-6 text-center text-gray-400 text-sm">جارٍ التحميل...</div>
-          ) : targets.length === 0 ? (
-            <div className="p-6 text-center text-gray-400 text-sm">لا عملاء بأرقام لم تُراسَلهم ضمن هذه الفلاتر.</div>
-          ) : targets.map((l) => (
-            <div key={l.id} className="flex items-center justify-between gap-2 p-2.5">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-gray-800 truncate">{l.name}</div>
-                <div className="text-xs text-gray-500 ltr:text-left" dir="ltr">{l.phone}</div>
+
+        {mode === 'template' ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">اسم القالب المعتمد</label>
+                <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="input" placeholder="مثال: marketing_intro" />
               </div>
-              <button onClick={() => openLead(l)} className="shrink-0 flex items-center gap-1 bg-[#25D366] text-white text-xs rounded-lg px-3 py-1.5 hover:bg-[#1eb356]">
-                <ExternalLink size={13} /> فتح واتساب
-              </button>
+              <div>
+                <label className="label">لغة القالب</label>
+                <input value={language} onChange={(e) => setLanguage(e.target.value)} className="input" placeholder="ar / en_US" />
+              </div>
             </div>
-          ))}
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input type="checkbox" checked={useNameParam} onChange={(e) => setUseNameParam(e.target.checked)} />
+              إدراج اسم العميل كأول متغيّر في القالب <code className="text-xs">{'{{1}}'}</code>
+            </label>
+            <p className="text-xs text-gray-400">القالب يجب أن يكون <b>معتمداً في Meta</b> مسبقاً. هذا الوضع هو الصحيح للتسويق للأرقام الجديدة.</p>
+          </div>
+        ) : (
+          <div>
+            <label className="label">نص الرسالة</label>
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="input" />
+            <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> · <code>{'{{city}}'}</code> · <code>{'{{country}}'}</code></p>
+            <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 mt-1">⚠️ النص المباشر يصل فقط لمن راسلك خلال 24 ساعة (سياسة واتساب). للأرقام الجديدة استخدم «قالب معتمد».</p>
+          </div>
+        )}
+
+        <div>
+          <label className="label">الحد الأقصى للإرسال دفعةً</label>
+          <input type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))} className="input w-32" />
         </div>
-        <div className="flex justify-end">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600 text-sm">إغلاق</button>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            disabled={mutation.isPending || recipients === 0 || (mode === 'template' ? !templateName : !text) || ready === false}
+            onClick={() => mutation.mutate()}
+            className="flex-1 bg-[#25D366] text-white rounded-lg py-2 flex items-center justify-center gap-2 hover:bg-[#1eb356] disabled:opacity-50"
+          >
+            {mutation.isPending ? 'جارٍ الإرسال...' : <><MessageCircle size={16} /> إرسال آلي لـ{willSend}</>}
+          </button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>
       </div>
     </Modal>
