@@ -13,6 +13,29 @@ body {
   color: #1F1A13;
 }
 
+/* خلفية «الأورورا» الناعمة — طبقة ثابتة خلف كل صفحات المنصّة (كريمي + توهّجات مرجانية/كهرمانية/خضراء مموّهة) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 34% at 12% 6%, rgba(224, 160, 44, 0.20), transparent 72%),
+    radial-gradient(44% 40% at 88% 3%, rgba(225, 90, 48, 0.18), transparent 72%),
+    radial-gradient(42% 42% at 99% 46%, rgba(30, 122, 82, 0.13), transparent 72%),
+    radial-gradient(40% 40% at 1% 64%, rgba(225, 90, 48, 0.10), transparent 72%),
+    radial-gradient(60% 46% at 50% 106%, rgba(224, 160, 44, 0.12), transparent 72%);
+}
+
+/* تفريغ خلفيات جذور الصفحات المعتمة لتظهر خلفية الأورورا خلفها (لا يمسّ البطاقات ولا الهيدرات الشفّافة) */
+.min-h-screen.bg-\[\#FAF7F0\],
+.min-h-screen.bg-slate-50,
+.min-h-screen.bg-gray-50,
+.flex-1.bg-slate-100 {
+  background-color: transparent !important;
+}
+
 .leaflet-container {
   position: relative;
   isolation: isolate;
