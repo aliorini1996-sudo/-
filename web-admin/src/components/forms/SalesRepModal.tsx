@@ -1,6 +1,7 @@
 import { useState, forwardRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { SalesRep } from '../../types';
+import { useTr } from '../../i18n/strings';
 import { X, Eye, EyeOff, RefreshCw } from 'lucide-react';
 
 interface FormData extends Partial<SalesRep> { password?: string; }
@@ -18,6 +19,7 @@ const PermToggle = forwardRef<HTMLInputElement, { label: string } & React.InputH
 PermToggle.displayName = 'PermToggle';
 
 export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) {
+  const tr = useTr();
   const [showPass, setShowPass] = useState(false);
   const defaults: FormData = rep
     ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true, canManageVanStock: rep.canManageVanStock ?? true }
@@ -50,47 +52,47 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-bold text-gray-800">{rep ? 'تعديل مندوب' : 'إضافة مندوب'}</h2>
+          <h2 className="text-lg font-bold text-gray-800">{rep ? tr('تعديل مندوب') : tr('إضافة مندوب')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
         <form onSubmit={handleSubmit(onSave)} className="p-5 space-y-5">
           {/* Basic */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">البيانات الأساسية</h3>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('البيانات الأساسية')}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="label">الاسم *</label>
+                <label className="label">{tr('الاسم')} *</label>
                 <input className="input" {...register('name', { required: true })} />
-                {errors.name && <p className="text-red-500 text-xs mt-1">مطلوب</p>}
+                {errors.name && <p className="text-red-500 text-xs mt-1">{tr('مطلوب')}</p>}
               </div>
               <div>
-                <label className="label">الجوال *</label>
-                <input className="input" dir="ltr" {...register('phone', { required: 'مطلوب', minLength: { value: 9, message: 'رقم غير صحيح' } })} />
+                <label className="label">{tr('الجوال')} *</label>
+                <input className="input" dir="ltr" {...register('phone', { required: tr('مطلوب'), minLength: { value: 9, message: tr('رقم غير صحيح') } })} />
                 {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
               </div>
               <div>
-                <label className="label">البريد الإلكتروني</label>
+                <label className="label">{tr('البريد الإلكتروني')}</label>
                 <input className="input" type="email" dir="ltr" {...register('email')} />
               </div>
               <div>
-                <label className="label">اسم المستخدم *</label>
+                <label className="label">{tr('اسم المستخدم')} *</label>
                 <input className="input" dir="ltr" autoComplete="off"
-                  {...register('username', { required: 'مطلوب', minLength: { value: 4, message: '4 أحرف على الأقل' } })} />
+                  {...register('username', { required: tr('مطلوب'), minLength: { value: 4, message: tr('4 أحرف على الأقل') } })} />
                 {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username.message}</p>}
               </div>
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="label">كلمة المرور {!rep && '*'}</label>
+                  <label className="label">{tr('كلمة المرور')} {!rep && '*'}</label>
                   <button type="button" onClick={generatePassword} className="text-xs text-[#E15A30] hover:text-[#C94E28] flex items-center gap-1 mb-1">
-                    <RefreshCw size={11} /> توليد
+                    <RefreshCw size={11} /> {tr('توليد')}
                   </button>
                 </div>
                 <div className="relative">
                   <input type={showPass ? 'text' : 'password'} className="input pl-9" dir="ltr" autoComplete="new-password"
-                    placeholder={rep ? 'اتركها فارغة لعدم التغيير' : ''}
+                    placeholder={rep ? tr('اتركها فارغة لعدم التغيير') : ''}
                     {...register('password', {
-                      required: rep ? false : 'كلمة المرور مطلوبة',
-                      validate: v => !v ? (rep ? true : 'كلمة المرور مطلوبة') : (v.length >= 6 || 'كلمة المرور 6 أحرف على الأقل'),
+                      required: rep ? false : tr('كلمة المرور مطلوبة'),
+                      validate: v => !v ? (rep ? true : tr('كلمة المرور مطلوبة')) : (v.length >= 6 || tr('كلمة المرور 6 أحرف على الأقل')),
                     })} />
                   <button type="button" onClick={() => setShowPass(s => !s)} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                     {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -98,13 +100,13 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
                 </div>
                 {errors.password
                   ? <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
-                  : !rep && <p className="text-gray-400 text-xs mt-1">6 أحرف على الأقل — يسلّمها الأدمن للمندوب</p>}
+                  : !rep && <p className="text-gray-400 text-xs mt-1">{tr('6 أحرف على الأقل — يسلّمها الأدمن للمندوب')}</p>}
               </div>
               <div>
-                <label className="label">الحالة</label>
+                <label className="label">{tr('الحالة')}</label>
                 <select className="input" {...register('isActive', { setValueAs: v => v === 'true' || v === true })}>
-                  <option value="true">نشط</option>
-                  <option value="false">غير نشط</option>
+                  <option value="true">{tr('نشط')}</option>
+                  <option value="false">{tr('غير نشط')}</option>
                 </select>
               </div>
             </div>
@@ -112,67 +114,67 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
 
           {/* Permissions */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات المبيعات</h3>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات المبيعات')}</h3>
             <div className="grid grid-cols-2 gap-3">
-              <PermToggle label="إنشاء فاتورة" {...register('canCreateInvoice')} />
-              <PermToggle label="البيع الآجل" {...register('canSellOnCredit')} />
-              <PermToggle label="البيع النقدي" {...register('canSellInCash')} />
-              <PermToggle label="تعديل فاتورة" {...register('canEditInvoice')} />
-              <PermToggle label="إلغاء فاتورة" {...register('canCancelInvoice')} />
-              <PermToggle label="حذف فاتورة" {...register('canDeleteInvoice')} />
+              <PermToggle label={tr('إنشاء فاتورة')} {...register('canCreateInvoice')} />
+              <PermToggle label={tr('البيع الآجل')} {...register('canSellOnCredit')} />
+              <PermToggle label={tr('البيع النقدي')} {...register('canSellInCash')} />
+              <PermToggle label={tr('تعديل فاتورة')} {...register('canEditInvoice')} />
+              <PermToggle label={tr('إلغاء فاتورة')} {...register('canCancelInvoice')} />
+              <PermToggle label={tr('حذف فاتورة')} {...register('canDeleteInvoice')} />
             </div>
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات التسعير</h3>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات التسعير')}</h3>
             <div className="grid grid-cols-2 gap-3">
-              <PermToggle label="تغيير السعر" {...register('canChangePrice')} />
-              <PermToggle label="البيع أقل من السعر" {...register('canSellBelowPrice')} />
+              <PermToggle label={tr('تغيير السعر')} {...register('canChangePrice')} />
+              <PermToggle label={tr('البيع أقل من السعر')} {...register('canSellBelowPrice')} />
             </div>
             <div className="mt-3 max-w-xs">
-              <label className="label">أقصى نسبة خصم %</label>
+              <label className="label">{tr('أقصى نسبة خصم %')}</label>
               <input type="number" className="input" min="0" max="100" {...register('maxDiscountPct', { valueAsNumber: true })} />
             </div>
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات التحصيل</h3>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات التحصيل')}</h3>
             <div className="grid grid-cols-2 gap-3">
-              <PermToggle label="إصدار سند قبض" {...register('canCreateReceipt')} />
-              <PermToggle label="تعديل سند قبض" {...register('canEditReceipt')} />
-              <PermToggle label="إلغاء سند قبض" {...register('canCancelReceipt')} />
+              <PermToggle label={tr('إصدار سند قبض')} {...register('canCreateReceipt')} />
+              <PermToggle label={tr('تعديل سند قبض')} {...register('canEditReceipt')} />
+              <PermToggle label={tr('إلغاء سند قبض')} {...register('canCancelReceipt')} />
             </div>
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات مخزون السيارة</h3>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات مخزون السيارة')}</h3>
             <div className="grid grid-cols-2 gap-3">
-              <PermToggle label="تحميل مخزون السيارة" {...register('canManageVanStock')} />
+              <PermToggle label={tr('تحميل مخزون السيارة')} {...register('canManageVanStock')} />
             </div>
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات العملاء</h3>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات العملاء')}</h3>
             <div className="grid grid-cols-2 gap-3">
-              <PermToggle label="إضافة عميل" {...register('canAddCustomer')} />
-              <PermToggle label="تعديل بيانات العميل" {...register('canEditCustomer')} />
-              <PermToggle label="عرض كشف الحساب" {...register('canViewStatement')} />
+              <PermToggle label={tr('إضافة عميل')} {...register('canAddCustomer')} />
+              <PermToggle label={tr('تعديل بيانات العميل')} {...register('canEditCustomer')} />
+              <PermToggle label={tr('عرض كشف الحساب')} {...register('canViewStatement')} />
             </div>
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">صلاحيات التحصيل</h3>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات التحصيل')}</h3>
             <div className="grid grid-cols-2 gap-3">
-              <PermToggle label="إظهار رصيد التحصيل المتراكم" {...register('showCollectionBalance')} />
+              <PermToggle label={tr('إظهار رصيد التحصيل المتراكم')} {...register('showCollectionBalance')} />
             </div>
           </div>
 
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center py-2.5">
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
-              {rep ? 'حفظ التعديلات' : 'إضافة المندوب'}
+              {rep ? tr('حفظ التعديلات') : tr('إضافة المندوب')}
             </button>
-            <button type="button" onClick={onClose} className="btn-secondary">إلغاء</button>
+            <button type="button" onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
           </div>
         </form>
       </div>
