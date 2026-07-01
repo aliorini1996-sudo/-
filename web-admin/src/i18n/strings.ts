@@ -577,6 +577,16 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'إجمالي الخصم': { en: 'Total discount', fr: 'Remise totale' },
   'ضريبة القيمة المضافة': { en: 'VAT', fr: 'TVA' },
   'إصدار الفاتورة': { en: 'Issue invoice', fr: 'Émettre la facture' },
+  // نافذة سند القبض
+  'إصدار سند قبض': { en: 'Issue receipt', fr: 'Émettre un reçu' },
+  'تم إصدار السند': { en: 'Receipt issued', fr: 'Reçu émis' },
+  'أدخل المبلغ': { en: 'Enter the amount', fr: 'Saisissez le montant' },
+  'رقم الشيك': { en: 'Cheque number', fr: 'Numéro de chèque' },
+  'اسم البنك': { en: 'Bank name', fr: 'Nom de la banque' },
+  'توزيع على الفواتير (اختياري)': { en: 'Allocate to invoices (optional)', fr: 'Répartir sur les factures (facultatif)' },
+  'التخصيص': { en: 'Allocation', fr: 'Répartition' },
+  'موزع': { en: 'Allocated', fr: 'Réparti' },
+  'إصدار السند': { en: 'Issue receipt', fr: 'Émettre le reçu' },
 };
 
 export function useTr() {
