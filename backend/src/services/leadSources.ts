@@ -27,7 +27,7 @@ export interface RawLead {
   lat?: number;
   lng?: number;
   mapsUrl?: string;
-  source: 'osm' | 'geoapify' | 'here' | 'google';
+  source: 'osm' | 'geoapify' | 'here' | 'google' | 'apollo';
 }
 
 const UA = 'FieldSales-Leads/1.0 (https://fieldsa.net)';
@@ -341,8 +341,70 @@ interface GooglePlace {
   addressComponents?: Array<{ longText?: string; shortText?: string; types?: string[] }>;
 }
 
+// ----------------------------- مصدر: Apollo.io (شركات + LinkedIn) ----------------------------- //
+// بحث شركات عبر واجهة Apollo الرسمية — بديل قانوني لبيانات LinkedIn (اسم/موقع/هاتف/رابط LinkedIn/قطاع).
+export async function searchApollo(query: string, country?: string, city?: string, limit = 25): Promise<RawLead[]> {
+  const key = (process.env.APOLLO_API_KEY || '').trim();
+  if (!key) throw new Error('APOLLO_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر Apollo.');
+  const location = [city, country].filter(Boolean).join(', ');
+  const reqBody: Record<string, unknown> = {
+    page: 1,
+    per_page: Math.min(limit, 100),
+    q_organization_keyword_tags: [query],
+  };
+  if (location) reqBody.organization_locations = [location];
+
+  const r = await fetch('https://api.apollo.io/api/v1/mixed_companies/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'X-Api-Key': key },
+    body: JSON.stringify(reqBody),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Apollo ${r.status}: ${t.slice(0, 160)}`);
+  }
+  const data = (await r.json()) as { organizations?: ApolloOrg[]; accounts?: ApolloOrg[] };
+  const orgs = [...(data.organizations || []), ...(data.accounts || [])];
+  const out: RawLead[] = [];
+  const seen = new Set<string>();
+  for (const o of orgs) {
+    if (!o?.id || !o?.name || seen.has(o.id)) continue;
+    seen.add(o.id);
+    const website = o.website_url || (o.primary_domain ? `https://${o.primary_domain}` : undefined) || o.linkedin_url;
+    out.push({
+      sourceId: `apollo:${o.id}`,
+      name: o.name,
+      phone: o.primary_phone?.number || o.phone || o.sanitized_phone || undefined,
+      website,
+      address: [o.street_address, o.city, o.state, o.country].filter(Boolean).join('، ') || undefined,
+      city: o.city || city || undefined,
+      country: o.country || country || undefined,
+      category: o.industry || undefined,
+      mapsUrl: o.linkedin_url || undefined, // رابط LinkedIn (مرجعي)
+      source: 'apollo',
+    });
+  }
+  return out;
+}
+
+interface ApolloOrg {
+  id?: string;
+  name?: string;
+  website_url?: string;
+  primary_domain?: string;
+  linkedin_url?: string;
+  phone?: string;
+  sanitized_phone?: string;
+  primary_phone?: { number?: string };
+  street_address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  industry?: string;
+}
+
 // ----------------------------- موزّع المصادر ----------------------------- //
-export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google';
+export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo';
 
 export async function runSearch(
   provider: LeadProvider,
@@ -354,6 +416,8 @@ export async function runSearch(
   switch (provider) {
     case 'google':
       return searchGoogle(query, country, city, limit);
+    case 'apollo':
+      return searchApollo(query, country, city, limit);
     case 'geoapify':
       return searchGeoapify(query, country, city, limit);
     case 'here':

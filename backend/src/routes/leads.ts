@@ -254,7 +254,7 @@ router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFu
 });
 
 // ------------------------------- بحث آلي + استيراد ------------------------------- //
-const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google']);
+const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google', 'apollo']);
 const searchSchema = z.object({
   // يدعم عدّة مصادر وعدّة أنشطة معاً (مع توافق رجعي للـ provider/query المفردين)
   providers: z.array(PROVIDER_ENUM).min(1).max(4).optional(),

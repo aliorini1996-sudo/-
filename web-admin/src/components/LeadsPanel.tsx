@@ -22,7 +22,7 @@ const STAGE_CLS: Record<LeadStage, string> = {
   LOST: 'bg-red-100 text-red-700',
 };
 const SOURCE_LABEL: Record<string, string> = {
-  osm: 'خرائط OSM', geoapify: 'Geoapify', here: 'HERE Maps', google: 'Google Maps', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
+  osm: 'خرائط OSM', geoapify: 'Geoapify', here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
 };
 
 type Filters = {
@@ -261,6 +261,7 @@ function ScorePill({ score }: { score: number }) {
 const PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: 'osm', label: 'OpenStreetMap (مجاني · بلا مفتاح)' },
   { value: 'geoapify', label: 'Geoapify (مجاني · هواتف أنظف)' },
+  { value: 'apollo', label: 'Apollo (شركات + LinkedIn · مفتاح مجاني)' },
   { value: 'here', label: 'HERE Maps (يتطلب مفتاحاً)' },
   { value: 'google', label: 'Google Maps (يتطلب مفتاحاً)' },
 ];
@@ -764,7 +765,9 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
             {lead.phone && <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-gray-700"><Phone size={14} className="text-[#E15A30]" /> {lead.phone}</a>}
             {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 truncate"><Globe2 size={14} /> {lead.website}</a>}
             {lead.address && <div className="flex items-center gap-2 text-gray-600"><MapPin size={14} className="text-gray-400" /> {lead.address}</div>}
-            {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-700"><MapPin size={14} /> عرض على الخريطة</a>}
+            {lead.mapsUrl && (lead.mapsUrl.includes('linkedin.com')
+              ? <a href={lead.mapsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[#0A66C2]"><Globe2 size={14} /> الملف على LinkedIn</a>
+              : <a href={lead.mapsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-700"><MapPin size={14} /> عرض على الخريطة</a>)}
             {lead.score != null && <div className="flex items-center gap-2"><Sparkles size={14} className="text-amber-500" /> ملاءمة {lead.score}/10 {lead.scoreNote && <span className="text-gray-400">— {lead.scoreNote}</span>}</div>}
           </div>
 
