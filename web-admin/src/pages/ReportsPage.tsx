@@ -2,25 +2,28 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/client';
 import { formatCurrency } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Download, TrendingUp, Users, UserCheck } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import toast from 'react-hot-toast';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
-const methodLabel = (m: string) => m === 'CASH' ? 'نقدي' : m === 'BANK_TRANSFER' ? 'تحويل بنكي' : m === 'POS' ? 'شبكة' : 'شيك';
 
 export default function ReportsPage() {
+  const tr = useTr();
   const [tab, setTab] = useState<Tab>('sales');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
 
+  const methodLabel = (m: string) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي') : m === 'POS' ? tr('شبكة') : tr('شيك');
+
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: 'sales', label: 'تقارير المبيعات', icon: TrendingUp },
-    { id: 'collections', label: 'تقارير التحصيل', icon: Download },
-    { id: 'balances', label: 'أرصدة العملاء', icon: Users },
-    { id: 'performance', label: 'أداء المناديب', icon: UserCheck },
+    { id: 'sales', label: tr('تقارير المبيعات'), icon: TrendingUp },
+    { id: 'collections', label: tr('تقارير التحصيل'), icon: Download },
+    { id: 'balances', label: tr('أرصدة العملاء'), icon: Users },
+    { id: 'performance', label: tr('أداء المناديب'), icon: UserCheck },
   ];
 
   const { data: salesData, isLoading: salesLoading } = useQuery({
@@ -59,44 +62,46 @@ export default function ReportsPage() {
     enabled: tab === 'performance',
   });
 
+  const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل') : tr('الصنف');
+
   // تصدير/مشاركة بيانات التبويب النشط إلى Excel
   const handleExport = async () => {
     let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
-    let fname = 'تقرير';
+    let fname = tr('تقرير');
     if (tab === 'performance' && perfData?.length) {
-      sheets = [{ name: 'أداء المناديب', rows: perfData.map(r => ({
-        'المندوب': r.name, 'عدد الفواتير': r.invoicesCount, 'إجمالي المبيعات': num(r.salesTotal),
-        'التحصيل': num(r.collectionsTotal), 'نسبة التحصيل %': r.collectionRate, 'متوسط الفاتورة': num(r.avgInvoice),
+      sheets = [{ name: tr('أداء المناديب'), rows: perfData.map(r => ({
+        [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
+        [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
       })), colWidths: [22, 12, 16, 14, 14, 16] }];
-      fname = 'أداء-المناديب';
+      fname = tr('أداء المناديب');
     } else if (tab === 'sales' && Array.isArray(salesData) && salesData.length) {
-      sheets = [{ name: 'المبيعات', rows: (salesData as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
-        'الاسم': r.name, 'العدد/الكمية': r.count ?? r.qty ?? '', 'الإجمالي': num(r.total),
+      sheets = [{ name: tr('المبيعات'), rows: (salesData as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
+        [tr('الاسم')]: r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '', [tr('الإجمالي')]: num(r.total),
       })), colWidths: [28, 14, 16] }];
-      fname = 'تقرير-المبيعات';
+      fname = tr('تقارير المبيعات');
     } else if (tab === 'balances' && balancesData?.length) {
-      sheets = [{ name: 'أرصدة العملاء', rows: balancesData.map(c => ({
-        'العميل': c.name, 'الجوال': c.phone, 'الرصيد': num(c.balance), 'الحد الائتماني': num(c.creditLimit),
+      sheets = [{ name: tr('أرصدة العملاء'), rows: balancesData.map(c => ({
+        [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
       })), colWidths: [24, 16, 14, 16] }];
-      fname = 'أرصدة-العملاء';
+      fname = tr('أرصدة العملاء');
     } else if (tab === 'collections' && collectData) {
-      sheets = [{ name: 'التحصيل', rows: [
-        { 'البند': 'إجمالي التحصيل', 'القيمة': num(collectData.summary.total) },
-        { 'البند': 'عدد السندات', 'القيمة': collectData.summary.count },
-        ...Object.entries(collectData.summary.byMethod).map(([m, v]) => ({ 'البند': methodLabel(m), 'القيمة': num(v) })),
+      sheets = [{ name: tr('التحصيل'), rows: [
+        { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(collectData.summary.total) },
+        { [tr('البند')]: tr('عدد السندات'), [tr('القيمة')]: collectData.summary.count },
+        ...Object.entries(collectData.summary.byMethod).map(([m, v]) => ({ [tr('البند')]: methodLabel(m), [tr('القيمة')]: num(v) })),
       ], colWidths: [20, 16] }];
-      fname = 'تقرير-التحصيل';
+      fname = tr('تقارير التحصيل');
     }
-    if (!sheets) { toast.error('لا توجد بيانات للتصدير'); return; }
+    if (!sheets) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
     const out = await shareOrDownloadExcel(sheets, `${fname}-${new Date().toISOString().slice(0, 10)}`);
-    toast.success(out === 'shared' ? 'تمت المشاركة' : 'تم التصدير');
+    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
 
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">التقارير</h1>
-        <button className="btn-secondary" onClick={handleExport}><Download size={16} /> تصدير Excel</button>
+        <h1 className="page-title">{tr('التقارير')}</h1>
+        <button className="btn-secondary" onClick={handleExport}><Download size={16} /> {tr('تصدير Excel')}</button>
       </div>
 
       {/* Tabs */}
@@ -113,20 +118,20 @@ export default function ReportsPage() {
       <div className="card mb-4">
         <div className="flex gap-3 flex-wrap items-end">
           <div>
-            <label className="label">من</label>
+            <label className="label">{tr('من')}</label>
             <input type="date" className="input w-36" value={from} onChange={e => setFrom(e.target.value)} />
           </div>
           <div>
-            <label className="label">إلى</label>
+            <label className="label">{tr('إلى')}</label>
             <input type="date" className="input w-36" value={to} onChange={e => setTo(e.target.value)} />
           </div>
           {tab === 'sales' && (
             <div>
-              <label className="label">تجميع حسب</label>
+              <label className="label">{tr('تجميع حسب')}</label>
               <select className="input w-36" value={groupBy} onChange={e => setGroupBy(e.target.value)}>
-                <option value="rep">المندوب</option>
-                <option value="customer">العميل</option>
-                <option value="product">الصنف</option>
+                <option value="rep">{tr('المندوب')}</option>
+                <option value="customer">{tr('العميل')}</option>
+                <option value="product">{tr('الصنف')}</option>
               </select>
             </div>
           )}
@@ -137,18 +142,18 @@ export default function ReportsPage() {
       {tab === 'sales' && (
         <div className="space-y-4">
           {salesLoading ? (
-            <div className="card flex items-center justify-center h-32 text-gray-400">جاري التحميل...</div>
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل...')}</div>
           ) : Array.isArray(salesData) && salesData.length > 0 ? (
             <>
               <div className="card">
-                <h3 className="font-semibold text-gray-700 mb-4">مبيعات حسب {groupBy === 'rep' ? 'المندوب' : groupBy === 'customer' ? 'العميل' : 'الصنف'}</h3>
+                <h3 className="font-semibold text-gray-700 mb-4">{tr('مبيعات حسب')} {groupLabel()}</h3>
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={(salesData as { name: string; total: number; count?: number }[]).slice(0, 10)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
                     <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Bar dataKey="total" fill="#3b82f6" radius={[4, 4, 0, 0]} name="المبيعات" />
+                    <Bar dataKey="total" fill="#3b82f6" radius={[4, 4, 0, 0]} name={tr('المبيعات')} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -157,9 +162,9 @@ export default function ReportsPage() {
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>{groupBy === 'rep' ? 'المندوب' : groupBy === 'customer' ? 'العميل' : 'الصنف'}</th>
-                        <th>{groupBy === 'product' ? 'الكمية' : 'عدد الفواتير'}</th>
-                        <th>إجمالي المبيعات</th>
+                        <th>{groupLabel()}</th>
+                        <th>{groupBy === 'product' ? tr('الكمية') : tr('عدد الفواتير')}</th>
+                        <th>{tr('إجمالي المبيعات')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -176,7 +181,7 @@ export default function ReportsPage() {
               </div>
             </>
           ) : (
-            <div className="card text-center text-gray-400 py-12">لا توجد بيانات</div>
+            <div className="card text-center text-gray-400 py-12">{tr('لا توجد بيانات')}</div>
           )}
         </div>
       )}
@@ -186,16 +191,16 @@ export default function ReportsPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-4 gap-4">
             <div className="card text-center">
-              <p className="text-xs text-gray-500">إجمالي التحصيل</p>
+              <p className="text-xs text-gray-500">{tr('إجمالي التحصيل')}</p>
               <p className="text-xl font-bold text-green-600">{formatCurrency(collectData.summary.total)}</p>
             </div>
             <div className="card text-center">
-              <p className="text-xs text-gray-500">عدد السندات</p>
+              <p className="text-xs text-gray-500">{tr('عدد السندات')}</p>
               <p className="text-xl font-bold text-gray-700">{collectData.summary.count}</p>
             </div>
             {Object.entries(collectData.summary.byMethod).map(([m, v]) => (
               <div key={m} className="card text-center">
-                <p className="text-xs text-gray-500">{m === 'CASH' ? 'نقدي' : m === 'BANK_TRANSFER' ? 'تحويل' : m === 'POS' ? 'شبكة' : 'شيك'}</p>
+                <p className="text-xs text-gray-500">{m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل') : m === 'POS' ? tr('شبكة') : tr('شيك')}</p>
                 <p className="text-lg font-bold text-gray-700">{formatCurrency(v)}</p>
               </div>
             ))}
@@ -209,7 +214,7 @@ export default function ReportsPage() {
           <div className="table-wrapper">
             <table className="table">
               <thead>
-                <tr><th>العميل</th><th>الجوال</th><th>الرصيد</th><th>الحد الائتماني</th><th>نسبة الاستخدام</th></tr>
+                <tr><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th>{tr('نسبة الاستخدام')}</th></tr>
               </thead>
               <tbody>
                 {balancesData.map(c => (
@@ -251,8 +256,8 @@ export default function ReportsPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>المندوب</th><th>عدد الفواتير</th><th>إجمالي المبيعات</th>
-                    <th>التحصيل</th><th>نسبة التحصيل</th><th>متوسط الفاتورة</th>
+                    <th>{tr('المندوب')}</th><th>{tr('عدد الفواتير')}</th><th>{tr('إجمالي المبيعات')}</th>
+                    <th>{tr('التحصيل')}</th><th>{tr('نسبة التحصيل')}</th><th>{tr('متوسط الفاتورة')}</th>
                   </tr>
                 </thead>
                 <tbody>
