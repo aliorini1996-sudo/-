@@ -406,6 +406,18 @@ interface ApolloOrg {
 // ----------------------------- موزّع المصادر ----------------------------- //
 export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo';
 
+// أي المصادر جاهزة (لها مفتاح مضبوط)؟ OSM لا يتطلّب مفتاحاً
+export function providersReady(): Record<LeadProvider, boolean> {
+  const has = (k: string) => !!(process.env[k] || '').trim();
+  return {
+    osm: true,
+    geoapify: has('GEOAPIFY_API_KEY'),
+    here: has('HERE_API_KEY'),
+    google: has('GOOGLE_MAPS_API_KEY'),
+    apollo: has('APOLLO_API_KEY'),
+  };
+}
+
 export async function runSearch(
   provider: LeadProvider,
   query: string,

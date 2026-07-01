@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leadApi } from '../api/client';
 import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
@@ -259,11 +259,11 @@ function ScorePill({ score }: { score: number }) {
 
 // ----------------------------- بحث آلي (عدّة مصادر + عدّة أنشطة) ----------------------------- //
 const PROVIDER_OPTIONS: { value: string; label: string }[] = [
-  { value: 'osm', label: 'OpenStreetMap (مجاني · بلا مفتاح)' },
-  { value: 'geoapify', label: 'Geoapify (مجاني · هواتف أنظف)' },
-  { value: 'apollo', label: 'Apollo (شركات + LinkedIn · مفتاح مجاني)' },
-  { value: 'here', label: 'HERE Maps (يتطلب مفتاحاً)' },
-  { value: 'google', label: 'Google Maps (يتطلب مفتاحاً)' },
+  { value: 'osm', label: 'OpenStreetMap · بلا مفتاح' },
+  { value: 'geoapify', label: 'Geoapify · هواتف أنظف' },
+  { value: 'apollo', label: 'Apollo · شركات + LinkedIn' },
+  { value: 'here', label: 'HERE Maps' },
+  { value: 'google', label: 'Google Maps' },
 ];
 
 function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -275,11 +275,24 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const [enrich, setEnrich] = useState(true);
   const [enrichHunter, setEnrichHunter] = useState(false);
 
+  // أي المصادر جاهزة (لها مفتاح)؟
+  const { data: ready } = useQuery({
+    queryKey: ['sources-status'],
+    queryFn: async () => (await leadApi.sourcesStatus()).data.data as Record<string, boolean>,
+  });
+  const isReady = (v: string) => ready?.[v] ?? (v === 'osm');
+  // إزالة أي مصدر مختار غير جاهز تلقائياً عند معرفة الحالة
+  useEffect(() => {
+    if (ready) setProviders((ps) => ps.filter((p) => isReady(p)));
+  }, [ready]);
+
   const queries = queriesText.split(/[\n,،]/).map((s) => s.trim()).filter(Boolean);
   const combos = providers.length * queries.length;
 
-  const toggleProvider = (v: string) =>
+  const toggleProvider = (v: string) => {
+    if (!isReady(v)) return;
     setProviders((ps) => (ps.includes(v) ? ps.filter((p) => p !== v) : [...ps, v]));
+  };
 
   const mutation = useMutation({
     mutationFn: () => leadApi.search({
@@ -303,12 +316,17 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         <div>
           <label className="label">المصادر (يمكن اختيار أكثر من واحد)</label>
           <div className="grid grid-cols-2 gap-2">
-            {PROVIDER_OPTIONS.map((o) => (
-              <label key={o.value} className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 cursor-pointer ${providers.includes(o.value) ? 'border-[#E15A30] bg-[#FBEBE2]/40' : 'border-[#E9E1D3]'}`}>
-                <input type="checkbox" checked={providers.includes(o.value)} onChange={() => toggleProvider(o.value)} />
-                <span className="text-gray-700">{o.label}</span>
-              </label>
-            ))}
+            {PROVIDER_OPTIONS.map((o) => {
+              const rdy = isReady(o.value);
+              return (
+                <label key={o.value} title={rdy ? '' : 'يتطلب مفتاحاً في الخادم'}
+                  className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 ${!rdy ? 'opacity-50 cursor-not-allowed border-[#E9E1D3]' : providers.includes(o.value) ? 'border-[#E15A30] bg-[#FBEBE2]/40 cursor-pointer' : 'border-[#E9E1D3] cursor-pointer'}`}>
+                  <input type="checkbox" checked={providers.includes(o.value)} disabled={!rdy} onChange={() => toggleProvider(o.value)} />
+                  <span className="text-gray-700">{o.label}</span>
+                  {!rdy && <span className="text-[10px] text-red-500 mr-auto">يتطلب مفتاحاً</span>}
+                </label>
+              );
+            })}
           </div>
         </div>
         <div>

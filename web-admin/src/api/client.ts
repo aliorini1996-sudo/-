@@ -156,6 +156,7 @@ export const leadApi = {
   addActivity: (id: string, data: unknown) => api.post(`/leads/${id}/activities`, data),
   convert: (id: string, data?: unknown) => api.post(`/leads/${id}/convert`, data || {}),
   search: (data: unknown) => api.post('/leads/search', data),
+  sourcesStatus: () => api.get('/leads/sources-status'),
   sendEmail: (data: unknown) => api.post('/leads/email', data),
   whatsappStatus: () => api.get('/leads/whatsapp-status'),
   whatsappSend: (data: unknown) => api.post('/leads/whatsapp-send', data),

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { runSearch, qualifyLeads, LeadProvider, RawLead } from '../services/leadSources';
+import { runSearch, qualifyLeads, LeadProvider, RawLead, providersReady } from '../services/leadSources';
 import { sendMail } from '../services/mailer';
 import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate } from '../services/whatsapp';
 import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
@@ -142,6 +142,11 @@ router.get('/whatsapp-status', (_req: AuthRequest, res: Response) => {
 // حالة الإثراء (هل Hunter مُعدّ؟) — قبل /:id
 router.get('/enrich-status', (_req: AuthRequest, res: Response) => {
   res.json({ success: true, data: { hunter: hunterReady() } });
+});
+
+// أي مصادر البحث جاهزة (لها مفتاح)؟ — قبل /:id
+router.get('/sources-status', (_req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: providersReady() });
 });
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //
@@ -284,9 +289,11 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
     });
 
     // تشغيل كل التوليفات (مصدر × نشاط)، دمج النتائج، وجمع أخطاء المصادر دون إيقاف الباقي
+    const ready = providersReady();
     const rawAll: RawLead[] = [];
     const errors: string[] = [];
     for (const p of providers) {
+      if (!ready[p]) { errors.push(`مصدر ${p}: يتطلّب مفتاحاً في الخادم — تخطّي`); continue; } // تخطّي مرّة واحدة بدل خطأ لكل نشاط
       for (const q of queries) {
         try {
           const r = await runSearch(p, q, body.country, body.city, body.limit);
