@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { useAuthStore } from './store/authStore';
 import { useLang } from './i18n/lang';
 import { localeFromPath } from './i18n/locale';
+import { analyticsApi } from './api/client';
 import MainLayout from './layouts/MainLayout';
 import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
@@ -66,10 +67,21 @@ function LocaleSync() {
   return null;
 }
 
+// يسجّل زيارة لكل صفحة عامّة (يتجاهل لوحات الدخول والتطبيق) — لتحليلات المالك
+function VisitTracker() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (/^\/(app|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
+    analyticsApi.track({ path: pathname, referrer: document.referrer || '', lang: document.documentElement.lang || 'ar' }).catch(() => { /* تجاهل */ });
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <LocaleSync />
+      <VisitTracker />
       <Routes>
         {/* الجذر دائماً الصفحة التعريفية التسويقية */}
         <Route path="/" element={<LandingPage />} />

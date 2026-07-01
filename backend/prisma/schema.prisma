@@ -597,3 +597,28 @@ model LeadSearch {
 
   @@map("lead_searches")
 }
+
+// ============================================================================
+// تحليلات زيارات الموقع التعريفي — على مستوى المنصّة (مالك المنصّة / السوبر أدمن)
+// تُسجَّل زيارة لكل تحميل صفحة عامّة، مع تحديد الدولة/المدينة من IP (بدون تخزين IP خام).
+// ============================================================================
+model Visit {
+  id           String   @id @default(uuid())
+  path         String   // مسار الصفحة (/ , /blog , /en ...)
+  lang         String?  // ar | en
+  referrer     String?  // الرابط المُحيل الكامل
+  referrerHost String?  // نطاق المُحيل (google.com ...) أو null للزيارة المباشرة
+  country      String?
+  countryCode  String?  // ISO alpha-2
+  region       String?
+  city         String?
+  ipHash       String?  // بصمة IP مجزّأة (لعدّ الزوّار الفريدين دون تخزين IP الخام)
+  userAgent    String?
+  isBot        Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([countryCode])
+  @@index([referrerHost])
+  @@map("visits")
+}

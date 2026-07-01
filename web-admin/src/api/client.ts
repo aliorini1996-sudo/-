@@ -191,6 +191,12 @@ export const siteContentApi = {
   update: (data: unknown) => api.put('/site-content', data),
 };
 
+// تحليلات زيارات الموقع — تسجيل عام (بلا مصادقة) + إحصاءات للمالك
+export const analyticsApi = {
+  track: (data: { path: string; referrer?: string; lang?: string }) => api.post('/analytics/track', data),
+  stats: (days = 30) => api.get('/analytics/stats', { params: { days } }),
+};
+
 // رسائل التواصل من الصفحة التعريفية
 export const contactApi = {
   send: (data: { name: string; email: string; phone?: string; message: string }) => api.post('/contact', data),
