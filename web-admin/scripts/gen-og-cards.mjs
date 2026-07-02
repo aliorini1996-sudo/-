@@ -97,16 +97,19 @@ export function buildSvg({ label, country, accent }, L) {
 
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
+  const force = process.argv.includes('--force'); // بلا force: يولّد الناقص فقط (مقالات جديدة)
   const cards = cardCatalog();
-  let n = 0;
+  let n = 0, skipped = 0;
   for (const card of cards) {
     for (const L of LANGS) {
+      const out = path.join(OUT, `${card.slug}-${L}.jpg`);
+      if (!force && fs.existsSync(out)) { skipped++; continue; }
       const svg = buildSvg(card, L);
-      await sharp(Buffer.from(svg), { density: 144 }).jpeg({ quality: 80, mozjpeg: true }).toFile(path.join(OUT, `${card.slug}-${L}.jpg`));
+      await sharp(Buffer.from(svg), { density: 144 }).jpeg({ quality: 80, mozjpeg: true }).toFile(out);
       n++;
     }
   }
-  console.log(`✅ og cards: ${n} بطاقة (${cards.length} مقال × ${LANGS.length} لغات) في public/og/`);
+  console.log(`✅ og cards: ${n} بطاقة جديدة (+${skipped} موجودة) — ${cards.length} مقال × ${LANGS.length} لغات في public/og/`);
 }
 
 import { pathToFileURL } from 'url';

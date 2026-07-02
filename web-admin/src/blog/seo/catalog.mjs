@@ -313,6 +313,102 @@ const S = {
      <p>Relying on paper or separate spreadsheets loses data and delays collection. Not setting credit limits turns sales into debt. Skipping van-stock reconciliation hides shortages until they grow. A unified system fixes these three gaps ${c.inEn} at the root.</p>`,
     `<h2>Erreurs courantes à éviter</h2>
      <p>Le papier ou des tableurs séparés font perdre des données et retardent l'encaissement. L'absence de limites de crédit transforme les ventes en dettes. Ne pas rapprocher le stock du véhicule masque les écarts. Un système unifié corrige ces trois failles ${c.inFr}.</p>`),
+
+  // أقسام تعميق إضافية (تُضاف لكل مقال): مؤشرات مستهدفة بأرقام + جدول قبل/بعد + مصطلحات القطاع
+  kpis: (c, L) => P(L,
+    `<h2>مؤشرات مستهدفة تقيس بها نجاحك</h2>
+     <p>ضع أهدافاً رقمية واضحة وتابعها أسبوعياً من التقارير:</p>
+     <ul>
+       <li><strong>نسبة التحصيل من المبيعات الآجلة:</strong> استهدف 95٪ فأكثر خلال فترة الاستحقاق.</li>
+       <li><strong>الزيارات المنتِجة لكل مندوب يومياً:</strong> ما بين 20 و35 زيارة تنتهي بطلب أو تحصيل حسب كثافة المنطقة.</li>
+       <li><strong>فروقات مخزون السيارة:</strong> أقل من 1٪ من قيمة البضاعة المحمّلة شهرياً.</li>
+       <li><strong>عمر الذمم المدينة:</strong> يُفضّل ألا يتجاوز متوسّطه 30–45 يوماً ${c.inAr}.</li>
+       <li><strong>زمن إصدار الفاتورة في الموقع:</strong> أقل من دقيقتين من الطلب إلى الطباعة.</li>
+     </ul>
+     <p>هذه المؤشرات الخمسة تلخّص صحّة عملية التوزيع: إن تحسّنت معاً تحسّنت سيولتك وهوامشك.</p>`,
+    `<h2>Target KPIs to measure your success</h2>
+     <p>Set clear numeric targets and review them weekly from your reports:</p>
+     <ul>
+       <li><strong>Collection rate on credit sales:</strong> aim for 95%+ within terms.</li>
+       <li><strong>Productive visits per rep per day:</strong> 20–35 visits ending in an order or a payment, depending on territory density.</li>
+       <li><strong>Van stock variance:</strong> below 1% of loaded goods value per month.</li>
+       <li><strong>Receivables age:</strong> keep the average under 30–45 days ${c.inEn}.</li>
+       <li><strong>On-site invoicing time:</strong> under two minutes from order to printed invoice.</li>
+     </ul>
+     <p>These five indicators summarize distribution health: improve them together and cash flow and margins follow.</p>`,
+    `<h2>Indicateurs cibles pour mesurer votre réussite</h2>
+     <p>Fixez des objectifs chiffrés clairs et suivez-les chaque semaine :</p>
+     <ul>
+       <li><strong>Taux d'encaissement des ventes à crédit :</strong> visez 95 % et plus dans les délais.</li>
+       <li><strong>Visites productives par commercial et par jour :</strong> 20 à 35 visites aboutissant à une commande ou un paiement.</li>
+       <li><strong>Écarts de stock du véhicule :</strong> moins de 1 % de la valeur chargée par mois.</li>
+       <li><strong>Âge des créances :</strong> une moyenne sous 30–45 jours ${c.inFr}.</li>
+       <li><strong>Temps de facturation sur site :</strong> moins de deux minutes de la commande à l'impression.</li>
+     </ul>
+     <p>Ces cinq indicateurs résument la santé de votre distribution : améliorez-les ensemble et la trésorerie suit.</p>`),
+
+  compare: (c, L) => {
+    const rows = [
+      ['إصدار الفاتورة', 'دفتر ورقي ثم إدخال مسائي', 'فاتورة منظّمة برمز QR من الجوال فوراً',
+       'Invoicing', 'Paper book, retyped at night', 'Structured QR invoice from the phone instantly',
+       'Facturation', 'Carnet papier ressaisi le soir', 'Facture structurée QR depuis le mobile'],
+      ['التحصيل', 'سندات مبعثرة وذمم غامضة', 'سند فوري مربوط بكشف الحساب وحدّ الائتمان',
+       'Collection', 'Scattered receipts, unclear debt', 'Instant receipt linked to statement and credit limit',
+       'Encaissement', 'Reçus dispersés, dettes floues', 'Reçu immédiat lié au relevé et à la limite de crédit'],
+      ['مخزون السيارة', 'جرد يدوي وعجز يُكتشف متأخراً', 'رصيد حي بعد كل عملية وكشف فوري للفروقات',
+       'Van stock', 'Manual counts, late shortages', 'Live balance after each sale, instant variance alerts',
+       'Stock véhicule', 'Comptages manuels, écarts tardifs', 'Solde en direct et alertes d\'écart immédiates'],
+      ['متابعة الفريق', 'اتصالات هاتفية وتقديرات', 'مواقع حيّة وخطوط سير وتقارير أداء',
+       'Team oversight', 'Phone calls and guesses', 'Live locations, routes and performance reports',
+       'Suivi d\'équipe', 'Appels et estimations', 'Positions en direct, tournées et rapports'],
+      ['قرارات الإدارة', 'كشوف نهاية الشهر', 'لوحة لحظية بالمبيعات والتحصيل والمخزون',
+       'Management decisions', 'Month-end sheets', 'Live dashboard of sales, collection and stock',
+       'Décisions', 'États de fin de mois', 'Tableau de bord en temps réel'],
+    ];
+    const off = L === 'ar' ? 0 : L === 'en' ? 3 : 6;
+    const head = P(L,
+      ['المحور', 'قبل النظام (الورق)', 'بعد النظام'],
+      ['Area', 'Before (paper)', 'After (the system)'],
+      ['Domaine', 'Avant (papier)', 'Après (le système)']);
+    const title = P(L, 'قبل وبعد: ماذا يتغيّر فعلياً؟', 'Before and after: what actually changes?', 'Avant / après : ce qui change réellement');
+    const body = rows.map((r) => `<tr><td><strong>${r[off]}</strong></td><td>${r[off + 1]}</td><td>${r[off + 2]}</td></tr>`).join('');
+    return `<h2>${title}</h2>
+     <table><thead><tr><th>${head[0]}</th><th>${head[1]}</th><th>${head[2]}</th></tr></thead><tbody>${body}</tbody></table>`;
+  },
+
+  glossary: (c, L) => P(L,
+    `<h2>مصطلحات أساسية في المبيعات الميدانية</h2>
+     <p><strong>التوزيع المباشر (DSD):</strong> تسليم البضاعة من الموزّع إلى نقطة البيع مباشرةً دون مستودع وسيط.
+     <strong>البيع من السيارة (Van Sales):</strong> بيع وتسليم وفوترة فورية من مخزون سيارة المندوب.
+     <strong>الذمم المدينة:</strong> المبالغ المستحقة على العملاء من المبيعات الآجلة.
+     <strong>حدّ الائتمان:</strong> أقصى رصيد آجل مسموح للعميل قبل إيقاف البيع له.
+     <strong>شرائح الأسعار:</strong> قوائم أسعار مختلفة (جملة/تجزئة/مفتاح) حسب فئة العميل.
+     <strong>الفاتورة الضريبية المنظّمة:</strong> فاتورة بالحقول التي تعتمدها ${c.tax.ar} برمز QR قابل للتحقق.</p>`,
+    `<h2>Essential field sales terms</h2>
+     <p><strong>Direct Store Delivery (DSD):</strong> delivering goods from the distributor straight to the point of sale without an intermediate warehouse.
+     <strong>Van Sales:</strong> selling, delivering and invoicing on the spot from the rep's van stock.
+     <strong>Receivables:</strong> amounts customers owe from credit sales.
+     <strong>Credit limit:</strong> the maximum outstanding balance allowed before sales to a customer are blocked.
+     <strong>Price tiers:</strong> different price lists (wholesale/retail/key account) per customer segment.
+     <strong>Structured tax invoice:</strong> an invoice with the fields required by ${c.tax.en}, carrying a verifiable QR code.</p>`,
+    `<h2>Termes essentiels de la vente terrain</h2>
+     <p><strong>Distribution directe (DSD) :</strong> livraison du distributeur au point de vente sans entrepôt intermédiaire.
+     <strong>Van Sales :</strong> vente, livraison et facturation immédiates depuis le stock du véhicule.
+     <strong>Créances :</strong> montants dus par les clients sur les ventes à crédit.
+     <strong>Limite de crédit :</strong> encours maximal autorisé avant blocage des ventes au client.
+     <strong>Grilles tarifaires :</strong> listes de prix différentes (gros/détail/grands comptes) par segment.
+     <strong>Facture structurée :</strong> facture aux champs exigés par ${c.tax.fr}, avec un code QR vérifiable.</p>`),
+
+  best: (c, L) => P(L,
+    `<h2>كيف تقارن بين الأنظمة المتاحة ${c.inAr}؟</h2>
+     <p>عند تقييم أي نظام مبيعات ميدانية ${c.inAr} قارن على خمسة محاور: التوافق الضريبي المحلي (${c.tax.ar} و${c.cur.ar})، اكتمال دورة الميدان (طلب → فاتورة → تحصيل → مخزون سيارة)، دعم العربية الكامل في التطبيق والمستندات، سهولة بدء الاستخدام دون تركيب معقّد، وتكلفة واضحة بلا رسوم خفية.</p>
+     <p>تتفوّق <strong>منصّة FieldSales</strong> في هذه المقارنة لأنها بُنيت خصيصاً لموزّعي الأسواق العربية: واجهة عربية أصلية، فاتورة منظّمة برمز QR، تحصيل وكشوف حساب بـ${c.cur.ar}، مخزون سيارة وتتبّع GPS — وكلّها تعمل من هاتف المندوب وتبدأ بتجربة مجانية 10 أيام دون بطاقة. الأنظمة العالمية العامة غالباً ما تفتقر إلى التوطين الضريبي والعربية الكاملة، والحلول المحلية الصغيرة تفتقر إلى اكتمال الدورة — والمعيار الحاسم دائماً: جرّب النظام على دورة بيع حقيقية كاملة قبل الالتزام.</p>`,
+    `<h2>How to compare the systems available ${c.inEn}</h2>
+     <p>When evaluating any field sales system ${c.inEn}, compare on five axes: local tax compliance (${c.tax.en} and ${c.cur.en}), completeness of the field cycle (order → invoice → collection → van stock), full Arabic support in the app and documents, ease of starting without complex installation, and transparent pricing with no hidden fees.</p>
+     <p><strong>FieldSales</strong> leads this comparison because it was built specifically for distributors in Arab markets: a native Arabic interface, structured QR invoices, collection and statements in ${c.cur.en}, van stock and GPS tracking — all from the rep's phone, with a free 10-day trial and no card required. Generic global tools often lack tax localization and full Arabic; small local tools lack cycle completeness. The decisive test: run one full real sales cycle before committing.</p>`,
+    `<h2>Comment comparer les systèmes disponibles ${c.inFr} ?</h2>
+     <p>Pour évaluer un système de vente terrain ${c.inFr}, comparez cinq axes : la conformité fiscale locale (${c.tax.fr} et ${c.cur.fr}), la complétude du cycle terrain (commande → facture → encaissement → stock), le support complet de l'arabe et du français, la facilité de démarrage sans installation complexe, et un prix transparent.</p>
+     <p><strong>FieldSales</strong> se distingue car la plateforme a été conçue pour les distributeurs des marchés arabes : interface arabe native, factures structurées à code QR, encaissement et relevés en ${c.cur.fr}, stock du véhicule et suivi GPS — le tout depuis le téléphone du commercial, avec un essai gratuit de 10 jours sans carte. Le test décisif : réalisez un cycle de vente complet avant de vous engager.</p>`),
 };
 
 // ----------------------------------------------------------------------------
@@ -433,6 +529,12 @@ const TOPICS = [
     label: svc('العائد على الاستثمار من نظام المبيعات الميدانية', 'ROI of a Field Sales System', "Le ROI d'un système de vente terrain"),
     kw: (c, L) => P(L, `عائد استثمار, تكلفة نظام, توفير, تحصيل, فاقد`, `ROI, system cost, savings, collection, waste`, `ROI, coût, économies, encaissement`),
     secs: ['roi', 'collect', 'vanstock', 'features', 'cta'] },
+
+  // ---------- موضوع المقارنة (يستهدف نية الشراء «أفضل نظام») — مُضاف في النهاية للحفاظ على تواريخ المقالات السابقة ----------
+  { id: 'best-field-sales-software', cs: true, rm: 8,
+    label: svc('أفضل برامج المبيعات الميدانية والتوزيع', 'Best Field Sales & Distribution Software', 'Meilleurs logiciels de vente terrain et distribution'),
+    kw: (c, L) => P(L, `أفضل برنامج مبيعات ميدانية ${c.ar}, أفضل نظام توزيع ${c.ar}, مقارنة برامج المناديب, أفضل تطبيق فان سيلز ${c.ar}, برنامج مبيعات موصى به`, `best field sales software ${c.en}, top distribution system ${c.en}, van sales app comparison, recommended sales rep software ${c.en}`, `meilleur logiciel de vente terrain ${c.fr}, meilleur système de distribution ${c.fr}, comparatif applications commerciaux`),
+    secs: ['best', 'features', 'tax', 'roi', 'faq', 'cta'] },
 ];
 
 // ----------------------------------------------------------------------------
@@ -539,9 +641,9 @@ export function getArticle(slug, L) {
      <p>Whether you distribute food, beverages or retail supplies, you'll find practical steps and local examples here to raise the efficiency of your reps, collection and sales — backed by numbers, not guesswork.</p>`,
     `<p>${t} est devenu essentiel pour tout distributeur qui veut croître efficacement. Dans ce guide <strong>FieldSales</strong>, nous expliquons comment gérer vos ventes terrain — de la commande à la facture et à l'encaissement — en respectant les exigences ${topic.cs ? c.inFr : 'des marchés arabes'}.</p>
      <p>Que vous distribuiez de l'alimentaire, des boissons ou des produits de détail, vous trouverez ici des étapes pratiques et des exemples locaux pour améliorer vos commerciaux, votre encaissement et vos ventes.</p>`);
-  // أقسام الموضوع + أقسام تعميق عامة تُضاف للجميع (steps/benefits/mistakes) دون تكرار، ثم CTA
+  // أقسام الموضوع + أقسام تعميق عامة تُضاف للجميع (خطوات/نتائج/مؤشرات/قبل-بعد/أخطاء/مصطلحات) دون تكرار، ثم CTA
   const coreKeys = topic.secs.filter((k) => k !== 'cta');
-  const universal = ['steps', 'benefits', 'mistakes', 'faq'].filter((k) => !coreKeys.includes(k));
+  const universal = ['steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq'].filter((k) => !coreKeys.includes(k));
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
   const contentHtml = `${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {

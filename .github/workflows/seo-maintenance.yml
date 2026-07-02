@@ -40,15 +40,20 @@ jobs:
         run: node scripts/gen-llms.mjs
 
       # يلتزم بالملفات المولّدة إن تغيّرت (مقال جديد مثلاً) — ما يطلق النشر المعتاد
+      # وعند تغيّر الخريطة يُشعر IndexNow فوراً (فهرس Bing يغذّي ChatGPT/Copilot/DuckDuckGo)
       - name: التزام الملفات المولّدة عند تغيّرها
         run: |
           if ! git diff --quiet public/sitemap.xml public/llms.txt public/llms-full.txt; then
+            SITEMAP_CHANGED=$(git diff --quiet public/sitemap.xml && echo no || echo yes)
             git config user.name "fieldsa-seo-bot"
             git config user.email "seo-bot@users.noreply.github.com"
             git add public/sitemap.xml public/llms.txt public/llms-full.txt
             git commit -m "chore(seo): تحديث الخريطة وllms.txt تلقائياً [skip ci]"
             git push
             echo "✅ تم تحديث الملفات المولّدة."
+            if [ "$SITEMAP_CHANGED" = "yes" ]; then
+              node scripts/indexnow.mjs || echo "⚠️ فشل إشعار IndexNow (غير مانع)"
+            fi
           else
             echo "لا تغييرات في الملفات المولّدة."
           fi

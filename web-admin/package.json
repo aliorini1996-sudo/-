@@ -15,6 +15,7 @@
     "seo:maintain": "node scripts/gen-sitemap.mjs && node scripts/seo-audit.mjs",
     "geo:llms": "node scripts/gen-llms.mjs",
     "geo:audit": "node scripts/geo-audit.mjs",
+    "geo:indexnow": "node scripts/indexnow.mjs",
     "geo:maintain": "node scripts/gen-llms.mjs && node scripts/geo-audit.mjs"
   },
   "dependencies": {

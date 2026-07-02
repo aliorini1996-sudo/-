@@ -146,10 +146,14 @@ export default function BlogPostPage() {
         .article-prose h2 { font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-0.3px; }
         .article-prose p { margin:14px 0; }
         .article-prose ul { margin:14px 0; padding-inline-start:24px; list-style:disc; }
+        .article-prose ol { margin:14px 0; padding-inline-start:24px; list-style:decimal; }
         .article-prose li { margin:7px 0; }
         .article-prose strong { color:#1F1A13; font-weight:700; }
         .article-prose a { color:#E15A30; font-weight:600; text-decoration:none; }
         .article-prose a:hover { text-decoration:underline; }
+        .article-prose table { width:100%; margin:16px 0; border-collapse:collapse; font-size:14.5px; background:#fff; border-radius:12px; overflow:hidden; }
+        .article-prose th { background:#FBEBE2; color:#1F1A13; font-weight:700; padding:10px 12px; text-align:start; border:1px solid #E9E1D3; }
+        .article-prose td { padding:10px 12px; border:1px solid #E9E1D3; vertical-align:top; }
       `}</style>
 
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">

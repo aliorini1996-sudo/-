@@ -90,6 +90,13 @@ const idx = read('index.html');
 idx.includes('llms.txt') ? ok('llms.txt مُشار إليه من <link> في HTML') : fail('لا إشارة إلى llms.txt في index.html');
 idx.includes('"sameAs"') ? ok('sameAs (الحسابات الاجتماعية) في JSON-LD الثابت') : fail('لا sameAs في JSON-LD الثابت');
 
+// ===== 7) IndexNow — إشعار فوري لفهرس Bing (يغذّي ChatGPT/Copilot) =====
+section('IndexNow');
+const inKey = '6548b7ac3458e8bcee3dd9f0c1fe55f3';
+exists(`public/${inKey}.txt`) && read(`public/${inKey}.txt`).trim() === inKey
+  ? ok('ملف مفتاح IndexNow موجود وصحيح') : fail(`ملف المفتاح public/${inKey}.txt مفقود أو غير مطابق`);
+exists('scripts/indexnow.mjs') ? ok('سكربت الإرسال موجود') : fail('لا يوجد scripts/indexnow.mjs');
+
 // ===== النتيجة =====
 console.log(`\n${'='.repeat(50)}\nالنتيجة: ✅ ${pass} ناجح · ⚠️ ${warns} تحذير · ❌ ${fails} فشل`);
 if (fails > 0) { console.log('يوجد أخطاء GEO يجب إصلاحها.'); process.exit(1); }

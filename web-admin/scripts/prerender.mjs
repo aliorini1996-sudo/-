@@ -111,19 +111,79 @@ function main() {
     n++;
   }
 
-  // 3) الصفحة الرئيسية بالإنجليزية والفرنسية — وسوم صحيحة (العربية أصلاً في dist/index.html)
+  // 3) الصفحة الرئيسية بالإنجليزية والفرنسية — وسوم + محتوى دلالي مختصر (زواحف AI لا تُشغّل JavaScript)
   const homeMeta = {
-    en: { title: 'FieldSales | Field Sales & Distribution Management Software for Arab Markets', desc: 'Arabic-first field sales system for distributors across Saudi Arabia, Egypt and the Arab world: tax invoices, collection, van stock and rep tracking. Free 10-day trial.' },
-    fr: { title: 'FieldSales | Logiciel de gestion des ventes terrain et distribution', desc: 'Système de vente terrain pour les distributeurs en Arabie saoudite, en Égypte et dans le monde arabe : factures, encaissement, stock et suivi. Essai gratuit 10 jours.' },
+    en: {
+      title: 'FieldSales | Field Sales & Distribution Management Software for Arab Markets',
+      desc: 'Arabic-first field sales system for distributors across Saudi Arabia, Egypt and the Arab world: tax invoices, collection, van stock and rep tracking. Free 10-day trial.',
+      body: `<main><h1>FieldSales — field sales &amp; distribution management for Arab markets</h1>
+<p>FieldSales is a SaaS platform for distribution companies: sales reps issue structured tax invoices (ZATCA-compliant QR in Saudi Arabia), collect payments, and manage van stock from a mobile app, while managers get live dashboards, GPS tracking and reports. Available in Arabic, English and French across all 22 Arab countries.</p>
+<ul><li>Field tax invoicing with QR code and thermal printing</li><li>Collection, receivables and customer statements with credit limits</li><li>Van stock per rep with live variance detection</li><li>GPS rep tracking and route planning</li><li>Product catalog, price tiers and ERP integration</li></ul>
+<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a></p></main>`,
+    },
+    fr: {
+      title: 'FieldSales | Logiciel de gestion des ventes terrain et distribution',
+      desc: 'Système de vente terrain pour les distributeurs en Arabie saoudite, en Égypte et dans le monde arabe : factures, encaissement, stock et suivi. Essai gratuit 10 jours.',
+      body: `<main><h1>FieldSales — gestion des ventes terrain et de la distribution pour les marchés arabes</h1>
+<p>FieldSales est une plateforme SaaS pour les entreprises de distribution : les commerciaux émettent des factures structurées à code QR, encaissent les paiements et gèrent le stock du véhicule depuis une application mobile, tandis que les gérants disposent de tableaux de bord en direct, du suivi GPS et de rapports. Disponible en arabe, anglais et français dans les 22 pays arabes.</p>
+<ul><li>Facturation terrain avec code QR et impression thermique</li><li>Encaissement, créances et relevés clients avec limites de crédit</li><li>Stock du véhicule par commercial avec détection des écarts</li><li>Suivi GPS et planification des tournées</li><li>Catalogue produits, grilles tarifaires et intégration ERP</li></ul>
+<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a></p></main>`,
+    },
   };
   for (const L of ['en', 'fr']) {
     const canonical = `${ORIGIN}/${L}`;
-    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang('/') });
+    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang('/'), bodyHtml: homeMeta[L].body });
     writeRoute(`/${L}`, html);
     n++;
   }
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (900 مقال × لا، بل ${buildCatalog().length}×3 + فهارس + رئيسية en/fr) في dist/`);
+  // 4) الصفحات التعريفية (about/contact/قانونية) × 3 لغات — وسوم + ملخّص دلالي يقرؤه الزاحف،
+  //    وReact يستبدله بالنص الكامل عند التحميل. (الرئيسية العربية تبقى dist/index.html — هي fallback الـSPA)
+  const INFO = {
+    about: {
+      ar: { t: 'عن المنصّة | FieldSales', d: 'تعرّف على منصّة FieldSales لإدارة المبيعات الميدانية والتوزيع في الأسواق العربية.',
+        b: '<h1>عن منصّة FieldSales</h1><p>FieldSales منصّة سحابية عربية لإدارة المبيعات الميدانية والتوزيع: فواتير ضريبية منظّمة من الميدان، تحصيل وكشوف حساب، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية — لشركات التوزيع في كل الدول العربية بواجهة عربية أصلية ودعم للإنجليزية والفرنسية. تواصل معنا: info@fieldsa.net</p>' },
+      en: { t: 'About | FieldSales', d: 'Learn about FieldSales, the field sales and distribution management platform for Arab markets.',
+        b: '<h1>About FieldSales</h1><p>FieldSales is an Arabic-first SaaS platform for field sales and distribution: structured tax invoices from the field, collection and statements, van stock, GPS tracking and live reports — serving distributors across all Arab countries in Arabic, English and French. Contact: info@fieldsa.net</p>' },
+      fr: { t: 'À propos | FieldSales', d: 'Découvrez FieldSales, la plateforme de gestion des ventes terrain et de la distribution pour les marchés arabes.',
+        b: '<h1>À propos de FieldSales</h1><p>FieldSales est une plateforme SaaS pour la vente terrain et la distribution : factures structurées, encaissement et relevés, stock du véhicule, suivi GPS et rapports en direct — au service des distributeurs de tous les pays arabes, en arabe, anglais et français. Contact : info@fieldsa.net</p>' },
+    },
+    contact: {
+      ar: { t: 'تواصل معنا | FieldSales', d: 'تواصل مع فريق FieldSales للاستفسارات والمبيعات والدعم الفني.',
+        b: '<h1>تواصل معنا</h1><p>للاستفسارات والمبيعات: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · للدعم الفني: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · أو ابدأ <a href="/signup">تجربتك المجانية 10 أيام</a> مباشرةً.</p>' },
+      en: { t: 'Contact | FieldSales', d: 'Contact the FieldSales team for sales, questions and technical support.',
+        b: '<h1>Contact us</h1><p>Sales and questions: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · or start your <a href="/signup">free 10-day trial</a> directly.</p>' },
+      fr: { t: 'Contact | FieldSales', d: 'Contactez l\'équipe FieldSales pour les ventes, les questions et le support.',
+        b: '<h1>Contactez-nous</h1><p>Ventes et questions : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support : <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · ou commencez votre <a href="/signup">essai gratuit de 10 jours</a>.</p>' },
+    },
+    terms: {
+      ar: { t: 'الشروط والأحكام | FieldSales', d: 'الشروط والأحكام العامة لاستخدام منصّة FieldSales.', b: '<h1>الشروط والأحكام</h1><p>الشروط والأحكام العامة لاستخدام منصّة FieldSales لإدارة المبيعات الميدانية — النص الكامل متاح في هذه الصفحة داخل التطبيق.</p>' },
+      en: { t: 'Terms & Conditions | FieldSales', d: 'General terms and conditions for using the FieldSales platform.', b: '<h1>Terms &amp; Conditions</h1><p>The general terms for using the FieldSales field sales platform — the full text is available on this page in the app.</p>' },
+      fr: { t: 'Conditions générales | FieldSales', d: 'Conditions générales d\'utilisation de la plateforme FieldSales.', b: '<h1>Conditions générales</h1><p>Les conditions générales d\'utilisation de la plateforme FieldSales — le texte complet est disponible sur cette page.</p>' },
+    },
+    privacy: {
+      ar: { t: 'سياسة الخصوصية | FieldSales', d: 'كيف تجمع منصّة FieldSales بياناتك وتحميها وتستخدمها.', b: '<h1>سياسة الخصوصية</h1><p>توضّح هذه السياسة كيف تجمع منصّة FieldSales البيانات وتحميها وتستخدمها — النص الكامل متاح في هذه الصفحة داخل التطبيق. للاستفسار: info@fieldsa.net</p>' },
+      en: { t: 'Privacy Policy | FieldSales', d: 'How FieldSales collects, protects and uses your data.', b: '<h1>Privacy Policy</h1><p>This policy explains how FieldSales collects, protects and uses data — the full text is available on this page in the app. Questions: info@fieldsa.net</p>' },
+      fr: { t: 'Politique de confidentialité | FieldSales', d: 'Comment FieldSales collecte, protège et utilise vos données.', b: '<h1>Politique de confidentialité</h1><p>Cette politique explique comment FieldSales collecte, protège et utilise les données — texte complet disponible sur cette page. Questions : info@fieldsa.net</p>' },
+    },
+    'service-agreement': {
+      ar: { t: 'اتفاقية الخدمة | FieldSales', d: 'اتفاقية مستوى الخدمة والاشتراك في منصّة FieldSales.', b: '<h1>اتفاقية الخدمة</h1><p>اتفاقية مستوى الخدمة والاشتراك في منصّة FieldSales — النص الكامل متاح في هذه الصفحة داخل التطبيق.</p>' },
+      en: { t: 'Service Agreement | FieldSales', d: 'The service and subscription agreement for the FieldSales platform.', b: '<h1>Service Agreement</h1><p>The service and subscription agreement for FieldSales — the full text is available on this page in the app.</p>' },
+      fr: { t: 'Accord de service | FieldSales', d: 'L\'accord de service et d\'abonnement de la plateforme FieldSales.', b: '<h1>Accord de service</h1><p>L\'accord de service et d\'abonnement FieldSales — texte complet disponible sur cette page.</p>' },
+    },
+  };
+  for (const [route, langs] of Object.entries(INFO)) {
+    for (const L of LANGS) {
+      const m = langs[L];
+      const prefix = L === 'ar' ? '' : `/${L}`;
+      const canonical = `${ORIGIN}${prefix}/${route}`;
+      const html = buildPage({ lang: L, title: m.t, description: m.d, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang(`/${route}`), bodyHtml: `<main>${m.b}</main>` });
+      writeRoute(`${prefix}/${route}`, html);
+      n++;
+    }
+  }
+
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال ×3 + فهارس + رئيسية en/fr + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
 }
 
 main();

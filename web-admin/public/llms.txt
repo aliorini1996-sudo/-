@@ -105,5 +105,5 @@ Key facts:
 
 ## Optional
 
-- [Full article index](https://fieldsa.net/llms-full.txt): every guide in Arabic, English and French (900 pages).
+- [Full article index](https://fieldsa.net/llms-full.txt): every guide in Arabic, English and French (966 pages).
 - [Sitemap](https://fieldsa.net/sitemap.xml)

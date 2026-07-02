@@ -31,18 +31,22 @@ const AI_BOTS = [
 // استعلام جاهز لاختبار الظهور يدوياً في محركات الإجابة
 const TEST_Q = encodeURIComponent('أفضل نظام مبيعات ميدانية وتوزيع للموزعين في السعودية ومصر؟');
 
+// مفتاح IndexNow (عام بطبيعته — ملف التحقق منشور على الجذر)
+const INDEXNOW_KEY = '6548b7ac3458e8bcee3dd9f0c1fe55f3';
+
 interface Probe {
   loading: boolean;
   llms: boolean; llmsLinks: number; llmsFull: boolean;
   aiBots: number;                     // كم زاحف AI مذكور في robots.txt
   prerender: boolean; faqSchema: boolean; // صفحة مقال ثابتة فيها JSON-LD و FAQPage
+  indexnow: boolean;                  // ملف مفتاح IndexNow منشور
 }
 
 interface AiStats { total: number; byEngine: { label: string; count: number }[]; byDay: { date: string; count: number }[] }
 
 // شاشة متابعة الظهور في محركات الذكاء الاصطناعي (GEO) — لمالك المنصّة
 export default function GeoDashboard({ onClose }: { onClose: () => void }) {
-  const [p, setP] = useState<Probe>({ loading: true, llms: false, llmsLinks: 0, llmsFull: false, aiBots: 0, prerender: false, faqSchema: false });
+  const [p, setP] = useState<Probe>({ loading: true, llms: false, llmsLinks: 0, llmsFull: false, aiBots: 0, prerender: false, faqSchema: false, indexnow: false });
 
   // زيارات قادمة من محركات AI (آخر 30 يوماً) — من تحليلات الزيارات
   const { data: stats } = useQuery({
@@ -70,7 +74,8 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      let llms = false, llmsLinks = 0, llmsFull = false, aiBots = 0, prerender = false, faqSchema = false;
+      let llms = false, llmsLinks = 0, llmsFull = false, aiBots = 0, prerender = false, faqSchema = false, indexnow = false;
+      try { const r = await fetch(`/${INDEXNOW_KEY}.txt`, { cache: 'no-store' }); indexnow = r.ok && (await r.text()).trim() === INDEXNOW_KEY; } catch { /* تجاهل */ }
       try {
         const r = await fetch('/llms.txt', { cache: 'no-store' });
         if (r.ok) {
@@ -89,7 +94,7 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
         const r = await fetch(`/blog/${catalog[0]?.slug}`, { cache: 'no-store' });
         if (r.ok) { const t = await r.text(); prerender = t.includes('application/ld+json'); faqSchema = t.includes('FAQPage'); }
       } catch { /* تجاهل */ }
-      if (alive) setP({ loading: false, llms, llmsLinks, llmsFull, aiBots, prerender, faqSchema });
+      if (alive) setP({ loading: false, llms, llmsLinks, llmsFull, aiBots, prerender, faqSchema, indexnow });
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,7 +114,8 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
     { label: 'إثبات هوية عبر الحسابات الاجتماعية (sameAs)', ok: socialCount > 0, detail: socialCount > 0 ? `${socialCount} حساب مربوط (X · فيسبوك)` : undefined, hint: socialCount === 0 ? 'املأ روابط التواصل من «محتوى الصفحة»' : undefined },
     { label: 'بطاقات صور احترافية (OG) لكل مقال', ok: true, detail: `${seoArticles * 3} بطاقة · 3 لغات` },
     { label: 'متابعة الزيارات القادمة من محركات AI', ok: !!ai, hint: ai ? undefined : 'تُفعَّل بعد نشر تحديث الخادم' },
-    { label: 'صيانة GEO يومية (أتمتة)', ok: true, detail: 'توليد llms.txt + تدقيق كل يوم 06:00' },
+    { label: 'فهرسة فورية IndexNow (فهرس Bing → ChatGPT/Copilot)', ok: p.indexnow, hint: p.indexnow ? undefined : 'يكتمل بعد النشر' },
+    { label: 'صيانة GEO يومية (أتمتة)', ok: true, detail: 'توليد llms.txt + تدقيق + إشعار فهرسة كل يوم 06:00' },
   ];
   const passed = checks.filter((c) => c.ok).length;
   const score = Math.round((passed / checks.length) * 100);
