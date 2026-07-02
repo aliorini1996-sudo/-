@@ -12,7 +12,7 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useT } from '../i18n/strings';
 import { useSeo } from '../lib/seo';
-import { seoUrls } from '../i18n/locale';
+import { seoUrls, pathForLocale } from '../i18n/locale';
 
 // صفحة التواصل مع الشركة — بياناتها من CMS + نموذج يرسل رسالة لبريد الشركة
 export default function ContactPage() {
@@ -31,6 +31,7 @@ export default function ContactPage() {
     : lang === 'fr' ? { ...cms, intro: defaultContentFr.contact.intro }
     : cms;
 
+  const home = pathForLocale('/', lang); // العودة للرئيسية بنفس اللغة الحالية
   const seoUrl = seoUrls('/contact', lang);
   const contactSeo = {
     ar: {
@@ -87,7 +88,7 @@ export default function ContactPage() {
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2.5">
+          <Link to={home} className="flex items-center gap-2.5">
             <BrandIcon size={34} />
             <span style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }} className="text-xl">
               <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
@@ -95,7 +96,7 @@ export default function ContactPage() {
           </Link>
           <div className="flex items-center gap-2">
             <LanguageToggle />
-            <Link to="/" className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
+            <Link to={home} className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
               {t('common.backHome')} <ArrowLeft size={15} className={dir === 'rtl' ? '' : 'rotate-180'} />
             </Link>
           </div>

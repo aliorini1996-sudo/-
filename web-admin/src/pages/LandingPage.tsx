@@ -229,6 +229,20 @@ function injectCoverage(html: string, lang: Lang): string {
   return html.replace(anchor, `${coverageSection(lang)}\n  ${anchor}`);
 }
 
+// يضيف بادئة اللغة (/en · /fr) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.
+// (مسارات التطبيق /login · /rep · /signup تُترك — تحفظ لغتها من localStorage؛ والروابط الخارجية/المرساة تُترك.)
+const LOCALIZED_PATHS = ['/about', '/contact', '/blog', '/privacy', '/terms', '/service-agreement'];
+function localizeLinks(html: string, lang: Lang): string {
+  if (lang === 'ar') return html;
+  const prefix = lang === 'en' ? '/en' : '/fr';
+  let out = html;
+  for (const p of LOCALIZED_PATHS) {
+    // href="/contact" → href="/en/contact"  (تطابق تام مع علامة الاقتباس لتفادي مطابقة /blog داخل /blog/slug)
+    out = out.split(`href="${p}"`).join(`href="${prefix}${p}"`);
+  }
+  return out;
+}
+
 // ---- تبديل عملة عرض الأسعار (ريال ⇄ دولار) ----
 // الريال مربوط رسميًا بالدولار عند 3.75، فنحوّل القيمة نفسها دون تغيير التكلفة الفعلية.
 const SAR_PER_USD = 3.75;
@@ -365,6 +379,7 @@ export default function LandingPage() {
   }
   html = injectLangSwitcher(html, lang);
   html = injectCoverage(html, lang);
+  html = localizeLinks(html, lang); // يبقي لغة الروابط ثابتة عند الانتقال للصفحات التالية
 
   // مبدّل العملة داخل قسم الأسعار + ضبط لاحقة السعر حسب العملة (لاحقة « ر.س / شهريًا» ثابتة في القالب)
   html = injectCurrencyToggle(html, currency, lang);
