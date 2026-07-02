@@ -355,7 +355,7 @@ info@fieldsa.net`
   "social": {
     "x": "https://x.com/fieldsa_net",
     "instagram": "",
-    "linkedin": "",
+    "linkedin": "https://www.linkedin.com/company/fieldsa/",
     "whatsapp": "",
     "snapchat": "",
     "youtube": "",
