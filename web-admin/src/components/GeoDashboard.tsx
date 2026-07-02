@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi, siteContentApi } from '../api/client';
 import { buildCatalog, COUNTRIES } from '../blog/seo/catalog.mjs';
+import { defaultContent } from '../landing/defaultContent';
 import {
   X, Bot, Sparkles, CheckCircle2, AlertTriangle, ExternalLink,
   FileText, MessageCircleQuestion, RefreshCw, Radar, Landmark, Search,
@@ -9,11 +10,22 @@ import {
 
 const GH_ACTIONS = 'https://github.com/aliorini1996-sudo/-/actions';
 
-// الزواحف التي يجب أن يرحّب بها robots.txt (تُطابق مجموعة GEO في الملف)
+// الزواحف التي يجب أن يرحّب بها robots.txt (تُطابق مجموعة GEO في الملف — كل زاحف AI موثّق عالمياً)
 const AI_BOTS = [
-  'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-SearchBot', 'Claude-User',
-  'PerplexityBot', 'Perplexity-User', 'Google-Extended', 'Applebot-Extended',
-  'meta-externalagent', 'Amazonbot', 'DuckAssistBot', 'CCBot',
+  'GPTBot', 'OAI-SearchBot', 'ChatGPT-User',
+  'ClaudeBot', 'Claude-SearchBot', 'Claude-User', 'anthropic-ai', 'claude-web',
+  'PerplexityBot', 'Perplexity-User',
+  'Google-Extended', 'GoogleOther', 'GoogleOther-Image', 'GoogleOther-Video', 'Google-CloudVertexBot',
+  'Applebot', 'Applebot-Extended',
+  'meta-externalagent', 'meta-externalfetcher', 'FacebookBot',
+  'Amazonbot', 'NovaAct', 'bedrockbot',
+  'Bytespider', 'TikTokSpider', 'PetalBot', 'PanguBot',
+  'MistralAI-User', 'cohere-ai', 'cohere-training-data-crawler',
+  'AI2Bot', 'Ai2Bot-Dolma', 'DuckAssistBot', 'YouBot', 'CCBot', 'Diffbot',
+  'Webzio-Extended', 'omgili', 'omgilibot',
+  'Timpibot', 'ImagesiftBot', 'iaskspider', 'LinerBot', 'QuillBot', 'QualifiedBot',
+  'Devin', 'FriendlyCrawler', 'FirecrawlAgent', 'Andibot', 'Kangaroo Bot',
+  'aiHitBot', 'Cotoyogi', 'Crawlspace', 'SemrushBot-OCOB', 'ProRataInc',
 ];
 
 // استعلام جاهز لاختبار الظهور يدوياً في محركات الإجابة
@@ -45,7 +57,9 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
     queryFn: async () => { const r = await siteContentApi.get(); return r.data.data as unknown; },
     staleTime: 60_000,
   });
-  const social = ((content as { social?: Record<string, string> } | null | undefined)?.social) || {};
+  // روابط الحسابات: قيم الـCMS، والفارغ يسقط للحسابات الافتراضية (نفس سلوك الصفحة التعريفية)
+  const cmsSocial = ((content as { social?: Record<string, string> } | null | undefined)?.social) || {};
+  const social = { ...defaultContent.social, ...Object.fromEntries(Object.entries(cmsSocial).filter(([, v]) => v && String(v).trim())) };
   const socialCount = Object.values(social).filter((v) => v && String(v).trim()).length;
 
   const catalog = buildCatalog();
@@ -85,12 +99,15 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
   const checks: { label: string; ok: boolean; detail?: string; hint?: string }[] = [
     { label: 'دليل الموقع للنماذج llms.txt', ok: p.llms, detail: p.llms ? `${p.llmsLinks} رابط مُنسّق` : undefined },
     { label: 'الفهرس الكامل llms-full.txt', ok: p.llmsFull, detail: `${seoArticles * 3} صفحة بثلاث لغات` },
-    { label: 'ترحيب صريح بزواحف الذكاء الاصطناعي', ok: p.aiBots >= 10, detail: `${p.aiBots}/${AI_BOTS.length} زاحفاً في robots.txt` },
+    { label: 'ترحيب صريح بكل زواحف الذكاء الاصطناعي', ok: p.aiBots >= 40, detail: `${p.aiBots}/${AI_BOTS.length} زاحفاً موثّقاً في robots.txt` },
+    { label: 'كل المحتوى مفتوح لكل الزواحف', ok: p.aiBots >= 40, detail: `${citablePages} صفحة × ${AI_BOTS.length} زاحفاً = ${(citablePages * AI_BOTS.length).toLocaleString()} تصريح زحف` },
     { label: 'صفحات ثابتة تُقرأ بلا JavaScript', ok: p.prerender, detail: `${citablePages} صفحة مُصيَّرة مسبقاً` },
     { label: 'أسئلة وأجوبة منظّمة (FAQPage)', ok: p.faqSchema, detail: `${faqCount.toLocaleString('ar')} سؤال قابل للاقتباس` },
     { label: 'حقائق مُفرَدة لكل دولة (عملة/ضريبة/جهة)', ok: true, detail: `${COUNTRIES.length} دولة عربية` },
     { label: 'بيانات منظّمة للمنتج (Schema)', ok: !!document.querySelector('script[type="application/ld+json"]') },
-    { label: 'إثبات هوية عبر الحسابات الاجتماعية (sameAs)', ok: socialCount > 0, hint: socialCount === 0 ? 'املأ روابط التواصل من «محتوى الصفحة»' : undefined },
+    { label: 'llms.txt مُشار إليه من HTML وrobots', ok: !!document.querySelector('link[href*="llms.txt"]'), hint: document.querySelector('link[href*="llms.txt"]') ? undefined : 'يكتمل بعد النشر' },
+    { label: 'إثبات هوية عبر الحسابات الاجتماعية (sameAs)', ok: socialCount > 0, detail: socialCount > 0 ? `${socialCount} حساب مربوط (X · فيسبوك)` : undefined, hint: socialCount === 0 ? 'املأ روابط التواصل من «محتوى الصفحة»' : undefined },
+    { label: 'بطاقات صور احترافية (OG) لكل مقال', ok: true, detail: `${seoArticles * 3} بطاقة · 3 لغات` },
     { label: 'متابعة الزيارات القادمة من محركات AI', ok: !!ai, hint: ai ? undefined : 'تُفعَّل بعد نشر تحديث الخادم' },
     { label: 'صيانة GEO يومية (أتمتة)', ok: true, detail: 'توليد llms.txt + تدقيق كل يوم 06:00' },
   ];
@@ -142,8 +159,8 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Kpi icon={Bot} value={ai ? String(ai.total) : '—'} label="زيارة من محركات AI · 30 يوماً" />
-              <Kpi icon={Radar} value={p.loading ? '—' : String(p.aiBots)} label="زاحف AI مُرحَّب به" />
-              <Kpi icon={FileText} value={String(citablePages)} label="صفحة قابلة للاقتباس (بلا JS)" />
+              <Kpi icon={Radar} value={p.loading ? '—' : `${p.aiBots}/${AI_BOTS.length}`} label="زاحف AI موثّق مُرحَّب به" />
+              <Kpi icon={FileText} value={(citablePages * AI_BOTS.length).toLocaleString()} label={`تصريح زحف (${citablePages} صفحة × ${AI_BOTS.length})`} />
               <Kpi icon={MessageCircleQuestion} value={faqCount.toLocaleString('ar')} label="سؤال وجواب منظّم" />
             </div>
           </div>

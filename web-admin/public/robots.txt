@@ -9,7 +9,8 @@ Disallow: /login
 Disallow: /signup
 Disallow: /verify-email
 
-# --- زواحف الذكاء الاصطناعي: مرحّب بها صراحةً (GEO) ---
+# --- زواحف الذكاء الاصطناعي: مرحّب بها كلها صراحةً (GEO) ---
+# كل زاحف موثّق عالمياً مذكور أدناه، وأي زاحف جديد مشمول تلقائياً بقاعدة * أعلاه.
 # OpenAI (ChatGPT)
 User-agent: GPTBot
 User-agent: OAI-SearchBot
@@ -19,17 +20,70 @@ User-agent: ClaudeBot
 User-agent: Claude-SearchBot
 User-agent: Claude-User
 User-agent: anthropic-ai
+User-agent: claude-web
 # Perplexity
 User-agent: PerplexityBot
 User-agent: Perplexity-User
-# Google (Gemini / AI Overviews)
+# Google (Gemini / AI Overviews / Vertex)
 User-agent: Google-Extended
-# Microsoft (Copilot) / Apple / Meta / Amazon / DuckDuckGo / Common Crawl
+User-agent: GoogleOther
+User-agent: GoogleOther-Image
+User-agent: GoogleOther-Video
+User-agent: Google-CloudVertexBot
+# Apple (Siri / Apple Intelligence)
+User-agent: Applebot
 User-agent: Applebot-Extended
+# Meta (Meta AI / Llama)
 User-agent: meta-externalagent
+User-agent: meta-externalfetcher
+User-agent: FacebookBot
+# Amazon (Alexa / Bedrock / Nova)
 User-agent: Amazonbot
+User-agent: NovaAct
+User-agent: bedrockbot
+# ByteDance / TikTok
+User-agent: Bytespider
+User-agent: TikTokSpider
+# Huawei (PanGu)
+User-agent: PetalBot
+User-agent: PanguBot
+# Mistral
+User-agent: MistralAI-User
+# Cohere
+User-agent: cohere-ai
+User-agent: cohere-training-data-crawler
+# Allen Institute for AI
+User-agent: AI2Bot
+User-agent: Ai2Bot-Dolma
+# DuckDuckGo (DuckAssist)
 User-agent: DuckAssistBot
+# You.com
+User-agent: YouBot
+# Common Crawl (تغذّي معظم النماذج المفتوحة)
 User-agent: CCBot
+# Diffbot
+User-agent: Diffbot
+# Webz.io (بيانات تدريب)
+User-agent: Webzio-Extended
+User-agent: omgili
+User-agent: omgilibot
+# محركات وأدوات AI أخرى موثّقة
+User-agent: Timpibot
+User-agent: ImagesiftBot
+User-agent: iaskspider
+User-agent: LinerBot
+User-agent: QuillBot
+User-agent: QualifiedBot
+User-agent: Devin
+User-agent: FriendlyCrawler
+User-agent: FirecrawlAgent
+User-agent: Andibot
+User-agent: Kangaroo Bot
+User-agent: aiHitBot
+User-agent: Cotoyogi
+User-agent: Crawlspace
+User-agent: SemrushBot-OCOB
+User-agent: ProRataInc
 Allow: /
 Disallow: /app
 Disallow: /platform

@@ -315,8 +315,12 @@ export default function LandingPage() {
     queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as unknown; },
     staleTime: 60_000,
   });
-  // sameAs لمحرّكات البحث — يُبنى من روابط التواصل في الـCMS (يربط العلامة بحساباتك الاجتماعية)
-  const social = (data as { social?: Record<string, string> } | null | undefined)?.social || {};
+  // sameAs لمحرّكات البحث — روابط الـCMS، والحقول الفارغة تسقط للحسابات الافتراضية (نفس سلوك بقية الصفحة)
+  const cmsSocial = (data as { social?: Record<string, string> } | null | undefined)?.social || {};
+  const social: Record<string, string> = {
+    ...defaultContent.social,
+    ...Object.fromEntries(Object.entries(cmsSocial).filter(([, v]) => v && String(v).trim())),
+  };
   const sameAs = [social.x, social.instagram, social.linkedin, social.facebook, social.youtube, social.tiktok, social.snapchat,
     social.whatsapp ? `https://wa.me/${String(social.whatsapp).replace(/[^0-9]/g, '')}` : '']
     .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);

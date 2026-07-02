@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { POSTS } from '../blog/posts';
 import { listArticles, buildCatalog, COUNTRIES } from '../blog/seo/catalog.mjs';
+import { defaultContent } from '../landing/defaultContent';
 import {
   X, Search, TrendingUp, CheckCircle2, AlertTriangle, ExternalLink,
   Globe, Languages, MapPin, FileText, Share2, Zap, RefreshCw, Link2,
@@ -26,7 +27,9 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
     queryFn: async () => { const r = await siteContentApi.get(); return r.data.data as unknown; },
     staleTime: 60_000,
   });
-  const social = ((content as { social?: Record<string, string> } | null | undefined)?.social) || {};
+  // روابط الحسابات: قيم الـCMS، والفارغ يسقط للحسابات الافتراضية (نفس سلوك الصفحة التعريفية)
+  const cmsSocial = ((content as { social?: Record<string, string> } | null | undefined)?.social) || {};
+  const social = { ...defaultContent.social, ...Object.fromEntries(Object.entries(cmsSocial).filter(([, v]) => v && String(v).trim())) };
   const socialCount = Object.values(social).filter((v) => v && String(v).trim()).length;
 
   useEffect(() => {

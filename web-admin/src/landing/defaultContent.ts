@@ -353,13 +353,13 @@ info@fieldsa.net`
   },
   "heroImage": "/hero-rep-phones.svg",
   "social": {
-    "x": "",
+    "x": "https://x.com/fieldsa_net",
     "instagram": "",
     "linkedin": "",
     "whatsapp": "",
     "snapchat": "",
     "youtube": "",
-    "facebook": "",
+    "facebook": "https://www.facebook.com/profile.php?id=61591189934757",
     "tiktok": ""
   }
 } as const;

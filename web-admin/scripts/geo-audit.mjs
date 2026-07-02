@@ -50,12 +50,22 @@ section('robots.txt — زواحف الذكاء الاصطناعي');
 if (!exists('public/robots.txt')) fail('لا يوجد robots.txt');
 else {
   const r = read('public/robots.txt');
-  // الزواحف الأساسية (غيابها يُفشل) ثم الثانوية (تحذير فقط)
+  // الزواحف الأساسية (غيابها يُفشل) ثم بقية الزواحف الموثّقة (تحذير فقط)
   const core = ['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended', 'OAI-SearchBot'];
-  const extra = ['ChatGPT-User', 'Claude-User', 'Claude-SearchBot', 'Perplexity-User', 'Applebot-Extended', 'meta-externalagent', 'Amazonbot', 'DuckAssistBot', 'CCBot'];
+  const extra = [
+    'ChatGPT-User', 'Claude-User', 'Claude-SearchBot', 'anthropic-ai', 'claude-web', 'Perplexity-User',
+    'GoogleOther', 'GoogleOther-Image', 'GoogleOther-Video', 'Google-CloudVertexBot',
+    'Applebot', 'Applebot-Extended', 'meta-externalagent', 'meta-externalfetcher', 'FacebookBot',
+    'Amazonbot', 'NovaAct', 'bedrockbot', 'Bytespider', 'TikTokSpider', 'PetalBot', 'PanguBot',
+    'MistralAI-User', 'cohere-ai', 'cohere-training-data-crawler', 'AI2Bot', 'Ai2Bot-Dolma',
+    'DuckAssistBot', 'YouBot', 'CCBot', 'Diffbot', 'Webzio-Extended', 'omgili', 'omgilibot',
+    'Timpibot', 'ImagesiftBot', 'iaskspider', 'LinerBot', 'QuillBot', 'QualifiedBot',
+    'Devin', 'FriendlyCrawler', 'FirecrawlAgent', 'Andibot', 'Kangaroo Bot',
+    'aiHitBot', 'Cotoyogi', 'Crawlspace', 'SemrushBot-OCOB', 'ProRataInc',
+  ];
   for (const b of core) r.includes(`User-agent: ${b}`) ? ok(`${b} مذكور صراحةً`) : fail(`${b} غير مذكور`);
   const missingExtra = extra.filter((b) => !r.includes(`User-agent: ${b}`));
-  missingExtra.length === 0 ? ok(`كل الزواحف الثانوية مذكورة (${extra.length})`) : warn(`زواحف ثانوية غير مذكورة: ${missingExtra.join(', ')}`);
+  missingExtra.length === 0 ? ok(`كل الزواحف الموثّقة مذكورة (${core.length + extra.length} زاحفاً)`) : warn(`زواحف غير مذكورة: ${missingExtra.join(', ')}`);
   /Disallow:\s*\/\s*$/m.test(r) ? fail('يحجب الموقع كاملاً (Disallow: /)') : ok('لا يحجب الموقع كاملاً');
   r.includes('llms.txt') ? ok('يشير إلى llms.txt') : warn('لا يشير إلى llms.txt');
 }
@@ -73,6 +83,12 @@ const catalogSrc = read('src/blog/seo/catalog.mjs');
 catalogSrc.includes('faqData') ? ok('faqData موجودة في الكتالوج (لكل مقال)') : fail('لا توجد faqData في الكتالوج');
 const blogPage = exists('src/pages/BlogPostPage.tsx') ? read('src/pages/BlogPostPage.tsx') : '';
 blogPage.includes('FAQPage') ? ok('FAQPage schema تُصدر من صفحة المقال') : warn('FAQPage غير ظاهرة في BlogPostPage');
+
+// ===== 6) index.html — إشارات GEO ثابتة (تُقرأ بلا JavaScript) =====
+section('index.html — إشارات GEO ثابتة');
+const idx = read('index.html');
+idx.includes('llms.txt') ? ok('llms.txt مُشار إليه من <link> في HTML') : fail('لا إشارة إلى llms.txt في index.html');
+idx.includes('"sameAs"') ? ok('sameAs (الحسابات الاجتماعية) في JSON-LD الثابت') : fail('لا sameAs في JSON-LD الثابت');
 
 // ===== النتيجة =====
 console.log(`\n${'='.repeat(50)}\nالنتيجة: ✅ ${pass} ناجح · ⚠️ ${warns} تحذير · ❌ ${fails} فشل`);
