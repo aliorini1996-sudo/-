@@ -1,28 +1,39 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, Building2, User, Phone, CheckCircle2, Sparkles } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, Building2, User, Phone, CheckCircle2, Sparkles, Globe2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
-import { useDir } from '../i18n/lang';
+import { useDir, useLang } from '../i18n/lang';
+import { supportedCountries } from '../i18n/countries';
+
+// رموز الاتصال الدولية لكل دولة مدعومة (لبادئة رقم الجوال)
+const DIAL_CODES: Record<string, string> = {
+  SA: '+966', EG: '+20', AE: '+971', KW: '+965', QA: '+974', BH: '+973',
+  OM: '+968', MA: '+212', DZ: '+213', TN: '+216', JO: '+962',
+};
 
 // التسجيل الذاتي للتجربة المجانية — ينشئ شركة بتجربة 14 يوماً ويدخل مباشرة
 export default function SignupPage() {
   const { login } = useAuthStore();
   const t = useT();
   const dir = useDir();
-  const [form, setForm] = useState({ companyName: '', adminName: '', email: '', phone: '', password: '', confirm: '' });
+  const lang = useLang((s) => s.lang);
+  const countries = supportedCountries();
+  const [form, setForm] = useState({ companyName: '', country: '', adminName: '', email: '', phone: '', password: '', confirm: '' });
   const [agree, setAgree] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const dial = DIAL_CODES[form.country] || '+966'; // بادئة الجوال حسب الدولة المختارة
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.companyName.trim()) { toast.error(t('signup.errCompany')); return; }
+    if (!form.country) { toast.error(t('signup.errCountry')); return; }
     if (!form.adminName.trim()) { toast.error(t('signup.errName')); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.email)) { toast.error(t('signup.errEmail')); return; }
     if (form.password.length < 6) { toast.error(t('signup.errPass')); return; }
@@ -32,8 +43,9 @@ export default function SignupPage() {
     try {
       const res = await authApi.signup({
         companyName: form.companyName.trim(), adminName: form.adminName.trim(),
+        countryCode: form.country,
         email: form.email.trim(), password: form.password,
-        phone: form.phone ? `+966${form.phone.replace(/^0+/, '')}` : undefined,
+        phone: form.phone ? `${dial}${form.phone.replace(/^0+/, '')}` : undefined,
       });
       const { token, user } = res.data.data;
       login(token, user);
@@ -92,6 +104,26 @@ export default function SignupPage() {
               </div>
             </div>
             <div>
+              <label className="label">{t('signup.country')} *</label>
+              <div className="relative">
+                <Globe2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E] pointer-events-none" />
+                <select
+                  className={`input pr-9 ${form.country ? '' : 'text-[#9A8F7E]'}`}
+                  value={form.country}
+                  onChange={e => set('country', e.target.value)}
+                  style={{ appearance: 'none' }}
+                >
+                  <option value="" disabled>{t('signup.countryPh')}</option>
+                  {countries.map(c => (
+                    <option key={c.code} value={c.code} className="text-[#1F1A13]">
+                      {lang === 'ar' ? c.nameAr : c.nameEn} ({c.symbolEn} · {c.defaultVatPct}%)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{t('signup.countryHint')}</p>
+            </div>
+            <div>
               <label className="label">{t('signup.yourName')} *</label>
               <div className="relative">
                 <User size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
@@ -108,7 +140,7 @@ export default function SignupPage() {
             <div>
               <label className="label">{t('signup.phone')}</label>
               <div className="flex gap-2" dir="ltr">
-                <span className="inline-flex items-center px-3 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] text-sm text-[#6E6557] font-semibold">+966</span>
+                <span className="inline-flex items-center px-3 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] text-sm text-[#6E6557] font-semibold">{dial}</span>
                 <div className="relative flex-1">
                   <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
                   <input dir="ltr" className="input pl-9" value={form.phone} onChange={e => set('phone', e.target.value.replace(/[^0-9]/g, ''))} placeholder="5XXXXXXXX" />

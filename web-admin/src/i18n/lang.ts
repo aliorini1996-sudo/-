@@ -16,8 +16,10 @@ function initial(): Lang {
       const saved = localStorage.getItem(KEY);
       if (saved === 'ar' || saved === 'en' || saved === 'fr') return saved;
     }
-    // على صفحات التسويق: اللغة مشتقّة من المسار (/en) لتطابق الفهرسة الدولية بلا وميض
-    return p === '/en' || p.startsWith('/en/') ? 'en' : 'ar';
+    // على صفحات التسويق: اللغة مشتقّة من المسار (/en · /fr) لتطابق الفهرسة الدولية بلا وميض
+    if (p === '/en' || p.startsWith('/en/')) return 'en';
+    if (p === '/fr' || p.startsWith('/fr/')) return 'fr';
+    return 'ar';
   }
   return 'ar';
 }

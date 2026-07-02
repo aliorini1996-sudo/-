@@ -10,9 +10,9 @@ const LANGS: { code: Lang; label: string }[] = [
   { code: 'fr', label: 'Français' },
 ];
 
-// مبدّل اللغة:
-// - على صفحات التسويق: زر ثنائي (عربي/English) ينتقل بين الرابط و/en (روابط منفصلة للفهرسة).
-// - داخل التطبيق (/app · /rep · /platform): قائمة ثلاثية (عربي/English/Français) تضبط اللغة مباشرةً بلا تنقّل.
+// مبدّل اللغة الثلاثي (عربي/English/Français) على كل الصفحات:
+// - داخل التطبيق (/app · /rep · /platform · /login · /signup): يضبط اللغة مباشرةً بلا تنقّل.
+// - على صفحات التسويق: ينتقل بين المسارات (/ · /en · /fr) — روابط منفصلة للفهرسة الدولية (hreflang).
 export default function LanguageToggle({ variant = 'light' }: { variant?: 'light' | 'dark' | 'floating' }) {
   const lang = useLang((s) => s.lang);
   const setLang = useLang((s) => s.setLang);
@@ -28,19 +28,13 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
     floating: 'text-[13px] px-3.5 py-2.5 bg-white text-[#1F1A13] shadow-lg border border-[#E9E1D3] hover:border-[#E15A30]',
   };
 
-  // صفحات التسويق: ثنائي عربي/إنجليزي بالتنقّل بين المسارات
-  if (!inApp) {
-    const label = lang === 'ar' ? 'English' : 'العربية';
-    const toggle = () => navigate(pathForLocale(loc.pathname, lang === 'ar' ? 'en' : 'ar'));
-    return (
-      <button type="button" onClick={toggle} className={`${base} ${styles[variant]}`} aria-label="Toggle language" title={label}>
-        <Globe size={15} />
-        <span>{label}</span>
-      </button>
-    );
-  }
+  // اختيار لغة: داخل التطبيق يضبطها مباشرةً، وعلى التسويق ينتقل للرابط المقابل
+  const choose = (code: Lang) => {
+    setOpen(false);
+    if (inApp) setLang(code);
+    else navigate(pathForLocale(loc.pathname, code));
+  };
 
-  // داخل التطبيق: قائمة ثلاثية تضبط اللغة مباشرةً
   const current = LANGS.find((l) => l.code === lang) ?? LANGS[0];
   return (
     <div className="relative">
@@ -55,7 +49,7 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
             style={{ insetInlineEnd: 0 }} dir="rtl">
             {LANGS.map((l) => (
               <button key={l.code} type="button"
-                onClick={() => { setLang(l.code); setOpen(false); }}
+                onClick={() => choose(l.code)}
                 className={`w-full flex items-center justify-between gap-3 px-3.5 py-2.5 text-[13px] hover:bg-[#FAF7F0] transition-colors ${l.code === lang ? 'text-[#E15A30] font-semibold' : 'text-[#1F1A13]'}`}>
                 <span dir={l.code === 'ar' ? 'rtl' : 'ltr'}>{l.label}</span>
                 {l.code === lang && <Check size={14} />}

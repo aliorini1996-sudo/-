@@ -70,9 +70,11 @@ const alt = (arPath) => {
   const suffix = arPath === '/' ? '' : arPath;
   const ar = ORIGIN + (arPath === '/' ? '/' : arPath);
   const en = ORIGIN + '/en' + suffix;
+  const fr = ORIGIN + '/fr' + suffix;
   return [
     `    <xhtml:link rel="alternate" hreflang="ar" href="${ar}"/>`,
     `    <xhtml:link rel="alternate" hreflang="en" href="${en}"/>`,
+    `    <xhtml:link rel="alternate" hreflang="fr" href="${fr}"/>`,
     `    <xhtml:link rel="alternate" hreflang="x-default" href="${ar}"/>`,
   ].join('\n');
 };
@@ -84,11 +86,13 @@ async function main() {
   const posts = await effectivePosts();
   const urls = [];
 
-  // الصفحات التسويقية: نسخة عربية + نسخة /en، كلٌّ يحمل كل بدائل hreflang
+  // الصفحات التسويقية: نسخة عربية + /en + /fr، كلٌّ يحمل كل بدائل hreflang (ع/إ/فر)
   for (const r of I18N_ROUTES) {
     const alternates = alt(r.p);
+    const suffix = r.p === '/' ? '' : r.p;
     urls.push(urlEntry(ORIGIN + (r.p === '/' ? '/' : r.p), { freq: r.freq, priority: r.priority, alternates }));
-    urls.push(urlEntry(ORIGIN + '/en' + (r.p === '/' ? '' : r.p), { freq: r.freq, priority: r.priority, alternates }));
+    urls.push(urlEntry(ORIGIN + '/en' + suffix, { freq: r.freq, priority: r.priority, alternates }));
+    urls.push(urlEntry(ORIGIN + '/fr' + suffix, { freq: r.freq, priority: r.priority, alternates }));
   }
 
   // فهرس المدوّنة (عربي + /en مع hreflang)
@@ -110,7 +114,7 @@ async function main() {
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls.join('\n')}\n</urlset>\n`;
   fs.writeFileSync(path.join(ROOT, 'public/sitemap.xml'), xml);
-  console.log(`✅ sitemap.xml: ${urls.length} رابط (${I18N_ROUTES.length * 2} تسويقية + 1 فهرس مدوّنة + ${posts.length} مقال)`);
+  console.log(`✅ sitemap.xml: ${urls.length} رابط (${I18N_ROUTES.length * 3} تسويقية ع/إ/فر + 1 فهرس مدوّنة + ${posts.length} مقال)`);
 }
 
 // لا يُفشل البناء أبداً — عند أي خطأ يبقى sitemap.xml الحالي كما هو

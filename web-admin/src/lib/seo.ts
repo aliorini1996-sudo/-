@@ -9,7 +9,7 @@ interface SeoInput {
   canonical?: string;       // الرابط الكامل https://fieldsa.net/...
   image?: string;           // صورة OG كاملة الرابط
   type?: 'website' | 'article';
-  locale?: 'ar' | 'en';     // لغة الصفحة (og:locale + html lang)
+  locale?: 'ar' | 'en' | 'fr'; // لغة الصفحة (og:locale + html lang)
   alternates?: { hreflang: string; href: string }[]; // روابط hreflang للنسخ اللغوية (دولي)
   jsonLd?: object;          // بيانات Schema.org منظّمة (Article/BreadcrumbList...)
 }
@@ -40,7 +40,7 @@ export function useSeo({ title, description, keywords, canonical, image, type = 
     if (canonical) { setMeta('property', 'og:url', canonical); setLink('canonical', canonical); }
     if (image) { setMeta('property', 'og:image', image); setMeta('name', 'twitter:image', image); }
     if (locale) {
-      setMeta('property', 'og:locale', locale === 'en' ? 'en_US' : 'ar_SA');
+      setMeta('property', 'og:locale', locale === 'en' ? 'en_US' : locale === 'fr' ? 'fr_FR' : 'ar_SA');
       document.documentElement.lang = locale;
     }
 

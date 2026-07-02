@@ -16,6 +16,41 @@ from post import TOPICS, build_card_html, render_card_png, env
 GRAPH = "https://graph.facebook.com/v21.0"
 
 
+def _fb_error(r) -> tuple:
+    """يستخرج (code, message) من ردّ خطأ Graph API."""
+    try:
+        e = (r.json() or {}).get("error", {}) or {}
+        return e.get("code"), e.get("message", (r.text or "")[:400])
+    except Exception:  # noqa: BLE001
+        return None, (r.text or "")[:400]
+
+
+# أكواد أخطاء فيسبوك الدالّة على توكن غير صالح/منتهٍ أو صلاحيات ناقصة
+_AUTH_ERR_CODES = {190, 102, 463, 467, 2500, 10, 200, 3}
+
+
+def diagnose_token(token: str) -> None:
+    """يتحقّق من صلاحية التوكن قبل النشر ويُنهي بوضوح عند انتهائه/بطلانه."""
+    try:
+        r = requests.get(f"{GRAPH}/me", params={"access_token": token, "fields": "id,name"}, timeout=30)
+    except Exception as e:  # noqa: BLE001
+        print(f"ℹ️  تعذّر التحقّق من التوكن (سنحاول النشر): {e}")
+        return
+    if r.ok:
+        print(f"🔑 التوكن صالح — {(r.json() or {}).get('name', '')}")
+        return
+    code, msg = _fb_error(r)
+    if code in _AUTH_ERR_CODES:
+        sys.exit(
+            "❌ رمز فيسبوك (FB_PAGE_ACCESS_TOKEN) غير صالح أو منتهي الصلاحية أو ينقصه صلاحيات النشر.\n"
+            "   الحلّ: أنشئ توكن صفحة طويل الأمد (يُفضَّل عبر «مستخدم نظام» في Business Settings — لا ينتهي)\n"
+            "   بصلاحيات pages_manage_posts و pages_read_engagement، ثم حدّث السرّ FB_PAGE_ACCESS_TOKEN في\n"
+            "   GitHub → Settings → Secrets and variables → Actions.\n"
+            f"   تفاصيل فيسبوك: [{code}] {msg}"
+        )
+    print(f"ℹ️  تحقّق التوكن ({r.status_code}): [{code}] {msg}")
+
+
 # ------------------------------ النص (Claude) ------------------------------ #
 def ask_claude_facebook(topic: dict) -> str:
     system = (
@@ -93,7 +128,9 @@ def resolve_page_token(page_id: str, token: str) -> str:
 
 def post_to_facebook(text: str, image_path: str):
     page_id = env("FB_PAGE_ID").strip()
-    token = resolve_page_token(page_id, env("FB_PAGE_ACCESS_TOKEN").strip())
+    raw = env("FB_PAGE_ACCESS_TOKEN").strip()
+    diagnose_token(raw)
+    token = resolve_page_token(page_id, raw)
 
     # محاولة نشر صورة + نص (caption)
     if image_path:
@@ -115,7 +152,9 @@ def post_to_facebook(text: str, image_path: str):
     # fallback: نشر نصّي على المنشورات
     r = requests.post(f"{GRAPH}/{page_id}/feed", data={"message": text, "access_token": token}, timeout=60)
     if not r.ok:
-        sys.exit(f"❌ خطأ فيسبوك Graph API {r.status_code}: {r.text[:600]}")
+        code, msg = _fb_error(r)
+        hint = "\n   ← مشكلة توكن/صلاحيات: جدّد FB_PAGE_ACCESS_TOKEN (توكن صفحة طويل الأمد)." if code in _AUTH_ERR_CODES else ""
+        sys.exit(f"❌ خطأ فيسبوك Graph API {r.status_code} [{code}]: {msg}{hint}")
     print(f"✅ نُشر منشور نصّي على فيسبوك (id={r.json().get('id')})")
 
 

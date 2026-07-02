@@ -5,6 +5,7 @@ import { ArrowLeft, Clock, Calendar, Share2, Linkedin, Facebook, Twitter, Messag
 import { normalizeContent, postView } from '../blog/posts';
 import { useBlog } from '../blog/useBlog';
 import { useSeo } from '../lib/seo';
+import LanguageToggle from '../components/LanguageToggle';
 
 // شريط مشاركة المقال على منصّات التواصل — يزيد الانتشار الاجتماعي والزيارات
 function ShareBar({ url, title, en }: { url: string; title: string; en: boolean }) {
@@ -113,9 +114,12 @@ export default function BlogPostPage() {
               <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
-          <Link to={blogHome} className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
-            {t.all} <ArrowLeft size={15} className={en ? 'rotate-180' : ''} />
-          </Link>
+          <div className="flex items-center gap-2">
+            <LanguageToggle />
+            <Link to={blogHome} className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
+              {t.all} <ArrowLeft size={15} className={en ? 'rotate-180' : ''} />
+            </Link>
+          </div>
         </div>
       </header>
 

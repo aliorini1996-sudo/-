@@ -7,6 +7,7 @@ import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { sendMail, mailLayout } from '../services/mailer';
 import { authLimiter, signupLimiter, mailLimiter } from '../middleware/rateLimits';
+import { getCountryTax } from '../config/countries';
 
 const router = Router();
 
@@ -49,6 +50,7 @@ const signupSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   phone: z.string().optional(),
+  countryCode: z.string().length(2).optional(), // دولة الشركة — تُشتقّ منها العملة والضريبة ومزوّد الفوترة
 });
 const TRIAL_DAYS = 10;
 
@@ -146,6 +148,8 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
 
     const passwordHash = await bcrypt.hash(body.password, 10);
     const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    // إعدادات دولة الشركة (العملة/الضريبة/مزوّد الفوترة) — تُشتقّ من رمز الدولة (افتراضي السعودية)
+    const ct = getCountryTax(body.countryCode);
 
     const created = await prisma.$transaction(async tx => {
       const tenant = await tx.tenant.create({
@@ -160,7 +164,10 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
       const admin = await tx.admin.create({
         data: { tenantId: tenant.id, name: body.adminName, email: body.email, passwordHash, role: 'ADMIN' } as any,
       });
-      await tx.companySettings.create({ data: { tenantId: tenant.id, name: body.companyName, phone: body.phone } as any });
+      await tx.companySettings.create({ data: {
+        tenantId: tenant.id, name: body.companyName, phone: body.phone,
+        countryCode: ct.code, currency: ct.currency, defaultVatPct: ct.defaultVatPct, einvoiceProvider: ct.provider,
+      } as any });
       return { tenant, admin };
     });
 
@@ -174,6 +181,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
         ['المسؤول', body.adminName],
         ['البريد', body.email],
         ['الجوال', body.phone || '—'],
+        ['الدولة', `${ct.code} · ${ct.currency} · ${ct.defaultVatPct}%`],
         ['الباقة', 'تجريبية مجانية'],
         ['مدة التجربة', `${TRIAL_DAYS} أيام`],
         ['تاريخ التسجيل', new Date().toISOString().slice(0, 10)],

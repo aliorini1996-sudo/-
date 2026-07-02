@@ -5,9 +5,10 @@ import { siteContentApi } from '../api/client';
 import { LANDING_TEMPLATE } from '../landing/landingTemplate';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
-import { useLang } from '../i18n/lang';
+import { defaultContentFr } from '../landing/defaultContentFr';
+import { useLang, type Lang } from '../i18n/lang';
 import { useCurrency, type Currency } from '../i18n/currency';
-import { seoUrls } from '../i18n/locale';
+import { seoUrls, pathForLocale } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 
 // مسارات أيقونات منصّات التواصل (SVG glyph واحد لكل منصّة)
@@ -44,10 +45,12 @@ function renderSocial(social: Record<string, string> = {}): string {
 }
 
 // القسم البارز «تابعنا على مواقع التواصل» (يظهر فقط عند وجود رابط واحد على الأقل)
-function renderSocialSection(social: Record<string, string> = {}, lang: 'ar' | 'en' = 'ar'): string {
+function renderSocialSection(social: Record<string, string> = {}, lang: Lang = 'ar'): string {
   const items = socialIcons(social, 50);
   if (!items) return '';
-  const heading = lang === 'en' ? 'Follow us on social media' : 'تابِعنا على مواقع التواصل';
+  const heading = lang === 'en' ? 'Follow us on social media'
+    : lang === 'fr' ? 'Suivez-nous sur les réseaux sociaux'
+    : 'تابِعنا على مواقع التواصل';
   return `<section style="max-width:1200px; margin:0 auto; padding:6px 28px 64px; text-align:center;">
     <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">FOLLOW US</div>
     <h2 style="font-size:30px; line-height:1.2; font-weight:700; letter-spacing:-0.5px; margin-top:10px;">${heading}</h2>
@@ -56,7 +59,7 @@ function renderSocialSection(social: Record<string, string> = {}, lang: 'ar' | '
 }
 
 // يملأ القالب بقيم المحتوى عبر العناصر النائبة {{path}}، ويعالج أقسام التواصل
-export function applyContent(template: string, content: Record<string, unknown>, lang: 'ar' | 'en' = 'ar'): string {
+export function applyContent(template: string, content: Record<string, unknown>, lang: Lang = 'ar'): string {
   const social = content.social as Record<string, string>;
   let html = template.split('{{__SOCIAL_SECTION__}}').join(renderSocialSection(social, lang));
   html = html.split('{{__SOCIAL__}}').join(renderSocial(social));
@@ -108,17 +111,122 @@ function translateChrome(html: string): string {
   return out;
 }
 
-// زر تبديل اللغة المحقون في شريط التنقّل (HTML خام يستدعي دالة عامّة)
-function langButton(label: string): string {
-  return `<button onclick="window.__fsToggleLang&&window.__fsToggleLang()" aria-label="Toggle language" style="display:inline-flex; align-items:center; gap:6px; font-size:14px; font-weight:600; color:#1F1A13; background:#fff; border:1.5px solid #DED5C4; padding:8px 13px; border-radius:11px; cursor:pointer; font-family:inherit;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" stroke="#1F1A13" stroke-width="1.7"></circle><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke="#1F1A13" stroke-width="1.5"></path></svg>${label}</button>`;
+// ترجمة النص الثابت داخل القالب إلى الفرنسية (للأسواق الفرنكوفونية — المغرب العربي)
+const CHROME_FR: [string, string][] = [
+  ['dir="rtl"', 'dir="ltr"'],
+  // التنقّل
+  ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>الأسعار<', '>Tarifs<'],
+  ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Espace admin<'], ['>تطبيق المندوب<', '>App commercial<'],
+  ['ابدأ مجانًا', 'Essai gratuit'], ['المدوّنة', 'Blog'],
+  // بطاقات العرض في القسم الرئيسي
+  ['المبيعات والتحصيل', 'Ventes et encaissement'], ['٧ أيام', '7 jours'], ['محصّل اليوم', 'Encaissé aujourd’hui'],
+  ['+12.4% عن أمس', '+12,4 % vs hier'], ['>سند قبض<', '>Bon de reçu<'], ['>المبلغ<', '>Montant<'],
+  ['>الحالة<', '>Statut<'], ['تم الإرسال', 'Envoyé'], ['طلب #10428 قيد التنفيذ', 'Commande #10428 en cours'],
+  ['٩٢٬٧٠٠', '92 700'], ['٨٠٠٫٠٠ ر.س', '800,00 SAR'],
+  // الأسعار (نص ثابت)
+  [' ر.س / شهريًا', ' SAR / mois'],
+  ['إدارة الطلبات والتحصيل', 'Gestion des commandes et encaissement'],
+  ['فواتير ضريبية وسندات قبض', 'Factures fiscales et bons de reçu'],
+  ['تطبيق جوال للمناديب', 'Application mobile pour commerciaux'],
+  ['تقارير أساسية', 'Rapports de base'],
+  ['>ابدأ الآن<', '>Commencer<'],
+  ['كل مميزات الباقة', 'Toutes les fonctionnalités de l’offre'],
+  ['تقارير وكشوف حساب متقدمة', 'Rapports et relevés avancés'],
+  ['دعم أولوية', 'Support prioritaire'],
+  ['كل مميزات', 'Toutes les fonctionnalités de l’offre'],
+  ['تكامل ERP ومحاسبة', 'Intégration ERP et comptabilité'],
+  ['مدير حساب مخصّص', 'Gestionnaire de compte dédié'],
+  ['تدريب وإعداد كامل', 'Formation et mise en place complètes'],
+  ['تواصل مع المبيعات', 'Contacter les ventes'],
+  // التذييل
+  ['>المنتج<', '>Produit<'], ['تطبيق الجوال', 'Application mobile'],
+  ['>الشركة<', '>Entreprise<'], ['>من نحن<', '>À propos<'], ['>تواصل معنا<', '>Contact<'],
+  ['>قانوني<', '>Légal<'], ['>سياسة الخصوصية<', '>Politique de confidentialité<'],
+  ['>الشروط والأحكام<', '>Conditions générales<'], ['>اتفاقية الخدمة<', '>Contrat de service<'],
+  ['© ٢٠٢٦ Field Sales — جميع الحقوق محفوظة.', '© 2026 Field Sales — Tous droits réservés.'],
+];
+
+function translateChromeFr(html: string): string {
+  let out = html;
+  for (const [ar, fr] of CHROME_FR) out = out.split(ar).join(fr);
+  return out;
 }
 
-// يحقن زر اللغة قبل أزرار الدخول في شريط التنقّل
-function injectLangButton(html: string, label: string): string {
+// مبدّل اللغة الثلاثي المحقون في شريط التنقّل (ع/إ/فر) — ينتقل عبر الروابط للفهرسة الدولية
+function langSwitcher(current: Lang): string {
+  const items: [Lang, string][] = [['ar', 'ع'], ['en', 'EN'], ['fr', 'FR']];
+  const btn = (code: Lang, label: string) => {
+    const active = code === current;
+    return `<button onclick="window.__fsSetLangRoute&&window.__fsSetLangRoute('${code}')" aria-label="${code}" style="border:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:700; padding:6px 11px; border-radius:8px; transition:all .15s; ${active ? 'background:#E15A30; color:#fff;' : 'background:transparent; color:#6E6557;'}">${label}</button>`;
+  };
+  return `<div role="group" aria-label="Language" style="display:inline-flex; align-items:center; gap:2px; background:#fff; border:1.5px solid #DED5C4; border-radius:11px; padding:3px;">${items.map(([c, l]) => btn(c, l)).join('')}</div>`;
+}
+
+// يحقن مبدّل اللغة قبل أزرار الدخول في شريط التنقّل
+function injectLangSwitcher(html: string, current: Lang): string {
   return html.replace(
     '<div style="margin-right:auto; display:flex; align-items:center; gap:12px;">',
-    `<div style="margin-right:auto; display:flex; align-items:center; gap:12px;">${langButton(label)}`
+    `<div style="margin-right:auto; display:flex; align-items:center; gap:12px;">${langSwitcher(current)}`
   );
+}
+
+// ---- قسم «تغطية العالم العربي» — يبرز خدمة النظام وتوافقه مع أنظمة الدول العربية ----
+const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string }[] = [
+  { flag: '🇸🇦', ar: 'السعودية', en: 'Saudi Arabia', fr: 'Arabie saoudite' },
+  { flag: '🇪🇬', ar: 'مصر', en: 'Egypt', fr: 'Égypte' },
+  { flag: '🇦🇪', ar: 'الإمارات', en: 'UAE', fr: 'Émirats' },
+  { flag: '🇰🇼', ar: 'الكويت', en: 'Kuwait', fr: 'Koweït' },
+  { flag: '🇶🇦', ar: 'قطر', en: 'Qatar', fr: 'Qatar' },
+  { flag: '🇧🇭', ar: 'البحرين', en: 'Bahrain', fr: 'Bahreïn' },
+  { flag: '🇴🇲', ar: 'عُمان', en: 'Oman', fr: 'Oman' },
+  { flag: '🇲🇦', ar: 'المغرب', en: 'Morocco', fr: 'Maroc' },
+  { flag: '🇩🇿', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie' },
+  { flag: '🇹🇳', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie' },
+  { flag: '🇯🇴', ar: 'الأردن', en: 'Jordan', fr: 'Jordanie' },
+];
+
+function coverageSection(lang: Lang): string {
+  const t = {
+    ar: {
+      eyebrow: 'تغطية إقليمية',
+      title: 'يخدم شركات التوزيع في العالم العربي',
+      sub: 'من السعودية إلى مصر ودول الخليج والمغرب العربي — عملة كل دولة وضريبتها وصيغة فاتورتها، بالعربية والإنجليزية والفرنسية.',
+      note: 'متوافق مع أنظمة الفوترة الإلكترونية والضريبة في كل سوق — ZATCA (السعودية) — مع تطبيق عملة كل دولة ونسبة ضريبتها تلقائيًا.',
+    },
+    en: {
+      eyebrow: 'Regional coverage',
+      title: 'Built for distribution companies across the Arab world',
+      sub: 'From Saudi Arabia to Egypt, the Gulf, and the Maghreb — each country’s currency, tax, and invoice format, in Arabic, English, and French.',
+      note: 'Compliant with each market’s e-invoicing and tax systems — ZATCA (Saudi Arabia) — with each country’s currency and VAT applied automatically.',
+    },
+    fr: {
+      eyebrow: 'Couverture régionale',
+      title: 'Conçu pour les entreprises de distribution du monde arabe',
+      sub: 'De l’Arabie saoudite à l’Égypte, au Golfe et au Maghreb — la devise, la taxe et le format de facture de chaque pays, en arabe, anglais et français.',
+      note: 'Conforme aux systèmes de facturation électronique et de taxe de chaque marché — ZATCA (Arabie saoudite) — avec la devise et la TVA de chaque pays appliquées automatiquement.',
+    },
+  }[lang];
+  const pills = COVERAGE_COUNTRIES.map((c) =>
+    `<span style="display:inline-flex; align-items:center; gap:8px; background:#FAF7F0; border:1px solid #E9E1D3; border-radius:999px; padding:9px 16px; font-size:14.5px; font-weight:600; color:#1F1A13;"><span style="font-size:17px;">${c.flag}</span>${c[lang]}</span>`
+  ).join('');
+  return `<section style="max-width:1200px; margin:0 auto; padding:20px 28px 50px;">
+    <div style="background:#fff; border:1px solid #E9E1D3; border-radius:26px; padding:48px 40px; text-align:center;">
+      <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">${t.eyebrow}</div>
+      <h2 style="font-size:34px; line-height:1.18; font-weight:700; letter-spacing:-0.7px; margin-top:12px;">${t.title}</h2>
+      <p style="font-size:16.5px; line-height:1.6; color:#6E6557; margin-top:14px; max-width:660px; margin-inline:auto;">${t.sub}</p>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:30px;">${pills}</div>
+      <div style="display:inline-flex; align-items:flex-start; gap:10px; margin-top:30px; max-width:680px; text-align:start; background:#E4F1EA; border:1px solid #C9E4D6; border-radius:16px; padding:16px 20px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#1E7A52" stroke-width="1.8" stroke-linejoin="round"></path><path d="M9 12l2 2 4-4" stroke="#1E7A52" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        <span style="font-size:14.5px; line-height:1.6; color:#1F5C3F; font-weight:500;">${t.note}</span>
+      </div>
+    </div>
+  </section>`;
+}
+
+// يحقن قسم تغطية العالم العربي قبل قسم الأسعار
+function injectCoverage(html: string, lang: Lang): string {
+  const anchor = '<!-- ============ PRICING ============ -->';
+  return html.replace(anchor, `${coverageSection(lang)}\n  ${anchor}`);
 }
 
 // ---- تبديل عملة عرض الأسعار (ريال ⇄ دولار) ----
@@ -147,10 +255,10 @@ function applyCurrency(content: Record<string, unknown>, cur: Currency): Record<
   return { ...content, pricing: { ...pricing, plans } };
 }
 
-// مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين، يُحقن داخل قسم الأسعار بجوار البطاقات
-function currencyToggle(currency: Currency, lang: 'ar' | 'en'): string {
-  const sarLabel = lang === 'en' ? 'SAR ﷼' : 'ريال ﷼';
-  const usdLabel = lang === 'en' ? 'USD $' : 'دولار $';
+// مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين, يُحقن داخل قسم الأسعار بجوار البطاقات
+function currencyToggle(currency: Currency, lang: Lang): string {
+  const sarLabel = lang === 'ar' ? 'ريال ﷼' : 'SAR ﷼';
+  const usdLabel = lang === 'ar' ? 'دولار $' : 'USD $';
   const pill = (active: boolean) =>
     `padding:8px 22px; border:none; border-radius:9px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s;` +
     (active ? 'background:#E15A30; color:#fff; box-shadow:0 1px 4px rgba(225,90,48,.35);' : 'background:transparent; color:#6E6557;');
@@ -158,7 +266,7 @@ function currencyToggle(currency: Currency, lang: 'ar' | 'en'): string {
 }
 
 // يحقن مبدّل العملة قبل شبكة بطاقات الباقات مباشرةً (المُحدِّد فريد في القالب)
-function injectCurrencyToggle(html: string, currency: Currency, lang: 'ar' | 'en'): string {
+function injectCurrencyToggle(html: string, currency: Currency, lang: Lang): string {
   const anchor = '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:stretch;">';
   return html.replace(anchor, `${currencyToggle(currency, lang)}${anchor}`);
 }
@@ -202,27 +310,34 @@ export default function LandingPage() {
     ? { '@context': 'https://schema.org', '@type': 'Organization', '@id': 'https://fieldsa.net/#organization', url: 'https://fieldsa.net/', sameAs }
     : undefined;
 
-  // SEO الصفحة الرئيسية — كلمات مفتاحية لكل خدمة + canonical/hreflang حسب اللغة (دولي)
-  useSeo(lang === 'en' ? {
-    title: 'FieldSales | Field Sales & Distribution Management System',
-    description: 'FieldSales is a complete platform to manage field distribution reps: ZATCA e-invoices, collection, van stock, GPS tracking and reports. Free 10-day trial.',
-    keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
-    locale: 'en', canonical, alternates,
-    image: 'https://fieldsa.net/og-image.png',
-    jsonLd: orgJsonLd,
-  } : {
-    title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
-    description: 'فيلد سيلز نظام عربي لإدارة مبيعات مناديب التوزيع في السعودية ومصر والمغرب العربي: فواتير ضريبية، تحصيل وإدارة الذمم، سندات قبض، مخزون السيارة، وتتبّع المناديب GPS. جرّبه مجاناً.',
-    keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات للأسواق العربية, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
-    locale: 'ar', canonical, alternates,
-    image: 'https://fieldsa.net/og-image.png',
-    jsonLd: orgJsonLd,
-  });
+  // SEO الصفحة الرئيسية — كلمات مفتاحية لكل خدمة + canonical/hreflang حسب اللغة (دولي: ع/إ/فر)
+  const seoByLang = {
+    ar: {
+      title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
+      description: 'فيلد سيلز نظام عربي لإدارة مبيعات مناديب التوزيع في السعودية ومصر والمغرب العربي: فواتير ضريبية، تحصيل وإدارة الذمم، سندات قبض، مخزون السيارة، وتتبّع المناديب GPS. جرّبه مجاناً.',
+      keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات للأسواق العربية, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
+      locale: 'ar' as const,
+    },
+    en: {
+      title: 'FieldSales | Field Sales & Distribution Management System',
+      description: 'FieldSales is a complete platform to manage field distribution reps: ZATCA e-invoices, collection, van stock, GPS tracking and reports. Free 10-day trial.',
+      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
+      locale: 'en' as const,
+    },
+    fr: {
+      title: 'FieldSales | Système de gestion des ventes terrain et de la distribution',
+      description: 'FieldSales est une plateforme complète pour gérer les commerciaux de distribution : factures fiscales, encaissement, stock du véhicule, suivi GPS et rapports. Essai gratuit de 10 jours.',
+      keywords: 'système de vente terrain, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP, logiciel de distribution Maroc, logiciel commercial Algérie Tunisie',
+      locale: 'fr' as const,
+    },
+  }[lang];
+  useSeo({ ...seoByLang, canonical, alternates, image: 'https://fieldsa.net/og-image.png', jsonLd: orgJsonLd });
 
-  // زر تبديل اللغة المحقون في شريط التنقّل ينتقل بين / و/en (روابط منفصلة للفهرسة)
+  // مبدّل اللغة المحقون في شريط التنقّل ينتقل بين / · /en · /fr (روابط منفصلة للفهرسة الدولية)
   useEffect(() => {
-    (window as unknown as { __fsToggleLang?: () => void }).__fsToggleLang = () => navigate(lang === 'ar' ? '/en' : '/');
-  }, [lang, navigate]);
+    (window as unknown as { __fsSetLangRoute?: (l: Lang) => void }).__fsSetLangRoute = (l) =>
+      navigate(pathForLocale('/', l));
+  }, [navigate]);
 
   // مبدّل العملة — يضبط الريال/الدولار محليًا دون تغيير المسار (يُحفظ الاختيار)
   useEffect(() => {
@@ -235,21 +350,29 @@ export default function LandingPage() {
   const cmsCurrent = Array.isArray(savedItems) && savedItems.length === defaultContent.features.items.length;
   const arContent = (cmsCurrent ? mergeContent(defaultContent, data) : defaultContent) as Record<string, unknown>;
 
+  const socialLinks = (arContent.social as Record<string, string>) || {};
   let html: string;
   if (lang === 'en') {
     // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط تواصل من CMS + ترجمة النص الثابت
-    const enContent = { ...defaultContentEn, social: (arContent.social as Record<string, string>) || defaultContentEn.social, heroImage: arContent.heroImage };
+    const enContent = { ...defaultContentEn, social: socialLinks || defaultContentEn.social, heroImage: arContent.heroImage };
     html = translateChrome(applyContent(LANDING_TEMPLATE, applyCurrency(enContent as Record<string, unknown>, currency), 'en'));
-    html = injectLangButton(html, 'العربية');
+  } else if (lang === 'fr') {
+    // النسخة الفرنسية: محتوى فرنسي ثابت + روابط تواصل من CMS + ترجمة النص الثابت (المغرب العربي)
+    const frContent = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage };
+    html = translateChromeFr(applyContent(LANDING_TEMPLATE, applyCurrency(frContent as Record<string, unknown>, currency), 'fr'));
   } else {
     html = applyContent(LANDING_TEMPLATE, applyCurrency(arContent, currency), 'ar');
-    html = injectLangButton(html, 'English');
   }
+  html = injectLangSwitcher(html, lang);
+  html = injectCoverage(html, lang);
 
   // مبدّل العملة داخل قسم الأسعار + ضبط لاحقة السعر حسب العملة (لاحقة « ر.س / شهريًا» ثابتة في القالب)
-  html = injectCurrencyToggle(html, currency, lang === 'en' ? 'en' : 'ar');
+  html = injectCurrencyToggle(html, currency, lang);
   if (currency === 'usd') {
-    html = html.split(' ر.س / شهريًا').join(' دولار / شهريًا').split(' SAR / mo').join(' USD / mo');
+    html = html
+      .split(' ر.س / شهريًا').join(' دولار / شهريًا')
+      .split(' SAR / mo').join(' USD / mo')
+      .split(' SAR / mois').join(' USD / mois');
   }
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;

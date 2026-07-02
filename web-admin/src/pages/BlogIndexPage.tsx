@@ -5,6 +5,7 @@ import { useBlog } from '../blog/useBlog';
 import { postView } from '../blog/posts';
 import { seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
+import LanguageToggle from '../components/LanguageToggle';
 
 // فهرس المدوّنة — عربي على /blog وإنجليزي على /en/blog (ثنائي اللغة + hreflang)
 export default function BlogIndexPage() {
@@ -46,9 +47,12 @@ export default function BlogIndexPage() {
               <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
-          <Link to={home} className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
-            {t.back} <ArrowLeft size={15} className={en ? 'rotate-180' : ''} />
-          </Link>
+          <div className="flex items-center gap-2">
+            <LanguageToggle />
+            <Link to={home} className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
+              {t.back} <ArrowLeft size={15} className={en ? 'rotate-180' : ''} />
+            </Link>
+          </div>
         </div>
       </header>
 

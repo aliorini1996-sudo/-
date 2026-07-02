@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
-import { useLang } from './i18n/lang';
+import { useLang, isAppRoute } from './i18n/lang';
 import { localeFromPath } from './i18n/locale';
 import { analyticsApi } from './api/client';
 import MainLayout from './layouts/MainLayout';
@@ -58,12 +58,15 @@ function PermissionRoute({ permission, children }: { permission: keyof NonNullab
   return <>{children}</>;
 }
 
-// يضبط لغة الواجهة من المسار (المسارات تحت /en إنجليزية) — مصدر الحقيقة للّغة للفهرسة الدولية
+// يضبط لغة الواجهة من المسار (المسارات تحت /en إنجليزية و/fr فرنسية) — مصدر الحقيقة للفهرسة الدولية.
+// يتجاهل مسارات التطبيق (الدخول/التسجيل/اللوحة/المندوب) لأنها تدير لغتها يدويًا عبر المبدّل الثلاثي.
 function LocaleSync() {
   const { pathname } = useLocation();
   const setLang = useLang((s) => s.setLang);
-  const locale = localeFromPath(pathname);
-  useEffect(() => { setLang(locale); }, [locale, setLang]);
+  useEffect(() => {
+    if (isAppRoute(pathname)) return;
+    setLang(localeFromPath(pathname));
+  }, [pathname, setLang]);
   return null;
 }
 
@@ -107,6 +110,15 @@ export default function App() {
         <Route path="/en/contact" element={<ContactPage />} />
         <Route path="/en/blog" element={<BlogIndexPage />} />
         <Route path="/en/blog/:slug" element={<BlogPostPage />} />
+        {/* النسخة الفرنسية على /fr — للأسواق الفرنكوفونية (المغرب العربي) مع hreflang */}
+        <Route path="/fr" element={<LandingPage />} />
+        <Route path="/fr/about" element={<InfoPage pageKey="about" />} />
+        <Route path="/fr/terms" element={<InfoPage pageKey="terms" />} />
+        <Route path="/fr/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
+        <Route path="/fr/privacy" element={<InfoPage pageKey="privacy" />} />
+        <Route path="/fr/contact" element={<ContactPage />} />
+        <Route path="/fr/blog" element={<BlogIndexPage />} />
+        <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={

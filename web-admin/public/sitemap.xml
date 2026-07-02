@@ -4,8 +4,9 @@
     <loc>https://fieldsa.net/</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
@@ -13,8 +14,19 @@
     <loc>https://fieldsa.net/en</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/"/>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
@@ -22,8 +34,9 @@
     <loc>https://fieldsa.net/about</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/about"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/about"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/about"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/about"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -31,8 +44,19 @@
     <loc>https://fieldsa.net/en/about</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/about"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/about"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/about"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/about"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/about</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/about"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/about"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/about"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/about"/>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -40,8 +64,9 @@
     <loc>https://fieldsa.net/contact</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/contact"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/contact"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/contact"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/contact"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -49,8 +74,19 @@
     <loc>https://fieldsa.net/en/contact</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/contact"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/contact"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/contact"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/contact"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/contact</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/contact"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/contact"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/contact"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/contact"/>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -58,8 +94,9 @@
     <loc>https://fieldsa.net/terms</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/terms"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/terms"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/terms"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
@@ -67,8 +104,19 @@
     <loc>https://fieldsa.net/en/terms</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/terms"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/terms"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/terms"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/terms</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/terms"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/terms"/>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
@@ -76,8 +124,9 @@
     <loc>https://fieldsa.net/privacy</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/privacy"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/privacy"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/privacy"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
@@ -85,8 +134,19 @@
     <loc>https://fieldsa.net/en/privacy</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/privacy"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/privacy"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/privacy"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/privacy"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/privacy"/>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
@@ -94,8 +154,9 @@
     <loc>https://fieldsa.net/service-agreement</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/service-agreement"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/service-agreement"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/service-agreement"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/service-agreement"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
@@ -103,8 +164,19 @@
     <loc>https://fieldsa.net/en/service-agreement</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/service-agreement"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/service-agreement"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/service-agreement"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/service-agreement"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/service-agreement</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/service-agreement"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/service-agreement"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/service-agreement"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/service-agreement"/>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
@@ -113,7 +185,7 @@
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -122,7 +194,7 @@
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/blog"/>
-    <lastmod>2026-07-01</lastmod>
+    <lastmod>2026-07-02</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

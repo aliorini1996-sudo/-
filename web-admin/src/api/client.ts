@@ -106,7 +106,7 @@ export const notificationApi = {
 
 export const authApi = {
   login: (data: { username: string; password: string; role: string }) => api.post('/auth/login', data),
-  signup: (data: { companyName: string; adminName: string; email: string; password: string; phone?: string }) => api.post('/auth/signup', data),
+  signup: (data: { companyName: string; adminName: string; email: string; password: string; phone?: string; countryCode?: string }) => api.post('/auth/signup', data),
   me: () => api.get('/auth/me'),
   changePassword: (data: { currentPassword: string; newPassword: string }) => api.post('/auth/change-password', data),
   verifyEmail: (token: string) => api.post('/auth/verify-email', { token }),

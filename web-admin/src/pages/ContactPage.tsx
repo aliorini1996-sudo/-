@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { siteContentApi, contactApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
+import { defaultContentFr } from '../landing/defaultContentFr';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Mail, Phone, MapPin, MessageCircle, LifeBuoy, Send, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -25,23 +26,33 @@ export default function ContactPage() {
   });
   const content = (data || defaultContent) as typeof defaultContent;
   const cms = content.contact || defaultContent.contact;
-  // المقدمة بالإنجليزية من المحتوى الإنجليزي، وبيانات التواصل (بريد/هاتف) من CMS دائماً
-  const c = lang === 'en' ? { ...cms, intro: defaultContentEn.contact.intro } : cms;
+  // المقدمة بلغة الواجهة (إنجليزي/فرنسي من محتواها)، وبيانات التواصل (بريد/هاتف) من CMS دائماً
+  const c = lang === 'en' ? { ...cms, intro: defaultContentEn.contact.intro }
+    : lang === 'fr' ? { ...cms, intro: defaultContentFr.contact.intro }
+    : cms;
 
   const seoUrl = seoUrls('/contact', lang);
-  useSeo(lang === 'en' ? {
-    title: 'Contact Us | FieldSales — Request a Demo or Free Trial',
-    description: 'Contact the FieldSales team to request a demo or free trial of the field sales & distribution management system: ZATCA invoices, payment collection, van stock and GPS rep tracking.',
-    keywords: 'contact FieldSales, request a demo, free trial, support, field sales system, sales rep management',
-    locale: 'en', canonical: seoUrl.canonical, alternates: seoUrl.alternates,
-    image: 'https://fieldsa.net/og-image.png',
-  } : {
-    title: 'تواصل معنا | FieldSales — اطلب عرضاً أو تجربة مجانية لنظام المبيعات الميدانية',
-    description: 'تواصل مع فريق FieldSales لطلب عرض توضيحي أو تجربة مجانية لنظام إدارة مبيعات المناديب والتوزيع: فواتير ZATCA، تحصيل المدفوعات، مخزون سيارة المندوب، وتتبّع المناديب.',
-    keywords: 'تواصل معنا, طلب عرض توضيحي, تجربة مجانية, دعم FieldSales, نظام مبيعات ميدانية, إدارة مناديب التوزيع',
-    locale: 'ar', canonical: seoUrl.canonical, alternates: seoUrl.alternates,
-    image: 'https://fieldsa.net/og-image.png',
-  });
+  const contactSeo = {
+    ar: {
+      title: 'تواصل معنا | FieldSales — اطلب عرضاً أو تجربة مجانية لنظام المبيعات الميدانية',
+      description: 'تواصل مع فريق FieldSales لطلب عرض توضيحي أو تجربة مجانية لنظام إدارة مبيعات المناديب والتوزيع: فواتير ZATCA، تحصيل المدفوعات، مخزون سيارة المندوب، وتتبّع المناديب.',
+      keywords: 'تواصل معنا, طلب عرض توضيحي, تجربة مجانية, دعم FieldSales, نظام مبيعات ميدانية, إدارة مناديب التوزيع',
+      locale: 'ar' as const,
+    },
+    en: {
+      title: 'Contact Us | FieldSales — Request a Demo or Free Trial',
+      description: 'Contact the FieldSales team to request a demo or free trial of the field sales & distribution management system: ZATCA invoices, payment collection, van stock and GPS rep tracking.',
+      keywords: 'contact FieldSales, request a demo, free trial, support, field sales system, sales rep management',
+      locale: 'en' as const,
+    },
+    fr: {
+      title: 'Contact | FieldSales — Demandez une démo ou un essai gratuit',
+      description: 'Contactez l’équipe FieldSales pour demander une démo ou un essai gratuit du système de gestion des ventes terrain et de la distribution : factures fiscales, encaissement, stock du véhicule et suivi GPS.',
+      keywords: 'contact FieldSales, demander une démo, essai gratuit, support, système de vente terrain, gestion des commerciaux',
+      locale: 'fr' as const,
+    },
+  }[lang];
+  useSeo({ ...contactSeo, canonical: seoUrl.canonical, alternates: seoUrl.alternates, image: 'https://fieldsa.net/og-image.png' });
 
   const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
   const [sending, setSending] = useState(false);
