@@ -10,7 +10,10 @@ services:
     runtime: node
     rootDir: backend
     plan: free
-    buildCommand: npm install && npx prisma generate && npm run build
+    # --include=dev إلزامي: Render يضبط NODE_ENV=production أثناء البناء وnpm الحديث عندها
+    # يتخطى devDependencies (typescript + prisma CLI) فيفشل البناء أو يجلب npx نسخة prisma
+    # أحدث غير متوافقة مع @prisma/client المثبّت (أخطاء tenantId:never التاريخية).
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
     # db push بلا --accept-data-loss: يطبّق التغييرات الإضافية فقط، ويُفشل النشر عند أي تغيير مدمّر
     # (حذف عمود/جدول) بدل تنفيذه صامتاً على بيانات الإنتاج — التغيير المدمّر يتطلّب migration مقصودة.
     startCommand: npx prisma db push && node dist/index.js

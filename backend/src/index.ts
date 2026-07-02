@@ -85,7 +85,12 @@ app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+// version = رقم الـcommit المنشور (يوفّره Render عبر RENDER_GIT_COMMIT) — للتحقق الخارجي من نجاح النشر
+app.get('/api/health', (_req, res) => res.json({
+  status: 'ok',
+  timestamp: new Date(),
+  version: (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7),
+}));
 
 // عرض الواجهة المبنيّة إن وُجدت (اختياري — الواجهة الرسمية على Vercel)
 const webDist = path.join(__dirname, '../../web-admin/dist');
