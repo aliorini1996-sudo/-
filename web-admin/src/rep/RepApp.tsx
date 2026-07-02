@@ -1071,6 +1071,7 @@ export default function RepApp() {
                       <MapPin size={12} /> {tr('الموقع متوقّف')}
                     </span>
                   )}
+                  <LanguageToggle variant="dark" />
                   <button onClick={logout} className="text-[#9A8F7E] hover:text-white"><LogOut size={18} /></button>
                 </div>
               </div>
