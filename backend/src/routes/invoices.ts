@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal } from '../utils/helpers';
+import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal, withNumberRetry } from '../utils/helpers';
 import { getCountryTax } from '../config/countries';
 import {
   postInvoiceEntries,
@@ -187,11 +187,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const finalItems = items.map(item => { taxAmt += item.taxAmt; return item; });
     const total = roundDecimal(taxableSubtotal + taxAmt, dec);
     const isReturn = body.type === 'RETURN';
-    const number = isReturn ? await generateReturnNumber(tid) : await generateInvoiceNumber(tid);
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
     const creditCheck = body.type === 'CREDIT' && Number(customer.balance) + total > Number(customer.creditLimit) && Number(customer.creditLimit) > 0;
 
-    const invoice = await prisma.$transaction(async tx => {
+    // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
+    const invoice = await withNumberRetry(async () => {
+    const number = isReturn ? await generateReturnNumber(tid) : await generateInvoiceNumber(tid);
+    return prisma.$transaction(async tx => {
       const inv = await tx.invoice.create({
         data: {
           tenantId: tid,
@@ -249,6 +251,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
 
       return inv;
+    });
     });
 
     res.status(201).json({ success: true, data: invoice });

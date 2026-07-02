@@ -36,7 +36,7 @@ function maskCompany<T extends Record<string, unknown> | null>(c: T): T {
   return { ...rest, einvoiceHasSecret: !!einvoiceClientSecret } as unknown as T;
 }
 
-// إعدادات شركة المستخدم الحالي â€” متاح لأي مستخدم مسجّل (المندوب يحتاجه للطباعة)
+// إعدادات شركة المستخدم الحالي — متاح لأي مستخدم مسجّل (المندوب يحتاجه للطباعة)
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -45,7 +45,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-// التعديل للإدارة فقط â€” ضمن شركة المستخدم
+// التعديل للإدارة فقط — ضمن شركة المستخدم
 router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { paginate, paginationMeta, generateReceiptNumber } from '../utils/helpers';
+import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries } from '../services/accounting';
 
 const router = Router();
@@ -135,10 +135,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       res.status(400).json({ success: false, message: 'مجموع تخصيص الفواتير أكبر من مبلغ السند' }); return;
     }
 
-    const number = await generateReceiptNumber(tid);
     const docDate = body.receiptDate ? new Date(body.receiptDate) : undefined;
 
-    const receipt = await prisma.$transaction(async tx => {
+    // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (سندان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
+    const receipt = await withNumberRetry(async () => {
+    const number = await generateReceiptNumber(tid);
+    return prisma.$transaction(async tx => {
       if (allocations.length) {
         const invoices = await tx.invoice.findMany({
           where: {
@@ -189,6 +191,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
       await postReceiptEntries(tx as never, tid, rcp.id, body.customerId, body.amount, docDate);
       return rcp;
+    });
     });
 
     res.status(201).json({ success: true, data: receipt });

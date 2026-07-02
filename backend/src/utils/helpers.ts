@@ -56,3 +56,21 @@ export async function generateReceiptNumber(tenantId: string): Promise<string> {
 export function roundDecimal(value: number, decimals = 2): number {
   return Math.round(value * Math.pow(10, decimals)) / Math.pow(10, decimals);
 }
+
+// يعيد تنفيذ إنشاء مستند مرقّم عند تصادم الرقم الفريد (P2002 على tenantId+number).
+// تحت التزامن قد يولّد طلبان نفس الرقم قبل أول إدراج؛ unique يحمي من التكرار،
+// وهنا نعيد توليد الرقم ونحاول مجدداً بدل إفشال الطلب.
+export async function withNumberRetry<T>(create: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await create();
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      const target = String((err as { meta?: { target?: unknown } })?.meta?.target ?? '');
+      if (code === 'P2002' && target.includes('number')) { lastErr = err; continue; }
+      throw err;
+    }
+  }
+  throw lastErr;
+}

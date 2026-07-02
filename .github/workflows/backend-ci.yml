@@ -1,0 +1,27 @@
+# حارس الخلفية: أنواع صارمة + اختبارات المحاسبة/الضريبة/ZATCA مع كل دفع يمسّ backend
+name: Backend CI
+
+on:
+  push:
+    branches: [master]
+    paths: ['backend/**']
+  pull_request:
+    paths: ['backend/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run build   # tsc صارم — أخطاء الأنواع تُفشل الفحص
+      - run: npm test        # اختبارات المحاسبة والضريبة وZATCA والترقيم

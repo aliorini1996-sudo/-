@@ -54,7 +54,21 @@ export const io = new Server(server, {
   cors: { origin: corsOrigin, credentials: true },
 });
 
-app.use(helmet({ contentSecurityPolicy: false }));
+// CSP مفعّلة: API يقدّم JSON (السياسة خاملة له) لكنها تحمي أي HTML يُقدَّم (صفحات خطأ/الواجهة المحلية الاختيارية).
+// inline مسموح لأن الواجهة الاحتياطية المبنيّة تعتمد أنماطاً/معالجات سطرية؛ الصور data: لأن الشعارات base64.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'script-src': ["'self'", "'unsafe-inline'"],
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+      'connect-src': ["'self'", 'wss:', 'https:'],
+      'frame-ancestors': ["'none'"],
+    },
+  },
+}));
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
