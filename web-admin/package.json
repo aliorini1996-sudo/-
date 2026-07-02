@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "seo:sitemap": "node scripts/gen-sitemap.mjs",
     "seo:audit": "node scripts/seo-audit.mjs",
+    "seo:cards": "node scripts/gen-og-cards.mjs",
     "seo:maintain": "node scripts/gen-sitemap.mjs && node scripts/seo-audit.mjs"
   },
   "dependencies": {

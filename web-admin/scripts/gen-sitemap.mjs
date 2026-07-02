@@ -80,8 +80,10 @@ const alt = (arPath) => {
   ].join('\n');
 };
 
-const urlEntry = (loc, { lastmod = today, freq = 'monthly', priority = '0.6', alternates = '' } = {}) =>
-  `  <url>\n    <loc>${loc}</loc>\n${alternates ? alternates + '\n' : ''}    <lastmod>${lastmod}</lastmod>\n    <changefreq>${freq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
+const imageBlock = (img) => (img ? `    <image:image>\n      <image:loc>${img}</image:loc>\n    </image:image>\n` : '');
+
+const urlEntry = (loc, { lastmod = today, freq = 'monthly', priority = '0.6', alternates = '', image = '' } = {}) =>
+  `  <url>\n    <loc>${loc}</loc>\n${alternates ? alternates + '\n' : ''}${imageBlock(image)}    <lastmod>${lastmod}</lastmod>\n    <changefreq>${freq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
 
 async function main() {
   const posts = await effectivePosts();
@@ -131,13 +133,13 @@ async function main() {
       `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr${p}"/>`,
       `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}"/>`,
     ].join('\n');
-    urls.push(urlEntry(ORIGIN + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt }));
-    const second = a.fr ? '/fr' : '/en';
-    urls.push(urlEntry(ORIGIN + second + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt }));
+    urls.push(urlEntry(ORIGIN + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-ar.jpg` }));
+    const secondLang = a.fr ? 'fr' : 'en';
+    urls.push(urlEntry(ORIGIN + '/' + secondLang + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${secondLang}.jpg` }));
     seoUrlCount += 2;
   }
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls.join('\n')}\n</urlset>\n`;
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${urls.join('\n')}\n</urlset>\n`;
   fs.writeFileSync(path.join(ROOT, 'public/sitemap.xml'), xml);
   console.log(`✅ sitemap.xml: ${urls.length} رابط (${I18N_ROUTES.length * 3} تسويقية + فهرس مدوّنة ع/إ/فر + ${posts.length} مقال يدوي + ${seoUrlCount} رابط مقالات SEO مولَّدة لِـ${seo.length} مقال تستهدف كل الدول العربية)`);
 }

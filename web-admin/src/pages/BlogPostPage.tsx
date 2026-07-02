@@ -71,12 +71,13 @@ export default function BlogPostPage() {
     ? seoUrls(`/blog/${slug}`, lang)
     : { canonical: `https://fieldsa.net${prefix}/blog/${slug}`, alternates: undefined as undefined | { hreflang: string; href: string }[] };
 
+  const ogImage = seo ? seo.image : 'https://fieldsa.net/og-image.png';
   useSeo(view ? {
     title: `${view.title} | ${tr('مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales')}`,
     description: view.description,
     keywords: view.keywords,
     canonical,
-    image: 'https://fieldsa.net/og-image.png',
+    image: ogImage,
     type: 'article',
     locale: lang,
     alternates,
@@ -88,7 +89,7 @@ export default function BlogPostPage() {
       inLanguage: lang,
       datePublished: view.date,
       dateModified: view.date,
-      image: 'https://fieldsa.net/og-image.png',
+      image: ogImage,
       author: { '@type': 'Organization', name: 'FieldSales' },
       publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: 'https://fieldsa.net/icons/icon-512.png' } },
       mainEntityOfPage: canonical,
@@ -154,6 +155,11 @@ export default function BlogPostPage() {
             <span className="flex items-center gap-1"><Calendar size={13} /> {view.date}</span>
             <span className="flex items-center gap-1"><Clock size={13} /> {view.readMinutes} {t.read}</span>
           </div>
+
+          {seo && (
+            <img src={seo.imagePath} alt={view.title} width={1200} height={630}
+              className="w-full h-auto rounded-2xl border border-[#E9E1D3] mt-6" loading="eager" />
+          )}
 
           <div className="article-prose mt-6" dangerouslySetInnerHTML={{ __html: normalizeContent(view.contentHtml) }} />
 

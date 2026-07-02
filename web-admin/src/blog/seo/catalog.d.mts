@@ -22,8 +22,18 @@ export interface SeoArticle {
   contentHtml: string;
   date: string;
   readMinutes: number;
+  image: string;
+  imagePath: string;
   countryCode: string | null;
   isSeo: true;
+}
+
+export interface SeoCardMeta {
+  slug: string;
+  cc: string | null;
+  label: { ar: string; en: string; fr: string };
+  country: { ar: string; en: string; fr: string } | null;
+  accent: string;
 }
 
 export interface SeoCatalogEntry {
@@ -48,3 +58,4 @@ export function listArticles(lang: SeoLang): SeoListItem[];
 export function getArticle(slug: string, lang: SeoLang): SeoArticle | null;
 export function buildCatalog(): SeoCatalogEntry[];
 export function hasArticle(slug: string): boolean;
+export function cardCatalog(): SeoCardMeta[];

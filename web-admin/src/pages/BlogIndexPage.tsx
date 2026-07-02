@@ -9,7 +9,7 @@ import { seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 import LanguageToggle from '../components/LanguageToggle';
 
-type Card = { slug: string; title: string; excerpt: string; date: string; readMinutes: number };
+type Card = { slug: string; title: string; excerpt: string; date: string; readMinutes: number; img?: string };
 
 // فهرس المدوّنة — عربي /blog · إنجليزي /en/blog · فرنسي /fr/blog (يشمل المقالات المولَّدة لكل الدول العربية + hreflang)
 export default function BlogIndexPage() {
@@ -59,7 +59,7 @@ export default function BlogIndexPage() {
     const v = postView(p, lang === 'en' ? 'en' : 'ar');
     return { slug: p.slug, title: v.title, excerpt: v.excerpt, date: p.date, readMinutes: p.readMinutes };
   });
-  const seoCards: Card[] = listArticles(lang).map((a) => ({ slug: a.slug, title: a.title, excerpt: a.excerpt, date: a.date, readMinutes: a.readMinutes }));
+  const seoCards: Card[] = listArticles(lang).map((a) => ({ slug: a.slug, title: a.title, excerpt: a.excerpt, date: a.date, readMinutes: a.readMinutes, img: `/og/${a.slug}-${lang}.jpg` }));
   // نعرض اليدوية أولاً ثم أحدث المولَّدة (نحدّ العدد المعروض حفاظاً على سرعة الصفحة — البقية عبر sitemap والروابط الداخلية)
   const cards: Card[] = [...handCards, ...seoCards].slice(0, 66);
 
@@ -109,13 +109,19 @@ export default function BlogIndexPage() {
         <div className="grid gap-5">
           {cards.map((post) => (
             <Link key={post.slug} to={`${prefix}/blog/${post.slug}`}
-              className="block bg-white rounded-2xl border border-[#E9E1D3] p-6 lg:p-7 hover:border-[#E8C9BC] hover:shadow-sm transition-all">
-              <h3 className="text-xl lg:text-2xl font-bold text-[#1F1A13] leading-snug">{post.title}</h3>
-              <p className="text-[#6E6557] mt-3 leading-relaxed">{post.excerpt}</p>
-              <div className="flex items-center gap-4 mt-4 text-xs text-[#9A8F7E]">
-                <span className="flex items-center gap-1"><Calendar size={13} /> {post.date}</span>
-                <span className="flex items-center gap-1"><Clock size={13} /> {post.readMinutes} {t.read}</span>
-                <span className="text-[#E15A30] font-semibold flex items-center gap-1 ms-auto">{t.cta} <ArrowLeft size={14} className={rtl ? '' : 'rotate-180'} /></span>
+              className="block bg-white rounded-2xl border border-[#E9E1D3] overflow-hidden hover:border-[#E8C9BC] hover:shadow-sm transition-all">
+              {post.img && (
+                <img src={post.img} alt={post.title} width={1200} height={630} loading="lazy"
+                  className="w-full h-auto border-b border-[#E9E1D3]" />
+              )}
+              <div className="p-6 lg:p-7">
+                <h3 className="text-xl lg:text-2xl font-bold text-[#1F1A13] leading-snug">{post.title}</h3>
+                <p className="text-[#6E6557] mt-3 leading-relaxed">{post.excerpt}</p>
+                <div className="flex items-center gap-4 mt-4 text-xs text-[#9A8F7E]">
+                  <span className="flex items-center gap-1"><Calendar size={13} /> {post.date}</span>
+                  <span className="flex items-center gap-1"><Clock size={13} /> {post.readMinutes} {t.read}</span>
+                  <span className="text-[#E15A30] font-semibold flex items-center gap-1 ms-auto">{t.cta} <ArrowLeft size={14} className={rtl ? '' : 'rotate-180'} /></span>
+                </div>
               </div>
             </Link>
           ))}

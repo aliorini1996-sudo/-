@@ -223,11 +223,75 @@ const S = {
 
   roi: (c, L) => P(L,
     `<h2>العائد على الاستثمار</h2>
-     <p>وقت مندوب أكثر للبيع بدل الورق، تقليل الفاقد والمرتجعات، ورفع نسبة التحصيل — مكاسب قابلة للقياس بـ${c.cur.ar} غالباً ما تسترد تكلفة النظام سريعاً.</p>`,
+     <p>وقت مندوب أكثر للبيع بدل الورق، تقليل الفاقد والمرتجعات، ورفع نسبة التحصيل — مكاسب قابلة للقياس بـ${c.cur.ar} غالباً ما تسترد تكلفة النظام سريعاً.</p>
+     <p>احسب العائد ببساطة: قارن مجموع ما توفّره سنوياً (فاقد أقل + تحصيل أعلى + وقت بيع إضافي) بتكلفة الاشتراك. في معظم شركات التوزيع ${c.inAr} يسترد النظام تكلفته خلال أشهر قليلة من تقليل العجز ورفع التحصيل وحدهما.</p>`,
     `<h2>Return on investment</h2>
-     <p>More selling time instead of paperwork, less waste and returns, and higher collection — measurable gains in ${c.cur.en} that usually pay back the system quickly.</p>`,
+     <p>More selling time instead of paperwork, less waste and returns, and higher collection — measurable gains in ${c.cur.en} that usually pay back the system quickly.</p>
+     <p>Calculating ROI is simple: compare your yearly savings (less waste + higher collection + extra selling time) against the subscription cost. For most distributors ${c.inEn}, the system pays for itself within a few months from reduced shortages and better collection alone.</p>`,
     `<h2>Retour sur investissement</h2>
-     <p>Plus de temps de vente au lieu de paperasse, moins de pertes et de retours, et un meilleur encaissement — des gains mesurables en ${c.cur.fr} qui rentabilisent vite le système.</p>`),
+     <p>Plus de temps de vente au lieu de paperasse, moins de pertes et de retours, et un meilleur encaissement — des gains mesurables en ${c.cur.fr} qui rentabilisent vite le système.</p>
+     <p>Le calcul du ROI est simple : comparez vos économies annuelles (moins de pertes + meilleur encaissement + temps de vente) au coût de l'abonnement. Pour la plupart des distributeurs ${c.inFr}, le système se rentabilise en quelques mois.</p>`),
+
+  // أقسام تعميق تُضاف لكل مقال (خطوات عملية + نتائج قابلة للقياس + أخطاء شائعة)
+  steps: (c, L) => P(L,
+    `<h2>خطوات عملية للبدء ${c.inAr}</h2>
+     <ol>
+       <li><strong>هيّئ أساسك:</strong> أدخِل منتجاتك وأسعارك وعملاءك بـ${c.cur.ar} وحدود ائتمانهم.</li>
+       <li><strong>جهّز فريقك:</strong> امنح كل مندوب حساباً بصلاحيات محدّدة وحمّله التطبيق.</li>
+       <li><strong>ابدأ من الميدان:</strong> أصدِر أول فاتورة وسند قبض من ${c.cap.ar} أو أي مدينة تعمل بها.</li>
+       <li><strong>راقب لحظياً:</strong> تابع المبيعات والتحصيل ومخزون السيارة على لوحة واحدة.</li>
+       <li><strong>حسّن أسبوعياً:</strong> استخدم التقارير لضبط خطوط السير والأسعار والصلاحيات.</li>
+     </ol>`,
+    `<h2>Practical steps to get started ${c.inEn}</h2>
+     <ol>
+       <li><strong>Set your base:</strong> add products, prices in ${c.cur.en}, customers and their credit limits.</li>
+       <li><strong>Prepare your team:</strong> give each rep an account with defined permissions and the app.</li>
+       <li><strong>Start from the field:</strong> issue your first invoice and receipt from ${c.cap.en} or any city you cover.</li>
+       <li><strong>Monitor live:</strong> track sales, collection and van stock on one dashboard.</li>
+       <li><strong>Improve weekly:</strong> use reports to tune routes, prices and permissions.</li>
+     </ol>`,
+    `<h2>Étapes pratiques pour démarrer ${c.inFr}</h2>
+     <ol>
+       <li><strong>Préparez la base :</strong> ajoutez produits, prix en ${c.cur.fr}, clients et limites de crédit.</li>
+       <li><strong>Préparez l'équipe :</strong> donnez à chaque commercial un compte avec des droits définis.</li>
+       <li><strong>Démarrez sur le terrain :</strong> émettez votre première facture depuis ${c.cap.fr}.</li>
+       <li><strong>Suivez en direct :</strong> ventes, encaissement et stock sur un tableau de bord.</li>
+       <li><strong>Améliorez chaque semaine :</strong> ajustez tournées, prix et droits via les rapports.</li>
+     </ol>`),
+
+  benefits: (c, L) => P(L,
+    `<h2>نتائج قابلة للقياس لشركتك</h2>
+     <ul>
+       <li>تقليل الأخطاء والفاقد بربط الفاتورة بالمخزون والتحصيل.</li>
+       <li>رفع نسبة التحصيل وتقليص الذمم المتعثّرة عبر حدود الائتمان والتنبيهات.</li>
+       <li>زيادة عدد الزيارات المنتِجة يومياً لكل مندوب.</li>
+       <li>قرارات أسرع بتقارير لحظية بدل كشوف نهاية الشهر.</li>
+       <li>حماية الهوامش بضبط الخصومات والصلاحيات ${c.inAr}.</li>
+     </ul>`,
+    `<h2>Measurable results for your business</h2>
+     <ul>
+       <li>Fewer errors and less waste by linking invoice, stock and collection.</li>
+       <li>Higher collection and lower overdue debt via credit limits and alerts.</li>
+       <li>More productive visits per rep each day.</li>
+       <li>Faster decisions with live reports instead of month-end sheets.</li>
+       <li>Protected margins by controlling discounts and permissions ${c.inEn}.</li>
+     </ul>`,
+    `<h2>Des résultats mesurables pour votre entreprise</h2>
+     <ul>
+       <li>Moins d'erreurs et de pertes en reliant facture, stock et encaissement.</li>
+       <li>Meilleur encaissement et moins d'impayés grâce aux limites et alertes.</li>
+       <li>Plus de visites productives par commercial et par jour.</li>
+       <li>Des décisions plus rapides avec des rapports en temps réel.</li>
+       <li>Des marges protégées en maîtrisant remises et droits ${c.inFr}.</li>
+     </ul>`),
+
+  mistakes: (c, L) => P(L,
+    `<h2>أخطاء شائعة تجنّبها</h2>
+     <p>الاعتماد على الورق أو جداول منفصلة يضيّع البيانات ويؤخّر التحصيل. عدم ضبط حدود الائتمان يحوّل المبيعات إلى ديون. وإهمال مطابقة مخزون السيارة يخفي العجز حتى يتضخّم. النظام الموحّد يعالج هذه الثغرات الثلاث ${c.inAr} من جذورها.</p>`,
+    `<h2>Common mistakes to avoid</h2>
+     <p>Relying on paper or separate spreadsheets loses data and delays collection. Not setting credit limits turns sales into debt. Skipping van-stock reconciliation hides shortages until they grow. A unified system fixes these three gaps ${c.inEn} at the root.</p>`,
+    `<h2>Erreurs courantes à éviter</h2>
+     <p>Le papier ou des tableurs séparés font perdre des données et retardent l'encaissement. L'absence de limites de crédit transforme les ventes en dettes. Ne pas rapprocher le stock du véhicule masque les écarts. Un système unifié corrige ces trois failles ${c.inFr}.</p>`),
 };
 
 // ----------------------------------------------------------------------------
@@ -432,14 +496,21 @@ export function getArticle(slug, L) {
   const c = country;
   const t = titleOf(topic, c, L);
   const intro = P(L,
-    `<p>${t} أصبح ضرورة لكل شركة توزيع تريد النمو بكفاءة. في هذا الدليل من <strong>FieldSales</strong> نشرح كيف تدير مبيعاتك الميدانية باحتراف — من الطلب إلى الفاتورة إلى التحصيل — مع مراعاة متطلبات ${topic.cs ? c.ar : 'السوق العربي'} المحلية.</p>`,
-    `<p>${t} has become essential for any distributor that wants to grow efficiently. In this <strong>FieldSales</strong> guide we explain how to run your field sales professionally — from order to invoice to collection — while respecting local requirements ${topic.cs ? c.inEn : 'in Arab markets'}.</p>`,
-    `<p>${t} est devenu essentiel pour tout distributeur qui veut croître efficacement. Dans ce guide <strong>FieldSales</strong>, nous expliquons comment gérer vos ventes terrain — de la commande à la facture et à l'encaissement — en respectant les exigences ${topic.cs ? c.inFr : 'des marchés arabes'}.</p>`);
-  const body = topic.secs.map((k) => (k === 'cta' ? cta(L) : S[k](c, L))).join('\n');
-  const contentHtml = `${intro}\n${body}\n${relatedLinks(topic, c, L)}`;
+    `<p>${t} أصبح ضرورة لكل شركة توزيع تريد النمو بكفاءة. في هذا الدليل من <strong>FieldSales</strong> نشرح كيف تدير مبيعاتك الميدانية باحتراف — من الطلب إلى الفاتورة إلى التحصيل — مع مراعاة متطلبات ${topic.cs ? c.ar : 'السوق العربي'} المحلية.</p>
+     <p>سواء كنت موزّعاً للمواد الغذائية أو المشروبات أو مستلزمات التجزئة، ستجد هنا خطوات عملية وأمثلة محلية تساعدك على رفع كفاءة مناديبك وتحصيلك ومبيعاتك — مدعومة بالأرقام لا التخمين.</p>`,
+    `<p>${t} has become essential for any distributor that wants to grow efficiently. In this <strong>FieldSales</strong> guide we explain how to run your field sales professionally — from order to invoice to collection — while respecting local requirements ${topic.cs ? c.inEn : 'in Arab markets'}.</p>
+     <p>Whether you distribute food, beverages or retail supplies, you'll find practical steps and local examples here to raise the efficiency of your reps, collection and sales — backed by numbers, not guesswork.</p>`,
+    `<p>${t} est devenu essentiel pour tout distributeur qui veut croître efficacement. Dans ce guide <strong>FieldSales</strong>, nous expliquons comment gérer vos ventes terrain — de la commande à la facture et à l'encaissement — en respectant les exigences ${topic.cs ? c.inFr : 'des marchés arabes'}.</p>
+     <p>Que vous distribuiez de l'alimentaire, des boissons ou des produits de détail, vous trouverez ici des étapes pratiques et des exemples locaux pour améliorer vos commerciaux, votre encaissement et vos ventes.</p>`);
+  // أقسام الموضوع + أقسام تعميق عامة تُضاف للجميع (steps/benefits/mistakes) دون تكرار، ثم CTA
+  const coreKeys = topic.secs.filter((k) => k !== 'cta');
+  const universal = ['steps', 'benefits', 'mistakes'].filter((k) => !coreKeys.includes(k));
+  const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
+  const contentHtml = `${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L),
     excerpt: excerptOf(topic, c, L), contentHtml, date, readMinutes: topic.rm,
+    image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     countryCode: topic.cs ? c.code : null, isSeo: true,
   };
 }
@@ -460,4 +531,24 @@ export function buildCatalog() {
 
 export function hasArticle(slug) {
   return index().has(slug);
+}
+
+// لوحة ألوان ثانوية متناسقة مع الهوية (لتمييز بطاقات الدول بصرياً)
+const ACCENTS = ['#E15A30', '#1E7A52', '#C99A2E', '#2E6FB0', '#B0472E', '#5B4F9E', '#0F7C8C', '#A8562E'];
+
+// بيانات توليد بطاقات الصور (OG cards) — عنوان الموضوع + اسم الدولة + لون مميّز لكل مقال ولغة
+export function cardCatalog() {
+  const out = [];
+  let i = 0;
+  for (const [slug, { topic, country }] of index()) {
+    out.push({
+      slug,
+      cc: topic.cs ? country.code : null,
+      label: topic.label,                                   // { ar, en, fr }
+      country: topic.cs ? { ar: country.ar, en: country.en, fr: country.fr } : null,
+      accent: ACCENTS[i % ACCENTS.length],
+    });
+    i++;
+  }
+  return out;
 }
