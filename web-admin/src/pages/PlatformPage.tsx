@@ -76,44 +76,54 @@ export default function PlatformPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF7F0]" dir="rtl">
-      {/* Top bar */}
-      <header className="bg-[#1F1A13] text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BrandIcon size={40} radius={0.28} />
-            <div>
-              <p style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
-                <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
-                <span className="text-[#9A8F7E] font-normal text-sm"> · لوحة المالك</span>
-              </p>
-              <p className="text-slate-300 text-xs">{user?.name}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <LanguageToggle variant="dark" />
-            <button onClick={() => setShowLeads(true)} className="flex items-center gap-2 text-[#E15A30] hover:text-[#f0703f] text-sm font-medium">
-              <Target size={16} /> العملاء المحتملون
-            </button>
-            <button onClick={() => setShowContent(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
-              <Globe size={16} /> محتوى الصفحة
-            </button>
-            <button onClick={() => setShowSeo(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
-              <TrendingUp size={16} /> متابعة SEO
-            </button>
-            <button onClick={() => setShowVisits(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
-              <Globe2 size={16} /> زيارات الموقع
-            </button>
-            <button onClick={() => setShowPassword(true)} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
-              <KeyRound size={16} /> كلمة المرور
-            </button>
-            <button onClick={handleLogout} className="flex items-center gap-2 text-slate-300 hover:text-white text-sm">
-              <LogOut size={18} /> خروج
-            </button>
+    <div className="h-screen flex overflow-hidden bg-[#FAF7F0]" dir="rtl">
+      {/* Sidebar — بنفس نمط لوحة الأدمن */}
+      <aside className="w-60 flex-shrink-0 bg-[#1F1A13] text-white flex flex-col">
+        {/* الشعار */}
+        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/10">
+          <BrandIcon size={36} radius={0.28} />
+          <div>
+            <p className="text-sm leading-tight" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
+              <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
+            </p>
+            <p className="text-[#9A8F7E] text-xs">لوحة المالك</p>
           </div>
         </div>
-      </header>
 
+        {/* روابط التنقّل */}
+        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+          <button onClick={() => setShowLeads(true)} className="sidebar-link w-full text-[#E15A30] hover:bg-[#E15A30]/15 hover:text-[#f0703f]">
+            <Target size={18} className="flex-shrink-0" /> <span>العملاء المحتملون</span>
+          </button>
+          <button onClick={() => setShowContent(true)} className="sidebar-link w-full">
+            <Globe size={18} className="flex-shrink-0" /> <span>محتوى الصفحة</span>
+          </button>
+          <button onClick={() => setShowSeo(true)} className="sidebar-link w-full">
+            <TrendingUp size={18} className="flex-shrink-0" /> <span>متابعة SEO</span>
+          </button>
+          <button onClick={() => setShowVisits(true)} className="sidebar-link w-full">
+            <Globe2 size={18} className="flex-shrink-0" /> <span>زيارات الموقع</span>
+          </button>
+        </nav>
+
+        {/* المستخدم + اللغة + كلمة المرور + الخروج */}
+        <div className="p-2 border-t border-white/10 space-y-1">
+          <div className="px-2"><LanguageToggle variant="dark" /></div>
+          <div className="px-4 py-1.5">
+            <p className="text-xs text-[#9A8F7E] leading-tight">مالك المنصّة</p>
+            <p className="text-sm font-semibold truncate leading-tight">{user?.name}</p>
+          </div>
+          <button onClick={() => setShowPassword(true)} className="sidebar-link w-full">
+            <KeyRound size={18} className="flex-shrink-0" /> <span>كلمة المرور</span>
+          </button>
+          <button onClick={handleLogout} className="sidebar-link w-full text-red-300 hover:bg-red-500/20 hover:text-red-200">
+            <LogOut size={18} className="flex-shrink-0" /> <span>خروج</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* المحتوى الرئيسي */}
+      <main className="flex-1 overflow-y-auto">
       <div className="max-w-6xl mx-auto px-6 py-6">
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -219,6 +229,7 @@ export default function PlatformPage() {
           </div>
         </div>
       </div>
+      </main>
 
       {showCreate && (
         <CreateTenantModal
