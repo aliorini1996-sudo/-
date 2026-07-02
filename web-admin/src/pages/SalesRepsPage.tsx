@@ -314,9 +314,16 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const periodLabel = from && to ? `${formatDate(from)} — ${formatDate(to)}` : tr('كل الفترات');
   // ملخّص أصناف الفاتورة: «اسم ×كمية، …» (لعمود الأصناف في الكشف)
   const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ');
-  // إجماليات أسفل الكشف: مجموع مبالغ الفواتير + عدد الأصناف المباعة (مجموع الكميات)
+  // إجماليات أسفل الكشف: مجموع مبالغ الفواتير + مجموع الوحدات المباعة مفصّلة حسب الوحدة (كرتون/قطعة/…)
   const invoicesAmountTotal = invoices.reduce((s, i) => s + Number(i.total), 0);
-  const soldItemsCount = invoices.reduce((s, i) => s + (i.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
+  const soldUnits = (() => {
+    const m = new Map<string, number>();
+    for (const i of invoices) for (const it of (i.items || [])) {
+      const u = (it.product.unit || '').trim() || tr('وحدة');
+      m.set(u, (m.get(u) || 0) + Number(it.qty));
+    }
+    return [...m.entries()].map(([u, q]) => `${formatNumber(q)} ${u}`).join(' · ');
+  })();
 
   // تصدير الكشف إلى Excel (3 أوراق: ملخص، فواتير، سندات)
   const exportRep = async () => {
@@ -338,7 +345,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     // صف الإجمالي أسفل جدول الفواتير
     if (invoices.length) invRows.push({
       [tr('رقم الفاتورة')]: tr('الإجمالي'), [tr('العميل')]: '',
-      [tr('الأصناف')]: `${soldItemsCount} ${tr('وحدة مباعة')}`,
+      [tr('الأصناف')]: `${tr('الوحدات المباعة')}: ${soldUnits}`,
       [tr('النوع')]: '', [tr('التاريخ')]: '', [tr('الإجمالي')]: num(invoicesAmountTotal), [tr('المدفوع')]: '', [tr('المتبقي')]: '',
     });
     const rcpRows = receipts.map(r => ({
@@ -384,7 +391,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
         <div class="card"><div class="v">${num(salesTotal - returnsTotal).toFixed(2)}</div><div class="k">${tr('صافي المبيعات')}</div></div>
       </div>
       <h2>${tr('الفواتير')} (${invoices.length})</h2>
-      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody>${invoices.length ? `<tfoot><tr style="background:#FAF7F0;font-weight:700;border-top:2px solid #E15A30"><td colspan=3>${tr('الإجمالي')}</td><td>${soldItemsCount} ${tr('وحدة مباعة')}</td><td colspan=2>${invoices.length} ${tr('فاتورة')}</td><td style="text-align:left">${num(invoicesAmountTotal).toFixed(2)}</td></tr></tfoot>` : ''}</table>
+      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody>${invoices.length ? `<tfoot><tr style="background:#FAF7F0;font-weight:700;border-top:2px solid #E15A30"><td colspan=3>${tr('الإجمالي')}</td><td>${esc(soldUnits)}</td><td colspan=2>${invoices.length} ${tr('فاتورة')}</td><td style="text-align:left">${num(invoicesAmountTotal).toFixed(2)}</td></tr></tfoot>` : ''}</table>
       <h2>${tr('سندات القبض')} (${receipts.length})</h2>
       <table><thead><tr><th>#</th><th>${tr('رقم السند')}</th><th>${tr('العميل')}</th><th>${tr('الطريقة')}</th><th>${tr('التاريخ')}</th><th>${tr('المبلغ')}</th></tr></thead><tbody>${rcpRows || `<tr><td colspan=6>${tr('لا توجد سندات')}</td></tr>`}</tbody></table>
     </body></html>`;
@@ -465,7 +472,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                       <tfoot>
                         <tr className="bg-[#FAF7F0] font-bold border-t-2 border-[#E15A30]">
                           <td colSpan={2} className="text-[#1F1A13]">{tr('الإجمالي')}</td>
-                          <td className="text-[#1F1A13]">{formatNumber(soldItemsCount)} {tr('وحدة مباعة')}</td>
+                          <td className="text-[#1F1A13]">{soldUnits || '-'}</td>
                           <td colSpan={2} className="text-xs text-gray-500">{invoices.length} {tr('فاتورة')}</td>
                           <td className="text-[#E15A30]">{formatCurrency(invoicesAmountTotal)}</td>
                         </tr>

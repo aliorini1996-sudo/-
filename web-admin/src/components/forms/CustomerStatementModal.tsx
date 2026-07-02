@@ -10,6 +10,16 @@ import toast from 'react-hot-toast';
 
 interface Props { customer: Customer; onClose: () => void; }
 
+// تفصيل الوحدات المباعة حسب نوع الوحدة (كرتون/قطعة/…) عبر كل حركات الكشف
+function soldUnitsText(entries: AccountEntry[], fallback: string): string {
+  const m = new Map<string, number>();
+  for (const e of entries) for (const it of (e.invoice?.items || [])) {
+    const u = (it.product.unit || '').trim() || fallback;
+    m.set(u, (m.get(u) || 0) + Number(it.qty));
+  }
+  return [...m.entries()].map(([u, q]) => `${formatNumber(q)} ${u}`).join(' · ');
+}
+
 export default function CustomerStatementModal({ customer, onClose }: Props) {
   const tr = useTr();
   const [from, setFrom] = useState('');
@@ -46,12 +56,11 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     })) as Record<string, string | number>[];
     // صف الإجمالي أسفل الحركات: عدد الأصناف المباعة + مجموع المدين/الدائن + الرصيد
     if (data.entries.length) {
-      const soldItems = data.entries.reduce((s, e) => s + (e.invoice?.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
       const totalDebit = data.entries.reduce((s, e) => s + Number(e.debit), 0);
       const totalCredit = data.entries.reduce((s, e) => s + Number(e.credit), 0);
       rows.push({
         [tr('التاريخ')]: tr('الإجمالي'), [tr('البيان')]: '',
-        [tr('الأصناف')]: `${soldItems} ${tr('وحدة مباعة')}`,
+        [tr('الأصناف')]: `${tr('الوحدات المباعة')}: ${soldUnitsText(data.entries, tr('وحدة'))}`,
         [tr('رقم المستند')]: '', [tr('مدين')]: num(totalDebit), [tr('دائن')]: num(totalCredit), [tr('الرصيد')]: num(data.customer.balance),
       });
     }
@@ -146,14 +155,14 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
               ))}
             </tbody>
             {data && data.entries.length > 0 && (() => {
-              const soldItems = data.entries.reduce((s, e) => s + (e.invoice?.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
               const totalDebit = data.entries.reduce((s, e) => s + Number(e.debit), 0);
               const totalCredit = data.entries.reduce((s, e) => s + Number(e.credit), 0);
+              const units = soldUnitsText(data.entries, tr('وحدة'));
               return (
                 <tfoot>
                   <tr className="bg-[#FAF7F0] font-bold border-t-2 border-[#E15A30]">
                     <td className="text-[#1F1A13]">{tr('الإجمالي')}</td>
-                    <td className="text-[#1F1A13]">{formatNumber(soldItems)} {tr('وحدة مباعة')}</td>
+                    <td className="text-[#1F1A13]">{units || '-'}</td>
                     <td className="text-xs text-gray-500">{data.entries.length} {tr('حركة')}</td>
                     <td className="text-red-600">{formatCurrency(totalDebit)}</td>
                     <td className="text-green-600">{formatCurrency(totalCredit)}</td>

@@ -410,7 +410,14 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
   const addr = fullAddress(doc.customer);
   const period = doc.fromDate && doc.toDate ? `${formatDate(doc.fromDate)} — ${formatDate(doc.toDate)}` : tr('كل الفترات');
   // عدد الأصناف المباعة (مجموع الكميات) — يظهر في صف الإجماليات أسفل الكشف
-  const soldItems = doc.entries.reduce((s, e) => s + (e.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
+  const soldUnits = (() => {
+    const m = new Map<string, number>();
+    for (const e of doc.entries) for (const it of (e.items || [])) {
+      const u = (it.unit || '').trim() || tr('وحدة');
+      m.set(u, (m.get(u) || 0) + Number(it.qty));
+    }
+    return [...m.entries()].map(([u, q]) => `${q} ${u}`).join(' · ');
+  })();
 
   return (
     <div ref={ref} style={PAGE}>
@@ -477,7 +484,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
         <tfoot>
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
             <td style={{ ...td, textAlign: 'center', borderTop: `2px solid ${brand}` }} colSpan={2}>{tr('الإجماليات')}</td>
-            <td style={{ ...td, textAlign: 'right', borderTop: `2px solid ${brand}` }}>{soldItems} {tr('وحدة مباعة')}</td>
+            <td style={{ ...td, textAlign: 'right', borderTop: `2px solid ${brand}` }}>{soldUnits || '-'}</td>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }}>-</td>
             <td style={{ ...td, color: '#dc2626', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalDebit)}</td>
             <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalCredit)}</td>
