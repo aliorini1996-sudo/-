@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { customerApi } from '../../api/client';
 import { Customer, AccountEntry } from '../../types';
-import { formatCurrency, formatDate } from '../../utils/format';
+import { formatCurrency, formatDate, formatNumber } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
 import { X, Printer, Download } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../../utils/excel';
@@ -43,7 +43,18 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       [tr('مدين')]: num(e.debit),
       [tr('دائن')]: num(e.credit),
       [tr('الرصيد')]: num(e.balance),
-    }));
+    })) as Record<string, string | number>[];
+    // صف الإجمالي أسفل الحركات: عدد الأصناف المباعة + مجموع المدين/الدائن + الرصيد
+    if (data.entries.length) {
+      const soldItems = data.entries.reduce((s, e) => s + (e.invoice?.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
+      const totalDebit = data.entries.reduce((s, e) => s + Number(e.debit), 0);
+      const totalCredit = data.entries.reduce((s, e) => s + Number(e.credit), 0);
+      rows.push({
+        [tr('التاريخ')]: tr('الإجمالي'), [tr('البيان')]: '',
+        [tr('الأصناف')]: `${soldItems} ${tr('صنف مباع')}`,
+        [tr('رقم المستند')]: '', [tr('مدين')]: num(totalDebit), [tr('دائن')]: num(totalCredit), [tr('الرصيد')]: num(data.customer.balance),
+      });
+    }
     const out = await shareOrDownloadExcel([
       { name: tr('الملخص'), rows: summary, colWidths: [18, 22] },
       { name: tr('الحركات'), rows, colWidths: [16, 30, 34, 16, 12, 12, 12] },
@@ -134,6 +145,23 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                 </tr>
               ))}
             </tbody>
+            {data && data.entries.length > 0 && (() => {
+              const soldItems = data.entries.reduce((s, e) => s + (e.invoice?.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
+              const totalDebit = data.entries.reduce((s, e) => s + Number(e.debit), 0);
+              const totalCredit = data.entries.reduce((s, e) => s + Number(e.credit), 0);
+              return (
+                <tfoot>
+                  <tr className="bg-[#FAF7F0] font-bold border-t-2 border-[#E15A30]">
+                    <td className="text-[#1F1A13]">{tr('الإجمالي')}</td>
+                    <td className="text-[#1F1A13]">{formatNumber(soldItems)} {tr('صنف مباع')}</td>
+                    <td className="text-xs text-gray-500">{data.entries.length} {tr('حركة')}</td>
+                    <td className="text-red-600">{formatCurrency(totalDebit)}</td>
+                    <td className="text-green-600">{formatCurrency(totalCredit)}</td>
+                    <td className={Number(data.customer.balance) > 0 ? 'text-orange-600' : 'text-green-600'}>{formatCurrency(data.customer.balance ?? 0)}</td>
+                  </tr>
+                </tfoot>
+              );
+            })()}
           </table>
         </div>
       </div>

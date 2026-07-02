@@ -409,6 +409,8 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
   const addr = fullAddress(doc.customer);
   const period = doc.fromDate && doc.toDate ? `${formatDate(doc.fromDate)} — ${formatDate(doc.toDate)}` : tr('كل الفترات');
+  // عدد الأصناف المباعة (مجموع الكميات) — يظهر في صف الإجماليات أسفل الكشف
+  const soldItems = doc.entries.reduce((s, e) => s + (e.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
 
   return (
     <div ref={ref} style={PAGE}>
@@ -474,7 +476,9 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
         </tbody>
         <tfoot>
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
-            <td style={{ ...td, textAlign: 'center', borderTop: `2px solid ${brand}` }} colSpan={4}>{tr('الإجماليات')}</td>
+            <td style={{ ...td, textAlign: 'center', borderTop: `2px solid ${brand}` }} colSpan={2}>{tr('الإجماليات')}</td>
+            <td style={{ ...td, textAlign: 'right', borderTop: `2px solid ${brand}` }}>{soldItems} {tr('صنف مباع')}</td>
+            <td style={{ ...td, borderTop: `2px solid ${brand}` }}>-</td>
             <td style={{ ...td, color: '#dc2626', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalDebit)}</td>
             <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalCredit)}</td>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.finalBalance)}</td>

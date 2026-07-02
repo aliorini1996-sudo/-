@@ -261,6 +261,8 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'السعر الأساسي': { en: 'Base price', fr: 'Prix de base' },
   'الضريبة %': { en: 'Tax %', fr: 'TVA %' },
   'صنف': { en: 'item', fr: 'article' },
+  'صنف مباع': { en: 'items sold', fr: 'articles vendus' },
+  'حركة': { en: 'entries', fr: 'écritures' },
   'تم التحديث': { en: 'Updated', fr: 'Mis à jour' },
   'تم الإضافة': { en: 'Added', fr: 'Ajouté' },
   // لوحة التحكم

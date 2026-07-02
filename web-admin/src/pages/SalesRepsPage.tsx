@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { formatCurrency, formatDate, statusLabels, paymentMethodLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatNumber, statusLabels, paymentMethodLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 
@@ -314,6 +314,9 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const periodLabel = from && to ? `${formatDate(from)} — ${formatDate(to)}` : tr('كل الفترات');
   // ملخّص أصناف الفاتورة: «اسم ×كمية، …» (لعمود الأصناف في الكشف)
   const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ');
+  // إجماليات أسفل الكشف: مجموع مبالغ الفواتير + عدد الأصناف المباعة (مجموع الكميات)
+  const invoicesAmountTotal = invoices.reduce((s, i) => s + Number(i.total), 0);
+  const soldItemsCount = invoices.reduce((s, i) => s + (i.items || []).reduce((a, it) => a + Number(it.qty), 0), 0);
 
   // تصدير الكشف إلى Excel (3 أوراق: ملخص، فواتير، سندات)
   const exportRep = async () => {
@@ -331,7 +334,13 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
       [tr('الأصناف')]: itemsText(i),
       [tr('النوع')]: tr(statusLabels[i.type] || i.type),
       [tr('التاريخ')]: formatDate(i.invoiceDate), [tr('الإجمالي')]: num(i.total), [tr('المدفوع')]: num(i.paidAmt), [tr('المتبقي')]: num(i.remainingAmt),
-    }));
+    })) as Record<string, string | number>[];
+    // صف الإجمالي أسفل جدول الفواتير
+    if (invoices.length) invRows.push({
+      [tr('رقم الفاتورة')]: tr('الإجمالي'), [tr('العميل')]: '',
+      [tr('الأصناف')]: `${soldItemsCount} ${tr('صنف مباع')}`,
+      [tr('النوع')]: '', [tr('التاريخ')]: '', [tr('الإجمالي')]: num(invoicesAmountTotal), [tr('المدفوع')]: '', [tr('المتبقي')]: '',
+    });
     const rcpRows = receipts.map(r => ({
       [tr('رقم السند')]: r.number, [tr('العميل')]: r.customer.name,
       [tr('طريقة الدفع')]: tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod),
@@ -375,7 +384,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
         <div class="card"><div class="v">${num(salesTotal - returnsTotal).toFixed(2)}</div><div class="k">${tr('صافي المبيعات')}</div></div>
       </div>
       <h2>${tr('الفواتير')} (${invoices.length})</h2>
-      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody></table>
+      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody>${invoices.length ? `<tfoot><tr style="background:#FAF7F0;font-weight:700;border-top:2px solid #E15A30"><td colspan=3>${tr('الإجمالي')}</td><td>${soldItemsCount} ${tr('صنف مباع')}</td><td colspan=2>${invoices.length} ${tr('فاتورة')}</td><td style="text-align:left">${num(invoicesAmountTotal).toFixed(2)}</td></tr></tfoot>` : ''}</table>
       <h2>${tr('سندات القبض')} (${receipts.length})</h2>
       <table><thead><tr><th>#</th><th>${tr('رقم السند')}</th><th>${tr('العميل')}</th><th>${tr('الطريقة')}</th><th>${tr('التاريخ')}</th><th>${tr('المبلغ')}</th></tr></thead><tbody>${rcpRows || `<tr><td colspan=6>${tr('لا توجد سندات')}</td></tr>`}</tbody></table>
     </body></html>`;
@@ -452,6 +461,16 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                           </tr>
                         ))}
                     </tbody>
+                    {invoices.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-[#FAF7F0] font-bold border-t-2 border-[#E15A30]">
+                          <td colSpan={2} className="text-[#1F1A13]">{tr('الإجمالي')}</td>
+                          <td className="text-[#1F1A13]">{formatNumber(soldItemsCount)} {tr('صنف مباع')}</td>
+                          <td colSpan={2} className="text-xs text-gray-500">{invoices.length} {tr('فاتورة')}</td>
+                          <td className="text-[#E15A30]">{formatCurrency(invoicesAmountTotal)}</td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
