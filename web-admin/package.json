@@ -21,7 +21,7 @@
     "axios": "^1.7.2",
     "date-fns": "^3.6.0",
     "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.1",
+    "jspdf": "^4.2.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.399.0",
     "qrcode": "^1.5.4",
@@ -34,7 +34,7 @@
     "react-router-dom": "^6.24.1",
     "recharts": "^2.12.7",
     "socket.io-client": "^4.7.5",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.23.8",
     "zustand": "^4.5.4"
   },
@@ -49,5 +49,8 @@
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.2",
     "vite": "^5.3.2"
+  },
+  "overrides": {
+    "dompurify": "^3.4.11"
   }
 }

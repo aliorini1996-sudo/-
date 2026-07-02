@@ -11,8 +11,9 @@ services:
     rootDir: backend
     plan: free
     buildCommand: npm install && npx prisma generate && npm run build
-    # db push (إضافي وآمن، بلا --accept-data-loss فيتوقّف عند أي تغيير مدمّر) لتطبيق تغييرات المخطط عند النشر
-    startCommand: npx prisma db push --accept-data-loss && node dist/index.js
+    # db push بلا --accept-data-loss: يطبّق التغييرات الإضافية فقط، ويُفشل النشر عند أي تغيير مدمّر
+    # (حذف عمود/جدول) بدل تنفيذه صامتاً على بيانات الإنتاج — التغيير المدمّر يتطلّب migration مقصودة.
+    startCommand: npx prisma db push && node dist/index.js
     envVars:
       - key: DATABASE_URL
         fromDatabase:
