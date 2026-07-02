@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { POSTS } from '../blog/posts';
+import { listArticles, buildCatalog, COUNTRIES } from '../blog/seo/catalog.mjs';
 import {
   X, Search, TrendingUp, CheckCircle2, AlertTriangle, ExternalLink,
   Globe, Languages, MapPin, FileText, Share2, Zap, RefreshCw, Link2,
@@ -12,13 +13,13 @@ const GSC = 'https://search.google.com/search-console?resource_id=sc-domain:fiel
 
 interface Probe {
   loading: boolean;
-  sitemapUrls: number; enUrls: number; hreflang: number; blogUrls: number; lastmod: string;
+  sitemapUrls: number; enUrls: number; frUrls: number; hreflang: number; blogUrls: number; images: number; lastmod: string;
   robots: boolean; favicon: boolean; gscMeta: boolean;
 }
 
 // شاشة متابعة تحسين محرّك البحث (SEO) — لمالك المنصّة
 export default function SeoDashboard({ onClose }: { onClose: () => void }) {
-  const [p, setP] = useState<Probe>({ loading: true, sitemapUrls: 0, enUrls: 0, hreflang: 0, blogUrls: 0, lastmod: '', robots: false, favicon: false, gscMeta: false });
+  const [p, setP] = useState<Probe>({ loading: true, sitemapUrls: 0, enUrls: 0, frUrls: 0, hreflang: 0, blogUrls: 0, images: 0, lastmod: '', robots: false, favicon: false, gscMeta: false });
 
   const { data: content } = useQuery({
     queryKey: ['site-content'],
@@ -31,7 +32,7 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      let sitemapUrls = 0, enUrls = 0, hreflang = 0, blogUrls = 0, lastmod = '';
+      let sitemapUrls = 0, enUrls = 0, frUrls = 0, hreflang = 0, blogUrls = 0, images = 0, lastmod = '';
       let robots = false, favicon = false;
       try {
         const sm = await fetch('/sitemap.xml', { cache: 'no-store' });
@@ -39,8 +40,10 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
           const x = await sm.text();
           sitemapUrls = (x.match(/<loc>/g) || []).length;
           enUrls = (x.match(/fieldsa\.net\/en/g) || []).length;
+          frUrls = (x.match(/fieldsa\.net\/fr/g) || []).length;
           hreflang = (x.match(/hreflang=/g) || []).length;
           blogUrls = (x.match(/\/blog\//g) || []).length;
+          images = (x.match(/<image:loc>/g) || []).length;
           const lm = [...x.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1]).sort();
           lastmod = lm[lm.length - 1] || '';
         }
@@ -48,24 +51,29 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
       try { const r = await fetch('/robots.txt', { cache: 'no-store' }); robots = r.ok; } catch { /* تجاهل */ }
       try { const f = await fetch('/favicon.ico', { cache: 'no-store' }); favicon = f.ok && /icon/.test(f.headers.get('content-type') || ''); } catch { /* تجاهل */ }
       const gscMeta = !!document.querySelector('meta[name="google-site-verification"]');
-      if (alive) setP({ loading: false, sitemapUrls, enUrls, hreflang, blogUrls, lastmod, robots, favicon, gscMeta });
+      if (alive) setP({ loading: false, sitemapUrls, enUrls, frUrls, hreflang, blogUrls, images, lastmod, robots, favicon, gscMeta });
     })();
     return () => { alive = false; };
   }, []);
 
-  const totalArticles = POSTS.length;
-  const bilingual = POSTS.filter((x) => x.en).length;
+  const seoArticles = buildCatalog().length;           // مقالات مولَّدة برمجياً (ثلاثية اللغة)
+  const bilingual = POSTS.filter((x) => x.en).length;  // مقالات يدوية ثنائية اللغة
+  const totalArticles = POSTS.length + seoArticles;    // إجمالي المقالات
+  const arabCountries = COUNTRIES.length;              // دول عربية لكلٍّ مقالات مخصّصة
 
   // قائمة تحقّق صحّة الـSEO
   const checks: { label: string; ok: boolean; detail?: string; hint?: string }[] = [
     { label: 'خريطة موقع محدّثة', ok: p.sitemapUrls > 0, detail: `${p.sitemapUrls} رابط` },
-    { label: 'روابط دولية hreflang (عربي/إنجليزي)', ok: p.hreflang > 0, detail: `${p.hreflang} رابط` },
+    { label: 'روابط دولية hreflang (عربي/إنجليزي/فرنسي)', ok: p.hreflang > 0, detail: `${p.hreflang} رابط` },
     { label: 'نسخة إنجليزية منفصلة /en', ok: p.enUrls > 0 },
+    { label: 'نسخة فرنسية منفصلة /fr', ok: p.frUrls > 0 },
     { label: 'ملف robots.txt', ok: p.robots },
     { label: 'أيقونة الموقع (favicon)', ok: p.favicon },
     { label: 'عناوين ووصف فريدة لكل صفحة', ok: true },
     { label: 'بيانات منظّمة (Schema)', ok: true, detail: '12 خدمة · 50 دولة' },
-    { label: 'مدوّنة ثنائية اللغة', ok: bilingual > 0, detail: `${bilingual} مقال ثنائي` },
+    { label: 'مدوّنة ثلاثية اللغة (ع/إ/فر)', ok: seoArticles > 0, detail: `${seoArticles} مقال بثلاث لغات` },
+    { label: 'بطاقات صور احترافية (OG)', ok: true, detail: `${seoArticles * 3} بطاقة · 3 لغات` },
+    { label: 'خريطة صور Google (image sitemap)', ok: p.images > 0, detail: `${p.images} صورة` },
     { label: 'أزرار مشاركة اجتماعية', ok: true },
     { label: 'تحقّق Google Search Console', ok: p.gscMeta },
     { label: 'ربط الحسابات الاجتماعية (sameAs)', ok: socialCount > 0, hint: socialCount === 0 ? 'املأ روابط التواصل من «محتوى الصفحة»' : undefined },
@@ -117,9 +125,9 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Kpi icon={Link2} value={p.loading ? '—' : String(p.sitemapUrls)} label="روابط في الخريطة" />
-              <Kpi icon={FileText} value={`${totalArticles}`} label={`مقالات (${bilingual} ثنائية)`} />
-              <Kpi icon={Languages} value="2" label="لغتان (عربي/EN)" />
-              <Kpi icon={MapPin} value="50" label="دولة مستهدفة" />
+              <Kpi icon={FileText} value={`${totalArticles}`} label={`مقال (${seoArticles} بـ3 لغات)`} />
+              <Kpi icon={Languages} value="3" label="لغات · عربي/إنجليزي/فرنسي" />
+              <Kpi icon={MapPin} value={`${arabCountries}`} label="دولة عربية مستهدفة" />
             </div>
           </div>
 
@@ -146,18 +154,18 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
           <div className="bg-white border border-[#E9E1D3] rounded-2xl p-4">
             <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={16} className="text-[#E15A30]" /> نموّ المحتوى</h3>
             <div className="space-y-2">
-              {POSTS.slice(0, 5).map((a) => (
+              {listArticles('ar').slice(0, 6).map((a) => (
                 <div key={a.slug} className="flex items-center gap-2 text-[13px]">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#E15A30] shrink-0" />
                   <span className="text-[#1F1A13] truncate flex-1">{a.title}</span>
-                  {a.en && <span className="text-[10px] text-[#1E7A52] bg-green-50 rounded px-1.5 py-0.5 shrink-0">EN</span>}
+                  <span className="text-[10px] text-[#1E7A52] bg-green-50 rounded px-1.5 py-0.5 shrink-0">ع/إ/فر</span>
                   <span className="text-[11px] text-[#9A8F7E] shrink-0">{a.date}</span>
                 </div>
               ))}
             </div>
             <div className="mt-3 pt-3 border-t border-[#F1EBDF] flex items-center gap-2 text-[12px] text-[#6E6557]">
               <Globe size={14} className="text-[#E15A30]" />
-              أضف مقالًا كل أسبوع من «محتوى الصفحة ← المدوّنة» — يدخل الفهرسة آليًا خلال يوم.
+              مدوّنتك تضمّ {seoArticles} مقالًا مولّدًا لكل الدول العربية بثلاث لغات + مقالاتك اليدوية — كلها في الخريطة والفهرسة الآلية اليومية.
             </div>
           </div>
 

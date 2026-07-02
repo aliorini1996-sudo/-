@@ -122,7 +122,8 @@ async function main() {
   }
 
   // مقالات SEO المولَّدة برمجياً (ثلاثية اللغة) — تستهدف كل الدول العربية.
-  // لكل مقال: رابط عربي + رابط ثانٍ (فرنسي للدول الفرنكوفونية، وإلا إنجليزي)، وكلاهما يحمل بدائل hreflang (ع/إ/فر).
+  // لكل مقال: رابط <loc> لكل لغة من الثلاث (ع/إ/فر) — ليتطابق مع بدائل hreflang،
+  // مع صورة البطاقة المُوطّنة لكل لغة في خريطة صور Google.
   const seo = buildCatalog();
   let seoUrlCount = 0;
   for (const a of seo) {
@@ -133,10 +134,11 @@ async function main() {
       `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr${p}"/>`,
       `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}"/>`,
     ].join('\n');
-    urls.push(urlEntry(ORIGIN + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-ar.jpg` }));
-    const secondLang = a.fr ? 'fr' : 'en';
-    urls.push(urlEntry(ORIGIN + '/' + secondLang + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${secondLang}.jpg` }));
-    seoUrlCount += 2;
+    for (const L of ['ar', 'en', 'fr']) {
+      const loc = ORIGIN + (L === 'ar' ? '' : '/' + L) + p;
+      urls.push(urlEntry(loc, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
+      seoUrlCount++;
+    }
   }
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${urls.join('\n')}\n</urlset>\n`;
