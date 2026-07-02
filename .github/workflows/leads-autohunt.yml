@@ -1,8 +1,8 @@
 name: FieldSales — صيد مستمر للعملاء المحتملين
 
-# يشغّل دفعة صيد كل 30 دقيقة (يولّد كلمات جديدة ويبحث بها) — بلا توقّف 24/7.
-# يتطلّب سرّ AUTO_HUNT_TOKEN (نفس القيمة المضبوطة في متغيّرات Render env).
-# لا يجمع إلا إذا فُعّل «الصيد التلقائي 24/7» من لوحة المالك (enabled=true).
+# يشغّل دفعة صيد كل 30 دقيقة — يجمع تلقائياً بلا توقّف 24/7.
+# لا يتطلّب أي أسرار: يكفي تفعيل «الصيد التلقائي 24/7» من لوحة المالك (enabled=true).
+# (اختياري) إن ضُبط AUTO_HUNT_TOKEN في الخادم + كسرّ هنا، يُرسَل للتحقّق الإضافي.
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -16,27 +16,18 @@ jobs:
         env:
           TOKEN: ${{ secrets.AUTO_HUNT_TOKEN }}
         run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::error::سرّ AUTO_HUNT_TOKEN غير مضبوط في GitHub → Settings → Secrets and variables → Actions."
-            exit 1
-          fi
           code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST \
             https://api.fieldsa.net/api/leads-cron/run \
-            -H "x-autohunt-token: $TOKEN" \
+            -H "x-autohunt-token: ${TOKEN}" \
             --max-time 300)
           echo "HTTP $code"
-          cat /tmp/out.json || true
-          echo ""
-          if [ "$code" = "401" ]; then
-            echo "::error::التوكن مرفوض (401) — تأكّد أن AUTO_HUNT_TOKEN في GitHub يطابق قيمته في Render env تماماً."
-            exit 1
-          fi
+          cat /tmp/out.json; echo ""
           if [ "$code" != "200" ]; then
             echo "::error::استجابة غير متوقّعة ($code) من الخادم."
             exit 1
           fi
           if grep -q '"skipped":true' /tmp/out.json; then
-            echo "::warning::الصيد التلقائي متوقّف (enabled=false) — فعّله من لوحة "الصيد المستمر"."
+            echo "ℹ️ تُخطّيت الدفعة (متوقّف أو دفعة حديثة) — طبيعي."
           else
             imported=$(python3 -c "import json;print(json.load(open('/tmp/out.json'))['data']['imported'])" 2>/dev/null || echo '?')
             echo "✅ تمت دفعة الصيد — أُضيف: $imported عميل."

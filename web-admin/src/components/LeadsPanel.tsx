@@ -794,7 +794,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
 
         <label className="flex items-center gap-2 text-sm bg-amber-50 rounded-lg p-2.5 text-amber-800">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
-          تفعيل الصيد التلقائي 24/7 (عبر الجدولة الخارجية — يتطلب توكن في الخادم + workflow)
+          تفعيل الصيد التلقائي 24/7 — يعمل وحده كل 30 دقيقة عبر الجدولة (بلا إعداد إضافي)
         </label>
 
         <div>
@@ -835,7 +835,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
           <label className="flex items-center gap-2"><input type="checkbox" checked={cfg.enrichHunter} onChange={(e) => save({ enrichHunter: e.target.checked })} /> + Hunter</label>
         </div>
 
-        <p className="text-xs text-gray-400">💡 «تشغيل مستمر الآن» يعمل ما دامت النافذة مفتوحة. للعمل 24/7 بلا متصفّح، فعّل الخيار الكهرماني واضبط الجدولة.</p>
+        <p className="text-xs text-gray-400">💡 «تشغيل مستمر الآن» يعمل ما دامت النافذة مفتوحة. للعمل 24/7 بلا متصفّح، يكفي تفعيل الخيار الكهرماني — الجدولة تعمل تلقائياً كل 30 دقيقة.</p>
         <div className="flex justify-end pt-1">
           <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
         </div>
