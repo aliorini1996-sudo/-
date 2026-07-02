@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Clock, Calendar } from 'lucide-react';
@@ -51,17 +52,21 @@ export default function BlogIndexPage() {
     read: tr('دقائق قراءة', 'min read', 'min de lecture'),
     cta: tr('اقرأ المقال', 'Read article', "Lire l'article"),
     byCountry: tr('تصفّح حسب الدولة', 'Browse by country', 'Parcourir par pays'),
-    latest: tr('أحدث المقالات', 'Latest articles', 'Derniers articles'),
+    latest: tr('كل المقالات', 'All articles', 'Tous les articles'),
+    count: tr('مقال', 'articles', 'articles'),
+    loadMore: tr('تحميل المزيد', 'Load more', 'Charger plus'),
   };
 
+  const [shown, setShown] = useState(60);
   // المقالات المكتوبة يدوياً (عربي/إنجليزي فقط) + المقالات المولَّدة برمجياً (ثلاثية اللغة)
   const handCards: Card[] = lang === 'fr' ? [] : posts.map((p) => {
     const v = postView(p, lang === 'en' ? 'en' : 'ar');
     return { slug: p.slug, title: v.title, excerpt: v.excerpt, date: p.date, readMinutes: p.readMinutes };
   });
   const seoCards: Card[] = listArticles(lang).map((a) => ({ slug: a.slug, title: a.title, excerpt: a.excerpt, date: a.date, readMinutes: a.readMinutes, img: `/og/${a.slug}-${lang}.jpg` }));
-  // نعرض اليدوية أولاً ثم أحدث المولَّدة (نحدّ العدد المعروض حفاظاً على سرعة الصفحة — البقية عبر sitemap والروابط الداخلية)
-  const cards: Card[] = [...handCards, ...seoCards].slice(0, 66);
+  // كل المقالات مرتّبة بالأحدث؛ عرض تدريجي بزر «تحميل المزيد» حفاظاً على سرعة أوّل تحميل (الصور كسولة)
+  const allCards: Card[] = [...handCards, ...seoCards].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const cards: Card[] = allCards.slice(0, shown);
 
   const countryName = (c: { ar: string; en: string; fr: string }) => (lang === 'ar' ? c.ar : lang === 'en' ? c.en : c.fr);
 
@@ -105,7 +110,10 @@ export default function BlogIndexPage() {
           </div>
         </section>
 
-        <h2 className="text-sm font-bold text-[#1F1A13] mb-4">{t.latest}</h2>
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="text-sm font-bold text-[#1F1A13]">{t.latest}</h2>
+          <span className="text-xs text-[#9A8F7E] font-semibold">{allCards.length} {t.count}</span>
+        </div>
         <div className="grid gap-5">
           {cards.map((post) => (
             <Link key={post.slug} to={`${prefix}/blog/${post.slug}`}
@@ -126,6 +134,15 @@ export default function BlogIndexPage() {
             </Link>
           ))}
         </div>
+
+        {shown < allCards.length && (
+          <div className="text-center mt-10">
+            <button onClick={() => setShown((s) => s + 60)}
+              className="inline-flex items-center gap-2 bg-white border border-[#E9E1D3] hover:border-[#E8C9BC] text-[#1F1A13] font-bold px-7 py-3 rounded-xl transition-colors">
+              {t.loadMore} <span className="text-[#9A8F7E] font-semibold">({allCards.length - shown})</span>
+            </button>
+          </div>
+        )}
       </main>
 
       <footer className="border-t border-[#E9E1D3] py-6 text-center text-xs text-[#9A8F7E]">
