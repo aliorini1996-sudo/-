@@ -167,6 +167,9 @@ export const leadApi = {
   huntConfig: () => api.get('/leads/auto-hunt'),
   huntUpdate: (data: unknown) => api.put('/leads/auto-hunt', data),
   huntRun: () => api.post('/leads/auto-hunt/run'),
+  autoEmailConfig: () => api.get('/leads/auto-email'),
+  autoEmailUpdate: (data: unknown) => api.put('/leads/auto-email', data),
+  autoEmailRun: () => api.post('/leads/auto-email/run'),
   import: (leads: unknown[]) => api.post('/leads/import', { leads }),
   exportUrl: () => `${BASE}/leads/export/csv`,
 };

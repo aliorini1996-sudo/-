@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { runAutoHuntBatch, getHuntConfig } from '../services/leadHunter';
+import { runAutoEmailBatch, getEmailConfig } from '../services/leadEmailer';
 
 // نقطة الصيد المستمر للجدولة الخارجية (GitHub Actions).
 // بلا إعداد أسرار: تعمل فقط إذا فُعّل الصيد من اللوحة (enabled)، مع حارس فاصل زمني
@@ -34,6 +35,30 @@ router.post('/run', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     const result = await runAutoHuntBatch('auto-hunt (cron)');
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// دفعة بريد تلقائي (للجدولة) — نفس منطق الحماية: enabled + توكن اختياري + فاصل زمني
+router.post('/email', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const cfg = await getEmailConfig();
+    if (!cfg.enabled) {
+      res.json({ success: true, skipped: true, message: 'البريد التلقائي متوقّف (فعّله من اللوحة)' });
+      return;
+    }
+    const token = (process.env.AUTO_HUNT_TOKEN || '').trim();
+    if (token) {
+      const provided = (req.headers['x-autohunt-token'] as string || '').trim();
+      if (provided !== token) { res.status(401).json({ success: false, message: 'توكن غير صالح' }); return; }
+    }
+    if (cfg.lastRunAt && Date.now() - new Date(cfg.lastRunAt).getTime() < MIN_INTERVAL_MS) {
+      res.json({ success: true, skipped: true, message: 'دفعة حديثة — تخطّي' });
+      return;
+    }
+    const result = await runAutoEmailBatch();
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

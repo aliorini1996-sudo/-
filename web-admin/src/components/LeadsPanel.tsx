@@ -58,6 +58,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const [showWhats, setShowWhats] = useState(false);
   const [showEnrich, setShowEnrich] = useState(false);
   const [showHunt, setShowHunt] = useState(false);
+  const [showAutoEmail, setShowAutoEmail] = useState(false);
 
   const { data: stats } = useQuery({
     queryKey: ['lead-stats'],
@@ -165,6 +166,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>
           <button onClick={() => setShowEnrich(true)} className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700"><Wand2 size={14} className="inline ml-1" /> إثراء البيانات</button>
           <button onClick={() => setShowHunt(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1F1A13] text-white hover:bg-[#2c2620]"><Repeat size={14} className="inline ml-1" /> صيد مستمر</button>
+          <button onClick={() => setShowAutoEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تلقائي</button>
           <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
           <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>
           <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
@@ -228,6 +230,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
       {showWhats && <WhatsAppModal filters={filters} onClose={() => setShowWhats(false)} onDone={refresh} />}
       {showEnrich && <EnrichModal filters={filters} onClose={() => setShowEnrich(false)} onDone={refresh} />}
       {showHunt && <AutoHuntModal onClose={() => setShowHunt(false)} onDone={refresh} />}
+      {showAutoEmail && <AutoEmailModal onClose={() => setShowAutoEmail(false)} onDone={refresh} />}
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
     </div>
   );
@@ -837,6 +840,127 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
 
         <p className="text-xs text-gray-400">💡 «تشغيل مستمر الآن» يعمل ما دامت النافذة مفتوحة. للعمل 24/7 بلا متصفّح، يكفي تفعيل الخيار الكهرماني — الجدولة تعمل تلقائياً كل 30 دقيقة.</p>
         <div className="flex justify-end pt-1">
+          <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ----------------------------- بريد تلقائي مستمر ----------------------------- //
+type EmailConfig = {
+  enabled: boolean; subject: string; body: string; batchSize: number; dailyCap: number;
+  stage: string | null; source: string | null; countryCode: string | null;
+  sentToday: number; totalSent: number; lastRunAt: string | null;
+};
+
+function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [cfg, setCfg] = useState<EmailConfig | null>(null);
+  const [live, setLive] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const liveRef = useRef(false);
+
+  const { data: emailStatus } = useQuery({
+    queryKey: ['email-status'],
+    queryFn: async () => (await leadApi.emailStatus()).data.data as { provider: string; dailyCap: number },
+  });
+
+  useEffect(() => { leadApi.autoEmailConfig().then((r) => setCfg(r.data.data as EmailConfig)); }, []);
+
+  const save = async (patch: Partial<EmailConfig>) => {
+    const res = await leadApi.autoEmailUpdate(patch);
+    setCfg(res.data.data as EmailConfig);
+  };
+
+  const runOnce = async () => {
+    try {
+      const res = await leadApi.autoEmailRun();
+      const d = res.data.data as { sent: number; failed: number; remainingToday: number; targeted: number; errors?: string[] };
+      setLog((l) => [`${new Date().toLocaleTimeString()} · أُرسل ${d.sent}${d.failed ? ` · فشل ${d.failed}` : ''} · متبقٍ اليوم ${d.remainingToday}`, ...l].slice(0, 25));
+      if (d.errors && d.errors.length) setLog((l) => [`⚠️ ${d.errors!.join(' | ')}`, ...l].slice(0, 25));
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['lead-stats'] });
+      onDone();
+      leadApi.autoEmailConfig().then((r) => setCfg(r.data.data as EmailConfig));
+    } catch (e) {
+      setLog((l) => [`⚠️ فشل: ${(e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ'}`, ...l].slice(0, 25));
+    }
+  };
+
+  useEffect(() => {
+    liveRef.current = live;
+    if (!live) return;
+    let cancelled = false;
+    (async () => {
+      while (liveRef.current && !cancelled) {
+        await runOnce();
+        await new Promise((r) => setTimeout(r, 90000));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live]);
+
+  if (!cfg) return <Modal title="بريد تلقائي مستمر" onClose={onClose}><div className="py-8 text-center text-gray-400">جارٍ التحميل...</div></Modal>;
+
+  return (
+    <Modal title="بريد تلقائي مستمر — إرسال بلا توقّف" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="bg-[#1E7A52] text-white rounded-lg p-3 text-sm">
+          يرسل دفعات بريد تلقائياً لمن لديه بريد ولم يُراسَل — مع حدّ يومي يحمي سمعتك.
+          <div className="flex gap-4 mt-2 text-xs text-green-100">
+            <span>أُرسل اليوم: <b className="text-white">{cfg.sentToday}</b> / {cfg.dailyCap}</span>
+            <span>الإجمالي: <b className="text-white">{cfg.totalSent}</b></span>
+            <span>المُرسِل: {emailStatus?.provider === 'brevo' ? 'Brevo' : 'Resend'} (~{emailStatus?.dailyCap ?? 100}/يوم)</span>
+          </div>
+        </div>
+
+        <div className={`rounded-lg p-3 border ${live ? 'border-green-400 bg-green-50' : 'border-[#E9E1D3]'}`}>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
+            {live ? '🟢 إرسال مستمر جارٍ الآن (دفعة كل 90 ثانية أثناء فتح النافذة)' : 'إرسال مستمر الآن (أثناء فتح النافذة)'}
+          </label>
+          <div className="flex gap-2 mt-2">
+            <button onClick={runOnce} className="px-3 py-1.5 rounded-lg text-sm bg-[#1E7A52] text-white">أرسل دفعة الآن</button>
+          </div>
+          {log.length > 0 && (
+            <div className="mt-2 max-h-32 overflow-y-auto text-xs bg-white rounded border border-[#E9E1D3] p-2 space-y-1">
+              {log.map((l, i) => <div key={i} className="text-gray-600">{l}</div>)}
+            </div>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 text-sm bg-amber-50 rounded-lg p-2.5 text-amber-800">
+          <input type="checkbox" checked={cfg.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
+          تفعيل البريد التلقائي 24/7 — يرسل وحده عبر الجدولة (بلا إعداد إضافي)
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">حجم الدفعة</label>
+            <input type="number" min={1} max={100} value={cfg.batchSize} onChange={(e) => save({ batchSize: Math.max(1, Math.min(100, Number(e.target.value) || 20)) })} className="input w-24" />
+          </div>
+          <div>
+            <label className="label">الحدّ اليومي</label>
+            <input type="number" min={1} max={300} value={cfg.dailyCap} onChange={(e) => save({ dailyCap: Math.max(1, Math.min(300, Number(e.target.value) || 80)) })} className="input w-24" />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">الموضوع</label>
+          <input value={cfg.subject} onChange={(e) => setCfg({ ...cfg, subject: e.target.value })} onBlur={() => save({ subject: cfg.subject })} className="input" />
+        </div>
+        <div>
+          <label className="label">نص الرسالة (عربي/إنجليزي · {'{{name}}'} للتخصيص)</label>
+          <textarea value={cfg.body} onChange={(e) => setCfg({ ...cfg, body: e.target.value })} onBlur={() => save({ body: cfg.body })} rows={7} className="input" />
+        </div>
+
+        <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
+          ⚠️ الإرسال البارد الجماعي قد يؤثّر على سمعة نطاقك ويُصنَّف Spam. أبقِ الحدّ اليومي منخفضاً ووثّق نطاقك (DKIM) لأفضل وصول.
+        </p>
+        <p className="text-xs text-gray-400">💡 للعمل 24/7 بلا متصفّح، فعّل الخيار الكهرماني — الجدولة ترسل دفعات تلقائياً حتى بلوغ الحدّ اليومي.</p>
+        <div className="flex justify-end">
           <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
         </div>
       </div>
