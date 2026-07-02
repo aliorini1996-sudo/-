@@ -4,6 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { buildCatalog } from '../src/blog/seo/catalog.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -95,10 +96,16 @@ async function main() {
     urls.push(urlEntry(ORIGIN + '/fr' + suffix, { freq: r.freq, priority: r.priority, alternates }));
   }
 
-  // فهرس المدوّنة (عربي + /en مع hreflang)
-  const idxAlt = blogAlt('/blog');
+  // فهرس المدوّنة (عربي + /en + /fr مع hreflang)
+  const idxAlt = [
+    `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}/blog"/>`,
+    `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en/blog"/>`,
+    `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr/blog"/>`,
+    `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog"/>`,
+  ].join('\n');
   urls.push(urlEntry(ORIGIN + '/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
   urls.push(urlEntry(ORIGIN + '/en/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
+  urls.push(urlEntry(ORIGIN + '/fr/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
 
   // المقالات: ثنائية اللغة تُنشر بنسختين مع hreflang؛ والعربية فقط بنسخة واحدة
   for (const p of posts) {
@@ -112,9 +119,27 @@ async function main() {
     }
   }
 
+  // مقالات SEO المولَّدة برمجياً (ثلاثية اللغة) — تستهدف كل الدول العربية.
+  // لكل مقال: رابط عربي + رابط ثانٍ (فرنسي للدول الفرنكوفونية، وإلا إنجليزي)، وكلاهما يحمل بدائل hreflang (ع/إ/فر).
+  const seo = buildCatalog();
+  let seoUrlCount = 0;
+  for (const a of seo) {
+    const p = `/blog/${a.slug}`;
+    const seoAlt = [
+      `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}${p}"/>`,
+      `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}"/>`,
+      `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr${p}"/>`,
+      `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}"/>`,
+    ].join('\n');
+    urls.push(urlEntry(ORIGIN + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt }));
+    const second = a.fr ? '/fr' : '/en';
+    urls.push(urlEntry(ORIGIN + second + p, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt }));
+    seoUrlCount += 2;
+  }
+
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls.join('\n')}\n</urlset>\n`;
   fs.writeFileSync(path.join(ROOT, 'public/sitemap.xml'), xml);
-  console.log(`✅ sitemap.xml: ${urls.length} رابط (${I18N_ROUTES.length * 3} تسويقية ع/إ/فر + 1 فهرس مدوّنة + ${posts.length} مقال)`);
+  console.log(`✅ sitemap.xml: ${urls.length} رابط (${I18N_ROUTES.length * 3} تسويقية + فهرس مدوّنة ع/إ/فر + ${posts.length} مقال يدوي + ${seoUrlCount} رابط مقالات SEO مولَّدة لِـ${seo.length} مقال تستهدف كل الدول العربية)`);
 }
 
 // لا يُفشل البناء أبداً — عند أي خطأ يبقى sitemap.xml الحالي كما هو

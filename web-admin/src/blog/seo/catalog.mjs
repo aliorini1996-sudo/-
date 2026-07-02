@@ -1,0 +1,463 @@
+// ============================================================================
+// مولّد مقالات SEO البرمجي (Programmatic SEO) — مصدر واحد للتطبيق ولخريطة الموقع.
+// ----------------------------------------------------------------------------
+// يولّد مئات المقالات الفريدة (عربي/إنجليزي/فرنسي) المستهدِفة لكل الدول العربية،
+// من قوالب موضوعات × سجلّ دول × ثلاث لغات. المحتوى يُبنى وقت العرض (لا يُخزَّن كاملاً)
+// حتى لا يتضخّم حجم الحزمة. كل مقال مُميَّز ببيانات دولته (العملة، جهة الضريبة،
+// النسبة، المدن، العاصمة) لتفادي التكرار (doorway pages) وإعطاء قيمة حقيقية.
+//
+// ⚠️ ملاحظة: النِّسب الضريبية وحالات الفوترة الإلكترونية إرشادية وتتغيّر —
+// المحتوى يذكّر القارئ بمراجعة مستشار محلي. لا يُروَّج لأي ميزة غير موجودة فعلاً.
+// ============================================================================
+
+export const LANGS = /** @type {const} */ (['ar', 'en', 'fr']);
+export const ORIGIN = 'https://fieldsa.net';
+
+// أداة اختيار النص حسب اللغة
+const P = (L, ar, en, fr) => (L === 'ar' ? ar : L === 'en' ? en : fr);
+
+// ----------------------------------------------------------------------------
+// سجلّ الدول العربية (الجامعة العربية) — بيانات ثلاثية اللغة لتفريد المحتوى.
+// vat: نسبة ضريبة القيمة المضافة (null = لا تُطبَّق بعد). tax: جهة الضريبة.
+// ----------------------------------------------------------------------------
+export const COUNTRIES = [
+  { code: 'SA', ar: 'السعودية', en: 'Saudi Arabia', fr: 'Arabie saoudite', inAr: 'في السعودية', inEn: 'in Saudi Arabia', inFr: 'en Arabie saoudite', cap: { ar: 'الرياض', en: 'Riyadh', fr: 'Riyad' }, cities: [{ ar: 'جدة', en: 'Jeddah', fr: 'Djeddah' }, { ar: 'الدمام', en: 'Dammam', fr: 'Dammam' }], cur: { ar: 'الريال السعودي', en: 'Saudi Riyal (SAR)', fr: 'le riyal saoudien' }, vat: 15, tax: { ar: 'هيئة الزكاة والضريبة والجمارك (ZATCA)', en: 'ZATCA', fr: 'la ZATCA' }, einv: { ar: 'الفوترة الإلكترونية «فاتورة» مُطبَّقة على مرحلتين', en: 'ZATCA e-invoicing (Fatoora) is mandatory in two phases', fr: 'la facturation électronique ZATCA (Fatoora) est obligatoire' } },
+  { code: 'EG', ar: 'مصر', en: 'Egypt', fr: 'Égypte', inAr: 'في مصر', inEn: 'in Egypt', inFr: 'en Égypte', cap: { ar: 'القاهرة', en: 'Cairo', fr: 'Le Caire' }, cities: [{ ar: 'الإسكندرية', en: 'Alexandria', fr: 'Alexandrie' }, { ar: 'الجيزة', en: 'Giza', fr: 'Gizeh' }], cur: { ar: 'الجنيه المصري', en: 'Egyptian Pound (EGP)', fr: 'la livre égyptienne' }, vat: 14, tax: { ar: 'مصلحة الضرائب المصرية (ETA)', en: 'the Egyptian Tax Authority (ETA)', fr: "l'Autorité fiscale égyptienne (ETA)" }, einv: { ar: 'الفاتورة والإيصال الإلكتروني إلزاميان تدريجياً', en: 'e-invoice and e-receipt are being enforced', fr: 'la facture et le reçu électroniques sont progressivement obligatoires' } },
+  { code: 'AE', ar: 'الإمارات', en: 'United Arab Emirates', fr: 'Émirats arabes unis', inAr: 'في الإمارات', inEn: 'in the UAE', inFr: 'aux Émirats arabes unis', cap: { ar: 'أبوظبي', en: 'Abu Dhabi', fr: 'Abou Dabi' }, cities: [{ ar: 'دبي', en: 'Dubai', fr: 'Dubaï' }, { ar: 'الشارقة', en: 'Sharjah', fr: 'Charjah' }], cur: { ar: 'الدرهم الإماراتي', en: 'UAE Dirham (AED)', fr: 'le dirham des Émirats' }, vat: 5, tax: { ar: 'الهيئة الاتحادية للضرائب (FTA)', en: 'the Federal Tax Authority (FTA)', fr: "l'Autorité fédérale des impôts (FTA)" }, einv: { ar: 'الفوترة الإلكترونية (Peppol) في مرحلة تطبيق مرحلي', en: 'Peppol-based e-invoicing is being phased in', fr: 'la facturation électronique (Peppol) est en cours de déploiement' } },
+  { code: 'KW', ar: 'الكويت', en: 'Kuwait', fr: 'Koweït', inAr: 'في الكويت', inEn: 'in Kuwait', inFr: 'au Koweït', cap: { ar: 'مدينة الكويت', en: 'Kuwait City', fr: 'Koweït' }, cities: [{ ar: 'حولي', en: 'Hawalli', fr: 'Hawalli' }, { ar: 'الأحمدي', en: 'Ahmadi', fr: 'Ahmadi' }], cur: { ar: 'الدينار الكويتي', en: 'Kuwaiti Dinar (KWD)', fr: 'le dinar koweïtien' }, vat: null, tax: { ar: 'الإدارة الضريبية', en: 'the tax administration', fr: "l'administration fiscale" }, einv: { ar: 'لا تُطبَّق ضريبة قيمة مضافة بعد', en: 'VAT has not been introduced yet', fr: "la TVA n'est pas encore appliquée" } },
+  { code: 'QA', ar: 'قطر', en: 'Qatar', fr: 'Qatar', inAr: 'في قطر', inEn: 'in Qatar', inFr: 'au Qatar', cap: { ar: 'الدوحة', en: 'Doha', fr: 'Doha' }, cities: [{ ar: 'الريان', en: 'Al Rayyan', fr: 'Al Rayyan' }, { ar: 'الوكرة', en: 'Al Wakrah', fr: 'Al Wakrah' }], cur: { ar: 'الريال القطري', en: 'Qatari Riyal (QAR)', fr: 'le riyal qatarien' }, vat: null, tax: { ar: 'الهيئة العامة للضرائب', en: 'the General Tax Authority', fr: "l'Autorité générale des impôts" }, einv: { ar: 'الضريبة والفوترة الإلكترونية في مرحلة التخطيط', en: 'VAT and e-invoicing are being planned', fr: 'la TVA et la facturation électronique sont en préparation' } },
+  { code: 'BH', ar: 'البحرين', en: 'Bahrain', fr: 'Bahreïn', inAr: 'في البحرين', inEn: 'in Bahrain', inFr: 'au Bahreïn', cap: { ar: 'المنامة', en: 'Manama', fr: 'Manama' }, cities: [{ ar: 'المحرّق', en: 'Muharraq', fr: 'Muharraq' }, { ar: 'الرفاع', en: 'Riffa', fr: 'Riffa' }], cur: { ar: 'الدينار البحريني', en: 'Bahraini Dinar (BHD)', fr: 'le dinar bahreïni' }, vat: 10, tax: { ar: 'الجهاز الوطني للإيرادات (NBR)', en: 'the National Bureau for Revenue (NBR)', fr: "le Bureau national des revenus (NBR)" }, einv: { ar: 'ضريبة القيمة المضافة 10٪ مُطبَّقة', en: 'VAT at 10% applies', fr: 'la TVA de 10 % est appliquée' } },
+  { code: 'OM', ar: 'عُمان', en: 'Oman', fr: 'Oman', inAr: 'في عُمان', inEn: 'in Oman', inFr: 'à Oman', cap: { ar: 'مسقط', en: 'Muscat', fr: 'Mascate' }, cities: [{ ar: 'صلالة', en: 'Salalah', fr: 'Salalah' }, { ar: 'صحار', en: 'Sohar', fr: 'Sohar' }], cur: { ar: 'الريال العُماني', en: 'Omani Rial (OMR)', fr: 'le rial omanais' }, vat: 5, tax: { ar: 'جهاز الضرائب', en: 'the Oman Tax Authority', fr: "l'Autorité fiscale omanaise" }, einv: { ar: 'ضريبة القيمة المضافة 5٪ مُطبَّقة والفوترة الإلكترونية قادمة', en: 'VAT at 5% applies and e-invoicing is coming', fr: 'la TVA de 5 % est appliquée' } },
+  { code: 'MA', ar: 'المغرب', en: 'Morocco', fr: 'Maroc', inAr: 'في المغرب', inEn: 'in Morocco', inFr: 'au Maroc', cap: { ar: 'الرباط', en: 'Rabat', fr: 'Rabat' }, cities: [{ ar: 'الدار البيضاء', en: 'Casablanca', fr: 'Casablanca' }, { ar: 'مراكش', en: 'Marrakesh', fr: 'Marrakech' }], cur: { ar: 'الدرهم المغربي', en: 'Moroccan Dirham (MAD)', fr: 'le dirham marocain' }, vat: 20, tax: { ar: 'المديرية العامة للضرائب (DGI)', en: 'the General Directorate of Taxes (DGI)', fr: 'la Direction générale des impôts (DGI)' }, einv: { ar: 'الضريبة على القيمة المضافة (TVA) 20٪ والتوجّه نحو الفوترة الإلكترونية', en: 'VAT (TVA) at 20% applies, moving toward e-invoicing', fr: 'la TVA à 20 % s\'applique, avec une transition vers la facturation électronique' } },
+  { code: 'DZ', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie', inAr: 'في الجزائر', inEn: 'in Algeria', inFr: 'en Algérie', cap: { ar: 'الجزائر العاصمة', en: 'Algiers', fr: 'Alger' }, cities: [{ ar: 'وهران', en: 'Oran', fr: 'Oran' }, { ar: 'قسنطينة', en: 'Constantine', fr: 'Constantine' }], cur: { ar: 'الدينار الجزائري', en: 'Algerian Dinar (DZD)', fr: 'le dinar algérien' }, vat: 19, tax: { ar: 'المديرية العامة للضرائب (DGI)', en: 'the General Directorate of Taxes (DGI)', fr: 'la Direction générale des impôts (DGI)' }, einv: { ar: 'الضريبة على القيمة المضافة (TVA) 19٪', en: 'VAT (TVA) at 19% applies', fr: 'la TVA à 19 % s\'applique' } },
+  { code: 'TN', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie', inAr: 'في تونس', inEn: 'in Tunisia', inFr: 'en Tunisie', cap: { ar: 'تونس العاصمة', en: 'Tunis', fr: 'Tunis' }, cities: [{ ar: 'صفاقس', en: 'Sfax', fr: 'Sfax' }, { ar: 'سوسة', en: 'Sousse', fr: 'Sousse' }], cur: { ar: 'الدينار التونسي', en: 'Tunisian Dinar (TND)', fr: 'le dinar tunisien' }, vat: 19, tax: { ar: 'الإدارة العامة للأداءات', en: 'the tax authority', fr: "l'administration fiscale" }, einv: { ar: 'الفوترة الإلكترونية «el-Fatoura» عبر TTN إلزامية جزئياً', en: 'el-Fatoura e-invoicing via TTN is partly mandatory', fr: 'la facturation électronique el-Fatoura (TTN) est partiellement obligatoire' } },
+  { code: 'JO', ar: 'الأردن', en: 'Jordan', fr: 'Jordanie', inAr: 'في الأردن', inEn: 'in Jordan', inFr: 'en Jordanie', cap: { ar: 'عمّان', en: 'Amman', fr: 'Amman' }, cities: [{ ar: 'الزرقاء', en: 'Zarqa', fr: 'Zarka' }, { ar: 'إربد', en: 'Irbid', fr: 'Irbid' }], cur: { ar: 'الدينار الأردني', en: 'Jordanian Dinar (JOD)', fr: 'le dinar jordanien' }, vat: 16, tax: { ar: 'دائرة ضريبة الدخل والمبيعات (ISTD)', en: 'the Income and Sales Tax Department (ISTD)', fr: "le Département de l'impôt (ISTD)" }, einv: { ar: 'ضريبة المبيعات العامة 16٪ والفوترة الوطنية «JoFotara»', en: 'general sales tax at 16% and the JoFotara e-invoicing system', fr: 'la taxe sur les ventes à 16 % et le système JoFotara' } },
+  { code: 'IQ', ar: 'العراق', en: 'Iraq', fr: 'Irak', inAr: 'في العراق', inEn: 'in Iraq', inFr: 'en Irak', cap: { ar: 'بغداد', en: 'Baghdad', fr: 'Bagdad' }, cities: [{ ar: 'البصرة', en: 'Basra', fr: 'Bassorah' }, { ar: 'أربيل', en: 'Erbil', fr: 'Erbil' }], cur: { ar: 'الدينار العراقي', en: 'Iraqi Dinar (IQD)', fr: 'le dinar irakien' }, vat: null, tax: { ar: 'الهيئة العامة للضرائب', en: 'the General Commission for Taxes', fr: "la Commission générale des impôts" }, einv: { ar: 'ضريبة مبيعات على أصناف محددة دون قيمة مضافة عامة', en: 'sales tax on selected goods without a general VAT', fr: 'une taxe sur les ventes sur certains biens, sans TVA générale' } },
+  { code: 'LY', ar: 'ليبيا', en: 'Libya', fr: 'Libye', inAr: 'في ليبيا', inEn: 'in Libya', inFr: 'en Libye', cap: { ar: 'طرابلس', en: 'Tripoli', fr: 'Tripoli' }, cities: [{ ar: 'بنغازي', en: 'Benghazi', fr: 'Benghazi' }, { ar: 'مصراتة', en: 'Misrata', fr: 'Misrata' }], cur: { ar: 'الدينار الليبي', en: 'Libyan Dinar (LYD)', fr: 'le dinar libyen' }, vat: null, tax: { ar: 'مصلحة الضرائب', en: 'the tax authority', fr: "l'administration fiscale" }, einv: { ar: 'ضريبة الدمغة ورسوم دون قيمة مضافة عامة', en: 'stamp duty and fees without a general VAT', fr: 'un droit de timbre et des frais, sans TVA générale' } },
+  { code: 'SD', ar: 'السودان', en: 'Sudan', fr: 'Soudan', inAr: 'في السودان', inEn: 'in Sudan', inFr: 'au Soudan', cap: { ar: 'الخرطوم', en: 'Khartoum', fr: 'Khartoum' }, cities: [{ ar: 'أم درمان', en: 'Omdurman', fr: 'Omdourman' }, { ar: 'بورتسودان', en: 'Port Sudan', fr: 'Port-Soudan' }], cur: { ar: 'الجنيه السوداني', en: 'Sudanese Pound (SDG)', fr: 'la livre soudanaise' }, vat: 17, tax: { ar: 'ديوان الضرائب', en: 'the tax chamber', fr: "la chambre des impôts" }, einv: { ar: 'ضريبة القيمة المضافة نحو 17٪', en: 'value added tax around 17%', fr: 'une TVA d\'environ 17 %' } },
+  { code: 'YE', ar: 'اليمن', en: 'Yemen', fr: 'Yémen', inAr: 'في اليمن', inEn: 'in Yemen', inFr: 'au Yémen', cap: { ar: 'صنعاء', en: "Sana'a", fr: 'Sanaa' }, cities: [{ ar: 'عدن', en: 'Aden', fr: 'Aden' }, { ar: 'تعز', en: 'Taiz', fr: 'Taïz' }], cur: { ar: 'الريال اليمني', en: 'Yemeni Rial (YER)', fr: 'le rial yéménite' }, vat: null, tax: { ar: 'مصلحة الضرائب', en: 'the tax authority', fr: "l'administration fiscale" }, einv: { ar: 'ضريبة مبيعات عامة دون فوترة إلكترونية إلزامية', en: 'a general sales tax without mandatory e-invoicing', fr: 'une taxe sur les ventes, sans facturation électronique obligatoire' } },
+  { code: 'LB', ar: 'لبنان', en: 'Lebanon', fr: 'Liban', inAr: 'في لبنان', inEn: 'in Lebanon', inFr: 'au Liban', cap: { ar: 'بيروت', en: 'Beirut', fr: 'Beyrouth' }, cities: [{ ar: 'طرابلس', en: 'Tripoli', fr: 'Tripoli' }, { ar: 'صيدا', en: 'Sidon', fr: 'Saïda' }], cur: { ar: 'الليرة اللبنانية', en: 'Lebanese Pound (LBP)', fr: 'la livre libanaise' }, vat: 11, tax: { ar: 'مديرية المالية العامة', en: 'the finance directorate', fr: 'la direction des finances' }, einv: { ar: 'ضريبة القيمة المضافة 11٪', en: 'value added tax at 11%', fr: 'une TVA de 11 %' } },
+  { code: 'SY', ar: 'سوريا', en: 'Syria', fr: 'Syrie', inAr: 'في سوريا', inEn: 'in Syria', inFr: 'en Syrie', cap: { ar: 'دمشق', en: 'Damascus', fr: 'Damas' }, cities: [{ ar: 'حلب', en: 'Aleppo', fr: 'Alep' }, { ar: 'حمص', en: 'Homs', fr: 'Homs' }], cur: { ar: 'الليرة السورية', en: 'Syrian Pound (SYP)', fr: 'la livre syrienne' }, vat: null, tax: { ar: 'وزارة المالية', en: 'the ministry of finance', fr: 'le ministère des finances' }, einv: { ar: 'ضريبة إنفاق استهلاكي دون قيمة مضافة عامة', en: 'a consumption tax without a general VAT', fr: 'une taxe à la consommation, sans TVA générale' } },
+  { code: 'PS', ar: 'فلسطين', en: 'Palestine', fr: 'Palestine', inAr: 'في فلسطين', inEn: 'in Palestine', inFr: 'en Palestine', cap: { ar: 'القدس', en: 'Jerusalem', fr: 'Jérusalem' }, cities: [{ ar: 'رام الله', en: 'Ramallah', fr: 'Ramallah' }, { ar: 'غزة', en: 'Gaza', fr: 'Gaza' }], cur: { ar: 'الشيكل', en: 'Shekel (ILS)', fr: 'le shekel' }, vat: 16, tax: { ar: 'دائرة ضريبة القيمة المضافة', en: 'the VAT department', fr: 'le département de la TVA' }, einv: { ar: 'ضريبة القيمة المضافة نحو 16٪', en: 'value added tax around 16%', fr: 'une TVA d\'environ 16 %' } },
+  { code: 'MR', ar: 'موريتانيا', en: 'Mauritania', fr: 'Mauritanie', inAr: 'في موريتانيا', inEn: 'in Mauritania', inFr: 'en Mauritanie', cap: { ar: 'نواكشوط', en: 'Nouakchott', fr: 'Nouakchott' }, cities: [{ ar: 'نواذيبو', en: 'Nouadhibou', fr: 'Nouadhibou' }, { ar: 'كيفة', en: 'Kiffa', fr: 'Kiffa' }], cur: { ar: 'الأوقية', en: 'Ouguiya (MRU)', fr: "l'ouguiya" }, vat: 16, tax: { ar: 'المديرية العامة للضرائب', en: 'the tax directorate', fr: 'la direction générale des impôts' }, einv: { ar: 'ضريبة القيمة المضافة نحو 16٪', en: 'value added tax around 16%', fr: 'une TVA d\'environ 16 %' } },
+  { code: 'SO', ar: 'الصومال', en: 'Somalia', fr: 'Somalie', inAr: 'في الصومال', inEn: 'in Somalia', inFr: 'en Somalie', cap: { ar: 'مقديشو', en: 'Mogadishu', fr: 'Mogadiscio' }, cities: [{ ar: 'هرجيسا', en: 'Hargeisa', fr: 'Hargeisa' }, { ar: 'بوصاصو', en: 'Bosaso', fr: 'Bosaso' }], cur: { ar: 'الشلن الصومالي', en: 'Somali Shilling (SOS)', fr: 'le shilling somalien' }, vat: null, tax: { ar: 'الإدارة الضريبية', en: 'the tax administration', fr: "l'administration fiscale" }, einv: { ar: 'ضرائب مبيعات محلية دون قيمة مضافة موحّدة', en: 'local sales taxes without a unified VAT', fr: 'des taxes locales, sans TVA unifiée' } },
+  { code: 'DJ', ar: 'جيبوتي', en: 'Djibouti', fr: 'Djibouti', inAr: 'في جيبوتي', inEn: 'in Djibouti', inFr: 'à Djibouti', cap: { ar: 'جيبوتي', en: 'Djibouti', fr: 'Djibouti' }, cities: [{ ar: 'علي صبيح', en: 'Ali Sabieh', fr: 'Ali-Sabieh' }, { ar: 'تاجورة', en: 'Tadjoura', fr: 'Tadjoura' }], cur: { ar: 'الفرنك الجيبوتي', en: 'Djiboutian Franc (DJF)', fr: 'le franc djiboutien' }, vat: 10, tax: { ar: 'المديرية العامة للضرائب', en: 'the tax directorate', fr: 'la direction générale des impôts' }, einv: { ar: 'ضريبة القيمة المضافة نحو 10٪', en: 'value added tax around 10%', fr: 'une TVA d\'environ 10 %' } },
+  { code: 'KM', ar: 'جزر القمر', en: 'Comoros', fr: 'Comores', inAr: 'في جزر القمر', inEn: 'in the Comoros', inFr: 'aux Comores', cap: { ar: 'موروني', en: 'Moroni', fr: 'Moroni' }, cities: [{ ar: 'موتسامودو', en: 'Mutsamudu', fr: 'Mutsamudu' }, { ar: 'فومبوني', en: 'Fomboni', fr: 'Fomboni' }], cur: { ar: 'الفرنك القمري', en: 'Comorian Franc (KMF)', fr: 'le franc comorien' }, vat: null, tax: { ar: 'الإدارة الضريبية', en: 'the tax administration', fr: "l'administration fiscale" }, einv: { ar: 'رسوم وضرائب استهلاك دون قيمة مضافة موحّدة', en: 'consumption duties without a unified VAT', fr: 'des droits de consommation, sans TVA unifiée' } },
+];
+
+// دولة وهمية للمقالات العامة (غير المرتبطة بدولة) — تبسّط بُناة الأقسام
+const REGION = { code: 'REGION', ar: 'الأسواق العربية', en: 'Arab markets', fr: 'les marchés arabes', inAr: 'في الأسواق العربية', inEn: 'in Arab markets', inFr: 'sur les marchés arabes', cap: { ar: 'المنطقة', en: 'the region', fr: 'la région' }, cities: [{ ar: 'الرياض', en: 'Riyadh', fr: 'Riyad' }, { ar: 'القاهرة', en: 'Cairo', fr: 'Le Caire' }], cur: { ar: 'العملة المحلية', en: 'the local currency', fr: 'la monnaie locale' }, vat: null, tax: { ar: 'الجهة الضريبية المحلية', en: 'the local tax authority', fr: "l'autorité fiscale locale" }, einv: { ar: 'تتّجه دول عربية عدة نحو الفوترة الإلكترونية الإلزامية', en: 'several Arab countries are moving to mandatory e-invoicing', fr: 'plusieurs pays arabes adoptent la facturation électronique obligatoire' } };
+
+// ----------------------------------------------------------------------------
+// روابط داخلية ودعوات لاتخاذ إجراء (تحسّن الربط الداخلي وتقلّل «صفحات العبور»)
+// ----------------------------------------------------------------------------
+const blogBase = (L) => (L === 'ar' ? '/blog' : `/${L}/blog`);
+const cta = (L) => P(L,
+  `<p><a href="/signup"><strong>ابدأ تجربتك المجانية 10 أيام مع منصّة FieldSales</strong></a> — فواتير ضريبية، تحصيل، مخزون سيارة، وتقارير لحظية من تطبيق واحد للمندوب.</p>`,
+  `<p><a href="/signup"><strong>Start your free 10-day trial with FieldSales</strong></a> — tax invoices, collection, van stock and live reports from one rep app.</p>`,
+  `<p><a href="/signup"><strong>Commencez votre essai gratuit de 10 jours avec FieldSales</strong></a> — factures, encaissement, stock du véhicule et rapports en temps réel depuis une seule application.</p>`);
+
+// جملة الضريبة/الفوترة حسب الدولة (تتكيّف مع وجود/غياب ضريبة القيمة المضافة)
+const taxLine = (c, L) => {
+  if (c.vat != null) {
+    return P(L,
+      `تبلغ ضريبة القيمة المضافة ${c.inAr} نحو ${c.vat}٪ وتتولّاها ${c.tax.ar}، و${c.einv.ar}. لذا يجب أن يُصدر مندوبك فاتورة ضريبية منظّمة من الميدان مباشرةً.`,
+      `Value added tax ${c.inEn} is around ${c.vat}% and is administered by ${c.tax.en}, and ${c.einv.en}. Your rep must therefore issue a structured tax invoice directly from the field.`,
+      `La TVA ${c.inFr} est d'environ ${c.vat} % et gérée par ${c.tax.fr} ; ${c.einv.fr}. Votre commercial doit donc émettre une facture structurée directement sur le terrain.`);
+  }
+  return P(L,
+    `${c.einv.ar} ${c.inAr}. ومع ذلك يبقى إصدار فواتير منظّمة وكشوف حساب دقيقة ضرورة إدارية ورقابية لكل شركة توزيع.`,
+    `${c.einv.en} ${c.inEn}. Even so, issuing structured invoices and accurate customer statements remains an operational necessity for every distributor.`,
+    `${c.einv.fr} ${c.inFr}. Malgré cela, émettre des factures structurées et des relevés précis reste indispensable pour tout distributeur.`);
+};
+
+const citiesLine = (c, L) => {
+  const list = P(L, [c.cap.ar, ...c.cities.map((x) => x.ar)], [c.cap.en, ...c.cities.map((x) => x.en)], [c.cap.fr, ...c.cities.map((x) => x.fr)]);
+  const joined = L === 'ar' ? list.join(' و') : list.join(', ');
+  return P(L,
+    `سواء كان فريقك يعمل في ${joined} أو في المدن الأصغر، فإن تغطية خطوط السير وضبط الزيارات يرفعان مبيعاتك.`,
+    `Whether your team covers ${joined} or smaller towns, tightening routes and visit coverage lifts your sales.`,
+    `Que votre équipe couvre ${joined} ou de plus petites villes, optimiser les tournées augmente vos ventes.`);
+};
+
+// ----------------------------------------------------------------------------
+// بُناة الأقسام — كلٌّ يُرجع HTML (عنوان + فقرات) مُوطَّناً ومُخصَّصاً للدولة.
+// ----------------------------------------------------------------------------
+const S = {
+  why: (c, L) => P(L,
+    `<h2>لماذا تحتاج شركات التوزيع ${c.inAr} إلى نظام مبيعات ميدانية؟</h2>
+     <p>تدير شركات التوزيع ${c.inAr} عشرات المناديب وآلاف العملاء بين الطلبات والفواتير والتحصيل. وبلا نظام موحّد تضيع البيانات وتتراكم الأخطاء وتتعثّر الذمم. ${citiesLine(c, L)}</p>
+     <p>نظام إدارة المبيعات الميدانية يربط المندوب بالإدارة لحظياً: طلب، فاتورة، سند قبض، ومخزون سيارة — كلّها في تطبيق واحد يعمل من الميدان.</p>`,
+    `<h2>Why do distributors ${c.inEn} need a field sales system?</h2>
+     <p>Distributors ${c.inEn} manage dozens of reps and thousands of customers across orders, invoices and collection. Without one system, data is lost, errors pile up and receivables slip. ${citiesLine(c, L)}</p>
+     <p>A field sales system connects the rep to the office in real time: order, invoice, receipt and van stock — all in one app that works from the field.</p>`,
+    `<h2>Pourquoi les distributeurs ${c.inFr} ont-ils besoin d'un système de vente terrain ?</h2>
+     <p>Les distributeurs ${c.inFr} gèrent des dizaines de commerciaux et des milliers de clients : commandes, factures, encaissement. Sans système unifié, les données se perdent et les impayés augmentent. ${citiesLine(c, L)}</p>
+     <p>Un système de vente terrain relie le commercial au bureau en temps réel : commande, facture, reçu et stock du véhicule — le tout dans une seule application.</p>`),
+
+  tax: (c, L) => P(L,
+    `<h2>الالتزام الضريبي والفوترة ${c.inAr}</h2>
+     <p>${taxLine(c, L)}</p>
+     <p>منصّة تُصدر فاتورة منظّمة برمز QR وطباعة حرارية تحمي شركتك من المخالفات وتُبسّط محاسبتك. راجع دائماً مستشاراً ضريبياً محلياً لأحدث المتطلبات.</p>`,
+    `<h2>Tax compliance and invoicing ${c.inEn}</h2>
+     <p>${taxLine(c, L)}</p>
+     <p>A platform that issues a structured invoice with a QR code and thermal printing protects you from penalties and simplifies accounting. Always confirm the latest requirements with a local tax advisor.</p>`,
+    `<h2>Conformité fiscale et facturation ${c.inFr}</h2>
+     <p>${taxLine(c, L)}</p>
+     <p>Une plateforme qui émet une facture structurée avec code QR et impression thermique vous protège des pénalités. Vérifiez toujours les exigences auprès d'un conseiller fiscal local.</p>`),
+
+  invoice: (c, L) => P(L,
+    `<h2>الفوترة من الجوال في الميدان</h2>
+     <p>يُصدر المندوب الفاتورة وسند القبض من جواله في موقع العميل، ويطبعها حرارياً (58مم)، وتتزامن فوراً مع الإدارة. لا أوراق متفرّقة ولا إدخال مزدوج.</p>
+     <ul><li>فاتورة ضريبية منظّمة برمز QR.</li><li>طباعة حرارية فورية للعميل.</li><li>مزامنة لحظية مع كشف حساب العميل.</li></ul>`,
+    `<h2>Mobile invoicing in the field</h2>
+     <p>The rep issues the invoice and receipt from their phone at the customer's location, prints it thermally (58mm), and it syncs instantly with the office. No scattered paper, no double entry.</p>
+     <ul><li>Structured tax invoice with a QR code.</li><li>Instant thermal printing for the customer.</li><li>Real-time sync with the customer statement.</li></ul>`,
+    `<h2>Facturation mobile sur le terrain</h2>
+     <p>Le commercial émet la facture et le reçu depuis son téléphone chez le client, les imprime en thermique (58 mm), et tout se synchronise instantanément. Aucun papier dispersé, aucune double saisie.</p>
+     <ul><li>Facture structurée avec code QR.</li><li>Impression thermique immédiate.</li><li>Synchronisation en temps réel avec le relevé client.</li></ul>`),
+
+  collect: (c, L) => P(L,
+    `<h2>التحصيل وإدارة الذمم وكشوف الحساب</h2>
+     <p>سجّل كل دفعة (نقد/تحويل/شيك) واربطها بكشف حساب العميل بـ${c.cur.ar} تلقائياً. اضبط حدّ ائتمان لكل عميل واحصل على تنبيه فوري عند تجاوزه — قبل أن يتحوّل الدين إلى متعثّر.</p>
+     <p>رفع نسبة التحصيل وتقليل الديون المعلّقة من أسرع مصادر تحسين السيولة لأي شركة توزيع.</p>`,
+    `<h2>Collection, receivables and statements</h2>
+     <p>Record every payment (cash/transfer/cheque) and link it to the customer statement in ${c.cur.en} automatically. Set a credit limit per customer and get an instant alert when it is exceeded — before debt turns bad.</p>
+     <p>Raising collection rates and cutting overdue debt is one of the fastest ways to improve a distributor's cash flow.</p>`,
+    `<h2>Encaissement, créances et relevés</h2>
+     <p>Enregistrez chaque paiement (espèces/virement/chèque) et liez-le automatiquement au relevé du client en ${c.cur.fr}. Fixez une limite de crédit par client et recevez une alerte dès qu'elle est dépassée.</p>
+     <p>Améliorer le taux d'encaissement et réduire les impayés est l'un des leviers les plus rapides pour la trésorerie.</p>`),
+
+  vanstock: (c, L) => P(L,
+    `<h2>إدارة مخزون سيارة المندوب</h2>
+     <p>سجّل ما حمَّله كل مندوب في سيارته، وتابع المتبقّي بعد كل عملية بيع، واكشف الفروقات فوراً. هذا يمنع النقص والعجز ويربط المخزون بالمبيعات لحظياً.</p>`,
+    `<h2>Van stock management</h2>
+     <p>Record what each rep loaded into their van, track the remaining quantity after every sale, and expose discrepancies instantly. This prevents shortages and links stock to sales in real time.</p>`,
+    `<h2>Gestion du stock du véhicule</h2>
+     <p>Enregistrez ce que chaque commercial a chargé, suivez le reste après chaque vente et détectez les écarts immédiatement. Cela évite les manques et relie le stock aux ventes en temps réel.</p>`),
+
+  gps: (c, L) => P(L,
+    `<h2>تتبّع المناديب وتخطيط خطوط السير</h2>
+     <p>تابع مواقع المناديب وخطوط سيرهم لتنظيم التغطية وتقليل الوقت الضائع بين ${c.cap.ar} والمناطق المحيطة. التتبّع يرفع عدد الزيارات المنتِجة يومياً.</p>`,
+    `<h2>Rep tracking and route planning</h2>
+     <p>Follow reps' locations and routes to organize coverage and cut wasted time between ${c.cap.en} and surrounding areas. Tracking raises the number of productive visits per day.</p>`,
+    `<h2>Suivi des commerciaux et planification des tournées</h2>
+     <p>Suivez les positions et les tournées pour organiser la couverture et réduire le temps perdu autour de ${c.cap.fr}. Le suivi augmente le nombre de visites productives par jour.</p>`),
+
+  reports: (c, L) => P(L,
+    `<h2>التقارير والتحليلات اللحظية</h2>
+     <p>مبيعات اليوم، التحصيل، عدد الزيارات، وأداء كل مندوب على لوحة واحدة. قرارات مبنية على أرقام لا انطباعات — مع مقارنة المناطق والمنتجات والفترات.</p>`,
+    `<h2>Live reports and analytics</h2>
+     <p>Today's sales, collection, visit counts and each rep's performance on one dashboard. Decisions based on numbers, not impressions — with comparisons across regions, products and periods.</p>`,
+    `<h2>Rapports et analyses en temps réel</h2>
+     <p>Ventes du jour, encaissement, nombre de visites et performance de chaque commercial sur un seul tableau de bord. Des décisions fondées sur des chiffres, avec comparaison par région, produit et période.</p>`),
+
+  reps: (c, L) => P(L,
+    `<h2>إدارة المناديب والصلاحيات</h2>
+     <p>حدّد صلاحيات كل مندوب: من يمنح خصماً وكم نسبته؟ من يبيع بالآجل؟ ضبط الأدوار (مدير/مشرف/محاسب) يمنع التلاعب ويحمي هوامشك ${c.inAr}.</p>`,
+    `<h2>Rep management and permissions</h2>
+     <p>Define each rep's permissions: who can grant a discount and how much? Who sells on credit? Role control (manager/supervisor/accountant) prevents manipulation and protects your margins ${c.inEn}.</p>`,
+    `<h2>Gestion des commerciaux et des droits</h2>
+     <p>Définissez les droits de chaque commercial : qui accorde une remise et de combien ? Qui vend à crédit ? La gestion des rôles protège vos marges ${c.inFr}.</p>`),
+
+  crm: (c, L) => P(L,
+    `<h2>إدارة العملاء وشرائح الأسعار</h2>
+     <p>احفظ كل عميل بموقعه وحدّ ائتمانه وقائمة أسعاره. طبّق شرائح أسعار مختلفة (جملة/تجزئة/مفتاح) لكل فئة عملاء، وتابع كشف الحساب بـ${c.cur.ar} في أي لحظة.</p>`,
+    `<h2>Customer management and price tiers</h2>
+     <p>Store each customer with location, credit limit and price list. Apply different price tiers (wholesale/retail/key account) per segment and track the statement in ${c.cur.en} anytime.</p>`,
+    `<h2>Gestion des clients et grilles tarifaires</h2>
+     <p>Enregistrez chaque client avec sa localisation, sa limite de crédit et sa liste de prix. Appliquez des grilles différentes (gros/détail/grands comptes) et suivez le relevé en ${c.cur.fr}.</p>`),
+
+  offline: (c, L) => P(L,
+    `<h2>العمل بلا إنترنت في الميدان</h2>
+     <p>تغطية الشبكة ${c.inAr} تتفاوت بين المدن والمناطق. تطبيق يعمل بلا إنترنت ويزامن تلقائياً عند عودة الاتصال يضمن ألّا تتوقّف المبيعات ولا تُفقد بيانات الزيارة.</p>`,
+    `<h2>Working offline in the field</h2>
+     <p>Network coverage ${c.inEn} varies between cities and remote areas. An app that works offline and syncs automatically when back online ensures sales never stop and visit data is never lost.</p>`,
+    `<h2>Travailler hors ligne sur le terrain</h2>
+     <p>La couverture réseau ${c.inFr} varie selon les zones. Une application qui fonctionne hors ligne et se synchronise au retour du réseau garantit la continuité des ventes.</p>`),
+
+  features: (c, L) => P(L,
+    `<h2>قائمة تحقّق: ما الذي يجب أن يوفّره النظام؟</h2>
+     <ul>
+       <li>فاتورة ضريبية منظّمة وطباعة حرارية من الجوال.</li>
+       <li>تحصيل وكشوف حساب وحدود ائتمان بـ${c.cur.ar}.</li>
+       <li>مخزون سيارة لكل مندوب وحركة دقيقة.</li>
+       <li>تتبّع المناديب وتقارير أداء لحظية.</li>
+       <li>صلاحيات دقيقة وعمل بلا إنترنت.</li>
+     </ul>`,
+    `<h2>Checklist: what should the system provide?</h2>
+     <ul>
+       <li>Structured tax invoice and thermal printing from the phone.</li>
+       <li>Collection, statements and credit limits in ${c.cur.en}.</li>
+       <li>Van stock per rep with accurate movements.</li>
+       <li>Rep tracking and live performance reports.</li>
+       <li>Fine-grained permissions and offline operation.</li>
+     </ul>`,
+    `<h2>Check-list : que doit offrir le système ?</h2>
+     <ul>
+       <li>Facture structurée et impression thermique depuis le téléphone.</li>
+       <li>Encaissement, relevés et limites de crédit en ${c.cur.fr}.</li>
+       <li>Stock du véhicule par commercial.</li>
+       <li>Suivi des commerciaux et rapports en temps réel.</li>
+       <li>Droits précis et fonctionnement hors ligne.</li>
+     </ul>`),
+
+  howstart: (c, L) => P(L,
+    `<h2>كيف تبدأ ${c.inAr} خلال دقائق؟</h2>
+     <p>لا تحتاج إلى تركيب معقّد: أنشئ حسابك، أضِف منتجاتك وعملاءك، وامنح مناديبك التطبيق. يمكنك إصدار أول فاتورة متوافقة في اليوم نفسه.</p>`,
+    `<h2>How to start ${c.inEn} in minutes</h2>
+     <p>No complex setup: create your account, add products and customers, and give reps the app. You can issue your first compliant invoice the same day.</p>`,
+    `<h2>Comment démarrer ${c.inFr} en quelques minutes</h2>
+     <p>Aucune installation complexe : créez votre compte, ajoutez produits et clients, puis donnez l'application à vos commerciaux. Vous émettez votre première facture le jour même.</p>`),
+
+  faq: (c, L) => P(L,
+    `<h2>أسئلة شائعة</h2>
+     <p><strong>هل يعمل النظام ${c.inAr}؟</strong> نعم، منصّة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية.</p>
+     <p><strong>هل يحتاج المندوب إلى جهاز خاص؟</strong> لا، يكفي هاتف ذكي وطابعة حرارية اختيارية.</p>`,
+    `<h2>Frequently asked questions</h2>
+     <p><strong>Does it work ${c.inEn}?</strong> Yes, FieldSales supports distributors ${c.inEn} with ${c.cur.en} and local requirements.</p>
+     <p><strong>Does the rep need special hardware?</strong> No — a smartphone and an optional thermal printer are enough.</p>`,
+    `<h2>Questions fréquentes</h2>
+     <p><strong>Fonctionne-t-il ${c.inFr} ?</strong> Oui, FieldSales prend en charge les distributeurs ${c.inFr} avec ${c.cur.fr} et les exigences locales.</p>
+     <p><strong>Faut-il un matériel spécial ?</strong> Non : un smartphone et une imprimante thermique optionnelle suffisent.</p>`),
+
+  roi: (c, L) => P(L,
+    `<h2>العائد على الاستثمار</h2>
+     <p>وقت مندوب أكثر للبيع بدل الورق، تقليل الفاقد والمرتجعات، ورفع نسبة التحصيل — مكاسب قابلة للقياس بـ${c.cur.ar} غالباً ما تسترد تكلفة النظام سريعاً.</p>`,
+    `<h2>Return on investment</h2>
+     <p>More selling time instead of paperwork, less waste and returns, and higher collection — measurable gains in ${c.cur.en} that usually pay back the system quickly.</p>`,
+    `<h2>Retour sur investissement</h2>
+     <p>Plus de temps de vente au lieu de paperasse, moins de pertes et de retours, et un meilleur encaissement — des gains mesurables en ${c.cur.fr} qui rentabilisent vite le système.</p>`),
+};
+
+// ----------------------------------------------------------------------------
+// تعريف الموضوعات — قوالب العناوين/الكلمات المفتاحية + تركيبة الأقسام لكل موضوع.
+// cs=true: مقال خاص بكل دولة. cs=false: مقال عام (يستخدم REGION).
+// ----------------------------------------------------------------------------
+const svc = (adAr, adEn, adFr) => ({ ar: adAr, en: adEn, fr: adFr });
+
+const TOPICS = [
+  // ---------- موضوعات خاصة بكل دولة (13) ----------
+  { id: 'field-sales-software', cs: true, rm: 7,
+    label: svc('برنامج إدارة المبيعات الميدانية', 'Field Sales Management Software', 'Logiciel de gestion des ventes terrain'),
+    kw: (c, L) => P(L, `برنامج مبيعات ميدانية ${c.ar}, نظام إدارة مناديب ${c.ar}, برنامج توزيع, فاتورة ضريبية, تحصيل`, `field sales software ${c.en}, sales rep management ${c.en}, distribution software, tax invoice, collection`, `logiciel de vente terrain ${c.fr}, gestion des commerciaux ${c.fr}, distribution, facturation`),
+    secs: ['why', 'invoice', 'tax', 'collect', 'features', 'howstart', 'cta'] },
+  { id: 'distribution-management-system', cs: true, rm: 7,
+    label: svc('نظام إدارة التوزيع وشركات الجملة', 'Distribution & Wholesale Management System', 'Système de gestion de la distribution'),
+    kw: (c, L) => P(L, `نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, إدارة موزعين, مخزون, كشوف حساب`, `distribution system ${c.en}, wholesale software ${c.en}, distributor management, inventory`, `système de distribution ${c.fr}, logiciel de gros ${c.fr}, gestion des distributeurs`),
+    secs: ['why', 'vanstock', 'crm', 'reports', 'collect', 'cta'] },
+  { id: 'van-sales-app', cs: true, rm: 6,
+    label: svc('تطبيق البيع من السيارة (Van Sales)', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
+    kw: (c, L) => P(L, `تطبيق فان سيلز ${c.ar}, البيع من السيارة ${c.ar}, مخزون سيارة المندوب, توزيع متنقل`, `van sales app ${c.en}, mobile selling ${c.en}, van stock, mobile distribution`, `application van sales ${c.fr}, vente en camion ${c.fr}, stock véhicule`),
+    secs: ['why', 'vanstock', 'invoice', 'gps', 'offline', 'cta'] },
+  { id: 'einvoicing-compliance', cs: true, rm: 6,
+    label: svc('الفوترة الإلكترونية والالتزام الضريبي', 'E-Invoicing & Tax Compliance', 'Facturation électronique et conformité'),
+    kw: (c, L) => P(L, `الفوترة الإلكترونية ${c.ar}, فاتورة ضريبية ${c.ar}, ضريبة القيمة المضافة, ${c.tax.ar}`, `e-invoicing ${c.en}, tax invoice ${c.en}, VAT, ${c.tax.en}`, `facturation électronique ${c.fr}, TVA ${c.fr}, ${c.tax.fr}`),
+    secs: ['tax', 'invoice', 'features', 'faq', 'cta'] },
+  { id: 'sales-rep-management', cs: true, rm: 6,
+    label: svc('إدارة مناديب المبيعات', 'Sales Rep Management', 'Gestion des commerciaux'),
+    kw: (c, L) => P(L, `إدارة مناديب ${c.ar}, صلاحيات المندوب, متابعة أداء المندوبين ${c.ar}, تحصيل`, `sales rep management ${c.en}, rep permissions, rep performance ${c.en}`, `gestion des commerciaux ${c.fr}, droits, performance ${c.fr}`),
+    secs: ['reps', 'gps', 'reports', 'collect', 'cta'] },
+  { id: 'collection-receivables', cs: true, rm: 6,
+    label: svc('التحصيل وإدارة الذمم', 'Collection & Receivables', 'Encaissement et créances'),
+    kw: (c, L) => P(L, `تحصيل ${c.ar}, إدارة الذمم ${c.ar}, كشف حساب العميل, حد ائتمان, ديون متعثرة`, `collection ${c.en}, receivables ${c.en}, customer statement, credit limit`, `encaissement ${c.fr}, créances ${c.fr}, relevé client, limite de crédit`),
+    secs: ['collect', 'crm', 'reports', 'roi', 'cta'] },
+  { id: 'gps-rep-tracking', cs: true, rm: 5,
+    label: svc('تتبّع المناديب عبر GPS', 'GPS Rep Tracking', 'Suivi GPS des commerciaux'),
+    kw: (c, L) => P(L, `تتبع المناديب ${c.ar}, GPS مندوب, خطوط سير, تغطية مناطق ${c.ar}`, `rep tracking ${c.en}, GPS sales, route planning ${c.en}`, `suivi commerciaux ${c.fr}, GPS, tournées ${c.fr}`),
+    secs: ['gps', 'reps', 'reports', 'cta'] },
+  { id: 'van-stock-inventory', cs: true, rm: 5,
+    label: svc('إدارة مخزون سيارة المندوب', 'Van Stock & Inventory', 'Stock du véhicule et inventaire'),
+    kw: (c, L) => P(L, `مخزون سيارة المندوب ${c.ar}, جرد المخزون ${c.ar}, عجز وفروقات, توزيع`, `van stock ${c.en}, inventory ${c.en}, stock variance, distribution`, `stock véhicule ${c.fr}, inventaire ${c.fr}, écarts`),
+    secs: ['vanstock', 'reports', 'features', 'cta'] },
+  { id: 'sales-reports-analytics', cs: true, rm: 5,
+    label: svc('تقارير وتحليلات المبيعات', 'Sales Reports & Analytics', 'Rapports et analyses des ventes'),
+    kw: (c, L) => P(L, `تقارير مبيعات ${c.ar}, تحليلات ${c.ar}, أداء المناديب, لوحة تحكم`, `sales reports ${c.en}, analytics ${c.en}, rep performance, dashboard`, `rapports de ventes ${c.fr}, analyses ${c.fr}, tableau de bord`),
+    secs: ['reports', 'collect', 'roi', 'cta'] },
+  { id: 'wholesale-food-distributors', cs: true, rm: 6,
+    label: svc('حلول موزّعي المواد الغذائية والجملة', 'Food & Wholesale Distribution Solutions', 'Solutions pour la distribution alimentaire et de gros'),
+    kw: (c, L) => P(L, `موزع مواد غذائية ${c.ar}, تجارة جملة ${c.ar}, توزيع أغذية, فاتورة, تحصيل`, `food distributor ${c.en}, wholesale ${c.en}, FMCG distribution, invoicing`, `distributeur alimentaire ${c.fr}, gros ${c.fr}, distribution`),
+    secs: ['why', 'vanstock', 'crm', 'invoice', 'cta'] },
+  { id: 'fmcg-distribution', cs: true, rm: 6,
+    label: svc('توزيع السلع الاستهلاكية سريعة الدوران FMCG', 'FMCG Distribution', 'Distribution de produits de grande consommation (FMCG)'),
+    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, biens de consommation ${c.fr}`),
+    secs: ['why', 'gps', 'vanstock', 'reports', 'cta'] },
+  { id: 'mobile-field-invoicing', cs: true, rm: 5,
+    label: svc('الفوترة من الجوال في الميدان', 'Mobile Field Invoicing', 'Facturation mobile sur le terrain'),
+    kw: (c, L) => P(L, `فوترة من الجوال ${c.ar}, طباعة حرارية, فاتورة QR ${c.ar}, تطبيق مندوب`, `mobile invoicing ${c.en}, thermal printing, QR invoice ${c.en}`, `facturation mobile ${c.fr}, impression thermique, facture QR`),
+    secs: ['invoice', 'tax', 'offline', 'howstart', 'cta'] },
+  { id: 'distribution-customer-management', cs: true, rm: 5,
+    label: svc('إدارة عملاء التوزيع وحدود الائتمان', 'Distribution Customer & Credit Management', 'Gestion des clients et du crédit'),
+    kw: (c, L) => P(L, `إدارة عملاء ${c.ar}, حدود ائتمان ${c.ar}, كشوف حساب, شرائح أسعار`, `customer management ${c.en}, credit limits ${c.en}, statements, price tiers`, `gestion des clients ${c.fr}, limites de crédit ${c.fr}, relevés`),
+    secs: ['crm', 'collect', 'reports', 'cta'] },
+
+  // ---------- موضوعات عامة (14) ----------
+  { id: 'what-is-field-sales-management', cs: false, rm: 6,
+    label: svc('ما هو نظام إدارة المبيعات الميدانية؟', 'What Is Field Sales Management Software?', "Qu'est-ce qu'un logiciel de vente terrain ?"),
+    kw: (c, L) => P(L, `نظام إدارة مبيعات ميدانية, تعريف, مناديب, توزيع, فاتورة`, `field sales management software, definition, reps, distribution`, `logiciel de vente terrain, définition, commerciaux, distribution`),
+    secs: ['why', 'invoice', 'collect', 'reports', 'features', 'cta'] },
+  { id: 'how-to-choose-field-sales-system', cs: false, rm: 6,
+    label: svc('كيف تختار نظام مبيعات ميدانية مناسباً؟', 'How to Choose a Field Sales System', 'Comment choisir un système de vente terrain'),
+    kw: (c, L) => P(L, `اختيار نظام مبيعات ميدانية, معايير, مقارنة, برنامج توزيع`, `choose field sales system, criteria, comparison, distribution software`, `choisir un système de vente terrain, critères, comparaison`),
+    secs: ['features', 'tax', 'reps', 'faq', 'cta'] },
+  { id: 'van-sales-best-practices', cs: false, rm: 6,
+    label: svc('أفضل ممارسات البيع من السيارة', 'Van Sales Best Practices', 'Bonnes pratiques de la vente en camion'),
+    kw: (c, L) => P(L, `البيع من السيارة, أفضل الممارسات, مخزون سيارة, خطوط سير`, `van sales best practices, van stock, routes`, `vente en camion, bonnes pratiques, tournées`),
+    secs: ['vanstock', 'gps', 'invoice', 'reports', 'cta'] },
+  { id: 'reduce-overdue-receivables', cs: false, rm: 6,
+    label: svc('كيف تقلّل الذمم المتعثّرة؟', 'How to Reduce Overdue Receivables', 'Comment réduire les impayés'),
+    kw: (c, L) => P(L, `تقليل الديون المتعثرة, تحصيل, حدود ائتمان, سيولة`, `reduce overdue receivables, collection, credit limits, cash flow`, `réduire les impayés, encaissement, trésorerie`),
+    secs: ['collect', 'crm', 'roi', 'reports', 'cta'] },
+  { id: 'increase-rep-productivity', cs: false, rm: 6,
+    label: svc('رفع إنتاجية المندوب الميداني', 'Increase Field Rep Productivity', 'Augmenter la productivité des commerciaux'),
+    kw: (c, L) => P(L, `إنتاجية المندوب, زيارات منتجة, تتبع, تقارير أداء`, `rep productivity, productive visits, tracking, performance`, `productivité commerciale, visites, suivi`),
+    secs: ['gps', 'reps', 'reports', 'offline', 'cta'] },
+  { id: 'field-sales-kpis', cs: false, rm: 6,
+    label: svc('أهم مؤشرات أداء المبيعات الميدانية', 'Key Field Sales KPIs', 'Indicateurs clés de la vente terrain'),
+    kw: (c, L) => P(L, `مؤشرات أداء المبيعات, KPI, تحصيل, زيارات, أداء مناديب`, `field sales KPIs, collection, visits, rep performance`, `indicateurs de vente, KPI, visites, performance`),
+    secs: ['reports', 'collect', 'gps', 'roi', 'cta'] },
+  { id: 'offline-field-sales-app', cs: false, rm: 5,
+    label: svc('أهمية العمل بلا إنترنت في المبيعات الميدانية', 'Why Offline Matters in Field Sales', "L'importance du mode hors ligne"),
+    kw: (c, L) => P(L, `تطبيق بلا إنترنت, مزامنة, ميدان, مبيعات`, `offline app, sync, field sales`, `application hors ligne, synchronisation, terrain`),
+    secs: ['offline', 'invoice', 'vanstock', 'cta'] },
+  { id: 'thermal-printing-invoices', cs: false, rm: 5,
+    label: svc('الطباعة الحرارية للفواتير في الميدان', 'Thermal Printing of Field Invoices', 'Impression thermique des factures'),
+    kw: (c, L) => P(L, `طباعة حرارية, فاتورة 58مم, طابعة محمولة, فوترة ميدانية`, `thermal printing, 58mm invoice, portable printer`, `impression thermique, facture 58 mm, imprimante portable`),
+    secs: ['invoice', 'tax', 'howstart', 'cta'] },
+  { id: 'credit-limit-control', cs: false, rm: 5,
+    label: svc('ضبط حدود الائتمان لعملاء التوزيع', 'Controlling Credit Limits', 'Maîtriser les limites de crédit'),
+    kw: (c, L) => P(L, `حدود ائتمان, ديون العملاء, تنبيهات, تحصيل`, `credit limits, customer debt, alerts, collection`, `limites de crédit, dettes clients, alertes`),
+    secs: ['collect', 'crm', 'reports', 'cta'] },
+  { id: 'pricing-tiers-strategy', cs: false, rm: 5,
+    label: svc('سياسات التسعير وشرائح الأسعار', 'Pricing Tiers Strategy', 'Stratégie de grilles tarifaires'),
+    kw: (c, L) => P(L, `شرائح أسعار, تسعير جملة وتجزئة, قوائم أسعار, عملاء`, `price tiers, wholesale retail pricing, price lists`, `grilles tarifaires, prix gros détail, listes de prix`),
+    secs: ['crm', 'reps', 'reports', 'cta'] },
+  { id: 'digital-transformation-distribution', cs: false, rm: 6,
+    label: svc('التحول الرقمي لشركات التوزيع', 'Digital Transformation for Distributors', 'Transformation digitale des distributeurs'),
+    kw: (c, L) => P(L, `تحول رقمي, شركات توزيع, أتمتة, مبيعات ميدانية`, `digital transformation, distributors, automation, field sales`, `transformation digitale, distributeurs, automatisation`),
+    secs: ['why', 'invoice', 'reports', 'roi', 'cta'] },
+  { id: 'route-planning-sales', cs: false, rm: 5,
+    label: svc('تخطيط خطوط سير المناديب', 'Sales Route Planning', 'Planification des tournées'),
+    kw: (c, L) => P(L, `خطوط سير, تخطيط زيارات, تغطية مناطق, تتبع`, `route planning, visit planning, coverage, tracking`, `planification des tournées, couverture, suivi`),
+    secs: ['gps', 'reps', 'reports', 'cta'] },
+  { id: 'whatsapp-sales-followup', cs: false, rm: 5,
+    label: svc('متابعة مبيعات التوزيع عبر واتساب', 'Following Up Distribution Sales on WhatsApp', 'Suivi des ventes via WhatsApp'),
+    kw: (c, L) => P(L, `واتساب مبيعات, متابعة عملاء, تواصل, توزيع`, `whatsapp sales, customer follow-up, distribution`, `ventes WhatsApp, suivi clients, distribution`),
+    secs: ['crm', 'collect', 'reports', 'cta'] },
+  { id: 'field-sales-system-roi', cs: false, rm: 6,
+    label: svc('العائد على الاستثمار من نظام المبيعات الميدانية', 'ROI of a Field Sales System', "Le ROI d'un système de vente terrain"),
+    kw: (c, L) => P(L, `عائد استثمار, تكلفة نظام, توفير, تحصيل, فاقد`, `ROI, system cost, savings, collection, waste`, `ROI, coût, économies, encaissement`),
+    secs: ['roi', 'collect', 'vanstock', 'features', 'cta'] },
+];
+
+// ----------------------------------------------------------------------------
+// الأدوات: slug، التاريخ، الفهرسة، البناء، والعرض.
+// ----------------------------------------------------------------------------
+export const slugify = (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+
+// تاريخ موزّع على آخر ~120 يوماً (ثابت لكل مقال) — يعطي lastmod متنوّعاً وطبيعياً
+const BASE = Date.UTC(2026, 5, 30); // 2026-06-30
+const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice(0, 10);
+
+// slug المقال: عام = id، خاص بدولة = id-cc
+const slugOf = (topic, c) => (topic.cs ? `${topic.id}-${c.code.toLowerCase()}` : topic.id);
+
+// فهرس داخلي: slug → { topic, country }
+let _index = null;
+function index() {
+  if (_index) return _index;
+  _index = new Map();
+  let i = 0;
+  for (const topic of TOPICS) {
+    const countries = topic.cs ? COUNTRIES : [REGION];
+    for (const c of countries) {
+      _index.set(slugOf(topic, c), { topic, country: c, date: dateFor(i++) });
+    }
+  }
+  return _index;
+}
+
+const titleOf = (topic, c, L) => (topic.cs ? `${topic.label[L]} ${c[`in${L === 'ar' ? 'Ar' : L === 'en' ? 'En' : 'Fr'}`]}` : topic.label[L]);
+const descOf = (topic, c, L) => {
+  const t = titleOf(topic, c, L);
+  return P(L,
+    `${t}: دليل عملي من FieldSales لشركات التوزيع — فواتير ضريبية، تحصيل، مخزون سيارة، تتبّع، وتقارير لحظية. جرّب مجاناً 10 أيام.`,
+    `${t}: a practical FieldSales guide for distributors — tax invoices, collection, van stock, tracking and live reports. Free 10-day trial.`,
+    `${t} : un guide FieldSales pour les distributeurs — factures, encaissement, stock, suivi et rapports en temps réel. Essai gratuit 10 jours.`).slice(0, 300);
+};
+const excerptOf = (topic, c, L) => P(L,
+  `كل ما تحتاجه شركات التوزيع ${topic.cs ? c.inAr : 'العربية'} عن ${topic.label.ar} — بخطوات عملية وأمثلة محلية.`,
+  `Everything distributors ${topic.cs ? c.inEn : 'in Arab markets'} need about ${topic.label.en.toLowerCase()} — with practical steps and local examples.`,
+  `Tout ce que les distributeurs ${topic.cs ? c.inFr : 'arabes'} doivent savoir sur ${topic.label.fr.toLowerCase()} — étapes pratiques et exemples locaux.`);
+
+// روابط داخلية لمقالات شقيقة (تحسين الربط الداخلي)
+function relatedLinks(topic, c, L) {
+  const base = blogBase(L);
+  const items = [];
+  if (topic.cs) {
+    items.push([`${base}/einvoicing-compliance-${c.code.toLowerCase()}`, P(L, `الفوترة الإلكترونية ${c.inAr}`, `E-invoicing ${c.inEn}`, `Facturation électronique ${c.inFr}`)]);
+    items.push([`${base}/collection-receivables-${c.code.toLowerCase()}`, P(L, `التحصيل وإدارة الذمم ${c.inAr}`, `Collection ${c.inEn}`, `Encaissement ${c.inFr}`)]);
+    items.push([`${base}/what-is-field-sales-management`, P(L, `ما هو نظام إدارة المبيعات الميدانية؟`, `What is field sales software?`, `Qu'est-ce qu'un logiciel de vente terrain ?`)]);
+  } else {
+    items.push([`${base}/how-to-choose-field-sales-system`, P(L, `كيف تختار نظام مبيعات ميدانية؟`, `How to choose a field sales system`, `Comment choisir un système`)]);
+    items.push([`${base}/field-sales-system-roi`, P(L, `العائد على الاستثمار`, `ROI of a field sales system`, `Le ROI d'un système`)]);
+    items.push([`${base}/van-sales-best-practices`, P(L, `أفضل ممارسات البيع من السيارة`, `Van sales best practices`, `Bonnes pratiques van sales`)]);
+  }
+  const head = P(L, 'مقالات ذات صلة', 'Related articles', 'Articles liés');
+  return `<h2>${head}</h2><ul>${items.map(([h, t]) => `<li><a href="${h}">${t}</a></li>`).join('')}</ul>`;
+}
+
+// يبني قائمة المقالات (بيانات وصفية فقط) للغة معيّنة — للفهرس وخريطة الموقع
+export function listArticles(L) {
+  const out = [];
+  for (const [slug, { topic, country, date }] of index()) {
+    out.push({
+      slug, lang: L, date, readMinutes: topic.rm,
+      countryCode: topic.cs ? country.code : null,
+      title: titleOf(topic, country, L),
+      excerpt: excerptOf(topic, country, L),
+      keywords: topic.kw(country, L),
+      description: descOf(topic, country, L),
+    });
+  }
+  // ترتيب بالأحدث
+  return out.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// يعرض المقال كاملاً (HTML) عند فتحه فقط
+export function getArticle(slug, L) {
+  const hit = index().get(slug);
+  if (!hit) return null;
+  const { topic, country, date } = hit;
+  const c = country;
+  const t = titleOf(topic, c, L);
+  const intro = P(L,
+    `<p>${t} أصبح ضرورة لكل شركة توزيع تريد النمو بكفاءة. في هذا الدليل من <strong>FieldSales</strong> نشرح كيف تدير مبيعاتك الميدانية باحتراف — من الطلب إلى الفاتورة إلى التحصيل — مع مراعاة متطلبات ${topic.cs ? c.ar : 'السوق العربي'} المحلية.</p>`,
+    `<p>${t} has become essential for any distributor that wants to grow efficiently. In this <strong>FieldSales</strong> guide we explain how to run your field sales professionally — from order to invoice to collection — while respecting local requirements ${topic.cs ? c.inEn : 'in Arab markets'}.</p>`,
+    `<p>${t} est devenu essentiel pour tout distributeur qui veut croître efficacement. Dans ce guide <strong>FieldSales</strong>, nous expliquons comment gérer vos ventes terrain — de la commande à la facture et à l'encaissement — en respectant les exigences ${topic.cs ? c.inFr : 'des marchés arabes'}.</p>`);
+  const body = topic.secs.map((k) => (k === 'cta' ? cta(L) : S[k](c, L))).join('\n');
+  const contentHtml = `${intro}\n${body}\n${relatedLinks(topic, c, L)}`;
+  return {
+    slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L),
+    excerpt: excerptOf(topic, c, L), contentHtml, date, readMinutes: topic.rm,
+    countryCode: topic.cs ? c.code : null, isSeo: true,
+  };
+}
+
+// الدول الفرنكوفونية (المغرب العربي وغيرها) — نستهدفها بالفرنسية في خريطة الموقع
+const FRANCOPHONE = new Set(['MA', 'DZ', 'TN', 'MR', 'DJ', 'KM']);
+
+// كل الـslugs (لبناء خريطة الموقع) مع معلومات الدولة واللغة المستهدَفة
+// cc: رمز الدولة أو null، fr: هل تُستهدَف بالفرنسية (لغةً ثانيةً في الخريطة)
+export function buildCatalog() {
+  const out = [];
+  for (const [slug, { topic, country, date }] of index()) {
+    const cc = topic.cs ? country.code : null;
+    out.push({ slug, date, cc, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
+  }
+  return out;
+}
+
+export function hasArticle(slug) {
+  return index().has(slug);
+}

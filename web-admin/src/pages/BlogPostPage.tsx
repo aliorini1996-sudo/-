@@ -4,11 +4,14 @@ import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Clock, Calendar, Share2, Linkedin, Facebook, Twitter, MessageCircle, Link2, Check } from 'lucide-react';
 import { normalizeContent, postView } from '../blog/posts';
 import { useBlog } from '../blog/useBlog';
+import { getArticle } from '../blog/seo/catalog.mjs';
+import { useLang } from '../i18n/lang';
+import { seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 import LanguageToggle from '../components/LanguageToggle';
 
 // شريط مشاركة المقال على منصّات التواصل — يزيد الانتشار الاجتماعي والزيارات
-function ShareBar({ url, title, en }: { url: string; title: string; en: boolean }) {
+function ShareBar({ url, title, label }: { url: string; title: string; label: { share: string; copy: string } }) {
   const [copied, setCopied] = useState(false);
   const u = encodeURIComponent(url);
   const t = encodeURIComponent(title);
@@ -20,7 +23,7 @@ function ShareBar({ url, title, en }: { url: string; title: string; en: boolean 
   ];
   return (
     <div className="flex items-center gap-2 flex-wrap mt-8 pt-6 border-t border-[#E9E1D3]">
-      <span className="text-xs font-semibold text-[#6E6557] flex items-center gap-1.5"><Share2 size={14} /> {en ? 'Share this article' : 'شارك المقال'}</span>
+      <span className="text-xs font-semibold text-[#6E6557] flex items-center gap-1.5"><Share2 size={14} /> {label.share}</span>
       {links.map(l => (
         <a key={l.label} href={l.href} target="_blank" rel="noreferrer" title={l.label} aria-label={l.label}
           className="w-9 h-9 rounded-lg flex items-center justify-center text-white hover:opacity-90 transition-opacity" style={{ background: l.color }}>
@@ -28,33 +31,51 @@ function ShareBar({ url, title, en }: { url: string; title: string; en: boolean 
         </a>
       ))}
       <button onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-        className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#EDE7DB] text-[#6E6557] hover:bg-[#E2D9C8] transition-colors" title={en ? 'Copy link' : 'نسخ الرابط'} aria-label={en ? 'Copy link' : 'نسخ الرابط'}>
+        className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#EDE7DB] text-[#6E6557] hover:bg-[#E2D9C8] transition-colors" title={label.copy} aria-label={label.copy}>
         {copied ? <Check size={16} className="text-[#1E7A52]" /> : <Link2 size={16} />}
       </button>
     </div>
   );
 }
 
-// صفحة مقال — عربي على /blog/:slug وإنجليزي على /en/blog/:slug (ثنائي اللغة + hreflang + Article JSON-LD)
+// صفحة مقال — عربي على /blog/:slug ، إنجليزي على /en/blog/:slug ، فرنسي على /fr/blog/:slug
+// تدعم المقالات المكتوبة يدوياً (ع/إ) والمقالات المولَّدة برمجياً لكل الدول العربية (ع/إ/فر) + hreflang + Article JSON-LD
 export default function BlogPostPage() {
   const { slug } = useParams();
-  const { getPost, isLoading, lang } = useBlog();
-  const post = getPost(slug || '');
-  const en = lang === 'en';
-  const v = post ? postView(post, lang) : null;
+  const lang = useLang((s) => s.lang); // ar | en | fr (مشتقّة من المسار)
+  const { getPost, isLoading } = useBlog();
+  const hand = getPost(slug || '');
+  const rtl = lang === 'ar';
+  const prefix = lang === 'ar' ? '' : `/${lang}`;
+  const tr = (ar: string, en: string, fr: string) => (lang === 'ar' ? ar : lang === 'en' ? en : fr);
 
-  const base = `https://fieldsa.net${en ? '/en' : ''}/blog/${slug}`;
-  const alternates = post?.en ? [
-    { hreflang: 'ar', href: `https://fieldsa.net/blog/${slug}` },
-    { hreflang: 'en', href: `https://fieldsa.net/en/blog/${slug}` },
-    { hreflang: 'x-default', href: `https://fieldsa.net/blog/${slug}` },
-  ] : undefined;
+  // مقال يدوي إنجليزي غير متوفّر لهذه اللغة الإنجليزية → عد للنسخة العربية
+  const handUnavailableEn = hand && lang === 'en' && !hand.en;
 
-  useSeo(v ? {
-    title: `${v.title} | ${en ? 'FieldSales Blog' : 'مدوّنة FieldSales'}`,
-    description: v.description,
-    keywords: v.keywords,
-    canonical: base,
+  // اختر المصدر: مقال يدوي (ع/إ) أو مقال SEO مولّد (ع/إ/فر)
+  const useHand = !!hand && lang !== 'fr' && !handUnavailableEn;
+  const seo = useHand ? null : getArticle(slug || '', lang);
+
+  type View = { title: string; description: string; keywords: string; contentHtml: string; date: string; readMinutes: number };
+  let view: View | null = null;
+  if (useHand && hand) {
+    const v = postView(hand, lang === 'en' ? 'en' : 'ar');
+    view = { title: v.title, description: v.description, keywords: v.keywords, contentHtml: v.contentHtml, date: hand.date, readMinutes: hand.readMinutes };
+  } else if (seo) {
+    view = { title: seo.title, description: seo.description, keywords: seo.keywords, contentHtml: seo.contentHtml, date: seo.date, readMinutes: seo.readMinutes };
+  }
+
+  // روابط hreflang + canonical: المقالات المولَّدة ثلاثية اللغة؛ اليدوية ثنائية عند توفّر en
+  const isSeo = !!seo;
+  const { canonical, alternates } = isSeo || (hand && hand.en)
+    ? seoUrls(`/blog/${slug}`, lang)
+    : { canonical: `https://fieldsa.net${prefix}/blog/${slug}`, alternates: undefined as undefined | { hreflang: string; href: string }[] };
+
+  useSeo(view ? {
+    title: `${view.title} | ${tr('مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales')}`,
+    description: view.description,
+    keywords: view.keywords,
+    canonical,
     image: 'https://fieldsa.net/og-image.png',
     type: 'article',
     locale: lang,
@@ -62,39 +83,42 @@ export default function BlogPostPage() {
     jsonLd: {
       '@context': 'https://schema.org',
       '@type': 'Article',
-      headline: v.title,
-      description: v.description,
+      headline: view.title,
+      description: view.description,
       inLanguage: lang,
-      datePublished: post!.date,
-      dateModified: post!.date,
+      datePublished: view.date,
+      dateModified: view.date,
       image: 'https://fieldsa.net/og-image.png',
       author: { '@type': 'Organization', name: 'FieldSales' },
       publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: 'https://fieldsa.net/icons/icon-512.png' } },
-      mainEntityOfPage: base,
+      mainEntityOfPage: canonical,
     },
-  } : { title: en ? 'Article not found | FieldSales' : 'المقال غير موجود | FieldSales' });
+  } : { title: tr('المقال غير موجود | FieldSales', 'Article not found | FieldSales', 'Article introuvable | FieldSales') });
 
-  // أثناء جلب محتوى الـCMS قد لا يكون المقال جاهزاً بعد — لا نُعيد التوجيه قبل اكتمال التحميل
-  if (!post && isLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">{en ? 'Loading…' : 'جارٍ التحميل…'}</div>;
+  // إنجليزي يدوي غير متوفّر → وجّه للعربية
+  if (handUnavailableEn) return <Navigate to={`/blog/${slug}`} replace />;
+  // أثناء جلب محتوى الـCMS قد لا يكون المقال اليدوي جاهزاً بعد — لا نُعيد التوجيه قبل اكتمال التحميل
+  if (!view && isLoading) {
+    return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">{tr('جارٍ التحميل…', 'Loading…', 'Chargement…')}</div>;
   }
-  if (!post) return <Navigate to={en ? '/en/blog' : '/blog'} replace />;
-  // مقال عربي فقط على مسار /en → نوجّه للنسخة العربية
-  if (en && !post.en) return <Navigate to={`/blog/${slug}`} replace />;
+  if (!view) return <Navigate to={`${prefix}/blog`} replace />;
 
-  const home = en ? '/en' : '/';
-  const blogHome = en ? '/en/blog' : '/blog';
+  const base = canonical;
+  const home = prefix || '/';
+  const blogHome = `${prefix}/blog`;
   const t = {
-    all: en ? 'All articles' : 'كل المقالات',
-    read: en ? 'min read' : 'دقائق قراءة',
-    ctaTitle: en ? 'Ready to run your field team professionally?' : 'جاهز لإدارة فريقك الميداني باحتراف؟',
-    ctaText: en ? 'Invoices, collection, van stock and real-time reports — in one platform.' : 'فواتير، تحصيل، مخزون السيارة، وتقارير لحظية — في منصّة واحدة.',
-    ctaBtn: en ? 'Start your free 10-day trial' : 'ابدأ تجربتك المجانية 10 أيام',
+    all: tr('كل المقالات', 'All articles', 'Tous les articles'),
+    read: tr('دقائق قراءة', 'min read', 'min de lecture'),
+    ctaTitle: tr('جاهز لإدارة فريقك الميداني باحتراف؟', 'Ready to run your field team professionally?', 'Prêt à gérer votre équipe terrain ?'),
+    ctaText: tr('فواتير، تحصيل، مخزون السيارة، وتقارير لحظية — في منصّة واحدة.', 'Invoices, collection, van stock and real-time reports — in one platform.', 'Factures, encaissement, stock du véhicule et rapports en temps réel — sur une seule plateforme.'),
+    ctaBtn: tr('ابدأ تجربتك المجانية 10 أيام', 'Start your free 10-day trial', 'Commencez votre essai gratuit de 10 jours'),
+    share: tr('شارك المقال', 'Share this article', 'Partager'),
+    copy: tr('نسخ الرابط', 'Copy link', 'Copier le lien'),
   };
 
   return (
-    <div dir={en ? 'ltr' : 'rtl'} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]"
-      style={{ fontFamily: en ? "'IBM Plex Sans', sans-serif" : "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div dir={rtl ? 'rtl' : 'ltr'} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]"
+      style={{ fontFamily: rtl ? "'IBM Plex Sans Arabic', sans-serif" : "'IBM Plex Sans', sans-serif" }}>
       <style>{`
         .article-prose { font-size:16.5px; line-height:1.95; color:#3a342b; }
         .article-prose h2 { font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-0.3px; }
@@ -117,7 +141,7 @@ export default function BlogPostPage() {
           <div className="flex items-center gap-2">
             <LanguageToggle />
             <Link to={blogHome} className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
-              {t.all} <ArrowLeft size={15} className={en ? 'rotate-180' : ''} />
+              {t.all} <ArrowLeft size={15} className={rtl ? '' : 'rotate-180'} />
             </Link>
           </div>
         </div>
@@ -125,15 +149,15 @@ export default function BlogPostPage() {
 
       <main className="max-w-3xl mx-auto px-5 py-12">
         <article>
-          <h1 className="text-3xl lg:text-[40px] font-extrabold tracking-tight leading-tight">{v!.title}</h1>
+          <h1 className="text-3xl lg:text-[40px] font-extrabold tracking-tight leading-tight">{view.title}</h1>
           <div className="flex items-center gap-4 mt-4 text-xs text-[#9A8F7E] border-b border-[#E9E1D3] pb-6">
-            <span className="flex items-center gap-1"><Calendar size={13} /> {post.date}</span>
-            <span className="flex items-center gap-1"><Clock size={13} /> {post.readMinutes} {t.read}</span>
+            <span className="flex items-center gap-1"><Calendar size={13} /> {view.date}</span>
+            <span className="flex items-center gap-1"><Clock size={13} /> {view.readMinutes} {t.read}</span>
           </div>
 
-          <div className="article-prose mt-6" dangerouslySetInnerHTML={{ __html: normalizeContent(v!.contentHtml) }} />
+          <div className="article-prose mt-6" dangerouslySetInnerHTML={{ __html: normalizeContent(view.contentHtml) }} />
 
-          <ShareBar url={base} title={v!.title} en={en} />
+          <ShareBar url={base} title={view.title} label={{ share: t.share, copy: t.copy }} />
 
           {/* CTA */}
           <div className="mt-10 bg-[#1F1A13] rounded-2xl p-7 text-center">
