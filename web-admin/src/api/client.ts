@@ -170,6 +170,9 @@ export const leadApi = {
   autoEmailConfig: () => api.get('/leads/auto-email'),
   autoEmailUpdate: (data: unknown) => api.put('/leads/auto-email', data),
   autoEmailRun: () => api.post('/leads/auto-email/run'),
+  communityConfig: () => api.get('/leads/community-hunt'),
+  communityUpdate: (data: unknown) => api.put('/leads/community-hunt', data),
+  communityRun: () => api.post('/leads/community-hunt/run'),
   import: (leads: unknown[]) => api.post('/leads/import', { leads }),
   exportUrl: () => `${BASE}/leads/export/csv`,
 };

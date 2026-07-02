@@ -10,6 +10,7 @@ import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/
 import { getHuntConfig, saveHuntConfig, runAutoHuntBatch } from '../services/leadHunter';
 import { personalize, marketingHtml } from '../services/marketingTemplate';
 import { getEmailConfig, saveEmailConfig, runAutoEmailBatch } from '../services/leadEmailer';
+import { getCommunityConfig, saveCommunityConfig, runCommunityHuntBatch } from '../services/communityHunter';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -220,6 +221,31 @@ router.put('/auto-email', async (req: AuthRequest, res: Response, next: NextFunc
 
 router.post('/auto-email/run', async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try { res.json({ success: true, data: await runAutoEmailBatch() }); } catch (err) { next(err); }
+});
+
+// ------------------------------- بحث المجتمعات المستمر — قبل /:id ------------------------------- //
+router.get('/community-hunt', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await getCommunityConfig() }); } catch (err) { next(err); }
+});
+
+const communityConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  countries: z.array(z.string().min(1)).min(1).optional(),
+  keywordsPerRun: z.number().int().min(1).max(6).optional(),
+  limit: z.number().int().min(1).max(40).optional(),
+});
+router.put('/community-hunt', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const patch = communityConfigSchema.parse(req.body);
+    const cfg = await getCommunityConfig();
+    const merged = { ...cfg, ...patch };
+    await saveCommunityConfig(merged as typeof cfg);
+    res.json({ success: true, data: merged });
+  } catch (err) { next(err); }
+});
+
+router.post('/community-hunt/run', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await runCommunityHuntBatch() }); } catch (err) { next(err); }
 });
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //

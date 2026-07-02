@@ -5,7 +5,7 @@ import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
 import { formatDate } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
-  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2, Repeat,
+  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2, Repeat, Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -23,7 +23,7 @@ const STAGE_CLS: Record<LeadStage, string> = {
 };
 const SOURCE_LABEL: Record<string, string> = {
   osm: 'خرائط OSM', geoapify: 'Geoapify', tomtom: 'TomTom', serper: 'بحث الويب', linkedin: 'LinkedIn',
-  here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
+  here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', community: 'قروبات/مجتمعات', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
 };
 
 type Filters = {
@@ -59,6 +59,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const [showEnrich, setShowEnrich] = useState(false);
   const [showHunt, setShowHunt] = useState(false);
   const [showAutoEmail, setShowAutoEmail] = useState(false);
+  const [showCommunity, setShowCommunity] = useState(false);
 
   const { data: stats } = useQuery({
     queryKey: ['lead-stats'],
@@ -167,6 +168,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           <button onClick={() => setShowEnrich(true)} className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700"><Wand2 size={14} className="inline ml-1" /> إثراء البيانات</button>
           <button onClick={() => setShowHunt(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1F1A13] text-white hover:bg-[#2c2620]"><Repeat size={14} className="inline ml-1" /> صيد مستمر</button>
           <button onClick={() => setShowAutoEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تلقائي</button>
+          <button onClick={() => setShowCommunity(true)} className="px-3 py-2 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700"><Users size={14} className="inline ml-1" /> بحث القروبات</button>
           <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
           <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>
           <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
@@ -231,6 +233,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
       {showEnrich && <EnrichModal filters={filters} onClose={() => setShowEnrich(false)} onDone={refresh} />}
       {showHunt && <AutoHuntModal onClose={() => setShowHunt(false)} onDone={refresh} />}
       {showAutoEmail && <AutoEmailModal onClose={() => setShowAutoEmail(false)} onDone={refresh} />}
+      {showCommunity && <CommunityHuntModal onClose={() => setShowCommunity(false)} onDone={refresh} />}
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onDone={refresh} />}
     </div>
   );
@@ -960,6 +963,123 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
           ⚠️ الإرسال البارد الجماعي قد يؤثّر على سمعة نطاقك ويُصنَّف Spam. أبقِ الحدّ اليومي منخفضاً ووثّق نطاقك (DKIM) لأفضل وصول.
         </p>
         <p className="text-xs text-gray-400">💡 للعمل 24/7 بلا متصفّح، فعّل الخيار الكهرماني — الجدولة ترسل دفعات تلقائياً حتى بلوغ الحدّ اليومي.</p>
+        <div className="flex justify-end">
+          <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ----------------------------- بحث المجتمعات/القروبات ----------------------------- //
+type CommunityConfig = {
+  enabled: boolean; countries: string[]; keywordsPerRun: number; limit: number;
+  lastRunAt: string | null; totalRuns: number; totalImported: number;
+};
+
+function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [cfg, setCfg] = useState<CommunityConfig | null>(null);
+  const [countriesText, setCountriesText] = useState('');
+  const [live, setLive] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const liveRef = useRef(false);
+
+  const { data: ready } = useQuery({
+    queryKey: ['sources-status'],
+    queryFn: async () => (await leadApi.sourcesStatus()).data.data as Record<string, boolean>,
+  });
+
+  useEffect(() => {
+    leadApi.communityConfig().then((r) => { const c = r.data.data as CommunityConfig; setCfg(c); setCountriesText(c.countries.join('، ')); });
+  }, []);
+
+  const save = async (patch: Partial<CommunityConfig>) => {
+    const res = await leadApi.communityUpdate(patch);
+    setCfg(res.data.data as CommunityConfig);
+  };
+
+  const runOnce = async () => {
+    try {
+      const res = await leadApi.communityRun();
+      const d = res.data.data as { country: string; keywords: string[]; found: number; imported: number };
+      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} قروب/مجتمع`, ...l].slice(0, 25));
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['lead-stats'] });
+      onDone();
+      leadApi.communityConfig().then((r) => setCfg(r.data.data as CommunityConfig));
+    } catch (e) {
+      setLog((l) => [`⚠️ ${(e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ'}`, ...l].slice(0, 25));
+    }
+  };
+
+  useEffect(() => {
+    liveRef.current = live;
+    if (!live) return;
+    let cancelled = false;
+    (async () => { while (liveRef.current && !cancelled) { await runOnce(); await new Promise((r) => setTimeout(r, 60000)); } })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live]);
+
+  if (!cfg) return <Modal title="بحث القروبات/المجتمعات" onClose={onClose}><div className="py-8 text-center text-gray-400">جارٍ التحميل...</div></Modal>;
+
+  const communityReady = ready?.community ?? false;
+
+  return (
+    <Modal title="بحث القروبات والمجتمعات المستمر" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="bg-blue-600 text-white rounded-lg p-3 text-sm">
+          يبحث عن مجموعات المهتمين بالتوزيع وإدارة المناديب (فيسبوك · LinkedIn · Telegram · واتساب · Reddit · Discord) — للانضمام والتسويق فيها.
+          <div className="flex gap-4 mt-2 text-xs text-blue-100">
+            <span>دفعات: <b className="text-white">{cfg.totalRuns}</b></span>
+            <span>قروبات مُكتشفة: <b className="text-white">{cfg.totalImported}</b></span>
+          </div>
+        </div>
+
+        {!communityReady && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-sm text-red-700">
+            يتطلب مفتاح <code>SERPER_API_KEY</code> في الخادم (نفس مفتاح «بحث الويب»).
+          </div>
+        )}
+
+        <div className={`rounded-lg p-3 border ${live ? 'border-green-400 bg-green-50' : 'border-[#E9E1D3]'}`}>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={live} disabled={!communityReady} onChange={(e) => setLive(e.target.checked)} />
+            {live ? '🟢 بحث مستمر جارٍ الآن (دفعة كل دقيقة)' : 'بحث مستمر الآن (أثناء فتح النافذة)'}
+          </label>
+          <div className="flex gap-2 mt-2">
+            <button onClick={runOnce} disabled={!communityReady} className="px-3 py-1.5 rounded-lg text-sm bg-blue-600 text-white disabled:opacity-50">ابحث دفعة الآن</button>
+          </div>
+          {log.length > 0 && (
+            <div className="mt-2 max-h-32 overflow-y-auto text-xs bg-white rounded border border-[#E9E1D3] p-2 space-y-1">
+              {log.map((l, i) => <div key={i} className="text-gray-600">{l}</div>)}
+            </div>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 text-sm bg-amber-50 rounded-lg p-2.5 text-amber-800">
+          <input type="checkbox" checked={cfg.enabled} disabled={!communityReady} onChange={(e) => save({ enabled: e.target.checked })} />
+          تفعيل البحث التلقائي 24/7 — يعمل وحده عبر الجدولة
+        </label>
+
+        <div>
+          <label className="label">الدول (بالتناوب · «عالمي» لبحث بلا تقييد دولة)</label>
+          <textarea value={countriesText} onChange={(e) => setCountriesText(e.target.value)}
+            onBlur={() => save({ countries: countriesText.split(/[،,\n]/).map((s) => s.trim()).filter(Boolean) })} rows={2} className="input" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">كلمات لكل دفعة</label>
+            <input type="number" min={1} max={6} value={cfg.keywordsPerRun} onChange={(e) => save({ keywordsPerRun: Math.max(1, Math.min(6, Number(e.target.value) || 3)) })} className="input w-24" />
+          </div>
+          <div>
+            <label className="label">حد النتائج لكل بحث</label>
+            <input type="number" min={1} max={40} value={cfg.limit} onChange={(e) => save({ limit: Math.max(1, Math.min(40, Number(e.target.value) || 20)) })} className="input w-24" />
+          </div>
+        </div>
+
+        <p className="text-xs text-gray-400">💡 القروبات المُكتشفة تظهر في القائمة بمصدر «قروبات/مجتمعات» (فلترها من «كل المصادر»). افتح الرابط للانضمام يدوياً.</p>
         <div className="flex justify-end">
           <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
         </div>

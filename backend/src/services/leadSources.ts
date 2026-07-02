@@ -27,7 +27,7 @@ export interface RawLead {
   lat?: number;
   lng?: number;
   mapsUrl?: string;
-  source: 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin';
+  source: 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin' | 'community';
 }
 
 function domainFromUrl(url: string): string {
@@ -548,8 +548,48 @@ export async function searchLinkedIn(query: string, country?: string, city?: str
   return out;
 }
 
+// ----------------------------- اكتشاف المجتمعات/القروبات (عبر Serper) ----------------------------- //
+// يجد مجموعات/مجتمعات المهتمين بالتوزيع وإدارة المناديب على المنصّات العامة (فيسبوك/لينكدإن/تليجرام/واتساب/ريديت/ديسكورد).
+const COMMUNITY_HOSTS: { host: string; platform: string }[] = [
+  { host: 'facebook.com/groups', platform: 'مجموعة فيسبوك' },
+  { host: 'linkedin.com/groups', platform: 'مجموعة LinkedIn' },
+  { host: 't.me/', platform: 'Telegram' },
+  { host: 'chat.whatsapp.com', platform: 'مجموعة واتساب' },
+  { host: 'reddit.com/r/', platform: 'Reddit' },
+  { host: 'discord.gg', platform: 'Discord' },
+  { host: 'discord.com/invite', platform: 'Discord' },
+];
+
+export async function searchCommunities(query: string, country?: string, city?: string, limit = 20): Promise<RawLead[]> {
+  const box = await geocode(country, city);
+  const loc = [city, country].filter(Boolean).join(' ');
+  const results = await serperSearch(`${query} ${loc}`, box?.cc?.toLowerCase(), Math.min(limit, 20));
+  const seen = new Set<string>();
+  const out: RawLead[] = [];
+  for (const res of results) {
+    const match = COMMUNITY_HOSTS.find((h) => res.link.includes(h.host));
+    if (!match) continue;
+    const slug = res.link.replace(/^https?:\/\//, '').replace(/[?#].*$/, '').replace(/\/$/, '');
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    const url = res.link.startsWith('http') ? res.link : `https://${res.link}`;
+    out.push({
+      sourceId: `community:${slug}`,
+      name: res.title.split('|')[0].split('·')[0].trim() || res.title,
+      website: url,
+      mapsUrl: url,
+      city: city || undefined,
+      country: box?.country || country || undefined,
+      countryCode: box?.cc || undefined,
+      category: match.platform,
+      source: 'community',
+    });
+  }
+  return out;
+}
+
 // ----------------------------- موزّع المصادر ----------------------------- //
-export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin';
+export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin' | 'community';
 
 // أي المصادر جاهزة (لها مفتاح مضبوط)؟ OSM لا يتطلّب مفتاحاً
 export function providersReady(): Record<LeadProvider, boolean> {
@@ -563,6 +603,7 @@ export function providersReady(): Record<LeadProvider, boolean> {
     tomtom: has('TOMTOM_API_KEY'),
     serper: has('SERPER_API_KEY'),
     linkedin: has('SERPER_API_KEY'),
+    community: has('SERPER_API_KEY'),
   };
 }
 
@@ -584,6 +625,8 @@ export async function runSearch(
       return searchSerper(query, country, city, limit);
     case 'linkedin':
       return searchLinkedIn(query, country, city, limit);
+    case 'community':
+      return searchCommunities(query, country, city, limit);
     case 'geoapify':
       return searchGeoapify(query, country, city, limit);
     case 'here':
