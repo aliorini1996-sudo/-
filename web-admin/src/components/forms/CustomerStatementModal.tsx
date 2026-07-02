@@ -10,12 +10,17 @@ import toast from 'react-hot-toast';
 
 interface Props { customer: Customer; onClose: () => void; }
 
-// تفصيل الوحدات المباعة حسب نوع الوحدة (كرتون/قطعة/…) عبر كل حركات الكشف
+// تفصيل الوحدات المباعة حسب نوع الوحدة (كرتون/قطعة/…).
+// نحسب فقط قيود البيع الفعلي INVOICE_DEBIT — لأن الفاتورة النقدية لها قيدان بنفس invoiceId
+// (بيع + تحصيل) فتُحتسب أصنافها مرّتين، والمرتجعات (INVOICE_CREDIT) ليست بيعاً.
 function soldUnitsText(entries: AccountEntry[], fallback: string): string {
   const m = new Map<string, number>();
-  for (const e of entries) for (const it of (e.invoice?.items || [])) {
-    const u = (it.product.unit || '').trim() || fallback;
-    m.set(u, (m.get(u) || 0) + Number(it.qty));
+  for (const e of entries) {
+    if (e.type !== 'INVOICE_DEBIT') continue;
+    for (const it of (e.invoice?.items || [])) {
+      const u = (it.product.unit || '').trim() || fallback;
+      m.set(u, (m.get(u) || 0) + Number(it.qty));
+    }
   }
   return [...m.entries()].map(([u, q]) => `${formatNumber(q)} ${u}`).join(' · ');
 }
@@ -136,7 +141,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                   <td className="text-xs text-gray-500 align-top">{formatDate(e.entryDate)}</td>
                   <td className="text-sm text-gray-700 align-top">
                     {e.description}
-                    {e.invoice?.items && e.invoice.items.length > 0 && (
+                    {e.type !== 'RECEIPT_CREDIT' && e.invoice?.items && e.invoice.items.length > 0 && (
                       <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
                         <span className="font-semibold text-gray-600">{e.invoice.items.length} {tr('صنف')}:</span>{' '}
                         {e.invoice.items.map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ')}

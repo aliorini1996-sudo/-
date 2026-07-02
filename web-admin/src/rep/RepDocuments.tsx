@@ -83,6 +83,7 @@ export interface StatementEntry {
   debit: number;
   credit: number;
   balance: number;
+  type?: string; // نوع القيد (INVOICE_DEBIT بيع · RECEIPT_CREDIT تحصيل · INVOICE_CREDIT مرتجع)
   items?: { name: string; qty: number; unit?: string }[]; // أصناف الفاتورة (لعرضها في كشف الحساب)
 }
 
@@ -412,9 +413,12 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
   // عدد الأصناف المباعة (مجموع الكميات) — يظهر في صف الإجماليات أسفل الكشف
   const soldUnits = (() => {
     const m = new Map<string, number>();
-    for (const e of doc.entries) for (const it of (e.items || [])) {
-      const u = (it.unit || '').trim() || tr('وحدة');
-      m.set(u, (m.get(u) || 0) + Number(it.qty));
+    for (const e of doc.entries) {
+      if (e.type !== 'INVOICE_DEBIT') continue; // البيع الفعلي فقط (بلا تكرار التحصيل ولا المرتجعات)
+      for (const it of (e.items || [])) {
+        const u = (it.unit || '').trim() || tr('وحدة');
+        m.set(u, (m.get(u) || 0) + Number(it.qty));
+      }
     }
     return [...m.entries()].map(([u, q]) => `${q} ${u}`).join(' · ');
   })();
@@ -580,7 +584,9 @@ export function statementDocFromData(
     debit: Number(e.debit),
     credit: Number(e.credit),
     balance: Number(e.balance),
-    items: (e.invoice?.items || []).map((it: any) => ({ name: it.product?.name ?? '-', qty: Number(it.qty), unit: it.product?.unit })),
+    type: e.type,
+    // لا نُرفق الأصناف بقيد التحصيل النقدي (RECEIPT_CREDIT) فهو يكرّر نفس فاتورة البيع
+    items: (e.type !== 'RECEIPT_CREDIT' ? (e.invoice?.items || []) : []).map((it: any) => ({ name: it.product?.name ?? '-', qty: Number(it.qty), unit: it.product?.unit })),
   }));
   const totalDebit = mapped.reduce((s, e) => s + e.debit, 0);
   const totalCredit = mapped.reduce((s, e) => s + e.credit, 0);

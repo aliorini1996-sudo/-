@@ -318,7 +318,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const invoicesAmountTotal = invoices.reduce((s, i) => s + Number(i.total), 0);
   const soldUnits = (() => {
     const m = new Map<string, number>();
-    for (const i of invoices) for (const it of (i.items || [])) {
+    for (const i of sales) for (const it of (i.items || [])) { // البيع فقط (بلا المرتجعات)
       const u = (it.product.unit || '').trim() || tr('وحدة');
       m.set(u, (m.get(u) || 0) + Number(it.qty));
     }
