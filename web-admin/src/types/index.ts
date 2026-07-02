@@ -267,7 +267,7 @@ export interface AccountEntry {
   balance: number;
   description: string;
   entryDate: string;
-  invoice?: { number: string };
+  invoice?: { number: string; items?: { qty: number; product: { name: string; unit?: string } }[] };
   receipt?: { number: string };
 }
 

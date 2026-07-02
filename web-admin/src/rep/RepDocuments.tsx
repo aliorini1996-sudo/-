@@ -83,6 +83,7 @@ export interface StatementEntry {
   debit: number;
   credit: number;
   balance: number;
+  items?: { name: string; qty: number; unit?: string }[]; // أصناف الفاتورة (لعرضها في كشف الحساب)
 }
 
 export interface StatementDoc {
@@ -454,13 +455,20 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
             <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={7}>{tr('لا توجد حركات في هذه الفترة')}</td></tr>
           ) : doc.entries.map((e, i) => (
             <tr key={i}>
-              <td style={td}>{i + 1}</td>
-              <td style={td}>{formatDate(e.date)}</td>
-              <td style={{ ...td, textAlign: 'right' }}>{e.description}</td>
-              <td style={{ ...td, fontSize: 10, color: '#6b7280' }}>{e.ref || '-'}</td>
-              <td style={{ ...td, color: e.debit > 0 ? '#dc2626' : '#cbd5e1' }}>{e.debit > 0 ? formatCurrency(e.debit) : '-'}</td>
-              <td style={{ ...td, color: e.credit > 0 ? '#16a34a' : '#cbd5e1' }}>{e.credit > 0 ? formatCurrency(e.credit) : '-'}</td>
-              <td style={{ ...td, fontWeight: 700 }}>{formatCurrency(e.balance)}</td>
+              <td style={{ ...td, verticalAlign: 'top' }}>{i + 1}</td>
+              <td style={{ ...td, verticalAlign: 'top' }}>{formatDate(e.date)}</td>
+              <td style={{ ...td, textAlign: 'right', verticalAlign: 'top' }}>
+                {e.description}
+                {e.items && e.items.length > 0 && (
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3, lineHeight: 1.5 }}>
+                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}`).join('، ')}
+                  </div>
+                )}
+              </td>
+              <td style={{ ...td, fontSize: 10, color: '#6b7280', verticalAlign: 'top' }}>{e.ref || '-'}</td>
+              <td style={{ ...td, verticalAlign: 'top', color: e.debit > 0 ? '#dc2626' : '#cbd5e1' }}>{e.debit > 0 ? formatCurrency(e.debit) : '-'}</td>
+              <td style={{ ...td, verticalAlign: 'top', color: e.credit > 0 ? '#16a34a' : '#cbd5e1' }}>{e.credit > 0 ? formatCurrency(e.credit) : '-'}</td>
+              <td style={{ ...td, verticalAlign: 'top', fontWeight: 700 }}>{formatCurrency(e.balance)}</td>
             </tr>
           ))}
         </tbody>
@@ -561,6 +569,7 @@ export function statementDocFromData(
     debit: Number(e.debit),
     credit: Number(e.credit),
     balance: Number(e.balance),
+    items: (e.invoice?.items || []).map((it: any) => ({ name: it.product?.name ?? '-', qty: Number(it.qty), unit: it.product?.unit })),
   }));
   const totalDebit = mapped.reduce((s, e) => s + e.debit, 0);
   const totalCredit = mapped.reduce((s, e) => s + e.credit, 0);

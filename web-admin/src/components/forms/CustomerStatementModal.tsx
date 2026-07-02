@@ -38,6 +38,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     const rows = data.entries.map(e => ({
       [tr('التاريخ')]: formatDate(e.entryDate),
       [tr('البيان')]: e.description,
+      [tr('الأصناف')]: (e.invoice?.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، '),
       [tr('رقم المستند')]: e.invoice?.number || e.receipt?.number || '-',
       [tr('مدين')]: num(e.debit),
       [tr('دائن')]: num(e.credit),
@@ -45,7 +46,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     }));
     const out = await shareOrDownloadExcel([
       { name: tr('الملخص'), rows: summary, colWidths: [18, 22] },
-      { name: tr('الحركات'), rows, colWidths: [16, 30, 16, 12, 12, 12] },
+      { name: tr('الحركات'), rows, colWidths: [16, 30, 34, 16, 12, 12, 12] },
     ], `${tr('كشف حساب')}-${customer.name}-${new Date().toISOString().slice(0, 10)}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم تصدير كشف الحساب'));
   };
@@ -112,9 +113,17 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                 <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('لا توجد حركات')}</td></tr>
               ) : data?.entries.map(e => (
                 <tr key={e.id}>
-                  <td className="text-xs text-gray-500">{formatDate(e.entryDate)}</td>
-                  <td className="text-sm text-gray-700">{e.description}</td>
-                  <td className="text-xs text-gray-400 font-mono">
+                  <td className="text-xs text-gray-500 align-top">{formatDate(e.entryDate)}</td>
+                  <td className="text-sm text-gray-700 align-top">
+                    {e.description}
+                    {e.invoice?.items && e.invoice.items.length > 0 && (
+                      <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                        <span className="font-semibold text-gray-600">{e.invoice.items.length} {tr('صنف')}:</span>{' '}
+                        {e.invoice.items.map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ')}
+                      </div>
+                    )}
+                  </td>
+                  <td className="text-xs text-gray-400 font-mono align-top">
                     {e.invoice?.number || e.receipt?.number || '-'}
                   </td>
                   <td className="text-red-600 font-medium">{Number(e.debit) > 0 ? formatCurrency(e.debit) : '-'}</td>

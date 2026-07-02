@@ -128,7 +128,11 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     };
     const entries = await prisma.accountEntry.findMany({
       where,
-      include: { invoice: true, receipt: true },
+      include: {
+        // نُضمّن بنود الفاتورة (الأصناف وكمياتها) لتظهر في كشف الحساب
+        invoice: { include: { items: { include: { product: { select: { name: true, unit: true } } } } } },
+        receipt: true,
+      },
       orderBy: { entryDate: 'asc' },
     });
     const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid } });
