@@ -80,6 +80,32 @@ const citiesLine = (c, L) => {
     `Que votre équipe couvre ${joined} ou de plus petites villes, optimiser les tournées augmente vos ventes.`);
 };
 
+// أسئلة شائعة كبيانات (تُغذّي القسم المرئي + FAQPage schema) — مُوطَّنة ومُخصَّصة للدولة
+const faqData = (c, L) => {
+  const taxA = c.vat != null
+    ? P(L, `نعم، يُصدر فاتورة ضريبية منظّمة تناسب متطلبات ${c.tax.ar} (ضريبة ${c.vat}٪) مع رمز QR وطباعة حرارية.`,
+        `Yes, it issues a structured tax invoice aligned with ${c.tax.en} (VAT ${c.vat}%), with a QR code and thermal printing.`,
+        `Oui, il émet une facture structurée conforme à ${c.tax.fr} (TVA ${c.vat} %), avec code QR et impression thermique.`)
+    : P(L, `نعم، يُصدر فواتير وكشوف حساب منظّمة برمز QR وطباعة حرارية، ويتكيّف مع المتطلبات المحلية ${c.inAr}.`,
+        `Yes, it issues structured invoices and statements with a QR code and thermal printing, adapting to local rules ${c.inEn}.`,
+        `Oui, il émet des factures structurées avec code QR et impression thermique, adaptées aux règles locales ${c.inFr}.`);
+  return [
+    { q: P(L, `هل يعمل النظام ${c.inAr}؟`, `Does it work ${c.inEn}?`, `Fonctionne-t-il ${c.inFr} ?`),
+      a: P(L, `نعم، منصّة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية.`,
+          `Yes, FieldSales supports distributors ${c.inEn} with ${c.cur.en} and local requirements.`,
+          `Oui, FieldSales prend en charge les distributeurs ${c.inFr} avec ${c.cur.fr} et les exigences locales.`) },
+    { q: P(L, `هل يحتاج المندوب إلى جهاز خاص؟`, `Does the rep need special hardware?`, `Faut-il un matériel spécial ?`),
+      a: P(L, `لا، يكفي هاتف ذكي وطابعة حرارية اختيارية للفواتير في الميدان.`,
+          `No — a smartphone and an optional thermal printer are enough for field invoicing.`,
+          `Non : un smartphone et une imprimante thermique optionnelle suffisent.`) },
+    { q: P(L, `هل يُصدر فواتير متوافقة ضريبياً؟`, `Does it issue tax-compliant invoices?`, `Émet-il des factures conformes ?`), a: taxA },
+    { q: P(L, `هل توجد تجربة مجانية؟`, `Is there a free trial?`, `Y a-t-il un essai gratuit ?`),
+      a: P(L, `نعم، تجربة مجانية 10 أيام تبدأ خلال دقائق دون بطاقة.`,
+          `Yes — a free 10-day trial that starts in minutes, no card required.`,
+          `Oui — un essai gratuit de 10 jours qui démarre en quelques minutes, sans carte.`) },
+  ];
+};
+
 // ----------------------------------------------------------------------------
 // بُناة الأقسام — كلٌّ يُرجع HTML (عنوان + فقرات) مُوطَّناً ومُخصَّصاً للدولة.
 // ----------------------------------------------------------------------------
@@ -210,16 +236,11 @@ const S = {
     `<h2>Comment démarrer ${c.inFr} en quelques minutes</h2>
      <p>Aucune installation complexe : créez votre compte, ajoutez produits et clients, puis donnez l'application à vos commerciaux. Vous émettez votre première facture le jour même.</p>`),
 
-  faq: (c, L) => P(L,
-    `<h2>أسئلة شائعة</h2>
-     <p><strong>هل يعمل النظام ${c.inAr}؟</strong> نعم، منصّة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية.</p>
-     <p><strong>هل يحتاج المندوب إلى جهاز خاص؟</strong> لا، يكفي هاتف ذكي وطابعة حرارية اختيارية.</p>`,
-    `<h2>Frequently asked questions</h2>
-     <p><strong>Does it work ${c.inEn}?</strong> Yes, FieldSales supports distributors ${c.inEn} with ${c.cur.en} and local requirements.</p>
-     <p><strong>Does the rep need special hardware?</strong> No — a smartphone and an optional thermal printer are enough.</p>`,
-    `<h2>Questions fréquentes</h2>
-     <p><strong>Fonctionne-t-il ${c.inFr} ?</strong> Oui, FieldSales prend en charge les distributeurs ${c.inFr} avec ${c.cur.fr} et les exigences locales.</p>
-     <p><strong>Faut-il un matériel spécial ?</strong> Non : un smartphone et une imprimante thermique optionnelle suffisent.</p>`),
+  faq: (c, L) => {
+    const head = P(L, 'أسئلة شائعة', 'Frequently asked questions', 'Questions fréquentes');
+    const items = faqData(c, L).map(({ q, a }) => `<p><strong>${q}</strong> ${a}</p>`).join('\n     ');
+    return `<h2>${head}</h2>\n     ${items}`;
+  },
 
   roi: (c, L) => P(L,
     `<h2>العائد على الاستثمار</h2>
@@ -504,13 +525,14 @@ export function getArticle(slug, L) {
      <p>Que vous distribuiez de l'alimentaire, des boissons ou des produits de détail, vous trouverez ici des étapes pratiques et des exemples locaux pour améliorer vos commerciaux, votre encaissement et vos ventes.</p>`);
   // أقسام الموضوع + أقسام تعميق عامة تُضاف للجميع (steps/benefits/mistakes) دون تكرار، ثم CTA
   const coreKeys = topic.secs.filter((k) => k !== 'cta');
-  const universal = ['steps', 'benefits', 'mistakes'].filter((k) => !coreKeys.includes(k));
+  const universal = ['steps', 'benefits', 'mistakes', 'faq'].filter((k) => !coreKeys.includes(k));
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
   const contentHtml = `${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L),
     excerpt: excerptOf(topic, c, L), contentHtml, date, readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
+    faq: faqData(c, L),
     countryCode: topic.cs ? c.code : null, isSeo: true,
   };
 }

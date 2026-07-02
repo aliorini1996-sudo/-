@@ -72,6 +72,39 @@ export default function BlogPostPage() {
     : { canonical: `https://fieldsa.net${prefix}/blog/${slug}`, alternates: undefined as undefined | { hreflang: string; href: string }[] };
 
   const ogImage = seo ? seo.image : 'https://fieldsa.net/og-image.png';
+  const homeUrl = `https://fieldsa.net${prefix || ''}`;
+  const blogUrl = `https://fieldsa.net${prefix}/blog`;
+  // بيانات منظّمة موحّدة (@graph): Article + مسار تنقّل + أسئلة شائعة → نتائج غنية بالثلاث لغات
+  const jsonLd = view ? {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Article',
+        headline: view.title,
+        description: view.description,
+        inLanguage: lang,
+        datePublished: view.date,
+        dateModified: view.date,
+        image: ogImage,
+        author: { '@type': 'Organization', name: 'FieldSales' },
+        publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: 'https://fieldsa.net/icons/icon-512.png' } },
+        mainEntityOfPage: canonical,
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: tr('الرئيسية', 'Home', 'Accueil'), item: homeUrl },
+          { '@type': 'ListItem', position: 2, name: tr('المدوّنة', 'Blog', 'Blog'), item: blogUrl },
+          { '@type': 'ListItem', position: 3, name: view.title, item: canonical },
+        ],
+      },
+      ...(seo && seo.faq.length ? [{
+        '@type': 'FAQPage',
+        mainEntity: seo.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+      }] : []),
+    ],
+  } : undefined;
+
   useSeo(view ? {
     title: `${view.title} | ${tr('مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales')}`,
     description: view.description,
@@ -81,19 +114,7 @@ export default function BlogPostPage() {
     type: 'article',
     locale: lang,
     alternates,
-    jsonLd: {
-      '@context': 'https://schema.org',
-      '@type': 'Article',
-      headline: view.title,
-      description: view.description,
-      inLanguage: lang,
-      datePublished: view.date,
-      dateModified: view.date,
-      image: ogImage,
-      author: { '@type': 'Organization', name: 'FieldSales' },
-      publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: 'https://fieldsa.net/icons/icon-512.png' } },
-      mainEntityOfPage: canonical,
-    },
+    jsonLd,
   } : { title: tr('المقال غير موجود | FieldSales', 'Article not found | FieldSales', 'Article introuvable | FieldSales') });
 
   // إنجليزي يدوي غير متوفّر → وجّه للعربية

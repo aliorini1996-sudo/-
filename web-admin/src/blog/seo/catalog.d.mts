@@ -24,6 +24,7 @@ export interface SeoArticle {
   readMinutes: number;
   image: string;
   imagePath: string;
+  faq: { q: string; a: string }[];
   countryCode: string | null;
   isSeo: true;
 }
