@@ -61,6 +61,7 @@ export interface InvoiceDoc {
   total: number;
   paidAmt?: number;
   remainingAmt?: number;
+  einvoice?: { provider?: string | null; status?: string | null; uuid?: string | null; qr?: string | null } | null;
 }
 
 export interface ReceiptDoc {
@@ -282,20 +283,45 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
       </table>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 20 }}>
-        {/* رمز QR للفاتورة الضريبية (ZATCA) */}
-        {qrValue ? (
-          <div style={{ textAlign: 'center' }}>
-            {/* display:block (لا inline-block) — html2canvas يُسقط inline-block المحاط بحدّ فيختفي الرمز في الـPDF */}
-            <div style={{ background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'block', width: 'fit-content', margin: '0 auto' }}>
-              <QrImage value={qrValue} size={108} />
+        {/* رمز QR / معرّف الاعتماد للفاتورة الإلكترونية */}
+        {(() => {
+          const einv = doc.einvoice;
+          const gov = !!einv?.provider && ['eta', 'peppol', 'ttn'].includes(einv.provider);
+          const box: React.CSSProperties = { background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'block', width: 'fit-content', margin: '0 auto' };
+          // فاتورة إلكترونية حكومية معتمدة (لها UUID) — عرض رمزها ومعرّفها
+          if (gov && einv?.uuid) {
+            return (
+              <div style={{ textAlign: 'center' }}>
+                <div style={box}><QrImage value={einv.qr || einv.uuid} size={108} /></div>
+                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 150 }}>{tr('معرّف الفاتورة الإلكترونية')}</div>
+                <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 2, maxWidth: 150, wordBreak: 'break-all', direction: 'ltr' }}>{einv.uuid}</div>
+              </div>
+            );
+          }
+          // ZATCA (السعودية) — رمز محلي مبنيّ من بيانات الفاتورة
+          if (qrValue) {
+            return (
+              <div style={{ textAlign: 'center' }}>
+                {/* display:block (لا inline-block) — html2canvas يُسقط inline-block المحاط بحدّ فيختفي الرمز في الـPDF */}
+                <div style={box}><QrImage value={qrValue} size={108} /></div>
+                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>{tr('رمز الاستجابة السريعة للفاتورة الضريبية')}</div>
+              </div>
+            );
+          }
+          // مزوّد حكومي لكن الفاتورة بانتظار الاعتماد
+          if (gov) {
+            return (
+              <div style={{ fontSize: 10.5, color: '#b45309', maxWidth: 175, lineHeight: 1.6, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px' }}>
+                {tr('قيد الاعتماد لدى منظومة الفوترة الإلكترونية.')}
+              </div>
+            );
+          }
+          return (
+            <div style={{ fontSize: 10.5, color: '#9ca3af', maxWidth: 170, lineHeight: 1.6 }}>
+              {tr('أضف الرقم الضريبي للشركة في إعدادات الشركة لإظهار رمز الفاتورة الضريبية المعتمد.')}
             </div>
-            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 130 }}>{tr('رمز الاستجابة السريعة للفاتورة الضريبية')}</div>
-          </div>
-        ) : (
-          <div style={{ fontSize: 10.5, color: '#9ca3af', maxWidth: 170, lineHeight: 1.6 }}>
-            {tr('أضف الرقم الضريبي للشركة في إعدادات الشركة لإظهار رمز الفاتورة الضريبية المعتمد.')}
-          </div>
-        )}
+          );
+        })()}
 
         <div style={{ width: 300, fontSize: 14 }}>
           <Row label={tr('المجموع قبل الخصم')} value={formatCurrency(doc.subtotal)} />
@@ -501,6 +527,12 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     total: Number(inv.total),
     paidAmt: Number(inv.paidAmt),
     remainingAmt: Number(inv.remainingAmt),
+    einvoice: {
+      provider: inv.einvoiceProvider ?? null,
+      status: inv.einvoiceStatus ?? null,
+      uuid: inv.einvoiceUuid ?? null,
+      qr: inv.einvoiceQr ?? null,
+    },
   };
 }
 

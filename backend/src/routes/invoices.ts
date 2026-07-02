@@ -159,10 +159,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب
     const company = await prisma.companySettings.findUnique({
       where: { tenantId: tid },
-      select: { defaultVatPct: true, countryCode: true },
+      select: { defaultVatPct: true, countryCode: true, einvoiceProvider: true },
     });
     const companyVat = company?.defaultVatPct ?? 15;
     const dec = getCountryTax(company?.countryCode).currencyDecimals;
+    // مزوّد الفوترة الإلكترونية وحالتها المبدئية: ZATCA/none = جاهزة (QR محلي)؛ ETA/Peppol/TTN = بانتظار الإرسال الحكومي
+    const einvoiceProvider = (company as { einvoiceProvider?: string } | null)?.einvoiceProvider || getCountryTax(company?.countryCode).provider;
+    const einvoiceStatus = ['eta', 'peppol', 'ttn'].includes(einvoiceProvider) ? 'pending' : 'generated';
 
     let subtotal = 0;
     const items = body.items.map(item => {
@@ -204,6 +207,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           total,
           paidAmt: isReturn ? 0 : (body.type === 'CASH' ? total : 0),
           remainingAmt: isReturn ? 0 : (body.type === 'CASH' ? 0 : total),
+          einvoiceProvider,
+          einvoiceStatus,
           items: {
             create: finalItems.map(i => ({
               productId: i.productId,

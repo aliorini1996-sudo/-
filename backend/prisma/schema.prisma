@@ -169,6 +169,9 @@ model Product {
   basePrice    Float
   taxPct       Float          @default(15)
   image        String?        // صورة الصنف (base64 data URL)
+  itemCode     String?        // كود الصنف للفوترة الإلكترونية (EGS/GS1)
+  itemCodeType String?        @default("EGS") // EGS | GS1
+  unitCode     String?        // كود الوحدة حسب جدول المزوّد (ETA)
   status       String         @default("ACTIVE") // ACTIVE | INACTIVE
   categoryId   String?
   category     ProductCategory? @relation(fields: [categoryId], references: [id])
@@ -279,6 +282,13 @@ model Invoice {
   total        Float
   paidAmt      Float @default(0)
   remainingAmt Float
+
+  // الفوترة الإلكترونية (اعتماد حكومي) — تُملأ عند الإرسال للمزوّد
+  einvoiceProvider    String?   // zatca | eta | peppol | ttn | none
+  einvoiceStatus      String?   // generated | submitted | cleared | pending | not_implemented | error
+  einvoiceUuid        String?   // معرّف الاعتماد (UUID من ETA/Peppol)
+  einvoiceQr          String?   // حمولة/رابط QR إن وُجد
+  einvoiceSubmittedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -391,6 +401,15 @@ model CompanySettings {
   currency         String  @default("SAR")   // عملة الفوترة (مشتقّة من الدولة)
   defaultVatPct    Float   @default(15)       // نسبة الضريبة الافتراضية للدولة
   einvoiceProvider String  @default("zatca") // zatca | eta | peppol | ttn | none
+
+  // --- بيانات ربط الفوترة الإلكترونية (تُدخلها كل شركة) — للمزوّدات الحكومية ETA/Peppol/TTN ---
+  einvoiceEnabled         Boolean @default(false)     // تفعيل الإرسال الحكومي لهذه الشركة
+  einvoiceEnv             String  @default("preprod") // preprod | production
+  einvoiceClientId        String?                     // معرّف العميل (من بوابة المزوّد/الوسيط)
+  einvoiceClientSecret    String?                     // السرّ (يُدخله العميل — لا يُعرض بعدها)
+  einvoiceActivityCode    String?                     // كود النشاط (ETA)
+  einvoiceBranchCode      String?                     // كود الفرع/الموقع
+  einvoiceIntermediaryUrl String?                     // رابط الوسيط/المُجمِّع المعتمد (اختياري)
 
   updatedAt     DateTime @updatedAt
 

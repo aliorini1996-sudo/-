@@ -135,6 +135,32 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
               </select>
             </div>
           </div>
+
+          {/* أكواد الفوترة الإلكترونية — تلزم لبعض الدول (مصر ETA وغيرها) */}
+          <details className="rounded-xl border border-gray-200 bg-gray-50/60">
+            <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-gray-700 flex items-center gap-2">
+              {tr('أكواد الفوترة الإلكترونية')}
+              <span className="text-[10px] font-normal text-gray-400">{tr('اختياري — يلزم لبعض الدول')}</span>
+            </summary>
+            <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">{tr('نوع كود الصنف')}</label>
+                <select className="input" {...register('itemCodeType')}>
+                  <option value="EGS">EGS</option>
+                  <option value="GS1">GS1 (GTIN)</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">{tr('كود الصنف')} (EGS/GS1)</label>
+                <input className="input" dir="ltr" {...register('itemCode')} placeholder="EG-xxxx / 6221xxxxxxxxx" />
+              </div>
+              <div className="col-span-2">
+                <label className="label">{tr('كود الوحدة')}</label>
+                <input className="input" dir="ltr" {...register('unitCode')} placeholder={tr('حسب جدول وحدات المزوّد (مثال: EA)')} />
+              </div>
+            </div>
+          </details>
+
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center py-2.5">
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}

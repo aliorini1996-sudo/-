@@ -168,6 +168,9 @@ export interface Product {
   categoryId?: string;
   category?: { id: string; name: string };
   priceTiers?: PriceTier[];
+  itemCode?: string | null;     // كود الصنف للفوترة الإلكترونية (EGS/GS1)
+  itemCodeType?: 'EGS' | 'GS1' | null;
+  unitCode?: string | null;     // كود الوحدة حسب جدول المزوّد
 }
 
 export interface PriceTier {
@@ -236,6 +239,9 @@ export interface Invoice {
   remainingAmt: number;
   items?: InvoiceItem[];
   createdAt: string;
+  einvoiceProvider?: string | null;
+  einvoiceStatus?: string | null;
+  einvoiceUuid?: string | null;
 }
 
 export interface Receipt {

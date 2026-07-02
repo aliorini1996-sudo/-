@@ -39,6 +39,24 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
             </div>
           </div>
 
+          {/* حالة الفوترة الإلكترونية */}
+          {invoice.einvoiceProvider && invoice.einvoiceProvider !== 'none' && (() => {
+            const st = invoice.einvoiceStatus;
+            const label = st === 'cleared' ? tr('معتمدة') : st === 'submitted' ? tr('مُرسَلة') : st === 'pending' ? tr('قيد الاعتماد') : st === 'error' ? tr('فشل الإرسال') : tr('جاهزة');
+            const cls = st === 'cleared' || st === 'submitted' ? 'bg-[#E4F1EA] text-[#1E7A52] border-[#C9E4D6]'
+              : st === 'error' ? 'bg-red-50 text-red-600 border-red-200'
+              : st === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200'
+              : 'bg-gray-50 text-gray-500 border-gray-200';
+            return (
+              <div className={`flex items-center flex-wrap gap-2 text-xs rounded-xl border px-3 py-2 ${cls}`}>
+                <span className="font-semibold">{tr('الفوترة الإلكترونية')}:</span>
+                <span className="uppercase font-bold">{invoice.einvoiceProvider}</span>
+                <span>· {label}</span>
+                {invoice.einvoiceUuid && <span className="font-mono ltr:ml-auto" dir="ltr" style={{ wordBreak: 'break-all' }}>UUID: {invoice.einvoiceUuid}</span>}
+              </div>
+            );
+          })()}
+
           {/* Items */}
           {invoice.items && (
             <div className="border border-gray-100 rounded-xl overflow-hidden">

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi } from '../api/client';
 import { supportedCountries, getCountry } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
-import { Building2, Save, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 
@@ -33,12 +33,17 @@ export default function CompanySettingsPage() {
   const [primaryColor, setPrimaryColor] = useState('#1e3a8a');
   const [headerStyle, setHeaderStyle] = useState('classic');
   const [countryCode, setCountryCode] = useState('SA'); // دولة الشركة (تُشتقّ منها العملة والضريبة)
+  // بيانات ربط الفوترة الإلكترونية (السرّ لا يُعاد من الخادم — hasSecret يشير إن كان مضبوطاً)
+  const [einv, setEinv] = useState({ enabled: false, env: 'preprod', clientId: '', clientSecret: '', activityCode: '', branchCode: '', intermediaryUrl: '' });
+  const [hasSecret, setHasSecret] = useState(false);
+  const setE = (k: keyof typeof einv, v: string | boolean) => setEinv(s => ({ ...s, [k]: v }));
 
   const { data, isLoading } = useQuery({
     queryKey: ['company'],
     queryFn: async () => {
       const res = await companyApi.get();
-      return res.data.data as (CompanyForm & { logo?: string; primaryColor?: string; headerStyle?: string; countryCode?: string; currency?: string; defaultVatPct?: number }) | null;
+      return res.data.data as (CompanyForm & { logo?: string; primaryColor?: string; headerStyle?: string; countryCode?: string; currency?: string; defaultVatPct?: number;
+        einvoiceEnabled?: boolean; einvoiceEnv?: string; einvoiceClientId?: string; einvoiceActivityCode?: string; einvoiceBranchCode?: string; einvoiceIntermediaryUrl?: string; einvoiceHasSecret?: boolean }) | null;
     },
   });
 
@@ -52,10 +57,27 @@ export default function CompanySettingsPage() {
     setPrimaryColor(data.primaryColor || '#1e3a8a');
     setHeaderStyle(data.headerStyle || 'classic');
     setCountryCode(data.countryCode || 'SA');
+    setEinv({
+      enabled: data.einvoiceEnabled || false,
+      env: data.einvoiceEnv || 'preprod',
+      clientId: data.einvoiceClientId || '',
+      clientSecret: '', // لا يُعاد أبداً — يُترك فارغاً
+      activityCode: data.einvoiceActivityCode || '',
+      branchCode: data.einvoiceBranchCode || '',
+      intermediaryUrl: data.einvoiceIntermediaryUrl || '',
+    });
+    setHasSecret(!!data.einvoiceHasSecret);
   }, [data, reset]);
 
   const mutation = useMutation({
-    mutationFn: (values: CompanyForm) => companyApi.update({ ...values, logo, primaryColor, headerStyle, countryCode }),
+    mutationFn: (values: CompanyForm) => companyApi.update({
+      ...values, logo, primaryColor, headerStyle, countryCode,
+      einvoiceEnabled: einv.enabled, einvoiceEnv: einv.env,
+      einvoiceClientId: einv.clientId, einvoiceActivityCode: einv.activityCode,
+      einvoiceBranchCode: einv.branchCode, einvoiceIntermediaryUrl: einv.intermediaryUrl,
+      // السرّ يُرسَل فقط إن كُتب من جديد (فارغ = أبقِ الحالي)
+      ...(einv.clientSecret.trim() ? { einvoiceClientSecret: einv.clientSecret.trim() } : {}),
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['company'] });
       toast.success(tr('تم حفظ بيانات الشركة'));
@@ -215,6 +237,79 @@ export default function CompanySettingsPage() {
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة */}
+          <div className="card">
+            <div className="flex items-center gap-3 mb-5 pb-4 border-b border-gray-100">
+              <div className="w-11 h-11 bg-[#E4F1EA] rounded-xl flex items-center justify-center">
+                <ShieldCheck size={22} className="text-[#1E7A52]" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800">{tr('الفوترة الإلكترونية (الربط الحكومي)')}</p>
+                <p className="text-xs text-gray-400">{tr('بيانات الربط تُدخلها شركتك — لا نطّلع على السرّ')}</p>
+              </div>
+            </div>
+
+            {(() => {
+              const prov = getCountry(countryCode).einvoice;
+              if (prov === 'zatca') return (
+                <div className="text-sm text-[#1F5C3F] bg-[#E4F1EA] border border-[#C9E4D6] rounded-xl px-4 py-3 leading-relaxed">
+                  {tr('نظام ZATCA (السعودية) يعمل تلقائياً برمز QR على كل فاتورة — لا يحتاج بيانات ربط.')}
+                </div>
+              );
+              if (prov === 'none') return (
+                <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 leading-relaxed">
+                  {tr('لا توجد فوترة إلكترونية إلزامية في دولتك حالياً — تُصدر فواتير عادية بعملة وضريبة دولتك.')}
+                </div>
+              );
+              const provLabel = prov === 'eta' ? 'ETA — مصر' : prov === 'peppol' ? 'Peppol — الإمارات' : 'TTN — تونس';
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3 bg-[#FBEBE2] border border-[#E8C9BC] rounded-xl px-4 py-2.5 flex-wrap">
+                    <span className="text-sm font-semibold text-[#C94E28]">{tr('المزوّد')}: {provLabel}</span>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={einv.enabled} onChange={e => setE('enabled', e.target.checked)} />
+                      {tr('تفعيل الإرسال الحكومي')}
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">{tr('البيئة')}</label>
+                      <select className="input" value={einv.env} onChange={e => setE('env', e.target.value)}>
+                        <option value="preprod">{tr('اختبار (Preprod)')}</option>
+                        <option value="production">{tr('إنتاج (Production)')}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Client ID</label>
+                      <input className="input" dir="ltr" value={einv.clientId} onChange={e => setE('clientId', e.target.value)} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="label">Client Secret</label>
+                      <input className="input" type="password" dir="ltr" autoComplete="new-password" value={einv.clientSecret}
+                        onChange={e => setE('clientSecret', e.target.value)}
+                        placeholder={hasSecret ? tr('•••••••• محفوظ — اكتب قيمة جديدة لتغييره') : tr('السرّ من بوابة المزوّد')} />
+                    </div>
+                    <div>
+                      <label className="label">{tr('كود النشاط')}</label>
+                      <input className="input" dir="ltr" value={einv.activityCode} onChange={e => setE('activityCode', e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="label">{tr('كود الفرع')}</label>
+                      <input className="input" dir="ltr" value={einv.branchCode} onChange={e => setE('branchCode', e.target.value)} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="label">{tr('رابط الوسيط/المُجمِّع (اختياري)')}</label>
+                      <input className="input" dir="ltr" value={einv.intermediaryUrl} onChange={e => setE('intermediaryUrl', e.target.value)} placeholder="https://..." />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    {tr('احصل على هذه البيانات بعد تسجيل شركتك في منظومة الفوترة الإلكترونية والحصول على الختم الإلكتروني، أو عبر وسيط معتمد.')}
+                  </p>
+                </div>
+              );
+            })()}
           </div>
 
           <button type="submit" disabled={mutation.isPending} className="btn-primary px-6 py-2.5">

@@ -19,6 +19,10 @@ const productSchema = z.object({
   image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   categoryId: z.string().optional(),
+  // أكواد الفوترة الإلكترونية
+  itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
+  itemCodeType: z.enum(['EGS', 'GS1']).nullish(),
+  unitCode: z.string().nullish().or(z.literal('')),     // كود الوحدة حسب جدول المزوّد
 });
 
 const categorySchema = z.object({ name: z.string().min(1) });
@@ -102,7 +106,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
       data.taxPct = company?.defaultVatPct ?? 15;
     }
-    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null, tenantId: tid } as any, include: { category: true } });
+    const product = await prisma.product.create({ data: { ...data, categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
@@ -116,6 +120,8 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     const updateData: Record<string, unknown> = { ...data };
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
     if ('image' in updateData) updateData.image = updateData.image || null;
+    if ('itemCode' in updateData) updateData.itemCode = updateData.itemCode || null;
+    if ('unitCode' in updateData) updateData.unitCode = updateData.unitCode || null;
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data: updateData,
