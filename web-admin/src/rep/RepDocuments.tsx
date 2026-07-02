@@ -477,7 +477,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
         <tfoot>
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
             <td style={{ ...td, textAlign: 'center', borderTop: `2px solid ${brand}` }} colSpan={2}>{tr('الإجماليات')}</td>
-            <td style={{ ...td, textAlign: 'right', borderTop: `2px solid ${brand}` }}>{soldItems} {tr('صنف مباع')}</td>
+            <td style={{ ...td, textAlign: 'right', borderTop: `2px solid ${brand}` }}>{soldItems} {tr('وحدة مباعة')}</td>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }}>-</td>
             <td style={{ ...td, color: '#dc2626', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalDebit)}</td>
             <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.totalCredit)}</td>

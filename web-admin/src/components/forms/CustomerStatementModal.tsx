@@ -51,7 +51,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       const totalCredit = data.entries.reduce((s, e) => s + Number(e.credit), 0);
       rows.push({
         [tr('التاريخ')]: tr('الإجمالي'), [tr('البيان')]: '',
-        [tr('الأصناف')]: `${soldItems} ${tr('صنف مباع')}`,
+        [tr('الأصناف')]: `${soldItems} ${tr('وحدة مباعة')}`,
         [tr('رقم المستند')]: '', [tr('مدين')]: num(totalDebit), [tr('دائن')]: num(totalCredit), [tr('الرصيد')]: num(data.customer.balance),
       });
     }
@@ -153,7 +153,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                 <tfoot>
                   <tr className="bg-[#FAF7F0] font-bold border-t-2 border-[#E15A30]">
                     <td className="text-[#1F1A13]">{tr('الإجمالي')}</td>
-                    <td className="text-[#1F1A13]">{formatNumber(soldItems)} {tr('صنف مباع')}</td>
+                    <td className="text-[#1F1A13]">{formatNumber(soldItems)} {tr('وحدة مباعة')}</td>
                     <td className="text-xs text-gray-500">{data.entries.length} {tr('حركة')}</td>
                     <td className="text-red-600">{formatCurrency(totalDebit)}</td>
                     <td className="text-green-600">{formatCurrency(totalCredit)}</td>

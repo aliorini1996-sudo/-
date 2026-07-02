@@ -338,7 +338,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     // صف الإجمالي أسفل جدول الفواتير
     if (invoices.length) invRows.push({
       [tr('رقم الفاتورة')]: tr('الإجمالي'), [tr('العميل')]: '',
-      [tr('الأصناف')]: `${soldItemsCount} ${tr('صنف مباع')}`,
+      [tr('الأصناف')]: `${soldItemsCount} ${tr('وحدة مباعة')}`,
       [tr('النوع')]: '', [tr('التاريخ')]: '', [tr('الإجمالي')]: num(invoicesAmountTotal), [tr('المدفوع')]: '', [tr('المتبقي')]: '',
     });
     const rcpRows = receipts.map(r => ({
@@ -384,7 +384,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
         <div class="card"><div class="v">${num(salesTotal - returnsTotal).toFixed(2)}</div><div class="k">${tr('صافي المبيعات')}</div></div>
       </div>
       <h2>${tr('الفواتير')} (${invoices.length})</h2>
-      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody>${invoices.length ? `<tfoot><tr style="background:#FAF7F0;font-weight:700;border-top:2px solid #E15A30"><td colspan=3>${tr('الإجمالي')}</td><td>${soldItemsCount} ${tr('صنف مباع')}</td><td colspan=2>${invoices.length} ${tr('فاتورة')}</td><td style="text-align:left">${num(invoicesAmountTotal).toFixed(2)}</td></tr></tfoot>` : ''}</table>
+      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody>${invoices.length ? `<tfoot><tr style="background:#FAF7F0;font-weight:700;border-top:2px solid #E15A30"><td colspan=3>${tr('الإجمالي')}</td><td>${soldItemsCount} ${tr('وحدة مباعة')}</td><td colspan=2>${invoices.length} ${tr('فاتورة')}</td><td style="text-align:left">${num(invoicesAmountTotal).toFixed(2)}</td></tr></tfoot>` : ''}</table>
       <h2>${tr('سندات القبض')} (${receipts.length})</h2>
       <table><thead><tr><th>#</th><th>${tr('رقم السند')}</th><th>${tr('العميل')}</th><th>${tr('الطريقة')}</th><th>${tr('التاريخ')}</th><th>${tr('المبلغ')}</th></tr></thead><tbody>${rcpRows || `<tr><td colspan=6>${tr('لا توجد سندات')}</td></tr>`}</tbody></table>
     </body></html>`;
@@ -465,7 +465,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                       <tfoot>
                         <tr className="bg-[#FAF7F0] font-bold border-t-2 border-[#E15A30]">
                           <td colSpan={2} className="text-[#1F1A13]">{tr('الإجمالي')}</td>
-                          <td className="text-[#1F1A13]">{formatNumber(soldItemsCount)} {tr('صنف مباع')}</td>
+                          <td className="text-[#1F1A13]">{formatNumber(soldItemsCount)} {tr('وحدة مباعة')}</td>
                           <td colSpan={2} className="text-xs text-gray-500">{invoices.length} {tr('فاتورة')}</td>
                           <td className="text-[#E15A30]">{formatCurrency(invoicesAmountTotal)}</td>
                         </tr>
