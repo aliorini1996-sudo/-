@@ -294,7 +294,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const { data, isLoading } = useQuery({
     queryKey: ['rep-statement', rep.id, from, to],
     queryFn: async () => {
-      const base: Record<string, string | number> = { salesRepId: rep.id, limit: 5000 };
+      const base: Record<string, string | number> = { salesRepId: rep.id, limit: 5000, withItems: 1 };
       if (from && to) { base.from = from; base.to = to; }
       const [inv, rcp] = await Promise.all([
         invoiceApi.list({ ...base, status: 'CONFIRMED' }),
@@ -312,6 +312,8 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const returnsTotal = returns.reduce((s, i) => s + Number(i.total), 0);
   const collectTotal = receipts.reduce((s, r) => s + Number(r.amount), 0);
   const periodLabel = from && to ? `${formatDate(from)} — ${formatDate(to)}` : tr('كل الفترات');
+  // ملخّص أصناف الفاتورة: «اسم ×كمية، …» (لعمود الأصناف في الكشف)
+  const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ');
 
   // تصدير الكشف إلى Excel (3 أوراق: ملخص، فواتير، سندات)
   const exportRep = async () => {
@@ -325,7 +327,9 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
       { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(collectTotal) },
     ];
     const invRows = invoices.map(i => ({
-      [tr('رقم الفاتورة')]: i.number, [tr('العميل')]: i.customer.name, [tr('النوع')]: tr(statusLabels[i.type] || i.type),
+      [tr('رقم الفاتورة')]: i.number, [tr('العميل')]: i.customer.name,
+      [tr('الأصناف')]: itemsText(i),
+      [tr('النوع')]: tr(statusLabels[i.type] || i.type),
       [tr('التاريخ')]: formatDate(i.invoiceDate), [tr('الإجمالي')]: num(i.total), [tr('المدفوع')]: num(i.paidAmt), [tr('المتبقي')]: num(i.remainingAmt),
     }));
     const rcpRows = receipts.map(r => ({
@@ -335,7 +339,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     }));
     const out = await shareOrDownloadExcel([
       { name: tr('الملخص'), rows: summary, colWidths: [22, 16] },
-      { name: tr('الفواتير'), rows: invRows, colWidths: [18, 24, 10, 16, 12, 12, 12] },
+      { name: tr('الفواتير'), rows: invRows, colWidths: [18, 24, 40, 10, 16, 12, 12, 12] },
       { name: tr('سندات القبض'), rows: rcpRows, colWidths: [18, 24, 14, 16, 12] },
     ], `${tr('كشف')}-${rep.name}-${new Date().toISOString().slice(0, 10)}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم تصدير كشف المندوب'));
@@ -344,7 +348,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   // طباعة الكشف العادي (A4)
   const printStatement = () => {
     const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
-    const invRows = invoices.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.number)}</td><td>${esc(i.customer.name)}</td><td>${esc(tr(statusLabels[i.type] || i.type))}</td><td>${formatDate(i.invoiceDate)}</td><td style="text-align:left">${num(i.total).toFixed(2)}</td></tr>`).join('');
+    const invRows = invoices.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.number)}</td><td>${esc(i.customer.name)}</td><td style="font-size:10px">${esc((i.items?.length ? `${i.items.length} ${tr('صنف')}: ` : '') + itemsText(i))}</td><td>${esc(tr(statusLabels[i.type] || i.type))}</td><td>${formatDate(i.invoiceDate)}</td><td style="text-align:left">${num(i.total).toFixed(2)}</td></tr>`).join('');
     const rcpRows = receipts.map((r, n) => `<tr><td>${n + 1}</td><td>${esc(r.number)}</td><td>${esc(r.customer.name)}</td><td>${esc(tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod))}</td><td>${formatDate(r.receiptDate)}</td><td style="text-align:left">${num(r.amount).toFixed(2)}</td></tr>`).join('');
     const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/><title>${tr('كشف')} ${esc(rep.name)}</title>
     <style>
@@ -371,7 +375,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
         <div class="card"><div class="v">${num(salesTotal - returnsTotal).toFixed(2)}</div><div class="k">${tr('صافي المبيعات')}</div></div>
       </div>
       <h2>${tr('الفواتير')} (${invoices.length})</h2>
-      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=6>${tr('لا توجد فواتير')}</td></tr>`}</tbody></table>
+      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody></table>
       <h2>${tr('سندات القبض')} (${receipts.length})</h2>
       <table><thead><tr><th>#</th><th>${tr('رقم السند')}</th><th>${tr('العميل')}</th><th>${tr('الطريقة')}</th><th>${tr('التاريخ')}</th><th>${tr('المبلغ')}</th></tr></thead><tbody>${rcpRows || `<tr><td colspan=6>${tr('لا توجد سندات')}</td></tr>`}</tbody></table>
     </body></html>`;
@@ -430,16 +434,21 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                 <h3 className="font-semibold text-[#1F1A13] mb-2 text-sm">{tr('الفواتير')} ({invoices.length})</h3>
                 <div className="table-wrapper bg-white">
                   <table className="table">
-                    <thead><tr><th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('النوع')}</th><th>{tr('التاريخ')}</th><th>{tr('الإجمالي')}</th></tr></thead>
+                    <thead><tr><th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('الأصناف')}</th><th>{tr('النوع')}</th><th>{tr('التاريخ')}</th><th>{tr('الإجمالي')}</th></tr></thead>
                     <tbody>
-                      {invoices.length === 0 ? <tr><td colSpan={5} className="text-center py-6 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
+                      {invoices.length === 0 ? <tr><td colSpan={6} className="text-center py-6 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
                         : invoices.map(i => (
                           <tr key={i.id}>
-                            <td className="font-mono text-xs text-[#E15A30]">{i.number}</td>
-                            <td>{i.customer.name}</td>
-                            <td>{tr(statusLabels[i.type] || i.type)}</td>
-                            <td className="text-xs text-gray-500">{formatDate(i.invoiceDate)}</td>
-                            <td className="font-semibold">{formatCurrency(i.total)}</td>
+                            <td className="font-mono text-xs text-[#E15A30] align-top">{i.number}</td>
+                            <td className="align-top">{i.customer.name}</td>
+                            <td className="text-xs text-gray-600 align-top" style={{ maxWidth: 240 }}>
+                              {i.items && i.items.length > 0
+                                ? <><span className="font-semibold text-gray-700">{i.items.length} {tr('صنف')}</span>: {itemsText(i)}</>
+                                : '-'}
+                            </td>
+                            <td className="align-top">{tr(statusLabels[i.type] || i.type)}</td>
+                            <td className="text-xs text-gray-500 align-top">{formatDate(i.invoiceDate)}</td>
+                            <td className="font-semibold align-top">{formatCurrency(i.total)}</td>
                           </tr>
                         ))}
                     </tbody>

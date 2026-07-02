@@ -49,6 +49,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const customerId = req.query.customerId as string | undefined;
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
+    const withItems = req.query.withItems === '1' || req.query.withItems === 'true'; // تضمين بنود الفاتورة (لكشوف المندوب)
     const isSalesRep = req.user?.role === 'SALES_REP';
 
     const where = {
@@ -75,6 +76,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           customer: { select: { id: true, name: true, phone: true } },
           salesRep: { select: { id: true, name: true } },
           _count: { select: { items: true } },
+          ...(withItems && { items: { include: { product: { select: { name: true, unit: true } } } } }),
         },
         ...paginate(page, limit),
         orderBy: { createdAt: 'desc' },
