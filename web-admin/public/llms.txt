@@ -1,0 +1,109 @@
+# FieldSales (fieldsa.net)
+
+> FieldSales is a SaaS field-sales (DSD / van-sales) management platform for distribution companies in Arab markets. Sales reps issue tax invoices, collect payments, and manage van stock from a mobile app; managers get live dashboards, GPS tracking and reports. Available in Arabic, English and French. Free 10-day trial, no card required.
+> منصّة FieldSales نظام سحابي لإدارة المبيعات الميدانية والتوزيع: فواتير ضريبية من الميدان، تحصيل، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية.
+
+Key facts:
+- Product type: field sales / DSD / van sales management software (SaaS, multi-tenant).
+- Core features: field tax invoicing (ZATCA-compliant QR in Saudi Arabia), returns/credit notes, payment collection & receivables, customer statements, van stock, live GPS rep tracking, product catalog & price tiers, team permissions, ERP integration, PDF documents in Arabic.
+- Markets: all 22 Arab League countries, with localized guides per country (currency, VAT rate, tax authority).
+- Languages: Arabic (RTL), English, French.
+- Pricing: free 10-day trial at https://fieldsa.net/signup — no credit card required.
+- Rep app runs on any smartphone (PWA + Android); optional thermal printer for field printing.
+
+## Main pages
+
+- [Home (Arabic)](https://fieldsa.net/): product overview, features, pricing and FAQ.
+- [Home (English)](https://fieldsa.net/en): English version of the product page.
+- [Sign up — free trial](https://fieldsa.net/signup): start a 10-day free trial in minutes.
+- [About](https://fieldsa.net/about): who is behind FieldSales.
+- [Contact](https://fieldsa.net/contact): sales and support contact.
+- [Blog (Arabic)](https://fieldsa.net/blog): guides for distributors in Arab markets.
+- [Blog (English)](https://fieldsa.net/en/blog): English guides.
+
+## Guides (pillar articles)
+
+- [What Is Field Sales Management Software?](https://fieldsa.net/en/blog/what-is-field-sales-management): Everything distributors in Arab markets need about what is field sales management software? — with practical steps and local examples.
+- [How to Choose a Field Sales System](https://fieldsa.net/en/blog/how-to-choose-field-sales-system): Everything distributors in Arab markets need about how to choose a field sales system — with practical steps and local examples.
+- [Van Sales Best Practices](https://fieldsa.net/en/blog/van-sales-best-practices): Everything distributors in Arab markets need about van sales best practices — with practical steps and local examples.
+- [How to Reduce Overdue Receivables](https://fieldsa.net/en/blog/reduce-overdue-receivables): Everything distributors in Arab markets need about how to reduce overdue receivables — with practical steps and local examples.
+- [Increase Field Rep Productivity](https://fieldsa.net/en/blog/increase-rep-productivity): Everything distributors in Arab markets need about increase field rep productivity — with practical steps and local examples.
+- [Key Field Sales KPIs](https://fieldsa.net/en/blog/field-sales-kpis): Everything distributors in Arab markets need about key field sales kpis — with practical steps and local examples.
+- [Why Offline Matters in Field Sales](https://fieldsa.net/en/blog/offline-field-sales-app): Everything distributors in Arab markets need about why offline matters in field sales — with practical steps and local examples.
+- [Thermal Printing of Field Invoices](https://fieldsa.net/en/blog/thermal-printing-invoices): Everything distributors in Arab markets need about thermal printing of field invoices — with practical steps and local examples.
+- [Controlling Credit Limits](https://fieldsa.net/en/blog/credit-limit-control): Everything distributors in Arab markets need about controlling credit limits — with practical steps and local examples.
+- [Pricing Tiers Strategy](https://fieldsa.net/en/blog/pricing-tiers-strategy): Everything distributors in Arab markets need about pricing tiers strategy — with practical steps and local examples.
+- [Digital Transformation for Distributors](https://fieldsa.net/en/blog/digital-transformation-distribution): Everything distributors in Arab markets need about digital transformation for distributors — with practical steps and local examples.
+- [Sales Route Planning](https://fieldsa.net/en/blog/route-planning-sales): Everything distributors in Arab markets need about sales route planning — with practical steps and local examples.
+- [Following Up Distribution Sales on WhatsApp](https://fieldsa.net/en/blog/whatsapp-sales-followup): Everything distributors in Arab markets need about following up distribution sales on whatsapp — with practical steps and local examples.
+- [ROI of a Field Sales System](https://fieldsa.net/en/blog/field-sales-system-roi): Everything distributors in Arab markets need about roi of a field sales system — with practical steps and local examples.
+
+## Country guides (English)
+
+- [Field Sales Management Software in Saudi Arabia](https://fieldsa.net/en/blog/field-sales-software-sa)
+- [Field Sales Management Software in Egypt](https://fieldsa.net/en/blog/field-sales-software-eg)
+- [Field Sales Management Software in the UAE](https://fieldsa.net/en/blog/field-sales-software-ae)
+- [Field Sales Management Software in Kuwait](https://fieldsa.net/en/blog/field-sales-software-kw)
+- [Field Sales Management Software in Qatar](https://fieldsa.net/en/blog/field-sales-software-qa)
+- [Field Sales Management Software in Bahrain](https://fieldsa.net/en/blog/field-sales-software-bh)
+- [Field Sales Management Software in Oman](https://fieldsa.net/en/blog/field-sales-software-om)
+- [Field Sales Management Software in Morocco](https://fieldsa.net/en/blog/field-sales-software-ma)
+- [Field Sales Management Software in Algeria](https://fieldsa.net/en/blog/field-sales-software-dz)
+- [Field Sales Management Software in Tunisia](https://fieldsa.net/en/blog/field-sales-software-tn)
+- [Field Sales Management Software in Jordan](https://fieldsa.net/en/blog/field-sales-software-jo)
+- [Field Sales Management Software in Iraq](https://fieldsa.net/en/blog/field-sales-software-iq)
+- [Field Sales Management Software in Libya](https://fieldsa.net/en/blog/field-sales-software-ly)
+- [Field Sales Management Software in Sudan](https://fieldsa.net/en/blog/field-sales-software-sd)
+- [Field Sales Management Software in Yemen](https://fieldsa.net/en/blog/field-sales-software-ye)
+- [Field Sales Management Software in Lebanon](https://fieldsa.net/en/blog/field-sales-software-lb)
+- [Field Sales Management Software in Syria](https://fieldsa.net/en/blog/field-sales-software-sy)
+- [Field Sales Management Software in Palestine](https://fieldsa.net/en/blog/field-sales-software-ps)
+- [Field Sales Management Software in Mauritania](https://fieldsa.net/en/blog/field-sales-software-mr)
+- [Field Sales Management Software in Somalia](https://fieldsa.net/en/blog/field-sales-software-so)
+- [Field Sales Management Software in Djibouti](https://fieldsa.net/en/blog/field-sales-software-dj)
+- [Field Sales Management Software in the Comoros](https://fieldsa.net/en/blog/field-sales-software-km)
+
+## أدلّة الدول (بالعربية)
+
+- [برنامج إدارة المبيعات الميدانية في السعودية](https://fieldsa.net/blog/field-sales-software-sa)
+- [برنامج إدارة المبيعات الميدانية في مصر](https://fieldsa.net/blog/field-sales-software-eg)
+- [برنامج إدارة المبيعات الميدانية في الإمارات](https://fieldsa.net/blog/field-sales-software-ae)
+- [برنامج إدارة المبيعات الميدانية في الكويت](https://fieldsa.net/blog/field-sales-software-kw)
+- [برنامج إدارة المبيعات الميدانية في قطر](https://fieldsa.net/blog/field-sales-software-qa)
+- [برنامج إدارة المبيعات الميدانية في البحرين](https://fieldsa.net/blog/field-sales-software-bh)
+- [برنامج إدارة المبيعات الميدانية في عُمان](https://fieldsa.net/blog/field-sales-software-om)
+- [برنامج إدارة المبيعات الميدانية في المغرب](https://fieldsa.net/blog/field-sales-software-ma)
+- [برنامج إدارة المبيعات الميدانية في الجزائر](https://fieldsa.net/blog/field-sales-software-dz)
+- [برنامج إدارة المبيعات الميدانية في تونس](https://fieldsa.net/blog/field-sales-software-tn)
+- [برنامج إدارة المبيعات الميدانية في الأردن](https://fieldsa.net/blog/field-sales-software-jo)
+- [برنامج إدارة المبيعات الميدانية في العراق](https://fieldsa.net/blog/field-sales-software-iq)
+- [برنامج إدارة المبيعات الميدانية في ليبيا](https://fieldsa.net/blog/field-sales-software-ly)
+- [برنامج إدارة المبيعات الميدانية في السودان](https://fieldsa.net/blog/field-sales-software-sd)
+- [برنامج إدارة المبيعات الميدانية في اليمن](https://fieldsa.net/blog/field-sales-software-ye)
+- [برنامج إدارة المبيعات الميدانية في لبنان](https://fieldsa.net/blog/field-sales-software-lb)
+- [برنامج إدارة المبيعات الميدانية في سوريا](https://fieldsa.net/blog/field-sales-software-sy)
+- [برنامج إدارة المبيعات الميدانية في فلسطين](https://fieldsa.net/blog/field-sales-software-ps)
+- [برنامج إدارة المبيعات الميدانية في موريتانيا](https://fieldsa.net/blog/field-sales-software-mr)
+- [برنامج إدارة المبيعات الميدانية في الصومال](https://fieldsa.net/blog/field-sales-software-so)
+- [برنامج إدارة المبيعات الميدانية في جيبوتي](https://fieldsa.net/blog/field-sales-software-dj)
+- [برنامج إدارة المبيعات الميدانية في جزر القمر](https://fieldsa.net/blog/field-sales-software-km)
+
+## Blog highlights
+
+- [دليل الفوترة الإلكترونية ZATCA لشركات التوزيع (المرحلة الثانية)](https://fieldsa.net/blog/zatca-einvoicing-distribution)
+- [كيف تدير مناديب التوزيع الميدانيين بكفاءة؟ 7 خطوات عملية](https://fieldsa.net/blog/manage-field-sales-reps)
+- [كيف تختار نظام إدارة مبيعات ميدانية مناسباً لشركتك؟](https://fieldsa.net/blog/choose-field-sales-system)
+- [الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسّطة](https://fieldsa.net/blog/simplified-vs-tax-invoice)
+- [البيع المتنقّل (Van Sales): دليل إدارة مخزون سيارة المندوب](https://fieldsa.net/blog/van-sales-guide)
+- [إدارة التحصيل والذمم المدينة في التوزيع: 6 ممارسات تقلّل الديون المتعثّرة](https://fieldsa.net/blog/collection-receivables-distribution)
+- [تتبّع المناديب عبر GPS: الفائدة، الخصوصية، وأثره على الإنتاجية](https://fieldsa.net/blog/gps-tracking-sales-reps)
+- [أفضل نظام لإدارة مناديب المبيعات والتوزيع في مصر](https://fieldsa.net/blog/field-sales-software-egypt)
+- [إدارة التوزيع والبيع المتنقّل في المغرب والجزائر وتونس](https://fieldsa.net/blog/van-sales-distribution-maghreb)
+- [ما هو نظام إدارة المبيعات الميدانية؟ دليل شامل](https://fieldsa.net/blog/what-is-field-sales-management-software)
+- [أهم 8 مؤشرات أداء (KPIs) لفريق المبيعات الميداني](https://fieldsa.net/blog/sales-kpis-field-team)
+- [إدارة مخزون سيارة المندوب (Van Stock) بدقّة تمنع الفاقد](https://fieldsa.net/blog/van-stock-management)
+
+## Optional
+
+- [Full article index](https://fieldsa.net/llms-full.txt): every guide in Arabic, English and French (900 pages).
+- [Sitemap](https://fieldsa.net/sitemap.xml)

@@ -77,6 +77,20 @@ function topCounts(items: V[], key: (v: V) => string | null, limit = 8) {
   return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([label, count]) => ({ label, count }));
 }
 
+// محركات الإجابة بالذكاء الاصطناعي — زيارة من أحد هذه المصادر = اقتباس/توصية من AI (مؤشّر GEO)
+const AI_ENGINES: { label: string; re: RegExp }[] = [
+  { label: 'ChatGPT', re: /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/i },
+  { label: 'Perplexity', re: /(^|\.)perplexity\.ai$/i },
+  { label: 'Gemini', re: /(^|\.)gemini\.google\.com$|(^|\.)bard\.google\.com$/i },
+  { label: 'Claude', re: /(^|\.)claude\.ai$/i },
+  { label: 'Copilot', re: /(^|\.)copilot\.microsoft\.com$/i },
+  { label: 'Grok', re: /(^|\.)grok\.com$|(^|\.)x\.ai$/i },
+  { label: 'DeepSeek', re: /(^|\.)deepseek\.com$/i },
+  { label: 'Meta AI', re: /(^|\.)meta\.ai$/i },
+  { label: 'أخرى (AI)', re: /(^|\.)you\.com$|(^|\.)poe\.com$|(^|\.)phind\.com$|(^|\.)mistral\.ai$|(^|\.)kagi\.com$/i },
+];
+const aiEngineOf = (host: string | null) => (host ? AI_ENGINES.find((e) => e.re.test(host))?.label || null : null);
+
 // إحصاءات الزيارات — للسوبر أدمن فقط
 router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -98,6 +112,14 @@ router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, r
       byDay.push({ date: d, count: rows.filter((r) => new Date(r.createdAt).toISOString().slice(0, 10) === d).length });
     }
 
+    // زيارات قادمة من محركات الذكاء الاصطناعي (GEO) — إجمالي + لكل محرك + سلسلة يومية
+    const aiRows = rows.filter((r) => aiEngineOf(r.referrerHost));
+    const aiByEngine = topCounts(aiRows, (r) => aiEngineOf(r.referrerHost), AI_ENGINES.length);
+    const aiByDay = byDay.map(({ date }) => ({
+      date,
+      count: aiRows.filter((r) => new Date(r.createdAt).toISOString().slice(0, 10) === date).length,
+    }));
+
     res.json({
       success: true,
       data: {
@@ -107,6 +129,7 @@ router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, r
         byReferrer: topCounts(rows, (r) => r.referrerHost || 'زيارة مباشرة'),
         byPath: topCounts(rows, (r) => r.path),
         byLang: topCounts(rows, (r) => r.lang),
+        ai: { total: aiRows.length, byEngine: aiByEngine, byDay: aiByDay },
         recent: rows.slice(0, 60).map((r) => ({
           at: r.createdAt, path: r.path, referrer: r.referrerHost || 'مباشر',
           country: r.country, city: r.city, countryCode: r.countryCode,

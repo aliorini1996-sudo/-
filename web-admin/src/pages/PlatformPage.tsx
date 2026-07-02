@@ -7,13 +7,14 @@ import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
-  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import SiteContentEditor from '../components/SiteContentEditor';
 import SeoDashboard from '../components/SeoDashboard';
+import GeoDashboard from '../components/GeoDashboard';
 import VisitsPanel from '../components/VisitsPanel';
 import LeadsPanel from '../components/LeadsPanel';
 import { BrandIcon } from '../components/BrandLogo';
@@ -28,6 +29,7 @@ export default function PlatformPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const [showSeo, setShowSeo] = useState(false);
+  const [showGeo, setShowGeo] = useState(false);
   const [showVisits, setShowVisits] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
@@ -102,6 +104,9 @@ export default function PlatformPage() {
           </button>
           <button onClick={() => setShowSeo(true)} className="sidebar-link w-full">
             <TrendingUp size={18} className="flex-shrink-0" /> <span>{tr('متابعة SEO')}</span>
+          </button>
+          <button onClick={() => setShowGeo(true)} className="sidebar-link w-full">
+            <Sparkles size={18} className="flex-shrink-0" /> <span>{tr('متابعة GEO')}</span>
           </button>
           <button onClick={() => setShowVisits(true)} className="sidebar-link w-full">
             <Globe2 size={18} className="flex-shrink-0" /> <span>{tr('زيارات الموقع')}</span>
@@ -259,6 +264,7 @@ export default function PlatformPage() {
       {showLeads && <LeadsPanel onClose={() => setShowLeads(false)} />}
       {showContent && <SiteContentEditor onClose={() => setShowContent(false)} />}
       {showSeo && <SeoDashboard onClose={() => setShowSeo(false)} />}
+      {showGeo && <GeoDashboard onClose={() => setShowGeo(false)} />}
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (

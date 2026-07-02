@@ -1,8 +1,8 @@
 name: SEO Maintenance
 
-# صيانة SEO ذاتية التشغيل:
-# - تعمل يومياً تلقائياً (GitHub) لتحديث خريطة الموقع بأي مقالات جديدة أُضيفت من لوحة السوبر أدمن
-# - تدقّق صحّة الـSEO وتنبّه عند أي تراجع
+# صيانة SEO + GEO ذاتية التشغيل:
+# - تعمل يومياً تلقائياً (GitHub) لتحديث خريطة الموقع وllms.txt بأي مقالات جديدة أُضيفت من لوحة السوبر أدمن
+# - تدقّق صحّة الـSEO والـGEO (الظهور في محركات الذكاء الاصطناعي) وتنبّه عند أي تراجع
 # - يمكن تشغيلها يدوياً، وتعمل أيضاً عند تغيّر المدوّنة
 on:
   schedule:
@@ -13,6 +13,8 @@ on:
     paths:
       - 'web-admin/src/blog/**'
       - 'web-admin/scripts/gen-sitemap.mjs'
+      - 'web-admin/scripts/gen-llms.mjs'
+      - 'web-admin/scripts/geo-audit.mjs'
 
 permissions:
   contents: write
@@ -33,20 +35,28 @@ jobs:
       - name: تحديث خريطة الموقع من المحتوى الحيّ
         run: node scripts/gen-sitemap.mjs
 
-      # يلتزم بالخريطة إن تغيّرت (مقال جديد مثلاً) — ما يطلق النشر المعتاد
-      - name: التزام الخريطة عند تغيّرها
+      # يعيد توليد دليل الذكاء الاصطناعي llms.txt + الفهرس الكامل من نفس المصدر (GEO)
+      - name: تحديث llms.txt من المحتوى الحيّ
+        run: node scripts/gen-llms.mjs
+
+      # يلتزم بالملفات المولّدة إن تغيّرت (مقال جديد مثلاً) — ما يطلق النشر المعتاد
+      - name: التزام الملفات المولّدة عند تغيّرها
         run: |
-          if ! git diff --quiet public/sitemap.xml; then
+          if ! git diff --quiet public/sitemap.xml public/llms.txt public/llms-full.txt; then
             git config user.name "fieldsa-seo-bot"
             git config user.email "seo-bot@users.noreply.github.com"
-            git add public/sitemap.xml
-            git commit -m "chore(seo): تحديث خريطة الموقع تلقائياً [skip ci]"
+            git add public/sitemap.xml public/llms.txt public/llms-full.txt
+            git commit -m "chore(seo): تحديث الخريطة وllms.txt تلقائياً [skip ci]"
             git push
-            echo "✅ تم تحديث خريطة الموقع."
+            echo "✅ تم تحديث الملفات المولّدة."
           else
-            echo "لا تغييرات في خريطة الموقع."
+            echo "لا تغييرات في الملفات المولّدة."
           fi
 
       # تدقيق صحّة الـSEO — يُفشِل المهمّة عند وجود أخطاء فيصل تنبيه من GitHub
       - name: تدقيق الـSEO
         run: node scripts/seo-audit.mjs
+
+      # تدقيق صحّة الـGEO (الظهور في محركات الذكاء الاصطناعي)
+      - name: تدقيق الـGEO
+        run: node scripts/geo-audit.mjs
