@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, Building2, User, Phone, CheckCircle2, Sparkles, Globe2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -9,12 +9,7 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
 import { useDir, useLang } from '../i18n/lang';
 import { supportedCountries } from '../i18n/countries';
-
-// رموز الاتصال الدولية لكل دولة مدعومة (لبادئة رقم الجوال)
-const DIAL_CODES: Record<string, string> = {
-  SA: '+966', EG: '+20', AE: '+971', KW: '+965', QA: '+974', BH: '+973',
-  OM: '+968', MA: '+212', DZ: '+213', TN: '+216', JO: '+962',
-};
+import { ARAB_DIAL, WORLD_DIAL, flagOf, dialOf } from '../i18n/dialCodes';
 
 // التسجيل الذاتي للتجربة المجانية — ينشئ شركة بتجربة 14 يوماً ويدخل مباشرة
 export default function SignupPage() {
@@ -27,8 +22,12 @@ export default function SignupPage() {
   const [agree, setAgree] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  // بادئة الجوال: دولة مستقلّة قابلة للتغيير لأي دولة في العالم — تتبع دولة الشركة افتراضياً ثم يمكن تغييرها
+  const [phoneCountry, setPhoneCountry] = useState('SA');
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
-  const dial = DIAL_CODES[form.country] || '+966'; // بادئة الجوال حسب الدولة المختارة
+  // مزامنة بادئة الجوال مع دولة الشركة عند اختيارها (تبقى قابلة للتعديل يدوياً بعدها)
+  useEffect(() => { if (form.country) setPhoneCountry(form.country); }, [form.country]);
+  const dial = dialOf(phoneCountry) || '+966'; // بادئة الجوال حسب دولة الهاتف المختارة
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,7 +139,24 @@ export default function SignupPage() {
             <div>
               <label className="label">{t('signup.phone')}</label>
               <div className="flex gap-2" dir="ltr">
-                <span className="inline-flex items-center px-3 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] text-sm text-[#6E6557] font-semibold">{dial}</span>
+                <select
+                  aria-label={t('signup.country')}
+                  className="input font-semibold text-sm"
+                  style={{ width: 132, flex: '0 0 auto', paddingInline: '10px' }}
+                  value={phoneCountry}
+                  onChange={e => setPhoneCountry(e.target.value)}
+                >
+                  <optgroup label={lang === 'ar' ? 'الدول العربية' : lang === 'fr' ? 'Pays arabes' : 'Arab countries'}>
+                    {ARAB_DIAL.map(c => (
+                      <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={lang === 'ar' ? 'دول أخرى' : lang === 'fr' ? 'Autres pays' : 'Other countries'}>
+                    {WORLD_DIAL.map(c => (
+                      <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>
+                    ))}
+                  </optgroup>
+                </select>
                 <div className="relative flex-1">
                   <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
                   <input dir="ltr" className="input pl-9" value={form.phone} onChange={e => set('phone', e.target.value.replace(/[^0-9]/g, ''))} placeholder="5XXXXXXXX" />
