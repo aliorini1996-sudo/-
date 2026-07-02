@@ -1,34 +1,41 @@
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { useLang, isAppRoute } from './i18n/lang';
 import { localeFromPath } from './i18n/locale';
 import { analyticsApi } from './api/client';
-import MainLayout from './layouts/MainLayout';
+// صفحات عامّة — تحميل فوري (مدخل سريع + SEO)
 import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
 import ContactPage from './pages/ContactPage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
+import OwnerLoginPage from './pages/OwnerLoginPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import BlogIndexPage from './pages/BlogIndexPage';
 import BlogPostPage from './pages/BlogPostPage';
-import DashboardPage from './pages/DashboardPage';
-import CustomersPage from './pages/CustomersPage';
-import ProductsPage from './pages/ProductsPage';
-import SalesRepsPage from './pages/SalesRepsPage';
-import InvoicesPage from './pages/InvoicesPage';
-import ReceiptsPage from './pages/ReceiptsPage';
-import ReportsPage from './pages/ReportsPage';
-import NotificationsPage from './pages/NotificationsPage';
-import CompanySettingsPage from './pages/CompanySettingsPage';
-import CompanyUsersPage from './pages/CompanyUsersPage';
-import ErpIntegrationPage from './pages/ErpIntegrationPage';
-import VanStockPage from './pages/VanStockPage';
-import TrackingPage from './pages/TrackingPage';
-import PlatformPage from './pages/PlatformPage';
-import OwnerLoginPage from './pages/OwnerLoginPage';
-import RepApp from './rep/RepApp';
+// لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
+const MainLayout = lazy(() => import('./layouts/MainLayout'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const CustomersPage = lazy(() => import('./pages/CustomersPage'));
+const ProductsPage = lazy(() => import('./pages/ProductsPage'));
+const SalesRepsPage = lazy(() => import('./pages/SalesRepsPage'));
+const InvoicesPage = lazy(() => import('./pages/InvoicesPage'));
+const ReceiptsPage = lazy(() => import('./pages/ReceiptsPage'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const CompanySettingsPage = lazy(() => import('./pages/CompanySettingsPage'));
+const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
+const ErpIntegrationPage = lazy(() => import('./pages/ErpIntegrationPage'));
+const VanStockPage = lazy(() => import('./pages/VanStockPage'));
+const TrackingPage = lazy(() => import('./pages/TrackingPage'));
+const PlatformPage = lazy(() => import('./pages/PlatformPage'));
+const RepApp = lazy(() => import('./rep/RepApp'));
+
+// شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
+function PageFallback() {
+  return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">جارٍ التحميل…</div>;
+}
 
 // لوحة الأدمن على /app — الجذر "/" يبقى دائماً الصفحة التعريفية
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -85,6 +92,7 @@ export default function App() {
     <BrowserRouter>
       <LocaleSync />
       <VisitTracker />
+      <Suspense fallback={<PageFallback />}>
       <Routes>
         {/* الجذر دائماً الصفحة التعريفية التسويقية */}
         <Route path="/" element={<LandingPage />} />
@@ -142,6 +150,7 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

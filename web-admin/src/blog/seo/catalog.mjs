@@ -475,18 +475,34 @@ const excerptOf = (topic, c, L) => P(L,
   `Everything distributors ${topic.cs ? c.inEn : 'in Arab markets'} need about ${topic.label.en.toLowerCase()} — with practical steps and local examples.`,
   `Tout ce que les distributeurs ${topic.cs ? c.inFr : 'arabes'} doivent savoir sur ${topic.label.fr.toLowerCase()} — étapes pratiques et exemples locaux.`);
 
-// روابط داخلية لمقالات شقيقة (تحسين الربط الداخلي)
+// أدوات الربط الداخلي (عناقيد مواضيع + دول)
+const TOPIC_BY_ID = Object.fromEntries(TOPICS.map((t) => [t.id, t]));
+const countryByCode = (cc) => COUNTRIES.find((k) => k.code === cc);
+const inKey = (L) => (L === 'ar' ? 'inAr' : L === 'en' ? 'inEn' : 'inFr');
+const inOf = (c, L) => c[inKey(L)];
+
+// روابط داخلية غنيّة: عنقود الدولة (خدمات أخرى لنفس الدولة) + عنقود الخدمة (نفس الخدمة في دول بارزة) + ركيزة عامة
 function relatedLinks(topic, c, L) {
   const base = blogBase(L);
   const items = [];
+  const add = (slug, text) => items.push([`${base}/${slug}`, text]);
   if (topic.cs) {
-    items.push([`${base}/einvoicing-compliance-${c.code.toLowerCase()}`, P(L, `الفوترة الإلكترونية ${c.inAr}`, `E-invoicing ${c.inEn}`, `Facturation électronique ${c.inFr}`)]);
-    items.push([`${base}/collection-receivables-${c.code.toLowerCase()}`, P(L, `التحصيل وإدارة الذمم ${c.inAr}`, `Collection ${c.inEn}`, `Encaissement ${c.inFr}`)]);
-    items.push([`${base}/what-is-field-sales-management`, P(L, `ما هو نظام إدارة المبيعات الميدانية؟`, `What is field sales software?`, `Qu'est-ce qu'un logiciel de vente terrain ?`)]);
+    const cc = c.code.toLowerCase();
+    // عنقود الدولة: خدمات أخرى لنفس الدولة (٣ روابط)
+    ['van-sales-app', 'collection-receivables', 'einvoicing-compliance', 'sales-rep-management', 'gps-rep-tracking']
+      .filter((id) => id !== topic.id).slice(0, 3)
+      .forEach((id) => add(`${id}-${cc}`, `${TOPIC_BY_ID[id].label[L]} ${inOf(c, L)}`));
+    // عنقود الخدمة: نفس الخدمة في أسواق بارزة (رابطان)
+    ['SA', 'EG', 'AE', 'MA'].filter((x) => x !== c.code).slice(0, 2)
+      .forEach((oc) => add(`${topic.id}-${oc.toLowerCase()}`, `${topic.label[L]} ${inOf(countryByCode(oc), L)}`));
+    // ركيزة عامة
+    add('what-is-field-sales-management', P(L, 'ما هو نظام إدارة المبيعات الميدانية؟', 'What is field sales software?', "Qu'est-ce qu'un logiciel de vente terrain ?"));
   } else {
-    items.push([`${base}/how-to-choose-field-sales-system`, P(L, `كيف تختار نظام مبيعات ميدانية؟`, `How to choose a field sales system`, `Comment choisir un système`)]);
-    items.push([`${base}/field-sales-system-roi`, P(L, `العائد على الاستثمار`, `ROI of a field sales system`, `Le ROI d'un système`)]);
-    items.push([`${base}/van-sales-best-practices`, P(L, `أفضل ممارسات البيع من السيارة`, `Van sales best practices`, `Bonnes pratiques van sales`)]);
+    add('how-to-choose-field-sales-system', P(L, 'كيف تختار نظام مبيعات ميدانية؟', 'How to choose a field sales system', 'Comment choisir un système'));
+    add('field-sales-system-roi', P(L, 'العائد على الاستثمار', 'ROI of a field sales system', "Le ROI d'un système"));
+    add('van-sales-best-practices', P(L, 'أفضل ممارسات البيع من السيارة', 'Van sales best practices', 'Bonnes pratiques van sales'));
+    // عنقود جغرافي: النظام في أسواق بارزة
+    ['SA', 'EG', 'AE'].forEach((oc) => add(`field-sales-software-${oc.toLowerCase()}`, `${TOPIC_BY_ID['field-sales-software'].label[L]} ${inOf(countryByCode(oc), L)}`));
   }
   const head = P(L, 'مقالات ذات صلة', 'Related articles', 'Articles liés');
   return `<h2>${head}</h2><ul>${items.map(([h, t]) => `<li><a href="${h}">${t}</a></li>`).join('')}</ul>`;
