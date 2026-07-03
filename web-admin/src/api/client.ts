@@ -175,6 +175,8 @@ export const leadApi = {
   communityRun: () => api.post('/leads/community-hunt/run'),
   import: (leads: unknown[]) => api.post('/leads/import', { leads }),
   exportUrl: () => `${BASE}/leads/export/csv`,
+  marketingStats: () => api.get('/leads/marketing-stats'),
+  arabCountries: () => api.get('/leads/arab-countries'),
 };
 
 // تتبّع المناديب عبر GPS

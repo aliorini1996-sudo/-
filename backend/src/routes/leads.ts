@@ -7,7 +7,7 @@ import { runSearch, qualifyLeads, LeadProvider, RawLead, providersReady } from '
 import { sendMarketingEmail, marketingProvider } from '../services/marketingMailer';
 import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate } from '../services/whatsapp';
 import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
-import { getHuntConfig, saveHuntConfig, runAutoHuntBatch } from '../services/leadHunter';
+import { getHuntConfig, saveHuntConfig, runAutoHuntBatch, ARAB_COUNTRIES } from '../services/leadHunter';
 import { personalize, marketingHtml } from '../services/marketingTemplate';
 import { getEmailConfig, saveEmailConfig, runAutoEmailBatch } from '../services/leadEmailer';
 import { getCommunityConfig, saveCommunityConfig, runCommunityHuntBatch } from '../services/communityHunter';
@@ -159,6 +159,54 @@ router.get('/email-status', (_req: AuthRequest, res: Response) => {
   res.json({ success: true, data: { provider, dailyCap: provider === 'brevo' ? 300 : 100 } });
 });
 
+// قائمة كل الدول العربية المدعومة (لزرّ «كل الدول» في اللوحة) — قبل /:id
+router.get('/arab-countries', (_req: AuthRequest, res: Response) => {
+  res.json({ success: true, data: ARAB_COUNTRIES });
+});
+
+// ------------------------------- غرفة قيادة التسويق — قبل /:id ------------------------------- //
+// يجمع مؤشرات الآلية كاملة: الصيد، البريد (سلسلة اللمسات)، التفاعل (فتح/نقر/إلغاء)، والعملاء الساخنين
+router.get('/marketing-stats', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const [huntCfg, emailCfg, communityCfg, opens, clicks, unsubs, emails, hotLeads, engagedByCountry] = await Promise.all([
+      getHuntConfig(),
+      getEmailConfig(),
+      getCommunityConfig(),
+      prisma.leadActivity.count({ where: { type: 'OPEN' } }),
+      prisma.leadActivity.count({ where: { type: 'CLICK' } }),
+      prisma.leadActivity.count({ where: { type: 'UNSUB' } }),
+      prisma.leadActivity.count({ where: { type: 'EMAIL', createdBy: 'auto-email' } }),
+      // الساخنون: نقروا رابطاً ولم يُغلقوا — أولوية التواصل البشري
+      prisma.lead.findMany({
+        where: { activities: { some: { type: 'CLICK' } }, stage: { notIn: ['WON', 'LOST'] } },
+        orderBy: { updatedAt: 'desc' },
+        take: 12,
+        select: { id: true, name: true, country: true, countryCode: true, city: true, phone: true, email: true, stage: true, score: true, updatedAt: true },
+      }),
+      prisma.lead.groupBy({ by: ['countryCode'], where: { activities: { some: { type: { in: ['OPEN', 'CLICK'] } } } }, _count: { _all: true } }),
+    ]);
+    const openRate = emails > 0 ? Math.round((opens / emails) * 1000) / 10 : 0;
+    const clickRate = emails > 0 ? Math.round((clicks / emails) * 1000) / 10 : 0;
+    res.json({
+      success: true,
+      data: {
+        hunt: { enabled: huntCfg.enabled, totalRuns: huntCfg.totalRuns, totalImported: huntCfg.totalImported, countries: huntCfg.countries.length, lastRunAt: huntCfg.lastRunAt },
+        email: {
+          enabled: emailCfg.enabled, totalSent: emailCfg.totalSent, totalFollowUps: emailCfg.totalFollowUps,
+          sentToday: emailCfg.sentToday, dailyCap: emailCfg.dailyCap, touches: emailCfg.touches, gapDays: emailCfg.gapDays, lastRunAt: emailCfg.lastRunAt,
+        },
+        community: { enabled: communityCfg.enabled, lastRunAt: communityCfg.lastRunAt },
+        engagement: { opens, clicks, unsubs, openRate, clickRate },
+        hotLeads,
+        engagedByCountry: engagedByCountry
+          .filter((r) => r.countryCode)
+          .map((r) => ({ countryCode: r.countryCode, count: r._count._all }))
+          .sort((a, b) => b.count - a.count),
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 // ------------------------------- الصيد المستمر (Auto-Hunt) — قبل /:id ------------------------------- //
 router.get('/auto-hunt', async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try { res.json({ success: true, data: await getHuntConfig() }); } catch (err) { next(err); }
@@ -198,6 +246,12 @@ const autoEmailConfigSchema = z.object({
   enabled: z.boolean().optional(),
   subject: z.string().min(1).optional(),
   body: z.string().min(1).optional(),
+  subject2: z.string().nullish(),
+  body2: z.string().nullish(),
+  subject3: z.string().nullish(),
+  body3: z.string().nullish(),
+  touches: z.number().int().min(1).max(3).optional(),
+  gapDays: z.number().int().min(1).max(30).optional(),
   batchSize: z.number().int().min(1).max(100).optional(),
   dailyCap: z.number().int().min(1).max(300).optional(),
   stage: z.string().nullish(),
@@ -556,10 +610,10 @@ router.post('/email-test', async (req: AuthRequest, res: Response, next: NextFun
 router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = emailSchema.parse(req.body);
-    // يستهدف من لديه بريد ولم تسبق مراسلته (بلا نشاط EMAIL) — لا يُعاد الإرسال أبداً
+    // يستهدف من لديه بريد ولم تسبق مراسلته (بلا نشاط EMAIL) ولم يُلغِ الاشتراك — لا يُعاد الإرسال أبداً
     const where: Record<string, unknown> = {
       email: { not: null },
-      activities: { none: { type: 'EMAIL' } },
+      activities: { none: { type: { in: ['EMAIL', 'UNSUB'] } } },
     };
     if (body.ids?.length) {
       where.id = { in: body.ids };
@@ -585,7 +639,7 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
     const errors: string[] = [];
     for (const l of targets) {
       const subject = personalize(body.subject, l);
-      const html = marketingHtml(body.body, l);
+      const html = marketingHtml(body.body, l, { leadId: l.id, touch: 1 });
       try {
         await sendMarketingEmail({ subject, html, to: l.email!, replyTo: body.replyTo });
         sent++;

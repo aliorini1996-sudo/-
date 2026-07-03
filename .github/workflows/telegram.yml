@@ -1,0 +1,41 @@
+name: FieldSales — تسويق تيليجرام اليومي
+
+# ينشر يوميًا منشورًا عربيًا/إنجليزيًا + بطاقة بهوية FieldSales على قناة تيليجرام — مجاني بالكامل.
+# يتطلّب سرّين: TELEGRAM_BOT_TOKEN (من @BotFather) و TELEGRAM_CHAT_ID (@اسم_القناة والبوت مشرف فيها).
+on:
+  schedule:
+    - cron: "30 16 * * *"   # 7:30 مساءً بتوقيت السعودية — وقت ذروة تيليجرام
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fieldsales-telegram
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r marketing/requirements.txt
+
+      - name: Install headless browser
+        run: python -m playwright install --with-deps chromium
+
+      - name: Generate & post
+        working-directory: marketing
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_post.py

@@ -143,6 +143,9 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {/* غرفة قيادة التسويق */}
+        <MarketingCommandCenter onSelectLead={(id) => setSelected(id)} />
+
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <div className="relative flex-1 min-w-[200px]">
@@ -702,6 +705,75 @@ function EnrichModal({
   );
 }
 
+// ----------------------------- غرفة قيادة التسويق ----------------------------- //
+// نظرة موحّدة على الآلية كاملة: محرّكات تعمل/متوقفة، تفاعل البريد، والعملاء الساخنون (نقروا رابطاً)
+type MarketingStats = {
+  hunt: { enabled: boolean; totalRuns: number; totalImported: number; countries: number; lastRunAt: string | null };
+  email: { enabled: boolean; totalSent: number; totalFollowUps: number; sentToday: number; dailyCap: number; touches: number; gapDays: number; lastRunAt: string | null };
+  community: { enabled: boolean; lastRunAt: string | null };
+  engagement: { opens: number; clicks: number; unsubs: number; openRate: number; clickRate: number };
+  hotLeads: { id: string; name: string; country: string | null; countryCode: string | null; city: string | null; phone: string | null; email: string | null; stage: LeadStage; score: number | null }[];
+  engagedByCountry: { countryCode: string; count: number }[];
+};
+
+function EngineChip({ on, label, detail }: { on: boolean; label: string; detail: string }) {
+  return (
+    <div className={`rounded-lg px-3 py-2 border text-xs ${on ? 'border-green-300 bg-green-50 text-green-800' : 'border-[#E9E1D3] bg-white text-gray-500'}`}>
+      <span className="font-bold">{on ? '🟢' : '⚪'} {label}</span>
+      <span className="block mt-0.5 text-[11px] opacity-80">{detail}</span>
+    </div>
+  );
+}
+
+function MarketingCommandCenter({ onSelectLead }: { onSelectLead: (id: string) => void }) {
+  const { data: m } = useQuery({
+    queryKey: ['marketing-stats'],
+    queryFn: async () => (await leadApi.marketingStats()).data.data as MarketingStats,
+    refetchInterval: 60000,
+  });
+  if (!m) return null;
+  return (
+    <div className="card mb-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-bold text-gray-700">🚀 غرفة قيادة التسويق — الآلية تعمل 24/7</p>
+        <span className="text-[11px] text-gray-400">تتحدّث كل دقيقة</span>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+        <EngineChip on={m.hunt.enabled} label="صيد العملاء" detail={`${m.hunt.totalImported} مستورَد · ${m.hunt.countries} دولة`} />
+        <EngineChip on={m.email.enabled} label={`بريد السلسلة (${m.email.touches} لمسات)`} detail={`${m.email.totalSent} مُرسَل · ${m.email.totalFollowUps} متابعة · اليوم ${m.email.sentToday}/${m.email.dailyCap}`} />
+        <EngineChip on={m.community.enabled} label="بحث القروبات" detail={m.community.lastRunAt ? `آخر تشغيل ${formatDate(m.community.lastRunAt)}` : 'لم يعمل بعد'} />
+        <div className="rounded-lg px-3 py-2 border border-[#E9E1D3] bg-white text-xs">
+          <span className="font-bold text-gray-700">📬 التفاعل</span>
+          <span className="block mt-0.5 text-[11px] text-gray-500">
+            فتح {m.engagement.opens} ({m.engagement.openRate}%) · نقر <b className="text-[#E15A30]">{m.engagement.clicks}</b> ({m.engagement.clickRate}%) · إلغاء {m.engagement.unsubs}
+          </span>
+        </div>
+      </div>
+      {m.hotLeads.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+          <p className="text-xs font-bold text-amber-800 mb-2">🔥 عملاء ساخنون — نقروا رابط بريدك، تواصل معهم الآن</p>
+          <div className="flex flex-wrap gap-2">
+            {m.hotLeads.map((h) => (
+              <button key={h.id} onClick={() => onSelectLead(h.id)}
+                className="text-xs bg-white border border-amber-300 rounded-full px-3 py-1.5 hover:bg-amber-100 text-gray-700">
+                <b>{h.name}</b>{h.country ? ` · ${h.country}` : ''}{h.phone ? ' · 📞' : ''}{h.email ? ' · ✉️' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {m.engagedByCountry.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          <span className="text-[11px] text-gray-400">تفاعل حسب الدولة:</span>
+          {m.engagedByCountry.slice(0, 12).map((c) => (
+            <span key={c.countryCode} className="text-[11px] bg-slate-100 text-slate-600 rounded px-2 py-0.5">{c.countryCode} · {c.count}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ----------------------------- الصيد المستمر ----------------------------- //
 type HuntConfig = {
   enabled: boolean; providers: string[]; countries: string[]; city: string | null;
@@ -804,7 +876,18 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
         </label>
 
         <div>
-          <label className="label">الدول (بالتناوب — مفصولة بفاصلة)</label>
+          <div className="flex items-center justify-between">
+            <label className="label">الدول (بالتناوب — مفصولة بفاصلة)</label>
+            <button
+              onClick={async () => {
+                const all = (await leadApi.arabCountries()).data.data as string[];
+                setCountriesText(all.join('، '));
+                await save({ countries: all });
+                toast.success(`فُعّلت ${all.length} دولة عربية 🌍`);
+              }}
+              className="text-xs text-[#E15A30] hover:underline mb-1"
+            >🌍 كل الدول العربية</button>
+          </div>
           <textarea value={countriesText} onChange={(e) => setCountriesText(e.target.value)}
             onBlur={() => save({ countries: countriesText.split(/[،,\n]/).map((s) => s.trim()).filter(Boolean) })}
             rows={2} className="input" />
@@ -850,11 +933,13 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
   );
 }
 
-// ----------------------------- بريد تلقائي مستمر ----------------------------- //
+// ----------------------------- بريد تلقائي مستمر (سلسلة لمسات) ----------------------------- //
 type EmailConfig = {
-  enabled: boolean; subject: string; body: string; batchSize: number; dailyCap: number;
+  enabled: boolean; subject: string; body: string;
+  subject2: string | null; body2: string | null; subject3: string | null; body3: string | null;
+  touches: number; gapDays: number; batchSize: number; dailyCap: number;
   stage: string | null; source: string | null; countryCode: string | null;
-  sentToday: number; totalSent: number; lastRunAt: string | null;
+  sentToday: number; totalSent: number; totalFollowUps: number; lastRunAt: string | null;
 };
 
 function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -879,8 +964,8 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
   const runOnce = async () => {
     try {
       const res = await leadApi.autoEmailRun();
-      const d = res.data.data as { sent: number; failed: number; remainingToday: number; targeted: number; errors?: string[] };
-      setLog((l) => [`${new Date().toLocaleTimeString()} · أُرسل ${d.sent}${d.failed ? ` · فشل ${d.failed}` : ''} · متبقٍ اليوم ${d.remainingToday}`, ...l].slice(0, 25));
+      const d = res.data.data as { sent: number; failed: number; followUps?: number; remainingToday: number; targeted: number; errors?: string[] };
+      setLog((l) => [`${new Date().toLocaleTimeString()} · أُرسل ${d.sent}${d.followUps ? ` (منها ${d.followUps} متابعة)` : ''}${d.failed ? ` · فشل ${d.failed}` : ''} · متبقٍ اليوم ${d.remainingToday}`, ...l].slice(0, 25));
       if (d.errors && d.errors.length) setLog((l) => [`⚠️ ${d.errors!.join(' | ')}`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
@@ -950,17 +1035,47 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
           </div>
         </div>
 
+        {/* سلسلة اللمسات: متابعتان تلقائيتان بعد الرسالة الأولى ترفعان الردود عدة أضعاف */}
+        <div className="rounded-lg border border-[#E9E1D3] p-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-bold text-gray-700">🔁 سلسلة المتابعة</span>
+            <label className="flex items-center gap-1.5">لمسات:
+              <select value={cfg.touches} onChange={(e) => save({ touches: Number(e.target.value) })} className="input w-16 py-1">
+                <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">الفاصل (أيام):
+              <input type="number" min={1} max={30} value={cfg.gapDays} onChange={(e) => save({ gapDays: Math.max(1, Math.min(30, Number(e.target.value) || 4)) })} className="input w-16 py-1" />
+            </label>
+            <span className="text-xs text-gray-400">أُرسلت متابعات: {cfg.totalFollowUps ?? 0}</span>
+          </div>
+          <p className="text-xs text-gray-500">لمسة 1 تعريف → لمسة 2 قيمة وإثبات → لمسة 3 رسالة أخيرة. من ينقر رابطاً يخرج من السلسلة ويصبح «مؤهّلاً» 🔥 لتتواصل معه بنفسك. اترك نصوص 2 و3 فارغة لاستخدام القوالب الجاهزة.</p>
+        </div>
+
         <div>
-          <label className="label">الموضوع</label>
+          <label className="label">اللمسة 1 — الموضوع</label>
           <input value={cfg.subject} onChange={(e) => setCfg({ ...cfg, subject: e.target.value })} onBlur={() => save({ subject: cfg.subject })} className="input" />
         </div>
         <div>
-          <label className="label">نص الرسالة (عربي/إنجليزي · {'{{name}}'} للتخصيص)</label>
+          <label className="label">اللمسة 1 — النص (عربي/إنجليزي · {'{{name}}'} و{'{{angle}}'} للتخصيص)</label>
           <textarea value={cfg.body} onChange={(e) => setCfg({ ...cfg, body: e.target.value })} onBlur={() => save({ body: cfg.body })} rows={7} className="input" />
         </div>
+        {cfg.touches >= 2 && (
+          <details className="rounded-lg border border-[#E9E1D3] p-3">
+            <summary className="text-sm font-medium cursor-pointer text-gray-700">اللمسة 2 و3 — تخصيص اختياري (فارغة = القوالب الجاهزة)</summary>
+            <div className="space-y-2 mt-2">
+              <input placeholder="موضوع اللمسة 2 (اختياري)" value={cfg.subject2 ?? ''} onChange={(e) => setCfg({ ...cfg, subject2: e.target.value })} onBlur={() => save({ subject2: cfg.subject2 || null })} className="input" />
+              <textarea placeholder="نص اللمسة 2 (اختياري)" value={cfg.body2 ?? ''} onChange={(e) => setCfg({ ...cfg, body2: e.target.value })} onBlur={() => save({ body2: cfg.body2 || null })} rows={4} className="input" />
+              {cfg.touches >= 3 && (<>
+                <input placeholder="موضوع اللمسة 3 (اختياري)" value={cfg.subject3 ?? ''} onChange={(e) => setCfg({ ...cfg, subject3: e.target.value })} onBlur={() => save({ subject3: cfg.subject3 || null })} className="input" />
+                <textarea placeholder="نص اللمسة 3 (اختياري)" value={cfg.body3 ?? ''} onChange={(e) => setCfg({ ...cfg, body3: e.target.value })} onBlur={() => save({ body3: cfg.body3 || null })} rows={4} className="input" />
+              </>)}
+            </div>
+          </details>
+        )}
 
         <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
-          ⚠️ الإرسال البارد الجماعي قد يؤثّر على سمعة نطاقك ويُصنَّف Spam. أبقِ الحدّ اليومي منخفضاً ووثّق نطاقك (DKIM) لأفضل وصول.
+          ⚠️ الإرسال البارد الجماعي قد يؤثّر على سمعة نطاقك ويُصنَّف Spam. أبقِ الحدّ اليومي منخفضاً ووثّق نطاقك (DKIM) لأفضل وصول. كل بريد يتضمّن رابط إلغاء اشتراك تلقائي وزاوية مخصّصة لدولة العميل.
         </p>
         <p className="text-xs text-gray-400">💡 للعمل 24/7 بلا متصفّح، فعّل الخيار الكهرماني — الجدولة ترسل دفعات تلقائياً حتى بلوغ الحدّ اليومي.</p>
         <div className="flex justify-end">

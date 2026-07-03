@@ -25,13 +25,17 @@ export interface HuntConfig {
   totalImported: number;
 }
 
+// كل الدول العربية القابلة للصيد — تُستخدم افتراضياً وكزرّ «كل الدول» في اللوحة
+export const ARAB_COUNTRIES = [
+  'السعودية', 'مصر', 'الإمارات', 'الكويت', 'قطر', 'البحرين', 'عُمان',
+  'الأردن', 'المغرب', 'الجزائر', 'تونس', 'العراق', 'لبنان', 'ليبيا',
+  'فلسطين', 'السودان', 'اليمن', 'سوريا', 'موريتانيا',
+];
+
 const DEFAULT_CONFIG: HuntConfig = {
   enabled: false,
   providers: ['osm', 'geoapify', 'tomtom', 'serper'],
-  countries: [
-    'السعودية', 'مصر', 'الإمارات', 'الكويت', 'قطر', 'البحرين', 'عُمان',
-    'الأردن', 'المغرب', 'الجزائر', 'تونس', 'العراق', 'لبنان', 'ليبيا',
-  ],
+  countries: [...ARAB_COUNTRIES],
   city: null,
   keywordsPerRun: 2,
   qualify: true,
