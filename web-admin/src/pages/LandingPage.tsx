@@ -58,10 +58,72 @@ function renderSocialSection(social: Record<string, string> = {}, lang: Lang = '
   </section>`;
 }
 
+// قسم بارز لحاسبة تسريب الإيرادات — منتصف الصفحة، أيقونة كبيرة عائمة بتوهّج نابض (يُحقن قبل الأسعار)
+function renderCalculatorSection(lang: Lang = 'ar'): string {
+  const t = {
+    ar: {
+      eyebrow: 'أداة مجانية · احسبها بنفسك',
+      h: 'كم تخسر شركتك من إيراداتها كل شهر؟',
+      p: 'حاسبة تسريب الإيرادات تكشف لك خلال دقيقة ما يضيع بين الفواتير المفقودة والتحصيل غير الموثّق وعجز مخزون سيارات المناديب — أدخل أرقامك وشاهد الحقيقة.',
+      cta: 'احسب تسريبك الآن',
+      note: 'مجانية 100% · بلا تسجيل · شارك نتيجتك واتساب',
+    },
+    en: {
+      eyebrow: 'Free tool · See for yourself',
+      h: 'How much revenue does your company leak every month?',
+      p: 'The Revenue Leak Calculator shows you in one minute what slips away in lost invoices, undocumented collections and van stock shrinkage — enter your numbers and see the truth.',
+      cta: 'Calculate your leak now',
+      note: '100% free · no signup · share your result on WhatsApp',
+    },
+    fr: {
+      eyebrow: 'Outil gratuit · Voyez par vous-même',
+      h: 'Combien de revenus votre entreprise perd-elle chaque mois ?',
+      p: 'Le calculateur de fuite de revenus vous montre en une minute ce qui disparaît entre factures perdues, encaissements non documentés et écarts de stock — entrez vos chiffres et voyez la vérité.',
+      cta: 'Calculez votre fuite',
+      note: '100 % gratuit · sans inscription · partagez sur WhatsApp',
+    },
+  }[lang];
+  const arrow = lang === 'ar'
+    ? '<path d="M19 12H5m0 0l6-6m-6 6l6 6"/>'
+    : '<path d="M5 12h14m0 0l-6-6m6 6l-6 6"/>';
+  return `<section id="leak-calculator" style="max-width:1200px; margin:0 auto; padding:34px 28px 70px;">
+    <style>
+      @keyframes fsCalcFloat { 0%,100%{ transform:translateY(0) rotate(-3deg);} 50%{ transform:translateY(-12px) rotate(3deg);} }
+      @keyframes fsCalcGlow { 0%,100%{ box-shadow:0 18px 46px rgba(225,90,48,.45);} 50%{ box-shadow:0 26px 72px rgba(225,90,48,.8);} }
+      @keyframes fsCalcRing { 0%{ transform:scale(1); opacity:.55;} 100%{ transform:scale(1.65); opacity:0;} }
+      #leak-calculator .fs-calc-cta:hover { background:#C94E28 !important; transform:translateY(-2px); }
+    </style>
+    <div style="position:relative; overflow:hidden; background:#1F1A13; border-radius:30px; padding:64px 28px 58px; text-align:center;">
+      <div style="position:absolute; top:-160px; right:-120px; width:480px; height:480px; border-radius:50%; background:radial-gradient(circle, rgba(225,90,48,.28), transparent 65%);"></div>
+      <div style="position:absolute; bottom:-160px; left:-120px; width:440px; height:440px; border-radius:50%; background:radial-gradient(circle, rgba(30,122,82,.2), transparent 65%);"></div>
+      <div style="position:relative; display:inline-block; margin-bottom:26px;">
+        <span style="position:absolute; inset:0; border-radius:34px; border:2px solid #E15A30; animation:fsCalcRing 2.2s ease-out infinite;"></span>
+        <span style="width:116px; height:116px; border-radius:34px; background:linear-gradient(145deg,#E15A30,#C94E28); display:inline-flex; align-items:center; justify-content:center; animation:fsCalcFloat 3.6s ease-in-out infinite, fsCalcGlow 3.6s ease-in-out infinite;">
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="1.7" stroke-linecap="round">
+            <rect x="4.5" y="2.5" width="15" height="19" rx="2.5"></rect>
+            <path d="M8 6.5h8"></path>
+            <path d="M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01" stroke-width="2.6"></path>
+          </svg>
+        </span>
+      </div>
+      <div style="position:relative; font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:700;">${t.eyebrow}</div>
+      <h2 style="position:relative; color:#FAF7F0; font-size:clamp(26px,4.6vw,42px); line-height:1.25; font-weight:800; letter-spacing:-0.8px; margin:14px auto 0; max-width:760px;">${t.h}</h2>
+      <p style="position:relative; color:#B7AD9D; font-size:clamp(15px,2.2vw,17.5px); line-height:1.9; margin:16px auto 0; max-width:640px;">${t.p}</p>
+      <a href="/calculator" class="fs-calc-cta" style="position:relative; display:inline-flex; align-items:center; gap:10px; background:#E15A30; color:#fff; font-weight:800; font-size:clamp(16px,2.4vw,19px); padding:17px 42px; border-radius:16px; text-decoration:none; margin-top:30px; transition:background .2s, transform .2s;">
+        ${t.cta}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${arrow}</svg>
+      </a>
+      <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
+    </div>
+  </section>`;
+}
+
 // يملأ القالب بقيم المحتوى عبر العناصر النائبة {{path}}، ويعالج أقسام التواصل
 export function applyContent(template: string, content: Record<string, unknown>, lang: Lang = 'ar'): string {
   const social = content.social as Record<string, string>;
   let html = template.split('{{__SOCIAL_SECTION__}}').join(renderSocialSection(social, lang));
+  // حقن قسم الحاسبة البارز قبل قسم الأسعار مباشرة (منتصف الصفحة)
+  html = html.replace('<section id="pricing"', renderCalculatorSection(lang) + '<section id="pricing"');
   html = html.split('{{__SOCIAL__}}').join(renderSocial(social));
   html = html.replace(/\{\{([^}]+)\}\}/g, (_, path: string) => {
     const val = path.split('.').reduce<unknown>((o, k) => (o == null ? o : (o as Record<string, unknown>)[k]), content);
