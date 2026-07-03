@@ -4,13 +4,42 @@
 // يعمل كـ postbuild (بعد vite build) — سريع (ثوانٍ) وحتمي، فلا يُبطئ بناء Vercel.
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { transformSync } from 'esbuild';
 import { buildCatalog, getArticle, listArticles, COUNTRIES } from '../src/blog/seo/catalog.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
 const ORIGIN = 'https://fieldsa.net';
 const LANGS = ['ar', 'en', 'fr'];
+const CMS_API = 'https://api.fieldsa.net/api/site-content';
+
+// يحمّل المقالات اليدوية من src/blog/posts.ts (بلا استيرادات — يُحوَّل TS→ESM عبر esbuild ويُستورد)،
+// مع محاولة جلب مقالات الـCMS الحيّة أولاً (نفس ما يراه الزائر، كسلوك gen-sitemap) والعودة للافتراضية.
+async function loadManualPosts() {
+  const src = fs.readFileSync(path.resolve(__dirname, '../src/blog/posts.ts'), 'utf8');
+  const { code } = transformSync(src, { loader: 'ts', format: 'esm' });
+  const tmp = path.join(DIST, '_posts_tmp.mjs');
+  fs.writeFileSync(tmp, code);
+  const mod = await import(pathToFileURL(tmp).href);
+  fs.unlinkSync(tmp);
+
+  let cmsBlog = null;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(CMS_API, { signal: ctrl.signal });
+    clearTimeout(t);
+    cmsBlog = (await r.json())?.data?.blog ?? null;
+    if (Array.isArray(cmsBlog) && cmsBlog.length) console.log(`  مقالات يدوية: CMS الحيّ (${cmsBlog.length})`);
+  } catch { /* الافتراضية من posts.ts */ }
+
+  return mod.effectivePosts(cmsBlog).map((p) => ({
+    ...p,
+    contentHtml: mod.normalizeContent(p.contentHtml),
+    en: p.en && p.en.title ? { ...p.en, contentHtml: mod.normalizeContent(p.en.contentHtml) } : undefined,
+  }));
+}
 
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -70,11 +99,18 @@ function articleJsonLd(a, lang, canonical) {
   };
 }
 
-function main() {
+async function main() {
   if (!fs.existsSync(path.join(DIST, 'index.html'))) { console.error('لا يوجد dist/index.html — شغّل vite build أولاً'); process.exit(0); }
   let n = 0;
 
-  // 1) المقالات (900) — محتوى كامل + وسوم + JSON-LD
+  // المقالات اليدوية (posts.ts / CMS) — تُحمَّل مبكراً لتُستخدم في التصيير وفهرس المدوّنة
+  const catalogSlugs = new Set(buildCatalog().map((x) => x.slug));
+  const manual = (await loadManualPosts().catch((e) => {
+    console.log('⚠️  تعذّر تحميل المقالات اليدوية (غير مانع): ' + e.message);
+    return [];
+  })).filter((p) => !catalogSlugs.has(p.slug)); // المولَّدة لها تصييرها الأغنى — لا تُدهس
+
+  // 1) المقالات المولَّدة (~966) — محتوى كامل + وسوم + JSON-LD
   for (const { slug } of buildCatalog()) {
     for (const L of LANGS) {
       const a = getArticle(slug, L);
@@ -93,6 +129,32 @@ function main() {
     }
   }
 
+  // 1ب) المقالات اليدوية (posts.ts / CMS) — عربية دائماً + إنجليزية للثنائية، بمحتوى كامل
+  //     (كانت قوقعة SPA فارغة لزواحف AI وكاشطي التواصل رغم وجودها في sitemap)
+  const manualHreflang = (slug, bilingual) =>
+    `\n    <link rel="alternate" hreflang="ar" href="${ORIGIN}/blog/${slug}"/>` +
+    (bilingual ? `\n    <link rel="alternate" hreflang="en" href="${ORIGIN}/en/blog/${slug}"/>` : '') +
+    `\n    <link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog/${slug}"/>`;
+  for (const p of manual) {
+    for (const L of p.en ? ['ar', 'en'] : ['ar']) {
+      const v = L === 'en' ? p.en : p;
+      const prefix = L === 'ar' ? '' : '/en';
+      const canonical = `${ORIGIN}${prefix}/blog/${p.slug}`;
+      const brand = L === 'ar' ? 'مدوّنة FieldSales' : 'FieldSales Blog';
+      const image = `${ORIGIN}/og-image.png`;
+      const body = `<main><article><h1>${esc(v.title)}</h1>${v.contentHtml}</article></main>`;
+      const html = buildPage({
+        lang: L, title: `${v.title} | ${brand}`, description: v.description, keywords: v.keywords,
+        canonical, image, ogType: 'article',
+        hreflang: manualHreflang(p.slug, !!p.en),
+        jsonLd: articleJsonLd({ title: v.title, description: v.description, date: p.date, image }, L, canonical),
+        bodyHtml: body,
+      });
+      writeRoute(`${prefix}/blog/${p.slug}`, html);
+      n++;
+    }
+  }
+
   // 2) فهارس المدوّنة (ع/إ/فر) — وسوم + قائمة روابط للمقالات (زحف داخلي)
   for (const L of LANGS) {
     const prefix = L === 'ar' ? '' : `/${L}`;
@@ -103,7 +165,10 @@ function main() {
     const desc = tr(L, 'مئات المقالات والدلائل في إدارة المبيعات الميدانية والفوترة الإلكترونية والتوزيع لكل الدول العربية.',
       'Hundreds of guides on field sales, e-invoicing and distribution for every Arab country.',
       'Des centaines de guides sur la vente terrain, la facturation électronique et la distribution pour chaque pays arabe.');
-    const links = listArticles(L).slice(0, 80).map((x) => `<li><a href="${prefix}/blog/${x.slug}">${esc(x.title)}</a></li>`).join('');
+    const manualLinks = L === 'fr' ? [] : manual
+      .filter((p) => L === 'ar' || p.en)
+      .map((p) => { const v = L === 'en' && p.en ? p.en : p; return `<li><a href="${prefix}/blog/${p.slug}">${esc(v.title)}</a></li>`; });
+    const links = [...manualLinks, ...listArticles(L).slice(0, 80).map((x) => `<li><a href="${prefix}/blog/${x.slug}">${esc(x.title)}</a></li>`)].join('');
     const chips = COUNTRIES.map((c) => `<a href="${prefix}/blog/field-sales-software-${c.code.toLowerCase()}">${esc(c[L])}</a>`).join(' ');
     const body = `<main><h1>${esc(tr(L, 'مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales'))}</h1><nav>${chips}</nav><ul>${links}</ul></main>`;
     const html = buildPage({ lang: L, title, description: desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang('/blog'), bodyHtml: body });
@@ -214,7 +279,7 @@ function main() {
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
   n++;
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال ×3 + فهارس + رئيسية ع/إ/فر + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية ع/إ/فر + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
 }
 
-main();
+await main();
