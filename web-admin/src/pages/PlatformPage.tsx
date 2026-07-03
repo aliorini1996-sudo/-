@@ -116,6 +116,14 @@ export default function PlatformPage() {
           <button onClick={() => setShowVisits(true)} className="sidebar-link w-full">
             <Globe2 size={18} className="flex-shrink-0" /> <span>{tr('زيارات الموقع')}</span>
           </button>
+          <a
+            href="https://stock-portfolio-chi-rouge.vercel.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sidebar-link w-full"
+          >
+            <Wallet size={18} className="flex-shrink-0" /> <span>{tr('محفظتي')}</span>
+          </a>
         </nav>
 
         {/* المستخدم + اللغة + كلمة المرور + الخروج */}

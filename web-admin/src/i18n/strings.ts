@@ -280,6 +280,7 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'متابعة SEO': { en: 'SEO monitor', fr: 'Suivi SEO' },
   'متابعة GEO': { en: 'AI visibility (GEO)', fr: 'Visibilité IA (GEO)' },
   'زيارات الموقع': { en: 'Site visits', fr: 'Visites du site' },
+  'محفظتي': { en: 'My portfolio', fr: 'Mon portefeuille' },
   'إجمالي الشركات': { en: 'Total companies', fr: 'Total des entreprises' },
   'اشتراكات نشطة': { en: 'Active subscriptions', fr: 'Abonnements actifs' },
   'إجمالي المناديب': { en: 'Total reps', fr: 'Total des commerciaux' },
