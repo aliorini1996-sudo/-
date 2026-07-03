@@ -7,9 +7,15 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
+# لا تداخل بين دورتين
+concurrency:
+  group: portfolio-autopilot
+  cancel-in-progress: false
+
 jobs:
   tick:
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - name: Autopilot tick
         run: |
