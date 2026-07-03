@@ -61,10 +61,10 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: bo
   { title: 'الدعوة النهائية', fields: [
     ['finalCta.title', 'العنوان'], ['finalCta.subtitle', 'الوصف', true], ['finalCta.note', 'الملاحظة السفلية'],
   ] },
-  { title: 'بيانات التواصل (صفحة تواصل معنا)', fields: [
+  { title: 'بيانات التواصل (صفحة تواصل معنا + مربع «للتواصل وطلبات الاشتراك» بالرئيسية)', fields: [
     ['contact.intro', 'مقدمة الصفحة', true],
-    ['contact.email', 'البريد الإلكتروني'], ['contact.phone', 'الهاتف'],
-    ['contact.whatsapp', 'واتساب'], ['contact.address', 'العنوان'],
+    ['contact.email', 'البريد الإلكتروني'], ['contact.phone', 'الهاتف (يظهر مكتوباً بالمربع)'],
+    ['contact.whatsapp', 'واتساب'], ['contact.address', 'عنوان مقر الشركة'],
   ] },
   { title: 'روابط التواصل الاجتماعي', fields: [
     ['social.whatsapp', 'واتساب (رقم فقط، مثال: 9665XXXXXXXX)'],

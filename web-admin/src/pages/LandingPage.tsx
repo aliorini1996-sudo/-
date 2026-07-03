@@ -229,6 +229,63 @@ function injectCoverage(html: string, lang: Lang): string {
   return html.replace(anchor, `${coverageSection(lang)}\n  ${anchor}`);
 }
 
+// ---- مربع «للتواصل وطلبات الاشتراك» — بياناته من CMS (قسم «تواصل معنا» بلوحة المالك) ----
+type ContactInfo = { email?: string; phone?: string; whatsapp?: string; address?: string };
+
+function contactSection(contact: ContactInfo, lang: Lang): string {
+  const t = {
+    ar: { title: 'للتواصل وطلبات الاشتراك', sub: 'راسلنا أو اتصل بنا مباشرة — فريقنا جاهز لمساعدتك وتفعيل اشتراك شركتك.', email: 'البريد الرسمي', phone: 'الهاتف', address: 'مقر الشركة', cta: 'اطلب اشتراكك الآن', whatsapp: 'واتساب' },
+    en: { title: 'Contact & Subscription Requests', sub: 'Email or call us directly — our team is ready to help and activate your company subscription.', email: 'Official email', phone: 'Phone', address: 'Head office', cta: 'Request your subscription', whatsapp: 'WhatsApp' },
+    fr: { title: 'Contact et demandes d’abonnement', sub: 'Écrivez-nous ou appelez-nous directement — notre équipe est prête à vous aider et à activer votre abonnement.', email: 'E-mail officiel', phone: 'Téléphone', address: 'Siège social', cta: 'Demandez votre abonnement', whatsapp: 'WhatsApp' },
+  }[lang];
+  // العنوان الافتراضي العربي يُعرَض مترجماً في النسختين الأجنبيتين؛ وأي نص يكتبه المالك يُعرض كما هو
+  const addressRaw = String(contact.address || '').trim();
+  const address = addressRaw === 'المملكة العربية السعودية' && lang !== 'ar'
+    ? (lang === 'en' ? 'Saudi Arabia' : 'Arabie saoudite') : addressRaw;
+  const email = String(contact.email || '').trim();
+  const phone = String(contact.phone || '').trim();
+  const wa = String(contact.whatsapp || '').trim();
+
+  // أيقونات SVG بأسلوب الهوية
+  const icon = (path: string) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E15A30" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">${path}</svg>`;
+  const icEmail = icon('<rect x="2" y="4" width="20" height="16" rx="3"></rect><path d="m3 6 9 7 9-7"></path>');
+  const icPhone = icon('<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>');
+  const icPin = icon('<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle>');
+  const icWa = icon('<path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5.1-1.3A10 10 0 1 0 12 2z"></path><path d="M8.5 9.5c.5 2.5 3.5 5.5 6 6l1.5-1.5-2-1.5-1 .5c-1-.5-2-1.5-2.5-2.5l.5-1-1.5-2z"></path>');
+
+  // بطاقة معلومة واحدة (تُخفى إن كانت القيمة فارغة — يعبّئها المالك من لوحته)
+  const card = (ic: string, label: string, valueHtml: string) =>
+    `<div style="display:flex; align-items:flex-start; gap:13px; background:#FAF7F0; border:1px solid #E9E1D3; border-radius:16px; padding:18px 20px; min-width:230px; flex:1; text-align:start;">
+      <span style="width:40px;height:40px;border-radius:12px;background:#FBEBE2;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${ic}</span>
+      <span><span style="display:block;font-size:12px;color:#9A8F7E;font-weight:600;margin-bottom:3px">${label}</span><span style="font-size:15.5px;font-weight:700;color:#1F1A13;word-break:break-word">${valueHtml}</span></span>
+    </div>`;
+
+  const cards = [
+    email ? card(icEmail, t.email, `<a href="mailto:${email}" style="color:#1F1A13;text-decoration:none" dir="ltr">${email}</a>`) : '',
+    phone ? card(icPhone, t.phone, `<a href="tel:${phone.replace(/[^+0-9]/g, '')}" style="color:#1F1A13;text-decoration:none" dir="ltr">${phone}</a>`) : '',
+    wa ? card(icWa, t.whatsapp, `<a href="https://wa.me/${wa.replace(/[^0-9]/g, '')}" target="_blank" rel="noreferrer" style="color:#1F1A13;text-decoration:none" dir="ltr">${wa}</a>`) : '',
+    address ? card(icPin, t.address, address) : '',
+  ].filter(Boolean).join('');
+  if (!cards) return '';
+
+  const signup = lang === 'ar' ? '/signup' : `/${lang}/signup`;
+  return `<section id="contact-box" style="max-width:1200px; margin:0 auto; padding:6px 28px 60px;">
+    <div style="background:#fff; border:1px solid #E9E1D3; border-radius:26px; padding:44px 40px; text-align:center;">
+      <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">CONTACT</div>
+      <h2 style="font-size:32px; line-height:1.2; font-weight:700; letter-spacing:-0.6px; margin-top:10px;">${t.title}</h2>
+      <p style="font-size:16px; line-height:1.6; color:#6E6557; margin-top:12px; max-width:620px; margin-inline:auto;">${t.sub}</p>
+      <div style="display:flex; flex-wrap:wrap; gap:14px; justify-content:center; margin-top:28px;">${cards}</div>
+      <a href="${signup}" style="display:inline-flex; align-items:center; gap:8px; margin-top:28px; background:#E15A30; color:#fff; font-weight:700; font-size:15.5px; padding:13px 30px; border-radius:14px; text-decoration:none; box-shadow:0 8px 22px rgba(225,90,48,.32);">${t.cta}</a>
+    </div>
+  </section>`;
+}
+
+// يحقن مربع التواصل قبل التذييل مباشرة (بعد دعوة الإجراء الأخيرة)
+function injectContactBox(html: string, contact: ContactInfo, lang: Lang): string {
+  const anchor = '<!-- ============ FOOTER ============ -->';
+  return html.replace(anchor, `${contactSection(contact, lang)}\n  ${anchor}`);
+}
+
 // يضيف بادئة اللغة (/en · /fr) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.
 // (مسارات التطبيق /login · /rep · /signup تُترك — تحفظ لغتها من localStorage؛ والروابط الخارجية/المرساة تُترك.)
 const LOCALIZED_PATHS = ['/about', '/contact', '/blog', '/calculator', '/privacy', '/terms', '/service-agreement'];
@@ -401,6 +458,8 @@ export default function LandingPage() {
   }
   html = injectLangSwitcher(html, lang);
   html = injectCoverage(html, lang);
+  // مربع «للتواصل وطلبات الاشتراك» — بياناته من CMS العربي (المصدر الواحد) وتُعرض بكل اللغات
+  html = injectContactBox(html, (arContent.contact as ContactInfo) || {}, lang);
   html = localizeLinks(html, lang); // يبقي لغة الروابط ثابتة عند الانتقال للصفحات التالية
 
   // مبدّل العملة داخل قسم الأسعار + ضبط لاحقة السعر حسب العملة (لاحقة « ر.س / شهريًا» ثابتة في القالب)
