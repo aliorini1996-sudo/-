@@ -66,6 +66,7 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       h: 'كم تخسر شركتك من إيراداتها كل شهر؟',
       p: 'حاسبة تسريب الإيرادات تكشف لك خلال دقيقة ما يضيع بين الفواتير المفقودة والتحصيل غير الموثّق وعجز مخزون سيارات المناديب — أدخل أرقامك وشاهد الحقيقة.',
       cta: 'احسب تسريبك الآن',
+      cta2: 'أو أنشئ فاتورة ضريبية برمز QR مجاناً خلال 30 ثانية',
       note: 'مجانية 100% · بلا تسجيل · شارك نتيجتك واتساب',
     },
     en: {
@@ -73,6 +74,7 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       h: 'How much revenue does your company leak every month?',
       p: 'The Revenue Leak Calculator shows you in one minute what slips away in lost invoices, undocumented collections and van stock shrinkage — enter your numbers and see the truth.',
       cta: 'Calculate your leak now',
+      cta2: 'Or create a free QR tax invoice in 30 seconds',
       note: '100% free · no signup · share your result on WhatsApp',
     },
     fr: {
@@ -80,6 +82,7 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       h: 'Combien de revenus votre entreprise perd-elle chaque mois ?',
       p: 'Le calculateur de fuite de revenus vous montre en une minute ce qui disparaît entre factures perdues, encaissements non documentés et écarts de stock — entrez vos chiffres et voyez la vérité.',
       cta: 'Calculez votre fuite',
+      cta2: 'Ou créez gratuitement une facture fiscale QR en 30 secondes',
       note: '100 % gratuit · sans inscription · partagez sur WhatsApp',
     },
   }[lang];
@@ -113,6 +116,9 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
         ${t.cta}
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${arrow}</svg>
       </a>
+      <div style="position:relative; margin-top:18px;">
+        <a href="/invoice-generator" style="color:#FAF7F0; font-size:clamp(13.5px,2vw,15px); font-weight:600; text-decoration:none; border-bottom:1.5px dashed #E15A30; padding-bottom:2px;">${t.cta2} ↗</a>
+      </div>
       <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
     </div>
   </section>`;
@@ -138,7 +144,7 @@ const CHROME_EN: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Features<'], ['>كيف يعمل<', '>How it works<'], ['>الأسعار<', '>Pricing<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Admin login<'], ['>تطبيق المندوب<', '>Rep app<'],
-  ['ابدأ مجانًا', 'Get started free'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'],
+  ['ابدأ مجانًا', 'Get started free'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'], ['مولّد الفواتير', 'Invoice Generator'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Sales & collection'], ['٧ أيام', '7 days'], ['محصّل اليوم', 'Collected today'],
   ['+12.4% عن أمس', '+12.4% vs. yesterday'], ['>سند قبض<', '>Receipt<'], ['>المبلغ<', '>Amount<'],
@@ -179,7 +185,7 @@ const CHROME_FR: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>الأسعار<', '>Tarifs<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Espace admin<'], ['>تطبيق المندوب<', '>App commercial<'],
-  ['ابدأ مجانًا', 'Essai gratuit'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'],
+  ['ابدأ مجانًا', 'Essai gratuit'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'], ['مولّد الفواتير', 'Générateur de factures'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Ventes et encaissement'], ['٧ أيام', '7 jours'], ['محصّل اليوم', 'Encaissé aujourd’hui'],
   ['+12.4% عن أمس', '+12,4 % vs hier'], ['>سند قبض<', '>Bon de reçu<'], ['>المبلغ<', '>Montant<'],
@@ -351,7 +357,7 @@ function injectContactBox(html: string, contact: ContactInfo, lang: Lang): strin
 
 // يضيف بادئة اللغة (/en · /fr) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.
 // (مسارات التطبيق /login · /rep · /signup تُترك — تحفظ لغتها من localStorage؛ والروابط الخارجية/المرساة تُترك.)
-const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/blog', '/calculator', '/privacy', '/terms', '/service-agreement'];
+const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
   const prefix = lang === 'en' ? '/en' : '/fr';

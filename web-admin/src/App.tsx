@@ -16,6 +16,7 @@ import BlogIndexPage from './pages/BlogIndexPage';
 import BlogPostPage from './pages/BlogPostPage';
 import SubscriptionRequestPage from './pages/SubscriptionRequestPage';
 import LeakCalculatorPage from './pages/LeakCalculatorPage';
+import InvoiceGeneratorPage from './pages/InvoiceGeneratorPage';
 // لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
 const MainLayout = lazy(() => import('./layouts/MainLayout'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -111,6 +112,7 @@ export default function App() {
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/calculator" element={<LeakCalculatorPage />} />
+        <Route path="/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />
         <Route path="/blog/:slug" element={<BlogPostPage />} />
         {/* النسخة الإنجليزية على /en — نفس المكوّنات تُعرَض بالإنجليزية (دولي + hreflang) */}
@@ -122,6 +124,7 @@ export default function App() {
         <Route path="/en/contact" element={<ContactPage />} />
         <Route path="/en/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/en/calculator" element={<LeakCalculatorPage />} />
+        <Route path="/en/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/en/blog" element={<BlogIndexPage />} />
         <Route path="/en/blog/:slug" element={<BlogPostPage />} />
         {/* النسخة الفرنسية على /fr — للأسواق الفرنكوفونية (المغرب العربي) مع hreflang */}
@@ -133,6 +136,7 @@ export default function App() {
         <Route path="/fr/contact" element={<ContactPage />} />
         <Route path="/fr/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/fr/calculator" element={<LeakCalculatorPage />} />
+        <Route path="/fr/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/fr/blog" element={<BlogIndexPage />} />
         <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
