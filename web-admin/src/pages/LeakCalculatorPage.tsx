@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
-import { ArrowLeft, TrendingDown, MessageCircle, Link2, FileWarning, Banknote, PackageX, Timer } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { ArrowLeft, TrendingDown, MessageCircle, FileWarning, Banknote, PackageX, Timer } from 'lucide-react';
 import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useSeo } from '../lib/seo';
@@ -42,8 +41,6 @@ const T: Record<Lang, Record<string, string>> = {
     cta: 'أوقف التسريب — جرّب Field Sales مجاناً',
     ctaSub: '10 أيام مجاناً · بلا بطاقة ائتمان · جاهز خلال دقائق',
     share: 'شارك النتيجة واتساب',
-    copy: 'نسخ رابط الحاسبة',
-    copied: 'نُسخ الرابط ✓',
     shareText: '😱 حسبت تسريب الإيرادات في شركة التوزيع: نظام الورق والواتساب قد يكلّف {m} شهرياً ({y} سنوياً)!\nاحسب تسريبك مجاناً هنا:',
     disclaimer: 'الحاسبة تقديرية للتوعية ولا تُعد وعداً بنتائج. النسب: 1.2% أخطاء فوترة، 2.5% من النقدي تحصيل غير موثّق، 1% عجز مخزون، 1.5% وقت ضائع — تنخفض بحسب طريقة إدارتك الحالية.',
   },
@@ -72,8 +69,6 @@ const T: Record<Lang, Record<string, string>> = {
     cta: 'Stop the leak — try Field Sales free',
     ctaSub: '10 days free · no credit card · ready in minutes',
     share: 'Share result on WhatsApp',
-    copy: 'Copy calculator link',
-    copied: 'Link copied ✓',
     shareText: '😱 I calculated our distribution revenue leak: paper & WhatsApp management may cost {m} per month ({y}/year)!\nCalculate yours free here:',
     disclaimer: 'This calculator is an educational estimate, not a promise of results. Rates: 1.2% invoicing errors, 2.5% of cash undocumented, 1% stock shrinkage, 1.5% wasted time — reduced based on your current method.',
   },
@@ -102,8 +97,6 @@ const T: Record<Lang, Record<string, string>> = {
     cta: 'Stoppez la fuite — essayez Field Sales gratuitement',
     ctaSub: '10 jours gratuits · sans carte bancaire · prêt en quelques minutes',
     share: 'Partager sur WhatsApp',
-    copy: 'Copier le lien',
-    copied: 'Lien copié ✓',
     shareText: '😱 J’ai calculé la fuite de revenus de notre distribution : le papier et WhatsApp peuvent coûter {m} par mois ({y}/an) !\nCalculez la vôtre gratuitement ici :',
     disclaimer: 'Ce calculateur est une estimation éducative, pas une promesse de résultats. Taux : 1,2 % erreurs de facturation, 2,5 % des espèces non documentées, 1 % écarts de stock, 1,5 % temps perdu — réduits selon votre méthode actuelle.',
   },
@@ -170,15 +163,6 @@ export default function LeakCalculatorPage() {
   const shareUrl = 'https://fieldsa.net/calculator?utm_source=whatsapp&utm_medium=share&utm_campaign=leak_calculator';
   const shareText = t('shareText').replace('{m}', `${fmt(r.total)} ${cur}`).replace('{y}', `${fmt(r.yearly)} ${cur}`);
   const waHref = `https://wa.me/?text=${encodeURIComponent(`${shareText}\n${shareUrl}`)}`;
-
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      toast.success(t('copied'));
-    } catch {
-      toast.error(shareUrl);
-    }
-  };
 
   const bars = [
     { icon: FileWarning, label: t('b1'), value: r.b1 },
@@ -286,16 +270,10 @@ export default function LeakCalculatorPage() {
               <span className="block text-xs font-normal opacity-85 mt-1">{t('ctaSub')}</span>
             </a>
 
-            <div className="flex flex-col sm:flex-row gap-2">
-              <a href={waHref} target="_blank" rel="noreferrer"
-                className="flex-1 bg-[#25D366] hover:bg-[#1eb356] text-white font-bold py-3 rounded-xl text-center text-sm transition-colors flex items-center justify-center gap-2">
-                <MessageCircle size={17} /> {t('share')}
-              </a>
-              <button onClick={copyLink}
-                className="px-4 py-3 rounded-xl border border-[#E9E1D3] bg-white text-sm text-[#6E6557] hover:border-[#E8C9BC] flex items-center justify-center gap-1.5 transition-colors">
-                <Link2 size={15} /> {t('copy')}
-              </button>
-            </div>
+            <a href={waHref} target="_blank" rel="noreferrer"
+              className="bg-[#25D366] hover:bg-[#1eb356] text-white font-bold py-3 rounded-xl text-center text-sm transition-colors flex items-center justify-center gap-2">
+              <MessageCircle size={17} /> {t('share')}
+            </a>
           </div>
         </div>
 
