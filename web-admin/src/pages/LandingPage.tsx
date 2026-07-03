@@ -330,14 +330,15 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
   ].filter(Boolean).join('');
   if (!cards) return '';
 
-  const signup = lang === 'ar' ? '/signup' : `/${lang}/signup`;
+  // زر «اطلب اشتراكك الآن» → صفحة «تسجيل طلب اشتراك جديد» (يصل الطلب للإدارة بريدياً)
+  const requestUrl = lang === 'ar' ? '/subscribe-request' : `/${lang}/subscribe-request`;
   return `<section id="contact-box" style="max-width:1200px; margin:0 auto; padding:6px 28px 60px;">
     <div style="background:#fff; border:1px solid #E9E1D3; border-radius:26px; padding:44px 40px; text-align:center;">
       <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">CONTACT</div>
       <h2 style="font-size:32px; line-height:1.2; font-weight:700; letter-spacing:-0.6px; margin-top:10px;">${t.title}</h2>
       <p style="font-size:16px; line-height:1.6; color:#6E6557; margin-top:12px; max-width:620px; margin-inline:auto;">${t.sub}</p>
       <div style="display:flex; flex-wrap:wrap; gap:14px; justify-content:center; margin-top:28px;">${cards}</div>
-      <a href="${signup}" style="display:inline-flex; align-items:center; gap:8px; margin-top:28px; background:#E15A30; color:#fff; font-weight:700; font-size:15.5px; padding:13px 30px; border-radius:14px; text-decoration:none; box-shadow:0 8px 22px rgba(225,90,48,.32);">${t.cta}</a>
+      <a href="${requestUrl}" style="display:inline-flex; align-items:center; gap:8px; margin-top:28px; background:#E15A30; color:#fff; font-weight:700; font-size:15.5px; padding:13px 30px; border-radius:14px; text-decoration:none; box-shadow:0 8px 22px rgba(225,90,48,.32);">${t.cta}</a>
     </div>
   </section>`;
 }
@@ -350,7 +351,7 @@ function injectContactBox(html: string, contact: ContactInfo, lang: Lang): strin
 
 // يضيف بادئة اللغة (/en · /fr) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.
 // (مسارات التطبيق /login · /rep · /signup تُترك — تحفظ لغتها من localStorage؛ والروابط الخارجية/المرساة تُترك.)
-const LOCALIZED_PATHS = ['/about', '/contact', '/blog', '/calculator', '/privacy', '/terms', '/service-agreement'];
+const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/blog', '/calculator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
   const prefix = lang === 'en' ? '/en' : '/fr';

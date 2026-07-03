@@ -212,6 +212,9 @@ export const analyticsApi = {
 // رسائل التواصل من الصفحة التعريفية
 export const contactApi = {
   send: (data: { name: string; email: string; phone?: string; message: string }) => api.post('/contact', data),
+  // طلب اشتراك جديد (صفحة تسجيل طلب اشتراك) — يصل للإدارة بريدياً
+  subscription: (data: { companyName: string; contactName: string; email: string; phone: string; country: string; city?: string; repsCount?: string; notes?: string }) =>
+    api.post('/contact/subscription', data),
 };
 
 // طلبات الدعم الفني من لوحة الأدمن — تصل إلى help@fieldsa.net
