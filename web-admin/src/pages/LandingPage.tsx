@@ -76,7 +76,7 @@ const CHROME_EN: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Features<'], ['>كيف يعمل<', '>How it works<'], ['>الأسعار<', '>Pricing<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Admin login<'], ['>تطبيق المندوب<', '>Rep app<'],
-  ['ابدأ مجانًا', 'Get started free'],
+  ['ابدأ مجانًا', 'Get started free'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Sales & collection'], ['٧ أيام', '7 days'], ['محصّل اليوم', 'Collected today'],
   ['+12.4% عن أمس', '+12.4% vs. yesterday'], ['>سند قبض<', '>Receipt<'], ['>المبلغ<', '>Amount<'],
@@ -117,7 +117,7 @@ const CHROME_FR: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>الأسعار<', '>Tarifs<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Espace admin<'], ['>تطبيق المندوب<', '>App commercial<'],
-  ['ابدأ مجانًا', 'Essai gratuit'], ['المدوّنة', 'Blog'],
+  ['ابدأ مجانًا', 'Essai gratuit'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Ventes et encaissement'], ['٧ أيام', '7 jours'], ['محصّل اليوم', 'Encaissé aujourd’hui'],
   ['+12.4% عن أمس', '+12,4 % vs hier'], ['>سند قبض<', '>Bon de reçu<'], ['>المبلغ<', '>Montant<'],
@@ -231,7 +231,7 @@ function injectCoverage(html: string, lang: Lang): string {
 
 // يضيف بادئة اللغة (/en · /fr) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.
 // (مسارات التطبيق /login · /rep · /signup تُترك — تحفظ لغتها من localStorage؛ والروابط الخارجية/المرساة تُترك.)
-const LOCALIZED_PATHS = ['/about', '/contact', '/blog', '/privacy', '/terms', '/service-agreement'];
+const LOCALIZED_PATHS = ['/about', '/contact', '/blog', '/calculator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
   const prefix = lang === 'en' ? '/en' : '/fr';

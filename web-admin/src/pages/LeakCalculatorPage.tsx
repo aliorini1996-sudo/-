@@ -18,6 +18,7 @@ type Lang = 'ar' | 'en' | 'fr';
 
 const T: Record<Lang, Record<string, string>> = {
   ar: {
+    backLabel: 'تعرّف على Field Sales',
     title: 'حاسبة تسريب الإيرادات',
     subtitle: 'كم تخسر شركتك شهرياً بإدارة المناديب على الورق والواتساب؟ أدخل أرقامك وشاهد الحقيقة.',
     reps: 'عدد المناديب',
@@ -47,6 +48,7 @@ const T: Record<Lang, Record<string, string>> = {
     disclaimer: 'الحاسبة تقديرية للتوعية ولا تُعد وعداً بنتائج. النسب: 1.2% أخطاء فوترة، 2.5% من النقدي تحصيل غير موثّق، 1% عجز مخزون، 1.5% وقت ضائع — تنخفض بحسب طريقة إدارتك الحالية.',
   },
   en: {
+    backLabel: 'Discover Field Sales',
     title: 'Revenue Leak Calculator',
     subtitle: 'How much does your distribution company lose every month running reps on paper and WhatsApp? Enter your numbers and see the truth.',
     reps: 'Number of field reps',
@@ -76,6 +78,7 @@ const T: Record<Lang, Record<string, string>> = {
     disclaimer: 'This calculator is an educational estimate, not a promise of results. Rates: 1.2% invoicing errors, 2.5% of cash undocumented, 1% stock shrinkage, 1.5% wasted time — reduced based on your current method.',
   },
   fr: {
+    backLabel: 'Découvrir Field Sales',
     title: 'Calculateur de fuite de revenus',
     subtitle: 'Combien votre entreprise de distribution perd-elle chaque mois avec le papier et WhatsApp ? Entrez vos chiffres et voyez la vérité.',
     reps: 'Nombre de commerciaux terrain',
@@ -194,23 +197,25 @@ export default function LeakCalculatorPage() {
   return (
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">
-        <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
-          <Link to={home} className="flex items-center gap-2.5">
+        <div className="max-w-5xl mx-auto px-3 sm:px-5 h-16 flex items-center justify-between gap-2">
+          <Link to={home} className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             <BrandIcon size={34} />
-            <span style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }} className="text-xl">
+            <span style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }} className="text-lg sm:text-xl hidden min-[400px]:inline">
               <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <LanguageToggle />
-            <Link to={home} className="text-sm font-semibold text-[#6E6557] hover:text-[#E15A30] flex items-center gap-1 transition-colors">
-              <ArrowLeft size={15} className={dir === 'rtl' ? '' : 'rotate-180'} />
+            <Link to={home}
+              className="text-xs sm:text-sm font-bold text-white bg-[#E15A30] hover:bg-[#C94E28] rounded-full px-3 sm:px-4 py-2 flex items-center gap-1.5 transition-colors whitespace-nowrap">
+              {t('backLabel')}
+              <ArrowLeft size={14} className={dir === 'rtl' ? '' : 'rotate-180'} />
             </Link>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-5 py-12">
+      <main className="max-w-5xl mx-auto px-4 sm:px-5 py-8 sm:py-12">
         <div className="text-center mb-9">
           <div className="w-16 h-16 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-4">
             <TrendingDown size={30} className="text-[#E15A30]" />
@@ -256,7 +261,7 @@ export default function LeakCalculatorPage() {
             <div className="bg-[#1F1A13] text-white rounded-2xl p-7 text-center relative overflow-hidden">
               <div className="absolute -top-16 -left-16 w-52 h-52 rounded-full" style={{ background: 'radial-gradient(circle, rgba(225,90,48,.25), transparent 65%)' }} />
               <p className="text-sm text-slate-300 relative">{t('leakTitle')}</p>
-              <p className="text-5xl font-extrabold mt-2 text-[#E15A30] relative" dir="ltr">{fmt(r.total)} <span className="text-2xl">{cur}</span></p>
+              <p className="text-4xl sm:text-5xl font-extrabold mt-2 text-[#E15A30] relative" dir="ltr">{fmt(r.total)} <span className="text-xl sm:text-2xl">{cur}</span></p>
               <p className="text-sm text-slate-300 mt-2 relative">{t('leakYear').replace('{y}', `${fmt(r.yearly)} ${cur}`)}</p>
             </div>
 
@@ -281,13 +286,13 @@ export default function LeakCalculatorPage() {
               <span className="block text-xs font-normal opacity-85 mt-1">{t('ctaSub')}</span>
             </a>
 
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <a href={waHref} target="_blank" rel="noreferrer"
                 className="flex-1 bg-[#25D366] hover:bg-[#1eb356] text-white font-bold py-3 rounded-xl text-center text-sm transition-colors flex items-center justify-center gap-2">
                 <MessageCircle size={17} /> {t('share')}
               </a>
               <button onClick={copyLink}
-                className="px-4 py-3 rounded-xl border border-[#E9E1D3] bg-white text-sm text-[#6E6557] hover:border-[#E8C9BC] flex items-center gap-1.5 transition-colors">
+                className="px-4 py-3 rounded-xl border border-[#E9E1D3] bg-white text-sm text-[#6E6557] hover:border-[#E8C9BC] flex items-center justify-center gap-1.5 transition-colors">
                 <Link2 size={15} /> {t('copy')}
               </button>
             </div>
