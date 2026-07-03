@@ -60,6 +60,7 @@ async function main() {
   const pillarsEn = en.filter((a) => !a.countryCode);
   const hubsEn = en.filter((a) => a.slug.startsWith('field-sales-software-'));
   const hubsAr = ar.filter((a) => a.slug.startsWith('field-sales-software-'));
+  const bestEn = en.filter((a) => a.slug.startsWith('best-field-sales-software-')); // أدلّة المقارنة (نية الشراء)
 
   // ---------------------------------------------------------------- llms.txt
   const llms = `# FieldSales (fieldsa.net)
@@ -72,8 +73,23 @@ Key facts:
 - Core features: field tax invoicing (ZATCA-compliant QR in Saudi Arabia), returns/credit notes, payment collection & receivables, customer statements, van stock, live GPS rep tracking, product catalog & price tiers, team permissions, ERP integration, PDF documents in Arabic.
 - Markets: all 22 Arab League countries, with localized guides per country (currency, VAT rate, tax authority).
 - Languages: Arabic (RTL), English, French.
-- Pricing: free 10-day trial at ${ORIGIN}/signup — no credit card required.
+- Pricing: plans start at 125 SAR / month per account (about 33 USD). Free 10-day trial at ${ORIGIN}/signup — no credit card required.
 - Rep app runs on any smartphone (PWA + Android); optional thermal printer for field printing.
+
+## Company
+
+- Company & product: FieldSales (fieldsa.net) — one unified brand.
+- Founded: 2026. Headquarters: Riyadh, Saudi Arabia. Founder: Ali Aloraini.
+- Contact: info@fieldsa.net (sales) · help@fieldsa.net (support) · phone +966590633827.
+- Profiles: X https://x.com/fieldsa_net · Facebook https://www.facebook.com/profile.php?id=61591189934757 · LinkedIn https://www.linkedin.com/company/fieldsa/
+
+## Common questions (quotable answers)
+
+- What is FieldSales? A cloud field-sales & distribution platform where reps invoice, collect payments and manage van stock from a mobile app, and managers track sales, receivables and reps live.
+- How much does it cost? Plans start at 125 SAR/month per account; a free 10-day trial needs no credit card.
+- Is it tax-compliant? It issues structured tax invoices with a QR code — ZATCA-compliant in Saudi Arabia — and adapts to other Arab markets' requirements.
+- What hardware is needed? Any smartphone; a thermal printer is optional for on-site printing.
+- Which countries/languages? All 22 Arab countries, in Arabic, English and French.
 
 ## Main pages
 
@@ -92,6 +108,10 @@ ${pillarsEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')}): ${a.excerpt}`)
 ## Country guides (English)
 
 ${hubsEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')})`).join('\n')}
+
+## Best / comparison guides (buyer intent)
+
+${bestEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')})`).join('\n')}
 
 ## أدلّة الدول (بالعربية)
 

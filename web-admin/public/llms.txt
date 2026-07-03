@@ -8,8 +8,23 @@ Key facts:
 - Core features: field tax invoicing (ZATCA-compliant QR in Saudi Arabia), returns/credit notes, payment collection & receivables, customer statements, van stock, live GPS rep tracking, product catalog & price tiers, team permissions, ERP integration, PDF documents in Arabic.
 - Markets: all 22 Arab League countries, with localized guides per country (currency, VAT rate, tax authority).
 - Languages: Arabic (RTL), English, French.
-- Pricing: free 10-day trial at https://fieldsa.net/signup — no credit card required.
+- Pricing: plans start at 125 SAR / month per account (about 33 USD). Free 10-day trial at https://fieldsa.net/signup — no credit card required.
 - Rep app runs on any smartphone (PWA + Android); optional thermal printer for field printing.
+
+## Company
+
+- Company & product: FieldSales (fieldsa.net) — one unified brand.
+- Founded: 2026. Headquarters: Riyadh, Saudi Arabia. Founder: Ali Aloraini.
+- Contact: info@fieldsa.net (sales) · help@fieldsa.net (support) · phone +966590633827.
+- Profiles: X https://x.com/fieldsa_net · Facebook https://www.facebook.com/profile.php?id=61591189934757 · LinkedIn https://www.linkedin.com/company/fieldsa/
+
+## Common questions (quotable answers)
+
+- What is FieldSales? A cloud field-sales & distribution platform where reps invoice, collect payments and manage van stock from a mobile app, and managers track sales, receivables and reps live.
+- How much does it cost? Plans start at 125 SAR/month per account; a free 10-day trial needs no credit card.
+- Is it tax-compliant? It issues structured tax invoices with a QR code — ZATCA-compliant in Saudi Arabia — and adapts to other Arab markets' requirements.
+- What hardware is needed? Any smartphone; a thermal printer is optional for on-site printing.
+- Which countries/languages? All 22 Arab countries, in Arabic, English and French.
 
 ## Main pages
 
@@ -62,6 +77,31 @@ Key facts:
 - [Field Sales Management Software in Somalia](https://fieldsa.net/en/blog/field-sales-software-so)
 - [Field Sales Management Software in Djibouti](https://fieldsa.net/en/blog/field-sales-software-dj)
 - [Field Sales Management Software in the Comoros](https://fieldsa.net/en/blog/field-sales-software-km)
+
+## Best / comparison guides (buyer intent)
+
+- [Best Field Sales & Distribution Software in Saudi Arabia](https://fieldsa.net/en/blog/best-field-sales-software-sa)
+- [Best Field Sales & Distribution Software in Egypt](https://fieldsa.net/en/blog/best-field-sales-software-eg)
+- [Best Field Sales & Distribution Software in the UAE](https://fieldsa.net/en/blog/best-field-sales-software-ae)
+- [Best Field Sales & Distribution Software in Kuwait](https://fieldsa.net/en/blog/best-field-sales-software-kw)
+- [Best Field Sales & Distribution Software in Qatar](https://fieldsa.net/en/blog/best-field-sales-software-qa)
+- [Best Field Sales & Distribution Software in Bahrain](https://fieldsa.net/en/blog/best-field-sales-software-bh)
+- [Best Field Sales & Distribution Software in Oman](https://fieldsa.net/en/blog/best-field-sales-software-om)
+- [Best Field Sales & Distribution Software in Morocco](https://fieldsa.net/en/blog/best-field-sales-software-ma)
+- [Best Field Sales & Distribution Software in Algeria](https://fieldsa.net/en/blog/best-field-sales-software-dz)
+- [Best Field Sales & Distribution Software in Tunisia](https://fieldsa.net/en/blog/best-field-sales-software-tn)
+- [Best Field Sales & Distribution Software in Jordan](https://fieldsa.net/en/blog/best-field-sales-software-jo)
+- [Best Field Sales & Distribution Software in Iraq](https://fieldsa.net/en/blog/best-field-sales-software-iq)
+- [Best Field Sales & Distribution Software in Libya](https://fieldsa.net/en/blog/best-field-sales-software-ly)
+- [Best Field Sales & Distribution Software in Sudan](https://fieldsa.net/en/blog/best-field-sales-software-sd)
+- [Best Field Sales & Distribution Software in Yemen](https://fieldsa.net/en/blog/best-field-sales-software-ye)
+- [Best Field Sales & Distribution Software in Lebanon](https://fieldsa.net/en/blog/best-field-sales-software-lb)
+- [Best Field Sales & Distribution Software in Syria](https://fieldsa.net/en/blog/best-field-sales-software-sy)
+- [Best Field Sales & Distribution Software in Palestine](https://fieldsa.net/en/blog/best-field-sales-software-ps)
+- [Best Field Sales & Distribution Software in Mauritania](https://fieldsa.net/en/blog/best-field-sales-software-mr)
+- [Best Field Sales & Distribution Software in Somalia](https://fieldsa.net/en/blog/best-field-sales-software-so)
+- [Best Field Sales & Distribution Software in Djibouti](https://fieldsa.net/en/blog/best-field-sales-software-dj)
+- [Best Field Sales & Distribution Software in the Comoros](https://fieldsa.net/en/blog/best-field-sales-software-km)
 
 ## أدلّة الدول (بالعربية)
 
