@@ -117,7 +117,7 @@ export default function PlatformPage() {
             <Globe2 size={18} className="flex-shrink-0" /> <span>{tr('زيارات الموقع')}</span>
           </button>
           <a
-            href="https://stock-portfolio-chi-rouge.vercel.app"
+            href="/portfolio"
             target="_blank"
             rel="noopener noreferrer"
             className="sidebar-link w-full"

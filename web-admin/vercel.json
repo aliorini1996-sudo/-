@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/portfolio", "destination": "https://stock-portfolio-chi-rouge.vercel.app/portfolio" },
+    { "source": "/portfolio/:path*", "destination": "https://stock-portfolio-chi-rouge.vercel.app/portfolio/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
