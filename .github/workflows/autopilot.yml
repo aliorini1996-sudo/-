@@ -1,0 +1,19 @@
+# نبضة المضاربة الآلية لمحفظة Binance — fieldsa.net/portfolio
+# تستدعي نقطة tick المحمية بسرّ كل 15 دقيقة. المحرّك نفسه يقرر (تشغيل/إيقاف من لوحة التحكم).
+name: Portfolio Autopilot
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Autopilot tick
+        run: |
+          curl -sS -X POST "https://fieldsa.net/portfolio/api/binance/autopilot/tick" \
+            -H "x-autopilot-secret: ${{ secrets.AUTOPILOT_SECRET }}" \
+            --max-time 280 \
+            -w "\nHTTP %{http_code}\n"
