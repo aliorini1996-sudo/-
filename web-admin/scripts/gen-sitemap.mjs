@@ -17,6 +17,7 @@ const I18N_ROUTES = [
   { p: '/', priority: '1.0', freq: 'weekly' },
   { p: '/about', priority: '0.7', freq: 'monthly' },
   { p: '/contact', priority: '0.7', freq: 'monthly' },
+  { p: '/calculator', priority: '0.8', freq: 'monthly' },
   { p: '/terms', priority: '0.3', freq: 'yearly' },
   { p: '/privacy', priority: '0.3', freq: 'yearly' },
   { p: '/service-agreement', priority: '0.3', freq: 'yearly' },

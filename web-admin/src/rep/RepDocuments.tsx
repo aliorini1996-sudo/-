@@ -349,6 +349,10 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {tr('شكراً لتعاملكم معنا')} — {doc.company?.name || ''}
+        {/* بصمة المنصّة: كل فاتورة مطبوعة تسوّق للمنصّة لدى تجّار الجملة والتجزئة (حلقة فيروسية) */}
+        <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
+          {tr('صدرت عبر منصّة')} Field Sales · fieldsa.net
+        </div>
       </div>
     </div>
   );
@@ -396,6 +400,9 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''}
+        <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
+          {tr('صدرت عبر منصّة')} Field Sales · fieldsa.net
+        </div>
       </div>
     </div>
   );

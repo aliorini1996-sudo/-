@@ -86,6 +86,9 @@ TOPICS = [
     {"icon": "gift", "accent": "coral",
      "eyebrow": "التجربة المجانية", "title": "جرّب كل المميزات ١٠ أيام مجانًا", "benefit": "ابدأ اليوم بلا بطاقة ائتمان، وجهّز شركتك ومناديبك خلال دقائق.", "pain": "الخوف من الالتزام قبل التجربة",
      "eyebrow_en": "Free Trial", "title_en": "Try every feature free for 10 days", "benefit_en": "Start today with no credit card, and set up your company and reps in minutes.", "pain_en": "fear of committing before trying"},
+    {"icon": "chart", "accent": "coral",
+     "eyebrow": "أداة مجانية", "title": "كم تسرّب شركتك من إيراداتها شهريًا؟", "benefit": "حاسبة مجانية تكشف خسائرك من الفواتير المفقودة والتحصيل غير الموثّق وعجز مخزون السيارات خلال دقيقة — على fieldsa.net/calculator.", "pain": "خسائر خفية تتراكم بلا أن يراها أحد",
+     "eyebrow_en": "Free Tool", "title_en": "How much revenue does your company leak monthly?", "benefit_en": "A free calculator reveals your losses from lost invoices, undocumented collections and van stock shrinkage in one minute — at fieldsa.net/calculator.", "pain_en": "hidden losses piling up unseen"},
 ]
 
 

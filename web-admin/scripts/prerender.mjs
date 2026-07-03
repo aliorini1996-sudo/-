@@ -221,6 +221,14 @@ async function main() {
       fr: { t: 'Contact | FieldSales', d: 'Contactez l\'équipe FieldSales pour les ventes, les questions et le support.',
         b: '<h1>Contactez-nous</h1><p>Ventes et questions : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support : <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · ou commencez votre <a href="/signup">essai gratuit de 10 jours</a>.</p>' },
     },
+    calculator: {
+      ar: { t: 'حاسبة تسريب الإيرادات لشركات التوزيع | FieldSales', d: 'أداة مجانية: احسب كم تخسر شركة التوزيع شهرياً من فواتير مفقودة وتحصيل غير موثّق وعجز مخزون سيارات المناديب.',
+        b: '<h1>حاسبة تسريب الإيرادات</h1><p>أداة مجانية لشركات التوزيع: أدخل عدد مناديبك وفواتيرك اليومية ونسبة البيع النقدي، واحصل فوراً على تقدير لما تخسره شهرياً وسنوياً بسبب الفواتير المفقودة وأخطاء التسعير، والتحصيل النقدي غير الموثّق، وعجز مخزون سيارات المناديب، والوقت الضائع في الإدخال اليدوي. الشركات التي تدير مناديبها بالورق والواتساب تسرّب عادةً 3-6% من إيراداتها. <a href="/calculator">جرّب الحاسبة الآن</a> أو <a href="/signup">ابدأ تجربة FieldSales المجانية</a>.</p>' },
+      en: { t: 'Revenue Leak Calculator for Distributors | FieldSales', d: 'Free tool: calculate how much your distribution company loses monthly to lost invoices, undocumented collections and van stock shrinkage.',
+        b: '<h1>Revenue Leak Calculator</h1><p>A free tool for distribution companies: enter your reps, daily invoices and cash share to instantly estimate what you lose monthly and yearly to lost invoices, pricing errors, undocumented cash collections, van stock shrinkage and manual-entry time. Paper-and-WhatsApp operations typically leak 3-6% of revenue. <a href="/en/calculator">Try the calculator</a> or <a href="/signup">start your free FieldSales trial</a>.</p>' },
+      fr: { t: 'Calculateur de fuite de revenus pour distributeurs | FieldSales', d: 'Outil gratuit : calculez ce que votre entreprise de distribution perd chaque mois (factures perdues, encaissements non documentés, écarts de stock).',
+        b: '<h1>Calculateur de fuite de revenus</h1><p>Un outil gratuit pour les entreprises de distribution : saisissez vos commerciaux, factures quotidiennes et part d’espèces pour estimer instantanément vos pertes mensuelles et annuelles (factures perdues, erreurs de prix, encaissements non documentés, écarts de stock, temps de saisie). Les opérations papier/WhatsApp fuient généralement 3 à 6 % du chiffre d’affaires. <a href="/fr/calculator">Essayez le calculateur</a> ou <a href="/signup">commencez votre essai gratuit</a>.</p>' },
+    },
     terms: {
       ar: { t: 'الشروط والأحكام | FieldSales', d: 'الشروط والأحكام العامة لاستخدام منصّة FieldSales.', b: '<h1>الشروط والأحكام</h1><p>الشروط والأحكام العامة لاستخدام منصّة FieldSales لإدارة المبيعات الميدانية — النص الكامل متاح في هذه الصفحة داخل التطبيق.</p>' },
       en: { t: 'Terms & Conditions | FieldSales', d: 'General terms and conditions for using the FieldSales platform.', b: '<h1>Terms &amp; Conditions</h1><p>The general terms for using the FieldSales field sales platform — the full text is available on this page in the app.</p>' },
@@ -272,7 +280,7 @@ async function main() {
 <p><strong>هل يحتاج المندوب إلى جهاز خاص؟</strong> لا، يكفي هاتف ذكي وطابعة حرارية اختيارية للفوترة في الميدان.</p>
 <p><strong>هل توجد تجربة مجانية؟</strong> نعم، تجربة مجانية 10 أيام تبدأ خلال دقائق دون بطاقة ائتمان.</p>
 <h2>روابط مفيدة</h2>
-<p><a href="/blog">المدوّنة</a> · <a href="/about">عن المنصّة</a> · <a href="/contact">تواصل معنا</a> · <a href="/en">English</a> · <a href="/fr">Français</a></p>
+<p><a href="/blog">المدوّنة</a> · <a href="/calculator">حاسبة تسريب الإيرادات</a> · <a href="/about">عن المنصّة</a> · <a href="/contact">تواصل معنا</a> · <a href="/en">English</a> · <a href="/fr">Français</a></p>
 <p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}">${esc(c.ar)}</a>`).join(' · ')}</p>
 </main>`;
   const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root">${homeAr}</div>`);

@@ -747,6 +747,7 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'توقيع المستلم': { en: 'Recipient signature', fr: 'Signature du destinataire' },
   'توقيع المندوب': { en: 'Rep signature', fr: 'Signature du représentant' },
   'شكراً لتعاملكم معنا': { en: 'Thank you for your business', fr: 'Merci de votre confiance' },
+  'صدرت عبر منصّة': { en: 'Issued via', fr: 'Émis via' },
   'سند قبض': { en: 'Receipt', fr: 'Reçu' },
   'المبلغ المستلم': { en: 'Amount received', fr: 'Montant reçu' },
   'استلمنا من السيد': { en: 'Received from', fr: 'Reçu de' },
