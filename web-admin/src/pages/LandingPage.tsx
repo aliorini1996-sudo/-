@@ -269,6 +269,22 @@ function applyCurrency(content: Record<string, unknown>, cur: Currency): Record<
   return { ...content, pricing: { ...pricing, plans } };
 }
 
+// يُطبّق أسعار الـCMS الرقمية (التي يحرّرها المالك على النسخة العربية) على نسخ اللغات الأخرى،
+// فيتغيّر السعر في كل اللغات معًا. السعر رقم لا يتأثّر باللغة؛ والأسعار غير الرقمية («حسب الطلب»)
+// تبقى بنصّ اللغة الهدف (Custom / Sur devis). يتطابق ترتيب الباقات بين اللغات.
+function applyCmsPrices(target: Record<string, unknown>, arContent: Record<string, unknown>): Record<string, unknown> {
+  const arPricing = arContent.pricing as { plans?: Array<Record<string, unknown>> } | undefined;
+  const tPricing = target.pricing as { plans?: Array<Record<string, unknown>> } | undefined;
+  if (!arPricing?.plans || !tPricing?.plans) return target;
+  const plans = tPricing.plans.map((p, i) => {
+    const raw = arPricing.plans?.[i]?.price;
+    if (typeof raw !== 'string') return p;
+    const digits = raw.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, '');
+    return /\d/.test(digits) ? { ...p, price: digits } : p; // رقمي فقط؛ «حسب الطلب» يبقى كما هو
+  });
+  return { ...target, pricing: { ...tPricing, plans } };
+}
+
 // مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين, يُحقن داخل قسم الأسعار بجوار البطاقات
 function currencyToggle(currency: Currency, lang: Lang): string {
   const sarLabel = lang === 'ar' ? 'ريال ﷼' : 'SAR ﷼';
@@ -371,13 +387,15 @@ export default function LandingPage() {
   const socialLinks = (arContent.social as Record<string, string>) || {};
   let html: string;
   if (lang === 'en') {
-    // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط تواصل من CMS + ترجمة النص الثابت
-    const enContent = { ...defaultContentEn, social: socialLinks || defaultContentEn.social, heroImage: arContent.heroImage };
-    html = translateChrome(applyContent(LANDING_TEMPLATE, applyCurrency(enContent as Record<string, unknown>, currency), 'en'));
+    // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
+    const enBase = { ...defaultContentEn, social: socialLinks || defaultContentEn.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    const enContent = applyCmsPrices(enBase, arContent);
+    html = translateChrome(applyContent(LANDING_TEMPLATE, applyCurrency(enContent, currency), 'en'));
   } else if (lang === 'fr') {
-    // النسخة الفرنسية: محتوى فرنسي ثابت + روابط تواصل من CMS + ترجمة النص الثابت (المغرب العربي)
-    const frContent = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage };
-    html = translateChromeFr(applyContent(LANDING_TEMPLATE, applyCurrency(frContent as Record<string, unknown>, currency), 'fr'));
+    // النسخة الفرنسية: محتوى فرنسي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت (المغرب العربي)
+    const frBase = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    const frContent = applyCmsPrices(frBase, arContent);
+    html = translateChromeFr(applyContent(LANDING_TEMPLATE, applyCurrency(frContent, currency), 'fr'));
   } else {
     html = applyContent(LANDING_TEMPLATE, applyCurrency(arContent, currency), 'ar');
   }
