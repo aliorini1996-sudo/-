@@ -97,8 +97,8 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/calculator"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/calculator"/>
     <lastmod>2026-07-03</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://fieldsa.net/en/calculator</loc>
@@ -107,8 +107,8 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/calculator"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/calculator"/>
     <lastmod>2026-07-03</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://fieldsa.net/fr/calculator</loc>
@@ -117,8 +117,8 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/calculator"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/calculator"/>
     <lastmod>2026-07-03</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://fieldsa.net/invoice-generator</loc>
@@ -127,8 +127,8 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/invoice-generator"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/invoice-generator"/>
     <lastmod>2026-07-03</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://fieldsa.net/en/invoice-generator</loc>
@@ -137,8 +137,8 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/invoice-generator"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/invoice-generator"/>
     <lastmod>2026-07-03</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://fieldsa.net/fr/invoice-generator</loc>
@@ -147,8 +147,8 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/invoice-generator"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/invoice-generator"/>
     <lastmod>2026-07-03</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://fieldsa.net/terms</loc>

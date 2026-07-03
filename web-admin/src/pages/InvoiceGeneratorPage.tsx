@@ -6,6 +6,7 @@ import { ArrowLeft, FileText, Download, Printer, MessageCircle, Plus, Trash2 } f
 import toast from 'react-hot-toast';
 import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
+import { toolsApi } from '../api/client';
 import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { buildZatcaQr, zatcaTimestamp } from '../rep/zatca';
@@ -150,22 +151,57 @@ const SEO = {
   ar: {
     title: 'مولّد فاتورة ضريبية مجاني برمز QR — نموذج فاتورة ضريبية جاهز | FieldSales',
     description: 'أنشئ فاتورة ضريبية احترافية مجاناً برمز QR متوافق مع هيئة الزكاة والضريبة (ZATCA) وحمّلها PDF خلال ثوانٍ — نموذج فاتورة ضريبية ومبسطة بلا تسجيل.',
-    keywords: 'نموذج فاتورة ضريبية, مولد فاتورة ضريبية, فاتورة ضريبية مبسطة, فاتورة QR, فاتورة ZATCA, انشاء فاتورة مجانا, فاتورة الكترونية',
+    keywords: 'نموذج فاتورة ضريبية, نموذج فاتورة ضريبية جاهز للطباعة, مولد فاتورة ضريبية, فاتورة ضريبية pdf, انشاء فاتورة الكترونية مجانا, عمل فاتورة اون لاين, فاتورة ضريبية مبسطة, فاتورة برمز QR, فاتورة ZATCA, برنامج فواتير مجاني, نموذج فاتورة جاهز, فاتورة ضريبية السعودية, فاتورة ضريبية مصر, فاتورة ضريبية الإمارات, نموذج فاتورة مبيعات, فاتورة الكترونية',
     locale: 'ar' as const,
   },
   en: {
     title: 'Free Tax Invoice Generator with QR Code — Ready Invoice Template | FieldSales',
     description: 'Create a professional tax invoice free with a ZATCA-compliant QR code and download it as PDF in seconds — standard & simplified invoice templates, no signup.',
-    keywords: 'free invoice generator, tax invoice template, ZATCA QR invoice, e-invoice generator, simplified tax invoice',
+    keywords: 'free invoice generator, tax invoice template, invoice maker online free, ZATCA QR invoice, e-invoice generator, simplified tax invoice, VAT invoice template, invoice PDF generator, Saudi tax invoice, printable invoice template',
     locale: 'en' as const,
   },
   fr: {
     title: 'Générateur gratuit de factures fiscales avec code QR | FieldSales',
     description: 'Créez gratuitement une facture fiscale professionnelle avec code QR conforme ZATCA et téléchargez-la en PDF en quelques secondes — sans inscription.',
-    keywords: 'générateur de factures gratuit, modèle facture fiscale, facture QR ZATCA, facture électronique',
+    keywords: 'générateur de factures gratuit, modèle facture fiscale, créer facture en ligne gratuit, facture QR ZATCA, facture électronique, modèle facture TVA, facture PDF gratuite',
     locale: 'fr' as const,
   },
 };
+
+// بيانات منظّمة (WebApplication + FAQPage) — تعزّز الظهور في نتائج جوجل الغنية ومحركات الذكاء الاصطناعي
+const JSONLD = (lang: Lang) => ({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebApplication',
+      name: lang === 'en' ? 'Free Tax Invoice Generator' : lang === 'fr' ? 'Générateur gratuit de factures fiscales' : 'مولّد الفاتورة الضريبية المجاني',
+      url: `https://fieldsa.net${lang === 'ar' ? '' : '/' + lang}/invoice-generator`,
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Web',
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+      featureList: lang === 'en'
+        ? 'ZATCA-compliant QR code, PDF download, bilingual invoice, 12 Arab countries VAT presets, simplified & standard tax invoices'
+        : 'رمز QR متوافق مع ZATCA، تحميل PDF، فاتورة ثنائية اللغة، ضرائب 12 دولة عربية، فاتورة ضريبية ومبسطة',
+      publisher: { '@type': 'Organization', name: 'FieldSales', url: 'https://fieldsa.net' },
+      inLanguage: lang,
+    },
+    {
+      '@type': 'FAQPage',
+      mainEntity: (lang === 'en' ? [
+        { q: 'How do I create a tax invoice with a QR code for free?', a: 'Use the free FieldSales invoice generator: enter your company, customer and items — it instantly builds a professional bilingual tax invoice with a ZATCA-compliant QR code you can download as PDF or print, with no signup.' },
+        { q: 'What is the difference between a tax invoice and a simplified tax invoice?', a: 'A simplified tax invoice is issued to consumers (B2C) without the buyer’s VAT number, while a standard tax invoice (B2B) includes the buyer’s VAT number. The generator switches automatically based on whether you enter the customer’s VAT number.' },
+        { q: 'Which countries does the generator support?', a: 'VAT rates and currencies for 12 Arab countries are preset (Saudi Arabia 15%, Egypt 14%, UAE 5%, and more) and fully editable.' },
+      ] : lang === 'fr' ? [
+        { q: 'Comment créer gratuitement une facture fiscale avec code QR ?', a: 'Utilisez le générateur gratuit FieldSales : saisissez votre entreprise, votre client et les lignes — il crée instantanément une facture fiscale bilingue avec code QR conforme ZATCA, téléchargeable en PDF, sans inscription.' },
+        { q: 'Quels pays sont pris en charge ?', a: 'Les taux de TVA et devises de 12 pays arabes sont préconfigurés et modifiables.' },
+      ] : [
+        { q: 'كيف أعمل فاتورة ضريبية برمز QR مجاناً؟', a: 'استخدم مولّد الفواتير المجاني من FieldSales: أدخل بيانات شركتك وعميلك وبنود الفاتورة، فيبني فوراً فاتورة ضريبية احترافية ثنائية اللغة برمز QR متوافق مع هيئة الزكاة والضريبة والجمارك ZATCA، وتحمّلها PDF أو تطبعها بلا تسجيل.' },
+        { q: 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة؟', a: 'المبسطة تُصدر للمستهلك الأفراد (B2C) بلا رقم ضريبي للمشتري، والضريبية العادية (B2B) تتضمن الرقم الضريبي للمشتري — والمولّد يبدّل بينهما تلقائياً حسب إدخالك رقم العميل الضريبي.' },
+        { q: 'ما الدول التي يدعمها المولّد؟', a: 'نِسب الضريبة والعملات جاهزة لـ12 دولة عربية (السعودية 15%، مصر 14%، الإمارات 5% وغيرها) وكلها قابلة للتعديل.' },
+      ]).map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+    },
+  ],
+});
 
 const fmt = (n: number) => (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -180,7 +216,7 @@ export default function InvoiceGeneratorPage() {
 
   const home = pathForLocale('/', lang);
   const seoUrl = seoUrls('/invoice-generator', lang);
-  useSeo({ ...SEO[lang], canonical: seoUrl.canonical, alternates: seoUrl.alternates, image: 'https://fieldsa.net/og-image.png' });
+  useSeo({ ...SEO[lang], canonical: seoUrl.canonical, alternates: seoUrl.alternates, image: 'https://fieldsa.net/og-image.png', jsonLd: JSONLD(lang) });
 
   const saved = useMemo(() => {
     try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') as Record<string, string>; } catch { return {}; }
@@ -241,9 +277,19 @@ export default function InvoiceGeneratorPage() {
   const validItems = items.filter((it) => it.desc.trim() && it.qty > 0);
   const ready = sellerName.trim() && buyerName.trim() && validItems.length > 0 && totals.total > 0;
 
+  // عند تحميل/طباعة فاتورة فعلية: يُحفظ النشاط لدى المنصّة (يظهر لمالكها كعميل محتمل ساخن) — لا يعطّل الأداة أبداً
+  const capture = () => {
+    const preset = COUNTRY_PRESETS.find((c) => c.code === country);
+    toolsApi.invgenCapture({
+      sellerName: sellerName.trim(), vatNumber, address, buyerName: buyerName.trim(), buyerVat,
+      country: preset?.ar, countryCode: country, total: totals.total, currency: cur, lang,
+    }).catch(() => { /* صامت */ });
+  };
+
   const downloadPdf = async () => {
     if (!ready || !docRef.current) { toast.error(t('needFields')); return; }
     setBusy(true);
+    capture();
     try {
       const blob = await elementToPdfBlob(docRef.current);
       const url = URL.createObjectURL(blob);
@@ -260,6 +306,7 @@ export default function InvoiceGeneratorPage() {
 
   const printDoc = () => {
     if (!ready) { toast.error(t('needFields')); return; }
+    capture();
     window.print();
   };
 
@@ -473,6 +520,14 @@ export default function InvoiceGeneratorPage() {
           </div>
         </div>
       </main>
+
+      <p className="text-[11px] text-[#9A8F7E] text-center mt-8 max-w-2xl mx-auto leading-relaxed px-4 print:hidden">
+        {lang === 'en'
+          ? 'By downloading or printing, business details of the invoice may be stored by Field Sales to improve the service and reach out with relevant offers.'
+          : lang === 'fr'
+          ? 'En téléchargeant ou imprimant, les informations professionnelles de la facture peuvent être conservées par Field Sales pour améliorer le service et vous contacter.'
+          : 'عند التحميل أو الطباعة قد تُحفظ بيانات النشاط التجاري للفاتورة لدى Field Sales لتحسين الخدمة والتواصل بعروض مناسبة.'}
+      </p>
 
       <footer className="border-t border-[#E9E1D3] py-6 text-center text-xs text-[#9A8F7E] print:hidden">
         © {new Date().getFullYear()} Field Sales — fieldsa.net

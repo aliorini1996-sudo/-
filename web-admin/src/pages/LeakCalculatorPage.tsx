@@ -111,22 +111,52 @@ const SEO = {
   ar: {
     title: 'حاسبة تسريب الإيرادات لشركات التوزيع — كم تخسر شهرياً؟ | FieldSales',
     description: 'أداة مجانية: احسب كم تخسر شركة التوزيع شهرياً من فواتير مفقودة وتحصيل غير موثّق وعجز مخزون سيارات المناديب — وأوقف التسريب.',
-    keywords: 'حاسبة خسائر التوزيع, تسريب الإيرادات, إدارة مناديب المبيعات, التحصيل الميداني, عجز مخزون السيارة, نظام مبيعات ميدانية',
+    keywords: 'حاسبة تسريب الإيرادات, حاسبة خسائر الشركات, حساب خسائر المبيعات, تسريب الأرباح, هدر الإيرادات, خسائر شركات التوزيع, حاسبة خسائر التوزيع, إدارة مناديب المبيعات, التحصيل الميداني, عجز مخزون السيارة, فروقات مخزون سيارات المناديب, نظام مبيعات ميدانية, أدوات مجانية للشركات, حاسبة مجانية اون لاين',
     locale: 'ar' as const,
   },
   en: {
     title: 'Revenue Leak Calculator for Distributors — How Much Do You Lose Monthly? | FieldSales',
     description: 'Free tool: calculate how much your distribution company loses each month to lost invoices, undocumented cash collections and van stock shrinkage — and stop the leak.',
-    keywords: 'distribution revenue leak calculator, field sales losses, van sales shrinkage, cash collection, sales rep management',
+    keywords: 'revenue leak calculator, distribution losses calculator, field sales losses, van sales shrinkage, stock discrepancy calculator, cash collection losses, sales rep management, free business tools, wholesale distribution calculator',
     locale: 'en' as const,
   },
   fr: {
     title: 'Calculateur de fuite de revenus pour distributeurs | FieldSales',
     description: 'Outil gratuit : calculez combien votre entreprise de distribution perd chaque mois (factures perdues, encaissements non documentés, écarts de stock) — et stoppez la fuite.',
-    keywords: 'calculateur pertes distribution, fuite de revenus, vente terrain, encaissement, gestion commerciaux',
+    keywords: 'calculateur de pertes distribution, fuite de revenus, calcul pertes entreprise, vente terrain, encaissement espèces, écarts de stock véhicule, gestion commerciaux, outil gratuit entreprise',
     locale: 'fr' as const,
   },
 };
+
+// بيانات منظّمة للأداة (WebApplication) + أسئلة شائعة (FAQPage) — لظهور أغنى في جوجل ومحركات الذكاء الاصطناعي
+const JSONLD = (lang: Lang) => ({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebApplication',
+      name: lang === 'en' ? 'Revenue Leak Calculator' : lang === 'fr' ? 'Calculateur de fuite de revenus' : 'حاسبة تسريب الإيرادات',
+      url: `https://fieldsa.net${lang === 'ar' ? '' : '/' + lang}/calculator`,
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Web',
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+      publisher: { '@type': 'Organization', name: 'FieldSales', url: 'https://fieldsa.net' },
+      inLanguage: lang,
+    },
+    {
+      '@type': 'FAQPage',
+      mainEntity: (lang === 'en' ? [
+        { q: 'How much revenue do distribution companies lose with paper-based management?', a: 'Companies running field reps on paper or WhatsApp typically leak 3-6% of revenue through lost invoices, pricing errors, undocumented cash collections, van stock shrinkage and wasted manual-entry time.' },
+        { q: 'Is the revenue leak calculator free?', a: 'Yes — completely free, works in the browser, requires no signup, and you can share your result on WhatsApp.' },
+      ] : lang === 'fr' ? [
+        { q: 'Combien les entreprises de distribution perdent-elles avec une gestion papier ?', a: 'Les entreprises gérant leurs commerciaux sur papier ou WhatsApp perdent généralement 3 à 6 % du chiffre d’affaires : factures perdues, erreurs de prix, encaissements non documentés et écarts de stock.' },
+        { q: 'Le calculateur est-il gratuit ?', a: 'Oui — entièrement gratuit, dans le navigateur, sans inscription.' },
+      ] : [
+        { q: 'كم تخسر شركات التوزيع بالإدارة الورقية؟', a: 'الشركات التي تدير مناديبها بالورق أو الواتساب تسرّب عادةً 3-6% من إيراداتها بين فواتير مفقودة وأخطاء تسعير وتحصيل نقدي غير موثّق وعجز مخزون سيارات ووقت ضائع في الإدخال اليدوي.' },
+        { q: 'هل حاسبة تسريب الإيرادات مجانية؟', a: 'نعم — مجانية بالكامل وتعمل في المتصفح بلا تسجيل، ويمكنك مشاركة نتيجتك عبر واتساب.' },
+      ]).map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+    },
+  ],
+});
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString('en-US');
@@ -139,7 +169,7 @@ export default function LeakCalculatorPage() {
 
   const home = pathForLocale('/', lang);
   const seoUrl = seoUrls('/calculator', lang);
-  useSeo({ ...SEO[lang], canonical: seoUrl.canonical, alternates: seoUrl.alternates, image: 'https://fieldsa.net/og-image.png' });
+  useSeo({ ...SEO[lang], canonical: seoUrl.canonical, alternates: seoUrl.alternates, image: 'https://fieldsa.net/og-image.png', jsonLd: JSONLD(lang) });
 
   const [reps, setReps] = useState(5);
   const [invPerDay, setInvPerDay] = useState(15);

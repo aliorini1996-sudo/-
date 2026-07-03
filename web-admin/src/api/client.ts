@@ -179,6 +179,11 @@ export const leadApi = {
   arabCountries: () => api.get('/leads/arab-countries'),
 };
 
+// الأدوات المجانية العامة — التقاط استخدام مولّد الفواتير كعميل محتمل (نقطة عامة بلا مصادقة)
+export const toolsApi = {
+  invgenCapture: (data: Record<string, unknown>) => api.post('/leads-cron/invgen', data),
+};
+
 // تتبّع المناديب عبر GPS
 export const trackingApi = {
   settings: () => api.get('/tracking/settings'),

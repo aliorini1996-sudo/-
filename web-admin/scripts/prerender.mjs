@@ -206,6 +206,48 @@ async function main() {
     n++;
   }
 
+  // بيانات منظّمة للأدوات المجانية (WebApplication + FAQPage) — تُحقن في صفحتيهما الثابتتين لنتائج غنية وGEO
+  const toolJsonLd = (L, name, url, faq) => ({
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'WebApplication', name, url, applicationCategory: 'BusinessApplication', operatingSystem: 'Web',
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        publisher: { '@type': 'Organization', name: 'FieldSales', url: ORIGIN }, inLanguage: L },
+      { '@type': 'FAQPage', mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) },
+    ],
+  });
+  const faqHtml = (title, faq) => `<h2>${title}</h2>` + faq.map((f) => `<h3>${f.q}</h3><p>${f.a}</p>`).join('');
+  const CALC_FAQ = {
+    ar: [
+      { q: 'كم تخسر شركات التوزيع بالإدارة الورقية؟', a: 'الشركات التي تدير مناديبها بالورق أو الواتساب تسرّب عادةً 3-6% من إيراداتها بين فواتير مفقودة وأخطاء تسعير وتحصيل نقدي غير موثّق وعجز مخزون سيارات المناديب ووقت ضائع في الإدخال اليدوي.' },
+      { q: 'هل حاسبة تسريب الإيرادات مجانية؟', a: 'نعم — مجانية بالكامل وتعمل في المتصفح بلا تسجيل، ويمكن مشاركة النتيجة عبر واتساب.' },
+    ],
+    en: [
+      { q: 'How much revenue do distributors lose with paper-based management?', a: 'Companies running field reps on paper or WhatsApp typically leak 3-6% of revenue through lost invoices, pricing errors, undocumented cash collections, van stock shrinkage and manual-entry time.' },
+      { q: 'Is the revenue leak calculator free?', a: 'Yes — completely free, in-browser, no signup, and the result can be shared on WhatsApp.' },
+    ],
+    fr: [
+      { q: 'Combien perdent les distributeurs avec une gestion papier ?', a: 'Les entreprises gérant leurs commerciaux sur papier ou WhatsApp perdent généralement 3 à 6 % du chiffre d’affaires (factures perdues, encaissements non documentés, écarts de stock).' },
+      { q: 'Le calculateur est-il gratuit ?', a: 'Oui — entièrement gratuit, dans le navigateur, sans inscription.' },
+    ],
+  };
+  const INVGEN_FAQ = {
+    ar: [
+      { q: 'كيف أعمل فاتورة ضريبية برمز QR مجاناً؟', a: 'أدخل بيانات شركتك وعميلك وبنود الفاتورة في مولّد FieldSales المجاني، فيبني فوراً فاتورة ضريبية احترافية ثنائية اللغة برمز QR متوافق مع هيئة الزكاة والضريبة والجمارك ZATCA، وتحمّلها PDF أو تطبعها بلا تسجيل.' },
+      { q: 'ما الفرق بين الفاتورة الضريبية والمبسطة؟', a: 'الفاتورة الضريبية المبسطة تُصدر للمستهلك (B2C) بلا رقم ضريبي للمشتري، والفاتورة الضريبية العادية (B2B) تتضمن الرقم الضريبي للمشتري — والمولّد يبدّل بينهما تلقائياً.' },
+      { q: 'ما الدول المدعومة؟', a: 'نِسب الضريبة والعملات جاهزة لـ12 دولة عربية: السعودية 15%، مصر 14%، الإمارات 5%، البحرين 10%، عُمان 5%، الأردن 16%، المغرب 20%، الجزائر وتونس 19% وغيرها — وكلها قابلة للتعديل.' },
+    ],
+    en: [
+      { q: 'How do I create a tax invoice with a QR code for free?', a: 'Enter your company, customer and items in the free FieldSales generator — it instantly builds a professional bilingual tax invoice with a ZATCA-compliant QR code, downloadable as PDF, no signup.' },
+      { q: 'What is the difference between a tax invoice and a simplified tax invoice?', a: 'A simplified tax invoice (B2C) omits the buyer’s VAT number; a standard tax invoice (B2B) includes it. The generator switches automatically.' },
+      { q: 'Which countries are supported?', a: 'VAT rates and currencies for 12 Arab countries are preset (Saudi 15%, Egypt 14%, UAE 5%, Bahrain 10%, Jordan 16%, Morocco 20%...) and fully editable.' },
+    ],
+    fr: [
+      { q: 'Comment créer gratuitement une facture fiscale avec code QR ?', a: 'Saisissez votre entreprise, votre client et les lignes dans le générateur gratuit FieldSales — il crée une facture fiscale bilingue avec code QR conforme ZATCA, téléchargeable en PDF, sans inscription.' },
+      { q: 'Quels pays sont pris en charge ?', a: 'Les taux de TVA et devises de 12 pays arabes sont préconfigurés et modifiables.' },
+    ],
+  };
+
   // 4) الصفحات التعريفية (about/contact/قانونية) × 3 لغات — وسوم + ملخّص دلالي يقرؤه الزاحف،
   //    وReact يستبدله بالنص الكامل عند التحميل. (الرئيسية العربية تبقى dist/index.html — هي fallback الـSPA)
   const INFO = {
@@ -227,19 +269,19 @@ async function main() {
     },
     calculator: {
       ar: { t: 'حاسبة تسريب الإيرادات لشركات التوزيع | FieldSales', d: 'أداة مجانية: احسب كم تخسر شركة التوزيع شهرياً من فواتير مفقودة وتحصيل غير موثّق وعجز مخزون سيارات المناديب.',
-        b: '<h1>حاسبة تسريب الإيرادات</h1><p>أداة مجانية لشركات التوزيع: أدخل عدد مناديبك وفواتيرك اليومية ونسبة البيع النقدي، واحصل فوراً على تقدير لما تخسره شهرياً وسنوياً بسبب الفواتير المفقودة وأخطاء التسعير، والتحصيل النقدي غير الموثّق، وعجز مخزون سيارات المناديب، والوقت الضائع في الإدخال اليدوي. الشركات التي تدير مناديبها بالورق والواتساب تسرّب عادةً 3-6% من إيراداتها. <a href="/calculator">جرّب الحاسبة الآن</a> أو <a href="/signup">ابدأ تجربة FieldSales المجانية</a>.</p>' },
+        b: '<h1>حاسبة تسريب الإيرادات</h1><p>أداة مجانية لشركات التوزيع: أدخل عدد مناديبك وفواتيرك اليومية ونسبة البيع النقدي، واحصل فوراً على تقدير لما تخسره شهرياً وسنوياً بسبب الفواتير المفقودة وأخطاء التسعير، والتحصيل النقدي غير الموثّق، وعجز مخزون سيارات المناديب، والوقت الضائع في الإدخال اليدوي. الشركات التي تدير مناديبها بالورق والواتساب تسرّب عادةً 3-6% من إيراداتها. <a href="/calculator">جرّب الحاسبة الآن</a> أو <a href="/signup">ابدأ تجربة FieldSales المجانية</a>.</p>' + faqHtml('أسئلة شائعة', CALC_FAQ.ar), j: toolJsonLd('ar', 'حاسبة تسريب الإيرادات', ORIGIN + '/calculator', CALC_FAQ.ar) },
       en: { t: 'Revenue Leak Calculator for Distributors | FieldSales', d: 'Free tool: calculate how much your distribution company loses monthly to lost invoices, undocumented collections and van stock shrinkage.',
-        b: '<h1>Revenue Leak Calculator</h1><p>A free tool for distribution companies: enter your reps, daily invoices and cash share to instantly estimate what you lose monthly and yearly to lost invoices, pricing errors, undocumented cash collections, van stock shrinkage and manual-entry time. Paper-and-WhatsApp operations typically leak 3-6% of revenue. <a href="/en/calculator">Try the calculator</a> or <a href="/signup">start your free FieldSales trial</a>.</p>' },
+        b: '<h1>Revenue Leak Calculator</h1><p>A free tool for distribution companies: enter your reps, daily invoices and cash share to instantly estimate what you lose monthly and yearly to lost invoices, pricing errors, undocumented cash collections, van stock shrinkage and manual-entry time. Paper-and-WhatsApp operations typically leak 3-6% of revenue. <a href="/en/calculator">Try the calculator</a> or <a href="/signup">start your free FieldSales trial</a>.</p>' + faqHtml('FAQ', CALC_FAQ.en), j: toolJsonLd('en', 'Revenue Leak Calculator', ORIGIN + '/en/calculator', CALC_FAQ.en) },
       fr: { t: 'Calculateur de fuite de revenus pour distributeurs | FieldSales', d: 'Outil gratuit : calculez ce que votre entreprise de distribution perd chaque mois (factures perdues, encaissements non documentés, écarts de stock).',
-        b: '<h1>Calculateur de fuite de revenus</h1><p>Un outil gratuit pour les entreprises de distribution : saisissez vos commerciaux, factures quotidiennes et part d’espèces pour estimer instantanément vos pertes mensuelles et annuelles (factures perdues, erreurs de prix, encaissements non documentés, écarts de stock, temps de saisie). Les opérations papier/WhatsApp fuient généralement 3 à 6 % du chiffre d’affaires. <a href="/fr/calculator">Essayez le calculateur</a> ou <a href="/signup">commencez votre essai gratuit</a>.</p>' },
+        b: '<h1>Calculateur de fuite de revenus</h1><p>Un outil gratuit pour les entreprises de distribution : saisissez vos commerciaux, factures quotidiennes et part d’espèces pour estimer instantanément vos pertes mensuelles et annuelles (factures perdues, erreurs de prix, encaissements non documentés, écarts de stock, temps de saisie). Les opérations papier/WhatsApp fuient généralement 3 à 6 % du chiffre d’affaires. <a href="/fr/calculator">Essayez le calculateur</a> ou <a href="/signup">commencez votre essai gratuit</a>.</p>' + faqHtml('FAQ', CALC_FAQ.fr), j: toolJsonLd('fr', 'Calculateur de fuite de revenus', ORIGIN + '/fr/calculator', CALC_FAQ.fr) },
     },
     'invoice-generator': {
       ar: { t: 'مولّد فاتورة ضريبية مجاني برمز QR — نموذج جاهز | FieldSales', d: 'أنشئ فاتورة ضريبية احترافية مجاناً برمز QR متوافق مع ZATCA وحمّلها PDF خلال ثوانٍ — بلا تسجيل.',
-        b: '<h1>مولّد الفاتورة الضريبية المجاني</h1><p>أداة مجانية بالكامل تعمل في متصفحك: أدخل بيانات شركتك وعميلك وبنود الفاتورة، فتحصل فوراً على فاتورة ضريبية (أو مبسطة) احترافية ثنائية اللغة برمز QR متوافق مع متطلبات هيئة الزكاة والضريبة والجمارك ZATCA، وحمّلها PDF أو اطبعها — بلا تسجيل وبلا حدود. تدعم ضرائب وعملات 12 دولة عربية. <a href="/invoice-generator">أنشئ فاتورتك الآن</a>، وجرّب أيضاً <a href="/calculator">حاسبة تسريب الإيرادات</a> أو <a href="/signup">أصدرها تلقائياً من جوال مندوبك مع FieldSales</a>.</p>' },
+        b: '<h1>مولّد الفاتورة الضريبية المجاني</h1><p>أداة مجانية بالكامل تعمل في متصفحك: أدخل بيانات شركتك وعميلك وبنود الفاتورة، فتحصل فوراً على فاتورة ضريبية (أو مبسطة) احترافية ثنائية اللغة برمز QR متوافق مع متطلبات هيئة الزكاة والضريبة والجمارك ZATCA، وحمّلها PDF أو اطبعها — بلا تسجيل وبلا حدود. تدعم ضرائب وعملات 12 دولة عربية. <a href="/invoice-generator">أنشئ فاتورتك الآن</a>، وجرّب أيضاً <a href="/calculator">حاسبة تسريب الإيرادات</a> أو <a href="/signup">أصدرها تلقائياً من جوال مندوبك مع FieldSales</a>.</p>' + faqHtml('أسئلة شائعة', INVGEN_FAQ.ar), j: toolJsonLd('ar', 'مولّد الفاتورة الضريبية المجاني', ORIGIN + '/invoice-generator', INVGEN_FAQ.ar) },
       en: { t: 'Free Tax Invoice Generator with QR Code | FieldSales', d: 'Create a professional tax invoice free with a ZATCA-compliant QR code and download it as PDF in seconds — no signup.',
-        b: '<h1>Free Tax Invoice Generator</h1><p>A fully free in-browser tool: enter your company, customer and line items to instantly get a professional bilingual tax (or simplified) invoice with a ZATCA-compliant QR code, then download it as PDF or print it — no signup, no limits. Supports VAT rates and currencies of 12 Arab countries. <a href="/en/invoice-generator">Create your invoice now</a>, also try the <a href="/en/calculator">Revenue Leak Calculator</a> or <a href="/signup">issue them automatically from your rep’s phone with FieldSales</a>.</p>' },
+        b: '<h1>Free Tax Invoice Generator</h1><p>A fully free in-browser tool: enter your company, customer and line items to instantly get a professional bilingual tax (or simplified) invoice with a ZATCA-compliant QR code, then download it as PDF or print it — no signup, no limits. Supports VAT rates and currencies of 12 Arab countries. <a href="/en/invoice-generator">Create your invoice now</a>, also try the <a href="/en/calculator">Revenue Leak Calculator</a> or <a href="/signup">issue them automatically from your rep’s phone with FieldSales</a>.</p>' + faqHtml('FAQ', INVGEN_FAQ.en), j: toolJsonLd('en', 'Free Tax Invoice Generator', ORIGIN + '/en/invoice-generator', INVGEN_FAQ.en) },
       fr: { t: 'Générateur gratuit de factures fiscales avec code QR | FieldSales', d: 'Créez gratuitement une facture fiscale professionnelle avec code QR conforme ZATCA et téléchargez-la en PDF — sans inscription.',
-        b: '<h1>Générateur gratuit de factures fiscales</h1><p>Un outil entièrement gratuit dans votre navigateur : saisissez votre entreprise, votre client et les lignes pour obtenir instantanément une facture fiscale bilingue professionnelle avec code QR conforme ZATCA, puis téléchargez-la en PDF ou imprimez-la — sans inscription. Prend en charge la TVA et les devises de 12 pays arabes. <a href="/fr/invoice-generator">Créez votre facture</a>, essayez aussi le <a href="/fr/calculator">calculateur de fuite de revenus</a> ou <a href="/signup">émettez-les automatiquement avec FieldSales</a>.</p>' },
+        b: '<h1>Générateur gratuit de factures fiscales</h1><p>Un outil entièrement gratuit dans votre navigateur : saisissez votre entreprise, votre client et les lignes pour obtenir instantanément une facture fiscale bilingue professionnelle avec code QR conforme ZATCA, puis téléchargez-la en PDF ou imprimez-la — sans inscription. Prend en charge la TVA et les devises de 12 pays arabes. <a href="/fr/invoice-generator">Créez votre facture</a>, essayez aussi le <a href="/fr/calculator">calculateur de fuite de revenus</a> ou <a href="/signup">émettez-les automatiquement avec FieldSales</a>.</p>' + faqHtml('FAQ', INVGEN_FAQ.fr), j: toolJsonLd('fr', 'Générateur gratuit de factures fiscales', ORIGIN + '/fr/invoice-generator', INVGEN_FAQ.fr) },
     },
     terms: {
       ar: { t: 'الشروط والأحكام | FieldSales', d: 'الشروط والأحكام العامة لاستخدام منصّة FieldSales.', b: '<h1>الشروط والأحكام</h1><p>الشروط والأحكام العامة لاستخدام منصّة FieldSales لإدارة المبيعات الميدانية — النص الكامل متاح في هذه الصفحة داخل التطبيق.</p>' },
@@ -262,7 +304,7 @@ async function main() {
       const m = langs[L];
       const prefix = L === 'ar' ? '' : `/${L}`;
       const canonical = `${ORIGIN}${prefix}/${route}`;
-      const html = buildPage({ lang: L, title: m.t, description: m.d, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang(`/${route}`), bodyHtml: `<main>${m.b}</main>` });
+      const html = buildPage({ lang: L, title: m.t, description: m.d, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang(`/${route}`), jsonLd: m.j || null, bodyHtml: `<main>${m.b}</main>` });
       writeRoute(`${prefix}/${route}`, html);
       n++;
     }

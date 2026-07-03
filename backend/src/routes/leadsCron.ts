@@ -87,6 +87,62 @@ router.post('/community', async (req: Request, res: Response, next: NextFunction
   }
 });
 
+// ------------------- التقاط مستخدمي الأدوات المجانية (مولّد الفواتير) ------------------- //
+// كل من يحمّل/يطبع فاتورة من الأداة العامة هو موزّع نشط باسمه ورقمه الضريبي → يُحفظ كعميل محتمل
+// ساخن (source=invoice-tool) يظهر في لوحة المالك، وبيانات عميله وفاتورته في نشاط TOOL. بلا تغيير مخطط.
+router.post('/invgen', async (req: Request, res: Response) => {
+  try {
+    const b = (req.body || {}) as Record<string, unknown>;
+    const s = (v: unknown, max = 160) => String(v ?? '').trim().slice(0, max);
+    const sellerName = s(b.sellerName);
+    if (sellerName.length < 3) { res.status(400).json({ success: false }); return; }
+    const vatNumber = s(b.vatNumber, 20).replace(/[^\d]/g, '');
+    const buyerName = s(b.buyerName);
+    const buyerVat = s(b.buyerVat, 20).replace(/[^\d]/g, '');
+    const address = s(b.address, 200);
+    const country = s(b.country, 40) || null;
+    const countryCode = s(b.countryCode, 2).toUpperCase() || null;
+    const total = Number(b.total) || 0;
+    const currency = s(b.currency, 8);
+
+    // مفتاح إزالة التكرار: الرقم الضريبي إن وُجد وإلا الاسم المطبّع
+    const sourceId = `invgen:${vatNumber || sellerName.toLowerCase().replace(/\s+/g, '-')}`;
+    const detail = [
+      buyerName ? `عميل الفاتورة: ${buyerName}${buyerVat ? ` (ض: ${buyerVat})` : ''}` : null,
+      total > 0 ? `الإجمالي: ${total.toFixed(2)} ${currency}` : null,
+      address ? `العنوان: ${address}` : null,
+    ].filter(Boolean).join(' · ');
+
+    let lead = await prisma.lead.findUnique({ where: { sourceId } });
+    if (!lead) {
+      lead = await prisma.lead.create({
+        data: {
+          name: sellerName,
+          address: address || null,
+          country, countryCode,
+          category: 'مستخدم مولّد الفواتير',
+          source: 'invoice-tool', sourceId,
+          stage: 'NEW', score: 8,
+          scoreNote: 'يستخدم مولّد الفواتير المجاني — موزّع نشط يُصدر فواتير 🔥',
+          notes: vatNumber ? `الرقم الضريبي: ${vatNumber}` : null,
+        },
+      });
+    }
+    // نشاط استخدام (بحد أقصى نشاط كل 6 ساعات لتفادي الضجيج مع الاستخدام المتكرر)
+    const recent = await prisma.leadActivity.findFirst({
+      where: { leadId: lead.id, type: 'TOOL', createdAt: { gte: new Date(Date.now() - 6 * 3600_000) } },
+    });
+    if (!recent) {
+      await prisma.leadActivity.create({
+        data: { leadId: lead.id, type: 'TOOL', content: `أصدر فاتورة من المولّد المجاني${detail ? ' — ' + detail : ''}`, createdBy: 'invoice-generator' },
+      });
+    }
+    res.json({ success: true });
+  } catch {
+    res.json({ success: true }); // لا نُفشل الأداة العامة أبداً
+  }
+});
+
 // ------------------- تتبّع البريد التسويقي (نقاط عامة بلا مصادقة) ------------------- //
 // OPEN عبر بكسل 1×1، CLICK عبر إعادة توجيه، UNSUB بصفحة تأكيد — كلها تُسجَّل في LeadActivity.
 
