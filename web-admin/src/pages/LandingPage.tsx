@@ -66,7 +66,8 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       h: 'كم تخسر شركتك من إيراداتها كل شهر؟',
       p: 'حاسبة تسريب الإيرادات تكشف لك خلال دقيقة ما يضيع بين الفواتير المفقودة والتحصيل غير الموثّق وعجز مخزون سيارات المناديب — أدخل أرقامك وشاهد الحقيقة.',
       cta: 'احسب تسريبك الآن',
-      cta2: 'أو أنشئ فاتورة ضريبية برمز QR مجاناً خلال 30 ثانية',
+      tool2Title: 'مولّد الفاتورة الضريبية المجاني',
+      cta2: 'أنشئ فاتورة ضريبية برمز QR مجاناً خلال 30 ثانية',
       note: 'مجانية 100% · بلا تسجيل · شارك نتيجتك واتساب',
     },
     en: {
@@ -74,7 +75,8 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       h: 'How much revenue does your company leak every month?',
       p: 'The Revenue Leak Calculator shows you in one minute what slips away in lost invoices, undocumented collections and van stock shrinkage — enter your numbers and see the truth.',
       cta: 'Calculate your leak now',
-      cta2: 'Or create a free QR tax invoice in 30 seconds',
+      tool2Title: 'Free Tax Invoice Generator',
+      cta2: 'Create a free QR tax invoice in 30 seconds',
       note: '100% free · no signup · share your result on WhatsApp',
     },
     fr: {
@@ -82,7 +84,8 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       h: 'Combien de revenus votre entreprise perd-elle chaque mois ?',
       p: 'Le calculateur de fuite de revenus vous montre en une minute ce qui disparaît entre factures perdues, encaissements non documentés et écarts de stock — entrez vos chiffres et voyez la vérité.',
       cta: 'Calculez votre fuite',
-      cta2: 'Ou créez gratuitement une facture fiscale QR en 30 secondes',
+      tool2Title: 'Générateur gratuit de factures fiscales',
+      cta2: 'Créez gratuitement une facture fiscale QR en 30 secondes',
       note: '100 % gratuit · sans inscription · partagez sur WhatsApp',
     },
   }[lang];
@@ -94,7 +97,10 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       @keyframes fsCalcFloat { 0%,100%{ transform:translateY(0) rotate(-3deg);} 50%{ transform:translateY(-12px) rotate(3deg);} }
       @keyframes fsCalcGlow { 0%,100%{ box-shadow:0 18px 46px rgba(225,90,48,.45);} 50%{ box-shadow:0 26px 72px rgba(225,90,48,.8);} }
       @keyframes fsCalcRing { 0%{ transform:scale(1); opacity:.55;} 100%{ transform:scale(1.65); opacity:0;} }
+      @keyframes fsInvFloat { 0%,100%{ transform:translateY(0) rotate(2.5deg);} 50%{ transform:translateY(-8px) rotate(-2.5deg);} }
+      @keyframes fsInvGlow { 0%,100%{ box-shadow:0 12px 32px rgba(30,122,82,.45);} 50%{ box-shadow:0 18px 50px rgba(30,122,82,.8);} }
       #leak-calculator .fs-calc-cta:hover { background:#C94E28 !important; transform:translateY(-2px); }
+      #leak-calculator .fs-inv-link:hover .fs-inv-title { color:#7ED9A9 !important; }
     </style>
     <div style="position:relative; overflow:hidden; background:#1F1A13; border-radius:30px; padding:64px 28px 58px; text-align:center;">
       <div style="position:absolute; top:-160px; right:-120px; width:480px; height:480px; border-radius:50%; background:radial-gradient(circle, rgba(225,90,48,.28), transparent 65%);"></div>
@@ -116,10 +122,21 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
         ${t.cta}
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${arrow}</svg>
       </a>
-      <div style="position:relative; margin-top:18px;">
-        <a href="/invoice-generator" style="color:#FAF7F0; font-size:clamp(13.5px,2vw,15px); font-weight:600; text-decoration:none; border-bottom:1.5px dashed #E15A30; padding-bottom:2px;">${t.cta2} ↗</a>
-      </div>
       <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
+      <!-- الأداة الثانية: مولّد الفواتير — أيقونة عائمة مميزة أصغر من أيقونة الحاسبة (80px مقابل 116px) بتدرّج أخضر -->
+      <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(250,247,240,.12);">
+        <a href="/invoice-generator" class="fs-inv-link" style="display:inline-block; text-decoration:none;">
+          <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 4.2s ease-in-out infinite, fsInvGlow 4.2s ease-in-out infinite;">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"></path>
+              <path d="M9 7h6M9 11h6"></path>
+              <rect x="9" y="14" width="3.2" height="3.2" rx="0.6" stroke-width="1.5"></rect>
+            </svg>
+          </span>
+          <span class="fs-inv-title" style="display:block; color:#FAF7F0; font-size:clamp(16px,2.4vw,19px); font-weight:800; margin-top:14px; transition:color .2s;">${t.tool2Title}</span>
+          <span style="display:block; color:#B7AD9D; font-size:clamp(13px,1.9vw,14.5px); margin-top:6px;">${t.cta2} ↗</span>
+        </a>
+      </div>
     </div>
   </section>`;
 }
