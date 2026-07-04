@@ -43,6 +43,8 @@ const T: Record<Lang, Record<string, string>> = {
     share: 'شارك النتيجة واتساب',
     shareText: '😱 حسبت تسريب الإيرادات في شركة التوزيع: نظام الورق والواتساب قد يكلّف {m} شهرياً ({y} سنوياً)!\nاحسب تسريبك مجاناً هنا:',
     disclaimer: 'الحاسبة تقديرية للتوعية ولا تُعد وعداً بنتائج. النسب: 1.2% أخطاء فوترة، 2.5% من النقدي تحصيل غير موثّق، 1% عجز مخزون، 1.5% وقت ضائع — تنخفض بحسب طريقة إدارتك الحالية.',
+    guide: '📖 دليل: كم تخسر شركات التوزيع سنوياً وكيف تغلق التسريب؟',
+    tryInvoice: '🧾 جرّب أيضاً: مولّد الفاتورة الضريبية المجاني',
   },
   en: {
     backLabel: 'Discover Field Sales',
@@ -71,6 +73,8 @@ const T: Record<Lang, Record<string, string>> = {
     share: 'Share result on WhatsApp',
     shareText: '😱 I calculated our distribution revenue leak: paper & WhatsApp management may cost {m} per month ({y}/year)!\nCalculate yours free here:',
     disclaimer: 'This calculator is an educational estimate, not a promise of results. Rates: 1.2% invoicing errors, 2.5% of cash undocumented, 1% stock shrinkage, 1.5% wasted time — reduced based on your current method.',
+    guide: '📖 Guide: how much distributors lose yearly and how to close the leak',
+    tryInvoice: '🧾 Also try: the free tax invoice generator',
   },
   fr: {
     backLabel: 'Découvrir Field Sales',
@@ -99,6 +103,8 @@ const T: Record<Lang, Record<string, string>> = {
     share: 'Partager sur WhatsApp',
     shareText: '😱 J’ai calculé la fuite de revenus de notre distribution : le papier et WhatsApp peuvent coûter {m} par mois ({y}/an) !\nCalculez la vôtre gratuitement ici :',
     disclaimer: 'Ce calculateur est une estimation éducative, pas une promesse de résultats. Taux : 1,2 % erreurs de facturation, 2,5 % des espèces non documentées, 1 % écarts de stock, 1,5 % temps perdu — réduits selon votre méthode actuelle.',
+    guide: '📖 Guide : combien perdent les distributeurs par an et comment stopper la fuite',
+    tryInvoice: '🧾 Essayez aussi : le générateur gratuit de factures',
   },
 };
 
@@ -304,6 +310,14 @@ export default function LeakCalculatorPage() {
               className="bg-[#25D366] hover:bg-[#1eb356] text-white font-bold py-3 rounded-xl text-center text-sm transition-colors flex items-center justify-center gap-2">
               <MessageCircle size={17} /> {t('share')}
             </a>
+
+            <Link to={pathForLocale('/invoice-generator', lang)} className="block text-center text-xs font-semibold text-[#1E7A52] hover:underline pt-1">
+              {t('tryInvoice')} ↗
+            </Link>
+            <Link to={lang === 'en' ? '/en/blog/how-much-distribution-companies-lose' : '/blog/how-much-distribution-companies-lose'}
+              className="block text-center text-xs text-[#6E6557] hover:text-[#E15A30] hover:underline">
+              {t('guide')}
+            </Link>
           </div>
         </div>
 

@@ -74,6 +74,7 @@ const T: Record<Lang, Record<string, string>> = {
     downloaded: 'تم تحميل الفاتورة PDF ✓',
     needFields: 'أدخل اسم الشركة واسم العميل وبنداً واحداً على الأقل',
     tryCalc: 'جرّب أيضاً: حاسبة تسريب الإيرادات — كم تخسر شهرياً؟',
+    guide: '📖 دليل: كيف تُنشئ فاتورة ضريبية صحيحة برمز QR؟',
   },
   en: {
     backLabel: 'Discover Field Sales',
@@ -109,6 +110,7 @@ const T: Record<Lang, Record<string, string>> = {
     downloaded: 'Invoice PDF downloaded ✓',
     needFields: 'Enter company name, customer name and at least one item',
     tryCalc: 'Also try: the Revenue Leak Calculator — how much do you lose monthly?',
+    guide: '📖 Guide: How to create a valid tax invoice with a QR code',
   },
   fr: {
     backLabel: 'Découvrir Field Sales',
@@ -144,6 +146,7 @@ const T: Record<Lang, Record<string, string>> = {
     downloaded: 'PDF téléchargé ✓',
     needFields: 'Entrez le nom de l’entreprise, du client et au moins une ligne',
     tryCalc: 'Essayez aussi : le calculateur de fuite de revenus',
+    guide: '📖 Guide : comment créer une facture fiscale avec code QR',
   },
 };
 
@@ -436,6 +439,10 @@ export default function InvoiceGeneratorPage() {
 
             <Link to={pathForLocale('/calculator', lang)} className="block text-center text-xs font-semibold text-[#E15A30] hover:underline">
               {t('tryCalc')} ↗
+            </Link>
+            <Link to={lang === 'en' ? '/en/blog/how-to-create-free-tax-invoice-qr' : '/blog/how-to-create-free-tax-invoice-qr'}
+              className="block text-center text-xs text-[#6E6557] hover:text-[#E15A30] hover:underline">
+              {t('guide')}
             </Link>
           </div>
 

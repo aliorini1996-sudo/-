@@ -979,6 +979,8 @@
 
 ## Manual blog posts
 
+- [كيف تُنشئ فاتورة ضريبية مجانية برمز QR في 30 ثانية؟ (دليل + أداة جاهزة)](https://fieldsa.net/blog/how-to-create-free-tax-invoice-qr)
+- [كم تخسر شركات التوزيع من إيراداتها سنوياً؟ (وكيف تحسب التسريب بدقّة)](https://fieldsa.net/blog/how-much-distribution-companies-lose)
 - [دليل الفوترة الإلكترونية ZATCA لشركات التوزيع (المرحلة الثانية)](https://fieldsa.net/blog/zatca-einvoicing-distribution)
 - [كيف تدير مناديب التوزيع الميدانيين بكفاءة؟ 7 خطوات عملية](https://fieldsa.net/blog/manage-field-sales-reps)
 - [كيف تختار نظام إدارة مبيعات ميدانية مناسباً لشركتك؟](https://fieldsa.net/blog/choose-field-sales-system)
