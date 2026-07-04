@@ -14,7 +14,7 @@ import sys
 
 import requests
 
-from post import TOPICS, build_card_html, render_card_png, pick_lang, env
+from post import TOPICS, build_card_html, render_card_png, pick_lang, env, ask_gemini
 
 
 def ask_claude_telegram(topic: dict, lang: str) -> str:
@@ -40,15 +40,7 @@ def ask_claude_telegram(topic: dict, lang: str) -> str:
         )
         user = f"الميزة: {topic['title']}\nالفائدة: {topic['benefit']}\nالألم: {topic['pain']}"
 
-    r = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": env("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        json={"model": "claude-haiku-4-5", "max_tokens": 700, "system": system, "messages": [{"role": "user", "content": user}]},
-        timeout=60,
-    )
-    if not r.ok:
-        sys.exit(f"❌ خطأ Claude API {r.status_code}: {r.text[:600]}")
-    return r.json()["content"][0]["text"].strip().strip('"').strip()[:1000]
+    return ask_gemini(system, user, max_tokens=700)[:1000]
 
 
 def post_to_telegram(text: str, image_path: str):

@@ -6,6 +6,7 @@
  */
 import prisma from '../config/database';
 import { searchCommunities, providersReady, RawLead } from './leadSources';
+import { geminiGenerate, geminiReady } from './gemini';
 
 export interface CommunityConfig {
   enabled: boolean;
@@ -56,26 +57,18 @@ const KEYWORD_BANK = [
 ];
 
 export async function generateCommunityKeywords(country: string, count: number, used: string[]): Promise<string[]> {
-  const key = (process.env.ANTHROPIC_API_KEY || '').trim();
   const usedSet = new Set(used.map((u) => u.trim().toLowerCase()));
-  if (key) {
+  if (geminiReady()) {
     try {
       const system =
         'أنت خبير تسويق B2B لمنصّة Field Sales. ولّد مصطلحات بحث للعثور على **مجموعات/مجتمعات/قروبات** ' +
         `(فيسبوك/لينكدإن/تليجرام/واتساب/ريديت) للمهتمين بالتوزيع وإدارة المناديب والجملة والتجزئة في «${country}». ` +
         'استخدم لغة البلد + بعضها إنجليزي. تجنّب: ' + (used.slice(-40).join('، ') || 'لا شيء') + '. أعِد JSON مصفوفة نصوص فقط.';
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 500, system, messages: [{ role: 'user', content: `ولّد ${count} مصطلحاً لـ${country}.` }] }),
-      });
-      if (r.ok) {
-        const j = (await r.json()) as { content?: Array<{ text?: string }> };
-        const m = (j.content?.[0]?.text || '').match(/\[[\s\S]*\]/);
-        if (m) {
-          const arr = (JSON.parse(m[0]) as string[]).map((s) => String(s).trim()).filter((s) => s && !usedSet.has(s.toLowerCase()));
-          if (arr.length) return arr.slice(0, count);
-        }
+      const text = await geminiGenerate(system, `ولّد ${count} مصطلحاً لـ${country}.`, { maxTokens: 500, temperature: 0.9 });
+      const m = text.match(/\[[\s\S]*\]/);
+      if (m) {
+        const arr = (JSON.parse(m[0]) as string[]).map((s) => String(s).trim()).filter((s) => s && !usedSet.has(s.toLowerCase()));
+        if (arr.length) return arr.slice(0, count);
       }
     } catch { /* fallback */ }
   }

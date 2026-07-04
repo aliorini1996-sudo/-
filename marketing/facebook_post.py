@@ -11,7 +11,7 @@ import random
 import requests
 
 # إعادة استخدام البطاقة + المواضيع + المساعدات من سكربت X
-from post import TOPICS, build_card_html, render_card_png, env
+from post import TOPICS, build_card_html, render_card_png, env, ask_gemini
 
 GRAPH = "https://graph.facebook.com/v21.0"
 
@@ -51,7 +51,7 @@ def diagnose_token(token: str) -> None:
     print(f"ℹ️  تحقّق التوكن ({r.status_code}): [{code}] {msg}")
 
 
-# ------------------------------ النص (Claude) ------------------------------ #
+# ------------------------------ النص (Gemini 2.5) ------------------------------ #
 def ask_claude_facebook(topic: dict) -> str:
     system = (
         "أنت كاتب محتوى تسويقي محترف على فيسبوك لمنصّة \"Field Sales\" (فيلد سيلز) — "
@@ -68,15 +68,7 @@ def ask_claude_facebook(topic: dict) -> str:
         "أعِد نصّ المنشور فقط، دون أي مقدّمات أو علامات اقتباس."
     )
     user = f"الميزة: {topic['title']}\nالفائدة: {topic['benefit']}\nألم العميل: {topic['pain']}\nاكتب المنشور الآن."
-    r = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": env("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        json={"model": "claude-haiku-4-5", "max_tokens": 900, "system": system, "messages": [{"role": "user", "content": user}]},
-        timeout=60,
-    )
-    if not r.ok:
-        sys.exit(f"❌ خطأ Claude API {r.status_code}: {r.text[:600]}")
-    return r.json()["content"][0]["text"].strip().strip('"').strip()
+    return ask_gemini(system, user, max_tokens=900)
 
 
 # ------------------------------ النشر على فيسبوك ------------------------------ #

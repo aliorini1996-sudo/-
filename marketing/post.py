@@ -110,7 +110,44 @@ def pick_lang() -> str:
     return random.choices(langs, weights=[LANG_WEIGHTS[l] for l in langs])[0]
 
 
-# ------------------------------ النص (Claude) ------------------------------ #
+# ------------------------------ النص (Google Gemini 2.5) ------------------------------ #
+# مساعد واحد يشاركه كل سكربتات النشر (X/تيليجرام/فيسبوك/لينكدإن) — مفتاح واحد GEMINI_API_KEY.
+# النموذج قابل للضبط عبر GEMINI_MODEL؛ الافتراضي gemini-2.5-flash (سريع ومجاني الحصّة على هذا الحجم،
+# وأذكى من الموديل السابق). للجودة القصوى اضبط GEMINI_MODEL=gemini-2.5-pro (قد يبلغ حدّ الحصّة اليومي
+# على الطبقة المجانية مع التشغيل المتكرّر).
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash"
+
+
+def ask_gemini(system: str, user: str, max_tokens: int = 700) -> str:
+    """يولّد نصًا عبر Google Gemini 2.5 (generateContent). يُنهي بوضوح عند الخطأ."""
+    key = env("GEMINI_API_KEY")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    gen_config = {"maxOutputTokens": max_tokens, "temperature": 0.9}
+    # مهام قصيرة/ميكانيكية لا تحتاج «تفكير» 2.5؛ إطفاؤه على flash يمنع ابتلاع حدّ المخرجات ويقلّل التكلفة.
+    # (pro لا يقبل تعطيله بالكامل، فنتركه يفكّر — يناسب أولوية الجودة عند اختياره.)
+    if "flash" in GEMINI_MODEL:
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+    r = requests.post(
+        url,
+        headers={"x-goog-api-key": key, "content-type": "application/json"},
+        json={
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": gen_config,
+        },
+        timeout=90,
+    )
+    if not r.ok:
+        sys.exit(f"❌ خطأ Gemini API {r.status_code}: {r.text[:600]}")
+    data = r.json()
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        text = "".join(p.get("text", "") for p in parts)
+    except (KeyError, IndexError, TypeError):
+        sys.exit(f"❌ استجابة Gemini غير متوقّعة: {str(data)[:400]}")
+    return text.strip().strip('"').strip()
+
+
 def ask_claude(topic: dict, lang: str) -> str:
     if lang == "en":
         system = (
@@ -142,15 +179,7 @@ def ask_claude(topic: dict, lang: str) -> str:
         )
         user = f"الميزة: {topic['title']}\nالفائدة: {topic['benefit']}\nألم العميل: {topic['pain']}\nاكتب التغريدة الآن."
 
-    r = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": env("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        json={"model": "claude-haiku-4-5", "max_tokens": 500, "system": system, "messages": [{"role": "user", "content": user}]},
-        timeout=60,
-    )
-    if not r.ok:
-        sys.exit(f"❌ خطأ Claude API {r.status_code}: {r.text[:600]}")
-    return r.json()["content"][0]["text"].strip().strip('"').strip()[:277]
+    return ask_gemini(system, user, max_tokens=500)[:277]
 
 
 # ------------------------------ البطاقة (بهوية FieldSales) ------------------------------ #

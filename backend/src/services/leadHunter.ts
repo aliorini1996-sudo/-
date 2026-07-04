@@ -8,6 +8,7 @@
 import prisma from '../config/database';
 import { runSearch, qualifyLeads, providersReady, LeadProvider, RawLead } from './leadSources';
 import { enrichFromWebsite, hunterDomainSearch } from './enrich';
+import { geminiGenerate, geminiReady } from './gemini';
 
 export interface HuntConfig {
   enabled: boolean;
@@ -81,10 +82,9 @@ const KEYWORD_BANK = [
 
 // يولّد كلمات بحث جديدة (Claude إن توفّر، وإلا من البنك) مع تجنّب المستخدمة سابقاً
 export async function generateKeywords(country: string, count: number, used: string[]): Promise<string[]> {
-  const key = (process.env.ANTHROPIC_API_KEY || '').trim();
   const usedSet = new Set(used.map((u) => u.trim().toLowerCase()));
 
-  if (key) {
+  if (geminiReady()) {
     try {
       const system =
         'أنت خبير تنقيب مبيعات B2B لمنصّة Field Sales (إدارة مبيعات مناديب التوزيع). ' +
@@ -92,23 +92,13 @@ export async function generateKeywords(country: string, count: number, used: str
         'استخدم لغة البلد (عربية للدول العربية) وأضِف بعضها بالإنجليزية. ' +
         'تجنّب تكرار هذه المستخدمة سابقاً: ' + (used.slice(-40).join('، ') || 'لا شيء') + '. ' +
         'أعِد JSON فقط: مصفوفة نصوص بلا أي شرح.';
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5', max_tokens: 500, system,
-          messages: [{ role: 'user', content: `ولّد ${count} مصطلحاً جديداً لـ${country}.` }],
-        }),
-      });
-      if (r.ok) {
-        const j = (await r.json()) as { content?: Array<{ text?: string }> };
-        const m = (j.content?.[0]?.text || '').match(/\[[\s\S]*\]/);
-        if (m) {
-          const arr = (JSON.parse(m[0]) as string[])
-            .map((s) => String(s).trim())
-            .filter((s) => s && !usedSet.has(s.toLowerCase()));
-          if (arr.length) return arr.slice(0, count);
-        }
+      const text = await geminiGenerate(system, `ولّد ${count} مصطلحاً جديداً لـ${country}.`, { maxTokens: 500, temperature: 0.9 });
+      const m = text.match(/\[[\s\S]*\]/);
+      if (m) {
+        const arr = (JSON.parse(m[0]) as string[])
+          .map((s) => String(s).trim())
+          .filter((s) => s && !usedSet.has(s.toLowerCase()));
+        if (arr.length) return arr.slice(0, count);
       }
     } catch {
       // نتجاهل ونعود للبنك

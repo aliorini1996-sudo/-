@@ -12,6 +12,7 @@
  * ملاحظة امتثال: بيانات أعمال عامّة فقط (اسم/هاتف عمل/عنوان/موقع). لا بيانات شخصية،
  * ولا تواصل آلي — قائمة لمراجعة فريق المبيعات والتواصل المهني B2B يدوياً.
  */
+import { geminiGenerate, geminiReady } from './gemini';
 
 export interface RawLead {
   sourceId: string; // مفتاح فريد لإزالة التكرار (مثل "osm:node/123" أو "google:ChIJ...")
@@ -637,14 +638,13 @@ export async function runSearch(
   }
 }
 
-// ----------------------------- تأهيل بـ Claude (اختياري) ----------------------------- //
+// ----------------------------- تأهيل بـ Gemini 2.5 (اختياري) ----------------------------- //
 // يُقيّم ملاءمة كل عميل محتمل لمنصّة Field Sales (1-10) مع سبب موجز.
 export async function qualifyLeads(
   leads: Array<{ name: string; category?: string | null; city?: string | null; country?: string | null }>,
 ): Promise<Map<number, { score: number; note: string }>> {
-  const key = (process.env.ANTHROPIC_API_KEY || '').trim();
   const result = new Map<number, { score: number; note: string }>();
-  if (!key || leads.length === 0) return result;
+  if (!geminiReady() || leads.length === 0) return result;
 
   const items = leads.map((l, i) => ({ i, name: l.name, type: l.category || '', city: l.city || '', country: l.country || '' }));
   const system =
@@ -654,19 +654,7 @@ export async function qualifyLeads(
     '{"i":رقم,"score":1-10,"note":"سبب موجز جداً بالعربية"}.';
 
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 3000,
-        system,
-        messages: [{ role: 'user', content: 'النشاطات:\n' + JSON.stringify(items) }],
-      }),
-    });
-    if (!r.ok) return result;
-    const j = (await r.json()) as { content?: Array<{ text?: string }> };
-    const text = j.content?.[0]?.text || '';
+    const text = await geminiGenerate(system, 'النشاطات:\n' + JSON.stringify(items), { maxTokens: 3000, temperature: 0.3 });
     const m = text.match(/\[[\s\S]*\]/);
     if (!m) return result;
     const arr = JSON.parse(m[0]) as Array<{ i: number; score: number; note: string }>;

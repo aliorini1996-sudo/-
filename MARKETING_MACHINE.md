@@ -22,7 +22,7 @@
 
 | الركن | الجدولة | الملف |
 |---|---|---|
-| صيد عملاء محتملين (OSM+Geoapify+TomTom+Serper+Claude) | كل 30 دقيقة | `leads-autohunt.yml` |
+| صيد عملاء محتملين (OSM+Geoapify+TomTom+Serper+Gemini) | كل 30 دقيقة | `leads-autohunt.yml` |
 | سلسلة البريد التسويقي (3 لمسات، بحد يومي) | كل ساعتين | `leads-autoemail.yml` |
 | بحث قروبات/مجتمعات التوزيع | كل ساعة | `leads-communities.yml` |
 | نشر X (عربي/إنجليزي + بطاقة بالهوية) | 9ص و5م KSA | `marketing.yml` |
@@ -52,7 +52,8 @@
 ### ب) الأسرار (GitHub → Settings → Secrets → Actions)
 | السر | الركن | من أين |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | كل النصوص | console.anthropic.com (~0.2$/شهر) |
+| `GEMINI_API_KEY` | كل النصوص والكلمات (Gemini 2.5) | aistudio.google.com/apikey — مجاني على هذا الحجم |
+| `GEMINI_MODEL` *(اختياري، Variable لا Secret)* | اختيار النموذج | افتراضي `gemini-2.5-flash`؛ للجودة القصوى `gemini-2.5-pro` |
 | `BREVO_API_KEY` | البريد (300/يوم مجاناً) | brevo.com — على خادم Render |
 | `TELEGRAM_BOT_TOKEN` | تيليجرام | @BotFather (مجاني) |
 | `TELEGRAM_CHAT_ID` | تيليجرام | @اسم_قناتك (اجعل البوت مشرفاً) |
@@ -68,4 +69,6 @@
 افتح «غرفة قيادة التسويق» → إن وُجد **عملاء ساخنون 🔥** اتصل/واتسب بهم اليوم نفسه (هؤلاء فتحوا ونقروا — أعلى احتمال اشتراك) → راقب معدل الفتح (الصحي 20-40%؛ إن هبط دون 10% خفّض الحد اليومي وتحقق من DKIM).
 
 ## التكلفة الإجمالية
-GitHub Actions + OSM/Geoapify/TomTom + Brevo (300 بريد/يوم) + Telegram + X المجاني = **0$**، عدا ~0.2$/شهر لـClaude Haiku (توليد النصوص والكلمات).
+GitHub Actions + OSM/Geoapify/TomTom + Brevo (300 بريد/يوم) + Telegram + X المجاني + **Gemini 2.5 Flash** (طبقة مجانية سخيّة تكفي هذا الحجم) = **0$**. للجودة القصوى بدّل النموذج إلى `gemini-2.5-pro` (قد يتجاوز الحصّة المجانية اليومية مع صيد كل 30 دقيقة).
+
+> **الذكاء الاصطناعي = Gemini 2.5 (Google)**: مفتاح واحد `GEMINI_API_KEY` يشغّل كل الأركان — النشر (X/تيليجرام/فيسبوك/لينكدإن عبر `marketing/post.py:ask_gemini`) وصيد/تأهيل العملاء (الخادم عبر `backend/src/services/gemini.ts`). أضِف المفتاح في **GitHub Secrets** (للنشر) و**Render env** (للصيد/التأهيل). النموذج قابل للضبط بمتغيّر `GEMINI_MODEL` في الاثنين.

@@ -123,11 +123,12 @@ def open_sheet():
     return gspread.authorize(creds).open_by_key(env("GOOGLE_SHEET_ID")).sheet1
 
 
-# ------------------------------ تأهيل (Claude) ------------------------------ #
+# ------------------------------ تأهيل (Gemini 2.5) ------------------------------ #
 def qualify(leads: list) -> dict:
-    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key or not leads:
         return {}
+    model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash"
     items = [{"i": i, "name": l["name"], "type": l["type"], "city": l["city"]} for i, l in enumerate(leads)]
     system = (
         "أنت محلّل مبيعات لمنصّة FieldSales (نظام سعودي لإدارة مبيعات مناديب التوزيع الميدانيين). "
@@ -136,20 +137,24 @@ def qualify(leads: list) -> dict:
     )
     try:
         r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": "claude-haiku-4-5", "max_tokens": 3000, "system": system,
-                  "messages": [{"role": "user", "content": "النشاطات:\n" + json.dumps(items, ensure_ascii=False)}]},
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            headers={"x-goog-api-key": key, "content-type": "application/json"},
+            json={
+                "systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": "النشاطات:\n" + json.dumps(items, ensure_ascii=False)}]}],
+                "generationConfig": {"maxOutputTokens": 3000, "temperature": 0.3},
+            },
             timeout=90,
         )
         if not r.ok:
             return {}
         import re
-        m = re.search(r"\[.*\]", r.json()["content"][0]["text"], re.S)
+        text = "".join(p.get("text", "") for p in r.json()["candidates"][0]["content"]["parts"])
+        m = re.search(r"\[.*\]", text, re.S)
         arr = json.loads(m.group(0)) if m else []
         return {int(x["i"]): (x.get("score", ""), x.get("note", "")) for x in arr}
     except Exception as e:  # noqa: BLE001
-        print("⚠️  تأهيل Claude فشل:", e)
+        print("⚠️  تأهيل Gemini فشل:", e)
         return {}
 
 
