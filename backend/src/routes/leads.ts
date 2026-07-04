@@ -23,7 +23,9 @@ function buildLeadWhere(query: Record<string, string>): Record<string, unknown> 
   const { stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, hasPhone, hasWebsite, emailed, whatsapped } = query;
   const where: Record<string, unknown> = {};
   if (stage && STAGES.includes(stage as typeof STAGES[number])) where.stage = stage;
+  // مستخدمو مولّد الفواتير لهم صفحتهم المستقلة — يُستثنون من قائمة العملاء المحتملين
   if (source) where.source = source;
+  else where.source = { not: 'invoice-tool' };
   if (countryCode) where.countryCode = countryCode;
   if (assignedTo) where.assignedTo = assignedTo;
   if (dueOnly === 'true') where.nextFollowUpAt = { lte: new Date() };
@@ -108,13 +110,15 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // ------------------------------- إحصائيات القمع ------------------------------- //
 router.get('/stats', async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // مستخدمو مولّد الفواتير مستثنون (لهم صفحتهم وإحصاءاتهم المستقلة)
+    const notTool = { source: { not: 'invoice-tool' } };
     const [byStage, bySource, byCountry, total, won, due] = await Promise.all([
-      prisma.lead.groupBy({ by: ['stage'], _count: { _all: true } }),
-      prisma.lead.groupBy({ by: ['source'], _count: { _all: true } }),
-      prisma.lead.groupBy({ by: ['countryCode'], _count: { _all: true } }),
-      prisma.lead.count(),
-      prisma.lead.count({ where: { stage: 'WON' } }),
-      prisma.lead.count({ where: { nextFollowUpAt: { lte: new Date() }, stage: { notIn: ['WON', 'LOST'] } } }),
+      prisma.lead.groupBy({ by: ['stage'], where: notTool, _count: { _all: true } }),
+      prisma.lead.groupBy({ by: ['source'], where: notTool, _count: { _all: true } }),
+      prisma.lead.groupBy({ by: ['countryCode'], where: notTool, _count: { _all: true } }),
+      prisma.lead.count({ where: notTool }),
+      prisma.lead.count({ where: { ...notTool, stage: 'WON' } }),
+      prisma.lead.count({ where: { ...notTool, nextFollowUpAt: { lte: new Date() }, stage: { notIn: ['WON', 'LOST'] } } }),
     ]);
     const stages: Record<string, number> = {};
     for (const s of STAGES) stages[s] = 0;
@@ -162,6 +166,39 @@ router.get('/email-status', (_req: AuthRequest, res: Response) => {
 // قائمة كل الدول العربية المدعومة (لزرّ «كل الدول» في اللوحة) — قبل /:id
 router.get('/arab-countries', (_req: AuthRequest, res: Response) => {
   res.json({ success: true, data: ARAB_COUNTRIES });
+});
+
+// ------------------------------- عملاء مولّد الفواتير (صفحة مستقلة) — قبل /:id ------------------------------- //
+// كل من استخدم الأداة المجانية: الشركة + رقمها الضريبي + عدد الاستخدامات + آخر فاتورة وأنشطتها
+router.get('/invoice-tool', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const weekAgo = new Date(Date.now() - 7 * 86400_000);
+    const [leads, usesTotal, useCounts] = await Promise.all([
+      prisma.lead.findMany({
+        where: { source: 'invoice-tool' },
+        orderBy: { updatedAt: 'desc' },
+        include: { activities: { where: { type: 'TOOL' }, orderBy: { createdAt: 'desc' }, take: 5, select: { content: true, createdAt: true } } },
+      }),
+      prisma.leadActivity.count({ where: { type: 'TOOL' } }),
+      prisma.leadActivity.groupBy({ by: ['leadId'], where: { type: 'TOOL' }, _count: { _all: true } }),
+    ]);
+    const usesByLead = new Map(useCounts.map((u) => [u.leadId, u._count._all]));
+    const users = leads.map((l) => ({
+      id: l.id,
+      name: l.name,
+      vatNumber: (l.notes?.match(/الرقم الضريبي:\s*(\d+)/) || [])[1] || null,
+      country: l.country,
+      countryCode: l.countryCode,
+      address: l.address,
+      createdAt: l.createdAt,
+      uses: usesByLead.get(l.id) || 0,
+      lastUseAt: l.activities[0]?.createdAt || l.createdAt,
+      activities: l.activities,
+    }));
+    const countries = new Set(users.map((u) => u.countryCode).filter(Boolean)).size;
+    const newWeek = users.filter((u) => new Date(u.createdAt) >= weekAgo).length;
+    res.json({ success: true, data: { stats: { total: users.length, uses: usesTotal, newWeek, countries }, users } });
+  } catch (err) { next(err); }
 });
 
 // ------------------------------- غرفة قيادة التسويق — قبل /:id ------------------------------- //

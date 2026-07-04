@@ -177,6 +177,7 @@ export const leadApi = {
   exportUrl: () => `${BASE}/leads/export/csv`,
   marketingStats: () => api.get('/leads/marketing-stats'),
   arabCountries: () => api.get('/leads/arab-countries'),
+  invoiceToolUsers: () => api.get('/leads/invoice-tool'),
 };
 
 // الأدوات المجانية العامة — التقاط استخدام مولّد الفواتير كعميل محتمل (نقطة عامة بلا مصادقة)

@@ -24,7 +24,6 @@ const STAGE_CLS: Record<LeadStage, string> = {
 const SOURCE_LABEL: Record<string, string> = {
   osm: 'خرائط OSM', geoapify: 'Geoapify', tomtom: 'TomTom', serper: 'بحث الويب', linkedin: 'LinkedIn',
   here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', community: 'قروبات/مجتمعات', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
-  'invoice-tool': '🧾 مولّد الفواتير',
 };
 
 type Filters = {

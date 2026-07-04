@@ -276,6 +276,7 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'مالك المنصّة': { en: 'Platform owner', fr: 'Propriétaire de la plateforme' },
   'خروج': { en: 'Sign out', fr: 'Déconnexion' },
   'العملاء المحتملون': { en: 'Leads', fr: 'Prospects' },
+  'عملاء مولّد الفواتير': { en: 'Invoice Tool Users', fr: 'Utilisateurs du générateur' },
   'محتوى الصفحة': { en: 'Site content', fr: 'Contenu du site' },
   'متابعة SEO': { en: 'SEO monitor', fr: 'Suivi SEO' },
   'متابعة GEO': { en: 'AI visibility (GEO)', fr: 'Visibilité IA (GEO)' },
