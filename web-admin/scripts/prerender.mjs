@@ -67,7 +67,7 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   h = h.replace(/(<meta name="twitter:image" content=")[^"]*("\s*\/>)/, `$1${image}$2`);
   const extra = hreflang + (jsonLd ? `\n    <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : '');
   h = h.replace('</head>', `${extra}\n  </head>`);
-  if (bodyHtml) h = h.replace(/<div id="root">\s*<\/div>/, `<div id="root">${bodyHtml}</div>`);
+  if (bodyHtml) h = h.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${bodyHtml}</div></div>`);
   return h;
 }
 
@@ -339,7 +339,7 @@ async function main() {
 <p><a href="/blog">المدوّنة</a> · <a href="/calculator">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator">مولّد الفاتورة الضريبية المجاني</a> · <a href="/about">عن المنصّة</a> · <a href="/contact">تواصل معنا</a> · <a href="/en">English</a> · <a href="/fr">Français</a></p>
 <p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}">${esc(c.ar)}</a>`).join(' · ')}</p>
 </main>`;
-  const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root">${homeAr}</div>`);
+  const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
   n++;
 

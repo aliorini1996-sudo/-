@@ -201,9 +201,24 @@
       ]
     }
     </script>
+
+    <!-- إخفاء محتوى الـSEO المُصيَّر عن متصفّحات JavaScript (يبقى في HTML لزواحف الذكاء الاصطناعي بلا JS)
+         + شاشة إقلاع بالهوية تمنع وميض المحتوى الخام قبل تحميل React -->
+    <style>
+      #root [data-ssr]{display:none!important}
+      #boot{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#FAF7F0;transition:opacity .35s ease}
+      #boot.hide{opacity:0;pointer-events:none}
+      #boot .spin{width:24px;height:24px;border:3px solid #E9E1D3;border-top-color:#E15A30;border-radius:50%;animation:bootspin .7s linear infinite}
+      @keyframes bootspin{to{transform:rotate(360deg)}}
+    </style>
+    <noscript><style>#root [data-ssr]{display:block!important}#boot{display:none!important}</style></noscript>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot" aria-hidden="true">
+      <svg width="52" height="52" viewBox="0 0 120 120"><rect width="120" height="120" rx="30" fill="#E15A30"/><polyline points="32,88 60,60 90,32" stroke="#FAF7F0" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="32" cy="88" r="8" fill="#FAF7F0"/><circle cx="60" cy="60" r="6" fill="#FAF7F0"/><circle cx="90" cy="32" r="12" fill="#1F1A13"/><circle cx="90" cy="32" r="5.5" fill="#FAF7F0"/></svg>
+      <div class="spin"></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

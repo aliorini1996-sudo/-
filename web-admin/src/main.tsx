@@ -34,3 +34,16 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </React.StrictMode>
 );
+
+// إخفاء شاشة الإقلاع بعد أول رسم لـReact — بمشغّلات متعددة لضمان العمل حتى في التبويبات
+// الخلفية (حيث يتوقّف requestAnimationFrame)، فلا تبقى الشاشة تُغطّي التطبيق أبداً.
+function hideBoot() {
+  const boot = document.getElementById('boot');
+  if (!boot || boot.classList.contains('hide')) return;
+  boot.classList.add('hide');
+  setTimeout(() => boot.remove(), 400);
+}
+requestAnimationFrame(() => requestAnimationFrame(hideBoot)); // المسار السريع (تبويب أمامي)
+setTimeout(hideBoot, 1500);                                    // احتياطي مضمون يعمل في كل الحالات
+window.addEventListener('load', hideBoot);                     // بعد اكتمال تحميل الموارد
+document.addEventListener('visibilitychange', () => { if (!document.hidden) hideBoot(); }); // عند إظهار التبويب
