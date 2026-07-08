@@ -13,6 +13,24 @@ body {
   color: #1F1A13;
 }
 
+/* ===== إحساس تطبيق أصلي (يزيل سلوكيات صفحة الويب في تطبيق TWA) ===== */
+html, body {
+  overscroll-behavior: none;                /* لا اهتزاز/توهّج «سحب للتحديث» */
+  -webkit-tap-highlight-color: transparent; /* لا وميض أزرق عند اللمس */
+  -webkit-touch-callout: none;              /* لا قائمة نسخ عند الضغط المطوّل */
+  touch-action: manipulation;               /* لا تكبير بنقر مزدوج ولا تأخير */
+}
+body {
+  -webkit-user-select: none;                /* لا تحديد نص عرضي (شعور تطبيق) */
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+/* إعادة تفعيل التحديد للحقول ومحتوى القراءة (المدوّنة/المقالات) */
+input, textarea, [contenteditable="true"], .article-prose, .selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* خلفية «الأورورا» الناعمة — طبقة ثابتة خلف كل صفحات المنصّة (كريمي + توهّجات مرجانية/كهرمانية/خضراء مموّهة) */
 body::before {
   content: "";
