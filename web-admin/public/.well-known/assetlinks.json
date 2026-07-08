@@ -3,9 +3,9 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.dsd.fieldsales",
+      "package_name": "net.fieldsa.twa",
       "sha256_cert_fingerprints": [
-        "2C:19:81:42:A2:1B:92:C1:54:47:64:7E:65:37:EB:BE:C8:FE:01:B4:D4:8D:F4:93:64:70:DB:D2:49:0F:58:55"
+        "BF:EB:DB:74:6A:80:CD:8C:76:68:4A:9E:5E:30:0C:3E:16:D7:EE:59:E3:62:32:8C:31:E5:39:21:7E:39:1C:8A"
       ]
     }
   }
