@@ -1021,13 +1021,16 @@ export default function RepApp() {
     { id: 'vanstock', label: 'مخزوني', icon: Truck },
   ];
 
-  // Phone frame
+  // إطار الجوّال يظهر فقط على سطح المكتب (للمعاينة). أمّا على الجوّال الحقيقي أو داخل
+  // التطبيق (PWA/TWA) فيُعرض المحتوى ملء الشاشة — وإلا ظهر «جوال داخل جوال».
+  const framed = !(typeof window !== 'undefined' &&
+    (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(max-width: 640px)').matches));
   return (
-    <div className="min-h-screen bg-slate-200 flex items-center justify-center p-4" dir="rtl">
-      <div className="relative w-[400px] h-[820px] bg-black rounded-[44px] p-2.5 shadow-2xl">
-        {/* notch */}
-        <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-30" />
-        <div className="w-full h-full bg-white rounded-[36px] overflow-hidden relative flex flex-col">
+    <div className={framed ? 'min-h-screen bg-slate-200 flex items-center justify-center p-4' : 'bg-white'} style={framed ? undefined : { height: '100dvh' }} dir="rtl">
+      <div className={framed ? 'relative w-[400px] h-[820px] bg-black rounded-[44px] p-2.5 shadow-2xl' : 'relative w-full h-full'}>
+        {/* notch — سطح المكتب فقط */}
+        {framed && <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-30" />}
+        <div className={framed ? 'w-full h-full bg-white rounded-[36px] overflow-hidden relative flex flex-col' : 'w-full h-full bg-white overflow-hidden relative flex flex-col'}>
           {!token || !user ? (
             <RepLogin onLogin={login} />
           ) : docResult ? (
