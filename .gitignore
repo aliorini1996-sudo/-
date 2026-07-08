@@ -9,3 +9,4 @@ Thumbs.db
 # ملفات مؤقتة
 web-admin/tsconfig.tsbuildinfo
 web-admin/.claude/
+backups/

@@ -4,3 +4,4 @@ dist/
 *.db
 *.db-journal
 media/
+_backup.cjs
