@@ -17,6 +17,7 @@ import SeoDashboard from '../components/SeoDashboard';
 import GeoDashboard from '../components/GeoDashboard';
 import VisitsPanel from '../components/VisitsPanel';
 import LeadsPanel from '../components/LeadsPanel';
+import CompanyHealthPanel from '../components/CompanyHealthPanel';
 import InvoiceToolPanel from '../components/InvoiceToolPanel';
 import PromoVideosPanel from '../components/PromoVideosPanel';
 import { BrandIcon } from '../components/BrandLogo';
@@ -30,6 +31,7 @@ export default function PlatformPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
+  const [showHealth, setShowHealth] = useState(false);
   const [showSeo, setShowSeo] = useState(false);
   const [showGeo, setShowGeo] = useState(false);
   const [showVisits, setShowVisits] = useState(false);
@@ -100,6 +102,9 @@ export default function PlatformPage() {
 
         {/* روابط التنقّل */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+          <button onClick={() => setShowHealth(true)} className="sidebar-link w-full">
+            <BarChart3 size={18} className="flex-shrink-0" /> <span>{tr('صحّة الشركة')}</span>
+          </button>
           <button onClick={() => setShowLeads(true)} className="sidebar-link w-full text-[#E15A30] hover:bg-[#E15A30]/15 hover:text-[#f0703f]">
             <Target size={18} className="flex-shrink-0" /> <span>{tr('العملاء المحتملون')}</span>
           </button>
@@ -279,6 +284,7 @@ export default function PlatformPage() {
           onClose={() => setResetTarget(null)}
         />
       )}
+      {showHealth && <CompanyHealthPanel onClose={() => setShowHealth(false)} />}
       {showLeads && <LeadsPanel onClose={() => setShowLeads(false)} />}
       {showInvoiceTool && <InvoiceToolPanel onClose={() => setShowInvoiceTool(false)} />}
       {showPromoVideos && <PromoVideosPanel onClose={() => setShowPromoVideos(false)} />}
