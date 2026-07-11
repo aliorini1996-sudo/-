@@ -21,6 +21,7 @@ export interface HuntConfig {
   enrichHunter: boolean;
   limit: number;
   countryIndex: number;
+  cityIndex?: number;
   lastRunAt: string | null;
   totalRuns: number;
   totalImported: number;
@@ -50,6 +51,29 @@ const DEFAULT_CONFIG: HuntConfig = {
 };
 
 const CONFIG_ID = 'lead_autohunt';
+
+// بنك مدن رئيسية لكل دولة — تدوير مناطق البحث يضاعف مساحة الصيد الطازجة (كل مدينة شركات محلية جديدة)
+const CITY_BANK: Record<string, string[]> = {
+  'السعودية': ['الرياض', 'جدة', 'مكة', 'المدينة المنورة', 'الدمام', 'الخبر', 'الطائف', 'بريدة', 'تبوك', 'خميس مشيط', 'حائل', 'نجران', 'الأحساء', 'القطيف', 'ينبع', 'أبها', 'الجبيل', 'عرعر'],
+  'مصر': ['القاهرة', 'الجيزة', 'الإسكندرية', 'شبرا الخيمة', 'بورسعيد', 'السويس', 'المنصورة', 'طنطا', 'أسيوط', 'الفيوم', 'الزقازيق', 'الإسماعيلية', 'أسوان', 'دمياط', 'المنيا', 'بني سويف', 'سوهاج', 'المحلة الكبرى'],
+  'الإمارات': ['دبي', 'أبوظبي', 'الشارقة', 'العين', 'عجمان', 'رأس الخيمة', 'الفجيرة', 'أم القيوين'],
+  'الكويت': ['مدينة الكويت', 'حولي', 'الفروانية', 'الأحمدي', 'الجهراء', 'مبارك الكبير', 'الفحيحيل', 'الصليبية'],
+  'قطر': ['الدوحة', 'الريان', 'الوكرة', 'الخور', 'أم صلال', 'الشحانية', 'مسيعيد'],
+  'البحرين': ['المنامة', 'المحرق', 'الرفاع', 'مدينة حمد', 'مدينة عيسى', 'سترة', 'جدحفص'],
+  'عُمان': ['مسقط', 'صلالة', 'صحار', 'نزوى', 'صور', 'البريمي', 'عبري', 'بركاء', 'الرستاق', 'إبراء'],
+  'الأردن': ['عمّان', 'الزرقاء', 'إربد', 'الرصيفة', 'العقبة', 'السلط', 'مادبا', 'جرش', 'المفرق', 'الكرك'],
+  'المغرب': ['الدار البيضاء', 'الرباط', 'فاس', 'مراكش', 'طنجة', 'أكادير', 'مكناس', 'وجدة', 'القنيطرة', 'تطوان', 'سلا', 'الجديدة', 'بني ملال'],
+  'الجزائر': ['الجزائر', 'وهران', 'قسنطينة', 'عنابة', 'باتنة', 'البليدة', 'سطيف', 'سيدي بلعباس', 'بسكرة', 'تلمسان', 'بجاية', 'تيزي وزو', 'ورقلة'],
+  'تونس': ['تونس', 'صفاقس', 'سوسة', 'القيروان', 'بنزرت', 'قابس', 'أريانة', 'المنستير', 'قفصة', 'نابل'],
+  'العراق': ['بغداد', 'البصرة', 'الموصل', 'أربيل', 'النجف', 'كربلاء', 'السليمانية', 'كركوك', 'الناصرية', 'الحلة', 'الرمادي', 'دهوك', 'العمارة'],
+  'لبنان': ['بيروت', 'طرابلس', 'صيدا', 'صور', 'جونية', 'زحلة', 'بعلبك', 'النبطية', 'جبيل'],
+  'ليبيا': ['طرابلس', 'بنغازي', 'مصراتة', 'الزاوية', 'البيضاء', 'سبها', 'طبرق', 'زليتن', 'أجدابيا', 'الخمس'],
+  'فلسطين': ['غزة', 'رام الله', 'نابلس', 'الخليل', 'جنين', 'بيت لحم', 'طولكرم', 'قلقيلية', 'رفح', 'خان يونس'],
+  'السودان': ['الخرطوم', 'أم درمان', 'بورتسودان', 'كسلا', 'الأبيض', 'نيالا', 'ود مدني', 'القضارف', 'الفاشر', 'كوستي'],
+  'اليمن': ['صنعاء', 'عدن', 'تعز', 'الحديدة', 'المكلا', 'إب', 'ذمار', 'سيئون'],
+  'سوريا': ['دمشق', 'حلب', 'حمص', 'حماة', 'اللاذقية', 'طرطوس', 'دير الزور', 'الرقة', 'الحسكة'],
+  'موريتانيا': ['نواكشوط', 'نواذيبو', 'كيفة', 'روصو', 'كيهيدي', 'زويرات', 'العيون'],
+};
 
 export async function getHuntConfig(): Promise<HuntConfig> {
   const row = await prisma.siteContent.findUnique({ where: { id: CONFIG_ID } });
@@ -122,6 +146,11 @@ export async function runAutoHuntBatch(createdBy = 'auto-hunt'): Promise<{
   const providers = cfg.providers.filter((p) => ready[p]);
   const country = cfg.countries[cfg.countryIndex % Math.max(1, cfg.countries.length)] || 'السعودية';
 
+  // تدوير المدينة تلقائياً (إن لم يحدّد المالك مدينة ثابتة) — كل دفعة تبحث منطقة جديدة
+  // فتتضاعف مساحة الصيد الطازجة بدل استنزاف نتائج مستوى الدولة نفسها.
+  const cities = CITY_BANK[country] || [];
+  const activeCity = cfg.city || (cities.length ? cities[(cfg.cityIndex ?? 0) % cities.length] : null);
+
   // الكلمات المستخدمة مؤخراً (لتجنّب التكرار)
   const recent = await prisma.leadSearch.findMany({
     orderBy: { createdAt: 'desc' }, take: 80, select: { query: true },
@@ -130,14 +159,14 @@ export async function runAutoHuntBatch(createdBy = 'auto-hunt'): Promise<{
   const keywords = await generateKeywords(country, cfg.keywordsPerRun, used);
 
   const search = await prisma.leadSearch.create({
-    data: { provider: providers.join('+') || 'none', query: keywords.join('، '), country, city: cfg.city, status: 'running', createdBy },
+    data: { provider: providers.join('+') || 'none', query: keywords.join('، '), country, city: activeCity, status: 'running', createdBy },
   });
 
   const rawAll: RawLead[] = [];
   const errors: string[] = [];
   for (const p of providers) {
     for (const q of keywords) {
-      try { rawAll.push(...(await runSearch(p, q, country, cfg.city || undefined, cfg.limit))); }
+      try { rawAll.push(...(await runSearch(p, q, country, activeCity || undefined, cfg.limit))); }
       catch (e) { errors.push(`${p} · «${q}»: ${(e as Error).message}`); }
     }
   }
@@ -194,6 +223,8 @@ export async function runAutoHuntBatch(createdBy = 'auto-hunt'): Promise<{
   await prisma.leadSearch.update({ where: { id: search.id }, data: { status: 'done', found: raw.length, imported, error: errors.length ? errors.join(' | ') : null } });
 
   cfg.countryIndex = (cfg.countryIndex + 1) % Math.max(1, cfg.countries.length);
+  // بعد إكمال دورة كاملة على كل الدول، انتقل لمدينة تالية في كل دولة (تغطية شبكية كاملة: دول × مدن)
+  if (cfg.countryIndex === 0) cfg.cityIndex = (cfg.cityIndex ?? 0) + 1;
   cfg.totalRuns += 1;
   cfg.totalImported += imported;
   cfg.lastRunAt = new Date().toISOString();
