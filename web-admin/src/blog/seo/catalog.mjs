@@ -635,6 +635,12 @@ function relatedLinks(topic, c, L) {
 }
 
 // يبني قائمة المقالات (بيانات وصفية فقط) للغة معيّنة — للفهرس وخريطة الموقع
+// طبقة كلمات مفتاحية عالية النية تُضاف لكل مقال — تقوّي تغطية مصطلحات الشراء في الأسواق العربية
+const EXTRA_KW = (c, L) => P(L,
+  `فان سيلز ${c.ar}, البيع من السيارة ${c.ar}, DSD ${c.ar}, أتمتة قوة المبيعات, برنامج مناديب ${c.ar}, برنامج توزيع FMCG ${c.ar}, برنامج شركات الجملة ${c.ar}, تطبيق مندوب مبيعات ${c.ar}, حسابات خطوط السير, إدارة الموزّعين ${c.ar}, برنامج توزيع مواد غذائية ${c.ar}, نظام نقاط بيع متنقّل`,
+  `van sales software ${c.en}, DSD software ${c.en}, sales force automation ${c.en}, field force automation, distributor management ${c.en}, FMCG distribution software ${c.en}, wholesale distribution software ${c.en}, route accounting ${c.en}, mobile sales app ${c.en}, food distribution software ${c.en}`,
+  `logiciel van sales ${c.fr}, DSD ${c.fr}, automatisation force de vente ${c.fr}, gestion des distributeurs ${c.fr}, logiciel distribution FMCG ${c.fr}, logiciel de gros ${c.fr}, comptabilité de tournée, application commerciale mobile ${c.fr}`);
+
 export function listArticles(L) {
   const out = [];
   for (const [slug, { topic, country, date }] of index()) {
@@ -643,7 +649,7 @@ export function listArticles(L) {
       countryCode: topic.cs ? country.code : null,
       title: titleOf(topic, country, L),
       excerpt: excerptOf(topic, country, L),
-      keywords: topic.kw(country, L),
+      keywords: topic.kw(country, L) + ', ' + EXTRA_KW(country, L),
       description: descOf(topic, country, L),
     });
   }
@@ -671,7 +677,7 @@ export function getArticle(slug, L) {
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
   const contentHtml = `${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
-    slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L),
+    slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
     excerpt: excerptOf(topic, c, L), contentHtml, date, readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     faq: faqData(c, L),
