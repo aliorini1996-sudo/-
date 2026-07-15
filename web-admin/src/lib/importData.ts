@@ -152,17 +152,28 @@ function toBalances(rows: Record<string, unknown>[]): TransformOut {
 const A_LED = {
   ...CUST_ID,
   date: ['التاريخ', 'date'],
-  description: ['البيان', 'الوصف', 'التفاصيل', 'اسم الحساب', 'description', 'details', 'memo', 'label'],
+  description: ['البيان', 'الوصف', 'التفاصيل', 'مرجع الطلب', 'رقم الإيصال', 'رقم الطلب', 'اسم الحساب', 'description', 'details', 'memo', 'reference'],
   debit: ['المدين', 'مدين', 'debit', 'dr'],
   credit: ['الدائن', 'دائن', 'credit', 'cr'],
+  amount: ['الإجمالي', 'المبلغ', 'الصافي', 'القيمة', 'total', 'amount', 'net'],
+  status: ['الحالة', 'status', 'state'],
 };
 function toLedger(rows: Record<string, unknown>[]): TransformOut {
   const valid: Record<string, unknown>[] = []; const errors: { row: number; message: string }[] = [];
   rows.forEach((row) => {
     const cn = pick(row, A_LED.name); const cc = pick(row, A_LED.code); const ph = pick(row, A_LED.phone);
     if (!cn && !cc && !ph) return;                       // صف بلا عميل (حسابات عامة) — يُتجاهَل بلا خطأ
-    const debit = numOr(pick(row, A_LED.debit), 0) || 0; const credit = numOr(pick(row, A_LED.credit), 0) || 0;
-    if (!debit && !credit) return;                        // بلا مبلغ — يُتجاهَل
+    let debit = numOr(pick(row, A_LED.debit), 0) || 0; let credit = numOr(pick(row, A_LED.credit), 0) || 0;
+    if (!debit && !credit) {
+      // لا أعمدة مدين/دائن → عامل الملف كمبيعات: الإجمالي = مدين (على الحساب)، والمدفوع = دائن مقابل
+      const amt = numOr(pick(row, A_LED.amount), undefined);
+      if (amt === undefined) return;                      // بلا مبلغ — يُتجاهَل
+      const st = norm(pick(row, A_LED.status));
+      if (st && (st.includes('لغ') || st.includes('cancel') || st.includes('void'))) return; // ملغى — يُتجاهَل
+      const paid = !!st && (st.includes('مدفوع') || st.includes('paid') || st.includes('سداد'));
+      debit = amt; credit = paid ? amt : 0;
+    }
+    if (!debit && !credit) return;
     valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, date: pick(row, A_LED.date) || undefined, description: pick(row, A_LED.description) || undefined, debit, credit });
   });
   return { valid, errors };
