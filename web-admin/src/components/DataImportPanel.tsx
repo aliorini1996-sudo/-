@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { importApi } from '../api/client';
 import { parseExcelFile, IMPORT_TYPES, ImportKind } from '../lib/importData';
 import { useTr } from '../i18n/strings';
-import { Users, Package, Wallet, BookOpen, Tags, Upload, X, Check, AlertTriangle, Loader2, FileUp } from 'lucide-react';
+import { formatDate } from '../utils/format';
+import ConfirmDialog from './ConfirmDialog';
+import { Users, Package, Wallet, BookOpen, Tags, Upload, X, Check, AlertTriangle, Loader2, FileUp, RotateCcw, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 type Rows = Record<string, unknown>[];
 interface Preview { kind: ImportKind; fileName: string; valid: Rows; errors: { row: number; message: string }[] }
 interface ImportResult { created: number; skipped: number; total: number; errors: { row: number; message: string }[] }
+interface Batch { id: string; kind: string; count: number; createdBy?: string | null; createdAt: string }
 
 // قسم استيراد بيانات الشركة السابقة — أيقونة رفع لكل نوع بيانات (في إعدادات الشركة)
 export default function DataImportPanel() {
@@ -17,6 +20,24 @@ export default function DataImportPanel() {
   const [busy, setBusy] = useState<ImportKind | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [result, setResult] = useState<{ kind: ImportKind; res: ImportResult } | null>(null);
+  const [revertId, setRevertId] = useState<string | null>(null);
+
+  const { data: batches } = useQuery({
+    queryKey: ['import-batches'],
+    queryFn: async () => (await importApi.batches()).data.data as Batch[],
+  });
+  const revertMut = useMutation({
+    mutationFn: (id: string) => importApi.revert(id),
+    onSuccess: (res) => {
+      const d = res.data.data as { removed: number; blocked: number };
+      toast.success(`${tr('تمت الإزالة')}: ${d.removed}${d.blocked ? ` · ${tr('محميّ (له معاملات)')}: ${d.blocked}` : ''}`);
+      qc.invalidateQueries({ queryKey: ['import-batches'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      setRevertId(null);
+    },
+    onError: (e) => { toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر التراجع')); setRevertId(null); },
+  });
 
   const onFile = async (kind: ImportKind, file?: File) => {
     if (!file) return;
@@ -40,6 +61,7 @@ export default function DataImportPanel() {
       setPreview(null);
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['import-batches'] });
     } catch (e) {
       toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الاستيراد'));
     }
@@ -82,6 +104,40 @@ export default function DataImportPanel() {
           </div>
         ))}
       </div>
+
+      {/* سجلّ الاستيرادات — تراجع/إزالة أي دفعة بها مشكلة */}
+      {batches && batches.length > 0 && (
+        <div className="mt-5 border-t border-[#E9E1D3] pt-4">
+          <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> {tr('سجلّ الاستيرادات (يمكن التراجع عن أيّ دفعة)')}</h4>
+          <div className="space-y-2">
+            {batches.map((b) => (
+              <div key={b.id} className="flex items-center justify-between bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2">
+                <div className="text-sm">
+                  <span className="font-semibold text-gray-800">{tr(IMPORT_TYPES[b.kind as ImportKind]?.label || b.kind)}</span>
+                  <span className="text-gray-500 text-xs mr-2">· {b.count} {tr('سجل')} · {formatDate(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
+                </div>
+                <button onClick={() => setRevertId(b.id)} disabled={revertMut.isPending}
+                  className="text-red-600 hover:bg-red-50 rounded-lg px-2.5 py-1 text-xs flex items-center gap-1 shrink-0">
+                  <RotateCcw size={13} /> {tr('تراجع / إزالة')}
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-2">{tr('التراجع يزيل ما أُضيف في تلك الدفعة ويعيد حساب الأرصدة، ولا يحذف العملاء الذين لديهم فواتير أو سندات حقيقية.')}</p>
+        </div>
+      )}
+
+      {revertId && (
+        <ConfirmDialog
+          danger
+          title={tr('التراجع عن الاستيراد')}
+          message={tr('سيُزال ما أُضيف في هذه الدفعة نهائياً وتُعاد الأرصدة إلى ما قبلها. متابعة؟')}
+          confirmLabel={tr('نعم، أزِل')}
+          loading={revertMut.isPending}
+          onConfirm={() => revertMut.mutate(revertId)}
+          onClose={() => setRevertId(null)}
+        />
+      )}
 
       {/* معاينة قبل الاستيراد */}
       {preview && (

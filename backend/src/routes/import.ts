@@ -19,7 +19,14 @@ const CHANNELS = ['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE'
 const normName = (s: string): string => s.trim().toLowerCase()
   .replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي').replace(/\s+/g, ' ');
 
-type ImportResult = { created: number; skipped: number; total: number; errors: { row: number; message: string }[] };
+type ImportResult = { created: number; skipped: number; total: number; errors: { row: number; message: string }[]; batchId?: string | null };
+
+// يسجّل دفعة استيراد بمعرّفات السجلات المُنشأة (لإتاحة التراجع)
+async function recordBatch(tid: string, kind: string, ids: string[], by?: string): Promise<string | null> {
+  if (!ids.length) return null;
+  const b = await prisma.importBatch.create({ data: { tenantId: tid, kind, count: ids.length, recordIds: JSON.stringify(ids), createdBy: by || null } });
+  return b.id;
+}
 
 // ===== استيراد العملاء =====
 const customerRow = z.object({
@@ -43,6 +50,7 @@ router.post('/customers', async (req: AuthRequest, res: Response, next: NextFunc
     const tid = tenantId(req);
     const rows = z.array(customerRow).max(5000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const createdIds: string[] = [];
 
     // موجودون مسبقاً (جوال/كود) لتفادي التكرار
     const existing = await prisma.customer.findMany({ where: { tenantId: tid }, select: { phone: true, code: true, name: true } });
@@ -55,7 +63,7 @@ router.post('/customers', async (req: AuthRequest, res: Response, next: NextFunc
       try {
         // تخطّي المكرّر بالجوال أو الكود أو الاسم (لتفادي التكرار عند إعادة الاستيراد)
         if ((r.phone && phones.has(r.phone)) || (r.code && codes.has(r.code)) || names.has(normName(r.name))) { result.skipped++; continue; }
-        await prisma.customer.create({
+        const c = await prisma.customer.create({
           data: {
             tenantId: tid,
             name: r.name,
@@ -73,6 +81,7 @@ router.post('/customers', async (req: AuthRequest, res: Response, next: NextFunc
             ...(r.code ? { code: r.code } : {}),
           } as never,
         });
+        createdIds.push(c.id);
         result.created++;
         if (r.phone) phones.add(r.phone);
         if (r.code) codes.add(r.code);
@@ -81,6 +90,7 @@ router.post('/customers', async (req: AuthRequest, res: Response, next: NextFunc
         result.errors.push({ row: i + 2, message: (e as Error).message?.slice(0, 140) || 'خطأ غير معروف' });
       }
     }
+    result.batchId = await recordBatch(tid, 'customers', createdIds, (req.user as { name?: string } | undefined)?.name);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
@@ -101,6 +111,7 @@ router.post('/products', async (req: AuthRequest, res: Response, next: NextFunct
     const tid = tenantId(req);
     const rows = z.array(productRow).max(5000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const createdIds: string[] = [];
 
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
     const defaultVat = company?.defaultVatPct ?? 15;
@@ -124,19 +135,21 @@ router.post('/products', async (req: AuthRequest, res: Response, next: NextFunct
             categoryId = nc.id; catByName.set(r.category, nc.id);
           }
         }
-        await prisma.product.create({
+        const p = await prisma.product.create({
           data: {
             tenantId: tid, code: r.code, name: r.name, unit: r.unit || 'حبة',
             basePrice: r.basePrice ?? 0, taxPct: r.taxPct ?? defaultVat,
             barcode: r.barcode || null, categoryId,
           } as never,
         });
+        createdIds.push(p.id);
         result.created++;
         codes.add(r.code);
       } catch (e) {
         result.errors.push({ row: i + 2, message: (e as Error).message?.slice(0, 140) || 'خطأ غير معروف' });
       }
     }
+    result.batchId = await recordBatch(tid, 'products', createdIds, (req.user as { name?: string } | undefined)?.name);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
@@ -164,6 +177,7 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
     const tid = tenantId(req);
     const rows = z.array(balanceRow).max(10000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const createdIds: string[] = [];
     const findCust = await customerFinder(tid);
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -175,10 +189,10 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
         const exists = await prisma.accountEntry.findFirst({ where: { customerId: cid, description: 'رصيد افتتاحي' }, select: { id: true } });
         if (exists) { result.skipped++; continue; }
         const amount = r.balance; const date = r.date ? new Date(r.date) : new Date();
-        await prisma.$transaction(async tx => {
+        const eid = await prisma.$transaction(async tx => {
           const last = await tx.accountEntry.findFirst({ where: { customerId: cid }, orderBy: { entryDate: 'desc' } });
           const prev = Number(last?.balance ?? 0);
-          await tx.accountEntry.create({
+          const e = await tx.accountEntry.create({
             data: {
               tenantId: tid, customerId: cid,
               type: amount >= 0 ? 'ADJUSTMENT_DEBIT' : 'ADJUSTMENT_CREDIT',
@@ -187,10 +201,13 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
             },
           });
           await tx.customer.update({ where: { id: cid }, data: { balance: { increment: amount } } });
+          return e.id;
         });
+        createdIds.push(eid);
         result.created++;
       } catch (e) { result.errors.push({ row: i + 2, message: (e as Error).message?.slice(0, 140) || 'خطأ' }); }
     }
+    result.batchId = await recordBatch(tid, 'balances', createdIds, (req.user as { name?: string } | undefined)?.name);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
@@ -210,6 +227,7 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
     const tid = tenantId(req);
     const rows = z.array(ledgerRow).max(20000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const createdIds: string[] = [];
     const findCust = await customerFinder(tid);
     // تجميع الحركات حسب العميل ثم ترتيبها زمنياً لحساب الرصيد المتحرّك
     const groups = new Map<string, { row: number; date?: string; description?: string; debit: number; credit: number }[]>();
@@ -222,12 +240,13 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
     for (const [cid, entries] of groups) {
       try {
         entries.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+        const groupIds: string[] = [];
         await prisma.$transaction(async tx => {
           const last = await tx.accountEntry.findFirst({ where: { customerId: cid }, orderBy: { entryDate: 'desc' } });
           let running = Number(last?.balance ?? 0);
           for (const e of entries) {
             running += e.debit - e.credit;
-            await tx.accountEntry.create({
+            const ae = await tx.accountEntry.create({
               data: {
                 tenantId: tid, customerId: cid,
                 type: e.debit >= e.credit ? 'ADJUSTMENT_DEBIT' : 'ADJUSTMENT_CREDIT',
@@ -235,12 +254,15 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
                 description: e.description || 'قيد مستورد', entryDate: e.date ? new Date(e.date) : new Date(),
               },
             });
-            result.created++;
+            groupIds.push(ae.id);
           }
           await tx.customer.update({ where: { id: cid }, data: { balance: running } });
         }, { timeout: 20000 });
+        createdIds.push(...groupIds);
+        result.created += groupIds.length;
       } catch (e) { result.errors.push({ row: entries[0]?.row || 0, message: (e as Error).message?.slice(0, 140) || 'خطأ' }); }
     }
+    result.batchId = await recordBatch(tid, 'ledger', createdIds, (req.user as { name?: string } | undefined)?.name);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
@@ -258,6 +280,7 @@ router.post('/prices', async (req: AuthRequest, res: Response, next: NextFunctio
     const tid = tenantId(req);
     const rows = z.array(priceRow).max(20000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const createdIds: string[] = [];
     const findCust = await customerFinder(tid);
     const prods = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true } });
     const prodByCode = new Map(prods.map(p => [p.code, p.id]));
@@ -268,15 +291,92 @@ router.post('/prices', async (req: AuthRequest, res: Response, next: NextFunctio
         const pid = prodByCode.get(r.productCode);
         if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود — استورد العملاء أولاً' }); continue; }
         if (!pid) { result.errors.push({ row: i + 2, message: 'الصنف غير موجود — استورد المنتجات أولاً' }); continue; }
-        await prisma.customerPrice.upsert({
+        const cp = await prisma.customerPrice.upsert({
           where: { customerId_productId: { customerId: cid, productId: pid } },
           create: { customerId: cid, productId: pid, price: r.price },
           update: { price: r.price },
         });
+        createdIds.push(cp.id);
         result.created++;
       } catch (e) { result.errors.push({ row: i + 2, message: (e as Error).message?.slice(0, 140) || 'خطأ' }); }
     }
+    result.batchId = await recordBatch(tid, 'prices', createdIds, (req.user as { name?: string } | undefined)?.name);
     res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// ===== سجلّ الدفعات + التراجع =====
+// قائمة الدفعات غير المتراجَع عنها
+router.get('/batches', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const batches = await prisma.importBatch.findMany({
+      where: { tenantId: tid, reverted: false }, orderBy: { createdAt: 'desc' }, take: 50,
+      select: { id: true, kind: true, count: true, createdBy: true, createdAt: true },
+    });
+    res.json({ success: true, data: batches });
+  } catch (err) { next(err); }
+});
+
+// التراجع عن دفعة استيراد — يزيل سجلاتها بأمان ويعيد حساب الأرصدة
+router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const batch = await prisma.importBatch.findFirst({ where: { id: req.params.id, tenantId: tid, reverted: false } });
+    if (!batch) { res.status(404).json({ success: false, message: 'الدفعة غير موجودة أو متراجَع عنها' }); return; }
+    const ids: string[] = JSON.parse(batch.recordIds || '[]');
+    let removed = 0, blocked = 0;
+
+    if (batch.kind === 'customers') {
+      for (const cid of ids) {
+        // حماية: لا نحذف عميلاً له فواتير/سندات حقيقية
+        const [inv, rec] = await Promise.all([
+          prisma.invoice.count({ where: { customerId: cid } }),
+          prisma.receipt.count({ where: { customerId: cid } }),
+        ]);
+        if (inv > 0 || rec > 0) { blocked++; continue; }
+        await prisma.$transaction([
+          prisma.accountEntry.deleteMany({ where: { customerId: cid } }),
+          prisma.customerPrice.deleteMany({ where: { customerId: cid } }),
+          prisma.notification.deleteMany({ where: { customerId: cid } }),
+          prisma.customer.delete({ where: { id: cid } }),
+        ]);
+        removed++;
+      }
+    } else if (batch.kind === 'products') {
+      for (const pid of ids) {
+        const items = await prisma.invoiceItem.count({ where: { productId: pid } });
+        if (items > 0) { blocked++; continue; }
+        await prisma.$transaction([
+          prisma.priceTier.deleteMany({ where: { productId: pid } }),
+          prisma.customerPrice.deleteMany({ where: { productId: pid } }),
+          prisma.vanLoadItem.deleteMany({ where: { productId: pid } }),
+          prisma.product.delete({ where: { id: pid } }),
+        ]);
+        removed++;
+      }
+    } else if (batch.kind === 'balances' || batch.kind === 'ledger') {
+      // احذف القيود المستوردة ثم أعد حساب أرصدة العملاء المتأثّرين (وأرصدتهم المتحرّكة)
+      const entries = await prisma.accountEntry.findMany({ where: { id: { in: ids }, tenantId: tid }, select: { customerId: true } });
+      const affected = [...new Set(entries.map(e => e.customerId))];
+      const del = await prisma.accountEntry.deleteMany({ where: { id: { in: ids }, tenantId: tid } });
+      removed = del.count;
+      for (const cid of affected) {
+        const remaining = await prisma.accountEntry.findMany({ where: { customerId: cid }, orderBy: { entryDate: 'asc' } });
+        let running = 0;
+        for (const e of remaining) {
+          running += Number(e.debit) - Number(e.credit);
+          await prisma.accountEntry.update({ where: { id: e.id }, data: { balance: running } });
+        }
+        await prisma.customer.update({ where: { id: cid }, data: { balance: running } });
+      }
+    } else if (batch.kind === 'prices') {
+      const del = await prisma.customerPrice.deleteMany({ where: { id: { in: ids } } });
+      removed = del.count;
+    }
+
+    await prisma.importBatch.update({ where: { id: batch.id }, data: { reverted: true } });
+    res.json({ success: true, data: { removed, blocked, kind: batch.kind } });
   } catch (err) { next(err); }
 });
 

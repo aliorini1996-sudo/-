@@ -220,6 +220,8 @@ export const analyticsApi = {
 // استيراد بيانات الشركة من أنظمتها السابقة (Excel → صفوف)
 export const importApi = {
   run: (endpoint: string, rows: Record<string, unknown>[]) => api.post(endpoint, { rows }),
+  batches: () => api.get('/import/batches'),
+  revert: (id: string) => api.post(`/import/batches/${id}/revert`),
 };
 
 // رسائل التواصل من الصفحة التعريفية

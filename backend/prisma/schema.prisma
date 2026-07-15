@@ -50,8 +50,25 @@ model Tenant {
   vanLoads        VanLoad[]
   repLocations    RepLocation[]
   repSettlements  RepSettlement[]
+  importBatches   ImportBatch[]
 
   @@map("tenants")
+}
+
+// دفعة استيراد — تسجّل ما أُنشئ في كل رفعة لإتاحة التراجع/الإزالة الآمنة
+model ImportBatch {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind      String   // customers | products | balances | ledger | prices
+  count     Int      @default(0)
+  recordIds String   // JSON: مصفوفة معرّفات السجلات المُنشأة (للتراجع)
+  createdBy String?
+  reverted  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("import_batches")
 }
 
 model Admin {
