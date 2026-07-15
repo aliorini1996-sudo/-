@@ -24,6 +24,9 @@ export const defaultContentFr = {
       { title: 'Catalogue produits et tarifs', desc: 'Un catalogue produits unifié avec tarifs dégressifs par quantité et prix spéciaux par client, transmis au commercial sur le terrain en temps réel.' },
       { title: 'Équipe et rôles de l’entreprise', desc: 'Ajoutez des utilisateurs (responsable, superviseur, comptable) avec des autorisations précises par section — chaque membre voit et fait uniquement ce que vous autorisez.' },
       { title: 'Intégration ERP', desc: 'Synchronisez vos clients, produits, factures et reçus avec votre système ERP via une connexion sécurisée, avec des journaux de synchronisation détaillés.' },
+      { title: 'Classification par canal de vente', desc: 'Classez vos clients par canal de vente (commerce moderne, gros, commerce traditionnel, discounters, vente cash, e-commerce) et analysez les ventes par canal et par région.' },
+      { title: 'Scan de codes-barres', desc: 'Scannez les codes-barres des produits avec la caméra du mobile du commercial pour ajouter les articles à la facture rapidement et précisément sur le terrain.' },
+      { title: 'Retours intelligents (endommagé/échange)', desc: 'Créez des retours classés (normal/endommagé/échange), avec contrôle par l’admin du retour ou non au stock du véhicule, et une politique de réintégration par produit.' },
     ],
   },
   how: {

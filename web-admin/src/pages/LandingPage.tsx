@@ -525,7 +525,10 @@ export default function LandingPage() {
   // ونستخدم المحتوى الافتراضي الحالي حتى لا تُعرَض ميزات/نصوص قديمة. وإلا ندمج تحرير المالك.
   const savedItems = (data as { features?: { items?: unknown[] } } | null | undefined)?.features?.items;
   const cmsCurrent = Array.isArray(savedItems) && savedItems.length === defaultContent.features.items.length;
-  const arContent = (cmsCurrent ? mergeContent(defaultContent, data) : defaultContent) as Record<string, unknown>;
+  // ندمج تخصيصات CMS (روابط/تواصل/أسعار) دائماً؛ لكن إن كانت مميزات CMS أقدم (عدد مختلف)
+  // نستبدلها بالمميزات الافتراضية الحالية حتى تظهر الميزات الجديدة دون فقد تخصيصات المالك.
+  const merged = data ? mergeContent(defaultContent, data) : defaultContent;
+  const arContent = (cmsCurrent ? merged : { ...merged, features: defaultContent.features }) as Record<string, unknown>;
 
   const socialLinks = (arContent.social as Record<string, string>) || {};
   let html: string;

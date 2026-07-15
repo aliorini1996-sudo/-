@@ -24,6 +24,9 @@ export const defaultContentEn = {
       { title: 'Product catalog & pricing', desc: 'A unified product catalog with tiered pricing by quantity and special prices per customer, reaching reps in the field instantly.' },
       { title: 'Company team & roles', desc: 'Add admin, manager, and accountant users with granular per-section permissions — each member sees and does exactly what you allow.' },
       { title: 'ERP integration', desc: 'Sync your customers, products, invoices, and receipts to your ERP system over a secure connection, with detailed sync logs.' },
+      { title: 'Sales-channel classification', desc: 'Classify customers by sales channel (Modern Trade, Wholesale, Traditional Trade, Discounters, Cash Van, E-Commerce) and analyze sales by channel and geographic area.' },
+      { title: 'Barcode scanning', desc: 'Scan product barcodes with the rep’s phone camera to add items to the invoice quickly and accurately in the field.' },
+      { title: 'Smart returns (damaged/exchange)', desc: 'Create classified returns (normal/damaged/exchange), with admin control over whether each return goes back to van stock, plus a per-product restock policy.' },
     ],
   },
   how: {
