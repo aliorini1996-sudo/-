@@ -441,17 +441,19 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const inclPrice = (p: any) => round2(Number(p.basePrice) * (1 + Number(p.taxPct) / 100)); // السعر شامل الضريبة
 
   const addProduct = (p: any) => {
-    const idx = lines.findIndex(l => l.productId === p.id);
-    if (idx >= 0) { const c = [...lines]; c[idx].qty++; setLines(c); }
-    else setLines([...lines, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), refPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }]);
+    // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود
+    setLines(prev => {
+      const idx = prev.findIndex(l => l.productId === p.id);
+      if (idx >= 0) { const c = [...prev]; c[idx] = { ...c[idx], qty: c[idx].qty + 1 }; return c; }
+      return [...prev, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), refPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }];
+    });
   };
 
-  // مسح باركود → إيجاد الصنف بحقل barcode وإضافته
-  const onScan = (code: string) => {
-    setShowScanner(false);
+  // مسح باركود مستمرّ → إيجاد الصنف بحقل barcode وإضافته؛ يُعيد نتيجة للعرض داخل الماسح (يبقى مفتوحاً)
+  const onScan = (code: string): { ok: boolean; label: string } => {
     const p = products.find((x) => x.barcode && String(x.barcode) === code);
-    if (p) { addProduct(p); setMsg(''); }
-    else setMsg(tr('لا يوجد صنف بهذا الباركود'));
+    if (p) { addProduct(p); return { ok: true, label: p.name }; }
+    return { ok: false, label: `${tr('لا يوجد صنف بهذا الباركود')}: ${code}` };
   };
 
   // حدود صلاحيات المندوب (تُفرض أيضاً في الخادم كحارس نهائي)
