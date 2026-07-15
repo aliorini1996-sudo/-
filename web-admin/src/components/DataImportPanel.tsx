@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { importApi } from '../api/client';
-import { parseExcelFile, downloadTemplate, IMPORT_TYPES, ImportKind } from '../lib/importData';
+import { parseExcelFile, IMPORT_TYPES, ImportKind } from '../lib/importData';
 import { useTr } from '../i18n/strings';
-import { Users, Package, Wallet, BookOpen, Tags, Upload, Download, X, Check, AlertTriangle, Loader2, FileUp } from 'lucide-react';
+import { Users, Package, Wallet, BookOpen, Tags, Upload, X, Check, AlertTriangle, Loader2, FileUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 type Rows = Record<string, unknown>[];
@@ -60,7 +60,7 @@ export default function DataImportPanel() {
         <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] flex items-center justify-center"><FileUp size={20} className="text-[#E15A30]" /></div>
         <div>
           <h3 className="font-bold text-gray-800">{tr('استيراد البيانات من نظامك السابق')}</h3>
-          <p className="text-xs text-gray-500">{tr('نزّل القالب، املأه ببياناتك (أو ارفع ملف Excel مُصدَّر من نظامك)، ثم ارفعه — تُضاف تلقائياً لشركتك.')}</p>
+          <p className="text-xs text-gray-500">{tr('ارفع ملف Excel مُصدَّراً من نظامك السابق (بأي تنسيق) — يفهم النظام الأعمدة تلقائياً ويضيف البيانات مباشرةً، بلا قالب ولا إدخال يدوي.')}</p>
         </div>
       </div>
       <p className="text-[11px] text-amber-700 bg-amber-50/70 border border-amber-100 rounded-lg px-3 py-2 mt-3">
@@ -74,16 +74,11 @@ export default function DataImportPanel() {
               <Icon size={18} className="text-[#E15A30]" />
               <span className="font-semibold text-gray-800">{tr(IMPORT_TYPES[kind].label)}</span>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => downloadTemplate(kind)} className="btn-secondary flex-1 justify-center text-xs py-2">
-                <Download size={14} /> {tr('تنزيل القالب')}
-              </button>
-              <label className={`btn-primary flex-1 justify-center text-xs py-2 cursor-pointer ${busy === kind ? 'opacity-60 pointer-events-none' : ''}`}>
-                {busy === kind ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} {tr('رفع الملف')}
-                <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
-                  onChange={(e) => { onFile(kind, e.target.files?.[0]); e.currentTarget.value = ''; }} />
-              </label>
-            </div>
+            <label className={`btn-primary w-full justify-center text-xs py-2 cursor-pointer ${busy === kind ? 'opacity-60 pointer-events-none' : ''}`}>
+              {busy === kind ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} {tr('رفع الملف')}
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={(e) => { onFile(kind, e.target.files?.[0]); e.currentTarget.value = ''; }} />
+            </label>
           </div>
         ))}
       </div>

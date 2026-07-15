@@ -15,12 +15,17 @@ router.use(authenticate, requireAdmin);
 
 const CHANNELS = ['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE'];
 
+// تطبيع اسم العميل لمطابقته (توحيد الهمزات/التاء المربوطة/الياء وإزالة التشكيل)
+const normName = (s: string): string => s.trim().toLowerCase()
+  .replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي').replace(/\s+/g, ' ');
+
 type ImportResult = { created: number; skipped: number; total: number; errors: { row: number; message: string }[] };
 
 // ===== استيراد العملاء =====
 const customerRow = z.object({
   name: z.string().trim().min(1),
   phone: z.string().trim().optional().default(''),
+  email: z.string().trim().optional(),
   code: z.string().trim().optional(),            // كود العميل في النظام السابق (لربط الأرصدة لاحقاً)
   businessName: z.string().trim().optional(),
   commercialReg: z.string().trim().optional(),
@@ -40,19 +45,22 @@ router.post('/customers', async (req: AuthRequest, res: Response, next: NextFunc
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
 
     // موجودون مسبقاً (جوال/كود) لتفادي التكرار
-    const existing = await prisma.customer.findMany({ where: { tenantId: tid }, select: { phone: true, code: true } });
+    const existing = await prisma.customer.findMany({ where: { tenantId: tid }, select: { phone: true, code: true, name: true } });
     const phones = new Set(existing.map(e => e.phone).filter(Boolean));
     const codes = new Set(existing.map(e => e.code).filter(Boolean));
+    const names = new Set(existing.map(e => normName(e.name)));
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       try {
-        if ((r.phone && phones.has(r.phone)) || (r.code && codes.has(r.code))) { result.skipped++; continue; }
+        // تخطّي المكرّر بالجوال أو الكود أو الاسم (لتفادي التكرار عند إعادة الاستيراد)
+        if ((r.phone && phones.has(r.phone)) || (r.code && codes.has(r.code)) || names.has(normName(r.name))) { result.skipped++; continue; }
         await prisma.customer.create({
           data: {
             tenantId: tid,
             name: r.name,
             phone: r.phone || '—',
+            email: r.email || null,
             businessName: r.businessName || null,
             commercialReg: r.commercialReg || null,
             taxNumber: r.taxNumber || null,
@@ -68,6 +76,7 @@ router.post('/customers', async (req: AuthRequest, res: Response, next: NextFunc
         result.created++;
         if (r.phone) phones.add(r.phone);
         if (r.code) codes.add(r.code);
+        names.add(normName(r.name));
       } catch (e) {
         result.errors.push({ row: i + 2, message: (e as Error).message?.slice(0, 140) || 'خطأ غير معروف' });
       }
@@ -134,15 +143,17 @@ router.post('/products', async (req: AuthRequest, res: Response, next: NextFunct
 
 // خرائط ربط العملاء (بالكود أو الجوال)
 async function customerFinder(tid: string) {
-  const custs = await prisma.customer.findMany({ where: { tenantId: tid }, select: { id: true, code: true, phone: true } });
-  const byCode = new Map<string, string>(); const byPhone = new Map<string, string>();
-  for (const c of custs) { if (c.code) byCode.set(c.code, c.id); if (c.phone) byPhone.set(c.phone, c.id); }
-  return (code?: string, phone?: string): string | null =>
-    (code && byCode.get(code)) || (phone && byPhone.get(phone)) || null;
+  const custs = await prisma.customer.findMany({ where: { tenantId: tid }, select: { id: true, code: true, phone: true, name: true } });
+  const byCode = new Map<string, string>(); const byPhone = new Map<string, string>(); const byName = new Map<string, string>();
+  for (const c of custs) { if (c.code) byCode.set(c.code, c.id); if (c.phone) byPhone.set(c.phone, c.id); if (c.name) byName.set(normName(c.name), c.id); }
+  // يربط العميل بالكود أو الجوال أو الاسم (كثير من الأنظمة تُصدّر باسم العميل فقط)
+  return (name?: string, code?: string, phone?: string): string | null =>
+    (code && byCode.get(code)) || (phone && byPhone.get(phone)) || (name && byName.get(normName(name))) || null;
 }
 
 // ===== استيراد الأرصدة الافتتاحية =====
 const balanceRow = z.object({
+  customerName: z.string().trim().optional(),
   customerCode: z.string().trim().optional(),
   phone: z.string().trim().optional(),
   balance: z.number(),
@@ -157,7 +168,7 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       try {
-        const cid = findCust(r.customerCode, r.phone);
+        const cid = findCust(r.customerName, r.customerCode, r.phone);
         if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود — استورد العملاء أولاً' }); continue; }
         if (!r.balance) { result.skipped++; continue; }
         // تخطّي إن كان للعميل رصيد افتتاحي مسبقاً (تفادي التكرار)
@@ -186,6 +197,7 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
 
 // ===== استيراد كشوف الحسابات / دفتر الأستاذ =====
 const ledgerRow = z.object({
+  customerName: z.string().trim().optional(),
   customerCode: z.string().trim().optional(),
   phone: z.string().trim().optional(),
   date: z.string().trim().optional(),
@@ -202,8 +214,8 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
     // تجميع الحركات حسب العميل ثم ترتيبها زمنياً لحساب الرصيد المتحرّك
     const groups = new Map<string, { row: number; date?: string; description?: string; debit: number; credit: number }[]>();
     rows.forEach((r, i) => {
-      const cid = findCust(r.customerCode, r.phone);
-      if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود' }); return; }
+      const cid = findCust(r.customerName, r.customerCode, r.phone);
+      if (!cid) { result.skipped++; return; } // عميل غير مطابَق — يُتخطّى بلا خطأ
       if (!groups.has(cid)) groups.set(cid, []);
       groups.get(cid)!.push({ row: i + 2, date: r.date, description: r.description, debit: r.debit || 0, credit: r.credit || 0 });
     });
@@ -235,6 +247,7 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
 
 // ===== استيراد قوائم الأسعار (أسعار خاصة لكل عميل) =====
 const priceRow = z.object({
+  customerName: z.string().trim().optional(),
   customerCode: z.string().trim().optional(),
   phone: z.string().trim().optional(),
   productCode: z.string().trim().min(1),
@@ -251,7 +264,7 @@ router.post('/prices', async (req: AuthRequest, res: Response, next: NextFunctio
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       try {
-        const cid = findCust(r.customerCode, r.phone);
+        const cid = findCust(r.customerName, r.customerCode, r.phone);
         const pid = prodByCode.get(r.productCode);
         if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود — استورد العملاء أولاً' }); continue; }
         if (!pid) { result.errors.push({ row: i + 2, message: 'الصنف غير موجود — استورد المنتجات أولاً' }); continue; }
