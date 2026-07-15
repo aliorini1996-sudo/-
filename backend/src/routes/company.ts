@@ -41,7 +41,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid } });
-    res.json({ success: true, data: maskCompany(company as Record<string, unknown> | null) });
+    // نُرفق أعلام الاشتراك التي يتحكّم بها المالك (لإظهار/إخفاء الميزات في الواجهة)
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true } });
+    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled };
+    res.json({ success: true, data });
   } catch (err) { next(err); }
 });
 

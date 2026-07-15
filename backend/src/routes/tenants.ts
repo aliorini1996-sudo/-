@@ -14,6 +14,7 @@ const createTenantSchema = z.object({
   companyName: z.string().min(1),       // اسم الشركة
   maxSalesReps: z.number().int().min(1).nullable().optional(), // null/غياب = عدد مناديب غير محدود
   maxAdminUsers: z.number().int().min(1).nullable().optional(), // null/غياب = عدد مستخدمين غير محدود
+  erpEnabled: z.boolean().optional(),          // صلاحية ربط ERP (يمنحها المالك حسب الاشتراك)
   subscriptionEndsAt: z.string().optional(), // ISO date — فارغ = غير محدود
   notes: z.string().optional(),
   // بيانات أدمن الشركة الأول
@@ -27,6 +28,7 @@ const updateTenantSchema = z.object({
   isActive: z.boolean().optional(),
   maxSalesReps: z.number().int().min(1).nullable().optional(),
   maxAdminUsers: z.number().int().min(1).nullable().optional(),
+  erpEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
   notes: z.string().nullish(),
 });
@@ -75,6 +77,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           name: body.companyName,
           maxSalesReps: body.maxSalesReps ?? null,
           maxAdminUsers: body.maxAdminUsers ?? null,
+          erpEnabled: body.erpEnabled ?? false,
           subscriptionEndsAt: body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null,
           notes: body.notes,
         },

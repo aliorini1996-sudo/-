@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
-  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
@@ -496,6 +496,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [maxSalesReps, setMaxSalesReps] = useState(tenant.maxSalesReps != null ? String(tenant.maxSalesReps) : '');
   const [unlimitedUsers, setUnlimitedUsers] = useState(tenant.maxAdminUsers == null);
   const [maxAdminUsers, setMaxAdminUsers] = useState(tenant.maxAdminUsers != null ? String(tenant.maxAdminUsers) : '');
+  const [erpEnabled, setErpEnabled] = useState(!!tenant.erpEnabled);
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
   );
@@ -506,6 +507,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
     mutationFn: () => tenantApi.update(tenant.id, {
       maxSalesReps: unlimitedReps ? null : Number(maxSalesReps),
       maxAdminUsers: unlimitedUsers ? null : Number(maxAdminUsers),
+      erpEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success(tr('تم تحديث بيانات الشركة')); onSaved(); },
@@ -578,6 +580,14 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             <label className="label flex items-center gap-1"><Calendar size={12} /> {tr('انتهاء الاشتراك')}</label>
             <input type="date" className="input" value={subscriptionEndsAt} onChange={e => setSubscriptionEndsAt(e.target.value)} />
             <p className="text-xs text-gray-400 mt-1">{tr('اتركه فارغاً لاشتراك غير محدود المدة')}</p>
+          </div>
+          <div>
+            <label className="label flex items-center gap-1"><Plug size={12} /> {tr('صلاحيات الاشتراك')}</label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={erpEnabled} onChange={e => setErpEnabled(e.target.checked)} />
+              {tr('تفعيل ميزة ربط ERP لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تُخفى الميزة وتُرفض طلباتها للشركة.')}</p>
           </div>
         </div>
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">

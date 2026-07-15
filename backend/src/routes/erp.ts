@@ -8,6 +8,18 @@ import { syncErpAll, syncErpResource, testErpConnection } from '../services/erp'
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageCompanySettings'));
 
+// بوابة الاشتراك: ميزة ربط ERP متاحة فقط للشركات التي فعّل لها المالك الصلاحية (erpEnabled)
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { erpEnabled: true } });
+    if (!t?.erpEnabled) {
+      res.status(403).json({ success: false, code: 'ERP_NOT_ALLOWED', message: 'ميزة ربط ERP غير مفعّلة لاشتراك شركتك — تواصل مع مزوّد الخدمة لتفعيلها.' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+});
+
 const settingsSchema = z.object({
   enabled: z.boolean().optional(),
   provider: z.enum(['CUSTOM', 'ODOO', 'SAP', 'ZOHO', 'OTHER']).optional(),

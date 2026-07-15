@@ -38,7 +38,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => { setActiveCurrency(companyCfg?.currency); }, [companyCfg]);
@@ -89,7 +89,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => !item.permission || user?.[item.permission as keyof typeof user] !== false).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false)).map(item => (
             <NavLink
               key={item.to}
               to={item.to}

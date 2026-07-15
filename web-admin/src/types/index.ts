@@ -25,6 +25,7 @@ export interface Tenant {
   isActive: boolean;
   maxSalesReps?: number | null; // null = عدد مناديب غير محدود
   maxAdminUsers?: number | null; // null = عدد مستخدمي شركة غير محدود
+  erpEnabled?: boolean;          // صلاحية ربط ERP (يتحكّم بها المالك)
   subscriptionEndsAt?: string | null;
   notes?: string | null;
   createdAt: string;
