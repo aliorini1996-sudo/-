@@ -76,6 +76,13 @@ export default function InvoicesPage() {
     },
   });
 
+  // تحكّم الأدمن: هل يعود المرتجع لمخزون السيارة؟
+  const restockMutation = useMutation({
+    mutationFn: ({ id, returnToStock }: { id: string; returnToStock: boolean }) => invoiceApi.setRestock(id, returnToStock),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success(tr('تم تحديث عودة المرتجع للمخزون')); },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ')),
+  });
+
   // تصدير/مشاركة الفواتير (وفق الفلاتر الحالية)
   const handleExport = async () => {
     setExporting(true);
@@ -195,6 +202,17 @@ export default function InvoicesPage() {
                       <button onClick={() => openInvoicePdf(inv.id)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('عرض / PDF')}>
                         {openingId === inv.id ? <span className="w-3.5 h-3.5 border-2 border-[#F5C9BA] border-t-[#E15A30] rounded-full animate-spin inline-block" /> : <FileText size={14} />}
                       </button>
+                      {/* تحكّم الأدمن بعودة المرتجع للمخزون — للمرتجعات المعتمدة فقط */}
+                      {inv.type === 'RETURN' && inv.status === 'CONFIRMED' && (
+                        <button
+                          onClick={() => restockMutation.mutate({ id: inv.id, returnToStock: !inv.returnToStock })}
+                          disabled={restockMutation.isPending}
+                          className={`px-2 py-1 rounded text-[11px] font-semibold whitespace-nowrap ${inv.returnToStock ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                          title={tr('اضغط لتبديل: هل يعود المرتجع لمخزون السيارة؟')}
+                        >
+                          {inv.returnToStock ? `↩ ${tr('يعود للمخزون')}` : `✕ ${tr('لا يعود')}`}
+                        </button>
+                      )}
                       {inv.status === 'CONFIRMED' && (
                         <button
                           onClick={() => setCancelId(inv.id)}

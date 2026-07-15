@@ -273,6 +273,7 @@ model Invoice {
   type        String   @default("CREDIT") // CASH | CREDIT | RETURN
   status      String   @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
   returnReason String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
+  returnToStock Boolean @default(true) // هل يعود المرتجع لمخزون السيارة؟ (الأدمن يتحكّم؛ التالف=لا افتراضياً)
   invoiceDate DateTime @default(now())
   dueDate     DateTime?
   notes       String?

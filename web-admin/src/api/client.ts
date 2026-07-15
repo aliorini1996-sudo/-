@@ -77,6 +77,8 @@ export const invoiceApi = {
   get: (id: string) => api.get(`/invoices/${id}`),
   create: (data: unknown) => api.post('/invoices', data),
   cancel: (id: string) => api.patch(`/invoices/${id}/cancel`),
+  // تحكّم الأدمن: هل يعود المرتجع لمخزون السيارة؟
+  setRestock: (id: string, returnToStock: boolean) => api.patch(`/invoices/${id}/restock`, { returnToStock }),
 };
 
 export const receiptApi = {

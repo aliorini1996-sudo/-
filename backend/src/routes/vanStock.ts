@@ -40,7 +40,7 @@ async function computeStock(tid: string, salesRepId: string): Promise<StockRow[]
     }),
     prisma.invoiceItem.findMany({
       where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED' } },
-      select: { productId: true, qty: true, invoice: { select: { type: true } } },
+      select: { productId: true, qty: true, invoice: { select: { type: true, returnToStock: true } } },
     }),
     prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true } }),
   ]);
@@ -58,7 +58,8 @@ async function computeStock(tid: string, salesRepId: string): Promise<StockRow[]
   }
   for (const it of invItems) {
     const m = ensure(it.productId);
-    if (it.invoice.type === 'RETURN') m.returned += it.qty;
+    // المرتجع لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock (التالف عادةً لا يعود)
+    if (it.invoice.type === 'RETURN') { if (it.invoice.returnToStock) m.returned += it.qty; }
     else m.sold += it.qty;
   }
 

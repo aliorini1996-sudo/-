@@ -226,8 +226,10 @@ export interface Invoice {
   number: string;
   customer: { id: string; name: string; phone: string };
   salesRep: { id: string; name: string };
-  type: 'CASH' | 'CREDIT';
+  type: 'CASH' | 'CREDIT' | 'RETURN';
   status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  returnReason?: 'NORMAL' | 'DAMAGED' | 'EXCHANGE' | null;
+  returnToStock?: boolean;
   invoiceDate: string;
   dueDate?: string;
   notes?: string;

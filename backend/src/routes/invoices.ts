@@ -1,7 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal, withNumberRetry } from '../utils/helpers';
 import { getCountryTax } from '../config/countries';
@@ -33,6 +33,8 @@ const createInvoiceSchema = z.object({
   type: z.enum(['CASH', 'CREDIT', 'RETURN']).default('CREDIT'),
   // سبب الإرجاع (يُستخدم فقط عند type=RETURN): عادي/تالف/استبدال
   returnReason: z.enum(['NORMAL', 'DAMAGED', 'EXCHANGE']).optional(),
+  // هل يعود المرتجع لمخزون السيارة؟ (اختياري — يُشتقّ من السبب إن غاب)
+  returnToStock: z.boolean().optional(),
   dueDate: z.string().optional(),
   notes: z.string().optional(),
   discountPct: z.number().min(0).max(100).default(0),
@@ -203,7 +205,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           customerId: body.customerId,
           salesRepId,
           type: body.type,
-          ...(isReturn && { returnReason: body.returnReason || 'NORMAL' }),
+          ...(isReturn && {
+            returnReason: body.returnReason || 'NORMAL',
+            // العودة للمخزون: صريحة إن وُردت، وإلا تُشتقّ من السبب (التالف لا يعود)
+            returnToStock: body.returnToStock ?? (body.returnReason !== 'DAMAGED'),
+          }),
           ...(docDate && { invoiceDate: docDate }),
           dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
           notes: body.notes,
@@ -307,6 +313,19 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       return inv;
     });
 
+    res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+});
+
+// تحكّم الأدمن: هل يعود هذا المرتجع لمخزون السيارة؟ (يغيّر حساب المخزون فوراً — للمرتجعات فقط)
+router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { returnToStock } = z.object({ returnToStock: z.boolean() }).parse(req.body);
+    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, type: true } });
+    if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    if (invoice.type !== 'RETURN') { res.status(400).json({ success: false, message: 'هذا الإجراء للمرتجعات فقط' }); return; }
+    const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });
