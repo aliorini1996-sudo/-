@@ -525,10 +525,13 @@ export default function LandingPage() {
   // ونستخدم المحتوى الافتراضي الحالي حتى لا تُعرَض ميزات/نصوص قديمة. وإلا ندمج تحرير المالك.
   const savedItems = (data as { features?: { items?: unknown[] } } | null | undefined)?.features?.items;
   const cmsCurrent = Array.isArray(savedItems) && savedItems.length === defaultContent.features.items.length;
-  // ندمج تخصيصات CMS (روابط/تواصل/أسعار) دائماً؛ لكن إن كانت مميزات CMS أقدم (عدد مختلف)
-  // نستبدلها بالمميزات الافتراضية الحالية حتى تظهر الميزات الجديدة دون فقد تخصيصات المالك.
-  const merged = data ? mergeContent(defaultContent, data) : defaultContent;
-  const arContent = (cmsCurrent ? merged : { ...merged, features: defaultContent.features }) as Record<string, unknown>;
+  // ندمج تخصيصات CMS (روابط/تواصل/أسعار/عناوين) دائماً؛ لكن إن كانت مميزات CMS أقدم (عدد مختلف)
+  // نستبدل عناصر المميزات فقط بالافتراضية الحالية (لتظهر الجديدة) مع الحفاظ على عنوان/وصف القسم من CMS.
+  const mergedObj = (data ? mergeContent(defaultContent, data) : defaultContent) as Record<string, unknown>;
+  const arContent = (cmsCurrent ? mergedObj : {
+    ...mergedObj,
+    features: { ...(mergedObj.features as Record<string, unknown>), items: defaultContent.features.items },
+  }) as Record<string, unknown>;
 
   const socialLinks = (arContent.social as Record<string, string>) || {};
   let html: string;
