@@ -105,27 +105,31 @@ export default function DataImportPanel() {
         ))}
       </div>
 
-      {/* سجلّ الاستيرادات — تراجع/إزالة أي دفعة بها مشكلة */}
-      {batches && batches.length > 0 && (
-        <div className="mt-5 border-t border-[#E9E1D3] pt-4">
-          <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> {tr('سجلّ الاستيرادات (يمكن التراجع عن أيّ دفعة)')}</h4>
-          <div className="space-y-2">
-            {batches.map((b) => (
-              <div key={b.id} className="flex items-center justify-between bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2">
-                <div className="text-sm">
-                  <span className="font-semibold text-gray-800">{tr(IMPORT_TYPES[b.kind as ImportKind]?.label || b.kind)}</span>
-                  <span className="text-gray-500 text-xs mr-2">· {b.count} {tr('سجل')} · {formatDate(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
+      {/* سجلّ الاستيرادات — يظهر دائماً؛ يمكن التراجع عن أيّ دفعة */}
+      <div className="mt-5 border-t border-[#E9E1D3] pt-4">
+        <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> {tr('سجلّ الاستيرادات (يمكن التراجع عن أيّ دفعة)')}</h4>
+        {batches && batches.length > 0 ? (
+          <>
+            <div className="space-y-2">
+              {batches.map((b) => (
+                <div key={b.id} className="flex items-center justify-between bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2">
+                  <div className="text-sm">
+                    <span className="font-semibold text-gray-800">{tr(IMPORT_TYPES[b.kind as ImportKind]?.label || b.kind)}</span>
+                    <span className="text-gray-500 text-xs mr-2">· {b.count} {tr('سجل')} · {formatDate(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
+                  </div>
+                  <button onClick={() => setRevertId(b.id)} disabled={revertMut.isPending}
+                    className="text-red-600 hover:bg-red-50 rounded-lg px-2.5 py-1 text-xs flex items-center gap-1 shrink-0">
+                    <RotateCcw size={13} /> {tr('تراجع / إزالة')}
+                  </button>
                 </div>
-                <button onClick={() => setRevertId(b.id)} disabled={revertMut.isPending}
-                  className="text-red-600 hover:bg-red-50 rounded-lg px-2.5 py-1 text-xs flex items-center gap-1 shrink-0">
-                  <RotateCcw size={13} /> {tr('تراجع / إزالة')}
-                </button>
-              </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-gray-400 mt-2">{tr('التراجع يزيل ما أُضيف في تلك الدفعة ويعيد حساب الأرصدة، ولا يحذف العملاء الذين لديهم فواتير أو سندات حقيقية.')}</p>
-        </div>
-      )}
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-2">{tr('التراجع يزيل ما أُضيف في تلك الدفعة ويعيد حساب الأرصدة، ولا يحذف العملاء الذين لديهم فواتير أو سندات حقيقية.')}</p>
+          </>
+        ) : (
+          <p className="text-xs text-gray-400 py-2">{tr('لا توجد دفعات استيراد بعد — أي ملف تستورده من الآن سيظهر هنا كدفعة يمكن التراجع عنها بضغطة.')}</p>
+        )}
+      </div>
 
       {revertId && (
         <ConfirmDialog
