@@ -38,7 +38,8 @@ export default function DataImportPanel() {
       const res = await importApi.run(IMPORT_TYPES[kind].endpoint, preview.valid);
       setResult({ kind, res: res.data.data as ImportResult });
       setPreview(null);
-      qc.invalidateQueries({ queryKey: [kind] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
     } catch (e) {
       toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الاستيراد'));
     }
@@ -48,11 +49,9 @@ export default function DataImportPanel() {
   const active: { kind: ImportKind; icon: React.ElementType }[] = [
     { kind: 'customers', icon: Users },
     { kind: 'products', icon: Package },
-  ];
-  const soon: { label: string; icon: React.ElementType }[] = [
-    { label: 'الأرصدة الافتتاحية', icon: Wallet },
-    { label: 'كشوف الحسابات / دفتر الأستاذ', icon: BookOpen },
-    { label: 'قوائم الأسعار', icon: Tags },
+    { kind: 'balances', icon: Wallet },
+    { kind: 'ledger', icon: BookOpen },
+    { kind: 'prices', icon: Tags },
   ];
 
   return (
@@ -64,6 +63,9 @@ export default function DataImportPanel() {
           <p className="text-xs text-gray-500">{tr('نزّل القالب، املأه ببياناتك (أو ارفع ملف Excel مُصدَّر من نظامك)، ثم ارفعه — تُضاف تلقائياً لشركتك.')}</p>
         </div>
       </div>
+      <p className="text-[11px] text-amber-700 bg-amber-50/70 border border-amber-100 rounded-lg px-3 py-2 mt-3">
+        {tr('الترتيب المُوصى به: العملاء والمنتجات أولاً، ثم الأرصدة الافتتاحية أو دفتر الأستاذ، ثم قوائم الأسعار (لأنها تربط بالعملاء والأصناف بالكود أو الجوال).')}
+      </p>
 
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
         {active.map(({ kind, icon: Icon }) => (
@@ -82,15 +84,6 @@ export default function DataImportPanel() {
                   onChange={(e) => { onFile(kind, e.target.files?.[0]); e.currentTarget.value = ''; }} />
               </label>
             </div>
-          </div>
-        ))}
-        {soon.map(({ label, icon: Icon }) => (
-          <div key={label} className="border border-dashed border-[#E9E1D3] rounded-xl p-4 opacity-70">
-            <div className="flex items-center gap-2 mb-3">
-              <Icon size={18} className="text-gray-400" />
-              <span className="font-semibold text-gray-500">{tr(label)}</span>
-            </div>
-            <span className="inline-block text-[11px] bg-gray-100 text-gray-500 rounded-full px-2.5 py-1">{tr('قريباً')}</span>
           </div>
         ))}
       </div>

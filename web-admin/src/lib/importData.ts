@@ -101,8 +101,68 @@ function toProducts(rows: Record<string, unknown>[]): TransformOut {
   return { valid, errors };
 }
 
+// ============ الأرصدة الافتتاحية ============
+const A_BAL = {
+  customerCode: ['كود العميل', 'رقم العميل', 'الكود', 'customer code', 'account', 'account no', 'code'],
+  phone: ['الجوال', 'رقم الجوال', 'phone', 'mobile'],
+  balance: ['الرصيد', 'الرصيد الافتتاحي', 'رصيد افتتاحي', 'الرصيد المدين', 'opening balance', 'balance'],
+  date: ['التاريخ', 'date'],
+};
+function toBalances(rows: Record<string, unknown>[]): TransformOut {
+  const valid: Record<string, unknown>[] = []; const errors: { row: number; message: string }[] = [];
+  rows.forEach((row, i) => {
+    const cc = pick(row, A_BAL.customerCode); const ph = pick(row, A_BAL.phone);
+    const bal = numOr(pick(row, A_BAL.balance), undefined);
+    if (!cc && !ph) { errors.push({ row: i + 2, message: 'معرّف العميل مفقود (الكود أو الجوال)' }); return; }
+    if (bal === undefined) { errors.push({ row: i + 2, message: 'الرصيد مفقود' }); return; }
+    valid.push({ customerCode: cc || undefined, phone: ph || undefined, balance: bal, date: pick(row, A_BAL.date) || undefined });
+  });
+  return { valid, errors };
+}
+
+// ============ كشوف الحسابات / دفتر الأستاذ ============
+const A_LED = {
+  customerCode: ['كود العميل', 'رقم العميل', 'الكود', 'customer code', 'account', 'code'],
+  phone: ['الجوال', 'رقم الجوال', 'phone', 'mobile'],
+  date: ['التاريخ', 'date'],
+  description: ['البيان', 'الوصف', 'التفاصيل', 'description', 'details', 'memo'],
+  debit: ['مدين', 'عليه', 'debit', 'dr'],
+  credit: ['دائن', 'له', 'credit', 'cr'],
+};
+function toLedger(rows: Record<string, unknown>[]): TransformOut {
+  const valid: Record<string, unknown>[] = []; const errors: { row: number; message: string }[] = [];
+  rows.forEach((row, i) => {
+    const cc = pick(row, A_LED.customerCode); const ph = pick(row, A_LED.phone);
+    const debit = numOr(pick(row, A_LED.debit), 0) || 0; const credit = numOr(pick(row, A_LED.credit), 0) || 0;
+    if (!cc && !ph) { errors.push({ row: i + 2, message: 'معرّف العميل مفقود' }); return; }
+    if (!debit && !credit) { errors.push({ row: i + 2, message: 'لا يوجد مبلغ مدين ولا دائن' }); return; }
+    valid.push({ customerCode: cc || undefined, phone: ph || undefined, date: pick(row, A_LED.date) || undefined, description: pick(row, A_LED.description) || undefined, debit, credit });
+  });
+  return { valid, errors };
+}
+
+// ============ قوائم الأسعار (سعر خاص لكل عميل/صنف) ============
+const A_PRC = {
+  customerCode: ['كود العميل', 'رقم العميل', 'customer code', 'account'],
+  phone: ['الجوال', 'رقم الجوال', 'phone', 'mobile'],
+  productCode: ['كود الصنف', 'رقم الصنف', 'product code', 'item code', 'sku'],
+  price: ['السعر', 'السعر الخاص', 'price', 'special price'],
+};
+function toPrices(rows: Record<string, unknown>[]): TransformOut {
+  const valid: Record<string, unknown>[] = []; const errors: { row: number; message: string }[] = [];
+  rows.forEach((row, i) => {
+    const cc = pick(row, A_PRC.customerCode); const ph = pick(row, A_PRC.phone);
+    const pc = pick(row, A_PRC.productCode); const price = numOr(pick(row, A_PRC.price), undefined);
+    if (!cc && !ph) { errors.push({ row: i + 2, message: 'معرّف العميل مفقود' }); return; }
+    if (!pc) { errors.push({ row: i + 2, message: 'كود الصنف مفقود' }); return; }
+    if (price === undefined) { errors.push({ row: i + 2, message: 'السعر مفقود' }); return; }
+    valid.push({ customerCode: cc || undefined, phone: ph || undefined, productCode: pc, price });
+  });
+  return { valid, errors };
+}
+
 // ============ سجلّ الأنواع ============
-export type ImportKind = 'customers' | 'products';
+export type ImportKind = 'customers' | 'products' | 'balances' | 'ledger' | 'prices';
 export interface ImportTypeDef {
   id: ImportKind; label: string; endpoint: string;
   transform: (rows: Record<string, unknown>[]) => TransformOut;
@@ -116,6 +176,18 @@ export const IMPORT_TYPES: Record<ImportKind, ImportTypeDef> = {
   products: {
     id: 'products', label: 'المنتجات', endpoint: '/import/products', transform: toProducts,
     template: { 'الكود': 'P-001', 'الاسم': 'عسل سدر 1كجم', 'الوحدة': 'حبة', 'السعر': '85', 'الضريبة': '15', 'الباركود': '6291000000001', 'الفئة': 'عسل' },
+  },
+  balances: {
+    id: 'balances', label: 'الأرصدة الافتتاحية', endpoint: '/import/balances', transform: toBalances,
+    template: { 'كود العميل': 'C-001', 'الجوال': '0500000000', 'الرصيد الافتتاحي': '1500', 'التاريخ': '2026-01-01' },
+  },
+  ledger: {
+    id: 'ledger', label: 'كشوف الحسابات / دفتر الأستاذ', endpoint: '/import/ledger', transform: toLedger,
+    template: { 'كود العميل': 'C-001', 'التاريخ': '2026-01-05', 'البيان': 'فاتورة رقم 1001', 'مدين': '500', 'دائن': '0' },
+  },
+  prices: {
+    id: 'prices', label: 'قوائم الأسعار', endpoint: '/import/prices', transform: toPrices,
+    template: { 'كود العميل': 'C-001', 'كود الصنف': 'P-001', 'السعر': '80' },
   },
 };
 

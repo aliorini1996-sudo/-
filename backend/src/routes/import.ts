@@ -132,4 +132,139 @@ router.post('/products', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (err) { next(err); }
 });
 
+// خرائط ربط العملاء (بالكود أو الجوال)
+async function customerFinder(tid: string) {
+  const custs = await prisma.customer.findMany({ where: { tenantId: tid }, select: { id: true, code: true, phone: true } });
+  const byCode = new Map<string, string>(); const byPhone = new Map<string, string>();
+  for (const c of custs) { if (c.code) byCode.set(c.code, c.id); if (c.phone) byPhone.set(c.phone, c.id); }
+  return (code?: string, phone?: string): string | null =>
+    (code && byCode.get(code)) || (phone && byPhone.get(phone)) || null;
+}
+
+// ===== استيراد الأرصدة الافتتاحية =====
+const balanceRow = z.object({
+  customerCode: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  balance: z.number(),
+  date: z.string().trim().optional(),
+});
+router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rows = z.array(balanceRow).max(10000).parse(req.body?.rows);
+    const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const findCust = await customerFinder(tid);
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      try {
+        const cid = findCust(r.customerCode, r.phone);
+        if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود — استورد العملاء أولاً' }); continue; }
+        if (!r.balance) { result.skipped++; continue; }
+        // تخطّي إن كان للعميل رصيد افتتاحي مسبقاً (تفادي التكرار)
+        const exists = await prisma.accountEntry.findFirst({ where: { customerId: cid, description: 'رصيد افتتاحي' }, select: { id: true } });
+        if (exists) { result.skipped++; continue; }
+        const amount = r.balance; const date = r.date ? new Date(r.date) : new Date();
+        await prisma.$transaction(async tx => {
+          const last = await tx.accountEntry.findFirst({ where: { customerId: cid }, orderBy: { entryDate: 'desc' } });
+          const prev = Number(last?.balance ?? 0);
+          await tx.accountEntry.create({
+            data: {
+              tenantId: tid, customerId: cid,
+              type: amount >= 0 ? 'ADJUSTMENT_DEBIT' : 'ADJUSTMENT_CREDIT',
+              debit: amount >= 0 ? amount : 0, credit: amount >= 0 ? 0 : -amount,
+              balance: prev + amount, description: 'رصيد افتتاحي', entryDate: date,
+            },
+          });
+          await tx.customer.update({ where: { id: cid }, data: { balance: { increment: amount } } });
+        });
+        result.created++;
+      } catch (e) { result.errors.push({ row: i + 2, message: (e as Error).message?.slice(0, 140) || 'خطأ' }); }
+    }
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// ===== استيراد كشوف الحسابات / دفتر الأستاذ =====
+const ledgerRow = z.object({
+  customerCode: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  date: z.string().trim().optional(),
+  description: z.string().trim().optional(),
+  debit: z.number().optional(),
+  credit: z.number().optional(),
+});
+router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rows = z.array(ledgerRow).max(20000).parse(req.body?.rows);
+    const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const findCust = await customerFinder(tid);
+    // تجميع الحركات حسب العميل ثم ترتيبها زمنياً لحساب الرصيد المتحرّك
+    const groups = new Map<string, { row: number; date?: string; description?: string; debit: number; credit: number }[]>();
+    rows.forEach((r, i) => {
+      const cid = findCust(r.customerCode, r.phone);
+      if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود' }); return; }
+      if (!groups.has(cid)) groups.set(cid, []);
+      groups.get(cid)!.push({ row: i + 2, date: r.date, description: r.description, debit: r.debit || 0, credit: r.credit || 0 });
+    });
+    for (const [cid, entries] of groups) {
+      try {
+        entries.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+        await prisma.$transaction(async tx => {
+          const last = await tx.accountEntry.findFirst({ where: { customerId: cid }, orderBy: { entryDate: 'desc' } });
+          let running = Number(last?.balance ?? 0);
+          for (const e of entries) {
+            running += e.debit - e.credit;
+            await tx.accountEntry.create({
+              data: {
+                tenantId: tid, customerId: cid,
+                type: e.debit >= e.credit ? 'ADJUSTMENT_DEBIT' : 'ADJUSTMENT_CREDIT',
+                debit: e.debit, credit: e.credit, balance: running,
+                description: e.description || 'قيد مستورد', entryDate: e.date ? new Date(e.date) : new Date(),
+              },
+            });
+            result.created++;
+          }
+          await tx.customer.update({ where: { id: cid }, data: { balance: running } });
+        }, { timeout: 20000 });
+      } catch (e) { result.errors.push({ row: entries[0]?.row || 0, message: (e as Error).message?.slice(0, 140) || 'خطأ' }); }
+    }
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// ===== استيراد قوائم الأسعار (أسعار خاصة لكل عميل) =====
+const priceRow = z.object({
+  customerCode: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  productCode: z.string().trim().min(1),
+  price: z.number().nonnegative(),
+});
+router.post('/prices', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rows = z.array(priceRow).max(20000).parse(req.body?.rows);
+    const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const findCust = await customerFinder(tid);
+    const prods = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true } });
+    const prodByCode = new Map(prods.map(p => [p.code, p.id]));
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      try {
+        const cid = findCust(r.customerCode, r.phone);
+        const pid = prodByCode.get(r.productCode);
+        if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود — استورد العملاء أولاً' }); continue; }
+        if (!pid) { result.errors.push({ row: i + 2, message: 'الصنف غير موجود — استورد المنتجات أولاً' }); continue; }
+        await prisma.customerPrice.upsert({
+          where: { customerId_productId: { customerId: cid, productId: pid } },
+          create: { customerId: cid, productId: pid, price: r.price },
+          update: { price: r.price },
+        });
+        result.created++;
+      } catch (e) { result.errors.push({ row: i + 2, message: (e as Error).message?.slice(0, 140) || 'خطأ' }); }
+    }
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
 export default router;
