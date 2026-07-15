@@ -20,8 +20,8 @@ const customerSchema = z.object({
   city: z.string().optional(),
   district: z.string().optional(),
   address: z.string().optional(),
-  // قناة البيع (تصنيف مؤسسي) — فارغ مسموح
-  channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).optional().or(z.literal('')),
+  // قناة البيع (تصنيف مؤسسي) — يقبل قيمة صحيحة أو فارغ/null/غياب (كلها = غير محدّد)
+  channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).nullish().or(z.literal('')),
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
   creditLimit: z.number().min(0).optional(),
   paymentDays: z.number().int().min(0).optional(),
