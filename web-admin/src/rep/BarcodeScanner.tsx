@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, ScanLine, Check, AlertCircle } from 'lucide-react';
+import { X, ScanLine, Check, AlertCircle, ArrowLeft } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 
 type ScanResult = { ok: boolean; label: string };
@@ -7,7 +7,10 @@ type ScanResult = { ok: boolean; label: string };
 // ماسح باركود لتطبيق المندوب — مسح مستمرّ (يضيف عدة أصناف تباعاً) حتى يغلقه المستخدم.
 // يستخدم BarcodeDetector الأصلي (مدعوم على Chrome/أندرويد) مع بديل إدخال يدوي.
 // onDetect يُستدعى لكل كود مقروء ويُعيد {ok,label} لعرض تأكيد داخل الماسح.
-export default function BarcodeScanner({ onDetect, onClose }: { onDetect: (code: string) => ScanResult; onClose: () => void }) {
+// onProceed يغلق الماسح وينتقل لمراجعة/إتمام الفاتورة؛ itemCount = عدد الأصناف المُضافة (يظهر حيّاً).
+export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount }: {
+  onDetect: (code: string) => ScanResult; onClose: () => void; onProceed: () => void; itemCount: number;
+}) {
   const tr = useTr();
   const videoRef = useRef<HTMLVideoElement>(null);
   const onDetectRef = useRef(onDetect);
@@ -88,15 +91,24 @@ export default function BarcodeScanner({ onDetect, onClose }: { onDetect: (code:
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="w-64 h-40 border-2 border-[#E15A30] rounded-lg" />
           </div>
-          {/* تأكيد آخر مسح */}
+          {/* تأكيد آخر مسح (فوق الشريط السفلي) */}
           {feedback && (
-            <div className={`absolute bottom-6 left-4 right-4 rounded-xl px-4 py-3 flex items-center gap-2 text-white ${feedback.ok ? 'bg-[#1E7A52]' : 'bg-[#C0392B]'}`}>
+            <div className={`absolute bottom-20 left-4 right-4 rounded-xl px-4 py-3 flex items-center gap-2 text-white ${feedback.ok ? 'bg-[#1E7A52]' : 'bg-[#C0392B]'}`}>
               {feedback.ok ? <Check size={18} /> : <AlertCircle size={18} />}
               <span className="font-semibold text-sm truncate">{feedback.label}</span>
             </div>
           )}
           {error && <p className="absolute top-4 left-4 right-4 text-red-300 text-sm text-center bg-black/60 rounded p-2">{error}</p>}
           <p className="absolute top-3 left-0 right-0 text-center text-white/70 text-xs">{tr('وجّه الكاميرا نحو الباركود — يُضاف الصنف تلقائياً')}</p>
+
+          {/* الشريط السفلي: عدّاد الأصناف المُضافة + زر المتابعة لإتمام الفاتورة */}
+          <div className="absolute bottom-0 left-0 right-0 bg-[#1F1A13] p-3 flex items-center gap-3">
+            <span className="text-white text-sm font-semibold">{itemCount} {tr('صنف مُضاف')}</span>
+            <button onClick={onProceed} disabled={itemCount === 0}
+              className="mr-auto bg-[#E15A30] text-white rounded-lg px-5 py-2 font-bold disabled:opacity-40 flex items-center gap-1">
+              {tr('متابعة')} <ArrowLeft size={16} />
+            </button>
+          </div>
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3 text-center">

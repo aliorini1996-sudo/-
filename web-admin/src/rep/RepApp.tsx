@@ -503,7 +503,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
-      {showScanner && <BarcodeScanner onDetect={onScan} onClose={() => setShowScanner(false)} />}
+      {showScanner && (
+        <BarcodeScanner
+          onDetect={onScan}
+          onClose={() => setShowScanner(false)}
+          onProceed={() => { setShowScanner(false); setShowCart(true); }}
+          itemCount={lines.length}
+        />
+      )}
       <div className={`${isReturn ? 'bg-amber-700' : 'bg-[#1F1A13]'} text-white p-4 flex items-center gap-3`}>
         <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
         <span className="font-bold">{showCart ? tr('مراجعة الأصناف') : isReturn ? tr('فاتورة إرجاع') : tr('فاتورة جديدة')}</span>
