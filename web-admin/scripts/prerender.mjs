@@ -95,6 +95,11 @@ function articleJsonLd(a, lang, canonical) {
         { '@type': 'ListItem', position: 3, name: a.title, item: canonical },
       ] },
       ...(a.faq && a.faq.length ? [{ '@type': 'FAQPage', mainEntity: a.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }] : []),
+      ...(a.howto && a.howto.length ? [{
+        '@type': 'HowTo',
+        name: tr(lang, `كيف تبدأ مع ${a.title}`, `How to get started with ${a.title}`, `Comment démarrer avec ${a.title}`),
+        step: a.howto.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: s.text })),
+      }] : []),
     ],
   };
 }

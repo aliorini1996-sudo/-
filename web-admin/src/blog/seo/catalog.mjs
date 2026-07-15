@@ -106,6 +106,30 @@ const faqData = (c, L) => {
   ];
 };
 
+// خطوات عملية كبيانات منظّمة (تُغذّي HowTo schema) — تقتبسها محركات AI لأسئلة «كيف تبدأ»
+const howToData = (c, L) => [
+  { name: P(L, 'هيّئ أساسك', 'Set your base', 'Préparez la base'),
+    text: P(L, `أدخِل منتجاتك وأسعارك وعملاءك بعملة ${c.cur.ar} وحدود ائتمانهم.`,
+      `Add your products, prices in ${c.cur.en}, customers and their credit limits.`,
+      `Ajoutez vos produits, prix en ${c.cur.fr}, clients et limites de crédit.`) },
+  { name: P(L, 'جهّز فريقك', 'Prepare your team', "Préparez l'équipe"),
+    text: P(L, 'امنح كل مندوب حساباً بصلاحيات محدّدة وحمّله التطبيق على جواله.',
+      'Give each rep an account with defined permissions and install the app on their phone.',
+      'Donnez à chaque commercial un compte avec des droits définis et installez l\'application.') },
+  { name: P(L, 'ابدأ من الميدان', 'Start from the field', 'Démarrez sur le terrain'),
+    text: P(L, `أصدِر أول فاتورة وسند قبض من ${c.cap.ar} أو أي مدينة تعمل بها.`,
+      `Issue your first invoice and receipt from ${c.cap.en} or any city you cover.`,
+      `Émettez votre première facture depuis ${c.cap.fr} ou toute ville couverte.`) },
+  { name: P(L, 'راقب لحظياً', 'Monitor live', 'Suivez en direct'),
+    text: P(L, 'تابع المبيعات والتحصيل ومخزون السيارة على لوحة تحكم واحدة.',
+      'Track sales, collection and van stock on one dashboard.',
+      'Suivez ventes, encaissement et stock sur un seul tableau de bord.') },
+  { name: P(L, 'حسّن أسبوعياً', 'Improve weekly', 'Améliorez chaque semaine'),
+    text: P(L, 'استخدم التقارير لضبط خطوط السير والأسعار والصلاحيات.',
+      'Use reports to tune routes, prices and permissions.',
+      'Utilisez les rapports pour ajuster tournées, prix et droits.') },
+];
+
 // ----------------------------------------------------------------------------
 // بُناة الأقسام — كلٌّ يُرجع HTML (عنوان + فقرات) مُوطَّناً ومُخصَّصاً للدولة.
 // ----------------------------------------------------------------------------
@@ -651,6 +675,7 @@ export function getArticle(slug, L) {
     excerpt: excerptOf(topic, c, L), contentHtml, date, readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     faq: faqData(c, L),
+    howto: howToData(c, L),
     countryCode: topic.cs ? c.code : null, isSeo: true,
   };
 }

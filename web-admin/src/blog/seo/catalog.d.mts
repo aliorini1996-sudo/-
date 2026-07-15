@@ -25,6 +25,7 @@ export interface SeoArticle {
   image: string;
   imagePath: string;
   faq: { q: string; a: string }[];
+  howto: { name: string; text: string }[];
   countryCode: string | null;
   isSeo: true;
 }

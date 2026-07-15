@@ -102,6 +102,11 @@ export default function BlogPostPage() {
         '@type': 'FAQPage',
         mainEntity: seo.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
       }] : []),
+      ...(seo && seo.howto && seo.howto.length ? [{
+        '@type': 'HowTo',
+        name: tr(`كيف تبدأ مع ${view.title}`, `How to get started with ${view.title}`, `Comment démarrer avec ${view.title}`),
+        step: seo.howto.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: s.text })),
+      }] : []),
     ],
   } : undefined;
 
