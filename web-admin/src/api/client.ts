@@ -217,6 +217,11 @@ export const analyticsApi = {
   stats: (days = 30) => api.get('/analytics/stats', { params: { days } }),
 };
 
+// استيراد بيانات الشركة من أنظمتها السابقة (Excel → صفوف)
+export const importApi = {
+  run: (endpoint: string, rows: Record<string, unknown>[]) => api.post(endpoint, { rows }),
+};
+
 // رسائل التواصل من الصفحة التعريفية
 export const contactApi = {
   send: (data: { name: string; email: string; phone?: string; message: string }) => api.post('/contact', data),

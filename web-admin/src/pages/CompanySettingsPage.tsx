@@ -7,6 +7,7 @@ import { useTr } from '../i18n/strings';
 import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
+import DataImportPanel from '../components/DataImportPanel';
 
 interface CompanyForm {
   name: string;
@@ -332,6 +333,11 @@ export default function CompanySettingsPage() {
           <p className="text-xs text-gray-400">{tr('التغييرات تظهر فوراً هنا، وتنعكس على الفواتير وسندات القبض وكشوف الحساب بعد الحفظ.')}</p>
         </div>
       </form>
+
+      {/* استيراد بيانات الشركة السابقة */}
+      <div className="mt-6">
+        <DataImportPanel />
+      </div>
     </div>
   );
 }

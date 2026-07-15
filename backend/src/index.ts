@@ -33,6 +33,7 @@ import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
 import promoVideosRouter from './routes/promoVideos';
+import importRouter from './routes/import';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimits';
 
@@ -100,6 +101,7 @@ app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/promo-videos', promoVideosRouter);
+app.use('/api/import', importRouter);
 
 // الوسائط المُنتجة (فيديوهات/أصوات ترويجية) — قبل التقاط الواجهة المبنيّة كي لا تبتلعها
 app.use('/media', express.static(path.join(process.cwd(), 'media'), { maxAge: '1d' }));
