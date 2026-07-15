@@ -128,7 +128,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const productIds = [...new Set(body.items.map(i => i.productId))];
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid, status: 'ACTIVE' },
-      select: { id: true, basePrice: true, priceTiers: { select: { price: true } } },
+      select: { id: true, basePrice: true, damagedReturnToStock: true, priceTiers: { select: { price: true } } },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
 
@@ -207,8 +207,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           type: body.type,
           ...(isReturn && {
             returnReason: body.returnReason || 'NORMAL',
-            // العودة للمخزون: صريحة إن وُردت، وإلا تُشتقّ من السبب (التالف لا يعود)
-            returnToStock: body.returnToStock ?? (body.returnReason !== 'DAMAGED'),
+            // العودة للمخزون: صريحة إن وُردت؛ وإلا للتالف تُشتقّ من سياسة الأصناف
+            // (يعود فقط إن سمحت كل أصناف المرتجع)، ولغير التالف يعود افتراضاً.
+            returnToStock: body.returnToStock ?? (
+              body.returnReason === 'DAMAGED'
+                ? products.length > 0 && products.every(p => p.damagedReturnToStock)
+                : true
+            ),
           }),
           ...(docDate && { invoiceDate: docDate }),
           dueDate: body.dueDate ? new Date(body.dueDate) : undefined,

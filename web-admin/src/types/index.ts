@@ -166,6 +166,7 @@ export interface Product {
   taxPct: number;
   image?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
+  damagedReturnToStock?: boolean; // سياسة: هل يعود مرتجع الصنف التالف للمخزون؟
   categoryId?: string;
   category?: { id: string; name: string };
   priceTiers?: PriceTier[];

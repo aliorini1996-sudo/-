@@ -136,6 +136,13 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
             </div>
           </div>
 
+          {/* سياسة المرتجع التالف لهذا الصنف — تضبط افتراض «يعود للمخزون» عند إنشاء مرتجع تالف */}
+          <label className="flex items-center gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50/60 cursor-pointer">
+            <input type="checkbox" {...register('damagedReturnToStock')} className="w-4 h-4 accent-[#E15A30]" />
+            <span className="text-sm text-gray-700">{tr('المرتجع التالف من هذا الصنف يعود لمخزون السيارة')}</span>
+            <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكّم لكل مرتجع')}</span>
+          </label>
+
           {/* أكواد الفوترة الإلكترونية — تلزم لبعض الدول (مصر ETA وغيرها) */}
           <details className="rounded-xl border border-gray-200 bg-gray-50/60">
             <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-gray-700 flex items-center gap-2">

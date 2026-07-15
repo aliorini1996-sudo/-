@@ -18,6 +18,7 @@ const productSchema = z.object({
   taxPct: z.number().min(0).max(100).optional(), // يُورَث من ضريبة دولة الشركة عند الغياب
   image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  damagedReturnToStock: z.boolean().optional(), // سياسة: هل يعود مرتجع هذا الصنف التالف للمخزون؟
   categoryId: z.string().optional(),
   // أكواد الفوترة الإلكترونية
   itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
