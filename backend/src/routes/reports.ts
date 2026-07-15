@@ -22,7 +22,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         ...(customerId && { customerId }),
       },
       include: {
-        customer: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, channel: true, city: true } },
         salesRep: { select: { id: true, name: true } },
         items: { include: { product: { select: { id: true, name: true, code: true } } } },
       },
@@ -64,6 +64,32 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         byCustomer[key].total += Number(inv.total);
       });
       res.json({ success: true, data: Object.values(byCustomer).sort((a, b) => b.total - a.total) });
+      return;
+    }
+
+    // تجميع حسب قناة البيع (تصنيف مؤسسي) — العملاء بلا قناة يُجمَّعون تحت "غير محدّد"
+    if (groupBy === 'channel') {
+      const byChannel: Record<string, { name: string; count: number; total: number }> = {};
+      invoices.forEach(inv => {
+        const key = inv.customer.channel || 'UNSET';
+        if (!byChannel[key]) byChannel[key] = { name: key, count: 0, total: 0 };
+        byChannel[key].count++;
+        byChannel[key].total += Number(inv.total);
+      });
+      res.json({ success: true, data: Object.values(byChannel).sort((a, b) => b.total - a.total) });
+      return;
+    }
+
+    // تجميع حسب المنطقة الجغرافية (المدينة)
+    if (groupBy === 'region') {
+      const byRegion: Record<string, { name: string; count: number; total: number }> = {};
+      invoices.forEach(inv => {
+        const key = inv.customer.city || '—';
+        if (!byRegion[key]) byRegion[key] = { name: key, count: 0, total: 0 };
+        byRegion[key].count++;
+        byRegion[key].total += Number(inv.total);
+      });
+      res.json({ success: true, data: Object.values(byRegion).sort((a, b) => b.total - a.total) });
       return;
     }
 

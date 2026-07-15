@@ -146,6 +146,7 @@ export interface Customer {
   city?: string;
   district?: string;
   address?: string;
+  channel?: 'MT' | 'WHOLESALE' | 'TT' | 'DISCOUNTER' | 'CASH_VAN' | 'ECOMMERCE' | null;
   status: 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
   creditLimit: number;
   paymentDays: number;

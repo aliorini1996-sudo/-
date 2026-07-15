@@ -20,6 +20,8 @@ const customerSchema = z.object({
   city: z.string().optional(),
   district: z.string().optional(),
   address: z.string().optional(),
+  // قناة البيع (تصنيف مؤسسي) — فارغ مسموح
+  channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).optional().or(z.literal('')),
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
   creditLimit: z.number().min(0).optional(),
   paymentDays: z.number().int().min(0).optional(),
@@ -32,6 +34,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const limit = parseInt(req.query.limit as string) || 20;
     const search = req.query.search as string | undefined;
     const status = req.query.status as string | undefined;
+    const channel = req.query.channel as string | undefined;
 
     const where = {
       tenantId: tid,
@@ -44,6 +47,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         ],
       }),
       ...(status && { status: status as 'ACTIVE' | 'INACTIVE' | 'BLOCKED' }),
+      ...(channel && { channel }),
     };
 
     const [total, customers] = await Promise.all([
@@ -83,7 +87,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
     const data = customerSchema.parse(req.body);
-    const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, tenantId: tid } as any });
+    const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, channel: data.channel || null, tenantId: tid } as any });
     res.status(201).json({ success: true, data: customer });
   } catch (err) { next(err); }
 });
@@ -105,7 +109,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const data = customerSchema.partial().parse(req.body);
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
-      data: { ...data, email: data.email || null },
+      data: { ...data, email: data.email || null, ...(data.channel !== undefined && { channel: data.channel || null }) },
     });
     res.json({ success: true, data: customer });
   } catch (err) { next(err); }

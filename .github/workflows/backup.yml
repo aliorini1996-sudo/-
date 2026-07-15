@@ -1,0 +1,40 @@
+name: Database Backup
+
+# نسخ احتياطي مجدول لقاعدة البيانات (Postgres على Render) → artifact مضغوط.
+# يتطلّب سرّ المستودع DATABASE_URL (External Connection String من Render + ?sslmode=require).
+# لا يعمل حتى يضيف المالك السرّ — عندها يعمل يومياً 02:00 UTC ويدوياً عبر Run workflow.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # يومياً 02:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تثبيت pg_dump 16
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+
+      - name: أخذ النسخة الاحتياطية
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::سرّ DATABASE_URL غير مضبوط — أضِفه في Settings → Secrets."
+            exit 1
+          fi
+          ts=$(date +%Y%m%d-%H%M%S)
+          /usr/lib/postgresql/16/bin/pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$ts.sql.gz"
+          echo "حجم النسخة: $(du -h backup-$ts.sql.gz | cut -f1)"
+
+      - name: رفع النسخة كـartifact (يُحتفظ بها 30 يوماً)
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup
+          path: backup-*.sql.gz
+          retention-days: 30

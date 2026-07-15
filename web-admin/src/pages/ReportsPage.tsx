@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/client';
 import { formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { channelLabel } from '../lib/channels';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Download, TrendingUp, Users, UserCheck } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
@@ -62,7 +63,10 @@ export default function ReportsPage() {
     enabled: tab === 'performance',
   });
 
-  const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل') : tr('الصنف');
+  const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
+    : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
+  // اسم العرض: أكواد القنوات تُترجَم؛ البقية كما هي
+  const displayName = (name: string) => groupBy === 'channel' ? (name === 'UNSET' ? tr('غير محدّد') : tr(channelLabel(name))) : name;
 
   // تصدير/مشاركة بيانات التبويب النشط إلى Excel
   const handleExport = async () => {
@@ -132,6 +136,8 @@ export default function ReportsPage() {
                 <option value="rep">{tr('المندوب')}</option>
                 <option value="customer">{tr('العميل')}</option>
                 <option value="product">{tr('الصنف')}</option>
+                <option value="channel">{tr('القناة')}</option>
+                <option value="region">{tr('المنطقة')}</option>
               </select>
             </div>
           )}
@@ -148,7 +154,7 @@ export default function ReportsPage() {
               <div className="card">
                 <h3 className="font-semibold text-gray-700 mb-4">{tr('مبيعات حسب')} {groupLabel()}</h3>
                 <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={(salesData as { name: string; total: number; count?: number }[]).slice(0, 10)}>
+                  <BarChart data={(salesData as { name: string; total: number; count?: number }[]).slice(0, 10).map(r => ({ ...r, name: displayName(r.name) }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
@@ -170,7 +176,7 @@ export default function ReportsPage() {
                     <tbody>
                       {(salesData as { name: string; total: number; count?: number; qty?: number; code?: string }[]).map((row, i) => (
                         <tr key={i}>
-                          <td className="font-medium text-gray-800">{row.name}</td>
+                          <td className="font-medium text-gray-800">{displayName(row.name)}</td>
                           <td className="text-gray-600">{row.count ?? row.qty ?? '-'}</td>
                           <td className="font-semibold text-[#E15A30]">{formatCurrency(row.total)}</td>
                         </tr>

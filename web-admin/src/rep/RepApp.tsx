@@ -6,11 +6,12 @@ import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
-  Truck, Package, ArrowDownToLine, Check, MapPin,
+  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine,
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
+import BarcodeScanner from './BarcodeScanner';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
 import { useRepTracking } from './useRepTracking';
@@ -412,10 +413,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const canSellInCash = perms.canSellInCash !== false;
   const canSellAnyType = canSellOnCredit || canSellInCash;
   const [type, setType] = useState<'CASH' | 'CREDIT'>(canSellOnCredit ? 'CREDIT' : 'CASH');
+  const [returnReason, setReturnReason] = useState<'NORMAL' | 'DAMAGED' | 'EXCHANGE'>('NORMAL'); // سبب المرتجع
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
   const [showCart, setShowCart] = useState(false); // عرض الأصناف المختارة للمراجعة قبل الإصدار
+  const [showScanner, setShowScanner] = useState(false); // ماسح الباركود
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -441,6 +444,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const idx = lines.findIndex(l => l.productId === p.id);
     if (idx >= 0) { const c = [...lines]; c[idx].qty++; setLines(c); }
     else setLines([...lines, { productId: p.id, name: p.name, unit: p.unit, image: p.image || null, qty: 1, unitPrice: inclPrice(p), refPrice: inclPrice(p), discountPct: 0, taxPct: Number(p.taxPct) }]);
+  };
+
+  // مسح باركود → إيجاد الصنف بحقل barcode وإضافته
+  const onScan = (code: string) => {
+    setShowScanner(false);
+    const p = products.find((x) => x.barcode && String(x.barcode) === code);
+    if (p) { addProduct(p); setMsg(''); }
+    else setMsg(tr('لا يوجد صنف بهذا الباركود'));
   };
 
   // حدود صلاحيات المندوب (تُفرض أيضاً في الخادم كحارس نهائي)
@@ -473,6 +484,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     try {
       const res = await repApi.post('/invoices', {
         customerId: customer.id, type: isReturn ? 'RETURN' : type, discountPct: 0,
+        ...(isReturn && { returnReason }),
         // نرسل السعر قبل الضريبة (مشتقّاً من السعر الشامل)
         items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
       });
@@ -489,6 +501,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
+      {showScanner && <BarcodeScanner onDetect={onScan} onClose={() => setShowScanner(false)} />}
       <div className={`${isReturn ? 'bg-amber-700' : 'bg-[#1F1A13]'} text-white p-4 flex items-center gap-3`}>
         <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
         <span className="font-bold">{showCart ? tr('مراجعة الأصناف') : isReturn ? tr('فاتورة إرجاع') : tr('فاتورة جديدة')}</span>
@@ -504,8 +517,19 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             </div>
 
             {isReturn ? (
-              <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2 text-[11px] text-amber-800 text-center">
-                {tr('مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع')}
+              <div className="mb-2 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-600">{tr('سبب الإرجاع')}:</span>
+                  {([['NORMAL', 'مرتجع عادي'], ['DAMAGED', 'بضاعة تالفة'], ['EXCHANGE', 'استبدال']] as const).map(([v, label]) => (
+                    <button key={v} onClick={() => setReturnReason(v)}
+                      className={`px-2.5 py-1 rounded-full text-[11px] ${returnReason === v ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                      {tr(label)}
+                    </button>
+                  ))}
+                </div>
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 text-[11px] text-amber-800 text-center">
+                  {tr('مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع')}
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-2 mb-2">
@@ -516,15 +540,21 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             )}
             {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي أو الآجل')}.</p>}
 
-            <div className="mb-2">
-              <SearchableSelect
-                placeholder={tr('اختر صنفاً لإضافته')}
-                searchPlaceholder={tr('اكتب اسم الصنف…')}
-                value=""
-                resetOnSelect
-                options={products.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
-                onChange={(v) => { const p = products.find(x => x.id === v); if (p) addProduct(p); }}
-              />
+            <div className="mb-2 flex items-stretch gap-2">
+              <div className="flex-1">
+                <SearchableSelect
+                  placeholder={tr('اختر صنفاً لإضافته')}
+                  searchPlaceholder={tr('اكتب اسم الصنف…')}
+                  value=""
+                  resetOnSelect
+                  options={products.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
+                  onChange={(v) => { const p = products.find(x => x.id === v); if (p) addProduct(p); }}
+                />
+              </div>
+              <button type="button" onClick={() => setShowScanner(true)} title={tr('مسح الباركود')}
+                className="shrink-0 px-3 rounded-xl bg-[#1F1A13] text-white flex items-center justify-center">
+                <ScanLine size={18} />
+              </button>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 import { useForm } from 'react-hook-form';
 import { Customer } from '../../types';
 import { useTr } from '../../i18n/strings';
+import { SALES_CHANNELS } from '../../lib/channels';
 import { X } from 'lucide-react';
 
 interface Props {
@@ -66,6 +67,15 @@ export default function CustomerModal({ customer, onClose, onSave, loading }: Pr
                   <option value="ACTIVE">{tr('نشط')}</option>
                   <option value="INACTIVE">{tr('غير نشط')}</option>
                   <option value="BLOCKED">{tr('محظور')}</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">{tr('قناة البيع')}</label>
+                <select className="input" {...register('channel')}>
+                  <option value="">{tr('غير محدّد')}</option>
+                  {SALES_CHANNELS.map((c) => (
+                    <option key={c.code} value={c.code}>{tr(c.ar)}</option>
+                  ))}
                 </select>
               </div>
             </div>

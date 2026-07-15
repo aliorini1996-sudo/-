@@ -4,6 +4,7 @@ import { customerApi, companyApi } from '../api/client';
 import { Customer } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { SALES_CHANNELS, channelLabel } from '../lib/channels';
 import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
@@ -19,6 +20,7 @@ export default function CustomersPage() {
   const { user } = useAuthStore();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [channel, setChannel] = useState('');
   const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [showStatement, setShowStatement] = useState(false);
@@ -33,9 +35,9 @@ export default function CustomersPage() {
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ['customers', search, status, page],
+    queryKey: ['customers', search, status, channel, page],
     queryFn: async () => {
-      const res = await customerApi.list({ search, status, page, limit: 15 });
+      const res = await customerApi.list({ search, status, channel, page, limit: 15 });
       return res.data as { data: Customer[]; pagination: { total: number; pages: number } };
     },
   });
@@ -107,6 +109,12 @@ export default function CustomersPage() {
             <option value="INACTIVE">{tr('غير نشط')}</option>
             <option value="BLOCKED">{tr('محظور')}</option>
           </select>
+          <select className="input w-44" value={channel} onChange={e => { setChannel(e.target.value); setPage(1); }}>
+            <option value="">{tr('جميع القنوات')}</option>
+            {SALES_CHANNELS.map((c) => (
+              <option key={c.code} value={c.code}>{tr(c.ar)}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -116,15 +124,15 @@ export default function CustomersPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>{tr('الكود')}</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th>
+                <th>{tr('الكود')}</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('القناة')}</th>
                 <th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
               ) : data?.data.map(c => (
                 <tr key={c.id}>
                   <td className="font-mono text-xs text-gray-500">{c.code}</td>
@@ -134,6 +142,11 @@ export default function CustomersPage() {
                   </td>
                   <td className="text-gray-600 font-mono">{c.phone}</td>
                   <td className="text-gray-600">{c.city || '-'}</td>
+                  <td>
+                    {c.channel
+                      ? <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-[#FBEBE2] text-[#C94E28] whitespace-nowrap">{tr(channelLabel(c.channel))}</span>
+                      : <span className="text-gray-300">-</span>}
+                  </td>
                   <td className={`font-semibold ${Number(c.balance) > 0 ? 'text-orange-600' : 'text-green-600'}`}>
                     {formatCurrency(c.balance)}
                   </td>

@@ -215,6 +215,7 @@ model Customer {
   city           String?
   district       String?
   address        String?
+  channel        String?        // قناة البيع: MT | WHOLESALE | TT | DISCOUNTER | CASH_VAN | ECOMMERCE
   status         String         @default("ACTIVE") // ACTIVE | INACTIVE | BLOCKED
 
   creditLimit    Float @default(0)
@@ -271,6 +272,7 @@ model Invoice {
   salesRep    SalesRep @relation(fields: [salesRepId], references: [id])
   type        String   @default("CREDIT") // CASH | CREDIT | RETURN
   status      String   @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
+  returnReason String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
   invoiceDate DateTime @default(now())
   dueDate     DateTime?
   notes       String?

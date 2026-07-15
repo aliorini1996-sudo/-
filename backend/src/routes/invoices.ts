@@ -31,6 +31,8 @@ const createInvoiceSchema = z.object({
   salesRepId: z.string().optional(),
   invoiceDate: z.string().optional(),
   type: z.enum(['CASH', 'CREDIT', 'RETURN']).default('CREDIT'),
+  // سبب الإرجاع (يُستخدم فقط عند type=RETURN): عادي/تالف/استبدال
+  returnReason: z.enum(['NORMAL', 'DAMAGED', 'EXCHANGE']).optional(),
   dueDate: z.string().optional(),
   notes: z.string().optional(),
   discountPct: z.number().min(0).max(100).default(0),
@@ -201,6 +203,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           customerId: body.customerId,
           salesRepId,
           type: body.type,
+          ...(isReturn && { returnReason: body.returnReason || 'NORMAL' }),
           ...(docDate && { invoiceDate: docDate }),
           dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
           notes: body.notes,
