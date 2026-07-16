@@ -16,6 +16,59 @@
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * إيجاد متصفّح Chrome على الجهاز.
+ *
+ * whatsapp-web.js يعتمد puppeteer-core الذي **لا يُنزّل Chromium** — فبلا مسار صريح
+ * ينهار فور الإقلاع بـ«Could not find Chrome». وبدل تنزيل 150م.ب قد ينكسر استخراجه،
+ * نستخدم Chrome المثبّت أصلاً: متصفّح حقيقي بملفّ تعريف حقيقي = سلوك أطبع أمام واتساب.
+ */
+function findChrome() {
+  const override = (process.env.WA_BRIDGE_CHROME || '').trim();
+  if (override) {
+    if (!fs.existsSync(override)) {
+      console.error(`✖ WA_BRIDGE_CHROME يشير إلى مسار غير موجود:\n  ${override}`);
+      process.exit(1);
+    }
+    return override;
+  }
+
+  const local = process.env.LOCALAPPDATA || '';
+  const pf = process.env.ProgramFiles || 'C:\\Program Files';
+  const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const candidates = {
+    win32: [
+      path.join(pf, 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(pf86, 'Google\\Chrome\\Application\\chrome.exe'),
+      local && path.join(local, 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(pf86, 'Microsoft\\Edge\\Application\\msedge.exe'),
+      path.join(pf, 'Microsoft\\Edge\\Application\\msedge.exe'),
+    ],
+    darwin: [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    ],
+    linux: [
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+    ],
+  }[process.platform] || [];
+
+  const found = candidates.filter(Boolean).find((p) => fs.existsSync(p));
+  if (!found) {
+    console.error('✖ لم أجد Chrome على هذا الجهاز.');
+    console.error('  ثبّت Google Chrome، أو حدّد مساره صراحةً:');
+    console.error('  $env:WA_BRIDGE_CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"');
+    process.exit(1);
+  }
+  return found;
+}
 
 // ------------------------------- الإعدادات ------------------------------- //
 
@@ -59,10 +112,13 @@ async function api(path, body, method = 'POST') {
 
 // ------------------------------- عميل واتساب ------------------------------- //
 
+const CHROME = findChrome();
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './.session' }),
   puppeteer: {
     headless: true,
+    executablePath: CHROME,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   },
 });
@@ -166,6 +222,7 @@ async function tick() {
 
 log('▸ جسر واتساب — Field Sales');
 log(`▸ الخادم: ${API}`);
+log(`▸ المتصفّح: ${CHROME}`);
 client.initialize();
 setInterval(tick, POLL_MS);
 
