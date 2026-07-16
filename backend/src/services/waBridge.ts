@@ -78,7 +78,9 @@ export function bridgeKeyConfigured(): boolean {
 export function checkBridgeKey(provided?: string): boolean {
   const key = (process.env.WA_BRIDGE_KEY || '').trim();
   if (!key) return false; // لم يُضبط المفتاح: نرفض بدل أن نفتح الباب للجميع
-  return provided === key;
+  // نُنظّف الطرفين: لصق المفتاح في Render أو PowerShell يجرّ مسافة/سطراً بسهولة،
+  // وتنظيف طرف واحد فقط يُنتج عدم تطابق صامتاً يستحيل تفسيره.
+  return (provided || '').trim() === key;
 }
 
 // ------------------------- نصّ الرسالة الافتراضي ------------------------- //

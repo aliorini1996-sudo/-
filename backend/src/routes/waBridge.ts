@@ -27,9 +27,31 @@ const router = Router();
 
 // ============================ 1) نقاط الجسر ============================ //
 
+/**
+ * تشخيص عام (بلا مصادقة): هل المفتاح مضبوط على الخادم أصلاً؟
+ * لا يكشف القيمة — بوليان فقط. بدونه يستحيل التمييز من الخارج بين «الخادم بلا مفتاح»
+ * و«مفتاحك خاطئ»، وكلاهما كان يُعطي 401 صمّاء.
+ */
+router.get('/health', (_req: Request, res: Response) => {
+  res.json({ success: true, data: { keyConfigured: bridgeKeyConfigured() } });
+});
+
 function requireBridge(req: Request, res: Response, next: NextFunction): void {
+  // نفصل الحالتين: الخلط بينهما يجعل العطل غير قابل للتشخيص
+  if (!bridgeKeyConfigured()) {
+    res.status(503).json({
+      success: false,
+      code: 'KEY_NOT_SET',
+      message: 'WA_BRIDGE_KEY غير مضبوط على الخادم — أضِفه في Environment لخدمة dsd-backend على Render.',
+    });
+    return;
+  }
   if (!checkBridgeKey(req.get('x-bridge-key') || undefined)) {
-    res.status(401).json({ success: false, message: 'مفتاح جسر غير صالح' });
+    res.status(401).json({
+      success: false,
+      code: 'KEY_MISMATCH',
+      message: 'المفتاح لديك لا يطابق WA_BRIDGE_KEY المضبوط على الخادم.',
+    });
     return;
   }
   next();

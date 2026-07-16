@@ -91,6 +91,8 @@ const log = (...a) => console.log(new Date().toLocaleTimeString('ar-SA'), ...a);
 
 // ------------------------------- نداء الخادم ------------------------------- //
 
+let lastFault = ''; // لا نُكرّر نفس سبب العطل كل 8ث فيغرق السجلّ
+
 async function api(path, body, method = 'POST') {
   try {
     const r = await fetch(`${API}${path}`, {
@@ -99,13 +101,25 @@ async function api(path, body, method = 'POST') {
       body: method === 'GET' ? undefined : JSON.stringify(body || {}),
     });
     if (!r.ok) {
-      log(`⚠ ${path} → HTTP ${r.status}`);
+      // نطبع رسالة الخادم لا رقم الحالة: «401» وحدها لا تُخبر أين الخلل
+      let msg = `HTTP ${r.status}`;
+      try {
+        const j = await r.json();
+        if (j?.message) msg = j.message;
+      } catch { /* استجابة غير JSON */ }
+      if (msg !== lastFault) {
+        log(`✖ ${msg}`);
+        if (r.status === 401) log('  المفتاح لديك ≠ المضبوط على Render. تحقّق من الاثنين حرفاً بحرف.');
+        if (r.status === 503) log('  أضِف WA_BRIDGE_KEY في Render ← dsd-backend ← Environment، وانتظر إعادة النشر.');
+        lastFault = msg;
+      }
       return null;
     }
+    if (lastFault) { log('✓ استُعيد الاتصال بالخادم'); lastFault = ''; }
     return await r.json();
   } catch (e) {
     // انقطاع الشبكة لا يُسقط الجسر — الدورة التالية تعيد المحاولة
-    log(`⚠ ${path} → ${e.message}`);
+    if (e.message !== lastFault) { log(`⚠ ${path} → ${e.message}`); lastFault = e.message; }
     return null;
   }
 }
