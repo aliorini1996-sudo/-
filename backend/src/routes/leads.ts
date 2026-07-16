@@ -774,7 +774,7 @@ const waSendSchema = z.object({
   text: z.string().optional(),          // وضع النص
   templateName: z.string().optional(),  // وضع القالب
   language: z.string().optional(),      // رمز لغة القالب (افتراضي ar)
-  useNameParam: z.boolean().optional(), // توافق خلفي: يعادل params=['name']
+  useNameParam: z.boolean().optional(), // مهجور — يُقبل ويُتجاهل (كي لا تفشل الواجهة القديمة)
   params: z.array(z.enum(['name', 'city', 'country', 'angle', 'angle_en'])).max(6).optional(),
   ids: z.array(z.string()).optional(),
   stage: z.string().optional(),
@@ -798,8 +798,9 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
     const body = waSendSchema.parse(req.body);
     const cfg = await getWaConfig();
     const language = body.language || cfg.language || 'ar';
-    // ترتيب متغيّرات القالب: الطلب أولاً، ثم الإعدادات، ثم توافق useNameParam القديم
-    const params: WaParam[] = body.params ?? (body.useNameParam === undefined ? cfg.params : (body.useNameParam ? ['name'] : []));
+    // ترتيب متغيّرات القالب: الطلب أولاً، وإلا الإعدادات المحفوظة (تتضمّن الزاوية افتراضياً).
+    // useNameParam مهجور ويُتجاهل: كان يقصر القالب على الاسم فتضيع زاوية الدولة.
+    const params: WaParam[] = body.params ?? cfg.params;
 
     // الحدّ اليومي يحمي تقييم جودة الرقم في Meta — تجاوزه يقود إلى تقييد الرقم لا إلى مبيعات
     const remaining = await waRemainingToday(cfg.dailyCap);
