@@ -5,8 +5,9 @@ import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
 import { formatDate } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
-  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2, Repeat, Users,
+  Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2, Repeat, Users, Smartphone,
 } from 'lucide-react';
+import WhatsAppBridgePanel from './WhatsAppBridgePanel';
 import toast from 'react-hot-toast';
 
 const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
@@ -56,6 +57,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
   const [showWhats, setShowWhats] = useState(false);
+  const [showBridge, setShowBridge] = useState(false);
   const [showEnrich, setShowEnrich] = useState(false);
   const [showHunt, setShowHunt] = useState(false);
   const [showAutoEmail, setShowAutoEmail] = useState(false);
@@ -174,6 +176,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           <button onClick={() => setShowCommunity(true)} className="px-3 py-2 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700"><Users size={14} className="inline ml-1" /> بحث القروبات</button>
           <button onClick={() => setShowEmail(true)} className="px-3 py-2 rounded-lg text-sm bg-[#1E7A52] text-white hover:bg-[#1a6a47]"><Mail size={14} className="inline ml-1" /> بريد تسويقي</button>
           <button onClick={() => setShowWhats(true)} className="px-3 py-2 rounded-lg text-sm bg-[#25D366] text-white hover:bg-[#1eb356]"><MessageCircle size={14} className="inline ml-1" /> واتساب تسويقي</button>
+          <button onClick={() => setShowBridge(true)} className="px-3 py-2 rounded-lg text-sm bg-[#128C7E] text-white hover:bg-[#0f7268]"><Smartphone size={14} className="inline ml-1" /> واتساب ويب</button>
           <button onClick={() => setShowAdd(true)} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Plus size={14} className="inline ml-1" /> إضافة</button>
           <ImportButton onDone={refresh} />
           <button onClick={exportCsv} className="px-3 py-2 rounded-lg text-sm border border-[#E9E1D3] text-gray-700 hover:bg-white"><Download size={14} className="inline ml-1" /> تصدير</button>
@@ -233,6 +236,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} onDone={refresh} />}
       {showEmail && <EmailModal filters={filters} onClose={() => setShowEmail(false)} onDone={refresh} />}
       {showWhats && <WhatsAppModal filters={filters} onClose={() => setShowWhats(false)} onDone={refresh} />}
+      {showBridge && <WhatsAppBridgePanel onClose={() => { setShowBridge(false); refresh(); }} />}
       {showEnrich && <EnrichModal filters={filters} onClose={() => setShowEnrich(false)} onDone={refresh} />}
       {showHunt && <AutoHuntModal onClose={() => setShowHunt(false)} onDone={refresh} />}
       {showAutoEmail && <AutoEmailModal onClose={() => setShowAutoEmail(false)} onDone={refresh} />}

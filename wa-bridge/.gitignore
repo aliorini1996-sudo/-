@@ -1,0 +1,7 @@
+# جلسة واتساب — توثيق حسابك. من يملكها يملك جلستك. لا تُرفع إطلاقاً.
+.session/
+.wwebjs_auth/
+.wwebjs_cache/
+
+node_modules/
+.env

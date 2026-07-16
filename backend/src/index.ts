@@ -35,8 +35,9 @@ import analyticsRouter from './routes/analytics';
 import promoVideosRouter from './routes/promoVideos';
 import importRouter from './routes/import';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
+import waBridgeRouter from './routes/waBridge';
 import { errorHandler } from './middleware/errorHandler';
-import { apiLimiter } from './middleware/rateLimits';
+import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 
 const app = express();
 // خلف بروكسي Render — لاحتساب IP الحقيقي في حدود المعدّل
@@ -83,6 +84,9 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // webhook واتساب — قبل محدِّد المعدّل: Meta ترسل دفعات كثيفة وتعيد المحاولة عند أي 429
 app.use('/api/whatsapp', whatsappWebhookRouter);
+
+// جسر واتساب ويب — بحدّه الخاص السخيّ (السحب الدوري + لوحة المالك من نفس الـIP المنزلي)
+app.use('/api/wa-bridge', bridgeLimiter, waBridgeRouter);
 
 // حدّ عام واقٍ لكل واجهة API (حدود أدق على الدخول/التسجيل داخل كل مسار)
 app.use('/api', apiLimiter);

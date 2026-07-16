@@ -1,0 +1,17 @@
+{
+  "name": "fieldsales-wa-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "جسر واتساب ويب المحلي لـ Field Sales — يمسح QR ويرسل رسائل الطابور القادم من api.fieldsa.net",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.26.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

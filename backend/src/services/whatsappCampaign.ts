@@ -80,12 +80,12 @@ export function previewWaParams(params: WaParam[], lead: LeadLike): { slot: stri
 }
 
 // كم رسالة صادرة أُرسلت اليوم؟ (أساس الحدّ اليومي)
-// الفاشلة لا تُحتسب: لم تصل أحداً، فلا تستهلك الحصّة ولا تمسّ تقييم جودة الرقم.
+// نستثني FAILED (لم تصل أحداً) و QUEUED (لم تُرسَل بعد) — تُحتسب عند خروجها فعلاً.
 export async function waSentToday(): Promise<number> {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   return prisma.waMessage.count({
-    where: { direction: 'OUT', status: { not: 'FAILED' }, createdAt: { gte: start } },
+    where: { direction: 'OUT', status: { notIn: ['FAILED', 'QUEUED'] }, createdAt: { gte: start } },
   });
 }
 

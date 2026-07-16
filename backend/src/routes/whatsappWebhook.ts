@@ -15,7 +15,8 @@
 
 import { Router, Request, Response } from 'express';
 import prisma from '../config/database';
-import { isOptOut, verifyWaSignature } from '../services/whatsapp';
+import { verifyWaSignature } from '../services/whatsapp';
+import { handleInboundMessage } from '../services/waInbound';
 
 const router = Router();
 
@@ -61,63 +62,14 @@ function inboundText(m: WaInboundMessage): string {
   );
 }
 
-/**
- * إيجاد العميل من رقم واتساب.
- * الأدقّ: آخر رسالة صادرة لنفس الرقم المطبَّع (نحن من خزّنه). واحتياطاً: مطابقة آخر 9 أرقام،
- * لأن أرقام العملاء محفوظة بصيغ مختلفة (+966… / 00966… / 05…) بينما Meta ترسل 966… فقط.
- */
-async function findLeadId(waPhone: string): Promise<string | null> {
-  const prev = await prisma.waMessage.findFirst({
-    where: { phone: waPhone, leadId: { not: null } },
-    orderBy: { createdAt: 'desc' },
-    select: { leadId: true },
-  });
-  if (prev?.leadId) return prev.leadId;
-
-  const tail = waPhone.slice(-9);
-  if (tail.length < 8) return null;
-  const lead = await prisma.lead.findFirst({ where: { phone: { contains: tail } }, select: { id: true } });
-  return lead?.id ?? null;
-}
-
+// المعالجة نفسها يتشاركها الجسر المحلي — المنطق في services/waInbound
 async function onInbound(m: WaInboundMessage): Promise<void> {
   const phone = (m.from || '').replace(/[^\d]/g, '');
   if (!phone) return;
-  const body = inboundText(m);
-  const waId = m.id || `in_${phone}_${Date.now()}`;
-
-  // Meta تعيد إرسال الحدث نفسه عند أي شكّ في التسليم — بلا هذا الحارس تتكرّر الأنشطة على العميل
-  const seen = await prisma.waMessage.findUnique({ where: { waId }, select: { id: true } });
-  if (seen) return;
-
-  const leadId = await findLeadId(phone);
-  const optOut = isOptOut(body);
-  await prisma.waMessage.create({
-    data: { waId, leadId, phone, direction: 'IN', body, status: 'RECEIVED' },
-  });
-
-  if (!leadId) return; // ردّ من رقم غير معروف — سُجّل ولا عميل مرتبط
-
-  await prisma.leadActivity.create({
-    data: {
-      leadId,
-      type: optOut ? 'WHATSAPP_OPTOUT' : 'WHATSAPP_IN',
-      content: optOut ? `طلب إيقاف المراسلة: «${body}»` : `ردّ واتساب: «${body}»`,
-      createdBy: 'واتساب',
-    },
-  });
-
-  if (optOut) {
-    await prisma.lead.update({ where: { id: leadId }, data: { waOptOut: true } });
-    return;
-  }
-
-  // الردّ إشارة نيّة قويّة: نرفع المرحلة من الأولى/الثانية إلى «مؤهَّل» ولا نتراجع بمرحلة متقدّمة
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { stage: true } });
-  const promote = lead?.stage === 'NEW' || lead?.stage === 'CONTACTED';
-  await prisma.lead.update({
-    where: { id: leadId },
-    data: { lastContactedAt: new Date(), ...(promote ? { stage: 'QUALIFIED' } : {}) },
+  await handleInboundMessage({
+    waId: m.id || `in_${phone}_${Date.now()}`,
+    phone,
+    body: inboundText(m),
   });
 }
 
