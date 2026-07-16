@@ -69,7 +69,13 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           { customer: { name: { contains: search } } },
         ],
       }),
-      ...(from && to && { invoiceDate: { gte: new Date(from), lte: new Date(to) } }),
+      // فلترة التاريخ: تقبل «من» أو «إلى» منفردة، و«إلى» تشمل كامل ذلك اليوم
+      ...((from || to) && {
+        invoiceDate: {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(new Date(to).setHours(23, 59, 59, 999)) } : {}),
+        },
+      }),
     };
 
     const [total, invoices] = await Promise.all([

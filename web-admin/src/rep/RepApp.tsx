@@ -848,16 +848,41 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
 // ============ قائمة بسيطة (فواتير/سندات) ============
 function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoice' | 'receipt'; onOpen: (detail: any) => void }) {
   const tr = useTr();
+  const PAGE = 30;
   const [items, setItems] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { const res = await repApi.get(endpoint, { params: { limit: 50 } }); setItems(res.data.data); } catch { /* */ }
-    setLoading(false);
-  }, [endpoint]);
-  useEffect(() => { load(); }, [load]);
+  // جلب صفحة: replace=true للأولى/عند تغيّر الفلتر، وإلا تُضاف لنهاية القائمة (قائمة متتالية)
+  const fetchPage = useCallback(async (p: number, replace: boolean) => {
+    if (replace) setLoading(true); else setLoadingMore(true);
+    try {
+      const params: Record<string, string | number> = { limit: PAGE, page: p };
+      if (from) params.from = from;
+      if (to) params.to = to;
+      const res = await repApi.get(endpoint, { params });
+      const data = res.data.data as any[];
+      setPages(res.data.pagination?.pages ?? 1);
+      setTotal(res.data.pagination?.total ?? data.length);
+      setItems(prev => (replace ? data : [...prev, ...data]));
+      setPage(p);
+    } catch { /* */ }
+    setLoading(false); setLoadingMore(false);
+  }, [endpoint, from, to]);
+  useEffect(() => { fetchPage(1, true); }, [fetchPage]);
+
+  // تحميل تلقائي عند الاقتراب من نهاية القائمة
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (loading || loadingMore || page >= pages) return;
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) fetchPage(page + 1, false);
+  };
 
   const open = async (id: string) => {
     setOpeningId(id);
@@ -866,10 +891,26 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
   };
 
   return (
-    <div className="h-full overflow-y-auto p-3 pb-24">
+    <div className="h-full overflow-y-auto p-3 pb-24" onScroll={onScroll}>
+      {/* فلتر التاريخ — أعلى القائمة */}
+      <div className="bg-white rounded-2xl p-2.5 mb-2 border border-gray-100">
+        <div className="flex items-center gap-1.5">
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} aria-label={tr('من تاريخ')}
+            className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] text-gray-700" />
+          <span className="text-gray-400 text-[11px] shrink-0">{tr('إلى')}</span>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} aria-label={tr('إلى تاريخ')}
+            className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] text-gray-700" />
+          {(from || to) && (
+            <button onClick={() => { setFrom(''); setTo(''); }} className="text-[11px] text-[#E15A30] px-1 shrink-0">{tr('مسح')}</button>
+          )}
+        </div>
+        {!loading && <p className="text-[10px] text-gray-400 mt-1.5">{tr('الإجمالي')}: {total}</p>}
+      </div>
+
       {loading ? <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل...')}</div>
         : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد بيانات')}</div>
-        : items.map(it => {
+        : <>
+        {items.map(it => {
           const isReturn = kind === 'invoice' && it.type === 'RETURN';
           return (
           <button key={it.id} onClick={() => open(it.id)}
@@ -897,6 +938,16 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
           </button>
           );
         })}
+        {loadingMore && <div className="text-center text-gray-400 py-3 text-xs">{tr('جاري تحميل المزيد...')}</div>}
+        {!loadingMore && page < pages && (
+          <button onClick={() => fetchPage(page + 1, false)} className="w-full text-center text-[#E15A30] text-xs py-3 font-semibold">
+            {tr('تحميل المزيد')}
+          </button>
+        )}
+        {!loadingMore && page >= pages && items.length > 0 && (
+          <p className="text-center text-gray-300 text-[11px] py-3">— {tr('نهاية القائمة')} —</p>
+        )}
+        </>}
     </div>
   );
 }

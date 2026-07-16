@@ -49,7 +49,13 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
-      ...(from && to && { receiptDate: { gte: new Date(from), lte: new Date(to) } }),
+      // فلترة التاريخ: تقبل «من» أو «إلى» منفردة، و«إلى» تشمل كامل ذلك اليوم
+      ...((from || to) && {
+        receiptDate: {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(new Date(to).setHours(23, 59, 59, 999)) } : {}),
+        },
+      }),
       status: 'ACTIVE' as const,
     };
 
