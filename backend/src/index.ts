@@ -34,6 +34,7 @@ import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
 import promoVideosRouter from './routes/promoVideos';
 import importRouter from './routes/import';
+import whatsappWebhookRouter from './routes/whatsappWebhook';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimits';
 
@@ -73,8 +74,15 @@ app.use(helmet({
 }));
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
+// نحتفظ بالجسم الخام لتحقّق توقيع webhook واتساب (HMAC يُحسب على البايتات الأصلية لا على JSON المُعاد تسلسله)
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; },
+}));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+// webhook واتساب — قبل محدِّد المعدّل: Meta ترسل دفعات كثيفة وتعيد المحاولة عند أي 429
+app.use('/api/whatsapp', whatsappWebhookRouter);
 
 // حدّ عام واقٍ لكل واجهة API (حدود أدق على الدخول/التسجيل داخل كل مسار)
 app.use('/api', apiLimiter);

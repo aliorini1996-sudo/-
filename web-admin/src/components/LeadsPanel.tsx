@@ -502,29 +502,71 @@ function EmailModal({
 }
 
 // ----------------------------- واتساب تسويقي آلي (Cloud API) ----------------------------- //
+type WaParam = 'name' | 'city' | 'country' | 'angle' | 'angle_en';
+
+// وصف كل متغيّر يمكن حقنه في القالب المعتمد
+const WA_PARAM_LABEL: Record<WaParam, string> = {
+  name: 'اسم الشركة',
+  city: 'المدينة',
+  country: 'الدولة',
+  angle: 'زاوية الدولة (عربي)',
+  angle_en: 'زاوية الدولة (إنجليزي)',
+};
+
 function WhatsAppModal({
   filters, onClose, onDone,
 }: { filters: Filters; onClose: () => void; onDone: () => void }) {
   const [mode, setMode] = useState<'template' | 'text'>('template');
   const [templateName, setTemplateName] = useState('');
   const [language, setLanguage] = useState('ar');
-  const [useNameParam, setUseNameParam] = useState(true);
+  const [params, setParams] = useState<WaParam[]>(['name', 'angle']);
   const [text, setText] = useState(
-    'مرحباً {{name}} 👋\nنقدّم لكم Field Sales: نظام إدارة مبيعات المناديب والتوزيع. جرّبوه مجاناً: https://fieldsa.net',
+    'مرحباً {{name}} 👋\n{{angle}}\nنقدّم لكم Field Sales: نظام إدارة مبيعات المناديب والتوزيع. جرّبوه مجاناً: https://fieldsa.net',
   );
   const [limit, setLimit] = useState(50);
 
-  // هل واتساب مُعدّ في الخادم؟
+  // حالة واتساب: الإعداد، الحصّة اليومية، المنسحبون، وتأمين الـwebhook
   const { data: status } = useQuery({
     queryKey: ['wa-status'],
-    queryFn: async () => (await leadApi.whatsappStatus()).data.data as { ready: boolean },
+    queryFn: async () => (await leadApi.whatsappStatus()).data.data as {
+      ready: boolean; signatureEnforced: boolean; webhookConfigured: boolean;
+      dailyCap: number; sentToday: number; remainingToday: number; optedOut: number;
+    },
   });
 
-  // عدد المستهدفين: لديهم هاتف ولم يُراسَلوا واتساب (يطابق استهداف الخادم)
+  // الإعدادات المحفوظة (القالب والمتغيّرات) — تملأ النموذج مرّة عند الفتح
+  const { data: cfg } = useQuery({
+    queryKey: ['wa-config'],
+    queryFn: async () => (await leadApi.whatsappConfig()).data.data as {
+      templateName: string; language: string; params: WaParam[]; dailyCap: number; batchSize: number;
+    },
+  });
+  useEffect(() => {
+    if (!cfg) return;
+    if (cfg.templateName) setTemplateName(cfg.templateName);
+    if (cfg.language) setLanguage(cfg.language);
+    if (cfg.params?.length) setParams(cfg.params);
+    if (cfg.batchSize) setLimit(cfg.batchSize);
+  }, [cfg]);
+
+  // معاينة حيّة: ماذا سيُملأ فعلاً في {{1}},{{2}}... لأول عميل مستهدَف
+  const { data: preview } = useQuery({
+    queryKey: ['wa-preview', params],
+    enabled: mode === 'template' && params.length > 0,
+    queryFn: async () => (await leadApi.whatsappPreview({ params: params.join(',') })).data.data as {
+      lead: { name: string; city: string | null; country: string | null } | null;
+      slots: { slot: string; field: WaParam; value: string }[];
+    },
+  });
+
+  const toggleParam = (p: WaParam) =>
+    setParams((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+
+  // عدد المستهدفين: لديهم هاتف، لم يُراسَلوا واتساب، ولم ينسحبوا (يطابق استهداف الخادم تماماً)
   const { data: count } = useQuery({
     queryKey: ['wa-count', filters],
     queryFn: async () => {
-      const params: Record<string, string | number | boolean> = { hasPhone: true, whatsapped: 'false', pageSize: 1 };
+      const params: Record<string, string | number | boolean> = { hasPhone: true, whatsapped: 'false', optedOut: 'false', pageSize: 1 };
       if (filters.stage) params.stage = filters.stage;
       if (filters.source) params.source = filters.source;
       if (filters.q) params.q = filters.q;
@@ -533,18 +575,25 @@ function WhatsAppModal({
   });
 
   const mutation = useMutation({
-    mutationFn: () => leadApi.whatsappSend({
-      mode,
-      text: mode === 'text' ? text : undefined,
-      templateName: mode === 'template' ? templateName : undefined,
-      language, useNameParam, limit,
-      stage: filters.stage || undefined,
-      source: filters.source || undefined,
-      q: filters.q || undefined,
-    }),
+    mutationFn: async () => {
+      // نحفظ الإعدادات أولاً ليجدها المالك كما تركها في المرّة القادمة
+      if (mode === 'template') {
+        await leadApi.whatsappConfigUpdate({ templateName, language, params, batchSize: limit });
+      }
+      return leadApi.whatsappSend({
+        mode,
+        text: mode === 'text' ? text : undefined,
+        templateName: mode === 'template' ? templateName : undefined,
+        language, params, limit,
+        stage: filters.stage || undefined,
+        source: filters.source || undefined,
+        q: filters.q || undefined,
+      });
+    },
     onSuccess: (res) => {
-      const { targeted, sent, failed, errors } = res.data.data as { targeted: number; sent: number; failed: number; errors?: string[] };
-      toast.success(`أُرسل ${sent} من ${targeted}${failed ? ` · فشل ${failed}` : ''}`);
+      const { targeted, sent, failed, errors, remainingToday } = res.data.data as
+        { targeted: number; sent: number; failed: number; errors?: string[]; remainingToday: number };
+      toast.success(`أُرسل ${sent} من ${targeted}${failed ? ` · فشل ${failed}` : ''} · متبقٍّ اليوم ${remainingToday}`);
       if (errors && errors.length) toast.error(errors.join(' | '), { duration: 7000 });
       onDone();
       if (sent > 0) onClose();
@@ -553,7 +602,8 @@ function WhatsAppModal({
   });
 
   const recipients = count?.total ?? 0;
-  const willSend = Math.min(recipients, limit);
+  const remaining = status?.remainingToday ?? limit;
+  const willSend = Math.min(recipients, limit, remaining);
   const ready = status?.ready;
 
   return (
@@ -564,10 +614,25 @@ function WhatsAppModal({
             واتساب غير مُعدّ في الخادم. أضِف <code>WHATSAPP_TOKEN</code> و<code>WHATSAPP_PHONE_NUMBER_ID</code> في إعدادات الخادم (Meta Cloud API).
           </div>
         )}
+        {ready && status?.webhookConfigured === false && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+            الـwebhook غير مُعدّ — الردود وحالات التسليم لن تصلك. أضِف <code>WHATSAPP_VERIFY_TOKEN</code>
+            {status?.signatureEnforced === false && <> و<code>WHATSAPP_APP_SECRET</code></>} واربط
+            <code className="mx-1">api.fieldsa.net/api/whatsapp/webhook</code> في Meta.
+          </div>
+        )}
+
         <div className="bg-[#dcf8e8] rounded-lg p-3 text-sm text-[#166534]">
-          يُرسَل آلياً لمن لديه <b>هاتف</b> و<b>لم يُراسَل واتساب</b> ضمن الفلاتر الحالية:
+          يُرسَل آلياً لمن لديه <b>هاتف</b> و<b>لم يُراسَل واتساب</b> و<b>لم ينسحب</b> ضمن الفلاتر الحالية:
           <b> {recipients}</b> متاح · سيُرسل الآن لـ<b> {willSend}</b>.
-          <br />من يصله تُنقل حالته إلى <b>«تم التواصل»</b> ولا يُراسَل مجدداً.
+          <br />من يصله تُنقل حالته إلى <b>«تم التواصل»</b>، ومن يردّ تُرفع حالته إلى <b>«مؤهَّل»</b> تلقائياً.
+        </div>
+
+        {/* الحصّة اليومية — تجاوزها يقيّد الرقم في Meta لا يزيد المبيعات */}
+        <div className="flex items-center gap-3 text-xs bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg p-2.5">
+          <span className="text-gray-600">الحصّة اليومية: <b className="text-[#1F1A13]">{status?.sentToday ?? 0}</b> / {status?.dailyCap ?? '—'}</span>
+          <span className={`font-semibold ${remaining === 0 ? 'text-red-600' : 'text-[#166534]'}`}>متبقٍّ {remaining}</span>
+          {!!status?.optedOut && <span className="text-gray-400 mr-auto">منسحبون مستثنون: {status.optedOut}</span>}
         </div>
 
         {/* الوضع */}
@@ -588,17 +653,51 @@ function WhatsAppModal({
                 <input value={language} onChange={(e) => setLanguage(e.target.value)} className="input" placeholder="ar / en_US" />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input type="checkbox" checked={useNameParam} onChange={(e) => setUseNameParam(e.target.checked)} />
-              إدراج اسم العميل كأول متغيّر في القالب <code className="text-xs">{'{{1}}'}</code>
-            </label>
-            <p className="text-xs text-gray-400">القالب يجب أن يكون <b>معتمداً في Meta</b> مسبقاً. هذا الوضع هو الصحيح للتسويق للأرقام الجديدة.</p>
+            {/* متغيّرات القالب — الترتيب هو ترتيب النقر، ويطابق {{1}},{{2}}... في القالب المعتمد */}
+            <div>
+              <label className="label">متغيّرات القالب <span className="text-gray-400 font-normal">(اضغط بالترتيب الذي يظهر في قالبك)</span></label>
+              <div className="flex flex-wrap gap-1.5">
+                {(['name', 'city', 'country', 'angle', 'angle_en'] as WaParam[]).map((p) => {
+                  const idx = params.indexOf(p);
+                  const on = idx >= 0;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => toggleParam(p)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs border transition ${on ? 'bg-[#25D366] text-white border-[#25D366]' : 'border-[#E9E1D3] text-gray-600 hover:border-[#25D366]'}`}
+                    >
+                      {on && <b className="ml-1">{`{{${idx + 1}}}`}</b>}
+                      {WA_PARAM_LABEL[p]}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                <b className="text-[#E15A30]">زاوية الدولة</b> تُحقن تلقائياً حسب دولة كل عميل — السعودي يصله ذكر ZATCA، والمصري ETA، من <b>قالب واحد</b>.
+              </p>
+            </div>
+
+            {/* معاينة حيّة على عميل حقيقي — تكشف أي متغيّر فارغ قبل أن ترفضه Meta */}
+            {params.length > 0 && preview?.lead && (
+              <div className="bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg p-2.5 space-y-1">
+                <p className="text-xs text-gray-500">معاينة على: <b className="text-[#1F1A13]">{preview.lead.name}</b>{preview.lead.country ? ` · ${preview.lead.country}` : ''}</p>
+                {preview.slots.map((s) => (
+                  <div key={s.slot} className="text-xs flex gap-2">
+                    <code className="text-[#E15A30] flex-shrink-0">{s.slot}</code>
+                    <span className="text-gray-700 leading-relaxed">{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-400">القالب يجب أن يكون <b>معتمداً في Meta</b> مسبقاً، وعدد متغيّراته مطابقاً للأعلى. هذا الوضع هو الصحيح للتسويق للأرقام الجديدة.</p>
           </div>
         ) : (
           <div>
             <label className="label">نص الرسالة</label>
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="input" />
-            <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> · <code>{'{{city}}'}</code> · <code>{'{{country}}'}</code></p>
+            <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> · <code>{'{{city}}'}</code> · <code>{'{{country}}'}</code> · <code className="text-[#E15A30]">{'{{angle}}'}</code> (زاوية دولة العميل)</p>
             <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 mt-1">⚠️ النص المباشر يصل فقط لمن راسلك خلال 24 ساعة (سياسة واتساب). للأرقام الجديدة استخدم «قالب معتمد».</p>
           </div>
         )}
@@ -610,11 +709,11 @@ function WhatsAppModal({
 
         <div className="flex gap-2 pt-1">
           <button
-            disabled={mutation.isPending || recipients === 0 || (mode === 'template' ? !templateName : !text) || ready === false}
+            disabled={mutation.isPending || willSend === 0 || (mode === 'template' ? !templateName : !text) || ready === false}
             onClick={() => mutation.mutate()}
             className="flex-1 bg-[#25D366] text-white rounded-lg py-2 flex items-center justify-center gap-2 hover:bg-[#1eb356] disabled:opacity-50"
           >
-            {mutation.isPending ? 'جارٍ الإرسال...' : <><MessageCircle size={16} /> إرسال آلي لـ{willSend}</>}
+            {mutation.isPending ? 'جارٍ الإرسال...' : remaining === 0 ? 'بلغت الحصّة اليومية' : <><MessageCircle size={16} /> إرسال آلي لـ{willSend}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>

@@ -603,16 +603,44 @@ model Lead {
   lastContactedAt DateTime?
   nextFollowUpAt  DateTime?
 
+  // انسحاب من مراسلة واتساب — يُضبط تلقائياً عند ردّ العميل بكلمة إلغاء/stop.
+  // مُستثنى من كل استهداف لاحق (سياسة واتساب + حماية تقييم جودة الرقم).
+  waOptOut Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   activities LeadActivity[]
+  waMessages WaMessage[]
 
   @@index([stage])
   @@index([countryCode])
   @@index([source])
   @@index([nextFollowUpAt])
   @@map("leads")
+}
+
+// سجلّ رسائل واتساب (صادر/وارد) — يغذّي الحدّ اليومي وتتبّع التسليم/القراءة ومطابقة الردود.
+// حالات التسليم تصل عبر webhook من Meta وتُحدَّث على waId.
+model WaMessage {
+  id        String  @id @default(uuid())
+  waId      String? @unique // معرّف رسالة واتساب (wamid) — مفتاح تحديث الحالة من الـwebhook
+  leadId    String?
+  lead      Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  phone     String  // الرقم مطبَّعاً (أرقام فقط) — مفتاح مطابقة الردود الواردة
+  direction String  @default("OUT") // OUT | IN
+  body      String? // نصّ الرسالة (أو نصّ الردّ الوارد)
+  template  String? // اسم القالب المعتمد (للصادر بوضع القالب)
+  status    String  @default("SENT") // SENT | DELIVERED | READ | FAILED | RECEIVED
+  error     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([phone])
+  @@index([createdAt])
+  @@map("wa_messages")
 }
 
 // سجلّ نشاط/متابعة على عميل محتمل (مكالمة، ملاحظة، تغيير مرحلة...)

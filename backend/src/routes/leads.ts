@@ -5,7 +5,10 @@ import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { runSearch, qualifyLeads, LeadProvider, RawLead, providersReady } from '../services/leadSources';
 import { sendMarketingEmail, marketingProvider } from '../services/marketingMailer';
-import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate } from '../services/whatsapp';
+import { whatsappReady, waNumber, sendWhatsAppText, sendWhatsAppTemplate, waSignatureEnforced } from '../services/whatsapp';
+import {
+  getWaConfig, saveWaConfig, resolveWaParams, previewWaParams, waSentToday, waRemainingToday, WA_PARAMS, WaParam,
+} from '../services/whatsappCampaign';
 import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
 import { getHuntConfig, saveHuntConfig, runAutoHuntBatch, ARAB_COUNTRIES } from '../services/leadHunter';
 import { personalize, marketingHtml } from '../services/marketingTemplate';
@@ -20,7 +23,7 @@ const STAGES = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'] as c
 
 // بناء شرط التصفية المشترك (تستخدمه القائمة والتصدير) من معاملات الاستعلام
 function buildLeadWhere(query: Record<string, string>): Record<string, unknown> {
-  const { stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, hasPhone, hasWebsite, emailed, whatsapped } = query;
+  const { stage, source, countryCode, q, assignedTo, dueOnly, hasEmail, hasPhone, hasWebsite, emailed, whatsapped, optedOut } = query;
   const where: Record<string, unknown> = {};
   if (stage && STAGES.includes(stage as typeof STAGES[number])) where.stage = stage;
   // مستخدمو مولّد الفواتير لهم صفحتهم المستقلة — يُستثنون من قائمة العملاء المحتملين
@@ -34,6 +37,9 @@ function buildLeadWhere(query: Record<string, string>): Record<string, unknown> 
   if (hasPhone === 'true') where.phone = { not: null };
   else if (query.noPhone === 'true') where.phone = null;
   if (hasWebsite === 'true') where.website = { not: null };
+  // انسحاب واتساب — لعدّ المستهدفين بما يطابق استهداف الإرسال تماماً
+  if (optedOut === 'true') where.waOptOut = true;
+  else if (optedOut === 'false') where.waOptOut = false;
   // «تمت مراسلته / لم يُراسَل» عبر وجود نشاط (EMAIL/WHATSAPP) — تُدمج بـ AND لدعم الجمع بينها
   const activityAnd: unknown[] = [];
   if (emailed === 'true') activityAnd.push({ activities: { some: { type: 'EMAIL' } } });
@@ -143,8 +149,69 @@ router.get('/stats', async (_req: AuthRequest, res: Response, next: NextFunction
 });
 
 // هل واتساب مُعدّ في الخادم؟ (قبل /:id حتى لا يبتلعه) — لعرض تنبيه الإعداد في الواجهة
-router.get('/whatsapp-status', (_req: AuthRequest, res: Response) => {
-  res.json({ success: true, data: { ready: whatsappReady() } });
+// نُرفق الحصّة اليومية المتبقّية وحالة تأمين الـwebhook ليراهما المالك قبل الإرسال
+router.get('/whatsapp-status', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const cfg = await getWaConfig();
+    const [sentToday, optedOut] = await Promise.all([
+      waSentToday(),
+      prisma.lead.count({ where: { waOptOut: true } }),
+    ]);
+    res.json({
+      success: true,
+      data: {
+        ready: whatsappReady(),
+        signatureEnforced: waSignatureEnforced(),
+        webhookConfigured: !!(process.env.WHATSAPP_VERIFY_TOKEN || '').trim(),
+        dailyCap: cfg.dailyCap,
+        sentToday,
+        remainingToday: Math.max(0, cfg.dailyCap - sentToday),
+        optedOut,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// إعدادات حملة واتساب (القالب والمتغيّرات والحدود) — قبل /:id
+router.get('/whatsapp-config', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: { ...(await getWaConfig()), available: WA_PARAMS } });
+  } catch (err) { next(err); }
+});
+
+// تحديث جزئي: يُدمج مع الإعدادات الحالية فلا يمسح المالكُ حقلاً بإغفاله
+const waConfigSchema = z.object({
+  templateName: z.string(),
+  language: z.string(),
+  params: z.array(z.enum(['name', 'city', 'country', 'angle', 'angle_en'])).max(6),
+  dailyCap: z.number().int().min(1).max(1000),
+  batchSize: z.number().int().min(1).max(200),
+}).partial();
+
+router.put('/whatsapp-config', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const patch = waConfigSchema.parse(req.body);
+    const cfg = { ...(await getWaConfig()), ...patch };
+    await saveWaConfig(cfg);
+    res.json({ success: true, data: cfg });
+  } catch (err) { next(err); }
+});
+
+// معاينة ما سيُملأ في متغيّرات القالب لعميل حقيقي (أول مستهدَف) — قبل /:id
+router.get('/whatsapp-preview', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const cfg = await getWaConfig();
+    const params = (req.query.params ? String(req.query.params).split(',') : cfg.params) as WaParam[];
+    const lead = await prisma.lead.findFirst({
+      where: { phone: { not: null }, waOptOut: false, activities: { none: { type: 'WHATSAPP' } } },
+      select: { name: true, city: true, country: true, countryCode: true },
+    });
+    if (!lead) {
+      res.json({ success: true, data: { lead: null, slots: [] } });
+      return;
+    }
+    res.json({ success: true, data: { lead, slots: previewWaParams(params, lead) } });
+  } catch (err) { next(err); }
 });
 
 // حالة الإثراء (هل Hunter مُعدّ؟) — قبل /:id
@@ -707,7 +774,8 @@ const waSendSchema = z.object({
   text: z.string().optional(),          // وضع النص
   templateName: z.string().optional(),  // وضع القالب
   language: z.string().optional(),      // رمز لغة القالب (افتراضي ar)
-  useNameParam: z.boolean().optional(), // إدراج اسم العميل كأول متغيّر {{1}}
+  useNameParam: z.boolean().optional(), // توافق خلفي: يعادل params=['name']
+  params: z.array(z.enum(['name', 'city', 'country', 'angle', 'angle_en'])).max(6).optional(),
   ids: z.array(z.string()).optional(),
   stage: z.string().optional(),
   source: z.string().optional(),
@@ -728,10 +796,24 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
       return;
     }
     const body = waSendSchema.parse(req.body);
-    const language = body.language || 'ar';
+    const cfg = await getWaConfig();
+    const language = body.language || cfg.language || 'ar';
+    // ترتيب متغيّرات القالب: الطلب أولاً، ثم الإعدادات، ثم توافق useNameParam القديم
+    const params: WaParam[] = body.params ?? (body.useNameParam === undefined ? cfg.params : (body.useNameParam ? ['name'] : []));
+
+    // الحدّ اليومي يحمي تقييم جودة الرقم في Meta — تجاوزه يقود إلى تقييد الرقم لا إلى مبيعات
+    const remaining = await waRemainingToday(cfg.dailyCap);
+    if (remaining <= 0) {
+      res.status(429).json({
+        success: false,
+        message: `بلغت الحدّ اليومي (${cfg.dailyCap} رسالة). يُستأنف الإرسال غداً، أو ارفع الحدّ من إعدادات الحملة.`,
+      });
+      return;
+    }
 
     const where: Record<string, unknown> = {
       phone: { not: null },
+      waOptOut: false, // من طلب الإيقاف لا يُراسَل مجدداً — لا استثناء
       activities: { none: { type: 'WHATSAPP' } },
     };
     if (body.ids?.length) {
@@ -749,7 +831,8 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
       }
     }
 
-    const cap = body.limit ?? 50;
+    // الدفعة لا تتجاوز المتبقّي من الحصّة اليومية مهما طُلب
+    const cap = Math.min(body.limit ?? cfg.batchSize, remaining);
     const leads = await prisma.lead.findMany({ where, take: cap });
     const targets = leads.filter((l) => waNumber(l.phone));
 
@@ -758,13 +841,20 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
     const errors: string[] = [];
     for (const l of targets) {
       const num = waNumber(l.phone);
+      const text = body.mode === 'text' ? personalize(body.text!, l) : null;
       try {
-        if (body.mode === 'text') {
-          await sendWhatsAppText(num, personalize(body.text!, l));
-        } else {
-          await sendWhatsAppTemplate(num, body.templateName!, language, body.useNameParam ? [l.name] : []);
-        }
+        const waId = body.mode === 'text'
+          ? await sendWhatsAppText(num, text!)
+          : await sendWhatsAppTemplate(num, body.templateName!, language, resolveWaParams(params, l));
         sent++;
+        // سجلّ الرسالة: أساس الحدّ اليومي، ومفتاح ربط حالة التسليم والردّ لاحقاً
+        await prisma.waMessage.create({
+          data: {
+            waId, leadId: l.id, phone: num, direction: 'OUT', status: 'SENT',
+            body: text ?? `[قالب: ${body.templateName}]`,
+            template: body.mode === 'template' ? body.templateName : null,
+          },
+        });
         await prisma.lead.update({
           where: { id: l.id },
           data: { lastContactedAt: new Date(), stage: l.stage === 'NEW' ? 'CONTACTED' : l.stage },
@@ -774,11 +864,22 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
         });
       } catch (e) {
         failed++;
+        await prisma.waMessage.create({
+          data: {
+            leadId: l.id, phone: num, direction: 'OUT', status: 'FAILED',
+            body: text ?? `[قالب: ${body.templateName}]`,
+            template: body.mode === 'template' ? body.templateName : null,
+            error: (e as Error).message.slice(0, 300),
+          },
+        });
         if (errors.length < 3) errors.push(`${l.name}: ${(e as Error).message}`);
       }
     }
 
-    res.json({ success: true, data: { targeted: targets.length, sent, failed, errors } });
+    res.json({
+      success: true,
+      data: { targeted: targets.length, sent, failed, errors, remainingToday: Math.max(0, remaining - sent) },
+    });
   } catch (err) {
     next(err);
   }
