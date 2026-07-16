@@ -1112,6 +1112,8 @@ export default function RepApp() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [docResult, setDocResult] = useState<InvoiceDoc | ReceiptDoc | StatementDoc | null>(null);
+  // من أين فُتح المستند؟ لإعادة المندوب لشاشة العميل عند إغلاقه بدل قائمة الفواتير
+  const [docBack, setDocBack] = useState<'customerDetail' | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
 
   // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
@@ -1155,14 +1157,17 @@ export default function RepApp() {
           ) : docResult ? (
             <DocumentResult doc={docResult} onClose={() => {
               const k = docResult.kind;
-              setDocResult(null);
+              const back = docBack;
+              setDocResult(null); setDocBack(null);
+              // فُتح من شاشة العميل → نعود إليها؛ وإلا لقائمة نوع المستند
+              if (back === 'customerDetail' && selectedCustomer) { setModal('customerDetail'); return; }
               setScreen(k === 'invoice' ? 'invoices' : k === 'receipt' ? 'receipts' : 'customers');
             }} />
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal(null)}
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
-              onStatement={(doc) => { setModal(null); setDocResult(doc); }}
-              onOpenDoc={(doc) => { setModal(null); setDocResult(doc); }} />
+              onStatement={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }}
+              onOpenDoc={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (
             <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
@@ -1202,8 +1207,8 @@ export default function RepApp() {
               {/* Body */}
               <div className="flex-1 overflow-hidden">
                 {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} />}
-                {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => setDocResult(invoiceDocFromDetail(d, user.name, company))} />}
-                {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => setDocResult(receiptDocFromDetail(d, user.name, company))} />}
+                {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
+                {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
               </div>
