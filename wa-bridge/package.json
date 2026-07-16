@@ -5,7 +5,7 @@
   "description": "جسر واتساب ويب المحلي لـ Field Sales — يمسح QR ويرسل رسائل الطابور القادم من api.fieldsa.net",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node --env-file-if-exists=.env index.js"
   },
   "dependencies": {
     "qrcode": "^1.5.4",

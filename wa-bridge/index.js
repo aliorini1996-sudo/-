@@ -81,7 +81,18 @@ const MIN_GAP_MS = Number(process.env.WA_BRIDGE_MIN_GAP_MS || 8000);
 const MAX_GAP_MS = Number(process.env.WA_BRIDGE_MAX_GAP_MS || 25000);
 
 if (!KEY) {
-  console.error('✖ ينقص WA_BRIDGE_KEY. اضبطه بنفس قيمته على Render ثم أعد التشغيل.');
+  console.error('');
+  console.error('✖ ينقص المفتاح — لم أجد WA_BRIDGE_KEY.');
+  console.error('');
+  console.error('  الحلّ في خطوتين:');
+  console.error(`  ١) افتح المجلّد:  ${__dirname}`);
+  console.error('  ٢) أنشئ ملفاً اسمه  .env  (انسخ .env.example) واكتب فيه سطراً واحداً:');
+  console.error('');
+  console.error('     WA_BRIDGE_KEY=المفتاح-من-Render');
+  console.error('');
+  console.error('  المفتاح تجده في: Render ← dsd-backend ← Environment ← WA_BRIDGE_KEY');
+  console.error('  بلا علامات تنصيص وبلا مسافات حول علامة =');
+  console.error('');
   process.exit(1);
 }
 
