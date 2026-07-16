@@ -138,7 +138,14 @@ const client = new Client({
 });
 
 client.on('qr', async (qr) => {
-  log('▸ رمز QR جديد — افتح لوحة المالك ← واتساب ← امسح الرمز بهاتفك');
+  log('▸ رمز QR جديد — امسحه بهاتفك: واتساب ← الإعدادات ← الأجهزة المرتبطة ← ربط جهاز');
+  // نطبعه هنا أيضاً لا في اللوحة فقط: يتيح الربط فوراً بلا انتظار نشر الواجهة،
+  // ويُنقذك إن كانت اللوحة معطّلة لأي سبب.
+  try {
+    console.log('\n' + (await qrcode.toString(qr, { type: 'terminal', small: true })));
+  } catch (e) {
+    log(`⚠ تعذّر رسم الرمز في الطرفية (${e.message}) — استخدم اللوحة`);
+  }
   const dataUrl = await qrcode.toDataURL(qr, { margin: 1, width: 320 });
   await api('/qr', { qr: dataUrl });
 });
