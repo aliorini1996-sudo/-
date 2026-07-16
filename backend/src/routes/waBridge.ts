@@ -275,6 +275,123 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
   } catch (err) { next(err); }
 });
 
+/**
+ * إدراج جماعي في الطابور — «أرسل لكل هؤلاء».
+ *
+ * لا نُرسل هنا: نُدرج فقط. الجسر يسحب 5 كل دورة ويباعد بينها عشوائياً 8-25ث،
+ * فتخرج الرسائل بإيقاع بشري لا دفعةً واحدة (الدفعة الواحدة أوضح إشارة حظر).
+ *
+ * الاستهداف يطابق مسار Cloud API حرفياً: له هاتف، لم يُراسَل واتساب، ولم ينسحب.
+ * ونقل المرحلة إلى «تم التواصل» يحدث في /result عند نجاح الإرسال فعلاً — لا عند الإدراج،
+ * كي لا يُعلَّم عميلٌ «تم التواصل» ورسالته لم تصله.
+ */
+const bulkSchema = z.object({
+  stage: z.string().optional(),
+  source: z.string().optional(),
+  countryCode: z.string().optional(),
+  q: z.string().optional(),
+  ids: z.array(z.string()).optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+});
+
+router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const b = bulkSchema.parse(req.body);
+    const s = await getBridgeSession();
+    if (!isBridgeAlive(s) || s.status !== 'CONNECTED') {
+      res.status(400).json({ success: false, message: 'الجسر غير متصل — شغّل الجسر على جهازك أولاً.' });
+      return;
+    }
+    const remaining = await waRemainingToday();
+    if (remaining <= 0) {
+      const cfg = await getWaConfig();
+      res.status(429).json({
+        success: false,
+        message: `بلغت الحدّ اليومي (${cfg.dailyCap}). يُستأنف غداً، أو ارفع الحدّ من إعدادات الحملة.`,
+      });
+      return;
+    }
+
+    const where: Record<string, unknown> = {
+      phone: { not: null },
+      waOptOut: false,
+      activities: { none: { type: 'WHATSAPP' } },
+      // من له رسالة منتظرة في الطابور لا يُدرَج مجدداً — نقرتان تُنتجان رسالتين
+      waMessages: { none: { status: 'QUEUED', direction: 'OUT' } },
+    };
+    if (b.ids?.length) {
+      where.id = { in: b.ids };
+    } else {
+      if (b.stage) where.stage = b.stage;
+      if (b.source) where.source = b.source;
+      else where.source = { not: 'invoice-tool' };
+      if (b.countryCode) where.countryCode = b.countryCode;
+      if (b.q) {
+        where.OR = [
+          { name: { contains: b.q, mode: 'insensitive' } },
+          { city: { contains: b.q, mode: 'insensitive' } },
+          { country: { contains: b.q, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const take = Math.min(b.limit ?? 50, remaining);
+    const leads = await prisma.lead.findMany({
+      where,
+      take,
+      orderBy: [{ score: 'desc' }, { createdAt: 'desc' }], // الأعلى تأهيلاً أولاً
+      select: { id: true, name: true, city: true, country: true, countryCode: true, phone: true },
+    });
+
+    const template = await getDraftTemplate();
+    const rows = leads
+      .map((l) => ({ lead: l, phone: waNumber(l.phone) }))
+      .filter((x) => x.phone) // رقم غير صالح ⇒ لا يُدرج أصلاً
+      .map((x) => ({
+        leadId: x.lead.id,
+        phone: x.phone,
+        direction: 'OUT',
+        status: 'QUEUED',
+        body: personalize(template, x.lead),
+      }));
+
+    if (!rows.length) {
+      res.json({ success: true, data: { queued: 0, skipped: leads.length, remainingToday: remaining } });
+      return;
+    }
+    await prisma.waMessage.createMany({ data: rows });
+    res.json({
+      success: true,
+      data: { queued: rows.length, skipped: leads.length - rows.length, remainingToday: remaining - rows.length },
+    });
+  } catch (err) { next(err); }
+});
+
+// كم عميلاً سيُستهدف لو ضغطت «إرسال جماعي» الآن؟ (معاينة قبل الالتزام)
+router.get('/bulk-count', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const where: Record<string, unknown> = {
+      phone: { not: null },
+      waOptOut: false,
+      activities: { none: { type: 'WHATSAPP' } },
+      waMessages: { none: { status: 'QUEUED', direction: 'OUT' } },
+      source: { not: 'invoice-tool' },
+    };
+    if (req.query.stage) where.stage = String(req.query.stage);
+    if (req.query.countryCode) where.countryCode = String(req.query.countryCode);
+    const [eligible, remaining] = await Promise.all([prisma.lead.count({ where }), waRemainingToday()]);
+    res.json({ success: true, data: { eligible, remainingToday: remaining, willSend: Math.min(eligible, remaining) } });
+  } catch (err) { next(err); }
+});
+
+// إفراغ الطابور — مخرج طوارئ إن أدرجتَ دفعة بالخطأ ولم تُرسل بعد
+router.post('/queue/clear', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const r = await prisma.waMessage.deleteMany({ where: { status: 'QUEUED', direction: 'OUT' } });
+    res.json({ success: true, data: { cleared: r.count } });
+  } catch (err) { next(err); }
+});
+
 // محادثة عميل (صادر + وارد) بالترتيب الزمني
 router.get('/thread/:leadId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

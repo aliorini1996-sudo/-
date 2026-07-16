@@ -13,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   X, MessageCircle, Smartphone, Send, LogOut, RefreshCw, Loader2,
-  CheckCheck, AlertTriangle, Clock, Pencil, Save, Ban,
+  CheckCheck, AlertTriangle, Clock, Pencil, Save, Ban, Users,
 } from 'lucide-react';
 import { leadApi } from '../api/client';
 import { Lead } from '../types';
@@ -46,6 +46,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
   const [text, setText] = useState('');
   const [editingDraft, setEditingDraft] = useState(false);
   const [draft, setDraft] = useState('');
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   // حالة الجلسة — نُسرّع التحديث أثناء انتظار مسح QR ونُبطئه بعد الاتصال
   const { data: session } = useQuery({
@@ -110,6 +111,37 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
     onSuccess: () => {
       toast.success('سيُفصل الجسر خلال ثوانٍ');
       qc.invalidateQueries({ queryKey: ['wa-bridge-session'] });
+    },
+  });
+
+  // كم عميلاً سيُستهدف بالإرسال الجماعي الآن؟
+  const { data: bulkCount } = useQuery({
+    queryKey: ['wa-bridge-bulk-count'],
+    enabled: connected,
+    refetchInterval: 15000,
+    queryFn: async () => (await leadApi.waBridgeBulkCount()).data.data as
+      { eligible: number; remainingToday: number; willSend: number },
+  });
+
+  const bulk = useMutation({
+    mutationFn: () => leadApi.waBridgeBulk({ limit: bulkCount?.willSend || 50 }),
+    onSuccess: (res) => {
+      const d = res.data.data as { queued: number; skipped: number; remainingToday: number };
+      toast.success(`أُدرجت ${d.queued} رسالة في الطابور — الجسر يرسلها تباعاً`, { duration: 6000 });
+      setConfirmBulk(false);
+      qc.invalidateQueries({ queryKey: ['wa-bridge-session'] });
+      qc.invalidateQueries({ queryKey: ['wa-bridge-bulk-count'] });
+    },
+    onError: (e: unknown) =>
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الإدراج'),
+  });
+
+  const clearQueue = useMutation({
+    mutationFn: () => leadApi.waBridgeQueueClear(),
+    onSuccess: (res) => {
+      toast.success(`أُفرغ الطابور (${(res.data.data as { cleared: number }).cleared} رسالة)`);
+      qc.invalidateQueries({ queryKey: ['wa-bridge-session'] });
+      qc.invalidateQueries({ queryKey: ['wa-bridge-bulk-count'] });
     },
   });
 
@@ -290,6 +322,53 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                   عناصر نائبة: <code>{'{{name}}'}</code> <code>{'{{city}}'}</code> <code>{'{{country}}'}</code>{' '}
                   <code className="text-[#E15A30]">{'{{angle}}'}</code> — زاوية دولة العميل تُحقن تلقائياً.
                 </p>
+              </div>
+
+              {/* الإرسال الجماعي — يُدرج الكلّ في الطابور، والجسر يرسل بإيقاع بشري */}
+              <div className="border-t border-[#E9E1D3] pt-3">
+                <label className="label flex items-center gap-1"><Users size={12} /> إرسال جماعي</label>
+                <div className="bg-[#dcf8e8] rounded-lg p-2.5 text-xs text-[#166534] leading-relaxed mb-2">
+                  <b>{bulkCount?.eligible ?? 0}</b> عميل مؤهَّل (له رقم · لم يُراسَل · لم ينسحب)
+                  <br />سيُدرج الآن: <b>{bulkCount?.willSend ?? 0}</b> ضمن حصّة اليوم
+                  <br />من تصله الرسالة ⇒ <b>«تم التواصل»</b> تلقائياً
+                </div>
+
+                {!confirmBulk ? (
+                  <button
+                    disabled={!bulkCount?.willSend}
+                    onClick={() => setConfirmBulk(true)}
+                    className="w-full bg-[#128C7E] text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 hover:bg-[#0f7268] disabled:opacity-50"
+                  >
+                    <Send size={14} /> إرسال جماعي لـ{bulkCount?.willSend ?? 0}
+                  </button>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 leading-relaxed">
+                      ستُرسل <b>{bulkCount?.willSend}</b> رسالة حقيقية لأرقام حقيقية. متأكّد؟
+                    </p>
+                    <div className="flex gap-1.5">
+                      <button
+                        disabled={bulk.isPending}
+                        onClick={() => bulk.mutate()}
+                        className="flex-1 bg-[#128C7E] text-white rounded-lg py-1.5 text-xs flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        {bulk.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} نعم، أرسل
+                      </button>
+                      <button onClick={() => setConfirmBulk(false)} className="flex-1 border border-[#E9E1D3] rounded-lg py-1.5 text-xs text-gray-600">
+                        إلغاء
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!!session?.queued && (
+                  <div className="flex items-center justify-between mt-2 text-xs">
+                    <span className="text-gray-500 flex items-center gap-1">
+                      <Clock size={11} /> في الطابور: <b>{session.queued}</b>
+                    </span>
+                    <button onClick={() => clearQueue.mutate()} className="text-red-500 hover:underline">إفراغ</button>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-[#E9E1D3] pt-3 space-y-2">
