@@ -294,15 +294,34 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
 }
 
 // ============ تفاصيل العميل ============
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc }: {
   customer: any; repName: string; company: Company | null;
   perms: RepUser;
   onClose: () => void; onInvoice: () => void; onReceipt: () => void; onReturn: () => void;
   onStatement: (doc: StatementDoc) => void;
+  onOpenDoc: (doc: InvoiceDoc | ReceiptDoc) => void;
 }) {
   const tr = useTr();
   const [entries, setEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+
+  // فتح مستند الحركة (فاتورة/سند) من كشف الحساب
+  const openDoc = async (e: any) => {
+    const invId = e.invoiceId; const recId = e.receiptId;
+    if (!invId && !recId) return;
+    setOpeningId(e.id);
+    try {
+      if (invId) {
+        const res = await repApi.get(`/invoices/${invId}`);
+        onOpenDoc(invoiceDocFromDetail(res.data.data, repName, company));
+      } else {
+        const res = await repApi.get(`/receipts/${recId}`);
+        onOpenDoc(receiptDocFromDetail(res.data.data, repName, company));
+      }
+    } catch { /* */ }
+    setOpeningId(null);
+  };
   const canCreateInvoice = perms.canCreateInvoice !== false;
   const canSellAnyType = perms.canSellOnCredit !== false || perms.canSellInCash !== false;
   const canCreateReceipt = perms.canCreateReceipt !== false;
@@ -380,24 +399,34 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           <p className="text-center text-gray-400 py-6 text-sm">{tr('لا توجد حركات')}</p>
         ) : entries.map(e => {
           const isDebit = Number(e.debit) > 0;
+          const hasDoc = !!(e.invoiceId || e.receiptId); // الحركات المرتبطة بفاتورة/سند قابلة للفتح
           return (
-            <div key={e.id} className="bg-white rounded-xl p-3 mb-2 border border-gray-100 flex items-center justify-between">
+            <button key={e.id} type="button" onClick={() => hasDoc && openDoc(e)} disabled={!hasDoc}
+              className={`w-full text-right bg-white rounded-xl p-3 mb-2 border border-gray-100 flex items-center justify-between ${hasDoc ? 'hover:border-[#E8C9BC] active:bg-gray-50' : 'cursor-default'}`}>
               <div className="flex items-center gap-2">
-                <span className={`w-7 h-7 rounded-full flex items-center justify-center ${isDebit ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${isDebit ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
                   {isDebit ? '↑' : '↓'}
                 </span>
-                <div>
+                <div className="text-right">
                   <p className="text-xs font-medium text-gray-700">{e.description}</p>
-                  <p className="text-[10px] text-gray-400">{formatDate(e.entryDate)}</p>
+                  <p className="text-[10px] text-gray-400">
+                    {formatDate(e.entryDate)}
+                    {e.invoice?.number ? ` • ${e.invoice.number}` : e.receipt?.number ? ` • ${e.receipt.number}` : ''}
+                  </p>
                 </div>
               </div>
-              <div className="text-left">
-                <p className={`text-xs font-bold ${isDebit ? 'text-red-600' : 'text-green-600'}`}>
-                  {isDebit ? formatCurrency(e.debit) : formatCurrency(e.credit)}
-                </p>
-                <p className="text-[10px] text-gray-400">{tr('رصيد')}: {formatCurrency(e.balance)}</p>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="text-left">
+                  <p className={`text-xs font-bold ${isDebit ? 'text-red-600' : 'text-green-600'}`}>
+                    {isDebit ? formatCurrency(e.debit) : formatCurrency(e.credit)}
+                  </p>
+                  <p className="text-[10px] text-gray-400">{tr('رصيد')}: {formatCurrency(e.balance)}</p>
+                </div>
+                {hasDoc && (openingId === e.id
+                  ? <span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-[#E15A30] rounded-full animate-spin" />
+                  : <FileDown size={14} className="text-gray-300" />)}
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -1132,7 +1161,8 @@ export default function RepApp() {
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal(null)}
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
-              onStatement={(doc) => { setModal(null); setDocResult(doc); }} />
+              onStatement={(doc) => { setModal(null); setDocResult(doc); }}
+              onOpenDoc={(doc) => { setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (
             <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
