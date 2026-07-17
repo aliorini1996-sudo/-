@@ -77,9 +77,28 @@ function writeRoute(routePath, html) {
   fs.writeFileSync(path.join(dir, 'index.html'), html);
 }
 
+/**
+ * الشرطة المائلة في آخر الرابط **إلزامية** — ليست تجميلاً.
+ *
+ * نكتب الصفحات في مجلّدات: dist/blog/x/index.html. وRender يخدم المجلّد فقط إذا انتهى
+ * الطلب بشرطة (/blog/x/)؛ أما /blog/x فلا يجد له ملفاً فتبتلعه قاعدة `/* → /index.html`
+ * ويُعيد قوقعة SPA فارغة بلا محتوى ولا JSON-LD.
+ *
+ * فإن أشار الـcanonical إلى /blog/x فنحن نُرشد جوجل بأيدينا إلى النسخة الفارغة
+ * بينما الصفحة الحقيقية على بُعد شرطة واحدة. (جُرّبت قواعد rewrite في Render
+ * فأنتجت حلقة إعادة توجيه لا نهائية — لذا الحلّ هنا في المصدر.)
+ */
+const canon = (url) => {
+  const m = String(url).match(/^(https?:\/\/[^/]+)(\/[^#?]*)?([#?].*)?$/);
+  if (!m) return url;
+  const [, origin, p = '/', rest = ''] = m;
+  if (/\.[a-z0-9]{2,5}$/i.test(p)) return url;   // ملف بامتداد (.xml/.txt) — لا شرطة
+  return p.endsWith('/') ? origin + p + rest : origin + p + '/' + rest;
+};
+
 const trilingualHreflang = (blogPath) => LANGS
-  .map((L) => `\n    <link rel="alternate" hreflang="${L}" href="${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}"/>`)
-  .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${ORIGIN}${blogPath}"/>`;
+  .map((L) => `\n    <link rel="alternate" hreflang="${L}" href="${canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}`)}"/>`)
+  .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${canon(ORIGIN + blogPath)}"/>`;
 
 const tr = (L, ar, en, fr) => (L === 'ar' ? ar : L === 'en' ? en : fr);
 
@@ -90,8 +109,8 @@ function articleJsonLd(a, lang, canonical) {
     '@graph': [
       { '@type': 'Article', headline: a.title, description: a.description, inLanguage: lang, datePublished: a.date, dateModified: a.date, image: a.image, author: { '@type': 'Organization', name: 'FieldSales' }, publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: `${ORIGIN}/icons/icon-512.png` } }, mainEntityOfPage: canonical },
       { '@type': 'BreadcrumbList', itemListElement: [
-        { '@type': 'ListItem', position: 1, name: tr(lang, 'الرئيسية', 'Home', 'Accueil'), item: `${ORIGIN}${prefix || ''}` },
-        { '@type': 'ListItem', position: 2, name: tr(lang, 'المدوّنة', 'Blog', 'Blog'), item: `${ORIGIN}${prefix}/blog` },
+        { '@type': 'ListItem', position: 1, name: tr(lang, 'الرئيسية', 'Home', 'Accueil'), item: canon(`${ORIGIN}${prefix || ''}`) },
+        { '@type': 'ListItem', position: 2, name: tr(lang, 'المدوّنة', 'Blog', 'Blog'), item: canon(`${ORIGIN}${prefix}/blog`) },
         { '@type': 'ListItem', position: 3, name: a.title, item: canonical },
       ] },
       ...(a.faq && a.faq.length ? [{ '@type': 'FAQPage', mainEntity: a.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }] : []),
@@ -121,7 +140,7 @@ async function main() {
       const a = getArticle(slug, L);
       if (!a) continue;
       const prefix = L === 'ar' ? '' : `/${L}`;
-      const canonical = `${ORIGIN}${prefix}/blog/${slug}`;
+      const canonical = canon(`${ORIGIN}${prefix}/blog/${slug}`);
       const brand = tr(L, 'مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales');
       const body = `<main><article><h1>${esc(a.title)}</h1><img src="${a.imagePath}" alt="${esc(a.title)}" width="1200" height="630"/>${a.contentHtml}</article></main>`;
       const html = buildPage({
@@ -137,14 +156,14 @@ async function main() {
   // 1ب) المقالات اليدوية (posts.ts / CMS) — عربية دائماً + إنجليزية للثنائية، بمحتوى كامل
   //     (كانت قوقعة SPA فارغة لزواحف AI وكاشطي التواصل رغم وجودها في sitemap)
   const manualHreflang = (slug, bilingual) =>
-    `\n    <link rel="alternate" hreflang="ar" href="${ORIGIN}/blog/${slug}"/>` +
-    (bilingual ? `\n    <link rel="alternate" hreflang="en" href="${ORIGIN}/en/blog/${slug}"/>` : '') +
-    `\n    <link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog/${slug}"/>`;
+    `\n    <link rel="alternate" hreflang="ar" href="${canon(`${ORIGIN}/blog/${slug}`)}"/>` +
+    (bilingual ? `\n    <link rel="alternate" hreflang="en" href="${canon(`${ORIGIN}/en/blog/${slug}`)}"/>` : '') +
+    `\n    <link rel="alternate" hreflang="x-default" href="${canon(`${ORIGIN}/blog/${slug}`)}"/>`;
   for (const p of manual) {
     for (const L of p.en ? ['ar', 'en'] : ['ar']) {
       const v = L === 'en' ? p.en : p;
       const prefix = L === 'ar' ? '' : '/en';
-      const canonical = `${ORIGIN}${prefix}/blog/${p.slug}`;
+      const canonical = canon(`${ORIGIN}${prefix}/blog/${p.slug}`);
       const brand = L === 'ar' ? 'مدوّنة FieldSales' : 'FieldSales Blog';
       const image = `${ORIGIN}/og-image.png`;
       const body = `<main><article><h1>${esc(v.title)}</h1>${v.contentHtml}</article></main>`;
@@ -163,7 +182,7 @@ async function main() {
   // 2) فهارس المدوّنة (ع/إ/فر) — وسوم + قائمة روابط للمقالات (زحف داخلي)
   for (const L of LANGS) {
     const prefix = L === 'ar' ? '' : `/${L}`;
-    const canonical = `${ORIGIN}${prefix}/blog`;
+    const canonical = canon(`${ORIGIN}${prefix}/blog`);
     const title = tr(L, 'المدوّنة | FieldSales — مقالات المبيعات الميدانية والتوزيع في الدول العربية',
       'Blog | FieldSales — Field Sales & Distribution Articles across Arab Countries',
       'Blog | FieldSales — Articles sur la vente terrain et la distribution dans les pays arabes');
@@ -205,7 +224,7 @@ async function main() {
     },
   };
   for (const L of ['en', 'fr']) {
-    const canonical = `${ORIGIN}/${L}`;
+    const canonical = canon(`${ORIGIN}/${L}`);
     const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang('/'), bodyHtml: homeMeta[L].body });
     writeRoute(`/${L}`, html);
     n++;
@@ -308,7 +327,7 @@ async function main() {
     for (const L of LANGS) {
       const m = langs[L];
       const prefix = L === 'ar' ? '' : `/${L}`;
-      const canonical = `${ORIGIN}${prefix}/${route}`;
+      const canonical = canon(`${ORIGIN}${prefix}/${route}`);
       const html = buildPage({ lang: L, title: m.t, description: m.d, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang(`/${route}`), jsonLd: m.j || null, bodyHtml: `<main>${m.b}</main>` });
       writeRoute(`${prefix}/${route}`, html);
       n++;

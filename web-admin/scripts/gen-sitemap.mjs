@@ -62,18 +62,36 @@ async function effectivePosts() {
   return s;
 }
 
-// روابط hreflang لمسار مدوّنة (عربي + /en)
+// روابط hreflang لمسار مدوّنة (عربي + /en) — بشرطة مائلة (انظر canon أدناه)
 const blogAlt = (p) => [
-  `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}${p}"/>`,
-  `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}"/>`,
-  `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}"/>`,
+  `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}${p}/"/>`,
+  `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}/"/>`,
+  `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}/"/>`,
 ].join('\n');
+
+/**
+ * الشرطة المائلة في آخر الرابط **إلزامية** — ليست تجميلاً.
+ *
+ * الصفحات مُصيَّرة مسبقاً في مجلّدات: dist/blog/x/index.html. وRender يخدم مجلّداً فقط
+ * إذا انتهى الطلب بشرطة (/blog/x/). أما /blog/x فلا يجد له ملفاً فتبتلعه قاعدة
+ * `/* → /index.html` ويُعيد قوقعة SPA فارغة — لا محتوى ولا JSON-LD.
+ *
+ * أي أن جوجل كان يزور 1132 صفحة فارغة بينما الحقيقية على بُعد شرطة واحدة.
+ * (جُرّبت قواعد rewrite في Render فأنتجت حلقة إعادة توجيه لا نهائية — الحلّ هنا.)
+ */
+const canon = (url) => {
+  const m = String(url).match(/^(https?:\/\/[^/]+)(\/[^#?]*)?([#?].*)?$/);
+  if (!m) return url;
+  const [, origin, p = '/', rest = ''] = m;
+  if (/\.[a-z0-9]{2,5}$/i.test(p)) return url;   // ملف بامتداد (.xml/.txt) — لا شرطة
+  return p.endsWith('/') ? origin + p + rest : origin + p + '/' + rest;
+};
 
 const alt = (arPath) => {
   const suffix = arPath === '/' ? '' : arPath;
-  const ar = ORIGIN + (arPath === '/' ? '/' : arPath);
-  const en = ORIGIN + '/en' + suffix;
-  const fr = ORIGIN + '/fr' + suffix;
+  const ar = canon(ORIGIN + (arPath === '/' ? '/' : arPath));
+  const en = canon(ORIGIN + '/en' + suffix);
+  const fr = canon(ORIGIN + '/fr' + suffix);
   return [
     `    <xhtml:link rel="alternate" hreflang="ar" href="${ar}"/>`,
     `    <xhtml:link rel="alternate" hreflang="en" href="${en}"/>`,
@@ -84,8 +102,9 @@ const alt = (arPath) => {
 
 const imageBlock = (img) => (img ? `    <image:image>\n      <image:loc>${img}</image:loc>\n    </image:image>\n` : '');
 
+// كل رابط يمرّ عبر canon هنا — نقطة واحدة تضمن ألّا يُفلت رابط بلا شرطة
 const urlEntry = (loc, { lastmod = today, freq = 'monthly', priority = '0.6', alternates = '', image = '' } = {}) =>
-  `  <url>\n    <loc>${loc}</loc>\n${alternates ? alternates + '\n' : ''}${imageBlock(image)}    <lastmod>${lastmod}</lastmod>\n    <changefreq>${freq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
+  `  <url>\n    <loc>${canon(loc)}</loc>\n${alternates ? alternates + '\n' : ''}${imageBlock(image)}    <lastmod>${lastmod}</lastmod>\n    <changefreq>${freq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
 
 async function main() {
   const posts = await effectivePosts();
@@ -102,10 +121,10 @@ async function main() {
 
   // فهرس المدوّنة (عربي + /en + /fr مع hreflang)
   const idxAlt = [
-    `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}/blog"/>`,
-    `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en/blog"/>`,
-    `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr/blog"/>`,
-    `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog"/>`,
+    `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}/blog/"/>`,
+    `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en/blog/"/>`,
+    `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr/blog/"/>`,
+    `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog/"/>`,
   ].join('\n');
   urls.push(urlEntry(ORIGIN + '/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
   urls.push(urlEntry(ORIGIN + '/en/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
@@ -131,10 +150,10 @@ async function main() {
   for (const a of seo) {
     const p = `/blog/${a.slug}`;
     const seoAlt = [
-      `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}${p}"/>`,
-      `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}"/>`,
-      `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr${p}"/>`,
-      `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}"/>`,
+      `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}${p}/"/>`,
+      `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}/"/>`,
+      `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr${p}/"/>`,
+      `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}/"/>`,
     ].join('\n');
     for (const L of ['ar', 'en', 'fr']) {
       const loc = ORIGIN + (L === 'ar' ? '' : '/' + L) + p;

@@ -25,7 +25,29 @@ function setLink(rel: string, href: string) {
   el.setAttribute('href', href);
 }
 
-export function useSeo({ title, description, keywords, canonical, image, type = 'website', locale, alternates, jsonLd }: SeoInput) {
+/**
+ * الشرطة المائلة في آخر الرابط **إلزامية** — ليست تجميلاً.
+ *
+ * الصفحات مُصيَّرة في مجلّدات (dist/blog/x/index.html)، وRender يخدمها فقط عند /blog/x/ ؛
+ * أما /blog/x فتبتلعه قاعدة `/* → /index.html` فيُعيد قوقعة SPA فارغة بلا محتوى.
+ * فإن أشار الـcanonical إلى النسخة بلا شرطة، نُرشد جوجل بأيدينا إلى الصفحة الفارغة.
+ *
+ * يُطبَّع هنا مركزياً: كل صفحة عامّة تمرّ عبر useSeo، فلا يُفلت رابط. (جُرّبت قواعد
+ * rewrite في Render فأنتجت حلقة إعادة توجيه لا نهائية — لذا الحلّ في المصدر.)
+ */
+const canon = (url: string): string => {
+  const m = url.match(/^(https?:\/\/[^/]+)(\/[^#?]*)?([#?].*)?$/);
+  if (!m) return url;
+  const origin = m[1];
+  const p = m[2] || '/';
+  const rest = m[3] || '';
+  if (/\.[a-z0-9]{2,5}$/i.test(p)) return url;   // ملف بامتداد — لا شرطة
+  return p.endsWith('/') ? `${origin}${p}${rest}` : `${origin}${p}/${rest}`;
+};
+
+export function useSeo({ title, description, keywords, canonical: rawCanonical, image, type = 'website', locale, alternates: rawAlternates, jsonLd }: SeoInput) {
+  const canonical = rawCanonical ? canon(rawCanonical) : rawCanonical;
+  const alternates = rawAlternates?.map((a) => ({ ...a, href: canon(a.href) }));
   useEffect(() => {
     document.title = title;
     setMeta('property', 'og:title', title);
