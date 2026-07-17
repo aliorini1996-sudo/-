@@ -220,7 +220,7 @@ client.on('message', async (msg) => {
     if (msg.from === 'status@broadcast') return;   // حالة
     const phone = msg.from.replace(/@.*$/, '');
     const r = await api('/inbound', {
-      waId: msg.id?._serialized || `${phone}_${Date.now()}`,
+      waId: msgId(msg) || `${phone}_${Date.now()}`,
       phone,
       body: msg.body || '',
     });
@@ -235,22 +235,60 @@ client.on('message', async (msg) => {
 // ------------------------------- تأكيد التسليم ------------------------------- //
 
 /**
- * `client.sendMessage()` يُرجع «نجاحاً» بمجرّد وضع الرسالة في طابور المتصفّح الداخلي —
- * **لا عند تسليمها لواتساب**. فمن يثق به يُعلّم عملاء «تم التواصل» ورسائلهم لم تخرج
- * (حدث فعلاً: 30 حُسبت ناجحة و18 فقط وصلت).
+ * ⚠️ `client.sendMessage()` يُرجع **undefined** في whatsapp-web.js 1.34 مع نسخة واتساب
+ * ويب الحالية — لا كائن رسالة. مُقاس بالتجربة على رقم الجسر نفسه: المُرجَع undefined
+ * بينما الرسالة تصل فعلاً (ACK=3).
  *
- * الحقيقة الوحيدة هي إشعار ACK من واتساب:
+ * أثر ذلك على الكود القديم: `sent?.id?._serialized || null` = null دائماً، فحُفظت 34
+ * رسالة بلا معرّف، واستحال معرفة أيّها وصل. ولو وثقنا بالمُرجَع لتعطّل كل شيء.
+ *
+ * البديل: نلتقط الرسالة من حدث `message_create` الذي يُطلقه واتساب عند كل إرسال منّا —
+ * فنحصل على المعرّف الحقيقي بلا الاعتماد على قيمة مُرجَعة معطوبة.
+ */
+/**
+ * ⚠️ معرّف الرسالة: واتساب أعاد تسمية `id._serialized` إلى **`id.$1`** (أثر تصغير في
+ * كودهم)، والمكتبة 1.34.7 ما زالت تقرأ `_serialized` فتُعيد undefined دائماً.
+ * مقيس على الإنتاج: id = {fromMe, remote:"…@lid", id:"3EB0…", self:"out", $1:"true_…_out"}
+ * نقرأ الاسمين، ونبني المعرّف من أجزائه احتياطاً إن تغيّرا معاً لاحقاً.
+ */
+function msgId(m) {
+  const id = m && m.id;
+  if (!id) return null;
+  if (id._serialized) return id._serialized;
+  if (id.$1) return id.$1;
+  if (id.id && id.remote) return `${!!id.fromMe}_${id.remote}_${id.id}_${id.self || 'out'}`;
+  return null;
+}
+
+/**
+ * التقاط الرسالة الصادرة من حدث `message_create`.
+ * لا نُطابق بـchatId: واتساب صار يُعنون بـ`@lid` (108560…@lid) لا بالرقم، فأي مطابقة
+ * بـ`966…@c.us` تفشل دائماً. نُطابق بـ(منّا + نفس النصّ) — دقيق لأننا نرسل واحدة واحدة.
+ */
+function captureOutgoing(body, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    const done = (v) => { clearTimeout(timer); client.removeListener('message_create', handler); resolve(v); };
+    const handler = (msg) => {
+      if (msg && msg.fromMe && msg.body === body) done(msg);
+    };
+    const timer = setTimeout(() => done(null), timeoutMs);
+    client.on('message_create', handler);
+  });
+}
+
+/**
+ * إشعار التسليم من واتساب — الحقيقة الوحيدة:
  *   -1 خطأ · 0 معلّق · 1 وصل الخادم · 2 سُلّم للجهاز · 3 قُرئ
- * ننتظر ACK ≥ 1 — وما دونه ليس إرسالاً.
+ * ننتظر ACK ≥ 1؛ وما دونه ليس إرسالاً ولا يُعلّم عميلاً «تم التواصل».
  */
 function waitForAck(msg, timeoutMs = 25000) {
   return new Promise((resolve) => {
-    const id = msg?.id?._serialized;
+    const id = msgId(msg);
     if (!id) return resolve(false);
     if (typeof msg.ack === 'number' && msg.ack >= 1) return resolve(true);
     const done = (v) => { clearTimeout(timer); client.removeListener('message_ack', handler); resolve(v); };
     const handler = (m, ack) => {
-      if (m?.id?._serialized !== id) return;
+      if (msgId(m) !== id) return;
       if (ack >= 1) done(true);
       else if (ack < 0) done(false); // ACK_ERROR — رفض صريح
     };
@@ -304,9 +342,12 @@ async function tick() {
           continue;
         }
 
-        const sent = await client.sendMessage(chatId, m.body);
-        // لا نُصدّق sendMessage: ننتظر تأكيد واتساب. بلا ACK لا نُعلّم العميل «تم التواصل».
-        const acked = await waitForAck(sent);
+        // نُنصت قبل الإرسال: message_create قد يسبق عودة sendMessage
+        const waiter = captureOutgoing(m.body);
+        await client.sendMessage(chatId, m.body); // مُرجَعه undefined — لا نستعمله
+        const sent = await waiter;
+        // بلا ACK لا نُعلّم العميل «تم التواصل»
+        const acked = sent ? await waitForAck(sent) : false;
         if (!acked) {
           consecutiveFails++;
           await api('/result', {
@@ -316,7 +357,7 @@ async function tick() {
           log(`  ✖ ${m.phone} — أُرسلت بلا تأكيد تسليم (${consecutiveFails}/${MAX_FAILS})`);
         } else {
           consecutiveFails = 0; // نجاح مؤكّد يُصفّر العدّاد
-          await api('/result', { id: m.id, ok: true, waId: sent?.id?._serialized || null });
+          await api('/result', { id: m.id, ok: true, waId: msgId(sent) });
           log(`  ✓ سُلّمت إلى ${m.phone}`);
         }
       } catch (e) {
