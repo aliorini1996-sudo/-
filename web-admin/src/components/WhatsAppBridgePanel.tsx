@@ -207,6 +207,26 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
               {session?.lastError && (
                 <p className="text-xs text-red-500 bg-red-50 rounded-lg p-2">{session.lastError}</p>
               )}
+
+              {/* الطابور يُدار من هنا أيضاً — إلغاء دفعة مُدرجة يجب أن يكون متاحاً **خصوصاً**
+                  والجسر متوقّف: حبسُه خلف الاتصال يعني أن تصل الجلسة فتنطلق الرسائل قبل أن تُلغيها. */}
+              {!!session?.queued && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-right space-y-2">
+                  <p className="text-sm text-amber-900 leading-relaxed">
+                    <Clock size={13} className="inline ml-1" />
+                    <b>{session.queued}</b> رسالة تنتظر في الطابور — ستنطلق تلقائياً بمجرّد اتصال الجسر.
+                  </p>
+                  <button
+                    onClick={() => clearQueue.mutate()}
+                    disabled={clearQueue.isPending}
+                    className="w-full border border-red-300 text-red-600 rounded-lg py-1.5 text-xs flex items-center justify-center gap-1 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {clearQueue.isPending ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
+                    إفراغ الطابور الآن (قبل الاتصال)
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center justify-center gap-1.5 text-xs text-gray-400">
                 <Loader2 size={12} className="animate-spin" /> بانتظار الجسر...
               </div>
