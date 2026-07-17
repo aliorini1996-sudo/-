@@ -10,6 +10,7 @@ import {
   getWaConfig, saveWaConfig, resolveWaParams, previewWaParams, waSentToday, waRemainingToday, WA_PARAMS, WaParam,
 } from '../services/whatsappCampaign';
 import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
+import { getApifyBudget, setApifyCap, apifyReady } from '../services/apifyBudget';
 import { getHuntConfig, saveHuntConfig, runAutoHuntBatch, ARAB_COUNTRIES } from '../services/leadHunter';
 import { personalize, marketingHtml } from '../services/marketingTemplate';
 import { phoneIsMobile } from '../services/phoneType';
@@ -223,6 +224,23 @@ router.get('/enrich-status', (_req: AuthRequest, res: Response) => {
 // أي مصادر البحث جاهزة (لها مفتاح)؟ — قبل /:id
 router.get('/sources-status', (_req: AuthRequest, res: Response) => {
   res.json({ success: true, data: providersReady() });
+});
+
+// ميزانية Apify الشهرية (المصدر الوحيد المحكوم برصيد) — قبل /:id
+router.get('/apify-budget', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const b = await getApifyBudget();
+    res.json({ success: true, data: { ...b, ready: apifyReady(), remaining: Math.max(0, b.monthlyCap - b.used) } });
+  } catch (err) { next(err); }
+});
+
+const apifyCapSchema = z.object({ monthlyCap: z.number().int().min(0).max(100000) });
+router.put('/apify-budget', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { monthlyCap } = apifyCapSchema.parse(req.body);
+    const b = await setApifyCap(monthlyCap);
+    res.json({ success: true, data: { ...b, ready: apifyReady(), remaining: Math.max(0, b.monthlyCap - b.used) } });
+  } catch (err) { next(err); }
 });
 
 // مزوّد البريد التسويقي الحالي وحصّته اليومية — قبل /:id
@@ -554,10 +572,12 @@ router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFu
 });
 
 // ------------------------------- بحث آلي + استيراد ------------------------------- //
-const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google', 'apollo', 'tomtom', 'serper', 'linkedin']);
+// ملاحظة: apify متاح هنا (بحث يدوي) وحده — وهو مستبعَد عمداً من إعداد الصيد المستمر أعلاه
+// لأن دورة الـ24/7 كانت ستستنزف رصيد الشهر (1000 مكان) في نصف يوم.
+const PROVIDER_ENUM = z.enum(['osm', 'geoapify', 'here', 'google', 'apollo', 'tomtom', 'serper', 'linkedin', 'apify']);
 const searchSchema = z.object({
   // يدعم عدّة مصادر وعدّة أنشطة معاً (مع توافق رجعي للـ provider/query المفردين)
-  providers: z.array(PROVIDER_ENUM).min(1).max(8).optional(),
+  providers: z.array(PROVIDER_ENUM).min(1).max(9).optional(),
   provider: PROVIDER_ENUM.optional(),
   queries: z.array(z.string().min(1)).min(1).max(10).optional(),
   query: z.string().min(1).optional(), // نوع النشاط: "تجارة جملة"، "food distributor"...

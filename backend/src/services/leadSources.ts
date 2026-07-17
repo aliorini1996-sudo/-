@@ -6,6 +6,8 @@
  *  - geoapify : Geoapify Places — مجاني 3000/يوم بمفتاح بلا بطاقة وبلا موزّع، عالمي، هواتف/مواقع أنظف (مبني على OSM).
  *  - here     : HERE Discover — يتطلّب HERE_API_KEY (مفتاح بلا موزّع)، عالمي.
  *  - google   : Google Places Text Search (New) — رسمي، يتطلّب GOOGLE_MAPS_API_KEY (في السعودية عبر موزّع CNTXT).
+ *  - apify    : Apify actor خرائط Google — بيانات خرائط Google كاملة بلا مفتاح Google (يتجاوز عائق موزّع CNTXT).
+ *               مجاني ضمن رصيد 5$/شهر بلا بطاقة = 1000 مكان شهرياً، محكوم بحارس apifyBudget.
  *
  * إضافة مصدر جديد = دالة search تُعيد RawLead[] ثم تسجيلها في SEARCH_PROVIDERS.
  *
@@ -13,6 +15,7 @@
  * ولا تواصل آلي — قائمة لمراجعة فريق المبيعات والتواصل المهني B2B يدوياً.
  */
 import { geminiGenerate, geminiReady } from './gemini';
+import { apifyRemaining, consumeApify } from './apifyBudget';
 
 export interface RawLead {
   sourceId: string; // مفتاح فريد لإزالة التكرار (مثل "osm:node/123" أو "google:ChIJ...")
@@ -28,7 +31,7 @@ export interface RawLead {
   lat?: number;
   lng?: number;
   mapsUrl?: string;
-  source: 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin' | 'community';
+  source: 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin' | 'community' | 'apify';
 }
 
 function domainFromUrl(url: string): string {
@@ -589,8 +592,137 @@ export async function searchCommunities(query: string, country?: string, city?: 
   return out;
 }
 
+// ----------------------------- مصدر: Apify (خرائط Google) ----------------------------- //
+// يجلب بيانات خرائط Google (اسم/هاتف/موقع/عنوان/تصنيف) عبر actor بلا مفتاح Google —
+// وهو ما يتجاوز عائق موزّع CNTXT الذي يمنع Google Places في السعودية.
+//
+// ضبط التكلفة (حرج): كل الأحداث المدفوعة الإضافية مُعطّلة عمداً —
+// scrapePlaceDetailPage / scrapeContacts / maxReviews / maxImages تُحاسَب فوق سعر المكان،
+// والبريد نستخرجه مجاناً عبر enrichFromWebsite بعد الاستيراد. ندفع (من الرصيد المجاني) على المكان فقط.
+const APIFY_ACTOR = 'compass~google-maps-extractor'; // معرّف الـactor في المسار يستخدم ~ بدل /
+const APIFY_API = 'https://api.apify.com/v2';
+
+// الحدّ الأقصى لانتظار انتهاء التشغيل. تجاوزه ⇒ نأخذ الجزئي ونُجهض (Apify يحاسب على المُعاد فقط).
+const APIFY_MAX_WAIT_MS = Number(process.env.APIFY_MAX_WAIT_MS || 120_000);
+const APIFY_POLL_MS = 3_000;
+
+export async function searchApify(query: string, country?: string, city?: string, limit = 40): Promise<RawLead[]> {
+  const token = (process.env.APIFY_TOKEN || '').trim();
+  if (!token) throw new Error('APIFY_TOKEN غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر Apify.');
+
+  // حارس الميزانية: لا نبدأ تشغيلاً إن نفد سقف الشهر، ونقيّد الطلب بالمتبقّي
+  const remaining = await apifyRemaining();
+  if (remaining <= 0) {
+    throw new Error('نفدت ميزانية Apify الشهرية — تتجدّد تلقائياً أوّل الشهر، أو ارفع السقف من نافذة البحث.');
+  }
+  const cap = Math.max(1, Math.min(limit, remaining, 60));
+
+  const locationQuery = [city, country].filter(Boolean).join(', ');
+  const input = {
+    searchStringsArray: [query],
+    ...(locationQuery ? { locationQuery } : {}),
+    maxCrawledPlacesPerSearch: cap,
+    language: 'ar',
+    skipClosedPlaces: true, // الأنشطة المغلقة ليست عملاء محتملين — وتُحاسَب لو أُعيدت
+  };
+
+  // 1) نبدأ التشغيل غير متزامن. timeout على مستوى Apify يقتل التشغيل الشارد حتى لو انقطع اتصالنا.
+  const startUrl = `${APIFY_API}/acts/${APIFY_ACTOR}/runs?token=${encodeURIComponent(token)}`
+    + `&timeout=${Math.ceil(APIFY_MAX_WAIT_MS / 1000)}&memory=1024`;
+  const startRes = await fetch(startUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!startRes.ok) {
+    const t = await startRes.text();
+    // 402 = نفد رصيد الحساب المجاني (Apify تحظر بلا فوترة تجاوز)
+    if (startRes.status === 402) throw new Error('رصيد Apify المجاني نفد لهذا الشهر — يتجدّد تلقائياً أوّل الشهر التالي.');
+    throw new Error(`Apify ${startRes.status}: ${t.slice(0, 160)}`);
+  }
+  const started = (await startRes.json()) as { data?: { id?: string; defaultDatasetId?: string } };
+  const runId = started.data?.id;
+  const datasetId = started.data?.defaultDatasetId;
+  if (!runId || !datasetId) throw new Error('Apify: تعذّر بدء التشغيل (رد غير متوقّع).');
+
+  // 2) نستطلع حتى الانتهاء أو بلوغ المهلة
+  const deadline = Date.now() + APIFY_MAX_WAIT_MS;
+  let status = 'RUNNING';
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, APIFY_POLL_MS));
+    const sRes = await fetch(`${APIFY_API}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
+    if (!sRes.ok) break;
+    const sJson = (await sRes.json()) as { data?: { status?: string } };
+    status = sJson.data?.status || status;
+    if (status !== 'RUNNING' && status !== 'READY') break;
+  }
+
+  // 3) إن كان ما يزال يعمل عند المهلة نُجهضه — الداتاسِت يُقرأ أثناء التشغيل فنأخذ الجزئي بلا هدر
+  if (status === 'RUNNING' || status === 'READY') {
+    await fetch(`${APIFY_API}/actor-runs/${runId}/abort?token=${encodeURIComponent(token)}`, { method: 'POST' })
+      .catch(() => undefined); // الإجهاض تحسين تكلفة لا شرط نجاح
+  }
+
+  // 4) نسحب النتائج (حتى لو فشل/أُجهض التشغيل — الجزئي مفيد وقد حوسبنا عليه)
+  const itemsRes = await fetch(
+    `${APIFY_API}/datasets/${datasetId}/items?token=${encodeURIComponent(token)}&clean=true&format=json&limit=${cap}`,
+  );
+  if (!itemsRes.ok) {
+    const t = await itemsRes.text();
+    throw new Error(`Apify dataset ${itemsRes.status}: ${t.slice(0, 160)}`);
+  }
+  const items = (await itemsRes.json()) as ApifyPlace[];
+
+  const out: RawLead[] = [];
+  const seen = new Set<string>();
+  for (const p of items) {
+    const id = p.placeId || p.fid || p.cid;
+    if (!id || !p.title || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      sourceId: `apify:${id}`,
+      name: p.title,
+      phone: p.phone || p.phoneUnformatted || undefined,
+      email: (p.emails || [])[0] || undefined, // يأتي فقط لو فُعّل الإثراء المدفوع — نقرأه إن وُجد
+      website: p.website || undefined,
+      address: p.address || undefined,
+      city: p.city || city || undefined,
+      country: p.countryName || country || undefined,
+      countryCode: (p.countryCode || '').toUpperCase() || undefined,
+      category: p.categoryName || (p.categories || [])[0] || undefined,
+      lat: p.location?.lat,
+      lng: p.location?.lng,
+      mapsUrl: p.url || (p.location ? `https://www.google.com/maps/search/?api=1&query=${p.location.lat},${p.location.lng}` : undefined),
+      source: 'apify',
+    });
+  }
+
+  // 5) نسجّل الاستهلاك الفعلي (Apify تحاسب على الأماكن المُعادة)
+  await consumeApify(items.length);
+  return out;
+}
+
+interface ApifyPlace {
+  placeId?: string;
+  fid?: string;
+  cid?: string;
+  title?: string;
+  phone?: string;
+  phoneUnformatted?: string;
+  website?: string;
+  address?: string;
+  city?: string;
+  countryName?: string;
+  countryCode?: string;
+  categoryName?: string;
+  categories?: string[];
+  emails?: string[];
+  url?: string;
+  location?: { lat?: number; lng?: number };
+}
+
 // ----------------------------- موزّع المصادر ----------------------------- //
-export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin' | 'community';
+export type LeadProvider = 'osm' | 'geoapify' | 'here' | 'google' | 'apollo' | 'tomtom' | 'serper' | 'linkedin' | 'community' | 'apify';
 
 // أي المصادر جاهزة (لها مفتاح مضبوط)؟ OSM لا يتطلّب مفتاحاً
 export function providersReady(): Record<LeadProvider, boolean> {
@@ -605,6 +737,7 @@ export function providersReady(): Record<LeadProvider, boolean> {
     serper: has('SERPER_API_KEY'),
     linkedin: has('SERPER_API_KEY'),
     community: has('SERPER_API_KEY'),
+    apify: has('APIFY_TOKEN'),
   };
 }
 
@@ -628,6 +761,8 @@ export async function runSearch(
       return searchLinkedIn(query, country, city, limit);
     case 'community':
       return searchCommunities(query, country, city, limit);
+    case 'apify':
+      return searchApify(query, country, city, limit);
     case 'geoapify':
       return searchGeoapify(query, country, city, limit);
     case 'here':

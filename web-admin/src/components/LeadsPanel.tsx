@@ -24,7 +24,8 @@ const STAGE_CLS: Record<LeadStage, string> = {
 };
 const SOURCE_LABEL: Record<string, string> = {
   osm: 'خرائط OSM', geoapify: 'Geoapify', tomtom: 'TomTom', serper: 'بحث الويب', linkedin: 'LinkedIn',
-  here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', community: 'قروبات/مجتمعات', manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
+  here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', community: 'قروبات/مجتمعات', apify: 'خرائط Google (Apify)',
+  manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
 };
 
 type Filters = {
@@ -275,6 +276,7 @@ function ScorePill({ score }: { score: number }) {
 }
 
 // ----------------------------- بحث آلي (عدّة مصادر + عدّة أنشطة) ----------------------------- //
+// المصادر غير المحدودة — صالحة للبحث اليدوي وللصيد المستمر 24/7 معاً
 const PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: 'osm', label: 'OpenStreetMap · بلا مفتاح' },
   { value: 'geoapify', label: 'Geoapify · هواتف أنظف' },
@@ -282,6 +284,68 @@ const PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: 'serper', label: 'بحث الويب · مواقع الشركات' },
   { value: 'linkedin', label: 'LinkedIn · صفحات الشركات' },
 ];
+
+// Apify محكوم برصيد شهري (1000 مكان) فيقتصر على البحث اليدوي — الصيد المستمر كان سيستنزفه في نصف يوم.
+const APIFY_OPTION = { value: 'apify', label: 'Apify · خرائط Google (رصيد محدود)' };
+const SEARCH_PROVIDER_OPTIONS = [...PROVIDER_OPTIONS, APIFY_OPTION];
+
+type ApifyBudget = {
+  monthlyCap: number; used: number; remaining: number; month: string;
+  totalRuns: number; totalPlaces: number; lastRunAt: string | null; ready: boolean;
+};
+
+// شريط رصيد Apify — المصدر الوحيد المحكوم بحصّة شهرية، فيُعرض عدّاده قبل الصرف لا بعده.
+function ApifyBudgetBar({ budget, cost }: { budget?: ApifyBudget; cost: number }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [cap, setCap] = useState('');
+
+  const saveCap = useMutation({
+    mutationFn: () => leadApi.apifyCapUpdate(Number(cap)),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['apify-budget'] }); setEditing(false); toast.success('حُدّث السقف'); },
+    onError: () => toast.error('تعذّر تحديث السقف'),
+  });
+
+  if (!budget) return <div className="text-xs text-gray-400 bg-gray-50 rounded-lg p-2">جارٍ قراءة رصيد Apify...</div>;
+
+  const pct = budget.monthlyCap ? Math.min(100, (budget.used / budget.monthlyCap) * 100) : 100;
+  const short = cost > budget.remaining;
+
+  return (
+    <div className="rounded-lg border border-[#E9E1D3] bg-[#FBF9F4] p-3 space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-semibold text-gray-700">رصيد Apify لشهر {budget.month}</span>
+        <span className="text-gray-500">{budget.used} / {budget.monthlyCap} مكان · متبقٍّ <b className="text-gray-700">{budget.remaining}</b></span>
+      </div>
+      <div className="h-2 rounded-full bg-[#E9E1D3] overflow-hidden">
+        <div className={`h-full ${pct >= 90 ? 'bg-red-500' : pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-[11px] text-gray-500 leading-relaxed">
+        الخطة المجانية = 5$ شهرياً بلا بطاقة (≈1000 مكان)، تتجدّد أوّل كل شهر ولا تُرحَّل.
+        عند النفاد يتوقّف المصدر تلقائياً — <b>لا يمكن أن تُحمَّل أي تكلفة</b>.
+      </p>
+      {cost > 0 && (
+        <p className={`text-[11px] rounded p-2 ${short ? 'text-red-700 bg-red-50' : 'text-gray-600 bg-white'}`}>
+          {short
+            ? `⚠️ هذا البحث قد يطلب حتى ${cost} مكان والمتبقّي ${budget.remaining} فقط — سيتوقّف عند نفاد الرصيد.`
+            : `هذا البحث يستهلك حتى ${cost} مكان من الرصيد (40 لكل نشاط).`}
+        </p>
+      )}
+      {editing ? (
+        <div className="flex gap-2">
+          <input value={cap} onChange={(e) => setCap(e.target.value)} type="number" min={0} className="input flex-1 text-xs py-1"
+            placeholder={String(budget.monthlyCap)} />
+          <button onClick={() => saveCap.mutate()} disabled={saveCap.isPending || !cap}
+            className="text-xs px-3 rounded-lg bg-[#E15A30] text-white disabled:opacity-40">حفظ</button>
+          <button onClick={() => setEditing(false)} className="text-xs px-3 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
+        </div>
+      ) : (
+        <button onClick={() => { setCap(String(budget.monthlyCap)); setEditing(true); }}
+          className="text-[11px] text-[#E15A30] hover:underline">تعديل السقف الشهري</button>
+      )}
+    </div>
+  );
+}
 
 function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [providers, setProviders] = useState<string[]>(['osm', 'geoapify']);
@@ -303,8 +367,18 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
     if (ready) setProviders((ps) => ps.filter((p) => isReady(p)));
   }, [ready]);
 
+  // ميزانية Apify — تُقرأ فقط عند اختياره
+  const apifyOn = providers.includes('apify');
+  const { data: budget } = useQuery({
+    queryKey: ['apify-budget'],
+    queryFn: async () => (await leadApi.apifyBudget()).data.data as ApifyBudget,
+    enabled: apifyOn,
+  });
+
   const queries = queriesText.split(/[\n,،]/).map((s) => s.trim()).filter(Boolean);
   const combos = providers.length * queries.length;
+  // كل توليفة (نشاط × Apify) تستهلك حتى 40 مكاناً من الرصيد
+  const apifyCost = apifyOn ? queries.length * 40 : 0;
 
   const toggleProvider = (v: string) => {
     if (!isReady(v)) return;
@@ -333,7 +407,7 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         <div>
           <label className="label">المصادر (يمكن اختيار أكثر من واحد)</label>
           <div className="grid grid-cols-2 gap-2">
-            {PROVIDER_OPTIONS.map((o) => {
+            {SEARCH_PROVIDER_OPTIONS.map((o) => {
               const rdy = isReady(o.value);
               return (
                 <label key={o.value} title={rdy ? '' : 'يتطلب مفتاحاً في الخادم'}
@@ -346,6 +420,7 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
             })}
           </div>
         </div>
+        {apifyOn && <ApifyBudgetBar budget={budget} cost={apifyCost} />}
         <div>
           <label className="label">أنواع الأنشطة (نشاط بكل سطر أو مفصولة بفاصلة)</label>
           <textarea value={queriesText} onChange={(e) => setQueriesText(e.target.value)} rows={3} className="input"
