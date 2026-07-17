@@ -300,12 +300,20 @@ function waitForAck(msg, timeoutMs = 25000) {
 // ------------------------------- حلقة الطابور ------------------------------- //
 
 let busy = false;
-let stopped = false;        // توقّف تلقائي بعد إخفاقات متتالية
+let stopped = false;        // توقّف تلقائي (مُعطَّل افتراضياً)
 let consecutiveFails = 0;
 
-// الضرب في الحائط مراراً هو أوضح إشارة حظر: نتوقّف بدل أن نُكمل 100 محاولة فاشلة.
-// الأرقام غير المسجّلة (أرضية مثلاً) لا تُحتسب — هي بيانات ناقصة لا رفض من واتساب.
-const MAX_FAILS = Number(process.env.WA_BRIDGE_MAX_FAILS || 5);
+/**
+ * التوقّف التلقائي عند تتابع الإخفاقات — **مُعطَّل افتراضياً بطلب المالك**.
+ *
+ * 0 = لا يتوقّف أبداً (الافتراضي) · أي رقم > 0 = يتوقّف بعد هذا العدد من الإخفاقات المتتالية.
+ * لتفعيله:  set WA_BRIDGE_MAX_FAILS=5  قبل التشغيل، أو أضِفه في .env
+ *
+ * يبقى التحذير مطبوعاً في الحالتين: تتابع الإخفاقات يعني أن واتساب يرفض الإرسال،
+ * والاستمرار عندها هو ما يقود إلى تقييد الرقم. المعلومة تُعرض، والقرار للمالك.
+ */
+const MAX_FAILS = Number(process.env.WA_BRIDGE_MAX_FAILS ?? 0);
+const WARN_AT = 5; // نُنبّه عند هذا العدد ولو كان الإيقاف مُعطَّلاً
 
 async function tick() {
   if (busy || stopped) return; // دورة سابقة ما زالت ترسل، أو توقّفنا تلقائياً — لا نُراكم
@@ -354,7 +362,7 @@ async function tick() {
             id: m.id, ok: false,
             error: 'لم يؤكّد واتساب التسليم (ACK) — الرقم مقيَّد أو الرسالة حُجبت',
           });
-          log(`  ✖ ${m.phone} — أُرسلت بلا تأكيد تسليم (${consecutiveFails}/${MAX_FAILS})`);
+          log(`  ✖ ${m.phone} — أُرسلت بلا تأكيد تسليم (متتالية: ${consecutiveFails})`);
         } else {
           consecutiveFails = 0; // نجاح مؤكّد يُصفّر العدّاد
           await api('/result', { id: m.id, ok: true, waId: msgId(sent) });
@@ -363,15 +371,23 @@ async function tick() {
       } catch (e) {
         consecutiveFails++;
         await api('/result', { id: m.id, ok: false, error: e.message });
-        log(`  ✖ فشل ${m.phone}: ${e.message} (${consecutiveFails}/${MAX_FAILS})`);
+        log(`  ✖ فشل ${m.phone}: ${e.message} (متتالية: ${consecutiveFails})`);
       }
 
-      // قاطع الدورة: الاستمرار في الضرب بعد رفض متكرّر هو ما يحظر الأرقام فعلاً
-      if (consecutiveFails >= MAX_FAILS) {
+      // تنبيه بلا إيقاف: تتابع الإخفاقات يعني أن واتساب يرفض الإرسال — معلومة تُعرض والقرار للمالك
+      if (consecutiveFails === WARN_AT) {
+        log('');
+        log(`⚠️  ${consecutiveFails} إخفاقات متتالية — واتساب يرفض الإرسال الآن.`);
+        log('   الاستمرار في هذه الحالة هو ما يقود إلى تقييد الرقم.');
+        log('   (الإيقاف التلقائي مُعطَّل. لتفعيله: set WA_BRIDGE_MAX_FAILS=5)');
+        log('');
+      }
+
+      // الإيقاف التلقائي — مُعطَّل ما لم يُضبط WA_BRIDGE_MAX_FAILS > 0
+      if (MAX_FAILS > 0 && consecutiveFails >= MAX_FAILS) {
         stopped = true;
         log('');
         log(`🛑 توقّف تلقائي — ${MAX_FAILS} إخفاقات متتالية.`);
-        log('   واتساب يرفض رسائلك الآن. الاستمرار = حظر الرقم.');
         log('   أوقف الجسر، انتظر ساعات، وابدأ بعدد أقلّ بكثير.');
         log('');
         await api('/status', {
