@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { buildCatalog } from '../src/blog/seo/catalog.mjs';
+import { buildCatalog, modifiedOf } from '../src/blog/seo/catalog.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -133,12 +133,14 @@ async function main() {
   // المقالات: ثنائية اللغة تُنشر بنسختين مع hreflang؛ والعربية فقط بنسخة واحدة
   for (const p of posts) {
     const arLoc = `/blog/${p.slug}`;
+    // lastmod = تاريخ التعديل لا النشر (تغيّرت روابطها الداخلية) — راجع CONTENT_VERSION في catalog.mjs
+    const mod = modifiedOf(p.date);
     if (p.bilingual) {
       const a = blogAlt(arLoc);
-      urls.push(urlEntry(ORIGIN + arLoc, { lastmod: p.date, freq: 'monthly', priority: '0.7', alternates: a }));
-      urls.push(urlEntry(ORIGIN + '/en' + arLoc, { lastmod: p.date, freq: 'monthly', priority: '0.7', alternates: a }));
+      urls.push(urlEntry(ORIGIN + arLoc, { lastmod: mod, freq: 'monthly', priority: '0.7', alternates: a }));
+      urls.push(urlEntry(ORIGIN + '/en' + arLoc, { lastmod: mod, freq: 'monthly', priority: '0.7', alternates: a }));
     } else {
-      urls.push(urlEntry(ORIGIN + arLoc, { lastmod: p.date, freq: 'monthly', priority: '0.7' }));
+      urls.push(urlEntry(ORIGIN + arLoc, { lastmod: mod, freq: 'monthly', priority: '0.7' }));
     }
   }
 
@@ -157,7 +159,7 @@ async function main() {
     ].join('\n');
     for (const L of ['ar', 'en', 'fr']) {
       const loc = ORIGIN + (L === 'ar' ? '' : '/' + L) + p;
-      urls.push(urlEntry(loc, { lastmod: a.date, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
+      urls.push(urlEntry(loc, { lastmod: a.modified, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
       seoUrlCount++;
     }
   }

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
-import { buildCatalog, getArticle, listArticles, COUNTRIES } from '../src/blog/seo/catalog.mjs';
+import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf } from '../src/blog/seo/catalog.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
@@ -107,7 +107,7 @@ function articleJsonLd(a, lang, canonical) {
   return {
     '@context': 'https://schema.org',
     '@graph': [
-      { '@type': 'Article', headline: a.title, description: a.description, inLanguage: lang, datePublished: a.date, dateModified: a.date, image: a.image, author: { '@type': 'Organization', name: 'FieldSales' }, publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: `${ORIGIN}/icons/icon-512.png` } }, mainEntityOfPage: canonical },
+      { '@type': 'Article', headline: a.title, description: a.description, inLanguage: lang, datePublished: a.date, dateModified: a.modified || a.date, image: a.image, author: { '@type': 'Organization', name: 'FieldSales' }, publisher: { '@type': 'Organization', name: 'FieldSales', logo: { '@type': 'ImageObject', url: `${ORIGIN}/icons/icon-512.png` } }, mainEntityOfPage: canonical },
       { '@type': 'BreadcrumbList', itemListElement: [
         { '@type': 'ListItem', position: 1, name: tr(lang, 'الرئيسية', 'Home', 'Accueil'), item: canon(`${ORIGIN}${prefix || ''}`) },
         { '@type': 'ListItem', position: 2, name: tr(lang, 'المدوّنة', 'Blog', 'Blog'), item: canon(`${ORIGIN}${prefix}/blog`) },
@@ -171,7 +171,7 @@ async function main() {
         lang: L, title: `${v.title} | ${brand}`, description: v.description, keywords: v.keywords,
         canonical, image, ogType: 'article',
         hreflang: manualHreflang(p.slug, !!p.en),
-        jsonLd: articleJsonLd({ title: v.title, description: v.description, date: p.date, image }, L, canonical),
+        jsonLd: articleJsonLd({ title: v.title, description: v.description, date: p.date, modified: modifiedOf(p.date), image }, L, canonical),
         bodyHtml: body,
       });
       writeRoute(`${prefix}/blog/${p.slug}`, html);

@@ -570,6 +570,21 @@ export const slugify = (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9-]
 const BASE = Date.UTC(2026, 5, 30); // 2026-06-30
 const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice(0, 10);
 
+/**
+ * آخر تعديل جوهري على قالب المقالات المولَّدة (أقسام/روابط/CTA).
+ *
+ * **ارفعه يدوياً عند تغيير محتوى القالب فعلاً — ولا تجعله `اليوم` أبداً.**
+ * خريطة تقول «كل شيء تعدّل اليوم» في كل بناء تجعل جوجل يتجاهل lastmod كلياً،
+ * فنخسر الإشارة التي نريدها. وهو غير `date` (تاريخ النشر) الذي يبقى حقيقياً
+ * للقارئ ولـdatePublished.
+ *
+ * 2026-07-17: أُعيدت صياغة كتلة «مقالات ذات صلة» (الشرطة الأخيرة في كل رابط).
+ */
+export const CONTENT_VERSION = '2026-07-17';
+
+// تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً)
+export const modifiedOf = (date) => (date > CONTENT_VERSION ? date : CONTENT_VERSION);
+
 // slug المقال: عام = id، خاص بدولة = id-cc
 const slugOf = (topic, c) => (topic.cs ? `${topic.id}-${c.code.toLowerCase()}` : topic.id);
 
@@ -646,7 +661,7 @@ export function listArticles(L) {
   const out = [];
   for (const [slug, { topic, country, date }] of index()) {
     out.push({
-      slug, lang: L, date, readMinutes: topic.rm,
+      slug, lang: L, date, modified: modifiedOf(date), readMinutes: topic.rm,
       countryCode: topic.cs ? country.code : null,
       title: titleOf(topic, country, L),
       excerpt: excerptOf(topic, country, L),
@@ -679,7 +694,7 @@ export function getArticle(slug, L) {
   const contentHtml = `${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
-    excerpt: excerptOf(topic, c, L), contentHtml, date, readMinutes: topic.rm,
+    excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date), readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     faq: faqData(c, L),
     howto: howToData(c, L),
@@ -696,7 +711,7 @@ export function buildCatalog() {
   const out = [];
   for (const [slug, { topic, country, date }] of index()) {
     const cc = topic.cs ? country.code : null;
-    out.push({ slug, date, cc, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
+    out.push({ slug, date, modified: modifiedOf(date), cc, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
   }
   return out;
 }
