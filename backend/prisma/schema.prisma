@@ -607,6 +607,11 @@ model Lead {
   // مُستثنى من كل استهداف لاحق (سياسة واتساب + حماية تقييم جودة الرقم).
   waOptOut Boolean @default(false)
 
+  // نوع الهاتف: true جوّال · false أرضي مؤكَّد · null غير معروف (لا يُقصى).
+  // أرقام الليدز المصيدة أغلبها أرضي (145 من 183 محاولة إرسال قياساً) — والأرضي
+  // يُهدر الحصّة ويُضعف سمعة الرقم. لا يُحذف العميل: يُستبعد من استهداف واتساب فقط.
+  phoneIsMobile Boolean?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

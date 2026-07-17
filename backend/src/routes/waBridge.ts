@@ -392,6 +392,9 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction)
     const where: Record<string, unknown> = {
       phone: { not: null },
       waOptOut: false,
+      // الأرضي المؤكَّد لا يُراسَل واتساب: يُهدر الحصّة ويُضعف سمعة الرقم بمحاولة فاشلة.
+      // null (غير معروف) يبقى — التحقّق النهائي عند الإرسال (isRegisteredUser).
+      phoneIsMobile: { not: false },
       activities: { none: { type: 'WHATSAPP' } },
       // من له رسالة منتظرة في الطابور لا يُدرَج مجدداً — نقرتان تُنتجان رسالتين
       waMessages: { none: { status: 'QUEUED', direction: 'OUT' } },
@@ -450,6 +453,7 @@ router.get('/bulk-count', async (req: AuthRequest, res: Response, next: NextFunc
     const where: Record<string, unknown> = {
       phone: { not: null },
       waOptOut: false,
+      phoneIsMobile: { not: false }, // يطابق /bulk تماماً — وإلا كذب العدّاد
       activities: { none: { type: 'WHATSAPP' } },
       waMessages: { none: { status: 'QUEUED', direction: 'OUT' } },
       source: { not: 'invoice-tool' },

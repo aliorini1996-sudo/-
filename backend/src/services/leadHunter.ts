@@ -6,6 +6,7 @@
  * التشغيل الدوري عبر GitHub Actions (يستدعي /api/leads-cron/run) أو يدوياً من اللوحة.
  */
 import prisma from '../config/database';
+import { phoneIsMobile } from './phoneType';
 import { runSearch, qualifyLeads, providersReady, LeadProvider, RawLead } from './leadSources';
 import { enrichFromWebsite, hunterDomainSearch } from './enrich';
 import { geminiGenerate, geminiReady } from './gemini';
@@ -195,6 +196,7 @@ export async function runAutoHuntBatch(createdBy = 'auto-hunt'): Promise<{
           city: f.city, country: f.country, countryCode: f.countryCode, category: f.category,
           lat: f.lat, lng: f.lng, mapsUrl: f.mapsUrl, source: f.source, sourceId: f.sourceId,
           score: sc?.score ?? null, scoreNote: sc?.note ?? null,
+          phoneIsMobile: phoneIsMobile(f.phone), // نُصنّف عند الصيد فلا تتلوّث القاعدة مجدداً
         },
       });
       await prisma.leadActivity.create({ data: { leadId: lead.id, type: 'IMPORT', content: `صيد مستمر عبر ${f.source}`, createdBy } });

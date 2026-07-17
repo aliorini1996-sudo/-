@@ -12,6 +12,7 @@ import {
 import { enrichFromWebsite, hunterDomainSearch, hunterReady } from '../services/enrich';
 import { getHuntConfig, saveHuntConfig, runAutoHuntBatch, ARAB_COUNTRIES } from '../services/leadHunter';
 import { personalize, marketingHtml } from '../services/marketingTemplate';
+import { phoneIsMobile } from '../services/phoneType';
 import { getEmailConfig, saveEmailConfig, runAutoEmailBatch } from '../services/leadEmailer';
 import { getCommunityConfig, saveCommunityConfig, runCommunityHuntBatch } from '../services/communityHunter';
 
@@ -233,6 +234,43 @@ router.get('/email-status', (_req: AuthRequest, res: Response) => {
 // قائمة كل الدول العربية المدعومة (لزرّ «كل الدول» في اللوحة) — قبل /:id
 router.get('/arab-countries', (_req: AuthRequest, res: Response) => {
   res.json({ success: true, data: ARAB_COUNTRIES });
+});
+
+// ------------------------- تصنيف الهواتف (جوّال/أرضي) — قبل /:id ------------------------- //
+// كم رقماً أرضياً في القاعدة؟ (معاينة قبل التنظيف)
+router.get('/phone-audit', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const [mobile, landline, unknown, unclassified] = await Promise.all([
+      prisma.lead.count({ where: { phone: { not: null }, phoneIsMobile: true } }),
+      prisma.lead.count({ where: { phone: { not: null }, phoneIsMobile: false } }),
+      prisma.lead.count({ where: { phone: { not: null }, phoneIsMobile: null, waMessages: { some: {} } } }),
+      prisma.lead.count({ where: { phone: { not: null }, phoneIsMobile: null } }),
+    ]);
+    res.json({ success: true, data: { mobile, landline, unknown, unclassified } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * تصنيف كل الأرقام في القاعدة (جوّال/أرضي) — يُشغَّل مرّة، ثم الصيد يُصنّف تلقائياً.
+ * لا يحذف عميلاً: يضبط علماً فقط. الأرضي يبقى عميلاً صالحاً للاتصال والبريد.
+ */
+router.post('/phone-classify', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const leads = await prisma.lead.findMany({
+      where: { phone: { not: null } },
+      select: { id: true, phone: true, phoneIsMobile: true },
+    });
+    let mobile = 0, landline = 0, unknown = 0, changed = 0;
+    for (const l of leads) {
+      const val = phoneIsMobile(l.phone);
+      if (val === true) mobile++; else if (val === false) landline++; else unknown++;
+      if (val !== l.phoneIsMobile) {
+        await prisma.lead.update({ where: { id: l.id }, data: { phoneIsMobile: val } });
+        changed++;
+      }
+    }
+    res.json({ success: true, data: { total: leads.length, mobile, landline, unknown, changed } });
+  } catch (err) { next(err); }
 });
 
 // ------------------------------- عملاء مولّد الفواتير (صفحة مستقلة) — قبل /:id ------------------------------- //
@@ -659,7 +697,7 @@ router.post('/import', async (req: AuthRequest, res: Response, next: NextFunctio
     let imported = 0;
     for (const l of leads) {
       try {
-        await prisma.lead.create({ data: { ...l, name: l.name!, source: l.source || 'csv' } });
+        await prisma.lead.create({ data: { ...l, name: l.name!, source: l.source || 'csv', phoneIsMobile: phoneIsMobile(l.phone) } });
         imported++;
       } catch {
         // تجاهل الصفوف الفاشلة (مكرّر/غير صالح)
@@ -815,6 +853,7 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
     const where: Record<string, unknown> = {
       phone: { not: null },
       waOptOut: false, // من طلب الإيقاف لا يُراسَل مجدداً — لا استثناء
+      phoneIsMobile: { not: false }, // الأرضي المؤكَّد لا واتساب له
       activities: { none: { type: 'WHATSAPP' } },
     };
     if (body.ids?.length) {

@@ -13,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   X, MessageCircle, Smartphone, Send, LogOut, RefreshCw, Loader2,
-  CheckCheck, AlertTriangle, Clock, Pencil, Save, Ban, Users,
+  CheckCheck, AlertTriangle, Clock, Pencil, Save, Ban, Users, Phone,
 } from 'lucide-react';
 import { leadApi } from '../api/client';
 import { Lead } from '../types';
@@ -134,6 +134,25 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
     },
     onError: (e: unknown) =>
       toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الإدراج'),
+  });
+
+  // جودة الأرقام: الأرضي يُهدر الحصّة ويُضعف السمعة — نعرضه ونصنّف غير المصنَّف
+  const { data: phones } = useQuery({
+    queryKey: ['wa-phone-audit'],
+    enabled: connected,
+    queryFn: async () => (await leadApi.phoneAudit()).data.data as
+      { mobile: number; landline: number; unknown: number; unclassified: number },
+  });
+
+  const classify = useMutation({
+    mutationFn: () => leadApi.phoneClassify(),
+    onSuccess: (res) => {
+      const d = res.data.data as { total: number; mobile: number; landline: number; changed: number };
+      toast.success(`صُنّف ${d.total} رقماً: ${d.mobile} جوّال · ${d.landline} أرضي (استُبعد)`, { duration: 6000 });
+      qc.invalidateQueries({ queryKey: ['wa-phone-audit'] });
+      qc.invalidateQueries({ queryKey: ['wa-bridge-bulk-count'] });
+    },
+    onError: () => toast.error('تعذّر التصنيف'),
   });
 
   const clearQueue = useMutation({
@@ -343,6 +362,33 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                   <code className="text-[#E15A30]">{'{{angle}}'}</code> — زاوية دولة العميل تُحقن تلقائياً.
                 </p>
               </div>
+
+              {/* تنظيف الأرقام الأرضية — تُهدر الحصّة وتُضعف سمعة الرقم بمحاولة فاشلة */}
+              {!!phones && (phones.landline > 0 || phones.unclassified > 0) && (
+                <div className="border-t border-[#E9E1D3] pt-3">
+                  <label className="label flex items-center gap-1"><Phone size={12} /> جودة الأرقام</label>
+                  <div className="text-xs space-y-1 bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg p-2.5">
+                    <div className="flex justify-between"><span className="text-gray-500">جوّال (صالح لواتساب)</span><b className="text-[#166534]">{phones.mobile}</b></div>
+                    <div className="flex justify-between"><span className="text-gray-500">أرضي (مستبعَد)</span><b className="text-red-600">{phones.landline}</b></div>
+                    {!!phones.unclassified && (
+                      <div className="flex justify-between"><span className="text-gray-500">غير مصنَّف</span><b className="text-amber-600">{phones.unclassified}</b></div>
+                    )}
+                  </div>
+                  {!!phones.unclassified && (
+                    <button
+                      onClick={() => classify.mutate()}
+                      disabled={classify.isPending}
+                      className="w-full mt-2 border border-[#E9E1D3] rounded-lg py-1.5 text-xs text-gray-700 flex items-center justify-center gap-1 hover:border-[#E15A30] disabled:opacity-50"
+                    >
+                      {classify.isPending ? <Loader2 size={12} className="animate-spin" /> : <Phone size={12} />}
+                      صنّف {phones.unclassified} رقماً
+                    </button>
+                  )}
+                  <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+                    الأرضي لا واتساب له — يُستبعد من الاستهداف ولا يُحذف من عملائك (يبقى للاتصال والبريد).
+                  </p>
+                </div>
+              )}
 
               {/* الإرسال الجماعي — يُدرج الكلّ في الطابور، والجسر يرسل بإيقاع بشري */}
               <div className="border-t border-[#E9E1D3] pt-3">
