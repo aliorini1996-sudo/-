@@ -200,12 +200,45 @@ client.on('message', async (msg) => {
   }
 });
 
+// ------------------------------- تأكيد التسليم ------------------------------- //
+
+/**
+ * `client.sendMessage()` يُرجع «نجاحاً» بمجرّد وضع الرسالة في طابور المتصفّح الداخلي —
+ * **لا عند تسليمها لواتساب**. فمن يثق به يُعلّم عملاء «تم التواصل» ورسائلهم لم تخرج
+ * (حدث فعلاً: 30 حُسبت ناجحة و18 فقط وصلت).
+ *
+ * الحقيقة الوحيدة هي إشعار ACK من واتساب:
+ *   -1 خطأ · 0 معلّق · 1 وصل الخادم · 2 سُلّم للجهاز · 3 قُرئ
+ * ننتظر ACK ≥ 1 — وما دونه ليس إرسالاً.
+ */
+function waitForAck(msg, timeoutMs = 25000) {
+  return new Promise((resolve) => {
+    const id = msg?.id?._serialized;
+    if (!id) return resolve(false);
+    if (typeof msg.ack === 'number' && msg.ack >= 1) return resolve(true);
+    const done = (v) => { clearTimeout(timer); client.removeListener('message_ack', handler); resolve(v); };
+    const handler = (m, ack) => {
+      if (m?.id?._serialized !== id) return;
+      if (ack >= 1) done(true);
+      else if (ack < 0) done(false); // ACK_ERROR — رفض صريح
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    client.on('message_ack', handler);
+  });
+}
+
 // ------------------------------- حلقة الطابور ------------------------------- //
 
 let busy = false;
+let stopped = false;        // توقّف تلقائي بعد إخفاقات متتالية
+let consecutiveFails = 0;
+
+// الضرب في الحائط مراراً هو أوضح إشارة حظر: نتوقّف بدل أن نُكمل 100 محاولة فاشلة.
+// الأرقام غير المسجّلة (أرضية مثلاً) لا تُحتسب — هي بيانات ناقصة لا رفض من واتساب.
+const MAX_FAILS = Number(process.env.WA_BRIDGE_MAX_FAILS || 5);
 
 async function tick() {
-  if (busy) return; // دورة سابقة ما زالت ترسل — لا نُراكم
+  if (busy || stopped) return; // دورة سابقة ما زالت ترسل، أو توقّفنا تلقائياً — لا نُراكم
   busy = true;
   try {
     const r = await api('/pull', null, 'GET');
@@ -225,24 +258,54 @@ async function tick() {
     log(`▸ ${messages.length} رسالة في الطابور (متبقٍّ اليوم: ${data.remainingToday ?? '?'})`);
 
     for (const m of messages) {
+      if (stopped) break;
       const gap = jitter();
       log(`  … انتظار ${Math.round(gap / 1000)}ث قبل ${m.phone}`);
       await sleep(gap);
       try {
         const chatId = `${m.phone}@c.us`;
-        // نتحقّق أن الرقم على واتساب أصلاً — الإرسال لأرقام غير مسجّلة إشارة سلبية قويّة
+        // رقم بلا واتساب (أرضي غالباً) — نتخطّاه بلا احتساب: بيانات ناقصة لا رفض من واتساب
         const registered = await client.isRegisteredUser(chatId);
         if (!registered) {
           await api('/result', { id: m.id, ok: false, error: 'الرقم غير مسجّل على واتساب' });
-          log(`  ✖ ${m.phone} غير مسجّل على واتساب`);
+          log(`  ⊘ ${m.phone} — لا واتساب على هذا الرقم (تُخطّي)`);
           continue;
         }
+
         const sent = await client.sendMessage(chatId, m.body);
-        await api('/result', { id: m.id, ok: true, waId: sent?.id?._serialized || null });
-        log(`  ✓ أُرسلت إلى ${m.phone}`);
+        // لا نُصدّق sendMessage: ننتظر تأكيد واتساب. بلا ACK لا نُعلّم العميل «تم التواصل».
+        const acked = await waitForAck(sent);
+        if (!acked) {
+          consecutiveFails++;
+          await api('/result', {
+            id: m.id, ok: false,
+            error: 'لم يؤكّد واتساب التسليم (ACK) — الرقم مقيَّد أو الرسالة حُجبت',
+          });
+          log(`  ✖ ${m.phone} — أُرسلت بلا تأكيد تسليم (${consecutiveFails}/${MAX_FAILS})`);
+        } else {
+          consecutiveFails = 0; // نجاح مؤكّد يُصفّر العدّاد
+          await api('/result', { id: m.id, ok: true, waId: sent?.id?._serialized || null });
+          log(`  ✓ سُلّمت إلى ${m.phone}`);
+        }
       } catch (e) {
+        consecutiveFails++;
         await api('/result', { id: m.id, ok: false, error: e.message });
-        log(`  ✖ فشل ${m.phone}: ${e.message}`);
+        log(`  ✖ فشل ${m.phone}: ${e.message} (${consecutiveFails}/${MAX_FAILS})`);
+      }
+
+      // قاطع الدورة: الاستمرار في الضرب بعد رفض متكرّر هو ما يحظر الأرقام فعلاً
+      if (consecutiveFails >= MAX_FAILS) {
+        stopped = true;
+        log('');
+        log(`🛑 توقّف تلقائي — ${MAX_FAILS} إخفاقات متتالية.`);
+        log('   واتساب يرفض رسائلك الآن. الاستمرار = حظر الرقم.');
+        log('   أوقف الجسر، انتظر ساعات، وابدأ بعدد أقلّ بكثير.');
+        log('');
+        await api('/status', {
+          status: 'CONNECTED', phone: client.info?.wid?.user || null,
+          error: `توقّف تلقائي: ${MAX_FAILS} إخفاقات متتالية — واتساب يرفض الإرسال`,
+        });
+        break;
       }
     }
   } finally {

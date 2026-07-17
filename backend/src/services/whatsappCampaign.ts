@@ -79,13 +79,27 @@ export function previewWaParams(params: WaParam[], lead: LeadLike): { slot: stri
   return resolveWaParams(params, lead).map((value, i) => ({ slot: `{{${i + 1}}}`, field: params[i], value }));
 }
 
-// كم رسالة صادرة أُرسلت اليوم؟ (أساس الحدّ اليومي)
-// نستثني FAILED (لم تصل أحداً) و QUEUED (لم تُرسَل بعد) — تُحتسب عند خروجها فعلاً.
+/**
+ * كم **محاولة** صادرة اليوم؟ (أساس الحدّ اليومي)
+ *
+ * كنتُ أستثني FAILED بحجّة أنها «لم تصل أحداً فلا تستهلك الحصّة» — وكان خطأً فادحاً:
+ * ما يمسّ سمعة الرقم هو **الرفض** لا التسليم. والنتيجة العملية أن دفعة من 120 استنزفت
+ * الطابور كلّه بينما العدّاد تحرّك 30 فقط — أي أن الحدّ اليومي لم يحمِ شيئاً في اللحظة
+ * الوحيدة التي وُجد ليحمي فيها.
+ *
+ * الآن كل محاولة تُحتسب. الاستثناء الوحيد: أرقام بلا واتساب (أرضية غالباً) — تلك نقص
+ * في بياناتنا، لا تصل واتساب أصلاً فلا تمسّ سمعة شيء. وQUEUED لم تُحاوَل بعد.
+ */
 export async function waSentToday(): Promise<number> {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   return prisma.waMessage.count({
-    where: { direction: 'OUT', status: { notIn: ['FAILED', 'QUEUED'] }, createdAt: { gte: start } },
+    where: {
+      direction: 'OUT',
+      createdAt: { gte: start },
+      status: { not: 'QUEUED' },
+      NOT: { error: { contains: 'غير مسجّل على واتساب' } },
+    },
   });
 }
 
