@@ -102,7 +102,7 @@ export default function BlogIndexPage() {
           <h2 className="text-sm font-bold text-[#1F1A13] mb-3">{t.byCountry}</h2>
           <div className="flex flex-wrap gap-2">
             {COUNTRIES.map((c) => (
-              <Link key={c.code} to={`${prefix}/blog/field-sales-software-${c.code.toLowerCase()}`}
+              <Link key={c.code} to={`${prefix}/blog/field-sales-software-${c.code.toLowerCase()}/`}
                 className="text-sm border border-[#E9E1D3] bg-white rounded-lg px-3 py-1.5 text-[#3a342b] hover:border-[#E8C9BC] hover:text-[#E15A30] transition-colors">
                 {countryName(c)}
               </Link>
@@ -116,7 +116,7 @@ export default function BlogIndexPage() {
         </div>
         <div className="grid gap-5">
           {cards.map((post) => (
-            <Link key={post.slug} to={`${prefix}/blog/${post.slug}`}
+            <Link key={post.slug} to={`${prefix}/blog/${post.slug}/`}
               className="block bg-white rounded-2xl border border-[#E9E1D3] overflow-hidden hover:border-[#E8C9BC] hover:shadow-sm transition-all">
               {post.img && (
                 <img src={post.img} alt={post.title} width={1200} height={630} loading="lazy"

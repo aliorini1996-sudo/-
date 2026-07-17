@@ -311,7 +311,7 @@ export const POSTS: BlogPost[] = [
       <h2>كيف يبسّط النظام هذا القرار؟</h2>
       <p>نظام المبيعات الميدانية الجيّد يجعل المندوب يختار نوع الفاتورة بنقرة، ويُدرج رمز QR ويحسب الضريبة تلقائياً، ويخزّن الرقم الضريبي للعميل المنشأة تلقائياً للمرّات القادمة. <a href="/signup">FieldSales</a> تُصدر النوعين برمز QR وطباعة حرارية من جوال المندوب.</p>
 
-      <p>اقرأ أيضاً: <a href="/blog/zatca-einvoicing-distribution">دليل الفوترة الإلكترونية ZATCA لشركات التوزيع</a>.</p>
+      <p>اقرأ أيضاً: <a href="/blog/zatca-einvoicing-distribution/">دليل الفوترة الإلكترونية ZATCA لشركات التوزيع</a>.</p>
 
       <p><strong>ابدأ تجربتك المجانية 10 أيام وأصدر فواتيرك بالنوع الصحيح من أول يوم.</strong></p>
     `,
@@ -348,7 +348,7 @@ export const POSTS: BlogPost[] = [
       <h2>كيف تطبّقه عملياً؟</h2>
       <p>تحتاج نظاماً يربط <strong>فاتورة المندوب</strong> بـ<strong>مخزون سيارته</strong> لحظياً. <a href="/signup">FieldSales</a> توفّر ميزة «مخزون سيارة المندوب»: يسجّل المندوب ما حمَّله، فينقص تلقائياً مع كل بيع، وتتابع الإدارة المتبقّي والحركة من لوحة التحكم.</p>
 
-      <p>اقرأ أيضاً: <a href="/blog/manage-field-sales-reps">كيف تدير مناديب التوزيع الميدانيين بكفاءة؟</a></p>
+      <p>اقرأ أيضاً: <a href="/blog/manage-field-sales-reps/">كيف تدير مناديب التوزيع الميدانيين بكفاءة؟</a></p>
 
       <p><strong>جرّب FieldSales مجاناً 10 أيام وأحكم سيطرتك على كل سيارة في أسطولك.</strong></p>
     `,
@@ -385,7 +385,7 @@ export const POSTS: BlogPost[] = [
       <h2>كيف تطبّقها بنظام واحد؟</h2>
       <p><a href="/signup">FieldSales</a> تجمع حدود الائتمان، سندات القبض الرقمية، كشوف الحساب اللحظية، وتقارير التحصيل في منصّة واحدة تربط المندوب بالإدارة.</p>
 
-      <p>اقرأ أيضاً: <a href="/blog/choose-field-sales-system">كيف تختار نظام إدارة مبيعات ميدانية مناسباً؟</a></p>
+      <p>اقرأ أيضاً: <a href="/blog/choose-field-sales-system/">كيف تختار نظام إدارة مبيعات ميدانية مناسباً؟</a></p>
 
       <p><strong>ابدأ مجاناً 10 أيام وأعد سيولتك تحت السيطرة.</strong></p>
     `,
@@ -422,7 +422,7 @@ export const POSTS: BlogPost[] = [
       <h2>التطبيق العملي</h2>
       <p><a href="/signup">FieldSales</a> توفّر تتبّعاً للمواقع الحيّة وخطّ سير اليوم عبر GPS أثناء العمل الميداني، مع تحكّم في تفعيله لكل مندوب — أداة إدارة شفّافة تخدم الطرفين.</p>
 
-      <p>اقرأ أيضاً: <a href="/blog/manage-field-sales-reps">7 خطوات عملية لإدارة المناديب الميدانيين</a>.</p>
+      <p>اقرأ أيضاً: <a href="/blog/manage-field-sales-reps/">7 خطوات عملية لإدارة المناديب الميدانيين</a>.</p>
 
       <p><strong>جرّب FieldSales مجاناً 10 أيام وأدِر فريقك الميداني بشفافية وكفاءة.</strong></p>
     `,
@@ -456,7 +456,7 @@ export const POSTS: BlogPost[] = [
       <h2>والفوترة الإلكترونية في مصر؟</h2>
       <p>الفوترة الإلكترونية إلزامية في مصر عبر منظومة <strong>مصلحة الضرائب المصرية (ETA)</strong>. <a href="/signup">FieldSales</a> ينظّم فوترتك وتحصيلك ومخزونك ميدانيًا ويصدر فواتير برمز QR وسجلات رقمية موثّقة؛ ويبقى ربط منظومة ETA الرسمية حسب متطلبات كل منشأة. ميزة النظام الأساسية: ضبط الفريق الميداني من الطلب حتى التحصيل في منصّة واحدة.</p>
 
-      <p>اقرأ أيضًا: <a href="/blog/collection-receivables-distribution">إدارة التحصيل والذمم المدينة</a> و<a href="/blog/van-sales-guide">دليل البيع المتنقّل</a>.</p>
+      <p>اقرأ أيضًا: <a href="/blog/collection-receivables-distribution/">إدارة التحصيل والذمم المدينة</a> و<a href="/blog/van-sales-guide/">دليل البيع المتنقّل</a>.</p>
 
       <p><strong>جرّب FieldSales مجانًا 10 أيام وأحكم سيطرتك على فريقك الميداني في مصر.</strong></p>
     `,
@@ -486,7 +486,7 @@ export const POSTS: BlogPost[] = [
         <h2>What about e-invoicing in Egypt?</h2>
         <p>E-invoicing is mandatory in Egypt through the <strong>Egyptian Tax Authority (ETA)</strong> system. <a href="/signup">FieldSales</a> organizes your field billing, collection and stock and issues QR-coded invoices and verifiable digital records; connecting the official ETA platform depends on each company’s requirements. The core value: control your field team from order to collection in one platform.</p>
 
-        <p>Read also: <a href="/en/blog/what-is-field-sales-management-software">What is field sales management software?</a></p>
+        <p>Read also: <a href="/en/blog/what-is-field-sales-management-software/">What is field sales management software?</a></p>
 
         <p><strong>Try FieldSales free for 10 days and take control of your field team in Egypt.</strong></p>
       `,
@@ -521,7 +521,7 @@ export const POSTS: BlogPost[] = [
       <h2>كيف يساعد FieldSales؟</h2>
       <p><a href="/signup">FieldSales</a> يجمع مخزون السيارة، التحصيل وإدارة الذمم، صلاحيات المناديب، وتتبّع GPS في منصّة واحدة تناسب أسواق المغرب العربي — بالعربية وبتطبيق جوال خفيف يعمل على أي جهاز.</p>
 
-      <p>اقرأ أيضًا: <a href="/blog/van-sales-guide">دليل إدارة مخزون سيارة المندوب</a>.</p>
+      <p>اقرأ أيضًا: <a href="/blog/van-sales-guide/">دليل إدارة مخزون سيارة المندوب</a>.</p>
 
       <p><strong>ابدأ تجربتك المجانية 10 أيام وأحكم سيطرتك على أسطول التوزيع.</strong></p>
     `,
@@ -551,7 +551,7 @@ export const POSTS: BlogPost[] = [
         <h2>How FieldSales helps</h2>
         <p><a href="/signup">FieldSales</a> combines van stock, collection and receivables, rep permissions and GPS tracking in one platform suited to Maghreb markets — in Arabic, with a lightweight mobile app that runs on any device.</p>
 
-        <p>Read also: <a href="/en/blog/field-sales-software-egypt">Field sales software in Egypt</a>.</p>
+        <p>Read also: <a href="/en/blog/field-sales-software-egypt/">Field sales software in Egypt</a>.</p>
 
         <p><strong>Start your free 10-day trial and take control of your distribution fleet.</strong></p>
       `,

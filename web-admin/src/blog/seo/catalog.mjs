@@ -611,7 +611,8 @@ const inOf = (c, L) => c[inKey(L)];
 function relatedLinks(topic, c, L) {
   const base = blogBase(L);
   const items = [];
-  const add = (slug, text) => items.push([`${base}/${slug}`, text]);
+  // الشرطة الأخيرة إلزامية: الصفحات تُكتب مجلّدات (blog/x/index.html)، والرابط بلا شرطة يُخدَم قوقعة SPA
+  const add = (slug, text) => items.push([`${base}/${slug}/`, text]);
   if (topic.cs) {
     const cc = c.code.toLowerCase();
     // عنقود الدولة: خدمات أخرى لنفس الدولة (٣ روابط)

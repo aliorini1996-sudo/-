@@ -191,9 +191,9 @@ async function main() {
       'Des centaines de guides sur la vente terrain, la facturation électronique et la distribution pour chaque pays arabe.');
     const manualLinks = L === 'fr' ? [] : manual
       .filter((p) => L === 'ar' || p.en)
-      .map((p) => { const v = L === 'en' && p.en ? p.en : p; return `<li><a href="${prefix}/blog/${p.slug}">${esc(v.title)}</a></li>`; });
-    const links = [...manualLinks, ...listArticles(L).slice(0, 80).map((x) => `<li><a href="${prefix}/blog/${x.slug}">${esc(x.title)}</a></li>`)].join('');
-    const chips = COUNTRIES.map((c) => `<a href="${prefix}/blog/field-sales-software-${c.code.toLowerCase()}">${esc(c[L])}</a>`).join(' ');
+      .map((p) => { const v = L === 'en' && p.en ? p.en : p; return `<li><a href="${prefix}/blog/${p.slug}/">${esc(v.title)}</a></li>`; });
+    const links = [...manualLinks, ...listArticles(L).slice(0, 80).map((x) => `<li><a href="${prefix}/blog/${x.slug}/">${esc(x.title)}</a></li>`)].join('');
+    const chips = COUNTRIES.map((c) => `<a href="${prefix}/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c[L])}</a>`).join(' ');
     const body = `<main><h1>${esc(tr(L, 'مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales'))}</h1><nav>${chips}</nav><ul>${links}</ul></main>`;
     const html = buildPage({ lang: L, title, description: desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang('/blog'), bodyHtml: body });
     writeRoute(`${prefix}/blog`, html);
@@ -360,8 +360,8 @@ async function main() {
 <h2>للتواصل وطلبات الاشتراك</h2>
 <p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
 <h2>روابط مفيدة</h2>
-<p><a href="/blog">المدوّنة</a> · <a href="/calculator">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator">مولّد الفاتورة الضريبية المجاني</a> · <a href="/about">عن المنصّة</a> · <a href="/contact">تواصل معنا</a> · <a href="/en">English</a> · <a href="/fr">Français</a></p>
-<p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}">${esc(c.ar)}</a>`).join(' · ')}</p>
+<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
+<p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')}</p>
 </main>`;
   const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
