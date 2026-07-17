@@ -633,6 +633,10 @@ model WaMessage {
   template  String? // اسم القالب المعتمد (للصادر بوضع القالب)
   status    String  @default("SENT") // SENT | DELIVERED | READ | FAILED | RECEIVED
   error     String?
+  // هل أكّد واتساب التسليم فعلاً (ACK≥1)؟ الكود القديم كان يُعلّم SENT بمجرّد أن يعود
+  // sendMessage — وهو يعود قبل التسليم — فوُجدت رسائل «ناجحة» لم تخرج قطّ.
+  // false على رسالة SENT قديمة = تحتاج مصالحة مع واتساب.
+  ackVerified Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -137,6 +137,8 @@ router.post('/result', requireBridge, async (req: Request, res: Response, next: 
         status: b.ok ? 'SENT' : 'FAILED',
         waId: b.ok ? (b.waId ?? undefined) : undefined,
         error: b.ok ? null : (b.error ?? 'فشل غير معروف').slice(0, 300),
+        // الجسر لا يُبلّغ ok إلا بعد ACK≥1 من واتساب — فالنجاح هنا مؤكّد لا مفترَض
+        ackVerified: b.ok ? true : undefined,
       },
     });
     // نجاح الإرسال ⇒ نقل المرحلة وتسجيل النشاط (تماماً كمسار Cloud API)
@@ -151,6 +153,60 @@ router.post('/result', requireBridge, async (req: Request, res: Response, next: 
       });
     }
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ============================ المصالحة مع واتساب ============================ //
+/**
+ * رسائل عُلّمت SENT بلا تأكيد ACK (كتبها الكود القديم الذي كان يُصدّق sendMessage).
+ * الجسر يسأل واتساب عن كل واحدة بمعرّفها ويُبلّغ ACK الحقيقي — فنعرف أيّها وصلت فعلاً
+ * بدل التخمين أو التراجع الأعمى (الذي كان سيُعيد مراسلة من وصلته الرسالة).
+ */
+router.get('/verify-queue', requireBridge, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rows = await prisma.waMessage.findMany({
+      where: { direction: 'OUT', status: 'SENT', ackVerified: false, waId: { not: null } },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+      select: { id: true, waId: true, phone: true },
+    });
+    res.json({ success: true, data: { messages: rows } });
+  } catch (err) { next(err); }
+});
+
+const verifySchema = z.object({
+  id: z.string(),
+  ack: z.number().int().nullish(), // -1 خطأ · 0 معلّق · 1 خادم · 2 جهاز · 3 قُرئ · null = لم تُوجد
+});
+
+router.post('/verify-result', requireBridge, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const b = verifySchema.parse(req.body);
+    const msg = await prisma.waMessage.findUnique({ where: { id: b.id }, select: { leadId: true } });
+    const ack = b.ack ?? -1;
+    const delivered = ack >= 1;
+
+    await prisma.waMessage.update({
+      where: { id: b.id },
+      data: {
+        status: delivered ? (ack >= 3 ? 'READ' : ack >= 2 ? 'DELIVERED' : 'SENT') : 'FAILED',
+        ackVerified: true,
+        error: delivered ? null : 'لم يؤكّد واتساب التسليم — لم تصل العميل (تبيّن بالمصالحة)',
+      },
+    });
+
+    // لم تصل ⇒ نُعيد العميل كما كان: نمسح نشاط واتساب الوهمي ونُرجع مرحلته
+    if (!delivered && msg?.leadId) {
+      await prisma.leadActivity.deleteMany({
+        where: { leadId: msg.leadId, type: 'WHATSAPP', content: { contains: 'جسر ويب' } },
+      });
+      const lead = await prisma.lead.findUnique({ where: { id: msg.leadId }, select: { stage: true } });
+      // لا نتراجع بعميل تقدّم بجهد حقيقي (ردّ/عرض) — فقط من عُلّم CONTACTED زوراً
+      if (lead?.stage === 'CONTACTED') {
+        await prisma.lead.update({ where: { id: msg.leadId }, data: { stage: 'NEW', lastContactedAt: null } });
+      }
+    }
+    res.json({ success: true, data: { delivered } });
   } catch (err) { next(err); }
 });
 

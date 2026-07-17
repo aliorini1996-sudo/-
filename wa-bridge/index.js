@@ -168,7 +168,39 @@ client.on('ready', async () => {
   const phone = me?.wid?.user || null;
   log(`✓ متصل بالرقم ${phone || '؟'} — الجسر يعمل`);
   await api('/status', { status: 'CONNECTED', phone, pushName: me?.pushname || null });
+  reconcile(); // بلا await: لا نُعطّل الجسر إن طال
 });
+
+/**
+ * مصالحة الرسائل القديمة: الكود القديم كان يُعلّم SENT بمجرّد عودة sendMessage — وهو
+ * يعود قبل التسليم — فوُجد عملاء «تم التواصل» لم تصلهم رسالة. واتساب يحتفظ بحالة كل
+ * رسالة، فنسأله عن كل واحدة بمعرّفها ونُصحّح السجلّ بالحقيقة لا بالتخمين.
+ */
+async function reconcile() {
+  try {
+    const r = await api('/verify-queue', null, 'GET');
+    const rows = r?.data?.messages || [];
+    if (!rows.length) return;
+    log(`▸ مصالحة: ${rows.length} رسالة قديمة بلا تأكيد تسليم — أسأل واتساب عنها`);
+    let ok = 0, bad = 0, gone = 0;
+    for (const m of rows) {
+      let ack = null;
+      try {
+        const wm = await client.getMessageById(m.waId);
+        ack = typeof wm?.ack === 'number' ? wm.ack : null;
+      } catch {
+        ack = null; // لم تُوجد في سجلّ واتساب ⇒ لم تخرج
+      }
+      await api('/verify-result', { id: m.id, ack });
+      if (ack === null) gone++; else if (ack >= 1) ok++; else bad++;
+      await sleep(300); // لا نُرهق المتصفّح
+    }
+    log(`▸ انتهت المصالحة: ✓ ${ok} وصلت · ✖ ${bad} لم تُسلَّم · ⊘ ${gone} لا أثر لها`);
+    if (bad + gone > 0) log(`  أُعيد ${bad + gone} عميلاً إلى «جديد» — يمكن مراسلتهم من جديد`);
+  } catch (e) {
+    log(`⚠ تعذّرت المصالحة (غير مانع): ${e.message}`);
+  }
+}
 
 client.on('auth_failure', async (m) => {
   log('✖ فشل التوثيق:', m);
