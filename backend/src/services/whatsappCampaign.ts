@@ -90,9 +90,20 @@ export function previewWaParams(params: WaParam[], lead: LeadLike): { slot: stri
  * الآن كل محاولة تُحتسب. الاستثناء الوحيد: أرقام بلا واتساب (أرضية غالباً) — تلك نقص
  * في بياناتنا، لا تصل واتساب أصلاً فلا تمسّ سمعة شيء. وQUEUED لم تُحاوَل بعد.
  */
+/**
+ * بداية «اليوم» بتوقيت الرياض (UTC+3) لا بتوقيت الخادم.
+ * الخادم على Render يعمل بـUTC، و setHours(0,0,0,0) عليه = الثالثة فجراً بتوقيت المالك:
+ * فتُصفَّر الحصّة في منتصف جولة إرسال ليلية، وتبدو أرقام الأمس واليوم مختلطة بلا تفسير.
+ */
+function riyadhDayStart(): Date {
+  const now = new Date();
+  const riyadh = new Date(now.getTime() + 3 * 3600 * 1000); // إلى توقيت الرياض
+  riyadh.setUTCHours(0, 0, 0, 0);                            // منتصف ليل الرياض
+  return new Date(riyadh.getTime() - 3 * 3600 * 1000);       // وعوداً إلى UTC
+}
+
 export async function waSentToday(): Promise<number> {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const start = riyadhDayStart();
   return prisma.waMessage.count({
     where: {
       direction: 'OUT',

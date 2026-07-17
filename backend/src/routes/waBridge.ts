@@ -162,6 +162,27 @@ router.post('/result', requireBridge, async (req: Request, res: Response, next: 
  * الجسر يسأل واتساب عن كل واحدة بمعرّفها ويُبلّغ ACK الحقيقي — فنعرف أيّها وصلت فعلاً
  * بدل التخمين أو التراجع الأعمى (الذي كان سيُعيد مراسلة من وصلته الرسالة).
  */
+// تشخيص: توزيع حالات الرسائل الصادرة — يكشف ما جرى فعلاً بلا وصول لقاعدة البيانات
+router.get('/stats', requireBridge, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [byStatus, noWaId, unregistered, total] = await Promise.all([
+      prisma.waMessage.groupBy({ by: ['status'], where: { direction: 'OUT' }, _count: true }),
+      prisma.waMessage.count({ where: { direction: 'OUT', status: 'SENT', waId: null } }),
+      prisma.waMessage.count({ where: { direction: 'OUT', error: { contains: 'غير مسجّل على واتساب' } } }),
+      prisma.waMessage.count({ where: { direction: 'OUT' } }),
+    ]);
+    res.json({
+      success: true,
+      data: {
+        total,
+        byStatus: byStatus.map((s) => ({ status: s.status, count: s._count })),
+        sentWithoutWaId: noWaId,   // لا يمكن مصالحتها: لا معرّف نسأل به واتساب
+        unregisteredNumbers: unregistered,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 router.get('/verify-queue', requireBridge, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const rows = await prisma.waMessage.findMany({
