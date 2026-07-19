@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import repApi from './repApi';
-import { fetchThenCache, requestPersistentStorage } from './offlineDb';
+import { fetchThenCache, requestPersistentStorage, newClientRef, outboxAdd } from './offlineDb';
+import { isNetworkError, startAutoSync, syncOutbox, pendingCount, onOutboxChange } from './offlineSync';
 import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
-  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine,
+  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw,
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
@@ -512,22 +513,46 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
     if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg(tr('لا تملك صلاحية البيع النقدي')); return; }
     setLoading(true); setMsg('');
+    const clientRef = newClientRef();
+    const clientCreatedAt = new Date().toISOString();
+    const payload = {
+      customerId: customer.id, type: isReturn ? 'RETURN' : type, discountPct: 0,
+      ...(isReturn && { returnReason }),
+      // نرسل السعر قبل الضريبة (مشتقّاً من السعر الشامل)
+      items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
+      clientRef, clientCreatedAt, // idempotency + العمل دون اتصال
+    };
+    const printItems = lines.map(l => ({ name: l.name, unit: l.unit, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: lineTotal(l) }));
     try {
-      const res = await repApi.post('/invoices', {
-        customerId: customer.id, type: isReturn ? 'RETURN' : type, discountPct: 0,
-        ...(isReturn && { returnReason }),
-        // نرسل السعر قبل الضريبة (مشتقّاً من السعر الشامل)
-        items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
-      });
+      const res = await repApi.post('/invoices', payload);
       const inv = res.data.data;
       onDone({
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, type, isReturn,
-        company, customer, repName,
-        items: lines.map(l => ({ name: l.name, unit: l.unit, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: lineTotal(l) })),
+        company, customer, repName, items: printItems,
         subtotal, discount, tax, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
       });
-    } catch (err: any) { setMsg(err?.response?.data?.message || tr('تعذّر إصدار المستند، حاول مجدداً')); setLoading(false); }
+    } catch (err: any) {
+      // انقطاع الشبكة ⇒ نلتقط الفاتورة في الصفّ الصادر ونطبع برقم مؤقّت (ترتفع عند الاتصال)
+      if (isNetworkError(err)) {
+        const provider = (company as any)?.einvoiceProvider;
+        if (['eta', 'peppol', 'ttn'].includes(provider)) {
+          // أسواق التخليص الحكومي اللحظي: لا يُسمح بالإصدار أوف‑لاين (قرار المالك)
+          setMsg(tr('لا يمكن إصدار فاتورة دون اتصال في هذا السوق — يتطلّب تخليصاً حكومياً لحظياً')); setLoading(false); return;
+        }
+        const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
+        await outboxAdd({ clientRef, kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
+        const paid = type === 'CASH' && !isReturn ? total : 0;
+        onDone({
+          kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, type, isReturn,
+          company, customer, repName, items: printItems,
+          subtotal, discount, tax, total,
+          paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
+        });
+      } else {
+        setMsg(err?.response?.data?.message || tr('تعذّر إصدار المستند، حاول مجدداً')); setLoading(false);
+      }
+    }
   };
 
   return (
@@ -1115,9 +1140,33 @@ export default function RepApp() {
   // من أين فُتح المستند؟ لإعادة المندوب لشاشة العميل عند إغلاقه بدل قائمة الفواتير
   const [docBack, setDocBack] = useState<'customerDetail' | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
+  const [pending, setPending] = useState(0);       // مستندات أوف‑لاين بانتظار الرفع
+  const [syncing, setSyncing] = useState(false);
 
   // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
   const trackStatus = useRepTracking(!!token && !!user);
+
+  // العمل دون اتصال: بدء المزامنة التلقائية + متابعة عدد المنتظرين (يُحدَّث بعد كل التقاط/رفع)
+  useEffect(() => {
+    if (!token) return;
+    startAutoSync();
+    const refresh = () => pendingCount().then(setPending);
+    refresh();
+    const off = onOutboxChange(refresh);
+    // تحديث دوري خفيف (يلتقط الالتقاطات من شاشات أخرى)
+    const iv = window.setInterval(refresh, 5000);
+    return () => { off(); window.clearInterval(iv); };
+  }, [token]);
+
+  const syncNow = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const r = await syncOutbox();
+      setPending(r.pending);
+      if (r.sent > 0) setRefreshKey(k => k + 1); // تحديث القوائم بعد رفع ناجح
+    } finally { setSyncing(false); }
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -1196,6 +1245,15 @@ export default function RepApp() {
                   <span className="text-sm" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}><span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span></span>
                 </span>
                 <div className="flex items-center gap-3">
+                  {/* شارة العمل دون اتصال: مستندات بانتظار الرفع — نقرة تبدأ المزامنة */}
+                  {pending > 0 && (
+                    <button onClick={syncNow} disabled={syncing}
+                      className="flex items-center gap-1 text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full px-2 py-1 disabled:opacity-60"
+                      title={tr('مستندات أُنشئت دون اتصال — اضغط للرفع')}>
+                      <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
+                      <span>{syncing ? tr('جارٍ الرفع…') : `${pending} ${tr('بانتظار الرفع')}`}</span>
+                    </button>
+                  )}
                   {(trackStatus === 'active' || trackStatus === 'requesting') && (
                     <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title={tr('مشاركة موقعك مفعّلة')}>
                       <span className={`w-2 h-2 rounded-full bg-[#5FBE92] ${trackStatus === 'active' ? 'animate-pulse' : ''}`} /> <MapPin size={12} />

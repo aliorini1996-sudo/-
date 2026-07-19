@@ -62,6 +62,7 @@ export interface InvoiceDoc {
   paidAmt?: number;
   remainingAmt?: number;
   einvoice?: { provider?: string | null; status?: string | null; uuid?: string | null; qr?: string | null } | null;
+  offline?: boolean; // أُنشئت دون اتصال — رقم مؤقّت، ترتفع للخادم عند الاتصال
 }
 
 export interface ReceiptDoc {
@@ -74,6 +75,7 @@ export interface ReceiptDoc {
   amount: number;
   paymentMethod: string;
   notes?: string;
+  offline?: boolean;
 }
 
 export interface StatementEntry {
@@ -682,6 +684,13 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
             <p className="text-xs text-gray-500">{doc.customer.name}</p>
           </div>
         </div>
+
+        {/* تنبيه العمل دون اتصال: المستند مُلتقَط محلياً برقم مؤقّت، يرتفع للخادم عند الاتصال */}
+        {(doc.kind === 'invoice' || doc.kind === 'receipt') && doc.offline && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 text-xs text-amber-800 leading-relaxed">
+            <b>{tr('أُنشئ دون اتصال')}</b> — {tr('الرقم مؤقّت، ويُعتمد رقمه النهائي تلقائياً عند اتصالك بالإنترنت. اطبع/سلّم نسختك الآن بشكل طبيعي.')}
+          </div>
+        )}
 
         {/* معاينة مصغّرة للمستند */}
         <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند:')}</p>
