@@ -26,6 +26,7 @@ export const defaultContentFr = {
       { title: 'Intégration ERP', desc: 'Synchronisez vos clients, produits, factures et reçus avec votre système ERP via une connexion sécurisée, avec des journaux de synchronisation détaillés.' },
       { title: 'Classification par canal de vente', desc: 'Classez vos clients par canal de vente (commerce moderne, gros, commerce traditionnel, discounters, vente cash, e-commerce) et analysez les ventes par canal et par région.' },
       { title: 'Scan de codes-barres', desc: 'Scannez les codes-barres des produits avec la caméra du mobile du commercial pour ajouter les articles à la facture rapidement et précisément sur le terrain.' },
+      { title: 'Fonctionne hors ligne', desc: 'L’application du commercial fonctionne toute la journée sans internet : émettez et imprimez factures fiscales et reçus avec code QR et remettez-les aux clients, puis chaque document est téléversé automatiquement au bureau dès le retour de la connexion — sans doublon ni perte de données.' },
       { title: 'Retours intelligents (endommagé/échange)', desc: 'Créez des retours classés (normal/endommagé/échange), avec contrôle par l’admin du retour ou non au stock du véhicule, et une politique de réintégration par produit.' },
     ],
   },
@@ -60,6 +61,7 @@ export const defaultContentFr = {
     items: [
       { q: 'Les factures sont-elles conformes à la réglementation ?', a: 'Oui, le système émet des factures fiscales (Phase 2) conformes aux exigences de facturation électronique ZATCA, avec code QR. Les paramètres de taxe s’adaptent au pays de l’entreprise.' },
       { q: 'Ai-je besoin de matériel spécifique ?', a: 'Non — l’application fonctionne sur n’importe quel smartphone. Pour l’impression sur le terrain, une imprimante thermique 58 mm (Bluetooth ou intégrée) suffit.' },
+      { q: 'L’application fonctionne-t-elle hors ligne ?', a: 'Oui — l’application du commercial fonctionne toute la journée sans internet : émettez et imprimez factures fiscales et reçus avec code QR et remettez-les aux clients, puis chaque document est téléversé automatiquement au bureau dès le retour de la connexion, sans doublon ni perte de données.' },
       { q: 'Combien de temps prend la configuration ?', a: 'Vous pouvez configurer votre entreprise, vos produits et vos commerciaux en quelques minutes et commencer à émettre des factures immédiatement.' },
       { q: 'Puis-je essayer le système avant de souscrire ?', a: 'Oui, contactez-nous à info@fieldsa.net et nous vous aiderons à essayer le système avant de souscrire.' },
     ],

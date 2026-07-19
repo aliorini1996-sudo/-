@@ -25,6 +25,7 @@ export const defaultContentEn = {
       { title: 'Company team & roles', desc: 'Add admin, manager, and accountant users with granular per-section permissions — each member sees and does exactly what you allow.' },
       { title: 'ERP integration', desc: 'Sync your customers, products, invoices, and receipts to your ERP system over a secure connection, with detailed sync logs.' },
       { title: 'Sales-channel classification', desc: 'Classify customers by sales channel (Modern Trade, Wholesale, Traditional Trade, Discounters, Cash Van, E-Commerce) and analyze sales by channel and geographic area.' },
+      { title: 'Works offline', desc: 'The rep app runs all day with no internet: issue and print tax invoices and receipts with a QR code and hand them to customers, then every document uploads to the office automatically once connectivity returns — no duplicates, no data loss.' },
       { title: 'Barcode scanning', desc: 'Scan product barcodes with the rep’s phone camera to add items to the invoice quickly and accurately in the field.' },
       { title: 'Smart returns (damaged/exchange)', desc: 'Create classified returns (normal/damaged/exchange), with admin control over whether each return goes back to van stock, plus a per-product restock policy.' },
     ],
@@ -60,6 +61,7 @@ export const defaultContentEn = {
     items: [
       { q: 'Are the invoices ZATCA-compliant?', a: 'Yes, the system issues Phase 2 tax invoices compliant with ZATCA e-invoicing requirements, with a QR code.' },
       { q: 'Do I need special hardware?', a: 'No — the app runs on any smartphone. For field printing, a 58mm thermal printer (Bluetooth or built-in) is all you need.' },
+      { q: 'Does the app work offline?', a: 'Yes — the rep app runs all day with no internet: issue and print tax invoices and receipts with a QR code and hand them to customers, then every document uploads to the office automatically once connectivity returns, with no duplicates or data loss.' },
       { q: 'How long does setup take?', a: 'You can set up your company, products, and reps in minutes and start issuing invoices right away.' },
       { q: 'Can I try the system before subscribing?', a: 'Yes, reach us at info@fieldsa.net and we’ll help you try the system before subscribing.' },
     ],
