@@ -9,7 +9,7 @@
  */
 
 import repApi from './repApi';
-import { outboxAll, outboxUpdate, OutboxDoc } from './offlineDb';
+import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc } from './offlineDb';
 
 let syncing = false;
 type Listener = () => void;
@@ -79,14 +79,46 @@ export async function rejectedDocs(): Promise<OutboxDoc[]> {
   return (await outboxAll()).filter((d) => d.status === 'rejected');
 }
 
+export async function rejectedCount(): Promise<number> {
+  return (await rejectedDocs()).length;
+}
+
+// كل مستندات الصفّ (منتظر + مرفوض) — لواجهة المراجعة، الأحدث أولاً
+export async function outboxDocs(): Promise<OutboxDoc[]> {
+  return (await outboxAll())
+    .filter((d) => d.status !== 'sent')
+    .sort((a, b) => b.clientCreatedAt.localeCompare(a.clientCreatedAt));
+}
+
+// إعادة مستند مرفوض إلى الصفّ (بعد أن يعالج سببه — مثل رفع حدّ الائتمان من الأدمن)
+export async function requeue(clientRef: string): Promise<void> {
+  const doc = (await outboxAll()).find((d) => d.clientRef === clientRef);
+  if (doc) { await outboxUpdate({ ...doc, status: 'queued', error: undefined }); notify(); }
+}
+
+// إزالة مستند من الصفّ (المندوب يعالج الورقة يدوياً)
+export async function discard(clientRef: string): Promise<void> {
+  await outboxDelete(clientRef);
+  notify();
+}
+
 let started = false;
-// يبدأ المزامنة التلقائية عند عودة الاتصال + محاولة أولى عند الإقلاع
+/**
+ * مزامنة تلقائية عدوانية (M7) — «نقطة حفظ مبكّرة»: نرفع الصفّ فور توفّر أي اتصال كي تصل
+ * المستندات للخادم قبل أي طرد لتخزين المتصفّح (iOS Safari يطرد بعد خمول/ضغط). المحفّزات:
+ *   - حدث online (عودة الشبكة)      - إحضار التطبيق للمقدّمة (visibilitychange)
+ *   - دورياً كل 30ث عند وجود اتصال  - محاولة عند الإقلاع
+ * تعمل على كل المنصّات (بخلاف Background Sync API المحصور في كروم ولا يدعم iOS).
+ * syncOutbox آمن للاستدعاء المتكرّر (قفل داخلي + يقرأ الصفّ فقط حين فارغ).
+ */
 export function startAutoSync(): void {
   if (started) return;
   started = true;
-  window.addEventListener('online', () => { syncOutbox(); });
-  // محاولة عند الإقلاع (قد يكون هناك صفّ متبقٍّ من جلسة سابقة)
-  if (navigator.onLine) syncOutbox();
+  const trySync = () => { if (navigator.onLine) syncOutbox(); };
+  window.addEventListener('online', trySync);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) trySync(); });
+  window.setInterval(trySync, 30000);
+  trySync();
 }
 
 // هل الطلب فشل بسبب انقطاع الشبكة (لا استجابة خادم)؟ — للتفريق عن رفض الأعمال

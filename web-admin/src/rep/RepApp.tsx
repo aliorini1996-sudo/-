@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import repApi from './repApi';
 import { fetchThenCache, requestPersistentStorage, newClientRef, outboxAdd } from './offlineDb';
-import { isNetworkError, startAutoSync, syncOutbox, pendingCount, onOutboxChange } from './offlineSync';
+import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
+import type { OutboxDoc } from './offlineDb';
 import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
@@ -1153,6 +1154,84 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   );
 }
 
+// لوحة العمل دون اتصال — تعرض المستندات المنتظرة والمرفوضة، مع رفع/إعادة محاولة/إزالة
+function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync: () => void; syncing: boolean }) {
+  const tr = useTr();
+  const [docs, setDocs] = useState<OutboxDoc[]>([]);
+  const load = () => outboxDocs().then(setDocs);
+  useEffect(() => { load(); const off = onOutboxChange(load); const iv = window.setInterval(load, 4000); return () => { off(); window.clearInterval(iv); }; }, []);
+
+  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : tr('عميل');
+  const custName = (d: OutboxDoc) => (d.payload as any)?.name || (d.payload as any)?.customerName || '';
+  const pendingList = docs.filter(d => d.status === 'queued');
+  const rejectedList = docs.filter(d => d.status === 'rejected');
+
+  return (
+    <div className="absolute inset-0 z-50 bg-white flex flex-col" dir="rtl">
+      <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3 flex-shrink-0">
+        <button onClick={onClose}><ArrowRight size={20} /></button>
+        <span className="font-bold text-sm">{tr('العمل دون اتصال')}</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {docs.length === 0 && (
+          <div className="text-center py-16 text-gray-400">
+            <Check size={40} className="mx-auto mb-2 text-green-500" />
+            <p className="text-sm">{tr('كل المستندات مرفوعة — لا شيء بانتظار الرفع.')}</p>
+          </div>
+        )}
+
+        {rejectedList.length > 0 && (
+          <div>
+            <p className="text-xs font-bold text-red-600 mb-2">{tr('مرفوضة — تحتاج إجراءً')} ({rejectedList.length})</p>
+            <div className="space-y-2">
+              {rejectedList.map(d => (
+                <div key={d.clientRef} className="bg-red-50 border border-red-200 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-800">{kindLabel(d.kind)} {d.localNumber ? `· ${d.localNumber}` : ''} {custName(d) && `· ${custName(d)}`}</span>
+                  </div>
+                  <p className="text-xs text-red-600 mt-1 leading-relaxed">{d.error || tr('رفضه الخادم')}</p>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => requeue(d.clientRef)} className="flex-1 text-xs bg-[#1F1A13] text-white rounded-lg py-1.5">{tr('إعادة المحاولة')}</button>
+                    <button onClick={() => { if (confirm(tr('إزالة هذا المستند نهائياً من الصفّ؟'))) discard(d.clientRef); }} className="flex-1 text-xs border border-red-300 text-red-600 rounded-lg py-1.5">{tr('إزالة')}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
+              {tr('إن رفض الخادم مستنداً سلّمت نسخته الورقية للعميل، عالج السبب (مثل حدّ الائتمان) ثم «أعد المحاولة»، أو تواصل مع الإدارة لتسويته.')}
+            </p>
+          </div>
+        )}
+
+        {pendingList.length > 0 && (
+          <div>
+            <p className="text-xs font-bold text-amber-600 mb-2">{tr('بانتظار الرفع')} ({pendingList.length})</p>
+            <div className="space-y-2">
+              {pendingList.map(d => (
+                <div key={d.clientRef} className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-800">{kindLabel(d.kind)} {d.localNumber ? `· ${d.localNumber}` : ''} {custName(d) && `· ${custName(d)}`}</span>
+                  <span className="text-[11px] text-amber-600">{new Date(d.clientCreatedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {pendingList.length > 0 && (
+        <div className="flex-shrink-0 p-4 border-t border-gray-100">
+          <button onClick={onSync} disabled={syncing}
+            className="w-full bg-[#E15A30] text-white rounded-xl py-3 font-bold flex items-center justify-center gap-2 disabled:opacity-60">
+            <RefreshCw size={18} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? tr('جارٍ الرفع…') : `${tr('ارفع الآن')} (${pendingList.length})`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RepApp() {
   const tr = useTr();
   const [token, setToken] = useState(localStorage.getItem('rep_token'));
@@ -1168,7 +1247,9 @@ export default function RepApp() {
   const [docBack, setDocBack] = useState<'customerDetail' | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [pending, setPending] = useState(0);       // مستندات أوف‑لاين بانتظار الرفع
+  const [rejected, setRejected] = useState(0);     // مستندات رفضها الخادم (تحتاج مراجعة)
   const [syncing, setSyncing] = useState(false);
+  const [showOutbox, setShowOutbox] = useState(false);
 
   // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
   const trackStatus = useRepTracking(!!token && !!user);
@@ -1177,7 +1258,7 @@ export default function RepApp() {
   useEffect(() => {
     if (!token) return;
     startAutoSync();
-    const refresh = () => pendingCount().then(setPending);
+    const refresh = () => { pendingCount().then(setPending); rejectedCount().then(setRejected); };
     refresh();
     const off = onOutboxChange(refresh);
     // تحديث دوري خفيف (يلتقط الالتقاطات من شاشات أخرى)
@@ -1235,6 +1316,7 @@ export default function RepApp() {
         {/* notch — سطح المكتب فقط */}
         {framed && <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-30" />}
         <div className={framed ? 'w-full h-full bg-white rounded-[36px] overflow-hidden relative flex flex-col' : 'w-full h-full bg-white overflow-hidden relative flex flex-col'}>
+          {showOutbox && <OutboxPanel onClose={() => setShowOutbox(false)} onSync={syncNow} syncing={syncing} />}
           {!token || !user ? (
             <RepLogin onLogin={login} />
           ) : docResult ? (
@@ -1272,13 +1354,13 @@ export default function RepApp() {
                   <span className="text-sm" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}><span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span></span>
                 </span>
                 <div className="flex items-center gap-3">
-                  {/* شارة العمل دون اتصال: مستندات بانتظار الرفع — نقرة تبدأ المزامنة */}
-                  {pending > 0 && (
-                    <button onClick={syncNow} disabled={syncing}
-                      className="flex items-center gap-1 text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full px-2 py-1 disabled:opacity-60"
-                      title={tr('مستندات أُنشئت دون اتصال — اضغط للرفع')}>
+                  {/* شارة العمل دون اتصال: بانتظار الرفع / مرفوض — نقرة تفتح لوحة المراجعة */}
+                  {(pending > 0 || rejected > 0) && (
+                    <button onClick={() => setShowOutbox(true)}
+                      className={`flex items-center gap-1 text-[11px] rounded-full px-2 py-1 border ${rejected > 0 ? 'bg-red-500/20 text-red-300 border-red-500/40' : 'bg-amber-500/20 text-amber-300 border-amber-500/40'}`}
+                      title={tr('مستندات العمل دون اتصال')}>
                       <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
-                      <span>{syncing ? tr('جارٍ الرفع…') : `${pending} ${tr('بانتظار الرفع')}`}</span>
+                      <span>{rejected > 0 ? `${rejected} ${tr('مرفوض')}` : `${pending} ${tr('بانتظار الرفع')}`}</span>
                     </button>
                   )}
                   {(trackStatus === 'active' || trackStatus === 'requesting') && (
