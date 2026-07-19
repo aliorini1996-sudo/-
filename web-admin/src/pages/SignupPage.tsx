@@ -18,6 +18,10 @@ export default function SignupPage() {
   const dir = useDir();
   const lang = useLang((s) => s.lang);
   const countries = supportedCountries();
+  // عمودية التسجيل من الرابط (?vertical=restaurant) — قادمة من الصفحة التعريفية للمطاعم
+  const vertical: 'distribution' | 'restaurant' =
+    new URLSearchParams(window.location.search).get('vertical') === 'restaurant' ? 'restaurant' : 'distribution';
+  const isResto = vertical === 'restaurant';
   const [form, setForm] = useState({ companyName: '', country: '', adminName: '', email: '', phone: '', password: '', confirm: '' });
   const [agree, setAgree] = useState(false);
   const [showPass, setShowPass] = useState(false);
@@ -45,11 +49,13 @@ export default function SignupPage() {
         countryCode: form.country,
         email: form.email.trim(), password: form.password,
         phone: form.phone ? `${dial}${form.phone.replace(/^0+/, '')}` : undefined,
+        vertical,
       });
       const { token, user } = res.data.data;
       login(token, user);
       toast.success(t('signup.success'));
-      window.location.replace('/app');
+      // عزل العموديّات: أدمن المطعم يذهب للوحة المطعم /app-r
+      window.location.replace((user.vertical ?? vertical) === 'restaurant' ? '/app-r' : '/app');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('signup.failed');
       toast.error(msg);
@@ -70,7 +76,7 @@ export default function SignupPage() {
             <BrandIcon size={92} radius={0.26} />
           </div>
           <div style={{ fontFamily: "'IBM Plex Sans', sans-serif" }} className="text-4xl font-bold tracking-tight">
-            <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
+            <span className="text-[#FAF7F0]">Field</span><span style={{ color: isResto ? '#B5322A' : '#E15A30' }}>{isResto ? ' Restaurant' : ' Sales'}</span>
           </div>
           <p className="text-[#C9BEAC] mt-4 text-[15px] leading-relaxed">{t('signup.heroLead')}</p>
           <div className="mt-9 space-y-3" style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
