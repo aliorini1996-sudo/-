@@ -34,8 +34,11 @@ const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
-const RestaurantHome = lazy(() => import('./pages/resto/RestaurantHome'));
 const RestaurantLandingPage = lazy(() => import('./pages/resto/RestaurantLandingPage'));
+const RestaurantLayout = lazy(() => import('./pages/resto/RestaurantLayout'));
+const RestaurantDashboard = lazy(() => import('./pages/resto/RestaurantDashboard'));
+const MenuManagePage = lazy(() => import('./pages/resto/MenuManagePage'));
+const TablesManagePage = lazy(() => import('./pages/resto/TablesManagePage'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
 function PageFallback() {
@@ -155,8 +158,12 @@ export default function App() {
         <Route path="/fr/blog" element={<BlogIndexPage />} />
         <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
-        {/* لوحة المطعم (عمودية restaurant) — عنصر نائب M0، يتوسّع في M2+ */}
-        <Route path="/app-r" element={<RestaurantRoute><RestaurantHome /></RestaurantRoute>} />
+        {/* لوحة المطعم (عمودية restaurant) — شِل + قائمة وطاولات (M2) */}
+        <Route path="/app-r" element={<RestaurantRoute><RestaurantLayout /></RestaurantRoute>}>
+          <Route index element={<RestaurantDashboard />} />
+          <Route path="menu" element={<MenuManagePage />} />
+          <Route path="tables" element={<TablesManagePage />} />
+        </Route>
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
           <ProtectedRoute>

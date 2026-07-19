@@ -37,6 +37,29 @@ export interface Tenant {
   _count?: { admins?: number; salesReps?: number; customers?: number; invoices?: number; receipts?: number; products?: number };
 }
 
+// ── عمودية المطاعم (M2) ──
+export interface MenuCategory {
+  id: string; name: string; sortOrder?: number; isActive?: boolean;
+  items?: MenuItem[];
+}
+export interface MenuItem {
+  id: string; categoryId?: string | null; code: string; name: string;
+  description?: string | null; basePrice: number; taxPct?: number; costPrice?: number;
+  prepStation?: 'KITCHEN' | 'BAR' | 'GRILL' | 'COLD'; itemCode?: string | null;
+  image?: string | null; isAvailable?: boolean; sortOrder?: number;
+  modifierGroups?: { groupId: string }[];
+}
+export interface Modifier { id: string; name: string; priceDelta?: number; isDefault?: boolean; }
+export interface ModifierGroup {
+  id: string; name: string; minSelect?: number; maxSelect?: number; sortOrder?: number;
+  modifiers?: Modifier[];
+}
+export interface RestaurantArea { id: string; name: string; sortOrder?: number; isActive?: boolean; }
+export interface RestaurantTable {
+  id: string; areaId?: string | null; number: string; seats?: number;
+  status?: 'FREE' | 'OCCUPIED' | 'BILL_REQUESTED' | 'RESERVED'; isActive?: boolean;
+}
+
 export type LeadStage = 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'PROPOSAL' | 'WON' | 'LOST';
 
 export interface Lead {

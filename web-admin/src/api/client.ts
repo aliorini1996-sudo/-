@@ -254,3 +254,27 @@ export const contactApi = {
 export const supportApi = {
   send: (data: { subject?: string; category?: string; message: string }) => api.post('/support', data),
 };
+
+// ── عمودية المطاعم (Field Restaurant) — القوائم والصالات والطاولات (M2) ──
+export const restaurantApi = {
+  // القائمة
+  menu: () => api.get('/restaurant/menu'),
+  createCategory: (data: unknown) => api.post('/restaurant/menu/categories', data),
+  updateCategory: (id: string, data: unknown) => api.put(`/restaurant/menu/categories/${id}`, data),
+  deleteCategory: (id: string) => api.delete(`/restaurant/menu/categories/${id}`),
+  createItem: (data: unknown) => api.post('/restaurant/menu/items', data),
+  updateItem: (id: string, data: unknown) => api.put(`/restaurant/menu/items/${id}`, data),
+  deleteItem: (id: string) => api.delete(`/restaurant/menu/items/${id}`),
+  groups: () => api.get('/restaurant/menu/groups'),
+  createGroup: (data: unknown) => api.post('/restaurant/menu/groups', data),
+  updateGroup: (id: string, data: unknown) => api.put(`/restaurant/menu/groups/${id}`, data),
+  deleteGroup: (id: string) => api.delete(`/restaurant/menu/groups/${id}`),
+  // الصالات والطاولات
+  tables: () => api.get('/restaurant/tables'),
+  createArea: (data: unknown) => api.post('/restaurant/tables/areas', data),
+  updateArea: (id: string, data: unknown) => api.put(`/restaurant/tables/areas/${id}`, data),
+  deleteArea: (id: string) => api.delete(`/restaurant/tables/areas/${id}`),
+  createTable: (data: unknown) => api.post('/restaurant/tables', data),
+  updateTable: (id: string, data: unknown) => api.put(`/restaurant/tables/${id}`, data),
+  deleteTable: (id: string) => api.delete(`/restaurant/tables/${id}`),
+};
