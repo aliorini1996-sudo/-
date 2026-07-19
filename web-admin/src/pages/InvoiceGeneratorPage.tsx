@@ -47,6 +47,35 @@ const COUNTRY_PRESETS: { code: string; ar: string; vat: number; cur: string }[] 
   { code: 'DJ', ar: 'جيبوتي', vat: 10, cur: 'ف.ج' },
   { code: 'SO', ar: 'الصومال', vat: 0, cur: 'ش.ص' },
   { code: 'KM', ar: 'جزر القمر', vat: 10, cur: 'ف.ق' },
+  // أسواق التوسّع غير العربية
+  { code: 'TR', ar: 'تركيا', vat: 20, cur: '₺' },
+  { code: 'PK', ar: 'باكستان', vat: 18, cur: '₨' },
+  { code: 'ID', ar: 'إندونيسيا', vat: 11, cur: 'Rp' },
+  { code: 'MY', ar: 'ماليزيا', vat: 10, cur: 'RM' },
+  { code: 'IN', ar: 'الهند', vat: 18, cur: '₹' },
+  { code: 'BD', ar: 'بنغلاديش', vat: 15, cur: '৳' },
+  { code: 'LK', ar: 'سريلانكا', vat: 18, cur: 'Rs' },
+  { code: 'NP', ar: 'نيبال', vat: 13, cur: 'रू' },
+  { code: 'PH', ar: 'الفلبين', vat: 12, cur: '₱' },
+  { code: 'VN', ar: 'فيتنام', vat: 10, cur: '₫' },
+  { code: 'TH', ar: 'تايلاند', vat: 7, cur: '฿' },
+  { code: 'IR', ar: 'إيران', vat: 9, cur: '﷼' },
+  { code: 'AZ', ar: 'أذربيجان', vat: 18, cur: '₼' },
+  { code: 'KZ', ar: 'كازاخستان', vat: 12, cur: '₸' },
+  { code: 'NG', ar: 'نيجيريا', vat: 7.5, cur: '₦' },
+  { code: 'SN', ar: 'السنغال', vat: 18, cur: 'CFA' },
+  { code: 'KE', ar: 'كينيا', vat: 16, cur: 'KSh' },
+  { code: 'ET', ar: 'إثيوبيا', vat: 15, cur: 'Br' },
+  { code: 'GH', ar: 'غانا', vat: 15, cur: '₵' },
+  { code: 'CI', ar: 'ساحل العاج', vat: 18, cur: 'CFA' },
+  { code: 'TZ', ar: 'تنزانيا', vat: 18, cur: 'TSh' },
+  { code: 'UG', ar: 'أوغندا', vat: 18, cur: 'USh' },
+  { code: 'CM', ar: 'الكاميرون', vat: 19, cur: 'FCFA' },
+  { code: 'ML', ar: 'مالي', vat: 18, cur: 'CFA' },
+  { code: 'NE', ar: 'النيجر', vat: 19, cur: 'CFA' },
+  { code: 'TD', ar: 'تشاد', vat: 18, cur: 'FCFA' },
+  { code: 'BF', ar: 'بوركينا فاسو', vat: 18, cur: 'CFA' },
+  { code: 'ZA', ar: 'جنوب أفريقيا', vat: 15, cur: 'R' },
 ];
 
 const T: Record<Lang, Record<string, string>> = {
@@ -193,8 +222,8 @@ const JSONLD = (lang: Lang) => ({
       operatingSystem: 'Web',
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
       featureList: lang === 'en'
-        ? 'ZATCA-compliant QR code, PDF download, bilingual invoice, all 22 Arab countries VAT presets, simplified & standard tax invoices'
-        : 'رمز QR متوافق مع ZATCA، تحميل PDF، فاتورة ثنائية اللغة، ضرائب 22 دولة عربية، فاتورة ضريبية ومبسطة',
+        ? 'ZATCA-compliant QR code, PDF download, bilingual invoice, 50 countries VAT presets (all Arab markets + more), simplified & standard tax invoices'
+        : 'رمز QR متوافق مع ZATCA، تحميل PDF، فاتورة ثنائية اللغة، ضرائب 50 دولة (كل الدول العربية وأسواق أخرى)، فاتورة ضريبية ومبسطة',
       publisher: { '@type': 'Organization', name: 'FieldSales', url: 'https://fieldsa.net' },
       inLanguage: lang,
     },
@@ -203,14 +232,14 @@ const JSONLD = (lang: Lang) => ({
       mainEntity: (lang === 'en' ? [
         { q: 'How do I create a tax invoice with a QR code for free?', a: 'Use the free FieldSales invoice generator: enter your company, customer and items — it instantly builds a professional bilingual tax invoice with a ZATCA-compliant QR code you can download as PDF or print, with no signup.' },
         { q: 'What is the difference between a tax invoice and a simplified tax invoice?', a: 'A simplified tax invoice is issued to consumers (B2C) without the buyer’s VAT number, while a standard tax invoice (B2B) includes the buyer’s VAT number. The generator switches automatically based on whether you enter the customer’s VAT number.' },
-        { q: 'Which countries does the generator support?', a: 'VAT rates and currencies for all 22 Arab countries are preset (Saudi Arabia 15%, Egypt 14%, UAE 5%, and more) and fully editable.' },
+        { q: 'Which countries does the generator support?', a: 'VAT rates and currencies for 50 countries are preset (Saudi Arabia 15%, Egypt 14%, UAE 5%, and more) and fully editable.' },
       ] : lang === 'fr' ? [
         { q: 'Comment créer gratuitement une facture fiscale avec code QR ?', a: 'Utilisez le générateur gratuit FieldSales : saisissez votre entreprise, votre client et les lignes — il crée instantanément une facture fiscale bilingue avec code QR conforme ZATCA, téléchargeable en PDF, sans inscription.' },
-        { q: 'Quels pays sont pris en charge ?', a: 'Les taux de TVA et devises de 22 pays arabes sont préconfigurés et modifiables.' },
+        { q: 'Quels pays sont pris en charge ?', a: 'Les taux de TVA et devises de 50 pays sont préconfigurés et modifiables.' },
       ] : [
         { q: 'كيف أعمل فاتورة ضريبية برمز QR مجاناً؟', a: 'استخدم مولّد الفواتير المجاني من FieldSales: أدخل بيانات شركتك وعميلك وبنود الفاتورة، فيبني فوراً فاتورة ضريبية احترافية ثنائية اللغة برمز QR متوافق مع هيئة الزكاة والضريبة والجمارك ZATCA، وتحمّلها PDF أو تطبعها بلا تسجيل.' },
         { q: 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة؟', a: 'المبسطة تُصدر للمستهلك الأفراد (B2C) بلا رقم ضريبي للمشتري، والضريبية العادية (B2B) تتضمن الرقم الضريبي للمشتري — والمولّد يبدّل بينهما تلقائياً حسب إدخالك رقم العميل الضريبي.' },
-        { q: 'ما الدول التي يدعمها المولّد؟', a: 'نِسب الضريبة والعملات جاهزة لـ22 دولة عربية (السعودية 15%، مصر 14%، الإمارات 5% وغيرها) وكلها قابلة للتعديل.' },
+        { q: 'ما الدول التي يدعمها المولّد؟', a: 'نِسب الضريبة والعملات جاهزة لـ50 دولة (كل الدول العربية وأسواق أخرى) (السعودية 15%، مصر 14%، الإمارات 5% وغيرها) وكلها قابلة للتعديل.' },
       ]).map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
     },
   ],
