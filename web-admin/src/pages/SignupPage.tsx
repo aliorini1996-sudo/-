@@ -76,7 +76,7 @@ export default function SignupPage() {
             <BrandIcon size={92} radius={0.26} />
           </div>
           <div style={{ fontFamily: "'IBM Plex Sans', sans-serif" }} className="text-4xl font-bold tracking-tight">
-            <span className="text-[#FAF7F0]">Field</span><span style={{ color: isResto ? '#B5322A' : '#E15A30' }}>{isResto ? ' Restaurant' : ' Sales'}</span>
+            <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]">{isResto ? ' Restaurant' : ' Sales'}</span>
           </div>
           <p className="text-[#C9BEAC] mt-4 text-[15px] leading-relaxed">{t('signup.heroLead')}</p>
           <div className="mt-9 space-y-3" style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
