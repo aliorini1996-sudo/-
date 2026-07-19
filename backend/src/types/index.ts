@@ -5,6 +5,8 @@ export interface AuthPayload {
   role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
   name: string;
   tenantId?: string; // معرّف الشركة — غير موجود للسوبر أدمن
+  vertical?: 'distribution' | 'restaurant'; // عمودية الشركة — غير موجودة للسوبر أدمن؛ توكن قديم = distribution
+  impersonated?: boolean; // جلسة تصفّح المالك لشركة (تُقيّد بعض الإجراءات)
   canAccessDashboard?: boolean;
   canManageCustomers?: boolean;
   canManageProducts?: boolean;
