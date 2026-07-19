@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import repApi from './repApi';
+import { fetchThenCache, requestPersistentStorage } from './offlineDb';
 import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
@@ -232,10 +233,10 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
   useEffect(() => {
     (async () => {
       setLoading(true);
-      try {
-        const res = await repApi.get('/customers', { params: { limit: 1000 } });
-        setCustomers(res.data.data);
-      } catch { /* */ }
+      // الشبكة أولاً ثم الكاش عند الانقطاع — يعمل أوف‑لاين بآخر نسخة مزامَنة
+      const { data } = await fetchThenCache('customers', async () =>
+        (await repApi.get('/customers', { params: { limit: 1000 } })).data.data);
+      if (data) setCustomers(data as any[]);
       setLoading(false);
     })();
   }, []);
@@ -455,10 +456,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   useEffect(() => {
     (async () => {
       setLoadingProducts(true);
-      try {
-        const res = await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } });
-        setProducts(res.data.data);
-      } catch { /* */ }
+      const { data } = await fetchThenCache('products', async () =>
+        (await repApi.get('/products', { params: { status: 'ACTIVE', limit: 1000 } })).data.data);
+      if (data) setProducts(data as any[]);
       setLoadingProducts(false);
     })();
   }, []);
@@ -999,7 +999,7 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
     setLoading(false);
   }, []);
   useEffect(() => { loadStock(); }, [loadStock]);
-  useEffect(() => { repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } }).then(r => setProducts(r.data.data)).catch(() => {}); }, []);
+  useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string }[]); })(); }, []);
   useEffect(() => { if (!canLoad && view === 'load') setView('list'); }, [canLoad, view]);
 
   const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
@@ -1121,7 +1121,14 @@ export default function RepApp() {
 
   useEffect(() => {
     if (!token) return;
-    repApi.get('/company').then(res => { setCompany(res.data.data); setActiveCurrency(res.data.data?.currency); }).catch(() => {});
+    // إعدادات الشركة (العملة + countryCode/defaultVatPct لمحرّك الحساب) — تُخزَّن للعمل أوف‑لاين
+    (async () => {
+      const { data } = await fetchThenCache<Company>('company', async () =>
+        (await repApi.get('/company')).data.data);
+      if (data) { setCompany(data); setActiveCurrency((data as { currency?: string })?.currency); }
+    })();
+    // تخزين دائم يقلّل طرد المتصفّح لبيانات الأوف‑لاين (أفضل جهد)
+    requestPersistentStorage();
   }, [token]);
 
   const login = (t: string, u: RepUser) => {
