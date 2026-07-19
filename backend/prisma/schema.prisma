@@ -58,6 +58,14 @@ model Tenant {
   repSettlements  RepSettlement[]
   importBatches   ImportBatch[]
 
+  // عمودية المطاعم (M2+) — علاقات ظهر إضافية اختيارية
+  restaurantAreas   RestaurantArea[]
+  restaurantTables  RestaurantTable[]
+  menuCategories    MenuCategory[]
+  menuItems         MenuItem[]
+  modifierGroups    ModifierGroup[]
+  modifiers         Modifier[]
+
   @@index([vertical])
   @@map("tenants")
 }
@@ -736,4 +744,145 @@ model Visit {
   @@index([countryCode])
   @@index([referrerHost])
   @@map("visits")
+}
+
+// ============================================================================
+// عمودية المطاعم (Field Restaurant) — القوائم والصالات والطاولات (M2)
+// كلها جداول جديدة (إضافية بحتة)، معزولة بـtenantId، والوصول محكوم بـrequireVertical('restaurant').
+// ============================================================================
+
+// صالة/منطقة داخل المطعم (تُجمَّع تحتها الطاولات)
+model RestaurantArea {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tables RestaurantTable[]
+
+  @@index([tenantId])
+  @@map("restaurant_areas")
+}
+
+// طاولة — رقمها نصّي (يدعم "A1"/"طاولة 7")؛ الحالة تُدار في M3 (الكاشير)
+model RestaurantTable {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  areaId    String?
+  area      RestaurantArea? @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  number    String   // رقم/اسم الطاولة
+  seats     Int      @default(4)
+  status    String   @default("FREE") // FREE | OCCUPIED | BILL_REQUESTED | RESERVED
+  posX      Float?   // إحداثيات مخطّط الصالة (لـ M3)
+  posY      Float?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([areaId])
+  @@map("restaurant_tables")
+}
+
+// قسم في القائمة (مقبّلات، مشاوي، مشروبات...)
+model MenuCategory {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items MenuItem[]
+
+  @@index([tenantId])
+  @@map("menu_categories")
+}
+
+// صنف في القائمة — بديل Product لعمودية المطاعم (تسعير أساس + إضافات + محطة تحضير)
+model MenuItem {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  category    MenuCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  code        String   // كود الصنف (فريد لكل مطعم)
+  name        String
+  description String?
+  basePrice   Float
+  taxPct      Float    @default(15)
+  costPrice   Float    @default(0)   // تكلفة الصنف — لحساب COGS (M6)
+  prepStation String   @default("KITCHEN") // KITCHEN | BAR | GRILL | COLD
+  itemCode    String?  // كود الصنف للفوترة الإلكترونية (EGS/GS1)
+  image       String?  // صورة (base64 data URL)
+  isAvailable Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  modifierGroups MenuItemModifierGroup[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([categoryId])
+  @@map("menu_items")
+}
+
+// مجموعة إضافات (الحجم، درجة الاستواء، إضافات) — minSelect/maxSelect يحكمان الإلزام والتعدّد
+model ModifierGroup {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  minSelect Int      @default(0) // 0 = اختياري
+  maxSelect Int      @default(1) // 1 = اختيار واحد؛ >1 = متعدّد
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  modifiers Modifier[]
+  menuItems MenuItemModifierGroup[]
+
+  @@index([tenantId])
+  @@map("modifier_groups")
+}
+
+// خيار إضافة واحد داخل مجموعة (كبير +5، جبنة إضافية +3...)
+model Modifier {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name       String
+  priceDelta Float    @default(0)
+  isDefault  Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([groupId])
+  @@map("modifiers")
+}
+
+// ربط صنف بمجموعة إضافات (علاقة كثير-لكثير)
+model MenuItemModifierGroup {
+  id         String   @id @default(uuid())
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sortOrder  Int @default(0)
+
+  @@unique([menuItemId, groupId])
+  @@index([groupId])
+  @@map("menu_item_modifier_groups")
 }
