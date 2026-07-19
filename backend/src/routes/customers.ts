@@ -93,32 +93,22 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // idempotency: عميل سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر
     if (data.clientRef) {
-      const existing = await prisma.customer.findUnique({
-        where: { tenantId_clientRef: { tenantId: tid, clientRef: data.clientRef } },
+      const existing = await prisma.customer.findFirst({
+        where: { tenantId: tid, clientRef: data.clientRef },
       });
       if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
     }
 
     const { clientCreatedAt, ...rest } = data;
-    try {
-      const customer = await prisma.customer.create({
-        data: {
-          ...rest, email: data.email || null, channel: data.channel || null, tenantId: tid,
-          clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
-        } as any,
-      });
-      res.status(201).json({ success: true, data: customer });
-    } catch (e) {
-      // سباق تزامن على clientRef — نعيد القائم
-      const err2 = e as { code?: string; meta?: { target?: unknown } };
-      if (err2?.code === 'P2002' && String(err2?.meta?.target ?? '').includes('clientRef') && data.clientRef) {
-        const existing = await prisma.customer.findUnique({
-          where: { tenantId_clientRef: { tenantId: tid, clientRef: data.clientRef } },
-        });
-        if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
-      }
-      throw e;
-    }
+    // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
+    // المزامنة متسلسلة على جهاز واحد فلا تكرار متزامن؛ والفحص أعلاه يمنع إعادة الرفع.
+    const customer = await prisma.customer.create({
+      data: {
+        ...rest, email: data.email || null, channel: data.channel || null, tenantId: tid,
+        clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
+      } as any,
+    });
+    res.status(201).json({ success: true, data: customer });
   } catch (err) { next(err); }
 });
 

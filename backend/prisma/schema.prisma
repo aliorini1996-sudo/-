@@ -245,6 +245,11 @@ model Customer {
 
   // idempotency + تبعية العمل دون اتصال: عميل يُنشأ أوف‑لاين يحمل clientRef، والفاتورة/السند
   // له تشير إليه بـ customerClientRef فيحلّه الخادم إلى id الحقيقي عند الرفع (انظر M5).
+  //
+  // ⚠️ لا قيد @@unique على clientRef هنا (بخلاف Invoice/Receipt): إضافته على جدول customers
+  // الحامل لبيانات فعلية يُفشل `prisma db push` (يطلب --accept-data-loss). فالidempotency
+  // للعميل على مستوى التطبيق (findFirst-then-create) — كافٍ لأن المزامنة متسلسلة على جهاز
+  // واحد فلا تكرار متزامن. أضِف فهرساً عادياً لتسريع البحث بلا القيد الفريد.
   clientRef       String?
   clientCreatedAt DateTime?
 
@@ -258,8 +263,8 @@ model Customer {
   notifications  Notification[]
 
   @@unique([tenantId, code])
-  @@unique([tenantId, clientRef])
   @@index([tenantId])
+  @@index([tenantId, clientRef]) // فهرس عادي (لا قيد فريد) — يسرّع حلّ customerClientRef
   @@map("customers")
 }
 

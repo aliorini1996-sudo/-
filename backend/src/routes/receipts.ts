@@ -141,8 +141,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // حلّ تبعية العميل المُنشأ أوف‑لاين (customerClientRef → id الحقيقي)
     let customerId = body.customerId;
     if (body.customerClientRef) {
-      const ref = await prisma.customer.findUnique({
-        where: { tenantId_clientRef: { tenantId: tid, clientRef: body.customerClientRef } },
+      const ref = await prisma.customer.findFirst({
+        where: { tenantId: tid, clientRef: body.customerClientRef },
         select: { id: true },
       });
       if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يُرفع بعد — أعِد المزامنة' }); return; }
