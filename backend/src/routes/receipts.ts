@@ -157,7 +157,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (سندان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const receipt = await withNumberRetry(async () => {
-    const number = await generateReceiptNumber(tid);
+    const number = await generateReceiptNumber(tid, docDate); // البادئة من تاريخ السند لا وقت الرفع
     return prisma.$transaction(async tx => {
       if (allocations.length) {
         const invoices = await tx.invoice.findMany({

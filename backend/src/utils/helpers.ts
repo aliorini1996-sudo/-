@@ -15,11 +15,14 @@ export function paginationMeta(total: number, page: number, limit: number) {
 }
 
 // يُولّد رقماً تسلسلياً اعتماداً على أعلى رقم موجود فعلاً في قاعدة البيانات
-// (يتفادى التصادم بعد إعادة تشغيل الخادم، بخلاف عدّاد الذاكرة)
-function prefixFor(kind: 'INV' | 'RCP' | 'RET'): string {
-  const now = new Date();
-  const yy = now.getFullYear().toString().slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
+// (يتفادى التصادم بعد إعادة تشغيل الخادم، بخلاف عدّاد الذاكرة).
+//
+// ⚠️ البادئة تُشتقّ من **تاريخ المستند** لا من وقت الرفع: فاتورة أُنشئت أوف-لاين في يوليو
+// وطُبع QR لها ثم رُفعت في أغسطس يجب أن تأخذ تسلسل يوليو (INV-YYMM بشهر البيع) — وإلا
+// انكسر تسلسل الفترة القانوني (ZATCA/ETA يشترطان تسلسلاً متّصلاً لكل فترة). الافتراضي «الآن».
+function prefixFor(kind: 'INV' | 'RCP' | 'RET', date: Date = new Date()): string {
+  const yy = date.getFullYear().toString().slice(-2);
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
   return `${kind}-${yy}${mm}-`;
 }
 
@@ -34,16 +37,16 @@ async function nextInvoiceLike(tenantId: string, prefix: string): Promise<string
   return prefix + String(lastSeq + 1).padStart(6, '0');
 }
 
-export async function generateInvoiceNumber(tenantId: string): Promise<string> {
-  return nextInvoiceLike(tenantId, prefixFor('INV'));
+export async function generateInvoiceNumber(tenantId: string, date?: Date): Promise<string> {
+  return nextInvoiceLike(tenantId, prefixFor('INV', date));
 }
 
-export async function generateReturnNumber(tenantId: string): Promise<string> {
-  return nextInvoiceLike(tenantId, prefixFor('RET'));
+export async function generateReturnNumber(tenantId: string, date?: Date): Promise<string> {
+  return nextInvoiceLike(tenantId, prefixFor('RET', date));
 }
 
-export async function generateReceiptNumber(tenantId: string): Promise<string> {
-  const prefix = prefixFor('RCP');
+export async function generateReceiptNumber(tenantId: string, date?: Date): Promise<string> {
+  const prefix = prefixFor('RCP', date);
   const last = await prisma.receipt.findFirst({
     where: { tenantId, number: { startsWith: prefix } },
     orderBy: { number: 'desc' },

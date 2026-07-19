@@ -3,8 +3,9 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, roundDecimal, withNumberRetry } from '../utils/helpers';
+import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
 import { getCountryTax } from '../config/countries';
+import { computeInvoiceTotals } from '../lib/invoiceCalc';
 import {
   postInvoiceEntries,
   postCashInvoiceEntries,
@@ -193,30 +194,23 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const einvoiceProvider = (company as { einvoiceProvider?: string } | null)?.einvoiceProvider || getCountryTax(company?.countryCode).provider;
     const einvoiceStatus = ['eta', 'peppol', 'ttn'].includes(einvoiceProvider) ? 'pending' : 'generated';
 
-    let subtotal = 0;
-    const items = body.items.map(item => {
-      const lineBase = roundDecimal(item.qty * item.unitPrice, dec);
-      const lineDiscount = roundDecimal(lineBase * item.discountPct / 100, dec);
-      const lineAfterDiscount = lineBase - lineDiscount;
-      const itemTaxPct = item.taxPct ?? companyVat; // وراثة ضريبة الدولة عند الغياب
-      const lineTax = roundDecimal(lineAfterDiscount * itemTaxPct / 100, dec);
-      const lineTotal = lineAfterDiscount + lineTax;
-      subtotal += lineBase;
-      return { ...item, taxPct: itemTaxPct, discountAmt: lineDiscount, taxAmt: lineTax, lineTotal };
-    });
-
-    const discountAmt = roundDecimal(subtotal * body.discountPct / 100, dec);
-    const taxableSubtotal = subtotal - discountAmt;
-    let taxAmt = 0;
-    const finalItems = items.map(item => { taxAmt += item.taxAmt; return item; });
-    const total = roundDecimal(taxableSubtotal + taxAmt, dec);
+    // محرّك الحساب المشترك — نفس الوحدة التي يستخدمها تطبيق المندوب أوف-لاين، فتتطابق
+    // الورقة المطبوعة مع سجلّ الخادم (lib/invoiceCalc.ts).
+    const calc = computeInvoiceTotals(
+      body.items.map(i => ({ qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct, taxPct: i.taxPct })),
+      { companyVat, decimals: dec, invoiceDiscountPct: body.discountPct },
+    );
+    const { subtotal, discountAmt, taxAmt, total } = calc;
+    // نُبقي معرّف الصنف بجانب نتائج الحساب (المحرّك نقيّ لا يعرف productId)
+    const finalItems = body.items.map((src, idx) => ({ ...src, ...calc.items[idx] }));
     const isReturn = body.type === 'RETURN';
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
     const creditCheck = body.type === 'CREDIT' && Number(customer.balance) + total > Number(customer.creditLimit) && Number(customer.creditLimit) > 0;
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const invoice = await withNumberRetry(async () => {
-    const number = isReturn ? await generateReturnNumber(tid) : await generateInvoiceNumber(tid);
+    // البادئة تُشتقّ من تاريخ الفاتورة (docDate) لا وقت الرفع — يحفظ تسلسل الفترة للمستندات الأوف-لاين
+    const number = isReturn ? await generateReturnNumber(tid, docDate) : await generateInvoiceNumber(tid, docDate);
     return prisma.$transaction(async tx => {
       const inv = await tx.invoice.create({
         data: {
