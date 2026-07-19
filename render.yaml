@@ -1,6 +1,8 @@
 ﻿databases:
   - name: dsd-db
-    plan: free
+    # يطابق الخطة الحيّة المدفوعة (Basic-256mb). كان "free" (قديم) فيرفض Blueprint sync
+    # تخفيض قاعدة الإنتاج المدفوعة إلى المجانية = فشل مزامنة + خطر تخفيض كامن. المواءمة تُزيلهما.
+    plan: basic-256mb
     databaseName: dsd_sales
     user: dsd_user
 
@@ -9,7 +11,7 @@ services:
     name: dsd-backend
     runtime: node
     rootDir: backend
-    plan: free
+    plan: starter # يطابق الخطة الحيّة المدفوعة (كان "free" قديماً فيفشل Blueprint sync)
     # --include=dev إلزامي: Render يضبط NODE_ENV=production أثناء البناء وnpm الحديث عندها
     # يتخطى devDependencies (typescript + prisma CLI) فيفشل البناء أو يجلب npx نسخة prisma
     # أحدث غير متوافقة مع @prisma/client المثبّت (أخطاء tenantId:never التاريخية).
