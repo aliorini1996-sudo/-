@@ -27,6 +27,18 @@ export const COUNTRY_TAX: Record<string, CountryTax> = {
   DZ: { code: 'DZ', currency: 'DZD', currencyDecimals: 2, defaultVatPct: 19, provider: 'none' },
   TN: { code: 'TN', currency: 'TND', currencyDecimals: 3, defaultVatPct: 19, provider: 'ttn' },
   JO: { code: 'JO', currency: 'JOD', currencyDecimals: 3, defaultVatPct: 16, provider: 'none' },
+  // بقية الدول العربية — لا تفويض فوترة إلكترونية بعد (provider: none)، لكن العملة والضريبة صحيحتان
+  IQ: { code: 'IQ', currency: 'IQD', currencyDecimals: 0, defaultVatPct: 0, provider: 'none' },
+  LB: { code: 'LB', currency: 'LBP', currencyDecimals: 0, defaultVatPct: 11, provider: 'none' },
+  LY: { code: 'LY', currency: 'LYD', currencyDecimals: 3, defaultVatPct: 0, provider: 'none' },
+  PS: { code: 'PS', currency: 'ILS', currencyDecimals: 2, defaultVatPct: 16, provider: 'none' },
+  SD: { code: 'SD', currency: 'SDG', currencyDecimals: 2, defaultVatPct: 17, provider: 'none' },
+  YE: { code: 'YE', currency: 'YER', currencyDecimals: 2, defaultVatPct: 5, provider: 'none' },
+  SY: { code: 'SY', currency: 'SYP', currencyDecimals: 0, defaultVatPct: 0, provider: 'none' },
+  MR: { code: 'MR', currency: 'MRU', currencyDecimals: 2, defaultVatPct: 16, provider: 'none' },
+  DJ: { code: 'DJ', currency: 'DJF', currencyDecimals: 0, defaultVatPct: 10, provider: 'none' },
+  SO: { code: 'SO', currency: 'SOS', currencyDecimals: 2, defaultVatPct: 0, provider: 'none' },
+  KM: { code: 'KM', currency: 'KMF', currencyDecimals: 0, defaultVatPct: 10, provider: 'none' },
 };
 
 export const DEFAULT_COUNTRY = 'SA';

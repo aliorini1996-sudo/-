@@ -50,7 +50,7 @@ export const POSTS: BlogPost[] = [
         <li>افتح <a href="/invoice-generator">مولّد الفاتورة الضريبية المجاني</a> — يعمل في المتصفح بلا تثبيت ولا تسجيل.</li>
         <li>أدخل اسم شركتك ورقمك الضريبي وعنوانك (تُحفظ محلياً فلا تعيد إدخالها في المرة القادمة).</li>
         <li>أدخل اسم العميل، ثم أضِف بنود الفاتورة (الوصف والكمية والسعر).</li>
-        <li>اختر دولتك فتُضبط نسبة الضريبة والعملة تلقائياً (السعودية 15%، مصر 14%، الإمارات 5%، وغيرها من 12 دولة عربية).</li>
+        <li>اختر دولتك فتُضبط نسبة الضريبة والعملة تلقائياً (السعودية 15%، مصر 14%، الإمارات 5%، وغيرها من 22 دولة عربية).</li>
         <li>تظهر الفاتورة جاهزة أمامك برمز QR — حمّلها <strong>PDF</strong> أو اطبعها مباشرةً.</li>
       </ol>
 
@@ -63,7 +63,7 @@ export const POSTS: BlogPost[] = [
       <h2>أسئلة شائعة</h2>
       <p><strong>هل أحتاج حساباً لإنشاء الفاتورة؟</strong> لا، الأداة تعمل مباشرةً بلا تسجيل.</p>
       <p><strong>هل يظهر رمز QR في الفاتورة؟</strong> نعم، بمجرد إدخال الرقم الضريبي يظهر رمز QR متوافق مع ZATCA.</p>
-      <p><strong>هل تدعم دولاً غير السعودية؟</strong> نعم، نِسب الضريبة والعملات جاهزة لـ12 دولة عربية وكلها قابلة للتعديل.</p>
+      <p><strong>هل تدعم دولاً غير السعودية؟</strong> نعم، نِسب الضريبة والعملات جاهزة لـ22 دولة عربية وكلها قابلة للتعديل.</p>
     `,
     en: {
       title: 'How to Create a Free Tax Invoice with a QR Code (Step-by-Step + Free Tool)',
@@ -91,7 +91,7 @@ export const POSTS: BlogPost[] = [
           <li>Open the <a href="/en/invoice-generator">free tax invoice generator</a> — it runs in the browser, no install, no signup.</li>
           <li>Enter your company name, VAT number and address (saved locally so you don't retype next time).</li>
           <li>Enter the customer name, then add invoice line items (description, quantity, price).</li>
-          <li>Pick your country and the VAT rate and currency are set automatically (Saudi Arabia 15%, Egypt 14%, UAE 5%, and 12 Arab countries in total).</li>
+          <li>Pick your country and the VAT rate and currency are set automatically (Saudi Arabia 15%, Egypt 14%, UAE 5%, and all 22 Arab countries in total).</li>
           <li>The invoice appears live with a QR code — download it as <strong>PDF</strong> or print it directly.</li>
         </ol>
 
@@ -104,7 +104,7 @@ export const POSTS: BlogPost[] = [
         <h2>FAQ</h2>
         <p><strong>Do I need an account to create the invoice?</strong> No, the tool works instantly with no signup.</p>
         <p><strong>Does the QR code appear on the invoice?</strong> Yes, as soon as you enter the VAT number a ZATCA-compliant QR code appears.</p>
-        <p><strong>Does it support countries other than Saudi Arabia?</strong> Yes, VAT rates and currencies are preset for 12 Arab countries and all are editable.</p>
+        <p><strong>Does it support countries other than Saudi Arabia?</strong> Yes, VAT rates and currencies are preset for all 22 Arab countries and all are editable.</p>
       `,
     },
   },
