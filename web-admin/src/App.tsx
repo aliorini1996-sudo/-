@@ -35,6 +35,7 @@ const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
 const RestaurantHome = lazy(() => import('./pages/resto/RestaurantHome'));
+const RestaurantLandingPage = lazy(() => import('./pages/resto/RestaurantLandingPage'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
 function PageFallback() {
@@ -111,6 +112,8 @@ export default function App() {
       <Routes>
         {/* الجذر دائماً الصفحة التعريفية التسويقية */}
         <Route path="/" element={<LandingPage />} />
+        {/* الصفحة التعريفية لعمودية المطاعم (M1) — منفصلة تماماً عن هبوط التوزيع */}
+        <Route path="/restaurant" element={<RestaurantLandingPage />} />
         <Route path="/rep" element={<RepApp />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
