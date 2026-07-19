@@ -312,6 +312,11 @@ model Invoice {
   einvoiceQr          String?   // حمولة/رابط QR إن وُجد
   einvoiceSubmittedAt DateTime?
 
+  // مفتاح idempotency: UUID يولّده العميل مرّة لكل مستند. عند تكرار الرفع (إعادة محاولة/شبكة
+  // متقطّعة) يعيد الخادم الفاتورة القائمة بدل إنشاء مكرّرة. أساس العمل دون اتصال (Outbox).
+  clientRef       String?
+  clientCreatedAt DateTime? // لحظة الإنشاء على جهاز المندوب (قد تسبق الرفع بساعات)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -320,6 +325,7 @@ model Invoice {
   accountEntries AccountEntry[]
 
   @@unique([tenantId, number])
+  @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@map("invoices")
 }
@@ -358,6 +364,10 @@ model Receipt {
   notes         String?
   status        String   @default("ACTIVE") // ACTIVE | CANCELLED
 
+  // idempotency للعمل دون اتصال (انظر Invoice.clientRef)
+  clientRef       String?
+  clientCreatedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -365,6 +375,7 @@ model Receipt {
   accountEntries AccountEntry[]
 
   @@unique([tenantId, number])
+  @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@map("receipts")
 }

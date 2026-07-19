@@ -39,6 +39,9 @@ const createInvoiceSchema = z.object({
   notes: z.string().optional(),
   discountPct: z.number().min(0).max(100).default(0),
   items: z.array(invoiceItemSchema).min(1),
+  // العمل دون اتصال: مفتاح idempotency ولحظة الإنشاء على الجهاز (اختياريان — لا يؤثّران أونلاين)
+  clientRef: z.string().uuid().optional(),
+  clientCreatedAt: z.string().optional(),
 });
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -121,6 +124,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const tid = tenantId(req);
     const body = createInvoiceSchema.parse(req.body);
+
+    // idempotency: إن سبق رفع هذه الفاتورة (نفس clientRef) نعيد القائمة بدل إنشاء مكرّرة.
+    // يحمي من إعادة المحاولة والشبكة المتقطّعة في مسار العمل دون اتصال — قبل أي منطق أو قيد.
+    if (body.clientRef) {
+      const existing = await prisma.invoice.findUnique({
+        where: { tenantId_clientRef: { tenantId: tid, clientRef: body.clientRef } },
+        include: { items: true, customer: true },
+      });
+      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+    }
+
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
 
@@ -208,6 +222,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         data: {
           tenantId: tid,
           number,
+          clientRef: body.clientRef,
+          clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : undefined,
           customerId: body.customerId,
           salesRepId,
           type: body.type,
@@ -275,7 +291,21 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     });
 
     res.status(201).json({ success: true, data: invoice });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // سباق تزامن: رفعان متزامنان بنفس clientRef تجاوزا الفحص المبكر — الثاني يصطدم بالقيد.
+    // نعيد الفاتورة القائمة بدل الفشل (idempotency تحت التزامن).
+    const e = err as { code?: string; meta?: { target?: unknown } };
+    if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('clientRef') && req.body?.clientRef) {
+      try {
+        const existing = await prisma.invoice.findUnique({
+          where: { tenantId_clientRef: { tenantId: tenantId(req), clientRef: req.body.clientRef } },
+          include: { items: true, customer: true },
+        });
+        if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      } catch { /* يسقط لمعالج الأخطاء */ }
+    }
+    next(err);
+  }
 });
 
 router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {

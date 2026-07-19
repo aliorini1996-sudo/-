@@ -23,6 +23,9 @@ const receiptSchema = z.object({
     invoiceId: z.string(),
     amount: z.number().positive(),
   })).optional(),
+  // العمل دون اتصال: idempotency + لحظة الإنشاء على الجهاز (اختياريان)
+  clientRef: z.string().uuid().optional(),
+  clientCreatedAt: z.string().optional(),
 });
 
 function groupAllocations(allocations: { invoiceId: string; amount: number }[] = []) {
@@ -123,6 +126,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const tid = tenantId(req);
     const body = receiptSchema.parse(req.body);
+
+    // idempotency: سند سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر — قبل أي منطق
+    if (body.clientRef) {
+      const existing = await prisma.receipt.findUnique({
+        where: { tenantId_clientRef: { tenantId: tid, clientRef: body.clientRef } },
+      });
+      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+    }
+
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
 
@@ -171,6 +183,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         data: {
           tenantId: tid,
           number,
+          clientRef: body.clientRef,
+          clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : undefined,
           customerId: body.customerId,
           salesRepId,
           ...(docDate && { receiptDate: docDate }),
@@ -201,7 +215,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     });
 
     res.status(201).json({ success: true, data: receipt });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // سباق تزامن: رفعان متزامنان بنفس clientRef — نعيد السند القائم بدل الفشل
+    const e = err as { code?: string; meta?: { target?: unknown } };
+    if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('clientRef') && req.body?.clientRef) {
+      try {
+        const existing = await prisma.receipt.findUnique({
+          where: { tenantId_clientRef: { tenantId: tenantId(req), clientRef: req.body.clientRef } },
+        });
+        if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      } catch { /* يسقط لمعالج الأخطاء */ }
+    }
+    next(err);
+  }
 });
 
 router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
