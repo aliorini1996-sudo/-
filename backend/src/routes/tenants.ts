@@ -12,8 +12,11 @@ router.use(authenticate, requireSuperAdmin);
 
 const createTenantSchema = z.object({
   companyName: z.string().min(1),       // اسم الشركة
+  vertical: z.enum(['distribution', 'restaurant']).default('distribution'), // عمودية الشركة (يحدّدها العمود الذي ضغط منه المالك)
   maxSalesReps: z.number().int().min(1).nullable().optional(), // null/غياب = عدد مناديب غير محدود
   maxAdminUsers: z.number().int().min(1).nullable().optional(), // null/غياب = عدد مستخدمين غير محدود
+  maxPosStations: z.number().int().min(1).nullable().optional(), // مطاعم: عدد نقاط البيع (null/غياب = غير محدود)
+  maxBranches: z.number().int().min(1).nullable().optional(),    // مطاعم: عدد الفروع
   erpEnabled: z.boolean().optional(),          // صلاحية ربط ERP (يمنحها المالك حسب الاشتراك)
   subscriptionEndsAt: z.string().optional(), // ISO date — فارغ = غير محدود
   notes: z.string().optional(),
@@ -75,12 +78,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const t = await tx.tenant.create({
         data: {
           name: body.companyName,
+          vertical: body.vertical,
           maxSalesReps: body.maxSalesReps ?? null,
           maxAdminUsers: body.maxAdminUsers ?? null,
+          maxPosStations: body.maxPosStations ?? null,
+          maxBranches: body.maxBranches ?? null,
           erpEnabled: body.erpEnabled ?? false,
           subscriptionEndsAt: body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null,
           notes: body.notes,
-        },
+        } as any,
       });
       await tx.admin.create({
         data: { tenantId: t.id, name: body.adminName, email: body.adminEmail, passwordHash, role: 'ADMIN' },
@@ -117,14 +123,15 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
     const admin = await prisma.admin.findFirst({ where: { tenantId: tenant.id }, orderBy: { createdAt: 'asc' } });
     if (!admin) { res.status(404).json({ success: false, message: 'لا يوجد مدير لهذه الشركة' }); return; }
 
+    const vertical = (tenant as any).vertical ?? 'distribution';
     const token = jwt.sign(
-      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, impersonated: true },
+      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, vertical, impersonated: true },
       process.env.JWT_SECRET!,
       { expiresIn: '2h' }
     );
     res.json({
       success: true,
-      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, companyName: tenant.name } },
+      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, vertical, companyName: tenant.name } },
     });
   } catch (err) { next(err); }
 });

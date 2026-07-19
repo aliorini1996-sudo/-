@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tenantApi } from '../api/client';
 import { Tenant } from '../types';
@@ -8,7 +8,11 @@ import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
   BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug,
+  Truck, UtensilsCrossed,
 } from 'lucide-react';
+
+// عمودية الفرع: توزيع (يمين، برتقالي) | مطاعم (يسار، قرميدي/أخضر)
+type Vertical = 'distribution' | 'restaurant';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -28,7 +32,7 @@ export default function PlatformPage() {
   const tr = useTr();
   const qc = useQueryClient();
   const { user, logout, impersonate } = useAuthStore();
-  const [showCreate, setShowCreate] = useState(false);
+  const [createVertical, setCreateVertical] = useState<Vertical | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
@@ -61,8 +65,9 @@ export default function PlatformPage() {
     onSuccess: (res) => {
       const { token, user: companyUser } = res.data.data;
       impersonate(token, companyUser, companyUser.companyName);
-      // إعادة تحميل كاملة على لوحة الأدمن لتجنّب إعادة تقييم حارس المالك أثناء تبديل الهوية
-      window.location.href = '/app';
+      // إعادة تحميل كاملة على لوحة الشركة لتجنّب إعادة تقييم حارس المالك أثناء تبديل الهوية.
+      // العزل: عمودية المطاعم تفتح /app-r، والتوزيع /app.
+      window.location.href = (companyUser.vertical ?? 'distribution') === 'restaurant' ? '/app-r' : '/app';
     },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الدخول للشركة')),
   });
@@ -75,14 +80,19 @@ export default function PlatformPage() {
 
   const handleLogout = () => { logout(); window.location.replace('/owner'); };
 
-  const activeCount = tenants?.filter(t => t.isActive).length ?? 0;
-  const totalReps = tenants?.reduce((s, t) => s + (t._count?.salesReps ?? 0), 0) ?? 0;
-  const totalInvoices = tenants?.reduce((s, t) => s + (t._count?.invoices ?? 0), 0) ?? 0;
+  // تقسيم الشركات على العموديّتين — ?? 'distribution' يمنع تسرّب أي شركة قائمة إلى عمود المطاعم
+  const distTenants = useMemo(() => (tenants ?? []).filter(t => (t.vertical ?? 'distribution') === 'distribution'), [tenants]);
+  const restTenants = useMemo(() => (tenants ?? []).filter(t => t.vertical === 'restaurant'), [tenants]);
+  const activeCount = (tenants ?? []).filter(t => t.isActive).length;
 
-  const subStatus = (t: Tenant) => {
-    if (!t.isActive) return { label: tr('موقوف'), cls: 'bg-red-100 text-red-700' };
-    if (t.subscriptionEndsAt && new Date(t.subscriptionEndsAt).getTime() < Date.now()) return { label: tr('منتهٍ'), cls: 'bg-amber-100 text-amber-700' };
-    return { label: tr('نشط'), cls: 'bg-green-100 text-green-700' };
+  const colHandlers = {
+    onEnter: (t: Tenant) => enterMutation.mutate(t.id),
+    onPerf: setPerfTarget,
+    onEdit: setEditTarget,
+    onReset: setResetTarget,
+    onToggle: (t: Tenant) => toggleMutation.mutate({ id: t.id, isActive: !t.isActive }),
+    onDelete: setDeleteTarget,
+    enterPending: enterMutation.isPending,
   };
 
   return (
@@ -154,117 +164,48 @@ export default function PlatformPage() {
 
       {/* المحتوى الرئيسي */}
       <main className="flex-1 overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-6 py-6">
-        {/* Stats */}
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        {/* لوحة علوية جامعة للعموديّتين */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <StatBox icon={Building2} label={tr('إجمالي الشركات')} value={String(tenants?.length ?? 0)} color="bg-[#E15A30]" />
+          <StatBox icon={Building2} label={tr('إجمالي العملاء')} value={String(tenants?.length ?? 0)} color="bg-[#1F1A13]" />
+          <StatBox icon={Truck} label={tr('شركات التوزيع')} value={String(distTenants.length)} color="bg-[#E15A30]" />
+          <StatBox icon={UtensilsCrossed} label={tr('عملاء المطاعم')} value={String(restTenants.length)} color="bg-[#B5322A]" />
           <StatBox icon={CheckCircle2} label={tr('اشتراكات نشطة')} value={String(activeCount)} color="bg-green-500" />
-          <StatBox icon={Users} label={tr('إجمالي المناديب')} value={String(totalReps)} color="bg-purple-500" />
-          <StatBox icon={FileText} label={tr('إجمالي الفواتير')} value={String(totalInvoices)} color="bg-orange-500" />
         </div>
 
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-800">{tr('الشركات المشتركة')}</h2>
-          <button onClick={() => setShowCreate(true)} className="btn-primary"><Plus size={16} /> {tr('إضافة شركة')}</button>
-        </div>
-
-        {/* Tenants list */}
-        <div className="card p-0 overflow-hidden">
-          <div className="table-wrapper">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>{tr('الشركة')}</th><th>{tr('المدير')}</th>
-                  <th className="text-center">{tr('مستخدمي الشركة')}</th>
-                  <th className="text-center">{tr('المناديب المسموح')}</th>
-                  <th className="text-center">{tr('مناديب')}</th>
-                  <th className="text-center">{tr('عملاء')}</th>
-                  <th>{tr('انتهاء الاشتراك')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
-                ) : tenants?.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('لا توجد شركات — أضف أول شركة')}</td></tr>
-                ) : tenants?.map(t => {
-                  const st = subStatus(t);
-                  return (
-                    <tr key={t.id}>
-                      <td>
-                        <p className="font-semibold text-gray-800">{t.name}</p>
-                        <p className="text-xs text-gray-400">{formatDate(t.createdAt)}</p>
-                      </td>
-                      <td className="text-sm text-gray-600">{t.admins?.[0]?.email || '-'}</td>
-                      <td className="text-center">
-                        {t.maxAdminUsers == null
-                          ? <span className="badge-active">{tr('غير محدود')}</span>
-                          : <span className="font-semibold text-gray-700">{t._count?.admins ?? 0} / {t.maxAdminUsers}</span>}
-                      </td>
-                      <td className="text-center">
-                        {t.maxSalesReps == null
-                          ? <span className="badge-active">{tr('غير محدود')}</span>
-                          : <span className="font-semibold text-gray-700">{t.maxSalesReps}</span>}
-                      </td>
-                      <td className="text-center text-gray-600">{t._count?.salesReps ?? 0}</td>
-                      <td className="text-center text-gray-600">{t._count?.customers ?? 0}</td>
-                      <td className="text-sm text-gray-500">{t.subscriptionEndsAt ? formatDate(t.subscriptionEndsAt) : tr('غير محدود')}</td>
-                      <td><span className={`px-2 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span></td>
-                      <td>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => enterMutation.mutate(t.id)}
-                            disabled={enterMutation.isPending}
-                            className="flex items-center gap-1 text-xs bg-[#E15A30] hover:bg-[#C94E28] text-white rounded-lg px-2.5 py-1.5 font-semibold"
-                            title={tr('الدخول إلى لوحة الشركة والاطلاع على بياناتها')}>
-                            <LogIn size={13} /> {tr('دخول')}
-                          </button>
-                          <button
-                            onClick={() => setPerfTarget(t)}
-                            className="p-1.5 rounded text-[#1E7A52] hover:bg-green-50"
-                            title={tr('أداء الشركة')}>
-                            <BarChart3 size={15} />
-                          </button>
-                          <button
-                            onClick={() => setEditTarget(t)}
-                            className="p-1.5 rounded text-[#C94E28] hover:bg-[#FBEBE2]"
-                            title={tr('تعديل الشركة (عدد المناديب والاشتراك)')}>
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            onClick={() => setResetTarget(t)}
-                            className="p-1.5 rounded text-amber-600 hover:bg-amber-50"
-                            title={tr('إعادة تعيين كلمة مرور مدير الشركة')}>
-                            <KeyRound size={15} />
-                          </button>
-                          <button
-                            onClick={() => toggleMutation.mutate({ id: t.id, isActive: !t.isActive })}
-                            className={`p-1.5 rounded ${t.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
-                            title={t.isActive ? tr('إيقاف الاشتراك') : tr('تفعيل الاشتراك')}>
-                            <Power size={15} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(t)}
-                            className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
-                            title={tr('حذف الشركة نهائياً')}>
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        {/* عمودان — التوزيع أوّلاً في DOM فيظهر يميناً ضمن RTL، والمطاعم يساراً */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          <TenantColumn
+            vertical="distribution"
+            title={tr('شركات التوزيع')}
+            icon={Truck}
+            accent="#E15A30"
+            accentSoft="#FBEBE2"
+            tenants={distTenants}
+            isLoading={isLoading}
+            onAdd={() => setCreateVertical('distribution')}
+            {...colHandlers}
+          />
+          <TenantColumn
+            vertical="restaurant"
+            title={tr('عملاء المطاعم')}
+            icon={UtensilsCrossed}
+            accent="#B5322A"
+            accentSoft="#F6E7E5"
+            tenants={restTenants}
+            isLoading={isLoading}
+            onAdd={() => setCreateVertical('restaurant')}
+            {...colHandlers}
+          />
         </div>
       </div>
       </main>
 
-      {showCreate && (
+      {createVertical && (
         <CreateTenantModal
-          onClose={() => setShowCreate(false)}
-          onCreated={(info) => { setShowCreate(false); setCreatedInfo(info); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
+          vertical={createVertical}
+          onClose={() => setCreateVertical(null)}
+          onCreated={(info) => { setCreateVertical(null); setCreatedInfo(info); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
         />
       )}
       {createdInfo && <CredentialsModal info={createdInfo} onClose={() => setCreatedInfo(null)} />}
@@ -302,6 +243,137 @@ export default function PlatformPage() {
         />
       )}
     </div>
+  );
+}
+
+// عمود عمودية واحدة (توزيع/مطاعم) — ترويسة ملوّنة + جدول شركات تلك العمودية فقط.
+// العزل مضمون بأن `tenants` مُرشَّحة مسبقاً حسب vertical في PlatformPage.
+function TenantColumn({
+  vertical, title, icon: Icon, accent, accentSoft, tenants, isLoading,
+  onAdd, onEnter, onPerf, onEdit, onReset, onToggle, onDelete, enterPending,
+}: {
+  vertical: Vertical;
+  title: string;
+  icon: React.ElementType;
+  accent: string;
+  accentSoft: string;
+  tenants: Tenant[];
+  isLoading: boolean;
+  onAdd: () => void;
+  onEnter: (t: Tenant) => void;
+  onPerf: (t: Tenant) => void;
+  onEdit: (t: Tenant) => void;
+  onReset: (t: Tenant) => void;
+  onToggle: (t: Tenant) => void;
+  onDelete: (t: Tenant) => void;
+  enterPending: boolean;
+}) {
+  const tr = useTr();
+  const isResto = vertical === 'restaurant';
+  const limitLabel = isResto ? tr('نقاط البيع') : tr('المناديب');
+  const subStatus = (t: Tenant) => {
+    if (!t.isActive) return { label: tr('موقوف'), cls: 'bg-red-100 text-red-700' };
+    if (t.subscriptionEndsAt && new Date(t.subscriptionEndsAt).getTime() < Date.now()) return { label: tr('منتهٍ'), cls: 'bg-amber-100 text-amber-700' };
+    return { label: tr('نشط'), cls: 'bg-green-100 text-green-700' };
+  };
+  const limitOf = (t: Tenant) => (isResto ? t.maxPosStations : t.maxSalesReps);
+
+  return (
+    <section className="card p-0 overflow-hidden flex flex-col">
+      {/* ترويسة العمود */}
+      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[#E9E1D3]" style={{ background: accentSoft }}>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: accent }}>
+            <Icon size={18} className="text-white" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-[#1F1A13] leading-tight truncate">{title}</h2>
+            <span className="text-xs" style={{ color: accent }}>{tenants.length} {tr('عميل')}</span>
+          </div>
+        </div>
+        <button onClick={onAdd}
+          className="flex items-center gap-1 text-xs text-white rounded-lg px-2.5 py-1.5 font-semibold flex-shrink-0"
+          style={{ background: accent }}>
+          <Plus size={14} /> {tr('إضافة')}
+        </button>
+      </div>
+
+      {/* جدول شركات العمود */}
+      <div className="table-wrapper flex-1">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{tr('العميل')}</th>
+              <th>{tr('المدير')}</th>
+              <th className="text-center">{limitLabel}</th>
+              <th className="text-center">{tr('عملاء')}</th>
+              <th>{tr('انتهاء الاشتراك')}</th>
+              <th>{tr('الحالة')}</th>
+              <th>{tr('إجراءات')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={7} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+            ) : tenants.length === 0 ? (
+              <tr><td colSpan={7} className="text-center py-12 text-gray-400">
+                {isResto ? tr('لا يوجد عملاء مطاعم بعد') : tr('لا توجد شركات توزيع بعد')}
+              </td></tr>
+            ) : tenants.map(t => {
+              const st = subStatus(t);
+              const lim = limitOf(t);
+              return (
+                <tr key={t.id}>
+                  <td>
+                    <p className="font-semibold text-gray-800">{t.name}</p>
+                    <p className="text-xs text-gray-400">{formatDate(t.createdAt)}</p>
+                  </td>
+                  <td className="text-sm text-gray-600">{t.admins?.[0]?.email || '-'}</td>
+                  <td className="text-center">
+                    {lim == null
+                      ? <span className="badge-active">{tr('غير محدود')}</span>
+                      : <span className="font-semibold text-gray-700">{lim}</span>}
+                  </td>
+                  <td className="text-center text-gray-600">{t._count?.customers ?? 0}</td>
+                  <td className="text-sm text-gray-500">{t.subscriptionEndsAt ? formatDate(t.subscriptionEndsAt) : tr('غير محدود')}</td>
+                  <td><span className={`px-2 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span></td>
+                  <td>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onEnter(t)}
+                        disabled={enterPending}
+                        className="flex items-center gap-1 text-xs text-white rounded-lg px-2.5 py-1.5 font-semibold"
+                        style={{ background: accent }}
+                        title={tr('الدخول إلى لوحة العميل والاطلاع على بياناته')}>
+                        <LogIn size={13} /> {tr('دخول')}
+                      </button>
+                      <button onClick={() => onPerf(t)} className="p-1.5 rounded text-[#1E7A52] hover:bg-green-50" title={tr('أداء الشركة')}>
+                        <BarChart3 size={15} />
+                      </button>
+                      <button onClick={() => onEdit(t)} className="p-1.5 rounded text-[#C94E28] hover:bg-[#FBEBE2]" title={tr('تعديل العميل والاشتراك')}>
+                        <Pencil size={15} />
+                      </button>
+                      <button onClick={() => onReset(t)} className="p-1.5 rounded text-amber-600 hover:bg-amber-50" title={tr('إعادة تعيين كلمة مرور مدير الشركة')}>
+                        <KeyRound size={15} />
+                      </button>
+                      <button
+                        onClick={() => onToggle(t)}
+                        className={`p-1.5 rounded ${t.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                        title={t.isActive ? tr('إيقاف الاشتراك') : tr('تفعيل الاشتراك')}>
+                        <Power size={15} />
+                      </button>
+                      <button onClick={() => onDelete(t)} className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50" title={tr('حذف نهائي')}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -602,19 +674,27 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   );
 }
 
-function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCreated: (info: { company: string; email: string; password: string }) => void }) {
+function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertical; onClose: () => void; onCreated: (info: { company: string; email: string; password: string }) => void }) {
   const tr = useTr();
+  const isResto = vertical === 'restaurant';
+  const accent = isResto ? '#B5322A' : '#E15A30';
+  const capLabel = isResto ? tr('عدد نقاط البيع المسموح') : tr('عدد المناديب المسموح');
   const [form, setForm] = useState({ companyName: '', adminName: '', adminEmail: '', adminPassword: '', maxSalesReps: '', unlimitedReps: true, maxAdminUsers: '', unlimitedUsers: true, subscriptionEndsAt: '' });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const mutation = useMutation({
-    mutationFn: () => tenantApi.create({
-      companyName: form.companyName, adminName: form.adminName, adminEmail: form.adminEmail,
-      adminPassword: form.adminPassword,
-      maxSalesReps: form.unlimitedReps ? null : Number(form.maxSalesReps),
-      maxAdminUsers: form.unlimitedUsers ? null : Number(form.maxAdminUsers),
-      ...(form.subscriptionEndsAt && { subscriptionEndsAt: form.subscriptionEndsAt }),
-    }),
+    mutationFn: () => {
+      // العمودية: التوزيع يرسل maxSalesReps، والمطاعم يرسل maxPosStations (نفس حقل الإدخال).
+      const cap = form.unlimitedReps ? null : Number(form.maxSalesReps);
+      return tenantApi.create({
+        companyName: form.companyName, adminName: form.adminName, adminEmail: form.adminEmail,
+        adminPassword: form.adminPassword,
+        vertical,
+        ...(isResto ? { maxPosStations: cap } : { maxSalesReps: cap }),
+        maxAdminUsers: form.unlimitedUsers ? null : Number(form.maxAdminUsers),
+        ...(form.subscriptionEndsAt && { subscriptionEndsAt: form.subscriptionEndsAt }),
+      });
+    },
     onSuccess: () => onCreated({ company: form.companyName, email: form.adminEmail, password: form.adminPassword }),
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ')),
   });
@@ -622,7 +702,7 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const submit = () => {
     if (!form.companyName.trim()) { toast.error(tr('اسم الشركة مطلوب')); return; }
     if (!form.unlimitedReps && (!Number.isInteger(Number(form.maxSalesReps)) || Number(form.maxSalesReps) < 1)) {
-      toast.error(tr('حدّد عدد مناديب صحيحاً (1 أو أكثر) أو اختر «غير محدود»')); return;
+      toast.error(isResto ? tr('حدّد عدد نقاط بيع صحيحاً (1 أو أكثر) أو اختر «غير محدود»') : tr('حدّد عدد مناديب صحيحاً (1 أو أكثر) أو اختر «غير محدود»')); return;
     }
     if (!form.unlimitedUsers && (!Number.isInteger(Number(form.maxAdminUsers)) || Number(form.maxAdminUsers) < 1)) {
       toast.error(tr('حدّد عدد مستخدمين صحيحاً (1 أو أكثر) أو اختر «غير محدود»')); return;
@@ -637,19 +717,19 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-bold text-gray-800">{tr('إضافة شركة مشتركة')}</h2>
+          <h2 className="text-lg font-bold text-gray-800">{isResto ? tr('إضافة عميل مطعم') : tr('إضافة شركة توزيع')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <p className="text-xs font-semibold text-gray-400 mb-2">{tr('بيانات الشركة')}</p>
+            <p className="text-xs font-semibold text-gray-400 mb-2">{isResto ? tr('بيانات المطعم') : tr('بيانات الشركة')}</p>
             <div className="space-y-3">
               <div>
-                <label className="label">{tr('اسم الشركة *')}</label>
+                <label className="label">{isResto ? tr('اسم المطعم *') : tr('اسم الشركة *')}</label>
                 <input className="input" value={form.companyName} onChange={e => set('companyName', e.target.value)} />
               </div>
               <div>
-                <label className="label flex items-center gap-1"><Users size={12} /> {tr('عدد المناديب المسموح')}</label>
+                <label className="label flex items-center gap-1"><Users size={12} /> {capLabel}</label>
                 <div className="flex items-center gap-3">
                   <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0 select-none">
                     <input type="checkbox" className="w-4 h-4 accent-[#E15A30]"
@@ -703,9 +783,11 @@ function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCrea
           </div>
         </div>
         <div className="flex gap-3 p-5 border-t">
-          <button onClick={submit} disabled={mutation.isPending} className="btn-primary flex-1 justify-center py-2.5">
+          <button onClick={submit} disabled={mutation.isPending}
+            className="flex-1 justify-center py-2.5 rounded-xl text-white font-semibold flex items-center gap-2 disabled:opacity-60"
+            style={{ background: accent }}>
             {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-            {tr('إنشاء الشركة')}
+            {isResto ? tr('إنشاء المطعم') : tr('إنشاء الشركة')}
           </button>
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>

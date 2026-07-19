@@ -4,6 +4,7 @@ export interface User {
   email?: string;
   role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
   tenantId?: string;
+  vertical?: 'distribution' | 'restaurant'; // عمودية الشركة — تُوجّه اللوحة (/app أو /app-r)
   companyName?: string;
   emailVerified?: boolean;
   canAccessDashboard?: boolean;
@@ -23,8 +24,11 @@ export interface Tenant {
   id: string;
   name: string;
   isActive: boolean;
+  vertical?: 'distribution' | 'restaurant'; // عمودية الشركة (توزيع افتراضاً)
   maxSalesReps?: number | null; // null = عدد مناديب غير محدود
   maxAdminUsers?: number | null; // null = عدد مستخدمي شركة غير محدود
+  maxPosStations?: number | null; // مطاعم: عدد نقاط البيع
+  maxBranches?: number | null;    // مطاعم: عدد الفروع
   erpEnabled?: boolean;          // صلاحية ربط ERP (يتحكّم بها المالك)
   subscriptionEndsAt?: string | null;
   notes?: string | null;

@@ -28,8 +28,13 @@ model Tenant {
   name          String    // اسم الشركة المشتركة
   isActive      Boolean   @default(true)  // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
   plan          String    @default("basic") // basic | pro | enterprise (لم يعد يُعرض في الواجهة)
+  // محور عزل العموديّات: distribution (التوزيع/المناديب) | restaurant (المطاعم/الكاشير).
+  // القيمة الافتراضية distribution ⇒ كل الشركات القائمة تُصنَّف توزيعاً عند db push دون لمس القاعدة.
+  vertical      String    @default("distribution") // distribution | restaurant
   maxSalesReps  Int?                          // الحد الأقصى لعدد المناديب (null = غير محدود)
   maxAdminUsers Int?                          // الحد الأقصى لمستخدمي لوحة الشركة (null = غير محدود)
+  maxPosStations Int?                         // مطاعم: الحد الأقصى لنقاط البيع/الكاشير (null = غير محدود/لا ينطبق)
+  maxBranches    Int?                         // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
   erpEnabled    Boolean   @default(false)     // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
   subscriptionEndsAt DateTime?            // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes         String?
@@ -53,6 +58,7 @@ model Tenant {
   repSettlements  RepSettlement[]
   importBatches   ImportBatch[]
 
+  @@index([vertical])
   @@map("tenants")
 }
 
@@ -345,8 +351,10 @@ model InvoiceItem {
   id          String  @id @default(uuid())
   invoiceId   String
   invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product @relation(fields: [productId], references: [id])
+  // تخفيف إضافي غير مُدمِّر (DROP NOT NULL): بند التوزيع يظلّ يملأ productId كما اليوم،
+  // أما بنود فاتورة المطعم (عمودية restaurant) فتشير إلى MenuItem وتترك productId فارغاً.
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
   qty         Float
   unitPrice   Float
   discountPct Float   @default(0)

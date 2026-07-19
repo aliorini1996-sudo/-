@@ -34,6 +34,7 @@ const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
+const RestaurantHome = lazy(() => import('./pages/resto/RestaurantHome'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
 function PageFallback() {
@@ -45,6 +46,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore();
   if (!token) return <Navigate to="/login" replace />;
   if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
+  // عزل العموديّات: أدمن المطاعم لا يرى لوحة التوزيع أبداً — يُوجَّه لمساحته /app-r.
+  if (user?.vertical === 'restaurant') return <Navigate to="/app-r" replace />;
+  return <>{children}</>;
+}
+
+// لوحة المطعم على /app-r — لعمودية المطاعم فقط (يُعيد التوزيع إلى /app)
+function RestaurantRoute({ children }: { children: React.ReactNode }) {
+  const { token, user } = useAuthStore();
+  if (!token) return <Navigate to="/login" replace />;
+  if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
+  if ((user?.vertical ?? 'distribution') !== 'restaurant') return <Navigate to="/app" replace />;
   return <>{children}</>;
 }
 
@@ -84,7 +96,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|app-r|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
     analyticsApi.track({ path: pathname, referrer: document.referrer || '', lang: document.documentElement.lang || 'ar' }).catch(() => { /* تجاهل */ });
   }, [pathname]);
   return null;
@@ -140,6 +152,8 @@ export default function App() {
         <Route path="/fr/blog" element={<BlogIndexPage />} />
         <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
+        {/* لوحة المطعم (عمودية restaurant) — عنصر نائب M0، يتوسّع في M2+ */}
+        <Route path="/app-r" element={<RestaurantRoute><RestaurantHome /></RestaurantRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
           <ProtectedRoute>
