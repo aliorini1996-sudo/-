@@ -25,6 +25,9 @@ const customerSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
   creditLimit: z.number().min(0).optional(),
   paymentDays: z.number().int().min(0).optional(),
+  // العمل دون اتصال: idempotency + لحظة الإنشاء على الجهاز
+  clientRef: z.string().uuid().optional(),
+  clientCreatedAt: z.string().optional(),
 });
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -87,8 +90,35 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
     const data = customerSchema.parse(req.body);
-    const customer = await prisma.customer.create({ data: { ...data, email: data.email || null, channel: data.channel || null, tenantId: tid } as any });
-    res.status(201).json({ success: true, data: customer });
+
+    // idempotency: عميل سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر
+    if (data.clientRef) {
+      const existing = await prisma.customer.findUnique({
+        where: { tenantId_clientRef: { tenantId: tid, clientRef: data.clientRef } },
+      });
+      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+    }
+
+    const { clientCreatedAt, ...rest } = data;
+    try {
+      const customer = await prisma.customer.create({
+        data: {
+          ...rest, email: data.email || null, channel: data.channel || null, tenantId: tid,
+          clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
+        } as any,
+      });
+      res.status(201).json({ success: true, data: customer });
+    } catch (e) {
+      // سباق تزامن على clientRef — نعيد القائم
+      const err2 = e as { code?: string; meta?: { target?: unknown } };
+      if (err2?.code === 'P2002' && String(err2?.meta?.target ?? '').includes('clientRef') && data.clientRef) {
+        const existing = await prisma.customer.findUnique({
+          where: { tenantId_clientRef: { tenantId: tid, clientRef: data.clientRef } },
+        });
+        if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      }
+      throw e;
+    }
   } catch (err) { next(err); }
 });
 

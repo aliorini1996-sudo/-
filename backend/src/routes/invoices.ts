@@ -28,7 +28,9 @@ const invoiceItemSchema = z.object({
 });
 
 const createInvoiceSchema = z.object({
-  customerId: z.string(),
+  customerId: z.string().optional(),
+  // العمل دون اتصال: بديل customerId حين يشير لعميل أُنشئ أوف‑لاين (يحلّه الخادم إلى id الحقيقي)
+  customerClientRef: z.string().uuid().optional(),
   salesRepId: z.string().optional(),
   invoiceDate: z.string().optional(),
   type: z.enum(['CASH', 'CREDIT', 'RETURN']).default('CREDIT'),
@@ -43,6 +45,8 @@ const createInvoiceSchema = z.object({
   // العمل دون اتصال: مفتاح idempotency ولحظة الإنشاء على الجهاز (اختياريان — لا يؤثّران أونلاين)
   clientRef: z.string().uuid().optional(),
   clientCreatedAt: z.string().optional(),
+}).refine((d) => !!d.customerId || !!d.customerClientRef, {
+  message: 'يجب تحديد العميل (customerId أو customerClientRef)',
 });
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -136,13 +140,26 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
     }
 
+    // حلّ تبعية العميل: إن أشارت الفاتورة لعميل أُنشئ أوف‑لاين (customerClientRef) نحلّه إلى id
+    // الحقيقي. الترتيب في محرّك المزامنة يضمن رفع العميل قبل فاتورته، فالمرجع موجود هنا.
+    let customerId = body.customerId;
+    if (body.customerClientRef) {
+      const ref = await prisma.customer.findUnique({
+        where: { tenantId_clientRef: { tenantId: tid, clientRef: body.customerClientRef } },
+        select: { id: true },
+      });
+      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يُرفع بعد — أعِد المزامنة' }); return; }
+      customerId = ref.id;
+    }
+    if (!customerId) { res.status(400).json({ success: false, message: 'يجب تحديد العميل' }); return; }
+
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
 
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
-    const customer = await prisma.customer.findFirst({ where: { id: body.customerId, tenantId: tid } });
+    const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     if (customer.status === 'BLOCKED') { res.status(400).json({ success: false, message: 'العميل محظور' }); return; }
 
@@ -159,7 +176,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (body.type === 'CASH' && !rep.canSellInCash) { res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع النقدي' }); return; }
 
       const cps = await prisma.customerPrice.findMany({
-        where: { customerId: body.customerId, productId: { in: productIds } },
+        where: { customerId: customerId, productId: { in: productIds } },
         select: { productId: true, price: true },
       });
       const cpMap = new Map(cps.map(c => [c.productId, c.price]));
@@ -218,7 +235,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           number,
           clientRef: body.clientRef,
           clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : undefined,
-          customerId: body.customerId,
+          customerId: customerId,
           salesRepId,
           type: body.type,
           ...(isReturn && {
@@ -260,11 +277,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       });
 
       if (isReturn) {
-        await postReturnEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
+        await postReturnEntries(tx as never, tid, inv.id, customerId, total, docDate);
       } else if (body.type === 'CASH') {
-        await postCashInvoiceEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
+        await postCashInvoiceEntries(tx as never, tid, inv.id, customerId, total, docDate);
       } else {
-        await postInvoiceEntries(tx as never, tid, inv.id, body.customerId, total, docDate);
+        await postInvoiceEntries(tx as never, tid, inv.id, customerId, total, docDate);
         if (creditCheck) {
           await tx.notification.create({
             data: {
@@ -272,7 +289,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
               type: 'CREDIT_LIMIT_EXCEEDED',
               title: 'تجاوز الحد الائتماني',
               body: `العميل ${customer.name} تجاوز حده الائتماني`,
-              customerId: body.customerId,
+              customerId: customerId,
               salesRepId,
               data: JSON.stringify({ invoiceId: inv.id, balance: Number(customer.balance) + total, limit: Number(customer.creditLimit) }),
             },

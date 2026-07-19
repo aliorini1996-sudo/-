@@ -33,16 +33,15 @@ export async function syncOutbox(): Promise<SyncResult> {
   syncing = true;
   let sent = 0, rejected = 0, stopped = false;
   try {
+    // ترتيب التبعية: العميل قبل فاتورته/سنده — يضمن حلّ customerClientRef على الخادم
+    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : 2);
+    const endpointOf = (k: OutboxDoc['kind']) => (k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : '/receipts');
     const queued = (await outboxAll())
       .filter((d) => d.status === 'queued')
-      // الفواتير قبل السندات، ثم زمنياً — يضمن وجود الفاتورة قبل سندها على الخادم
-      .sort((a, b) => {
-        if (a.kind !== b.kind) return a.kind === 'invoice' ? -1 : 1;
-        return a.clientCreatedAt.localeCompare(b.clientCreatedAt);
-      });
+      .sort((a, b) => (rank(a.kind) - rank(b.kind)) || a.clientCreatedAt.localeCompare(b.clientCreatedAt));
 
     for (const doc of queued) {
-      const endpoint = doc.kind === 'invoice' ? '/invoices' : '/receipts';
+      const endpoint = endpointOf(doc.kind);
       try {
         const res = await repApi.post(endpoint, doc.payload);
         const server = res.data?.data ?? {};

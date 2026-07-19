@@ -11,7 +11,8 @@ router.use(authenticate);
 router.use(requireAdminPermission('canManageReceipts'));
 
 const receiptSchema = z.object({
-  customerId: z.string(),
+  customerId: z.string().optional(),
+  customerClientRef: z.string().uuid().optional(), // بديل للعميل المُنشأ أوف‑لاين (M5)
   salesRepId: z.string().optional(),
   receiptDate: z.string().optional(),
   amount: z.number().positive(),
@@ -26,6 +27,8 @@ const receiptSchema = z.object({
   // العمل دون اتصال: idempotency + لحظة الإنشاء على الجهاز (اختياريان)
   clientRef: z.string().uuid().optional(),
   clientCreatedAt: z.string().optional(),
+}).refine((d) => !!d.customerId || !!d.customerClientRef, {
+  message: 'يجب تحديد العميل (customerId أو customerClientRef)',
 });
 
 function groupAllocations(allocations: { invoiceId: string; amount: number }[] = []) {
@@ -135,6 +138,18 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
     }
 
+    // حلّ تبعية العميل المُنشأ أوف‑لاين (customerClientRef → id الحقيقي)
+    let customerId = body.customerId;
+    if (body.customerClientRef) {
+      const ref = await prisma.customer.findUnique({
+        where: { tenantId_clientRef: { tenantId: tid, clientRef: body.customerClientRef } },
+        select: { id: true },
+      });
+      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يُرفع بعد — أعِد المزامنة' }); return; }
+      customerId = ref.id;
+    }
+    if (!customerId) { res.status(400).json({ success: false, message: 'يجب تحديد العميل' }); return; }
+
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id : body.salesRepId;
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
 
@@ -144,7 +159,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       res.status(403).json({ success: false, message: 'لا تملك صلاحية إصدار سند قبض' }); return;
     }
 
-    const customer = await prisma.customer.findFirst({ where: { id: body.customerId, tenantId: tid } });
+    const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
 
     const allocations = groupAllocations((body.invoiceAllocations ?? []) as { invoiceId: string; amount: number }[]);
@@ -164,7 +179,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           where: {
             id: { in: allocations.map(a => a.invoiceId) },
             tenantId: tid,
-            customerId: body.customerId,
+            customerId: customerId,
             status: 'CONFIRMED',
             type: 'CREDIT',
           },
@@ -185,7 +200,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           number,
           clientRef: body.clientRef,
           clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : undefined,
-          customerId: body.customerId,
+          customerId: customerId,
           salesRepId,
           ...(docDate && { receiptDate: docDate }),
           amount: body.amount,
@@ -209,7 +224,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         }
       }
 
-      await postReceiptEntries(tx as never, tid, rcp.id, body.customerId, body.amount, docDate);
+      await postReceiptEntries(tx as never, tid, rcp.id, customerId, body.amount, docDate);
       return rcp;
     });
     });

@@ -89,7 +89,7 @@ export async function fetchThenCache<T>(
 
 export interface OutboxDoc {
   clientRef: string;              // UUID = مفتاح idempotency
-  kind: 'invoice' | 'receipt';
+  kind: 'customer' | 'invoice' | 'receipt';
   payload: unknown;               // حمولة POST كما تُرسل للخادم
   status: 'queued' | 'sent' | 'rejected';
   clientCreatedAt: string;        // ISO

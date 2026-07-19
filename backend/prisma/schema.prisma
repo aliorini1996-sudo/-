@@ -243,6 +243,11 @@ model Customer {
   totalSales     Float @default(0)
   totalCollected Float @default(0)
 
+  // idempotency + تبعية العمل دون اتصال: عميل يُنشأ أوف‑لاين يحمل clientRef، والفاتورة/السند
+  // له تشير إليه بـ customerClientRef فيحلّه الخادم إلى id الحقيقي عند الرفع (انظر M5).
+  clientRef       String?
+  clientCreatedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -253,6 +258,7 @@ model Customer {
   notifications  Notification[]
 
   @@unique([tenantId, code])
+  @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@map("customers")
 }

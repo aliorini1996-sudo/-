@@ -515,8 +515,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     setLoading(true); setMsg('');
     const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
+    // عميل أُنشئ أوف‑لاين (بلا id خادمي بعد) يُشار إليه بـ customerClientRef فيحلّه الخادم
+    const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
     const payload = {
-      customerId: customer.id, type: isReturn ? 'RETURN' : type, discountPct: 0,
+      ...custRef, type: isReturn ? 'RETURN' : type, discountPct: 0,
       ...(isReturn && { returnReason }),
       // نرسل السعر قبل الضريبة (مشتقّاً من السعر الشامل)
       items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
@@ -738,14 +740,28 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
     if (perms.canCreateReceipt === false) { setMsg(tr('لا تملك صلاحية إصدار سند قبض')); return; }
     if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغاً صحيحاً')); return; }
     setLoading(true); setMsg('');
+    const clientRef = newClientRef();
+    const clientCreatedAt = new Date().toISOString();
+    const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
+    const payload = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, clientRef, clientCreatedAt };
     try {
-      const res = await repApi.post('/receipts', { customerId: customer.id, amount: Number(amount), paymentMethod: method, notes: notes || undefined });
+      const res = await repApi.post('/receipts', payload);
       const rcp = res.data.data;
       onDone({
         kind: 'receipt', number: rcp.number, date: rcp.receiptDate,
         company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
       });
-    } catch (err: any) { setMsg(err?.response?.data?.message || tr('تعذّر إصدار السند، حاول مجدداً')); setLoading(false); }
+    } catch (err: any) {
+      // انقطاع الشبكة ⇒ التقاط السند في الصفّ وطباعته برقم مؤقّت
+      if (isNetworkError(err)) {
+        const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
+        await outboxAdd({ clientRef, kind: 'receipt', payload, status: 'queued', clientCreatedAt, localNumber });
+        onDone({
+          kind: 'receipt', number: localNumber, offline: true, date: clientCreatedAt,
+          company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
+        });
+      } else { setMsg(err?.response?.data?.message || tr('تعذّر إصدار السند، حاول مجدداً')); setLoading(false); }
+    }
   };
 
   const methods = [['CASH', 'نقدي'], ['BANK_TRANSFER', 'تحويل'], ['POS', 'شبكة'], ['CHEQUE', 'شيك']];
@@ -816,23 +832,34 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
     if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
     if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب (9 أرقام على الأقل)')); return; }
     setLoading(true); setMsg('');
+    const clientRef = newClientRef();
+    const clientCreatedAt = new Date().toISOString();
+    const payload = {
+      name: form.name.trim(),
+      businessName: form.businessName.trim() || undefined,
+      phone: form.phone.trim(),
+      commercialReg: form.commercialReg.trim() || undefined,
+      taxNumber: form.taxNumber.trim() || undefined,
+      city: form.city.trim() || undefined,
+      district: form.district.trim() || undefined,
+      address: form.address.trim() || undefined,
+      creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined,
+      paymentDays: form.paymentDays ? Number(form.paymentDays) : undefined,
+      clientRef, clientCreatedAt,
+    };
     try {
-      const res = await repApi.post('/customers', {
-        name: form.name.trim(),
-        businessName: form.businessName.trim() || undefined,
-        phone: form.phone.trim(),
-        commercialReg: form.commercialReg.trim() || undefined,
-        taxNumber: form.taxNumber.trim() || undefined,
-        city: form.city.trim() || undefined,
-        district: form.district.trim() || undefined,
-        address: form.address.trim() || undefined,
-        creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined,
-        paymentDays: form.paymentDays ? Number(form.paymentDays) : undefined,
-      });
+      const res = await repApi.post('/customers', payload);
       onCreated(res.data.data);
     } catch (err: any) {
-      setMsg(err?.response?.data?.message || tr('تعذّر إضافة العميل'));
-      setLoading(false);
+      // انقطاع الشبكة ⇒ نلتقط العميل في الصفّ ونتابع بعميل محلي مؤقّت (يحمل clientRef).
+      // فاتورته/سنده لاحقاً يشيران إليه بـ customerClientRef فيحلّه الخادم عند الرفع.
+      if (isNetworkError(err)) {
+        await outboxAdd({ clientRef, kind: 'customer', payload, status: 'queued', clientCreatedAt });
+        onCreated({ ...payload, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
+      } else {
+        setMsg(err?.response?.data?.message || tr('تعذّر إضافة العميل'));
+        setLoading(false);
+      }
     }
   };
 
