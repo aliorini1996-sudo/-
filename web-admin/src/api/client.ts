@@ -213,6 +213,12 @@ export const trackingApi = {
   route: (salesRepId: string, date?: string) => api.get('/tracking/route', { params: { salesRepId, ...(date ? { date } : {}) } }),
 };
 
+// الزيارات الميدانية — يسجّلها المندوب عند العميل (ملاحظة + صور + موقع)، تراها الإدارة
+export const visitsApi = {
+  byRep: (salesRepId: string, date?: string) => api.get('/visits', { params: { salesRepId, ...(date ? { date } : {}) } }),
+  detail: (id: string) => api.get(`/visits/${id}`),
+};
+
 // مخزون سيارة المندوب — ملخّص ومخزون وحركة لكل مندوب
 export const vanStockApi = {
   summary: () => api.get('/van-stock/summary'),

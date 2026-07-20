@@ -33,9 +33,10 @@ export async function syncOutbox(): Promise<SyncResult> {
   syncing = true;
   let sent = 0, rejected = 0, stopped = false;
   try {
-    // ترتيب التبعية: العميل قبل فاتورته/سنده — يضمن حلّ customerClientRef على الخادم
-    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : 2);
-    const endpointOf = (k: OutboxDoc['kind']) => (k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : '/receipts');
+    // ترتيب التبعية: العميل قبل فاتورته/سنده/زيارته — يضمن حلّ customerClientRef على الخادم
+    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : 3);
+    const endpointOf = (k: OutboxDoc['kind']) =>
+      k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : k === 'receipt' ? '/receipts' : '/visits';
     const queued = (await outboxAll())
       .filter((d) => d.status === 'queued')
       .sort((a, b) => (rank(a.kind) - rank(b.kind)) || a.clientCreatedAt.localeCompare(b.clientCreatedAt));

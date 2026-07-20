@@ -35,7 +35,9 @@ export function useRepTracking(active: boolean): TrackStatus {
           if (cancelled) return;
           setStatus('active');
           const now = Date.now();
-          if (now - lastKept.current < 15000) return; // نقطة كل 15 ثانية كحدّ أدنى
+          // نقطة كل 8 ثوانٍ كحدّ أدنى — كثافة أعلى تُحسّن مطابقة المسار مع الطرق
+          // (يوم كامل ≈ 3600 نقطة، دون حدّ الخادم 5000)
+          if (now - lastKept.current < 8000) return;
           lastKept.current = now;
           buffer.current.push({
             lat: pos.coords.latitude, lng: pos.coords.longitude,

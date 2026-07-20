@@ -10,6 +10,7 @@ import {
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
   Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw,
+  Camera, X, ClipboardCheck,
 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
@@ -20,7 +21,7 @@ import { useT, useTr } from '../i18n/strings';
 import { useRepTracking } from './useRepTracking';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock';
-type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer';
+type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
 
 interface RepUser {
   id: string; name: string; phone?: string;
@@ -297,12 +298,13 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
 }
 
 // ============ تفاصيل العميل ============
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit }: {
   customer: any; repName: string; company: Company | null;
   perms: RepUser;
   onClose: () => void; onInvoice: () => void; onReceipt: () => void; onReturn: () => void;
   onStatement: (doc: StatementDoc) => void;
   onOpenDoc: (doc: InvoiceDoc | ReceiptDoc) => void;
+  onLogVisit: () => void;
 }) {
   const tr = useTr();
   const [entries, setEntries] = useState<any[]>([]);
@@ -391,6 +393,11 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
             <FileBarChart2 size={16} /> {tr('كشف حساب')}
           </button>
         </div>
+        {/* تسجيل زيارة ميدانية: ملاحظة + صور رفوف مع إثبات موقع — تراها الإدارة في خريطة التتبّع */}
+        <button onClick={onLogVisit}
+          className="w-full mt-3 bg-[#5FBE92] hover:bg-[#4EA97E] text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+          <ClipboardCheck size={16} /> {tr('تسجيل زيارة')}
+        </button>
 
         {/* Statement */}
         <p className="font-bold text-gray-700 text-sm mt-5 mb-2">{tr('كشف الحساب')}</p>
@@ -432,6 +439,164 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ============ تسجيل زيارة ميدانية ============
+// المندوب عند العميل: ملاحظة نصية + صور (الرفوف/المنتجات) + إثبات موقع GPS. تعمل أوف‑لاين
+// (تُصفّ في الـOutbox وتُرفع عند الاتصال) وتظهر للإدارة/المشرف من خريطة تتبّع المندوب.
+function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () => void; onDone: (offline: boolean) => void }) {
+  const tr = useTr();
+  const [note, setNote] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]); // data URLs مضغوطة
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gps, setGps] = useState<'getting' | 'ok' | 'denied'>('getting');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [done, setDone] = useState<null | 'online' | 'offline'>(null);
+
+  // التقاط موقع المندوب (إثبات الوصول) فور فتح النافذة
+  useEffect(() => {
+    if (!navigator.geolocation) { setGps('denied'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); },
+      () => setGps('denied'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    );
+  }, []);
+
+  // ضغط الصورة عبر canvas (أقصى بُعد 1280 وجودة 0.7) — يبقيها صغيرة للرفع والتخزين
+  const compress = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1280;
+        let { width, height } = img;
+        if (width > max || height > max) {
+          const s = Math.min(max / width, max / height);
+          width = Math.round(width * s); height = Math.round(height * s);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('canvas')); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.onerror = () => reject(new Error('img'));
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => reject(new Error('read'));
+    reader.readAsDataURL(file);
+  });
+
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // يسمح بإعادة اختيار نفس الملف لاحقاً
+    for (const f of files) {
+      if (photos.length >= 8) { setMsg(tr('الحد الأقصى 8 صور')); break; }
+      try { const url = await compress(f); setPhotos(prev => (prev.length < 8 ? [...prev, url] : prev)); }
+      catch { /* تجاهل ملف تالف */ }
+    }
+  };
+
+  const save = async () => {
+    if (!note.trim() && photos.length === 0) { setMsg(tr('أضف ملاحظة أو صورة على الأقل')); return; }
+    setBusy(true); setMsg('');
+    const clientRef = newClientRef();
+    const clientCreatedAt = new Date().toISOString();
+    // عميل أُنشئ أوف‑لاين يُشار إليه بـ customerClientRef فيحلّه الخادم
+    const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
+    const payload: Record<string, unknown> = {
+      ...custRef,
+      note: note.trim() || undefined,
+      lat: coords?.lat, lng: coords?.lng,
+      photos: photos.length ? photos : undefined,
+      clientRef, createdAt: clientCreatedAt,
+    };
+    try {
+      await repApi.post('/visits', payload);
+      setDone('online');
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await outboxAdd({ clientRef, kind: 'visit', payload, status: 'queued', clientCreatedAt });
+        setDone('offline');
+      } else {
+        setMsg((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حفظ الزيارة'));
+        setBusy(false);
+      }
+    }
+  };
+
+  if (done) return (
+    <div className="h-full flex flex-col items-center justify-center bg-gray-50 p-8 text-center">
+      <div className="w-16 h-16 rounded-full bg-[#5FBE92] flex items-center justify-center mb-4">
+        <Check size={32} className="text-white" />
+      </div>
+      <p className="font-bold text-gray-800 text-lg">{tr('تم تسجيل الزيارة')}</p>
+      <p className="text-sm text-gray-500 mt-1">
+        {done === 'offline' ? tr('محفوظة على الجهاز وستُرفع عند عودة الاتصال') : tr('وصلت الزيارة وصورها للإدارة')}
+      </p>
+      <button onClick={() => onDone(done === 'offline')}
+        className="mt-6 bg-[#1F1A13] text-white rounded-xl px-8 py-3 font-semibold text-sm">{tr('تم')}</button>
+    </div>
+  );
+
+  return (
+    <div className="h-full flex flex-col bg-gray-50">
+      <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
+        <button onClick={onClose}><ArrowRight size={20} /></button>
+        <span className="font-bold">{tr('تسجيل زيارة')}</span>
+      </div>
+
+      <div className="p-4 overflow-y-auto flex-1">
+        <p className="text-sm font-semibold text-gray-700">{customer.name}</p>
+        {/* حالة الموقع — إثبات وصول المندوب */}
+        <div className={`mt-2 inline-flex items-center gap-1.5 text-[11px] rounded-full px-2.5 py-1 ${
+          gps === 'ok' ? 'bg-green-50 text-green-600' : gps === 'getting' ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>
+          <MapPin size={12} />
+          {gps === 'ok' ? tr('تم تحديد موقعك') : gps === 'getting' ? tr('جارٍ تحديد الموقع...') : tr('الموقع غير متاح')}
+        </div>
+
+        {/* ملاحظة نصية */}
+        <label className="block text-xs font-medium text-gray-500 mt-4 mb-1">{tr('ملاحظة الزيارة')}</label>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={4}
+          placeholder={tr('مثال: تم عرض المنتجات الجديدة، الرفوف منظّمة، طلب توريد الأسبوع القادم...')}
+          className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:border-[#E15A30]" />
+
+        {/* صور الزيارة (الرفوف/المنتجات) — الكاميرا مباشرة على الجوّال */}
+        <label className="block text-xs font-medium text-gray-500 mt-4 mb-1">{tr('صور الزيارة')} ({photos.length}/8)</label>
+        <div className="grid grid-cols-3 gap-2">
+          {photos.map((p, i) => (
+            <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-gray-200">
+              <img src={p} alt="" className="w-full h-full object-cover" />
+              <button onClick={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                className="absolute top-1 left-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center">
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+          {photos.length < 8 && (
+            <label className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 cursor-pointer active:bg-gray-100">
+              <Camera size={22} />
+              <span className="text-[10px] mt-1">{tr('تصوير')}</span>
+              <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={onPick} />
+            </label>
+          )}
+        </div>
+
+        {msg && <p className="text-red-500 text-xs mt-3 text-center">{msg}</p>}
+      </div>
+
+      <div className="p-4 border-t border-gray-100 bg-white">
+        <button onClick={save} disabled={busy}
+          className="w-full bg-[#5FBE92] disabled:bg-gray-300 text-white rounded-xl py-3.5 font-bold text-sm flex items-center justify-center gap-2">
+          {busy ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <ClipboardCheck size={18} />}
+          {tr('حفظ الزيارة')}
+        </button>
       </div>
     </div>
   );
@@ -1161,7 +1326,7 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
   const load = () => outboxDocs().then(setDocs);
   useEffect(() => { load(); const off = onOutboxChange(load); const iv = window.setInterval(load, 4000); return () => { off(); window.clearInterval(iv); }; }, []);
 
-  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : tr('عميل');
+  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : k === 'visit' ? tr('زيارة') : tr('عميل');
   const custName = (d: OutboxDoc) => (d.payload as any)?.name || (d.payload as any)?.customerName || '';
   const pendingList = docs.filter(d => d.status === 'queued');
   const rejectedList = docs.filter(d => d.status === 'rejected');
@@ -1331,6 +1496,7 @@ export default function RepApp() {
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal(null)}
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
+              onLogVisit={() => setModal('logVisit')}
               onStatement={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }}
               onOpenDoc={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (
@@ -1342,6 +1508,9 @@ export default function RepApp() {
           ) : modal === 'createReceipt' && selectedCustomer ? (
             <CreateReceipt customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
+          ) : modal === 'logVisit' && selectedCustomer ? (
+            <LogVisit customer={selectedCustomer} onClose={() => setModal('customerDetail')}
+              onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
           ) : modal === 'addCustomer' ? (
             <AddCustomer onClose={() => setModal(null)}
               onCreated={(c) => { setModal('customerDetail'); setSelectedCustomer(c); }} />

@@ -24,48 +24,49 @@ model SuperAdmin {
 
 // الشركة المشتركة في النظام — الكيان الأعلى لعزل البيانات
 model Tenant {
-  id            String    @id @default(uuid())
-  name          String    // اسم الشركة المشتركة
-  isActive      Boolean   @default(true)  // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
-  plan          String    @default("basic") // basic | pro | enterprise (لم يعد يُعرض في الواجهة)
+  id                 String    @id @default(uuid())
+  name               String // اسم الشركة المشتركة
+  isActive           Boolean   @default(true) // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
+  plan               String    @default("basic") // basic | pro | enterprise (لم يعد يُعرض في الواجهة)
   // محور عزل العموديّات: distribution (التوزيع/المناديب) | restaurant (المطاعم/الكاشير).
   // القيمة الافتراضية distribution ⇒ كل الشركات القائمة تُصنَّف توزيعاً عند db push دون لمس القاعدة.
-  vertical      String    @default("distribution") // distribution | restaurant
-  maxSalesReps  Int?                          // الحد الأقصى لعدد المناديب (null = غير محدود)
-  maxAdminUsers Int?                          // الحد الأقصى لمستخدمي لوحة الشركة (null = غير محدود)
-  maxPosStations Int?                         // مطاعم: الحد الأقصى لنقاط البيع/الكاشير (null = غير محدود/لا ينطبق)
-  maxBranches    Int?                         // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
-  erpEnabled    Boolean   @default(false)     // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
-  subscriptionEndsAt DateTime?            // تاريخ انتهاء الاشتراك (null = غير محدود)
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  vertical           String    @default("distribution") // distribution | restaurant
+  maxSalesReps       Int? // الحد الأقصى لعدد المناديب (null = غير محدود)
+  maxAdminUsers      Int? // الحد الأقصى لمستخدمي لوحة الشركة (null = غير محدود)
+  maxPosStations     Int? // مطاعم: الحد الأقصى لنقاط البيع/الكاشير (null = غير محدود/لا ينطبق)
+  maxBranches        Int? // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
+  erpEnabled         Boolean   @default(false) // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
+  subscriptionEndsAt DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  admins          Admin[]
-  salesReps       SalesRep[]
-  categories      ProductCategory[]
-  products        Product[]
-  customers       Customer[]
-  invoices        Invoice[]
-  receipts        Receipt[]
-  accountEntries  AccountEntry[]
-  notifications   Notification[]
-  settings        CompanySettings?
-  erpIntegration  ErpIntegration?
-  erpSyncLogs     ErpSyncLog[]
-  vanLoads        VanLoad[]
-  repLocations    RepLocation[]
-  repSettlements  RepSettlement[]
-  importBatches   ImportBatch[]
+  admins         Admin[]
+  salesReps      SalesRep[]
+  categories     ProductCategory[]
+  products       Product[]
+  customers      Customer[]
+  invoices       Invoice[]
+  receipts       Receipt[]
+  accountEntries AccountEntry[]
+  notifications  Notification[]
+  settings       CompanySettings?
+  erpIntegration ErpIntegration?
+  erpSyncLogs    ErpSyncLog[]
+  vanLoads       VanLoad[]
+  repLocations   RepLocation[]
+  repSettlements RepSettlement[]
+  importBatches  ImportBatch[]
 
   // عمودية المطاعم (M2+) — علاقات ظهر إضافية اختيارية
-  restaurantAreas   RestaurantArea[]
-  restaurantTables  RestaurantTable[]
-  menuCategories    MenuCategory[]
-  menuItems         MenuItem[]
-  modifierGroups    ModifierGroup[]
-  modifiers         Modifier[]
-  orders            Order[]
+  restaurantAreas  RestaurantArea[]
+  restaurantTables RestaurantTable[]
+  menuCategories   MenuCategory[]
+  menuItems        MenuItem[]
+  modifierGroups   ModifierGroup[]
+  modifiers        Modifier[]
+  orders           Order[]
+  RepVisit         RepVisit[]
 
   @@index([vertical])
   @@map("tenants")
@@ -76,9 +77,9 @@ model ImportBatch {
   id        String   @id @default(uuid())
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  kind      String   // customers | products | balances | ledger | prices
+  kind      String // customers | products | balances | ledger | prices
   count     Int      @default(0)
-  recordIds String   // JSON: مصفوفة معرّفات السجلات المُنشأة (للتراجع)
+  recordIds String // JSON: مصفوفة معرّفات السجلات المُنشأة (للتراجع)
   createdBy String?
   reverted  Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -88,14 +89,14 @@ model ImportBatch {
 }
 
 model Admin {
-  id           String   @id @default(uuid())
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         String   @default("ADMIN") // ADMIN | MANAGER | ACCOUNTANT
-  isActive     Boolean  @default(true)
+  id            String  @id @default(uuid())
+  tenantId      String
+  tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  email         String  @unique
+  passwordHash  String
+  role          String  @default("ADMIN") // ADMIN | MANAGER | ACCOUNTANT
+  isActive      Boolean @default(true)
   emailVerified Boolean @default(false) // تأكيد ملكية البريد (تحقّق التسجيل الذاتي)
 
   // Company admin permissions
@@ -111,32 +112,32 @@ model Admin {
   canManageCompanySettings Boolean @default(true)
   canManageCompanyUsers    Boolean @default(true)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@map("admins")
 }
 
 model SalesRep {
-  id           String   @id @default(uuid())
+  id           String  @id @default(uuid())
   tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant       Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name         String
   phone        String
   email        String?
-  username     String   @unique
+  username     String  @unique
   passwordHash String
-  isActive     Boolean  @default(true)
+  isActive     Boolean @default(true)
   fcmToken     String?
 
   // Sales permissions
-  canCreateInvoice  Boolean @default(true)
-  canSellOnCredit   Boolean @default(true)
-  canSellInCash     Boolean @default(true)
-  canEditInvoice    Boolean @default(false)
-  canDeleteInvoice  Boolean @default(false)
-  canCancelInvoice  Boolean @default(false)
+  canCreateInvoice Boolean @default(true)
+  canSellOnCredit  Boolean @default(true)
+  canSellInCash    Boolean @default(true)
+  canEditInvoice   Boolean @default(false)
+  canDeleteInvoice Boolean @default(false)
+  canCancelInvoice Boolean @default(false)
 
   // Pricing permissions
   canChangePrice    Boolean @default(false)
@@ -144,14 +145,14 @@ model SalesRep {
   canSellBelowPrice Boolean @default(false)
 
   // Collection permissions
-  canCreateReceipt  Boolean @default(true)
-  canEditReceipt    Boolean @default(false)
-  canCancelReceipt  Boolean @default(false)
+  canCreateReceipt Boolean @default(true)
+  canEditReceipt   Boolean @default(false)
+  canCancelReceipt Boolean @default(false)
 
   // Customer permissions
-  canAddCustomer    Boolean @default(false)
-  canEditCustomer   Boolean @default(false)
-  canViewStatement  Boolean @default(true)
+  canAddCustomer   Boolean @default(false)
+  canEditCustomer  Boolean @default(false)
+  canViewStatement Boolean @default(true)
 
   // إظهار رصيد التحصيل المتراكم للمندوب على شاشته الرئيسية (يحدّده الأدمن لكل مندوب)
   showCollectionBalance Boolean @default(true)
@@ -174,6 +175,7 @@ model SalesRep {
   vanLoads      VanLoad[]
   locations     RepLocation[]
   settlements   RepSettlement[]
+  RepVisit      RepVisit[]
 
   @@index([tenantId])
   @@map("sales_reps")
@@ -192,25 +194,25 @@ model ProductCategory {
 }
 
 model Product {
-  id           String         @id @default(uuid())
-  tenantId     String
-  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  code         String
-  name         String
-  barcode      String?
-  unit         String
-  basePrice    Float
-  taxPct       Float          @default(15)
-  image        String?        // صورة الصنف (base64 data URL)
-  itemCode     String?        // كود الصنف للفوترة الإلكترونية (EGS/GS1)
-  itemCodeType String?        @default("EGS") // EGS | GS1
-  unitCode     String?        // كود الوحدة حسب جدول المزوّد (ETA)
-  status       String         @default("ACTIVE") // ACTIVE | INACTIVE
-  damagedReturnToStock Boolean @default(false) // سياسة الصنف: هل يعود مرتجعه التالف لمخزون السيارة؟ (يضبط افتراض المرتجع)
-  categoryId   String?
-  category     ProductCategory? @relation(fields: [categoryId], references: [id])
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id                   String           @id @default(uuid())
+  tenantId             String
+  tenant               Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code                 String
+  name                 String
+  barcode              String?
+  unit                 String
+  basePrice            Float
+  taxPct               Float            @default(15)
+  image                String? // صورة الصنف (base64 data URL)
+  itemCode             String? // كود الصنف للفوترة الإلكترونية (EGS/GS1)
+  itemCodeType         String?          @default("EGS") // EGS | GS1
+  unitCode             String? // كود الوحدة حسب جدول المزوّد (ETA)
+  status               String           @default("ACTIVE") // ACTIVE | INACTIVE
+  damagedReturnToStock Boolean          @default(false) // سياسة الصنف: هل يعود مرتجعه التالف لمخزون السيارة؟ (يضبط افتراض المرتجع)
+  categoryId           String?
+  category             ProductCategory? @relation(fields: [categoryId], references: [id])
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
   priceTiers     PriceTier[]
   customerPrices CustomerPrice[]
@@ -235,22 +237,22 @@ model PriceTier {
 }
 
 model Customer {
-  id             String         @id @default(uuid())
-  tenantId       String
-  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  code           String         @default(cuid())
-  name           String
-  businessName   String?
-  commercialReg  String?
-  taxNumber      String?
-  phone          String
-  altPhone       String?
-  email          String?
-  city           String?
-  district       String?
-  address        String?
-  channel        String?        // قناة البيع: MT | WHOLESALE | TT | DISCOUNTER | CASH_VAN | ECOMMERCE
-  status         String         @default("ACTIVE") // ACTIVE | INACTIVE | BLOCKED
+  id            String  @id @default(uuid())
+  tenantId      String
+  tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code          String  @default(cuid())
+  name          String
+  businessName  String?
+  commercialReg String?
+  taxNumber     String?
+  phone         String
+  altPhone      String?
+  email         String?
+  city          String?
+  district      String?
+  address       String?
+  channel       String? // قناة البيع: MT | WHOLESALE | TT | DISCOUNTER | CASH_VAN | ECOMMERCE
+  status        String  @default("ACTIVE") // ACTIVE | INACTIVE | BLOCKED
 
   creditLimit    Float @default(0)
   paymentDays    Int   @default(30)
@@ -276,6 +278,7 @@ model Customer {
   receipts       Receipt[]
   accountEntries AccountEntry[]
   notifications  Notification[]
+  RepVisit       RepVisit[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -300,28 +303,28 @@ model CustomerPrice {
 // محتوى الصفحة التعريفية التسويقية والصفحات التابعة (CMS) — صف واحد بمعرّف ثابت "main"
 model SiteContent {
   id        String   @id @default("main")
-  data      String   // JSON كامل لكل محتوى الصفحة التعريفية والصفحات الفرعية
-  updatedAt DateTime @updatedAt @default(now())
+  data      String // JSON كامل لكل محتوى الصفحة التعريفية والصفحات الفرعية
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@map("site_content")
 }
 
 model Invoice {
-  id          String   @id @default(uuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  number      String
-  customerId  String
-  customer    Customer @relation(fields: [customerId], references: [id])
-  salesRepId  String
-  salesRep    SalesRep @relation(fields: [salesRepId], references: [id])
-  type        String   @default("CREDIT") // CASH | CREDIT | RETURN
-  status      String   @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
-  returnReason String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
-  returnToStock Boolean @default(true) // هل يعود المرتجع لمخزون السيارة؟ (الأدمن يتحكّم؛ التالف=لا افتراضياً)
-  invoiceDate DateTime @default(now())
-  dueDate     DateTime?
-  notes       String?
+  id            String    @id @default(uuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number        String
+  customerId    String
+  customer      Customer  @relation(fields: [customerId], references: [id])
+  salesRepId    String
+  salesRep      SalesRep  @relation(fields: [salesRepId], references: [id])
+  type          String    @default("CREDIT") // CASH | CREDIT | RETURN
+  status        String    @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
+  returnReason  String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
+  returnToStock Boolean   @default(true) // هل يعود المرتجع لمخزون السيارة؟ (الأدمن يتحكّم؛ التالف=لا افتراضياً)
+  invoiceDate   DateTime  @default(now())
+  dueDate       DateTime?
+  notes         String?
 
   subtotal     Float
   discountPct  Float @default(0)
@@ -332,10 +335,10 @@ model Invoice {
   remainingAmt Float
 
   // الفوترة الإلكترونية (اعتماد حكومي) — تُملأ عند الإرسال للمزوّد
-  einvoiceProvider    String?   // zatca | eta | peppol | ttn | none
-  einvoiceStatus      String?   // generated | submitted | cleared | pending | not_implemented | error
-  einvoiceUuid        String?   // معرّف الاعتماد (UUID من ETA/Peppol)
-  einvoiceQr          String?   // حمولة/رابط QR إن وُجد
+  einvoiceProvider    String? // zatca | eta | peppol | ttn | none
+  einvoiceStatus      String? // generated | submitted | cleared | pending | not_implemented | error
+  einvoiceUuid        String? // معرّف الاعتماد (UUID من ETA/Peppol)
+  einvoiceQr          String? // حمولة/رابط QR إن وُجد
   einvoiceSubmittedAt DateTime?
 
   // مفتاح idempotency: UUID يولّده العميل مرّة لكل مستند. عند تكرار الرفع (إعادة محاولة/شبكة
@@ -345,9 +348,9 @@ model Invoice {
 
   // إضافات عمودية المطاعم (M3) — كلها بقيم افتراضية/nullable (لا تمسّ فواتير التوزيع)
   orderType        String? @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY (للمطاعم فقط)
-  serviceChargeAmt Float   @default(0)          // رسوم الخدمة (للمطاعم)
-  tipAmt           Float   @default(0)          // إكرامية (ليست إيراداً ولا ضريبة)
-  shiftId          String?                       // ربط بوردية الكاشير (M4)
+  serviceChargeAmt Float   @default(0) // رسوم الخدمة (للمطاعم)
+  tipAmt           Float   @default(0) // إكرامية (ليست إيراداً ولا ضريبة)
+  shiftId          String? // ربط بوردية الكاشير (M4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -355,7 +358,7 @@ model Invoice {
   items          InvoiceItem[]
   receiptItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
-  order          Order?          // الطلب الذي وُلِّدت منه فاتورة المطعم (علاقة ظهر، بلا عمود)
+  order          Order? // الطلب الذي وُلِّدت منه فاتورة المطعم (علاقة ظهر، بلا عمود)
 
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])
@@ -364,22 +367,22 @@ model Invoice {
 }
 
 model InvoiceItem {
-  id          String  @id @default(uuid())
+  id          String    @id @default(uuid())
   invoiceId   String
-  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice     Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   // تخفيف إضافي غير مُدمِّر (DROP NOT NULL): بند التوزيع يظلّ يملأ productId كما اليوم،
   // أما بنود فاتورة المطعم (عمودية restaurant) فتشير إلى MenuItem وتترك productId فارغاً.
   productId   String?
-  product     Product? @relation(fields: [productId], references: [id])
+  product     Product?  @relation(fields: [productId], references: [id])
   // بنود فاتورة المطعم (M3) — تشير إلى MenuItem بدل Product، مع أثر رجعي للطلب وتكلفة مجمّدة
   menuItemId  String?
   menuItem    MenuItem? @relation(fields: [menuItemId], references: [id])
   orderItemId String?
-  unitCost    Float    @default(0) // تكلفة الصنف لحظة البيع (لحساب COGS في M6)
+  unitCost    Float     @default(0) // تكلفة الصنف لحظة البيع (لحساب COGS في M6)
   qty         Float
   unitPrice   Float
-  discountPct Float   @default(0)
-  discountAmt Float   @default(0)
+  discountPct Float     @default(0)
+  discountAmt Float     @default(0)
   taxPct      Float
   taxAmt      Float
   lineTotal   Float
@@ -443,7 +446,7 @@ model AccountEntry {
   invoice     Invoice? @relation(fields: [invoiceId], references: [id])
   receiptId   String?
   receipt     Receipt? @relation(fields: [receiptId], references: [id])
-  type        String   // INVOICE_DEBIT | INVOICE_CREDIT | RECEIPT_CREDIT | RECEIPT_DEBIT | ADJUSTMENT_DEBIT | ADJUSTMENT_CREDIT
+  type        String // INVOICE_DEBIT | INVOICE_CREDIT | RECEIPT_CREDIT | RECEIPT_DEBIT | ADJUSTMENT_DEBIT | ADJUSTMENT_CREDIT
   debit       Float    @default(0)
   credit      Float    @default(0)
   balance     Float
@@ -456,48 +459,48 @@ model AccountEntry {
 }
 
 model CompanySettings {
-  id            String   @id @default(uuid())
-  tenantId      String   @unique
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name          String
-  address       String?
-  taxNumber     String?
-  commercialReg String?
-  phone         String?
-  email         String?
-  logo          String?  // شعار الشركة (base64 data URL)
-  primaryColor  String?  // لون الترويسة الأساسي (hex)
-  headerStyle   String?  @default("classic") // classic | banner | minimal
+  id              String  @id @default(uuid())
+  tenantId        String  @unique
+  tenant          Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  address         String?
+  taxNumber       String?
+  commercialReg   String?
+  phone           String?
+  email           String?
+  logo            String? // شعار الشركة (base64 data URL)
+  primaryColor    String? // لون الترويسة الأساسي (hex)
+  headerStyle     String? @default("classic") // classic | banner | minimal
   trackingEnabled Boolean @default(false) // تفعيل تتبّع مواقع المناديب GPS على مستوى الشركة
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
-  countryCode      String  @default("SA")    // ISO alpha-2: دولة الشركة
-  currency         String  @default("SAR")   // عملة الفوترة (مشتقّة من الدولة)
-  defaultVatPct    Float   @default(15)       // نسبة الضريبة الافتراضية للدولة
-  einvoiceProvider String  @default("zatca") // zatca | eta | peppol | ttn | none
+  countryCode      String @default("SA") // ISO alpha-2: دولة الشركة
+  currency         String @default("SAR") // عملة الفوترة (مشتقّة من الدولة)
+  defaultVatPct    Float  @default(15) // نسبة الضريبة الافتراضية للدولة
+  einvoiceProvider String @default("zatca") // zatca | eta | peppol | ttn | none
 
   // --- بيانات ربط الفوترة الإلكترونية (تُدخلها كل شركة) — للمزوّدات الحكومية ETA/Peppol/TTN ---
-  einvoiceEnabled         Boolean @default(false)     // تفعيل الإرسال الحكومي لهذه الشركة
+  einvoiceEnabled         Boolean @default(false) // تفعيل الإرسال الحكومي لهذه الشركة
   einvoiceEnv             String  @default("preprod") // preprod | production
-  einvoiceClientId        String?                     // معرّف العميل (من بوابة المزوّد/الوسيط)
-  einvoiceClientSecret    String?                     // السرّ (يُدخله العميل — لا يُعرض بعدها)
-  einvoiceActivityCode    String?                     // كود النشاط (ETA)
-  einvoiceBranchCode      String?                     // كود الفرع/الموقع
-  einvoiceIntermediaryUrl String?                     // رابط الوسيط/المُجمِّع المعتمد (اختياري)
+  einvoiceClientId        String? // معرّف العميل (من بوابة المزوّد/الوسيط)
+  einvoiceClientSecret    String? // السرّ (يُدخله العميل — لا يُعرض بعدها)
+  einvoiceActivityCode    String? // كود النشاط (ETA)
+  einvoiceBranchCode      String? // كود الفرع/الموقع
+  einvoiceIntermediaryUrl String? // رابط الوسيط/المُجمِّع المعتمد (اختياري)
 
-  updatedAt     DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@map("company_settings")
 }
 
 model ErpIntegration {
-  id                String   @id @default(uuid())
-  tenantId          String   @unique
-  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  enabled           Boolean  @default(false)
-  provider          String   @default("CUSTOM") // CUSTOM | ODOO | SAP | ZOHO | OTHER
+  id                String    @id @default(uuid())
+  tenantId          String    @unique
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enabled           Boolean   @default(false)
+  provider          String    @default("CUSTOM") // CUSTOM | ODOO | SAP | ZOHO | OTHER
   baseUrl           String?
-  authType          String   @default("NONE") // NONE | API_KEY | BEARER | BASIC
+  authType          String    @default("NONE") // NONE | API_KEY | BEARER | BASIC
   apiKey            String?
   bearerToken       String?
   basicUsername     String?
@@ -506,13 +509,13 @@ model ErpIntegration {
   productsEndpoint  String?
   invoicesEndpoint  String?
   receiptsEndpoint  String?
-  syncCustomers     Boolean  @default(true)
-  syncProducts      Boolean  @default(true)
-  syncInvoices      Boolean  @default(true)
-  syncReceipts      Boolean  @default(true)
+  syncCustomers     Boolean   @default(true)
+  syncProducts      Boolean   @default(true)
+  syncInvoices      Boolean   @default(true)
+  syncReceipts      Boolean   @default(true)
   lastSyncAt        DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([tenantId])
   @@map("erp_integrations")
@@ -522,9 +525,9 @@ model ErpSyncLog {
   id         String    @id @default(uuid())
   tenantId   String
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  resource   String    // customers | products | invoices | receipts | connection
+  resource   String // customers | products | invoices | receipts | connection
   direction  String    @default("OUTBOUND")
-  status     String    // SUCCESS | FAILED
+  status     String // SUCCESS | FAILED
   count      Int       @default(0)
   message    String?
   startedAt  DateTime  @default(now())
@@ -539,7 +542,7 @@ model Notification {
   id         String    @id @default(uuid())
   tenantId   String
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type       String    // CREDIT_LIMIT_EXCEEDED | DISCOUNT_LIMIT_EXCEEDED | OVERDUE_PAYMENT | INVOICE_CANCELLED | PRICE_MODIFIED | RECEIPT_CANCELLED
+  type       String // CREDIT_LIMIT_EXCEEDED | DISCOUNT_LIMIT_EXCEEDED | OVERDUE_PAYMENT | INVOICE_CANCELLED | PRICE_MODIFIED | RECEIPT_CANCELLED
   title      String
   body       String
   salesRepId String?
@@ -547,7 +550,7 @@ model Notification {
   customerId String?
   customer   Customer? @relation(fields: [customerId], references: [id])
   isRead     Boolean   @default(false)
-  data       String?   // JSON كنص
+  data       String? // JSON كنص
   createdAt  DateTime  @default(now())
 
   @@index([tenantId])
@@ -556,15 +559,15 @@ model Notification {
 
 // تحميل بضاعة لسيارة المندوب — حركة مخزون (LOAD=تحميل، UNLOAD=تنزيل للمستودع، ADJUST=تسوية)
 model VanLoad {
-  id          String   @id @default(uuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  salesRepId  String
-  salesRep    SalesRep @relation(fields: [salesRepId], references: [id])
-  type        String   @default("LOAD") // LOAD | UNLOAD | ADJUST
-  note        String?
-  createdBy   String?  // "REP" | "ADMIN" — من سجّل الحركة
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id])
+  type       String   @default("LOAD") // LOAD | UNLOAD | ADJUST
+  note       String?
+  createdBy  String? // "REP" | "ADMIN" — من سجّل الحركة
+  createdAt  DateTime @default(now())
 
   items VanLoadItem[]
 
@@ -579,7 +582,7 @@ model VanLoadItem {
   vanLoad   VanLoad @relation(fields: [vanLoadId], references: [id], onDelete: Cascade)
   productId String
   product   Product @relation(fields: [productId], references: [id])
-  qty       Float   // موجب للتحميل/التسوية الزائدة، يُفسَّر حسب نوع VanLoad
+  qty       Float // موجب للتحميل/التسوية الزائدة، يُفسَّر حسب نوع VanLoad
 
   @@index([vanLoadId])
   @@map("van_load_items")
@@ -594,13 +597,50 @@ model RepLocation {
   salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
   lat        Float
   lng        Float
-  accuracy   Float?   // دقة الموقع بالأمتار
-  speed      Float?   // السرعة م/ث إن توفّرت
+  accuracy   Float? // دقة الموقع بالأمتار
+  speed      Float? // السرعة م/ث إن توفّرت
   capturedAt DateTime // وقت التقاط الموقع على جهاز المندوب
   createdAt  DateTime @default(now())
 
   @@index([tenantId, salesRepId, capturedAt])
   @@map("rep_locations")
+}
+
+// زيارة ميدانية يسجّلها المندوب عند العميل — ملاحظة نصية + صور (رفوف/عروض) + موقع GPS.
+// تُلتقط أوف‑لاين وتُرفع عبر الصفّ الصادر (clientRef = idempotency، انظر العمل دون اتصال).
+model RepVisit {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  note       String? // ملاحظة نصية عن الزيارة
+  lat        Float? // موقع المندوب لحظة تسجيل الزيارة (إثبات الوصول)
+  lng        Float?
+  clientRef  String? // مفتاح idempotency للالتقاط دون اتصال
+  createdAt  DateTime @default(now())
+
+  photos VisitPhoto[]
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId, salesRepId, createdAt])
+  @@index([tenantId, customerId])
+  @@map("rep_visits")
+}
+
+// صورة زيارة (رفّ/منتج/عرض) — تُخزَّن base64 (مضغوطة على العميل) في جدول منفصل
+// كي لا تُحمَّل في قوائم الزيارات إلا عند الطلب.
+model VisitPhoto {
+  id        String   @id @default(uuid())
+  visitId   String
+  visit     RepVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  data      String // data URL: data:image/jpeg;base64,...
+  createdAt DateTime @default(now())
+
+  @@index([visitId])
+  @@map("visit_photos")
 }
 
 // استلام تحصيل من المندوب — كل مرّة يسلّم فيها المندوب نقدًا للإدارة يُسجَّل هنا.
@@ -613,7 +653,7 @@ model RepSettlement {
   salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
   amount     Float
   note       String?
-  createdBy  String?  // اسم/معرّف الأدمن الذي استلم
+  createdBy  String? // اسم/معرّف الأدمن الذي استلم
   settledAt  DateTime @default(now())
   createdAt  DateTime @default(now())
 
@@ -629,7 +669,7 @@ model RepSettlement {
 // عميل محتمل واحد (شركة) — تُجمع من الخرائط/المصادر العامة أو يدوياً
 model Lead {
   id          String  @id @default(uuid())
-  name        String  // اسم النشاط/الشركة
+  name        String // اسم النشاط/الشركة
   phone       String?
   email       String?
   website     String?
@@ -643,17 +683,17 @@ model Lead {
   mapsUrl     String? // رابط الموقع على الخريطة
 
   source   String  @default("manual") // manual | csv | osm | google | social | api
-  sourceId String? @unique            // مفتاح إزالة التكرار لكل مصدر (مثل "osm:node/123")
+  sourceId String? @unique // مفتاح إزالة التكرار لكل مصدر (مثل "osm:node/123")
 
   // خط أنابيب المبيعات
-  stage   String  @default("NEW") // NEW | CONTACTED | QUALIFIED | PROPOSAL | WON | LOST
-  score   Int?    // ملاءمة 1-10 (تأهيل آلي/يدوي)
-  scoreNote String?
-  assignedTo String? // معرّف/اسم مسؤول المتابعة (سوبر أدمن)
+  stage             String    @default("NEW") // NEW | CONTACTED | QUALIFIED | PROPOSAL | WON | LOST
+  score             Int? // ملاءمة 1-10 (تأهيل آلي/يدوي)
+  scoreNote         String?
+  assignedTo        String? // معرّف/اسم مسؤول المتابعة (سوبر أدمن)
   convertedTenantId String? // عند التحويل لمشترك فعلي
-  notes   String?
-  lastContactedAt DateTime?
-  nextFollowUpAt  DateTime?
+  notes             String?
+  lastContactedAt   DateTime?
+  nextFollowUpAt    DateTime?
 
   // انسحاب من مراسلة واتساب — يُضبط تلقائياً عند ردّ العميل بكلمة إلغاء/stop.
   // مُستثنى من كل استهداف لاحق (سياسة واتساب + حماية تقييم جودة الرقم).
@@ -680,16 +720,16 @@ model Lead {
 // سجلّ رسائل واتساب (صادر/وارد) — يغذّي الحدّ اليومي وتتبّع التسليم/القراءة ومطابقة الردود.
 // حالات التسليم تصل عبر webhook من Meta وتُحدَّث على waId.
 model WaMessage {
-  id        String  @id @default(uuid())
-  waId      String? @unique // معرّف رسالة واتساب (wamid) — مفتاح تحديث الحالة من الـwebhook
-  leadId    String?
-  lead      Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  phone     String  // الرقم مطبَّعاً (أرقام فقط) — مفتاح مطابقة الردود الواردة
-  direction String  @default("OUT") // OUT | IN
-  body      String? // نصّ الرسالة (أو نصّ الردّ الوارد)
-  template  String? // اسم القالب المعتمد (للصادر بوضع القالب)
-  status    String  @default("SENT") // SENT | DELIVERED | READ | FAILED | RECEIVED
-  error     String?
+  id          String  @id @default(uuid())
+  waId        String? @unique // معرّف رسالة واتساب (wamid) — مفتاح تحديث الحالة من الـwebhook
+  leadId      String?
+  lead        Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  phone       String // الرقم مطبَّعاً (أرقام فقط) — مفتاح مطابقة الردود الواردة
+  direction   String  @default("OUT") // OUT | IN
+  body        String? // نصّ الرسالة (أو نصّ الردّ الوارد)
+  template    String? // اسم القالب المعتمد (للصادر بوضع القالب)
+  status      String  @default("SENT") // SENT | DELIVERED | READ | FAILED | RECEIVED
+  error       String?
   // هل أكّد واتساب التسليم فعلاً (ACK≥1)؟ الكود القديم كان يُعلّم SENT بمجرّد أن يعود
   // sendMessage — وهو يعود قبل التسليم — فوُجدت رسائل «ناجحة» لم تخرج قطّ.
   // false على رسالة SENT قديمة = تحتاج مصالحة مع واتساب.
@@ -706,11 +746,11 @@ model WaMessage {
 
 // سجلّ نشاط/متابعة على عميل محتمل (مكالمة، ملاحظة، تغيير مرحلة...)
 model LeadActivity {
-  id      String @id @default(uuid())
-  leadId  String
-  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  type    String // NOTE | CALL | EMAIL | MEETING | STAGE_CHANGE | SCORE | IMPORT
-  content String?
+  id        String   @id @default(uuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type      String // NOTE | CALL | EMAIL | MEETING | STAGE_CHANGE | SCORE | IMPORT
+  content   String?
   createdBy String?
   createdAt DateTime @default(now())
 
@@ -720,15 +760,15 @@ model LeadActivity {
 
 // سجلّ عملية بحث آلي (لتتبّع مصادر الجمع وتجنّب التكرار وعرض التاريخ)
 model LeadSearch {
-  id       String @id @default(uuid())
-  provider String // osm | google
-  query    String // نوع النشاط المبحوث عنه
-  country  String?
-  city     String?
-  status   String @default("done") // running | done | failed
-  found    Int    @default(0) // إجمالي النتائج من المصدر
-  imported Int    @default(0) // الجدد المُضافون بعد إزالة التكرار
-  error    String?
+  id        String   @id @default(uuid())
+  provider  String // osm | google
+  query     String // نوع النشاط المبحوث عنه
+  country   String?
+  city      String?
+  status    String   @default("done") // running | done | failed
+  found     Int      @default(0) // إجمالي النتائج من المصدر
+  imported  Int      @default(0) // الجدد المُضافون بعد إزالة التكرار
+  error     String?
   createdBy String?
   createdAt DateTime @default(now())
 
@@ -741,15 +781,15 @@ model LeadSearch {
 // ============================================================================
 model Visit {
   id           String   @id @default(uuid())
-  path         String   // مسار الصفحة (/ , /blog , /en ...)
-  lang         String?  // ar | en
-  referrer     String?  // الرابط المُحيل الكامل
-  referrerHost String?  // نطاق المُحيل (google.com ...) أو null للزيارة المباشرة
+  path         String // مسار الصفحة (/ , /blog , /en ...)
+  lang         String? // ar | en
+  referrer     String? // الرابط المُحيل الكامل
+  referrerHost String? // نطاق المُحيل (google.com ...) أو null للزيارة المباشرة
   country      String?
-  countryCode  String?  // ISO alpha-2
+  countryCode  String? // ISO alpha-2
   region       String?
   city         String?
-  ipHash       String?  // بصمة IP مجزّأة (لعدّ الزوّار الفريدين دون تخزين IP الخام)
+  ipHash       String? // بصمة IP مجزّأة (لعدّ الزوّار الفريدين دون تخزين IP الخام)
   userAgent    String?
   isBot        Boolean  @default(false)
   createdAt    DateTime @default(now())
@@ -784,19 +824,19 @@ model RestaurantArea {
 
 // طاولة — رقمها نصّي (يدعم "A1"/"طاولة 7")؛ الحالة تُدار في M3 (الكاشير)
 model RestaurantTable {
-  id        String   @id @default(uuid())
+  id        String          @id @default(uuid())
   tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   areaId    String?
   area      RestaurantArea? @relation(fields: [areaId], references: [id], onDelete: SetNull)
-  number    String   // رقم/اسم الطاولة
-  seats     Int      @default(4)
-  status    String   @default("FREE") // FREE | OCCUPIED | BILL_REQUESTED | RESERVED
-  posX      Float?   // إحداثيات مخطّط الصالة (لـ M3)
+  number    String // رقم/اسم الطاولة
+  seats     Int             @default(4)
+  status    String          @default("FREE") // FREE | OCCUPIED | BILL_REQUESTED | RESERVED
+  posX      Float? // إحداثيات مخطّط الصالة (لـ M3)
   posY      Float?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   orders Order[]
 
@@ -825,24 +865,24 @@ model MenuCategory {
 
 // صنف في القائمة — بديل Product لعمودية المطاعم (تسعير أساس + إضافات + محطة تحضير)
 model MenuItem {
-  id          String   @id @default(uuid())
+  id          String        @id @default(uuid())
   tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   categoryId  String?
   category    MenuCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  code        String   // كود الصنف (فريد لكل مطعم)
+  code        String // كود الصنف (فريد لكل مطعم)
   name        String
   description String?
   basePrice   Float
-  taxPct      Float    @default(15)
-  costPrice   Float    @default(0)   // تكلفة الصنف — لحساب COGS (M6)
-  prepStation String   @default("KITCHEN") // KITCHEN | BAR | GRILL | COLD
-  itemCode    String?  // كود الصنف للفوترة الإلكترونية (EGS/GS1)
-  image       String?  // صورة (base64 data URL)
-  isAvailable Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  taxPct      Float         @default(15)
+  costPrice   Float         @default(0) // تكلفة الصنف — لحساب COGS (M6)
+  prepStation String        @default("KITCHEN") // KITCHEN | BAR | GRILL | COLD
+  itemCode    String? // كود الصنف للفوترة الإلكترونية (EGS/GS1)
+  image       String? // صورة (base64 data URL)
+  isAvailable Boolean       @default(true)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   modifierGroups MenuItemModifierGroup[]
   orderItems     OrderItem[]
@@ -875,16 +915,16 @@ model ModifierGroup {
 
 // خيار إضافة واحد داخل مجموعة (كبير +5، جبنة إضافية +3...)
 model Modifier {
-  id         String   @id @default(uuid())
+  id         String        @id @default(uuid())
   tenantId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   groupId    String
   group      ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   name       String
-  priceDelta Float    @default(0)
-  isDefault  Boolean  @default(false)
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
+  priceDelta Float         @default(0)
+  isDefault  Boolean       @default(false)
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
 
   @@index([tenantId])
   @@index([groupId])
@@ -893,12 +933,12 @@ model Modifier {
 
 // ربط صنف بمجموعة إضافات (علاقة كثير-لكثير)
 model MenuItemModifierGroup {
-  id         String   @id @default(uuid())
+  id         String        @id @default(uuid())
   menuItemId String
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   groupId    String
   group      ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  sortOrder  Int @default(0)
+  sortOrder  Int           @default(0)
 
   @@unique([menuItemId, groupId])
   @@index([groupId])
@@ -911,16 +951,16 @@ model MenuItemModifierGroup {
 
 // طلب في الكاشير — يُفتح، تُضاف أصنافه، ثم يُدفع فيولّد فاتورة (checkout.ts)
 model Order {
-  id          String   @id @default(uuid())
+  id          String           @id @default(uuid())
   tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  number      Int      // رقم متسلسل معروض لكل مطعم
-  channel     String   @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY
-  status      String   @default("OPEN")    // OPEN | PAID | VOID
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number      Int // رقم متسلسل معروض لكل مطعم
+  channel     String           @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY
+  status      String           @default("OPEN") // OPEN | PAID | VOID
   tableId     String?
   table       RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  cashierName String?  // اسم مشغّل الكاشير (مبسّط في M3)
-  guests      Int      @default(1)
+  cashierName String? // اسم مشغّل الكاشير (مبسّط في M3)
+  guests      Int              @default(1)
   notes       String?
 
   subtotal         Float @default(0) // صافي قبل الضريبة
@@ -930,11 +970,11 @@ model Order {
   tipAmt           Float @default(0)
   total            Float @default(0)
 
-  invoiceId String?  @unique // القيد الفريد على الجدول الجديد (لا يمسّ جدول الفواتير)
-  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  invoiceId  String?  @unique // القيد الفريد على الجدول الجديد (لا يمسّ جدول الفواتير)
+  invoice    Invoice? @relation(fields: [invoiceId], references: [id])
   voidReason String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   items    OrderItem[]
   payments OrderPayment[]
@@ -951,22 +991,22 @@ model Order {
 
 // بند في الطلب — لقطة الاسم/السعر لحظة الطلب (سجلّ تاريخي مستقلّ عن تعديل القائمة لاحقاً)
 model OrderItem {
-  id             String  @id @default(uuid())
+  id             String    @id @default(uuid())
   orderId        String
-  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItemId     String?
   menuItem       MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
-  nameSnap       String  // لقطة اسم الصنف
-  qty            Float   @default(1)
-  unitPrice      Float   // سعر الأساس + مجموع الإضافات للوحدة
-  modifiersTotal Float   @default(0)
-  taxPct         Float   @default(0)
-  taxAmt         Float   @default(0)
+  nameSnap       String // لقطة اسم الصنف
+  qty            Float     @default(1)
+  unitPrice      Float // سعر الأساس + مجموع الإضافات للوحدة
+  modifiersTotal Float     @default(0)
+  taxPct         Float     @default(0)
+  taxAmt         Float     @default(0)
   lineTotal      Float
-  unitCost       Float   @default(0)
-  station        String  @default("KITCHEN")
+  unitCost       Float     @default(0)
+  station        String    @default("KITCHEN")
   note           String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   modifiers OrderItemModifier[]
 
@@ -976,11 +1016,11 @@ model OrderItem {
 
 // إضافة مختارة على بند طلب — لقطة الاسم وفرق السعر لحظة الطلب
 model OrderItemModifier {
-  id          String @id @default(uuid())
+  id          String    @id @default(uuid())
   orderItemId String
   orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   nameSnap    String
-  priceDelta  Float  @default(0)
+  priceDelta  Float     @default(0)
 
   @@index([orderItemId])
   @@map("order_item_modifiers")
@@ -988,10 +1028,10 @@ model OrderItemModifier {
 
 // دفعة على طلب — نقد/بطاقة/محفظة؛ صفوف متعددة = تقسيم الفاتورة (M3b)
 model OrderPayment {
-  id          String @id @default(uuid())
+  id          String   @id @default(uuid())
   orderId     String
-  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  method      String @default("CASH") // CASH | CARD | WALLET | ON_ACCOUNT
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method      String   @default("CASH") // CASH | CARD | WALLET | ON_ACCOUNT
   amount      Float
   tendered    Float? // المبلغ المستلَم نقداً (لحساب الباقي)
   changeGiven Float?

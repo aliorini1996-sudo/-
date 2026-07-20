@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { snapToRoads } from '../services/mapMatch';
 
 const router = Router();
 router.use(authenticate);
@@ -72,16 +73,28 @@ router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction)
   } catch (err) { next(err); }
 });
 
-// المواقع الحالية لكل المناديب — للأدمن (الخريطة الحيّة)
+// المواقع الحالية لكل المناديب — للأدمن (الخريطة الحيّة) مع عدّاد زيارات اليوم
 router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const reps = await prisma.salesRep.findMany({
-      where: { tenantId: tid, lastLat: { not: null } },
-      select: { id: true, name: true, phone: true, isActive: true, lastLat: true, lastLng: true, lastSeenAt: true },
-      orderBy: { lastSeenAt: 'desc' },
-    });
-    res.json({ success: true, data: reps });
+    const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+
+    const [reps, visitRows] = await Promise.all([
+      prisma.salesRep.findMany({
+        where: { tenantId: tid, lastLat: { not: null } },
+        select: { id: true, name: true, phone: true, isActive: true, lastLat: true, lastLng: true, lastSeenAt: true },
+        orderBy: { lastSeenAt: 'desc' },
+      }),
+      prisma.repVisit.groupBy({
+        by: ['salesRepId'],
+        where: { tenantId: tid, createdAt: { gte: dayStart } },
+        _count: { _all: true },
+      }),
+    ]);
+    const visitsByRep: Record<string, number> = {};
+    for (const r of visitRows) visitsByRep[r.salesRepId] = r._count._all;
+
+    res.json({ success: true, data: reps.map(r => ({ ...r, visitsToday: visitsByRep[r.id] || 0 })) });
   } catch (err) { next(err); }
 });
 
@@ -100,7 +113,14 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
       orderBy: { capturedAt: 'asc' }, take: 5000,
       select: { lat: true, lng: true, accuracy: true, speed: true, capturedAt: true },
     });
-    res.json({ success: true, data: points });
+
+    // مطابقة المسار مع الطرق ليظهر على الطريق لا فوق المباني (يسقط للخام عند التعذّر)
+    const snap = (req.query.snap as string | undefined) !== '0';
+    const snapped = snap
+      ? await snapToRoads(points, `${salesRepId}:${dateStr}:${points.length}`)
+      : null;
+
+    res.json({ success: true, data: points, snapped });
   } catch (err) { next(err); }
 });
 
