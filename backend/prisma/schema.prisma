@@ -251,6 +251,8 @@ model Customer {
   city          String?
   district      String?
   address       String?
+  lat           Float? // موقع العميل على الخريطة (اختياري) — يرفعه المندوب من الميدان
+  lng           Float?
   channel       String? // قناة البيع: MT | WHOLESALE | TT | DISCOUNTER | CASH_VAN | ECOMMERCE
   status        String  @default("ACTIVE") // ACTIVE | INACTIVE | BLOCKED
 

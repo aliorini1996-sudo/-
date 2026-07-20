@@ -46,6 +46,7 @@ export const customerApi = {
   update: (id: string, data: unknown) => api.put(`/customers/${id}`, data),
   statement: (id: string, params?: Record<string, string>) => api.get(`/customers/${id}/statement`, { params }),
   invoices: (id: string) => api.get(`/customers/${id}/invoices`),
+  locations: () => api.get('/customers/locations'),
   updatePrices: (id: string, prices: unknown) => api.put(`/customers/${id}/prices`, { prices }),
   remove: (id: string) => api.delete(`/customers/${id}`),
 };

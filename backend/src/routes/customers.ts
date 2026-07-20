@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
+import { resolveLocationUrl } from '../services/geoLink';
 
 const router = Router();
 router.use(authenticate);
@@ -20,6 +21,10 @@ const customerSchema = z.object({
   city: z.string().optional(),
   district: z.string().optional(),
   address: z.string().optional(),
+  // موقع العميل على الخريطة (اختياري): إحداثيات مباشرة أو رابط خرائط Google يحلّه الخادم
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
+  locationUrl: z.string().max(2000).optional(),
   // قناة البيع (تصنيف مؤسسي) — يقبل قيمة صحيحة أو فارغ/null/غياب (كلها = غير محدّد)
   channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).nullish().or(z.literal('')),
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
@@ -66,6 +71,19 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
+// مواقع العملاء على الخريطة (للإدارة) — من لديهم إحداثيات فقط
+router.get('/locations', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const customers = await prisma.customer.findMany({
+      where: { tenantId: tid, lat: { not: null }, lng: { not: null } },
+      select: { id: true, name: true, businessName: true, phone: true, city: true, district: true, address: true, lat: true, lng: true },
+      take: 5000,
+    });
+    res.json({ success: true, data: customers });
+  } catch (err) { next(err); }
+});
+
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -99,7 +117,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
     }
 
-    const { clientCreatedAt, ...rest } = data;
+    const { clientCreatedAt, locationUrl, ...rest } = data;
+    // حلّ رابط الموقع إلى إحداثيات إن لزم (اختياري — يُتجاهل عند الفشل)
+    if ((rest.lat == null || rest.lng == null) && locationUrl) {
+      const geo = await resolveLocationUrl(locationUrl);
+      if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
+    }
     // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
     // المزامنة متسلسلة على جهاز واحد فلا تكرار متزامن؛ والفحص أعلاه يمنع إعادة الرفع.
     const customer = await prisma.customer.create({
@@ -126,7 +149,12 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // التحقق أن العميل يخص شركة المستخدم قبل التعديل
     const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
-    const data = customerSchema.partial().parse(req.body);
+    const { locationUrl, ...data } = customerSchema.partial().parse(req.body);
+    // حلّ رابط الموقع إلى إحداثيات إن لزم (اختياري — يُتجاهل عند الفشل)
+    if ((data.lat == null || data.lng == null) && locationUrl) {
+      const geo = await resolveLocationUrl(locationUrl);
+      if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
+    }
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
       data: { ...data, email: data.email || null, ...(data.channel !== undefined && { channel: data.channel || null }) },

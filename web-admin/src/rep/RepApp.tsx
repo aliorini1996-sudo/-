@@ -991,6 +991,20 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
   });
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  // الموقع على الخريطة (اختياري): التقاط GPS مباشر أو لصق رابط خرائط Google
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locUrl, setLocUrl] = useState('');
+  const [gps, setGps] = useState<'idle' | 'getting' | 'ok' | 'denied'>('idle');
+
+  const captureGps = () => {
+    if (!navigator.geolocation) { setGps('denied'); return; }
+    setGps('getting');
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); },
+      () => setGps('denied'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    );
+  };
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -1009,6 +1023,10 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       city: form.city.trim() || undefined,
       district: form.district.trim() || undefined,
       address: form.address.trim() || undefined,
+      // الموقع الاختياري: إحداثيات GPS إن التُقطت، ورابط الموقع إن لُصق (يحلّه الخادم)
+      lat: coords?.lat,
+      lng: coords?.lng,
+      locationUrl: locUrl.trim() || undefined,
       creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined,
       paymentDays: form.paymentDays ? Number(form.paymentDays) : undefined,
       clientRef, clientCreatedAt,
@@ -1069,6 +1087,23 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
             {field(tr('الحي'), 'district')}
           </div>
           <div className="mt-3">{field(tr('العنوان التفصيلي'), 'address')}</div>
+        </div>
+
+        {/* الموقع على الخريطة — اختياري: يظهر للإدارة على خريطة التتبّع */}
+        <div>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('موقع العميل على الخريطة (اختياري)')}</p>
+          <button type="button" onClick={captureGps}
+            className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold border ${coords ? 'border-green-600 text-green-700 bg-green-50' : 'border-[#E15A30] text-[#E15A30]'}`}>
+            <MapPin size={16} />
+            {coords ? tr('تم تحديد الموقع ✓') : gps === 'getting' ? tr('جارٍ تحديد الموقع...') : tr('التقاط موقعي الحالي (عند العميل)')}
+          </button>
+          {coords && <p className="text-[11px] text-green-600 mt-1 text-center" dir="ltr">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</p>}
+          {gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr('تعذّر الوصول للموقع — الصق الرابط أدناه بدلاً منه')}</p>}
+          <div className="mt-2">
+            <input className="input" dir="ltr" placeholder={tr('أو الصق رابط الموقع من خرائط Google')}
+              value={locUrl} onChange={e => setLocUrl(e.target.value)} />
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1">{tr('من تطبيق خرائط Google: مشاركة ← نسخ الرابط، ثم الصقه هنا.')}</p>
         </div>
 
         <div>

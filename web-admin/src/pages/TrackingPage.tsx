@@ -3,9 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { trackingApi, visitsApi } from '../api/client';
+import { trackingApi, visitsApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
-import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft } from 'lucide-react';
+import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface LiveRep {
@@ -22,6 +22,10 @@ interface Visit {
 interface VisitDetail extends Visit {
   salesRep: { id: string; name: string } | null;
   photos: { id: string; data: string }[];
+}
+interface CustomerLoc {
+  id: string; name: string; businessName: string | null; phone: string | null;
+  city: string | null; district: string | null; address: string | null; lat: number; lng: number;
 }
 
 const SA_CENTER: [number, number] = [24.7136, 46.6753]; // الرياض كمركز افتراضي
@@ -47,6 +51,15 @@ function visitIcon(n: number) {
   });
 }
 
+// دبّوس موقع عميل (أزرق مميّز عن المناديب والزيارات)
+function customerIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#2563EB;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);color:#fff;font-size:10px;font-weight:700">●</span></div>`,
+    iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -20],
+  });
+}
+
 // يضبط حدود الخريطة لتشمل النقاط المعروضة
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
@@ -65,6 +78,7 @@ export default function TrackingPage() {
   const [openVisit, setOpenVisit] = useState<string | null>(null); // زيارة مفتوحة لعرض صورها
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null); // صورة مكبّرة (lightbox)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap'); // نوع خريطة Google
+  const [showCustomers, setShowCustomers] = useState(false); // إظهار مواقع العملاء
 
   // نصّ زمنيّ نسبيّ حسب لغة العرض
   const sinceText = (iso: string) => {
@@ -107,6 +121,12 @@ export default function TrackingPage() {
     queryFn: async () => (await visitsApi.detail(openVisit!)).data.data as VisitDetail,
     enabled: !!openVisit,
   });
+  // مواقع العملاء على الخريطة — تُجلب مرّة عند تفعيل الطبقة
+  const customerLocsQ = useQuery({
+    queryKey: ['customer-locations'],
+    queryFn: async () => (await customerApi.locations()).data.data as CustomerLoc[],
+    enabled: showCustomers && enabled,
+  });
 
   const toggle = useMutation({
     mutationFn: (v: boolean) => trackingApi.setEnabled(v),
@@ -118,6 +138,7 @@ export default function TrackingPage() {
   const route = routeQ.data?.points || [];
   const snapped = routeQ.data?.snapped || null;
   const visits = visitsQ.data || [];
+  const customerLocs = showCustomers ? (customerLocsQ.data || []) : [];
 
   const rawLatLng = useMemo(() => route.map(p => [p.lat, p.lng] as [number, number]), [route]);
   // مسار العرض: المطابَق للطرق إن توفّر (يتبع الشوارع)، وإلا النقاط الخام
@@ -246,12 +267,18 @@ export default function TrackingPage() {
 
           {/* الخريطة */}
           <div className="card p-0 overflow-hidden relative" style={{ height: 600 }}>
-              {/* مبدّل نوع خريطة Google: طرق / قمر صناعي */}
-              <div className="absolute top-2 right-2 z-[1000] flex rounded-lg overflow-hidden shadow-md text-xs font-semibold">
-                <button onClick={() => setMapType('roadmap')}
-                  className={`px-3 py-1.5 ${mapType === 'roadmap' ? 'bg-[#1F1A13] text-white' : 'bg-white text-[#1F1A13]'}`}>{tr('خريطة')}</button>
-                <button onClick={() => setMapType('satellite')}
-                  className={`px-3 py-1.5 ${mapType === 'satellite' ? 'bg-[#1F1A13] text-white' : 'bg-white text-[#1F1A13]'}`}>{tr('قمر صناعي')}</button>
+              {/* أدوات الخريطة: نوع الخريطة + طبقة مواقع العملاء */}
+              <div className="absolute top-2 right-2 z-[1000] flex flex-col items-end gap-2">
+                <div className="flex rounded-lg overflow-hidden shadow-md text-xs font-semibold">
+                  <button onClick={() => setMapType('roadmap')}
+                    className={`px-3 py-1.5 ${mapType === 'roadmap' ? 'bg-[#1F1A13] text-white' : 'bg-white text-[#1F1A13]'}`}>{tr('خريطة')}</button>
+                  <button onClick={() => setMapType('satellite')}
+                    className={`px-3 py-1.5 ${mapType === 'satellite' ? 'bg-[#1F1A13] text-white' : 'bg-white text-[#1F1A13]'}`}>{tr('قمر صناعي')}</button>
+                </div>
+                <button onClick={() => setShowCustomers(v => !v)}
+                  className={`px-3 py-1.5 rounded-lg shadow-md text-xs font-semibold flex items-center gap-1.5 ${showCustomers ? 'bg-[#2563EB] text-white' : 'bg-white text-[#1F1A13]'}`}>
+                  <Store size={13} /> {tr('مواقع العملاء')}{showCustomers && customerLocs.length ? ` (${customerLocs.length})` : ''}
+                </button>
               </div>
               <MapContainer center={SA_CENTER} zoom={6} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
                 {/* بلاطات خرائط Google (طرق m / قمر صناعي هجين y) */}
@@ -304,6 +331,22 @@ export default function TrackingPage() {
                             📷 {v._count.photos} {tr('صورة')}
                           </button></>
                         )}
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+
+                {/* طبقة مواقع العملاء (اختيارية) */}
+                {customerLocs.map(c => (
+                  <Marker key={`cust-${c.id}`} position={[c.lat, c.lng]} icon={customerIcon()}>
+                    <Popup>
+                      <div style={{ direction: 'rtl', minWidth: 150 }}>
+                        <strong style={{ color: '#2563EB' }}>{c.name}</strong>
+                        {c.businessName ? <><br /><span style={{ fontSize: 12 }}>{c.businessName}</span></> : null}
+                        {(c.city || c.district || c.address) && (
+                          <><br /><span style={{ color: '#6E6557', fontSize: 12 }}>{[c.city, c.district, c.address].filter(Boolean).join(' · ')}</span></>
+                        )}
+                        {c.phone ? <><br /><span style={{ color: '#9A8F7E', fontSize: 11 }} dir="ltr">{c.phone}</span></> : null}
                       </div>
                     </Popup>
                   </Marker>
