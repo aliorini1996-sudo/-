@@ -7,6 +7,15 @@ import { AuthRequest } from '../../types';
 // إدارة الصالات والطاولات. القراءة لأي مستخدم مطعم (خريطة الصالة في M3)؛ الكتابة للإدارة.
 const router = Router();
 
+// يتحقّق أنّ الصالة المُشار إليها تخصّ نفس المطعم — منع ربط عابر للشركات
+async function areaError(tid: string, areaId: string | null | undefined): Promise<string | null> {
+  if (areaId) {
+    const a = await prisma.restaurantArea.findFirst({ where: { id: areaId, tenantId: tid }, select: { id: true } });
+    if (!a) return 'الصالة غير موجودة';
+  }
+  return null;
+}
+
 // ---------- كل الصالات مع طاولاتها ----------
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -72,6 +81,8 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
   try {
     const tid = tenantId(req);
     const body = tableSchema.parse(req.body);
+    const aErr = await areaError(tid, body.areaId);
+    if (aErr) { res.status(400).json({ success: false, message: aErr }); return; }
     const table = await prisma.restaurantTable.create({ data: { ...body, tenantId: tid, areaId: body.areaId || null } as any });
     res.status(201).json({ success: true, data: table });
   } catch (err) {
@@ -83,9 +94,14 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
 router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const body = tableSchema.partial().parse(req.body);
+    const parsed = tableSchema.partial().parse(req.body);
     const exists = await prisma.restaurantTable.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'الطاولة غير موجودة' }); return; }
+    // طبّع areaId ('' → null) وتحقّق من ملكية الصالة لنفس المطعم
+    const normArea = parsed.areaId === '' ? null : parsed.areaId;
+    const aErr = await areaError(tid, normArea);
+    if (aErr) { res.status(400).json({ success: false, message: aErr }); return; }
+    const body = 'areaId' in req.body ? { ...parsed, areaId: normArea } : parsed;
     const table = await prisma.restaurantTable.update({ where: { id: req.params.id }, data: body as any });
     res.json({ success: true, data: table });
   } catch (err) {

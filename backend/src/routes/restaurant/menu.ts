@@ -8,6 +8,19 @@ import { AuthRequest } from '../../types';
 // (الكاشير يقرأ القائمة في M3)؛ الكتابة للإدارة فقط. العزل بـtenantId + requireVertical (بالأعلى).
 const router = Router();
 
+// يتحقّق أنّ القسم/مجموعات الإضافات المُشار إليها تخصّ نفس المطعم — منع ربط عابر للشركات
+async function refError(tid: string, categoryId: string | null | undefined, groupIds: string[] | undefined): Promise<string | null> {
+  if (categoryId) {
+    const c = await prisma.menuCategory.findFirst({ where: { id: categoryId, tenantId: tid }, select: { id: true } });
+    if (!c) return 'القسم غير موجود';
+  }
+  if (groupIds?.length) {
+    const cnt = await prisma.modifierGroup.count({ where: { id: { in: groupIds }, tenantId: tid } });
+    if (cnt !== new Set(groupIds).size) return 'إحدى مجموعات الإضافات غير موجودة';
+  }
+  return null;
+}
+
 // ---------- القائمة الكاملة (أقسام + أصناف مسطّحة + مجموعات إضافات) ----------
 // الأصناف تُجلب مسطّحةً (لا متداخلةً تحت الأقسام) حتى تظهر الأصناف بلا قسم (categoryId=null) أيضاً.
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -105,6 +118,8 @@ router.post('/items', requireAdmin, async (req: AuthRequest, res: Response, next
   try {
     const tid = tenantId(req);
     const { groupIds, categoryId, ...body } = itemSchema.parse(req.body);
+    const refErr = await refError(tid, categoryId, groupIds);
+    if (refErr) { res.status(400).json({ success: false, message: refErr }); return; }
     const code = body.code || `ITM-${Date.now().toString(36).toUpperCase()}`;
     const item = await prisma.menuItem.create({
       data: {
@@ -122,9 +137,14 @@ router.post('/items', requireAdmin, async (req: AuthRequest, res: Response, next
 router.put('/items/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { groupIds, ...body } = itemSchema.partial().parse(req.body);
+    const { groupIds, categoryId, ...rest } = itemSchema.partial().parse(req.body);
     const exists = await prisma.menuItem.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    // طبّع categoryId ('' → null) وتحقّق من ملكية القسم/المجموعات لنفس المطعم
+    const normCat = categoryId === '' ? null : categoryId;
+    const refErr = await refError(tid, normCat ?? undefined, groupIds);
+    if (refErr) { res.status(400).json({ success: false, message: refErr }); return; }
+    const body = 'categoryId' in req.body ? { ...rest, categoryId: normCat } : rest;
     // تحديث الصنف + إعادة ضبط روابط المجموعات إن أُرسلت groupIds
     await prisma.$transaction(async tx => {
       await tx.menuItem.update({ where: { id: req.params.id }, data: body as any });
@@ -194,7 +214,7 @@ router.post('/groups', requireAdmin, async (req: AuthRequest, res: Response, nex
 router.put('/groups/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { modifiers, ...body } = groupSchema.parse(req.body);
+    const { modifiers, ...body } = groupSchema.partial().parse(req.body);
     const exists = await prisma.modifierGroup.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'المجموعة غير موجودة' }); return; }
     // استبدال كامل للخيارات إن أُرسلت (أبسط من التزامن الجزئي)
