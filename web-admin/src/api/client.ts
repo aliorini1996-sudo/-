@@ -277,4 +277,10 @@ export const restaurantApi = {
   createTable: (data: unknown) => api.post('/restaurant/tables', data),
   updateTable: (id: string, data: unknown) => api.put(`/restaurant/tables/${id}`, data),
   deleteTable: (id: string) => api.delete(`/restaurant/tables/${id}`),
+  // الكاشير (M3)
+  orders: (status?: string) => api.get('/restaurant/pos/orders', { params: status ? { status } : undefined }),
+  createOrder: (data: unknown) => api.post('/restaurant/pos/orders', data),
+  updateOrderItems: (id: string, data: unknown) => api.put(`/restaurant/pos/orders/${id}/items`, data),
+  payOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/pay`, data),
+  voidOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/void`, data),
 };

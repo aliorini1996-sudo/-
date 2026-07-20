@@ -1,6 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { useState } from 'react';
-import { LayoutDashboard, ScrollText, LayoutGrid, LogOut, KeyRound, Eye, ArrowRight } from 'lucide-react';
+import { LayoutDashboard, ScrollText, LayoutGrid, LogOut, KeyRound, Eye, ArrowRight, Monitor } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { BrandIcon } from '../../components/BrandLogo';
 import ChangePasswordModal from '../../components/ChangePasswordModal';
@@ -52,6 +52,10 @@ export default function RestaurantLayout() {
                 <span>{item.label}</span>
               </NavLink>
             ))}
+            {/* الكاشير — شاشة ملء الشاشة (خارج شِل اللوحة) */}
+            <a href="/pos" className="sidebar-link w-full mt-2 bg-[#E15A30]/15 text-[#E15A30] hover:bg-[#E15A30]/25 hover:text-[#f0703f] font-semibold">
+              <Monitor size={18} className="flex-shrink-0" /> <span>فتح الكاشير</span>
+            </a>
           </nav>
 
           <div className="p-2 border-t border-white/10 space-y-1">
