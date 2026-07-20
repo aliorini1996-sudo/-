@@ -939,7 +939,10 @@ model Order {
   items    OrderItem[]
   payments OrderPayment[]
 
-  @@unique([tenantId, number]) // يمنع تكرار رقم الطلب تحت التزامن (مع withNumberRetry)
+  // ملاحظة: أُجِّل @@unique([tenantId, number]) لأن الإنتاج فيه أرقام طلبات مكرّرة قديمة
+  // (من سباق النقر المزدوج قبل التحصين) فيُفشل db push. الحماية الآن من مصدرها: الواجهة
+  // تفصل إنشاء الطلب عن الدفع فلا تُطلق إنشاءً مزدوجاً، والدفع ذرّي في checkout. يُعاد القيد
+  // بعد إزالة التكرارات القديمة (migration مقصودة بإذن). withNumberRetry يبقى (لا ضرر).
   @@index([tenantId])
   @@index([status])
   @@index([tableId])
