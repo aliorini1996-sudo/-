@@ -63,6 +63,7 @@ export default function TrackingPage() {
   const [selected, setSelected] = useState<string>('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [openVisit, setOpenVisit] = useState<string | null>(null); // زيارة مفتوحة لعرض صورها
+  const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap'); // نوع خريطة Google
 
   // نصّ زمنيّ نسبيّ حسب لغة العرض
   const sinceText = (iso: string) => {
@@ -203,9 +204,19 @@ export default function TrackingPage() {
 
           {/* الخريطة + الزيارات */}
           <div className="space-y-5">
-            <div className="card p-0 overflow-hidden" style={{ height: 520 }}>
+            <div className="card p-0 overflow-hidden relative" style={{ height: 520 }}>
+              {/* مبدّل نوع خريطة Google: طرق / قمر صناعي */}
+              <div className="absolute top-2 right-2 z-[1000] flex rounded-lg overflow-hidden shadow-md text-xs font-semibold">
+                <button onClick={() => setMapType('roadmap')}
+                  className={`px-3 py-1.5 ${mapType === 'roadmap' ? 'bg-[#1F1A13] text-white' : 'bg-white text-[#1F1A13]'}`}>{tr('خريطة')}</button>
+                <button onClick={() => setMapType('satellite')}
+                  className={`px-3 py-1.5 ${mapType === 'satellite' ? 'bg-[#1F1A13] text-white' : 'bg-white text-[#1F1A13]'}`}>{tr('قمر صناعي')}</button>
+              </div>
               <MapContainer center={SA_CENTER} zoom={6} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
-                <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                {/* بلاطات خرائط Google (طرق m / قمر صناعي هجين y) */}
+                <TileLayer key={mapType} attribution='&copy; Google'
+                  url={`https://{s}.google.com/vt/lyrs=${mapType === 'satellite' ? 'y' : 'm'}&x={x}&y={y}&z={z}`}
+                  subdomains={['mt0', 'mt1', 'mt2', 'mt3']} maxZoom={20} />
                 <FitBounds points={focusPoints} />
 
                 {/* علامات المواقع الحيّة (تُخفى عند تحديد مندوب لعرض مساره فقط) */}
