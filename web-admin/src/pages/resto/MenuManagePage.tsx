@@ -23,12 +23,15 @@ export default function MenuManagePage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['resto-menu'],
-    queryFn: async () => (await restaurantApi.menu()).data.data as { categories: MenuCategory[]; groups: ModifierGroup[] },
+    queryFn: async () => (await restaurantApi.menu()).data.data as { categories: MenuCategory[]; items: MenuItem[]; groups: ModifierGroup[] },
   });
   const categories = data?.categories ?? [];
   const groups = data?.groups ?? [];
-  const allItems = categories.flatMap(c => (c.items ?? []).map(it => ({ ...it, categoryId: it.categoryId ?? c.id })));
-  const items = selCat === 'all' ? allItems : allItems.filter(it => it.categoryId === selCat);
+  const allItems = data?.items ?? [];
+  const items = selCat === 'all' ? allItems
+    : selCat === 'none' ? allItems.filter(it => !it.categoryId)
+    : allItems.filter(it => it.categoryId === selCat);
+  const uncategorized = allItems.filter(it => !it.categoryId).length;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['resto-menu'] });
   const delMut = useMutation({
@@ -66,13 +69,18 @@ export default function MenuManagePage() {
             {categories.map(c => (
               <div key={c.id} className={`group flex items-center gap-1 rounded-lg mb-0.5 ${selCat === c.id ? 'bg-[#FBEBE2]' : 'hover:bg-gray-50'}`}>
                 <button onClick={() => setSelCat(c.id)} className={`flex-1 text-right px-3 py-2 text-sm ${selCat === c.id ? 'text-[#C94E28] font-semibold' : 'text-[#3a342b]'}`}>
-                  {c.name} <span className="text-xs text-[#9A8F7E]">({c.items?.length ?? 0})</span>
+                  {c.name} <span className="text-xs text-[#9A8F7E]">({allItems.filter(it => it.categoryId === c.id).length})</span>
                 </button>
                 <button onClick={() => setCatModal(c)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-[#E15A30]"><Pencil size={13} /></button>
                 <button onClick={() => setDel({ kind: 'category', id: c.id, name: c.name })} className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 ml-1"><Trash2 size={13} /></button>
               </div>
             ))}
-            {categories.length === 0 && <p className="text-xs text-gray-400 px-3 py-2">لا أقسام بعد</p>}
+            {uncategorized > 0 && (
+              <button onClick={() => setSelCat('none')} className={`w-full text-right px-3 py-2 rounded-lg text-sm mt-0.5 ${selCat === 'none' ? 'bg-[#FBEBE2] text-[#C94E28] font-semibold' : 'hover:bg-gray-50 text-[#3a342b]'}`}>
+                بلا قسم <span className="text-xs text-[#9A8F7E]">({uncategorized})</span>
+              </button>
+            )}
+            {categories.length === 0 && uncategorized === 0 && <p className="text-xs text-gray-400 px-3 py-2">لا أقسام بعد</p>}
           </aside>
 
           {/* الأصناف */}

@@ -25,7 +25,7 @@ export default function PosScreen() {
 
   const { data: menu } = useQuery({
     queryKey: ['resto-menu'],
-    queryFn: async () => (await restaurantApi.menu()).data.data as { categories: MenuCategory[]; groups: ModifierGroup[] },
+    queryFn: async () => (await restaurantApi.menu()).data.data as { categories: MenuCategory[]; items: MenuItem[]; groups: ModifierGroup[] },
   });
   const { data: tablesData } = useQuery({
     queryKey: ['resto-tables'],
@@ -33,7 +33,7 @@ export default function PosScreen() {
   });
   const groups = useMemo(() => new Map((menu?.groups ?? []).map(g => [g.id, g])), [menu]);
   const categories = menu?.categories ?? [];
-  const allItems = categories.flatMap(c => (c.items ?? []).map(it => ({ ...it, categoryId: it.categoryId ?? c.id })));
+  const allItems = menu?.items ?? [];
   const items = (catId === 'all' ? allItems : allItems.filter(it => it.categoryId === catId)).filter(it => it.isAvailable !== false);
 
   const subtotal = cart.reduce((s, l) => s + l.qty * unitPrice(l), 0);
