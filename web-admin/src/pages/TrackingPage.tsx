@@ -5,7 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { trackingApi, visitsApi } from '../api/client';
 import { useTr } from '../i18n/strings';
-import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X } from 'lucide-react';
+import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface LiveRep {
@@ -63,6 +63,7 @@ export default function TrackingPage() {
   const [selected, setSelected] = useState<string>('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [openVisit, setOpenVisit] = useState<string | null>(null); // زيارة مفتوحة لعرض صورها
+  const [zoomPhoto, setZoomPhoto] = useState<string | null>(null); // صورة مكبّرة (lightbox)
   const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap'); // نوع خريطة Google
 
   // نصّ زمنيّ نسبيّ حسب لغة العرض
@@ -284,8 +285,8 @@ export default function TrackingPage() {
                 ) : (
                   <div className="divide-y divide-[#F1EBDF]">
                     {visits.map((v, i) => (
-                      <button key={v.id} onClick={() => v._count.photos > 0 && setOpenVisit(v.id)}
-                        className={`w-full text-right px-4 py-3 flex items-start gap-3 ${v._count.photos > 0 ? 'hover:bg-[#FAF7F0]' : 'cursor-default'}`}>
+                      <button key={v.id} onClick={() => setOpenVisit(v.id)}
+                        className="w-full text-right px-4 py-3 flex items-start gap-3 hover:bg-[#FAF7F0]">
                         <span className="w-7 h-7 rounded-full bg-[#E7F5EE] text-[#1E7A52] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold text-[#1F1A13] text-sm truncate">{v.customer?.name || tr('عميل')}</p>
@@ -300,6 +301,7 @@ export default function TrackingPage() {
                             <Camera size={12} /> {v._count.photos}
                           </span>
                         )}
+                        <ChevronLeft size={16} className="text-[#C9BFB0] shrink-0 mt-1" />
                       </button>
                     ))}
                   </div>
@@ -314,13 +316,13 @@ export default function TrackingPage() {
         <p className="text-center text-sm text-[#9A8F7E] flex items-center justify-center gap-1.5"><Navigation size={14} /> {tr('لا توجد نقاط مسجّلة لهذا المندوب في هذا اليوم.')}</p>
       )}
 
-      {/* عارض صور الزيارة */}
+      {/* تفاصيل الزيارة: الملاحظة + الصور */}
       {openVisit && (
-        <div className="fixed inset-0 z-[1000] bg-black/70 flex items-center justify-center p-4" onClick={() => setOpenVisit(null)}>
+        <div className="fixed inset-0 z-[2000] bg-black/70 flex items-center justify-center p-4" onClick={() => setOpenVisit(null)}>
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-[#F1EBDF] flex items-center justify-between">
               <span className="font-bold text-[#1F1A13] text-sm">
-                {visitDetailQ.data?.customer?.name || tr('زيارة')}
+                {visitDetailQ.data?.customer?.name || tr('تفاصيل الزيارة')}
                 {visitDetailQ.data && <span className="text-[#9A8F7E] font-normal"> · {timeText(visitDetailQ.data.createdAt)}</span>}
               </span>
               <button onClick={() => setOpenVisit(null)} className="text-[#9A8F7E] hover:text-[#1F1A13]"><X size={20} /></button>
@@ -328,23 +330,41 @@ export default function TrackingPage() {
             <div className="p-4 overflow-y-auto">
               {visitDetailQ.isLoading ? (
                 <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
+              ) : visitDetailQ.isError ? (
+                <p className="text-center text-red-500 text-sm py-8">{tr('تعذّر تحميل تفاصيل الزيارة، حاول مجدداً.')}</p>
               ) : (
                 <>
-                  {visitDetailQ.data?.note && <p className="text-sm text-[#1F1A13] bg-[#FAF7F0] rounded-xl p-3 mb-4">{visitDetailQ.data.note}</p>}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {(visitDetailQ.data?.photos || []).map(ph => (
-                      <a key={ph.id} href={ph.data} target="_blank" rel="noreferrer" className="block aspect-square rounded-xl overflow-hidden border border-[#F1EBDF]">
-                        <img src={ph.data} alt="" className="w-full h-full object-cover" />
-                      </a>
-                    ))}
-                  </div>
-                  {visitDetailQ.data && visitDetailQ.data.photos.length === 0 && !visitDetailQ.data.note && (
-                    <p className="text-center text-gray-400 text-sm py-8">{tr('لا توجد تفاصيل إضافية.')}</p>
+                  {/* الملاحظة */}
+                  <p className="text-[11px] font-semibold text-[#9A8F7E] mb-1">{tr('ملاحظة الزيارة')}</p>
+                  {visitDetailQ.data?.note
+                    ? <p className="text-sm text-[#1F1A13] bg-[#FAF7F0] rounded-xl p-3 mb-4 whitespace-pre-wrap">{visitDetailQ.data.note}</p>
+                    : <p className="text-sm text-gray-400 bg-[#FAF7F0] rounded-xl p-3 mb-4">{tr('لا توجد ملاحظة.')}</p>}
+                  {/* الصور */}
+                  <p className="text-[11px] font-semibold text-[#9A8F7E] mb-1">{tr('صور الزيارة')} ({visitDetailQ.data?.photos.length || 0})</p>
+                  {(visitDetailQ.data?.photos.length || 0) > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {visitDetailQ.data!.photos.map(ph => (
+                        <button key={ph.id} onClick={() => setZoomPhoto(ph.data)}
+                          className="block aspect-square rounded-xl overflow-hidden border border-[#F1EBDF] hover:opacity-90">
+                          <img src={ph.data} alt="" className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 py-2">{tr('لا توجد صور لهذه الزيارة.')}</p>
                   )}
                 </>
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* تكبير صورة (lightbox) — بديل فتح data: URL الذي يحجبه المتصفّح */}
+      {zoomPhoto && (
+        <div className="fixed inset-0 z-[2100] bg-black/90 flex items-center justify-center p-4" onClick={() => setZoomPhoto(null)}>
+          <img src={zoomPhoto} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
+          <button onClick={() => setZoomPhoto(null)} className="absolute top-4 right-4 text-white/80 hover:text-white"><X size={28} /></button>
         </div>
       )}
     </div>
