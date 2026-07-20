@@ -73,7 +73,7 @@ export default function CustomersPage() {
   const openStatement = (c: Customer) => { setSelected(c); setShowStatement(true); };
   const openAdd = () => { setSelected(null); setShowModal(true); };
 
-  // فتح مباشر لملفّ عميل عبر ?open=<id> (من زر «ملف العميل» في خريطة التتبّع)
+  // فتح مباشر لكشف حساب عميل عبر ?open=<id> (من زر «ملف العميل» في خريطة التتبّع)
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     const openId = searchParams.get('open');
@@ -82,8 +82,8 @@ export default function CustomersPage() {
       try {
         const res = await customerApi.get(openId);
         const c = res.data.data as Customer;
-        if (c) { setSelected(c); setShowModal(true); }
-      } catch { toast.error(tr('تعذّر فتح ملف العميل')); }
+        if (c) { setSelected(c); setShowStatement(true); }
+      } catch { toast.error(tr('تعذّر فتح كشف حساب العميل')); }
       // نظّف الرابط كي لا يُعاد الفتح عند التحديث
       searchParams.delete('open');
       setSearchParams(searchParams, { replace: true });
