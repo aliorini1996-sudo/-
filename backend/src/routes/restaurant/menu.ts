@@ -8,20 +8,20 @@ import { AuthRequest } from '../../types';
 // (الكاشير يقرأ القائمة في M3)؛ الكتابة للإدارة فقط. العزل بـtenantId + requireVertical (بالأعلى).
 const router = Router();
 
-// ---------- القائمة الكاملة (شجرة أقسام → أصناف → مجموعات إضافات) ----------
+// ---------- القائمة الكاملة (أقسام + أصناف مسطّحة + مجموعات إضافات) ----------
+// الأصناف تُجلب مسطّحةً (لا متداخلةً تحت الأقسام) حتى تظهر الأصناف بلا قسم (categoryId=null) أيضاً.
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const [categories, groups] = await Promise.all([
+    const [categories, items, groups] = await Promise.all([
       prisma.menuCategory.findMany({
         where: { tenantId: tid },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        include: {
-          items: {
-            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-            include: { modifierGroups: { select: { groupId: true } } },
-          },
-        },
+      }),
+      prisma.menuItem.findMany({
+        where: { tenantId: tid },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        include: { modifierGroups: { select: { groupId: true } } },
       }),
       prisma.modifierGroup.findMany({
         where: { tenantId: tid },
@@ -29,7 +29,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         include: { modifiers: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } },
       }),
     ]);
-    res.json({ success: true, data: { categories, groups } });
+    res.json({ success: true, data: { categories, items, groups } });
   } catch (err) { next(err); }
 });
 

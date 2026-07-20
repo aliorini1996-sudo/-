@@ -3,21 +3,21 @@ import { Link } from 'react-router-dom';
 import { ScrollText, LayoutGrid, Boxes, UtensilsCrossed, Plus, ArrowLeft } from 'lucide-react';
 import { restaurantApi } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
-import type { MenuCategory, ModifierGroup, RestaurantArea, RestaurantTable } from '../../types';
+import type { MenuCategory, MenuItem, ModifierGroup, RestaurantArea, RestaurantTable } from '../../types';
 
 export default function RestaurantDashboard() {
   const { user } = useAuthStore();
 
   const { data: menu } = useQuery({
     queryKey: ['resto-menu'],
-    queryFn: async () => (await restaurantApi.menu()).data.data as { categories: MenuCategory[]; groups: ModifierGroup[] },
+    queryFn: async () => (await restaurantApi.menu()).data.data as { categories: MenuCategory[]; items: MenuItem[]; groups: ModifierGroup[] },
   });
   const { data: tables } = useQuery({
     queryKey: ['resto-tables'],
     queryFn: async () => (await restaurantApi.tables()).data.data as { areas: RestaurantArea[]; tables: RestaurantTable[] },
   });
 
-  const itemCount = (menu?.categories ?? []).reduce((s, c) => s + (c.items?.length ?? 0), 0);
+  const itemCount = menu?.items.length ?? 0;
   const stats = [
     { icon: ScrollText, label: 'الأقسام', value: menu?.categories.length ?? 0, color: '#E15A30' },
     { icon: UtensilsCrossed, label: 'الأصناف', value: itemCount, color: '#1E7A52' },
