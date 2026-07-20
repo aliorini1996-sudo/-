@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customerApi, companyApi } from '../api/client';
 import { Customer } from '../types';
@@ -71,6 +72,24 @@ export default function CustomersPage() {
   const openEdit = (c: Customer) => { setSelected(c); setShowModal(true); };
   const openStatement = (c: Customer) => { setSelected(c); setShowStatement(true); };
   const openAdd = () => { setSelected(null); setShowModal(true); };
+
+  // فتح مباشر لملفّ عميل عبر ?open=<id> (من زر «ملف العميل» في خريطة التتبّع)
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (!openId) return;
+    (async () => {
+      try {
+        const res = await customerApi.get(openId);
+        const c = res.data.data as Customer;
+        if (c) { setSelected(c); setShowModal(true); }
+      } catch { toast.error(tr('تعذّر فتح ملف العميل')); }
+      // نظّف الرابط كي لا يُعاد الفتح عند التحديث
+      searchParams.delete('open');
+      setSearchParams(searchParams, { replace: true });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // كشف حساب PDF بنفس شكل المندوب
   const openStatementPdf = async (c: Customer) => {

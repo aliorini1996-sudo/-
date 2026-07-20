@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -73,6 +74,7 @@ function FitBounds({ points }: { points: [number, number][] }) {
 export default function TrackingPage() {
   const qc = useQueryClient();
   const tr = useTr();
+  const navigate = useNavigate();
   const [selected, setSelected] = useState<string>('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [openVisit, setOpenVisit] = useState<string | null>(null); // زيارة مفتوحة لعرض صورها
@@ -347,6 +349,11 @@ export default function TrackingPage() {
                           <><br /><span style={{ color: '#6E6557', fontSize: 12 }}>{[c.city, c.district, c.address].filter(Boolean).join(' · ')}</span></>
                         )}
                         {c.phone ? <><br /><span style={{ color: '#9A8F7E', fontSize: 11 }} dir="ltr">{c.phone}</span></> : null}
+                        <br />
+                        <button onClick={() => navigate(`/app/customers?open=${c.id}`)}
+                          style={{ marginTop: 8, background: '#2563EB', color: '#fff', border: 0, borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          {tr('ملف العميل')}
+                        </button>
                       </div>
                     </Popup>
                   </Marker>
