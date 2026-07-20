@@ -20,7 +20,8 @@ export default function PosScreen() {
   const [channel, setChannel] = useState<'DINE_IN' | 'TAKEAWAY'>('DINE_IN');
   const [tableId, setTableId] = useState<string>('');
   const [modPick, setModPick] = useState<MenuItem | null>(null);
-  const [payOpen, setPayOpen] = useState(false);
+  // الطلب المُنشأ بانتظار الدفع — يحمل معرّفه وإجماليه المحسوب من الخادم (مصدر الحقيقة للمبلغ)
+  const [pending, setPending] = useState<{ orderId: string; total: number } | null>(null);
   const [receipt, setReceipt] = useState<{ number: string; total: number } | null>(null);
 
   const { data: menu } = useQuery({
@@ -54,19 +55,38 @@ export default function PosScreen() {
   };
   const setQty = (key: string, d: number) => setCart(c => c.flatMap(l => l.key === key ? (l.qty + d <= 0 ? [] : [{ ...l, qty: l.qty + d }]) : [l]));
 
-  const payMut = useMutation({
-    mutationFn: async (payments: { method: string; amount: number; tendered?: number }[]) => {
+  const errMsg = (e: unknown, fallback: string) => (e as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
+
+  // (1) إنشاء الطلب مرّة واحدة — يُعيد الخادم إجماليه الموثوق، ثم نفتح نافذة الدفع بذلك الإجمالي
+  const createMut = useMutation({
+    mutationFn: async () => {
       const created = await restaurantApi.createOrder({
         channel, tableId: channel === 'DINE_IN' ? (tableId || null) : null, guests: 1,
         items: cart.map(l => ({ menuItemId: l.menuItemId, qty: l.qty, modifierIds: l.mods.map(m => m.id) })),
       });
-      const orderId = created.data.data.id as string;
-      const res = await restaurantApi.payOrder(orderId, { payments });
+      const o = created.data.data as { id: string; total: number };
+      return { orderId: o.id, total: o.total };
+    },
+    onSuccess: (p) => setPending(p),
+    onError: (e) => toast.error(errMsg(e, 'تعذّر إنشاء الطلب')),
+  });
+
+  // (2) دفع الطلب المُنشأ نفسه — إعادة المحاولة عند الفشل تدفع الطلب ذاته (لا تُنشئ طلباً جديداً)
+  const payMut = useMutation({
+    mutationFn: async (payments: { method: string; amount: number; tendered?: number }[]) => {
+      const res = await restaurantApi.payOrder(pending!.orderId, { payments });
       return res.data.data.invoice as { number: string; total: number };
     },
-    onSuccess: (inv) => { setReceipt({ number: inv.number, total: inv.total }); setCart([]); setTableId(''); setPayOpen(false); },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر إتمام الدفع'),
+    onSuccess: (inv) => { setReceipt({ number: inv.number, total: inv.total }); setCart([]); setTableId(''); setPending(null); },
+    onError: (e) => toast.error(errMsg(e, 'تعذّر إتمام الدفع')),
   });
+
+  // (3) إلغاء الدفع → إلغاء الطلب المُنشأ (يحرّر الطاولة) فلا تتراكم طلبات يتيمة
+  const voidMut = useMutation({
+    mutationFn: () => restaurantApi.voidOrder(pending!.orderId, { reason: 'إلغاء من الكاشير' }),
+    onSettled: () => setPending(null),
+  });
+  const cancelPay = () => { if (pending && !payMut.isPending) voidMut.mutate(); };
 
   const handleLogout = () => { logout(); window.location.replace('/login'); };
 
@@ -157,14 +177,16 @@ export default function PosScreen() {
             <Row label="المجموع" value={money(subtotal)} />
             <Row label="ضريبة القيمة المضافة" value={money(taxAmt)} />
             <div className="flex items-center justify-between pt-1"><span className="font-bold">الإجمالي</span><span className="font-bold text-lg text-[#E15A30]">{money(total)}</span></div>
-            <button disabled={cart.length === 0} onClick={() => setPayOpen(true)}
-              className="w-full mt-1 bg-[#1E7A52] hover:bg-[#186845] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl">دفع</button>
+            <button disabled={cart.length === 0 || createMut.isPending} onClick={() => createMut.mutate()}
+              className="w-full mt-1 bg-[#1E7A52] hover:bg-[#186845] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
+              {createMut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'دفع'}
+            </button>
           </div>
         </aside>
       </div>
 
       {modPick && <ModifierPicker item={modPick} groups={groups} onClose={() => setModPick(null)} onAdd={mods => { pushLine(modPick, mods); setModPick(null); }} />}
-      {payOpen && <PaymentModal total={total} loading={payMut.isPending} onClose={() => setPayOpen(false)} onPay={payments => payMut.mutate(payments)} />}
+      {pending && <PaymentModal total={pending.total} loading={payMut.isPending || voidMut.isPending} onClose={cancelPay} onPay={payments => payMut.mutate(payments)} />}
       {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />}
     </div>
   );

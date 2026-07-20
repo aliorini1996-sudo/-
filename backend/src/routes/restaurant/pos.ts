@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../../config/database';
 import { tenantId } from '../../middleware/auth';
 import { AuthRequest } from '../../types';
-import { roundDecimal } from '../../utils/helpers';
+import { roundDecimal, withNumberRetry } from '../../utils/helpers';
 import { checkoutOrder } from '../../services/restaurant/checkout';
 
 // كاشير المطعم — الطلبات والدفع. كل ما تحته محمي بالمصادقة + requireVertical('restaurant') (بالأعلى).
@@ -82,24 +82,31 @@ router.post('/orders', async (req: AuthRequest, res: Response, next: NextFunctio
     const tid = tenantId(req);
     const body = orderInput.parse(req.body);
     const { lines, subtotal, taxAmt, total } = await buildLines(tid, body.items);
-    const last = await prisma.order.findFirst({ where: { tenantId: tid }, orderBy: { number: 'desc' }, select: { number: true } });
-    const number = (last?.number ?? 0) + 1;
-
-    const order = await prisma.$transaction(async tx => {
-      const o = await tx.order.create({
-        data: {
-          tenantId: tid, number, channel: body.channel, tableId: body.tableId || null,
-          guests: body.guests ?? 1, notes: body.notes || null,
-          cashierName: req.user?.name || null,
-          subtotal, taxAmt, total,
-          items: { create: lines },
-        } as any,
-        include: orderInclude,
+    // الطاولة (إن وُردت) يجب أن تخصّ نفس المطعم — منع ربط عابر للشركات
+    if (body.tableId) {
+      const t = await prisma.restaurantTable.findFirst({ where: { id: body.tableId, tenantId: tid }, select: { id: true } });
+      if (!t) { res.status(400).json({ success: false, message: 'الطاولة غير موجودة' }); return; }
+    }
+    // الرقم داخل withNumberRetry: عند تصادم @@unique([tenantId, number]) تحت التزامن يُعاد التوليد
+    const order = await withNumberRetry(async () => {
+      const last = await prisma.order.findFirst({ where: { tenantId: tid }, orderBy: { number: 'desc' }, select: { number: true } });
+      const number = (last?.number ?? 0) + 1;
+      return prisma.$transaction(async tx => {
+        const o = await tx.order.create({
+          data: {
+            tenantId: tid, number, channel: body.channel, tableId: body.tableId || null,
+            guests: body.guests ?? 1, notes: body.notes || null,
+            cashierName: req.user?.name || null,
+            subtotal, taxAmt, total,
+            items: { create: lines },
+          } as any,
+          include: orderInclude,
+        });
+        if (body.channel === 'DINE_IN' && body.tableId) {
+          await tx.restaurantTable.updateMany({ where: { id: body.tableId, tenantId: tid }, data: { status: 'OCCUPIED' } });
+        }
+        return o;
       });
-      if (body.channel === 'DINE_IN' && body.tableId) {
-        await tx.restaurantTable.updateMany({ where: { id: body.tableId, tenantId: tid }, data: { status: 'OCCUPIED' } });
-      }
-      return o;
     });
     res.status(201).json({ success: true, data: order });
   } catch (err) { next(err); }
@@ -130,23 +137,22 @@ router.post('/orders/:id/pay', async (req: AuthRequest, res: Response, next: Nex
     const tid = tenantId(req);
     const body = z.object({
       payments: z.array(z.object({
-        method: z.enum(['CASH', 'CARD', 'WALLET', 'ON_ACCOUNT']).default('CASH'),
+        method: z.enum(['CASH', 'CARD', 'WALLET', 'ON_ACCOUNT']),
         amount: z.number().min(0),
         tendered: z.number().min(0).nullish(),
       })).min(1),
     }).parse(req.body);
-    const order = await prisma.order.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, status: true } });
+    const order = await prisma.order.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, status: true, total: true } });
     if (!order) { res.status(404).json({ success: false, message: 'الطلب غير موجود' }); return; }
-    if (order.status !== 'OPEN') { res.status(400).json({ success: false, message: 'الطلب غير مفتوح' }); return; }
-
-    await prisma.orderPayment.createMany({
-      data: body.payments.map(p => ({
-        orderId: order.id, method: p.method, amount: p.amount,
-        tendered: p.tendered ?? null,
-        changeGiven: p.method === 'CASH' && p.tendered != null ? roundDecimal(Math.max(0, p.tendered - p.amount), 2) : null,
-      })),
-    });
-    const result = await checkoutOrder(tid, order.id);
+    if (order.status !== 'OPEN') { res.status(409).json({ success: false, message: 'الطلب مدفوع أو غير مفتوح' }); return; }
+    // تحقّق تغطية الدفع: مجموع الدفعات يجب أن يغطّي إجمالي الطلب (المحسوب من الخادم) — منع نجاح دفع زائف
+    const paid = roundDecimal(body.payments.reduce((s, p) => s + p.amount, 0), 2);
+    if (paid + 0.01 < order.total) {
+      res.status(400).json({ success: false, message: 'مبلغ الدفع أقل من إجمالي الطلب — حدّث القائمة وأعد المحاولة' });
+      return;
+    }
+    // الدفعات + الفاتورة + تحرير الطاولة ذرّياً داخل checkout (لا إنشاء دفعات خارج المعاملة)
+    const result = await checkoutOrder(tid, order.id, body.payments);
     const full = await prisma.order.findUnique({ where: { id: order.id }, include: orderInclude });
     res.json({ success: true, data: { order: full, invoice: result } });
   } catch (err) {

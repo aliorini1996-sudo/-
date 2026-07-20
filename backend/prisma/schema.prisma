@@ -939,6 +939,7 @@ model Order {
   items    OrderItem[]
   payments OrderPayment[]
 
+  @@unique([tenantId, number]) // يمنع تكرار رقم الطلب تحت التزامن (مع withNumberRetry)
   @@index([tenantId])
   @@index([status])
   @@index([tableId])
