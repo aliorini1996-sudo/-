@@ -65,6 +65,7 @@ model Tenant {
   menuItems         MenuItem[]
   modifierGroups    ModifierGroup[]
   modifiers         Modifier[]
+  orders            Order[]
 
   @@index([vertical])
   @@map("tenants")
@@ -342,12 +343,19 @@ model Invoice {
   clientRef       String?
   clientCreatedAt DateTime? // لحظة الإنشاء على جهاز المندوب (قد تسبق الرفع بساعات)
 
+  // إضافات عمودية المطاعم (M3) — كلها بقيم افتراضية/nullable (لا تمسّ فواتير التوزيع)
+  orderType        String? @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY (للمطاعم فقط)
+  serviceChargeAmt Float   @default(0)          // رسوم الخدمة (للمطاعم)
+  tipAmt           Float   @default(0)          // إكرامية (ليست إيراداً ولا ضريبة)
+  shiftId          String?                       // ربط بوردية الكاشير (M4)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   items          InvoiceItem[]
   receiptItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
+  order          Order?          // الطلب الذي وُلِّدت منه فاتورة المطعم (علاقة ظهر، بلا عمود)
 
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])
@@ -363,6 +371,11 @@ model InvoiceItem {
   // أما بنود فاتورة المطعم (عمودية restaurant) فتشير إلى MenuItem وتترك productId فارغاً.
   productId   String?
   product     Product? @relation(fields: [productId], references: [id])
+  // بنود فاتورة المطعم (M3) — تشير إلى MenuItem بدل Product، مع أثر رجعي للطلب وتكلفة مجمّدة
+  menuItemId  String?
+  menuItem    MenuItem? @relation(fields: [menuItemId], references: [id])
+  orderItemId String?
+  unitCost    Float    @default(0) // تكلفة الصنف لحظة البيع (لحساب COGS في M6)
   qty         Float
   unitPrice   Float
   discountPct Float   @default(0)
@@ -371,6 +384,7 @@ model InvoiceItem {
   taxAmt      Float
   lineTotal   Float
 
+  @@index([menuItemId])
   @@map("invoice_items")
 }
 
@@ -784,6 +798,8 @@ model RestaurantTable {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  orders Order[]
+
   @@unique([tenantId, number])
   @@index([tenantId])
   @@index([areaId])
@@ -829,6 +845,8 @@ model MenuItem {
   updatedAt   DateTime @updatedAt
 
   modifierGroups MenuItemModifierGroup[]
+  orderItems     OrderItem[]
+  invoiceItems   InvoiceItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -885,4 +903,97 @@ model MenuItemModifierGroup {
   @@unique([menuItemId, groupId])
   @@index([groupId])
   @@map("menu_item_modifier_groups")
+}
+
+// ============================================================================
+// عمودية المطاعم — الكاشير والطلبات والدفع (M3). كلها جداول جديدة (إضافية بحتة).
+// ============================================================================
+
+// طلب في الكاشير — يُفتح، تُضاف أصنافه، ثم يُدفع فيولّد فاتورة (checkout.ts)
+model Order {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number      Int      // رقم متسلسل معروض لكل مطعم
+  channel     String   @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY
+  status      String   @default("OPEN")    // OPEN | PAID | VOID
+  tableId     String?
+  table       RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  cashierName String?  // اسم مشغّل الكاشير (مبسّط في M3)
+  guests      Int      @default(1)
+  notes       String?
+
+  subtotal         Float @default(0) // صافي قبل الضريبة
+  discountAmt      Float @default(0)
+  serviceChargeAmt Float @default(0)
+  taxAmt           Float @default(0)
+  tipAmt           Float @default(0)
+  total            Float @default(0)
+
+  invoiceId String?  @unique // القيد الفريد على الجدول الجديد (لا يمسّ جدول الفواتير)
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  voidReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items    OrderItem[]
+  payments OrderPayment[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([tableId])
+  @@map("orders")
+}
+
+// بند في الطلب — لقطة الاسم/السعر لحظة الطلب (سجلّ تاريخي مستقلّ عن تعديل القائمة لاحقاً)
+model OrderItem {
+  id             String  @id @default(uuid())
+  orderId        String
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId     String?
+  menuItem       MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  nameSnap       String  // لقطة اسم الصنف
+  qty            Float   @default(1)
+  unitPrice      Float   // سعر الأساس + مجموع الإضافات للوحدة
+  modifiersTotal Float   @default(0)
+  taxPct         Float   @default(0)
+  taxAmt         Float   @default(0)
+  lineTotal      Float
+  unitCost       Float   @default(0)
+  station        String  @default("KITCHEN")
+  note           String?
+  createdAt      DateTime @default(now())
+
+  modifiers OrderItemModifier[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// إضافة مختارة على بند طلب — لقطة الاسم وفرق السعر لحظة الطلب
+model OrderItemModifier {
+  id          String @id @default(uuid())
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  nameSnap    String
+  priceDelta  Float  @default(0)
+
+  @@index([orderItemId])
+  @@map("order_item_modifiers")
+}
+
+// دفعة على طلب — نقد/بطاقة/محفظة؛ صفوف متعددة = تقسيم الفاتورة (M3b)
+model OrderPayment {
+  id          String @id @default(uuid())
+  orderId     String
+  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method      String @default("CASH") // CASH | CARD | WALLET | ON_ACCOUNT
+  amount      Float
+  tendered    Float? // المبلغ المستلَم نقداً (لحساب الباقي)
+  changeGiven Float?
+  reference   String?
+  createdAt   DateTime @default(now())
+
+  @@index([orderId])
+  @@map("order_payments")
 }
