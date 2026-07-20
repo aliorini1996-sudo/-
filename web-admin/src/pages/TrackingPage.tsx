@@ -162,14 +162,16 @@ export default function TrackingPage() {
           <button onClick={() => toggle.mutate(true)} disabled={toggle.isPending} className="btn-primary mx-auto mt-5"><Power size={16} /> {tr('تفعيل التتبّع')}</button>
         </div>
       ) : (
-        <div className="grid lg:grid-cols-[320px_1fr] gap-5">
+        <div className="grid lg:grid-cols-[340px_1fr] gap-5 items-start">
+          {/* العمود الأيسر: المناديب ثم زيارات المندوب المحدّد أسفلها مباشرةً */}
+          <div className="space-y-5 min-w-0">
           {/* قائمة المناديب */}
-          <div className="card p-0 overflow-hidden h-fit">
+          <div className="card p-0 overflow-hidden">
             <div className="px-4 py-3 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center justify-between">
               <span>{tr('المناديب')} ({reps.length})</span>
               {selected && <button onClick={() => setSelected('')} className="text-xs text-[#E15A30] font-semibold">{tr('إلغاء التحديد')}</button>}
             </div>
-            <div className="max-h-[520px] overflow-y-auto">
+            <div className="max-h-[340px] overflow-y-auto">
               {reps.length === 0 ? (
                 <p className="text-center text-gray-400 text-sm py-10 px-4">{tr('لا توجد مواقع بعد. سجّل المناديب دخولهم وفعّلوا الموقع لتظهر هنا.')}</p>
               ) : reps.map(r => {
@@ -203,9 +205,47 @@ export default function TrackingPage() {
             )}
           </div>
 
-          {/* الخريطة + الزيارات */}
-          <div className="space-y-5">
-            <div className="card p-0 overflow-hidden relative" style={{ height: 520 }}>
+          {/* قائمة زيارات المندوب المحدّد — أسفل المندوب مباشرةً */}
+          {selected && (
+            <div className="card p-0 overflow-hidden">
+              <div className="px-4 py-3 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
+                <ClipboardCheck size={16} className="text-[#5FBE92]" />
+                {tr('زيارات')} {selectedRep?.name} — {visits.length}
+              </div>
+              {visitsQ.isLoading ? (
+                <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
+              ) : visits.length === 0 ? (
+                <p className="text-center text-gray-400 text-sm py-8 px-4">{tr('لا توجد زيارات مسجّلة لهذا المندوب في هذا اليوم.')}</p>
+              ) : (
+                <div className="max-h-[420px] overflow-y-auto divide-y divide-[#F1EBDF]">
+                  {visits.map((v, i) => (
+                    <button key={v.id} onClick={() => setOpenVisit(v.id)}
+                      className="w-full text-right px-4 py-3 flex items-start gap-3 hover:bg-[#FAF7F0]">
+                      <span className="w-7 h-7 rounded-full bg-[#E7F5EE] text-[#1E7A52] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-[#1F1A13] text-sm truncate">{v.customer?.name || tr('عميل')}</p>
+                        {v.note && <p className="text-[12px] text-[#6E6557] mt-0.5 line-clamp-2">{v.note}</p>}
+                        <p className="text-[11px] text-[#9A8F7E] mt-0.5 flex items-center gap-2">
+                          <span>{timeText(v.createdAt)}</span>
+                          {v.lat != null && <span className="flex items-center gap-0.5"><MapPin size={10} /> {tr('موقع')}</span>}
+                        </p>
+                      </div>
+                      {v._count.photos > 0 && (
+                        <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-[#E15A30] bg-[#FBEBE2] rounded-full px-2 py-1">
+                          <Camera size={12} /> {v._count.photos}
+                        </span>
+                      )}
+                      <ChevronLeft size={16} className="text-[#C9BFB0] shrink-0 mt-1" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          </div>
+
+          {/* الخريطة */}
+          <div className="card p-0 overflow-hidden relative" style={{ height: 600 }}>
               {/* مبدّل نوع خريطة Google: طرق / قمر صناعي */}
               <div className="absolute top-2 right-2 z-[1000] flex rounded-lg overflow-hidden shadow-md text-xs font-semibold">
                 <button onClick={() => setMapType('roadmap')}
@@ -270,45 +310,6 @@ export default function TrackingPage() {
                 ))}
               </MapContainer>
             </div>
-
-            {/* قائمة زيارات المندوب المحدّد */}
-            {selected && (
-              <div className="card p-0 overflow-hidden">
-                <div className="px-4 py-3 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
-                  <ClipboardCheck size={16} className="text-[#5FBE92]" />
-                  {tr('زيارات')} {selectedRep?.name} — {visits.length}
-                </div>
-                {visitsQ.isLoading ? (
-                  <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
-                ) : visits.length === 0 ? (
-                  <p className="text-center text-gray-400 text-sm py-8 px-4">{tr('لا توجد زيارات مسجّلة لهذا المندوب في هذا اليوم.')}</p>
-                ) : (
-                  <div className="divide-y divide-[#F1EBDF]">
-                    {visits.map((v, i) => (
-                      <button key={v.id} onClick={() => setOpenVisit(v.id)}
-                        className="w-full text-right px-4 py-3 flex items-start gap-3 hover:bg-[#FAF7F0]">
-                        <span className="w-7 h-7 rounded-full bg-[#E7F5EE] text-[#1E7A52] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold text-[#1F1A13] text-sm truncate">{v.customer?.name || tr('عميل')}</p>
-                          {v.note && <p className="text-[12px] text-[#6E6557] mt-0.5 line-clamp-2">{v.note}</p>}
-                          <p className="text-[11px] text-[#9A8F7E] mt-0.5 flex items-center gap-2">
-                            <span>{timeText(v.createdAt)}</span>
-                            {v.lat != null && <span className="flex items-center gap-0.5"><MapPin size={10} /> {tr('موقع')}</span>}
-                          </p>
-                        </div>
-                        {v._count.photos > 0 && (
-                          <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-[#E15A30] bg-[#FBEBE2] rounded-full px-2 py-1">
-                            <Camera size={12} /> {v._count.photos}
-                          </span>
-                        )}
-                        <ChevronLeft size={16} className="text-[#C9BFB0] shrink-0 mt-1" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
