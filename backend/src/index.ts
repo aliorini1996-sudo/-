@@ -154,16 +154,19 @@ app.get('/api/geo-test', async (req, res) => {
       const cands: string[] = [];
       const re = /(2[0-9]\.\d{4,})/g; let m: RegExpExecArray | null; let n = 0;
       while ((m = re.exec(full)) && n < 4) { cands.push(full.slice(Math.max(0, m.index - 12), m.index + 30).replace(/\s+/g, ' ')); n++; }
-      const info = {
-        bodyLen: full.length,
-        hasLatitude: /latitude/i.test(full),
-        hasLdJson: /application\/ld\+json/.test(full),
-        cid: (full.match(/0x[0-9a-f]+:0x[0-9a-f]+/i) || [])[0] || null,
-        ftid: (full.match(/ftid=([^&"']+)/) || [])[1] || null,
-        candidates: cands,
-        previewLink: (full.match(/\/maps\/preview\/place\?[^"']{0,200}/) || [])[0] || null,
-      };
-      res.json({ hops, info, bodySample, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
+      // اجلب رابط المعاينة الداخلي (يعيد بيانات المكان) وابحث فيه عن الإحداثيات
+      const prevHref = (full.match(/\/maps\/preview\/place\?[^"']+/) || [])[0];
+      let prevProbe: { status?: number; len?: number; coords?: string | null; sample?: string } = {};
+      if (prevHref) {
+        const purl = 'https://www.google.com' + prevHref.replace(/&amp;/g, '&');
+        try {
+          const pr = await fetch(purl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' } });
+          const pb = await pr.text();
+          const cm = pb.match(/(2[0-9]\.\d{4,})\s*,?\s*(4[0-9]\.\d{4,})/) || pb.match(/(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})/);
+          prevProbe = { status: pr.status, len: pb.length, coords: cm ? cm.slice(1, 3).join(',') : null, sample: pb.replace(/\s+/g, ' ').slice(0, 200) };
+        } catch (e) { prevProbe = { sample: 'ERR:' + String(e) }; }
+      }
+      res.json({ hops: hops.length, cid: (full.match(/0x[0-9a-f]+:0x[0-9a-f]+/i) || [])[0] || null, bodyCands: cands, prevProbe, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
       return;
     }
     res.json({ hops, note: 'no final body' });
