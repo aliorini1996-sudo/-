@@ -10,12 +10,15 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { formatCurrency, formatDate, formatNumber, statusLabels, paymentMethodLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { shareOrDownloadExcel, num } from '../utils/excel';
+import { useAuthStore } from '../store/authStore';
 
 interface Creds { name: string; username: string; password: string; }
 
 export default function SalesRepsPage() {
   const qc = useQueryClient();
   const tr = useTr();
+  const { user } = useAuthStore();
+  const isMainAdmin = user?.role === 'ADMIN'; // حذف المندوب للأدمن الرئيسي فقط
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected] = useState<SalesRep | null>(null);
@@ -133,7 +136,9 @@ export default function SalesRepsPage() {
                       <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title={tr('كشف الأداء والمبيعات')}><FileBarChart2 size={14} /></button>
                       <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true, canManageVanStock: r.canManageVanStock ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}><Edit size={14} /></button>
                       <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title={tr('إعادة تعيين كلمة المرور')}><KeyRound size={14} /></button>
-                      <button onClick={() => setDeleting(r)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title={tr('حذف المندوب')}><Trash2 size={14} /></button>
+                      {isMainAdmin && (
+                        <button onClick={() => setDeleting(r)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title={tr('حذف المندوب')}><Trash2 size={14} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -173,7 +178,7 @@ export default function SalesRepsPage() {
         <ConfirmDialog
           danger
           title={tr('حذف المندوب')}
-          message={`${tr('سيتم حذف المندوب')} «${deleting.name}» ${tr('نهائياً ولا يمكن التراجع. إن كانت لديه فواتير أو سندات فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.')}`}
+          message={`${tr('سيتم حذف المندوب')} «${deleting.name}» ${tr('نهائياً ولا يمكن التراجع. تُحفظ فواتيره وسنداته كسجلّ مالي لكن دون نسبتها إليه، وتُحذف بياناته التشغيلية (مخزون السيارة، المواقع، الزيارات).')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}

@@ -320,8 +320,9 @@ model Invoice {
   number        String
   customerId    String
   customer      Customer  @relation(fields: [customerId], references: [id])
-  salesRepId    String
-  salesRep      SalesRep  @relation(fields: [salesRepId], references: [id])
+  // اختياري + SetNull: حذف المندوب يحفظ فاتورته (سجلّ مالي) ويُفرِّغ مرجع المندوب فقط
+  salesRepId    String?
+  salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
   type          String    @default("CREDIT") // CASH | CREDIT | RETURN
   status        String    @default("CONFIRMED") // DRAFT | CONFIRMED | CANCELLED
   returnReason  String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
@@ -402,8 +403,9 @@ model Receipt {
   number        String
   customerId    String
   customer      Customer @relation(fields: [customerId], references: [id])
-  salesRepId    String
-  salesRep      SalesRep @relation(fields: [salesRepId], references: [id])
+  // اختياري + SetNull: حذف المندوب يحفظ سنده (سجلّ مالي) ويُفرِّغ مرجع المندوب فقط
+  salesRepId    String?
+  salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
   receiptDate   DateTime @default(now())
   amount        Float
   paymentMethod String   @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE

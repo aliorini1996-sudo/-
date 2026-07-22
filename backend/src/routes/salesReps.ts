@@ -175,29 +175,30 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (err) { next(err); }
 });
 
-// حذف مندوب — للإدارة فقط (المسار محميّ بـ requireAdmin عالمياً). يُمنع الحذف إن كانت له فواتير/سندات.
+// حذف مندوب — للأدمن الرئيسي فقط (role=ADMIN، لا MANAGER/ACCOUNTANT)، مهما ارتبط بأي شيء.
+// الفواتير والسندات (سجلّات مالية) تُحفظ ويُفرَّغ مرجع المندوب منها؛ بياناته التشغيلية تُحذف.
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    // القيد: الأدمن الرئيسي فقط (لا مدير/محاسب)
+    if (req.user?.role !== 'ADMIN') {
+      res.status(403).json({ success: false, message: 'حذف المندوب متاح للأدمن الرئيسي فقط.' });
+      return;
+    }
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
-    // منع الحذف عند وجود فواتير أو سندات مرتبطة بالمندوب — يُقترح التعطيل بدلاً منه
-    const [invoices, receipts] = await Promise.all([
-      prisma.invoice.count({ where: { salesRepId: req.params.id } }),
-      prisma.receipt.count({ where: { salesRepId: req.params.id } }),
-    ]);
-    if (invoices > 0 || receipts > 0) {
-      res.status(409).json({ success: false, message: 'لا يمكن حذف المندوب لوجود فواتير أو سندات مرتبطة به. يمكنك تعطيله (تغيير حالته إلى «غير نشط») بدلاً من الحذف.' });
-      return;
-    }
-
-    // حذف البيانات التابعة (إشعارات، تحميلات السيارة وعناصرها، مواقع GPS) ثم المندوب، في معاملة واحدة
+    // معاملة واحدة: تفريغ مرجع المندوب من الفواتير/السندات (حفظ السجلّ المالي)،
+    // ثم حذف بياناته التشغيلية (إشعارات/تحميلات/مواقع/زيارات/تسويات) وأخيراً المندوب.
     await prisma.$transaction([
+      prisma.invoice.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
+      prisma.receipt.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
       prisma.notification.deleteMany({ where: { salesRepId: req.params.id } }),
       prisma.vanLoadItem.deleteMany({ where: { vanLoad: { salesRepId: req.params.id } } }),
       prisma.vanLoad.deleteMany({ where: { salesRepId: req.params.id } }),
       prisma.repLocation.deleteMany({ where: { salesRepId: req.params.id } }),
+      prisma.repVisit.deleteMany({ where: { salesRepId: req.params.id } }), // صورها تُحذف تعاقبياً
+      prisma.repSettlement.deleteMany({ where: { salesRepId: req.params.id } }),
       prisma.salesRep.delete({ where: { id: req.params.id } }),
     ]);
     res.json({ success: true });
