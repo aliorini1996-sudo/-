@@ -1,18 +1,22 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/client';
 import { formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, MapPin } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import toast from 'react-hot-toast';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
 interface WorkHoursRow { id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number; firstSeen: string | null; lastSeen: string | null }
-interface PerfRow { id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number }
+interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: number; mapsUrl: string }
+interface PerfRow {
+  id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number;
+  workMinutes: number; workHours: number; workMins: number; visitsCount: number; visits: VisitLoc[];
+}
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -59,11 +63,12 @@ export default function ReportsPage() {
     enabled: tab === 'balances',
   });
 
+  const [expandedPerf, setExpandedPerf] = useState<string | null>(null); // صفّ مواقع الزيارات المفتوح
   const { data: perfData } = useQuery({
     queryKey: ['report-performance', from, to],
     queryFn: async () => {
       const res = await reportApi.repPerformance({ from, to });
-      return res.data.data as { id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number }[];
+      return res.data.data as PerfRow[];
     },
     enabled: tab === 'performance' && perfType === 'performance',
   });
@@ -101,7 +106,13 @@ export default function ReportsPage() {
       sheets = [{ name: tr('أداء المناديب'), rows: perfData.map(r => ({
         [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
         [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
-      })), colWidths: [22, 12, 16, 14, 14, 16] }];
+        [tr('ساعات العمل')]: fmtDuration(r.workHours, r.workMins), [tr('عدد الزيارات')]: r.visitsCount,
+      })), colWidths: [22, 12, 16, 14, 14, 16, 14, 12] }];
+      // ورقة مواقع الزيارات (روابط خرائط Google)
+      const locRows = perfData.flatMap(r => r.visits.map(v => ({
+        [tr('المندوب')]: r.name, [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl,
+      })));
+      if (locRows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: locRows, colWidths: [22, 22, 18, 40] });
       fname = tr('أداء المناديب');
     } else if (tab === 'sales' && Array.isArray(salesData) && salesData.length) {
       sheets = [{ name: tr('المبيعات'), rows: (salesData as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
@@ -133,8 +144,15 @@ export default function ReportsPage() {
     const rows = [{
       [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
       [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
+      [tr('ساعات العمل')]: fmtDuration(r.workHours, r.workMins), [tr('عدد الزيارات')]: r.visitsCount,
     }];
-    const out = await shareOrDownloadExcel([{ name: tr('أداء المندوب'), rows, colWidths: [22, 12, 16, 14, 14, 16] }], `${tr('أداء')}-${safeName(r.name)}-${day()}`);
+    const sheets = [{ name: tr('أداء المندوب'), rows, colWidths: [22, 12, 16, 14, 14, 16, 14, 12] }];
+    if (r.visits.length) sheets.push({
+      name: tr('مواقع الزيارات'),
+      rows: r.visits.map(v => ({ [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl })),
+      colWidths: [22, 18, 40],
+    });
+    const out = await shareOrDownloadExcel(sheets, `${tr('أداء')}-${safeName(r.name)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepHours = async (r: WorkHoursRow) => {
@@ -318,12 +336,14 @@ export default function ReportsPage() {
                 <thead>
                   <tr>
                     <th>{tr('المندوب')}</th><th>{tr('عدد الفواتير')}</th><th>{tr('إجمالي المبيعات')}</th>
-                    <th>{tr('التحصيل')}</th><th>{tr('نسبة التحصيل')}</th><th>{tr('متوسط الفاتورة')}</th><th>{tr('تصدير')}</th>
+                    <th>{tr('التحصيل')}</th><th>{tr('نسبة التحصيل')}</th><th>{tr('متوسط الفاتورة')}</th>
+                    <th>{tr('ساعات العمل')}</th><th>{tr('عدد الزيارات')}</th><th>{tr('تصدير')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {perfData.map(r => (
-                    <tr key={r.id}>
+                    <Fragment key={r.id}>
+                    <tr>
                       <td className="font-medium text-gray-800">{r.name}</td>
                       <td className="text-gray-600">{r.invoicesCount}</td>
                       <td className="font-semibold text-[#E15A30]">{formatCurrency(r.salesTotal)}</td>
@@ -337,11 +357,41 @@ export default function ReportsPage() {
                         </div>
                       </td>
                       <td className="text-gray-500">{formatCurrency(r.avgInvoice)}</td>
+                      <td className="font-semibold text-[#1E7A52]">{fmtDuration(r.workHours, r.workMins)}</td>
+                      <td>
+                        {r.visits.length > 0 ? (
+                          <button onClick={() => setExpandedPerf(p => p === r.id ? null : r.id)}
+                            className="inline-flex items-center gap-1 text-[#2563EB] font-semibold hover:underline"
+                            title={tr('عرض مواقع الزيارات')}>
+                            <MapPin size={13} /> {r.visitsCount} {expandedPerf === r.id ? '▲' : '▾'}
+                          </button>
+                        ) : <span className="text-gray-500">{r.visitsCount}</span>}
+                      </td>
                       <td>
                         <button onClick={() => exportRepPerf(r)} title={`${tr('تصدير تقرير')} ${r.name}`}
                           className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
                       </td>
                     </tr>
+                    {expandedPerf === r.id && r.visits.length > 0 && (
+                      <tr>
+                        <td colSpan={9} className="bg-[#FAF7F0] p-0">
+                          <div className="p-3">
+                            <p className="text-xs font-semibold text-[#6E6557] mb-2">{tr('مواقع زيارات')} {r.name} ({r.visits.length})</p>
+                            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                              {r.visits.map((v, i) => (
+                                <a key={i} href={v.mapsUrl} target="_blank" rel="noreferrer"
+                                  className="flex items-center gap-1.5 text-xs bg-white border border-[#F1EBDF] rounded-lg px-2.5 py-1.5 hover:border-[#2563EB]">
+                                  <MapPin size={12} className="text-[#2563EB] shrink-0" />
+                                  <span className="font-medium text-[#1F1A13] truncate">{v.customerName || tr('زيارة')}</span>
+                                  <span className="text-[#9A8F7E] shrink-0">{fmtDateTime(v.createdAt)}</span>
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

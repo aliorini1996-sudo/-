@@ -166,25 +166,67 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     const { from, to } = req.query as Record<string, string>;
     const dateFilter = from && to ? { gte: new Date(from), lte: new Date(to) } : undefined;
 
-    const reps = await prisma.salesRep.findMany({
-      where: { tenantId: tid, isActive: true },
-      select: {
-        id: true, name: true,
-        invoices: {
-          where: { status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }) },
-          select: { total: true, discountAmt: true, type: true },
+    // نطاق زمني للحضور والزيارات (بداية اليوم من → نهاية اليوم إلى)
+    const fromDate = from ? new Date(from) : new Date(0);
+    const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
+
+    const [reps, sessions, visitCounts, visitRows] = await Promise.all([
+      prisma.salesRep.findMany({
+        where: { tenantId: tid, isActive: true },
+        select: {
+          id: true, name: true,
+          invoices: {
+            where: { status: 'CONFIRMED', type: { not: 'RETURN' }, ...(dateFilter && { invoiceDate: dateFilter }) },
+            select: { total: true, discountAmt: true, type: true },
+          },
+          receipts: {
+            where: { status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }) },
+            select: { amount: true },
+          },
         },
-        receipts: {
-          where: { status: 'ACTIVE', ...(dateFilter && { receiptDate: dateFilter }) },
-          select: { amount: true },
-        },
-      },
-    });
+      }),
+      // ساعات العمل من جلسات الحضور
+      prisma.repSession.findMany({
+        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd } },
+        select: { salesRepId: true, startedAt: true, lastBeatAt: true },
+      }),
+      // عدد الزيارات لكل مندوب (دقيق)
+      prisma.repVisit.groupBy({
+        by: ['salesRepId'],
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd } },
+        _count: { _all: true },
+      }),
+      // زيارات لها إحداثيات — لبناء روابط المواقع
+      prisma.repVisit.findMany({
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, lat: { not: null }, lng: { not: null } },
+        select: { salesRepId: true, createdAt: true, lat: true, lng: true, customer: { select: { name: true } } },
+        orderBy: { createdAt: 'asc' }, take: 5000,
+      }),
+    ]);
+
+    const minutesByRep = new Map<string, number>();
+    for (const s of sessions) {
+      minutesByRep.set(s.salesRepId, (minutesByRep.get(s.salesRepId) || 0) + Math.max(0, (s.lastBeatAt.getTime() - s.startedAt.getTime()) / 60000));
+    }
+    const countByRep = new Map<string, number>();
+    for (const c of visitCounts) countByRep.set(c.salesRepId, c._count._all);
+    const visitsByRep = new Map<string, { customerName: string; createdAt: Date; lat: number; lng: number; mapsUrl: string }[]>();
+    for (const v of visitRows) {
+      const arr = visitsByRep.get(v.salesRepId) || [];
+      if (arr.length < 300) { // سقف معقول لروابط كل مندوب
+        arr.push({
+          customerName: v.customer?.name || '', createdAt: v.createdAt, lat: v.lat!, lng: v.lng!,
+          mapsUrl: `https://www.google.com/maps?q=${v.lat},${v.lng}`,
+        });
+        visitsByRep.set(v.salesRepId, arr);
+      }
+    }
 
     const data = reps.map(r => {
       const salesTotal = r.invoices.reduce((s, i) => s + Number(i.total), 0);
       const collectionsTotal = r.receipts.reduce((s, rc) => s + Number(rc.amount), 0);
       const discountTotal = r.invoices.reduce((s, i) => s + Number(i.discountAmt), 0);
+      const workMinutes = Math.round(minutesByRep.get(r.id) || 0);
       return {
         id: r.id,
         name: r.name,
@@ -194,6 +236,11 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
         discountTotal,
         collectionRate: salesTotal > 0 ? Math.round((collectionsTotal / salesTotal) * 100) : 0,
         avgInvoice: r.invoices.length > 0 ? Math.round(salesTotal / r.invoices.length) : 0,
+        workMinutes,
+        workHours: Math.floor(workMinutes / 60),
+        workMins: workMinutes % 60,
+        visitsCount: countByRep.get(r.id) || 0,
+        visits: visitsByRep.get(r.id) || [],
       };
     }).sort((a, b) => b.salesTotal - a.salesTotal);
 
