@@ -52,7 +52,8 @@ export async function resolveLocationUrl(input: string): Promise<LatLng | null> 
 
   let url = s;
   try {
-    for (let hop = 0; hop < 3; hop++) {
+    // روابط maps.app.goo.gl قد تمرّ بـ4 تحويلات قبل صفحة الخرائط — نسمح بعدد كافٍ
+    for (let hop = 0; hop < 6; hop++) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 6000);
       const resp = await fetch(url, {
