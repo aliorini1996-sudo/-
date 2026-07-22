@@ -150,15 +150,20 @@ app.get('/api/geo-test', async (req, res) => {
       if (r.status >= 300 && r.status < 400 && loc) { cur = loc.startsWith('http') ? loc : new URL(loc, cur).toString(); continue; }
       const full = await r.text().catch(() => '');
       bodySample = full.slice(0, 300);
-      // جرّب أنماط استخراج الإحداثيات المختلفة من جسم صفحة الخرائط
-      const pat: Record<string, string | null> = {
-        enc3d4d: (full.match(/%213d(-?\d{1,3}\.\d+)%214d(-?\d{1,3}\.\d+)/) || []).slice(1).join(',') || null,
-        raw3d4d: (full.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/) || []).slice(1).join(',') || null,
-        atLatLng: (full.match(/@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/) || []).slice(1).join(',') || null,
-        arrLatLng: (full.match(/\[null,null,(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)\]/) || []).slice(1).join(',') || null,
-        saudiPair: (full.match(/(2[0-9]\.\d{4,})[^\d]{1,15}(4[0-9]\.\d{4,})/) || []).slice(1).join(',') || null,
+      // ابحث عن أول أرقام تشبه إحداثيات الرياض (24.x مع 46.x) في كامل الجسم مع سياقها
+      const cands: string[] = [];
+      const re = /(2[0-9]\.\d{4,})/g; let m: RegExpExecArray | null; let n = 0;
+      while ((m = re.exec(full)) && n < 4) { cands.push(full.slice(Math.max(0, m.index - 12), m.index + 30).replace(/\s+/g, ' ')); n++; }
+      const info = {
+        bodyLen: full.length,
+        hasLatitude: /latitude/i.test(full),
+        hasLdJson: /application\/ld\+json/.test(full),
+        cid: (full.match(/0x[0-9a-f]+:0x[0-9a-f]+/i) || [])[0] || null,
+        ftid: (full.match(/ftid=([^&"']+)/) || [])[1] || null,
+        candidates: cands,
+        previewLink: (full.match(/\/maps\/preview\/place\?[^"']{0,200}/) || [])[0] || null,
       };
-      res.json({ hops, patterns: pat, bodySample, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
+      res.json({ hops, info, bodySample, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
       return;
     }
     res.json({ hops, note: 'no final body' });
