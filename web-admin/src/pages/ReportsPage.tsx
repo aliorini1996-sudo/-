@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
 interface WorkHoursRow { id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number; firstSeen: string | null; lastSeen: string | null }
+interface PerfRow { id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number }
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -122,6 +123,27 @@ export default function ReportsPage() {
     }
     if (!sheets) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
     const out = await shareOrDownloadExcel(sheets, `${fname}-${new Date().toISOString().slice(0, 10)}`);
+    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
+  };
+
+  // تصدير تقرير مندوب واحد بشكل مستقل (اسم الملف باسم المندوب)
+  const day = () => new Date().toISOString().slice(0, 10);
+  const safeName = (s: string) => s.replace(/[\\/?*[\]:]/g, '·').slice(0, 60);
+  const exportRepPerf = async (r: PerfRow) => {
+    const rows = [{
+      [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
+      [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
+    }];
+    const out = await shareOrDownloadExcel([{ name: tr('أداء المندوب'), rows, colWidths: [22, 12, 16, 14, 14, 16] }], `${tr('أداء')}-${safeName(r.name)}-${day()}`);
+    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
+  };
+  const exportRepHours = async (r: WorkHoursRow) => {
+    const rows = [{
+      [tr('المندوب')]: r.name, [tr('ساعات العمل')]: fmtDuration(r.hours, r.minutes),
+      [tr('إجمالي الدقائق')]: r.totalMinutes, [tr('عدد الجلسات')]: r.sessions,
+      [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
+    }];
+    const out = await shareOrDownloadExcel([{ name: tr('ساعات العمل'), rows, colWidths: [22, 14, 14, 12, 18, 18] }], `${tr('ساعات العمل')}-${safeName(r.name)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
 
@@ -296,7 +318,7 @@ export default function ReportsPage() {
                 <thead>
                   <tr>
                     <th>{tr('المندوب')}</th><th>{tr('عدد الفواتير')}</th><th>{tr('إجمالي المبيعات')}</th>
-                    <th>{tr('التحصيل')}</th><th>{tr('نسبة التحصيل')}</th><th>{tr('متوسط الفاتورة')}</th>
+                    <th>{tr('التحصيل')}</th><th>{tr('نسبة التحصيل')}</th><th>{tr('متوسط الفاتورة')}</th><th>{tr('تصدير')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -315,6 +337,10 @@ export default function ReportsPage() {
                         </div>
                       </td>
                       <td className="text-gray-500">{formatCurrency(r.avgInvoice)}</td>
+                      <td>
+                        <button onClick={() => exportRepPerf(r)} title={`${tr('تصدير تقرير')} ${r.name}`}
+                          className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -337,7 +363,7 @@ export default function ReportsPage() {
                   <thead>
                     <tr>
                       <th>{tr('المندوب')}</th><th>{tr('ساعات العمل')}</th><th>{tr('إجمالي الدقائق')}</th>
-                      <th>{tr('عدد الجلسات')}</th><th>{tr('أول ظهور')}</th><th>{tr('آخر ظهور')}</th>
+                      <th>{tr('عدد الجلسات')}</th><th>{tr('أول ظهور')}</th><th>{tr('آخر ظهور')}</th><th>{tr('تصدير')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -349,6 +375,10 @@ export default function ReportsPage() {
                         <td className="text-gray-600">{r.sessions}</td>
                         <td className="text-gray-500 text-xs">{fmtDateTime(r.firstSeen)}</td>
                         <td className="text-gray-500 text-xs">{fmtDateTime(r.lastSeen)}</td>
+                        <td>
+                          <button onClick={() => exportRepHours(r)} title={`${tr('تصدير تقرير')} ${r.name}`}
+                            className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
