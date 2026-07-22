@@ -10,7 +10,8 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const tid = tenantId(req);
     const { from, to, salesRepId, customerId, groupBy } = req.query as Record<string, string>;
-    const dateFilter = from && to ? { gte: new Date(from), lte: new Date(to) } : undefined;
+    // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
+    const dateFilter = from && to ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : undefined;
 
     const invoices = await prisma.invoice.findMany({
       where: {
@@ -107,7 +108,8 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
   try {
     const tid = tenantId(req);
     const { from, to, salesRepId, paymentMethod } = req.query as Record<string, string>;
-    const dateFilter = from && to ? { gte: new Date(from), lte: new Date(to) } : undefined;
+    // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
+    const dateFilter = from && to ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : undefined;
 
     const receipts = await prisma.receipt.findMany({
       where: {
@@ -164,7 +166,8 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
   try {
     const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
-    const dateFilter = from && to ? { gte: new Date(from), lte: new Date(to) } : undefined;
+    // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
+    const dateFilter = from && to ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : undefined;
 
     // نطاق زمني للحضور والزيارات (بداية اليوم من → نهاية اليوم إلى)
     const fromDate = from ? new Date(from) : new Date(0);
