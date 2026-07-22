@@ -1265,13 +1265,17 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
 
   const submit = async () => {
     if (!canLoad) { setMsg({ ok: false, text: tr('لا تملك صلاحية تحميل مخزون السيارة') }); return; }
-    const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0);
-    if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفاً وكمية صحيحة') }); return; }
+    // موجب = تحميل، سالب = تنقيص؛ نُسقط الأصفار والقيم غير الصالحة
+    const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => !Number.isNaN(i.qty) && i.qty !== 0);
+    if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفاً وكمية غير صفرية (سالبة للتنقيص)') }); return; }
+    // أي كمية سالبة ⇒ حركة تسوية/تنقيص، وإلا تحميل
+    const anyNeg = items.some(i => i.qty < 0);
+    const type = anyNeg ? 'ADJUST' : 'LOAD';
     setSaving(true); setMsg(null);
     try {
-      await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
+      await repApi.post('/van-stock/loads', { type, note: note.trim() || undefined, items });
       setRows([]); setNote(''); setView('list'); loadStock();
-      setMsg({ ok: true, text: tr('تم تسجيل التحميل بنجاح') });
+      setMsg({ ok: true, text: anyNeg ? tr('تم حفظ الحركة بنجاح') : tr('تم تسجيل التحميل بنجاح') });
     } catch (e) {
       setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ') });
     }
@@ -1283,7 +1287,7 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
       <div className="h-full flex flex-col">
         <div className="p-3 flex items-center gap-2 border-b border-gray-100">
           <button onClick={() => setView('list')} className="p-1.5 text-[#6E6557]"><ArrowRight size={18} /></button>
-          <span className="font-bold text-[#1F1A13]">{tr('تحميل بضاعة للسيارة')}</span>
+          <span className="font-bold text-[#1F1A13]">{tr('تحميل / تنقيص مخزون السيارة')}</span>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-28">
           <div>
@@ -1292,22 +1296,29 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
               options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
               placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
           </div>
-          {rows.map((r, i) => (
+          <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr('أدخل كمية موجبة للتحميل، أو سالبة للتنقيص (استخدم زرّ ± أو اكتب مثل ‎-5).')}</p>
+          {rows.map((r, i) => {
+            const neg = Number(r.qty) < 0;
+            return (
             <div key={r.productId} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl p-2.5 shadow-sm">
-              <div className="flex-1 min-w-0"><p className="text-sm font-semibold truncate">{r.name}</p><p className="text-[10px] text-gray-400">{r.unit}</p></div>
-              <input type="number" min="0" step="any" inputMode="decimal" value={r.qty}
+              <div className="flex-1 min-w-0"><p className="text-sm font-semibold truncate">{r.name}</p><p className={`text-[10px] ${neg ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>{neg ? tr('تنقيص') : r.unit}</p></div>
+              <button type="button" title={tr('عكس الإشارة (تحميل/تنقيص)')}
+                onClick={() => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: String(-(Number(x.qty) || 0)) } : x))}
+                className="w-9 h-9 rounded-lg border border-gray-200 text-base font-bold text-[#6E6557] shrink-0 active:bg-gray-100">±</button>
+              <input type="number" step="any" inputMode="decimal" value={r.qty}
                 onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))}
-                className="w-20 text-center border border-gray-200 rounded-lg py-1.5" />
+                className={`w-20 text-center border rounded-lg py-1.5 ${neg ? 'border-red-300 text-red-600 font-bold' : 'border-gray-200'}`} />
               <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 p-1"><Trash2 size={16} /></button>
             </div>
-          ))}
+            );
+          })}
           {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">{tr('لم تُضف أي صنف بعد')}</p>}
           <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder={tr('ملاحظة (اختياري)')} value={note} onChange={e => setNote(e.target.value)} />
           {msg && <p className={`text-xs text-center ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
         </div>
         <div className="p-3 border-t border-gray-100">
           <button onClick={submit} disabled={saving || rows.length === 0} className="w-full bg-[#E15A30] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={18} />} {tr('حفظ التحميل')}
+            {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={18} />} {tr('حفظ الحركة')}
           </button>
         </div>
       </div>

@@ -185,11 +185,16 @@ function MovementRow({ m }: { m: Movement }) {
       </div>
       {m.ref && <p className="text-xs text-[#6E6557] mt-1.5">{m.ref}</p>}
       <div className="flex flex-wrap gap-1.5 mt-1.5">
-        {m.items.map((it, j) => (
-          <span key={j} className="text-[11px] bg-[#FAF7F0] border border-[#F1EBDF] rounded-md px-2 py-0.5 text-[#1F1A13]">
-            {it.name} <b>{meta.sign}{fmtQty(Math.abs(it.qty))}</b> {it.unit}
-          </span>
-        ))}
+        {m.items.map((it, j) => {
+          // التسوية قد تكون + أو −؛ نُظهر الإشارة الفعلية للكمية لا الرمز ±
+          const sign = m.kind === 'ADJUST' ? (it.qty < 0 ? '−' : '+') : meta.sign;
+          const isNeg = (m.kind === 'ADJUST' && it.qty < 0);
+          return (
+            <span key={j} className="text-[11px] bg-[#FAF7F0] border border-[#F1EBDF] rounded-md px-2 py-0.5 text-[#1F1A13]">
+              {it.name} <b className={isNeg ? 'text-red-600' : undefined}>{sign}{fmtQty(Math.abs(it.qty))}</b> {it.unit}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -214,27 +219,29 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
   };
 
   const save = useMutation({
-    mutationFn: () => vanStockApi.createLoad({
-      salesRepId: repId, type: 'LOAD', note: note.trim() || undefined,
-      items: rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0),
-    }),
+    mutationFn: () => {
+      // موجب = تحميل، سالب = تنقيص؛ أي سالب ⇒ حركة تسوية/تنقيص
+      const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => !Number.isNaN(i.qty) && i.qty !== 0);
+      const type = items.some(i => i.qty < 0) ? 'ADJUST' : 'LOAD';
+      return vanStockApi.createLoad({ salesRepId: repId, type, note: note.trim() || undefined, items });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['van-summary'] });
       qc.invalidateQueries({ queryKey: ['van-current'] });
       qc.invalidateQueries({ queryKey: ['van-movements'] });
-      toast.success(tr('تم تسجيل التحميل'));
+      toast.success(tr('تم حفظ الحركة'));
       onClose();
     },
     onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
   });
 
-  const valid = repId && rows.length > 0 && rows.every(r => Number(r.qty) > 0);
+  const valid = !!repId && rows.length > 0 && rows.every(r => { const q = Number(r.qty); return !Number.isNaN(q) && q !== 0; });
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
-          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><ArrowDownToLine size={20} className="text-[#E15A30]" /> {tr('تسجيل تحميل بضاعة')}</h2>
+          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><ArrowDownToLine size={20} className="text-[#E15A30]" /> {tr('تحميل / تنقيص مخزون السيارة')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
 
@@ -252,20 +259,27 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
               value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
           </div>
 
+          <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr('أدخل كمية موجبة للتحميل، أو سالبة للتنقيص (استخدم زرّ ± أو اكتب مثل ‎-5).')}</p>
           {rows.length > 0 && (
             <div className="border border-[#F1EBDF] rounded-xl divide-y divide-[#F1EBDF]">
-              {rows.map((r, i) => (
+              {rows.map((r, i) => {
+                const neg = Number(r.qty) < 0;
+                return (
                 <div key={r.productId} className="flex items-center gap-2 p-2.5">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</p>
-                    <p className="text-[10px] text-[#9A8F7E]">{r.unit}</p>
+                    <p className={`text-[10px] ${neg ? 'text-red-500 font-semibold' : 'text-[#9A8F7E]'}`}>{neg ? tr('تنقيص') : r.unit}</p>
                   </div>
-                  <input type="number" min="0" step="any" value={r.qty}
+                  <button type="button" title={tr('عكس الإشارة (تحميل/تنقيص)')}
+                    onClick={() => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: String(-(Number(x.qty) || 0)) } : x))}
+                    className="w-9 h-9 rounded-lg border border-[#E9E1D3] text-base font-bold text-[#6E6557] shrink-0 hover:bg-gray-50">±</button>
+                  <input type="number" step="any" value={r.qty}
                     onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))}
-                    className="input w-24 text-center py-1.5" />
+                    className={`input w-24 text-center py-1.5 ${neg ? 'border-red-300 text-red-600 font-bold' : ''}`} />
                   <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -278,7 +292,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
           <button onClick={() => save.mutate()} disabled={!valid || save.isPending} className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={16} />}
-            {tr('حفظ التحميل')}
+            {tr('حفظ الحركة')}
           </button>
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>
