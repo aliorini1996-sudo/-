@@ -148,12 +148,20 @@ app.get('/api/geo-test', async (req, res) => {
       const loc = r.headers.get('location');
       hops.push({ status: r.status, location: loc ? loc.slice(0, 160) : null, url: cur.slice(0, 120) });
       if (r.status >= 300 && r.status < 400 && loc) { cur = loc.startsWith('http') ? loc : new URL(loc, cur).toString(); continue; }
-      bodySample = (await r.text().catch(() => '')).slice(0, 600);
-      break;
+      const full = await r.text().catch(() => '');
+      bodySample = full.slice(0, 300);
+      // جرّب أنماط استخراج الإحداثيات المختلفة من جسم صفحة الخرائط
+      const pat: Record<string, string | null> = {
+        enc3d4d: (full.match(/%213d(-?\d{1,3}\.\d+)%214d(-?\d{1,3}\.\d+)/) || []).slice(1).join(',') || null,
+        raw3d4d: (full.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/) || []).slice(1).join(',') || null,
+        atLatLng: (full.match(/@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/) || []).slice(1).join(',') || null,
+        arrLatLng: (full.match(/\[null,null,(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)\]/) || []).slice(1).join(',') || null,
+        saudiPair: (full.match(/(2[0-9]\.\d{4,})[^\d]{1,15}(4[0-9]\.\d{4,})/) || []).slice(1).join(',') || null,
+      };
+      res.json({ hops, patterns: pat, bodySample, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
+      return;
     }
-    const { resolveLocationUrl } = await import('./services/geoLink');
-    const geo = await resolveLocationUrl(url);
-    res.json({ geo, hops, bodySample, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
+    res.json({ hops, note: 'no final body' });
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
