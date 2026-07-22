@@ -129,6 +129,20 @@ app.get('/api/health', (_req, res) => res.json({
   version: (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7),
 }));
 
+// تشخيص مؤقّت لحلّ رابط الموقع على الإنتاج (مقصور على روابط خرائط Google — يُزال بعد التشخيص)
+app.get('/api/geo-test', async (req, res) => {
+  try {
+    const url = String((req.query as { url?: string }).url || '');
+    if (!/^https?:\/\/((maps\.)?app\.goo\.gl|goo\.gl|maps\.google|www\.google\.[a-z.]+\/maps|g\.co)/i.test(url)) {
+      res.status(400).json({ error: 'only google maps urls allowed' }); return;
+    }
+    const { resolveLocationUrl } = await import('./services/geoLink');
+    const t0 = Date.now();
+    const geo = await resolveLocationUrl(url);
+    res.json({ geo, ms: Date.now() - t0, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
+  } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+
 // عرض الواجهة المبنيّة إن وُجدت (اختياري — الواجهة الرسمية على Vercel)
 const webDist = path.join(__dirname, '../../web-admin/dist');
 if (fs.existsSync(path.join(webDist, 'index.html'))) {
