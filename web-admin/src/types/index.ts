@@ -174,6 +174,8 @@ export interface Customer {
   city?: string;
   district?: string;
   address?: string;
+  lat?: number | null;
+  lng?: number | null;
   channel?: 'MT' | 'WHOLESALE' | 'TT' | 'DISCOUNTER' | 'CASH_VAN' | 'ECOMMERCE' | null;
   status: 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
   creditLimit: number;

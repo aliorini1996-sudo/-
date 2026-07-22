@@ -22,8 +22,9 @@ const customerSchema = z.object({
   district: z.string().optional(),
   address: z.string().optional(),
   // موقع العميل على الخريطة (اختياري): إحداثيات مباشرة أو رابط خرائط Google يحلّه الخادم
-  lat: z.number().min(-90).max(90).optional(),
-  lng: z.number().min(-180).max(180).optional(),
+  // nullish: نموذج التحرير قد يرسل null لعميل بلا موقع
+  lat: z.number().min(-90).max(90).nullish(),
+  lng: z.number().min(-180).max(180).nullish(),
   locationUrl: z.string().max(2000).optional(),
   // قناة البيع (تصنيف مؤسسي) — يقبل قيمة صحيحة أو فارغ/null/غياب (كلها = غير محدّد)
   channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).nullish().or(z.literal('')),
@@ -118,8 +119,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
 
     const { clientCreatedAt, locationUrl, ...rest } = data;
-    // حلّ رابط الموقع إلى إحداثيات إن لزم (اختياري — يُتجاهل عند الفشل)
-    if ((rest.lat == null || rest.lng == null) && locationUrl) {
+    // رابط موقع مُرسَل ⇒ يُحلّ ويُحدّث الإحداثيات (اختياري — يُتجاهل عند الفشل)
+    if (locationUrl) {
       const geo = await resolveLocationUrl(locationUrl);
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
@@ -150,8 +151,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     const { locationUrl, ...data } = customerSchema.partial().parse(req.body);
-    // حلّ رابط الموقع إلى إحداثيات إن لزم (اختياري — يُتجاهل عند الفشل)
-    if ((data.lat == null || data.lng == null) && locationUrl) {
+    // رابط موقع مُرسَل ⇒ يُحلّ ويُحدّث الإحداثيات (اختياري — يُتجاهل عند الفشل)
+    if (locationUrl) {
       const geo = await resolveLocationUrl(locationUrl);
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
     }

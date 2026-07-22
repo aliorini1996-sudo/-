@@ -2,20 +2,24 @@ import { useForm } from 'react-hook-form';
 import { Customer } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { SALES_CHANNELS } from '../../lib/channels';
-import { X } from 'lucide-react';
+import { X, MapPin } from 'lucide-react';
+
+// locationUrl حقل إدخال فقط (يحلّه الخادم إلى lat/lng) — ليس حقلاً مخزّناً
+type CustomerForm = Partial<Customer> & { locationUrl?: string };
 
 interface Props {
   customer: Customer | null;
   onClose: () => void;
-  onSave: (data: Partial<Customer>) => void;
+  onSave: (data: CustomerForm) => void;
   loading: boolean;
 }
 
 export default function CustomerModal({ customer, onClose, onSave, loading }: Props) {
   const tr = useTr();
-  const { register, handleSubmit, formState: { errors } } = useForm<Partial<Customer>>({
+  const { register, handleSubmit, formState: { errors } } = useForm<CustomerForm>({
     defaultValues: customer || { status: 'ACTIVE', creditLimit: 0, paymentDays: 30 },
   });
+  const hasLoc = customer?.lat != null && customer?.lng != null;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
@@ -97,6 +101,27 @@ export default function CustomerModal({ customer, onClose, onSave, loading }: Pr
                 <label className="label">{tr('العنوان التفصيلي')}</label>
                 <input className="input" {...register('address')} />
               </div>
+            </div>
+          </div>
+
+          {/* Location — رابط موقع يظهر العميل على الخريطة */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase flex items-center gap-1.5"><MapPin size={15} /> {tr('الموقع على الخريطة')}</h3>
+            <div>
+              <label className="label">{tr('رابط الموقع (خرائط Google)')}</label>
+              <input className="input" dir="ltr" placeholder="https://maps.app.goo.gl/…  أو  24.7136, 46.6753"
+                {...register('locationUrl')} />
+              <p className="text-[11px] text-gray-400 mt-1">
+                {hasLoc
+                  ? `${tr('الموقع الحالي محدَّد')} · ${customer!.lat!.toFixed(5)}, ${customer!.lng!.toFixed(5)} — ${tr('الصق رابطاً جديداً لتحديثه.')}`
+                  : tr('من خرائط Google: مشاركة ← نسخ الرابط، ثم الصقه هنا ليظهر العميل على خريطة التتبّع.')}
+              </p>
+              {hasLoc && (
+                <a href={`https://www.google.com/maps?q=${customer!.lat},${customer!.lng}`} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-[#2563EB] font-semibold mt-1">
+                  <MapPin size={12} /> {tr('عرض الموقع الحالي على الخريطة')}
+                </a>
+              )}
             </div>
           </div>
 
