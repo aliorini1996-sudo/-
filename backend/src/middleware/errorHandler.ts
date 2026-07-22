@@ -3,10 +3,12 @@ import { ZodError } from 'zod';
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ZodError) {
+    const fieldErrors = err.flatten().fieldErrors;
+    const fields = Object.keys(fieldErrors);
     res.status(400).json({
       success: false,
-      message: 'بيانات غير صحيحة',
-      errors: err.flatten().fieldErrors,
+      message: fields.length ? `بيانات غير صحيحة: ${fields.join('، ')}` : 'بيانات غير صحيحة',
+      errors: fieldErrors,
     });
     return;
   }

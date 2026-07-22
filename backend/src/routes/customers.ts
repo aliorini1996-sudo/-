@@ -43,9 +43,10 @@ const customerSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
   creditLimit: z.number().min(0).optional(),
   paymentDays: z.number().int().min(0).optional(),
-  // العمل دون اتصال: idempotency + لحظة الإنشاء على الجهاز
-  clientRef: z.string().uuid().optional(),
-  clientCreatedAt: z.string().optional(),
+  // العمل دون اتصال: idempotency + لحظة الإنشاء على الجهاز — nullish لأن نموذج التحرير
+  // يرسلهما null لعملاء لوحة الإدارة (لا تُحرَّر؛ تُستبعد من التحديث)
+  clientRef: z.string().uuid().nullish(),
+  clientCreatedAt: z.string().nullish(),
 });
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -165,7 +166,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // التحقق أن العميل يخص شركة المستخدم قبل التعديل
     const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
-    const { locationUrl, ...data } = customerSchema.partial().parse(req.body);
+    // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
+    const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, ...data } = customerSchema.partial().parse(req.body);
+    void _cr; void _cc;
     // إحداثيات مباشرة من اللصق تُطبّق فوراً؛ الروابط المختصرة تُحلّ في الخلفية (لا تُبطئ الحفظ)
     let resolveUrlLater: string | null = null;
     if (locationUrl) {

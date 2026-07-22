@@ -52,7 +52,7 @@ export default function CustomersPage() {
       setShowModal(false);
       setSelected(null);
     },
-    onError: () => toast.error(tr('حدث خطأ')),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ')),
   });
 
   const deleteMutation = useMutation({
