@@ -136,10 +136,24 @@ app.get('/api/geo-test', async (req, res) => {
     if (!/^https?:\/\/((maps\.)?app\.goo\.gl|goo\.gl|maps\.google|www\.google\.[a-z.]+\/maps|g\.co)/i.test(url)) {
       res.status(400).json({ error: 'only google maps urls allowed' }); return;
     }
+    // تتبّع مفصّل: كل تحويل بحالته ووجهته + عيّنة من جسم الصفحة النهائية
+    const hops: { status: number; location: string | null; url: string }[] = [];
+    let cur = url;
+    let bodySample = '';
+    for (let i = 0; i < 6; i++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 6000);
+      const r = await fetch(cur, { method: 'GET', redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' }, signal: ctrl.signal }).catch((e) => ({ status: -1, headers: { get: () => null }, text: async () => 'ERR:' + String(e) } as unknown as Response));
+      clearTimeout(timer);
+      const loc = r.headers.get('location');
+      hops.push({ status: r.status, location: loc ? loc.slice(0, 160) : null, url: cur.slice(0, 120) });
+      if (r.status >= 300 && r.status < 400 && loc) { cur = loc.startsWith('http') ? loc : new URL(loc, cur).toString(); continue; }
+      bodySample = (await r.text().catch(() => '')).slice(0, 600);
+      break;
+    }
     const { resolveLocationUrl } = await import('./services/geoLink');
-    const t0 = Date.now();
     const geo = await resolveLocationUrl(url);
-    res.json({ geo, ms: Date.now() - t0, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
+    res.json({ geo, hops, bodySample, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
