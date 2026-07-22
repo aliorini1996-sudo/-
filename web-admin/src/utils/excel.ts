@@ -16,6 +16,20 @@ async function buildBlob(sheets: ExcelSheet[]): Promise<Blob> {
     if (s.colWidths) ws['!cols'] = s.colWidths.map(w => ({ wch: w }));
     // اتجاه الورقة من اليمين لليسار (مناسب للعربية)
     (ws as unknown as { '!views'?: unknown[] })['!views'] = [{ RTL: true }];
+    // اجعل خلايا الروابط (http…) قابلة للنقر داخل Excel
+    const ref = (ws as Record<string, unknown>)['!ref'] as string | undefined;
+    if (ref) {
+      const range = XLSX.utils.decode_range(ref);
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = range.s.c; C <= range.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          const cell = (ws as Record<string, { v?: unknown; l?: unknown }>)[addr];
+          if (cell && typeof cell.v === 'string' && /^https?:\/\/\S+$/.test(cell.v)) {
+            cell.l = { Target: cell.v, Tooltip: 'فتح الموقع' };
+          }
+        }
+      }
+    }
     XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
   }
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
