@@ -228,6 +228,8 @@ export const vanStockApi = {
   movements: (salesRepId: string) => api.get('/van-stock/movements', { params: { salesRepId } }),
   createLoad: (data: { salesRepId?: string; type?: string; note?: string; items: { productId: string; qty: number }[] }) =>
     api.post('/van-stock/loads', data),
+  setSellPermission: (salesRepId: string, canSellWithoutStock: boolean) =>
+    api.patch('/van-stock/sell-permission', { salesRepId, canSellWithoutStock }),
 };
 
 // محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك

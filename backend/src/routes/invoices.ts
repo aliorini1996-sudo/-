@@ -6,6 +6,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
 import { getCountryTax } from '../config/countries';
 import { computeInvoiceTotals } from '../lib/invoiceCalc';
+import { computeStock } from './vanStock';
 import {
   postInvoiceEntries,
   postCashInvoiceEntries,
@@ -166,7 +167,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const productIds = [...new Set(body.items.map(i => i.productId))];
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid, status: 'ACTIVE' },
-      select: { id: true, basePrice: true, damagedReturnToStock: true, priceTiers: { select: { price: true } } },
+      select: { id: true, name: true, basePrice: true, damagedReturnToStock: true, priceTiers: { select: { price: true } } },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
 
@@ -196,6 +197,22 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           if (it.unitPrice < minAllowed - TOL || it.unitPrice > ref + TOL) { fail('لا تملك صلاحية تغيير سعر البيع'); return; }
         } else if (!rep.canSellBelowPrice && it.unitPrice < minAllowed - TOL) {
           fail('لا تملك صلاحية البيع بأقل من السعر المحدد'); return;
+        }
+      }
+
+      // فرض مخزون السيارة: من لا يملك «البيع بدون مخزون» لا يبيع أكثر من متبقّي سيارته
+      if (rep.canSellWithoutStock === false && body.type !== 'RETURN') {
+        const stock = await computeStock(tid, salesRepId);
+        const remById = new Map(stock.map(s => [s.productId, s.remaining]));
+        const wantById = new Map<string, number>();
+        for (const it of body.items) wantById.set(it.productId, (wantById.get(it.productId) || 0) + it.qty);
+        for (const [pid, want] of wantById) {
+          const rem = remById.get(pid) ?? 0;
+          if (want > rem + 1e-9) {
+            const p = products.find(x => x.id === pid);
+            fail(`الكمية المطلوبة من «${p?.name || 'الصنف'}» تتجاوز مخزون سيارتك المتاح (${Number(rem.toFixed(2))})`);
+            return;
+          }
         }
       }
     }

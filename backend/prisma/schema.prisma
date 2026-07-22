@@ -162,6 +162,8 @@ model SalesRep {
 
   // Van stock permission — هل يستطيع المندوب إدارة مخزون سيارته
   canManageVanStock Boolean @default(true)
+  // هل يستطيع البيع دون توفّر مخزون كافٍ بالسيارة (true = بلا قيد؛ false = يُمنع البيع فوق المتبقّي)
+  canSellWithoutStock Boolean @default(true)
 
   // GPS tracking — آخر موقع معروف + إتاحة التتبّع لهذا المندوب
   canBeTracked Boolean   @default(true)

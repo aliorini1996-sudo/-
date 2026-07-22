@@ -8,7 +8,7 @@ import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, 
 import toast from 'react-hot-toast';
 
 interface RepSummary {
-  salesRepId: string; repName: string; isActive: boolean;
+  salesRepId: string; repName: string; isActive: boolean; canSellWithoutStock: boolean;
   productCount: number; totalRemaining: number; totalLoaded: number; totalSold: number; lastLoadAt: string | null;
 }
 interface StockRow {
@@ -25,12 +25,27 @@ const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 // لوحة مخزون سيارات المناديب — ملخّص لكل مندوب + تفاصيل المخزون وحركته
 export default function VanStockPage() {
   const tr = useTr();
+  const qc = useQueryClient();
   const [selected, setSelected] = useState<string>('');
   const [showLoad, setShowLoad] = useState(false);
 
   const summaryQ = useQuery({
     queryKey: ['van-summary'],
     queryFn: async () => (await vanStockApi.summary()).data.data as RepSummary[],
+  });
+
+  // تبديل صلاحية «البيع بدون مخزون» لمندوب (تحديث متفائل)
+  const setSellPerm = useMutation({
+    mutationFn: ({ id, val }: { id: string; val: boolean }) => vanStockApi.setSellPermission(id, val),
+    onMutate: async ({ id, val }) => {
+      await qc.cancelQueries({ queryKey: ['van-summary'] });
+      const prev = qc.getQueryData<RepSummary[]>(['van-summary']);
+      qc.setQueryData<RepSummary[]>(['van-summary'], (old) => (old || []).map(r => r.salesRepId === id ? { ...r, canSellWithoutStock: val } : r));
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => { if (ctx?.prev) qc.setQueryData(['van-summary'], ctx.prev); toast.error(tr('تعذّر تغيير الصلاحية')); },
+    onSuccess: (_d, v) => toast.success(v.val ? tr('سُمح بالبيع بدون مخزون') : tr('مُنع البيع بدون مخزون')),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['van-summary'] }),
   });
 
   const currentQ = useQuery({
@@ -78,6 +93,7 @@ export default function VanStockPage() {
                   <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي محمَّل')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي مُباع')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقّي')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>
               </thead>
@@ -91,6 +107,14 @@ export default function VanStockPage() {
                     <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalLoaded)}</td>
                     <td className="text-center px-3 py-3 text-[#6E6557]">{fmtQty(r.totalSold)}</td>
                     <td className={`text-center px-3 py-3 font-bold ${r.totalRemaining < 0 ? 'text-red-600' : 'text-[#1E7A52]'}`}>{fmtQty(r.totalRemaining)}</td>
+                    <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => setSellPerm.mutate({ id: r.salesRepId, val: !r.canSellWithoutStock })}
+                        disabled={setSellPerm.isPending}
+                        title={r.canSellWithoutStock ? tr('مسموح — اضغط للمنع') : tr('ممنوع — اضغط للسماح')}
+                        className={`text-[11px] font-bold rounded-full px-3 py-1 border transition-colors disabled:opacity-50 ${r.canSellWithoutStock ? 'bg-green-50 text-[#1E7A52] border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'}`}>
+                        {r.canSellWithoutStock ? tr('نعم') : tr('لا')}
+                      </button>
+                    </td>
                     <td className="text-center px-3 py-3 text-[#9A8F7E] text-xs">{r.lastLoadAt ? formatDate(r.lastLoadAt) : '—'}</td>
                   </tr>
                 ))}

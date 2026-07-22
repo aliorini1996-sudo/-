@@ -32,7 +32,7 @@ interface StockRow {
 }
 
 // يحسب مخزون سيارة مندوب لكل منتج: المتبقي = المحمّل − المنزَّل + التسوية − المُباع + المُرتجع
-async function computeStock(tid: string, salesRepId: string): Promise<StockRow[]> {
+export async function computeStock(tid: string, salesRepId: string): Promise<StockRow[]> {
   const [loadItems, invItems, products] = await Promise.all([
     prisma.vanLoadItem.findMany({
       where: { vanLoad: { tenantId: tid, salesRepId } },
@@ -82,6 +82,12 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const data = loadSchema.parse(req.body);
     const { salesRepId, isRep } = resolveRep(req, data.salesRepId);
 
+    // التنقيص/التسوية (الكميات السالبة و UNLOAD/ADJUST) متاح للإدارة فقط؛ المندوب يُحمّل موجباً فقط
+    if (isRep && (data.type !== 'LOAD' || data.items.some(i => i.qty < 0))) {
+      res.status(403).json({ success: false, message: 'تنقيص مخزون السيارة متاح للإدارة فقط' });
+      return;
+    }
+
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     if (isRep && rep.canManageVanStock === false) { res.status(403).json({ success: false, message: 'غير مسموح لك بإدارة مخزون السيارة' }); return; }
@@ -121,7 +127,7 @@ router.get('/current', async (req: AuthRequest, res: Response, next: NextFunctio
 router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const reps = await prisma.salesRep.findMany({ where: { tenantId: tid }, select: { id: true, name: true, isActive: true } });
+    const reps = await prisma.salesRep.findMany({ where: { tenantId: tid }, select: { id: true, name: true, isActive: true, canSellWithoutStock: true } });
     const data = await Promise.all(reps.map(async r => {
       const rows = await computeStock(tid, r.id);
       const lastLoad = await prisma.vanLoad.findFirst({
@@ -129,7 +135,7 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
         orderBy: { createdAt: 'desc' }, select: { createdAt: true },
       });
       return {
-        salesRepId: r.id, repName: r.name, isActive: r.isActive,
+        salesRepId: r.id, repName: r.name, isActive: r.isActive, canSellWithoutStock: r.canSellWithoutStock,
         productCount: rows.filter(x => Math.abs(x.remaining) > 1e-9).length,
         totalRemaining: rows.reduce((s, x) => s + x.remaining, 0),
         totalLoaded: rows.reduce((s, x) => s + x.loaded, 0),
@@ -138,6 +144,20 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
       };
     }));
     res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+// تبديل صلاحية «البيع بدون مخزون» لمندوب — للإدارة فقط
+router.patch('/sell-permission', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { salesRepId, canSellWithoutStock } = z.object({
+      salesRepId: z.string(), canSellWithoutStock: z.boolean(),
+    }).parse(req.body);
+    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    await prisma.salesRep.update({ where: { id: salesRepId }, data: { canSellWithoutStock } });
+    res.json({ success: true, data: { salesRepId, canSellWithoutStock } });
   } catch (err) { next(err); }
 });
 
