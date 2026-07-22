@@ -162,8 +162,11 @@ app.get('/api/geo-test', async (req, res) => {
         try {
           const pr = await fetch(purl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' } });
           const pb = await pr.text();
-          const cm = pb.match(/(2[0-9]\.\d{4,})\s*,?\s*(4[0-9]\.\d{4,})/) || pb.match(/(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})/);
-          prevProbe = { status: pr.status, len: pb.length, coords: cm ? cm.slice(1, 3).join(',') : null, sample: pb.replace(/\s+/g, ' ').slice(0, 200) };
+          // كل أزواج (lat,lng) الرياضية في الاستجابة مع سياقها — لتحديد نقطة المكان الدقيقة
+          const pairs: string[] = [];
+          const rx = /(2[0-9]\.\d{5,}),(4[0-9]\.\d{5,})/g; let mm: RegExpExecArray | null; let k = 0;
+          while ((mm = rx.exec(pb)) && k < 10) { pairs.push(`@${mm.index}:…${pb.slice(Math.max(0, mm.index - 18), mm.index).replace(/\s+/g, '')}[${mm[1]},${mm[2]}]`); k++; }
+          prevProbe = { status: pr.status, len: pb.length, sample: JSON.stringify(pairs) };
         } catch (e) { prevProbe = { sample: 'ERR:' + String(e) }; }
       }
       res.json({ hops: hops.length, cid: (full.match(/0x[0-9a-f]+:0x[0-9a-f]+/i) || [])[0] || null, bodyCands: cands, prevProbe, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
