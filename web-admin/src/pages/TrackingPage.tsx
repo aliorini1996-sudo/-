@@ -128,6 +128,8 @@ export default function TrackingPage() {
     queryKey: ['customer-locations'],
     queryFn: async () => (await customerApi.locations()).data.data as CustomerLoc[],
     enabled: showCustomers && enabled,
+    refetchOnMount: 'always',
+    refetchInterval: showCustomers && enabled ? 30000 : false, // يلتقط المواقع المُضافة حديثاً
   });
 
   const toggle = useMutation({

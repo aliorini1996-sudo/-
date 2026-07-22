@@ -4,17 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
-import { resolveLocationUrl, parseCoords } from '../services/geoLink';
-
-// حلّ رابط موقع في الخلفية وتحديث إحداثيات العميل لاحقاً — كي لا يُبطئ الحفظ (روابط
-// maps.app.goo.gl المختصرة قد تستغرق ثوانٍ لتتبّع تحويلاتها). سقوط صامت عند الفشل.
-function resolveLocationAsync(tid: string, customerId: string, url: string): void {
-  resolveLocationUrl(url)
-    .then((geo) => {
-      if (geo) return prisma.customer.updateMany({ where: { id: customerId, tenantId: tid }, data: { lat: geo.lat, lng: geo.lng } });
-    })
-    .catch(() => { /* تجاهل */ });
-}
+import { resolveLocationUrl } from '../services/geoLink';
 
 const router = Router();
 router.use(authenticate);
@@ -132,12 +122,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
 
     const { clientCreatedAt, locationUrl, ...rest } = data;
-    // إحداثيات مباشرة من اللصق تُطبّق فوراً؛ الروابط المختصرة تُحلّ في الخلفية (لا تُبطئ الحفظ)
-    let resolveUrlLater: string | null = null;
+    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
     if (locationUrl) {
-      const direct = parseCoords(locationUrl);
-      if (direct) { rest.lat = direct.lat; rest.lng = direct.lng; }
-      else resolveUrlLater = locationUrl;
+      const geo = await resolveLocationUrl(locationUrl);
+      if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
     // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
     // المزامنة متسلسلة على جهاز واحد فلا تكرار متزامن؛ والفحص أعلاه يمنع إعادة الرفع.
@@ -147,7 +135,6 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
       } as any,
     });
-    if (resolveUrlLater) resolveLocationAsync(tid, customer.id, resolveUrlLater);
     res.status(201).json({ success: true, data: customer });
   } catch (err) { next(err); }
 });
@@ -169,18 +156,15 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
     const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, ...data } = customerSchema.partial().parse(req.body);
     void _cr; void _cc;
-    // إحداثيات مباشرة من اللصق تُطبّق فوراً؛ الروابط المختصرة تُحلّ في الخلفية (لا تُبطئ الحفظ)
-    let resolveUrlLater: string | null = null;
+    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
     if (locationUrl) {
-      const direct = parseCoords(locationUrl);
-      if (direct) { data.lat = direct.lat; data.lng = direct.lng; }
-      else resolveUrlLater = locationUrl;
+      const geo = await resolveLocationUrl(locationUrl);
+      if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
     }
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
       data: { ...data, email: data.email || null, ...(data.channel !== undefined && { channel: data.channel || null }) },
     });
-    if (resolveUrlLater) resolveLocationAsync(tid, customer.id, resolveUrlLater);
     res.json({ success: true, data: customer });
   } catch (err) { next(err); }
 });

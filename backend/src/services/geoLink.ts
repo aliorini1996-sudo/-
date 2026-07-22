@@ -37,8 +37,29 @@ export function parseCoords(input: string): LatLng | null {
 }
 
 /**
- * يحلّ رابط موقع إلى إحداثيات. للروابط المختصرة (maps.app.goo.gl / goo.gl/maps / g.co)
- * يتبع التحويل مرّة/مرّتين ثم يحلّل الوجهة النهائية. أفضل جهد، يرجع null عند الفشل.
+ * ترميز جغرافي لاسم مكان عبر Geoapify — خطة بديلة عندما يتعذّر استخراج الإحداثيات من
+ * الرابط نفسه (مثلاً صفحة موافقة Google في أوروبا لا تُظهر الإحداثيات).
+ */
+async function geocodePlace(query: string): Promise<LatLng | null> {
+  const key = (process.env.GEOAPIFY_API_KEY || '').trim();
+  if (!key || !query) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const resp = await fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(query)}&limit=1&apiKey=${encodeURIComponent(key)}`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const j = await resp.json() as { features?: { geometry?: { coordinates?: unknown } }[] };
+    const c = j.features?.[0]?.geometry?.coordinates;
+    if (Array.isArray(c) && typeof c[0] === 'number' && typeof c[1] === 'number') return valid(c[1], c[0]);
+  } catch { /* */ }
+  return null;
+}
+
+/**
+ * يحلّ رابط موقع إلى إحداثيات. يتبع تحويلات الروابط المختصرة (maps.app.goo.gl...)، ويستخرج
+ * الإحداثيات من الروابط أو جسم صفحة الخرائط. عند التعذّر (صفحة موافقة أوروبا مثلاً) يرمّز
+ * اسم المكان جغرافياً عبر Geoapify. أفضل جهد، يرجع null عند الفشل.
  */
 export async function resolveLocationUrl(input: string): Promise<LatLng | null> {
   if (!input) return null;
@@ -51,18 +72,29 @@ export async function resolveLocationUrl(input: string): Promise<LatLng | null> 
   if (!/^https?:\/\//i.test(s)) return null; // ليس رابطاً
 
   let url = s;
+  let placeName: string | null = null;
   try {
     // روابط maps.app.goo.gl قد تمرّ بـ4 تحويلات قبل صفحة الخرائط — نسمح بعدد كافٍ
     for (let hop = 0; hop < 6; hop++) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 6000);
+      // Cookie=CONSENT يتخطّى صفحة موافقة Google في أوروبا (Render فرانكفورت) فتظهر الإحداثيات
       const resp = await fetch(url, {
         method: 'GET',
         redirect: 'manual',
-        headers: { 'User-Agent': 'Mozilla/5.0' },
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' },
         signal: ctrl.signal,
       });
       clearTimeout(timer);
+
+      const fromUrl = parseCoords(url);
+      if (fromUrl) return fromUrl;
+      // التقط اسم المكان من q= (لترميزه جغرافياً كخطة بديلة إن لزم)
+      const qm = url.match(/[?&](?:q|query)=([^&]+)/i);
+      if (qm) {
+        const q = decodeURIComponent(qm[1].replace(/\+/g, ' ')).trim();
+        if (q && !/^-?\d+(\.\d+)?\s*[,،]/.test(q)) placeName = q; // ليس إحداثيات
+      }
 
       // تحويل: تابع الوجهة
       const loc = resp.headers.get('location');
@@ -73,14 +105,14 @@ export async function resolveLocationUrl(input: string): Promise<LatLng | null> 
         continue;
       }
 
-      // وصلنا للصفحة: حلّل الرابط النهائي، ثم ابحث في جسم الصفحة عن الإحداثيات
-      const fromUrl = parseCoords(url);
-      if (fromUrl) return fromUrl;
+      // صفحة نهائية: ابحث في جسمها عن الإحداثيات
       const body = await resp.text().catch(() => '');
-      return parseCoords(body);
+      const fromBody = parseCoords(body);
+      if (fromBody) return fromBody;
+      break;
     }
-  } catch {
-    return null; // مهلة/خطأ شبكة → سقوط آمن
-  }
-  return null;
+  } catch { /* نتابع للخطة البديلة */ }
+
+  // خطة بديلة: رمّز اسم المكان جغرافياً (يعمل حتى عند حجب Google للإحداثيات)
+  return placeName ? geocodePlace(placeName) : null;
 }
