@@ -178,8 +178,8 @@ export default function ReportsPage() {
     await sheetsToPdf(built.sheets, built.fname);
   };
 
-  // تصدير تقرير مندوب واحد بشكل مستقل (اسم الملف باسم المندوب)
-  const exportRepPerf = async (r: PerfRow) => {
+  // تصدير تقرير مندوب واحد بشكل مستقل (Excel أو PDF، اسم الملف باسم المندوب)
+  const repPerfSheets = (r: PerfRow) => {
     const rows = [{
       [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
       [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
@@ -192,18 +192,26 @@ export default function ReportsPage() {
       rows: r.visits.map(v => ({ [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl })),
       colWidths: [22, 18, 40],
     });
-    const out = await shareOrDownloadExcel(sheets, `${tr('أداء')}-${safeName(r.name)}-${day()}`);
-    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
+    return sheets;
   };
-  const exportRepHours = async (r: WorkHoursRow) => {
-    const rows = [{
+  const repHoursSheets = (r: WorkHoursRow) => [{
+    name: tr('ساعات العمل'), colWidths: [22, 14, 14, 12, 18, 18],
+    rows: [{
       [tr('المندوب')]: r.name, [tr('ساعات العمل')]: fmtDuration(r.hours, r.minutes),
       [tr('إجمالي الدقائق')]: r.totalMinutes, [tr('عدد الجلسات')]: r.sessions,
       [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
-    }];
-    const out = await shareOrDownloadExcel([{ name: tr('ساعات العمل'), rows, colWidths: [22, 14, 14, 12, 18, 18] }], `${tr('ساعات العمل')}-${safeName(r.name)}-${day()}`);
+    }],
+  }];
+  const exportRepPerf = async (r: PerfRow) => {
+    const out = await shareOrDownloadExcel(repPerfSheets(r), `${tr('أداء')}-${safeName(r.name)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
+  const exportRepPerfPdf = (r: PerfRow) => sheetsToPdf(repPerfSheets(r), `${tr('أداء')} - ${r.name}`);
+  const exportRepHours = async (r: WorkHoursRow) => {
+    const out = await shareOrDownloadExcel(repHoursSheets(r), `${tr('ساعات العمل')}-${safeName(r.name)}-${day()}`);
+    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
+  };
+  const exportRepHoursPdf = (r: WorkHoursRow) => sheetsToPdf(repHoursSheets(r), `${tr('ساعات العمل')} - ${r.name}`);
 
   return (
     <div>
@@ -411,8 +419,12 @@ export default function ReportsPage() {
                         ) : <span className="text-gray-500">{r.visitsCount}</span>}
                       </td>
                       <td>
-                        <button onClick={() => exportRepPerf(r)} title={`${tr('تصدير تقرير')} ${r.name}`}
-                          className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => exportRepPerf(r)} title={`${tr('تصدير Excel')} — ${r.name}`}
+                            className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                          <button onClick={() => exportRepPerfPdf(r)} title={`${tr('تصدير PDF')} — ${r.name}`}
+                            className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
+                        </div>
                       </td>
                     </tr>
                     {expandedPerf === r.id && r.visits.length > 0 && (
@@ -469,8 +481,12 @@ export default function ReportsPage() {
                         <td className="text-gray-500 text-xs">{fmtDateTime(r.firstSeen)}</td>
                         <td className="text-gray-500 text-xs">{fmtDateTime(r.lastSeen)}</td>
                         <td>
-                          <button onClick={() => exportRepHours(r)} title={`${tr('تصدير تقرير')} ${r.name}`}
-                            className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => exportRepHours(r)} title={`${tr('تصدير Excel')} — ${r.name}`}
+                              className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                            <button onClick={() => exportRepHoursPdf(r)} title={`${tr('تصدير PDF')} — ${r.name}`}
+                              className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
+                          </div>
                         </td>
                       </tr>
                     ))}
