@@ -129,50 +129,17 @@ app.get('/api/health', (_req, res) => res.json({
   version: (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7),
 }));
 
-// تشخيص مؤقّت لحلّ رابط الموقع على الإنتاج (مقصور على روابط خرائط Google — يُزال بعد التشخيص)
+// تشخيص مؤقّت لحلّ رابط الموقع على الإنتاج (مقصور على روابط خرائط Google — يُزال بعد التحقّق)
 app.get('/api/geo-test', async (req, res) => {
   try {
     const url = String((req.query as { url?: string }).url || '');
     if (!/^https?:\/\/((maps\.)?app\.goo\.gl|goo\.gl|maps\.google|www\.google\.[a-z.]+\/maps|g\.co)/i.test(url)) {
       res.status(400).json({ error: 'only google maps urls allowed' }); return;
     }
-    // تتبّع مفصّل: كل تحويل بحالته ووجهته + عيّنة من جسم الصفحة النهائية
-    const hops: { status: number; location: string | null; url: string }[] = [];
-    let cur = url;
-    let bodySample = '';
-    for (let i = 0; i < 6; i++) {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 6000);
-      const r = await fetch(cur, { method: 'GET', redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' }, signal: ctrl.signal }).catch((e) => ({ status: -1, headers: { get: () => null }, text: async () => 'ERR:' + String(e) } as unknown as Response));
-      clearTimeout(timer);
-      const loc = r.headers.get('location');
-      hops.push({ status: r.status, location: loc ? loc.slice(0, 160) : null, url: cur.slice(0, 120) });
-      if (r.status >= 300 && r.status < 400 && loc) { cur = loc.startsWith('http') ? loc : new URL(loc, cur).toString(); continue; }
-      const full = await r.text().catch(() => '');
-      bodySample = full.slice(0, 300);
-      // ابحث عن أول أرقام تشبه إحداثيات الرياض (24.x مع 46.x) في كامل الجسم مع سياقها
-      const cands: string[] = [];
-      const re = /(2[0-9]\.\d{4,})/g; let m: RegExpExecArray | null; let n = 0;
-      while ((m = re.exec(full)) && n < 4) { cands.push(full.slice(Math.max(0, m.index - 12), m.index + 30).replace(/\s+/g, ' ')); n++; }
-      // اجلب رابط المعاينة الداخلي (يعيد بيانات المكان) وابحث فيه عن الإحداثيات
-      const prevHref = (full.match(/\/maps\/preview\/place\?[^"']+/) || [])[0];
-      let prevProbe: { status?: number; len?: number; coords?: string | null; sample?: string } = {};
-      if (prevHref) {
-        const purl = 'https://www.google.com' + prevHref.replace(/&amp;/g, '&');
-        try {
-          const pr = await fetch(purl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' } });
-          const pb = await pr.text();
-          // كل أزواج (lat,lng) الرياضية في الاستجابة مع سياقها — لتحديد نقطة المكان الدقيقة
-          const pairs: string[] = [];
-          const rx = /(2[0-9]\.\d{5,}),(4[0-9]\.\d{5,})/g; let mm: RegExpExecArray | null; let k = 0;
-          while ((mm = rx.exec(pb)) && k < 10) { pairs.push(`@${mm.index}:…${pb.slice(Math.max(0, mm.index - 18), mm.index).replace(/\s+/g, '')}[${mm[1]},${mm[2]}]`); k++; }
-          prevProbe = { status: pr.status, len: pb.length, sample: JSON.stringify(pairs) };
-        } catch (e) { prevProbe = { sample: 'ERR:' + String(e) }; }
-      }
-      res.json({ hops: hops.length, cid: (full.match(/0x[0-9a-f]+:0x[0-9a-f]+/i) || [])[0] || null, bodyCands: cands, prevProbe, hasGeoapify: !!(process.env.GEOAPIFY_API_KEY || '').trim(), hasGoogle: !!(process.env.GOOGLE_MAPS_API_KEY || '').trim() });
-      return;
-    }
-    res.json({ hops, note: 'no final body' });
+    const { resolveLocationUrl } = await import('./services/geoLink');
+    const t0 = Date.now();
+    const geo = await resolveLocationUrl(url);
+    res.json({ geo, ms: Date.now() - t0 });
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 

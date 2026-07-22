@@ -37,6 +37,19 @@ export function parseCoords(input: string): LatLng | null {
 }
 
 /**
+ * استخراج نقطة المكان الدقيقة من بيانات خرائط Google. نفضّل هندسة المكان
+ * `[null,null,[lat,lng]]` ثم مركز الخريطة القانوني `/@lat,lng` ثم `!3d!4d` —
+ * كلها أدقّ من حدود العرض (viewport) التي تظهر في مقدّمة الاستجابة.
+ */
+function coordsFromGoogleData(text: string): LatLng | null {
+  if (!text) return null;
+  const m = text.match(/\[null,null,\[(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})\]/)
+    || text.match(/\/@(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})/)
+    || text.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+  return m ? valid(parseFloat(m[1]), parseFloat(m[2])) : null;
+}
+
+/**
  * ترميز جغرافي لاسم مكان عبر Geoapify — خطة بديلة عندما يتعذّر استخراج الإحداثيات من
  * الرابط نفسه (مثلاً صفحة موافقة Google في أوروبا لا تُظهر الإحداثيات).
  */
@@ -105,14 +118,29 @@ export async function resolveLocationUrl(input: string): Promise<LatLng | null> 
         continue;
       }
 
-      // صفحة نهائية: ابحث في جسمها عن الإحداثيات
+      // صفحة نهائية: (1) جرّب جسمها مباشرة
       const body = await resp.text().catch(() => '');
-      const fromBody = parseCoords(body);
+      const fromBody = coordsFromGoogleData(body) || parseCoords(body);
       if (fromBody) return fromBody;
+      // (2) صفحة المكان تُحمّل إحداثياتها عبر JS؛ لكن رابط المعاينة الداخلي
+      //     /maps/preview/place يعيد بيانات المكان (وفيها نقطته الدقيقة) كنصّ
+      const prevHref = (body.match(/\/maps\/preview\/place\?[^"']+/) || [])[0];
+      if (prevHref) {
+        const purl = 'https://www.google.com' + prevHref.replace(/&amp;/g, '&');
+        const pctrl = new AbortController();
+        const ptimer = setTimeout(() => pctrl.abort(), 6000);
+        const pdata = await fetch(purl, {
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' },
+          signal: pctrl.signal,
+        }).then((r) => r.text()).catch(() => '');
+        clearTimeout(ptimer);
+        const fromPrev = coordsFromGoogleData(pdata);
+        if (fromPrev) return fromPrev;
+      }
       break;
     }
   } catch { /* نتابع للخطة البديلة */ }
 
-  // خطة بديلة: رمّز اسم المكان جغرافياً (يعمل حتى عند حجب Google للإحداثيات)
+  // خطة بديلة أخيرة: رمّز اسم المكان جغرافياً (تقريبيّ لكن أفضل من لا شيء)
   return placeName ? geocodePlace(placeName) : null;
 }
