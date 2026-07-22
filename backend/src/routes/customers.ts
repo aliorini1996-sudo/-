@@ -12,15 +12,17 @@ router.use(requireAdminPermission('canManageCustomers'));
 
 const customerSchema = z.object({
   name: z.string().min(1),
-  businessName: z.string().optional(),
-  commercialReg: z.string().optional(),
-  taxNumber: z.string().optional(),
+  // nullish على الحقول النصية الاختيارية: نموذج التحرير (react-hook-form) يرسل null للحقول
+  // غير المُعبّأة لعميل قائم، وz.string().optional() ترفض null فتفشل كل عملية تعديل لعميل بحقول فارغة
+  businessName: z.string().nullish(),
+  commercialReg: z.string().nullish(),
+  taxNumber: z.string().nullish(),
   phone: z.string().min(9),
-  altPhone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal('')),
-  city: z.string().optional(),
-  district: z.string().optional(),
-  address: z.string().optional(),
+  altPhone: z.string().nullish(),
+  email: z.string().email().or(z.literal('')).nullish(),
+  city: z.string().nullish(),
+  district: z.string().nullish(),
+  address: z.string().nullish(),
   // موقع العميل على الخريطة (اختياري): إحداثيات مباشرة أو رابط خرائط Google يحلّه الخادم
   // nullish: نموذج التحرير قد يرسل null لعميل بلا موقع
   lat: z.number().min(-90).max(90).nullish(),
