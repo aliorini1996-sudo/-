@@ -99,6 +99,7 @@ export const reportApi = {
   collections: (params?: Record<string, string>) => api.get('/reports/collections', { params }),
   balances: (params?: Record<string, string>) => api.get('/reports/balances', { params }),
   repPerformance: (params?: Record<string, string>) => api.get('/reports/rep-performance', { params }),
+  workHours: (params?: Record<string, string>) => api.get('/reports/work-hours', { params }),
 };
 
 export const notificationApi = {

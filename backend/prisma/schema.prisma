@@ -67,6 +67,7 @@ model Tenant {
   modifiers        Modifier[]
   orders           Order[]
   RepVisit         RepVisit[]
+  RepSession       RepSession[]
 
   @@index([vertical])
   @@map("tenants")
@@ -161,7 +162,7 @@ model SalesRep {
   updatedAt DateTime @updatedAt
 
   // Van stock permission — هل يستطيع المندوب إدارة مخزون سيارته
-  canManageVanStock Boolean @default(true)
+  canManageVanStock   Boolean @default(true)
   // هل يستطيع البيع دون توفّر مخزون كافٍ بالسيارة (true = بلا قيد؛ false = يُمنع البيع فوق المتبقّي)
   canSellWithoutStock Boolean @default(true)
 
@@ -178,6 +179,7 @@ model SalesRep {
   locations     RepLocation[]
   settlements   RepSettlement[]
   RepVisit      RepVisit[]
+  RepSession    RepSession[]
 
   @@index([tenantId])
   @@map("sales_reps")
@@ -397,22 +399,22 @@ model InvoiceItem {
 }
 
 model Receipt {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   number        String
   customerId    String
-  customer      Customer @relation(fields: [customerId], references: [id])
+  customer      Customer  @relation(fields: [customerId], references: [id])
   // اختياري + SetNull: حذف المندوب يحفظ سنده (سجلّ مالي) ويُفرِّغ مرجع المندوب فقط
   salesRepId    String?
   salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
-  receiptDate   DateTime @default(now())
+  receiptDate   DateTime  @default(now())
   amount        Float
-  paymentMethod String   @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
+  paymentMethod String    @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
   chequeNumber  String?
   bankName      String?
   notes         String?
-  status        String   @default("ACTIVE") // ACTIVE | CANCELLED
+  status        String    @default("ACTIVE") // ACTIVE | CANCELLED
 
   // idempotency للعمل دون اتصال (انظر Invoice.clientRef)
   clientRef       String?
@@ -665,6 +667,22 @@ model RepSettlement {
 
   @@index([tenantId, salesRepId])
   @@map("rep_settlements")
+}
+
+// جلسة حضور: تُمدَّد بنبضات القلب من تطبيق المندوب أثناء فتحه، لحساب ساعات العمل
+// (الوقت الذي كان فيه المندوب متصلاً وفاتحاً التطبيق) — مستقلّة عن تتبّع GPS.
+model RepSession {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  startedAt  DateTime @default(now())
+  lastBeatAt DateTime // آخر نبضة = نهاية الجلسة الحالية
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, salesRepId, startedAt])
+  @@map("rep_sessions")
 }
 
 // ============================================================================

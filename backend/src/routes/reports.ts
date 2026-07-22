@@ -201,4 +201,49 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
+// تقرير ساعات العمل — إجمالي الوقت الذي كان فيه كل مندوب متصلاً وفاتحاً التطبيق
+// (من جلسات الحضور RepSession)، مع عدد الجلسات وأول/آخر ظهور.
+router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { from, to } = req.query as Record<string, string>;
+    const fromDate = from ? new Date(from) : new Date(0);
+    const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
+
+    const [reps, sessions] = await Promise.all([
+      prisma.salesRep.findMany({ where: { tenantId: tid, isActive: true }, select: { id: true, name: true } }),
+      prisma.repSession.findMany({
+        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd } },
+        select: { salesRepId: true, startedAt: true, lastBeatAt: true },
+      }),
+    ]);
+
+    const acc = new Map<string, { minutes: number; sessions: number; first: Date | null; last: Date | null }>();
+    for (const s of sessions) {
+      const m = acc.get(s.salesRepId) || { minutes: 0, sessions: 0, first: null, last: null };
+      m.minutes += Math.max(0, (s.lastBeatAt.getTime() - s.startedAt.getTime()) / 60000);
+      m.sessions += 1;
+      if (!m.first || s.startedAt < m.first) m.first = s.startedAt;
+      if (!m.last || s.lastBeatAt > m.last) m.last = s.lastBeatAt;
+      acc.set(s.salesRepId, m);
+    }
+
+    const data = reps.map(r => {
+      const m = acc.get(r.id) || { minutes: 0, sessions: 0, first: null, last: null };
+      const totalMinutes = Math.round(m.minutes);
+      return {
+        id: r.id, name: r.name,
+        totalMinutes,
+        hours: Math.floor(totalMinutes / 60),
+        minutes: totalMinutes % 60,
+        sessions: m.sessions,
+        firstSeen: m.first,
+        lastSeen: m.last,
+      };
+    }).sort((a, b) => b.totalMinutes - a.totalMinutes);
+
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
 export default router;

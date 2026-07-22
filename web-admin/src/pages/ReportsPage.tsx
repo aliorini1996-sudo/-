@@ -11,12 +11,16 @@ import toast from 'react-hot-toast';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
+interface WorkHoursRow { id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number; firstSeen: string | null; lastSeen: string | null }
+
 export default function ReportsPage() {
   const tr = useTr();
   const [tab, setTab] = useState<Tab>('sales');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
+  // نوع تقرير المناديب: أداء | ساعات العمل
+  const [perfType, setPerfType] = useState<'performance' | 'hours'>('performance');
 
   const methodLabel = (m: string) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي') : m === 'POS' ? tr('شبكة') : tr('شيك');
 
@@ -60,8 +64,21 @@ export default function ReportsPage() {
       const res = await reportApi.repPerformance({ from, to });
       return res.data.data as { id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number }[];
     },
-    enabled: tab === 'performance',
+    enabled: tab === 'performance' && perfType === 'performance',
   });
+
+  const { data: hoursData, isLoading: hoursLoading } = useQuery({
+    queryKey: ['report-work-hours', from, to],
+    queryFn: async () => {
+      const res = await reportApi.workHours({ from, to });
+      return res.data.data as WorkHoursRow[];
+    },
+    enabled: tab === 'performance' && perfType === 'hours',
+  });
+
+  // صيغة عرض المدة: «Xس Yد»
+  const fmtDuration = (h: number, m: number) => `${h} ${tr('س')} ${m} ${tr('د')}`;
+  const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString('ar', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
   const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
     : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
@@ -72,7 +89,14 @@ export default function ReportsPage() {
   const handleExport = async () => {
     let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
     let fname = tr('تقرير');
-    if (tab === 'performance' && perfData?.length) {
+    if (tab === 'performance' && perfType === 'hours' && hoursData?.length) {
+      sheets = [{ name: tr('ساعات العمل'), rows: hoursData.map(r => ({
+        [tr('المندوب')]: r.name, [tr('ساعات العمل')]: fmtDuration(r.hours, r.minutes),
+        [tr('إجمالي الدقائق')]: r.totalMinutes, [tr('عدد الجلسات')]: r.sessions,
+        [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
+      })), colWidths: [22, 14, 14, 12, 18, 18] }];
+      fname = tr('ساعات العمل');
+    } else if (tab === 'performance' && perfData?.length) {
       sheets = [{ name: tr('أداء المناديب'), rows: perfData.map(r => ({
         [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
         [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
@@ -138,6 +162,15 @@ export default function ReportsPage() {
                 <option value="product">{tr('الصنف')}</option>
                 <option value="channel">{tr('القناة')}</option>
                 <option value="region">{tr('المنطقة')}</option>
+              </select>
+            </div>
+          )}
+          {tab === 'performance' && (
+            <div>
+              <label className="label">{tr('نوع التقرير')}</label>
+              <select className="input w-44" value={perfType} onChange={e => setPerfType(e.target.value as 'performance' | 'hours')}>
+                <option value="performance">{tr('أداء المندوب')}</option>
+                <option value="hours">{tr('ساعات العمل')}</option>
               </select>
             </div>
           )}
@@ -255,7 +288,7 @@ export default function ReportsPage() {
       )}
 
       {/* Performance Report */}
-      {tab === 'performance' && perfData && (
+      {tab === 'performance' && perfType === 'performance' && perfData && (
         <div className="space-y-4">
           <div className="card p-0">
             <div className="table-wrapper">
@@ -288,6 +321,43 @@ export default function ReportsPage() {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* تقرير ساعات العمل — الوقت الذي كان فيه المندوب متصلاً وفاتحاً التطبيق */}
+      {tab === 'performance' && perfType === 'hours' && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500 -mt-1">{tr('ساعات العمل = مجموع المدد التي كان فيها المندوب متصلاً وفاتحاً التطبيق خلال الفترة المحددة.')}</p>
+          {hoursLoading ? (
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل...')}</div>
+          ) : (hoursData && hoursData.length > 0) ? (
+            <div className="card p-0">
+              <div className="table-wrapper">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>{tr('المندوب')}</th><th>{tr('ساعات العمل')}</th><th>{tr('إجمالي الدقائق')}</th>
+                      <th>{tr('عدد الجلسات')}</th><th>{tr('أول ظهور')}</th><th>{tr('آخر ظهور')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hoursData.map(r => (
+                      <tr key={r.id}>
+                        <td className="font-medium text-gray-800">{r.name}</td>
+                        <td className="font-semibold text-[#1E7A52]">{fmtDuration(r.hours, r.minutes)}</td>
+                        <td className="text-gray-600">{r.totalMinutes}</td>
+                        <td className="text-gray-600">{r.sessions}</td>
+                        <td className="text-gray-500 text-xs">{fmtDateTime(r.firstSeen)}</td>
+                        <td className="text-gray-500 text-xs">{fmtDateTime(r.lastSeen)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('لا توجد بيانات حضور في هذه الفترة.')}</div>
+          )}
         </div>
       )}
     </div>

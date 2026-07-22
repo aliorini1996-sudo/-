@@ -73,6 +73,33 @@ router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction)
   } catch (err) { next(err); }
 });
 
+// نبضة حضور من تطبيق المندوب — تُمدّد جلسة العمل الحالية أو تبدأ جديدة (مستقلّة عن GPS).
+// تُحسب منها ساعات العمل (الوقت الذي كان فيه متصلاً وفاتحاً التطبيق).
+router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
+    const tid = tenantId(req);
+    const repId = req.user.id;
+    const now = new Date();
+    const GAP_MS = 3 * 60 * 1000; // فجوة أكبر من 3 دقائق ⇒ جلسة جديدة (اعتُبر التطبيق مُغلقاً)
+
+    const last = await prisma.repSession.findFirst({
+      where: { tenantId: tid, salesRepId: repId },
+      orderBy: { lastBeatAt: 'desc' },
+      select: { id: true, lastBeatAt: true },
+    });
+    if (last && now.getTime() - new Date(last.lastBeatAt).getTime() <= GAP_MS) {
+      await prisma.repSession.update({ where: { id: last.id }, data: { lastBeatAt: now } });
+    } else {
+      await prisma.repSession.create({ data: { tenantId: tid, salesRepId: repId, startedAt: now, lastBeatAt: now } });
+    }
+    // آخر ظهور = الآن (يجعل مؤشّر «متصل» يعكس فتح التطبيق حتى بلا GPS)
+    await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
+
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
 // المواقع الحالية لكل المناديب — للأدمن (الخريطة الحيّة) مع عدّاد زيارات اليوم
 router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

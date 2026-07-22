@@ -19,6 +19,7 @@ import BarcodeScanner from './BarcodeScanner';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
 import { useRepTracking } from './useRepTracking';
+import { useHeartbeat } from './useHeartbeat';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
@@ -1454,6 +1455,7 @@ export default function RepApp() {
 
   // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
   const trackStatus = useRepTracking(!!token && !!user);
+  useHeartbeat(!!token && !!user); // نبضة حضور لحساب ساعات العمل (مستقلّة عن GPS)
 
   // العمل دون اتصال: بدء المزامنة التلقائية + متابعة عدد المنتظرين (يُحدَّث بعد كل التقاط/رفع)
   useEffect(() => {
