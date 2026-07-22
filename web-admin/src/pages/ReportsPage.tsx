@@ -5,8 +5,9 @@ import { formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, MapPin } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, MapPin, FileText } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
+import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
@@ -91,8 +92,8 @@ export default function ReportsPage() {
   // اسم العرض: أكواد القنوات تُترجَم؛ البقية كما هي
   const displayName = (name: string) => groupBy === 'channel' ? (name === 'UNSET' ? tr('غير محدّد') : tr(channelLabel(name))) : name;
 
-  // تصدير/مشاركة بيانات التبويب النشط إلى Excel
-  const handleExport = async () => {
+  // يبني أوراق بيانات التبويب النشط (مشتركة بين Excel وPDF)
+  const buildSheets = (): { sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[]; fname: string } | null => {
     let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
     let fname = tr('تقرير');
     if (tab === 'performance' && perfType === 'hours' && hoursData?.length) {
@@ -133,14 +134,51 @@ export default function ReportsPage() {
       ], colWidths: [20, 16] }];
       fname = tr('تقارير التحصيل');
     }
-    if (!sheets) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
-    const out = await shareOrDownloadExcel(sheets, `${fname}-${new Date().toISOString().slice(0, 10)}`);
+    return sheets ? { sheets, fname } : null;
+  };
+
+  const day = () => new Date().toISOString().slice(0, 10);
+  const safeName = (s: string) => s.replace(/[\\/?*[\]:]/g, '·').slice(0, 60);
+
+  // تصدير Excel للتبويب النشط
+  const handleExport = async () => {
+    const built = buildSheets();
+    if (!built) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
+    const out = await shareOrDownloadExcel(built.sheets, `${built.fname}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
 
+  // يحوّل أوراق البيانات إلى PDF (جداول مطبوعة، عربية سليمة عبر html2canvas)
+  const sheetsToPdf = async (sheets: { name: string; rows: Record<string, unknown>[] }[], title: string) => {
+    const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const linksCol = tr('روابط مواقع الزيارات'); // عمود الروابط المجمّعة يُستبعد من PDF (يطول الصف)
+    const range = (from && to) ? `${from} — ${to}` : tr('كل الفترات');
+    const tables = sheets.map(sh => {
+      const cols = (sh.rows.length ? Object.keys(sh.rows[0]) : []).filter(c => c !== linksCol);
+      const thead = `<tr>${cols.map(c => `<th style="border:1px solid #ddd;padding:6px 8px;background:#FAF7F0;font-size:11px;text-align:right;font-weight:700">${esc(c)}</th>`).join('')}</tr>`;
+      const tbody = sh.rows.map(r => `<tr>${cols.map(c => `<td style="border:1px solid #eee;padding:5px 8px;font-size:11px;text-align:right;word-break:break-word">${esc(r[c])}</td>`).join('')}</tr>`).join('');
+      return `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${thead}${tbody}</table>`;
+    }).join('');
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;left:-99999px;top:0;width:780px;background:#fff;padding:24px;font-family:Tahoma,Arial,sans-serif;direction:rtl';
+    el.innerHTML = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString('ar'))}</p></div>${tables}`;
+    document.body.appendChild(el);
+    try {
+      const blob = await elementToPdfBlob(el);
+      const out = await shareOrDownloadPdf(blob, `${safeName(title)}-${day()}.pdf`);
+      toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
+    } catch { toast.error(tr('تعذّر إنشاء PDF')); }
+    finally { el.remove(); }
+  };
+
+  // تصدير PDF للتبويب النشط
+  const handleExportPdf = async () => {
+    const built = buildSheets();
+    if (!built) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
+    await sheetsToPdf(built.sheets, built.fname);
+  };
+
   // تصدير تقرير مندوب واحد بشكل مستقل (اسم الملف باسم المندوب)
-  const day = () => new Date().toISOString().slice(0, 10);
-  const safeName = (s: string) => s.replace(/[\\/?*[\]:]/g, '·').slice(0, 60);
   const exportRepPerf = async (r: PerfRow) => {
     const rows = [{
       [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
@@ -171,7 +209,10 @@ export default function ReportsPage() {
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('التقارير')}</h1>
-        <button className="btn-secondary" onClick={handleExport}><Download size={16} /> {tr('تصدير Excel')}</button>
+        <div className="flex items-center gap-2">
+          <button className="btn-secondary" onClick={handleExport}><Download size={16} /> {tr('تصدير Excel')}</button>
+          <button className="btn-secondary" onClick={handleExportPdf}><FileText size={16} /> {tr('تصدير PDF')}</button>
+        </div>
       </div>
 
       {/* Tabs */}
