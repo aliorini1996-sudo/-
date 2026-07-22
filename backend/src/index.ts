@@ -136,10 +136,35 @@ app.get('/api/geo-test', async (req, res) => {
     if (!/^https?:\/\/((maps\.)?app\.goo\.gl|goo\.gl|maps\.google|www\.google\.[a-z.]+\/maps|g\.co)/i.test(url)) {
       res.status(400).json({ error: 'only google maps urls allowed' }); return;
     }
+    // تتبّع داخلي يحاكي resolveLocationUrl لمعرفة أين يفشل الاستخراج
+    const trace: Record<string, unknown> = {};
+    const cfg = (t: string) => {
+      const m = t.match(/\[null,null,\[(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})\]/) || t.match(/\/@(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})/) || t.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+      return m ? `${m[1]},${m[2]}` : null;
+    };
+    let cur = url; let hops = 0;
+    for (let i = 0; i < 6; i++) {
+      const r = await fetch(cur, { method: 'GET', redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' } });
+      const loc = r.headers.get('location'); hops++;
+      if (r.status >= 300 && r.status < 400 && loc) { cur = loc.startsWith('http') ? loc : new URL(loc, cur).toString(); continue; }
+      const body = await r.text();
+      trace.finalStatus = r.status; trace.bodyLen = body.length; trace.cfgBody = cfg(body);
+      const prevHref = (body.match(/\/maps\/preview\/place\?[^"']+/) || [])[0] || null;
+      trace.prevHrefFound = !!prevHref;
+      if (prevHref) {
+        const purl = 'https://www.google.com' + prevHref.replace(/&amp;/g, '&');
+        const pr = await fetch(purl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' } });
+        const pdata = await pr.text();
+        trace.prevStatus = pr.status; trace.prevLen = pdata.length;
+        trace.cfgPrev = cfg(pdata);
+        trace.hasNullNull = pdata.includes('[null,null,[');
+      }
+      break;
+    }
+    trace.hops = hops;
     const { resolveLocationUrl } = await import('./services/geoLink');
-    const t0 = Date.now();
     const geo = await resolveLocationUrl(url);
-    res.json({ geo, ms: Date.now() - t0 });
+    res.json({ geo, trace });
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
