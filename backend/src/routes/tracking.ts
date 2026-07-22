@@ -80,10 +80,12 @@ router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: 
     const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
 
     const [reps, visitRows] = await Promise.all([
+      // كل المناديب النشطين (لا فقط من أرسل موقعاً) — كي يظهر المضاف حديثاً فوراً؛
+      // من له موقع أوّلاً (nulls last)، ومن لم يُحدّد موقعه بعد يظهر بلا دبّوس على الخريطة
       prisma.salesRep.findMany({
-        where: { tenantId: tid, lastLat: { not: null } },
+        where: { tenantId: tid, isActive: true },
         select: { id: true, name: true, phone: true, isActive: true, lastLat: true, lastLng: true, lastSeenAt: true },
-        orderBy: { lastSeenAt: 'desc' },
+        orderBy: [{ lastSeenAt: { sort: 'desc', nulls: 'last' } }, { name: 'asc' }],
       }),
       prisma.repVisit.groupBy({
         by: ['salesRepId'],

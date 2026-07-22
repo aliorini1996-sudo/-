@@ -11,7 +11,7 @@ import toast from 'react-hot-toast';
 
 interface LiveRep {
   id: string; name: string; phone: string; isActive: boolean;
-  lastLat: number; lastLng: number; lastSeenAt: string; visitsToday: number;
+  lastLat: number | null; lastLng: number | null; lastSeenAt: string | null; visitsToday: number;
 }
 interface RoutePoint { lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: string; }
 interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; }
@@ -32,7 +32,7 @@ interface CustomerLoc {
 const SA_CENTER: [number, number] = [24.7136, 46.6753]; // الرياض كمركز افتراضي
 const ONLINE_MS = 5 * 60 * 1000;
 
-const isOnline = (iso: string) => Date.now() - new Date(iso).getTime() < ONLINE_MS;
+const isOnline = (iso: string | null) => !!iso && Date.now() - new Date(iso).getTime() < ONLINE_MS;
 
 function repIcon(online: boolean, label: string) {
   const color = online ? '#1E7A52' : '#9A8F7E';
@@ -156,7 +156,7 @@ export default function TrackingPage() {
       const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number])];
       if (pts.length) return pts;
     }
-    return reps.map(r => [r.lastLat, r.lastLng] as [number, number]);
+    return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
   }, [selected, rawLatLng, visitPins, reps]);
 
   const selectedRep = reps.find(r => r.id === selected);
@@ -199,13 +199,14 @@ export default function TrackingPage() {
                 <p className="text-center text-gray-400 text-sm py-10 px-4">{tr('لا توجد مواقع بعد. سجّل المناديب دخولهم وفعّلوا الموقع لتظهر هنا.')}</p>
               ) : reps.map(r => {
                 const on = isOnline(r.lastSeenAt);
+                const located = r.lastSeenAt != null;
                 return (
                   <button key={r.id} onClick={() => setSelected(s => s === r.id ? '' : r.id)}
                     className={`w-full text-right px-4 py-3 border-b border-[#F1EBDF] flex items-center gap-3 transition-colors ${selected === r.id ? 'bg-[#FBEBE2]' : 'hover:bg-[#FAF7F0]'}`}>
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${on ? 'bg-[#1E7A52]' : 'bg-gray-300'}`} />
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${on ? 'bg-[#1E7A52]' : located ? 'bg-gray-300' : 'bg-amber-400'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-[#1F1A13] text-sm truncate">{r.name}</p>
-                      <p className="text-[11px] text-[#9A8F7E]">{on ? tr('متصل الآن') : `${tr('آخر ظهور')} ${sinceText(r.lastSeenAt)}`}</p>
+                      <p className="text-[11px] text-[#9A8F7E]">{!located ? tr('لم يُحدّد موقعه بعد') : on ? tr('متصل الآن') : `${tr('آخر ظهور')} ${sinceText(r.lastSeenAt!)}`}</p>
                     </div>
                     {/* عدّاد زيارات اليوم — لحظيّ */}
                     <span className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-1 ${r.visitsToday > 0 ? 'bg-[#E7F5EE] text-[#1E7A52]' : 'bg-[#F1EBDF] text-[#9A8F7E]'}`}
@@ -289,13 +290,13 @@ export default function TrackingPage() {
                   subdomains={['mt0', 'mt1', 'mt2', 'mt3']} maxZoom={20} />
                 <FitBounds points={focusPoints} />
 
-                {/* علامات المواقع الحيّة (تُخفى عند تحديد مندوب لعرض مساره فقط) */}
-                {!selected && reps.map(r => (
-                  <Marker key={r.id} position={[r.lastLat, r.lastLng]} icon={repIcon(isOnline(r.lastSeenAt), r.name.charAt(0))}>
+                {/* علامات المواقع الحيّة (لمن لهم موقع فقط؛ تُخفى عند تحديد مندوب) */}
+                {!selected && reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => (
+                  <Marker key={r.id} position={[r.lastLat!, r.lastLng!]} icon={repIcon(isOnline(r.lastSeenAt), r.name.charAt(0))}>
                     <Popup>
                       <div style={{ direction: 'rtl', minWidth: 140 }}>
                         <strong>{r.name}</strong><br />
-                        <span style={{ color: '#6E6557', fontSize: 12 }}>{isOnline(r.lastSeenAt) ? tr('متصل الآن') : `${tr('آخر ظهور')} ${sinceText(r.lastSeenAt)}`}</span><br />
+                        <span style={{ color: '#6E6557', fontSize: 12 }}>{isOnline(r.lastSeenAt) ? tr('متصل الآن') : `${tr('آخر ظهور')} ${r.lastSeenAt ? sinceText(r.lastSeenAt) : ''}`}</span><br />
                         <span style={{ color: '#1E7A52', fontSize: 12 }}>{r.visitsToday} {tr('زيارة اليوم')}</span><br />
                         <span style={{ color: '#9A8F7E', fontSize: 11 }}>{r.phone}</span>
                       </div>
