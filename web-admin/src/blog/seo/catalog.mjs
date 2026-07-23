@@ -423,6 +423,42 @@ const S = {
      <strong>Grilles tarifaires :</strong> listes de prix différentes (gros/détail/grands comptes) par segment.
      <strong>Facture structurée :</strong> facture aux champs exigés par ${c.tax.fr}, avec un code QR vérifiable.</p>`),
 
+  // قسم مُفرَّد لكل دولة: يحوّل البيانات التنظيمية الحقيقية (الجهة الضريبية/الفوترة/العملة/المدن + خانات العملة)
+  // إلى فقرات تختلف فعلاً بين الدول — يكسر تكرار القالب ويمنح جوجل محتوى محلياً أصيلاً.
+  localContext: (c, L) => {
+    const dec3 = ['KW', 'BH', 'OM', 'TN', 'JO', 'LY'].includes(c.code);
+    const cities = P(L,
+      [c.cap.ar, ...c.cities.map((x) => x.ar)],
+      [c.cap.en, ...c.cities.map((x) => x.en)],
+      [c.cap.fr, ...c.cities.map((x) => x.fr)]);
+    const cityJoin = L === 'ar' ? cities.join(' و') : cities.join(', ');
+    const dAr = dec3 ? ` وتُحتسب ${c.cur.ar} بثلاث خانات عشرية، فيجب أن يراعي نظامك التقريب الصحيح في كل فاتورة وكشف حساب.` : '';
+    const dEn = dec3 ? ` The ${c.cur.en} uses three decimal places, so your system must handle rounding correctly on every invoice and statement.` : '';
+    const dFr = dec3 ? ` Le ${c.cur.fr} utilise trois décimales ; votre système doit donc gérer correctement les arrondis.` : '';
+    if (c.vat != null) {
+      return P(L,
+        `<h2>البيئة التنظيمية للتوزيع ${c.inAr}</h2>
+     <p>تعمل شركات التوزيع ${c.inAr} ضمن إطار ${c.tax.ar}: تبلغ ضريبة القيمة المضافة نحو ${c.vat}٪، و${c.einv.ar}. عملياً يعني ذلك أن كل فاتورة تصدر من الميدان يجب أن تكون منظّمة وقابلة للتحقق — لا ورقة مكتوبة بخط اليد.${dAr}</p>
+     <p>تصدر منصّة FieldSales فاتورة منظّمة برمز QR وطباعة حرارية بعملة ${c.cur.ar}، وتضبط التحصيل وكشوف الحساب وحدود الائتمان — سواء عمل فريقك في ${cityJoin} أو المدن الأصغر. هكذا يلتزم مندوبك بمتطلبات ${c.tax.ar} من أوّل زيارة، ويبقى سجلّك جاهزاً للمراجعة.</p>`,
+        `<h2>The regulatory environment for distribution ${c.inEn}</h2>
+     <p>Distributors ${c.inEn} operate under ${c.tax.en}: value added tax is around ${c.vat}%, and ${c.einv.en}. In practice, every invoice issued from the field must be structured and verifiable — not a handwritten note.${dEn}</p>
+     <p>FieldSales issues a structured invoice with a QR code and thermal printing in ${c.cur.en}, and manages collection, statements and credit limits — whether your team covers ${cityJoin} or smaller towns. Your reps stay aligned with ${c.tax.en} from the first visit, and your records stay audit-ready.</p>`,
+        `<h2>L'environnement réglementaire de la distribution ${c.inFr}</h2>
+     <p>Les distributeurs ${c.inFr} opèrent sous ${c.tax.fr} : la TVA est d'environ ${c.vat} %, et ${c.einv.fr}. Concrètement, chaque facture émise sur le terrain doit être structurée et vérifiable — pas une note manuscrite.${dFr}</p>
+     <p>FieldSales émet une facture structurée à code QR et impression thermique en ${c.cur.fr}, et gère l'encaissement, les relevés et les limites de crédit — que votre équipe couvre ${cityJoin} ou de plus petites villes.</p>`);
+    }
+    return P(L,
+      `<h2>البيئة التنظيمية للتوزيع ${c.inAr}</h2>
+     <p>${c.einv.ar} ${c.inAr}، وتشرف ${c.tax.ar} على الجوانب الضريبية. ومع غياب ضريبة قيمة مضافة عامة، يبقى إصدار فواتير منظّمة وكشوف حساب دقيقة ضرورة إدارية ورقابية لكل موزّع يريد ضبط ذممه وحماية هوامشه.${dAr}</p>
+     <p>تصدر منصّة FieldSales فاتورة منظّمة برمز QR بعملة ${c.cur.ar}، وتضبط التحصيل وحدود الائتمان ومخزون السيارة — سواء عمل فريقك في ${cityJoin} أو المدن الأصغر — فتبقى بياناتك دقيقة وقراراتك مبنيّة على أرقام لحظية.</p>`,
+      `<h2>The regulatory environment for distribution ${c.inEn}</h2>
+     <p>${c.einv.en} ${c.inEn}, with ${c.tax.en} overseeing tax matters. With no general VAT in place, issuing structured invoices and accurate statements is still an operational necessity for any distributor that wants to control receivables and protect margins.${dEn}</p>
+     <p>FieldSales issues a structured invoice with a QR code in ${c.cur.en}, and manages collection, credit limits and van stock — whether your team covers ${cityJoin} or smaller towns — keeping your data accurate and your decisions based on live numbers.</p>`,
+      `<h2>L'environnement réglementaire de la distribution ${c.inFr}</h2>
+     <p>${c.einv.fr} ${c.inFr}, ${c.tax.fr} supervisant les questions fiscales. En l'absence de TVA générale, émettre des factures structurées et des relevés précis reste indispensable pour tout distributeur.${dFr}</p>
+     <p>FieldSales émet une facture structurée à code QR en ${c.cur.fr}, et gère l'encaissement, les limites de crédit et le stock du véhicule — que votre équipe couvre ${cityJoin} ou de plus petites villes.</p>`);
+  },
+
   best: (c, L) => P(L,
     `<h2>كيف تقارن بين الأنظمة المتاحة ${c.inAr}؟</h2>
      <p>عند تقييم أي نظام مبيعات ميدانية ${c.inAr} قارن على خمسة محاور: التوافق الضريبي المحلي (${c.tax.ar} و${c.cur.ar})، اكتمال دورة الميدان (طلب → فاتورة → تحصيل → مخزون سيارة)، دعم العربية الكامل في التطبيق والمستندات، سهولة بدء الاستخدام دون تركيب معقّد، وتكلفة واضحة بلا رسوم خفية.</p>
@@ -689,7 +725,8 @@ export function getArticle(slug, L) {
      <p>Que vous distribuiez de l'alimentaire, des boissons ou des produits de détail, vous trouverez ici des étapes pratiques et des exemples locaux pour améliorer vos commerciaux, votre encaissement et vos ventes.</p>`);
   // أقسام الموضوع + أقسام تعميق عامة تُضاف للجميع (خطوات/نتائج/مؤشرات/قبل-بعد/أخطاء/مصطلحات) دون تكرار، ثم CTA
   const coreKeys = topic.secs.filter((k) => k !== 'cta');
-  const universal = ['steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq'].filter((k) => !coreKeys.includes(k));
+  // localContext (مُفرَّد لكل دولة) يُضاف مبكراً لمقالات الدول فقط — يكسر تكرار القالب بمحتوى محلي أصيل
+  const universal = [...(topic.cs ? ['localContext'] : []), 'steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq'].filter((k) => !coreKeys.includes(k));
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
   const contentHtml = `${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
