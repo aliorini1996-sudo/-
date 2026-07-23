@@ -48,6 +48,7 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
   });
   const defaultTaxPct = settings?.defaultVatPct ?? 15;
   const { customerId, salesRepId } = await ensureRestaurantDefaults(tid);
+  const cashTotal = roundDecimal(payments.filter(p => p.method === 'CASH').reduce((s, p) => s + (p.amount ?? 0), 0), 2);
 
   const out = await withNumberRetry(async () => {
     const number = await generateInvoiceNumber(tid);
@@ -61,6 +62,8 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
 
       const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
       if (!order || order.items.length === 0) throw Object.assign(new Error('الطلب فارغ'), { status: 400 });
+      // الوردية المفتوحة (إن وُجدت) — تُربط بها الفاتورة ويُسجَّل نقدها لتسوية الدرج
+      const shift = await tx.posShift.findFirst({ where: { tenantId: tid, status: 'OPEN' }, select: { id: true } });
 
       const totals = computeInvoice(
         order.items.map(it => ({ qty: it.qty, unitPrice: it.unitPrice, taxPct: it.taxPct })),
@@ -93,6 +96,7 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
           subtotal: totals.subtotal, discountAmt: discount, taxAmt: totals.totalTax,
           total: invoiceTotal, paidAmt: invoiceTotal, remainingAmt: 0,
           invoiceDate: issuedAt,
+          shiftId: shift?.id ?? undefined,
           einvoiceProvider, einvoiceStatus, einvoiceQr,
           einvoiceSubmittedAt: einvoiceQr ? issuedAt : undefined,
           items: {
@@ -118,6 +122,9 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
         });
       }
       if (order.tableId) await tx.restaurantTable.update({ where: { id: order.tableId }, data: { status: 'FREE' } });
+      if (shift && cashTotal > 0) {
+        await tx.cashMovement.create({ data: { tenantId: tid, shiftId: shift.id, type: 'SALE', amount: cashTotal } });
+      }
       return { id: inv.id, number: inv.number, total: invoiceTotal, subtotal: totals.subtotal, taxAmt: totals.totalTax, qr: einvoiceQr, einvoiceStatus, issuedAt: issuedAt.toISOString() };
     });
   });
