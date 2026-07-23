@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../../config/database';
 import { computeInvoice } from '../../lib/tax';
 import { generateInvoiceNumber, withNumberRetry, roundDecimal } from '../../utils/helpers';
+import { getComplianceProvider } from '../../compliance/provider';
 
 // ============================================================================
 // خدمة الدفع للمطاعم — تبني فاتورة CASH من طلب مدفوع مباشرةً (لا تمرّ بمسار invoices.ts).
@@ -35,8 +36,16 @@ async function ensureRestaurantDefaults(tid: string): Promise<{ customerId: stri
 }
 
 // ينشئ فاتورة CASH من طلب مفتوح ويسجّل دفعاته ويحرّر طاولته — كل ذلك ذرّياً.
-export async function checkoutOrder(tid: string, orderId: string, payments: PaymentInput[]): Promise<{ invoiceId: string; number: string; total: number }> {
-  const settings = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
+export interface CheckoutResult {
+  invoiceId: string; number: string; total: number; subtotal: number; taxAmt: number;
+  qr?: string; einvoiceStatus?: string; issuedAt: string;
+}
+
+export async function checkoutOrder(tid: string, orderId: string, payments: PaymentInput[]): Promise<CheckoutResult> {
+  const settings = await prisma.companySettings.findUnique({
+    where: { tenantId: tid },
+    select: { defaultVatPct: true, name: true, taxNumber: true, einvoiceProvider: true, currency: true },
+  });
   const defaultTaxPct = settings?.defaultVatPct ?? 15;
   const { customerId, salesRepId } = await ensureRestaurantDefaults(tid);
 
@@ -60,6 +69,21 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
       const service = order.serviceChargeAmt || 0;
       const discount = order.discountAmt || 0;
       const invoiceTotal = roundDecimal(totals.subtotal + totals.totalTax + service - discount, 2);
+      const issuedAt = new Date();
+
+      // الفوترة الإلكترونية المعتمدة — يُبنى رمز QR حسب مزوّد دولة المطعم (ZATCA للسعودية فعلياً).
+      // نقيّ (لا يمسّ القاعدة) وآمن الفشل: تعذّر البناء لا يُفشل الفاتورة.
+      let einvoiceProvider = settings?.einvoiceProvider ?? 'none';
+      let einvoiceStatus: string | undefined;
+      let einvoiceQr: string | undefined;
+      try {
+        const r = await getComplianceProvider(settings?.einvoiceProvider).build({
+          seller: { name: settings?.name || 'مطعم', taxNumber: settings?.taxNumber || '' },
+          issuedAt, total: invoiceTotal, vatTotal: totals.totalTax,
+          currency: settings?.currency || 'SAR', invoiceNumber: number,
+        });
+        einvoiceProvider = r.provider; einvoiceStatus = r.status; einvoiceQr = r.qr;
+      } catch { /* تجاهل — الفاتورة تصدر بلا حمولة إن تعذّر البناء */ }
 
       const inv = await tx.invoice.create({
         data: {
@@ -68,6 +92,9 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
           serviceChargeAmt: service, tipAmt: order.tipAmt || 0,
           subtotal: totals.subtotal, discountAmt: discount, taxAmt: totals.totalTax,
           total: invoiceTotal, paidAmt: invoiceTotal, remainingAmt: 0,
+          invoiceDate: issuedAt,
+          einvoiceProvider, einvoiceStatus, einvoiceQr,
+          einvoiceSubmittedAt: einvoiceQr ? issuedAt : undefined,
           items: {
             create: order.items.map((it, i) => ({
               menuItemId: it.menuItemId, orderItemId: it.id, unitCost: it.unitCost,
@@ -91,9 +118,9 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
         });
       }
       if (order.tableId) await tx.restaurantTable.update({ where: { id: order.tableId }, data: { status: 'FREE' } });
-      return { id: inv.id, number: inv.number, total: invoiceTotal };
+      return { id: inv.id, number: inv.number, total: invoiceTotal, subtotal: totals.subtotal, taxAmt: totals.totalTax, qr: einvoiceQr, einvoiceStatus, issuedAt: issuedAt.toISOString() };
     });
   });
 
-  return { invoiceId: out.id, number: out.number, total: out.total };
+  return { invoiceId: out.id, number: out.number, total: out.total, subtotal: out.subtotal, taxAmt: out.taxAmt, qr: out.qr, einvoiceStatus: out.einvoiceStatus, issuedAt: out.issuedAt };
 }

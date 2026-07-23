@@ -1,11 +1,19 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Plus, Minus, Trash2, X, Check, ArrowRight, Store, ShoppingBag, UtensilsCrossed, LogOut, Receipt } from 'lucide-react';
+import { Plus, Minus, Trash2, X, Check, ArrowRight, Store, ShoppingBag, UtensilsCrossed, LogOut, Receipt, Printer } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { restaurantApi } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
 import { BrandIcon } from '../../components/BrandLogo';
 import type { MenuCategory, MenuItem, ModifierGroup, RestaurantTable } from '../../types';
+
+// بيانات الإيصال للطباعة الحرارية (تأتي من استجابة الدفع)
+interface ReceiptData {
+  company?: { name?: string; taxNumber?: string | null; phone?: string | null; address?: string | null } | null;
+  invoice: { number: string; total: number; subtotal?: number; taxAmt?: number; qr?: string; issuedAt?: string; einvoiceStatus?: string };
+  items: { nameSnap: string; qty: number; unitPrice: number; lineTotal: number }[];
+}
 
 const money = (n: number) => `${(Math.round(n * 100) / 100).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س`;
 
@@ -22,7 +30,7 @@ export default function PosScreen() {
   const [modPick, setModPick] = useState<MenuItem | null>(null);
   // الطلب المُنشأ بانتظار الدفع — يحمل معرّفه وإجماليه المحسوب من الخادم (مصدر الحقيقة للمبلغ)
   const [pending, setPending] = useState<{ orderId: string; total: number } | null>(null);
-  const [receipt, setReceipt] = useState<{ number: string; total: number } | null>(null);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const { data: menu } = useQuery({
     queryKey: ['resto-menu'],
@@ -75,9 +83,9 @@ export default function PosScreen() {
   const payMut = useMutation({
     mutationFn: async (payments: { method: string; amount: number; tendered?: number }[]) => {
       const res = await restaurantApi.payOrder(pending!.orderId, { payments });
-      return res.data.data.invoice as { number: string; total: number };
+      return res.data.data as { order?: { items?: ReceiptData['items'] }; invoice: ReceiptData['invoice']; company?: ReceiptData['company'] };
     },
-    onSuccess: (inv) => { setReceipt({ number: inv.number, total: inv.total }); setCart([]); setTableId(''); setPending(null); },
+    onSuccess: (d) => { setReceipt({ company: d.company, invoice: d.invoice, items: d.order?.items ?? [] }); setCart([]); setTableId(''); setPending(null); },
     onError: (e) => toast.error(errMsg(e, 'تعذّر إتمام الدفع')),
   });
 
@@ -294,18 +302,77 @@ function PaymentModal({ total, loading, onClose, onPay }: { total: number; loadi
   );
 }
 
-// ---------- الإيصال ----------
-function ReceiptModal({ receipt, onClose }: { receipt: { number: string; total: number }; onClose: () => void }) {
+// ---------- الإيصال + الطباعة الحرارية ----------
+function ReceiptModal({ receipt, onClose }: { receipt: ReceiptData; onClose: () => void }) {
   return (
     <Overlay onClose={onClose}>
       <div className="p-8 text-center">
         <div className="w-16 h-16 rounded-2xl bg-[#EAF5EF] flex items-center justify-center mx-auto mb-4"><Check size={32} className="text-[#1E7A52]" /></div>
         <h2 className="text-lg font-bold text-[#1F1A13]">تمّ الدفع بنجاح</h2>
-        <p className="text-sm text-[#6E6557] mt-1">فاتورة رقم <span className="font-mono font-bold" dir="ltr">{receipt.number}</span></p>
-        <p className="text-2xl font-bold text-[#E15A30] mt-3">{money(receipt.total)}</p>
-        <button onClick={onClose} className="w-full mt-6 btn-primary justify-center py-3">طلب جديد</button>
+        <p className="text-sm text-[#6E6557] mt-1">فاتورة رقم <span className="font-mono font-bold" dir="ltr">{receipt.invoice.number}</span></p>
+        <p className="text-2xl font-bold text-[#E15A30] mt-3">{money(receipt.invoice.total)}</p>
+        <div className="flex gap-3 mt-6">
+          <button onClick={() => window.print()} className="btn-secondary flex-1 justify-center py-3"><Printer size={17} /> طباعة الإيصال</button>
+          <button onClick={onClose} className="btn-primary flex-1 justify-center py-3">طلب جديد</button>
+        </div>
       </div>
+      <ThermalReceipt receipt={receipt} />
     </Overlay>
+  );
+}
+
+// إيصال حراري 80مم — يظهر عند الطباعة فقط (window.print) ويتضمّن رمز الفوترة الإلكترونية (ZATCA QR)
+function ThermalReceipt({ receipt }: { receipt: ReceiptData }) {
+  const { company, invoice, items } = receipt;
+  const date = invoice.issuedAt ? new Date(invoice.issuedAt) : new Date();
+  const line = (label: string, value: string, bold = false) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: bold ? 700 : 400, fontSize: bold ? 14 : 12 }}>
+      <span>{label}</span><span dir="ltr">{value}</span>
+    </div>
+  );
+  const dash = <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />;
+  return (
+    <>
+      <style>{`
+        .pos-print { display: none; }
+        @media print {
+          body * { visibility: hidden !important; }
+          .pos-print, .pos-print * { visibility: visible !important; }
+          .pos-print { display: block !important; position: fixed; top: 0; left: 0; right: 0; margin: 0 auto; width: 80mm; padding: 4mm; box-sizing: border-box; color: #000; }
+          @page { size: 80mm auto; margin: 0; }
+        }
+      `}</style>
+      <div className="pos-print" dir="rtl" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif", fontSize: 12, lineHeight: 1.55 }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{company?.name || 'مطعم'}</div>
+          {company?.taxNumber ? <div>الرقم الضريبي: <span dir="ltr">{company.taxNumber}</span></div> : null}
+          {company?.phone ? <div dir="ltr">{company.phone}</div> : null}
+          {company?.address ? <div>{company.address}</div> : null}
+        </div>
+        {dash}
+        <div style={{ textAlign: 'center', fontWeight: 700 }}>فاتورة ضريبية مبسّطة</div>
+        {line('رقم الفاتورة', invoice.number)}
+        {line('التاريخ', date.toLocaleString('ar-EG'))}
+        {dash}
+        {items.map((it, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>{it.nameSnap} ×{it.qty}</span>
+            <span dir="ltr">{money(it.qty * it.unitPrice)}</span>
+          </div>
+        ))}
+        {dash}
+        {invoice.subtotal != null ? line('المجموع قبل الضريبة', money(invoice.subtotal)) : null}
+        {invoice.taxAmt != null ? line('ضريبة القيمة المضافة', money(invoice.taxAmt)) : null}
+        {line('الإجمالي', money(invoice.total), true)}
+        {invoice.qr ? (
+          <div style={{ textAlign: 'center', marginTop: 10 }}>
+            <QRCodeSVG value={invoice.qr} size={120} level="M" />
+            <div style={{ fontSize: 10, marginTop: 3 }}>فاتورة إلكترونية معتمدة — ZATCA</div>
+          </div>
+        ) : null}
+        <div style={{ textAlign: 'center', marginTop: 10 }}>شكراً لزيارتكم</div>
+      </div>
+    </>
   );
 }
 
