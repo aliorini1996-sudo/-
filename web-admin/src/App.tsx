@@ -39,6 +39,7 @@ const RestaurantLayout = lazy(() => import('./pages/resto/RestaurantLayout'));
 const RestaurantDashboard = lazy(() => import('./pages/resto/RestaurantDashboard'));
 const MenuManagePage = lazy(() => import('./pages/resto/MenuManagePage'));
 const TablesManagePage = lazy(() => import('./pages/resto/TablesManagePage'));
+const RestaurantSettingsPage = lazy(() => import('./pages/resto/RestaurantSettingsPage'));
 const PosScreen = lazy(() => import('./pages/resto/PosScreen'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
@@ -164,6 +165,7 @@ export default function App() {
           <Route index element={<RestaurantDashboard />} />
           <Route path="menu" element={<MenuManagePage />} />
           <Route path="tables" element={<TablesManagePage />} />
+          <Route path="settings" element={<RestaurantSettingsPage />} />
         </Route>
         {/* شاشة الكاشير (ملء الشاشة) — عمودية المطاعم (M3) */}
         <Route path="/pos" element={<RestaurantRoute><PosScreen /></RestaurantRoute>} />

@@ -153,8 +153,11 @@ router.post('/orders/:id/pay', async (req: AuthRequest, res: Response, next: Nex
     }
     // الدفعات + الفاتورة + تحرير الطاولة ذرّياً داخل checkout (لا إنشاء دفعات خارج المعاملة)
     const result = await checkoutOrder(tid, order.id, body.payments);
-    const full = await prisma.order.findUnique({ where: { id: order.id }, include: orderInclude });
-    res.json({ success: true, data: { order: full, invoice: result } });
+    const [full, company] = await Promise.all([
+      prisma.order.findUnique({ where: { id: order.id }, include: orderInclude }),
+      prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { name: true, taxNumber: true, phone: true, address: true, currency: true } }),
+    ]);
+    res.json({ success: true, data: { order: full, invoice: result, company } });
   } catch (err) {
     const status = (err as { status?: number }).status;
     if (status) { res.status(status).json({ success: false, message: (err as Error).message }); return; }
