@@ -402,21 +402,24 @@ const S = {
 
   glossary: (c, L) => P(L,
     `<h2>مصطلحات أساسية في المبيعات الميدانية</h2>
-     <p><strong>التوزيع المباشر (DSD):</strong> تسليم البضاعة من الموزّع إلى نقطة البيع مباشرةً دون مستودع وسيط.
+     <p><strong>نظام إدارة الموزّعين (DMS):</strong> منصّة موحّدة تدير طلبات وفواتير وتحصيل ومخزون الموزّع وكشوف حساب نقاط البيع في مكان واحد.
+     <strong>التوزيع المباشر (DSD):</strong> تسليم البضاعة من الموزّع إلى نقطة البيع مباشرةً دون مستودع وسيط.
      <strong>البيع من السيارة (Van Sales):</strong> بيع وتسليم وفوترة فورية من مخزون سيارة المندوب.
      <strong>الذمم المدينة:</strong> المبالغ المستحقة على العملاء من المبيعات الآجلة.
      <strong>حدّ الائتمان:</strong> أقصى رصيد آجل مسموح للعميل قبل إيقاف البيع له.
      <strong>شرائح الأسعار:</strong> قوائم أسعار مختلفة (جملة/تجزئة/مفتاح) حسب فئة العميل.
      <strong>الفاتورة الضريبية المنظّمة:</strong> فاتورة بالحقول التي تعتمدها ${c.tax.ar} برمز QR قابل للتحقق.</p>`,
     `<h2>Essential field sales terms</h2>
-     <p><strong>Direct Store Delivery (DSD):</strong> delivering goods from the distributor straight to the point of sale without an intermediate warehouse.
+     <p><strong>Distributor Management System (DMS):</strong> a unified platform that manages a distributor's orders, invoicing, collection, stock and retailer statements in one place.
+     <strong>Direct Store Delivery (DSD):</strong> delivering goods from the distributor straight to the point of sale without an intermediate warehouse.
      <strong>Van Sales:</strong> selling, delivering and invoicing on the spot from the rep's van stock.
      <strong>Receivables:</strong> amounts customers owe from credit sales.
      <strong>Credit limit:</strong> the maximum outstanding balance allowed before sales to a customer are blocked.
      <strong>Price tiers:</strong> different price lists (wholesale/retail/key account) per customer segment.
      <strong>Structured tax invoice:</strong> an invoice with the fields required by ${c.tax.en}, carrying a verifiable QR code.</p>`,
     `<h2>Termes essentiels de la vente terrain</h2>
-     <p><strong>Distribution directe (DSD) :</strong> livraison du distributeur au point de vente sans entrepôt intermédiaire.
+     <p><strong>Système de gestion des distributeurs (DMS) :</strong> une plateforme unifiée qui gère commandes, facturation, encaissement, stock et relevés des points de vente en un seul endroit.
+     <strong>Distribution directe (DSD) :</strong> livraison du distributeur au point de vente sans entrepôt intermédiaire.
      <strong>Van Sales :</strong> vente, livraison et facturation immédiates depuis le stock du véhicule.
      <strong>Créances :</strong> montants dus par les clients sur les ventes à crédit.
      <strong>Limite de crédit :</strong> encours maximal autorisé avant blocage des ventes au client.
@@ -484,8 +487,8 @@ const TOPICS = [
     kw: (c, L) => P(L, `برنامج مبيعات ميدانية ${c.ar}, نظام إدارة مناديب ${c.ar}, برنامج توزيع, فاتورة ضريبية, تحصيل`, `field sales software ${c.en}, sales rep management ${c.en}, distribution software, tax invoice, collection`, `logiciel de vente terrain ${c.fr}, gestion des commerciaux ${c.fr}, distribution, facturation`),
     secs: ['why', 'invoice', 'tax', 'collect', 'features', 'howstart', 'cta'] },
   { id: 'distribution-management-system', cs: true, rm: 7,
-    label: svc('نظام إدارة التوزيع وشركات الجملة', 'Distribution & Wholesale Management System', 'Système de gestion de la distribution'),
-    kw: (c, L) => P(L, `نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, إدارة موزعين, مخزون, كشوف حساب`, `distribution system ${c.en}, wholesale software ${c.en}, distributor management, inventory`, `système de distribution ${c.fr}, logiciel de gros ${c.fr}, gestion des distributeurs`),
+    label: svc('نظام إدارة الموزّعين (DMS)', 'Distributor Management System (DMS)', 'Système de gestion des distributeurs (DMS)'),
+    kw: (c, L) => P(L, `نظام إدارة الموزّعين ${c.ar}, نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, مخزون, كشوف حساب`, `distributor management system ${c.en}, DMS software ${c.en}, distributor management software, distribution management system ${c.en}, wholesale software ${c.en}`, `système de gestion des distributeurs ${c.fr}, DMS ${c.fr}, logiciel de gros ${c.fr}`),
     secs: ['why', 'vanstock', 'crm', 'reports', 'collect', 'cta'] },
   { id: 'van-sales-app', cs: true, rm: 6,
     label: svc('تطبيق البيع من السيارة (Van Sales)', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
@@ -615,8 +618,9 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  * للقارئ ولـdatePublished.
  *
  * 2026-07-17: أُعيدت صياغة كتلة «مقالات ذات صلة» (الشرطة الأخيرة في كل رابط).
+ * 2026-07-23: قسم localContext مُفرَّد لكل دولة + استهداف «distributor management system» (DMS).
  */
-export const CONTENT_VERSION = '2026-07-17';
+export const CONTENT_VERSION = '2026-07-23';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً)
 export const modifiedOf = (date) => (date > CONTENT_VERSION ? date : CONTENT_VERSION);
@@ -690,7 +694,7 @@ function relatedLinks(topic, c, L) {
 // طبقة كلمات مفتاحية عالية النية تُضاف لكل مقال — تقوّي تغطية مصطلحات الشراء في الأسواق العربية
 const EXTRA_KW = (c, L) => P(L,
   `فان سيلز ${c.ar}, البيع من السيارة ${c.ar}, DSD ${c.ar}, أتمتة قوة المبيعات, برنامج مناديب ${c.ar}, برنامج توزيع FMCG ${c.ar}, برنامج شركات الجملة ${c.ar}, تطبيق مندوب مبيعات ${c.ar}, حسابات خطوط السير, إدارة الموزّعين ${c.ar}, برنامج توزيع مواد غذائية ${c.ar}, نظام نقاط بيع متنقّل`,
-  `van sales software ${c.en}, DSD software ${c.en}, sales force automation ${c.en}, field force automation, distributor management ${c.en}, FMCG distribution software ${c.en}, wholesale distribution software ${c.en}, route accounting ${c.en}, mobile sales app ${c.en}, food distribution software ${c.en}`,
+  `distributor management system ${c.en}, DMS software ${c.en}, van sales software ${c.en}, DSD software ${c.en}, sales force automation ${c.en}, field force automation, FMCG distribution software ${c.en}, wholesale distribution software ${c.en}, route accounting ${c.en}, mobile sales app ${c.en}, food distribution software ${c.en}`,
   `logiciel van sales ${c.fr}, DSD ${c.fr}, automatisation force de vente ${c.fr}, gestion des distributeurs ${c.fr}, logiciel distribution FMCG ${c.fr}, logiciel de gros ${c.fr}, comptabilité de tournée, application commerciale mobile ${c.fr}`);
 
 export function listArticles(L) {
