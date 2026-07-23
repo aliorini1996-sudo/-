@@ -74,6 +74,19 @@ async function geocodePlace(query: string): Promise<LatLng | null> {
  * الإحداثيات من الروابط أو جسم صفحة الخرائط. عند التعذّر (صفحة موافقة أوروبا مثلاً) يرمّز
  * اسم المكان جغرافياً عبر Geoapify. أفضل جهد، يرجع null عند الفشل.
  */
+// جلب مع مهلة نظيفة (AbortSignal.timeout جديد لكل طلب — بلا إعادة استخدام متحكّم)
+async function fetchMaps(u: string, ms = 8000): Promise<Response | null> {
+  try {
+    return await fetch(u, {
+      method: 'GET',
+      redirect: 'manual',
+      // Cookie=CONSENT يتخطّى صفحة موافقة Google في أوروبا (Render فرانكفورت)
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' },
+      signal: AbortSignal.timeout(ms),
+    });
+  } catch { return null; }
+}
+
 export async function resolveLocationUrl(input: string): Promise<LatLng | null> {
   if (!input) return null;
 
@@ -84,62 +97,43 @@ export async function resolveLocationUrl(input: string): Promise<LatLng | null> 
   const s = input.trim();
   if (!/^https?:\/\//i.test(s)) return null; // ليس رابطاً
 
-  let url = s;
+  let cur = s;
   let placeName: string | null = null;
-  try {
-    // روابط maps.app.goo.gl قد تمرّ بـ4 تحويلات قبل صفحة الخرائط — نسمح بعدد كافٍ
-    for (let hop = 0; hop < 6; hop++) {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 6000);
-      // Cookie=CONSENT يتخطّى صفحة موافقة Google في أوروبا (Render فرانكفورت) فتظهر الإحداثيات
-      const resp = await fetch(url, {
-        method: 'GET',
-        redirect: 'manual',
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' },
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
+  // روابط maps.app.goo.gl قد تمرّ بـ4 تحويلات قبل صفحة الخرائط — نسمح بعدد كافٍ
+  for (let hop = 0; hop < 6; hop++) {
+    const r = await fetchMaps(cur);
+    if (!r) break;
 
-      const fromUrl = parseCoords(url);
-      if (fromUrl) return fromUrl;
-      // التقط اسم المكان من q= (لترميزه جغرافياً كخطة بديلة إن لزم)
-      const qm = url.match(/[?&](?:q|query)=([^&]+)/i);
-      if (qm) {
-        const q = decodeURIComponent(qm[1].replace(/\+/g, ' ')).trim();
-        if (q && !/^-?\d+(\.\d+)?\s*[,،]/.test(q)) placeName = q; // ليس إحداثيات
-      }
+    const fromUrl = parseCoords(cur);
+    if (fromUrl) return fromUrl;
+    // التقط اسم المكان من q= (لترميزه جغرافياً كخطة بديلة إن لزم)
+    const qm = cur.match(/[?&](?:q|query)=([^&]+)/i);
+    if (qm) {
+      const q = decodeURIComponent(qm[1].replace(/\+/g, ' ')).trim();
+      if (q && !/^-?\d+(\.\d+)?\s*[,،]/.test(q)) placeName = q; // ليس إحداثيات
+    }
 
-      // تحويل: تابع الوجهة
-      const loc = resp.headers.get('location');
-      if (resp.status >= 300 && resp.status < 400 && loc) {
-        const hit = parseCoords(loc);
-        if (hit) return hit;
-        url = loc.startsWith('http') ? loc : new URL(loc, url).toString();
-        continue;
-      }
+    // تحويل: تابع الوجهة
+    const loc = r.headers.get('location');
+    if (r.status >= 300 && r.status < 400 && loc) {
+      cur = loc.startsWith('http') ? loc : new URL(loc, cur).toString();
+      continue;
+    }
 
-      // صفحة نهائية: (1) جرّب جسمها مباشرة
-      const body = await resp.text().catch(() => '');
-      const fromBody = coordsFromGoogleData(body) || parseCoords(body);
-      if (fromBody) return fromBody;
-      // (2) صفحة المكان تُحمّل إحداثياتها عبر JS؛ لكن رابط المعاينة الداخلي
-      //     /maps/preview/place يعيد بيانات المكان (وفيها نقطته الدقيقة) كنصّ
+    // صفحة نهائية: صفحة المكان تُحمّل إحداثياتها عبر JS فلا تظهر في HTML؛ لكن رابط
+    // المعاينة الداخلي /maps/preview/place يعيد بيانات المكان (وفيها نقطته الدقيقة) كنصّ
+    const body = await r.text().catch(() => '');
+    let coords = coordsFromGoogleData(body);
+    if (!coords) {
       const prevHref = (body.match(/\/maps\/preview\/place\?[^"']+/) || [])[0];
       if (prevHref) {
-        const purl = 'https://www.google.com' + prevHref.replace(/&amp;/g, '&');
-        const pctrl = new AbortController();
-        const ptimer = setTimeout(() => pctrl.abort(), 6000);
-        const pdata = await fetch(purl, {
-          headers: { 'User-Agent': 'Mozilla/5.0', 'Cookie': 'CONSENT=YES+', 'Accept-Language': 'en' },
-          signal: pctrl.signal,
-        }).then((r) => r.text()).catch(() => '');
-        clearTimeout(ptimer);
-        const fromPrev = coordsFromGoogleData(pdata);
-        if (fromPrev) return fromPrev;
+        const pr = await fetchMaps('https://www.google.com' + prevHref.replace(/&amp;/g, '&'));
+        if (pr) coords = coordsFromGoogleData(await pr.text().catch(() => ''));
       }
-      break;
     }
-  } catch { /* نتابع للخطة البديلة */ }
+    if (coords) return coords;
+    break;
+  }
 
   // خطة بديلة أخيرة: رمّز اسم المكان جغرافياً (تقريبيّ لكن أفضل من لا شيء)
   return placeName ? geocodePlace(placeName) : null;
