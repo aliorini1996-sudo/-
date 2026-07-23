@@ -293,4 +293,12 @@ export const restaurantApi = {
   updateOrderItems: (id: string, data: unknown) => api.put(`/restaurant/pos/orders/${id}/items`, data),
   payOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/pay`, data),
   voidOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/void`, data),
+  // الورديات (M4)
+  currentShift: () => api.get('/restaurant/shifts/current'),
+  openShift: (data: unknown) => api.post('/restaurant/shifts/open', data),
+  shiftMovement: (id: string, data: unknown) => api.post(`/restaurant/shifts/${id}/movement`, data),
+  closeShift: (id: string, data: unknown) => api.post(`/restaurant/shifts/${id}/close`, data),
+  zReport: (id: string) => api.get(`/restaurant/shifts/${id}/zreport`),
+  // التقارير (M4)
+  reportSummary: (params?: Record<string, string>) => api.get('/restaurant/reports/summary', { params }),
 };

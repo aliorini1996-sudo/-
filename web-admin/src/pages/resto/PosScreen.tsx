@@ -31,6 +31,7 @@ export default function PosScreen() {
   // الطلب المُنشأ بانتظار الدفع — يحمل معرّفه وإجماليه المحسوب من الخادم (مصدر الحقيقة للمبلغ)
   const [pending, setPending] = useState<{ orderId: string; total: number } | null>(null);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [shiftView, setShiftView] = useState<'open' | 'close' | null>(null);
 
   const { data: menu } = useQuery({
     queryKey: ['resto-menu'],
@@ -39,6 +40,10 @@ export default function PosScreen() {
   const { data: tablesData } = useQuery({
     queryKey: ['resto-tables'],
     queryFn: async () => (await restaurantApi.tables()).data.data as { tables: RestaurantTable[] },
+  });
+  const { data: shift, refetch: refetchShift } = useQuery({
+    queryKey: ['resto-shift'],
+    queryFn: async () => (await restaurantApi.currentShift()).data.data as { id: string; openingFloat: number } | null,
   });
   const groups = useMemo(() => new Map((menu?.groups ?? []).map(g => [g.id, g])), [menu]);
   const categories = menu?.categories ?? [];
@@ -107,7 +112,14 @@ export default function PosScreen() {
           <span className="font-bold"><span>Field</span><span className="text-[#E15A30]"> Restaurant</span> <span className="text-[#9A8F7E] text-sm">· الكاشير</span></span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#9A8F7E] hidden sm:block">{user?.companyName}</span>
+          <span className="text-xs text-[#9A8F7E] hidden md:block">{user?.companyName}</span>
+          {shift ? (
+            <button onClick={() => setShiftView('close')} className="text-xs bg-[#1E7A52]/20 text-[#7ED9A9] hover:bg-[#1E7A52]/30 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#5FBE92]" /> إغلاق الوردية
+            </button>
+          ) : (
+            <button onClick={() => setShiftView('open')} className="text-xs bg-[#E15A30]/25 text-[#f0703f] hover:bg-[#E15A30]/35 rounded-lg px-3 py-1.5 font-semibold">فتح وردية</button>
+          )}
           <a href="/app-r" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 flex items-center gap-1"><ArrowRight size={13} /> اللوحة</a>
           <button onClick={handleLogout} className="text-red-300 hover:bg-red-500/20 rounded-lg p-1.5"><LogOut size={16} /></button>
         </div>
@@ -196,6 +208,8 @@ export default function PosScreen() {
       {modPick && <ModifierPicker item={modPick} groups={groups} onClose={() => setModPick(null)} onAdd={mods => { pushLine(modPick, mods); setModPick(null); }} />}
       {pending && <PaymentModal total={pending.total} loading={payMut.isPending || voidMut.isPending} onClose={cancelPay} onPay={payments => payMut.mutate(payments)} />}
       {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />}
+      {shiftView === 'open' && <OpenShiftModal onClose={() => setShiftView(null)} onDone={() => { setShiftView(null); refetchShift(); }} />}
+      {shiftView === 'close' && shift && <CloseShiftModal shiftId={shift.id} onClose={() => setShiftView(null)} onDone={() => { setShiftView(null); refetchShift(); }} />}
     </div>
   );
 }
@@ -381,5 +395,104 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose: ()
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>{children}</div>
     </div>
+  );
+}
+
+// ---------- الورديات ودرج النقد (M4) ----------
+const methodLabel = (m: string) => ({ CASH: 'نقد', CARD: 'بطاقة', WALLET: 'محفظة', ON_ACCOUNT: 'آجل' } as Record<string, string>)[m] || m;
+
+function OpenShiftModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [floatAmt, setFloatAmt] = useState('');
+  const mut = useMutation({
+    mutationFn: () => restaurantApi.openShift({ openingFloat: Number(floatAmt) || 0 }),
+    onSuccess: () => { toast.success('فُتحت الوردية'); onDone(); },
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر فتح الوردية'),
+  });
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
+        <h2 className="font-bold text-[#1F1A13]">فتح وردية</h2>
+        <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+      </div>
+      <div className="p-5">
+        <label className="label">النقد الافتتاحي في الدرج</label>
+        <input type="number" min={0} className="input text-lg" autoFocus value={floatAmt} onChange={e => setFloatAmt(e.target.value)} placeholder="0.00" />
+        <p className="text-xs text-[#9A8F7E] mt-1">المبلغ النقدي الموجود في الدرج عند بدء الوردية.</p>
+      </div>
+      <div className="p-4 border-t border-[#E9E1D3]">
+        <button onClick={() => mut.mutate()} disabled={mut.isPending} className="w-full btn-primary justify-center py-3">
+          {mut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={17} />} فتح الوردية
+        </button>
+      </div>
+    </Overlay>
+  );
+}
+
+interface ZReport {
+  shift: { openingFloat: number; expectedCash: number };
+  salesTotal: number; netTotal: number; taxTotal: number; invoiceCount: number;
+  byMethod: { method: string; amount: number }[];
+}
+function CloseShiftModal({ shiftId, onClose, onDone }: { shiftId: string; onClose: () => void; onDone: () => void }) {
+  const { data: z } = useQuery({
+    queryKey: ['resto-zreport', shiftId],
+    queryFn: async () => (await restaurantApi.zReport(shiftId)).data.data as ZReport,
+  });
+  const [declared, setDeclared] = useState('');
+  const expected = z?.shift?.expectedCash ?? 0;
+  const variance = declared !== '' ? Math.round((Number(declared) - expected) * 100) / 100 : null;
+  const mut = useMutation({
+    mutationFn: () => restaurantApi.closeShift(shiftId, { declaredCash: Number(declared) || 0 }),
+    onSuccess: () => { toast.success('أُغلقت الوردية'); onDone(); },
+    onError: () => toast.error('تعذّر إغلاق الوردية'),
+  });
+  const stat = (label: string, value: string) => (
+    <div className="bg-white rounded-xl border border-[#E9E1D3] p-3 text-center"><p className="text-base font-bold text-[#1F1A13]">{value}</p><p className="text-[11px] text-[#6E6557]">{label}</p></div>
+  );
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
+        <h2 className="font-bold text-[#1F1A13]">إغلاق الوردية — تقرير Z</h2>
+        <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+      </div>
+      <div className="p-5 space-y-3 max-h-[62vh] overflow-y-auto">
+        {!z ? <div className="text-center py-6 text-gray-400">جاري التحميل…</div> : (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              {stat('عدد الفواتير', String(z.invoiceCount))}
+              {stat('إجمالي المبيعات', money(z.salesTotal))}
+              {stat('صافي المبيعات', money(z.netTotal))}
+              {stat('الضريبة', money(z.taxTotal))}
+            </div>
+            {z.byMethod.length > 0 && (
+              <div className="bg-[#FAF7F0] rounded-xl p-3 border border-[#E9E1D3]">
+                <p className="text-xs font-bold text-[#6E6557] mb-1.5">حسب طريقة الدفع</p>
+                {z.byMethod.map(m => (<div key={m.method} className="flex justify-between text-sm"><span>{methodLabel(m.method)}</span><span className="font-semibold tabular-nums">{money(m.amount)}</span></div>))}
+              </div>
+            )}
+            <div className="bg-[#FAF7F0] rounded-xl p-3 border border-[#E9E1D3] space-y-1 text-sm">
+              <div className="flex justify-between"><span>النقد الافتتاحي</span><span className="tabular-nums">{money(z.shift.openingFloat)}</span></div>
+              <div className="flex justify-between font-semibold"><span>النقد المتوقّع في الدرج</span><span className="tabular-nums">{money(expected)}</span></div>
+            </div>
+            <div>
+              <label className="label">النقد المعدود فعلياً</label>
+              <input type="number" min={0} className="input text-lg" autoFocus value={declared} onChange={e => setDeclared(e.target.value)} placeholder={String(expected)} />
+              {variance !== null && (
+                <div className={`mt-2 flex justify-between items-center rounded-lg px-3 py-2 ${variance === 0 ? 'bg-[#EAF5EF] text-[#1E7A52]' : variance < 0 ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700'}`}>
+                  <span className="text-sm font-semibold">{variance === 0 ? 'مطابق ✓' : variance < 0 ? 'عجز في الدرج' : 'فائض في الدرج'}</span>
+                  <span className="font-bold tabular-nums">{money(Math.abs(variance))}</span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      <div className="p-4 border-t border-[#E9E1D3] flex gap-3">
+        <button onClick={() => mut.mutate()} disabled={mut.isPending || declared === ''} className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
+          {mut.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />} إغلاق الوردية
+        </button>
+        <button onClick={onClose} className="btn-secondary">إلغاء</button>
+      </div>
+    </Overlay>
   );
 }

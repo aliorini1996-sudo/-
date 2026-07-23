@@ -66,6 +66,8 @@ model Tenant {
   modifierGroups   ModifierGroup[]
   modifiers        Modifier[]
   orders           Order[]
+  posShifts        PosShift[]
+  cashMovements    CashMovement[]
   RepVisit         RepVisit[]
   RepSession       RepSession[]
 
@@ -1064,4 +1066,47 @@ model OrderPayment {
 
   @@index([orderId])
   @@map("order_payments")
+}
+
+// ============================================================================
+// عمودية المطاعم — الورديات ودرج النقد (M4). جداول جديدة (إضافية بحتة).
+// ============================================================================
+
+// وردية كاشير — تُفتح برصيد افتتاحي، تتراكم عليها الحركات، ثم تُغلق بعدّ الدرج واحتساب الفرق
+model PosShift {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cashierName  String?
+  openingFloat Float    @default(0)   // النقد الافتتاحي في الدرج
+  declaredCash Float?                  // النقد المعدود عند الإغلاق
+  expectedCash Float?                  // المتوقّع (محسوب من الحركات)
+  variance     Float?                  // declaredCash − expectedCash (سالب=عجز، موجب=فائض)
+  status       String   @default("OPEN") // OPEN | CLOSED
+  note         String?
+  openedAt     DateTime @default(now())
+  closedAt     DateTime?
+
+  movements CashMovement[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("pos_shifts")
+}
+
+// حركة نقدية على وردية — مبيعات/مرتجعات/إيداع/سحب/إخراج نقد
+model CashMovement {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shiftId   String
+  shift     PosShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  type      String   // OPENING | SALE | REFUND | PAY_IN | PAY_OUT | DROP
+  amount    Float
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([shiftId])
+  @@map("pos_cash_movements")
 }
