@@ -670,9 +670,10 @@ function relatedLinks(topic, c, L) {
   const add = (slug, text) => items.push([`${base}/${slug}/`, text]);
   if (topic.cs) {
     const cc = c.code.toLowerCase();
-    // عنقود الدولة: خدمات أخرى لنفس الدولة (٣ روابط)
-    ['van-sales-app', 'collection-receivables', 'einvoicing-compliance', 'sales-rep-management', 'gps-rep-tracking']
-      .filter((id) => id !== topic.id).slice(0, 3)
+    // عنقود الدولة: خدمات أخرى لنفس الدولة (٤ روابط). DMS أولاً — كلمة مثبَتة الطلب (GSC)،
+    // فتتدفّق إليها روابط داخلية بنصّ رابط دقيق «Distributor Management System (DMS)».
+    ['distribution-management-system', 'van-sales-app', 'collection-receivables', 'einvoicing-compliance', 'sales-rep-management', 'gps-rep-tracking']
+      .filter((id) => id !== topic.id).slice(0, 4)
       .forEach((id) => add(`${id}-${cc}`, `${TOPIC_BY_ID[id].label[L]} ${inOf(c, L)}`));
     // عنقود الخدمة: نفس الخدمة في أسواق بارزة (رابطان)
     ['SA', 'EG', 'AE', 'MA'].filter((x) => x !== c.code).slice(0, 2)
