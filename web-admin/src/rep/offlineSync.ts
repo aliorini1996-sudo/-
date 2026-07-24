@@ -9,7 +9,7 @@
  */
 
 import repApi from './repApi';
-import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc } from './offlineDb';
+import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc, currentRepId } from './offlineDb';
 
 let syncing = false;
 type Listener = () => void;
@@ -28,6 +28,16 @@ export interface SyncResult { sent: number; rejected: number; pending: number; s
  * يرفع كل المستندات المصفوفة بالترتيب. آمن للاستدعاء المتكرّر (قفل داخلي).
  * يتوقّف عند أول انقطاع/خطأ خادم مؤقّت (يبقى الباقي مصفوفاً)؛ يتابع عند رفض الأعمال.
  */
+/**
+ * مستندات صاحب الجلسة الحالية فقط. الخادم ينسب المستند لصاحب التوكن لحظة الرفع،
+ * فرفعُ مستند مندوب بجلسة زميله ينسبه للزميل (عمولة/مخزون/تحصيل خاطئة) أو يُرفض 403
+ * تحت عزل العملاء. المستندات القديمة بلا repId تُعتبر للمالك الحالي (ترقية سلسة).
+ */
+function ownedByCurrentRep(d: OutboxDoc): boolean {
+  const me = currentRepId();
+  return !d.repId || !me || d.repId === me;
+}
+
 export async function syncOutbox(): Promise<SyncResult> {
   if (syncing) return { sent: 0, rejected: 0, pending: 0, stopped: false };
   syncing = true;
@@ -38,7 +48,7 @@ export async function syncOutbox(): Promise<SyncResult> {
     const endpointOf = (k: OutboxDoc['kind']) =>
       k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : k === 'receipt' ? '/receipts' : '/visits';
     const queued = (await outboxAll())
-      .filter((d) => d.status === 'queued')
+      .filter((d) => d.status === 'queued' && ownedByCurrentRep(d))
       .sort((a, b) => (rank(a.kind) - rank(b.kind)) || a.clientCreatedAt.localeCompare(b.clientCreatedAt));
 
     for (const doc of queued) {
@@ -66,18 +76,18 @@ export async function syncOutbox(): Promise<SyncResult> {
     syncing = false;
     notify();
   }
-  const pending = (await outboxAll()).filter((d) => d.status === 'queued').length;
+  const pending = (await outboxAll()).filter((d) => d.status === 'queued' && ownedByCurrentRep(d)).length;
   return { sent, rejected, pending, stopped };
 }
 
 // عدد المستندات المنتظرة الآن
 export async function pendingCount(): Promise<number> {
-  return (await outboxAll()).filter((d) => d.status === 'queued').length;
+  return (await outboxAll()).filter((d) => d.status === 'queued' && ownedByCurrentRep(d)).length;
 }
 
 // المستندات المرفوضة (لواجهة المراجعة — M6)
 export async function rejectedDocs(): Promise<OutboxDoc[]> {
-  return (await outboxAll()).filter((d) => d.status === 'rejected');
+  return (await outboxAll()).filter((d) => d.status === 'rejected' && ownedByCurrentRep(d));
 }
 
 export async function rejectedCount(): Promise<number> {
@@ -87,7 +97,7 @@ export async function rejectedCount(): Promise<number> {
 // كل مستندات الصفّ (منتظر + مرفوض) — لواجهة المراجعة، الأحدث أولاً
 export async function outboxDocs(): Promise<OutboxDoc[]> {
   return (await outboxAll())
-    .filter((d) => d.status !== 'sent')
+    .filter((d) => d.status !== 'sent' && ownedByCurrentRep(d))
     .sort((a, b) => b.clientCreatedAt.localeCompare(a.clientCreatedAt));
 }
 

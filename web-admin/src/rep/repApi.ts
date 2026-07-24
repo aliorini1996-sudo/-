@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { refClear } from './offlineDb';
 
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 
@@ -21,6 +22,8 @@ repApi.interceptors.response.use(
   err => {
     const isLogin = (err.config?.url as string | undefined)?.includes('/auth/login');
     if (err.response?.status === 401 && !isLogin) {
+      // نمسح البيانات المرجعية المخزّنة أيضاً كي لا يرثها من يدخل بعده على الجهاز نفسه
+      void refClear();
       localStorage.removeItem('rep_token');
       localStorage.removeItem('rep_user');
       if (window.location.pathname.startsWith('/rep')) window.location.href = '/rep';

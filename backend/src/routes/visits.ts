@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { canAccessCustomer } from '../services/customerScope';
 
 /**
  * الزيارات الميدانية — يسجّلها المندوب عند العميل (ملاحظة + صور + موقع GPS)، وتراها
@@ -58,6 +59,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid }, select: { id: true } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    // عزل العملاء: يُمنع تسجيل زيارة لعميل غير مُسنَد للمندوب
+    if (!(await canAccessCustomer(req, tid, customerId))) {
+      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      return;
+    }
 
     const visit = await prisma.repVisit.create({
       data: {

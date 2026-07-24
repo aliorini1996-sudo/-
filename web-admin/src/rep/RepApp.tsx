@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import repApi from './repApi';
-import { fetchThenCache, requestPersistentStorage, newClientRef, outboxAdd } from './offlineDb';
+import { fetchThenCache, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
 import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
 import type { OutboxDoc } from './offlineDb';
 import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
@@ -523,7 +523,7 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
       setDone('online');
     } catch (err) {
       if (isNetworkError(err)) {
-        await outboxAdd({ clientRef, kind: 'visit', payload, status: 'queued', clientCreatedAt });
+        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'visit', payload, status: 'queued', clientCreatedAt });
         setDone('offline');
       } else {
         setMsg((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حفظ الزيارة'));
@@ -710,7 +710,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           setMsg(tr('لا يمكن إصدار فاتورة دون اتصال في هذا السوق — يتطلّب تخليصاً حكومياً لحظياً')); setLoading(false); return;
         }
         const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
-        await outboxAdd({ clientRef, kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
+        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
         const paid = type === 'CASH' && !isReturn ? total : 0;
         onDone({
           kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, type, isReturn,
@@ -922,7 +922,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       // انقطاع الشبكة ⇒ التقاط السند في الصفّ وطباعته برقم مؤقّت
       if (isNetworkError(err)) {
         const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
-        await outboxAdd({ clientRef, kind: 'receipt', payload, status: 'queued', clientCreatedAt, localNumber });
+        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'receipt', payload, status: 'queued', clientCreatedAt, localNumber });
         onDone({
           kind: 'receipt', number: localNumber, offline: true, date: clientCreatedAt,
           company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
@@ -1039,7 +1039,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       // انقطاع الشبكة ⇒ نلتقط العميل في الصفّ ونتابع بعميل محلي مؤقّت (يحمل clientRef).
       // فاتورته/سنده لاحقاً يشيران إليه بـ customerClientRef فيحلّه الخادم عند الرفع.
       if (isNetworkError(err)) {
-        await outboxAdd({ clientRef, kind: 'customer', payload, status: 'queued', clientCreatedAt });
+        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'customer', payload, status: 'queued', clientCreatedAt });
         onCreated({ ...payload, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
       } else {
         setMsg(err?.response?.data?.message || tr('تعذّر إضافة العميل'));
@@ -1491,12 +1491,18 @@ export default function RepApp() {
     requestPersistentStorage();
   }, [token]);
 
-  const login = (t: string, u: RepUser) => {
+  // جهاز مشترك: قاعدة IndexedDB مشتركة للأصل، فلا يرث المندوب الجديد بيانات سابقه
+  // المخزّنة (عملاء/أصناف) — وإلا ظهرت له قائمة عملاء زميله عند أول تعذّر شبكة.
+  // الصفّ الصادر لا يُمسح (مستندات لم تُرفع بعد)، بل يُرفَع كلٌّ بجلسة صاحبه.
+  const login = async (t: string, u: RepUser) => {
+    const prev = currentRepId();
+    if (prev && prev !== u.id) await refClear();
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));
     setToken(t); setUser(u);
   };
-  const logout = () => {
+  const logout = async () => {
+    await refClear();
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
   };

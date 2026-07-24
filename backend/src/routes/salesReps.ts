@@ -199,9 +199,102 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       prisma.repLocation.deleteMany({ where: { salesRepId: req.params.id } }),
       prisma.repVisit.deleteMany({ where: { salesRepId: req.params.id } }), // صورها تُحذف تعاقبياً
       prisma.repSettlement.deleteMany({ where: { salesRepId: req.params.id } }),
+      prisma.customerAssignment.deleteMany({ where: { salesRepId: req.params.id } }), // إسنادات العملاء
       prisma.salesRep.delete({ where: { id: req.params.id } }),
     ]);
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ===== إسناد العملاء للمندوب (عزل العملاء) =====
+
+// حالة مفتاح «عزل عملاء المناديب» للشركة. مسار من مقطعين فلا يتعارض مع /:id
+router.get('/settings/isolation', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const s = await prisma.companySettings.findUnique({
+      where: { tenantId: tid }, select: { customerIsolationEnabled: true },
+    });
+    res.json({ success: true, data: { enabled: s?.customerIsolationEnabled === true } });
+  } catch (err) { next(err); }
+});
+
+// تشغيل/إيقاف العزل للشركة — عند الإيقاف يعود كل المناديب لرؤية كل العملاء (الإسنادات تبقى محفوظة)
+router.patch('/settings/isolation', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    await prisma.companySettings.update({
+      where: { tenantId: tid },
+      data: { customerIsolationEnabled: enabled },
+    });
+    res.json({ success: true, data: { enabled } });
+  } catch (err) { next(err); }
+});
+
+// العملاء المُسنَدون لمندوب — تملأ نافذة «إسناد العملاء» في صفحة المناديب
+router.get('/:id/customers', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    // نُرفق بيانات العميل كي تعرض النافذة المُسنَدين دون تحميل كل عملاء الشركة
+    const rows = await prisma.customerAssignment.findMany({
+      where: { tenantId: tid, salesRepId: req.params.id },
+      select: {
+        customerId: true, source: true,
+        customer: { select: { id: true, name: true, businessName: true, phone: true, code: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({
+      success: true,
+      data: {
+        customerIds: rows.map(r => r.customerId),
+        // AUTO = فتحه المندوب بنفسه، MANUAL = أسندته الإدارة (لتمييزها في الواجهة)
+        autoIds: rows.filter(r => r.source === 'AUTO').map(r => r.customerId),
+        customers: rows.map(r => r.customer).filter(Boolean),
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// تعديل عملاء المندوب بالفروقات فقط — {add, remove}.
+// عمداً ليست «استبدالاً كاملاً»: الواجهة لا تحمّل كل العملاء دفعةً واحدة، فإرسال قائمة
+// كاملة كان سيحذف صامتاً إسنادَ كل عميل لم يظهر في نافذة الإدارة. الفروقات تجعل ذلك مستحيلاً.
+router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const repId = req.params.id;
+    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { id: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+
+    const body = z.object({
+      add: z.array(z.string()).max(50000).optional(),
+      remove: z.array(z.string()).max(50000).optional(),
+    }).parse(req.body);
+
+    const toRemove = [...new Set(body.remove ?? [])];
+    const wantAdd = [...new Set(body.add ?? [])].filter(id => !toRemove.includes(id));
+
+    // لا يُسنَد إلا عميل من نفس الشركة (حارس ضد تسريب بين الشركات)
+    const valid = wantAdd.length
+      ? await prisma.customer.findMany({ where: { tenantId: tid, id: { in: wantAdd } }, select: { id: true } })
+      : [];
+    const toAdd = valid.map(c => c.id);
+
+    await prisma.$transaction([
+      ...(toRemove.length ? [prisma.customerAssignment.deleteMany({
+        where: { tenantId: tid, salesRepId: repId, customerId: { in: toRemove } },
+      })] : []),
+      ...(toAdd.length ? [prisma.customerAssignment.createMany({
+        data: toAdd.map(customerId => ({ tenantId: tid, salesRepId: repId, customerId, source: 'MANUAL' })),
+        skipDuplicates: true,
+      })] : []),
+    ]);
+
+    const total = await prisma.customerAssignment.count({ where: { tenantId: tid, salesRepId: repId } });
+    res.json({ success: true, data: { added: toAdd.length, removed: toRemove.length, total } });
   } catch (err) { next(err); }
 });
 

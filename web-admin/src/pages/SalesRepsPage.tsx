@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { salesRepApi, invoiceApi, receiptApi } from '../api/client';
-import { SalesRep, Invoice, Receipt } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote } from 'lucide-react';
+import { salesRepApi, invoiceApi, receiptApi, customerApi } from '../api/client';
+import { SalesRep, Invoice, Receipt, Customer } from '../types';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -27,6 +27,7 @@ export default function SalesRepsPage() {
   const [resetRep, setResetRep] = useState<SalesRep | null>(null);
   const [deleting, setDeleting] = useState<SalesRep | null>(null);
   const [collectRep, setCollectRep] = useState<SalesRep | null>(null);
+  const [assignRep, setAssignRep] = useState<SalesRep | null>(null); // نافذة إسناد العملاء
 
   const { data, isLoading } = useQuery({
     queryKey: ['sales-reps', search],
@@ -75,11 +76,55 @@ export default function SalesRepsPage() {
     ? <Check size={14} className="text-green-500" />
     : <XIcon size={14} className="text-gray-300" />;
 
+  // عزل العملاء: مفتاح على مستوى الشركة — مُطفأ افتراضياً (كل مندوب يرى كل العملاء كالسابق)
+  const { data: isolation, isPending: isolationLoading } = useQuery({
+    queryKey: ['customer-isolation'],
+    queryFn: async () => (await salesRepApi.isolation()).data.data as { enabled: boolean },
+  });
+  const toggleIsolation = useMutation({
+    mutationFn: (enabled: boolean) => salesRepApi.setIsolation(enabled),
+    onSuccess: (_d, enabled) => {
+      qc.invalidateQueries({ queryKey: ['customer-isolation'] });
+      toast.success(enabled ? tr('تم تفعيل عزل العملاء') : tr('تم إيقاف عزل العملاء'));
+    },
+    onError: () => toast.error(tr('تعذّر تغيير الإعداد')),
+  });
+  const isolationOn = isolation?.enabled === true;
+
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('إدارة المناديب')}</h1>
         <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مندوب')}</button>
+      </div>
+
+      {/* عزل العملاء — عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له */}
+      <div className="card mb-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div className={`p-2 rounded-lg ${isolationOn ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+              <ShieldCheck size={18} />
+            </div>
+            <div>
+              <p className="font-medium text-gray-800">{tr('عزل عملاء المناديب')}</p>
+              <p className="text-xs text-gray-500 mt-0.5 max-w-2xl leading-relaxed">
+                {isolationLoading
+                  ? tr('جاري قراءة الإعداد...')
+                  : isolationOn
+                    ? tr('مُفعّل: كل مندوب يرى فقط العملاء المُسنَدين له والعملاء الذين فتحهم بنفسه.')
+                    : tr('مُطفأ: كل المناديب يرون كل عملاء الشركة. فعّله بعد إسناد العملاء لكل مندوب من زرّ «إسناد العملاء».')}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => toggleIsolation.mutate(!isolationOn)}
+            disabled={toggleIsolation.isPending || isolationLoading}
+            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${isolationOn ? 'bg-green-500' : 'bg-gray-300'}`}
+            title={isolationOn ? tr('إيقاف العزل') : tr('تفعيل العزل')}
+          >
+            <span className={`inline-block h-5 w-5 mt-0.5 rounded-full bg-white shadow transition-transform ${isolationOn ? '-translate-x-[1.4rem]' : '-translate-x-0.5'}`} />
+          </button>
+        </div>
       </div>
 
       <div className="card mb-4">
@@ -133,6 +178,7 @@ export default function SalesRepsPage() {
                       {r.showCollectionBalance !== false && (
                         <button onClick={() => setCollectRep(r)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('استلام تحصيل')}><Banknote size={14} /></button>
                       )}
+                      <button onClick={() => setAssignRep(r)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title={tr('إسناد العملاء')}><Users size={14} /></button>
                       <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title={tr('كشف الأداء والمبيعات')}><FileBarChart2 size={14} /></button>
                       <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true, canManageVanStock: r.canManageVanStock ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}><Edit size={14} /></button>
                       <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title={tr('إعادة تعيين كلمة المرور')}><KeyRound size={14} /></button>
@@ -190,11 +236,169 @@ export default function SalesRepsPage() {
         <ReceiveCollectionModal rep={collectRep} onClose={() => setCollectRep(null)}
           onDone={() => qc.invalidateQueries({ queryKey: ['sales-reps'] })} />
       )}
+
+      {assignRep && (
+        <AssignCustomersModal rep={assignRep} isolationOn={isolationOn} onClose={() => setAssignRep(null)} />
+      )}
     </div>
   );
 }
 
-// ============ استلام تحصيل من المندوب ============
+// ===== إسناد العملاء لمندوب =====
+// تعمل بالفروقات (إضافة/إزالة) لا باستبدال كامل، والبحث على الخادم لا محلياً — فلا يمكن
+// أن يحذف الحفظُ إسنادَ عميل لم يظهر في النافذة، ولا أن يتعذّر الوصول لعميل بعيد في القائمة.
+const PICKER_LIMIT = 100;
+
+function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; isolationOn: boolean; onClose: () => void }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const [q, setQ] = useState('');
+  const [debouncedQ, setDebouncedQ] = useState('');
+  const [onlyAssigned, setOnlyAssigned] = useState(false);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // الأساس: العملاء المُسنَدون حالياً بأسمائهم. لا يُحفظ شيء قبل نجاح هذا الطلب،
+  // وإلا لظُنّ أن المندوب بلا إسناد فتُرسَل إزالات خاطئة.
+  const assignedQ = useQuery({
+    queryKey: ['rep-customers', rep.id],
+    queryFn: async () => (await salesRepApi.assignedCustomers(rep.id)).data.data as {
+      customerIds: string[]; autoIds: string[]; customers: Customer[];
+    },
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  // البحث على الخادم — يصل لأي عميل مهما كبر عدد عملاء الشركة
+  const searchQ = useQuery({
+    queryKey: ['customers', 'assign-picker', debouncedQ],
+    queryFn: async () => (await customerApi.list({ search: debouncedQ, limit: PICKER_LIMIT })).data.data as Customer[],
+    enabled: !onlyAssigned,
+  });
+
+  const baseline = new Set(assignedQ.data?.customerIds ?? []);
+  const autoIds = new Set(assignedQ.data?.autoIds ?? []);
+  const isAssigned = (id: string) => (baseline.has(id) && !removed.has(id)) || added.has(id);
+  const count = baseline.size
+    - [...removed].filter(id => baseline.has(id)).length
+    + [...added].filter(id => !baseline.has(id)).length;
+
+  const toggle = (id: string) => {
+    if (isAssigned(id)) {
+      if (baseline.has(id)) setRemoved(s => new Set(s).add(id));
+      else setAdded(s => { const n = new Set(s); n.delete(id); return n; });
+    } else {
+      if (removed.has(id)) setRemoved(s => { const n = new Set(s); n.delete(id); return n; });
+      else setAdded(s => new Set(s).add(id));
+    }
+  };
+
+  const save = useMutation({
+    mutationFn: () => salesRepApi.changeAssignedCustomers(rep.id, { add: [...added], remove: [...removed] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rep-customers', rep.id] });
+      toast.success(tr('تم حفظ إسناد العملاء'));
+      onClose();
+    },
+    onError: () => toast.error(tr('تعذّر حفظ الإسناد')),
+  });
+
+  const list: Customer[] = onlyAssigned
+    ? (assignedQ.data?.customers ?? []).filter(c => isAssigned(c.id))
+    : (searchQ.data ?? []);
+
+  const dirty = added.size > 0 || removed.size > 0;
+  const baseReady = assignedQ.isSuccess;      // نعرف الأساس ⇒ الحفظ آمن
+  const listLoading = onlyAssigned ? assignedQ.isPending : searchQ.isPending;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[88vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div>
+            <h3 className="font-semibold text-gray-800">{tr('إسناد العملاء')} · {rep.name}</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {tr('اختر العملاء الذين يظهرون لهذا المندوب')} — {tr('مُسنَد')}:{' '}
+              <span className="font-medium text-gray-700">{baseReady ? count : '…'}</span>
+              {dirty && <span className="text-[#E15A30]"> · +{added.size} / −{removed.size}</span>}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+
+        {assignedQ.isError && (
+          <div className="mx-4 mt-3 text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2.5 flex items-center justify-between gap-3">
+            <span>{tr('تعذّر تحميل العملاء المُسنَدين حالياً — الحفظ معطّل حتى لا تُفقد إسنادات.')}</span>
+            <button onClick={() => assignedQ.refetch()} className="underline shrink-0">{tr('إعادة المحاولة')}</button>
+          </div>
+        )}
+
+        {!isolationOn && (
+          <div className="mx-4 mt-3 text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg p-2.5 leading-relaxed">
+            {tr('عزل العملاء مُطفأ حالياً، فكل المناديب يرون كل العملاء. يُحفظ الإسناد الآن ويسري فور تفعيل المفتاح أعلى الصفحة.')}
+          </div>
+        )}
+
+        <div className="p-4 pb-2 space-y-2">
+          <div className="relative">
+            <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input className="input pr-9" placeholder={tr('ابحث بالاسم أو الجوال أو الكود...')}
+              value={q} onChange={e => setQ(e.target.value)} disabled={onlyAssigned} />
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer w-fit">
+            <input type="checkbox" checked={onlyAssigned} onChange={e => setOnlyAssigned(e.target.checked)} />
+            {tr('عرض المُسنَدين فقط')}
+          </label>
+          {!onlyAssigned && (
+            <p className="text-[11px] text-gray-400">
+              {tr('يُعرض أقرب')} {PICKER_LIMIT} {tr('نتيجة — اكتب في البحث للوصول لأي عميل.')}
+            </p>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-2 min-h-[240px]">
+          {listLoading ? (
+            <p className="text-center text-gray-400 py-10">{tr('جاري التحميل...')}</p>
+          ) : list.length === 0 ? (
+            <p className="text-center text-gray-400 py-10">
+              {onlyAssigned ? tr('لا يوجد عملاء مُسنَدون لهذا المندوب') : tr('لا يوجد عملاء مطابقون')}
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {list.map(c => (
+                <li key={c.id}>
+                  <label className="flex items-center gap-3 py-2.5 cursor-pointer hover:bg-gray-50 px-1 rounded">
+                    <input type="checkbox" checked={isAssigned(c.id)} onChange={() => toggle(c.id)} disabled={!baseReady} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm text-gray-800 truncate">{c.name}</span>
+                      <span className="block text-xs text-gray-400 truncate">{c.businessName || c.phone || c.code}</span>
+                    </span>
+                    {autoIds.has(c.id) && (
+                      <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded shrink-0">{tr('فتحه بنفسه')}</span>
+                    )}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="p-4 border-t flex items-center justify-end gap-2">
+          <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
+          <button onClick={() => save.mutate()} disabled={!baseReady || !dirty || save.isPending} className="btn-primary">
+            {save.isPending ? tr('جاري الحفظ...') : tr('حفظ التغييرات')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClose: () => void; onDone: () => void }) {
   const tr = useTr();
   const [amount, setAmount] = useState('');

@@ -57,6 +57,7 @@ model Tenant {
   repLocations   RepLocation[]
   repSettlements RepSettlement[]
   importBatches  ImportBatch[]
+  customerAssignments CustomerAssignment[]
 
   // عمودية المطاعم (M2+) — علاقات ظهر إضافية اختيارية
   restaurantAreas  RestaurantArea[]
@@ -183,6 +184,10 @@ model SalesRep {
   RepVisit      RepVisit[]
   RepSession    RepSession[]
 
+  // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
+  customerAssignments CustomerAssignment[]
+  createdCustomers    Customer[]           @relation("CustomerCreatedByRep")
+
   @@index([tenantId])
   @@map("sales_reps")
 }
@@ -278,6 +283,11 @@ model Customer {
   clientRef       String?
   clientCreatedAt DateTime?
 
+  // عزل العملاء: أي مندوب فتح هذا العميل (توثيق؛ الرؤية تُحسم بسجلّ الإسناد أدناه).
+  // SetNull كي لا يمنع حذفُ المندوب بقاءَ العميل.
+  createdBySalesRepId String?
+  createdBySalesRep   SalesRep? @relation("CustomerCreatedByRep", fields: [createdBySalesRepId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -287,11 +297,33 @@ model Customer {
   accountEntries AccountEntry[]
   notifications  Notification[]
   RepVisit       RepVisit[]
+  assignments    CustomerAssignment[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([tenantId, clientRef]) // فهرس عادي (لا قيد فريد) — يسرّع حلّ customerClientRef
   @@map("customers")
+}
+
+// إسناد عميل لمندوب — أساس «عزل العملاء»: عند تفعيل customerIsolationEnabled
+// لا يرى المندوب إلا العملاء الذين له معهم سجلّ هنا. العميل الذي يفتحه المندوب
+// بنفسه يُنشأ له سجلّ تلقائياً (وللإدارة نزعه). متعدّد‑لمتعدّد: عميل لعدّة مناديب.
+model CustomerAssignment {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  // AUTO = أنشأه المندوب بنفسه، MANUAL = أسندته الإدارة (للتمييز في الواجهة فقط)
+  source    String   @default("MANUAL")
+  createdAt DateTime @default(now())
+
+  @@unique([customerId, salesRepId])
+  @@index([tenantId, salesRepId])
+  @@index([tenantId, customerId])
+  @@map("customer_assignments")
 }
 
 model CustomerPrice {
@@ -482,6 +514,9 @@ model CompanySettings {
   primaryColor    String? // لون الترويسة الأساسي (hex)
   headerStyle     String? @default("classic") // classic | banner | minimal
   trackingEnabled Boolean @default(false) // تفعيل تتبّع مواقع المناديب GPS على مستوى الشركة
+  // عزل عملاء المناديب: عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له (CustomerAssignment).
+  // افتراضي false ⇒ كل الشركات القائمة تبقى على سلوكها الحالي عند db push (لا انقطاع).
+  customerIsolationEnabled Boolean @default(false)
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String @default("SA") // ISO alpha-2: دولة الشركة

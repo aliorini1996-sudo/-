@@ -71,6 +71,13 @@ export const salesRepApi = {
   collection: (id: string) => api.get(`/sales-reps/${id}/collection`),
   settle: (id: string, data: { amount: number; note?: string }) => api.post(`/sales-reps/${id}/settlements`, data),
   settlements: (id: string) => api.get(`/sales-reps/${id}/settlements`),
+  // عزل العملاء: إسناد عملاء لكل مندوب + مفتاح تفعيل العزل للشركة
+  assignedCustomers: (id: string) => api.get(`/sales-reps/${id}/customers`),
+  // فروقات فقط — لا نرسل قائمة كاملة كي لا يُحذف صامتاً إسنادُ عميل لم تعرضه النافذة
+  changeAssignedCustomers: (id: string, diff: { add?: string[]; remove?: string[] }) =>
+    api.put(`/sales-reps/${id}/customers`, diff),
+  isolation: () => api.get('/sales-reps/settings/isolation'),
+  setIsolation: (enabled: boolean) => api.patch('/sales-reps/settings/isolation', { enabled }),
 };
 
 export const invoiceApi = {

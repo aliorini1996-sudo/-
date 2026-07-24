@@ -89,6 +89,9 @@ export async function fetchThenCache<T>(
 
 export interface OutboxDoc {
   clientRef: string;              // UUID = مفتاح idempotency
+  // مالك المستند: الخادم ينسب المستند لصاحب التوكن وقت الرفع لا لحمولته، فلو رُفع
+  // مستند مندوب بجهاز زميله لنُسب للزميل. نختمه هنا ولا نرفع إلا مستندات صاحب الجلسة.
+  repId?: string;
   kind: 'customer' | 'invoice' | 'receipt' | 'visit';
   payload: unknown;               // حمولة POST كما تُرسل للخادم
   status: 'queued' | 'sent' | 'rejected';
@@ -119,6 +122,21 @@ export async function outboxDelete(clientRef: string): Promise<void> {
 export async function outboxPending(): Promise<number> {
   const all = await outboxAll();
   return all.filter((d) => d.status === 'queued').length;
+}
+
+/** معرّف المندوب صاحب الجلسة الحالية (من التخزين المحلي) */
+export function currentRepId(): string | undefined {
+  try { return JSON.parse(localStorage.getItem('rep_user') || 'null')?.id as string | undefined; }
+  catch { return undefined; }
+}
+
+/**
+ * يمسح البيانات المرجعية المخزّنة (العملاء/الأصناف/إعدادات الشركة) دون المساس بالصفّ
+ * الصادر. يُستدعى عند تبديل المندوب على جهاز مشترك: قاعدة IndexedDB مشتركة للأصل،
+ * فلولا هذا لرأى المندوب الجديد قائمة عملاء سابقه عند أول تعذّر شبكة — وهو ما يُبطل العزل.
+ */
+export async function refClear(): Promise<void> {
+  try { await tx(STORE_REF, 'readwrite', (s) => s.clear()); } catch { /* أفضل جهد */ }
 }
 
 // ------------------------------- أدوات ------------------------------- //

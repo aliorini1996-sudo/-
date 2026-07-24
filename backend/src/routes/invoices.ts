@@ -7,6 +7,7 @@ import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, 
 import { getCountryTax } from '../config/countries';
 import { computeInvoiceTotals } from '../lib/invoiceCalc';
 import { computeStock } from './vanStock';
+import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 import {
   postInvoiceEntries,
   postCashInvoiceEntries,
@@ -122,6 +123,11 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (req.user?.role === 'SALES_REP' && invoice.salesRepId !== req.user.id) {
       res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
     }
+    // العزل: المندوب يبقى يرى فاتورته القديمة، لكن بيانات العميل الحيّة (رصيد/ائتمان/موقع)
+    // تُحجب إن لم يعد العميل مُسنَداً له
+    if (req.user?.role === 'SALES_REP' && invoice.customerId && !(await canAccessCustomer(req, tid, invoice.customerId))) {
+      invoice.customer = redactCustomer(invoice.customer);
+    }
     res.json({ success: true, data: invoice });
   } catch (err) { next(err); }
 });
@@ -163,6 +169,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     if (customer.status === 'BLOCKED') { res.status(400).json({ success: false, message: 'العميل محظور' }); return; }
+    // عزل العملاء: يُمنع المندوب من الفوترة لعميل غير مُسنَد له (لا يُتجاوز العزل بتمرير معرّف)
+    if (!(await canAccessCustomer(req, tid, customerId))) {
+      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      return;
+    }
 
     const productIds = [...new Set(body.items.map(i => i.productId))];
     const products = await prisma.product.findMany({

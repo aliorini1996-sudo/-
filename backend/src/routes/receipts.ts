@@ -5,6 +5,7 @@ import { authenticate, requireAdminPermission, tenantId } from '../middleware/au
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries } from '../services/accounting';
+import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 
 const router = Router();
 router.use(authenticate);
@@ -121,6 +122,10 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (req.user?.role === 'SALES_REP' && receipt.salesRepId !== req.user.id) {
       res.status(404).json({ success: false, message: 'السند غير موجود' }); return;
     }
+    // العزل: بيانات العميل الحيّة تُحجب إن لم يعد مُسنَداً لهذا المندوب (السند نفسه يبقى)
+    if (req.user?.role === 'SALES_REP' && receipt.customerId && !(await canAccessCustomer(req, tid, receipt.customerId))) {
+      receipt.customer = redactCustomer(receipt.customer);
+    }
     res.json({ success: true, data: receipt });
   } catch (err) { next(err); }
 });
@@ -161,6 +166,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    // عزل العملاء: يُمنع التحصيل من عميل غير مُسنَد للمندوب
+    if (!(await canAccessCustomer(req, tid, customerId))) {
+      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      return;
+    }
 
     const allocations = groupAllocations((body.invoiceAllocations ?? []) as { invoiceId: string; amount: number }[]);
     const allocatedTotal = allocations.reduce((sum, item) => sum + item.amount, 0);

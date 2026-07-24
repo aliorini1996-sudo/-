@@ -5,6 +5,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
+import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
 
 const router = Router();
 router.use(authenticate);
@@ -50,6 +51,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     const where = {
       tenantId: tid,
+      // عزل العملاء: المندوب لا يرى إلا المُسنَدين له (عند تفعيل الشركة للميزة)
+      ...(await customerScope(req, tid)),
       ...(search && {
         OR: [
           { name: { contains: search } },
@@ -80,7 +83,7 @@ router.get('/locations', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const tid = tenantId(req);
     const customers = await prisma.customer.findMany({
-      where: { tenantId: tid, lat: { not: null }, lng: { not: null } },
+      where: { tenantId: tid, lat: { not: null }, lng: { not: null }, ...(await customerScope(req, tid)) },
       select: { id: true, name: true, businessName: true, phone: true, city: true, district: true, address: true, lat: true, lng: true },
       take: 5000,
     });
@@ -92,7 +95,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const customer = await prisma.customer.findFirst({
-      where: { id: req.params.id, tenantId: tid },
+      where: { id: req.params.id, tenantId: tid, ...(await customerScope(req, tid)) },
       include: { customerPrices: { include: { product: true } } },
     });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
@@ -113,12 +116,26 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
     const data = customerSchema.parse(req.body);
 
+    // المندوب الذي ينشئ العميل (إن كان الطالب مندوباً) — يُوثَّق ويُسنَد له العميل تلقائياً
+    const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
+
     // idempotency: عميل سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر
     if (data.clientRef) {
       const existing = await prisma.customer.findFirst({
         where: { tenantId: tid, clientRef: data.clientRef },
       });
-      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      if (existing) {
+        // حارس تصعيد صلاحية: إعادة الرفع بـclientRef لعميل أنشأه مندوب آخر يجب ألا
+        // تمنح المُرسِل إسناداً ولا تكشف بيانات العميل. الإسناد يُضمن لمنشئه فقط.
+        const isMine = !!creatorRepId && existing.createdBySalesRepId === creatorRepId;
+        if (creatorRepId && !isMine && !(await canAccessCustomer(req, tid, existing.id))) {
+          res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+          return;
+        }
+        if (isMine) await ensureAssignment(tid, existing.id, creatorRepId!);
+        res.status(200).json({ success: true, data: existing, idempotent: true });
+        return;
+      }
     }
 
     const { clientCreatedAt, locationUrl, ...rest } = data;
@@ -133,8 +150,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       data: {
         ...rest, email: data.email || null, channel: data.channel || null, tenantId: tid,
         clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
+        ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
       } as any,
     });
+    // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
+    if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
     res.status(201).json({ success: true, data: customer });
   } catch (err) { next(err); }
 });
@@ -150,8 +170,11 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         return;
       }
     }
-    // التحقق أن العميل يخص شركة المستخدم قبل التعديل
-    const exists = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    // التحقق أن العميل يخص شركة المستخدم (ومُسنَد للمندوب عند تفعيل العزل) قبل التعديل
+    const exists = await prisma.customer.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await customerScope(req, tid)) },
+      select: { id: true },
+    });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
     const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, ...data } = customerSchema.partial().parse(req.body);
@@ -177,6 +200,16 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       const rep = await prisma.salesRep.findFirst({ where: { id: req.user.id, tenantId: tid }, select: { canViewStatement: true } });
       if (!rep?.canViewStatement) { res.status(403).json({ success: false, message: 'لا تملك صلاحية عرض كشف الحساب' }); return; }
     }
+    // العزل: كشف حساب عميل غير مُسنَد للمندوب يُرفض (يُعامَل كغير موجود).
+    // الفحص يقتصر على حالة العزل — الإدارة لا تدفع ثمن استعلام إضافي.
+    const stScope = await customerScope(req, tid);
+    if (stScope.assignments) {
+      const visible = await prisma.customer.findFirst({
+        where: { id: req.params.id, tenantId: tid, ...stScope }, select: { id: true },
+      });
+      if (!visible) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    }
+
     const where = {
       customerId: req.params.id,
       tenantId: tid,
@@ -202,6 +235,14 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
 router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    // العزل: فواتير عميل غير مُسنَد للمندوب لا تُعرض (الفحص في حالة العزل فقط)
+    const invScope = await customerScope(req, tid);
+    if (invScope.assignments) {
+      const visible = await prisma.customer.findFirst({
+        where: { id: req.params.id, tenantId: tid, ...invScope }, select: { id: true },
+      });
+      if (!visible) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    }
     const invoices = await prisma.invoice.findMany({
       where: { customerId: req.params.id, tenantId: tid },
       include: { salesRep: { select: { name: true } }, items: { include: { product: true } } },
