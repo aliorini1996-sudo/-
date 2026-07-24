@@ -65,6 +65,27 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
       // الوردية المفتوحة (إن وُجدت) — تُربط بها الفاتورة ويُسجَّل نقدها لتسوية الدرج
       const shift = await tx.posShift.findFirst({ where: { tenantId: tid, status: 'OPEN' }, select: { id: true } });
 
+      // الوصفات (M6) — لحساب التكلفة الفعلية وخصم المخزون تلقائياً
+      const menuIds = [...new Set(order.items.map(i => i.menuItemId).filter((x): x is string => !!x))];
+      const recipes = menuIds.length
+        ? await tx.recipeItem.findMany({
+            where: { tenantId: tid, menuItemId: { in: menuIds } },
+            include: { ingredient: { select: { id: true, avgCost: true } } },
+          })
+        : [];
+      const byMenu = new Map<string, { ingredientId: string; qty: number; avgCost: number }[]>();
+      for (const r of recipes) {
+        const arr = byMenu.get(r.menuItemId) ?? [];
+        arr.push({ ingredientId: r.ingredientId, qty: r.qty, avgCost: Number(r.ingredient.avgCost) });
+        byMenu.set(r.menuItemId, arr);
+      }
+      // تكلفة الوحدة من الوصفة (تُفضَّل على costPrice المُجمّد عند وجود وصفة)
+      const recipeCost = (menuItemId?: string | null): number | null => {
+        const rs = menuItemId ? byMenu.get(menuItemId) : undefined;
+        if (!rs || rs.length === 0) return null;
+        return roundDecimal(rs.reduce((s, r) => s + r.qty * r.avgCost, 0), 4);
+      };
+
       const totals = computeInvoice(
         order.items.map(it => ({ qty: it.qty, unitPrice: it.unitPrice, taxPct: it.taxPct })),
         { defaultTaxPct }
@@ -101,7 +122,9 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
           einvoiceSubmittedAt: einvoiceQr ? issuedAt : undefined,
           items: {
             create: order.items.map((it, i) => ({
-              menuItemId: it.menuItemId, orderItemId: it.id, unitCost: it.unitCost,
+              menuItemId: it.menuItemId, orderItemId: it.id,
+              // تكلفة الوصفة تُستخدم فقط إن كانت موجبة فعلاً (مكوّنات بتكلفة 0 ⇒ ارجع للتكلفة المجمّدة)
+              unitCost: (() => { const rc = recipeCost(it.menuItemId); return rc && rc > 0 ? rc : it.unitCost; })(),
               qty: it.qty, unitPrice: it.unitPrice,
               taxPct: totals.lines[i].taxPct, taxAmt: totals.lines[i].tax, lineTotal: totals.lines[i].gross,
             })),
@@ -124,6 +147,28 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
       if (order.tableId) await tx.restaurantTable.update({ where: { id: order.tableId }, data: { status: 'FREE' } });
       if (shift && cashTotal > 0) {
         await tx.cashMovement.create({ data: { tenantId: tid, shiftId: shift.id, type: 'SALE', amount: cashTotal } });
+      }
+
+      // خصم مكوّنات الوصفات من المخزون تلقائياً + تسجيل حركة استهلاك لكل مكوّن (M6)
+      const consumption = new Map<string, number>();
+      for (const it of order.items) {
+        const rs = it.menuItemId ? byMenu.get(it.menuItemId) : undefined;
+        if (!rs) continue;
+        for (const r of rs) consumption.set(r.ingredientId, (consumption.get(r.ingredientId) ?? 0) + r.qty * it.qty);
+      }
+      const consumed: { ingredientId: string; q: number }[] = [];
+      for (const [ingredientId, raw] of consumption) {
+        const q = roundDecimal(raw, 4);
+        if (q > 0) consumed.push({ ingredientId, q });
+      }
+      if (consumed.length) {
+        // خصم ذرّي لكل مكوّن + إدراج الحركات دفعةً واحدة (تقليل جُمل المعاملة وخطر المهلة)
+        for (const c of consumed) {
+          await tx.ingredient.update({ where: { id: c.ingredientId }, data: { stockQty: { decrement: c.q } } });
+        }
+        await tx.ingredientMovement.createMany({
+          data: consumed.map(c => ({ tenantId: tid, ingredientId: c.ingredientId, type: 'SALE_OUT', qty: -c.q, orderId: order.id })),
+        });
       }
       return { id: inv.id, number: inv.number, total: invoiceTotal, subtotal: totals.subtotal, taxAmt: totals.totalTax, qr: einvoiceQr, einvoiceStatus, issuedAt: issuedAt.toISOString() };
     });

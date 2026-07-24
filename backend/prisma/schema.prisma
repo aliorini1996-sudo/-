@@ -69,6 +69,9 @@ model Tenant {
   orders           Order[]
   posShifts        PosShift[]
   cashMovements    CashMovement[]
+  ingredients      Ingredient[]
+  recipeItems      RecipeItem[]
+  ingredientMoves  IngredientMovement[]
   RepVisit         RepVisit[]
   RepSession       RepSession[]
 
@@ -283,8 +286,8 @@ model Customer {
   clientRef       String?
   clientCreatedAt DateTime?
 
-  // عزل العملاء: أي مندوب فتح هذا العميل (توثيق؛ الرؤية تُحسم بسجلّ الإسناد أدناه).
-  // SetNull كي لا يمنع حذفُ المندوب بقاءَ العميل.
+  // عزل العملاء: أي مندوب فتح هذا العميل (توثيق؛ الرؤية نفسها تُحسم بسجلّ الإسناد أدناه).
+  // SetNull كي لا يمنع حذفُ المندوب حذفَ/بقاءَ العميل.
   createdBySalesRepId String?
   createdBySalesRep   SalesRep? @relation("CustomerCreatedByRep", fields: [createdBySalesRepId], references: [id], onDelete: SetNull)
 
@@ -307,7 +310,7 @@ model Customer {
 
 // إسناد عميل لمندوب — أساس «عزل العملاء»: عند تفعيل customerIsolationEnabled
 // لا يرى المندوب إلا العملاء الذين له معهم سجلّ هنا. العميل الذي يفتحه المندوب
-// بنفسه يُنشأ له سجلّ تلقائياً (وللإدارة نزعه). متعدّد‑لمتعدّد: عميل لعدّة مناديب.
+// بنفسه يُنشأ له سجلّ تلقائياً (وللإدارة نزعه). متعدّد‑لمتعدّد: عميل واحد لعدّة مناديب.
 model CustomerAssignment {
   id         String   @id @default(uuid())
   tenantId   String
@@ -948,6 +951,7 @@ model MenuItem {
   modifierGroups MenuItemModifierGroup[]
   orderItems     OrderItem[]
   invoiceItems   InvoiceItem[]
+  recipeItems    RecipeItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1144,4 +1148,65 @@ model CashMovement {
   @@index([tenantId])
   @@index([shiftId])
   @@map("pos_cash_movements")
+}
+
+// ============================================================================
+// عمودية المطاعم — المخزون والوصفات وتكلفة البضاعة المباعة (M6). جداول جديدة.
+// ============================================================================
+
+// مكوّن/خامة في مخزون المطعم (لحم، جبن، زيت...)
+model Ingredient {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  unit      String   @default("kg") // kg | g | l | ml | pcs
+  stockQty  Float    @default(0)    // الرصيد الحالي
+  minQty    Float    @default(0)    // حدّ التنبيه عند النفاد
+  avgCost   Float    @default(0)    // متوسّط تكلفة الوحدة (يُحدَّث عند الشراء)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipeItems RecipeItem[]
+  movements   IngredientMovement[]
+
+  @@index([tenantId])
+  @@map("resto_ingredients")
+}
+
+// سطر وصفة: كمية المكوّن المستهلكة لكل وحدة مبيعة من الصنف
+model RecipeItem {
+  id           String     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  menuItemId   String
+  menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  qty          Float
+
+  @@unique([menuItemId, ingredientId])
+  @@index([tenantId])
+  @@index([menuItemId])
+  @@map("resto_recipe_items")
+}
+
+// حركة مخزون مكوّن — شراء/استهلاك بيع/تسوية/هدر (qty موجب=إدخال، سالب=إخراج)
+model IngredientMovement {
+  id           String     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  type         String     // PURCHASE | SALE_OUT | ADJUST | WASTE
+  qty          Float
+  unitCost     Float?     // للشراء — يُحدِّث متوسّط التكلفة
+  reason       String?
+  orderId      String?    // مرجع الطلب عند SALE_OUT
+  createdAt    DateTime   @default(now())
+
+  @@index([tenantId])
+  @@index([ingredientId])
+  @@map("resto_ingredient_movements")
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, X, Check, ScrollText, Boxes, UtensilsCrossed } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -205,14 +205,39 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
   const [groupIds, setGroupIds] = useState<string[]>(item?.modifierGroups?.map(g => g.groupId) ?? []);
   const set = (k: string, v: unknown) => setF(s => ({ ...s, [k]: v }));
 
+  // الوصفة (M6): مكوّنات الصنف وكمياتها — تُخصم من المخزون تلقائياً عند البيع
+  const [recipe, setRecipe] = useState<{ ingredientId: string; qty: string }[]>([]);
+  const { data: ingredients } = useQuery({
+    queryKey: ['resto-inventory'],
+    queryFn: async () => (await restaurantApi.inventory()).data.data as { id: string; name: string; unit: string; avgCost: number }[],
+  });
+  const { data: savedRecipe } = useQuery({
+    queryKey: ['resto-recipe', item?.id],
+    queryFn: async () => (await restaurantApi.recipe(item!.id)).data.data as { items: { ingredientId: string; qty: number }[] },
+    enabled: !!item?.id,
+  });
+  useEffect(() => {
+    if (savedRecipe?.items) setRecipe(savedRecipe.items.map(r => ({ ingredientId: r.ingredientId, qty: String(r.qty) })));
+  }, [savedRecipe]);
+  const ingById = new Map((ingredients ?? []).map(i => [i.id, i]));
+  const recipeCost = recipe.reduce((s, r) => s + (Number(r.qty) || 0) * (ingById.get(r.ingredientId)?.avgCost ?? 0), 0);
+
   const mut = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const payload = {
         name: f.name.trim(), basePrice: Number(f.basePrice), taxPct: Number(f.taxPct) || 0,
         costPrice: f.costPrice ? Number(f.costPrice) : 0, prepStation: f.prepStation,
         categoryId: f.categoryId || null, isAvailable: f.isAvailable, groupIds,
       };
-      return item ? restaurantApi.updateItem(item.id, payload) : restaurantApi.createItem(payload);
+      const res = item ? await restaurantApi.updateItem(item.id, payload) : await restaurantApi.createItem(payload);
+      const id = item?.id ?? (res.data.data.id as string);
+      // استبدال الوصفة بالكامل (يشمل تفريغها)
+      if (id && (recipe.length > 0 || !!item)) {
+        await restaurantApi.saveRecipe(id, {
+          items: recipe.filter(r => r.ingredientId && Number(r.qty) > 0).map(r => ({ ingredientId: r.ingredientId, qty: Number(r.qty) })),
+        });
+      }
+      return res;
     },
     onSuccess: () => { toast.success(item ? 'تم التحديث' : 'تمت الإضافة'); onSaved(); },
     onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'حدث خطأ'),
@@ -264,6 +289,34 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
             </div>
           </div>
         )}
+        {(ingredients?.length ?? 0) > 0 && (
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="label">الوصفة — تُخصم من المخزون عند البيع</label>
+              {recipe.length > 0 && (
+                <span className="text-xs text-[#9A8F7E]">التكلفة: <span className="font-bold text-[#1F1A13]">{(Math.round(recipeCost * 100) / 100).toLocaleString('ar-EG')}</span> ر.س</span>
+              )}
+            </div>
+            <div className="space-y-2">
+              {recipe.map((r, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <select className="input flex-1" value={r.ingredientId}
+                    onChange={e => setRecipe(a => a.map((x, j) => j === i ? { ...x, ingredientId: e.target.value } : x))}>
+                    <option value="">اختر مكوّناً</option>
+                    {(ingredients ?? []).map(ing => <option key={ing.id} value={ing.id}>{ing.name}</option>)}
+                  </select>
+                  <input type="number" step="0.001" min={0} className="input" style={{ width: 110 }} placeholder="الكمية" value={r.qty}
+                    onChange={e => setRecipe(a => a.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))} />
+                  <button type="button" onClick={() => setRecipe(a => a.filter((_, j) => j !== i))} className="p-2 text-gray-400 hover:text-red-500"><X size={16} /></button>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => setRecipe(a => [...a, { ingredientId: '', qty: '' }])} className="text-sm text-[#E15A30] font-semibold mt-2 flex items-center gap-1">
+              <Plus size={15} /> إضافة مكوّن
+            </button>
+          </div>
+        )}
+
         <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5">
           <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={f.isAvailable} onChange={e => set('isAvailable', e.target.checked)} />
           متاح للبيع الآن

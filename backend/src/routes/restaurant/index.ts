@@ -6,6 +6,7 @@ import tablesRouter from './tables';
 import posRouter from './pos';
 import shiftsRouter from './shifts';
 import reportsRouter from './reports';
+import inventoryRouter from './inventory';
 
 // جذر مسارات عمودية المطاعم — كل ما تحته محمي بالمصادقة + حارس العمودية.
 // requireVertical('restaurant') يمنع أي حساب توزيع (أو توكن بلا vertical) من بلوغ هذه المسارات.
@@ -17,5 +18,6 @@ router.use('/tables', tablesRouter);
 router.use('/pos', posRouter);
 router.use('/shifts', shiftsRouter);
 router.use('/reports', reportsRouter);
+router.use('/inventory', inventoryRouter);
 
 export default router;
