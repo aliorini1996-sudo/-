@@ -43,6 +43,7 @@ const RestaurantSettingsPage = lazy(() => import('./pages/resto/RestaurantSettin
 const RestaurantReportsPage = lazy(() => import('./pages/resto/RestaurantReportsPage'));
 const RestaurantInventoryPage = lazy(() => import('./pages/resto/RestaurantInventoryPage'));
 const PosScreen = lazy(() => import('./pages/resto/PosScreen'));
+const KdsScreen = lazy(() => import('./pages/resto/KdsScreen'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
 function PageFallback() {
@@ -104,7 +105,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|app-r|pos|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|app-r|pos|kds|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
     analyticsApi.track({ path: pathname, referrer: document.referrer || '', lang: document.documentElement.lang || 'ar' }).catch(() => { /* تجاهل */ });
   }, [pathname]);
   return null;
@@ -173,6 +174,8 @@ export default function App() {
         </Route>
         {/* شاشة الكاشير (ملء الشاشة) — عمودية المطاعم (M3) */}
         <Route path="/pos" element={<RestaurantRoute><PosScreen /></RestaurantRoute>} />
+        {/* شاشة المطبخ KDS (ملء الشاشة) — M7 */}
+        <Route path="/kds" element={<RestaurantRoute><KdsScreen /></RestaurantRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
           <ProtectedRoute>

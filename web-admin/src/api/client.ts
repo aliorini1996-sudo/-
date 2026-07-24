@@ -300,6 +300,11 @@ export const restaurantApi = {
   updateOrderItems: (id: string, data: unknown) => api.put(`/restaurant/pos/orders/${id}/items`, data),
   payOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/pay`, data),
   voidOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/void`, data),
+  // المطبخ وخدمة الطاولات (M7)
+  fireOrder: (id: string) => api.post(`/restaurant/pos/orders/${id}/fire`),
+  kds: () => api.get('/restaurant/pos/kds'),
+  itemStatus: (itemId: string, status: string) => api.patch(`/restaurant/pos/items/${itemId}/status`, { status }),
+  serveOrder: (id: string) => api.post(`/restaurant/pos/orders/${id}/serve`),
   // الورديات (M4)
   currentShift: () => api.get('/restaurant/shifts/current'),
   openShift: (data: unknown) => api.post('/restaurant/shifts/open', data),

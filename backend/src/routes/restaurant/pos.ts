@@ -44,7 +44,7 @@ async function buildLines(tid: string, items: z.infer<typeof orderItemInput>[]) 
       menuItemId: mi.id, nameSnap: mi.name, qty: input.qty, unitPrice, modifiersTotal,
       taxPct: Number(mi.taxPct), taxAmt, lineTotal: roundDecimal(net + taxAmt, 2),
       unitCost: Number(mi.costPrice), station: mi.prepStation, note: input.note || null,
-      modifiers: { create: chosen.map(m => ({ nameSnap: m.name, priceDelta: Number(m.priceDelta) })) },
+      modifiers: { create: chosen.map(m => ({ modifierId: m.id, nameSnap: m.name, priceDelta: Number(m.priceDelta) })) },
     };
   });
   const subtotal = roundDecimal(lines.reduce((s, l) => s + l.qty * l.unitPrice, 0), 2);
@@ -176,6 +176,72 @@ router.post('/orders/:id/void', async (req: AuthRequest, res: Response, next: Ne
     await prisma.$transaction(async tx => {
       await tx.order.update({ where: { id: order.id }, data: { status: 'VOID', voidReason: reason } });
       if (order.tableId) await tx.restaurantTable.update({ where: { id: order.tableId }, data: { status: 'FREE' } });
+    });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ---------- المطبخ (KDS) وخدمة الطاولات (M7) ----------
+
+// إرسال الطلب للمطبخ: البنود المعلّقة تصبح FIRED (يظهر الطلب على شاشة المطبخ)
+router.post('/orders/:id/fire', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const order = await prisma.order.findFirst({ where: { id: req.params.id, tenantId: tid, status: 'OPEN' }, select: { id: true } });
+    if (!order) { res.status(404).json({ success: false, message: 'الطلب غير موجود أو غير مفتوح' }); return; }
+    const r = await prisma.orderItem.updateMany({
+      where: { orderId: order.id, kotStatus: 'PENDING' },
+      data: { kotStatus: 'FIRED', firedAt: new Date() },
+    });
+    res.json({ success: true, data: { fired: r.count } });
+  } catch (err) { next(err); }
+});
+
+// شاشة المطبخ — التذاكر النشطة: بنود أُرسلت ولم تُقدَّم بعد (تشمل الطلبات المدفوعة كالسفري)
+router.get('/kds', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const orders = await prisma.order.findMany({
+      where: { tenantId: tid, status: { not: 'VOID' }, items: { some: { kotStatus: { in: ['FIRED', 'READY'] } } } },
+      orderBy: { createdAt: 'asc' }, take: 60,
+      select: {
+        id: true, number: true, channel: true, status: true, createdAt: true,
+        table: { select: { number: true } },
+        items: {
+          where: { kotStatus: { in: ['FIRED', 'READY'] } },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true, nameSnap: true, qty: true, station: true, note: true, kotStatus: true, firedAt: true,
+            modifiers: { select: { nameSnap: true } },
+          },
+        },
+      },
+    });
+    res.json({ success: true, data: orders });
+  } catch (err) { next(err); }
+});
+
+// تحديث حالة بند من المطبخ (جاهز / قُدِّم)
+router.patch('/items/:itemId/status', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { status } = z.object({ status: z.enum(['FIRED', 'READY', 'SERVED']) }).parse(req.body);
+    const item = await prisma.orderItem.findFirst({ where: { id: req.params.itemId, order: { tenantId: tid } }, select: { id: true } });
+    if (!item) { res.status(404).json({ success: false, message: 'البند غير موجود' }); return; }
+    await prisma.orderItem.update({ where: { id: item.id }, data: { kotStatus: status } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// تعليم كل بنود التذكرة «قُدِّمت» (تختفي من شاشة المطبخ)
+router.post('/orders/:id/serve', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const order = await prisma.order.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!order) { res.status(404).json({ success: false, message: 'الطلب غير موجود' }); return; }
+    await prisma.orderItem.updateMany({
+      where: { orderId: order.id, kotStatus: { in: ['FIRED', 'READY'] } },
+      data: { kotStatus: 'SERVED' },
     });
     res.json({ success: true });
   } catch (err) { next(err); }
