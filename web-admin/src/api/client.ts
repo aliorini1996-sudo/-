@@ -308,4 +308,12 @@ export const restaurantApi = {
   zReport: (id: string) => api.get(`/restaurant/shifts/${id}/zreport`),
   // التقارير (M4)
   reportSummary: (params?: Record<string, string>) => api.get('/restaurant/reports/summary', { params }),
+  // المخزون والوصفات (M6)
+  inventory: () => api.get('/restaurant/inventory'),
+  createIngredient: (data: unknown) => api.post('/restaurant/inventory/ingredients', data),
+  updateIngredient: (id: string, data: unknown) => api.put(`/restaurant/inventory/ingredients/${id}`, data),
+  deleteIngredient: (id: string) => api.delete(`/restaurant/inventory/ingredients/${id}`),
+  stockMovement: (id: string, data: unknown) => api.post(`/restaurant/inventory/ingredients/${id}/movement`, data),
+  recipe: (menuItemId: string) => api.get(`/restaurant/inventory/menu-items/${menuItemId}/recipe`),
+  saveRecipe: (menuItemId: string, data: unknown) => api.put(`/restaurant/inventory/menu-items/${menuItemId}/recipe`, data),
 };
