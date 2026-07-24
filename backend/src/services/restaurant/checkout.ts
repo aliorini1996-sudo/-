@@ -123,7 +123,8 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
           items: {
             create: order.items.map((it, i) => ({
               menuItemId: it.menuItemId, orderItemId: it.id,
-              unitCost: recipeCost(it.menuItemId) ?? it.unitCost,
+              // تكلفة الوصفة تُستخدم فقط إن كانت موجبة فعلاً (مكوّنات بتكلفة 0 ⇒ ارجع للتكلفة المجمّدة)
+              unitCost: (() => { const rc = recipeCost(it.menuItemId); return rc && rc > 0 ? rc : it.unitCost; })(),
               qty: it.qty, unitPrice: it.unitPrice,
               taxPct: totals.lines[i].taxPct, taxAmt: totals.lines[i].tax, lineTotal: totals.lines[i].gross,
             })),
@@ -155,12 +156,18 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
         if (!rs) continue;
         for (const r of rs) consumption.set(r.ingredientId, (consumption.get(r.ingredientId) ?? 0) + r.qty * it.qty);
       }
+      const consumed: { ingredientId: string; q: number }[] = [];
       for (const [ingredientId, raw] of consumption) {
         const q = roundDecimal(raw, 4);
-        if (q <= 0) continue;
-        await tx.ingredient.update({ where: { id: ingredientId }, data: { stockQty: { decrement: q } } });
-        await tx.ingredientMovement.create({
-          data: { tenantId: tid, ingredientId, type: 'SALE_OUT', qty: -q, orderId: order.id },
+        if (q > 0) consumed.push({ ingredientId, q });
+      }
+      if (consumed.length) {
+        // خصم ذرّي لكل مكوّن + إدراج الحركات دفعةً واحدة (تقليل جُمل المعاملة وخطر المهلة)
+        for (const c of consumed) {
+          await tx.ingredient.update({ where: { id: c.ingredientId }, data: { stockQty: { decrement: c.q } } });
+        }
+        await tx.ingredientMovement.createMany({
+          data: consumed.map(c => ({ tenantId: tid, ingredientId: c.ingredientId, type: 'SALE_OUT', qty: -c.q, orderId: order.id })),
         });
       }
       return { id: inv.id, number: inv.number, total: invoiceTotal, subtotal: totals.subtotal, taxAmt: totals.totalTax, qr: einvoiceQr, einvoiceStatus, issuedAt: issuedAt.toISOString() };

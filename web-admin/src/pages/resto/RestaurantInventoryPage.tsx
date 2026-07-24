@@ -167,6 +167,7 @@ function MovementModal({ ing, onClose, onSaved }: { ing: Ingredient; onClose: ()
   const submit = () => {
     const q = Number(qty);
     if (!qty || (type !== 'ADJUST' && q <= 0)) { toast.error('أدخل كمية صحيحة'); return; }
+    if (type === 'PURCHASE' && !(Number(unitCost) > 0)) { toast.error('أدخل تكلفة الوحدة للشراء (تحدّث متوسّط التكلفة)'); return; }
     mut.mutate();
   };
   const tab = (v: typeof type, label: string) => (
@@ -182,7 +183,7 @@ function MovementModal({ ing, onClose, onSaved }: { ing: Ingredient; onClose: ()
           <input type="number" step="0.001" className="input" autoFocus value={qty} onChange={e => setQty(e.target.value)} placeholder={type === 'ADJUST' ? 'مثال: -2' : '0'} />
         </div>
         {type === 'PURCHASE' && (
-          <div><label className="label">تكلفة الوحدة (تحدّث المتوسّط)</label>
+          <div><label className="label">تكلفة الوحدة * (تحدّث المتوسّط)</label>
             <input type="number" min={0} step="0.01" className="input" value={unitCost} onChange={e => setUnitCost(e.target.value)} placeholder={String(ing.avgCost)} /></div>
         )}
         <div><label className="label">السبب (اختياري)</label>
