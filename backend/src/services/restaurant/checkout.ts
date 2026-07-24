@@ -135,6 +135,11 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
         where: { id: orderId },
         data: { invoiceId: inv.id, subtotal: totals.subtotal, taxAmt: totals.totalTax, total: invoiceTotal },
       });
+      // الطلب المدفوع فوراً (كاونتر/سفري) يُرسل للمطبخ تلقائياً إن لم يُرسل مسبقاً
+      await tx.orderItem.updateMany({
+        where: { orderId, kotStatus: 'PENDING' },
+        data: { kotStatus: 'FIRED', firedAt: issuedAt },
+      });
       if (payments.length) {
         await tx.orderPayment.createMany({
           data: payments.map(p => ({

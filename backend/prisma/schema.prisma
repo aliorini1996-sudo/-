@@ -1071,11 +1071,15 @@ model OrderItem {
   unitCost       Float     @default(0)
   station        String    @default("KITCHEN")
   note           String?
+  // حالة تذكرة المطبخ (M7): PENDING = لم تُرسل بعد · FIRED = في المطبخ · READY = جاهز · SERVED = قُدِّم
+  kotStatus      String    @default("PENDING")
+  firedAt        DateTime?
   createdAt      DateTime  @default(now())
 
   modifiers OrderItemModifier[]
 
   @@index([orderId])
+  @@index([kotStatus])
   @@map("order_items")
 }
 
@@ -1084,6 +1088,7 @@ model OrderItemModifier {
   id          String    @id @default(uuid())
   orderItemId String
   orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  modifierId  String?   // مرجع الخيار الأصلي — لإعادة تحميل الطلب المفتوح بلا فقد الإضافات (M7)
   nameSnap    String
   priceDelta  Float     @default(0)
 

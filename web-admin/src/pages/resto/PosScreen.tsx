@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Plus, Minus, Trash2, X, Check, ArrowRight, Store, ShoppingBag, UtensilsCrossed, LogOut, Receipt, Printer } from 'lucide-react';
+import { Plus, Minus, Trash2, X, Check, ArrowRight, Store, ShoppingBag, UtensilsCrossed, LogOut, Receipt, Printer, ChefHat, ClipboardList } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { restaurantApi } from '../../api/client';
@@ -17,6 +17,15 @@ interface ReceiptData {
 
 const money = (n: number) => `${(Math.round(n * 100) / 100).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س`;
 
+// طلب مفتوح (تبويب طاولة) — يُحمَّل في العربة للتعديل أو الدفع
+interface OpenOrder {
+  id: string; number: number; channel: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
+  tableId?: string | null; total: number; createdAt: string;
+  table?: { number: string } | null;
+  items: { id: string; menuItemId?: string | null; nameSnap: string; qty: number; unitPrice: number; modifiersTotal: number; taxPct: number;
+    modifiers: { modifierId?: string | null; nameSnap: string; priceDelta: number }[] }[];
+}
+
 interface CartMod { id: string; name: string; priceDelta: number; }
 interface CartLine { key: string; menuItemId: string; name: string; basePrice: number; taxPct: number; qty: number; mods: CartMod[]; }
 const unitPrice = (l: CartLine) => l.basePrice + l.mods.reduce((s, m) => s + m.priceDelta, 0);
@@ -29,9 +38,12 @@ export default function PosScreen() {
   const [tableId, setTableId] = useState<string>('');
   const [modPick, setModPick] = useState<MenuItem | null>(null);
   // الطلب المُنشأ بانتظار الدفع — يحمل معرّفه وإجماليه المحسوب من الخادم (مصدر الحقيقة للمبلغ)
-  const [pending, setPending] = useState<{ orderId: string; total: number } | null>(null);
+  const [pending, setPending] = useState<{ orderId: string; total: number; isNew: boolean } | null>(null);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [shiftView, setShiftView] = useState<'open' | 'close' | null>(null);
+  // تبويب طاولة مفتوحة (M7): الطلب الجاري تعديله (null = طلب جديد)
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [ordersView, setOrdersView] = useState(false);
 
   const { data: menu } = useQuery({
     queryKey: ['resto-menu'],
@@ -40,6 +52,11 @@ export default function PosScreen() {
   const { data: tablesData } = useQuery({
     queryKey: ['resto-tables'],
     queryFn: async () => (await restaurantApi.tables()).data.data as { tables: RestaurantTable[] },
+  });
+  const { data: openOrders, refetch: refetchOpen } = useQuery({
+    queryKey: ['resto-open-orders'],
+    queryFn: async () => (await restaurantApi.orders('OPEN')).data.data as OpenOrder[],
+    refetchInterval: 20000,
   });
   const { data: shift, refetch: refetchShift } = useQuery({
     queryKey: ['resto-shift'],
@@ -70,19 +87,64 @@ export default function PosScreen() {
 
   const errMsg = (e: unknown, fallback: string) => (e as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
 
-  // (1) إنشاء الطلب مرّة واحدة — يُعيد الخادم إجماليه الموثوق، ثم نفتح نافذة الدفع بذلك الإجمالي
+  const cartItems = () => cart.map(l => ({ menuItemId: l.menuItemId, qty: l.qty, modifierIds: l.mods.map(m => m.id).filter(Boolean) }));
+
+  // (1) تجهيز الطلب للدفع — يُحدَّث الطلب المفتوح إن كان جارياً، وإلا يُنشأ جديد.
+  // الإجمالي يأتي من الخادم (مصدر الحقيقة للمبلغ).
   const createMut = useMutation({
     mutationFn: async () => {
+      if (activeOrderId) {
+        const upd = await restaurantApi.updateOrderItems(activeOrderId, { items: cartItems() });
+        const o = upd.data.data as { id: string; total: number };
+        return { orderId: o.id, total: o.total, isNew: false };
+      }
       const created = await restaurantApi.createOrder({
-        channel, tableId: channel === 'DINE_IN' ? (tableId || null) : null, guests: 1,
-        items: cart.map(l => ({ menuItemId: l.menuItemId, qty: l.qty, modifierIds: l.mods.map(m => m.id) })),
+        channel, tableId: channel === 'DINE_IN' ? (tableId || null) : null, guests: 1, items: cartItems(),
       });
       const o = created.data.data as { id: string; total: number };
-      return { orderId: o.id, total: o.total };
+      return { orderId: o.id, total: o.total, isNew: true };
     },
     onSuccess: (p) => setPending(p),
-    onError: (e) => toast.error(errMsg(e, 'تعذّر إنشاء الطلب')),
+    onError: (e) => toast.error(errMsg(e, 'تعذّر تجهيز الطلب')),
   });
+
+  // (1ب) إرسال للمطبخ وحفظه كتبويب مفتوح (يُدفع لاحقاً)
+  const fireMut = useMutation({
+    mutationFn: async () => {
+      let id = activeOrderId;
+      if (id) await restaurantApi.updateOrderItems(id, { items: cartItems() });
+      else {
+        const created = await restaurantApi.createOrder({
+          channel, tableId: channel === 'DINE_IN' ? (tableId || null) : null, guests: 1, items: cartItems(),
+        });
+        id = (created.data.data as { id: string }).id;
+      }
+      await restaurantApi.fireOrder(id);
+      return id;
+    },
+    onSuccess: () => {
+      toast.success('أُرسل الطلب للمطبخ');
+      setCart([]); setTableId(''); setActiveOrderId(null); refetchOpen();
+    },
+    onError: (e) => toast.error(errMsg(e, 'تعذّر الإرسال للمطبخ')),
+  });
+
+  // تحميل تبويب مفتوح في العربة للتعديل/الدفع
+  const loadOrder = (o: OpenOrder) => {
+    setActiveOrderId(o.id);
+    setChannel(o.channel === 'DELIVERY' ? 'TAKEAWAY' : o.channel);
+    setTableId(o.tableId ?? '');
+    setCart(o.items.map((it, i) => ({
+      key: `${it.id}-${i}`,
+      menuItemId: it.menuItemId ?? '',
+      name: it.nameSnap,
+      basePrice: it.unitPrice - (it.modifiersTotal || 0),
+      taxPct: it.taxPct ?? 15,
+      qty: it.qty,
+      mods: it.modifiers.map(m => ({ id: m.modifierId ?? '', name: m.nameSnap, priceDelta: m.priceDelta })),
+    })));
+    setOrdersView(false);
+  };
 
   // (2) دفع الطلب المُنشأ نفسه — إعادة المحاولة عند الفشل تدفع الطلب ذاته (لا تُنشئ طلباً جديداً)
   const payMut = useMutation({
@@ -90,16 +152,23 @@ export default function PosScreen() {
       const res = await restaurantApi.payOrder(pending!.orderId, { payments });
       return res.data.data as { order?: { items?: ReceiptData['items'] }; invoice: ReceiptData['invoice']; company?: ReceiptData['company'] };
     },
-    onSuccess: (d) => { setReceipt({ company: d.company, invoice: d.invoice, items: d.order?.items ?? [] }); setCart([]); setTableId(''); setPending(null); },
+    onSuccess: (d) => {
+      setReceipt({ company: d.company, invoice: d.invoice, items: d.order?.items ?? [] });
+      setCart([]); setTableId(''); setPending(null); setActiveOrderId(null); refetchOpen();
+    },
     onError: (e) => toast.error(errMsg(e, 'تعذّر إتمام الدفع')),
   });
 
-  // (3) إلغاء الدفع → إلغاء الطلب المُنشأ (يحرّر الطاولة) فلا تتراكم طلبات يتيمة
+  // (3) إلغاء الدفع: الطلب المُنشأ للتوّ يُلغى (يحرّر الطاولة)، أما تبويب مفتوح قائم فيبقى كما هو
   const voidMut = useMutation({
     mutationFn: () => restaurantApi.voidOrder(pending!.orderId, { reason: 'إلغاء من الكاشير' }),
-    onSettled: () => setPending(null),
+    onSettled: () => { setPending(null); refetchOpen(); },
   });
-  const cancelPay = () => { if (pending && !payMut.isPending) voidMut.mutate(); };
+  const cancelPay = () => {
+    if (!pending || payMut.isPending) return;
+    if (pending.isNew) voidMut.mutate();
+    else setPending(null); // تبويب مفتوح — لا يُلغى بمجرّد إغلاق نافذة الدفع
+  };
 
   const handleLogout = () => { logout(); window.location.replace('/login'); };
 
@@ -112,7 +181,11 @@ export default function PosScreen() {
           <span className="font-bold"><span>Field</span><span className="text-[#E15A30]"> Restaurant</span> <span className="text-[#9A8F7E] text-sm">· الكاشير</span></span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#9A8F7E] hidden md:block">{user?.companyName}</span>
+          <span className="text-xs text-[#9A8F7E] hidden lg:block">{user?.companyName}</span>
+          <button onClick={() => setOrdersView(true)} className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+            <ClipboardList size={13} /> الطلبات المفتوحة{(openOrders?.length ?? 0) > 0 ? ` (${openOrders!.length})` : ''}
+          </button>
+          <a href="/kds" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 flex items-center gap-1"><ChefHat size={13} /> المطبخ</a>
           {shift ? (
             <button onClick={() => setShiftView('close')} className="text-xs bg-[#1E7A52]/20 text-[#7ED9A9] hover:bg-[#1E7A52]/30 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-[#5FBE92]" /> إغلاق الوردية
@@ -157,6 +230,12 @@ export default function PosScreen() {
         <aside className="w-[340px] flex-shrink-0 bg-white border-r border-[#E9E1D3] flex flex-col">
           {/* نوع الطلب */}
           <div className="p-3 border-b border-[#E9E1D3] space-y-2">
+            {activeOrderId && (
+              <div className="flex items-center justify-between bg-[#FBEBE2] text-[#C94E28] rounded-lg px-2.5 py-1.5 text-xs font-semibold">
+                <span>تعديل تبويب مفتوح</span>
+                <button onClick={() => { setActiveOrderId(null); setCart([]); setTableId(''); }} className="underline">إلغاء</button>
+              </div>
+            )}
             <div className="flex gap-2">
               <TypeBtn active={channel === 'DINE_IN'} onClick={() => setChannel('DINE_IN')} icon={Store} label="صالة" />
               <TypeBtn active={channel === 'TAKEAWAY'} onClick={() => setChannel('TAKEAWAY')} icon={ShoppingBag} label="سفري" />
@@ -197,10 +276,16 @@ export default function PosScreen() {
             <Row label="المجموع" value={money(subtotal)} />
             <Row label="ضريبة القيمة المضافة" value={money(taxAmt)} />
             <div className="flex items-center justify-between pt-1"><span className="font-bold">الإجمالي</span><span className="font-bold text-lg text-[#E15A30]">{money(total)}</span></div>
-            <button disabled={cart.length === 0 || createMut.isPending} onClick={() => createMut.mutate()}
-              className="w-full mt-1 bg-[#1E7A52] hover:bg-[#186845] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-              {createMut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'دفع'}
-            </button>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              <button disabled={cart.length === 0 || fireMut.isPending} onClick={() => fireMut.mutate()}
+                className="bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 text-sm">
+                {fireMut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ChefHat size={16} /> للمطبخ</>}
+              </button>
+              <button disabled={cart.length === 0 || createMut.isPending} onClick={() => createMut.mutate()}
+                className="bg-[#1E7A52] hover:bg-[#186845] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
+                {createMut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'دفع'}
+              </button>
+            </div>
           </div>
         </aside>
       </div>
@@ -208,6 +293,7 @@ export default function PosScreen() {
       {modPick && <ModifierPicker item={modPick} groups={groups} onClose={() => setModPick(null)} onAdd={mods => { pushLine(modPick, mods); setModPick(null); }} />}
       {pending && <PaymentModal total={pending.total} loading={payMut.isPending || voidMut.isPending} onClose={cancelPay} onPay={payments => payMut.mutate(payments)} />}
       {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />}
+      {ordersView && <OpenOrdersModal orders={openOrders ?? []} onClose={() => setOrdersView(false)} onPick={loadOrder} />}
       {shiftView === 'open' && <OpenShiftModal onClose={() => setShiftView(null)} onDone={() => { setShiftView(null); refetchShift(); }} />}
       {shiftView === 'close' && shift && <CloseShiftModal shiftId={shift.id} onClose={() => setShiftView(null)} onDone={() => { setShiftView(null); refetchShift(); }} />}
     </div>
@@ -395,6 +481,36 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose: ()
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>{children}</div>
     </div>
+  );
+}
+
+// ---------- الطلبات المفتوحة (تبويبات الطاولات — M7) ----------
+function OpenOrdersModal({ orders, onClose, onPick }: { orders: OpenOrder[]; onClose: () => void; onPick: (o: OpenOrder) => void }) {
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
+        <h2 className="font-bold text-[#1F1A13] flex items-center gap-2"><ClipboardList size={18} className="text-[#E15A30]" /> الطلبات المفتوحة</h2>
+        <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+      </div>
+      <div className="p-4 max-h-[62vh] overflow-y-auto space-y-2">
+        {orders.length === 0 ? (
+          <p className="text-center text-gray-400 py-10 text-sm">لا طلبات مفتوحة — كل الطاولات مسدّدة</p>
+        ) : orders.map(o => (
+          <button key={o.id} onClick={() => onPick(o)}
+            className="w-full text-right rounded-xl border border-[#E9E1D3] hover:border-[#E15A30] hover:bg-[#FBEBE2]/40 p-3 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#1F1A13]">
+                #{o.number}{o.table?.number ? ` · طاولة ${o.table.number}` : o.channel === 'TAKEAWAY' ? ' · سفري' : ''}
+              </span>
+              <span className="font-bold text-[#E15A30]">{money(o.total)}</span>
+            </div>
+            <p className="text-xs text-[#9A8F7E] mt-1">
+              {o.items.length} صنف · {new Date(o.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </button>
+        ))}
+      </div>
+    </Overlay>
   );
 }
 
