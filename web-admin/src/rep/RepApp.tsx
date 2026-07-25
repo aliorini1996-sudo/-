@@ -311,6 +311,9 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   const [entries, setEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  // 'unassigned' = نزعت الإدارة هذا العميل (عزل العملاء)، 'offline' = تعذّر الاتصال.
+  // نميّزهما عن «لا توجد حركات» كي لا يظنّ المندوب أن العميل بلا حركات فعلاً.
+  const [statementError, setStatementError] = useState<'unassigned' | 'offline' | null>(null);
 
   // فتح مستند الحركة (فاتورة/سند) من كشف الحساب
   const openDoc = async (e: any) => {
@@ -328,9 +331,11 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
     } catch { /* */ }
     setOpeningId(null);
   };
-  const canCreateInvoice = perms.canCreateInvoice !== false;
+  // العميل نُزع من هذا المندوب ⇒ كل إجراء عليه سيُرفض من الخادم، فنمنعه في الواجهة
+  const unassigned = statementError === 'unassigned';
+  const canCreateInvoice = perms.canCreateInvoice !== false && !unassigned;
   const canSellAnyType = perms.canSellOnCredit !== false || perms.canSellInCash !== false;
-  const canCreateReceipt = perms.canCreateReceipt !== false;
+  const canCreateReceipt = perms.canCreateReceipt !== false && !unassigned;
   const canViewStatement = perms.canViewStatement !== false;
 
   useEffect(() => {
@@ -339,7 +344,13 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
       try {
         const res = await repApi.get(`/customers/${customer.id}/statement`);
         setEntries(res.data.data.entries);
-      } catch { /* */ }
+        setStatementError(null);
+      } catch (err) {
+        setEntries([]);
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        // 404/403 = العميل لم يعد مُسنَداً لهذا المندوب (أو حُذف). غير ذلك = انقطاع/خلل مؤقّت.
+        setStatementError(status === 404 || status === 403 ? 'unassigned' : 'offline');
+      }
       setLoading(false);
     })();
   }, [customer.id, canViewStatement]);
@@ -352,25 +363,38 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
       </div>
 
       <div className="p-4 overflow-y-auto flex-1 pb-4">
+        {/* نُزع العميل من المندوب (عزل العملاء): تنبيه صريح بدل صمت مضلّل */}
+        {unassigned && (
+          <div className="mb-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-3.5 text-sm leading-relaxed">
+            <p className="font-bold mb-1">{tr('هذا العميل لم يعد ضمن عملائك')}</p>
+            <p className="text-xs">{tr('نقلته الإدارة إلى مندوب آخر، فلا يمكنك إصدار فاتورة أو سند أو زيارة له. راجع الإدارة إن كان ذلك غير متوقّع.')}</p>
+          </div>
+        )}
+
         {/* Summary */}
-        <div className="bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 text-white">
+        <div className={`bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 text-white ${unassigned ? 'opacity-60' : ''}`}>
           <p className="font-bold text-lg">{customer.name}</p>
           {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
           <p className="text-[#E8C9BC] text-xs mb-4">{customer.phone}</p>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className={`font-bold text-sm ${Number(customer.balance) > 0 ? 'text-red-300' : 'text-green-300'}`}>{formatCurrency(customer.balance)}</p>
-              <p className="text-[#E8C9BC] text-[10px]">{tr('الرصيد')}</p>
+          {/* الأرقام المالية مخزّنة محلياً وقد تكون قديمة — نخفيها بعد نزع العميل بدل عرض رقم مضلّل */}
+          {unassigned ? (
+            <p className="text-[#E8C9BC] text-xs text-center py-2">{tr('البيانات المالية غير متاحة')}</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className={`font-bold text-sm ${Number(customer.balance) > 0 ? 'text-red-300' : 'text-green-300'}`}>{formatCurrency(customer.balance)}</p>
+                <p className="text-[#E8C9BC] text-[10px]">{tr('الرصيد')}</p>
+              </div>
+              <div>
+                <p className="font-bold text-sm">{formatCurrency(customer.creditLimit)}</p>
+                <p className="text-[#E8C9BC] text-[10px]">{tr('الحد الائتماني')}</p>
+              </div>
+              <div>
+                <p className="font-bold text-sm">{customer.paymentDays} {tr('يوم')}</p>
+                <p className="text-[#E8C9BC] text-[10px]">{tr('فترة السداد')}</p>
+              </div>
             </div>
-            <div>
-              <p className="font-bold text-sm">{formatCurrency(customer.creditLimit)}</p>
-              <p className="text-[#E8C9BC] text-[10px]">{tr('الحد الائتماني')}</p>
-            </div>
-            <div>
-              <p className="font-bold text-sm">{customer.paymentDays} {tr('يوم')}</p>
-              <p className="text-[#E8C9BC] text-[10px]">{tr('فترة السداد')}</p>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Actions */}
@@ -384,19 +408,20 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           </button>
         </div>
         <div className="grid grid-cols-2 gap-3 mt-3">
-          <button onClick={onReturn} className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+          <button onClick={onReturn} disabled={unassigned}
+            className="bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
             <RotateCcw size={16} /> {tr('فاتورة إرجاع')}
           </button>
           <button
             onClick={() => onStatement(statementDocFromData(customer, entries, repName, company))}
-            disabled={loading || !canViewStatement}
+            disabled={loading || !canViewStatement || unassigned || !!statementError}
             className="bg-slate-700 hover:bg-slate-800 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
             <FileBarChart2 size={16} /> {tr('كشف حساب')}
           </button>
         </div>
         {/* تسجيل زيارة ميدانية: ملاحظة + صور رفوف مع إثبات موقع — تراها الإدارة في خريطة التتبّع */}
-        <button onClick={onLogVisit}
-          className="w-full mt-3 bg-[#5FBE92] hover:bg-[#4EA97E] text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+        <button onClick={onLogVisit} disabled={unassigned}
+          className="w-full mt-3 bg-[#5FBE92] hover:bg-[#4EA97E] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
           <ClipboardCheck size={16} /> {tr('تسجيل زيارة')}
         </button>
 
@@ -406,6 +431,10 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تملك صلاحية عرض كشف الحساب')}</p>
         ) : loading ? (
           <p className="text-center text-gray-400 py-6 text-sm">{tr('جاري التحميل...')}</p>
+        ) : statementError === 'unassigned' ? (
+          <p className="text-center text-amber-700 py-6 text-sm">{tr('كشف الحساب غير متاح — هذا العميل لم يعد ضمن عملائك')}</p>
+        ) : statementError === 'offline' ? (
+          <p className="text-center text-gray-400 py-6 text-sm">{tr('تعذّر تحميل كشف الحساب — تحقّق من الاتصال')}</p>
         ) : entries.length === 0 ? (
           <p className="text-center text-gray-400 py-6 text-sm">{tr('لا توجد حركات')}</p>
         ) : entries.map(e => {
