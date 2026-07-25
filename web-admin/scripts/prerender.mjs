@@ -255,11 +255,20 @@ async function main() {
       { q: 'Le calculateur est-il gratuit ?', a: 'Oui — entièrement gratuit, dans le navigateur, sans inscription.' },
     ],
   };
+  /**
+   * ⚠️ مصدر مزدوج — انتبه: عناوين/أوصاف/أسئلة الصفحات التعريفية والأدوات مكتوبة **هنا** أيضاً،
+   * منفصلةً عن مكوّنات React (مثل src/pages/InvoiceGeneratorPage.tsx وحاسبة التسريب).
+   * **جوجل وكاشطو التواصل يقرؤون نسخة هذا الملف** (HTML الثابت)، لا نسخة المكوّن التي تظهر بعد إقلاع React.
+   * ⇒ أي تعديل SEO على صفحة أداة/تعريف يجب تطبيقه في **الموضعين**، وإلا ظلّ غير مرئي لمحركات البحث.
+   * (اكتُشف 2026-07-25: تعديل عنوان المولّد في المكوّن وحده لم يصل لجوجل إطلاقاً.)
+   */
   const INVGEN_FAQ = {
     ar: [
       { q: 'كيف أعمل فاتورة ضريبية برمز QR مجاناً؟', a: 'أدخل بيانات شركتك وعميلك وبنود الفاتورة في مولّد FieldSales المجاني، فيبني فوراً فاتورة ضريبية احترافية ثنائية اللغة برمز QR متوافق مع هيئة الزكاة والضريبة والجمارك ZATCA، وتحمّلها PDF أو تطبعها بلا تسجيل.' },
       { q: 'ما الفرق بين الفاتورة الضريبية والمبسطة؟', a: 'الفاتورة الضريبية المبسطة تُصدر للمستهلك (B2C) بلا رقم ضريبي للمشتري، والفاتورة الضريبية العادية (B2B) تتضمن الرقم الضريبي للمشتري — والمولّد يبدّل بينهما تلقائياً.' },
       { q: 'ما الدول المدعومة؟', a: 'نِسب الضريبة والعملات جاهزة لـ12 دولة عربية: السعودية 15%، مصر 14%، الإمارات 5%، البحرين 10%، عُمان 5%، الأردن 16%، المغرب 20%، الجزائر وتونس 19% وغيرها — وكلها قابلة للتعديل.' },
+      { q: 'هل هذا برنامج محاسبة مجاني؟', a: 'هذه أداة فوترة مجانية بالكامل وبلا تسجيل: تُنشئ فاتورة ضريبية نظامية برمز QR وتحمّلها PDF. لكنها ليست برنامج محاسبة كاملاً — لا تتضمّن دفتر أستاذ ولا قوائم مالية ولا إقرارات ضريبية. إن كان ما تحتاجه إصدار فواتير نظامية فقط فهذه الأداة تكفيك مجاناً بلا اشتراك؛ وإن كنت تبحث عن محاسبة كاملة فستحتاج برنامج محاسبة متخصّصاً.' },
+      { q: 'هل أحتاج اشتراكاً أو بطاقة لاستخدام المولّد؟', a: 'لا. المولّد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حدّ لعدد الفواتير. أما منصّة FieldSales لإدارة مناديب التوزيع (فواتير من الميدان، تحصيل، مخزون سيارة، تتبّع) فهي منتج مدفوع بتجربة مجانية 10 أيام دون بطاقة.' },
     ],
     en: [
       { q: 'How do I create a tax invoice with a QR code for free?', a: 'Enter your company, customer and items in the free FieldSales generator — it instantly builds a professional bilingual tax invoice with a ZATCA-compliant QR code, downloadable as PDF, no signup.' },
@@ -300,7 +309,7 @@ async function main() {
         b: '<h1>Calculateur de fuite de revenus</h1><p>Un outil gratuit pour les entreprises de distribution : saisissez vos commerciaux, factures quotidiennes et part d’espèces pour estimer instantanément vos pertes mensuelles et annuelles (factures perdues, erreurs de prix, encaissements non documentés, écarts de stock, temps de saisie). Les opérations papier/WhatsApp fuient généralement 3 à 6 % du chiffre d’affaires. <a href="/fr/calculator">Essayez le calculateur</a> ou <a href="/signup">commencez votre essai gratuit</a>.</p>' + faqHtml('FAQ', CALC_FAQ.fr), j: toolJsonLd('fr', 'Calculateur de fuite de revenus', ORIGIN + '/fr/calculator', CALC_FAQ.fr) },
     },
     'invoice-generator': {
-      ar: { t: 'مولّد فاتورة ضريبية مجاني برمز QR — نموذج جاهز | FieldSales', d: 'أنشئ فاتورة ضريبية احترافية مجاناً برمز QR متوافق مع ZATCA وحمّلها PDF خلال ثوانٍ — بلا تسجيل.',
+      ar: { t: 'برنامج فواتير مجاني بلا تسجيل — مولّد فاتورة ضريبية برمز QR | FieldSales', d: 'برنامج فواتير مجاني بالكامل وبلا تسجيل: أنشئ فاتورة ضريبية احترافية برمز QR متوافق مع ZATCA وحمّلها PDF خلال ثوانٍ.',
         b: '<h1>مولّد الفاتورة الضريبية المجاني</h1><p>أداة مجانية بالكامل تعمل في متصفحك: أدخل بيانات شركتك وعميلك وبنود الفاتورة، فتحصل فوراً على فاتورة ضريبية (أو مبسطة) احترافية ثنائية اللغة برمز QR متوافق مع متطلبات هيئة الزكاة والضريبة والجمارك ZATCA، وحمّلها PDF أو اطبعها — بلا تسجيل وبلا حدود. تدعم ضرائب وعملات 12 دولة عربية. <a href="/invoice-generator">أنشئ فاتورتك الآن</a>، وجرّب أيضاً <a href="/calculator">حاسبة تسريب الإيرادات</a> أو <a href="/signup">أصدرها تلقائياً من جوال مندوبك مع FieldSales</a>.</p>' + faqHtml('أسئلة شائعة', INVGEN_FAQ.ar), j: toolJsonLd('ar', 'مولّد الفاتورة الضريبية المجاني', ORIGIN + '/invoice-generator', INVGEN_FAQ.ar) },
       en: { t: 'Free Tax Invoice Generator with QR Code | FieldSales', d: 'Create a professional tax invoice free with a ZATCA-compliant QR code and download it as PDF in seconds — no signup.',
         b: '<h1>Free Tax Invoice Generator</h1><p>A fully free in-browser tool: enter your company, customer and line items to instantly get a professional bilingual tax (or simplified) invoice with a ZATCA-compliant QR code, then download it as PDF or print it — no signup, no limits. Supports VAT rates and currencies of 12 Arab countries. <a href="/en/invoice-generator">Create your invoice now</a>, also try the <a href="/en/calculator">Revenue Leak Calculator</a> or <a href="/signup">issue them automatically from your rep’s phone with FieldSales</a>.</p>' + faqHtml('FAQ', INVGEN_FAQ.en), j: toolJsonLd('en', 'Free Tax Invoice Generator', ORIGIN + '/en/invoice-generator', INVGEN_FAQ.en) },
