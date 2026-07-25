@@ -275,6 +275,8 @@ export interface Invoice {
   remainingAmt: number;
   items?: InvoiceItem[];
   createdAt: string;
+  // لحظة إصدار الفاتورة على جهاز المندوب (تسبق الرفع بساعات في العمل دون اتصال)
+  clientCreatedAt?: string | null;
   einvoiceProvider?: string | null;
   einvoiceStatus?: string | null;
   einvoiceUuid?: string | null;

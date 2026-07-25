@@ -169,6 +169,7 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'ملاحظات': { en: 'Notes', fr: 'Remarques' },
   'الحالة': { en: 'Status', fr: 'Statut' },
   'التاريخ': { en: 'Date', fr: 'Date' },
+  'الوقت': { en: 'Time', fr: 'Heure' },
   'النوع': { en: 'Type', fr: 'Type' },
   'رقم': { en: 'Number', fr: 'Numéro' },
   'نشط': { en: 'Active', fr: 'Actif' },

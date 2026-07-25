@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, companyApi, salesRepApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
-import { formatCurrency, formatDate, statusLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatDateTime, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -96,19 +96,25 @@ export default function InvoicesPage() {
         [tr('المندوب')]: inv.salesRep.name,
         [tr('النوع')]: tr(statusLabels[inv.type] || inv.type),
         [tr('التاريخ')]: formatDate(inv.invoiceDate),
+        [tr('الوقت')]: formatTime(issuedAt(inv)),
         [tr('الإجمالي')]: num(inv.total),
         [tr('المدفوع')]: num(inv.paidAmt),
         [tr('المتبقي')]: num(inv.remainingAmt),
         [tr('الحالة')]: tr(statusLabels[inv.status] || inv.status),
       }));
       const res2 = await shareOrDownloadExcel(
-        [{ name: tr('الفواتير'), rows, colWidths: [18, 24, 16, 10, 16, 12, 12, 12, 10] }],
+        [{ name: tr('الفواتير'), rows, colWidths: [18, 24, 16, 10, 16, 10, 12, 12, 12, 10] }],
         `${tr('الفواتير')}-${new Date().toISOString().slice(0, 10)}`
       );
       toast.success(res2 === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('فاتورة')}`);
     } catch { toast.error(tr('تعذّر التصدير')); }
     setExporting(false);
   };
+
+  // لحظة إصدار الفاتورة الفعلية: على جهاز المندوب إن وُجدت (الفاتورة الأوف‑لاين تُصدر
+  // في الميدان وتُرفع بعد ساعات)، وإلا لحظة الإنشاء على الخادم. لا نستخدم invoiceDate
+  // لأنه قد يُضبط من منتقي تاريخ (بلا وقت = منتصف الليل) أو يُؤرَّخ بأثر رجعي.
+  const issuedAt = (inv: Invoice) => inv.clientCreatedAt || inv.createdAt;
 
   const typeBadge = (t: string) => <span className={`badge-${t.toLowerCase()}`}>{tr(statusLabels[t])}</span>;
   const statusBadge = (s: string) => {
@@ -176,14 +182,15 @@ export default function InvoicesPage() {
               <tr>
                 <th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th><th>{tr('النوع')}</th>
                 <th>{tr('الإجمالي')}</th><th>{tr('المدفوع')}</th><th>{tr('المتبقي')}</th><th>{tr('التاريخ')}</th>
+                <th>{tr('الوقت')}</th>
                 <th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={10} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={11} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
+                <tr><td colSpan={11} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
               ) : data?.data.map(inv => (
                 <tr key={inv.id}>
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
@@ -196,6 +203,9 @@ export default function InvoicesPage() {
                     {formatCurrency(inv.remainingAmt)}
                   </td>
                   <td className="text-xs text-gray-400">{formatDate(inv.invoiceDate)}</td>
+                  <td className="text-xs text-gray-500 font-mono whitespace-nowrap" title={formatDateTime(issuedAt(inv))}>
+                    {formatTime(issuedAt(inv))}
+                  </td>
                   <td>{statusBadge(inv.status)}</td>
                   <td>
                     <div className="flex items-center gap-2">
