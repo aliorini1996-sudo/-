@@ -7,6 +7,8 @@ export interface User {
   vertical?: 'distribution' | 'restaurant'; // عمودية الشركة — تُوجّه اللوحة (/app أو /app-r)
   companyName?: string;
   emailVerified?: boolean;
+  username?: string;
+  canCreateReceipt?: boolean; // كاشير المطعم: هل يقبض الدفع (نادل=لا)
   canAccessDashboard?: boolean;
   canManageCustomers?: boolean;
   canManageProducts?: boolean;

@@ -1,6 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { useState } from 'react';
-import { LayoutDashboard, ScrollText, LayoutGrid, LogOut, KeyRound, Eye, ArrowRight, Monitor, Settings, BarChart3, Boxes } from 'lucide-react';
+import { LayoutDashboard, ScrollText, LayoutGrid, LogOut, KeyRound, Eye, ArrowRight, Monitor, Settings, BarChart3, Boxes, Users } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { BrandIcon } from '../../components/BrandLogo';
 import ChangePasswordModal from '../../components/ChangePasswordModal';
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/app-r/menu', icon: ScrollText, label: 'القائمة' },
   { to: '/app-r/tables', icon: LayoutGrid, label: 'الصالات والطاولات' },
   { to: '/app-r/inventory', icon: Boxes, label: 'المخزون' },
+  { to: '/app-r/staff', icon: Users, label: 'الموظّفون' },
   { to: '/app-r/reports', icon: BarChart3, label: 'التقارير' },
   { to: '/app-r/settings', icon: Settings, label: 'الإعدادات' },
 ];

@@ -170,7 +170,9 @@ export default function PosScreen() {
     else setPending(null); // تبويب مفتوح — لا يُلغى بمجرّد إغلاق نافذة الدفع
   };
 
-  const handleLogout = () => { logout(); window.location.replace('/login'); };
+  const isStaff = user?.role === 'SALES_REP';               // كاشير/نادل — لا لوحة إدارة له
+  const canPay = !isStaff || user?.canCreateReceipt !== false; // النادل يرسل للمطبخ ولا يقبض
+  const handleLogout = () => { logout(); window.location.replace(isStaff ? '/pos-login' : '/login'); };
 
   return (
     <div dir="rtl" className="h-screen flex flex-col bg-[#FAF7F0] overflow-hidden" style={{ fontFamily: "'IBM Plex Sans','IBM Plex Sans Arabic',sans-serif" }}>
@@ -186,14 +188,14 @@ export default function PosScreen() {
             <ClipboardList size={13} /> الطلبات المفتوحة{(openOrders?.length ?? 0) > 0 ? ` (${openOrders!.length})` : ''}
           </button>
           <a href="/kds" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 flex items-center gap-1"><ChefHat size={13} /> المطبخ</a>
-          {shift ? (
+          {canPay && (shift ? (
             <button onClick={() => setShiftView('close')} className="text-xs bg-[#1E7A52]/20 text-[#7ED9A9] hover:bg-[#1E7A52]/30 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-[#5FBE92]" /> إغلاق الوردية
             </button>
           ) : (
             <button onClick={() => setShiftView('open')} className="text-xs bg-[#E15A30]/25 text-[#f0703f] hover:bg-[#E15A30]/35 rounded-lg px-3 py-1.5 font-semibold">فتح وردية</button>
-          )}
-          <a href="/app-r" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 flex items-center gap-1"><ArrowRight size={13} /> اللوحة</a>
+          ))}
+          {!isStaff && <a href="/app-r" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 flex items-center gap-1"><ArrowRight size={13} /> اللوحة</a>}
           <button onClick={handleLogout} className="text-red-300 hover:bg-red-500/20 rounded-lg p-1.5"><LogOut size={16} /></button>
         </div>
       </header>
@@ -276,15 +278,17 @@ export default function PosScreen() {
             <Row label="المجموع" value={money(subtotal)} />
             <Row label="ضريبة القيمة المضافة" value={money(taxAmt)} />
             <div className="flex items-center justify-between pt-1"><span className="font-bold">الإجمالي</span><span className="font-bold text-lg text-[#E15A30]">{money(total)}</span></div>
-            <div className="grid grid-cols-2 gap-2 mt-1">
+            <div className={`grid gap-2 mt-1 ${canPay ? 'grid-cols-2' : 'grid-cols-1'}`}>
               <button disabled={cart.length === 0 || fireMut.isPending} onClick={() => fireMut.mutate()}
                 className="bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 text-sm">
                 {fireMut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ChefHat size={16} /> للمطبخ</>}
               </button>
-              <button disabled={cart.length === 0 || createMut.isPending} onClick={() => createMut.mutate()}
-                className="bg-[#1E7A52] hover:bg-[#186845] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-                {createMut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'دفع'}
-              </button>
+              {canPay && (
+                <button disabled={cart.length === 0 || createMut.isPending} onClick={() => createMut.mutate()}
+                  className="bg-[#1E7A52] hover:bg-[#186845] disabled:bg-gray-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
+                  {createMut.isPending ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'دفع'}
+                </button>
+              )}
             </div>
           </div>
         </aside>

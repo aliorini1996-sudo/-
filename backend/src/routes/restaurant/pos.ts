@@ -152,7 +152,9 @@ router.post('/orders/:id/pay', async (req: AuthRequest, res: Response, next: Nex
       return;
     }
     // الدفعات + الفاتورة + تحرير الطاولة ذرّياً داخل checkout (لا إنشاء دفعات خارج المعاملة)
-    const result = await checkoutOrder(tid, order.id, body.payments);
+    // تُسنَد الفاتورة للكاشير الفعلي إن كان الدافع موظّفاً (SALES_REP)
+    const cashierRepId = req.user?.role === 'SALES_REP' ? req.user.id : undefined;
+    const result = await checkoutOrder(tid, order.id, body.payments, cashierRepId);
     const [full, company] = await Promise.all([
       prisma.order.findUnique({ where: { id: order.id }, include: orderInclude }),
       prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { name: true, taxNumber: true, phone: true, address: true, currency: true } }),

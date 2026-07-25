@@ -41,13 +41,19 @@ export interface CheckoutResult {
   qr?: string; einvoiceStatus?: string; issuedAt: string;
 }
 
-export async function checkoutOrder(tid: string, orderId: string, payments: PaymentInput[]): Promise<CheckoutResult> {
+export async function checkoutOrder(tid: string, orderId: string, payments: PaymentInput[], cashierRepId?: string): Promise<CheckoutResult> {
   const settings = await prisma.companySettings.findUnique({
     where: { tenantId: tid },
     select: { defaultVatPct: true, name: true, taxNumber: true, einvoiceProvider: true, currency: true },
   });
   const defaultTaxPct = settings?.defaultVatPct ?? 15;
-  const { customerId, salesRepId } = await ensureRestaurantDefaults(tid);
+  const { customerId, salesRepId: defaultRep } = await ensureRestaurantDefaults(tid);
+  // تُسنَد الفاتورة للكاشير الفعلي إن كان موظّفاً يخصّ المطعم، وإلا للحساب الافتراضي (بيع الأدمن)
+  let salesRepId = defaultRep;
+  if (cashierRepId) {
+    const c = await prisma.salesRep.findFirst({ where: { id: cashierRepId, tenantId: tid }, select: { id: true } });
+    if (c) salesRepId = c.id;
+  }
   const cashTotal = roundDecimal(payments.filter(p => p.method === 'CASH').reduce((s, p) => s + (p.amount ?? 0), 0), 2);
 
   const out = await withNumberRetry(async () => {

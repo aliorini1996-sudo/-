@@ -11,6 +11,7 @@ import ContactPage from './pages/ContactPage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
 import OwnerLoginPage from './pages/OwnerLoginPage';
+import PosLoginPage from './pages/resto/PosLoginPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import BlogIndexPage from './pages/BlogIndexPage';
 import BlogPostPage from './pages/BlogPostPage';
@@ -44,6 +45,7 @@ const RestaurantReportsPage = lazy(() => import('./pages/resto/RestaurantReports
 const RestaurantInventoryPage = lazy(() => import('./pages/resto/RestaurantInventoryPage'));
 const PosScreen = lazy(() => import('./pages/resto/PosScreen'));
 const KdsScreen = lazy(() => import('./pages/resto/KdsScreen'));
+const RestaurantStaffPage = lazy(() => import('./pages/resto/RestaurantStaffPage'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
 function PageFallback() {
@@ -60,10 +62,20 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// لوحة المطعم على /app-r — لعمودية المطاعم فقط (يُعيد التوزيع إلى /app)
+// لوحة إدارة المطعم على /app-r — لأدمن المطعم فقط (الكاشير SALES_REP يُوجَّه للكاشير)
 function RestaurantRoute({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore();
   if (!token) return <Navigate to="/login" replace />;
+  if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
+  if ((user?.vertical ?? 'distribution') !== 'restaurant') return <Navigate to="/app" replace />;
+  if (user?.role === 'SALES_REP') return <Navigate to="/pos" replace />;
+  return <>{children}</>;
+}
+
+// شاشات الكاشير/المطبخ (/pos و /kds) — لأدمن المطعم أو الكاشير (SALES_REP)؛ غير المصادَق → دخول الكاشير
+function RestaurantPosRoute({ children }: { children: React.ReactNode }) {
+  const { token, user } = useAuthStore();
+  if (!token) return <Navigate to="/pos-login" replace />;
   if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
   if ((user?.vertical ?? 'distribution') !== 'restaurant') return <Navigate to="/app" replace />;
   return <>{children}</>;
@@ -105,7 +117,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|app-r|pos|kds|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|app-r|pos|pos-login|kds|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
     analyticsApi.track({ path: pathname, referrer: document.referrer || '', lang: document.documentElement.lang || 'ar' }).catch(() => { /* تجاهل */ });
   }, [pathname]);
   return null;
@@ -125,6 +137,7 @@ export default function App() {
         <Route path="/rep" element={<RepApp />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
+        <Route path="/pos-login" element={<PosLoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         {/* الصفحات التعريفية الفرعية (عامة) */}
@@ -169,13 +182,14 @@ export default function App() {
           <Route path="menu" element={<MenuManagePage />} />
           <Route path="tables" element={<TablesManagePage />} />
           <Route path="inventory" element={<RestaurantInventoryPage />} />
+          <Route path="staff" element={<RestaurantStaffPage />} />
           <Route path="reports" element={<RestaurantReportsPage />} />
           <Route path="settings" element={<RestaurantSettingsPage />} />
         </Route>
-        {/* شاشة الكاشير (ملء الشاشة) — عمودية المطاعم (M3) */}
-        <Route path="/pos" element={<RestaurantRoute><PosScreen /></RestaurantRoute>} />
+        {/* شاشة الكاشير (ملء الشاشة) — أدمن المطعم أو الكاشير */}
+        <Route path="/pos" element={<RestaurantPosRoute><PosScreen /></RestaurantPosRoute>} />
         {/* شاشة المطبخ KDS (ملء الشاشة) — M7 */}
-        <Route path="/kds" element={<RestaurantRoute><KdsScreen /></RestaurantRoute>} />
+        <Route path="/kds" element={<RestaurantPosRoute><KdsScreen /></RestaurantPosRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
           <ProtectedRoute>

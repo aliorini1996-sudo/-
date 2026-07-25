@@ -305,6 +305,12 @@ export const restaurantApi = {
   kds: () => api.get('/restaurant/pos/kds'),
   itemStatus: (itemId: string, status: string) => api.patch(`/restaurant/pos/items/${itemId}/status`, { status }),
   serveOrder: (id: string) => api.post(`/restaurant/pos/orders/${id}/serve`),
+  // موظّفو المطعم (كاشير/نادل) — دخول بـPIN
+  staff: () => api.get('/restaurant/staff'),
+  createStaff: (data: unknown) => api.post('/restaurant/staff', data),
+  updateStaff: (id: string, data: unknown) => api.put(`/restaurant/staff/${id}`, data),
+  resetStaffPin: (id: string, pin: string) => api.post(`/restaurant/staff/${id}/pin`, { pin }),
+  deleteStaff: (id: string) => api.delete(`/restaurant/staff/${id}`),
   // الورديات (M4)
   currentShift: () => api.get('/restaurant/shifts/current'),
   openShift: (data: unknown) => api.post('/restaurant/shifts/open', data),

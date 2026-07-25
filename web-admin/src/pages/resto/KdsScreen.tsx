@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChefHat, Check, Clock, ArrowRight, Store, ShoppingBag, Bike } from 'lucide-react';
 import { restaurantApi } from '../../api/client';
+import { useAuthStore } from '../../store/authStore';
 import { BrandIcon } from '../../components/BrandLogo';
 
 // شاشة المطبخ (KDS) — تعرض التذاكر النشطة وتُحدَّث بالاستقصاء كل 8 ثوانٍ (بلا WebSocket في v1).
@@ -21,6 +22,7 @@ function minutesSince(iso?: string | null): number {
 
 export default function KdsScreen() {
   const qc = useQueryClient();
+  const isStaff = useAuthStore(s => s.user?.role) === 'SALES_REP'; // كاشير/نادل — لا لوحة إدارة له
   const { data, isLoading } = useQuery({
     queryKey: ['resto-kds'],
     queryFn: async () => (await restaurantApi.kds()).data.data as KdsOrder[],
@@ -50,7 +52,7 @@ export default function KdsScreen() {
         </div>
         <div className="flex items-center gap-2">
           <a href="/pos" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 flex items-center gap-1"><ArrowRight size={13} /> الكاشير</a>
-          <a href="/app-r" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5">اللوحة</a>
+          {!isStaff && <a href="/app-r" className="text-xs bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5">اللوحة</a>}
         </div>
       </header>
 
