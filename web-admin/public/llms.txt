@@ -46,6 +46,7 @@ Key facts:
 ## Guides (pillar articles)
 
 - [What Is Field Sales Management Software?](https://fieldsa.net/en/blog/what-is-field-sales-management/): Everything distributors in Arab markets need about what is field sales management software? — with practical steps and local examples.
+- [Retail Execution for FMCG Distributors](https://fieldsa.net/en/blog/retail-execution/): Everything distributors in Arab markets need about retail execution for fmcg distributors — with practical steps and local examples.
 - [How to Choose a Field Sales System](https://fieldsa.net/en/blog/how-to-choose-field-sales-system/): Everything distributors in Arab markets need about how to choose a field sales system — with practical steps and local examples.
 - [Van Sales Best Practices](https://fieldsa.net/en/blog/van-sales-best-practices/): Everything distributors in Arab markets need about van sales best practices — with practical steps and local examples.
 - [How to Reduce Overdue Receivables](https://fieldsa.net/en/blog/reduce-overdue-receivables/): Everything distributors in Arab markets need about how to reduce overdue receivables — with practical steps and local examples.
@@ -152,5 +153,5 @@ Key facts:
 
 ## Optional
 
-- [Full article index](https://fieldsa.net/llms-full.txt): every guide in Arabic, English and French (966 pages).
+- [Full article index](https://fieldsa.net/llms-full.txt): every guide in Arabic, English and French (969 pages).
 - [Sitemap](https://fieldsa.net/sitemap.xml)

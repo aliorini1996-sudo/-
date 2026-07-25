@@ -191,9 +191,9 @@ const T: Record<Lang, Record<string, string>> = {
 
 const SEO = {
   ar: {
-    title: 'مولّد فاتورة ضريبية مجاني برمز QR — نموذج فاتورة ضريبية جاهز | FieldSales',
-    description: 'أنشئ فاتورة ضريبية احترافية مجاناً برمز QR متوافق مع هيئة الزكاة والضريبة (ZATCA) وحمّلها PDF خلال ثوانٍ — نموذج فاتورة ضريبية ومبسطة بلا تسجيل.',
-    keywords: 'نموذج فاتورة ضريبية, نموذج فاتورة ضريبية جاهز للطباعة, مولد فاتورة ضريبية, فاتورة ضريبية pdf, انشاء فاتورة الكترونية مجانا, عمل فاتورة اون لاين, فاتورة ضريبية مبسطة, فاتورة برمز QR, فاتورة ZATCA, برنامج فواتير مجاني, نموذج فاتورة جاهز, فاتورة ضريبية السعودية, فاتورة ضريبية مصر, فاتورة ضريبية الإمارات, نموذج فاتورة مبيعات, فاتورة الكترونية',
+    title: 'برنامج فواتير مجاني بلا تسجيل — مولّد فاتورة ضريبية برمز QR | FieldSales',
+    description: 'برنامج فواتير مجاني بالكامل وبلا تسجيل: أنشئ فاتورة ضريبية احترافية برمز QR متوافق مع هيئة الزكاة والضريبة (ZATCA) وحمّلها PDF خلال ثوانٍ — ضريبية ومبسطة، لكل الدول العربية.',
+    keywords: 'برنامج فواتير مجاني, برنامج فواتير مجاني بلا تسجيل, نموذج فاتورة ضريبية, نموذج فاتورة ضريبية جاهز للطباعة, مولد فاتورة ضريبية, فاتورة ضريبية pdf, انشاء فاتورة الكترونية مجانا, عمل فاتورة اون لاين, فاتورة ضريبية مبسطة, فاتورة برمز QR, فاتورة ZATCA, نموذج فاتورة جاهز, فاتورة ضريبية السعودية, فاتورة ضريبية مصر, فاتورة ضريبية الإمارات, نموذج فاتورة مبيعات, فاتورة الكترونية',
     locale: 'ar' as const,
   },
   en: {
@@ -229,7 +229,15 @@ const JSONLD = (lang: Lang) => ({
     },
     {
       '@type': 'FAQPage',
-      mainEntity: (lang === 'en' ? [
+      mainEntity: faqItems(lang).map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+    },
+  ],
+});
+
+// الأسئلة الشائعة — مصدر واحد يغذّي البيانات المنظّمة **والقسم المرئي** معاً.
+// جوجل يشترط ظهور محتوى FAQPage مرئياً للمستخدم؛ وضعه في JSON-LD وحده مخالفة تُلغي المقتطف الغني.
+const faqItems = (lang: Lang): { q: string; a: string }[] => (
+  lang === 'en' ? [
         { q: 'How do I create a tax invoice with a QR code for free?', a: 'Use the free FieldSales invoice generator: enter your company, customer and items — it instantly builds a professional bilingual tax invoice with a ZATCA-compliant QR code you can download as PDF or print, with no signup.' },
         { q: 'What is the difference between a tax invoice and a simplified tax invoice?', a: 'A simplified tax invoice is issued to consumers (B2C) without the buyer’s VAT number, while a standard tax invoice (B2B) includes the buyer’s VAT number. The generator switches automatically based on whether you enter the customer’s VAT number.' },
         { q: 'Which countries does the generator support?', a: 'VAT rates and currencies for 50 countries are preset (Saudi Arabia 15%, Egypt 14%, UAE 5%, and more) and fully editable.' },
@@ -240,10 +248,9 @@ const JSONLD = (lang: Lang) => ({
         { q: 'كيف أعمل فاتورة ضريبية برمز QR مجاناً؟', a: 'استخدم مولّد الفواتير المجاني من FieldSales: أدخل بيانات شركتك وعميلك وبنود الفاتورة، فيبني فوراً فاتورة ضريبية احترافية ثنائية اللغة برمز QR متوافق مع هيئة الزكاة والضريبة والجمارك ZATCA، وتحمّلها PDF أو تطبعها بلا تسجيل.' },
         { q: 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة؟', a: 'المبسطة تُصدر للمستهلك الأفراد (B2C) بلا رقم ضريبي للمشتري، والضريبية العادية (B2B) تتضمن الرقم الضريبي للمشتري — والمولّد يبدّل بينهما تلقائياً حسب إدخالك رقم العميل الضريبي.' },
         { q: 'ما الدول التي يدعمها المولّد؟', a: 'نِسب الضريبة والعملات جاهزة لـ50 دولة (كل الدول العربية وأسواق أخرى) (السعودية 15%، مصر 14%، الإمارات 5% وغيرها) وكلها قابلة للتعديل.' },
-      ]).map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
-    },
-  ],
-});
+        { q: 'هل هذا برنامج محاسبة مجاني؟', a: 'هذه أداة فوترة مجانية بالكامل وبلا تسجيل: تُنشئ فاتورة ضريبية نظامية برمز QR وتحمّلها PDF. لكنها ليست برنامج محاسبة كاملاً — لا تتضمّن دفتر أستاذ ولا قوائم مالية ولا إقرارات ضريبية. إن كان ما تحتاجه إصدار فواتير نظامية فقط فهذه الأداة تكفيك مجاناً بلا اشتراك؛ وإن كنت تبحث عن محاسبة كاملة فستحتاج برنامج محاسبة متخصّصاً.' },
+        { q: 'هل أحتاج اشتراكاً أو بطاقة لاستخدام المولّد؟', a: 'لا. المولّد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حدّ لعدد الفواتير. أما منصّة FieldSales لإدارة مناديب التوزيع (فواتير من الميدان، تحصيل، مخزون سيارة، تتبّع) فهي منتج مدفوع بتجربة مجانية 10 أيام دون بطاقة.' },
+  ]);
 
 const fmt = (n: number) => (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -479,10 +486,28 @@ export default function InvoiceGeneratorPage() {
             <Link to={pathForLocale('/calculator', lang)} className="block text-center text-xs font-semibold text-[#E15A30] hover:underline">
               {t('tryCalc')} ↗
             </Link>
-            <Link to={lang === 'en' ? '/en/blog/how-to-create-free-tax-invoice-qr' : '/blog/how-to-create-free-tax-invoice-qr'}
+            <Link to={lang === 'en' ? '/en/blog/how-to-create-free-tax-invoice-qr/' : '/blog/how-to-create-free-tax-invoice-qr/'}
               className="block text-center text-xs text-[#6E6557] hover:text-[#E15A30] hover:underline">
               {t('guide')}
             </Link>
+
+            {/* الأسئلة الشائعة — مرئية (شرط جوجل لصحّة FAQPage) ونفس مصدر البيانات المنظّمة */}
+            <section className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
+              <h2 className="text-base font-bold text-[#1F1A13] mb-3">
+                {lang === 'en' ? 'Frequently asked questions' : lang === 'fr' ? 'Questions fréquentes' : 'الأسئلة الشائعة'}
+              </h2>
+              <div className="space-y-2">
+                {faqItems(lang).map((f) => (
+                  <details key={f.q} className="group border-b border-[#F0EAE0] last:border-0 pb-2">
+                    <summary className="cursor-pointer list-none text-sm font-semibold text-[#3a342b] flex items-start gap-2 py-1.5">
+                      <span className="text-[#E15A30] mt-0.5 shrink-0 transition-transform group-open:rotate-45">+</span>
+                      <span>{f.q}</span>
+                    </summary>
+                    <p className="text-xs text-[#6E6557] leading-relaxed ps-5 pb-1.5">{f.a}</p>
+                  </details>
+                ))}
+              </div>
+            </section>
           </div>
 
           {/* ------------------------- معاينة الفاتورة (وثيقة ثنائية اللغة) ------------------------- */}

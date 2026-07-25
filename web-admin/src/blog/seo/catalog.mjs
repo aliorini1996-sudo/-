@@ -487,8 +487,9 @@ const TOPICS = [
     kw: (c, L) => P(L, `برنامج مبيعات ميدانية ${c.ar}, نظام إدارة مناديب ${c.ar}, برنامج توزيع, فاتورة ضريبية, تحصيل`, `field sales software ${c.en}, sales rep management ${c.en}, distribution software, tax invoice, collection`, `logiciel de vente terrain ${c.fr}, gestion des commerciaux ${c.fr}, distribution, facturation`),
     secs: ['why', 'invoice', 'tax', 'collect', 'features', 'howstart', 'cta'] },
   { id: 'distribution-management-system', cs: true, rm: 7,
-    label: svc('نظام إدارة الموزّعين (DMS)', 'Distributor Management System (DMS)', 'Système de gestion des distributeurs (DMS)'),
-    kw: (c, L) => P(L, `نظام إدارة الموزّعين ${c.ar}, نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, مخزون, كشوف حساب`, `distributor management system ${c.en}, DMS software ${c.en}, distributor management software, distribution management system ${c.en}, wholesale software ${c.en}`, `système de gestion des distributeurs ${c.fr}, DMS ${c.fr}, logiciel de gros ${c.fr}`),
+    // «Distributor Management System Software» = الصيغة الصاعدة +140% في مؤشرات Google — مطابقة تامّة في العنوان/H1.
+    label: svc('نظام إدارة الموزّعين (DMS)', 'Distributor Management System (DMS) Software', 'Logiciel de gestion des distributeurs (DMS)'),
+    kw: (c, L) => P(L, `نظام إدارة الموزّعين ${c.ar}, نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, مخزون, كشوف حساب`, `distributor management system software ${c.en}, distributor management system ${c.en}, DMS software ${c.en}, distribution management system ${c.en}, wholesale software ${c.en}`, `logiciel de gestion des distributeurs ${c.fr}, DMS ${c.fr}, logiciel de gros ${c.fr}`),
     secs: ['why', 'vanstock', 'crm', 'reports', 'collect', 'cta'] },
   { id: 'van-sales-app', cs: true, rm: 6,
     label: svc('تطبيق البيع من السيارة (Van Sales)', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
@@ -540,6 +541,12 @@ const TOPICS = [
     label: svc('ما هو نظام إدارة المبيعات الميدانية؟', 'What Is Field Sales Management Software?', "Qu'est-ce qu'un logiciel de vente terrain ?"),
     kw: (c, L) => P(L, `نظام إدارة مبيعات ميدانية, تعريف, مناديب, توزيع, فاتورة`, `field sales management software, definition, reps, distribution`, `logiciel de vente terrain, définition, commerciaux, distribution`),
     secs: ['why', 'invoice', 'collect', 'reports', 'features', 'cta'] },
+  // مقال ركيزة عام (صفحة واحدة لا 22) — «retail execution» طلبه ضعف DMS في مؤشرات Google،
+  // ومصطلح دقيق بلا التباس، وميزاته قائمة فعلاً (زيارات ميدانية بصور + تصنيف قنوات البيع).
+  { id: 'retail-execution', cs: false, rm: 7,
+    label: svc('التنفيذ في نقاط البيع (Retail Execution)', 'Retail Execution for FMCG Distributors', 'Exécution retail pour les distributeurs FMCG'),
+    kw: (c, L) => P(L, `التنفيذ في نقاط البيع, زيارات المناديب, قنوات البيع, تغطية المنافذ, حصة الرف`, `retail execution, retail execution software, field visits, outlet coverage, sales channel, perfect store`, `exécution retail, visites terrain, couverture des points de vente, canaux de vente`),
+    secs: ['why', 'crm', 'gps', 'reports', 'features', 'cta'] },
   { id: 'how-to-choose-field-sales-system', cs: false, rm: 6,
     label: svc('كيف تختار نظام مبيعات ميدانية مناسباً؟', 'How to Choose a Field Sales System', 'Comment choisir un système de vente terrain'),
     kw: (c, L) => P(L, `اختيار نظام مبيعات ميدانية, معايير, مقارنة, برنامج توزيع`, `choose field sales system, criteria, comparison, distribution software`, `choisir un système de vente terrain, critères, comparaison`),
@@ -619,8 +626,9 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  *
  * 2026-07-17: أُعيدت صياغة كتلة «مقالات ذات صلة» (الشرطة الأخيرة في كل رابط).
  * 2026-07-23: قسم localContext مُفرَّد لكل دولة + استهداف «distributor management system» (DMS).
+ * 2026-07-25: صيغة «DMS Software» (استعلام صاعد +140%) + مقال ركيزة «retail execution».
  */
-export const CONTENT_VERSION = '2026-07-23';
+export const CONTENT_VERSION = '2026-07-25';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً)
 export const modifiedOf = (date) => (date > CONTENT_VERSION ? date : CONTENT_VERSION);
