@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { receiptApi, companyApi, salesRepApi } from '../api/client';
 import { Receipt, SalesRep } from '../types';
-import { formatCurrency, formatDate, paymentMethodLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { Plus, XCircle, ChevronLeft, ChevronRight, FileText, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -64,10 +64,11 @@ export default function ReceiptsPage() {
         [tr('المبلغ')]: num(r.amount),
         [tr('طريقة الدفع')]: tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod),
         [tr('التاريخ')]: formatDate(r.receiptDate),
+        [tr('الوقت')]: formatTime(issuedAt(r)),
         [tr('الحالة')]: r.status === 'ACTIVE' ? tr('نشط') : tr('ملغي'),
       }));
       const out = await shareOrDownloadExcel(
-        [{ name: tr('سندات القبض'), rows, colWidths: [18, 24, 16, 12, 14, 16, 10] }],
+        [{ name: tr('سندات القبض'), rows, colWidths: [18, 24, 16, 12, 14, 16, 10, 10] }],
         `${tr('سندات القبض')}-${new Date().toISOString().slice(0, 10)}`
       );
       toast.success(out === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('سند')}`);
@@ -98,6 +99,11 @@ export default function ReceiptsPage() {
     };
     return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[m] || ''}`}>{tr(paymentMethodLabels[m])}</span>;
   };
+
+  // لحظة إصدار السند الفعلية: على جهاز المندوب إن وُجدت (السند الأوف‑لاين يُحرَّر في
+  // الميدان ويُرفع بعد ساعات)، وإلا لحظة الإنشاء على الخادم. لا نستخدم receiptDate
+  // لأنه قد يُضبط من منتقي تاريخ (بلا وقت = منتصف الليل) أو يُؤرَّخ بأثر رجعي.
+  const issuedAt = (r: Receipt) => r.clientCreatedAt || r.createdAt;
 
   return (
     <div>
@@ -139,14 +145,14 @@ export default function ReceiptsPage() {
             <thead>
               <tr>
                 <th>{tr('رقم السند')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th>
-                <th>{tr('المبلغ')}</th><th>{tr('طريقة الدفع')}</th><th>{tr('التاريخ')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
+                <th>{tr('المبلغ')}</th><th>{tr('طريقة الدفع')}</th><th>{tr('التاريخ')}</th><th>{tr('الوقت')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('لا توجد سندات')}</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('لا توجد سندات')}</td></tr>
               ) : data?.data.map(r => (
                 <tr key={r.id}>
                   <td className="font-mono text-sm text-green-600">{r.number}</td>
@@ -155,6 +161,9 @@ export default function ReceiptsPage() {
                   <td className="font-bold text-green-700">{formatCurrency(r.amount)}</td>
                   <td>{methodBadge(r.paymentMethod)}</td>
                   <td className="text-xs text-gray-400">{formatDate(r.receiptDate)}</td>
+                  <td className="text-xs text-gray-500 font-mono whitespace-nowrap" title={formatDateTime(issuedAt(r))}>
+                    {formatTime(issuedAt(r))}
+                  </td>
                   <td>
                     <span className={r.status === 'ACTIVE' ? 'badge-active' : 'badge-cancelled'}>
                       {r.status === 'ACTIVE' ? tr('نشط') : tr('ملغي')}

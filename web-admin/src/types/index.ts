@@ -288,6 +288,8 @@ export interface Receipt {
   customer: { id: string; name: string };
   salesRep: { id: string; name: string };
   receiptDate: string;
+  // لحظة إصدار السند على جهاز المندوب (تسبق الرفع بساعات في العمل دون اتصال)
+  clientCreatedAt?: string | null;
   amount: number;
   paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE';
   chequeNumber?: string;
