@@ -21,6 +21,7 @@ import SubscriptionRequestPage from './pages/SubscriptionRequestPage';
 import LeakCalculatorPage from './pages/LeakCalculatorPage';
 import InvoiceGeneratorPage from './pages/InvoiceGeneratorPage';
 import PricingPage from './pages/PricingPage';
+import SectorPage from './pages/SectorPage';
 // لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
 const MainLayout = lazy(() => import('./layouts/MainLayout'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -160,6 +161,8 @@ export default function App() {
         <Route path="/calculator" element={<LeakCalculatorPage />} />
         <Route path="/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/قطاعات" element={<SectorPage />} />
+        <Route path="/قطاعات/:slug" element={<SectorPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />
         <Route path="/blog/:slug" element={<BlogPostPage />} />
         {/* النسخة الإنجليزية على /en — نفس المكوّنات تُعرَض بالإنجليزية (دولي + hreflang) */}

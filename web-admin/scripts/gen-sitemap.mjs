@@ -9,6 +9,7 @@ import { buildCatalog, modifiedOf } from '../src/blog/seo/catalog.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const ORIGIN = 'https://fieldsa.net';
+import { SECTORS } from './sectors-data.mjs';
 const API = 'https://api.fieldsa.net/api/site-content';
 const today = new Date().toISOString().slice(0, 10);
 
@@ -19,6 +20,7 @@ const I18N_ROUTES = [
   { p: '/contact', priority: '0.7', freq: 'monthly' },
   { p: '/calculator', priority: '0.9', freq: 'weekly' },
   { p: '/invoice-generator', priority: '0.9', freq: 'weekly' },
+  { p: '/pricing', priority: '0.9', freq: 'monthly' },
   { p: '/terms', priority: '0.3', freq: 'yearly' },
   { p: '/privacy', priority: '0.3', freq: 'yearly' },
   { p: '/service-agreement', priority: '0.3', freq: 'yearly' },
@@ -126,6 +128,12 @@ async function main() {
     `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr/blog/"/>`,
     `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog/"/>`,
   ].join('\n');
+  // صفحات القطاعات السبعة (عربية فقط حالياً — لا نسخة en/fr لها بعد، فلا hreflang كاذب)
+  urls.push(urlEntry(ORIGIN + '/قطاعات', { freq: 'monthly', priority: '0.7' }));
+  for (const sec of SECTORS) {
+    urls.push(urlEntry(ORIGIN + '/قطاعات/' + sec.slug, { freq: 'monthly', priority: '0.8' }));
+  }
+
   urls.push(urlEntry(ORIGIN + '/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
   urls.push(urlEntry(ORIGIN + '/en/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));
   urls.push(urlEntry(ORIGIN + '/fr/blog', { freq: 'weekly', priority: '0.8', alternates: idxAlt }));

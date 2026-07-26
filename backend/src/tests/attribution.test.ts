@@ -63,3 +63,14 @@ test('رمز واتساب ٨ محارف بلا أحرف ملتبسة', () => {
   assert.equal(c.length, 8);
   assert.match(c, /^[2-9A-HJ-NP-Z]+$/); // لا 0/O/1/I
 });
+
+test('رموز واتساب متنوّعة فعلاً — الخلل السابق أنتج D2222222', () => {
+  const codes = new Set<string>();
+  for (let i = 0; i < 500; i++) codes.add(makeWaCode('seed' + i));
+  // تكرار الرمز يعني محادثات لا تُنسب لزياراتها ⇒ انهيار الإسناد بصمت
+  assert.ok(codes.size >= 495, `تنوّع ضعيف: ${codes.size}/500 فريد`);
+  // ولا رمز من محرف واحد مكرّر
+  for (const c of [...codes].slice(0, 50)) {
+    assert.ok(new Set(c.split('')).size >= 3, `رمز ضعيف: ${c}`);
+  }
+});

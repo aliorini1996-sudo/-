@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
 import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf } from '../src/blog/seo/catalog.mjs';
 import { loadPricing } from './pricing-source.mjs';
+import { SECTORS } from './sectors-data.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
@@ -424,6 +425,49 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
     + (pricing.hasCustomTier ? `، وباقة ${esc(pricing.customTierName)} لعدد غير محدود من المناديب حسب الطلب` : '')
     + `. مع <strong>تجربة مجانية 10 أيام</strong> تبدأ خلال دقائق دون بطاقة ائتمان.</p>`
     + `<p><a href="/signup">ابدأ تجربتك المجانية</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> لتسعير أكثر من ${pricing.high === 599 ? '٢٠' : pricing.high} مندوبًا.</p>`;
+
+  // 4.5) صفحات القطاعات السبعة — محتوى مكتوب لكل قطاع (لا استنساخ)
+  for (const sec of SECTORS) {
+    const canonical = canon(`${ORIGIN}/قطاعات/${sec.slug}`);
+    const faqHtml = sec.faq.map((f) => `<h2>${esc(f.q)}</h2><p>${esc(f.a)}</p>`).join('');
+    const featHtml = sec.features.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.body)}</li>`).join('');
+    const body = `<main>
+<h1>برنامج إدارة مناديب التوزيع لشركات ${esc(sec.name)}</h1>
+<p>${esc(sec.pain)}</p>
+<h2>يومك الميداني</h2><p>${esc(sec.scene)}</p>
+<h2>ما يخدم هذا القطاع تحديداً</h2><ul>${featHtml}</ul>
+${faqHtml}
+<h2>ما لا نملكه — بصراحة</h2>
+<p>ندعم الفاتورة الإلكترونية المرحلة الأولى (رمز QR بترميز TLV) فقط؛ المرحلة الثانية غير مبنية لدينا حتى الآن. وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها.</p>
+<p><a href="/pricing">شاهد الأسعار</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
+</main>`;
+    const jsonLd = {
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'FAQPage', mainEntity: sec.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) },
+        { '@type': 'BreadcrumbList', itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'الرئيسية', item: canon(ORIGIN) },
+          { '@type': 'ListItem', position: 2, name: 'القطاعات', item: canon(`${ORIGIN}/قطاعات`) },
+          { '@type': 'ListItem', position: 3, name: sec.name, item: canonical },
+        ] },
+      ],
+    };
+    writeRoute(`/قطاعات/${sec.slug}`, buildPage({
+      lang: 'ar',
+      title: `${sec.name} — برنامج إدارة مناديب التوزيع | Field Sales`,
+      description: `${sec.pain} يعمل دون إنترنت، ويدير مخزون سيارة المندوب والمرتجعات المصنّفة لشركات ${sec.name}.`,
+      canonical, image: `${ORIGIN}/og-image.png`, jsonLd, bodyHtml: body,
+    }));
+    n++;
+  }
+  // فهرس القطاعات
+  writeRoute('/قطاعات', buildPage({
+    lang: 'ar', title: 'القطاعات التي يخدمها Field Sales في التوزيع الميداني',
+    description: 'سبعة قطاعات توزيع: مواد غذائية، ألبان، مياه ومشروبات، مخابز، مستلزمات طبية، مواد بناء، قطع غيار — لكل قطاع ألمه اليومي المختلف.',
+    canonical: canon(`${ORIGIN}/قطاعات`), image: `${ORIGIN}/og-image.png`,
+    bodyHtml: `<main><h1>القطاعات التي نخدمها</h1><ul>${SECTORS.map((s2) => `<li><a href="/قطاعات/${s2.slug}">${esc(s2.name)}</a> — ${esc(s2.pain)}</li>`).join('')}</ul></main>`,
+  }));
+  n++;
 
   // 5) الصفحة الرئيسية العربية (الجذر dist/index.html) — تحقن محتوى دلالياً في #root الفارغ.
   //    هذه أهم صفحة، وكانت قوقعة SPA فارغة لغير مشغّلي JavaScript (زواحف AI وBing جزئياً).

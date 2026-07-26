@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 /**
  * إسناد الزيارات — تطبيع وسوم الحملة واشتقاق القناة على الخادم.
  *
@@ -120,13 +121,38 @@ export function resolveAttribution(input: AttributionInput): AttributionResult {
  * فيصل مع المحادثة، ويُطابَق لاحقاً بصفّ الزيارة لإغلاق حلقة الإسناد.
  */
 const ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // بلا 0/O/1/I
+
+/**
+ * ⚠️ درس مقيس: النسخة الأولى استعملت مولّداً خطّياً وأخذت **البتّات الدنيا**
+ * (`h % 32`)، ودورة البتّات الدنيا في LCG قصيرة جداً — فأنتجت رموزاً مثل
+ * `D2222222`. رمز متكرّر يعني محادثات لا تُنسب لزياراتها، أي انهيار الإسناد
+ * كلّه بصمت. الآن: بايتات عشوائية حقيقية من `crypto`، والاحتياطي يأخذ
+ * البتّات **العليا** بعد خلط.
+ */
 export function makeWaCode(seed?: string): string {
-  let out = '';
-  const base = (seed || '') + Math.random().toString(36) + Date.now().toString(36);
-  let h = 0;
-  for (let i = 0; i < base.length; i++) h = (h * 31 + base.charCodeAt(i)) >>> 0;
-  for (let i = 0; i < 8; i++) { out += ALPHABET[h % ALPHABET.length]; h = (h * 1103515245 + 12345) >>> 0; }
-  return out;
+  try {
+    // مسار قياسي: عشوائية تشفيرية حقيقية
+    const bytes = randomBytes(8);
+    let out = '';
+    for (let i = 0; i < 8; i++) out += ALPHABET[bytes[i] % ALPHABET.length];
+    return out;
+  } catch {
+    // احتياطي حتمي: خلط ثم أخذ البتّات العليا لا الدنيا
+    const base = (seed || '') + Date.now().toString(36);
+    let h = 2166136261 >>> 0; // FNV-1a
+    for (let i = 0; i < base.length; i++) {
+      h ^= base.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    let out = '';
+    for (let i = 0; i < 8; i++) {
+      h ^= h << 13; h >>>= 0;
+      h ^= h >>> 17;
+      h ^= h << 5; h >>>= 0;
+      out += ALPHABET[(h >>> 26) % ALPHABET.length]; // البتّات العليا
+    }
+    return out;
+  }
 }
 
 /** ref الصفحة: يُشتقّ من المسار آلياً — لا يُكتب يدوياً فلا يُنسى ولا يتضارب */
