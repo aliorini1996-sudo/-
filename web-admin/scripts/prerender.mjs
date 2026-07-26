@@ -125,6 +125,11 @@ function articleJsonLd(a, lang, canonical) {
 }
 
 async function main() {
+  // التسعير من مصدره الحيّ (CMS) لا من رقم مكتوب هنا — الأسعار تُحرَّر من لوحة المالك،
+  // فأي رقم يدوي في هذا الملف ينزاح صامتاً عن الحقيقة ويصل جوجل ومحرّكات الذكاء وحده.
+  const pricing = await loadPricing();
+  console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
+  const waHref = pricing.waLink;
   if (!fs.existsSync(path.join(DIST, 'index.html'))) { console.error('لا يوجد dist/index.html — شغّل vite build أولاً'); process.exit(0); }
   let n = 0;
 
@@ -284,7 +289,77 @@ async function main() {
 
   // 4) الصفحات التعريفية (about/contact/قانونية) × 3 لغات — وسوم + ملخّص دلالي يقرؤه الزاحف،
   //    وReact يستبدله بالنص الكامل عند التحميل. (الرئيسية العربية تبقى dist/index.html — هي fallback الـSPA)
+  // صفحة التسعير — مُصيَّرة بأسعار الـCMS الحيّة وبسكيما Product+Offer+FAQPage.
+  // بلا تصيير تفقد الصفحة سبب وجودها: استعلامات «كم سعر…» يجيبها الزاحف لا المتصفّح.
+  const priceFaq = (qa) => ({
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Product', name: 'Field Sales', alternateName: 'فيلد سيلز',
+        url: canon(`${ORIGIN}/pricing`),
+        offers: {
+          '@type': 'AggregateOffer', lowPrice: String(pricing.low), highPrice: String(pricing.high),
+          priceCurrency: 'SAR', offerCount: pricing.plans.length,
+          availability: 'https://schema.org/InStock',
+        },
+      },
+      { '@type': 'FAQPage', mainEntity: qa.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
+    ],
+  });
+
+  const planRows = pricing.plans
+    .map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.price)}${/^\d+$/.test(String(p.price)) ? ' ر.س' : ''}</td><td>${esc(p.limit || '')}</td></tr>`)
+    .join('');
+
+  const PRICING_AR_FAQ = [
+    ['كم سعر برنامج مندوبين المبيعات؟', `${pricing.arSummary}. السعر لكل شركة لا لكل مستخدم، وما فوق ذلك يُحدَّد بالمحادثة.`],
+    ['هل السعر لكل مندوب أم لكل شركة؟', 'لكل شركة. إضافة مندوب جديد ضمن حدّ الباقة لا تزيد فاتورتك الشهرية.'],
+    ['هل هناك رسوم تأسيس أو إعداد؟', 'لا رسوم تأسيس ولا رسوم إعداد.'],
+    ['هل التجربة تحتاج بطاقة ائتمان؟', 'لا. التجربة عشرة أيام بلا بطاقة ائتمان.'],
+    ['هل يدعم النظام الفاتورة الإلكترونية؟', 'يدعم المرحلة الأولى (رمز QR بترميز TLV). المرحلة الثانية غير متاحة حتى الآن، وهيئة الزكاة والضريبة والجمارك لا تعتمد مزوّدي البرمجيات.'],
+  ];
+
   const INFO = {
+    pricing: {
+      ar: {
+        t: 'كم سعر برنامج مندوبين المبيعات؟ | Field Sales',
+        d: `أسعار Field Sales معلنة: ${pricing.arSummary} — لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة ائتمان.`,
+        j: priceFaq(PRICING_AR_FAQ),
+        b: `<h1>أسعار Field Sales — معلنة وبلا رسوم خفية</h1>
+<p>السعر <strong>لكل شركة لا لكل مستخدم</strong>: إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك الشهرية. بلا رسوم تأسيس، وبلا التزام سنوي، وتجربة عشرة أيام دون بطاقة ائتمان.</p>
+<table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>السعر شهرياً</th><th>الحدّ</th></tr></thead><tbody>${planRows}</tbody></table>
+<p>فوق ${pricing.high === 599 ? '٢٠' : pricing.high} مندوبًا نحدّد السعر بالمحادثة حسب حجمك — <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
+<h2>ما لا نملكه — بصراحة</h2>
+<p>ندعم الفاتورة الإلكترونية <strong>المرحلة الأولى</strong> (رمز QR بترميز TLV) فقط؛ المرحلة الثانية غير مبنية لدينا حتى الآن. وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها، وليست لدينا شهادات SOC2 أو ISO.</p>
+${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}`,
+      },
+      en: {
+        t: 'Field Sales pricing — published, no hidden fees',
+        d: `Published pricing: ${pricing.enSummary} per month, per company not per user. No setup fees, 10-day free trial without a credit card.`,
+        j: priceFaq([
+          ['How much does field sales software cost?', `${pricing.enSummary} per month, priced per company rather than per user.`],
+          ['Is it priced per rep or per company?', 'Per company. Adding a rep within your plan limit does not increase your monthly bill.'],
+          ['Are there setup fees?', 'No setup or onboarding fees.'],
+          ['Does the trial need a credit card?', 'No. The 10-day trial needs no credit card.'],
+        ]),
+        b: `<h1>Field Sales pricing — published, with no hidden fees</h1>
+<p>Priced <strong>per company, not per user</strong>: ${pricing.enSummary} per month. No setup fees, no annual lock-in, and a 10-day trial without a credit card.</p>
+<table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Monthly</th><th>Limit</th></tr></thead><tbody>${planRows}</tbody></table>
+<p>Above 20 reps we price in conversation — <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
+<h2>What we do not have — plainly</h2>
+<p>We support <strong>phase one</strong> of e-invoicing (TLV QR) only; phase two is not built. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.</p>`,
+      },
+      fr: {
+        t: 'Tarifs Field Sales — publiés, sans frais cachés',
+        d: `Tarifs publiés : ${pricing.enSummary} par mois, par entreprise et non par utilisateur. Sans frais de mise en service, essai 10 jours sans carte.`,
+        b: `<h1>Tarifs Field Sales — publiés, sans frais cachés</h1>
+<p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ${pricing.enSummary} par mois. Sans frais de mise en service ni engagement annuel, avec un essai de 10 jours sans carte bancaire.</p>
+<table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Par mois</th><th>Limite</th></tr></thead><tbody>${planRows}</tbody></table>
+<p>Au-delà de 20 commerciaux, le prix se définit en conversation — <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
+<h2>Ce que nous n’avons pas — clairement</h2>
+<p>Nous prenons en charge la <strong>phase un</strong> de la facturation électronique (QR TLV) uniquement. La ZATCA ne certifie aucun éditeur ; nous ne revendiquons aucune homologation.</p>`,
+      },
+    },
     about: {
       ar: { t: 'عن المنصّة | FieldSales', d: 'تعرّف على منصّة FieldSales لإدارة المبيعات الميدانية والتوزيع في الأسواق العربية.',
         b: '<h1>عن منصّة FieldSales</h1><p>FieldSales منصّة سحابية عربية لإدارة المبيعات الميدانية والتوزيع: فواتير ضريبية منظّمة من الميدان، تحصيل وكشوف حساب، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية — لشركات التوزيع في كل الدول العربية بواجهة عربية أصلية ودعم للإنجليزية والفرنسية. تواصل معنا: info@fieldsa.net</p>' },
@@ -344,11 +419,6 @@ async function main() {
     }
   }
 
-  // التسعير من مصدره الحيّ (CMS) لا من رقم مكتوب هنا — الأسعار تُحرَّر من لوحة المالك،
-  // فأي رقم يدوي في هذا الملف ينزاح صامتاً عن الحقيقة ويصل جوجل ومحرّكات الذكاء وحده.
-  const pricing = await loadPricing();
-  console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
-  const waHref = pricing.waLink;
   const PRICING_HTML = `<p>اشتراك FieldSales <strong>لكل شركة لا لكل مستخدم</strong>: `
     + `<strong>${pricing.arSummary}</strong>`
     + (pricing.hasCustomTier ? `، وباقة ${esc(pricing.customTierName)} لعدد غير محدود من المناديب حسب الطلب` : '')
