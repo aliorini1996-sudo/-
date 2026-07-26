@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
 import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf } from '../src/blog/seo/catalog.mjs';
+import { loadPricing } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
@@ -343,6 +344,17 @@ async function main() {
     }
   }
 
+  // التسعير من مصدره الحيّ (CMS) لا من رقم مكتوب هنا — الأسعار تُحرَّر من لوحة المالك،
+  // فأي رقم يدوي في هذا الملف ينزاح صامتاً عن الحقيقة ويصل جوجل ومحرّكات الذكاء وحده.
+  const pricing = await loadPricing();
+  console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
+  const waHref = pricing.waLink;
+  const PRICING_HTML = `<p>اشتراك FieldSales <strong>لكل شركة لا لكل مستخدم</strong>: `
+    + `<strong>${pricing.arSummary}</strong>`
+    + (pricing.hasCustomTier ? `، وباقة ${esc(pricing.customTierName)} لعدد غير محدود من المناديب حسب الطلب` : '')
+    + `. مع <strong>تجربة مجانية 10 أيام</strong> تبدأ خلال دقائق دون بطاقة ائتمان.</p>`
+    + `<p><a href="/signup">ابدأ تجربتك المجانية</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> لتسعير أكثر من ${pricing.high === 599 ? '٢٠' : pricing.high} مندوبًا.</p>`;
+
   // 5) الصفحة الرئيسية العربية (الجذر dist/index.html) — تحقن محتوى دلالياً في #root الفارغ.
   //    هذه أهم صفحة، وكانت قوقعة SPA فارغة لغير مشغّلي JavaScript (زواحف AI وBing جزئياً).
   //    React يستبدلها عند التحميل (createRoot يمسح ويعيد الرسم) — المحتوى للزواحف فقط.
@@ -361,7 +373,7 @@ async function main() {
 <li>تقارير وتحليلات لحظية على لوحة واحدة</li>
 </ul>
 <h2>الأسعار</h2>
-<p>تبدأ باقات FieldSales من <strong>125 ﷼ شهرياً لكل حساب</strong>، مع <strong>تجربة مجانية 10 أيام</strong> تبدأ خلال دقائق دون بطاقة ائتمان. <a href="/signup">ابدأ تجربتك المجانية الآن</a>.</p>
+${PRICING_HTML}
 <h2>أسئلة شائعة</h2>
 <p><strong>هل النظام يصدر فواتير ضريبية متوافقة؟</strong> نعم، يُصدر فاتورة ضريبية منظّمة برمز QR وطباعة حرارية، متوافقة مع ZATCA في السعودية وقابلة للتكيّف مع متطلبات الدول العربية الأخرى.</p>
 <p><strong>هل يحتاج المندوب إلى جهاز خاص؟</strong> لا، يكفي هاتف ذكي وطابعة حرارية اختيارية للفوترة في الميدان.</p>

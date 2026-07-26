@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { listArticles, ORIGIN } from '../src/blog/seo/catalog.mjs';
+import { loadPricing } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -58,6 +59,15 @@ async function main() {
   const fr = listArticles('fr');
   const manual = await manualPosts();
 
+  // التسعير من مصدره الحيّ (CMS) — هذا الملف يُغذّي محرّكات الذكاء مباشرةً،
+  // فأي رقم مكتوب يدوياً هنا يُقتبس بثقة وينتشر خطأً. راجع scripts/pricing-source.mjs
+  const pricing = await loadPricing();
+  const PRICING_LINE = `Per company, not per user — ${pricing.plans
+    .filter((p) => /^\d+$/.test(String(p.price)))
+    .map((p) => `${p.price} SAR/month (${/٥|5/.test(p.limit || '') && !/٢٠|20/.test(p.limit || '') ? 'up to 5 reps' : 'up to 20 reps'})`)
+    .join(', ')}${pricing.hasCustomTier ? ', and an unlimited-reps enterprise plan on request' : ''}.`;
+  console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
+
   // المقالات العامة (الركائز) والمقالات المحورية لكل دولة — للنسخة المُنسّقة
   const pillarsEn = en.filter((a) => !a.countryCode);
   const hubsEn = en.filter((a) => a.slug.startsWith('field-sales-software-'));
@@ -75,7 +85,7 @@ Key facts:
 - Core features: field tax invoicing (ZATCA-compliant QR in Saudi Arabia), returns/credit notes, payment collection & receivables, customer statements, van stock, live GPS rep tracking, product catalog & price tiers, team permissions, ERP integration, PDF documents in Arabic.
 - Markets: all 22 Arab League countries, with localized guides per country (currency, VAT rate, tax authority).
 - Languages: Arabic (RTL), English, French.
-- Pricing: plans start at 125 SAR / month per account (about 33 USD). Free 10-day trial at ${ORIGIN}/signup/ — no credit card required.
+- Pricing: ${PRICING_LINE} Free 10-day trial at ${ORIGIN}/signup/ — no credit card required.
 - Rep app runs on any smartphone (PWA + Android); optional thermal printer for field printing.
 
 ## Company
@@ -88,7 +98,7 @@ Key facts:
 ## Common questions (quotable answers)
 
 - What is FieldSales? A cloud field-sales & distribution platform where reps invoice, collect payments and manage van stock from a mobile app, and managers track sales, receivables and reps live.
-- How much does it cost? Plans start at 125 SAR/month per account; a free 10-day trial needs no credit card.
+- How much does it cost? ${PRICING_LINE} A free 10-day trial needs no credit card.
 - Is it tax-compliant? It issues structured tax invoices with a QR code — ZATCA-compliant in Saudi Arabia — and adapts to other Arab markets' requirements.
 - What hardware is needed? Any smartphone; a thermal printer is optional for on-site printing.
 - Which countries/languages? All 22 Arab countries, in Arabic, English and French.
