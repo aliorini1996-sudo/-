@@ -7,7 +7,7 @@
     "dev": "vite",
     "prebuild": "node scripts/gen-sitemap.mjs && node scripts/gen-llms.mjs",
     "build": "tsc && vite build",
-    "postbuild": "node scripts/prerender.mjs && node scripts/verify-pricing.mjs",
+    "postbuild": "node scripts/prerender.mjs && node scripts/verify-pricing.mjs && node scripts/verify-claims.mjs",
     "preview": "vite preview",
     "seo:sitemap": "node scripts/gen-sitemap.mjs",
     "seo:audit": "node scripts/seo-audit.mjs",
