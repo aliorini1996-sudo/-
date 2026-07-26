@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { resolveAttribution, contentTypeOf, makeWaCode } from '../services/attribution';
 
 // تحليلات زيارات الموقع التعريفي — تسجيل عام + إحصاءات لمالك المنصّة
 const router = Router();
@@ -38,7 +39,7 @@ function geoLookup(ip: string): Promise<{ country?: string; countryCode?: string
 // تسجيل زيارة — عام (يُستدعى من الواجهة عند تحميل صفحة عامّة)
 router.post('/track', async (req: Request, res: Response) => {
   try {
-    const { path, referrer, lang } = req.body || {};
+    const { path, referrer, lang, utm, anonId, sessionId, first } = req.body || {};
     if (!path || typeof path !== 'string') { res.status(204).end(); return; }
     const ua = String(req.headers['user-agent'] || '');
     const isBot = BOT_RE.test(ua);
@@ -49,6 +50,9 @@ router.post('/track', async (req: Request, res: Response) => {
       try { const h = new URL(referrer).hostname; if (h && !/(^|\.)fieldsa\.net$/.test(h)) referrerHost = h; } catch { /* تجاهل */ }
     }
     const geo = isBot ? {} : await geoLookup(ip);
+    // الإسناد: يُشتقّ على الخادم من وسوم مُطبَّعة + نطاق المُحيل (لا يُوثق بقيم العميل خاماً)
+    const attr = resolveAttribution({ utm, referrerHost, path });
+    const s40 = (v: unknown, n = 40) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);
     await prisma.visit.create({
       data: {
         path: String(path).slice(0, 300),
@@ -59,10 +63,69 @@ router.post('/track', async (req: Request, res: Response) => {
         ipHash,
         isBot,
         ...geo,
+        anonId: s40(anonId),
+        sessionId: s40(sessionId),
+        utmSource: attr.utmSource,
+        utmMedium: attr.utmMedium,
+        utmCampaign: attr.utmCampaign,
+        utmContent: attr.utmContent,
+        utmTerm: attr.utmTerm,
+        channel: attr.channel,
+        aiEngine: attr.aiEngine,
+        contentType: attr.contentType,
+        // أول لمسة تُرسل من كوكي العميل وتُخزَّن كما هي (تُثبَّت مرّة ولا تُدهس)
+        firstSource: s40(first?.source, 64),
+        firstMedium: s40(first?.medium, 64),
+        firstLanding: s40(first?.landing, 180),
       },
     });
     res.status(204).end();
   } catch { res.status(204).end(); }
+});
+
+/**
+ * محوّل واتساب — الحلقة التي تُغلق الإسناد.
+ *
+ * المشكلة: `wa.me` لا يمرّر referrer ولا وسوم UTM، فالمحادثة تصل بلا مصدر.
+ * الحل: كل أزرار واتساب تمرّ من هنا، فنسجّل النقرة بمرجع الصفحة ونولّد رمزاً
+ * قصيراً يُلصق في نصّ الرسالة — فحين تصل المحادثة يحمل أول سطرٍ منها الرمز،
+ * فتُوصل المحادثة بالصفحة التي أطلقتها وبأول لمسة عضوية.
+ *
+ * 🔴 هذا يقيس نقرة المستخدم فقط — لا يُبيح مراسلة أحد. لا رسائل مبتدأة إطلاقاً.
+ */
+router.get('/go/wa', async (req: Request, res: Response) => {
+  const number = String(req.query.n || process.env.WHATSAPP_NUMBER || '966581835269').replace(/[^0-9]/g, '');
+  const ref = String(req.query.ref || 'home').slice(0, 48);
+  const fallback = `https://wa.me/${number}`;
+  try {
+    const anonId = String(req.query.a || '').slice(0, 40) || null;
+    const code = makeWaCode(anonId || ref);
+    const ua = String(req.headers['user-agent'] || '');
+    const isBot = BOT_RE.test(ua);
+
+    // نسجّل النقرة كصفّ زيارة موسوم (waClicked) — لا جدول جديد (قرار المالك)
+    if (!isBot) {
+      const ip = clientIp(req);
+      const ipHash = ip ? crypto.createHash('sha256').update(ip + (process.env.IP_SALT || 'fieldsa-visits')).digest('hex').slice(0, 16) : null;
+      prisma.visit.create({
+        data: {
+          path: `/go/wa/${ref}`.slice(0, 300),
+          lang: String(req.query.l || '').slice(0, 8) || null,
+          userAgent: ua.slice(0, 300),
+          ipHash, isBot: false,
+          anonId,
+          waRef: ref, waCode: code, waClicked: true,
+          channel: 'whatsapp_click',
+          contentType: contentTypeOf(String(req.query.p || '')),
+        },
+      }).catch(() => { /* القياس لا يعطّل التحويل أبداً */ });
+    }
+
+    const text = `مرحباً، أتواصل بخصوص FieldSales.\nالمرجع: [FS-${code}]`;
+    res.redirect(302, `https://wa.me/${number}?text=${encodeURIComponent(text)}`);
+  } catch {
+    res.redirect(302, fallback); // أي خطأ ⇒ يصل المستخدم لواتساب رغم فقد القياس
+  }
 });
 
 interface V {

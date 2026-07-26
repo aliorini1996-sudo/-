@@ -4,6 +4,8 @@ import { useAuthStore } from './store/authStore';
 import { useLang, isAppRoute } from './i18n/lang';
 import { localeFromPath } from './i18n/locale';
 import { analyticsApi } from './api/client';
+import { attributionPayload } from './lib/attribution';
+import WhatsAppFab from './components/WhatsAppFab';
 // صفحات عامّة — تحميل فوري (مدخل سريع + SEO)
 import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
@@ -118,7 +120,13 @@ function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
     if (/^\/(app|app-r|pos|pos-login|kds|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
-    analyticsApi.track({ path: pathname, referrer: document.referrer || '', lang: document.documentElement.lang || 'ar' }).catch(() => { /* تجاهل */ });
+    // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — تُعيد {} عند رفض التتبّع
+    analyticsApi.track({
+      path: pathname,
+      referrer: document.referrer || '',
+      lang: document.documentElement.lang || 'ar',
+      ...attributionPayload(),
+    }).catch(() => { /* تجاهل */ });
   }, [pathname]);
   return null;
 }
@@ -128,6 +136,7 @@ export default function App() {
     <BrowserRouter>
       <LocaleSync />
       <VisitTracker />
+      <WhatsAppFab />
       <Suspense fallback={<PageFallback />}>
       <Routes>
         {/* الجذر دائماً الصفحة التعريفية التسويقية */}

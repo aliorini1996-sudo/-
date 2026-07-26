@@ -858,9 +858,36 @@ model Visit {
   isBot        Boolean  @default(false)
   createdAt    DateTime @default(now())
 
+  // --- طبقة الإسناد التسويقي: كلها اختيارية (تغيير إضافي بحت، بلا فقد بيانات) ---
+  // هوية مجهولة ثابتة (كوكي طرف أول) وجلسة — لربط الزيارات ببعضها دون بيانات شخصية
+  anonId    String? @db.VarChar(40)
+  sessionId String? @db.VarChar(40)
+  // وسوم الحملة (قاموس مغلق يُطبَّع على الخادم؛ أي قيمة خارجه ⇒ other)
+  utmSource   String? @db.VarChar(64)
+  utmMedium   String? @db.VarChar(64)
+  utmCampaign String? @db.VarChar(96)
+  utmContent  String? @db.VarChar(96)
+  utmTerm     String? @db.VarChar(96)
+  // قناة مشتقّة على الخادم: ai_generative | organic | referral | direct | email | social
+  channel  String? @db.VarChar(24)
+  aiEngine String? @db.VarChar(24) // chatgpt | perplexity | copilot | gemini | claude
+  // أول لمسة (تُثبَّت مرّة ولا تُدهس) — تُرسل من الكوكي مع كل زيارة
+  firstSource   String? @db.VarChar(64)
+  firstMedium   String? @db.VarChar(64)
+  firstLanding  String? @db.VarChar(180)
+  // واتساب: مرجع الصفحة التي أطلقت النقرة + رمز يربط المحادثة بالزيارة
+  waRef     String?   @db.VarChar(48)
+  waCode    String?   @db.VarChar(16)
+  waClicked Boolean?  // true = صفّ نقرة واتساب لا مشاهدة صفحة
+  contentType String? @db.VarChar(24) // landing | blog | tool | pricing | sector | compare
+
   @@index([createdAt])
   @@index([countryCode])
   @@index([referrerHost])
+  @@index([anonId])
+  @@index([utmSource, utmMedium])
+  @@index([waRef])
+  @@index([channel])
   @@map("visits")
 }
 
