@@ -9,6 +9,7 @@ import { transformSync } from 'esbuild';
 import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf } from '../src/blog/seo/catalog.mjs';
 import { loadPricing } from './pricing-source.mjs';
 import { SECTORS } from './sectors-data.mjs';
+import { TEMPLATES } from './templates-data.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
@@ -466,6 +467,42 @@ ${faqHtml}
     description: 'سبعة قطاعات توزيع: مواد غذائية، ألبان، مياه ومشروبات، مخابز، مستلزمات طبية، مواد بناء، قطع غيار — لكل قطاع ألمه اليومي المختلف.',
     canonical: canon(`${ORIGIN}/قطاعات`), image: `${ORIGIN}/og-image.png`,
     bodyHtml: `<main><h1>القطاعات التي نخدمها</h1><ul>${SECTORS.map((s2) => `<li><a href="/قطاعات/${s2.slug}">${esc(s2.name)}</a> — ${esc(s2.pain)}</li>`).join('')}</ul></main>`,
+  }));
+  n++;
+
+  // 4.6) بنك النماذج — رفّ فارغ بلا منافس؛ تنزيل بلا بوابة بريد
+  for (const t of TEMPLATES) {
+    const canonical = canon(`${ORIGIN}/نماذج/${t.slug}`);
+    const cols = t.columns.map((c) => `<li>${esc(c)}</li>`).join('');
+    const notes = t.notes.map((x) => `<li>${esc(x)}</li>`).join('');
+    writeRoute(`/نماذج/${t.slug}`, buildPage({
+      lang: 'ar',
+      title: `${t.title} — تحميل مجاني Excel | Field Sales`,
+      description: `${t.purpose} حمّله بصيغة Excel مجاناً وبلا تسجيل.`,
+      canonical, image: `${ORIGIN}/og-image.png`,
+      jsonLd: {
+        '@context': 'https://schema.org',
+        '@type': 'CreativeWork',
+        name: t.title, description: t.purpose,
+        inLanguage: 'ar', isAccessibleForFree: true,
+        encodingFormat: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        url: canonical,
+        publisher: { '@type': 'Organization', name: 'Field Sales', url: ORIGIN },
+      },
+      bodyHtml: `<main><h1>${esc(t.title)}</h1><p>${esc(t.purpose)}</p>
+<p>التحميل بصيغة Excel مجاناً وبلا تسجيل ولا بريد.</p>
+<h2>أعمدة النموذج</h2><ul>${cols}</ul>
+<h2>كيف تستعمله</h2><ul>${notes}</ul>
+<p><a href="/pricing">شاهد أسعار Field Sales</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p></main>`,
+    }));
+    n++;
+  }
+  writeRoute('/نماذج', buildPage({
+    lang: 'ar', title: 'نماذج Excel مجانية لشركات التوزيع | Field Sales',
+    description: 'نماذج جاهزة: سند قبض، كشف حساب عميل، عهدة سيارة المندوب، خطة خط سير، مرتجعات مصنّفة، تسوية تحصيل، أسعار متدرّجة، تقرير زيارة — بلا تسجيل.',
+    canonical: canon(`${ORIGIN}/نماذج`), image: `${ORIGIN}/og-image.png`,
+    jsonLd: { '@context': 'https://schema.org', '@type': 'ItemList', itemListElement: TEMPLATES.map((t, i) => ({ '@type': 'ListItem', position: i + 1, name: t.title, url: canon(`${ORIGIN}/نماذج/${t.slug}`) })) },
+    bodyHtml: `<main><h1>نماذج مجانية لشركات التوزيع</h1><p>نماذج Excel جاهزة تستعملها كما هي أو تعدّلها — بلا تسجيل وبلا بريد.</p><ul>${TEMPLATES.map((t) => `<li><a href="/نماذج/${t.slug}">${esc(t.title)}</a> — ${esc(t.purpose)}</li>`).join('')}</ul></main>`,
   }));
   n++;
 
