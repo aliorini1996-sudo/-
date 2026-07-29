@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_fieldsales_receipt_user,fieldsales.receipt.user,model_fieldsales_receipt,account.group_account_invoice,1,1,0,0
+access_fieldsales_receipt_manager,fieldsales.receipt.manager,model_fieldsales_receipt,account.group_account_manager,1,1,1,1
+access_fieldsales_sync_log_user,fieldsales.sync.log.user,model_fieldsales_sync_log,account.group_account_invoice,1,0,0,0
+access_fieldsales_sync_log_manager,fieldsales.sync.log.manager,model_fieldsales_sync_log,base.group_system,1,1,1,1

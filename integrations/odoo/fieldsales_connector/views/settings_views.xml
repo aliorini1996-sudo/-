@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <record id="res_config_settings_view_form_fieldsales" model="ir.ui.view">
+    <field name="name">res.config.settings.view.form.inherit.fieldsales</field>
+    <field name="model">res.config.settings</field>
+    <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
+    <field name="arch" type="xml">
+      <xpath expr="//block[@id='integration']" position="inside">
+        <setting string="Field Sales Connector"
+                 help="Receive customers, products, invoices and receipts pushed by Field Sales.">
+          <div class="content-group">
+            <div class="row mt16">
+              <label for="fs_api_key" string="API key" class="col-lg-3 o_light_label"/>
+              <field name="fs_api_key" password="True" placeholder="Generate a key, then paste it into Field Sales"/>
+            </div>
+            <div class="mt8">
+              <button name="action_fs_generate_key" type="object" string="Generate a new key"
+                      class="btn-link" icon="fa-refresh"/>
+              <span class="text-muted ms-2">
+                Regenerating invalidates the old key — update Field Sales afterwards.
+              </span>
+            </div>
+            <div class="mt8 text-muted">
+              Endpoint to paste into Field Sales:
+              <code>https://YOUR-ODOO-DOMAIN/fieldsales/sync</code><br/>
+              In Field Sales set the auth type to <b>API_KEY</b>; the key is sent as
+              the <code>X-API-Key</code> header.
+            </div>
+          </div>
+        </setting>
+      </xpath>
+    </field>
+  </record>
+
+</odoo>

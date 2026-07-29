@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <record id="view_fieldsales_receipt_tree" model="ir.ui.view">
+    <field name="name">fieldsales.receipt.tree</field>
+    <field name="model">fieldsales.receipt</field>
+    <field name="arch" type="xml">
+      <tree string="Field Sales receipts" create="false">
+        <field name="receipt_date"/>
+        <field name="name"/>
+        <field name="partner_id"/>
+        <field name="payment_method"/>
+        <field name="amount" sum="Total"/>
+        <field name="state"/>
+        <field name="note" optional="hide"/>
+      </tree>
+    </field>
+  </record>
+
+  <record id="view_fieldsales_receipt_form" model="ir.ui.view">
+    <field name="name">fieldsales.receipt.form</field>
+    <field name="model">fieldsales.receipt</field>
+    <field name="arch" type="xml">
+      <form string="Field Sales receipt" create="false">
+        <sheet>
+          <div class="oe_title">
+            <h1><field name="name" readonly="1"/></h1>
+          </div>
+          <group>
+            <group>
+              <field name="partner_id" readonly="1"/>
+              <field name="amount" readonly="1"/>
+              <field name="receipt_date" readonly="1"/>
+            </group>
+            <group>
+              <field name="payment_method" readonly="1"/>
+              <field name="state" readonly="1"/>
+              <field name="fs_id" readonly="1"/>
+            </group>
+          </group>
+          <field name="note" readonly="1"/>
+          <div class="alert alert-info" role="alert">
+            This receipt was recorded by Field Sales. It is <b>not</b> an accounting
+            payment — create the payment in Odoo yourself, on the journal and account
+            your company uses.
+          </div>
+        </sheet>
+      </form>
+    </field>
+  </record>
+
+  <record id="action_fieldsales_receipt" model="ir.actions.act_window">
+    <field name="name">Field Sales receipts</field>
+    <field name="res_model">fieldsales.receipt</field>
+    <field name="view_mode">tree,form</field>
+  </record>
+
+  <menuitem id="menu_fieldsales_receipt"
+            name="Field Sales receipts"
+            parent="account.menu_finance_receivables"
+            action="action_fieldsales_receipt"
+            sequence="90"/>
+
+</odoo>
