@@ -475,6 +475,253 @@ const S = {
 };
 
 // ----------------------------------------------------------------------------
+// كتل الإجابة المباشرة (GEO) — أوّل ما يقرؤه محرّك التوليد في كل مقال.
+//
+// لماذا في الأعلى وقائمة بذاتها: محرّكات الإجابة (ChatGPT/Perplexity/AI
+// Overviews) تقتبس فقرة تُجيب السؤال كاملاً **دون سياق ما قبلها**. فقرة تبدأ
+// بـ«في هذا الدليل سنشرح…» غير قابلة للاقتباس مهما كان ما بعدها جيّداً.
+//
+// قواعد الكتابة الملزِمة لكل نصّ هنا:
+//   ١) الجملة الأولى تعريفية أو إجابة صريحة — لا تمهيد ولا إحالة للمقال.
+//   ٢) تفاصيل قابلة للتحقّق (خطوات الدورة، آليّة العمل) لا أوصاف تسويقية.
+//   ٣) ٤٠–٩٠ كلمة: أقصر من ذلك لا يكفي للاقتباس، وأطول يُقصّ في منتصفه.
+//   ٤) لا رقم مُخترَع ولا ادّعاء امتثال — حارس verify-claims يفحص المخرجات.
+// ----------------------------------------------------------------------------
+const ANSWERS = {
+  /* ---------- موضوعات خاصة بكل دولة ---------- */
+  'field-sales-software': (c, L) => P(L,
+    `برنامج إدارة المبيعات الميدانية نظام يدير دورة بيع المندوب كاملةً من جواله: زيارة العميل، إصدار الفاتورة وطباعتها فوراً، تحصيل النقد أو الآجل، وخصم المبيعة من مخزون سيارته لحظياً. الفارق عن برامج المحاسبة العامّة أن المدخلات تُسجَّل في الميدان لا في المكتب، فتصل الإدارة بيانات المبيعة والتحصيل والموقع في وقتها. ${topicVat(c, L)}`,
+    `Field sales management software runs the rep's entire selling cycle from a phone: visiting the customer, issuing and printing an invoice on the spot, collecting cash or recording credit, and deducting the sale from van stock in real time. Unlike general accounting software, data is captured in the field rather than re-keyed at the office, so management sees sales, collection and location as they happen. ${topicVat(c, L)}`,
+    `Un logiciel de gestion des ventes terrain exécute tout le cycle du commercial depuis son téléphone : visite du client, émission et impression immédiate de la facture, encaissement comptant ou à crédit, et déduction en temps réel du stock du véhicule. Contrairement à un logiciel comptable généraliste, les données sont saisies sur le terrain, pas ressaisies au bureau. ${topicVat(c, L)}`),
+
+  'distribution-management-system': (c, L) => P(L,
+    `نظام إدارة الموزّعين (DMS) يربط المستودع بسيارات المناديب بنقاط البيع في سلسلة واحدة: يُحمَّل المخزون على السيارة، يبيع المندوب منه ويصدر الفاتورة، ويعود آخر اليوم فيُطابَق المتبقّي مع المتوقّع فيظهر أي عجز بالصنف. يختلف عن نظام ERP في أنه مبنيّ حول خطّ السير والزيارة لا حول أمر الشراء، وعن تطبيق CRM في أنه يحرّك مخزوناً ونقداً فعليّين.`,
+    `A distributor management system (DMS) connects warehouse, van and outlet in one chain: stock is loaded onto the van, the rep sells from it and issues the invoice, and at day's end the remaining stock is reconciled against what was expected so any shortage surfaces per item. It differs from ERP in being built around the route and the visit rather than the purchase order, and from CRM in that it moves real stock and real cash.`,
+    `Un système de gestion des distributeurs (DMS) relie l'entrepôt, le camion et le point de vente en une seule chaîne : le stock est chargé, le commercial vend et facture, puis en fin de journée le reliquat est rapproché de l'attendu et tout écart apparaît par article. Il se distingue de l'ERP en s'articulant autour de la tournée et de la visite plutôt que du bon de commande.`),
+
+  'van-sales-app': (c, L) => P(L,
+    `تطبيق البيع من السيارة (Van Sales) يجعل سيارة المندوب مستودعاً متنقّلاً ونقطة بيع في آن: المندوب يعرض ما بحوزته فعلاً، يبيع، يطبع الفاتورة من طابعة حرارية بجانبه، ويُخصم الصنف من رصيد سيارته مباشرة. الفرق الجوهري عن نموذج البيع المسبق (Pre-Sales) أن التسليم والفوترة والتحصيل تتمّ في الزيارة نفسها، فلا توجد فجوة بين الطلب والتوريد يضيع فيها المخزون أو يتغيّر فيها الطلب.`,
+    `A van sales app turns the rep's vehicle into both a mobile warehouse and a point of sale: the rep sees exactly what is on board, sells it, prints the invoice from a thermal printer on the spot, and the item is deducted from the van's balance immediately. The key difference from pre-sales is that delivery, invoicing and collection all happen inside the same visit, leaving no gap between order and fulfilment where stock goes missing or the order changes.`,
+    `Une application de vente en camion transforme le véhicule du commercial en entrepôt mobile et en point de vente : il voit exactement ce qu'il transporte, vend, imprime la facture sur une imprimante thermique, et l'article est déduit immédiatement du solde du véhicule. La différence essentielle avec la prévente : livraison, facturation et encaissement se font dans la même visite.`),
+
+  'einvoicing-compliance': (c, L) => P(L,
+    `الفوترة الإلكترونية تعني إصدار الفاتورة بصيغة رقمية منظَّمة تقرأها الأنظمة لا الإنسان وحده، بدل ورقة مكتوبة يدوياً. عملياً على المندوب: تحمل الفاتورة بيانات البائع والمشتري والتاريخ والمبلغ والضريبة في رمز QR مقروء آلياً، وتُخزَّن نسخة منها لا تُعدَّل بأثر رجعي. السياق الضريبي ${c.inAr}: ${c.einv.ar}. وراجع دائماً متطلبات ${c.tax.ar} السارية قبل اعتماد أي إعداد.`,
+    `E-invoicing means issuing the invoice in a structured digital format that systems can read, rather than a hand-written slip. In practice for the rep: the invoice carries seller, buyer, date, amount and tax in a machine-readable QR code, and a copy is stored that cannot be edited retroactively. Tax context ${c.inEn}: ${c.einv.en}. Always check the current requirements of ${c.tax.en} before settling on a configuration.`,
+    `La facturation électronique consiste à émettre la facture dans un format numérique structuré, lisible par les systèmes, plutôt qu'un ticket manuscrit. Concrètement pour le commercial : la facture porte vendeur, acheteur, date, montant et taxe dans un code QR lisible par machine, et une copie non modifiable est conservée. Contexte fiscal ${c.inFr} : ${c.einv.fr}. Vérifiez toujours les exigences en vigueur de ${c.tax.fr}.`),
+
+  'sales-rep-management': (c, L) => P(L,
+    `إدارة مناديب المبيعات تقوم على ثلاثة أشياء يمكن قياسها لا الانطباع: ماذا باع كل مندوب، وكم حصّل من ذممه، وأين كان خلال يوم العمل. النظام يمنح كل مندوب صلاحيات محدّدة — أي عملاء يراهم، وهل يبيع بأقلّ من سعر القائمة، وهل يبيع لعميل تجاوز حدّ ائتمانه — فيتحوّل الضبط من متابعة شخصية إلى قاعدة تُطبَّق تلقائياً على كل فاتورة.`,
+    `Managing sales reps rests on three measurable things rather than impressions: what each rep sold, how much they collected against receivables, and where they were during the working day. The system gives each rep explicit permissions — which customers they see, whether they may sell below list price, whether they may sell to a customer over their credit limit — turning control from personal supervision into a rule applied automatically to every invoice.`,
+    `La gestion des commerciaux repose sur trois éléments mesurables plutôt que sur des impressions : ce que chacun a vendu, ce qu'il a encaissé sur les créances, et où il se trouvait pendant la journée. Le système attribue des droits explicites — quels clients il voit, s'il peut vendre sous le prix catalogue, s'il peut vendre à un client au-delà de sa limite de crédit.`),
+
+  'collection-receivables': (c, L) => P(L,
+    `التحصيل في التوزيع يفشل غالباً لسبب واحد: لا أحد يعرف الرصيد الحقيقي للعميل لحظة الزيارة. الحلّ أن يرى المندوب على جواله — قبل أن يبيع — رصيد العميل وأعمار ديونه وحدّ ائتمانه، وأن يُصدر سند القبض في مكانه فيُخصم من الرصيد فوراً. عمليّاً تُقسَّم الذمم إلى شرائح (١–٣٠، ٣١–٦٠، ٦١–٩٠، أكثر من ٩٠ يوماً) لأن دَيناً عمره أربعة أشهر يحتاج تدخّلاً مختلفاً عن دَين هذا الأسبوع.`,
+    `Collection in distribution usually fails for one reason: nobody knows the customer's true balance at the moment of the visit. The fix is for the rep to see — before selling — the balance, the ageing of the debt and the credit limit on their phone, and to issue the receipt on the spot so the balance drops immediately. In practice receivables are split into buckets (1–30, 31–60, 61–90, 90+ days) because a four-month-old debt needs a different intervention from this week's.`,
+    `L'encaissement en distribution échoue souvent pour une seule raison : personne ne connaît le solde réel du client au moment de la visite. La solution : que le commercial voie sur son téléphone — avant de vendre — le solde, l'ancienneté de la créance et la limite de crédit, et qu'il émette le reçu sur place. Les créances se répartissent en tranches (1–30, 31–60, 61–90, plus de 90 jours).`),
+
+  'gps-rep-tracking': (c, L) => P(L,
+    `تتبّع المناديب عبر GPS ليس مراقبة شخصية بل ربط كل فاتورة بمكانها ووقتها. الفائدة التشغيلية الحقيقية ثلاثة أسئلة يجيب عنها: هل زار المندوب المنافذ المخطّطة أم بعضها فقط، وكم استغرقت الزيارة فعلاً، وهل صدرت الفاتورة من موقع العميل أم من مكان آخر. تُسجَّل النقاط على خطّ سير يُطابَق مع الطرق الفعلية، فتظهر المسافة والزمن بدل التقدير.`,
+    `GPS rep tracking is not personal surveillance; it ties each invoice to a place and a time. Its real operational value is three questions it answers: did the rep visit the planned outlets or only some, how long did the visit actually take, and was the invoice issued at the customer's location or somewhere else. Points are recorded as a route matched to real roads, so distance and time are measured rather than estimated.`,
+    `Le suivi GPS des commerciaux n'est pas une surveillance personnelle : il rattache chaque facture à un lieu et une heure. Sa valeur opérationnelle tient à trois questions : le commercial a-t-il visité les points de vente prévus, combien de temps a duré la visite, et la facture a-t-elle été émise chez le client. Les points forment une tournée alignée sur les routes réelles.`),
+
+  'van-stock-inventory': (c, L) => P(L,
+    `مخزون سيارة المندوب يُضبَط بمعادلة اتزان واحدة: المتوقّع آخر اليوم = رصيد أول اليوم + المُحمَّل − المُباع + المرتجع − التالف. يُقارَن الناتج بالجرد الفعلي، والفرق هو العجز أو الزيادة بالصنف والقيمة. أهمية الحساب اليومي أن الفروقات الصغيرة تتراكم صامتةً حين تُجرَد السيارة شهرياً، فيصبح تحديد أين ومتى حدث الفاقد مستحيلاً.`,
+    `Van stock is controlled by a single balance equation: expected at day's end = opening balance + loaded − sold + returned − damaged. The result is compared with the physical count, and the gap is the shortage or surplus, per item and in value. Daily reconciliation matters because small variances accumulate silently when the van is counted only monthly, making it impossible to locate where and when the loss occurred.`,
+    `Le stock du véhicule se contrôle par une équation d'équilibre : attendu en fin de journée = solde d'ouverture + chargé − vendu + retourné − endommagé. Le résultat est comparé à l'inventaire physique, et l'écart constitue le manquant ou l'excédent, par article et en valeur. Un rapprochement quotidien évite l'accumulation silencieuse des écarts.`),
+
+  'sales-reports-analytics': (c, L) => P(L,
+    `تقارير المبيعات الميدانية المفيدة تجيب عن قرار، لا تعرض أرقاماً. أربعة تقارير تكفي معظم شركات التوزيع: مبيعات كل مندوب مقابل هدفه، التحصيل مقابل المستحقّ، الأصناف الراكدة في السيارات، والعملاء الذين لم تصلهم زيارة منذ مدّة. الشرط أن تُبنى على بيانات مُلتقَطة لحظة الحدث في الميدان — تقرير مبنيّ على إدخال مكتبي بعد يومين يقيس ذاكرة المُدخِل لا الواقع.`,
+    `Useful field sales reports answer a decision rather than display numbers. Four reports cover most distributors: sales per rep against target, collection against what is due, slow-moving items sitting in vans, and customers not visited for a while. The condition is that they are built on data captured at the moment of the event in the field — a report built on office data entry two days later measures the typist's memory, not reality.`,
+    `Des rapports de vente terrain utiles répondent à une décision plutôt qu'ils n'affichent des chiffres. Quatre suffisent à la plupart des distributeurs : ventes par commercial contre objectif, encaissement contre échu, articles dormants dans les véhicules, et clients non visités depuis un certain temps. Encore faut-il qu'ils reposent sur des données saisies sur le terrain, au moment de l'événement.`),
+
+  'wholesale-food-distributors': (c, L) => P(L,
+    `توزيع المواد الغذائية يفرض قيداً لا تعرفه القطاعات الأخرى: للصنف تاريخ صلاحية، فترتيب الصرف يجب أن يتبع الأقدم-أولاً وإلا تحوّل المخزون إلى خسارة مؤكّدة. عمليّاً يعني ذلك تتبّع الصنف بتشغيلته لا بكمّيته فقط، ومعرفة ما في كل سيارة الآن، وقبول المرتجعات بسبب واضح يُميّز التالف عن غير المطلوب — لأن أحدهما مشكلة تخزين والآخر مشكلة طلب.`,
+    `Food distribution imposes a constraint other sectors do not have: items expire, so issuing must follow oldest-first or stock becomes guaranteed loss. In practice this means tracking items by batch and not only by quantity, knowing what is on each van right now, and accepting returns with an explicit reason that separates damaged from unwanted — because one is a storage problem and the other is a demand problem.`,
+    `La distribution alimentaire impose une contrainte propre : les produits périment, la sortie doit donc suivre le premier-périmé-premier-sorti sous peine de perte certaine. Concrètement : suivre les articles par lot et pas seulement en quantité, savoir ce que transporte chaque véhicule, et accepter les retours avec un motif explicite distinguant l'endommagé du non désiré.`),
+
+  'fmcg-distribution': (c, L) => P(L,
+    `توزيع السلع سريعة الدوران (FMCG) يُدار بالتكرار لا بحجم الصفقة: منافذ كثيرة، فواتير صغيرة، وزيارات متقاربة. ما يحسم الربحية ليس هامش الصنف بل تكلفة الزيارة الواحدة — عدد المنافذ التي يغطّيها المندوب يومياً، ونسبة الزيارات التي تنتهي بطلب فعلي. لذلك تُقاس هذه العمليات بمؤشّرَي التغطية والزيارة المنتجة قبل أي مؤشّر مالي آخر.`,
+    `FMCG distribution is run on frequency rather than deal size: many outlets, small invoices, close visit intervals. Profitability is decided not by item margin but by the cost of a single visit — how many outlets a rep covers per day, and the share of visits that end in an actual order. That is why these operations are measured on coverage and productive-visit rate before any other financial indicator.`,
+    `La distribution FMCG se pilote par la fréquence plutôt que par la taille des affaires : beaucoup de points de vente, de petites factures, des visites rapprochées. La rentabilité se joue sur le coût d'une visite — combien de points de vente un commercial couvre par jour, et la part des visites débouchant sur une commande réelle.`),
+
+  'mobile-field-invoicing': (c, L) => P(L,
+    `الفوترة من جوال المندوب تعني إصدار الفاتورة وطباعتها أمام العميل في الزيارة نفسها، بطابعة حرارية بلوتوث بعرض ٥٨ أو ٨٠ ملّيمتراً. الأثر التشغيلي ليس الطباعة بل التزامن: الفاتورة تُسجَّل باسم العميل، ويُخصم الصنف من السيارة، ويتحدّث الرصيد — في اللحظة ذاتها. والشرط العملي أن يعمل ذلك بلا إنترنت، لأن كثيراً من المنافذ داخل مبانٍ لا تصلها شبكة مستقرّة.`,
+    `Mobile field invoicing means issuing and printing the invoice in front of the customer during the visit, on a 58mm or 80mm Bluetooth thermal printer. The operational effect is not the printing but the simultaneity: the invoice is booked to the customer, the item is deducted from the van, and the balance updates — at the same moment. The practical requirement is that it works offline, because many outlets sit inside buildings with no stable signal.`,
+    `La facturation mobile consiste à émettre et imprimer la facture devant le client pendant la visite, sur une imprimante thermique Bluetooth 58 ou 80 mm. L'effet opérationnel n'est pas l'impression mais la simultanéité : la facture est imputée au client, l'article déduit du véhicule et le solde mis à jour au même instant. Encore faut-il que cela fonctionne hors ligne.`),
+
+  'distribution-customer-management': (c, L) => P(L,
+    `إدارة عملاء التوزيع تختلف عن CRM المبيعات في أن العميل هنا رصيد مستمرّ لا صفقة تُغلَق. كل عميل يحمل: قائمة أسعار خاصّة به (جملة أو تجزئة أو شريحة كمّية)، وحدّ ائتمان يمنع البيع فوقه، ومدّة سداد متّفقاً عليها يُقاس التأخير بها. حدّ الائتمان المعقول يُشتقّ من الواقع لا من التقدير: متوسط مشتريات العميل الشهرية مضروباً في مدّة السداد مقسومة على ثلاثين.`,
+    `Managing distribution customers differs from sales CRM in that the customer here is a running balance, not a deal to close. Each customer carries a price list of their own (wholesale, retail or quantity tier), a credit limit that blocks selling above it, and an agreed payment term against which lateness is measured. A sensible credit limit is derived from reality rather than guessed: the customer's average monthly purchases multiplied by the payment term divided by thirty.`,
+    `La gestion des clients en distribution diffère d'un CRM de vente : le client est ici un solde courant, pas une affaire à conclure. Chaque client porte sa propre liste de prix (gros, détail ou palier de quantité), une limite de crédit qui bloque la vente au-delà, et un délai de paiement convenu. Une limite raisonnable se déduit du réel : achats mensuels moyens × délai ÷ trente.`),
+
+  'best-field-sales-software': (c, L) => P(L,
+    `لا يوجد «أفضل نظام» مطلق — يوجد أنسب نظام لحجمك وقطاعك. اختبر أي مرشّح على خمسة محاور قابلة للفحص قبل الالتزام: هل يُغطّي الدورة كاملةً (طلب ← فاتورة ← تحصيل ← مخزون سيارة)، هل يعمل بلا إنترنت، هل الواجهة والمستندات بالعربية فعلاً لا مترجمة آلياً، هل يتوافق مع متطلبات ${c.tax.ar}، وهل السعر معلن. الاختبار الحاسم واحد: نفّذ دورة بيع حقيقية كاملة على النظام قبل الشراء.`,
+    `There is no absolute "best system" — there is the system that fits your size and sector. Test any candidate on five checkable axes before committing: does it cover the full cycle (order → invoice → collection → van stock), does it work offline, is the interface and are the documents genuinely in Arabic rather than machine-translated, does it meet the requirements of ${c.tax.en}, and is the price published. The decisive test is one thing: run a complete real sales cycle on it before buying.`,
+    `Il n'existe pas de « meilleur système » absolu — il existe celui qui convient à votre taille et à votre secteur. Évaluez tout candidat sur cinq axes vérifiables : couvre-t-il le cycle complet (commande → facture → encaissement → stock), fonctionne-t-il hors ligne, l'interface est-elle réellement en arabe, répond-il aux exigences de ${c.tax.fr}, et le prix est-il publié. Le test décisif : réaliser un cycle de vente réel complet avant d'acheter.`),
+
+  /* ---------- موضوعات عامة ---------- */
+  'what-is-field-sales-management': (c, L) => P(L,
+    `نظام إدارة المبيعات الميدانية برنامج يُدير عمل الفريق خارج المكتب: المندوب في الشارع، والعميل في محلّه، والبضاعة في السيارة. يفعل ثلاثة أشياء لا يفعلها برنامج المحاسبة: يلتقط البيانات لحظة حدوثها في الميدان، ويعمل بلا إنترنت ثم يزامن، ويربط كل فاتورة بمن أصدرها وأين ومتى. من لا يملكه يجمع دفاتر المناديب آخر اليوم ويُدخلها يدوياً — فيعرف ما حدث بعد يوم أو يومين لا الآن.`,
+    `Field sales management software runs the work that happens outside the office: the rep on the street, the customer in their shop, the goods in the van. It does three things accounting software does not: it captures data at the moment it happens in the field, it works offline then syncs, and it ties every invoice to who issued it, where and when. Without it, companies collect rep notebooks at day's end and re-key them — learning what happened a day or two later rather than now.`,
+    `Un logiciel de gestion des ventes terrain pilote le travail qui se déroule hors du bureau : le commercial dans la rue, le client dans sa boutique, la marchandise dans le camion. Il fait trois choses qu'un logiciel comptable ne fait pas : capter la donnée au moment de l'événement, fonctionner hors ligne puis synchroniser, et rattacher chaque facture à son émetteur, son lieu et son heure.`),
+
+  'retail-execution': (c, L) => P(L,
+    `التنفيذ في نقاط البيع (Retail Execution) هو التأكّد من أن ما اتُّفق عليه مع المنفذ حدث فعلاً على الرفّ: الصنف موجود، السعر صحيح، والعرض الترويجي مطبَّق. يُقاس بالدليل لا بالتقرير الشفهي — صورة ملتقَطة في الزيارة، موقعها وتوقيتها مسجَّلان. الفجوة التي يعالجها هذا المفهوم معروفة في التوزيع: اتفاق تجاري سليم على الورق لا ينفَّذ في المنفذ، ولا أحد يكتشف ذلك إلا بعد انتهاء الحملة.`,
+    `Retail execution is verifying that what was agreed with the outlet actually happened on the shelf: the item is present, the price is right, the promotion is applied. It is measured by evidence rather than a verbal report — a photo taken during the visit, with its location and timestamp recorded. The gap it addresses is familiar in distribution: a sound commercial agreement on paper that is never executed in the outlet, discovered only after the campaign ends.`,
+    `L'exécution retail consiste à vérifier que ce qui a été convenu avec le point de vente s'est réellement produit en rayon : article présent, prix correct, promotion appliquée. Elle se mesure par la preuve plutôt que par un rapport verbal — une photo prise pendant la visite, horodatée et localisée. Elle comble un écart classique : un accord commercial valable sur le papier mais jamais exécuté en magasin.`),
+
+  'how-to-choose-field-sales-system': (c, L) => P(L,
+    `اختيار نظام مبيعات ميدانية يُحسَم بخمسة أسئلة لا بقائمة ميزات: هل يُغطّي دورتك كاملةً أم يترك حلقة تُدار يدوياً، هل يعمل بلا إنترنت، هل الواجهة والفواتير بالعربية أصلاً، هل يتوافق مع متطلبات الفوترة في بلدك، وهل السعر معلن أم «تواصل معنا». وقبل التوقيع، شغّل دورة بيع حقيقية واحدة من الطلب إلى التحصيل — معظم ما يفشل بعد الشراء يظهر في هذه الدورة الواحدة.`,
+    `Choosing a field sales system is settled by five questions rather than a feature list: does it cover your whole cycle or leave a link handled manually, does it work offline, are the interface and invoices natively in your language, does it meet your country's invoicing requirements, and is the price published or "contact us". Before signing, run one real sales cycle from order to collection — most of what fails after purchase shows up in that single cycle.`,
+    `Le choix d'un système de vente terrain se règle par cinq questions plutôt que par une liste de fonctionnalités : couvre-t-il tout votre cycle, fonctionne-t-il hors ligne, l'interface et les factures sont-elles nativement dans votre langue, répond-il aux exigences de facturation de votre pays, et le prix est-il publié. Avant de signer, exécutez un cycle de vente réel de la commande à l'encaissement.`),
+
+  'van-sales-best-practices': (c, L) => P(L,
+    `أفضل ممارسات البيع من السيارة تدور حول ضبط ثلاثة أشياء يومياً: تحميل السيارة بناءً على مبيعات الخطّ فعلياً لا على تقدير المندوب، إصدار الفاتورة في الزيارة لا تجميعها آخر اليوم، وجرد السيارة عند العودة بمطابقة المتبقّي مع المتوقّع. الخطأ الأكثر كلفةً هو تأجيل الجرد إلى نهاية الشهر: عندها يظهر العجز مجمّعاً بلا وسيلة لمعرفة أين ومتى حدث.`,
+    `Van sales best practice comes down to controlling three things daily: loading the van from the route's actual sales rather than the rep's estimate, issuing the invoice during the visit rather than batching at day's end, and counting the van on return by reconciling remaining against expected. The costliest mistake is deferring the count to month-end: the shortage then appears as one aggregate figure with no way to know where or when it occurred.`,
+    `Les bonnes pratiques de la vente en camion tiennent à trois contrôles quotidiens : charger le véhicule d'après les ventes réelles de la tournée et non l'estimation du commercial, facturer pendant la visite plutôt qu'en fin de journée, et inventorier au retour en rapprochant le reliquat de l'attendu. L'erreur la plus coûteuse est de reporter l'inventaire à la fin du mois.`),
+
+  'reduce-overdue-receivables': (c, L) => P(L,
+    `الذمم المتعثّرة تُعالَج بالمنع لا بالملاحقة. ثلاثة إجراءات تُحدث الفرق: حدّ ائتمان مُفعَّل يمنع البيع فوقه بدل تنبيه يُتجاهَل، عرض رصيد العميل وأعمار ديونه على شاشة المندوب قبل أن يبيع، وسند قبض يُصدَر في الزيارة فيُخصم فوراً. أما التصنيف بشرائح ١–٣٠ و٣١–٦٠ و٦١–٩٠ وأكثر، فوظيفته ترتيب الأولوية: الدين الأقدم أقلّ احتمالاً للتحصيل وأولى بالتدخّل.`,
+    `Overdue receivables are solved by prevention, not pursuit. Three measures make the difference: an enforced credit limit that blocks the sale rather than an alert that gets ignored, showing the customer's balance and debt ageing on the rep's screen before they sell, and issuing the receipt during the visit so the balance drops immediately. Bucketing into 1–30, 31–60, 61–90 and 90+ days exists to rank priority: older debt is less likely to be recovered and deserves intervention first.`,
+    `Les impayés se traitent par la prévention, pas par la poursuite. Trois mesures font la différence : une limite de crédit qui bloque réellement la vente plutôt qu'une alerte ignorée, l'affichage du solde et de l'ancienneté de la dette sur l'écran du commercial avant qu'il ne vende, et l'émission du reçu pendant la visite. Les tranches 1–30, 31–60, 61–90 et plus servent à hiérarchiser.`),
+
+  'increase-rep-productivity': (c, L) => P(L,
+    `إنتاجية المندوب الميداني تُقاس بالزيارة المنتجة لا بعدد الزيارات: كم زيارة انتهت بطلب فعلي. رفعها يبدأ بإزالة ما يستهلك وقته دون بيع — كتابة الفواتير يدوياً، الاتصال بالمكتب للسؤال عن رصيد عميل أو توفّر صنف، وإعادة الإدخال آخر اليوم. حين تتمّ هذه الثلاثة على جواله في ثوانٍ، يتحوّل الوقت المستردّ إلى منافذ إضافية في اليوم نفسه.`,
+    `Field rep productivity is measured by productive visits rather than visit count: how many visits ended in an actual order. Raising it starts by removing what consumes time without selling — writing invoices by hand, calling the office to ask about a customer's balance or an item's availability, and re-keying everything at day's end. When those three happen on the phone in seconds, the recovered time converts into additional outlets on the same day.`,
+    `La productivité d'un commercial terrain se mesure aux visites productives plutôt qu'au nombre de visites : combien se sont conclues par une commande réelle. L'améliorer commence par supprimer ce qui consomme du temps sans vendre — rédiger les factures à la main, appeler le bureau pour un solde ou une disponibilité, et tout ressaisir en fin de journée.`),
+
+  'field-sales-kpis': (c, L) => P(L,
+    `ستّة مؤشّرات تكفي لقيادة فريق ميداني: نسبة التغطية (المنافذ المزارة ÷ المخطّطة)، الزيارة المنتجة (الزيارات المنتهية بطلب ÷ الزيارات)، متوسط قيمة الفاتورة، نسبة التحصيل إلى المستحقّ، عمر الدين المتوسط، ونسبة العجز في مخزون السيارة. ما يجعل هذه المؤشرات صالحة ليس تعريفها بل مصدرها: إن كانت مبنيّة على إدخال مكتبي مؤجَّل فهي تقيس الإدخال، وإن كانت مُلتقَطة في الميدان لحظة الحدث فهي تقيس العمل.`,
+    `Six indicators are enough to run a field team: coverage rate (outlets visited ÷ planned), productive visit rate (visits ending in an order ÷ visits), average invoice value, collection against amount due, average debt age, and van stock shortage rate. What makes these valid is not their definition but their source: built on deferred office entry they measure the data entry; captured in the field at the moment of the event they measure the work.`,
+    `Six indicateurs suffisent à piloter une équipe terrain : taux de couverture (points visités ÷ prévus), visites productives (visites avec commande ÷ visites), valeur moyenne de la facture, encaissement rapporté à l'échu, âge moyen de la créance, et taux d'écart sur le stock du véhicule. Leur validité tient à leur source : saisis sur le terrain, ils mesurent le travail.`),
+
+  'offline-field-sales-app': (c, L) => P(L,
+    `العمل بلا إنترنت ليس ميزة كمالية في المبيعات الميدانية بل شرط تشغيلي: كثير من المنافذ داخل أسواق ومبانٍ لا تصلها شبكة مستقرّة، والمندوب لا يستطيع تأجيل البيع حتى تعود التغطية. التطبيق الصحيح يُصدر الفاتورة ويطبعها ويُنقص المخزون محلياً على الجهاز، ثم يرفعها عند عودة الاتصال بمعرّف فريد لكل عملية يمنع تكرارها إن أُعيد الإرسال — وهذا المعرّف، لا المزامنة نفسها، هو ما يمنع الفواتير المكرّرة.`,
+    `Offline operation is not a nice-to-have in field sales but an operational requirement: many outlets sit inside markets and buildings with no stable signal, and the rep cannot postpone the sale until coverage returns. A correct app issues and prints the invoice and decrements stock locally on the device, then uploads it when connectivity returns with a unique identifier per operation that prevents duplication on retry — and that identifier, not the sync itself, is what stops duplicate invoices.`,
+    `Le mode hors ligne n'est pas un confort en vente terrain mais une exigence opérationnelle : beaucoup de points de vente se trouvent dans des marchés et des bâtiments sans signal stable. Une application correcte émet et imprime la facture et décrémente le stock localement, puis l'envoie au retour du réseau avec un identifiant unique par opération qui empêche les doublons.`),
+
+  'thermal-printing-invoices': (c, L) => P(L,
+    `الطباعة الحرارية في الميدان تعتمد طابعة بلوتوث محمولة بعرض ٥٨ أو ٨٠ ملّيمتراً تطبع بالحرارة على ورق حسّاس بلا حبر. ما يهمّ عمليّاً ثلاثة: أن يُطبَع النصّ العربي بشكل صحيح لا معكوساً أو متقطّعاً، أن يكون رمز QR واضحاً بما يكفي ليُقرأ من الجوال، وأن تعمل الطباعة بلا إنترنت لأن الطابعة متّصلة بالجهاز مباشرة. ورق ٨٠ ملّيمتراً أوضح للفواتير متعدّدة الأصناف، و٥٨ أخفّ حملاً.`,
+    `Field thermal printing uses a portable 58mm or 80mm Bluetooth printer that prints by heat on sensitive paper with no ink. Three things matter in practice: that Arabic text prints correctly rather than reversed or broken, that the QR code is crisp enough to be read from a phone, and that printing works offline since the printer is paired directly to the device. 80mm paper is clearer for multi-line invoices; 58mm is lighter to carry.`,
+    `L'impression thermique sur le terrain utilise une imprimante Bluetooth portable de 58 ou 80 mm qui imprime par la chaleur, sans encre. Trois points comptent : que le texte arabe s'imprime correctement, que le code QR soit assez net pour être lu depuis un téléphone, et que l'impression fonctionne hors ligne puisque l'imprimante est appairée directement à l'appareil.`),
+
+  'credit-limit-control': (c, L) => P(L,
+    `حدّ الائتمان يعمل فعلاً حين يمنع الفاتورة، لا حين ينبّه بعدها. الفرق جوهري: التنبيه يُتجاهَل تحت ضغط البيع، أما المنع فيحوّل القرار من المندوب إلى سياسة الشركة، ويجعل تجاوزه استثناءً موثّقاً بموافقة لا حدثاً صامتاً. تحديد الحدّ نفسه يُشتقّ من الواقع: متوسط مشتريات العميل الشهرية × (مدّة السداد ÷ ٣٠)، ثم يُراجَع دورياً مع تغيّر سلوك السداد.`,
+    `A credit limit works when it blocks the invoice, not when it warns after the fact. The difference is structural: a warning is ignored under selling pressure, whereas a block moves the decision from the rep to company policy and turns an override into a documented, approved exception rather than a silent event. The limit itself is derived from reality: the customer's average monthly purchases × (payment term ÷ 30), reviewed periodically as payment behaviour changes.`,
+    `Une limite de crédit fonctionne lorsqu'elle bloque la facture, pas lorsqu'elle avertit après coup. La différence est structurelle : un avertissement est ignoré sous la pression commerciale, alors qu'un blocage déplace la décision du commercial vers la politique de l'entreprise. La limite se déduit du réel : achats mensuels moyens × (délai de paiement ÷ 30).`),
+
+  'pricing-tiers-strategy': (c, L) => P(L,
+    `شرائح الأسعار في التوزيع تُبنى على واحد من ثلاثة أسس: نوع العميل (جملة أو نصف جملة أو تجزئة)، أو الكمّية المشتراة، أو اتفاق خاصّ بعميل بعينه. الشرط التقني الذي يجعلها تعمل هو أن يُطبَّق السعر تلقائياً حين يختار المندوب العميل والصنف — لا أن يتذكّره أو يحسبه. أي سعر يُدخَل يدوياً في الميدان يصبح مصدر خلاف مع العميل ونزيف هامش لا يظهر إلا في تقرير آخر الشهر.`,
+    `Price tiers in distribution rest on one of three bases: customer type (wholesale, semi-wholesale, retail), purchased quantity, or an agreement specific to one customer. The technical condition that makes them work is that the price applies automatically once the rep selects the customer and the item — not that the rep remembers or calculates it. Any price typed by hand in the field becomes a dispute with the customer and a margin leak that only surfaces in month-end reporting.`,
+    `Les grilles tarifaires en distribution reposent sur l'une de trois bases : le type de client (gros, demi-gros, détail), la quantité achetée, ou un accord propre à un client. La condition technique : que le prix s'applique automatiquement dès que le commercial choisit le client et l'article. Tout prix saisi à la main devient un litige et une fuite de marge.`),
+
+  'digital-transformation-distribution': (c, L) => P(L,
+    `التحوّل الرقمي في شركات التوزيع لا يبدأ بالنظام بل بتحديد الحلقة التي تُدار على الورق وتكلّف أكثر: عادةً الفاتورة المكتوبة يدوياً، أو مخزون السيارة المجهول حتى نهاية الشهر، أو رصيد العميل الذي لا يعرفه إلا المحاسب. الترتيب العملي أن تُرقمَن حلقة واحدة حتى تستقرّ، ثم التالية — لأن تحويل كل شيء دفعة واحدة يخلق مقاومة من المناديب وفوضى بيانات في الشهر الأول.`,
+    `Digital transformation in distribution does not start with the system but with identifying which link is run on paper and costs the most: usually the hand-written invoice, or van stock that stays unknown until month-end, or the customer balance only the accountant knows. The practical order is to digitise one link until it settles, then the next — converting everything at once creates rep resistance and data chaos in the first month.`,
+    `La transformation digitale en distribution ne commence pas par le système mais par l'identification du maillon géré sur papier et le plus coûteux : souvent la facture manuscrite, le stock du véhicule inconnu jusqu'à la fin du mois, ou le solde client que seul le comptable connaît. L'ordre pratique : numériser un maillon jusqu'à stabilisation, puis le suivant.`),
+
+  'route-planning-sales': (c, L) => P(L,
+    `تخطيط خطّ السير يعني تثبيت أي منفذ يُزار في أي يوم وبأيّ تكرار، بدل ترك الترتيب لاجتهاد المندوب اليومي. الفائدة ليست تقصير المسافة وحدها بل انتظام التغطية: العميل الذي يُزار في موعد ثابت يُجهّز طلبه، والعميل المنسيّ يظهر في تقرير «لم تصله زيارة منذ». المقارنة بين الخطّ المخطّط والمسار الفعلي المسجَّل بـGPS هي ما يحوّل الخطّة من ورقة إلى أداة.`,
+    `Route planning means fixing which outlet is visited on which day and at what frequency, instead of leaving the order to the rep's daily judgement. The benefit is not only shorter distance but regular coverage: a customer visited on a fixed schedule prepares their order, and a forgotten customer surfaces in a "not visited since" report. Comparing the planned route against the actual GPS-recorded path is what turns the plan from a document into a tool.`,
+    `La planification des tournées consiste à fixer quel point de vente est visité quel jour et à quelle fréquence, plutôt que de laisser l'ordre au jugement quotidien du commercial. Le bénéfice n'est pas seulement la distance : un client visité à échéance fixe prépare sa commande, et un client oublié apparaît dans un rapport « non visité depuis ».`),
+
+  'whatsapp-sales-followup': (c, L) => P(L,
+    `واتساب هو قناة التواصل الفعلية بين موزّعي المنطقة وعملائهم، لكنه يفشل كأداة إدارة لسبب واحد: الرسالة لا تُسجَّل في حساب العميل. الاستخدام السليم أن يبقى واتساب قناة التنبيه — تأكيد طلب، تذكير باستحقاق، إرسال كشف حساب — بينما يبقى مصدر الحقيقة هو النظام. ما يُتّفق عليه في محادثة ولا يُسجَّل كطلب أو سند لا وجود له عند المراجعة بعد شهر.`,
+    `WhatsApp is the real communication channel between distributors in the region and their customers, but it fails as a management tool for one reason: the message is never recorded against the customer's account. The sound use is to keep WhatsApp as the notification channel — confirming an order, reminding of a due amount, sending a statement — while the system remains the source of truth. Whatever is agreed in a chat and not recorded as an order or receipt does not exist when reviewed a month later.`,
+    `WhatsApp est le canal réel entre les distributeurs de la région et leurs clients, mais échoue comme outil de gestion pour une raison : le message n'est jamais enregistré sur le compte du client. Le bon usage : garder WhatsApp comme canal de notification — confirmation de commande, rappel d'échéance, envoi de relevé — tandis que le système reste la source de vérité.`),
+
+  'field-sales-system-roi': (c, L) => P(L,
+    `عائد نظام المبيعات الميدانية يُحسَب من أربعة بنود قابلة للقياس في شركتك أنت، لا من متوسط سوقي: الوقت المستردّ من الفوترة والإدخال اليدوي، العجز المكتشَف في مخزون السيارات، الذمم المُستردّة بفضل ضبط حدود الائتمان، والمنافذ الإضافية التي يغطّيها المندوب بعد اختصار الأعمال الورقية. الطريقة الصحيحة أن تُدخل أرقامك الفعلية في كل بند وتقارنها بالتكلفة السنوية — ولا تقبل رقم عائد جاهزاً من أي مورّد.`,
+    `The return on a field sales system is computed from four items measurable inside your own company, not from a market average: time recovered from manual invoicing and data entry, shortages discovered in van stock, receivables recovered thanks to enforced credit limits, and additional outlets a rep covers once paperwork is cut. The correct method is to enter your own actual figures for each item and compare against the annual cost — and to accept no ready-made ROI number from any vendor.`,
+    `Le retour d'un système de vente terrain se calcule à partir de quatre postes mesurables dans votre propre entreprise, non d'une moyenne de marché : le temps récupéré sur la facturation manuelle, les écarts découverts sur le stock des véhicules, les créances récupérées grâce aux limites de crédit, et les points de vente supplémentaires couverts. Entrez vos chiffres réels et comparez au coût annuel.`),
+};
+
+// ملاحظة الضريبة تُلحَق بإجابات الموضوعات التي تمسّ الفوترة — تُصاغ من بيانات
+// الدولة نفسها فلا تُكرَّر حرفياً عبر ٢٢ دولة، ولا تحمل ادّعاء امتثال.
+function topicVat(c, L) {
+  if (!c.vat) return P(L,
+    `تختلف متطلبات الفوترة بين الدول، فتحقّق من الساري لدى ${c.tax.ar} قبل اعتماد أي إعداد.`,
+    `Invoicing requirements differ by country, so check what currently applies with ${c.tax.en} before settling on a configuration.`,
+    `Les exigences de facturation varient selon les pays ; vérifiez ce qui s'applique auprès de ${c.tax.fr}.`);
+  return P(L,
+    `وتُحتسب ضريبة القيمة المضافة ${c.inAr} بنسبة ${c.vat}% وتظهر مفصّلة في الفاتورة، مع مراجعة الساري لدى ${c.tax.ar}.`,
+    `VAT ${c.inEn} is charged at ${c.vat}% and shown as a separate line on the invoice; check current rules with ${c.tax.en}.`,
+    `La TVA ${c.inFr} s'élève à ${c.vat}% et figure en ligne distincte sur la facture ; vérifiez les règles en vigueur auprès de ${c.tax.fr}.`);
+}
+
+// تثبيت محلّي يُلحَق بإجابة كل موضوع خاصّ بالدول. الغرض ليس التزيين: بدونه
+// تحمل مقالات الدول الاثنتين والعشرين الإجابة ذاتها حرفياً، فتصير حشواً
+// مكرّراً يُضعف الصفحة بدل أن يقوّيها. كل جملة هنا تضيف واقعة محلّية فعلية
+// (العملة، المدن، الجهة الضريبية) لا صفة عامّة.
+const LOCAL_ANCHOR = {
+  'field-sales-software': (c, L) => P(L,
+    `وتُدار بهذا الشكل ${c.inAr} خطوط سير تربط بين ${c.cap.ar} و${c.cities[0].ar}، وتُسجَّل المبالغ بـ${c.cur.ar}.`,
+    `Run this way ${c.inEn}, routes link ${c.cap.en} with ${c.cities[0].en}, and amounts are recorded in ${c.cur.en}.`,
+    `Ainsi organisées ${c.inFr}, les tournées relient ${c.cap.fr} à ${c.cities[0].fr}, et les montants sont enregistrés en ${c.cur.fr}.`),
+  'best-field-sales-software': (c, L) => P(L,
+    `ونفّذها على بيانات حقيقية من خطّ سير فعلي ${c.inAr} وبالمبالغ بـ${c.cur.ar}، لا على بيانات عرض جاهزة.`,
+    `Run it on real data from an actual route ${c.inEn}, with amounts in ${c.cur.en}, not on a prepared demo dataset.`,
+    `Faites-le sur des données réelles d'une tournée effective ${c.inFr}, avec des montants en ${c.cur.fr}, et non sur un jeu de démonstration.`),
+  'distribution-management-system': (c, L) => P(L,
+    `والتطبيق العملي ${c.inAr} يعني أن تصدر الفواتير وكشوف الحساب بـ${c.cur.ar}، وأن يغطّي خطّ السير الواحد منافذ متباعدة بين ${c.cap.ar} و${c.cities[0].ar}.`,
+    `In practice ${c.inEn}, invoices and statements are issued in ${c.cur.en}, and a single route often spans outlets scattered between ${c.cap.en} and ${c.cities[0].en}.`,
+    `En pratique ${c.inFr}, les factures et relevés sont émis en ${c.cur.fr}, et une seule tournée couvre souvent des points de vente dispersés entre ${c.cap.fr} et ${c.cities[0].fr}.`),
+  'van-sales-app': (c, L) => P(L,
+    `ويُستخدم هذا النموذج ${c.inAr} لتغطية المنافذ الصغيرة المتناثرة في ${c.cap.ar} و${c.cities[0].ar}، حيث الطلب يومي والكمّيات صغيرة فلا تحتمل دورة طلب وتوريد منفصلة.`,
+    `This model is used ${c.inEn} to cover small outlets scattered across ${c.cap.en} and ${c.cities[0].en}, where demand is daily and quantities small — too small to justify a separate order-then-deliver cycle.`,
+    `Ce modèle est utilisé ${c.inFr} pour couvrir les petits points de vente dispersés entre ${c.cap.fr} et ${c.cities[0].fr}, où la demande est quotidienne et les quantités faibles.`),
+  'sales-rep-management': (c, L) => P(L,
+    `ويُقاس أداء المندوب ${c.inAr} بمبيعاته وتحصيله بـ${c.cur.ar} مقابل هدف معلن، لا بعدد الساعات التي قضاها في الشارع.`,
+    `Rep performance ${c.inEn} is measured by sales and collection in ${c.cur.en} against a stated target, not by hours spent on the road.`,
+    `La performance du commercial ${c.inFr} se mesure aux ventes et encaissements en ${c.cur.fr} face à un objectif annoncé, non aux heures passées sur la route.`),
+  'collection-receivables': (c, L) => P(L,
+    `وتُحسب الأرصدة ${c.inAr} بـ${c.cur.ar} ضمن مدّة السداد المتّفق عليها مع كل عميل على حدة، لا بمدّة موحّدة للجميع.`,
+    `Balances ${c.inEn} are tracked in ${c.cur.en} against the payment term agreed with each customer individually, not a single term applied to all.`,
+    `Les soldes ${c.inFr} sont suivis en ${c.cur.fr} selon le délai convenu avec chaque client, et non un délai unique pour tous.`),
+  'gps-rep-tracking': (c, L) => P(L,
+    `وفي مدن مثل ${c.cap.ar} و${c.cities[0].ar} حيث يلتهم الزحام ساعات اليوم، يكشف الفصل بين زمن التنقّل وزمن الزيارة أين يذهب الوقت فعلاً.`,
+    `In cities such as ${c.cap.en} and ${c.cities[0].en}, where traffic consumes hours of the day, separating travel time from visit time reveals where the day actually goes.`,
+    `Dans des villes comme ${c.cap.fr} et ${c.cities[0].fr}, où les embouteillages dévorent des heures, séparer le temps de trajet du temps de visite révèle où passe réellement la journée.`),
+  'van-stock-inventory': (c, L) => P(L,
+    `وتُقوَّم الفروقات بـ${c.cur.ar} لتصير رقماً يُقارَن بتكلفة الضبط اليومي، فيُتّخذ القرار على أساس مقارنة لا انطباع.`,
+    `Variances are valued in ${c.cur.en} so they become a figure comparable against the cost of daily control, turning the decision into a comparison rather than an impression.`,
+    `Les écarts sont valorisés en ${c.cur.fr} afin de devenir un montant comparable au coût du contrôle quotidien.`),
+  'sales-reports-analytics': (c, L) => P(L,
+    `وتُعرض المبالغ ${c.inAr} بـ${c.cur.ar} حتى تُقارَن الفترات مباشرةً بلا تحويل يدوي يُدخل الخطأ.`,
+    `Amounts ${c.inEn} are presented in ${c.cur.en} so periods compare directly, without a manual conversion step that introduces error.`,
+    `Les montants ${c.inFr} sont présentés en ${c.cur.fr} afin de comparer les périodes directement, sans conversion manuelle source d'erreurs.`),
+  'wholesale-food-distributors': (c, L) => P(L,
+    `و${c.inAr} يشتدّ أثر ذلك في المواسم التي يقفز فيها الطلب فجأةً فتُحمَّل السيارات فوق المعتاد ويصعب تتبّع ما خرج منها.`,
+    `This bites hardest ${c.inEn} in seasons when demand jumps suddenly, vans are loaded beyond the norm and tracking what left them becomes hard.`,
+    `L'effet est maximal ${c.inFr} lors des saisons où la demande bondit, les véhicules étant chargés au-delà de la normale.`),
+  'fmcg-distribution': (c, L) => P(L,
+    `وتتركّز هذه المنافذ ${c.inAr} في ${c.cap.ar} و${c.cities[0].ar}، فيصير تخطيط خطّ السير هو ما يحدّد كم منفذاً يمكن تغطيته في اليوم الواحد.`,
+    `These outlets cluster ${c.inEn} around ${c.cap.en} and ${c.cities[0].en}, so route planning is what determines how many can be covered in a single day.`,
+    `Ces points de vente se concentrent ${c.inFr} autour de ${c.cap.fr} et ${c.cities[0].fr} ; la planification de la tournée détermine donc combien peuvent être couverts en une journée.`),
+  'mobile-field-invoicing': (c, L) => P(L,
+    `وتُصدَر الفاتورة ${c.inAr} بـ${c.cur.ar} وفق ما يسري لدى ${c.tax.ar} وقت الإصدار.`,
+    `The invoice ${c.inEn} is issued in ${c.cur.en} according to what applies at ${c.tax.en} at the time of issue.`,
+    `La facture ${c.inFr} est émise en ${c.cur.fr} selon ce qui s'applique auprès de ${c.tax.fr} au moment de l'émission.`),
+  'distribution-customer-management': (c, L) => P(L,
+    `وتُحدَّد الحدود ${c.inAr} بـ${c.cur.ar}، وتُراجَع دورياً مع تغيّر سلوك السداد لكل عميل بدل تثبيتها مرّة واحدة.`,
+    `Limits ${c.inEn} are set in ${c.cur.en} and revisited periodically as each customer's payment behaviour changes, rather than fixed once.`,
+    `Les limites ${c.inFr} sont fixées en ${c.cur.fr} et révisées périodiquement selon l'évolution du comportement de paiement de chaque client.`),
+};
+
+// يبني كتلة الإجابة. تسبق المقدّمة في contentHtml — الترتيب هو الغرض كلّه.
+const answerBlock = (topic, c, L) => {
+  const fn = ANSWERS[topic.id];
+  if (!fn) return '';
+  const head = P(L, 'الإجابة المختصرة', 'The short answer', 'La réponse courte');
+  const local = LOCAL_ANCHOR[topic.id];
+  const body = local ? `${fn(c, L)} ${local(c, L)}` : fn(c, L);
+  return `<div class="geo-answer">
+     <h2>${head}</h2>
+     <p>${body}</p>
+   </div>`;
+};
+
+// ----------------------------------------------------------------------------
 // تعريف الموضوعات — قوالب العناوين/الكلمات المفتاحية + تركيبة الأقسام لكل موضوع.
 // cs=true: مقال خاص بكل دولة. cs=false: مقال عام (يستخدم REGION).
 // ----------------------------------------------------------------------------
@@ -741,7 +988,9 @@ export function getArticle(slug, L) {
   // localContext (مُفرَّد لكل دولة) يُضاف مبكراً لمقالات الدول فقط — يكسر تكرار القالب بمحتوى محلي أصيل
   const universal = [...(topic.cs ? ['localContext'] : []), 'steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq'].filter((k) => !coreKeys.includes(k));
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
-  const contentHtml = `${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
+  // كتلة الإجابة تسبق المقدّمة عمداً: محرّك التوليد يقتبس أوّل فقرة تُجيب
+  // السؤال قائمةً بذاتها، والمقدّمة التسويقية ليست كذلك مهما جوّدناها.
+  const contentHtml = `${answerBlock(topic, c, L)}\n${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
     excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date), readMinutes: topic.rm,
@@ -764,6 +1013,19 @@ export function buildCatalog() {
     out.push({ slug, date, modified: modifiedOf(date), cc, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
   }
   return out;
+}
+
+// الإجابة المختصرة نصّاً صرفاً — تُستهلَك في llms-full.txt الذي يقرؤه محرّك
+// التوليد مباشرةً. الفصل عن answerBlock مقصود: هناك HTML للصفحة، وهنا نصّ للآلة.
+export function shortAnswer(slug, L) {
+  const hit = index().get(slug);
+  if (!hit) return '';
+  const { topic, country } = hit;
+  const fn = ANSWERS[topic.id];
+  if (!fn) return '';
+  const local = LOCAL_ANCHOR[topic.id];
+  const t = local ? `${fn(country, L)} ${local(country, L)}` : fn(country, L);
+  return t.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
 export function hasArticle(slug) {

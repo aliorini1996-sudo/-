@@ -159,6 +159,13 @@ export default function BlogPostPage() {
         .article-prose table { width:100%; margin:16px 0; border-collapse:collapse; font-size:14.5px; background:#fff; border-radius:12px; overflow:hidden; }
         .article-prose th { background:#FBEBE2; color:#1F1A13; font-weight:700; padding:10px 12px; text-align:start; border:1px solid #E9E1D3; }
         .article-prose td { padding:10px 12px; border:1px solid #E9E1D3; vertical-align:top; }
+        /* كتلة الإجابة المختصرة — أوّل ما يقرؤه الزائر ومحرّك التوليد. تُمنح
+           تمييزاً بصرياً لأن دورها مختلف عن بقيّة المقال: تُقرأ وحدها. */
+        .article-prose .geo-answer { margin:0 0 26px; padding:18px 20px; background:#FBEBE2;
+          border-inline-start:4px solid #E15A30; border-radius:12px; }
+        .article-prose .geo-answer h2 { font-size:15px; font-weight:700; color:#E15A30;
+          margin:0 0 8px; letter-spacing:0; text-transform:none; }
+        .article-prose .geo-answer p { margin:0; font-size:17px; line-height:1.85; color:#1F1A13; }
       `}</style>
 
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">

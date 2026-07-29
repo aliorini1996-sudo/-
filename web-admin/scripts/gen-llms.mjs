@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { listArticles, ORIGIN } from '../src/blog/seo/catalog.mjs';
+import { listArticles, shortAnswer, ORIGIN } from '../src/blog/seo/catalog.mjs';
 import { loadPricing } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -147,7 +147,13 @@ ${manual.slice(0, 12).map((p) => `- [${p.title}](${ORIGIN}/blog/${p.slug}/)`).jo
 `;
 
   // ----------------------------------------------------------- llms-full.txt
-  const section = (label, list, L) => `## ${label}\n\n${list.map((a) => `- [${a.title}](${blogUrl(a.slug, L)})`).join('\n')}`;
+  // كل مدخل يحمل إجابته المختصرة لا رابطه فقط. السبب: محرّك التوليد يقرأ هذا
+  // الملف ثم يُجيب — إن لم يجد نصّاً قابلاً للاقتباس فلن يتبع الرابط غالباً،
+  // فيتحوّل «الفهرس الكامل» إلى قائمة عناوين بلا قيمة استرجاعية.
+  const section = (label, list, L) => `## ${label}\n\n${list.map((a) => {
+    const ans = shortAnswer(a.slug, L);
+    return `- [${a.title}](${blogUrl(a.slug, L)})${ans ? `\n  ${ans}` : ''}`;
+  }).join('\n')}`;
   // تاريخ أحدث مقال (لا تاريخ اليوم) — حتى لا يتغيّر الملف يومياً بلا سبب في الصيانة المجدولة
   const newest = ar[0]?.date || '';
   const full = `# FieldSales — full article index (updated ${newest})
