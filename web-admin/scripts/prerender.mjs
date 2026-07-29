@@ -506,6 +506,42 @@ ${faqHtml}
   }));
   n++;
 
+  // 4.7) الأدوات المجانية — تُحسب في المتصفّح، والصفحة تُصيَّر ليراها الزاحف
+  const FREE_TOOLS = [
+    { id: 'commission', title: 'حاسبة عمولة المندوب المتدرّجة', desc: 'شرائح عمولة بأرضية وسقف وخصم المرتجعات — بدل جداول Excel الهشّة.' },
+    { id: 'van', title: 'تسوية عهدة سيارة المندوب', desc: 'طابق حمولة السيارة آخر اليوم واكشف العجز بالصنف وقيمته.' },
+    { id: 'reps', title: 'كم مندوباً تحتاج؟', desc: 'حجّم فريقك الميداني قبل التوظيف أو الشراء، بحساسية ±٢٠٪.' },
+    { id: 'aging', title: 'أعمار الدين وحدّ الائتمان', desc: 'وزّع ذممك على شرائح ٣٠/٦٠/٩٠ يوماً واقترح حدّ ائتمان لكل عميل.' },
+  ];
+  for (const t of FREE_TOOLS) {
+    const canonical = canon(`${ORIGIN}/free/${t.id}`);
+    writeRoute(`/free/${t.id}`, buildPage({
+      lang: 'ar',
+      title: `${t.title} — أداة مجانية | Field Sales`,
+      description: `${t.desc} تعمل في متصفّحك بلا تسجيل ولا إرسال بيانات.`,
+      canonical, image: `${ORIGIN}/og-image.png`,
+      jsonLd: {
+        '@context': 'https://schema.org', '@type': 'SoftwareApplication',
+        name: t.title, description: t.desc,
+        applicationCategory: 'BusinessApplication', operatingSystem: 'Web',
+        inLanguage: 'ar', url: canonical,
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'SAR' },
+      },
+      bodyHtml: `<main><h1>${esc(t.title)}</h1><p>${esc(t.desc)}</p>
+<p>الأداة مجانية وتعمل في متصفّحك بالكامل: لا تسجيل، ولا يُرسل أي رقم تُدخله إلى خوادمنا.</p>
+<p><a href="/pricing">شاهد أسعار Field Sales</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p></main>`,
+    }));
+    n++;
+  }
+  writeRoute('/free', buildPage({
+    lang: 'ar', title: 'أدوات مجانية لشركات التوزيع | Field Sales',
+    description: 'أدوات حساب مجانية: عمولة المندوب المتدرّجة، تسوية عهدة السيارة، تحجيم الفريق الميداني، أعمار الدين وحدّ الائتمان — بلا تسجيل.',
+    canonical: canon(`${ORIGIN}/free`), image: `${ORIGIN}/og-image.png`,
+    jsonLd: { '@context': 'https://schema.org', '@type': 'ItemList', itemListElement: FREE_TOOLS.map((t, i) => ({ '@type': 'ListItem', position: i + 1, name: t.title, url: canon(`${ORIGIN}/free/${t.id}`) })) },
+    bodyHtml: `<main><h1>أدوات مجانية لشركات التوزيع</h1><p>تعمل في متصفّحك بالكامل بلا تسجيل ولا إرسال بيانات.</p><ul>${FREE_TOOLS.map((t) => `<li><a href="/free/${t.id}">${esc(t.title)}</a> — ${esc(t.desc)}</li>`).join('')}</ul></main>`,
+  }));
+  n++;
+
   // 5) الصفحة الرئيسية العربية (الجذر dist/index.html) — تحقن محتوى دلالياً في #root الفارغ.
   //    هذه أهم صفحة، وكانت قوقعة SPA فارغة لغير مشغّلي JavaScript (زواحف AI وBing جزئياً).
   //    React يستبدلها عند التحميل (createRoot يمسح ويعيد الرسم) — المحتوى للزواحف فقط.

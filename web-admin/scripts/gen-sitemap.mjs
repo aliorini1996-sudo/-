@@ -130,6 +130,10 @@ async function main() {
     `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog/"/>`,
   ].join('\n');
   // صفحات القطاعات السبعة (عربية فقط حالياً — لا نسخة en/fr لها بعد، فلا hreflang كاذب)
+  urls.push(urlEntry(ORIGIN + '/free', { freq: 'monthly', priority: '0.9' }));
+  for (const id of ['commission', 'van', 'reps', 'aging']) {
+    urls.push(urlEntry(ORIGIN + '/free/' + id, { freq: 'monthly', priority: '0.8' }));
+  }
   urls.push(urlEntry(ORIGIN + '/نماذج', { freq: 'monthly', priority: '0.8' }));
   for (const t of TEMPLATES) {
     urls.push(urlEntry(ORIGIN + '/نماذج/' + t.slug, { freq: 'monthly', priority: '0.7' }));

@@ -132,6 +132,11 @@ interface V {
   createdAt: Date; path: string; referrerHost: string | null;
   country: string | null; city: string | null; countryCode: string | null;
   ipHash: string | null; lang: string | null;
+  // طبقة الإسناد التسويقي (كلها اختيارية — الزيارات التاريخية بلا هذه القيم)
+  channel: string | null; aiEngine: string | null; contentType: string | null;
+  utmSource: string | null; utmMedium: string | null; utmCampaign: string | null;
+  firstSource: string | null; firstMedium: string | null;
+  waRef: string | null; waClicked: boolean | null; anonId: string | null;
 }
 
 function topCounts(items: V[], key: (v: V) => string | null, limit = 8) {
@@ -162,7 +167,12 @@ router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, r
     const rows = (await prisma.visit.findMany({
       where: { createdAt: { gte: since }, isBot: false },
       orderBy: { createdAt: 'desc' },
-      select: { createdAt: true, path: true, referrerHost: true, country: true, city: true, countryCode: true, ipHash: true, lang: true },
+      select: {
+        createdAt: true, path: true, referrerHost: true, country: true, city: true, countryCode: true, ipHash: true, lang: true,
+        channel: true, aiEngine: true, contentType: true,
+        utmSource: true, utmMedium: true, utmCampaign: true,
+        firstSource: true, firstMedium: true, waRef: true, waClicked: true, anonId: true,
+      },
     })) as V[];
 
     const total = rows.length;
@@ -192,6 +202,30 @@ router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, r
         byReferrer: topCounts(rows, (r) => r.referrerHost || 'زيارة مباشرة'),
         byPath: topCounts(rows, (r) => r.path),
         byLang: topCounts(rows, (r) => r.lang),
+        // --- طبقة الإسناد التسويقي ---
+        attribution: (() => {
+          // نقرات واتساب تُسجَّل كصفوف مستقلّة موسومة — تُفصل عن مشاهدات الصفحات
+          const waRows = rows.filter((r) => r.waClicked === true);
+          const pageRows = rows.filter((r) => r.waClicked !== true);
+          const known = pageRows.filter((r) => r.channel);
+          return {
+            // نسبة الزيارات التي نعرف مصدرها فعلاً — مؤشّر صحّة القياس نفسه
+            coverage: pageRows.length ? Math.round((known.length / pageRows.length) * 100) : 0,
+            byChannel: topCounts(known, (r) => r.channel),
+            byContentType: topCounts(known, (r) => r.contentType),
+            byUtmSource: topCounts(pageRows.filter((r) => r.utmSource), (r) => r.utmSource),
+            byCampaign: topCounts(pageRows.filter((r) => r.utmCampaign), (r) => r.utmCampaign),
+            // أول لمسة: القناة التي جلبت الزائر أوّلاً لا التي أعادته
+            byFirstTouch: topCounts(pageRows.filter((r) => r.firstSource), (r) => r.firstSource),
+            whatsapp: {
+              clicks: waRows.length,
+              // أي صفحة تُنتج المحادثات فعلاً — جوهر قياس القناة
+              byRef: topCounts(waRows, (r) => r.waRef, 12),
+              // زوّار فريدون نقروا (لا نقرات مكرّرة من الشخص نفسه)
+              uniqueClickers: new Set(waRows.filter((r) => r.anonId).map((r) => r.anonId)).size,
+            },
+          };
+        })(),
         ai: { total: aiRows.length, byEngine: aiByEngine, byDay: aiByDay },
         recent: rows.slice(0, 60).map((r) => ({
           at: r.createdAt, path: r.path, referrer: r.referrerHost || 'مباشر',

@@ -9,6 +9,12 @@ interface Stats {
   total: number; uniques: number; days: number;
   byDay: { date: string; count: number }[];
   byCountry: Item[]; byCity: Item[]; byReferrer: Item[]; byPath: Item[]; byLang: Item[];
+  // طبقة الإسناد التسويقي — اختيارية (نسخة خادم أقدم لا تُرجعها)
+  attribution?: {
+    coverage: number;
+    byChannel: Item[]; byContentType: Item[]; byUtmSource: Item[]; byCampaign: Item[]; byFirstTouch: Item[];
+    whatsapp: { clicks: number; byRef: Item[]; uniqueClickers: number };
+  };
   recent: Row[];
 }
 
@@ -113,6 +119,48 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
               <TopList title="مصادر الزيارات (من أي رابط)" icon={Link2} items={data.byReferrer} />
               <TopList title="أكثر الصفحات زيارة" icon={FileText} items={data.byPath} mono />
             </div>
+
+            {/* --- الإسناد التسويقي: من أين تأتي المحادثات فعلاً --- */}
+            {data.attribution && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-[#1F1A13]">الإسناد التسويقي</h3>
+                  {/* تغطية القياس نفسه: نسبة الزيارات التي نعرف قناتها — بلا هذا الرقم
+                      تُقرأ بقيّة الأرقام على أنها الكلّ وهي ليست كذلك */}
+                  <span className="text-[11px] text-gray-500">
+                    تغطية القياس: <b className={data.attribution.coverage >= 80 ? 'text-green-600' : 'text-amber-600'}>{data.attribution.coverage}%</b>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <div className="rounded-lg border border-[#E8E0D2] bg-white p-3">
+                    <p className="text-[11px] text-gray-500">نقرات واتساب</p>
+                    <p className="text-xl font-bold tabular-nums">{data.attribution.whatsapp.clicks}</p>
+                  </div>
+                  <div className="rounded-lg border border-[#E8E0D2] bg-white p-3">
+                    <p className="text-[11px] text-gray-500">زوّار فريدون نقروا</p>
+                    <p className="text-xl font-bold tabular-nums">{data.attribution.whatsapp.uniqueClickers}</p>
+                  </div>
+                  <div className="rounded-lg border border-[#E8E0D2] bg-white p-3">
+                    <p className="text-[11px] text-gray-500">أعلى صفحة تُنتج محادثات</p>
+                    <p className="text-sm font-medium truncate">{data.attribution.whatsapp.byRef?.[0]?.label ?? '—'}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <TopList title="نقرات واتساب حسب الصفحة" icon={Link2} items={data.attribution.whatsapp.byRef} mono />
+                  <TopList title="القناة" icon={Link2} items={data.attribution.byChannel} />
+                  <TopList title="أول لمسة (القناة الجالبة)" icon={Link2} items={data.attribution.byFirstTouch} />
+                  <TopList title="نوع المحتوى" icon={FileText} items={data.attribution.byContentType} />
+                  {data.attribution.byUtmSource.length > 0 && (
+                    <TopList title="مصدر الحملة (UTM)" icon={Link2} items={data.attribution.byUtmSource} />
+                  )}
+                  {data.attribution.byCampaign.length > 0 && (
+                    <TopList title="الحملة" icon={Link2} items={data.attribution.byCampaign} mono />
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* أحدث الزيارات */}
             <div className="bg-white border border-[#E9E1D3] rounded-2xl overflow-hidden">

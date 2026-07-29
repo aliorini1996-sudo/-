@@ -24,6 +24,7 @@ import PricingPage from './pages/PricingPage';
 import SectorPage from './pages/SectorPage';
 import ComparePage from './pages/ComparePage';
 import TemplatesPage from './pages/TemplatesPage';
+import FreeToolsPage from './pages/FreeToolsPage';
 // لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
 const MainLayout = lazy(() => import('./layouts/MainLayout'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -170,6 +171,8 @@ export default function App() {
         <Route path="/مقارنة/:slug" element={<ComparePage />} />
         <Route path="/نماذج" element={<TemplatesPage />} />
         <Route path="/نماذج/:slug" element={<TemplatesPage />} />
+        <Route path="/free" element={<FreeToolsPage />} />
+        <Route path="/free/:tool" element={<FreeToolsPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />
         <Route path="/blog/:slug" element={<BlogPostPage />} />
         {/* النسخة الإنجليزية على /en — نفس المكوّنات تُعرَض بالإنجليزية (دولي + hreflang) */}
