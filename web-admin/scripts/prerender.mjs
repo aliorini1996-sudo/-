@@ -70,9 +70,30 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   h = h.replace(/(<meta name="twitter:image" content=")[^"]*("\s*\/>)/, `$1${image}$2`);
   const extra = hreflang + (jsonLd ? `\n    <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : '');
   h = h.replace('</head>', `${extra}\n  </head>`);
-  if (bodyHtml) h = h.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${bodyHtml}</div></div>`);
+  // رابط المحادثة يُحقَن **مركزياً** لا في كل صفحة على حدة.
+  //
+  // زرّ واتساب العائم مكوّن React، فلا وجود له في HTML المُصيَّر: الزائر يراه
+  // بعد إقلاع الجافاسكربت، أمّا الزاحف ومعاينة المشاركة وقارئ بلا JS فلا.
+  // قِيس على الإنتاج: /about و/free و/نماذج خرجت بلا أي رابط محادثة رغم أنها
+  // صفحات تسويقية. الحقن هنا يجعل النسيان مستحيلاً لأي صفحة تُضاف لاحقاً.
+  //
+  // وموضعه **داخل `#root`** لا قبل `</body>`: أوّل تصيير لـcreateRoot يمحو
+  // أبناء الحاوية، فيختفي الرابط للزائر ويبقى الزرّ العائم وحده. حين جُرّب
+  // خارجها ظهر رابط نصّي شارد بارتفاع ٩٦ بكسل أسفل كل صفحة من الـ١١٦١.
+  const ssr = [];
+  if (bodyHtml) ssr.push(bodyHtml);
+  if (WA_LINK) {
+    const label = lang === 'en' ? 'Chat with us on WhatsApp'
+      : lang === 'fr' ? 'Discutez avec nous sur WhatsApp' : 'تحدّث معنا على واتساب';
+    ssr.push(`<a href="${WA_LINK}" rel="noopener" data-wa-static>${label}</a>`);
+  }
+  if (ssr.length) h = h.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${ssr.join('\n')}</div></div>`);
   return h;
 }
+
+/** رابط واتساب المتاح لـbuildPage — يُضبط مرّة عند تحميل التسعير من الـCMS */
+let WA_LINK = '';
+export function setWaLink(v) { WA_LINK = v || ''; }
 
 function writeRoute(routePath, html) {
   const dir = path.join(DIST, routePath);
@@ -132,6 +153,7 @@ async function main() {
   const pricing = await loadPricing();
   console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
   const waHref = pricing.waLink;
+  setWaLink(waHref); // يتيح لـbuildPage حقن الرابط في كل صفحة بلا استثناء
   if (!fs.existsSync(path.join(DIST, 'index.html'))) { console.error('لا يوجد dist/index.html — شغّل vite build أولاً'); process.exit(0); }
   let n = 0;
 
