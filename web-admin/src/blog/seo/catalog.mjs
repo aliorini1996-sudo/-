@@ -462,6 +462,31 @@ const S = {
      <p>FieldSales émet une facture structurée à code QR en ${c.cur.fr}, et gère l'encaissement, les limites de crédit et le stock du véhicule — que votre équipe couvre ${cityJoin} ou de plus petites villes.</p>`);
   },
 
+  // جدول مقارنة الدول — محتوى حصريّ للصفحة الجامعة، مبنيّ على بيانات COUNTRIES الحقيقية
+  // (ضريبة، جهة، فوترة، عملة). هذا ما يجعلها صفحة واحدة قويّة بدل 22 نسخة متشابهة.
+  countryTable: (_c, L) => {
+    const head = P(L,
+      ['الدولة', 'ضريبة القيمة المضافة', 'الجهة الضريبية', 'الفوترة الإلكترونية', 'العملة'],
+      ['Country', 'VAT', 'Tax authority', 'E-invoicing', 'Currency'],
+      ['Pays', 'TVA', 'Autorité fiscale', 'Facturation électronique', 'Devise']);
+    const rows = COUNTRIES.map((k) => {
+      const vat = k.vat != null ? `${k.vat}%` : P(L, 'لا تُطبَّق', 'None', 'Aucune');
+      return `<tr><td><strong>${k[L]}</strong></td><td>${vat}</td><td>${k.tax[L]}</td><td>${k.einv[L]}</td><td>${k.cur[L]}</td></tr>`;
+    }).join('');
+    const title = P(L, 'مقارنة الضريبة والفوترة الإلكترونية في الدول العربية',
+      'VAT & e-invoicing across Arab countries — compared',
+      'TVA et facturation électronique dans les pays arabes');
+    const intro = P(L,
+      'تختلف نسبة الضريبة والجهة المشرفة ومتطلبات الفوترة الإلكترونية من دولة إلى أخرى، وهذا الجدول يلخّصها لتعرف ما ينطبق على سوقك قبل اختيار النظام:',
+      'VAT rates, supervising authorities and e-invoicing requirements differ by country. This table summarizes them so you know what applies to your market before choosing a system:',
+      "Les taux de TVA, les autorités et les exigences de facturation électronique diffèrent selon le pays. Ce tableau les résume :");
+    const note = P(L,
+      'النِّسب والمتطلبات إرشادية وتتغيّر بقرارات محلية — راجعها مع مستشار ضريبي في بلدك قبل الاعتماد عليها.',
+      'Rates and requirements are indicative and change by local decree — confirm them with a local tax advisor before relying on them.',
+      'Les taux et exigences sont indicatifs et évoluent — confirmez-les auprès d’un conseiller fiscal local.');
+    return `<h2>${title}</h2>\n<p>${intro}</p>\n<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>\n<p><em>${note}</em></p>`;
+  },
+
   best: (c, L) => P(L,
     `<h2>كيف تقارن بين الأنظمة المتاحة ${c.inAr}؟</h2>
      <p>عند تقييم أي نظام مبيعات ميدانية ${c.inAr} قارن على خمسة محاور: التوافق الضريبي المحلي (${c.tax.ar} و${c.cur.ar})، اكتمال دورة الميدان (طلب → فاتورة → تحصيل → مخزون سيارة)، دعم العربية الكامل في التطبيق والمستندات، سهولة بدء الاستخدام دون تركيب معقّد، وتكلفة واضحة بلا رسوم خفية.</p>
@@ -884,7 +909,8 @@ export const CONTENT_VERSION = '2026-07-29';
 export const modifiedOf = (date) => (date > CONTENT_VERSION ? date : CONTENT_VERSION);
 
 // slug المقال: عام = id، خاص بدولة = id-cc
-const slugOf = (topic, c) => (topic.cs ? `${topic.id}-${c.code.toLowerCase()}` : topic.id);
+// الصفحة الجامعة لموضوع قُطري تأخذ المعرّف مجرّداً (REGION)؛ وصفحات الدول تأخذ اللاحقة.
+const slugOf = (topic, c) => (topic.cs && c.code !== 'REGION' ? `${topic.id}-${c.code.toLowerCase()}` : topic.id);
 
 // فهرس داخلي: slug → { topic, country }
 let _index = null;
@@ -893,12 +919,26 @@ function index() {
   _index = new Map();
   let i = 0;
   for (const topic of TOPICS) {
-    const countries = topic.cs ? COUNTRIES : [REGION];
+    // الموضوع القُطري يُنتج صفحة جامعة (REGION) + صفحة لكل دولة؛ والعام يُنتج واحدة فقط.
+    const countries = topic.cs ? [REGION, ...COUNTRIES] : [REGION];
     for (const c of countries) {
       _index.set(slugOf(topic, c), { topic, country: c, date: dateFor(i++) });
     }
   }
   return _index;
+}
+
+/**
+ * الرابط الأساسي (canonical) للمقال: صفحة دولة **غير ذات أولوية** تُشير إلى الصفحة الجامعة
+ * لتجميع إشارات الترتيب بدل تشتيتها؛ وما عداها يُشير إلى نفسه.
+ * تبقى الصفحة حيّة للزائر — التغيير إشارة لمحركات البحث فقط.
+ */
+export function canonicalSlug(slug) {
+  const hit = index().get(slug);
+  if (!hit || !hit.topic.cs) return slug;
+  const cc = hit.country.code;
+  if (cc === 'REGION' || PRIORITY_MARKETS.has(cc)) return slug;
+  return pillarSlug(hit.topic.id);
 }
 
 const titleOf = (topic, c, L) => (topic.cs ? `${topic.label[L]} ${c[`in${L === 'ar' ? 'Ar' : L === 'en' ? 'En' : 'Fr'}`]}` : topic.label[L]);
@@ -988,8 +1028,13 @@ export function getArticle(slug, L) {
      <p>Que vous distribuiez de l'alimentaire, des boissons ou des produits de détail, vous trouverez ici des étapes pratiques et des exemples locaux pour améliorer vos commerciaux, votre encaissement et vos ventes.</p>`);
   // أقسام الموضوع + أقسام تعميق عامة تُضاف للجميع (خطوات/نتائج/مؤشرات/قبل-بعد/أخطاء/مصطلحات) دون تكرار، ثم CTA
   const coreKeys = topic.secs.filter((k) => k !== 'cta');
-  // localContext (مُفرَّد لكل دولة) يُضاف مبكراً لمقالات الدول فقط — يكسر تكرار القالب بمحتوى محلي أصيل
-  const universal = [...(topic.cs ? ['localContext'] : []), 'steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq'].filter((k) => !coreKeys.includes(k));
+  // الصفحة الجامعة (REGION لموضوع قُطري) تحمل جدول مقارنة الدول — محتواها الحصريّ الذي
+  // يبرّر وجودها ويجعلها غير مكرّرة؛ وصفحات الدول تحمل localContext المُفرَّد لكل دولة.
+  const isPillar = topic.cs && c.code === 'REGION';
+  const universal = [
+    ...(isPillar ? ['countryTable'] : topic.cs ? ['localContext'] : []),
+    'steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq',
+  ].filter((k) => !coreKeys.includes(k));
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
   // كتلة الإجابة تسبق المقدّمة عمداً: محرّك التوليد يقتبس أوّل فقرة تُجيب
   // السؤال قائمةً بذاتها، والمقدّمة التسويقية ليست كذلك مهما جوّدناها.
@@ -1022,6 +1067,26 @@ const FRANCOPHONE = new Set(['MA', 'DZ', 'TN', 'MR', 'DJ', 'KM']);
  */
 export const NO_EN_INDEX = new Set(['SO', 'DJ', 'KM', 'YE', 'SY', 'LY', 'SD', 'MR', 'PS']);
 
+/**
+ * الدمج (Consolidation) — قرار مبنيّ على حكم جوجل نفسه لا على تقدير.
+ *
+ * Search Console (29 يوليو 2026): **683 صفحة مرفوضة** بسبب «نسخة طبق الأصل — اختار Google
+ * صفحة أساسية غير اختيار المستخدم»، وأمثلتها هي صفحات الدول المُقولَبة حرفياً
+ * (…-dj, -mr, -so, -lb, -ye, -iq, -dz, **-kw**, **-bh**, -eg). وجود الكويت والبحرين
+ * يثبت أن العطل في **بنية «موضوع × 22 دولة»** لا في ضعف الأسواق.
+ *
+ * العلاج: لكل موضوع قُطري **صفحة جامعة واحدة** (slug = معرّف الموضوع، بيانات REGION
+ * + جدول مقارنة الدول بحقائق حقيقية) تتجمّع فيها إشارات الترتيب؛ وصفحات الدول
+ * غير ذات الأولوية تُشير إليها بـcanonical بدل أن تتنافس معها.
+ * ⇒ نؤكّد حكم جوجل بدل مصارعته: 22 صفحة ضعيفة تتنافس ← صفحة واحدة قويّة.
+ *
+ * تبقى أسواق الأولوية بصفحاتها القُطرية (طلب حقيقي + محتوى مُفرَّد فعلاً عبر localContext).
+ */
+export const PRIORITY_MARKETS = new Set(['SA', 'AE', 'QA', 'KW', 'BH', 'OM', 'EG']);
+
+/** slug الصفحة الجامعة لموضوع قُطري (بلا لاحقة دولة). */
+export const pillarSlug = (topicId) => topicId;
+
 /** هل تُفهرَس نسخة اللغة L من مقال الدولة cc؟ (cc=null للمقالات العامّة ⇒ دائماً نعم) */
 export const isIndexable = (cc, L) => !(L === 'en' && cc && NO_EN_INDEX.has(cc));
 
@@ -1030,8 +1095,10 @@ export const isIndexable = (cc, L) => !(L === 'en' && cc && NO_EN_INDEX.has(cc))
 export function buildCatalog() {
   const out = [];
   for (const [slug, { topic, country, date }] of index()) {
-    const cc = topic.cs ? country.code : null;
-    out.push({ slug, date, modified: modifiedOf(date), cc, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
+    // REGION ليست دولة — الصفحة الجامعة تُعامَل كعامّة (cc=null) في التقليم والخرائط
+    const cc = topic.cs && country.code !== 'REGION' ? country.code : null;
+    const canon = canonicalSlug(slug);
+    out.push({ slug, date, modified: modifiedOf(date), cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
   }
   return out;
 }

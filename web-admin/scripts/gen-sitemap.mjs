@@ -168,6 +168,9 @@ async function main() {
   let seoUrlCount = 0;
   for (const a of seo) {
     const p = `/blog/${a.slug}`;
+    // الدمج: الصفحة غير الأساسية (canonical يشير لصفحتها الجامعة) تُحذف من الخريطة —
+    // إدراج صفحة مدموجة في الخريطة إشارة متناقضة تُبقي المنافسة الداخلية قائمة.
+    if (!a.isCanonical) continue;
     // تقليم الفهرسة: الإنجليزية لأسواق بلا طلب إنجليزي مُعلَّمة noindex في التصيير ⇒
     // تُحذف من الخريطة ومن عنقود hreflang معاً (رابط noindex داخل خريطة = إشارة متناقضة).
     const enOk = isIndexable(a.cc, 'en');

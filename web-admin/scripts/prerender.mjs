@@ -169,12 +169,13 @@ async function main() {
   })).filter((p) => !catalogSlugs.has(p.slug)); // المولَّدة لها تصييرها الأغنى — لا تُدهس
 
   // 1) المقالات المولَّدة (~966) — محتوى كامل + وسوم + JSON-LD
-  for (const { slug, cc } of buildCatalog()) {
+  for (const { slug, cc, canonical: canonSlug, isCanonical } of buildCatalog()) {
     for (const L of LANGS) {
       const a = getArticle(slug, L);
       if (!a) continue;
       const prefix = L === 'ar' ? '' : `/${L}`;
-      const canonical = canon(`${ORIGIN}${prefix}/blog/${slug}`);
+      // الدمج: صفحة دولة غير ذات أولوية تُشير إلى صفحتها الجامعة لتجميع إشارات الترتيب
+      const canonical = canon(`${ORIGIN}${prefix}/blog/${canonSlug}`);
       const brand = tr(L, 'مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales');
       const body = `<main><article><h1>${esc(a.title)}</h1><img src="${a.imagePath}" alt="${esc(a.title)}" width="1200" height="630"/>${a.contentHtml}</article></main>`;
       // تقليم الفهرسة: الإنجليزية لأسواق بلا طلب إنجليزي تبقى حيّة للزائر لكن noindex،
@@ -184,7 +185,8 @@ async function main() {
       const html = buildPage({
         lang: L, title: `${a.title} | ${brand}`, description: a.description, keywords: a.keywords,
         canonical, image: a.image, ogType: 'article',
-        hreflang: indexable ? hreflangFor(`/blog/${slug}`, langs) : '',
+        // hreflang يُصدَر للصفحة الأساسية فقط — عنقود على صفحة مدموجة/noindex إشارة متناقضة
+        hreflang: indexable && isCanonical ? hreflangFor(`/blog/${slug}`, langs) : '',
         robots: indexable ? '' : 'noindex, follow',
         jsonLd: articleJsonLd(a, L, canonical), bodyHtml: body,
       });
