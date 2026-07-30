@@ -65,7 +65,7 @@ async function main() {
   const PRICING_LINE = `Per company, not per user — ${pricing.plans
     .filter((p) => /^\d+$/.test(String(p.price)))
     .map((p) => `${p.price} SAR/month (${/٥|5/.test(p.limit || '') && !/٢٠|20/.test(p.limit || '') ? 'up to 5 reps' : 'up to 20 reps'})`)
-    .join(', ')}${pricing.hasCustomTier ? ', and an unlimited-reps enterprise plan on request' : ''}.`;
+    .join(', ')}${pricing.hasCustomTier ? ', and an unlimited-reps enterprise plan on request' : ''}. All prices include VAT.`;
   console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
 
   // المقالات العامة (الركائز) والمقالات المحورية لكل دولة — للنسخة المُنسّقة

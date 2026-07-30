@@ -157,7 +157,11 @@ export function makeWaCode(seed?: string): string {
 
 /** ref الصفحة: يُشتقّ من المسار آلياً — لا يُكتب يدوياً فلا يُنسى ولا يتضارب */
 export function refFromPath(path?: string | null): string {
-  const p = String(path || '/').split('?')[0].replace(/\/+$/, '') || '/';
+  // الفكّ إلزامي: المسار العربي يصل مُرمَّزاً، وبلا فكّه يقصّ حدّ الـ٤٨ حرفاً
+  // داخل الترميز فتتطابق مراجع صفحات مختلفة (قِيس: ٣ صفحات قطاعات ⇒ مرجع واحد).
+  let p = String(path || '/').split('?')[0];
+  try { p = decodeURIComponent(p); } catch { /* ترميز تالف — نُبقيه كما هو */ }
+  p = p.replace(/\/+$/, '') || '/';
   if (p === '/') return 'home';
   return p.replace(/^\/+/, '').replace(/\//g, '-').slice(0, 48) || 'home';
 }

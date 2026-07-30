@@ -42,6 +42,7 @@ const T: Record<Lang, Record<string, string>> = {
     sub: 'السعر لكل شركة لا لكل مستخدم. إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك.',
     perCompany: 'لكل شركة لا لكل مستخدم',
     noSetup: 'بلا رسوم تأسيس أو إعداد',
+    vatIncl: 'شامل ضريبة القيمة المضافة',
     noCommit: 'بلا التزام سنوي',
     trial: 'تجربة ١٠ أيام بلا بطاقة ائتمان',
     talk: 'تحدّث معنا على واتساب',
@@ -68,6 +69,7 @@ const T: Record<Lang, Record<string, string>> = {
     title: 'Field Sales pricing — published, with no hidden fees',
     sub: 'Priced per company, not per user. Adding a rep within your plan limit does not raise your bill.',
     perCompany: 'Per company, not per user',
+    vatIncl: 'VAT included',
     noSetup: 'No setup or onboarding fees',
     noCommit: 'No annual lock-in',
     trial: '10-day trial, no credit card',
@@ -95,6 +97,7 @@ const T: Record<Lang, Record<string, string>> = {
     title: 'Tarifs Field Sales — publiés, sans frais cachés',
     sub: 'Par entreprise, pas par utilisateur. Ajouter un commercial dans la limite de votre offre n’augmente pas la facture.',
     perCompany: 'Par entreprise, pas par utilisateur',
+    vatIncl: 'TVA incluse',
     noSetup: 'Aucuns frais de mise en service',
     noCommit: 'Sans engagement annuel',
     trial: 'Essai 10 jours, sans carte',
@@ -141,8 +144,8 @@ export default function PricingPage() {
   useSeo({
     title: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات؟ | Field Sales' : t.title,
     description: lang === 'ar'
-      ? `أسعار Field Sales معلنة: ${entry} ر.س حتى ٥ مناديب و${top} ر.س حتى ٢٠ مندوبًا — لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة.`
-      : `${entry}–${top} SAR per month, per company not per user. No setup fees. 10-day free trial, no credit card.`,
+      ? `أسعار Field Sales معلنة: ${entry} ر.س حتى ٥ مناديب و${top} ر.س حتى ٢٠ مندوبًا شامل ضريبة القيمة المضافة — لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة.`
+      : `${entry}–${top} SAR per month, VAT included, per company not per user. No setup fees. 10-day free trial, no credit card.`,
     keywords: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات، سعر برنامج إدارة المناديب، تسعير نظام التوزيع' : undefined,
     canonical: seoUrls('/pricing', lang).canonical,
     alternates: seoUrls('/pricing', lang).alternates,
@@ -184,7 +187,7 @@ export default function PricingPage() {
         <p className="text-[#6b6357] mt-2 max-w-2xl leading-relaxed">{t.sub}</p>
 
         <ul className="flex flex-wrap gap-2 mt-4 text-xs">
-          {[t.perCompany, t.noSetup, t.noCommit, t.trial].map((x) => (
+          {[t.perCompany, t.vatIncl, t.noSetup, t.noCommit, t.trial].map((x) => (
             <li key={x} className="inline-flex items-center gap-1.5 bg-white border border-[#E8E0D2] rounded-full px-3 py-1.5">
               <Check size={13} className="text-green-600" />{x}
             </li>

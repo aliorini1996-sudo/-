@@ -16,11 +16,37 @@ import { anonId, isOptedOut } from '../lib/attribution';
  *    بلاغ سبام واحد يوقف الرقم ومعه كل مسار التحويل.
  */
 
-const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|signup|verify-email|rep)(\/|$)/;
+/**
+ * مسارات **التطبيق** وحدها بلا زرّ. قرار المالك (٢٩ يوليو ٢٠٢٦): الزرّ على كل
+ * صفحات الموقع التسويقي، ولا شيء منه داخل التطبيق.
+ *
+ * لماذا التطبيق مستثنى: الرقم رقم مبيعات Field Sales لا رقم دعم الشركة
+ * المشتركة. ظهوره داخل لوحة شركة عميلة يجعل موظفيها يراسلوننا بدل مراسلة
+ * إدارتهم.
+ *
+ * `/signup` أُزيل من القائمة: لا حساب بعد ⇒ هو آخر خطوة في القمع التسويقي،
+ * والزائر المتعثّر في النموذج هو أولى من يحتاج قناة محادثة. أمّا `/login`
+ * و`/verify-email` فيبقيان مستثنيين لأن صاحبهما عميل قائم لا زائر.
+ *
+ * حدّ `(\/|$)` ليس تجميلاً: بدونه يبتلع `rep` مسارَ `/restaurant` التسويقي
+ * فيختفي الزرّ من صفحة هبوط كاملة بصمت.
+ */
+const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|verify-email|rep)(\/|$)/;
 
-/** ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home */
+/**
+ * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home
+ *
+ * الفكّ (`decodeURIComponent`) إلزامي لا تجميل: `location.pathname` يصل
+ * **مُرمَّزاً** للمسارات العربية (`/%D9%82%D8%B7...`)، ثم يرمّزه
+ * `URLSearchParams` مرّةً ثانية فيصير `%25D9%2582...`. عندها يقصّ حدّ الـ٤٨
+ * حرفاً داخل الترميز نفسه، فتخرج **كل** صفحات `/قطاعات/*` بمرجع واحد
+ * متطابق — وينهار إسناد سبع صفحات قطاعات وثماني صفحات نماذج إلى دلو واحد.
+ * قِيس فعلياً: ٣ صفحات قطاعات ⇒ مرجع واحد.
+ */
 export function refFromPath(path: string): string {
-  const p = (path || '/').split('?')[0].replace(/\/+$/, '') || '/';
+  let p = (path || '/').split('?')[0];
+  try { p = decodeURIComponent(p); } catch { /* ترميز تالف — نُبقيه كما هو */ }
+  p = p.replace(/\/+$/, '') || '/';
   if (p === '/') return 'home';
   return p.replace(/^\/+/, '').replace(/\//g, '-').slice(0, 48) || 'home';
 }

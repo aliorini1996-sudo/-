@@ -50,12 +50,34 @@ export async function loadPricing() {
     waLink: `https://wa.me/${waDigits(whatsapp)}`,
     low: prices[0] ?? 299,
     high: prices[prices.length - 1] ?? 599,
-    /** «٢٩٩ ر.س حتى ٥ مناديب و٥٩٩ ر.س حتى ٢٠ مندوبًا» */
-    arSummary: numeric.map((p) => `${p.price} ر.س ${p.limit || ''}`.trim()).join('، '),
-    /** «299 SAR (up to 5 reps), 599 SAR (up to 20 reps)» */
-    enSummary: numeric.map((p) => `${p.price} SAR`).join(' / '),
+    /**
+     * «٢٩٩ ر.س حتى ٥ مناديب، ٥٩٩ ر.س حتى ٢٠ مندوبًا (شامل ضريبة القيمة المضافة)»
+     *
+     * الأساس الضريبي **جزء من الملخّص نفسه** لا نصّ يُضاف في كل موضع: الملخّص
+     * يظهر في ثلاثة عشر موضعاً (الوصف، JSON-LD، الأسئلة الشائعة، llms.txt،
+     * الصفحة المُصيَّرة)، وإلحاقه هنا يجعل الأساس واحداً في كلّها بلا تضارب.
+     */
+    arSummary: numeric.map((p) => `${p.price} ر.س ${p.limit || ''}`.trim()).join('، ')
+      + (numeric.length ? ' (شامل ضريبة القيمة المضافة)' : ''),
+    /** «299 SAR / 599 SAR (VAT included)» */
+    enSummary: numeric.map((p) => `${p.price} SAR`).join(' / ')
+      + (numeric.length ? ' (VAT included)' : ''),
+    /** الأرقام وحدها بلا ملاحظة ضريبية — لمواضع لا تحتمل جملة اعتراضية */
+    arSummaryRaw: numeric.map((p) => `${p.price} ر.س ${p.limit || ''}`.trim()).join('، '),
     /** هل توجد باقة «حسب الطلب» لما فوق الحدّ الأعلى؟ */
     hasCustomTier: custom.length > 0,
     customTierName: custom[0]?.name || null,
+    /**
+     * الأساس الضريبي — أقرّه المالك في ٢٩ يوليو ٢٠٢٦: **الأسعار شاملة الضريبة**.
+     *
+     * لماذا هو حقل هنا لا نصّ يُكرَّر: الرقم يظهر في الصفحة وJSON-LD وllms.txt
+     * والوصف الاجتماعي؛ صياغته في موضع واحد تمنع تضارباً بين موضعين. وغيابه
+     * أصلاً كان عيباً حقيقياً — مشترٍ سعودي يرى «٢٩٩ ر.س» يفترض أنها ما سيدفعه،
+     * ومعظم مورّدي السوق يسعّرون قبل الضريبة فيقع الالتباس في غير مصلحتنا.
+     */
+    vatIncluded: true,
+    arVat: 'شامل ضريبة القيمة المضافة',
+    enVat: 'VAT included',
+    frVat: 'TVA incluse',
   };
 }

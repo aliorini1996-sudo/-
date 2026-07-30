@@ -22,7 +22,6 @@ import LeakCalculatorPage from './pages/LeakCalculatorPage';
 import InvoiceGeneratorPage from './pages/InvoiceGeneratorPage';
 import PricingPage from './pages/PricingPage';
 import SectorPage from './pages/SectorPage';
-import ComparePage from './pages/ComparePage';
 import TemplatesPage from './pages/TemplatesPage';
 import FreeToolsPage from './pages/FreeToolsPage';
 // لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
@@ -167,8 +166,6 @@ export default function App() {
         <Route path="/قطاعات" element={<SectorPage />} />
         <Route path="/قطاعات/:slug" element={<SectorPage />} />
         {/* مقارنات — موقوفة خلف مفتاح COMPARE_ENABLED حتى مراجعة المالك */}
-        <Route path="/مقارنة" element={<ComparePage />} />
-        <Route path="/مقارنة/:slug" element={<ComparePage />} />
         <Route path="/نماذج" element={<TemplatesPage />} />
         <Route path="/نماذج/:slug" element={<TemplatesPage />} />
         <Route path="/free" element={<FreeToolsPage />} />
