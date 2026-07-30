@@ -51,13 +51,31 @@ export function refFromPath(path: string): string {
   return p.replace(/^\/+/, '').replace(/\//g, '-').slice(0, 48) || 'home';
 }
 
+/**
+ * أصل الـAPI — **نفس التعبير في src/api/client.ts** لا مسار نسبيّ ثابت.
+ *
+ * كان الرابط مكتوباً `/api/analytics/go/wa` نسبياً، فيقع على fieldsa.net لا
+ * على api.fieldsa.net. وقاعدة SPA على الموقع الثابت (`/* → /index.html`)
+ * تبتلع المسار وتُرجع صفحة التطبيق بالرمز 200 — فالزرّ **لا يحوّل إلى واتساب
+ * إطلاقاً**، يفتح تبويباً فارغاً. قِيس على الإنتاج: fieldsa.net/api/… ⇒ 200
+ * text/html، وapi.fieldsa.net/api/… ⇒ 302 إلى wa.me.
+ *
+ * يُقرأ داخل الدالّة لا في نطاق الوحدة: `import.meta.env` بناءُ Vite ولا وجود
+ * له في node، وقراءته أعلى الملف تُسقط اختبار refFromPath.
+ */
+function apiBase(): string {
+  const env = (import.meta as unknown as { env?: Record<string, string> }).env;
+  const root = env?.VITE_API_URL;
+  return root ? `${root.replace(/\/+$/, '')}/api` : '/api';
+}
+
 /** رابط المحادثة لأي مسار — يُستخدم في الأزرار السياقية داخل الصفحات أيضاً */
 export function waHref(path: string, extra?: { lang?: string }): string {
   const params = new URLSearchParams({ ref: refFromPath(path), p: path });
   const a = isOptedOut() ? null : anonId();
   if (a) params.set('a', a);
   if (extra?.lang) params.set('l', extra.lang);
-  return `/api/analytics/go/wa?${params.toString()}`;
+  return `${apiBase()}/analytics/go/wa?${params.toString()}`;
 }
 
 export default function WhatsAppFab() {

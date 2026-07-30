@@ -93,6 +93,36 @@ if (fs.existsSync(home)) {
   fail.push('dist/index.html غير موجود');
 }
 
+// 4) زرّ واتساب يجب أن يشير إلى أصل الـAPI لا إلى مسار نسبيّ.
+//
+// العطل الذي يمنعه: كان الرابط مكتوباً `/api/analytics/go/wa` نسبياً، فيقع
+// على fieldsa.net لا api.fieldsa.net، وتبتلعه قاعدة SPA فتُرجع صفحة التطبيق
+// بالرمز 200 — الزرّ يفتح تبويباً فارغاً ولا يصل واتساب. عاش العطل حيّاً
+// وصامتاً: لا خطأ في السجلّات، ولا رمز حالة يشي به، والنقرات كلّها ضائعة.
+//
+// الفحص مشروط بضبط VITE_API_URL: محلياً لا يُضبط فالمسار النسبيّ صحيح (وسيط
+// Vite)، وعلى Render يُضبط فيصير النسبيّ عطلاً. الشرط يجعل الحارس يعمل حيث
+// يهمّ بلا إنذار كاذب محلياً.
+const apiRoot = (process.env.VITE_API_URL || '').replace(/\/+$/, '');
+if (apiRoot) {
+  const bundles = fs.existsSync(path.join(DIST, 'assets'))
+    ? fs.readdirSync(path.join(DIST, 'assets')).filter((f) => f.endsWith('.js'))
+    : [];
+  const hit = bundles.find((f) => fs.readFileSync(path.join(DIST, 'assets', f), 'utf8').includes('analytics/go/wa'));
+  if (!hit) {
+    fail.push('لم أجد رابط زرّ واتساب في أي حزمة — تحقّق من بناء الواجهة');
+  } else {
+    const js = fs.readFileSync(path.join(DIST, 'assets', hit), 'utf8');
+    if (/["'`]\/api\/analytics\/go\/wa/.test(js)) {
+      fail.push(`زرّ واتساب يستخدم مساراً نسبياً في ${hit} — سيقع على الموقع لا على الـAPI ولن يحوّل إطلاقاً`);
+    } else if (!js.includes(apiRoot)) {
+      fail.push(`زرّ واتساب لا يحمل أصل الـAPI (${apiRoot}) في ${hit}`);
+    } else {
+      ok.push(`زرّ واتساب يشير إلى ${apiRoot}`);
+    }
+  }
+}
+
 for (const o of ok) console.log('  ✓ ' + o);
 for (const f of fail) console.error('  ✗ ' + f);
 
