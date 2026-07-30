@@ -217,6 +217,21 @@
       @keyframes bootspin{to{transform:rotate(360deg)}}
     </style>
     <noscript><style>#root [data-ssr]{display:block!important}#boot{display:none!important}</style></noscript>
+    <script>
+      /* توحيد الشرطة الأخيرة — بديل عمليّ عن 301 على الحافة.
+         الصفحات مُصيَّرة كمجلّدات (blog/x/index.html)؛ والطلب بلا شرطة لا يجد ملفاً فتبتلعه
+         قاعدة `/* → /index.html` فتُخدَم هذه القوقعة (canonical فيها = الرئيسية) — أي أننا
+         نُخبر جوجل أن الصفحة نسخة مكرّرة من الرئيسية. ولا يمكن إصلاحه على الحافة: DNS في dnet
+         وCloudflare الظاهر أمام الموقع هو Cloudflare الخاص بـRender لا حسابنا (قِيس 29 يوليو 2026).
+         الحلّ هنا: توجيه فوري قبل إقلاع React (جوجل ينفّذ JS ويتبع هذا التوجيه).
+         شرطا الأمان: لا نقطة في المسار (استثناء الملفات) وعدم انتهائه بشرطة ⇒ لا حلقة ممكنة. */
+      (function () {
+        var p = location.pathname;
+        if (p.length > 1 && p.charAt(p.length - 1) !== '/' && p.indexOf('.') === -1) {
+          location.replace(p + '/' + location.search + location.hash);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
