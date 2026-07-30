@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { buildCatalog, modifiedOf } from '../src/blog/seo/catalog.mjs';
+import { buildCatalog, modifiedOf, isIndexable } from '../src/blog/seo/catalog.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -168,13 +168,16 @@ async function main() {
   let seoUrlCount = 0;
   for (const a of seo) {
     const p = `/blog/${a.slug}`;
+    // تقليم الفهرسة: الإنجليزية لأسواق بلا طلب إنجليزي مُعلَّمة noindex في التصيير ⇒
+    // تُحذف من الخريطة ومن عنقود hreflang معاً (رابط noindex داخل خريطة = إشارة متناقضة).
+    const enOk = isIndexable(a.cc, 'en');
     const seoAlt = [
       `    <xhtml:link rel="alternate" hreflang="ar" href="${ORIGIN}${p}/"/>`,
-      `    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}/"/>`,
+      ...(enOk ? [`    <xhtml:link rel="alternate" hreflang="en" href="${ORIGIN}/en${p}/"/>`] : []),
       `    <xhtml:link rel="alternate" hreflang="fr" href="${ORIGIN}/fr${p}/"/>`,
       `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${p}/"/>`,
     ].join('\n');
-    for (const L of ['ar', 'en', 'fr']) {
+    for (const L of (enOk ? ['ar', 'en', 'fr'] : ['ar', 'fr'])) {
       const loc = ORIGIN + (L === 'ar' ? '' : '/' + L) + p;
       urls.push(urlEntry(loc, { lastmod: a.modified, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
       seoUrlCount++;

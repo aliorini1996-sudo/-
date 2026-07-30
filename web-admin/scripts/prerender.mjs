@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
-import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf } from '../src/blog/seo/catalog.mjs';
+import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf, isIndexable } from '../src/blog/seo/catalog.mjs';
 import { loadPricing } from './pricing-source.mjs';
 import { SECTORS } from './sectors-data.mjs';
 import { TEMPLATES } from './templates-data.mjs';
@@ -50,7 +50,7 @@ const esc = (s) => String(s == null ? '' : s)
 const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 
 // يستبدل وسوم <head> الافتراضية بقيم الصفحة، ويحقن hreflang + JSON-LD + المحتوى
-function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '' }) {
+function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '' }) {
   const dir = lang === 'ar' ? 'rtl' : 'ltr';
   const ogLocale = lang === 'en' ? 'en_US' : lang === 'fr' ? 'fr_FR' : 'ar_SA';
   let h = template;
@@ -59,6 +59,8 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   h = h.replace(/(<meta name="description" content=")[\s\S]*?("\s*\/>)/, `$1${esc(description)}$2`);
   if (keywords) h = h.replace(/(<meta name="keywords" content=")[\s\S]*?("\s*\/>)/, `$1${esc(keywords)}$2`);
   h = h.replace(/(<link rel="canonical" href=")[^"]*("\s*\/>)/, `$1${canonical}$2`);
+  // تقليم الفهرسة: يستبدل وسم robots الافتراضي (index,follow) لا يُضيف وسماً ثانياً متناقضاً
+  if (robots) h = h.replace(/(<meta name="robots" content=")[^"]*("\s*\/>)/, `$1${robots}$2`);
   h = h.replace(/(<meta property="og:type" content=")[^"]*("\s*\/>)/, `$1${ogType}$2`);
   h = h.replace(/(<meta property="og:title" content=")[\s\S]*?("\s*\/>)/, `$1${esc(title)}$2`);
   h = h.replace(/(<meta property="og:description" content=")[\s\S]*?("\s*\/>)/, `$1${esc(description)}$2`);
@@ -120,9 +122,11 @@ const canon = (url) => {
   return p.endsWith('/') ? origin + p + rest : origin + p + '/' + rest;
 };
 
-const trilingualHreflang = (blogPath) => LANGS
+// عنقود hreflang للغات المُمرَّرة فقط — تُستثنى منه لغةٌ مقلَّمة (noindex) حتى لا يتناقض العنقود.
+const hreflangFor = (blogPath, langs = LANGS) => langs
   .map((L) => `\n    <link rel="alternate" hreflang="${L}" href="${canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}`)}"/>`)
   .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${canon(ORIGIN + blogPath)}"/>`;
+const trilingualHreflang = (blogPath) => hreflangFor(blogPath, LANGS);
 
 const tr = (L, ar, en, fr) => (L === 'ar' ? ar : L === 'en' ? en : fr);
 
@@ -165,7 +169,7 @@ async function main() {
   })).filter((p) => !catalogSlugs.has(p.slug)); // المولَّدة لها تصييرها الأغنى — لا تُدهس
 
   // 1) المقالات المولَّدة (~966) — محتوى كامل + وسوم + JSON-LD
-  for (const { slug } of buildCatalog()) {
+  for (const { slug, cc } of buildCatalog()) {
     for (const L of LANGS) {
       const a = getArticle(slug, L);
       if (!a) continue;
@@ -173,10 +177,16 @@ async function main() {
       const canonical = canon(`${ORIGIN}${prefix}/blog/${slug}`);
       const brand = tr(L, 'مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales');
       const body = `<main><article><h1>${esc(a.title)}</h1><img src="${a.imagePath}" alt="${esc(a.title)}" width="1200" height="630"/>${a.contentHtml}</article></main>`;
+      // تقليم الفهرسة: الإنجليزية لأسواق بلا طلب إنجليزي تبقى حيّة للزائر لكن noindex،
+      // وتُستثنى من عنقود hreflang (صفحة noindex داخل عنقود = إشارة متناقضة لجوجل).
+      const indexable = isIndexable(cc, L);
+      const langs = isIndexable(cc, 'en') ? LANGS : LANGS.filter((x) => x !== 'en');
       const html = buildPage({
         lang: L, title: `${a.title} | ${brand}`, description: a.description, keywords: a.keywords,
         canonical, image: a.image, ogType: 'article',
-        hreflang: trilingualHreflang(`/blog/${slug}`), jsonLd: articleJsonLd(a, L, canonical), bodyHtml: body,
+        hreflang: indexable ? hreflangFor(`/blog/${slug}`, langs) : '',
+        robots: indexable ? '' : 'noindex, follow',
+        jsonLd: articleJsonLd(a, L, canonical), bodyHtml: body,
       });
       writeRoute(`${prefix}/blog/${slug}`, html);
       n++;
