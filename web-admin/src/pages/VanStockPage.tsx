@@ -4,8 +4,36 @@ import { vanStockApi, productApi, salesRepApi } from '../api/client';
 import { formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+/** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
+interface SuggestRow {
+  id: string; name: string; code: string; unit: string;
+  expected: number; withBuffer: number; onVan: number; suggested: number;
+  basis: 'weekday' | 'overall' | 'none';
+  sampleDays: number; activeDays: number;
+  confidence: 'high' | 'medium' | 'low';
+  why: string;
+}
+interface SuggestResponse {
+  rows: SuggestRow[];
+  meta: {
+    targetDate: string; weekday: number; windowDays: number; bufferPct: number;
+    dataDays: number; oldestSale: string | null; warning: string | null;
+  };
+  salesRep: { id: string; name: string };
+}
+
+/** وسم الثقة — يُعرض دائماً بجوار الرقم فلا يُقرأ الاقتراح كيقين */
+function ConfidenceTag({ c }: { c: SuggestRow['confidence'] }) {
+  const map = {
+    high: { t: 'ثقة عالية', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    medium: { t: 'ثقة متوسطة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    low: { t: 'ثقة منخفضة', cls: 'bg-red-50 text-red-700 border-red-200' },
+  }[c];
+  return <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold ${map.cls}`}>{map.t}</span>;
+}
 
 interface RepSummary {
   salesRepId: string; repName: string; isActive: boolean; canSellWithoutStock: boolean;
@@ -230,7 +258,11 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
   const tr = useTr();
   const [repId, setRepId] = useState(preselectRep);
   const [note, setNote] = useState('');
-  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string }[]>([]);
+  // suggestedQty يُحفَظ على الصفّ ليُرسَل مع الحركة — به تُقاس جودة الاقتراح لاحقاً
+  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; suggestedQty?: number }[]>([]);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [windowDays, setWindowDays] = useState(28);
+  const [bufferPct, setBufferPct] = useState(15);
 
   const repsQ = useQuery({ queryKey: ['reps-min'], queryFn: async () => (await salesRepApi.list({ limit: 1000 })).data.data as { id: string; name: string }[] });
   const prodQ = useQuery({ queryKey: ['products-min'], queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as { id: string; name: string; unit: string; code: string }[] });
@@ -242,10 +274,31 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
     setRows(rs => [...rs, { productId: id, name: opt?.label || p.name, unit: p.unit, qty: '1' }]);
   };
 
+  // الاقتراح لا يُطلَب إلا حين يُفتح القسم: طلب شبكة لكل فتح نموذج هدرٌ
+  // لمن يعرف كمياته أصلاً.
+  const suggestQ = useQuery({
+    queryKey: ['van-suggest', repId, windowDays, bufferPct],
+    enabled: showSuggest && !!repId,
+    queryFn: async () => (await vanStockApi.suggest({ salesRepId: repId, windowDays, bufferPct })).data.data as SuggestResponse,
+  });
+
+  /** يملأ النموذج بما يستحقّ تحميلاً فقط — الأصفار ضجيج لا اقتراح */
+  const applySuggestion = () => {
+    const list = (suggestQ.data?.rows || []).filter(r => r.suggested > 0);
+    if (!list.length) { toast.error(tr('لا يوجد ما يُقترح تحميله')); return; }
+    setRows(list.map(r => ({
+      productId: r.id, name: r.name, unit: r.unit,
+      qty: String(r.suggested), suggestedQty: r.suggested,
+    })));
+    setShowSuggest(false);
+    toast.success(tr('طُبِّق الاقتراح — راجع الكميات قبل الحفظ'));
+  };
+
   const save = useMutation({
     mutationFn: () => {
       // موجب = تحميل، سالب = تنقيص؛ أي سالب ⇒ حركة تسوية/تنقيص
-      const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => !Number.isNaN(i.qty) && i.qty !== 0);
+      const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), suggestedQty: r.suggestedQty }))
+        .filter(i => !Number.isNaN(i.qty) && i.qty !== 0);
       const type = items.some(i => i.qty < 0) ? 'ADJUST' : 'LOAD';
       return vanStockApi.createLoad({ salesRepId: repId, type, note: note.trim() || undefined, items });
     },
@@ -281,6 +334,85 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
             <SearchableSelect
               options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
               value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
+          </div>
+
+          {/* ─────────── التحميل المقترح ───────────
+              موضعه هنا لا في لوحة منفصلة: الاقتراح قرار يُتّخذ لحظة التحميل،
+              ولوحة توقّعات مستقلّة تُقرأ مرّة وتُنسى. */}
+          <div className="border border-[#E9E1D3] rounded-xl overflow-hidden">
+            <button type="button" onClick={() => setShowSuggest(v => !v)} disabled={!repId}
+              className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 bg-[#FBEBE2] disabled:opacity-50 text-start">
+              <span className="text-sm font-bold text-[#1F1A13] flex items-center gap-2">
+                <Sparkles size={15} className="text-[#E15A30]" />
+                {tr('التحميل المقترح')}
+              </span>
+              <span className="text-[11px] text-[#6E6557]">
+                {repId ? (showSuggest ? tr('إخفاء') : tr('اعرض اقتراحاً من تاريخ مبيعاته')) : tr('اختر المندوب أولاً')}
+              </span>
+            </button>
+
+            {showSuggest && (
+              <div className="p-3.5 space-y-3">
+                <div className="flex items-end gap-2 flex-wrap">
+                  <div className="w-32">
+                    <label className="label !mb-1 !text-[11px]">{tr('نافذة التاريخ (يوم)')}</label>
+                    <input type="number" min={7} max={180} value={windowDays}
+                      onChange={e => setWindowDays(Math.min(180, Math.max(7, Number(e.target.value) || 28)))}
+                      className="input py-1.5 text-center" />
+                  </div>
+                  <div className="w-32">
+                    <label className="label !mb-1 !text-[11px]">{tr('هامش أمان %')}</label>
+                    <input type="number" min={0} max={100} value={bufferPct}
+                      onChange={e => setBufferPct(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                      className="input py-1.5 text-center" />
+                  </div>
+                  <button type="button" onClick={applySuggestion}
+                    disabled={suggestQ.isLoading || !(suggestQ.data?.rows || []).some(r => r.suggested > 0)}
+                    className="btn-primary py-2 px-3.5 text-sm disabled:opacity-50">{tr('املأ النموذج بالاقتراح')}</button>
+                </div>
+
+                {suggestQ.isLoading && <p className="text-xs text-[#9A8F7E]">{tr('يُحسب…')}</p>}
+                {suggestQ.isError && <p className="text-xs text-red-600">{tr('تعذّر حساب الاقتراح')}</p>}
+
+                {/* التحذير يُعرض كما هو من الخادم — إخفاء رقّة البيانات خداع */}
+                {suggestQ.data?.meta.warning && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <AlertTriangle size={12} className="inline -mt-0.5 me-1" />{suggestQ.data.meta.warning}
+                  </p>
+                )}
+
+                {suggestQ.data && (
+                  <>
+                    <p className="text-[11px] text-[#6E6557]">
+                      {tr('بناءً على')} <b>{suggestQ.data.meta.dataDays}</b> {tr('يوماً فيها مبيعات خلال آخر')}{' '}
+                      <b>{suggestQ.data.meta.windowDays}</b> {tr('يوماً')}
+                      {suggestQ.data.meta.oldestSale && <> · {tr('أقدم بيعة')} {suggestQ.data.meta.oldestSale}</>}
+                    </p>
+                    <div className="max-h-56 overflow-y-auto border border-[#F1EBDF] rounded-lg divide-y divide-[#F1EBDF]">
+                      {suggestQ.data.rows.filter(r => r.suggested > 0).map(r => (
+                        <div key={r.id} className="px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</span>
+                            <span className="flex items-center gap-1.5 shrink-0">
+                              <ConfidenceTag c={r.confidence} />
+                              <b className="text-sm text-[#E15A30]">{r.suggested}</b>
+                              <span className="text-[10px] text-[#9A8F7E]">{r.unit}</span>
+                            </span>
+                          </div>
+                          {/* «لماذا هذا الرقم» — الاقتراح غير القابل للشرح يُرفض أول خطأ */}
+                          <p className="text-[10px] text-[#9A8F7E] mt-0.5 leading-relaxed">{r.why}</p>
+                        </div>
+                      ))}
+                      {!suggestQ.data.rows.some(r => r.suggested > 0) && (
+                        <p className="px-3 py-3 text-xs text-[#9A8F7E]">
+                          {tr('لا يوجد ما يُقترح تحميله: إمّا لا مبيعات سابقة، أو السيارة تغطّي المتوقّع أصلاً.')}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr('أدخل كمية موجبة للتحميل، أو سالبة للتنقيص (استخدم زرّ ± أو اكتب مثل ‎-5).')}</p>

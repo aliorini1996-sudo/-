@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { suggestLoad, type SaleRow } from '../services/suggestLoad';
 
 const router = Router();
 router.use(authenticate);
@@ -15,6 +16,8 @@ const loadSchema = z.object({
   items: z.array(z.object({
     productId: z.string(),
     qty: z.number(), // موجب للتحميل/الإرجاع للمستودع؛ قد تكون سالبة لـADJUST
+    // ما اقترحه المحرّك وقت التحميل — يُخزَّن للمقارنة لاحقاً
+    suggestedQty: z.number().optional(),
   })).min(1),
 });
 
@@ -103,7 +106,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       data: {
         tenantId: tid, salesRepId, type: data.type, note: data.note,
         createdBy: isRep ? 'REP' : 'ADMIN',
-        items: { create: items.map(i => ({ productId: i.productId, qty: i.qty })) },
+        items: { create: items.map(i => ({ productId: i.productId, qty: i.qty, suggestedQty: i.suggestedQty ?? null })) },
       },
       include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } } },
     });
@@ -120,6 +123,67 @@ router.get('/current', async (req: AuthRequest, res: Response, next: NextFunctio
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
     const rows = await computeStock(tid, salesRepId);
     res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
+/**
+ * كمية التحميل المقترحة لسيارة مندوب في يوم مُحدَّد.
+ *
+ * لا يُخزَّن شيء هنا — الاقتراح حساب لحظي من التاريخ. يُخزَّن فقط حين يُنشئ
+ * المستخدم تحميلاً فعلياً (suggestedQty على البند)، فتُقارَن لاحقاً بالمُباع.
+ *
+ * النافذة والهامش معاملان يُدخلهما المستخدم لا ثابتان مخفيّان: شركة توزيع
+ * مياه ليست كشركة توزيع مستحضرات، ولا رقم سوق نعرفه نيابةً عنها.
+ */
+router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const isRep = req.user?.role === 'SALES_REP';
+    const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+
+    const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true, name: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+
+    const windowDays = Math.min(180, Math.max(7, Number(req.query.windowDays) || 28));
+    // قيمة غير رقمية تعود للافتراضي لا لصفر: صفر هامش قرار تشغيلي مختلف
+    // تماماً عن «لم يُرسَل معامل»، وابتلاعه صامتاً يغيّر التوصية بلا علم أحد.
+    const rawBuffer = Number(req.query.bufferPct);
+    const bufferPct = Math.min(100, Math.max(0, Number.isFinite(rawBuffer) ? rawBuffer : 15));
+    const targetDate = String(req.query.date || '') || new Date().toISOString();
+
+    // نجلب أوسع قليلاً من النافذة ثم يُرشّح المحرّك بدقّة — أرخص من حساب
+    // حدود اليوم المحلّي هنا مرّتين بمنطقين مختلفين.
+    const since = new Date(new Date(targetDate).getTime() - (windowDays + 2) * 86400000);
+    const [items, products, stock] = await Promise.all([
+      prisma.invoiceItem.findMany({
+        where: {
+          productId: { not: null },
+          invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', invoiceDate: { gte: since } },
+        },
+        select: { productId: true, qty: true, invoice: { select: { invoiceDate: true, type: true } } },
+      }),
+      prisma.product.findMany({
+        where: { tenantId: tid, status: { not: 'INACTIVE' } },
+        select: { id: true, name: true, code: true, unit: true },
+      }),
+      computeStock(tid, salesRepId),
+    ]);
+
+    const sales: SaleRow[] = [];
+    const returns: SaleRow[] = [];
+    for (const it of items) {
+      if (!it.productId) continue;
+      const row = { productId: it.productId, qty: it.qty, date: it.invoice.invoiceDate };
+      (it.invoice.type === 'RETURN' ? returns : sales).push(row);
+    }
+
+    const result = suggestLoad({
+      sales, returns, products, targetDate, windowDays, bufferPct,
+      onVan: stock.map((s) => ({ productId: s.productId, remaining: s.remaining })),
+    });
+
+    res.json({ success: true, data: { ...result, salesRep: rep } });
   } catch (err) { next(err); }
 });
 
