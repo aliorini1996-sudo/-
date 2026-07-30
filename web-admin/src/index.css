@@ -157,3 +157,121 @@ body::before {
 ::-webkit-scrollbar-track { background: #FAF7F0; }
 ::-webkit-scrollbar-thumb { background: #DED5C4; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #C9BEAC; }
+
+/* ────────────────────────────────────────────────────────────────────────
+   زرّ واتساب العائم — قناة التحويل الأولى، فيُصمَّم ليُرى لا ليختبئ.
+
+   قرارات مقصودة:
+   - كل الحركة على `transform` و`opacity` فقط ⇒ تعمل على طبقة الرسم (GPU)
+     بلا إعادة تخطيط، فلا تُكلّف شيئاً حتى على جوال ضعيف.
+   - حلقتان نابضتان بفارق توقيت، لا واحدة: النبضة المفردة تُقرأ خللاً
+     بصرياً، والمتتاليتان تُقرآن قصداً.
+   - الاسم يتمدّد على الشاشات الكبيرة فقط. على الجوال تبقى الدائرة وحدها
+     لأن الشريط الممتدّ يغطّي محتوى الصفحة في عرض ضيّق.
+   - `prefers-reduced-motion` يوقف النبض كاملاً ويُبقي التفاعل. من يضبط هذا
+     الخيار غالباً يتجنّب دواراً أو صداعاً — الحركة عنده ضرر لا جذب.
+   - المنطقيّة (`inset-inline-end`) تنقلب مع RTL بلا شرط لغوي.
+   ──────────────────────────────────────────────────────────────────────── */
+
+.wa-fab {
+  position: fixed;
+  inset-inline-end: 1.15rem;
+  bottom: 1.15rem;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 64px;
+  min-width: 64px;
+  max-width: calc(100vw - 2.3rem);
+  /* 15 + أيقونة 34 + 15 = 64 ⇒ دائرة تامّة عند الطيّ، وتصير كبسولة عند تمدّد الاسم */
+  padding: 0 15px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #2ee06d 0%, #22c55e 55%, #16a34a 100%);
+  color: #fff;
+  text-decoration: none;
+  box-shadow: 0 8px 22px rgba(22, 163, 74, .38), 0 2px 6px rgba(0, 0, 0, .16);
+  transition: transform .22s cubic-bezier(.34, 1.56, .64, 1), box-shadow .22s ease;
+  /* حركة ظهور **بالتحويل وحده بلا شفافية**: ربط الظهور بحركة يجعل الزرّ
+     غير مرئي كلّياً إن لم تُنفَّذ الحركة (تبويب خلفي، تبويب غير مركَّب،
+     متصفّح يخنق الرسوم). الرؤية حقّ أساسي للزرّ لا نتيجة حركة تنجح. */
+  animation: wa-enter .45s cubic-bezier(.34, 1.56, .64, 1) .25s backwards;
+  will-change: transform;
+}
+
+/* الحلقتان النابضتان */
+.wa-fab::before,
+.wa-fab::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: #22c55e;
+  z-index: -1;
+  animation: wa-pulse 2.6s cubic-bezier(.25, .6, .4, 1) infinite;
+  pointer-events: none;
+}
+.wa-fab::after { animation-delay: 1.3s; }
+
+.wa-fab:hover,
+.wa-fab:focus-visible {
+  transform: scale(1.07);
+  box-shadow: 0 12px 30px rgba(22, 163, 74, .48), 0 3px 8px rgba(0, 0, 0, .2);
+}
+.wa-fab:active { transform: scale(.96); }
+.wa-fab:focus-visible { outline: 3px solid #1F1A13; outline-offset: 3px; }
+
+.wa-fab__icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  /* اهتزازة خفيفة كل بضع ثوانٍ — لفتة لا ضجيج */
+  animation: wa-wiggle 5.5s ease-in-out 2s infinite;
+  transform-origin: 50% 60%;
+}
+
+/* الاسم: مطويّ افتراضياً، يتمدّد عند المرور — على الشاشات الواسعة فقط */
+.wa-fab__label {
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width .3s ease, opacity .22s ease, margin .3s ease;
+  margin-inline-start: -0.55rem;
+}
+@media (min-width: 768px) and (hover: hover) {
+  .wa-fab:hover .wa-fab__label,
+  .wa-fab:focus-visible .wa-fab__label {
+    max-width: 15rem;
+    opacity: 1;
+    margin-inline-start: 0;
+  }
+}
+
+@keyframes wa-enter {
+  from { transform: translateY(16px) scale(.84); }
+  to   { transform: translateY(0) scale(1); }
+}
+@keyframes wa-pulse {
+  0%   { transform: scale(1);   opacity: .55; }
+  70%  { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes wa-wiggle {
+  0%, 88%, 100%   { transform: rotate(0deg); }
+  90%             { transform: rotate(-11deg); }
+  93%             { transform: rotate(9deg); }
+  96%             { transform: rotate(-5deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-fab { animation: none; }
+  .wa-fab::before, .wa-fab::after { animation: none; opacity: 0; }
+  .wa-fab__icon { animation: none; }
+  .wa-fab:hover, .wa-fab:focus-visible { transform: none; }
+}
