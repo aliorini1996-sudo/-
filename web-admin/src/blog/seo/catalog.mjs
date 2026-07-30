@@ -730,16 +730,18 @@ const svc = (adAr, adEn, adFr) => ({ ar: adAr, en: adEn, fr: adFr });
 const TOPICS = [
   // ---------- موضوعات خاصة بكل دولة (13) ----------
   { id: 'field-sales-software', cs: true, rm: 7,
-    label: svc('برنامج إدارة المبيعات الميدانية', 'Field Sales Management Software', 'Logiciel de gestion des ventes terrain'),
+    label: svc('برنامج إدارة مناديب المبيعات الميدانية', 'Field Sales Management Software', 'Logiciel de gestion des ventes terrain'),
     kw: (c, L) => P(L, `برنامج مبيعات ميدانية ${c.ar}, نظام إدارة مناديب ${c.ar}, برنامج توزيع, فاتورة ضريبية, تحصيل`, `field sales software ${c.en}, sales rep management ${c.en}, distribution software, tax invoice, collection`, `logiciel de vente terrain ${c.fr}, gestion des commerciaux ${c.fr}, distribution, facturation`),
     secs: ['why', 'invoice', 'tax', 'collect', 'features', 'howstart', 'cta'] },
   { id: 'distribution-management-system', cs: true, rm: 7,
     // «Distributor Management System Software» = الصيغة الصاعدة +140% في مؤشرات Google — مطابقة تامّة في العنوان/H1.
-    label: svc('نظام إدارة الموزّعين (DMS)', 'Distributor Management System (DMS) Software', 'Logiciel de gestion des distributeurs (DMS)'),
+    label: svc('نظام إدارة الموزّعين وشركات التوزيع والجملة (DMS)', 'Distributor Management System (DMS) Software', 'Logiciel de gestion des distributeurs (DMS)'),
     kw: (c, L) => P(L, `نظام إدارة الموزّعين ${c.ar}, نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, مخزون, كشوف حساب`, `distributor management system software ${c.en}, distributor management system ${c.en}, DMS software ${c.en}, distribution management system ${c.en}, wholesale software ${c.en}`, `logiciel de gestion des distributeurs ${c.fr}, DMS ${c.fr}, logiciel de gros ${c.fr}`),
     secs: ['why', 'vanstock', 'crm', 'reports', 'collect', 'cta'] },
   { id: 'van-sales-app', cs: true, rm: 6,
-    label: svc('تطبيق البيع من السيارة (Van Sales)', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
+    // ⚠️ «البيع من السيارة» يُرجع 10/10 مواقع سيارات مستعملة (قياس SERP مصر والخليج) — انقلاب نيّة تامّ.
+    // المصطلح العامل هو المنقول «كاش فان» + «مناديب التوزيع» (يعمل في مصر أيضاً).
+    label: svc('تطبيق كاش فان لمناديب التوزيع (Van Sales)', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
     kw: (c, L) => P(L, `تطبيق فان سيلز ${c.ar}, البيع من السيارة ${c.ar}, مخزون سيارة المندوب, توزيع متنقل`, `van sales app ${c.en}, mobile selling ${c.en}, van stock, mobile distribution`, `application van sales ${c.fr}, vente en camion ${c.fr}, stock véhicule`),
     secs: ['why', 'vanstock', 'invoice', 'gps', 'offline', 'cta'] },
   { id: 'einvoicing-compliance', cs: true, rm: 6,
@@ -747,19 +749,19 @@ const TOPICS = [
     kw: (c, L) => P(L, `الفوترة الإلكترونية ${c.ar}, فاتورة ضريبية ${c.ar}, ضريبة القيمة المضافة, ${c.tax.ar}`, `e-invoicing ${c.en}, tax invoice ${c.en}, VAT, ${c.tax.en}`, `facturation électronique ${c.fr}, TVA ${c.fr}, ${c.tax.fr}`),
     secs: ['tax', 'invoice', 'features', 'faq', 'cta'] },
   { id: 'sales-rep-management', cs: true, rm: 6,
-    label: svc('إدارة مناديب المبيعات', 'Sales Rep Management', 'Gestion des commerciaux'),
+    label: svc('برنامج متابعة المناديب والتحصيل', 'Sales Rep Management', 'Gestion des commerciaux'),
     kw: (c, L) => P(L, `إدارة مناديب ${c.ar}, صلاحيات المندوب, متابعة أداء المندوبين ${c.ar}, تحصيل`, `sales rep management ${c.en}, rep permissions, rep performance ${c.en}`, `gestion des commerciaux ${c.fr}, droits, performance ${c.fr}`),
     secs: ['reps', 'gps', 'reports', 'collect', 'cta'] },
   { id: 'collection-receivables', cs: true, rm: 6,
-    label: svc('التحصيل وإدارة الذمم', 'Collection & Receivables', 'Encaissement et créances'),
+    label: svc('برنامج تحصيل المناديب والذمم والمديونيات', 'Collection & Receivables', 'Encaissement et créances'),
     kw: (c, L) => P(L, `تحصيل ${c.ar}, إدارة الذمم ${c.ar}, كشف حساب العميل, حد ائتمان, ديون متعثرة`, `collection ${c.en}, receivables ${c.en}, customer statement, credit limit`, `encaissement ${c.fr}, créances ${c.fr}, relevé client, limite de crédit`),
     secs: ['collect', 'crm', 'reports', 'roi', 'cta'] },
   { id: 'gps-rep-tracking', cs: true, rm: 5,
-    label: svc('تتبّع المناديب عبر GPS', 'GPS Rep Tracking', 'Suivi GPS des commerciaux'),
+    label: svc('برنامج متابعة وتتبّع المناديب GPS وخط السير', 'GPS Rep Tracking', 'Suivi GPS des commerciaux'),
     kw: (c, L) => P(L, `تتبع المناديب ${c.ar}, GPS مندوب, خطوط سير, تغطية مناطق ${c.ar}`, `rep tracking ${c.en}, GPS sales, route planning ${c.en}`, `suivi commerciaux ${c.fr}, GPS, tournées ${c.fr}`),
     secs: ['gps', 'reps', 'reports', 'cta'] },
   { id: 'van-stock-inventory', cs: true, rm: 5,
-    label: svc('إدارة مخزون سيارة المندوب', 'Van Stock & Inventory', 'Stock du véhicule et inventaire'),
+    label: svc('جرد عهدة المندوب وبضاعة سيارة التوزيع', 'Van Stock & Inventory', 'Stock du véhicule et inventaire'),
     kw: (c, L) => P(L, `مخزون سيارة المندوب ${c.ar}, جرد المخزون ${c.ar}, عجز وفروقات, توزيع`, `van stock ${c.en}, inventory ${c.en}, stock variance, distribution`, `stock véhicule ${c.fr}, inventaire ${c.fr}, écarts`),
     secs: ['vanstock', 'reports', 'features', 'cta'] },
   { id: 'sales-reports-analytics', cs: true, rm: 5,
@@ -771,11 +773,11 @@ const TOPICS = [
     kw: (c, L) => P(L, `موزع مواد غذائية ${c.ar}, تجارة جملة ${c.ar}, توزيع أغذية, فاتورة, تحصيل`, `food distributor ${c.en}, wholesale ${c.en}, FMCG distribution, invoicing`, `distributeur alimentaire ${c.fr}, gros ${c.fr}, distribution`),
     secs: ['why', 'vanstock', 'crm', 'invoice', 'cta'] },
   { id: 'fmcg-distribution', cs: true, rm: 6,
-    label: svc('توزيع السلع الاستهلاكية سريعة الدوران FMCG', 'FMCG Distribution', 'Distribution de produits de grande consommation (FMCG)'),
+    label: svc('برنامج مناديب توزيع FMCG والمواد الغذائية', 'FMCG Distribution', 'Distribution de produits de grande consommation (FMCG)'),
     kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, biens de consommation ${c.fr}`),
     secs: ['why', 'gps', 'vanstock', 'reports', 'cta'] },
   { id: 'mobile-field-invoicing', cs: true, rm: 5,
-    label: svc('الفوترة من الجوال في الميدان', 'Mobile Field Invoicing', 'Facturation mobile sur le terrain'),
+    label: svc('تطبيق فواتير المناديب من الجوال', 'Mobile Field Invoicing', 'Facturation mobile sur le terrain'),
     kw: (c, L) => P(L, `فوترة من الجوال ${c.ar}, طباعة حرارية, فاتورة QR ${c.ar}, تطبيق مندوب`, `mobile invoicing ${c.en}, thermal printing, QR invoice ${c.en}`, `facturation mobile ${c.fr}, impression thermique, facture QR`),
     secs: ['invoice', 'tax', 'offline', 'howstart', 'cta'] },
   { id: 'distribution-customer-management', cs: true, rm: 5,
@@ -785,7 +787,7 @@ const TOPICS = [
 
   // ---------- موضوعات عامة (14) ----------
   { id: 'what-is-field-sales-management', cs: false, rm: 6,
-    label: svc('ما هو نظام إدارة المبيعات الميدانية؟', 'What Is Field Sales Management Software?', "Qu'est-ce qu'un logiciel de vente terrain ?"),
+    label: svc('ما هو برنامج إدارة المناديب (نظام المبيعات الميدانية)؟', 'What Is Field Sales Management Software?', "Qu'est-ce qu'un logiciel de vente terrain ?"),
     kw: (c, L) => P(L, `نظام إدارة مبيعات ميدانية, تعريف, مناديب, توزيع, فاتورة`, `field sales management software, definition, reps, distribution`, `logiciel de vente terrain, définition, commerciaux, distribution`),
     secs: ['why', 'invoice', 'collect', 'reports', 'features', 'cta'] },
   // مقال ركيزة عام (صفحة واحدة لا 22) — «retail execution» طلبه ضعف DMS في مؤشرات Google،
@@ -815,7 +817,7 @@ const TOPICS = [
     kw: (c, L) => P(L, `مؤشرات أداء المبيعات, KPI, تحصيل, زيارات, أداء مناديب`, `field sales KPIs, collection, visits, rep performance`, `indicateurs de vente, KPI, visites, performance`),
     secs: ['reports', 'collect', 'gps', 'roi', 'cta'] },
   { id: 'offline-field-sales-app', cs: false, rm: 5,
-    label: svc('أهمية العمل بلا إنترنت في المبيعات الميدانية', 'Why Offline Matters in Field Sales', "L'importance du mode hors ligne"),
+    label: svc('تطبيق مناديب يعمل بدون إنترنت (أوفلاين)', 'Why Offline Matters in Field Sales', "L'importance du mode hors ligne"),
     kw: (c, L) => P(L, `تطبيق بلا إنترنت, مزامنة, ميدان, مبيعات`, `offline app, sync, field sales`, `application hors ligne, synchronisation, terrain`),
     secs: ['offline', 'invoice', 'vanstock', 'cta'] },
   { id: 'thermal-printing-invoices', cs: false, rm: 5,
@@ -849,7 +851,7 @@ const TOPICS = [
 
   // ---------- موضوع المقارنة (يستهدف نية الشراء «أفضل نظام») — مُضاف في النهاية للحفاظ على تواريخ المقالات السابقة ----------
   { id: 'best-field-sales-software', cs: true, rm: 8,
-    label: svc('أفضل برامج المبيعات الميدانية والتوزيع', 'Best Field Sales & Distribution Software', 'Meilleurs logiciels de vente terrain et distribution'),
+    label: svc('أفضل برنامج إدارة مناديب وتوزيع', 'Best Field Sales & Distribution Software', 'Meilleurs logiciels de vente terrain et distribution'),
     kw: (c, L) => P(L, `أفضل برنامج مبيعات ميدانية ${c.ar}, أفضل نظام توزيع ${c.ar}, مقارنة برامج المناديب, أفضل تطبيق فان سيلز ${c.ar}, برنامج مبيعات موصى به`, `best field sales software ${c.en}, top distribution system ${c.en}, van sales app comparison, recommended sales rep software ${c.en}`, `meilleur logiciel de vente terrain ${c.fr}, meilleur système de distribution ${c.fr}, comparatif applications commerciaux`),
     secs: ['best', 'features', 'tax', 'roi', 'faq', 'cta'] },
 ];
@@ -874,8 +876,9 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  * 2026-07-17: أُعيدت صياغة كتلة «مقالات ذات صلة» (الشرطة الأخيرة في كل رابط).
  * 2026-07-23: قسم localContext مُفرَّد لكل دولة + استهداف «distributor management system» (DMS).
  * 2026-07-25: صيغة «DMS Software» (استعلام صاعد +140%) + مقال ركيزة «retail execution».
+ * 2026-07-29: إعادة توجيه العناوين العربية لمفردات المشتري (مناديب أولاً) + إصلاح «البيع من السيارة»→«كاش فان».
  */
-export const CONTENT_VERSION = '2026-07-25';
+export const CONTENT_VERSION = '2026-07-29';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً)
 export const modifiedOf = (date) => (date > CONTENT_VERSION ? date : CONTENT_VERSION);
