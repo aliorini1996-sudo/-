@@ -87,6 +87,25 @@ test('المرتجع يُخصم من الطلب — ليس طلباً حقيقي
   assert.equal(row(withReturns).expected, 1); // (56−28)/28
 });
 
+test('المرتجع يُخصم ولو جاء في يوم غير يوم البيع — الحالة الطبيعية', () => {
+  // المرتجع في التوزيع يصل في زيارة تالية لا في يوم البيع. القصّ عند الصفر
+  // لكل يوم كان يبتلعه تماماً فيخرج 10/يوم بدل 2.5 — أربعة أضعاف الحاجة.
+  const cross = suggestLoad({
+    sales: [{ productId: 'p1', qty: 280, date: daysAgo(5) }],
+    returns: [{ productId: 'p1', qty: 210, date: daysAgo(3) }],
+    products: P1, targetDate: TARGET, windowDays: 28, bufferPct: 0,
+  });
+  assert.equal(row(cross).expected, 2.5, '(280−210)/28');
+
+  // والنتيجة نفسها لو وقعا في اليوم ذاته — لا فرق يعتمد على توقيت المرتجع
+  const same = suggestLoad({
+    sales: [{ productId: 'p1', qty: 280, date: daysAgo(5) }],
+    returns: [{ productId: 'p1', qty: 210, date: daysAgo(5) }],
+    products: P1, targetDate: TARGET, windowDays: 28, bufferPct: 0,
+  });
+  assert.equal(same.rows[0].expected, cross.rows[0].expected);
+});
+
 test('مرتجع يفوق مبيعات اليوم لا يجعل المتوسط سالباً', () => {
   const r = suggestLoad({
     sales: [{ productId: 'p1', qty: 10, date: daysAgo(3) }],

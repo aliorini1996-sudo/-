@@ -165,7 +165,19 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
       continue;
     }
 
-    const sumOver = (keys: string[]) => keys.reduce((s, k) => s + Math.max(0, days.get(k) || 0), 0);
+    /**
+     * القصّ عند الصفر يقع على **المجموع** لا على كل يوم.
+     *
+     * كان `Math.max(0, ...)` داخل الجمع، فأي يوم صافيه سالب (مرتجع بلا بيع
+     * فيه) يُصفَّر ويختفي المرتجع تماماً. والمرتجع في التوزيع يصل عادةً في
+     * **زيارة تالية** لا في يوم البيع، فكان الخصم المُوثَّق ميتاً عملياً:
+     * بيع 280 ومرتجع 210 في يوم آخر يُخرج 10/يوم بدل 2.5 — **أربعة أضعاف**،
+     * وتُحمَّل السيارة أربعة أمثال حاجتها.
+     *
+     * القصّ على المجموع يحفظ المقصود الأصلي (لا متوسط سالب) بلا أن يبتلع
+     * المرتجعات العابرة للأيام.
+     */
+    const sumOver = (keys: string[]) => Math.max(0, keys.reduce((s, k) => s + (days.get(k) || 0), 0));
     const activeDays = [...days.values()].filter((v) => v > 0).length;
 
     let basis: Basis;
