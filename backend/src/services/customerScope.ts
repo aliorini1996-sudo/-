@@ -10,9 +10,18 @@
  */
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
+import { adminCustomerFilter } from './adminScope';
 
-/** قيد Prisma على العملاء. غياب assignments = بلا تقييد (رؤية كاملة). */
-export type CustomerScope = { assignments?: { some: { salesRepId: string } } };
+/**
+ * قيد Prisma على العملاء.
+ * - `assignments` = قيد المندوب (عملاؤه المُسنَدون).
+ * - `adminScopes` = قيد مستخدم الشركة مقيّد النطاق (انظر services/adminScope.ts).
+ * غياب المفتاحين = بلا تقييد (رؤية كاملة).
+ */
+export type CustomerScope = {
+  assignments?: { some: { salesRepId: string } };
+  adminScopes?: { some: { adminId: string } };
+};
 
 /** هل فعّلت هذه الشركة عزل العملاء؟ */
 export async function isolationEnabled(tid: string): Promise<boolean> {
@@ -23,11 +32,20 @@ export async function isolationEnabled(tid: string): Promise<boolean> {
   return settings?.customerIsolationEnabled === true;
 }
 
-/** قيد رؤية العملاء للطالب الحالي — يُدمج في أي استعلام عملاء. */
+/**
+ * قيد رؤية العملاء للطالب الحالي — يُدمج في أي استعلام عملاء.
+ *
+ * يغطّي حالتين بمصدر واحد كي لا يُنسى أحدهما في مسار:
+ *  - **المندوب:** عملاؤه المُسنَدون (عند تفعيل الشركة للعزل).
+ *  - **مستخدم الشركة مقيّد النطاق:** العملاء المُسنَدون له وحده.
+ * أي دور آخر (أو غير مقيّد) ⇒ رؤية كاملة كما كان.
+ */
 export async function customerScope(req: AuthRequest, tid: string): Promise<CustomerScope> {
-  if (req.user?.role !== 'SALES_REP') return {};
-  if (!(await isolationEnabled(tid))) return {};
-  return { assignments: { some: { salesRepId: req.user.id } } };
+  if (req.user?.role === 'SALES_REP') {
+    if (!(await isolationEnabled(tid))) return {};
+    return { assignments: { some: { salesRepId: req.user.id } } };
+  }
+  return adminCustomerFilter(req);
 }
 
 /**
@@ -36,7 +54,8 @@ export async function customerScope(req: AuthRequest, tid: string): Promise<Cust
  */
 export async function canAccessCustomer(req: AuthRequest, tid: string, customerId: string): Promise<boolean> {
   const scope = await customerScope(req, tid);
-  if (!scope.assignments) return true;
+  // بلا أي قيد ⇒ مسموح. الفحص على المفتاحين معاً كي لا يُفلت قيد الإداري.
+  if (!scope.assignments && !scope.adminScopes) return true;
   const found = await prisma.customer.findFirst({
     where: { id: customerId, tenantId: tid, ...scope },
     select: { id: true },

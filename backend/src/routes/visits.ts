@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { scopedRecordWhere, canAccessRep } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { computeVisitDuration } from '../services/visitDuration';
@@ -45,12 +46,23 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         where: { tenantId: tid, clientRef: body.clientRef },
         include: { _count: { select: { photos: true } } },
       });
-      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      if (existing) {
+        // النطاق يسبق الـidempotency. ونحرس هنا لا في الاستعلام: لو صفّى القيدُ
+        // الزيارةَ القائمة لسقط المسار إلى الإنشاء فتكرّرت الزيارة نفسها.
+        if (!(await canAccessCustomer(req, tid, existing.customerId))) {
+          res.status(404).json({ success: false, message: 'الزيارة غير موجودة' }); return;
+        }
+        res.status(200).json({ success: true, data: existing, idempotent: true }); return;
+      }
     }
 
     const salesRepId = req.user!.role === 'SALES_REP' ? req.user!.id
       : (req.body.salesRepId as string | undefined);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    // نطاق المستخدم الإداري: لا يسجّل زيارة باسم مندوب لا يراه
+    if (!(await canAccessRep(req, tid, salesRepId))) {
+      res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
+    }
 
     // حلّ تبعية العميل: عميل أُنشئ أوف‑لاين (customerClientRef) يُحلّ إلى id الحقيقي
     let customerId = body.customerId;
@@ -122,7 +134,7 @@ router.get('/', requireAdmin, async (req: AuthRequest, res: Response, next: Next
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
     const visits = await prisma.repVisit.findMany({
-      where: { tenantId: tid, salesRepId, createdAt: { gte: start, lt: end } },
+      where: { tenantId: tid, salesRepId, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req)) },
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
@@ -144,7 +156,7 @@ router.get('/count-by-rep', requireAdmin, async (req: AuthRequest, res: Response
 
     const rows = await prisma.repVisit.groupBy({
       by: ['salesRepId'],
-      where: { tenantId: tid, createdAt: { gte: start, lt: end } },
+      where: { tenantId: tid, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req)) },
       _count: { _all: true },
     });
     const counts: Record<string, number> = {};
@@ -158,7 +170,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const visit = await prisma.repVisit.findFirst({
-      where: { id: req.params.id, tenantId: tid },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
         salesRep: { select: { id: true, name: true } },

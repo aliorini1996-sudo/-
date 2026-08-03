@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { adminRepFilter, adminCustomerFilter } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 
@@ -58,6 +59,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     const where = {
       tenantId: tid,
+      // نطاق المستخدم: مستخدم الشركة مقيّد النطاق لا يرى إلا مناديبه المُسنَدين
+      ...(await adminRepFilter(req)),
       ...(search && { OR: [{ name: { contains: search } }, { phone: { contains: search } }, { username: { contains: search } }] }),
     };
 
@@ -73,7 +76,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: repSelect });
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: repSelect });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     res.json({ success: true, data: rep });
   } catch (err) { next(err); }
@@ -120,7 +123,7 @@ async function checkRepDuplicates(tid: string, username: string, phone: string, 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const current = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid } });
+    const current = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) } });
     if (!current) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     const { password, ...rest } = repSchema.partial().parse(req.body);
@@ -185,7 +188,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       res.status(403).json({ success: false, message: 'حذف المندوب متاح للأدمن الرئيسي فقط.' });
       return;
     }
-    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, name: true } });
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     // معاملة واحدة: تفريغ مرجع المندوب من الفواتير/السندات (حفظ السجلّ المالي)،
@@ -236,7 +239,7 @@ router.patch('/settings/isolation', async (req: AuthRequest, res: Response, next
 router.get('/:id/customers', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     // نُرفق بيانات العميل كي تعرض النافذة المُسنَدين دون تحميل كل عملاء الشركة
     const rows = await prisma.customerAssignment.findMany({
@@ -266,7 +269,7 @@ router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
   try {
     const tid = tenantId(req);
     const repId = req.params.id;
-    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { id: true } });
+    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     const body = z.object({
@@ -277,9 +280,14 @@ router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
     const toRemove = [...new Set(body.remove ?? [])];
     const wantAdd = [...new Set(body.add ?? [])].filter(id => !toRemove.includes(id));
 
-    // لا يُسنَد إلا عميل من نفس الشركة (حارس ضد تسريب بين الشركات)
+    // لا يُسنَد إلا عميل من نفس الشركة (حارس ضد تسريب بين الشركات)، **وضمن نطاق
+    // المستخدم**: مستخدم مقيّد لا يُسنِد عميلاً لا يراه. بلا هذا القيد يستطيع
+    // تمرير معرّفات مباشرةً فيتجاوز عزله من حيث لا تراه الواجهة.
     const valid = wantAdd.length
-      ? await prisma.customer.findMany({ where: { tenantId: tid, id: { in: wantAdd } }, select: { id: true } })
+      ? await prisma.customer.findMany({
+          where: { tenantId: tid, id: { in: wantAdd }, ...(await adminCustomerFilter(req)) },
+          select: { id: true },
+        })
       : [];
     const toAdd = valid.map(c => c.id);
 
@@ -313,7 +321,7 @@ async function repCollection(tid: string, repId: string) {
 router.get('/:id/collection', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     res.json({ success: true, data: await repCollection(tid, req.params.id) });
   } catch (err) { next(err); }
@@ -323,7 +331,7 @@ router.get('/:id/collection', async (req: AuthRequest, res: Response, next: Next
 router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     const amount = Number(req.body?.amount);
     if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ success: false, message: 'أدخل مبلغاً صحيحاً أكبر من صفر' }); return; }

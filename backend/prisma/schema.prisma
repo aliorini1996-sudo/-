@@ -58,6 +58,8 @@ model Tenant {
   repSettlements RepSettlement[]
   importBatches  ImportBatch[]
   customerAssignments CustomerAssignment[]
+  adminCustomerScopes AdminCustomerScope[]
+  adminRepScopes      AdminRepScope[]
 
   // عمودية المطاعم (M2+) — علاقات ظهر إضافية اختيارية
   restaurantAreas  RestaurantArea[]
@@ -119,11 +121,51 @@ model Admin {
   canManageCompanySettings Boolean @default(true)
   canManageCompanyUsers    Boolean @default(true)
 
+  // عزل نطاق المستخدم الإداري: عند التفعيل لا يرى إلا العملاء والمناديب
+  // المُسنَدين له (AdminCustomerScope / AdminRepScope). افتراضي false ⇒ كل
+  // المستخدمين القائمين يبقون على رؤيتهم الكاملة عند db push (لا انقطاع).
+  scopeEnabled Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  customerScopes AdminCustomerScope[]
+  repScopes      AdminRepScope[]
+
   @@index([tenantId])
   @@map("admins")
+}
+
+/// العملاء الذين يراهم مستخدم إداري مقيّد النطاق (قائمة مستقلّة عن المناديب).
+model AdminCustomerScope {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  adminId    String
+  admin      Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([adminId, customerId])
+  @@index([tenantId, adminId])
+  @@map("admin_customer_scopes")
+}
+
+/// المناديب الذين يراهم مستخدم إداري مقيّد النطاق (قائمة مستقلّة عن العملاء).
+model AdminRepScope {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  adminId    String
+  admin      Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([adminId, salesRepId])
+  @@index([tenantId, adminId])
+  @@map("admin_rep_scopes")
 }
 
 model SalesRep {
@@ -189,6 +231,7 @@ model SalesRep {
 
   // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
   customerAssignments CustomerAssignment[]
+  adminScopes         AdminRepScope[]
   createdCustomers    Customer[]           @relation("CustomerCreatedByRep")
 
   @@index([tenantId])
@@ -301,6 +344,7 @@ model Customer {
   notifications  Notification[]
   RepVisit       RepVisit[]
   assignments    CustomerAssignment[]
+  adminScopes    AdminCustomerScope[]
 
   @@unique([tenantId, code])
   @@index([tenantId])

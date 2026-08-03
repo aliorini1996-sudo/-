@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { scopedRecordWhere, canAccessRep } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
 import { getCountryTax } from '../config/countries';
@@ -68,6 +69,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     const where = {
       tenantId: tid,
+      // نطاق مستخدم الشركة: لا تظهر فاتورة لعميل أو مندوب خارج نطاقه
+      ...(await scopedRecordWhere(req)),
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
@@ -111,7 +114,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const invoice = await prisma.invoice.findFirst({
-      where: { id: req.params.id, tenantId: tid },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
       include: {
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
@@ -144,7 +147,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         where: { tenantId_clientRef: { tenantId: tid, clientRef: body.clientRef } },
         include: { items: true, customer: true },
       });
-      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      if (existing) {
+        // النطاق يسبق الـidempotency: وإلا كُشف عميل خارج النطاق (برصيده وحدّه الائتماني)
+        // لمن يعرف clientRef فاتورته — فالمسار يُعيد سجلّ العميل كاملاً.
+        if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
+          res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
+        }
+        res.status(200).json({ success: true, data: existing, idempotent: true }); return;
+      }
     }
 
     // حلّ تبعية العميل: إن أشارت الفاتورة لعميل أُنشئ أوف‑لاين (customerClientRef) نحلّه إلى id
@@ -165,6 +175,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    // نطاق المستخدم الإداري: لا يُنسِب فاتورة لمندوب لا يراه (كتابة عمياء تظهر في تقاريره)
+    if (!(await canAccessRep(req, tid, salesRepId))) {
+      res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
+    }
 
     const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
@@ -336,10 +350,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const e = err as { code?: string; meta?: { target?: unknown } };
     if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('clientRef') && req.body?.clientRef) {
       try {
+        const tid2 = tenantId(req);
         const existing = await prisma.invoice.findUnique({
-          where: { tenantId_clientRef: { tenantId: tenantId(req), clientRef: req.body.clientRef } },
+          where: { tenantId_clientRef: { tenantId: tid2, clientRef: req.body.clientRef } },
           include: { items: true, customer: true },
         });
+        // نفس حارس النطاق في المسار المبكر: السباق لا يفتح باباً مغلقاً
+        if (existing && existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId))) {
+          res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
+        }
         if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
       } catch { /* يسقط لمعالج الأخطاء */ }
     }
@@ -351,7 +370,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
   try {
     const tid = tenantId(req);
     const invoice = await prisma.invoice.findFirst({
-      where: { id: req.params.id, tenantId: tid },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
       include: { receiptItems: true },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
@@ -402,7 +421,7 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
   try {
     const tid = tenantId(req);
     const { returnToStock } = z.object({ returnToStock: z.boolean() }).parse(req.body);
-    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, type: true } });
+    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) }, select: { id: true, type: true } });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
     if (invoice.type !== 'RETURN') { res.status(400).json({ success: false, message: 'هذا الإجراء للمرتجعات فقط' }); return; }
     const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });

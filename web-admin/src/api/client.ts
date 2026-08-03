@@ -134,6 +134,11 @@ export const companyUserApi = {
   list: () => api.get('/company-users'),
   create: (data: unknown) => api.post('/company-users', data),
   update: (id: string, data: unknown) => api.put(`/company-users/${id}`, data),
+  // نطاق المستخدم: العملاء والمناديب الذين يراهم (عزل على مستوى المستخدم)
+  scope: (id: string) => api.get(`/company-users/${id}/scope`),
+  // null لقائمة = «لا تلمسها» (تحديث إحداهما وحدها)
+  setScope: (id: string, data: { customerIds?: string[] | null; salesRepIds?: string[] | null; scopeEnabled?: boolean }) =>
+    api.put(`/company-users/${id}/scope`, data),
 };
 
 export const erpApi = {

@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
+import { scopedRecordWhere, canAccessRep } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries } from '../services/accounting';
@@ -53,6 +54,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     const where = {
       tenantId: tid,
+      ...(await scopedRecordWhere(req)),
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
@@ -92,13 +94,19 @@ router.get('/collection-balance', async (req: AuthRequest, res: Response, next: 
     const isSalesRep = req.user?.role === 'SALES_REP';
     const repId = isSalesRep ? req.user!.id : (req.query.salesRepId as string | undefined);
     if (!repId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    // مندوب خارج نطاق المستخدم ⇒ لا أرقام. حارسٌ صريح لا قيدُ استعلام: التسويات
+    // (repSettlement) لا تحمل علاقة عميل تُقيَّد بها، فبقاؤها بلا حارس يكشف
+    // ما سُلِّم منه (settled) ولو صفَّرنا التحصيل.
+    if (!isSalesRep && !(await canAccessRep(req, tid, repId))) {
+      res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
+    }
     // الميزة اختيارية لكل مندوب — إن لم يفعّلها الأدمن للمندوب لا تُعرض له
     if (isSalesRep) {
       const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { showCollectionBalance: true } });
       if (!rep?.showCollectionBalance) { res.json({ success: true, data: { enabled: false } }); return; }
     }
     const [collected, settled] = await Promise.all([
-      prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE' }, _sum: { amount: true } }),
+      prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...(await scopedRecordWhere(req)) }, _sum: { amount: true } }),
       prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId }, _sum: { amount: true } }),
     ]);
     const c = collected._sum.amount ?? 0;
@@ -111,7 +119,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const receipt = await prisma.receipt.findFirst({
-      where: { id: req.params.id, tenantId: tid },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
       include: {
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
@@ -140,7 +148,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const existing = await prisma.receipt.findUnique({
         where: { tenantId_clientRef: { tenantId: tid, clientRef: body.clientRef } },
       });
-      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      if (existing) {
+        // النطاق يسبق الـidempotency (كما في الفواتير): معرفةُ clientRef لا تكشف سنداً خارج النطاق
+        if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
+          res.status(404).json({ success: false, message: 'السند غير موجود' }); return;
+        }
+        res.status(200).json({ success: true, data: existing, idempotent: true }); return;
+      }
     }
 
     // حلّ تبعية العميل المُنشأ أوف‑لاين (customerClientRef → id الحقيقي)
@@ -160,6 +174,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    // نطاق المستخدم الإداري: لا يُنسِب سنداً لمندوب لا يراه (يدخل رصيده التحصيلي وقيوده)
+    if (!(await canAccessRep(req, tid, salesRepId))) {
+      res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
+    }
     if (req.user?.role === 'SALES_REP' && !rep.canCreateReceipt) {
       res.status(403).json({ success: false, message: 'لا تملك صلاحية إصدار سند قبض' }); return;
     }
@@ -245,9 +263,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const e = err as { code?: string; meta?: { target?: unknown } };
     if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('clientRef') && req.body?.clientRef) {
       try {
+        const tid2 = tenantId(req);
         const existing = await prisma.receipt.findUnique({
-          where: { tenantId_clientRef: { tenantId: tenantId(req), clientRef: req.body.clientRef } },
+          where: { tenantId_clientRef: { tenantId: tid2, clientRef: req.body.clientRef } },
         });
+        if (existing && existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId))) {
+          res.status(404).json({ success: false, message: 'السند غير موجود' }); return;
+        }
         if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
       } catch { /* يسقط لمعالج الأخطاء */ }
     }
@@ -259,7 +281,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
   try {
     const tid = tenantId(req);
     const receipt = await prisma.receipt.findFirst({
-      where: { id: req.params.id, tenantId: tid },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
       include: { invoiceItems: true },
     });
     if (!receipt) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }

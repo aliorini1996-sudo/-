@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Edit, Eye, EyeOff, KeyRound, Plus, ShieldCheck, UserCog, X } from 'lucide-react';
+import { Check, Copy, Edit, Eye, EyeOff, KeyRound, Plus, ShieldCheck, UserCog, X, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { companyUserApi } from '../api/client';
 import ResetPasswordModal from '../components/ResetPasswordModal';
+import UserScopeModal from '../components/UserScopeModal';
 import { useAuthStore } from '../store/authStore';
 import { CompanyUser } from '../types';
 import { formatDate } from '../utils/format';
@@ -56,6 +57,7 @@ export default function CompanyUsersPage() {
   const [selected, setSelected] = useState<CompanyUser | null>(null);
   const [createdCreds, setCreatedCreds] = useState<{ name: string; email: string; password: string } | null>(null);
   const [resetUser, setResetUser] = useState<CompanyUser | null>(null);
+  const [scopeUser, setScopeUser] = useState<CompanyUser | null>(null); // نافذة نطاق المستخدم
 
   const { data, isLoading } = useQuery({
     queryKey: ['company-users'],
@@ -137,6 +139,7 @@ export default function CompanyUsersPage() {
                     <div className="flex items-center gap-1">
                       <button onClick={() => { setSelected(u); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}><Edit size={14} /></button>
                       <button onClick={() => setResetUser(u)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title={tr('إعادة تعيين كلمة المرور')}><KeyRound size={14} /></button>
+                      <button onClick={() => setScopeUser(u)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title={tr('نطاق المستخدم (العملاء والمناديب)')}><Filter size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -167,6 +170,10 @@ export default function CompanyUsersPage() {
           onConfirm={async (newPassword) => { await companyUserApi.update(resetUser.id, { password: newPassword }); }}
           onClose={() => setResetUser(null)}
         />
+      )}
+
+      {scopeUser && (
+        <UserScopeModal userId={scopeUser.id} userName={scopeUser.name} onClose={() => setScopeUser(null)} />
       )}
     </div>
   );

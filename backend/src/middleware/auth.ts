@@ -47,10 +47,10 @@ export function requireAdminPermission(permission: AdminPermission) {
         res.status(403).json({ success: false, message: 'غير مسموح' });
         return;
       }
-      const admin = await prisma.admin.findUnique({
-        where: { id: req.user.id },
-        select: { isActive: true, [permission]: true },
-      });
+      // نجلب السجلّ كاملاً بدل select بمفتاح ديناميكي: المفتاح الديناميكي
+      // يجعل نوع النتيجة اتّحاداً يشمل حقول العلاقات (adminScopes…) فيفشل
+      // فحص الأنواع. السجلّ صغير وبمفتاح أساسي، فالكلفة مهملة والقراءة أوضح.
+      const admin = await prisma.admin.findUnique({ where: { id: req.user.id } });
       if (!admin?.isActive || admin[permission] === false) {
         res.status(403).json({ success: false, message: 'لا تملك صلاحية الوصول لهذا القسم' });
         return;

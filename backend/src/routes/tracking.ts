@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, canAccessRep } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { snapToRoads } from '../services/mapMatch';
 
@@ -110,13 +111,13 @@ router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: 
       // كل المناديب النشطين (لا فقط من أرسل موقعاً) — كي يظهر المضاف حديثاً فوراً؛
       // من له موقع أوّلاً (nulls last)، ومن لم يُحدّد موقعه بعد يظهر بلا دبّوس على الخريطة
       prisma.salesRep.findMany({
-        where: { tenantId: tid, isActive: true },
+        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
         select: { id: true, name: true, phone: true, isActive: true, lastLat: true, lastLng: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: { sort: 'desc', nulls: 'last' } }, { name: 'asc' }],
       }),
       prisma.repVisit.groupBy({
         by: ['salesRepId'],
-        where: { tenantId: tid, createdAt: { gte: dayStart } },
+        where: { tenantId: tid, createdAt: { gte: dayStart }, ...(await scopedRecordWhere(req)) },
         _count: { _all: true },
       }),
     ]);
@@ -137,8 +138,10 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
     const start = new Date(`${dateStr}T00:00:00.000Z`);
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
+    // مندوب خارج نطاق المستخدم ⇒ لا خطّ سير (وإلا كُشف مساره بتمرير معرّفه)
+    if (!(await canAccessRep(req, tid, salesRepId))) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     const points = await prisma.repLocation.findMany({
-      where: { tenantId: tid, salesRepId, capturedAt: { gte: start, lt: end } },
+      where: { tenantId: tid, salesRepId, capturedAt: { gte: start, lt: end }, ...(await scopedRepRecordWhere(req)) },
       orderBy: { capturedAt: 'asc' }, take: 5000,
       select: { lat: true, lng: true, accuracy: true, speed: true, capturedAt: true },
     });

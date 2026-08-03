@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { scopedRecordWhere, adminCustomerFilter, adminRepFilter } from '../services/adminScope';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -18,44 +19,50 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       dailySales, dailyReceipts, monthSales, monthReceipts,
       totalCustomers, overdueCustomers, creditExceeded,
       topReps, topCustomers, recentInvoices,
-    ] = await Promise.all([
+    ] = await (async () => {
+    // قيود نطاق المستخدم تُحسب مرّة وتُطبَّق على كل استعلامات اللوحة
+    const recScope = await scopedRecordWhere(req);
+    const custScope = await adminCustomerFilter(req);
+    const repScope = await adminRepFilter(req);
+    return Promise.all([
       prisma.invoice.aggregate({
-        where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfDay, lte: endOfDay } },
+        where: { tenantId: tid, ...recScope, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfDay, lte: endOfDay } },
         _sum: { total: true }, _count: { id: true },
       }),
       prisma.receipt.aggregate({
-        where: { tenantId: tid, status: 'ACTIVE', receiptDate: { gte: startOfDay, lte: endOfDay } },
+        where: { tenantId: tid, ...recScope, status: 'ACTIVE', receiptDate: { gte: startOfDay, lte: endOfDay } },
         _sum: { amount: true }, _count: { id: true },
       }),
       prisma.invoice.aggregate({
-        where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } },
+        where: { tenantId: tid, ...recScope, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } },
         _sum: { total: true }, _count: { id: true },
       }),
       prisma.receipt.aggregate({
-        where: { tenantId: tid, status: 'ACTIVE', receiptDate: { gte: startOfMonth } },
+        where: { tenantId: tid, ...recScope, status: 'ACTIVE', receiptDate: { gte: startOfMonth } },
         _sum: { amount: true }, _count: { id: true },
       }),
-      prisma.customer.count({ where: { tenantId: tid, status: 'ACTIVE' } }),
-      prisma.customer.count({ where: { tenantId: tid, status: 'ACTIVE', balance: { gt: 0 } } }),
+      prisma.customer.count({ where: { tenantId: tid, ...custScope, status: 'ACTIVE' } }),
+      prisma.customer.count({ where: { tenantId: tid, ...custScope, status: 'ACTIVE', balance: { gt: 0 } } }),
       prisma.customer.count({
-        where: { tenantId: tid, status: 'ACTIVE', creditLimit: { gt: 0 }, balance: { gt: prisma.customer.fields.creditLimit as never } },
+        where: { tenantId: tid, ...custScope, status: 'ACTIVE', creditLimit: { gt: 0 }, balance: { gt: prisma.customer.fields.creditLimit as never } },
       }).catch(() => 0),
       prisma.salesRep.findMany({
-        where: { tenantId: tid },
+        where: { tenantId: tid, ...repScope },
         take: 5,
         select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } }, select: { total: true } } },
       }),
       prisma.customer.findMany({
-        where: { tenantId: tid },
+        where: { tenantId: tid, ...custScope },
         take: 5, orderBy: { totalSales: 'desc' },
         select: { id: true, name: true, totalSales: true, balance: true },
       }),
       prisma.invoice.findMany({
-        where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' } },
+        where: { tenantId: tid, ...recScope, status: 'CONFIRMED', type: { not: 'RETURN' } },
         take: 10, orderBy: { createdAt: 'desc' },
         include: { customer: { select: { name: true } }, salesRep: { select: { name: true } } },
       }),
     ]);
+    })();
 
     const topRepsWithStats = topReps.map(r => ({
       id: r.id,
@@ -96,7 +103,7 @@ router.get('/sales-trend', async (req: AuthRequest, res: Response, next: NextFun
     from.setDate(from.getDate() - days);
 
     const invoices = await prisma.invoice.findMany({
-      where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: from } },
+      where: { tenantId: tid, ...(await scopedRecordWhere(req)), status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: from } },
       select: { invoiceDate: true, total: true },
       orderBy: { invoiceDate: 'asc' },
     });

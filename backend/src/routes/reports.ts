@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter } from '../services/adminScope';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -16,6 +17,8 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
     const invoices = await prisma.invoice.findMany({
       where: {
         tenantId: tid,
+        // نطاق المستخدم: لا تدخل التقرير فاتورةٌ لعميل أو مندوب خارج نطاقه
+        ...(await scopedRecordWhere(req)),
         status: 'CONFIRMED',
         type: { not: 'RETURN' }, // تقرير المبيعات لا يشمل المرتجعات
         ...(dateFilter && { invoiceDate: dateFilter }),
@@ -114,6 +117,7 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
     const receipts = await prisma.receipt.findMany({
       where: {
         tenantId: tid,
+        ...(await scopedRecordWhere(req)),
         status: 'ACTIVE',
         ...(dateFilter && { receiptDate: dateFilter }),
         ...(salesRepId && { salesRepId }),
@@ -149,7 +153,7 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
     if (type === 'exceeded') where = { creditLimit: { gt: 0 } };
 
     const customers = await prisma.customer.findMany({
-      where: { tenantId: tid, status: 'ACTIVE', ...where },
+      where: { tenantId: tid, status: 'ACTIVE', ...(await adminCustomerFilter(req)), ...where },
       select: { id: true, name: true, phone: true, balance: true, creditLimit: true, paymentDays: true, totalSales: true, totalCollected: true },
       orderBy: { balance: 'desc' },
     });
@@ -175,7 +179,7 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
 
     const [reps, sessions, visitCounts, visitRows] = await Promise.all([
       prisma.salesRep.findMany({
-        where: { tenantId: tid, isActive: true },
+        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
         select: {
           id: true, name: true,
           invoices: {
@@ -190,18 +194,18 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       }),
       // ساعات العمل من جلسات الحضور
       prisma.repSession.findMany({
-        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd } },
+        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
       // عدد الزيارات لكل مندوب (دقيق)
       prisma.repVisit.groupBy({
         by: ['salesRepId'],
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd } },
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req)) },
         _count: { _all: true },
       }),
       // زيارات لها إحداثيات — لبناء روابط المواقع
       prisma.repVisit.findMany({
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, lat: { not: null }, lng: { not: null } },
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, lat: { not: null }, lng: { not: null }, ...(await scopedRecordWhere(req)) },
         select: { salesRepId: true, createdAt: true, lat: true, lng: true, customer: { select: { name: true } } },
         orderBy: { createdAt: 'asc' }, take: 5000,
       }),
@@ -261,9 +265,9 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
     const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
 
     const [reps, sessions] = await Promise.all([
-      prisma.salesRep.findMany({ where: { tenantId: tid, isActive: true }, select: { id: true, name: true } }),
+      prisma.salesRep.findMany({ where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) }, select: { id: true, name: true } }),
       prisma.repSession.findMany({
-        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd } },
+        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
     ]);

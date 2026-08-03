@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { getAdminScope, setAdminScope } from '../services/adminScope';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -27,6 +28,8 @@ const userSchema = z.object({
   canManageTracking: z.boolean().optional(),
   canManageCompanySettings: z.boolean().optional(),
   canManageCompanyUsers: z.boolean().optional(),
+  // عزل النطاق: عند التفعيل لا يرى هذا المستخدم إلا عملاءه ومناديبه المُسنَدين
+  scopeEnabled: z.boolean().optional(),
 });
 
 const userSelect = {
@@ -172,6 +175,43 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       select: userSelect,
     });
     res.json({ success: true, data: user });
+  } catch (err) { next(err); }
+});
+
+/**
+ * نطاق مستخدم الشركة: العملاء والمناديب الذين يراهم.
+ *
+ * محميّ بـcanManageCompanyUsers (نفس صلاحية تحرير المستخدمين): من يملك تعديل
+ * الصلاحيات يملك تحديد النطاق — وإلا استطاع مستخدم مقيّد توسيع نطاق نفسه.
+ */
+router.get('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, scopeEnabled: true } });
+    if (!admin) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+    const scope = await getAdminScope(admin.id);
+    res.json({ success: true, data: { scopeEnabled: admin.scopeEnabled, ...scope } });
+  } catch (err) { next(err); }
+});
+
+router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!admin) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+
+    // null (أو غياب المفتاح) = «لا تلمس هذه القائمة» — يسمح بتحديث إحداهما وحدها
+    const body = z.object({
+      customerIds: z.array(z.string()).max(50000).nullable().optional(),
+      salesRepIds: z.array(z.string()).max(5000).nullable().optional(),
+      scopeEnabled: z.boolean().optional(),
+    }).parse(req.body);
+
+    if (body.scopeEnabled !== undefined) {
+      await prisma.admin.update({ where: { id: admin.id }, data: { scopeEnabled: body.scopeEnabled } });
+    }
+    const counts = await setAdminScope(tid, admin.id, body.customerIds ?? null, body.salesRepIds ?? null);
+    res.json({ success: true, data: counts });
   } catch (err) { next(err); }
 });
 
