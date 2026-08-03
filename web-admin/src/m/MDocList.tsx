@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, FileText, RotateCcw, Banknote, CreditCard, ChevronLeft, XCircle, Loader2 } from 'lucide-react';
+import { Search, FileText, RotateCcw, Banknote, CreditCard, ChevronLeft, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invoiceApi, receiptApi } from '../api/client';
 import { Invoice } from '../types';
@@ -11,6 +11,8 @@ import { MCard, MRow, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
 
 const MDocScreen = lazy(() => import('./MDocScreen'));
+const MInvoiceCreate = lazy(() => import('./MInvoiceCreate'));
+const MReceiptCreate = lazy(() => import('./MReceiptCreate'));
 
 const PAGE = 25;
 
@@ -38,6 +40,7 @@ export default function MDocList({ kind, company, userName }: {
   const [openId, setOpenId] = useState<string | null>(null);
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [creating, setCreating] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { const t = setTimeout(() => { setDq(q.trim()); setLimit(PAGE); }, 300); return () => clearTimeout(t); }, [q]);
@@ -72,6 +75,18 @@ export default function MDocList({ kind, company, userName }: {
     } finally { setCancelling(false); }
   };
 
+  if (creating) {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        {kind === 'invoice'
+          ? <MInvoiceCreate onClose={() => setCreating(false)}
+              onCreated={(id) => { setCreating(false); setOpenId(id); }} />
+          : <MReceiptCreate onClose={() => setCreating(false)}
+              onCreated={(id) => { setCreating(false); setOpenId(id); }} />}
+      </Suspense>
+    );
+  }
+
   if (openId) {
     return (
       <Suspense fallback={<MSpinner />}>
@@ -83,12 +98,17 @@ export default function MDocList({ kind, company, userName }: {
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
-      <div className="flex-shrink-0 p-3 pb-2">
-        <div className="relative">
+      <div className="flex-shrink-0 p-3 pb-2 flex items-center gap-2">
+        <div className="relative flex-1">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
           <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
             placeholder={kind === 'invoice' ? tr('ابحث برقم الفاتورة أو العميل…') : tr('ابحث برقم السند أو العميل…')} />
         </div>
+        <button onClick={() => setCreating(true)}
+          className={`w-11 h-11 rounded-xl text-white flex items-center justify-center flex-shrink-0 ${kind === 'invoice' ? 'bg-[#E15A30]' : 'bg-[#2F855A]'}`}
+          aria-label={kind === 'invoice' ? tr('فاتورة جديدة') : tr('سند جديد')}>
+          <Plus size={20} />
+        </button>
       </div>
 
       <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain px-3 pb-3">

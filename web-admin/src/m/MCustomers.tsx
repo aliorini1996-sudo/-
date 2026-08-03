@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search, Plus, Phone, MapPin, Pencil, ChevronLeft, FileText, Wallet } from 'lucide-react';
 import { customerApi } from '../api/client';
@@ -10,6 +10,9 @@ import { useTr } from '../i18n/strings';
 import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import MCustomerForm from './MCustomerForm';
 import { expectArray, expectObject } from './shape';
+
+const MInvoiceCreate = lazy(() => import('./MInvoiceCreate'));
+const MReceiptCreate = lazy(() => import('./MReceiptCreate'));
 
 const PAGE = 30;
 
@@ -118,6 +121,7 @@ function MCustomerDetail({ customer, onClose, onEdit }: {
 }) {
   const tr = useTr();
   const lang = useLang(s => s.lang);
+  const [doc, setDoc] = useState<'invoice' | 'receipt' | null>(null);
 
   // نجلب النسخة الحيّة: البطاقة في القائمة قد تكون قديمة بعد تعديل
   const q = useQuery({
@@ -127,6 +131,17 @@ function MCustomerDetail({ customer, onClose, onEdit }: {
   });
   const c = q.data;
   const over = c.creditLimit > 0 && c.balance > c.creditLimit;
+
+  // الإنشاء من داخل ملفّ العميل: العميل مُمرَّر مسبقاً فلا يُعاد اختياره
+  if (doc) {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        {doc === 'invoice'
+          ? <MInvoiceCreate presetCustomerId={c.id} onClose={() => setDoc(null)} onCreated={() => setDoc(null)} />
+          : <MReceiptCreate presetCustomerId={c.id} onClose={() => setDoc(null)} onCreated={() => setDoc(null)} />}
+      </Suspense>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -180,10 +195,18 @@ function MCustomerDetail({ customer, onClose, onEdit }: {
           {c.taxNumber && <Info label={tr('الرقم الضريبي')} value={c.taxNumber} />}
         </MCard>
 
-        {/* روابط سريعة — تُفعَّل مع شاشتَي الفواتير وكشف الحساب */}
+        {/* إجراءان مباشران لهذا العميل — بلا إعادة اختياره في الشاشة التالية */}
         <div className="grid grid-cols-2 gap-2.5">
-          <QuickHint icon={FileText} text={tr('فواتير العميل')} />
-          <QuickHint icon={Wallet} text={tr('كشف الحساب')} />
+          <button onClick={() => setDoc('invoice')}
+            className="rounded-2xl border border-[#E9E1D3] bg-white p-3.5 min-h-[76px] flex flex-col items-center justify-center gap-1.5">
+            <FileText size={19} className="text-[#E15A30]" />
+            <span className="text-[11px] font-semibold text-[#1F1A13]">{tr('فاتورة جديدة')}</span>
+          </button>
+          <button onClick={() => setDoc('receipt')}
+            className="rounded-2xl border border-[#E9E1D3] bg-white p-3.5 min-h-[76px] flex flex-col items-center justify-center gap-1.5">
+            <Wallet size={19} className="text-[#2F855A]" />
+            <span className="text-[11px] font-semibold text-[#1F1A13]">{tr('سند قبض')}</span>
+          </button>
         </div>
 
         <div className="h-2" />
@@ -208,15 +231,4 @@ function Info({ label, value, icon: Icon, href }: {
     return <a href={href} target="_blank" rel="noreferrer" className="block border-b border-[#F1EBDF] last:border-0 active:bg-[#FAF7F0]">{body}</a>;
   }
   return <div className="border-b border-[#F1EBDF] last:border-0">{body}</div>;
-}
-
-function QuickHint({ icon: Icon, text }: { icon: React.ElementType; text: string }) {
-  const tr = useTr();
-  return (
-    <div className="rounded-2xl border border-dashed border-[#E9E1D3] bg-white/60 p-3 text-center">
-      <Icon size={18} className="mx-auto text-[#C9BFB0]" />
-      <p className="text-[11px] text-[#9A8F7E] mt-1">{text}</p>
-      <p className="text-[10px] text-[#C9BFB0]">{tr('قيد الإنشاء')}</p>
-    </div>
-  );
 }
