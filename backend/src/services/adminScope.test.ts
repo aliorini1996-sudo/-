@@ -96,3 +96,30 @@ test('حارس ثابت: لا مسار يفحص مفتاح نطاق بعينه (
   }
   assert.deepEqual(offenders, [], `فحص مفاتيح النطاق داخل مسار:\n${offenders.join('\n')}`);
 });
+
+/**
+ * حارس ثابت ثانٍ، على خلل وقع فعلاً أيضاً: مسارا `/:id/scope` أُضيفا بلا
+ * `requireCompanyOwner`. راوتر `company-users` يحمل `requireAdmin` فقط، وهو
+ * يقبل المشرف والمحاسب بلا فحص صلاحيات ⇒ أي مستخدم شركة كان يفكّ عزل نفسه
+ * بطلب واحد.
+ *
+ * القاعدة: **كل معالج في هذا الملفّ يبدأ بحارس**. لا يكفي أن يتذكّر كاتبُ
+ * المسار القادم — الحارس هنا يفشل إن نسي.
+ */
+test('حارس ثابت: كل مسار في companyUsers يفتتح بحارس صلاحية', () => {
+  const file = path.join(process.cwd(), 'src', 'routes', 'companyUsers.ts');
+  assert.ok(fs.existsSync(file), `الملفّ غير موجود: ${file}`);
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const GUARDS = /requireCompanyOwner|guardScopeAdmin/;
+  const unguarded: string[] = [];
+
+  lines.forEach((line, i) => {
+    if (!/^router\.(get|post|put|patch|delete)\(/.test(line)) return;
+    // الحارس يجب أن يقع في أوّل أسطر المعالج لا في عمقه
+    const head = lines.slice(i, i + 6).join('\n');
+    if (!GUARDS.test(head)) unguarded.push(`${i + 1}: ${line.trim().slice(0, 70)}`);
+  });
+
+  assert.ok(lines.some((l) => /^router\.(get|post|put|patch|delete)\(/.test(l)), 'لم يُعثر على أي مسار — تغيّر النمط والحارس صار بلا أثر');
+  assert.deepEqual(unguarded, [], `مسار بلا حارس صلاحية:\n${unguarded.join('\n')}`);
+});

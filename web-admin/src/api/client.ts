@@ -134,6 +134,7 @@ export const companyUserApi = {
   list: () => api.get('/company-users'),
   create: (data: unknown) => api.post('/company-users', data),
   update: (id: string, data: unknown) => api.put(`/company-users/${id}`, data),
+  remove: (id: string) => api.delete(`/company-users/${id}`),
   // نطاق المستخدم: العملاء والمناديب الذين يراهم (عزل على مستوى المستخدم)
   scope: (id: string) => api.get(`/company-users/${id}/scope`),
   // null لقائمة = «لا تلمسها» (تحديث إحداهما وحدها)

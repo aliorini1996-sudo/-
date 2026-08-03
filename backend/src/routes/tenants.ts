@@ -120,8 +120,12 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
   try {
     const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
-    const admin = await prisma.admin.findFirst({ where: { tenantId: tenant.id }, orderBy: { createdAt: 'asc' } });
+    // نشطاً أوّلاً: `requireAdmin` صار يتحقّق من الحساب نفسه، فانتحالُ أقدمِ
+    // مديرٍ ولو كان معطَّلاً يُصدر توكناً يُرفض على كل مسار إداري.
+    const admin = await prisma.admin.findFirst({ where: { tenantId: tenant.id, isActive: true }, orderBy: { createdAt: 'asc' } })
+      ?? await prisma.admin.findFirst({ where: { tenantId: tenant.id }, orderBy: { createdAt: 'asc' } });
     if (!admin) { res.status(404).json({ success: false, message: 'لا يوجد مدير لهذه الشركة' }); return; }
+    if (!admin.isActive) { res.status(409).json({ success: false, message: 'كل مديري هذه الشركة معطَّلون — فعّل حساباً قبل الدخول.' }); return; }
 
     const vertical = (tenant as any).vertical ?? 'distribution';
     const token = jwt.sign(

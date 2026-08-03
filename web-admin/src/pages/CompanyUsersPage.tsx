@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Edit, Eye, EyeOff, KeyRound, Plus, ShieldCheck, UserCog, X, Filter } from 'lucide-react';
+import { Check, Copy, Edit, Eye, EyeOff, KeyRound, Plus, ShieldCheck, UserCog, X, Filter, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { companyUserApi } from '../api/client';
+import ConfirmDialog from '../components/ConfirmDialog';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import UserScopeModal from '../components/UserScopeModal';
 import { useAuthStore } from '../store/authStore';
@@ -58,6 +59,7 @@ export default function CompanyUsersPage() {
   const [createdCreds, setCreatedCreds] = useState<{ name: string; email: string; password: string } | null>(null);
   const [resetUser, setResetUser] = useState<CompanyUser | null>(null);
   const [scopeUser, setScopeUser] = useState<CompanyUser | null>(null); // نافذة نطاق المستخدم
+  const [deleting, setDeleting] = useState<CompanyUser | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['company-users'],
@@ -84,6 +86,20 @@ export default function CompanyUsersPage() {
     },
     onError: (err: unknown) => {
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ'));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => companyUserApi.remove(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['company-users'] });
+      toast.success(tr('تم حذف المستخدم'));
+      setDeleting(null);
+    },
+    onError: (err: unknown) => {
+      // رسالة الخادم هي المفيدة هنا (آخر مدير / حذف الذات) فلا نبتلعها
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف المستخدم'));
+      setDeleting(null);
     },
   });
 
@@ -140,6 +156,10 @@ export default function CompanyUsersPage() {
                       <button onClick={() => { setSelected(u); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}><Edit size={14} /></button>
                       <button onClick={() => setResetUser(u)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title={tr('إعادة تعيين كلمة المرور')}><KeyRound size={14} /></button>
                       <button onClick={() => setScopeUser(u)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title={tr('نطاق المستخدم (العملاء والمناديب)')}><Filter size={14} /></button>
+                      {/* حسابك لا يُحذف من هنا — الخادم يرفضه أيضاً، والإخفاء يمنع محاولة عبثية */}
+                      {u.id !== user.id && (
+                        <button onClick={() => setDeleting(u)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title={tr('حذف المستخدم')}><Trash2 size={14} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -174,6 +194,18 @@ export default function CompanyUsersPage() {
 
       {scopeUser && (
         <UserScopeModal userId={scopeUser.id} userName={scopeUser.name} onClose={() => setScopeUser(null)} />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          danger
+          title={tr('حذف المستخدم')}
+          message={`${tr('سيتم حذف المستخدم')} «${deleting.name}» (${deleting.email}) ${tr('نهائياً ولا يمكن التراجع. يفقد الوصول للوحة فوراً، ويُحذف نطاقه المحدّد. لا تتأثّر الفواتير ولا السندات — فهي منسوبة للمناديب لا لمستخدمي اللوحة.')}`}
+          confirmLabel={tr('حذف نهائي')}
+          loading={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
+        />
       )}
     </div>
   );

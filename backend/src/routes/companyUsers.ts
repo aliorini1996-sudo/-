@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
-import { getAdminScope, setAdminScope } from '../services/adminScope';
+import { getAdminScope, setAdminScope, adminScopeEnabled } from '../services/adminScope';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -179,13 +179,78 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 });
 
 /**
+ * حذف مستخدم شركة — نظير حذف المندوب، بحُرّاسه الثلاثة.
+ *
+ * لماذا الحرّاس أشدّ من حذف المندوب: المندوب لا يملك مفاتيح اللوحة، أمّا هنا
+ * فالحذف قد يقفل الشركة على نفسها إن أزال آخر مديرٍ يملك إدارة المستخدمين.
+ *
+ * ولا يُترك للحذف أثرٌ يتيم: `AdminCustomerScope` و`AdminRepScope` معرَّفان
+ * بـ`onDelete: Cascade` فيمضيان مع السجلّ. ولا جدول آخر يشير إلى Admin —
+ * الفواتير والسندات تُنسَب للمندوب لا لمستخدم اللوحة، فلا سجلّ ماليّ يُمسّ.
+ */
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!(await requireCompanyOwner(req, res))) return;
+    const tid = tenantId(req);
+
+    // القيد: المدير الرئيسي فقط (لا مشرف/محاسب) — مطابقةً لحذف المندوب
+    if (req.user?.role !== 'ADMIN') {
+      res.status(403).json({ success: false, message: 'حذف مستخدم الشركة متاح للمدير الرئيسي فقط.' });
+      return;
+    }
+
+    const target = await prisma.admin.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+      select: { id: true, name: true, role: true, isActive: true, canManageCompanyUsers: true },
+    });
+    if (!target) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+
+    // حذف الذات يقطع الجلسة الحاليّة ويترك المستخدم أمام شاشة لا يفهمها
+    if (target.id === req.user?.id) {
+      res.status(400).json({ success: false, message: 'لا يمكنك حذف حسابك الخاصّ' });
+      return;
+    }
+
+    // آخر مديرٍ نشط يملك إدارة المستخدمين: حذفه يقفل الشركة خارج لوحتها بلا رجعة
+    if (target.role === 'ADMIN' && target.isActive && target.canManageCompanyUsers) {
+      const others = await prisma.admin.count({
+        where: { tenantId: tid, id: { not: target.id }, role: 'ADMIN', isActive: true, canManageCompanyUsers: true },
+      });
+      if (others === 0) {
+        res.status(400).json({ success: false, message: 'يجب أن يبقى مستخدم مدير نشط واحد على الأقل للشركة' });
+        return;
+      }
+    }
+
+    await prisma.admin.delete({ where: { id: target.id } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+/**
  * نطاق مستخدم الشركة: العملاء والمناديب الذين يراهم.
  *
- * محميّ بـcanManageCompanyUsers (نفس صلاحية تحرير المستخدمين): من يملك تعديل
- * الصلاحيات يملك تحديد النطاق — وإلا استطاع مستخدم مقيّد توسيع نطاق نفسه.
+ * ⚠️ كان هذا التعليق يَعِد بحماية **غير موجودة في الكود**: المسارَان كانا بلا
+ * `requireCompanyOwner`، و`requireAdmin` يقبل المشرف والمحاسب بلا فحص صلاحيات
+ * ⇒ أي مستخدم شركة يستطيع `PUT /company-users/<معرّفه>/scope` بـ
+ * `scopeEnabled:false` فيفكّ عزل نفسه بطلب واحد، ويسري فوراً لأن النطاق يُقرأ
+ * من قاعدة البيانات لا من التوكن. حارسان الآن، ووحدة الاختبار أدناه تمنع عودته:
+ *  1. `requireCompanyOwner` — من يملك تعديل الصلاحيات وحده يحدّد النطاق.
+ *  2. المستخدم المقيّد نفسه ممنوع من إدارة النطاقات إطلاقاً — ولو مُنح
+ *     canManageCompanyUsers سهواً — فلا يوسّع نطاقه ولا يقرأ نطاق غيره.
  */
+async function guardScopeAdmin(req: AuthRequest, res: Response): Promise<boolean> {
+  if (!(await requireCompanyOwner(req, res))) return false;
+  if (await adminScopeEnabled(req)) {
+    res.status(403).json({ success: false, message: 'حسابك مقيّد بنطاق محدّد — تحديد النطاقات يحتاج صلاحية غير مقيّدة.' });
+    return false;
+  }
+  return true;
+}
+
 router.get('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    if (!(await guardScopeAdmin(req, res))) return;
     const tid = tenantId(req);
     const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, scopeEnabled: true } });
     if (!admin) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
@@ -196,6 +261,7 @@ router.get('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
 
 router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    if (!(await guardScopeAdmin(req, res))) return;
     const tid = tenantId(req);
     const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!admin) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
