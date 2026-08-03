@@ -51,6 +51,22 @@ export function tokenExpiredOrMissing(token: string | null | undefined, skewMs =
   return payload.exp * 1000 <= Date.now() + skewMs;
 }
 
+/**
+ * هل حان وقت تجديد التوكن؟ — قرار الجلسة المنزلقة، معزولٌ هنا كي يُختبَر.
+ *
+ * يُجدَّد قبل الانتهاء بهامش (ساعتان افتراضاً) لا عنده: المندوب في الميدان
+ * قد ينقطع طويلاً، فالتجديد اللحظيّ عند الحافّة يفشل ويبقى بلا جلسة.
+ * والمنتهي فعلاً يُجدَّد أيضاً — لأن نافذة السماح على الخادم تقبله.
+ *
+ * التوكن المفقود لا يُجدَّد: لا شيء نُجدّده أصلاً.
+ */
+export function shouldRenew(token: string | null | undefined, beforeSec = 2 * 3600): boolean {
+  if (!token) return false;
+  const payload = decodePayload(token);
+  if (!payload || typeof payload.exp !== 'number') return false; // مشوّه: الإخراج لا التجديد
+  return tokenSecondsLeft(token) <= beforeSec;
+}
+
 /** الثواني المتبقية للتوكن (0 إن منتهٍ/مفقود) — للتشخيص لا للقرار الأمني */
 export function tokenSecondsLeft(token: string | null | undefined): number {
   if (!token) return 0;

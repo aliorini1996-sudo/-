@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { refClear } from './offlineDb';
-import { tokenExpiredOrMissing } from './jwt';
+import { renewToken } from './renew';
 
 // نسمح للطلب بوسم نفسه «خلفياً» فلا يُخرج المندوب عند فشل 401 عابر.
 // انظر التعليق على المعترِض أدناه للسبب.
@@ -42,18 +42,44 @@ repApi.interceptors.request.use(config => {
 // (ويُستثنى طلب تسجيل الدخول نفسه ليُظهر رسالة الخطأ بدل إعادة التحميل.)
 repApi.interceptors.response.use(
   r => r,
-  err => {
-    const isLogin = (err.config?.url as string | undefined)?.includes('/auth/login');
-    const isBackground = err.config?.background === true;
-    if (err.response?.status === 401 && !isLogin && !isBackground
-        && tokenExpiredOrMissing(localStorage.getItem('rep_token'))) {
-      // نمسح البيانات المرجعية المخزّنة أيضاً كي لا يرثها من يدخل بعده على الجهاز نفسه
-      void refClear();
-      localStorage.removeItem('rep_token');
-      localStorage.removeItem('rep_user');
-      if (window.location.pathname.startsWith('/rep')) window.location.href = '/rep';
+  async err => {
+    const cfg = err.config as (typeof err.config & { _renewTried?: boolean }) | undefined;
+    const isLogin = (cfg?.url as string | undefined)?.includes('/auth/login');
+    const isRenew = (cfg?.url as string | undefined)?.includes('/auth/renew');
+    const isBackground = cfg?.background === true;
+
+    if (err.response?.status !== 401 || isLogin || isRenew) return Promise.reject(err);
+    if (!cfg || cfg._renewTried) return Promise.reject(err);
+    cfg._renewTried = true; // لا حلقة: محاولة تجديد واحدة لكل طلب
+
+    // (٣) الطبقة الثالثة: **الإنقاذ بالتجديد، والخادمُ هو من يقرّر**.
+    //
+    // كنّا نسأل أوّلاً «هل انتهى التوكن؟» بقراءة `exp` محلياً، ثم نُخرج. لكن
+    // ذلك الحكم يقوم على **ساعة جهاز المندوب**، وهي تنحرف: ساعةٌ متأخّرة تجعل
+    // توكناً منتهياً يبدو صالحاً ⇒ لا تجديد ولا إخراج، فيعلق التطبيق يردّ 401
+    // بلا نهاية ولا رسالة — «جلسة زومبي» أسوأ من الإخراج.
+    //
+    // فلا نحكم محلياً أصلاً: **كل 401 يستحقّ محاولة تجديد واحدة**، والخادم
+    // وحده يفصل. توكنٌ صالح يُجدَّد بلا ضرر، ومنتهٍ ضمن النافذة يُنقَذ،
+    // والمرفوض وحده يُخرج.
+    const fresh = await renewToken();
+
+    if (fresh === null) {
+      // رفضٌ نهائيّ (انتهت نافذة السماح أو عُطِّل الحساب) ⇒ إخراج.
+      // والطلب الخلفيّ لا يُخرج أبداً — يبقى الحكم للطلب الأمامي.
+      if (!isBackground) {
+        // نمسح البيانات المرجعية أيضاً كي لا يرثها من يدخل بعده على الجهاز نفسه
+        void refClear();
+        localStorage.removeItem('rep_token');
+        localStorage.removeItem('rep_user');
+        if (window.location.pathname.startsWith('/rep')) window.location.href = '/rep';
+      }
+      return Promise.reject(err);
     }
-    return Promise.reject(err);
+
+    // نجح التجديد (أو تعذّرت الشبكة فأعاد الحاليّ): نعيد الطلب بالتوكن الراهن
+    cfg.headers = { ...(cfg.headers || {}), Authorization: `Bearer ${fresh}` };
+    return repApi.request(cfg);
   }
 );
 

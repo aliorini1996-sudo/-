@@ -13,6 +13,7 @@ import {
   Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
+import { startRenewLoop, clearRenewRejection } from './renew';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
@@ -1569,6 +1570,13 @@ export default function RepApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // الجلسة المنزلقة: تجديد صامت للتوكن كي لا يُخرَج المندوب بانتهاء الساعات
+  // الثماني — لا أثناء العمل ولا أثناء الخمول. (انظر rep/renew.ts)
+  useEffect(() => {
+    if (!token) return;
+    return startRenewLoop();
+  }, [token]);
+
   // العمل دون اتصال: بدء المزامنة التلقائية + متابعة عدد المنتظرين (يُحدَّث بعد كل التقاط/رفع)
   useEffect(() => {
     if (!token) return;
@@ -1611,6 +1619,7 @@ export default function RepApp() {
     if (prev && prev !== u.id) await refClear();
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));
+    clearRenewRejection(); // دخولٌ جديد: أي رفض تجديد سابق لم يعد قائماً
     setToken(t); setUser(u);
   };
   const logout = async () => {

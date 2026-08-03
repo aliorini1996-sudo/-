@@ -6,7 +6,7 @@ import prisma from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { sendMail, mailLayout } from '../services/mailer';
-import { authLimiter, signupLimiter, mailLimiter } from '../middleware/rateLimits';
+import { authLimiter, signupLimiter, mailLimiter, renewLimiter } from '../middleware/rateLimits';
 import { getCountryTax } from '../config/countries';
 
 const router = Router();
@@ -77,6 +77,23 @@ function signToken(payload: object): string {
   return jwt.sign(payload, secret as jwt.Secret, options);
 }
 
+/**
+ * **جلسة منزلقة**: نافذة السماح لتجديد توكن منتهٍ.
+ *
+ * المشكلة التي تحلّها: التوكن يعيش ٨ ساعات، فالمندوب الذي يفتح التطبيق صباحاً
+ * يُقذف لشاشة الدخول بعد الظهر — **حتى لو كان التطبيق خاملاً**، لأن الساعات
+ * تمضي بالخمول كما تمضي بالعمل. ورُصد ذلك في سجلّات الإنتاج: أربعة طلبات
+ * تُردّ بـ401 في الثانية نفسها ثمّ تسجيل دخول بعدها بثوانٍ.
+ *
+ * الحلّ: التوكن المنتهي يبقى **قابلاً للتجديد** خلال هذه النافذة (لا صالحاً
+ * للاستعمال). فمن يستعمل التطبيق ولو مرّة كل بضعة أيام لا يرى شاشة دخول أبداً.
+ *
+ * ⚠️ المقايضة صريحة: توكن مسروق يبقى قابلاً للتجديد خلال النافذة. لذلك
+ * التجديد **يُعيد فحص الحساب** (موجود ونشط، والشركة غير موقوفة) — فتعطيل
+ * المندوب يقطعه عند أوّل تجديد بدل انتظار انتهاء الجلسة.
+ */
+const RENEW_GRACE_DAYS = Number(process.env.JWT_RENEW_GRACE_DAYS || 30);
+
 function tenantBlockReason(tenant: { isActive: boolean; subscriptionEndsAt: Date | null } | null): string | null {
   if (!tenant) return 'الشركة غير موجودة';
   if (!tenant.isActive) return 'اشتراك الشركة موقوف - تواصل مع مزود الخدمة';
@@ -142,6 +159,71 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
     const token = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId, vertical: repVertical });
     const { passwordHash: _ph, tenant: _t, ...repData } = rep;
     res.json({ success: true, data: { token, user: { ...repData, role: 'SALES_REP', vertical: repVertical, companyName: rep.tenant.name } } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * تجديد التوكن — **جلسة منزلقة** تُنهي الإخراج المفاجئ.
+ *
+ * يقبل توكناً صحيح التوقيع **ولو انتهى**، شرط ألّا يتجاوز انتهاؤه نافذة السماح
+ * (`RENEW_GRACE_DAYS`). ويُعيد فحص الحساب قبل إصدار توكن جديد، فليس تمديداً
+ * أعمى: الحساب المعطَّل أو الشركة الموقوفة تُرفض هنا.
+ *
+ * بلا `authenticate` عمداً — وسيطُ المصادقة يرفض المنتهي، وهذا المسار وُجد
+ * للمنتهي تحديداً. وبحدٍّ سخيّ خاصّ به (`renewLimiter`) لا يشاركه حدَّ الدخول.
+ */
+router.post('/renew', renewLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1] || (req.body?.token as string | undefined);
+    if (!token) { res.status(401).json({ success: false, message: 'غير مصرح' }); return; }
+
+    let payload: { id?: string; role?: string; exp?: number };
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET as jwt.Secret, { ignoreExpiration: true }) as typeof payload;
+    } catch {
+      // توقيع فاسد = ليس توكننا. لا تجديد.
+      res.status(401).json({ success: false, message: 'جلسة غير صالحة، سجّل الدخول مجدداً' });
+      return;
+    }
+
+    // منتهٍ منذ زمن طويل ⇒ دخول حقيقيّ. النافذة تحدّ عمر التوكن المسروق.
+    const expMs = (payload.exp ?? 0) * 1000;
+    if (!payload.id || !payload.exp || Date.now() - expMs > RENEW_GRACE_DAYS * 86400000) {
+      res.status(401).json({ success: false, message: 'انتهت الجلسة، سجّل الدخول مجدداً' });
+      return;
+    }
+
+    if (payload.role === 'SALES_REP') {
+      const rep = await prisma.salesRep.findUnique({ where: { id: payload.id }, include: { tenant: true } });
+      if (!rep || !rep.isActive) { res.status(401).json({ success: false, message: 'الحساب غير نشط' }); return; }
+      const block = tenantBlockReason(rep.tenant);
+      if (block) { res.status(403).json({ success: false, message: block }); return; }
+      const vertical = (rep.tenant as any).vertical ?? 'distribution';
+      const fresh = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId, vertical });
+      const { passwordHash: _ph, tenant: _t, ...repData } = rep;
+      res.json({ success: true, data: { token: fresh, user: { ...repData, role: 'SALES_REP', vertical, companyName: rep.tenant.name } } });
+      return;
+    }
+
+    if (['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(payload.role || '')) {
+      const admin = await prisma.admin.findUnique({ where: { id: payload.id }, include: { tenant: true } });
+      if (!admin || !admin.isActive) { res.status(401).json({ success: false, message: 'الحساب غير نشط' }); return; }
+      const block = tenantBlockReason(admin.tenant);
+      if (block) { res.status(403).json({ success: false, message: block }); return; }
+      const vertical = (admin.tenant as any).vertical ?? 'distribution';
+      const fresh = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId, vertical });
+      res.json({
+        success: true,
+        data: {
+          token: fresh,
+          user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: admin.tenantId, vertical, companyName: admin.tenant.name },
+        },
+      });
+      return;
+    }
+
+    // مالك المنصّة لا يُجدَّد: جلسته قصيرة عمداً وصلاحياته أوسع
+    res.status(401).json({ success: false, message: 'انتهت الجلسة، سجّل الدخول مجدداً' });
   } catch (err) { next(err); }
 });
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenExpiredOrMissing, tokenSecondsLeft } from './jwt';
+import { tokenExpiredOrMissing, tokenSecondsLeft, shouldRenew } from './jwt';
 
 /** يبني JWT صوريّاً (توقيع وهمي) بحمولة معطاة — base64url مطابق للمعيار */
 function makeToken(payload: Record<string, unknown>): string {
@@ -65,4 +65,40 @@ test('هامش الانحراف يُقدّم الانتهاء', () => {
   const t = makeToken({ id: 'r1', exp: inHours(0) + 30 }); // بعد 30 ثانية
   assert.equal(tokenExpiredOrMissing(t, 0), false);
   assert.equal(tokenExpiredOrMissing(t, 60_000), true, 'هامش دقيقة يعدّه منتهياً');
+});
+
+// ───────── قرار الجلسة المنزلقة (shouldRenew) ─────────
+// هذه هي الشكوى الحيّة: المندوب يُخرَج فجأةً بعد ٨ ساعات، عاملاً كان أو خاملاً.
+
+test('توكن طويل العمر ⇒ لا تجديد (لا نُرهق الشبكة بلا داعٍ)', () => {
+  assert.equal(shouldRenew(makeToken({ id: 'r1', exp: inHours(7) })), false);
+});
+
+test('بقي أقلّ من ساعتين ⇒ يُجدَّد قبل أن ينتهي', () => {
+  assert.equal(shouldRenew(makeToken({ id: 'r1', exp: inHours(1) })), true);
+});
+
+test('منتهٍ فعلاً ⇒ يُجدَّد أيضاً — نافذة السماح على الخادم تقبله', () => {
+  assert.equal(shouldRenew(makeToken({ id: 'r1', exp: inHours(-5) })), true,
+    'جهاز نام ليلاً يعود بتوكن منتهٍ؛ لو لم يُجدَّد لرأى المندوب شاشة الدخول');
+});
+
+test('عند الحافّة تماماً (ساعتان) ⇒ يُجدَّد', () => {
+  assert.equal(shouldRenew(makeToken({ id: 'r1', exp: inHours(2) })), true);
+});
+
+test('توكن مفقود ⇒ لا تجديد (لا شيء نجدّده)', () => {
+  assert.equal(shouldRenew(null), false);
+  assert.equal(shouldRenew(''), false);
+});
+
+test('توكن مشوّه أو بلا exp ⇒ لا تجديد بل إخراج', () => {
+  assert.equal(shouldRenew('aaa.bbb'), false);
+  assert.equal(shouldRenew(makeToken({ id: 'r1' })), false);
+});
+
+test('العتبة معامل: هامش أوسع يُقدّم التجديد', () => {
+  const t = makeToken({ id: 'r1', exp: inHours(5) });
+  assert.equal(shouldRenew(t), false, 'بالعتبة الافتراضية (ساعتان) لا يُجدَّد');
+  assert.equal(shouldRenew(t, 6 * 3600), true, 'بعتبة ٦ ساعات يُجدَّد');
 });
