@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, CreditCard, Users, MapPin, LogOut, Download } from 'lucide-react';
 import { companyApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
@@ -11,7 +11,8 @@ import MobileLogin from './MobileLogin';
 import MHome from './MHome';
 import MCustomers from './MCustomers';
 import MDocList from './MDocList';
-import { MEmpty } from './mobileUi';
+const MTracking = lazy(() => import('./MTracking'));
+import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
 
 /**
@@ -178,5 +179,10 @@ function ScreenBody({ screen, company, userName }: { screen: Screen; company: un
   if (screen === 'customers') return <MCustomers />;
   if (screen === 'invoices') return <MDocList kind="invoice" company={company} userName={userName} />;
   if (screen === 'receipts') return <MDocList kind="receipt" company={company} userName={userName} />;
-  return <MEmpty text={`${tr('تتبّع المناديب')} — ${tr('قيد الإنشاء')}`} />;
+  // الخريطة (leaflet) في حزمة كسولة: لا يدفع ثمنها من لم يفتح التبويب
+  return (
+    <Suspense fallback={<MSpinner />}>
+      <MTracking />
+    </Suspense>
+  );
 }
