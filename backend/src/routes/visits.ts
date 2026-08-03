@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
+import { computeVisitDuration } from '../services/visitDuration';
 
 /**
  * الزيارات الميدانية — يسجّلها المندوب عند العميل (ملاحظة + صور + موقع GPS)، وتراها
@@ -23,6 +24,11 @@ const createVisitSchema = z.object({
   photos: z.array(z.string().max(2_500_000)).max(8).optional(),
   clientRef: z.string().uuid().optional(), // idempotency للأوف‑لاين
   createdAt: z.string().optional(),        // لحظة الزيارة على الجهاز (قد تسبق الرفع)
+  // مؤقّت الزيارة (اختياري): الطابعان يُرسَلان والخادم يحسب المدّة ويتحقّق منها.
+  // زيارة الملاحظة القديمة تُرسَل بلا هذه الحقول فتبقى بلا مدّة.
+  startedAt: z.string().optional(),
+  endedAt: z.string().optional(),
+  clientDurationSec: z.number().optional(), // ما قاسه العميل — للمقارنة لا للاعتماد
 }).refine((d) => !!d.customerId || !!d.customerClientRef, {
   message: 'يجب تحديد العميل (customerId أو customerClientRef)',
 });
@@ -65,6 +71,24 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return;
     }
 
+    // مدّة الزيارة تُحسب على الخادم من الطابعين — لا يُوثَق برقم العميل.
+    // إن غاب أحد الطابعين فهي زيارة ملاحظة عادية بلا توقيت.
+    let startedAt: Date | null = null;
+    let endedAt: Date | null = null;
+    let durationSec: number | null = null;
+    if (body.startedAt && body.endedAt) {
+      const d = computeVisitDuration({
+        startedAt: body.startedAt, endedAt: body.endedAt, clientDurationSec: body.clientDurationSec,
+      });
+      if (d.ok) {
+        startedAt = new Date(body.startedAt);
+        endedAt = new Date(body.endedAt);
+        durationSec = d.durationSec;
+      }
+      // مدّة غير معقولة (سالبة/فاسدة) تُهمَل بصمت: تُحفَظ الزيارة بلا توقيت
+      // بدل رفضها كلّها — فقد تحمل ملاحظة أو صوراً قيّمة.
+    }
+
     const visit = await prisma.repVisit.create({
       data: {
         tenantId: tid,
@@ -74,6 +98,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         lat: body.lat ?? null,
         lng: body.lng ?? null,
         clientRef: body.clientRef,
+        startedAt,
+        endedAt,
+        durationSec,
         ...(body.createdAt ? { createdAt: new Date(body.createdAt) } : {}),
         photos: body.photos?.length ? { create: body.photos.map((data) => ({ data })) } : undefined,
       },

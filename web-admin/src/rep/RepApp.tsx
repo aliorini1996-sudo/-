@@ -10,8 +10,9 @@ import {
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
   Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw,
-  Camera, X, ClipboardCheck,
+  Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
+import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
@@ -299,13 +300,15 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
 }
 
 // ============ تفاصيل العميل ============
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit }: {
   customer: any; repName: string; company: Company | null;
   perms: RepUser;
   onClose: () => void; onInvoice: () => void; onReceipt: () => void; onReturn: () => void;
   onStatement: (doc: StatementDoc) => void;
   onOpenDoc: (doc: InvoiceDoc | ReceiptDoc) => void;
   onLogVisit: () => void;
+  /** مؤقّت الزيارة: نشط لهذا العميل؟ + العدّاد الحيّ + بدء التوقيت */
+  visitActive: boolean; visitElapsedLabel: string; onStartVisit: () => void;
 }) {
   const tr = useTr();
   const [entries, setEntries] = useState<any[]>([]);
@@ -359,8 +362,32 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
     <div className="h-full flex flex-col bg-gray-50">
       <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
-        <span className="font-bold">{customer.name}</span>
+        <span className="font-bold flex-1 truncate">{customer.name}</span>
+        {/* مؤقّت الزيارة: يبدأ بضغطة، ويظهر عدّاداً حيّاً حتى الخروج من الملفّ.
+            يُخفى إن نُزع العميل (لا زيارة لعميل غير مُسنَد). */}
+        {!unassigned && (
+          visitActive ? (
+            <span className="flex items-center gap-1.5 bg-[#2E6FB0] rounded-full px-3 py-1.5 text-sm font-bold tabular-nums"
+              title={tr('الزيارة جارية — تنتهي عند خروجك من ملفّ العميل')}>
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              {visitElapsedLabel}
+            </span>
+          ) : (
+            <button onClick={onStartVisit}
+              className="flex items-center gap-1.5 bg-[#5FBE92] rounded-full px-3 py-1.5 text-sm font-bold active:scale-95 transition"
+              title={tr('ابدأ توقيت الزيارة')}>
+              <Timer size={15} /> {tr('بدء الزيارة')}
+            </button>
+          )
+        )}
       </div>
+
+      {/* شريط تذكير أسفل الرأس أثناء التوقيت — يوضّح أن الوقت يُحسب */}
+      {visitActive && (
+        <div className="bg-[#2E6FB0]/10 text-[#2E6FB0] text-[11px] px-4 py-1.5 flex items-center gap-1.5 border-b border-[#2E6FB0]/20">
+          <Square size={9} className="fill-current" /> {tr('يُحسب وقت الزيارة الآن — سيُسجَّل تلقائياً عند خروجك')}
+        </div>
+      )}
 
       <div className="p-4 overflow-y-auto flex-1 pb-4">
         {/* نُزع العميل من المندوب (عزل العملاء): تنبيه صريح بدل صمت مضلّل */}
@@ -1486,6 +1513,62 @@ export default function RepApp() {
   const trackStatus = useRepTracking(!!token && !!user);
   useHeartbeat(!!token && !!user); // نبضة حضور لحساب ساعات العمل (مستقلّة عن GPS)
 
+  // ───────── مؤقّت زيارة العميل ─────────
+  // يعيش على مستوى RepApp (لا داخل CustomerDetail) كي ينجو من فتح النوافذ
+  // الفرعية (فاتورة/سند) التي تُفكِّك المكوّن، ومن إعادة تحميل التبويب.
+  const [visitTimer, setVisitTimerState] = useState<VisitTimer | null>(() => getVisitTimer());
+  const [tick, setTick] = useState(0); // يُحدِّث العدّاد الحيّ كل ثانية
+  useEffect(() => {
+    if (!visitTimer) return;
+    const iv = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(iv);
+  }, [visitTimer]);
+  const visitElapsed = visitTimer ? elapsedSec(visitTimer.startedAt) : 0;
+  void tick; // العدّاد يُعاد رسمه عبر tick
+
+  // يُنهي المؤقّت ويرفع الزيارة (أوف‑لاين عبر الصفّ الصادر). صامت: المؤقّت
+  // للقياس لا لعمل حرج، فلا يزعج المندوب برسالة خطأ.
+  const finalizeVisit = async (t: VisitTimer) => {
+    clearVisitTimer();
+    setVisitTimerState(null);
+    const endedAt = new Date().toISOString();
+    const clientDurationSec = elapsedSec(t.startedAt);
+    if (clientDurationSec < 2) return; // ضغطة خاطئة — لا زيارة مدّتها صفر
+    const clientRef = newClientRef();
+    const custRef = t.offline ? { customerClientRef: t.customerClientRef } : { customerId: t.customerId };
+    const payload: Record<string, unknown> = { ...custRef, startedAt: t.startedAt, endedAt, clientDurationSec, clientRef, createdAt: endedAt };
+    try {
+      await repApi.post('/visits', payload);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'visit', payload, status: 'queued', clientCreatedAt: endedAt });
+      }
+      // خطأ غير شبكي (عزل عميل مثلاً) يُتجاهَل بصمت — لا نكسر تجربة المندوب
+    }
+  };
+
+  // بدء توقيت زيارة عميل. إن كان مؤقّت آخر نشطاً (عميل مختلف) نُنهيه أولاً
+  // فلا تضيع مدّته ولا تختلط بالجديدة.
+  const startVisit = (c: { id: string; name: string; _offline?: boolean; clientRef?: string }) => {
+    if (visitTimer && visitTimer.customerId !== c.id) void finalizeVisit(visitTimer);
+    const t: VisitTimer = {
+      customerId: c.id, customerName: c.name,
+      offline: !!c._offline, customerClientRef: c.clientRef,
+      startedAt: new Date().toISOString(),
+    };
+    setVisitTimer(t);
+    setVisitTimerState(t);
+  };
+
+  // نجاة الأيتام: مؤقّت بقي من جلسة سابقة (أُغلق التطبيق دون خروج) وتجاوز
+  // السقف (٤ ساعات) يُنهى فوراً عند الإقلاع — الخادم يقصّه، فلا مدّة خيالية.
+  useEffect(() => {
+    if (!token) return;
+    const orphan = getVisitTimer();
+    if (orphan && elapsedSec(orphan.startedAt) > 4 * 3600) void finalizeVisit(orphan);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   // العمل دون اتصال: بدء المزامنة التلقائية + متابعة عدد المنتظرين (يُحدَّث بعد كل التقاط/رفع)
   useEffect(() => {
     if (!token) return;
@@ -1531,6 +1614,9 @@ export default function RepApp() {
     setToken(t); setUser(u);
   };
   const logout = async () => {
+    // زيارة جارية عند تسجيل الخروج تُنهى وتُرفع أولاً كي لا تضيع مدّتها
+    const t = getVisitTimer();
+    if (t) await finalizeVisit(t);
     await refClear();
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
@@ -1567,7 +1653,13 @@ export default function RepApp() {
               setScreen(k === 'invoice' ? 'invoices' : k === 'receipt' ? 'receipts' : 'customers');
             }} />
           ) : modal === 'customerDetail' && selectedCustomer ? (
-            <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal(null)}
+            <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
+              // الخروج الحقيقي لقائمة العملاء يُنهي مؤقّت هذا العميل ويرفع الزيارة.
+              // النوافذ الفرعية (فاتورة/سند) لا تمرّ من هنا فيبقى المؤقّت جارياً.
+              onClose={() => { if (visitTimer && visitTimer.customerId === selectedCustomer.id) void finalizeVisit(visitTimer); setModal(null); }}
+              visitActive={!!visitTimer && visitTimer.customerId === selectedCustomer.id}
+              visitElapsedLabel={fmtElapsed(visitElapsed)}
+              onStartVisit={() => startVisit(selectedCustomer)}
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
               onLogVisit={() => setModal('logVisit')}
               onStatement={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }}

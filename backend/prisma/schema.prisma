@@ -676,6 +676,14 @@ model RepVisit {
   clientRef  String? // مفتاح idempotency للالتقاط دون اتصال
   createdAt  DateTime @default(now())
 
+  // مؤقّت الزيارة: مدّة مكوث المندوب في ملفّ العميل (من ضغط أيقونة البدء حتى
+  // الخروج). كلّها اختيارية وإضافية — زيارة الملاحظة القديمة تبقى بلا مدّة.
+  // المدّة تُحسب على الخادم من الطابعين (services/visitDuration.ts) لا من رقم
+  // العميل، وتُقصّ عند سقف معقول ضدّ التوكن المنسيّ.
+  startedAt   DateTime? // لحظة بدء المؤقّت
+  endedAt     DateTime? // لحظة الخروج من ملفّ العميل
+  durationSec Int? // المدّة المعتمَدة بالثواني (null = زيارة ملاحظة بلا توقيت)
+
   photos VisitPhoto[]
 
   @@unique([tenantId, clientRef])

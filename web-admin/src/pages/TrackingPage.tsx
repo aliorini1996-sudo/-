@@ -6,7 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { trackingApi, visitsApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
-import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store } from 'lucide-react';
+import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface LiveRep {
@@ -17,6 +17,7 @@ interface RoutePoint { lat: number; lng: number; accuracy: number | null; speed:
 interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; }
 interface Visit {
   id: string; note: string | null; lat: number | null; lng: number | null; createdAt: string;
+  durationSec: number | null; // مدّة الزيارة بالثواني (null = زيارة ملاحظة بلا توقيت)
   customer: { id: string; name: string; phone: string | null } | null;
   _count: { photos: number };
 }
@@ -92,6 +93,13 @@ export default function TrackingPage() {
     return `${tr('قبل')} ${Math.floor(h / 24)} ${tr('يوم')}`.trim();
   };
   const timeText = (iso: string) => new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+  // «12:05» أو «1:03:20» — يطابق تنسيق الخادم والمندوب
+  const fmtDur = (sec: number | null | undefined): string | null => {
+    if (sec === null || sec === undefined || !Number.isFinite(sec) || sec < 0) return null;
+    const s = Math.round(sec), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    const p = (n: number) => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${p(m)}:${p(ss)}` : `${m}:${p(ss)}`;
+  };
 
   const settingsQ = useQuery({ queryKey: ['track-settings'], queryFn: async () => (await trackingApi.settings()).data.data as { enabled: boolean } });
   const enabled = settingsQ.data?.enabled ?? false;
@@ -242,7 +250,23 @@ export default function TrackingPage() {
                 <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
               ) : visits.length === 0 ? (
                 <p className="text-center text-gray-400 text-sm py-8 px-4">{tr('لا توجد زيارات مسجّلة لهذا المندوب في هذا اليوم.')}</p>
-              ) : (
+              ) : (<>
+                {/* ملخّص المدّة: متوسط مدّة الزيارات المؤقّتة + إجماليها.
+                    يُحسب من الزيارات ذات durationSec فقط (لا يخلط بزيارات الملاحظة). */}
+                {(() => {
+                  const timed = visits.filter(v => typeof v.durationSec === 'number' && (v.durationSec as number) > 0) as (Visit & { durationSec: number })[];
+                  if (!timed.length) return null;
+                  const total = timed.reduce((s, v) => s + v.durationSec, 0);
+                  const avg = Math.round(total / timed.length);
+                  return (
+                    <div className="px-4 py-2.5 bg-[#2E6FB0]/5 border-b border-[#2E6FB0]/15 flex items-center gap-4 text-[12px]">
+                      <span className="flex items-center gap-1.5 text-[#2E6FB0] font-bold">
+                        <Timer size={13} /> {tr('متوسّط مدّة الزيارة')}: {fmtDur(avg)}
+                      </span>
+                      <span className="text-[#6E6557]">{tr('زيارات مؤقّتة')}: {timed.length} · {tr('إجمالي الوقت')}: {fmtDur(total)}</span>
+                    </div>
+                  );
+                })()}
                 <div className="max-h-[420px] overflow-y-auto divide-y divide-[#F1EBDF]">
                   {visits.map((v, i) => (
                     <button key={v.id} onClick={() => setOpenVisit(v.id)}
@@ -251,8 +275,14 @@ export default function TrackingPage() {
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-[#1F1A13] text-sm truncate">{v.customer?.name || tr('عميل')}</p>
                         {v.note && <p className="text-[12px] text-[#6E6557] mt-0.5 line-clamp-2">{v.note}</p>}
-                        <p className="text-[11px] text-[#9A8F7E] mt-0.5 flex items-center gap-2">
+                        <p className="text-[11px] text-[#9A8F7E] mt-0.5 flex items-center gap-2 flex-wrap">
                           <span>{timeText(v.createdAt)}</span>
+                          {/* مدّة الزيارة: تُعرض فقط للزيارات المؤقّتة (durationSec ليس null) */}
+                          {fmtDur(v.durationSec) && (
+                            <span className="flex items-center gap-0.5 text-[#2E6FB0] font-bold tabular-nums" title={tr('مدّة الزيارة')}>
+                              <Timer size={11} /> {fmtDur(v.durationSec)}
+                            </span>
+                          )}
                           {v.lat != null && <span className="flex items-center gap-0.5"><MapPin size={10} /> {tr('موقع')}</span>}
                         </p>
                       </div>
@@ -265,7 +295,7 @@ export default function TrackingPage() {
                     </button>
                   ))}
                 </div>
-              )}
+              </>)}
             </div>
           )}
           </div>
