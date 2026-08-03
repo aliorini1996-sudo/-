@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { syncErpAll, syncErpResource, testErpConnection } from '../services/erp';
+import { adminScopeEnabled } from '../services/adminScope';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageCompanySettings'));
@@ -14,6 +15,27 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
     const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { erpEnabled: true } });
     if (!t?.erpEnabled) {
       res.status(403).json({ success: false, code: 'ERP_NOT_ALLOWED', message: 'ميزة ربط ERP غير مفعّلة لاشتراك شركتك — تواصل مع مزوّد الخدمة لتفعيلها.' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+});
+
+/**
+ * ربط ERP ممنوع على المستخدم مقيّد النطاق — **على مستوى الراوتر لا المسار**.
+ *
+ * المزامنة تصدّر عملاء الشركة وفواتيرها وسنداتها **كاملةً إلى نظام خارجيّ**،
+ * وصفحة الإعدادات تحدّد عنوان ذلك النظام ومفتاحه. تقييد الاستعلامات هنا لا
+ * يكفي: من يملك تغيير الوجهة يملك سحب ما لا يراه. والحارس على الراوتر كي لا
+ * يفلت مسار يُضاف لاحقاً.
+ */
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (await adminScopeEnabled(req)) {
+      res.status(403).json({
+        success: false,
+        message: 'حسابك مقيّد بنطاق محدّد — ربط ERP وتصدير بيانات الشركة يحتاج صلاحية غير مقيّدة.',
+      });
       return;
     }
     next();

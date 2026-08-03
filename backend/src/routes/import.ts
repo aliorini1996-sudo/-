@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { customerScope } from '../services/customerScope';
 
 // ============================================================================
 // استيراد بيانات الشركات من أنظمتها السابقة (Excel → صفوف JSON من الواجهة).
@@ -154,9 +155,19 @@ router.post('/products', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (err) { next(err); }
 });
 
-// خرائط ربط العملاء (بالكود أو الجوال)
-async function customerFinder(tid: string) {
-  const custs = await prisma.customer.findMany({ where: { tenantId: tid }, select: { id: true, code: true, phone: true, name: true } });
+/**
+ * خرائط ربط العملاء (بالكود أو الجوال أو الاسم).
+ *
+ * **مُقيَّدة بنطاق المستخدم** — وهذا يغلق /balances و/ledger و/prices من مصدر
+ * واحد: عميلٌ خارج النطاق لا يتحوّل إلى معرّف أصلاً، فيسقط الصفّ برسالة
+ * «العميل غير موجود» — نفس ردّ العميل غير الموجود حقيقةً، فلا يصير الاستيراد
+ * أوراكل يكشف وجود عملاء، ولا تُكتب أرصدة وقيود وأسعار على من لا يراه.
+ */
+async function customerFinder(req: AuthRequest, tid: string) {
+  const custs = await prisma.customer.findMany({
+    where: { tenantId: tid, ...(await customerScope(req, tid)) },
+    select: { id: true, code: true, phone: true, name: true },
+  });
   const byCode = new Map<string, string>(); const byPhone = new Map<string, string>(); const byName = new Map<string, string>();
   for (const c of custs) { if (c.code) byCode.set(c.code, c.id); if (c.phone) byPhone.set(c.phone, c.id); if (c.name) byName.set(normName(c.name), c.id); }
   // يربط العميل بالكود أو الجوال أو الاسم (كثير من الأنظمة تُصدّر باسم العميل فقط)
@@ -178,7 +189,7 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
     const rows = z.array(balanceRow).max(10000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
     const createdIds: string[] = [];
-    const findCust = await customerFinder(tid);
+    const findCust = await customerFinder(req, tid);
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       try {
@@ -228,7 +239,7 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
     const rows = z.array(ledgerRow).max(20000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
     const createdIds: string[] = [];
-    const findCust = await customerFinder(tid);
+    const findCust = await customerFinder(req, tid);
     // تجميع الحركات حسب العميل ثم ترتيبها زمنياً لحساب الرصيد المتحرّك
     const groups = new Map<string, { row: number; date?: string; description?: string; debit: number; credit: number }[]>();
     rows.forEach((r, i) => {
@@ -281,7 +292,7 @@ router.post('/prices', async (req: AuthRequest, res: Response, next: NextFunctio
     const rows = z.array(priceRow).max(20000).parse(req.body?.rows);
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
     const createdIds: string[] = [];
-    const findCust = await customerFinder(tid);
+    const findCust = await customerFinder(req, tid);
     const prods = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true } });
     const prodByCode = new Map(prods.map(p => [p.code, p.id]));
     for (let i = 0; i < rows.length; i++) {

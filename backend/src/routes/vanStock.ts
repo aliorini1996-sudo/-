@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { suggestLoad, type SaleRow } from '../services/suggestLoad';
+import { canAccessRep, adminRepFilter, scopedRepRecordWhere } from '../services/adminScope';
 
 const router = Router();
 router.use(authenticate);
@@ -27,6 +28,22 @@ function resolveRep(req: AuthRequest, bodyRepId?: string): { salesRepId: string;
   if (isRep) return { salesRepId: req.user!.id, isRep: true };
   if (!bodyRepId) throw Object.assign(new Error('يجب تحديد المندوب'), { status: 400 });
   return { salesRepId: bodyRepId, isRep: false };
+}
+
+/**
+ * حارس نطاق المندوب — يُستدعى في **كل** مسار يستقبل `salesRepId` من الطلب.
+ *
+ * كل مسارات هذا الملفّ تكشف أداء مندوب بعينه (المحمّل والمُباع والمتبقّي
+ * وتاريخ آخر تحميل)، وهو عين ما يحكمه نطاق المستخدم الإداري. و**404 لا 403**
+ * كي لا يكشف الردّ نفسه وجود مندوب خارج النطاق.
+ *
+ * المندوب يُستثنى: له عزله المنفصل، ومعرّفه يأتي من توكنه لا من الطلب.
+ */
+async function assertRepInScope(req: AuthRequest, tid: string, salesRepId: string): Promise<void> {
+  if (req.user?.role === 'SALES_REP') return;
+  if (!(await canAccessRep(req, tid, salesRepId))) {
+    throw Object.assign(new Error('المندوب غير موجود'), { status: 404 });
+  }
 }
 
 interface StockRow {
@@ -91,6 +108,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       return;
     }
 
+    await assertRepInScope(req, tid, salesRepId);
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     if (isRep && rep.canManageVanStock === false) { res.status(403).json({ success: false, message: 'غير مسموح لك بإدارة مخزون السيارة' }); return; }
@@ -121,6 +139,7 @@ router.get('/current', async (req: AuthRequest, res: Response, next: NextFunctio
     const isRep = req.user?.role === 'SALES_REP';
     const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    await assertRepInScope(req, tid, salesRepId);
     const rows = await computeStock(tid, salesRepId);
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -141,6 +160,7 @@ router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunctio
     const isRep = req.user?.role === 'SALES_REP';
     const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    await assertRepInScope(req, tid, salesRepId);
 
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
@@ -191,7 +211,7 @@ router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunctio
 router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const reps = await prisma.salesRep.findMany({ where: { tenantId: tid }, select: { id: true, name: true, isActive: true, canSellWithoutStock: true } });
+    const reps = await prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true, isActive: true, canSellWithoutStock: true } });
     const data = await Promise.all(reps.map(async r => {
       const rows = await computeStock(tid, r.id);
       const lastLoad = await prisma.vanLoad.findFirst({
@@ -218,6 +238,7 @@ router.patch('/sell-permission', requireAdmin, async (req: AuthRequest, res: Res
     const { salesRepId, canSellWithoutStock } = z.object({
       salesRepId: z.string(), canSellWithoutStock: z.boolean(),
     }).parse(req.body);
+    await assertRepInScope(req, tid, salesRepId);
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     await prisma.salesRep.update({ where: { id: salesRepId }, data: { canSellWithoutStock } });
@@ -231,8 +252,10 @@ router.get('/loads', async (req: AuthRequest, res: Response, next: NextFunction)
     const tid = tenantId(req);
     const isRep = req.user?.role === 'SALES_REP';
     const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    if (salesRepId) await assertRepInScope(req, tid, salesRepId);
     const loads = await prisma.vanLoad.findMany({
-      where: { tenantId: tid, ...(salesRepId && { salesRepId }) },
+      // القيد يغطّي حالة عدم تمرير معرّف: بلا نطاق يعود {} فلا يتغيّر شيء
+      where: { tenantId: tid, ...(salesRepId && { salesRepId }), ...(await scopedRepRecordWhere(req)) },
       orderBy: { createdAt: 'desc' }, take: 100,
       include: {
         items: { include: { product: { select: { id: true, name: true, unit: true } } } },
@@ -250,6 +273,7 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
     const isRep = req.user?.role === 'SALES_REP';
     const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    await assertRepInScope(req, tid, salesRepId);
 
     const [loads, invoices] = await Promise.all([
       prisma.vanLoad.findMany({

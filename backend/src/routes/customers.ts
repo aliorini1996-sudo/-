@@ -6,6 +6,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
+import { scopedRecordWhere } from '../services/adminScope';
 
 const router = Router();
 router.use(authenticate);
@@ -200,14 +201,12 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       const rep = await prisma.salesRep.findFirst({ where: { id: req.user.id, tenantId: tid }, select: { canViewStatement: true } });
       if (!rep?.canViewStatement) { res.status(403).json({ success: false, message: 'لا تملك صلاحية عرض كشف الحساب' }); return; }
     }
-    // العزل: كشف حساب عميل غير مُسنَد للمندوب يُرفض (يُعامَل كغير موجود).
-    // الفحص يقتصر على حالة العزل — الإدارة لا تدفع ثمن استعلام إضافي.
-    const stScope = await customerScope(req, tid);
-    if (stScope.assignments) {
-      const visible = await prisma.customer.findFirst({
-        where: { id: req.params.id, tenantId: tid, ...stScope }, select: { id: true },
-      });
-      if (!visible) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    // العزل: كشف حساب عميل خارج النطاق يُرفض (يُعامَل كغير موجود).
+    // نمرّ عبر canAccessCustomer لا بفحص مفتاح بعينه: النطاق صار مفتاحين
+    // (المندوب/الإداري) وفحصُ أحدهما يفتح الباب للآخر. وهي ترجع true بلا
+    // استعلام حين لا قيد، فالإدارة غير المقيّدة لا تدفع ثمناً.
+    if (!(await canAccessCustomer(req, tid, req.params.id))) {
+      res.status(404).json({ success: false, message: 'العميل غير موجود' }); return;
     }
 
     const where = {
@@ -235,16 +234,13 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
 router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    // العزل: فواتير عميل غير مُسنَد للمندوب لا تُعرض (الفحص في حالة العزل فقط)
-    const invScope = await customerScope(req, tid);
-    if (invScope.assignments) {
-      const visible = await prisma.customer.findFirst({
-        where: { id: req.params.id, tenantId: tid, ...invScope }, select: { id: true },
-      });
-      if (!visible) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    // العزل: فواتير عميل خارج النطاق لا تُعرض (المفتاحان معاً — راجع /statement)
+    if (!(await canAccessCustomer(req, tid, req.params.id))) {
+      res.status(404).json({ success: false, message: 'العميل غير موجود' }); return;
     }
     const invoices = await prisma.invoice.findMany({
-      where: { customerId: req.params.id, tenantId: tid },
+      // قيد المندوب أيضاً: عميلٌ مرئيّ لا يُبرّر كشف اسم مندوب خارج النطاق
+      where: { customerId: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
       include: { salesRep: { select: { name: true } }, items: { include: { product: true } } },
       orderBy: { createdAt: 'desc' },
     });

@@ -164,17 +164,23 @@ export async function scopedRecordWhere(req: AuthRequest): Promise<Record<string
   return composeRecordWhere(cust, rep);
 }
 
-/** تركيب القيد — مفصولٌ عن قاعدة البيانات ليُختبَر وحده (القاعدة أعلاه) */
+/**
+ * تركيب القيد — مفصولٌ عن قاعدة البيانات ليُختبَر وحده (القاعدة أعلاه).
+ *
+ * `AND` من مجموعتَي `OR` لا مفتاحين مباشرين: كلّ طرف يحتاج استثناءه الخاصّ
+ * للحقل الفارغ، ومفتاح `OR` واحد لا يحمل مجموعتين. والاستثناء ضروريّ لأن قيد
+ * العلاقة لا يطابق السجلّ الذي لا علاقة له أصلاً — فإشعارٌ على مستوى الشركة
+ * (بلا عميل) كان سيختفي عن كل مستخدم مقيّد.
+ */
 export function composeRecordWhere(cust: AdminCustomerFilter, rep: AdminRepFilter): Record<string, unknown> {
-  const where: Record<string, unknown> = {};
-  if (cust.adminScopes) where.customer = { adminScopes: cust.adminScopes };
-  if (rep.adminScopes) {
-    where.OR = [
-      { salesRep: { adminScopes: rep.adminScopes } },
-      { salesRepId: null }, // سجلّ أنشأته الإدارة بلا مندوب
-    ];
+  const and: Record<string, unknown>[] = [];
+  if (cust.adminScopes) {
+    and.push({ OR: [{ customer: { adminScopes: cust.adminScopes } }, { customerId: null }] });
   }
-  return where;
+  if (rep.adminScopes) {
+    and.push({ OR: [{ salesRep: { adminScopes: rep.adminScopes } }, { salesRepId: null }] });
+  }
+  return and.length ? { AND: and } : {};
 }
 
 /** قيد على سجلّ يحمل `salesRepId` فقط (موقع مندوب، جلسة حضور، تحميل سيارة) */
