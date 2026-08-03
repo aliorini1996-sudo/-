@@ -13,7 +13,8 @@
 
     <!-- ===== SEO الأساسي ===== -->
     <title>FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع</title>
-    <meta name="description" content="فيلد سيلز نظام عربي لإدارة مبيعات مناديب التوزيع في السعودية ومصر والمغرب العربي: فواتير ضريبية، تحصيل، مخزون السيارة، وتتبّع المناديب. جرّبه مجاناً 10 أيام." />
+    <!-- ≤155 حرفاً (جوجل يقتطع الأطول، وأشدّ مع العربية) + الكلمة المفتاحية في المقدّمة -->
+    <meta name="description" content="نظام مبيعات المناديب والتوزيع: فواتير ضريبية، تحصيل، مخزون السيارة وتتبّع GPS للسعودية ومصر والخليج. جرّب مجاناً 10 أيام." />
     <meta name="keywords" content="نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل مدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, جرد سيارة المندوب, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, طباعة حرارية للفواتير, تطبيق مندوب مبيعات, فيلد سيلز, FieldSales, إدارة مبيعات التوزيع, نظام مبيعات للأسواق العربية, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر, نظام توزيع تونس, برنامج مبيعات ليبيا, نظام مبيعات السعودية" />
     <meta name="author" content="FieldSales" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -50,7 +51,12 @@
     <!-- ===== الخطوط ===== -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap" rel="stylesheet" />
+    <!-- الخطوط غير حاجبة للتصيير: media="print" يجعل المتصفّح يحمّلها بلا انتظار، وonload يفعّلها.
+         (كانت <link rel=stylesheet> عادية = طلب طرف ثالث يحجب أول رسم — أثقل مساهم في FCP.)
+         display=swap أصلاً يمنع النصّ غير المرئي، و<noscript> يضمن الخطوط بلا JavaScript. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap" />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all';this.onload=null" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap" rel="stylesheet" /></noscript>
 
     <!-- ===== بيانات منظّمة (Schema.org JSON-LD) للنتائج الغنية ===== -->
     <script type="application/ld+json">
