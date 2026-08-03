@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, useMap } from 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
-  Radio, Power, ClipboardCheck, Store, Timer, X, ChevronUp, ChevronDown, Layers, Phone,
+  Radio, Power, ClipboardCheck, Store, Timer, X, ChevronUp, ChevronDown, Layers, Phone, MapPin,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { trackingApi, visitsApi, customerApi } from '../api/client';
@@ -31,7 +31,9 @@ interface VisitDetail extends Visit {
   photos: { id: string; data: string }[];
 }
 interface CustomerLoc {
-  id: string; name: string; phone: string | null; city: string | null; lat: number; lng: number;
+  id: string; name: string; businessName: string | null; phone: string | null;
+  city: string | null; district: string | null; address: string | null;
+  lat: number; lng: number;
 }
 
 function FitBounds({ points }: { points: [number, number][] }) {
@@ -66,6 +68,7 @@ export default function MTracking() {
   const [satellite, setSatellite] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState(false);
+  const [pickedCustomer, setPickedCustomer] = useState<CustomerLoc | null>(null);
 
   const settingsQ = useQuery({
     queryKey: ['m-track-settings'],
@@ -169,20 +172,59 @@ export default function MTracking() {
         ))}
 
         {showCustomers && (custQ.data ?? []).map(c => (
-          <Marker key={c.id} position={[c.lat, c.lng]} icon={customerIcon()} />
+          <Marker key={c.id} position={[c.lat, c.lng]} icon={customerIcon()}
+            eventHandlers={{ click: () => setPickedCustomer(c) }} />
         ))}
       </MapContainer>
 
       {/* أدوات عائمة — بعيدة عن الشريطين كي لا تُزاحمهما */}
       <div className="absolute top-3 z-[500] flex flex-col gap-2" style={{ insetInlineEnd: '12px' }}>
         <IconBtn active={satellite} onClick={() => setSatellite(s => !s)} label={tr('قمر صناعي')}><Layers size={17} /></IconBtn>
-        <IconBtn active={showCustomers} onClick={() => setShowCustomers(s => !s)} label={tr('مواقع العملاء')}><Store size={17} /></IconBtn>
+        <IconBtn active={showCustomers} onClick={() => { setShowCustomers(s => !s); setPickedCustomer(null); }} label={tr('مواقع العملاء')}><Store size={17} /></IconBtn>
       </div>
 
       {trackingOff && (
         <div className="absolute top-3 z-[500] rounded-xl bg-[#1F1A13]/90 text-white text-[11px] px-3 py-2 max-w-[62%]"
           style={{ insetInlineStart: '12px' }}>
           {tr('التتبّع متوقّف للشركة — لا تُسجَّل مواقع جديدة')}
+        </div>
+      )}
+
+      {/* بطاقة العميل المنقور — فوق الورقة السفلية لا نافذة منبثقة صغيرة:
+          النافذة المنبثقة على الجوال تُقصّ عند حواف الخريطة ولا يُصاب زرّ إغلاقها. */}
+      {pickedCustomer && (
+        <div className="absolute inset-x-0 z-[650] px-3" style={{ bottom: sheetOpen ? '66%' : '74px' }}>
+          <div className="bg-white rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,.22)] border border-[#E9E1D3] p-3.5">
+            <div className="flex items-start gap-2">
+              <span className="w-9 h-9 rounded-xl bg-[#EBF1FE] text-[#2563EB] flex items-center justify-center flex-shrink-0">
+                <Store size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-[#1F1A13] truncate">{pickedCustomer.name}</span>
+                {pickedCustomer.businessName && (
+                  <span className="block text-[11px] text-[#6E6557] truncate">{pickedCustomer.businessName}</span>
+                )}
+                <span className="block text-[11px] text-[#9A8F7E] truncate">
+                  {[pickedCustomer.city, pickedCustomer.district, pickedCustomer.address].filter(Boolean).join(' — ') || tr('بلا عنوان')}
+                </span>
+              </span>
+              <button onClick={() => setPickedCustomer(null)} className="p-1.5 -m-1 text-[#9A8F7E]" aria-label={tr('إغلاق')}>
+                <X size={17} />
+              </button>
+            </div>
+            <div className="flex gap-2 mt-3">
+              {pickedCustomer.phone && (
+                <a href={`tel:${pickedCustomer.phone}`}
+                  className="flex-1 flex items-center justify-center gap-1.5 border border-[#E9E1D3] rounded-xl py-2.5 min-h-[44px] text-sm font-semibold text-[#E15A30]">
+                  <Phone size={14} /> {tr('اتصال')}
+                </a>
+              )}
+              <a href={`https://maps.google.com/?q=${pickedCustomer.lat},${pickedCustomer.lng}`} target="_blank" rel="noreferrer"
+                className="flex-1 flex items-center justify-center gap-1.5 border border-[#E9E1D3] rounded-xl py-2.5 min-h-[44px] text-sm font-semibold text-[#1F1A13]">
+                <MapPin size={14} /> {tr('الاتجاهات')}
+              </a>
+            </div>
+          </div>
         </div>
       )}
 
