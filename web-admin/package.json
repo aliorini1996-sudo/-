@@ -23,6 +23,8 @@
     "@tanstack/react-query": "^5.45.1",
     "@tanstack/react-query-devtools": "^5.45.1",
     "@types/leaflet": "^1.9.21",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "axios": "^1.7.2",
     "date-fns": "^3.6.0",
     "html2canvas": "^1.4.1",
