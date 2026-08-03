@@ -19,13 +19,14 @@ export function useRepTracking(active: boolean): TrackStatus {
     const flush = () => {
       if (!buffer.current.length) return;
       const points = buffer.current.splice(0, buffer.current.length);
-      repApi.post('/tracking/ping', { points }).catch(() => { /* غير متصل — تُهمَل الدفعة */ });
+      // background: نبضة تتبّع خلفية — فشل 401 عابر لا يُخرج المندوب (repApi.ts)
+      repApi.post('/tracking/ping', { points }, { background: true }).catch(() => { /* غير متصل — تُهمَل الدفعة */ });
     };
 
     const start = async () => {
       // تتبّع فقط إن فعّلت الشركة الميزة
       let enabled = false;
-      try { enabled = !!(await repApi.get('/tracking/settings')).data.data.enabled; } catch { /* */ }
+      try { enabled = !!(await repApi.get('/tracking/settings', { background: true })).data.data.enabled; } catch { /* */ }
       if (cancelled || !enabled) { setStatus('off'); return; }
       if (!('geolocation' in navigator)) { setStatus('unavailable'); return; }
 

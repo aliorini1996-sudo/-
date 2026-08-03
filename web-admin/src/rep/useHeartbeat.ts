@@ -9,7 +9,8 @@ import repApi from './repApi';
 export function useHeartbeat(active: boolean): void {
   useEffect(() => {
     if (!active) return;
-    const beat = () => { if (navigator.onLine) repApi.post('/tracking/heartbeat').catch(() => { /* تجاهل */ }); };
+    // background: نبضة خلفية — فشلها العابر لا يُخرج المندوب (انظر repApi.ts)
+    const beat = () => { if (navigator.onLine) repApi.post('/tracking/heartbeat', undefined, { background: true }).catch(() => { /* تجاهل */ }); };
     beat(); // فور فتح التطبيق
     const timer = setInterval(beat, 60000); // نبضة كل دقيقة
     const onVisible = () => { if (!document.hidden) beat(); };
