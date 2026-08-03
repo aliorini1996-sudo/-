@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { sessionSpace } from '../store/authStore';
 
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 
@@ -7,15 +8,9 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// مفاتيح الجلسة حسب المساحة الحالية: لوحة المالك (sa_) أو لوحة الشركة (token)
-// يطابق العزل في store/authStore.ts ويمنع تداخل جلستي المالك والأدمن.
-function spaceKeys() {
-  const p = window.location.pathname;
-  const platform = p.startsWith('/platform') || p.startsWith('/owner');
-  return platform
-    ? { tokenKey: 'sa_token', userKey: 'sa_user', loginPath: '/owner' }
-    : { tokenKey: 'token', userKey: 'user', loginPath: '/login' };
-}
+// مفاتيح الجلسة حسب المساحة الحالية — **مستوردة لا مكرَّرة**: تعريفان
+// منفصلان يفترقان يوماً ما فيُرسَل توكن مساحةٍ أخرى.
+const spaceKeys = () => sessionSpace();
 
 api.interceptors.request.use(config => {
   const token = localStorage.getItem(spaceKeys().tokenKey);
@@ -30,8 +25,11 @@ api.interceptors.response.use(
     const isLogin = (err.config?.url as string | undefined)?.includes('/auth/login');
     if (err.response?.status === 401 && !isLogin) {
       const { tokenKey, userKey, loginPath } = spaceKeys();
-      [tokenKey, userKey, 'impersonating'].forEach(k => localStorage.removeItem(k));
-      window.location.href = loginPath; // المالك→/owner ، الأدمن→/login (كلٌّ لمدخله الصحيح)
+      localStorage.removeItem(tokenKey);
+      localStorage.removeItem(userKey);
+      // «الانتحال» شأن اللوحة — لا يُمحى من مساحة تطبيق الجوال
+      if (tokenKey !== 'm_token') localStorage.removeItem('impersonating');
+      window.location.href = loginPath; // المالك→/owner ، التطبيق→/m ، الأدمن→/login
     }
     return Promise.reject(err);
   }

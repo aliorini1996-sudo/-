@@ -16,16 +16,71 @@ interface AuthState {
 // ───────────────────────────────────────────────────────────────
 //  عزل الجلسات حسب «المساحة» لمنع تداخل الأدوار في نفس المتصفح:
 //   • مالك المنصّة (سوبر أدمن): مفاتيح sa_token / sa_user  ← مساران /platform و /owner
+//   • تطبيق الإدارة على الجوال: m_token / m_user           ← مسار /m
 //   • أدمن الشركة (وجلسة الشركة أثناء انتحال المالك): token / user  ← مسار /
 //   • المندوب: rep_token / rep_user (مُدار في rep/repApi.ts) ← مسار /rep
-//  بهذا يستطيع المالك والأدمن تسجيل الدخول معاً دون أن يطرد أحدهما الآخر.
+//  بهذا تستطيع الأدوار أن تسجّل الدخول معاً دون أن يطرد أحدها الآخر.
+//
+//  ولماذا لتطبيق الجوال مساحته: **الخروج منه يجب ألّا يُخرج من اللوحة**.
+//  مشاركة المفاتيح كانت تعني أن زرّ الخروج في التطبيق يمحو جلسة اللوحة أيضاً
+//  في المتصفّح نفسه. الآن جلستان مستقلّتان تماماً في الاتجاهين.
+//
+//  ولئلّا يُطلب دخولٌ ثانٍ بلا داعٍ: التطبيق **يتبنّى** جلسة اللوحة عند أوّل
+//  فتح إن وُجدت (نسخةً في مساحته) — راجع `adoptDashboardSession` أدناه.
 // ───────────────────────────────────────────────────────────────
-const isPlatformPath = () => {
-  const p = window.location.pathname;
-  return p.startsWith('/platform') || p.startsWith('/owner');
-};
-const TKEY = () => (isPlatformPath() ? 'sa_token' : 'token');
-const UKEY = () => (isPlatformPath() ? 'sa_user' : 'user');
+type Space = { tokenKey: string; userKey: string; loginPath: string };
+
+/** علامة «خرج من تطبيق الجوال عمداً» — تمنع التبنّي التلقائيّ بعدها */
+const SIGNED_OUT = 'm_signed_out';
+
+/**
+ * مساحة الجلسة للمسار الحاليّ — **المصدر الوحيد**، يستوردها عميل الـAPI أيضاً
+ * (`api/client.ts`). تكرارها في موضعين يعني يوماً ما إرسالَ توكن مساحةٍ أخرى.
+ */
+export function sessionSpace(pathname = window.location.pathname): Space {
+  if (pathname.startsWith('/platform') || pathname.startsWith('/owner')) {
+    return { tokenKey: 'sa_token', userKey: 'sa_user', loginPath: '/owner' };
+  }
+  // انتهاء جلسة التطبيق تعيده إلى `/m` (شاشة دخوله الداخلية) لا إلى صفحة
+  // الدخول المكتبية — وإلا قُذف المستخدم خارج التطبيق المثبَّت.
+  if (pathname === '/m' || pathname.startsWith('/m/')) {
+    return { tokenKey: 'm_token', userKey: 'm_user', loginPath: '/m' };
+  }
+  return { tokenKey: 'token', userKey: 'user', loginPath: '/login' };
+}
+
+const TKEY = () => sessionSpace().tokenKey;
+const UKEY = () => sessionSpace().userKey;
+
+/**
+ * يتبنّى تطبيقُ الجوال جلسةَ اللوحة عند أوّل فتح — نسخةً في مساحته.
+ *
+ * الغاية: عزل الخروج بلا ثمنِ دخولٍ ثانٍ لمن هو مسجَّل أصلاً على اللوحة.
+ * ويُستدعى قبل إنشاء المتجر كي يقرأ المتجرُ الجلسةَ المتبنّاة فوراً.
+ *
+ * ⚠️ **أثرٌ يجب أن يُعرَف:** بعد التبنّي صارت نسختان مستقلّتان من التوكن،
+ * فالخروج من اللوحة لا يُنهي جلسة التطبيق (تبقى حتى انتهاء التوكن). وهذا
+ * لا يُضعف شيئاً قائماً: الخروج في هذا النظام يمحو النسخة المحلّية ولا
+ * يُبطل التوكن على الخادم أصلاً.
+ */
+function adoptDashboardSession() {
+  try {
+    const p = window.location.pathname;
+    if (p !== '/m' && !p.startsWith('/m/')) return;
+    if (localStorage.getItem('m_token')) return;          // للتطبيق جلسته
+    // **خروجٌ صريح يمنع التبنّي.** بدونه يعود التطبيق مسجَّلاً عند أوّل إعادة
+    // فتح، فيُلغي زرُّ الخروج نفسَه — وهذا أسوأ من غياب الزرّ.
+    if (localStorage.getItem(SIGNED_OUT) === '1') return;
+    const t = localStorage.getItem('token');
+    const u = localStorage.getItem('user');
+    if (!t || !u) return;
+    // مالك المنصّة لا يُتبنّى: مساحته sa_*، ووجوده في token يعني انتحالاً جارياً
+    if ((JSON.parse(u) as { role?: string })?.role === 'SUPER_ADMIN') return;
+    localStorage.setItem('m_token', t);
+    localStorage.setItem('m_user', u);
+  } catch { /* تجاهل: غياب التبنّي يعني شاشة دخول فقط */ }
+}
+adoptDashboardSession();
 
 // ترحيل لمرّة واحدة: مستخدمو النظام القديم قد تكون جلسة المالك مخزّنة في مفاتيح الأدمن (token/user).
 // ننقلها لمساحة المالك وننظّف المفاتيح القديمة غير المستخدمة (owner_token/owner_user).
@@ -55,27 +110,42 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: readUser(),
   impersonating: localStorage.getItem('impersonating'),
 
-  // تسجيل دخول جديد = بداية نظيفة تماماً في مساحة الدور الصحيح (لا بقايا انتحال)
+  // تسجيل دخول جديد = بداية نظيفة تماماً في مساحة الدور الصحيح (لا بقايا انتحال).
+  // مالك المنصّة له مساحته أينما دخل؛ وغيره يدخل مساحة **المسار الحاليّ**
+  // (تطبيق الجوال في m_*، واللوحة في token/user) فلا يطرد أحدهما الآخر.
   login: (token, user) => {
-    const platform = user.role === 'SUPER_ADMIN';
-    localStorage.setItem(platform ? 'sa_token' : 'token', token);
-    localStorage.setItem(platform ? 'sa_user' : 'user', JSON.stringify(user));
-    localStorage.removeItem('impersonating');
-    set({ token, user, impersonating: null });
+    const space = user.role === 'SUPER_ADMIN'
+      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
+      : sessionSpace();
+    localStorage.setItem(space.tokenKey, token);
+    localStorage.setItem(space.userKey, JSON.stringify(user));
+    // دخولٌ صريح يرفع علامة الخروج، فيعود التبنّي متاحاً لاحقاً
+    if (space.tokenKey === 'm_token') localStorage.removeItem(SIGNED_OUT);
+    // «الانتحال» شأن اللوحة وحدها — لا يُمسّ من مساحة تطبيق الجوال
+    if (space.tokenKey !== 'm_token') localStorage.removeItem('impersonating');
+    set({ token, user, impersonating: space.tokenKey === 'm_token' ? get().impersonating : null });
   },
 
-  // خروج = يمسح مساحة المستخدم الحالي فقط (المالك أو الأدمن) + أي بقايا انتحال
+  /**
+   * خروج = يمسح **مساحة المسار الحاليّ وحدها**.
+   *
+   * الخروج من تطبيق الجوال يمحو `m_*` فقط، فتبقى جلسة اللوحة في المتصفّح
+   * نفسه كما هي — والعكس صحيح. ومالك المنصّة يمسح مساحته أينما كان.
+   */
   logout: () => {
     const u = get().user;
-    if (u?.role === 'SUPER_ADMIN') {
-      localStorage.removeItem('sa_token');
-      localStorage.removeItem('sa_user');
-    } else {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+    const space = u?.role === 'SUPER_ADMIN'
+      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
+      : sessionSpace();
+    localStorage.removeItem(space.tokenKey);
+    localStorage.removeItem(space.userKey);
+    // نرفع علامة الخروج الصريح كي لا يتبنّى التطبيقُ جلسةَ اللوحة عند إعادة فتحه
+    if (space.tokenKey === 'm_token') localStorage.setItem(SIGNED_OUT, '1');
+    // بقايا الانتحال تخصّ اللوحة — لا تُمسّ من تطبيق الجوال
+    if (space.tokenKey !== 'm_token') {
+      ['impersonating', 'owner_token', 'owner_user'].forEach(k => localStorage.removeItem(k));
     }
-    ['impersonating', 'owner_token', 'owner_user'].forEach(k => localStorage.removeItem(k));
-    set({ token: null, user: null, impersonating: null });
+    set({ token: null, user: null, impersonating: space.tokenKey === 'm_token' ? get().impersonating : null });
   },
 
   isAdmin: () => {
