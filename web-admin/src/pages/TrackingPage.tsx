@@ -18,6 +18,7 @@ interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number 
 interface Visit {
   id: string; note: string | null; lat: number | null; lng: number | null; createdAt: string;
   durationSec: number | null; // مدّة الزيارة بالثواني (null = زيارة ملاحظة بلا توقيت)
+  startedAt: string | null; endedAt: string | null; // طابعا المؤقّت (للزيارات المؤقّتة)
   customer: { id: string; name: string; phone: string | null } | null;
   _count: { photos: number };
 }
@@ -405,9 +406,14 @@ export default function TrackingPage() {
         <div className="fixed inset-0 z-[2000] bg-black/70 flex items-center justify-center p-4" onClick={() => setOpenVisit(null)}>
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-[#F1EBDF] flex items-center justify-between">
-              <span className="font-bold text-[#1F1A13] text-sm">
+              <span className="font-bold text-[#1F1A13] text-sm flex items-center gap-2 flex-wrap">
                 {visitDetailQ.data?.customer?.name || tr('تفاصيل الزيارة')}
-                {visitDetailQ.data && <span className="text-[#9A8F7E] font-normal"> · {timeText(visitDetailQ.data.createdAt)}</span>}
+                {visitDetailQ.data && <span className="text-[#9A8F7E] font-normal">· {timeText(visitDetailQ.data.createdAt)}</span>}
+                {fmtDur(visitDetailQ.data?.durationSec) && (
+                  <span className="inline-flex items-center gap-1 text-[#2E6FB0] font-bold tabular-nums text-[13px]">
+                    <Timer size={13} /> {fmtDur(visitDetailQ.data?.durationSec)}
+                  </span>
+                )}
               </span>
               <button onClick={() => setOpenVisit(null)} className="text-[#9A8F7E] hover:text-[#1F1A13]"><X size={20} /></button>
             </div>
@@ -418,6 +424,24 @@ export default function TrackingPage() {
                 <p className="text-center text-red-500 text-sm py-8">{tr('تعذّر تحميل تفاصيل الزيارة، حاول مجدداً.')}</p>
               ) : (
                 <>
+                  {/* مدّة الزيارة: من البدء إلى الانتهاء + الوقت المستغرق (للزيارات المؤقّتة فقط) */}
+                  {fmtDur(visitDetailQ.data?.durationSec) && (
+                    <div className="mb-4 rounded-xl border border-[#2E6FB0]/20 bg-[#2E6FB0]/5 p-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-[#2E6FB0]">
+                        <Timer size={18} />
+                        <div>
+                          <p className="text-[11px] text-[#6E6557]">{tr('الوقت المستغرق للزيارة')}</p>
+                          <p className="text-lg font-bold tabular-nums leading-tight">{fmtDur(visitDetailQ.data?.durationSec)}</p>
+                        </div>
+                      </div>
+                      {visitDetailQ.data?.startedAt && visitDetailQ.data?.endedAt && (
+                        <div className="text-[11px] text-[#6E6557] text-left tabular-nums">
+                          <p>{tr('بدأت')}: {timeText(visitDetailQ.data.startedAt)}</p>
+                          <p>{tr('انتهت')}: {timeText(visitDetailQ.data.endedAt)}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {/* الملاحظة */}
                   <p className="text-[11px] font-semibold text-[#9A8F7E] mb-1">{tr('ملاحظة الزيارة')}</p>
                   {visitDetailQ.data?.note
