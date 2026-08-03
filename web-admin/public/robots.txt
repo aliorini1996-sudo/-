@@ -5,6 +5,7 @@ Disallow: /app
 Disallow: /platform
 Disallow: /owner
 Disallow: /rep
+Disallow: /m
 Disallow: /login
 Disallow: /signup
 Disallow: /verify-email
@@ -89,6 +90,7 @@ Disallow: /app
 Disallow: /platform
 Disallow: /owner
 Disallow: /rep
+Disallow: /m
 Disallow: /login
 Disallow: /verify-email
 

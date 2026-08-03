@@ -31,7 +31,8 @@ import { anonId, isOptedOut } from '../lib/attribution';
  * حدّ `(\/|$)` ليس تجميلاً: بدونه يبتلع `rep` مسارَ `/restaurant` التسويقي
  * فيختفي الزرّ من صفحة هبوط كاملة بصمت.
  */
-const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|verify-email|rep)(\/|$)/;
+// `m` (تطبيق الإدارة على الجوال) بحدّ نهاية — كي لا يلتقط مساراً تسويقياً يبدأ بالحرف نفسه
+const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|verify-email|rep|m)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home

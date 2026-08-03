@@ -1,0 +1,20 @@
+{
+  "id": "/m",
+  "name": "FieldSales إدارة",
+  "short_name": "إدارة",
+  "description": "تطبيق إدارة الشركة: لوحة المعلومات وتتبّع المناديب والعملاء والفواتير والتحصيل",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF7F0",
+  "theme_color": "#1F1A13",
+  "lang": "ar",
+  "dir": "rtl",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icons/admin-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/admin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/admin-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -41,6 +41,7 @@ const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
+const MobileApp = lazy(() => import('./m/MobileApp'));
 const RestaurantLandingPage = lazy(() => import('./pages/resto/RestaurantLandingPage'));
 const RestaurantLayout = lazy(() => import('./pages/resto/RestaurantLayout'));
 const RestaurantDashboard = lazy(() => import('./pages/resto/RestaurantDashboard'));
@@ -65,6 +66,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
   // عزل العموديّات: أدمن المطاعم لا يرى لوحة التوزيع أبداً — يُوجَّه لمساحته /app-r.
   if (user?.vertical === 'restaurant') return <Navigate to="/app-r" replace />;
+  return <>{children}</>;
+}
+
+/**
+ * تطبيق الإدارة على الجوال (/m) — لمستخدم شركة توزيع.
+ *
+ * لا يُوجَّه غير المصادَق إلى `/login` بل تعرض القوقعة شاشة دخولها الداخلية،
+ * وإلا خرج المستخدم من التطبيق المثبَّت إلى صفحة سطح مكتب. أمّا الأدوار
+ * الأخرى فتُوجَّه لمساحاتها كما في `ProtectedRoute`.
+ */
+function MobileRoute({ children }: { children: React.ReactNode }) {
+  const { token, user } = useAuthStore();
+  if (token && user?.role === 'SUPER_ADMIN') return <Navigate to="/platform" replace />;
+  if (token && user?.vertical === 'restaurant') return <Navigate to="/app-r" replace />;
+  if (token && user?.role === 'SALES_REP') return <Navigate to="/rep" replace />;
   return <>{children}</>;
 }
 
@@ -123,7 +139,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|app-r|pos|pos-login|kds|platform|owner|login|signup|verify-email|rep)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|app-r|pos|pos-login|kds|platform|owner|login|signup|verify-email|rep|m)(\/|$)/.test(pathname)) return;
     // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — تُعيد {} عند رفض التتبّع
     analyticsApi.track({
       path: pathname,
@@ -148,6 +164,8 @@ export default function App() {
         {/* الصفحة التعريفية لعمودية المطاعم (M1) — منفصلة تماماً عن هبوط التوزيع */}
         <Route path="/restaurant" element={<RestaurantLandingPage />} />
         <Route path="/rep" element={<RepApp />} />
+        {/* تطبيق الإدارة على الجوال — قوقعة مستقلّة بجلسة لوحة الشركة */}
+        <Route path="/m" element={<MobileRoute><MobileApp /></MobileRoute>} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
         <Route path="/pos-login" element={<PosLoginPage />} />

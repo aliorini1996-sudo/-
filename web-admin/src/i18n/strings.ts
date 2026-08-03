@@ -67,6 +67,17 @@ export const DICT: Record<string, { ar: string; en: string; fr: string }> = {
   'rep.username': { ar: 'اسم المستخدم', en: 'Username', fr: 'Nom d’utilisateur' },
   'rep.badCreds': { ar: 'بيانات الدخول غير صحيحة', en: 'Invalid login credentials', fr: 'Identifiants de connexion invalides' },
 
+  // تطبيق الإدارة على الجوال (/m)
+  'm.tagline': { ar: 'إدارة شركتك من جوالك', en: 'Run your company from your phone', fr: 'Gérez votre entreprise depuis votre mobile' },
+  'm.loginTitle': { ar: 'دخول مستخدم الشركة', en: 'Company user sign in', fr: 'Connexion utilisateur' },
+  'm.tabHome': { ar: 'الرئيسية', en: 'Home', fr: 'Accueil' },
+  'm.tabInvoices': { ar: 'الفواتير', en: 'Invoices', fr: 'Factures' },
+  'm.tabReceipts': { ar: 'التحصيل', en: 'Collections', fr: 'Encaissements' },
+  'm.tabCustomers': { ar: 'العملاء', en: 'Customers', fr: 'Clients' },
+  'm.tabTracking': { ar: 'التتبّع', en: 'Tracking', fr: 'Suivi' },
+  'm.noTabs': { ar: 'لا تملك صلاحية أي قسم في التطبيق — راجع مدير الشركة.', en: 'You have no permission for any section — contact your company admin.', fr: 'Aucune autorisation pour une section — contactez votre administrateur.' },
+  'm.install': { ar: 'ثبّت التطبيق', en: 'Install app', fr: 'Installer' },
+
   // صفحة التواصل
   'contact.title': { ar: 'تواصل معنا', en: 'Contact us', fr: 'Contactez-nous' },
   'contact.cardEmail': { ar: 'البريد الإلكتروني', en: 'Email', fr: 'E-mail' },

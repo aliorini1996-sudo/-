@@ -45,6 +45,27 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="FieldSales" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!--
+      تطبيقان مثبَّتان من موقع واحد: المندوب (/rep) والإدارة (/m).
+      المتصفّح يميّزهما بحقل `id` في المانيفست، فيلزم مانيفست لكلٍّ — ونبدّل
+      الرابط هنا **قبل التصيير** كي يراه محرّك التثبيت.
+      ⚠️ لا يُمسّ /manifest.webmanifest بحرف: تطبيق المندوب منشور على Play
+      ومثبَّت عند مستخدمين، وتغيير id/scope فيه يُفقدهم أيقونتهم وكاشهم.
+    -->
+    <script>
+      (function () {
+        var p = location.pathname;
+        if (p !== '/m' && p.indexOf('/m/') !== 0) return;
+        var m = document.querySelector('link[rel="manifest"]');
+        if (m) m.href = '/manifest-admin.webmanifest';
+        var t = document.querySelector('link[rel="apple-touch-icon"]');
+        if (t) t.href = '/icons/admin-apple-touch.png';
+        var title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+        if (title) title.content = 'إدارة';
+        var theme = document.querySelector('meta[name="theme-color"]');
+        if (theme) theme.content = '#1F1A13';
+      })();
+    </script>
     <!-- دليل الموقع لنماذج الذكاء الاصطناعي (GEO) -->
     <link rel="alternate" type="text/plain" href="https://fieldsa.net/llms.txt" title="llms.txt" />
 

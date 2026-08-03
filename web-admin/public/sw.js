@@ -27,6 +27,14 @@ self.addEventListener('message', (e) => { if (e.data === 'SKIP_WAITING') self.sk
 
 const isAsset = (path) => /\/assets\/.+\.(js|css|woff2?|ttf|png|jpg|jpeg|svg|webp)$/i.test(path);
 
+// قوقعة أي مسار: تطبيق المندوب، تطبيق الإدارة، أو لا شيء (صفحات الموقع).
+// الفصل ضروريّ كي لا يسمّم تطبيقٌ قوقعةَ الآخر ولا تسمّمهما صفحةُ تسويق.
+const shellFor = (path) => {
+  if (path === '/rep' || path.startsWith('/rep/')) return '/rep';
+  if (path === '/m' || path.startsWith('/m/')) return '/m';
+  return null;
+};
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -36,16 +44,24 @@ self.addEventListener('fetch', (event) => {
   // طلبات API لا تُخزَّن إطلاقاً — الأوف-لاين لها عبر IndexedDB لا SW
   if (url.pathname.startsWith('/api/')) return;
 
-  // ملاحة الصفحات: الشبكة أولاً (نسخة حديثة)، وعند الانقطاع القوقعة المخزّنة
+  // ملاحة الصفحات: الشبكة أولاً (نسخة حديثة)، وعند الانقطاع القوقعة المخزّنة.
+  //
+  // ⚠️ القوقعة تُخزَّن **فقط من مسار التطبيق نفسه**. كان يُخزَّن كل تنقّل تحت
+  // المفتاح '/rep'، والموقع يخدم أكثر من ألف صفحة ثابتة حقيقية (تسويق/مدوّنة)،
+  // فزيارةٌ واحدة لصفحة تسويقية كانت تستبدل قوقعة المندوب الأوف‑لاين بها —
+  // فيُقلع التطبيق بلا شبكة على صفحة تسويق بدل شاشة العمل.
   if (request.mode === 'navigate') {
+    const shell = shellFor(url.pathname); // '/rep' أو '/m' أو null لغير التطبيقات
     event.respondWith(
       fetch(request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('/rep', copy)).catch(() => {});
+          if (shell) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(shell, copy)).catch(() => {});
+          }
           return res;
         })
-        .catch(() => caches.match(request).then((r) => r || caches.match('/rep'))),
+        .catch(() => caches.match(request).then((r) => r || (shell ? caches.match(shell) : undefined))),
     );
     return;
   }

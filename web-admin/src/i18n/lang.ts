@@ -5,7 +5,8 @@ const KEY = 'app_lang';
 
 // مسارات التطبيق (لا SEO): الدخول/التسجيل/اللوحة/المندوب/المالك — تدعم اختيار اللغة يدويًا (بما فيها الفرنسية)
 export function isAppRoute(p: string): boolean {
-  return /^\/(app|rep|pos|kds|platform|login|signup|verify)/.test(p);
+  // `m` بحدّ نهاية: كي لا يلتقط /maghreb أو أي مسار تسويقيّ يبدأ بالحرف نفسه
+  return /^\/(app|rep|pos|kds|platform|login|signup|verify)/.test(p) || /^\/m(\/|$)/.test(p);
 }
 
 function initial(): Lang {
