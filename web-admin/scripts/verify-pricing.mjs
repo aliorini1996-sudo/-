@@ -51,10 +51,23 @@ const PRICE_PATTERNS = [
   /"(?:price|lowPrice|highPrice)"\s*:\s*"?(\d{2,4})"?/g,
 ];
 
+/**
+ * صفحات وظيفتها اقتباس أسعار السوق — تُستثنى من فحص «السعر الغريب» **حصراً** وبسبب مكتوب:
+ * تقرير مسح الـ123 مورّداً يعرض إحصاءات أسعار السوق المُتحقَّقة (140 ر.س/مندوب محلياً،
+ * 4,000 تأسيس، 7,188=599×12...) وهي جوهر الصفحة لا انزياحاً في سعرنا. أرقامها مُدقَّقة
+ * مقابل ذاكرة competitive_research_2026، وأسعارنا تبقى مفحوصة في بقية الـ1200+ صفحة.
+ * لا يُضاف مسار هنا إلا لصفحة إحصاءات سوق بمصدر موثّق.
+ */
+const ALLOW_MARKET_STATS = [
+  // المسار النسبي من dist يبدأ بـblog مباشرةً (بلا فاصل بادئ)، والفاصل \ على ويندوز و/ على لينكس
+  /(^|[\\/])blog[\\/]field-sales-software-market-report-2026([\\/]|$)/i,
+];
+
 const files = collect(DIST);
 const strays = new Map(); // سعر → ملفات
 
 for (const f of files) {
+  if (ALLOW_MARKET_STATS.some((re) => re.test(path.relative(DIST, f)))) continue;
   const txt = fs.readFileSync(f, 'utf8');
   for (const re of PRICE_PATTERNS) {
     re.lastIndex = 0;
