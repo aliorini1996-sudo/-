@@ -2035,6 +2035,9 @@
 
 ## Manual blog posts
 
+- [تحصيل الذمم المتعثّرة عبر المناديب: 7 خطوات عملية تُنقذ سيولتك](https://fieldsa.net/blog/field-collection-overdue-receivables/)
+- [كيف تكشف الزيارات الوهمية للمناديب وتمنع تزييف الموقع (GPS)](https://fieldsa.net/blog/prevent-fake-visits-gps-spoofing/)
+- [بدائل ريبزو (Repzo) لإدارة المناديب: متى يناسبك نظام أخفّ؟](https://fieldsa.net/blog/repzo-alternative-field-reps/)
 - [كيف تُنشئ فاتورة ضريبية مجانية برمز QR في 30 ثانية؟ (دليل + أداة جاهزة)](https://fieldsa.net/blog/how-to-create-free-tax-invoice-qr/)
 - [كم تخسر شركات التوزيع من إيراداتها سنوياً؟ (وكيف تحسب التسريب بدقّة)](https://fieldsa.net/blog/how-much-distribution-companies-lose/)
 - [دليل الفوترة الإلكترونية ZATCA لشركات التوزيع (المرحلة الثانية)](https://fieldsa.net/blog/zatca-einvoicing-distribution/)

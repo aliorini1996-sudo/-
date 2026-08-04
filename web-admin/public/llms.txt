@@ -138,6 +138,9 @@ Key facts:
 
 ## Blog highlights
 
+- [تحصيل الذمم المتعثّرة عبر المناديب: 7 خطوات عملية تُنقذ سيولتك](https://fieldsa.net/blog/field-collection-overdue-receivables/)
+- [كيف تكشف الزيارات الوهمية للمناديب وتمنع تزييف الموقع (GPS)](https://fieldsa.net/blog/prevent-fake-visits-gps-spoofing/)
+- [بدائل ريبزو (Repzo) لإدارة المناديب: متى يناسبك نظام أخفّ؟](https://fieldsa.net/blog/repzo-alternative-field-reps/)
 - [كيف تُنشئ فاتورة ضريبية مجانية برمز QR في 30 ثانية؟ (دليل + أداة جاهزة)](https://fieldsa.net/blog/how-to-create-free-tax-invoice-qr/)
 - [كم تخسر شركات التوزيع من إيراداتها سنوياً؟ (وكيف تحسب التسريب بدقّة)](https://fieldsa.net/blog/how-much-distribution-companies-lose/)
 - [دليل الفوترة الإلكترونية ZATCA لشركات التوزيع (المرحلة الثانية)](https://fieldsa.net/blog/zatca-einvoicing-distribution/)
@@ -147,9 +150,6 @@ Key facts:
 - [البيع المتنقّل (Van Sales): دليل إدارة مخزون سيارة المندوب](https://fieldsa.net/blog/van-sales-guide/)
 - [إدارة التحصيل والذمم المدينة في التوزيع: 6 ممارسات تقلّل الديون المتعثّرة](https://fieldsa.net/blog/collection-receivables-distribution/)
 - [تتبّع المناديب عبر GPS: الفائدة، الخصوصية، وأثره على الإنتاجية](https://fieldsa.net/blog/gps-tracking-sales-reps/)
-- [أفضل نظام لإدارة مناديب المبيعات والتوزيع في مصر](https://fieldsa.net/blog/field-sales-software-egypt/)
-- [إدارة التوزيع والبيع المتنقّل في المغرب والجزائر وتونس](https://fieldsa.net/blog/van-sales-distribution-maghreb/)
-- [ما هو نظام إدارة المبيعات الميدانية؟ دليل شامل](https://fieldsa.net/blog/what-is-field-sales-management-software/)
 
 ## Optional
 
