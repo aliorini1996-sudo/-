@@ -1038,8 +1038,14 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  */
 export const CONTENT_VERSION = '2026-07-29';
 
-// تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً)
-export const modifiedOf = (date) => (date > CONTENT_VERSION ? date : CONTENT_VERSION);
+// تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً).
+// صفحات أسواق الأولوية تغيّرت جوهرياً بإضافة بطاقة السوق (4 أغسطس) — نسختها أحدث
+// **لها وحدها** كي يُعاد زحفها، دون churn كاذب لبقية الصفحات (راجع درس lastmod الأمين).
+const PRIORITY_CONTENT_VERSION = '2026-08-04';
+export const modifiedOf = (date, cc) => {
+  const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
+  return date > v ? date : v;
+};
 
 // slug المقال: عام = id، خاص بدولة = id-cc
 // الصفحة الجامعة لموضوع قُطري تأخذ المعرّف مجرّداً (REGION)؛ وصفحات الدول تأخذ اللاحقة.
@@ -1133,7 +1139,7 @@ export function listArticles(L) {
   const out = [];
   for (const [slug, { topic, country, date }] of index()) {
     out.push({
-      slug, lang: L, date, modified: modifiedOf(date), readMinutes: topic.rm,
+      slug, lang: L, date, modified: modifiedOf(date, topic.cs ? country.code : null), readMinutes: topic.rm,
       countryCode: topic.cs ? country.code : null,
       title: titleOf(topic, country, L),
       excerpt: excerptOf(topic, country, L),
@@ -1176,7 +1182,7 @@ export function getArticle(slug, L) {
   const contentHtml = `${answerBlock(topic, c, L)}\n${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
-    excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date), readMinutes: topic.rm,
+    excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, topic.cs ? c.code : null), readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     faq: faqData(c, L),
     howto: howToData(c, L),
@@ -1233,7 +1239,7 @@ export function buildCatalog() {
     // REGION ليست دولة — الصفحة الجامعة تُعامَل كعامّة (cc=null) في التقليم والخرائط
     const cc = topic.cs && country.code !== 'REGION' ? country.code : null;
     const canon = canonicalSlug(slug);
-    out.push({ slug, date, modified: modifiedOf(date), cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
+    out.push({ slug, date, modified: modifiedOf(date, cc), cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
   }
   return out;
 }

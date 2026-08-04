@@ -113,11 +113,17 @@ const RULES = [
   },
 ];
 
-const stripHtml = (h) => h
+// ⚠️ ثغرة مُكتشفة (4 أغسطس 2026): تجريد <script> كان يُخفي JSON-LD عن قواعد النصّ،
+// فعاش ادّعاء «Phase 2» الكاذب في FAQPage بـindex.html غير مكشوف — وهو ما يقرؤه جوجل
+// تحديداً. الحلّ: نصّ JSON-LD يُستخرَج ويُلحَق بالنصّ المرئي قبل الفحص.
+const ldJsonText = (h) => [...h.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi)]
+  .map((m) => m[1].replace(/["{}\[\],]/g, ' '))
+  .join(' ');
+const stripHtml = (h) => (h
   .replace(/<script[\s\S]*?<\/script>/gi, ' ')
   .replace(/<style[\s\S]*?<\/style>/gi, ' ')
   .replace(/<[^>]+>/g, ' ')
-  .replace(/&nbsp;/g, ' ')
+  .replace(/&nbsp;/g, ' ') + ' ' + ldJsonText(h))
   .replace(/\s+/g, ' ');
 
 function collect(dir, out = [], depth = 0) {

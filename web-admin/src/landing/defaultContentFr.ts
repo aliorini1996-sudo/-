@@ -59,7 +59,7 @@ export const defaultContentFr = {
   faq: {
     title: 'Questions fréquentes',
     items: [
-      { q: 'Les factures sont-elles conformes à la réglementation ?', a: 'Oui, le système émet des factures fiscales (Phase 2) conformes aux exigences de facturation électronique ZATCA, avec code QR. Les paramètres de taxe s’adaptent au pays de l’entreprise.' },
+      { q: 'Les factures sont-elles conformes à la réglementation ?', a: 'Le système émet des factures fiscales simplifiées avec code QR selon la Phase 1 (génération) de la facturation électronique. La Phase 2 (intégration) n’est pas encore disponible, et la ZATCA ne certifie pas les éditeurs de logiciels. Les paramètres de taxe s’adaptent au pays de l’entreprise.' },
       { q: 'Ai-je besoin de matériel spécifique ?', a: 'Non — l’application fonctionne sur n’importe quel smartphone. Pour l’impression sur le terrain, une imprimante thermique 58 mm (Bluetooth ou intégrée) suffit.' },
       { q: 'L’application fonctionne-t-elle hors ligne ?', a: 'Oui — l’application du commercial fonctionne toute la journée sans internet : émettez et imprimez factures fiscales et reçus avec code QR et remettez-les aux clients, puis chaque document est téléversé automatiquement au bureau dès le retour de la connexion, sans doublon ni perte de données.' },
       { q: 'Combien de temps prend la configuration ?', a: 'Vous pouvez configurer votre entreprise, vos produits et vos commerciaux en quelques minutes et commencer à émettre des factures immédiatement.' },

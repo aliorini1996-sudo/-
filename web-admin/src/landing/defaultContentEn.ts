@@ -59,7 +59,7 @@ export const defaultContentEn = {
   faq: {
     title: 'Frequently asked questions',
     items: [
-      { q: 'Are the invoices ZATCA-compliant?', a: 'Yes, the system issues Phase 2 tax invoices compliant with ZATCA e-invoicing requirements, with a QR code.' },
+      { q: 'Are the invoices ZATCA-compliant?', a: 'The system issues simplified tax invoices with a QR code under Phase 1 (the Generation phase) of e-invoicing. Phase 2 (Integration) is not built yet, and ZATCA does not certify software vendors.' },
       { q: 'Do I need special hardware?', a: 'No — the app runs on any smartphone. For field printing, a 58mm thermal printer (Bluetooth or built-in) is all you need.' },
       { q: 'Does the app work offline?', a: 'Yes — the rep app runs all day with no internet: issue and print tax invoices and receipts with a QR code and hand them to customers, then every document uploads to the office automatically once connectivity returns, with no duplicates or data loss.' },
       { q: 'How long does setup take?', a: 'You can set up your company, products, and reps in minutes and start issuing invoices right away.' },

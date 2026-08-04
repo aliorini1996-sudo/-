@@ -142,11 +142,8 @@ function articleJsonLd(a, lang, canonical) {
         { '@type': 'ListItem', position: 3, name: a.title, item: canonical },
       ] },
       ...(a.faq && a.faq.length ? [{ '@type': 'FAQPage', mainEntity: a.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }] : []),
-      ...(a.howto && a.howto.length ? [{
-        '@type': 'HowTo',
-        name: tr(lang, `كيف تبدأ مع ${a.title}`, `How to get started with ${a.title}`, `Comment démarrer avec ${a.title}`),
-        step: a.howto.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: s.text })),
-      }] : []),
+      // HowTo حُذف عمداً (أغسطس 2026): نتائجه الغنية ميّتة في SERP منذ سبتمبر 2023 — بايتات ميتة في كل صفحة.
+      // بيانات howToData تبقى في catalog.mjs (يستهلكها llms-full.txt لمحرّكات AI) لكنها لا تُبثّ JSON-LD.
     ],
   };
 }
@@ -609,6 +606,7 @@ ${PRICING_HTML}
 <h2>روابط مفيدة</h2>
 <p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
 <p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')}</p>
+<p>أدلّة متخصّصة: <a href="/blog/distributor-network-management-software/">برنامج إدارة الموزعين</a> · <a href="/blog/cash-van-software-guide/">برنامج كاش فان</a> · <a href="/blog/sales-reps-management-system/">نظام إدارة المناديب</a> · <a href="/blog/distribution-companies-management-system/">نظام إدارة شركات التوزيع</a> · <a href="/blog/field-sales-system-for-companies/">نظام مبيعات ميدانية للشركات</a> · <a href="/blog/field-sales-software-om/">برنامج مناديب التوزيع سلطنة عمان</a> · <a href="/blog/field-sales-software-market-report-2026/">تقرير سوق برامج المناديب 2026</a></p>
 </main>`;
   const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
