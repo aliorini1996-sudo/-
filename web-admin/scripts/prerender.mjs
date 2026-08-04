@@ -101,6 +101,17 @@ function writeRoute(routePath, html) {
   const dir = path.join(DIST, routePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.html'), html);
+  // 🔴 إصلاح المسارات العربية على Render (اكتُشف 5 أغسطس 2026): خادم Render الثابت يبحث
+  // بالمسار المُرمَّز (%D9%86…) كما يصله دون فكّ الترميز، فلا يطابق مجلداً باسم عربي خام —
+  // فتسقط /نماذج/ و/قطاعات/ كلها إلى قوقعة SPA (قِيس حيّاً: عنوان الرئيسية على 17 صفحة).
+  // العلاج: نكتب نسخة ثانية من الصفحة تحت الاسم المُرمَّز لكل مقطع غير-ASCII، فيجدها
+  // البحث الخام. (النسخة العربية الخام تبقى لأي خادم يفكّ الترميز — التكلفة مجلدات مكررة فقط.)
+  if (/[^\x00-\x7F]/.test(routePath)) {
+    const encoded = routePath.split('/').map((seg) => (/[^\x00-\x7F]/.test(seg) ? encodeURIComponent(seg) : seg)).join('/');
+    const encDir = path.join(DIST, encoded);
+    fs.mkdirSync(encDir, { recursive: true });
+    fs.writeFileSync(path.join(encDir, 'index.html'), html);
+  }
 }
 
 /**
