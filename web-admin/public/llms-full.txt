@@ -2035,6 +2035,15 @@
 
 ## Manual blog posts
 
+- [برنامج إدارة الموزعين: عهدة وتحصيل وحدود ائتمان لكل موزع](https://fieldsa.net/blog/distributor-network-management-software/)
+- [كيف تدير شبكة الموزعين؟ 6 خطوات عملية من الإسناد للتحصيل](https://fieldsa.net/blog/how-to-manage-distributor-network/)
+- [نظام الكاش فان: الدليل الشامل من تحميل العهدة إلى المطابقة](https://fieldsa.net/blog/cash-van-software-guide/)
+- [برنامج كاش فان في السعودية: فاتورة QR مبسطة وعمل أوف-لاين](https://fieldsa.net/blog/cash-van-software-saudi/)
+- [نظام إدارة المناديب: متابعة GPS وفوترة وتحصيل من 299 ريال](https://fieldsa.net/blog/sales-reps-management-system/)
+- [نظام إدارة المناديب في السعودية: ما الذي تحتاجه فعلاً؟](https://fieldsa.net/blog/sales-reps-management-saudi/)
+- [نظام إدارة شركات التوزيع: دليل شامل للسعودية والخليج ومصر](https://fieldsa.net/blog/distribution-companies-management-system/)
+- [نظام مبيعات ميدانية للشركات: الدورة الكاملة من 299 ريال](https://fieldsa.net/blog/field-sales-system-for-companies/)
+- [برامج إدارة المناديب 2026: تقرير سوق من مسح 123 مورّداً](https://fieldsa.net/blog/field-sales-software-market-report-2026/)
 - [تحصيل الذمم المتعثّرة عبر المناديب: 7 خطوات عملية تُنقذ سيولتك](https://fieldsa.net/blog/field-collection-overdue-receivables/)
 - [كيف تكشف الزيارات الوهمية للمناديب وتمنع تزييف الموقع (GPS)](https://fieldsa.net/blog/prevent-fake-visits-gps-spoofing/)
 - [بدائل ريبزو (Repzo) لإدارة المناديب: متى يناسبك نظام أخفّ؟](https://fieldsa.net/blog/repzo-alternative-field-reps/)
