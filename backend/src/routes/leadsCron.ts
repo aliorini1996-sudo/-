@@ -5,13 +5,40 @@ import { runAutoEmailBatch, getEmailConfig } from '../services/leadEmailer';
 import { runCommunityHuntBatch, getCommunityConfig } from '../services/communityHunter';
 
 // نقطة الصيد المستمر للجدولة الخارجية (GitHub Actions).
-// بلا إعداد أسرار: تعمل فقط إذا فُعّل الصيد من اللوحة (enabled)، مع حارس فاصل زمني
-// يمنع أكثر من دفعة كل ~18 دقيقة (حماية من التكرار/الإساءة).
-// أمان اختياري: إن ضُبط AUTO_HUNT_TOKEN في الخادم، يُطلب تطابق الهيدر x-autohunt-token.
+// تعمل فقط إذا فُعّل الصيد من اللوحة (enabled)، مع حارس فاصل زمني يمنع أكثر من
+// دفعة كل ~18 دقيقة (حماية من التكرار/الإساءة).
 const router = Router();
 const MIN_INTERVAL_MS = 18 * 60 * 1000;
 
-router.post('/run', async (req: Request, res: Response, next: NextFunction) => {
+/**
+ * حارس المسارات الدوريّة — **يفشل مغلقاً**.
+ *
+ * كان الفحص مشروطاً بوجود `AUTO_HUNT_TOKEN`: إن غاب المتغيّر سقط الحارس كلّه
+ * وصارت النقاط عامّةً لمن يعرف عنوانها — يُشغّل دفعات صيد ويستهلك حصص Apify
+ * وGemini وSerper المدفوعة، ويُطلق حملات بريد باسم الشركة.
+ *
+ * والمتغيّر مضبوطٌ اليوم على الإنتاج، فهذا التشديد **لا يغيّر سلوكاً قائماً**؛
+ * إنما يمنع أن يتحوّل حذفُ متغيّرِ بيئةٍ يوماً إلى فتحِ بابٍ صامت.
+ *
+ * ⚠️ لا يُطبَّق على `/invgen` ولا على نقاط تتبّع البريد (`/o` `/c` `/u`):
+ * تلك يناديها زوّار مجهولون من الأدوات المجانية ومن رسائل البريد، فتحصينها
+ * يقتل التقاط العملاء المحتملين وإلغاء الاشتراك.
+ */
+function requireCronToken(req: Request, res: Response, next: NextFunction) {
+  const token = (process.env.AUTO_HUNT_TOKEN || '').trim();
+  if (!token) {
+    res.status(503).json({ success: false, message: 'الجدولة معطّلة: AUTO_HUNT_TOKEN غير مضبوط على الخادم' });
+    return;
+  }
+  const provided = (req.headers['x-autohunt-token'] as string || '').trim();
+  if (provided !== token) {
+    res.status(401).json({ success: false, message: 'توكن غير صالح' });
+    return;
+  }
+  next();
+}
+
+router.post('/run', requireCronToken, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const cfg = await getHuntConfig();
     if (!cfg.enabled) {
@@ -19,15 +46,6 @@ router.post('/run', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    // أمان اختياري بالتوكن (إن ضُبط)
-    const token = (process.env.AUTO_HUNT_TOKEN || '').trim();
-    if (token) {
-      const provided = (req.headers['x-autohunt-token'] as string || '').trim();
-      if (provided !== token) {
-        res.status(401).json({ success: false, message: 'توكن غير صالح' });
-        return;
-      }
-    }
 
     // حارس الفاصل الزمني — يمنع التشغيل المتكرّر أو المتوازي
     if (cfg.lastRunAt && Date.now() - new Date(cfg.lastRunAt).getTime() < MIN_INTERVAL_MS) {
@@ -43,18 +61,13 @@ router.post('/run', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// دفعة بريد تلقائي (للجدولة) — نفس منطق الحماية: enabled + توكن اختياري + فاصل زمني
-router.post('/email', async (req: Request, res: Response, next: NextFunction) => {
+// دفعة بريد تلقائي (للجدولة) — الحماية: توكن إلزامي + enabled + فاصل زمني
+router.post('/email', requireCronToken, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const cfg = await getEmailConfig();
     if (!cfg.enabled) {
       res.json({ success: true, skipped: true, message: 'البريد التلقائي متوقّف (فعّله من اللوحة)' });
       return;
-    }
-    const token = (process.env.AUTO_HUNT_TOKEN || '').trim();
-    if (token) {
-      const provided = (req.headers['x-autohunt-token'] as string || '').trim();
-      if (provided !== token) { res.status(401).json({ success: false, message: 'توكن غير صالح' }); return; }
     }
     if (cfg.lastRunAt && Date.now() - new Date(cfg.lastRunAt).getTime() < MIN_INTERVAL_MS) {
       res.json({ success: true, skipped: true, message: 'دفعة حديثة — تخطّي' });
@@ -68,15 +81,10 @@ router.post('/email', async (req: Request, res: Response, next: NextFunction) =>
 });
 
 // دفعة بحث مجتمعات (للجدولة)
-router.post('/community', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/community', requireCronToken, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const cfg = await getCommunityConfig();
     if (!cfg.enabled) { res.json({ success: true, skipped: true, message: 'بحث المجتمعات متوقّف (فعّله من اللوحة)' }); return; }
-    const token = (process.env.AUTO_HUNT_TOKEN || '').trim();
-    if (token) {
-      const provided = (req.headers['x-autohunt-token'] as string || '').trim();
-      if (provided !== token) { res.status(401).json({ success: false, message: 'توكن غير صالح' }); return; }
-    }
     if (cfg.lastRunAt && Date.now() - new Date(cfg.lastRunAt).getTime() < MIN_INTERVAL_MS) {
       res.json({ success: true, skipped: true, message: 'دفعة حديثة — تخطّي' });
       return;

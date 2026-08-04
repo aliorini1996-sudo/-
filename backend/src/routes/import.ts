@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
+import { currentBalance } from '../services/accounting';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { customerScope } from '../services/customerScope';
@@ -201,8 +202,8 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
         if (exists) { result.skipped++; continue; }
         const amount = r.balance; const date = r.date ? new Date(r.date) : new Date();
         const eid = await prisma.$transaction(async tx => {
-          const last = await tx.accountEntry.findFirst({ where: { customerId: cid }, orderBy: { entryDate: 'desc' } });
-          const prev = Number(last?.balance ?? 0);
+          // نفس تعريف الرصيد في كل المنظومة: Σمدين − Σدائن (لا «آخر قيد بالتاريخ»)
+          const prev = await currentBalance(tx, cid);
           const e = await tx.accountEntry.create({
             data: {
               tenantId: tid, customerId: cid,
@@ -253,8 +254,7 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
         entries.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
         const groupIds: string[] = [];
         await prisma.$transaction(async tx => {
-          const last = await tx.accountEntry.findFirst({ where: { customerId: cid }, orderBy: { entryDate: 'desc' } });
-          let running = Number(last?.balance ?? 0);
+          let running = await currentBalance(tx, cid);
           for (const e of entries) {
             running += e.debit - e.credit;
             const ae = await tx.accountEntry.create({

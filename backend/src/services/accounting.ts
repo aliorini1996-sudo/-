@@ -2,12 +2,53 @@
 
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
-async function currentBalance(tx: Tx, customerId: string) {
-  const lastEntry = await tx.accountEntry.findFirst({
+// يزيل غبار الفاصلة العائمة دون المساس بأيّ عملة (٣ خانات في الدينار والريال العُماني)
+const clean = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/**
+ * الرصيد الجاري للعميل = **مجموع المدين ناقص مجموع الدائن**.
+ *
+ * كان يُقرأ من «آخر قيد بالتاريخ» (`orderBy entryDate desc`) — وهو خطأ من وجهين:
+ *
+ * ١) **التعادل في التاريخ**: الفاتورة النقدية تكتب قيدين بنفس `entryDate` بالضبط —
+ *    مدين بالإجمالي (رصيده `prev + total`) ودائن بالإجمالي (رصيده `prev`). ولا فاصل
+ *    تعادل، فالقاعدة حرّة في إعادة أيّهما. وإن أعادت المدين، بُني كلّ قيد لاحق على
+ *    رصيد **أعلى بمقدار الفاتورة كاملةً**، فينفتح فرقٌ دائم في كشف الحساب.
+ *    ولا ينفع `createdAt` فاصلَ تعادل: `now()` في بوستجرس **ثابتة طوال المعاملة**،
+ *    فالقيدان يحملان الطابع نفسه إلى الميلي ثانية. ولا `id` — فهو UUID عشوائي.
+ *
+ * ٢) **القيد بأثر رجعي**: فاتورة تُسجَّل بتاريخ سابق تأخذ أساسها من رصيد **أحدث**
+ *    قيد، فتُخزَّن برصيدٍ لا يمتّ لموضعها الزمني بصلة.
+ *
+ * والمجموع محصَّنٌ من الاثنين معاً: لا يعنيه ترتيبٌ ولا تاريخ. وهو عين ما يفعله
+ * مسار التراجع في الاستيراد حين يعيد بناء الأرصدة (`import.ts`)، وعين ما يحفظه
+ * `customer.balance` بزياداته — فالمصادر الثلاثة تتّفق أخيراً على تعريف واحد.
+ */
+export async function currentBalance(tx: Tx, customerId: string) {
+  const agg = await tx.accountEntry.aggregate({
     where: { customerId },
-    orderBy: { entryDate: 'desc' },
+    _sum: { debit: true, credit: true },
   });
-  return Number(lastEntry?.balance ?? 0);
+  return clean(Number(agg._sum.debit ?? 0) - Number(agg._sum.credit ?? 0));
+}
+
+/**
+ * يشتقّ عمود الرصيد الجاري لكشف الحساب في **ترتيب العرض** انطلاقاً من رصيد مُرحَّل.
+ *
+ * لا يُعرض `balance` المخزَّن: هو لقطةٌ لحظةَ الكتابة، فقيدٌ بأثر رجعي يحمل رصيد
+ * زمنٍ لاحق له، وقيدٌ محذوف يترك من بعده أرصدةً معلّقة — فيخرج عمودٌ لا تُنتج فيه
+ * أيّ خطوةٍ الخطوةَ التالية. الاشتقاق يضمن أنّ كل سطر ناتجُ سابقه بالضرورة.
+ *
+ * دالّة صرفة عمداً: تُختبَر بلا قاعدة بيانات.
+ */
+export function deriveRunningBalances<T extends { debit: number; credit: number }>(
+  entries: T[], openingBalance = 0
+): (T & { balance: number })[] {
+  let running = clean(openingBalance);
+  return entries.map((e) => {
+    running = clean(running + Number(e.debit) - Number(e.credit));
+    return { ...e, balance: running };
+  });
 }
 
 export async function postInvoiceEntries(

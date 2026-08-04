@@ -14,15 +14,24 @@ const SITE = 'https://fieldsa.net';
 
 // ------------------------- زاوية مخصّصة لكل دولة عربية ------------------------- //
 // سطر «ألم محلي/امتثال» يُحقن في البريد حسب دولة العميل — يرفع الصلة والردود.
+//
+// ⚠️ **قاعدة صدق الادّعاء**: لا يُذكر اسم منظومة فوترة وطنية هنا إلا إذا كان محوّلها
+// مبنيّاً فعلاً في `src/compliance/provider.ts`. المبنيّ اليوم: **ZATCA المرحلة الأولى
+// وحدها** (رمز QR بترميز TLV، `compliance/zatca.ts`). أمّا `eta` و`peppol` و`ttn`
+// فكلّها `notImplemented`. كان هذا السطر يَعِد بـ«ZATCA المرحلة الثانية جاهزة»
+// و«ETA» و«JoFotara» — وعودٌ تصل بريداً بارداً لموزّعين يشترون على أساسها،
+// وأوّل ما يكتشفونه بعد الاشتراك أنّها غير موجودة. الادّعاء الكاذب لا يُكسب عميلاً،
+// يُكسب استرداداً ومراجعةً سيّئة. أبقِ الزوايا على ما هو مبنيّ: النِسَب الضريبية
+// والتحصيل والمخزون والتتبّع — كلّها حقيقية وكافية.
 const COUNTRY_ANGLES: Record<string, { ar: string; en: string }> = {
-  SA: { ar: 'فواتير إلكترونية متوافقة مع «فاتورة» هيئة الزكاة والضريبة والجمارك (ZATCA) — المرحلة الثانية جاهزة.', en: 'ZATCA Phase-2 compliant e-invoicing, ready out of the box.' },
-  EG: { ar: 'جاهز لمنظومة الفاتورة الإلكترونية المصرية (ETA) وإيصالات التحصيل النقدي للمناديب.', en: 'Ready for Egypt’s ETA e-invoicing and cash-collection receipts for your reps.' },
+  SA: { ar: 'فاتورة ضريبية مبسّطة برمز QR وفق المرحلة الأولى من «فاتورة» هيئة الزكاة والضريبة والجمارك (ZATCA).', en: 'Simplified tax invoices with ZATCA Phase-1 QR codes, out of the box.' },
+  EG: { ar: 'فواتير بضريبة 14% وإيصالات تحصيل نقدي موثّقة لكل مندوب في الميدان.', en: '14% VAT invoicing with documented cash-collection receipts for every field rep.' },
   AE: { ar: 'فواتير ضريبة القيمة المضافة 5% متوافقة مع الهيئة الاتحادية للضرائب (FTA).', en: 'FTA-compliant 5% VAT invoicing for the UAE.' },
   KW: { ar: 'إدارة الذمم والتحصيل الميداني — أكبر وجع في توزيع الجملة بالكويت.', en: 'Receivables & field collections — the #1 pain in Kuwaiti wholesale.' },
   QA: { ar: 'تتبّع مناديبك في الدوحة والمناطق الصناعية لحظة بلحظة عبر GPS.', en: 'Track your Doha & industrial-area reps live on GPS.' },
   BH: { ar: 'فواتير VAT 10% جاهزة لمتطلبات البحرين، مع مخزون سيارة المندوب.', en: 'Bahrain-ready 10% VAT invoicing with van-stock control.' },
   OM: { ar: 'فواتير ضريبية متوافقة مع جهاز الضرائب العُماني، وتحصيل ميداني موثّق.', en: 'Oman Tax Authority-compliant invoicing with documented field collections.' },
-  JO: { ar: 'جاهز لمنظومة الفوترة الوطنية الأردنية (JoFotara) وتحصيل الذمم.', en: 'Ready for Jordan’s national e-invoicing (JoFotara) and receivables.' },
+  JO: { ar: 'متابعة الذمم والتحصيل الميداني لكل عميل ومندوب، بكشف حساب لحظي.', en: 'Receivables and field-collection tracking per customer and rep, with live statements.' },
   MA: { ar: 'إدارة موزّعين بالعربية والفرنسية، مع فواتير TVA المغربية.', en: 'Arabic + French distributor management with Moroccan TVA invoices.' },
   DZ: { ar: 'واجهة عربية/فرنسية وإدارة توزيع تغطي الولايات الجزائرية كلها.', en: 'Arabic/French interface covering distribution across all Algerian wilayas.' },
   TN: { ar: 'إدارة مناديب التوزيع بالعربية والفرنسية مع فواتير TVA التونسية.', en: 'Rep management in Arabic & French with Tunisian TVA invoicing.' },

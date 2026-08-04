@@ -153,7 +153,11 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const tid = tenantId(req);
     const { from, to } = req.query;
-    const dateFilter = from && to ? { gte: new Date(from as string), lte: new Date(to as string) } : undefined;
+    // طرفٌ واحد يكفي؛ و«إلى» تشمل يومها كاملاً (لا حتى منتصف ليله)
+    const dateFilter = (from || to) ? {
+      ...(from ? { gte: new Date(from as string) } : {}),
+      ...(to ? { lte: new Date(new Date(to as string).setHours(23, 59, 59, 999)) } : {}),
+    } : undefined;
 
     const [invoices, receipts] = await Promise.all([
       prisma.invoice.aggregate({

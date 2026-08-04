@@ -33,8 +33,13 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ['statement', customer.id, from, to],
     queryFn: async () => {
-      const res = await customerApi.statement(customer.id, from && to ? { from, to } : undefined);
-      return res.data.data as { customer: Customer; entries: AccountEntry[] };
+      // كلٌّ على حدة: «من ١ يناير» بلا «إلى» كانت تُلغي التصفية بصمت،
+      // فيقرأ المستخدم كشفاً كاملاً وهو يظنّه مقصوراً على فترته.
+      const params: Record<string, string> = {};
+      if (from) params.from = from;
+      if (to) params.to = to;
+      const res = await customerApi.statement(customer.id, Object.keys(params).length ? params : undefined);
+      return res.data.data as { customer: Customer; entries: AccountEntry[]; openingBalance: number; closingBalance: number };
     },
   });
 
@@ -50,6 +55,11 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(data.customer.totalCollected) },
       { [tr('البند')]: tr('الرصيد الحالي'), [tr('القيمة')]: num(data.customer.balance) },
     ];
+    // نفس صفّ الترحيل في الملف المُصدَّر — الكشف المطبوع يجب أن يقرأ كالمعروض
+    const carry: Record<string, string | number>[] = from
+      ? [{ [tr('التاريخ')]: from, [tr('البيان')]: tr('رصيد مُرحَّل من قبل الفترة'), [tr('الأصناف')]: '',
+           [tr('رقم المستند')]: '', [tr('مدين')]: '', [tr('دائن')]: '', [tr('الرصيد')]: num(data.openingBalance) }]
+      : [];
     const rows = data.entries.map(e => ({
       [tr('التاريخ')]: formatDate(e.entryDate),
       [tr('البيان')]: e.description,
@@ -59,6 +69,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       [tr('دائن')]: num(e.credit),
       [tr('الرصيد')]: num(e.balance),
     })) as Record<string, string | number>[];
+    rows.unshift(...carry);
     // صف الإجمالي أسفل الحركات: عدد الأصناف المباعة + مجموع المدين/الدائن + الرصيد
     if (data.entries.length) {
       const totalDebit = data.entries.reduce((s, e) => s + Number(e.debit), 0);
@@ -66,7 +77,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       rows.push({
         [tr('التاريخ')]: tr('الإجمالي'), [tr('البيان')]: '',
         [tr('الأصناف')]: `${tr('الوحدات المباعة')}: ${soldUnitsText(data.entries, tr('وحدة'))}`,
-        [tr('رقم المستند')]: '', [tr('مدين')]: num(totalDebit), [tr('دائن')]: num(totalCredit), [tr('الرصيد')]: num(data.customer.balance),
+        [tr('رقم المستند')]: '', [tr('مدين')]: num(totalDebit), [tr('دائن')]: num(totalCredit), [tr('الرصيد')]: num(data.closingBalance),
       });
     }
     const out = await shareOrDownloadExcel([
@@ -136,7 +147,21 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                 <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('جاري التحميل...')}</td></tr>
               ) : data?.entries.length === 0 ? (
                 <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('لا توجد حركات')}</td></tr>
-              ) : data?.entries.map(e => (
+              ) : null}
+              {/* رصيد ما قبل الفترة: يظهر عند التصفية فقط. بدونه يبدأ عمود الرصيد من
+                  رقمٍ يشمل تاريخاً غير معروض، فيبدو كأنّ الحساب بدأ من العدم. */}
+              {data && from && data.entries.length > 0 && (
+                <tr className="bg-gray-50">
+                  <td className="text-xs text-gray-500 align-top">{formatDate(from)}</td>
+                  <td className="text-sm text-gray-600 font-medium align-top" colSpan={2}>{tr('رصيد مُرحَّل من قبل الفترة')}</td>
+                  <td className="text-gray-400">-</td>
+                  <td className="text-gray-400">-</td>
+                  <td className={`font-semibold ${data.openingBalance > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                    {formatCurrency(data.openingBalance)}
+                  </td>
+                </tr>
+              )}
+              {data?.entries.map(e => (
                 <tr key={e.id}>
                   <td className="text-xs text-gray-500 align-top">{formatDate(e.entryDate)}</td>
                   <td className="text-sm text-gray-700 align-top">
@@ -171,7 +196,9 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                     <td className="text-xs text-gray-500">{data.entries.length} {tr('حركة')}</td>
                     <td className="text-red-600">{formatCurrency(totalDebit)}</td>
                     <td className="text-green-600">{formatCurrency(totalCredit)}</td>
-                    <td className={Number(data.customer.balance) > 0 ? 'text-orange-600' : 'text-green-600'}>{formatCurrency(data.customer.balance ?? 0)}</td>
+                    {/* الختامي **للفترة المعروضة**: كان يعرض رصيد العميل الكلّي بجوار مجموعَي
+                        مدين/دائن مُصفّيَين — ثلاثة أرقام لا تتّسق في سطر واحد. */}
+                    <td className={data.closingBalance > 0 ? 'text-orange-600' : 'text-green-600'}>{formatCurrency(data.closingBalance ?? 0)}</td>
                   </tr>
                 </tfoot>
               );

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import repApi from './repApi';
-import { fetchThenCache, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
+import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
 import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
 import type { OutboxDoc } from './offlineDb';
 import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
@@ -117,7 +117,13 @@ function RepLogin({ onLogin }: { onLogin: (token: string, user: RepUser) => void
 // ============ الرئيسية ============
 function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => void }) {
   const tr = useTr();
-  const [stats, setStats] = useState({ salesTotal: 0, collectTotal: 0, collectBalance: 0, collectShow: true, invCount: 0, rcpCount: 0 });
+  // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
+  // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
+  // ألفاً يقرأ «رصيد التحصيل لديك: ٠٫٠٠» بخطٍّ عريض أخضر، فيطمئنّ ويُسلّم ناقصاً.
+  // فرّقنا الحالات الثلاث: تحميل · بيانات (طازجة أو موسومة بزمنها) · تعذّر.
+  const [stats, setStats] = useState<null | { salesTotal: number; collectTotal: number; collectBalance: number; collectShow: boolean; invCount: number; rcpCount: number }>(null);
+  const [stale, setStale] = useState<number | null>(null); // لحظة آخر نجاح إن عرضنا مخزّناً
+  const [failed, setFailed] = useState(false);             // لا شبكة ولا كاش ⇒ لا نزعم رقماً
   const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
@@ -138,7 +144,7 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       const todayRcp = receipts.filter(r => isToday(r.receiptDate));
       // مبيعات اليوم: فواتير البيع فقط (تُستثنى فواتير الإرجاع)
       const todaySales = invoices.filter(i => isToday(i.invoiceDate) && i.type !== 'RETURN');
-      setStats({
+      const fresh = {
         salesTotal: todaySales.reduce((s, i) => s + Number(i.total), 0),
         collectTotal: todayRcp.reduce((s, r) => s + Number(r.amount), 0),
         // رصيد التحصيل المتراكم لدى المندوب — لا يُصفّر يوميًا، ينقص فقط عند استلام الإدارة
@@ -146,8 +152,15 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
         collectShow: bal.data.data?.enabled !== false, // الميزة اختيارية لكل مندوب
         invCount: todaySales.length,
         rcpCount: todayRcp.length,
-      });
-    } catch { /* offline */ }
+      };
+      setStats(fresh); setStale(null); setFailed(false);
+      await cacheSet('rep-home-stats', fresh);
+    } catch {
+      // انقطاع: نعرض آخر نسخة معروفة **موسومةً بزمنها**؛ فإن لم توجد فلا رقم أصلاً
+      const cached = await cacheGet<NonNullable<typeof stats>>('rep-home-stats');
+      if (cached?.data) { setStats(cached.data); setStale(cached.updatedAt); setFailed(false); }
+      else { setStats(null); setStale(null); setFailed(true); }
+    }
     setSyncing(false);
   }, []);
 
@@ -193,8 +206,20 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
         </div>
       </div>
 
+      {/* شريط الحالة: يفصل «لا نعرف» عن «صفر» — والفرق بينهما نقدٌ في جيب المندوب */}
+      {(stale !== null || failed) && (
+        <div className={`rounded-2xl px-4 py-3 border text-xs flex items-center justify-between gap-3 ${failed ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+          <span>
+            {failed
+              ? tr('تعذّر تحميل الأرقام — لا تعتمد على هذه الشاشة الآن')
+              : `${tr('أرقام غير محدَّثة — آخر تحديث')} ${formatDate(new Date(stale!).toISOString())}`}
+          </span>
+          <button onClick={load} className="shrink-0 font-semibold underline">{tr('تحديث')}</button>
+        </div>
+      )}
+
       {/* رصيد التحصيل المتراكم — لا يُصفّر يوميًا، ينقص فقط عند تسليمه للإدارة (اختياري حسب صلاحية المندوب) */}
-      {stats.collectShow && (
+      {stats?.collectShow && (
         <div className="bg-white rounded-3xl p-5 border-2 border-green-100 flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-500">{tr('رصيد التحصيل لديك')}</p>
@@ -211,10 +236,11 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       <div>
         <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إحصائيات اليوم')}</p>
         <div className="grid grid-cols-2 gap-3">
-          {stat(tr('المبيعات'), formatCurrency(stats.salesTotal), TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
-          {stat(tr('تحصيل اليوم'), formatCurrency(stats.collectTotal), Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
-          {stat(tr('الفواتير'), String(stats.invCount), FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
-          {stat(tr('سندات القبض'), String(stats.rcpCount), CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
+          {/* «—» لا «٠»: رقمٌ لم يصل ليس رقماً يساوي صفراً */}
+          {stat(tr('المبيعات'), stats ? formatCurrency(stats.salesTotal) : '—', TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
+          {stat(tr('تحصيل اليوم'), stats ? formatCurrency(stats.collectTotal) : '—', Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
+          {stat(tr('الفواتير'), stats ? String(stats.invCount) : '—', FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
+          {stat(tr('سندات القبض'), stats ? String(stats.rcpCount) : '—', CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
         </div>
       </div>
 

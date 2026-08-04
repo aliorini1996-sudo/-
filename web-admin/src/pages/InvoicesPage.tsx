@@ -45,7 +45,9 @@ export default function InvoicesPage() {
     if (status) f.status = status;
     if (type) f.type = type;
     if (salesRepId) f.salesRepId = salesRepId;
-    if (from && to) { f.from = from; f.to = to; }
+    // كلٌّ على حدة: `from && to` كان يبتلع تصفيةً نصفَ مضبوطة بلا أثر مرئي
+    if (from) f.from = from;
+    if (to) f.to = to;
     return f;
   };
 

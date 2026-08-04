@@ -40,8 +40,13 @@ else {
   const expected = listArticles('ar').length * 3; // ثلاث لغات
   links >= expected ? ok(`يغطّي كل المقالات (${links} رابط ≥ ${expected})`) : fail(`ناقص: ${links} رابط والمتوقّع ≥ ${expected} — شغّل: npm run geo:llms`);
   // عيّنة اتساق مع الكتالوج (يكشف فهرساً قديماً بعد إضافة مقالات)
+  //
+  // ⚠️ الشرطة المائلة **اختيارية في الفحص وإلزامية في الروابط**: الفهرس يُولَّد
+  // عبر `canon()` فيكتب `/en/blog/slug/)`، وكان هذا الفحص يبحث عن `slug)` بلا
+  // شرطة — فسقط التدقيق أربع مرّات متتالية على مقالات **موجودة فعلاً**، وتعطّلت
+  // معه مهمّة صيانة SEO اليومية كاملةً. الفشل الكاذب يُفقد الثقة بالتدقيق نفسه.
   const sample = listArticles('en').slice(0, 3);
-  const missing = sample.filter((a) => !t.includes(`/en/blog/${a.slug})`));
+  const missing = sample.filter((a) => !t.includes(`/en/blog/${a.slug}/)`) && !t.includes(`/en/blog/${a.slug})`));
   missing.length === 0 ? ok('متسق مع الكتالوج (عيّنة)') : fail(`مقالات غائبة عن الفهرس: ${missing.map((a) => a.slug).join(', ')}`);
 }
 

@@ -7,6 +7,7 @@ import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
 import { scopedRecordWhere } from '../services/adminScope';
+import { deriveRunningBalances } from '../services/accounting';
 
 const router = Router();
 router.use(authenticate);
@@ -212,22 +213,49 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     const where = {
       customerId: req.params.id,
       tenantId: tid,
-      ...(from && to && {
-        entryDate: { gte: new Date(from as string), lte: new Date(to as string) },
+      // طرفٌ واحد يكفي؛ و«إلى» تشمل يومها كاملاً — وإلا سقطت حركات آخر يوم بصمت
+      ...((from || to) && {
+        entryDate: {
+          ...(from ? { gte: new Date(from as string) } : {}),
+          ...(to ? { lte: new Date(new Date(to as string).setHours(23, 59, 59, 999)) } : {}),
+        },
       }),
     };
-    const entries = await prisma.accountEntry.findMany({
+    const rows = await prisma.accountEntry.findMany({
       where,
       include: {
         // نُضمّن بنود الفاتورة (الأصناف وكمياتها) لتظهر في كشف الحساب
         invoice: { include: { items: { include: { product: { select: { name: true, unit: true } } } } } },
         receipt: true,
       },
-      orderBy: { entryDate: 'asc' },
+      // فاصل تعادل حاسم: الفاتورة النقدية تكتب قيديها بنفس `entryDate` **وبنفس
+      // `createdAt`** (دالة `now()` في بوستجرس ثابتة طوال المعاملة)، فبلا فاصلٍ
+      // ثالث يبقى ترتيبهما بيد القاعدة — وقد يظهر التحصيل قبل فاتورته فيقرأ
+      // العميل رصيداً يرتفع بعد سداده. `debit desc` يضع الفاتورة قبل سدادها،
+      // و`id asc` يحسم ما بقي فيثبت الترتيب بين كل نداءَين.
+      orderBy: [{ entryDate: 'asc' }, { createdAt: 'asc' }, { debit: 'desc' }, { id: 'asc' }],
     });
     const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
-    res.json({ success: true, data: { customer, entries } });
+
+    // ── الرصيد الجاري يُشتقّ في ترتيب العرض، ولا يُعرض المخزَّن ──
+    // القيمة المخزّنة في `balance` لقطةٌ لحظةَ الكتابة: قيدٌ بأثر رجعي يحمل رصيد
+    // زمنٍ لاحق له، وقيدٌ حُذف قبله يترك من بعده أرصدةً معلّقة. فيظهر عمودٌ لا
+    // تُنتج فيه أيّ خطوة الخطوةَ التالية — والعميل يقرأه رقماً يطالَب به.
+    // الاشتقاق يجعل كل سطر ناتجَ سابقه بالضرورة، مهما كان أصل البيانات.
+    // رصيد ما قبل الفترة (مُرحَّل) — بدونه يبدأ الكشف المُصفّى من صفرٍ كاذب
+    let openingBalance = 0;
+    if (from) {
+      const prior = await prisma.accountEntry.aggregate({
+        where: { customerId: req.params.id, tenantId: tid, entryDate: { lt: new Date(from as string) } },
+        _sum: { debit: true, credit: true },
+      });
+      openingBalance = Number(prior._sum.debit ?? 0) - Number(prior._sum.credit ?? 0);
+    }
+    const entries = deriveRunningBalances(rows, openingBalance);
+    const closingBalance = entries.length ? entries[entries.length - 1].balance : openingBalance;
+
+    res.json({ success: true, data: { customer, entries, openingBalance, closingBalance } });
   } catch (err) { next(err); }
 });
 

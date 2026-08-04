@@ -21,9 +21,15 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
      * فإن لم يُحدَّد مدى نقصره على آخر ٩٠ يوماً ونُعلمه في الاستجابة.
      */
     const DEFAULT_DAYS = 90;
-    const rangeApplied = !!(from && to);
+    // طرفٌ واحد يكفي: كان الشرط `from && to` يُسقط «من ١ يناير» بلا «إلى» **بصمت**،
+    // فيرى المستخدم كلّ السجلّ وهو يقرأ فلتراً مطبَّقاً على الشاشة. الطرف الغائب
+    // يعني «بلا حدّ من تلك الجهة» لا «ألغِ الفلتر».
+    const rangeApplied = !!(from || to);
     const dateFilter = rangeApplied
-      ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) }
+      ? {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
+        }
       : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
 
     const invoices = await prisma.invoice.findMany({
@@ -131,7 +137,11 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
     const tid = tenantId(req);
     const { from, to, salesRepId, paymentMethod } = req.query as Record<string, string>;
     // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
-    const dateFilter = from && to ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : undefined;
+    // طرفٌ واحد يكفي (راجع تقرير المبيعات): الغائب = بلا حدّ، لا إلغاءَ للفلتر
+    const dateFilter = (from || to) ? {
+      ...(from ? { gte: new Date(from) } : {}),
+      ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
+    } : undefined;
 
     const receipts = await prisma.receipt.findMany({
       where: {

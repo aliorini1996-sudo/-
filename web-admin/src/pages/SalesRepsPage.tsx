@@ -504,7 +504,9 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     queryKey: ['rep-statement', rep.id, from, to],
     queryFn: async () => {
       const base: Record<string, string | number> = { salesRepId: rep.id, limit: 5000, withItems: 1 };
-      if (from && to) { base.from = from; base.to = to; }
+      // كلٌّ على حدة (راجع صفحة الفواتير)
+      if (from) base.from = from;
+      if (to) base.to = to;
       const [inv, rcp] = await Promise.all([
         invoiceApi.list({ ...base, status: 'CONFIRMED' }),
         receiptApi.list(base),

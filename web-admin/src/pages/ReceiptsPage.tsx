@@ -38,7 +38,9 @@ export default function ReceiptsPage() {
   const filters = () => {
     const f: Record<string, string | number> = {};
     if (salesRepId) f.salesRepId = salesRepId;
-    if (from && to) { f.from = from; f.to = to; }
+    // كلٌّ على حدة (راجع صفحة الفواتير): الطرف الغائب = بلا حدّ لا إلغاءَ للتصفية
+    if (from) f.from = from;
+    if (to) f.to = to;
     return f;
   };
 
