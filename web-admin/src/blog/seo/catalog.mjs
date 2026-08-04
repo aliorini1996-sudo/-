@@ -131,9 +131,142 @@ const howToData = (c, L) => [
 ];
 
 // ----------------------------------------------------------------------------
+// بطاقة السوق — محتوى **مُفرَّد بالكامل** لكل سوق أولوية (لا قالب مبدَّل القيم).
+// الغرض: كسر تشابه صفحات الأولوية (كان ~64٪ جُمل متطابقة بين الدول) كي يحترم
+// جوجل الـcanonical الذاتيّ بدل دمجها في الركيزة. كل بطاقة مبنيّة على بيانات
+// COUNTRIES المُتحقَّقة + فوارق تشغيلية حقيقية (خانات العملة، الجغرافيا، بنية
+// التجزئة). ⚠️ بلا أي فعل «دعم/امتثال» قرب جهة ضريبية (حارس verify-claims).
+// ----------------------------------------------------------------------------
+const PRIORITY_BRIEF = {
+  SA: {
+    ar: `<h2>التوزيع في السوق السعودي — الأكبر خليجياً</h2>
+     <p>السعودية أكبر أسواق التوزيع خليجياً مساحةً وسكاناً، وتجمع بين سلاسل التجزئة الحديثة والبقالات التقليدية في مدن متباعدة من الرياض إلى جدة والدمام. هذا الاتّساع يجعل تخطيط خطوط السير وتغطية المنافذ عاملاً حاسماً في كلفة التوزيع وزمن التوريد.</p>
+     <p>ضريبة القيمة المضافة ١٥٪ — الأعلى خليجياً — تعني أن كل فاتورة ميدانية تُصدَر منظّمة برمز QR لا ورقة بخطّ اليد، والفوترة الإلكترونية «فاتورة» مطبّقة على مراحل. تُصدر منصّة FieldSales الفاتورة المنظّمة بالريال السعودي وتخصم المبيعة من مخزون السيارة لحظياً، فيبقى سجلّك جاهزاً للمراجعة من أوّل زيارة.</p>`,
+    en: `<h2>Distribution in Saudi Arabia — the Gulf's largest market</h2>
+     <p>Saudi Arabia is the Gulf's largest distribution market by area and population, mixing modern retail chains with traditional grocers across cities as far apart as Riyadh, Jeddah and Dammam. That spread makes route planning and outlet coverage decisive for distribution cost and lead time.</p>
+     <p>VAT at 15% — the highest in the Gulf — means every field invoice is issued structured with a QR code rather than a handwritten slip, and ZATCA's Fatoora e-invoicing is being applied in phases. FieldSales issues the structured invoice in Saudi Riyal and deducts each sale from van stock in real time, keeping your records audit-ready from the first visit.</p>`,
+    fr: `<h2>La distribution en Arabie saoudite — le plus grand marché du Golfe</h2>
+     <p>L'Arabie saoudite est le plus grand marché de distribution du Golfe par sa superficie et sa population, mêlant chaînes modernes et épiceries traditionnelles dans des villes aussi éloignées que Riyad, Djeddah et Dammam. Cette étendue rend la planification des tournées décisive pour le coût de distribution.</p>
+     <p>La TVA à 15 % — la plus élevée du Golfe — impose une facture structurée à code QR sur le terrain plutôt qu'un ticket manuscrit, et la facturation électronique Fatoora est déployée par phases. FieldSales émet la facture en riyal saoudien et déduit chaque vente du stock du véhicule en temps réel.</p>`,
+  },
+  AE: {
+    ar: `<h2>التوزيع في الإمارات — أسواق متعدّدة بين البرّ والمناطق الحرّة</h2>
+     <p>تتوزّع تجارة الجملة في الإمارات بين مناطق حرّة ومناطق برّية عبر سبع إمارات، ودبي مركز إعادة تصدير إقليمي. هذا التنوّع يعني قاعدة عملاء متعدّدة الجنسيات وأصنافاً واسعة، فتحتاج إدارة الأصناف وحدود الائتمان لكل عميل إلى نظام دقيق لا جداول متفرّقة.</p>
+     <p>ضريبة القيمة المضافة ٥٪ تتولّاها الهيئة الاتحادية للضرائب، والفوترة الإلكترونية (Peppol) في مرحلة تطبيق مرحلي. تسجّل منصّة FieldSales كل بيع من الميدان بالدرهم الإماراتي مع فاتورة منظّمة برمز QR، وتتيح متابعة المخزون والتحصيل بين دبي وأبوظبي والشارقة على لوحة واحدة.</p>`,
+    en: `<h2>Distribution in the UAE — multiple markets between mainland and free zones</h2>
+     <p>Wholesale trade in the UAE spans free zones and mainland across seven emirates, with Dubai as a regional re-export hub. That diversity means a multinational customer base and a wide product range, so managing items and per-customer credit limits needs a precise system, not scattered spreadsheets.</p>
+     <p>VAT at 5% is administered by the Federal Tax Authority, and Peppol-based e-invoicing is being phased in. FieldSales records every field sale in UAE Dirham with a structured QR invoice, and lets you track stock and collection across Dubai, Abu Dhabi and Sharjah on one dashboard.</p>`,
+    fr: `<h2>La distribution aux Émirats — des marchés multiples entre continent et zones franches</h2>
+     <p>Le commerce de gros aux Émirats se répartit entre zones franches et continent à travers sept émirats, Dubaï servant de plateforme de réexportation régionale. Cette diversité implique une clientèle multinationale et une large gamme de références, d'où le besoin d'un système précis.</p>
+     <p>La TVA à 5 % est gérée par l'Autorité fédérale des impôts, et la facturation électronique (Peppol) est en cours de déploiement. FieldSales enregistre chaque vente en dirham des Émirats avec une facture structurée, et suit stock et encaissement entre Dubaï, Abou Dabi et Charjah.</p>`,
+  },
+  EG: {
+    ar: `<h2>التوزيع في السوق المصري — تجزئة تقليدية واسعة ومجزّأة</h2>
+     <p>يقوم التوزيع في مصر على شبكة ضخمة من منافذ التجزئة التقليدية الصغيرة الممتدّة من القاهرة إلى الإسكندرية والجيزة والصعيد، مع اعتماد كبير على البيع الآجل. هذا يجعل ضبط الذمم وأعمار الديون أهمّ من حجم المبيعة نفسها.</p>
+     <p>ضريبة القيمة المضافة ١٤٪ تشرف عليها مصلحة الضرائب المصرية، والفاتورة والإيصال الإلكتروني إلزاميان تدريجياً. تُصدر منصّة FieldSales الفاتورة وسند القبض بالجنيه المصري من الميدان، وتعرض على المندوب رصيد العميل وأعمار ديونه قبل البيع، فيتحوّل التحصيل من تقدير إلى رقم.</p>`,
+    en: `<h2>Distribution in Egypt — a vast, fragmented traditional retail market</h2>
+     <p>Distribution in Egypt runs on a huge network of small traditional outlets stretching from Cairo to Alexandria, Giza and Upper Egypt, with heavy reliance on credit sales. That makes controlling receivables and debt ageing more important than the size of any single sale.</p>
+     <p>VAT at 14% is overseen by the Egyptian Tax Authority, and e-invoice and e-receipt are being enforced gradually. FieldSales issues the invoice and receipt in Egyptian Pound from the field and shows the rep the customer's balance and debt ageing before selling — turning collection from a guess into a number.</p>`,
+    fr: `<h2>La distribution en Égypte — un marché de détail traditionnel vaste et fragmenté</h2>
+     <p>La distribution en Égypte repose sur un immense réseau de petits points de vente traditionnels, du Caire à Alexandrie, Gizeh et la Haute-Égypte, avec une forte dépendance à la vente à crédit. Contrôler les créances et leur ancienneté compte donc plus que la taille d'une vente.</p>
+     <p>La TVA à 14 % est supervisée par l'Autorité fiscale égyptienne, et la facture et le reçu électroniques sont progressivement obligatoires. FieldSales émet la facture et le reçu en livre égyptienne depuis le terrain et affiche le solde du client avant la vente.</p>`,
+  },
+  KW: {
+    ar: `<h2>التوزيع في السوق الكويتي — كثافة حضرية وقيمة عالية للزيارة</h2>
+     <p>يتركّز التوزيع في الكويت في نطاق حضريّ مكتنز حول مدينة الكويت وحولي والأحمدي، مع قوّة شرائية مرتفعة وقيمة عالية لكل زيارة. قِصَر المسافات يجعل عدد الزيارات المنجزة يومياً — لا المسافة — مقياس كفاءة المندوب.</p>
+     <p>لا تُطبَّق ضريبة قيمة مضافة بعد، فالفاتورة أبسط، لكن الدينار الكويتي يُحتسب بثلاث خانات عشرية (١٠٠٠ فلس)، فأي خطأ تقريب يتراكم عبر آلاف الفواتير. تحسب منصّة FieldSales المبالغ بدقّة ثلاث خانات وتطبع فاتورة منظّمة، وتضبط حدود الائتمان ومخزون السيارة لحظياً.</p>`,
+    en: `<h2>Distribution in Kuwait — urban density and high value per visit</h2>
+     <p>Distribution in Kuwait concentrates in a compact urban belt around Kuwait City, Hawalli and Ahmadi, with high purchasing power and high value per visit. Short distances make the number of visits completed per day — not mileage — the real measure of a rep's efficiency.</p>
+     <p>No VAT applies yet, so the invoice is simpler, but the Kuwaiti Dinar is calculated to three decimal places (1000 fils), so any rounding error compounds across thousands of invoices. FieldSales computes amounts to three-decimal precision, prints a structured invoice, and enforces credit limits and van stock in real time.</p>`,
+    fr: `<h2>La distribution au Koweït — densité urbaine et forte valeur par visite</h2>
+     <p>La distribution au Koweït se concentre dans une ceinture urbaine compacte autour de Koweït, Hawalli et Ahmadi, avec un fort pouvoir d'achat. Les courtes distances font du nombre de visites réalisées par jour — et non du kilométrage — la vraie mesure d'efficacité.</p>
+     <p>Aucune TVA ne s'applique encore, mais le dinar koweïtien se calcule à trois décimales (1000 fils) ; toute erreur d'arrondi s'accumule sur des milliers de factures. FieldSales calcule à trois décimales, imprime une facture structurée et applique limites de crédit et stock du véhicule.</p>`,
+  },
+  BH: {
+    ar: `<h2>التوزيع في السوق البحريني — جزيرة مكتنزة وطرق سريعة</h2>
+     <p>صِغَر مساحة البحرين يجعل خطوط السير قصيرة وسريعة بين المنامة والمحرّق والرفاع، فيغطّي المندوب منافذ أكثر في اليوم. التحدّي ليس المسافة بل كثافة الزيارات ودقّة الفوترة والتحصيل في كل منفذ.</p>
+     <p>ضريبة القيمة المضافة ١٠٪ يتولّاها الجهاز الوطني للإيرادات، والدينار البحريني يُحتسب بثلاث خانات عشرية (١٠٠٠ فلس). تُصدر منصّة FieldSales فاتورة منظّمة بالدينار البحريني برمز QR وتقريب دقيق، وتُطابق مخزون السيارة آخر اليوم فيظهر أي عجز بالصنف.</p>`,
+    en: `<h2>Distribution in Bahrain — a compact island with fast routes</h2>
+     <p>Bahrain's small size keeps routes short and fast between Manama, Muharraq and Riffa, so a rep can cover more outlets per day. The challenge is not distance but visit density and the accuracy of invoicing and collection at each outlet.</p>
+     <p>VAT at 10% is administered by the National Bureau for Revenue, and the Bahraini Dinar is calculated to three decimal places (1000 fils). FieldSales issues a structured Bahraini Dinar invoice with a QR code and precise rounding, and reconciles van stock at day's end so any shortage surfaces per item.</p>`,
+    fr: `<h2>La distribution à Bahreïn — une île compacte aux tournées rapides</h2>
+     <p>La petite taille de Bahreïn rend les tournées courtes et rapides entre Manama, Muharraq et Riffa ; un commercial couvre donc plus de points de vente par jour. L'enjeu n'est pas la distance mais la densité des visites et la précision de la facturation.</p>
+     <p>La TVA à 10 % est gérée par le Bureau national des revenus, et le dinar bahreïni se calcule à trois décimales (1000 fils). FieldSales émet une facture structurée en dinar bahreïni à code QR avec un arrondi précis, et rapproche le stock du véhicule en fin de journée.</p>`,
+  },
+  OM: {
+    ar: `<h2>التوزيع في السوق العُماني — مسافات طويلة وتخطيط خطوط سير</h2>
+     <p>تمتدّ عُمان جغرافياً من مسقط شمالاً إلى صلالة جنوباً مروراً بصحار، فتصبح المسافات وتخطيط خطوط السير عاملاً رئيسياً في كلفة التوزيع وزمن التوريد. تغطية المنافذ البعيدة بكفاءة تحتاج جدولة زيارات مبنيّة على الموقع لا على التقدير.</p>
+     <p>ضريبة القيمة المضافة ٥٪ يتولّاها جهاز الضرائب، والريال العُماني يُحتسب بثلاث خانات عشرية (١٠٠٠ بيسة). تسجّل منصّة FieldSales كل زيارة بموقعها ووقتها وتطبع فاتورة منظّمة بالريال العُماني، وتربط المبيعة بمخزون السيارة والتحصيل في خطّ سير واحد.</p>`,
+    en: `<h2>Distribution in Oman — long distances and route planning</h2>
+     <p>Oman stretches geographically from Muscat in the north to Salalah in the south via Sohar, making distances and route planning a primary factor in distribution cost and lead time. Covering distant outlets efficiently needs location-based visit scheduling, not guesswork.</p>
+     <p>VAT at 5% is administered by the Oman Tax Authority, and the Omani Rial is calculated to three decimal places (1000 baisa). FieldSales records each visit with its location and time, prints a structured Omani Rial invoice, and ties the sale to van stock and collection on one route.</p>`,
+    fr: `<h2>La distribution à Oman — longues distances et planification des tournées</h2>
+     <p>Oman s'étend géographiquement de Mascate au nord à Salalah au sud via Sohar, faisant des distances et de la planification des tournées un facteur majeur de coût et de délai. Couvrir efficacement les points de vente éloignés exige une planification basée sur la localisation.</p>
+     <p>La TVA à 5 % est gérée par l'Autorité fiscale omanaise, et le rial omanais se calcule à trois décimales (1000 baisas). FieldSales enregistre chaque visite avec sa localisation et son heure, imprime une facture structurée en rial omanais, et relie la vente au stock et à l'encaissement.</p>`,
+  },
+  QA: {
+    ar: `<h2>التوزيع في السوق القطري — سوق مكتنز وقوّة شرائية مرتفعة</h2>
+     <p>يتركّز التوزيع في قطر حول الدوحة والريان والوكرة في نطاق جغرافيّ مكتنز، مع قوّة شرائية مرتفعة وقيمة عالية لكل منفذ. قِصَر المسافات ينقل تركيز الكفاءة إلى جودة الزيارة ودقّة الفاتورة والتحصيل لا إلى المسافة المقطوعة.</p>
+     <p>لا تُطبَّق ضريبة قيمة مضافة بعد، لكن يبقى إصدار فواتير منظّمة وكشوف حساب دقيقة بالريال القطري ضرورة إدارية لضبط الذمم. تُصدر منصّة FieldSales الفاتورة وسند القبض من الميدان، وتضبط حدود الائتمان ومخزون السيارة على لوحة واحدة لحظية.</p>`,
+    en: `<h2>Distribution in Qatar — a compact market with high purchasing power</h2>
+     <p>Distribution in Qatar concentrates around Doha, Al Rayyan and Al Wakrah in a compact geography, with high purchasing power and high value per outlet. Short distances shift the efficiency focus to visit quality and invoice and collection accuracy rather than mileage.</p>
+     <p>No VAT applies yet, but issuing structured invoices and accurate statements in Qatari Riyal remains an operational necessity for controlling receivables. FieldSales issues the invoice and receipt from the field and manages credit limits and van stock on one live dashboard.</p>`,
+    fr: `<h2>La distribution au Qatar — un marché compact à fort pouvoir d'achat</h2>
+     <p>La distribution au Qatar se concentre autour de Doha, Al Rayyan et Al Wakrah dans une géographie compacte, avec un fort pouvoir d'achat et une valeur élevée par point de vente. Les courtes distances déplacent l'efficacité vers la qualité de la visite et la précision de la facturation.</p>
+     <p>Aucune TVA ne s'applique encore, mais émettre des factures structurées et des relevés précis en riyal qatarien reste indispensable pour maîtriser les créances. FieldSales émet la facture et le reçu depuis le terrain et gère limites de crédit et stock sur un tableau de bord en direct.</p>`,
+  },
+};
+
+// فقرة تشغيلية ثانية مُفرَّدة لكل سوق أولوية — زاوية مؤشّرات/كفاءة مختلفة عن البطاقة
+// أعلاه، لزيادة المحتوى الفريد وخفض التطابق أكثر. تُلحَق بـmarketBrief.
+const PRIORITY_OPS = {
+  SA: {
+    ar: `<p>عملياً، يقيس فريق التوزيع الكبير في السعودية نفسه بنسبة تغطية المنافذ المخطّطة أسبوعياً وبدقّة تحميل السيارة قبل الجولة. تربط منصّة FieldSales كل زيارة بخطّ سيرها، وتُظهر المنافذ غير المزارة، ونسبة الإنجاز لكل مندوب ومنطقة.</p>`,
+    en: `<p>In practice, a large Saudi distribution team measures itself by weekly planned-outlet coverage and by van-loading accuracy before the route. FieldSales ties each visit to its route, surfaces unvisited outlets, and shows completion rate per rep and region.</p>`,
+    fr: `<p>Concrètement, une grande équipe de distribution saoudienne se mesure au taux de couverture hebdomadaire des points de vente et à la précision du chargement avant la tournée. FieldSales relie chaque visite à sa tournée et fait apparaître les points non visités.</p>`,
+  },
+  AE: {
+    ar: `<p>مع تنوّع القنوات بين البرّ والمناطق الحرّة، يصبح هامش الربح لكل قناة وصنف أهمّ من إجمالي المبيعات. تُظهر منصّة FieldSales المبيعات والتحصيل لكل عميل وصنف، وتضبط قوائم أسعار متعدّدة فلا يبيع المندوب بأقلّ من المعتمد.</p>`,
+    en: `<p>With channels split between mainland and free zones, margin per channel and per item matters more than gross sales. FieldSales shows sales and collection per customer and item, and enforces multiple price lists so a rep cannot sell below the approved price.</p>`,
+    fr: `<p>Avec des canaux répartis entre continent et zones franches, la marge par canal et par article compte plus que le chiffre brut. FieldSales affiche ventes et encaissement par client et article, et applique plusieurs listes de prix.</p>`,
+  },
+  EG: {
+    ar: `<p>في سوق يغلب عليه البيع الآجل، المقياس الأهمّ هو معدّل التحصيل وعمر الدَّين لا حجم البيع. تقسّم منصّة FieldSales الذمم إلى شرائح عمرية (١–٣٠، ٣١–٦٠، ٦١–٩٠، وما فوق ٩٠ يوماً)، وتمنع البيع لعميل تجاوز حدّه الائتماني.</p>`,
+    en: `<p>In a credit-driven market, the key metric is collection rate and debt age, not sale size. FieldSales splits receivables into ageing buckets (1–30, 31–60, 61–90, 90+ days) and blocks selling to a customer over their credit limit.</p>`,
+    fr: `<p>Dans un marché à crédit, l'indicateur clé est le taux d'encaissement et l'ancienneté de la dette, pas la taille de la vente. FieldSales répartit les créances par tranches d'âge (1–30, 31–60, 61–90, plus de 90 jours).</p>`,
+  },
+  KW: {
+    ar: `<p>حين تكون قيمة الزيارة عالية والمسافات قصيرة، يصبح عدد الزيارات المنجزة ومتوسّط قيمة الطلب مقياسَي الكفاءة. تعرض منصّة FieldSales زيارات كل مندوب يومياً ومتوسّط الطلب، وتربط الفاتورة بموقع العميل ووقتها.</p>`,
+    en: `<p>When visit value is high and distances short, visits completed and average order value become the efficiency metrics. FieldSales shows each rep's daily visits and average order, and ties the invoice to the customer's location and time.</p>`,
+    fr: `<p>Quand la valeur de la visite est élevée et les distances courtes, le nombre de visites et le panier moyen deviennent les indicateurs. FieldSales affiche les visites quotidiennes de chaque commercial et le panier moyen.</p>`,
+  },
+  BH: {
+    ar: `<p>في سوق مكتنز، الكفاءة تُقاس بكثافة الزيارات اليومية ودقّة المطابقة آخر اليوم لا بالمسافة. تُطابق منصّة FieldSales مخزون السيارة مع المبيعات فيظهر أي فرق بالصنف، وتعرض إنجاز كل مندوب على لوحة واحدة.</p>`,
+    en: `<p>In a compact market, efficiency is measured by daily visit density and end-of-day reconciliation accuracy, not distance. FieldSales reconciles van stock against sales so any per-item gap surfaces, and shows each rep's completion on one dashboard.</p>`,
+    fr: `<p>Dans un marché compact, l'efficacité se mesure à la densité des visites et à la précision du rapprochement de fin de journée. FieldSales rapproche le stock du véhicule des ventes et fait apparaître tout écart par article.</p>`,
+  },
+  OM: {
+    ar: `<p>مع طول المسافات، تصبح كلفة كل زيارة والالتزام بخطّ السير مقياسَي الكفاءة. تسجّل منصّة FieldSales خطّ السير الفعلي وتطابقه مع المخطّط، وتُظهر الزمن والمسافة لكل زيارة فتتّضح كلفة تغطية المناطق البعيدة.</p>`,
+    en: `<p>With long distances, cost per visit and route adherence become the efficiency metrics. FieldSales records the actual route against the plan and shows time and distance per visit, so the cost of covering distant regions becomes clear.</p>`,
+    fr: `<p>Avec de longues distances, le coût par visite et le respect de la tournée deviennent les indicateurs. FieldSales enregistre la tournée réelle par rapport au plan et affiche temps et distance par visite.</p>`,
+  },
+  QA: {
+    ar: `<p>في سوق عالي القيمة ومكتنز، تُقاس الكفاءة بجودة الزيارة واكتمال الطلب لا بعددها فقط. تربط منصّة FieldSales كل فاتورة بموقعها ووقتها، وتعرض التحصيل وحدود الائتمان لكل عميل على لوحة لحظية.</p>`,
+    en: `<p>In a compact, high-value market, efficiency is measured by visit quality and order completeness, not count alone. FieldSales ties each invoice to its location and time, and shows collection and credit limits per customer on a live dashboard.</p>`,
+    fr: `<p>Dans un marché compact et à forte valeur, l'efficacité se mesure à la qualité de la visite et à la complétude de la commande. FieldSales relie chaque facture à son lieu et son heure, et affiche encaissement et limites de crédit par client.</p>`,
+  },
+};
+
+// ----------------------------------------------------------------------------
 // بُناة الأقسام — كلٌّ يُرجع HTML (عنوان + فقرات) مُوطَّناً ومُخصَّصاً للدولة.
 // ----------------------------------------------------------------------------
 const S = {
+  // بطاقة السوق المُفرَّدة (أسواق الأولوية فقط) — تُرجع '' لغيرها فلا تُحقَن.
+  marketBrief: (c, L) => {
+    const b = PRIORITY_BRIEF[c.code], o = PRIORITY_OPS[c.code];
+    return b ? P(L, b.ar, b.en, b.fr) + (o ? P(L, o.ar, o.en, o.fr) : '') : '';
+  },
+
   why: (c, L) => P(L,
     `<h2>لماذا تحتاج شركات التوزيع ${c.inAr} إلى نظام مبيعات ميدانية؟</h2>
      <p>تدير شركات التوزيع ${c.inAr} عشرات المناديب وآلاف العملاء بين الطلبات والفواتير والتحصيل. وبلا نظام موحّد تضيع البيانات وتتراكم الأخطاء وتتعثّر الذمم. ${citiesLine(c, L)}</p>
@@ -1033,6 +1166,8 @@ export function getArticle(slug, L) {
   const isPillar = topic.cs && c.code === 'REGION';
   const universal = [
     ...(isPillar ? ['countryTable'] : topic.cs ? ['localContext'] : []),
+    // بطاقة السوق المُفرَّدة لأسواق الأولوية فقط — تكسر تشابه صفحاتها فيحترم جوجل canonical الذاتيّ.
+    ...(topic.cs && PRIORITY_BRIEF[c.code] ? ['marketBrief'] : []),
     'steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq',
   ].filter((k) => !coreKeys.includes(k));
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
