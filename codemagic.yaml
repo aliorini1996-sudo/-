@@ -12,10 +12,8 @@ workflows:
       # (Teams → Integrations → App Store Connect). عدّله إن سمّيته باسم آخر.
       app_store_connect: FieldSales ASC Key
     environment:
-      # توقيع تلقائي: Codemagic يجلب/يُنشئ الشهادة وملف التعريف قبل البناء.
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: net.fieldsa.rep
+      # ملاحظة: لا نستخدم كتلة ios_signing هنا — فهي تجلب ملف تعريف موجوداً مسبقاً
+      # وتُفشل التحضير قبل تشغيل السكربتات. التوقيع يتم في السكربتات أدناه بـ--create.
       vars:
         XCODE_WORKSPACE: "FieldSales.xcworkspace"
         XCODE_SCHEME: "FieldSales"
