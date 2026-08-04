@@ -87,9 +87,8 @@ class ViewController: UIViewController, WKNavigationDelegate, UIDocumentInteract
     }
 
     func createToolbarView() -> UIToolbar{
-        let winScene = UIApplication.shared.connectedScenes.first
-        let windowScene = winScene as! UIWindowScene
-        var statusBarHeight = windowScene.statusBarManager?.statusBarFrame.height ?? 60
+        let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        var statusBarHeight = windowScene?.statusBarManager?.statusBarFrame.height ?? 60
         
         #if targetEnvironment(macCatalyst)
         if (statusBarHeight == 0){

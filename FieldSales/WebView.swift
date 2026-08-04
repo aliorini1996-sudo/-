@@ -77,9 +77,8 @@ func calcWebviewFrame(webviewView: UIView, toolbarView: UIToolbar?) -> CGRect{
         return CGRect(x: 0, y: toolbarView!.frame.height, width: webviewView.frame.width, height: webviewView.frame.height - toolbarView!.frame.height)
     }
     else {
-        let winScene = UIApplication.shared.connectedScenes.first
-        let windowScene = winScene as! UIWindowScene
-        var statusBarHeight = windowScene.statusBarManager?.statusBarFrame.height ?? 0
+        let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        var statusBarHeight = windowScene?.statusBarManager?.statusBarFrame.height ?? 0
 
         switch displayMode {
         case "fullscreen":
