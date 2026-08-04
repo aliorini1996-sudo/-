@@ -25,10 +25,22 @@ workflows:
           keychain initialize
       - name: إنشاء/جلب شهادة وملف تعريف التوزيع
         script: |
-          # --create إلزامي في أول بناء: لا يوجد ملف تعريف بعد لهذا الـBundle ID،
-          # وكتلة ios_signing وحدها تجلب الموجود فقط ولا تُنشئ.
+          # --create إلزامي في أول بناء: لا يوجد ملف تعريف بعد لهذا الـBundle ID.
+          # ومفتاح خاص إلزامي أيضاً: بدونه يفشل الأمر بـ"Cannot save Signing
+          # Certificates without certificate private key" عند وجود شهادة سابقة.
+          # لإعادة استخدام نفس الشهادة في البناءات القادمة (حدّ آبل 3 شهادات توزيع):
+          # احفظ محتوى المفتاح في متغيّر Codemagic باسم CERTIFICATE_PRIVATE_KEY.
+          if [ -z "$CERTIFICATE_PRIVATE_KEY" ]; then
+            echo "لا يوجد CERTIFICATE_PRIVATE_KEY — سيُولَّد مفتاح جديد وتُنشأ شهادة جديدة."
+            openssl genrsa -out /tmp/cert_key.pem 2048
+            KEY_ARG="--certificate-key=@file:/tmp/cert_key.pem"
+          else
+            echo "استخدام CERTIFICATE_PRIVATE_KEY المحفوظ."
+            KEY_ARG="--certificate-key=@env:CERTIFICATE_PRIVATE_KEY"
+          fi
           app-store-connect fetch-signing-files "net.fieldsa.rep" \
             --type IOS_APP_STORE \
+            $KEY_ARG \
             --create
       - name: إضافة الشهادات لسلسلة المفاتيح
         script: |
