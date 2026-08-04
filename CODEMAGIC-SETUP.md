@@ -25,25 +25,17 @@ App Store Connect → **Apps** → **+** → **New App**:
 - **Bundle ID:** إن لم يظهر `net.fieldsa.rep`، أنشئه في [Certificates, IDs & Profiles → Identifiers](https://developer.apple.com/account/resources/identifiers/list) (App ID، Explicit، `net.fieldsa.rep`) ثم عُد.
 - SKU: `fieldsa-rep` · User Access: Full.
 
-## 3) ادفع المشروع إلى GitHub
-حساب مطوّر شخصي جديد؟ اجعل المستودع **خاصاً**. من داخل مجلّد `ios-app`:
-```bash
-git init
-git add .
-git commit -m "iOS rep app (FieldSales) — PWABuilder shell"
-git branch -M main
-git remote add origin https://github.com/<حسابك>/fieldsa-ios.git
-git push -u origin main
-```
-(أنشئ مستودعاً خاصاً فارغاً باسم `fieldsa-ios` على GitHub أولاً.)
+## 3) المشروع على GitHub ✅ (منجز)
+مشروع iOS مدفوع كفرع مستقل جذره محتوى ios-app (كما يتطلّب Codemagic):
+- المستودع: `aliorini1996-sudo/-` (مستودع dsd القائم) · **الفرع: `ios-app`** · 73 ملفاً، `codemagic.yaml` في الجذر.
 
 ## 4) أنشئ حساب Codemagic واربط المفتاح
 - سجّل الدخول على <https://codemagic.io> بحساب GitHub (الخطة المجانية: **500 دقيقة macOS/شهر** — تكفي).
-- **Teams → Integrations → App Store Connect → Connect**: ألصق **Issuer ID** و**Key ID** وارفع ملف **`.p8`**، وسمّه **حرفياً**: `FieldSales ASC Key` (يطابق `codemagic.yaml`).
-- **Add application** → اختر مستودع `fieldsa-ios` → Codemagic يكتشف `codemagic.yaml` تلقائياً.
+- **Teams → Personal Account → Integrations → Developer Portal (App Store Connect) → Connect**: ألصق **Issuer ID** و**Key ID** وارفع ملف **`.p8`**، وسمّه **حرفياً**: `FieldSales ASC Key` (يطابق `codemagic.yaml`).
+- **Add application** → اختر المستودع `aliorini1996-sudo/-` → Codemagic يقرأ `codemagic.yaml` من الفرع المُختار عند البناء.
 
 ## 5) شغّل البناء
-- افتح التطبيق في Codemagic → **Start new build** → اختر ووركفلو **`ios-appstore`**.
+- افتح التطبيق في Codemagic → **Start new build** → اختر **الفرع `ios-app`** + ووركفلو **`ios-appstore`**.
 - سيبني، يوقّع (يُنشئ الشهادة وملف التعريف تلقائياً)، ويرفع إلى **TestFlight**.
 - عند النجاح: يظهر البناء في App Store Connect → **TestFlight** خلال ~10–30 دقيقة (بعد معالجة آبل).
 
