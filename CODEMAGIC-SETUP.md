@@ -47,11 +47,21 @@ App Store Connect → **Apps** → **+** → **New App**:
 
 ---
 
-## مصادر شائعة للفشل وحلولها
+## ⚠️ فخّ حدّ الشهادات (مهم للبناءات القادمة)
+سكربت التوقيع الحالي **يولّد مفتاحاً خاصاً جديداً في كل بناء**، فتُنشأ **شهادة توزيع جديدة كل مرة**. وآبل تسمح بـ**3 شهادات توزيع** فقط.
+- **الحالة (5 أغسطس 2026):** شهادة واحدة مستخدمة (تنتهي 2027/08/05) ⇒ يتبقّى بناءان قبل بلوغ الحدّ.
+- **الحلّ الدائم (يُنفَّذ مرّة واحدة):** ولّد مفتاحاً خاصاً واحفظه في Codemagic كمتغيّر سرّي فيُعاد استخدام نفس الشهادة دائماً:
+  1. ولّد المفتاح محلياً: `openssl genrsa -out cert_key.pem 2048`
+  2. Codemagic → **Settings (الحساب الشخصي)** → **codemagic.yaml settings** → **Global variables and secrets** → أضف متغيّراً باسم **`CERTIFICATE_PRIVATE_KEY`** والصق **كامل محتوى** `cert_key.pem` (بما فيه سطرا BEGIN/END)، وفعّل **Secure**.
+  3. السكربت يلتقطه تلقائياً (الفرع الآخر في `codemagic.yaml`) ولن يُنشئ شهادة جديدة بعدها.
+- **إن بلغت الحدّ فعلاً:** احذف شهادة قديمة من [Certificates](https://developer.apple.com/account/resources/certificates/list) (حذف شهادة توزيع لا يُعطّل تطبيقاً منشوراً بالفعل).
+
+## مصادر شائعة للفشل وحلولها (مُختبَرة فعلياً في أول نشر)
 | العرض | السبب/الحل |
 |---|---|
-| `No matching profiles / bundle id not found` | لم تُنشئ App record/Identifier بعد → نفّذ الخطوة 2 قبل البناء. |
-| `Certificate limit reached` | لديك 3 شهادات توزيع فعلاً → احذف قديمة من Certificates, IDs & Profiles، أو دع Codemagic يعيد الاستخدام. |
+| `No matching profiles found for bundle identifier ... app_store` | **سببان:** (أ) لم تُنشئ App ID/App record بعد → نفّذ الخطوتين 1 و2. (ب) **الأهم:** كتلة `ios_signing` في `environment` تجلب ملف تعريف موجوداً فقط ولا تُنشئه، وتفشل أثناء التحضير **قبل** تشغيل السكربتات → أُزيلت، والتوقيع صار في السكربتات بـ`fetch-signing-files --create`. |
+| `Cannot save Signing Certificates without certificate private key` | `fetch-signing-files --create` يحتاج مفتاحاً خاصاً → السكربت يولّده بـ`openssl genrsa` ويمرّره بـ`--certificate-key` (أو يستخدم `CERTIFICATE_PRIVATE_KEY` إن ضُبط). |
+| `Certificate limit reached` | راجع فخّ حدّ الشهادات أعلاه. |
 | فشل `pod install` (Firebase) | Firebase مثبّت على `~> 11.0` في `Podfile`؛ إن تغيّرت البيئة جرّب `pod repo update`. |
 | رفض «Guideline 4.2» | راجع [`metadata/review-notes.md`](metadata/review-notes.md) — التموضع كأداة أعمال وإبراز الوظائف الأصلية. |
 | رفض «الميزات المالية» | نفس ما واجهناه في Google Play → التطبيق أداة أعمال داخلية، لا خدمة مالية للمستهلك. |
