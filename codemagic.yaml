@@ -1,0 +1,53 @@
+# خط بناء iOS على Codemagic — تطبيق المندوب (FieldSales)
+# يبني على macOS، يوقّع تلقائياً بمفتاح App Store Connect API، ويرفع إلى TestFlight.
+# جذر المستودع = مجلّد ios-app هذا. راجع CODEMAGIC-SETUP.md لخطوات الربط.
+
+workflows:
+  ios-appstore:
+    name: FieldSales iOS — App Store
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      # الاسم يجب أن يطابق حرفياً تكامل App Store Connect API key المُضاف في Codemagic
+      # (Teams → Integrations → App Store Connect). عدّله إن سمّيته باسم آخر.
+      app_store_connect: FieldSales ASC Key
+    environment:
+      # توقيع تلقائي: Codemagic يجلب/يُنشئ الشهادة وملف التعريف قبل البناء.
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: net.fieldsa.rep
+      vars:
+        XCODE_WORKSPACE: "FieldSales.xcworkspace"
+        XCODE_SCHEME: "FieldSales"
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: تثبيت اعتماديات CocoaPods
+        script: |
+          pod install
+      - name: تطبيق ملفات التوقيع على المشروع
+        script: |
+          xcode-project use-profiles
+      - name: ضبط رقم البناء تلقائياً (فريد متصاعد)
+        script: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "FieldSales/Info.plist"
+      - name: بناء الـIPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # يرفع البناء إلى TestFlight فقط (اختبار داخلي). لا إرسال للمراجعة العلنية تلقائياً —
+        # نملأ صفحة المتجر ثم نرسل يدوياً أول مرة. لاحقاً يمكن تفعيل submit_to_app_store: true.
+        submit_to_testflight: true
+      email:
+        recipients:
+          - aliorini1996@gmail.com
+        notify:
+          success: true
+          failure: true
