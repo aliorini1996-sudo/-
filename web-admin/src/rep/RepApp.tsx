@@ -12,6 +12,7 @@ import {
   Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw,
   Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
+import { computeInvoiceTotals } from './invoiceCalc';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import { startRenewLoop, clearRenewRejection } from './renew';
 import { BrandIcon } from '../components/BrandLogo';
@@ -725,10 +726,17 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const qtyInCart = (id: string) => lines.find(l => l.productId === id)?.qty || 0;
   const itemCount = lines.reduce((s, l) => s + l.qty, 0);
 
-  const subtotal = lines.reduce((s, l) => s + l.qty * preTax(l), 0); // قبل الضريبة وقبل الخصم
-  const discount = lines.reduce((s, l) => s + l.qty * preTax(l) * l.discountPct / 100, 0);
-  const tax = lines.reduce((s, l) => s + l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100, 0);
-  const total = subtotal - discount + tax; // = مجموع الأسعار الشاملة
+  // الإجماليات من **المحرّك المشترك** المطابق للخادم حرفياً، وبنفس المدخلات
+  // التي تُرسَل فعلاً (السعر قبل الضريبة `round2(preTax)`) — فما يراه المندوب
+  // على الشاشة هو عين ما يحسبه الخادم، لا صيغةً ثانية تفترق عنه.
+  const repCalc = computeInvoiceTotals(
+    lines.map(l => ({ qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
+    { companyVat: 15, decimals: 2, invoiceDiscountPct: 0 }, // taxPct يأتي مع كل بند فلا تُستعمل هذه
+  );
+  const subtotal = repCalc.subtotal;
+  const discount = repCalc.discountAmt;
+  const tax = repCalc.taxAmt;
+  const total = repCalc.total;
 
   const submit = async () => {
     if (lines.length === 0) { setMsg(tr('أضف صنفاً')); return; }

@@ -13,24 +13,47 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - name: تثبيت pg_dump 16
+      # ⚠️ إصدار العميل يجب أن يساوي إصدار الخادم أو يزيد — قاعدة dsd-db على
+      # PostgreSQL 18، و`pg_dump` **يرفض قطعياً** نسخَ خادمٍ أحدث منه. كان
+      # مثبّتاً على 16 فكان يفشل حتماً ولو ضُبط السرّ.
+      - name: تثبيت pg_dump 18
         run: |
+          set -euo pipefail
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update
-          sudo apt-get install -y postgresql-client-16
+          sudo apt-get install -y postgresql-client-18
+          /usr/lib/postgresql/18/bin/pg_dump --version
 
       - name: أخذ النسخة الاحتياطية
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::سرّ DATABASE_URL غير مضبوط — أضِفه في Settings → Secrets."
+          # `pipefail` ليس تجميلاً: بدونه ينجح الأنبوب `pg_dump | gzip` بحالة
+          # `gzip` وحدها، فيُنتج فشلُ pg_dump **ملفاً فارغاً يُعلَن نجاحاً** —
+          # وهذا أسوأ من غياب النسخة، لأنك تظنّ نفسك محميّاً.
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::سرّ DATABASE_URL غير مضبوط — أضِفه في Settings → Secrets → Actions."
             exit 1
           fi
           ts=$(date +%Y%m%d-%H%M%S)
-          /usr/lib/postgresql/16/bin/pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$ts.sql.gz"
-          echo "حجم النسخة: $(du -h backup-$ts.sql.gz | cut -f1)"
+          /usr/lib/postgresql/18/bin/pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$ts.sql.gz"
+
+          # حارس المحتوى: نسخةٌ سليمة تتجاوز 1KB مضغوطةً وتحوي تعريف جدول واحداً
+          # على الأقل. ملفٌّ أصغر أو بلا CREATE TABLE = نسخة مبتورة تُرفض.
+          size=$(stat -c%s "backup-$ts.sql.gz")
+          echo "حجم النسخة: $(du -h "backup-$ts.sql.gz" | cut -f1) ($size بايت)"
+          if [ "$size" -lt 1024 ]; then
+            echo "::error::النسخة أصغر من 1KB — مبتورة أو فارغة."
+            exit 1
+          fi
+          if ! gzip -dc "backup-$ts.sql.gz" | grep -qm1 'CREATE TABLE'; then
+            echo "::error::النسخة لا تحوي أي CREATE TABLE — ليست نسخة قاعدة صالحة."
+            exit 1
+          fi
+          tables=$(gzip -dc "backup-$ts.sql.gz" | grep -c 'CREATE TABLE' || true)
+          echo "✅ نسخة صالحة — $tables جدولاً."
 
       - name: رفع النسخة كـartifact (يُحتفظ بها 30 يوماً)
         uses: actions/upload-artifact@v4

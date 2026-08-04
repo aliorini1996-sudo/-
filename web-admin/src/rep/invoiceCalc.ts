@@ -44,18 +44,36 @@ export interface CalcResult {
   total: number;
 }
 
+/**
+ * ⚠️ **نسخة مطابقة حرفياً** لـbackend/src/lib/invoiceCalc.ts — أي تعديل هنا
+ * يجب أن يقع هناك في اللحظة نفسها، وإلّا خالفت الورقةُ المطبوعة السجلَّ.
+ * والمتجهات الذهبية في backend/src/tests/invoice-calc.test.ts هي العقد بينهما.
+ */
 export function computeInvoiceTotals(rawItems: CalcItemInput[], opts: CalcOptions): CalcResult {
   const { companyVat, decimals: dec, invoiceDiscountPct } = opts;
+  const headFactor = 1 - invoiceDiscountPct / 100; // حصّة البند بعد خصم الفاتورة
 
-  let subtotal = 0;
+  let subtotal = 0;      // مجموع الأساس قبل أي خصم (يُعرض «الإجمالي قبل الخصم»)
+  let discountAmt = 0;   // خصم البنود + خصم الفاتورة الموزَّع
+  let taxAmt = 0;
+
   const items: CalcItemResult[] = rawItems.map((item) => {
     const lineBase = roundDecimal(item.qty * item.unitPrice, dec);
     const lineDiscount = roundDecimal((lineBase * item.discountPct) / 100, dec);
     const lineAfterDiscount = lineBase - lineDiscount;
+
+    // حصّة هذا البند من خصم الفاتورة الكلّي — تُخصم قبل الضريبة لا بعدها
+    const headShare = roundDecimal(lineAfterDiscount * (1 - headFactor), dec);
+    const lineNet = lineAfterDiscount - headShare;
+
     const itemTaxPct = item.taxPct ?? companyVat;
-    const lineTax = roundDecimal((lineAfterDiscount * itemTaxPct) / 100, dec);
-    const lineTotal = lineAfterDiscount + lineTax;
+    const lineTax = roundDecimal((lineNet * itemTaxPct) / 100, dec);
+    const lineTotal = roundDecimal(lineNet + lineTax, dec);
+
     subtotal += lineBase;
+    discountAmt += lineDiscount + headShare;
+    taxAmt += lineTax;
+
     return {
       qty: item.qty,
       unitPrice: item.unitPrice,
@@ -67,11 +85,10 @@ export function computeInvoiceTotals(rawItems: CalcItemInput[], opts: CalcOption
     };
   });
 
-  const discountAmt = roundDecimal((subtotal * invoiceDiscountPct) / 100, dec);
-  const taxableSubtotal = subtotal - discountAmt;
-  let taxAmt = 0;
-  for (const it of items) taxAmt += it.taxAmt;
-  const total = roundDecimal(taxableSubtotal + taxAmt, dec);
+  subtotal = roundDecimal(subtotal, dec);
+  discountAmt = roundDecimal(discountAmt, dec);
+  taxAmt = roundDecimal(taxAmt, dec);
+  const total = roundDecimal(subtotal - discountAmt + taxAmt, dec);
 
   return { items, subtotal, discountAmt, taxAmt, total };
 }

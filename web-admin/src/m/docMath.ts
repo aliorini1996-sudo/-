@@ -1,14 +1,16 @@
+import { computeInvoiceTotals } from '../rep/invoiceCalc';
+
 /**
- * حساب بنود الفاتورة في مسار **الإدارة** — منقول حرفياً عن `calcLine` في
- * `components/forms/InvoiceModal.tsx` كي يُعرض على الجوال ما يُعرض على اللوحة.
+ * حساب بنود الفاتورة في مسار **الإدارة**.
  *
  * ⚠️ **الفخّ الحاكم — لا تنسخ منطق تطبيق المندوب هنا:**
  * مسار الأدمن (`POST /invoices`) يتوقّع `unitPrice` **قبل الضريبة** ومعه
  * `taxPct` منفصلاً — والسعر يأتي من `product.basePrice` وهو صافٍ. أمّا شاشة
- * المندوب فتُدخِل سعراً **شاملاً** وتشتقّ ما قبله. فنسخُ غلاف المندوب إلى هنا
- * يُنتج فواتير بمبالغ خاطئة تمرّ بلا خطأ ولا تحذير.
+ * المندوب فتُدخِل سعراً **شاملاً** وتشتقّ ما قبله.
  *
- * والخادم هو المرجع النهائي للمبالغ؛ هذه الدوالّ للعرض اللحظيّ فقط.
+ * ولا حساب هنا إطلاقاً: كل الأرقام من **المحرّك المشترك** الذي يطابق الخادم
+ * حرفياً. كانت هذه الوحدة تحسب بنفسها، فورثت الخللَ الذي كان في الخادم
+ * (خصم البند لا يخفّض الإجمالي) — والحلّ ألّا يوجد إلا مصدر حساب واحد.
  */
 
 export interface Line {
@@ -16,29 +18,20 @@ export interface Line {
   qty: number; unitPrice: number; discountPct: number; taxPct: number;
 }
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
-
-/** إجمالي البند شاملاً ضريبته بعد خصمه */
+/** إجمالي البند شاملاً ضريبته بعد خصمه (بلا خصم الفاتورة الكلّي) */
 export function lineTotal(l: Pick<Line, 'qty' | 'unitPrice' | 'discountPct' | 'taxPct'>): number {
-  const base = l.qty * l.unitPrice;
-  const afterDisc = base - (base * l.discountPct) / 100;
-  return r2(afterDisc + (afterDisc * l.taxPct) / 100);
+  const r = computeInvoiceTotals(
+    [{ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct }],
+    { companyVat: l.taxPct, decimals: 2, invoiceDiscountPct: 0 },
+  );
+  return r.items[0].lineTotal;
 }
 
-/** ملخّص الفاتورة — بنفس صيغة نافذة اللوحة، فلا يختلف رقمان لمستند واحد */
+/** ملخّص الفاتورة — من المحرّك المشترك، فلا يختلف رقمان لمستند واحد */
 export function invoiceTotals(lines: Line[], invoiceDiscountPct: number) {
-  const subtotal = lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
-  const lineDiscount = lines.reduce((s, l) => s + (l.qty * l.unitPrice * l.discountPct) / 100, 0);
-  const headDiscount = (subtotal * invoiceDiscountPct) / 100;
-  const tax = lines.reduce(
-    (s, l) => s + (l.qty * l.unitPrice * (1 - l.discountPct / 100) * l.taxPct) / 100,
-    0,
+  const r = computeInvoiceTotals(
+    lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
+    { companyVat: 15, decimals: 2, invoiceDiscountPct },
   );
-  const discount = lineDiscount + headDiscount;
-  return {
-    subtotal: r2(subtotal),
-    discount: r2(discount),
-    tax: r2(tax),
-    total: r2(subtotal - discount + tax),
-  };
+  return { subtotal: r.subtotal, discount: r.discountAmt, tax: r.taxAmt, total: r.total };
 }

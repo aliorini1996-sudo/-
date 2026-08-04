@@ -11,8 +11,20 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const tid = tenantId(req);
     const { from, to, salesRepId, customerId, groupBy } = req.query as Record<string, string>;
-    // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
-    const dateFilter = from && to ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : undefined;
+    /**
+     * نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم.
+     *
+     * **وسقفٌ افتراضيّ حين لا يُمرَّر مدى:** كان غيابُ المدى يعني سحب تاريخ
+     * الشركة كاملاً ومعه بنودُ كل فاتورة ومنتجاتها في الذاكرة — وهو المسار
+     * الذي تسلكه الصفحة عند أوّل فتح. على خطّة بذاكرة محدودة ينفجر ذلك مع
+     * نموّ الشركة، والخادم يسقط للجميع لا لطالب التقرير وحده.
+     * فإن لم يُحدَّد مدى نقصره على آخر ٩٠ يوماً ونُعلمه في الاستجابة.
+     */
+    const DEFAULT_DAYS = 90;
+    const rangeApplied = !!(from && to);
+    const dateFilter = rangeApplied
+      ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) }
+      : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
 
     const invoices = await prisma.invoice.findMany({
       where: {
@@ -21,7 +33,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         ...(await scopedRecordWhere(req)),
         status: 'CONFIRMED',
         type: { not: 'RETURN' }, // تقرير المبيعات لا يشمل المرتجعات
-        ...(dateFilter && { invoiceDate: dateFilter }),
+        invoiceDate: dateFilter,
         ...(salesRepId && { salesRepId }),
         ...(customerId && { customerId }),
       },
@@ -50,8 +62,12 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
     if (groupBy === 'rep') {
       const byRep: Record<string, { name: string; count: number; total: number }> = {};
       invoices.forEach(inv => {
-        const key = inv.salesRep.id;
-        if (!byRep[key]) byRep[key] = { name: inv.salesRep.name, count: 0, total: 0 };
+        // `Invoice.salesRepId` قابل للفراغ: حذفُ مندوب يُفرّغه من كل فواتيره
+        // (salesReps.ts: updateMany → salesRepId: null) حفظاً للسجلّ المالي.
+        // فقراءة `inv.salesRep.id` مباشرةً كانت **تُسقط التقرير بـ500** لأي
+        // شركة حذفت مندوباً يوماً. مبيعاته تبقى محسوبة تحت مجموعة صريحة.
+        const key = inv.salesRep?.id ?? '—';
+        if (!byRep[key]) byRep[key] = { name: inv.salesRep?.name ?? 'بلا مندوب', count: 0, total: 0 };
         byRep[key].count++;
         byRep[key].total += Number(inv.total);
       });
@@ -102,6 +118,9 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       count: invoices.length,
       taxTotal: invoices.reduce((s, i) => s + Number(i.taxAmt), 0),
       discountTotal: invoices.reduce((s, i) => s + Number(i.discountAmt), 0),
+      // نُعلن السقف صراحةً: تقريرٌ مقصوصٌ صامتاً يُقرأ على أنه شامل، فتُبنى
+      // عليه قرارات ناقصة. الواجهة تعرض التنبيه ويرفعه المستخدم بتحديد مدى.
+      ...(rangeApplied ? {} : { defaultRangeDays: DEFAULT_DAYS }),
     };
     res.json({ success: true, data: { invoices, summary } });
   } catch (err) { next(err); }

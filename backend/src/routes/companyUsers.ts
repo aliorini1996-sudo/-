@@ -28,8 +28,14 @@ const userSchema = z.object({
   canManageTracking: z.boolean().optional(),
   canManageCompanySettings: z.boolean().optional(),
   canManageCompanyUsers: z.boolean().optional(),
-  // عزل النطاق: عند التفعيل لا يرى هذا المستخدم إلا عملاءه ومناديبه المُسنَدين
-  scopeEnabled: z.boolean().optional(),
+  // ⚠️ **`scopeEnabled` مقصودٌ غيابه هنا** — لا يُكتب إلا من `PUT /:id/scope`
+  // المحروس بـ`guardScopeAdmin`.
+  //
+  // كان مُدرَجاً في هذا المخطّط فيمرّ عبر `updateData = { ...data }` إلى
+  // `admin.update` بلا حارس نطاق: مستخدمٌ مقيّد يملك `canManageCompanyUsers`
+  // يرسل `PUT /company-users/<معرّفه>` بـ`{scopeEnabled:false}` **فيفكّ عزل
+  // نفسه بطلب واحد** — ناقضاً الحارس المبنيّ على مسارَي `/scope` وحدهما.
+  // ويسري فوراً لأن النطاق يُقرأ من القاعدة لا من التوكن.
 });
 
 const userSelect = {
@@ -167,6 +173,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     }
 
     const updateData: Record<string, unknown> = { ...data };
+    // حزامٌ ثانٍ فوق حذفه من المخطّط: حقلُ نطاقٍ يُضاف مستقبلاً لـ`userSchema`
+    // سيمرّ من هنا صامتاً وإلا. النطاق لا يُكتب إلا من مساره المحروس.
+    delete updateData.scopeEnabled;
     if (password) updateData.passwordHash = await bcrypt.hash(password, 10);
 
     const user = await prisma.admin.update({

@@ -123,3 +123,36 @@ test('حارس ثابت: كل مسار في companyUsers يفتتح بحارس �
   assert.ok(lines.some((l) => /^router\.(get|post|put|patch|delete)\(/.test(l)), 'لم يُعثر على أي مسار — تغيّر النمط والحارس صار بلا أثر');
   assert.deepEqual(unguarded, [], `مسار بلا حارس صلاحية:\n${unguarded.join('\n')}`);
 });
+
+/**
+ * حارس ثابت ثالث — على ثغرةٍ **نقضت الحارسين السابقين وهما يمرّان**.
+ *
+ * `scopeEnabled` كان مُدرَجاً في `userSchema` العامّ، فيمرّ عبر
+ * `updateData = { ...data }` إلى `admin.update` من `PUT /:id` — وهو مسارٌ
+ * حارسه `requireCompanyOwner` لا `guardScopeAdmin`. فمستخدمٌ مقيّد يملك
+ * `canManageCompanyUsers` **يفكّ عزل نفسه بطلب واحد**.
+ *
+ * والحارس الثابت السابق كان **يمرّ على هذا المسار** لأنه يقبل أيّاً من
+ * الحارسين — فالفحص الصحيح ليس «هل للمسار حارس» بل «هل يُكتب النطاق خارج
+ * مساره المحروس».
+ */
+test('حارس ثابت: النطاق لا يُكتب إلا داخل مسار /:id/scope المحروس', () => {
+  const file = path.join(process.cwd(), 'src', 'routes', 'companyUsers.ts');
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+
+  // مسارا `/:id/scope` (القراءة والكتابة) محروسان بـ`guardScopeAdmin`، وهما
+  // وحدهما المسموح لهما بلمس النطاق. الحدّ = أوّلهما ظهوراً في الملفّ.
+  const scopeStart = lines.findIndex((l) => /^router\.(get|put)\('\/:id\/scope'/.test(l));
+  assert.ok(scopeStart > 0, 'لم يُعثر على مسارات /:id/scope — تغيّر الملفّ والحارس بلا أثر');
+
+  const offenders: string[] = [];
+  lines.forEach((line, i) => {
+    if (i >= scopeStart) return;                       // داخل المسارين المحروسين: مسموح
+    const t = line.trim();
+    if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) return;  // تعليق
+    if (t.startsWith('delete ')) return;                // حذفُ الحقل حمايةٌ لا كتابة
+    if (/scopeEnabled/.test(line)) offenders.push(`${i + 1}: ${t.slice(0, 80)}`);
+  });
+
+  assert.deepEqual(offenders, [], `ذكرٌ لـscopeEnabled خارج مساره المحروس:\n${offenders.join('\n')}`);
+});

@@ -48,22 +48,48 @@ export interface CalcResult {
 }
 
 /**
- * يحسب البنود والإجماليات — مطابق حرفياً لمنطق routes/invoices.ts.
- * ملاحظة سلوكية محفوظة عمداً: ضريبة البند تُحسب على (الأساس - خصم البند) قبل خصم الفاتورة
- * الكلّي، والإجمالي = (المجموع - خصم الفاتورة) + مجموع ضرائب البنود.
+ * يحسب البنود والإجماليات — المرجع الوحيد للخادم والعميل معاً.
+ *
+ * ═══ ثابتان لا يجوز كسرهما ═══
+ *  1. **الإجمالي = مجموع صافي البنود.** وإلّا خالفت الورقةُ المطبوعة السجلَّ
+ *     المحاسبيّ، ولا يكتشف أحدٌ الفرقَ حتى يشتكي العميل.
+ *  2. **الضريبة = نسبتها من الوعاء بعد كل خصم.** رمز ZATCA يحمل الإجمالي
+ *     والضريبة معاً (الحقلان 4 و5)، فزوجٌ غير متّسق = فاتورة تسقط في أي تدقيق.
+ *
+ * ⚠️ **ما كان قبل التصحيح** (كان موثَّقاً في الاختبار بوصفه «سلوكاً تاريخياً»):
+ *  · `subtotal` كان يجمع الأساس **قبل** خصم البند، فخصم البند يخفّض الضريبة
+ *    ولا يخفّض الإجمالي ⇒ ٣ قطع بـ١٠٠ وخصم ١٠٪ تُطبع ٣١٠٫٥٠ وتُقيَّد ٣٤٠٫٥٠.
+ *  · وخصم الفاتورة الكلّي كان يُخصم من الوعاء **بعد** حساب الضريبة ⇒ ضريبةٌ
+ *    على مبلغ لم يُبَع به، ونسبةٌ ضمنية ١٥٫٧٩٪ في رمز ZATCA بدل ١٥٪.
+ *
+ * والتصحيح: **خصم الفاتورة يُوزَّع على البنود قبل الضريبة**، فيصير كلّ بندٍ
+ * حاملاً حصّته من الخصم وضريبته محسوبةً على صافيه — وبذلك يتحقّق الثابتان معاً.
  */
 export function computeInvoiceTotals(rawItems: CalcItemInput[], opts: CalcOptions): CalcResult {
   const { companyVat, decimals: dec, invoiceDiscountPct } = opts;
+  const headFactor = 1 - invoiceDiscountPct / 100; // حصّة البند بعد خصم الفاتورة
 
-  let subtotal = 0;
+  let subtotal = 0;      // مجموع الأساس قبل أي خصم (يُعرض «الإجمالي قبل الخصم»)
+  let discountAmt = 0;   // خصم البنود + خصم الفاتورة الموزَّع
+  let taxAmt = 0;
+
   const items: CalcItemResult[] = rawItems.map((item) => {
     const lineBase = roundDecimal(item.qty * item.unitPrice, dec);
     const lineDiscount = roundDecimal((lineBase * item.discountPct) / 100, dec);
     const lineAfterDiscount = lineBase - lineDiscount;
+
+    // حصّة هذا البند من خصم الفاتورة الكلّي — تُخصم قبل الضريبة لا بعدها
+    const headShare = roundDecimal(lineAfterDiscount * (1 - headFactor), dec);
+    const lineNet = lineAfterDiscount - headShare;
+
     const itemTaxPct = item.taxPct ?? companyVat;
-    const lineTax = roundDecimal((lineAfterDiscount * itemTaxPct) / 100, dec);
-    const lineTotal = lineAfterDiscount + lineTax;
+    const lineTax = roundDecimal((lineNet * itemTaxPct) / 100, dec);
+    const lineTotal = roundDecimal(lineNet + lineTax, dec);
+
     subtotal += lineBase;
+    discountAmt += lineDiscount + headShare;
+    taxAmt += lineTax;
+
     return {
       qty: item.qty,
       unitPrice: item.unitPrice,
@@ -75,11 +101,10 @@ export function computeInvoiceTotals(rawItems: CalcItemInput[], opts: CalcOption
     };
   });
 
-  const discountAmt = roundDecimal((subtotal * invoiceDiscountPct) / 100, dec);
-  const taxableSubtotal = subtotal - discountAmt;
-  let taxAmt = 0;
-  for (const it of items) taxAmt += it.taxAmt;
-  const total = roundDecimal(taxableSubtotal + taxAmt, dec);
+  subtotal = roundDecimal(subtotal, dec);
+  discountAmt = roundDecimal(discountAmt, dec);
+  taxAmt = roundDecimal(taxAmt, dec);
+  const total = roundDecimal(subtotal - discountAmt + taxAmt, dec);
 
   return { items, subtotal, discountAmt, taxAmt, total };
 }

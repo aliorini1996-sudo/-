@@ -4,6 +4,7 @@ import { invoiceApi, customerApi, productApi, salesRepApi, companyApi } from '..
 import { Customer, Product, SalesRep } from '../../types';
 import { formatCurrency } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
+import { computeInvoiceTotals } from '../../rep/invoiceCalc';
 import { InvoiceDoc, Company } from '../../rep/RepDocuments';
 import { X, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -23,12 +24,12 @@ interface LineItem {
 
 interface Props { onClose: () => void; onSaved: (doc: InvoiceDoc) => void; }
 
+/** صافي البند — من المحرّك المشترك لا بصيغة ثانية تفترق عنه يوماً ما */
 function calcLine(qty: number, price: number, discPct: number, taxPct: number) {
-  const base = qty * price;
-  const disc = base * discPct / 100;
-  const afterDisc = base - disc;
-  const tax = afterDisc * taxPct / 100;
-  return Math.round((afterDisc + tax) * 100) / 100;
+  return computeInvoiceTotals(
+    [{ qty, unitPrice: price, discountPct: discPct, taxPct }],
+    { companyVat: taxPct, decimals: 2, invoiceDiscountPct: 0 },
+  ).items[0].lineTotal;
 }
 
 export default function InvoiceModal({ onClose, onSaved }: Props) {
@@ -118,10 +119,17 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     }));
   };
 
-  const subtotal = lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
-  const totalDiscount = lines.reduce((s, l) => s + l.qty * l.unitPrice * l.discountPct / 100, 0) + subtotal * discountPct / 100;
-  const taxTotal = lines.reduce((s, l) => s + (l.qty * l.unitPrice * (1 - l.discountPct / 100) * l.taxPct / 100), 0);
-  const total = Math.round((subtotal - totalDiscount + taxTotal) * 100) / 100;
+  // الإجماليات من **المحرّك المشترك** لا بحساب يدويّ هنا: الحساب اليدويّ كان
+  // يطرح خصم البند بينما الخادم لا يطرحه، فتُطبع ورقةٌ تخالف السجلّ المحاسبيّ
+  // بمقدار الخصم كاملاً — بلا خطأ ولا تحذير يراه أحد.
+  const calcAll = computeInvoiceTotals(
+    lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
+    { companyVat: 15, decimals: 2, invoiceDiscountPct: discountPct },
+  );
+  const subtotal = calcAll.subtotal;
+  const totalDiscount = calcAll.discountAmt;
+  const taxTotal = calcAll.taxAmt;
+  const total = calcAll.total;
 
   const handleSubmit = () => {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }

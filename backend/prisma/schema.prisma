@@ -476,6 +476,11 @@ model InvoiceItem {
   lineTotal   Float
 
   @@index([menuItemId])
+  // كان الجدول مفهرساً على `menuItemId` (حقل المطاعم) وحده، بينما **كل** قراءة
+  // فاتورة أو تقرير مبيعات أو حساب مخزون سيارة تصل بنودها عبر `invoiceId`،
+  // وتجميع «المبيعات حسب الصنف» يمرّ على `productId`.
+  @@index([invoiceId])
+  @@index([productId])
   @@map("invoice_items")
 }
 
@@ -544,6 +549,12 @@ model AccountEntry {
   createdAt   DateTime @default(now())
 
   @@index([tenantId])
+  // قراءة الرصيد الجاري (`accounting.ts: currentBalance`) تقع **داخل معاملة**
+  // مع كل فاتورة وسند: `where customerId order by entryDate desc`. بلا هذا
+  // الفهرس المركّب تمسح القاعدة الجدولَ تسلسلياً عبر كل الشركات في كل كتابة
+  // مالية — وهو أثقل مسار في المنظومة لأنه على الكتابة لا القراءة.
+  // وكشف الحساب يقرأ بالترتيب نفسه، فيستفيد منه أيضاً.
+  @@index([customerId, entryDate])
   @@map("account_entries")
 }
 
