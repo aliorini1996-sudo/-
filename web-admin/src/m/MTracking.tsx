@@ -123,6 +123,9 @@ export default function MTracking() {
   const reps = liveQ.data ?? [];
   const sel = reps.find(r => r.id === selected) || null;
 
+  // رقم الزيارة زمنيّ (١ = أول زيارة): القائمة تنزل أحدثَ أولاً، والترقيم
+  // بالموضع كان يقلب اليوم — نفس إصلاح خريطة اللوحة المكتبية حرفياً.
+  const visitNo = useMemo(() => new Map((visitsQ.data ?? []).map((v, i) => [v.id, (visitsQ.data ?? []).length - i])), [visitsQ.data]);
   const focusPoints = useMemo<[number, number][]>(() => {
     if (selected && routeQ.data?.points.length) return routeQ.data.points.map(p => [p.lat, p.lng]);
     if (sel?.lastLat != null && sel?.lastLng != null) return [[sel.lastLat, sel.lastLng]];
@@ -166,8 +169,8 @@ export default function MTracking() {
           </>
         )}
 
-        {(visitsQ.data ?? []).filter(v => v.lat != null && v.lng != null).map((v, i) => (
-          <Marker key={v.id} position={[v.lat!, v.lng!]} icon={visitIcon(i + 1)}
+        {(visitsQ.data ?? []).filter(v => v.lat != null && v.lng != null).map(v => (
+          <Marker key={v.id} position={[v.lat!, v.lng!]} icon={visitIcon(visitNo.get(v.id) ?? 0)}
             eventHandlers={{ click: () => setOpenVisit(v.id) }} />
         ))}
 
@@ -291,12 +294,12 @@ export default function MTracking() {
                 : !visitsQ.data?.length ? <p className="text-center text-xs text-[#9A8F7E] py-4">{tr('لا زيارات في هذا اليوم')}</p>
                 : (
                   <div className="rounded-2xl border border-[#F1EBDF] overflow-hidden">
-                    {visitsQ.data.map((v, i) => {
+                    {visitsQ.data.map(v => {
                       const dur = fmtDur(v.durationSec);
                       return (
                         <button key={v.id} onClick={() => setOpenVisit(v.id)}
                           className="w-full text-start flex items-center gap-3 px-3 py-3 min-h-[56px] border-b border-[#F1EBDF] last:border-0 active:bg-[#FAF7F0]">
-                          <span className="w-6 h-6 rounded-full bg-[#E9F6EF] text-[#2F855A] flex items-center justify-center text-[11px] font-bold flex-shrink-0">{i + 1}</span>
+                          <span className="w-6 h-6 rounded-full bg-[#E9F6EF] text-[#2F855A] flex items-center justify-center text-[11px] font-bold flex-shrink-0">{visitNo.get(v.id)}</span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold text-[#1F1A13] truncate">{v.customer?.name || tr('عميل محذوف')}</span>
                             <span className="block text-[11px] text-[#9A8F7E]">

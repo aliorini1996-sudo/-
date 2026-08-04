@@ -160,6 +160,12 @@ export default function TrackingPage() {
     [snapped, rawLatLng],
   );
   const visitPins = useMemo(() => visits.filter(v => v.lat != null && v.lng != null), [visits]);
+  // رقم الزيارة **زمنيّ**: ١ = أول زيارة في اليوم. القائمة تنزل من الخادم أحدثَ
+  // أولاً، وكان الترقيم بموضع المصفوفة (i+1) فقرأ المشرف اليومَ معكوساً — آخرُ
+  // عميل «١» وبدايةُ الدوام أكبرُ رقم (بلاغ المالك). خريطةٌ واحدة id→رقم
+  // يستهلكها الدبّوس والقائمة معاً: الدبابيس قائمة مُرشّحة (ذات إحداثيات)،
+  // وترقيمُ كلٍّ بطولها يجعل الدبّوس يناقض بطاقة الزيارة نفسها.
+  const visitNo = useMemo(() => new Map(visits.map((v, i) => [v.id, visits.length - i])), [visits]);
 
   // النقاط المعروضة على الخريطة لضبط الحدود
   const focusPoints: [number, number][] = useMemo(() => {
@@ -269,10 +275,10 @@ export default function TrackingPage() {
                   );
                 })()}
                 <div className="max-h-[420px] overflow-y-auto divide-y divide-[#F1EBDF]">
-                  {visits.map((v, i) => (
+                  {visits.map(v => (
                     <button key={v.id} onClick={() => setOpenVisit(v.id)}
                       className="w-full text-right px-4 py-3 flex items-start gap-3 hover:bg-[#FAF7F0]">
-                      <span className="w-7 h-7 rounded-full bg-[#E7F5EE] text-[#1E7A52] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                      <span className="w-7 h-7 rounded-full bg-[#E7F5EE] text-[#1E7A52] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{visitNo.get(v.id)}</span>
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-[#1F1A13] text-sm truncate">{v.customer?.name || tr('عميل')}</p>
                         {v.note && <p className="text-[12px] text-[#6E6557] mt-0.5 line-clamp-2">{v.note}</p>}
@@ -355,8 +361,8 @@ export default function TrackingPage() {
                 )}
 
                 {/* دبابيس الزيارات على الخريطة (للمندوب المحدّد) */}
-                {selected && visitPins.map((v, i) => (
-                  <Marker key={v.id} position={[v.lat!, v.lng!]} icon={visitIcon(i + 1)}>
+                {selected && visitPins.map(v => (
+                  <Marker key={v.id} position={[v.lat!, v.lng!]} icon={visitIcon(visitNo.get(v.id) ?? 0)}>
                     <Popup>
                       <div style={{ direction: 'rtl', minWidth: 160 }}>
                         <strong>{v.customer?.name || tr('زيارة')}</strong><br />
