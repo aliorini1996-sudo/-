@@ -12,7 +12,14 @@ import toast from 'react-hot-toast';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
-interface WorkHoursRow { id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number; firstSeen: string | null; lastSeen: string | null }
+interface WorkVisit { customerName: string; at: string; durationSec: number | null }
+interface WorkDayRow { date: string; firstActivity: string; lastActivity: string; spanMinutes: number; appMinutes: number; visits: WorkVisit[]; visitsCount: number; visitsSec: number }
+interface WorkHoursRow {
+  id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number;
+  firstSeen: string | null; lastSeen: string | null;
+  fieldMinutesTotal: number;   // Σ يوم العمل الميداني (أول أثر → آخر أثر) عبر المدى
+  days: WorkDayRow[];
+}
 interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: number; mapsUrl: string }
 interface PerfRow {
   id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number;
@@ -91,10 +98,12 @@ export default function ReportsPage() {
     enabled: tab === 'performance' && perfType === 'receivables',
   });
 
-  const { data: hoursData, isLoading: hoursLoading } = useQuery({
+  // نفس درس المديونيات: fetchStatus='paused' يجعل isLoading كاذباً فيُعرض
+  // «لا بيانات حضور» والحقيقة «انقطع الاتصال» — نقرأ الحالة الصريحة
+  const { data: hoursData, status: hoursStatus, fetchStatus: hoursFetchStatus } = useQuery({
     queryKey: ['report-work-hours', from, to],
     queryFn: async () => {
-      const res = await reportApi.workHours({ from, to });
+      const res = await reportApi.workHours({ from, to, tz: String(-new Date().getTimezoneOffset()) });
       return res.data.data as WorkHoursRow[];
     },
     enabled: tab === 'performance' && perfType === 'hours',
@@ -104,6 +113,13 @@ export default function ReportsPage() {
   const fmtDuration = (h: number, m: number) => `${h} ${tr('س')} ${m} ${tr('د')}`;
   const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString('ar', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
   const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('ar', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const fmtClock = (iso: string) => new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+  const fmtMin = (min: number) => fmtDuration(Math.floor(min / 60), min % 60);
+  // مدة الزيارة بالثواني — بنفس تدرّج خريطة التتبّع حتى يتطابق المعروضان
+  const fmtVisitDur = (sec: number | null) => sec == null || sec <= 0 ? null
+    : sec >= 3600 ? `${Math.floor(sec / 3600)} ${tr('س')} ${Math.floor((sec % 3600) / 60)} ${tr('د')}`
+    : sec >= 60 ? `${Math.floor(sec / 60)} ${tr('د')} ${sec % 60} ${tr('ث')}`
+    : `${sec} ${tr('ث')}`;
 
   const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
     : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
@@ -115,11 +131,33 @@ export default function ReportsPage() {
     let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
     let fname = tr('تقرير');
     if (tab === 'performance' && perfType === 'hours' && hoursData?.length) {
-      sheets = [{ name: tr('ساعات العمل'), rows: hoursData.map(r => ({
-        [tr('المندوب')]: r.name, [tr('ساعات العمل')]: fmtDuration(r.hours, r.minutes),
-        [tr('إجمالي الدقائق')]: r.totalMinutes, [tr('عدد الجلسات')]: r.sessions,
-        [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
-      })), colWidths: [22, 14, 14, 12, 18, 18] }];
+      sheets = [
+        { name: tr('ملخص المناديب'), rows: hoursData.map(r => ({
+          [tr('المندوب')]: r.name,
+          [tr('أيام العمل')]: r.days.length,
+          [tr('إجمالي يوم العمل الميداني')]: fmtMin(r.fieldMinutesTotal),
+          [tr('نشاط التطبيق')]: fmtDuration(r.hours, r.minutes),
+          [tr('عدد الجلسات')]: r.sessions,
+          [tr('عدد الزيارات')]: r.days.reduce((s2, d) => s2 + d.visitsCount, 0),
+          [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
+        })), colWidths: [22, 10, 18, 14, 12, 12, 18, 18] },
+        { name: tr('ملخص الأيام'), rows: hoursData.flatMap(r => r.days.map(d => ({
+          [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
+          [tr('من')]: fmtClock(d.firstActivity), [tr('إلى')]: fmtClock(d.lastActivity),
+          [tr('إجمالي وقت العمل')]: fmtMin(d.spanMinutes),
+          [tr('نشاط التطبيق')]: fmtMin(d.appMinutes),
+          [tr('عدد الزيارات')]: d.visitsCount,
+          [tr('مجموع مدد الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
+        }))), colWidths: [22, 12, 10, 10, 14, 14, 12, 16] },
+        // الأعمدة بالترتيب الذي طلبه المالك: العميل | وقت الزيارة | مدتها | إجمالي اليوم
+        { name: tr('تفاصيل الزيارات'), rows: hoursData.flatMap(r => r.days.flatMap(d => d.visits.map(v => ({
+          [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
+          [tr('اسم العميل')]: v.customerName,
+          [tr('وقت الزيارة')]: fmtClock(v.at),
+          [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
+          [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
+        })))), colWidths: [22, 12, 24, 10, 12, 16] },
+      ];
       fname = tr('ساعات العمل');
     } else if (tab === 'performance' && perfType === 'receivables' && recvData?.length) {
       sheets = [
@@ -228,14 +266,20 @@ export default function ReportsPage() {
     });
     return sheets;
   };
-  const repHoursSheets = (r: WorkHoursRow) => [{
-    name: tr('ساعات العمل'), colWidths: [22, 14, 14, 12, 18, 18],
-    rows: [{
-      [tr('المندوب')]: r.name, [tr('ساعات العمل')]: fmtDuration(r.hours, r.minutes),
-      [tr('إجمالي الدقائق')]: r.totalMinutes, [tr('عدد الجلسات')]: r.sessions,
-      [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
-    }],
-  }];
+  const repHoursSheets = (r: WorkHoursRow) => [
+    { name: tr('ملخص الأيام'), colWidths: [12, 10, 10, 14, 14, 12, 16],
+      rows: r.days.map(d => ({
+        [tr('التاريخ')]: d.date, [tr('من')]: fmtClock(d.firstActivity), [tr('إلى')]: fmtClock(d.lastActivity),
+        [tr('إجمالي وقت العمل')]: fmtMin(d.spanMinutes), [tr('نشاط التطبيق')]: fmtMin(d.appMinutes),
+        [tr('عدد الزيارات')]: d.visitsCount, [tr('مجموع مدد الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
+      })) },
+    { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 10, 12, 16],
+      rows: r.days.flatMap(d => d.visits.map(v => ({
+        [tr('التاريخ')]: d.date, [tr('اسم العميل')]: v.customerName,
+        [tr('وقت الزيارة')]: fmtClock(v.at), [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
+        [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
+      }))) },
+  ];
   const exportRepPerf = async (r: PerfRow) => {
     const out = await shareOrDownloadExcel(repPerfSheets(r), `${tr('أداء')}-${safeName(r.name)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
@@ -511,45 +555,83 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* تقرير ساعات العمل — الوقت الذي كان فيه المندوب متصلاً وفاتحاً التطبيق */}
+      {/* تقرير ساعات العمل — يوم العمل الميداني (أول أثر → آخر أثر) + نشاط التطبيق + تفصيل الزيارات */}
       {tab === 'performance' && perfType === 'hours' && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500 -mt-1">{tr('ساعات العمل = مجموع المدد التي كان فيها المندوب متصلاً وفاتحاً التطبيق خلال الفترة المحددة.')}</p>
-          {hoursLoading ? (
-            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل...')}</div>
-          ) : (hoursData && hoursData.length > 0) ? (
-            <div className="card p-0">
-              <div className="table-wrapper">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>{tr('المندوب')}</th><th>{tr('ساعات العمل')}</th><th>{tr('إجمالي الدقائق')}</th>
-                      <th>{tr('عدد الجلسات')}</th><th>{tr('أول ظهور')}</th><th>{tr('آخر ظهور')}</th><th>{tr('تصدير')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {hoursData.map(r => (
-                      <tr key={r.id}>
-                        <td className="font-medium text-gray-800">{r.name}</td>
-                        <td className="font-semibold text-[#1E7A52]">{fmtDuration(r.hours, r.minutes)}</td>
-                        <td className="text-gray-600">{r.totalMinutes}</td>
-                        <td className="text-gray-600">{r.sessions}</td>
-                        <td className="text-gray-500 text-xs">{fmtDateTime(r.firstSeen)}</td>
-                        <td className="text-gray-500 text-xs">{fmtDateTime(r.lastSeen)}</td>
-                        <td>
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => exportRepHours(r)} title={`${tr('تصدير Excel')} — ${r.name}`}
-                              className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
-                            <button onClick={() => exportRepHoursPdf(r)} title={`${tr('تصدير PDF')} — ${r.name}`}
-                              className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          <p className="text-xs text-gray-500 -mt-1">
+            {tr('«إجمالي وقت العمل» يُقاس من أول نشاط مرصود في اليوم (موقع أو فتح تطبيق أو زيارة) إلى آخره — أقرب مقياس متاح لخروج المندوب وعودته. و«نشاط التطبيق» هو الوقت الذي كان فيه التطبيق مفتوحاً ومتصلاً فقط.')}
+          </p>
+          {hoursStatus === 'pending' ? (
+            <div className="card flex items-center justify-center h-32 text-gray-400">
+              {hoursFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}
             </div>
+          ) : hoursStatus === 'error' ? (
+            <div className="card flex items-center justify-center h-32 text-red-500">{tr('تعذّر تحميل التقرير')}</div>
+          ) : (hoursData && hoursData.length > 0 && hoursData.some(r => r.days.length > 0)) ? (
+            hoursData.filter(r => r.days.length > 0).map(r => (
+              <div key={r.id} className="card p-0 overflow-hidden">
+                <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 bg-[#FAF7F0] border-b border-[#F1EBDF]">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="font-bold text-[#1F1A13]">{r.name}</p>
+                    <span className="text-xs text-gray-500">
+                      {r.days.length} {tr('يوم عمل')} · {tr('نشاط التطبيق')}: {fmtDuration(r.hours, r.minutes)} · {r.sessions} {tr('جلسة')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className="font-bold text-sm text-[#1E7A52]">{tr('الإجمالي')}: {fmtMin(r.fieldMinutesTotal)}</p>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => exportRepHours(r)} title={`${tr('تصدير Excel')} — ${r.name}`}
+                        className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                      <button onClick={() => exportRepHoursPdf(r)} title={`${tr('تصدير PDF')} — ${r.name}`}
+                        className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
+                    </div>
+                  </div>
+                </div>
+                {r.days.map(d => (
+                  <div key={d.date} className="border-b border-[#F5F1E8] last:border-b-0">
+                    <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-2 bg-[#FDFBF7]">
+                      <span className="text-sm font-semibold text-[#1F1A13]">{d.date}</span>
+                      <span className="text-xs text-gray-600">
+                        {fmtClock(d.firstActivity)} ← {fmtClock(d.lastActivity)} ·{' '}
+                        <b className="text-[#1E7A52]">{tr('إجمالي وقت العمل')}: {fmtMin(d.spanMinutes)}</b>
+                        {' '}· {tr('نشاط التطبيق')}: {fmtMin(d.appMinutes)}
+                      </span>
+                    </div>
+                    {d.visits.length > 0 ? (
+                      <div className="table-wrapper">
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>{tr('اسم العميل')}</th><th>{tr('وقت الزيارة')}</th>
+                              <th>{tr('مدة الزيارة')}</th><th>{tr('إجمالي وقت العمل لليوم')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {d.visits.map((v, i) => (
+                              <tr key={i}>
+                                <td className="font-medium text-gray-800">{v.customerName}</td>
+                                <td className="text-gray-600 tabular-nums">{fmtClock(v.at)}</td>
+                                <td className="text-[#2E6FB0] font-semibold tabular-nums">{fmtVisitDur(v.durationSec) || <span className="text-gray-400 font-normal">{tr('بلا توقيت')}</span>}</td>
+                                {i === 0 && (
+                                  <td rowSpan={d.visits.length} className="align-middle text-[#1E7A52] font-bold tabular-nums bg-green-50/40">
+                                    {fmtMin(d.spanMinutes)}
+                                    {fmtVisitDur(d.visitsSec) && (
+                                      <p className="text-[10px] font-normal text-gray-500 mt-0.5">{tr('داخل الزيارات')}: {fmtVisitDur(d.visitsSec)}</p>
+                                    )}
+                                  </td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 px-4 py-2">{tr('لا زيارات مسجّلة في هذا اليوم')}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))
           ) : (
             <div className="card flex items-center justify-center h-32 text-gray-400">{tr('لا توجد بيانات حضور في هذه الفترة.')}</div>
           )}

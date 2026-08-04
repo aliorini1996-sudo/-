@@ -3,6 +3,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter } from '../services/adminScope';
 import { AuthRequest } from '../types';
+import { composeWorkDays } from '../services/workDay';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -364,42 +365,82 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
   try {
     const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
-    const fromDate = from ? new Date(from) : new Date(0);
-    const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
+    // إزاحة توقيت المتصفّح بالدقائق شرقي UTC (الرياض 180) — «اليوم» يوم المندوب لا الخادم
+    const tzOffsetMin = Math.max(-840, Math.min(840, parseInt(req.query.tz as string) || 0));
 
-    const [reps, sessions] = await Promise.all([
-      prisma.salesRep.findMany({ where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) }, select: { id: true, name: true } }),
+    // بلا مدى: أسبوع افتراضي. وسقف ٣١ يوماً: التفصيل اليومي بنقاط GPS على مدى
+    // مفتوح يعني تجميع ملايين الصفوف في طلب واحد — نقصّ ونُعلن القصّ في الاستجابة.
+    const MAX_DAYS = 31;
+    const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
+    let fromDate = from ? new Date(from) : new Date(toEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+    let rangeClamped = false;
+    if (toEnd.getTime() - fromDate.getTime() > MAX_DAYS * 24 * 60 * 60 * 1000) {
+      fromDate = new Date(toEnd.getTime() - MAX_DAYS * 24 * 60 * 60 * 1000);
+      rangeClamped = true;
+    }
+
+    const repWhere = { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) };
+    const [reps, sessions, visits, pingRows] = await Promise.all([
+      prisma.salesRep.findMany({ where: repWhere, select: { id: true, name: true } }),
       prisma.repSession.findMany({
         where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
+      prisma.repVisit.findMany({
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req)) },
+        select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
+        orderBy: { createdAt: 'asc' }, take: 10000,
+      }),
+      // نقاط GPS تُختزل في القاعدة إلى (مندوب × يوم محلي → أول/آخر التقاط):
+      // الصفوف الخام قد تبلغ الملايين، والمطلوب منها طرفا اليوم لا مسارُه.
+      prisma.$queryRaw<{ salesRepId: string; day: string; min: Date; max: Date }[]>`
+        SELECT "salesRepId",
+               to_char(("capturedAt" + make_interval(mins => ${tzOffsetMin}))::date, 'YYYY-MM-DD') AS "day",
+               MIN("capturedAt") AS "min", MAX("capturedAt") AS "max"
+        FROM "rep_locations"
+        WHERE "tenantId" = ${tid} AND "capturedAt" >= ${fromDate} AND "capturedAt" < ${toEnd}
+        GROUP BY 1, 2`,
     ]);
 
-    const acc = new Map<string, { minutes: number; sessions: number; first: Date | null; last: Date | null }>();
-    for (const s of sessions) {
-      const m = acc.get(s.salesRepId) || { minutes: 0, sessions: 0, first: null, last: null };
-      m.minutes += Math.max(0, (s.lastBeatAt.getTime() - s.startedAt.getTime()) / 60000);
-      m.sessions += 1;
-      if (!m.first || s.startedAt < m.first) m.first = s.startedAt;
-      if (!m.last || s.lastBeatAt > m.last) m.last = s.lastBeatAt;
-      acc.set(s.salesRepId, m);
-    }
+    const byRep = <T extends { salesRepId: string }>(rows: T[]) => {
+      const m = new Map<string, T[]>();
+      for (const r of rows) { const a = m.get(r.salesRepId) || []; a.push(r); m.set(r.salesRepId, a); }
+      return m;
+    };
+    const sessByRep = byRep(sessions);
+    const visitsByRep = byRep(visits);
+    const pingsByRep = byRep(pingRows);
 
     const data = reps.map(r => {
-      const m = acc.get(r.id) || { minutes: 0, sessions: 0, first: null, last: null };
-      const totalMinutes = Math.round(m.minutes);
+      const days = composeWorkDays({
+        sessions: (sessByRep.get(r.id) || []).map(s => ({ start: s.startedAt, end: s.lastBeatAt })),
+        pingRanges: (pingsByRep.get(r.id) || []).map(p => ({ day: p.day, min: p.min, max: p.max })),
+        visits: (visitsByRep.get(r.id) || []).map(v => ({
+          customerName: v.customer?.name || '—',
+          at: v.startedAt || v.createdAt,   // بداية المؤقّت أدقّ؛ زيارة الملاحظة بوقت تسجيلها
+          durationSec: v.durationSec,
+        })),
+        tzOffsetMin,
+      });
+
+      // الحقول القديمة تبقى كما كانت (نشاط التطبيق) — الواجهة المنشورة تقرؤها
+      // أثناء انزلاق النشر، والمقياس الجديد يُضاف جوارها لا مكانها.
+      const appTotal = days.reduce((s, d) => s + d.appMinutes, 0);
+      const fieldTotal = days.reduce((s, d) => s + d.spanMinutes, 0);
+      const sess = sessByRep.get(r.id) || [];
       return {
         id: r.id, name: r.name,
-        totalMinutes,
-        hours: Math.floor(totalMinutes / 60),
-        minutes: totalMinutes % 60,
-        sessions: m.sessions,
-        firstSeen: m.first,
-        lastSeen: m.last,
+        totalMinutes: appTotal,
+        hours: Math.floor(appTotal / 60), minutes: appTotal % 60,
+        sessions: sess.length,
+        firstSeen: days.length ? days[0].firstActivity : null,
+        lastSeen: days.length ? days[days.length - 1].lastActivity : null,
+        fieldMinutesTotal: fieldTotal,
+        days,
       };
-    }).sort((a, b) => b.totalMinutes - a.totalMinutes);
+    }).sort((a, b) => b.fieldMinutesTotal - a.fieldMinutesTotal);
 
-    res.json({ success: true, data });
+    res.json({ success: true, data, meta: { tzOffsetMin, ...(rangeClamped ? { rangeClamped: MAX_DAYS } : {}) } });
   } catch (err) { next(err); }
 });
 
