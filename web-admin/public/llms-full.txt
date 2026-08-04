@@ -2035,6 +2035,12 @@
 
 ## Manual blog posts
 
+- [متابعة مناديب المبيعات في السعودية: عربي وبإثبات GPS](https://fieldsa.net/blog/sales-rep-tracking-saudi/)
+- [برنامج كاش فان للسعودية بالإنجليزية: دليل المشتري الأجنبي](https://fieldsa.net/blog/van-sales-software-saudi/)
+- [نظام إدارة الموزعين في السعودية بالإنجليزية: ملخص الدليل](https://fieldsa.net/blog/dms-saudi-arabia/)
+- [فاتورة المرحلة الأولى من الميدان: دليل مناديب التوزيع](https://fieldsa.net/blog/zatca-invoicing-for-field-reps/)
+- [قاموس مصطلحات التوزيع والمبيعات الميدانية: 30 مصطلحاً](https://fieldsa.net/blog/distribution-terms-glossary/)
+- [أسئلة أصحاب شركات التوزيع: 10 إجابات مباشرة من الميدان](https://fieldsa.net/blog/distribution-owners-questions/)
 - [سند قبض من جوال المندوب: تحصيل موثّق لحظة الاستلام](https://fieldsa.net/blog/mobile-receipt-vouchers/)
 - [مرتجعات المبيعات الميدانية: تالف واستبدال وضبط العهدة](https://fieldsa.net/blog/field-sales-returns-management/)
 - [مسح الباركود بكاميرا الجوال لإضافة الأصناف في الفاتورة](https://fieldsa.net/blog/barcode-scanning-invoices/)
