@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { buildCatalog, modifiedOf, isIndexable } from '../src/blog/seo/catalog.mjs';
+import { buildCatalog, modifiedOf, isIndexable, CONTENT_VERSION } from '../src/blog/seo/catalog.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -106,8 +106,11 @@ const alt = (arPath) => {
 const imageBlock = (img) => (img ? `    <image:image>\n      <image:loc>${img}</image:loc>\n    </image:image>\n` : '');
 
 // كل رابط يمرّ عبر canon هنا — نقطة واحدة تضمن ألّا يُفلت رابط بلا شرطة
-const urlEntry = (loc, { lastmod = today, freq = 'monthly', priority = '0.6', alternates = '', image = '' } = {}) =>
-  `  <url>\n    <loc>${canon(loc)}</loc>\n${alternates ? alternates + '\n' : ''}${imageBlock(image)}    <lastmod>${lastmod}</lastmod>\n    <changefreq>${freq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
+// lastmod الافتراضي = CONTENT_VERSION (تاريخ ثابت لآخر تحديث محتوى) لا today — وإلّا تجدّدت
+// تواريخ كل الصفحات التسويقية كل بناء فيرفض جوجل الوثوق بها كلّها. وحُذف changefreq/priority
+// (يتجاهلهما جوجل رسمياً 2026)؛ يبقى freq/priority في التوقيع لعدم كسر المنادين، بلا إخراج.
+const urlEntry = (loc, { lastmod = CONTENT_VERSION, freq = 'monthly', priority = '0.6', alternates = '', image = '' } = {}) =>
+  `  <url>\n    <loc>${canon(loc)}</loc>\n${alternates ? alternates + '\n' : ''}${imageBlock(image)}    <lastmod>${lastmod}</lastmod>\n  </url>`;
 
 async function main() {
   const posts = await effectivePosts();

@@ -234,7 +234,12 @@ async function main() {
     const manualLinks = L === 'fr' ? [] : manual
       .filter((p) => L === 'ar' || p.en)
       .map((p) => { const v = L === 'en' && p.en ? p.en : p; return `<li><a href="${prefix}/blog/${p.slug}/">${esc(v.title)}</a></li>`; });
-    const links = [...manualLinks, ...listArticles(L).slice(0, 80).map((x) => `<li><a href="${prefix}/blog/${x.slug}/">${esc(x.title)}</a></li>`)].join('');
+    // كل مقال قانونيّ (يدخل الخريطة) يجب أن يُربَط من المحور مباشرةً — إزالة سقف 80 الذي كان
+    // يترك 96 صفحة قانونية بلا رابط من الفهرس (يتيمة ⇒ تعلق في «اكتُشفت — لم تُفهرَس بعد»).
+    // نربط القانونيّة فقط (لا نضخّم الصفحات المدموجة)، وبترتيب الأحدث الذي يوفّره listArticles.
+    const canonSet = new Set(buildCatalog().filter((a) => a.isCanonical && isIndexable(a.cc, L)).map((a) => a.slug));
+    const seoLinks = listArticles(L).filter((x) => canonSet.has(x.slug)).map((x) => `<li><a href="${prefix}/blog/${x.slug}/">${esc(x.title)}</a></li>`);
+    const links = [...manualLinks, ...seoLinks].join('');
     const chips = COUNTRIES.map((c) => `<a href="${prefix}/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c[L])}</a>`).join(' ');
     const body = `<main><h1>${esc(tr(L, 'مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales'))}</h1><nav>${chips}</nav><ul>${links}</ul></main>`;
     const html = buildPage({ lang: L, title, description: desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang('/blog'), bodyHtml: body });
