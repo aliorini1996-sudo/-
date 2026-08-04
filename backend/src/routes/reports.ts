@@ -393,9 +393,12 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
       }),
       // نقاط GPS تُختزل في القاعدة إلى (مندوب × يوم محلي → أول/آخر التقاط):
       // الصفوف الخام قد تبلغ الملايين، والمطلوب منها طرفا اليوم لا مسارُه.
+      // ⚠️ لا make_interval هنا: Prisma يمرّر الرقم bigint وPostgres لا يملك
+      // make_interval(mins => bigint) فسقط المسار بـ42883 على الإنتاج فور نشره.
+      // ضربُ interval ثابت بالمعامل يقبل bigint بالتحويل الضمني ويؤدّي المعنى نفسه.
       prisma.$queryRaw<{ salesRepId: string; day: string; min: Date; max: Date }[]>`
         SELECT "salesRepId",
-               to_char(("capturedAt" + make_interval(mins => ${tzOffsetMin}))::date, 'YYYY-MM-DD') AS "day",
+               to_char(("capturedAt" + ${tzOffsetMin} * interval '1 minute')::date, 'YYYY-MM-DD') AS "day",
                MIN("capturedAt") AS "min", MAX("capturedAt") AS "max"
         FROM "rep_locations"
         WHERE "tenantId" = ${tid} AND "capturedAt" >= ${fromDate} AND "capturedAt" < ${toEnd}
