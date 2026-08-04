@@ -247,7 +247,7 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
     e.preventDefault();
     if (!form.name.trim()) { setErr(tr('اسم المستخدم مطلوب')); return; }
     if (!form.email.includes('@')) { setErr(tr('البريد الإلكتروني غير صحيح')); return; }
-    if (!user && (form.password || '').trim().length < 6) { setErr(tr('كلمة المرور 6 أحرف على الأقل')); return; }
+    if (!user && (form.password || '').trim().length < 8) { setErr(tr('كلمة المرور 8 أحرف على الأقل')); return; }
     onSave({ ...form, name: form.name.trim(), email: form.email.trim(), password: form.password?.trim() || undefined });
   };
 

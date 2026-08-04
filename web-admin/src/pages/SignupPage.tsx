@@ -39,7 +39,7 @@ export default function SignupPage() {
     if (!form.country) { toast.error(t('signup.errCountry')); return; }
     if (!form.adminName.trim()) { toast.error(t('signup.errName')); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.email)) { toast.error(t('signup.errEmail')); return; }
-    if (form.password.length < 6) { toast.error(t('signup.errPass')); return; }
+    if (form.password.length < 8) { toast.error(t('signup.errPass')); return; }
     if (form.password !== form.confirm) { toast.error(t('signup.errMatch')); return; }
     if (!agree) { toast.error(t('signup.errAgree')); return; }
     setLoading(true);

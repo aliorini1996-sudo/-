@@ -159,6 +159,10 @@ export const tenantApi = {
   resetAdmin: (id: string, data: { adminId?: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
   remove: (id: string) => api.delete(`/tenants/${id}`),
+  // نظام تشغيل المالك (خطة فجوة التنفيذ)
+  opsMetrics: () => api.get('/tenants/ops/metrics'),
+  opsCards: () => api.get('/tenants/ops/cards'),
+  sendWeeklyReport: () => api.post('/tenants/ops/weekly-report'),
 };
 
 // العملاء المحتملون (Leads) — لوحة المالك

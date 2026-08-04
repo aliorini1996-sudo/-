@@ -48,7 +48,7 @@ const signupSchema = z.object({
   companyName: z.string().min(2),
   adminName: z.string().min(2),
   email: z.string().email(),
-  password: z.string().min(6),
+  password: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل'),
   phone: z.string().optional(),
   countryCode: z.string().length(2).optional(), // دولة الشركة — تُشتقّ منها العملة والضريبة ومزوّد الفوترة
   // عمودية التسجيل: صفحة هبوط التوزيع تُرسل distribution (افتراضي)، وهبوط المطاعم يُرسل restaurant.
@@ -350,7 +350,7 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
       res.status(403).json({ success: false, message: 'غير متاح أثناء تصفح شركة كمالك' });
       return;
     }
-    const schema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(6) });
+    const schema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8, 'كلمة المرور الجديدة 8 أحرف على الأقل') });
     const { currentPassword, newPassword } = schema.parse(req.body);
     const role = req.user!.role;
 

@@ -709,7 +709,7 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
     }
     if (!form.adminName.trim()) { toast.error(tr('اسم المدير مطلوب')); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.adminEmail)) { toast.error(tr('بريد المدير غير صحيح')); return; }
-    if (form.adminPassword.length < 6) { toast.error(tr('كلمة المرور 6 أحرف على الأقل')); return; }
+    if (form.adminPassword.length < 8) { toast.error(tr('كلمة المرور 8 أحرف على الأقل')); return; }
     mutation.mutate();
   };
 

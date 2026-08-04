@@ -9,7 +9,9 @@ import path from 'path';
 import fs from 'fs';
 import { Server } from 'socket.io';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import prisma from './config/database';
+import { startOpsScheduler } from './services/opsSchedule';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -145,21 +147,28 @@ io.on('connection', socket => {
   socket.on('disconnect', () => {});
 });
 
+// كلمات مرور seed عشوائية — تُطبع مرة واحدة في سجلّ الإقلاع الأول على قاعدة فارغة.
+// (كانت ثوابت معروفة منشورة على GitHub — أُغلقت الثغرة في خطة فجوة التنفيذ، بند seed.)
+const genSeedPassword = () => crypto.randomBytes(9).toString('base64url');
+
 async function seedDefaults() {
   try {
     // مالك المنصّة (السوبر أدمن) — يدير كل الشركات
     if (await prisma.superAdmin.count() === 0) {
-      const hash = await bcrypt.hash('owner123', 10);
+      const ownerPw = genSeedPassword();
+      const hash = await bcrypt.hash(ownerPw, 10);
       await prisma.superAdmin.create({
         data: { name: 'مالك المنصّة', email: 'owner@dsd.com', passwordHash: hash },
       });
-      console.log('✅ Super admin created: owner@dsd.com / owner123');
+      console.log(`⚠️ Super admin created: owner@dsd.com / ${ownerPw} — احفظها الآن؛ لن تُعرض مجدداً`);
     }
 
     // شركة تجريبية أولى + أدمنها + مندوبها + إعداداتها
     if (await prisma.tenant.count() === 0) {
-      const adminHash = await bcrypt.hash('admin123', 10);
-      const repHash = await bcrypt.hash('rep123', 10);
+      const adminPw = genSeedPassword();
+      const repPw = genSeedPassword();
+      const adminHash = await bcrypt.hash(adminPw, 10);
+      const repHash = await bcrypt.hash(repPw, 10);
       const tenant = await prisma.tenant.create({ data: { name: 'الشركة التجريبية', plan: 'pro' } });
       await prisma.companySettings.create({ data: { tenantId: tenant.id, name: 'الشركة التجريبية' } });
       await prisma.admin.create({
@@ -176,7 +185,7 @@ async function seedDefaults() {
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
         },
       });
-      console.log('✅ Demo tenant created: admin@dsd.com / admin123 — rep1 / rep123');
+      console.log(`⚠️ Demo tenant created: admin@dsd.com / ${adminPw} — rep1 / ${repPw} — احفظهما الآن؛ لن تُعرضا مجدداً`);
     }
   } catch (e) {
     console.error('Seed error:', e);
@@ -187,6 +196,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`🚀 DSD API running on port ${PORT}`);
   await seedDefaults();
+  startOpsScheduler();
 });
 
 export default app;

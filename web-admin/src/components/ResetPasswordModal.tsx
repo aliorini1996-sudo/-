@@ -28,7 +28,7 @@ export default function ResetPasswordModal({ title, subject, onConfirm, onClose 
   };
 
   const submit = async () => {
-    if (pwd.trim().length < 6) { setErr(tr('كلمة المرور 6 أحرف على الأقل')); return; }
+    if (pwd.trim().length < 8) { setErr(tr('كلمة المرور 8 أحرف على الأقل')); return; }
     setBusy(true); setErr('');
     try {
       await onConfirm(pwd.trim());
@@ -88,7 +88,7 @@ export default function ResetPasswordModal({ title, subject, onConfirm, onClose 
               </div>
               <div className="relative">
                 <input type={show ? 'text' : 'password'} className="input pl-9" dir="ltr" autoFocus
-                  placeholder={tr('6 أحرف على الأقل')} value={pwd} onChange={e => { setPwd(e.target.value); setErr(''); }}
+                  placeholder={tr('8 أحرف على الأقل')} value={pwd} onChange={e => { setPwd(e.target.value); setErr(''); }}
                   onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
                 <button type="button" onClick={() => setShow(s => !s)} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                   {show ? <EyeOff size={15} /> : <Eye size={15} />}

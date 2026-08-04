@@ -5,6 +5,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import { cardStatuses, platformMetrics, sendWeeklyReport } from '../services/opsSchedule';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -23,7 +24,7 @@ const createTenantSchema = z.object({
   // بيانات أدمن الشركة الأول
   adminName: z.string().min(1),
   adminEmail: z.string().email(),
-  adminPassword: z.string().min(6),
+  adminPassword: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل'),
 });
 
 const updateTenantSchema = z.object({
@@ -34,6 +35,22 @@ const updateTenantSchema = z.object({
   erpEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
   notes: z.string().nullish(),
+});
+
+// ————— نظام تشغيل المالك (خطة فجوة التنفيذ) —————
+// بطاقات القرار بحالتها (العمر، التأخر عن SLA، المهل التقويمية)
+router.get('/ops/cards', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: cardStatuses() }); } catch (err) { next(err); }
+});
+
+// عدّاد الاشتراكات وMRR التقديري من جدول Tenant (يشمل التجارب — لا يعكس تحصيلاً فعلياً)
+router.get('/ops/metrics', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await platformMetrics() }); } catch (err) { next(err); }
+});
+
+// إرسال التقرير الأسبوعي يدوياً (الجدولة الآلية: كل اثنين 8ص بتوقيت الرياض)
+router.post('/ops/weekly-report', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { const sent = await sendWeeklyReport(); res.json({ success: true, data: { sent } }); } catch (err) { next(err); }
 });
 
 // قائمة الشركات مع ملخص لكل واحدة
@@ -215,7 +232,7 @@ router.get('/:id/performance', async (req: AuthRequest, res: Response, next: Nex
 // إعادة تعيين كلمة مرور أدمن الشركة
 router.post('/:id/reset-admin', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const schema = z.object({ adminId: z.string().optional(), newPassword: z.string().min(6) });
+    const schema = z.object({ adminId: z.string().optional(), newPassword: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل') });
     const { adminId, newPassword } = schema.parse(req.body);
     // إن لم يُحدَّد adminId نعيد تعيين كلمة مرور المدير الرئيسي (الأقدم) للشركة
     const admin = adminId

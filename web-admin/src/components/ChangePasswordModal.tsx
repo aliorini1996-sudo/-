@@ -20,7 +20,7 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!cur) { toast.error('أدخل كلمة المرور الحالية'); return; }
-    if (nw.length < 6) { toast.error('كلمة المرور الجديدة 6 أحرف على الأقل'); return; }
+    if (nw.length < 8) { toast.error('كلمة المرور الجديدة 8 أحرف على الأقل'); return; }
     if (nw !== cf) { toast.error('كلمتا المرور غير متطابقتين'); return; }
     mutation.mutate();
   };
@@ -47,7 +47,7 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
           {field('كلمة المرور الحالية', cur, setCur, '')}
-          {field('كلمة المرور الجديدة', nw, setNw, '6 أحرف على الأقل')}
+          {field('كلمة المرور الجديدة', nw, setNw, '8 أحرف على الأقل')}
           {field('تأكيد كلمة المرور الجديدة', cf, setCf, '')}
           <div className="flex gap-3 pt-1">
             <button type="submit" disabled={mutation.isPending} className="btn-primary flex-1 justify-center py-2.5">

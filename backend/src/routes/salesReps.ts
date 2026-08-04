@@ -87,7 +87,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const tid = tenantId(req);
     const { password, ...rest } = repSchema.parse(req.body);
     if (!password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
-    if (password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
+    if (password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
 
     // فرض الحد الأقصى لعدد المناديب المسموح للشركة (إن وُجد)
     const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { maxSalesReps: true } });
@@ -127,7 +127,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!current) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     const { password, ...rest } = repSchema.partial().parse(req.body);
-    if (password && password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
+    if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (rest.username || rest.phone || rest.email) {
       const dup = await checkRepDuplicates(
         tid,

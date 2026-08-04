@@ -92,7 +92,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
                     placeholder={rep ? tr('اتركها فارغة لعدم التغيير') : ''}
                     {...register('password', {
                       required: rep ? false : tr('كلمة المرور مطلوبة'),
-                      validate: v => !v ? (rep ? true : tr('كلمة المرور مطلوبة')) : (v.length >= 6 || tr('كلمة المرور 6 أحرف على الأقل')),
+                      validate: v => !v ? (rep ? true : tr('كلمة المرور مطلوبة')) : (v.length >= 8 || tr('كلمة المرور 8 أحرف على الأقل')),
                     })} />
                   <button type="button" onClick={() => setShowPass(s => !s)} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                     {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -100,7 +100,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
                 </div>
                 {errors.password
                   ? <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
-                  : !rep && <p className="text-gray-400 text-xs mt-1">{tr('6 أحرف على الأقل — يسلّمها الأدمن للمندوب')}</p>}
+                  : !rep && <p className="text-gray-400 text-xs mt-1">{tr('8 أحرف على الأقل — يسلّمها الأدمن للمندوب')}</p>}
               </div>
               <div>
                 <label className="label">{tr('الحالة')}</label>

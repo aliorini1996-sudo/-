@@ -111,7 +111,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const tid = tenantId(req);
     const body = userSchema.parse(req.body);
     if (!body.password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
-    if (body.password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
+    if (body.password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (await duplicateEmail(body.email)) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً' }); return; }
 
     const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { maxAdminUsers: true } });
@@ -158,7 +158,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!current) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
 
     const { password, ...data } = userSchema.partial().parse(req.body);
-    if (password && password.length < 6) { res.status(400).json({ success: false, message: 'كلمة المرور 6 أحرف على الأقل' }); return; }
+    if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (data.email && await duplicateEmail(data.email, current.id)) {
       res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً' });
       return;

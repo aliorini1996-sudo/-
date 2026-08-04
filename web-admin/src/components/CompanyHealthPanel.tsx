@@ -11,6 +11,15 @@ import {
 // بلا أي نقطة نهاية جديدة أو تعديل قاعدة بيانات. النجم الشمالي = الشركات المشتركة النشطة.
 
 interface Vis { total: number; uniques: number; days: number; byCountry: { label: string; count: number }[] }
+interface OpsMetrics {
+  totalTenants: number; activeTenants: number; activeNotExpired: number;
+  byPlan: Record<string, number>; mrrEstimate: number; unpricedPlans: number;
+  expired30d: number; expiring7d: number; new30d: number; activated: number;
+}
+interface OpsCard {
+  id: string; title: string; opened: string; deadline?: string; severity?: string;
+  daysOpen: number; overdue: boolean; daysToDeadline: number | null;
+}
 
 const startOfMonth = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); };
 const daysUntil = (iso?: string | null): number | null => {
@@ -26,6 +35,14 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
   const visitsQ = useQuery({
     queryKey: ['analytics', 30],
     queryFn: async () => { const r = await analyticsApi.stats(30); return r.data.data as Vis; },
+  });
+  const opsQ = useQuery({
+    queryKey: ['ops-metrics'],
+    queryFn: async () => { const r = await tenantApi.opsMetrics(); return r.data.data as OpsMetrics; },
+  });
+  const cardsQ = useQuery({
+    queryKey: ['ops-cards'],
+    queryFn: async () => { const r = await tenantApi.opsCards(); return r.data.data as OpsCard[]; },
   });
 
   const tenants = tenantsQ.data ?? [];
@@ -102,6 +119,48 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
               </div>
             </div>
 
+            {/* الإيراد التقديري — عدّاد MRR من جدول الشركات (خطة فجوة التنفيذ) */}
+            <div>
+              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-[#1E7A52]" /> الإيراد التقديري (MRR)</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Kpi icon={TrendingUp} value={opsQ.data ? `${opsQ.data.mrrEstimate.toLocaleString('ar-EG')} ر.س` : '—'} label="MRR تقديري / شهر" color="text-[#1E7A52]" bg="bg-green-50" />
+                <Kpi icon={Building2} value={String(opsQ.data?.activeNotExpired ?? '—')} label="اشتراك سارٍ (يشمل التجارب)" color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
+                <Kpi icon={AlertTriangle} value={String(opsQ.data?.expired30d ?? '—')} label="انتهى آخر 30 يوماً (إشارة انسحاب)" color="text-[#C0392B]" bg="bg-red-50" />
+                <Kpi icon={Sparkles} value={String(opsQ.data?.new30d ?? '—')} label="جديدة آخر 30 يوماً" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
+              </div>
+              <p className="text-[11px] text-[#9A8F7E] mt-2 leading-relaxed">
+                تقدير نظري: الاشتراكات السارية × سعر الباقة المعتمد (299/599) — يشمل التجارب النشطة ولا يعكس تحصيلاً فعلياً.
+                {opsQ.data && opsQ.data.unpricedPlans > 0 ? ` (${opsQ.data.unpricedPlans} شركة بباقة بلا سعر معتمد غير محسوبة)` : ''}
+              </p>
+            </div>
+
+            {/* فجوة التنفيذ — بطاقات قرار المالك */}
+            <div>
+              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Clock size={15} className="text-[#C0392B]" /> فجوة التنفيذ — بطاقات القرار</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <Kpi icon={FileText} value={String(cardsQ.data?.length ?? '—')} label="بطاقة مفتوحة" color="text-[#6E6557]" bg="bg-[#EDE7DB]" />
+                <Kpi icon={AlertTriangle} value={String(cardsQ.data?.filter(c => c.overdue).length ?? '—')} label="متأخرة عن مهلتها (الهدف: 0)" color="text-[#C0392B]" bg="bg-red-50" />
+              </div>
+              {(cardsQ.data?.length ?? 0) > 0 && (
+                <div className="mt-3 bg-white border border-[#E9E1D3] rounded-2xl divide-y divide-[#F1EBDF]">
+                  {cardsQ.data!.slice(0, 6).map(c => (
+                    <div key={c.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[13px]">
+                      <span className="text-[#1F1A13] font-medium truncate">{c.title}</span>
+                      <span className={`text-xs font-semibold shrink-0 ${c.overdue ? 'text-[#C0392B]' : 'text-[#E0A02C]'}`}>
+                        {c.daysToDeadline !== null
+                          ? (c.daysToDeadline >= 0 ? `مهلة: ${c.daysToDeadline} يوم` : `فاتت منذ ${-c.daysToDeadline} يوم`)
+                          : `${c.daysOpen} يوماً`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={async () => { try { await tenantApi.sendWeeklyReport(); alert('أُرسل التقرير الأسبوعي إلى بريد المنصّة'); } catch { alert('تعذّر الإرسال — تحقق من إعداد البريد'); } }}
+                className="mt-3 text-xs font-semibold text-[#1E7A52] hover:underline"
+              >إرسال التقرير الأسبوعي الآن ←</button>
+            </div>
+
             {/* الاشتراكات والتنبيهات */}
             <div>
               <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> الاشتراكات</h3>
@@ -149,8 +208,9 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
             </div>
 
             <p className="text-[11px] text-[#9A8F7E] text-center leading-relaxed">
-              مجمّعة من المصادر القائمة (الشركات + التحليلات) بلا تخزين إضافي. حساب MRR الرقمي يتطلّب ربط السعر بكل خطة —
-              بند لاحق ضمن المالية (BR-FIN-1). صحّة التشغيل مشتقّة من نجاح استجابة الخدمات.
+              مجمّعة من المصادر القائمة (الشركات + التحليلات + بطاقات القرار) بلا تخزين إضافي.
+              تقرير أسبوعي آلي يصل بريد المنصّة كل اثنين 8 صباحاً، وتذكير يومي عند وجود بطاقات متأخرة.
+              صحّة التشغيل مشتقّة من نجاح استجابة الخدمات.
             </p>
           </div>
         )}
