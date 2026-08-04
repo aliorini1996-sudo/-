@@ -284,6 +284,80 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
+// تقرير مديونيات المندوب — رصيد كل عميل مُسنَد لكل مندوب، ليقرأ المشرف تقصير
+// التحصيل لدى كل عميل ويُصدّره ملفاً.
+//
+// الرصيد **لحظيّ** (لا يتأثر بفلتر التاريخ) ويُحسب Σمدين − Σدائن من قيود
+// الحساب — التعريف الواحد المعتمد في المنظومة كلّها (`accounting.ts`)، لا لقطة
+// `customer.balance` المخزّنة. و«آخر تحصيل» من أحدث قيد RECEIPT_CREDIT: عميلٌ
+// برصيدٍ وبلا تحصيلٍ حديث هو عينُ التقصير الذي يبحث عنه المشرف.
+//
+// قاعدة AND لا OR: المستخدم المنطاق يرى تقاطع مناديبه وعملائه — إسنادُ عميلٍ
+// خارج نطاقه لمندوبٍ داخله لا يكشف العميل، والعكس بالعكس.
+router.get('/rep-receivables', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+
+    const [reps, assignments, sums, lastPays] = await Promise.all([
+      prisma.salesRep.findMany({
+        where: { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.customerAssignment.findMany({
+        where: { tenantId: tid, customer: { ...(await adminCustomerFilter(req)) } },
+        select: {
+          salesRepId: true,
+          customer: { select: { id: true, name: true, businessName: true, phone: true, city: true } },
+        },
+      }),
+      // مجموعا كل عملاء الشركة دفعةً واحدة — أرخص من IN بآلاف المعرّفات
+      prisma.accountEntry.groupBy({
+        by: ['customerId'],
+        where: { tenantId: tid },
+        _sum: { debit: true, credit: true },
+      }),
+      prisma.accountEntry.groupBy({
+        by: ['customerId'],
+        where: { tenantId: tid, type: 'RECEIPT_CREDIT' },
+        _max: { entryDate: true },
+      }),
+    ]);
+
+    const clean = (n: number) => Math.round(n * 1e6) / 1e6;
+    const balanceOf = new Map(sums.map(s => [s.customerId, clean(Number(s._sum.debit ?? 0) - Number(s._sum.credit ?? 0))]));
+    const lastPayOf = new Map(lastPays.map(p => [p.customerId, p._max.entryDate]));
+
+    type RecvCustomer = { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: Date | null };
+    const byRep = new Map<string, RecvCustomer[]>();
+    for (const a of assignments) {
+      const arr = byRep.get(a.salesRepId) || [];
+      arr.push({
+        ...a.customer,
+        balance: balanceOf.get(a.customer.id) ?? 0,
+        lastPaymentAt: lastPayOf.get(a.customer.id) ?? null,
+      });
+      byRep.set(a.salesRepId, arr);
+    }
+
+    // المناديب المنطاقون وحدهم يظهرون (إسنادٌ لمندوبٍ خارج النطاق يسقط هنا).
+    // ومن بلا عملاء مُسنَدين يظهر بصفّ صفريّ — غيابُ الإسناد معلومةٌ للمشرف لا فراغ.
+    const data = reps.map(r => {
+      const customers = (byRep.get(r.id) || []).sort((a, b) => b.balance - a.balance);
+      return {
+        id: r.id,
+        name: r.name,
+        customersCount: customers.length,
+        debtorsCount: customers.filter(c => c.balance > 0).length,
+        totalBalance: clean(customers.reduce((s, c) => s + c.balance, 0)),
+        customers,
+      };
+    }).sort((a, b) => b.totalBalance - a.totalBalance);
+
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
 // تقرير ساعات العمل — إجمالي الوقت الذي كان فيه كل مندوب متصلاً وفاتحاً التطبيق
 // (من جلسات الحضور RepSession)، مع عدد الجلسات وأول/آخر ظهور.
 router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunction) => {

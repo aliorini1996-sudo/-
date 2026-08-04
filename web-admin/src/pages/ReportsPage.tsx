@@ -18,6 +18,8 @@ interface PerfRow {
   id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number;
   workMinutes: number; workHours: number; workMins: number; visitsCount: number; visits: VisitLoc[];
 }
+interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
+interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -25,8 +27,8 @@ export default function ReportsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
-  // نوع تقرير المناديب: أداء | ساعات العمل
-  const [perfType, setPerfType] = useState<'performance' | 'hours'>('performance');
+  // نوع تقرير المناديب: أداء | ساعات العمل | مديونيات
+  const [perfType, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
 
   const methodLabel = (m: string) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي') : m === 'POS' ? tr('شبكة') : tr('شيك');
 
@@ -74,6 +76,21 @@ export default function ReportsPage() {
     enabled: tab === 'performance' && perfType === 'performance',
   });
 
+  // مديونيات المندوب: رصيد كل عميل مُسنَد — لحظيّ، فلا يدخل التاريخ في مفتاح الكاش
+  // نقرأ status/fetchStatus لا isLoading: عند تقلّب الشبكة يوقف React Query
+  // إعادة المحاولة (fetchStatus='paused') فيصير isLoading **كاذباً** (false مع
+  // غياب البيانات والخطأ معاً) — وسلسلة عرضٍ تعتمد عليه تسقط على حالة الفراغ
+  // وتقول للمشرف «لا عملاء مُسنَدين» والحقيقة «انقطع الاتصال». أُثبت هذا
+  // بالمعاينة: status=pending + fetchStatus=paused + failureCount=1.
+  const { data: recvData, status: recvStatus, fetchStatus: recvFetchStatus, refetch: recvRefetch } = useQuery({
+    queryKey: ['report-rep-receivables'],
+    queryFn: async () => {
+      const res = await reportApi.repReceivables();
+      return res.data.data as RecvRow[];
+    },
+    enabled: tab === 'performance' && perfType === 'receivables',
+  });
+
   const { data: hoursData, isLoading: hoursLoading } = useQuery({
     queryKey: ['report-work-hours', from, to],
     queryFn: async () => {
@@ -86,6 +103,7 @@ export default function ReportsPage() {
   // صيغة عرض المدة: «Xس Yد»
   const fmtDuration = (h: number, m: number) => `${h} ${tr('س')} ${m} ${tr('د')}`;
   const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString('ar', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('ar', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
   const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
     : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
@@ -103,7 +121,20 @@ export default function ReportsPage() {
         [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
       })), colWidths: [22, 14, 14, 12, 18, 18] }];
       fname = tr('ساعات العمل');
-    } else if (tab === 'performance' && perfData?.length) {
+    } else if (tab === 'performance' && perfType === 'receivables' && recvData?.length) {
+      sheets = [
+        { name: tr('ملخص المديونيات'), rows: recvData.map(r => ({
+          [tr('المندوب')]: r.name, [tr('العملاء المسندون')]: r.customersCount,
+          [tr('العملاء المدينون')]: r.debtorsCount, [tr('إجمالي المديونية')]: num(r.totalBalance),
+        })), colWidths: [22, 16, 16, 18] },
+        { name: tr('تفاصيل المديونيات'), rows: recvData.flatMap(r => r.customers.map(c => ({
+          [tr('المندوب')]: r.name, [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '',
+          [tr('الجوال')]: c.phone, [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
+          [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يُحصَّل قط'),
+        }))), colWidths: [22, 24, 20, 16, 14, 14, 16] },
+      ];
+      fname = tr('مديونيات المندوب');
+    } else if (tab === 'performance' && perfType === 'performance' && perfData?.length) {
       sheets = [{ name: tr('أداء المناديب'), rows: perfData.map(r => ({
         [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
         [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
@@ -152,7 +183,10 @@ export default function ReportsPage() {
   const sheetsToPdf = async (sheets: { name: string; rows: Record<string, unknown>[] }[], title: string) => {
     const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const linksCol = tr('روابط مواقع الزيارات'); // عمود الروابط المجمّعة يُستبعد من PDF (يطول الصف)
-    const range = (from && to) ? `${from} — ${to}` : tr('كل الفترات');
+    // المديونيات لحظية: لا نطبع نطاقاً ضُبط في تبويبٍ آخر على تقريرٍ لا يتأثر به
+    const range = (tab === 'performance' && perfType === 'receivables')
+      ? tr('لحظيّ — وقت الإصدار')
+      : (from && to) ? `${from} — ${to}` : tr('كل الفترات');
     const tables = sheets.map(sh => {
       const cols = (sh.rows.length ? Object.keys(sh.rows[0]) : []).filter(c => c !== linksCol);
       const thead = `<tr>${cols.map(c => `<th style="border:1px solid #ddd;padding:6px 8px;background:#FAF7F0;font-size:11px;text-align:right;font-weight:700">${esc(c)}</th>`).join('')}</tr>`;
@@ -212,6 +246,20 @@ export default function ReportsPage() {
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepHoursPdf = (r: WorkHoursRow) => sheetsToPdf(repHoursSheets(r), `${tr('ساعات العمل')} - ${r.name}`);
+  // تصدير مديونيات مندوب واحد (باسمه) — الورقة نفسها التي يراها على الشاشة
+  const repRecvSheets = (r: RecvRow) => [{
+    name: tr('مديونيات المندوب'), colWidths: [24, 20, 16, 14, 14, 16],
+    rows: r.customers.map(c => ({
+      [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '', [tr('الجوال')]: c.phone,
+      [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
+      [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يُحصَّل قط'),
+    })),
+  }];
+  const exportRepRecv = async (r: RecvRow) => {
+    const out = await shareOrDownloadExcel(repRecvSheets(r), `${tr('مديونيات')}-${safeName(r.name)}-${day()}`);
+    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
+  };
+  const exportRepRecvPdf = (r: RecvRow) => sheetsToPdf(repRecvSheets(r), `${tr('مديونيات')} - ${r.name}`);
 
   return (
     <div>
@@ -236,14 +284,21 @@ export default function ReportsPage() {
       {/* Filters */}
       <div className="card mb-4">
         <div className="flex gap-3 flex-wrap items-end">
-          <div>
-            <label className="label">{tr('من')}</label>
-            <input type="date" className="input w-36" value={from} onChange={e => setFrom(e.target.value)} />
-          </div>
-          <div>
-            <label className="label">{tr('إلى')}</label>
-            <input type="date" className="input w-36" value={to} onChange={e => setTo(e.target.value)} />
-          </div>
+          {/* المديونيات رصيدٌ لحظيّ: نُخفي فلترَي التاريخ بدل تركهما يوحيان بتصفيةٍ لا تُطبَّق */}
+          {!(tab === 'performance' && perfType === 'receivables') ? (
+            <>
+              <div>
+                <label className="label">{tr('من')}</label>
+                <input type="date" className="input w-36" value={from} onChange={e => setFrom(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">{tr('إلى')}</label>
+                <input type="date" className="input w-36" value={to} onChange={e => setTo(e.target.value)} />
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية — تعكس وضع المديونية الآن لا فترة محددة.')}</p>
+          )}
           {tab === 'sales' && (
             <div>
               <label className="label">{tr('تجميع حسب')}</label>
@@ -259,9 +314,10 @@ export default function ReportsPage() {
           {tab === 'performance' && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
-              <select className="input w-44" value={perfType} onChange={e => setPerfType(e.target.value as 'performance' | 'hours')}>
+              <select className="input w-44" value={perfType} onChange={e => setPerfType(e.target.value as 'performance' | 'hours' | 'receivables')}>
                 <option value="performance">{tr('أداء المندوب')}</option>
                 <option value="hours">{tr('ساعات العمل')}</option>
+                <option value="receivables">{tr('مديونيات المندوب')}</option>
               </select>
             </div>
           )}
@@ -496,6 +552,78 @@ export default function ReportsPage() {
             </div>
           ) : (
             <div className="card flex items-center justify-center h-32 text-gray-400">{tr('لا توجد بيانات حضور في هذه الفترة.')}</div>
+          )}
+        </div>
+      )}
+
+      {/* تقرير مديونيات المندوب — رصيد كل عميل مُسنَد، ليُقرأ تقصير التحصيل ويُصدَّر */}
+      {tab === 'performance' && perfType === 'receivables' && (
+        <div className="space-y-4">
+          {recvStatus === 'pending' ? (
+            <div className="card flex items-center justify-center h-32 text-gray-400">
+              {recvFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}
+            </div>
+          ) : recvStatus === 'error' ? (
+            /* فشل الجلب ليس «لا عملاء مُسنَدين»: عرضُ الفراغ كحقيقةٍ يطمئن المشرف كذباً */
+            <div className="card flex flex-col items-center justify-center h-32 text-gray-400 gap-2">
+              <p className="text-red-500">{tr('تعذّر تحميل التقرير')}</p>
+              <button onClick={() => recvRefetch()} className="text-xs font-semibold text-[#E15A30] underline">{tr('إعادة المحاولة')}</button>
+            </div>
+          ) : recvData && recvData.some(r => r.customersCount > 0) ? (
+            recvData.map(r => (
+              <div key={r.id} className="card p-0 overflow-hidden">
+                <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 bg-[#FAF7F0] border-b border-[#F1EBDF]">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="font-bold text-[#1F1A13]">{r.name}</p>
+                    <span className="text-xs text-gray-500">{r.customersCount} {tr('عميل مُسنَد')} · {tr('المدينون')}: {r.debtorsCount}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className={`font-bold text-sm ${r.totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(r.totalBalance)}</p>
+                    {r.customers.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => exportRepRecv(r)} title={`${tr('تصدير Excel')} — ${r.name}`}
+                          className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                        <button onClick={() => exportRepRecvPdf(r)} title={`${tr('تصدير PDF')} — ${r.name}`}
+                          className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {r.customers.length === 0 ? (
+                  <p className="text-center text-xs text-gray-400 py-4">{tr('لا عملاء مُسنَدين لهذا المندوب')}</p>
+                ) : (
+                  <div className="table-wrapper">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th>
+                          <th>{tr('الرصيد')}</th><th>{tr('آخر تحصيل')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {r.customers.map(c => (
+                          <tr key={c.id}>
+                            <td>
+                              <p className="font-medium text-gray-800">{c.name}</p>
+                              {c.businessName && <p className="text-[11px] text-gray-400">{c.businessName}</p>}
+                            </td>
+                            <td className="text-gray-600 font-mono text-xs" dir="ltr">{c.phone}</td>
+                            <td className="text-gray-600">{c.city || '—'}</td>
+                            <td className={`font-semibold ${c.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(c.balance)}</td>
+                            <td className="text-xs text-gray-500">{c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : <span className="text-orange-500 font-medium">{tr('لم يُحصَّل قط')}</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="card flex flex-col items-center justify-center h-36 text-gray-400 gap-1">
+              <p>{tr('لا عملاء مُسنَدين للمناديب بعد.')}</p>
+              <p className="text-xs">{tr('أسنِد العملاء لمناديبهم من صفحة المناديب لتظهر مديونياتهم هنا.')}</p>
+            </div>
           )}
         </div>
       )}
