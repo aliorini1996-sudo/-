@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { suggestLoad, type SaleRow } from '../services/suggestLoad';
+import { computeAccuracy } from '../services/suggestAccuracy';
 import { canAccessRep, adminRepFilter, scopedRepRecordWhere } from '../services/adminScope';
 
 const router = Router();
@@ -19,6 +20,7 @@ const loadSchema = z.object({
     qty: z.number(), // موجب للتحميل/الإرجاع للمستودع؛ قد تكون سالبة لـADJUST
     // ما اقترحه المحرّك وقت التحميل — يُخزَّن للمقارنة لاحقاً
     suggestedQty: z.number().optional(),
+    expectedQty: z.number().optional(),
   })).min(1),
 });
 
@@ -124,7 +126,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       data: {
         tenantId: tid, salesRepId, type: data.type, note: data.note,
         createdBy: isRep ? 'REP' : 'ADMIN',
-        items: { create: items.map(i => ({ productId: i.productId, qty: i.qty, suggestedQty: i.suggestedQty ?? null })) },
+        items: { create: items.map(i => ({ productId: i.productId, qty: i.qty, suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null })) },
       },
       include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } } },
     });
@@ -204,6 +206,67 @@ router.get('/suggest', async (req: AuthRequest, res: Response, next: NextFunctio
     });
 
     res.json({ success: true, data: { ...result, salesRep: rep } });
+  } catch (err) { next(err); }
+});
+
+// دقّة الاقتراح — «هل يستحقّ المحرّك الثقة؟» رقماً لا انطباعاً.
+// يقارن التنبّؤ اليومي المخزَّن مع كل تحميل (expectedQty) بالمبيع الفعلي
+// في نفس اليوم، عبر محرّك صرف (services/suggestAccuracy) اختباراتُه تشرح
+// المصائد الثلاث: قِس التنبّؤ لا كمية التعبئة، ويوماً تقويمياً لا فترةً
+// بين تحميلين، واستبعد اليوم الجاري لأنه لم يكتمل بيعُه.
+router.get('/accuracy', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const isRep = req.user?.role === 'SALES_REP';
+    const salesRepId = isRep ? req.user!.id : (req.query.salesRepId as string | undefined);
+    if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
+    await assertRepInScope(req, tid, salesRepId);
+
+    const days = Math.min(60, Math.max(7, Number(req.query.days) || 14));
+    // «اليوم» يومُ المندوب لا الخادم (الخادم UTC): نُزيح كل الطوابع بإزاحة
+    // المتصفّح قبل المحرّك — مبيعُ التاسعة مساءً بالرياض ليس من يوم الغد.
+    const tzOffsetMin = Math.max(-840, Math.min(840, parseInt(req.query.tz as string) || 0));
+    const shift = (d: Date) => new Date(d.getTime() + tzOffsetMin * 60000);
+    const since = new Date(Date.now() - (days + 1) * 86400000);
+
+    const [loads, saleItems, products] = await Promise.all([
+      prisma.vanLoad.findMany({
+        // LOAD وحدها: التسويات والتنقيصات ليست قراراتِ تحميلٍ تنبّؤية
+        where: { tenantId: tid, salesRepId, type: 'LOAD', createdAt: { gte: since } },
+        select: { id: true, createdAt: true, items: { select: { productId: true, qty: true, suggestedQty: true, expectedQty: true } } },
+      }),
+      prisma.invoiceItem.findMany({
+        where: {
+          productId: { not: null },
+          invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', invoiceDate: { gte: since } },
+        },
+        select: { productId: true, qty: true, invoice: { select: { invoiceDate: true, type: true } } },
+      }),
+      prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, code: true, unit: true } }),
+    ]);
+
+    const result = computeAccuracy({
+      loads: loads.map(l => ({
+        id: l.id,
+        at: shift(l.createdAt),
+        items: l.items.filter(i => i.productId).map(i => ({
+          productId: i.productId,
+          qty: Number(i.qty),
+          suggestedQty: i.suggestedQty === null ? null : Number(i.suggestedQty),
+          expectedQty: i.expectedQty === null ? null : Number(i.expectedQty),
+        })),
+      })),
+      sales: saleItems.filter(i => i.productId).map(i => ({
+        productId: i.productId!,
+        qty: Number(i.qty),
+        at: shift(i.invoice.invoiceDate),
+        isReturn: i.invoice.type === 'RETURN',
+      })),
+      now: shift(new Date()),
+      products,
+    });
+
+    res.json({ success: true, data: { ...result, meta: { days, tzOffsetMin } } });
   } catch (err) { next(err); }
 });
 

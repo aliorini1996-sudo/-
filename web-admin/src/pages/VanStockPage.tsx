@@ -4,7 +4,7 @@ import { vanStockApi, productApi, salesRepApi } from '../api/client';
 import { formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
@@ -35,6 +35,22 @@ function ConfidenceTag({ c }: { c: SuggestRow['confidence'] }) {
   return <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold ${map.cls}`}>{map.t}</span>;
 }
 
+/** استجابة /van-stock/accuracy — تطابق AccuracyResult في الخادم */
+interface AccDay {
+  day: string; productId: string; name: string; unit: string;
+  expected: number; suggested: number; loaded: number; actual: number; error: number;
+  adopted: boolean; outcome: string; open: boolean;
+}
+interface AccResponse {
+  days: AccDay[];
+  summary: {
+    measured: number; pending: number; unmeasured: number;
+    adoptionRate: number | null; mae: number | null; bias: number | null; maePct: number | null;
+    under: number; over: number; exact: number; verdict: string;
+  };
+  meta: { days: number };
+}
+
 interface RepSummary {
   salesRepId: string; repName: string; isActive: boolean; canSellWithoutStock: boolean;
   productCount: number; totalRemaining: number; totalLoaded: number; totalSold: number; lastLoadAt: string | null;
@@ -56,6 +72,7 @@ export default function VanStockPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string>('');
   const [showLoad, setShowLoad] = useState(false);
+  const [showAccuracy, setShowAccuracy] = useState(false);
 
   const summaryQ = useQuery({
     queryKey: ['van-summary'],
@@ -99,6 +116,7 @@ export default function VanStockPage() {
           </h1>
           <p className="text-[#6E6557] text-sm mt-1">{tr('متابعة ما حمَّله كل مندوب في سيارته، وما تبقّى بعد المبيعات لحظياً.')}</p>
         </div>
+        <button onClick={() => setShowAccuracy(true)} className="btn-secondary"><Target size={16} /> {tr('دقّة الاقتراح')}</button>
         <button onClick={() => setShowLoad(true)} className="btn-primary"><Plus size={17} /> {tr('تسجيل تحميل')}</button>
       </div>
 
@@ -214,6 +232,7 @@ export default function VanStockPage() {
       )}
 
       {showLoad && <LoadModal preselectRep={selected} onClose={() => setShowLoad(false)} />}
+      {showAccuracy && <AccuracyModal preselectRep={selected} onClose={() => setShowAccuracy(false)} />}
     </div>
   );
 }
@@ -252,6 +271,115 @@ function MovementRow({ m }: { m: Movement }) {
   );
 }
 
+// نافذة «دقّة الاقتراح» — الحكم أولاً بالعربية، ثم الأرقام، ثم الأيام تفصيلاً.
+// «قيد البيع» يوم لم يكتمل فلا يُحسب — عرضُه محسوباً كان سيتّهم كل تنبّؤٍ
+// صباحيّ بالمبالغة قبل أن يبيع المندوب شيئاً.
+function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClose: () => void }) {
+  const tr = useTr();
+  const [repId, setRepId] = useState(preselectRep);
+  const [days, setDays] = useState(14);
+  const repsQ = useQuery({ queryKey: ['reps-min'], queryFn: async () => (await salesRepApi.list({ limit: 1000 })).data.data as { id: string; name: string }[] });
+  // status/fetchStatus لا isLoading — درس «الموقوف ليس فارغاً» (راجع التقارير)
+  const accQ = useQuery({
+    queryKey: ['van-accuracy', repId, days],
+    enabled: !!repId,
+    queryFn: async () => (await vanStockApi.accuracy({ salesRepId: repId, days })).data.data as AccResponse,
+  });
+  const d = accQ.data;
+  const chip = (label: string, val: string, cls: string) => (
+    <div className={`rounded-xl border px-3 py-2 ${cls}`}>
+      <p className="text-[10px] text-gray-500">{label}</p>
+      <p className="text-sm font-bold">{val}</p>
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+          <h3 className="font-bold text-[#1F1A13] flex items-center gap-2"><Target size={18} className="text-[#E15A30]" /> {tr('دقّة الاقتراح')}</h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-4 overflow-y-auto">
+          <div className="flex gap-3 flex-wrap items-end">
+            <div className="flex-1 min-w-[180px]">
+              <label className="label">{tr('المندوب')}</label>
+              <SearchableSelect
+                options={(repsQ.data || []).map(r => ({ value: r.id, label: r.name }))}
+                value={repId} onChange={setRepId} placeholder={tr('اختر المندوب')} />
+            </div>
+            <div>
+              <label className="label">{tr('الفترة')}</label>
+              <select className="input w-32" value={days} onChange={e => setDays(Number(e.target.value))}>
+                <option value={7}>{tr('أسبوع')}</option>
+                <option value={14}>{tr('أسبوعان')}</option>
+                <option value={30}>{tr('شهر')}</option>
+                <option value={60}>{tr('شهران')}</option>
+              </select>
+            </div>
+          </div>
+
+          {!repId ? (
+            <p className="text-center text-gray-400 py-8 text-sm">{tr('اختر مندوباً لعرض دقّة اقتراحاته')}</p>
+          ) : accQ.status === 'pending' ? (
+            <p className="text-center text-gray-400 py-8 text-sm">{accQ.fetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}</p>
+          ) : accQ.status === 'error' ? (
+            <p className="text-center text-red-500 py-8 text-sm">{tr('تعذّر تحميل التقرير')}</p>
+          ) : d && (
+            <>
+              {/* الحكم — جملة تُقرأ كما هي، من الخادم */}
+              <div className="bg-[#FAF7F0] border border-[#F1EBDF] rounded-xl p-4 text-sm text-[#1F1A13] leading-relaxed">
+                {d.summary.verdict}
+              </div>
+
+              {d.summary.measured > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {chip(tr('متوسط الخطأ'), d.summary.mae === null ? '—' : `${d.summary.mae} (${d.summary.maePct ?? '—'}٪)`, 'bg-white border-[#E9E1D3]')}
+                  {chip(tr('الانحياز'), d.summary.bias === null ? '—' : d.summary.bias > 0 ? `${tr('نقص')} ${d.summary.bias}` : d.summary.bias < 0 ? `${tr('زيادة')} ${Math.abs(d.summary.bias)}` : tr('متوازن'), 'bg-white border-[#E9E1D3]')}
+                  {chip(tr('الالتزام بالاقتراح'), d.summary.adoptionRate === null ? '—' : `${d.summary.adoptionRate}٪`, 'bg-white border-[#E9E1D3]')}
+                  {chip(`${tr('دقيق')} / ${tr('نقص')} / ${tr('زيادة')}`, `${d.summary.exact} / ${d.summary.under} / ${d.summary.over}`, 'bg-white border-[#E9E1D3]')}
+                </div>
+              )}
+
+              {d.days.length > 0 ? (
+                <div className="table-wrapper border border-[#F1EBDF] rounded-xl">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>{tr('اليوم')}</th><th>{tr('الصنف')}</th><th>{tr('التنبّؤ')}</th>
+                        <th>{tr('حُمِّل')}</th><th>{tr('بِيع')}</th><th>{tr('الحكم')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {d.days.map((r, i) => (
+                        <tr key={i} className={r.open ? 'opacity-50' : ''}>
+                          <td className="text-xs text-gray-500 tabular-nums">{r.day}</td>
+                          <td className="font-medium text-gray-800">{r.name} <span className="text-[10px] text-gray-400">{r.unit}</span></td>
+                          <td className="tabular-nums">{fmtQty(r.expected)}</td>
+                          <td className="tabular-nums text-gray-600">{fmtQty(r.loaded)}</td>
+                          <td className="tabular-nums font-semibold">{fmtQty(r.actual)}</td>
+                          <td>
+                            {r.open
+                              ? <span className="text-[10px] px-1.5 py-0.5 rounded border bg-gray-50 text-gray-500 border-gray-200 font-semibold">{tr('قيد البيع')}</span>
+                              : <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${r.outcome === 'دقيق' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : r.outcome === 'نقص' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                  {tr(r.outcome)} {r.error !== 0 && <span className="tabular-nums">{r.error > 0 ? `+${fmtQty(r.error)}` : `−${fmtQty(Math.abs(r.error))}`}</span>}
+                                </span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تحميلات مبنية على اقتراح في هذه الفترة — طبّق «التحميل المقترح» عند التحميل ليبدأ القياس.')}</p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // نموذج تسجيل تحميل بضاعة لمندوب (للأدمن)
 function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: () => void }) {
   const qc = useQueryClient();
@@ -259,7 +387,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
   const [repId, setRepId] = useState(preselectRep);
   const [note, setNote] = useState('');
   // suggestedQty يُحفَظ على الصفّ ليُرسَل مع الحركة — به تُقاس جودة الاقتراح لاحقاً
-  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; suggestedQty?: number }[]>([]);
+  const [rows, setRows] = useState<{ productId: string; name: string; unit: string; qty: string; suggestedQty?: number; expectedQty?: number }[]>([]);
   const [showSuggest, setShowSuggest] = useState(false);
   const [windowDays, setWindowDays] = useState(28);
   const [bufferPct, setBufferPct] = useState(15);
@@ -289,6 +417,9 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
     setRows(list.map(r => ({
       productId: r.id, name: r.name, unit: r.unit,
       qty: String(r.suggested), suggestedQty: r.suggested,
+      // التنبّؤ اليومي — مرجعُ قياس الدقّة؛ suggestedQty كمية تعبئة تتأثر
+      // بما في السيارة والهامش فقياسُها يعاقب المحرّك على ما ليس تنبّؤاً
+      expectedQty: r.expected,
     })));
     setShowSuggest(false);
     toast.success(tr('طُبِّق الاقتراح — راجع الكميات قبل الحفظ'));
@@ -297,7 +428,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
   const save = useMutation({
     mutationFn: () => {
       // موجب = تحميل، سالب = تنقيص؛ أي سالب ⇒ حركة تسوية/تنقيص
-      const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), suggestedQty: r.suggestedQty }))
+      const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), suggestedQty: r.suggestedQty, expectedQty: r.expectedQty }))
         .filter(i => !Number.isNaN(i.qty) && i.qty !== 0);
       const type = items.some(i => i.qty < 0) ? 'ADJUST' : 'LOAD';
       return vanStockApi.createLoad({ salesRepId: repId, type, note: note.trim() || undefined, items });

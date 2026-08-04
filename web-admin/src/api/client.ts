@@ -244,8 +244,11 @@ export const vanStockApi = {
   loads: (salesRepId?: string) => api.get('/van-stock/loads', { params: salesRepId ? { salesRepId } : {} }),
   movements: (salesRepId: string) => api.get('/van-stock/movements', { params: { salesRepId } }),
   // suggestedQty يُمرَّر ليُخزَّن مع البند — به وحده تُقاس جودة الاقتراح لاحقاً
-  createLoad: (data: { salesRepId?: string; type?: string; note?: string; items: { productId: string; qty: number; suggestedQty?: number }[] }) =>
+  // expectedQty = التنبّؤ اليومي وقت التحميل — مرجعُ قياس الدقّة (لا suggestedQty)
+  createLoad: (data: { salesRepId?: string; type?: string; note?: string; items: { productId: string; qty: number; suggestedQty?: number; expectedQty?: number }[] }) =>
     api.post('/van-stock/loads', data),
+  accuracy: (params: { salesRepId: string; days?: number }) =>
+    api.get('/van-stock/accuracy', { params: { ...params, tz: String(-new Date().getTimezoneOffset()) } }),
   suggest: (params: { salesRepId: string; date?: string; windowDays?: number; bufferPct?: number }) =>
     api.get('/van-stock/suggest', { params }),
   setSellPermission: (salesRepId: string, canSellWithoutStock: boolean) =>
