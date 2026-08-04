@@ -254,7 +254,8 @@ async function main() {
 <ul><li>Field tax invoicing with QR code and thermal printing</li><li>Collection, receivables and customer statements with credit limits</li><li>Van stock per rep with live variance detection</li><li>GPS rep tracking and route planning</li><li>Product catalog, price tiers and ERP integration</li></ul>
 <h2>Contact &amp; subscription requests</h2>
 <p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Saudi Arabia · <a href="/en/subscribe-request">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
-<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a></p></main>`,
+<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a></p>
+<p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-tracking-saudi/">Sales rep tracking app for Saudi Arabia</a> · <a href="/en/blog/van-sales-software-saudi/">Van sales software for Saudi Arabia</a> · <a href="/en/blog/dms-saudi-arabia/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/zatca-invoicing-for-field-reps/">ZATCA e-invoicing for van sales reps</a></p></main>`,
     },
     fr: {
       title: 'FieldSales | Logiciel de gestion des ventes terrain et distribution',
@@ -468,11 +469,13 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
     const canonical = canon(`${ORIGIN}/قطاعات/${sec.slug}`);
     const faqHtml = sec.faq.map((f) => `<h2>${esc(f.q)}</h2><p>${esc(f.a)}</p>`).join('');
     const featHtml = sec.features.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.body)}</li>`).join('');
+    const deepHtml = (sec.deep || []).map((d) => `<h2>${esc(d.title)}</h2><p>${esc(d.body)}</p>`).join('');
     const body = `<main>
 <h1>برنامج إدارة مناديب التوزيع لشركات ${esc(sec.name)}</h1>
 <p>${esc(sec.pain)}</p>
 <h2>يومك الميداني</h2><p>${esc(sec.scene)}</p>
 <h2>ما يخدم هذا القطاع تحديداً</h2><ul>${featHtml}</ul>
+${deepHtml}
 ${faqHtml}
 <h2>ما لا نملكه — بصراحة</h2>
 <p>ندعم الفاتورة الإلكترونية المرحلة الأولى (رمز QR بترميز TLV) فقط؛ المرحلة الثانية غير مبنية لدينا حتى الآن. وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها.</p>
@@ -621,7 +624,7 @@ ${PRICING_HTML}
 <h2>للتواصل وطلبات الاشتراك</h2>
 <p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
 <h2>روابط مفيدة</h2>
-<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
+<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
 <p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')}</p>
 <p>أدلّة متخصّصة: <a href="/blog/distributor-network-management-software/">برنامج إدارة الموزعين</a> · <a href="/blog/cash-van-software-guide/">برنامج كاش فان</a> · <a href="/blog/sales-reps-management-system/">نظام إدارة المناديب</a> · <a href="/blog/distribution-companies-management-system/">نظام إدارة شركات التوزيع</a> · <a href="/blog/field-sales-system-for-companies/">نظام مبيعات ميدانية للشركات</a> · <a href="/blog/field-sales-software-om/">برنامج مناديب التوزيع سلطنة عمان</a> · <a href="/blog/field-sales-software-market-report-2026/">تقرير سوق برامج المناديب 2026</a></p>
 <p>الميزات: <a href="/blog/offline-invoicing-for-reps/">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/blog/rep-van-custody-management/">عهدة سيارة المندوب</a> · <a href="/blog/thermal-printing-field-invoices/">طباعة الفواتير الحرارية من الجوال</a> · <a href="/blog/rep-visit-tracking-gps/">متابعة زيارات المناديب</a> · <a href="/blog/mobile-receipt-vouchers/">سند قبض من الجوال</a> · <a href="/blog/field-sales-returns-management/">مرتجعات المبيعات الميدانية</a> · <a href="/blog/barcode-scanning-invoices/">مسح الباركود بالكاميرا</a> · <a href="/blog/sales-reps-permissions/">صلاحيات مناديب المبيعات</a> · <a href="/blog/distribution-reps-commissions/">عمولات مناديب التوزيع</a></p>

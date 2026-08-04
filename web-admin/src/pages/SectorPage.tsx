@@ -102,6 +102,17 @@ export default function SectorPage() {
               ))}
             </section>
 
+            {sector.deep && sector.deep.length > 0 && (
+              <section className="mt-8 space-y-4">
+                {sector.deep.map((d) => (
+                  <div key={d.title}>
+                    <h2 className="font-semibold">{d.title}</h2>
+                    <p className="text-sm text-[#4a443a] mt-2 leading-relaxed">{d.body}</p>
+                  </div>
+                ))}
+              </section>
+            )}
+
             <section className="mt-8">
               <h2 className="font-semibold">أسئلة شائعة — {sector.name}</h2>
               <dl className="mt-3 space-y-3">
