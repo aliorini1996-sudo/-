@@ -22,6 +22,19 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
+      - name: تهيئة سلسلة المفاتيح
+        script: |
+          keychain initialize
+      - name: إنشاء/جلب شهادة وملف تعريف التوزيع
+        script: |
+          # --create إلزامي في أول بناء: لا يوجد ملف تعريف بعد لهذا الـBundle ID،
+          # وكتلة ios_signing وحدها تجلب الموجود فقط ولا تُنشئ.
+          app-store-connect fetch-signing-files "net.fieldsa.rep" \
+            --type IOS_APP_STORE \
+            --create
+      - name: إضافة الشهادات لسلسلة المفاتيح
+        script: |
+          keychain add-certificates
       - name: تثبيت اعتماديات CocoaPods
         script: |
           pod install
