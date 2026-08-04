@@ -2035,6 +2035,18 @@
 
 ## Manual blog posts
 
+- [سند قبض من جوال المندوب: تحصيل موثّق لحظة الاستلام](https://fieldsa.net/blog/mobile-receipt-vouchers/)
+- [مرتجعات المبيعات الميدانية: تالف واستبدال وضبط العهدة](https://fieldsa.net/blog/field-sales-returns-management/)
+- [مسح الباركود بكاميرا الجوال لإضافة الأصناف في الفاتورة](https://fieldsa.net/blog/barcode-scanning-invoices/)
+- [صلاحيات مناديب المبيعات: الأسعار والخصومات والبيع الآجل](https://fieldsa.net/blog/sales-reps-permissions/)
+- [حساب عمولات مناديب التوزيع: النماذج والنِّسَب والأدوات](https://fieldsa.net/blog/distribution-reps-commissions/)
+- [اختفاء البضاعة من سيارة المندوب: الأسباب وخطة العلاج](https://fieldsa.net/blog/goods-missing-from-van/)
+- [تلاعب مناديب المبيعات: خمسة أنماط وكيف يُغلق بابها](https://fieldsa.net/blog/rep-manipulation-patterns/)
+- [التحول من الفواتير الورقية إلى الرقمية لفريق المناديب](https://fieldsa.net/blog/paper-to-digital-invoicing/)
+- [برنامج فواتير يعمل بدون إنترنت للمناديب مع رفع تلقائي](https://fieldsa.net/blog/offline-invoicing-for-reps/)
+- [عهدة بضاعة سيارة المندوب: تحميل وبيع ومطابقة يومية](https://fieldsa.net/blog/rep-van-custody-management/)
+- [برنامج فواتير بطباعة حرارية بلوتوث من جوال المندوب](https://fieldsa.net/blog/thermal-printing-field-invoices/)
+- [متابعة زيارات المناديب بإثبات GPS وصور من الميدان](https://fieldsa.net/blog/rep-visit-tracking-gps/)
 - [برنامج إدارة الموزعين: عهدة وتحصيل وحدود ائتمان لكل موزع](https://fieldsa.net/blog/distributor-network-management-software/)
 - [كيف تدير شبكة الموزعين؟ 6 خطوات عملية من الإسناد للتحصيل](https://fieldsa.net/blog/how-to-manage-distributor-network/)
 - [نظام الكاش فان: الدليل الشامل من تحميل العهدة إلى المطابقة](https://fieldsa.net/blog/cash-van-software-guide/)
