@@ -204,6 +204,19 @@ test('الميزانية تُنفَق على الأطول امتداداً لا 
   assert.ok(seen[0] > 10000, `أُنفق النداء على مقطع ${seen[0]}م — يجب أن يكون الأطول`);
 });
 
+test('عنقود الوقوف لا يُغرق محطات التوجيه فيُزيح الوقفات البعيدة', () => {
+  // ثلاث وقفات، أولاها بعشرين تثبيتاً متلاصقاً (وقوف داخل محلّ)
+  const jitter = Array.from({ length: 20 }, (_, i) => at(north(QATIF, i * 14), i * 8));
+  const slots = planSlots(prepare([...jitter, at(DAMMAM, 3000), at(KHOBAR, 6000)]));
+  const routeSlot = slots.find(sl => sl.type === 'route');
+  assert.ok(routeSlot && routeSlot.type === 'route');
+  const wps = thinWaypoints((routeSlot as { wps: ShapePoint[] }).wps);
+  // لو دُفع العنقود كلّه لبقيت الوقفتان البعيدتان مهدَّدتين بالقصّ
+  assert.ok(wps.length <= 4, `محطات كثيرة (${wps.length}) — العنقود أُغرق القائمة`);
+  const far = wps.filter(w => haversineM(w, QATIF) > 5000);
+  assert.equal(far.length, 2, 'الوقفتان البعيدتان محفوظتان');
+});
+
 test('التخطيط لا يستدعي شبكة ويحفظ الترتيب الزمني', () => {
   const pts = [...denseRun(DAMMAM, 8, 0), at(KHOBAR, 3000)];
   const slots = planSlots(pts);

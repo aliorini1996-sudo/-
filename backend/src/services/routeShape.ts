@@ -179,7 +179,13 @@ export function planSlots(pts: ShapePoint[]): Slot[] {
       slots.push({ type: 'match', pts: run, extent: span(run) });
       bridge = [run[run.length - 1]];
     } else {
-      bridge.push(...run);
+      // **ممثِّلٌ عن الجَرْية لا كلُّ نقاطها**: عنقودُ وقوفٍ عند عميلٍ قد يحمل
+      // عشرين تثبيتاً في خمسين متراً. دفعُها جميعاً محطاتِ توجيه يُغرق القائمة،
+      // فيقصّها `thinWaypoints` عند ١٤ — فتُزاح الوقفاتُ البعيدة الحقيقية
+      // ويُرسم يومٌ كامل من محطات محلٍّ واحد. الطرفان يكفيان لوصف الجَرْية،
+      // والواقفةُ منها (امتدادها دون الحدّ) نقطةٌ واحدة.
+      if (span(run) >= MIN_MATCH_EXTENT_M) bridge.push(run[0], run[run.length - 1]);
+      else bridge.push(run[0]);
     }
   }
   flush();
