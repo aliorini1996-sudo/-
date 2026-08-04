@@ -4,7 +4,8 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, canAccessRep } from '../services/adminScope';
 import { AuthRequest } from '../types';
-import { snapToRoads } from '../services/mapMatch';
+import { snapToRoads, routeThrough } from '../services/mapMatch';
+import { buildRouteShape } from '../services/routeShape';
 
 const router = Router();
 router.use(authenticate);
@@ -146,13 +147,40 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
       select: { lat: true, lng: true, accuracy: true, speed: true, capturedAt: true },
     });
 
-    // مطابقة المسار مع الطرق ليظهر على الطريق لا فوق المباني (يسقط للخام عند التعذّر)
+    // بناء شكل المسار: مطابقةٌ للأثر الكثيف وتوجيهٌ للفراغات، مقاطعَ موسومة
+    // (مرصود/مُرجَّح). راجع services/routeShape.ts — المطابقة وحدها كانت تفشل
+    // كلّياً على أي فجوة تتجاوز ٢ كم فيسقط الخطّ مستقيماً فوق البحر والمباني.
     const snap = (req.query.snap as string | undefined) !== '0';
-    const snapped = snap
-      ? await snapToRoads(points, `${salesRepId}:${dateStr}:${points.length}`)
+
+    /**
+     * مفتاح الكاش يصف **المقطع نفسه** لا يومَه.
+     *
+     * كان يحمل عدد نقاط اليوم كلّه، وهو يتغيّر كل دقيقة لمندوبٍ يعمل الآن
+     * (نقطة كل ٨ ثوانٍ تُرفع كل ٤٥ث) — فكل إعادة جلبٍ لمسار «اليوم» تُنتج
+     * مفاتيح جديدة كلّها: إصابةُ الكاش صفر، وإعادةُ حسابِ يومٍ لم يتغيّر ٩٩٪
+     * منه، ومئاتُ النداءات في ساعة إن تنقّل المشرف بين مناديبه. والمفاتيح
+     * الميتة تطرد إدخالات صالحة (الكاش عالميّ محدود بـ٢٠٠).
+     *
+     * والآن مفتاحُ كل مقطع من طرفيه وعدد نقاطه: المقطع الذي لم يتغيّر يُصيب
+     * الكاش مهما تراكمت نقاطٌ بعده. و`tid` يمنع تشارك الشركات مفتاحاً واحداً.
+     */
+    const segKey = (tag: string, a: { lat: number; lng: number }, b: { lat: number; lng: number }, n: number) =>
+      `${tid}:${tag}:${a.lat.toFixed(5)},${a.lng.toFixed(5)}:${b.lat.toFixed(5)},${b.lng.toFixed(5)}:${n}`;
+
+    const shape = snap
+      ? await buildRouteShape(points, {
+          match: (pts) => snapToRoads(pts, segKey('m', pts[0], pts[pts.length - 1], pts.length)),
+          route: (wps) => routeThrough(wps, segKey('r', wps[0], wps[wps.length - 1], wps.length)),
+        })
       : null;
 
-    res.json({ success: true, data: points, snapped });
+    // `snapped` يبقى للتوافق: نافذةُ نشرٍ قصيرة تفصل بين رفع الخادم والواجهة،
+    // فحذفُه يترك اللوحة المنشورة بلا خطّ أصلاً حتى تلحق.
+    const snapped = shape && !shape.degraded
+      ? shape.segments.flatMap((sg) => sg.points)
+      : null;
+
+    res.json({ success: true, data: points, snapped, shape });
   } catch (err) { next(err); }
 });
 

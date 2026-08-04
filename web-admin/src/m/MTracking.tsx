@@ -19,7 +19,16 @@ interface LiveRep {
   lastLat: number | null; lastLng: number | null; lastSeenAt: string | null; visitsToday: number;
 }
 interface RoutePoint { lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: string }
-interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null }
+type SegKind = 'observed' | 'inferred' | 'raw';
+/** أنماط رسم المقاطع — مطابقة للوحة المكتبية عمداً: عينُ المشرف واحدة */
+const ROUTE_STYLE: Record<SegKind, Record<string, unknown>> = {
+  observed: { color: '#E15A30', weight: 5, opacity: 0.9 },
+  inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75, dashArray: '7 9' },
+  raw: { color: '#B7791F', weight: 3, opacity: 0.7, dashArray: '2 7' },
+};
+interface RouteSegment { kind: SegKind; points: { lat: number; lng: number }[]; meters: number }
+interface RouteShape { segments: RouteSegment[]; observedMeters: number; inferredMeters: number; rawMeters: number; truncated: boolean; degraded: boolean }
+interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; shape: RouteShape | null }
 interface Visit {
   id: string; note: string | null; lat: number | null; lng: number | null; createdAt: string;
   durationSec: number | null; startedAt: string | null; endedAt: string | null;
@@ -87,7 +96,11 @@ export default function MTracking() {
     queryFn: async () => {
       const res = await trackingApi.route(selected, date);
       const d = res.data?.data;
-      return { points: Array.isArray(d) ? d : (d as RouteResp)?.points ?? [], snapped: (res.data as { snapped?: RouteResp['snapped'] })?.snapped ?? null } as RouteResp;
+      return {
+        points: Array.isArray(d) ? d : (d as RouteResp)?.points ?? [],
+        snapped: (res.data as { snapped?: RouteResp['snapped'] })?.snapped ?? null,
+        shape: (res.data as { shape?: RouteShape | null })?.shape ?? null,
+      } as RouteResp;
     },
     enabled: !!selected,
   });
@@ -132,8 +145,15 @@ export default function MTracking() {
     return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!]);
   }, [selected, routeQ.data, sel, reps]);
 
-  const line = routeQ.data?.snapped?.length ? routeQ.data.snapped.map(p => [p.lat, p.lng] as [number, number])
-    : routeQ.data?.points.map(p => [p.lat, p.lng] as [number, number]) ?? [];
+  // نفس تمييز اللوحة المكتبية: المقطع المُرجَّح (أعاده محرّك التوجيه بين نقطتين
+  // متباعدتين) يُرسم متقطّعاً — رسمُه متصلاً يقول «هذا ما سلكه» ونحن لا نعلم.
+  const segs = useMemo<{ kind: SegKind; pos: [number, number][] }[]>(() => {
+    const ss = routeQ.data?.shape?.segments?.filter(g => g.points.length > 1) || [];
+    if (ss.length) return ss.map(g => ({ kind: g.kind, pos: g.points.map(p => [p.lat, p.lng] as [number, number]) }));
+    const raw = routeQ.data?.points.map(p => [p.lat, p.lng] as [number, number]) ?? [];
+    return raw.length > 1 ? [{ kind: 'raw' as SegKind, pos: raw }] : [];
+  }, [routeQ.data]);
+  const line = useMemo(() => segs.flatMap(g => g.pos), [segs]);
 
   // تفاصيل الزيارة — شاشة كاملة
   if (openVisit) {
@@ -161,7 +181,10 @@ export default function MTracking() {
             eventHandlers={{ click: () => { setSelected(r.id); setSheetOpen(true); } }} />
         ))}
 
-        {line.length > 1 && <Polyline positions={line} pathOptions={{ color: '#E15A30', weight: 4, opacity: 0.85 }} />}
+        {segs.map((g, i) => (
+          <Polyline key={i} positions={g.pos}
+            pathOptions={ROUTE_STYLE[g.kind]} />
+        ))}
         {line.length > 1 && (
           <>
             <CircleMarker center={line[0]} radius={7} pathOptions={{ color: '#fff', weight: 2, fillColor: '#2F855A', fillOpacity: 1 }} />

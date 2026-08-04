@@ -408,6 +408,20 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'بانتظار عودة الاتصال...': { en: 'Waiting for connection...', fr: 'En attente de connexion...' },
   // دقّة اقتراح التحميل
   'دقّة الاقتراح': { en: 'Suggestion accuracy', fr: 'Précision des suggestions' },
+  // خطّ سير المندوب على الخريطة
+  'مسار مرصود': { en: 'Observed route', fr: 'Trajet observé' },
+  'مسار مُرجَّح': { en: 'Inferred route', fr: 'Trajet estimé' },
+  'خطّ مستقيم (تعذّرت المطابقة)': { en: 'Straight line (matching failed)', fr: 'Ligne droite (échec du calage)' },
+  'تعذّر الوصول لخدمة الخرائط — ما تراه خطوط مستقيمة بين نقاط التثبيت لا مسار شوارع.': {
+    en: 'The mapping service is unreachable — what you see are straight lines between fixes, not a street route.',
+    fr: 'Le service cartographique est injoignable — vous voyez des lignes droites entre points, pas un itinéraire routier.' },
+  'كم': { en: 'km', fr: 'km' },
+  'المُرجَّح هو أرجح طريق بين نقطتين متباعدتين (التطبيق لا يلتقط الموقع وهو مغلق) — ليس أثراً مرصوداً.': {
+    en: 'The inferred part is the most likely road between two distant points (the app cannot record location while closed) — it is not an observed trace.',
+    fr: 'La partie estimée est la route la plus probable entre deux points éloignés (l’app n’enregistre pas la position lorsqu’elle est fermée) — ce n’est pas un tracé observé.' },
+  'بعض المقاطع عُرضت خاماً (بلغنا حدّ المعالجة لهذا اليوم).': {
+    en: 'Some segments are shown raw (processing limit reached for this day).',
+    fr: 'Certains segments sont affichés bruts (limite de traitement atteinte pour ce jour).' },
   'قيد البيع': { en: 'selling now', fr: 'en cours de vente' },
   'متوسط الخطأ': { en: 'Avg. error', fr: 'Erreur moyenne' },
   'الانحياز': { en: 'Bias', fr: 'Biais' },

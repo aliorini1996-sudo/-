@@ -14,7 +14,14 @@ interface LiveRep {
   lastLat: number | null; lastLng: number | null; lastSeenAt: string | null; visitsToday: number;
 }
 interface RoutePoint { lat: number; lng: number; accuracy: number | null; speed: number | null; capturedAt: string; }
-interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; }
+type SegKind = 'observed' | 'inferred' | 'raw';
+interface RouteSegment { kind: SegKind; points: { lat: number; lng: number }[]; meters: number }
+interface RouteShape {
+  segments: RouteSegment[];
+  observedMeters: number; inferredMeters: number; rawMeters: number;
+  truncated: boolean; degraded: boolean;
+}
+interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; shape: RouteShape | null; }
 interface Visit {
   id: string; note: string | null; lat: number | null; lng: number | null; createdAt: string;
   durationSec: number | null; // مدّة الزيارة بالثواني (null = زيارة ملاحظة بلا توقيت)
@@ -42,6 +49,16 @@ function repIcon(online: boolean, label: string) {
     className: '',
     html: `<div style="width:30px;height:30px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700">${label}</div>`,
     iconSize: [30, 30], iconAnchor: [15, 15],
+  });
+}
+
+// سهم اتجاه على خطّ السير — بلا اتجاهٍ يرى المشرف خطاً ولا يعرف أين بدأ اليوم.
+// `interactive:false` كي لا يسرق السهمُ نقرةً موجّهةً لدبّوس زيارةٍ تحته.
+function arrowIcon(deg: number) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="transform:rotate(${deg}deg);width:16px;height:16px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B3462A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff)"><path d="M12 20V5M5 12l7-7 7 7"/></svg></div>`,
+    iconSize: [16, 16], iconAnchor: [8, 8],
   });
 }
 
@@ -115,7 +132,11 @@ export default function TrackingPage() {
     queryKey: ['track-route', selected, date],
     queryFn: async () => {
       const res = await trackingApi.route(selected, date);
-      return { points: res.data.data as RoutePoint[], snapped: (res.data.snapped ?? null) as RouteResp['snapped'] };
+      return {
+        points: res.data.data as RoutePoint[],
+        snapped: (res.data.snapped ?? null) as RouteResp['snapped'],
+        shape: (res.data.shape ?? null) as RouteShape | null,
+      };
     },
     enabled: !!selected && enabled,
   });
@@ -150,15 +171,54 @@ export default function TrackingPage() {
   const reps = liveQ.data || [];
   const route = routeQ.data?.points || [];
   const snapped = routeQ.data?.snapped || null;
+  const shape = routeQ.data?.shape || null;
   const visits = visitsQ.data || [];
   const customerLocs = showCustomers ? (customerLocsQ.data || []) : [];
 
   const rawLatLng = useMemo(() => route.map(p => [p.lat, p.lng] as [number, number]), [route]);
-  // مسار العرض: المطابَق للطرق إن توفّر (يتبع الشوارع)، وإلا النقاط الخام
+
+  /**
+   * مقاطع الرسم. المقطع **المُرجَّح** ليس أثراً رُصد: هو أرجحُ طريقٍ بين نقطتين
+   * متباعدتين أعاده محرّك التوجيه. رسمُه متصلاً كالمرصود يقول للمشرف «هذا ما
+   * سلكه» ونحن لا نعلم — وقد يُبنى عليه اتّهامُ مندوبٍ بالانحراف. فالمتقطّع
+   * ليس زينة: هو حدّ ما نستطيع الجزم به.
+   */
+  const drawSegments = useMemo<{ kind: SegKind; pos: [number, number][] }[]>(() => {
+    const segs = shape?.segments?.filter(sg => sg.points.length > 1) || [];
+    if (segs.length) return segs.map(sg => ({ kind: sg.kind, pos: sg.points.map(p => [p.lat, p.lng] as [number, number]) }));
+    // لا شكل من الخادم (نشرٌ قديم أو تعذّر) ⇒ خامٌ صريح، لا «مرصود» ولا «مُرجَّح»
+    return rawLatLng.length > 1 ? [{ kind: 'raw' as SegKind, pos: rawLatLng }] : [];
+  }, [shape, rawLatLng]);
+
+  /** كل نقاط الرسم بالترتيب — لتأطير الخريطة وحساب الاتجاه */
   const pathLatLng = useMemo<[number, number][]>(
-    () => (snapped && snapped.length > 1 ? snapped.map(p => [p.lat, p.lng] as [number, number]) : rawLatLng),
-    [snapped, rawLatLng],
+    () => drawSegments.flatMap(sg => sg.pos),
+    [drawSegments],
   );
+
+  /**
+   * أسهم الاتجاه: بلا اتجاهٍ يقرأ المشرف الخطّ ولا يعرف أين بدأ اليوم. نضع
+   * سهماً كل ~عُشر المسار (٤ إلى ١٢ سهماً) مُدوَّراً نحو النقطة التالية.
+   */
+  const arrows = useMemo(() => {
+    if (pathLatLng.length < 4) return [];
+    const n = Math.min(12, Math.max(4, Math.floor(pathLatLng.length / 40)));
+    const step = Math.floor(pathLatLng.length / (n + 1));
+    const out: { pos: [number, number]; deg: number }[] = [];
+    for (let i = 1; i <= n; i++) {
+      const idx = i * step;
+      const a = pathLatLng[idx], b = pathLatLng[Math.min(idx + 1, pathLatLng.length - 1)];
+      if (!a || !b) continue;
+      // الاتجاه البوصلي مباشرةً: atan2(شرقاً، شمالاً) — الموضع [lat, lng] فـ
+      // a[0] شمال و a[1] شرق. (كتبتُها أوّلاً `90 - deg` على عادة تحويل زاوية
+      // رياضية إلى بوصلية، فأشار السهم شرقاً حيث السير شمالاً — أربع جهات كلها
+      // خاطئة، والسهم الكاذب أسوأ من غيابه.) و cos(lat) يصحّح تقلّص خطوط الطول.
+      const kx = Math.cos((a[0] * Math.PI) / 180);
+      const deg = (Math.atan2((b[1] - a[1]) * kx, b[0] - a[0]) * 180) / Math.PI;
+      out.push({ pos: a, deg }); // السهم يرسم شمالاً عند 0° ويدور مع عقارب الساعة
+    }
+    return out;
+  }, [pathLatLng]);
   const visitPins = useMemo(() => visits.filter(v => v.lat != null && v.lng != null), [visits]);
   // رقم الزيارة **زمنيّ**: ١ = أول زيارة في اليوم. القائمة تنزل من الخادم أحدثَ
   // أولاً، وكان الترقيم بموضع المصفوفة (i+1) فقرأ المشرف اليومَ معكوساً — آخرُ
@@ -240,8 +300,38 @@ export default function TrackingPage() {
                 <input type="date" value={date} max={new Date().toISOString().slice(0, 10)} onChange={e => setDate(e.target.value)} className="input py-2 text-sm" />
                 <p className="text-[11px] text-[#9A8F7E]">
                   {routeQ.isLoading ? tr('جارٍ التحميل…') : `${route.length} ${tr('نقطة مسجّلة')}`}
-                  {snapped && snapped.length > 1 ? ` · ${tr('مطابَق للطرق')}` : ''}
                 </p>
+                {/* مفتاح القراءة: الرقمان يقولان كم من اليوم رُصد فعلاً وكم أُعيد
+                    بناؤه — والفرق بينهما هو الفرق بين الدليل والترجيح. */}
+                {shape && (shape.observedMeters > 0 || shape.inferredMeters > 0 || shape.rawMeters > 0) && (
+                  <div className="space-y-1 pt-1 border-t border-[#F1EBDF]">
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
+                      <span className="inline-block w-5 h-[3px] rounded bg-[#E15A30]" />
+                      <span>{tr('مسار مرصود')}: <b className="tabular-nums">{(shape.observedMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
+                      <span className="inline-block w-5 h-[3px] rounded" style={{ background: 'repeating-linear-gradient(90deg,#9A8F7E 0 4px,transparent 4px 8px)' }} />
+                      <span>{tr('مسار مُرجَّح')}: <b className="tabular-nums">{(shape.inferredMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
+                    </div>
+                    {shape.rawMeters > 0 && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
+                        <span className="inline-block w-5 h-[3px] rounded" style={{ background: 'repeating-linear-gradient(90deg,#B7791F 0 2px,transparent 2px 7px)' }} />
+                        <span>{tr('خطّ مستقيم (تعذّرت المطابقة)')}: <b className="tabular-nums">{(shape.rawMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-[#B3A996] leading-snug">
+                      {tr('المُرجَّح هو أرجح طريق بين نقطتين متباعدتين (التطبيق لا يلتقط الموقع وهو مغلق) — ليس أثراً مرصوداً.')}
+                    </p>
+                    {shape.degraded && (
+                      <p className="text-[10px] text-red-600 leading-snug">
+                        {tr('تعذّر الوصول لخدمة الخرائط — ما تراه خطوط مستقيمة بين نقاط التثبيت لا مسار شوارع.')}
+                      </p>
+                    )}
+                    {shape.truncated && (
+                      <p className="text-[10px] text-amber-700">{tr('بعض المقاطع عُرضت خاماً (بلغنا حدّ المعالجة لهذا اليوم).')}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -346,7 +436,18 @@ export default function TrackingPage() {
                 {/* خطّ سير المندوب المحدّد (مطابَق للطرق إن توفّر) */}
                 {selected && pathLatLng.length > 0 && (
                   <>
-                    <Polyline positions={pathLatLng} pathOptions={{ color: '#E15A30', weight: 4, opacity: 0.85 }} />
+                    {drawSegments.map((sg, i) => (
+                      <Polyline
+                        key={i}
+                        positions={sg.pos}
+                        pathOptions={{ observed: { color: '#E15A30', weight: 5, opacity: 0.9 },
+                          inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75, dashArray: '7 9' },
+                          raw: { color: '#B7791F', weight: 3, opacity: 0.7, dashArray: '2 7' } }[sg.kind]}
+                      />
+                    ))}
+                    {arrows.map((a, i) => (
+                      <Marker key={`ar${i}`} position={a.pos} icon={arrowIcon(a.deg)} interactive={false} />
+                    ))}
                     {rawLatLng.length > 0 && (
                       <>
                         <CircleMarker center={rawLatLng[0]} radius={7} pathOptions={{ color: '#fff', weight: 2, fillColor: '#1E7A52', fillOpacity: 1 }}>

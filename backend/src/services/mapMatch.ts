@@ -9,7 +9,10 @@ export interface GeoPoint { lat: number; lng: number; accuracy?: number | null; 
 // كاش بسيط بالذاكرة يمنع استنزاف حصّة Geoapify عند إعادة فتح نفس المسار
 const cache = new Map<string, { at: number; snapped: { lat: number; lng: number }[] }>();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 دقائق
-const CACHE_MAX = 200;
+// سعة أكبر بعد أن صار المفتاح لكل **مقطع** لا لكل يوم: يومٌ واحد قد يودع
+// عشرة مقاطع، والإخلاء FIFO يطرد الأقدم — سعةٌ ضيّقة تعني طردَ مقاطعَ صالحة
+// لشركةٍ أخرى في كل فتح خريطة.
+const CACHE_MAX = 1500;
 
 function cacheGet(key: string) {
   const hit = cache.get(key);
@@ -33,8 +36,64 @@ function downsample<T>(arr: T[], max: number): T[] {
   return out;
 }
 
+/** يستخرج نقاط الخطّ من هندسة GeoJSON (LineString أو MultiLineString) */
+function flattenGeometry(coordinates: unknown[]): { lat: number; lng: number }[] {
+  const flat: { lat: number; lng: number }[] = [];
+  const pushPair = (pair: unknown) => {
+    if (Array.isArray(pair) && typeof pair[0] === 'number' && typeof pair[1] === 'number') {
+      flat.push({ lat: pair[1], lng: pair[0] });
+    }
+  };
+  for (const item of coordinates) {
+    if (Array.isArray(item) && Array.isArray(item[0])) { for (const pair of item) pushPair(pair); }
+    else pushPair(item);
+  }
+  return flat;
+}
+
 /**
- * يُعيد خطّ سير مطابَقاً للطرق، أو null للسقوط على النقاط الخام.
+ * **إعادة بناء** الطريق الأرجح بين محطات متباعدة (محرّك التوجيه لا المطابقة).
+ *
+ * المطابقة ترفض أي زوج نقاط يتجاوز ٢ كم برمّته (400 breakage distance)، وهو
+ * حال أغلب أيام المندوب لأن المتصفّح لا يلتقط موقعاً والتطبيق مغلق. فالفراغات
+ * تُملأ بهذا: مسارُ قيادةٍ حقيقي على الشوارع — **مُرجَّح لا مرصود**، ومن يستدعيه
+ * يسمه `inferred` (راجع routeShape.ts).
+ */
+export async function routeThrough(waypoints: GeoPoint[], cacheKey?: string): Promise<{ lat: number; lng: number }[] | null> {
+  const key = (process.env.GEOAPIFY_API_KEY || '').trim();
+  if (!key) return null;
+  if (waypoints.length < 2) return null;
+
+  if (cacheKey) { const cached = cacheGet(cacheKey); if (cached) return cached; }
+
+  const wp = waypoints.map(p => `${p.lat},${p.lng}`).join('|');
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const resp = await fetch(
+      `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(wp)}&mode=drive&apiKey=${encodeURIComponent(key)}`,
+      { signal: ctrl.signal },
+    );
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+
+    const json = await resp.json() as { features?: { geometry?: { coordinates?: unknown } }[] };
+    const coords = json.features?.[0]?.geometry?.coordinates;
+    if (!Array.isArray(coords)) return null;
+    const flat = flattenGeometry(coords);
+    if (flat.length < 2) return null;
+
+    if (cacheKey) cacheSet(cacheKey, flat);
+    return flat;
+  } catch {
+    return null; // مهلة/خطأ ⇒ يسقط المستدعي على الخطّ المستقيم موسوماً مُرجَّحاً
+  }
+}
+
+/**
+ * يُعيد خطّ سير **مرصوداً** مطابَقاً للطرق، أو null للسقوط على النقاط الخام.
+ * ⚠️ يفشل الطلب كاملاً إن تباعد زوجُ نقاطٍ أكثر من ٢ كم — فلا تُمرَّر إليه إلا
+ * جَرْيةٌ متقاربة (يتكفّل `routeShape.ts` بالتقسيم والفراغات).
  * @param cacheKey مفتاح تخزين (مثلاً salesRepId:date:count)
  */
 export async function snapToRoads(points: GeoPoint[], cacheKey?: string): Promise<{ lat: number; lng: number }[] | null> {
@@ -70,16 +129,7 @@ export async function snapToRoads(points: GeoPoint[], cacheKey?: string): Promis
     if (!geom || !Array.isArray(geom.coordinates)) return null;
 
     // النتيجة قد تكون LineString ([[lng,lat],...]) أو MultiLineString ([[[lng,lat],...],...])
-    const flat: { lat: number; lng: number }[] = [];
-    const pushPair = (pair: unknown) => {
-      if (Array.isArray(pair) && typeof pair[0] === 'number' && typeof pair[1] === 'number') {
-        flat.push({ lat: pair[1], lng: pair[0] });
-      }
-    };
-    for (const item of geom.coordinates as unknown[]) {
-      if (Array.isArray(item) && Array.isArray(item[0])) { for (const pair of item) pushPair(pair); }
-      else pushPair(item);
-    }
+    const flat = flattenGeometry(geom.coordinates as unknown[]);
     if (flat.length < 2) return null;
 
     if (cacheKey) cacheSet(cacheKey, flat);
