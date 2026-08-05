@@ -11,6 +11,9 @@ workflows:
       # الاسم يجب أن يطابق حرفياً تكامل App Store Connect API key المُضاف في Codemagic.
       app_store_connect: FieldSales ASC Key
     environment:
+      # مجموعة متغيّرات Codemagic التي تحوي CERTIFICATE_PRIVATE_KEY (سرّي).
+      groups:
+        - ios_signing
       # لا نستخدم كتلة ios_signing: تجلب ملف تعريف موجوداً وتُفشل التحضير قبل تشغيل السكربتات.
       vars:
         XCODE_WORKSPACE: "FieldSales.xcworkspace"
