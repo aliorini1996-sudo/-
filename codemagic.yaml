@@ -1,5 +1,5 @@
 # خط بناء iOS على Codemagic — تطبيق المندوب (FieldSales)
-# يبني على macOS، يوقّع تلقائياً بمفتاح App Store Connect API، ويرفع إلى TestFlight.
+# يبني على macOS، يوقّع بمفتاح App Store Connect، ويرفع إلى TestFlight.
 # جذر المستودع = مجلّد ios-app هذا. راجع CODEMAGIC-SETUP.md لخطوات الربط.
 
 workflows:
@@ -8,65 +8,59 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     integrations:
-      # الاسم يجب أن يطابق حرفياً تكامل App Store Connect API key المُضاف في Codemagic
-      # (Teams → Integrations → App Store Connect). عدّله إن سمّيته باسم آخر.
+      # الاسم يجب أن يطابق حرفياً تكامل App Store Connect API key المُضاف في Codemagic.
       app_store_connect: FieldSales ASC Key
     environment:
-      # ملاحظة: لا نستخدم كتلة ios_signing هنا — فهي تجلب ملف تعريف موجوداً مسبقاً
-      # وتُفشل التحضير قبل تشغيل السكربتات. التوقيع يتم في السكربتات أدناه بـ--create.
+      # لا نستخدم كتلة ios_signing: تجلب ملف تعريف موجوداً وتُفشل التحضير قبل تشغيل السكربتات.
       vars:
         XCODE_WORKSPACE: "FieldSales.xcworkspace"
         XCODE_SCHEME: "FieldSales"
+        BUNDLE_ID: "net.fieldsa.rep"
       xcode: latest
       cocoapods: default
     scripts:
       - name: تهيئة سلسلة المفاتيح
         script: |
           keychain initialize
-      - name: إنشاء/جلب شهادة وملف تعريف التوزيع
+
+      - name: جلب شهادة وملف تعريف التوزيع
         script: |
-          # --create إلزامي في أول بناء: لا يوجد ملف تعريف بعد لهذا الـBundle ID.
-          # ومفتاح خاص إلزامي أيضاً: بدونه يفشل الأمر بـ"Cannot save Signing
-          # Certificates without certificate private key" عند وجود شهادة سابقة.
-          # لإعادة استخدام نفس الشهادة في البناءات القادمة (حدّ آبل 3 شهادات توزيع):
-          # احفظ محتوى المفتاح في متغيّر Codemagic باسم CERTIFICATE_PRIVATE_KEY.
+          # مفتاح خاص دائم إلزامي. بدونه يولّد كل بناء مفتاحاً جديداً فتُنشأ شهادة توزيع
+          # جديدة، وآبل تسمح بشهادتين فقط ⇒ يفشل البناء بـ409. شهادة واحدة مرتبطة بهذا
+          # المفتاح تكفي لكل تطبيقات الحساب (ملف التعريف هو ما يخصّ كل تطبيق على حدة).
+          # المفتاح يُحفظ في Codemagic → Settings → Global variables and secrets (Secure).
           if [ -z "$CERTIFICATE_PRIVATE_KEY" ]; then
-            echo "لا يوجد CERTIFICATE_PRIVATE_KEY — سيُولَّد مفتاح جديد وتُنشأ شهادة جديدة."
-            openssl genrsa -out /tmp/cert_key.pem 2048
-            KEY_ARG="--certificate-key=@file:/tmp/cert_key.pem"
-          else
-            echo "استخدام CERTIFICATE_PRIVATE_KEY المحفوظ."
-            KEY_ARG="--certificate-key=@env:CERTIFICATE_PRIVATE_KEY"
+            echo "✗ CERTIFICATE_PRIVATE_KEY غير مضبوط — أضِفه في Codemagic كمتغيّر سرّي."
+            exit 1
           fi
-          app-store-connect fetch-signing-files "net.fieldsa.rep" \
-            --type IOS_APP_STORE \
-            $KEY_ARG \
-            --create
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --certificate-key=@env:CERTIFICATE_PRIVATE_KEY --create
+
       - name: إضافة الشهادات لسلسلة المفاتيح
         script: |
           keychain add-certificates
+
       - name: تثبيت اعتماديات CocoaPods
         script: |
           pod install
+
       - name: تطبيق ملفات التوقيع على المشروع
         script: |
           xcode-project use-profiles
+
       - name: ضبط رقم البناء تلقائياً (فريد متصاعد)
         script: |
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "FieldSales/Info.plist"
+
       - name: بناء الـIPA
         script: |
-          xcode-project build-ipa \
-            --workspace "$XCODE_WORKSPACE" \
-            --scheme "$XCODE_SCHEME"
+          xcode-project build-ipa --workspace "$XCODE_WORKSPACE" --scheme "$XCODE_SCHEME"
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
     publishing:
       app_store_connect:
         auth: integration
-        # يرفع البناء إلى TestFlight فقط (اختبار داخلي). لا إرسال للمراجعة العلنية تلقائياً —
-        # نملأ صفحة المتجر ثم نرسل يدوياً أول مرة. لاحقاً يمكن تفعيل submit_to_app_store: true.
+        # يرفع البناء إلى TestFlight فقط. الإرسال للمراجعة يدوي.
         submit_to_testflight: true
       email:
         recipients:
