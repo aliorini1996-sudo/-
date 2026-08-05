@@ -81,6 +81,12 @@ export function useSeo({ title, description, keywords, canonical: rawCanonical, 
 
     let script: HTMLScriptElement | null = null;
     if (jsonLd) {
+      // 🔴 استبدال لا إضافة (أُصلح 5 أغسطس 2026): التصيير المسبق يضع كتلة الصفحة في HTML
+      // موسومةً بـ`data-seo-page`، وكان هذا الخطّاف يضيف كتلةً ثانيةً مطابقة عند الإقلاع
+      // فيتكرّر Article وBreadcrumbList في **الصفحة المُصيَّرة بعد تنفيذ JS** — وجوجل يصيّر
+      // JS فيرى التكرار ويبلغ عنه «كيان فريد مكرَّر». لا يكشفه فحص HTML الثابت إطلاقاً
+      // (كان يظهر فقط بقراءة DOM بعد الإقلاع). فنُزيل أي كتلة صفحة سابقة أولاً.
+      document.querySelectorAll('script[data-seo-page]').forEach((el) => el.remove());
       script = document.createElement('script');
       script.type = 'application/ld+json';
       script.setAttribute('data-seo-page', '1');

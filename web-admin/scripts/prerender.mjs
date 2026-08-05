@@ -101,7 +101,10 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
       return m;
     });
   }
-  const extra = hreflang + (jsonLd ? `\n    <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : '');
+  // `data-seo-page` يجعل كتلة الصفحة قابلة للتمييز عن كتلة القالب العامّة، فيستبدلها
+  // useSeo عند إقلاع React بدل أن يضيف نسخة ثانية (وإلا تكرّر Article وBreadcrumbList
+  // في الصفحة المُصيَّرة بعد التصيير — وهو ما لا يراه أي فحص للـHTML الثابت).
+  const extra = hreflang + (jsonLd ? `\n    <script type="application/ld+json" data-seo-page="1">${JSON.stringify(jsonLd)}</script>` : '');
   h = h.replace('</head>', `${extra}\n  </head>`);
   // رابط المحادثة يُحقَن **مركزياً** لا في كل صفحة على حدة.
   //

@@ -47,11 +47,28 @@ if (!fs.existsSync(DIST)) {
 const files = collect(DIST);
 const broken = [];   // كتل JSON فاسدة
 const dupes = new Map(); // نوع مكرَّر → أمثلة ملفات
+const unmarked = []; // كتل صفحة بلا data-seo-page (تكسر عقد الاستبدال مع useSeo)
 
 for (const f of files) {
   const raw = fs.readFileSync(f, 'utf8');
-  const blocks = [...raw.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
+  const blocks = [...raw.matchAll(/<script type="application\/ld\+json"([^>]*)>([\s\S]*?)<\/script>/g)]
+    .map((m) => [m[0], m[2], m[1]]);
   if (!blocks.length) continue;
+
+  /**
+   * عقد `data-seo-page`: كتلة **الصفحة** (لا كتلة القالب العامّة التي تحمل Organization)
+   * يجب أن تكون موسومة، لأن `useSeo` يحذف الموسوم ثم يضيف نسخته عند إقلاع React.
+   * إن سقط الوسم عادت المضاعفة **في DOM المُصيَّر وحده** — وهي غير مرئية لأي فحص HTML
+   * ثابت، فهذا الشرط هو الحارس الوحيد الممكن عليها من هنا.
+   */
+  for (const [, body, attrs] of blocks) {
+    let p; try { p = JSON.parse(body); } catch { continue; }
+    const nodes = Array.isArray(p['@graph']) ? p['@graph'] : [p];
+    const isTemplate = nodes.some((n) => n && n['@type'] === 'Organization');
+    if (!isTemplate && !/data-seo-page/.test(attrs) && unmarked.length < 4) {
+      unmarked.push(path.relative(DIST, f));
+    }
+  }
 
   const types = [];
   for (const [, body] of blocks) {
@@ -84,12 +101,16 @@ for (const f of files) {
 
 console.log(`فحص البيانات المنظّمة على ${files.length} ملف مُصيَّر.`);
 
-if (!broken.length && !dupes.size) {
-  console.log('  ✓ كل كتل ld+json صالحة ولا كيان فريد مكرَّر.');
+if (!broken.length && !dupes.size && !unmarked.length) {
+  console.log('  ✓ كل كتل ld+json صالحة ولا كيان فريد مكرَّر، وعقد data-seo-page سليم.');
   process.exit(0);
 }
 
 for (const b of broken) console.error(`  ✗ [json غير صالح] ${b.file} — ${b.msg}`);
+if (unmarked.length) {
+  console.error('  ✗ [عقد data-seo-page مكسور] كتلة سكيما صفحة بلا وسم — سيضاعفها useSeo في DOM بعد إقلاع React:');
+  for (const f of unmarked) console.error(`      ${f}`);
+}
 for (const [t, list] of dupes) {
   console.error(`  ✗ [كيان فريد مكرَّر] «${t}» يتكرّر في صفحة واحدة — أمثلة:`);
   for (const f of list) console.error(`      ${f}`);
