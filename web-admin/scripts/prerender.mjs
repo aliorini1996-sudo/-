@@ -70,6 +70,37 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   h = h.replace(/(<meta name="twitter:title" content=")[\s\S]*?("\s*\/>)/, `$1${esc(title)}$2`);
   h = h.replace(/(<meta name="twitter:description" content=")[\s\S]*?("\s*\/>)/, `$1${esc(description)}$2`);
   h = h.replace(/(<meta name="twitter:image" content=")[^"]*("\s*\/>)/, `$1${image}$2`);
+  // 🔴 منع «الكيان الفريد المكرَّر» (اكتُشف 5 أغسطس 2026 من Search Console):
+  // كل صفحة داخلية ترث ld+json قالبِ الرئيسية (Organization + SoftwareApplication + FAQPage)
+  // ثم تضيف كتلتها، فيتكرّر النوع نفسه مرّتين في الصفحة الواحدة:
+  //   · مقالات الكتالوج → FAQPage ×2   · صفحات /free → SoftwareApplication ×2
+  // (تقرير «البيانات المنظّمة غير قابلة للتحليل»: 108 صفحة منذ مطلع يوليو).
+  // ⚠️ الكتلتان **صالحتان JSON كلٌّ على حدة** — العطل دلاليّ لا نحويّ فلا يكشفه parse.
+  // العلاج جراحيّ: تُحذف من القالب **فقط الأنواع التي تُصدرها الصفحة نفسها**، فتحتفظ
+  // الصفحات التي لا تُصدر نوعاً بنسخة القالب (مثلاً /pricing يُبقي SoftwareApplication
+  // بسعره). والرئيسية العربية لا تمرّ بـbuildPage أصلاً فتبقى كاملة.
+  const ownTypes = new Set();
+  if (jsonLd) {
+    for (const n of (Array.isArray(jsonLd['@graph']) ? jsonLd['@graph'] : [jsonLd])) {
+      const t = n && n['@type'];
+      if (typeof t === 'string') ownTypes.add(t);
+      else if (Array.isArray(t)) t.forEach((x) => typeof x === 'string' && ownTypes.add(x));
+    }
+  }
+  if (ownTypes.size) {
+    h = h.replace(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/, (m, body) => {
+      try {
+        const j = JSON.parse(body);
+        if (Array.isArray(j['@graph'])) {
+          const g = j['@graph'].filter((n) => !(n && typeof n['@type'] === 'string' && ownTypes.has(n['@type'])));
+          if (g.length !== j['@graph'].length) {
+            return `<script type="application/ld+json">${JSON.stringify({ ...j, '@graph': g })}</script>`;
+          }
+        }
+      } catch { /* قالب غير متوقّع — يُترك كما هو بدل كسره */ }
+      return m;
+    });
+  }
   const extra = hreflang + (jsonLd ? `\n    <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : '');
   h = h.replace('</head>', `${extra}\n  </head>`);
   // رابط المحادثة يُحقَن **مركزياً** لا في كل صفحة على حدة.
