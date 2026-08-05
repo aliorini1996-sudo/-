@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { composeWorkDays, splitByLocalDay, dayKey } from '../services/workDay';
+import { composeWorkDays, splitByLocalDay, dayKey, mergeVisits, MERGE_TOLERANCE_MS } from '../services/workDay';
 
 const KSA = 180; // الرياض UTC+3
 const at = (iso: string) => new Date(iso);
@@ -107,4 +107,108 @@ test('أثرٌ واحد يتيم = يومٌ بامتداد صفري لا انه�
   });
   assert.equal(days[0].spanMinutes, 0);
   assert.equal(days[0].firstActivity.getTime(), days[0].lastActivity.getTime());
+});
+
+/* ───────── دمج سجلَّي الزيارة الواحدة ───────── */
+
+test('المؤقّت + الملاحظة لنفس العميل = وقفةٌ واحدة ببداية ونهاية', () => {
+  // الحالة من ملفّ المالك: ١١:٢١ بمدّة ١٦د٣٨ث، ثم سجلٌّ بلا توقيت ١١:٣٨
+  const start = at('2026-08-05T11:21:00Z');
+  const out = mergeVisits([
+    { customerName: 'قولدن سنت', at: start, durationSec: 998 },
+    { customerName: 'قولدن سنت', at: at('2026-08-05T11:38:00Z'), durationSec: null },
+  ]);
+  assert.equal(out.length, 1, 'وقفةٌ واحدة لا سجلّان');
+  assert.equal(out[0].parts, 2);
+  assert.equal(out[0].hasNote, true);
+  assert.equal(out[0].durationSec, 998);
+  assert.equal(out[0].end!.toISOString(), new Date(start.getTime() + 998000).toISOString());
+});
+
+test('ملاحظةٌ داخل نافذة المؤقّت تندمج ولو سبقت نهايته', () => {
+  const out = mergeVisits([
+    { customerName: 'أسواق المزرعة', at: at('2026-08-05T10:22:00Z'), durationSec: 3585 },
+    { customerName: 'أسواق المزرعة', at: at('2026-08-05T10:23:00Z'), durationSec: null },
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].parts, 2);
+});
+
+test('ملاحظةٌ بعيدة عن أي مؤقّت تبقى وقفةً مستقلّة بلا توقيت', () => {
+  const out = mergeVisits([
+    { customerName: 'عميل', at: at('2026-08-05T08:00:00Z'), durationSec: 600 },
+    { customerName: 'عميل', at: at('2026-08-05T15:00:00Z'), durationSec: null },
+  ]);
+  assert.equal(out.length, 2, 'زيارتان في يومين مختلفَي الوقت لا تُدمجان');
+  assert.equal(out[1].durationSec, null);
+  assert.equal(out[1].end, null);
+});
+
+test('عميلان مختلفان لا يندمجان ولو تزامنا', () => {
+  const t = at('2026-08-05T09:00:00Z');
+  const out = mergeVisits([
+    { customerName: 'أ', at: t, durationSec: 600 },
+    { customerName: 'ب', at: new Date(t.getTime() + 60000), durationSec: null },
+  ]);
+  assert.equal(out.length, 2);
+});
+
+test('هامش الدمج معقول: لا يبتلع زيارةً ثانية بعد ساعة', () => {
+  assert.ok(MERGE_TOLERANCE_MS <= 10 * 60 * 1000);
+  const out = mergeVisits([
+    { customerName: 'عميل', at: at('2026-08-05T09:00:00Z'), durationSec: 300 },
+    { customerName: 'عميل', at: at('2026-08-05T10:00:00Z'), durationSec: 300 },
+  ]);
+  assert.equal(out.length, 2, 'زيارتان مؤقَّتتان تبقيان اثنتين');
+});
+
+test('عدد الزيارات في اليوم = عدد الوقفات لا السجلّات', () => {
+  const days = composeWorkDays({
+    sessions: [], pingRanges: [],
+    visits: [
+      { customerName: 'أسواق المزرعة', at: at('2026-08-05T07:22:00Z'), durationSec: 3585 },
+      { customerName: 'أسواق المزرعة', at: at('2026-08-05T07:23:00Z'), durationSec: null },
+      { customerName: 'قولدن سنت', at: at('2026-08-05T08:21:00Z'), durationSec: 998 },
+      { customerName: 'قولدن سنت', at: at('2026-08-05T08:38:00Z'), durationSec: null },
+    ],
+    tzOffsetMin: KSA,
+  });
+  assert.equal(days.length, 1);
+  assert.equal(days[0].visitsCount, 2, 'أربعة سجلّات = وقفتان');
+  assert.equal(days[0].visitsSec, 3585 + 998, 'ومجموع المدد لا يتغيّر بالدمج');
+});
+
+/* ───────── الأيام الغائبة ───────── */
+
+test('يومٌ بلا أثر داخل المدى يظهر صفّاً فارغاً لا يُحذف', () => {
+  const days = composeWorkDays({
+    sessions: [], pingRanges: [],
+    visits: [{ customerName: 'عميل', at: at('2026-08-03T07:00:00Z'), durationSec: 600 }],
+    tzOffsetMin: KSA,
+    range: { from: '2026-08-01', to: '2026-08-05' },
+  });
+  assert.equal(days.length, 5, 'خمسة أيام في المدى');
+  assert.deepEqual(days.map(d => d.date), ['2026-08-01','2026-08-02','2026-08-03','2026-08-04','2026-08-05']);
+  assert.equal(days.filter(d => d.absent).length, 4, 'أربعة أيام غياب مُعلَنة');
+  assert.equal(days[2].absent, false);
+});
+
+test('بلا مدى ⇒ أيام النشاط وحدها (سلوك سابق محفوظ)', () => {
+  const days = composeWorkDays({
+    sessions: [], pingRanges: [],
+    visits: [{ customerName: 'ع', at: at('2026-08-03T07:00:00Z'), durationSec: 600 }],
+    tzOffsetMin: KSA,
+  });
+  assert.equal(days.length, 1);
+  assert.equal(days[0].absent, false);
+});
+
+test('اليوم الغائب لا يضخّم أي مجموع', () => {
+  const days = composeWorkDays({
+    sessions: [], pingRanges: [], visits: [],
+    tzOffsetMin: KSA, range: { from: '2026-08-01', to: '2026-08-03' },
+  });
+  assert.equal(days.length, 3);
+  assert.equal(days.reduce((a, d) => a + d.spanMinutes, 0), 0);
+  assert.equal(days.reduce((a, d) => a + d.visitsCount, 0), 0);
 });

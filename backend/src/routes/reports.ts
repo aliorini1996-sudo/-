@@ -424,12 +424,20 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
           durationSec: v.durationSec,
         })),
         tzOffsetMin,
+        // مدى الأيام المحلّية: يُملأ الغائب منها بصفوفٍ فارغة كي يظهر الغياب
+        range: {
+          from: new Date(fromDate.getTime() + tzOffsetMin * 60000).toISOString().slice(0, 10),
+          to: new Date(toEnd.getTime() - 1 + tzOffsetMin * 60000).toISOString().slice(0, 10),
+        },
       });
 
       // الحقول القديمة تبقى كما كانت (نشاط التطبيق) — الواجهة المنشورة تقرؤها
       // أثناء انزلاق النشر، والمقياس الجديد يُضاف جوارها لا مكانها.
       const appTotal = days.reduce((s, d) => s + d.appMinutes, 0);
       const fieldTotal = days.reduce((s, d) => s + d.spanMinutes, 0);
+      const workedDays = days.filter((d) => !d.absent).length;
+      const absentDays = days.filter((d) => d.absent).length;
+      const visitsTotal = days.reduce((s, d) => s + d.visitsCount, 0);
       const sess = sessByRep.get(r.id) || [];
       return {
         id: r.id, name: r.name,
@@ -439,6 +447,10 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         firstSeen: days.length ? days[0].firstActivity : null,
         lastSeen: days.length ? days[days.length - 1].lastActivity : null,
         fieldMinutesTotal: fieldTotal,
+        workedDays, absentDays, visitsTotal,
+        // متوسط اليوم يُقسَم على أيام **العمل** لا أيام المدى: القسمة على المدى
+        // تخلط الغياب بالبطء فتُظهر مجتهداً غاب يومين كأنه متقاعس.
+        avgDayMinutes: workedDays ? Math.round(fieldTotal / workedDays) : 0,
         days,
       };
     }).sort((a, b) => b.fieldMinutesTotal - a.fieldMinutesTotal);

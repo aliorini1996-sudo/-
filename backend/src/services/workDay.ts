@@ -19,6 +19,59 @@
 
 export interface Interval { start: Date; end: Date }
 export interface VisitLike { customerName: string; at: Date; durationSec: number | null }
+
+/**
+ * زيارةٌ واحدة كما يفهمها المشرف — لا كما تُخزَّن.
+ *
+ * تطبيق المندوب ينشئ **سجلَّين** للزيارة الواحدة: مؤقّتٌ يبدأ عند فتح ملفّ
+ * العميل وينتهي عند الخروج (بمدّة)، وسجلٌّ آخر حين يكتب ملاحظةً أو يلتقط صورة
+ * (بلا توقيت). فكان التقرير يعرض كل عميلٍ مرّتين — مرّةً بمدّة ومرّةً «بلا
+ * توقيت» — ويضاعف عدد الزيارات. وهما حدثان في النظام، لكنهما **وقفةٌ واحدة**
+ * عند عميلٍ واحد، والمشرف يعدّ الوقفات لا السجلّات.
+ */
+export interface MergedVisit {
+  customerName: string;
+  start: Date;
+  /** نهاية الزيارة (بداية + مدّة) — null لزيارة بلا توقيت */
+  end: Date | null;
+  durationSec: number | null;
+  /** رافقتها ملاحظة أو صورة */
+  hasNote: boolean;
+  /** كم سجلاً اندمج فيها (٢ = مؤقّت + ملاحظة) */
+  parts: number;
+}
+
+/**
+ * هامش الدمج: الملاحظة تُحفظ والمندوب يخرج، فيسبق طابعُها نهايةَ المؤقّت أو
+ * يليها بدقائق. خمس دقائق تكفي ولا تبتلع زيارةً ثانية لنفس العميل.
+ */
+export const MERGE_TOLERANCE_MS = 5 * 60 * 1000;
+
+/** يدمج سجلَّي الزيارة الواحدة (المؤقّت + الملاحظة) في وقفةٍ واحدة */
+export function mergeVisits(visits: VisitLike[]): MergedVisit[] {
+  const sorted = [...visits].sort((a, b) => a.at.getTime() - b.at.getTime());
+  const isTimed = (v: VisitLike) => !!v.durationSec && v.durationSec > 0;
+
+  const out: MergedVisit[] = sorted.filter(isTimed).map((v) => ({
+    customerName: v.customerName,
+    start: v.at,
+    end: new Date(v.at.getTime() + (v.durationSec as number) * 1000),
+    durationSec: v.durationSec,
+    hasNote: false,
+    parts: 1,
+  }));
+
+  for (const u of sorted.filter((v) => !isTimed(v))) {
+    const t = u.at.getTime();
+    const host = out.find((h) =>
+      h.customerName === u.customerName &&
+      t >= h.start.getTime() - MERGE_TOLERANCE_MS &&
+      t <= (h.end ? h.end.getTime() : h.start.getTime()) + MERGE_TOLERANCE_MS);
+    if (host) { host.hasNote = true; host.parts += 1; }
+    else out.push({ customerName: u.customerName, start: u.at, end: null, durationSec: null, hasNote: true, parts: 1 });
+  }
+  return out.sort((a, b) => a.start.getTime() - b.start.getTime());
+}
 export interface PingRange { day: string; min: Date; max: Date }
 
 export interface WorkDay {
@@ -27,9 +80,11 @@ export interface WorkDay {
   lastActivity: Date;         // آخر أثر
   spanMinutes: number;        // يوم العمل الميداني = آخره − أوله
   appMinutes: number;         // نشاط التطبيق داخل اليوم (جلسات مقصوصة على حدوده)
-  visits: VisitLike[];        // مرتّبة زمنياً
-  visitsCount: number;
+  visits: MergedVisit[];      // وقفاتٌ مدموجة مرتّبة زمنياً
+  visitsCount: number;        // عدد **الوقفات** لا السجلّات
   visitsSec: number;          // مجموع مدد الزيارات المؤقّتة (يطابق ملخّص خريطة التتبّع)
+  /** يومٌ في المدى بلا أيّ أثر — يُعرض صفّاً فارغاً لا يُحذف */
+  absent: boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -69,8 +124,10 @@ export function composeWorkDays(input: {
   pingRanges: PingRange[];   // مُجمَّعة مسبقاً لكل يوم محلي (min/max) — النقاط الخام كثيرة
   visits: VisitLike[];
   tzOffsetMin: number;
+  /** مدى الأيام المحلّية (YYYY-MM-DD) — يُملأ الغائب منها بصفوفٍ فارغة */
+  range?: { from: string; to: string };
 }): WorkDay[] {
-  const { sessions, pingRanges, visits, tzOffsetMin } = input;
+  const { sessions, pingRanges, visits, tzOffsetMin, range } = input;
   type Acc = { first: Date; last: Date; appMs: number; visits: VisitLike[]; visitsSec: number };
   const days = new Map<string, Acc>();
   const touch = (day: string, at: Date): Acc => {
@@ -104,16 +161,38 @@ export function composeWorkDays(input: {
     a.visits.push(v);
   }
 
-  return [...days.entries()]
-    .map(([date, a]) => ({
+  const built: WorkDay[] = [...days.entries()].map(([date, a]) => {
+    const merged = mergeVisits(a.visits);
+    return {
       date,
       firstActivity: a.first,
       lastActivity: a.last,
       spanMinutes: Math.round((a.last.getTime() - a.first.getTime()) / 60000),
       appMinutes: Math.round(a.appMs / 60000),
-      visits: a.visits.sort((x, y) => x.at.getTime() - y.at.getTime()),
-      visitsCount: a.visits.length,
+      visits: merged,
+      visitsCount: merged.length,
       visitsSec: a.visitsSec,
-    }))
-    .sort((x, y) => x.date.localeCompare(y.date));
+      absent: false,
+    };
+  });
+
+  // أيامٌ بلا أثر تُملأ صفوفاً فارغة داخل المدى المطلوب. حذفُها يُخفي الغياب:
+  // مندوبٌ غاب ثلاثة أيام من خمسة يبدو جدولُه مكتملاً لأن الأيام الغائبة لا
+  // تظهر أصلاً — والمشرف يقرأ ما أمامه لا ما نقص منه.
+  if (range) {
+    const have = new Set(built.map((d) => d.date));
+    for (let t = dayStartUtc(range.from, tzOffsetMin).getTime();
+         t <= dayStartUtc(range.to, tzOffsetMin).getTime();
+         t += DAY_MS) {
+      const day = dayKey(new Date(t), tzOffsetMin);
+      if (have.has(day)) continue;
+      const at = new Date(t);
+      built.push({
+        date: day, firstActivity: at, lastActivity: at,
+        spanMinutes: 0, appMinutes: 0, visits: [], visitsCount: 0, visitsSec: 0, absent: true,
+      });
+    }
+  }
+
+  return built.sort((x, y) => x.date.localeCompare(y.date));
 }

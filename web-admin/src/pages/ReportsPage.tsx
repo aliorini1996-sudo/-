@@ -13,12 +13,19 @@ import toast from 'react-hot-toast';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
-interface WorkVisit { customerName: string; at: string; durationSec: number | null }
-interface WorkDayRow { date: string; firstActivity: string; lastActivity: string; spanMinutes: number; appMinutes: number; visits: WorkVisit[]; visitsCount: number; visitsSec: number }
+// زيارة **مدموجة**: سجلّ المؤقّت وسجلّ الملاحظة للعميل الواحد وقفةٌ واحدة
+interface WorkVisit { customerName: string; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number }
+interface WorkDayRow {
+  date: string; firstActivity: string; lastActivity: string;
+  spanMinutes: number; appMinutes: number;
+  visits: WorkVisit[]; visitsCount: number; visitsSec: number;
+  absent: boolean;   // يومٌ في المدى بلا أيّ أثر
+}
 interface WorkHoursRow {
   id: string; name: string; totalMinutes: number; hours: number; minutes: number; sessions: number;
   firstSeen: string | null; lastSeen: string | null;
   fieldMinutesTotal: number;   // Σ يوم العمل الميداني (أول أثر → آخر أثر) عبر المدى
+  workedDays: number; absentDays: number; visitsTotal: number; avgDayMinutes: number;
   days: WorkDayRow[];
 }
 interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: number; mapsUrl: string }
@@ -76,6 +83,7 @@ export default function ReportsPage() {
   });
 
   const [expandedPerf, setExpandedPerf] = useState<string | null>(null); // صفّ مواقع الزيارات المفتوح
+  const [openDay, setOpenDay] = useState<string | null>(null);           // «معرّف المندوب|التاريخ» لليوم المفتوح
   const { data: perfData } = useQuery({
     queryKey: ['report-performance', from, to],
     queryFn: async () => {
@@ -183,29 +191,33 @@ export default function ReportsPage() {
       sheets = [
         { name: tr('ملخص المناديب'), rows: hoursRows.map(r => ({
           [tr('المندوب')]: r.name,
-          [tr('أيام العمل')]: r.days.length,
-          [tr('إجمالي يوم العمل الميداني')]: fmtMin(r.fieldMinutesTotal),
+          [tr('أيام الحضور')]: r.workedDays,
+          [tr('أيام بلا نشاط')]: r.absentDays,
+          [tr('إجمالي وقت العمل')]: fmtMin(r.fieldMinutesTotal),
+          [tr('متوسط اليوم')]: fmtMin(r.avgDayMinutes),
           [tr('نشاط التطبيق')]: fmtDuration(r.hours, r.minutes),
-          [tr('عدد الجلسات')]: r.sessions,
-          [tr('عدد الزيارات')]: r.days.reduce((s2, d) => s2 + d.visitsCount, 0),
+          [tr('عدد الزيارات')]: r.visitsTotal,
           [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
-        })), colWidths: [22, 10, 18, 14, 12, 12, 18, 18] },
-        { name: tr('ملخص الأيام'), rows: hoursRows.flatMap(r => r.days.map(d => ({
+        })), colWidths: [22, 12, 12, 14, 12, 14, 12, 18, 18] },
+        { name: tr('الحضور اليومي'), rows: hoursRows.flatMap(r => r.days.map(d => ({
           [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
-          [tr('من')]: fmtClock(d.firstActivity), [tr('إلى')]: fmtClock(d.lastActivity),
-          [tr('إجمالي وقت العمل')]: fmtMin(d.spanMinutes),
-          [tr('نشاط التطبيق')]: fmtMin(d.appMinutes),
+          [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.firstActivity),
+          [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.lastActivity),
+          [tr('إجمالي وقت العمل')]: d.absent ? '—' : fmtMin(d.spanMinutes),
+          [tr('نشاط التطبيق')]: d.absent ? '—' : fmtMin(d.appMinutes),
           [tr('عدد الزيارات')]: d.visitsCount,
-          [tr('مجموع مدد الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
-        }))), colWidths: [22, 12, 10, 10, 14, 14, 12, 16] },
-        // الأعمدة بالترتيب الذي طلبه المالك: العميل | وقت الزيارة | مدتها | إجمالي اليوم
+          [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
+        }))), colWidths: [22, 12, 12, 12, 14, 14, 12, 16] },
+        // زيارةٌ واحدة لكل وقفة: بداية ونهاية صريحتان بدل صفَّين لعميلٍ واحد
         { name: tr('تفاصيل الزيارات'), rows: hoursRows.flatMap(r => r.days.flatMap(d => d.visits.map(v => ({
           [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
           [tr('اسم العميل')]: v.customerName,
-          [tr('وقت الزيارة')]: fmtClock(v.at),
+          [tr('بداية الزيارة')]: fmtClock(v.start),
+          [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
           [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
+          [tr('ملاحظة/صور')]: v.hasNote ? tr('نعم') : '',
           [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
-        })))), colWidths: [22, 12, 24, 10, 12, 16] },
+        })))), colWidths: [22, 12, 24, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
     } else if (tab === 'performance' && perfType === 'receivables' && recvRows?.length) {
@@ -316,16 +328,23 @@ export default function ReportsPage() {
     return sheets;
   };
   const repHoursSheets = (r: WorkHoursRow) => [
-    { name: tr('ملخص الأيام'), colWidths: [12, 10, 10, 14, 14, 12, 16],
+    { name: tr('الحضور اليومي'), colWidths: [12, 12, 12, 14, 14, 12, 16],
       rows: r.days.map(d => ({
-        [tr('التاريخ')]: d.date, [tr('من')]: fmtClock(d.firstActivity), [tr('إلى')]: fmtClock(d.lastActivity),
-        [tr('إجمالي وقت العمل')]: fmtMin(d.spanMinutes), [tr('نشاط التطبيق')]: fmtMin(d.appMinutes),
-        [tr('عدد الزيارات')]: d.visitsCount, [tr('مجموع مدد الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
+        [tr('التاريخ')]: d.date,
+        [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.firstActivity),
+        [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : fmtClock(d.lastActivity),
+        [tr('إجمالي وقت العمل')]: d.absent ? '—' : fmtMin(d.spanMinutes),
+        [tr('نشاط التطبيق')]: d.absent ? '—' : fmtMin(d.appMinutes),
+        [tr('عدد الزيارات')]: d.visitsCount,
+        [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
       })) },
-    { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 10, 12, 16],
+    { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 12, 12, 12, 12, 16],
       rows: r.days.flatMap(d => d.visits.map(v => ({
         [tr('التاريخ')]: d.date, [tr('اسم العميل')]: v.customerName,
-        [tr('وقت الزيارة')]: fmtClock(v.at), [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
+        [tr('بداية الزيارة')]: fmtClock(v.start),
+        [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
+        [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
+        [tr('ملاحظة/صور')]: v.hasNote ? tr('نعم') : '',
         [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
       }))) },
   ];
@@ -642,81 +661,139 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* تقرير ساعات العمل — يوم العمل الميداني (أول أثر → آخر أثر) + نشاط التطبيق + تفصيل الزيارات */}
+      {/* تقرير ساعات العمل — على نمط تقارير الحضور المتخصّصة: صفٌّ لكل يوم في
+          المدى (والغائب يظهر فارغاً لا يُحذف)، ومفتاح ألوان أعلى الجدول، وشريطا
+          ملخّص: ساعات ثم أيام. والزيارات تُفتح بالنقر على اليوم فلا تزحم الجدول. */}
       {tab === 'performance' && perfType === 'hours' && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500 -mt-1">
-            {tr('«إجمالي وقت العمل» يُقاس من أول نشاط مرصود في اليوم (موقع أو فتح تطبيق أو زيارة) إلى آخره — أقرب مقياس متاح لخروج المندوب وعودته. و«نشاط التطبيق» هو الوقت الذي كان فيه التطبيق مفتوحاً ومتصلاً فقط.')}
-          </p>
+          {/* مفتاح الألوان — سأل المالك «هل الأخضر بداية والأحمر نهاية؟»، وما
+              لا يُشرح يُخمَّن. الشرح هنا أرخص من تخمينٍ يُبنى عليه قرار. */}
+          <div className="card py-3">
+            <div className="flex items-center gap-x-5 gap-y-2 flex-wrap text-xs text-[#6E6557]">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#E7F5EE] border border-[#1E7A52]" /> {tr('بداية العمل')}</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#FBEBE2] border border-[#C0392B]" /> {tr('نهاية العمل')}</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#EAF3FB] border border-[#2E6FB0]" /> {tr('وقت داخل الزيارات')}</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#F1EBDF] border border-[#B3A996]" /> {tr('يوم بلا نشاط')}</span>
+              <span className="text-[#9A8F7E]">· {tr('انقر على أي يوم لعرض زياراته')}</span>
+            </div>
+            <p className="text-[11px] text-[#9A8F7E] mt-2 leading-relaxed">
+              {tr('«إجمالي وقت العمل» يُقاس من أول نشاط مرصود في اليوم (موقع أو فتح تطبيق أو زيارة) إلى آخره — أقرب مقياس متاح لخروج المندوب وعودته. و«نشاط التطبيق» هو الوقت الذي كان فيه التطبيق مفتوحاً ومتصلاً فقط.')}
+            </p>
+          </div>
+
           {hoursStatus === 'pending' ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">
               {hoursFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}
             </div>
           ) : hoursStatus === 'error' ? (
             <div className="card flex items-center justify-center h-32 text-red-500">{tr('تعذّر تحميل التقرير')}</div>
-          ) : (hoursRows && hoursRows.length > 0 && hoursRows.some(r => r.days.length > 0)) ? (
-            hoursRows.filter(r => r.days.length > 0).map(r => (
+          ) : (hoursRows && hoursRows.length > 0) ? (
+            hoursRows.map(r => (
               <div key={r.id} className="card p-0 overflow-hidden">
+                {/* ترويسة المندوب */}
                 <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 bg-[#FAF7F0] border-b border-[#F1EBDF]">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <p className="font-bold text-[#1F1A13]">{r.name}</p>
-                    <span className="text-xs text-gray-500">
-                      {r.days.length} {tr('يوم عمل')} · {tr('نشاط التطبيق')}: {fmtDuration(r.hours, r.minutes)} · {r.sessions} {tr('جلسة')}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <p className="font-bold text-sm text-[#1E7A52]">{tr('الإجمالي')}: {fmtMin(r.fieldMinutesTotal)}</p>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => exportRepHours(r)} title={`${tr('تصدير Excel')} — ${r.name}`}
-                        className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
-                      <button onClick={() => exportRepHoursPdf(r)} title={`${tr('تصدير PDF')} — ${r.name}`}
-                        className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
-                    </div>
+                  <p className="font-bold text-[#1F1A13]">{r.name}</p>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => exportRepHours(r)} title={`${tr('تصدير Excel')} — ${r.name}`}
+                      className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                    <button onClick={() => exportRepHoursPdf(r)} title={`${tr('تصدير PDF')} — ${r.name}`}
+                      className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
                   </div>
                 </div>
-                {r.days.map(d => (
-                  <div key={d.date} className="border-b border-[#F5F1E8] last:border-b-0">
-                    <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-2 bg-[#FDFBF7]">
-                      <span className="text-sm font-semibold text-[#1F1A13]">{d.date}</span>
-                      <span className="text-xs text-gray-600">
-                        {fmtClock(d.firstActivity)} ← {fmtClock(d.lastActivity)} ·{' '}
-                        <b className="text-[#1E7A52]">{tr('إجمالي وقت العمل')}: {fmtMin(d.spanMinutes)}</b>
-                        {' '}· {tr('نشاط التطبيق')}: {fmtMin(d.appMinutes)}
-                      </span>
-                    </div>
-                    {d.visits.length > 0 ? (
-                      <div className="table-wrapper">
-                        <table className="table">
-                          <thead>
+
+                {/* الجدول اليومي */}
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>{tr('التاريخ')}</th><th>{tr('بداية العمل')}</th><th>{tr('نهاية العمل')}</th>
+                        <th>{tr('إجمالي وقت العمل')}</th><th>{tr('نشاط التطبيق')}</th>
+                        <th>{tr('عدد الزيارات')}</th><th>{tr('وقت داخل الزيارات')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {r.days.map(d => (
+                        <Fragment key={d.date}>
+                          <tr
+                            onClick={() => d.visitsCount > 0 && setOpenDay(openDay === `${r.id}|${d.date}` ? null : `${r.id}|${d.date}`)}
+                            className={`${d.absent ? 'bg-[#FCFAF6] text-[#B3A996]' : d.visitsCount > 0 ? 'cursor-pointer hover:bg-[#FAF7F0]' : ''}`}>
+                            <td className="tabular-nums text-xs">
+                              {d.date}
+                              {d.visitsCount > 0 && <span className="ms-1 text-[#9A8F7E]">{openDay === `${r.id}|${d.date}` ? '▲' : '▾'}</span>}
+                            </td>
+                            {d.absent ? (
+                              <td colSpan={6} className="text-center text-xs">{tr('لا نشاط مسجّل في هذا اليوم')}</td>
+                            ) : (
+                              <>
+                                <td><span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#E7F5EE] text-[#1E7A52]">{fmtClock(d.firstActivity)}</span></td>
+                                <td><span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#FBEBE2] text-[#C0392B]">{fmtClock(d.lastActivity)}</span></td>
+                                <td className="font-bold text-[#1F1A13] tabular-nums">{fmtMin(d.spanMinutes)}</td>
+                                <td className="text-gray-600 tabular-nums">{fmtMin(d.appMinutes)}</td>
+                                <td className="tabular-nums">{d.visitsCount}</td>
+                                <td className="tabular-nums text-[#2E6FB0] font-semibold">{fmtVisitDur(d.visitsSec) || '—'}</td>
+                              </>
+                            )}
+                          </tr>
+                          {openDay === `${r.id}|${d.date}` && d.visits.length > 0 && (
                             <tr>
-                              <th>{tr('اسم العميل')}</th><th>{tr('وقت الزيارة')}</th>
-                              <th>{tr('مدة الزيارة')}</th><th>{tr('إجمالي وقت العمل لليوم')}</th>
+                              <td colSpan={7} className="bg-[#FDFBF7] p-0">
+                                <table className="table">
+                                  <thead>
+                                    <tr>
+                                      <th>{tr('اسم العميل')}</th><th>{tr('بداية الزيارة')}</th>
+                                      <th>{tr('نهاية الزيارة')}</th><th>{tr('مدة الزيارة')}</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {d.visits.map((v, i) => (
+                                      <tr key={i}>
+                                        <td className="font-medium text-gray-800">
+                                          {v.customerName}
+                                          {v.hasNote && <span className="ms-1.5 text-[10px] text-[#2E6FB0]" title={tr('رافقتها ملاحظة أو صور')}>📝</span>}
+                                        </td>
+                                        <td className="tabular-nums text-[#1E7A52] font-semibold">{fmtClock(v.start)}</td>
+                                        <td className="tabular-nums text-[#C0392B] font-semibold">{v.end ? fmtClock(v.end) : <span className="text-gray-400 font-normal">{tr('بلا توقيت')}</span>}</td>
+                                        <td className="tabular-nums text-[#2E6FB0] font-semibold">{fmtVisitDur(v.durationSec) || <span className="text-gray-400 font-normal">{tr('بلا توقيت')}</span>}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {d.visits.map((v, i) => (
-                              <tr key={i}>
-                                <td className="font-medium text-gray-800">{v.customerName}</td>
-                                <td className="text-gray-600 tabular-nums">{fmtClock(v.at)}</td>
-                                <td className="text-[#2E6FB0] font-semibold tabular-nums">{fmtVisitDur(v.durationSec) || <span className="text-gray-400 font-normal">{tr('بلا توقيت')}</span>}</td>
-                                {i === 0 && (
-                                  <td rowSpan={d.visits.length} className="align-middle text-[#1E7A52] font-bold tabular-nums bg-green-50/40">
-                                    {fmtMin(d.spanMinutes)}
-                                    {fmtVisitDur(d.visitsSec) && (
-                                      <p className="text-[10px] font-normal text-gray-500 mt-0.5">{tr('داخل الزيارات')}: {fmtVisitDur(d.visitsSec)}</p>
-                                    )}
-                                  </td>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-gray-400 px-4 py-2">{tr('لا زيارات مسجّلة في هذا اليوم')}</p>
-                    )}
-                  </div>
-                ))}
+                          )}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* شريط ملخّص الساعات */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-[#F1EBDF] border-t border-[#F1EBDF]">
+                  {[
+                    [tr('إجمالي وقت العمل'), fmtMin(r.fieldMinutesTotal), 'text-[#1E7A52]'],
+                    [tr('متوسط اليوم'), fmtMin(r.avgDayMinutes), 'text-[#1F1A13]'],
+                    [tr('نشاط التطبيق'), fmtDuration(r.hours, r.minutes), 'text-[#1F1A13]'],
+                    [tr('وقت داخل الزيارات'), fmtVisitDur(r.days.reduce((a, d) => a + d.visitsSec, 0)) || '—', 'text-[#2E6FB0]'],
+                  ].map(([label, val, cls], i) => (
+                    <div key={i} className="bg-white px-3 py-2.5">
+                      <p className="text-[10px] text-gray-500">{label}</p>
+                      <p className={`text-sm font-bold tabular-nums ${cls}`}>{val}</p>
+                    </div>
+                  ))}
+                </div>
+                {/* شريط ملخّص الأيام */}
+                <div className="grid grid-cols-3 gap-px bg-[#F1EBDF] border-t border-[#F1EBDF]">
+                  {[
+                    [tr('أيام الحضور'), String(r.workedDays), 'text-[#1E7A52]'],
+                    [tr('أيام بلا نشاط'), String(r.absentDays), r.absentDays > 0 ? 'text-[#C0392B]' : 'text-[#9A8F7E]'],
+                    [tr('عدد الزيارات'), String(r.visitsTotal), 'text-[#1F1A13]'],
+                  ].map(([label, val, cls], i) => (
+                    <div key={i} className="bg-white px-3 py-2.5">
+                      <p className="text-[10px] text-gray-500">{label}</p>
+                      <p className={`text-sm font-bold tabular-nums ${cls}`}>{val}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))
           ) : (
