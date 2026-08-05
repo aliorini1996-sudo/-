@@ -1,0 +1,70 @@
+# خط بناء iOS على Codemagic — تطبيق الإدارة (FieldSalesAdmin)
+# يبني على macOS، يوقّع تلقائياً بمفتاح App Store Connect، ويرفع إلى TestFlight.
+# جذر المستودع = مجلّد ios-admin-app هذا (فرع ios-admin-app). راجع CODEMAGIC-SETUP.md.
+
+workflows:
+  ios-admin-appstore:
+    name: FieldSales Admin iOS — App Store
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      # نفس تكامل مفتاح App Store Connect المستخدم لتطبيق المندوب — مفتاح واحد يخدم كل تطبيقات الحساب.
+      app_store_connect: FieldSales ASC Key
+    environment:
+      # لا نستخدم كتلة ios_signing: تجلب ملف تعريف موجوداً وتُفشل التحضير قبل تشغيل السكربتات.
+      vars:
+        XCODE_WORKSPACE: "FieldSalesAdmin.xcworkspace"
+        XCODE_SCHEME: "FieldSalesAdmin"
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: تهيئة سلسلة المفاتيح
+        script: |
+          keychain initialize
+      - name: إنشاء/جلب شهادة وملف تعريف التوزيع
+        script: |
+          # مفتاح خاص إلزامي، وإلا يفشل بـ"Cannot save Signing Certificates without certificate private key".
+          # ⚠️ حدّ آبل 3 شهادات توزيع. لإعادة استخدام شهادة تطبيق المندوب بدل إنشاء ثالثة،
+          # احفظ المفتاح الخاص في متغيّر Codemagic باسم CERTIFICATE_PRIVATE_KEY (Secure).
+          if [ -z "$CERTIFICATE_PRIVATE_KEY" ]; then
+            echo "لا يوجد CERTIFICATE_PRIVATE_KEY — سيُولَّد مفتاح جديد وتُنشأ شهادة جديدة."
+            openssl genrsa -out /tmp/cert_key.pem 2048
+            KEY_ARG="--certificate-key=@file:/tmp/cert_key.pem"
+          else
+            echo "استخدام CERTIFICATE_PRIVATE_KEY المحفوظ (يعيد استخدام الشهادة القائمة)."
+            KEY_ARG="--certificate-key=@env:CERTIFICATE_PRIVATE_KEY"
+          fi
+          app-store-connect fetch-signing-files "net.fieldsa.admin" \
+            --type IOS_APP_STORE \
+            $KEY_ARG \
+            --create
+      - name: إضافة الشهادات لسلسلة المفاتيح
+        script: |
+          keychain add-certificates
+      - name: تثبيت اعتماديات CocoaPods
+        script: |
+          pod install
+      - name: تطبيق ملفات التوقيع على المشروع
+        script: |
+          xcode-project use-profiles
+      - name: ضبط رقم البناء تلقائياً (فريد متصاعد)
+        script: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "FieldSalesAdmin/Info.plist"
+      - name: بناء الـIPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+      email:
+        recipients:
+          - aliorini1996@gmail.com
+        notify:
+          success: true
+          failure: true
