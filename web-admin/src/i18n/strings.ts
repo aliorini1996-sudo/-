@@ -463,6 +463,8 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'أيام الحضور': { en: 'Days present', fr: 'Jours présents' },
   'أيام بلا نشاط': { en: 'Days with no activity', fr: 'Jours sans activité' },
   'متوسط اليوم': { en: 'Daily average', fr: 'Moyenne par jour' },
+  'المدى المطلوب أطول من المسموح — عُرضت آخر': { en: 'Requested range exceeds the limit — showing only the last', fr: 'Période demandée trop longue — affichage des derniers' },
+  'يوماً فقط': { en: 'days', fr: 'jours seulement' },
   'ملاحظة/صور': { en: 'Note/photos', fr: 'Note/photos' },
   'رافقتها ملاحظة أو صور': { en: 'Included a note or photos', fr: 'Accompagnée d’une note ou de photos' },
   'إجمالي يوم العمل الميداني': { en: 'Total field workday', fr: 'Journée de terrain totale' },

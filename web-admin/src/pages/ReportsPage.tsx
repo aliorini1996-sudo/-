@@ -114,7 +114,13 @@ export default function ReportsPage() {
     queryKey: ['report-work-hours', from, to],
     queryFn: async () => {
       const res = await reportApi.workHours({ from, to, tz: String(-new Date().getTimezoneOffset()) });
-      return res.data.data as WorkHoursRow[];
+      // نلتقط meta لا البيانات وحدها: الخادم يقصّ المدى عند ٣١ يوماً ويُعلن ذلك
+      // في `rangeClamped` — وكانت الواجهة تتجاهله، فيختار المشرف ثلاثة أشهر
+      // ويقرأ شهراً واحداً وهو يظنّه ثلاثة. القصّ الصامت أسوأ من رفض الطلب.
+      return {
+        rows: res.data.data as WorkHoursRow[],
+        clampedDays: (res.data.meta?.rangeClamped as number | undefined) ?? null,
+      };
     },
     enabled: tab === 'performance' && perfType === 'hours',
   });
@@ -166,7 +172,7 @@ export default function ReportsPage() {
   // ساعات العمل: **إيجادٌ لا تقطيع** — مقاييس اليوم تصف اليوم كلّه ولا تُشتقّ
   // من زياراتٍ مُنتقاة، فقصُّها مع إبقاء الرقم يُنتج صفحةً أرقامُها لا تشرح جدولها.
   const hoursRows = useMemo(
-    () => filterFlat(hoursData || [], q, r => [r.name, ...r.days.flatMap(d => d.visits.map(v => v.customerName))]),
+    () => filterFlat(hoursData?.rows || [], q, r => [r.name, ...r.days.flatMap(d => d.visits.map(v => v.customerName))]),
     [hoursData, q],
   );
 
@@ -681,6 +687,11 @@ export default function ReportsPage() {
             </p>
           </div>
 
+          {hoursData?.clampedDays != null && (
+            <div className="rounded-xl px-4 py-2.5 text-sm border bg-amber-50 border-amber-200 text-amber-800">
+              {tr('المدى المطلوب أطول من المسموح — عُرضت آخر')} {hoursData.clampedDays} {tr('يوماً فقط')}
+            </div>
+          )}
           {hoursStatus === 'pending' ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">
               {hoursFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}
