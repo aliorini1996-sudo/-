@@ -7,7 +7,7 @@
     "dev": "vite",
     "prebuild": "node scripts/gen-sitemap.mjs && node scripts/gen-llms.mjs",
     "build": "tsc && vite build",
-    "test": "tsx --test src/free/engines.test.ts src/components/whatsappFab.test.ts",
+    "test": "tsx --test src/free/engines.test.ts src/lib/reportSearch.test.ts src/components/whatsappFab.test.ts",
     "postbuild": "node scripts/prerender.mjs && node scripts/verify-pricing.mjs && node scripts/verify-claims.mjs && node scripts/verify-schema.mjs",
     "preview": "vite preview",
     "seo:sitemap": "node scripts/gen-sitemap.mjs",

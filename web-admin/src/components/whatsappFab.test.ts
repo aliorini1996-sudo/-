@@ -8,7 +8,7 @@ import { refFromPath } from './WhatsAppFab';
  * يقرأ المصدر ويؤكّد تطابق التعبيرين حرفياً، فأي تعديل هناك بلا تعديل هنا
  * يُفشل الاختبار بدل أن يمرّ صامتاً.
  */
-const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|verify-email|rep)(\/|$)/;
+const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|verify-email|rep|m)(\/|$)/;
 const shows = (p: string) => !HIDDEN_ON.test(p);
 
 /** كل المسارات التسويقية المسجَّلة في App.tsx — الزرّ إلزامي على كلّها */

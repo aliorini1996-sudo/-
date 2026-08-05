@@ -409,6 +409,13 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   // دقّة اقتراح التحميل
   'دقّة الاقتراح': { en: 'Suggestion accuracy', fr: 'Précision des suggestions' },
   // خطّ سير المندوب على الخريطة
+  // بحث التقارير بالاسم
+  'اسم العميل أو المندوب': { en: 'Customer or rep name', fr: 'Nom du client ou du représentant' },
+  'مسح البحث': { en: 'Clear search', fr: 'Effacer la recherche' },
+  'لا نتائج مطابقة للبحث': { en: 'No results match your search', fr: 'Aucun résultat ne correspond' },
+  'نتائج البحث عن': { en: 'Search results for', fr: 'Résultats pour' },
+  'سجلّ': { en: 'record(s)', fr: 'enregistrement(s)' },
+  'التصدير يشمل المعروض فقط': { en: 'export includes only what is shown', fr: 'l’export ne contient que ce qui est affiché' },
   'مسار مرصود': { en: 'Observed route', fr: 'Trajet observé' },
   'مسار مُرجَّح': { en: 'Inferred route', fr: 'Trajet estimé' },
   'خطّ مستقيم (تعذّرت المطابقة)': { en: 'Straight line (matching failed)', fr: 'Ligne droite (échec du calage)' },

@@ -1,11 +1,12 @@
-import { useState, Fragment } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/client';
 import { formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
+import { filterFlat, filterNested } from '../lib/reportSearch';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, MapPin, FileText } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
@@ -34,6 +35,7 @@ export default function ReportsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
+  const [search, setSearch] = useState('');
   // نوع تقرير المناديب: أداء | ساعات العمل | مديونيات
   const [perfType, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
 
@@ -126,13 +128,60 @@ export default function ReportsPage() {
   // اسم العرض: أكواد القنوات تُترجَم؛ البقية كما هي
   const displayName = (name: string) => groupBy === 'channel' ? (name === 'UNSET' ? tr('غير محدّد') : tr(channelLabel(name))) : name;
 
+  /**
+   * تصفية بالاسم — **على المعروض، والتصدير يتبعها**.
+   *
+   * تصديرُ ملفٍ يخالف ما على الشاشة فخٌّ صامت: يبحث المشرف عن مندوب، يضغط
+   * «تصدير»، فيخرج له الجميع ويظنّه بحثَه. لذلك تقرأ `buildSheets` هذه
+   * القوائم نفسها لا الأصلية.
+   *
+   * والمطابقة على مستويين حيث يوجد تعشيش: اسم المندوب **أو** اسم عميلٍ تحته —
+   * فيجد المشرفُ العميلَ ويعرف مَن يتولّاه.
+   */
+  const q = search.trim();
+  const salesRows = useMemo(() => {
+    if (!Array.isArray(salesData)) return salesData;
+    const rows = salesData as { name: string; total: number; count?: number; qty?: number; code?: string }[];
+    return filterFlat(rows, q, r => [r.name, displayName(r.name), r.code]);
+  }, [salesData, q, groupBy]);
+
+  const balanceRows = useMemo(
+    () => filterFlat(balancesData || [], q, c => [c.name, c.phone]),
+    [balancesData, q],
+  );
+
+  const perfRows = useMemo(
+    () => filterFlat(perfData || [], q, r => [r.name, ...r.visits.map(v => v.customerName)]),
+    [perfData, q],
+  );
+
+  // ساعات العمل: **إيجادٌ لا تقطيع** — مقاييس اليوم تصف اليوم كلّه ولا تُشتقّ
+  // من زياراتٍ مُنتقاة، فقصُّها مع إبقاء الرقم يُنتج صفحةً أرقامُها لا تشرح جدولها.
+  const hoursRows = useMemo(
+    () => filterFlat(hoursData || [], q, r => [r.name, ...r.days.flatMap(d => d.visits.map(v => v.customerName))]),
+    [hoursData, q],
+  );
+
+  // المديونيات: قائمة عملاء مسطّحة ⇒ التقطيع مفيدٌ وآمن، بشرط إعادة حساب
+  // مجاميع المندوب من المعروض (تكفّلت به `filterNested`).
+  const recvRows = useMemo(
+    () => recvData && filterNested(recvData, q, c => [c.name, c.businessName, c.phone, c.city],
+      (r, kept) => ({
+        ...r, customers: kept,
+        customersCount: kept.length,
+        debtorsCount: kept.filter(c => c.balance > 0).length,
+        totalBalance: Math.round(kept.reduce((a, c) => a + c.balance, 0) * 100) / 100,
+      })),
+    [recvData, q],
+  );
+
   // يبني أوراق بيانات التبويب النشط (مشتركة بين Excel وPDF)
   const buildSheets = (): { sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[]; fname: string } | null => {
     let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
     let fname = tr('تقرير');
-    if (tab === 'performance' && perfType === 'hours' && hoursData?.length) {
+    if (tab === 'performance' && perfType === 'hours' && hoursRows?.length) {
       sheets = [
-        { name: tr('ملخص المناديب'), rows: hoursData.map(r => ({
+        { name: tr('ملخص المناديب'), rows: hoursRows.map(r => ({
           [tr('المندوب')]: r.name,
           [tr('أيام العمل')]: r.days.length,
           [tr('إجمالي يوم العمل الميداني')]: fmtMin(r.fieldMinutesTotal),
@@ -141,7 +190,7 @@ export default function ReportsPage() {
           [tr('عدد الزيارات')]: r.days.reduce((s2, d) => s2 + d.visitsCount, 0),
           [tr('أول ظهور')]: fmtDateTime(r.firstSeen), [tr('آخر ظهور')]: fmtDateTime(r.lastSeen),
         })), colWidths: [22, 10, 18, 14, 12, 12, 18, 18] },
-        { name: tr('ملخص الأيام'), rows: hoursData.flatMap(r => r.days.map(d => ({
+        { name: tr('ملخص الأيام'), rows: hoursRows.flatMap(r => r.days.map(d => ({
           [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
           [tr('من')]: fmtClock(d.firstActivity), [tr('إلى')]: fmtClock(d.lastActivity),
           [tr('إجمالي وقت العمل')]: fmtMin(d.spanMinutes),
@@ -150,7 +199,7 @@ export default function ReportsPage() {
           [tr('مجموع مدد الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
         }))), colWidths: [22, 12, 10, 10, 14, 14, 12, 16] },
         // الأعمدة بالترتيب الذي طلبه المالك: العميل | وقت الزيارة | مدتها | إجمالي اليوم
-        { name: tr('تفاصيل الزيارات'), rows: hoursData.flatMap(r => r.days.flatMap(d => d.visits.map(v => ({
+        { name: tr('تفاصيل الزيارات'), rows: hoursRows.flatMap(r => r.days.flatMap(d => d.visits.map(v => ({
           [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
           [tr('اسم العميل')]: v.customerName,
           [tr('وقت الزيارة')]: fmtClock(v.at),
@@ -159,39 +208,39 @@ export default function ReportsPage() {
         })))), colWidths: [22, 12, 24, 10, 12, 16] },
       ];
       fname = tr('ساعات العمل');
-    } else if (tab === 'performance' && perfType === 'receivables' && recvData?.length) {
+    } else if (tab === 'performance' && perfType === 'receivables' && recvRows?.length) {
       sheets = [
-        { name: tr('ملخص المديونيات'), rows: recvData.map(r => ({
+        { name: tr('ملخص المديونيات'), rows: recvRows.map(r => ({
           [tr('المندوب')]: r.name, [tr('العملاء المسندون')]: r.customersCount,
           [tr('العملاء المدينون')]: r.debtorsCount, [tr('إجمالي المديونية')]: num(r.totalBalance),
         })), colWidths: [22, 16, 16, 18] },
-        { name: tr('تفاصيل المديونيات'), rows: recvData.flatMap(r => r.customers.map(c => ({
+        { name: tr('تفاصيل المديونيات'), rows: recvRows.flatMap(r => r.customers.map(c => ({
           [tr('المندوب')]: r.name, [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '',
           [tr('الجوال')]: c.phone, [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
           [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يُحصَّل قط'),
         }))), colWidths: [22, 24, 20, 16, 14, 14, 16] },
       ];
       fname = tr('مديونيات المندوب');
-    } else if (tab === 'performance' && perfType === 'performance' && perfData?.length) {
-      sheets = [{ name: tr('أداء المناديب'), rows: perfData.map(r => ({
+    } else if (tab === 'performance' && perfType === 'performance' && perfRows?.length) {
+      sheets = [{ name: tr('أداء المناديب'), rows: perfRows.map(r => ({
         [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
         [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
         [tr('ساعات العمل')]: fmtDuration(r.workHours, r.workMins), [tr('عدد الزيارات')]: r.visitsCount,
         [tr('روابط مواقع الزيارات')]: r.visits.map(v => v.mapsUrl).join('\n'),
       })), colWidths: [22, 12, 16, 14, 14, 16, 14, 12, 55] }];
       // ورقة مواقع الزيارات (روابط خرائط Google)
-      const locRows = perfData.flatMap(r => r.visits.map(v => ({
+      const locRows = perfRows.flatMap(r => r.visits.map(v => ({
         [tr('المندوب')]: r.name, [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl,
       })));
       if (locRows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: locRows, colWidths: [22, 22, 18, 40] });
       fname = tr('أداء المناديب');
-    } else if (tab === 'sales' && Array.isArray(salesData) && salesData.length) {
-      sheets = [{ name: tr('المبيعات'), rows: (salesData as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
+    } else if (tab === 'sales' && Array.isArray(salesRows) && salesRows.length) {
+      sheets = [{ name: tr('المبيعات'), rows: (salesRows as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
         [tr('الاسم')]: r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '', [tr('الإجمالي')]: num(r.total),
       })), colWidths: [28, 14, 16] }];
       fname = tr('تقارير المبيعات');
-    } else if (tab === 'balances' && balancesData?.length) {
-      sheets = [{ name: tr('أرصدة العملاء'), rows: balancesData.map(c => ({
+    } else if (tab === 'balances' && balanceRows?.length) {
+      sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
         [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
       })), colWidths: [24, 16, 14, 16] }];
       fname = tr('أرصدة العملاء');
@@ -343,6 +392,26 @@ export default function ReportsPage() {
           ) : (
             <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية — تعكس وضع المديونية الآن لا فترة محددة.')}</p>
           )}
+          {/* البحث: يظهر حيث يوجد ما يُصفّى — تبويب التحصيل ملخّصٌ بلا صفوف */}
+          {tab !== 'collections' && (
+            <div className="flex-1 min-w-[200px]">
+              <label className="label">{tr('بحث')}</label>
+              <div className="relative">
+                <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-gray-400 pointer-events-none" />
+                <input
+                  className="input ps-9 pe-8 w-full"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder={tr('اسم العميل أو المندوب')} />
+                {search && (
+                  <button type="button" onClick={() => setSearch('')} title={tr('مسح البحث')}
+                    className="absolute top-1/2 -translate-y-1/2 end-2 text-gray-400 hover:text-gray-600">
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {tab === 'sales' && (
             <div>
               <label className="label">{tr('تجميع حسب')}</label>
@@ -368,17 +437,35 @@ export default function ReportsPage() {
         </div>
       </div>
 
+      {/* حصيلة البحث: بلا هذا السطر يبدو الفراغُ الناتج عن بحثٍ ضيّق كأنه
+          غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
+      {q && (() => {
+        const shown = tab === 'sales' ? (Array.isArray(salesRows) ? salesRows.length : 0)
+          : tab === 'balances' ? balanceRows.length
+          : perfType === 'performance' ? perfRows.length
+          : perfType === 'hours' ? hoursRows.length
+          : (recvRows?.length ?? 0);
+        return (
+          <div className={`mb-4 rounded-xl px-4 py-2.5 text-sm border ${shown ? 'bg-[#FAF7F0] border-[#F1EBDF] text-[#6E6557]' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+            {shown
+              ? <>{tr('نتائج البحث عن')} «<b>{search}</b>»: {shown} {tr('سجلّ')} — {tr('التصدير يشمل المعروض فقط')}</>
+              : <>{tr('لا نتائج مطابقة للبحث')} «<b>{search}</b>»</>}
+            <button onClick={() => setSearch('')} className="ms-2 underline font-semibold">{tr('مسح البحث')}</button>
+          </div>
+        );
+      })()}
+
       {/* Sales Report */}
       {tab === 'sales' && (
         <div className="space-y-4">
           {salesLoading ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل...')}</div>
-          ) : Array.isArray(salesData) && salesData.length > 0 ? (
+          ) : Array.isArray(salesRows) && salesRows.length > 0 ? (
             <>
               <div className="card">
                 <h3 className="font-semibold text-gray-700 mb-4">{tr('مبيعات حسب')} {groupLabel()}</h3>
                 <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={(salesData as { name: string; total: number; count?: number }[]).slice(0, 10).map(r => ({ ...r, name: displayName(r.name) }))}>
+                  <BarChart data={(salesRows as { name: string; total: number; count?: number }[]).slice(0, 10).map(r => ({ ...r, name: displayName(r.name) }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
@@ -398,7 +485,7 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(salesData as { name: string; total: number; count?: number; qty?: number; code?: string }[]).map((row, i) => (
+                      {(salesRows as { name: string; total: number; count?: number; qty?: number; code?: string }[]).map((row, i) => (
                         <tr key={i}>
                           <td className="font-medium text-gray-800">{displayName(row.name)}</td>
                           <td className="text-gray-600">{row.count ?? row.qty ?? '-'}</td>
@@ -439,7 +526,7 @@ export default function ReportsPage() {
       )}
 
       {/* Balances Report */}
-      {tab === 'balances' && balancesData && (
+      {tab === 'balances' && balanceRows && (
         <div className="card p-0">
           <div className="table-wrapper">
             <table className="table">
@@ -447,7 +534,7 @@ export default function ReportsPage() {
                 <tr><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th>{tr('نسبة الاستخدام')}</th></tr>
               </thead>
               <tbody>
-                {balancesData.map(c => (
+                {balanceRows.map(c => (
                   <tr key={c.id}>
                     <td className="font-medium text-gray-800">{c.name}</td>
                     <td className="font-mono text-sm text-gray-500">{c.phone}</td>
@@ -479,7 +566,7 @@ export default function ReportsPage() {
       )}
 
       {/* Performance Report */}
-      {tab === 'performance' && perfType === 'performance' && perfData && (
+      {tab === 'performance' && perfType === 'performance' && perfRows && (
         <div className="space-y-4">
           <div className="card p-0">
             <div className="table-wrapper">
@@ -492,7 +579,7 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {perfData.map(r => (
+                  {perfRows.map(r => (
                     <Fragment key={r.id}>
                     <tr>
                       <td className="font-medium text-gray-800">{r.name}</td>
@@ -567,8 +654,8 @@ export default function ReportsPage() {
             </div>
           ) : hoursStatus === 'error' ? (
             <div className="card flex items-center justify-center h-32 text-red-500">{tr('تعذّر تحميل التقرير')}</div>
-          ) : (hoursData && hoursData.length > 0 && hoursData.some(r => r.days.length > 0)) ? (
-            hoursData.filter(r => r.days.length > 0).map(r => (
+          ) : (hoursRows && hoursRows.length > 0 && hoursRows.some(r => r.days.length > 0)) ? (
+            hoursRows.filter(r => r.days.length > 0).map(r => (
               <div key={r.id} className="card p-0 overflow-hidden">
                 <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 bg-[#FAF7F0] border-b border-[#F1EBDF]">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -651,8 +738,8 @@ export default function ReportsPage() {
               <p className="text-red-500">{tr('تعذّر تحميل التقرير')}</p>
               <button onClick={() => recvRefetch()} className="text-xs font-semibold text-[#E15A30] underline">{tr('إعادة المحاولة')}</button>
             </div>
-          ) : recvData && recvData.some(r => r.customersCount > 0) ? (
-            recvData.map(r => (
+          ) : recvRows && recvRows.some(r => r.customersCount > 0) ? (
+            recvRows.map(r => (
               <div key={r.id} className="card p-0 overflow-hidden">
                 <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 bg-[#FAF7F0] border-b border-[#F1EBDF]">
                   <div className="flex items-center gap-3 flex-wrap">
