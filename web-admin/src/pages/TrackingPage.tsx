@@ -52,16 +52,6 @@ function repIcon(online: boolean, label: string) {
   });
 }
 
-// سهم اتجاه على خطّ السير — بلا اتجاهٍ يرى المشرف خطاً ولا يعرف أين بدأ اليوم.
-// `interactive:false` كي لا يسرق السهمُ نقرةً موجّهةً لدبّوس زيارةٍ تحته.
-function arrowIcon(deg: number) {
-  return L.divIcon({
-    className: '',
-    html: `<div style="transform:rotate(${deg}deg);width:16px;height:16px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B3462A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff)"><path d="M12 20V5M5 12l7-7 7 7"/></svg></div>`,
-    iconSize: [16, 16], iconAnchor: [8, 8],
-  });
-}
-
 // علامة زيارة على الخريطة (دبّوس أخضر) — موضع تسجيل المندوب للزيارة
 function visitIcon(n: number) {
   return L.divIcon({
@@ -179,9 +169,9 @@ export default function TrackingPage() {
 
   /**
    * مقاطع الرسم. المقطع **المُرجَّح** ليس أثراً رُصد: هو أرجحُ طريقٍ بين نقطتين
-   * متباعدتين أعاده محرّك التوجيه. رسمُه متصلاً كالمرصود يقول للمشرف «هذا ما
-   * سلكه» ونحن لا نعلم — وقد يُبنى عليه اتّهامُ مندوبٍ بالانحراف. فالمتقطّع
-   * ليس زينة: هو حدّ ما نستطيع الجزم به.
+   * متباعدتين أعاده محرّك التوجيه. يُرسَم **متصلاً** (بطلب المالك) لكنه يبقى
+   * مميّزاً عن المرصود بلونه الباهت (#9A8F7E لا برتقاليّ) ووسمه «مُرجَّح … ليس
+   * أثراً مرصوداً» — فلا يُقرأ كأثرٍ مؤكَّد يُبنى عليه اتّهامُ مندوبٍ بالانحراف.
    */
   const drawSegments = useMemo<{ kind: SegKind; pos: [number, number][] }[]>(() => {
     const segs = shape?.segments?.filter(sg => sg.points.length > 1) || [];
@@ -196,29 +186,6 @@ export default function TrackingPage() {
     [drawSegments],
   );
 
-  /**
-   * أسهم الاتجاه: بلا اتجاهٍ يقرأ المشرف الخطّ ولا يعرف أين بدأ اليوم. نضع
-   * سهماً كل ~عُشر المسار (٤ إلى ١٢ سهماً) مُدوَّراً نحو النقطة التالية.
-   */
-  const arrows = useMemo(() => {
-    if (pathLatLng.length < 4) return [];
-    const n = Math.min(12, Math.max(4, Math.floor(pathLatLng.length / 40)));
-    const step = Math.floor(pathLatLng.length / (n + 1));
-    const out: { pos: [number, number]; deg: number }[] = [];
-    for (let i = 1; i <= n; i++) {
-      const idx = i * step;
-      const a = pathLatLng[idx], b = pathLatLng[Math.min(idx + 1, pathLatLng.length - 1)];
-      if (!a || !b) continue;
-      // الاتجاه البوصلي مباشرةً: atan2(شرقاً، شمالاً) — الموضع [lat, lng] فـ
-      // a[0] شمال و a[1] شرق. (كتبتُها أوّلاً `90 - deg` على عادة تحويل زاوية
-      // رياضية إلى بوصلية، فأشار السهم شرقاً حيث السير شمالاً — أربع جهات كلها
-      // خاطئة، والسهم الكاذب أسوأ من غيابه.) و cos(lat) يصحّح تقلّص خطوط الطول.
-      const kx = Math.cos((a[0] * Math.PI) / 180);
-      const deg = (Math.atan2((b[1] - a[1]) * kx, b[0] - a[0]) * 180) / Math.PI;
-      out.push({ pos: a, deg }); // السهم يرسم شمالاً عند 0° ويدور مع عقارب الساعة
-    }
-    return out;
-  }, [pathLatLng]);
   const visitPins = useMemo(() => visits.filter(v => v.lat != null && v.lng != null), [visits]);
   // رقم الزيارة **زمنيّ**: ١ = أول زيارة في اليوم. القائمة تنزل من الخادم أحدثَ
   // أولاً، وكان الترقيم بموضع المصفوفة (i+1) فقرأ المشرف اليومَ معكوساً — آخرُ
@@ -310,7 +277,7 @@ export default function TrackingPage() {
                       <span>{tr('مسار مرصود')}: <b className="tabular-nums">{(shape.observedMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
-                      <span className="inline-block w-5 h-[3px] rounded" style={{ background: 'repeating-linear-gradient(90deg,#9A8F7E 0 4px,transparent 4px 8px)' }} />
+                      <span className="inline-block w-5 h-[3px] rounded" style={{ background: '#9A8F7E', opacity: 0.75 }} />
                       <span>{tr('مسار مُرجَّح')}: <b className="tabular-nums">{(shape.inferredMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
                     </div>
                     {shape.rawMeters > 0 && (
@@ -441,17 +408,19 @@ export default function TrackingPage() {
                         key={i}
                         positions={sg.pos}
                         pathOptions={{ observed: { color: '#E15A30', weight: 5, opacity: 0.9 },
-                          inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75, dashArray: '7 9' },
+                          inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75 },
                           raw: { color: '#B7791F', weight: 3, opacity: 0.7, dashArray: '2 7' } }[sg.kind]}
                       />
-                    ))}
-                    {arrows.map((a, i) => (
-                      <Marker key={`ar${i}`} position={a.pos} icon={arrowIcon(a.deg)} interactive={false} />
                     ))}
                     {rawLatLng.length > 0 && (
                       <>
                         <CircleMarker center={rawLatLng[0]} radius={7} pathOptions={{ color: '#fff', weight: 2, fillColor: '#1E7A52', fillOpacity: 1 }}>
-                          <Popup>{tr('بداية اليوم')}</Popup>
+                          <Popup>
+                            <div style={{ direction: 'rtl', textAlign: 'center', minWidth: 96 }}>
+                              <strong style={{ color: '#1E7A52' }}>{tr('بداية اليوم')}</strong><br />
+                              <span style={{ color: '#6E6557', fontSize: 12 }}>{tr('أول رصد')}: {timeText(route[0].capturedAt)}</span>
+                            </div>
+                          </Popup>
                         </CircleMarker>
                         <CircleMarker center={rawLatLng[rawLatLng.length - 1]} radius={7} pathOptions={{ color: '#fff', weight: 2, fillColor: '#E15A30', fillOpacity: 1 }}>
                           <Popup>{tr('آخر موقع')}</Popup>

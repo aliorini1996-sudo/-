@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -23,7 +23,7 @@ type SegKind = 'observed' | 'inferred' | 'raw';
 /** أنماط رسم المقاطع — مطابقة للوحة المكتبية عمداً: عينُ المشرف واحدة */
 const ROUTE_STYLE: Record<SegKind, Record<string, unknown>> = {
   observed: { color: '#E15A30', weight: 5, opacity: 0.9 },
-  inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75, dashArray: '7 9' },
+  inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75 },
   raw: { color: '#B7791F', weight: 3, opacity: 0.7, dashArray: '2 7' },
 };
 interface RouteSegment { kind: SegKind; points: { lat: number; lng: number }[]; meters: number }
@@ -146,7 +146,7 @@ export default function MTracking() {
   }, [selected, routeQ.data, sel, reps]);
 
   // نفس تمييز اللوحة المكتبية: المقطع المُرجَّح (أعاده محرّك التوجيه بين نقطتين
-  // متباعدتين) يُرسم متقطّعاً — رسمُه متصلاً يقول «هذا ما سلكه» ونحن لا نعلم.
+  // متباعدتين) يُرسم متصلاً بطلب المالك، ويبقى مميّزاً بلونه الباهت ووسمه «مُرجَّح».
   const segs = useMemo<{ kind: SegKind; pos: [number, number][] }[]>(() => {
     const ss = routeQ.data?.shape?.segments?.filter(g => g.points.length > 1) || [];
     if (ss.length) return ss.map(g => ({ kind: g.kind, pos: g.points.map(p => [p.lat, p.lng] as [number, number]) }));
@@ -187,7 +187,14 @@ export default function MTracking() {
         ))}
         {line.length > 1 && (
           <>
-            <CircleMarker center={line[0]} radius={7} pathOptions={{ color: '#fff', weight: 2, fillColor: '#2F855A', fillOpacity: 1 }} />
+            <CircleMarker center={line[0]} radius={7} pathOptions={{ color: '#fff', weight: 2, fillColor: '#2F855A', fillOpacity: 1 }}>
+              <Popup>
+                <div style={{ direction: 'rtl', textAlign: 'center', minWidth: 96 }}>
+                  <strong style={{ color: '#2F855A' }}>{tr('بداية اليوم')}</strong>
+                  {routeQ.data?.points?.[0] && <><br /><span style={{ color: '#6E6557', fontSize: 12 }}>{tr('أول رصد')}: {timeText(routeQ.data.points[0].capturedAt)}</span></>}
+                </div>
+              </Popup>
+            </CircleMarker>
             <CircleMarker center={line[line.length - 1]} radius={7} pathOptions={{ color: '#fff', weight: 2, fillColor: '#C0392B', fillOpacity: 1 }} />
           </>
         )}
