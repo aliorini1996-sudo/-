@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, canAccessRep } from '../services/adminScope';
+import { scopedRecordWhere, canAccessRep, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { computeVisitDuration } from '../services/visitDuration';
@@ -134,7 +134,7 @@ router.get('/', requireAdmin, async (req: AuthRequest, res: Response, next: Next
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
     const visits = await prisma.repVisit.findMany({
-      where: { tenantId: tid, salesRepId, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req)) },
+      where: { tenantId: tid, salesRepId, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
@@ -156,7 +156,7 @@ router.get('/count-by-rep', requireAdmin, async (req: AuthRequest, res: Response
 
     const rows = await prisma.repVisit.groupBy({
       by: ['salesRepId'],
-      where: { tenantId: tid, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req)) },
+      where: { tenantId: tid, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
       _count: { _all: true },
     });
     const counts: Record<string, number> = {};
@@ -170,7 +170,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const visit = await prisma.repVisit.findFirst({
-      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
         salesRep: { select: { id: true, name: true } },

@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, adminCustomerFilter, adminRepFilter } from '../services/adminScope';
+import { scopedRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -21,7 +21,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       topReps, topCustomers, recentInvoices,
     ] = await (async () => {
     // قيود نطاق المستخدم تُحسب مرّة وتُطبَّق على كل استعلامات اللوحة
-    const recScope = await scopedRecordWhere(req);
+    const recScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
     const custScope = await adminCustomerFilter(req);
     const repScope = await adminRepFilter(req);
     return Promise.all([
@@ -103,7 +103,7 @@ router.get('/sales-trend', async (req: AuthRequest, res: Response, next: NextFun
     from.setDate(from.getDate() - days);
 
     const invoices = await prisma.invoice.findMany({
-      where: { tenantId: tid, ...(await scopedRecordWhere(req)), status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: from } },
+      where: { tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)), status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: from } },
       select: { invoiceDate: true, total: true },
       orderBy: { invoiceDate: 'asc' },
     });

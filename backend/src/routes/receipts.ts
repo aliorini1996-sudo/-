@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, canAccessRep } from '../services/adminScope';
+import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries } from '../services/accounting';
@@ -54,7 +54,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     const where = {
       tenantId: tid,
-      ...(await scopedRecordWhere(req)),
+      ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
@@ -106,7 +106,7 @@ router.get('/collection-balance', async (req: AuthRequest, res: Response, next: 
       if (!rep?.showCollectionBalance) { res.json({ success: true, data: { enabled: false } }); return; }
     }
     const [collected, settled] = await Promise.all([
-      prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...(await scopedRecordWhere(req)) }, _sum: { amount: true } }),
+      prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) }, _sum: { amount: true } }),
       prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId }, _sum: { amount: true } }),
     ]);
     const c = collected._sum.amount ?? 0;
@@ -119,7 +119,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const receipt = await prisma.receipt.findFirst({
-      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       include: {
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
@@ -281,7 +281,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
   try {
     const tid = tenantId(req);
     const receipt = await prisma.receipt.findFirst({
-      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       include: { invoiceItems: true },
     });
     if (!receipt) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }

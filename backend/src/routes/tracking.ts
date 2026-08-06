@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
-import { adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, canAccessRep } from '../services/adminScope';
+import { adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, canAccessRep, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { snapToRoads, routeThrough } from '../services/mapMatch';
 import { buildRouteShape } from '../services/routeShape';
@@ -118,7 +118,7 @@ router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: 
       }),
       prisma.repVisit.groupBy({
         by: ['salesRepId'],
-        where: { tenantId: tid, createdAt: { gte: dayStart }, ...(await scopedRecordWhere(req)) },
+        where: { tenantId: tid, createdAt: { gte: dayStart }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
         _count: { _all: true },
       }),
     ]);

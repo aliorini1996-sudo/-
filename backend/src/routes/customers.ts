@@ -6,7 +6,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
-import { scopedRecordWhere } from '../services/adminScope';
+import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { deriveRunningBalances } from '../services/accounting';
 
 const router = Router();
@@ -268,7 +268,7 @@ router.get('/:id/invoices', async (req: AuthRequest, res: Response, next: NextFu
     }
     const invoices = await prisma.invoice.findMany({
       // قيد المندوب أيضاً: عميلٌ مرئيّ لا يُبرّر كشف اسم مندوب خارج النطاق
-      where: { customerId: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
+      where: { customerId: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       include: { salesRep: { select: { name: true } }, items: { include: { product: true } } },
       orderBy: { createdAt: 'desc' },
     });

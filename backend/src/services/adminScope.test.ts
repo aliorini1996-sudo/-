@@ -8,6 +8,9 @@ import {
   adminRepFilter,
   scopedRecordWhere,
   scopedRepRecordWhere,
+  SHAPE_INVOICE_RECEIPT,
+  SHAPE_VISIT,
+  SHAPE_NOTIFICATION,
 } from './adminScope';
 import { AuthRequest } from '../types';
 
@@ -27,45 +30,110 @@ const CUST = { adminScopes: { some: { adminId: 'u1' } } };
 const REP = { adminScopes: { some: { adminId: 'u1' } } };
 
 test('بلا نطاق: قيد فارغ تماماً (رؤية كاملة، لا تقييد بالخطأ)', () => {
-  assert.deepEqual(composeRecordWhere({}, {}), {});
+  assert.deepEqual(composeRecordWhere({}, {}, SHAPE_INVOICE_RECEIPT), {});
+  assert.deepEqual(composeRecordWhere({}, {}, SHAPE_VISIT), {});
 });
 
-test('نطاق عملاء فقط: مجموعة واحدة، والسجلّ بلا عميل يبقى مرئيّاً', () => {
-  const w = composeRecordWhere(CUST, {}) as { AND: { OR: unknown[] }[] };
-  assert.equal(w.AND.length, 1);
+test('حقل اختياريّ (إشعار): يُضاف استثناء null فيبقى سجلّ بلا عميل/مندوب مرئيّاً', () => {
+  const w = composeRecordWhere(CUST, REP, SHAPE_NOTIFICATION) as { AND: { OR: unknown[] }[] };
+  assert.equal(w.AND.length, 2);
   assert.deepEqual(w.AND[0].OR[0], { customer: { adminScopes: { some: { adminId: 'u1' } } } });
-  // الاستثناء: إشعار على مستوى الشركة بلا عميل — قيدُ العلاقة وحده كان يُخفيه
-  assert.deepEqual(w.AND[0].OR[1], { customerId: null });
+  assert.deepEqual(w.AND[0].OR[1], { customerId: null });   // customerId اختياريّ ⇒ null صالح ومطلوب
+  assert.deepEqual(w.AND[1].OR[1], { salesRepId: null });
 });
 
-test('نطاق مناديب فقط: السجلّات بلا مندوب تبقى مرئيّة', () => {
-  const w = composeRecordWhere({}, REP) as { AND: { OR: unknown[] }[] };
-  assert.equal(w.AND.length, 1);
-  // الفرع الثاني هو الاستثناء: فاتورة/سند أنشأته الإدارة بلا مندوب
-  assert.deepEqual(w.AND[0].OR[1], { salesRepId: null });
+test('حقل إلزاميّ (فاتورة/سند): قيد العلاقة وحده بلا استثناء null — وإلا رماه Prisma', () => {
+  // customer إلزاميّ ⇒ لا فرع {customerId:null} (يرميه Prisma على حقلٍ إلزاميّ ⇒ 500).
+  // salesRep اختياريّ ⇒ يبقى استثناء {salesRepId:null} لسجلّ المكتب.
+  const w = composeRecordWhere(CUST, REP, SHAPE_INVOICE_RECEIPT) as { AND: unknown[] };
+  assert.deepEqual(w.AND[0], { customer: { adminScopes: { some: { adminId: 'u1' } } } });
+  assert.deepEqual(w.AND[1], { OR: [{ salesRep: { adminScopes: { some: { adminId: 'u1' } } } }, { salesRepId: null }] });
+});
+
+test('حقلان إلزاميّان (زيارة): قيدا علاقة مباشران بلا أي استثناء null', () => {
+  const w = composeRecordWhere(CUST, REP, SHAPE_VISIT) as { AND: unknown[] };
+  assert.deepEqual(w.AND, [
+    { customer: { adminScopes: { some: { adminId: 'u1' } } } },
+    { salesRep: { adminScopes: { some: { adminId: 'u1' } } } },
+  ]);
 });
 
 test('القائمتان معاً: AND لا OR — العميل شرطٌ مستقلّ عن المندوب', () => {
-  const w = composeRecordWhere(CUST, REP) as { AND: { OR: unknown[] }[] };
   // مجموعتان داخل AND ⇒ يجب تحقّقهما معاً.
   // لو دُمجتا في OR واحد لسرّبت فاتورةُ عميلٍ مرئيّ اسمَ مندوبها المخفيّ.
-  assert.deepEqual(Object.keys(w), ['AND']);
-  assert.equal(w.AND.length, 2);
-  assert.deepEqual(w.AND[0].OR[0], { customer: { adminScopes: { some: { adminId: 'u1' } } } });
-  assert.deepEqual(w.AND[1].OR[0], { salesRep: { adminScopes: { some: { adminId: 'u1' } } } });
+  for (const shape of [SHAPE_INVOICE_RECEIPT, SHAPE_VISIT, SHAPE_NOTIFICATION]) {
+    const w = composeRecordWhere(CUST, REP, shape) as { AND: unknown[] };
+    assert.deepEqual(Object.keys(w), ['AND']);
+    assert.equal(w.AND.length, 2);
+  }
+});
+
+/**
+ * حارسُ الخلل الذي عطّل الميزة عند أوّل استعمال حقيقيّ: استثناء `{ …Id: null }`
+ * على حقلٍ **إلزاميّ** يرفضه Prisma (نوع الفلتر لا يقبل null) فيرمي 500. الاختبار
+ * القديم جرّب بنية الكائن لا استعلام Prisma فمرّ. هنا نفرض: لا يظهر `…Id: null`
+ * إطلاقاً حيث صرّح الشكلُ أن الحقل إلزاميّ.
+ */
+test('حارس: لا يُبعث {…Id: null} على حقل إلزاميّ (صنف الخلل الذي عطّل اللوحة)', () => {
+  const hasNull = (o: unknown, key: string): boolean => {
+    if (Array.isArray(o)) return o.some((x) => hasNull(x, key));
+    if (o && typeof o === 'object') {
+      return Object.entries(o as Record<string, unknown>).some(
+        ([k, v]) => (k === key && v === null) || hasNull(v, key),
+      );
+    }
+    return false;
+  };
+  // فاتورة/سند: العميل إلزاميّ ⇒ ممنوع customerId:null ؛ المندوب اختياريّ ⇒ يُسمح salesRepId:null
+  const ir = composeRecordWhere(CUST, REP, SHAPE_INVOICE_RECEIPT);
+  assert.equal(hasNull(ir, 'customerId'), false);
+  assert.equal(hasNull(ir, 'salesRepId'), true);
+  // زيارة: كلاهما إلزاميّ ⇒ ممنوع الاثنان
+  const v = composeRecordWhere(CUST, REP, SHAPE_VISIT);
+  assert.equal(hasNull(v, 'customerId'), false);
+  assert.equal(hasNull(v, 'salesRepId'), false);
+  // إشعار: كلاهما اختياريّ ⇒ يُسمح الاثنان
+  const n = composeRecordWhere(CUST, REP, SHAPE_NOTIFICATION);
+  assert.equal(hasNull(n, 'customerId'), true);
+  assert.equal(hasNull(n, 'salesRepId'), true);
+});
+
+/**
+ * حارسٌ ضدّ انحراف المخطّط: ثوابت الأشكال تصف nullability حقول النماذج. لو صار
+ * حقلٌ إلزاميّاً أو اختيارياً في schema.prisma دون تحديث الثابت، يعود الخلل صامتاً.
+ * نقرأ المخطّط ونتحقّق أن كل ثابت يطابق واقع نموذجه.
+ */
+test('حارس: ثوابت الأشكال تطابق nullability المخطّط الفعليّ', () => {
+  const schema = fs.readFileSync(path.join(process.cwd(), 'prisma', 'schema.prisma'), 'utf8');
+  const kindOf = (model: string, field: string): 'required' | 'nullable' => {
+    const body = new RegExp(`model\\s+${model}\\s*\\{([\\s\\S]*?)\\n\\}`).exec(schema);
+    assert.ok(body, `النموذج ${model} غير موجود في المخطّط`);
+    const line = body![1].split('\n').find((l) => new RegExp(`^\\s*${field}\\s+String`).test(l));
+    assert.ok(line, `الحقل ${field} غير موجود في ${model}`);
+    return /String\?/.test(line!) ? 'nullable' : 'required';
+  };
+  // Invoice و Receipt يتشاركان SHAPE_INVOICE_RECEIPT
+  for (const m of ['Invoice', 'Receipt']) {
+    assert.equal(kindOf(m, 'customerId'), SHAPE_INVOICE_RECEIPT.customer, `${m}.customerId`);
+    assert.equal(kindOf(m, 'salesRepId'), SHAPE_INVOICE_RECEIPT.rep, `${m}.salesRepId`);
+  }
+  assert.equal(kindOf('RepVisit', 'customerId'), SHAPE_VISIT.customer);
+  assert.equal(kindOf('RepVisit', 'salesRepId'), SHAPE_VISIT.rep);
+  assert.equal(kindOf('Notification', 'customerId'), SHAPE_NOTIFICATION.customer);
+  assert.equal(kindOf('Notification', 'salesRepId'), SHAPE_NOTIFICATION.rep);
 });
 
 test('العزل لا يمسّ المندوب: كل الدوالّ ترجع فارغة لدور SALES_REP', async () => {
   const r = req('SALES_REP');
   assert.deepEqual(await adminCustomerFilter(r), {});
   assert.deepEqual(await adminRepFilter(r), {});
-  assert.deepEqual(await scopedRecordWhere(r), {});
+  assert.deepEqual(await scopedRecordWhere(r, SHAPE_INVOICE_RECEIPT), {});
   assert.deepEqual(await scopedRepRecordWhere(r), {});
 });
 
 test('العزل لا يمسّ مالك المنصّة ولا الطلب بلا مستخدم', async () => {
   for (const r of [req('SUPER_ADMIN'), req()]) {
-    assert.deepEqual(await scopedRecordWhere(r), {});
+    assert.deepEqual(await scopedRecordWhere(r, SHAPE_INVOICE_RECEIPT), {});
     assert.deepEqual(await scopedRepRecordWhere(r), {});
   }
 });

@@ -149,36 +149,68 @@ export async function setAdminScope(
 }
 
 /**
- * قيد على أي سجلّ يحمل `customerId` و/أو `salesRepId` (فاتورة، سند، زيارة،
- * حركة حساب، تحميل سيارة…).
+ * شكل السجلّ من حيث علاقتَي العميل والمندوب على النموذج المُستعلَم: هل كلٌّ منهما
+ * إلزاميّ (`String`) أم اختياريّ (`String?`).
+ *
+ * ═══════════════ لماذا يجب أن يعرف القيدُ الشكلَ (خللٌ كسر الميزة) ═══════════════
+ * استثناء «السجلّ بلا عميل/مندوب» كان يُصاغ دائماً بـ`{ customerId: null }` /
+ * `{ salesRepId: null }`. لكن **Prisma يرفض `null` على حقلٍ إلزاميّ** (نوع الفلتر
+ * لا يقبل null) فيرمي `PrismaClientValidationError` ⇒ استجابة 500. و`customerId`
+ * إلزاميّ في الفاتورة/السند/الزيارة، و`salesRepId` إلزاميّ في الزيارة — فأول
+ * مستخدمٍ فُعِّل نطاقُه فعلاً عُطِّلت عنه لوحةُ التحكم وكل القوائم.
+ *
+ * والاستثناء بلا معنى أصلاً على الحقل الإلزاميّ: لا فاتورة بلا عميل ولا زيارة بلا
+ * مندوب — فقيد العلاقة وحده هو الصحيح. الاستثناء يلزم فقط حيث الحقل اختياريّ
+ * حقّاً (الإشعار على مستوى الشركة قد يكون بلا عميل ولا مندوب).
+ */
+export interface RecordShape {
+  customer: 'required' | 'nullable';
+  rep: 'required' | 'nullable';
+}
+
+/** الفاتورة والسند: لكلٍّ عميلٌ إلزاميّ، وقد لا يكون له مندوب (سجلّ أنشأته الإدارة). */
+export const SHAPE_INVOICE_RECEIPT: RecordShape = { customer: 'required', rep: 'nullable' };
+/** زيارة المندوب (RepVisit): العميل والمندوب كلاهما إلزاميّ — لا استثناء null لأيّهما. */
+export const SHAPE_VISIT: RecordShape = { customer: 'required', rep: 'required' };
+/** الإشعار: قد يكون على مستوى الشركة بلا عميل ولا مندوب — كلاهما اختياريّ. */
+export const SHAPE_NOTIFICATION: RecordShape = { customer: 'nullable', rep: 'nullable' };
+
+/**
+ * قيد على أي سجلّ يحمل `customerId` و/أو `salesRepId` (فاتورة، سند، زيارة…).
  *
  * القاعدة **AND لا OR**: السجلّ يظهر فقط إن كان عميله **وأيضاً** مندوبه ضمن
  * النطاق. الجمع بـOR يسرّب: فاتورةٌ لعميل مرئيّ حرّرها مندوب مخفيّ تكشف اسم
  * المندوب وأداءه، والعكس يكشف اسم العميل ورصيده.
  *
- * السجلّات بلا مندوب (salesRepId = null، أنشأتها الإدارة) لا تُقيَّد بالمندوب
- * — وإلا اختفت كل فواتير المكتب عن كل مستخدم مقيّد.
+ * `shape` **إلزاميّ** (لا افتراضيّ عمداً): كل مستدعٍ يصرّح بشكل نموذجه، فالمترجم
+ * يفشل عند إغفاله — وإلا عاد خللُ null الصامت على نموذجٍ إلزاميّ الحقول.
  */
-export async function scopedRecordWhere(req: AuthRequest): Promise<Record<string, unknown>> {
+export async function scopedRecordWhere(req: AuthRequest, shape: RecordShape): Promise<Record<string, unknown>> {
   const [cust, rep] = await Promise.all([adminCustomerFilter(req), adminRepFilter(req)]);
-  return composeRecordWhere(cust, rep);
+  return composeRecordWhere(cust, rep, shape);
 }
 
 /**
  * تركيب القيد — مفصولٌ عن قاعدة البيانات ليُختبَر وحده (القاعدة أعلاه).
  *
- * `AND` من مجموعتَي `OR` لا مفتاحين مباشرين: كلّ طرف يحتاج استثناءه الخاصّ
- * للحقل الفارغ، ومفتاح `OR` واحد لا يحمل مجموعتين. والاستثناء ضروريّ لأن قيد
- * العلاقة لا يطابق السجلّ الذي لا علاقة له أصلاً — فإشعارٌ على مستوى الشركة
- * (بلا عميل) كان سيختفي عن كل مستخدم مقيّد.
+ * على الحقل **الإلزاميّ** يُكتفى بقيد العلاقة (`{ customer: … }`) بلا استثناء
+ * null — فالسجلّ لا يكون بلا ذلك الطرف، واستثناء null يرميه Prisma. وعلى الحقل
+ * **الاختياريّ** يُضاف `OR` باستثناء `{ …Id: null }` كي لا يختفي سجلّ المكتب
+ * (بلا مندوب) أو الإشعار على مستوى الشركة (بلا عميل) عن المستخدم المقيَّد.
  */
-export function composeRecordWhere(cust: AdminCustomerFilter, rep: AdminRepFilter): Record<string, unknown> {
+export function composeRecordWhere(
+  cust: AdminCustomerFilter,
+  rep: AdminRepFilter,
+  shape: RecordShape,
+): Record<string, unknown> {
   const and: Record<string, unknown>[] = [];
   if (cust.adminScopes) {
-    and.push({ OR: [{ customer: { adminScopes: cust.adminScopes } }, { customerId: null }] });
+    const scoped = { customer: { adminScopes: cust.adminScopes } };
+    and.push(shape.customer === 'nullable' ? { OR: [scoped, { customerId: null }] } : scoped);
   }
   if (rep.adminScopes) {
-    and.push({ OR: [{ salesRep: { adminScopes: rep.adminScopes } }, { salesRepId: null }] });
+    const scoped = { salesRep: { adminScopes: rep.adminScopes } };
+    and.push(shape.rep === 'nullable' ? { OR: [scoped, { salesRepId: null }] } : scoped);
   }
   return and.length ? { AND: and } : {};
 }

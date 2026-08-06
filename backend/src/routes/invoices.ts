@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, canAccessRep } from '../services/adminScope';
+import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
 import { getCountryTax } from '../config/countries';
@@ -70,7 +70,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const where = {
       tenantId: tid,
       // نطاق مستخدم الشركة: لا تظهر فاتورة لعميل أو مندوب خارج نطاقه
-      ...(await scopedRecordWhere(req)),
+      ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
@@ -114,7 +114,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const invoice = await prisma.invoice.findFirst({
-      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       include: {
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
@@ -370,7 +370,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
   try {
     const tid = tenantId(req);
     const invoice = await prisma.invoice.findFirst({
-      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) },
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
       include: { receiptItems: true },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
@@ -421,7 +421,7 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
   try {
     const tid = tenantId(req);
     const { returnToStock } = z.object({ returnToStock: z.boolean() }).parse(req.body);
-    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) }, select: { id: true, type: true } });
+    const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) }, select: { id: true, type: true } });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
     if (invoice.type !== 'RETURN') { res.status(400).json({ success: false, message: 'هذا الإجراء للمرتجعات فقط' }); return; }
     const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });

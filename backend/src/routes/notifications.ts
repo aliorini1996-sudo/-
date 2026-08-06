@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { authenticate, tenantId } from '../middleware/auth';
-import { scopedRecordWhere } from '../services/adminScope';
+import { scopedRecordWhere, SHAPE_NOTIFICATION } from '../services/adminScope';
 import { AuthRequest } from '../types';
 
 /**
@@ -17,7 +17,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const tid = tenantId(req);
     const isSalesRep = req.user?.role === 'SALES_REP';
     const notifications = await prisma.notification.findMany({
-      where: { tenantId: tid, ...(isSalesRep ? { salesRepId: req.user!.id } : await scopedRecordWhere(req)) },
+      where: { tenantId: tid, ...(isSalesRep ? { salesRepId: req.user!.id } : await scopedRecordWhere(req, SHAPE_NOTIFICATION)) },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -31,7 +31,7 @@ router.patch('/:id/read', async (req: AuthRequest, res: Response, next: NextFunc
     // المندوب لا يعلّم إلا إشعاراته؛ ومستخدم الشركة لا يتجاوز نطاقه
     const where = req.user?.role === 'SALES_REP'
       ? { id: req.params.id, tenantId: tid, salesRepId: req.user.id }
-      : { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req)) };
+      : { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_NOTIFICATION)) };
     await prisma.notification.updateMany({ where, data: { isRead: true } });
     res.json({ success: true });
   } catch (err) { next(err); }
@@ -42,7 +42,7 @@ router.patch('/read-all', async (req: AuthRequest, res: Response, next: NextFunc
     const tid = tenantId(req);
     const isSalesRep = req.user?.role === 'SALES_REP';
     await prisma.notification.updateMany({
-      where: { tenantId: tid, isRead: false, ...(isSalesRep ? { salesRepId: req.user!.id } : await scopedRecordWhere(req)) },
+      where: { tenantId: tid, isRead: false, ...(isSalesRep ? { salesRepId: req.user!.id } : await scopedRecordWhere(req, SHAPE_NOTIFICATION)) },
       data: { isRead: true },
     });
     res.json({ success: true });

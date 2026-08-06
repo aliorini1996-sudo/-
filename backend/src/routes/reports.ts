@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
-import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter } from '../services/adminScope';
+import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { composeWorkDays } from '../services/workDay';
 
@@ -37,7 +37,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       where: {
         tenantId: tid,
         // نطاق المستخدم: لا تدخل التقرير فاتورةٌ لعميل أو مندوب خارج نطاقه
-        ...(await scopedRecordWhere(req)),
+        ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
         status: 'CONFIRMED',
         type: { not: 'RETURN' }, // تقرير المبيعات لا يشمل المرتجعات
         invoiceDate: dateFilter,
@@ -147,7 +147,7 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
     const receipts = await prisma.receipt.findMany({
       where: {
         tenantId: tid,
-        ...(await scopedRecordWhere(req)),
+        ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
         status: 'ACTIVE',
         ...(dateFilter && { receiptDate: dateFilter }),
         ...(salesRepId && { salesRepId }),
@@ -230,12 +230,12 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       // عدد الزيارات لكل مندوب (دقيق)
       prisma.repVisit.groupBy({
         by: ['salesRepId'],
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req)) },
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
         _count: { _all: true },
       }),
       // زيارات لها إحداثيات — لبناء روابط المواقع
       prisma.repVisit.findMany({
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, lat: { not: null }, lng: { not: null }, ...(await scopedRecordWhere(req)) },
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, lat: { not: null }, lng: { not: null }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
         select: { salesRepId: true, createdAt: true, lat: true, lng: true, customer: { select: { name: true } } },
         orderBy: { createdAt: 'asc' }, take: 5000,
       }),
@@ -387,7 +387,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
       prisma.repVisit.findMany({
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req)) },
+        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
         select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
         orderBy: { createdAt: 'asc' }, take: 10000,
       }),
