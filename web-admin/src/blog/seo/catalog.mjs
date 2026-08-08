@@ -1186,11 +1186,19 @@ export function getArticle(slug, L) {
   // الصفحة الجامعة (REGION لموضوع قُطري) تحمل جدول مقارنة الدول — محتواها الحصريّ الذي
   // يبرّر وجودها ويجعلها غير مكرّرة؛ وصفحات الدول تحمل localContext المُفرَّد لكل دولة.
   const isPillar = topic.cs && c.code === 'REGION';
+  const isCountryPage = topic.cs && c.code !== 'REGION';
+  // الأقسام العامّة المكرَّرة حرفياً عبر كل صفحة (خطوات/فوائد/مؤشرات/قبل-بعد/أخطاء/مسرد) هي
+  // المصدر الأول لعطل «نسخة طبق الأصل» في Search Console (671 صفحة غير مفهرسة، 5 أغسطس):
+  // صفحتا موضوعين لدولة واحدة تشتركان فيها بالكامل فيراهما جوجل متطابقتين. نُبقيها على الصفحات
+  // الجامعة (REGION) والعامّة فقط، ونحذفها من صفحات الدول — فتبقى صفحة الدولة = جوهر الموضوع +
+  // السياق المحلّي + بطاقة السوق + الأسئلة، وهو محتوى مُفرَّد فعلاً يرفع نسبة التميّز فتُفهرَس.
+  const genericDeep = ['steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary'];
   const universal = [
     ...(isPillar ? ['countryTable'] : topic.cs ? ['localContext'] : []),
     // بطاقة السوق المُفرَّدة لأسواق الأولوية فقط — تكسر تشابه صفحاتها فيحترم جوجل canonical الذاتيّ.
     ...(topic.cs && PRIORITY_BRIEF[c.code] ? ['marketBrief'] : []),
-    'steps', 'benefits', 'kpis', 'compare', 'mistakes', 'glossary', 'faq',
+    ...(isCountryPage ? [] : genericDeep),
+    'faq',
   ].filter((k) => !coreKeys.includes(k));
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
   // كتلة الإجابة تسبق المقدّمة عمداً: محرّك التوليد يقتبس أوّل فقرة تُجيب
