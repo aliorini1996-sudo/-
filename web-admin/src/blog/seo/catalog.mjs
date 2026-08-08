@@ -226,7 +226,7 @@ const PRIORITY_OPS = {
     fr: `<p>Concrètement, une grande équipe de distribution saoudienne se mesure au taux de couverture hebdomadaire des points de vente et à la précision du chargement avant la tournée. FieldSales relie chaque visite à sa tournée et fait apparaître les points non visités.</p>`,
   },
   AE: {
-    ar: `<p>مع تنوّع القنوات بين البرّ والمناطق الحرّة، يصبح هامش الربح لكل قناة وصنف أهمّ من إجمالي المبيعات. تُظهر منصّة FieldSales المبيعات والتحصيل لكل عميل وصنف، وتضبط قوائم أسعار متعدّدة فلا يبيع المندوب بأقلّ من المعتمد.</p>`,
+    ar: `<p>يمنحك FieldSales برنامجاً لإدارة المبيعات في الإمارات يربط المندوب بالإدارة لحظياً من الطلب حتى التحصيل. ومع تنوّع القنوات بين البرّ والمناطق الحرّة، يصبح هامش الربح لكل قناة وصنف أهمّ من إجمالي المبيعات. تُظهر منصّة FieldSales المبيعات والتحصيل لكل عميل وصنف، وتضبط قوائم أسعار متعدّدة فلا يبيع المندوب بأقلّ من المعتمد.</p>`,
     en: `<p>With channels split between mainland and free zones, margin per channel and per item matters more than gross sales. FieldSales shows sales and collection per customer and item, and enforces multiple price lists so a rep cannot sell below the approved price.</p>`,
     fr: `<p>Avec des canaux répartis entre continent et zones franches, la marge par canal et par article compte plus que le chiffre brut. FieldSales affiche ventes et encaissement par client et article, et applique plusieurs listes de prix.</p>`,
   },
@@ -299,6 +299,22 @@ const S = {
     `<h2>Facturation mobile sur le terrain</h2>
      <p>Le commercial émet la facture et le reçu depuis son téléphone chez le client, les imprime en thermique (58 mm), et tout se synchronise instantanément. Aucun papier dispersé, aucune double saisie.</p>
      <ul><li>Facture structurée avec code QR.</li><li>Impression thermique immédiate.</li><li>Synchronisation en temps réel avec le relevé client.</li></ul>`),
+
+  // قسم مطابق تماماً لاستعلام سعودي في «مسافة الضربة» (pos 18–19): «الفرق بين الفاتورة الضريبية والمبسّطة».
+  // مقيّد بدول ضريبة القيمة المضافة (c.vat != null) فلا يظهر حيث لا يصحّ، وصادق: نُصدر المبسّطة ضمن المرحلة الأولى فقط.
+  invoicetypes: (c, L) => {
+    if (c.vat == null) return '';
+    return P(L,
+    `<h2>الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسّطة</h2>
+     <p>في نظام ضريبة القيمة المضافة ${c.inAr} نوعان من الفاتورة. <strong>الفاتورة الضريبية</strong> الكاملة تُصدَر في التعاملات بين الشركات (B2B) وتتضمّن اسم المشتري ورقمه الضريبي وتفصيل الضريبة. أمّا <strong>الفاتورة الضريبية المبسّطة</strong> فتُصدَر للمستهلك النهائي (B2C) في نقطة البيع بحقول أقل ورمز QR، وهي الأنسب لبيع المندوب المباشر في الميدان.</p>
+     <p>تُصدِر منصّة FieldSales الفاتورة المبسّطة برمز QR وطباعة حرارية فور إتمام البيع في الميدان — وهي الأنسب لبيع المندوب المباشر. حدِّد نوع الفاتورة حسب عميلك، وراجع دائماً مستشاراً ضريبياً محلياً لأحدث متطلبات ${c.tax.ar}.</p>`,
+    `<h2>Tax invoice vs simplified tax invoice: the difference</h2>
+     <p>Under VAT ${c.inEn} there are two invoice types. A full <strong>tax invoice</strong> is issued for business-to-business (B2B) deals and includes the buyer's name, tax number and a tax breakdown. A <strong>simplified tax invoice</strong> is issued to the end consumer (B2C) at the point of sale, with fewer fields and a QR code — the right fit for a rep selling directly in the field.</p>
+     <p>FieldSales issues the simplified invoice with a QR code and thermal printing the moment a sale closes in the field — the right fit for a rep selling directly. Choose the invoice type per customer, and always confirm the latest ${c.tax.en} requirements with a local tax advisor.</p>`,
+    `<h2>Facture fiscale et facture fiscale simplifiée : la différence</h2>
+     <p>Sous la TVA ${c.inFr}, il existe deux types de factures. La <strong>facture fiscale</strong> complète est émise pour les transactions entre entreprises (B2B) et comporte le nom de l'acheteur, son numéro fiscal et le détail de la taxe. La <strong>facture fiscale simplifiée</strong> est émise au consommateur final (B2C) au point de vente, avec moins de champs et un code QR — idéale pour la vente directe sur le terrain.</p>
+     <p>FieldSales émet la facture simplifiée avec code QR et impression thermique dès la conclusion de la vente sur le terrain — idéale pour la vente directe du commercial. Choisissez le type selon le client et vérifiez toujours les exigences de ${c.tax.fr} auprès d'un conseiller local.</p>`);
+  },
 
   collect: (c, L) => P(L,
     `<h2>التحصيل وإدارة الذمم وكشوف الحساب</h2>
@@ -537,7 +553,7 @@ const S = {
     `<h2>مصطلحات أساسية في المبيعات الميدانية</h2>
      <p><strong>نظام إدارة الموزّعين (DMS):</strong> منصّة موحّدة تدير طلبات وفواتير وتحصيل ومخزون الموزّع وكشوف حساب نقاط البيع في مكان واحد.
      <strong>التوزيع المباشر (DSD):</strong> تسليم البضاعة من الموزّع إلى نقطة البيع مباشرةً دون مستودع وسيط.
-     <strong>البيع من السيارة (Van Sales):</strong> بيع وتسليم وفوترة فورية من مخزون سيارة المندوب.
+     <strong>كاش فان (Van Sales):</strong> بيع وتسليم وفوترة فورية من مخزون سيارة المندوب مباشرةً في الميدان، ويُعرف أيضاً بالبيع من السيارة.
      <strong>الذمم المدينة:</strong> المبالغ المستحقة على العملاء من المبيعات الآجلة.
      <strong>حدّ الائتمان:</strong> أقصى رصيد آجل مسموح للعميل قبل إيقاف البيع له.
      <strong>شرائح الأسعار:</strong> قوائم أسعار مختلفة (جملة/تجزئة/مفتاح) حسب فئة العميل.
@@ -545,7 +561,7 @@ const S = {
     `<h2>Essential field sales terms</h2>
      <p><strong>Distributor Management System (DMS):</strong> a unified platform that manages a distributor's orders, invoicing, collection, stock and retailer statements in one place.
      <strong>Direct Store Delivery (DSD):</strong> delivering goods from the distributor straight to the point of sale without an intermediate warehouse.
-     <strong>Van Sales:</strong> selling, delivering and invoicing on the spot from the rep's van stock.
+     <strong>Van Sales (cash van):</strong> selling, delivering and invoicing on the spot from the rep's van stock.
      <strong>Receivables:</strong> amounts customers owe from credit sales.
      <strong>Credit limit:</strong> the maximum outstanding balance allowed before sales to a customer are blocked.
      <strong>Price tiers:</strong> different price lists (wholesale/retail/key account) per customer segment.
@@ -905,7 +921,7 @@ const TOPICS = [
   { id: 'einvoicing-compliance', cs: true, rm: 6,
     label: svc('الفوترة الإلكترونية والالتزام الضريبي', 'E-Invoicing & Tax Compliance', 'Facturation électronique et conformité'),
     kw: (c, L) => P(L, `الفوترة الإلكترونية ${c.ar}, فاتورة ضريبية ${c.ar}, ضريبة القيمة المضافة, ${c.tax.ar}`, `e-invoicing ${c.en}, tax invoice ${c.en}, VAT, ${c.tax.en}`, `facturation électronique ${c.fr}, TVA ${c.fr}, ${c.tax.fr}`),
-    secs: ['tax', 'invoice', 'features', 'faq', 'cta'] },
+    secs: ['tax', 'invoice', 'invoicetypes', 'features', 'faq', 'cta'] },
   { id: 'sales-rep-management', cs: true, rm: 6,
     label: svc('برنامج متابعة المناديب والتحصيل', 'Sales Rep Management', 'Gestion des commerciaux'),
     kw: (c, L) => P(L, `إدارة مناديب ${c.ar}, صلاحيات المندوب, متابعة أداء المندوبين ${c.ar}, تحصيل`, `sales rep management ${c.en}, rep permissions, rep performance ${c.en}`, `gestion des commerciaux ${c.fr}, droits, performance ${c.fr}`),
