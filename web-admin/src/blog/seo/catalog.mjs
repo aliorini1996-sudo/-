@@ -207,7 +207,7 @@ const PRIORITY_BRIEF = {
   QA: {
     ar: `<h2>التوزيع في السوق القطري — سوق مكتنز وقوّة شرائية مرتفعة</h2>
      <p>يتركّز التوزيع في قطر حول الدوحة والريان والوكرة في نطاق جغرافيّ مكتنز، مع قوّة شرائية مرتفعة وقيمة عالية لكل منفذ. قِصَر المسافات ينقل تركيز الكفاءة إلى جودة الزيارة ودقّة الفاتورة والتحصيل لا إلى المسافة المقطوعة.</p>
-     <p>لا تُطبَّق ضريبة قيمة مضافة بعد، لكن يبقى إصدار فواتير منظّمة وكشوف حساب دقيقة بالريال القطري ضرورة إدارية لضبط الذمم. تُصدر منصّة FieldSales الفاتورة وسند القبض من الميدان، وتضبط حدود الائتمان ومخزون السيارة على لوحة واحدة لحظية.</p>`,
+     <p>لا تُطبَّق ضريبة قيمة مضافة بعد، و<strong>الفوترة الإلكترونية في قطر</strong> قيد الإعداد ولم تصبح إلزامية بعد؛ ومع ذلك يبقى إصدار فواتير منظّمة وكشوف حساب دقيقة بالريال القطري ضرورة إدارية لضبط الذمم. تُصدر منصّة FieldSales الفاتورة وسند القبض من الميدان برمز QR، وتضبط حدود الائتمان ومخزون السيارة على لوحة واحدة لحظية — فتبدأ الفوترة المنظّمة من الآن استعداداً لأي متطلبات قادمة.</p>`,
     en: `<h2>Distribution in Qatar — a compact market with high purchasing power</h2>
      <p>Distribution in Qatar concentrates around Doha, Al Rayyan and Al Wakrah in a compact geography, with high purchasing power and high value per outlet. Short distances shift the efficiency focus to visit quality and invoice and collection accuracy rather than mileage.</p>
      <p>No VAT applies yet, but issuing structured invoices and accurate statements in Qatari Riyal remains an operational necessity for controlling receivables. FieldSales issues the invoice and receipt from the field and manages credit limits and van stock on one live dashboard.</p>`,
@@ -909,8 +909,8 @@ const TOPICS = [
     secs: ['why', 'invoice', 'tax', 'collect', 'features', 'howstart', 'cta'] },
   { id: 'distribution-management-system', cs: true, rm: 7,
     // «Distributor Management System Software» = الصيغة الصاعدة +140% في مؤشرات Google — مطابقة تامّة في العنوان/H1.
-    label: svc('نظام إدارة الموزّعين وشركات التوزيع والجملة (DMS)', 'Distributor Management System (DMS) Software', 'Logiciel de gestion des distributeurs (DMS)'),
-    kw: (c, L) => P(L, `نظام إدارة الموزّعين ${c.ar}, نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, مخزون, كشوف حساب`, `distributor management system software ${c.en}, distributor management system ${c.en}, DMS software ${c.en}, distribution management system ${c.en}, wholesale software ${c.en}`, `logiciel de gestion des distributeurs ${c.fr}, DMS ${c.fr}, logiciel de gros ${c.fr}`),
+    label: svc('نظام إدارة الموزّعين وشركات التوزيع والجملة (DMS)', 'Distributor Management System (DMS) Software', 'Logiciel de gestion de la distribution et des distributeurs (DMS)'),
+    kw: (c, L) => P(L, `نظام إدارة الموزّعين ${c.ar}, نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, مخزون, كشوف حساب`, `distributor management system software ${c.en}, distributor management system ${c.en}, DMS software ${c.en}, distribution management system ${c.en}, wholesale software ${c.en}`, `système de gestion de la distribution ${c.fr}, logiciel de gestion des distributeurs ${c.fr}, distribution fmcg ${c.fr}, système de gestion des distributeurs fmcg, DMS ${c.fr}, logiciel de gros ${c.fr}`),
     secs: ['why', 'vanstock', 'crm', 'reports', 'collect', 'cta'] },
   { id: 'van-sales-app', cs: true, rm: 6,
     // ⚠️ «البيع من السيارة» يُرجع 10/10 مواقع سيارات مستعملة (قياس SERP مصر والخليج) — انقلاب نيّة تامّ.
@@ -948,7 +948,7 @@ const TOPICS = [
     secs: ['why', 'vanstock', 'crm', 'invoice', 'cta'] },
   { id: 'fmcg-distribution', cs: true, rm: 6,
     label: svc('برنامج مناديب توزيع FMCG والمواد الغذائية', 'FMCG Distribution', 'Distribution de produits de grande consommation (FMCG)'),
-    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, biens de consommation ${c.fr}`),
+    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, FMCG distributors ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, biens de consommation ${c.fr}`),
     secs: ['why', 'gps', 'vanstock', 'reports', 'cta'] },
   { id: 'mobile-field-invoicing', cs: true, rm: 5,
     label: svc('تطبيق فواتير المناديب من الجوال', 'Mobile Field Invoicing', 'Facturation mobile sur le terrain'),
