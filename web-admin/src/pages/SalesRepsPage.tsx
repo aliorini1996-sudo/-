@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { salesRepApi, invoiceApi, receiptApi, customerApi } from '../api/client';
+import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
 import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { formatCurrency, formatDate, formatNumber, statusLabels, paymentMethodLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatNumber, statusLabels, paymentMethodLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAuthStore } from '../store/authStore';
+import DocumentModal from '../components/DocumentModal';
+import { settlementLogDocFromData, Company } from '../rep/RepDocuments';
 
 interface Creds { name: string; username: string; password: string; }
 
@@ -404,6 +406,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [filled, setFilled] = useState(false);
+  const [showPdf, setShowPdf] = useState(false);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['rep-collection', rep.id],
@@ -411,6 +414,22 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
       const r = await salesRepApi.collection(rep.id);
       return r.data.data as { collected: number; settled: number; outstanding: number };
     },
+  });
+
+  // سجلّ استلامات التحصيل لهذا المندوب (مرتّب بالوقت من الخادم)
+  const settlementsQ = useQuery({
+    queryKey: ['rep-settlements', rep.id],
+    queryFn: async () => {
+      const r = await salesRepApi.settlements(rep.id);
+      return r.data.data as { id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string }[];
+    },
+  });
+  const settlements = settlementsQ.data ?? [];
+
+  // بيانات الشركة لرأس ملفّ الـPDF
+  const companyQ = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => { const r = await companyApi.get(); return r.data.data as Company; },
   });
 
   // تعبئة الحقل تلقائياً بالرصيد المتبقّي (تسليم كامل) أول مرّة
@@ -422,6 +441,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
       toast.success(tr('تم تسجيل الاستلام'));
       setNote(''); setFilled(false);
       refetch();
+      settlementsQ.refetch();
       onDone();
     },
     onError: (err: unknown) => {
@@ -431,6 +451,16 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
   });
 
   const outstanding = data?.outstanding ?? 0;
+
+  // عند فتح PDF: نعرض مستند السجلّ وحده (نافذة كاملة) بدل نافذة الاستلام
+  if (showPdf) {
+    return (
+      <DocumentModal
+        doc={settlementLogDocFromData(rep.name, settlements, companyQ.data ?? null, { collected: data?.collected, outstanding })}
+        onClose={() => setShowPdf(false)}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
@@ -446,7 +476,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
           {isLoading ? (
             <p className="text-center text-gray-400 py-6">{tr('جارٍ التحميل…')}</p>
           ) : (
@@ -475,6 +505,39 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
               <div>
                 <label className="label">{tr('ملاحظة (اختياري)')}</label>
                 <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال: نقدًا، تحويل بنكي…')} />
+              </div>
+
+              {/* سجلّ الاستلامات — مرتّب بالوقت والمبلغ ومن استلم، قابل للتصدير PDF */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="label mb-0">{tr('سجل الاستلامات')}</label>
+                  {settlements.length > 0 && (
+                    <button type="button" onClick={() => setShowPdf(true)}
+                      className="text-xs text-slate-600 hover:text-slate-800 flex items-center gap-1 font-semibold">
+                      <Download size={13} /> {tr('تصدير PDF')}
+                    </button>
+                  )}
+                </div>
+                <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF] max-h-52 overflow-y-auto">
+                  {settlementsQ.isLoading ? (
+                    <p className="text-center text-gray-400 text-xs py-4">{tr('جارٍ التحميل…')}</p>
+                  ) : settlements.length === 0 ? (
+                    <p className="text-center text-gray-400 text-xs py-5">{tr('لا توجد استلامات بعد')}</p>
+                  ) : settlements.map(s => (
+                    <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm text-[#1F1A13]">{formatCurrency(s.amount)}</p>
+                        <p className="text-[11px] text-[#9A8F7E] truncate">
+                          {tr('استلمه')}: {s.createdBy || '—'}{s.note ? ` · ${s.note}` : ''}
+                        </p>
+                      </div>
+                      <div className="text-[11px] text-[#9A8F7E] text-left leading-tight whitespace-nowrap flex-shrink-0">
+                        <span>{formatDate(s.settledAt)}</span><br />
+                        <span>{formatTime(s.settledAt)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </>
           )}

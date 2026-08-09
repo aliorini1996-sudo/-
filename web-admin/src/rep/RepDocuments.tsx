@@ -103,7 +103,26 @@ export interface StatementDoc {
   finalBalance: number;
 }
 
-export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc;
+export interface SettlementEntry {
+  settledAt: string;
+  amount: number;
+  by?: string;   // اسم مستخدم الشركة الذي استلم
+  note?: string;
+}
+
+/** سجلّ استلامات التحصيل لمندوب — لكل مندوب على حدة، قابل للتصدير PDF */
+export interface SettlementLogDoc {
+  kind: 'settlement';
+  company?: Company | null;
+  repName: string;
+  date: string;
+  entries: SettlementEntry[];
+  total: number;
+  collected?: number;
+  outstanding?: number;
+}
+
+export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc;
 
 function fullAddress(c: { address?: string; district?: string; city?: string }): string {
   return [c.address, c.district, c.city].filter(Boolean).join('، ');
@@ -524,6 +543,86 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
 });
 PrintableStatement.displayName = 'PrintableStatement';
 
+// سجلّ استلامات التحصيل لمندوب — جدولٌ مرتّب بالوقت والمبلغ ومن استلم، برأس الشركة
+export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: SettlementLogDoc }>(({ doc }, ref) => {
+  const tr = useTr();
+  const brand = brandColor(doc.company);
+  const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
+  const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
+
+  return (
+    <div ref={ref} style={PAGE}>
+      <Header title={tr('سجل استلام التحصيل')} company={doc.company} />
+
+      {/* بيانات المندوب + ملخّص التحصيل */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
+        <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات المندوب')}</div>
+          <InfoBox label={tr('المندوب')} value={doc.repName} />
+          <InfoBox label={tr('تاريخ الإصدار')} value={formatDate(doc.date)} />
+          <InfoBox label={tr('عدد الاستلامات')} value={String(doc.entries.length)} />
+        </div>
+        <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخّص التحصيل')}</div>
+          {doc.collected != null && <InfoBox label={tr('إجمالي التحصيل')} value={formatCurrency(doc.collected)} />}
+          <InfoBox label={tr('إجمالي المُسلَّم')} value={formatCurrency(doc.total)} />
+          {doc.outstanding != null && <InfoBox label={tr('الرصيد المتبقّي')} value={formatCurrency(doc.outstanding)} />}
+        </div>
+      </div>
+
+      {/* جدول الاستلامات */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
+            <th style={th}>{tr('التاريخ')}</th>
+            <th style={th}>{tr('الوقت')}</th>
+            <th style={th}>{tr('المبلغ المُستلَم')}</th>
+            <th style={th}>{tr('استلمه')}</th>
+            <th style={{ ...th, textAlign: 'right', borderRadius: '8px 0 0 0' }}>{tr('ملاحظة')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {doc.entries.length === 0 ? (
+            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={6}>{tr('لا توجد استلامات')}</td></tr>
+          ) : doc.entries.map((e, i) => (
+            <tr key={i}>
+              <td style={td}>{i + 1}</td>
+              <td style={td}>{formatDate(e.settledAt)}</td>
+              <td style={td}>{formatTime(e.settledAt)}</td>
+              <td style={{ ...td, fontWeight: 700, color: '#16a34a' }}>{formatCurrency(e.amount)}</td>
+              <td style={td}>{e.by || '-'}</td>
+              <td style={{ ...td, textAlign: 'right', color: '#6b7280' }}>{e.note || '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
+            <td style={{ ...td, borderTop: `2px solid ${brand}` }} colSpan={3}>{tr('الإجمالي')}</td>
+            <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.total)}</td>
+            <td style={{ ...td, borderTop: `2px solid ${brand}` }} colSpan={2}></td>
+          </tr>
+        </tfoot>
+      </table>
+
+      {/* إجمالي المُسلَّم */}
+      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+        <div style={{ background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 12, padding: '14px 24px', minWidth: 260 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 14, color: '#374151' }}>{tr('إجمالي المُسلَّم للإدارة')}</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: '#16a34a' }}>{formatCurrency(doc.total)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 40, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
+        {doc.company?.name || ''} — {tr('تم الإصدار في')} {formatDateTime(doc.date)}
+      </div>
+    </div>
+  );
+});
+PrintableSettlementLog.displayName = 'PrintableSettlementLog';
+
 function Row({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: color || '#374151' }}>
@@ -615,6 +714,31 @@ export function statementDocFromData(
   };
 }
 
+export function settlementLogDocFromData(
+  repName: string,
+  items: { amount: number | string; note?: string | null; createdBy?: string | null; settledAt: string }[],
+  company?: Company | null,
+  summary?: { collected?: number; outstanding?: number },
+): SettlementLogDoc {
+  const entries: SettlementEntry[] = items.map((s) => ({
+    settledAt: s.settledAt,
+    amount: Number(s.amount),
+    by: s.createdBy || undefined,
+    note: s.note || undefined,
+  }));
+  const total = entries.reduce((a, e) => a + e.amount, 0);
+  return {
+    kind: 'settlement',
+    company: company ?? null,
+    repName,
+    date: new Date().toISOString(),
+    entries,
+    total,
+    collected: summary?.collected,
+    outstanding: summary?.outstanding,
+  };
+}
+
 // ============ شاشة النتيجة (معاينة + مشاركة/حفظ PDF) ============
 export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => void }) {
   const tr = useTr();
@@ -624,9 +748,11 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
 
   const isReceipt = doc.kind === 'receipt';
   const isStatement = doc.kind === 'statement';
+  const isSettlement = doc.kind === 'settlement';
+  const green = isReceipt || isSettlement; // سند القبض وسجلّ التحصيل بطابع أخضر
   const headerBg = 'bg-[#1F1A13]';
-  const accentBtn = isReceipt ? 'bg-[#1E7A52] hover:bg-[#176A46]' : 'bg-[#E15A30] hover:bg-[#C94E28]';
-  const confirmBg = isReceipt ? 'bg-[#E4F1EA] border-[#cfe8db]' : 'bg-[#FBEBE2] border-[#F5DACE]';
+  const accentBtn = green ? 'bg-[#1E7A52] hover:bg-[#176A46]' : 'bg-[#E15A30] hover:bg-[#C94E28]';
+  const confirmBg = green ? 'bg-[#E4F1EA] border-[#cfe8db]' : 'bg-[#FBEBE2] border-[#F5DACE]';
   const canThermal = doc.kind === 'invoice' || doc.kind === 'receipt';
 
   const printThermal = async () => {
@@ -639,17 +765,21 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
   };
 
   const isReturnDoc = doc.kind === 'invoice' && doc.isReturn;
+  const subjectName = doc.kind === 'settlement' ? doc.repName : doc.customer.name;
   const title = doc.kind === 'invoice' ? `${isReturnDoc ? tr('فاتورة مرتجع') : tr('الفاتورة')} — ${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند القبض')} — ${doc.number}`
+    : doc.kind === 'settlement' ? `${tr('سجل التحصيل')} — ${doc.repName}`
     : `${tr('كشف حساب')} — ${doc.customer.name}`;
   const filename = (doc.kind === 'invoice' ? `${isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند قبض')}-${doc.number}`
+    : doc.kind === 'settlement' ? `${tr('سجل تحصيل')}-${doc.repName}`
     : `${tr('كشف حساب')}-${doc.customer.name}`) + '.pdf';
-  const confirmText = isStatement ? tr('كشف الحساب جاهز') : tr('تم الإصدار بنجاح');
+  const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : isStatement ? tr('كشف الحساب جاهز') : tr('تم الإصدار بنجاح');
 
   const renderDoc = (refProp?: React.Ref<HTMLDivElement>) => {
     if (doc.kind === 'invoice') return <PrintableInvoice ref={refProp} doc={doc} />;
     if (doc.kind === 'receipt') return <PrintableReceipt ref={refProp} doc={doc} />;
+    if (doc.kind === 'settlement') return <PrintableSettlementLog ref={refProp} doc={doc} />;
     return <PrintableStatement ref={refProp} doc={doc} />;
   };
 
@@ -681,7 +811,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
           </div>
           <div>
             <p className="font-bold text-gray-800 text-sm">{confirmText}</p>
-            <p className="text-xs text-gray-500">{doc.customer.name}</p>
+            <p className="text-xs text-gray-500">{subjectName}</p>
           </div>
         </div>
 
