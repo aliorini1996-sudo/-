@@ -549,10 +549,11 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
   const brand = brandColor(doc.company);
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
+  const single = doc.entries.length === 1; // تصدير تسجيلٍ واحد = سند استلام
 
   return (
     <div ref={ref} style={PAGE}>
-      <Header title={tr('سجل استلام التحصيل')} company={doc.company} />
+      <Header title={single ? tr('سند استلام تحصيل') : tr('سجل استلام التحصيل')} company={doc.company} />
 
       {/* بيانات المندوب + ملخّص التحصيل */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
@@ -560,7 +561,7 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
           <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات المندوب')}</div>
           <InfoBox label={tr('المندوب')} value={doc.repName} />
           <InfoBox label={tr('تاريخ الإصدار')} value={formatDate(doc.date)} />
-          <InfoBox label={tr('عدد الاستلامات')} value={String(doc.entries.length)} />
+          {!single && <InfoBox label={tr('عدد الاستلامات')} value={String(doc.entries.length)} />}
         </div>
         <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 10, padding: 14 }}>
           <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخّص التحصيل')}</div>
@@ -768,11 +769,11 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
   const subjectName = doc.kind === 'settlement' ? doc.repName : doc.customer.name;
   const title = doc.kind === 'invoice' ? `${isReturnDoc ? tr('فاتورة مرتجع') : tr('الفاتورة')} — ${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند القبض')} — ${doc.number}`
-    : doc.kind === 'settlement' ? `${tr('سجل التحصيل')} — ${doc.repName}`
+    : doc.kind === 'settlement' ? `${doc.entries.length === 1 ? tr('سند استلام') : tr('سجل التحصيل')} — ${doc.repName}`
     : `${tr('كشف حساب')} — ${doc.customer.name}`;
   const filename = (doc.kind === 'invoice' ? `${isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند قبض')}-${doc.number}`
-    : doc.kind === 'settlement' ? `${tr('سجل تحصيل')}-${doc.repName}`
+    : doc.kind === 'settlement' ? `${doc.entries.length === 1 ? tr('سند تحصيل') : tr('سجل تحصيل')}-${doc.repName}`
     : `${tr('كشف حساب')}-${doc.customer.name}`) + '.pdf';
   const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : isStatement ? tr('كشف الحساب جاهز') : tr('تم الإصدار بنجاح');
 

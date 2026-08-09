@@ -406,7 +406,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [filled, setFilled] = useState(false);
-  const [showPdf, setShowPdf] = useState(false);
+  const [pdfOne, setPdfOne] = useState<{ id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string } | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['rep-collection', rep.id],
@@ -452,12 +452,12 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
   const outstanding = data?.outstanding ?? 0;
 
-  // عند فتح PDF: نعرض مستند السجلّ وحده (نافذة كاملة) بدل نافذة الاستلام
-  if (showPdf) {
+  // تصدير تسجيلٍ واحد: نعرض مستنده (نافذة كاملة) بدل نافذة الاستلام
+  if (pdfOne) {
     return (
       <DocumentModal
-        doc={settlementLogDocFromData(rep.name, settlements, companyQ.data ?? null, { collected: data?.collected, outstanding })}
-        onClose={() => setShowPdf(false)}
+        doc={settlementLogDocFromData(rep.name, [pdfOne], companyQ.data ?? null)}
+        onClose={() => setPdfOne(null)}
       />
     );
   }
@@ -509,15 +509,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
               {/* سجلّ الاستلامات — مرتّب بالوقت والمبلغ ومن استلم، قابل للتصدير PDF */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="label mb-0">{tr('سجل الاستلامات')}</label>
-                  {settlements.length > 0 && (
-                    <button type="button" onClick={() => setShowPdf(true)}
-                      className="text-xs text-slate-600 hover:text-slate-800 flex items-center gap-1 font-semibold">
-                      <Download size={13} /> {tr('تصدير PDF')}
-                    </button>
-                  )}
-                </div>
+                <label className="label">{tr('سجل الاستلامات')}</label>
                 <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF] max-h-52 overflow-y-auto">
                   {settlementsQ.isLoading ? (
                     <p className="text-center text-gray-400 text-xs py-4">{tr('جارٍ التحميل…')}</p>
@@ -525,7 +517,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                     <p className="text-center text-gray-400 text-xs py-5">{tr('لا توجد استلامات بعد')}</p>
                   ) : settlements.map(s => (
                     <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="font-bold text-sm text-[#1F1A13]">{formatCurrency(s.amount)}</p>
                         <p className="text-[11px] text-[#9A8F7E] truncate">
                           {tr('استلمه')}: {s.createdBy || '—'}{s.note ? ` · ${s.note}` : ''}
@@ -535,6 +527,10 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                         <span>{formatDate(s.settledAt)}</span><br />
                         <span>{formatTime(s.settledAt)}</span>
                       </div>
+                      <button type="button" onClick={() => setPdfOne(s)} title={tr('تصدير PDF')}
+                        className="flex-shrink-0 p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+                        <Download size={15} />
+                      </button>
                     </div>
                   ))}
                 </div>
