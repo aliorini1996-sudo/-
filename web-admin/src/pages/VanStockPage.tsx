@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { vanStockApi, productApi, salesRepApi } from '../api/client';
+import { vanStockApi, productApi, salesRepApi, companyApi } from '../api/client';
 import { formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
+import DocumentModal from '../components/DocumentModal';
+import { loadNoticeDocFromData, Company } from '../rep/RepDocuments';
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
 interface SuggestRow {
@@ -73,6 +75,7 @@ export default function VanStockPage() {
   const [selected, setSelected] = useState<string>('');
   const [showLoad, setShowLoad] = useState(false);
   const [showAccuracy, setShowAccuracy] = useState(false);
+  const [noticeMv, setNoticeMv] = useState<Movement | null>(null);
 
   const summaryQ = useQuery({
     queryKey: ['van-summary'],
@@ -103,6 +106,12 @@ export default function VanStockPage() {
     queryFn: async () => (await vanStockApi.movements(selected)).data.data as Movement[],
     enabled: !!selected,
   });
+  // بيانات الشركة لرأس ملفّ الإشعار
+  const companyQ = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as Company,
+  });
+  const repName = summaryQ.data?.find(r => r.salesRepId === selected)?.repName || '';
 
   const reps = summaryQ.data || [];
   const selectedRep = reps.find(r => r.salesRepId === selected);
@@ -224,7 +233,7 @@ export default function VanStockPage() {
               <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركة بعد.')}</div>
             ) : (
               <div className="max-h-[420px] overflow-y-auto divide-y divide-[#F1EBDF]">
-                {(movementsQ.data || []).map((m, i) => <MovementRow key={i} m={m} />)}
+                {(movementsQ.data || []).map((m, i) => <MovementRow key={i} m={m} onExport={setNoticeMv} />)}
               </div>
             )}
           </div>
@@ -233,6 +242,7 @@ export default function VanStockPage() {
 
       {showLoad && <LoadModal preselectRep={selected} onClose={() => setShowLoad(false)} />}
       {showAccuracy && <AccuracyModal preselectRep={selected} onClose={() => setShowAccuracy(false)} />}
+      {noticeMv && <DocumentModal doc={loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null)} onClose={() => setNoticeMv(null)} />}
     </div>
   );
 }
@@ -245,13 +255,22 @@ const KIND_META: Record<string, { label: string; color: string; sign: string }> 
   ADJUST: { label: 'تسوية', color: 'text-purple-600 bg-purple-50', sign: '±' },
 };
 
-function MovementRow({ m }: { m: Movement }) {
+function MovementRow({ m, onExport }: { m: Movement; onExport?: (m: Movement) => void }) {
   const tr = useTr();
   const meta = KIND_META[m.kind] || KIND_META.ADJUST;
+  const canExport = ['LOAD', 'UNLOAD', 'ADJUST'].includes(m.kind); // حركات السيارة (لا المبيعات) تُصدَّر إشعاراً
   return (
     <div className="px-5 py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${meta.color}`}>{tr(meta.label)}</span>
+        <span className="flex items-center gap-2">
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${meta.color}`}>{tr(meta.label)}</span>
+          {onExport && canExport && (
+            <button onClick={() => onExport(m)} title={tr('إشعار PDF')}
+              className="text-[11px] text-slate-600 hover:text-slate-800 flex items-center gap-1 font-semibold">
+              <Download size={12} /> {tr('إشعار PDF')}
+            </button>
+          )}
+        </span>
         <span className="text-[11px] text-[#9A8F7E] flex items-center gap-1"><Calendar size={11} /> {formatDate(m.date)}</span>
       </div>
       {m.ref && <p className="text-xs text-[#6E6557] mt-1.5">{m.ref}</p>}
