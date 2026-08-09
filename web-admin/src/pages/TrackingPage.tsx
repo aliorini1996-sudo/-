@@ -170,7 +170,7 @@ export default function TrackingPage() {
   /**
    * مقاطع الرسم. المقطع **المُرجَّح** ليس أثراً رُصد: هو أرجحُ طريقٍ بين نقطتين
    * متباعدتين أعاده محرّك التوجيه. يُرسَم **متصلاً** (بطلب المالك) لكنه يبقى
-   * مميّزاً عن المرصود بلونه الباهت (#9A8F7E لا برتقاليّ) ووسمه «مُرجَّح … ليس
+   * مميّزاً عن المرصود بلونه الأزرق (#2563EB لا برتقاليّ) ووسمه «مُرجَّح … ليس
    * أثراً مرصوداً» — فلا يُقرأ كأثرٍ مؤكَّد يُبنى عليه اتّهامُ مندوبٍ بالانحراف.
    */
   const drawSegments = useMemo<{ kind: SegKind; pos: [number, number][] }[]>(() => {
@@ -277,7 +277,7 @@ export default function TrackingPage() {
                       <span>{tr('مسار مرصود')}: <b className="tabular-nums">{(shape.observedMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
-                      <span className="inline-block w-5 h-[3px] rounded" style={{ background: '#9A8F7E', opacity: 0.75 }} />
+                      <span className="inline-block w-5 h-[3px] rounded" style={{ background: '#2563EB', opacity: 0.85 }} />
                       <span>{tr('مسار مُرجَّح')}: <b className="tabular-nums">{(shape.inferredMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
                     </div>
                     {shape.rawMeters > 0 && (
@@ -408,7 +408,7 @@ export default function TrackingPage() {
                         key={i}
                         positions={sg.pos}
                         pathOptions={{ observed: { color: '#E15A30', weight: 5, opacity: 0.9 },
-                          inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75 },
+                          inferred: { color: '#2563EB', weight: 3.5, opacity: 0.85 },
                           raw: { color: '#B7791F', weight: 3, opacity: 0.7, dashArray: '2 7' } }[sg.kind]}
                       />
                     ))}

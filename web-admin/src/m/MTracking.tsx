@@ -23,7 +23,7 @@ type SegKind = 'observed' | 'inferred' | 'raw';
 /** أنماط رسم المقاطع — مطابقة للوحة المكتبية عمداً: عينُ المشرف واحدة */
 const ROUTE_STYLE: Record<SegKind, Record<string, unknown>> = {
   observed: { color: '#E15A30', weight: 5, opacity: 0.9 },
-  inferred: { color: '#9A8F7E', weight: 3.5, opacity: 0.75 },
+  inferred: { color: '#2563EB', weight: 3.5, opacity: 0.85 },
   raw: { color: '#B7791F', weight: 3, opacity: 0.7, dashArray: '2 7' },
 };
 interface RouteSegment { kind: SegKind; points: { lat: number; lng: number }[]; meters: number }
@@ -146,7 +146,7 @@ export default function MTracking() {
   }, [selected, routeQ.data, sel, reps]);
 
   // نفس تمييز اللوحة المكتبية: المقطع المُرجَّح (أعاده محرّك التوجيه بين نقطتين
-  // متباعدتين) يُرسم متصلاً بطلب المالك، ويبقى مميّزاً بلونه الباهت ووسمه «مُرجَّح».
+  // متباعدتين) يُرسم متصلاً بطلب المالك، ويبقى مميّزاً بلونه الأزرق ووسمه «مُرجَّح».
   const segs = useMemo<{ kind: SegKind; pos: [number, number][] }[]>(() => {
     const ss = routeQ.data?.shape?.segments?.filter(g => g.points.length > 1) || [];
     if (ss.length) return ss.map(g => ({ kind: g.kind, pos: g.points.map(p => [p.lat, p.lng] as [number, number]) }));
