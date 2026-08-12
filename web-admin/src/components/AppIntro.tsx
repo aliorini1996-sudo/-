@@ -67,17 +67,13 @@ export default function AppIntro({ app, onProceed }: { app: 'rep' | 'm'; onProce
         <p className="text-[11px] leading-relaxed text-[#9A8F7E] mt-5 text-center">{t('intro.b2bNote')}</p>
       </div>
 
-      {/* أسفل ثابت: زرّ الدخول + رابط تعرّف أكثر */}
+      {/* أسفل ثابت: زرّ الدخول */}
       <div className="flex-shrink-0 px-6 pt-3 bg-[#1F1A13] border-t border-white/5"
         style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
         <button onClick={onProceed}
           className="w-full bg-[#E15A30] hover:bg-[#C94E28] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 min-h-[48px]">
           <LogIn size={18} /> {t('intro.login')}
         </button>
-        <a href="https://fieldsa.net" target="_blank" rel="noopener noreferrer"
-          className="mt-3 w-full flex items-center justify-center text-xs text-[#9A8F7E] hover:text-[#E8A87C]">
-          {t('intro.learnMore')}
-        </a>
       </div>
     </div>
   );

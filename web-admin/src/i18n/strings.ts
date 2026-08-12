@@ -96,7 +96,6 @@ export const DICT: Record<string, { ar: string; en: string; fr: string }> = {
   'intro.mF4': { ar: 'متابعة المناديب على الخريطة', en: 'Track reps on a map', fr: 'Suivre les représentants sur une carte' },
   'intro.b2bNote': { ar: 'هذا التطبيق أداة عمل لموظفي الشركات المشتركة في فيلد سيلز ويحتاج حسابا تنشئه لك شركتك فلا يوجد تسجيل ذاتي', en: 'This app is a business tool for employees of companies subscribed to Field Sales. It requires an account issued by your company — there is no self sign-up.', fr: 'Cette application est un outil professionnel destiné aux employés des entreprises abonnées à Field Sales. Elle nécessite un compte fourni par votre entreprise — il n’y a pas d’inscription libre.' },
   'intro.login': { ar: 'تسجيل الدخول', en: 'Sign in', fr: 'Se connecter' },
-  'intro.learnMore': { ar: 'تعرف أكثر على فيلد سيلز', en: 'Learn more about Field Sales', fr: 'En savoir plus sur Field Sales' },
   'intro.back': { ar: 'رجوع', en: 'Back', fr: 'Retour' },
 
   // صفحة التواصل
