@@ -1,7 +1,7 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, MapPin, LifeBuoy, UserCog, DatabaseZap,
+  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/app/products', icon: Package, label: 'nav.products', permission: 'canManageProducts' },
   { to: '/app/sales-reps', icon: UserCheck, label: 'nav.reps', permission: 'canManageSalesReps' },
   { to: '/app/van-stock', icon: Truck, label: 'nav.vanStock', permission: 'canManageVanStock' },
+  { to: '/app/warehouse', icon: Warehouse, label: 'nav.warehouse', permission: 'canManageVanStock' },
   { to: '/app/tracking', icon: MapPin, label: 'nav.tracking', permission: 'canManageTracking' },
   { to: '/app/invoices', icon: FileText, label: 'nav.invoices', permission: 'canManageInvoices' },
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts', permission: 'canManageReceipts' },
@@ -38,7 +39,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; warehouseEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => { setActiveCurrency(companyCfg?.currency); }, [companyCfg]);
@@ -89,7 +90,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false)).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true)).map(item => (
             <NavLink
               key={item.to}
               to={item.to}

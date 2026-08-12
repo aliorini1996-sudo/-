@@ -569,6 +569,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [unlimitedUsers, setUnlimitedUsers] = useState(tenant.maxAdminUsers == null);
   const [maxAdminUsers, setMaxAdminUsers] = useState(tenant.maxAdminUsers != null ? String(tenant.maxAdminUsers) : '');
   const [erpEnabled, setErpEnabled] = useState(!!tenant.erpEnabled);
+  const [warehouseEnabled, setWarehouseEnabled] = useState(!!tenant.warehouseEnabled);
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
   );
@@ -580,6 +581,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       maxSalesReps: unlimitedReps ? null : Number(maxSalesReps),
       maxAdminUsers: unlimitedUsers ? null : Number(maxAdminUsers),
       erpEnabled,
+      warehouseEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success(tr('تم تحديث بيانات الشركة')); onSaved(); },
@@ -658,6 +660,10 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={erpEnabled} onChange={e => setErpEnabled(e.target.checked)} />
               {tr('تفعيل ميزة ربط ERP لهذه الشركة')}
+            </label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={warehouseEnabled} onChange={e => setWarehouseEnabled(e.target.checked)} />
+              {tr('تفعيل مخزون الشركة (المستودع) لهذه الشركة')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تُخفى الميزة وتُرفض طلباتها للشركة.')}</p>
           </div>

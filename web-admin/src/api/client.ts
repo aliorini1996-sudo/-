@@ -255,6 +255,14 @@ export const vanStockApi = {
     api.patch('/van-stock/sell-permission', { salesRepId, canSellWithoutStock }),
 };
 
+// مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات
+export const warehouseApi = {
+  stock: () => api.get('/warehouse'),
+  entries: () => api.get('/warehouse/entries'),
+  createEntry: (data: { type?: string; note?: string; supplier?: string; items: { productId: string; qty: number }[] }) =>
+    api.post('/warehouse/entries', data),
+};
+
 // محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك
 export const siteContentApi = {
   get: () => api.get('/site-content'),

@@ -32,6 +32,7 @@ export interface Tenant {
   maxPosStations?: number | null; // مطاعم: عدد نقاط البيع
   maxBranches?: number | null;    // مطاعم: عدد الفروع
   erpEnabled?: boolean;          // صلاحية ربط ERP (يتحكّم بها المالك)
+  warehouseEnabled?: boolean;    // مخزون الشركة (المستودع) — يُفعّله المالك لكل شركة
   subscriptionEndsAt?: string | null;
   notes?: string | null;
   createdAt: string;

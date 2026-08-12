@@ -106,6 +106,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string }> = {
   'nav.products': { ar: 'المنتجات', en: 'Products', fr: 'Produits' },
   'nav.reps': { ar: 'المناديب', en: 'Sales reps', fr: 'Représentants' },
   'nav.vanStock': { ar: 'مخزون السيارات', en: 'Van stock', fr: 'Stock du véhicule' },
+  'nav.warehouse': { ar: 'مخزون الشركة', en: 'Company warehouse', fr: 'Entrepôt' },
   'nav.tracking': { ar: 'تتبّع المناديب', en: 'Rep tracking', fr: 'Suivi des représentants' },
   'nav.invoices': { ar: 'الفواتير', en: 'Invoices', fr: 'Factures' },
   'nav.receipts': { ar: 'سندات القبض', en: 'Receipts', fr: 'Reçus' },

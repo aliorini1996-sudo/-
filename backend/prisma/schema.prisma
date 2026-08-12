@@ -36,6 +36,7 @@ model Tenant {
   maxPosStations     Int? // مطاعم: الحد الأقصى لنقاط البيع/الكاشير (null = غير محدود/لا ينطبق)
   maxBranches        Int? // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
   erpEnabled         Boolean   @default(false) // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
+  warehouseEnabled   Boolean   @default(false) // مخزون الشركة (المستودع المركزيّ) — يُفعّله المالك لكل شركة (طرح مدروس)
   subscriptionEndsAt DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes              String?
   createdAt          DateTime  @default(now())
@@ -52,8 +53,10 @@ model Tenant {
   notifications  Notification[]
   settings       CompanySettings?
   erpIntegration ErpIntegration?
+  zatcaEgs       ZatcaEgs?
   erpSyncLogs    ErpSyncLog[]
   vanLoads       VanLoad[]
+  warehouseEntries WarehouseEntry[]
   repLocations   RepLocation[]
   repSettlements RepSettlement[]
   importBatches  ImportBatch[]
@@ -275,6 +278,7 @@ model Product {
   customerPrices CustomerPrice[]
   invoiceItems   InvoiceItem[]
   vanLoadItems   VanLoadItem[]
+  warehouseEntryItems WarehouseEntryItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -428,6 +432,11 @@ model Invoice {
   einvoiceUuid        String? // معرّف الاعتماد (UUID من ETA/Peppol)
   einvoiceQr          String? // حمولة/رابط QR إن وُجد
   einvoiceSubmittedAt DateTime?
+  // ZATCA المرحلة الثانية — سلسلة التجزئة والتوقيع
+  einvoiceHash        String? // تجزئة SHA-256 (base64) للفاتورة الموقّعة
+  einvoicePih         String? // تجزئة الفاتورة السابقة (Previous Invoice Hash)
+  einvoiceIcv         Int?    // عدّاد الفاتورة (Invoice Counter Value) لكل وحدة EGS
+  einvoiceWarnings    String? // تحذيرات الهيئة (JSON) إن وُجدت
 
   // مفتاح idempotency: UUID يولّده العميل مرّة لكل مستند. عند تكرار الرفع (إعادة محاولة/شبكة
   // متقطّعة) يعيد الخادم الفاتورة القائمة بدل إنشاء مكرّرة. أساس العمل دون اتصال (Outbox).
@@ -596,6 +605,33 @@ model CompanySettings {
   @@map("company_settings")
 }
 
+/// وحدة توليد الفوترة الإلكترونية (EGS) لـZATCA المرحلة الثانية — مفاتيح وشهادات الربط لكل شركة.
+/// المفاتيح والأسرار حسّاسة: تُخزَّن مشفّرةً على مستوى التطبيق (Z0ب).
+model ZatcaEgs {
+  id               String    @id @default(uuid())
+  tenantId         String    @unique
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  environment      String    @default("production") // sandbox | simulation | production
+  egsSerialNumber  String    @default("") // 1-<solution>|2-<model>|3-<serial>
+  privateKeyPem    String?   // مفتاح EC secp256k1 الخاصّ (حسّاس)
+  csrPem           String?   // طلب توقيع الشهادة (CSR)
+  complianceCsid   String?   // binarySecurityToken من واجهة الامتثال
+  complianceSecret String?
+  complianceReqId  String?   // requestID لاجتياز فحوص الامتثال
+  productionCsid   String?   // شهادة الإنتاج (binarySecurityToken)
+  productionSecret String?
+  csidIssuedAt     DateTime?
+  csidExpiresAt    DateTime?
+  lastIcv          Int       @default(0) // آخر عدّاد فاتورة مُسند لهذه الوحدة
+  lastPih          String?   // تجزئة آخر فاتورة (لتسلسل PIH)
+  status           String    @default("not_started") // not_started | csr_ready | compliance | ready | error
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("zatca_egs")
+}
+
 model ErpIntegration {
   id                String    @id @default(uuid())
   tenantId          String    @unique
@@ -701,6 +737,35 @@ model VanLoadItem {
 
   @@index([vanLoadId])
   @@map("van_load_items")
+}
+
+/// وارد مخزون الشركة (المستودع المركزيّ) — استلام/شراء أو تسوية. مرتبطٌ بمخزون
+/// السيارات: تحميل السيارة يخرج من المستودع، والتنزيل (UNLOAD) يعود إليه.
+model WarehouseEntry {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      String   @default("RECEIVE") // RECEIVE (وارد/شراء) | ADJUST (تسوية)
+  note      String?
+  supplier  String?  // المورّد (اختياري، للوارد)
+  createdBy String?  // اسم المستخدم الذي سجّل الحركة
+  items     WarehouseEntryItem[]
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@map("warehouse_entries")
+}
+
+model WarehouseEntryItem {
+  id        String         @id @default(uuid())
+  entryId   String
+  entry     WarehouseEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product        @relation(fields: [productId], references: [id])
+  qty       Float          // موجب للوارد؛ + أو − للتسوية
+
+  @@index([productId])
+  @@map("warehouse_entry_items")
 }
 
 // نقطة موقع GPS للمندوب — سجلّ زمني لرسم خطّ السير ومعرفة الموقع الحالي
