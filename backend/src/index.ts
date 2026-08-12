@@ -38,6 +38,7 @@ import analyticsRouter from './routes/analytics';
 import promoVideosRouter from './routes/promoVideos';
 import importRouter from './routes/import';
 import restaurantRouter from './routes/restaurant';
+import hunterRouter from './routes/hunter';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
 import { errorHandler } from './middleware/errorHandler';
@@ -120,6 +121,8 @@ app.use('/api/analytics', analyticsRouter);
 app.use('/api/promo-videos', promoVideosRouter);
 app.use('/api/import', importRouter);
 app.use('/api/restaurant', restaurantRouter);
+// منصّة صيد العملاء — معزولة (مصادقة وجداول خاصّة بها)
+app.use('/api/hunter', hunterRouter);
 
 // الوسائط المُنتجة (فيديوهات/أصوات ترويجية) — قبل التقاط الواجهة المبنيّة كي لا تبتلعها
 app.use('/media', express.static(path.join(process.cwd(), 'media'), { maxAge: '1d' }));

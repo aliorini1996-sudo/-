@@ -42,6 +42,8 @@ const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
 const MobileApp = lazy(() => import('./m/MobileApp'));
+// منصّة صيد العملاء — صفحة سرّية غير مُدرَجة ولا مرتبطة من أي مكان
+const HunterApp = lazy(() => import('./hunter/HunterApp'));
 const RestaurantLandingPage = lazy(() => import('./pages/resto/RestaurantLandingPage'));
 const RestaurantLayout = lazy(() => import('./pages/resto/RestaurantLayout'));
 const RestaurantDashboard = lazy(() => import('./pages/resto/RestaurantDashboard'));
@@ -166,6 +168,7 @@ export default function App() {
         <Route path="/rep" element={<RepApp />} />
         {/* تطبيق الإدارة على الجوال — قوقعة مستقلّة بجلسة لوحة الشركة */}
         <Route path="/m" element={<MobileRoute><MobileApp /></MobileRoute>} />
+        <Route path="/hx" element={<HunterApp />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
         <Route path="/pos-login" element={<PosLoginPage />} />

@@ -1317,3 +1317,93 @@ model IngredientMovement {
   @@index([ingredientId])
   @@map("resto_ingredient_movements")
 }
+
+// ============================================================================
+// منصّة صيد العملاء المحتملين (Hunter) — **نسخة معزولة تماماً داخل فيلد سيلز**.
+// لا علاقة لهذه الجداول بأيّ جدول من المنصّة (Tenant/Admin/SalesRep/Lead...):
+// حساباتها مستقلّة بمصادقتها الخاصّة، وكل حساب لا يرى إلا عملاءه هو.
+// الجداول ببادئة hunter_ فلا تتقاطع مع leads/ الوحدة القديمة.
+// ============================================================================
+
+/// حساب على منصّة الصيد. يُنشئه المالك ويسلّم بياناته للشخص.
+model HunterUser {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String // scrypt: salt:hash (بلا تبعيات خارجية)
+  name          String?
+  isActive      Boolean   @default(true)
+  isOwner       Boolean   @default(false) // مالك المنصّة: يُنشئ الحسابات ويديرها
+  // حصّة الخطة المجانية — تُعاد كل شهر
+  monthlyQuota  Int       @default(500) // أقصى عدد عملاء جدد شهرياً
+  usedThisMonth Int       @default(0)
+  quotaResetAt  DateTime  @default(now())
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  leads    HunterLead[]
+  searches HunterSearch[]
+
+  @@map("hunter_users")
+}
+
+/// عميل محتمل مملوك لحسابٍ واحد. كل استعلام يُقيَّد بـuserId (عزل صارم).
+model HunterLead {
+  id          String  @id @default(uuid())
+  userId      String
+  user        HunterUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String?
+  email       String?
+  website     String?
+  address     String?
+  city        String?
+  country     String?
+  countryCode String?
+  category    String?
+  lat         Float?
+  lng         Float?
+  mapsUrl     String?
+  source      String  @default("manual") // المصدر الأول
+  sourcesCsv  String? // كل المصادر التي أكّدت هذا العميل، مفصولة بـ+
+  sourceId    String? // معرّف المصدر الأصلي (osm:node/123)
+
+  // مفاتيح إزالة التكرار المشتقّة — مفهرسة ليكون الفحص استعلاماً واحداً
+  domainKey   String? // نطاق الموقع مطبّعاً
+  phoneKey    String? // الهاتف مطبّعاً
+  nameCityKey String? // الاسم+المدينة مطبّعين
+
+  score     Int? // تقييم ملي 1..10
+  scoreNote String?
+  status    String   @default("NEW") // NEW | CONTACTED | QUALIFIED | WON | LOST
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, score])
+  @@index([userId, sourceId])
+  @@index([userId, domainKey])
+  @@index([userId, phoneKey])
+  @@index([userId, nameCityKey])
+  @@map("hunter_leads")
+}
+
+/// سجلّ عملية صيد (للتتبّع وتفادي تكرار الكلمات).
+model HunterSearch {
+  id        String     @id @default(uuid())
+  userId    String
+  user      HunterUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providers String // المصادر المستخدمة مفصولة بـ+
+  keywords  String // الكلمات مفصولة بفاصلة
+  country   String?
+  city      String?
+  found     Int        @default(0)
+  added     Int        @default(0)
+  merged    Int        @default(0)
+  errors    String?
+  createdAt DateTime   @default(now())
+
+  @@index([userId, createdAt])
+  @@map("hunter_searches")
+}
