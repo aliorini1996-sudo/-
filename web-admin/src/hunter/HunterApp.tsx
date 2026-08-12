@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios, { AxiosError } from 'axios';
 import toast from 'react-hot-toast';
 import {
-  Eye, EyeOff, Mail, Lock, ArrowLeft, LogOut, Crosshair, Search,
+  Eye, EyeOff, Mail, Lock, ArrowLeft, LogOut, Search,
   Download, X, Check, Loader2, Globe, Phone, AtSign, Users,
 } from 'lucide-react';
-import { BrandIcon, BrandWordmark } from '../components/BrandLogo';
 
 // ============ الأنواع ============
 
@@ -81,6 +80,94 @@ function errMessage(err: unknown, fallback: string): string {
   const ax = err as AxiosError<{ message?: string; error?: string }>;
   return ax?.response?.data?.message || ax?.response?.data?.error || fallback;
 }
+
+// ============ هوية HOOK B ============
+
+/** خطّاف الصيد — عين + انحناءة + شوكة. اللون من currentColor. */
+function HookMark({ size = 30, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" className={className} aria-hidden="true">
+      <circle cx="20" cy="6.5" r="3" stroke="currentColor" strokeWidth="2.4" />
+      <path d="M20 9.5 V17 A7 7 0 0 1 6 17 V14.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="M6 14.5 L2.8 17.6 L7.4 18.4 Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** الوردمارك الكامل: خطّاف + HOOK + شارة B */
+function HookWordmark({ mark = 28, text = 22 }: { mark?: number; text?: number }) {
+  return (
+    <span className="inline-flex items-center gap-2.5" dir="ltr">
+      <span className="hb-mark" style={{ color: 'var(--catch)' }}><HookMark size={mark} /></span>
+      <span className="inline-flex items-baseline gap-1.5">
+        <span style={{ fontSize: text, fontWeight: 800, letterSpacing: '-0.03em', color: 'var(--ink)', fontFamily: 'var(--hb-sans)' }}>HOOK</span>
+        <span className="hb-badge" style={{ fontSize: text * 0.62 }}>B</span>
+      </span>
+    </span>
+  );
+}
+
+// نمط النطاق الكامل — معزول تحت .hookb حتى لا يرث ألوان فيلد سيلز ولا يؤثّر عليها.
+const HOOKB_CSS = `
+.hookb{
+  --ink:#141A21; --ground:#EDF0F3; --card:#FFFFFF; --line:#E2E7EB; --line2:#EEF1F3;
+  --muted:#6A7581; --catch:#0BA05E; --catch-ink:#067A47; --catch-soft:#E5F6EE;
+  --brand:#0C1117; --hi-bg:#0BA05E; --hi-ink:#FFFFFF; --mid-bg:#EDF1F5; --mid-ink:#425263;
+  --hb-sans:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  --hb-mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+  color:var(--ink); font-family:var(--hb-sans);
+}
+.hookb .hb-badge{ display:inline-grid; place-items:center; min-width:1.35em; height:1.35em; padding:0 .28em;
+  background:var(--catch); color:#fff; border-radius:6px; font-weight:800; line-height:1; }
+.hookb .hb-mono{ font-family:var(--hb-mono); font-variant-numeric:tabular-nums; }
+.hookb .label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; color:var(--ink); }
+.hookb .input{ width:100%; background:#fff; border:1px solid var(--line); border-radius:12px; padding:9px 12px;
+  font-size:14px; color:var(--ink); outline:none; transition:border-color .15s, box-shadow .15s; }
+.hookb .input:focus{ border-color:var(--catch); box-shadow:0 0 0 3px rgba(11,160,94,.14); }
+.hookb select.input{ cursor:pointer; }
+.hookb .card{ background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px;
+  box-shadow:0 1px 2px rgba(20,26,33,.04), 0 10px 26px rgba(20,26,33,.05); }
+.hookb .btn-primary{ background:var(--catch); color:#fff; font-weight:700; border:none; border-radius:12px;
+  padding:12px 16px; display:inline-flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;
+  transition:filter .15s; font-size:14px; }
+.hookb .btn-primary:hover{ filter:brightness(.94); }
+.hookb .btn-primary:disabled{ opacity:.55; cursor:not-allowed; filter:none; }
+.hookb .btn-ghost{ background:#fff; color:var(--ink); border:1px solid var(--line); border-radius:12px;
+  padding:9px 13px; font-weight:600; font-size:13px; display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+  transition:border-color .15s; }
+.hookb .btn-ghost:hover{ border-color:var(--catch); }
+.hookb .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+.hookb .chip{ display:inline-flex; align-items:center; gap:5px; background:var(--catch-soft); color:var(--catch-ink);
+  border-radius:8px; padding:3px 5px 3px 9px; font-size:12.5px; font-weight:500; }
+.hookb .chipbox{ width:100%; min-height:42px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+  border:1px solid var(--line); border-radius:12px; padding:6px 8px; background:#fff; }
+.hookb .chipbox:focus-within{ border-color:var(--catch); box-shadow:0 0 0 3px rgba(11,160,94,.14); }
+.hookb .src{ width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px;
+  border:1px solid var(--line); background:var(--ground); text-align:right; cursor:pointer; transition:.15s; }
+.hookb .src:hover{ background:#fff; }
+.hookb .src.on{ border-color:var(--catch); background:var(--catch-soft); }
+.hookb .src .dot{ width:8px; height:8px; border-radius:50%; flex:none; background:#C6CDD4; }
+.hookb .src.ready .dot{ background:var(--catch); }
+.hookb .check{ width:18px; height:18px; border-radius:6px; display:grid; place-items:center; border:1px solid var(--line); color:#fff; }
+.hookb .src.on .check{ background:var(--catch); border-color:var(--catch); }
+.hookb .stat{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 15px;
+  box-shadow:0 1px 2px rgba(20,26,33,.04); }
+.hookb .stat .n{ font-family:var(--hb-mono); font-size:26px; font-weight:700; letter-spacing:-.02em; line-height:1; margin-top:6px; }
+.hookb .score{ display:inline-flex; justify-content:center; min-width:26px; padding:2px 8px; border-radius:8px;
+  font-family:var(--hb-mono); font-weight:700; font-size:12px; background:#F0F2F5; color:var(--muted); }
+.hookb .score.hi{ background:var(--hi-bg); color:var(--hi-ink); }
+.hookb .score.mid{ background:var(--mid-bg); color:var(--mid-ink); }
+.hookb .seg{ display:inline-flex; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
+.hookb .seg button{ padding:8px 13px; font-size:12.5px; font-weight:600; color:var(--muted); background:transparent; border:none; cursor:pointer; }
+.hookb .seg button.on{ background:var(--catch-soft); color:var(--catch-ink); }
+.hookb .srcpill{ font-family:var(--hb-mono); font-size:11px; padding:1px 6px; border-radius:6px;
+  background:var(--ground); border:1px solid var(--line2); color:var(--muted); }
+.hookb table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+.hookb thead th{ text-align:right; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+  font-weight:700; background:var(--ground); padding:10px 14px; position:sticky; top:0; white-space:nowrap; }
+.hookb tbody td{ padding:11px 14px; border-top:1px solid var(--line2); white-space:nowrap; vertical-align:middle; }
+.hookb tbody tr:hover td{ background:var(--ground); }
+`;
 
 // ============ المصادر ============
 
@@ -164,11 +251,11 @@ function ChipInput({ label, hint, placeholder, values, onChange }: ChipInputProp
   return (
     <div>
       <label className="label">
-        {label}{hint && <span className="font-normal text-[#9A8F7E] text-xs"> — {hint}</span>}
+        {label}{hint && <span className="font-normal text-[color:var(--muted)] text-xs"> — {hint}</span>}
       </label>
-      <div className="w-full min-h-[42px] flex flex-wrap gap-1.5 items-center border border-[#E0D7C6] rounded-xl px-2 py-1.5 bg-white focus-within:ring-2 focus-within:ring-[#E15A30]/40 focus-within:border-[#E15A30]">
+      <div className="chipbox">
         {values.map(v => (
-          <span key={v} className="inline-flex items-center gap-1 bg-[#FBEBE2] text-[#C94E28] rounded-lg ps-2 pe-1 py-0.5 text-xs font-medium">
+          <span key={v} className="chip">
             {v}
             <button type="button" aria-label={`حذف ${v}`} className="opacity-60 hover:opacity-100"
               onClick={() => onChange(values.filter(x => x !== v))}>
@@ -177,7 +264,8 @@ function ChipInput({ label, hint, placeholder, values, onChange }: ChipInputProp
           </span>
         ))}
         <input
-          className="flex-1 min-w-[90px] border-0 outline-none text-sm bg-transparent py-1 text-[#1F1A13]"
+          className="flex-1 min-w-[90px] border-0 outline-none text-sm bg-transparent py-1"
+          style={{ color: 'var(--ink)' }}
           placeholder={placeholder}
           value={draft}
           onChange={e => setDraft(e.target.value)}
@@ -216,40 +304,71 @@ function HunterLogin({ onLogin }: { onLogin: (token: string, user: HunterUser) =
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] p-6" dir="rtl">
-      <div className="w-full max-w-sm">
-        <div className="flex justify-center mb-8"><BrandWordmark iconSize={50} /></div>
-        <h1 className="text-2xl font-bold text-[#1F1A13] text-center">لوحة صيد العملاء</h1>
-        <p className="text-[#6E6557] mt-1.5 text-sm text-center">سجّل الدخول لبدء الصيد على الطلب</p>
+    <div className="hookb min-h-screen grid lg:grid-cols-[1.05fr_1fr]" dir="rtl">
+      <style>{HOOKB_CSS}</style>
 
-        <form onSubmit={submit} className="space-y-4 mt-7">
-          <div>
-            <label className="label">البريد الإلكتروني</label>
-            <div className="relative">
-              <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
-              <input type="email" className="input pr-9" placeholder="you@company.com" dir="ltr"
-                value={email} onChange={e => setEmail(e.target.value)} autoComplete="username" />
+      {/* لوحة العلامة الداكنة — لحظة الهوية */}
+      <div className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden"
+        style={{ background: 'var(--brand)', color: '#EAF0F0' }}>
+        <div style={{ position: 'absolute', inset: 0, opacity: 0.10, color: 'var(--catch)' }} aria-hidden="true">
+          <div style={{ position: 'absolute', left: -40, bottom: -30, transform: 'rotate(-12deg)' }}><HookMark size={340} /></div>
+        </div>
+        <div className="relative flex items-center gap-3" style={{ color: '#fff' }}>
+          <span style={{ color: 'var(--catch)' }}><HookMark size={34} /></span>
+          <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em' }} dir="ltr">
+            HOOK <span className="hb-badge" style={{ fontSize: 17, verticalAlign: 'middle' }}>B</span>
+          </span>
+        </div>
+        <div className="relative">
+          <h2 style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.01em' }}>
+            اصطَد عملاءك<br />المحتملين.
+          </h2>
+          <p style={{ color: '#9BA8AC', marginTop: 14, fontSize: 15, maxWidth: 380, lineHeight: 1.8 }}>
+            منصّة صيد عملاء على الطلب — من عدّة مصادر، بإزالة تكرار ذكية وتقييم لكل عميل مقابل هدفك.
+          </p>
+        </div>
+        <div className="relative flex items-center gap-2" style={{ color: '#6D7A7E', fontSize: 12.5 }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--catch)' }} />
+          كل حساب يرى عملاءه وحده — عزل تامّ.
+        </div>
+      </div>
+
+      {/* نموذج الدخول */}
+      <div className="flex items-center justify-center p-6" style={{ background: 'var(--ground)' }}>
+        <div className="w-full max-w-sm">
+          <div className="lg:hidden flex justify-center mb-8"><HookWordmark mark={32} text={26} /></div>
+          <p className="eyebrow">تسجيل الدخول</p>
+          <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6, letterSpacing: '-0.01em' }}>ابدأ الصيد</h1>
+          <p style={{ color: 'var(--muted)', marginTop: 6, fontSize: 14 }}>ادخل ببيانات الحساب الذي زوّدك بها المالك</p>
+
+          <form onSubmit={submit} className="space-y-4 mt-7">
+            <div>
+              <label className="label">البريد الإلكتروني</label>
+              <div className="relative">
+                <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                <input type="email" className="input pr-9" placeholder="you@company.com" dir="ltr"
+                  value={email} onChange={e => setEmail(e.target.value)} autoComplete="username" />
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="label">كلمة المرور</label>
-            <div className="relative">
-              <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
-              <input type={showPass ? 'text' : 'password'} className="input pr-9 pl-9" placeholder="••••••••" dir="ltr"
-                value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
-              <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E] hover:text-[#1F1A13]"
-                onClick={() => setShowPass(s => !s)}>
-                {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
+            <div>
+              <label className="label">كلمة المرور</label>
+              <div className="relative">
+                <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                <input type={showPass ? 'text' : 'password'} className="input pr-9 pl-9" placeholder="••••••••" dir="ltr"
+                  value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+                <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }}
+                  onClick={() => setShowPass(s => !s)}>
+                  {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <button type="submit" disabled={loading}
-            className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2">
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <>دخول <ArrowLeft size={17} /></>}
-          </button>
-        </form>
+            <button type="submit" disabled={loading} className="btn-primary w-full py-3 mt-2">
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <>دخول <ArrowLeft size={17} /></>}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -406,7 +525,7 @@ export default function HunterApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `hookb-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast.success('نُزّل CSV');
@@ -415,8 +534,9 @@ export default function HunterApp() {
   // ---- العرض ----
   if (booting && !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0]" dir="rtl">
-        <Loader2 size={26} className="animate-spin text-[#E15A30]" />
+      <div className="hookb min-h-screen flex items-center justify-center" style={{ background: 'var(--ground)' }} dir="rtl">
+        <style>{HOOKB_CSS}</style>
+        <span style={{ color: 'var(--catch)' }}><Loader2 size={26} className="animate-spin" /></span>
       </div>
     );
   }
@@ -426,28 +546,28 @@ export default function HunterApp() {
   const remaining = Math.max(0, user.monthlyQuota - user.usedThisMonth);
 
   const scoreBadge = (score?: number | null) => {
-    if (score == null) return <span className="inline-flex justify-center min-w-[26px] px-2 py-0.5 rounded-lg text-xs font-bold bg-[#F1EBDF] text-[#9A8F7E]">–</span>;
-    const cls = score >= 8
-      ? 'bg-[#FBEBE2] text-[#C94E28]'
-      : score >= 5 ? 'bg-[#E4F1EA] text-[#1E7A52]' : 'bg-[#F1EBDF] text-[#6E6557]';
-    return <span className={`inline-flex justify-center min-w-[26px] px-2 py-0.5 rounded-lg text-xs font-bold ${cls}`}>{score}</span>;
+    if (score == null) return <span className="score">–</span>;
+    const cls = score >= 8 ? 'score hi' : score >= 5 ? 'score mid' : 'score';
+    return <span className={cls}>{score}</span>;
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" dir="rtl">
+    <div className="hookb min-h-screen" style={{ background: 'var(--ground)' }} dir="rtl">
+      <style>{HOOKB_CSS}</style>
+
       {/* ===== الترويسة ===== */}
-      <header className="bg-white border-b border-[#E9E1D3] sticky top-0 z-20">
+      <header className="sticky top-0 z-20" style={{ background: '#fff', borderBottom: '1px solid var(--line)' }}>
         <div className="max-w-7xl mx-auto px-5 py-3 flex items-center gap-3 flex-wrap">
-          <BrandIcon size={34} />
-          <div>
-            <p className="font-bold text-[15px] leading-tight">صيد العملاء المحتملين</p>
-            <p className="text-xs text-[#9A8F7E]">{user.name}</p>
-          </div>
+          <HookWordmark mark={26} text={20} />
+          <span className="hidden sm:inline" style={{ color: 'var(--line)' }}>|</span>
+          <span className="hidden sm:inline text-[13px]" style={{ color: 'var(--muted)' }}>{user.name}</span>
           <span className="flex-1" />
-          <span className="text-xs px-3 py-1.5 rounded-full bg-[#FAF7F0] border border-[#E9E1D3] text-[#6E6557]">
-            {user.isOwner ? 'حصّة غير محدودة' : <>المتبقّي هذا الشهر: <b className="text-[#1F1A13]">{remaining}</b> / {user.monthlyQuota}</>}
+          <span className="text-xs px-3 py-1.5 rounded-full" style={{ background: 'var(--ground)', border: '1px solid var(--line)', color: 'var(--muted)' }}>
+            {user.isOwner
+              ? 'حصّة غير محدودة'
+              : <>المتبقّي هذا الشهر: <b className="hb-mono" style={{ color: 'var(--ink)' }}>{remaining}</b> / {user.monthlyQuota}</>}
           </span>
-          <button onClick={logout} className="btn-secondary" title="خروج"><LogOut size={15} />خروج</button>
+          <button onClick={logout} className="btn-ghost" title="خروج"><LogOut size={15} />خروج</button>
         </div>
       </header>
 
@@ -455,10 +575,10 @@ export default function HunterApp() {
         {/* ===== الإعداد ===== */}
         <div className="space-y-4">
           <div className="card space-y-4">
-            <h2 className="text-xs font-bold tracking-widest text-[#9A8F7E] uppercase">الهدف</h2>
+            <h2 className="eyebrow">الهدف</h2>
 
             <div>
-              <label className="label">وصف العميل المثالي <span className="font-normal text-[#9A8F7E] text-xs">— يُغذّي التأهيل الذكي</span></label>
+              <label className="label">وصف العميل المثالي <span className="font-normal text-xs" style={{ color: 'var(--muted)' }}>— يُغذّي التأهيل الذكي</span></label>
               <textarea className="input min-h-[72px] resize-y" value={description}
                 onChange={e => setDescription(e.target.value)}
                 placeholder="مثال: شركات توزيع مواد غذائية بالجملة لديها مندوبون ميدانيون" />
@@ -475,87 +595,79 @@ export default function HunterApp() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">نتائج/استعلام</label>
-                <input className="input font-mono" inputMode="numeric" value={perQuery}
+                <input className="input hb-mono" inputMode="numeric" value={perQuery}
                   onChange={e => setPerQuery(Number(e.target.value.replace(/\D/g, '')) || 0)} />
               </div>
               <div>
                 <label className="label">سقف النتائج</label>
-                <input className="input font-mono" inputMode="numeric" value={maxLeads}
+                <input className="input hb-mono" inputMode="numeric" value={maxLeads}
                   onChange={e => setMaxLeads(Number(e.target.value.replace(/\D/g, '')) || 0)} />
               </div>
             </div>
           </div>
 
           <div className="card space-y-3">
-            <h2 className="text-xs font-bold tracking-widest text-[#9A8F7E] uppercase">المصادر</h2>
+            <h2 className="eyebrow">المصادر</h2>
             {SOURCES.map(s => {
               const isReady = s.keyless || ready[s.id] === true;
               const on = sources.includes(s.id);
               return (
                 <button key={s.id} type="button" onClick={() => toggleSource(s.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-right transition-colors ${
-                    on ? 'border-[#E15A30] bg-[#FBEBE2]/50' : 'border-[#E9E1D3] bg-[#FAF7F0] hover:bg-white'}`}>
-                  <span className={`w-2 h-2 rounded-full flex-none ${isReady ? 'bg-[#1E7A52]' : 'bg-[#C9BEAC]'}`} />
-                  <span className="font-semibold text-sm font-mono">{s.id}</span>
-                  <span className="text-xs text-[#6E6557]">{s.label}</span>
+                  className={`src${on ? ' on' : ''}${isReady ? ' ready' : ''}`}>
+                  <span className="dot" />
+                  <span className="font-semibold text-sm hb-mono">{s.id}</span>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>{s.label}</span>
                   {!isReady && !s.keyless && (
-                    <span className="text-[10px] text-[#B8860B] border border-[#B8860B] rounded px-1.5 py-px">مفتاح ناقص</span>
+                    <span className="text-[10px]" style={{ color: '#B8860B', border: '1px solid #B8860B', borderRadius: 4, padding: '0 6px' }}>مفتاح ناقص</span>
                   )}
                   <span className="flex-1" />
-                  <span className={`w-[18px] h-[18px] rounded-md grid place-items-center border ${
-                    on ? 'bg-[#E15A30] border-[#E15A30] text-white' : 'border-[#DED5C4]'}`}>
-                    {on && <Check size={12} />}
-                  </span>
+                  <span className="check">{on && <Check size={12} />}</span>
                 </button>
               );
             })}
 
             {qualifyAvailable && (
               <button type="button" onClick={() => setQualify(v => !v)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-right transition-colors ${
-                  qualify ? 'border-[#E15A30] bg-[#FBEBE2]/50' : 'border-[#E9E1D3] bg-[#FAF7F0]'}`}>
+                className={`src${qualify ? ' on ready' : ''}`}>
+                <span className="dot" />
                 <span className="font-semibold text-sm">تأهيل ذكي</span>
-                <span className="text-xs text-[#6E6557]">تقييم كل عميل ١–١٠ مقابل وصف هدفك</span>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>تقييم كل عميل ١–١٠ مقابل وصف هدفك</span>
                 <span className="flex-1" />
-                <span className={`w-[18px] h-[18px] rounded-md grid place-items-center border ${
-                  qualify ? 'bg-[#E15A30] border-[#E15A30] text-white' : 'border-[#DED5C4]'}`}>
-                  {qualify && <Check size={12} />}
-                </span>
+                <span className="check">{qualify && <Check size={12} />}</span>
               </button>
             )}
           </div>
 
-          <button onClick={runHunt} disabled={hunting}
-            className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
-            {hunting ? <><Loader2 size={18} className="animate-spin" /> يصطاد…</> : <><Crosshair size={17} /> صيد على الطلب</>}
+          <button onClick={runHunt} disabled={hunting} className="btn-primary w-full py-3">
+            {hunting ? <><Loader2 size={18} className="animate-spin" /> يصطاد…</> : <><HookMark size={17} /> صيد على الطلب</>}
           </button>
         </div>
 
         {/* ===== النتائج ===== */}
         <div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <div className="card p-4">
-              <div className="flex items-center gap-2 text-[#9A8F7E] text-xs"><Users size={13} /> إجمالي العملاء</div>
-              <p className="text-2xl font-bold mt-1 font-mono">{leads.length}</p>
+            <div className="stat">
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}><Users size={13} /> إجمالي العملاء</div>
+              <p className="n">{leads.length}</p>
             </div>
-            <div className="card p-4">
-              <div className="flex items-center gap-2 text-[#9A8F7E] text-xs"><AtSign size={13} /> ببريد إلكتروني</div>
-              <p className="text-2xl font-bold mt-1 font-mono text-[#1E7A52]">{withEmail}</p>
+            <div className="stat">
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}><AtSign size={13} /> ببريد إلكتروني</div>
+              <p className="n" style={{ color: 'var(--catch-ink)' }}>{withEmail}</p>
             </div>
-            <div className="card p-4">
-              <div className="flex items-center gap-2 text-[#9A8F7E] text-xs"><Phone size={13} /> برقم هاتف</div>
-              <p className="text-2xl font-bold mt-1 font-mono text-[#1E7A52]">{withPhone}</p>
+            <div className="stat">
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}><Phone size={13} /> برقم هاتف</div>
+              <p className="n" style={{ color: 'var(--catch-ink)' }}>{withPhone}</p>
             </div>
-            <div className="card p-4">
-              <div className="flex items-center gap-2 text-[#9A8F7E] text-xs"><Globe size={13} /> مكرّرات دُمجت</div>
-              <p className="text-2xl font-bold mt-1 font-mono text-[#E15A30]">{merged}</p>
+            <div className="stat">
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}><Globe size={13} /> مكرّرات دُمجت</div>
+              <p className="n">{merged}</p>
             </div>
           </div>
 
           <div className="card mb-4">
             <div className="flex gap-3 flex-wrap items-center">
               <div className="relative flex-1 min-w-48">
-                <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
                 <input className="input pr-9" placeholder="بحث في الأسماء…" value={q} onChange={e => setQ(e.target.value)} />
               </div>
               <select className="input w-40" value={minScore} onChange={e => setMinScore(Number(e.target.value))}>
@@ -564,22 +676,21 @@ export default function HunterApp() {
                 <option value={7}>درجة ≥ ٧</option>
                 <option value={8}>درجة ≥ ٨</option>
               </select>
-              <div className="inline-flex rounded-xl border border-[#E0D7C6] overflow-hidden bg-white">
+              <div className="seg">
                 {([['email', 'بريد'], ['phone', 'هاتف'], ['website', 'موقع']] as ReadonlyArray<[ContactFilter, string]>).map(([f, lbl]) => (
                   <button key={f} type="button" onClick={() => toggleContact(f)}
-                    className={`px-3 py-2 text-xs font-semibold transition-colors ${
-                      contactFilters.includes(f) ? 'bg-[#FBEBE2] text-[#C94E28]' : 'text-[#6E6557] hover:bg-[#FAF7F0]'}`}>
+                    className={contactFilters.includes(f) ? 'on' : ''}>
                     {lbl}
                   </button>
                 ))}
               </div>
-              <button className="btn-secondary" onClick={exportCsv}><Download size={15} />تصدير CSV</button>
+              <button className="btn-ghost" onClick={exportCsv}><Download size={15} />تصدير CSV</button>
             </div>
           </div>
 
-          <div className="card p-0">
-            <div className="table-wrapper">
-              <table className="table">
+          <div className="card p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table>
                 <thead>
                   <tr>
                     <th>درجة</th><th>الاسم</th><th>تواصل</th><th>المدينة</th><th>الدولة</th><th>المصدر</th>
@@ -587,34 +698,30 @@ export default function HunterApp() {
                 </thead>
                 <tbody>
                   {hunting && !leads.length ? (
-                    <tr><td colSpan={6} className="text-center py-12 text-gray-400">جاري الصيد…</td></tr>
+                    <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--muted)' }}>جاري الصيد…</td></tr>
                   ) : !shown.length ? (
-                    <tr><td colSpan={6} className="text-center py-12 text-gray-400">
+                    <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--muted)' }}>
                       {leads.length ? 'لا نتائج تطابق الفلتر — خفّف الفلاتر أعلاه' : 'لا عملاء بعد — اضبط الهدف وابدأ الصيد'}
                     </td></tr>
                   ) : shown.map(l => (
                     <tr key={l.id}>
                       <td>{scoreBadge(l.score)}</td>
                       <td>
-                        <p className="font-medium text-gray-800">{l.name || '—'}</p>
-                        {l.category && <p className="text-xs text-gray-400">{l.category}</p>}
+                        <p className="font-medium" style={{ color: 'var(--ink)' }}>{l.name || '—'}</p>
+                        {l.category && <p className="text-xs" style={{ color: 'var(--muted)' }}>{l.category}</p>}
                       </td>
-                      <td className="font-mono text-xs" dir="ltr">
+                      <td className="hb-mono text-xs" dir="ltr">
                         {l.email
                           ? l.email
                           : l.phone
                             ? l.phone
                             : l.website
-                              ? <a href={l.website} target="_blank" rel="noopener noreferrer" className="text-[#E15A30] hover:underline">{domainOf(l.website)}</a>
-                              : <span className="text-gray-300">—</span>}
+                              ? <a href={l.website} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--catch-ink)' }} className="hover:underline">{domainOf(l.website)}</a>
+                              : <span style={{ color: '#C6CDD4' }}>—</span>}
                       </td>
-                      <td className="text-gray-600">{l.city || '-'}</td>
-                      <td className="text-gray-600">{l.country || '-'}</td>
-                      <td>
-                        <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-[#FAF7F0] border border-[#E9E1D3] text-[#6E6557]">
-                          {l.sourcesCsv || l.source || '—'}
-                        </span>
-                      </td>
+                      <td style={{ color: 'var(--muted)' }}>{l.city || '-'}</td>
+                      <td style={{ color: 'var(--muted)' }}>{l.country || '-'}</td>
+                      <td><span className="srcpill">{l.sourcesCsv || l.source || '—'}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -622,8 +729,8 @@ export default function HunterApp() {
             </div>
           </div>
 
-          <p className="text-center text-xs text-[#9A8F7E] mt-5">
-            أداة صيد على الطلب — بلا مراسلة. اجمع وصدّر، ثم راسِل بأدواتك مع مراعاة الأنظمة (الموافقة وإلغاء الاشتراك).
+          <p className="text-center text-xs mt-5" style={{ color: 'var(--muted)' }}>
+            HOOK B — صيد على الطلب بلا مراسلة. اجمع وصدّر، ثم راسِل بأدواتك مع مراعاة الأنظمة (الموافقة وإلغاء الاشتراك).
           </p>
         </div>
       </div>
