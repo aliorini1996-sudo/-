@@ -3,7 +3,7 @@ import LanguageToggle from './LanguageToggle';
 import { useT } from '../i18n/strings';
 import {
   FileText, Users, ClipboardCheck, WifiOff,
-  LayoutDashboard, Wallet, MapPin, LogIn, ExternalLink,
+  LayoutDashboard, Wallet, MapPin, LogIn,
 } from 'lucide-react';
 
 /**
@@ -75,8 +75,8 @@ export default function AppIntro({ app, onProceed }: { app: 'rep' | 'm'; onProce
           <LogIn size={18} /> {t('intro.login')}
         </button>
         <a href="https://fieldsa.net" target="_blank" rel="noopener noreferrer"
-          className="mt-3 w-full flex items-center justify-center gap-1.5 text-xs text-[#9A8F7E] hover:text-[#E8A87C]">
-          {t('intro.learnMore')} <ExternalLink size={12} />
+          className="mt-3 w-full flex items-center justify-center text-xs text-[#9A8F7E] hover:text-[#E8A87C]">
+          {t('intro.learnMore')}
         </a>
       </div>
     </div>
