@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, CreditCard, Users, MapPin, LogOut, Download } from 'lucide-react';
 import { companyApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
+import AppIntro from '../components/AppIntro';
 import LanguageToggle from '../components/LanguageToggle';
 import { useAuthStore } from '../store/authStore';
 import { setActiveCurrency } from '../utils/format';
@@ -47,6 +48,8 @@ interface InstallPromptEvent extends Event {
 export default function MobileApp() {
   const tr = useTr();
   const { token, user, login, logout } = useAuthStore();
+  // شاشة تعريفية قبل الدخول (متطلّب App Store 5.1.1(v)): يفتح التطبيق عليها لا على الدخول
+  const [showLogin, setShowLogin] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');
   const [installEvt, setInstallEvt] = useState<InstallPromptEvent | null>(null);
   // إعدادات الشركة — تُمرَّر لطابع المستندات (ترويسة، رقم ضريبي، رمز ZATCA)
@@ -111,7 +114,9 @@ export default function MobileApp() {
   );
 
   if (!token || !user) {
-    return shell(<MobileLogin onLogin={(t, u) => login(t, u as User)} />);
+    return shell(showLogin
+      ? <MobileLogin onLogin={(t, u) => login(t, u as User)} onBack={() => setShowLogin(false)} />
+      : <AppIntro app="m" onProceed={() => setShowLogin(true)} />);
   }
 
   return shell(

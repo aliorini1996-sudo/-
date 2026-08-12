@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, EyeOff, User as UserIcon } from 'lucide-react';
+import { Eye, EyeOff, User as UserIcon, ArrowRight } from 'lucide-react';
 import { authApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
@@ -17,7 +17,7 @@ import { User } from '../types';
  * وهي تكتب في مفتاحَي `token`/`user` نفسيهما — جلسة لوحة الشركة — فمن دخل
  * اللوحة يجد التطبيق مفتوحاً، ولا حاجة لدخولٍ ثانٍ لنفس الإنسان.
  */
-export default function MobileLogin({ onLogin }: { onLogin: (token: string, user: User) => void }) {
+export default function MobileLogin({ onLogin, onBack }: { onLogin: (token: string, user: User) => void; onBack?: () => void }) {
   const t = useT();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,6 +42,11 @@ export default function MobileLogin({ onLogin }: { onLogin: (token: string, user
   return (
     <div className="h-full relative overflow-hidden bg-[#1F1A13] flex flex-col items-center justify-center px-6">
       <div className="absolute top-3 z-20" style={{ insetInlineEnd: '12px' }}><LanguageToggle variant="dark" /></div>
+      {onBack && (
+        <button onClick={onBack} className="absolute top-3 z-20 text-[#9A8F7E] hover:text-white p-1" style={{ insetInlineStart: '12px' }} aria-label={t('intro.back')}>
+          <ArrowRight size={20} />
+        </button>
+      )}
       <div className="absolute inset-0" style={{ background: 'radial-gradient(120% 90% at 50% 0%, rgba(225,90,48,.26), transparent 55%)' }} />
       <span className="absolute rounded-full" style={{ width: 170, height: 170, top: -40, right: -30, background: 'rgba(225,90,48,.14)' }} />
       <span className="absolute rounded-full" style={{ width: 120, height: 120, bottom: 40, left: -30, background: 'rgba(224,160,44,.10)' }} />
