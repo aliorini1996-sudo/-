@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/database';
 import { AuthRequest, AuthPayload } from '../types';
+import { bumpRequest } from '../services/requestCounter';
 
 export type AdminPermission =
   | 'canAccessDashboard'
@@ -49,6 +50,13 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     return;
   }
   req.user = payload;
+
+  // عدّ الطلبات (الاستهلاك) لكل مستخدم — تراكمٌ في الذاكرة، إفراغٌ دوريّ. نتخطّى
+  // المالك (لا شركة له) وجلساتِ الانتحال (كي لا تُنسَب طلبات المالك لمستخدم الشركة).
+  if (payload.tenantId && !payload.impersonated) {
+    if (payload.role === 'SALES_REP') bumpRequest('rep', payload.id, payload.tenantId);
+    else if (COMPANY_ROLES.includes(payload.role)) bumpRequest('admin', payload.id, payload.tenantId);
+  }
 
   if (!COMPANY_ROLES.includes(payload.role)) { next(); return; }
   try {

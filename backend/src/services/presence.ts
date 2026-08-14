@@ -6,39 +6,49 @@ export const LIVE_WINDOW_MIN = 5;
 // الاحتفاظ بلقطات الحضور — يُقلَّم ما هو أقدم عند كل تسجيل.
 const RETENTION_DAYS = 45;
 
+export interface LiveUser { id: string; name: string; kind: 'rep' | 'admin'; lastSeenAt: Date | null }
+export interface LiveCompany { tenantId: string; reps: number; admins: number; total: number; users: LiveUser[] }
 export interface LiveCounts {
   totalReps: number;
   totalAdmins: number;
   total: number;
-  companies: { tenantId: string; reps: number; admins: number; total: number }[];
+  companies: LiveCompany[];
 }
 
 /**
- * عدّ المتصلين الآن عبر كل الشركات (مصدر واحد للحقيقة يستخدمه مسارُ المالك
- * ومسجّلُ اللقطات معاً، فيتطابق الرقم اللحظيّ مع نقاط المنحنى).
+ * عدّ المتصلين الآن عبر كل الشركات — مع أسماء المتصلين لكل شركة (مصدر واحد للحقيقة
+ * يستخدمه مسارُ المالك ومسجّلُ اللقطات معاً؛ اللقطة تأخذ الأعداد فقط). المجموعة
+ * الحيّة صغيرة (متصلون خلال ٥ دقائق) فجلبُ الصفوف بدل groupBy كلفةٌ مهملة.
  */
 export async function computeLiveCounts(now: number = Date.now()): Promise<LiveCounts> {
   const since = new Date(now - LIVE_WINDOW_MIN * 60 * 1000);
 
-  const [repRows, adminRows] = await Promise.all([
-    prisma.salesRep.groupBy({ by: ['tenantId'], where: { isActive: true, lastSeenAt: { gte: since } }, _count: { _all: true } }),
-    prisma.admin.groupBy({ by: ['tenantId'], where: { isActive: true, lastSeenAt: { gte: since } }, _count: { _all: true } }),
+  const [reps, admins] = await Promise.all([
+    prisma.salesRep.findMany({ where: { isActive: true, lastSeenAt: { gte: since } }, select: { id: true, name: true, tenantId: true, lastSeenAt: true } }),
+    prisma.admin.findMany({ where: { isActive: true, lastSeenAt: { gte: since } }, select: { id: true, name: true, tenantId: true, lastSeenAt: true } }),
   ]);
 
-  const repBy = new Map<string, number>();
-  for (const r of repRows) repBy.set(r.tenantId, r._count._all);
-  const adminBy = new Map<string, number>();
-  for (const a of adminRows) adminBy.set(a.tenantId, a._count._all);
+  const byTenant = new Map<string, LiveCompany>();
+  const ensure = (tid: string): LiveCompany => {
+    let e = byTenant.get(tid);
+    if (!e) { e = { tenantId: tid, reps: 0, admins: 0, total: 0, users: [] }; byTenant.set(tid, e); }
+    return e;
+  };
+  for (const r of reps) {
+    const e = ensure(r.tenantId);
+    e.reps++; e.total++;
+    e.users.push({ id: r.id, name: r.name, kind: 'rep', lastSeenAt: r.lastSeenAt });
+  }
+  for (const a of admins) {
+    const e = ensure(a.tenantId);
+    e.admins++; e.total++;
+    e.users.push({ id: a.id, name: a.name, kind: 'admin', lastSeenAt: a.lastSeenAt });
+  }
 
-  const ids = [...new Set<string>([...repBy.keys(), ...adminBy.keys()])];
-  const companies = ids
-    .map(id => {
-      const reps = repBy.get(id) || 0;
-      const admins = adminBy.get(id) || 0;
-      return { tenantId: id, reps, admins, total: reps + admins };
-    })
-    .filter(c => c.total > 0);
-
+  const companies = [...byTenant.values()].filter(c => c.total > 0);
+  for (const c of companies) {
+    c.users.sort((x, y) => (y.lastSeenAt?.getTime() || 0) - (x.lastSeenAt?.getTime() || 0));
+  }
   const totalReps = companies.reduce((s, c) => s + c.reps, 0);
   const totalAdmins = companies.reduce((s, c) => s + c.admins, 0);
   return { totalReps, totalAdmins, total: totalReps + totalAdmins, companies };

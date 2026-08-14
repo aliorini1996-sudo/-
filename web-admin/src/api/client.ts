@@ -278,6 +278,8 @@ export const analyticsApi = {
   liveUsers: () => api.get('/analytics/live-users'),
   // المؤشّر الزمنيّ لـ«الزيارات الحية» — سلسلة عبر الوقت (24h | 7d | 30d)
   liveHistory: (range = '24h') => api.get('/analytics/live-history', { params: { range } }),
+  // «استهلاك الطلبات» — عدد طلبات API لكل مستخدم/شركة (today | 7d | 30d)
+  requestStats: (range = 'today') => api.get('/analytics/request-stats', { params: { range } }),
 };
 
 // استيراد بيانات الشركة من أنظمتها السابقة (Excel → صفوف)

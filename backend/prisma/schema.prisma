@@ -260,6 +260,25 @@ model PresenceSnapshot {
   @@map("presence_snapshots")
 }
 
+/// عدّاد طلبات API لكل مستخدم في اليوم (بتوقيت الرياض) — يتراكم في الذاكرة ويُفرَغ
+/// دورياً (كل دقيقة). يغذّي عرض «استهلاك الطلبات» لكل مستخدم وشركة في لوحة المالك.
+/// يشمل الطلبات الخلفية (نبضات الموقع/الحضور) لأنها طلبات API فعليّة. بلا مفاتيح
+/// خارجيّة عمداً: يُحفَظ الاستهلاك التاريخيّ حتى لو حُذف المستخدم لاحقاً.
+model RequestStat {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String // معرّف SalesRep أو Admin
+  kind      String // 'rep' | 'admin'
+  day       String // 'YYYY-MM-DD' بتوقيت الرياض
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([kind, userId, day])
+  @@index([tenantId, day])
+  @@index([day])
+  @@map("request_stats")
+}
+
 model ProductCategory {
   id        String    @id @default(uuid())
   tenantId  String

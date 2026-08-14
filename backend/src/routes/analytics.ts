@@ -6,6 +6,7 @@ import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { resolveAttribution, contentTypeOf, makeWaCode } from '../services/attribution';
 import { computeLiveCounts, LIVE_WINDOW_MIN } from '../services/presence';
+import { riyadhDay } from '../services/requestCounter';
 
 // تحليلات زيارات الموقع التعريفي — تسجيل عام + إحصاءات لمالك المنصّة
 const router = Router();
@@ -237,6 +238,73 @@ router.get('/live-history', authenticate, requireSuperAdmin, async (req: AuthReq
 
     const peak = points.reduce((m, p) => Math.max(m, p.total), 0);
     res.json({ success: true, data: { range, bucket, points, peak, count: points.length, serverTime: new Date().toISOString() } });
+  } catch (err) { next(err); }
+});
+
+// «استهلاك الطلبات» — عدد طلبات API لكل مستخدم ولكل شركة خلال المدى (للمالك فقط).
+// النطاق: today (اليوم) · 7d · 30d — بأيّام الرياض. يشمل الطلبات الخلفية (نبضات).
+router.get('/request-stats', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const range = String(req.query.range || 'today');
+    const days = range === '30d' ? 30 : range === '7d' ? 7 : 1;
+    const today = riyadhDay();
+    const fromDay = riyadhDay(Date.now() - (days - 1) * 86400000);
+
+    const rows = await prisma.requestStat.findMany({
+      where: { day: { gte: fromDay, lte: today } },
+      select: { tenantId: true, userId: true, kind: true, count: true },
+    });
+
+    // جمعٌ لكل مستخدم عبر أيّام المدى
+    const perUser = new Map<string, { tenantId: string; userId: string; kind: string; count: number }>();
+    for (const r of rows) {
+      const key = `${r.kind}|${r.userId}`;
+      const e = perUser.get(key);
+      if (e) e.count += r.count;
+      else perUser.set(key, { tenantId: r.tenantId, userId: r.userId, kind: r.kind, count: r.count });
+    }
+
+    // فكّ الأسماء (المندوب/الأدمن) + أسماء الشركات — دفعةً واحدة
+    const users = [...perUser.values()];
+    const repIds = users.filter(u => u.kind === 'rep').map(u => u.userId);
+    const adminIds = users.filter(u => u.kind === 'admin').map(u => u.userId);
+    const tenantIds = [...new Set(users.map(u => u.tenantId))];
+    const [repRows, adminRows, tenants] = await Promise.all([
+      repIds.length ? prisma.salesRep.findMany({ where: { id: { in: repIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+      adminIds.length ? prisma.admin.findMany({ where: { id: { in: adminIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+      tenantIds.length ? prisma.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true, vertical: true } }) : Promise.resolve([]),
+    ]);
+    const repName = new Map(repRows.map(r => [r.id, r.name]));
+    const adminName = new Map(adminRows.map(a => [a.id, a.name]));
+    const tMeta = new Map(tenants.map(t => [t.id, t]));
+
+    const byTenant = new Map<string, { users: { userId: string; name: string; kind: string; requests: number }[]; requests: number }>();
+    for (const u of users) {
+      let e = byTenant.get(u.tenantId);
+      if (!e) { e = { users: [], requests: 0 }; byTenant.set(u.tenantId, e); }
+      const name = u.kind === 'rep' ? (repName.get(u.userId) || '—') : (adminName.get(u.userId) || '—');
+      e.users.push({ userId: u.userId, name, kind: u.kind, requests: u.count });
+      e.requests += u.count;
+    }
+
+    const companies = [...byTenant.entries()]
+      .map(([tenantId, e]) => {
+        const t = tMeta.get(tenantId);
+        return {
+          tenantId,
+          name: t?.name || '—',
+          vertical: t?.vertical || 'distribution',
+          requests: e.requests,
+          users: e.users.sort((a, b) => b.requests - a.requests),
+        };
+      })
+      .sort((a, b) => b.requests - a.requests || a.name.localeCompare(b.name, 'ar'));
+
+    const totalRequests = companies.reduce((s, c) => s + c.requests, 0);
+    res.json({
+      success: true,
+      data: { range, days, fromDay, today, totalRequests, activeCompanies: companies.length, companies, serverTime: new Date().toISOString() },
+    });
   } catch (err) { next(err); }
 });
 
