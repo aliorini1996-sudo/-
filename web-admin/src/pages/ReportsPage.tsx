@@ -35,6 +35,7 @@ interface PerfRow {
 }
 interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
+interface CustVisit { id: string; customerName: string; repName: string; createdAt: string; note: string; mapsUrl: string }
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -45,13 +46,15 @@ export default function ReportsPage() {
   const [search, setSearch] = useState('');
   // نوع تقرير المناديب: أداء | ساعات العمل | مديونيات
   const [perfType, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
+  // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
+  const [custType, setCustType] = useState<'balances' | 'visits'>('balances');
 
   const methodLabel = (m: string) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي') : m === 'POS' ? tr('شبكة') : tr('شيك');
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: 'sales', label: tr('تقارير المبيعات'), icon: TrendingUp },
     { id: 'collections', label: tr('تقارير التحصيل'), icon: Download },
-    { id: 'balances', label: tr('أرصدة العملاء'), icon: Users },
+    { id: 'balances', label: tr('العملاء'), icon: Users },
     { id: 'performance', label: tr('أداء المناديب'), icon: UserCheck },
   ];
 
@@ -79,7 +82,17 @@ export default function ReportsPage() {
       const res = await reportApi.balances({ type: 'overdue' });
       return res.data.data as { id: string; name: string; phone: string; balance: number; creditLimit: number }[];
     },
-    enabled: tab === 'balances',
+    enabled: tab === 'balances' && custType === 'balances',
+  });
+
+  // تقرير زيارات العملاء — كل الزيارات في تقرير واحد (العميل، المندوب الزائر، الوقت)
+  const { data: visitsData } = useQuery({
+    queryKey: ['report-customer-visits', from, to],
+    queryFn: async () => {
+      const res = await reportApi.customerVisits({ from, to });
+      return res.data.data as { count: number; visits: CustVisit[] };
+    },
+    enabled: tab === 'balances' && custType === 'visits',
   });
 
   const [expandedPerf, setExpandedPerf] = useState<string | null>(null); // صفّ مواقع الزيارات المفتوح
@@ -162,6 +175,11 @@ export default function ReportsPage() {
   const balanceRows = useMemo(
     () => filterFlat(balancesData || [], q, c => [c.name, c.phone]),
     [balancesData, q],
+  );
+
+  const visitRows = useMemo(
+    () => filterFlat(visitsData?.visits || [], q, v => [v.customerName, v.repName, v.note]),
+    [visitsData, q],
   );
 
   const perfRows = useMemo(
@@ -257,6 +275,11 @@ export default function ReportsPage() {
         [tr('الاسم')]: r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '', [tr('الإجمالي')]: num(r.total),
       })), colWidths: [28, 14, 16] }];
       fname = tr('تقارير المبيعات');
+    } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
+      sheets = [{ name: tr('زيارات العملاء'), rows: visitRows.map(v => ({
+        [tr('العميل')]: v.customerName, [tr('المندوب')]: v.repName, [tr('التاريخ والوقت')]: fmtDateTime(v.createdAt), [tr('ملاحظة')]: v.note, [tr('الموقع')]: v.mapsUrl,
+      })), colWidths: [24, 20, 20, 24, 40] }];
+      fname = tr('زيارات العملاء');
     } else if (tab === 'balances' && balanceRows?.length) {
       sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
         [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
@@ -459,6 +482,15 @@ export default function ReportsPage() {
               </select>
             </div>
           )}
+          {tab === 'balances' && (
+            <div>
+              <label className="label">{tr('نوع التقرير')}</label>
+              <select className="input w-44" value={custType} onChange={e => setCustType(e.target.value as 'balances' | 'visits')}>
+                <option value="balances">{tr('أرصدة العملاء')}</option>
+                <option value="visits">{tr('زيارات العملاء')}</option>
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -466,7 +498,7 @@ export default function ReportsPage() {
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
       {q && (() => {
         const shown = tab === 'sales' ? (Array.isArray(salesRows) ? salesRows.length : 0)
-          : tab === 'balances' ? balanceRows.length
+          : tab === 'balances' ? (custType === 'visits' ? visitRows.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
           : perfType === 'hours' ? hoursRows.length
           : (recvRows?.length ?? 0);
@@ -551,7 +583,7 @@ export default function ReportsPage() {
       )}
 
       {/* Balances Report */}
-      {tab === 'balances' && balanceRows && (
+      {tab === 'balances' && custType === 'balances' && balanceRows && (
         <div className="card p-0">
           <div className="table-wrapper">
             <table className="table">
@@ -582,6 +614,35 @@ export default function ReportsPage() {
                         </div>
                       )}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Visits Report — كل الزيارات في تقرير واحد: العميل، المندوب، الوقت */}
+      {tab === 'balances' && custType === 'visits' && visitRows && (
+        <div className="card p-0">
+          <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-2 text-sm">
+            <MapPin size={16} className="text-[#E15A30]" />
+            <span className="font-bold text-[#1F1A13]">{tr('إجمالي الزيارات')}: {visitRows.length}</span>
+          </div>
+          <div className="table-wrapper">
+            <table className="table">
+              <thead>
+                <tr><th>#</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th><th>{tr('التاريخ والوقت')}</th><th>{tr('ملاحظة')}</th><th>{tr('الموقع')}</th></tr>
+              </thead>
+              <tbody>
+                {visitRows.map((v, i) => (
+                  <tr key={v.id}>
+                    <td className="text-gray-400">{i + 1}</td>
+                    <td className="font-medium text-gray-800">{v.customerName || '—'}</td>
+                    <td className="text-gray-600">{v.repName || '—'}</td>
+                    <td className="text-gray-500 text-sm">{fmtDateTime(v.createdAt)}</td>
+                    <td className="text-gray-500 text-sm">{v.note || '—'}</td>
+                    <td>{v.mapsUrl ? <a href={v.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-[#2563EB] text-sm hover:underline">{tr('خريطة')}</a> : '—'}</td>
                   </tr>
                 ))}
               </tbody>

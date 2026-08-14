@@ -285,6 +285,34 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
+// تقرير زيارات العملاء — كل الزيارات في تقرير واحد: العميل، المندوب الزائر، الوقت، والموقع
+router.get('/customer-visits', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { from, to } = req.query as Record<string, string>;
+    const fromDate = from ? new Date(from) : new Date(0);
+    const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
+    const visits = await prisma.repVisit.findMany({
+      where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
+      select: {
+        id: true, createdAt: true, note: true, lat: true, lng: true,
+        customer: { select: { name: true } },
+        salesRep: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' }, take: 3000,
+    });
+    const rows = visits.map(v => ({
+      id: v.id,
+      customerName: v.customer?.name || '',
+      repName: v.salesRep?.name || '',
+      createdAt: v.createdAt,
+      note: v.note || '',
+      mapsUrl: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
+    }));
+    res.json({ success: true, data: { count: rows.length, visits: rows } });
+  } catch (err) { next(err); }
+});
+
 // تقرير مديونيات المندوب — رصيد كل عميل مُسنَد لكل مندوب، ليقرأ المشرف تقصير
 // التحصيل لدى كل عميل ويُصدّره ملفاً.
 //

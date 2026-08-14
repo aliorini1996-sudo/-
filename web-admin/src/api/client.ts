@@ -106,6 +106,7 @@ export const reportApi = {
   repPerformance: (params?: Record<string, string>) => api.get('/reports/rep-performance', { params }),
   repReceivables: () => api.get('/reports/rep-receivables'), // لحظيّ — لا معاملات تاريخ
   workHours: (params?: Record<string, string>) => api.get('/reports/work-hours', { params }),
+  customerVisits: (params?: Record<string, string>) => api.get('/reports/customer-visits', { params }),
 };
 
 export const notificationApi = {
