@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import prisma from '../config/database';
 import { sendMail } from './mailer';
+import { recordPresenceSnapshot } from './presence';
 
 // خط تشغيل المالك: تذكير يومي ببطاقات القرار المتأخرة + تقرير أسبوعي (T1.4.2).
 // المصدر الوحيد للبطاقات: ops/decision-cards.json (يُحدَّث مع كل إغلاق/فتح بطاقة).
@@ -184,7 +185,19 @@ async function tick() {
   }
 }
 
+// لقطة حضور دوريّة لمؤشّر «الزيارات الحية» الزمنيّ — كل ٥ دقائق (بمحاذاة نافذة
+// «متصل الآن»). النسخة الواحدة من dsd-backend تجعل مسجّلاً واحداً كافياً؛ ولو
+// تعدّدت النسخ يوماً فالتجميع بالذروة يبتلع التكرار.
+const PRESENCE_SNAPSHOT_MS = 5 * 60 * 1000;
+
 export function startOpsScheduler() {
   setInterval(tick, 3600000);
-  console.log('🗓️ Ops scheduler started (daily reminder + weekly report, 8am Riyadh)');
+
+  // لقطة فور الإقلاع كي لا تبقى فجوة بطول فترة الجدولة بعد كل نشر، ثم دورياً.
+  recordPresenceSnapshot().catch(e => console.error('presence snapshot (startup) error:', e));
+  setInterval(() => {
+    recordPresenceSnapshot().catch(e => console.error('presence snapshot error:', e));
+  }, PRESENCE_SNAPSHOT_MS);
+
+  console.log('🗓️ Ops scheduler started (daily reminder + weekly report 8am Riyadh, presence snapshot every 5min)');
 }

@@ -5,6 +5,7 @@ import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { resolveAttribution, contentTypeOf, makeWaCode } from '../services/attribution';
+import { computeLiveCounts, LIVE_WINDOW_MIN } from '../services/presence';
 
 // تحليلات زيارات الموقع التعريفي — تسجيل عام + إحصاءات لمالك المنصّة
 const router = Router();
@@ -162,52 +163,80 @@ const aiEngineOf = (host: string | null) => (host ? AI_ENGINES.find((e) => e.re.
 // «الزيارات الحية» — عدد المستخدمين المتصلين بالمنصّة الآن عبر كل الشركات (للمالك فقط).
 // «متصل الآن» = آخر ظهور خلال آخر ٥ دقائق. المندوب يُحدَّث lastSeenAt بنبض الحضور
 // (كل ≤٣ دقائق)، ومستخدم الشركة يُلمَس في وسيط المصادقة (مخنوقاً لمرة/دقيقة).
+// العدّ نفسه في services/presence.ts كي يتطابق الرقم اللحظيّ مع نقاط المنحنى.
 router.get('/live-users', authenticate, requireSuperAdmin, async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const WINDOW_MIN = 5;
-    const since = new Date(Date.now() - WINDOW_MIN * 60 * 1000);
-
-    const [repRows, adminRows] = await Promise.all([
-      prisma.salesRep.groupBy({ by: ['tenantId'], where: { isActive: true, lastSeenAt: { gte: since } }, _count: { _all: true } }),
-      prisma.admin.groupBy({ by: ['tenantId'], where: { isActive: true, lastSeenAt: { gte: since } }, _count: { _all: true } }),
-    ]);
-
-    const repBy = new Map<string, number>();
-    for (const r of repRows) repBy.set(r.tenantId, r._count._all);
-    const adminBy = new Map<string, number>();
-    for (const a of adminRows) adminBy.set(a.tenantId, a._count._all);
-
-    const ids = [...new Set<string>([...repBy.keys(), ...adminBy.keys()])];
+    const c = await computeLiveCounts();
+    const ids = c.companies.map(x => x.tenantId);
     const tenants = ids.length
       ? await prisma.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, vertical: true } })
       : [];
     const metaBy = new Map(tenants.map(t => [t.id, t]));
 
-    const companies = ids
-      .map(id => {
-        const reps = repBy.get(id) || 0;
-        const admins = adminBy.get(id) || 0;
-        const t = metaBy.get(id);
-        return { tenantId: id, name: t?.name || '—', vertical: t?.vertical || 'distribution', reps, admins, total: reps + admins };
+    const companies = c.companies
+      .map(x => {
+        const t = metaBy.get(x.tenantId);
+        return { ...x, name: t?.name || '—', vertical: t?.vertical || 'distribution' };
       })
-      .filter(c => c.total > 0)
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ar'));
-
-    const totalReps = companies.reduce((s, c) => s + c.reps, 0);
-    const totalAdmins = companies.reduce((s, c) => s + c.admins, 0);
 
     res.json({
       success: true,
       data: {
-        windowMinutes: WINDOW_MIN,
-        total: totalReps + totalAdmins,
-        totalReps,
-        totalAdmins,
+        windowMinutes: LIVE_WINDOW_MIN,
+        total: c.total,
+        totalReps: c.totalReps,
+        totalAdmins: c.totalAdmins,
         activeCompanies: companies.length,
         companies,
         serverTime: new Date().toISOString(),
       },
     });
+  } catch (err) { next(err); }
+});
+
+// المؤشّر الزمنيّ لـ«الزيارات الحية» — سلسلة لقطات الحضور عبر الوقت (للمالك فقط).
+// النطاق: 24h (نقاط خام كل ٥د) · 7d (تجميع بالساعة) · 30d (تجميع باليوم).
+// في الفترات المُجمَّعة نأخذ لقطة الذروة (أعلى total) كي يبقى reps+admins=total.
+router.get('/live-history', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const range = String(req.query.range || '24h');
+    const now = Date.now();
+    let sinceMs: number;
+    let bucket: 'raw' | 'hour' | 'day';
+    if (range === '30d') { sinceMs = now - 30 * 86400000; bucket = 'day'; }
+    else if (range === '7d') { sinceMs = now - 7 * 86400000; bucket = 'hour'; }
+    else { sinceMs = now - 24 * 3600000; bucket = 'raw'; }
+
+    const rows = await prisma.presenceSnapshot.findMany({
+      where: { at: { gte: new Date(sinceMs) } },
+      orderBy: { at: 'asc' },
+      select: { at: true, reps: true, admins: true, total: true },
+    });
+
+    type Pt = { t: string; total: number; reps: number; admins: number };
+    let points: Pt[];
+    if (bucket === 'raw') {
+      points = rows.map(r => ({ t: r.at.toISOString(), total: r.total, reps: r.reps, admins: r.admins }));
+    } else {
+      const size = bucket === 'hour' ? 3600000 : 86400000;
+      // محاذاة حدود الدلو بتوقيت الرياض (UTC+3) لا UTC: وإلّا لَنُسِب نشاطُ ما قبل
+      // الثالثة فجراً بتوقيت الرياض إلى اليوم السابق في عرض «٣٠ يوماً». (للساعة لا
+      // فرق فعليّ لأن الإزاحة ساعاتٌ كاملة، لكن الصيغة موحّدة وآمنة.)
+      const RIYADH_OFFSET_MS = 3 * 3600000;
+      const peakBy = new Map<number, typeof rows[number]>();
+      for (const r of rows) {
+        const key = Math.floor((r.at.getTime() + RIYADH_OFFSET_MS) / size) * size - RIYADH_OFFSET_MS;
+        const cur = peakBy.get(key);
+        if (!cur || r.total > cur.total) peakBy.set(key, r); // ذروة الإشغال في الفترة
+      }
+      points = [...peakBy.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([key, r]) => ({ t: new Date(key).toISOString(), total: r.total, reps: r.reps, admins: r.admins }));
+    }
+
+    const peak = points.reduce((m, p) => Math.max(m, p.total), 0);
+    res.json({ success: true, data: { range, bucket, points, peak, count: points.length, serverTime: new Date().toISOString() } });
   } catch (err) { next(err); }
 });
 

@@ -247,6 +247,19 @@ model SalesRep {
   @@map("sales_reps")
 }
 
+/// لقطة دوريّة لعدد المتصلين بالمنصّة الآن (كل ٥ دقائق) — تُغذّي مؤشّر «الزيارات
+/// الحية» الزمنيّ في لوحة المالك. لا عزلَ بشركة: مقياس منصّة إجماليّ للمالك وحده.
+model PresenceSnapshot {
+  id     String   @id @default(uuid())
+  at     DateTime @default(now())
+  reps   Int      @default(0) // مناديب متصلون في تلك اللحظة
+  admins Int      @default(0) // مستخدمو شركة متصلون في تلك اللحظة
+  total  Int      @default(0) // reps + admins
+
+  @@index([at])
+  @@map("presence_snapshots")
+}
+
 model ProductCategory {
   id        String    @id @default(uuid())
   tenantId  String

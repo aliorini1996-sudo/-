@@ -1,6 +1,11 @@
+import { useState, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '../api/client';
-import { X, RefreshCw, Radio, Truck, Users, Building2, UtensilsCrossed } from 'lucide-react';
+import { X, RefreshCw, Radio, Truck, Users, Building2, UtensilsCrossed, TrendingUp } from 'lucide-react';
+import type { HistPoint } from './LiveHistoryChart';
+
+// المؤشّر البياني (recharts الثقيلة) — كسولاً كي لا يُثقل إقلاع لوحة المالك
+const LiveHistoryChart = lazy(() => import('./LiveHistoryChart'));
 
 interface Company { tenantId: string; name: string; vertical: string; reps: number; admins: number; total: number }
 interface Live {
@@ -10,6 +15,13 @@ interface Live {
   companies: Company[];
   serverTime: string;
 }
+interface Hist { range: string; bucket: string; points: HistPoint[]; peak: number; count: number }
+
+const RANGES: { key: string; label: string }[] = [
+  { key: '24h', label: '٢٤ ساعة' },
+  { key: '7d', label: '٧ أيام' },
+  { key: '30d', label: '٣٠ يوماً' },
+];
 
 const fmtClock = (s?: string): string => {
   if (!s) return '—';
@@ -19,12 +31,21 @@ const fmtClock = (s?: string): string => {
 // لوحة «الزيارات الحية» — من يستخدم المنصّة الآن عبر كل الشركات (لمالك المنصّة).
 // تُحدّث نفسها تلقائياً كل ١٥ ثانية لتبقى المؤشّرات لحظيّة.
 export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
+  const [range, setRange] = useState('24h');
   const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ['live-users'],
     queryFn: async () => { const r = await analyticsApi.liveUsers(); return r.data.data as Live; },
     refetchInterval: 15000,          // نبض تلقائي كل ١٥ ثانية
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
+  });
+
+  // المؤشّر الزمنيّ — تحديث أبطأ (اللقطة تُلتقط كل ٥ دقائق فلا داعي لـ١٥ث)
+  const { data: hist, isLoading: histLoading, isError: histError } = useQuery({
+    queryKey: ['live-history', range],
+    queryFn: async () => { const r = await analyticsApi.liveHistory(range); return r.data.data as Hist; },
+    refetchInterval: 60000,
+    refetchIntervalInBackground: false,
   });
 
   const total = data?.total ?? 0;
@@ -59,14 +80,55 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
           <div className="py-20 text-center text-red-500 px-6">تعذّر تحميل البيانات — قد تكون الخدمة قيد النشر. أعد المحاولة بعد قليل.</div>
         ) : (
           <div className="p-5 space-y-5">
-            {/* البطاقة الكبرى — الإجمالي المتصل الآن */}
-            <div className="rounded-2xl border border-green-200 bg-gradient-to-b from-green-50 to-white p-6 text-center">
-              <div className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#1E7A52] mb-1">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> متصل الآن
+            {/* المؤشّر الزمنيّ — عدد المتصلين عبر الوقت (بدل عدّاد لحظيّ فقط) */}
+            <div className="rounded-2xl border border-[#E9E1D3] bg-white p-4">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#1E7A52]">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> متصل الآن
+                  </span>
+                  <span className="text-3xl font-extrabold text-[#1F1A13] tabular-nums leading-none">{total}</span>
+                  {hist && hist.peak > 0 && (
+                    <span className="text-[11px] text-[#6E6557] inline-flex items-center gap-1">
+                      <TrendingUp size={12} className="text-[#E15A30]" /> الذروة في المدّة: <b className="text-[#1F1A13]">{hist.peak}</b>
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center bg-[#F3EDE3] rounded-lg p-0.5">
+                  {RANGES.map(r => (
+                    <button key={r.key} onClick={() => setRange(r.key)}
+                      className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-colors ${range === r.key ? 'bg-white text-[#1E7A52] shadow-sm' : 'text-[#6E6557]'}`}>
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <p className="text-6xl font-extrabold text-[#1F1A13] tabular-nums leading-none my-2">{total}</p>
-              <p className="text-xs text-[#6E6557]">
-                مستخدم يستعمل المنصّة خلال آخر {data?.windowMinutes ?? 5} دقائق
+
+              {histLoading ? (
+                <div className="h-[200px] grid place-items-center text-gray-400 text-sm">جارٍ تحميل المنحنى…</div>
+              ) : histError ? (
+                <div className="h-[200px] grid place-items-center text-center px-6 text-sm text-red-500">
+                  تعذّر تحميل المؤشّر الزمنيّ — قد تكون الخدمة قيد النشر. سيُعاد المحاولة تلقائياً.
+                </div>
+              ) : (hist?.points?.length ?? 0) < 2 ? (
+                <div className="h-[200px] grid place-items-center text-center px-6">
+                  <div>
+                    <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                      <TrendingUp size={22} className="text-[#1E7A52]" />
+                    </div>
+                    <p className="font-bold text-[#1F1A13] text-sm">المؤشّر الزمنيّ يبدأ بالتجميع الآن</p>
+                    <p className="text-xs text-[#6E6557] mt-1 max-w-xs mx-auto">
+                      تُلتقط لقطةٌ لعدد المتصلين كل ٥ دقائق. عُد بعد قليل لرؤية المنحنى عبر التاريخ والوقت — واختر المدّة من الأعلى.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <Suspense fallback={<div className="h-[200px] grid place-items-center text-gray-400 text-sm">…</div>}>
+                  <LiveHistoryChart points={hist!.points} bucket={hist!.bucket} />
+                </Suspense>
+              )}
+              <p className="text-[11px] text-[#9A8F7E] text-center mt-2">
+                مرّر فوق المنحنى لمعرفة عدد المتصلين في كل وقتٍ بعينه. {range !== '24h' ? 'النقطة = ذروة الإشغال في تلك الفترة.' : 'نقطةٌ كل ٥ دقائق.'}
               </p>
             </div>
 
