@@ -129,6 +129,10 @@ model Admin {
   // المستخدمين القائمين يبقون على رؤيتهم الكاملة عند db push (لا انقطاع).
   scopeEnabled Boolean @default(false)
 
+  // آخر ظهور — يُلمَس في وسيط المصادقة (مخنوقاً لمرة/دقيقة) ليغذّي عدّاد «الزيارات الحية»
+  // في لوحة المالك. اختياري: الصفوف القائمة تبقى null حتى أوّل طلب بعد النشر (لا انقطاع).
+  lastSeenAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -136,6 +140,7 @@ model Admin {
   repScopes      AdminRepScope[]
 
   @@index([tenantId])
+  @@index([lastSeenAt])
   @@map("admins")
 }
 
@@ -238,6 +243,7 @@ model SalesRep {
   createdCustomers    Customer[]           @relation("CustomerCreatedByRep")
 
   @@index([tenantId])
+  @@index([lastSeenAt])
   @@map("sales_reps")
 }
 

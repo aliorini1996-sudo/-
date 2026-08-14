@@ -274,6 +274,8 @@ export const siteContentApi = {
 export const analyticsApi = {
   track: (data: { path: string; referrer?: string; lang?: string }) => api.post('/analytics/track', data),
   stats: (days = 30) => api.get('/analytics/stats', { params: { days } }),
+  // «الزيارات الحية» — المستخدمون المتصلون الآن عبر كل الشركات (للمالك)
+  liveUsers: () => api.get('/analytics/live-users'),
 };
 
 // استيراد بيانات الشركة من أنظمتها السابقة (Excel → صفوف)

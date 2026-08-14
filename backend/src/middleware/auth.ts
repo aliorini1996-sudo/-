@@ -18,6 +18,9 @@ export type AdminPermission =
 
 const COMPANY_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT'];
 
+// خنق تحديث «آخر ظهور» لمستخدمي الشركة: لا نكتب أكثر من مرة/دقيقة للحساب الواحد.
+const PRESENCE_THROTTLE_MS = 60 * 1000;
+
 /**
  * التحقّق من الجلسة — **والحساب نفسه لمستخدمي لوحة الشركة**.
  *
@@ -51,11 +54,28 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   try {
     const admin = await prisma.admin.findUnique({
       where: { id: payload.id },
-      select: { isActive: true },
+      select: { isActive: true, lastSeenAt: true },
     });
     if (!admin?.isActive) {
       res.status(401).json({ success: false, message: 'انتهت صلاحية الحساب، سجّل الدخول مجدداً' });
       return;
+    }
+    // لمسة «آخر ظهور» لعدّاد «الزيارات الحية» في لوحة المالك — مخنوقة لمرة/دقيقة،
+    // وغير مُنتظَرة كي لا تؤخّر الرد؛ فشلها لا يهمّ فالحضور best-effort.
+    //
+    // نتخطّاها في جلسة انتحال المالك (impersonated): وإلّا لبمّط دخولُ المالك لوحةَ
+    // شركةٍ صفَّ أدمنها كأنه «متصل الآن» فتظهر الشركة حيّة زوراً — تلويثٌ للمقياس نفسه.
+    //
+    // البوّابة السريعة (القيمة المقروءة) تتجنّب إطلاق أمرٍ حين يكون الظهور حديثاً،
+    // والكتابة نفسها ذرّيّة مشروطة (updateMany بشرط النافذة على الصفّ): تحت برستٍ
+    // من طلبات متوازية للحساب ذاته يربح صفٌّ واحد فقط ويُلغى الباقي في القاعدة،
+    // فلا يتحوّل الخنق إلى N كتابة. (dsd-backend نسخة واحدة، لكن هذا يصمد أيّاً كان.)
+    if (!payload.impersonated && (!admin.lastSeenAt || Date.now() - new Date(admin.lastSeenAt).getTime() > PRESENCE_THROTTLE_MS)) {
+      const cutoff = new Date(Date.now() - PRESENCE_THROTTLE_MS);
+      prisma.admin.updateMany({
+        where: { id: payload.id, OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: cutoff } }] },
+        data: { lastSeenAt: new Date() },
+      }).catch(() => { /* لمسة حضور best-effort */ });
     }
     next();
   } catch (err) {

@@ -159,6 +159,58 @@ const AI_ENGINES: { label: string; re: RegExp }[] = [
 ];
 const aiEngineOf = (host: string | null) => (host ? AI_ENGINES.find((e) => e.re.test(host))?.label || null : null);
 
+// «الزيارات الحية» — عدد المستخدمين المتصلين بالمنصّة الآن عبر كل الشركات (للمالك فقط).
+// «متصل الآن» = آخر ظهور خلال آخر ٥ دقائق. المندوب يُحدَّث lastSeenAt بنبض الحضور
+// (كل ≤٣ دقائق)، ومستخدم الشركة يُلمَس في وسيط المصادقة (مخنوقاً لمرة/دقيقة).
+router.get('/live-users', authenticate, requireSuperAdmin, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const WINDOW_MIN = 5;
+    const since = new Date(Date.now() - WINDOW_MIN * 60 * 1000);
+
+    const [repRows, adminRows] = await Promise.all([
+      prisma.salesRep.groupBy({ by: ['tenantId'], where: { isActive: true, lastSeenAt: { gte: since } }, _count: { _all: true } }),
+      prisma.admin.groupBy({ by: ['tenantId'], where: { isActive: true, lastSeenAt: { gte: since } }, _count: { _all: true } }),
+    ]);
+
+    const repBy = new Map<string, number>();
+    for (const r of repRows) repBy.set(r.tenantId, r._count._all);
+    const adminBy = new Map<string, number>();
+    for (const a of adminRows) adminBy.set(a.tenantId, a._count._all);
+
+    const ids = [...new Set<string>([...repBy.keys(), ...adminBy.keys()])];
+    const tenants = ids.length
+      ? await prisma.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, vertical: true } })
+      : [];
+    const metaBy = new Map(tenants.map(t => [t.id, t]));
+
+    const companies = ids
+      .map(id => {
+        const reps = repBy.get(id) || 0;
+        const admins = adminBy.get(id) || 0;
+        const t = metaBy.get(id);
+        return { tenantId: id, name: t?.name || '—', vertical: t?.vertical || 'distribution', reps, admins, total: reps + admins };
+      })
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ar'));
+
+    const totalReps = companies.reduce((s, c) => s + c.reps, 0);
+    const totalAdmins = companies.reduce((s, c) => s + c.admins, 0);
+
+    res.json({
+      success: true,
+      data: {
+        windowMinutes: WINDOW_MIN,
+        total: totalReps + totalAdmins,
+        totalReps,
+        totalAdmins,
+        activeCompanies: companies.length,
+        companies,
+        serverTime: new Date().toISOString(),
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 // إحصاءات الزيارات — للسوبر أدمن فقط
 router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

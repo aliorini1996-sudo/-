@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
-  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug, Radio,
   Truck, UtensilsCrossed,
 } from 'lucide-react';
 
@@ -20,6 +20,7 @@ import SiteContentEditor from '../components/SiteContentEditor';
 import SeoDashboard from '../components/SeoDashboard';
 import GeoDashboard from '../components/GeoDashboard';
 import VisitsPanel from '../components/VisitsPanel';
+import LiveUsersPanel from '../components/LiveUsersPanel';
 import LeadsPanel from '../components/LeadsPanel';
 import CompanyHealthPanel from '../components/CompanyHealthPanel';
 import InvoiceToolPanel from '../components/InvoiceToolPanel';
@@ -39,6 +40,7 @@ export default function PlatformPage() {
   const [showSeo, setShowSeo] = useState(false);
   const [showGeo, setShowGeo] = useState(false);
   const [showVisits, setShowVisits] = useState(false);
+  const [showLive, setShowLive] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [showInvoiceTool, setShowInvoiceTool] = useState(false);
   const [showPromoVideos, setShowPromoVideos] = useState(false);
@@ -136,14 +138,10 @@ export default function PlatformPage() {
           <button onClick={() => setShowVisits(true)} className="sidebar-link w-full">
             <Globe2 size={18} className="flex-shrink-0" /> <span>{tr('زيارات الموقع')}</span>
           </button>
-          <a
-            href="/portfolio"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="sidebar-link w-full"
-          >
-            <Wallet size={18} className="flex-shrink-0" /> <span>{tr('محفظتي')}</span>
-          </a>
+          <button onClick={() => setShowLive(true)} className="sidebar-link w-full">
+            <Radio size={18} className="flex-shrink-0 text-[#7ED9A9]" /> <span>{tr('الزيارات الحية')}</span>
+            <span className="ml-auto w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+          </button>
         </nav>
 
         {/* المستخدم + اللغة + كلمة المرور + الخروج */}
@@ -233,6 +231,7 @@ export default function PlatformPage() {
       {showSeo && <SeoDashboard onClose={() => setShowSeo(false)} />}
       {showGeo && <GeoDashboard onClose={() => setShowGeo(false)} />}
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
+      {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal

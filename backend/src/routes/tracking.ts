@@ -64,11 +64,13 @@ router.post('/ping', async (req: AuthRequest, res: Response, next: NextFunction)
     }));
     await prisma.repLocation.createMany({ data: rows });
 
-    // أحدث نقطة = آخر موقع معروف
+    // أحدث نقطة = آخر موقع معروف (الإحداثيّات من نقطة العميل، أمّا «آخر ظهور» فبوقت
+    // الخادم لا بساعة الجهاز: عدّاد «الزيارات الحية» يوازن lastSeenAt بنافذة وقت خادم
+    // مطلقة، فساعةُ جهازٍ منحرفةٌ كانت ستُبقي المندوب «متصلاً» أطول/أقصر من حقيقته).
     const latest = rows.reduce((a, b) => (a.capturedAt > b.capturedAt ? a : b));
     await prisma.salesRep.update({
       where: { id: repId },
-      data: { lastLat: latest.lat, lastLng: latest.lng, lastSeenAt: latest.capturedAt },
+      data: { lastLat: latest.lat, lastLng: latest.lng, lastSeenAt: new Date() },
     });
 
     res.json({ success: true, data: { stored: rows.length } });
