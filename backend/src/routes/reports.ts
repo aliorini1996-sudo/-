@@ -295,17 +295,19 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
     const visits = await prisma.repVisit.findMany({
       where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
       select: {
-        id: true, createdAt: true, note: true, lat: true, lng: true,
+        id: true, customerId: true, createdAt: true, note: true, lat: true, lng: true, durationSec: true,
         customer: { select: { name: true } },
         salesRep: { select: { name: true } },
       },
-      orderBy: { createdAt: 'desc' }, take: 3000,
+      orderBy: { createdAt: 'desc' }, take: 5000,
     });
     const rows = visits.map(v => ({
       id: v.id,
+      customerId: v.customerId,
       customerName: v.customer?.name || '',
       repName: v.salesRep?.name || '',
       createdAt: v.createdAt,
+      durationSec: v.durationSec,
       note: v.note || '',
       mapsUrl: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
     }));

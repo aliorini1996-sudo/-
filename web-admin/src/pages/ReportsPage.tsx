@@ -35,7 +35,8 @@ interface PerfRow {
 }
 interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
-interface CustVisit { id: string; customerName: string; repName: string; createdAt: string; note: string; mapsUrl: string }
+interface CustVisit { id: string; customerId: string; customerName: string; repName: string; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
+interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -96,6 +97,7 @@ export default function ReportsPage() {
   });
 
   const [expandedPerf, setExpandedPerf] = useState<string | null>(null); // صفّ مواقع الزيارات المفتوح
+  const [expandedCust, setExpandedCust] = useState<string | null>(null); // صفّ العميل المفتوح في تقرير الزيارات
   const [openDay, setOpenDay] = useState<string | null>(null);           // «معرّف المندوب|التاريخ» لليوم المفتوح
   const { data: perfData } = useQuery({
     queryKey: ['report-performance', from, to],
@@ -181,6 +183,29 @@ export default function ReportsPage() {
     () => filterFlat(visitsData?.visits || [], q, v => [v.customerName, v.repName, v.note]),
     [visitsData, q],
   );
+  // تجميع الزيارات بالعميل: صفّ لكل عميل (عدد الزيارات + متوسط المدّة)، والتوسيع يُظهر كل زياراته
+  const custGroups = useMemo<CustGroup[]>(() => {
+    const map = new Map<string, CustVisit[]>();
+    for (const v of visitRows) {
+      const arr = map.get(v.customerId) || [];
+      arr.push(v);
+      map.set(v.customerId, arr);
+    }
+    const groups = [...map.values()].map(visits => {
+      const durs = visits.map(x => x.durationSec).filter((d): d is number => typeof d === 'number' && d > 0);
+      const avg = durs.length ? Math.round(durs.reduce((s, d) => s + d, 0) / durs.length) : null;
+      return {
+        customerId: visits[0].customerId,
+        customerName: visits[0].customerName,
+        visitsCount: visits.length,
+        avgDurationSec: avg,
+        lastVisit: visits[0].createdAt, // الخادم يرتّب تنازلياً ⇒ الأحدث أولاً
+        visits,
+      };
+    });
+    groups.sort((a, b) => b.visitsCount - a.visitsCount || (b.lastVisit > a.lastVisit ? 1 : -1));
+    return groups;
+  }, [visitRows]);
 
   const perfRows = useMemo(
     () => filterFlat(perfData || [], q, r => [r.name, ...r.visits.map(v => v.customerName)]),
@@ -276,9 +301,16 @@ export default function ReportsPage() {
       })), colWidths: [28, 14, 16] }];
       fname = tr('تقارير المبيعات');
     } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
-      sheets = [{ name: tr('زيارات العملاء'), rows: visitRows.map(v => ({
-        [tr('العميل')]: v.customerName, [tr('المندوب')]: v.repName, [tr('التاريخ والوقت')]: fmtDateTime(v.createdAt), [tr('ملاحظة')]: v.note, [tr('الموقع')]: v.mapsUrl,
-      })), colWidths: [24, 20, 20, 24, 40] }];
+      sheets = [
+        { name: tr('ملخّص العملاء'), colWidths: [26, 14, 16, 22], rows: custGroups.map(g => ({
+          [tr('العميل')]: g.customerName, [tr('عدد الزيارات')]: g.visitsCount,
+          [tr('متوسط مدة الزيارة')]: fmtVisitDur(g.avgDurationSec) || tr('بلا توقيت'), [tr('آخر زيارة')]: fmtDateTime(g.lastVisit),
+        })) },
+        { name: tr('كل الزيارات'), colWidths: [24, 20, 20, 14, 24, 40], rows: visitRows.map(v => ({
+          [tr('العميل')]: v.customerName, [tr('المندوب')]: v.repName, [tr('التاريخ والوقت')]: fmtDateTime(v.createdAt),
+          [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'), [tr('ملاحظة')]: v.note, [tr('الموقع')]: v.mapsUrl,
+        })) },
+      ];
       fname = tr('زيارات العملاء');
     } else if (tab === 'balances' && balanceRows?.length) {
       sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
@@ -401,6 +433,22 @@ export default function ReportsPage() {
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepRecvPdf = (r: RecvRow) => sheetsToPdf(repRecvSheets(r), `${tr('مديونيات')} - ${r.name}`);
+  // تصدير كل زيارات عميل واحد (بالمندوب والوقت والمدّة) — الورقة نفسها التي تظهر عند التوسيع
+  const custVisitSheets = (g: CustGroup) => [{
+    name: tr('زيارات العميل'), colWidths: [22, 20, 14, 28, 40],
+    rows: g.visits.map(v => ({
+      [tr('المندوب')]: v.repName,
+      [tr('التاريخ والوقت')]: fmtDateTime(v.createdAt),
+      [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
+      [tr('ملاحظة')]: v.note,
+      [tr('الموقع')]: v.mapsUrl,
+    })),
+  }];
+  const exportCustVisits = async (g: CustGroup) => {
+    const out = await shareOrDownloadExcel(custVisitSheets(g), `${tr('زيارات')}-${safeName(g.customerName)}-${day()}`);
+    toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
+  };
+  const exportCustVisitsPdf = (g: CustGroup) => sheetsToPdf(custVisitSheets(g), `${tr('زيارات')} - ${g.customerName}`);
 
   return (
     <div>
@@ -498,7 +546,7 @@ export default function ReportsPage() {
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
       {q && (() => {
         const shown = tab === 'sales' ? (Array.isArray(salesRows) ? salesRows.length : 0)
-          : tab === 'balances' ? (custType === 'visits' ? visitRows.length : balanceRows.length)
+          : tab === 'balances' ? (custType === 'visits' ? custGroups.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
           : perfType === 'hours' ? hoursRows.length
           : (recvRows?.length ?? 0);
@@ -625,25 +673,75 @@ export default function ReportsPage() {
       {/* Customer Visits Report — كل الزيارات في تقرير واحد: العميل، المندوب، الوقت */}
       {tab === 'balances' && custType === 'visits' && visitRows && (
         <div className="card p-0">
-          <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-2 text-sm">
-            <MapPin size={16} className="text-[#E15A30]" />
-            <span className="font-bold text-[#1F1A13]">{tr('إجمالي الزيارات')}: {visitRows.length}</span>
+          <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 text-sm flex-wrap">
+            <span className="flex items-center gap-2"><MapPin size={16} className="text-[#E15A30]" /><b className="text-[#1F1A13]">{tr('إجمالي الزيارات')}: {visitRows.length}</b></span>
+            <span className="text-[#9A8F7E]">•</span>
+            <span className="text-[#6E6557]">{tr('عدد العملاء المُزارين')}: {custGroups.length}</span>
           </div>
           <div className="table-wrapper">
             <table className="table">
               <thead>
-                <tr><th>#</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th><th>{tr('التاريخ والوقت')}</th><th>{tr('ملاحظة')}</th><th>{tr('الموقع')}</th></tr>
+                <tr><th>#</th><th>{tr('العميل')}</th><th>{tr('عدد الزيارات')}</th><th>{tr('متوسط مدة الزيارة')}</th><th>{tr('آخر زيارة')}</th><th>{tr('تصدير')}</th></tr>
               </thead>
               <tbody>
-                {visitRows.map((v, i) => (
-                  <tr key={v.id}>
-                    <td className="text-gray-400">{i + 1}</td>
-                    <td className="font-medium text-gray-800">{v.customerName || '—'}</td>
-                    <td className="text-gray-600">{v.repName || '—'}</td>
-                    <td className="text-gray-500 text-sm">{fmtDateTime(v.createdAt)}</td>
-                    <td className="text-gray-500 text-sm">{v.note || '—'}</td>
-                    <td>{v.mapsUrl ? <a href={v.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-[#2563EB] text-sm hover:underline">{tr('خريطة')}</a> : '—'}</td>
-                  </tr>
+                {custGroups.map((g, i) => (
+                  <Fragment key={g.customerId}>
+                    <tr className="cursor-pointer hover:bg-[#FAF7F0]" onClick={() => setExpandedCust(p => p === g.customerId ? null : g.customerId)}>
+                      <td className="text-gray-400">{i + 1}</td>
+                      <td className="font-medium text-gray-800">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="text-[#E15A30] text-xs w-3">{expandedCust === g.customerId ? '▲' : '▾'}</span>
+                          {g.customerName || '—'}
+                        </span>
+                      </td>
+                      <td><span className="inline-flex items-center gap-1 font-bold text-[#2563EB]"><MapPin size={13} /> {g.visitsCount}</span></td>
+                      <td className="text-gray-600 tabular-nums">{fmtVisitDur(g.avgDurationSec) || <span className="text-gray-400">{tr('بلا توقيت')}</span>}</td>
+                      <td className="text-gray-500 text-sm">{fmtDateTime(g.lastVisit)}</td>
+                      <td>
+                        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => exportCustVisits(g)} title={`${tr('تصدير Excel')} — ${g.customerName}`}
+                            className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Download size={15} /></button>
+                          <button onClick={() => exportCustVisitsPdf(g)} title={`${tr('تصدير PDF')} — ${g.customerName}`}
+                            className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2]"><FileText size={15} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedCust === g.customerId && (
+                      <tr>
+                        <td colSpan={6} className="bg-[#FAF7F0] p-0">
+                          <div className="p-3">
+                            <p className="text-xs font-semibold text-[#6E6557] mb-2">{tr('كل زيارات')} {g.customerName} ({g.visitsCount})</p>
+                            <div className="overflow-x-auto rounded-lg border border-[#F1EBDF] bg-white">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-[11px] text-[#9A8F7E] border-b border-[#F1EBDF]">
+                                    <th className="text-start font-medium py-1.5 px-3">#</th>
+                                    <th className="text-start font-medium py-1.5 px-3">{tr('المندوب')}</th>
+                                    <th className="text-start font-medium py-1.5 px-3">{tr('التاريخ والوقت')}</th>
+                                    <th className="text-start font-medium py-1.5 px-3">{tr('مدة الزيارة')}</th>
+                                    <th className="text-start font-medium py-1.5 px-3">{tr('ملاحظة')}</th>
+                                    <th className="text-start font-medium py-1.5 px-3">{tr('الموقع')}</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {g.visits.map((v, j) => (
+                                    <tr key={v.id} className="border-b border-[#F6F1E8] last:border-0">
+                                      <td className="py-1.5 px-3 text-gray-400">{j + 1}</td>
+                                      <td className="py-1.5 px-3 font-medium text-gray-700">{v.repName || '—'}</td>
+                                      <td className="py-1.5 px-3 text-gray-500">{fmtDateTime(v.createdAt)}</td>
+                                      <td className="py-1.5 px-3 text-[#2E6FB0] tabular-nums">{fmtVisitDur(v.durationSec) || <span className="text-gray-400">{tr('بلا توقيت')}</span>}</td>
+                                      <td className="py-1.5 px-3 text-gray-500">{v.note || '—'}</td>
+                                      <td className="py-1.5 px-3">{v.mapsUrl ? <a href={v.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-[#2563EB] hover:underline">{tr('خريطة')}</a> : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
