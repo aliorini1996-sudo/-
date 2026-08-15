@@ -37,6 +37,7 @@ model Tenant {
   maxBranches        Int? // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
   erpEnabled         Boolean   @default(false) // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
   warehouseEnabled   Boolean   @default(false) // مخزون الشركة (المستودع المركزيّ) — يُفعّله المالك لكل شركة (طرح مدروس)
+  receivablesSummaryEnabled Boolean @default(false) // سطر «إجمالي مديونية العملاء المُسنَدين (بلا تكرار)» في تقرير المديونيات — يُفعّله المالك لكل شركة (طرح محدود)
   subscriptionEndsAt DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes              String?
   createdAt          DateTime  @default(now())

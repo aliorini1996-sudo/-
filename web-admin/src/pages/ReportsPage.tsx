@@ -1,12 +1,12 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportApi } from '../api/client';
+import { reportApi, companyApi } from '../api/client';
 import { formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
@@ -232,6 +232,38 @@ export default function ReportsPage() {
     [recvData, q],
   );
 
+  // الإجمالي المتمايز: يُشتقّ من المعروض بإزالة تكرار العميل المُسنَد لأكثر من مندوب،
+  // فيُعطي مديونية الشركة الحقيقيّة (لا مجموع الأعمدة المتضخّم بالتكرار)، ويحترم
+  // النطاق والبحث لأنه مبنيّ على recvRows نفسها.
+  const recvSummary = useMemo(() => {
+    if (!recvRows) return null;
+    const bal = new Map<string, number>();     // customerId → رصيد (مرّة واحدة)
+    const repsPer = new Map<string, number>();  // customerId → عدد المناديب المُسنَد لهم
+    for (const r of recvRows) for (const c of r.customers) {
+      bal.set(c.id, c.balance);
+      repsPer.set(c.id, (repsPer.get(c.id) || 0) + 1);
+    }
+    let receivable = 0, debtors = 0, shared = 0;
+    for (const b of bal.values()) { receivable += b; if (b > 0) debtors++; }
+    for (const n of repsPer.values()) if (n > 1) shared++;
+    return {
+      distinctCustomers: bal.size,
+      distinctReceivable: Math.round(receivable * 100) / 100,
+      distinctDebtors: debtors,
+      sharedCustomers: shared,
+      columnsSum: Math.round(recvRows.reduce((s, r) => s + r.totalBalance, 0) * 100) / 100,
+    };
+  }, [recvRows]);
+
+  // علم المالك (طرح محدود): هل تُعرَض بطاقة «إجمالي مديونية العملاء المُسنَدين»
+  // لهذه الشركة؟ افتراضياً مُطفأ للجميع، يُفعّله المالك لكل شركة من لوحته.
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { receivablesSummaryEnabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const summaryEnabled = companyCfg?.receivablesSummaryEnabled === true;
+
   // يبني أوراق بيانات التبويب النشط (مشتركة بين Excel وPDF)
   const buildSheets = (): { sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[]; fname: string } | null => {
     let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
@@ -269,7 +301,7 @@ export default function ReportsPage() {
         })))), colWidths: [22, 12, 24, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
-    } else if (tab === 'performance' && perfType === 'receivables' && recvRows?.length) {
+    } else if (tab === 'performance' && perfType === 'receivables' && recvRows?.some(r => r.customersCount > 0)) {
       sheets = [
         { name: tr('ملخص المديونيات'), rows: recvRows.map(r => ({
           [tr('المندوب')]: r.name, [tr('العملاء المسندون')]: r.customersCount,
@@ -281,6 +313,15 @@ export default function ReportsPage() {
           [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يُحصَّل قط'),
         }))), colWidths: [22, 24, 20, 16, 14, 14, 16] },
       ];
+      // ورقة «إجمالي المُسنَدين» تُضاف فقط حين تُفعَّل الميزة لهذه الشركة (طرح محدود)
+      if (summaryEnabled && recvSummary) {
+        sheets.unshift({ name: tr('إجمالي المُسنَدين'), rows: [{
+          [tr('إجمالي مديونية العملاء المُسنَدين (بلا تكرار)')]: num(recvSummary.distinctReceivable),
+          [tr('العملاء المدينون')]: recvSummary.distinctDebtors,
+          [tr('عملاء مشتركون بين مناديب')]: recvSummary.sharedCustomers,
+          [tr('مجموع الأعمدة (قد يتضخّم بالتكرار)')]: num(recvSummary.columnsSum),
+        }], colWidths: [32, 16, 22, 28] });
+      }
       fname = tr('مديونيات المندوب');
     } else if (tab === 'performance' && perfType === 'performance' && perfRows?.length) {
       sheets = [{ name: tr('أداء المناديب'), rows: perfRows.map(r => ({
@@ -986,7 +1027,36 @@ export default function ReportsPage() {
               <button onClick={() => recvRefetch()} className="text-xs font-semibold text-[#E15A30] underline">{tr('إعادة المحاولة')}</button>
             </div>
           ) : recvRows && recvRows.some(r => r.customersCount > 0) ? (
-            recvRows.map(r => (
+            <>
+            {summaryEnabled && recvSummary && (
+              <div className="card p-0 overflow-hidden border-t-4 border-[#E15A30]">
+                <div className="px-4 py-3.5 bg-[#FBEBE2]/50">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0"><Wallet size={18} className="text-[#E15A30]" /></div>
+                      <div>
+                        <p className="text-[12px] text-[#6E6557]">{tr('إجمالي مديونية العملاء المُسنَدين (بلا تكرار)')}</p>
+                        <p className={`text-xl font-extrabold tabular-nums ${recvSummary.distinctReceivable > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(recvSummary.distinctReceivable)}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 text-[12px] text-[#6E6557]">
+                      <span>{tr('العملاء المدينون')}: <b className="text-[#1F1A13]">{recvSummary.distinctDebtors}</b></span>
+                      <span>{tr('العملاء المُسنَدون')}: <b className="text-[#1F1A13]">{recvSummary.distinctCustomers}</b></span>
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-[#9A8F7E]">{tr('رصيدٌ لحظيّ صافٍ للعملاء المُسنَدين — يستبعد غير المُسنَدين، وقد يختلف عن تقرير «أرصدة العملاء».')}</p>
+                  {recvSummary.sharedCustomers > 0 && (
+                    <div className="mt-2.5 flex items-start gap-2 text-[11.5px] text-[#9A5B1E] bg-[#FBEBE2] rounded-lg px-3 py-2">
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                      <span>
+                        <b>{recvSummary.sharedCustomers}</b> {tr('عميل مُسنَد لأكثر من مندوب، فرصيده محسوبٌ تحت كلٍّ منهم — لا تجمع أعمدة المناديب (مجموعها')} {formatCurrency(recvSummary.columnsSum)})؛ {tr('اعتمِد الإجمالي أعلاه.')}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {recvRows.map(r => (
               <div key={r.id} className="card p-0 overflow-hidden">
                 <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 bg-[#FAF7F0] border-b border-[#F1EBDF]">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -1034,7 +1104,8 @@ export default function ReportsPage() {
                   </div>
                 )}
               </div>
-            ))
+            ))}
+            </>
           ) : (
             <div className="card flex flex-col items-center justify-center h-36 text-gray-400 gap-1">
               <p>{tr('لا عملاء مُسنَدين للمناديب بعد.')}</p>

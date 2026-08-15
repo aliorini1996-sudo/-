@@ -34,6 +34,7 @@ const updateTenantSchema = z.object({
   maxAdminUsers: z.number().int().min(1).nullable().optional(),
   erpEnabled: z.boolean().optional(),
   warehouseEnabled: z.boolean().optional(),
+  receivablesSummaryEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
   notes: z.string().nullish(),
 });
