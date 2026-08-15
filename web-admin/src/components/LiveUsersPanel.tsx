@@ -4,8 +4,9 @@ import { analyticsApi } from '../api/client';
 import { X, RefreshCw, Radio, Truck, Users, Building2, UtensilsCrossed, TrendingUp, Activity, ChevronDown, Clock } from 'lucide-react';
 import type { HistPoint } from './LiveHistoryChart';
 
-// المؤشّر البياني (recharts الثقيلة) — كسولاً كي لا يُثقل إقلاع لوحة المالك
+// المؤشّرات البيانيّة (recharts الثقيلة) — كسولاً كي لا تُثقل إقلاع لوحة المالك
 const LiveHistoryChart = lazy(() => import('./LiveHistoryChart'));
+const RequestHistoryChart = lazy(() => import('./RequestHistoryChart'));
 
 interface LiveUser { id: string; name: string; kind: 'rep' | 'admin'; lastSeenAt: string | null }
 interface Company { tenantId: string; name: string; vertical: string; reps: number; admins: number; total: number; users: LiveUser[] }
@@ -20,7 +21,8 @@ interface Hist { range: string; bucket: string; points: HistPoint[]; peak: numbe
 
 interface ReqUser { userId: string; name: string; kind: 'rep' | 'admin'; requests: number }
 interface ReqCompany { tenantId: string; name: string; vertical: string; requests: number; users: ReqUser[] }
-interface ReqStats { range: string; days: number; totalRequests: number; activeCompanies: number; companies: ReqCompany[] }
+interface ReqSeriesPoint { day: string; requests: number; reps: number; admins: number }
+interface ReqStats { range: string; days: number; totalRequests: number; activeCompanies: number; companies: ReqCompany[]; series: ReqSeriesPoint[] }
 
 const RANGES: { key: string; label: string }[] = [
   { key: '24h', label: '٢٤ ساعة' },
@@ -296,6 +298,33 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* المنحنى الزمنيّ للطلبات — كمؤشّر المتصلين */}
+            <div className="rounded-2xl border border-[#E9E1D3] bg-white p-4">
+              <div className="flex items-center gap-1.5 mb-3 text-[13px] font-semibold text-[#1F1A13]">
+                <TrendingUp size={15} className="text-[#E15A30]" /> المنحنى الزمنيّ للطلبات
+              </div>
+              {reqLoading ? (
+                <div className="h-[200px] grid place-items-center text-gray-400 text-sm">جارٍ تحميل المنحنى…</div>
+              ) : reqError ? (
+                <div className="h-[200px] grid place-items-center text-center px-6 text-sm text-red-500">تعذّر تحميل المنحنى — سيُعاد المحاولة تلقائياً.</div>
+              ) : (req?.series?.length ?? 0) < 2 ? (
+                <div className="h-[200px] grid place-items-center text-center px-6">
+                  <div>
+                    <div className="w-12 h-12 bg-[#FBEBE2] rounded-2xl flex items-center justify-center mx-auto mb-3">
+                      <TrendingUp size={22} className="text-[#E15A30]" />
+                    </div>
+                    <p className="font-bold text-[#1F1A13] text-sm">اختر «٧ أيام» أو «٣٠ يوماً» لرؤية المنحنى</p>
+                    <p className="text-xs text-[#6E6557] mt-1 max-w-xs mx-auto">الطلبات تُجمَّع يومياً؛ مدى «اليوم» نقطةٌ واحدة، والمنحنى يتّضح عبر عدّة أيّام.</p>
+                  </div>
+                </div>
+              ) : (
+                <Suspense fallback={<div className="h-[200px] grid place-items-center text-gray-400 text-sm">…</div>}>
+                  <RequestHistoryChart points={req!.series} />
+                </Suspense>
+              )}
+              <p className="text-[11px] text-[#9A8F7E] text-center mt-2">مرّر فوق المنحنى لمعرفة عدد الطلبات في كل يومٍ بعينه.</p>
             </div>
 
             <div className="flex items-center justify-center gap-2 text-[13px] text-[#6E6557]">

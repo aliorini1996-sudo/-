@@ -247,13 +247,33 @@ router.get('/request-stats', authenticate, requireSuperAdmin, async (req: AuthRe
   try {
     const range = String(req.query.range || 'today');
     const days = range === '30d' ? 30 : range === '7d' ? 7 : 1;
-    const today = riyadhDay();
-    const fromDay = riyadhDay(Date.now() - (days - 1) * 86400000);
+    // نلتقط اللحظة مرّةً واحدة ونعيد استخدامها في نافذة الاستعلام وحلقة الملء معاً:
+    // قراءات Date.now() منفصلة قد تتجاوز منتصف ليل الرياض أثناء استعلام القاعدة
+    // فتنزاح أيّام السلسلة عن نافذة الاستعلام (إسقاط الأقدم + يومٌ وهميّ صفر).
+    const now = Date.now();
+    const today = riyadhDay(now);
+    const fromDay = riyadhDay(now - (days - 1) * 86400000);
 
     const rows = await prisma.requestStat.findMany({
       where: { day: { gte: fromDay, lte: today } },
-      select: { tenantId: true, userId: true, kind: true, count: true },
+      select: { tenantId: true, userId: true, kind: true, count: true, day: true },
     });
+
+    // السلسلة الزمنيّة: إجمالي الطلبات لكل يوم (+ تقسيم مناديب/أدمن) — مؤشّر زمنيّ
+    // كمؤشّر المتصلين. نملأ الأيّام الفارغة بصفر كي يبقى المنحنى متّصلاً.
+    const dayAgg = new Map<string, { requests: number; reps: number; admins: number }>();
+    for (const r of rows) {
+      let e = dayAgg.get(r.day);
+      if (!e) { e = { requests: 0, reps: 0, admins: 0 }; dayAgg.set(r.day, e); }
+      e.requests += r.count;
+      if (r.kind === 'rep') e.reps += r.count; else e.admins += r.count;
+    }
+    const series: { day: string; requests: number; reps: number; admins: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = riyadhDay(now - i * 86400000);
+      const e = dayAgg.get(d) || { requests: 0, reps: 0, admins: 0 };
+      series.push({ day: d, requests: e.requests, reps: e.reps, admins: e.admins });
+    }
 
     // جمعٌ لكل مستخدم عبر أيّام المدى
     const perUser = new Map<string, { tenantId: string; userId: string; kind: string; count: number }>();
@@ -303,7 +323,7 @@ router.get('/request-stats', authenticate, requireSuperAdmin, async (req: AuthRe
     const totalRequests = companies.reduce((s, c) => s + c.requests, 0);
     res.json({
       success: true,
-      data: { range, days, fromDay, today, totalRequests, activeCompanies: companies.length, companies, serverTime: new Date().toISOString() },
+      data: { range, days, fromDay, today, totalRequests, activeCompanies: companies.length, companies, series, serverTime: new Date().toISOString() },
     });
   } catch (err) { next(err); }
 });
