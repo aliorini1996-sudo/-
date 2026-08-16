@@ -1,6 +1,6 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportApi, companyApi } from '../api/client';
+import { reportApi } from '../api/client';
 import { formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
@@ -255,15 +255,6 @@ export default function ReportsPage() {
     };
   }, [recvRows]);
 
-  // علم المالك (طرح محدود): هل تُعرَض بطاقة «إجمالي مديونية العملاء المُسنَدين»
-  // لهذه الشركة؟ افتراضياً مُطفأ للجميع، يُفعّله المالك لكل شركة من لوحته.
-  const { data: companyCfg } = useQuery({
-    queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { receivablesSummaryEnabled?: boolean } | null,
-    staleTime: 300_000,
-  });
-  const summaryEnabled = companyCfg?.receivablesSummaryEnabled === true;
-
   // يبني أوراق بيانات التبويب النشط (مشتركة بين Excel وPDF)
   const buildSheets = (): { sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[]; fname: string } | null => {
     let sheets: { name: string; rows: Record<string, unknown>[]; colWidths?: number[] }[] | null = null;
@@ -313,8 +304,8 @@ export default function ReportsPage() {
           [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يُحصَّل قط'),
         }))), colWidths: [22, 24, 20, 16, 14, 14, 16] },
       ];
-      // ورقة «إجمالي المُسنَدين» تُضاف فقط حين تُفعَّل الميزة لهذه الشركة (طرح محدود)
-      if (summaryEnabled && recvSummary) {
+      // ورقة «إجمالي المُسنَدين» — تُضاف دائماً (الميزة عامّة لكل الشركات)
+      if (recvSummary) {
         sheets.unshift({ name: tr('إجمالي المُسنَدين'), rows: [{
           [tr('إجمالي مديونية العملاء المُسنَدين (بلا تكرار)')]: num(recvSummary.distinctReceivable),
           [tr('العملاء المدينون')]: recvSummary.distinctDebtors,
@@ -1028,7 +1019,7 @@ export default function ReportsPage() {
             </div>
           ) : recvRows && recvRows.some(r => r.customersCount > 0) ? (
             <>
-            {summaryEnabled && recvSummary && (
+            {recvSummary && (
               <div className="card p-0 overflow-hidden border-t-4 border-[#E15A30]">
                 <div className="px-4 py-3.5 bg-[#FBEBE2]/50">
                   <div className="flex items-center justify-between flex-wrap gap-3">
