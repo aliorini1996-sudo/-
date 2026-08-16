@@ -21,7 +21,6 @@ const CHAPTERS: { t: number; label: string }[] = [
   { t: 1013, label: 'التقارير — المبيعات والمديونيات وأداء المناديب' },
   { t: 1233, label: 'مستخدمو الشركة والصلاحيات' },
   { t: 1333, label: 'الإعدادات واستيراد البيانات من نظامك السابق' },
-  { t: 1544, label: 'تطبيق الإدارة على الجوال — لوحتك من جيبك' },
 ];
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -88,7 +87,18 @@ export default function TutorialPage() {
           </ul>
         </div>
 
-        <p className="text-center text-[12px] text-[#9A8F7E] mt-6">
+        {/* فيديو مستقلّ: تطبيق الإدارة على الجوال (عموديّ) */}
+        <div className="mt-10">
+          <div className="text-center mb-5">
+            <h2 className="text-xl sm:text-2xl font-bold text-[#1F1A13]">تطبيق الإدارة على الجوال</h2>
+            <p className="text-[#6E6557] mt-1.5 text-sm">لوحتك كاملةً من جيبك — جولة سريعة في تطبيق الجوال للإدارة.</p>
+          </div>
+          <div className="mx-auto rounded-2xl overflow-hidden shadow-lg border border-[#E9E1D3] bg-black" style={{ maxWidth: 360 }}>
+            <video controls preload="metadata" playsInline className="w-full block" src="/media/tutorial-mobile.mp4" />
+          </div>
+        </div>
+
+        <p className="text-center text-[12px] text-[#9A8F7E] mt-8">
           لديك سؤال بعد المشاهدة؟ راسلنا على <a href="mailto:help@fieldsa.net" className="text-[#E15A30] font-semibold">help@fieldsa.net</a>
         </p>
       </main>
