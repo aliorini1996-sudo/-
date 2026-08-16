@@ -179,6 +179,14 @@ export default function ReportsPage() {
     [balancesData, q],
   );
 
+  // إجمالي مديونية الشركة: مجموع أرصدة العملاء المعروضين (كلٌّ مرّة، من المعروض
+  // فيحترم النطاق والبحث). تقرير الأرصدة يعرض المدينين (رصيد موجب).
+  const balanceTotal = useMemo(() => {
+    if (!balanceRows) return null;
+    const total = balanceRows.reduce((s, c) => s + Number(c.balance || 0), 0);
+    return { total: Math.round(total * 100) / 100, count: balanceRows.length };
+  }, [balanceRows]);
+
   const visitRows = useMemo(
     () => filterFlat(visitsData?.visits || [], q, v => [v.customerName, v.repName, v.note]),
     [visitsData, q],
@@ -348,6 +356,9 @@ export default function ReportsPage() {
       sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
         [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
       })), colWidths: [24, 16, 14, 16] }];
+      if (balanceTotal) sheets.unshift({ name: tr('الإجمالي'), rows: [{
+        [tr('إجمالي مديونية الشركة')]: num(balanceTotal.total), [tr('عدد العملاء المدينين')]: balanceTotal.count,
+      }], colWidths: [28, 20] });
       fname = tr('أرصدة العملاء');
     } else if (tab === 'collections' && collectData) {
       sheets = [{ name: tr('التحصيل'), rows: [
@@ -664,6 +675,21 @@ export default function ReportsPage() {
 
       {/* Balances Report */}
       {tab === 'balances' && custType === 'balances' && balanceRows && (
+        <div className="space-y-4">
+        {balanceTotal && (
+          <div className="card p-0 overflow-hidden border-t-4 border-[#E15A30]">
+            <div className="px-4 py-3.5 bg-[#FBEBE2]/50 flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0"><Wallet size={18} className="text-[#E15A30]" /></div>
+                <div>
+                  <p className="text-[12px] text-[#6E6557]">{tr('إجمالي مديونية الشركة')}</p>
+                  <p className="text-xl font-extrabold tabular-nums text-red-600">{formatCurrency(balanceTotal.total)}</p>
+                </div>
+              </div>
+              <div className="text-[12px] text-[#6E6557]">{tr('عدد العملاء المدينين')}: <b className="text-[#1F1A13]">{balanceTotal.count}</b></div>
+            </div>
+          </div>
+        )}
         <div className="card p-0">
           <div className="table-wrapper">
             <table className="table">
@@ -699,6 +725,7 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
 
