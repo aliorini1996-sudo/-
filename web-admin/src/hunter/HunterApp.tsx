@@ -278,36 +278,104 @@ function ChipInput({ label, hint, placeholder, values, onChange }: ChipInputProp
   );
 }
 
-// ============ شاشة الدخول ============
+// ============ شاشة الدخول / إنشاء حساب ============
 
-function HunterLogin({ onLogin }: { onLogin: (token: string, user: HunterUser) => void }) {
+type AuthMode = 'login' | 'signup';
+
+/** يقرأ الوضع من رابط الصفحة (?mode=signup) ليدخل مباشرةً على التسجيل من الصفحة التعريفية */
+function initialMode(): AuthMode {
+  try {
+    const m = new URLSearchParams(window.location.search).get('mode');
+    if (m === 'signup' || window.location.hash === '#signup') return 'signup';
+  } catch { /* تجاهل */ }
+  return 'login';
+}
+
+// خطوات إنشاء الحساب — تُعرض في اللوحة الجانبية لتوضّح المسار
+const SIGNUP_STEPS = [
+  { t: 'أنشئ حسابك المجاني', d: 'بريدك وكلمة مرور — بلا بطاقة' },
+  { t: 'صِف عميلك المستهدف', d: 'وصف + كلمات بحث + مدن' },
+  { t: 'اصطَد وصدّر', d: 'نتائج مقيّمة جاهزة بضغطة' },
+];
+
+function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) => void }) {
+  const [mode, setMode] = useState<AuthMode>(initialMode());
+  const [loading, setLoading] = useState(false);
+
+  // الحقول المشتركة
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
+  // حقول التسجيل
+  const [step, setStep] = useState(1);
+  const [name, setName] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [agree, setAgree] = useState(false);
+
+  const switchMode = (m: AuthMode) => {
+    setMode(m); setStep(1); setPassword(''); setConfirm(''); setShowPass(false);
+  };
+
+  const doLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) { toast.error('أدخل البريد وكلمة المرور'); return; }
     setLoading(true);
     try {
       const res = await hunterApi.post<{ success: boolean; token: string; user: HunterUser }>('/login', { email, password });
-      const { token, user } = res.data;
-      localStorage.setItem(TOKEN_KEY, token);
-      onLogin(token, user);
-      toast.success(`أهلاً ${user.name}`);
+      localStorage.setItem(TOKEN_KEY, res.data.token);
+      onLogin(res.data.token, res.data.user);
+      toast.success(`أهلاً ${res.data.user.name}`);
     } catch (err: unknown) {
       toast.error(errMessage(err, 'بيانات الدخول غير صحيحة'));
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
+
+  // الخطوة الأولى: تحقّق محلّي قبل الانتقال للثانية
+  const nextStep = () => {
+    if (name.trim().length < 2) { toast.error('أدخل اسمك'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email.trim())) { toast.error('بريد إلكتروني غير صالح'); return; }
+    setStep(2);
+  };
+
+  const doSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 8) { toast.error('كلمة المرور ٨ أحرف على الأقل'); return; }
+    if (password !== confirm) { toast.error('كلمتا المرور غير متطابقتين'); return; }
+    if (!agree) { toast.error('يرجى الموافقة على الشروط'); return; }
+    setLoading(true);
+    try {
+      const res = await hunterApi.post<{ success: boolean; token: string; user: HunterUser }>('/register',
+        { name: name.trim(), email: email.trim(), password });
+      localStorage.setItem(TOKEN_KEY, res.data.token);
+      onLogin(res.data.token, res.data.user);
+      toast.success(`تمّ إنشاء حسابك — أهلاً ${res.data.user.name}`);
+    } catch (err: unknown) {
+      toast.error(errMessage(err, 'تعذّر إنشاء الحساب'));
+    } finally { setLoading(false); }
+  };
+
+  const passField = (
+    <div>
+      <label className="label">كلمة المرور</label>
+      <div className="relative">
+        <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+        <input type={showPass ? 'text' : 'password'} className="input pr-9 pl-9" placeholder="••••••••" dir="ltr"
+          value={password} onChange={e => setPassword(e.target.value)}
+          autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
+        <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }}
+          onClick={() => setShowPass(s => !s)}>
+          {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="hookb min-h-screen grid lg:grid-cols-[1.05fr_1fr]" dir="rtl">
       <style>{HOOKB_CSS}</style>
 
-      {/* لوحة العلامة الداكنة — لحظة الهوية */}
+      {/* لوحة العلامة الداكنة — لحظة الهوية / خطوات التسجيل */}
       <div className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden"
         style={{ background: 'var(--brand)', color: '#EAF0F0' }}>
         <div style={{ position: 'absolute', inset: 0, opacity: 0.10, color: 'var(--catch)' }} aria-hidden="true">
@@ -319,55 +387,146 @@ function HunterLogin({ onLogin }: { onLogin: (token: string, user: HunterUser) =
             HOOK <span className="hb-badge" style={{ fontSize: 17, verticalAlign: 'middle' }}>B</span>
           </span>
         </div>
-        <div className="relative">
-          <h2 style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.01em' }}>
-            اصطَد عملاءك<br />المحتملين.
-          </h2>
-          <p style={{ color: '#9BA8AC', marginTop: 14, fontSize: 15, maxWidth: 380, lineHeight: 1.8 }}>
-            منصّة صيد عملاء على الطلب — من عدّة مصادر، بإزالة تكرار ذكية وتقييم لكل عميل مقابل هدفك.
-          </p>
-        </div>
+
+        {mode === 'signup' ? (
+          <div className="relative">
+            <h2 style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.25 }}>افتح حسابك<br />في ٣ خطوات.</h2>
+            <div className="mt-8 space-y-5">
+              {SIGNUP_STEPS.map((s, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <span style={{
+                    flex: 'none', width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center',
+                    fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 13,
+                    background: i + 1 <= step ? 'var(--catch)' : 'rgba(255,255,255,.08)',
+                    color: i + 1 <= step ? '#fff' : '#8A97A0',
+                    border: '1px solid ' + (i + 1 <= step ? 'var(--catch)' : 'rgba(255,255,255,.12)'),
+                  }}>{i + 1}</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{s.t}</div>
+                    <div style={{ color: '#8A97A0', fontSize: 13, marginTop: 2 }}>{s.d}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="relative">
+            <h2 style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.01em' }}>
+              اصطَد عملاءك<br />المحتملين.
+            </h2>
+            <p style={{ color: '#9BA8AC', marginTop: 14, fontSize: 15, maxWidth: 380, lineHeight: 1.8 }}>
+              منصّة صيد عملاء على الطلب — من عدّة مصادر، بإزالة تكرار ذكية وتقييم لكل عميل مقابل هدفك.
+            </p>
+          </div>
+        )}
+
         <div className="relative flex items-center gap-2" style={{ color: '#6D7A7E', fontSize: 12.5 }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--catch)' }} />
           كل حساب يرى عملاءه وحده — عزل تامّ.
         </div>
       </div>
 
-      {/* نموذج الدخول */}
+      {/* النموذج */}
       <div className="flex items-center justify-center p-6" style={{ background: 'var(--ground)' }}>
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex justify-center mb-8"><HookWordmark mark={32} text={26} /></div>
-          <p className="eyebrow">تسجيل الدخول</p>
-          <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6, letterSpacing: '-0.01em' }}>ابدأ الصيد</h1>
-          <p style={{ color: 'var(--muted)', marginTop: 6, fontSize: 14 }}>ادخل ببيانات الحساب الذي زوّدك بها المالك</p>
 
-          <form onSubmit={submit} className="space-y-4 mt-7">
-            <div>
-              <label className="label">البريد الإلكتروني</label>
-              <div className="relative">
-                <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
-                <input type="email" className="input pr-9" placeholder="you@company.com" dir="ltr"
-                  value={email} onChange={e => setEmail(e.target.value)} autoComplete="username" />
-              </div>
-            </div>
+          {mode === 'login' ? (
+            <>
+              <p className="eyebrow">تسجيل الدخول</p>
+              <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>مرحباً بعودتك</h1>
+              <p style={{ color: 'var(--muted)', marginTop: 6, fontSize: 14 }}>ادخل ببيانات حسابك لتكمل الصيد</p>
 
-            <div>
-              <label className="label">كلمة المرور</label>
-              <div className="relative">
-                <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
-                <input type={showPass ? 'text' : 'password'} className="input pr-9 pl-9" placeholder="••••••••" dir="ltr"
-                  value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
-                <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }}
-                  onClick={() => setShowPass(s => !s)}>
-                  {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+              <form onSubmit={doLogin} className="space-y-4 mt-7">
+                <div>
+                  <label className="label">البريد الإلكتروني</label>
+                  <div className="relative">
+                    <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                    <input type="email" className="input pr-9" placeholder="you@company.com" dir="ltr"
+                      value={email} onChange={e => setEmail(e.target.value)} autoComplete="username" />
+                  </div>
+                </div>
+                {passField}
+                <button type="submit" disabled={loading} className="btn-primary w-full py-3 mt-2">
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <>دخول <ArrowLeft size={17} /></>}
                 </button>
-              </div>
-            </div>
+              </form>
 
-            <button type="submit" disabled={loading} className="btn-primary w-full py-3 mt-2">
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <>دخول <ArrowLeft size={17} /></>}
-            </button>
-          </form>
+              <p className="text-center text-sm mt-6" style={{ color: 'var(--muted)' }}>
+                ليس لديك حساب؟{' '}
+                <button className="font-bold" style={{ color: 'var(--catch-ink)' }} onClick={() => switchMode('signup')}>أنشئ حساباً مجاناً</button>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="eyebrow">إنشاء حساب</p>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>الخطوة {step} من ٢</span>
+              </div>
+              <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>
+                {step === 1 ? 'ابدأ مجاناً' : 'أمّن حسابك'}
+              </h1>
+              <p style={{ color: 'var(--muted)', marginTop: 6, fontSize: 14 }}>
+                {step === 1 ? 'بياناتك الأساسية للبدء' : 'اختر كلمة مرور قويّة'}
+              </p>
+
+              {/* شريط تقدّم */}
+              <div className="flex gap-2 mt-5">
+                {[1, 2].map(n => (
+                  <span key={n} style={{ flex: 1, height: 4, borderRadius: 4, background: n <= step ? 'var(--catch)' : 'var(--line)' }} />
+                ))}
+              </div>
+
+              {step === 1 ? (
+                <form onSubmit={e => { e.preventDefault(); nextStep(); }} className="space-y-4 mt-6">
+                  <div>
+                    <label className="label">الاسم الكامل</label>
+                    <div className="relative">
+                      <Users size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                      <input type="text" className="input pr-9" placeholder="اسمك"
+                        value={name} onChange={e => setName(e.target.value)} autoComplete="name" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label">البريد الإلكتروني</label>
+                    <div className="relative">
+                      <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                      <input type="email" className="input pr-9" placeholder="you@company.com" dir="ltr"
+                        value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" />
+                    </div>
+                  </div>
+                  <button type="submit" className="btn-primary w-full py-3 mt-2">التالي <ArrowLeft size={17} /></button>
+                </form>
+              ) : (
+                <form onSubmit={doSignup} className="space-y-4 mt-6">
+                  {passField}
+                  <div>
+                    <label className="label">تأكيد كلمة المرور</label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                      <input type={showPass ? 'text' : 'password'} className="input pr-9" placeholder="••••••••" dir="ltr"
+                        value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password" />
+                    </div>
+                  </div>
+                  <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--muted)' }}>
+                    <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--catch)' }} />
+                    <span>أوافق على استخدام المنصّة لجمع بيانات أعمال عامّة، وأتحمّل مسؤولية أي مراسلة لاحقة وفق الأنظمة المعمول بها.</span>
+                  </label>
+                  <div className="flex gap-2 mt-2">
+                    <button type="button" className="btn-ghost" onClick={() => setStep(1)}>رجوع</button>
+                    <button type="submit" disabled={loading} className="btn-primary flex-1 py-3">
+                      {loading ? <Loader2 size={18} className="animate-spin" /> : 'أنشئ حسابي'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <p className="text-center text-sm mt-6" style={{ color: 'var(--muted)' }}>
+                لديك حساب؟{' '}
+                <button className="font-bold" style={{ color: 'var(--catch-ink)' }} onClick={() => switchMode('login')}>تسجيل الدخول</button>
+              </p>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -541,7 +700,7 @@ export default function HunterApp() {
     );
   }
 
-  if (!user) return <HunterLogin onLogin={(_t, u) => { setUser(u); setBooting(false); }} />;
+  if (!user) return <AuthScreen onLogin={(_t, u) => { setUser(u); setBooting(false); }} />;
 
   const remaining = Math.max(0, user.monthlyQuota - user.usedThisMonth);
 

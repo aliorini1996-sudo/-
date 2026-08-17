@@ -13,7 +13,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../config/database';
-import { authLimiter } from '../middleware/rateLimits';
+import { authLimiter, signupLimiter } from '../middleware/rateLimits';
 import { providersReady, runSearch, sourceLabel, RawLead, SourceId } from '../services/hunter/sources';
 import { dedupKeysOf } from '../services/hunter/normalize';
 import { qualifyBatch, qualifyReady, QualifyItem } from '../services/hunter/qualify';
@@ -162,6 +162,51 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
+// هل يُسمح بالتسجيل الذاتي؟ (المالك يعطّله بضبط HUNTER_ALLOW_SIGNUP=false)
+function signupAllowed(): boolean {
+  return (process.env.HUNTER_ALLOW_SIGNUP || 'true').toLowerCase() !== 'false';
+}
+// حصّة الخطة المجانية للتسجيل الذاتي — محدودة لتفادي استنزاف مفاتيح المصادر المشتركة
+function freeQuota(): number {
+  const n = Number(process.env.HUNTER_FREE_QUOTA);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 5000) : 100;
+}
+
+// تسجيل ذاتيّ (خطة مجانية) — محدود بمعدّل وبحصّة صغيرة.
+router.post('/register', signupLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!signupAllowed()) {
+      res.status(403).json({ success: false, message: 'التسجيل الذاتي متوقّف حالياً — تواصل مع المالك للحصول على حساب' });
+      return;
+    }
+    await ensureOwner();
+    const name = String(req.body?.name || '').trim().slice(0, 80);
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if (name.length < 2) { res.status(400).json({ success: false, message: 'أدخل اسمك (حرفان على الأقل)' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) { res.status(400).json({ success: false, message: 'بريد إلكتروني غير صالح' }); return; }
+    if (password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور ٨ أحرف على الأقل' }); return; }
+
+    const exists = await prisma.hunterUser.findUnique({ where: { email }, select: { id: true } });
+    if (exists) { res.status(409).json({ success: false, message: 'هذا البريد مسجّل مسبقاً — سجّل الدخول بدلاً من ذلك' }); return; }
+
+    const user = await prisma.hunterUser.create({
+      data: { email, name, passwordHash: hashPassword(password), monthlyQuota: freeQuota(), lastLoginAt: new Date() },
+    });
+    const token = jwt.sign(
+      { hid: user.id, kind: 'hunter', isOwner: false } as HunterPayload,
+      hunterSecret(),
+      { expiresIn: '12h' },
+    );
+    const q = await readQuota(user.id);
+    res.status(201).json({
+      success: true, token,
+      user: { id: user.id, name: user.name, email: user.email, isOwner: false, ...q },
+    });
+  } catch (err) { next(err); }
+});
+
 router.get('/me', hunterAuth, async (req: HunterRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.hunterUser.findUnique({
@@ -177,7 +222,7 @@ router.get('/config', hunterAuth, (_req: HunterRequest, res: Response) => {
   const ready = providersReady();
   const labels: Record<string, string> = {};
   (Object.keys(ready) as SourceId[]).forEach((k) => { labels[k] = sourceLabel(k); });
-  res.json({ success: true, sources: ready, labels, qualify: qualifyReady() });
+  res.json({ success: true, sources: ready, labels, qualify: qualifyReady(), signup: signupAllowed() });
 });
 
 /** عملاء الحساب وحده — لا معرّف مستخدم يُقرأ من الطلب. */
