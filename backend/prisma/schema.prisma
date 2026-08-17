@@ -1441,6 +1441,8 @@ model HunterUser {
   monthlyQuota  Int       @default(500) // أقصى عدد عملاء جدد شهرياً
   usedThisMonth Int       @default(0)
   quotaResetAt  DateTime  @default(now())
+  /// تاريخ انتهاء الاستخدام — بعده يُرفض الدخول وكل طلب (null = بلا انتهاء)
+  expiresAt     DateTime?
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -1510,4 +1512,14 @@ model HunterSearch {
 
   @@index([userId, createdAt])
   @@map("hunter_searches")
+}
+
+/// نصوص الصفحة التعريفية القابلة للتحرير من لوحة المالك — مفتاح/قيمة.
+/// القيمة نصّ عاديّ (لا HTML): تُهرَّب عند الحقن في الصفحة.
+model HunterContent {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("hunter_content")
 }

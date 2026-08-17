@@ -4,7 +4,9 @@ import toast from 'react-hot-toast';
 import {
   Eye, EyeOff, Mail, Lock, ArrowLeft, LogOut, Search,
   Download, X, Check, Loader2, Globe, Phone, AtSign, Users,
+  Settings, LogIn, Ban, CalendarClock, KeyRound, RefreshCw, Save, FileText,
 } from 'lucide-react';
+import { LANDING_FIELDS, LANDING_DEFAULTS } from './landingContent';
 
 // ============ الأنواع ============
 
@@ -34,6 +36,22 @@ interface HunterUser {
   quota: number;
   used: number;
   remaining: number;
+  expiresAt?: string | null;
+}
+
+/** حساب كما تعرضه لوحة المالك (/admin/users) */
+interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  isActive: boolean;
+  isOwner: boolean;
+  monthlyQuota: number;
+  usedThisMonth: number;
+  expiresAt: string | null;
+  lastLoginAt: string | null;
+  createdAt: string;
+  _count?: { leads: number };
 }
 
 interface HuntStats {
@@ -62,6 +80,8 @@ interface SavedTarget {
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 const TOKEN_KEY = 'hunter_token';
 const TARGET_KEY = 'hunter_target_v1';
+// توكن المالك يُحفظ جانباً أثناء الدخول إلى حساب عميل، ليعود بضغطة (ويصمد أمام تحديث الصفحة)
+const OWNER_TOKEN_KEY = 'hunter_owner_token';
 
 // عميل مستقلّ بمفتاح توكن خاص — لوحة الصيد أداة قائمة بذاتها ولا يجوز أن
 // تتقاطع جلستها مع جلسة الأدمن أو المندوب على نفس المتصفّح.
@@ -168,6 +188,65 @@ const HOOKB_CSS = `
   font-weight:700; background:var(--ground); padding:10px 14px; position:sticky; top:0; white-space:nowrap; }
 .hookb tbody td{ padding:11px 14px; border-top:1px solid var(--line2); white-space:nowrap; vertical-align:middle; }
 .hookb tbody tr:hover td{ background:var(--ground); }
+
+/* ===== لوحة المالك ===== */
+.hookb .hb-imp-bar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 18px;
+  background:var(--brand); color:#EAF1EF; font-size:13px; }
+.hookb .hb-imp-bar b{ color:#7FE9BC; }
+.hookb .hb-modal{ position:fixed; inset:0; z-index:60; background:rgba(12,17,23,.55);
+  display:flex; align-items:flex-start; justify-content:center; padding:22px 14px; overflow:auto; }
+.hookb .hb-modal-card{ width:100%; max-width:1000px; background:#fff; border:1px solid var(--line);
+  border-radius:16px; box-shadow:0 30px 80px rgba(10,15,20,.35); display:flex; flex-direction:column; max-height:calc(100vh - 44px); }
+.hookb .hb-modal-head{ display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:13px 16px; border-bottom:1px solid var(--line); }
+.hookb .hb-modal-body{ padding:16px; overflow:auto; }
+.hookb .hb-modal-foot{ display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding-top:14px; margin-top:14px; border-top:1px solid var(--line); }
+.hookb .hb-tabs{ display:inline-flex; border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+.hookb .hb-tabs button{ display:inline-flex; align-items:center; gap:6px; padding:7px 13px; font-size:12.5px;
+  font-weight:700; color:var(--muted); background:#fff; border:none; cursor:pointer; }
+.hookb .hb-tabs button.on{ background:var(--catch-soft); color:var(--catch-ink); }
+.hookb .hb-btn{ display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:10px;
+  border:1px solid var(--line); background:#fff; color:var(--ink); font-size:12.5px; font-weight:600; cursor:pointer; }
+.hookb .hb-btn:hover:not(:disabled){ border-color:var(--catch); }
+.hookb .hb-btn:disabled{ opacity:.45; cursor:not-allowed; }
+.hookb .hb-btn-primary{ background:var(--catch); border-color:var(--catch); color:#fff; }
+.hookb .hb-btn-sm{ padding:5px 9px; font-size:12px; }
+.hookb .hb-center{ padding:40px; text-align:center; color:var(--muted); }
+.hookb .hb-hint{ font-size:12.5px; color:var(--muted); background:var(--ground);
+  border:1px solid var(--line2); border-radius:10px; padding:10px 12px; margin-bottom:14px; line-height:1.8; }
+
+.hookb .hb-acct-list{ display:flex; flex-direction:column; gap:12px; }
+.hookb .hb-acct{ border:1px solid var(--line); border-radius:13px; padding:13px 14px; background:#fff; }
+.hookb .hb-acct-head{ display:flex; align-items:flex-start; gap:12px; }
+.hookb .hb-acct-mail{ font-family:var(--hb-mono); font-size:12px; color:var(--muted); margin-top:3px;
+  overflow:hidden; text-overflow:ellipsis; }
+.hookb .hb-acct-nums{ display:flex; gap:14px; font-size:12px; color:var(--muted); white-space:nowrap; }
+.hookb .hb-acct-nums span{ display:inline-flex; align-items:center; gap:5px; }
+.hookb .hb-acct-meta{ display:flex; gap:16px; flex-wrap:wrap; font-size:11.5px; color:var(--muted);
+  margin-top:9px; padding-top:9px; border-top:1px dashed var(--line2); }
+.hookb .hb-acct-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:11px; }
+.hookb .hb-inline{ display:inline-flex; align-items:center; gap:6px; padding:3px 8px;
+  border:1px solid var(--line); border-radius:10px; color:var(--muted); }
+.hookb .hb-inline-lbl{ font-size:12px; }
+.hookb .hb-date, .hookb .hb-num{ border:none; background:transparent; font-size:12.5px; color:var(--ink);
+  font-family:var(--hb-mono); outline:none; }
+.hookb .hb-num{ width:70px; }
+.hookb .hb-tag{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+.hookb .hb-tag-own{ background:var(--brand); color:#7FE9BC; }
+.hookb .st-on{ background:var(--hi-bg); color:var(--hi-ink); }
+.hookb .st-off{ background:#F0F2F5; color:var(--muted); }
+.hookb .st-exp{ background:#FDECEC; color:#B42318; }
+.hookb .st-warn{ background:#FEF6E7; color:#B54708; }
+
+.hookb .hb-fields{ display:grid; grid-template-columns:repeat(2,1fr); gap:13px; }
+@media (max-width:760px){ .hookb .hb-fields{ grid-template-columns:1fr; } }
+.hookb .hb-field{ display:flex; flex-direction:column; gap:5px; }
+.hookb .hb-field-lbl{ font-size:12px; font-weight:700; color:var(--muted); }
+.hookb .hb-field input, .hookb .hb-field textarea{ border:1px solid var(--line); border-radius:10px;
+  padding:9px 11px; font-size:13px; color:var(--ink); font-family:inherit; background:#fff; resize:vertical; }
+.hookb .hb-field input:focus, .hookb .hb-field textarea:focus{ outline:none; border-color:var(--catch); }
+.hookb .hb-field ::placeholder{ color:#A7B0B8; }
 `;
 
 // ============ المصادر ============
@@ -217,6 +296,25 @@ function domainOf(website: string): string {
     return u.hostname.replace(/^www\./, '').toLowerCase();
   } catch {
     return website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
+  }
+}
+
+/**
+ * رابط آمن للعرض — **حارس ضروريّ لا تجميل**.
+ *
+ * موقع العميل يأتي من وسوم OpenStreetMap (يحرّرها أي أحد علناً) ويُخزَّن خاماً.
+ * وضعه في href مباشرةً يسمح بـ`javascript:` مخزَّن ينفَّذ في أصل fieldsa.net،
+ * فيقرأ توكن المالك المركون (hunter_owner_token) وتوكن لوحة الأدمن من localStorage.
+ * لذلك: لا يُسمح إلا بـhttp/https، وما عداه يُعرض نصّاً بلا رابط.
+ */
+function safeHref(raw?: string | null): string | null {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s}`);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+  } catch {
+    return null;
   }
 }
 
@@ -534,6 +632,314 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
   );
 }
 
+// ============ لوحة المالك ============
+
+/** تاريخ مختصر بالعربية، و«—» للفارغ. */
+function fmtDate(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('ar', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/** `YYYY-MM-DD` لحقل input[type=date] (بالتوقيت المحلي، لا UTC). */
+function toDateInput(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** حالة الحساب المعروضة: معطّل / منتهٍ / ينتهي قريباً / نشط. */
+function accountState(u: AdminUser): { label: string; cls: string } {
+  if (!u.isActive) return { label: 'معطّل', cls: 'st-off' };
+  if (u.expiresAt && new Date(u.expiresAt).getTime() <= Date.now()) return { label: 'منتهٍ', cls: 'st-exp' };
+  if (u.expiresAt) {
+    const days = Math.ceil((new Date(u.expiresAt).getTime() - Date.now()) / 86400000);
+    if (days <= 7) return { label: `ينتهي خلال ${days} يوم`, cls: 'st-warn' };
+  }
+  return { label: 'نشط', cls: 'st-on' };
+}
+
+/** صفّ حساب واحد مع إجراءاته. */
+function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
+  u: AdminUser;
+  meId: string;
+  busy: boolean;
+  onPatch: (id: string, body: Record<string, unknown>, note: string) => void;
+  onImpersonate: (u: AdminUser) => void;
+}) {
+  const [dateVal, setDateVal] = useState(toDateInput(u.expiresAt));
+  const [quotaVal, setQuotaVal] = useState(String(u.monthlyQuota));
+  useEffect(() => { setDateVal(toDateInput(u.expiresAt)); }, [u.expiresAt]);
+  useEffect(() => { setQuotaVal(String(u.monthlyQuota)); }, [u.monthlyQuota]);
+
+  const st = accountState(u);
+  const isMe = u.id === meId;
+  const expired = !!u.expiresAt && new Date(u.expiresAt).getTime() <= Date.now();
+  const canEnter = !u.isOwner && u.isActive && !expired && !isMe;
+
+  return (
+    <div className="hb-acct">
+      <div className="hb-acct-head">
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <b style={{ fontSize: 14.5 }}>{u.name || '—'}</b>
+            {u.isOwner && <span className="hb-tag hb-tag-own">مالك</span>}
+            <span className={`hb-tag ${st.cls}`}>{st.label}</span>
+          </div>
+          <div className="hb-acct-mail" dir="ltr">{u.email}</div>
+        </div>
+        <div className="hb-acct-nums">
+          <span title="عدد العملاء المصطادين"><Users size={13} /> {u._count?.leads ?? 0}</span>
+          <span title="المستهلك من الحصّة هذا الشهر">{u.usedThisMonth} / {u.monthlyQuota}</span>
+        </div>
+      </div>
+
+      <div className="hb-acct-meta">
+        <span>أُنشئ: {fmtDate(u.createdAt)}</span>
+        <span>آخر دخول: {fmtDate(u.lastLoginAt)}</span>
+        <span>ينتهي: {u.expiresAt ? fmtDate(u.expiresAt) : 'بلا انتهاء'}</span>
+      </div>
+
+      <div className="hb-acct-actions">
+        <button
+          className="hb-btn hb-btn-primary"
+          disabled={busy || !canEnter}
+          title={canEnter ? 'دخول إلى هذا الحساب لمعاينة ما يراه' : 'غير متاح لهذا الحساب'}
+          onClick={() => onImpersonate(u)}
+        >
+          <LogIn size={14} /> دخول للحساب
+        </button>
+
+        <button
+          className="hb-btn"
+          disabled={busy || isMe}
+          title={isMe ? 'لا يمكنك تعطيل حسابك' : u.isActive ? 'إيقاف الحساب فوراً' : 'إعادة تفعيل الحساب'}
+          onClick={() => onPatch(u.id, { isActive: !u.isActive }, u.isActive ? 'أُوقف الحساب' : 'فُعّل الحساب')}
+        >
+          {u.isActive ? <><Ban size={14} /> إيقاف</> : <><Check size={14} /> تفعيل</>}
+        </button>
+
+        <label className="hb-inline">
+          <CalendarClock size={14} />
+          <input
+            type="date"
+            className="hb-date"
+            value={dateVal}
+            disabled={busy || isMe}
+            onChange={(e) => setDateVal(e.target.value)}
+          />
+          <button
+            className="hb-btn hb-btn-sm"
+            disabled={busy || isMe || dateVal === toDateInput(u.expiresAt)}
+            onClick={() => onPatch(
+              u.id,
+              // نهاية اليوم المحدَّد محلياً: تاريخ الانتهاء يشمل يومه كاملاً
+              { expiresAt: dateVal ? new Date(`${dateVal}T23:59:59`).toISOString() : null },
+              dateVal ? 'حُدّد تاريخ الانتهاء' : 'أُلغي تاريخ الانتهاء',
+            )}
+          >حفظ</button>
+          {u.expiresAt && !isMe && (
+            <button
+              className="hb-btn hb-btn-sm"
+              disabled={busy}
+              title="إلغاء تاريخ الانتهاء"
+              onClick={() => { setDateVal(''); onPatch(u.id, { expiresAt: null }, 'أُلغي تاريخ الانتهاء'); }}
+            ><X size={13} /></button>
+          )}
+        </label>
+
+        <label className="hb-inline">
+          <span className="hb-inline-lbl">الحصّة</span>
+          <input
+            type="number" min={10} max={100000} className="hb-num"
+            value={quotaVal} disabled={busy}
+            onChange={(e) => setQuotaVal(e.target.value)}
+          />
+          <button
+            className="hb-btn hb-btn-sm"
+            disabled={busy || quotaVal === String(u.monthlyQuota) || !quotaVal}
+            onClick={() => onPatch(u.id, { monthlyQuota: Number(quotaVal) }, 'حُدّثت الحصّة')}
+          >حفظ</button>
+        </label>
+
+        <button
+          className="hb-btn"
+          disabled={busy}
+          title="توليد كلمة مرور جديدة وعرضها مرّة واحدة"
+          onClick={() => {
+            if (!window.confirm(`توليد كلمة مرور جديدة لـ${u.email}؟ الكلمة الحالية ستتوقّف فوراً.`)) return;
+            onPatch(u.id, { resetPassword: true }, 'كلمة المرور الجديدة');
+          }}
+        ><KeyRound size={14} /> كلمة مرور جديدة</button>
+      </div>
+    </div>
+  );
+}
+
+/** لوحة المالك: الحسابات + نصوص الصفحة التعريفية. */
+function AdminPanel({ meId, onClose, onImpersonate }: {
+  meId: string;
+  onClose: () => void;
+  onImpersonate: (u: AdminUser) => void;
+}) {
+  const [tab, setTab] = useState<'users' | 'content'>('users');
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const [content, setContent] = useState<Record<string, string>>({});
+  const [contentLoaded, setContentLoaded] = useState(false);
+  const [savingContent, setSavingContent] = useState(false);
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await hunterApi.get<{ success: boolean; users: AdminUser[] }>('/admin/users');
+      setUsers(r.data.users || []);
+    } catch (err) {
+      toast.error(errMessage(err, 'تعذّر جلب الحسابات'));
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { void loadUsers(); }, [loadUsers]);
+
+  useEffect(() => {
+    if (tab !== 'content' || contentLoaded) return;
+    (async () => {
+      try {
+        const r = await hunterApi.get<{ success: boolean; content: Record<string, string> }>('/content');
+        setContent(r.data.content || {});
+      } catch { /* الحقول الفارغة = النصوص الافتراضية */ }
+      finally { setContentLoaded(true); }
+    })();
+  }, [tab, contentLoaded]);
+
+  const patchUser = useCallback(async (id: string, body: Record<string, unknown>, note: string) => {
+    setBusy(true);
+    try {
+      const r = await hunterApi.patch<{ success: boolean; password?: string }>(`/admin/users/${id}`, body);
+      if (r.data.password) {
+        window.prompt(`${note} — انسخها الآن، لن تظهر ثانيةً:`, r.data.password);
+      } else {
+        toast.success(note);
+      }
+      await loadUsers();
+    } catch (err) {
+      toast.error(errMessage(err, 'تعذّر التعديل'));
+    } finally { setBusy(false); }
+  }, [loadUsers]);
+
+  const saveContent = useCallback(async () => {
+    setSavingContent(true);
+    try {
+      const r = await hunterApi.put<{ success: boolean; content: Record<string, string> }>('/admin/content', { content });
+      setContent(r.data.content || {});
+      toast.success('حُفظت نصوص الصفحة التعريفية');
+    } catch (err) {
+      toast.error(errMessage(err, 'تعذّر الحفظ'));
+    } finally { setSavingContent(false); }
+  }, [content]);
+
+  const changed = useMemo(
+    () => LANDING_FIELDS.some(f => (content[f.key] ?? '') !== ''),
+    [content],
+  );
+
+  return (
+    <div className="hb-modal" role="dialog" aria-modal="true">
+      <div className="hb-modal-card">
+        <div className="hb-modal-head">
+          <b style={{ fontSize: 16 }}>لوحة المالك</b>
+          <div className="hb-tabs">
+            <button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}>
+              <Users size={14} /> الحسابات {users.length ? `(${users.length})` : ''}
+            </button>
+            <button className={tab === 'content' ? 'on' : ''} onClick={() => setTab('content')}>
+              <FileText size={14} /> نصّ الصفحة الرئيسية
+            </button>
+          </div>
+          <span className="flex-1" />
+          {tab === 'users' && (
+            <button className="hb-btn hb-btn-sm" onClick={() => void loadUsers()} disabled={loading}>
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
+            </button>
+          )}
+          <button className="hb-btn hb-btn-sm" onClick={onClose}><X size={15} /> إغلاق</button>
+        </div>
+
+        <div className="hb-modal-body">
+          {tab === 'users' ? (
+            loading ? (
+              <div className="hb-center"><Loader2 size={22} className="animate-spin" /></div>
+            ) : !users.length ? (
+              <div className="hb-center">لا حسابات بعد</div>
+            ) : (
+              <div className="hb-acct-list">
+                {users.map(u => (
+                  <AccountRow
+                    key={u.id} u={u} meId={meId} busy={busy}
+                    onPatch={patchUser} onImpersonate={onImpersonate}
+                  />
+                ))}
+              </div>
+            )
+          ) : !contentLoaded ? (
+            <div className="hb-center"><Loader2 size={22} className="animate-spin" /></div>
+          ) : (
+            <>
+              <p className="hb-hint">
+                اترك الحقل فارغاً ليظهر النصّ الافتراضي (المكتوب رماديّاً). التغيير يظهر على
+                <b> /hookb </b> خلال دقيقة. النصّ يُعرض كنصّ عاديّ — الوسوم لا تُنفَّذ.
+              </p>
+              <div className="hb-fields">
+                {LANDING_FIELDS.map(f => (
+                  <label key={f.key} className="hb-field">
+                    <span className="hb-field-lbl">{f.label}</span>
+                    {f.long ? (
+                      <textarea
+                        rows={3} maxLength={400}
+                        value={content[f.key] ?? ''}
+                        placeholder={LANDING_DEFAULTS[f.key]}
+                        onChange={(e) => setContent(c => ({ ...c, [f.key]: e.target.value }))}
+                      />
+                    ) : (
+                      <input
+                        type="text" maxLength={400}
+                        value={content[f.key] ?? ''}
+                        placeholder={LANDING_DEFAULTS[f.key]}
+                        onChange={(e) => setContent(c => ({ ...c, [f.key]: e.target.value }))}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+              <div className="hb-modal-foot">
+                <button className="hb-btn" disabled={savingContent || !changed}
+                  onClick={() => {
+                    // مفاتيح فارغة صراحةً لا كائن فارغ: الخادم يحذف صفّ كل مفتاح فارغ،
+                    // بينما {} كان يُرفَض بـ«لا حقول معروفة للحفظ»
+                    setContent(Object.fromEntries(LANDING_FIELDS.map(f => [f.key, ''])));
+                    toast.success('أُفرغت الحقول — اضغط «حفظ النصوص» لتثبيت الافتراضي');
+                  }}>
+                  إعادة الكلّ للافتراضي
+                </button>
+                <span className="flex-1" />
+                <a className="hb-btn" href="/hookb" target="_blank" rel="noreferrer">معاينة الصفحة</a>
+                <button className="hb-btn hb-btn-primary" onClick={() => void saveContent()} disabled={savingContent}>
+                  {savingContent ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} حفظ النصوص
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============ اللوحة ============
 
 export default function HunterApp() {
@@ -566,34 +972,110 @@ export default function HunterApp() {
   const [minScore, setMinScore] = useState(0);
   const [contactFilters, setContactFilters] = useState<ContactFilter[]>([]);
 
+  // لوحة المالك + جلسة الانتحال
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [impersonating, setImpersonating] = useState(false);
+
   // ---- الجلسة ----
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(OWNER_TOKEN_KEY);
     setUser(null);
     setLeads([]);
     setMerged(0);
+    setImpersonating(false);
+    setAdminOpen(false);
   }, []);
+
+  /** يستبدل التوكن الحالي بتوكن المالك المركون. true إن وُجد ورُدّ. */
+  const swapBackToOwnerToken = useCallback((): boolean => {
+    const ownerToken = localStorage.getItem(OWNER_TOKEN_KEY);
+    if (!ownerToken) return false;
+    localStorage.setItem(TOKEN_KEY, ownerToken);
+    localStorage.removeItem(OWNER_TOKEN_KEY);
+    return true;
+  }, []);
+
+  /** يُنهي جلسة الانتحال ويعيد تحميل ملفّ المالك (أو يُخرج إن سقط توكنه هو أيضاً). */
+  const resumeOwnerSession = useCallback(async (msg: string) => {
+    setImpersonating(false);
+    setLeads([]);
+    setMerged(0);
+    try {
+      const res = await hunterApi.get<{ success: boolean; user: HunterUser }>('/me');
+      setUser(res.data.user);
+      toast.success(msg);
+    } catch {
+      logout();
+      toast.error('انتهت الجلسة — سجّل الدخول من جديد');
+    }
+  }, [logout]);
 
   const handleAuthError = useCallback((err: unknown) => {
     const status = (err as AxiosError)?.response?.status;
-    if (status === 401 || status === 403) { logout(); toast.error('انتهت الجلسة — سجّل الدخول من جديد'); return true; }
-    return false;
-  }, [logout]);
+    if (status !== 401 && status !== 403) return false;
+    // سقوط جلسة الدخول إلى حساب عميل (ساعتان، أو انتهاء اشتراكه) لا يجوز أن يطرد
+    // المالك: توكنه صالح ١٢ ساعة ومركون — نعود به بدل مسح الاثنين.
+    if (swapBackToOwnerToken()) {
+      void resumeOwnerSession('انتهت جلسة الدخول إلى الحساب — عُدت إلى حسابك');
+      return true;
+    }
+    logout();
+    toast.error('انتهت الجلسة — سجّل الدخول من جديد');
+    return true;
+  }, [logout, swapBackToOwnerToken, resumeOwnerSession]);
 
   // استعادة الجلسة من التوكن المحفوظ
   useEffect(() => {
     if (!localStorage.getItem(TOKEN_KEY)) return;
     (async () => {
       try {
-        const res = await hunterApi.get<{ success: boolean; user: HunterUser }>('/me');
+        const res = await hunterApi.get<{ success: boolean; user: HunterUser; impersonating?: boolean }>('/me');
         setUser(res.data.user);
+        setImpersonating(res.data.impersonating === true);
       } catch {
-        localStorage.removeItem(TOKEN_KEY);
+        // جلسة انتحال ساقطة عند التحديث: جرّب توكن المالك المركون قبل الاستسلام
+        if (swapBackToOwnerToken()) {
+          try {
+            const res2 = await hunterApi.get<{ success: boolean; user: HunterUser }>('/me');
+            setUser(res2.data.user);
+            setImpersonating(false);
+          } catch {
+            localStorage.removeItem(TOKEN_KEY);
+          }
+        } else {
+          localStorage.removeItem(TOKEN_KEY);
+        }
       } finally {
         setBooting(false);
       }
     })();
   }, []);
+
+  // ---- الدخول إلى حساب عميل والعودة ----
+  const enterAccount = useCallback(async (target: AdminUser) => {
+    try {
+      const r = await hunterApi.post<{ success: boolean; token: string; user: HunterUser }>(
+        `/admin/users/${target.id}/impersonate`, {},
+      );
+      const ownerToken = localStorage.getItem(TOKEN_KEY);
+      if (ownerToken) localStorage.setItem(OWNER_TOKEN_KEY, ownerToken);
+      localStorage.setItem(TOKEN_KEY, r.data.token);
+      setAdminOpen(false);
+      setImpersonating(true);
+      setLeads([]);
+      setMerged(0);
+      setUser(r.data.user);           // يعيد تشغيل تحميل الإعداد والعملاء لهذا الحساب
+      toast.success(`أنت الآن داخل حساب ${target.name || target.email}`);
+    } catch (err) {
+      toast.error(errMessage(err, 'تعذّر الدخول إلى الحساب'));
+    }
+  }, []);
+
+  const backToOwner = useCallback(async () => {
+    if (!swapBackToOwnerToken()) { logout(); return; }
+    await resumeOwnerSession('عُدت إلى حسابك');
+  }, [logout, swapBackToOwnerToken, resumeOwnerSession]);
 
   // ---- الصيد ----
   const runHunt = useCallback(async () => {
@@ -715,6 +1197,18 @@ export default function HunterApp() {
     <div className="hookb min-h-screen" style={{ background: 'var(--ground)' }} dir="rtl">
       <style>{HOOKB_CSS}</style>
 
+      {/* شريط الانتحال — يبقى ظاهراً ما دام المالك داخل حساب عميل */}
+      {impersonating && (
+        <div className="hb-imp-bar">
+          <LogIn size={15} />
+          <span>أنت داخل حساب <b>{user.name || user.email}</b> كمالك — ما تراه وتفعله يخصّ هذا الحساب.</span>
+          <span className="flex-1" />
+          <button className="hb-btn hb-btn-sm" onClick={() => void backToOwner()}>
+            <ArrowLeft size={14} /> العودة لحسابي
+          </button>
+        </div>
+      )}
+
       {/* ===== الترويسة ===== */}
       <header className="sticky top-0 z-20" style={{ background: '#fff', borderBottom: '1px solid var(--line)' }}>
         <div className="max-w-7xl mx-auto px-5 py-3 flex items-center gap-3 flex-wrap">
@@ -727,9 +1221,18 @@ export default function HunterApp() {
               ? 'حصّة غير محدودة'
               : <>المتبقّي هذا الشهر: <b className="hb-mono" style={{ color: 'var(--ink)' }}>{remaining}</b> / {user.quota}</>}
           </span>
+          {user.isOwner && (
+            <button onClick={() => setAdminOpen(true)} className="btn-ghost" title="لوحة المالك: الحسابات ونصّ الصفحة">
+              <Settings size={15} />لوحة المالك
+            </button>
+          )}
           <button onClick={logout} className="btn-ghost" title="خروج"><LogOut size={15} />خروج</button>
         </div>
       </header>
+
+      {adminOpen && user.isOwner && (
+        <AdminPanel meId={user.id} onClose={() => setAdminOpen(false)} onImpersonate={enterAccount} />
+      )}
 
       <div className="max-w-7xl mx-auto px-5 py-6 grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5 items-start">
         {/* ===== الإعداد ===== */}
@@ -876,7 +1379,10 @@ export default function HunterApp() {
                           : l.phone
                             ? l.phone
                             : l.website
-                              ? <a href={l.website} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--catch-ink)' }} className="hover:underline">{domainOf(l.website)}</a>
+                              ? (safeHref(l.website)
+                                  ? <a href={safeHref(l.website) as string} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--catch-ink)' }} className="hover:underline">{domainOf(l.website)}</a>
+                                  // مخطّط غير آمن (javascript: مثلاً) — يُعرض نصّاً بلا رابط
+                                  : <span title="رابط غير صالح — لم يُفتح" style={{ color: 'var(--muted)' }}>{domainOf(l.website)}</span>)
                               : <span style={{ color: '#C6CDD4' }}>—</span>}
                       </td>
                       <td style={{ color: 'var(--muted)' }}>{l.city || '-'}</td>

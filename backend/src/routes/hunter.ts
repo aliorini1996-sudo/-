@@ -35,10 +35,37 @@ interface HunterPayload {
   hid: string;
   kind: 'hunter';
   isOwner: boolean;
+  /** جلسة انتحال من المالك (دخول إلى حساب عميل) — لا ترث صلاحية المالك. */
+  imp?: boolean;
+  /** معرّف المالك المنتحِل — للتدقيق والعودة. */
+  by?: string;
 }
 
 interface HunterRequest extends Request {
   hunter?: HunterPayload;
+}
+
+/** انتهت الصلاحية؟ null/undefined = بلا انتهاء. */
+function isExpired(expiresAt: Date | null | undefined): boolean {
+  return !!expiresAt && expiresAt.getTime() <= Date.now();
+}
+
+/**
+ * موقع صالح للتخزين، أو null.
+ *
+ * وسوم OSM يحرّرها الجمهور، وموقع العميل يُعرض لاحقاً كرابط في اللوحة. تخزين
+ * `javascript:` هنا يعني ثغرة XSS مخزَّنة في أصل اللوحة. الواجهة تحرس أيضاً،
+ * لكن الحرس عند الكتابة يمنع تسرّب الحمولة إلى قاعدة البيانات من الأصل.
+ */
+function safeWebsite(raw: unknown): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s}`);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href.slice(0, 500) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** scrypt: `salt:hash` — بلا تبعيات خارجية. */
@@ -68,15 +95,37 @@ async function hunterAuth(req: HunterRequest, res: Response, next: NextFunction)
   if (payload?.kind !== 'hunter' || !payload.hid) {
     res.status(401).json({ success: false, message: 'توكن غير صالح' }); return;
   }
-  // الحساب قد يُعطَّل بعد إصدار التوكن — نفحصه في كل طلب (الحسابات قليلة)
+  // الحساب قد يُعطَّل أو تنتهي صلاحيته بعد إصدار التوكن — نفحصه في كل طلب (الحسابات قليلة)
   const user = await prisma.hunterUser.findUnique({
     where: { id: payload.hid },
-    select: { id: true, isActive: true, isOwner: true },
+    select: { id: true, isActive: true, isOwner: true, expiresAt: true },
   });
   if (!user?.isActive) {
     res.status(401).json({ success: false, message: 'الحساب معطّل' }); return;
   }
-  req.hunter = { hid: user.id, kind: 'hunter', isOwner: user.isOwner };
+  if (isExpired(user.expiresAt)) {
+    res.status(401).json({ success: false, message: 'انتهت صلاحية الاشتراك — تواصل مع المالك' }); return;
+  }
+  // جلسة الانتحال مربوطة بحالة المالك المُصدِر: إن عُطّل أو سُحبت ملكيّته أو انتهت
+  // صلاحيته سقطت جلساته داخل حسابات العملاء فوراً — بلا انتظار الساعتين.
+  if (payload.imp) {
+    if (!payload.by) {
+      res.status(401).json({ success: false, message: 'جلسة غير صالحة' }); return;
+    }
+    const owner = await prisma.hunterUser.findUnique({
+      where: { id: payload.by },
+      select: { isActive: true, isOwner: true, expiresAt: true },
+    });
+    if (!owner?.isActive || !owner.isOwner || isExpired(owner.expiresAt)) {
+      res.status(401).json({ success: false, message: 'انتهت جلسة الدخول إلى الحساب' }); return;
+    }
+  }
+  // الانتحال يُثبَّت من التوكن: المنتحِل لا يرث صلاحية المالك مهما كان الهدف
+  req.hunter = {
+    hid: user.id, kind: 'hunter',
+    isOwner: payload.imp ? false : user.isOwner,
+    imp: payload.imp, by: payload.by,
+  };
   next();
 }
 
@@ -149,6 +198,11 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
     if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
       res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة' }); return;
     }
+    // الانتهاء يُكشف **بعد** التحقّق من كلمة المرور فقط: صاحب الحساب يعرف السبب،
+    // ولا يتحوّل الردّ إلى أوراكل يكشف وجود البريد لمن لا يملكه.
+    if (isExpired(user.expiresAt)) {
+      res.status(403).json({ success: false, message: 'انتهت صلاحية اشتراكك — تواصل مع المالك للتجديد' }); return;
+    }
     const token = jwt.sign(
       { hid: user.id, kind: 'hunter', isOwner: user.isOwner } as HunterPayload,
       hunterSecret(),
@@ -173,6 +227,19 @@ function freeQuota(): number {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 5000) : 100;
 }
 
+/**
+ * نافذة تجربة للحسابات الجديدة (`HUNTER_TRIAL_DAYS`) — null = بلا انتهاء.
+ *
+ * بدونها كان كل حساب جديد يُولد بلا انتهاء، فيصير تاريخ الانتهاء إجراءً يدوياً
+ * بعد الإنشاء لا بوابةً عنده. الافتراضي «بلا انتهاء» كي لا تتغيّر حسابات قائمة؛
+ * يضبط المالك المتغيّر فيُفرض الانتهاء على كل حساب جديد.
+ */
+function trialExpiry(): Date | null {
+  const n = Number(process.env.HUNTER_TRIAL_DAYS);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(Date.now() + Math.min(n, 3650) * 86400000);
+}
+
 // تسجيل ذاتيّ (خطة مجانية) — محدود بمعدّل وبحصّة صغيرة.
 router.post('/register', signupLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -193,7 +260,10 @@ router.post('/register', signupLimiter, async (req: Request, res: Response, next
     if (exists) { res.status(409).json({ success: false, message: 'هذا البريد مسجّل مسبقاً — سجّل الدخول بدلاً من ذلك' }); return; }
 
     const user = await prisma.hunterUser.create({
-      data: { email, name, passwordHash: hashPassword(password), monthlyQuota: freeQuota(), lastLoginAt: new Date() },
+      data: {
+        email, name, passwordHash: hashPassword(password),
+        monthlyQuota: freeQuota(), expiresAt: trialExpiry(), lastLoginAt: new Date(),
+      },
     });
     const token = jwt.sign(
       { hid: user.id, kind: 'hunter', isOwner: false } as HunterPayload,
@@ -212,10 +282,15 @@ router.get('/me', hunterAuth, async (req: HunterRequest, res: Response, next: Ne
   try {
     const user = await prisma.hunterUser.findUnique({
       where: { id: uid(req) },
-      select: { id: true, name: true, email: true, isOwner: true },
+      select: { id: true, name: true, email: true, isOwner: true, expiresAt: true },
     });
     const q = await readQuota(uid(req));
-    res.json({ success: true, user: { ...user, ...q } });
+    // isOwner من الجلسة (لا من الجدول): جلسة انتحال لا تُظهر أدوات المالك
+    res.json({
+      success: true,
+      user: { ...user, isOwner: req.hunter?.isOwner === true, ...q },
+      impersonating: req.hunter?.imp === true,
+    });
   } catch (err) { next(err); }
 });
 
@@ -394,7 +469,7 @@ router.post('/hunt', hunterAuth, huntLimiter, async (req: HunterRequest, res: Re
           data: {
             userId,
             name: r.name, phone: r.phone ?? null, email: r.email ?? null,
-            website: r.website ?? null, address: r.address ?? null,
+            website: safeWebsite(r.website), address: r.address ?? null,
             city: r.city ?? null, country: r.country ?? null, countryCode: r.countryCode ?? null,
             category: r.category ?? null, lat: r.lat ?? null, lng: r.lng ?? null,
             mapsUrl: r.mapsUrl ?? null, source: r.source, sourcesCsv: r.source,
@@ -486,6 +561,7 @@ router.get('/admin/users', hunterAuth, requireOwner, async (_req: HunterRequest,
       select: {
         id: true, email: true, name: true, isActive: true, isOwner: true,
         monthlyQuota: true, usedThisMonth: true, lastLoginAt: true, createdAt: true,
+        expiresAt: true,
         _count: { select: { leads: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -505,11 +581,23 @@ router.post('/admin/users', hunterAuth, requireOwner, async (req: HunterRequest,
     const exists = await prisma.hunterUser.findUnique({ where: { email }, select: { id: true } });
     if (exists) { res.status(409).json({ success: false, message: 'البريد مستخدم مسبقاً' }); return; }
 
+    // تاريخ انتهاء اختياريّ عند الإنشاء (وإلا HUNTER_TRIAL_DAYS إن ضُبط، وإلا بلا انتهاء)
+    let expiresAt: Date | null = null;
+    if (req.body?.expiresAt) {
+      const d = new Date(String(req.body.expiresAt));
+      if (Number.isNaN(d.getTime())) {
+        res.status(400).json({ success: false, message: 'تاريخ انتهاء غير صالح' }); return;
+      }
+      expiresAt = d;
+    } else {
+      expiresAt = trialExpiry();
+    }
+
     // كلمة مرور مولّدة — تُعرض مرّة واحدة للمالك ليسلّمها
     const password = crypto.randomBytes(9).toString('base64url');
     const user = await prisma.hunterUser.create({
-      data: { email, name, passwordHash: hashPassword(password), monthlyQuota: quota },
-      select: { id: true, email: true, name: true, monthlyQuota: true },
+      data: { email, name, passwordHash: hashPassword(password), monthlyQuota: quota, expiresAt },
+      select: { id: true, email: true, name: true, monthlyQuota: true, expiresAt: true },
     });
     res.status(201).json({ success: true, user, password });
   } catch (err) { next(err); }
@@ -523,6 +611,20 @@ router.patch('/admin/users/:id', hunterAuth, requireOwner, async (req: HunterReq
     if (req.body?.monthlyQuota !== undefined) data.monthlyQuota = clamp(req.body.monthlyQuota, 10, 100000, 500);
     if (typeof req.body?.name === 'string') data.name = req.body.name.trim() || null;
 
+    // تاريخ انتهاء الاستخدام: null/'' يلغيه، وإلا تاريخ صالح
+    if ('expiresAt' in (req.body || {})) {
+      const raw = req.body.expiresAt;
+      if (raw === null || raw === '') {
+        data.expiresAt = null;
+      } else {
+        const d = new Date(String(raw));
+        if (Number.isNaN(d.getTime())) {
+          res.status(400).json({ success: false, message: 'تاريخ انتهاء غير صالح' }); return;
+        }
+        data.expiresAt = d;
+      }
+    }
+
     let newPassword: string | undefined;
     if (req.body?.resetPassword === true) {
       newPassword = crypto.randomBytes(9).toString('base64url');
@@ -530,12 +632,125 @@ router.patch('/admin/users/:id', hunterAuth, requireOwner, async (req: HunterReq
     }
     if (!Object.keys(data).length) { res.status(400).json({ success: false, message: 'لا تغيير' }); return; }
 
-    // المالك لا يعطّل نفسه
+    // المالك لا يقفل نفسه خارج اللوحة (تعطيلاً أو بتاريخ انتهاء)
     if (id === uid(req) && data.isActive === false) {
       res.status(400).json({ success: false, message: 'لا يمكنك تعطيل حسابك' }); return;
     }
+    if (id === uid(req) && data.expiresAt instanceof Date) {
+      res.status(400).json({ success: false, message: 'لا يمكنك ضبط تاريخ انتهاء لحسابك' }); return;
+    }
+    const target = await prisma.hunterUser.findUnique({ where: { id }, select: { id: true, isOwner: true } });
+    if (!target) { res.status(404).json({ success: false, message: 'الحساب غير موجود' }); return; }
+    // نفس حاجز الانتحال: لا يُمسّ حساب مالك آخر (تعطيلاً أو إعادة كلمة مرور أو انتهاءً).
+    // بدونه كان حاجز الانتحال صوريّاً: يُمنع الدخول لكن تُسحب كلمة المرور فيُستولى على الحساب.
+    if (target.isOwner && id !== uid(req)) {
+      res.status(403).json({ success: false, message: 'لا يمكن تعديل حساب مالك آخر' }); return;
+    }
+
     await prisma.hunterUser.update({ where: { id }, data });
     res.json({ success: true, password: newPassword });
+  } catch (err) { next(err); }
+});
+
+/**
+ * دخول المالك إلى حساب عميل (انتحال) — لدعمه ومعاينة ما يراه.
+ *
+ * التوكن الصادر يحمل `imp:true`، وhunterAuth يُجبر `isOwner=false` عليه، فجلسة
+ * الانتحال **لا ترث صلاحية المالك** ولا تفتح مسارات /admin مهما كان الهدف.
+ * مدّتها ساعتان فقط، ولا تُلمس `lastLoginAt` كي لا تُلوَّث سجلّات العميل.
+ */
+router.post('/admin/users/:id/impersonate', hunterAuth, requireOwner, async (req: HunterRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    if (id === uid(req)) {
+      res.status(400).json({ success: false, message: 'أنت في حسابك أصلاً' }); return;
+    }
+    const target = await prisma.hunterUser.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, isActive: true, isOwner: true, expiresAt: true },
+    });
+    if (!target) { res.status(404).json({ success: false, message: 'الحساب غير موجود' }); return; }
+    if (target.isOwner) {
+      res.status(400).json({ success: false, message: 'لا يمكن الدخول إلى حساب مالك آخر' }); return;
+    }
+    if (!target.isActive) {
+      res.status(400).json({ success: false, message: 'الحساب معطّل — فعّله أولاً' }); return;
+    }
+    if (isExpired(target.expiresAt)) {
+      res.status(400).json({ success: false, message: 'انتهت صلاحية الحساب — مدّدها أولاً' }); return;
+    }
+
+    const token = jwt.sign(
+      { hid: target.id, kind: 'hunter', isOwner: false, imp: true, by: uid(req) } as HunterPayload,
+      hunterSecret(),
+      { expiresIn: '2h' },
+    );
+    // أثر تدقيق: جلسة الدخول إلى حساب عميل حدثٌ يستحقّ التسجيل (بلا جدول جديد)
+    console.warn(`[hunter] impersonation start: owner=${uid(req)} → target=${target.id} (${target.email})`);
+    const q = await readQuota(target.id);
+    res.json({
+      success: true, token,
+      user: { id: target.id, name: target.name, email: target.email, isOwner: false, ...q },
+      impersonating: true,
+    });
+  } catch (err) { next(err); }
+});
+
+// ------------------- نصوص الصفحة التعريفية (المالك) ------------------- //
+
+/** المفاتيح المسموح تحريرها — قائمة بيضاء تمنع تخزين مفاتيح عشوائية. */
+const CONTENT_KEYS = [
+  'hero_eyebrow', 'hero_title_1', 'hero_title_2', 'hero_lead', 'cta_primary', 'cta_secondary',
+  'trust_1', 'trust_2', 'trust_3',
+  'how_title', 'how_lead',
+  'step1_t', 'step1_d', 'step2_t', 'step2_d', 'step3_t', 'step3_d',
+  'ai_title', 'ai_body',
+  'features_title',
+  'sources_title', 'sources_lead',
+  'final_title', 'final_lead', 'final_cta',
+  'footer_note',
+] as const;
+const CONTENT_KEY_SET: ReadonlySet<string> = new Set(CONTENT_KEYS);
+const CONTENT_MAX = 400;
+
+/** نصوص الصفحة التعريفية — **عامّ بلا مصادقة**: الصفحة نفسها عامّة. */
+router.get('/content', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rows = await prisma.hunterContent.findMany();
+    const content: Record<string, string> = {};
+    for (const r of rows) {
+      if (CONTENT_KEY_SET.has(r.key)) content[r.key] = r.value;
+    }
+    // لا يُخزَّن في الحافة طويلاً: تحرير المالك يجب أن يظهر سريعاً
+    res.set('Cache-Control', 'public, max-age=0, s-maxage=60');
+    res.json({ success: true, content });
+  } catch (err) { next(err); }
+});
+
+router.put('/admin/content', hunterAuth, requireOwner, async (req: HunterRequest, res: Response, next: NextFunction) => {
+  try {
+    const incoming = (req.body?.content || {}) as Record<string, unknown>;
+    if (typeof incoming !== 'object' || Array.isArray(incoming)) {
+      res.status(400).json({ success: false, message: 'صيغة غير صالحة' }); return;
+    }
+    const entries = Object.entries(incoming).filter(([k]) => CONTENT_KEY_SET.has(k));
+    if (!entries.length) { res.status(400).json({ success: false, message: 'لا حقول معروفة للحفظ' }); return; }
+
+    for (const [key, raw] of entries) {
+      const value = String(raw ?? '').slice(0, CONTENT_MAX);
+      if (!value.trim()) {
+        // قيمة فارغة = عُد للنصّ الافتراضي (نحذف الصفّ)
+        await prisma.hunterContent.deleteMany({ where: { key } });
+        continue;
+      }
+      await prisma.hunterContent.upsert({
+        where: { key }, create: { key, value }, update: { value },
+      });
+    }
+    const rows = await prisma.hunterContent.findMany();
+    const content: Record<string, string> = {};
+    for (const r of rows) if (CONTENT_KEY_SET.has(r.key)) content[r.key] = r.value;
+    res.json({ success: true, content });
   } catch (err) { next(err); }
 });
 
