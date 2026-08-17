@@ -31,8 +31,9 @@ interface HunterUser {
   name: string;
   email: string;
   isOwner: boolean;
-  monthlyQuota: number;
-  usedThisMonth: number;
+  quota: number;
+  used: number;
+  remaining: number;
 }
 
 interface HuntStats {
@@ -293,7 +294,7 @@ function initialMode(): AuthMode {
 
 // خطوات إنشاء الحساب — تُعرض في اللوحة الجانبية لتوضّح المسار
 const SIGNUP_STEPS = [
-  { t: 'أنشئ حسابك المجاني', d: 'بريدك وكلمة مرور — بلا بطاقة' },
+  { t: 'أنشئ حسابك', d: 'بريدك وكلمة مرور — بلا بطاقة' },
   { t: 'صِف عميلك المستهدف', d: 'وصف + كلمات بحث + مدن' },
   { t: 'اصطَد وصدّر', d: 'نتائج مقيّمة جاهزة بضغطة' },
 ];
@@ -454,7 +455,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
 
               <p className="text-center text-sm mt-6" style={{ color: 'var(--muted)' }}>
                 ليس لديك حساب؟{' '}
-                <button className="font-bold" style={{ color: 'var(--catch-ink)' }} onClick={() => switchMode('signup')}>أنشئ حساباً مجاناً</button>
+                <button className="font-bold" style={{ color: 'var(--catch-ink)' }} onClick={() => switchMode('signup')}>أنشئ حساباً</button>
               </p>
             </>
           ) : (
@@ -464,7 +465,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
                 <span className="text-xs" style={{ color: 'var(--muted)' }}>الخطوة {step} من ٢</span>
               </div>
               <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>
-                {step === 1 ? 'ابدأ مجاناً' : 'أمّن حسابك'}
+                {step === 1 ? 'ابدأ الآن' : 'أمّن حسابك'}
               </h1>
               <p style={{ color: 'var(--muted)', marginTop: 6, fontSize: 14 }}>
                 {step === 1 ? 'بياناتك الأساسية للبدء' : 'اختر كلمة مرور قويّة'}
@@ -702,7 +703,7 @@ export default function HunterApp() {
 
   if (!user) return <AuthScreen onLogin={(_t, u) => { setUser(u); setBooting(false); }} />;
 
-  const remaining = Math.max(0, user.monthlyQuota - user.usedThisMonth);
+  const remaining = user.remaining ?? Math.max(0, (user.quota || 0) - (user.used || 0));
 
   const scoreBadge = (score?: number | null) => {
     if (score == null) return <span className="score">–</span>;
@@ -724,7 +725,7 @@ export default function HunterApp() {
           <span className="text-xs px-3 py-1.5 rounded-full" style={{ background: 'var(--ground)', border: '1px solid var(--line)', color: 'var(--muted)' }}>
             {user.isOwner
               ? 'حصّة غير محدودة'
-              : <>المتبقّي هذا الشهر: <b className="hb-mono" style={{ color: 'var(--ink)' }}>{remaining}</b> / {user.monthlyQuota}</>}
+              : <>المتبقّي هذا الشهر: <b className="hb-mono" style={{ color: 'var(--ink)' }}>{remaining}</b> / {user.quota}</>}
           </span>
           <button onClick={logout} className="btn-ghost" title="خروج"><LogOut size={15} />خروج</button>
         </div>
