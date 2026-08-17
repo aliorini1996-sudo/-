@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../config/database';
 import { authLimiter, signupLimiter } from '../middleware/rateLimits';
+import rateLimit from 'express-rate-limit';
 import { providersReady, runSearch, sourceLabel, RawLead, SourceId } from '../services/hunter/sources';
 import { dedupKeysOf } from '../services/hunter/normalize';
 import { qualifyBatch, qualifyReady, QualifyItem } from '../services/hunter/qualify';
@@ -280,7 +281,20 @@ const clamp = (v: unknown, lo: number, hi: number, dflt: number): number => {
   return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : dflt;
 };
 
-router.post('/hunt', hunterAuth, async (req: HunterRequest, res: Response, next: NextFunction) => {
+// حدّ الصيد لكل حساب — يمنع نزح مفاتيح المصادر المشتركة من حساب واحد.
+// يُطبَّق بعد hunterAuth فيُفتَح بمعرّف الحساب (لا الـIP المشترَك خلف NAT)، والمالك مُعفى.
+const huntLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: false,
+  keyGenerator: (req: Request) => (req as HunterRequest).hunter?.hid || 'anon',
+  skip: (req: Request) => (req as HunterRequest).hunter?.isOwner === true,
+  message: { success: false, message: 'طلبات صيد كثيرة من هذا الحساب — انتظر قليلاً ثم أعد المحاولة' },
+});
+
+router.post('/hunt', hunterAuth, huntLimiter, async (req: HunterRequest, res: Response, next: NextFunction) => {
   try {
     const userId = uid(req);
     const body = (req.body || {}) as HuntBody;
@@ -334,12 +348,20 @@ router.post('/hunt', hunterAuth, async (req: HunterRequest, res: Response, next:
     const fresh: RawLead[] = [];
     let found = 0;
     let merged = 0;
+    // سقف صارم لعدد نداءات المصادر في الطلب الواحد — يحرس مفاتيح المالك المشتركة.
+    // بدونه: نتائج مكرّرة تُبقي fresh منخفضاً فلا يتوقّف الحلقة على maxLeads،
+    // فتُنفَّذ كل توليفات (مصدر×منطقة×كلمة) = مئات النداءات المدفوعة بلا خصم حصّة.
+    const maxCalls = clamp(process.env.HUNTER_MAX_CALLS_PER_HUNT, 1, 1000, 100);
+    let calls = 0;
+    let capped = false;
 
     outer:
     for (const src of sources) {
       for (const area of areas) {
         for (const kw of keywords) {
           if (fresh.length >= maxLeads) break outer;
+          if (calls >= maxCalls) { capped = true; break outer; }
+          calls++;
           try {
             const raw = await runSearch(src, kw, { country: area.country, city: area.city, limit: perQuery });
             found += raw.length;
@@ -449,7 +471,7 @@ router.post('/hunt', hunterAuth, async (req: HunterRequest, res: Response, next:
     const q = await readQuota(userId);
     res.json({
       success: true,
-      stats: { found, added: created.length, merged, qualified, enrichedEmail, errors, qualifyNote },
+      stats: { found, added: created.length, merged, qualified, enrichedEmail, errors, qualifyNote, capped },
       quota: q,
       leads,
     });
