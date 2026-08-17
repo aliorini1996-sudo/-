@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandIcon } from '../components/BrandLogo';
-import { ArrowLeft, PlayCircle, Clock } from 'lucide-react';
+import { ArrowLeft, PlayCircle, Clock, FileText, Download, Truck, UserCheck } from 'lucide-react';
 
 /**
  * دليل الاستخدام المرئيّ — fieldsa.net/tutorial
@@ -95,6 +95,42 @@ export default function TutorialPage() {
           </div>
           <div className="mx-auto rounded-2xl overflow-hidden shadow-lg border border-[#E9E1D3] bg-black" style={{ maxWidth: 360 }}>
             <video controls preload="metadata" playsInline className="w-full block" src="/media/tutorial-mobile.mp4" />
+          </div>
+        </div>
+
+        {/* الأدلة الإرشادية PDF */}
+        <div className="mt-10">
+          <div className="text-center mb-5">
+            <h2 className="text-xl sm:text-2xl font-bold text-[#1F1A13]">أدلة إرشادية للتحميل</h2>
+            <p className="text-[#6E6557] mt-1.5 text-sm">ملفّا PDF مختصران — وزّعهما على فريقك مباشرةً.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <a href="/media/guide-rep-work-hours.pdf" target="_blank" rel="noopener noreferrer"
+              className="group bg-white rounded-2xl border border-[#E9E1D3] p-5 flex items-start gap-4 hover:border-[#E15A30] hover:shadow-md transition-all">
+              <div className="w-12 h-12 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0">
+                <Truck size={22} className="text-[#E15A30]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-[#1F1A13] text-[15px]">دليل المندوب — حساب ساعات العمل</h3>
+                <p className="text-[12.5px] text-[#6E6557] mt-1 leading-relaxed">سبع خطوات بسيطة تضمن أن يظهر يوم عملك كاملاً كما هو، وأربعة أخطاء تنقص من حسابه.</p>
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-[#E15A30] mt-2.5 group-hover:underline">
+                  <Download size={14} /> تحميل PDF <FileText size={13} className="text-[#9A8F7E]" />
+                </span>
+              </div>
+            </a>
+            <a href="/media/guide-supervisor-work-hours.pdf" target="_blank" rel="noopener noreferrer"
+              className="group bg-white rounded-2xl border border-[#E9E1D3] p-5 flex items-start gap-4 hover:border-[#E15A30] hover:shadow-md transition-all">
+              <div className="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center shrink-0">
+                <UserCheck size={22} className="text-[#1E7A52]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-[#1F1A13] text-[15px]">دليل المشرف — قراءة تقرير ساعات العمل</h3>
+                <p className="text-[12.5px] text-[#6E6557] mt-1 leading-relaxed">ما يعنيه كل رقم في التقرير، وأربعة استنتاجات خاطئة احذرها قبل أن تحاسب.</p>
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-[#1E7A52] mt-2.5 group-hover:underline">
+                  <Download size={14} /> تحميل PDF <FileText size={13} className="text-[#9A8F7E]" />
+                </span>
+              </div>
+            </a>
           </div>
         </div>
 
