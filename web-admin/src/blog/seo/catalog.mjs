@@ -81,7 +81,50 @@ const citiesLine = (c, L) => {
 };
 
 // أسئلة شائعة كبيانات (تُغذّي القسم المرئي + FAQPage schema) — مُوطَّنة ومُخصَّصة للدولة
-const faqData = (c, L) => {
+/**
+ * أسئلة مطابقة لاستعلامات «مسافة الضربة» الحقيقية (من Search Console) — تُحقَن في
+ * FAQPage JSON-LD وفي قسم الأسئلة المرئيّ للموضوع المعنيّ وحده.
+ * لماذا: استعلاماتنا الرابحة **أسئلة حرفية** (ما معنى كاش فان؟ · الفرق بين الفاتورتين؟)
+ * بينما أسئلة القالب عامّة («هل يعمل النظام؟») فلا تطابق أي استعلام. ومطابقة نصّ السؤال
+ * أقوى إشارة صلة ممكنة، وهي أيضاً ما تقتبسه محرّكات الذكاء الاصطناعي.
+ * ⚠️ الإجابات مختصرة (40–60 كلمة) وصادقة: المرحلة الأولى فقط، وبلا ادّعاء قدرة غير مبنيّة.
+ */
+const STRIKE_FAQ = {
+  'van-sales-app': (c, L) => [
+    { q: P(L, 'ما معنى كاش فان؟', 'What is van sales (cash van)?', "Qu'est-ce que la vente en camion (van sales) ?"),
+      a: P(L, 'كاش فان أسلوب توزيع يحمل فيه المندوب البضاعة في سيارته فيبيع ويسلّم ويُصدر الفاتورة ويحصّل في الزيارة نفسها عند باب العميل — بدل أخذ الطلب اليوم والتسليم لاحقاً. ويُسمّى أيضاً البيع من السيارة.',
+          'Van sales is a distribution model where the rep carries stock in the vehicle and sells, delivers, invoices and collects in the same visit at the customer\'s door — instead of taking an order today and delivering later.',
+          "La vente en camion est un modèle où le commercial transporte le stock et vend, livre, facture et encaisse lors de la même visite, au lieu de prendre une commande livrée plus tard.") },
+    { q: P(L, 'ما معنى مندوب كاش فان؟', 'Who is a van sales rep?', 'Qui est le commercial van sales ?'),
+      a: P(L, 'هو المندوب الذي يحمّل سيارته صباحاً بكميات محدّدة، ويمرّ على عملائه في خطّ سير مخطّط، ويبيع ويطبع الفاتورة فوراً ويحصّل، ثم يُطابق آخر اليوم ما باعه مع ما تبقّى في السيارة فيظهر أي عجز بالصنف.',
+          'A van sales rep loads the vehicle each morning with set quantities, follows a planned route, sells and prints the invoice on the spot, collects payment, then reconciles at day\'s end so any per-item shortage surfaces.',
+          "Le commercial charge son véhicule le matin, suit une tournée planifiée, vend et imprime la facture sur place, encaisse, puis rapproche en fin de journée pour faire apparaître tout écart par article.") },
+  ],
+  'einvoicing-compliance': (c, L) => (c.vat == null ? [] : [
+    { q: P(L, 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة؟', 'What is the difference between a tax invoice and a simplified tax invoice?', 'Quelle différence entre facture fiscale et facture fiscale simplifiée ?'),
+      a: P(L, 'الفاتورة الضريبية الكاملة تُصدَر بين الشركات (B2B) وتتضمّن اسم المشتري ورقمه الضريبي وتفصيل الضريبة. أمّا المبسّطة فتُصدَر للمستهلك النهائي (B2C) في نقطة البيع بحقول أقل ورمز QR، وهي الأنسب لبيع المندوب المباشر في الميدان.',
+          'A full tax invoice is issued business-to-business and includes the buyer\'s name, tax number and a tax breakdown. A simplified tax invoice is issued to the end consumer at the point of sale, with fewer fields and a QR code — the right fit for direct field selling.',
+          "La facture fiscale complète est émise entre entreprises et comporte le nom de l'acheteur, son numéro fiscal et le détail de la taxe. La simplifiée est émise au consommateur final au point de vente, avec moins de champs et un code QR.") },
+    { q: P(L, 'ما الفرق بين الفاتورة الضريبية والفاتورة الإلكترونية؟', 'What is the difference between a tax invoice and an electronic invoice?', 'Quelle différence entre facture fiscale et facture électronique ?'),
+      a: P(L, 'ليستا نوعين متقابلين: «الضريبية» تصف مضمون الفاتورة (بيانات البائع والمشتري والضريبة)، و«الإلكترونية» تصف شكل إصدارها وحفظها رقمياً. فالفاتورة الواحدة تكون ضريبية وإلكترونية معاً، ومقابل الإلكترونية هو الفاتورة الورقية لا الضريبية.',
+          'They are not opposites: "tax" describes the invoice content (seller, buyer and tax details), while "electronic" describes how it is issued and stored digitally. One invoice can be both — the opposite of an electronic invoice is a paper invoice, not a tax invoice.',
+          "Ce ne sont pas des contraires : « fiscale » décrit le contenu, « électronique » décrit la forme d'émission numérique. Une même facture peut être les deux ; l'opposé de l'électronique est la facture papier.") },
+  ]),
+  'mobile-field-invoicing': (c, L) => [
+    { q: P(L, 'هل يعمل تطبيق المندوب بدون إنترنت؟', 'What is an offline field sales app?', "Qu'est-ce qu'une application de vente terrain hors ligne ?"),
+      a: P(L, 'نعم. يُصدر المندوب الفاتورة وسند القبض ويطبعهما ويخصم الأصناف من مخزون السيارة بلا اتصال، ثم ترتفع كل المستندات تلقائياً للإدارة فور عودة الشبكة — بلا تكرار ولا فقدان.',
+          'An offline field sales app lets the rep issue and print invoices and receipts and deduct items from van stock with no connection at all, then syncs everything automatically the moment connectivity returns — with no duplicates and nothing lost.',
+          "Une application de vente terrain hors ligne permet d'émettre et d'imprimer factures et reçus et de déduire le stock du véhicule sans connexion, puis synchronise tout automatiquement au retour du réseau.") },
+  ],
+  'fmcg-distribution': (c, L) => [
+    { q: P(L, 'ما المقصود بالتسويق التجاري والتوزيع؟', 'What is trade marketing and distribution?', "Qu'est-ce que le marketing commercial et la distribution ?"),
+      a: P(L, 'التسويق التجاري هو ما يُتّفق عليه مع العلامة لنقطة البيع: إدراج صنف، شريحة سعر، وجود على الرفّ. والتوزيع هو تنفيذ ذلك منفذاً بمنفذ. ولا يتحقّق الاتفاق إلا إذا نفّذه المندوب فعلاً، لذا يبقى سجلّ الميدان (زيارة وصورة وفاتورة لكل قناة) هو الدليل الوحيد الصادق.',
+          'Trade marketing is what is agreed with the brand for the point of sale — a listing, a price tier, shelf presence — and distribution is executing that outlet by outlet. The agreement only becomes real if a rep executes it, so the field record (visit, photo, invoice per channel) is the only honest proof.',
+          "Le marketing commercial est ce qui est convenu avec la marque pour le point de vente ; la distribution est son exécution point par point. L'accord ne devient réel que si le commercial l'exécute — le relevé terrain en est la seule preuve.") },
+  ],
+};
+
+const faqData = (c, L, topicId) => {
   const taxA = c.vat != null
     ? P(L, `نعم، يُصدر فاتورة ضريبية منظّمة تناسب متطلبات ${c.tax.ar} (ضريبة ${c.vat}٪) مع رمز QR وطباعة حرارية.`,
         `Yes, it issues a structured tax invoice aligned with ${c.tax.en} (VAT ${c.vat}%), with a QR code and thermal printing.`,
@@ -89,7 +132,10 @@ const faqData = (c, L) => {
     : P(L, `نعم، يُصدر فواتير وكشوف حساب منظّمة برمز QR وطباعة حرارية، ويتكيّف مع المتطلبات المحلية ${c.inAr}.`,
         `Yes, it issues structured invoices and statements with a QR code and thermal printing, adapting to local rules ${c.inEn}.`,
         `Oui, il émet des factures structurées avec code QR et impression thermique, adaptées aux règles locales ${c.inFr}.`);
+  // أسئلة الضربة أولاً: تطابق استعلاماً حقيقياً، وتتصدّر كتلة FAQ فتراها محرّكات AI أوّلاً.
+  const strike = (topicId && STRIKE_FAQ[topicId]) ? STRIKE_FAQ[topicId](c, L) : [];
   return [
+    ...strike,
     { q: P(L, `هل يعمل النظام ${c.inAr}؟`, `Does it work ${c.inEn}?`, `Fonctionne-t-il ${c.inFr} ?`),
       a: P(L, `نعم، منصّة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية.`,
           `Yes, FieldSales supports distributors ${c.inEn} with ${c.cur.en} and local requirements.`,
@@ -432,9 +478,9 @@ const S = {
     `<h2>Comment démarrer ${c.inFr} en quelques minutes</h2>
      <p>Aucune installation complexe : créez votre compte, ajoutez produits et clients, puis donnez l'application à vos commerciaux. Vous émettez votre première facture le jour même.</p>`),
 
-  faq: (c, L) => {
+  faq: (c, L, topic) => {
     const head = P(L, 'أسئلة شائعة', 'Frequently asked questions', 'Questions fréquentes');
-    const items = faqData(c, L).map(({ q, a }) => `<p><strong>${q}</strong> ${a}</p>`).join('\n     ');
+    const items = faqData(c, L, topic && topic.id).map(({ q, a }) => `<p><strong>${q}</strong> ${a}</p>`).join('\n     ');
     return `<h2>${head}</h2>\n     ${items}`;
   },
 
@@ -1231,7 +1277,7 @@ export function getArticle(slug, L) {
     ...(isCountryPage ? [] : genericDeep),
     'faq',
   ].filter((k) => !coreKeys.includes(k));
-  const body = [...coreKeys, ...universal].map((k) => S[k](c, L)).join('\n');
+  const body = [...coreKeys, ...universal].map((k) => S[k](c, L, topic)).join('\n');
   // كتلة الإجابة تسبق المقدّمة عمداً: محرّك التوليد يقتبس أوّل فقرة تُجيب
   // السؤال قائمةً بذاتها، والمقدّمة التسويقية ليست كذلك مهما جوّدناها.
   const contentHtml = `${answerBlock(topic, c, L)}\n${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
@@ -1239,7 +1285,7 @@ export function getArticle(slug, L) {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
     excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, topic.cs ? c.code : null), readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
-    faq: faqData(c, L),
+    faq: faqData(c, L, topic.id),
     howto: howToData(c, L),
     countryCode: topic.cs ? c.code : null, isSeo: true,
   };
