@@ -392,8 +392,9 @@ const S = {
   offline: (c, L) => P(L,
     `<h2>العمل بلا إنترنت في الميدان</h2>
      <p>تغطية الشبكة ${c.inAr} تتفاوت بين المدن والمناطق. تطبيق يعمل بلا إنترنت ويزامن تلقائياً عند عودة الاتصال يضمن ألّا تتوقّف المبيعات ولا تُفقد بيانات الزيارة.</p>`,
-    `<h2>Working offline in the field</h2>
-     <p>Network coverage ${c.inEn} varies between cities and remote areas. An app that works offline and syncs automatically when back online ensures sales never stop and visit data is never lost.</p>`,
+    `<h2>Offline field sales: selling with no connection</h2>
+     <p>Network coverage ${c.inEn} varies between cities and remote areas. An <strong>offline field sales app</strong> lets the rep keep working with no connection at all: it issues the invoice and the receipt, prints them for the customer, and deducts the items from van stock — then syncs everything automatically the moment connectivity returns, with no duplicates and nothing lost.</p>
+     <p>This matters because the weakest coverage is often exactly where the outlets are: basements, warehouses, industrial areas and remote routes. Offline field sales turns a dead zone from a stopped sale into a normal visit.</p>`,
     `<h2>Travailler hors ligne sur le terrain</h2>
      <p>La couverture réseau ${c.inFr} varie selon les zones. Une application qui fonctionne hors ligne et se synchronise au retour du réseau garantit la continuité des ventes.</p>`),
 
@@ -732,12 +733,12 @@ const ANSWERS = {
 
   'wholesale-food-distributors': (c, L) => P(L,
     `توزيع المواد الغذائية يفرض قيداً لا تعرفه القطاعات الأخرى: للصنف تاريخ صلاحية، فترتيب الصرف يجب أن يتبع الأقدم-أولاً وإلا تحوّل المخزون إلى خسارة مؤكّدة. عمليّاً يعني ذلك تتبّع الصنف بتشغيلته لا بكمّيته فقط، ومعرفة ما في كل سيارة الآن، وقبول المرتجعات بسبب واضح يُميّز التالف عن غير المطلوب — لأن أحدهما مشكلة تخزين والآخر مشكلة طلب.`,
-    `Food distribution imposes a constraint other sectors do not have: items expire, so issuing must follow oldest-first or stock becomes guaranteed loss. In practice this means tracking items by batch and not only by quantity, knowing what is on each van right now, and accepting returns with an explicit reason that separates damaged from unwanted — because one is a storage problem and the other is a demand problem.`,
+    `Food distribution imposes a constraint other sectors do not have: items expire, so issuing must follow oldest-first or stock becomes guaranteed loss. In practice this means tracking items by batch and not only by quantity, knowing what is on each van right now, and accepting returns with an explicit reason that separates damaged from unwanted — because one is a storage problem and the other is a demand problem. <strong>Dairy distribution</strong> is the sharpest case of all: shelf life is counted in days rather than months, so a single slow route or a late return turns straight into written-off stock — which is why dairy operations live or die on same-day visibility of what each van still carries.`,
     `La distribution alimentaire impose une contrainte propre : les produits périment, la sortie doit donc suivre le premier-périmé-premier-sorti sous peine de perte certaine. Concrètement : suivre les articles par lot et pas seulement en quantité, savoir ce que transporte chaque véhicule, et accepter les retours avec un motif explicite distinguant l'endommagé du non désiré.`),
 
   'fmcg-distribution': (c, L) => P(L,
     `توزيع السلع سريعة الدوران (FMCG) يُدار بالتكرار لا بحجم الصفقة: منافذ كثيرة، فواتير صغيرة، وزيارات متقاربة. ما يحسم الربحية ليس هامش الصنف بل تكلفة الزيارة الواحدة — عدد المنافذ التي يغطّيها المندوب يومياً، ونسبة الزيارات التي تنتهي بطلب فعلي. لذلك تُقاس هذه العمليات بمؤشّرَي التغطية والزيارة المنتجة قبل أي مؤشّر مالي آخر.`,
-    `FMCG distribution is run on frequency rather than deal size: many outlets, small invoices, close visit intervals. Profitability is decided not by item margin but by the cost of a single visit — how many outlets a rep covers per day, and the share of visits that end in an actual order. That is why these operations are measured on coverage and productive-visit rate before any other financial indicator.`,
+    `FMCG distribution is run on frequency rather than deal size: many outlets, small invoices, close visit intervals. Profitability is decided not by item margin but by the cost of a single visit — how many outlets a rep covers per day, and the share of visits that end in an actual order. That is why these operations are measured on coverage and productive-visit rate before any other financial indicator. This is also where <strong>trade marketing and distribution</strong> meet: whatever is agreed with the brand at head office — a listing, a price tier, a shelf presence — only becomes real if a rep executes it outlet by outlet, so the field record (visit, photo, invoice per channel) is the only honest proof that it happened.`,
     `La distribution FMCG se pilote par la fréquence plutôt que par la taille des affaires : beaucoup de points de vente, de petites factures, des visites rapprochées. La rentabilité se joue sur le coût d'une visite — combien de points de vente un commercial couvre par jour, et la part des visites débouchant sur une commande réelle.`),
 
   'mobile-field-invoicing': (c, L) => P(L,
@@ -966,11 +967,11 @@ const TOPICS = [
     secs: ['reports', 'collect', 'roi', 'cta'] },
   { id: 'wholesale-food-distributors', cs: true, rm: 6,
     label: svc('حلول موزّعي المواد الغذائية والجملة', 'Food & Wholesale Distribution Solutions', 'Solutions pour la distribution alimentaire et de gros'),
-    kw: (c, L) => P(L, `موزع مواد غذائية ${c.ar}, تجارة جملة ${c.ar}, توزيع أغذية, فاتورة, تحصيل`, `food distributor ${c.en}, wholesale ${c.en}, FMCG distribution, invoicing`, `distributeur alimentaire ${c.fr}, gros ${c.fr}, distribution`),
+    kw: (c, L) => P(L, `موزع مواد غذائية ${c.ar}, تجارة جملة ${c.ar}, توزيع أغذية, توزيع ألبان, فاتورة, تحصيل`, `food distributor ${c.en}, dairy distribution ${c.en}, wholesale ${c.en}, FMCG distribution, invoicing`, `distributeur alimentaire ${c.fr}, distribution laitière ${c.fr}, gros ${c.fr}, distribution`),
     secs: ['why', 'vanstock', 'crm', 'invoice', 'cta'] },
   { id: 'fmcg-distribution', cs: true, rm: 6,
     label: svc('برنامج مناديب توزيع FMCG والمواد الغذائية', 'FMCG Distribution', 'Distribution de produits de grande consommation (FMCG)'),
-    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, FMCG distributors ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, biens de consommation ${c.fr}`),
+    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, تسويق تجاري, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, FMCG distributors ${c.en}, trade marketing and distribution ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, marketing commercial ${c.fr}, biens de consommation ${c.fr}`),
     secs: ['why', 'gps', 'vanstock', 'reports', 'cta'] },
   { id: 'mobile-field-invoicing', cs: true, rm: 5,
     label: svc('تطبيق فواتير المناديب من الجوال', 'Mobile Field Invoicing', 'Facturation mobile sur le terrain'),
@@ -1079,6 +1080,8 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  *             + «تقارير مبيعات وفروع مباشرة» حرفياً + تقوية صيغ عنقود قطر.
  * 2026-08-17: موجة عائلات الصيغ الثالثة — «recouvrement de créances» حرفياً بالفرنسية (7 صيغ، مراكز 4.7–43، والمصطلح كان غائباً تماماً)
  *             + إجابة «الفرق بين الفاتورة الضريبية والفاتورة الإلكترونية» (نيّة غير مُغطّاة، صيغتان عند 19).
+ * 2026-08-17b: موجة العائلات الإنجليزية — «offline field sales app» (77 ظهوراً، المصطلح كان غائباً تماماً)
+ *              + «trade marketing and distribution» (pos 12.3) + «dairy distribution» (pos 10.9).
  */
 export const CONTENT_VERSION = '2026-08-17';
 
