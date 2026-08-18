@@ -324,7 +324,10 @@ const S = {
     return P(L,
     `<h2>الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسّطة</h2>
      <p>في نظام ضريبة القيمة المضافة ${c.inAr} نوعان من الفاتورة. <strong>الفاتورة الضريبية</strong> الكاملة تُصدَر في التعاملات بين الشركات (B2B) وتتضمّن اسم المشتري ورقمه الضريبي وتفصيل الضريبة. أمّا <strong>الفاتورة الضريبية المبسّطة</strong> فتُصدَر للمستهلك النهائي (B2C) في نقطة البيع بحقول أقل ورمز QR، وهي الأنسب لبيع المندوب المباشر في الميدان.</p>
-     <p>تُصدِر منصّة FieldSales الفاتورة المبسّطة برمز QR وطباعة حرارية فور إتمام البيع في الميدان — وهي الأنسب لبيع المندوب المباشر. حدِّد نوع الفاتورة حسب عميلك، وراجع دائماً مستشاراً ضريبياً محلياً لأحدث متطلبات ${c.tax.ar}.</p>`,
+     <p>تُصدِر منصّة FieldSales الفاتورة المبسّطة برمز QR وطباعة حرارية فور إتمام البيع في الميدان — وهي الأنسب لبيع المندوب المباشر. حدِّد نوع الفاتورة حسب عميلك، وراجع دائماً مستشاراً ضريبياً محلياً لأحدث متطلبات ${c.tax.ar}.</p>
+     <h3>وما الفرق بين الفاتورة الضريبية والفاتورة الإلكترونية؟</h3>
+     <p>سؤال يتكرّر كثيراً، وجوابه أنّهما <strong>ليستا نوعين متقابلين</strong>: «الضريبية» تصف <em>مضمون</em> الفاتورة (بيانات البائع والمشتري والضريبة كما يفرضها النظام)، أمّا «الإلكترونية» فتصف <em>شكل إصدارها وحفظها</em> (ملف رقميّ منظّم تقرأه الأنظمة بدل ورقة تُكتب باليد).</p>
+     <p>لذلك الفاتورة الواحدة تكون <strong>ضريبية وإلكترونية معاً</strong> — وهو المطلوب عملياً ${c.inAr}: فاتورة تحمل الحقول الضريبية وتُصدَر رقمياً برمز QR قابل للتحقّق. والمقابل الحقيقيّ للفاتورة الإلكترونية هو الفاتورة الورقية، لا الفاتورة الضريبية.</p>`,
     `<h2>Tax invoice vs simplified tax invoice: the difference</h2>
      <p>Under VAT ${c.inEn} there are two invoice types. A full <strong>tax invoice</strong> is issued for business-to-business (B2B) deals and includes the buyer's name, tax number and a tax breakdown. A <strong>simplified tax invoice</strong> is issued to the end consumer (B2C) at the point of sale, with fewer fields and a QR code — the right fit for a rep selling directly in the field.</p>
      <p>FieldSales issues the simplified invoice with a QR code and thermal printing the moment a sale closes in the field — the right fit for a rep selling directly. Choose the invoice type per customer, and always confirm the latest ${c.tax.en} requirements with a local tax advisor.</p>`,
@@ -340,8 +343,9 @@ const S = {
     `<h2>Collection, receivables and statements</h2>
      <p>Record every payment (cash/transfer/cheque) and link it to the customer statement in ${c.cur.en} automatically. Set a credit limit per customer and get an instant alert when it is exceeded — before debt turns bad.</p>
      <p>Raising collection rates and cutting overdue debt is one of the fastest ways to improve a distributor's cash flow.</p>`,
-    `<h2>Encaissement, créances et relevés</h2>
+    `<h2>Recouvrement de créances, encaissement et relevés</h2>
      <p>Enregistrez chaque paiement (espèces/virement/chèque) et liez-le automatiquement au relevé du client en ${c.cur.fr}. Fixez une limite de crédit par client et recevez une alerte dès qu'elle est dépassée.</p>
+     <p>Le <strong>recouvrement de créances</strong> ${c.inFr} se joue sur le terrain : c'est le commercial, chez le client, qui encaisse. FieldSales lui affiche le solde dû et l'ancienneté de la dette avant la vente, puis émet un reçu immédiat qui met à jour le relevé — le recouvrement passe ainsi de l'estimation au chiffre.</p>
      <p>Améliorer le taux d'encaissement et réduire les impayés est l'un des leviers les plus rapides pour la trésorerie.</p>`),
 
   vanstock: (c, L) => P(L,
@@ -945,8 +949,8 @@ const TOPICS = [
     kw: (c, L) => P(L, `إدارة مناديب ${c.ar}, صلاحيات المندوب, متابعة أداء المندوبين ${c.ar}, تحصيل`, `sales rep management ${c.en}, rep permissions, rep performance ${c.en}`, `gestion des commerciaux ${c.fr}, droits, performance ${c.fr}`),
     secs: ['reps', 'gps', 'reports', 'collect', 'cta'] },
   { id: 'collection-receivables', cs: true, rm: 6,
-    label: svc('برنامج تحصيل المناديب والذمم والمديونيات', 'Collection & Receivables', 'Encaissement et créances'),
-    kw: (c, L) => P(L, `تحصيل ${c.ar}, إدارة الذمم ${c.ar}, كشف حساب العميل, حد ائتمان, ديون متعثرة`, `collection ${c.en}, receivables ${c.en}, customer statement, credit limit`, `encaissement ${c.fr}, créances ${c.fr}, relevé client, limite de crédit`),
+    label: svc('برنامج تحصيل المناديب والذمم والمديونيات', 'Collection & Receivables', 'Recouvrement de créances et encaissement terrain'),
+    kw: (c, L) => P(L, `تحصيل ${c.ar}, إدارة الذمم ${c.ar}, كشف حساب العميل, حد ائتمان, ديون متعثرة`, `collection ${c.en}, receivables ${c.en}, customer statement, credit limit`, `recouvrement de créances ${c.fr}, recouvrement de créances en ${c.fr}, encaissement ${c.fr}, créances ${c.fr}, relevé client, limite de crédit`),
     secs: ['collect', 'crm', 'reports', 'roi', 'cta'] },
   { id: 'gps-rep-tracking', cs: true, rm: 5,
     label: svc('برنامج متابعة وتتبّع المناديب GPS وخط السير', 'GPS Rep Tracking', 'Suivi GPS des commerciaux'),
@@ -1073,13 +1077,15 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  *             (مصطلح كاش فان، قسم الفرق بين الفاتورتين، عبارات قطر/الإمارات/المغرب/عُمان) — تغيّرت كل الصفحات المولّدة فعلاً.
  * 2026-08-16: موجة مسافة الضربة الثانية — قسم «ما معنى كاش فان؟ ومن هو مندوب الكاش فان؟» (عائلة 6 صيغ في المراكز 7–10)
  *             + «تقارير مبيعات وفروع مباشرة» حرفياً + تقوية صيغ عنقود قطر.
+ * 2026-08-17: موجة عائلات الصيغ الثالثة — «recouvrement de créances» حرفياً بالفرنسية (7 صيغ، مراكز 4.7–43، والمصطلح كان غائباً تماماً)
+ *             + إجابة «الفرق بين الفاتورة الضريبية والفاتورة الإلكترونية» (نيّة غير مُغطّاة، صيغتان عند 19).
  */
-export const CONTENT_VERSION = '2026-08-16';
+export const CONTENT_VERSION = '2026-08-17';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً).
 // 10 أغسطس: تقليل التكرار غيّر كل صفحات الدول (أولوية وغيرها)، فالثابتان متساويان الآن —
 // تغيير حقيقيّ واحد واسع، لا churn كاذب (الخريطة تُخبر جوجل بصدق أنّ ~600 صفحة تغيّرت فيُعيد زحفها).
-const PRIORITY_CONTENT_VERSION = '2026-08-16';
+const PRIORITY_CONTENT_VERSION = '2026-08-17';
 export const modifiedOf = (date, cc) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
   return date > v ? date : v;
