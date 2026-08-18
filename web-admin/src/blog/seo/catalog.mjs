@@ -207,7 +207,7 @@ const PRIORITY_BRIEF = {
   QA: {
     ar: `<h2>التوزيع في السوق القطري — سوق مكتنز وقوّة شرائية مرتفعة</h2>
      <p>يتركّز التوزيع في قطر حول الدوحة والريان والوكرة في نطاق جغرافيّ مكتنز، مع قوّة شرائية مرتفعة وقيمة عالية لكل منفذ. قِصَر المسافات ينقل تركيز الكفاءة إلى جودة الزيارة ودقّة الفاتورة والتحصيل لا إلى المسافة المقطوعة.</p>
-     <p>لا تُطبَّق ضريبة قيمة مضافة بعد، و<strong>الفوترة الإلكترونية في قطر</strong> قيد الإعداد ولم تصبح إلزامية بعد؛ ومع ذلك يبقى إصدار فواتير منظّمة وكشوف حساب دقيقة بالريال القطري ضرورة إدارية لضبط الذمم. تُصدر منصّة FieldSales الفاتورة وسند القبض من الميدان برمز QR، وتضبط حدود الائتمان ومخزون السيارة على لوحة واحدة لحظية — فتبدأ الفوترة المنظّمة من الآن استعداداً لأي متطلبات قادمة.</p>`,
+     <p>لا تُطبَّق ضريبة قيمة مضافة بعد، و<strong>الفوترة الإلكترونية في قطر</strong> قيد الإعداد ولم تصبح إلزامية بعد — فلا يوجد حتى الآن <strong>نظام الفوترة الإلكترونية</strong> إلزاميّ تُلزَم به الشركات، ومع ذلك تستعدّ شركات التوزيع مبكّراً بإصدار <strong>الفاتورة الإلكترونية</strong> المنظّمة رقمياً بدل الورق؛ ومع ذلك يبقى إصدار فواتير منظّمة وكشوف حساب دقيقة بالريال القطري ضرورة إدارية لضبط الذمم. تُصدر منصّة FieldSales الفاتورة وسند القبض من الميدان برمز QR، وتضبط حدود الائتمان ومخزون السيارة على لوحة واحدة لحظية — فتبدأ الفوترة المنظّمة من الآن استعداداً لأي متطلبات قادمة.</p>`,
     en: `<h2>Distribution in Qatar — a compact market with high purchasing power</h2>
      <p>Distribution in Qatar concentrates around Doha, Al Rayyan and Al Wakrah in a compact geography, with high purchasing power and high value per outlet. Short distances shift the efficiency focus to visit quality and invoice and collection accuracy rather than mileage.</p>
      <p>No VAT applies yet, but issuing structured invoices and accurate statements in Qatari Riyal remains an operational necessity for controlling receivables. FieldSales issues the invoice and receipt from the field and manages credit limits and van stock on one live dashboard.</p>`,
@@ -300,6 +300,23 @@ const S = {
      <p>Le commercial émet la facture et le reçu depuis son téléphone chez le client, les imprime en thermique (58 mm), et tout se synchronise instantanément. Aucun papier dispersé, aucune double saisie.</p>
      <ul><li>Facture structurée avec code QR.</li><li>Impression thermique immédiate.</li><li>Synchronisation en temps réel avec le relevé client.</li></ul>`),
 
+  // موجة مسافة الضربة الثانية (16 أغسطس): عائلة «كاش فان» كلها في المراكز 7–10 بستّ صيغ
+  // (كاش فان 9.7 · كاش فان معنى 9.4 · معنى كاش فان 7.9 بنقرة · ما معنى مندوب كاش فان 9.7 …)
+  // وكنّا نُعرّفها بسطر واحد داخل المسرد. قسم مخصّص يجيب كل الصيغ حرفياً = أوضح فرصة في البيانات.
+  vansalesmeaning: (c, L) => P(L,
+    `<h2>ما معنى كاش فان؟ ومن هو مندوب الكاش فان؟</h2>
+     <p><strong>كاش فان (Van Sales)</strong> أسلوب توزيع يحمل فيه المندوب البضاعة في سيارته ويبيعها ويسلّمها ويُصدر فاتورتها ويحصّل قيمتها في الزيارة نفسها — بيع وتسليم وتحصيل في خطوة واحدة عند باب العميل، لا طلب اليوم وتسليم غداً. ويُسمّى أيضاً «البيع من السيارة» أو «البيع النقدي المتنقّل».</p>
+     <p><strong>مندوب الكاش فان</strong> هو من ينفّذ هذه الدورة: يحمّل سيارته صباحاً بكميات محدّدة من كل صنف، يمرّ على عملائه في خطّ سير مخطّط، يبيع ويطبع الفاتورة فوراً، يحصّل نقداً أو آجلاً، ويعود آخر اليوم لمطابقة ما باعه مع ما تبقّى في السيارة — فيظهر أي عجز أو فرق بالصنف.</p>
+     <p><strong>الفرق عن البيع بالطلب (Pre-Sales):</strong> في الكاش فان تُنجَز الصفقة والتسليم معاً من مخزون السيارة؛ أمّا في البيع بالطلب فيأخذ المندوب الطلب فقط ثم يُسلَّم لاحقاً من المستودع. الكاش فان أسرع دوراناً وأنسب للمواد الغذائية والاستهلاكية سريعة الحركة ${c.inAr}، لكنه يحتاج ضبطاً دقيقاً لعهدة السيارة وإلا تسرّبت البضاعة والتحصيل.</p>`,
+    `<h2>What is van sales (cash van)? And who is a van sales rep?</h2>
+     <p><strong>Van sales</strong> — also called cash van or mobile selling — is a distribution model where the rep carries stock in their vehicle and sells, delivers, invoices and collects payment in the same visit, right at the customer's door, instead of taking an order today and delivering tomorrow.</p>
+     <p>A <strong>van sales rep</strong> runs that full cycle: loads the van each morning with set quantities per item, follows a planned route, sells and prints the invoice on the spot, collects cash or credit, and reconciles at day's end so any per-item shortage surfaces.</p>
+     <p><strong>Versus pre-sales:</strong> van sales completes the sale and delivery together from van stock, while pre-sales only captures an order for later warehouse delivery. Van sales turns stock faster and suits fast-moving food and consumer goods ${c.inEn}, but it demands tight van-custody control or both goods and collection leak.</p>`,
+    `<h2>Qu'est-ce que la vente en camion (van sales) ? Et qui est le commercial van sales ?</h2>
+     <p>La <strong>vente en camion (van sales)</strong> est un modèle de distribution où le commercial transporte le stock dans son véhicule et vend, livre, facture et encaisse lors de la même visite, chez le client — au lieu de prendre une commande aujourd'hui pour livrer demain.</p>
+     <p>Le <strong>commercial van sales</strong> gère tout le cycle : chargement du véhicule le matin, tournée planifiée, vente et impression immédiate de la facture, encaissement, puis rapprochement en fin de journée qui fait apparaître tout écart par article.</p>
+     <p><strong>Différence avec la prévente :</strong> la vente en camion conclut vente et livraison ensemble depuis le stock du véhicule, tandis que la prévente ne saisit qu'une commande livrée plus tard. Elle accélère la rotation et convient aux produits de grande consommation ${c.inFr}, mais exige un contrôle strict du stock véhicule.</p>`),
+
   // قسم مطابق تماماً لاستعلام سعودي في «مسافة الضربة» (pos 18–19): «الفرق بين الفاتورة الضريبية والمبسّطة».
   // مقيّد بدول ضريبة القيمة المضافة (c.vat != null) فلا يظهر حيث لا يصحّ، وصادق: نُصدر المبسّطة ضمن المرحلة الأولى فقط.
   invoicetypes: (c, L) => {
@@ -344,8 +361,9 @@ const S = {
      <p>Suivez les positions et les tournées pour organiser la couverture et réduire le temps perdu autour de ${c.cap.fr}. Le suivi augmente le nombre de visites productives par jour.</p>`),
 
   reports: (c, L) => P(L,
-    `<h2>التقارير والتحليلات اللحظية</h2>
-     <p>مبيعات اليوم، التحصيل، عدد الزيارات، وأداء كل مندوب على لوحة واحدة. قرارات مبنية على أرقام لا انطباعات — مع مقارنة المناطق والمنتجات والفترات.</p>`,
+    `<h2>تقارير المبيعات والفروع المباشرة</h2>
+     <p>مبيعات اليوم، التحصيل، عدد الزيارات، وأداء كل مندوب على لوحة واحدة. قرارات مبنية على أرقام لا انطباعات — مع مقارنة المناطق والمنتجات والفترات.</p>
+     <p>وإذا كنت تدير أكثر من فرع أو منطقة، تعرض اللوحة <strong>تقارير مبيعات وفروع مباشرة</strong> تُحدَّث لحظياً: مبيعات كل فرع ومنطقة على حدة، مقارنتها ببعضها، وأداء مناديب كل فرع — فترى أي فرع ينمو وأيّه يتأخّر قبل نهاية الشهر لا بعده.</p>`,
     `<h2>Live reports and analytics</h2>
      <p>Today's sales, collection, visit counts and each rep's performance on one dashboard. Decisions based on numbers, not impressions — with comparisons across regions, products and periods.</p>`,
     `<h2>Rapports et analyses en temps réel</h2>
@@ -917,7 +935,7 @@ const TOPICS = [
     // المصطلح العامل هو المنقول «كاش فان» + «مناديب التوزيع» (يعمل في مصر أيضاً).
     label: svc('تطبيق كاش فان لمناديب التوزيع (Van Sales)', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
     kw: (c, L) => P(L, `تطبيق فان سيلز ${c.ar}, البيع من السيارة ${c.ar}, مخزون سيارة المندوب, توزيع متنقل`, `van sales app ${c.en}, mobile selling ${c.en}, van stock, mobile distribution`, `application van sales ${c.fr}, vente en camion ${c.fr}, stock véhicule`),
-    secs: ['why', 'vanstock', 'invoice', 'gps', 'offline', 'cta'] },
+    secs: ['vansalesmeaning', 'why', 'vanstock', 'invoice', 'gps', 'offline', 'cta'] },
   { id: 'einvoicing-compliance', cs: true, rm: 6,
     label: svc('الفوترة الإلكترونية والالتزام الضريبي', 'E-Invoicing & Tax Compliance', 'Facturation électronique et conformité'),
     kw: (c, L) => P(L, `الفوترة الإلكترونية ${c.ar}, فاتورة ضريبية ${c.ar}, ضريبة القيمة المضافة, ${c.tax.ar}`, `e-invoicing ${c.en}, tax invoice ${c.en}, VAT, ${c.tax.en}`, `facturation électronique ${c.fr}, TVA ${c.fr}, ${c.tax.fr}`),
@@ -1053,13 +1071,15 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  * 2026-07-29: إعادة توجيه العناوين العربية لمفردات المشتري (مناديب أولاً) + إصلاح «البيع من السيارة»→«كاش فان».
  * 2026-08-10: تقليل تكرار صفحات الدول (الأقسام العامّة للصفحات الجامعة فقط، حلّ 671 «طبق الأصل») + مسافة الضربة
  *             (مصطلح كاش فان، قسم الفرق بين الفاتورتين، عبارات قطر/الإمارات/المغرب/عُمان) — تغيّرت كل الصفحات المولّدة فعلاً.
+ * 2026-08-16: موجة مسافة الضربة الثانية — قسم «ما معنى كاش فان؟ ومن هو مندوب الكاش فان؟» (عائلة 6 صيغ في المراكز 7–10)
+ *             + «تقارير مبيعات وفروع مباشرة» حرفياً + تقوية صيغ عنقود قطر.
  */
-export const CONTENT_VERSION = '2026-08-10';
+export const CONTENT_VERSION = '2026-08-16';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً).
 // 10 أغسطس: تقليل التكرار غيّر كل صفحات الدول (أولوية وغيرها)، فالثابتان متساويان الآن —
 // تغيير حقيقيّ واحد واسع، لا churn كاذب (الخريطة تُخبر جوجل بصدق أنّ ~600 صفحة تغيّرت فيُعيد زحفها).
-const PRIORITY_CONTENT_VERSION = '2026-08-10';
+const PRIORITY_CONTENT_VERSION = '2026-08-16';
 export const modifiedOf = (date, cc) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
   return date > v ? date : v;
