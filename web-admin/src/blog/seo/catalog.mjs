@@ -89,6 +89,12 @@ const citiesLine = (c, L) => {
  * أقوى إشارة صلة ممكنة، وهي أيضاً ما تقتبسه محرّكات الذكاء الاصطناعي.
  * ⚠️ الإجابات مختصرة (40–60 كلمة) وصادقة: المرحلة الأولى فقط، وبلا ادّعاء قدرة غير مبنيّة.
  */
+/** دول الخليج ذات ضريبة القيمة المضافة — حيث يسري تصنيف «فاتورة ضريبية / مبسّطة». */
+const GCC_VAT = new Set(['SA', 'AE', 'BH', 'OM']);
+
+/** أسواق المقاصّة اللحظية: الفوترة فيها تتطلّب اتصالاً (مصر ETA · الإمارات Peppol · تونس TTN). */
+const REALTIME_CLEARANCE = new Set(['EG', 'AE', 'TN']);
+
 const STRIKE_FAQ = {
   'van-sales-app': (c, L) => [
     { q: P(L, 'ما معنى كاش فان؟', 'What is van sales (cash van)?', "Qu'est-ce que la vente en camion (van sales) ?"),
@@ -96,11 +102,11 @@ const STRIKE_FAQ = {
           'Van sales is a distribution model where the rep carries stock in the vehicle and sells, delivers, invoices and collects in the same visit at the customer\'s door — instead of taking an order today and delivering later.',
           "La vente en camion est un modèle où le commercial transporte le stock et vend, livre, facture et encaisse lors de la même visite, au lieu de prendre une commande livrée plus tard.") },
     { q: P(L, 'ما معنى مندوب كاش فان؟', 'Who is a van sales rep?', 'Qui est le commercial van sales ?'),
-      a: P(L, 'هو المندوب الذي يحمّل سيارته صباحاً بكميات محدّدة، ويمرّ على عملائه في خطّ سير مخطّط، ويبيع ويطبع الفاتورة فوراً ويحصّل، ثم يُطابق آخر اليوم ما باعه مع ما تبقّى في السيارة فيظهر أي عجز بالصنف.',
-          'A van sales rep loads the vehicle each morning with set quantities, follows a planned route, sells and prints the invoice on the spot, collects payment, then reconciles at day\'s end so any per-item shortage surfaces.',
-          "Le commercial charge son véhicule le matin, suit une tournée planifiée, vend et imprime la facture sur place, encaisse, puis rapproche en fin de journée pour faire apparaître tout écart par article.") },
+      a: P(L, 'هو المندوب الذي يحمّل سيارته صباحاً بكميات محدّدة، ويمرّ على عملائه في خطّ سير مخطّط، ويبيع ويطبع الفاتورة فوراً ويحصّل نقداً أو آجلاً، وتُظهر لوحة الإدارة آخر اليوم ما حُمّل وما بيع وما تبقّى لكل صنف.',
+          'A van sales rep loads the vehicle each morning with set quantities, follows a planned route, sells and prints the invoice on the spot, collects in cash or on credit, and management sees at day\'s end what was loaded, what was sold and what remains per item.',
+          "Le commercial charge son véhicule le matin, suit une tournée planifiée, vend et imprime la facture sur place, encaisse au comptant ou à crédit, et la direction voit en fin de journée ce qui a été chargé, vendu et ce qui reste par article.") },
   ],
-  'einvoicing-compliance': (c, L) => (c.vat == null ? [] : [
+  'einvoicing-compliance': (c, L) => (!GCC_VAT.has(c.code) ? [] : [
     { q: P(L, 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة؟', 'What is the difference between a tax invoice and a simplified tax invoice?', 'Quelle différence entre facture fiscale et facture fiscale simplifiée ?'),
       a: P(L, 'الفاتورة الضريبية الكاملة تُصدَر بين الشركات (B2B) وتتضمّن اسم المشتري ورقمه الضريبي وتفصيل الضريبة. أمّا المبسّطة فتُصدَر للمستهلك النهائي (B2C) في نقطة البيع بحقول أقل ورمز QR، وهي الأنسب لبيع المندوب المباشر في الميدان.',
           'A full tax invoice is issued business-to-business and includes the buyer\'s name, tax number and a tax breakdown. A simplified tax invoice is issued to the end consumer at the point of sale, with fewer fields and a QR code — the right fit for direct field selling.',
@@ -110,17 +116,26 @@ const STRIKE_FAQ = {
           'They are not opposites: "tax" describes the invoice content (seller, buyer and tax details), while "electronic" describes how it is issued and stored digitally. One invoice can be both — the opposite of an electronic invoice is a paper invoice, not a tax invoice.',
           "Ce ne sont pas des contraires : « fiscale » décrit le contenu, « électronique » décrit la forme d'émission numérique. Une même facture peut être les deux ; l'opposé de l'électronique est la facture papier.") },
   ]),
-  'mobile-field-invoicing': (c, L) => [
+  // ⚠️ تسييج قُطريّ إلزاميّ: أسواق المقاصّة اللحظية (مصر ETA · الإمارات Peppol · تونس TTN)
+  // يمنع فيها تطبيق المندوب إصدار الفاتورة أوف-لاين (RepApp.tsx يفحص einvoiceProvider ويوقف
+  // العملية)، فلا يجوز أن تَعِد صفحاتها بما يرفضه المنتج فيها. ولا يوجد دفتر مخزون سيارة على
+  // الجهاز — الخصم يقع على الخادم بعد المزامنة لا قبلها.
+  'mobile-field-invoicing': (c, L) => (REALTIME_CLEARANCE.has(c.code) ? [
     { q: P(L, 'هل يعمل تطبيق المندوب بدون إنترنت؟', 'What is an offline field sales app?', "Qu'est-ce qu'une application de vente terrain hors ligne ?"),
-      a: P(L, 'نعم. يُصدر المندوب الفاتورة وسند القبض ويطبعهما ويخصم الأصناف من مخزون السيارة بلا اتصال، ثم ترتفع كل المستندات تلقائياً للإدارة فور عودة الشبكة — بلا تكرار ولا فقدان.',
-          'An offline field sales app lets the rep issue and print invoices and receipts and deduct items from van stock with no connection at all, then syncs everything automatically the moment connectivity returns — with no duplicates and nothing lost.',
-          "Une application de vente terrain hors ligne permet d'émettre et d'imprimer factures et reçus et de déduire le stock du véhicule sans connexion, puis synchronise tout automatiquement au retour du réseau.") },
-  ],
+      a: P(L, `يعمل التطبيق بلا إنترنت لتسجيل الزيارات وسندات القبض وبيانات العملاء، وتُرفع تلقائياً فور عودة الشبكة. أمّا الفاتورة الضريبية ${c.inAr} فتتطلّب اتصالاً لحظة الإصدار لأن النظام الضريبي يقوم على المقاصّة اللحظية.`,
+          `An offline field sales app keeps the rep working with no connection — recording visits, receipt vouchers and customer data — then syncs automatically when connectivity returns. The tax invoice itself ${c.inEn} requires a live connection at issuance, because the local e-invoicing model is clearance-based.`,
+          `Une application de vente terrain hors ligne permet d'enregistrer visites, reçus et données clients sans connexion, puis synchronise au retour du réseau. La facture fiscale ${c.inFr} exige en revanche une connexion au moment de l'émission (modèle de clearance).`) },
+  ] : [
+    { q: P(L, 'هل يعمل تطبيق المندوب بدون إنترنت؟', 'What is an offline field sales app?', "Qu'est-ce qu'une application de vente terrain hors ligne ?"),
+      a: P(L, 'نعم. يُصدر المندوب الفاتورة وسند القبض ويطبعهما للعميل بلا اتصال، ثم ترتفع المستندات تلقائياً للإدارة فور عودة الشبكة فيُخصم المبيع من مخزون السيارة — بلا تكرار، ومع تنبيه المندوب لأي مستند يحتاج مراجعة.',
+          'An offline field sales app lets the rep issue and print invoices and receipts for the customer with no connection at all, then syncs automatically the moment connectivity returns — the sale is deducted from van stock on sync, with no duplicates, and the rep is flagged for any document that needs review.',
+          "Une application de vente terrain hors ligne permet d'émettre et d'imprimer factures et reçus sans connexion, puis synchronise automatiquement au retour du réseau : la vente est alors déduite du stock du véhicule, sans doublons.") },
+  ]),
   'fmcg-distribution': (c, L) => [
     { q: P(L, 'ما المقصود بالتسويق التجاري والتوزيع؟', 'What is trade marketing and distribution?', "Qu'est-ce que le marketing commercial et la distribution ?"),
-      a: P(L, 'التسويق التجاري هو ما يُتّفق عليه مع العلامة لنقطة البيع: إدراج صنف، شريحة سعر، وجود على الرفّ. والتوزيع هو تنفيذ ذلك منفذاً بمنفذ. ولا يتحقّق الاتفاق إلا إذا نفّذه المندوب فعلاً، لذا يبقى سجلّ الميدان (زيارة وصورة وفاتورة لكل قناة) هو الدليل الوحيد الصادق.',
-          'Trade marketing is what is agreed with the brand for the point of sale — a listing, a price tier, shelf presence — and distribution is executing that outlet by outlet. The agreement only becomes real if a rep executes it, so the field record (visit, photo, invoice per channel) is the only honest proof.',
-          "Le marketing commercial est ce qui est convenu avec la marque pour le point de vente ; la distribution est son exécution point par point. L'accord ne devient réel que si le commercial l'exécute — le relevé terrain en est la seule preuve.") },
+      a: P(L, 'التسويق التجاري نشاط تسويقيّ موجّه إلى شركاء القناة (الجملة والموزّعين والتجزئة) لا إلى المستهلك، وأدواته العروض الترويجية للقناة والحوافز والمِرشندايزنغ وإدارة الفئة ووجود الصنف على الرفّ. والتوزيع هو تنفيذ ذلك منفذاً بمنفذ — ولا يتحقّق ما اتُّفق عليه إلا إذا نفّذه المندوب فعلاً، لذا يبقى سجلّ الميدان (زيارة وصورة وفاتورة لكل قناة) هو دليل التنفيذ.',
+          'Trade marketing is B2B marketing aimed at channel partners — wholesalers, distributors and retailers — rather than at the consumer; its tools are channel promotions, incentives, merchandising, category management and shelf presence. Distribution is executing that outlet by outlet, and what was agreed only becomes real if a rep executes it — so the field record (visit, photo, invoice per channel) is the proof of execution.',
+          "Le marketing commercial est un marketing B2B destiné aux partenaires du canal (grossistes, distributeurs, détaillants) : promotions canal, incitations, merchandising, gestion de catégorie, présence en rayon. La distribution en est l'exécution point par point — le relevé terrain en est la preuve.") },
   ],
 };
 
@@ -231,10 +246,10 @@ const PRIORITY_BRIEF = {
   BH: {
     ar: `<h2>التوزيع في السوق البحريني — جزيرة مكتنزة وطرق سريعة</h2>
      <p>صِغَر مساحة البحرين يجعل خطوط السير قصيرة وسريعة بين المنامة والمحرّق والرفاع، فيغطّي المندوب منافذ أكثر في اليوم. التحدّي ليس المسافة بل كثافة الزيارات ودقّة الفوترة والتحصيل في كل منفذ.</p>
-     <p>ضريبة القيمة المضافة ١٠٪ يتولّاها الجهاز الوطني للإيرادات، والدينار البحريني يُحتسب بثلاث خانات عشرية (١٠٠٠ فلس). تُصدر منصّة FieldSales فاتورة منظّمة بالدينار البحريني برمز QR وتقريب دقيق، وتُطابق مخزون السيارة آخر اليوم فيظهر أي عجز بالصنف.</p>`,
+     <p>ضريبة القيمة المضافة ١٠٪ يتولّاها الجهاز الوطني للإيرادات، والدينار البحريني يُحتسب بثلاث خانات عشرية (١٠٠٠ فلس). تُصدر منصّة FieldSales فاتورة منظّمة بالدينار البحريني برمز QR وتقريب دقيق، وتعرض آخر اليوم ما حُمّل على السيارة وما بيع منه وما تبقّى لكل صنف.</p>`,
     en: `<h2>Distribution in Bahrain — a compact island with fast routes</h2>
      <p>Bahrain's small size keeps routes short and fast between Manama, Muharraq and Riffa, so a rep can cover more outlets per day. The challenge is not distance but visit density and the accuracy of invoicing and collection at each outlet.</p>
-     <p>VAT at 10% is administered by the National Bureau for Revenue, and the Bahraini Dinar is calculated to three decimal places (1000 fils). FieldSales issues a structured Bahraini Dinar invoice with a QR code and precise rounding, and reconciles van stock at day's end so any shortage surfaces per item.</p>`,
+     <p>VAT at 10% is administered by the National Bureau for Revenue, and the Bahraini Dinar is calculated to three decimal places (1000 fils). FieldSales issues a structured Bahraini Dinar invoice with a QR code and precise rounding, and shows at day's end what was loaded on the van, what sold and what remains per item.</p>`,
     fr: `<h2>La distribution à Bahreïn — une île compacte aux tournées rapides</h2>
      <p>La petite taille de Bahreïn rend les tournées courtes et rapides entre Manama, Muharraq et Riffa ; un commercial couvre donc plus de points de vente par jour. L'enjeu n'est pas la distance mais la densité des visites et la précision de la facturation.</p>
      <p>La TVA à 10 % est gérée par le Bureau national des revenus, et le dinar bahreïni se calcule à trois décimales (1000 fils). FieldSales émet une facture structurée en dinar bahreïni à code QR avec un arrondi précis, et rapproche le stock du véhicule en fin de journée.</p>`,
@@ -278,7 +293,7 @@ const PRIORITY_OPS = {
   },
   EG: {
     ar: `<p>في سوق يغلب عليه البيع الآجل، المقياس الأهمّ هو معدّل التحصيل وعمر الدَّين لا حجم البيع. تقسّم منصّة FieldSales الذمم إلى شرائح عمرية (١–٣٠، ٣١–٦٠، ٦١–٩٠، وما فوق ٩٠ يوماً)، وتمنع البيع لعميل تجاوز حدّه الائتماني.</p>`,
-    en: `<p>In a credit-driven market, the key metric is collection rate and debt age, not sale size. FieldSales splits receivables into ageing buckets (1–30, 31–60, 61–90, 90+ days) and blocks selling to a customer over their credit limit.</p>`,
+    en: `<p>In a credit-driven market, the key metric is collection rate and debt age, not sale size. FieldSales splits receivables into ageing buckets (1–30, 31–60, 61–90, 90+ days) and raises an immediate alert when a customer goes over their credit limit, so management can act before the next drop.</p>`,
     fr: `<p>Dans un marché à crédit, l'indicateur clé est le taux d'encaissement et l'ancienneté de la dette, pas la taille de la vente. FieldSales répartit les créances par tranches d'âge (1–30, 31–60, 61–90, plus de 90 jours).</p>`,
   },
   KW: {
@@ -287,9 +302,9 @@ const PRIORITY_OPS = {
     fr: `<p>Quand la valeur de la visite est élevée et les distances courtes, le nombre de visites et le panier moyen deviennent les indicateurs. FieldSales affiche les visites quotidiennes de chaque commercial et le panier moyen.</p>`,
   },
   BH: {
-    ar: `<p>في سوق مكتنز، الكفاءة تُقاس بكثافة الزيارات اليومية ودقّة المطابقة آخر اليوم لا بالمسافة. تُطابق منصّة FieldSales مخزون السيارة مع المبيعات فيظهر أي فرق بالصنف، وتعرض إنجاز كل مندوب على لوحة واحدة.</p>`,
-    en: `<p>In a compact market, efficiency is measured by daily visit density and end-of-day reconciliation accuracy, not distance. FieldSales reconciles van stock against sales so any per-item gap surfaces, and shows each rep's completion on one dashboard.</p>`,
-    fr: `<p>Dans un marché compact, l'efficacité se mesure à la densité des visites et à la précision du rapprochement de fin de journée. FieldSales rapproche le stock du véhicule des ventes et fait apparaître tout écart par article.</p>`,
+    ar: `<p>في سوق مكتنز، الكفاءة تُقاس بكثافة الزيارات اليومية ودقّة المطابقة آخر اليوم لا بالمسافة. تُطابق منصّة FieldSales مخزون السيارة مع المبيعات المسجّلة فيظهر المتبقّي لكل صنف، وتعرض إنجاز كل مندوب على لوحة واحدة.</p>`,
+    en: `<p>In a compact market, efficiency is measured by daily visit density and end-of-day reconciliation accuracy, not distance. FieldSales reconciles van stock against recorded sales and shows what remains per item, and shows each rep's completion on one dashboard.</p>`,
+    fr: `<p>Dans un marché compact, l'efficacité se mesure à la densité des visites et à la précision du rapprochement de fin de journée. FieldSales rapproche le stock du véhicule avec les ventes enregistrées et affiche le reste par article.</p>`,
   },
   OM: {
     ar: `<p>مع طول المسافات، تصبح كلفة كل زيارة والالتزام بخطّ السير مقياسَي الكفاءة. تسجّل منصّة FieldSales خطّ السير الفعلي وتطابقه مع المخطّط، وتُظهر الزمن والمسافة لكل زيارة فتتّضح كلفة تغطية المناطق البعيدة.</p>`,
@@ -352,28 +367,30 @@ const S = {
   vansalesmeaning: (c, L) => P(L,
     `<h2>ما معنى كاش فان؟ ومن هو مندوب الكاش فان؟</h2>
      <p><strong>كاش فان (Van Sales)</strong> أسلوب توزيع يحمل فيه المندوب البضاعة في سيارته ويبيعها ويسلّمها ويُصدر فاتورتها ويحصّل قيمتها في الزيارة نفسها — بيع وتسليم وتحصيل في خطوة واحدة عند باب العميل، لا طلب اليوم وتسليم غداً. ويُسمّى أيضاً «البيع من السيارة» أو «البيع النقدي المتنقّل».</p>
-     <p><strong>مندوب الكاش فان</strong> هو من ينفّذ هذه الدورة: يحمّل سيارته صباحاً بكميات محدّدة من كل صنف، يمرّ على عملائه في خطّ سير مخطّط، يبيع ويطبع الفاتورة فوراً، يحصّل نقداً أو آجلاً، ويعود آخر اليوم لمطابقة ما باعه مع ما تبقّى في السيارة — فيظهر أي عجز أو فرق بالصنف.</p>
+     <p><strong>مندوب الكاش فان</strong> هو من ينفّذ هذه الدورة: يحمّل سيارته صباحاً بكميات محدّدة من كل صنف، يمرّ على عملائه في خطّ سير مخطّط، يبيع ويطبع الفاتورة فوراً، يحصّل نقداً أو آجلاً، وتُظهر لوحة الإدارة آخر اليوم ما حُمّل وما بيع وما تبقّى لكل صنف.</p>
      <p><strong>الفرق عن البيع بالطلب (Pre-Sales):</strong> في الكاش فان تُنجَز الصفقة والتسليم معاً من مخزون السيارة؛ أمّا في البيع بالطلب فيأخذ المندوب الطلب فقط ثم يُسلَّم لاحقاً من المستودع. الكاش فان أسرع دوراناً وأنسب للمواد الغذائية والاستهلاكية سريعة الحركة ${c.inAr}، لكنه يحتاج ضبطاً دقيقاً لعهدة السيارة وإلا تسرّبت البضاعة والتحصيل.</p>`,
     `<h2>What is van sales (cash van)? And who is a van sales rep?</h2>
      <p><strong>Van sales</strong> — also called cash van or mobile selling — is a distribution model where the rep carries stock in their vehicle and sells, delivers, invoices and collects payment in the same visit, right at the customer's door, instead of taking an order today and delivering tomorrow.</p>
-     <p>A <strong>van sales rep</strong> runs that full cycle: loads the van each morning with set quantities per item, follows a planned route, sells and prints the invoice on the spot, collects cash or credit, and reconciles at day's end so any per-item shortage surfaces.</p>
+     <p>A <strong>van sales rep</strong> runs that full cycle: loads the van each morning with set quantities per item, follows a planned route, sells and prints the invoice on the spot, collects cash or credit, and management sees at day's end what was loaded, what was sold and what remains per item.</p>
      <p><strong>Versus pre-sales:</strong> van sales completes the sale and delivery together from van stock, while pre-sales only captures an order for later warehouse delivery. Van sales turns stock faster and suits fast-moving food and consumer goods ${c.inEn}, but it demands tight van-custody control or both goods and collection leak.</p>`,
     `<h2>Qu'est-ce que la vente en camion (van sales) ? Et qui est le commercial van sales ?</h2>
      <p>La <strong>vente en camion (van sales)</strong> est un modèle de distribution où le commercial transporte le stock dans son véhicule et vend, livre, facture et encaisse lors de la même visite, chez le client — au lieu de prendre une commande aujourd'hui pour livrer demain.</p>
-     <p>Le <strong>commercial van sales</strong> gère tout le cycle : chargement du véhicule le matin, tournée planifiée, vente et impression immédiate de la facture, encaissement, puis rapprochement en fin de journée qui fait apparaître tout écart par article.</p>
+     <p>Le <strong>commercial van sales</strong> gère tout le cycle : chargement du véhicule le matin, tournée planifiée, vente et impression immédiate de la facture, encaissement au comptant ou à crédit ; la direction voit en fin de journée ce qui a été chargé, vendu et ce qui reste par article.</p>
      <p><strong>Différence avec la prévente :</strong> la vente en camion conclut vente et livraison ensemble depuis le stock du véhicule, tandis que la prévente ne saisit qu'une commande livrée plus tard. Elle accélère la rotation et convient aux produits de grande consommation ${c.inFr}, mais exige un contrôle strict du stock véhicule.</p>`),
 
   // قسم مطابق تماماً لاستعلام سعودي في «مسافة الضربة» (pos 18–19): «الفرق بين الفاتورة الضريبية والمبسّطة».
   // مقيّد بدول ضريبة القيمة المضافة (c.vat != null) فلا يظهر حيث لا يصحّ، وصادق: نُصدر المبسّطة ضمن المرحلة الأولى فقط.
   invoicetypes: (c, L) => {
-    if (c.vat == null) return '';
+    // تصنيف «ضريبية/مبسّطة» مصدره الاتفاقية الموحّدة لضريبة القيمة المضافة الخليجية،
+    // فلا يصحّ تقديمه كحقيقة محلية في مصر أو المغرب العربي أو الشام. يُقصَر على الخليج.
+    if (!GCC_VAT.has(c.code)) return '';
     return P(L,
     `<h2>الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسّطة</h2>
      <p>في نظام ضريبة القيمة المضافة ${c.inAr} نوعان من الفاتورة. <strong>الفاتورة الضريبية</strong> الكاملة تُصدَر في التعاملات بين الشركات (B2B) وتتضمّن اسم المشتري ورقمه الضريبي وتفصيل الضريبة. أمّا <strong>الفاتورة الضريبية المبسّطة</strong> فتُصدَر للمستهلك النهائي (B2C) في نقطة البيع بحقول أقل ورمز QR، وهي الأنسب لبيع المندوب المباشر في الميدان.</p>
      <p>تُصدِر منصّة FieldSales الفاتورة المبسّطة برمز QR وطباعة حرارية فور إتمام البيع في الميدان — وهي الأنسب لبيع المندوب المباشر. حدِّد نوع الفاتورة حسب عميلك، وراجع دائماً مستشاراً ضريبياً محلياً لأحدث متطلبات ${c.tax.ar}.</p>
      <h3>وما الفرق بين الفاتورة الضريبية والفاتورة الإلكترونية؟</h3>
      <p>سؤال يتكرّر كثيراً، وجوابه أنّهما <strong>ليستا نوعين متقابلين</strong>: «الضريبية» تصف <em>مضمون</em> الفاتورة (بيانات البائع والمشتري والضريبة كما يفرضها النظام)، أمّا «الإلكترونية» فتصف <em>شكل إصدارها وحفظها</em> (ملف رقميّ منظّم تقرأه الأنظمة بدل ورقة تُكتب باليد).</p>
-     <p>لذلك الفاتورة الواحدة تكون <strong>ضريبية وإلكترونية معاً</strong> — وهو المطلوب عملياً ${c.inAr}: فاتورة تحمل الحقول الضريبية وتُصدَر رقمياً برمز QR قابل للتحقّق. والمقابل الحقيقيّ للفاتورة الإلكترونية هو الفاتورة الورقية، لا الفاتورة الضريبية.</p>`,
+     <p>لذلك الفاتورة الواحدة تكون <strong>ضريبية وإلكترونية معاً</strong> — وهو المطلوب عملياً ${c.inAr}: فاتورة تحمل الحقول الضريبية وتُصدَر رقمياً برمز QR يقرأه الماسح. والمقابل الحقيقيّ للفاتورة الإلكترونية هو الفاتورة الورقية، لا الفاتورة الضريبية.</p>`,
     `<h2>Tax invoice vs simplified tax invoice: the difference</h2>
      <p>Under VAT ${c.inEn} there are two invoice types. A full <strong>tax invoice</strong> is issued for business-to-business (B2B) deals and includes the buyer's name, tax number and a tax breakdown. A <strong>simplified tax invoice</strong> is issued to the end consumer (B2C) at the point of sale, with fewer fields and a QR code — the right fit for a rep selling directly in the field.</p>
      <p>FieldSales issues the simplified invoice with a QR code and thermal printing the moment a sale closes in the field — the right fit for a rep selling directly. Choose the invoice type per customer, and always confirm the latest ${c.tax.en} requirements with a local tax advisor.</p>`,
@@ -439,7 +456,7 @@ const S = {
     `<h2>العمل بلا إنترنت في الميدان</h2>
      <p>تغطية الشبكة ${c.inAr} تتفاوت بين المدن والمناطق. تطبيق يعمل بلا إنترنت ويزامن تلقائياً عند عودة الاتصال يضمن ألّا تتوقّف المبيعات ولا تُفقد بيانات الزيارة.</p>`,
     `<h2>Offline field sales: selling with no connection</h2>
-     <p>Network coverage ${c.inEn} varies between cities and remote areas. An <strong>offline field sales app</strong> lets the rep keep working with no connection at all: it issues the invoice and the receipt, prints them for the customer, and deducts the items from van stock — then syncs everything automatically the moment connectivity returns, with no duplicates and nothing lost.</p>
+     <p>Network coverage ${c.inEn} varies between cities and remote areas. An <strong>offline field sales app</strong> lets the rep keep working with no connection at all: it issues the invoice and the receipt, and prints them for the customer — then syncs everything automatically the moment connectivity returns, deducting the sale from van stock on sync, with no duplicates.</p>
      <p>This matters because the weakest coverage is often exactly where the outlets are: basements, warehouses, industrial areas and remote routes. Offline field sales turns a dead zone from a stopped sale into a normal visit.</p>`,
     `<h2>Travailler hors ligne sur le terrain</h2>
      <p>La couverture réseau ${c.inFr} varie selon les zones. Une application qui fonctionne hors ligne et se synchronise au retour du réseau garantit la continuité des ventes.</p>`),
@@ -634,7 +651,7 @@ const S = {
      <strong>Receivables:</strong> amounts customers owe from credit sales.
      <strong>Credit limit:</strong> the maximum outstanding balance allowed before sales to a customer are blocked.
      <strong>Price tiers:</strong> different price lists (wholesale/retail/key account) per customer segment.
-     <strong>Structured tax invoice:</strong> an invoice with the fields required by ${c.tax.en}, carrying a verifiable QR code.</p>`,
+     <strong>Structured tax invoice:</strong> an invoice with the fields required by ${c.tax.en}, carrying a scannable QR code.</p>`,
     `<h2>Termes essentiels de la vente terrain</h2>
      <p><strong>Système de gestion des distributeurs (DMS) :</strong> une plateforme unifiée qui gère commandes, facturation, encaissement, stock et relevés des points de vente en un seul endroit.
      <strong>Distribution directe (DSD) :</strong> livraison du distributeur au point de vente sans entrepôt intermédiaire.
@@ -642,7 +659,7 @@ const S = {
      <strong>Créances :</strong> montants dus par les clients sur les ventes à crédit.
      <strong>Limite de crédit :</strong> encours maximal autorisé avant blocage des ventes au client.
      <strong>Grilles tarifaires :</strong> listes de prix différentes (gros/détail/grands comptes) par segment.
-     <strong>Facture structurée :</strong> facture aux champs exigés par ${c.tax.fr}, avec un code QR vérifiable.</p>`),
+     <strong>Facture structurée :</strong> facture aux champs exigés par ${c.tax.fr}, avec un code QR lisible.</p>`),
 
   // قسم مُفرَّد لكل دولة: يحوّل البيانات التنظيمية الحقيقية (الجهة الضريبية/الفوترة/العملة/المدن + خانات العملة)
   // إلى فقرات تختلف فعلاً بين الدول — يكسر تكرار القالب ويمنح جوجل محتوى محلياً أصيلاً.
@@ -738,8 +755,8 @@ const ANSWERS = {
     `Un logiciel de gestion des ventes terrain exécute tout le cycle du commercial depuis son téléphone : visite du client, émission et impression immédiate de la facture, encaissement comptant ou à crédit, et déduction en temps réel du stock du véhicule. Contrairement à un logiciel comptable généraliste, les données sont saisies sur le terrain, pas ressaisies au bureau. ${topicVat(c, L)}`),
 
   'distribution-management-system': (c, L) => P(L,
-    `نظام إدارة الموزّعين (DMS) يربط المستودع بسيارات المناديب بنقاط البيع في سلسلة واحدة: يُحمَّل المخزون على السيارة، يبيع المندوب منه ويصدر الفاتورة، ويعود آخر اليوم فيُطابَق المتبقّي مع المتوقّع فيظهر أي عجز بالصنف. يختلف عن نظام ERP في أنه مبنيّ حول خطّ السير والزيارة لا حول أمر الشراء، وعن تطبيق CRM في أنه يحرّك مخزوناً ونقداً فعليّين.`,
-    `A distributor management system (DMS) connects warehouse, van and outlet in one chain: stock is loaded onto the van, the rep sells from it and issues the invoice, and at day's end the remaining stock is reconciled against what was expected so any shortage surfaces per item. It differs from ERP in being built around the route and the visit rather than the purchase order, and from CRM in that it moves real stock and real cash.`,
+    `نظام إدارة الموزّعين (DMS) يربط المستودع بسيارات المناديب بنقاط البيع في سلسلة واحدة: يُحمَّل المخزون على السيارة، يبيع المندوب منه ويصدر الفاتورة، وتعرض اللوحة آخر اليوم المتبقّي لكل صنف مقابل ما حُمّل وما بيع. يختلف عن نظام ERP في أنه مبنيّ حول خطّ السير والزيارة لا حول أمر الشراء، وعن تطبيق CRM في أنه يحرّك مخزوناً ونقداً فعليّين.`,
+    `A distributor management system (DMS) connects warehouse, van and outlet in one chain: stock is loaded onto the van, the rep sells from it and issues the invoice, and at day's end the dashboard shows the remaining quantity per item against what was loaded and sold. It differs from ERP in being built around the route and the visit rather than the purchase order, and from CRM in that it moves real stock and real cash.`,
     `Un système de gestion des distributeurs (DMS) relie l'entrepôt, le camion et le point de vente en une seule chaîne : le stock est chargé, le commercial vend et facture, puis en fin de journée le reliquat est rapproché de l'attendu et tout écart apparaît par article. Il se distingue de l'ERP en s'articulant autour de la tournée et de la visite plutôt que du bon de commande.`),
 
   'van-sales-app': (c, L) => P(L,
@@ -753,9 +770,9 @@ const ANSWERS = {
     `La facturation électronique consiste à émettre la facture dans un format numérique structuré, lisible par les systèmes, plutôt qu'un ticket manuscrit. Concrètement pour le commercial : la facture porte vendeur, acheteur, date, montant et taxe dans un code QR lisible par machine, et une copie non modifiable est conservée. Contexte fiscal ${c.inFr} : ${c.einv.fr}. Vérifiez toujours les exigences en vigueur de ${c.tax.fr}.`),
 
   'sales-rep-management': (c, L) => P(L,
-    `إدارة مناديب المبيعات تقوم على ثلاثة أشياء يمكن قياسها لا الانطباع: ماذا باع كل مندوب، وكم حصّل من ذممه، وأين كان خلال يوم العمل. النظام يمنح كل مندوب صلاحيات محدّدة — أي عملاء يراهم، وهل يبيع بأقلّ من سعر القائمة، وهل يبيع لعميل تجاوز حدّ ائتمانه — فيتحوّل الضبط من متابعة شخصية إلى قاعدة تُطبَّق تلقائياً على كل فاتورة.`,
-    `Managing sales reps rests on three measurable things rather than impressions: what each rep sold, how much they collected against receivables, and where they were during the working day. The system gives each rep explicit permissions — which customers they see, whether they may sell below list price, whether they may sell to a customer over their credit limit — turning control from personal supervision into a rule applied automatically to every invoice.`,
-    `La gestion des commerciaux repose sur trois éléments mesurables plutôt que sur des impressions : ce que chacun a vendu, ce qu'il a encaissé sur les créances, et où il se trouvait pendant la journée. Le système attribue des droits explicites — quels clients il voit, s'il peut vendre sous le prix catalogue, s'il peut vendre à un client au-delà de sa limite de crédit.`),
+    `إدارة مناديب المبيعات تقوم على ثلاثة أشياء يمكن قياسها لا الانطباع: ماذا باع كل مندوب، وكم حصّل من ذممه، وأين كان خلال يوم العمل. النظام يمنح كل مندوب صلاحيات محدّدة — أي عملاء يراهم، وهل يبيع بالآجل أم نقداً فقط، وهل يبيع بأقلّ من سعر القائمة وبأي حدّ خصم أقصى — فيتحوّل الضبط من متابعة شخصية إلى قاعدة تُطبَّق تلقائياً على كل فاتورة.`,
+    `Managing sales reps rests on three measurable things rather than impressions: what each rep sold, how much they collected against receivables, and where they were during the working day. The system gives each rep explicit permissions — which customers they see, whether they may sell on credit or cash only, and whether they may sell below list price and up to what maximum discount — turning control from personal supervision into a rule applied automatically to every invoice.`,
+    `La gestion des commerciaux repose sur trois éléments mesurables plutôt que sur des impressions : ce que chacun a vendu, ce qu'il a encaissé sur les créances, et où il se trouvait pendant la journée. Le système attribue des droits explicites — quels clients il voit, s'il peut vendre à crédit ou au comptant seulement, et s'il peut vendre sous le prix catalogue et jusqu'à quelle remise maximale.`),
 
   'collection-receivables': (c, L) => P(L,
     `التحصيل في التوزيع يفشل غالباً لسبب واحد: لا أحد يعرف الرصيد الحقيقي للعميل لحظة الزيارة. الحلّ أن يرى المندوب على جواله — قبل أن يبيع — رصيد العميل وأعمار ديونه وحدّ ائتمانه، وأن يُصدر سند القبض في مكانه فيُخصم من الرصيد فوراً. عمليّاً تُقسَّم الذمم إلى شرائح (١–٣٠، ٣١–٦٠، ٦١–٩٠، أكثر من ٩٠ يوماً) لأن دَيناً عمره أربعة أشهر يحتاج تدخّلاً مختلفاً عن دَين هذا الأسبوع.`,
@@ -779,7 +796,7 @@ const ANSWERS = {
 
   'wholesale-food-distributors': (c, L) => P(L,
     `توزيع المواد الغذائية يفرض قيداً لا تعرفه القطاعات الأخرى: للصنف تاريخ صلاحية، فترتيب الصرف يجب أن يتبع الأقدم-أولاً وإلا تحوّل المخزون إلى خسارة مؤكّدة. عمليّاً يعني ذلك تتبّع الصنف بتشغيلته لا بكمّيته فقط، ومعرفة ما في كل سيارة الآن، وقبول المرتجعات بسبب واضح يُميّز التالف عن غير المطلوب — لأن أحدهما مشكلة تخزين والآخر مشكلة طلب.`,
-    `Food distribution imposes a constraint other sectors do not have: items expire, so issuing must follow oldest-first or stock becomes guaranteed loss. In practice this means tracking items by batch and not only by quantity, knowing what is on each van right now, and accepting returns with an explicit reason that separates damaged from unwanted — because one is a storage problem and the other is a demand problem. <strong>Dairy distribution</strong> is the sharpest case of all: shelf life is counted in days rather than months, so a single slow route or a late return turns straight into written-off stock — which is why dairy operations live or die on same-day visibility of what each van still carries.`,
+    `Food distribution imposes a constraint other sectors do not have: items expire, so issuing must follow oldest-first or stock becomes guaranteed loss. In practice this means tracking items by batch and not only by quantity, knowing what is on each van right now, and accepting returns with an explicit reason that separates damaged from unwanted — because one is a storage problem and the other is a demand problem. <strong>Dairy distribution</strong> is the sharpest case in its chilled segment: fresh milk and yoghurt are counted in days rather than months, so a single slow route or a late return turns straight into written-off stock — while UHT, powder and hard cheese behave like ordinary dry goods. That split is the point: a dairy round usually carries both, so it needs same-day visibility of what each van still holds.`,
     `La distribution alimentaire impose une contrainte propre : les produits périment, la sortie doit donc suivre le premier-périmé-premier-sorti sous peine de perte certaine. Concrètement : suivre les articles par lot et pas seulement en quantité, savoir ce que transporte chaque véhicule, et accepter les retours avec un motif explicite distinguant l'endommagé du non désiré.`),
 
   'fmcg-distribution': (c, L) => P(L,
@@ -793,9 +810,9 @@ const ANSWERS = {
     `La facturation mobile consiste à émettre et imprimer la facture devant le client pendant la visite, sur une imprimante thermique Bluetooth 58 ou 80 mm. L'effet opérationnel n'est pas l'impression mais la simultanéité : la facture est imputée au client, l'article déduit du véhicule et le solde mis à jour au même instant. Encore faut-il que cela fonctionne hors ligne.`),
 
   'distribution-customer-management': (c, L) => P(L,
-    `إدارة عملاء التوزيع تختلف عن CRM المبيعات في أن العميل هنا رصيد مستمرّ لا صفقة تُغلَق. كل عميل يحمل: قائمة أسعار خاصّة به (جملة أو تجزئة أو شريحة كمّية)، وحدّ ائتمان يمنع البيع فوقه، ومدّة سداد متّفقاً عليها يُقاس التأخير بها. حدّ الائتمان المعقول يُشتقّ من الواقع لا من التقدير: متوسط مشتريات العميل الشهرية مضروباً في مدّة السداد مقسومة على ثلاثين.`,
-    `Managing distribution customers differs from sales CRM in that the customer here is a running balance, not a deal to close. Each customer carries a price list of their own (wholesale, retail or quantity tier), a credit limit that blocks selling above it, and an agreed payment term against which lateness is measured. A sensible credit limit is derived from reality rather than guessed: the customer's average monthly purchases multiplied by the payment term divided by thirty.`,
-    `La gestion des clients en distribution diffère d'un CRM de vente : le client est ici un solde courant, pas une affaire à conclure. Chaque client porte sa propre liste de prix (gros, détail ou palier de quantité), une limite de crédit qui bloque la vente au-delà, et un délai de paiement convenu. Une limite raisonnable se déduit du réel : achats mensuels moyens × délai ÷ trente.`),
+    `إدارة عملاء التوزيع تختلف عن CRM المبيعات في أن العميل هنا رصيد مستمرّ لا صفقة تُغلَق. كل عميل يحمل: قائمة أسعار خاصّة به (جملة أو تجزئة أو شريحة كمّية)، وحدّ ائتمان يُرصَد تجاوزه بتنبيه فوريّ للإدارة، ومدّة سداد متّفقاً عليها يُقاس التأخير بها. حدّ الائتمان المعقول يُشتقّ من الواقع لا من التقدير: متوسط مشتريات العميل الشهرية مضروباً في مدّة السداد مقسومة على ثلاثين.`,
+    `Managing distribution customers differs from sales CRM in that the customer here is a running balance, not a deal to close. Each customer carries a price list of their own (wholesale, retail or quantity tier), a credit limit whose breach raises an immediate alert to management, and an agreed payment term against which lateness is measured. A sensible credit limit is derived from reality rather than guessed: the customer's average monthly purchases multiplied by the payment term divided by thirty.`,
+    `La gestion des clients en distribution diffère d'un CRM de vente : le client est ici un solde courant, pas une affaire à conclure. Chaque client porte sa propre liste de prix (gros, détail ou palier de quantité), une limite de crédit dont le dépassement déclenche une alerte immédiate, et un délai de paiement convenu. Une limite raisonnable se déduit du réel : achats mensuels moyens × délai ÷ trente.`),
 
   'best-field-sales-software': (c, L) => P(L,
     `لا يوجد «أفضل نظام» مطلق — يوجد أنسب نظام لحجمك وقطاعك. اختبر أي مرشّح على خمسة محاور قابلة للفحص قبل الالتزام: هل يُغطّي الدورة كاملةً (طلب ← فاتورة ← تحصيل ← مخزون سيارة)، هل يعمل بلا إنترنت، هل الواجهة والمستندات بالعربية فعلاً لا مترجمة آلياً، هل يتوافق مع متطلبات ${c.tax.ar}، وهل السعر معلن. الاختبار الحاسم واحد: نفّذ دورة بيع حقيقية كاملة على النظام قبل الشراء.`,
@@ -824,7 +841,7 @@ const ANSWERS = {
     `Les bonnes pratiques de la vente en camion tiennent à trois contrôles quotidiens : charger le véhicule d'après les ventes réelles de la tournée et non l'estimation du commercial, facturer pendant la visite plutôt qu'en fin de journée, et inventorier au retour en rapprochant le reliquat de l'attendu. L'erreur la plus coûteuse est de reporter l'inventaire à la fin du mois.`),
 
   'reduce-overdue-receivables': (c, L) => P(L,
-    `الذمم المتعثّرة تُعالَج بالمنع لا بالملاحقة. ثلاثة إجراءات تُحدث الفرق: حدّ ائتمان مُفعَّل يمنع البيع فوقه بدل تنبيه يُتجاهَل، عرض رصيد العميل وأعمار ديونه على شاشة المندوب قبل أن يبيع، وسند قبض يُصدَر في الزيارة فيُخصم فوراً. أما التصنيف بشرائح ١–٣٠ و٣١–٦٠ و٦١–٩٠ وأكثر، فوظيفته ترتيب الأولوية: الدين الأقدم أقلّ احتمالاً للتحصيل وأولى بالتدخّل.`,
+    `الذمم المتعثّرة تُعالَج بالوقاية لا بالملاحقة. ثلاثة إجراءات تُحدث الفرق: حدّ ائتمان مُفعَّل يُنبّه الإدارة فور تجاوزه لتقرّر إيقاف الآجل عن العميل، وعرض رصيد العميل وأعمار ديونه على شاشة المندوب قبل أن يبيع، وسند قبض يُصدَر في الزيارة فيُخصم فوراً. أما التصنيف بشرائح ١–٣٠ و٣١–٦٠ و٦١–٩٠ وأكثر، فوظيفته ترتيب الأولوية: الدين الأقدم أقلّ احتمالاً للتحصيل وأولى بالتدخّل.`,
     `Overdue receivables are solved by prevention, not pursuit. Three measures make the difference: an enforced credit limit that blocks the sale rather than an alert that gets ignored, showing the customer's balance and debt ageing on the rep's screen before they sell, and issuing the receipt during the visit so the balance drops immediately. Bucketing into 1–30, 31–60, 61–90 and 90+ days exists to rank priority: older debt is less likely to be recovered and deserves intervention first.`,
     `Les impayés se traitent par la prévention, pas par la poursuite. Trois mesures font la différence : une limite de crédit qui bloque réellement la vente plutôt qu'une alerte ignorée, l'affichage du solde et de l'ancienneté de la dette sur l'écran du commercial avant qu'il ne vende, et l'émission du reçu pendant la visite. Les tranches 1–30, 31–60, 61–90 et plus servent à hiérarchiser.`),
 
@@ -936,7 +953,7 @@ const LOCAL_ANCHOR = {
   'wholesale-food-distributors': (c, L) => P(L,
     `و${c.inAr} يشتدّ أثر ذلك في المواسم التي يقفز فيها الطلب فجأةً فتُحمَّل السيارات فوق المعتاد ويصعب تتبّع ما خرج منها.`,
     `This bites hardest ${c.inEn} in seasons when demand jumps suddenly, vans are loaded beyond the norm and tracking what left them becomes hard.`,
-    `L'effet est maximal ${c.inFr} lors des saisons où la demande bondit, les véhicules étant chargés au-delà de la normale.`),
+    `L'effet est maximal ${c.inFr} lors des saisons où la demande bondit, les véhicules étant chargés au-delà de la normale. La <strong>distribution laitière</strong> en est le cas le plus vif dans son segment frais : lait frais et yaourts se comptent en jours, tandis que l'UHT, la poudre et les fromages à pâte dure se comportent comme des produits secs — une même tournée transporte souvent les deux.`),
   'fmcg-distribution': (c, L) => P(L,
     `وتتركّز هذه المنافذ ${c.inAr} في ${c.cap.ar} و${c.cities[0].ar}، فيصير تخطيط خطّ السير هو ما يحدّد كم منفذاً يمكن تغطيته في اليوم الواحد.`,
     `These outlets cluster ${c.inEn} around ${c.cap.en} and ${c.cities[0].en}, so route planning is what determines how many can be covered in a single day.`,
@@ -1128,13 +1145,15 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  *             + إجابة «الفرق بين الفاتورة الضريبية والفاتورة الإلكترونية» (نيّة غير مُغطّاة، صيغتان عند 19).
  * 2026-08-17b: موجة العائلات الإنجليزية — «offline field sales app» (77 ظهوراً، المصطلح كان غائباً تماماً)
  *              + «trade marketing and distribution» (pos 12.3) + «dairy distribution» (pos 10.9).
+ * 2026-08-18: إصلاحات صدق من التحقّق العدائي (حدّ الائتمان تنبيه لا منع · لا ادّعاء عجز بلا جرد ·
+ *             تسييج الأوف-لاين على أسواق المقاصّة اللحظية · تسييج تصنيف الفاتورة المبسّطة على الخليج).
  */
-export const CONTENT_VERSION = '2026-08-17';
+export const CONTENT_VERSION = '2026-08-18';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً).
 // 10 أغسطس: تقليل التكرار غيّر كل صفحات الدول (أولوية وغيرها)، فالثابتان متساويان الآن —
 // تغيير حقيقيّ واحد واسع، لا churn كاذب (الخريطة تُخبر جوجل بصدق أنّ ~600 صفحة تغيّرت فيُعيد زحفها).
-const PRIORITY_CONTENT_VERSION = '2026-08-17';
+const PRIORITY_CONTENT_VERSION = '2026-08-18';
 export const modifiedOf = (date, cc) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
   return date > v ? date : v;

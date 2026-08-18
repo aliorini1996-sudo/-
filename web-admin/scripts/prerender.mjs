@@ -312,7 +312,7 @@ async function main() {
 <h2>Contact et demandes d'abonnement</h2>
 <p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
 <p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a></p>
-<p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-iq/">recouvrement de créances en Iraq</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
+<p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application van sales</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
   };
   for (const L of ['en', 'fr']) {
