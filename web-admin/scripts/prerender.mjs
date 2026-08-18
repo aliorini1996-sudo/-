@@ -300,7 +300,8 @@ async function main() {
 <h2>Contact &amp; subscription requests</h2>
 <p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Saudi Arabia · <a href="/en/subscribe-request">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
 <p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a></p>
-<p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-tracking-saudi/">Sales rep tracking app for Saudi Arabia</a> · <a href="/en/blog/van-sales-software-saudi/">Van sales software for Saudi Arabia</a> · <a href="/en/blog/dms-saudi-arabia/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/zatca-invoicing-for-field-reps/">ZATCA e-invoicing for van sales reps</a></p></main>`,
+<p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-tracking-saudi/">Sales rep tracking app for Saudi Arabia</a> · <a href="/en/blog/van-sales-software-saudi/">Van sales software for Saudi Arabia</a> · <a href="/en/blog/dms-saudi-arabia/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/zatca-invoicing-for-field-reps/">ZATCA e-invoicing for van sales reps</a></p>
+<p>By topic: <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
     },
     fr: {
       title: 'FieldSales | Logiciel de gestion des ventes terrain et distribution',
@@ -310,7 +311,8 @@ async function main() {
 <ul><li>Facturation terrain avec code QR et impression thermique</li><li>Encaissement, créances et relevés clients avec limites de crédit</li><li>Stock du véhicule par commercial avec détection des écarts</li><li>Suivi GPS et planification des tournées</li><li>Catalogue produits, grilles tarifaires et intégration ERP</li></ul>
 <h2>Contact et demandes d'abonnement</h2>
 <p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
-<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a></p></main>`,
+<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a></p>
+<p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-iq/">recouvrement de créances en Iraq</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
   };
   for (const L of ['en', 'fr']) {
