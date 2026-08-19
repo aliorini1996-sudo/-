@@ -567,6 +567,13 @@ export default function LandingPage() {
 
   // شريط «عرض الأسبوع» — عرض الكونسيرج المعتمد من المالك (عملية عميل الأسبوع):
   // يقود لواتساب عبر المحوّل المُقاس نفسه بمرجع مستقلّ (offer-week) فتُعرف نقراته من نقرات الزرّ العائم.
+  //
+  // ⏳ **ينتهي ذاتياً** في OFFER_UNTIL (أمر المالك: يُزال خلال أسبوع). التاريخ لا التذكّر:
+  // نصّ العرض يقول «هذا الأسبوع»، فبقاؤه بعد انقضائه يجعل وعداً منشوراً كاذباً — والانتهاء
+  // الذاتيّ يضمن زواله حتى لو لم تُفتح جلسة. المقارنة بتوقيت الرياض وبصيغة ISO (تُرتَّب نصّياً).
+  const OFFER_UNTIL = '2026-08-26'; // آخر يوم يظهر فيه الشريط
+  const riyadhToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+  const offerLive = riyadhToday <= OFFER_UNTIL;
   const offer = lang === 'ar'
     ? { text: '🎁 عرض هذا الأسبوع: أرسل كشف أصنافك وعملائك — نُسلّمك حسابك جاهزاً خلال 24 ساعة، مع شهر مجاني فوق تجربتك', btn: 'اطلبه الآن على واتساب' }
     : lang === 'fr'
@@ -577,7 +584,7 @@ export default function LandingPage() {
     + `<a href="${waHref('/offer-week', { lang })}" target="_blank" rel="noreferrer" style="background:#E15A30;color:#fff;padding:7px 16px;border-radius:99px;font-weight:700;white-space:nowrap">${offer.btn}</a>`
     + `<button onclick="this.parentElement.style.display='none'" aria-label="إغلاق" style="background:none;border:none;color:#FAF7F0;opacity:.6;cursor:pointer;font-size:16px;position:absolute;inset-inline-end:12px;top:9px">✕</button>`
     + `</div>`;
-  html = offerStrip + html;
+  if (offerLive) html = offerStrip + html;
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }
