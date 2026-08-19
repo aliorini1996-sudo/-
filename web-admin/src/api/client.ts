@@ -57,6 +57,7 @@ export const productApi = {
   categories: () => api.get('/products/categories'),
   createCategory: (data: unknown) => api.post('/products/categories', data),
   updatePriceTiers: (id: string, tiers: unknown) => api.put(`/products/${id}/price-tiers`, { tiers }),
+  remove: (id: string) => api.delete(`/products/${id}`),
 };
 
 export const salesRepApi = {

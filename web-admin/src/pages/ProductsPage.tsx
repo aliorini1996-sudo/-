@@ -4,9 +4,10 @@ import { productApi } from '../api/client';
 import { Product } from '../types';
 import { formatCurrency, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
-import { Plus, Search, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ProductModal from '../components/forms/ProductModal';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 export default function ProductsPage() {
   const qc = useQueryClient();
@@ -15,6 +16,7 @@ export default function ProductsPage() {
   const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
+  const [deleting, setDeleting] = useState<Product | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['products', search, page],
@@ -28,7 +30,17 @@ export default function ProductsPage() {
     mutationFn: (values: Partial<Product>) =>
       selected ? productApi.update(selected.id, values) : productApi.create(values),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success(selected ? tr('تم التحديث') : tr('تم الإضافة')); setShowModal(false); setSelected(null); },
-    onError: () => toast.error(tr('حدث خطأ')),
+    // رسالة الخادم لا «حدث خطأ» العمياء — سبب الرفض (تحقق/تكرار كود) يصل للمستخدم
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ')),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => productApi.remove(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success(tr('تم حذف الصنف')); setDeleting(null); },
+    onError: (err: unknown) => {
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف الصنف'));
+      setDeleting(null);
+    },
   });
 
   return (
@@ -68,7 +80,10 @@ export default function ProductsPage() {
                   <td className="text-gray-600">{p.taxPct}%</td>
                   <td><span className={p.status === 'ACTIVE' ? 'badge-active' : 'badge-inactive'}>{tr(statusLabels[p.status])}</span></td>
                   <td>
-                    <button onClick={() => { setSelected(p); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]"><Edit size={14} /></button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => { setSelected(p); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}><Edit size={14} /></button>
+                      <button onClick={() => setDeleting(p)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title={tr('حذف الصنف')}><Trash2 size={14} /></button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -93,6 +108,18 @@ export default function ProductsPage() {
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}
           loading={saveMutation.isPending}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          danger
+          title={tr('حذف الصنف')}
+          message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('نهائياً ولا يمكن التراجع. إن كانت عليه فواتير أو تحميلات أو حركات مستودع فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.')}`}
+          confirmLabel={tr('حذف نهائي')}
+          loading={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
         />
       )}
     </div>
