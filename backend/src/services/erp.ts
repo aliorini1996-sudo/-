@@ -38,7 +38,7 @@ async function readData(tenantId: string, resource: Resource) {
     return prisma.customer.findMany({ where: { tenantId }, orderBy: { updatedAt: 'desc' }, take: 500 });
   }
   if (resource === 'products') {
-    return prisma.product.findMany({ where: { tenantId }, include: { category: true, priceTiers: true }, orderBy: { updatedAt: 'desc' }, take: 500 });
+    return prisma.product.findMany({ where: { tenantId, deletedAt: null }, include: { category: true, priceTiers: true }, orderBy: { updatedAt: 'desc' }, take: 500 });
   }
   if (resource === 'invoices') {
     return prisma.invoice.findMany({

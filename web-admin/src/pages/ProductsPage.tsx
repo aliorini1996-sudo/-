@@ -36,7 +36,12 @@ export default function ProductsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => productApi.remove(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success(tr('تم حذف الصنف')); setDeleting(null); },
+    onSuccess: (res: { data?: { archived?: boolean } }) => {
+      qc.invalidateQueries({ queryKey: ['products'] });
+      // الأرشفة تطمئن المستخدم صراحة أن فواتير الصنف وكشوفه القديمة لم تمس
+      toast.success(res?.data?.archived ? tr('حُذف الصنف من القوائم — فواتيره وكشوفه القديمة باقية كما هي') : tr('تم حذف الصنف'));
+      setDeleting(null);
+    },
     onError: (err: unknown) => {
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف الصنف'));
       setDeleting(null);
@@ -115,7 +120,7 @@ export default function ProductsPage() {
         <ConfirmDialog
           danger
           title={tr('حذف الصنف')}
-          message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('نهائياً ولا يمكن التراجع. إن كانت عليه فواتير أو تحميلات أو حركات مستودع فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.')}`}
+          message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('من كل القوائم ولن يمكن بيعه في فواتير جديدة. فواتيره وسنداته وكشوفه القديمة تبقى كما هي بالاسم نفسه، ولا يمكن التراجع عن الحذف.')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}

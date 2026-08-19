@@ -329,6 +329,7 @@ model Product {
   unitCode             String? // كود الوحدة حسب جدول المزوّد (ETA)
   status               String           @default("ACTIVE") // ACTIVE | INACTIVE
   damagedReturnToStock Boolean          @default(false) // سياسة الصنف: هل يعود مرتجعه التالف لمخزون السيارة؟ (يضبط افتراض المرتجع)
+  deletedAt            DateTime? // أرشفة بدل الحذف حين يوجد تاريخ: يختفي من القوائم ويبقى صفه باسمه للفواتير والكشوف القديمة
   categoryId           String?
   category             ProductCategory? @relation(fields: [categoryId], references: [id])
   createdAt            DateTime         @default(now())

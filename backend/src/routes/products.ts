@@ -64,6 +64,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     const where = {
       tenantId: tid,
+      deletedAt: null, // المؤرشف محذوف من كل القوائم — صفه باق لأسماء الفواتير القديمة
       ...(search && {
         OR: [
           { name: { contains: search } },
@@ -105,6 +106,12 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
   try {
     const tid = tenantId(req);
     const data = productSchema.parse(req.body);
+    // كود مكرر يفسر بوضوح (خاصة تصادم كود صنف مؤرشف) بدل خطأ unique غامض
+    const dupe = await prisma.product.findFirst({ where: { tenantId: tid, code: data.code }, select: { deletedAt: true } });
+    if (dupe) {
+      res.status(409).json({ success: false, message: dupe.deletedAt ? 'الكود مستخدم بصنف محذوف (مؤرشف بفواتيره القديمة) — استخدم كوداً مختلفاً' : 'كود الصنف مستخدم من قبل' });
+      return;
+    }
     if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
       data.taxPct = company?.defaultVatPct ?? 15;
@@ -143,24 +150,31 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
     const product = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!product) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
 
-    // منع الحذف عند وجود أثر مالي/مخزني — التاريخ لا يُمحى؛ يُقترح التعطيل بدلاً منه
+    // صنف له أثر مالي/مخزني يؤرشف لا يمحى: يختفي من كل القوائم ولا يباع مجددا،
+    // ويبقى صفه باسمه حيا فتعرضه الفواتير والسندات والكشوف القديمة وتقارير
+    // المبيعات حسب الصنف كما كانت حرفيا
     const [invoiceItems, loadItems, warehouseItems] = await Promise.all([
       prisma.invoiceItem.count({ where: { productId: req.params.id } }),
       prisma.vanLoadItem.count({ where: { productId: req.params.id } }),
       prisma.warehouseEntryItem.count({ where: { productId: req.params.id } }),
     ]);
     if (invoiceItems > 0 || loadItems > 0 || warehouseItems > 0) {
-      res.status(409).json({ success: false, message: 'لا يمكن حذف الصنف لوجود فواتير أو تحميلات أو حركات مستودع عليه. يمكنك تعطيله (تغيير حالته إلى «غير نشط») بدلاً من الحذف.' });
+      await prisma.$transaction([
+        prisma.priceTier.deleteMany({ where: { productId: req.params.id } }),
+        prisma.customerPrice.deleteMany({ where: { productId: req.params.id } }),
+        prisma.product.update({ where: { id: req.params.id }, data: { deletedAt: new Date(), status: 'INACTIVE' } }),
+      ]);
+      res.json({ success: true, archived: true });
       return;
     }
 
-    // حذف بيانات التسعير التابعة ثم الصنف، في معاملة واحدة
+    // بلا أي أثر: حذف فعلي مع بيانات التسعير التابعة، في معاملة واحدة
     await prisma.$transaction([
       prisma.priceTier.deleteMany({ where: { productId: req.params.id } }),
       prisma.customerPrice.deleteMany({ where: { productId: req.params.id } }),
       prisma.product.delete({ where: { id: req.params.id } }),
     ]);
-    res.json({ success: true });
+    res.json({ success: true, archived: false });
   } catch (err) { next(err); }
 });
 
