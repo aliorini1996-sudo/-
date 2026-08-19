@@ -10,7 +10,6 @@ import { useLang, type Lang } from '../i18n/lang';
 import { useCurrency, type Currency } from '../i18n/currency';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
-import { waHref } from '../components/WhatsAppFab';
 
 // مسارات أيقونات منصّات التواصل (SVG glyph واحد لكل منصّة)
 const SOCIAL_ICONS: Record<string, string> = {
@@ -565,26 +564,6 @@ export default function LandingPage() {
       .split(' SAR / mois').join(' USD / mois');
   }
 
-  // شريط «عرض الأسبوع» — عرض الكونسيرج المعتمد من المالك (عملية عميل الأسبوع):
-  // يقود لواتساب عبر المحوّل المُقاس نفسه بمرجع مستقلّ (offer-week) فتُعرف نقراته من نقرات الزرّ العائم.
-  //
-  // ⏳ **ينتهي ذاتياً** في OFFER_UNTIL (أمر المالك: يُزال خلال أسبوع). التاريخ لا التذكّر:
-  // نصّ العرض يقول «هذا الأسبوع»، فبقاؤه بعد انقضائه يجعل وعداً منشوراً كاذباً — والانتهاء
-  // الذاتيّ يضمن زواله حتى لو لم تُفتح جلسة. المقارنة بتوقيت الرياض وبصيغة ISO (تُرتَّب نصّياً).
-  const OFFER_UNTIL = '2026-08-26'; // آخر يوم يظهر فيه الشريط
-  const riyadhToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
-  const offerLive = riyadhToday <= OFFER_UNTIL;
-  const offer = lang === 'ar'
-    ? { text: '🎁 عرض هذا الأسبوع: أرسل كشف أصنافك وعملائك — نُسلّمك حسابك جاهزاً خلال 24 ساعة، مع شهر مجاني فوق تجربتك', btn: 'اطلبه الآن على واتساب' }
-    : lang === 'fr'
-      ? { text: "🎁 Cette semaine : envoyez votre liste de produits et clients — votre compte livré prêt sous 24 h, avec un mois gratuit en plus de l'essai", btn: 'Demander sur WhatsApp' }
-      : { text: '🎁 This week: send your products & customers sheet — your account delivered ready within 24 hours, plus a free extra month on your trial', btn: 'Claim it on WhatsApp' };
-  const offerStrip = `<div style="background:#1F1A13;color:#FAF7F0;padding:10px 44px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;text-align:center;font-size:14.5px;line-height:1.6;position:relative;z-index:60">`
-    + `<span>${offer.text}</span>`
-    + `<a href="${waHref('/offer-week', { lang })}" target="_blank" rel="noreferrer" style="background:#E15A30;color:#fff;padding:7px 16px;border-radius:99px;font-weight:700;white-space:nowrap">${offer.btn}</a>`
-    + `<button onclick="this.parentElement.style.display='none'" aria-label="إغلاق" style="background:none;border:none;color:#FAF7F0;opacity:.6;cursor:pointer;font-size:16px;position:absolute;inset-inline-end:12px;top:9px">✕</button>`
-    + `</div>`;
-  if (offerLive) html = offerStrip + html;
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }
