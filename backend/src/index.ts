@@ -42,6 +42,7 @@ import restaurantRouter from './routes/restaurant';
 import hunterRouter from './routes/hunter';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
+import paymentsRouter, { paymentsWebhookRouter } from './routes/payments';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 
@@ -91,6 +92,9 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 // webhook واتساب — قبل محدِّد المعدّل: Meta ترسل دفعات كثيفة وتعيد المحاولة عند أي 429
 app.use('/api/whatsapp', whatsappWebhookRouter);
 
+// webhook ميسر — قبل محدد المعدل: ميسر لا يعيد الارسال الا على غير 2xx فلا نضيع اشعار دفع على 429
+app.use('/api/payments/webhook', paymentsWebhookRouter);
+
 // جسر واتساب ويب — بحدّه الخاص السخيّ (السحب الدوري + لوحة المالك من نفس الـIP المنزلي)
 app.use('/api/wa-bridge', bridgeLimiter, waBridgeRouter);
 
@@ -120,6 +124,7 @@ app.use('/api/erp', erpRouter);
 app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/payments', paymentsRouter);
 app.use('/api/promo-videos', promoVideosRouter);
 app.use('/api/import', importRouter);
 app.use('/api/restaurant', restaurantRouter);

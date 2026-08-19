@@ -24,43 +24,43 @@ model SuperAdmin {
 
 // الشركة المشتركة في النظام — الكيان الأعلى لعزل البيانات
 model Tenant {
-  id                 String    @id @default(uuid())
-  name               String // اسم الشركة المشتركة
-  isActive           Boolean   @default(true) // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
-  plan               String    @default("basic") // basic | pro | enterprise (لم يعد يُعرض في الواجهة)
+  id                        String    @id @default(uuid())
+  name                      String // اسم الشركة المشتركة
+  isActive                  Boolean   @default(true) // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
+  plan                      String    @default("basic") // basic | pro | enterprise (لم يعد يُعرض في الواجهة)
   // محور عزل العموديّات: distribution (التوزيع/المناديب) | restaurant (المطاعم/الكاشير).
   // القيمة الافتراضية distribution ⇒ كل الشركات القائمة تُصنَّف توزيعاً عند db push دون لمس القاعدة.
-  vertical           String    @default("distribution") // distribution | restaurant
-  maxSalesReps       Int? // الحد الأقصى لعدد المناديب (null = غير محدود)
-  maxAdminUsers      Int? // الحد الأقصى لمستخدمي لوحة الشركة (null = غير محدود)
-  maxPosStations     Int? // مطاعم: الحد الأقصى لنقاط البيع/الكاشير (null = غير محدود/لا ينطبق)
-  maxBranches        Int? // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
-  erpEnabled         Boolean   @default(false) // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
-  warehouseEnabled   Boolean   @default(false) // مخزون الشركة (المستودع المركزيّ) — يُفعّله المالك لكل شركة (طرح مدروس)
-  receivablesSummaryEnabled Boolean @default(false) // سطر «إجمالي مديونية العملاء المُسنَدين (بلا تكرار)» في تقرير المديونيات — يُفعّله المالك لكل شركة (طرح محدود)
-  subscriptionEndsAt DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
-  notes              String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  vertical                  String    @default("distribution") // distribution | restaurant
+  maxSalesReps              Int? // الحد الأقصى لعدد المناديب (null = غير محدود)
+  maxAdminUsers             Int? // الحد الأقصى لمستخدمي لوحة الشركة (null = غير محدود)
+  maxPosStations            Int? // مطاعم: الحد الأقصى لنقاط البيع/الكاشير (null = غير محدود/لا ينطبق)
+  maxBranches               Int? // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
+  erpEnabled                Boolean   @default(false) // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
+  warehouseEnabled          Boolean   @default(false) // مخزون الشركة (المستودع المركزيّ) — يُفعّله المالك لكل شركة (طرح مدروس)
+  receivablesSummaryEnabled Boolean   @default(false) // سطر «إجمالي مديونية العملاء المُسنَدين (بلا تكرار)» في تقرير المديونيات — يُفعّله المالك لكل شركة (طرح محدود)
+  subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
+  notes                     String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
-  admins         Admin[]
-  salesReps      SalesRep[]
-  categories     ProductCategory[]
-  products       Product[]
-  customers      Customer[]
-  invoices       Invoice[]
-  receipts       Receipt[]
-  accountEntries AccountEntry[]
-  notifications  Notification[]
-  settings       CompanySettings?
-  erpIntegration ErpIntegration?
-  zatcaEgs       ZatcaEgs?
-  erpSyncLogs    ErpSyncLog[]
-  vanLoads       VanLoad[]
-  warehouseEntries WarehouseEntry[]
-  repLocations   RepLocation[]
-  repSettlements RepSettlement[]
-  importBatches  ImportBatch[]
+  admins              Admin[]
+  salesReps           SalesRep[]
+  categories          ProductCategory[]
+  products            Product[]
+  customers           Customer[]
+  invoices            Invoice[]
+  receipts            Receipt[]
+  accountEntries      AccountEntry[]
+  notifications       Notification[]
+  settings            CompanySettings?
+  erpIntegration      ErpIntegration?
+  zatcaEgs            ZatcaEgs?
+  erpSyncLogs         ErpSyncLog[]
+  vanLoads            VanLoad[]
+  warehouseEntries    WarehouseEntry[]
+  repLocations        RepLocation[]
+  repSettlements      RepSettlement[]
+  importBatches       ImportBatch[]
   customerAssignments CustomerAssignment[]
   adminCustomerScopes AdminCustomerScope[]
   adminRepScopes      AdminRepScope[]
@@ -248,6 +248,27 @@ model SalesRep {
   @@map("sales_reps")
 }
 
+/// روابط دفع ميسر — يصدرها مالك المنصة بمبلغ يحدده بنفسه ويرسلها للعميل.
+/// الدفع يتم على صفحة ميسر المستضافة (لا تمر بيانات بطاقة بنظامنا اطلاقا).
+/// عند التحقق من الدفع: تسجل الدفعة، وان حددت شهور تمديد ومعها شركة يمدد اشتراكها.
+model PaymentLink {
+  id               String    @id @default(uuid())
+  tenantId         String? // ربط اختياري بشركة (للتوثيق والتمديد التلقائي)
+  description      String // وصف يظهر للعميل على صفحة الدفع
+  amountHalalas    Int // المبلغ بالهللات (ريال × ١٠٠) — مصدر الحقيقة للمطابقة
+  months           Int       @default(0) // شهور تمديد الاشتراك عند الدفع (٠ = تسجيل فقط)
+  moyasarInvoiceId String?   @unique // معرف الفاتورة لدى ميسر
+  url              String? // رابط صفحة الدفع المستضافة
+  status           String    @default("initiated") // initiated | paid | canceled | expired
+  paidAt           DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("payment_links")
+}
+
 /// لقطة دوريّة لعدد المتصلين بالمنصّة الآن (كل ٥ دقائق) — تُغذّي مؤشّر «الزيارات
 /// الحية» الزمنيّ في لوحة المالك. لا عزلَ بشركة: مقياس منصّة إجماليّ للمالك وحده.
 model PresenceSnapshot {
@@ -313,10 +334,10 @@ model Product {
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
-  priceTiers     PriceTier[]
-  customerPrices CustomerPrice[]
-  invoiceItems   InvoiceItem[]
-  vanLoadItems   VanLoadItem[]
+  priceTiers          PriceTier[]
+  customerPrices      CustomerPrice[]
+  invoiceItems        InvoiceItem[]
+  vanLoadItems        VanLoadItem[]
   warehouseEntryItems WarehouseEntryItem[]
 
   @@unique([tenantId, code])
@@ -407,8 +428,8 @@ model CustomerAssignment {
   salesRepId String
   salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
   // AUTO = أنشأه المندوب بنفسه، MANUAL = أسندته الإدارة (للتمييز في الواجهة فقط)
-  source    String   @default("MANUAL")
-  createdAt DateTime @default(now())
+  source     String   @default("MANUAL")
+  createdAt  DateTime @default(now())
 
   @@unique([customerId, salesRepId])
   @@index([tenantId, salesRepId])
@@ -474,7 +495,7 @@ model Invoice {
   // ZATCA المرحلة الثانية — سلسلة التجزئة والتوقيع
   einvoiceHash        String? // تجزئة SHA-256 (base64) للفاتورة الموقّعة
   einvoicePih         String? // تجزئة الفاتورة السابقة (Previous Invoice Hash)
-  einvoiceIcv         Int?    // عدّاد الفاتورة (Invoice Counter Value) لكل وحدة EGS
+  einvoiceIcv         Int? // عدّاد الفاتورة (Invoice Counter Value) لكل وحدة EGS
   einvoiceWarnings    String? // تحذيرات الهيئة (JSON) إن وُجدت
 
   // مفتاح idempotency: UUID يولّده العميل مرّة لكل مستند. عند تكرار الرفع (إعادة محاولة/شبكة
@@ -607,19 +628,19 @@ model AccountEntry {
 }
 
 model CompanySettings {
-  id              String  @id @default(uuid())
-  tenantId        String  @unique
-  tenant          Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name            String
-  address         String?
-  taxNumber       String?
-  commercialReg   String?
-  phone           String?
-  email           String?
-  logo            String? // شعار الشركة (base64 data URL)
-  primaryColor    String? // لون الترويسة الأساسي (hex)
-  headerStyle     String? @default("classic") // classic | banner | minimal
-  trackingEnabled Boolean @default(false) // تفعيل تتبّع مواقع المناديب GPS على مستوى الشركة
+  id                       String  @id @default(uuid())
+  tenantId                 String  @unique
+  tenant                   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                     String
+  address                  String?
+  taxNumber                String?
+  commercialReg            String?
+  phone                    String?
+  email                    String?
+  logo                     String? // شعار الشركة (base64 data URL)
+  primaryColor             String? // لون الترويسة الأساسي (hex)
+  headerStyle              String? @default("classic") // classic | banner | minimal
+  trackingEnabled          Boolean @default(false) // تفعيل تتبّع مواقع المناديب GPS على مستوى الشركة
   // عزل عملاء المناديب: عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له (CustomerAssignment).
   // افتراضي false ⇒ كل الشركات القائمة تبقى على سلوكها الحالي عند db push (لا انقطاع).
   customerIsolationEnabled Boolean @default(false)
@@ -652,17 +673,17 @@ model ZatcaEgs {
   tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   environment      String    @default("production") // sandbox | simulation | production
   egsSerialNumber  String    @default("") // 1-<solution>|2-<model>|3-<serial>
-  privateKeyPem    String?   // مفتاح EC secp256k1 الخاصّ (حسّاس)
-  csrPem           String?   // طلب توقيع الشهادة (CSR)
-  complianceCsid   String?   // binarySecurityToken من واجهة الامتثال
+  privateKeyPem    String? // مفتاح EC secp256k1 الخاصّ (حسّاس)
+  csrPem           String? // طلب توقيع الشهادة (CSR)
+  complianceCsid   String? // binarySecurityToken من واجهة الامتثال
   complianceSecret String?
-  complianceReqId  String?   // requestID لاجتياز فحوص الامتثال
-  productionCsid   String?   // شهادة الإنتاج (binarySecurityToken)
+  complianceReqId  String? // requestID لاجتياز فحوص الامتثال
+  productionCsid   String? // شهادة الإنتاج (binarySecurityToken)
   productionSecret String?
   csidIssuedAt     DateTime?
   csidExpiresAt    DateTime?
   lastIcv          Int       @default(0) // آخر عدّاد فاتورة مُسند لهذه الوحدة
-  lastPih          String?   // تجزئة آخر فاتورة (لتسلسل PIH)
+  lastPih          String? // تجزئة آخر فاتورة (لتسلسل PIH)
   status           String    @default("not_started") // not_started | csr_ready | compliance | ready | error
   lastError        String?
   createdAt        DateTime  @default(now())
@@ -781,15 +802,15 @@ model VanLoadItem {
 /// وارد مخزون الشركة (المستودع المركزيّ) — استلام/شراء أو تسوية. مرتبطٌ بمخزون
 /// السيارات: تحميل السيارة يخرج من المستودع، والتنزيل (UNLOAD) يعود إليه.
 model WarehouseEntry {
-  id        String   @id @default(uuid())
+  id        String               @id @default(uuid())
   tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type      String   @default("RECEIVE") // RECEIVE (وارد/شراء) | ADJUST (تسوية)
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      String               @default("RECEIVE") // RECEIVE (وارد/شراء) | ADJUST (تسوية)
   note      String?
-  supplier  String?  // المورّد (اختياري، للوارد)
-  createdBy String?  // اسم المستخدم الذي سجّل الحركة
+  supplier  String? // المورّد (اختياري، للوارد)
+  createdBy String? // اسم المستخدم الذي سجّل الحركة
   items     WarehouseEntryItem[]
-  createdAt DateTime @default(now())
+  createdAt DateTime             @default(now())
 
   @@index([tenantId, createdAt])
   @@map("warehouse_entries")
@@ -801,7 +822,7 @@ model WarehouseEntryItem {
   entry     WarehouseEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
   productId String
   product   Product        @relation(fields: [productId], references: [id])
-  qty       Float          // موجب للوارد؛ + أو − للتسوية
+  qty       Float // موجب للوارد؛ + أو − للتسوية
 
   @@index([productId])
   @@map("warehouse_entry_items")
@@ -1039,26 +1060,26 @@ model Visit {
 
   // --- طبقة الإسناد التسويقي: كلها اختيارية (تغيير إضافي بحت، بلا فقد بيانات) ---
   // هوية مجهولة ثابتة (كوكي طرف أول) وجلسة — لربط الزيارات ببعضها دون بيانات شخصية
-  anonId    String? @db.VarChar(40)
-  sessionId String? @db.VarChar(40)
+  anonId       String?  @db.VarChar(40)
+  sessionId    String?  @db.VarChar(40)
   // وسوم الحملة (قاموس مغلق يُطبَّع على الخادم؛ أي قيمة خارجه ⇒ other)
-  utmSource   String? @db.VarChar(64)
-  utmMedium   String? @db.VarChar(64)
-  utmCampaign String? @db.VarChar(96)
-  utmContent  String? @db.VarChar(96)
-  utmTerm     String? @db.VarChar(96)
+  utmSource    String?  @db.VarChar(64)
+  utmMedium    String?  @db.VarChar(64)
+  utmCampaign  String?  @db.VarChar(96)
+  utmContent   String?  @db.VarChar(96)
+  utmTerm      String?  @db.VarChar(96)
   // قناة مشتقّة على الخادم: ai_generative | organic | referral | direct | email | social
-  channel  String? @db.VarChar(24)
-  aiEngine String? @db.VarChar(24) // chatgpt | perplexity | copilot | gemini | claude
+  channel      String?  @db.VarChar(24)
+  aiEngine     String?  @db.VarChar(24) // chatgpt | perplexity | copilot | gemini | claude
   // أول لمسة (تُثبَّت مرّة ولا تُدهس) — تُرسل من الكوكي مع كل زيارة
-  firstSource   String? @db.VarChar(64)
-  firstMedium   String? @db.VarChar(64)
-  firstLanding  String? @db.VarChar(180)
+  firstSource  String?  @db.VarChar(64)
+  firstMedium  String?  @db.VarChar(64)
+  firstLanding String?  @db.VarChar(180)
   // واتساب: مرجع الصفحة التي أطلقت النقرة + رمز يربط المحادثة بالزيارة
-  waRef     String?   @db.VarChar(48)
-  waCode    String?   @db.VarChar(16)
-  waClicked Boolean?  // true = صفّ نقرة واتساب لا مشاهدة صفحة
-  contentType String? @db.VarChar(24) // landing | blog | tool | pricing | sector | compare
+  waRef        String?  @db.VarChar(48)
+  waCode       String?  @db.VarChar(16)
+  waClicked    Boolean? // true = صفّ نقرة واتساب لا مشاهدة صفحة
+  contentType  String?  @db.VarChar(24) // landing | blog | tool | pricing | sector | compare
 
   @@index([createdAt])
   @@index([countryCode])
@@ -1294,7 +1315,7 @@ model OrderItemModifier {
   id          String    @id @default(uuid())
   orderItemId String
   orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  modifierId  String?   // مرجع الخيار الأصلي — لإعادة تحميل الطلب المفتوح بلا فقد الإضافات (M7)
+  modifierId  String? // مرجع الخيار الأصلي — لإعادة تحميل الطلب المفتوح بلا فقد الإضافات (M7)
   nameSnap    String
   priceDelta  Float     @default(0)
 
@@ -1324,17 +1345,17 @@ model OrderPayment {
 
 // وردية كاشير — تُفتح برصيد افتتاحي، تتراكم عليها الحركات، ثم تُغلق بعدّ الدرج واحتساب الفرق
 model PosShift {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   cashierName  String?
-  openingFloat Float    @default(0)   // النقد الافتتاحي في الدرج
-  declaredCash Float?                  // النقد المعدود عند الإغلاق
-  expectedCash Float?                  // المتوقّع (محسوب من الحركات)
-  variance     Float?                  // declaredCash − expectedCash (سالب=عجز، موجب=فائض)
-  status       String   @default("OPEN") // OPEN | CLOSED
+  openingFloat Float     @default(0) // النقد الافتتاحي في الدرج
+  declaredCash Float? // النقد المعدود عند الإغلاق
+  expectedCash Float? // المتوقّع (محسوب من الحركات)
+  variance     Float? // declaredCash − expectedCash (سالب=عجز، موجب=فائض)
+  status       String    @default("OPEN") // OPEN | CLOSED
   note         String?
-  openedAt     DateTime @default(now())
+  openedAt     DateTime  @default(now())
   closedAt     DateTime?
 
   movements CashMovement[]
@@ -1351,7 +1372,7 @@ model CashMovement {
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   shiftId   String
   shift     PosShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  type      String   // OPENING | SALE | REFUND | PAY_IN | PAY_OUT | DROP
+  type      String // OPENING | SALE | REFUND | PAY_IN | PAY_OUT | DROP
   amount    Float
   reason    String?
   createdAt DateTime @default(now())
@@ -1372,9 +1393,9 @@ model Ingredient {
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name      String
   unit      String   @default("kg") // kg | g | l | ml | pcs
-  stockQty  Float    @default(0)    // الرصيد الحالي
-  minQty    Float    @default(0)    // حدّ التنبيه عند النفاد
-  avgCost   Float    @default(0)    // متوسّط تكلفة الوحدة (يُحدَّث عند الشراء)
+  stockQty  Float    @default(0) // الرصيد الحالي
+  minQty    Float    @default(0) // حدّ التنبيه عند النفاد
+  avgCost   Float    @default(0) // متوسّط تكلفة الوحدة (يُحدَّث عند الشراء)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1410,11 +1431,11 @@ model IngredientMovement {
   tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   ingredientId String
   ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
-  type         String     // PURCHASE | SALE_OUT | ADJUST | WASTE
+  type         String // PURCHASE | SALE_OUT | ADJUST | WASTE
   qty          Float
-  unitCost     Float?     // للشراء — يُحدِّث متوسّط التكلفة
+  unitCost     Float? // للشراء — يُحدِّث متوسّط التكلفة
   reason       String?
-  orderId      String?    // مرجع الطلب عند SALE_OUT
+  orderId      String? // مرجع الطلب عند SALE_OUT
   createdAt    DateTime   @default(now())
 
   @@index([tenantId])
@@ -1455,7 +1476,7 @@ model HunterUser {
 
 /// عميل محتمل مملوك لحسابٍ واحد. كل استعلام يُقيَّد بـuserId (عزل صارم).
 model HunterLead {
-  id          String  @id @default(uuid())
+  id          String     @id @default(uuid())
   userId      String
   user        HunterUser @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
@@ -1470,7 +1491,7 @@ model HunterLead {
   lat         Float?
   lng         Float?
   mapsUrl     String?
-  source      String  @default("manual") // المصدر الأول
+  source      String     @default("manual") // المصدر الأول
   sourcesCsv  String? // كل المصادر التي أكّدت هذا العميل، مفصولة بـ+
   sourceId    String? // معرّف المصدر الأصلي (osm:node/123)
 

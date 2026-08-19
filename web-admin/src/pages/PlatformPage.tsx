@@ -8,7 +8,7 @@ import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
   BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug, Radio,
-  Truck, UtensilsCrossed,
+  Truck, UtensilsCrossed, CreditCard,
 } from 'lucide-react';
 
 // عمودية الفرع: توزيع (يمين، برتقالي) | مطاعم (يسار، قرميدي/أخضر)
@@ -22,6 +22,7 @@ import GeoDashboard from '../components/GeoDashboard';
 import VisitsPanel from '../components/VisitsPanel';
 import LiveUsersPanel from '../components/LiveUsersPanel';
 import ProfileEditorPanel from '../components/ProfileEditorPanel';
+import PaymentLinksPanel from '../components/PaymentLinksPanel';
 import LeadsPanel from '../components/LeadsPanel';
 import CompanyHealthPanel from '../components/CompanyHealthPanel';
 import InvoiceToolPanel from '../components/InvoiceToolPanel';
@@ -43,6 +44,7 @@ export default function PlatformPage() {
   const [showVisits, setShowVisits] = useState(false);
   const [showLive, setShowLive] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showPayments, setShowPayments] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [showInvoiceTool, setShowInvoiceTool] = useState(false);
   const [showPromoVideos, setShowPromoVideos] = useState(false);
@@ -127,6 +129,9 @@ export default function PlatformPage() {
           </button>
           <button onClick={() => setShowPromoVideos(true)} className="sidebar-link w-full">
             <Video size={18} className="flex-shrink-0" /> <span>{tr('الفيديوهات الترويجية')}</span>
+          </button>
+          <button onClick={() => setShowPayments(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+            <CreditCard size={18} className="flex-shrink-0" /> <span>{tr('روابط الدفع')}</span>
           </button>
           <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
             <FileText size={18} className="flex-shrink-0" /> <span>{tr('محتوى البروفايل')}</span>
@@ -238,6 +243,7 @@ export default function PlatformPage() {
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
       {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
       {showProfile && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
+      {showPayments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal

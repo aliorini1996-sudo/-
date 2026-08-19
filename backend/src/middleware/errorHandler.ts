@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ZodError) {
     const fieldErrors = err.flatten().fieldErrors;
     const fields = Object.keys(fieldErrors);
@@ -19,7 +19,10 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       res.status(409).json({ success: false, message: 'السجل موجود مسبقاً' });
       return;
     }
-    res.status(500).json({ success: false, message: err.message });
+    // رسائل الاعطال الداخلية (اتصال DB ونحوه) قد تحمل تفاصيل بنية تحتية —
+    // لا تصل الا لمستخدم مصادق عليه؛ النقاط العامة (كصفحة نجاح الدفع) ترى رسالة عامة
+    const authed = !!(req as { user?: unknown }).user;
+    res.status(500).json({ success: false, message: authed ? err.message : 'خطأ في الخادم' });
     return;
   }
 

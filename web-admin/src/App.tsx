@@ -44,6 +44,7 @@ const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
 const TutorialPage = lazy(() => import('./pages/TutorialPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const PaymentResultPage = lazy(() => import('./pages/PaymentResultPage'));
 const MobileApp = lazy(() => import('./m/MobileApp'));
 // منصّة صيد العملاء — صفحة سرّية غير مُدرَجة ولا مرتبطة من أي مكان
 const HunterApp = lazy(() => import('./hunter/HunterApp'));
@@ -190,6 +191,7 @@ export default function App() {
         <Route path="/calculator" element={<LeakCalculatorPage />} />
         <Route path="/tutorial" element={<TutorialPage />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/payment/success" element={<PaymentResultPage />} />
         <Route path="/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/قطاعات" element={<SectorPage />} />

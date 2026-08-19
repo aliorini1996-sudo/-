@@ -270,6 +270,15 @@ export const siteContentApi = {
   update: (data: unknown) => api.put('/site-content', data),
 };
 
+
+// روابط الدفع الالكتروني (ميسر) — يصدرها مالك المنصة بمبلغ يحدده بنفسه
+export const paymentsApi = {
+  create: (data: { amountSar: number; description: string; tenantId?: string | null; months?: number }) => api.post('/payments', data),
+  list: () => api.get('/payments'),
+  refresh: (id: string) => api.post(`/payments/${id}/refresh`),
+  publicStatus: (id: string) => api.get(`/payments/public-status/${id}`),
+};
+
 // تحليلات زيارات الموقع — تسجيل عام (بلا مصادقة) + إحصاءات للمالك
 export const analyticsApi = {
   track: (data: { path: string; referrer?: string; lang?: string }) => api.post('/analytics/track', data),
