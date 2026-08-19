@@ -21,6 +21,7 @@ import SeoDashboard from '../components/SeoDashboard';
 import GeoDashboard from '../components/GeoDashboard';
 import VisitsPanel from '../components/VisitsPanel';
 import LiveUsersPanel from '../components/LiveUsersPanel';
+import ProfileEditorPanel from '../components/ProfileEditorPanel';
 import LeadsPanel from '../components/LeadsPanel';
 import CompanyHealthPanel from '../components/CompanyHealthPanel';
 import InvoiceToolPanel from '../components/InvoiceToolPanel';
@@ -41,6 +42,7 @@ export default function PlatformPage() {
   const [showGeo, setShowGeo] = useState(false);
   const [showVisits, setShowVisits] = useState(false);
   const [showLive, setShowLive] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [showInvoiceTool, setShowInvoiceTool] = useState(false);
   const [showPromoVideos, setShowPromoVideos] = useState(false);
@@ -125,6 +127,9 @@ export default function PlatformPage() {
           </button>
           <button onClick={() => setShowPromoVideos(true)} className="sidebar-link w-full">
             <Video size={18} className="flex-shrink-0" /> <span>{tr('الفيديوهات الترويجية')}</span>
+          </button>
+          <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
+            <FileText size={18} className="flex-shrink-0" /> <span>{tr('محتوى البروفايل')}</span>
           </button>
           <button onClick={() => setShowContent(true)} className="sidebar-link w-full">
             <Globe size={18} className="flex-shrink-0" /> <span>{tr('محتوى الصفحة')}</span>
@@ -232,6 +237,7 @@ export default function PlatformPage() {
       {showGeo && <GeoDashboard onClose={() => setShowGeo(false)} />}
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
       {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
+      {showProfile && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal
