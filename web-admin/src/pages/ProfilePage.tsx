@@ -8,9 +8,13 @@ import { mergeProfile, splitLines, splitPairs, ProfileLang, ProfileContent } fro
  * «بروفايل» — الملف التعريفي التفاعلي fieldsa.net/profile
  * بنفس ترتيب ملف الـPDF قسما قسما، والمشاهد يبدل اللغة (عربي/انجليزي) كما يناسبه.
  * كل نص يُقرأ من CMS الموقع (siteContent.profile) فيعدّله المالك من لوحته بأي وقت.
+ *
+ * الصور في /media/profile/*.jpg بأسماء ثابتة — استبدال أي ملف بنسخة أعلى دقة
+ * (بنفس الاسم) يحدّث الصفحة دون أي تغيير في الكود.
  */
 
 const COLORS = { coral: '#E15A30', ink: '#1F1A13', cream: '#FAF7F0', coralL: '#FBEBE2', gray: '#6E6557', sand: '#E9E1D3', green: '#1E7A52' };
+const IMG = (n: string) => `/media/profile/${n}.jpg`;
 
 export default function ProfilePage() {
   const [lang, setLang] = useState<ProfileLang>('ar');
@@ -44,10 +48,10 @@ export default function ProfilePage() {
     </span>
   );
 
-  const Kicker = ({ children, dark }: { children: React.ReactNode; dark?: boolean }) => (
+  const Kicker = ({ children }: { children: React.ReactNode }) => (
     <div className="flex items-center gap-2.5 font-bold text-sm" style={{ color: COLORS.coral }}>
       <span className="inline-block h-1 w-9 rounded-full" style={{ background: COLORS.coral }} />
-      <span style={{ opacity: dark ? 1 : 0.95 }}>{children}</span>
+      <span>{children}</span>
     </div>
   );
 
@@ -58,10 +62,24 @@ export default function ProfilePage() {
   );
 
   const Lines = ({ text, dark, size = 'text-lg' }: { text: string; dark?: boolean; size?: string }) => (
-    <div className={`mt-5 ${size} leading-loose`} style={{ color: dark ? 'rgba(250,247,240,.75)' : COLORS.gray }}>
+    <div className={`mt-5 ${size} leading-loose`} style={{ color: dark ? 'rgba(250,247,240,.78)' : COLORS.gray }}>
       {splitLines(text).map((l, i) => <p key={i}>{l}</p>)}
     </div>
   );
+
+  const Photo = ({ name, alt, h = 'h-64 sm:h-80' }: { name: string; alt: string; h?: string }) => (
+    <img src={IMG(name)} alt={alt} loading="lazy"
+      className={`w-full ${h} object-cover rounded-2xl`}
+      style={{ border: `1px solid ${COLORS.sand}`, boxShadow: '0 10px 30px rgba(31,26,19,.10)' }} />
+  );
+
+  // خلفية داكنة بصورة معتمة — التعتيم الثقيل يحفظ قراءة النص ويُخفي حدود دقة الصورة
+  const darkBg = (name: string, opacity = 0.9) => ({
+    backgroundColor: COLORS.ink,
+    backgroundImage: `linear-gradient(rgba(31,26,19,${opacity}), rgba(31,26,19,${Math.min(1, opacity + 0.05)})), url(${IMG(name)})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  });
 
   return (
     <div dir={dir} className="min-h-screen" style={{ background: COLORS.cream, fontFamily: font }}>
@@ -91,24 +109,21 @@ export default function ProfilePage() {
         </div>
       </header>
 
-      {/* ١ الغلاف */}
-      <section className="relative overflow-hidden" style={{ background: COLORS.ink }}>
-        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1280 640" preserveAspectRatio="xMidYMid slice" aria-hidden>
-          <line x1={isAr ? 180 : 1100} y1="560" x2={isAr ? 1100 : 180} y2="110" stroke={COLORS.coral} strokeWidth="6" strokeLinecap="round" opacity=".55" />
-          <circle cx={isAr ? 180 : 1100} cy="560" r="13" fill={COLORS.cream} opacity=".9" />
-          <circle cx="640" cy="335" r="10" fill={COLORS.cream} opacity=".9" />
-          <circle cx={isAr ? 1100 : 180} cy="110" r="20" fill="none" stroke={COLORS.coral} strokeWidth="9" />
-          <circle cx={isAr ? 1100 : 180} cy="110" r="7" fill={COLORS.cream} />
-        </svg>
-        <div className="relative max-w-6xl mx-auto px-4 py-20 sm:py-28">
-          <Kicker dark>{L('الملف التعريفي', 'Company profile')}</Kicker>
+      {/* ١ الغلاف — صورة المندوب خلفية بتدرج داكن جهة النص */}
+      <section className="relative overflow-hidden" style={{
+        backgroundColor: COLORS.ink,
+        backgroundImage: `linear-gradient(${isAr ? '270deg' : '90deg'}, rgba(31,26,19,.35) 0%, rgba(31,26,19,.78) 45%, rgba(31,26,19,.96) 100%), url(${IMG('cover')})`,
+        backgroundSize: 'cover', backgroundPosition: 'center',
+      }}>
+        <div className="relative max-w-6xl mx-auto px-4 py-24 sm:py-32">
+          <Kicker>{L('الملف التعريفي', 'Company profile')}</Kicker>
           <h1 className="mt-4 text-4xl sm:text-6xl font-bold leading-tight max-w-3xl" style={{ color: COLORS.cream, fontFamily: headFont }}>
             {t.cover_title}
           </h1>
-          <div className="mt-6 text-lg sm:text-2xl leading-relaxed" style={{ color: 'rgba(250,247,240,.72)' }}>
+          <div className="mt-6 text-lg sm:text-2xl leading-relaxed" style={{ color: 'rgba(250,247,240,.8)' }}>
             {splitLines(t.cover_promise).map((l, i) => <p key={i}>{l}</p>)}
           </div>
-          <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2 text-sm" style={{ color: 'rgba(250,247,240,.55)' }}>
+          <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2 text-sm" style={{ color: 'rgba(250,247,240,.6)' }}>
             <span style={{ color: COLORS.coral, fontWeight: 700, fontFamily: enFont }}>fieldsa.net</span>
             <span>{L('نسخة ٢٠٢٦', '2026 edition')}</span>
             <span>{L('معد للشركاء والمستثمرين', 'Prepared for partners and investors')}</span>
@@ -116,17 +131,22 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ٢ المشكلة */}
+      {/* ٢ المشكلة — نص + صورة الدفاتر */}
       <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <Kicker>{L('المشكلة', 'The problem')}</Kicker>
-        <H2>{t.problem_title}</H2>
-        <Lines text={t.problem_body} size="text-lg sm:text-xl" />
+        <div className="grid lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <Kicker>{L('المشكلة', 'The problem')}</Kicker>
+            <H2>{t.problem_title}</H2>
+            <Lines text={t.problem_body} size="text-lg sm:text-xl" />
+          </div>
+          <Photo name="problem" alt={L('دفاتر ورقية متكدسة', 'Piles of paper ledgers')} />
+        </div>
       </section>
 
       {/* ٣ الحل */}
       <section style={{ background: COLORS.ink }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker dark>{L('الحل', 'The solution')}</Kicker>
+          <Kicker>{L('الحل', 'The solution')}</Kicker>
           <H2 dark>{t.solution_title}</H2>
           <div className="mt-8 grid sm:grid-cols-2 gap-8">
             {[t.solution_col1, t.solution_col2].map((col, ci) => (
@@ -143,12 +163,15 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ٤ العملاء */}
+      {/* ٤ العملاء — صورة الاسطول لافتة ثم البطاقات */}
       <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
         <Kicker>{L('العملاء', 'Our clients')}</Kicker>
         <H2>{t.clients_title}</H2>
         <Lines text={t.clients_intro} />
-        <div className="mt-8 grid sm:grid-cols-3 gap-5">
+        <div className="mt-8">
+          <Photo name="clients" alt={L('اسطول سيارات توزيع', 'A fleet of delivery vans')} h="h-56 sm:h-72" />
+        </div>
+        <div className="mt-6 grid sm:grid-cols-3 gap-5">
           {splitLines(t.clients_sectors).map((s, i) => (
             <div key={i} className="rounded-2xl bg-white p-6 text-base leading-relaxed" style={{ border: `1px solid ${COLORS.sand}`, color: COLORS.ink }}>
               <span className="block mb-3 text-2xl font-bold" style={{ color: COLORS.coral, fontFamily: headFont }}>{isAr ? '٠' + '١٢٣'[i] : `0${i + 1}`}</span>
@@ -158,45 +181,55 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ٥ من نحن */}
+      {/* ٥ من نحن — نص + صورة التسليم */}
       <section style={{ background: COLORS.coralL }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker>{L('من نحن', 'Who we are')}</Kicker>
-          <H2>{t.about_title}</H2>
-          <Lines text={t.about_body} size="text-lg sm:text-xl" />
-        </div>
-      </section>
-
-      {/* ٦ الرحلة */}
-      <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <Kicker>{L('الرحلة', 'The journey')}</Kicker>
-        <H2>{t.journey_title}</H2>
-        <div className="mt-10 grid gap-0">
-          {splitPairs(t.journey_stations).map((st, i, arr) => (
-            <div key={i} className="flex gap-5">
-              <div className="flex flex-col items-center">
-                <span className="w-4 h-4 rounded-full shrink-0" style={{ background: COLORS.coral }} />
-                {i < arr.length - 1 && <span className="w-0.5 flex-1" style={{ background: COLORS.sand }} />}
-              </div>
-              <div className="pb-8 -mt-1">
-                <p className="font-bold text-lg" style={{ color: COLORS.coral }}>{st.a}</p>
-                <p className="text-base sm:text-lg mt-0.5" style={{ color: COLORS.ink }}>{st.b}</p>
-              </div>
+          <div className="grid lg:grid-cols-2 gap-10 items-center">
+            <div>
+              <Kicker>{L('من نحن', 'Who we are')}</Kicker>
+              <H2>{t.about_title}</H2>
+              <Lines text={t.about_body} size="text-lg sm:text-xl" />
             </div>
-          ))}
+            <Photo name="about" alt={L('مندوب يسلم بضاعة لعميل', 'A rep handing goods to a customer')} />
+          </div>
         </div>
       </section>
 
-      {/* ٧ الانجازات */}
-      <section style={{ background: COLORS.ink }}>
+      {/* ٦ الرحلة — الخط الزمني + صورة المستودع */}
+      <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+        <div className="grid lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <Kicker>{L('الرحلة', 'The journey')}</Kicker>
+            <H2>{t.journey_title}</H2>
+            <div className="mt-10 grid gap-0">
+              {splitPairs(t.journey_stations).map((st, i, arr) => (
+                <div key={i} className="flex gap-5">
+                  <div className="flex flex-col items-center">
+                    <span className="w-4 h-4 rounded-full shrink-0" style={{ background: COLORS.coral }} />
+                    {i < arr.length - 1 && <span className="w-0.5 flex-1" style={{ background: COLORS.sand }} />}
+                  </div>
+                  <div className="pb-8 -mt-1">
+                    <p className="font-bold text-lg" style={{ color: COLORS.coral }}>{st.a}</p>
+                    <p className="text-base sm:text-lg mt-0.5" style={{ color: COLORS.ink }}>{st.b}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <Photo name="journey" alt={L('داخل مستودع توزيع', 'Inside a distribution warehouse')} h="h-72 sm:h-96" />
+        </div>
+      </section>
+
+      {/* ٧ الانجازات — خلفية طرق المدينة ليلا */}
+      <section style={darkBg('achievements', 0.88)}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker dark>{L('الانجازات', 'Achievements')}</Kicker>
+          <Kicker>{L('الانجازات', 'Achievements')}</Kicker>
           <H2 dark>{t.achievements_title}</H2>
           <div className="mt-8 grid sm:grid-cols-3 gap-5">
             {splitLines(t.achievements_items).map((a, i) => (
-              <div key={i} className="rounded-2xl p-6" style={{ background: 'rgba(250,247,240,.05)', border: '1px solid rgba(250,247,240,.12)' }}>
+              <div key={i} className="rounded-2xl p-6" style={{ background: 'rgba(250,247,240,.06)', border: '1px solid rgba(250,247,240,.14)' }}>
                 <span className="block mb-3 text-3xl font-bold" style={{ color: COLORS.coral, fontFamily: headFont }}>{isAr ? '١٢٣'[i] : i + 1}</span>
-                <p className="text-base leading-relaxed" style={{ color: 'rgba(250,247,240,.85)' }}>{a}</p>
+                <p className="text-base leading-relaxed" style={{ color: 'rgba(250,247,240,.88)' }}>{a}</p>
               </div>
             ))}
           </div>
@@ -206,7 +239,10 @@ export default function ProfilePage() {
       {/* ٨ الارقام */}
       <section style={{ background: COLORS.coral }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker dark><span style={{ color: COLORS.cream }}>{L('الارقام', 'The numbers')}</span></Kicker>
+          <div className="flex items-center gap-2.5 font-bold text-sm" style={{ color: COLORS.cream }}>
+            <span className="inline-block h-1 w-9 rounded-full" style={{ background: COLORS.cream }} />
+            {L('الارقام', 'The numbers')}
+          </div>
           <h2 className="mt-3 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.cream, fontFamily: headFont }}>{t.numbers_title}</h2>
           <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-5">
             {splitPairs(t.numbers_items).map((n, i) => (
@@ -219,33 +255,38 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ٩ اهداف المستقبل */}
-      <section style={{ background: COLORS.ink }}>
+      {/* ٩ اهداف المستقبل — خلفية سلسلة الامداد الذكية */}
+      <section style={darkBg('goals', 0.9)}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker dark>{L('اهداف المستقبل', 'Future targets')}</Kicker>
+          <Kicker>{L('اهداف المستقبل', 'Future targets')}</Kicker>
           <H2 dark>{t.goals_title}</H2>
           <div className="mt-8 grid sm:grid-cols-2 gap-5">
             {splitLines(t.goals_items).map((g, i) => (
-              <div key={i} className="rounded-2xl p-6 flex gap-5 items-start" style={{ background: 'rgba(250,247,240,.05)', border: '1px solid rgba(250,247,240,.12)' }}>
+              <div key={i} className="rounded-2xl p-6 flex gap-5 items-start" style={{ background: 'rgba(250,247,240,.06)', border: '1px solid rgba(250,247,240,.14)' }}>
                 <span className="text-4xl sm:text-5xl font-bold leading-none" style={{ color: COLORS.coral, fontFamily: headFont }}>{isAr ? '١٢٣٤'[i] : i + 1}</span>
-                <p className="text-base sm:text-lg leading-relaxed" style={{ color: 'rgba(250,247,240,.9)' }}>{g}</p>
+                <p className="text-base sm:text-lg leading-relaxed" style={{ color: 'rgba(250,247,240,.92)' }}>{g}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ١٠ الاستثمار */}
+      {/* ١٠ الاستثمار — نص + صورة الدفع بالبطاقة */}
       <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <Kicker>{L('الاستثمار', 'Investment')}</Kicker>
-        <H2>{t.invest_title}</H2>
-        <div className="mt-8 grid sm:grid-cols-3 gap-5">
-          {splitLines(t.invest_tracks).map((tr, i) => (
-            <div key={i} className="rounded-2xl bg-white p-6 text-base leading-relaxed" style={{ border: `1px solid ${COLORS.sand}`, color: COLORS.ink }}>
-              <span className="block w-2.5 h-2.5 rounded-full mb-4" style={{ background: COLORS.coral }} />
-              {tr}
+        <div className="grid lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <Kicker>{L('الاستثمار', 'Investment')}</Kicker>
+            <H2>{t.invest_title}</H2>
+            <div className="mt-8 grid gap-4">
+              {splitLines(t.invest_tracks).map((tr, i) => (
+                <div key={i} className="rounded-2xl bg-white p-5 flex items-center gap-4 text-base leading-relaxed" style={{ border: `1px solid ${COLORS.sand}`, color: COLORS.ink }}>
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COLORS.coral }} />
+                  {tr}
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+          <Photo name="invest" alt={L('دفع الكتروني على جوال المندوب', 'Contactless payment on a rep phone')} />
         </div>
       </section>
 
@@ -271,17 +312,17 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ١٢ الختام */}
-      <footer className="relative overflow-hidden" style={{ background: COLORS.ink }}>
+      {/* ١٢ الختام — خلفية افق الرياض */}
+      <footer className="relative overflow-hidden" style={darkBg('closing', 0.85)}>
         <div className="relative max-w-6xl mx-auto px-4 py-16 sm:py-20 text-center">
           <div className="flex justify-center mb-5"><BrandIcon size={64} radius={0.28} /></div>
           <p className="text-3xl mb-4"><Wordmark dark /></p>
-          <div className="text-base sm:text-lg leading-loose" style={{ color: 'rgba(250,247,240,.65)' }}>
+          <div className="text-base sm:text-lg leading-loose" style={{ color: 'rgba(250,247,240,.7)' }}>
             {splitLines(t.closing_line).map((l, i) => <p key={i}>{l}</p>)}
           </div>
           <div className="mt-6 flex justify-center gap-6 text-sm" style={{ fontFamily: enFont }}>
             <span style={{ color: COLORS.coral, fontWeight: 700 }}>fieldsa.net</span>
-            <span style={{ color: 'rgba(250,247,240,.6)' }}>help@fieldsa.net</span>
+            <span style={{ color: 'rgba(250,247,240,.65)' }}>help@fieldsa.net</span>
           </div>
         </div>
       </footer>
