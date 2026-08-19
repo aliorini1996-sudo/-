@@ -3,7 +3,8 @@ import repApi from './repApi';
 import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
 import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
 import type { OutboxDoc } from './offlineDb';
-import { formatCurrency, formatDate, setActiveCurrency } from '../utils/format';
+import { formatCurrency, formatDate, setActiveCurrency, getActiveCurrency } from '../utils/format';
+import { currencyDecimals } from '../i18n/countries';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
@@ -723,8 +724,6 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   // السعر الذي يُدخله المندوب شامل الضريبة؛ نشتقّ السعر قبل الضريبة للنظام
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  const preTax = (l: any) => l.unitPrice / (1 + l.taxPct / 100);
-  const lineTotal = (l: any) => l.qty * l.unitPrice * (1 - l.discountPct / 100); // شامل الضريبة
   const inclPrice = (p: any) => round2(Number(p.basePrice) * (1 + Number(p.taxPct) / 100)); // السعر شامل الضريبة
 
   const addProduct = (p: any) => {
@@ -758,12 +757,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const qtyInCart = (id: string) => lines.find(l => l.productId === id)?.qty || 0;
   const itemCount = lines.reduce((s, l) => s + l.qty, 0);
 
-  // الإجماليات من **المحرّك المشترك** المطابق للخادم حرفياً، وبنفس المدخلات
-  // التي تُرسَل فعلاً (السعر قبل الضريبة `round2(preTax)`) — فما يراه المندوب
-  // على الشاشة هو عين ما يحسبه الخادم، لا صيغةً ثانية تفترق عنه.
+  // الإجماليات من **المحرّك المشترك** بوضع «الأسعار شاملة»: سعر البند كما
+  // أُعلن للعميل يبقى حرفياً هو المعروض والمرسل والمخزون — التحويل الوسيط
+  // round2(preTax) كان يجعل سعر 10.00 المعلن يُقيَّد 10.01 ويطبع ورقة تناقض نفسها
+  const dec = currencyDecimals(getActiveCurrency());
   const repCalc = computeInvoiceTotals(
-    lines.map(l => ({ qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
-    { companyVat: 15, decimals: 2, invoiceDiscountPct: 0 }, // taxPct يأتي مع كل بند فلا تُستعمل هذه
+    lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
+    { companyVat: 15, decimals: dec, invoiceDiscountPct: 0, pricesIncludeTax: true }, // taxPct يأتي مع كل بند
   );
   const subtotal = repCalc.subtotal;
   const discount = repCalc.discountAmt;
@@ -784,11 +784,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const payload = {
       ...custRef, type: isReturn ? 'RETURN' : type, discountPct: 0,
       ...(isReturn && { returnReason }),
-      // نرسل السعر قبل الضريبة (مشتقّاً من السعر الشامل)
-      items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct })),
+      // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
+      pricesIncludeTax: true,
+      items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
       clientRef, clientCreatedAt, // idempotency + العمل دون اتصال
     };
-    const printItems = lines.map(l => ({ name: l.name, unit: l.unit, qty: l.qty, unitPrice: round2(preTax(l)), discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: lineTotal(l) }));
+    // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
+    const printItems = lines.map((l, i) => ({ name: l.name, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt }));
     try {
       const res = await repApi.post('/invoices', payload);
       const inv = res.data.data;
@@ -956,7 +958,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                         <label className="text-[10px] text-gray-400 flex items-center gap-0.5">
                           {tr(lbl)}{f === 'discountPct' && maxDisc > 0 && <span className="text-[#E15A30]">({tr('حد')} {maxDisc}%)</span>}
                         </label>
-                        <input type="number" readOnly={locked} max={f === 'discountPct' ? maxDisc : undefined} min={0}
+                        <input type="number" step="any" inputMode="decimal" readOnly={locked} max={f === 'discountPct' ? maxDisc : undefined} min={0}
                           className={`input text-center !py-1.5 text-sm ${locked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
                           value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? tr('غير مصرّح لك بتعديل هذا الحقل') : undefined} />
                       </div>
@@ -964,8 +966,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   })}
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
-                  <span className="text-gray-400">{tr('منها ضريبة')}: {formatCurrency(l.qty * preTax(l) * (1 - l.discountPct / 100) * l.taxPct / 100)}</span>
-                  <span className="font-bold text-[#E15A30]">{formatCurrency(lineTotal(l))}</span>
+                  <span className="text-gray-400">{tr('منها ضريبة')}: {formatCurrency(repCalc.items[i]?.taxAmt ?? 0)}</span>
+                  <span className="font-bold text-[#E15A30]">{formatCurrency(repCalc.items[i]?.lineTotal ?? 0)}</span>
                 </div>
               </div>
             ))}
@@ -973,7 +975,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500"><span>{tr('قبل الخصم')}</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between text-red-500"><span>{tr('الخصم')}</span><span>- {formatCurrency(discount)}</span></div>
-              <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')} {subtotal - discount > 0 ? Math.round((tax / (subtotal - discount)) * 100) : 0}%</span><span>{formatCurrency(tax)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>{tr('منها ضريبة')} {(() => { const ps = [...new Set(lines.map(l => Number(l.taxPct)))]; return ps.length === 1 ? `${ps[0]}%` : tr('نسب متعددة'); })()}</span><span>{formatCurrency(tax)}</span></div>
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>{tr('الإجمالي')}</span><span>{formatCurrency(total)}</span></div>
             </div>
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
@@ -1048,7 +1050,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 
         <div>
           <label className="label">{tr('المبلغ المحصّل')}</label>
-          <input type="number" className="input text-lg font-bold" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
+          <input type="number" step="0.01" inputMode="decimal" className="input text-lg font-bold" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
         </div>
 
         <div>

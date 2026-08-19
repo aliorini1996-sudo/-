@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { currentBalance } from '../services/accounting';
+import { currentBalance, clean } from '../services/accounting';
 import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { customerScope } from '../services/customerScope';
@@ -256,7 +256,7 @@ router.post('/ledger', async (req: AuthRequest, res: Response, next: NextFunctio
         await prisma.$transaction(async tx => {
           let running = await currentBalance(tx, cid);
           for (const e of entries) {
-            running += e.debit - e.credit;
+            running = clean(running + e.debit - e.credit);
             const ae = await tx.accountEntry.create({
               data: {
                 tenantId: tid, customerId: cid,
@@ -376,7 +376,7 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
         const remaining = await prisma.accountEntry.findMany({ where: { customerId: cid }, orderBy: { entryDate: 'asc' } });
         let running = 0;
         for (const e of remaining) {
-          running += Number(e.debit) - Number(e.credit);
+          running = clean(running + Number(e.debit) - Number(e.credit));
           await prisma.accountEntry.update({ where: { id: e.id }, data: { balance: running } });
         }
         await prisma.customer.update({ where: { id: cid }, data: { balance: running } });

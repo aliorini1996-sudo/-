@@ -7,7 +7,7 @@ import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
 import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
-import { deriveRunningBalances } from '../services/accounting';
+import { deriveRunningBalances, clean } from '../services/accounting';
 
 const router = Router();
 router.use(authenticate);
@@ -250,7 +250,7 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
         where: { customerId: req.params.id, tenantId: tid, entryDate: { lt: new Date(from as string) } },
         _sum: { debit: true, credit: true },
       });
-      openingBalance = Number(prior._sum.debit ?? 0) - Number(prior._sum.credit ?? 0);
+      openingBalance = clean(Number(prior._sum.debit ?? 0) - Number(prior._sum.credit ?? 0));
     }
     const entries = deriveRunningBalances(rows, openingBalance);
     const closingBalance = entries.length ? entries[entries.length - 1].balance : openingBalance;

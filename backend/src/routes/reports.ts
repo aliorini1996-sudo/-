@@ -179,7 +179,8 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
     const { type } = req.query as Record<string, string>;
 
     let where = {};
-    if (type === 'overdue') where = { balance: { gt: 0 } };
+    // 1e-6 يحجب غبار العائمة التاريخي دون اخفاء اي دين حقيقي (اصغر وحدة 0.001)
+    if (type === 'overdue') where = { balance: { gt: 1e-6 } };
     if (type === 'exceeded') where = { creditLimit: { gt: 0 } };
 
     const customers = await prisma.customer.findMany({

@@ -3,7 +3,7 @@
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 // يزيل غبار الفاصلة العائمة دون المساس بأيّ عملة (٣ خانات في الدينار والريال العُماني)
-const clean = (n: number) => Math.round(n * 1e6) / 1e6;
+export const clean = (n: number) => Math.round(n * 1e6) / 1e6;
 
 /**
  * الرصيد الجاري للعميل = **مجموع المدين ناقص مجموع الدائن**.
@@ -55,13 +55,13 @@ export async function postInvoiceEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
 ) {
   const prevBalance = await currentBalance(tx, customerId);
-  const newBalance = prevBalance + total;
+  const newBalance = clean(prevBalance + total);
 
   await tx.accountEntry.create({
     data: {
       tenantId, customerId, invoiceId,
       type: 'INVOICE_DEBIT',
-      debit: total, credit: 0, balance: newBalance,
+      debit: clean(total), credit: 0, balance: newBalance,
       description: 'فاتورة مبيعات آجلة',
       ...(date && { entryDate: date }),
     },
@@ -69,7 +69,8 @@ export async function postInvoiceEntries(
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { balance: { increment: total }, totalSales: { increment: total } },
+    // ضبط لا تراكم: increment العائم في القاعدة يراكم غبارا يظهر المسدد مدينا
+    data: { balance: newBalance, totalSales: { increment: clean(total) } },
   });
 }
 
@@ -82,7 +83,7 @@ export async function postCashInvoiceEntries(
     data: {
       tenantId, customerId, invoiceId,
       type: 'INVOICE_DEBIT',
-      debit: total, credit: 0, balance: prevBalance + total,
+      debit: clean(total), credit: 0, balance: clean(prevBalance + total),
       description: 'فاتورة مبيعات نقدية',
       ...(date && { entryDate: date }),
     },
@@ -92,7 +93,7 @@ export async function postCashInvoiceEntries(
     data: {
       tenantId, customerId, invoiceId,
       type: 'RECEIPT_CREDIT',
-      debit: 0, credit: total, balance: prevBalance,
+      debit: 0, credit: clean(total), balance: clean(prevBalance),
       description: 'تحصيل نقدي لفاتورة مبيعات',
       ...(date && { entryDate: date }),
     },
@@ -100,7 +101,7 @@ export async function postCashInvoiceEntries(
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { totalSales: { increment: total }, totalCollected: { increment: total } },
+    data: { totalSales: { increment: clean(total) }, totalCollected: { increment: clean(total) } },
   });
 }
 
@@ -108,20 +109,20 @@ export async function reverseInvoiceEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
 ) {
   const prevBalance = await currentBalance(tx, customerId);
-  const newBalance = prevBalance - total;
+  const newBalance = clean(prevBalance - total);
 
   await tx.accountEntry.create({
     data: {
       tenantId, customerId, invoiceId,
       type: 'INVOICE_CREDIT',
-      debit: 0, credit: total, balance: newBalance,
+      debit: 0, credit: clean(total), balance: newBalance,
       description: 'إلغاء فاتورة مبيعات آجلة',
     },
   });
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { balance: { decrement: total }, totalSales: { decrement: total } },
+    data: { balance: newBalance, totalSales: { decrement: clean(total) } },
   });
 }
 
@@ -134,7 +135,7 @@ export async function reverseCashInvoiceEntries(
     data: {
       tenantId, customerId, invoiceId,
       type: 'INVOICE_CREDIT',
-      debit: 0, credit: total, balance: prevBalance - total,
+      debit: 0, credit: clean(total), balance: clean(prevBalance - total),
       description: 'إلغاء فاتورة مبيعات نقدية',
     },
   });
@@ -143,14 +144,14 @@ export async function reverseCashInvoiceEntries(
     data: {
       tenantId, customerId, invoiceId,
       type: 'RECEIPT_DEBIT',
-      debit: total, credit: 0, balance: prevBalance,
+      debit: clean(total), credit: 0, balance: clean(prevBalance),
       description: 'عكس تحصيل نقدي لفاتورة مبيعات',
     },
   });
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { totalSales: { decrement: total }, totalCollected: { decrement: total } },
+    data: { totalSales: { decrement: clean(total) }, totalCollected: { decrement: clean(total) } },
   });
 }
 
@@ -158,13 +159,13 @@ export async function postReceiptEntries(
   tx: Tx, tenantId: string, receiptId: string, customerId: string, amount: number, date?: Date
 ) {
   const prevBalance = await currentBalance(tx, customerId);
-  const newBalance = prevBalance - amount;
+  const newBalance = clean(prevBalance - amount);
 
   await tx.accountEntry.create({
     data: {
       tenantId, customerId, receiptId,
       type: 'RECEIPT_CREDIT',
-      debit: 0, credit: amount, balance: newBalance,
+      debit: 0, credit: clean(amount), balance: newBalance,
       description: 'سند قبض - تحصيل',
       ...(date && { entryDate: date }),
     },
@@ -172,7 +173,7 @@ export async function postReceiptEntries(
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { balance: { decrement: amount }, totalCollected: { increment: amount } },
+    data: { balance: newBalance, totalCollected: { increment: clean(amount) } },
   });
 }
 
@@ -180,20 +181,20 @@ export async function reverseReceiptEntries(
   tx: Tx, tenantId: string, receiptId: string, customerId: string, amount: number
 ) {
   const prevBalance = await currentBalance(tx, customerId);
-  const newBalance = prevBalance + amount;
+  const newBalance = clean(prevBalance + amount);
 
   await tx.accountEntry.create({
     data: {
       tenantId, customerId, receiptId,
       type: 'RECEIPT_DEBIT',
-      debit: amount, credit: 0, balance: newBalance,
+      debit: clean(amount), credit: 0, balance: newBalance,
       description: 'إلغاء سند قبض',
     },
   });
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { balance: { increment: amount }, totalCollected: { decrement: amount } },
+    data: { balance: newBalance, totalCollected: { decrement: clean(amount) } },
   });
 }
 
@@ -201,13 +202,13 @@ export async function postReturnEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
 ) {
   const prevBalance = await currentBalance(tx, customerId);
-  const newBalance = prevBalance - total;
+  const newBalance = clean(prevBalance - total);
 
   await tx.accountEntry.create({
     data: {
       tenantId, customerId, invoiceId,
       type: 'INVOICE_CREDIT',
-      debit: 0, credit: total, balance: newBalance,
+      debit: 0, credit: clean(total), balance: newBalance,
       description: 'فاتورة مرتجع مبيعات',
       ...(date && { entryDate: date }),
     },
@@ -215,7 +216,7 @@ export async function postReturnEntries(
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { balance: { decrement: total }, totalSales: { decrement: total } },
+    data: { balance: newBalance, totalSales: { decrement: clean(total) } },
   });
 }
 
@@ -223,19 +224,20 @@ export async function reverseReturnEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
 ) {
   const prevBalance = await currentBalance(tx, customerId);
-  const newBalance = prevBalance + total;
+  const newBalance = clean(prevBalance + total);
 
   await tx.accountEntry.create({
     data: {
       tenantId, customerId, invoiceId,
       type: 'INVOICE_DEBIT',
-      debit: total, credit: 0, balance: newBalance,
+      debit: clean(total), credit: 0, balance: newBalance,
       description: 'إلغاء فاتورة مرتجع',
     },
   });
 
   await tx.customer.update({
     where: { id: customerId },
-    data: { balance: { increment: total }, totalSales: { increment: total } },
+    // ضبط لا تراكم: increment العائم في القاعدة يراكم غبارا يظهر المسدد مدينا
+    data: { balance: newBalance, totalSales: { increment: clean(total) } },
   });
 }

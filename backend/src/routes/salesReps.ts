@@ -6,6 +6,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { adminRepFilter, adminCustomerFilter } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
+import { clean } from '../services/accounting';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesReps'));
@@ -318,7 +319,7 @@ async function repCollection(tid: string, repId: string) {
   ]);
   const c = collected._sum.amount ?? 0;
   const s = settled._sum.amount ?? 0;
-  return { collected: c, settled: s, outstanding: c - s };
+  return { collected: clean(c), settled: clean(s), outstanding: clean(c - s) };
 }
 
 // ملخّص رصيد التحصيل لمندوب (للإدارة)

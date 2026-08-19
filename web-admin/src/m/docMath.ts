@@ -1,4 +1,6 @@
 import { computeInvoiceTotals } from '../rep/invoiceCalc';
+import { currencyDecimals } from '../i18n/countries';
+import { getActiveCurrency } from '../utils/format';
 
 /**
  * حساب بنود الفاتورة في مسار **الإدارة**.
@@ -22,7 +24,7 @@ export interface Line {
 export function lineTotal(l: Pick<Line, 'qty' | 'unitPrice' | 'discountPct' | 'taxPct'>): number {
   const r = computeInvoiceTotals(
     [{ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct }],
-    { companyVat: l.taxPct, decimals: 2, invoiceDiscountPct: 0 },
+    { companyVat: l.taxPct, decimals: currencyDecimals(getActiveCurrency()), invoiceDiscountPct: 0 },
   );
   return r.items[0].lineTotal;
 }
@@ -31,7 +33,7 @@ export function lineTotal(l: Pick<Line, 'qty' | 'unitPrice' | 'discountPct' | 't
 export function invoiceTotals(lines: Line[], invoiceDiscountPct: number) {
   const r = computeInvoiceTotals(
     lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
-    { companyVat: 15, decimals: 2, invoiceDiscountPct },
+    { companyVat: 15, decimals: currencyDecimals(getActiveCurrency()), invoiceDiscountPct },
   );
   return { subtotal: r.subtotal, discount: r.discountAmt, tax: r.taxAmt, total: r.total };
 }

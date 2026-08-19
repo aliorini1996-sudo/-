@@ -31,6 +31,9 @@ const invoiceItemSchema = z.object({
 });
 
 const createInvoiceSchema = z.object({
+  // تطبيق المندوب يرسل الاسعار شاملة الضريبة كما اعلنت للعميل — المحرك يشتق
+  // الضريبة من الداخل فلا يدفع العميل قرشا فوق السعر المعلن بسبب تحويل وسيط
+  pricesIncludeTax: z.boolean().optional().default(false),
   customerId: z.string().optional(),
   // العمل دون اتصال: بديل customerId حين يشير لعميل أُنشئ أوف‑لاين (يحلّه الخادم إلى id الحقيقي)
   customerClientRef: z.string().uuid().optional(),
@@ -257,7 +260,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // الورقة المطبوعة مع سجلّ الخادم (lib/invoiceCalc.ts).
     const calc = computeInvoiceTotals(
       body.items.map(i => ({ qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct, taxPct: i.taxPct })),
-      { companyVat, decimals: dec, invoiceDiscountPct: body.discountPct },
+      { companyVat, decimals: dec, invoiceDiscountPct: body.discountPct, pricesIncludeTax: body.pricesIncludeTax },
     );
     const { subtotal, discountAmt, taxAmt, total } = calc;
     // نُبقي معرّف الصنف بجانب نتائج الحساب (المحرّك نقيّ لا يعرف productId)

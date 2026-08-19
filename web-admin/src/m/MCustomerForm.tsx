@@ -179,7 +179,7 @@ function Field({ label, value, onChange, required, dir, type = 'text' }: {
   return (
     <div>
       <label className="label">{label}{required && ' *'}</label>
-      <input className="input" type={type} dir={dir} value={value} onChange={e => onChange(e.target.value)} />
+      <input className="input" type={type} dir={dir} value={value} step={type === 'number' ? 'any' : undefined} inputMode={type === 'number' ? 'decimal' : undefined} onChange={e => onChange(e.target.value)} />
     </div>
   );
 }

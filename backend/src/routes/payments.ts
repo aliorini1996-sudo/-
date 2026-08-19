@@ -26,7 +26,9 @@ const paymentsWebhookRouter = Router();
 const FRONT = (process.env.PUBLIC_SITE_URL || 'https://fieldsa.net').replace(/\/$/, '');
 
 const createSchema = z.object({
-  amountSar: z.number().min(1).max(1_000_000),
+  // بدقة الهللة حصرا: 1.005 كانت تتقرب هبوطا او صعودا حسب صدفة التمثيل الثنائي
+  amountSar: z.number().min(1).max(1_000_000)
+    .refine(v => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6, 'المبلغ بدقة الهللة (خانتان عشريتان)'),
   description: z.string().min(3).max(255),
   tenantId: z.string().uuid().nullish(),
   months: z.number().int().min(0).max(36).optional().default(0),

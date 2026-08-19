@@ -133,7 +133,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
             </div>
             <div className="mt-3 max-w-xs">
               <label className="label">{tr('أقصى نسبة خصم %')}</label>
-              <input type="number" className="input" min="0" max="100" {...register('maxDiscountPct', { valueAsNumber: true })} />
+              <input type="number" className="input" min="0" max="100" step="any" {...register('maxDiscountPct', { valueAsNumber: true })} />
             </div>
           </div>
 

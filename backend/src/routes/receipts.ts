@@ -5,7 +5,7 @@ import { authenticate, requireAdminPermission, tenantId } from '../middleware/au
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
-import { postReceiptEntries, reverseReceiptEntries } from '../services/accounting';
+import { postReceiptEntries, reverseReceiptEntries, clean } from '../services/accounting';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 
 const router = Router();
@@ -111,7 +111,7 @@ router.get('/collection-balance', async (req: AuthRequest, res: Response, next: 
     ]);
     const c = collected._sum.amount ?? 0;
     const s = settled._sum.amount ?? 0;
-    res.json({ success: true, data: { enabled: true, collected: c, settled: s, outstanding: c - s } });
+    res.json({ success: true, data: { enabled: true, collected: clean(c), settled: clean(s), outstanding: clean(c - s) } });
   } catch (err) { next(err); }
 });
 
@@ -192,7 +192,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const allocations = groupAllocations((body.invoiceAllocations ?? []) as { invoiceId: string; amount: number }[]);
     const allocatedTotal = allocations.reduce((sum, item) => sum + item.amount, 0);
-    if (allocatedTotal > body.amount + 0.001) {
+    // نصف اصغر وحدة عملة — الحاجز القديم 0.001 كان يقبل فلسا زائدا كاملا في العملات الثلاثية
+    if (allocatedTotal > body.amount + 0.0005) {
       res.status(400).json({ success: false, message: 'مجموع تخصيص الفواتير أكبر من مبلغ السند' }); return;
     }
 
@@ -202,6 +203,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const receipt = await withNumberRetry(async () => {
     const number = await generateReceiptNumber(tid, docDate); // البادئة من تاريخ السند لا وقت الرفع
     return prisma.$transaction(async tx => {
+      // خريطتا المتبقي والمدفوع تعيشان بنطاق المعاملة: تملآن في فحص التخصيص
+      // وتستهلكان في الضبط المنظف بعد انشاء السند
+      const remainingById = new Map<string, number>();
+      const paidById = new Map<string, number>();
       if (allocations.length) {
         const invoices = await tx.invoice.findMany({
           where: {
@@ -211,14 +216,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             status: 'CONFIRMED',
             type: 'CREDIT',
           },
-          select: { id: true, remainingAmt: true },
+          select: { id: true, remainingAmt: true, paidAmt: true },
         });
         if (invoices.length !== allocations.length) throw new Error('توجد فاتورة غير صالحة في التخصيص');
 
-        const remainingById = new Map(invoices.map(inv => [inv.id, Number(inv.remainingAmt)]));
+        for (const inv of invoices) {
+          remainingById.set(inv.id, Number(inv.remainingAmt));
+          paidById.set(inv.id, Number(inv.paidAmt));
+        }
         for (const alloc of allocations) {
           const remaining = remainingById.get(alloc.invoiceId) ?? 0;
-          if (alloc.amount > remaining + 0.001) throw new Error('مبلغ التخصيص أكبر من المتبقي على إحدى الفواتير');
+          if (alloc.amount > remaining + 0.0005) throw new Error('مبلغ التخصيص أكبر من المتبقي على إحدى الفواتير');
         }
       }
 
@@ -244,10 +252,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           data: allocations.map(a => ({ receiptId: rcp.id, invoiceId: a.invoiceId, amount: a.amount })),
         });
 
+        // ضبط منظف بدل التراكم العائم: 344.85 − 114.95×3 كانت تترك 2.84e-14
+        // فتبقى الفاتورة المسددة في قائمة غير المسددة الى الابد
         for (const alloc of allocations) {
           await tx.invoice.update({
             where: { id: alloc.invoiceId },
-            data: { paidAmt: { increment: alloc.amount }, remainingAmt: { decrement: alloc.amount } },
+            data: {
+              paidAmt: clean((paidById.get(alloc.invoiceId) ?? 0) + alloc.amount),
+              remainingAmt: clean((remainingById.get(alloc.invoiceId) ?? 0) - alloc.amount),
+            },
           });
         }
       }
@@ -297,9 +310,14 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       const rcp = await tx.receipt.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
 
       for (const item of receipt.invoiceItems) {
+        const inv = await tx.invoice.findUnique({ where: { id: item.invoiceId }, select: { paidAmt: true, remainingAmt: true } });
+        if (!inv) continue;
         await tx.invoice.update({
           where: { id: item.invoiceId },
-          data: { paidAmt: { decrement: Number(item.amount) }, remainingAmt: { increment: Number(item.amount) } },
+          data: {
+            paidAmt: clean(Number(inv.paidAmt) - Number(item.amount)),
+            remainingAmt: clean(Number(inv.remainingAmt) + Number(item.amount)),
+          },
         });
       }
 

@@ -255,13 +255,13 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
           <input className="input" autoFocus value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال: برجر لحم" /></div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="label">السعر (ر.س) *</label>
-            <input type="number" min={0} step="0.01" className="input" value={f.basePrice} onChange={e => set('basePrice', e.target.value)} /></div>
+            <input type="number" min={0} step="any" inputMode="decimal" className="input" value={f.basePrice} onChange={e => set('basePrice', e.target.value)} /></div>
           <div><label className="label">الضريبة %</label>
             <input type="number" min={0} max={100} className="input" value={f.taxPct} onChange={e => set('taxPct', e.target.value)} /></div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="label">التكلفة (اختياري)</label>
-            <input type="number" min={0} step="0.01" className="input" value={f.costPrice} onChange={e => set('costPrice', e.target.value)} placeholder="لحساب الأرباح لاحقاً" /></div>
+            <input type="number" min={0} step="any" inputMode="decimal" className="input" value={f.costPrice} onChange={e => set('costPrice', e.target.value)} placeholder="لحساب الأرباح لاحقاً" /></div>
           <div><label className="label">محطة التحضير</label>
             <select className="input" value={f.prepStation} onChange={e => set('prepStation', e.target.value)}>
               {STATIONS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
@@ -373,7 +373,7 @@ function GroupModal({ group, onClose, onSaved }: { group: ModifierGroup | null; 
               <div key={i} className="flex items-center gap-2">
                 <input className="input flex-1" placeholder="اسم الخيار (مثل: كبير)" value={m.name}
                   onChange={e => setMods(a => a.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                <input type="number" step="0.01" className="input" style={{ width: 110 }} placeholder="فرق السعر" value={m.priceDelta}
+                <input type="number" step="any" inputMode="decimal" className="input" style={{ width: 110 }} placeholder="فرق السعر" value={m.priceDelta}
                   onChange={e => setMods(a => a.map((x, j) => j === i ? { ...x, priceDelta: e.target.value } : x))} />
                 <button type="button" onClick={() => setMods(a => a.filter((_, j) => j !== i))} className="p-2 text-gray-400 hover:text-red-500"><X size={16} /></button>
               </div>

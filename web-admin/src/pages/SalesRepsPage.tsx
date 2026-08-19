@@ -7,7 +7,8 @@ import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { formatCurrency, formatDate, formatTime, formatNumber, statusLabels, paymentMethodLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAuthStore } from '../store/authStore';
@@ -433,7 +434,8 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
   });
 
   // تعبئة الحقل تلقائياً بالرصيد المتبقّي (تسليم كامل) أول مرّة
-  if (data && !filled) { setAmount(String(Math.max(0, Number(data.outstanding.toFixed(2))))); setFilled(true); }
+  // خانات العملة الفعلية: toFixed(2) الثابتة كانت تقص الفلس الثالث فتبقى 0.005 معلقة للابد
+  if (data && !filled) { setAmount(String(Math.max(0, Number(Number(data.outstanding).toFixed(currencyDecimals(getActiveCurrency())))))); setFilled(true); }
 
   const settle = useMutation({
     mutationFn: () => salesRepApi.settle(rep.id, { amount: Number(amount), note: note || undefined }),

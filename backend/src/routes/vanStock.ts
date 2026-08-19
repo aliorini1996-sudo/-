@@ -6,6 +6,7 @@ import { AuthRequest } from '../types';
 import { suggestLoad, type SaleRow } from '../services/suggestLoad';
 import { computeAccuracy } from '../services/suggestAccuracy';
 import { canAccessRep, adminRepFilter, scopedRepRecordWhere } from '../services/adminScope';
+import { roundDecimal } from '../utils/helpers';
 
 const router = Router();
 router.use(authenticate);
@@ -90,7 +91,8 @@ export async function computeStock(tid: string, salesRepId: string): Promise<Sto
   for (const [pid, m] of acc) {
     const p = prodById.get(pid);
     if (!p) continue;
-    const remaining = m.loaded - m.unloaded + m.adjusted - m.sold + m.returned;
+    // تقريب 4 خانات يمحو غبار سلسلة الجمع (3×0.1−0.3 = 5.55e-17 صف شبحي يتصدر الفرز)
+    const remaining = roundDecimal(m.loaded - m.unloaded + m.adjusted - m.sold + m.returned, 4);
     rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining });
   }
   rows.sort((a, b) => b.remaining - a.remaining);
@@ -284,9 +286,9 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
       return {
         salesRepId: r.id, repName: r.name, isActive: r.isActive, canSellWithoutStock: r.canSellWithoutStock,
         productCount: rows.filter(x => Math.abs(x.remaining) > 1e-9).length,
-        totalRemaining: rows.reduce((s, x) => s + x.remaining, 0),
-        totalLoaded: rows.reduce((s, x) => s + x.loaded, 0),
-        totalSold: rows.reduce((s, x) => s + x.sold, 0),
+        totalRemaining: roundDecimal(rows.reduce((s, x) => s + x.remaining, 0), 4),
+        totalLoaded: roundDecimal(rows.reduce((s, x) => s + x.loaded, 0), 4),
+        totalSold: roundDecimal(rows.reduce((s, x) => s + x.sold, 0), 4),
         lastLoadAt: lastLoad?.createdAt || null,
       };
     }));

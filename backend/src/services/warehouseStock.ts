@@ -8,6 +8,7 @@
 // تسوية السيارة (VanLoad ADJUST) حركةٌ داخل السيارة لا تمسّ المستودع.
 // ============================================================================
 import prisma from '../config/database';
+import { roundDecimal } from '../utils/helpers';
 
 export interface WarehouseRow {
   productId: string;
@@ -44,7 +45,7 @@ export function composeWarehouse(products: ProdMeta[], warehouseItems: WhItem[],
   }
   const rows: WarehouseRow[] = products.map((p) => {
     const m = acc.get(p.id) || { received: 0, adjusted: 0, loadedToVans: 0, returnedFromVans: 0 };
-    const onHand = m.received + m.adjusted + m.returnedFromVans - m.loadedToVans;
+    const onHand = roundDecimal(m.received + m.adjusted + m.returnedFromVans - m.loadedToVans, 4);
     return { productId: p.id, name: p.name, code: p.code, unit: p.unit, ...m, onHand };
   });
   rows.sort((a, b) => b.onHand - a.onHand);

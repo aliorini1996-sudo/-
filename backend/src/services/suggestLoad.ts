@@ -203,7 +203,8 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
     }
 
     expected = Math.max(0, round2(expected));
-    const withBuffer = Math.ceil(expected * (1 + bufferPct / 100));
+    // قص غبار العائمة قبل السقف: 200×1.1 = 220.00000000000003 كانت تصير 221 وحدة
+    const withBuffer = Math.ceil(Math.round(expected * (1 + bufferPct / 100) * 1e6) / 1e6);
     // التقريب لأعلى مقصود: التحميل وحدات مادّية، والنقص يُضيّع بيعاً بينما
     // الزيادة تعود للمستودع آخر اليوم.
     const suggested = Math.max(0, withBuffer - onVan);

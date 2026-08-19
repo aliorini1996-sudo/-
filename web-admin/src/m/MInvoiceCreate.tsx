@@ -198,10 +198,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
                       <button onClick={() => setQty(l.productId, 1)} className="w-10 h-10 rounded-xl border border-[#E9E1D3] flex items-center justify-center"><Plus size={15} /></button>
                       <span className="flex-1" />
                       <label className="text-[10px] text-[#9A8F7E]">{tr('السعر')}</label>
-                      <input type="number" dir="ltr" className="input w-20 text-center py-1.5" value={l.unitPrice}
+                      <input type="number" step="any" inputMode="decimal" dir="ltr" className="input w-20 text-center py-1.5" value={l.unitPrice}
                         onChange={e => patch(l.productId, 'unitPrice', Number(e.target.value) || 0)} />
                       <label className="text-[10px] text-[#9A8F7E]">{tr('خصم%')}</label>
-                      <input type="number" dir="ltr" className="input w-14 text-center py-1.5" value={l.discountPct}
+                      <input type="number" step="any" inputMode="decimal" dir="ltr" className="input w-14 text-center py-1.5" value={l.discountPct}
                         onChange={e => patch(l.productId, 'discountPct', Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
                     </div>
                   </div>
@@ -239,7 +239,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
             </div>
 
             <Field label={tr('خصم على الفاتورة %')}>
-              <input type="number" dir="ltr" className="input" value={discountPct}
+              <input type="number" step="any" inputMode="decimal" dir="ltr" className="input" value={discountPct}
                 onChange={e => setDiscountPct(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
             </Field>
             <Field label={tr('ملاحظات')}>

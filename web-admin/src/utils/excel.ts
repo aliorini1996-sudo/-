@@ -1,4 +1,6 @@
 // تصدير بيانات إلى ملف Excel (.xlsx) — تحميل ديناميكي لمكتبة xlsx لتقليل حجم الحزمة
+import { currencyDecimals } from '../i18n/countries';
+import { getActiveCurrency } from './format';
 
 export interface ExcelSheet {
   name: string;                       // اسم الورقة (حد 31 حرفاً)
@@ -64,7 +66,9 @@ export async function shareOrDownloadExcel(sheets: ExcelSheet[], filename: strin
   return 'downloaded';
 }
 
-// تنسيق رقم لخليّة Excel (رقم فعلي وليس نصاً)
-export function num(n: number | string | null | undefined): number {
-  return Math.round((Number(n) || 0) * 100) / 100;
+// تنسيق رقم لخليّة Excel (رقم فعلي وليس نصاً) — بخانات عملة الشركة النشطة
+// الخانتان الثابتتان كانتا تفقدان الفلس الثالث في كشوف OMR/KWD/BHD المصدرة
+export function num(n: number | string | null | undefined, dec = currencyDecimals(getActiveCurrency())): number {
+  const f = Math.pow(10, dec);
+  return Math.round((Number(n) || 0) * f) / f;
 }

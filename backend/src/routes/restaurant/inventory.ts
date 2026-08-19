@@ -13,9 +13,12 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const ingredients = await prisma.ingredient.findMany({ where: { tenantId: tid }, orderBy: [{ name: 'asc' }] });
+    // انجراف طرح العائمة في القاعدة (1−0.7−0.2 = 0.10000000000000003) كان يعطل
+    // انذار النفاد ويعرض 17 خانة — نقرب القراءة والمقارنة معا
     const data = ingredients.map(i => ({
       ...i,
-      lowStock: i.stockQty <= i.minQty,
+      stockQty: roundDecimal(i.stockQty, 4),
+      lowStock: roundDecimal(i.stockQty, 4) <= i.minQty,
       stockValue: roundDecimal(i.stockQty * i.avgCost, 2),
     }));
     res.json({ success: true, data });

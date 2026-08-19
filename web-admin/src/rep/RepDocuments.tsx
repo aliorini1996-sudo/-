@@ -264,7 +264,12 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         vatTotal: doc.tax,
       })
     : null;
-  const vatRate = doc.subtotal - doc.discount > 0 ? Math.round((doc.tax / (doc.subtotal - doc.discount)) * 100) : 0;
+  // النسبة من البنود لا من قسمة المبالغ — قسمة المبالغ تطبع نسبة مدمجة عند اختلاط النسب
+  const vatPcts = [...new Set(doc.items.map(it => Number(it.taxPct)))];
+  const vatRate = vatPcts.length === 1 ? `${vatPcts[0]}%` : tr('نسب متعددة');
+  // المستندات القديمة لا تحمل علم «الاسعار شاملة» فنكشفه حسابيا:
+  // شامل ⇔ المجموع − الخصم = الاجمالي (الضريبة داخله لا فوقه)
+  const inclusiveDoc = doc.tax > 0 && Math.abs((doc.subtotal - doc.discount) - doc.total) < 0.005;
   return (
     <div ref={ref} style={PAGE}>
       <Header title={docTitle} company={doc.company} />
@@ -363,7 +368,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         <div style={{ width: 300, fontSize: 14 }}>
           <Row label={tr('المجموع قبل الخصم')} value={formatCurrency(doc.subtotal)} />
           {doc.discount > 0 && <Row label={tr('الخصم')} value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
-          <Row label={`${tr('ضريبة القيمة المضافة')} ${vatRate}%`} value={formatCurrency(doc.tax)} color="#1E7A52" />
+          <Row label={`${inclusiveDoc ? tr('منها ضريبة القيمة المضافة') : tr('ضريبة القيمة المضافة')} ${vatRate}`} value={formatCurrency(doc.tax)} color="#1E7A52" />
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
             <span>{doc.isReturn ? tr('إجمالي المرتجع (دائن)') : tr('الإجمالي النهائي')}</span>
             <span>{formatCurrency(doc.total)}</span>

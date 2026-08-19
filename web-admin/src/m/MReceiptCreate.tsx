@@ -4,7 +4,8 @@ import { Search, Banknote, Landmark, CreditCard, FileText, Loader2, Check } from
 import toast from 'react-hot-toast';
 import { customerApi, salesRepApi, receiptApi } from '../api/client';
 import { Invoice } from '../types';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, getActiveCurrency } from '../utils/format';
+import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
 import { MHeader, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
@@ -99,10 +100,14 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
   const autoAllocate = () => {
     let left = amt;
     const next: Record<string, number> = {};
+    // التقريب بخانات العملة الفعلية ومقيدا بالمتبقي: التقريب الثابت لخانتين كان
+    // يقفز فوق متبقي العملات الثلاثية (0.875 → 0.88) فيرفضه الخادم
+    const decA = currencyDecimals(getActiveCurrency());
+    const fA = Math.pow(10, decA);
     for (const inv of openInvoices) {
-      if (left <= 0.001) break;
+      if (left <= 1e-9) break;
       const take = Math.min(left, Number(inv.remainingAmt));
-      next[inv.id] = Math.round(take * 100) / 100;
+      next[inv.id] = Math.min(Math.round(take * fA) / fA, Number(inv.remainingAmt));
       left -= take;
     }
     setAlloc(next);
@@ -115,7 +120,7 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
       <div className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-3">
         <div>
           <label className="label">{tr('المبلغ')} *</label>
-          <input type="number" dir="ltr" inputMode="decimal" className="input text-lg font-bold text-center"
+          <input type="number" step="0.01" dir="ltr" inputMode="decimal" className="input text-lg font-bold text-center"
             value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
         </div>
 
@@ -205,7 +210,7 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
                       {formatDate(inv.invoiceDate)} · {tr('متبقٍّ')} {formatCurrency(Number(inv.remainingAmt))}
                     </span>
                   </span>
-                  <input type="number" dir="ltr" inputMode="decimal" className="input w-24 text-center py-1.5"
+                  <input type="number" step="0.01" dir="ltr" inputMode="decimal" className="input w-24 text-center py-1.5"
                     value={alloc[inv.id] ?? ''} placeholder="0"
                     onChange={e => setAlloc(a => ({ ...a, [inv.id]: Math.max(0, Number(e.target.value) || 0) }))} />
                 </div>

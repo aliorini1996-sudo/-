@@ -201,7 +201,7 @@ export default function InvoicesPage() {
                   <td>{typeBadge(inv.type)}</td>
                   <td className="font-semibold text-gray-800">{formatCurrency(inv.total)}</td>
                   <td className="text-green-600">{formatCurrency(inv.paidAmt)}</td>
-                  <td className={Number(inv.remainingAmt) > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>
+                  <td className={Number(inv.remainingAmt) > 1e-6 ? 'text-red-600 font-medium' : 'text-gray-400'}>
                     {formatCurrency(inv.remainingAmt)}
                   </td>
                   <td className="text-xs text-gray-400">{formatDate(inv.invoiceDate)}</td>

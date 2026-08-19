@@ -141,7 +141,7 @@ function IngredientModal({ ing, onClose, onSaved }: { ing: Ingredient | null; on
             <div><label className="label">رصيد افتتاحي</label>
               <input type="number" min={0} step="0.001" className="input" value={f.openingQty} onChange={e => set('openingQty', e.target.value)} placeholder="0" /></div>
             <div><label className="label">تكلفة الوحدة</label>
-              <input type="number" min={0} step="0.01" className="input" value={f.openingCost} onChange={e => set('openingCost', e.target.value)} placeholder="0.00" /></div>
+              <input type="number" min={0} step="any" inputMode="decimal" className="input" value={f.openingCost} onChange={e => set('openingCost', e.target.value)} placeholder="0.00" /></div>
           </div>
         )}
       </div>
@@ -184,7 +184,7 @@ function MovementModal({ ing, onClose, onSaved }: { ing: Ingredient; onClose: ()
         </div>
         {type === 'PURCHASE' && (
           <div><label className="label">تكلفة الوحدة * (تحدّث المتوسّط)</label>
-            <input type="number" min={0} step="0.01" className="input" value={unitCost} onChange={e => setUnitCost(e.target.value)} placeholder={String(ing.avgCost)} /></div>
+            <input type="number" min={0} step="any" inputMode="decimal" className="input" value={unitCost} onChange={e => setUnitCost(e.target.value)} placeholder={String(ing.avgCost)} /></div>
         )}
         <div><label className="label">السبب (اختياري)</label>
           <input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder={type === 'WASTE' ? 'تلف/انتهاء صلاحية' : ''} /></div>

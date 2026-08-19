@@ -316,6 +316,8 @@ export const PHRASES: Record<string, { en: string; fr: string }> = {
   'زيارات الموقع': { en: 'Site visits', fr: 'Visites du site' },
   'محتوى البروفايل': { en: 'Profile page', fr: 'Page profil' },
   'روابط الدفع': { en: 'Payment links', fr: 'Liens de paiement' },
+  'نسب متعددة': { en: 'Mixed rates', fr: 'Taux multiples' },
+  'منها ضريبة القيمة المضافة': { en: 'Of which VAT', fr: 'Dont TVA' },
   'الزيارات الحية': { en: 'Live sessions', fr: 'Sessions en direct' },
   'محفظتي': { en: 'My portfolio', fr: 'Mon portefeuille' },
   'إجمالي الشركات': { en: 'Total companies', fr: 'Total des entreprises' },

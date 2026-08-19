@@ -85,9 +85,10 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
       <div class="row"><span>${it.qty} × ${money(it.unitPrice)}${it.discountPct > 0 ? ` -${it.discountPct}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>
     </div>`).join('');
 
-  // نسبة الضريبة الفعلية مشتقّة من المبلغ (بدل نسبة ثابتة) — تدعم أي دولة
-  const vatBase = doc.subtotal - doc.discount;
-  const vatRate = vatBase > 0 ? Math.round((doc.tax / vatBase) * 100) : 0;
+  // نسبة الضريبة من البنود نفسها: الاشتقاق العكسي من المبالغ كان يطبع نسبة
+  // مدمجة لا وجود لها قانونيا عند اختلاط بنود بنسب مختلفة (15% + معفى → «8%»)
+  const vatPcts = [...new Set(doc.items.map(it => Number(it.taxPct)))];
+  const vatRate = vatPcts.length === 1 ? `${vatPcts[0]}%` : 'نسب متعددة';
 
   printHTML(`
     ${head(doc.company)}
@@ -102,9 +103,9 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
     <div class="sep"></div>
     ${items}
     <div class="sep"></div>
-    <div class="row"><span>المجموع قبل الضريبة</span><span>${money(doc.subtotal - doc.discount)}</span></div>
+    <div class="row"><span>المجموع قبل الضريبة</span><span>${money(doc.total - doc.tax)}</span></div>
     ${doc.discount > 0 ? `<div class="row"><span>الخصم</span><span>${money(doc.discount)}</span></div>` : ''}
-    <div class="row"><span>ض.ق.م ${vatRate}%</span><span>${money(doc.tax)}</span></div>
+    <div class="row"><span>ض.ق.م ${vatRate}</span><span>${money(doc.tax)}</span></div>
     <div class="row b lg"><span>${doc.isReturn ? 'إجمالي المرتجع' : 'الإجمالي'}</span><span>${money(doc.total)}</span></div>
     ${!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined ? `
       <div class="row muted"><span>المدفوع</span><span>${money(doc.paidAmt ?? 0)}</span></div>

@@ -49,7 +49,8 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     queryKey: ['open-invoices', customerId],
     queryFn: async () => {
       const res = await invoiceApi.list({ customerId, status: 'CONFIRMED', type: 'CREDIT', limit: 50 });
-      return (res.data.data as Invoice[]).filter(i => Number(i.remainingAmt) > 0);
+      // 1e-6 يحجب غبار العائمة التاريخي (2.84e-14) دون اخفاء اي متبق حقيقي
+      return (res.data.data as Invoice[]).filter(i => Number(i.remainingAmt) > 1e-6);
     },
     enabled: !!customerId,
   });

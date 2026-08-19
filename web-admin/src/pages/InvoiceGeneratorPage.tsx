@@ -252,7 +252,9 @@ const faqItems = (lang: Lang): { q: string; a: string }[] => (
         { q: 'هل أحتاج اشتراكاً أو بطاقة لاستخدام المولّد؟', a: 'لا. المولّد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حدّ لعدد الفواتير. أما منصّة FieldSales لإدارة مناديب التوزيع (فواتير من الميدان، تحصيل، مخزون سيارة، تتبّع) فهي منتج مدفوع بتجربة مجانية 10 أيام دون بطاقة.' },
   ]);
 
-const fmt = (n: number) => (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// تقريب نصف-لأعلى على التمثيل العشري (1.005 → 1.01 لا 1.00 بضوضاء الطفو)
+const r2 = (n: number) => Math.round(Number((n * 100).toPrecision(12))) / 100;
+const fmt = (n: number) => r2(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
 
 // بيانات البائع تُحفظ محلياً (راحة العائدين — الأداة تُستخدم مع كل فاتورة جديدة)
@@ -299,11 +301,13 @@ export default function InvoiceGeneratorPage() {
   };
 
   const totals = useMemo(() => {
-    const subtotal = items.reduce((s, it) => s + (it.qty || 0) * (it.price || 0), 0);
-    const disc = Math.min(discount || 0, subtotal);
-    const taxable = subtotal - disc;
-    const vat = taxable * (vatRate / 100);
-    return { subtotal, disc, taxable, vat, total: taxable + vat };
+    // كل سطر يقرب اولا ثم تجمع المقربات: الورقة المطبوعة يجب ان تساوي مجموع
+    // سطورها المعروضة حرفيا — الجمع الخام كان يخالف المعروض بقرش امام العميل
+    const subtotal = r2(items.reduce((s, it) => s + r2((it.qty || 0) * (it.price || 0)), 0));
+    const disc = r2(Math.min(discount || 0, subtotal));
+    const taxable = r2(subtotal - disc);
+    const vat = r2(taxable * (vatRate / 100));
+    return { subtotal, disc, taxable, vat, total: r2(taxable + vat) };
   }, [items, discount, vatRate]);
 
   // نوع الفاتورة وفق ZATCA: مبسطة (B2C) أو ضريبية (B2B برقم ضريبي للعميل)

@@ -24,9 +24,10 @@ export interface TaxOptions {
   decimals?: number; // خانات عملة الدولة (٢ افتراضيًا)
 }
 
+import { roundHalfUp } from './money';
+
 function round(value: number, decimals: number): number {
-  const f = Math.pow(10, decimals);
-  return Math.round((value + Number.EPSILON) * f) / f;
+  return roundHalfUp(value, decimals);
 }
 
 export function computeLine(line: TaxLineInput, opts: TaxOptions): TaxLineResult {

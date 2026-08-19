@@ -214,7 +214,7 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
                     <p className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</p>
                     <p className="text-[11px] text-[#9A8F7E]">{r.unit}</p>
                   </div>
-                  <input type="number" step="0.01" value={r.qty} onChange={e => setQty(r.productId, e.target.value)}
+                  <input type="number" step="any" inputMode="decimal" value={r.qty} onChange={e => setQty(r.productId, e.target.value)}
                     className="input w-24 py-1.5 text-center" placeholder={type === 'ADJUST' ? '±' : '0'} />
                   <button onClick={() => removeRow(r.productId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={15} /></button>
                 </div>

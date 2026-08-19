@@ -232,10 +232,10 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                         <p className="font-medium text-sm">{l.productName}</p>
                         <p className="text-xs text-gray-400">{l.unit}</p>
                       </td>
-                      <td><input type="number" className="input w-20 text-center" min="0.001" step="0.001" value={l.qty} onChange={e => updateLine(i, 'qty', Number(e.target.value))} /></td>
-                      <td><input type="number" className="input w-24" min="0" step="0.01" value={l.unitPrice} onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} /></td>
-                      <td><input type="number" className="input w-16 text-center" min="0" max="100" value={l.discountPct} onChange={e => updateLine(i, 'discountPct', Number(e.target.value))} /></td>
-                      <td><input type="number" className="input w-16 text-center" min="0" max="100" value={l.taxPct} onChange={e => updateLine(i, 'taxPct', Number(e.target.value))} /></td>
+                      <td><input type="number" className="input w-20 text-center" min="0.001" step="any" inputMode="decimal" value={l.qty} onChange={e => updateLine(i, 'qty', Number(e.target.value))} /></td>
+                      <td><input type="number" className="input w-24" min="0" step="any" inputMode="decimal" value={l.unitPrice} onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} /></td>
+                      <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.discountPct} onChange={e => updateLine(i, 'discountPct', Number(e.target.value))} /></td>
+                      <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.taxPct} onChange={e => updateLine(i, 'taxPct', Number(e.target.value))} /></td>
                       <td className="font-semibold text-gray-800">{formatCurrency(l.lineTotal)}</td>
                     </tr>
                   ))}
@@ -250,7 +250,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               <div className="flex justify-between"><span className="text-gray-500">{tr('المجموع قبل الخصم')}</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">{tr('خصم عام %')}</span>
-                <input type="number" className="input w-20 text-center" min="0" max="100" value={discountPct} onChange={e => setDiscountPct(Number(e.target.value))} />
+                <input type="number" className="input w-20 text-center" min="0" max="100" step="any" value={discountPct} onChange={e => setDiscountPct(Number(e.target.value))} />
               </div>
               <div className="flex justify-between text-red-500"><span>{tr('إجمالي الخصم')}</span><span>- {formatCurrency(totalDiscount)}</span></div>
               <div className="flex justify-between text-[#E15A30]"><span>{tr('ضريبة القيمة المضافة')}</span><span>{formatCurrency(taxTotal)}</span></div>

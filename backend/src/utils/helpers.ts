@@ -1,4 +1,5 @@
 import prisma from '../config/database';
+import { roundHalfUp } from '../lib/money';
 
 export function paginate(page: number, limit: number) {
   const skip = (page - 1) * limit;
@@ -57,7 +58,7 @@ export async function generateReceiptNumber(tenantId: string, date?: Date): Prom
 }
 
 export function roundDecimal(value: number, decimals = 2): number {
-  return Math.round(value * Math.pow(10, decimals)) / Math.pow(10, decimals);
+  return roundHalfUp(value, decimals);
 }
 
 // يعيد تنفيذ إنشاء مستند مرقّم عند تصادم الرقم الفريد (P2002 على tenantId+number).

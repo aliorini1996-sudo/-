@@ -5,6 +5,7 @@ import { tenantId } from '../../middleware/auth';
 import { AuthRequest } from '../../types';
 import { roundDecimal, withNumberRetry } from '../../utils/helpers';
 import { checkoutOrder } from '../../services/restaurant/checkout';
+import { computeLine, computeInvoice } from '../../lib/tax';
 
 // كاشير المطعم — الطلبات والدفع. كل ما تحته محمي بالمصادقة + requireVertical('restaurant') (بالأعلى).
 const router = Router();
@@ -38,18 +39,20 @@ async function buildLines(tid: string, items: z.infer<typeof orderItemInput>[]) 
     const chosen = (input.modifierIds ?? []).map(id => modById.get(id)).filter((m): m is NonNullable<typeof m> => !!m);
     const modifiersTotal = roundDecimal(chosen.reduce((s, m) => s + Number(m.priceDelta), 0), 2);
     const unitPrice = roundDecimal(Number(mi.basePrice) + modifiersTotal, 2);
-    const net = roundDecimal(input.qty * unitPrice, 2);
-    const taxAmt = roundDecimal(net * Number(mi.taxPct) / 100, 2);
+    // نفس محرك checkout حرفيا (lib/tax): محركا تقريب مختلفان كانا يجعلان
+    // الكاشير يحصل 7.70 والفاتورة/رمز الزكاة يسجلان 7.71 لنفس الطلب
+    const tl = computeLine({ qty: input.qty, unitPrice, taxPct: Number(mi.taxPct) }, { defaultTaxPct: Number(mi.taxPct) });
     return {
       menuItemId: mi.id, nameSnap: mi.name, qty: input.qty, unitPrice, modifiersTotal,
-      taxPct: Number(mi.taxPct), taxAmt, lineTotal: roundDecimal(net + taxAmt, 2),
+      taxPct: Number(mi.taxPct), taxAmt: tl.tax, lineTotal: tl.gross,
       unitCost: Number(mi.costPrice), station: mi.prepStation, note: input.note || null,
       modifiers: { create: chosen.map(m => ({ modifierId: m.id, nameSnap: m.name, priceDelta: Number(m.priceDelta) })) },
     };
   });
-  const subtotal = roundDecimal(lines.reduce((s, l) => s + l.qty * l.unitPrice, 0), 2);
-  const taxAmt = roundDecimal(lines.reduce((s, l) => s + l.taxAmt, 0), 2);
-  return { lines, subtotal, taxAmt, total: roundDecimal(subtotal + taxAmt, 2) };
+  const totals = computeInvoice(
+    lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, taxPct: l.taxPct })),
+    { defaultTaxPct: 0 });
+  return { lines, subtotal: totals.subtotal, taxAmt: totals.totalTax, total: totals.total };
 }
 
 const orderInclude = { items: { include: { modifiers: true } }, payments: true, table: { select: { number: true } } } as const;

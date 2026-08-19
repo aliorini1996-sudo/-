@@ -114,7 +114,7 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
             </div>
             <div>
               <label className="label">{tr('السعر الأساسي')} *</label>
-              <input type="number" className="input" min="0" step="0.01" {...register('basePrice', { required: true, valueAsNumber: true })} />
+              <input type="number" className="input" min="0" step="any" inputMode="decimal" {...register('basePrice', { required: true, valueAsNumber: true })} />
             </div>
             <div>
               <label className="label">{tr('نسبة الضريبة %')}</label>
