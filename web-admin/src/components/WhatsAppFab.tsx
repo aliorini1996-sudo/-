@@ -1,5 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { anonId, isOptedOut } from '../lib/attribution';
+import { trackWhatsApp } from '../lib/ads';
 
 /**
  * زرّ المحادثة العائم — قناة التحويل المقصودة.
@@ -96,6 +97,9 @@ export default function WhatsAppFab() {
       rel="noopener noreferrer"
       aria-label={label}
       title={label}
+      // تحويل «محادثة واتساب» — القناة الثانية مع غياب بوابة الدفع. لا نمنع الانتقال
+      // ولا ننتظره: الرابط يفتح تبويباً جديداً فالصفحة تبقى حيّة ويكتمل البيكسل.
+      onClick={() => trackWhatsApp(refFromPath(pathname))}
       data-wa-fab
       className="wa-fab"
     >

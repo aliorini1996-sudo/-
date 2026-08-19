@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, Building2, User, Phone, CheckCircle2, Sparkles, Globe2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../api/client';
+import { trackSignup } from '../lib/ads';
 import { useAuthStore } from '../store/authStore';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
@@ -55,7 +56,11 @@ export default function SignupPage() {
       login(token, user);
       toast.success(t('signup.success'));
       // عزل العموديّات: أدمن المطعم يذهب للوحة المطعم /app-r
-      window.location.replace((user.vertical ?? vertical) === 'restaurant' ? '/app-r' : '/app');
+      const dest = (user.vertical ?? vertical) === 'restaurant' ? '/app-r' : '/app';
+      // تحويل «بدء تجربة» يُرسَل **قبل** الانتقال: `location.replace` يقتل أي بيكسل معلّق
+      // فيضيع أهمّ تحويل صامتاً. trackSignup ينفّذ الانتقال بعد تأكيد الإرسال أو مهلة
+      // قصيرة، ودائماً مرّة واحدة — فلا يُحبَس المستخدم إن حُجب الوسم.
+      trackSignup(() => window.location.replace(dest));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('signup.failed');
       toast.error(msg);
