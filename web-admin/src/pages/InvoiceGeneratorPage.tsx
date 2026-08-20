@@ -371,7 +371,7 @@ export default function InvoiceGeneratorPage() {
   const invTitle = isSimplified ? 'فاتورة ضريبية مبسطة Simplified Tax Invoice' : 'فاتورة ضريبية Tax Invoice';
 
   return (
-    <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }}>
       {/* عند الطباعة تظهر الفاتورة وحدها */}
       <style>{`@media print { body * { visibility: hidden; } #inv-doc, #inv-doc * { visibility: visible; } #inv-doc { position: absolute; top: 0; right: 0; left: 0; margin: 0; box-shadow: none !important; } }`}</style>
 
@@ -518,7 +518,7 @@ export default function InvoiceGeneratorPage() {
           <div className="overflow-x-auto">
             <div id="inv-doc" ref={docRef} dir="rtl"
               className="bg-white mx-auto shadow-sm border border-[#E9E1D3] rounded-lg"
-              style={{ width: 620, minWidth: 620, padding: '34px 38px', fontFamily: "'IBM Plex Sans Arabic', 'Segoe UI', sans-serif", color: '#1F1A13' }}>
+              style={{ width: 620, minWidth: 620, padding: '34px 38px', fontFamily: "'Noto Kufi Arabic', 'Segoe UI', sans-serif", color: '#1F1A13' }}>
               {/* الترويسة */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #E15A30', paddingBottom: 16 }}>
                 <div>

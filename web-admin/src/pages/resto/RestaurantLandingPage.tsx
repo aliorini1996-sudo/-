@@ -90,7 +90,7 @@ export default function RestaurantLandingPage() {
   }, []);
 
   return (
-    <div dir="rtl" style={{ background: '#FAF7F0', color: VOID, fontFamily: "'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif" }} className="min-h-screen">
+    <div dir="rtl" style={{ background: '#FAF7F0', color: VOID, fontFamily: "'IBM Plex Sans', 'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }} className="min-h-screen">
       {/* ===== شريط التنقّل ===== */}
       <nav className="sticky top-0 z-40 backdrop-blur border-b" style={{ background: 'rgba(250,247,240,.85)', borderColor: '#E9E1D3' }}>
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-4">

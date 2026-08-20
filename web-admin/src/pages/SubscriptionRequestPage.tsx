@@ -61,7 +61,7 @@ export default function SubscriptionRequestPage() {
   const ltrInput = dir === 'rtl' ? 'input text-right' : 'input text-left';
 
   return (
-    <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }}>
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
           <Link to={home} className="flex items-center gap-2.5">

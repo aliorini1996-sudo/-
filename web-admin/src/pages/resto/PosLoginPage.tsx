@@ -33,7 +33,7 @@ export default function PosLoginPage() {
   };
 
   return (
-    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-[#1F1A13] p-4" style={{ fontFamily: "'IBM Plex Sans','IBM Plex Sans Arabic',sans-serif" }}>
+    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-[#1F1A13] p-4" style={{ fontFamily: "'IBM Plex Sans','Noto Kufi Arabic',sans-serif" }}>
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-6">
           <div className="mb-3" style={{ filter: 'drop-shadow(0 12px 30px rgba(225,90,48,.4))' }}><BrandIcon size={64} radius={0.26} /></div>

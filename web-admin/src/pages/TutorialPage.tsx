@@ -39,7 +39,7 @@ export default function TutorialPage() {
   };
 
   return (
-    <div dir="rtl" className="min-h-screen bg-[#FAF7F0]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div dir="rtl" className="min-h-screen bg-[#FAF7F0]" style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }}>
       {/* الترويسة */}
       <header className="bg-white border-b border-[#E9E1D3]">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">

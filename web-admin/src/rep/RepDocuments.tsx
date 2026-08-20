@@ -150,7 +150,7 @@ const PAGE: React.CSSProperties = {
   background: '#fff',
   padding: 40,
   boxSizing: 'border-box',
-  fontFamily: "'IBM Plex Sans Arabic', sans-serif",
+  fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif",
   color: '#1f2937',
   direction: 'rtl',
 };

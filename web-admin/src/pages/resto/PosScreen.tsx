@@ -175,7 +175,7 @@ export default function PosScreen() {
   const handleLogout = () => { logout(); window.location.replace(isStaff ? '/pos-login' : '/login'); };
 
   return (
-    <div dir="rtl" className="h-screen flex flex-col bg-[#FAF7F0] overflow-hidden" style={{ fontFamily: "'IBM Plex Sans','IBM Plex Sans Arabic',sans-serif" }}>
+    <div dir="rtl" className="h-screen flex flex-col bg-[#FAF7F0] overflow-hidden" style={{ fontFamily: "'IBM Plex Sans','Noto Kufi Arabic',sans-serif" }}>
       {/* شريط علوي */}
       <header className="flex items-center justify-between px-4 h-14 bg-[#1F1A13] text-white flex-shrink-0">
         <div className="flex items-center gap-2.5">
@@ -446,7 +446,7 @@ function ThermalReceipt({ receipt }: { receipt: ReceiptData }) {
           @page { size: 80mm auto; margin: 0; }
         }
       `}</style>
-      <div className="pos-print" dir="rtl" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif", fontSize: 12, lineHeight: 1.55 }}>
+      <div className="pos-print" dir="rtl" style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif", fontSize: 12, lineHeight: 1.55 }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{company?.name || 'مطعم'}</div>
           {company?.taxNumber ? <div>الرقم الضريبي <span dir="ltr">{company.taxNumber}</span></div> : null}

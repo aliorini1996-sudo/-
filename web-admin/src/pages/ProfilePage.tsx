@@ -33,7 +33,7 @@ export default function ProfilePage() {
     document.title = isAr ? 'بروفايل Field Sales' : 'Company Profile — Field Sales';
   }, [isAr]);
 
-  const arFont = "'IBM Plex Sans Arabic', sans-serif";
+  const arFont = "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif";
   const enFont = "'IBM Plex Sans', sans-serif";
   const serif = "'IBM Plex Serif', serif";
   const font = isAr ? arFont : enFont;

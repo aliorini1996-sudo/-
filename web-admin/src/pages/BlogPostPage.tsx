@@ -141,7 +141,7 @@ export default function BlogPostPage() {
 
   return (
     <div dir={rtl ? 'rtl' : 'ltr'} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]"
-      style={{ fontFamily: rtl ? "'IBM Plex Sans Arabic', sans-serif" : "'IBM Plex Sans', sans-serif" }}>
+      style={{ fontFamily: rtl ? "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" : "'IBM Plex Sans', sans-serif" }}>
       <style>{`
         article-prose { font-size:0px; line-height:{ font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-{ margin:14px 0; }px; }; color:#3a342b; }
          article-prose h2 { font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-{ margin:14px 0; }px; }

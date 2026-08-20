@@ -40,8 +40,8 @@ function AppleBadge({ muted }: { muted?: boolean }) {
       <g transform="translate(18, 15) scale(1.08)" fill="#fff">
         <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
       </g>
-      <text x="52" y="24" textAnchor="start" fill="#fff" fontSize="11.5" fontFamily="'IBM Plex Sans Arabic', sans-serif">متوفر على</text>
-      <text x="52" y="43" textAnchor="start" fill="#fff" fontSize="19" fontWeight="600" fontFamily="'IBM Plex Sans Arabic', sans-serif">App&#160;Store</text>
+      <text x="52" y="24" textAnchor="start" fill="#fff" fontSize="11.5" fontFamily="'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif">متوفر على</text>
+      <text x="52" y="43" textAnchor="start" fill="#fff" fontSize="19" fontWeight="600" fontFamily="'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif">App&#160;Store</text>
     </svg>
   );
 }
@@ -58,8 +58,8 @@ function PlayBadge({ muted }: { muted?: boolean }) {
         <path d="M16.28 15.44L12.5 12l3.78-3.44 3.6 2.05c.9.51.9 1.78 0 2.29l-3.6 2.54z" fill="#FFD500" />
         <path d="M3.18 21.72c.52.49 1.3.59 2.02.18l11.08-6.46L12.5 12 3.18 21.72z" fill="#FF3A44" />
       </g>
-      <text x="52" y="24" textAnchor="start" fill="#fff" fontSize="11.5" fontFamily="'IBM Plex Sans Arabic', sans-serif">احصل عليه من</text>
-      <text x="52" y="43" textAnchor="start" fill="#fff" fontSize="19" fontWeight="600" fontFamily="'IBM Plex Sans Arabic', sans-serif">Google&#160;Play</text>
+      <text x="52" y="24" textAnchor="start" fill="#fff" fontSize="11.5" fontFamily="'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif">احصل عليه من</text>
+      <text x="52" y="43" textAnchor="start" fill="#fff" fontSize="19" fontWeight="600" fontFamily="'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif">Google&#160;Play</text>
     </svg>
   );
 }
@@ -99,7 +99,7 @@ export default function RepAppPage() {
   const playUrl = (repApp.playUrl ?? FALLBACK_PLAY).trim();
 
   return (
-    <div dir="rtl" className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div dir="rtl" className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }}>
       {/* ترويسة */}
       <header className="border-b border-[#E9E1D3] bg-white/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">

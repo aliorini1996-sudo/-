@@ -21,7 +21,7 @@ export default function VerifyEmailPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] p-6" dir={dir} style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] p-6" dir={dir} style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }}>
       <div className="w-full max-w-md bg-white rounded-2xl border border-[#E9E1D3] shadow-sm p-8 text-center">
         <div className="inline-flex mb-5"><BrandIcon size={64} radius={0.26} /></div>
 

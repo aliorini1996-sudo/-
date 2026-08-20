@@ -8,7 +8,7 @@ export default {
         brand: { DEFAULT: '#1e40af', light: '#3b82f6', dark: '#1e3a8a' },
       },
       fontFamily: {
-        arabic: ['IBM Plex Sans Arabic', 'Tajawal', 'system-ui', 'sans-serif'],
+        arabic: ['Noto Kufi Arabic', 'IBM Plex Sans', 'system-ui', 'sans-serif'],
       },
     },
   },

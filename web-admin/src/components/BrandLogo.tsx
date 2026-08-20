@@ -40,7 +40,7 @@ export function BrandWordmark({
           <span style={{ color: '#E15A30' }}> Sales</span>
         </div>
         {showSubtitle && (
-          <div style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif", fontSize: iconSize * 0.27, color: dark ? '#9A8F7E' : '#6E6557', marginTop: 2 }}>{subtitle}</div>
+          <div style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', sans-serif", fontSize: iconSize * 0.27, color: dark ? '#9A8F7E' : '#6E6557', marginTop: 2 }}>{subtitle}</div>
         )}
       </div>
     </div>

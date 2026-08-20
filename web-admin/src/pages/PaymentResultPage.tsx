@@ -31,7 +31,7 @@ export default function PaymentResultPage() {
   const pending = data && !paid && (data.status === 'initiated');
 
   return (
-    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-[#FAF7F0] p-4" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
+    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-[#FAF7F0] p-4" style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }}>
       <div className="bg-white rounded-2xl shadow-xl border border-[#E9E1D3] w-full max-w-md p-8 text-center">
         <div className="flex justify-center mb-4"><BrandIcon size={52} radius={0.28} /></div>
 

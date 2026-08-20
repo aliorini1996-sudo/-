@@ -26,7 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         position="top-center"
         toastOptions={{
           duration: 3000,
-          style: { fontFamily: 'IBM Plex Sans Arabic, sans-serif', direction: 'rtl', fontSize: '14px' },
+          style: { fontFamily: 'Noto Kufi Arabic, IBM Plex Sans, system-ui, sans-serif', direction: 'rtl', fontSize: '14px' },
           success: { iconTheme: { primary: '#10b981', secondary: 'white' } },
           error: { iconTheme: { primary: '#ef4444', secondary: 'white' } },
         }}

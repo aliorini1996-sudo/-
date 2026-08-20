@@ -43,7 +43,7 @@ export default function KdsScreen() {
   const orders = data ?? [];
 
   return (
-    <div dir="rtl" className="min-h-screen bg-[#1F1A13] text-white" style={{ fontFamily: "'IBM Plex Sans','IBM Plex Sans Arabic',sans-serif" }}>
+    <div dir="rtl" className="min-h-screen bg-[#1F1A13] text-white" style={{ fontFamily: "'IBM Plex Sans','Noto Kufi Arabic',sans-serif" }}>
       <header className="flex items-center justify-between px-4 h-14 border-b border-white/10 sticky top-0 bg-[#1F1A13] z-10">
         <div className="flex items-center gap-2.5">
           <BrandIcon size={30} radius={0.28} />
