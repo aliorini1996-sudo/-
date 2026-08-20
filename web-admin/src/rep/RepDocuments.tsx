@@ -55,10 +55,12 @@ export interface InvoiceDoc {
   customer: DocCustomer;
   repName: string;
   items: { name: string; unit?: string; qty: number; unitPrice: number; discountPct: number; taxPct: number; lineTotal: number }[];
-  subtotal: number;
-  discount: number;
+  subtotal: number;   // صافٍ قبل الضريبة دائما
+  discount: number;   // صافٍ قبل الضريبة دائما
   tax: number;
   total: number;
+  /** اسعار البنود (unitPrice و lineTotal) شاملة الضريبة — فواتير تطبيق المندوب */
+  pricesIncludeTax?: boolean;
   paidAmt?: number;
   remainingAmt?: number;
   einvoice?: { provider?: string | null; status?: string | null; uuid?: string | null; qr?: string | null } | null;
@@ -267,9 +269,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   // النسبة من البنود لا من قسمة المبالغ — قسمة المبالغ تطبع نسبة مدمجة عند اختلاط النسب
   const vatPcts = [...new Set(doc.items.map(it => Number(it.taxPct)))];
   const vatRate = vatPcts.length === 1 ? `${vatPcts[0]}%` : tr('نسب متعددة');
-  // المستندات القديمة لا تحمل علم «الاسعار شاملة» فنكشفه حسابيا:
-  // شامل ⇔ المجموع − الخصم = الاجمالي (الضريبة داخله لا فوقه)
-  const inclusiveDoc = doc.tax > 0 && Math.abs((doc.subtotal - doc.discount) - doc.total) < 0.005;
+  // العلم الصريح هو المرجع؛ والاستدلال الحسابي احتياط للفواتير القليلة التي كُتبت
+  // في نافذة الالتباس (بين نشر الاسعار الشاملة ورد العمودين الى الصافي) قبل وجود العمود
+  const inclusiveDoc = doc.pricesIncludeTax ?? (doc.tax > 0 && Math.abs((doc.subtotal - doc.discount) - doc.total) < 0.005);
   return (
     <div ref={ref} style={PAGE}>
       <Header title={docTitle} company={doc.company} />
@@ -300,7 +302,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
             <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
             <th style={th}>{tr('الكمية')}</th>
-            <th style={th}>{tr('السعر')}</th>
+            <th style={th}>{inclusiveDoc ? tr('السعر شامل الضريبة') : tr('السعر')}</th>
             <th style={th}>{tr('الخصم')}</th>
             <th style={th}>{tr('الضريبة')}</th>
             <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('الإجمالي')}</th>
@@ -315,7 +317,15 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
                 {it.unit && <span style={{ color: '#9ca3af', fontSize: 11 }}> ({it.unit})</span>}
               </td>
               <td style={td}>{it.qty}</td>
-              <td style={td}>{formatCurrency(it.unitPrice)}</td>
+              <td style={td}>
+                {formatCurrency(it.unitPrice)}
+                {/* الفاتورة الضريبية القياسية توجب اظهار سعر الوحدة غير شامل الضريبة */}
+                {inclusiveDoc && !isSimplified && it.taxPct > 0 && (
+                  <div style={{ color: '#9ca3af', fontSize: 10.5, marginTop: 2 }}>
+                    {tr('قبل الضريبة')}: {formatCurrency((it.unitPrice * 100) / (100 + Number(it.taxPct)))}
+                  </div>
+                )}
+              </td>
               <td style={td}>{it.discountPct > 0 ? `${it.discountPct}%` : '-'}</td>
               <td style={td}>{it.taxPct}%</td>
               <td style={{ ...td, fontWeight: 700 }}>{formatCurrency(it.lineTotal)}</td>
@@ -323,6 +333,11 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           ))}
         </tbody>
       </table>
+      {inclusiveDoc && (
+        <div style={{ fontSize: 10.5, color: '#9ca3af', marginBottom: 10 }}>
+          {tr('الأسعار المعروضة شاملة ضريبة القيمة المضافة')}
+        </div>
+      )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 20 }}>
         {/* رمز QR / معرّف الاعتماد للفاتورة الإلكترونية */}
@@ -368,6 +383,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         <div style={{ width: 300, fontSize: 14 }}>
           <Row label={tr('المجموع قبل الخصم')} value={formatCurrency(doc.subtotal)} />
           {doc.discount > 0 && <Row label={tr('الخصم')} value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
+          {doc.tax > 0 && <Row label={tr('الوعاء الخاضع للضريبة')} value={formatCurrency(doc.total - doc.tax)} />}
           <Row label={`${inclusiveDoc ? tr('منها ضريبة القيمة المضافة') : tr('ضريبة القيمة المضافة')} ${vatRate}`} value={formatCurrency(doc.tax)} color="#1E7A52" />
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
             <span>{doc.isReturn ? tr('إجمالي المرتجع (دائن)') : tr('الإجمالي النهائي')}</span>
@@ -751,6 +767,7 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
       taxPct: Number(it.taxPct),
       lineTotal: Number(it.lineTotal),
     })),
+    pricesIncludeTax: inv.pricesIncludeTax ?? undefined,
     subtotal: Number(inv.subtotal),
     discount: Number(inv.discountAmt),
     tax: Number(inv.taxAmt),

@@ -722,11 +722,40 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     })();
   }, []);
 
+  // اسعار هذا العميل الخاصة (صافية) — بدونها يعرض التطبيق basePrice الاعلى ويرفضه
+  // الخادم لان سعر العميل هو السقف المرجعي. كاش مستقل لكل عميل: مفتاح مشترك كان
+  // يسرب تسعير عميل الى اخر في الوضع الاوف-لاين. وغيابها لا يعطل شيئا (يسقط لـbasePrice).
+  const [custPrices, setCustPrices] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!customer?.id || customer._offline) return;
+    (async () => {
+      const { data } = await fetchThenCache(`custprices:${customer.id}`, async () =>
+        (await repApi.get(`/products/customer-prices/${customer.id}`)).data.data);
+      if (data) setCustPrices(Object.fromEntries((data as any[]).map(r => [r.productId, Number(r.price)])));
+    })();
+  }, [customer?.id]);
+
+  // سباق تحميل: بند اضيف قبل وصول اسعار العميل يبقى بالسعر الاساسي. نصحح فقط الاسطر
+  // التي لم يمسها المندوب (unitPrice ما زال يساوي refPrice) فلا نطمس تعديلا يدويا.
+  useEffect(() => {
+    if (!Object.keys(custPrices).length) return;
+    setLines(prev => prev.map(l => {
+      const cp = custPrices[l.productId];
+      if (cp === undefined) return l;
+      const fresh = roundDecimal(cp * (1 + Number(l.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+      if (fresh === l.refPrice) return l;
+      const untouched = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) < 1e-9;
+      return { ...l, refPrice: fresh, ...(untouched ? { unitPrice: fresh } : {}) };
+    }));
+  }, [custPrices]);
+
   // السعر الذي يُدخله المندوب شامل الضريبة؛ نشتقّ السعر قبل الضريبة للنظام
   const round2 = (n: number) => Math.round(n * 100) / 100;
   // بخانات عملة الدولة: round2 الثابتة صارت — بعد تخزين السعر كما يرسل — تقص الفلس
   // الثالث في اسواق الدينار (KWD/BHD/OMR) فيخالف المخزن ما اعلن
-  const inclPrice = (p: any) => roundDecimal(Number(p.basePrice) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency())); // السعر شامل الضريبة
+  // السعر المتفق مع هذا العميل ان وجد، وإلا السعر الاساسي — وكلاهما صافٍ فيحول لشامل
+  const netPriceOf = (p: any) => custPrices[p.id] ?? Number(p.basePrice);
+  const inclPrice = (p: any) => roundDecimal(netPriceOf(p) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency())); // السعر شامل الضريبة
 
   const addProduct = (p: any) => {
     // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود

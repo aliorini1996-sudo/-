@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
+import { canAccessCustomer } from '../services/customerScope';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -35,6 +36,25 @@ const priceTierSchema = z.array(z.object({
   maxQty: z.number().optional(),
   price: z.number().min(0),
 }));
+
+// أسعار عميل بعينها (صافية قبل الضريبة) — يحتاجها تطبيق المندوب ليعرض السعر المتفق
+// عليه مع هذا العميل. بدونها كان يعرض basePrice الأعلى فيرفضه حارس الصلاحية في الخادم
+// (سعر العميل هو السقف المرجعي) ⇒ «لا تملك صلاحية تغيير سعر البيع» على كل مستند لهذا العميل.
+// خفيفة عمداً (معرّف + سعر) لتُحمَّل وتُخزَّن في الكاش على الجوال بلا كلفة.
+router.get('/customer-prices/:customerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (!(await canAccessCustomer(req, tid, req.params.customerId))) {
+      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      return;
+    }
+    const prices = await prisma.customerPrice.findMany({
+      where: { customerId: req.params.customerId, product: { tenantId: tid, deletedAt: null } },
+      select: { productId: true, price: true },
+    });
+    res.json({ success: true, data: prices });
+  } catch (err) { next(err); }
+});
 
 router.get('/categories', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

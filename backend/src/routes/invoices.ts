@@ -210,13 +210,18 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         select: { productId: true, price: true },
       });
       const cpMap = new Map(cps.map(c => [c.productId, c.price]));
+      const isReturnDoc = body.type === 'RETURN';
       const maxD = rep.maxDiscountPct || 0;
       const TOL = 0.01;
       const fail = (msg: string) => { res.status(403).json({ success: false, message: msg }); };
 
-      if (body.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}%`); return; }
+      if (!isReturnDoc && body.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}%`); return; }
 
+      // المرتجع يعكس سعر بيع سابقا لا تسعيرا جديدا — حبسه على الحارس السعري يمنع
+      // المندوب من تسجيل بضاعة راجعة اصلا، وهو اشد ضررا من بيع بسعر غير مصرح
+      // (كما هو معفى اصلا من فحص مخزون السيارة ادناه)
       for (const it of body.items) {
+        if (isReturnDoc) break;
         if (it.discountPct > maxD + 1e-9) { fail(`لا تملك صلاحية منح خصم يتجاوز ${maxD}% على الأصناف`); return; }
         const p = products.find(x => x.id === it.productId)!;
         const ref = cpMap.has(it.productId) ? cpMap.get(it.productId)! : p.basePrice;
@@ -302,6 +307,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           ...(docDate && { invoiceDate: docDate }),
           dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
           notes: body.notes,
+          pricesIncludeTax: body.pricesIncludeTax,
           subtotal,
           discountPct: body.discountPct,
           discountAmt,

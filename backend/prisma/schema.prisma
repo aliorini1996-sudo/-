@@ -479,6 +479,11 @@ model Invoice {
   dueDate       DateTime?
   notes         String?
 
+  // subtotal و discountAmt **صافيان قبل الضريبة دائما** في كل فواتير المنصة.
+  // اما اسعار البنود (items.unitPrice و lineTotal) فتكون شاملة الضريبة متى كان
+  // pricesIncludeTax=true — وهي فواتير تطبيق المندوب التي يبقى فيها السعر المعلن
+  // للعميل كما هو حرفيا. الافتراضي false يجعل كل الصفوف التاريخية صحيحة بلا ترحيل.
+  pricesIncludeTax Boolean @default(false)
   subtotal     Float
   discountPct  Float @default(0)
   discountAmt  Float @default(0)

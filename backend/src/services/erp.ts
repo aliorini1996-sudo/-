@@ -1,4 +1,5 @@
 import prisma from '../config/database';
+import { netFromInclusive, roundHalfUp as roundDecimal } from '../lib/money';
 
 type ErpIntegration = Awaited<ReturnType<typeof prisma.erpIntegration.findUnique>>;
 type Resource = 'customers' | 'products' | 'invoices' | 'receipts';
@@ -41,11 +42,29 @@ async function readData(tenantId: string, resource: Resource) {
     return prisma.product.findMany({ where: { tenantId, deletedAt: null }, include: { category: true, priceTiers: true }, orderBy: { updatedAt: 'desc' }, take: 500 });
   }
   if (resource === 'invoices') {
-    return prisma.invoice.findMany({
+    const invoices = await prisma.invoice.findMany({
       where: { tenantId },
       include: { customer: true, salesRep: { select: { id: true, name: true, phone: true } }, items: { include: { product: true } } },
       orderBy: { updatedAt: 'desc' },
       take: 300,
+    });
+    // ═══ حقول مشتقة صريحة: النظام المحاسبي المستقبِل يفترض — كما يفترض كل معيار —
+    // ان سعر الوحدة **صافٍ قبل الضريبة**، فيعيد احتساب الضريبة فوقه. وفواتير تطبيق
+    // المندوب تخزن السعر شاملا. فبدل ترك المستقبِل يخمن، نرفق له الصافي محسوبا.
+    // الصيغ ادناه صحيحة في الوضعين معا فلا تفسد اي فاتورة تاريخية. ═══
+    return invoices.map(inv => {
+      const incl = inv.pricesIncludeTax;
+      return {
+        ...inv,
+        payloadVersion: 2,
+        // الوعاء الخاضع للضريبة — صحيح في الوضعين (الاجمالي ناقص الضريبة)
+        taxableBase: roundDecimal(inv.total - inv.taxAmt, 2),
+        items: inv.items.map(it => ({
+          ...it,
+          unitPriceNet: incl ? roundDecimal(netFromInclusive(it.unitPrice, it.taxPct), 4) : it.unitPrice,
+          netAmount: roundDecimal(it.lineTotal - it.taxAmt, 2),
+        })),
+      };
     });
   }
   return prisma.receipt.findMany({
