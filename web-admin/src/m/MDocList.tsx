@@ -71,7 +71,7 @@ export default function MDocList({ kind, company, userName }: {
       toast.success(kind === 'invoice' ? tr('تم إلغاء الفاتورة') : tr('تم إلغاء السند'));
       setCancelId(null); setOpenId(null);
     } catch (e) {
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الإلغاء'));
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإلغاء'));
     } finally { setCancelling(false); }
   };
 
@@ -102,7 +102,7 @@ export default function MDocList({ kind, company, userName }: {
         <div className="relative flex-1">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
           <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
-            placeholder={kind === 'invoice' ? tr('ابحث برقم الفاتورة أو العميل…') : tr('ابحث برقم السند أو العميل…')} />
+            placeholder={kind === 'invoice' ? tr('ابحث برقم الفاتورة أو العميل') : tr('ابحث برقم السند أو العميل')} />
         </div>
         <button onClick={() => setCreating(true)}
           className={`w-11 h-11 rounded-xl text-white flex items-center justify-center flex-shrink-0 ${kind === 'invoice' ? 'bg-[#E15A30]' : 'bg-[#2F855A]'}`}
@@ -121,7 +121,7 @@ export default function MDocList({ kind, company, userName }: {
             </MCard>
           )}
         {listQ.isFetching && !listQ.isLoading && (
-          <p className="text-center text-[11px] text-[#9A8F7E] py-3">{tr('جاري التحميل...')}</p>
+          <p className="text-center text-[11px] text-[#9A8F7E] py-3">{tr('جاري التحميل')}</p>
         )}
       </div>
 
@@ -130,8 +130,8 @@ export default function MDocList({ kind, company, userName }: {
           danger
           title={kind === 'invoice' ? tr('إلغاء الفاتورة') : tr('إلغاء السند')}
           message={kind === 'invoice'
-            ? tr('سيُلغى المستند وتُعكس قيوده المحاسبية ويعود رصيد العميل كما كان. لا يمكن التراجع.')
-            : tr('سيُلغى السند وتُعكس قيوده ويعود المبلغ على ذمّة العميل. لا يمكن التراجع.')}
+            ? tr('سيلغى المستند وتعكس قيوده المحاسبية ويعود رصيد العميل كما كان لا يمكن التراجع')
+            : tr('سيلغى السند وتعكس قيوده ويعود المبلغ على ذمة العميل لا يمكن التراجع')}
           confirmLabel={tr('تأكيد الإلغاء')}
           loading={cancelling}
           onConfirm={doCancel}
@@ -178,7 +178,7 @@ function DocRow({ kind, d, onOpen }: { kind: Kind; d: Record<string, unknown>; o
             </span>
             {kind === 'invoice' && !cancelled && remaining > 0 && (
               <span className="block text-[10px] text-[#B7791F] whitespace-nowrap">
-                {tr('متبقٍّ')} {formatCurrency(remaining)}
+                {tr('متبق')} {formatCurrency(remaining)}
               </span>
             )}
           </span>

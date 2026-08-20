@@ -99,7 +99,7 @@ export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount
         }
       } catch {
         if (!cancelled) {
-          setError(tr('تعذّر فتح الكاميرا — تحقّق من إذن الكاميرا، أو أدخل الباركود يدوياً'));
+          setError(tr('تعذر فتح الكاميرا تحقق من إذن الكاميرا أو أدخل الباركود يدويا'));
           setCameraFailed(true);
         }
       }
@@ -140,14 +140,14 @@ export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount
             </div>
           )}
           {error && <p className="absolute top-4 left-4 right-4 text-red-300 text-sm text-center bg-black/60 rounded p-2">{error}</p>}
-          <p className="absolute top-3 left-0 right-0 text-center text-white/70 text-xs">{tr('وجّه الكاميرا نحو الباركود — يُضاف الصنف تلقائياً')}</p>
+          <p className="absolute top-3 left-0 right-0 text-center text-white/70 text-xs">{tr('وجه الكاميرا نحو الباركود يضاف الصنف تلقائيا')}</p>
 
           {/* الشريط السفلي: إدخال يدوي + عدّاد الأصناف + زر المتابعة لإتمام الفاتورة */}
           <div className="absolute bottom-0 left-0 right-0 bg-[#1F1A13] p-3 flex items-center gap-3">
             <button onClick={switchToManual} className="text-white/80 text-xs flex items-center gap-1 shrink-0">
               <Keyboard size={16} /> {tr('يدوي')}
             </button>
-            <span className="text-white text-sm font-semibold">{itemCount} {tr('صنف مُضاف')}</span>
+            <span className="text-white text-sm font-semibold">{itemCount} {tr('صنف مضاف')}</span>
             <button onClick={onProceed} disabled={itemCount === 0}
               className="mr-auto bg-[#E15A30] text-white rounded-lg px-5 py-2 font-bold disabled:opacity-40 flex items-center gap-1">
               {tr('متابعة')} <ArrowLeft size={16} />
@@ -157,9 +157,9 @@ export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3 text-center">
           <p className="text-gray-300 text-sm">
-            {cameraFailed ? (error || tr('تعذّر فتح الكاميرا — أدخل الباركود يدوياً'))
-              : !canScan ? tr('المسح غير مدعوم على هذا المتصفّح — أدخل الباركود يدوياً')
-              : tr('أدخل الباركود يدوياً')}
+            {cameraFailed ? (error || tr('تعذر فتح الكاميرا أدخل الباركود يدويا'))
+              : !canScan ? tr('المسح غير مدعوم على هذا المتصفح أدخل الباركود يدويا')
+              : tr('أدخل الباركود يدويا')}
           </p>
           <input autoFocus className="input text-center" dir="ltr" value={manual}
             onChange={(e) => setManual(e.target.value)} placeholder={tr('رقم الباركود')}
@@ -176,7 +176,7 @@ export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount
           )}
           {/* شريط سفلي للمتابعة يبقى متاحاً في الوضع اليدوي */}
           <div className="fixed bottom-0 left-0 right-0 bg-[#1F1A13] p-3 flex items-center gap-3">
-            <span className="text-white text-sm font-semibold">{itemCount} {tr('صنف مُضاف')}</span>
+            <span className="text-white text-sm font-semibold">{itemCount} {tr('صنف مضاف')}</span>
             <button onClick={onProceed} disabled={itemCount === 0}
               className="mr-auto bg-[#E15A30] text-white rounded-lg px-5 py-2 font-bold disabled:opacity-40 flex items-center gap-1">
               {tr('متابعة')} <ArrowLeft size={16} />

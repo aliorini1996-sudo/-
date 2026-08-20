@@ -69,7 +69,7 @@ export default function SalesRepsPage() {
       setDeleting(null);
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف المندوب');
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حذف المندوب');
       toast.error(msg);
       setDeleting(null);
     },
@@ -90,7 +90,7 @@ export default function SalesRepsPage() {
       qc.invalidateQueries({ queryKey: ['customer-isolation'] });
       toast.success(enabled ? tr('تم تفعيل عزل العملاء') : tr('تم إيقاف عزل العملاء'));
     },
-    onError: () => toast.error(tr('تعذّر تغيير الإعداد')),
+    onError: () => toast.error(tr('تعذر تغيير الإعداد')),
   });
   const isolationOn = isolation?.enabled === true;
 
@@ -112,10 +112,10 @@ export default function SalesRepsPage() {
               <p className="font-medium text-gray-800">{tr('عزل عملاء المناديب')}</p>
               <p className="text-xs text-gray-500 mt-0.5 max-w-2xl leading-relaxed">
                 {isolationLoading
-                  ? tr('جاري قراءة الإعداد...')
+                  ? tr('جاري قراءة الإعداد')
                   : isolationOn
-                    ? tr('مُفعّل: كل مندوب يرى فقط العملاء المُسنَدين له والعملاء الذين فتحهم بنفسه.')
-                    : tr('مُطفأ: كل المناديب يرون كل عملاء الشركة. فعّله بعد إسناد العملاء لكل مندوب من زرّ «إسناد العملاء».')}
+                    ? tr('مفعل كل مندوب يرى فقط العملاء المسندين له والعملاء الذين فتحهم بنفسه')
+                    : tr('مطفأ كل المناديب يرون كل عملاء الشركة فعله بعد إسناد العملاء لكل مندوب من زر إسناد العملاء')}
               </p>
             </div>
           </div>
@@ -133,7 +133,7 @@ export default function SalesRepsPage() {
       <div className="card mb-4">
         <div className="relative max-w-sm">
           <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input pr-9" placeholder={tr('بحث بالاسم أو الجوال...')}
+          <input className="input pr-9" placeholder={tr('بحث بالاسم أو الجوال')}
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </div>
@@ -158,7 +158,7 @@ export default function SalesRepsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={13} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={13} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.map(r => (
                 <tr key={r.id}>
                   <td>
@@ -227,7 +227,7 @@ export default function SalesRepsPage() {
         <ConfirmDialog
           danger
           title={tr('حذف المندوب')}
-          message={`${tr('سيتم حذف المندوب')} «${deleting.name}» ${tr('نهائياً ولا يمكن التراجع. تُحفظ فواتيره وسنداته كسجلّ مالي لكن دون نسبتها إليه، وتُحذف بياناته التشغيلية (مخزون السيارة، المواقع، الزيارات).')}`}
+          message={`${tr('سيتم حذف المندوب')} «${deleting.name}» ${tr('نهائيا ولا يمكن التراجع تحفظ فواتيره وسنداته كسجل مالي لكن دون نسبتها إليه وتحذف بياناته التشغيلية مخزون السيارة المواقع الزيارات')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}
@@ -308,7 +308,7 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
       toast.success(tr('تم حفظ إسناد العملاء'));
       onClose();
     },
-    onError: () => toast.error(tr('تعذّر حفظ الإسناد')),
+    onError: () => toast.error(tr('تعذر حفظ الإسناد')),
   });
 
   const list: Customer[] = onlyAssigned
@@ -326,7 +326,7 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
           <div>
             <h3 className="font-semibold text-gray-800">{tr('إسناد العملاء')} · {rep.name}</h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              {tr('اختر العملاء الذين يظهرون لهذا المندوب')} — {tr('مُسنَد')}:{' '}
+              {tr('اختر العملاء الذين يظهرون لهذا المندوب')} — {tr('مسند')}:{' '}
               <span className="font-medium text-gray-700">{baseReady ? count : '…'}</span>
               {dirty && <span className="text-[#E15A30]"> · +{added.size} / −{removed.size}</span>}
             </p>
@@ -336,40 +336,40 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
 
         {assignedQ.isError && (
           <div className="mx-4 mt-3 text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2.5 flex items-center justify-between gap-3">
-            <span>{tr('تعذّر تحميل العملاء المُسنَدين حالياً — الحفظ معطّل حتى لا تُفقد إسنادات.')}</span>
+            <span>{tr('تعذر تحميل العملاء المسندين حاليا الحفظ معطل حتى لا تفقد إسنادات')}</span>
             <button onClick={() => assignedQ.refetch()} className="underline shrink-0">{tr('إعادة المحاولة')}</button>
           </div>
         )}
 
         {!isolationOn && (
           <div className="mx-4 mt-3 text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg p-2.5 leading-relaxed">
-            {tr('عزل العملاء مُطفأ حالياً، فكل المناديب يرون كل العملاء. يُحفظ الإسناد الآن ويسري فور تفعيل المفتاح أعلى الصفحة.')}
+            {tr('عزل العملاء مطفأ حاليا فكل المناديب يرون كل العملاء يحفظ الإسناد الآن ويسري فور تفعيل المفتاح أعلى الصفحة')}
           </div>
         )}
 
         <div className="p-4 pb-2 space-y-2">
           <div className="relative">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder={tr('ابحث بالاسم أو الجوال أو الكود...')}
+            <input className="input pr-9" placeholder={tr('ابحث بالاسم أو الجوال أو الكود')}
               value={q} onChange={e => setQ(e.target.value)} disabled={onlyAssigned} />
           </div>
           <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer w-fit">
             <input type="checkbox" checked={onlyAssigned} onChange={e => setOnlyAssigned(e.target.checked)} />
-            {tr('عرض المُسنَدين فقط')}
+            {tr('عرض المسندين فقط')}
           </label>
           {!onlyAssigned && (
             <p className="text-[11px] text-gray-400">
-              {tr('يُعرض أقرب')} {PICKER_LIMIT} {tr('نتيجة — اكتب في البحث للوصول لأي عميل.')}
+              {tr('يعرض أقرب')} {PICKER_LIMIT} {tr('نتيجة اكتب في البحث للوصول لأي عميل')}
             </p>
           )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-2 min-h-[240px]">
           {listLoading ? (
-            <p className="text-center text-gray-400 py-10">{tr('جاري التحميل...')}</p>
+            <p className="text-center text-gray-400 py-10">{tr('جاري التحميل')}</p>
           ) : list.length === 0 ? (
             <p className="text-center text-gray-400 py-10">
-              {onlyAssigned ? tr('لا يوجد عملاء مُسنَدون لهذا المندوب') : tr('لا يوجد عملاء مطابقون')}
+              {onlyAssigned ? tr('لا يوجد عملاء مسندون لهذا المندوب') : tr('لا يوجد عملاء مطابقون')}
             </p>
           ) : (
             <ul className="divide-y divide-gray-100">
@@ -394,7 +394,7 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
         <div className="p-4 border-t flex items-center justify-end gap-2">
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
           <button onClick={() => save.mutate()} disabled={!baseReady || !dirty || save.isPending} className="btn-primary">
-            {save.isPending ? tr('جاري الحفظ...') : tr('حفظ التغييرات')}
+            {save.isPending ? tr('جاري الحفظ') : tr('حفظ التغييرات')}
           </button>
         </div>
       </div>
@@ -447,7 +447,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
       onDone();
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر التسجيل');
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر التسجيل');
       toast.error(msg);
     },
   });
@@ -480,7 +480,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
           {isLoading ? (
-            <p className="text-center text-gray-400 py-6">{tr('جارٍ التحميل…')}</p>
+            <p className="text-center text-gray-400 py-6">{tr('جار التحميل')}</p>
           ) : (
             <>
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -489,24 +489,24 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                   <p className="font-bold text-sm text-gray-700 mt-1">{formatCurrency(data?.collected ?? 0)}</p>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-[11px] text-gray-500">{tr('المُستلَم سابقاً')}</p>
+                  <p className="text-[11px] text-gray-500">{tr('المستلم سابقا')}</p>
                   <p className="font-bold text-sm text-gray-700 mt-1">{formatCurrency(data?.settled ?? 0)}</p>
                 </div>
                 <div className="bg-green-50 rounded-xl p-3 border border-green-100">
-                  <p className="text-[11px] text-green-700">{tr('الرصيد المتبقّي')}</p>
+                  <p className="text-[11px] text-green-700">{tr('الرصيد المتبقي')}</p>
                   <p className="font-extrabold text-sm text-green-700 mt-1">{formatCurrency(outstanding)}</p>
                 </div>
               </div>
 
               <div>
-                <label className="label">{tr('المبلغ المُستلَم من المندوب')}</label>
+                <label className="label">{tr('المبلغ المستلم من المندوب')}</label>
                 <input className="input" type="number" min={0} step="0.01" value={amount}
                   onChange={e => setAmount(e.target.value)} placeholder="0.00" />
-                <p className="text-[11px] text-gray-400 mt-1">{tr('المبلغ مُعبّأ بالرصيد المتبقّي (تسليم كامل) — عدّله للتسليم الجزئي.')}</p>
+                <p className="text-[11px] text-gray-400 mt-1">{tr('المبلغ معبأ بالرصيد المتبقي تسليم كامل عدله للتسليم الجزئي')}</p>
               </div>
               <div>
-                <label className="label">{tr('ملاحظة (اختياري)')}</label>
-                <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال: نقدًا، تحويل بنكي…')} />
+                <label className="label">{tr('ملاحظة اختياري')}</label>
+                <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال نقدا تحويل بنكي')} />
               </div>
 
               {/* سجلّ الاستلامات — مرتّب بالوقت والمبلغ ومن استلم، قابل للتصدير PDF */}
@@ -514,7 +514,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                 <label className="label">{tr('سجل الاستلامات')}</label>
                 <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF] max-h-52 overflow-y-auto">
                   {settlementsQ.isLoading ? (
-                    <p className="text-center text-gray-400 text-xs py-4">{tr('جارٍ التحميل…')}</p>
+                    <p className="text-center text-gray-400 text-xs py-4">{tr('جار التحميل')}</p>
                   ) : settlements.length === 0 ? (
                     <p className="text-center text-gray-400 text-xs py-5">{tr('لا توجد استلامات بعد')}</p>
                   ) : settlements.map(s => (
@@ -585,7 +585,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const collectTotal = receipts.reduce((s, r) => s + Number(r.amount), 0);
   const periodLabel = from && to ? `${formatDate(from)} — ${formatDate(to)}` : tr('كل الفترات');
   // ملخّص أصناف الفاتورة: «اسم ×كمية، …» (لعمود الأصناف في الكشف)
-  const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ');
+  const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join(' ');
   // إجماليات أسفل الكشف: مجموع مبالغ الفواتير + مجموع الوحدات المباعة مفصّلة حسب الوحدة (كرتون/قطعة/…)
   const invoicesAmountTotal = invoices.reduce((s, i) => s + Number(i.total), 0);
   const soldUnits = (() => {
@@ -706,7 +706,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
           </div>
 
           {isLoading ? (
-            <div className="text-center text-gray-400 py-10">{tr('جاري التحميل...')}</div>
+            <div className="text-center text-gray-400 py-10">{tr('جاري التحميل')}</div>
           ) : (
             <>
               {/* ملخص */}
@@ -828,7 +828,7 @@ function CredentialsModal({ creds, onClose }: { creds: Creds; onClose: () => voi
         <div className="p-6 space-y-3">
           <div className="flex items-center gap-2 text-[#C94E28] bg-[#FBEBE2] rounded-lg px-3 py-2 text-xs">
             <KeyRound size={14} />
-            {tr('سلّم هذه البيانات للمندوب ليدخل بها على التطبيق — كلمة المرور لن تظهر مرة أخرى')}
+            {tr('سلم هذه البيانات للمندوب ليدخل بها على التطبيق كلمة المرور لن تظهر مرة أخرى')}
           </div>
           {row(tr('الاسم'), creds.name, 'name')}
           {row(tr('اسم المستخدم'), creds.username, 'username')}

@@ -23,17 +23,17 @@ export default function BlogIndexPage() {
 
   useSeo({
     title: tr(
-      'المدوّنة | FieldSales — مقالات إدارة المبيعات الميدانية والتوزيع في الدول العربية',
+      'المدونة | FieldSales مقالات إدارة المبيعات الميدانية والتوزيع في الدول العربية',
       'Blog | FieldSales — Field Sales & Distribution Articles across Arab Countries',
       'Blog | FieldSales — Articles sur la vente terrain et la distribution dans les pays arabes',
     ),
     description: tr(
-      'مئات المقالات والدلائل العملية في إدارة المبيعات الميدانية، الفوترة الإلكترونية، التحصيل، ومخزون التوزيع — مخصّصة لكل الدول العربية من فريق FieldSales.',
+      'مئات المقالات والدلائل العملية في إدارة المبيعات الميدانية الفوترة الإلكترونية التحصيل ومخزون التوزيع مخصصة لكل الدول العربية من فريق FieldSales',
       'Hundreds of practical guides on field sales management, e-invoicing, collection and distribution — tailored to every Arab country by the FieldSales team.',
       'Des centaines de guides pratiques sur la vente terrain, la facturation électronique, l\'encaissement et la distribution — pour chaque pays arabe, par FieldSales.',
     ),
     keywords: tr(
-      'مدونة مبيعات ميدانية, مقالات إدارة مناديب, البيع المتنقل, التحصيل, التوزيع, الفوترة الإلكترونية, الدول العربية',
+      'مدونة مبيعات ميدانية مقالات إدارة مناديب البيع المتنقل التحصيل التوزيع الفوترة الإلكترونية الدول العربية',
       'field sales blog, distribution management articles, van sales, sales rep management, e-invoicing, Arab countries',
       'blog vente terrain, articles distribution, van sales, gestion commerciaux, facturation électronique, pays arabes',
     ),
@@ -43,15 +43,15 @@ export default function BlogIndexPage() {
   const home = prefix || '/';
   const t = {
     back: tr('العودة للرئيسية', 'Back to home', "Retour à l'accueil"),
-    title: tr('مدوّنة FieldSales', 'FieldSales Blog', 'Blog FieldSales'),
+    title: tr('مدونة FieldSales', 'FieldSales Blog', 'Blog FieldSales'),
     intro: tr(
-      'دلائل ومقالات عملية في إدارة المبيعات الميدانية، الفوترة الإلكترونية، والتوزيع — لكل الدول العربية.',
+      'دلائل ومقالات عملية في إدارة المبيعات الميدانية الفوترة الإلكترونية والتوزيع لكل الدول العربية',
       'Practical guides on field sales management, e-invoicing and distribution — for every Arab country.',
       'Guides pratiques sur la vente terrain, la facturation électronique et la distribution — pour chaque pays arabe.',
     ),
     read: tr('دقائق قراءة', 'min read', 'min de lecture'),
     cta: tr('اقرأ المقال', 'Read article', "Lire l'article"),
-    byCountry: tr('تصفّح حسب الدولة', 'Browse by country', 'Parcourir par pays'),
+    byCountry: tr('تصفح حسب الدولة', 'Browse by country', 'Parcourir par pays'),
     latest: tr('كل المقالات', 'All articles', 'Tous les articles'),
     count: tr('مقال', 'articles', 'articles'),
     loadMore: tr('تحميل المزيد', 'Load more', 'Charger plus'),

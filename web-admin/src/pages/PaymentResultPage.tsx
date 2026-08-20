@@ -25,7 +25,7 @@ export default function PaymentResultPage() {
     },
   });
 
-  useEffect(() => { document.title = 'نتيجة الدفع — Field Sales'; }, []);
+  useEffect(() => { document.title = 'نتيجة الدفع Field Sales'; }, []);
 
   const paid = data?.status === 'paid';
   const pending = data && !paid && (data.status === 'initiated');
@@ -38,7 +38,7 @@ export default function PaymentResultPage() {
         {!ref ? (
           <p className="text-[#6E6557]">رابط غير صالح</p>
         ) : isLoading ? (
-          <p className="text-[#9A8F7E] py-6">جار التحقق من الدفع…</p>
+          <p className="text-[#9A8F7E] py-6">جار التحقق من الدفع</p>
         ) : isError || !data ? (
           <>
             <XCircle size={44} className="text-red-500 mx-auto mb-3" />
@@ -51,7 +51,7 @@ export default function PaymentResultPage() {
             <h1 className="text-2xl font-bold text-[#1F1A13]">تم الدفع بنجاح</h1>
             <p className="text-sm text-[#6E6557] mt-3">{data.description}</p>
             <p className="text-3xl font-extrabold text-[#1E7A52] mt-2 tabular-nums">{fmtSar(data.amountHalalas)}</p>
-            <p className="text-[12px] text-[#9A8F7E] mt-4">شكرا لكم — تم تسجيل دفعتكم وسنباشر التفعيل</p>
+            <p className="text-[12px] text-[#9A8F7E] mt-4">شكرا لكم تم تسجيل دفعتكم وسنباشر التفعيل</p>
           </>
         ) : pending ? (
           <>

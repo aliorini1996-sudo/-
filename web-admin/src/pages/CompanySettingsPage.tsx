@@ -20,8 +20,8 @@ interface CompanyForm {
 
 const PRESET_COLORS = ['#1e3a8a', '#0f766e', '#b91c1c', '#7c3aed', '#b45309', '#0e7490', '#15803d', '#374151'];
 const STYLES = [
-  { id: 'classic', label: 'كلاسيكي', desc: 'الشعار والاسم يميناً، حدّ ملوّن' },
-  { id: 'banner', label: 'بانر', desc: 'شريط ملوّن كامل بالأبيض' },
+  { id: 'classic', label: 'كلاسيكي', desc: 'الشعار والاسم يمينا حد ملون' },
+  { id: 'banner', label: 'بانر', desc: 'شريط ملون كامل بالأبيض' },
   { id: 'minimal', label: 'بسيط', desc: 'هادئ بخط رفيع' },
 ];
 
@@ -90,7 +90,7 @@ export default function CompanySettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { toast.error(tr('الملف يجب أن يكون صورة')); return; }
-    if (file.size > 600 * 1024) { toast.error(tr('حجم الشعار كبير — الحد 600 كيلوبايت')); return; }
+    if (file.size > 600 * 1024) { toast.error(tr('حجم الشعار كبير الحد 600 كيلوبايت')); return; }
     const reader = new FileReader();
     reader.onload = () => setLogo(reader.result as string);
     reader.readAsDataURL(file);
@@ -139,7 +139,7 @@ export default function CompanySettingsPage() {
                 <input className="input" {...register('address')} placeholder={tr('المدينة - الحي - الشارع')} />
               </div>
               <div>
-                <label className="label">{tr('الدولة (تحدّد العملة والضريبة والفوترة الإلكترونية)')}</label>
+                <label className="label">{tr('الدولة تحدد العملة والضريبة والفوترة الإلكترونية')}</label>
                 <select className="input" value={countryCode} onChange={e => setCountryCode(e.target.value)}>
                   {supportedCountries().map(c => (
                     <option key={c.code} value={c.code}>{c.nameAr} — {c.currency}</option>
@@ -247,8 +247,8 @@ export default function CompanySettingsPage() {
                 <ShieldCheck size={22} className="text-[#1E7A52]" />
               </div>
               <div>
-                <p className="font-semibold text-gray-800">{tr('الفوترة الإلكترونية (الربط الحكومي)')}</p>
-                <p className="text-xs text-gray-400">{tr('بيانات الربط تُدخلها شركتك — لا نطّلع على السرّ')}</p>
+                <p className="font-semibold text-gray-800">{tr('الفوترة الإلكترونية الربط الحكومي')}</p>
+                <p className="text-xs text-gray-400">{tr('بيانات الربط تدخلها شركتك لا نطلع على السر')}</p>
               </div>
             </div>
 
@@ -256,19 +256,19 @@ export default function CompanySettingsPage() {
               const prov = getCountry(countryCode).einvoice;
               if (prov === 'zatca') return (
                 <div className="text-sm text-[#1F5C3F] bg-[#E4F1EA] border border-[#C9E4D6] rounded-xl px-4 py-3 leading-relaxed">
-                  {tr('نظام ZATCA (السعودية) يعمل تلقائياً برمز QR على كل فاتورة — لا يحتاج بيانات ربط.')}
+                  {tr('نظام ZATCA السعودية يعمل تلقائيا برمز QR على كل فاتورة لا يحتاج بيانات ربط')}
                 </div>
               );
               if (prov === 'none') return (
                 <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 leading-relaxed">
-                  {tr('لا توجد فوترة إلكترونية إلزامية في دولتك حالياً — تُصدر فواتير عادية بعملة وضريبة دولتك.')}
+                  {tr('لا توجد فوترة إلكترونية إلزامية في دولتك حاليا تصدر فواتير عادية بعملة وضريبة دولتك')}
                 </div>
               );
-              const provLabel = prov === 'eta' ? 'ETA — مصر' : prov === 'peppol' ? 'Peppol — الإمارات' : 'TTN — تونس';
+              const provLabel = prov === 'eta' ? 'ETA مصر' : prov === 'peppol' ? 'Peppol الإمارات' : 'TTN تونس';
               return (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-3 bg-[#FBEBE2] border border-[#E8C9BC] rounded-xl px-4 py-2.5 flex-wrap">
-                    <span className="text-sm font-semibold text-[#C94E28]">{tr('المزوّد')}: {provLabel}</span>
+                    <span className="text-sm font-semibold text-[#C94E28]">{tr('المزود')}: {provLabel}</span>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={einv.enabled} onChange={e => setE('enabled', e.target.checked)} />
                       {tr('تفعيل الإرسال الحكومي')}
@@ -278,8 +278,8 @@ export default function CompanySettingsPage() {
                     <div>
                       <label className="label">{tr('البيئة')}</label>
                       <select className="input" value={einv.env} onChange={e => setE('env', e.target.value)}>
-                        <option value="preprod">{tr('اختبار (Preprod)')}</option>
-                        <option value="production">{tr('إنتاج (Production)')}</option>
+                        <option value="preprod">{tr('اختبار Preprod')}</option>
+                        <option value="production">{tr('إنتاج Production')}</option>
                       </select>
                     </div>
                     <div>
@@ -290,7 +290,7 @@ export default function CompanySettingsPage() {
                       <label className="label">Client Secret</label>
                       <input className="input" type="password" dir="ltr" autoComplete="new-password" value={einv.clientSecret}
                         onChange={e => setE('clientSecret', e.target.value)}
-                        placeholder={hasSecret ? tr('•••••••• محفوظ — اكتب قيمة جديدة لتغييره') : tr('السرّ من بوابة المزوّد')} />
+                        placeholder={hasSecret ? tr('•••••••• محفوظ اكتب قيمة جديدة لتغييره') : tr('السر من بوابة المزود')} />
                     </div>
                     <div>
                       <label className="label">{tr('كود النشاط')}</label>
@@ -301,12 +301,12 @@ export default function CompanySettingsPage() {
                       <input className="input" dir="ltr" value={einv.branchCode} onChange={e => setE('branchCode', e.target.value)} />
                     </div>
                     <div className="col-span-2">
-                      <label className="label">{tr('رابط الوسيط/المُجمِّع (اختياري)')}</label>
+                      <label className="label">{tr('رابط الوسيط/المجمع اختياري')}</label>
                       <input className="input" dir="ltr" value={einv.intermediaryUrl} onChange={e => setE('intermediaryUrl', e.target.value)} placeholder="https://..." />
                     </div>
                   </div>
                   <p className="text-[11px] text-gray-400 leading-relaxed">
-                    {tr('احصل على هذه البيانات بعد تسجيل شركتك في منظومة الفوترة الإلكترونية والحصول على الختم الإلكتروني، أو عبر وسيط معتمد.')}
+                    {tr('احصل على هذه البيانات بعد تسجيل شركتك في منظومة الفوترة الإلكترونية والحصول على الختم الإلكتروني أو عبر وسيط معتمد')}
                   </p>
                 </div>
               );
@@ -323,14 +323,14 @@ export default function CompanySettingsPage() {
 
         {/* العمود الأيسر: المعاينة الحيّة */}
         <div className="space-y-3">
-          <p className="text-sm font-semibold text-gray-500">{tr('معاينة الترويسة (كما ستظهر في المطبوعات)')}</p>
+          <p className="text-sm font-semibold text-gray-500">{tr('معاينة الترويسة كما ستظهر في المطبوعات')}</p>
           <div className="card bg-white p-0 overflow-hidden">
             <div style={{ width: 754, transformOrigin: 'top right', transform: 'scale(0.62)' }} className="p-5">
               <Header title={tr('فاتورة ضريبية')} company={previewCompany} />
             </div>
             <div style={{ height: 130 }} />
           </div>
-          <p className="text-xs text-gray-400">{tr('التغييرات تظهر فوراً هنا، وتنعكس على الفواتير وسندات القبض وكشوف الحساب بعد الحفظ.')}</p>
+          <p className="text-xs text-gray-400">{tr('التغييرات تظهر فورا هنا وتنعكس على الفواتير وسندات القبض وكشوف الحساب بعد الحفظ')}</p>
         </div>
       </form>
 

@@ -88,7 +88,7 @@ export default function WhatsAppFab() {
   const docLang = typeof document !== 'undefined' ? document.documentElement.lang : 'ar';
   const label = docLang === 'en' ? 'Chat with us on WhatsApp'
     : docLang === 'fr' ? 'Discutez avec nous sur WhatsApp'
-    : 'تحدّث معنا على واتساب';
+    : 'تحدث معنا على واتساب';
 
   return (
     <a

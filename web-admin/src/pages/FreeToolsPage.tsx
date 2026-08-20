@@ -25,13 +25,13 @@ import {
 // العناوين بالاستعلام-أولاً (ترقية أغسطس 2026) — مطابقة FREE_TOOLS في scripts/prerender.mjs إلزامية (المصدر المزدوج).
 const TOOLS = [
   { id: 'commission', title: 'حاسبة عمولة المبيعات للمناديب', icon: Calculator,
-    desc: 'شرائح عمولة بأرضية وسقف وخصم المرتجعات لمناديب التوزيع — بدل جداول Excel الهشّة.' },
+    desc: 'شرائح عمولة بأرضية وسقف وخصم المرتجعات لمناديب التوزيع بدل جداول Excel الهشة' },
   { id: 'van', title: 'تسوية عهدة سيارة المندوب', icon: Truck,
-    desc: 'طابق حمولة السيارة آخر اليوم واكشف العجز بالصنف وقيمته.' },
+    desc: 'طابق حمولة السيارة آخر اليوم واكشف العجز بالصنف وقيمته' },
   { id: 'reps', title: 'حاسبة عدد مناديب المبيعات', icon: Users,
-    desc: 'كم مندوباً تحتاج؟ حجّم فريقك الميداني قبل التوظيف أو الشراء، بحساسية ±٢٠٪.' },
+    desc: 'كم مندوبا تحتاج حجم فريقك الميداني قبل التوظيف أو الشراء بحساسية ±٢٠٪' },
   { id: 'aging', title: 'حاسبة أعمار الديون وحدود الائتمان', icon: Wallet,
-    desc: 'وزّع ذممك على شرائح ٣٠/٦٠/٩٠ يوماً واقترح حدّ ائتمان لكل عميل.' },
+    desc: 'وزع ذممك على شرائح ٣٠/٦٠/٩٠ يوما واقترح حد ائتمان لكل عميل' },
 ] as const;
 
 const nf = (n: number) => new Intl.NumberFormat('ar-SA', { maximumFractionDigits: 2 }).format(n);
@@ -64,9 +64,9 @@ function CommissionTool() {
     <>
       <div className="grid gap-3 sm:grid-cols-4">
         <Num label="إجمالي المبيعات" value={sales} set={setSales} step={1000} />
-        <Num label="المرتجعات (تُخصم)" value={returns} set={setReturns} step={500} />
-        <Num label="أرضية العمولة (0 = بلا)" value={floor} set={setFloor} step={100} />
-        <Num label="سقف العمولة (0 = بلا)" value={cap} set={setCap} step={100} />
+        <Num label="المرتجعات تخصم" value={returns} set={setReturns} step={500} />
+        <Num label="أرضية العمولة 0 = بلا" value={floor} set={setFloor} step={100} />
+        <Num label="سقف العمولة 0 = بلا" value={cap} set={setCap} step={100} />
       </div>
 
       <h3 className="text-sm font-semibold mt-5 mb-2">الشرائح</h3>
@@ -74,18 +74,18 @@ function CommissionTool() {
         {tiers.map((t, i) => (
           <div key={i} className="grid grid-cols-3 gap-2">
             <Num label="من" value={t.from} set={(v) => setTier(i, 'from', v)} step={1000} />
-            <Num label={Number.isFinite(t.to) ? 'إلى' : 'إلى (بلا حدّ)'} value={Number.isFinite(t.to) ? t.to : 0} set={(v) => setTier(i, 'to', v || Infinity)} step={1000} />
+            <Num label={Number.isFinite(t.to) ? 'إلى' : 'إلى بلا حد'} value={Number.isFinite(t.to) ? t.to : 0} set={(v) => setTier(i, 'to', v || Infinity)} step={1000} />
             <Num label="النسبة %" value={t.pct} set={(v) => setTier(i, 'pct', v)} step={0.25} />
           </div>
         ))}
       </div>
 
       <div className="mt-5 rounded-lg border border-[#E15A30] p-4">
-        <p className="text-xs text-[#6b6357]">أساس الحساب بعد المرتجعات: <b className="tabular-nums">{nf(r.base)}</b></p>
+        <p className="text-xs text-[#6b6357]">أساس الحساب بعد المرتجعات <b className="tabular-nums">{nf(r.base)}</b></p>
         <p className="text-2xl font-bold mt-1 tabular-nums" dir="ltr">{nf(r.total)} <span className="text-xs font-normal">ر.س</span></p>
         {r.adjusted && (
           <p className="text-[11px] text-amber-700 mt-1">
-            {r.adjusted === 'floor' ? `رُفعت للأرضية (المحسوب ${nf(r.raw)})` : `حُدّت بالسقف (المحسوب ${nf(r.raw)})`}
+            {r.adjusted === 'floor' ? `رفعت للأرضية المحسوب ${nf(r.raw)})` : `حدت بالسقف المحسوب ${nf(r.raw)})`}
           </p>
         )}
         {r.rows.length > 0 && (
@@ -123,7 +123,7 @@ function VanTool() {
         <table className="w-full text-xs">
           <caption className="sr-only">تسوية عهدة السيارة</caption>
           <thead><tr className="text-[#9A8F7E]">
-            {['الصنف', 'أول اليوم', 'المُحمَّل', 'المُباع', 'المرتجع', 'التالف', 'الجرد', 'المتوقّع', 'الفرق'].map((h) => (
+            {['الصنف', 'أول اليوم', 'المحمل', 'المباع', 'المرتجع', 'التالف', 'الجرد', 'المتوقع', 'الفرق'].map((h) => (
               <th key={h} className="text-start py-1 px-1 whitespace-nowrap">{h}</th>
             ))}
           </tr></thead>
@@ -147,11 +147,11 @@ function VanTool() {
         </table>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-[#E8E0D2] p-3"><p className="text-[11px] text-[#6b6357]">إجمالي العجز (وحدات)</p><p className="text-xl font-bold text-red-600 tabular-nums">{nf(r.totalShortageUnits)}</p></div>
-        <div className="rounded-lg border border-[#E8E0D2] p-3"><p className="text-[11px] text-[#6b6357]">إجمالي الزيادة (وحدات)</p><p className="text-xl font-bold text-amber-600 tabular-nums">{nf(r.totalSurplusUnits)}</p></div>
+        <div className="rounded-lg border border-[#E8E0D2] p-3"><p className="text-[11px] text-[#6b6357]">إجمالي العجز وحدات</p><p className="text-xl font-bold text-red-600 tabular-nums">{nf(r.totalShortageUnits)}</p></div>
+        <div className="rounded-lg border border-[#E8E0D2] p-3"><p className="text-[11px] text-[#6b6357]">إجمالي الزيادة وحدات</p><p className="text-xl font-bold text-amber-600 tabular-nums">{nf(r.totalSurplusUnits)}</p></div>
         <div className="rounded-lg border border-[#E15A30] p-3"><p className="text-[11px] text-[#6b6357]">قيمة العجز</p><p className="text-xl font-bold tabular-nums" dir="ltr">{nf(r.totalShortageValue)} ر.س</p></div>
       </div>
-      <p className="text-[11px] text-[#9A8F7E] mt-2">المتوقّع = أول اليوم + المُحمَّل − المُباع + المرتجع − التالف.</p>
+      <p className="text-[11px] text-[#9A8F7E] mt-2">المتوقع = أول اليوم + المحمل − المباع + المرتجع − التالف</p>
     </>
   );
 }
@@ -167,18 +167,18 @@ function RepsTool() {
     <>
       <div className="grid gap-3 sm:grid-cols-4">
         <Num label="عدد المنافذ" value={outlets} set={setOutlets} min={1} />
-        <Num label="زيارات العميل شهرياً" value={vpm} set={setVpm} min={1} />
-        <Num label="زيارات المندوب يومياً" value={vpd} set={setVpd} min={1} />
-        <Num label="أيام العمل شهرياً" value={days} set={setDays} min={1} />
+        <Num label="زيارات العميل شهريا" value={vpm} set={setVpm} min={1} />
+        <Num label="زيارات المندوب يوميا" value={vpd} set={setVpd} min={1} />
+        <Num label="أيام العمل شهريا" value={days} set={setDays} min={1} />
       </div>
       {!r.valid ? (
-        <p className="mt-5 text-sm bg-[#FBEBE2] border border-[#F0C9B6] rounded-lg p-3">أدخل زيارات يومية وأيام عمل أكبر من صفر.</p>
+        <p className="mt-5 text-sm bg-[#FBEBE2] border border-[#F0C9B6] rounded-lg p-3">أدخل زيارات يومية وأيام عمل أكبر من صفر</p>
       ) : (
         <div className="mt-5 rounded-lg border border-[#E15A30] p-4">
-          <p className="text-xs text-[#6b6357]">إجمالي الزيارات المطلوبة شهرياً: <b className="tabular-nums">{nf(r.totalVisits)}</b> · سعة المندوب: <b className="tabular-nums">{nf(r.capacityPerRep)}</b></p>
-          <p className="text-3xl font-bold mt-2 tabular-nums">{r.reps} <span className="text-sm font-normal">مندوباً</span></p>
+          <p className="text-xs text-[#6b6357]">إجمالي الزيارات المطلوبة شهريا <b className="tabular-nums">{nf(r.totalVisits)}</b> سعة المندوب <b className="tabular-nums">{nf(r.capacityPerRep)}</b></p>
+          <p className="text-3xl font-bold mt-2 tabular-nums">{r.reps} <span className="text-sm font-normal">مندوبا</span></p>
           <p className="text-xs text-[#6b6357] mt-1">
-            بحساسية ±٢٠٪ على الإنتاجية: بين <b className="tabular-nums">{r.low}</b> و<b className="tabular-nums">{r.high}</b>
+            بحساسية ±٢٠٪ على الإنتاجية بين <b className="tabular-nums">{r.low}</b> و<b className="tabular-nums">{r.high}</b>
           </p>
         </div>
       )}
@@ -201,20 +201,20 @@ function AgingTool() {
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2 mb-4">
-        <Num label="متوسط مبيعات العميل شهرياً" value={monthly} set={setMonthly} step={1000} />
-        <Num label="مدّة السداد المتّفقة (يوماً)" value={payDays} set={setPayDays} min={1} />
+        <Num label="متوسط مبيعات العميل شهريا" value={monthly} set={setMonthly} step={1000} />
+        <Num label="مدة السداد المتفقة يوما" value={payDays} set={setPayDays} min={1} />
       </div>
-      <h3 className="text-sm font-semibold mb-2">الفواتير المستحقّة</h3>
+      <h3 className="text-sm font-semibold mb-2">الفواتير المستحقة</h3>
       <div className="space-y-2">
         {rows.map((x, i) => (
           <div key={i} className="grid grid-cols-2 gap-2">
             <Num label="المبلغ" value={x.amount} set={(v) => upd(i, 'amount', v)} step={500} />
-            <Num label="أيام التأخير (0 = غير مستحق)" value={x.daysOverdue} set={(v) => upd(i, 'daysOverdue', v)} />
+            <Num label="أيام التأخير 0 = غير مستحق" value={x.daysOverdue} set={(v) => upd(i, 'daysOverdue', v)} />
           </div>
         ))}
       </div>
       <div className="mt-5 rounded-lg border border-[#E15A30] p-4">
-        <p className="text-xs text-[#6b6357]">إجمالي الذمم: <b className="tabular-nums">{nf(r.total)}</b> · المتأخّر: <b className="tabular-nums text-red-600">{nf(r.overdueTotal)}</b></p>
+        <p className="text-xs text-[#6b6357]">إجمالي الذمم <b className="tabular-nums">{nf(r.total)}</b> المتأخر <b className="tabular-nums text-red-600">{nf(r.overdueTotal)}</b></p>
         <table className="w-full text-xs mt-3">
           <caption className="sr-only">شرائح أعمار الدين</caption>
           <tbody>
@@ -227,8 +227,8 @@ function AgingTool() {
             ))}
           </tbody>
         </table>
-        <p className="text-sm mt-3">حدّ ائتمان مقترح: <b className="tabular-nums" dir="ltr">{nf(r.suggestedLimit)} ر.س</b></p>
-        <p className="text-[11px] text-[#9A8F7E] mt-1">= متوسط المبيعات الشهرية × (مدّة السداد ÷ ٣٠). اضبطه بحسب تاريخ العميل معك.</p>
+        <p className="text-sm mt-3">حد ائتمان مقترح <b className="tabular-nums" dir="ltr">{nf(r.suggestedLimit)} ر.س</b></p>
+        <p className="text-[11px] text-[#9A8F7E] mt-1">= متوسط المبيعات الشهرية × مدة السداد ÷ ٣٠ اضبطه بحسب تاريخ العميل معك</p>
       </div>
     </>
   );
@@ -245,9 +245,9 @@ export default function FreeToolsPage() {
   const seo = seoUrls(arPath, lang);
 
   useSeo({
-    title: active ? `${active.title} — أداة مجانية | Field Sales` : 'أدوات مجانية لشركات التوزيع | Field Sales',
-    description: active ? `${active.desc} تعمل في متصفّحك بلا تسجيل ولا إرسال بيانات.` :
-      'أدوات حساب مجانية لشركات التوزيع: عمولة المندوب المتدرّجة، تسوية عهدة السيارة، تحجيم الفريق الميداني، أعمار الدين وحدّ الائتمان — بلا تسجيل.',
+    title: active ? `${active.title} أداة مجانية | Field Sales` : 'أدوات مجانية لشركات التوزيع | Field Sales',
+    description: active ? `${active.desc} تعمل في متصفحك بلا تسجيل ولا إرسال بيانات` :
+      'أدوات حساب مجانية لشركات التوزيع عمولة المندوب المتدرجة تسوية عهدة السيارة تحجيم الفريق الميداني أعمار الدين وحد الائتمان بلا تسجيل',
     canonical: seo.canonical,
     locale: lang,
   });
@@ -271,7 +271,7 @@ export default function FreeToolsPage() {
           <>
             <h1 className="text-2xl sm:text-3xl font-bold">أدوات مجانية لشركات التوزيع</h1>
             <p className="text-[#6b6357] mt-2 max-w-2xl leading-relaxed">
-              تعمل في متصفّحك بالكامل: <strong>لا تسجيل، ولا يُرسل أي رقم تُدخله إلى خوادمنا</strong>.
+              تعمل في متصفحك بالكامل <strong>لا تسجيل ولا يرسل أي رقم تدخله إلى خوادمنا</strong>.
             </p>
             <ul className="grid gap-3 sm:grid-cols-2 mt-6">
               {TOOLS.map((t) => (
@@ -300,22 +300,22 @@ export default function FreeToolsPage() {
             </section>
 
             <p className="text-[11px] text-[#9A8F7E] mt-3">
-              الحساب يجري في متصفّحك ولا يُرسل شيء لخوادمنا. الأرقام التي تُدخلها افتراضاتك أنت.
+              الحساب يجري في متصفحك ولا يرسل شيء لخوادمنا الأرقام التي تدخلها افتراضاتك أنت
             </p>
 
             {/* الجسر يذكر ما تعجز عنه الأداة لا ما يتفوّق فيه المنتج */}
             <section className="mt-6 bg-white border border-[#E8E0D2] rounded-xl p-5">
               <h2 className="font-semibold text-sm">حين تصير الأداة غير كافية</h2>
               <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">
-                هذه الأداة تحسب حالة واحدة الآن. إن كنت تكرّر هذا الحساب لكل مندوب كل يوم،
-                فـField Sales يحسبه تلقائياً من بيانات فواتيرك ومخزون سياراتك — ويعمل
-                <strong> حتى بلا إنترنت</strong> في الميدان.
+                هذه الأداة تحسب حالة واحدة الآن إن كنت تكرر هذا الحساب لكل مندوب كل يوم 
+                فField Sales يحسبه تلقائيا من بيانات فواتيرك ومخزون سياراتك ويعمل
+                <strong> حتى بلا إنترنت</strong> في الميدان
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link to={pathForLocale('/pricing', lang)} className="text-sm border border-[#E8E0D2] rounded-lg px-3 py-2">شاهد الأسعار</Link>
                 <a href={waHref(arPath, { lang })} target="_blank" rel="noopener noreferrer"
                    className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-3 py-2 text-sm">
-                  <MessageCircle size={15} />تحدّث معنا
+                  <MessageCircle size={15} />تحدث معنا
                 </a>
               </div>
             </section>

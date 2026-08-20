@@ -154,8 +154,8 @@ export default function TrackingPage() {
 
   const toggle = useMutation({
     mutationFn: (v: boolean) => trackingApi.setEnabled(v),
-    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ['track-settings'] }); toast.success(v ? tr('تم تفعيل التتبّع') : tr('تم إيقاف التتبّع')); },
-    onError: () => toast.error(tr('تعذّر تغيير الإعداد')),
+    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ['track-settings'] }); toast.success(v ? tr('تم تفعيل التتبع') : tr('تم إيقاف التتبع')); },
+    onError: () => toast.error(tr('تعذر تغيير الإعداد')),
   });
 
   const reps = liveQ.data || [];
@@ -210,23 +210,23 @@ export default function TrackingPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-[#1F1A13] flex items-center gap-2">
-            <MapPin size={26} className="text-[#E15A30]" /> {tr('تتبّع المناديب')}
+            <MapPin size={26} className="text-[#E15A30]" /> {tr('تتبع المناديب')}
           </h1>
-          <p className="text-[#6E6557] text-sm mt-1">{tr('مواقع المناديب الحيّة على الخريطة وخطّ سير كل مندوب خلال اليوم.')}</p>
+          <p className="text-[#6E6557] text-sm mt-1">{tr('مواقع المناديب الحية على الخريطة وخط سير كل مندوب خلال اليوم')}</p>
         </div>
         <button
           onClick={() => toggle.mutate(!enabled)} disabled={toggle.isPending}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors ${enabled ? 'bg-[#1E7A52] text-white hover:bg-[#176443]' : 'bg-[#F1EBDF] text-[#6E6557] hover:bg-[#E9E1D3]'}`}>
-          <Power size={16} /> {enabled ? tr('التتبّع مُفعّل') : tr('التتبّع متوقّف')}
+          <Power size={16} /> {enabled ? tr('التتبع مفعل') : tr('التتبع متوقف')}
         </button>
       </div>
 
       {!enabled ? (
         <div className="card text-center py-16">
           <div className="w-16 h-16 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-4"><Radio size={30} className="text-[#E15A30]" /></div>
-          <h3 className="font-bold text-[#1F1A13] text-lg">{tr('التتبّع متوقّف حالياً')}</h3>
-          <p className="text-[#6E6557] text-sm mt-2 max-w-md mx-auto">{tr('عند التفعيل، يبدأ تطبيق المندوب بإرسال موقعه أثناء العمل (بعد موافقته على إذن الموقع)، فتظهر المواقع وخطوط السير هنا.')}</p>
-          <button onClick={() => toggle.mutate(true)} disabled={toggle.isPending} className="btn-primary mx-auto mt-5"><Power size={16} /> {tr('تفعيل التتبّع')}</button>
+          <h3 className="font-bold text-[#1F1A13] text-lg">{tr('التتبع متوقف حاليا')}</h3>
+          <p className="text-[#6E6557] text-sm mt-2 max-w-md mx-auto">{tr('عند التفعيل يبدأ تطبيق المندوب بإرسال موقعه أثناء العمل بعد موافقته على إذن الموقع فتظهر المواقع وخطوط السير هنا')}</p>
+          <button onClick={() => toggle.mutate(true)} disabled={toggle.isPending} className="btn-primary mx-auto mt-5"><Power size={16} /> {tr('تفعيل التتبع')}</button>
         </div>
       ) : (
         <div className="grid lg:grid-cols-[340px_1fr] gap-5 items-start">
@@ -240,7 +240,7 @@ export default function TrackingPage() {
             </div>
             <div className="max-h-[340px] overflow-y-auto">
               {reps.length === 0 ? (
-                <p className="text-center text-gray-400 text-sm py-10 px-4">{tr('لا توجد مواقع بعد. سجّل المناديب دخولهم وفعّلوا الموقع لتظهر هنا.')}</p>
+                <p className="text-center text-gray-400 text-sm py-10 px-4">{tr('لا توجد مواقع بعد سجل المناديب دخولهم وفعلوا الموقع لتظهر هنا')}</p>
               ) : reps.map(r => {
                 const on = isOnline(r.lastSeenAt);
                 const located = r.lastSeenAt != null;
@@ -250,7 +250,7 @@ export default function TrackingPage() {
                     <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${on ? 'bg-[#1E7A52]' : located ? 'bg-gray-300' : 'bg-amber-400'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-[#1F1A13] text-sm truncate">{r.name}</p>
-                      <p className="text-[11px] text-[#9A8F7E]">{!located ? tr('لم يُحدّد موقعه بعد') : on ? tr('متصل الآن') : `${tr('آخر ظهور')} ${sinceText(r.lastSeenAt!)}`}</p>
+                      <p className="text-[11px] text-[#9A8F7E]">{!located ? tr('لم يحدد موقعه بعد') : on ? tr('متصل الآن') : `${tr('آخر ظهور')} ${sinceText(r.lastSeenAt!)}`}</p>
                     </div>
                     {/* عدّاد زيارات اليوم — لحظيّ */}
                     <span className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-bold rounded-full px-2 py-1 ${r.visitsToday > 0 ? 'bg-[#E7F5EE] text-[#1E7A52]' : 'bg-[#F1EBDF] text-[#9A8F7E]'}`}
@@ -263,10 +263,10 @@ export default function TrackingPage() {
             </div>
             {selected && (
               <div className="p-3 border-t border-[#F1EBDF] space-y-2">
-                <label className="text-xs font-semibold text-[#6E6557] flex items-center gap-1"><Calendar size={13} /> {tr('خطّ السير والزيارات ليوم')}</label>
+                <label className="text-xs font-semibold text-[#6E6557] flex items-center gap-1"><Calendar size={13} /> {tr('خط السير والزيارات ليوم')}</label>
                 <input type="date" value={date} max={new Date().toISOString().slice(0, 10)} onChange={e => setDate(e.target.value)} className="input py-2 text-sm" />
                 <p className="text-[11px] text-[#9A8F7E]">
-                  {routeQ.isLoading ? tr('جارٍ التحميل…') : `${route.length} ${tr('نقطة مسجّلة')}`}
+                  {routeQ.isLoading ? tr('جار التحميل') : `${route.length} ${tr('نقطة مسجلة')}`}
                 </p>
                 {/* مفتاح القراءة: الرقمان يقولان كم من اليوم رُصد فعلاً وكم أُعيد
                     بناؤه — والفرق بينهما هو الفرق بين الدليل والترجيح. */}
@@ -278,24 +278,24 @@ export default function TrackingPage() {
                     </div>
                     <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
                       <span className="inline-block w-5 h-[3px] rounded" style={{ background: '#2563EB', opacity: 0.85 }} />
-                      <span>{tr('مسار مُرجَّح')}: <b className="tabular-nums">{(shape.inferredMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
+                      <span>{tr('مسار مرجح')}: <b className="tabular-nums">{(shape.inferredMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
                     </div>
                     {shape.rawMeters > 0 && (
                       <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
                         <span className="inline-block w-5 h-[3px] rounded" style={{ background: 'repeating-linear-gradient(90deg,#B7791F 0 2px,transparent 2px 7px)' }} />
-                        <span>{tr('خطّ مستقيم (تعذّرت المطابقة)')}: <b className="tabular-nums">{(shape.rawMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
+                        <span>{tr('خط مستقيم تعذرت المطابقة')}: <b className="tabular-nums">{(shape.rawMeters / 1000).toFixed(1)}</b> {tr('كم')}</span>
                       </div>
                     )}
                     <p className="text-[10px] text-[#B3A996] leading-snug">
-                      {tr('المُرجَّح هو أرجح طريق بين نقطتين متباعدتين (التطبيق لا يلتقط الموقع وهو مغلق) — ليس أثراً مرصوداً.')}
+                      {tr('المرجح هو أرجح طريق بين نقطتين متباعدتين التطبيق لا يلتقط الموقع وهو مغلق ليس أثرا مرصودا')}
                     </p>
                     {shape.degraded && (
                       <p className="text-[10px] text-red-600 leading-snug">
-                        {tr('تعذّر الوصول لخدمة الخرائط — ما تراه خطوط مستقيمة بين نقاط التثبيت لا مسار شوارع.')}
+                        {tr('تعذر الوصول لخدمة الخرائط ما تراه خطوط مستقيمة بين نقاط التثبيت لا مسار شوارع')}
                       </p>
                     )}
                     {shape.truncated && (
-                      <p className="text-[10px] text-amber-700">{tr('بعض المقاطع عُرضت خاماً (بلغنا حدّ المعالجة لهذا اليوم).')}</p>
+                      <p className="text-[10px] text-amber-700">{tr('بعض المقاطع عرضت خاما بلغنا حد المعالجة لهذا اليوم')}</p>
                     )}
                   </div>
                 )}
@@ -311,9 +311,9 @@ export default function TrackingPage() {
                 {tr('زيارات')} {selectedRep?.name} — {visits.length}
               </div>
               {visitsQ.isLoading ? (
-                <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
+                <p className="text-center text-gray-400 text-sm py-8">{tr('جار التحميل')}</p>
               ) : visits.length === 0 ? (
-                <p className="text-center text-gray-400 text-sm py-8 px-4">{tr('لا توجد زيارات مسجّلة لهذا المندوب في هذا اليوم.')}</p>
+                <p className="text-center text-gray-400 text-sm py-8 px-4">{tr('لا توجد زيارات مسجلة لهذا المندوب في هذا اليوم')}</p>
               ) : (<>
                 {/* ملخّص المدّة: متوسط مدّة الزيارات المؤقّتة + إجماليها.
                     يُحسب من الزيارات ذات durationSec فقط (لا يخلط بزيارات الملاحظة). */}
@@ -325,9 +325,9 @@ export default function TrackingPage() {
                   return (
                     <div className="px-4 py-2.5 bg-[#2E6FB0]/5 border-b border-[#2E6FB0]/15 flex items-center gap-4 text-[12px]">
                       <span className="flex items-center gap-1.5 text-[#2E6FB0] font-bold">
-                        <Timer size={13} /> {tr('متوسّط مدّة الزيارة')}: {fmtDur(avg)}
+                        <Timer size={13} /> {tr('متوسط مدة الزيارة')}: {fmtDur(avg)}
                       </span>
-                      <span className="text-[#6E6557]">{tr('زيارات مؤقّتة')}: {timed.length} · {tr('إجمالي الوقت')}: {fmtDur(total)}</span>
+                      <span className="text-[#6E6557]">{tr('زيارات مؤقتة')}: {timed.length} · {tr('إجمالي الوقت')}: {fmtDur(total)}</span>
                     </div>
                   );
                 })()}
@@ -343,7 +343,7 @@ export default function TrackingPage() {
                           <span>{timeText(v.createdAt)}</span>
                           {/* مدّة الزيارة: تُعرض فقط للزيارات المؤقّتة (durationSec ليس null) */}
                           {fmtDur(v.durationSec) && (
-                            <span className="flex items-center gap-0.5 text-[#2E6FB0] font-bold tabular-nums" title={tr('مدّة الزيارة')}>
+                            <span className="flex items-center gap-0.5 text-[#2E6FB0] font-bold tabular-nums" title={tr('مدة الزيارة')}>
                               <Timer size={11} /> {fmtDur(v.durationSec)}
                             </span>
                           )}
@@ -474,7 +474,7 @@ export default function TrackingPage() {
       )}
 
       {selected && enabled && route.length === 0 && !routeQ.isLoading && (
-        <p className="text-center text-sm text-[#9A8F7E] flex items-center justify-center gap-1.5"><Navigation size={14} /> {tr('لا توجد نقاط مسجّلة لهذا المندوب في هذا اليوم.')}</p>
+        <p className="text-center text-sm text-[#9A8F7E] flex items-center justify-center gap-1.5"><Navigation size={14} /> {tr('لا توجد نقاط مسجلة لهذا المندوب في هذا اليوم')}</p>
       )}
 
       {/* تفاصيل الزيارة: الملاحظة + الصور */}
@@ -495,9 +495,9 @@ export default function TrackingPage() {
             </div>
             <div className="p-4 overflow-y-auto">
               {visitDetailQ.isLoading ? (
-                <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
+                <p className="text-center text-gray-400 text-sm py-8">{tr('جار التحميل')}</p>
               ) : visitDetailQ.isError ? (
-                <p className="text-center text-red-500 text-sm py-8">{tr('تعذّر تحميل تفاصيل الزيارة، حاول مجدداً.')}</p>
+                <p className="text-center text-red-500 text-sm py-8">{tr('تعذر تحميل تفاصيل الزيارة حاول مجددا')}</p>
               ) : (
                 <>
                   {/* مدّة الزيارة: من البدء إلى الانتهاء + الوقت المستغرق (للزيارات المؤقّتة فقط) */}
@@ -522,7 +522,7 @@ export default function TrackingPage() {
                   <p className="text-[11px] font-semibold text-[#9A8F7E] mb-1">{tr('ملاحظة الزيارة')}</p>
                   {visitDetailQ.data?.note
                     ? <p className="text-sm text-[#1F1A13] bg-[#FAF7F0] rounded-xl p-3 mb-4 whitespace-pre-wrap">{visitDetailQ.data.note}</p>
-                    : <p className="text-sm text-gray-400 bg-[#FAF7F0] rounded-xl p-3 mb-4">{tr('لا توجد ملاحظة.')}</p>}
+                    : <p className="text-sm text-gray-400 bg-[#FAF7F0] rounded-xl p-3 mb-4">{tr('لا توجد ملاحظة')}</p>}
                   {/* الصور */}
                   <p className="text-[11px] font-semibold text-[#9A8F7E] mb-1">{tr('صور الزيارة')} ({visitDetailQ.data?.photos.length || 0})</p>
                   {(visitDetailQ.data?.photos.length || 0) > 0 ? (
@@ -535,7 +535,7 @@ export default function TrackingPage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-400 py-2">{tr('لا توجد صور لهذه الزيارة.')}</p>
+                    <p className="text-sm text-gray-400 py-2">{tr('لا توجد صور لهذه الزيارة')}</p>
                   )}
                 </>
               )}

@@ -54,7 +54,7 @@ export default function DashboardPage() {
   // معالجة فشل التحميل (مثلاً انقطاع الخادم) بدل تعطّل الصفحة
   if (isError || !data) return (
     <div className="flex flex-col items-center justify-center h-64 text-center">
-      <p className="text-gray-500 mb-3">{tr('تعذّر تحميل بيانات لوحة التحكم')}</p>
+      <p className="text-gray-500 mb-3">{tr('تعذر تحميل بيانات لوحة التحكم')}</p>
       <button onClick={() => refetch()} className="btn-primary">{tr('إعادة المحاولة')}</button>
     </div>
   );

@@ -85,7 +85,7 @@ export default function CompanyUsersPage() {
       }
     },
     onError: (err: unknown) => {
-      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ'));
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ'));
     },
   });
 
@@ -98,7 +98,7 @@ export default function CompanyUsersPage() {
     },
     onError: (err: unknown) => {
       // رسالة الخادم هي المفيدة هنا (آخر مدير / حذف الذات) فلا نبتلعها
-      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف المستخدم'));
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حذف المستخدم'));
       setDeleting(null);
     },
   });
@@ -110,7 +110,7 @@ export default function CompanyUsersPage() {
           <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><ShieldCheck size={20} /></div>
           <div>
             <h1 className="text-lg font-bold text-[#1F1A13]">{tr('إدارة مستخدمي الشركة')}</h1>
-            <p className="text-sm text-gray-500 mt-1">{tr('هذه الصفحة متاحة لحساب المدير فقط.')}</p>
+            <p className="text-sm text-gray-500 mt-1">{tr('هذه الصفحة متاحة لحساب المدير فقط')}</p>
           </div>
         </div>
       </div>
@@ -122,7 +122,7 @@ export default function CompanyUsersPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">{tr('مستخدمي الشركة')}</h1>
-          <p className="text-sm text-gray-500 mt-1">{tr('أضف أكثر من مستخدم للوحة إدارة الشركة وحدد دور كل حساب.')}</p>
+          <p className="text-sm text-gray-500 mt-1">{tr('أضف أكثر من مستخدم للوحة إدارة الشركة وحدد دور كل حساب')}</p>
         </div>
         <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مستخدم')}</button>
       </div>
@@ -141,7 +141,7 @@ export default function CompanyUsersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={5} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={5} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.length ? data.map(u => (
                 <tr key={u.id}>
                   <td>
@@ -155,7 +155,7 @@ export default function CompanyUsersPage() {
                     <div className="flex items-center gap-1">
                       <button onClick={() => { setSelected(u); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}><Edit size={14} /></button>
                       <button onClick={() => setResetUser(u)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title={tr('إعادة تعيين كلمة المرور')}><KeyRound size={14} /></button>
-                      <button onClick={() => setScopeUser(u)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title={tr('نطاق المستخدم (العملاء والمناديب)')}><Filter size={14} /></button>
+                      <button onClick={() => setScopeUser(u)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title={tr('نطاق المستخدم العملاء والمناديب')}><Filter size={14} /></button>
                       {/* حسابك لا يُحذف من هنا — الخادم يرفضه أيضاً، والإخفاء يمنع محاولة عبثية */}
                       {u.id !== user.id && (
                         <button onClick={() => setDeleting(u)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title={tr('حذف المستخدم')}><Trash2 size={14} /></button>
@@ -200,7 +200,7 @@ export default function CompanyUsersPage() {
         <ConfirmDialog
           danger
           title={tr('حذف المستخدم')}
-          message={`${tr('سيتم حذف المستخدم')} «${deleting.name}» (${deleting.email}) ${tr('نهائياً ولا يمكن التراجع. يفقد الوصول للوحة فوراً، ويُحذف نطاقه المحدّد. لا تتأثّر الفواتير ولا السندات — فهي منسوبة للمناديب لا لمستخدمي اللوحة.')}`}
+          message={`${tr('سيتم حذف المستخدم')} «${deleting.name}» (${deleting.email}) ${tr('نهائيا ولا يمكن التراجع يفقد الوصول للوحة فورا ويحذف نطاقه المحدد لا تتأثر الفواتير ولا السندات فهي منسوبة للمناديب لا لمستخدمي اللوحة')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}
@@ -259,7 +259,7 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
             <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><UserCog size={18} /></div>
             <div>
               <h2 className="text-base font-bold text-[#1F1A13]">{user ? tr('تعديل مستخدم') : tr('إضافة مستخدم')}</h2>
-              <p className="text-xs text-[#6E6557]">{tr('يستخدم هذا الحساب صفحة دخول الأدمن نفسها.')}</p>
+              <p className="text-xs text-[#6E6557]">{tr('يستخدم هذا الحساب صفحة دخول الأدمن نفسها')}</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
@@ -328,7 +328,7 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
               })}
             </div>
           </div>
-          {isSelf && <p className="text-xs text-amber-600">{tr('لا يمكنك تعطيل حسابك أو تغيير دورك من هذه النافذة.')}</p>}
+          {isSelf && <p className="text-xs text-amber-600">{tr('لا يمكنك تعطيل حسابك أو تغيير دورك من هذه النافذة')}</p>}
           {err && <p className="text-[#C0392B] text-xs">{err}</p>}
         </div>
 
@@ -361,7 +361,7 @@ function CredentialsModal({ creds, onClose }: { creds: { name: string; email: st
           </div>
         </div>
         <div className="p-5 space-y-3">
-          <p className="text-xs text-[#9C4423] bg-[#FBEBE2] rounded-lg px-3 py-2">{tr('سلّم بيانات الدخول لصاحب الحساب، لن تظهر كلمة المرور مرة أخرى.')}</p>
+          <p className="text-xs text-[#9C4423] bg-[#FBEBE2] rounded-lg px-3 py-2">{tr('سلم بيانات الدخول لصاحب الحساب لن تظهر كلمة المرور مرة أخرى')}</p>
           <div className="bg-gray-50 rounded-xl p-3 space-y-2 text-sm">
             <div className="flex justify-between gap-3"><span className="text-gray-500">{tr('البريد')}</span><span className="font-mono" dir="ltr">{creds.email}</span></div>
             <div className="flex justify-between gap-3"><span className="text-gray-500">{tr('كلمة المرور')}</span><span className="font-mono font-bold" dir="ltr">{creds.password}</span></div>

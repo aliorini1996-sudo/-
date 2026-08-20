@@ -30,7 +30,7 @@ export default function ProfilePage() {
   const t = content[lang];
 
   useEffect(() => {
-    document.title = isAr ? 'بروفايل — Field Sales' : 'Company Profile — Field Sales';
+    document.title = isAr ? 'بروفايل Field Sales' : 'Company Profile — Field Sales';
   }, [isAr]);
 
   const arFont = "'IBM Plex Sans Arabic', sans-serif";

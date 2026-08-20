@@ -40,7 +40,7 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
 
   if (statsQ.isLoading) return <MSpinner />;
   if (statsQ.isError || !statsQ.data) {
-    return <MError onRetry={() => statsQ.refetch()} text={tr('تعذّر تحميل بيانات لوحة التحكم')} />;
+    return <MError onRetry={() => statsQ.refetch()} text={tr('تعذر تحميل بيانات لوحة التحكم')} />;
   }
 
   const d = statsQ.data;
@@ -83,12 +83,12 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
       <Section title={tr('مبيعات آخر 30 يوم')}>
         <MCard className="p-2 pt-3">
           {trendQ.data && trendQ.data.length > 0 ? (
-            <Suspense fallback={<div className="h-[170px] flex items-center justify-center text-xs text-[#9A8F7E]">{tr('جاري التحميل...')}</div>}>
+            <Suspense fallback={<div className="h-[170px] flex items-center justify-center text-xs text-[#9A8F7E]">{tr('جاري التحميل')}</div>}>
               <MSalesChart data={trendQ.data} />
             </Suspense>
           ) : (
             <div className="h-[120px] flex items-center justify-center text-xs text-[#9A8F7E]">
-              {trendQ.isLoading ? tr('جاري التحميل...') : tr('لا توجد بيانات')}
+              {trendQ.isLoading ? tr('جاري التحميل') : tr('لا توجد بيانات')}
             </div>
           )}
         </MCard>

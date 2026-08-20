@@ -65,7 +65,7 @@ export default function MCustomers() {
         <div className="relative flex-1">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
           <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
-            placeholder={tr('ابحث باسم أو جوال أو كود…')} />
+            placeholder={tr('ابحث باسم أو جوال أو كود')} />
         </div>
         <button onClick={() => setEditing(null)}
           className="w-11 h-11 rounded-xl bg-[#E15A30] text-white flex items-center justify-center flex-shrink-0"
@@ -84,7 +84,7 @@ export default function MCustomers() {
             </MCard>
           )}
         {listQ.isFetching && !listQ.isLoading && (
-          <p className="text-center text-[11px] text-[#9A8F7E] py-3">{tr('جاري التحميل...')}</p>
+          <p className="text-center text-[11px] text-[#9A8F7E] py-3">{tr('جاري التحميل')}</p>
         )}
       </div>
     </div>
@@ -99,7 +99,7 @@ function CustomerRow({ c, onOpen }: { c: Customer; onOpen: () => void }) {
       onClick={onOpen}
       leading={
         <span className="w-9 h-9 rounded-full bg-[#FBEBE2] text-[#C94E28] flex items-center justify-center text-sm font-bold flex-shrink-0">
-          {c.name?.charAt(0) || '؟'}
+          {c.name?.charAt(0) || ''}
         </span>
       }
       title={c.name}

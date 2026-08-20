@@ -31,7 +31,7 @@ const COUNTRY_PRESETS: { code: string; ar: string; vat: number; cur: string }[] 
   { code: 'KW', ar: 'الكويت', vat: 0, cur: 'د.ك' },
   { code: 'QA', ar: 'قطر', vat: 0, cur: 'ر.ق' },
   { code: 'BH', ar: 'البحرين', vat: 10, cur: 'د.ب' },
-  { code: 'OM', ar: 'عُمان', vat: 5, cur: 'ر.ع' },
+  { code: 'OM', ar: 'عمان', vat: 5, cur: 'ر.ع' },
   { code: 'JO', ar: 'الأردن', vat: 16, cur: 'د.أ' },
   { code: 'IQ', ar: 'العراق', vat: 0, cur: 'د.ع' },
   { code: 'MA', ar: 'المغرب', vat: 20, cur: 'د.م' },
@@ -80,20 +80,20 @@ const COUNTRY_PRESETS: { code: string; ar: string; vat: number; cur: string }[] 
 
 const T: Record<Lang, Record<string, string>> = {
   ar: {
-    backLabel: 'تعرّف على Field Sales',
-    title: 'مولّد الفاتورة الضريبية المجاني',
-    subtitle: 'أنشئ فاتورة ضريبية احترافية برمز QR متوافق مع «فاتورة» ZATCA خلال 30 ثانية — وحمّلها PDF مجاناً بلا تسجيل.',
-    seller: 'بيانات البائع (شركتك)',
+    backLabel: 'تعرف على Field Sales',
+    title: 'مولد الفاتورة الضريبية المجاني',
+    subtitle: 'أنشئ فاتورة ضريبية احترافية برمز QR متوافق مع فاتورة ZATCA خلال 30 ثانية وحملها PDF مجانا بلا تسجيل',
+    seller: 'بيانات البائع شركتك',
     sellerName: 'اسم الشركة *',
-    vatNumber: 'الرقم الضريبي (يظهر رمز QR عند تعبئته)',
-    address: 'العنوان (اختياري)',
+    vatNumber: 'الرقم الضريبي يظهر رمز QR عند تعبئته',
+    address: 'العنوان اختياري',
     buyer: 'بيانات العميل',
     buyerName: 'اسم العميل *',
-    buyerVat: 'الرقم الضريبي للعميل (اختياري)',
+    buyerVat: 'الرقم الضريبي للعميل اختياري',
     invoice: 'الفاتورة',
     invNo: 'رقم الفاتورة',
     invDate: 'التاريخ',
-    country: 'الدولة (تضبط الضريبة والعملة)',
+    country: 'الدولة تضبط الضريبة والعملة',
     vatRate: 'الضريبة %',
     currency: 'العملة',
     items: 'البنود',
@@ -101,35 +101,35 @@ const T: Record<Lang, Record<string, string>> = {
     qty: 'الكمية',
     price: 'سعر الوحدة',
     addItem: 'إضافة بند',
-    discount: 'الخصم (مبلغ)',
+    discount: 'الخصم مبلغ',
     download: 'تحميل PDF',
     print: 'طباعة',
     share: 'شارك الأداة واتساب',
-    shareText: 'أداة مجانية تنشئ فاتورة ضريبية احترافية برمز QR (متوافق ZATCA) خلال ثوانٍ وتحمّلها PDF — بلا تسجيل:',
-    ctaTitle: 'أتعبك إصدارها يدوياً لكل عميل؟',
-    ctaBody: 'مع Field Sales يُصدرها مندوبك تلقائياً من جواله في الميدان: فاتورة برمز QR وطباعة حرارية وخصم فوري من المخزون.',
-    cta: 'جرّب Field Sales مجاناً — 10 أيام بلا بطاقة',
-    generating: 'جارٍ التوليد…',
+    shareText: 'أداة مجانية تنشئ فاتورة ضريبية احترافية برمز QR متوافق ZATCA خلال ثوان وتحملها PDF بلا تسجيل',
+    ctaTitle: 'أتعبك إصدارها يدويا لكل عميل',
+    ctaBody: 'مع Field Sales يصدرها مندوبك تلقائيا من جواله في الميدان فاتورة برمز QR وطباعة حرارية وخصم فوري من المخزون',
+    cta: 'جرب Field Sales مجانا 10 أيام بلا بطاقة',
+    generating: 'جار التوليد',
     downloaded: 'تم تحميل الفاتورة PDF ✓',
-    needFields: 'أدخل اسم الشركة واسم العميل وبنداً واحداً على الأقل',
-    tryCalc: 'جرّب أيضاً: حاسبة تسريب الإيرادات — كم تخسر شهرياً؟',
-    guide: '📖 دليل: كيف تُنشئ فاتورة ضريبية صحيحة برمز QR؟',
+    needFields: 'أدخل اسم الشركة واسم العميل وبندا واحدا على الأقل',
+    tryCalc: 'جرب أيضا حاسبة تسريب الإيرادات كم تخسر شهريا',
+    guide: '📖 دليل كيف تنشئ فاتورة ضريبية صحيحة برمز QR',
   },
   en: {
     backLabel: 'Discover Field Sales',
     title: 'Free Tax Invoice Generator',
-    subtitle: 'Create a professional tax invoice with a ZATCA-compliant QR code in 30 seconds — and download it as a PDF, free, no signup.',
-    seller: 'Seller (your company)',
+    subtitle: 'Create a professional tax invoice with a ZATCA-compliant QR code in 30 seconds and download it as a PDF free no signup',
+    seller: 'Seller your company',
     sellerName: 'Company name *',
-    vatNumber: 'VAT number (QR appears when filled)',
-    address: 'Address (optional)',
+    vatNumber: 'VAT number QR appears when filled',
+    address: 'Address optional',
     buyer: 'Customer',
     buyerName: 'Customer name *',
-    buyerVat: 'Customer VAT number (optional)',
+    buyerVat: 'Customer VAT number optional',
     invoice: 'Invoice',
     invNo: 'Invoice number',
     invDate: 'Date',
-    country: 'Country (sets VAT & currency)',
+    country: 'Country sets VAT & currency',
     vatRate: 'VAT %',
     currency: 'Currency',
     items: 'Items',
@@ -137,35 +137,35 @@ const T: Record<Lang, Record<string, string>> = {
     qty: 'Qty',
     price: 'Unit price',
     addItem: 'Add item',
-    discount: 'Discount (amount)',
+    discount: 'Discount amount',
     download: 'Download PDF',
     print: 'Print',
     share: 'Share the tool on WhatsApp',
-    shareText: 'A free tool that creates a professional tax invoice with a ZATCA-compliant QR code in seconds and downloads it as a PDF — no signup:',
+    shareText: 'A free tool that creates a professional tax invoice with a ZATCA-compliant QR code in seconds and downloads it as a PDF no signup',
     ctaTitle: 'Tired of issuing them manually for every customer?',
-    ctaBody: 'With Field Sales your rep issues them automatically from their phone in the field: QR invoice, thermal printing, and instant stock deduction.',
-    cta: 'Try Field Sales free — 10 days, no card',
-    generating: 'Generating…',
+    ctaBody: 'With Field Sales your rep issues them automatically from their phone in the field QR invoice thermal printing and instant stock deduction',
+    cta: 'Try Field Sales free 10 days no card',
+    generating: 'Generating',
     downloaded: 'Invoice PDF downloaded ✓',
-    needFields: 'Enter company name, customer name and at least one item',
-    tryCalc: 'Also try: the Revenue Leak Calculator — how much do you lose monthly?',
-    guide: '📖 Guide: How to create a valid tax invoice with a QR code',
+    needFields: 'Enter company name customer name and at least one item',
+    tryCalc: 'Also try the Revenue Leak Calculator how much do you lose monthly?',
+    guide: '📖 Guide How to create a valid tax invoice with a QR code',
   },
   fr: {
     backLabel: 'Découvrir Field Sales',
     title: 'Générateur gratuit de factures fiscales',
-    subtitle: 'Créez une facture fiscale professionnelle avec un code QR conforme ZATCA en 30 secondes — et téléchargez-la en PDF, gratuitement, sans inscription.',
-    seller: 'Vendeur (votre entreprise)',
-    sellerName: 'Nom de l’entreprise *',
-    vatNumber: 'Numéro de TVA (le QR apparaît une fois rempli)',
-    address: 'Adresse (optionnel)',
+    subtitle: 'Créez une facture fiscale professionnelle avec un code QR conforme ZATCA en 30 secondes et téléchargez-la en PDF gratuitement sans inscription',
+    seller: 'Vendeur votre entreprise',
+    sellerName: 'Nom de l entreprise *',
+    vatNumber: 'Numéro de TVA le QR apparaît une fois rempli',
+    address: 'Adresse optionnel',
     buyer: 'Client',
     buyerName: 'Nom du client *',
-    buyerVat: 'Numéro de TVA du client (optionnel)',
+    buyerVat: 'Numéro de TVA du client optionnel',
     invoice: 'Facture',
     invNo: 'Numéro de facture',
     invDate: 'Date',
-    country: 'Pays (définit TVA et devise)',
+    country: 'Pays définit TVA et devise',
     vatRate: 'TVA %',
     currency: 'Devise',
     items: 'Lignes',
@@ -173,39 +173,39 @@ const T: Record<Lang, Record<string, string>> = {
     qty: 'Qté',
     price: 'Prix unitaire',
     addItem: 'Ajouter une ligne',
-    discount: 'Remise (montant)',
+    discount: 'Remise montant',
     download: 'Télécharger le PDF',
     print: 'Imprimer',
-    share: 'Partager l’outil sur WhatsApp',
-    shareText: 'Un outil gratuit qui crée une facture fiscale professionnelle avec code QR conforme ZATCA en quelques secondes et la télécharge en PDF — sans inscription :',
+    share: 'Partager l outil sur WhatsApp',
+    shareText: 'Un outil gratuit qui crée une facture fiscale professionnelle avec code QR conforme ZATCA en quelques secondes et la télécharge en PDF sans inscription',
     ctaTitle: 'Fatigué de les émettre manuellement pour chaque client ?',
-    ctaBody: 'Avec Field Sales, votre commercial les émet automatiquement depuis son téléphone : facture QR, impression thermique et stock déduit instantanément.',
-    cta: 'Essayez Field Sales gratuitement — 10 jours, sans carte',
-    generating: 'Génération…',
+    ctaBody: 'Avec Field Sales votre commercial les émet automatiquement depuis son téléphone facture QR impression thermique et stock déduit instantanément',
+    cta: 'Essayez Field Sales gratuitement 10 jours sans carte',
+    generating: 'Génération',
     downloaded: 'PDF téléchargé ✓',
-    needFields: 'Entrez le nom de l’entreprise, du client et au moins une ligne',
-    tryCalc: 'Essayez aussi : le calculateur de fuite de revenus',
-    guide: '📖 Guide : comment créer une facture fiscale avec code QR',
+    needFields: 'Entrez le nom de l entreprise du client et au moins une ligne',
+    tryCalc: 'Essayez aussi le calculateur de fuite de revenus',
+    guide: '📖 Guide comment créer une facture fiscale avec code QR',
   },
 };
 
 const SEO = {
   ar: {
-    title: 'برنامج فواتير مجاني بلا تسجيل — مولّد فاتورة ضريبية برمز QR | FieldSales',
-    description: 'برنامج فواتير مجاني بالكامل وبلا تسجيل: أنشئ فاتورة ضريبية احترافية برمز QR متوافق مع هيئة الزكاة والضريبة (ZATCA) وحمّلها PDF خلال ثوانٍ — ضريبية ومبسطة، لكل الدول العربية.',
-    keywords: 'برنامج فواتير مجاني, برنامج فواتير مجاني بلا تسجيل, نموذج فاتورة ضريبية, نموذج فاتورة ضريبية جاهز للطباعة, مولد فاتورة ضريبية, فاتورة ضريبية pdf, انشاء فاتورة الكترونية مجانا, عمل فاتورة اون لاين, فاتورة ضريبية مبسطة, فاتورة برمز QR, فاتورة ZATCA, نموذج فاتورة جاهز, فاتورة ضريبية السعودية, فاتورة ضريبية مصر, فاتورة ضريبية الإمارات, نموذج فاتورة مبيعات, فاتورة الكترونية',
+    title: 'برنامج فواتير مجاني بلا تسجيل مولد فاتورة ضريبية برمز QR | FieldSales',
+    description: 'برنامج فواتير مجاني بالكامل وبلا تسجيل أنشئ فاتورة ضريبية احترافية برمز QR متوافق مع هيئة الزكاة والضريبة ZATCA وحملها PDF خلال ثوان ضريبية ومبسطة لكل الدول العربية',
+    keywords: 'برنامج فواتير مجاني برنامج فواتير مجاني بلا تسجيل نموذج فاتورة ضريبية نموذج فاتورة ضريبية جاهز للطباعة مولد فاتورة ضريبية فاتورة ضريبية pdf انشاء فاتورة الكترونية مجانا عمل فاتورة اون لاين فاتورة ضريبية مبسطة فاتورة برمز QR فاتورة ZATCA نموذج فاتورة جاهز فاتورة ضريبية السعودية فاتورة ضريبية مصر فاتورة ضريبية الإمارات نموذج فاتورة مبيعات فاتورة الكترونية',
     locale: 'ar' as const,
   },
   en: {
-    title: 'Free Tax Invoice Generator with QR Code — Ready Invoice Template | FieldSales',
-    description: 'Create a professional tax invoice free with a ZATCA-compliant QR code and download it as PDF in seconds — standard & simplified invoice templates, no signup.',
-    keywords: 'free invoice generator, tax invoice template, invoice maker online free, ZATCA QR invoice, e-invoice generator, simplified tax invoice, VAT invoice template, invoice PDF generator, Saudi tax invoice, printable invoice template',
+    title: 'Free Tax Invoice Generator with QR Code Ready Invoice Template | FieldSales',
+    description: 'Create a professional tax invoice free with a ZATCA-compliant QR code and download it as PDF in seconds standard & simplified invoice templates no signup',
+    keywords: 'free invoice generator tax invoice template invoice maker online free ZATCA QR invoice e-invoice generator simplified tax invoice VAT invoice template invoice PDF generator Saudi tax invoice printable invoice template',
     locale: 'en' as const,
   },
   fr: {
     title: 'Générateur gratuit de factures fiscales avec code QR | FieldSales',
-    description: 'Créez gratuitement une facture fiscale professionnelle avec code QR conforme ZATCA et téléchargez-la en PDF en quelques secondes — sans inscription.',
-    keywords: 'générateur de factures gratuit, modèle facture fiscale, créer facture en ligne gratuit, facture QR ZATCA, facture électronique, modèle facture TVA, facture PDF gratuite',
+    description: 'Créez gratuitement une facture fiscale professionnelle avec code QR conforme ZATCA et téléchargez-la en PDF en quelques secondes sans inscription',
+    keywords: 'générateur de factures gratuit modèle facture fiscale créer facture en ligne gratuit facture QR ZATCA facture électronique modèle facture TVA facture PDF gratuite',
     locale: 'fr' as const,
   },
 };
@@ -216,14 +216,14 @@ const JSONLD = (lang: Lang) => ({
   '@graph': [
     {
       '@type': 'WebApplication',
-      name: lang === 'en' ? 'Free Tax Invoice Generator' : lang === 'fr' ? 'Générateur gratuit de factures fiscales' : 'مولّد الفاتورة الضريبية المجاني',
+      name: lang === 'en' ? 'Free Tax Invoice Generator' : lang === 'fr' ? 'Générateur gratuit de factures fiscales' : 'مولد الفاتورة الضريبية المجاني',
       url: `https://fieldsa.net${lang === 'ar' ? '' : '/' + lang}/invoice-generator`,
       applicationCategory: 'BusinessApplication',
       operatingSystem: 'Web',
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
       featureList: lang === 'en'
         ? 'ZATCA-compliant QR code, PDF download, bilingual invoice, 50 countries VAT presets (all Arab markets + more), simplified & standard tax invoices'
-        : 'رمز QR متوافق مع ZATCA، تحميل PDF، فاتورة ثنائية اللغة، ضرائب 50 دولة (كل الدول العربية وأسواق أخرى)، فاتورة ضريبية ومبسطة',
+        : 'رمز QR متوافق مع ZATCA تحميل PDF فاتورة ثنائية اللغة ضرائب 50 دولة كل الدول العربية وأسواق أخرى فاتورة ضريبية ومبسطة',
       publisher: { '@type': 'Organization', name: 'FieldSales', url: 'https://fieldsa.net' },
       inLanguage: lang,
     },
@@ -245,11 +245,11 @@ const faqItems = (lang: Lang): { q: string; a: string }[] => (
         { q: 'Comment créer gratuitement une facture fiscale avec code QR ?', a: 'Utilisez le générateur gratuit FieldSales : saisissez votre entreprise, votre client et les lignes — il crée instantanément une facture fiscale bilingue avec code QR conforme ZATCA, téléchargeable en PDF, sans inscription.' },
         { q: 'Quels pays sont pris en charge ?', a: 'Les taux de TVA et devises de 50 pays sont préconfigurés et modifiables.' },
       ] : [
-        { q: 'كيف أعمل فاتورة ضريبية برمز QR مجاناً؟', a: 'استخدم مولّد الفواتير المجاني من FieldSales: أدخل بيانات شركتك وعميلك وبنود الفاتورة، فيبني فوراً فاتورة ضريبية احترافية ثنائية اللغة برمز QR متوافق مع هيئة الزكاة والضريبة والجمارك ZATCA، وتحمّلها PDF أو تطبعها بلا تسجيل.' },
-        { q: 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة؟', a: 'المبسطة تُصدر للمستهلك الأفراد (B2C) بلا رقم ضريبي للمشتري، والضريبية العادية (B2B) تتضمن الرقم الضريبي للمشتري — والمولّد يبدّل بينهما تلقائياً حسب إدخالك رقم العميل الضريبي.' },
-        { q: 'ما الدول التي يدعمها المولّد؟', a: 'نِسب الضريبة والعملات جاهزة لـ50 دولة (كل الدول العربية وأسواق أخرى) (السعودية 15%، مصر 14%، الإمارات 5% وغيرها) وكلها قابلة للتعديل.' },
-        { q: 'هل هذا برنامج محاسبة مجاني؟', a: 'هذه أداة فوترة مجانية بالكامل وبلا تسجيل: تُنشئ فاتورة ضريبية نظامية برمز QR وتحمّلها PDF. لكنها ليست برنامج محاسبة كاملاً — لا تتضمّن دفتر أستاذ ولا قوائم مالية ولا إقرارات ضريبية. إن كان ما تحتاجه إصدار فواتير نظامية فقط فهذه الأداة تكفيك مجاناً بلا اشتراك؛ وإن كنت تبحث عن محاسبة كاملة فستحتاج برنامج محاسبة متخصّصاً.' },
-        { q: 'هل أحتاج اشتراكاً أو بطاقة لاستخدام المولّد؟', a: 'لا. المولّد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حدّ لعدد الفواتير. أما منصّة FieldSales لإدارة مناديب التوزيع (فواتير من الميدان، تحصيل، مخزون سيارة، تتبّع) فهي منتج مدفوع بتجربة مجانية 10 أيام دون بطاقة.' },
+        { q: 'كيف أعمل فاتورة ضريبية برمز QR مجانا', a: 'استخدم مولد الفواتير المجاني من FieldSales أدخل بيانات شركتك وعميلك وبنود الفاتورة فيبني فورا فاتورة ضريبية احترافية ثنائية اللغة برمز QR متوافق مع هيئة الزكاة والضريبة والجمارك ZATCA وتحملها PDF أو تطبعها بلا تسجيل' },
+        { q: 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة', a: 'المبسطة تصدر للمستهلك الأفراد B2C بلا رقم ضريبي للمشتري والضريبية العادية B2B تتضمن الرقم الضريبي للمشتري والمولد يبدل بينهما تلقائيا حسب إدخالك رقم العميل الضريبي' },
+        { q: 'ما الدول التي يدعمها المولد', a: 'نسب الضريبة والعملات جاهزة ل50 دولة كل الدول العربية وأسواق أخرى السعودية 15% مصر 14% الإمارات 5% وغيرها وكلها قابلة للتعديل' },
+        { q: 'هل هذا برنامج محاسبة مجاني', a: 'هذه أداة فوترة مجانية بالكامل وبلا تسجيل تنشئ فاتورة ضريبية نظامية برمز QR وتحملها PDF لكنها ليست برنامج محاسبة كاملا لا تتضمن دفتر أستاذ ولا قوائم مالية ولا إقرارات ضريبية إن كان ما تحتاجه إصدار فواتير نظامية فقط فهذه الأداة تكفيك مجانا بلا اشتراك وإن كنت تبحث عن محاسبة كاملة فستحتاج برنامج محاسبة متخصصا' },
+        { q: 'هل أحتاج اشتراكا أو بطاقة لاستخدام المولد', a: 'لا المولد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حد لعدد الفواتير أما منصة FieldSales لإدارة مناديب التوزيع فواتير من الميدان تحصيل مخزون سيارة تتبع فهي منتج مدفوع بتجربة مجانية 10 أيام دون بطاقة' },
   ]);
 
 // تقريب نصف-لأعلى على التمثيل العشري (1.005 → 1.01 لا 1.00 بضوضاء الطفو)
@@ -368,7 +368,7 @@ export default function InvoiceGeneratorPage() {
 
   const setItem = (i: number, patch: Partial<Item>) => setItems((arr) => arr.map((it, j) => (j === i ? { ...it, ...patch } : it)));
 
-  const invTitle = isSimplified ? 'فاتورة ضريبية مبسطة · Simplified Tax Invoice' : 'فاتورة ضريبية · Tax Invoice';
+  const invTitle = isSimplified ? 'فاتورة ضريبية مبسطة Simplified Tax Invoice' : 'فاتورة ضريبية Tax Invoice';
 
   return (
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
@@ -522,7 +522,7 @@ export default function InvoiceGeneratorPage() {
               {/* الترويسة */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #E15A30', paddingBottom: 16 }}>
                 <div>
-                  <div style={{ fontSize: 22, fontWeight: 800 }}>{sellerName || '— اسم شركتك —'}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800 }}>{sellerName || 'اسم شركتك'}</div>
                   {address && <div style={{ fontSize: 12, color: '#6E6557', marginTop: 3 }}>{address}</div>}
                   {vatNumber && <div style={{ fontSize: 12, color: '#6E6557', marginTop: 2 }} dir="ltr">VAT: {vatNumber}</div>}
                 </div>
@@ -535,8 +535,8 @@ export default function InvoiceGeneratorPage() {
 
               {/* العميل */}
               <div style={{ margin: '14px 0 4px', fontSize: 13 }}>
-                <span style={{ color: '#9A8F7E' }}>العميل · Customer: </span>
-                <b>{buyerName || '— اسم العميل —'}</b>
+                <span style={{ color: '#9A8F7E' }}>العميل Customer </span>
+                <b>{buyerName || 'اسم العميل'}</b>
                 {buyerVat && <span style={{ color: '#6E6557' }} dir="ltr"> · VAT: {buyerVat}</span>}
               </div>
 
@@ -544,7 +544,7 @@ export default function InvoiceGeneratorPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 10, fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#FAF7F0' }}>
-                    <th style={{ textAlign: 'right', padding: '9px 10px', borderBottom: '2px solid #E9E1D3' }}>الوصف · Description</th>
+                    <th style={{ textAlign: 'right', padding: '9px 10px', borderBottom: '2px solid #E9E1D3' }}>الوصف Description</th>
                     <th style={{ textAlign: 'center', padding: '9px 10px', borderBottom: '2px solid #E9E1D3', width: 64 }}>الكمية<br />Qty</th>
                     <th style={{ textAlign: 'center', padding: '9px 10px', borderBottom: '2px solid #E9E1D3', width: 92 }}>السعر<br />Price</th>
                     <th style={{ textAlign: 'center', padding: '9px 10px', borderBottom: '2px solid #E9E1D3', width: 100 }}>الإجمالي<br />Total</th>
@@ -568,27 +568,27 @@ export default function InvoiceGeneratorPage() {
                   {qrUrl ? (
                     <div style={{ display: 'block', width: 130 }}>
                       <img src={qrUrl} alt="ZATCA QR" width={130} height={130} style={{ display: 'block', border: '1px solid #E9E1D3', borderRadius: 8 }} />
-                      <div style={{ fontSize: 9.5, color: '#9A8F7E', marginTop: 4, textAlign: 'center' }}>رمز الفاتورة الضريبية · ZATCA QR</div>
+                      <div style={{ fontSize: 9.5, color: '#9A8F7E', marginTop: 4, textAlign: 'center' }}>رمز الفاتورة الضريبية ZATCA QR</div>
                     </div>
                   ) : (
                     <div style={{ fontSize: 10.5, color: '#c3bcae', maxWidth: 150, lineHeight: 1.7 }}>أدخل الرقم الضريبي ليظهر رمز QR المتوافق مع ZATCA</div>
                   )}
                 </div>
                 <div style={{ width: 260, fontSize: 13.5 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}><span style={{ color: '#6E6557' }}>المجموع · Subtotal</span><span dir="ltr">{fmt(totals.subtotal)} {cur}</span></div>
-                  {totals.disc > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: '#DC2626' }}><span>الخصم · Discount</span><span dir="ltr">- {fmt(totals.disc)} {cur}</span></div>}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}><span style={{ color: '#6E6557' }}>المجموع Subtotal</span><span dir="ltr">{fmt(totals.subtotal)} {cur}</span></div>
+                  {totals.disc > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: '#DC2626' }}><span>الخصم Discount</span><span dir="ltr">- {fmt(totals.disc)} {cur}</span></div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: '#1E7A52' }}><span>الضريبة {vatRate}% · VAT</span><span dir="ltr">{fmt(totals.vat)} {cur}</span></div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', marginTop: 6, borderTop: '2px solid #E15A30', fontWeight: 800, fontSize: 16.5, color: '#E15A30' }}>
-                    <span>الإجمالي · Total</span><span dir="ltr">{fmt(totals.total)} {cur}</span>
+                    <span>الإجمالي Total</span><span dir="ltr">{fmt(totals.total)} {cur}</span>
                   </div>
                 </div>
               </div>
 
               {/* التذييل + البصمة الفيروسية */}
               <div style={{ marginTop: 30, paddingTop: 12, borderTop: '1px solid #F1EBDF', textAlign: 'center', fontSize: 11.5, color: '#9A8F7E' }}>
-                شكراً لتعاملكم معنا · Thank you for your business
+                شكرا لتعاملكم معنا Thank you for your business
                 <div style={{ marginTop: 5, fontSize: 9.5, color: '#c3bcae' }}>
-                  أُنشئت مجاناً عبر منصّة Field Sales · fieldsa.net/invoice-generator
+                  أنشئت مجانا عبر منصة Field Sales fieldsa net/invoice-generator
                 </div>
               </div>
             </div>
@@ -601,7 +601,7 @@ export default function InvoiceGeneratorPage() {
           ? 'By downloading or printing, business details of the invoice may be stored by Field Sales to improve the service and reach out with relevant offers.'
           : lang === 'fr'
           ? 'En téléchargeant ou imprimant, les informations professionnelles de la facture peuvent être conservées par Field Sales pour améliorer le service et vous contacter.'
-          : 'عند التحميل أو الطباعة قد تُحفظ بيانات النشاط التجاري للفاتورة لدى Field Sales لتحسين الخدمة والتواصل بعروض مناسبة.'}
+          : 'عند التحميل أو الطباعة قد تحفظ بيانات النشاط التجاري للفاتورة لدى Field Sales لتحسين الخدمة والتواصل بعروض مناسبة'}
       </p>
 
       <footer className="border-t border-[#E9E1D3] py-6 text-center text-xs text-[#9A8F7E] print:hidden">

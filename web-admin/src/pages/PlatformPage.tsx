@@ -75,13 +75,13 @@ export default function PlatformPage() {
       // العزل: عمودية المطاعم تفتح /app-r، والتوزيع /app.
       window.location.href = (companyUser.vertical ?? 'distribution') === 'restaurant' ? '/app-r' : '/app';
     },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الدخول للشركة')),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الدخول للشركة')),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => tenantApi.remove(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['tenants'] }); toast.success(tr('تم حذف الشركة')); setDeleteTarget(null); },
-    onError: () => toast.error(tr('تعذّر حذف الشركة')),
+    onError: () => toast.error(tr('تعذر حذف الشركة')),
   });
 
   const handleLogout = () => { logout(); window.location.replace('/owner'); };
@@ -119,13 +119,13 @@ export default function PlatformPage() {
         {/* روابط التنقّل */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
           <button onClick={() => setShowHealth(true)} className="sidebar-link w-full">
-            <BarChart3 size={18} className="flex-shrink-0" /> <span>{tr('صحّة الشركة')}</span>
+            <BarChart3 size={18} className="flex-shrink-0" /> <span>{tr('صحة الشركة')}</span>
           </button>
           <button onClick={() => setShowLeads(true)} className="sidebar-link w-full text-[#E15A30] hover:bg-[#E15A30]/15 hover:text-[#f0703f]">
             <Target size={18} className="flex-shrink-0" /> <span>{tr('العملاء المحتملون')}</span>
           </button>
           <button onClick={() => setShowInvoiceTool(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
-            <ReceiptText size={18} className="flex-shrink-0" /> <span>{tr('عملاء مولّد الفواتير')}</span>
+            <ReceiptText size={18} className="flex-shrink-0" /> <span>{tr('عملاء مولد الفواتير')}</span>
           </button>
           <button onClick={() => setShowPromoVideos(true)} className="sidebar-link w-full">
             <Video size={18} className="flex-shrink-0" /> <span>{tr('الفيديوهات الترويجية')}</span>
@@ -158,7 +158,7 @@ export default function PlatformPage() {
         <div className="p-2 border-t border-white/10 space-y-1">
           <div className="px-2"><LanguageToggle variant="dark" /></div>
           <div className="px-4 py-1.5">
-            <p className="text-xs text-[#9A8F7E] leading-tight">{tr('مالك المنصّة')}</p>
+            <p className="text-xs text-[#9A8F7E] leading-tight">{tr('مالك المنصة')}</p>
             <p className="text-sm font-semibold truncate leading-tight">{user?.name}</p>
           </div>
           <button onClick={() => setShowPassword(true)} className="sidebar-link w-full">
@@ -284,7 +284,7 @@ function TenantColumn({
   const limitLabel = isResto ? tr('نقاط البيع') : tr('المناديب');
   const subStatus = (t: Tenant) => {
     if (!t.isActive) return { label: tr('موقوف'), cls: 'bg-red-100 text-red-700' };
-    if (t.subscriptionEndsAt && new Date(t.subscriptionEndsAt).getTime() < Date.now()) return { label: tr('منتهٍ'), cls: 'bg-amber-100 text-amber-700' };
+    if (t.subscriptionEndsAt && new Date(t.subscriptionEndsAt).getTime() < Date.now()) return { label: tr('منته'), cls: 'bg-amber-100 text-amber-700' };
     return { label: tr('نشط'), cls: 'bg-green-100 text-green-700' };
   };
   const limitOf = (t: Tenant) => (isResto ? t.maxPosStations : t.maxSalesReps);
@@ -325,7 +325,7 @@ function TenantColumn({
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+              <tr><td colSpan={7} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
             ) : tenants.length === 0 ? (
               <tr><td colSpan={7} className="text-center py-12 text-gray-400">
                 {isResto ? tr('لا يوجد عملاء مطاعم بعد') : tr('لا توجد شركات توزيع بعد')}
@@ -400,15 +400,15 @@ function DeleteConfirmModal({ tenant, loading, onConfirm, onClose }: { tenant: T
           <div className="w-14 h-14 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
             <AlertTriangle size={28} className="text-red-600" />
           </div>
-          <h2 className="text-lg font-bold text-gray-800">{tr('حذف الشركة نهائياً')}</h2>
+          <h2 className="text-lg font-bold text-gray-800">{tr('حذف الشركة نهائيا')}</h2>
           <p className="text-sm text-gray-500 mt-1">{tenant.name}</p>
         </div>
         <div className="p-6 space-y-4">
           <div className="bg-red-50 text-red-700 rounded-lg px-3 py-2.5 text-xs leading-relaxed">
-            {tr('تحذير: سيُحذف كل شيء يخص هذه الشركة نهائياً — المدير، المناديب، العملاء، المنتجات، الفواتير، السندات. لا يمكن التراجع.')}
+            {tr('تحذير سيحذف كل شيء يخص هذه الشركة نهائيا المدير المناديب العملاء المنتجات الفواتير السندات لا يمكن التراجع')}
           </div>
           <div>
-            <label className="label">{tr('اكتب اسم الشركة للتأكيد:')}</label>
+            <label className="label">{tr('اكتب اسم الشركة للتأكيد')}</label>
             <input className="input" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder={tenant.name} />
           </div>
         </div>
@@ -468,9 +468,9 @@ function PerformanceModal({ tenant, onClose }: { tenant: Tenant; onClose: () => 
         </div>
 
         {isLoading ? (
-          <div className="py-16 text-center text-gray-400">{tr('جاري تحميل بيانات الأداء...')}</div>
+          <div className="py-16 text-center text-gray-400">{tr('جاري تحميل بيانات الأداء')}</div>
         ) : isError || !data ? (
-          <div className="py-16 text-center text-red-500">{tr('تعذّر تحميل بيانات الأداء')}</div>
+          <div className="py-16 text-center text-red-500">{tr('تعذر تحميل بيانات الأداء')}</div>
         ) : (
           <div className="p-5 space-y-5">
             {/* المؤشرات المالية */}
@@ -505,7 +505,7 @@ function PerformanceModal({ tenant, onClose }: { tenant: Tenant; onClose: () => 
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Trophy size={16} className="text-[#E15A30]" />
-                <h3 className="text-sm font-bold text-[#1F1A13]">{tr('أفضل المناديب أداءً')}</h3>
+                <h3 className="text-sm font-bold text-[#1F1A13]">{tr('أفضل المناديب أداء')}</h3>
               </div>
               {data.topReps.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-4">{tr('لا يوجد مناديب بعد')}</p>
@@ -596,21 +596,21 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success(tr('تم تحديث بيانات الشركة')); onSaved(); },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر التحديث')),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر التحديث')),
   });
 
   const submit = () => {
     if (!unlimitedReps && (!Number.isInteger(Number(maxSalesReps)) || Number(maxSalesReps) < 1)) {
-      toast.error(tr('حدّد عدد مناديب صحيحاً (1 أو أكثر) أو اختر «غير محدود»')); return;
+      toast.error(tr('حدد عدد مناديب صحيحا 1 أو أكثر أو اختر غير محدود')); return;
     }
     if (!unlimitedReps && Number(maxSalesReps) < currentReps) {
-      toast.error(`${tr('الشركة لديها')} ${currentReps} ${tr('مندوباً حالياً — لا يمكن جعل الحد أقل من ذلك')}`); return;
+      toast.error(`${tr('الشركة لديها')} ${currentReps} ${tr('مندوبا حاليا لا يمكن جعل الحد أقل من ذلك')}`); return;
     }
     if (!unlimitedUsers && (!Number.isInteger(Number(maxAdminUsers)) || Number(maxAdminUsers) < 1)) {
-      toast.error(tr('حدّد عدد مستخدمين صحيحاً (1 أو أكثر) أو اختر «غير محدود»')); return;
+      toast.error(tr('حدد عدد مستخدمين صحيحا 1 أو أكثر أو اختر غير محدود')); return;
     }
     if (!unlimitedUsers && Number(maxAdminUsers) < currentUsers) {
-      toast.error(`${tr('الشركة لديها')} ${currentUsers} ${tr('مستخدم حالياً — لا يمكن جعل الحد أقل من ذلك')}`); return;
+      toast.error(`${tr('الشركة لديها')} ${currentUsers} ${tr('مستخدم حاليا لا يمكن جعل الحد أقل من ذلك')}`); return;
     }
     mutation.mutate();
   };
@@ -640,11 +640,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
                 {tr('غير محدود')}
               </label>
               {!unlimitedReps && (
-                <input type="number" min={1} className="input flex-1" placeholder={tr('مثال: 5')} autoFocus
+                <input type="number" min={1} className="input flex-1" placeholder={tr('مثال 5')} autoFocus
                   value={maxSalesReps} onChange={e => setMaxSalesReps(e.target.value)} />
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">{tr('المناديب الحاليون:')} {currentReps}</p>
+            <p className="text-xs text-gray-400 mt-1">{tr('المناديب الحاليون')} {currentReps}</p>
           </div>
           <div>
             <label className="label flex items-center gap-1"><Users size={12} /> {tr('عدد مستخدمي الشركة المسموح')}</label>
@@ -655,16 +655,16 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
                 {tr('غير محدود')}
               </label>
               {!unlimitedUsers && (
-                <input type="number" min={1} className="input flex-1" placeholder={tr('مثال: 3')}
+                <input type="number" min={1} className="input flex-1" placeholder={tr('مثال 3')}
                   value={maxAdminUsers} onChange={e => setMaxAdminUsers(e.target.value)} />
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">{tr('المستخدمون الحاليون:')} {currentUsers}</p>
+            <p className="text-xs text-gray-400 mt-1">{tr('المستخدمون الحاليون')} {currentUsers}</p>
           </div>
           <div>
             <label className="label flex items-center gap-1"><Calendar size={12} /> {tr('انتهاء الاشتراك')}</label>
             <input type="date" className="input" value={subscriptionEndsAt} onChange={e => setSubscriptionEndsAt(e.target.value)} />
-            <p className="text-xs text-gray-400 mt-1">{tr('اتركه فارغاً لاشتراك غير محدود المدة')}</p>
+            <p className="text-xs text-gray-400 mt-1">{tr('اتركه فارغا لاشتراك غير محدود المدة')}</p>
           </div>
           <div>
             <label className="label flex items-center gap-1"><Plug size={12} /> {tr('صلاحيات الاشتراك')}</label>
@@ -674,9 +674,9 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             </label>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={warehouseEnabled} onChange={e => setWarehouseEnabled(e.target.checked)} />
-              {tr('تفعيل مخزون الشركة (المستودع) لهذه الشركة')}
+              {tr('تفعيل مخزون الشركة المستودع لهذه الشركة')}
             </label>
-            <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تُخفى الميزة وتُرفض طلباتها للشركة.')}</p>
+            <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تخفى الميزة وترفض طلباتها للشركة')}</p>
           </div>
         </div>
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
@@ -719,10 +719,10 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
   const submit = () => {
     if (!form.companyName.trim()) { toast.error(tr('اسم الشركة مطلوب')); return; }
     if (!form.unlimitedReps && (!Number.isInteger(Number(form.maxSalesReps)) || Number(form.maxSalesReps) < 1)) {
-      toast.error(isResto ? tr('حدّد عدد نقاط بيع صحيحاً (1 أو أكثر) أو اختر «غير محدود»') : tr('حدّد عدد مناديب صحيحاً (1 أو أكثر) أو اختر «غير محدود»')); return;
+      toast.error(isResto ? tr('حدد عدد نقاط بيع صحيحا 1 أو أكثر أو اختر غير محدود') : tr('حدد عدد مناديب صحيحا 1 أو أكثر أو اختر غير محدود')); return;
     }
     if (!form.unlimitedUsers && (!Number.isInteger(Number(form.maxAdminUsers)) || Number(form.maxAdminUsers) < 1)) {
-      toast.error(tr('حدّد عدد مستخدمين صحيحاً (1 أو أكثر) أو اختر «غير محدود»')); return;
+      toast.error(tr('حدد عدد مستخدمين صحيحا 1 أو أكثر أو اختر غير محدود')); return;
     }
     if (!form.adminName.trim()) { toast.error(tr('اسم المدير مطلوب')); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.adminEmail)) { toast.error(tr('بريد المدير غير صحيح')); return; }
@@ -755,7 +755,7 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
                     {tr('غير محدود')}
                   </label>
                   {!form.unlimitedReps && (
-                    <input type="number" min={1} className="input flex-1" placeholder={tr('مثال: 5')} autoFocus
+                    <input type="number" min={1} className="input flex-1" placeholder={tr('مثال 5')} autoFocus
                       value={form.maxSalesReps} onChange={e => set('maxSalesReps', e.target.value)} />
                   )}
                 </div>
@@ -770,14 +770,14 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
                     {tr('غير محدود')}
                   </label>
                   {!form.unlimitedUsers && (
-                    <input type="number" min={1} className="input flex-1" placeholder={tr('مثال: 3')}
+                    <input type="number" min={1} className="input flex-1" placeholder={tr('مثال 3')}
                       value={form.maxAdminUsers} onChange={e => set('maxAdminUsers', e.target.value)} />
                   )}
                 </div>
               </div>
               <div>
                 <label className="label flex items-center gap-1"><Calendar size={12} /> {tr('انتهاء الاشتراك')}</label>
-                <input type="date" className="input" value={form.subscriptionEndsAt} onChange={e => set('subscriptionEndsAt', e.target.value)} title={tr('اتركه فارغاً لاشتراك غير محدود')} />
+                <input type="date" className="input" value={form.subscriptionEndsAt} onChange={e => set('subscriptionEndsAt', e.target.value)} title={tr('اتركه فارغا لاشتراك غير محدود')} />
               </div>
             </div>
           </div>
@@ -789,7 +789,7 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
                 <input className="input" value={form.adminName} onChange={e => set('adminName', e.target.value)} />
               </div>
               <div>
-                <label className="label">{tr('البريد الإلكتروني (للدخول) *')}</label>
+                <label className="label">{tr('البريد الإلكتروني للدخول *')}</label>
                 <input className="input" dir="ltr" value={form.adminEmail} onChange={e => set('adminEmail', e.target.value)} />
               </div>
               <div>
@@ -833,7 +833,7 @@ ${tr('كلمة المرور')}: ${info.password}`)
           <p className="text-sm text-gray-500 mt-1">{info.company}</p>
         </div>
         <div className="p-6 space-y-3">
-          <p className="text-xs text-[#C94E28] bg-[#FBEBE2] rounded-lg px-3 py-2">{tr('سلّم هذه البيانات لمدير الشركة ليدخل من تبويب «دخول الشركة»')}</p>
+          <p className="text-xs text-[#C94E28] bg-[#FBEBE2] rounded-lg px-3 py-2">{tr('سلم هذه البيانات لمدير الشركة ليدخل من تبويب دخول الشركة')}</p>
           <Row label={tr('البريد الإلكتروني')} value={info.email} />
           <Row label={tr('كلمة المرور')} value={info.password} />
         </div>

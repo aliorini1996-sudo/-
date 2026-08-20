@@ -100,7 +100,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
                 </div>
                 {errors.password
                   ? <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
-                  : !rep && <p className="text-gray-400 text-xs mt-1">{tr('8 أحرف على الأقل — يسلّمها الأدمن للمندوب')}</p>}
+                  : !rep && <p className="text-gray-400 text-xs mt-1">{tr('8 أحرف على الأقل يسلمها الأدمن للمندوب')}</p>}
               </div>
               <div>
                 <label className="label">{tr('الحالة')}</label>

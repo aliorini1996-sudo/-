@@ -75,7 +75,7 @@ export default function MCustomerForm({ customer, onClose, onSaved }: {
       onSaved(c);
     },
     onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
   /** التقاط الموقع من الجهاز — يُرسَل كرابط خرائط يحلّه الخادم إلى إحداثيات */
@@ -88,7 +88,7 @@ export default function MCustomerForm({ customer, onClose, onSaved }: {
         setGeoBusy(false);
         toast.success(tr('تم التقاط الموقع'));
       },
-      () => { setGeoBusy(false); toast.error(tr('تعذّر تحديد الموقع — فعّل الإذن')); },
+      () => { setGeoBusy(false); toast.error(tr('تعذر تحديد الموقع فعل الإذن')); },
       { enableHighAccuracy: true, timeout: 10000 },
     );
   };
@@ -115,7 +115,7 @@ export default function MCustomerForm({ customer, onClose, onSaved }: {
           <button type="button" onClick={grabLocation} disabled={geoBusy}
             className="w-full flex items-center justify-center gap-2 border border-[#E9E1D3] bg-white rounded-xl py-3 text-sm font-semibold text-[#1F1A13] min-h-[48px]">
             {geoBusy ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} className="text-[#E15A30]" />}
-            {form.locationUrl ? tr('تم التقاط الموقع — أعد الالتقاط') : tr('التقط موقعي الحالي')}
+            {form.locationUrl ? tr('تم التقاط الموقع أعد الالتقاط') : tr('التقط موقعي الحالي')}
           </button>
           {(customer?.lat != null && customer?.lng != null) && !form.locationUrl && (
             <p className="text-[11px] text-[#2F855A] px-1">{tr('لهذا العميل موقع محفوظ')}</p>
@@ -126,7 +126,7 @@ export default function MCustomerForm({ customer, onClose, onSaved }: {
           <div>
             <label className="label">{tr('قناة البيع')}</label>
             <select className="input" value={form.channel} onChange={e => set('channel', e.target.value)}>
-              <option value="">{tr('غير محدّد')}</option>
+              <option value="">{tr('غير محدد')}</option>
               {SALES_CHANNELS.map(c => <option key={c.code} value={c.code}>{tr(c.ar)}</option>)}
             </select>
           </div>
@@ -139,7 +139,7 @@ export default function MCustomerForm({ customer, onClose, onSaved }: {
             </select>
           </div>
           <Field label={tr('الحد الائتماني')} dir="ltr" type="number" value={form.creditLimit} onChange={v => set('creditLimit', v)} />
-          <Field label={tr('مدة السداد (يوم)')} dir="ltr" type="number" value={form.paymentDays} onChange={v => set('paymentDays', v)} />
+          <Field label={tr('مدة السداد يوم')} dir="ltr" type="number" value={form.paymentDays} onChange={v => set('paymentDays', v)} />
         </Group>
 
         <Group title={tr('بيانات ضريبية')}>

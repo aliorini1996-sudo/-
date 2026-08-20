@@ -70,14 +70,14 @@ async function qrBlock(company: InvoiceDoc['company'], date: string, total: numb
 function head(company: InvoiceDoc['company']): string {
   return `
     <div class="c b lg">${esc(company?.name || 'الشركة')}</div>
-    ${company?.taxNumber ? `<div class="c muted">الرقم الضريبي: ${esc(company.taxNumber)}</div>` : ''}
+    ${company?.taxNumber ? `<div class="c muted">الرقم الضريبي ${esc(company.taxNumber)}</div>` : ''}
     ${company?.address ? `<div class="c muted">${esc(company.address)}</div>` : ''}
-    ${company?.phone ? `<div class="c muted">هاتف: ${esc(company.phone)}</div>` : ''}`;
+    ${company?.phone ? `<div class="c muted">هاتف ${esc(company.phone)}</div>` : ''}`;
 }
 
 export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
   const isSimplified = !doc.customer.taxNumber;
-  const title = doc.isReturn ? 'إشعار دائن (مرتجع)' : (isSimplified ? 'فاتورة ضريبية مبسطة' : 'فاتورة ضريبية');
+  const title = doc.isReturn ? 'إشعار دائن مرتجع' : (isSimplified ? 'فاتورة ضريبية مبسطة' : 'فاتورة ضريبية');
   const qr = await qrBlock(doc.company, doc.date, doc.total, doc.tax);
   const items = doc.items.map(it => `
     <div class="item">
@@ -113,7 +113,7 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
     <div class="sep"></div>
     ${qr}
     <div class="c muted">${esc(doc.company?.name || '')}</div>
-    <div class="c muted">شكراً لتعاملكم معنا</div>
+    <div class="c muted">شكرا لتعاملكم معنا</div>
   `);
 }
 
@@ -135,6 +135,6 @@ export async function printThermalReceipt(doc: ReceiptDoc): Promise<void> {
     <div class="c b xl">${money(doc.amount)} ${curSym()}</div>
     <div class="sep"></div>
     <div class="c muted">${esc(doc.company?.name || '')}</div>
-    <div class="c muted">شكراً لتعاملكم معنا</div>
+    <div class="c muted">شكرا لتعاملكم معنا</div>
   `);
 }

@@ -134,7 +134,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const handleSubmit = () => {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
-    if (lines.length === 0) { toast.error(tr('أضف صنفاً على الأقل')); return; }
+    if (lines.length === 0) { toast.error(tr('أضف صنفا على الأقل')); return; }
     mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
       ...(invoiceDate && { invoiceDate }),
@@ -161,7 +161,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               <label className="label">{tr('العميل')} *</label>
               <SearchableSelect
                 placeholder={tr('اختر العميل')}
-                searchPlaceholder={tr('اكتب اسم أو جوال العميل…')}
+                searchPlaceholder={tr('اكتب اسم أو جوال العميل')}
                 value={customerId}
                 options={(customers || []).map(c => ({
                   value: c.id,
@@ -188,7 +188,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             </div>
             <div>
               <label className="label">{tr('التاريخ')}</label>
-              <input type="date" className="input" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} title={tr('اتركه فارغاً لتاريخ اليوم')} />
+              <input type="date" className="input" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} title={tr('اتركه فارغا لتاريخ اليوم')} />
             </div>
           </div>
 
@@ -198,8 +198,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               <label className="label mb-0">{tr('الأصناف')}</label>
               <div className="w-72">
                 <SearchableSelect
-                  placeholder={tr('أضف صنفاً')}
-                  searchPlaceholder={tr('اكتب اسم أو كود الصنف…')}
+                  placeholder={tr('أضف صنفا')}
+                  searchPlaceholder={tr('اكتب اسم أو كود الصنف')}
                   value=""
                   resetOnSelect
                   options={(products || []).map(p => ({ value: p.id, label: p.name, hint: `${p.code} • ${formatCurrency(p.basePrice)}` }))}
@@ -219,7 +219,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 </thead>
                 <tbody>
                   {lines.length === 0 && (
-                    <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">{tr('اختر صنفاً من القائمة لإضافته')}</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">{tr('اختر صنفا من القائمة لإضافته')}</td></tr>
                   )}
                   {lines.map((l, i) => (
                     <tr key={l.productId}>

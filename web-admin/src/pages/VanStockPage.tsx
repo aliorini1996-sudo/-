@@ -91,8 +91,8 @@ export default function VanStockPage() {
       qc.setQueryData<RepSummary[]>(['van-summary'], (old) => (old || []).map(r => r.salesRepId === id ? { ...r, canSellWithoutStock: val } : r));
       return { prev };
     },
-    onError: (_e, _v, ctx) => { if (ctx?.prev) qc.setQueryData(['van-summary'], ctx.prev); toast.error(tr('تعذّر تغيير الصلاحية')); },
-    onSuccess: (_d, v) => toast.success(v.val ? tr('سُمح بالبيع بدون مخزون') : tr('مُنع البيع بدون مخزون')),
+    onError: (_e, _v, ctx) => { if (ctx?.prev) qc.setQueryData(['van-summary'], ctx.prev); toast.error(tr('تعذر تغيير الصلاحية')); },
+    onSuccess: (_d, v) => toast.success(v.val ? tr('سمح بالبيع بدون مخزون') : tr('منع البيع بدون مخزون')),
     onSettled: () => qc.invalidateQueries({ queryKey: ['van-summary'] }),
   });
 
@@ -123,21 +123,21 @@ export default function VanStockPage() {
           <h1 className="text-2xl font-bold text-[#1F1A13] flex items-center gap-2">
             <Truck size={26} className="text-[#E15A30]" /> {tr('مخزون سيارات المناديب')}
           </h1>
-          <p className="text-[#6E6557] text-sm mt-1">{tr('متابعة ما حمَّله كل مندوب في سيارته، وما تبقّى بعد المبيعات لحظياً.')}</p>
+          <p className="text-[#6E6557] text-sm mt-1">{tr('متابعة ما حمله كل مندوب في سيارته وما تبقى بعد المبيعات لحظيا')}</p>
         </div>
-        <button onClick={() => setShowAccuracy(true)} className="btn-secondary"><Target size={16} /> {tr('دقّة الاقتراح')}</button>
+        <button onClick={() => setShowAccuracy(true)} className="btn-secondary"><Target size={16} /> {tr('دقة الاقتراح')}</button>
         <button onClick={() => setShowLoad(true)} className="btn-primary"><Plus size={17} /> {tr('تسجيل تحميل')}</button>
       </div>
 
       {/* ملخّص المناديب */}
       <div className="card overflow-hidden p-0">
         <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
-          <Boxes size={17} className="text-[#E15A30]" /> {tr('ملخّص المخزون حسب المندوب')}
+          <Boxes size={17} className="text-[#E15A30]" /> {tr('ملخص المخزون حسب المندوب')}
         </div>
         {summaryQ.isLoading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
         ) : reps.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">{tr('لا يوجد مناديب بعد.')}</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('لا يوجد مناديب بعد')}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -145,9 +145,9 @@ export default function VanStockPage() {
                 <tr className="text-[#6E6557] text-xs bg-[#FAF7F0]">
                   <th className="text-right font-semibold px-5 py-2.5">{tr('المندوب')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('أصناف بالسيارة')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي محمَّل')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي مُباع')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقّي')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي محمل')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي مباع')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقي')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>
@@ -165,7 +165,7 @@ export default function VanStockPage() {
                     <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
                       <button onClick={() => setSellPerm.mutate({ id: r.salesRepId, val: !r.canSellWithoutStock })}
                         disabled={setSellPerm.isPending}
-                        title={r.canSellWithoutStock ? tr('مسموح — اضغط للمنع') : tr('ممنوع — اضغط للسماح')}
+                        title={r.canSellWithoutStock ? tr('مسموح اضغط للمنع') : tr('ممنوع اضغط للسماح')}
                         className={`text-[11px] font-bold rounded-full px-3 py-1 border transition-colors disabled:opacity-50 ${r.canSellWithoutStock ? 'bg-green-50 text-[#1E7A52] border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'}`}>
                         {r.canSellWithoutStock ? tr('نعم') : tr('لا')}
                       </button>
@@ -188,19 +188,19 @@ export default function VanStockPage() {
               <Package size={17} className="text-[#E15A30]" /> {tr('مخزون المندوب الحالي')} — {selectedRep.repName}
             </div>
             {currentQ.isLoading ? (
-              <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
             ) : (currentQ.data || []).length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد بضاعة محمّلة لهذا المندوب.')}</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد بضاعة محملة لهذا المندوب')}</div>
             ) : (
               <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0">
                     <tr className="text-[#6E6557] text-xs bg-[#FAF7F0]">
                       <th className="text-right font-semibold px-5 py-2.5">{tr('الصنف')}</th>
-                      <th className="text-center font-semibold px-2 py-2.5">{tr('محمَّل')}</th>
-                      <th className="text-center font-semibold px-2 py-2.5">{tr('مُباع')}</th>
+                      <th className="text-center font-semibold px-2 py-2.5">{tr('محمل')}</th>
+                      <th className="text-center font-semibold px-2 py-2.5">{tr('مباع')}</th>
                       <th className="text-center font-semibold px-2 py-2.5">{tr('مرتجع')}</th>
-                      <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقّي')}</th>
+                      <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقي')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -225,12 +225,12 @@ export default function VanStockPage() {
           {/* حركة المخزون (كم نزل ومتى) */}
           <div className="card p-0 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
-              <TrendingDown size={17} className="text-[#E15A30]" /> {tr('حركة البضاعة — ماذا نزل ومتى')}
+              <TrendingDown size={17} className="text-[#E15A30]" /> {tr('حركة البضاعة ماذا نزل ومتى')}
             </div>
             {movementsQ.isLoading ? (
-              <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
             ) : (movementsQ.data || []).length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركة بعد.')}</div>
+              <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركة بعد')}</div>
             ) : (
               <div className="max-h-[420px] overflow-y-auto divide-y divide-[#F1EBDF]">
                 {(movementsQ.data || []).map((m, i) => <MovementRow key={i} m={m} onExport={setNoticeMv} />)}
@@ -315,7 +315,7 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
-          <h3 className="font-bold text-[#1F1A13] flex items-center gap-2"><Target size={18} className="text-[#E15A30]" /> {tr('دقّة الاقتراح')}</h3>
+          <h3 className="font-bold text-[#1F1A13] flex items-center gap-2"><Target size={18} className="text-[#E15A30]" /> {tr('دقة الاقتراح')}</h3>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-4 overflow-y-auto">
@@ -338,11 +338,11 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
           </div>
 
           {!repId ? (
-            <p className="text-center text-gray-400 py-8 text-sm">{tr('اختر مندوباً لعرض دقّة اقتراحاته')}</p>
+            <p className="text-center text-gray-400 py-8 text-sm">{tr('اختر مندوبا لعرض دقة اقتراحاته')}</p>
           ) : accQ.status === 'pending' ? (
-            <p className="text-center text-gray-400 py-8 text-sm">{accQ.fetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}</p>
+            <p className="text-center text-gray-400 py-8 text-sm">{accQ.fetchStatus === 'paused' ? tr('بانتظار عودة الاتصال') : tr('جاري التحميل')}</p>
           ) : accQ.status === 'error' ? (
-            <p className="text-center text-red-500 py-8 text-sm">{tr('تعذّر تحميل التقرير')}</p>
+            <p className="text-center text-red-500 py-8 text-sm">{tr('تعذر تحميل التقرير')}</p>
           ) : d && (
             <>
               {/* الحكم — جملة تُقرأ كما هي، من الخادم */}
@@ -352,7 +352,7 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
 
               {d.summary.measured > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {chip(tr('متوسط الخطأ'), d.summary.mae === null ? '—' : `${d.summary.mae} (${d.summary.maePct ?? '—'}٪)`, 'bg-white border-[#E9E1D3]')}
+                  {chip(tr('متوسط الخطأ'), d.summary.mae === null ? '—' : `${d.summary.mae} (${d.summary.maePct ?? '—'}٪`, 'bg-white border-[#E9E1D3]')}
                   {chip(tr('الانحياز'), d.summary.bias === null ? '—' : d.summary.bias > 0 ? `${tr('نقص')} ${d.summary.bias}` : d.summary.bias < 0 ? `${tr('زيادة')} ${Math.abs(d.summary.bias)}` : tr('متوازن'), 'bg-white border-[#E9E1D3]')}
                   {chip(tr('الالتزام بالاقتراح'), d.summary.adoptionRate === null ? '—' : `${d.summary.adoptionRate}٪`, 'bg-white border-[#E9E1D3]')}
                   {chip(`${tr('دقيق')} / ${tr('نقص')} / ${tr('زيادة')}`, `${d.summary.exact} / ${d.summary.under} / ${d.summary.over}`, 'bg-white border-[#E9E1D3]')}
@@ -364,8 +364,8 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>{tr('اليوم')}</th><th>{tr('الصنف')}</th><th>{tr('التنبّؤ')}</th>
-                        <th>{tr('حُمِّل')}</th><th>{tr('بِيع')}</th><th>{tr('الحكم')}</th>
+                        <th>{tr('اليوم')}</th><th>{tr('الصنف')}</th><th>{tr('التنبؤ')}</th>
+                        <th>{tr('حمل')}</th><th>{tr('مباع')}</th><th>{tr('الحكم')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -389,7 +389,7 @@ function AccuracyModal({ preselectRep, onClose }: { preselectRep: string; onClos
                   </table>
                 </div>
               ) : (
-                <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تحميلات مبنية على اقتراح في هذه الفترة — طبّق «التحميل المقترح» عند التحميل ليبدأ القياس.')}</p>
+                <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تحميلات مبنية على اقتراح في هذه الفترة طبق التحميل المقترح عند التحميل ليبدأ القياس')}</p>
               )}
             </>
           )}
@@ -432,7 +432,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
   /** يملأ النموذج بما يستحقّ تحميلاً فقط — الأصفار ضجيج لا اقتراح */
   const applySuggestion = () => {
     const list = (suggestQ.data?.rows || []).filter(r => r.suggested > 0);
-    if (!list.length) { toast.error(tr('لا يوجد ما يُقترح تحميله')); return; }
+    if (!list.length) { toast.error(tr('لا يوجد ما يقترح تحميله')); return; }
     setRows(list.map(r => ({
       productId: r.id, name: r.name, unit: r.unit,
       qty: String(r.suggested), suggestedQty: r.suggested,
@@ -441,7 +441,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
       expectedQty: r.expected,
     })));
     setShowSuggest(false);
-    toast.success(tr('طُبِّق الاقتراح — راجع الكميات قبل الحفظ'));
+    toast.success(tr('طبق الاقتراح راجع الكميات قبل الحفظ'));
   };
 
   const save = useMutation({
@@ -459,7 +459,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
       toast.success(tr('تم حفظ الحركة'));
       onClose();
     },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
   const valid = !!repId && rows.length > 0 && rows.every(r => { const q = Number(r.qty); return !Number.isNaN(q) && q !== 0; });
@@ -477,13 +477,13 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
             <label className="label">{tr('المندوب')}</label>
             <SearchableSelect
               options={(repsQ.data || []).map(r => ({ value: r.id, label: r.name }))}
-              value={repId} onChange={(v) => setRepId(v)} placeholder={tr('اختر المندوب…')} />
+              value={repId} onChange={(v) => setRepId(v)} placeholder={tr('اختر المندوب')} />
           </div>
           <div>
             <label className="label">{tr('إضافة صنف')}</label>
             <SearchableSelect
               options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
-              value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
+              value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفا')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
           </div>
 
           {/* ─────────── التحميل المقترح ───────────
@@ -497,7 +497,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
                 {tr('التحميل المقترح')}
               </span>
               <span className="text-[11px] text-[#6E6557]">
-                {repId ? (showSuggest ? tr('إخفاء') : tr('اعرض اقتراحاً من تاريخ مبيعاته')) : tr('اختر المندوب أولاً')}
+                {repId ? (showSuggest ? tr('إخفاء') : tr('اعرض اقتراحا من تاريخ مبيعاته')) : tr('اختر المندوب أولا')}
               </span>
             </button>
 
@@ -505,7 +505,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
               <div className="p-3.5 space-y-3">
                 <div className="flex items-end gap-2 flex-wrap">
                   <div className="w-32">
-                    <label className="label !mb-1 !text-[11px]">{tr('نافذة التاريخ (يوم)')}</label>
+                    <label className="label !mb-1 !text-[11px]">{tr('نافذة التاريخ يوم')}</label>
                     <input type="number" min={7} max={180} value={windowDays}
                       onChange={e => setWindowDays(Math.min(180, Math.max(7, Number(e.target.value) || 28)))}
                       className="input py-1.5 text-center" />
@@ -521,8 +521,8 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
                     className="btn-primary py-2 px-3.5 text-sm disabled:opacity-50">{tr('املأ النموذج بالاقتراح')}</button>
                 </div>
 
-                {suggestQ.isLoading && <p className="text-xs text-[#9A8F7E]">{tr('يُحسب…')}</p>}
-                {suggestQ.isError && <p className="text-xs text-red-600">{tr('تعذّر حساب الاقتراح')}</p>}
+                {suggestQ.isLoading && <p className="text-xs text-[#9A8F7E]">{tr('يحسب')}</p>}
+                {suggestQ.isError && <p className="text-xs text-red-600">{tr('تعذر حساب الاقتراح')}</p>}
 
                 {/* التحذير يُعرض كما هو من الخادم — إخفاء رقّة البيانات خداع */}
                 {suggestQ.data?.meta.warning && (
@@ -534,8 +534,8 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
                 {suggestQ.data && (
                   <>
                     <p className="text-[11px] text-[#6E6557]">
-                      {tr('بناءً على')} <b>{suggestQ.data.meta.dataDays}</b> {tr('يوماً فيها مبيعات خلال آخر')}{' '}
-                      <b>{suggestQ.data.meta.windowDays}</b> {tr('يوماً')}
+                      {tr('بناء على')} <b>{suggestQ.data.meta.dataDays}</b> {tr('يوما فيها مبيعات خلال آخر')}{' '}
+                      <b>{suggestQ.data.meta.windowDays}</b> {tr('يوما')}
                       {suggestQ.data.meta.oldestSale && <> · {tr('أقدم بيعة')} {suggestQ.data.meta.oldestSale}</>}
                     </p>
                     <div className="max-h-56 overflow-y-auto border border-[#F1EBDF] rounded-lg divide-y divide-[#F1EBDF]">
@@ -555,7 +555,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
                       ))}
                       {!suggestQ.data.rows.some(r => r.suggested > 0) && (
                         <p className="px-3 py-3 text-xs text-[#9A8F7E]">
-                          {tr('لا يوجد ما يُقترح تحميله: إمّا لا مبيعات سابقة، أو السيارة تغطّي المتوقّع أصلاً.')}
+                          {tr('لا يوجد ما يقترح تحميله إما لا مبيعات سابقة أو السيارة تغطي المتوقع أصلا')}
                         </p>
                       )}
                     </div>
@@ -565,7 +565,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
             )}
           </div>
 
-          <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr('أدخل كمية موجبة للتحميل، أو سالبة للتنقيص (استخدم زرّ ± أو اكتب مثل ‎-5).')}</p>
+          <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr('أدخل كمية موجبة للتحميل أو سالبة للتنقيص استخدم زر ± أو اكتب مثل ‎-5')}</p>
           {rows.length > 0 && (
             <div className="border border-[#F1EBDF] rounded-xl divide-y divide-[#F1EBDF]">
               {rows.map((r, i) => {
@@ -576,7 +576,7 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
                     <p className="text-sm font-semibold text-[#1F1A13] truncate">{r.name}</p>
                     <p className={`text-[10px] ${neg ? 'text-red-500 font-semibold' : 'text-[#9A8F7E]'}`}>{neg ? tr('تنقيص') : r.unit}</p>
                   </div>
-                  <button type="button" title={tr('عكس الإشارة (تحميل/تنقيص)')}
+                  <button type="button" title={tr('عكس الإشارة تحميل/تنقيص')}
                     onClick={() => setRows(rs => rs.map((x, j) => j === i ? { ...x, qty: String(-(Number(x.qty) || 0)) } : x))}
                     className="w-9 h-9 rounded-lg border border-[#E9E1D3] text-base font-bold text-[#6E6557] shrink-0 hover:bg-gray-50">±</button>
                   <input type="number" step="any" value={r.qty}
@@ -590,8 +590,8 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
           )}
 
           <div>
-            <label className="label">{tr('ملاحظة (اختياري)')}</label>
-            <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال: تحميل صباح اليوم من المستودع')} />
+            <label className="label">{tr('ملاحظة اختياري')}</label>
+            <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال تحميل صباح اليوم من المستودع')} />
           </div>
         </div>
 

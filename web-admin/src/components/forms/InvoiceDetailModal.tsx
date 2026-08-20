@@ -42,7 +42,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
           {/* حالة الفوترة الإلكترونية */}
           {invoice.einvoiceProvider && invoice.einvoiceProvider !== 'none' && (() => {
             const st = invoice.einvoiceStatus;
-            const label = st === 'cleared' ? tr('معتمدة') : st === 'submitted' ? tr('مُرسَلة') : st === 'pending' ? tr('قيد الاعتماد') : st === 'error' ? tr('فشل الإرسال') : tr('جاهزة');
+            const label = st === 'cleared' ? tr('معتمدة') : st === 'submitted' ? tr('مرسلة') : st === 'pending' ? tr('قيد الاعتماد') : st === 'error' ? tr('فشل الإرسال') : tr('جاهزة');
             const cls = st === 'cleared' || st === 'submitted' ? 'bg-[#E4F1EA] text-[#1E7A52] border-[#C9E4D6]'
               : st === 'error' ? 'bg-red-50 text-red-600 border-red-200'
               : st === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200'

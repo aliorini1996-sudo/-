@@ -199,12 +199,12 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
       {/* Greeting */}
       <div className="bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 flex items-center justify-between">
         <div>
-          <p className="text-[#E8C9BC] text-xs">{tr('مرحباً')}،</p>
+          <p className="text-[#E8C9BC] text-xs">{tr('مرحبا')}</p>
           <p className="text-white text-lg font-bold">{user.name}</p>
           {syncing && (
             <div className="flex items-center gap-1.5 mt-1">
               <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              <span className="text-[#E8C9BC] text-[11px]">{tr('مزامنة...')}</span>
+              <span className="text-[#E8C9BC] text-[11px]">{tr('مزامنة')}</span>
             </div>
           )}
         </div>
@@ -218,8 +218,8 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
         <div className={`rounded-2xl px-4 py-3 border text-xs flex items-center justify-between gap-3 ${failed ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
           <span>
             {failed
-              ? tr('تعذّر تحميل الأرقام — لا تعتمد على هذه الشاشة الآن')
-              : `${tr('أرقام غير محدَّثة — آخر تحديث')} ${formatDate(new Date(stale!).toISOString())}`}
+              ? tr('تعذر تحميل الأرقام لا تعتمد على هذه الشاشة الآن')
+              : `${tr('أرقام غير محدثة آخر تحديث')} ${formatDate(new Date(stale!).toISOString())}`}
           </span>
           <button onClick={load} className="shrink-0 font-semibold underline">{tr('تحديث')}</button>
         </div>
@@ -287,7 +287,7 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
         <div className="flex-1">
           <SearchableSelect
             placeholder={tr('اختر العميل')}
-            searchPlaceholder={tr('اكتب اسم أو جوال العميل…')}
+            searchPlaceholder={tr('اكتب اسم أو جوال العميل')}
             value=""
             resetOnSelect
             options={customers.map(c => ({
@@ -308,7 +308,7 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-24">
         {loading ? (
-          <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل...')}</div>
+          <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</div>
         ) : customers.length === 0 ? (
           <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد نتائج')}</div>
         ) : customers.map(c => (
@@ -403,7 +403,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         {!unassigned && (
           visitActive ? (
             <span className="flex items-center gap-1.5 bg-[#2E6FB0] rounded-full px-3 py-1.5 text-sm font-bold tabular-nums"
-              title={tr('الزيارة جارية — تنتهي عند خروجك من ملفّ العميل')}>
+              title={tr('الزيارة جارية تنتهي عند خروجك من ملف العميل')}>
               <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
               {visitElapsedLabel}
             </span>
@@ -420,7 +420,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
       {/* شريط تذكير أسفل الرأس أثناء التوقيت — يوضّح أن الوقت يُحسب */}
       {visitActive && (
         <div className="bg-[#2E6FB0]/10 text-[#2E6FB0] text-[11px] px-4 py-1.5 flex items-center gap-1.5 border-b border-[#2E6FB0]/20">
-          <Square size={9} className="fill-current" /> {tr('يُحسب وقت الزيارة الآن — سيُسجَّل تلقائياً عند خروجك')}
+          <Square size={9} className="fill-current" /> {tr('يحسب وقت الزيارة الآن سيسجل تلقائيا عند خروجك')}
         </div>
       )}
 
@@ -429,7 +429,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         {unassigned && (
           <div className="mb-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-3.5 text-sm leading-relaxed">
             <p className="font-bold mb-1">{tr('هذا العميل لم يعد ضمن عملائك')}</p>
-            <p className="text-xs">{tr('نقلته الإدارة إلى مندوب آخر، فلا يمكنك إصدار فاتورة أو سند أو زيارة له. راجع الإدارة إن كان ذلك غير متوقّع.')}</p>
+            <p className="text-xs">{tr('نقلته الإدارة إلى مندوب آخر فلا يمكنك إصدار فاتورة أو سند أو زيارة له راجع الإدارة إن كان ذلك غير متوقع')}</p>
           </div>
         )}
 
@@ -492,11 +492,11 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         {!canViewStatement ? (
           <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تملك صلاحية عرض كشف الحساب')}</p>
         ) : loading ? (
-          <p className="text-center text-gray-400 py-6 text-sm">{tr('جاري التحميل...')}</p>
+          <p className="text-center text-gray-400 py-6 text-sm">{tr('جاري التحميل')}</p>
         ) : statementError === 'unassigned' ? (
-          <p className="text-center text-amber-700 py-6 text-sm">{tr('كشف الحساب غير متاح — هذا العميل لم يعد ضمن عملائك')}</p>
+          <p className="text-center text-amber-700 py-6 text-sm">{tr('كشف الحساب غير متاح هذا العميل لم يعد ضمن عملائك')}</p>
         ) : statementError === 'offline' ? (
-          <p className="text-center text-gray-400 py-6 text-sm">{tr('تعذّر تحميل كشف الحساب — تحقّق من الاتصال')}</p>
+          <p className="text-center text-gray-400 py-6 text-sm">{tr('تعذر تحميل كشف الحساب تحقق من الاتصال')}</p>
         ) : entries.length === 0 ? (
           <p className="text-center text-gray-400 py-6 text-sm">{tr('لا توجد حركات')}</p>
         ) : entries.map(e => {
@@ -617,7 +617,7 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'visit', payload, status: 'queued', clientCreatedAt });
         setDone('offline');
       } else {
-        setMsg((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حفظ الزيارة'));
+        setMsg((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حفظ الزيارة'));
         setBusy(false);
       }
     }
@@ -630,7 +630,7 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
       </div>
       <p className="font-bold text-gray-800 text-lg">{tr('تم تسجيل الزيارة')}</p>
       <p className="text-sm text-gray-500 mt-1">
-        {done === 'offline' ? tr('محفوظة على الجهاز وستُرفع عند عودة الاتصال') : tr('وصلت الزيارة وصورها للإدارة')}
+        {done === 'offline' ? tr('محفوظة على الجهاز وسترفع عند عودة الاتصال') : tr('وصلت الزيارة وصورها للإدارة')}
       </p>
       <button onClick={() => onDone(done === 'offline')}
         className="mt-6 bg-[#1F1A13] text-white rounded-xl px-8 py-3 font-semibold text-sm">{tr('تم')}</button>
@@ -650,13 +650,13 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
         <div className={`mt-2 inline-flex items-center gap-1.5 text-[11px] rounded-full px-2.5 py-1 ${
           gps === 'ok' ? 'bg-green-50 text-green-600' : gps === 'getting' ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>
           <MapPin size={12} />
-          {gps === 'ok' ? tr('تم تحديد موقعك') : gps === 'getting' ? tr('جارٍ تحديد الموقع...') : tr('الموقع غير متاح')}
+          {gps === 'ok' ? tr('تم تحديد موقعك') : gps === 'getting' ? tr('جار تحديد الموقع') : tr('الموقع غير متاح')}
         </div>
 
         {/* ملاحظة نصية */}
         <label className="block text-xs font-medium text-gray-500 mt-4 mb-1">{tr('ملاحظة الزيارة')}</label>
         <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={4}
-          placeholder={tr('مثال: تم عرض المنتجات الجديدة، الرفوف منظّمة، طلب توريد الأسبوع القادم...')}
+          placeholder={tr('مثال تم عرض المنتجات الجديدة الرفوف منظمة طلب توريد الأسبوع القادم')}
           className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:border-[#E15A30]" />
 
         {/* صور الزيارة (الرفوف/المنتجات) — الكاميرا مباشرة على الجوّال */}
@@ -802,7 +802,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const total = repCalc.total;
 
   const submit = async () => {
-    if (lines.length === 0) { setMsg(tr('أضف صنفاً')); return; }
+    if (lines.length === 0) { setMsg(tr('أضف صنفا')); return; }
     if (perms.canCreateInvoice === false) { setMsg(tr('لا تملك صلاحية إنشاء فاتورة')); return; }
     if (!isReturn && !canSellAnyType) { setMsg(tr('لا تملك صلاحية البيع النقدي أو الآجل')); return; }
     if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
@@ -837,7 +837,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         const provider = (company as any)?.einvoiceProvider;
         if (['eta', 'peppol', 'ttn'].includes(provider)) {
           // أسواق التخليص الحكومي اللحظي: لا يُسمح بالإصدار أوف‑لاين (قرار المالك)
-          setMsg(tr('لا يمكن إصدار فاتورة دون اتصال في هذا السوق — يتطلّب تخليصاً حكومياً لحظياً')); setLoading(false); return;
+          setMsg(tr('لا يمكن إصدار فاتورة دون اتصال في هذا السوق يتطلب تخليصا حكوميا لحظيا')); setLoading(false); return;
         }
         const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
@@ -849,7 +849,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
         });
       } else {
-        setMsg(err?.response?.data?.message || tr('تعذّر إصدار المستند، حاول مجدداً')); setLoading(false);
+        setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
   };
@@ -890,7 +890,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   ))}
                 </div>
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 text-[11px] text-amber-800 text-center">
-                  {tr('مرتجع مبيعات — سيُخفّض رصيد العميل بقيمة المرتجع')}
+                  {tr('مرتجع مبيعات سيخفض رصيد العميل بقيمة المرتجع')}
                 </div>
               </div>
             ) : (
@@ -905,8 +905,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             <div className="mb-2 flex items-stretch gap-2">
               <div className="flex-1">
                 <SearchableSelect
-                  placeholder={tr('اختر صنفاً لإضافته')}
-                  searchPlaceholder={tr('اكتب اسم الصنف…')}
+                  placeholder={tr('اختر صنفا لإضافته')}
+                  searchPlaceholder={tr('اكتب اسم الصنف')}
                   value=""
                   resetOnSelect
                   options={products.map(p => ({ value: p.id, label: p.name, hint: formatCurrency(inclPrice(p)) }))}
@@ -923,7 +923,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           {/* شبكة المنتجات */}
           <div className="flex-1 overflow-y-auto px-3 pb-28">
             {loadingProducts ? (
-              <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل...')}</div>
+              <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</div>
             ) : products.length === 0 ? (
               <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد أصناف')}</div>
             ) : (
@@ -991,7 +991,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                         </label>
                         <input type="number" step="any" inputMode="decimal" readOnly={locked} max={f === 'discountPct' ? maxDisc : undefined} min={0}
                           className={`input text-center !py-1.5 text-sm ${locked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? tr('غير مصرّح لك بتعديل هذا الحقل') : undefined} />
+                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? tr('غير مصرح لك بتعديل هذا الحقل') : undefined} />
                       </div>
                     );
                   })}
@@ -1035,7 +1035,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 
   const submit = async () => {
     if (perms.canCreateReceipt === false) { setMsg(tr('لا تملك صلاحية إصدار سند قبض')); return; }
-    if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغاً صحيحاً')); return; }
+    if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغا صحيحا')); return; }
     setLoading(true); setMsg('');
     const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
@@ -1057,7 +1057,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
           kind: 'receipt', number: localNumber, offline: true, date: clientCreatedAt,
           company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
         });
-      } else { setMsg(err?.response?.data?.message || tr('تعذّر إصدار السند، حاول مجدداً')); setLoading(false); }
+      } else { setMsg(err?.response?.data?.message || tr('تعذر إصدار السند حاول مجددا')); setLoading(false); }
     }
   };
 
@@ -1080,7 +1080,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
         </div>
 
         <div>
-          <label className="label">{tr('المبلغ المحصّل')}</label>
+          <label className="label">{tr('المبلغ المحصل')}</label>
           <input type="number" step="0.01" inputMode="decimal" className="input text-lg font-bold" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
         </div>
 
@@ -1141,7 +1141,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
   const submit = async () => {
     if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
-    if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب (9 أرقام على الأقل)')); return; }
+    if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب 9 أرقام على الأقل')); return; }
     setLoading(true); setMsg('');
     const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
@@ -1172,7 +1172,7 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'customer', payload, status: 'queued', clientCreatedAt });
         onCreated({ ...payload, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
       } else {
-        setMsg(err?.response?.data?.message || tr('تعذّر إضافة العميل'));
+        setMsg(err?.response?.data?.message || tr('تعذر إضافة العميل'));
         setLoading(false);
       }
     }
@@ -1222,26 +1222,26 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
         {/* الموقع على الخريطة — اختياري: يظهر للإدارة على خريطة التتبّع */}
         <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('موقع العميل على الخريطة (اختياري)')}</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('موقع العميل على الخريطة اختياري')}</p>
           <button type="button" onClick={captureGps}
             className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold border ${coords ? 'border-green-600 text-green-700 bg-green-50' : 'border-[#E15A30] text-[#E15A30]'}`}>
             <MapPin size={16} />
-            {coords ? tr('تم تحديد الموقع ✓') : gps === 'getting' ? tr('جارٍ تحديد الموقع...') : tr('التقاط موقعي الحالي (عند العميل)')}
+            {coords ? tr('تم تحديد الموقع ✓') : gps === 'getting' ? tr('جار تحديد الموقع') : tr('التقاط موقعي الحالي عند العميل')}
           </button>
           {coords && <p className="text-[11px] text-green-600 mt-1 text-center" dir="ltr">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</p>}
-          {gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr('تعذّر الوصول للموقع — الصق الرابط أدناه بدلاً منه')}</p>}
+          {gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr('تعذر الوصول للموقع الصق الرابط أدناه بدلا منه')}</p>}
           <div className="mt-2">
             <input className="input" dir="ltr" placeholder={tr('أو الصق رابط الموقع من خرائط Google')}
               value={locUrl} onChange={e => setLocUrl(e.target.value)} />
           </div>
-          <p className="text-[10px] text-gray-400 mt-1">{tr('من تطبيق خرائط Google: مشاركة ← نسخ الرابط، ثم الصقه هنا.')}</p>
+          <p className="text-[10px] text-gray-400 mt-1">{tr('من تطبيق خرائط Google مشاركة ← نسخ الرابط ثم الصقه هنا')}</p>
         </div>
 
         <div>
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات المالية')}</p>
           <div className="grid grid-cols-2 gap-3">
             {field(tr('الحد الائتماني'), 'creditLimit', { type: 'number', ltr: true })}
-            {field(tr('فترة السداد (يوم)'), 'paymentDays', { type: 'number', ltr: true })}
+            {field(tr('فترة السداد يوم'), 'paymentDays', { type: 'number', ltr: true })}
           </div>
         </div>
 
@@ -1320,7 +1320,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
         {!loading && <p className="text-[10px] text-gray-400 mt-1.5">{tr('الإجمالي')}: {total}</p>}
       </div>
 
-      {loading ? <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل...')}</div>
+      {loading ? <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</div>
         : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد بيانات')}</div>
         : <>
         {items.map(it => {
@@ -1351,7 +1351,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
           </button>
           );
         })}
-        {loadingMore && <div className="text-center text-gray-400 py-3 text-xs">{tr('جاري تحميل المزيد...')}</div>}
+        {loadingMore && <div className="text-center text-gray-400 py-3 text-xs">{tr('جاري تحميل المزيد')}</div>}
         {!loadingMore && page < pages && (
           <button onClick={() => fetchPage(page + 1, false)} className="w-full text-center text-[#E15A30] text-xs py-3 font-semibold">
             {tr('تحميل المزيد')}
@@ -1398,14 +1398,14 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
     if (!canLoad) { setMsg({ ok: false, text: tr('لا تملك صلاحية تحميل مخزون السيارة') }); return; }
     // التحميل موجب فقط؛ التنقيص متاح للإدارة من لوحة التحكم
     const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty) })).filter(i => i.qty > 0);
-    if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفاً وكمية صحيحة') }); return; }
+    if (!items.length) { setMsg({ ok: false, text: tr('أضف صنفا وكمية صحيحة') }); return; }
     setSaving(true); setMsg(null);
     try {
       await repApi.post('/van-stock/loads', { type: 'LOAD', note: note.trim() || undefined, items });
       setRows([]); setNote(''); setView('list'); loadStock();
       setMsg({ ok: true, text: tr('تم تسجيل التحميل بنجاح') });
     } catch (e) {
-      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ') });
+      setMsg({ ok: false, text: (e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ') });
     }
     setSaving(false);
   };
@@ -1422,7 +1422,7 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
             <label className="text-xs font-semibold text-[#6E6557] mb-1 block">{tr('إضافة صنف')}</label>
             <SearchableSelect dark resetOnSelect value="" onChange={addProduct}
               options={products.filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
-              placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
+              placeholder={tr('ابحث وأضف صنفا')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
           </div>
           {rows.map((r, i) => (
             <div key={r.productId} className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl p-2.5 shadow-sm">
@@ -1433,8 +1433,8 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
               <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="text-red-400 p-1"><Trash2 size={16} /></button>
             </div>
           ))}
-          {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">{tr('لم تُضف أي صنف بعد')}</p>}
-          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder={tr('ملاحظة (اختياري)')} value={note} onChange={e => setNote(e.target.value)} />
+          {rows.length === 0 && <p className="text-center text-gray-400 text-xs py-6">{tr('لم تضف أي صنف بعد')}</p>}
+          <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm" placeholder={tr('ملاحظة اختياري')} value={note} onChange={e => setNote(e.target.value)} />
           {msg && <p className={`text-xs text-center ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
         </div>
         <div className="p-3 border-t border-gray-100">
@@ -1460,24 +1460,24 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
         </button>
       </div>
       {msg && msg.ok && <div className="mx-3 mt-3 bg-green-50 text-green-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5"><Check size={14} /> {msg.text}</div>}
-      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('يمكنك عرض مخزون السيارة فقط، ولا تملك صلاحية تسجيل تحميل جديد.')}</div>}
+      {!canLoad && <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('يمكنك عرض مخزون السيارة فقط ولا تملك صلاحية تسجيل تحميل جديد')}</div>}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24">
-        {loading ? <p className="text-center text-gray-400 text-sm py-8">{tr('جارٍ التحميل…')}</p>
+        {loading ? <p className="text-center text-gray-400 text-sm py-8">{tr('جار التحميل')}</p>
           : stock.length === 0 ? (
             <div className="text-center py-10">
               <Package size={40} className="mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-400 text-sm">{tr('لا توجد بضاعة في سيارتك بعد.')}</p>
-              {canLoad && <p className="text-gray-400 text-xs mt-1">{tr('اضغط «تحميل» لتسجيل ما حمَّلته.')}</p>}
+              <p className="text-gray-400 text-sm">{tr('لا توجد بضاعة في سيارتك بعد')}</p>
+              {canLoad && <p className="text-gray-400 text-xs mt-1">{tr('اضغط تحميل لتسجيل ما حملته')}</p>}
             </div>
           ) : stock.map(s => (
             <div key={s.productId} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between">
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
-                <p className="text-[11px] text-gray-400">{tr('محمَّل')} {fmt(s.loaded)} · {tr('مُباع')} {fmt(s.sold)} {s.unit}</p>
+                <p className="text-[11px] text-gray-400">{tr('محمل')} {fmt(s.loaded)} · {tr('مباع')} {fmt(s.sold)} {s.unit}</p>
               </div>
               <div className="text-left shrink-0">
                 <p className={`text-lg font-bold ${s.remaining < 0 ? 'text-red-600' : s.remaining === 0 ? 'text-gray-400' : 'text-[#1E7A52]'}`}>{fmt(s.remaining)}</p>
-                <p className="text-[10px] text-gray-400">{tr('متبقّي')}</p>
+                <p className="text-[10px] text-gray-400">{tr('متبقي')}</p>
               </div>
             </div>
           ))}
@@ -1509,13 +1509,13 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
         {docs.length === 0 && (
           <div className="text-center py-16 text-gray-400">
             <Check size={40} className="mx-auto mb-2 text-green-500" />
-            <p className="text-sm">{tr('كل المستندات مرفوعة — لا شيء بانتظار الرفع.')}</p>
+            <p className="text-sm">{tr('كل المستندات مرفوعة لا شيء بانتظار الرفع')}</p>
           </div>
         )}
 
         {rejectedList.length > 0 && (
           <div>
-            <p className="text-xs font-bold text-red-600 mb-2">{tr('مرفوضة — تحتاج إجراءً')} ({rejectedList.length})</p>
+            <p className="text-xs font-bold text-red-600 mb-2">{tr('مرفوضة تحتاج إجراء')} ({rejectedList.length})</p>
             <div className="space-y-2">
               {rejectedList.map(d => (
                 <div key={d.clientRef} className="bg-red-50 border border-red-200 rounded-xl p-3">
@@ -1525,13 +1525,13 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
                   <p className="text-xs text-red-600 mt-1 leading-relaxed">{d.error || tr('رفضه الخادم')}</p>
                   <div className="flex gap-2 mt-2">
                     <button onClick={() => requeue(d.clientRef)} className="flex-1 text-xs bg-[#1F1A13] text-white rounded-lg py-1.5">{tr('إعادة المحاولة')}</button>
-                    <button onClick={() => { if (confirm(tr('إزالة هذا المستند نهائياً من الصفّ؟'))) discard(d.clientRef); }} className="flex-1 text-xs border border-red-300 text-red-600 rounded-lg py-1.5">{tr('إزالة')}</button>
+                    <button onClick={() => { if (confirm(tr('إزالة هذا المستند نهائيا من الصف'))) discard(d.clientRef); }} className="flex-1 text-xs border border-red-300 text-red-600 rounded-lg py-1.5">{tr('إزالة')}</button>
                   </div>
                 </div>
               ))}
             </div>
             <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
-              {tr('إن رفض الخادم مستنداً سلّمت نسخته الورقية للعميل، عالج السبب (مثل حدّ الائتمان) ثم «أعد المحاولة»، أو تواصل مع الإدارة لتسويته.')}
+              {tr('إن رفض الخادم مستندا سلمت نسخته الورقية للعميل عالج السبب مثل حد الائتمان ثم أعد المحاولة أو تواصل مع الإدارة لتسويته')}
             </p>
           </div>
         )}
@@ -1556,7 +1556,7 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
           <button onClick={onSync} disabled={syncing}
             className="w-full bg-[#E15A30] text-white rounded-xl py-3 font-bold flex items-center justify-center gap-2 disabled:opacity-60">
             <RefreshCw size={18} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? tr('جارٍ الرفع…') : `${tr('ارفع الآن')} (${pendingList.length})`}
+            {syncing ? tr('جار الرفع') : `${tr('ارفع الآن')} (${pendingList.length})`}
           </button>
         </div>
       )}
@@ -1786,13 +1786,13 @@ export default function RepApp() {
                     </button>
                   )}
                   {(trackStatus === 'active' || trackStatus === 'requesting') && (
-                    <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title={tr('مشاركة موقعك مفعّلة')}>
+                    <span className="flex items-center gap-1 text-[11px] text-[#5FBE92]" title={tr('مشاركة موقعك مفعلة')}>
                       <span className={`w-2 h-2 rounded-full bg-[#5FBE92] ${trackStatus === 'active' ? 'animate-pulse' : ''}`} /> <MapPin size={12} />
                     </span>
                   )}
                   {trackStatus === 'denied' && (
-                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title={tr('فعّل إذن الموقع من إعدادات المتصفح')}>
-                      <MapPin size={12} /> {tr('الموقع متوقّف')}
+                    <span className="flex items-center gap-1 text-[11px] text-amber-400" title={tr('فعل إذن الموقع من إعدادات المتصفح')}>
+                      <MapPin size={12} /> {tr('الموقع متوقف')}
                     </span>
                   )}
                   <LanguageToggle variant="dark" />

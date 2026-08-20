@@ -56,7 +56,7 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
     try {
       const compressed = await compressImage(file);
       setImage(compressed);
-    } catch { toast.error(tr('تعذّر معالجة الصورة')); }
+    } catch { toast.error(tr('تعذر معالجة الصورة')); }
   };
 
   const submit = (data: Partial<Product>) => onSave({ ...data, image: image || null });
@@ -88,7 +88,7 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
                     <Trash2 size={12} /> {tr('إزالة الصورة')}
                   </button>
                 )}
-                <span className="text-[10px] text-gray-400">{tr('تُضغط تلقائياً — تظهر للمندوب عند البيع')}</span>
+                <span className="text-[10px] text-gray-400">{tr('تضغط تلقائيا تظهر للمندوب عند البيع')}</span>
               </div>
             </div>
           </div>
@@ -140,14 +140,14 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
           <label className="flex items-center gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50/60 cursor-pointer">
             <input type="checkbox" {...register('damagedReturnToStock')} className="w-4 h-4 accent-[#E15A30]" />
             <span className="text-sm text-gray-700">{tr('المرتجع التالف من هذا الصنف يعود لمخزون السيارة')}</span>
-            <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكّم لكل مرتجع')}</span>
+            <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكم لكل مرتجع')}</span>
           </label>
 
           {/* أكواد الفوترة الإلكترونية — تلزم لبعض الدول (مصر ETA وغيرها) */}
           <details className="rounded-xl border border-gray-200 bg-gray-50/60">
             <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-gray-700 flex items-center gap-2">
               {tr('أكواد الفوترة الإلكترونية')}
-              <span className="text-[10px] font-normal text-gray-400">{tr('اختياري — يلزم لبعض الدول')}</span>
+              <span className="text-[10px] font-normal text-gray-400">{tr('اختياري يلزم لبعض الدول')}</span>
             </summary>
             <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-4">
               <div>
@@ -163,7 +163,7 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
               </div>
               <div className="col-span-2">
                 <label className="label">{tr('كود الوحدة')}</label>
-                <input className="input" dir="ltr" {...register('unitCode')} placeholder={tr('حسب جدول وحدات المزوّد (مثال: EA)')} />
+                <input className="input" dir="ltr" {...register('unitCode')} placeholder={tr('حسب جدول وحدات المزود مثال EA')} />
               </div>
             </div>
           </details>

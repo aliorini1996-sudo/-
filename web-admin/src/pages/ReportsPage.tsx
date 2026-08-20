@@ -155,7 +155,7 @@ export default function ReportsPage() {
   const groupLabel = () => groupBy === 'rep' ? tr('المندوب') : groupBy === 'customer' ? tr('العميل')
     : groupBy === 'channel' ? tr('القناة') : groupBy === 'region' ? tr('المنطقة') : tr('الصنف');
   // اسم العرض: أكواد القنوات تُترجَم؛ البقية كما هي
-  const displayName = (name: string) => groupBy === 'channel' ? (name === 'UNSET' ? tr('غير محدّد') : tr(channelLabel(name))) : name;
+  const displayName = (name: string) => groupBy === 'channel' ? (name === 'UNSET' ? tr('غير محدد') : tr(channelLabel(name))) : name;
 
   /**
    * تصفية بالاسم — **على المعروض، والتصدير يتبعها**.
@@ -309,16 +309,16 @@ export default function ReportsPage() {
         { name: tr('تفاصيل المديونيات'), rows: recvRows.flatMap(r => r.customers.map(c => ({
           [tr('المندوب')]: r.name, [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '',
           [tr('الجوال')]: c.phone, [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
-          [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يُحصَّل قط'),
+          [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يحصل قط'),
         }))), colWidths: [22, 24, 20, 16, 14, 14, 16] },
       ];
       // ورقة «إجمالي المُسنَدين» — تُضاف دائماً (الميزة عامّة لكل الشركات)
       if (recvSummary) {
-        sheets.unshift({ name: tr('إجمالي المُسنَدين'), rows: [{
-          [tr('إجمالي مديونية العملاء المُسنَدين (بلا تكرار)')]: num(recvSummary.distinctReceivable),
+        sheets.unshift({ name: tr('إجمالي المسندين'), rows: [{
+          [tr('إجمالي مديونية العملاء المسندين بلا تكرار')]: num(recvSummary.distinctReceivable),
           [tr('العملاء المدينون')]: recvSummary.distinctDebtors,
           [tr('عملاء مشتركون بين مناديب')]: recvSummary.sharedCustomers,
-          [tr('مجموع الأعمدة (قد يتضخّم بالتكرار)')]: num(recvSummary.columnsSum),
+          [tr('مجموع الأعمدة قد يتضخم بالتكرار')]: num(recvSummary.columnsSum),
         }], colWidths: [32, 16, 22, 28] });
       }
       fname = tr('مديونيات المندوب');
@@ -342,7 +342,7 @@ export default function ReportsPage() {
       fname = tr('تقارير المبيعات');
     } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
       sheets = [
-        { name: tr('ملخّص العملاء'), colWidths: [26, 14, 16, 22], rows: custGroups.map(g => ({
+        { name: tr('ملخص العملاء'), colWidths: [26, 14, 16, 22], rows: custGroups.map(g => ({
           [tr('العميل')]: g.customerName, [tr('عدد الزيارات')]: g.visitsCount,
           [tr('متوسط مدة الزيارة')]: fmtVisitDur(g.avgDurationSec) || tr('بلا توقيت'), [tr('آخر زيارة')]: fmtDateTime(g.lastVisit),
         })) },
@@ -388,7 +388,7 @@ export default function ReportsPage() {
     const linksCol = tr('روابط مواقع الزيارات'); // عمود الروابط المجمّعة يُستبعد من PDF (يطول الصف)
     // المديونيات لحظية: لا نطبع نطاقاً ضُبط في تبويبٍ آخر على تقريرٍ لا يتأثر به
     const range = (tab === 'performance' && perfType === 'receivables')
-      ? tr('لحظيّ — وقت الإصدار')
+      ? tr('لحظي وقت الإصدار')
       : (from && to) ? `${from} — ${to}` : tr('كل الفترات');
     const tables = sheets.map(sh => {
       const cols = (sh.rows.length ? Object.keys(sh.rows[0]) : []).filter(c => c !== linksCol);
@@ -404,7 +404,7 @@ export default function ReportsPage() {
       const blob = await elementToPdfBlob(el);
       const out = await shareOrDownloadPdf(blob, `${safeName(title)}-${day()}.pdf`);
       toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
-    } catch { toast.error(tr('تعذّر إنشاء PDF')); }
+    } catch { toast.error(tr('تعذر إنشاء PDF')); }
     finally { el.remove(); }
   };
 
@@ -468,7 +468,7 @@ export default function ReportsPage() {
     rows: r.customers.map(c => ({
       [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '', [tr('الجوال')]: c.phone,
       [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
-      [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يُحصَّل قط'),
+      [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يحصل قط'),
     })),
   }];
   const exportRepRecv = async (r: RecvRow) => {
@@ -529,7 +529,7 @@ export default function ReportsPage() {
               </div>
             </>
           ) : (
-            <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية — تعكس وضع المديونية الآن لا فترة محددة.')}</p>
+            <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية تعكس وضع المديونية الآن لا فترة محددة')}</p>
           )}
           {/* البحث: يظهر حيث يوجد ما يُصفّى — تبويب التحصيل ملخّصٌ بلا صفوف */}
           {tab !== 'collections' && (
@@ -596,7 +596,7 @@ export default function ReportsPage() {
         return (
           <div className={`mb-4 rounded-xl px-4 py-2.5 text-sm border ${shown ? 'bg-[#FAF7F0] border-[#F1EBDF] text-[#6E6557]' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
             {shown
-              ? <>{tr('نتائج البحث عن')} «<b>{search}</b>»: {shown} {tr('سجلّ')} — {tr('التصدير يشمل المعروض فقط')}</>
+              ? <>{tr('نتائج البحث عن')} «<b>{search}</b>»: {shown} {tr('سجل')} — {tr('التصدير يشمل المعروض فقط')}</>
               : <>{tr('لا نتائج مطابقة للبحث')} «<b>{search}</b>»</>}
             <button onClick={() => setSearch('')} className="ms-2 underline font-semibold">{tr('مسح البحث')}</button>
           </div>
@@ -607,7 +607,7 @@ export default function ReportsPage() {
       {tab === 'sales' && (
         <div className="space-y-4">
           {salesLoading ? (
-            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل...')}</div>
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل')}</div>
           ) : Array.isArray(salesRows) && salesRows.length > 0 ? (
             <>
               <div className="card">
@@ -735,7 +735,7 @@ export default function ReportsPage() {
           <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 text-sm flex-wrap">
             <span className="flex items-center gap-2"><MapPin size={16} className="text-[#E15A30]" /><b className="text-[#1F1A13]">{tr('إجمالي الزيارات')}: {visitRows.length}</b></span>
             <span className="text-[#9A8F7E]">•</span>
-            <span className="text-[#6E6557]">{tr('عدد العملاء المُزارين')}: {custGroups.length}</span>
+            <span className="text-[#6E6557]">{tr('عدد العملاء المزارين')}: {custGroups.length}</span>
           </div>
           <div className="table-wrapper">
             <table className="table">
@@ -901,21 +901,21 @@ export default function ReportsPage() {
               <span className="text-[#9A8F7E]">· {tr('انقر على أي يوم لعرض زياراته')}</span>
             </div>
             <p className="text-[11px] text-[#9A8F7E] mt-2 leading-relaxed">
-              {tr('«إجمالي وقت العمل» يُقاس من أول نشاط مرصود في اليوم (موقع أو فتح تطبيق أو زيارة) إلى آخره — أقرب مقياس متاح لخروج المندوب وعودته. و«نشاط التطبيق» هو الوقت الذي كان فيه التطبيق مفتوحاً ومتصلاً فقط.')}
+              {tr('إجمالي وقت العمل يقاس من أول نشاط مرصود في اليوم موقع أو فتح تطبيق أو زيارة إلى آخره أقرب مقياس متاح لخروج المندوب وعودته و نشاط التطبيق هو الوقت الذي كان فيه التطبيق مفتوحا ومتصلا فقط')}
             </p>
           </div>
 
           {hoursData?.clampedDays != null && (
             <div className="rounded-xl px-4 py-2.5 text-sm border bg-amber-50 border-amber-200 text-amber-800">
-              {tr('المدى المطلوب أطول من المسموح — عُرضت آخر')} {hoursData.clampedDays} {tr('يوماً فقط')}
+              {tr('المدى المطلوب أطول من المسموح عرضت آخر')} {hoursData.clampedDays} {tr('يوما فقط')}
             </div>
           )}
           {hoursStatus === 'pending' ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">
-              {hoursFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}
+              {hoursFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال') : tr('جاري التحميل')}
             </div>
           ) : hoursStatus === 'error' ? (
-            <div className="card flex items-center justify-center h-32 text-red-500">{tr('تعذّر تحميل التقرير')}</div>
+            <div className="card flex items-center justify-center h-32 text-red-500">{tr('تعذر تحميل التقرير')}</div>
           ) : (hoursRows && hoursRows.length > 0) ? (
             hoursRows.map(r => (
               <div key={r.id} className="card p-0 overflow-hidden">
@@ -951,7 +951,7 @@ export default function ReportsPage() {
                               {d.visitsCount > 0 && <span className="ms-1 text-[#9A8F7E]">{openDay === `${r.id}|${d.date}` ? '▲' : '▾'}</span>}
                             </td>
                             {d.absent ? (
-                              <td colSpan={6} className="text-center text-xs">{tr('لا نشاط مسجّل في هذا اليوم')}</td>
+                              <td colSpan={6} className="text-center text-xs">{tr('لا نشاط مسجل في هذا اليوم')}</td>
                             ) : (
                               <>
                                 <td><span className="inline-block rounded px-2 py-0.5 text-xs font-bold tabular-nums bg-[#E7F5EE] text-[#1E7A52]">{fmtClock(d.firstActivity)}</span></td>
@@ -1026,7 +1026,7 @@ export default function ReportsPage() {
               </div>
             ))
           ) : (
-            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('لا توجد بيانات حضور في هذه الفترة.')}</div>
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('لا توجد بيانات حضور في هذه الفترة')}</div>
           )}
         </div>
       )}
@@ -1036,12 +1036,12 @@ export default function ReportsPage() {
         <div className="space-y-4">
           {recvStatus === 'pending' ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">
-              {recvFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال...') : tr('جاري التحميل...')}
+              {recvFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال') : tr('جاري التحميل')}
             </div>
           ) : recvStatus === 'error' ? (
             /* فشل الجلب ليس «لا عملاء مُسنَدين»: عرضُ الفراغ كحقيقةٍ يطمئن المشرف كذباً */
             <div className="card flex flex-col items-center justify-center h-32 text-gray-400 gap-2">
-              <p className="text-red-500">{tr('تعذّر تحميل التقرير')}</p>
+              <p className="text-red-500">{tr('تعذر تحميل التقرير')}</p>
               <button onClick={() => recvRefetch()} className="text-xs font-semibold text-[#E15A30] underline">{tr('إعادة المحاولة')}</button>
             </div>
           ) : recvRows && recvRows.some(r => r.customersCount > 0) ? (
@@ -1053,21 +1053,21 @@ export default function ReportsPage() {
                     <div className="flex items-center gap-2.5">
                       <div className="w-9 h-9 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0"><Wallet size={18} className="text-[#E15A30]" /></div>
                       <div>
-                        <p className="text-[12px] text-[#6E6557]">{tr('إجمالي مديونية العملاء المُسنَدين (بلا تكرار)')}</p>
+                        <p className="text-[12px] text-[#6E6557]">{tr('إجمالي مديونية العملاء المسندين بلا تكرار')}</p>
                         <p className={`text-xl font-extrabold tabular-nums ${recvSummary.distinctReceivable > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(recvSummary.distinctReceivable)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-[12px] text-[#6E6557]">
                       <span>{tr('العملاء المدينون')}: <b className="text-[#1F1A13]">{recvSummary.distinctDebtors}</b></span>
-                      <span>{tr('العملاء المُسنَدون')}: <b className="text-[#1F1A13]">{recvSummary.distinctCustomers}</b></span>
+                      <span>{tr('العملاء المسندون')}: <b className="text-[#1F1A13]">{recvSummary.distinctCustomers}</b></span>
                     </div>
                   </div>
-                  <p className="mt-1.5 text-[11px] text-[#9A8F7E]">{tr('رصيدٌ لحظيّ صافٍ للعملاء المُسنَدين — يستبعد غير المُسنَدين، وقد يختلف عن تقرير «أرصدة العملاء».')}</p>
+                  <p className="mt-1.5 text-[11px] text-[#9A8F7E]">{tr('رصيد لحظي صاف للعملاء المسندين يستبعد غير المسندين وقد يختلف عن تقرير أرصدة العملاء')}</p>
                   {recvSummary.sharedCustomers > 0 && (
                     <div className="mt-2.5 flex items-start gap-2 text-[11.5px] text-[#9A5B1E] bg-[#FBEBE2] rounded-lg px-3 py-2">
                       <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                       <span>
-                        <b>{recvSummary.sharedCustomers}</b> {tr('عميل مُسنَد لأكثر من مندوب، فرصيده محسوبٌ تحت كلٍّ منهم — لا تجمع أعمدة المناديب (مجموعها')} {formatCurrency(recvSummary.columnsSum)})؛ {tr('اعتمِد الإجمالي أعلاه.')}
+                        <b>{recvSummary.sharedCustomers}</b> {tr('عميل مسند لأكثر من مندوب فرصيده محسوب تحت كل منهم لا تجمع أعمدة المناديب مجموعها')} {formatCurrency(recvSummary.columnsSum)} {tr('اعتمد الإجمالي أعلاه')}
                       </span>
                     </div>
                   )}
@@ -1079,7 +1079,7 @@ export default function ReportsPage() {
                 <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 bg-[#FAF7F0] border-b border-[#F1EBDF]">
                   <div className="flex items-center gap-3 flex-wrap">
                     <p className="font-bold text-[#1F1A13]">{r.name}</p>
-                    <span className="text-xs text-gray-500">{r.customersCount} {tr('عميل مُسنَد')} · {tr('المدينون')}: {r.debtorsCount}</span>
+                    <span className="text-xs text-gray-500">{r.customersCount} {tr('عميل مسند')} · {tr('المدينون')}: {r.debtorsCount}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <p className={`font-bold text-sm ${r.totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(r.totalBalance)}</p>
@@ -1094,7 +1094,7 @@ export default function ReportsPage() {
                   </div>
                 </div>
                 {r.customers.length === 0 ? (
-                  <p className="text-center text-xs text-gray-400 py-4">{tr('لا عملاء مُسنَدين لهذا المندوب')}</p>
+                  <p className="text-center text-xs text-gray-400 py-4">{tr('لا عملاء مسندين لهذا المندوب')}</p>
                 ) : (
                   <div className="table-wrapper">
                     <table className="table">
@@ -1114,7 +1114,7 @@ export default function ReportsPage() {
                             <td className="text-gray-600 font-mono text-xs" dir="ltr">{c.phone}</td>
                             <td className="text-gray-600">{c.city || '—'}</td>
                             <td className={`font-semibold ${c.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(c.balance)}</td>
-                            <td className="text-xs text-gray-500">{c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : <span className="text-orange-500 font-medium">{tr('لم يُحصَّل قط')}</span>}</td>
+                            <td className="text-xs text-gray-500">{c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : <span className="text-orange-500 font-medium">{tr('لم يحصل قط')}</span>}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1126,8 +1126,8 @@ export default function ReportsPage() {
             </>
           ) : (
             <div className="card flex flex-col items-center justify-center h-36 text-gray-400 gap-1">
-              <p>{tr('لا عملاء مُسنَدين للمناديب بعد.')}</p>
-              <p className="text-xs">{tr('أسنِد العملاء لمناديبهم من صفحة المناديب لتظهر مديونياتهم هنا.')}</p>
+              <p>{tr('لا عملاء مسندين للمناديب بعد')}</p>
+              <p className="text-xs">{tr('أسند العملاء لمناديبهم من صفحة المناديب لتظهر مديونياتهم هنا')}</p>
             </div>
           )}
         </div>

@@ -72,7 +72,7 @@ export default function ErpIntegrationPage() {
       toast.success(tr('تم حفظ إعدادات ERP'));
       qc.invalidateQueries({ queryKey: ['erp-settings'] });
     },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
   const testMutation = useMutation({
@@ -94,7 +94,7 @@ export default function ErpIntegrationPage() {
       qc.invalidateQueries({ queryKey: ['erp-logs'] });
       qc.invalidateQueries({ queryKey: ['erp-settings'] });
     },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّرت المزامنة')),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذرت المزامنة')),
   });
 
   const set = (key: keyof FormState, value: string | boolean) => setForm(f => ({ ...f, [key]: value }));
@@ -105,7 +105,7 @@ export default function ErpIntegrationPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">{tr('تكامل ERP')}</h1>
-          <p className="text-sm text-gray-500 mt-1">{tr('اربط النظام مع أي ERP يدعم REST API لتصدير العملاء والمنتجات والفواتير والتحصيل.')}</p>
+          <p className="text-sm text-gray-500 mt-1">{tr('اربط النظام مع أي ERP يدعم REST API لتصدير العملاء والمنتجات والفواتير والتحصيل')}</p>
         </div>
         <div className="flex gap-2">
           <button className="btn-secondary" disabled={busy || isLoading} onClick={() => testMutation.mutate()}><Activity size={16} />{tr('اختبار الاتصال')}</button>
@@ -120,7 +120,7 @@ export default function ErpIntegrationPage() {
               <div className="w-11 h-11 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><ServerCog size={20} /></div>
               <div>
                 <h2 className="font-bold text-[#1F1A13]">{tr('إعدادات الاتصال')}</h2>
-                <p className="text-xs text-gray-500">{tr('ضع رابط API الرئيسي ونوع المصادقة المعتمد في نظام ERP.')}</p>
+                <p className="text-xs text-gray-500">{tr('ضع رابط API الرئيسي ونوع المصادقة المعتمد في نظام ERP')}</p>
               </div>
             </div>
 
@@ -154,14 +154,14 @@ export default function ErpIntegrationPage() {
               </div>
               {form.authType === 'API_KEY' && (
                 <div className="col-span-2">
-                  <label className="label">API Key {form.hasApiKey && <span className="text-xs text-green-600">{tr('محفوظ سابقًا')}</span>}</label>
-                  <input className="input" dir="ltr" type="password" placeholder={tr('اتركه فارغًا للإبقاء على المفتاح الحالي')} value={form.apiKey || ''} onChange={e => set('apiKey', e.target.value)} />
+                  <label className="label">API Key {form.hasApiKey && <span className="text-xs text-green-600">{tr('محفوظ سابقا')}</span>}</label>
+                  <input className="input" dir="ltr" type="password" placeholder={tr('اتركه فارغا للإبقاء على المفتاح الحالي')} value={form.apiKey || ''} onChange={e => set('apiKey', e.target.value)} />
                 </div>
               )}
               {form.authType === 'BEARER' && (
                 <div className="col-span-2">
-                  <label className="label">Bearer Token {form.hasBearerToken && <span className="text-xs text-green-600">{tr('محفوظ سابقًا')}</span>}</label>
-                  <input className="input" dir="ltr" type="password" placeholder={tr('اتركه فارغًا للإبقاء على الرمز الحالي')} value={form.bearerToken || ''} onChange={e => set('bearerToken', e.target.value)} />
+                  <label className="label">Bearer Token {form.hasBearerToken && <span className="text-xs text-green-600">{tr('محفوظ سابقا')}</span>}</label>
+                  <input className="input" dir="ltr" type="password" placeholder={tr('اتركه فارغا للإبقاء على الرمز الحالي')} value={form.bearerToken || ''} onChange={e => set('bearerToken', e.target.value)} />
                 </div>
               )}
               {form.authType === 'BASIC' && (
@@ -184,7 +184,7 @@ export default function ErpIntegrationPage() {
               <div className="w-11 h-11 rounded-xl bg-[#E4F1EA] text-[#1E7A52] flex items-center justify-center"><DatabaseZap size={20} /></div>
               <div>
                 <h2 className="font-bold text-[#1F1A13]">{tr('مسارات المزامنة')}</h2>
-                <p className="text-xs text-gray-500">{tr('يُرسل النظام طلب POST يحتوي على البيانات إلى كل مسار.')}</p>
+                <p className="text-xs text-gray-500">{tr('يرسل النظام طلب POST يحتوي على البيانات إلى كل مسار')}</p>
               </div>
             </div>
 

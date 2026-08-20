@@ -41,23 +41,23 @@ export default function CompanyWarehousePage() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1F1A13] flex items-center gap-2"><Warehouse size={22} className="text-[#E15A30]" /> {tr('مخزون الشركة')}</h1>
-          <p className="text-xs text-[#9A8F7E] mt-1">{tr('المستودع المركزيّ — التحميل يخرج منه، والتنزيل يعود إليه، والوارد يزيده')}</p>
+          <p className="text-xs text-[#9A8F7E] mt-1">{tr('المستودع المركزي التحميل يخرج منه والتنزيل يعود إليه والوارد يزيده')}</p>
         </div>
         <button onClick={() => setShowEntry(true)} className="btn-primary"><PackagePlus size={17} /> {tr('استلام / تسوية')}</button>
       </div>
 
       {lowCount > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm text-amber-800 flex items-center gap-2">
-          <AlertTriangle size={16} /> {lowCount} {tr('صنفاً برصيد صفر أو سالب — يحتاج استلام بضاعة')}
+          <AlertTriangle size={16} /> {lowCount} {tr('صنفا برصيد صفر أو سالب يحتاج استلام بضاعة')}
         </div>
       )}
 
       {/* جدول الرصيد */}
       <div className="card p-0 overflow-hidden">
         {stockQ.isLoading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
         ) : rows.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد أصناف. أضف منتجات ثم سجّل استلام بضاعة.')}</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد أصناف أضف منتجات ثم سجل استلام بضاعة')}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -94,12 +94,12 @@ export default function CompanyWarehousePage() {
       {/* سجلّ الوارد والتسويات */}
       <div className="card p-0 overflow-hidden">
         <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
-          <ArrowRightLeft size={16} className="text-[#E15A30]" /> {tr('سجلّ الوارد والتسويات')}
+          <ArrowRightLeft size={16} className="text-[#E15A30]" /> {tr('سجل الوارد والتسويات')}
         </div>
         {entriesQ.isLoading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">{tr('جارٍ التحميل…')}</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
         ) : (entriesQ.data || []).length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركات وارد بعد.')}</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركات وارد بعد')}</div>
         ) : (
           <div className="max-h-[360px] overflow-y-auto divide-y divide-[#F1EBDF]">
             {(entriesQ.data || []).map(e => (
@@ -119,7 +119,7 @@ export default function CompanyWarehousePage() {
                     </span>
                   ))}
                 </div>
-                {e.createdBy && <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('سجّلها')}: {e.createdBy}</p>}
+                {e.createdBy && <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('سجلها')}: {e.createdBy}</p>}
               </div>
             ))}
           </div>
@@ -162,7 +162,7 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
       toast.success(tr('تم حفظ الحركة'));
       onClose();
     },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
   // الوارد يتطلّب كميات موجبة؛ التسوية تقبل ± (لكن لا صفر)
@@ -184,18 +184,18 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setType('RECEIVE')}
               className={`py-2.5 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 ${type === 'RECEIVE' ? 'border-[#1E7A52] bg-green-50 text-[#1E7A52]' : 'border-[#E9E1D3] text-[#6E6557]'}`}>
-              <TrendingUp size={16} /> {tr('وارد (استلام/شراء)')}
+              <TrendingUp size={16} /> {tr('وارد استلام/شراء')}
             </button>
             <button type="button" onClick={() => setType('ADJUST')}
               className={`py-2.5 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 ${type === 'ADJUST' ? 'border-purple-500 bg-purple-50 text-purple-600' : 'border-[#E9E1D3] text-[#6E6557]'}`}>
-              <TrendingDown size={16} /> {tr('تسوية (+/−)')}
+              <TrendingDown size={16} /> {tr('تسوية +/−')}
             </button>
           </div>
 
           {type === 'RECEIVE' && (
             <div>
-              <label className="label">{tr('المورّد (اختياري)')}</label>
-              <input className="input" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder={tr('اسم المورّد…')} />
+              <label className="label">{tr('المورد اختياري')}</label>
+              <input className="input" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder={tr('اسم المورد')} />
             </div>
           )}
 
@@ -203,7 +203,7 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
             <label className="label">{tr('إضافة صنف')}</label>
             <SearchableSelect
               options={(prodQ.data || []).filter(p => !rows.some(r => r.productId === p.id)).map(p => ({ value: p.id, label: p.name, hint: `${p.code} · ${p.unit}` }))}
-              value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفاً…')} searchPlaceholder={tr('اكتب اسم/كود الصنف…')} />
+              value="" onChange={addProduct} resetOnSelect placeholder={tr('ابحث وأضف صنفا')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
           </div>
 
           {rows.length > 0 && (
@@ -223,10 +223,10 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
           )}
 
           <div>
-            <label className="label">{tr('ملاحظة (اختياري)')}</label>
-            <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال: فاتورة شراء رقم…، جرد…')} />
+            <label className="label">{tr('ملاحظة اختياري')}</label>
+            <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال فاتورة شراء رقم جرد')} />
           </div>
-          {type === 'ADJUST' && <p className="text-[11px] text-[#9A8F7E]">{tr('التسوية تقبل موجباً (زيادة) أو سالباً (نقص) — للجرد والتالف.')}</p>}
+          {type === 'ADJUST' && <p className="text-[11px] text-[#9A8F7E]">{tr('التسوية تقبل موجبا زيادة أو سالبا نقص للجرد والتالف')}</p>}
         </div>
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">

@@ -107,7 +107,7 @@ export function MError({ onRetry, text }: { onRetry?: () => void; text?: string 
   return (
     <div className="h-full flex flex-col items-center justify-center gap-3 px-8 text-center">
       <AlertTriangle size={34} className="text-[#C0392B] opacity-70" />
-      <p className="text-sm text-[#6E6557]">{text || tr('تعذّر تحميل البيانات')}</p>
+      <p className="text-sm text-[#6E6557]">{text || tr('تعذر تحميل البيانات')}</p>
       {onRetry && (
         <button onClick={onRetry}
           className="bg-[#E15A30] text-white font-bold px-6 py-3 rounded-xl min-h-[44px]">
@@ -123,7 +123,7 @@ export function MSpinner({ text }: { text?: string }) {
   return (
     <div className="h-full flex flex-col items-center justify-center gap-3 text-[#9A8F7E]">
       <span className="w-7 h-7 border-2 border-[#E9E1D3] border-t-[#E15A30] rounded-full animate-spin" />
-      <p className="text-xs">{text || tr('جاري التحميل...')}</p>
+      <p className="text-xs">{text || tr('جاري التحميل')}</p>
     </div>
   );
 }

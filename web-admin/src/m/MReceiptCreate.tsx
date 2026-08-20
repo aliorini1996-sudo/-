@@ -91,7 +91,7 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
       onCreated(r.id);
     },
     onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الإصدار')),
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإصدار')),
   });
 
   const ready = !!customerId && !!salesRepId && amt > 0 && !overAllocated;
@@ -168,10 +168,10 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
           <label className="label">{tr('العميل')} *</label>
           <div className="relative mb-2">
             <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
-            <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن عميل…')} />
+            <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن عميل')} />
           </div>
           <div className="rounded-xl border border-[#F1EBDF] bg-white max-h-52 overflow-y-auto divide-y divide-[#F1EBDF]">
-            {customersQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('جاري التحميل...')}</p>
+            {customersQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('جاري التحميل')}</p>
               : !customersQ.data?.length ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('لا نتائج')}</p>
               : customersQ.data.map(c => (
                 <button key={c.id} onClick={() => { setCustomerId(c.id); setAlloc({}); }}
@@ -198,7 +198,7 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
               <label className="label mb-0">{tr('توزيع على الفواتير')}</label>
               <button onClick={autoAllocate} disabled={amt <= 0}
                 className="text-[11px] font-semibold text-[#E15A30] disabled:text-[#C9BFB0]">
-                {tr('وزّع تلقائياً')}
+                {tr('وزع تلقائيا')}
               </button>
             </div>
             <div className="rounded-2xl border border-[#F1EBDF] bg-white divide-y divide-[#F1EBDF]">
@@ -207,7 +207,7 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-semibold text-[#1F1A13] truncate" dir="ltr">{inv.number}</span>
                     <span className="block text-[11px] text-[#9A8F7E]">
-                      {formatDate(inv.invoiceDate)} · {tr('متبقٍّ')} {formatCurrency(Number(inv.remainingAmt))}
+                      {formatDate(inv.invoiceDate)} · {tr('متبق')} {formatCurrency(Number(inv.remainingAmt))}
                     </span>
                   </span>
                   <input type="number" step="0.01" dir="ltr" inputMode="decimal" className="input w-24 text-center py-1.5"
@@ -217,7 +217,7 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
               ))}
             </div>
             <p className={`text-[11px] mt-1.5 px-1 ${overAllocated ? 'text-[#C0392B] font-semibold' : 'text-[#9A8F7E]'}`}>
-              {tr('الموزَّع')}: {formatCurrency(allocTotal)} {tr('من')} {formatCurrency(amt)}
+              {tr('الموزع')}: {formatCurrency(allocTotal)} {tr('من')} {formatCurrency(amt)}
               {overAllocated && ` — ${tr('التوزيع أكبر من مبلغ السند')}`}
             </p>
           </div>

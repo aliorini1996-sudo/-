@@ -24,12 +24,12 @@ const FALLBACK_APPLE = 'https://apps.apple.com/sa/app/id6797991968';
 const FALLBACK_PLAY = 'https://play.google.com/store/apps/details?id=net.fieldsa.twa';
 
 const FEATURES = [
-  { icon: Receipt, title: 'فواتير وسندات من الجوال', desc: 'فاتورة ضريبية برمز QR وسند قبض، تُصدر وتُطبع أمام العميل.' },
-  { icon: WifiOff, title: 'يعمل بلا إنترنت', desc: 'البيع والتحصيل يستمران في المناطق المقطوعة، وترتفع البيانات تلقائياً عند عودة الشبكة.' },
-  { icon: ScanLine, title: 'مسح الباركود بالكاميرا', desc: 'أضف الأصناف بمسح سريع متتابع بلا جهاز إضافي.' },
-  { icon: MapPin, title: 'زيارات موثّقة بالموقع', desc: 'سجّل الزيارة بصورة وملاحظة وإحداثيات، فيظهر خط سيرك على خريطة الإدارة.' },
-  { icon: Printer, title: 'طباعة حرارية', desc: 'اطبع الفاتورة على طابعة بلوتوث حرارية مباشرةً من الجهاز.' },
-  { icon: Globe, title: 'مخزون سيارتك بين يديك', desc: 'اعرف المتبقّي من كل صنف لحظياً، ولا تبع ما ليس في السيارة.' },
+  { icon: Receipt, title: 'فواتير وسندات من الجوال', desc: 'فاتورة ضريبية برمز QR وسند قبض تصدر وتطبع أمام العميل' },
+  { icon: WifiOff, title: 'يعمل بلا إنترنت', desc: 'البيع والتحصيل يستمران في المناطق المقطوعة وترتفع البيانات تلقائيا عند عودة الشبكة' },
+  { icon: ScanLine, title: 'مسح الباركود بالكاميرا', desc: 'أضف الأصناف بمسح سريع متتابع بلا جهاز إضافي' },
+  { icon: MapPin, title: 'زيارات موثقة بالموقع', desc: 'سجل الزيارة بصورة وملاحظة وإحداثيات فيظهر خط سيرك على خريطة الإدارة' },
+  { icon: Printer, title: 'طباعة حرارية', desc: 'اطبع الفاتورة على طابعة بلوتوث حرارية مباشرة من الجهاز' },
+  { icon: Globe, title: 'مخزون سيارتك بين يديك', desc: 'اعرف المتبقي من كل صنف لحظيا ولا تبع ما ليس في السيارة' },
 ];
 
 /** شعار App Store — رسم داخليّ (الصفحة مكتفية بذاتها بلا أصول خارجية) */
@@ -40,7 +40,7 @@ function AppleBadge({ muted }: { muted?: boolean }) {
       <g transform="translate(18, 15) scale(1.08)" fill="#fff">
         <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
       </g>
-      <text x="52" y="24" textAnchor="start" fill="#fff" fontSize="11.5" fontFamily="'IBM Plex Sans Arabic', sans-serif">متوفّر على</text>
+      <text x="52" y="24" textAnchor="start" fill="#fff" fontSize="11.5" fontFamily="'IBM Plex Sans Arabic', sans-serif">متوفر على</text>
       <text x="52" y="43" textAnchor="start" fill="#fff" fontSize="19" fontWeight="600" fontFamily="'IBM Plex Sans Arabic', sans-serif">App&#160;Store</text>
     </svg>
   );
@@ -77,10 +77,10 @@ function StoreLink({ url, store, Badge }: { url: string; store: string; Badge: (
     );
   }
   return (
-    <div className="relative inline-block cursor-default" aria-label={`${store} — قريباً`} title={`قريباً على ${store}`}>
+    <div className="relative inline-block cursor-default" aria-label={`${store} قريبا`} title={`قريبا على ${store}`}>
       <Badge muted />
       <span className="absolute -top-2 -left-2 bg-[#E15A30] text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow">
-        قريباً
+        قريبا
       </span>
     </div>
   );
@@ -92,7 +92,7 @@ export default function RepAppPage() {
     queryFn: async () => { const res = await siteContentApi.get(); return res.data.data as Record<string, unknown>; },
   });
 
-  useEffect(() => { document.title = 'تنزيل تطبيق المندوب — Field Sales'; }, []);
+  useEffect(() => { document.title = 'تنزيل تطبيق المندوب Field Sales'; }, []);
 
   const repApp = (data?.repApp as Record<string, string> | undefined) || {};
   const appleUrl = (repApp.appStoreUrl ?? FALLBACK_APPLE).trim();
@@ -125,8 +125,8 @@ export default function RepAppPage() {
           />
           <h1 className="text-[30px] sm:text-[38px] font-extrabold mt-6 tracking-tight">تطبيق المندوب</h1>
           <p className="text-[#6E6557] mt-3 max-w-xl mx-auto leading-relaxed">
-            فواتير وتحصيل ومخزون سيارة من جوّال المندوب — يعمل حتى بلا إنترنت،
-            وتصل بياناته للوحة الإدارة لحظة عودة الشبكة.
+            فواتير وتحصيل ومخزون سيارة من جوال المندوب يعمل حتى بلا إنترنت 
+            وتصل بياناته للوحة الإدارة لحظة عودة الشبكة
           </p>
 
           {/* الشعاران */}
@@ -145,14 +145,14 @@ export default function RepAppPage() {
               افتح التطبيق من المتصفح
             </Link>
             <p className="text-[12.5px] text-[#9A8F7E] mt-2.5">
-              يعمل على أي جهاز بلا تنزيل، ويمكن تثبيته على الشاشة الرئيسية من قائمة المتصفح.
+              يعمل على أي جهاز بلا تنزيل ويمكن تثبيته على الشاشة الرئيسية من قائمة المتصفح
             </p>
           </div>
         </section>
 
         {/* ماذا يفعل التطبيق */}
         <section className="mt-16 sm:mt-20">
-          <h2 className="text-[22px] font-bold text-center">ماذا يفعل المندوب من جوّاله</h2>
+          <h2 className="text-[22px] font-bold text-center">ماذا يفعل المندوب من جواله</h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-8">
             {FEATURES.map((f) => (
               <div key={f.title} className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
@@ -175,14 +175,14 @@ export default function RepAppPage() {
           <div className="relative">
             <h2 className="text-white text-[20px] font-bold">بيانات الدخول من مدير الشركة</h2>
             <p className="text-[#C9C2B6] text-[14px] mt-2.5 max-w-lg mx-auto leading-relaxed">
-              التطبيق للمناديب المسجّلين فقط. يُنشئ مدير الشركة حساب المندوب من لوحة الإدارة
-              ويسلّمه اسم المستخدم وكلمة المرور — لا يوجد تسجيل ذاتي.
+              التطبيق للمناديب المسجلين فقط ينشئ مدير الشركة حساب المندوب من لوحة الإدارة
+              ويسلمه اسم المستخدم وكلمة المرور لا يوجد تسجيل ذاتي
             </p>
             <Link
               to="/signup"
               className="inline-block bg-[#E15A30] hover:bg-[#C94E28] text-white text-sm font-bold px-6 py-3 rounded-xl mt-6 transition-colors"
             >
-              شركتك ليست مشتركة بعد؟ ابدأ مجاناً
+              شركتك ليست مشتركة بعد ابدأ مجانا
             </Link>
           </div>
         </section>

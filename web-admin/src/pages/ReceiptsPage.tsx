@@ -74,7 +74,7 @@ export default function ReceiptsPage() {
         `${tr('سندات القبض')}-${new Date().toISOString().slice(0, 10)}`
       );
       toast.success(out === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('سند')}`);
-    } catch { toast.error(tr('تعذّر التصدير')); }
+    } catch { toast.error(tr('تعذر التصدير')); }
     setExporting(false);
   };
 
@@ -84,7 +84,7 @@ export default function ReceiptsPage() {
     try {
       const res = await receiptApi.get(id);
       setDocResult(receiptDocFromDetail(res.data.data, '', company));
-    } catch { toast.error(tr('تعذّر فتح المستند')); }
+    } catch { toast.error(tr('تعذر فتح المستند')); }
     setOpeningId(null);
   };
 
@@ -152,7 +152,7 @@ export default function ReceiptsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('لا توجد سندات')}</td></tr>
               ) : data?.data.map(r => (
@@ -218,8 +218,8 @@ export default function ReceiptsPage() {
       {cancelId && (
         <ConfirmDialog
           title={tr('إلغاء سند القبض')}
-          message={tr('هل تريد إلغاء هذا السند؟ سيُعكس أثره على رصيد العميل.')}
-          confirmLabel={tr('نعم، إلغاء')}
+          message={tr('هل تريد إلغاء هذا السند سيعكس أثره على رصيد العميل')}
+          confirmLabel={tr('نعم إلغاء')}
           danger
           loading={cancelMutation.isPending}
           onConfirm={() => { cancelMutation.mutate(cancelId, { onSettled: () => setCancelId(null) }); }}

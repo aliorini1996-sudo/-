@@ -39,11 +39,11 @@ export default function ProductsPage() {
     onSuccess: (res: { data?: { archived?: boolean } }) => {
       qc.invalidateQueries({ queryKey: ['products'] });
       // الأرشفة تطمئن المستخدم صراحة أن فواتير الصنف وكشوفه القديمة لم تمس
-      toast.success(res?.data?.archived ? tr('حُذف الصنف من القوائم — فواتيره وكشوفه القديمة باقية كما هي') : tr('تم حذف الصنف'));
+      toast.success(res?.data?.archived ? tr('حذف الصنف من القوائم فواتيره وكشوفه القديمة باقية كما هي') : tr('تم حذف الصنف'));
       setDeleting(null);
     },
     onError: (err: unknown) => {
-      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف الصنف'));
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حذف الصنف'));
       setDeleting(null);
     },
   });
@@ -58,7 +58,7 @@ export default function ProductsPage() {
       <div className="card mb-4">
         <div className="relative">
           <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input pr-9 max-w-sm" placeholder={tr('بحث بالاسم أو الكود أو الباركود...')}
+          <input className="input pr-9 max-w-sm" placeholder={tr('بحث بالاسم أو الكود أو الباركود')}
             value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
       </div>
@@ -71,7 +71,7 @@ export default function ProductsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.map(p => (
                 <tr key={p.id}>
                   <td className="font-mono text-xs text-gray-500">{p.code}</td>
@@ -120,7 +120,7 @@ export default function ProductsPage() {
         <ConfirmDialog
           danger
           title={tr('حذف الصنف')}
-          message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('من كل القوائم ولن يمكن بيعه في فواتير جديدة. فواتيره وسنداته وكشوفه القديمة تبقى كما هي بالاسم نفسه، ولا يمكن التراجع عن الحذف.')}`}
+          message={`${tr('سيتم حذف الصنف')} «${deleting.name}» ${tr('من كل القوائم ولن يمكن بيعه في فواتير جديدة فواتيره وسنداته وكشوفه القديمة تبقى كما هي بالاسم نفسه ولا يمكن التراجع عن الحذف')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}

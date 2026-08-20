@@ -65,7 +65,7 @@ export default function InvoicesPage() {
     try {
       const res = await invoiceApi.get(id);
       setDocResult(invoiceDocFromDetail(res.data.data, '', company));
-    } catch { toast.error(tr('تعذّر فتح المستند')); }
+    } catch { toast.error(tr('تعذر فتح المستند')); }
     setOpeningId(null);
   };
 
@@ -109,7 +109,7 @@ export default function InvoicesPage() {
         `${tr('الفواتير')}-${new Date().toISOString().slice(0, 10)}`
       );
       toast.success(res2 === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('فاتورة')}`);
-    } catch { toast.error(tr('تعذّر التصدير')); }
+    } catch { toast.error(tr('تعذر التصدير')); }
     setExporting(false);
   };
 
@@ -142,7 +142,7 @@ export default function InvoicesPage() {
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder={tr('رقم الفاتورة أو اسم العميل...')} value={search}
+            <input className="input pr-9" placeholder={tr('رقم الفاتورة أو اسم العميل')} value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <select className="input w-36" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
@@ -190,7 +190,7 @@ export default function InvoicesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={11} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={11} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
                 <tr><td colSpan={11} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
               ) : data?.data.map(inv => (
@@ -220,7 +220,7 @@ export default function InvoicesPage() {
                           onClick={() => restockMutation.mutate({ id: inv.id, returnToStock: !inv.returnToStock })}
                           disabled={restockMutation.isPending}
                           className={`px-2 py-1 rounded text-[11px] font-semibold whitespace-nowrap ${inv.returnToStock ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                          title={tr('اضغط لتبديل: هل يعود المرتجع لمخزون السيارة؟')}
+                          title={tr('اضغط لتبديل هل يعود المرتجع لمخزون السيارة')}
                         >
                           {inv.returnToStock ? `↩ ${tr('يعود للمخزون')}` : `✕ ${tr('لا يعود')}`}
                         </button>
@@ -268,8 +268,8 @@ export default function InvoicesPage() {
       {cancelId && (
         <ConfirmDialog
           title={tr('إلغاء الفاتورة')}
-          message={tr('هل تريد إلغاء هذه الفاتورة؟ سيُعكس أثرها على رصيد العميل.')}
-          confirmLabel={tr('نعم، إلغاء')}
+          message={tr('هل تريد إلغاء هذه الفاتورة سيعكس أثرها على رصيد العميل')}
+          confirmLabel={tr('نعم إلغاء')}
           danger
           loading={cancelMutation.isPending}
           onConfirm={() => { cancelMutation.mutate(cancelId, { onSettled: () => setCancelId(null) }); }}

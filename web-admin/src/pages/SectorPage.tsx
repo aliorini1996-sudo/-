@@ -26,10 +26,10 @@ export default function SectorPage() {
   const seo = seoUrls(arPath, lang);
 
   useSeo({
-    title: sector ? `${sector.name} — برنامج إدارة مناديب التوزيع | Field Sales` : 'القطاعات | Field Sales',
+    title: sector ? `${sector.name} برنامج إدارة مناديب التوزيع | Field Sales` : 'القطاعات | Field Sales',
     description: sector
-      ? `${sector.pain} Field Sales يعمل دون إنترنت ويدير مخزون سيارة المندوب والمرتجعات المصنّفة لشركات ${sector.name}.`
-      : 'القطاعات التي يخدمها Field Sales في التوزيع الميداني.',
+      ? `${sector.pain} Field Sales يعمل دون إنترنت ويدير مخزون سيارة المندوب والمرتجعات المصنفة لشركات ${sector.name}.`
+      : 'القطاعات التي يخدمها Field Sales في التوزيع الميداني',
     canonical: seo.canonical,
     alternates: seo.alternates,
     locale: lang,
@@ -67,7 +67,7 @@ export default function SectorPage() {
         {!sector ? (
           <>
             <h1 className="text-2xl font-bold">القطاعات التي نخدمها</h1>
-            <p className="text-[#6b6357] mt-2">لكل قطاع توزيع ألمه اليومي المختلف — اختر قطاعك.</p>
+            <p className="text-[#6b6357] mt-2">لكل قطاع توزيع ألمه اليومي المختلف اختر قطاعك</p>
             <ul className="grid gap-3 sm:grid-cols-2 mt-6">
               {SECTORS.map((s) => (
                 <li key={s.id}>
@@ -114,7 +114,7 @@ export default function SectorPage() {
             )}
 
             <section className="mt-8">
-              <h2 className="font-semibold">أسئلة شائعة — {sector.name}</h2>
+              <h2 className="font-semibold">أسئلة شائعة {sector.name}</h2>
               <dl className="mt-3 space-y-3">
                 {sector.faq.map((f) => (
                   <div key={f.q} className="bg-white border border-[#E8E0D2] rounded-xl p-4">
@@ -127,17 +127,17 @@ export default function SectorPage() {
 
             {/* صندوق الإنصاف — إلزامي حيثما لُمّح للامتثال */}
             <section className="mt-6 bg-white border border-[#E8E0D2] rounded-xl p-5">
-              <h2 className="font-semibold text-sm">ما لا نملكه — بصراحة</h2>
+              <h2 className="font-semibold text-sm">ما لا نملكه بصراحة</h2>
               <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">
-                ندعم الفاتورة الإلكترونية المرحلة الأولى (رمز QR بترميز TLV) فقط؛ المرحلة الثانية غير مبنية لدينا حتى الآن.
-                وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات، فلا ندّعي اعتماداً منها.
+                ندعم الفاتورة الإلكترونية المرحلة الأولى رمز QR بترميز TLV فقط المرحلة الثانية غير مبنية لدينا حتى الآن 
+                وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزودي البرمجيات فلا ندعي اعتمادا منها
               </p>
             </section>
 
             <div className="mt-8 flex flex-wrap gap-3">
               <a href={waHref(arPath, { lang })} target="_blank" rel="noopener noreferrer"
                  className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-4 py-2.5 text-sm">
-                <MessageCircle size={16} />تحدّث معنا على واتساب
+                <MessageCircle size={16} />تحدث معنا على واتساب
               </a>
               <Link to={pathForLocale('/pricing', lang)} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
                 شاهد الأسعار

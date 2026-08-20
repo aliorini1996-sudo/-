@@ -28,7 +28,7 @@ export default function VerifyEmailPage() {
         {state === 'loading' && (
           <>
             <div className="w-10 h-10 border-3 border-[#E15A30]/30 border-t-[#E15A30] rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-[#6E6557]">{tr('جارٍ تأكيد بريدك…')}</p>
+            <p className="text-[#6E6557]">{tr('جار تأكيد بريدك')}</p>
           </>
         )}
 
@@ -36,7 +36,7 @@ export default function VerifyEmailPage() {
           <>
             <div className="w-16 h-16 rounded-2xl bg-green-100 flex items-center justify-center mx-auto mb-4"><CheckCircle2 size={34} className="text-green-600" /></div>
             <h1 className="text-xl font-bold text-[#1F1A13]">{tr('تم تأكيد بريدك الإلكتروني')} ✅</h1>
-            <p className="text-[#6E6557] text-sm mt-2">{tr('شكراً لك. حسابك مفعّل بالكامل الآن.')}</p>
+            <p className="text-[#6E6557] text-sm mt-2">{tr('شكرا لك حسابك مفعل بالكامل الآن')}</p>
             <Link to="/app" className="btn-primary mx-auto mt-6 inline-flex">{tr('الذهاب للوحة التحكم')} <ArrowLeft size={16} className={dir === 'rtl' ? '' : 'rotate-180'} /></Link>
           </>
         )}
@@ -45,7 +45,7 @@ export default function VerifyEmailPage() {
           <>
             <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center mx-auto mb-4"><XCircle size={34} className="text-red-600" /></div>
             <h1 className="text-xl font-bold text-[#1F1A13]">{tr('رابط التأكيد غير صالح')}</h1>
-            <p className="text-[#6E6557] text-sm mt-2">{tr('انتهت صلاحية الرابط أو أنه غير صحيح. سجّل الدخول واطلب إعادة إرسال رابط التأكيد.')}</p>
+            <p className="text-[#6E6557] text-sm mt-2">{tr('انتهت صلاحية الرابط أو أنه غير صحيح سجل الدخول واطلب إعادة إرسال رابط التأكيد')}</p>
             <Link to="/login" className="btn-primary mx-auto mt-6 inline-flex">{tr('تسجيل الدخول')}</Link>
           </>
         )}

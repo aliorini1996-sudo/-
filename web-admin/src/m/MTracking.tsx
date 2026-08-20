@@ -81,7 +81,7 @@ export default function MTracking() {
 
   const settingsQ = useQuery({
     queryKey: ['m-track-settings'],
-    queryFn: async () => expectObject<{ enabled: boolean }>((await trackingApi.settings()).data?.data, tr('إعدادات التتبّع')),
+    queryFn: async () => expectObject<{ enabled: boolean }>((await trackingApi.settings()).data?.data, tr('إعدادات التتبع')),
   });
 
   const liveQ = useQuery({
@@ -128,9 +128,9 @@ export default function MTracking() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-track-settings'] });
       setConfirmToggle(false);
-      toast.success(tr('تم تحديث إعداد التتبّع'));
+      toast.success(tr('تم تحديث إعداد التتبع'));
     },
-    onError: () => { setConfirmToggle(false); toast.error(tr('تعذّر التحديث')); },
+    onError: () => { setConfirmToggle(false); toast.error(tr('تعذر التحديث')); },
   });
 
   const reps = liveQ.data ?? [];
@@ -177,7 +177,7 @@ export default function MTracking() {
 
         {reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => (
           <Marker key={r.id} position={[r.lastLat!, r.lastLng!]}
-            icon={repIcon(isOnline(r.lastSeenAt), (r.name || '؟').charAt(0))}
+            icon={repIcon(isOnline(r.lastSeenAt), (r.name || '').charAt(0))}
             eventHandlers={{ click: () => { setSelected(r.id); setSheetOpen(true); } }} />
         ))}
 
@@ -219,7 +219,7 @@ export default function MTracking() {
       {trackingOff && (
         <div className="absolute top-3 z-[500] rounded-xl bg-[#1F1A13]/90 text-white text-[11px] px-3 py-2 max-w-[62%]"
           style={{ insetInlineStart: '12px' }}>
-          {tr('التتبّع متوقّف للشركة — لا تُسجَّل مواقع جديدة')}
+          {tr('التتبع متوقف للشركة لا تسجل مواقع جديدة')}
         </div>
       )}
 
@@ -282,7 +282,7 @@ export default function MTracking() {
               className="input flex-1 text-sm" dir="ltr" />
             <button onClick={() => setConfirmToggle(true)}
               className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 border ${trackingOff ? 'border-[#E9E1D3] text-[#9A8F7E] bg-white' : 'border-[#BFE3D0] text-[#2F855A] bg-[#E9F6EF]'}`}
-              aria-label={tr('تفعيل التتبّع')}>
+              aria-label={tr('تفعيل التتبع')}>
               <Power size={17} />
             </button>
           </div>
@@ -318,9 +318,9 @@ export default function MTracking() {
           {selected && (
             <>
               <h3 className="text-[11px] font-bold text-[#9A8F7E] px-1 mb-2 uppercase">
-                {tr('زيارات اليوم المحدَّد')} ({visitsQ.data?.length ?? 0})
+                {tr('زيارات اليوم المحدد')} ({visitsQ.data?.length ?? 0})
               </h3>
-              {visitsQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-4">{tr('جاري التحميل...')}</p>
+              {visitsQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-4">{tr('جاري التحميل')}</p>
                 : !visitsQ.data?.length ? <p className="text-center text-xs text-[#9A8F7E] py-4">{tr('لا زيارات في هذا اليوم')}</p>
                 : (
                   <div className="rounded-2xl border border-[#F1EBDF] overflow-hidden">
@@ -354,12 +354,12 @@ export default function MTracking() {
         <div className="absolute inset-0 z-[700] bg-black/50 flex items-end" onClick={() => setConfirmToggle(false)}>
           <div className="w-full bg-white rounded-t-3xl p-4" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-[#1F1A13] mb-1">
-              {trackingOff ? tr('تفعيل تتبّع المناديب') : tr('إيقاف تتبّع المناديب')}
+              {trackingOff ? tr('تفعيل تتبع المناديب') : tr('إيقاف تتبع المناديب')}
             </h3>
             <p className="text-xs text-[#6E6557] mb-4">
               {trackingOff
-                ? tr('سيبدأ تسجيل مواقع المناديب لكل الشركة أثناء فتحهم للتطبيق.')
-                : tr('سيتوقّف تسجيل المواقع لكل مناديب الشركة. المسارات المسجّلة تبقى محفوظة.')}
+                ? tr('سيبدأ تسجيل مواقع المناديب لكل الشركة أثناء فتحهم للتطبيق')
+                : tr('سيتوقف تسجيل المواقع لكل مناديب الشركة المسارات المسجلة تبقى محفوظة')}
             </p>
             <div className="flex gap-2">
               <button onClick={() => toggle.mutate(trackingOff)} disabled={toggle.isPending}
@@ -422,7 +422,7 @@ function VisitScreen({ q, onBack }: {
                 <span>{tr('الوقت')}: <b className="text-[#1F1A13]">{timeText(q.data.createdAt)}</b></span>
                 {fmtDur(q.data.durationSec) && (
                   <span className="flex items-center gap-1">
-                    <Timer size={11} /> {tr('المدّة')}: <b className="text-[#1F1A13]">{fmtDur(q.data.durationSec)}</b>
+                    <Timer size={11} /> {tr('المدة')}: <b className="text-[#1F1A13]">{fmtDur(q.data.durationSec)}</b>
                   </span>
                 )}
               </div>

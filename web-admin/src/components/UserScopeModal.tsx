@@ -91,10 +91,10 @@ export default function UserScopeModal({ userId, userName, onClose }: {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-scope', userId] });
       qc.invalidateQueries({ queryKey: ['company-users'] });
-      toast.success(tr('حُفظ نطاق المستخدم'));
+      toast.success(tr('حفظ نطاق المستخدم'));
       onClose();
     },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الحفظ')),
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
   const list = tab === 'customers' ? (custQ.data || []) : (repsQ.data || []);
@@ -121,8 +121,8 @@ export default function UserScopeModal({ userId, userName, onClose }: {
               <b className="text-[#1F1A13]">{tr('تقييد نطاق هذا المستخدم')}</b>
               <span className="block text-[11px] text-[#6E6557] mt-0.5">
                 {enabled
-                  ? tr('مُفعّل: لا يرى إلا العملاء والمناديب المحدّدين أدناه، ولا يستطيع إسناد غيرهم.')
-                  : tr('مُطفأ: يرى كل عملاء الشركة ومناديبها (السلوك الافتراضي).')}
+                  ? tr('مفعل لا يرى إلا العملاء والمناديب المحددين أدناه ولا يستطيع إسناد غيرهم')
+                  : tr('مطفأ يرى كل عملاء الشركة ومناديبها السلوك الافتراضي')}
               </span>
             </span>
           </label>
@@ -143,15 +143,15 @@ export default function UserScopeModal({ userId, userName, onClose }: {
               <div className="relative">
                 <Search size={15} className="absolute top-2.5 start-3 text-gray-400" />
                 <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
-                  placeholder={tab === 'customers' ? tr('ابحث عن عميل…') : tr('ابحث عن مندوب…')} />
+                  placeholder={tab === 'customers' ? tr('ابحث عن عميل') : tr('ابحث عن مندوب')} />
               </div>
 
               {scopeQ.isLoading ? (
-                <p className="text-center text-gray-400 text-sm py-6">{tr('جارٍ التحميل…')}</p>
+                <p className="text-center text-gray-400 text-sm py-6">{tr('جار التحميل')}</p>
               ) : (
                 <div className="border border-[#F1EBDF] rounded-xl divide-y divide-[#F1EBDF] max-h-64 overflow-y-auto">
                   {loading ? (
-                    <p className="text-center text-gray-400 text-xs py-6">{tr('جارٍ البحث…')}</p>
+                    <p className="text-center text-gray-400 text-xs py-6">{tr('جار البحث')}</p>
                   ) : list.length === 0 ? (
                     <p className="text-center text-gray-400 text-xs py-6">{tr('لا نتائج')}</p>
                   ) : list.map(item => {
@@ -177,7 +177,7 @@ export default function UserScopeModal({ userId, userName, onClose }: {
                 </div>
               )}
               <p className="text-[11px] text-[#9A8F7E]">
-                {tr('البحث يشمل كل السجلّات لا المعروضة فقط، والحفظ يطبّق التغييرات دون المساس بما لم تلمسه.')}
+                {tr('البحث يشمل كل السجلات لا المعروضة فقط والحفظ يطبق التغييرات دون المساس بما لم تلمسه')}
               </p>
             </>
           )}

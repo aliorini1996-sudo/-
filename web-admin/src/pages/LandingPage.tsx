@@ -50,7 +50,7 @@ function renderSocialSection(social: Record<string, string> = {}, lang: Lang = '
   if (!items) return '';
   const heading = lang === 'en' ? 'Follow us on social media'
     : lang === 'fr' ? 'Suivez-nous sur les réseaux sociaux'
-    : 'تابِعنا على مواقع التواصل';
+    : 'تابعنا على مواقع التواصل';
   return `<section style="max-width:1200px; margin:0 auto; padding:6px 28px 64px; text-align:center;">
     <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">FOLLOW US</div>
     <h2 style="font-size:30px; line-height:1.2; font-weight:700; letter-spacing:-0.5px; margin-top:10px;">${heading}</h2>
@@ -62,31 +62,31 @@ function renderSocialSection(social: Record<string, string> = {}, lang: Lang = '
 function renderCalculatorSection(lang: Lang = 'ar'): string {
   const t = {
     ar: {
-      eyebrow: 'أداة مجانية · احسبها بنفسك',
-      h: 'كم تخسر شركتك من إيراداتها كل شهر؟',
-      p: 'حاسبة تسريب الإيرادات تكشف لك خلال دقيقة ما يضيع بين الفواتير المفقودة والتحصيل غير الموثّق وعجز مخزون سيارات المناديب — أدخل أرقامك وشاهد الحقيقة.',
+      eyebrow: 'أداة مجانية احسبها بنفسك',
+      h: 'كم تخسر شركتك من إيراداتها كل شهر',
+      p: 'حاسبة تسريب الإيرادات تكشف لك خلال دقيقة ما يضيع بين الفواتير المفقودة والتحصيل غير الموثق وعجز مخزون سيارات المناديب أدخل أرقامك وشاهد الحقيقة',
       cta: 'احسب تسريبك الآن',
-      tool2Title: 'مولّد الفاتورة الضريبية المجاني',
-      cta2: 'أنشئ فاتورة ضريبية برمز QR مجاناً خلال 30 ثانية',
-      note: 'مجانية 100% · بلا تسجيل · شارك نتيجتك واتساب',
+      tool2Title: 'مولد الفاتورة الضريبية المجاني',
+      cta2: 'أنشئ فاتورة ضريبية برمز QR مجانا خلال 30 ثانية',
+      note: 'مجانية 100% بلا تسجيل شارك نتيجتك واتساب',
     },
     en: {
-      eyebrow: 'Free tool · See for yourself',
+      eyebrow: 'Free tool See for yourself',
       h: 'How much revenue does your company leak every month?',
-      p: 'The Revenue Leak Calculator shows you in one minute what slips away in lost invoices, undocumented collections and van stock shrinkage — enter your numbers and see the truth.',
+      p: 'The Revenue Leak Calculator shows you in one minute what slips away in lost invoices undocumented collections and van stock shrinkage enter your numbers and see the truth',
       cta: 'Calculate your leak now',
       tool2Title: 'Free Tax Invoice Generator',
       cta2: 'Create a free QR tax invoice in 30 seconds',
-      note: '100% free · no signup · share your result on WhatsApp',
+      note: '100% free no signup share your result on WhatsApp',
     },
     fr: {
-      eyebrow: 'Outil gratuit · Voyez par vous-même',
+      eyebrow: 'Outil gratuit Voyez par vous-même',
       h: 'Combien de revenus votre entreprise perd-elle chaque mois ?',
-      p: 'Le calculateur de fuite de revenus vous montre en une minute ce qui disparaît entre factures perdues, encaissements non documentés et écarts de stock — entrez vos chiffres et voyez la vérité.',
+      p: 'Le calculateur de fuite de revenus vous montre en une minute ce qui disparaît entre factures perdues encaissements non documentés et écarts de stock entrez vos chiffres et voyez la vérité',
       cta: 'Calculez votre fuite',
       tool2Title: 'Générateur gratuit de factures fiscales',
       cta2: 'Créez gratuitement une facture fiscale QR en 30 secondes',
-      note: '100 % gratuit · sans inscription · partagez sur WhatsApp',
+      note: '100 % gratuit sans inscription partagez sur WhatsApp',
     },
   }[lang];
   const arrow = lang === 'ar'
@@ -123,17 +123,17 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${arrow}</svg>
       </a>
       <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
-      <!-- الأداة الثانية: مولّد الفواتير — أيقونة عائمة مميزة أصغر من أيقونة الحاسبة (80px مقابل 116px) بتدرّج أخضر -->
-      <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(250,247,240,.12);">
+      < -- الأداة الثانية مولد الفواتير أيقونة عائمة مميزة أصغر من أيقونة الحاسبة 80px مقابل 116px بتدرج أخضر -->
+      <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(0,240,.12);">
         <a href="/invoice-generator" class="fs-inv-link" style="display:inline-block; text-decoration:none;">
-          <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 4.2s ease-in-out infinite, fsInvGlow 4.2s ease-in-out infinite;">
-            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 1s ease-in-out infinite, fsInvGlow 2s ease-in-out infinite;">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"></path>
               <path d="M9 7h6M9 11h6"></path>
-              <rect x="9" y="14" width="3.2" height="3.2" rx="0.6" stroke-width="1.5"></rect>
+              <rect x="9" y="14" width="4" height="5" rx="6" stroke-width="7"></rect>
             </svg>
           </span>
-          <span class="fs-inv-title" style="display:block; color:#FAF7F0; font-size:clamp(16px,2.4vw,19px); font-weight:800; margin-top:14px; transition:color .2s;">${t.tool2Title}</span>
+          <span class="fs-inv-title" style="display:block; color:#FAF7F0; font-size:clamp(16px,8vw,19px); font-weight:800; margin-top:14px; transition:color .2s;">${t.tool2Title}</span>
           <span style="display:block; color:#B7AD9D; font-size:clamp(13px,1.9vw,14.5px); margin-top:6px;">${t.cta2} ↗</span>
         </a>
       </div>
@@ -161,14 +161,14 @@ const CHROME_EN: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Features<'], ['>كيف يعمل<', '>How it works<'], ['>الأسعار<', '>Pricing<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Admin login<'], ['>تطبيق المندوب<', '>Rep app<'],
-  ['ابدأ مجانًا', 'Get started free'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'], ['مولّد الفواتير', 'Invoice Generator'],
+  ['ابدأ مجانا', 'Get started free'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'], ['مولد الفواتير', 'Invoice Generator'],
   // بطاقات العرض في القسم الرئيسي
-  ['المبيعات والتحصيل', 'Sales & collection'], ['٧ أيام', '7 days'], ['محصّل اليوم', 'Collected today'],
+  ['المبيعات والتحصيل', 'Sales & collection'], ['٧ أيام', '7 days'], ['محصل اليوم', 'Collected today'],
   ['+12.4% عن أمس', '+12.4% vs. yesterday'], ['>سند قبض<', '>Receipt<'], ['>المبلغ<', '>Amount<'],
   ['>الحالة<', '>Status<'], ['تم الإرسال', 'Sent'], ['طلب #10428 قيد التنفيذ', 'Order #10428 in progress'],
   ['٩٢٬٧٠٠', '92,700'], ['٨٠٠٫٠٠ ر.س', 'SAR 800.00'],
   // الأسعار (نص ثابت)
-  [' ر.س / شهريًا', ' SAR / mo'],
+  [' ر.س / شهريا', ' SAR / mo'],
   ['إدارة الطلبات والتحصيل', 'Order & collection management'],
   ['فواتير ضريبية وسندات قبض', 'Tax invoices & receipts'],
   ['تطبيق جوال للمناديب', 'Mobile app for reps'],
@@ -179,7 +179,7 @@ const CHROME_EN: [string, string][] = [
   ['دعم أولوية', 'Priority support'],
   ['كل مميزات', 'Everything in'],
   ['تكامل ERP ومحاسبة', 'ERP & accounting integration'],
-  ['مدير حساب مخصّص', 'Dedicated account manager'],
+  ['مدير حساب مخصص', 'Dedicated account manager'],
   ['تدريب وإعداد كامل', 'Full training & onboarding'],
   ['تواصل مع المبيعات', 'Contact sales'],
   // التذييل
@@ -187,7 +187,7 @@ const CHROME_EN: [string, string][] = [
   ['>الشركة<', '>Company<'], ['>من نحن<', '>About us<'], ['>تواصل معنا<', '>Contact us<'],
   ['>قانوني<', '>Legal<'], ['>سياسة الخصوصية<', '>Privacy Policy<'],
   ['>الشروط والأحكام<', '>Terms & Conditions<'], ['>اتفاقية الخدمة<', '>Service Agreement<'],
-  ['© ٢٠٢٦ Field Sales — جميع الحقوق محفوظة.', '© 2026 Field Sales — All rights reserved.'],
+  ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales — All rights reserved.'],
 ];
 
 function translateChrome(html: string): string {
@@ -202,14 +202,14 @@ const CHROME_FR: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>الأسعار<', '>Tarifs<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Espace admin<'], ['>تطبيق المندوب<', '>App commercial<'],
-  ['ابدأ مجانًا', 'Essai gratuit'], ['المدوّنة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'], ['مولّد الفواتير', 'Générateur de factures'],
+  ['ابدأ مجانا', 'Essai gratuit'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'], ['مولد الفواتير', 'Générateur de factures'],
   // بطاقات العرض في القسم الرئيسي
-  ['المبيعات والتحصيل', 'Ventes et encaissement'], ['٧ أيام', '7 jours'], ['محصّل اليوم', 'Encaissé aujourd’hui'],
+  ['المبيعات والتحصيل', 'Ventes et encaissement'], ['٧ أيام', '7 jours'], ['محصل اليوم', 'Encaissé aujourd’hui'],
   ['+12.4% عن أمس', '+12,4 % vs hier'], ['>سند قبض<', '>Bon de reçu<'], ['>المبلغ<', '>Montant<'],
   ['>الحالة<', '>Statut<'], ['تم الإرسال', 'Envoyé'], ['طلب #10428 قيد التنفيذ', 'Commande #10428 en cours'],
   ['٩٢٬٧٠٠', '92 700'], ['٨٠٠٫٠٠ ر.س', '800,00 SAR'],
   // الأسعار (نص ثابت)
-  [' ر.س / شهريًا', ' SAR / mois'],
+  [' ر.س / شهريا', ' SAR / mois'],
   ['إدارة الطلبات والتحصيل', 'Gestion des commandes et encaissement'],
   ['فواتير ضريبية وسندات قبض', 'Factures fiscales et bons de reçu'],
   ['تطبيق جوال للمناديب', 'Application mobile pour commerciaux'],
@@ -220,7 +220,7 @@ const CHROME_FR: [string, string][] = [
   ['دعم أولوية', 'Support prioritaire'],
   ['كل مميزات', 'Toutes les fonctionnalités de l’offre'],
   ['تكامل ERP ومحاسبة', 'Intégration ERP et comptabilité'],
-  ['مدير حساب مخصّص', 'Gestionnaire de compte dédié'],
+  ['مدير حساب مخصص', 'Gestionnaire de compte dédié'],
   ['تدريب وإعداد كامل', 'Formation et mise en place complètes'],
   ['تواصل مع المبيعات', 'Contacter les ventes'],
   // التذييل
@@ -228,7 +228,7 @@ const CHROME_FR: [string, string][] = [
   ['>الشركة<', '>Entreprise<'], ['>من نحن<', '>À propos<'], ['>تواصل معنا<', '>Contact<'],
   ['>قانوني<', '>Légal<'], ['>سياسة الخصوصية<', '>Politique de confidentialité<'],
   ['>الشروط والأحكام<', '>Conditions générales<'], ['>اتفاقية الخدمة<', '>Contrat de service<'],
-  ['© ٢٠٢٦ Field Sales — جميع الحقوق محفوظة.', '© 2026 Field Sales — Tous droits réservés.'],
+  ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales — Tous droits réservés.'],
 ];
 
 function translateChromeFr(html: string): string {
@@ -263,7 +263,7 @@ const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string }[]
   { flag: '🇰🇼', ar: 'الكويت', en: 'Kuwait', fr: 'Koweït' },
   { flag: '🇶🇦', ar: 'قطر', en: 'Qatar', fr: 'Qatar' },
   { flag: '🇧🇭', ar: 'البحرين', en: 'Bahrain', fr: 'Bahreïn' },
-  { flag: '🇴🇲', ar: 'عُمان', en: 'Oman', fr: 'Oman' },
+  { flag: '🇴🇲', ar: 'عمان', en: 'Oman', fr: 'Oman' },
   { flag: '🇲🇦', ar: 'المغرب', en: 'Morocco', fr: 'Maroc' },
   { flag: '🇩🇿', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie' },
   { flag: '🇹🇳', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie' },
@@ -275,20 +275,20 @@ function coverageSection(lang: Lang): string {
     ar: {
       eyebrow: 'تغطية إقليمية',
       title: 'يخدم شركات التوزيع في العالم العربي',
-      sub: 'من السعودية إلى مصر ودول الخليج والمغرب العربي — عملة كل دولة وضريبتها وصيغة فاتورتها، بالعربية والإنجليزية والفرنسية.',
-      note: 'متوافق مع أنظمة الفوترة الإلكترونية والضريبة في كل سوق — ZATCA (السعودية) — مع تطبيق عملة كل دولة ونسبة ضريبتها تلقائيًا.',
+      sub: 'من السعودية إلى مصر ودول الخليج والمغرب العربي عملة كل دولة وضريبتها وصيغة فاتورتها بالعربية والإنجليزية والفرنسية',
+      note: 'متوافق مع أنظمة الفوترة الإلكترونية والضريبة في كل سوق ZATCA السعودية مع تطبيق عملة كل دولة ونسبة ضريبتها تلقائيا',
     },
     en: {
       eyebrow: 'Regional coverage',
       title: 'Built for distribution companies across the Arab world',
-      sub: 'From Saudi Arabia to Egypt, the Gulf, and the Maghreb — each country’s currency, tax, and invoice format, in Arabic, English, and French.',
-      note: 'Compliant with each market’s e-invoicing and tax systems — ZATCA (Saudi Arabia) — with each country’s currency and VAT applied automatically.',
+      sub: 'From Saudi Arabia to Egypt the Gulf and the Maghreb each country s currency tax and invoice format in Arabic English and French',
+      note: 'Compliant with each market s e-invoicing and tax systems ZATCA Saudi Arabia with each country s currency and VAT applied automatically',
     },
     fr: {
       eyebrow: 'Couverture régionale',
       title: 'Conçu pour les entreprises de distribution du monde arabe',
-      sub: 'De l’Arabie saoudite à l’Égypte, au Golfe et au Maghreb — la devise, la taxe et le format de facture de chaque pays, en arabe, anglais et français.',
-      note: 'Conforme aux systèmes de facturation électronique et de taxe de chaque marché — ZATCA (Arabie saoudite) — avec la devise et la TVA de chaque pays appliquées automatiquement.',
+      sub: 'De l Arabie saoudite à l Égypte au Golfe et au Maghreb la devise la taxe et le format de facture de chaque pays en arabe anglais et français',
+      note: 'Conforme aux systèmes de facturation électronique et de taxe de chaque marché ZATCA Arabie saoudite avec la devise et la TVA de chaque pays appliquées automatiquement',
     },
   }[lang];
   const pills = COVERAGE_COUNTRIES.map((c) =>
@@ -319,9 +319,9 @@ type ContactInfo = { email?: string; phone?: string; whatsapp?: string; address?
 
 function contactSection(contact: ContactInfo, lang: Lang): string {
   const t = {
-    ar: { title: 'للتواصل وطلبات الاشتراك', sub: 'راسلنا أو اتصل بنا مباشرة — فريقنا جاهز لمساعدتك وتفعيل اشتراك شركتك.', email: 'البريد الرسمي', phone: 'الهاتف', address: 'مقر الشركة', cta: 'اطلب اشتراكك الآن', whatsapp: 'واتساب' },
-    en: { title: 'Contact & Subscription Requests', sub: 'Email or call us directly — our team is ready to help and activate your company subscription.', email: 'Official email', phone: 'Phone', address: 'Head office', cta: 'Request your subscription', whatsapp: 'WhatsApp' },
-    fr: { title: 'Contact et demandes d’abonnement', sub: 'Écrivez-nous ou appelez-nous directement — notre équipe est prête à vous aider et à activer votre abonnement.', email: 'E-mail officiel', phone: 'Téléphone', address: 'Siège social', cta: 'Demandez votre abonnement', whatsapp: 'WhatsApp' },
+    ar: { title: 'للتواصل وطلبات الاشتراك', sub: 'راسلنا أو اتصل بنا مباشرة فريقنا جاهز لمساعدتك وتفعيل اشتراك شركتك', email: 'البريد الرسمي', phone: 'الهاتف', address: 'مقر الشركة', cta: 'اطلب اشتراكك الآن', whatsapp: 'واتساب' },
+    en: { title: 'Contact & Subscription Requests', sub: 'Email or call us directly our team is ready to help and activate your company subscription', email: 'Official email', phone: 'Phone', address: 'Head office', cta: 'Request your subscription', whatsapp: 'WhatsApp' },
+    fr: { title: 'Contact et demandes d abonnement', sub: 'Écrivez-nous ou appelez-nous directement notre équipe est prête à vous aider et à activer votre abonnement', email: 'E-mail officiel', phone: 'Téléphone', address: 'Siège social', cta: 'Demandez votre abonnement', whatsapp: 'WhatsApp' },
   }[lang];
   // العنوان الافتراضي العربي يُعرَض مترجماً في النسختين الأجنبيتين؛ وأي نص يكتبه المالك يُعرض كما هو
   const addressRaw = String(contact.address || '').trim();
@@ -492,20 +492,20 @@ export default function LandingPage() {
     ar: {
       title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
       // ≤155 حرفاً + الكلمة المفتاحية في المقدّمة — مطابق لوصف index.html (المصدر الذي يقرؤه الزاحف)
-      description: 'نظام مبيعات المناديب والتوزيع: فواتير ضريبية، تحصيل، مخزون السيارة وتتبّع GPS للسعودية ومصر والخليج. جرّب مجاناً 10 أيام.',
-      keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات للأسواق العربية, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
+      description: 'نظام مبيعات المناديب والتوزيع فواتير ضريبية تحصيل مخزون السيارة وتتبع GPS للسعودية ومصر والخليج جرب مجانا 10 أيام',
+      keywords: 'نظام مبيعات ميدانية إدارة مناديب التوزيع نظام توزيع برنامج توزيع فواتير ضريبية ZATCA الفوترة الإلكترونية فاتورة ضريبية مبسطة تحصيل المدفوعات إدارة الذمم المدينة سندات قبض مخزون سيارة المندوب البيع المتنقل van sales تتبع المناديب GPS إدارة العملاء وحدود الائتمان كتالوج المنتجات والأسعار تكامل ERP نظام مبيعات للأسواق العربية نظام مبيعات مصر نظام توزيع المغرب برنامج مناديب الجزائر وتونس وليبيا نظام مبيعات السعودية فيلد سيلز',
       locale: 'ar' as const,
     },
     en: {
       title: 'FieldSales | Field Sales & Distribution Management System',
-      description: 'FieldSales is a complete platform to manage field distribution reps: ZATCA e-invoices, collection, van stock, GPS tracking and reports. Free 10-day trial.',
-      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
+      description: 'FieldSales is a complete platform to manage field distribution reps ZATCA e-invoices collection van stock GPS tracking and reports Free 10-day trial',
+      keywords: 'field sales system sales rep management software distribution management software route accounting ZATCA e-invoicing tax invoice payment collection accounts receivable van sales van stock management GPS rep tracking customer management product catalog ERP integration',
       locale: 'en' as const,
     },
     fr: {
       title: 'FieldSales | Système de gestion des ventes terrain et de la distribution',
-      description: 'FieldSales est une plateforme complète pour gérer les commerciaux de distribution : factures fiscales, encaissement, stock du véhicule, suivi GPS et rapports. Essai gratuit de 10 jours.',
-      keywords: 'système de vente terrain, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP, logiciel de distribution Maroc, logiciel commercial Algérie Tunisie',
+      description: 'FieldSales est une plateforme complète pour gérer les commerciaux de distribution factures fiscales encaissement stock du véhicule suivi GPS et rapports Essai gratuit de 10 jours',
+      keywords: 'système de vente terrain logiciel de gestion des commerciaux logiciel de gestion de distribution facturation électronique facture fiscale encaissement gestion des créances stock du véhicule suivi GPS des commerciaux gestion des clients catalogue produits intégration ERP logiciel de distribution Maroc logiciel commercial Algérie Tunisie',
       locale: 'fr' as const,
     },
   }[lang];
@@ -559,7 +559,7 @@ export default function LandingPage() {
   html = injectCurrencyToggle(html, currency, lang);
   if (currency === 'usd') {
     html = html
-      .split(' ر.س / شهريًا').join(' دولار / شهريًا')
+      .split(' ر.س / شهريا').join(' دولار / شهريا')
       .split(' SAR / mo').join(' USD / mo')
       .split(' SAR / mois').join(' USD / mois');
   }

@@ -21,11 +21,11 @@ export default function SubscriptionRequestPage() {
   useSeo({
     title: tr('تسجيل طلب اشتراك جديد | FieldSales', 'New Subscription Request | FieldSales', 'Nouvelle demande d’abonnement | FieldSales'),
     description: tr(
-      'سجّل طلب اشتراك شركتك في منصّة FieldSales لإدارة المبيعات الميدانية والتوزيع — يصلنا طلبك فوراً ونتواصل معك.',
+      'سجل طلب اشتراك شركتك في منصة FieldSales لإدارة المبيعات الميدانية والتوزيع يصلنا طلبك فورا ونتواصل معك',
       'Register your company’s subscription request for the FieldSales field sales platform — we receive it instantly and get back to you.',
       'Enregistrez la demande d’abonnement de votre entreprise à la plateforme FieldSales — nous la recevons instantanément et vous recontactons.'
     ),
-    keywords: tr('طلب اشتراك, تسجيل شركة, نظام مبيعات ميدانية', 'subscription request, register company, field sales system', 'demande d’abonnement, inscription entreprise, ventes terrain'),
+    keywords: tr('طلب اشتراك تسجيل شركة نظام مبيعات ميدانية', 'subscription request, register company, field sales system', 'demande d’abonnement, inscription entreprise, ventes terrain'),
     canonical: seoUrl.canonical, alternates: seoUrl.alternates,
     image: 'https://fieldsa.net/og-image.png', locale: lang,
   });
@@ -52,7 +52,7 @@ export default function SubscriptionRequestPage() {
       setSent(true);
       toast.success(tr('استلمنا طلبك بنجاح', 'Request received successfully', 'Demande reçue avec succès'));
     } catch {
-      toast.error(tr('تعذّر إرسال الطلب — حاول مجدداً أو راسلنا على info@fieldsa.net', 'Could not send — try again or email info@fieldsa.net', 'Échec de l’envoi — réessayez ou écrivez à info@fieldsa.net'));
+      toast.error(tr('تعذر إرسال الطلب حاول مجددا أو راسلنا على info@fieldsa.net', 'Could not send — try again or email info@fieldsa.net', 'Échec de l’envoi — réessayez ou écrivez à info@fieldsa.net'));
     } finally {
       setSending(false);
     }
@@ -86,7 +86,7 @@ export default function SubscriptionRequestPage() {
           </div>
           <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight">{tr('تسجيل طلب اشتراك جديد', 'New Subscription Request', 'Nouvelle demande d’abonnement')}</h1>
           <p className="text-[#6E6557] mt-3 max-w-xl mx-auto leading-relaxed">
-            {tr('عبّئ بيانات شركتك وسيصل طلبك لإدارة FieldSales فوراً — نتواصل معك لتفعيل الاشتراك وتجهيز حسابك.',
+            {tr('عبئ بيانات شركتك وسيصل طلبك لإدارة FieldSales فورا نتواصل معك لتفعيل الاشتراك وتجهيز حسابك',
               'Fill in your company details and your request reaches the FieldSales team instantly — we’ll contact you to activate the subscription and set up your account.',
               'Renseignez les informations de votre entreprise : votre demande parvient instantanément à l’équipe FieldSales, qui vous contactera pour activer l’abonnement.')}
           </p>
@@ -100,7 +100,7 @@ export default function SubscriptionRequestPage() {
               </div>
               <h3 className="text-xl font-bold text-[#1F1A13]">{tr('استلمنا طلبك بنجاح ✅', 'We received your request ✅', 'Nous avons bien reçu votre demande ✅')}</h3>
               <p className="text-sm text-[#6E6557] mt-2 leading-relaxed">
-                {tr('سيتواصل معك فريقنا خلال يوم عمل على بريدك أو جوالك لتفعيل اشتراك شركتك.',
+                {tr('سيتواصل معك فريقنا خلال يوم عمل على بريدك أو جوالك لتفعيل اشتراك شركتك',
                   'Our team will contact you within one business day by email or phone to activate your company subscription.',
                   'Notre équipe vous contactera sous un jour ouvré par e-mail ou téléphone pour activer votre abonnement.')}
               </p>
@@ -110,7 +110,7 @@ export default function SubscriptionRequestPage() {
             <form onSubmit={submit} className="space-y-4">
               <div>
                 <label className="label">{tr('اسم الشركة', 'Company name', 'Nom de l’entreprise')} *</label>
-                <input className="input" value={form.companyName} onChange={e => set('companyName', e.target.value)} placeholder={tr('مثال: شركة النخبة للتوزيع', 'e.g. Elite Distribution Co.', 'ex. Société Elite Distribution')} />
+                <input className="input" value={form.companyName} onChange={e => set('companyName', e.target.value)} placeholder={tr('مثال شركة النخبة للتوزيع', 'e.g. Elite Distribution Co.', 'ex. Société Elite Distribution')} />
               </div>
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
@@ -129,7 +129,7 @@ export default function SubscriptionRequestPage() {
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">{tr('الدولة', 'Country', 'Pays')} *</label>
-                  <input className="input" value={form.country} onChange={e => set('country', e.target.value)} placeholder={tr('مثال: السعودية', 'e.g. Saudi Arabia', 'ex. Maroc')} />
+                  <input className="input" value={form.country} onChange={e => set('country', e.target.value)} placeholder={tr('مثال السعودية', 'e.g. Saudi Arabia', 'ex. Maroc')} />
                 </div>
                 <div>
                   <label className="label">{tr('المدينة', 'City', 'Ville')}</label>
@@ -138,11 +138,11 @@ export default function SubscriptionRequestPage() {
               </div>
               <div>
                 <label className="label">{tr('عدد المناديب المتوقع', 'Expected number of reps', 'Nombre de commerciaux prévu')}</label>
-                <input className="input" value={form.repsCount} onChange={e => set('repsCount', e.target.value)} placeholder={tr('مثال: 5', 'e.g. 5', 'ex. 5')} />
+                <input className="input" value={form.repsCount} onChange={e => set('repsCount', e.target.value)} placeholder={tr('مثال 5', 'e.g. 5', 'ex. 5')} />
               </div>
               <div>
                 <label className="label">{tr('ملاحظات إضافية', 'Additional notes', 'Remarques')}</label>
-                <textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder={tr('أخبرنا عن نشاط شركتك أو أي متطلبات خاصة…', 'Tell us about your business or any special requirements…', 'Parlez-nous de votre activité ou de besoins particuliers…')} />
+                <textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder={tr('أخبرنا عن نشاط شركتك أو أي متطلبات خاصة', 'Tell us about your business or any special requirements…', 'Parlez-nous de votre activité ou de besoins particuliers…')} />
               </div>
               <button type="submit" disabled={sending}
                 className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2">
@@ -150,7 +150,7 @@ export default function SubscriptionRequestPage() {
                 {tr('إرسال طلب الاشتراك', 'Send subscription request', 'Envoyer la demande')}
               </button>
               <p className="text-[11px] text-[#9A8F7E] text-center leading-relaxed">
-                {tr('أو ابدأ فوراً بنفسك عبر', 'Or start right away with the', 'Ou commencez immédiatement avec l’')}{' '}
+                {tr('أو ابدأ فورا بنفسك عبر', 'Or start right away with the', 'Ou commencez immédiatement avec l’')}{' '}
                 <Link to="/signup" className="text-[#E15A30] font-semibold hover:underline">{tr('التجربة المجانية 10 أيام', 'free 10-day trial', 'essai gratuit de 10 jours')}</Link>
               </p>
             </form>

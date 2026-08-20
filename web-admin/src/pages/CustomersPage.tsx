@@ -63,7 +63,7 @@ export default function CustomersPage() {
       setDeleting(null);
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر حذف العميل');
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حذف العميل');
       toast.error(msg);
       setDeleting(null);
     },
@@ -83,7 +83,7 @@ export default function CustomersPage() {
         const res = await customerApi.get(openId);
         const c = res.data.data as Customer;
         if (c) { setSelected(c); setShowStatement(true); }
-      } catch { toast.error(tr('تعذّر فتح كشف حساب العميل')); }
+      } catch { toast.error(tr('تعذر فتح كشف حساب العميل')); }
       // نظّف الرابط كي لا يُعاد الفتح عند التحديث
       searchParams.delete('open');
       setSearchParams(searchParams, { replace: true });
@@ -98,7 +98,7 @@ export default function CustomersPage() {
       const res = await customerApi.statement(c.id);
       const { customer, entries } = res.data.data;
       setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), company));
-    } catch { toast.error(tr('تعذّر فتح الكشف')); }
+    } catch { toast.error(tr('تعذر فتح الكشف')); }
     setOpeningId(null);
   };
 
@@ -119,7 +119,7 @@ export default function CustomersPage() {
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder={tr('بحث بالاسم أو الجوال أو الكود...')} value={search}
+            <input className="input pr-9" placeholder={tr('بحث بالاسم أو الجوال أو الكود')} value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <select className="input w-40" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
@@ -149,7 +149,7 @@ export default function CustomersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
               ) : data?.data.map(c => (
@@ -176,7 +176,7 @@ export default function CustomersPage() {
                       <button onClick={() => openEdit(c)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}>
                         <Edit size={14} />
                       </button>
-                      <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('كشف حساب (عرض)')}>
+                      <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('كشف حساب عرض')}>
                         <FileText size={14} />
                       </button>
                       <button onClick={() => openStatementPdf(c)} className="p-1.5 hover:bg-slate-100 rounded text-slate-600" title={tr('كشف حساب PDF')}>
@@ -229,7 +229,7 @@ export default function CustomersPage() {
         <ConfirmDialog
           danger
           title={tr('حذف العميل')}
-          message={`${tr('سيتم حذف العميل')} «${deleting.name}» ${tr('نهائياً ولا يمكن التراجع. إن كان لديه فواتير أو سندات أو حركات في كشف حسابه فلن يُحذف — ويمكنك تعطيله بدلاً من ذلك.')}`}
+          message={`${tr('سيتم حذف العميل')} «${deleting.name}» ${tr('نهائيا ولا يمكن التراجع إن كان لديه فواتير أو سندات أو حركات في كشف حسابه فلن يحذف ويمكنك تعطيله بدلا من ذلك')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}

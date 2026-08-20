@@ -76,7 +76,7 @@ export default function CustomerModal({ customer, onClose, onSave, loading }: Pr
               <div>
                 <label className="label">{tr('قناة البيع')}</label>
                 <select className="input" {...register('channel')}>
-                  <option value="">{tr('غير محدّد')}</option>
+                  <option value="">{tr('غير محدد')}</option>
                   {SALES_CHANNELS.map((c) => (
                     <option key={c.code} value={c.code}>{tr(c.ar)}</option>
                   ))}
@@ -108,13 +108,13 @@ export default function CustomerModal({ customer, onClose, onSave, loading }: Pr
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase flex items-center gap-1.5"><MapPin size={15} /> {tr('الموقع على الخريطة')}</h3>
             <div>
-              <label className="label">{tr('رابط الموقع (خرائط Google)')}</label>
-              <input className="input" dir="ltr" placeholder="https://maps.app.goo.gl/…  أو  24.7136, 46.6753"
+              <label className="label">{tr('رابط الموقع خرائط Google')}</label>
+              <input className="input" dir="ltr" placeholder="https://maps.app.goo.gl/ أو 24.7136 46.6753"
                 {...register('locationUrl')} />
               <p className="text-[11px] text-gray-400 mt-1">
                 {hasLoc
-                  ? `${tr('الموقع الحالي محدَّد')} · ${customer!.lat!.toFixed(5)}, ${customer!.lng!.toFixed(5)} — ${tr('الصق رابطاً جديداً لتحديثه.')}`
-                  : tr('من خرائط Google: مشاركة ← نسخ الرابط، ثم الصقه هنا ليظهر العميل على خريطة التتبّع.')}
+                  ? `${tr('الموقع الحالي محدد')} · ${customer!.lat!.toFixed(5)}, ${customer!.lng!.toFixed(5)} — ${tr('الصق رابطا جديدا لتحديثه')}`
+                  : tr('من خرائط Google مشاركة ← نسخ الرابط ثم الصقه هنا ليظهر العميل على خريطة التتبع')}
               </p>
               {hasLoc && (
                 <a href={`https://www.google.com/maps?q=${customer!.lat},${customer!.lng}`} target="_blank" rel="noreferrer"
@@ -134,7 +134,7 @@ export default function CustomerModal({ customer, onClose, onSave, loading }: Pr
                 <input className="input" type="number" min="0" step="0.01" {...register('creditLimit', { valueAsNumber: true })} />
               </div>
               <div>
-                <label className="label">{tr('فترة السداد (يوم)')}</label>
+                <label className="label">{tr('فترة السداد يوم')}</label>
                 <input className="input" type="number" min="0" {...register('paymentDays', { valueAsNumber: true })} />
               </div>
             </div>

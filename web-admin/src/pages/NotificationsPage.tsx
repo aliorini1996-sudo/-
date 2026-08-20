@@ -63,7 +63,7 @@ export default function NotificationsPage() {
 
       <div className="card p-0 divide-y divide-gray-50">
         {isLoading ? (
-          <div className="text-center py-12 text-gray-400">{tr('جاري التحميل...')}</div>
+          <div className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</div>
         ) : data?.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <Bell size={40} className="mx-auto mb-3 opacity-30" />

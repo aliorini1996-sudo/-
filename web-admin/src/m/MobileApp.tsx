@@ -134,9 +134,9 @@ export default function MobileApp() {
         </span>
         <div className="flex items-center gap-2.5 flex-shrink-0">
           {installEvt && (
-            <button onClick={doInstall} title={tr('ثبّت التطبيق')}
+            <button onClick={doInstall} title={tr('ثبت التطبيق')}
               className="flex items-center gap-1 text-[11px] bg-[#E15A30]/20 text-[#E8A87C] border border-[#E15A30]/40 rounded-full px-2 py-1">
-              <Download size={12} /> {tr('ثبّت')}
+              <Download size={12} /> {tr('ثبت')}
             </button>
           )}
           <LanguageToggle variant="dark" />
@@ -149,7 +149,7 @@ export default function MobileApp() {
       {/* الجسم */}
       <div className="flex-1 overflow-hidden">
         {tabs.length === 0
-          ? <MEmpty text={tr('لا تملك صلاحية أي قسم في التطبيق — راجع مدير الشركة.')} />
+          ? <MEmpty text={tr('لا تملك صلاحية أي قسم في التطبيق راجع مدير الشركة')} />
           : <ScreenBody screen={screen} company={company} userName={user.name} />}
       </div>
 
@@ -167,7 +167,7 @@ export default function MobileApp() {
                 <span className="text-[10px] font-medium">{tr(t.label === 'm.tabHome' ? 'الرئيسية'
                   : t.label === 'm.tabInvoices' ? 'الفواتير'
                   : t.label === 'm.tabReceipts' ? 'التحصيل'
-                  : t.label === 'm.tabCustomers' ? 'العملاء' : 'التتبّع')}</span>
+                  : t.label === 'm.tabCustomers' ? 'العملاء' : 'التتبع')}</span>
               </button>
             );
           })}

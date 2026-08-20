@@ -103,7 +103,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
       onCreated(inv.id);
     },
     onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الإصدار')),
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإصدار')),
   });
 
   const headReady = !!customerId && !!salesRepId;
@@ -148,10 +148,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
             <Field label={tr('العميل')} required>
               <div className="relative mb-2">
                 <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
-                <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن عميل…')} />
+                <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن عميل')} />
               </div>
               <div className="rounded-xl border border-[#F1EBDF] bg-white max-h-56 overflow-y-auto divide-y divide-[#F1EBDF]">
-                {customersQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('جاري التحميل...')}</p>
+                {customersQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('جاري التحميل')}</p>
                   : !customersQ.data?.length ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('لا نتائج')}</p>
                   : customersQ.data.map(c => (
                     <button key={c.id} onClick={() => setCustomerId(c.id)}
@@ -168,7 +168,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
 
             <Field label={tr('تاريخ الفاتورة')}>
               <input type="date" className="input" dir="ltr" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
-              <p className="text-[10px] text-[#9A8F7E] mt-1">{tr('اتركه فارغاً لتاريخ اليوم')}</p>
+              <p className="text-[10px] text-[#9A8F7E] mt-1">{tr('اتركه فارغا لتاريخ اليوم')}</p>
             </Field>
           </>
         )}
@@ -177,7 +177,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
           <>
             <div className="relative">
               <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
-              <input value={pq} onChange={e => setPq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن صنف…')} />
+              <input value={pq} onChange={e => setPq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن صنف')} />
             </div>
 
             {lines.length > 0 && (
@@ -206,7 +206,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
                     </div>
                   </div>
                 ))}
-                <p className="px-3 py-2 text-[10px] text-[#9A8F7E]">{tr('السعر قبل الضريبة — تُحسب الضريبة تلقائياً')}</p>
+                <p className="px-3 py-2 text-[10px] text-[#9A8F7E]">{tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}</p>
               </div>
             )}
 
@@ -266,7 +266,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
         {step === 'head' && (
           <button onClick={() => setStep('items')} disabled={!headReady}
             className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] disabled:bg-[#E89B7E]">
-            {tr('التالي: الأصناف')}
+            {tr('التالي الأصناف')}
           </button>
         )}
         {step === 'items' && (

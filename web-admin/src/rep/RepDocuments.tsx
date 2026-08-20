@@ -141,7 +141,7 @@ export interface LoadNoticeDoc {
 export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc;
 
 function fullAddress(c: { address?: string; district?: string; city?: string }): string {
-  return [c.address, c.district, c.city].filter(Boolean).join('، ');
+  return [c.address, c.district, c.city].filter(Boolean).join(' ');
 }
 
 const PAGE: React.CSSProperties = {
@@ -254,7 +254,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   // تصنيف الفاتورة وفق ZATCA: مبسّطة (B2C) إن لم يكن للعميل رقم ضريبي، وقياسية (B2B) إن وُجد
   const isSimplified = !doc.customer.taxNumber;
   const docTitle = doc.isReturn
-    ? tr('إشعار دائن (مرتجع)')
+    ? tr('إشعار دائن مرتجع')
     : (isSimplified ? tr('فاتورة ضريبية مبسطة') : tr('فاتورة ضريبية'));
   // رمز QR وفق هيئة الزكاة والضريبة — يظهر فقط إذا كان للشركة رقم ضريبي
   const qrValue = doc.company?.taxNumber
@@ -350,7 +350,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
             return (
               <div style={{ textAlign: 'center' }}>
                 <div style={box}><QrImage value={einv.qr || einv.uuid} size={108} /></div>
-                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 150 }}>{tr('معرّف الفاتورة الإلكترونية')}</div>
+                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 150 }}>{tr('معرف الفاتورة الإلكترونية')}</div>
                 <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 2, maxWidth: 150, wordBreak: 'break-all', direction: 'ltr' }}>{einv.uuid}</div>
               </div>
             );
@@ -369,13 +369,13 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           if (gov) {
             return (
               <div style={{ fontSize: 10.5, color: '#b45309', maxWidth: 175, lineHeight: 1.6, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px' }}>
-                {tr('قيد الاعتماد لدى منظومة الفوترة الإلكترونية.')}
+                {tr('قيد الاعتماد لدى منظومة الفوترة الإلكترونية')}
               </div>
             );
           }
           return (
             <div style={{ fontSize: 10.5, color: '#9ca3af', maxWidth: 170, lineHeight: 1.6 }}>
-              {tr('أضف الرقم الضريبي للشركة في إعدادات الشركة لإظهار رمز الفاتورة الضريبية المعتمد.')}
+              {tr('أضف الرقم الضريبي للشركة في إعدادات الشركة لإظهار رمز الفاتورة الضريبية المعتمد')}
             </div>
           );
         })()}
@@ -386,7 +386,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           {doc.tax > 0 && <Row label={tr('الوعاء الخاضع للضريبة')} value={formatCurrency(doc.total - doc.tax)} />}
           <Row label={`${inclusiveDoc ? tr('منها ضريبة القيمة المضافة') : tr('ضريبة القيمة المضافة')} ${vatRate}`} value={formatCurrency(doc.tax)} color="#1E7A52" />
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
-            <span>{doc.isReturn ? tr('إجمالي المرتجع (دائن)') : tr('الإجمالي النهائي')}</span>
+            <span>{doc.isReturn ? tr('إجمالي المرتجع دائن') : tr('الإجمالي النهائي')}</span>
             <span>{formatCurrency(doc.total)}</span>
           </div>
           {!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined && (
@@ -404,10 +404,10 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
       </div>
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
-        {tr('شكراً لتعاملكم معنا')} — {doc.company?.name || ''}
+        {tr('شكرا لتعاملكم معنا')} — {doc.company?.name || ''}
         {/* بصمة المنصّة: كل فاتورة مطبوعة تسوّق للمنصّة لدى تجّار الجملة والتجزئة (حلقة فيروسية) */}
         <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
-          {tr('صدرت عبر منصّة')} Field Sales · fieldsa.net
+          {tr('صدرت عبر منصة')} Field Sales · fieldsa.net
         </div>
       </div>
     </div>
@@ -451,13 +451,13 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
 
       <div style={{ marginTop: 80, display: 'flex', justifyContent: 'space-between', color: '#6b7280', fontSize: 13 }}>
         <div>{tr('توقيع الدافع')}: ........................</div>
-        <div>{tr('توقيع المستلم (المندوب)')}: ........................</div>
+        <div>{tr('توقيع المستلم المندوب')}: ........................</div>
       </div>
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''}
         <div style={{ marginTop: 6, fontSize: 10, color: '#c3bcae' }}>
-          {tr('صدرت عبر منصّة')} Field Sales · fieldsa.net
+          {tr('صدرت عبر منصة')} Field Sales · fieldsa.net
         </div>
       </div>
     </div>
@@ -537,7 +537,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
                 {e.description}
                 {e.items && e.items.length > 0 && (
                   <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3, lineHeight: 1.5 }}>
-                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}`).join('، ')}
+                    <b style={{ color: '#4b5563' }}>{e.items.length} {tr('صنف')}:</b> {e.items.map(it => `${it.name} ×${it.qty}`).join(' ')}
                   </div>
                 )}
               </td>
@@ -599,10 +599,10 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
           {!single && <InfoBox label={tr('عدد الاستلامات')} value={String(doc.entries.length)} />}
         </div>
         <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخّص التحصيل')}</div>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخص التحصيل')}</div>
           {doc.collected != null && <InfoBox label={tr('إجمالي التحصيل')} value={formatCurrency(doc.collected)} />}
-          <InfoBox label={tr('إجمالي المُسلَّم')} value={formatCurrency(doc.total)} />
-          {doc.outstanding != null && <InfoBox label={tr('الرصيد المتبقّي')} value={formatCurrency(doc.outstanding)} />}
+          <InfoBox label={tr('إجمالي المسلم')} value={formatCurrency(doc.total)} />
+          {doc.outstanding != null && <InfoBox label={tr('الرصيد المتبقي')} value={formatCurrency(doc.outstanding)} />}
         </div>
       </div>
 
@@ -613,7 +613,7 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
             <th style={th}>{tr('التاريخ')}</th>
             <th style={th}>{tr('الوقت')}</th>
-            <th style={th}>{tr('المبلغ المُستلَم')}</th>
+            <th style={th}>{tr('المبلغ المستلم')}</th>
             <th style={th}>{tr('استلمه')}</th>
             <th style={{ ...th, textAlign: 'right', borderRadius: '8px 0 0 0' }}>{tr('ملاحظة')}</th>
           </tr>
@@ -645,7 +645,7 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
       <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
         <div style={{ background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 12, padding: '14px 24px', minWidth: 260 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, color: '#374151' }}>{tr('إجمالي المُسلَّم للإدارة')}</span>
+            <span style={{ fontSize: 14, color: '#374151' }}>{tr('إجمالي المسلم للإدارة')}</span>
             <span style={{ fontSize: 22, fontWeight: 700, color: '#16a34a' }}>{formatCurrency(doc.total)}</span>
           </div>
         </div>
@@ -682,7 +682,7 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
           <InfoBox label={tr('الوقت')} value={formatTime(doc.date)} />
         </div>
         <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخّص الحركة')}</div>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخص الحركة')}</div>
           <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
           <InfoBox label={tr('إجمالي الكميات')} value={String(totalQty)} />
           {doc.note && <InfoBox label={tr('ملاحظة')} value={doc.note} />}
@@ -894,7 +894,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     try {
       if (doc.kind === 'invoice') await printThermalInvoice(doc);
       else if (doc.kind === 'receipt') await printThermalReceipt(doc);
-    } catch { setStatus(tr('تعذّرت الطباعة، تأكد من إعداد الطابعة')); }
+    } catch { setStatus(tr('تعذرت الطباعة تأكد من إعداد الطابعة')); }
     setBusy(false);
   };
 
@@ -931,7 +931,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
       const result = await shareOrDownloadPdf(blob, filename);
       setStatus(result === 'shared' ? tr('✓ تمت المشاركة') : tr('✓ تم حفظ الملف في جهازك'));
     } catch {
-      setStatus(tr('تعذّر إنشاء الملف، حاول مجدداً'));
+      setStatus(tr('تعذر إنشاء الملف حاول مجددا'));
     }
     setBusy(false);
   };
@@ -958,12 +958,12 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         {/* تنبيه العمل دون اتصال: المستند مُلتقَط محلياً برقم مؤقّت، يرتفع للخادم عند الاتصال */}
         {(doc.kind === 'invoice' || doc.kind === 'receipt') && doc.offline && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 text-xs text-amber-800 leading-relaxed">
-            <b>{tr('أُنشئ دون اتصال')}</b> — {tr('الرقم مؤقّت، ويُعتمد رقمه النهائي تلقائياً عند اتصالك بالإنترنت. اطبع/سلّم نسختك الآن بشكل طبيعي.')}
+            <b>{tr('أنشئ دون اتصال')}</b> — {tr('الرقم مؤقت ويعتمد رقمه النهائي تلقائيا عند اتصالك بالإنترنت اطبع/سلم نسختك الآن بشكل طبيعي')}
           </div>
         )}
 
         {/* معاينة مصغّرة للمستند */}
-        <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند:')}</p>
+        <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند')}</p>
         <div className="mx-auto bg-white rounded-xl border border-gray-200 shadow-sm" style={{ width: 340, height: 470, overflow: 'hidden' }}>
           <div style={{ transform: 'scale(0.428)', transformOrigin: 'top right', width: 794 }}>
             {renderDoc()}
@@ -978,7 +978,7 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
         {canThermal && (
           <button onClick={printThermal} disabled={busy}
             className="w-full bg-white border-2 border-[#DED5C4] text-[#1F1A13] font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60">
-            <Printer size={17} /> {tr('طباعة حرارية (58 مم)')}
+            <Printer size={17} /> {tr('طباعة حرارية 58 مم')}
           </button>
         )}
         <button onClick={makePdf} disabled={busy}

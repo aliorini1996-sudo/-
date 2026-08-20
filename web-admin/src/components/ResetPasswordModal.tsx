@@ -34,7 +34,7 @@ export default function ResetPasswordModal({ title, subject, onConfirm, onClose 
       await onConfirm(pwd.trim());
       setDone(pwd.trim());
     } catch (e) {
-      setErr((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر إعادة التعيين'));
+      setErr((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر إعادة التعيين'));
     } finally {
       setBusy(false);
     }
@@ -65,7 +65,7 @@ export default function ResetPasswordModal({ title, subject, onConfirm, onClose 
           // شاشة النجاح — عرض كلمة المرور الجديدة لتسليمها لصاحب الحساب
           <div className="p-5 space-y-4">
             <p className="text-xs text-[#9C4423] bg-[#FBEBE2] rounded-lg px-3 py-2 leading-relaxed">
-              {tr('سلّم كلمة المرور الجديدة لصاحب الحساب — لن تظهر مرة أخرى بعد إغلاق النافذة.')}
+              {tr('سلم كلمة المرور الجديدة لصاحب الحساب لن تظهر مرة أخرى بعد إغلاق النافذة')}
             </p>
             <div className="bg-gray-50 rounded-xl px-3 py-3 flex items-center justify-between">
               <span className="font-mono font-bold text-lg text-[#1F1A13]" dir="ltr">{done}</span>

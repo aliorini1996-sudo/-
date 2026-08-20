@@ -11,14 +11,14 @@ import { ArrowLeft, PlayCircle, Clock, FileText, Download, Truck, UserCheck } fr
 
 // فصول الفيديو (بالثواني) — من مونتاج 16 أغسطس 2026: مقدّمة + ٣ أقسام ببطاقات
 const CHAPTERS: { t: number; label: string }[] = [
-  { t: 7,    label: 'لوحة التحكم — مؤشرات اليوم والمبيعات' },
-  { t: 197,  label: 'إدارة العملاء — الإضافة والتعديل وكشف الحساب' },
-  { t: 258,  label: 'المنتجات — الأصناف والأسعار' },
-  { t: 438,  label: 'المناديب — الصلاحيات واستلام التحصيل وكشف المندوب' },
-  { t: 663,  label: 'مخزون سيارات المناديب — التحميل والإفراغ' },
-  { t: 813,  label: 'التتبّع المباشر — الخريطة وخط السير والزيارات' },
+  { t: 7,    label: 'لوحة التحكم مؤشرات اليوم والمبيعات' },
+  { t: 197,  label: 'إدارة العملاء الإضافة والتعديل وكشف الحساب' },
+  { t: 258,  label: 'المنتجات الأصناف والأسعار' },
+  { t: 438,  label: 'المناديب الصلاحيات واستلام التحصيل وكشف المندوب' },
+  { t: 663,  label: 'مخزون سيارات المناديب التحميل والإفراغ' },
+  { t: 813,  label: 'التتبع المباشر الخريطة وخط السير والزيارات' },
   { t: 933,  label: 'الفواتير وسندات القبض' },
-  { t: 1013, label: 'التقارير — المبيعات والمديونيات وأداء المناديب' },
+  { t: 1013, label: 'التقارير المبيعات والمديونيات وأداء المناديب' },
   { t: 1233, label: 'مستخدمو الشركة والصلاحيات' },
   { t: 1333, label: 'الإعدادات واستيراد البيانات من نظامك السابق' },
 ];
@@ -28,7 +28,7 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).p
 export default function TutorialPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => { document.title = 'دليل استخدام المنصّة — Field Sales'; }, []);
+  useEffect(() => { document.title = 'دليل استخدام المنصة Field Sales'; }, []);
 
   const seek = (t: number) => {
     const v = videoRef.current;
@@ -50,15 +50,15 @@ export default function TutorialPage() {
             </span>
           </Link>
           <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#E15A30] hover:underline">
-            تعرّف على المنصّة <ArrowLeft size={15} />
+            تعرف على المنصة <ArrowLeft size={15} />
           </Link>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         <div className="text-center mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#1F1A13]">دليل استخدام المنصّة</h1>
-          <p className="text-[#6E6557] mt-2 text-sm sm:text-base">شرح شامل للوحة الإدارة خطوة بخطوة — من لوحة التحكم حتى استيراد بياناتك.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#1F1A13]">دليل استخدام المنصة</h1>
+          <p className="text-[#6E6557] mt-2 text-sm sm:text-base">شرح شامل للوحة الإدارة خطوة بخطوة من لوحة التحكم حتى استيراد بياناتك</p>
         </div>
 
         {/* المشغّل */}
@@ -70,7 +70,7 @@ export default function TutorialPage() {
         <div className="mt-8 bg-white rounded-2xl border border-[#E9E1D3] overflow-hidden">
           <div className="px-5 py-3.5 border-b border-[#F1EBDF] flex items-center gap-2">
             <PlayCircle size={18} className="text-[#E15A30]" />
-            <h2 className="font-bold text-[#1F1A13]">فهرس الفصول — انقر للانتقال</h2>
+            <h2 className="font-bold text-[#1F1A13]">فهرس الفصول انقر للانتقال</h2>
           </div>
           <ul className="divide-y divide-[#F6F1E8]">
             {CHAPTERS.map(c => (
@@ -91,7 +91,7 @@ export default function TutorialPage() {
         <div className="mt-10">
           <div className="text-center mb-5">
             <h2 className="text-xl sm:text-2xl font-bold text-[#1F1A13]">تطبيق الإدارة على الجوال</h2>
-            <p className="text-[#6E6557] mt-1.5 text-sm">لوحتك كاملةً من جيبك — جولة سريعة في تطبيق الجوال للإدارة.</p>
+            <p className="text-[#6E6557] mt-1.5 text-sm">لوحتك كاملة من جيبك جولة سريعة في تطبيق الجوال للإدارة</p>
           </div>
           <div className="mx-auto rounded-2xl overflow-hidden shadow-lg border border-[#E9E1D3] bg-black" style={{ maxWidth: 360 }}>
             <video controls preload="metadata" playsInline className="w-full block" src="/media/tutorial-mobile.mp4" />
@@ -102,7 +102,7 @@ export default function TutorialPage() {
         <div className="mt-10">
           <div className="text-center mb-5">
             <h2 className="text-xl sm:text-2xl font-bold text-[#1F1A13]">أدلة إرشادية للتحميل</h2>
-            <p className="text-[#6E6557] mt-1.5 text-sm">ملفّا PDF مختصران — وزّعهما على فريقك مباشرةً.</p>
+            <p className="text-[#6E6557] mt-1.5 text-sm">ملفا PDF مختصران وزعهما على فريقك مباشرة</p>
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             <a href="/media/guide-rep-work-hours.pdf" target="_blank" rel="noopener noreferrer"
@@ -111,8 +111,8 @@ export default function TutorialPage() {
                 <Truck size={22} className="text-[#E15A30]" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-[#1F1A13] text-[15px]">دليل المندوب — حساب ساعات العمل</h3>
-                <p className="text-[12.5px] text-[#6E6557] mt-1 leading-relaxed">سبع خطوات بسيطة تضمن أن يظهر يوم عملك كاملاً كما هو، وأربعة أخطاء تنقص من حسابه.</p>
+                <h3 className="font-bold text-[#1F1A13] text-[15px]">دليل المندوب حساب ساعات العمل</h3>
+                <p className="text-[12.5px] text-[#6E6557] mt-1 leading-relaxed">سبع خطوات بسيطة تضمن أن يظهر يوم عملك كاملا كما هو وأربعة أخطاء تنقص من حسابه</p>
                 <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-[#E15A30] mt-2.5 group-hover:underline">
                   <Download size={14} /> تحميل PDF <FileText size={13} className="text-[#9A8F7E]" />
                 </span>
@@ -124,8 +124,8 @@ export default function TutorialPage() {
                 <UserCheck size={22} className="text-[#1E7A52]" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-[#1F1A13] text-[15px]">دليل المشرف — قراءة تقرير ساعات العمل</h3>
-                <p className="text-[12.5px] text-[#6E6557] mt-1 leading-relaxed">ما يعنيه كل رقم في التقرير، وأربعة استنتاجات خاطئة احذرها قبل أن تحاسب.</p>
+                <h3 className="font-bold text-[#1F1A13] text-[15px]">دليل المشرف قراءة تقرير ساعات العمل</h3>
+                <p className="text-[12.5px] text-[#6E6557] mt-1 leading-relaxed">ما يعنيه كل رقم في التقرير وأربعة استنتاجات خاطئة احذرها قبل أن تحاسب</p>
                 <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-[#1E7A52] mt-2.5 group-hover:underline">
                   <Download size={14} /> تحميل PDF <FileText size={13} className="text-[#9A8F7E]" />
                 </span>
@@ -135,7 +135,7 @@ export default function TutorialPage() {
         </div>
 
         <p className="text-center text-[12px] text-[#9A8F7E] mt-8">
-          لديك سؤال بعد المشاهدة؟ راسلنا على <a href="mailto:help@fieldsa.net" className="text-[#E15A30] font-semibold">help@fieldsa.net</a>
+          لديك سؤال بعد المشاهدة راسلنا على <a href="mailto:help@fieldsa.net" className="text-[#E15A30] font-semibold">help@fieldsa.net</a>
         </p>
       </main>
     </div>

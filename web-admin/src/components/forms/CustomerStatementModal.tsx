@@ -57,13 +57,13 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     ];
     // نفس صفّ الترحيل في الملف المُصدَّر — الكشف المطبوع يجب أن يقرأ كالمعروض
     const carry: Record<string, string | number>[] = from
-      ? [{ [tr('التاريخ')]: from, [tr('البيان')]: tr('رصيد مُرحَّل من قبل الفترة'), [tr('الأصناف')]: '',
+      ? [{ [tr('التاريخ')]: from, [tr('البيان')]: tr('رصيد مرحل من قبل الفترة'), [tr('الأصناف')]: '',
            [tr('رقم المستند')]: '', [tr('مدين')]: '', [tr('دائن')]: '', [tr('الرصيد')]: num(data.openingBalance) }]
       : [];
     const rows = data.entries.map(e => ({
       [tr('التاريخ')]: formatDate(e.entryDate),
       [tr('البيان')]: e.description,
-      [tr('الأصناف')]: (e.invoice?.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، '),
+      [tr('الأصناف')]: (e.invoice?.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join(' '),
       [tr('رقم المستند')]: e.invoice?.number || e.receipt?.number || '-',
       [tr('مدين')]: num(e.debit),
       [tr('دائن')]: num(e.credit),
@@ -144,7 +144,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('جاري التحميل...')}</td></tr>
+                <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.entries.length === 0 ? (
                 <tr><td colSpan={6} className="text-center py-8 text-gray-400">{tr('لا توجد حركات')}</td></tr>
               ) : null}
@@ -153,7 +153,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
               {data && from && data.entries.length > 0 && (
                 <tr className="bg-gray-50">
                   <td className="text-xs text-gray-500 align-top">{formatDate(from)}</td>
-                  <td className="text-sm text-gray-600 font-medium align-top" colSpan={2}>{tr('رصيد مُرحَّل من قبل الفترة')}</td>
+                  <td className="text-sm text-gray-600 font-medium align-top" colSpan={2}>{tr('رصيد مرحل من قبل الفترة')}</td>
                   <td className="text-gray-400">-</td>
                   <td className="text-gray-400">-</td>
                   <td className={`font-semibold ${data.openingBalance > 0 ? 'text-orange-600' : 'text-green-600'}`}>
@@ -169,7 +169,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                     {e.type !== 'RECEIPT_CREDIT' && e.invoice?.items && e.invoice.items.length > 0 && (
                       <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
                         <span className="font-semibold text-gray-600">{e.invoice.items.length} {tr('صنف')}:</span>{' '}
-                        {e.invoice.items.map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ')}
+                        {e.invoice.items.map(it => `${it.product.name} ×${Number(it.qty)}`).join(' ')}
                       </div>
                     )}
                   </td>

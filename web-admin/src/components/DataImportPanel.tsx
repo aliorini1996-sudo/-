@@ -30,13 +30,13 @@ export default function DataImportPanel() {
     mutationFn: (id: string) => importApi.revert(id),
     onSuccess: (res) => {
       const d = res.data.data as { removed: number; blocked: number };
-      toast.success(`${tr('تمت الإزالة')}: ${d.removed}${d.blocked ? ` · ${tr('محميّ (له معاملات)')}: ${d.blocked}` : ''}`);
+      toast.success(`${tr('تمت الإزالة')}: ${d.removed}${d.blocked ? ` · ${tr('محمي له معاملات')}: ${d.blocked}` : ''}`);
       qc.invalidateQueries({ queryKey: ['import-batches'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['products'] });
       setRevertId(null);
     },
-    onError: (e) => { toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر التراجع')); setRevertId(null); },
+    onError: (e) => { toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر التراجع')); setRevertId(null); },
   });
 
   const onFile = async (kind: ImportKind, file?: File) => {
@@ -47,7 +47,7 @@ export default function DataImportPanel() {
       if (!rows.length) { toast.error(tr('الملف فارغ أو بلا صفوف بيانات')); setBusy(null); return; }
       const { valid, errors } = IMPORT_TYPES[kind].transform(rows);
       setPreview({ kind, fileName: file.name, valid, errors });
-    } catch { toast.error(tr('تعذّر قراءة الملف — تأكّد أنه Excel/CSV صالح')); }
+    } catch { toast.error(tr('تعذر قراءة الملف تأكد أنه Excel/CSV صالح')); }
     setBusy(null);
   };
 
@@ -63,7 +63,7 @@ export default function DataImportPanel() {
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['import-batches'] });
     } catch (e) {
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذّر الاستيراد'));
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الاستيراد'));
     }
     setBusy(null);
   };
@@ -82,11 +82,11 @@ export default function DataImportPanel() {
         <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] flex items-center justify-center"><FileUp size={20} className="text-[#E15A30]" /></div>
         <div>
           <h3 className="font-bold text-gray-800">{tr('استيراد البيانات من نظامك السابق')}</h3>
-          <p className="text-xs text-gray-500">{tr('ارفع ملف Excel مُصدَّراً من نظامك السابق (بأي تنسيق) — يفهم النظام الأعمدة تلقائياً ويضيف البيانات مباشرةً، بلا قالب ولا إدخال يدوي.')}</p>
+          <p className="text-xs text-gray-500">{tr('ارفع ملف Excel مصدرا من نظامك السابق بأي تنسيق يفهم النظام الأعمدة تلقائيا ويضيف البيانات مباشرة بلا قالب ولا إدخال يدوي')}</p>
         </div>
       </div>
       <p className="text-[11px] text-amber-700 bg-amber-50/70 border border-amber-100 rounded-lg px-3 py-2 mt-3">
-        {tr('الترتيب المُوصى به: العملاء والمنتجات أولاً، ثم الأرصدة الافتتاحية أو دفتر الأستاذ، ثم قوائم الأسعار (لأنها تربط بالعملاء والأصناف بالكود أو الجوال).')}
+        {tr('الترتيب الموصى به العملاء والمنتجات أولا ثم الأرصدة الافتتاحية أو دفتر الأستاذ ثم قوائم الأسعار لأنها تربط بالعملاء والأصناف بالكود أو الجوال')}
       </p>
 
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
@@ -107,7 +107,7 @@ export default function DataImportPanel() {
 
       {/* سجلّ الاستيرادات — يظهر دائماً؛ يمكن التراجع عن أيّ دفعة */}
       <div className="mt-5 border-t border-[#E9E1D3] pt-4">
-        <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> {tr('سجلّ الاستيرادات (يمكن التراجع عن أيّ دفعة)')}</h4>
+        <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> {tr('سجل الاستيرادات يمكن التراجع عن أي دفعة')}</h4>
         {batches && batches.length > 0 ? (
           <>
             <div className="space-y-2">
@@ -124,10 +124,10 @@ export default function DataImportPanel() {
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">{tr('التراجع يزيل ما أُضيف في تلك الدفعة ويعيد حساب الأرصدة، ولا يحذف العملاء الذين لديهم فواتير أو سندات حقيقية.')}</p>
+            <p className="text-[11px] text-gray-400 mt-2">{tr('التراجع يزيل ما أضيف في تلك الدفعة ويعيد حساب الأرصدة ولا يحذف العملاء الذين لديهم فواتير أو سندات حقيقية')}</p>
           </>
         ) : (
-          <p className="text-xs text-gray-400 py-2">{tr('لا توجد دفعات استيراد بعد — أي ملف تستورده من الآن سيظهر هنا كدفعة يمكن التراجع عنها بضغطة.')}</p>
+          <p className="text-xs text-gray-400 py-2">{tr('لا توجد دفعات استيراد بعد أي ملف تستورده من الآن سيظهر هنا كدفعة يمكن التراجع عنها بضغطة')}</p>
         )}
       </div>
 
@@ -135,8 +135,8 @@ export default function DataImportPanel() {
         <ConfirmDialog
           danger
           title={tr('التراجع عن الاستيراد')}
-          message={tr('سيُزال ما أُضيف في هذه الدفعة نهائياً وتُعاد الأرصدة إلى ما قبلها. متابعة؟')}
-          confirmLabel={tr('نعم، أزِل')}
+          message={tr('سيزال ما أضيف في هذه الدفعة نهائيا وتعاد الأرصدة إلى ما قبلها متابعة')}
+          confirmLabel={tr('نعم أزل')}
           loading={revertMut.isPending}
           onConfirm={() => revertMut.mutate(revertId)}
           onClose={() => setRevertId(null)}
@@ -156,18 +156,18 @@ export default function DataImportPanel() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-green-50 rounded-xl p-3 text-center">
                   <p className="text-2xl font-bold text-green-700">{preview.valid.length}</p>
-                  <p className="text-xs text-green-600">{tr('صفّ صالح للاستيراد')}</p>
+                  <p className="text-xs text-green-600">{tr('صف صالح للاستيراد')}</p>
                 </div>
                 <div className={`rounded-xl p-3 text-center ${preview.errors.length ? 'bg-amber-50' : 'bg-gray-50'}`}>
                   <p className={`text-2xl font-bold ${preview.errors.length ? 'text-amber-700' : 'text-gray-400'}`}>{preview.errors.length}</p>
-                  <p className="text-xs text-gray-500">{tr('صفّ به خطأ (يُتجاهَل)')}</p>
+                  <p className="text-xs text-gray-500">{tr('صف به خطأ يتجاهل')}</p>
                 </div>
               </div>
               {preview.errors.length > 0 && (
                 <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 max-h-40 overflow-y-auto">
                   <p className="text-xs font-semibold text-amber-800 flex items-center gap-1 mb-2"><AlertTriangle size={13} /> {tr('صفوف بها أخطاء')}</p>
                   {preview.errors.slice(0, 20).map((er, i) => (
-                    <p key={i} className="text-[11px] text-amber-700">{tr('صفّ')} {er.row}: {tr(er.message)}</p>
+                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {er.row}: {tr(er.message)}</p>
                   ))}
                   {preview.errors.length > 20 && <p className="text-[11px] text-amber-600 mt-1">+{preview.errors.length - 20} …</p>}
                 </div>
@@ -176,7 +176,7 @@ export default function DataImportPanel() {
                 <button onClick={doImport} disabled={busy !== null || preview.valid.length === 0}
                   className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-50">
                   {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                  {tr('استيراد')} {preview.valid.length} {tr('صفّ')}
+                  {tr('استيراد')} {preview.valid.length} {tr('صف')}
                 </button>
                 <button onClick={() => setPreview(null)} className="btn-secondary">{tr('إلغاء')}</button>
               </div>
@@ -193,14 +193,14 @@ export default function DataImportPanel() {
               <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-3"><Check size={30} className="text-green-600" /></div>
               <h3 className="font-bold text-gray-800 mb-1">{tr('تم الاستيراد')} — {tr(IMPORT_TYPES[result.kind].label)}</h3>
               <div className="flex justify-center gap-6 mt-4 text-sm">
-                <div><p className="text-xl font-bold text-green-700">{result.res.created}</p><p className="text-xs text-gray-500">{tr('أُضيف')}</p></div>
-                <div><p className="text-xl font-bold text-gray-500">{result.res.skipped}</p><p className="text-xs text-gray-500">{tr('مكرّر (تُخطّي)')}</p></div>
+                <div><p className="text-xl font-bold text-green-700">{result.res.created}</p><p className="text-xs text-gray-500">{tr('أضيف')}</p></div>
+                <div><p className="text-xl font-bold text-gray-500">{result.res.skipped}</p><p className="text-xs text-gray-500">{tr('مكرر تخطي')}</p></div>
                 <div><p className="text-xl font-bold text-amber-600">{result.res.errors.length}</p><p className="text-xs text-gray-500">{tr('خطأ')}</p></div>
               </div>
               {result.res.errors.length > 0 && (
                 <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
                   {result.res.errors.slice(0, 15).map((er, i) => (
-                    <p key={i} className="text-[11px] text-amber-700">{tr('صفّ')} {er.row}: {er.message}</p>
+                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {er.row}: {er.message}</p>
                   ))}
                 </div>
               )}

@@ -107,7 +107,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
             <label className="label">{tr('العميل')} *</label>
             <SearchableSelect
               placeholder={tr('اختر العميل')}
-              searchPlaceholder={tr('اكتب اسم أو جوال العميل…')}
+              searchPlaceholder={tr('اكتب اسم أو جوال العميل')}
               value={customerId}
               options={(customers || []).map(c => ({
                 value: c.id,
@@ -147,7 +147,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
 
           <div className="max-w-[12rem]">
             <label className="label">{tr('التاريخ')}</label>
-            <input type="date" className="input" value={receiptDate} onChange={e => setReceiptDate(e.target.value)} title={tr('اتركه فارغاً لتاريخ اليوم')} />
+            <input type="date" className="input" value={receiptDate} onChange={e => setReceiptDate(e.target.value)} title={tr('اتركه فارغا لتاريخ اليوم')} />
           </div>
 
           {paymentMethod === 'CHEQUE' && (
@@ -166,7 +166,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
           {/* Open Invoices */}
           {openInvoices && openInvoices.length > 0 && (
             <div>
-              <label className="label">{tr('توزيع على الفواتير (اختياري)')}</label>
+              <label className="label">{tr('توزيع على الفواتير اختياري')}</label>
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <table className="table">
                   <thead>

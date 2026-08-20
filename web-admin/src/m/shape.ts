@@ -10,13 +10,13 @@
  */
 
 export function expectArray<T>(payload: unknown, what: string): T[] {
-  if (!Array.isArray(payload)) throw new Error(`استجابة غير متوقَّعة عند جلب ${what}`);
+  if (!Array.isArray(payload)) throw new Error(`استجابة غير متوقعة عند جلب ${what}`);
   return payload as T[];
 }
 
 export function expectObject<T>(payload: unknown, what: string): T {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error(`استجابة غير متوقَّعة عند جلب ${what}`);
+    throw new Error(`استجابة غير متوقعة عند جلب ${what}`);
   }
   return payload as T;
 }
