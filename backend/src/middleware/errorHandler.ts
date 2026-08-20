@@ -7,7 +7,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     const fields = Object.keys(fieldErrors);
     res.status(400).json({
       success: false,
-      message: fields.length ? `بيانات غير صحيحة: ${fields.join('، ')}` : 'بيانات غير صحيحة',
+      message: fields.length ? `بيانات غير صحيحة ${fields.join(' ')}` : 'بيانات غير صحيحة',
       errors: fieldErrors,
     });
     return;
@@ -16,7 +16,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   if (err instanceof Error) {
     console.error(err.message);
     if (err.message.includes('Unique constraint')) {
-      res.status(409).json({ success: false, message: 'السجل موجود مسبقاً' });
+      res.status(409).json({ success: false, message: 'السجل موجود مسبقا' });
       return;
     }
     // رسائل الاعطال الداخلية (اتصال DB ونحوه) قد تحمل تفاصيل بنية تحتية —

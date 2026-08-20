@@ -65,7 +65,7 @@ const RestaurantStaffPage = lazy(() => import('./pages/resto/RestaurantStaffPage
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
 function PageFallback() {
-  return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">جارٍ التحميل…</div>;
+  return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">جار التحميل</div>;
 }
 
 // لوحة الأدمن على /app — الجذر "/" يبقى دائماً الصفحة التعريفية
@@ -125,7 +125,7 @@ function PermissionRoute({ permission, children }: { permission: keyof NonNullab
     return (
       <div className="card max-w-xl">
         <h1 className="text-lg font-bold text-[#1F1A13]">غير مسموح</h1>
-        <p className="text-sm text-gray-500 mt-1">لا تملك صلاحية الوصول لهذا القسم.</p>
+        <p className="text-sm text-gray-500 mt-1">لا تملك صلاحية الوصول لهذا القسم</p>
       </div>
     );
   }
@@ -197,10 +197,10 @@ export default function App() {
         <Route path="/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/قطاعات" element={<SectorPage />} />
-        <Route path="/قطاعات/:slug" element={<SectorPage />} />
+        <Route path="/قطاعات/ slug" element={<SectorPage />} />
         {/* مقارنات — موقوفة خلف مفتاح COMPARE_ENABLED حتى مراجعة المالك */}
         <Route path="/نماذج" element={<TemplatesPage />} />
-        <Route path="/نماذج/:slug" element={<TemplatesPage />} />
+        <Route path="/نماذج/ slug" element={<TemplatesPage />} />
         <Route path="/free" element={<FreeToolsPage />} />
         <Route path="/free/:tool" element={<FreeToolsPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />

@@ -24,7 +24,7 @@ interface Props {
 
 // قائمة منسدلة قابلة للتصفية بالكتابة — بديل احترافي عن حقل البحث الحر، بهوية FieldSales
 export default function SearchableSelect({
-  options, value, onChange, placeholder = 'اختر…', searchPlaceholder = 'اكتب للتصفية…',
+  options, value, onChange, placeholder = 'اختر', searchPlaceholder = 'اكتب للتصفية',
   disabled, loading, onSearchChange, resetOnSelect, className, dark,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -81,7 +81,7 @@ export default function SearchableSelect({
           </div>
           <div className="max-h-56 overflow-y-auto">
             {loading ? (
-              <p className="text-center text-gray-400 text-sm py-4">جارٍ التحميل…</p>
+              <p className="text-center text-gray-400 text-sm py-4">جار التحميل</p>
             ) : filtered.length === 0 ? (
               <p className="text-center text-gray-400 text-sm py-4">لا توجد نتائج</p>
             ) : filtered.map(o => (

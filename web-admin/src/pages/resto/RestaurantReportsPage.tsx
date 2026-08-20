@@ -42,7 +42,7 @@ export default function RestaurantReportsPage() {
         </div>
       </div>
 
-      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل…</div> : (
+      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل</div> : (
         <div className="space-y-5">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {kpis.map(k => (
@@ -55,7 +55,7 @@ export default function RestaurantReportsPage() {
 
           {(data?.returnsTotal ?? 0) > 0 && (
             <div className="card flex items-center gap-3 text-sm">
-              <RotateCcw size={18} className="text-red-500" /> <span className="text-[#6E6557]">المرتجعات في المدى:</span>
+              <RotateCcw size={18} className="text-red-500" /> <span className="text-[#6E6557]">المرتجعات في المدى</span>
               <span className="font-bold text-red-500">{money(data!.returnsTotal)}</span>
             </div>
           )}
@@ -87,7 +87,7 @@ export default function RestaurantReportsPage() {
 
             {/* أعلى الأصناف */}
             <div className="card">
-              <div className="flex items-center gap-2 mb-3"><Trophy size={16} className="text-[#E15A30]" /><h2 className="font-bold text-[#1F1A13]">أعلى الأصناف مبيعاً</h2></div>
+              <div className="flex items-center gap-2 mb-3"><Trophy size={16} className="text-[#E15A30]" /><h2 className="font-bold text-[#1F1A13]">أعلى الأصناف مبيعا</h2></div>
               {(data?.topItems ?? []).length === 0 ? <p className="text-sm text-gray-400 py-6 text-center">لا بيانات</p> : (
                 <div className="space-y-2.5">
                   {data!.topItems.map((it, i) => (

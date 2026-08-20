@@ -1,4 +1,4 @@
-// اختبارات محرّك الضريبة — الحساب الموثوق للفواتير (حصري/شامل/معفى + خانات العملة)
+// اختبارات محرك الضريبة — الحساب الموثوق للفواتير (حصري/شامل/معفى + خانات العملة)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeLine, computeInvoice } from '../lib/tax';
@@ -25,12 +25,12 @@ test('معفى: الضريبة صفر مهما كانت ضريبة الدولة'
   assert.equal(r.gross, 150);
 });
 
-test('ضريبة البند تتقدّم على ضريبة الدولة', () => {
+test('ضريبة البند تتقدم على ضريبة الدولة', () => {
   const r = computeLine({ qty: 1, unitPrice: 100, taxPct: 5 }, { defaultTaxPct: 15 });
   assert.equal(r.tax, 5);
 });
 
-test('الخصم يُطرح من الأساس ولا يهبط تحت الصفر', () => {
+test('الخصم يطرح من الأساس ولا يهبط تحت الصفر', () => {
   const r = computeLine({ qty: 1, unitPrice: 100, discount: 20 }, { defaultTaxPct: 15 });
   assert.equal(r.net, 80);
   assert.equal(r.tax, 12);
@@ -46,7 +46,7 @@ test('ثلاث خانات عشرية (KWD/BHD): التقريب على 3 خانا
   assert.equal(r.gross, 0.11);
 });
 
-test('computeInvoice: يجمع البنود ويوحّد الإجماليات', () => {
+test('computeInvoice: يجمع البنود ويوحد الإجماليات', () => {
   const t = computeInvoice(
     [
       { qty: 2, unitPrice: 100 },              // صافي 200 + 30 ضريبة

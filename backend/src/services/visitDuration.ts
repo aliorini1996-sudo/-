@@ -60,7 +60,7 @@ export function computeVisitDuration(input: DurationInput): DurationResult {
   const rawSec = Math.round((end - start) / 1000);
 
   if (rawSec < MIN_VISIT_SECONDS) {
-    return { ok: false, durationSec: null, rawSec, capped: false, clientMismatch: false, reason: 'مدّة غير معقولة (سالبة أو أقصر من ثانيتين)' };
+    return { ok: false, durationSec: null, rawSec, capped: false, clientMismatch: false, reason: 'مدة غير معقولة سالبة أو أقصر من ثانيتين' };
   }
 
   const capped = rawSec > MAX_VISIT_SECONDS;

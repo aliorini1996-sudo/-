@@ -7,7 +7,7 @@ export const SALES_CHANNELS: { code: SalesChannel; ar: string; en: string }[] = 
   { code: 'WHOLESALE',  ar: 'الجملة',               en: 'Wholesale' },
   { code: 'TT',         ar: 'التجارة التقليدية',    en: 'Traditional Trade' },
   { code: 'DISCOUNTER', ar: 'متاجر التخفيضات',      en: 'Discounters' },
-  { code: 'CASH_VAN',   ar: 'البيع النقدي المتنقّل', en: 'Cash Van' },
+  { code: 'CASH_VAN',   ar: 'البيع النقدي المتنقل', en: 'Cash Van' },
   { code: 'ECOMMERCE',  ar: 'التجارة الإلكترونية',  en: 'E-Commerce' },
 ];
 

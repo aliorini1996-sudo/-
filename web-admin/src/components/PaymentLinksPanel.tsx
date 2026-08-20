@@ -53,9 +53,9 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
       if (url && navigator.clipboard) {
         navigator.clipboard.writeText(url)
           .then(() => toast.success('انشئ الرابط ونسخ للحافظة'))
-          .catch(() => toast.success('انشئ الرابط — انسخه من زر النسخ'));
+          .catch(() => toast.success('انشئ الرابط انسخه من زر النسخ'));
       } else {
-        toast.success('انشئ الرابط — انسخه من زر النسخ');
+        toast.success('انشئ الرابط انسخه من زر النسخ');
       }
     },
     onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر انشاء الرابط'),
@@ -67,17 +67,17 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
       qc.invalidateQueries({ queryKey: ['payment-links'] });
       const out = res.data.data as { status: string; paid: boolean };
       if (out.status === 'amount_mismatch') {
-        toast.error('تنبيه: ميسر يظهر دفعا بمبلغ او عملة مختلفة — راجع فاتورة ميسر يدويا', { duration: 8000 });
+        toast.error('تنبيه ميسر يظهر دفعا بمبلغ او عملة مختلفة راجع فاتورة ميسر يدويا', { duration: 8000 });
       } else if (out.paid) {
         toast.success('تم اعتماد الدفع وتنفيذ التمديد ان وجد');
       } else {
-        toast(`لم يدفع بعد — الحالة: ${out.status === 'initiated' ? 'بانتظار الدفع' : out.status}`);
+        toast(`لم يدفع بعد الحالة ${out.status === 'initiated' ? 'بانتظار الدفع' : out.status}`);
       }
     },
     onError: () => toast.error('تعذر التحديث'),
   });
 
-  const copy = (url: string) => { navigator.clipboard.writeText(url).then(() => toast.success('نسخ الرابط')).catch(() => toast.error('تعذر النسخ — انسخه يدويا')); };
+  const copy = (url: string) => { navigator.clipboard.writeText(url).then(() => toast.success('نسخ الرابط')).catch(() => toast.error('تعذر النسخ انسخه يدويا')); };
   const wa = (l: PayLink) => {
     const txt = `السلام عليكم\nهذا رابط الدفع الخاص بكم\n${l.description}\nالمبلغ ${fmtSar(l.amountHalalas)}\n${l.url}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
@@ -108,19 +108,19 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
               onChange={e => setAmount(e.target.value)} placeholder="500" />
           </div>
           <div>
-            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الوصف (يظهر للعميل) *</label>
+            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الوصف يظهر للعميل *</label>
             <input className="input w-full" maxLength={255} value={description} onChange={e => setDescription(e.target.value)}
               placeholder="اشتراك منصة Field Sales" />
           </div>
           <div>
-            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الشركة (اختياري)</label>
+            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الشركة اختياري</label>
             <select className="input w-full" value={tenantId} onChange={e => { setTenantId(e.target.value); if (!e.target.value) setMonths('0'); }}>
-              <option value="">— بلا ربط —</option>
+              <option value="">بلا ربط</option>
               {(tenants || []).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">تمديد الاشتراك عند الدفع (اشهر)</label>
+            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">تمديد الاشتراك عند الدفع اشهر</label>
             <select className="input w-full" value={months} onChange={e => setMonths(e.target.value)} disabled={!tenantId}>
               {['0', '1', '3', '6', '12'].map(m => <option key={m} value={m}>{m === '0' ? 'بلا تمديد تلقائي' : `${m} شهر`}</option>)}
             </select>
@@ -128,7 +128,7 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
           <div className="sm:col-span-2 flex justify-end">
             <button onClick={() => create.mutate()} disabled={!canSubmit}
               className="inline-flex items-center gap-2 bg-[#E15A30] text-white font-bold text-sm px-5 py-2.5 rounded-xl disabled:opacity-50 hover:bg-[#C94E28]">
-              <Link2 size={15} /> {create.isPending ? 'ينشئ…' : 'انشاء رابط الدفع'}
+              <Link2 size={15} /> {create.isPending ? 'ينشئ' : 'انشاء رابط الدفع'}
             </button>
           </div>
         </div>
@@ -136,11 +136,11 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
         {/* السجل */}
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
-            <p className="text-center text-gray-400 py-10">جار التحميل…</p>
+            <p className="text-center text-gray-400 py-10">جار التحميل</p>
           ) : isError ? (
             <p className="text-center text-red-500 py-10">تعذر تحميل الروابط</p>
           ) : !links || links.length === 0 ? (
-            <p className="text-center text-gray-400 py-10">لا روابط بعد — انشئ اول رابط من الاعلى</p>
+            <p className="text-center text-gray-400 py-10">لا روابط بعد انشئ اول رابط من الاعلى</p>
           ) : (
             <table className="w-full text-[13px]">
               <thead className="text-[#9A8F7E] text-[11px] sticky top-0 bg-[#FAF7F0]">
@@ -192,7 +192,7 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
         </div>
 
         <p className="text-[11px] text-[#9A8F7E] text-center px-4 py-3 border-t border-[#F1EBDF]">
-          الدفع يتم على صفحة ميسر المستضافة — لا تمر اي بيانات بطاقة بنظامنا. الحالة تعتمد من ميسر عبر الاشعارات او زر التحديث.
+          الدفع يتم على صفحة ميسر المستضافة لا تمر اي بيانات بطاقة بنظامنا الحالة تعتمد من ميسر عبر الاشعارات او زر التحديث
         </p>
       </div>
     </div>

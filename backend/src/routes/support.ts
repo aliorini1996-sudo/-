@@ -26,18 +26,18 @@ router.post('/', mailLimiter, requireAdmin, async (req: AuthRequest, res: Respon
 
     const sent = await sendMail({
       to: process.env.SUPPORT_EMAIL || 'help@fieldsa.net',
-      subject: `🛠️ دعم فني — ${tenant?.name || 'شركة'}${subject ? ' · ' + subject : ''}`,
+      subject: `🛠️ دعم فني ${tenant?.name || 'شركة'}${subject ? ' · ' + subject : ''}`,
       replyTo: admin?.email || undefined,
       html: mailLayout('طلب دعم فني', [
         ['الشركة', tenant?.name || ''],
-        ['المُرسِل', admin?.name || ''],
+        ['المرسل', admin?.name || ''],
         ['البريد', admin?.email || ''],
         ['التصنيف', category || 'عام'],
         ['الموضوع', subject || ''],
       ], message.replace(/[<>]/g, '')),
     });
 
-    if (!sent) { res.status(503).json({ success: false, message: 'تعذّر إرسال البريد — تحقّق من إعدادات البريد في الخادم' }); return; }
+    if (!sent) { res.status(503).json({ success: false, message: 'تعذر إرسال البريد تحقق من إعدادات البريد في الخادم' }); return; }
     res.json({ success: true, data: { sent } });
   } catch (err) { next(err); }
 });

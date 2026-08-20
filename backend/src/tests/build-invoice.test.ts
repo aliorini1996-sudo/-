@@ -1,4 +1,4 @@
-// اختبارات منسّق الفاتورة الممتثلة — دولة الشركة تحدّد العملة والضريبة والمحوّل
+// اختبارات منسق الفاتورة الممتثلة — دولة الشركة تحدد العملة والضريبة والمحول
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCompliantInvoice } from '../compliance/build-invoice';

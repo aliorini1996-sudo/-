@@ -35,7 +35,7 @@ test('يستسلم بعد استنفاد المحاولات ويرمي آخر خ
   assert.equal(calls, 3);
 });
 
-test('الأخطاء الأخرى تُرمى فوراً بلا إعادة (لا نخفي أخطاء حقيقية)', async () => {
+test('الأخطاء الأخرى ترمى فورا بلا إعادة (لا نخفي أخطاء حقيقية)', async () => {
   let calls = 0;
   await assert.rejects(
     () => withNumberRetry(async () => { calls++; throw new Error('DB down'); }),
@@ -44,7 +44,7 @@ test('الأخطاء الأخرى تُرمى فوراً بلا إعادة (لا 
   assert.equal(calls, 1);
 });
 
-test('P2002 على قيد آخر (ليس الرقم) لا يُعاد بل يُرمى', async () => {
+test('P2002 على قيد آخر (ليس الرقم) لا يعاد بل يرمى', async () => {
   let calls = 0;
   const emailClash = Object.assign(new Error('unique email'), { code: 'P2002', meta: { target: ['email'] } });
   await assert.rejects(
@@ -54,7 +54,7 @@ test('P2002 على قيد آخر (ليس الرقم) لا يُعاد بل يُر
   assert.equal(calls, 1);
 });
 
-test('roundDecimal: خانتان افتراضاً وثلاث للدينار', () => {
+test('roundDecimal: خانتان افتراضا وثلاث للدينار', () => {
   assert.equal(roundDecimal(1.006), 1.01);
   assert.equal(roundDecimal(1.2344, 3), 1.234);
   assert.equal(roundDecimal(2.5, 0), 3);

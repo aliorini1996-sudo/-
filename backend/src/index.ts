@@ -168,9 +168,9 @@ async function seedDefaults() {
       const ownerPw = genSeedPassword();
       const hash = await bcrypt.hash(ownerPw, 10);
       await prisma.superAdmin.create({
-        data: { name: 'مالك المنصّة', email: 'owner@dsd.com', passwordHash: hash },
+        data: { name: 'مالك المنصة', email: 'owner@dsd.com', passwordHash: hash },
       });
-      console.log(`⚠️ Super admin created: owner@dsd.com / ${ownerPw} — احفظها الآن؛ لن تُعرض مجدداً`);
+      console.log(`⚠️ Super admin created: owner@dsd.com / ${ownerPw} احفظها الآن لن تعرض مجددا`);
     }
 
     // شركة تجريبية أولى + أدمنها + مندوبها + إعداداتها
@@ -195,7 +195,7 @@ async function seedDefaults() {
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
         },
       });
-      console.log(`⚠️ Demo tenant created: admin@dsd.com / ${adminPw} — rep1 / ${repPw} — احفظهما الآن؛ لن تُعرضا مجدداً`);
+      console.log(`⚠️ Demo tenant created: admin@dsd.com / ${adminPw} — rep1 / ${repPw} احفظهما الآن لن تعرضا مجددا`);
     }
   } catch (e) {
     console.error('Seed error:', e);

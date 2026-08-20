@@ -109,7 +109,7 @@ export async function waSentToday(): Promise<number> {
       direction: 'OUT',
       createdAt: { gte: start },
       status: { not: 'QUEUED' },
-      NOT: { error: { contains: 'غير مسجّل على واتساب' } },
+      NOT: { error: { contains: 'غير مسجل على واتساب' } },
     },
   });
 }

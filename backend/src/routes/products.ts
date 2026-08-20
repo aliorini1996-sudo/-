@@ -45,7 +45,7 @@ router.get('/customer-prices/:customerId', async (req: AuthRequest, res: Respons
   try {
     const tid = tenantId(req);
     if (!(await canAccessCustomer(req, tid, req.params.customerId))) {
-      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
       return;
     }
     const prices = await prisma.customerPrice.findMany({
@@ -129,7 +129,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     // كود مكرر يفسر بوضوح (خاصة تصادم كود صنف مؤرشف) بدل خطأ unique غامض
     const dupe = await prisma.product.findFirst({ where: { tenantId: tid, code: data.code }, select: { deletedAt: true } });
     if (dupe) {
-      res.status(409).json({ success: false, message: dupe.deletedAt ? 'الكود مستخدم بصنف محذوف (مؤرشف بفواتيره القديمة) — استخدم كوداً مختلفاً' : 'كود الصنف مستخدم من قبل' });
+      res.status(409).json({ success: false, message: dupe.deletedAt ? 'الكود مستخدم بصنف محذوف مؤرشف بفواتيره القديمة استخدم كودا مختلفا' : 'كود الصنف مستخدم من قبل' });
       return;
     }
     if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها

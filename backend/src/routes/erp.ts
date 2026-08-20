@@ -14,7 +14,7 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { erpEnabled: true } });
     if (!t?.erpEnabled) {
-      res.status(403).json({ success: false, code: 'ERP_NOT_ALLOWED', message: 'ميزة ربط ERP غير مفعّلة لاشتراك شركتك — تواصل مع مزوّد الخدمة لتفعيلها.' });
+      res.status(403).json({ success: false, code: 'ERP_NOT_ALLOWED', message: 'ميزة ربط ERP غير مفعلة لاشتراك شركتك تواصل مع مزود الخدمة لتفعيلها' });
       return;
     }
     next();
@@ -34,7 +34,7 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (await adminScopeEnabled(req)) {
       res.status(403).json({
         success: false,
-        message: 'حسابك مقيّد بنطاق محدّد — ربط ERP وتصدير بيانات الشركة يحتاج صلاحية غير مقيّدة.',
+        message: 'حسابك مقيد بنطاق محدد ربط ERP وتصدير بيانات الشركة يحتاج صلاحية غير مقيدة',
       });
       return;
     }
@@ -117,7 +117,7 @@ router.post('/test', async (req: AuthRequest, res: Response, next: NextFunction)
   const startedAt = new Date();
   try {
     const config = await prisma.erpIntegration.findUnique({ where: { tenantId: tid } });
-    if (!config) { res.status(400).json({ success: false, message: 'احفظ إعدادات ERP أولاً' }); return; }
+    if (!config) { res.status(400).json({ success: false, message: 'احفظ إعدادات ERP أولا' }); return; }
     const result = await testErpConnection(config);
     await prisma.erpSyncLog.create({
       data: { tenantId: tid, resource: 'connection', status: result.ok ? 'SUCCESS' : 'FAILED', count: 0, message: result.message, startedAt, finishedAt: new Date() },

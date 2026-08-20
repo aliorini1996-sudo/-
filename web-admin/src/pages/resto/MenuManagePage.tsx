@@ -8,7 +8,7 @@ import type { MenuCategory, MenuItem, ModifierGroup, Modifier } from '../../type
 
 const STATIONS: { v: string; label: string }[] = [
   { v: 'KITCHEN', label: 'المطبخ' }, { v: 'GRILL', label: 'الشواء' },
-  { v: 'BAR', label: 'البار' }, { v: 'COLD', label: 'البارد/المقبّلات' },
+  { v: 'BAR', label: 'البار' }, { v: 'COLD', label: 'البارد/المقبلات' },
 ];
 const stationLabel = (v?: string) => STATIONS.find(s => s.v === v)?.label ?? 'المطبخ';
 
@@ -42,7 +42,7 @@ export default function MenuManagePage() {
       else await restaurantApi.deleteGroup(del.id);
     },
     onSuccess: () => { invalidate(); toast.success('تم الحذف'); setDel(null); },
-    onError: () => toast.error('تعذّر الحذف'),
+    onError: () => toast.error('تعذر الحذف'),
   });
 
   return (
@@ -89,11 +89,11 @@ export default function MenuManagePage() {
               <span className="text-sm text-[#6E6557]">{items.length} صنف</span>
               <button onClick={() => setItemModal('new')} className="btn-primary"><Plus size={16} /> صنف جديد</button>
             </div>
-            {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل…</div>
+            {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل</div>
               : items.length === 0 ? (
                 <div className="card text-center py-16">
                   <UtensilsCrossed size={30} className="text-[#9A8F7E] mx-auto mb-2" />
-                  <p className="text-gray-500">لا أصناف — أضف أول صنف</p>
+                  <p className="text-gray-500">لا أصناف أضف أول صنف</p>
                 </div>
               ) : (
                 <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -129,7 +129,7 @@ export default function MenuManagePage() {
           {groups.length === 0 ? (
             <div className="card text-center py-16">
               <Boxes size={30} className="text-[#9A8F7E] mx-auto mb-2" />
-              <p className="text-gray-500">لا مجموعات إضافات — أنشئ مجموعة (مثل: الحجم، الإضافات)</p>
+              <p className="text-gray-500">لا مجموعات إضافات أنشئ مجموعة مثل الحجم الإضافات</p>
             </div>
           ) : (
             <div className="grid sm:grid-cols-2 gap-3">
@@ -166,7 +166,7 @@ export default function MenuManagePage() {
       {itemModal && <ItemModal item={itemModal === 'new' ? null : itemModal} categories={categories} groups={groups} defaultCat={selCat === 'all' ? '' : selCat} onClose={() => setItemModal(null)} onSaved={() => { setItemModal(null); invalidate(); }} />}
       {groupModal && <GroupModal group={groupModal === 'new' ? null : groupModal} onClose={() => setGroupModal(null)} onSaved={() => { setGroupModal(null); invalidate(); }} />}
       {del && (
-        <ConfirmDialog danger title="تأكيد الحذف" message={`حذف «${del.name}» نهائياً؟`} loading={delMut.isPending}
+        <ConfirmDialog danger title="تأكيد الحذف" message={`حذف «${del.name}» نهائيا`} loading={delMut.isPending}
           onConfirm={() => delMut.mutate()} onClose={() => setDel(null)} />
       )}
     </div>
@@ -185,7 +185,7 @@ function CategoryModal({ cat, onClose, onSaved }: { cat: MenuCategory | null; on
     <Modal title={cat ? 'تعديل القسم' : 'قسم جديد'} onClose={onClose}>
       <div className="p-5 space-y-3">
         <div><label className="label">اسم القسم *</label>
-          <input className="input" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="مثال: مشاوي" /></div>
+          <input className="input" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="مثال مشاوي" /></div>
       </div>
       <ModalFooter loading={mut.isPending} disabled={!name.trim()} onSave={() => mut.mutate()} onClose={onClose} />
     </Modal>
@@ -244,7 +244,7 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
   });
   const submit = () => {
     if (!f.name.trim()) { toast.error('اسم الصنف مطلوب'); return; }
-    if (!f.basePrice || Number(f.basePrice) < 0) { toast.error('حدّد سعراً صحيحاً'); return; }
+    if (!f.basePrice || Number(f.basePrice) < 0) { toast.error('حدد سعرا صحيحا'); return; }
     mut.mutate();
   };
 
@@ -252,16 +252,16 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
     <Modal title={item ? 'تعديل الصنف' : 'صنف جديد'} onClose={onClose} wide>
       <div className="p-5 space-y-3.5 max-h-[70vh] overflow-y-auto">
         <div><label className="label">اسم الصنف *</label>
-          <input className="input" autoFocus value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال: برجر لحم" /></div>
+          <input className="input" autoFocus value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال برجر لحم" /></div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">السعر (ر.س) *</label>
+          <div><label className="label">السعر ر.س *</label>
             <input type="number" min={0} step="any" inputMode="decimal" className="input" value={f.basePrice} onChange={e => set('basePrice', e.target.value)} /></div>
           <div><label className="label">الضريبة %</label>
             <input type="number" min={0} max={100} className="input" value={f.taxPct} onChange={e => set('taxPct', e.target.value)} /></div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">التكلفة (اختياري)</label>
-            <input type="number" min={0} step="any" inputMode="decimal" className="input" value={f.costPrice} onChange={e => set('costPrice', e.target.value)} placeholder="لحساب الأرباح لاحقاً" /></div>
+          <div><label className="label">التكلفة اختياري</label>
+            <input type="number" min={0} step="any" inputMode="decimal" className="input" value={f.costPrice} onChange={e => set('costPrice', e.target.value)} placeholder="لحساب الأرباح لاحقا" /></div>
           <div><label className="label">محطة التحضير</label>
             <select className="input" value={f.prepStation} onChange={e => set('prepStation', e.target.value)}>
               {STATIONS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
@@ -292,9 +292,9 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
         {(ingredients?.length ?? 0) > 0 && (
           <div>
             <div className="flex items-center justify-between">
-              <label className="label">الوصفة — تُخصم من المخزون عند البيع</label>
+              <label className="label">الوصفة تخصم من المخزون عند البيع</label>
               {recipe.length > 0 && (
-                <span className="text-xs text-[#9A8F7E]">التكلفة: <span className="font-bold text-[#1F1A13]">{(Math.round(recipeCost * 100) / 100).toLocaleString('ar-EG')}</span> ر.س</span>
+                <span className="text-xs text-[#9A8F7E]">التكلفة <span className="font-bold text-[#1F1A13]">{(Math.round(recipeCost * 100) / 100).toLocaleString('ar-EG')}</span> ر.س</span>
               )}
             </div>
             <div className="space-y-2">
@@ -302,7 +302,7 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
                 <div key={i} className="flex items-center gap-2">
                   <select className="input flex-1" value={r.ingredientId}
                     onChange={e => setRecipe(a => a.map((x, j) => j === i ? { ...x, ingredientId: e.target.value } : x))}>
-                    <option value="">اختر مكوّناً</option>
+                    <option value="">اختر مكونا</option>
                     {(ingredients ?? []).map(ing => <option key={ing.id} value={ing.id}>{ing.name}</option>)}
                   </select>
                   <input type="number" step="0.001" min={0} className="input" style={{ width: 110 }} placeholder="الكمية" value={r.qty}
@@ -312,7 +312,7 @@ function ItemModal({ item, categories, groups, defaultCat, onClose, onSaved }: {
               ))}
             </div>
             <button type="button" onClick={() => setRecipe(a => [...a, { ingredientId: '', qty: '' }])} className="text-sm text-[#E15A30] font-semibold mt-2 flex items-center gap-1">
-              <Plus size={15} /> إضافة مكوّن
+              <Plus size={15} /> إضافة مكون
             </button>
           </div>
         )}
@@ -349,7 +349,7 @@ function GroupModal({ group, onClose, onSaved }: { group: ModifierGroup | null; 
   });
   const submit = () => {
     if (!name.trim()) { toast.error('اسم المجموعة مطلوب'); return; }
-    if (!mods.some(m => m.name.trim())) { toast.error('أضف خياراً واحداً على الأقل'); return; }
+    if (!mods.some(m => m.name.trim())) { toast.error('أضف خيارا واحدا على الأقل'); return; }
     mut.mutate();
   };
 
@@ -357,7 +357,7 @@ function GroupModal({ group, onClose, onSaved }: { group: ModifierGroup | null; 
     <Modal title={group ? 'تعديل مجموعة الإضافات' : 'مجموعة إضافات جديدة'} onClose={onClose} wide>
       <div className="p-5 space-y-3.5 max-h-[70vh] overflow-y-auto">
         <div><label className="label">اسم المجموعة *</label>
-          <input className="input" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="مثال: الحجم / الإضافات" /></div>
+          <input className="input" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="مثال الحجم / الإضافات" /></div>
         <div className="flex gap-4">
           <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
             <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={required} onChange={e => setRequired(e.target.checked)} /> إلزامي
@@ -371,7 +371,7 @@ function GroupModal({ group, onClose, onSaved }: { group: ModifierGroup | null; 
           <div className="space-y-2">
             {mods.map((m, i) => (
               <div key={i} className="flex items-center gap-2">
-                <input className="input flex-1" placeholder="اسم الخيار (مثل: كبير)" value={m.name}
+                <input className="input flex-1" placeholder="اسم الخيار مثل كبير" value={m.name}
                   onChange={e => setMods(a => a.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
                 <input type="number" step="any" inputMode="decimal" className="input" style={{ width: 110 }} placeholder="فرق السعر" value={m.priceDelta}
                   onChange={e => setMods(a => a.map((x, j) => j === i ? { ...x, priceDelta: e.target.value } : x))} />

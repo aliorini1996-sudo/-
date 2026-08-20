@@ -42,7 +42,7 @@ function requireBridge(req: Request, res: Response, next: NextFunction): void {
     res.status(503).json({
       success: false,
       code: 'KEY_NOT_SET',
-      message: 'WA_BRIDGE_KEY غير مضبوط على الخادم — أضِفه في Environment لخدمة dsd-backend على Render.',
+      message: 'WA_BRIDGE_KEY غير مضبوط على الخادم أضفه في Environment لخدمة dsd-backend على Render',
     });
     return;
   }
@@ -50,7 +50,7 @@ function requireBridge(req: Request, res: Response, next: NextFunction): void {
     res.status(401).json({
       success: false,
       code: 'KEY_MISMATCH',
-      message: 'المفتاح لديك لا يطابق WA_BRIDGE_KEY المضبوط على الخادم.',
+      message: 'المفتاح لديك لا يطابق WA_BRIDGE_KEY المضبوط على الخادم',
     });
     return;
   }
@@ -149,7 +149,7 @@ router.post('/result', requireBridge, async (req: Request, res: Response, next: 
         data: { lastContactedAt: new Date(), ...(lead?.stage === 'NEW' ? { stage: 'CONTACTED' } : {}) },
       });
       await prisma.leadActivity.create({
-        data: { leadId: msg.leadId, type: 'WHATSAPP', content: 'واتساب (جسر ويب)', createdBy: 'الجسر' },
+        data: { leadId: msg.leadId, type: 'WHATSAPP', content: 'واتساب جسر ويب', createdBy: 'الجسر' },
       });
     }
     res.json({ success: true });
@@ -168,7 +168,7 @@ router.get('/stats', requireBridge, async (_req: Request, res: Response, next: N
     const [byStatus, noWaId, unregistered, total] = await Promise.all([
       prisma.waMessage.groupBy({ by: ['status'], where: { direction: 'OUT' }, _count: true }),
       prisma.waMessage.count({ where: { direction: 'OUT', status: 'SENT', waId: null } }),
-      prisma.waMessage.count({ where: { direction: 'OUT', error: { contains: 'غير مسجّل على واتساب' } } }),
+      prisma.waMessage.count({ where: { direction: 'OUT', error: { contains: 'غير مسجل على واتساب' } } }),
       prisma.waMessage.count({ where: { direction: 'OUT' } }),
     ]);
     res.json({
@@ -212,7 +212,7 @@ router.post('/verify-result', requireBridge, async (req: Request, res: Response,
       data: {
         status: delivered ? (ack >= 3 ? 'READ' : ack >= 2 ? 'DELIVERED' : 'SENT') : 'FAILED',
         ackVerified: true,
-        error: delivered ? null : 'لم يؤكّد واتساب التسليم — لم تصل العميل (تبيّن بالمصالحة)',
+        error: delivered ? null : 'لم يؤكد واتساب التسليم لم تصل العميل تبين بالمصالحة',
       },
     });
 
@@ -320,7 +320,7 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
     const b = sendSchema.parse(req.body);
     const s = await getBridgeSession();
     if (!isBridgeAlive(s) || s.status !== 'CONNECTED') {
-      res.status(400).json({ success: false, message: 'الجسر غير متصل — شغّل الجسر على جهازك وامسح رمز QR.' });
+      res.status(400).json({ success: false, message: 'الجسر غير متصل شغل الجسر على جهازك وامسح رمز QR' });
       return;
     }
     const lead = await prisma.lead.findUnique({
@@ -333,7 +333,7 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
     }
     // من طلب الإيقاف لا يُراسَل — لا استثناء ولا تجاوز يدوي
     if (lead.waOptOut) {
-      res.status(403).json({ success: false, message: `«${lead.name}» طلب إيقاف المراسلة — لا يمكن الإرسال إليه.` });
+      res.status(403).json({ success: false, message: `«${lead.name}» طلب إيقاف المراسلة لا يمكن الإرسال إليه` });
       return;
     }
     const phone = waNumber(lead.phone);
@@ -342,7 +342,7 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
       return;
     }
     if ((await waRemainingToday()) <= 0) {
-      res.status(429).json({ success: false, message: 'بلغت الحدّ اليومي — يُستأنف غداً أو ارفع الحدّ من الإعدادات.' });
+      res.status(429).json({ success: false, message: 'بلغت الحد اليومي يستأنف غدا أو ارفع الحد من الإعدادات' });
       return;
     }
     const msg = await prisma.waMessage.create({
@@ -376,7 +376,7 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction)
     const b = bulkSchema.parse(req.body);
     const s = await getBridgeSession();
     if (!isBridgeAlive(s) || s.status !== 'CONNECTED') {
-      res.status(400).json({ success: false, message: 'الجسر غير متصل — شغّل الجسر على جهازك أولاً.' });
+      res.status(400).json({ success: false, message: 'الجسر غير متصل شغل الجسر على جهازك أولا' });
       return;
     }
     const remaining = await waRemainingToday();
@@ -384,7 +384,7 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction)
       const cfg = await getWaConfig();
       res.status(429).json({
         success: false,
-        message: `بلغت الحدّ اليومي (${cfg.dailyCap}). يُستأنف غداً، أو ارفع الحدّ من إعدادات الحملة.`,
+        message: `بلغت الحد اليومي (${cfg.dailyCap}) يستأنف غدا أو ارفع الحد من إعدادات الحملة`,
       });
       return;
     }
@@ -490,7 +490,7 @@ router.get('/thread/:leadId', async (req: AuthRequest, res: Response, next: Next
 router.post('/logout', async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await saveBridgeSession({ command: 'LOGOUT' });
-    res.json({ success: true, message: 'سيُفصل الجسر خلال ثوانٍ.' });
+    res.json({ success: true, message: 'سيفصل الجسر خلال ثوان' });
   } catch (err) { next(err); }
 });
 

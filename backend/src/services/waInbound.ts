@@ -64,7 +64,7 @@ export async function handleInboundMessage(input: InboundInput): Promise<Inbound
     data: {
       leadId,
       type: optOut ? 'WHATSAPP_OPTOUT' : 'WHATSAPP_IN',
-      content: optOut ? `طلب إيقاف المراسلة: «${body}»` : `ردّ واتساب: «${body}»`,
+      content: optOut ? `طلب إيقاف المراسلة «${body}»` : `رد واتساب «${body}»`,
       createdBy: 'واتساب',
     },
   });

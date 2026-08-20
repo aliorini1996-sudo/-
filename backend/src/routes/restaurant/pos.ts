@@ -151,7 +151,7 @@ router.post('/orders/:id/pay', async (req: AuthRequest, res: Response, next: Nex
     // تحقّق تغطية الدفع: مجموع الدفعات يجب أن يغطّي إجمالي الطلب (المحسوب من الخادم) — منع نجاح دفع زائف
     const paid = roundDecimal(body.payments.reduce((s, p) => s + p.amount, 0), 2);
     if (paid + 0.01 < order.total) {
-      res.status(400).json({ success: false, message: 'مبلغ الدفع أقل من إجمالي الطلب — حدّث القائمة وأعد المحاولة' });
+      res.status(400).json({ success: false, message: 'مبلغ الدفع أقل من إجمالي الطلب حدث القائمة وأعد المحاولة' });
       return;
     }
     // الدفعات + الفاتورة + تحرير الطاولة ذرّياً داخل checkout (لا إنشاء دفعات خارج المعاملة)

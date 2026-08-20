@@ -8,7 +8,7 @@ const P = [
 ];
 const byId = (rows: ReturnType<typeof composeWarehouse>, id: string) => rows.find((r) => r.productId === id)!;
 
-test('الرصيد = الوارد − المحمّل للسيارات + العائد منها (الارتباط الأساسيّ)', () => {
+test('الرصيد = الوارد − المحمل للسيارات + العائد منها (الارتباط الأساسي)', () => {
   const rows = composeWarehouse(
     P,
     [{ productId: 'a', qty: 100, type: 'RECEIVE' }],
@@ -24,7 +24,7 @@ test('الرصيد = الوارد − المحمّل للسيارات + العا
   assert.equal(a.onHand, 100 - 30 + 5); // 75
 });
 
-test('تسوية المستودع تدخل الرصيد (+/−)، وتسوية السيارة لا تمسّه', () => {
+test('تسوية المستودع تدخل الرصيد (+/−)، وتسوية السيارة لا تمسه', () => {
   const rows = composeWarehouse(
     P,
     [{ productId: 'a', qty: 50, type: 'RECEIVE' }, { productId: 'a', qty: -4, type: 'ADJUST' }],
@@ -33,7 +33,7 @@ test('تسوية المستودع تدخل الرصيد (+/−)، وتسوية �
   const a = byId(rows, 'a');
   assert.equal(a.adjusted, -4);
   assert.equal(a.loadedToVans, 0);
-  assert.equal(a.onHand, 50 - 4); // 46 — تسوية السيارة لم تؤثّر
+  assert.equal(a.onHand, 50 - 4); // 46 — تسوية السيارة لم تؤثر
 });
 
 test('كل المنتجات تظهر ولو بلا حركة (المستودع مرجع كامل)', () => {
@@ -42,16 +42,16 @@ test('كل المنتجات تظهر ولو بلا حركة (المستودع م
   assert.equal(byId(rows, 'b').onHand, 0);
 });
 
-test('الرصيد قد يكون سالباً حين يُحمَّل أكثر من الوارد (مؤشّر نقص)', () => {
+test('الرصيد قد يكون سالبا حين يحمل أكثر من الوارد (مؤشر نقص)', () => {
   const rows = composeWarehouse(P, [{ productId: 'a', qty: 10, type: 'RECEIVE' }], [{ productId: 'a', qty: 25, type: 'LOAD' }]);
   assert.equal(byId(rows, 'a').onHand, -15);
 });
 
-test('الترتيب تنازليّ بالرصيد', () => {
+test('الترتيب تنازلي بالرصيد', () => {
   const rows = composeWarehouse(
     P,
     [{ productId: 'a', qty: 5, type: 'RECEIVE' }, { productId: 'b', qty: 40, type: 'RECEIVE' }],
     [],
   );
-  assert.equal(rows[0].productId, 'b'); // الأكبر أولاً
+  assert.equal(rows[0].productId, 'b'); // الأكبر أولا
 });

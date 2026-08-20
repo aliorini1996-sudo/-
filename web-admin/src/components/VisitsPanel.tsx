@@ -53,7 +53,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><Globe2 size={20} className="text-[#E15A30]" /></div>
             <div>
               <h2 className="text-lg font-bold text-[#1F1A13]">زيارات الموقع</h2>
-              <p className="text-xs text-[#6E6557]">متى · كم · من أي رابط · من أي دولة ومدينة</p>
+              <p className="text-xs text-[#6E6557]">متى كم من أي رابط من أي دولة ومدينة</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -73,20 +73,20 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {isLoading ? (
-          <div className="py-20 text-center text-gray-400">جارٍ تحميل بيانات الزيارات…</div>
+          <div className="py-20 text-center text-gray-400">جار تحميل بيانات الزيارات</div>
         ) : isError ? (
-          <div className="py-20 text-center text-red-500">تعذّر تحميل البيانات — قد تكون خدمة التتبّع قيد النشر.</div>
+          <div className="py-20 text-center text-red-500">تعذر تحميل البيانات قد تكون خدمة التتبع قيد النشر</div>
         ) : !data || data.total === 0 ? (
           <div className="py-20 text-center px-6">
             <div className="w-14 h-14 bg-[#FBEBE2] rounded-2xl flex items-center justify-center mx-auto mb-4"><Globe2 size={28} className="text-[#E15A30]" /></div>
             <h3 className="font-bold text-[#1F1A13]">لا زيارات بعد</h3>
-            <p className="text-sm text-[#6E6557] mt-1 max-w-sm mx-auto">تبدأ الزيارات بالظهور فور دخول أول زائر للموقع بعد تفعيل التتبّع. جرّب فتح fieldsa.net في متصفّح آخر.</p>
+            <p className="text-sm text-[#6E6557] mt-1 max-w-sm mx-auto">تبدأ الزيارات بالظهور فور دخول أول زائر للموقع بعد تفعيل التتبع جرب فتح fieldsa net في متصفح آخر</p>
           </div>
         ) : (
           <div className="p-5 space-y-5">
             {/* KPIs */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <Kpi icon={TrendingUp} value={String(data.total)} label={`زيارة خلال ${data.days} يوماً`} color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
+              <Kpi icon={TrendingUp} value={String(data.total)} label={`زيارة خلال ${data.days} يوما`} color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
               <Kpi icon={Users} value={String(data.uniques)} label="زائر فريد" color="text-[#1E7A52]" bg="bg-green-50" />
               <Kpi icon={MapPin} value={String(data.byCountry.length)} label="دولة" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
               <Kpi icon={Link2} value={topReferrer} label="أعلى مصدر" color="text-[#6E6557]" bg="bg-[#EDE7DB]" small />
@@ -94,7 +94,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
 
             {/* الزيارات باليوم */}
             <div className="bg-white border border-[#E9E1D3] rounded-2xl p-4">
-              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-[#E15A30]" /> الزيارات آخر {data.byDay.length} يوماً</h3>
+              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-[#E15A30]" /> الزيارات آخر {data.byDay.length} يوما</h3>
               <div className="flex items-end gap-1.5 h-28">
                 {data.byDay.map((d) => (
                   <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group">
@@ -116,7 +116,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
 
             {/* المصادر + الصفحات */}
             <div className="grid md:grid-cols-2 gap-4">
-              <TopList title="مصادر الزيارات (من أي رابط)" icon={Link2} items={data.byReferrer} />
+              <TopList title="مصادر الزيارات من أي رابط" icon={Link2} items={data.byReferrer} />
               <TopList title="أكثر الصفحات زيارة" icon={FileText} items={data.byPath} mono />
             </div>
 
@@ -128,7 +128,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
                   {/* تغطية القياس نفسه: نسبة الزيارات التي نعرف قناتها — بلا هذا الرقم
                       تُقرأ بقيّة الأرقام على أنها الكلّ وهي ليست كذلك */}
                   <span className="text-[11px] text-gray-500">
-                    تغطية القياس: <b className={data.attribution.coverage >= 80 ? 'text-green-600' : 'text-amber-600'}>{data.attribution.coverage}%</b>
+                    تغطية القياس <b className={data.attribution.coverage >= 80 ? 'text-green-600' : 'text-amber-600'}>{data.attribution.coverage}%</b>
                   </span>
                 </div>
 
@@ -138,11 +138,11 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
                     <p className="text-xl font-bold tabular-nums">{data.attribution.whatsapp.clicks}</p>
                   </div>
                   <div className="rounded-lg border border-[#E8E0D2] bg-white p-3">
-                    <p className="text-[11px] text-gray-500">زوّار فريدون نقروا</p>
+                    <p className="text-[11px] text-gray-500">زوار فريدون نقروا</p>
                     <p className="text-xl font-bold tabular-nums">{data.attribution.whatsapp.uniqueClickers}</p>
                   </div>
                   <div className="rounded-lg border border-[#E8E0D2] bg-white p-3">
-                    <p className="text-[11px] text-gray-500">أعلى صفحة تُنتج محادثات</p>
+                    <p className="text-[11px] text-gray-500">أعلى صفحة تنتج محادثات</p>
                     <p className="text-sm font-medium truncate">{data.attribution.whatsapp.byRef?.[0]?.label ?? '—'}</p>
                   </div>
                 </div>
@@ -150,10 +150,10 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <TopList title="نقرات واتساب حسب الصفحة" icon={Link2} items={data.attribution.whatsapp.byRef} mono />
                   <TopList title="القناة" icon={Link2} items={data.attribution.byChannel} />
-                  <TopList title="أول لمسة (القناة الجالبة)" icon={Link2} items={data.attribution.byFirstTouch} />
+                  <TopList title="أول لمسة القناة الجالبة" icon={Link2} items={data.attribution.byFirstTouch} />
                   <TopList title="نوع المحتوى" icon={FileText} items={data.attribution.byContentType} />
                   {data.attribution.byUtmSource.length > 0 && (
-                    <TopList title="مصدر الحملة (UTM)" icon={Link2} items={data.attribution.byUtmSource} />
+                    <TopList title="مصدر الحملة UTM" icon={Link2} items={data.attribution.byUtmSource} />
                   )}
                   {data.attribution.byCampaign.length > 0 && (
                     <TopList title="الحملة" icon={Link2} items={data.attribution.byCampaign} mono />
@@ -181,7 +181,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
                         </td>
                         <td className="py-2 text-[#1F1A13] font-mono text-[11px] truncate max-w-[120px]">{r.path}</td>
                         <td className="py-2 text-[#6E6557] truncate max-w-[110px]">{r.referrer}</td>
-                        <td className="px-4 py-2 text-[#1F1A13] whitespace-nowrap">{flag(r.countryCode)} {r.city ? `${r.city}، ` : ''}{r.country || '—'}</td>
+                        <td className="px-4 py-2 text-[#1F1A13] whitespace-nowrap">{flag(r.countryCode)} {r.city ? `${r.city} ` : ''}{r.country || '—'}</td>
                       </tr>
                       );
                     })}
@@ -190,7 +190,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-            <p className="text-[11px] text-[#9A8F7E] text-center">التتبّع يستثني لوحات الدخول ويتجاهل الزواحف (bots). الموقع الجغرافي تقريبي من عنوان IP دون تخزينه.</p>
+            <p className="text-[11px] text-[#9A8F7E] text-center">التتبع يستثني لوحات الدخول ويتجاهل الزواحف bots الموقع الجغرافي تقريبي من عنوان IP دون تخزينه</p>
           </div>
         )}
       </div>

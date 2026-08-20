@@ -61,10 +61,10 @@ export async function generateCommunityKeywords(country: string, count: number, 
   if (geminiReady()) {
     try {
       const system =
-        'أنت خبير تسويق B2B لمنصّة Field Sales. ولّد مصطلحات بحث للعثور على **مجموعات/مجتمعات/قروبات** ' +
-        `(فيسبوك/لينكدإن/تليجرام/واتساب/ريديت) للمهتمين بالتوزيع وإدارة المناديب والجملة والتجزئة في «${country}». ` +
-        'استخدم لغة البلد + بعضها إنجليزي. تجنّب: ' + (used.slice(-40).join('، ') || 'لا شيء') + '. أعِد JSON مصفوفة نصوص فقط.';
-      const text = await geminiGenerate(system, `ولّد ${count} مصطلحاً لـ${country}.`, { maxTokens: 500, temperature: 0.9 });
+        'أنت خبير تسويق B2B لمنصة Field Sales ولد مصطلحات بحث للعثور على **مجموعات/مجتمعات/قروبات** ' +
+        `فيسبوك/لينكدإن/تليجرام/واتساب/ريديت للمهتمين بالتوزيع وإدارة المناديب والجملة والتجزئة في «${country}». ` +
+        'استخدم لغة البلد + بعضها إنجليزي تجنب ' + (used.slice(-40).join(' ') || 'لا شيء') + 'أعد JSON مصفوفة نصوص فقط';
+      const text = await geminiGenerate(system, `ولد ${count} مصطلحا ل${country}.`, { maxTokens: 500, temperature: 0.9 });
       const m = text.match(/\[[\s\S]*\]/);
       if (m) {
         const arr = (JSON.parse(m[0]) as string[]).map((s) => String(s).trim()).filter((s) => s && !usedSet.has(s.toLowerCase()));
@@ -90,7 +90,7 @@ export async function runCommunityHuntBatch(): Promise<{ country: string; keywor
   const used = recent.flatMap((r) => r.query.split(/[،,+]/).map((s) => s.trim())).filter(Boolean);
   const keywords = await generateCommunityKeywords(country, cfg.keywordsPerRun, used);
 
-  const search = await prisma.leadSearch.create({ data: { provider: 'community', query: keywords.join('، '), country, status: 'running', createdBy: 'community-hunt' } });
+  const search = await prisma.leadSearch.create({ data: { provider: 'community', query: keywords.join(' '), country, status: 'running', createdBy: 'community-hunt' } });
 
   const rawAll: RawLead[] = [];
   for (const q of keywords) {

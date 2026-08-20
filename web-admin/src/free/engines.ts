@@ -233,10 +233,10 @@ export interface AgingResult {
 export function computeAging(entries: AgingEntry[], monthlySales = 0, paymentDays = 30): AgingResult {
   const defs = [
     { label: 'غير مستحق', min: -Infinity, max: 0 },
-    { label: '1–30 يوماً', min: 1, max: 30 },
-    { label: '31–60 يوماً', min: 31, max: 60 },
-    { label: '61–90 يوماً', min: 61, max: 90 },
-    { label: 'أكثر من 90 يوماً', min: 91, max: Infinity },
+    { label: '1 30 يوما', min: 1, max: 30 },
+    { label: '31 60 يوما', min: 31, max: 60 },
+    { label: '61 90 يوما', min: 61, max: 90 },
+    { label: 'أكثر من 90 يوما', min: 91, max: Infinity },
   ];
   const list = (entries || []).map((e) => ({ amount: safe(e.amount), daysOverdue: safe(e.daysOverdue) }));
   const buckets = defs.map((d) => {

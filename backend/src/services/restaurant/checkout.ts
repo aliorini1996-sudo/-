@@ -64,7 +64,7 @@ export async function checkoutOrder(tid: string, orderId: string, payments: Paym
         where: { id: orderId, tenantId: tid, status: 'OPEN', invoiceId: null },
         data: { status: 'PAID' },
       });
-      if (claim.count !== 1) throw Object.assign(new Error('الطلب غير مفتوح أو مدفوع مسبقاً'), { status: 409 });
+      if (claim.count !== 1) throw Object.assign(new Error('الطلب غير مفتوح أو مدفوع مسبقا'), { status: 409 });
 
       const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
       if (!order || order.items.length === 0) throw Object.assign(new Error('الطلب فارغ'), { status: 400 });

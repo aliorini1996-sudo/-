@@ -26,7 +26,7 @@ router.post('/', mailLimiter, async (req: Request, res: Response, next: NextFunc
       ], body.message.replace(/[<>]/g, '')),
     });
 
-    if (!sent) { res.status(503).json({ success: false, message: 'تعذّر إرسال البريد — تحقّق من إعدادات البريد في الخادم' }); return; }
+    if (!sent) { res.status(503).json({ success: false, message: 'تعذر إرسال البريد تحقق من إعدادات البريد في الخادم' }); return; }
     res.json({ success: true, data: { sent } });
   } catch (err) { next(err); }
 });
@@ -47,7 +47,7 @@ router.post('/subscription', mailLimiter, async (req: Request, res: Response, ne
 
     const sent = await sendMail({
       to: 'info@fieldsa.net',
-      subject: `🟠 طلب اشتراك جديد — ${body.companyName}`,
+      subject: `🟠 طلب اشتراك جديد ${body.companyName}`,
       replyTo: body.email,
       html: mailLayout('طلب اشتراك جديد', [
         ['الشركة', body.companyName],
@@ -60,7 +60,7 @@ router.post('/subscription', mailLimiter, async (req: Request, res: Response, ne
       ], (body.notes || '').replace(/[<>]/g, '')),
     });
 
-    if (!sent) { res.status(503).json({ success: false, message: 'تعذّر إرسال الطلب — حاول لاحقاً أو راسلنا مباشرة' }); return; }
+    if (!sent) { res.status(503).json({ success: false, message: 'تعذر إرسال الطلب حاول لاحقا أو راسلنا مباشرة' }); return; }
     res.json({ success: true, data: { sent } });
   } catch (err) { next(err); }
 });

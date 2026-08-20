@@ -35,9 +35,9 @@ export default function LiveHistoryChart({ points, bucket }: { points: HistPoint
     return (
       <div style={{ borderRadius: 12, border: '1px solid #F1EBDF', background: '#fff', padding: '8px 12px', fontSize: 12, direction: 'rtl', boxShadow: '0 6px 20px rgba(0,0,0,.08)' }}>
         <div style={{ color: '#6E6557', marginBottom: 4 }}>{fmtFull(String(label ?? ''))}</div>
-        <div style={{ fontWeight: 700, color: '#1F1A13' }}>الإجمالي: {p.total}</div>
-        <div style={{ color: '#E15A30' }}>المناديب: {p.reps}</div>
-        <div style={{ color: '#2563EB' }}>مستخدمو الشركة: {p.admins}</div>
+        <div style={{ fontWeight: 700, color: '#1F1A13' }}>الإجمالي {p.total}</div>
+        <div style={{ color: '#E15A30' }}>المناديب {p.reps}</div>
+        <div style={{ color: '#2563EB' }}>مستخدمو الشركة {p.admins}</div>
       </div>
     );
   };

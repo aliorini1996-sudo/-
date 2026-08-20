@@ -26,7 +26,7 @@ export default function TablesManagePage() {
   const delMut = useMutation({
     mutationFn: async () => { if (!del) return; del.kind === 'area' ? await restaurantApi.deleteArea(del.id) : await restaurantApi.deleteTable(del.id); },
     onSuccess: () => { invalidate(); toast.success('تم الحذف'); setDel(null); },
-    onError: () => toast.error('تعذّر الحذف'),
+    onError: () => toast.error('تعذر الحذف'),
   });
 
   return (
@@ -56,11 +56,11 @@ export default function TablesManagePage() {
         {tables.some(t => !t.areaId) && <Chip active={selArea === 'none'} onClick={() => setSelArea('none')}>بلا صالة</Chip>}
       </div>
 
-      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل…</div>
+      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل</div>
         : shown.length === 0 ? (
           <div className="card text-center py-16">
             <LayoutGrid size={30} className="text-[#9A8F7E] mx-auto mb-2" />
-            <p className="text-gray-500">لا طاولات — أضف أول طاولة</p>
+            <p className="text-gray-500">لا طاولات أضف أول طاولة</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -82,7 +82,7 @@ export default function TablesManagePage() {
 
       {areaModal && <AreaModal area={areaModal === 'new' ? null : areaModal} onClose={() => setAreaModal(null)} onSaved={() => { setAreaModal(null); invalidate(); }} />}
       {tableModal && <TableModal table={tableModal === 'new' ? null : tableModal} areas={areas} defaultArea={selArea !== 'all' && selArea !== 'none' ? selArea : ''} onClose={() => setTableModal(null)} onSaved={() => { setTableModal(null); invalidate(); }} />}
-      {del && <ConfirmDialog danger title="تأكيد الحذف" message={`حذف «${del.name}» نهائياً؟`} loading={delMut.isPending} onConfirm={() => delMut.mutate()} onClose={() => setDel(null)} />}
+      {del && <ConfirmDialog danger title="تأكيد الحذف" message={`حذف «${del.name}» نهائيا`} loading={delMut.isPending} onConfirm={() => delMut.mutate()} onClose={() => setDel(null)} />}
     </div>
   );
 }
@@ -105,7 +105,7 @@ function AreaModal({ area, onClose, onSaved }: { area: RestaurantArea | null; on
   return (
     <ModalShell title={area ? 'تعديل الصالة' : 'صالة جديدة'} onClose={onClose}>
       <div className="p-5"><label className="label">اسم الصالة *</label>
-        <input className="input" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="مثال: الصالة الرئيسية / الجناح العائلي" /></div>
+        <input className="input" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="مثال الصالة الرئيسية / الجناح العائلي" /></div>
       <Footer loading={mut.isPending} disabled={!name.trim()} onSave={() => mut.mutate()} onClose={onClose} />
     </ModalShell>
   );

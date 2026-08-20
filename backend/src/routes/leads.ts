@@ -394,7 +394,7 @@ router.put('/auto-hunt', async (req: AuthRequest, res: Response, next: NextFunct
 });
 
 router.post('/auto-hunt/run', async (_req: AuthRequest, res: Response, next: NextFunction) => {
-  try { res.json({ success: true, data: await runAutoHuntBatch('auto-hunt (يدوي)') }); } catch (err) { next(err); }
+  try { res.json({ success: true, data: await runAutoHuntBatch('auto-hunt يدوي') }); } catch (err) { next(err); }
 });
 
 // ------------------------------- البريد التلقائي المستمر — قبل /:id ------------------------------- //
@@ -484,7 +484,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       data: { ...body, name: body.name!, source: body.source || 'manual' },
     });
     await prisma.leadActivity.create({
-      data: { leadId: lead.id, type: 'NOTE', content: 'أُنشئ يدوياً', createdBy: req.user?.name },
+      data: { leadId: lead.id, type: 'NOTE', content: 'أنشئ يدويا', createdBy: req.user?.name },
     });
     res.status(201).json({ success: true, data: lead });
   } catch (err) {
@@ -563,7 +563,7 @@ router.post('/:id/convert', async (req: AuthRequest, res: Response, next: NextFu
       data: { stage: 'WON', convertedTenantId: convertedTenantId || null },
     });
     await prisma.leadActivity.create({
-      data: { leadId: lead.id, type: 'STAGE_CHANGE', content: 'تم تحويله إلى مشترك (WON)', createdBy: req.user?.name },
+      data: { leadId: lead.id, type: 'STAGE_CHANGE', content: 'تم تحويله إلى مشترك WON', createdBy: req.user?.name },
     });
     res.json({ success: true, data: lead });
   } catch (err) {
@@ -588,7 +588,7 @@ const searchSchema = z.object({
   enrich: z.boolean().optional(),       // إثراء تلقائي (زيارة المواقع) بعد الاستيراد
   enrichHunter: z.boolean().optional(), // إضافة Hunter للإثراء التلقائي
 }).refine((d) => (d.providers?.length || d.provider) && (d.queries?.length || d.query), {
-  message: 'حدّد مصدراً واحداً على الأقل ونشاطاً واحداً على الأقل',
+  message: 'حدد مصدرا واحدا على الأقل ونشاطا واحدا على الأقل',
 });
 router.post('/search', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -598,7 +598,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
 
     const search = await prisma.leadSearch.create({
       data: {
-        provider: providers.join('+'), query: queries.join('، '), country: body.country, city: body.city,
+        provider: providers.join('+'), query: queries.join(' '), country: body.country, city: body.city,
         status: 'running', createdBy: req.user?.name,
       },
     });
@@ -608,7 +608,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
     const rawAll: RawLead[] = [];
     const errors: string[] = [];
     for (const p of providers) {
-      if (!ready[p]) { errors.push(`مصدر ${p}: يتطلّب مفتاحاً في الخادم — تخطّي`); continue; } // تخطّي مرّة واحدة بدل خطأ لكل نشاط
+      if (!ready[p]) { errors.push(`مصدر ${p}يتطلب مفتاحا في الخادم تخطي`); continue; } // تخطّي مرّة واحدة بدل خطأ لكل نشاط
       for (const q of queries) {
         try {
           const r = await runSearch(p, q, body.country, body.city, body.limit);
@@ -687,7 +687,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
         if (Object.keys(data).length) {
           await prisma.lead.update({ where: { id: c.id }, data });
           await prisma.leadActivity.create({
-            data: { leadId: c.id, type: 'NOTE', content: `إثراء تلقائي: ${Object.keys(data).join('، ')}`, createdBy: req.user?.name },
+            data: { leadId: c.id, type: 'NOTE', content: `إثراء تلقائي ${Object.keys(data).join(' ')}`, createdBy: req.user?.name },
           });
         }
       }
@@ -759,7 +759,7 @@ router.post('/email-test', async (req: AuthRequest, res: Response, next: NextFun
     const sample = { name: 'شركتكم', city: '', country: '' };
     const html = marketingHtml(body, sample);
     try {
-      await sendMarketingEmail({ subject: `[تجربة] ${personalize(subject, sample)}`, html, to });
+      await sendMarketingEmail({ subject: `تجربة ${personalize(subject, sample)}`, html, to });
       res.json({ success: true });
     } catch (e) {
       res.status(502).json({ success: false, message: (e as Error).message });
@@ -810,7 +810,7 @@ router.post('/email', async (req: AuthRequest, res: Response, next: NextFunction
           data: { lastContactedAt: new Date(), stage: l.stage === 'NEW' ? 'CONTACTED' : l.stage },
         });
         await prisma.leadActivity.create({
-          data: { leadId: l.id, type: 'EMAIL', content: `بريد تسويقي: ${subject}`, createdBy: req.user?.name },
+          data: { leadId: l.id, type: 'EMAIL', content: `بريد تسويقي ${subject}`, createdBy: req.user?.name },
         });
       } catch (e) {
         failed++;
@@ -841,7 +841,7 @@ const waSendSchema = z.object({
   q: z.string().optional(),
   limit: z.number().int().min(1).max(200).optional(),
 }).refine((d) => (d.mode === 'text' ? !!d.text : !!d.templateName), {
-  message: 'حدّد نص الرسالة (وضع النص) أو اسم القالب (وضع القالب)',
+  message: 'حدد نص الرسالة وضع النص أو اسم القالب وضع القالب',
 });
 
 router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -849,7 +849,7 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
     if (!whatsappReady()) {
       res.status(400).json({
         success: false,
-        message: 'واتساب غير مُعدّ — أضِف WHATSAPP_TOKEN و WHATSAPP_PHONE_NUMBER_ID في إعدادات الخادم.',
+        message: 'واتساب غير معد أضف WHATSAPP_TOKEN و WHATSAPP_PHONE_NUMBER_ID في إعدادات الخادم',
       });
       return;
     }
@@ -865,7 +865,7 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
     if (remaining <= 0) {
       res.status(429).json({
         success: false,
-        message: `بلغت الحدّ اليومي (${cfg.dailyCap} رسالة). يُستأنف الإرسال غداً، أو ارفع الحدّ من إعدادات الحملة.`,
+        message: `بلغت الحد اليومي (${cfg.dailyCap} رسالة) يستأنف الإرسال غدا أو ارفع الحد من إعدادات الحملة`,
       });
       return;
     }
@@ -911,7 +911,7 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
         await prisma.waMessage.create({
           data: {
             waId, leadId: l.id, phone: num, direction: 'OUT', status: 'SENT',
-            body: text ?? `[قالب: ${body.templateName}]`,
+            body: text ?? `[قالب ${body.templateName}]`,
             template: body.mode === 'template' ? body.templateName : null,
           },
         });
@@ -927,7 +927,7 @@ router.post('/whatsapp-send', async (req: AuthRequest, res: Response, next: Next
         await prisma.waMessage.create({
           data: {
             leadId: l.id, phone: num, direction: 'OUT', status: 'FAILED',
-            body: text ?? `[قالب: ${body.templateName}]`,
+            body: text ?? `[قالب ${body.templateName}]`,
             template: body.mode === 'template' ? body.templateName : null,
             error: (e as Error).message.slice(0, 300),
           },
@@ -997,7 +997,7 @@ router.post('/enrich', async (req: AuthRequest, res: Response, next: NextFunctio
       if (Object.keys(data).length) {
         await prisma.lead.update({ where: { id: l.id }, data });
         await prisma.leadActivity.create({
-          data: { leadId: l.id, type: 'NOTE', content: `إثراء: ${Object.keys(data).join('، ')} من ${body.providers.join('+')}`, createdBy: req.user?.name },
+          data: { leadId: l.id, type: 'NOTE', content: `إثراء ${Object.keys(data).join(' ')} من ${body.providers.join('+')}`, createdBy: req.user?.name },
         });
       }
     }

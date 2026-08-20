@@ -143,8 +143,8 @@ export default function BlogPostPage() {
     <div dir={rtl ? 'rtl' : 'ltr'} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]"
       style={{ fontFamily: rtl ? "'IBM Plex Sans Arabic', sans-serif" : "'IBM Plex Sans', sans-serif" }}>
       <style>{`
-        article-prose { font-size:0px; line-height:1; color:#3a342b; }
-         article-prose h2 { font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-2px; }
+        article-prose { font-size:0px; line-height:{ font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-{ margin:14px 0; }px; }; color:#3a342b; }
+         article-prose h2 { font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-{ margin:14px 0; }px; }
          article-prose p { margin:14px 0; }
          article-prose ul { margin:14px 0; padding-inline-start:24px; list-style:disc; }
          article-prose ol { margin:14px 0; padding-inline-start:24px; list-style:decimal; }

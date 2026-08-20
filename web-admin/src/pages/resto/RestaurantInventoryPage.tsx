@@ -33,20 +33,20 @@ export default function RestaurantInventoryPage() {
   const delMut = useMutation({
     mutationFn: () => restaurantApi.deleteIngredient(del!.id),
     onSuccess: () => { invalidate(); toast.success('تم الحذف'); setDel(null); },
-    onError: () => toast.error('تعذّر الحذف'),
+    onError: () => toast.error('تعذر الحذف'),
   });
 
   return (
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-2xl font-bold text-[#1F1A13]">المخزون</h1>
-        <button onClick={() => setEdit('new')} className="btn-primary"><Plus size={16} /> مكوّن جديد</button>
+        <button onClick={() => setEdit('new')} className="btn-primary"><Plus size={16} /> مكون جديد</button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
         <div className="bg-white rounded-2xl p-4 flex items-center gap-3 border border-gray-100">
           <div className="w-11 h-11 rounded-xl bg-[#E15A30] flex items-center justify-center"><Boxes size={22} className="text-white" /></div>
-          <div><p className="text-lg font-bold text-[#1F1A13]">{list.length}</p><p className="text-xs text-[#6E6557]">عدد المكوّنات</p></div>
+          <div><p className="text-lg font-bold text-[#1F1A13]">{list.length}</p><p className="text-xs text-[#6E6557]">عدد المكونات</p></div>
         </div>
         <div className="bg-white rounded-2xl p-4 flex items-center gap-3 border border-gray-100">
           <div className="w-11 h-11 rounded-xl bg-[#1E7A52] flex items-center justify-center"><ArrowDownUp size={22} className="text-white" /></div>
@@ -54,23 +54,23 @@ export default function RestaurantInventoryPage() {
         </div>
         <div className="bg-white rounded-2xl p-4 flex items-center gap-3 border border-gray-100">
           <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${lowCount ? 'bg-red-500' : 'bg-gray-300'}`}><AlertTriangle size={22} className="text-white" /></div>
-          <div><p className="text-lg font-bold text-[#1F1A13]">{lowCount}</p><p className="text-xs text-[#6E6557]">تحت حدّ التنبيه</p></div>
+          <div><p className="text-lg font-bold text-[#1F1A13]">{lowCount}</p><p className="text-xs text-[#6E6557]">تحت حد التنبيه</p></div>
         </div>
       </div>
 
-      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل…</div>
+      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل</div>
         : list.length === 0 ? (
           <div className="card text-center py-16">
             <Boxes size={30} className="text-[#9A8F7E] mx-auto mb-2" />
-            <p className="text-gray-500">لا مكوّنات — أضف أول مكوّن لتتبّع المخزون والتكلفة</p>
+            <p className="text-gray-500">لا مكونات أضف أول مكون لتتبع المخزون والتكلفة</p>
           </div>
         ) : (
           <div className="card p-0 overflow-hidden">
             <div className="table-wrapper">
               <table className="table">
                 <thead><tr>
-                  <th>المكوّن</th><th className="text-center">الرصيد</th><th className="text-center">حدّ التنبيه</th>
-                  <th className="text-center">متوسّط التكلفة</th><th className="text-center">القيمة</th><th>إجراءات</th>
+                  <th>المكون</th><th className="text-center">الرصيد</th><th className="text-center">حد التنبيه</th>
+                  <th className="text-center">متوسط التكلفة</th><th className="text-center">القيمة</th><th>إجراءات</th>
                 </tr></thead>
                 <tbody>
                   {list.map(i => (
@@ -103,7 +103,7 @@ export default function RestaurantInventoryPage() {
 
       {edit && <IngredientModal ing={edit === 'new' ? null : edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); invalidate(); }} />}
       {move && <MovementModal ing={move} onClose={() => setMove(null)} onSaved={() => { setMove(null); invalidate(); }} />}
-      {del && <ConfirmDialog danger title="حذف المكوّن" message={`حذف «${del.name}» وكل حركاته وأسطر وصفاته؟`} loading={delMut.isPending} onConfirm={() => delMut.mutate()} onClose={() => setDel(null)} />}
+      {del && <ConfirmDialog danger title="حذف المكون" message={`حذف «${del.name}» وكل حركاته وأسطر وصفاته`} loading={delMut.isPending} onConfirm={() => delMut.mutate()} onClose={() => setDel(null)} />}
     </div>
   );
 }
@@ -124,16 +124,16 @@ function IngredientModal({ ing, onClose, onSaved }: { ing: Ingredient | null; on
     onError: () => toast.error('حدث خطأ'),
   });
   return (
-    <Shell title={ing ? 'تعديل المكوّن' : 'مكوّن جديد'} onClose={onClose}>
+    <Shell title={ing ? 'تعديل المكون' : 'مكون جديد'} onClose={onClose}>
       <div className="p-5 space-y-3">
-        <div><label className="label">اسم المكوّن *</label>
-          <input className="input" autoFocus value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال: لحم بقري" /></div>
+        <div><label className="label">اسم المكون *</label>
+          <input className="input" autoFocus value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال لحم بقري" /></div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="label">الوحدة</label>
             <select className="input" value={f.unit} onChange={e => set('unit', e.target.value)}>
               {UNITS.map(u => <option key={u.v} value={u.v}>{u.l}</option>)}
             </select></div>
-          <div><label className="label">حدّ التنبيه</label>
+          <div><label className="label">حد التنبيه</label>
             <input type="number" min={0} step="0.001" className="input" value={f.minQty} onChange={e => set('minQty', e.target.value)} /></div>
         </div>
         {!ing && (
@@ -161,32 +161,32 @@ function MovementModal({ ing, onClose, onSaved }: { ing: Ingredient; onClose: ()
       ...(type === 'PURCHASE' && unitCost ? { unitCost: Number(unitCost) } : {}),
       reason: reason.trim() || null,
     }),
-    onSuccess: () => { toast.success('سُجّلت الحركة'); onSaved(); },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر تسجيل الحركة'),
+    onSuccess: () => { toast.success('سجلت الحركة'); onSaved(); },
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر تسجيل الحركة'),
   });
   const submit = () => {
     const q = Number(qty);
     if (!qty || (type !== 'ADJUST' && q <= 0)) { toast.error('أدخل كمية صحيحة'); return; }
-    if (type === 'PURCHASE' && !(Number(unitCost) > 0)) { toast.error('أدخل تكلفة الوحدة للشراء (تحدّث متوسّط التكلفة)'); return; }
+    if (type === 'PURCHASE' && !(Number(unitCost) > 0)) { toast.error('أدخل تكلفة الوحدة للشراء تحدث متوسط التكلفة'); return; }
     mut.mutate();
   };
   const tab = (v: typeof type, label: string) => (
     <button onClick={() => setType(v)} className={`flex-1 py-2 rounded-lg text-sm font-semibold border ${type === v ? 'bg-[#FBEBE2] border-[#E15A30] text-[#C94E28]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>{label}</button>
   );
   return (
-    <Shell title={`حركة مخزون — ${ing.name}`} onClose={onClose}>
+    <Shell title={`حركة مخزون ${ing.name}`} onClose={onClose}>
       <div className="p-5 space-y-3">
         <div className="flex gap-2">{tab('PURCHASE', 'شراء')}{tab('ADJUST', 'تسوية')}{tab('WASTE', 'هدر')}</div>
-        <div className="text-xs text-[#9A8F7E]">الرصيد الحالي: <span className="font-bold text-[#1F1A13]">{num(ing.stockQty)} {unitLabel(ing.unit)}</span></div>
+        <div className="text-xs text-[#9A8F7E]">الرصيد الحالي <span className="font-bold text-[#1F1A13]">{num(ing.stockQty)} {unitLabel(ing.unit)}</span></div>
         <div>
-          <label className="label">{type === 'ADJUST' ? 'الكمية (موجب/سالب)' : 'الكمية'}</label>
-          <input type="number" step="0.001" className="input" autoFocus value={qty} onChange={e => setQty(e.target.value)} placeholder={type === 'ADJUST' ? 'مثال: -2' : '0'} />
+          <label className="label">{type === 'ADJUST' ? 'الكمية موجب/سالب' : 'الكمية'}</label>
+          <input type="number" step="0.001" className="input" autoFocus value={qty} onChange={e => setQty(e.target.value)} placeholder={type === 'ADJUST' ? 'مثال -2' : '0'} />
         </div>
         {type === 'PURCHASE' && (
-          <div><label className="label">تكلفة الوحدة * (تحدّث المتوسّط)</label>
+          <div><label className="label">تكلفة الوحدة * تحدث المتوسط</label>
             <input type="number" min={0} step="any" inputMode="decimal" className="input" value={unitCost} onChange={e => setUnitCost(e.target.value)} placeholder={String(ing.avgCost)} /></div>
         )}
-        <div><label className="label">السبب (اختياري)</label>
+        <div><label className="label">السبب اختياري</label>
           <input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder={type === 'WASTE' ? 'تلف/انتهاء صلاحية' : ''} /></div>
       </div>
       <Footer loading={mut.isPending} onSave={submit} onClose={onClose} />

@@ -99,7 +99,7 @@ export async function runAutoEmailBatch(): Promise<{
   if (remaining <= 0) {
     cfg.lastRunAt = new Date().toISOString();
     await saveEmailConfig(cfg);
-    return { sent: 0, failed: 0, followUps: 0, remainingToday: 0, targeted: 0, errors: ['بلغ الحدّ اليومي'] };
+    return { sent: 0, failed: 0, followUps: 0, remainingToday: 0, targeted: 0, errors: ['بلغ الحد اليومي'] };
   }
   const take = Math.min(cfg.batchSize, remaining);
 

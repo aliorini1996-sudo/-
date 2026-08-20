@@ -45,12 +45,12 @@ export interface VideoJob {
 // Edge = Microsoft Neural (مجاني بلا مفتاح) · Google = WaveNet (يتطلب GOOGLE_TTS_KEY)
 export interface Voice { id: string; label: string; engine: 'edge' | 'google'; name: string; }
 const VOICES: Voice[] = [
-  { id: 'hamed',    label: 'حمد — ذكر (سعودي)',     engine: 'edge',   name: 'ar-SA-HamedNeural' },
-  { id: 'zariyah',  label: 'زارية — أنثى (سعودية)', engine: 'edge',   name: 'ar-SA-ZariyahNeural' },
-  { id: 'shakir',   label: 'شاكر — ذكر (مصري)',     engine: 'edge',   name: 'ar-EG-ShakirNeural' },
-  { id: 'salma',    label: 'سلمى — أنثى (مصرية)',   engine: 'edge',   name: 'ar-EG-SalmaNeural' },
-  { id: 'g-male',   label: 'Google WaveNet — ذكر',  engine: 'google', name: 'ar-XA-Wavenet-C' },
-  { id: 'g-female', label: 'Google WaveNet — أنثى', engine: 'google', name: 'ar-XA-Wavenet-A' },
+  { id: 'hamed',    label: 'حمد ذكر سعودي',     engine: 'edge',   name: 'ar-SA-HamedNeural' },
+  { id: 'zariyah',  label: 'زارية أنثى سعودية', engine: 'edge',   name: 'ar-SA-ZariyahNeural' },
+  { id: 'shakir',   label: 'شاكر ذكر مصري',     engine: 'edge',   name: 'ar-EG-ShakirNeural' },
+  { id: 'salma',    label: 'سلمى أنثى مصرية',   engine: 'edge',   name: 'ar-EG-SalmaNeural' },
+  { id: 'g-male',   label: 'Google WaveNet ذكر',  engine: 'google', name: 'ar-XA-Wavenet-C' },
+  { id: 'g-female', label: 'Google WaveNet أنثى', engine: 'google', name: 'ar-XA-Wavenet-A' },
 ];
 const DEFAULT_VOICE = VOICES[0];
 
@@ -67,27 +67,27 @@ mkdirSync(MEDIA_DIR, { recursive: true });
 const defaultFeatures: VideoFeature[] = [
   {
     id: 'invoice', nameAr: 'الفاتورة الإلكترونية', duration: 30, icon: '🧾', enabled: true,
-    script: 'هل تتعب من إصدار الفواتير يدوياً؟\nمع Field Sales تُنشأ الفاتورة الإلكترونية بنقرة واحدة.\nسجلّ كامل، PDF فوري، وتوافق ضريبي.\nجرّب الآن وسهّل عملك!',
+    script: 'هل تتعب من إصدار الفواتير يدويا \nمع Field Sales تنشأ الفاتورة الإلكترونية بنقرة واحدة \nسجل كامل PDF فوري وتوافق ضريبي \nجرب الآن وسهل عملك',
   },
   {
     id: 'reports', nameAr: 'التقارير والإحصائيات', duration: 35, icon: '📊', enabled: true,
-    script: 'هل تريد فهم أداء فريقك لحظة بلحظة؟\nتقارير Field Sales توضّح كل شيء بصرياً وفوراً.\nمبيعات اليوم، أداء المناديب، والتحصيل.\nكل المعلومات في لوحة واحدة.',
+    script: 'هل تريد فهم أداء فريقك لحظة بلحظة \nتقارير Field Sales توضح كل شيء بصريا وفورا \nمبيعات اليوم أداء المناديب والتحصيل \nكل المعلومات في لوحة واحدة',
   },
   {
     id: 'tracking', nameAr: 'تتبع المناديب', duration: 30, icon: '📍', enabled: true,
-    script: 'شاهد فريقك الميداني على الخريطة الحيّة.\nكل مندوب، موقعه، وزياراته لحظياً.\nشفافية كاملة وإدارة أذكى.\nField Sales: نظامك للمبيعات الميدانية.',
+    script: 'شاهد فريقك الميداني على الخريطة الحية \nكل مندوب موقعه وزياراته لحظيا \nشفافية كاملة وإدارة أذكى \nField Sales نظامك للمبيعات الميدانية',
   },
   {
     id: 'customers', nameAr: 'إدارة العملاء', duration: 35, icon: '👥', enabled: true,
-    script: 'قاعدة عملاء موحّدة ومنظّمة.\nسجلّ كامل لكل عميل: فواتيره، مدفوعاته، وكشف حسابه.\nمتابعة سهلة من أي جهاز.\nField Sales يجعل إدارة العملاء احترافية.',
+    script: 'قاعدة عملاء موحدة ومنظمة \nسجل كامل لكل عميل فواتيره مدفوعاته وكشف حسابه \nمتابعة سهلة من أي جهاز \nField Sales يجعل إدارة العملاء احترافية',
   },
   {
     id: 'vanstock', nameAr: 'مخزون السيارة', duration: 30, icon: '🚚', enabled: true,
-    script: 'كم بضاعة في سيارة كل مندوب الآن؟\nField Sales يتتبّع تحميل وتصريف مخزون السيارات.\nتسوية يومية دقيقة بلا ورق.\nتحكّم كامل في بضاعتك الميدانية.',
+    script: 'كم بضاعة في سيارة كل مندوب الآن \nField Sales يتتبع تحميل وتصريف مخزون السيارات \nتسوية يومية دقيقة بلا ورق \nتحكم كامل في بضاعتك الميدانية',
   },
   {
     id: 'mobile', nameAr: 'تطبيق المندوب', duration: 30, icon: '📱', enabled: true,
-    script: 'تطبيق قوي في جيب كل مندوب.\nفواتير، تحصيل، وعملاء — حتى بدون إنترنت.\nيتزامن تلقائياً عند عودة الاتصال.\nحمّل تطبيق Field Sales اليوم!',
+    script: 'تطبيق قوي في جيب كل مندوب \nفواتير تحصيل وعملاء حتى بدون إنترنت \nيتزامن تلقائيا عند عودة الاتصال \nحمل تطبيق Field Sales اليوم',
   },
 ];
 
@@ -113,8 +113,8 @@ export function updateFeature(id: string, updates: { script?: string; duration?:
   if (!f) throw Object.assign(new Error('المميزة غير موجودة'), { status: 404 });
   if (updates.script !== undefined) {
     const s = updates.script.trim();
-    if (s.length < 20) throw Object.assign(new Error('السيناريو قصير جداً (20 حرفاً على الأقل)'), { status: 400 });
-    if (s.length > 600) throw Object.assign(new Error('السيناريو طويل جداً (600 حرف كحد أقصى)'), { status: 400 });
+    if (s.length < 20) throw Object.assign(new Error('السيناريو قصير جدا 20 حرفا على الأقل'), { status: 400 });
+    if (s.length > 600) throw Object.assign(new Error('السيناريو طويل جدا 600 حرف كحد أقصى'), { status: 400 });
     f.script = s;
   }
   if (updates.duration !== undefined) f.duration = Math.min(90, Math.max(15, updates.duration));
@@ -161,10 +161,10 @@ function resolveVoice(voiceId?: string): Voice {
 export function createJob(featureId: string, voiceId?: string): VideoJob {
   const feature = features.get(featureId);
   if (!feature) throw Object.assign(new Error('المميزة غير موجودة'), { status: 404 });
-  if (!feature.enabled) throw Object.assign(new Error('المميزة معطّلة'), { status: 400 });
+  if (!feature.enabled) throw Object.assign(new Error('المميزة معطلة'), { status: 400 });
 
   const active = [...jobs.values()].find((j) => j.featureId === featureId && (j.status === 'queued' || j.status === 'processing'));
-  if (active) throw Object.assign(new Error('يوجد إنتاج جارٍ لهذه المميزة بالفعل'), { status: 409 });
+  if (active) throw Object.assign(new Error('يوجد إنتاج جار لهذه المميزة بالفعل'), { status: 409 });
 
   const voice = resolveVoice(voiceId);
   const job: VideoJob = {
@@ -217,7 +217,7 @@ async function runPipeline(job: VideoJob, feature: VideoFeature, voice: Voice): 
 
     // 3) فيديو Avatar — ترقية اختيارية (HeyGen، عند توفّر رصيد API مدفوع)
     if (p.avatar) {
-      setStage(job, 'avatar', 'إنشاء فيديو المتحدّث (HeyGen) — قد يستغرق دقائق', 72);
+      setStage(job, 'avatar', 'إنشاء فيديو المتحدث HeyGen قد يستغرق دقائق', 72);
       job.outputUrl = await heygenVideo(feature.script, job);
       job.progress = 95;
     }
@@ -250,10 +250,10 @@ async function edgeTts(text: string, jobId: string, voiceName: string): Promise<
     audioStream.on('data', (c: Buffer) => chunks.push(c));
     audioStream.on('end', () => resolve());
     audioStream.on('error', reject);
-    setTimeout(() => reject(new Error('انتهت مهلة Edge TTS (30 ثانية)')), 30000);
+    setTimeout(() => reject(new Error('انتهت مهلة Edge TTS 30 ثانية')), 30000);
   });
   const buf = Buffer.concat(chunks);
-  if (!buf.length) throw new Error('Edge TTS لم يُرجع صوتاً');
+  if (!buf.length) throw new Error('Edge TTS لم يرجع صوتا');
   writeFileSync(path.join(MEDIA_DIR, `${jobId}.mp3`), buf);
   return `/media/promo/${jobId}.mp3`;
 }
@@ -276,7 +276,7 @@ async function googleTts(text: string, jobId: string, voiceName: string): Promis
     throw new Error(`Google TTS رفض الطلب (${res.status}): ${body.slice(0, 200)}`);
   }
   const data = (await res.json()) as { audioContent?: string };
-  if (!data.audioContent) throw new Error('Google TTS لم يُرجع صوتاً');
+  if (!data.audioContent) throw new Error('Google TTS لم يرجع صوتا');
   const file = path.join(MEDIA_DIR, `${jobId}.mp3`);
   writeFileSync(file, Buffer.from(data.audioContent, 'base64'));
   return `/media/promo/${jobId}.mp3`;
@@ -307,20 +307,20 @@ async function resolveHeygenDefaults(): Promise<{ avatarId: string; voiceId: str
 
   if (!avatarId) {
     const r = await fetch(`${HEYGEN}/v2/avatars`, { headers });
-    if (!r.ok) throw new Error(`HeyGen: تعذّر جلب قائمة الـAvatars (${r.status}) — تأكد من صحة المفتاح`);
+    if (!r.ok) throw new Error(`HeyGen تعذر جلب قائمة الAvatars (${r.status}) تأكد من صحة المفتاح`);
     const d = (await r.json()) as { data?: { avatars?: { avatar_id: string }[] } };
     avatarId = d.data?.avatars?.[0]?.avatar_id || '';
-    if (!avatarId) throw new Error('HeyGen: لا يوجد Avatar في حسابك — أضف واحداً من heygen.com أو اضبط HEYGEN_AVATAR_ID');
+    if (!avatarId) throw new Error('HeyGen لا يوجد Avatar في حسابك أضف واحدا من heygen com أو اضبط HEYGEN_AVATAR_ID');
   }
 
   if (!voiceId) {
     const r = await fetch(`${HEYGEN}/v2/voices`, { headers });
-    if (!r.ok) throw new Error(`HeyGen: تعذّر جلب قائمة الأصوات (${r.status})`);
+    if (!r.ok) throw new Error(`HeyGen تعذر جلب قائمة الأصوات (${r.status})`);
     const d = (await r.json()) as { data?: { voices?: { voice_id: string; language?: string }[] } };
     const voices = d.data?.voices || [];
     // أول صوت عربي؛ وإلا أول صوت متاح
     voiceId = (voices.find((v) => /arabic|العربية/i.test(v.language || '')) || voices[0])?.voice_id || '';
-    if (!voiceId) throw new Error('HeyGen: لا توجد أصوات متاحة في حسابك');
+    if (!voiceId) throw new Error('HeyGen لا توجد أصوات متاحة في حسابك');
   }
 
   heygenDefaults = { avatarId, voiceId };
@@ -350,7 +350,7 @@ async function heygenVideo(script: string, job: VideoJob): Promise<string> {
   }
   const created = (await createRes.json()) as { data?: { video_id?: string }; error?: { message?: string } };
   const videoId = created.data?.video_id;
-  if (!videoId) throw new Error(`HeyGen لم يُرجع معرّف فيديو${created.error?.message ? `: ${created.error.message}` : ''}`);
+  if (!videoId) throw new Error(`HeyGen لم يرجع معرف فيديو${created.error?.message ? `: ${created.error.message}` : ''}`);
 
   // استقصاء الحالة حتى الاكتمال (حد أقصى ~12 دقيقة) مع تقدّم حي في اللوحة
   const deadline = Date.now() + 12 * 60 * 1000;
@@ -368,7 +368,7 @@ async function heygenVideo(script: string, job: VideoJob): Promise<string> {
       // تنزيل الملف محلياً (روابط HeyGen مؤقتة الصلاحية)
       job.stageLabel = 'تنزيل الفيديو النهائي';
       const dl = await fetch(s.data.video_url);
-      if (!dl.ok) throw new Error('تعذّر تنزيل الفيديو من HeyGen');
+      if (!dl.ok) throw new Error('تعذر تنزيل الفيديو من HeyGen');
       const buf = Buffer.from(await dl.arrayBuffer());
       const file = path.join(MEDIA_DIR, `${job.id}.mp4`);
       writeFileSync(file, buf);
@@ -378,7 +378,7 @@ async function heygenVideo(script: string, job: VideoJob): Promise<string> {
       throw new Error(`HeyGen فشل في توليد الفيديو${s.data?.error?.message ? `: ${s.data.error.message}` : ''}`);
     }
   }
-  throw new Error('انتهت مهلة انتظار HeyGen (12 دقيقة) — أعد المحاولة');
+  throw new Error('انتهت مهلة انتظار HeyGen 12 دقيقة أعد المحاولة');
 }
 
 // ————— أدوات مساعدة —————

@@ -30,7 +30,7 @@ export function zatcaQrBase64(p: {
 
 export const zatcaProvider: ComplianceProvider = {
   id: 'zatca',
-  countryLabel: 'ZATCA — السعودية (المرحلة الأولى)',
+  countryLabel: 'ZATCA السعودية المرحلة الأولى',
   async build(inv: ComplianceInvoice): Promise<ComplianceResult> {
     const qr = zatcaQrBase64({
       sellerName: inv.seller.name,

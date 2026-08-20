@@ -95,7 +95,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (tenant?.maxSalesReps != null) {
       const current = await prisma.salesRep.count({ where: { tenantId: tid } });
       if (current >= tenant.maxSalesReps) {
-        res.status(403).json({ success: false, message: `بلغت الشركة الحد الأقصى المسموح للمناديب (${tenant.maxSalesReps}). تواصل مع مزوّد الخدمة لرفع الحد.` });
+        res.status(403).json({ success: false, message: `بلغت الشركة الحد الأقصى المسموح للمناديب (${tenant.maxSalesReps}) تواصل مع مزود الخدمة لرفع الحد` });
         return;
       }
     }
@@ -115,9 +115,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // تفرّد اسم المستخدم عالمي (للدخول)، والجوال/البريد ضمن الشركة
 async function checkRepDuplicates(tid: string, username: string, phone: string, email?: string, excludeId?: string): Promise<string | null> {
   const notSelf = excludeId ? { id: { not: excludeId } } : {};
-  if (await prisma.salesRep.findFirst({ where: { username, ...notSelf } })) return 'اسم المستخدم مستخدم مسبقاً، اختر اسماً آخر';
-  if (await prisma.salesRep.findFirst({ where: { tenantId: tid, phone, ...notSelf } })) return 'رقم الجوال مستخدم مسبقاً لمندوب آخر';
-  if (email && await prisma.salesRep.findFirst({ where: { tenantId: tid, email, ...notSelf } })) return 'البريد الإلكتروني مستخدم مسبقاً';
+  if (await prisma.salesRep.findFirst({ where: { username, ...notSelf } })) return 'اسم المستخدم مستخدم مسبقا اختر اسما آخر';
+  if (await prisma.salesRep.findFirst({ where: { tenantId: tid, phone, ...notSelf } })) return 'رقم الجوال مستخدم مسبقا لمندوب آخر';
+  if (email && await prisma.salesRep.findFirst({ where: { tenantId: tid, email, ...notSelf } })) return 'البريد الإلكتروني مستخدم مسبقا';
   return null;
 }
 
@@ -190,7 +190,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     const tid = tenantId(req);
     // القيد: الأدمن الرئيسي فقط (لا مدير/محاسب)
     if (req.user?.role !== 'ADMIN') {
-      res.status(403).json({ success: false, message: 'حذف المندوب متاح للأدمن الرئيسي فقط.' });
+      res.status(403).json({ success: false, message: 'حذف المندوب متاح للأدمن الرئيسي فقط' });
       return;
     }
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true } });
@@ -339,7 +339,7 @@ router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: Ne
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     const amount = Number(req.body?.amount);
-    if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ success: false, message: 'أدخل مبلغاً صحيحاً أكبر من صفر' }); return; }
+    if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ success: false, message: 'أدخل مبلغا صحيحا أكبر من صفر' }); return; }
     const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : undefined;
     const by = req.user as { name?: string; id?: string } | undefined;
     await prisma.repSettlement.create({

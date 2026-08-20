@@ -25,14 +25,14 @@ function signVerifyToken(adminId: string): string {
 function verifyEmailHtml(name: string, url: string): string {
   return `<div dir="rtl" style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#FAF7F0;padding:24px">
     <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E9E1D3;border-radius:16px;overflow:hidden">
-      <div style="background:#1F1A13;padding:20px;color:#fff;font-size:18px;font-weight:700">FieldSales — تأكيد البريد الإلكتروني</div>
-      <div style="padding:24px;color:#3a342b;font-size:15px;line-height:1.9">
-        مرحباً ${name}،<br>شكراً لتسجيلك في FieldSales. لتأكيد بريدك الإلكتروني اضغط الزر التالي:
+      <div style="background:#1F1A13;padding:20px;color:#fff;font-size:18px;font-weight:700">FieldSales تأكيد البريد الإلكتروني</div>
+      <div style="padding:24px;color:#3a342b;font-size:15px;line-height:0">
+        مرحبا ${name}<br>شكرا لتسجيلك في FieldSales لتأكيد بريدك الإلكتروني اضغط الزر التالي 
         <div style="text-align:center;margin:24px 0">
-          <a href="${url}" style="background:#E15A30;color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:12px;display:inline-block">تأكيد البريد الإلكتروني</a>
+          <a href="${url}" style="background #E15A30 color #fff text-decoration none font-weight 700 padding 13px 30px border-radius 12px display inline-block">تأكيد البريد الإلكتروني</a>
         </div>
-        أو انسخ الرابط في متصفّحك:<br><span style="color:#6E6557;word-break:break-all">${url}</span><br><br>
-        الرابط صالح لمدة يومين. إن لم تكن أنت من سجّل، تجاهل هذه الرسالة.
+        أو انسخ الرابط في متصفحك <br><span style="color:#6E6557;word-break:break-all">${url}</span><br><br>
+        الرابط صالح لمدة يومين إن لم تكن أنت من سجل تجاهل هذه الرسالة 
       </div>
     </div>
   </div>`;
@@ -182,14 +182,14 @@ router.post('/renew', renewLimiter, async (req: Request, res: Response, next: Ne
       payload = jwt.verify(token, process.env.JWT_SECRET as jwt.Secret, { ignoreExpiration: true }) as typeof payload;
     } catch {
       // توقيع فاسد = ليس توكننا. لا تجديد.
-      res.status(401).json({ success: false, message: 'جلسة غير صالحة، سجّل الدخول مجدداً' });
+      res.status(401).json({ success: false, message: 'جلسة غير صالحة سجل الدخول مجددا' });
       return;
     }
 
     // منتهٍ منذ زمن طويل ⇒ دخول حقيقيّ. النافذة تحدّ عمر التوكن المسروق.
     const expMs = (payload.exp ?? 0) * 1000;
     if (!payload.id || !payload.exp || Date.now() - expMs > RENEW_GRACE_DAYS * 86400000) {
-      res.status(401).json({ success: false, message: 'انتهت الجلسة، سجّل الدخول مجدداً' });
+      res.status(401).json({ success: false, message: 'انتهت الجلسة سجل الدخول مجددا' });
       return;
     }
 
@@ -223,7 +223,7 @@ router.post('/renew', renewLimiter, async (req: Request, res: Response, next: Ne
     }
 
     // مالك المنصّة لا يُجدَّد: جلسته قصيرة عمداً وصلاحياته أوسع
-    res.status(401).json({ success: false, message: 'انتهت الجلسة، سجّل الدخول مجدداً' });
+    res.status(401).json({ success: false, message: 'انتهت الجلسة سجل الدخول مجددا' });
   } catch (err) { next(err); }
 });
 
@@ -231,7 +231,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
   try {
     const body = signupSchema.parse(req.body);
     const taken = await prisma.admin.findUnique({ where: { email: body.email } });
-    if (taken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً - سجل الدخول' }); return; }
+    if (taken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا - سجل الدخول' }); return; }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
     const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
@@ -265,7 +265,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
     // إشعار «عميل تجريبي جديد» إلى البريد الرئيسي للشركة
     const mailSent = await sendMail({
       to: process.env.MAIL_TO || 'info@fieldsa.net',
-      subject: `🎉 عميل تجريبي جديد: ${body.companyName}`,
+      subject: `🎉 عميل تجريبي جديد ${body.companyName}`,
       replyTo: body.email,
       html: mailLayout('🎉 عميل تجريبي جديد', [
         ['الشركة', body.companyName],
@@ -277,15 +277,15 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
         ['مدة التجربة', `${TRIAL_DAYS} أيام`],
         ['تاريخ التسجيل', new Date().toISOString().slice(0, 10)],
         ['تنتهي التجربة', trialEndsAt.toISOString().slice(0, 10)],
-      ], 'سجّل عميل جديد للتجربة المجانية عبر fieldsa.net — يُنصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك.'),
+      ], 'سجل عميل جديد للتجربة المجانية عبر fieldsa net ينصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك'),
     });
-    if (!mailSent) console.error('[mail] فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
+    if (!mailSent) console.error('mail فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
 
     // بريد تأكيد للعميل — يحقّق ملكية البريد (دخول فوري + لافتة تأكيد بالواجهة)
     const verifyUrl = `${frontendBase()}/verify-email?token=${signVerifyToken(created.admin.id)}`;
     const verifySent = await sendMail({
       to: body.email,
-      subject: 'تأكيد بريدك الإلكتروني — FieldSales',
+      subject: 'تأكيد بريدك الإلكتروني FieldSales',
       html: verifyEmailHtml(body.adminName, verifyUrl),
     });
 
@@ -329,7 +329,7 @@ router.post('/resend-verification', authenticate, mailLimiter, async (req: AuthR
     if (!admin) { res.status(404).json({ success: false, message: 'الحساب غير موجود' }); return; }
     if (admin.emailVerified) { res.json({ success: true, data: { alreadyVerified: true } }); return; }
     const verifyUrl = `${frontendBase()}/verify-email?token=${signVerifyToken(admin.id)}`;
-    const sent = await sendMail({ to: admin.email, subject: 'تأكيد بريدك الإلكتروني — FieldSales', html: verifyEmailHtml(admin.name, verifyUrl) });
+    const sent = await sendMail({ to: admin.email, subject: 'تأكيد بريدك الإلكتروني FieldSales', html: verifyEmailHtml(admin.name, verifyUrl) });
     res.json({ success: true, data: { sent } });
   } catch (err) { next(err); }
 });

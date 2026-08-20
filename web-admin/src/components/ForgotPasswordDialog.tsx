@@ -20,8 +20,8 @@ export default function ForgotPasswordDialog({ role, onClose }: Props) {
           <h2 className="text-lg font-bold text-[#1F1A13]">استعادة كلمة المرور</h2>
           <p className="text-sm text-[#6E6557] mt-2 leading-relaxed">
             {isRep
-              ? 'لأمان حسابك، إعادة تعيين كلمة المرور تتم عبر مدير شركتك.'
-              : 'لأمان حسابك، إعادة تعيين كلمة المرور تتم عبر مزوّد الخدمة (مالك المنصّة).'}
+              ? 'لأمان حسابك إعادة تعيين كلمة المرور تتم عبر مدير شركتك'
+              : 'لأمان حسابك إعادة تعيين كلمة المرور تتم عبر مزود الخدمة مالك المنصة'}
           </p>
         </div>
 
@@ -32,19 +32,19 @@ export default function ForgotPasswordDialog({ role, onClose }: Props) {
             </div>
             <div>
               <p className="text-sm font-semibold text-[#1F1A13]">
-                {isRep ? 'تواصل مع مدير شركتك' : 'تواصل مع مزوّد الخدمة'}
+                {isRep ? 'تواصل مع مدير شركتك' : 'تواصل مع مزود الخدمة'}
               </p>
               <p className="text-xs text-[#6E6557] mt-1 leading-relaxed">
                 {isRep
-                  ? 'اطلب منه فتح صفحة «المناديب» ← زر المفتاح بجانب اسمك ← «إعادة تعيين كلمة المرور»، وسيسلّمك كلمة مرور جديدة.'
-                  : 'اطلب منه فتح لوحة المالك ← زر المفتاح بجانب شركتك ← «إعادة تعيين كلمة المرور»، وسيسلّمك كلمة مرور جديدة.'}
+                  ? 'اطلب منه فتح صفحة المناديب ← زر المفتاح بجانب اسمك ← إعادة تعيين كلمة المرور وسيسلمك كلمة مرور جديدة'
+                  : 'اطلب منه فتح لوحة المالك ← زر المفتاح بجانب شركتك ← إعادة تعيين كلمة المرور وسيسلمك كلمة مرور جديدة'}
               </p>
             </div>
           </div>
         </div>
 
         <div className="p-6 pt-4">
-          <button onClick={onClose} className="btn-primary w-full justify-center py-2.5">حسناً، فهمت</button>
+          <button onClick={onClose} className="btn-primary w-full justify-center py-2.5">حسنا فهمت</button>
         </div>
       </div>
     </div>

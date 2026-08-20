@@ -85,7 +85,7 @@ function CommissionTool() {
         <p className="text-2xl font-bold mt-1 tabular-nums" dir="ltr">{nf(r.total)} <span className="text-xs font-normal">ر.س</span></p>
         {r.adjusted && (
           <p className="text-[11px] text-amber-700 mt-1">
-            {r.adjusted === 'floor' ? `رفعت للأرضية المحسوب ${nf(r.raw)})` : `حدت بالسقف المحسوب ${nf(r.raw)})`}
+            {r.adjusted === 'floor' ? `رفعت للأرضية المحسوب ${nf(r.raw)}` : `حدت بالسقف المحسوب ${nf(r.raw)}`}
           </p>
         )}
         {r.rows.length > 0 && (

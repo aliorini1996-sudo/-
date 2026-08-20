@@ -36,56 +36,56 @@ function Wordmark({ dark = false }: { dark?: boolean }) {
 }
 
 const FEATURES: { icon: React.ElementType; title: string; desc: string }[] = [
-  { icon: Monitor, title: 'كاشير سريع (POS)', desc: 'شاشة كاشير لمسية بشبكة أصناف حسب الأقسام، تضيف الطلب بنقرة، وتعمل حتى دون اتصال بالإنترنت.' },
-  { icon: LayoutGrid, title: 'إدارة الطاولات', desc: 'خريطة صالة بحالات الطاولات (فارغة/مشغولة/طلب الحساب)، مع دمج وتقسيم الفاتورة ونقل الطاولات.' },
-  { icon: ChefHat, title: 'تذاكر المطبخ (KOT/KDS)', desc: 'ترسل الطلب لمحطة التحضير المناسبة تلقائياً، وشاشة مطبخ تتابع حالة كل صنف لحظياً.' },
-  { icon: ScrollText, title: 'القوائم والإضافات', desc: 'قائمة منظّمة بأقسام وأصناف وأحجام وإضافات إلزامية/اختيارية وأسعار — تُدار من لوحة واحدة.' },
-  { icon: ReceiptText, title: 'فوترة إلكترونية معتمدة', desc: 'فاتورة ضريبية مبسّطة برمز QR متوافقة مع هيئة الزكاة والضريبة (ZATCA) ومنظومة الفوترة المصرية (ETA).' },
-  { icon: Calculator, title: 'محاسبة وتقارير', desc: 'قيود المبيعات اليومية، تقرير Z، المبيعات حسب الصنف/الكاشير/ساعة الذروة، وملخّص ضريبة القيمة المضافة.' },
-  { icon: Wallet, title: 'الورديات ودرج النقد', desc: 'فتح/إغلاق الوردية، عدّ الدرج، واحتساب فرق النقد تلقائياً لكل كاشير — بلا تلاعب.' },
-  { icon: Boxes, title: 'المخزون والوصفات', desc: 'اربط كل صنف بوصفته فيُخصم المخزون تلقائياً عند البيع، مع تنبيه نفاد المكوّنات وحساب التكلفة.' },
-  { icon: Printer, title: 'طباعة حرارية 80مم', desc: 'إيصال عميل أنيق برمز الفوترة الإلكترونية + تذكرة مطبخ منفصلة — على الطابعات الحرارية المعتادة.' },
-  { icon: UtensilsCrossed, title: 'كل أنواع الطلبات', desc: 'صالة (Dine-in)، سفري (Takeaway)، وتوصيل (Delivery) — بسير عمل واحد وتقارير موحّدة.' },
+  { icon: Monitor, title: 'كاشير سريع POS', desc: 'شاشة كاشير لمسية بشبكة أصناف حسب الأقسام تضيف الطلب بنقرة وتعمل حتى دون اتصال بالإنترنت' },
+  { icon: LayoutGrid, title: 'إدارة الطاولات', desc: 'خريطة صالة بحالات الطاولات فارغة/مشغولة/طلب الحساب مع دمج وتقسيم الفاتورة ونقل الطاولات' },
+  { icon: ChefHat, title: 'تذاكر المطبخ KOT/KDS', desc: 'ترسل الطلب لمحطة التحضير المناسبة تلقائيا وشاشة مطبخ تتابع حالة كل صنف لحظيا' },
+  { icon: ScrollText, title: 'القوائم والإضافات', desc: 'قائمة منظمة بأقسام وأصناف وأحجام وإضافات إلزامية/اختيارية وأسعار تدار من لوحة واحدة' },
+  { icon: ReceiptText, title: 'فوترة إلكترونية معتمدة', desc: 'فاتورة ضريبية مبسطة برمز QR متوافقة مع هيئة الزكاة والضريبة ZATCA ومنظومة الفوترة المصرية ETA' },
+  { icon: Calculator, title: 'محاسبة وتقارير', desc: 'قيود المبيعات اليومية تقرير Z المبيعات حسب الصنف/الكاشير/ساعة الذروة وملخص ضريبة القيمة المضافة' },
+  { icon: Wallet, title: 'الورديات ودرج النقد', desc: 'فتح/إغلاق الوردية عد الدرج واحتساب فرق النقد تلقائيا لكل كاشير بلا تلاعب' },
+  { icon: Boxes, title: 'المخزون والوصفات', desc: 'اربط كل صنف بوصفته فيخصم المخزون تلقائيا عند البيع مع تنبيه نفاد المكونات وحساب التكلفة' },
+  { icon: Printer, title: 'طباعة حرارية 80مم', desc: 'إيصال عميل أنيق برمز الفوترة الإلكترونية + تذكرة مطبخ منفصلة على الطابعات الحرارية المعتادة' },
+  { icon: UtensilsCrossed, title: 'كل أنواع الطلبات', desc: 'صالة Dine-in سفري Takeaway وتوصيل Delivery بسير عمل واحد وتقارير موحدة' },
 ];
 
 const STEPS: { n: string; title: string; desc: string }[] = [
-  { n: '١', title: 'أنشئ حسابك وقائمتك', desc: 'سجّل مطعمك، أضف الأقسام والأصناف والإضافات والطاولات في دقائق.' },
-  { n: '٢', title: 'افتح الكاشير واستقبل الطلبات', desc: 'يبدأ الكاشير الوردية، يفتح الطلبات، يرسلها للمطبخ، ويحصّل الدفع ويطبع الإيصال.' },
-  { n: '٣', title: 'تابع المبيعات والمحاسبة', desc: 'راقب المبيعات والأرباح وتقارير الضريبة والمخزون لحظياً من لوحة واحدة.' },
+  { n: '١', title: 'أنشئ حسابك وقائمتك', desc: 'سجل مطعمك أضف الأقسام والأصناف والإضافات والطاولات في دقائق' },
+  { n: '٢', title: 'افتح الكاشير واستقبل الطلبات', desc: 'يبدأ الكاشير الوردية يفتح الطلبات يرسلها للمطبخ ويحصل الدفع ويطبع الإيصال' },
+  { n: '٣', title: 'تابع المبيعات والمحاسبة', desc: 'راقب المبيعات والأرباح وتقارير الضريبة والمخزون لحظيا من لوحة واحدة' },
 ];
 
 // نفس قسم «واجهة مصمّمة لكل دور» في الصفحة الرئيسية — بأدوار المطعم
 const ROLES: { icon: React.ElementType; title: string; desc: string }[] = [
-  { icon: ShieldCheck, title: 'صاحب المطعم / المدير', desc: 'لوحة تحكم شاملة للمبيعات والأرباح والتقارير والمخزون عبر كل الفروع.' },
-  { icon: Monitor, title: 'الكاشير والنادل', desc: 'شاشة كاشير سريعة لفتح الطلبات وإرسالها للمطبخ وتحصيل الدفع وطباعة الإيصال.' },
-  { icon: ChefHat, title: 'المطبخ (الشيف)', desc: 'شاشة مطبخ تعرض التذاكر لحظياً وتتابع حالة كل صنف حتى التقديم.' },
+  { icon: ShieldCheck, title: 'صاحب المطعم / المدير', desc: 'لوحة تحكم شاملة للمبيعات والأرباح والتقارير والمخزون عبر كل الفروع' },
+  { icon: Monitor, title: 'الكاشير والنادل', desc: 'شاشة كاشير سريعة لفتح الطلبات وإرسالها للمطبخ وتحصيل الدفع وطباعة الإيصال' },
+  { icon: ChefHat, title: 'المطبخ الشيف', desc: 'شاشة مطبخ تعرض التذاكر لحظيا وتتابع حالة كل صنف حتى التقديم' },
 ];
 
 const PLANS: { name: string; price: string; period?: string; limit: string; badge?: string; features: string[]; cta: string }[] = [
-  { name: 'المبتدئة', price: '٢٩٩', period: 'ر.س / شهرياً', limit: 'نقطة بيع واحدة',
+  { name: 'المبتدئة', price: '٢٩٩', period: 'ر.س / شهريا', limit: 'نقطة بيع واحدة',
     features: ['كاشير POS وإدارة الطلبات', 'قائمة وطاولات', 'فاتورة إلكترونية ZATCA', 'تقارير أساسية'], cta: 'ابدأ الآن' },
-  { name: 'الاحترافية', price: '٧٩٩', period: 'ر.س / شهرياً', limit: 'حتى ٣ نقاط بيع', badge: 'الأكثر طلباً',
+  { name: 'الاحترافية', price: '٧٩٩', period: 'ر.س / شهريا', limit: 'حتى ٣ نقاط بيع', badge: 'الأكثر طلبا',
     features: ['كل مميزات المبتدئة', 'تذاكر مطبخ KOT/KDS', 'محاسبة وتقارير متقدمة', 'المخزون والوصفات', 'دعم أولوية'], cta: 'ابدأ تجربتك المجانية' },
   { name: 'الفروع', price: 'حسب الطلب', limit: 'فروع ونقاط بيع غير محدودة',
-    features: ['كل مميزات الاحترافية', 'إدارة عدّة فروع', 'صلاحيات دقيقة للموظّفين', 'تدريب وإعداد كامل'], cta: 'تواصل معنا' },
+    features: ['كل مميزات الاحترافية', 'إدارة عدة فروع', 'صلاحيات دقيقة للموظفين', 'تدريب وإعداد كامل'], cta: 'تواصل معنا' },
 ];
 
 const FAQ: { q: string; a: string }[] = [
-  { q: 'هل الفواتير متوافقة مع الأنظمة الضريبية؟', a: 'نعم — فاتورة ضريبية مبسّطة برمز QR متوافقة مع هيئة الزكاة والضريبة (ZATCA Phase 2) في السعودية، ومع منظومة الفوترة الإلكترونية (ETA) في مصر.' },
-  { q: 'هل أحتاج أجهزة خاصة؟', a: 'لا — يعمل الكاشير على أي جهاز لوحي أو حاسوب عبر المتصفّح. للطباعة تكفي طابعة حرارية 80مم معتادة.' },
-  { q: 'هل يعمل الكاشير دون اتصال بالإنترنت؟', a: 'نعم — تُفتح الطلبات وتُطبع وتُحصّل نقداً دون اتصال، ثم ترتفع تلقائياً فور عودة الشبكة بلا تكرار ولا فقدان.' },
-  { q: 'كم يستغرق إعداد المطعم؟', a: 'تُجهّز قائمتك وطاولاتك وتبدأ استقبال الطلبات خلال دقائق. جرّبه مجاناً ١٠ أيام دون بطاقة ائتمان.' },
+  { q: 'هل الفواتير متوافقة مع الأنظمة الضريبية', a: 'نعم فاتورة ضريبية مبسطة برمز QR متوافقة مع هيئة الزكاة والضريبة ZATCA Phase 2 في السعودية ومع منظومة الفوترة الإلكترونية ETA في مصر' },
+  { q: 'هل أحتاج أجهزة خاصة', a: 'لا يعمل الكاشير على أي جهاز لوحي أو حاسوب عبر المتصفح للطباعة تكفي طابعة حرارية 80مم معتادة' },
+  { q: 'هل يعمل الكاشير دون اتصال بالإنترنت', a: 'نعم تفتح الطلبات وتطبع وتحصل نقدا دون اتصال ثم ترتفع تلقائيا فور عودة الشبكة بلا تكرار ولا فقدان' },
+  { q: 'كم يستغرق إعداد المطعم', a: 'تجهز قائمتك وطاولاتك وتبدأ استقبال الطلبات خلال دقائق جربه مجانا ١٠ أيام دون بطاقة ائتمان' },
 ];
 
 export default function RestaurantLandingPage() {
   useEffect(() => {
     const prevTitle = document.title;
-    document.title = 'Field Restaurant — نظام كاشير ومحاسبة للمطاعم';
+    document.title = 'Field Restaurant نظام كاشير ومحاسبة للمطاعم';
     document.documentElement.setAttribute('dir', 'rtl');
     document.documentElement.setAttribute('lang', 'ar');
     const meta = document.querySelector('meta[name="description"]');
     const prevDesc = meta?.getAttribute('content') || '';
-    meta?.setAttribute('content', 'Field Restaurant: نظام كاشير (POS) وفوترة إلكترونية ومحاسبة متكامل للمطاعم — طاولات، تذاكر مطبخ، تقارير، ومخزون. تجربة مجانية ١٠ أيام.');
+    meta?.setAttribute('content', 'Field Restaurant نظام كاشير POS وفوترة إلكترونية ومحاسبة متكامل للمطاعم طاولات تذاكر مطبخ تقارير ومخزون تجربة مجانية ١٠ أيام');
     return () => { document.title = prevTitle; if (meta && prevDesc) meta.setAttribute('content', prevDesc); };
   }, []);
 
@@ -105,7 +105,7 @@ export default function RestaurantLandingPage() {
             <Link to="/login" className="text-sm font-semibold text-[#6E6557] hover:text-[#1F1A13] px-2">دخول</Link>
             <Link to={SIGNUP} className="text-sm font-bold text-white px-4 py-2 rounded-xl transition-colors" style={{ background: ORANGE }}
               onMouseOver={e => (e.currentTarget.style.background = ORANGE_DARK)} onMouseOut={e => (e.currentTarget.style.background = ORANGE)}>
-              ابدأ مجاناً
+              ابدأ مجانا
             </Link>
           </div>
         </div>
@@ -120,11 +120,11 @@ export default function RestaurantLandingPage() {
               <Star size={13} /> نظام تشغيل مطاعم عربي متكامل
             </span>
             <h1 className="text-4xl sm:text-5xl font-bold leading-[1.15] tracking-tight">
-              أدِر مطعمك بالكامل<br /><span style={{ color: ORANGE }}>من الكاشير حتى المحاسبة</span>
+              أدر مطعمك بالكامل<br /><span style={{ color: ORANGE }}>من الكاشير حتى المحاسبة</span>
             </h1>
             <p className="mt-5 text-[15px] leading-relaxed text-[#6E6557] max-w-xl">
-              كاشير سريع، إدارة طاولات وقوائم، تذاكر مطبخ، فوترة إلكترونية معتمدة، ومحاسبة وتقارير دقيقة —
-              كل ما يحتاجه مطعمك في منصّة واحدة تعمل على أي جهاز.
+              كاشير سريع إدارة طاولات وقوائم تذاكر مطبخ فوترة إلكترونية معتمدة ومحاسبة وتقارير دقيقة 
+              كل ما يحتاجه مطعمك في منصة واحدة تعمل على أي جهاز
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link to={SIGNUP} className="inline-flex items-center gap-2 text-white font-bold px-6 py-3.5 rounded-xl transition-colors" style={{ background: ORANGE }}
@@ -135,7 +135,7 @@ export default function RestaurantLandingPage() {
                 شاهد المميزات
               </a>
             </div>
-            <p className="mt-4 text-xs text-[#9A8F7E]">١٠ أيام مجاناً · بدون بطاقة ائتمان · إلغاء في أي وقت</p>
+            <p className="mt-4 text-xs text-[#9A8F7E]">١٠ أيام مجانا بدون بطاقة ائتمان إلغاء في أي وقت</p>
           </div>
 
           {/* بطاقة معاينة الكاشير */}
@@ -144,7 +144,7 @@ export default function RestaurantLandingPage() {
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: ORANGE }}><Monitor size={16} className="text-white" /></span>
-                  <span className="text-sm font-bold">طلب #١٤ — طاولة ٧</span>
+                  <span className="text-sm font-bold">طلب #١٤ طاولة ٧</span>
                 </div>
                 <span className="text-xs px-2 py-1 rounded-full" style={{ background: '#EAF5EF', color: GREEN }}>مفتوح</span>
               </div>
@@ -157,13 +157,13 @@ export default function RestaurantLandingPage() {
                 ))}
               </div>
               <div className="border-t my-3.5" style={{ borderColor: '#E9E1D3' }} />
-              <div className="flex items-center justify-between text-sm text-[#6E6557]"><span>ضريبة القيمة المضافة (١٥٪)</span><span className="tabular-nums">١٤٫٧٠</span></div>
+              <div className="flex items-center justify-between text-sm text-[#6E6557]"><span>ضريبة القيمة المضافة ١٥٪</span><span className="tabular-nums">١٤٫٧٠</span></div>
               <div className="flex items-center justify-between mt-1.5"><span className="font-bold">الإجمالي</span><span className="font-bold text-lg tabular-nums" style={{ color: ORANGE }}>١١٢٫٧٠ ر.س</span></div>
               <button className="w-full mt-4 text-white font-bold py-3 rounded-xl" style={{ background: GREEN }}>دفع وطباعة الإيصال</button>
             </div>
             <div className="absolute -bottom-4 -left-4 rounded-2xl px-4 py-3 shadow-xl hidden sm:flex items-center gap-2" style={{ background: VOID }}>
               <ChefHat size={18} style={{ color: ORANGE }} />
-              <span className="text-white text-xs font-semibold">تذكرة المطبخ أُرسلت</span>
+              <span className="text-white text-xs font-semibold">تذكرة المطبخ أرسلت</span>
             </div>
           </div>
         </div>
@@ -173,8 +173,8 @@ export default function RestaurantLandingPage() {
       <section id="features" className="max-w-6xl mx-auto px-5 py-20">
         <div className="text-center max-w-2xl mx-auto">
           <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: ORANGE }}>المميزات</div>
-          <h2 className="text-3xl font-bold mt-3 tracking-tight">كل ما يحتاجه مطعمك في منصّة واحدة</h2>
-          <p className="text-[#6E6557] mt-3">من نقطة البيع في الصالة إلى قيد المحاسبة الذي يصل مكتب المدير — كل شيء متصل ومتزامن.</p>
+          <h2 className="text-3xl font-bold mt-3 tracking-tight">كل ما يحتاجه مطعمك في منصة واحدة</h2>
+          <p className="text-[#6E6557] mt-3">من نقطة البيع في الصالة إلى قيد المحاسبة الذي يصل مكتب المدير كل شيء متصل ومتزامن</p>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-12">
           {FEATURES.map(({ icon: Icon, title, desc }) => (
@@ -195,7 +195,7 @@ export default function RestaurantLandingPage() {
           <div className="text-center max-w-2xl mx-auto">
             <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: ORANGE }}>كيف يعمل</div>
             <h2 className="text-3xl font-bold mt-3 tracking-tight">تبدأ خلال دقائق</h2>
-            <p className="text-[#6E6557] mt-3">ثلاث خطوات تفصلك عن إدارة مطعمك بالكامل.</p>
+            <p className="text-[#6E6557] mt-3">ثلاث خطوات تفصلك عن إدارة مطعمك بالكامل</p>
           </div>
           <div className="grid md:grid-cols-3 gap-6 mt-12">
             {STEPS.map(({ n, title, desc }) => (
@@ -213,7 +213,7 @@ export default function RestaurantLandingPage() {
       <section className="max-w-6xl mx-auto px-5 py-20">
         <div className="text-center max-w-2xl mx-auto">
           <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: ORANGE }}>لكل دور</div>
-          <h2 className="text-3xl font-bold mt-3 tracking-tight">واجهة مصمّمة لكل دور في مطعمك</h2>
+          <h2 className="text-3xl font-bold mt-3 tracking-tight">واجهة مصممة لكل دور في مطعمك</h2>
         </div>
         <div className="grid md:grid-cols-3 gap-5 mt-12">
           {ROLES.map(({ icon: Icon, title, desc }) => (
@@ -234,7 +234,7 @@ export default function RestaurantLandingPage() {
           <div className="text-center max-w-2xl mx-auto">
             <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: ORANGE }}>الأسعار</div>
             <h2 className="text-3xl font-bold mt-3 tracking-tight">باقات تناسب نمو مطعمك</h2>
-            <p className="text-[#6E6557] mt-3">ابدأ مجاناً ١٠ أيام — بدون بطاقة ائتمان.</p>
+            <p className="text-[#6E6557] mt-3">ابدأ مجانا ١٠ أيام بدون بطاقة ائتمان</p>
           </div>
           <div className="grid md:grid-cols-3 gap-5 mt-12 items-stretch">
             {PLANS.map(p => (
@@ -289,9 +289,9 @@ export default function RestaurantLandingPage() {
       <section className="relative overflow-hidden" style={{ background: VOID }}>
         <div className="absolute inset-0" style={{ background: `radial-gradient(90% 120% at 80% 0%, ${ORANGE}44, transparent 60%)` }} />
         <div className="relative max-w-3xl mx-auto px-5 py-20 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">جاهز لتشغيل مطعمك باحتراف؟</h2>
+          <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">جاهز لتشغيل مطعمك باحتراف</h2>
           <p className="text-[#C9BEAC] mt-4 max-w-xl mx-auto leading-relaxed">
-            افتح الكاشير، أدِر طاولاتك، أصدر فواتيرك الإلكترونية، وتابع محاسبتك — كل ذلك من منصّة واحدة.
+            افتح الكاشير أدر طاولاتك أصدر فواتيرك الإلكترونية وتابع محاسبتك كل ذلك من منصة واحدة
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link to={SIGNUP} className="inline-flex items-center gap-2 text-white font-bold px-7 py-3.5 rounded-xl" style={{ background: ORANGE }}>
@@ -301,7 +301,7 @@ export default function RestaurantLandingPage() {
               تسجيل الدخول
             </Link>
           </div>
-          <p className="mt-4 text-xs text-[#9A8F7E]">١٠ أيام مجاناً · بدون بطاقة ائتمان · إلغاء في أي وقت</p>
+          <p className="mt-4 text-xs text-[#9A8F7E]">١٠ أيام مجانا بدون بطاقة ائتمان إلغاء في أي وقت</p>
         </div>
       </section>
 
@@ -318,7 +318,7 @@ export default function RestaurantLandingPage() {
             </div>
           </div>
           <div className="border-t border-white/10 mt-8 pt-6 text-center text-xs text-[#9A8F7E]">
-            © ٢٠٢٦ Field Restaurant — فرع من منصّة Field. جميع الحقوق محفوظة.
+            © ٢٠٢٦ Field Restaurant فرع من منصة Field جميع الحقوق محفوظة
           </div>
         </div>
       </footer>

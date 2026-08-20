@@ -18,7 +18,7 @@ router.use(requireAdminPermission('canManageVanStock'));
 router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { warehouseEnabled: true } });
-    if (!t?.warehouseEnabled) { res.status(403).json({ success: false, message: 'ميزة مخزون الشركة غير مفعّلة لهذه الشركة' }); return; }
+    if (!t?.warehouseEnabled) { res.status(403).json({ success: false, message: 'ميزة مخزون الشركة غير مفعلة لهذه الشركة' }); return; }
     next();
   } catch (err) { next(err); }
 });
@@ -46,7 +46,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
     // الوارد موجبٌ دائماً؛ التنقيص يكون تسويةً صريحة
     if (data.type === 'RECEIVE' && items.some((i) => i.qty < 0)) {
-      res.status(400).json({ success: false, message: 'كمية الوارد يجب أن تكون موجبة — استخدم «تسوية» للتنقيص' });
+      res.status(400).json({ success: false, message: 'كمية الوارد يجب أن تكون موجبة استخدم تسوية للتنقيص' });
       return;
     }
     const productIds = [...new Set(items.map((i) => i.productId))];

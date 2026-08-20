@@ -31,7 +31,7 @@ const createVisitSchema = z.object({
   endedAt: z.string().optional(),
   clientDurationSec: z.number().optional(), // ما قاسه العميل — للمقارنة لا للاعتماد
 }).refine((d) => !!d.customerId || !!d.customerClientRef, {
-  message: 'يجب تحديد العميل (customerId أو customerClientRef)',
+  message: 'يجب تحديد العميل customerId أو customerClientRef',
 });
 
 // المندوب يسجّل زيارة (مع صورها) — أو الإدارة نيابةً بتحديد المندوب
@@ -70,7 +70,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const ref = await prisma.customer.findFirst({
         where: { tenantId: tid, clientRef: body.customerClientRef }, select: { id: true },
       });
-      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يُرفع بعد — أعِد المزامنة' }); return; }
+      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يرفع بعد أعد المزامنة' }); return; }
       customerId = ref.id;
     }
     if (!customerId) { res.status(400).json({ success: false, message: 'يجب تحديد العميل' }); return; }
@@ -79,7 +79,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     // عزل العملاء: يُمنع تسجيل زيارة لعميل غير مُسنَد للمندوب
     if (!(await canAccessCustomer(req, tid, customerId))) {
-      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
       return;
     }
 

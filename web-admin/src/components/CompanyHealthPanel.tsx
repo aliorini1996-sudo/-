@@ -80,8 +80,8 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><HeartPulse size={20} className="text-[#E15A30]" /></div>
             <div>
-              <h2 className="text-lg font-bold text-[#1F1A13]">صحّة الشركة</h2>
-              <p className="text-xs text-[#6E6557]">نظرة موحّدة: نمو · منتج · اشتراكات · تشغيل</p>
+              <h2 className="text-lg font-bold text-[#1F1A13]">صحة الشركة</h2>
+              <p className="text-xs text-[#6E6557]">نظرة موحدة نمو منتج اشتراكات تشغيل</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -93,7 +93,7 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
         </div>
 
         {loading ? (
-          <div className="py-20 text-center text-gray-400">جارٍ تجميع مؤشّرات صحّة الشركة…</div>
+          <div className="py-20 text-center text-gray-400">جار تجميع مؤشرات صحة الشركة</div>
         ) : (
           <div className="p-5 space-y-5">
             {/* النجم الشمالي */}
@@ -114,32 +114,32 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Kpi icon={Building2} value={String(total)} label="إجمالي الشركات" color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
                 <Kpi icon={CheckCircle2} value={`${activationRate}%`} label={`تفعيل (${activated} أصدرت فاتورة)`} color="text-[#1E7A52]" bg="bg-green-50" />
-                <Kpi icon={Globe2} value={String(visitsQ.data?.uniques ?? '—')} label="زائر فريد / 30 يوماً" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
-                <Kpi icon={TrendingUp} value={String(visitsQ.data?.total ?? '—')} label="زيارة / 30 يوماً" color="text-[#6E6557]" bg="bg-[#EDE7DB]" />
+                <Kpi icon={Globe2} value={String(visitsQ.data?.uniques ?? '—')} label="زائر فريد / 30 يوما" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
+                <Kpi icon={TrendingUp} value={String(visitsQ.data?.total ?? '—')} label="زيارة / 30 يوما" color="text-[#6E6557]" bg="bg-[#EDE7DB]" />
               </div>
             </div>
 
             {/* الإيراد التقديري — عدّاد MRR من جدول الشركات (خطة فجوة التنفيذ) */}
             <div>
-              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-[#1E7A52]" /> الإيراد التقديري (MRR)</h3>
+              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-[#1E7A52]" /> الإيراد التقديري MRR</h3>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Kpi icon={TrendingUp} value={opsQ.data ? `${opsQ.data.mrrEstimate.toLocaleString('ar-EG')} ر.س` : '—'} label="MRR تقديري / شهر" color="text-[#1E7A52]" bg="bg-green-50" />
-                <Kpi icon={Building2} value={String(opsQ.data?.activeNotExpired ?? '—')} label="اشتراك سارٍ (يشمل التجارب)" color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
-                <Kpi icon={AlertTriangle} value={String(opsQ.data?.expired30d ?? '—')} label="انتهى آخر 30 يوماً (إشارة انسحاب)" color="text-[#C0392B]" bg="bg-red-50" />
-                <Kpi icon={Sparkles} value={String(opsQ.data?.new30d ?? '—')} label="جديدة آخر 30 يوماً" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
+                <Kpi icon={Building2} value={String(opsQ.data?.activeNotExpired ?? '—')} label="اشتراك سار يشمل التجارب" color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
+                <Kpi icon={AlertTriangle} value={String(opsQ.data?.expired30d ?? '—')} label="انتهى آخر 30 يوما إشارة انسحاب" color="text-[#C0392B]" bg="bg-red-50" />
+                <Kpi icon={Sparkles} value={String(opsQ.data?.new30d ?? '—')} label="جديدة آخر 30 يوما" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
               </div>
               <p className="text-[11px] text-[#9A8F7E] mt-2 leading-relaxed">
-                تقدير نظري: الاشتراكات السارية × سعر الباقة المعتمد (299/599) — يشمل التجارب النشطة ولا يعكس تحصيلاً فعلياً.
+                تقدير نظري الاشتراكات السارية × سعر الباقة المعتمد 299/599 يشمل التجارب النشطة ولا يعكس تحصيلا فعليا
                 {opsQ.data && opsQ.data.unpricedPlans > 0 ? ` (${opsQ.data.unpricedPlans} شركة بباقة بلا سعر معتمد غير محسوبة)` : ''}
               </p>
             </div>
 
             {/* فجوة التنفيذ — بطاقات قرار المالك */}
             <div>
-              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Clock size={15} className="text-[#C0392B]" /> فجوة التنفيذ — بطاقات القرار</h3>
+              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Clock size={15} className="text-[#C0392B]" /> فجوة التنفيذ بطاقات القرار</h3>
               <div className="grid grid-cols-2 gap-3">
                 <Kpi icon={FileText} value={String(cardsQ.data?.length ?? '—')} label="بطاقة مفتوحة" color="text-[#6E6557]" bg="bg-[#EDE7DB]" />
-                <Kpi icon={AlertTriangle} value={String(cardsQ.data?.filter(c => c.overdue).length ?? '—')} label="متأخرة عن مهلتها (الهدف: 0)" color="text-[#C0392B]" bg="bg-red-50" />
+                <Kpi icon={AlertTriangle} value={String(cardsQ.data?.filter(c => c.overdue).length ?? '—')} label="متأخرة عن مهلتها الهدف 0" color="text-[#C0392B]" bg="bg-red-50" />
               </div>
               {(cardsQ.data?.length ?? 0) > 0 && (
                 <div className="mt-3 bg-white border border-[#E9E1D3] rounded-2xl divide-y divide-[#F1EBDF]">
@@ -148,15 +148,15 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
                       <span className="text-[#1F1A13] font-medium truncate">{c.title}</span>
                       <span className={`text-xs font-semibold shrink-0 ${c.overdue ? 'text-[#C0392B]' : 'text-[#E0A02C]'}`}>
                         {c.daysToDeadline !== null
-                          ? (c.daysToDeadline >= 0 ? `مهلة: ${c.daysToDeadline} يوم` : `فاتت منذ ${-c.daysToDeadline} يوم`)
-                          : `${c.daysOpen} يوماً`}
+                          ? (c.daysToDeadline >= 0 ? `مهلة ${c.daysToDeadline} يوم` : `فاتت منذ ${-c.daysToDeadline} يوم`)
+                          : `${c.daysOpen} يوما`}
                       </span>
                     </div>
                   ))}
                 </div>
               )}
               <button
-                onClick={async () => { try { await tenantApi.sendWeeklyReport(); alert('أُرسل التقرير الأسبوعي إلى بريد المنصّة'); } catch { alert('تعذّر الإرسال — تحقق من إعداد البريد'); } }}
+                onClick={async () => { try { await tenantApi.sendWeeklyReport(); alert('أرسل التقرير الأسبوعي إلى بريد المنصة'); } catch { alert('تعذر الإرسال تحقق من إعداد البريد'); } }}
                 className="mt-3 text-xs font-semibold text-[#1E7A52] hover:underline"
               >إرسال التقرير الأسبوعي الآن ←</button>
             </div>
@@ -167,7 +167,7 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Kpi icon={CheckCircle2} value={String(active)} label="اشتراك نشط" color="text-[#1E7A52]" bg="bg-green-50" />
                 <Kpi icon={AlertTriangle} value={String(expiringSoon.length)} label="ينتهي خلال 7 أيام" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
-                <Kpi icon={AlertTriangle} value={String(expired.length)} label="منتهٍ / متأخّر" color="text-[#C0392B]" bg="bg-red-50" />
+                <Kpi icon={AlertTriangle} value={String(expired.length)} label="منته / متأخر" color="text-[#C0392B]" bg="bg-red-50" />
                 <Kpi icon={Power} value={String(inactive)} label="موقوف" color="text-[#6E6557]" bg="bg-[#EDE7DB]" />
               </div>
               {(expiringSoon.length > 0 || expired.length > 0) && (
@@ -179,7 +179,7 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
                       <div key={t.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]">
                         <span className="text-[#1F1A13] font-medium truncate">{t.name}</span>
                         <span className={`text-xs font-semibold shrink-0 ${over ? 'text-[#C0392B]' : 'text-[#E0A02C]'}`}>
-                          {over ? `متأخّر ${Math.abs(d)} يوم` : `ينتهي خلال ${d} يوم`}
+                          {over ? `متأخر ${Math.abs(d)} يوم` : `ينتهي خلال ${d} يوم`}
                         </span>
                       </div>
                     );
@@ -190,7 +190,7 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
 
             {/* إجماليات المنصّة */}
             <div>
-              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Users size={15} className="text-[#E15A30]" /> إجماليات المنصّة</h3>
+              <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Users size={15} className="text-[#E15A30]" /> إجماليات المنصة</h3>
               <div className="grid grid-cols-3 gap-3">
                 <Kpi icon={Users} value={String(totalReps)} label="مندوب" color="text-[#E15A30]" bg="bg-[#FBEBE2]" />
                 <Kpi icon={Building2} value={String(totalCustomers)} label="عميل" color="text-[#1E7A52]" bg="bg-green-50" />
@@ -202,15 +202,15 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
             <div>
               <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Activity size={15} className="text-[#E15A30]" /> التشغيل</h3>
               <div className="grid grid-cols-2 gap-3">
-                <HealthRow ok={apiUp} label="الـAPI وقاعدة البيانات" okText="يستجيبان" badText="لا يستجيبان" />
+                <HealthRow ok={apiUp} label="الAPI وقاعدة البيانات" okText="يستجيبان" badText="لا يستجيبان" />
                 <HealthRow ok={analyticsUp} label="خدمة التحليلات" okText="تعمل" badText="غير متاحة" />
               </div>
             </div>
 
             <p className="text-[11px] text-[#9A8F7E] text-center leading-relaxed">
-              مجمّعة من المصادر القائمة (الشركات + التحليلات + بطاقات القرار) بلا تخزين إضافي.
-              تقرير أسبوعي آلي يصل بريد المنصّة كل اثنين 8 صباحاً، وتذكير يومي عند وجود بطاقات متأخرة.
-              صحّة التشغيل مشتقّة من نجاح استجابة الخدمات.
+              مجمعة من المصادر القائمة الشركات + التحليلات + بطاقات القرار بلا تخزين إضافي 
+              تقرير أسبوعي آلي يصل بريد المنصة كل اثنين 8 صباحا وتذكير يومي عند وجود بطاقات متأخرة 
+              صحة التشغيل مشتقة من نجاح استجابة الخدمات
             </p>
           </div>
         )}

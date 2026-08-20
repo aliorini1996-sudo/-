@@ -110,8 +110,8 @@ function cardsTableHtml(list: CardStatus[]): string {
   const rows = list.map(c => `
     <tr>
       <td style="padding:6px 10px;border-bottom:1px solid #eee">${c.title}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap">${AR_NUM(c.daysOpen)} يوماً</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap">${c.daysToDeadline !== null ? (c.daysToDeadline >= 0 ? `تبقّى ${AR_NUM(c.daysToDeadline)} يوماً` : `فاتت منذ ${AR_NUM(-c.daysToDeadline)} يوماً`) : (c.severity ?? '—')}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap">${AR_NUM(c.daysOpen)} يوما</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap">${c.daysToDeadline !== null ? (c.daysToDeadline >= 0 ? `تبقى ${AR_NUM(c.daysToDeadline)} يوما` : `فاتت منذ ${AR_NUM(-c.daysToDeadline)} يوما`) : (c.severity ?? '—')}</td>
     </tr>`).join('');
   return `<table style="border-collapse:collapse;width:100%;font-size:14px" dir="rtl">
     <tr><th style="text-align:right;padding:6px 10px;border-bottom:2px solid #14614E">البطاقة</th><th style="text-align:right;padding:6px 10px;border-bottom:2px solid #14614E">عمرها</th><th style="text-align:right;padding:6px 10px;border-bottom:2px solid #14614E">المهلة/الدرجة</th></tr>
@@ -124,13 +124,13 @@ export async function sendDailyReminder(): Promise<boolean> {
   const nearDeadline = statuses.filter(c => c.daysToDeadline !== null && c.daysToDeadline <= 7);
   const urgent = [...new Map([...overdue, ...nearDeadline].map(c => [c.id, c])).values()];
   if (!urgent.length) return false;
-  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:1.9;color:#1F2823">
-    <h2 style="color:#14614E">تذكير يومي — بطاقات قرار تجاوزت مهلتها</h2>
-    <p>${AR_NUM(urgent.length)} بطاقة تحتاج حسمك (القاعدة: نعم / لا / أجّل <b>بتاريخ</b> — لا تأجيل بلا تاريخ):</p>
+  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:0;color:#1F2823">
+    <h2 style="color:#14614E">تذكير يومي بطاقات قرار تجاوزت مهلتها</h2>
+    <p>${AR_NUM(urgent.length)} بطاقة تحتاج حسمك القاعدة نعم / لا / أجل <b>بتاريخ</b> لا تأجيل بلا تاريخ </p>
     ${cardsTableHtml(urgent)}
-    <p style="color:#5A665E;font-size:13px;margin-top:14px">المصدر: ops/decision-cards.json — أغلق البطاقة بنقل معرّفها إلى closed مع التاريخ (أو اطلب ذلك من الوكيل). هذا التذكير يُرسل يومياً 8 صباحاً ما دامت بطاقة متأخرة.</p>
+    <p style="color:#5A665E;font-size:13px;margin-top:14px">المصدر ops/decision-cards.json أغلق البطاقة بنقل معرفها إلى closed مع التاريخ أو اطلب ذلك من الوكيل هذا التذكير يرسل يوميا 8 صباحا ما دامت بطاقة متأخرة </p>
   </div>`;
-  return sendMail({ subject: `⏰ ${AR_NUM(urgent.length)} بطاقة قرار متأخرة — Field Sales`, html });
+  return sendMail({ subject: `⏰ ${AR_NUM(urgent.length)} بطاقة قرار متأخرة Field Sales`, html });
 }
 
 export async function sendWeeklyReport(): Promise<boolean> {
@@ -138,25 +138,25 @@ export async function sendWeeklyReport(): Promise<boolean> {
   const statuses = cardStatuses();
   const overdue = statuses.filter(c => c.overdue);
   const oldest = statuses[0];
-  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:1.9;color:#1F2823">
-    <h2 style="color:#14614E">التقرير الأسبوعي — Field Sales</h2>
-    <h3>الاشتراكات والإيراد (من جدول الشركات)</h3>
+  const html = `<div dir="rtl" style="font-family:Segoe UI,Tahoma,sans-serif;line-height:0;color:#1F2823">
+    <h2 style="color:#14614E">التقرير الأسبوعي Field Sales</h2>
+    <h3>الاشتراكات والإيراد من جدول الشركات </h3>
     <ul>
-      <li>الشركات النشطة (اشتراك سارٍ): <b>${AR_NUM(m.activeNotExpired)}</b> من أصل ${AR_NUM(m.totalTenants)} مسجّلة</li>
-      <li>MRR تقديري وفق أسعار الباقات المعتمدة: <b>${AR_NUM(m.mrrEstimate)} ر.س</b>${m.unpricedPlans ? ` (+${AR_NUM(m.unpricedPlans)} شركة بباقة بلا سعر معتمد)` : ''} — <i>يشمل التجارب النشطة ولا يعكس تحصيلاً فعلياً</i></li>
-      <li>توزيع الباقات: ${Object.entries(m.byPlan).map(([p, n]) => `${p}: ${AR_NUM(n)}`).join(' · ') || '—'}</li>
-      <li>اشتراكات انتهت خلال 30 يوماً (إشارة انسحاب): <b>${AR_NUM(m.expired30d)}</b> · تنتهي خلال 7 أيام: <b>${AR_NUM(m.expiring7d)}</b></li>
-      <li>شركات جديدة آخر 30 يوماً: <b>${AR_NUM(m.new30d)}</b> · بلغت التفعيل (أول فاتورة): <b>${AR_NUM(m.activated)}</b></li>
+      <li>الشركات النشطة اشتراك سار <b>${AR_NUM(m.activeNotExpired)}</b> من أصل ${AR_NUM(m.totalTenants)} مسجلة</li>
+      <li>MRR تقديري وفق أسعار الباقات المعتمدة <b>${AR_NUM(m.mrrEstimate)} ر.س</b>${m.unpricedPlans ? ` (+${AR_NUM(m.unpricedPlans)} شركة بباقة بلا سعر معتمد)` : ''} <i>يشمل التجارب النشطة ولا يعكس تحصيلا فعليا</i></li>
+      <li>توزيع الباقات ${Object.entries(m.byPlan).map(([p, n]) => `${p}: ${AR_NUM(n)}`).join(' · ') || '—'}</li>
+      <li>اشتراكات انتهت خلال 30 يوما إشارة انسحاب <b>${AR_NUM(m.expired30d)}</b> تنتهي خلال 7 أيام <b>${AR_NUM(m.expiring7d)}</b></li>
+      <li>شركات جديدة آخر 30 يوما <b>${AR_NUM(m.new30d)}</b> بلغت التفعيل أول فاتورة <b>${AR_NUM(m.activated)}</b></li>
     </ul>
-    <h3>فجوة التنفيذ (مؤشرات الخطة)</h3>
+    <h3>فجوة التنفيذ مؤشرات الخطة </h3>
     <ul>
-      <li>بطاقات مفتوحة: <b>${AR_NUM(statuses.length)}</b> · متأخرة عن مهلتها: <b style="color:${overdue.length ? '#9B3B2E' : '#14614E'}">${AR_NUM(overdue.length)}</b></li>
-      <li>أقدم بطاقة: ${oldest ? `«${oldest.title}» — ${AR_NUM(oldest.daysOpen)} يوماً (الهدف ≤ 7)` : '—'}</li>
+      <li>بطاقات مفتوحة <b>${AR_NUM(statuses.length)}</b> متأخرة عن مهلتها <b style="color${overdue.length ? '#9B3B2E' : '#14614E'}">${AR_NUM(overdue.length)}</b></li>
+      <li>أقدم بطاقة ${oldest ? `«${oldest.title}» — ${AR_NUM(oldest.daysOpen)} يوما الهدف ≤ 7` : '—'}</li>
     </ul>
     ${statuses.length ? cardsTableHtml(statuses) : ''}
-    <p style="color:#5A665E;font-size:13px;margin-top:14px">تقرير آلي أسبوعي (الاثنين 8 صباحاً بتوقيت الرياض) — يغلق البند T1.4.2. لإرساله يدوياً: POST /api/tenants/ops/weekly-report من لوحة المالك.</p>
+    <p style="color:#5A665E;font-size:13px;margin-top:14px">تقرير آلي أسبوعي الاثنين 8 صباحا بتوقيت الرياض يغلق البند T1.4 2 لإرساله يدويا POST /api/tenants/ops/weekly-report من لوحة المالك </p>
   </div>`;
-  return sendMail({ subject: `📊 التقرير الأسبوعي — Field Sales (${riyadhDateStr()})`, html });
+  return sendMail({ subject: `📊 التقرير الأسبوعي Field Sales (${riyadhDateStr()})`, html });
 }
 
 // ————— الجدولة —————

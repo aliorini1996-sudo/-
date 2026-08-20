@@ -61,7 +61,7 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
     mutationFn: (ids: string[]) => promoVideoApi.generateBatch(ids, voiceId || undefined),
     onSuccess: (res) => {
       const { created, skipped } = res.data.data as { created: VideoJob[]; skipped: unknown[] };
-      toast.success(`بدأ إنتاج ${created.length}${skipped.length ? ` (تخطّي ${skipped.length})` : ''}`);
+      toast.success(`بدأ إنتاج ${created.length}${skipped.length ? ` (تخطي ${skipped.length})` : ''}`);
       refresh();
     },
     onError: (e) => toast.error(apiMsg(e)),
@@ -69,14 +69,14 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => promoVideoApi.removeJob(id),
-    onSuccess: () => { toast.success('حُذف الفيديو'); refresh(); },
+    onSuccess: () => { toast.success('حذف الفيديو'); refresh(); },
     onError: (e) => toast.error(apiMsg(e)),
   });
 
   const saveScriptMutation = useMutation({
     mutationFn: ({ id, script }: { id: string; script: string }) => promoVideoApi.updateFeature(id, { script }),
     onSuccess: () => {
-      toast.success('حُفظ السيناريو');
+      toast.success('حفظ السيناريو');
       setEditing(null);
       qc.invalidateQueries({ queryKey: ['promo-features'] });
     },
@@ -100,7 +100,7 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><Clapperboard size={20} className="text-[#E15A30]" /></div>
             <div>
               <h2 className="text-lg font-bold text-[#1F1A13]">الفيديوهات الترويجية</h2>
-              <p className="text-xs text-[#6E6557]">تعليق صوتي عربي احترافي لكل مميزة — تدمجه مع تسجيل شاشتك لفيديو 30–60 ثانية</p>
+              <p className="text-xs text-[#6E6557]">تعليق صوتي عربي احترافي لكل مميزة تدمجه مع تسجيل شاشتك لفيديو 30 60 ثانية</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
@@ -110,14 +110,14 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
           {/* مؤشّرات + حالة خدمات الإنتاج */}
           <div className="bg-[#FAF7F0] rounded-2xl border border-[#E9E1D3] p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Kpi value={String(stats?.total ?? '—')} label="إجمالي المُنتَج" />
+              <Kpi value={String(stats?.total ?? '—')} label="إجمالي المنتج" />
               <Kpi value={String(stats?.completed ?? '—')} label="جاهز" color="#1E7A52" />
               <Kpi value={String(stats?.processing ?? '—')} label="قيد الإنتاج" color="#E0A02C" />
               <Kpi value={String(stats?.failed ?? '—')} label="فشل" color="#C0392B" />
             </div>
             {stats && (
               <p className="mt-3 text-[11.5px] text-[#1E7A52] bg-green-50 rounded-lg px-3 py-2 leading-relaxed">
-                التعليق الصوتي العربي مفعّل — Microsoft Edge ✓ (مجاني){googleReady ? ' + Google WaveNet ✓' : ''}{avatarReady ? ' + فيديو HeyGen ✓' : ''}. كل مميزة تُنتج ملف MP3 احترافياً جاهزاً للدمج مع تسجيل شاشتك.
+                التعليق الصوتي العربي مفعل Microsoft Edge ✓ مجاني{googleReady ? ' + Google WaveNet ✓' : ''}{avatarReady ? ' + فيديو HeyGen ✓' : ''}كل مميزة تنتج ملف MP3 احترافيا جاهزا للدمج مع تسجيل شاشتك
               </p>
             )}
           </div>
@@ -125,19 +125,19 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
           {/* دليل الدمج مع تسجيل الشاشة */}
           <div className="bg-white border border-[#E9E1D3] rounded-2xl p-4">
             <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2">
-              <Clapperboard size={16} className="text-[#E15A30]" /> كيف تصنع الفيديو الترويجي؟
+              <Clapperboard size={16} className="text-[#E15A30]" /> كيف تصنع الفيديو الترويجي
             </h3>
             <div className="grid sm:grid-cols-3 gap-2.5">
-              <Step n={1} title="أنتج التعليق الصوتي" body="اختر مميزة واضغط الزر — يُنتَج ملف صوتي عربي احترافي وتحمّله." />
-              <Step n={2} title="سجّل شاشتك" body="اعرض المميزة داخل النظام وسجّل الشاشة (Win+G في ويندوز، أو OBS مجاناً)." />
-              <Step n={3} title="ادمجهما" body="ركّب الصوت على التسجيل في أي محرّر (CapCut/Clipchamp مجاني) وانشر." />
+              <Step n={1} title="أنتج التعليق الصوتي" body="اختر مميزة واضغط الزر ينتج ملف صوتي عربي احترافي وتحمله" />
+              <Step n={2} title="سجل شاشتك" body="اعرض المميزة داخل النظام وسجل الشاشة Win+G في ويندوز أو OBS مجانا" />
+              <Step n={3} title="ادمجهما" body="ركب الصوت على التسجيل في أي محرر CapCut/Clipchamp مجاني وانشر" />
             </div>
           </div>
 
           {/* اختيار الصوت العربي */}
           <div className="flex items-center gap-2 bg-white border border-[#E9E1D3] rounded-xl px-3 py-2.5">
             <Music size={16} className="text-[#E15A30] shrink-0" />
-            <label className="text-[12.5px] font-semibold text-[#1F1A13] shrink-0">الصوت:</label>
+            <label className="text-[12.5px] font-semibold text-[#1F1A13] shrink-0">الصوت</label>
             <select
               value={voiceId}
               onChange={(e) => setVoiceId(e.target.value)}
@@ -183,7 +183,7 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
                       className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-semibold text-white bg-[#E15A30] hover:bg-[#C94E28] rounded-lg py-1.5 transition-colors disabled:opacity-50"
                     >
                       {activeIds.has(f.id) ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-                      {activeIds.has(f.id) ? 'قيد الإنتاج…' : `إنتاج ${produceWord}`}
+                      {activeIds.has(f.id) ? 'قيد الإنتاج' : `إنتاج ${produceWord}`}
                     </button>
                     <button
                       onClick={() => setEditing(f)}
@@ -201,12 +201,12 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
           {/* الفيديوهات المُنتجة */}
           <div>
             <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2">
-              <Clapperboard size={16} className="text-[#E15A30]" /> سجلّ الإنتاج
+              <Clapperboard size={16} className="text-[#E15A30]" /> سجل الإنتاج
             </h3>
             {!jobs?.length ? (
               <div className="text-center py-8 bg-[#FAF7F0] rounded-2xl border border-dashed border-[#E9E1D3]">
                 <Clapperboard size={28} className="mx-auto text-[#C7BCA8] mb-2" />
-                <p className="text-[13px] text-[#6E6557]">لم يُنتج أي فيديو بعد — اختر مميزة واضغط «إنتاج فيديو»</p>
+                <p className="text-[13px] text-[#6E6557]">لم ينتج أي فيديو بعد اختر مميزة واضغط إنتاج فيديو</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -222,7 +222,7 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
         <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4" onClick={() => setEditing(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
-              <h3 className="text-[15px] font-bold text-[#1F1A13]">سيناريو: {editing.nameAr}</h3>
+              <h3 className="text-[15px] font-bold text-[#1F1A13]">سيناريو {editing.nameAr}</h3>
               <button onClick={() => setEditing(null)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={16} /></button>
             </div>
             <div className="p-4 space-y-3">
@@ -234,7 +234,7 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
                 className="w-full text-[13px] leading-relaxed border border-[#E9E1D3] rounded-xl p-3 focus:outline-none focus:border-[#E15A30] resize-none"
               />
               <p className="text-[11px] text-[#9A8F7E]">
-                {editing.script.trim().length} حرفاً — المثالي 100–300 حرف لفيديو {editing.duration} ثانية (مشكلة ← حل ← فائدة ← دعوة للتجربة)
+                {editing.script.trim().length} حرفا المثالي 100 300 حرف لفيديو {editing.duration} ثانية مشكلة ← حل ← فائدة ← دعوة للتجربة
               </p>
             </div>
             <div className="flex gap-2 p-4 pt-0">
@@ -289,7 +289,7 @@ function JobRow({ job, onDelete }: { job: VideoJob; onDelete: () => void }) {
             </a>
           )}
           {job.audioUrl && (
-            <a href={mediaUrl(job.audioUrl)} target="_blank" rel="noreferrer" className="p-1.5 text-[#E15A30] hover:bg-[#FBEBE2] rounded-lg" title="الصوت العربي (MP3)">
+            <a href={mediaUrl(job.audioUrl)} target="_blank" rel="noreferrer" className="p-1.5 text-[#E15A30] hover:bg-[#FBEBE2] rounded-lg" title="الصوت العربي MP3">
               <Music size={15} />
             </a>
           )}

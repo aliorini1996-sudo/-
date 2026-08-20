@@ -29,7 +29,7 @@ export async function sendMail({ subject, html, replyTo, to: toOverride }: MailI
     try {
       await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to, subject, html, replyTo });
       return true;
-    } catch (e) { console.error('[mail] فشل SMTP:', e); return false; }
+    } catch (e) { console.error('mail فشل SMTP', e); return false; }
   }
 
   // 2) عبر Resend (HTTP) كبديل
@@ -42,12 +42,12 @@ export async function sendMail({ subject, html, replyTo, to: toOverride }: MailI
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ from, to, subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
       });
-      if (!res.ok) { console.error('[mail] فشل Resend:', res.status, await res.text().catch(() => '')); return false; }
+      if (!res.ok) { console.error('mail فشل Resend', res.status, await res.text().catch(() => '')); return false; }
       return true;
-    } catch (e) { console.error('[mail] خطأ Resend:', e); return false; }
+    } catch (e) { console.error('mail خطأ Resend', e); return false; }
   }
 
-  console.log('[mail] لم يُضبط بريد (SMTP/Resend) — تم تخطّي:', subject);
+  console.log('mail لم يضبط بريد SMTP/Resend تم تخطي', subject);
   return false;
 }
 

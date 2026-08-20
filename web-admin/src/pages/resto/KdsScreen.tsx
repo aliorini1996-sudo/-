@@ -58,7 +58,7 @@ export default function KdsScreen() {
 
       <div className="p-4">
         {isLoading ? (
-          <div className="text-center py-24 text-[#9A8F7E]">جاري التحميل…</div>
+          <div className="text-center py-24 text-[#9A8F7E]">جاري التحميل</div>
         ) : orders.length === 0 ? (
           <div className="text-center py-24 text-[#9A8F7E]">
             <ChefHat size={40} className="mx-auto mb-3 opacity-50" />
@@ -76,7 +76,7 @@ export default function KdsScreen() {
                   style={{ borderColor: urgent ? '#E15A30' : warn ? '#E4A11B' : '#3a342b' }}>
                   <div className="flex items-center justify-between px-3 py-2" style={{ background: urgent ? '#E15A30' : warn ? '#E4A11B' : '#3a342b' }}>
                     <span className="font-bold text-sm flex items-center gap-1.5">
-                      <Icon size={14} /> #{o.number}{o.table?.number ? ` · طاولة ${o.table.number}` : ` · ${channelLabel(o.channel)}`}
+                      <Icon size={14} /> #{o.number}{o.table?.number ? ` طاولة ${o.table.number}` : ` · ${channelLabel(o.channel)}`}
                     </span>
                     <span className="text-xs flex items-center gap-1 font-semibold"><Clock size={12} /> {mins}د</span>
                   </div>
@@ -93,15 +93,15 @@ export default function KdsScreen() {
                           <span className="text-sm font-bold text-[#E15A30] shrink-0">×{it.qty}</span>
                         </div>
                         {it.modifiers.length > 0 && (
-                          <p className="text-[11px] text-[#C9BEAC] mt-0.5">{it.modifiers.map(m => m.nameSnap).join('، ')}</p>
+                          <p className="text-[11px] text-[#C9BEAC] mt-0.5">{it.modifiers.map(m => m.nameSnap).join(' ')}</p>
                         )}
-                        {it.note && <p className="text-[11px] text-[#E4A11B] mt-0.5">ملاحظة: {it.note}</p>}
+                        {it.note && <p className="text-[11px] text-[#E4A11B] mt-0.5">ملاحظة {it.note}</p>}
                         <p className="text-[10px] text-[#9A8F7E] mt-0.5">{stationLabel(it.station)}</p>
                       </button>
                     ))}
                     <button onClick={() => serveMut.mutate(o.id)}
                       className={`w-full py-2 rounded-xl text-sm font-bold ${allReady ? 'bg-[#1E7A52] hover:bg-[#186845]' : 'bg-white/10 hover:bg-white/20'}`}>
-                      تمّ التقديم
+                      تم التقديم
                     </button>
                   </div>
                 </div>

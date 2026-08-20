@@ -14,7 +14,7 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
   const mutation = useMutation({
     mutationFn: () => authApi.changePassword({ currentPassword: cur, newPassword: nw }),
     onSuccess: () => { toast.success('تم تغيير كلمة المرور بنجاح'); onClose(); },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر تغيير كلمة المرور'),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر تغيير كلمة المرور'),
   });
 
   const submit = (e: React.FormEvent) => {

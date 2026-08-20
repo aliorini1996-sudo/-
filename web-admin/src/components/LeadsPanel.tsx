@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 
 const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const STAGE_LABEL: Record<LeadStage, string> = {
-  NEW: 'جديد', CONTACTED: 'تم التواصل', QUALIFIED: 'مؤهّل', PROPOSAL: 'عرض مُقدّم', WON: 'تم التحويل', LOST: 'مفقود',
+  NEW: 'جديد', CONTACTED: 'تم التواصل', QUALIFIED: 'مؤهل', PROPOSAL: 'عرض مقدم', WON: 'تم التحويل', LOST: 'مفقود',
 };
 const STAGE_CLS: Record<LeadStage, string> = {
   NEW: 'bg-slate-100 text-slate-700',
@@ -24,7 +24,7 @@ const STAGE_CLS: Record<LeadStage, string> = {
 };
 const SOURCE_LABEL: Record<string, string> = {
   osm: 'خرائط OSM', geoapify: 'Geoapify', tomtom: 'TomTom', serper: 'بحث الويب', linkedin: 'LinkedIn',
-  here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', community: 'قروبات/مجتمعات', apify: 'خرائط Google (Apify)',
+  here: 'HERE Maps', google: 'Google Maps', apollo: 'Apollo', community: 'قروبات/مجتمعات', apify: 'خرائط Google Apify',
   manual: 'يدوي', csv: 'استيراد', social: 'تواصل', api: 'API',
 };
 
@@ -106,7 +106,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
             <div className="w-9 h-9 rounded-lg bg-[#E15A30] flex items-center justify-center"><Target size={20} /></div>
             <div>
               <h1 className="font-bold">العملاء المحتملون</h1>
-              <p className="text-slate-400 text-xs">صيد شركات التوزيع حول العالم وتتبّع تحويلها لمشتركين</p>
+              <p className="text-slate-400 text-xs">صيد شركات التوزيع حول العالم وتتبع تحويلها لمشتركين</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -122,7 +122,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
           <Kpi icon={Target} label="إجمالي العملاء المحتملين" value={stats?.total ?? 0} color="bg-[#E15A30]" />
           <Kpi icon={Trophy} label="تم تحويلهم" value={stats?.won ?? 0} color="bg-green-600" />
           <Kpi icon={Sparkles} label="نسبة التحويل" value={`${stats?.conversion ?? 0}%`} color="bg-purple-600" />
-          <Kpi icon={Bell} label="متابعات مستحقّة" value={stats?.due ?? 0} color="bg-amber-500" />
+          <Kpi icon={Bell} label="متابعات مستحقة" value={stats?.due ?? 0} color="bg-amber-500" />
         </div>
 
         {/* Funnel */}
@@ -156,7 +156,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
             <input
               value={filters.q}
               onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-              placeholder="بحث بالاسم/المدينة/الدولة/الهاتف..."
+              placeholder="بحث بالاسم/المدينة/الدولة/الهاتف"
               className="input pr-9"
             />
           </div>
@@ -168,7 +168,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
             onClick={() => setFilters((f) => ({ ...f, dueOnly: !f.dueOnly }))}
             className={`px-3 py-2 rounded-lg text-sm border ${filters.dueOnly ? 'bg-amber-50 border-amber-300 text-amber-700' : 'border-[#E9E1D3] text-gray-600'}`}
           >
-            <Bell size={14} className="inline ml-1" /> المستحقّة
+            <Bell size={14} className="inline ml-1" /> المستحقة
           </button>
           <button onClick={() => setShowSearch(true)} className="btn-primary"><Radar size={16} /> بحث آلي</button>
           <button onClick={() => setShowEnrich(true)} className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700"><Wand2 size={14} className="inline ml-1" /> إثراء البيانات</button>
@@ -185,12 +185,12 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
 
         {/* Availability filter chips */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
-          <span className="text-xs text-gray-500">تصفية:</span>
+          <span className="text-xs text-gray-500">تصفية</span>
           <FilterChip active={filters.hasEmail} onClick={() => setFilters((f) => ({ ...f, hasEmail: !f.hasEmail }))} label="متوفر بريد" />
           <FilterChip active={filters.hasPhone} onClick={() => setFilters((f) => ({ ...f, hasPhone: !f.hasPhone }))} label="متوفر رقم" />
           <FilterChip active={filters.hasWebsite} onClick={() => setFilters((f) => ({ ...f, hasWebsite: !f.hasWebsite }))} label="متوفر موقع" />
-          <FilterChip active={filters.notEmailed} onClick={() => setFilters((f) => ({ ...f, notEmailed: !f.notEmailed }))} label="لم يُراسَل بريد" />
-          <FilterChip active={filters.notWhatsapped} onClick={() => setFilters((f) => ({ ...f, notWhatsapped: !f.notWhatsapped }))} label="لم يُراسَل واتساب" />
+          <FilterChip active={filters.notEmailed} onClick={() => setFilters((f) => ({ ...f, notEmailed: !f.notEmailed }))} label="لم يراسل بريد" />
+          <FilterChip active={filters.notWhatsapped} onClick={() => setFilters((f) => ({ ...f, notWhatsapped: !f.notWhatsapped }))} label="لم يراسل واتساب" />
           {(filters.hasEmail || filters.hasPhone || filters.hasWebsite || filters.notEmailed || filters.notWhatsapped || filters.dueOnly || filters.stage || filters.source || filters.q) && (
             <button onClick={() => setFilters(EMPTY_FILTERS)} className="text-xs text-[#E15A30] hover:underline mr-1">مسح الكل</button>
           )}
@@ -209,9 +209,9 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">جارٍ التحميل...</td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">جار التحميل</td></tr>
                 ) : leads.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">لا عملاء محتملون بعد — ابدأ بـ«بحث آلي» 🛰️</td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">لا عملاء محتملون بعد ابدأ ب بحث آلي 🛰️</td></tr>
                 ) : leads.map((l) => (
                   <tr key={l.id} className="cursor-pointer hover:bg-[#FBEBE2]/40" onClick={() => setSelected(l.id)}>
                     <td className="font-medium text-gray-800">{l.name}</td>
@@ -229,7 +229,7 @@ export default function LeadsPanel({ onClose }: { onClose: () => void }) {
               </tbody>
             </table>
           </div>
-          {leadsRes && <div className="px-4 py-2 text-xs text-gray-400 border-t border-[#E9E1D3]">إجمالي مطابق: {leadsRes.total}</div>}
+          {leadsRes && <div className="px-4 py-2 text-xs text-gray-400 border-t border-[#E9E1D3]">إجمالي مطابق {leadsRes.total}</div>}
         </div>
       </div>
 
@@ -278,15 +278,15 @@ function ScorePill({ score }: { score: number }) {
 // ----------------------------- بحث آلي (عدّة مصادر + عدّة أنشطة) ----------------------------- //
 // المصادر غير المحدودة — صالحة للبحث اليدوي وللصيد المستمر 24/7 معاً
 const PROVIDER_OPTIONS: { value: string; label: string }[] = [
-  { value: 'osm', label: 'OpenStreetMap · بلا مفتاح' },
-  { value: 'geoapify', label: 'Geoapify · هواتف أنظف' },
-  { value: 'tomtom', label: 'TomTom · أماكن تجارية' },
-  { value: 'serper', label: 'بحث الويب · مواقع الشركات' },
-  { value: 'linkedin', label: 'LinkedIn · صفحات الشركات' },
+  { value: 'osm', label: 'OpenStreetMap بلا مفتاح' },
+  { value: 'geoapify', label: 'Geoapify هواتف أنظف' },
+  { value: 'tomtom', label: 'TomTom أماكن تجارية' },
+  { value: 'serper', label: 'بحث الويب مواقع الشركات' },
+  { value: 'linkedin', label: 'LinkedIn صفحات الشركات' },
 ];
 
 // Apify محكوم برصيد شهري (1000 مكان) فيقتصر على البحث اليدوي — الصيد المستمر كان سيستنزفه في نصف يوم.
-const APIFY_OPTION = { value: 'apify', label: 'Apify · خرائط Google (رصيد محدود)' };
+const APIFY_OPTION = { value: 'apify', label: 'Apify خرائط Google رصيد محدود' };
 const SEARCH_PROVIDER_OPTIONS = [...PROVIDER_OPTIONS, APIFY_OPTION];
 
 type ApifyBudget = {
@@ -302,11 +302,11 @@ function ApifyBudgetBar({ budget, cost }: { budget?: ApifyBudget; cost: number }
 
   const saveCap = useMutation({
     mutationFn: () => leadApi.apifyCapUpdate(Number(cap)),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['apify-budget'] }); setEditing(false); toast.success('حُدّث السقف'); },
-    onError: () => toast.error('تعذّر تحديث السقف'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['apify-budget'] }); setEditing(false); toast.success('حدث السقف'); },
+    onError: () => toast.error('تعذر تحديث السقف'),
   });
 
-  if (!budget) return <div className="text-xs text-gray-400 bg-gray-50 rounded-lg p-2">جارٍ قراءة رصيد Apify...</div>;
+  if (!budget) return <div className="text-xs text-gray-400 bg-gray-50 rounded-lg p-2">جار قراءة رصيد Apify</div>;
 
   const pct = budget.monthlyCap ? Math.min(100, (budget.used / budget.monthlyCap) * 100) : 100;
   const short = cost > budget.remaining;
@@ -315,20 +315,20 @@ function ApifyBudgetBar({ budget, cost }: { budget?: ApifyBudget; cost: number }
     <div className="rounded-lg border border-[#E9E1D3] bg-[#FBF9F4] p-3 space-y-2">
       <div className="flex items-center justify-between text-xs">
         <span className="font-semibold text-gray-700">رصيد Apify لشهر {budget.month}</span>
-        <span className="text-gray-500">{budget.used} / {budget.monthlyCap} مكان · متبقٍّ <b className="text-gray-700">{budget.remaining}</b></span>
+        <span className="text-gray-500">{budget.used} / {budget.monthlyCap} مكان متبق <b className="text-gray-700">{budget.remaining}</b></span>
       </div>
       <div className="h-2 rounded-full bg-[#E9E1D3] overflow-hidden">
         <div className={`h-full ${pct >= 90 ? 'bg-red-500' : pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
       </div>
       <p className="text-[11px] text-gray-500 leading-relaxed">
-        الخطة المجانية = 5$ شهرياً بلا بطاقة (≈1000 مكان)، تتجدّد أوّل كل شهر ولا تُرحَّل.
-        عند النفاد يتوقّف المصدر تلقائياً — <b>لا يمكن أن تُحمَّل أي تكلفة</b>.
+        الخطة المجانية = 5$ شهريا بلا بطاقة ≈1000 مكان تتجدد أول كل شهر ولا ترحل 
+        عند النفاد يتوقف المصدر تلقائيا <b>لا يمكن أن تحمل أي تكلفة</b>.
       </p>
       {cost > 0 && (
         <p className={`text-[11px] rounded p-2 ${short ? 'text-red-700 bg-red-50' : 'text-gray-600 bg-white'}`}>
           {short
-            ? `⚠️ هذا البحث قد يطلب حتى ${cost} مكان والمتبقّي ${budget.remaining} فقط — سيتوقّف عند نفاد الرصيد.`
-            : `هذا البحث يستهلك حتى ${cost} مكان من الرصيد (40 لكل نشاط).`}
+            ? `⚠️ هذا البحث قد يطلب حتى ${cost} مكان والمتبقي ${budget.remaining} فقط سيتوقف عند نفاد الرصيد`
+            : `هذا البحث يستهلك حتى ${cost} مكان من الرصيد 40 لكل نشاط`}
         </p>
       )}
       {editing ? (
@@ -349,7 +349,7 @@ function ApifyBudgetBar({ budget, cost }: { budget?: ApifyBudget; cost: number }
 
 function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [providers, setProviders] = useState<string[]>(['osm', 'geoapify']);
-  const [queriesText, setQueriesText] = useState('تجارة جملة\nموزّع مواد غذائية');
+  const [queriesText, setQueriesText] = useState('تجارة جملة\nموزع مواد غذائية');
   const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
   const [qualify, setQualify] = useState(true);
@@ -393,8 +393,8 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       const { found, imported, duplicates, enrichedEmail, errors } = res.data.data as {
         found: number; imported: number; duplicates: number; enrichedEmail?: number; errors?: string[];
       };
-      toast.success(`نتائج: ${found} · جديد: ${imported} · مكرّر: ${duplicates}${enrichedEmail ? ` · بريد مُثرى: ${enrichedEmail}` : ''}`);
-      if (errors && errors.length) toast.error(`تعذّر بعض المصادر: ${errors.join(' | ')}`, { duration: 6000 });
+      toast.success(`نتائج ${found} جديد ${imported} مكرر ${duplicates}${enrichedEmail ? ` بريد مثرى ${enrichedEmail}` : ''}`);
+      if (errors && errors.length) toast.error(`تعذر بعض المصادر ${errors.join(' | ')}`, { duration: 6000 });
       onDone();
       if (imported > 0) onClose();
     },
@@ -405,16 +405,16 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
     <Modal title="بحث آلي عن عملاء محتملين" onClose={onClose}>
       <div className="space-y-3">
         <div>
-          <label className="label">المصادر (يمكن اختيار أكثر من واحد)</label>
+          <label className="label">المصادر يمكن اختيار أكثر من واحد</label>
           <div className="grid grid-cols-2 gap-2">
             {SEARCH_PROVIDER_OPTIONS.map((o) => {
               const rdy = isReady(o.value);
               return (
-                <label key={o.value} title={rdy ? '' : 'يتطلب مفتاحاً في الخادم'}
+                <label key={o.value} title={rdy ? '' : 'يتطلب مفتاحا في الخادم'}
                   className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 ${!rdy ? 'opacity-50 cursor-not-allowed border-[#E9E1D3]' : providers.includes(o.value) ? 'border-[#E15A30] bg-[#FBEBE2]/40 cursor-pointer' : 'border-[#E9E1D3] cursor-pointer'}`}>
                   <input type="checkbox" checked={providers.includes(o.value)} disabled={!rdy} onChange={() => toggleProvider(o.value)} />
                   <span className="text-gray-700">{o.label}</span>
-                  {!rdy && <span className="text-[10px] text-red-500 mr-auto">يتطلب مفتاحاً</span>}
+                  {!rdy && <span className="text-[10px] text-red-500 mr-auto">يتطلب مفتاحا</span>}
                 </label>
               );
             })}
@@ -422,42 +422,42 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         </div>
         {apifyOn && <ApifyBudgetBar budget={budget} cost={apifyCost} />}
         <div>
-          <label className="label">أنواع الأنشطة (نشاط بكل سطر أو مفصولة بفاصلة)</label>
+          <label className="label">أنواع الأنشطة نشاط بكل سطر أو مفصولة بفاصلة</label>
           <textarea value={queriesText} onChange={(e) => setQueriesText(e.target.value)} rows={3} className="input"
-            placeholder={'تجارة جملة\nموزّع مواد غذائية\nfood distributor\nwholesale'} />
-          <p className="text-xs text-gray-400 mt-1">{queries.length} نشاط × {providers.length} مصدر = <b>{combos}</b> عملية بحث.</p>
+            placeholder={'تجارة جملة\nموزع مواد غذائية\nfood distributor\nwholesale'} />
+          <p className="text-xs text-gray-400 mt-1">{queries.length} نشاط × {providers.length} مصدر = <b>{combos}</b> عملية بحث</p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">الدولة</label>
-            <input value={country} onChange={(e) => setCountry(e.target.value)} className="input" placeholder="مصر، المغرب، UAE..." />
+            <input value={country} onChange={(e) => setCountry(e.target.value)} className="input" placeholder="مصر المغرب UAE" />
           </div>
           <div>
-            <label className="label">المدينة (اختياري)</label>
-            <input value={city} onChange={(e) => setCity(e.target.value)} className="input" placeholder="القاهرة، دبي..." />
+            <label className="label">المدينة اختياري</label>
+            <input value={city} onChange={(e) => setCity(e.target.value)} className="input" placeholder="القاهرة دبي" />
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-gray-600">
           <input type="checkbox" checked={qualify} onChange={(e) => setQualify(e.target.checked)} />
-          تأهيل تلقائي بالذكاء الاصطناعي (تقييم الملاءمة 1-10)
+          تأهيل تلقائي بالذكاء الاصطناعي تقييم الملاءمة 1-10
         </label>
         <div className="bg-purple-50 rounded-lg p-2.5 space-y-1.5">
           <label className="flex items-center gap-2 text-sm text-purple-800">
             <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
-            🪄 إثراء تلقائي بعد البحث (زيارة مواقع الجدد لجلب البريد/الهاتف الناقص)
+            🪄 إثراء تلقائي بعد البحث زيارة مواقع الجدد لجلب البريد/الهاتف الناقص
           </label>
           {enrich && (
             <label className="flex items-center gap-2 text-sm text-purple-700 pr-6">
               <input type="checkbox" checked={enrichHunter} onChange={(e) => setEnrichHunter(e.target.checked)} />
-              + استخدام Hunter.io للبريد الاحترافي (يتطلب مفتاحاً · حصة محدودة)
+              + استخدام Hunter io للبريد الاحترافي يتطلب مفتاحا حصة محدودة
             </label>
           )}
         </div>
-        <p className="text-xs text-gray-400">تُدمج نتائج كل المصادر والأنشطة وتُزال التكرارات تلقائياً. كلما زادت التوليفات والإثراء طال وقت البحث.</p>
-        {combos > 12 && <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">⚠️ {combos} عملية قد تستغرق وقتاً طويلاً — قلّل المصادر أو الأنشطة أو حدّد مدينة.</p>}
+        <p className="text-xs text-gray-400">تدمج نتائج كل المصادر والأنشطة وتزال التكرارات تلقائيا كلما زادت التوليفات والإثراء طال وقت البحث</p>
+        {combos > 12 && <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">⚠️ {combos} عملية قد تستغرق وقتا طويلا قلل المصادر أو الأنشطة أو حدد مدينة</p>}
         <div className="flex gap-2 pt-2">
           <button disabled={mutation.isPending || providers.length === 0 || queries.length === 0} onClick={() => mutation.mutate()} className="btn-primary flex-1">
-            {mutation.isPending ? 'جارٍ البحث...' : <><Radar size={16} /> ابدأ البحث</>}
+            {mutation.isPending ? 'جار البحث' : <><Radar size={16} /> ابدأ البحث</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>
@@ -470,16 +470,16 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 function EmailModal({
   filters, onClose, onDone,
 }: { filters: Filters; onClose: () => void; onDone: () => void }) {
-  const [subject, setSubject] = useState('Field Sales — نظام مبيعات المناديب والتوزيع | Field-sales & distribution platform');
+  const [subject, setSubject] = useState('Field Sales نظام مبيعات المناديب والتوزيع | Field-sales & distribution platform');
   const [body, setBody] = useState(
-    'مرحباً فريق {{name}}،\n\n'
-    + 'Field Sales منصّة متكاملة لإدارة مبيعات المناديب الميدانيين والتوزيع: فواتير ضريبية متوافقة مع ZATCA، تحصيل وإدارة ذمم، مخزون سيارة المندوب، وتتبّع المواقع بالـGPS — في لوحة واحدة سهلة.\n\n'
-    + 'يسعدنا أن نعرض عليكم النظام في جولة قصيرة، أو جرّبوه مجاناً على fieldsa.net.\n\n'
+    'مرحبا فريق {{name}} \n\n'
+    + 'Field Sales منصة متكاملة لإدارة مبيعات المناديب الميدانيين والتوزيع فواتير ضريبية متوافقة مع ZATCA تحصيل وإدارة ذمم مخزون سيارة المندوب وتتبع المواقع بالGPS في لوحة واحدة سهلة \n\n'
+    + 'يسعدنا أن نعرض عليكم النظام في جولة قصيرة أو جربوه مجانا على fieldsa net \n\n'
     + '— — —\n\n'
     + 'Hello {{name}} team,\n\n'
     + 'Field Sales is an all-in-one platform to run your field reps and distribution: ZATCA-compliant tax invoicing, collections & receivables, van inventory, and live GPS tracking — all in one simple dashboard.\n\n'
     + "We'd be glad to give you a short demo, or start your free trial at fieldsa.net.\n\n"
-    + 'مع خالص التحية · Best regards,\nفريق Field Sales',
+    + 'مع خالص التحية Best regards \nفريق Field Sales',
   );
   const [limit, setLimit] = useState(50);
 
@@ -512,7 +512,7 @@ function EmailModal({
     }),
     onSuccess: (res) => {
       const { targeted, sent, failed, errors } = res.data.data as { targeted: number; sent: number; failed: number; errors?: string[] };
-      toast.success(`أُرسل ${sent} من ${targeted}${failed ? ` · فشل ${failed}` : ''}`);
+      toast.success(`أرسل ${sent} من ${targeted}${failed ? ` فشل ${failed}` : ''}`);
       if (errors && errors.length) toast.error(errors.join(' | '), { duration: 8000 });
       onDone();
       if (sent > 0) onClose();
@@ -523,7 +523,7 @@ function EmailModal({
   const [testTo, setTestTo] = useState('ceo@fieldsa.net');
   const testMutation = useMutation({
     mutationFn: () => leadApi.emailTest({ to: testTo, subject, body }),
-    onSuccess: () => toast.success(`أُرسلت نسخة تجريبية إلى ${testTo} ✅`),
+    onSuccess: () => toast.success(`أرسلت نسخة تجريبية إلى ${testTo} ✅`),
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'فشل الإرسال التجريبي'),
   });
 
@@ -534,9 +534,9 @@ function EmailModal({
     <Modal title="بريد تسويقي للعملاء المحتملين" onClose={onClose}>
       <div className="space-y-3">
         <div className="bg-[#FBEBE2] rounded-lg p-3 text-sm text-[#8a4a2f]">
-          سيُرسَل لمن لديه <b>بريد</b> و<b>لم تسبق مراسلته</b> ضمن الفلاتر الحالية:
-          <b> {recipients}</b> مستلم متاح · سيُرسل الآن لـ<b> {willSend}</b> (حسب الحد).
-          <br />من يصله البريد يُنقل تلقائياً إلى <b>«تم التواصل»</b> ولا يُراسَل مجدداً.
+          سيرسل لمن لديه <b>بريد</b> و<b>لم تسبق مراسلته</b> ضمن الفلاتر الحالية
+          <b> {recipients}</b> مستلم متاح سيرسل الآن ل<b> {willSend}</b> حسب الحد
+          <br />من يصله البريد ينقل تلقائيا إلى <b>تم التواصل</b> ولا يراسل مجددا
         </div>
         <div>
           <label className="label">الموضوع</label>
@@ -545,33 +545,33 @@ function EmailModal({
         <div>
           <label className="label">نص الرسالة</label>
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={9} className="input" />
-          <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> اسم الشركة · <code>{'{{city}}'}</code> المدينة · <code>{'{{country}}'}</code> الدولة.</p>
+          <p className="text-xs text-gray-400 mt-1">عناصر نائبة <code>{'{{name}}'}</code> اسم الشركة <code>{'{{city}}'}</code> المدينة <code>{'{{country}}'}</code> الدولة</p>
         </div>
         <div>
-          <label className="label">الحد الأقصى للإرسال دفعةً (حماية من تجاوز حصة البريد)</label>
+          <label className="label">الحد الأقصى للإرسال دفعة حماية من تجاوز حصة البريد</label>
           <input type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))} className="input w-32" />
         </div>
         <p className="text-xs bg-slate-50 rounded p-2 text-slate-600">
-          📮 المُرسل الحالي: <b>{emailStatus?.provider === 'brevo' ? 'Brevo' : 'Resend'}</b> · الحصّة اليومية ~<b>{emailStatus?.dailyCap ?? 100}</b> بريد.
-          {emailStatus?.provider !== 'brevo' && <span className="text-amber-700"> — أضِف <code>BREVO_API_KEY</code> في الخادم لرفعها إلى 300/يوم وعزلها عن بريد النظام.</span>}
+          📮 المرسل الحالي <b>{emailStatus?.provider === 'brevo' ? 'Brevo' : 'Resend'}</b> الحصة اليومية ~<b>{emailStatus?.dailyCap ?? 100}</b> بريد
+          {emailStatus?.provider !== 'brevo' && <span className="text-amber-700"> أضف <code>BREVO_API_KEY</code> في الخادم لرفعها إلى 300/يوم وعزلها عن بريد النظام</span>}
         </p>
         {/* إرسال نسخة تجريبية للمعاينة */}
         <div className="bg-blue-50 rounded-lg p-2.5">
-          <label className="label">معاينة في بريدك (نسخة تجريبية)</label>
+          <label className="label">معاينة في بريدك نسخة تجريبية</label>
           <div className="flex gap-2">
             <input value={testTo} onChange={(e) => setTestTo(e.target.value)} className="input flex-1" placeholder="ceo@fieldsa.net" dir="ltr" />
             <button disabled={testMutation.isPending || !testTo} onClick={() => testMutation.mutate()} className="px-4 py-2 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap">
               {testMutation.isPending ? '...' : 'إرسال تجريبي'}
             </button>
           </div>
-          <p className="text-[11px] text-blue-700 mt-1">يرسل نسخة واحدة لهذا العنوان فقط لمعاينة الشكل — لا يؤثّر على العملاء.</p>
+          <p className="text-[11px] text-blue-700 mt-1">يرسل نسخة واحدة لهذا العنوان فقط لمعاينة الشكل لا يؤثر على العملاء</p>
         </div>
         <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
-          ⚠️ إرسال بريد جماعي لعناوين عامة قد يؤثّر على سمعة نطاقك. أرسل دفعات صغيرة ونصّاً مهنياً غير مزعج.
+          ⚠️ إرسال بريد جماعي لعناوين عامة قد يؤثر على سمعة نطاقك أرسل دفعات صغيرة ونصا مهنيا غير مزعج
         </p>
         <div className="flex gap-2 pt-1">
           <button disabled={mutation.isPending || !subject || !body || recipients === 0} onClick={() => mutation.mutate()} className="btn-primary flex-1">
-            {mutation.isPending ? 'جارٍ الإرسال...' : <><Mail size={16} /> إرسال لـ{willSend}</>}
+            {mutation.isPending ? 'جار الإرسال' : <><Mail size={16} /> إرسال ل{willSend}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>
@@ -588,8 +588,8 @@ const WA_PARAM_LABEL: Record<WaParam, string> = {
   name: 'اسم الشركة',
   city: 'المدينة',
   country: 'الدولة',
-  angle: 'زاوية الدولة (عربي)',
-  angle_en: 'زاوية الدولة (إنجليزي)',
+  angle: 'زاوية الدولة عربي',
+  angle_en: 'زاوية الدولة إنجليزي',
 };
 
 function WhatsAppModal({
@@ -600,7 +600,7 @@ function WhatsAppModal({
   const [language, setLanguage] = useState('ar');
   const [params, setParams] = useState<WaParam[]>(['name', 'angle']);
   const [text, setText] = useState(
-    'مرحباً {{name}} 👋\n{{angle}}\nنقدّم لكم Field Sales: نظام إدارة مبيعات المناديب والتوزيع. جرّبوه مجاناً: https://fieldsa.net',
+    'مرحبا {{name}} 👋\n{{angle}}\nنقدم لكم Field Sales نظام إدارة مبيعات المناديب والتوزيع جربوه مجانا https://fieldsa.net',
   );
   const [limit, setLimit] = useState(50);
 
@@ -672,7 +672,7 @@ function WhatsAppModal({
     onSuccess: (res) => {
       const { targeted, sent, failed, errors, remainingToday } = res.data.data as
         { targeted: number; sent: number; failed: number; errors?: string[]; remainingToday: number };
-      toast.success(`أُرسل ${sent} من ${targeted}${failed ? ` · فشل ${failed}` : ''} · متبقٍّ اليوم ${remainingToday}`);
+      toast.success(`أرسل ${sent} من ${targeted}${failed ? ` فشل ${failed}` : ''} متبق اليوم ${remainingToday}`);
       if (errors && errors.length) toast.error(errors.join(' | '), { duration: 7000 });
       onDone();
       if (sent > 0) onClose();
@@ -690,34 +690,34 @@ function WhatsAppModal({
       <div className="space-y-3">
         {ready === false && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-            واتساب غير مُعدّ في الخادم. أضِف <code>WHATSAPP_TOKEN</code> و<code>WHATSAPP_PHONE_NUMBER_ID</code> في إعدادات الخادم (Meta Cloud API).
+            واتساب غير معد في الخادم أضف <code>WHATSAPP_TOKEN</code> و<code>WHATSAPP_PHONE_NUMBER_ID</code> في إعدادات الخادم Meta Cloud API
           </div>
         )}
         {ready && status?.webhookConfigured === false && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-            الـwebhook غير مُعدّ — الردود وحالات التسليم لن تصلك. أضِف <code>WHATSAPP_VERIFY_TOKEN</code>
+            الwebhook غير معد الردود وحالات التسليم لن تصلك أضف <code>WHATSAPP_VERIFY_TOKEN</code>
             {status?.signatureEnforced === false && <> و<code>WHATSAPP_APP_SECRET</code></>} واربط
-            <code className="mx-1">api.fieldsa.net/api/whatsapp/webhook</code> في Meta.
+            <code className="mx-1">api.fieldsa.net/api/whatsapp/webhook</code> في Meta
           </div>
         )}
 
         <div className="bg-[#dcf8e8] rounded-lg p-3 text-sm text-[#166534]">
-          يُرسَل آلياً لمن لديه <b>هاتف</b> و<b>لم يُراسَل واتساب</b> و<b>لم ينسحب</b> ضمن الفلاتر الحالية:
-          <b> {recipients}</b> متاح · سيُرسل الآن لـ<b> {willSend}</b>.
-          <br />من يصله تُنقل حالته إلى <b>«تم التواصل»</b>، ومن يردّ تُرفع حالته إلى <b>«مؤهَّل»</b> تلقائياً.
+          يرسل آليا لمن لديه <b>هاتف</b> و<b>لم يراسل واتساب</b> و<b>لم ينسحب</b> ضمن الفلاتر الحالية
+          <b> {recipients}</b> متاح سيرسل الآن ل<b> {willSend}</b>.
+          <br />من يصله تنقل حالته إلى <b>تم التواصل</b>ومن يرد ترفع حالته إلى <b>مؤهل</b> تلقائيا
         </div>
 
         {/* الحصّة اليومية — تجاوزها يقيّد الرقم في Meta لا يزيد المبيعات */}
         <div className="flex items-center gap-3 text-xs bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg p-2.5">
-          <span className="text-gray-600">الحصّة اليومية: <b className="text-[#1F1A13]">{status?.sentToday ?? 0}</b> / {status?.dailyCap ?? '—'}</span>
-          <span className={`font-semibold ${remaining === 0 ? 'text-red-600' : 'text-[#166534]'}`}>متبقٍّ {remaining}</span>
-          {!!status?.optedOut && <span className="text-gray-400 mr-auto">منسحبون مستثنون: {status.optedOut}</span>}
+          <span className="text-gray-600">الحصة اليومية <b className="text-[#1F1A13]">{status?.sentToday ?? 0}</b> / {status?.dailyCap ?? '—'}</span>
+          <span className={`font-semibold ${remaining === 0 ? 'text-red-600' : 'text-[#166534]'}`}>متبق {remaining}</span>
+          {!!status?.optedOut && <span className="text-gray-400 mr-auto">منسحبون مستثنون {status.optedOut}</span>}
         </div>
 
         {/* الوضع */}
         <div className="flex gap-2">
-          <button onClick={() => setMode('template')} className={`flex-1 py-2 rounded-lg text-sm border ${mode === 'template' ? 'bg-[#25D366] text-white border-[#25D366]' : 'border-[#E9E1D3] text-gray-600'}`}>قالب معتمد (للتسويق)</button>
-          <button onClick={() => setMode('text')} className={`flex-1 py-2 rounded-lg text-sm border ${mode === 'text' ? 'bg-[#25D366] text-white border-[#25D366]' : 'border-[#E9E1D3] text-gray-600'}`}>نص مباشر (نافذة 24س)</button>
+          <button onClick={() => setMode('template')} className={`flex-1 py-2 rounded-lg text-sm border ${mode === 'template' ? 'bg-[#25D366] text-white border-[#25D366]' : 'border-[#E9E1D3] text-gray-600'}`}>قالب معتمد للتسويق</button>
+          <button onClick={() => setMode('text')} className={`flex-1 py-2 rounded-lg text-sm border ${mode === 'text' ? 'bg-[#25D366] text-white border-[#25D366]' : 'border-[#E9E1D3] text-gray-600'}`}>نص مباشر نافذة 24س</button>
         </div>
 
         {mode === 'template' ? (
@@ -725,7 +725,7 @@ function WhatsAppModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">اسم القالب المعتمد</label>
-                <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="input" placeholder="مثال: marketing_intro" />
+                <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="input" placeholder="مثال marketing_intro" />
               </div>
               <div>
                 <label className="label">لغة القالب</label>
@@ -734,7 +734,7 @@ function WhatsAppModal({
             </div>
             {/* متغيّرات القالب — الترتيب هو ترتيب النقر، ويطابق {{1}},{{2}}... في القالب المعتمد */}
             <div>
-              <label className="label">متغيّرات القالب <span className="text-gray-400 font-normal">(اضغط بالترتيب الذي يظهر في قالبك)</span></label>
+              <label className="label">متغيرات القالب <span className="text-gray-400 font-normal">اضغط بالترتيب الذي يظهر في قالبك</span></label>
               <div className="flex flex-wrap gap-1.5">
                 {(['name', 'city', 'country', 'angle', 'angle_en'] as WaParam[]).map((p) => {
                   const idx = params.indexOf(p);
@@ -753,14 +753,14 @@ function WhatsAppModal({
                 })}
               </div>
               <p className="text-xs text-gray-400 mt-1.5">
-                <b className="text-[#E15A30]">زاوية الدولة</b> تُحقن تلقائياً حسب دولة كل عميل — السعودي يصله ذكر ZATCA، والمصري ETA، من <b>قالب واحد</b>.
+                <b className="text-[#E15A30]">زاوية الدولة</b> تحقن تلقائيا حسب دولة كل عميل السعودي يصله ذكر ZATCA والمصري ETA من <b>قالب واحد</b>.
               </p>
             </div>
 
             {/* معاينة حيّة على عميل حقيقي — تكشف أي متغيّر فارغ قبل أن ترفضه Meta */}
             {params.length > 0 && preview?.lead && (
               <div className="bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg p-2.5 space-y-1">
-                <p className="text-xs text-gray-500">معاينة على: <b className="text-[#1F1A13]">{preview.lead.name}</b>{preview.lead.country ? ` · ${preview.lead.country}` : ''}</p>
+                <p className="text-xs text-gray-500">معاينة على <b className="text-[#1F1A13]">{preview.lead.name}</b>{preview.lead.country ? ` · ${preview.lead.country}` : ''}</p>
                 {preview.slots.map((s) => (
                   <div key={s.slot} className="text-xs flex gap-2">
                     <code className="text-[#E15A30] flex-shrink-0">{s.slot}</code>
@@ -770,19 +770,19 @@ function WhatsAppModal({
               </div>
             )}
 
-            <p className="text-xs text-gray-400">القالب يجب أن يكون <b>معتمداً في Meta</b> مسبقاً، وعدد متغيّراته مطابقاً للأعلى. هذا الوضع هو الصحيح للتسويق للأرقام الجديدة.</p>
+            <p className="text-xs text-gray-400">القالب يجب أن يكون <b>معتمدا في Meta</b> مسبقا وعدد متغيراته مطابقا للأعلى هذا الوضع هو الصحيح للتسويق للأرقام الجديدة</p>
           </div>
         ) : (
           <div>
             <label className="label">نص الرسالة</label>
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="input" />
-            <p className="text-xs text-gray-400 mt-1">عناصر نائبة: <code>{'{{name}}'}</code> · <code>{'{{city}}'}</code> · <code>{'{{country}}'}</code> · <code className="text-[#E15A30]">{'{{angle}}'}</code> (زاوية دولة العميل)</p>
-            <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 mt-1">⚠️ النص المباشر يصل فقط لمن راسلك خلال 24 ساعة (سياسة واتساب). للأرقام الجديدة استخدم «قالب معتمد».</p>
+            <p className="text-xs text-gray-400 mt-1">عناصر نائبة <code>{'{{name}}'}</code> · <code>{'{{city}}'}</code> · <code>{'{{country}}'}</code> · <code className="text-[#E15A30]">{'{{angle}}'}</code> زاوية دولة العميل</p>
+            <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 mt-1">⚠️ النص المباشر يصل فقط لمن راسلك خلال 24 ساعة سياسة واتساب للأرقام الجديدة استخدم قالب معتمد</p>
           </div>
         )}
 
         <div>
-          <label className="label">الحد الأقصى للإرسال دفعةً</label>
+          <label className="label">الحد الأقصى للإرسال دفعة</label>
           <input type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))} className="input w-32" />
         </div>
 
@@ -792,7 +792,7 @@ function WhatsAppModal({
             onClick={() => mutation.mutate()}
             className="flex-1 bg-[#25D366] text-white rounded-lg py-2 flex items-center justify-center gap-2 hover:bg-[#1eb356] disabled:opacity-50"
           >
-            {mutation.isPending ? 'جارٍ الإرسال...' : remaining === 0 ? 'بلغت الحصّة اليومية' : <><MessageCircle size={16} /> إرسال آلي لـ{willSend}</>}
+            {mutation.isPending ? 'جار الإرسال' : remaining === 0 ? 'بلغت الحصة اليومية' : <><MessageCircle size={16} /> إرسال آلي ل{willSend}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>
@@ -838,7 +838,7 @@ function EnrichModal({
     },
     onSuccess: (res) => {
       const { processed, emailFilled, phoneFilled } = res.data.data as { processed: number; emailFilled: number; phoneFilled: number };
-      toast.success(`فُحص ${processed} · بريد جديد ${emailFilled} · هاتف جديد ${phoneFilled}`, { duration: 6000 });
+      toast.success(`فحص ${processed} بريد جديد ${emailFilled} هاتف جديد ${phoneFilled}`, { duration: 6000 });
       onDone();
       onClose();
     },
@@ -852,29 +852,29 @@ function EnrichModal({
     <Modal title="إثراء بيانات العملاء المحتملين" onClose={onClose}>
       <div className="space-y-3">
         <div className="bg-purple-50 rounded-lg p-3 text-sm text-purple-800">
-          يبحث عن <b>البريد/الهاتف الناقص</b> لمن لديه <b>موقع إلكتروني</b> ضمن الفلاتر الحالية:
-          <b> {candidates}</b> مرشّح · سيُعالَج الآن <b> {willRun}</b>.
-          <br />يملأ الناقص فقط دون المساس بالموجود.
+          يبحث عن <b>البريد/الهاتف الناقص</b> لمن لديه <b>موقع إلكتروني</b> ضمن الفلاتر الحالية
+          <b> {candidates}</b> مرشح سيعالج الآن <b> {willRun}</b>.
+          <br />يملأ الناقص فقط دون المساس بالموجود
         </div>
         <div>
           <label className="label">مصادر الإثراء</label>
           <label className="flex items-center gap-2 text-sm border rounded-lg px-3 py-2 border-[#E9E1D3] mb-2">
             <input type="checkbox" checked={useWebsite} onChange={(e) => setUseWebsite(e.target.checked)} />
-            <span>زيارة الموقع الإلكتروني واستخراج التواصل <span className="text-green-600 text-xs">(مجاني)</span></span>
+            <span>زيارة الموقع الإلكتروني واستخراج التواصل <span className="text-green-600 text-xs">مجاني</span></span>
           </label>
           <label className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 ${status?.hunter ? 'border-[#E9E1D3]' : 'border-[#E9E1D3] opacity-60'}`}>
             <input type="checkbox" checked={useHunter} disabled={!status?.hunter} onChange={(e) => setUseHunter(e.target.checked)} />
-            <span>Hunter.io (بريد احترافي) {status?.hunter ? <span className="text-green-600 text-xs">(جاهز)</span> : <span className="text-red-500 text-xs">(أضِف HUNTER_API_KEY في الخادم)</span>}</span>
+            <span>Hunter io بريد احترافي {status?.hunter ? <span className="text-green-600 text-xs">جاهز</span> : <span className="text-red-500 text-xs">أضف HUNTER_API_KEY في الخادم</span>}</span>
           </label>
         </div>
         <div>
-          <label className="label">الحد الأقصى للمعالجة دفعةً</label>
+          <label className="label">الحد الأقصى للمعالجة دفعة</label>
           <input type="number" min={1} max={100} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} className="input w-32" />
         </div>
-        <p className="text-xs text-gray-400">قد تستغرق العملية وقتاً (زيارة كل موقع). ابدأ بدفعة صغيرة. بيانات تواصل أعمال عامّة فقط.</p>
+        <p className="text-xs text-gray-400">قد تستغرق العملية وقتا زيارة كل موقع ابدأ بدفعة صغيرة بيانات تواصل أعمال عامة فقط</p>
         <div className="flex gap-2 pt-1">
           <button disabled={mutation.isPending || candidates === 0 || (!useWebsite && !useHunter)} onClick={() => mutation.mutate()} className="flex-1 bg-purple-600 text-white rounded-lg py-2 flex items-center justify-center gap-2 hover:bg-purple-700 disabled:opacity-50">
-            {mutation.isPending ? 'جارٍ الإثراء...' : <><Wand2 size={16} /> إثراء {willRun}</>}
+            {mutation.isPending ? 'جار الإثراء' : <><Wand2 size={16} /> إثراء {willRun}</>}
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إلغاء</button>
         </div>
@@ -913,23 +913,23 @@ function MarketingCommandCenter({ onSelectLead }: { onSelectLead: (id: string) =
   return (
     <div className="card mb-5">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-bold text-gray-700">🚀 غرفة قيادة التسويق — الآلية تعمل 24/7</p>
-        <span className="text-[11px] text-gray-400">تتحدّث كل دقيقة</span>
+        <p className="text-sm font-bold text-gray-700">🚀 غرفة قيادة التسويق الآلية تعمل 24/7</p>
+        <span className="text-[11px] text-gray-400">تتحدث كل دقيقة</span>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
-        <EngineChip on={m.hunt.enabled} label="صيد العملاء" detail={`${m.hunt.totalImported} مستورَد · ${m.hunt.countries} دولة`} />
-        <EngineChip on={m.email.enabled} label={`بريد السلسلة (${m.email.touches} لمسات)`} detail={`${m.email.totalSent} مُرسَل · ${m.email.totalFollowUps} متابعة · اليوم ${m.email.sentToday}/${m.email.dailyCap}`} />
+        <EngineChip on={m.hunt.enabled} label="صيد العملاء" detail={`${m.hunt.totalImported} مستورد ${m.hunt.countries} دولة`} />
+        <EngineChip on={m.email.enabled} label={`بريد السلسلة (${m.email.touches} لمسات)`} detail={`${m.email.totalSent} مرسل ${m.email.totalFollowUps} متابعة اليوم ${m.email.sentToday}/${m.email.dailyCap}`} />
         <EngineChip on={m.community.enabled} label="بحث القروبات" detail={m.community.lastRunAt ? `آخر تشغيل ${formatDate(m.community.lastRunAt)}` : 'لم يعمل بعد'} />
         <div className="rounded-lg px-3 py-2 border border-[#E9E1D3] bg-white text-xs">
           <span className="font-bold text-gray-700">📬 التفاعل</span>
           <span className="block mt-0.5 text-[11px] text-gray-500">
-            فتح {m.engagement.opens} ({m.engagement.openRate}%) · نقر <b className="text-[#E15A30]">{m.engagement.clicks}</b> ({m.engagement.clickRate}%) · إلغاء {m.engagement.unsubs}
+            فتح {m.engagement.opens} ({m.engagement.openRate}%) نقر <b className="text-[#E15A30]">{m.engagement.clicks}</b> ({m.engagement.clickRate}%) إلغاء {m.engagement.unsubs}
           </span>
         </div>
       </div>
       {m.hotLeads.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-          <p className="text-xs font-bold text-amber-800 mb-2">🔥 عملاء ساخنون — نقروا رابط بريدك، تواصل معهم الآن</p>
+          <p className="text-xs font-bold text-amber-800 mb-2">🔥 عملاء ساخنون نقروا رابط بريدك تواصل معهم الآن</p>
           <div className="flex flex-wrap gap-2">
             {m.hotLeads.map((h) => (
               <button key={h.id} onClick={() => onSelectLead(h.id)}
@@ -942,7 +942,7 @@ function MarketingCommandCenter({ onSelectLead }: { onSelectLead: (id: string) =
       )}
       {m.engagedByCountry.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
-          <span className="text-[11px] text-gray-400">تفاعل حسب الدولة:</span>
+          <span className="text-[11px] text-gray-400">تفاعل حسب الدولة</span>
           {m.engagedByCountry.slice(0, 12).map((c) => (
             <span key={c.countryCode} className="text-[11px] bg-slate-100 text-slate-600 rounded px-2 py-0.5">{c.countryCode} · {c.count}</span>
           ))}
@@ -976,7 +976,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     leadApi.huntConfig().then((r) => {
       const c = r.data.data as HuntConfig;
       setCfg(c);
-      setCountriesText(c.countries.join('، '));
+      setCountriesText(c.countries.join(' '));
     });
   }, []);
 
@@ -989,13 +989,13 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     try {
       const res = await leadApi.huntRun();
       const d = res.data.data as { country: string; keywords: string[]; found: number; imported: number; enrichedEmail: number };
-      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join('، ')})`, ...l].slice(0, 25));
+      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join(' ')})`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
       onDone();
       leadApi.huntConfig().then((r) => setCfg(r.data.data as HuntConfig));
     } catch (e) {
-      setLog((l) => [`⚠️ فشل دفعة: ${(e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ'}`, ...l].slice(0, 25));
+      setLog((l) => [`⚠️ فشل دفعة ${(e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ'}`, ...l].slice(0, 25));
     }
   };
 
@@ -1019,27 +1019,27 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     save({ providers: has ? cfg.providers.filter((p) => p !== v) : [...cfg.providers, v] });
   };
 
-  if (!cfg) return <Modal title="الصيد المستمر" onClose={onClose}><div className="py-8 text-center text-gray-400">جارٍ التحميل...</div></Modal>;
+  if (!cfg) return <Modal title="الصيد المستمر" onClose={onClose}><div className="py-8 text-center text-gray-400">جار التحميل</div></Modal>;
 
   return (
-    <Modal title="الصيد المستمر — جمع بلا توقّف" onClose={onClose}>
+    <Modal title="الصيد المستمر جمع بلا توقف" onClose={onClose}>
       <div className="space-y-3">
         <div className="bg-[#1F1A13] text-white rounded-lg p-3 text-sm">
-          يولّد كلمات بحث جديدة تلقائياً (ذكاء اصطناعي) ويبحث بها عبر المصادر ودول متعدّدة بالتناوب — فيتزايد جمع العملاء بلا توقّف.
+          يولد كلمات بحث جديدة تلقائيا ذكاء اصطناعي ويبحث بها عبر المصادر ودول متعددة بالتناوب فيتزايد جمع العملاء بلا توقف
           <div className="flex gap-4 mt-2 text-xs text-slate-300">
-            <span>دفعات: <b className="text-white">{cfg.totalRuns}</b></span>
-            <span>مضاف عبر الصيد: <b className="text-[#E15A30]">{cfg.totalImported}</b></span>
-            <span>آخر تشغيل: {cfg.lastRunAt ? new Date(cfg.lastRunAt).toLocaleString() : '—'}</span>
+            <span>دفعات <b className="text-white">{cfg.totalRuns}</b></span>
+            <span>مضاف عبر الصيد <b className="text-[#E15A30]">{cfg.totalImported}</b></span>
+            <span>آخر تشغيل {cfg.lastRunAt ? new Date(cfg.lastRunAt).toLocaleString() : '—'}</span>
           </div>
         </div>
 
         <div className={`rounded-lg p-3 border ${live ? 'border-green-400 bg-green-50' : 'border-[#E9E1D3]'}`}>
           <label className="flex items-center gap-2 text-sm font-medium">
             <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
-            {live ? '🟢 تشغيل مستمر جارٍ الآن (دفعة كل دقيقة أثناء فتح النافذة)' : 'تشغيل مستمر الآن (أثناء فتح النافذة)'}
+            {live ? '🟢 تشغيل مستمر جار الآن دفعة كل دقيقة أثناء فتح النافذة' : 'تشغيل مستمر الآن أثناء فتح النافذة'}
           </label>
           <div className="flex gap-2 mt-2">
-            <button onClick={runOnce} className="px-3 py-1.5 rounded-lg text-sm bg-[#E15A30] text-white">شغّل دفعة الآن</button>
+            <button onClick={runOnce} className="px-3 py-1.5 rounded-lg text-sm bg-[#E15A30] text-white">شغل دفعة الآن</button>
           </div>
           {log.length > 0 && (
             <div className="mt-2 max-h-32 overflow-y-auto text-xs bg-white rounded border border-[#E9E1D3] p-2 space-y-1">
@@ -1050,18 +1050,18 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
 
         <label className="flex items-center gap-2 text-sm bg-amber-50 rounded-lg p-2.5 text-amber-800">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
-          تفعيل الصيد التلقائي 24/7 — يعمل وحده كل 30 دقيقة عبر الجدولة (بلا إعداد إضافي)
+          تفعيل الصيد التلقائي 24/7 يعمل وحده كل 30 دقيقة عبر الجدولة بلا إعداد إضافي
         </label>
 
         <div>
           <div className="flex items-center justify-between">
-            <label className="label">الدول (بالتناوب — مفصولة بفاصلة)</label>
+            <label className="label">الدول بالتناوب مفصولة بفاصلة</label>
             <button
               onClick={async () => {
                 const all = (await leadApi.arabCountries()).data.data as string[];
-                setCountriesText(all.join('، '));
+                setCountriesText(all.join(' '));
                 await save({ countries: all });
-                toast.success(`فُعّلت ${all.length} دولة عربية 🌍`);
+                toast.success(`فعلت ${all.length} دولة عربية 🌍`);
               }}
               className="text-xs text-[#E15A30] hover:underline mb-1"
             >🌍 كل الدول العربية</button>
@@ -1102,7 +1102,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
           <label className="flex items-center gap-2"><input type="checkbox" checked={cfg.enrichHunter} onChange={(e) => save({ enrichHunter: e.target.checked })} /> + Hunter</label>
         </div>
 
-        <p className="text-xs text-gray-400">💡 «تشغيل مستمر الآن» يعمل ما دامت النافذة مفتوحة. للعمل 24/7 بلا متصفّح، يكفي تفعيل الخيار الكهرماني — الجدولة تعمل تلقائياً كل 30 دقيقة.</p>
+        <p className="text-xs text-gray-400">💡 تشغيل مستمر الآن يعمل ما دامت النافذة مفتوحة للعمل 24/7 بلا متصفح يكفي تفعيل الخيار الكهرماني الجدولة تعمل تلقائيا كل 30 دقيقة</p>
         <div className="flex justify-end pt-1">
           <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
         </div>
@@ -1143,14 +1143,14 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
     try {
       const res = await leadApi.autoEmailRun();
       const d = res.data.data as { sent: number; failed: number; followUps?: number; remainingToday: number; targeted: number; errors?: string[] };
-      setLog((l) => [`${new Date().toLocaleTimeString()} · أُرسل ${d.sent}${d.followUps ? ` (منها ${d.followUps} متابعة)` : ''}${d.failed ? ` · فشل ${d.failed}` : ''} · متبقٍ اليوم ${d.remainingToday}`, ...l].slice(0, 25));
+      setLog((l) => [`${new Date().toLocaleTimeString()} أرسل ${d.sent}${d.followUps ? ` (منها ${d.followUps} متابعة)` : ''}${d.failed ? ` فشل ${d.failed}` : ''} متبق اليوم ${d.remainingToday}`, ...l].slice(0, 25));
       if (d.errors && d.errors.length) setLog((l) => [`⚠️ ${d.errors!.join(' | ')}`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
       onDone();
       leadApi.autoEmailConfig().then((r) => setCfg(r.data.data as EmailConfig));
     } catch (e) {
-      setLog((l) => [`⚠️ فشل: ${(e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ'}`, ...l].slice(0, 25));
+      setLog((l) => [`⚠️ فشل ${(e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'خطأ'}`, ...l].slice(0, 25));
     }
   };
 
@@ -1168,24 +1168,24 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live]);
 
-  if (!cfg) return <Modal title="بريد تلقائي مستمر" onClose={onClose}><div className="py-8 text-center text-gray-400">جارٍ التحميل...</div></Modal>;
+  if (!cfg) return <Modal title="بريد تلقائي مستمر" onClose={onClose}><div className="py-8 text-center text-gray-400">جار التحميل</div></Modal>;
 
   return (
-    <Modal title="بريد تلقائي مستمر — إرسال بلا توقّف" onClose={onClose}>
+    <Modal title="بريد تلقائي مستمر إرسال بلا توقف" onClose={onClose}>
       <div className="space-y-3">
         <div className="bg-[#1E7A52] text-white rounded-lg p-3 text-sm">
-          يرسل دفعات بريد تلقائياً لمن لديه بريد ولم يُراسَل — مع حدّ يومي يحمي سمعتك.
+          يرسل دفعات بريد تلقائيا لمن لديه بريد ولم يراسل مع حد يومي يحمي سمعتك
           <div className="flex gap-4 mt-2 text-xs text-green-100">
-            <span>أُرسل اليوم: <b className="text-white">{cfg.sentToday}</b> / {cfg.dailyCap}</span>
-            <span>الإجمالي: <b className="text-white">{cfg.totalSent}</b></span>
-            <span>المُرسِل: {emailStatus?.provider === 'brevo' ? 'Brevo' : 'Resend'} (~{emailStatus?.dailyCap ?? 100}/يوم)</span>
+            <span>أرسل اليوم <b className="text-white">{cfg.sentToday}</b> / {cfg.dailyCap}</span>
+            <span>الإجمالي <b className="text-white">{cfg.totalSent}</b></span>
+            <span>المرسل {emailStatus?.provider === 'brevo' ? 'Brevo' : 'Resend'} (~{emailStatus?.dailyCap ?? 100}/يوم)</span>
           </div>
         </div>
 
         <div className={`rounded-lg p-3 border ${live ? 'border-green-400 bg-green-50' : 'border-[#E9E1D3]'}`}>
           <label className="flex items-center gap-2 text-sm font-medium">
             <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
-            {live ? '🟢 إرسال مستمر جارٍ الآن (دفعة كل 90 ثانية أثناء فتح النافذة)' : 'إرسال مستمر الآن (أثناء فتح النافذة)'}
+            {live ? '🟢 إرسال مستمر جار الآن دفعة كل 90 ثانية أثناء فتح النافذة' : 'إرسال مستمر الآن أثناء فتح النافذة'}
           </label>
           <div className="flex gap-2 mt-2">
             <button onClick={runOnce} className="px-3 py-1.5 rounded-lg text-sm bg-[#1E7A52] text-white">أرسل دفعة الآن</button>
@@ -1199,7 +1199,7 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
 
         <label className="flex items-center gap-2 text-sm bg-amber-50 rounded-lg p-2.5 text-amber-800">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
-          تفعيل البريد التلقائي 24/7 — يرسل وحده عبر الجدولة (بلا إعداد إضافي)
+          تفعيل البريد التلقائي 24/7 يرسل وحده عبر الجدولة بلا إعداد إضافي
         </label>
 
         <div className="grid grid-cols-2 gap-3">
@@ -1208,7 +1208,7 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
             <input type="number" min={1} max={100} value={cfg.batchSize} onChange={(e) => save({ batchSize: Math.max(1, Math.min(100, Number(e.target.value) || 20)) })} className="input w-24" />
           </div>
           <div>
-            <label className="label">الحدّ اليومي</label>
+            <label className="label">الحد اليومي</label>
             <input type="number" min={1} max={300} value={cfg.dailyCap} onChange={(e) => save({ dailyCap: Math.max(1, Math.min(300, Number(e.target.value) || 80)) })} className="input w-24" />
           </div>
         </div>
@@ -1217,45 +1217,45 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
         <div className="rounded-lg border border-[#E9E1D3] p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="font-bold text-gray-700">🔁 سلسلة المتابعة</span>
-            <label className="flex items-center gap-1.5">لمسات:
+            <label className="flex items-center gap-1.5">لمسات
               <select value={cfg.touches} onChange={(e) => save({ touches: Number(e.target.value) })} className="input w-16 py-1">
                 <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
               </select>
             </label>
-            <label className="flex items-center gap-1.5">الفاصل (أيام):
+            <label className="flex items-center gap-1.5">الفاصل أيام
               <input type="number" min={1} max={30} value={cfg.gapDays} onChange={(e) => save({ gapDays: Math.max(1, Math.min(30, Number(e.target.value) || 4)) })} className="input w-16 py-1" />
             </label>
-            <span className="text-xs text-gray-400">أُرسلت متابعات: {cfg.totalFollowUps ?? 0}</span>
+            <span className="text-xs text-gray-400">أرسلت متابعات {cfg.totalFollowUps ?? 0}</span>
           </div>
-          <p className="text-xs text-gray-500">لمسة 1 تعريف → لمسة 2 قيمة وإثبات → لمسة 3 رسالة أخيرة. من ينقر رابطاً يخرج من السلسلة ويصبح «مؤهّلاً» 🔥 لتتواصل معه بنفسك. اترك نصوص 2 و3 فارغة لاستخدام القوالب الجاهزة.</p>
+          <p className="text-xs text-gray-500">لمسة 1 تعريف → لمسة 2 قيمة وإثبات → لمسة 3 رسالة أخيرة من ينقر رابطا يخرج من السلسلة ويصبح مؤهلا 🔥 لتتواصل معه بنفسك اترك نصوص 2 و3 فارغة لاستخدام القوالب الجاهزة</p>
         </div>
 
         <div>
-          <label className="label">اللمسة 1 — الموضوع</label>
+          <label className="label">اللمسة 1 الموضوع</label>
           <input value={cfg.subject} onChange={(e) => setCfg({ ...cfg, subject: e.target.value })} onBlur={() => save({ subject: cfg.subject })} className="input" />
         </div>
         <div>
-          <label className="label">اللمسة 1 — النص (عربي/إنجليزي · {'{{name}}'} و{'{{angle}}'} للتخصيص)</label>
+          <label className="label">اللمسة 1 النص (عربي/إنجليزي {'{{name}}'} و{'{{angle}}'} للتخصيص)</label>
           <textarea value={cfg.body} onChange={(e) => setCfg({ ...cfg, body: e.target.value })} onBlur={() => save({ body: cfg.body })} rows={7} className="input" />
         </div>
         {cfg.touches >= 2 && (
           <details className="rounded-lg border border-[#E9E1D3] p-3">
-            <summary className="text-sm font-medium cursor-pointer text-gray-700">اللمسة 2 و3 — تخصيص اختياري (فارغة = القوالب الجاهزة)</summary>
+            <summary className="text-sm font-medium cursor-pointer text-gray-700">اللمسة 2 و3 تخصيص اختياري فارغة = القوالب الجاهزة</summary>
             <div className="space-y-2 mt-2">
-              <input placeholder="موضوع اللمسة 2 (اختياري)" value={cfg.subject2 ?? ''} onChange={(e) => setCfg({ ...cfg, subject2: e.target.value })} onBlur={() => save({ subject2: cfg.subject2 || null })} className="input" />
-              <textarea placeholder="نص اللمسة 2 (اختياري)" value={cfg.body2 ?? ''} onChange={(e) => setCfg({ ...cfg, body2: e.target.value })} onBlur={() => save({ body2: cfg.body2 || null })} rows={4} className="input" />
+              <input placeholder="موضوع اللمسة 2 اختياري" value={cfg.subject2 ?? ''} onChange={(e) => setCfg({ ...cfg, subject2: e.target.value })} onBlur={() => save({ subject2: cfg.subject2 || null })} className="input" />
+              <textarea placeholder="نص اللمسة 2 اختياري" value={cfg.body2 ?? ''} onChange={(e) => setCfg({ ...cfg, body2: e.target.value })} onBlur={() => save({ body2: cfg.body2 || null })} rows={4} className="input" />
               {cfg.touches >= 3 && (<>
-                <input placeholder="موضوع اللمسة 3 (اختياري)" value={cfg.subject3 ?? ''} onChange={(e) => setCfg({ ...cfg, subject3: e.target.value })} onBlur={() => save({ subject3: cfg.subject3 || null })} className="input" />
-                <textarea placeholder="نص اللمسة 3 (اختياري)" value={cfg.body3 ?? ''} onChange={(e) => setCfg({ ...cfg, body3: e.target.value })} onBlur={() => save({ body3: cfg.body3 || null })} rows={4} className="input" />
+                <input placeholder="موضوع اللمسة 3 اختياري" value={cfg.subject3 ?? ''} onChange={(e) => setCfg({ ...cfg, subject3: e.target.value })} onBlur={() => save({ subject3: cfg.subject3 || null })} className="input" />
+                <textarea placeholder="نص اللمسة 3 اختياري" value={cfg.body3 ?? ''} onChange={(e) => setCfg({ ...cfg, body3: e.target.value })} onBlur={() => save({ body3: cfg.body3 || null })} rows={4} className="input" />
               </>)}
             </div>
           </details>
         )}
 
         <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
-          ⚠️ الإرسال البارد الجماعي قد يؤثّر على سمعة نطاقك ويُصنَّف Spam. أبقِ الحدّ اليومي منخفضاً ووثّق نطاقك (DKIM) لأفضل وصول. كل بريد يتضمّن رابط إلغاء اشتراك تلقائي وزاوية مخصّصة لدولة العميل.
+          ⚠️ الإرسال البارد الجماعي قد يؤثر على سمعة نطاقك ويصنف Spam أبق الحد اليومي منخفضا ووثق نطاقك DKIM لأفضل وصول كل بريد يتضمن رابط إلغاء اشتراك تلقائي وزاوية مخصصة لدولة العميل
         </p>
-        <p className="text-xs text-gray-400">💡 للعمل 24/7 بلا متصفّح، فعّل الخيار الكهرماني — الجدولة ترسل دفعات تلقائياً حتى بلوغ الحدّ اليومي.</p>
+        <p className="text-xs text-gray-400">💡 للعمل 24/7 بلا متصفح فعل الخيار الكهرماني الجدولة ترسل دفعات تلقائيا حتى بلوغ الحد اليومي</p>
         <div className="flex justify-end">
           <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
         </div>
@@ -1284,7 +1284,7 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
   });
 
   useEffect(() => {
-    leadApi.communityConfig().then((r) => { const c = r.data.data as CommunityConfig; setCfg(c); setCountriesText(c.countries.join('، ')); });
+    leadApi.communityConfig().then((r) => { const c = r.data.data as CommunityConfig; setCfg(c); setCountriesText(c.countries.join(' ')); });
   }, []);
 
   const save = async (patch: Partial<CommunityConfig>) => {
@@ -1315,7 +1315,7 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live]);
 
-  if (!cfg) return <Modal title="بحث القروبات/المجتمعات" onClose={onClose}><div className="py-8 text-center text-gray-400">جارٍ التحميل...</div></Modal>;
+  if (!cfg) return <Modal title="بحث القروبات/المجتمعات" onClose={onClose}><div className="py-8 text-center text-gray-400">جار التحميل</div></Modal>;
 
   const communityReady = ready?.community ?? false;
 
@@ -1323,23 +1323,23 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
     <Modal title="بحث القروبات والمجتمعات المستمر" onClose={onClose}>
       <div className="space-y-3">
         <div className="bg-blue-600 text-white rounded-lg p-3 text-sm">
-          يبحث عن مجموعات المهتمين بالتوزيع وإدارة المناديب (فيسبوك · LinkedIn · Telegram · واتساب · Reddit · Discord) — للانضمام والتسويق فيها.
+          يبحث عن مجموعات المهتمين بالتوزيع وإدارة المناديب فيسبوك LinkedIn Telegram واتساب Reddit Discord للانضمام والتسويق فيها
           <div className="flex gap-4 mt-2 text-xs text-blue-100">
-            <span>دفعات: <b className="text-white">{cfg.totalRuns}</b></span>
-            <span>قروبات مُكتشفة: <b className="text-white">{cfg.totalImported}</b></span>
+            <span>دفعات <b className="text-white">{cfg.totalRuns}</b></span>
+            <span>قروبات مكتشفة <b className="text-white">{cfg.totalImported}</b></span>
           </div>
         </div>
 
         {!communityReady && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-sm text-red-700">
-            يتطلب مفتاح <code>SERPER_API_KEY</code> في الخادم (نفس مفتاح «بحث الويب»).
+            يتطلب مفتاح <code>SERPER_API_KEY</code> في الخادم نفس مفتاح بحث الويب
           </div>
         )}
 
         <div className={`rounded-lg p-3 border ${live ? 'border-green-400 bg-green-50' : 'border-[#E9E1D3]'}`}>
           <label className="flex items-center gap-2 text-sm font-medium">
             <input type="checkbox" checked={live} disabled={!communityReady} onChange={(e) => setLive(e.target.checked)} />
-            {live ? '🟢 بحث مستمر جارٍ الآن (دفعة كل دقيقة)' : 'بحث مستمر الآن (أثناء فتح النافذة)'}
+            {live ? '🟢 بحث مستمر جار الآن دفعة كل دقيقة' : 'بحث مستمر الآن أثناء فتح النافذة'}
           </label>
           <div className="flex gap-2 mt-2">
             <button onClick={runOnce} disabled={!communityReady} className="px-3 py-1.5 rounded-lg text-sm bg-blue-600 text-white disabled:opacity-50">ابحث دفعة الآن</button>
@@ -1353,11 +1353,11 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
 
         <label className="flex items-center gap-2 text-sm bg-amber-50 rounded-lg p-2.5 text-amber-800">
           <input type="checkbox" checked={cfg.enabled} disabled={!communityReady} onChange={(e) => save({ enabled: e.target.checked })} />
-          تفعيل البحث التلقائي 24/7 — يعمل وحده عبر الجدولة
+          تفعيل البحث التلقائي 24/7 يعمل وحده عبر الجدولة
         </label>
 
         <div>
-          <label className="label">الدول (بالتناوب · «عالمي» لبحث بلا تقييد دولة)</label>
+          <label className="label">الدول بالتناوب عالمي لبحث بلا تقييد دولة</label>
           <textarea value={countriesText} onChange={(e) => setCountriesText(e.target.value)}
             onBlur={() => save({ countries: countriesText.split(/[،,\n]/).map((s) => s.trim()).filter(Boolean) })} rows={2} className="input" />
         </div>
@@ -1372,7 +1372,7 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
           </div>
         </div>
 
-        <p className="text-xs text-gray-400">💡 القروبات المُكتشفة تظهر في القائمة بمصدر «قروبات/مجتمعات» (فلترها من «كل المصادر»). افتح الرابط للانضمام يدوياً.</p>
+        <p className="text-xs text-gray-400">💡 القروبات المكتشفة تظهر في القائمة بمصدر قروبات/مجتمعات فلترها من كل المصادر افتح الرابط للانضمام يدويا</p>
         <div className="flex justify-end">
           <button onClick={() => { setLive(false); onClose(); }} className="px-4 py-2 rounded-lg border border-[#E9E1D3] text-gray-600">إغلاق</button>
         </div>
@@ -1386,7 +1386,7 @@ function AddLeadModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
   const [form, setForm] = useState({ name: '', phone: '', email: '', website: '', city: '', country: '', category: '', notes: '' });
   const mutation = useMutation({
     mutationFn: () => leadApi.create(form),
-    onSuccess: () => { toast.success('أُضيف العميل المحتمل'); onDone(); onClose(); },
+    onSuccess: () => { toast.success('أضيف العميل المحتمل'); onDone(); onClose(); },
     onError: () => toast.error('فشل الحفظ'),
   });
   return (
@@ -1415,7 +1415,7 @@ function AddLeadModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
 function ImportButton({ onDone }: { onDone: () => void }) {
   const mutation = useMutation({
     mutationFn: (rows: Record<string, string>[]) => leadApi.import(rows),
-    onSuccess: (res) => { toast.success(`استُورد ${res.data.data.imported} من ${res.data.data.total}`); onDone(); },
+    onSuccess: (res) => { toast.success(`استورد ${res.data.data.imported} من ${res.data.data.total}`); onDone(); },
     onError: () => toast.error('فشل الاستيراد'),
   });
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1488,7 +1488,7 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
   });
   const addActivity = useMutation({
     mutationFn: () => leadApi.addActivity(id, { type: noteType, content: note, markContacted: noteType === 'CALL' || noteType === 'EMAIL' || noteType === 'MEETING' }),
-    onSuccess: () => { setNote(''); refreshAll(); toast.success('سُجّلت المتابعة'); },
+    onSuccess: () => { setNote(''); refreshAll(); toast.success('سجلت المتابعة'); },
     onError: () => toast.error('فشل التسجيل'),
   });
   const convert = useMutation({
@@ -1498,7 +1498,7 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
   });
   const remove = useMutation({
     mutationFn: () => leadApi.remove(id),
-    onSuccess: () => { onChanged(); onClose(); toast.success('حُذف'); },
+    onSuccess: () => { onChanged(); onClose(); toast.success('حذف'); },
     onError: () => toast.error('فشل الحذف'),
   });
 
@@ -1544,7 +1544,7 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
           {/* تقييم + متابعة قادمة */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">الملاءمة (1-10)</label>
+              <label className="label">الملاءمة 1-10</label>
               <input type="number" min={0} max={10} defaultValue={lead.score ?? ''} className="input"
                 onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== lead.score) update.mutate({ score: v }); }} />
             </div>
@@ -1567,7 +1567,7 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
                 </button>
               ))}
             </div>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input mb-2" placeholder="تفاصيل المتابعة..." />
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input mb-2" placeholder="تفاصيل المتابعة" />
             <button disabled={!note || addActivity.isPending} onClick={() => addActivity.mutate()} className="btn-primary w-full text-sm">تسجيل</button>
           </div>
 
@@ -1576,12 +1576,12 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
             <button disabled={lead.stage === 'WON'} onClick={() => convert.mutate()} className="flex-1 bg-green-600 text-white rounded-lg py-2 text-sm flex items-center justify-center gap-1 disabled:opacity-50">
               <ArrowRightLeft size={15} /> تحويل لمشترك
             </button>
-            <button onClick={() => { if (confirm('حذف هذا العميل المحتمل؟')) remove.mutate(); }} className="px-3 py-2 rounded-lg border border-red-200 text-red-600"><Trash2 size={16} /></button>
+            <button onClick={() => { if (confirm('حذف هذا العميل المحتمل')) remove.mutate(); }} className="px-3 py-2 rounded-lg border border-red-200 text-red-600"><Trash2 size={16} /></button>
           </div>
 
           {/* الخط الزمني */}
           <div>
-            <p className="text-sm font-bold text-gray-700 mb-2">سجلّ المتابعة</p>
+            <p className="text-sm font-bold text-gray-700 mb-2">سجل المتابعة</p>
             <div className="space-y-2">
               {(lead.activities ?? []).map((a: LeadActivity) => (
                 <div key={a.id} className="text-xs border-r-2 border-[#E9E1D3] pr-3">
@@ -1589,7 +1589,7 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
                   <div className="text-gray-400">{a.createdBy ? `${a.createdBy} · ` : ''}{formatDate(a.createdAt)}</div>
                 </div>
               ))}
-              {(lead.activities ?? []).length === 0 && <p className="text-xs text-gray-400">لا متابعات بعد.</p>}
+              {(lead.activities ?? []).length === 0 && <p className="text-xs text-gray-400">لا متابعات بعد</p>}
             </div>
           </div>
         </div>

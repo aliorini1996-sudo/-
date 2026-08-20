@@ -46,5 +46,5 @@ export async function sendMarketingEmail({ subject, html, to, replyTo }: Marketi
 
   // 2) بديل: Resend (بريد النظام) — محدود 100/يوم على المجاني
   const ok = await sendMail({ subject, html, to, replyTo });
-  if (!ok) throw new Error('فشل الإرسال عبر Resend (تحقّق من الحصّة اليومية أو ضبط المفتاح).');
+  if (!ok) throw new Error('فشل الإرسال عبر Resend تحقق من الحصة اليومية أو ضبط المفتاح');
 }

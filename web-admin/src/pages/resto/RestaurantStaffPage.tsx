@@ -28,22 +28,22 @@ export default function RestaurantStaffPage() {
   const delMut = useMutation({
     mutationFn: () => restaurantApi.deleteStaff(del!.id),
     onSuccess: () => { invalidate(); toast.success('تم الحذف'); setDel(null); },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الحذف'),
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر الحذف'),
   });
 
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-bold text-[#1F1A13]">الموظّفون</h1>
-        <button onClick={() => setEdit('new')} className="btn-primary"><Plus size={16} /> موظّف جديد</button>
+        <h1 className="text-2xl font-bold text-[#1F1A13]">الموظفون</h1>
+        <button onClick={() => setEdit('new')} className="btn-primary"><Plus size={16} /> موظف جديد</button>
       </div>
-      <p className="text-[#6E6557] text-sm mb-6">أنشئ حسابات الكاشير والنُدُل بـPIN — يدخلون على شاشة الكاشير فقط من <span className="font-mono" dir="ltr">/pos-login</span></p>
+      <p className="text-[#6E6557] text-sm mb-6">أنشئ حسابات الكاشير والندل بPIN يدخلون على شاشة الكاشير فقط من <span className="font-mono" dir="ltr">/pos-login</span></p>
 
-      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل…</div>
+      {isLoading ? <div className="card text-center py-16 text-gray-400">جاري التحميل</div>
         : list.length === 0 ? (
           <div className="card text-center py-16">
             <Users size={30} className="text-[#9A8F7E] mx-auto mb-2" />
-            <p className="text-gray-500">لا موظّفين — أضف أول كاشير</p>
+            <p className="text-gray-500">لا موظفين أضف أول كاشير</p>
           </div>
         ) : (
           <div className="card p-0 overflow-hidden">
@@ -81,7 +81,7 @@ export default function RestaurantStaffPage() {
 
       {edit && <StaffModal staff={edit === 'new' ? null : edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); invalidate(); }} />}
       {pinFor && <PinModal staff={pinFor} onClose={() => setPinFor(null)} />}
-      {del && <ConfirmDialog danger title="حذف الموظّف" message={`حذف «${del.name}»؟`} loading={delMut.isPending} onConfirm={() => delMut.mutate()} onClose={() => setDel(null)} />}
+      {del && <ConfirmDialog danger title="حذف الموظف" message={`حذف «${del.name}»`} loading={delMut.isPending} onConfirm={() => delMut.mutate()} onClose={() => setDel(null)} />}
     </div>
   );
 }
@@ -93,37 +93,37 @@ function StaffModal({ staff, onClose, onSaved }: { staff: Staff | null; onClose:
     mutationFn: () => staff
       ? restaurantApi.updateStaff(staff.id, { name: f.name.trim(), canPay: f.canPay })
       : restaurantApi.createStaff({ name: f.name.trim(), username: f.username.trim(), pin: f.pin, canPay: f.canPay }),
-    onSuccess: () => { toast.success(staff ? 'تم التحديث' : 'أُضيف الموظّف'); onSaved(); },
+    onSuccess: () => { toast.success(staff ? 'تم التحديث' : 'أضيف الموظف'); onSaved(); },
     onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'حدث خطأ'),
   });
   const submit = () => {
     if (!f.name.trim()) { toast.error('الاسم مطلوب'); return; }
     if (!staff) {
-      if (!/^[a-zA-Z0-9._-]{3,}$/.test(f.username.trim())) { toast.error('اسم الدخول: 3 أحرف إنجليزية/أرقام على الأقل'); return; }
+      if (!/^[a-zA-Z0-9._-]{3,}$/.test(f.username.trim())) { toast.error('اسم الدخول 3 أحرف إنجليزية/أرقام على الأقل'); return; }
       if (!/^\d{4,6}$/.test(f.pin)) { toast.error('الرمز 4 إلى 6 أرقام'); return; }
     }
     mut.mutate();
   };
   return (
-    <Shell title={staff ? 'تعديل الموظّف' : 'موظّف جديد'} onClose={onClose}>
+    <Shell title={staff ? 'تعديل الموظف' : 'موظف جديد'} onClose={onClose}>
       <div className="p-5 space-y-3">
         <div><label className="label">الاسم *</label>
-          <input className="input" autoFocus value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال: أحمد" /></div>
+          <input className="input" autoFocus value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال أحمد" /></div>
         {!staff && (
           <>
-            <div><label className="label">اسم الدخول * (إنجليزي)</label>
+            <div><label className="label">اسم الدخول * إنجليزي</label>
               <input className="input" dir="ltr" value={f.username} onChange={e => set('username', e.target.value)} placeholder="ahmad" /></div>
-            <div><label className="label">الرمز (PIN) * — 4 إلى 6 أرقام</label>
+            <div><label className="label">الرمز PIN * 4 إلى 6 أرقام</label>
               <input className="input" dir="ltr" inputMode="numeric" value={f.pin} maxLength={6} onChange={e => set('pin', e.target.value.replace(/\D/g, ''))} placeholder="••••" /></div>
           </>
         )}
         <div>
           <label className="label">الدور</label>
           <div className="flex gap-2">
-            <button type="button" onClick={() => set('canPay', true)} className={`flex-1 py-2 rounded-lg text-sm font-semibold border ${f.canPay ? 'bg-[#FBEBE2] border-[#E15A30] text-[#C94E28]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>كاشير (يقبض)</button>
-            <button type="button" onClick={() => set('canPay', false)} className={`flex-1 py-2 rounded-lg text-sm font-semibold border ${!f.canPay ? 'bg-[#FBEBE2] border-[#E15A30] text-[#C94E28]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>نادل (طلبات فقط)</button>
+            <button type="button" onClick={() => set('canPay', true)} className={`flex-1 py-2 rounded-lg text-sm font-semibold border ${f.canPay ? 'bg-[#FBEBE2] border-[#E15A30] text-[#C94E28]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>كاشير يقبض</button>
+            <button type="button" onClick={() => set('canPay', false)} className={`flex-1 py-2 rounded-lg text-sm font-semibold border ${!f.canPay ? 'bg-[#FBEBE2] border-[#E15A30] text-[#C94E28]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>نادل طلبات فقط</button>
           </div>
-          <p className="text-xs text-[#9A8F7E] mt-1">النادل يأخذ الطلبات ويرسلها للمطبخ، والكاشير يقبض الدفع أيضاً.</p>
+          <p className="text-xs text-[#9A8F7E] mt-1">النادل يأخذ الطلبات ويرسلها للمطبخ والكاشير يقبض الدفع أيضا</p>
         </div>
       </div>
       <Footer loading={mut.isPending} onSave={submit} onClose={onClose} />
@@ -142,7 +142,7 @@ function PinModal({ staff, onClose }: { staff: Staff; onClose: () => void }) {
   return (
     <Shell title={`رمز ${staff.name}`} onClose={onClose}>
       <div className="p-5">
-        <label className="label">الرمز الجديد (PIN)</label>
+        <label className="label">الرمز الجديد PIN</label>
         <input className="input text-lg" dir="ltr" inputMode="numeric" autoFocus value={pin} maxLength={6} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} placeholder="••••" />
       </div>
       <Footer loading={mut.isPending} onSave={submit} onClose={onClose} />

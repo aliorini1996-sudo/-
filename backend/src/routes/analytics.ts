@@ -123,7 +123,7 @@ router.get('/go/wa', async (req: Request, res: Response) => {
       }).catch(() => { /* القياس لا يعطّل التحويل أبداً */ });
     }
 
-    const text = `مرحباً، أتواصل بخصوص FieldSales.\nالمرجع: [FS-${code}]`;
+    const text = `مرحبا أتواصل بخصوص FieldSales \nالمرجع [FS-${code}]`;
     res.redirect(302, `https://wa.me/${number}?text=${encodeURIComponent(text)}`);
   } catch {
     res.redirect(302, fallback); // أي خطأ ⇒ يصل المستخدم لواتساب رغم فقد القياس
@@ -157,7 +157,7 @@ const AI_ENGINES: { label: string; re: RegExp }[] = [
   { label: 'Grok', re: /(^|\.)grok\.com$|(^|\.)x\.ai$/i },
   { label: 'DeepSeek', re: /(^|\.)deepseek\.com$/i },
   { label: 'Meta AI', re: /(^|\.)meta\.ai$/i },
-  { label: 'أخرى (AI)', re: /(^|\.)you\.com$|(^|\.)poe\.com$|(^|\.)phind\.com$|(^|\.)mistral\.ai$|(^|\.)kagi\.com$/i },
+  { label: 'أخرى AI', re: /(^|\.)you\.com$|(^|\.)poe\.com$|(^|\.)phind\.com$|(^|\.)mistral\.ai$|(^|\.)kagi\.com$/i },
 ];
 const aiEngineOf = (host: string | null) => (host ? AI_ENGINES.find((e) => e.re.test(host))?.label || null : null);
 

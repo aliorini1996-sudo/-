@@ -160,7 +160,7 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
       rows.push({
         ...p, expected: 0, withBuffer: 0, onVan, suggested: 0,
         basis: 'none', sampleDays: 0, activeDays: 0, confidence: 'low',
-        why: 'لا مبيعات لهذا الصنف خلال النافذة — لا اقتراح.',
+        why: 'لا مبيعات لهذا الصنف خلال النافذة لا اقتراح',
       });
       continue;
     }
@@ -191,15 +191,15 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
       basis = 'weekday';
       sampleDays = weekdayKeys.length; // القاسم = كل أيام الأسبوع في النافذة، لا التي بيع فيها
       expected = sumOver(weekdayKeys) / sampleDays;
-      why = `متوسط ${AR_WEEKDAY[weekday]} خلال آخر ${windowDays} يوماً: `
+      why = `متوسط ${AR_WEEKDAY[weekday]} خلال آخر ${windowDays} يوما `
         + `${fmt(sumOver(weekdayKeys))} على ${sampleDays} ${AR_WEEKDAY[weekday]} (منها ${wdActive} فيها بيع) = ${fmt(round2(expected))}.`;
     } else {
       // 4) سقوط آمن: متوسط يومي عام على كامل النافذة
       basis = 'overall';
       sampleDays = windowDays;
       expected = sumOver(windowDayKeys) / windowDays;
-      why = `عيّنة ${AR_WEEKDAY[weekday]} غير كافية، فالحساب على المتوسط اليومي العام: `
-        + `${fmt(sumOver(windowDayKeys))} على ${windowDays} يوماً (منها ${activeDays} فيها بيع) = ${fmt(round2(expected))}.`;
+      why = `عينة ${AR_WEEKDAY[weekday]} غير كافية فالحساب على المتوسط اليومي العام `
+        + `${fmt(sumOver(windowDayKeys))} على ${windowDays} يوما (منها ${activeDays} فيها بيع) = ${fmt(round2(expected))}.`;
     }
 
     expected = Math.max(0, round2(expected));
@@ -228,10 +228,10 @@ export function suggestLoad(input: SuggestInput): SuggestResult {
 
   const dataDays = allDays.size;
   let warning: string | null = null;
-  if (!targetValid) warning = 'تاريخ غير صالح — حُسب على تاريخ اليوم.';
-  else if (dataDays === 0) warning = 'لا مبيعات لهذا المندوب داخل النافذة — لا يمكن اقتراح تحميل.';
-  else if (dataDays < 7) warning = `البيانات ${dataDays} يوماً فقط. الأرقام مؤشّر أوّلي لا أكثر — تتحسّن كلّما طال التشغيل.`;
-  else if (dataDays < 14) warning = `البيانات ${dataDays} يوماً. اعتمد عليها بحذر وراجع الاقتراح قبل التحميل.`;
+  if (!targetValid) warning = 'تاريخ غير صالح حسب على تاريخ اليوم';
+  else if (dataDays === 0) warning = 'لا مبيعات لهذا المندوب داخل النافذة لا يمكن اقتراح تحميل';
+  else if (dataDays < 7) warning = `البيانات ${dataDays} يوما فقط الأرقام مؤشر أولي لا أكثر تتحسن كلما طال التشغيل`;
+  else if (dataDays < 14) warning = `البيانات ${dataDays} يوما اعتمد عليها بحذر وراجع الاقتراح قبل التحميل`;
 
   return {
     rows,

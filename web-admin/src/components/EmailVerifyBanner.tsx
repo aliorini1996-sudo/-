@@ -16,11 +16,11 @@ export default function EmailVerifyBanner() {
   if (impersonating || !isCompanyAdmin || user?.emailVerified !== false) return null;
 
   const t = {
-    text: lang === 'en' ? 'Please verify your email — check your inbox for the confirmation link.' : 'يرجى تأكيد بريدك الإلكتروني — تحقّق من صندوق بريدك للرابط.',
+    text: lang === 'en' ? 'Please verify your email — check your inbox for the confirmation link.' : 'يرجى تأكيد بريدك الإلكتروني تحقق من صندوق بريدك للرابط',
     resend: lang === 'en' ? 'Resend' : 'إعادة الإرسال',
     sent: lang === 'en' ? 'Verification email sent' : 'تم إرسال رابط التأكيد',
-    fail: lang === 'en' ? 'Could not send, try again' : 'تعذّر الإرسال، حاول مجدداً',
-    already: lang === 'en' ? 'Email already verified' : 'البريد مؤكَّد بالفعل',
+    fail: lang === 'en' ? 'Could not send, try again' : 'تعذر الإرسال حاول مجددا',
+    already: lang === 'en' ? 'Email already verified' : 'البريد مؤكد بالفعل',
   };
 
   const resend = async () => {

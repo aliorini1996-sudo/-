@@ -35,16 +35,16 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
       return siteContentApi.update({ ...(latest || {}), profile: content });
     },
     onSuccess: () => {
-      toast.success('حُفظ — الصفحة تعرض النص الجديد فورا');
+      toast.success('حفظ الصفحة تعرض النص الجديد فورا');
       qc.invalidateQueries({ queryKey: ['site-content'] });
       setDraft(null);
     },
-    onError: () => toast.error('تعذر الحفظ — حاول مجددا'),
+    onError: () => toast.error('تعذر الحفظ حاول مجددا'),
   });
 
   const resetLang = () => {
     setDraft({ ...content, [lang]: { ...PROFILE_DEFAULTS[lang] } });
-    toast('أُعيدت نصوص هذه اللغة للافتراضي — احفظ لتثبيتها', { icon: '↩️' });
+    toast('أعيدت نصوص هذه اللغة للافتراضي احفظ لتثبيتها', { icon: '↩️' });
   };
 
   return (
@@ -54,7 +54,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div>
             <h2 className="text-lg font-bold text-[#1F1A13]">محتوى البروفايل</h2>
-            <p className="text-xs text-[#6E6557]">كل نص في صفحة fieldsa.net/profile — عدل واحفظ ويظهر فورا</p>
+            <p className="text-xs text-[#6E6557]">كل نص في صفحة fieldsa net/profile عدل واحفظ ويظهر فورا</p>
           </div>
           <div className="flex items-center gap-2">
             <a href="/profile" target="_blank" rel="noopener noreferrer"
@@ -83,7 +83,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
         {/* الحقول */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {isLoading ? (
-            <p className="text-center text-gray-400 py-10">جار التحميل…</p>
+            <p className="text-center text-gray-400 py-10">جار التحميل</p>
           ) : PROFILE_FIELDS.map(f => (
             <div key={f.key}>
               <label className="block text-[13px] font-bold text-[#1F1A13] mb-1">
@@ -107,7 +107,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
           <p className="text-[11px] text-[#9A8F7E]">{draft ? 'تعديلات غير محفوظة' : 'لا تعديلات معلقة'}</p>
           <button onClick={() => save.mutate()} disabled={save.isPending || !draft}
             className="inline-flex items-center gap-2 bg-[#E15A30] text-white font-bold text-sm px-5 py-2.5 rounded-xl disabled:opacity-50 hover:bg-[#C94E28]">
-            <Save size={15} /> {save.isPending ? 'يحفظ…' : 'حفظ التعديلات'}
+            <Save size={15} /> {save.isPending ? 'يحفظ' : 'حفظ التعديلات'}
           </button>
         </div>
       </div>

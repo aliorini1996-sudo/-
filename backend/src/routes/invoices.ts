@@ -53,7 +53,7 @@ const createInvoiceSchema = z.object({
   clientRef: z.string().uuid().optional(),
   clientCreatedAt: z.string().optional(),
 }).refine((d) => !!d.customerId || !!d.customerClientRef, {
-  message: 'يجب تحديد العميل (customerId أو customerClientRef)',
+  message: 'يجب تحديد العميل customerId أو customerClientRef',
 });
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -169,7 +169,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         where: { tenantId: tid, clientRef: body.customerClientRef },
         select: { id: true },
       });
-      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يُرفع بعد — أعِد المزامنة' }); return; }
+      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يرفع بعد أعد المزامنة' }); return; }
       customerId = ref.id;
     }
     if (!customerId) { res.status(400).json({ success: false, message: 'يجب تحديد العميل' }); return; }
@@ -189,7 +189,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (customer.status === 'BLOCKED') { res.status(400).json({ success: false, message: 'العميل محظور' }); return; }
     // عزل العملاء: يُمنع المندوب من الفوترة لعميل غير مُسنَد له (لا يُتجاوز العزل بتمرير معرّف)
     if (!(await canAccessCustomer(req, tid, customerId))) {
-      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
       return;
     }
 
@@ -389,7 +389,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       include: { receiptItems: true },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
-    if (invoice.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'الفاتورة ملغاة مسبقاً' }); return; }
+    if (invoice.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'الفاتورة ملغاة مسبقا' }); return; }
 
     if (req.user?.role === 'SALES_REP') {
       if (invoice.salesRepId !== req.user.id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }

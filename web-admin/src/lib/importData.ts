@@ -141,7 +141,7 @@ function toBalances(rows: Record<string, unknown>[]): TransformOut {
   rows.forEach((row, i) => {
     const cn = pick(row, A_BAL.name); const cc = pick(row, A_BAL.code); const ph = pick(row, A_BAL.phone);
     const bal = numOr(pick(row, A_BAL.balance), undefined);
-    if (!cn && !cc && !ph) { errors.push({ row: i + 2, message: 'معرّف العميل مفقود (الاسم/الكود/الجوال)' }); return; }
+    if (!cn && !cc && !ph) { errors.push({ row: i + 2, message: 'معرف العميل مفقود الاسم/الكود/الجوال' }); return; }
     if (bal === undefined || bal === 0) return; // بلا رصيد — يُتجاهَل بلا خطأ
     valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, balance: bal, date: pick(row, A_BAL.date) || undefined });
   });
@@ -190,7 +190,7 @@ function toPrices(rows: Record<string, unknown>[]): TransformOut {
   rows.forEach((row, i) => {
     const cn = pick(row, A_PRC.name); const cc = pick(row, A_PRC.code); const ph = pick(row, A_PRC.phone);
     const pc = pick(row, A_PRC.productCode); const price = numOr(pick(row, A_PRC.price), undefined);
-    if (!cn && !cc && !ph) { errors.push({ row: i + 2, message: 'معرّف العميل مفقود' }); return; }
+    if (!cn && !cc && !ph) { errors.push({ row: i + 2, message: 'معرف العميل مفقود' }); return; }
     if (!pc) { errors.push({ row: i + 2, message: 'كود الصنف مفقود' }); return; }
     if (price === undefined) { errors.push({ row: i + 2, message: 'السعر مفقود' }); return; }
     valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, productCode: pc, price });

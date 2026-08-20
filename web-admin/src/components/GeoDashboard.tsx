@@ -29,7 +29,7 @@ const AI_BOTS = [
 ];
 
 // استعلام جاهز لاختبار الظهور يدوياً في محركات الإجابة
-const TEST_Q = encodeURIComponent('أفضل نظام مبيعات ميدانية وتوزيع للموزعين في السعودية ومصر؟');
+const TEST_Q = encodeURIComponent('أفضل نظام مبيعات ميدانية وتوزيع للموزعين في السعودية ومصر');
 
 // مفتاح IndexNow (عام بطبيعته — ملف التحقق منشور على الجذر)
 const INDEXNOW_KEY = '6548b7ac3458e8bcee3dd9f0c1fe55f3';
@@ -102,20 +102,20 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
 
   // قائمة تحقّق صحّة الـGEO
   const checks: { label: string; ok: boolean; detail?: string; hint?: string }[] = [
-    { label: 'دليل الموقع للنماذج llms.txt', ok: p.llms, detail: p.llms ? `${p.llmsLinks} رابط مُنسّق` : undefined },
-    { label: 'الفهرس الكامل llms-full.txt', ok: p.llmsFull, detail: `${seoArticles * 3} صفحة بثلاث لغات` },
-    { label: 'ترحيب صريح بكل زواحف الذكاء الاصطناعي', ok: p.aiBots >= 40, detail: `${p.aiBots}/${AI_BOTS.length} زاحفاً موثّقاً في robots.txt` },
-    { label: 'كل المحتوى مفتوح لكل الزواحف', ok: p.aiBots >= 40, detail: `${citablePages} صفحة × ${AI_BOTS.length} زاحفاً = ${(citablePages * AI_BOTS.length).toLocaleString()} تصريح زحف` },
-    { label: 'صفحات ثابتة تُقرأ بلا JavaScript', ok: p.prerender, detail: `${citablePages} صفحة مُصيَّرة مسبقاً` },
-    { label: 'أسئلة وأجوبة منظّمة (FAQPage)', ok: p.faqSchema, detail: `${faqCount.toLocaleString('ar')} سؤال قابل للاقتباس` },
-    { label: 'حقائق مُفرَدة لكل دولة (عملة/ضريبة/جهة)', ok: true, detail: `${COUNTRIES.length} دولة عربية` },
-    { label: 'بيانات منظّمة للمنتج (Schema)', ok: !!document.querySelector('script[type="application/ld+json"]') },
-    { label: 'llms.txt مُشار إليه من HTML وrobots', ok: !!document.querySelector('link[href*="llms.txt"]'), hint: document.querySelector('link[href*="llms.txt"]') ? undefined : 'يكتمل بعد النشر' },
-    { label: 'إثبات هوية عبر الحسابات الاجتماعية (sameAs)', ok: socialCount > 0, detail: socialCount > 0 ? `${socialCount} حساب مربوط (X · فيسبوك)` : undefined, hint: socialCount === 0 ? 'املأ روابط التواصل من «محتوى الصفحة»' : undefined },
-    { label: 'بطاقات صور احترافية (OG) لكل مقال', ok: true, detail: `${seoArticles * 3} بطاقة · 3 لغات` },
-    { label: 'متابعة الزيارات القادمة من محركات AI', ok: !!ai, hint: ai ? undefined : 'تُفعَّل بعد نشر تحديث الخادم' },
-    { label: 'فهرسة فورية IndexNow (فهرس Bing → ChatGPT/Copilot)', ok: p.indexnow, hint: p.indexnow ? undefined : 'يكتمل بعد النشر' },
-    { label: 'صيانة GEO يومية (أتمتة)', ok: true, detail: 'توليد llms.txt + تدقيق + إشعار فهرسة كل يوم 06:00' },
+    { label: 'دليل الموقع للنماذج llms txt', ok: p.llms, detail: p.llms ? `${p.llmsLinks} رابط منسق` : undefined },
+    { label: 'الفهرس الكامل llms-full txt', ok: p.llmsFull, detail: `${seoArticles * 3} صفحة بثلاث لغات` },
+    { label: 'ترحيب صريح بكل زواحف الذكاء الاصطناعي', ok: p.aiBots >= 40, detail: `${p.aiBots}/${AI_BOTS.length} زاحفا موثقا في robots txt` },
+    { label: 'كل المحتوى مفتوح لكل الزواحف', ok: p.aiBots >= 40, detail: `${citablePages} صفحة × ${AI_BOTS.length} زاحفا = ${(citablePages * AI_BOTS.length).toLocaleString()} تصريح زحف` },
+    { label: 'صفحات ثابتة تقرأ بلا JavaScript', ok: p.prerender, detail: `${citablePages} صفحة مصيرة مسبقا` },
+    { label: 'أسئلة وأجوبة منظمة FAQPage', ok: p.faqSchema, detail: `${faqCount.toLocaleString('ar')} سؤال قابل للاقتباس` },
+    { label: 'حقائق مفردة لكل دولة عملة/ضريبة/جهة', ok: true, detail: `${COUNTRIES.length} دولة عربية` },
+    { label: 'بيانات منظمة للمنتج Schema', ok: !!document.querySelector('script[type="application/ld+json"]') },
+    { label: 'llms txt مشار إليه من HTML وrobots', ok: !!document.querySelector('link[href*="llms.txt"]'), hint: document.querySelector('link[href*="llms.txt"]') ? undefined : 'يكتمل بعد النشر' },
+    { label: 'إثبات هوية عبر الحسابات الاجتماعية sameAs', ok: socialCount > 0, detail: socialCount > 0 ? `${socialCount} حساب مربوط X فيسبوك` : undefined, hint: socialCount === 0 ? 'املأ روابط التواصل من محتوى الصفحة' : undefined },
+    { label: 'بطاقات صور احترافية OG لكل مقال', ok: true, detail: `${seoArticles * 3} بطاقة 3 لغات` },
+    { label: 'متابعة الزيارات القادمة من محركات AI', ok: !!ai, hint: ai ? undefined : 'تفعل بعد نشر تحديث الخادم' },
+    { label: 'فهرسة فورية IndexNow فهرس Bing → ChatGPT/Copilot', ok: p.indexnow, hint: p.indexnow ? undefined : 'يكتمل بعد النشر' },
+    { label: 'صيانة GEO يومية أتمتة', ok: true, detail: 'توليد llms txt + تدقيق + إشعار فهرسة كل يوم 06:00' },
   ];
   const passed = checks.filter((c) => c.ok).length;
   const score = Math.round((passed / checks.length) * 100);
@@ -123,10 +123,10 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
 
   const tools: { label: string; sub: string; href: string; icon: React.ElementType }[] = [
     { label: 'اختبر ظهورك في ChatGPT', sub: 'اسأله عن أفضل نظام مبيعات ميدانية', href: `https://chatgpt.com/?q=${TEST_Q}`, icon: Bot },
-    { label: 'اختبر ظهورك في Perplexity', sub: 'يستشهد بالمصادر مباشرةً', href: `https://www.perplexity.ai/search?q=${TEST_Q}`, icon: Radar },
-    { label: 'وضع الذكاء الاصطناعي في Google', sub: 'AI Mode — إجابات مع مصادر', href: `https://www.google.com/search?q=${TEST_Q}&udm=50`, icon: Search },
-    { label: 'llms.txt الحيّ', sub: 'كما تقرؤه النماذج الآن', href: 'https://fieldsa.net/llms.txt', icon: FileText },
-    { label: 'أتمتة الصيانة (GitHub)', sub: 'توليد وتدقيق GEO اليومي', href: GH_ACTIONS, icon: RefreshCw },
+    { label: 'اختبر ظهورك في Perplexity', sub: 'يستشهد بالمصادر مباشرة', href: `https://www.perplexity.ai/search?q=${TEST_Q}`, icon: Radar },
+    { label: 'وضع الذكاء الاصطناعي في Google', sub: 'AI Mode إجابات مع مصادر', href: `https://www.google.com/search?q=${TEST_Q}&udm=50`, icon: Search },
+    { label: 'llms txt الحي', sub: 'كما تقرؤه النماذج الآن', href: 'https://fieldsa.net/llms.txt', icon: FileText },
+    { label: 'أتمتة الصيانة GitHub', sub: 'توليد وتدقيق GEO اليومي', href: GH_ACTIONS, icon: RefreshCw },
   ];
 
   const maxDay = Math.max(1, ...(ai?.byDay || []).map((d) => d.count));
@@ -139,8 +139,8 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><Sparkles size={20} className="text-[#E15A30]" /></div>
             <div>
-              <h2 className="text-lg font-bold text-[#1F1A13]">الظهور في محركات الذكاء الاصطناعي (GEO)</h2>
-              <p className="text-xs text-[#6E6557]">هل يوصي ChatGPT وPerplexity وGemini بمنصّتك؟ — الأساس، النمو، والقياس</p>
+              <h2 className="text-lg font-bold text-[#1F1A13]">الظهور في محركات الذكاء الاصطناعي GEO</h2>
+              <p className="text-xs text-[#6E6557]">هل يوصي ChatGPT وPerplexity وGemini بمنصتك الأساس النمو والقياس</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
@@ -158,22 +158,22 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className="text-2xl font-extrabold" style={{ color: scoreColor }}>{p.loading ? '…' : `${score}%`}</span>
-                  <span className="text-[10px] text-[#9A8F7E]">صحّة GEO</span>
+                  <span className="text-[10px] text-[#9A8F7E]">صحة GEO</span>
                 </div>
               </div>
               <p className="text-[11px] text-[#6E6557] mt-2">{passed}/{checks.length} عنصر مكتمل</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Kpi icon={Bot} value={ai ? String(ai.total) : '—'} label="زيارة من محركات AI · 30 يوماً" />
-              <Kpi icon={Radar} value={p.loading ? '—' : `${p.aiBots}/${AI_BOTS.length}`} label="زاحف AI موثّق مُرحَّب به" />
+              <Kpi icon={Bot} value={ai ? String(ai.total) : '—'} label="زيارة من محركات AI 30 يوما" />
+              <Kpi icon={Radar} value={p.loading ? '—' : `${p.aiBots}/${AI_BOTS.length}`} label="زاحف AI موثق مرحب به" />
               <Kpi icon={FileText} value={(citablePages * AI_BOTS.length).toLocaleString()} label={`تصريح زحف (${citablePages} صفحة × ${AI_BOTS.length})`} />
-              <Kpi icon={MessageCircleQuestion} value={faqCount.toLocaleString('ar')} label="سؤال وجواب منظّم" />
+              <Kpi icon={MessageCircleQuestion} value={faqCount.toLocaleString('ar')} label="سؤال وجواب منظم" />
             </div>
           </div>
 
           {/* قائمة التحقّق */}
           <div>
-            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><CheckCircle2 size={16} className="text-[#1E7A52]" /> قائمة صحّة الـGEO</h3>
+            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><CheckCircle2 size={16} className="text-[#1E7A52]" /> قائمة صحة الGEO</h3>
             <div className="grid sm:grid-cols-2 gap-2">
               {checks.map((c) => (
                 <div key={c.label} className="flex items-start gap-2.5 bg-white border border-[#E9E1D3] rounded-xl px-3.5 py-2.5">
@@ -192,7 +192,7 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
 
           {/* النمو: زيارات قادمة من محركات الذكاء الاصطناعي */}
           <div className="bg-white border border-[#E9E1D3] rounded-2xl p-4">
-            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Bot size={16} className="text-[#E15A30]" /> زيارات قادمة من محركات الذكاء الاصطناعي (آخر 30 يوماً)</h3>
+            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Bot size={16} className="text-[#E15A30]" /> زيارات قادمة من محركات الذكاء الاصطناعي آخر 30 يوما</h3>
             {ai && ai.total > 0 ? (
               <>
                 <div className="flex items-end gap-1 h-16 mb-3">
@@ -211,8 +211,8 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
             ) : (
               <p className="text-[12.5px] text-[#6E6557] leading-relaxed">
                 {ai
-                  ? 'لم تُرصد زيارات من محركات AI بعد — طبيعي في البداية؛ تظهر عادةً بعد أسابيع من زحف النماذج واقتباسها لمحتواك. الأساس جاهز والعدّاد يعمل.'
-                  : 'يُفعَّل هذا العدّاد بعد نشر تحديث الخادم — سيُحصي كل زائر وصل من ChatGPT أو Perplexity أو Gemini أو Claude أو Copilot وغيرها.'}
+                  ? 'لم ترصد زيارات من محركات AI بعد طبيعي في البداية تظهر عادة بعد أسابيع من زحف النماذج واقتباسها لمحتواك الأساس جاهز والعداد يعمل'
+                  : 'يفعل هذا العداد بعد نشر تحديث الخادم سيحصي كل زائر وصل من ChatGPT أو Perplexity أو Gemini أو Claude أو Copilot وغيرها'}
               </p>
             )}
           </div>
@@ -234,7 +234,7 @@ export default function GeoDashboard({ onClose }: { onClose: () => void }) {
               ))}
             </div>
             <p className="text-[11px] text-[#9A8F7E] mt-3 leading-relaxed">
-              هذه الشاشة تراقب <b>أساس الـGEO</b>: ما يجعل النماذج قادرة على قراءة موقعك واقتباسه والتوصية به. النمو الفعلي يظهر في <b>عدّاد الزيارات القادمة من محركات AI</b> أعلاه — كل زيارة منها تعني أن محرّكاً ذكياً ذكر منصّتك في إجابة.
+              هذه الشاشة تراقب <b>أساس الGEO</b>ما يجعل النماذج قادرة على قراءة موقعك واقتباسه والتوصية به النمو الفعلي يظهر في <b>عداد الزيارات القادمة من محركات AI</b> أعلاه كل زيارة منها تعني أن محركا ذكيا ذكر منصتك في إجابة
             </p>
           </div>
         </div>

@@ -30,7 +30,7 @@ const receiptSchema = z.object({
   clientRef: z.string().uuid().optional(),
   clientCreatedAt: z.string().optional(),
 }).refine((d) => !!d.customerId || !!d.customerClientRef, {
-  message: 'يجب تحديد العميل (customerId أو customerClientRef)',
+  message: 'يجب تحديد العميل customerId أو customerClientRef',
 });
 
 function groupAllocations(allocations: { invoiceId: string; amount: number }[] = []) {
@@ -164,7 +164,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         where: { tenantId: tid, clientRef: body.customerClientRef },
         select: { id: true },
       });
-      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يُرفع بعد — أعِد المزامنة' }); return; }
+      if (!ref) { res.status(400).json({ success: false, message: 'العميل المرجعي لم يرفع بعد أعد المزامنة' }); return; }
       customerId = ref.id;
     }
     if (!customerId) { res.status(400).json({ success: false, message: 'يجب تحديد العميل' }); return; }
@@ -186,7 +186,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     // عزل العملاء: يُمنع التحصيل من عميل غير مُسنَد للمندوب
     if (!(await canAccessCustomer(req, tid, customerId))) {
-      res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+      res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
       return;
     }
 
@@ -298,7 +298,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       include: { invoiceItems: true },
     });
     if (!receipt) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }
-    if (receipt.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'السند ملغى مسبقاً' }); return; }
+    if (receipt.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'السند ملغى مسبقا' }); return; }
 
     if (req.user?.role === 'SALES_REP') {
       if (receipt.salesRepId !== req.user.id) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }

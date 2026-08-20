@@ -88,18 +88,18 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
   const send = useMutation({
     mutationFn: () => leadApi.waBridgeSend({ leadId: selected!.id, text }),
     onSuccess: () => {
-      toast.success('أُدرجت في الطابور — الجسر سيرسلها خلال ثوانٍ');
+      toast.success('أدرجت في الطابور الجسر سيرسلها خلال ثوان');
       qc.invalidateQueries({ queryKey: ['wa-bridge-thread', selected?.id] });
       qc.invalidateQueries({ queryKey: ['wa-bridge-session'] });
     },
     onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الإرسال'),
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر الإرسال'),
   });
 
   const saveDraft = useMutation({
     mutationFn: () => leadApi.waBridgeDraftSave({ template: draft }),
     onSuccess: () => {
-      toast.success('حُفظ القالب');
+      toast.success('حفظ القالب');
       setEditingDraft(false);
       qc.invalidateQueries({ queryKey: ['wa-bridge-draft'] });
       qc.invalidateQueries({ queryKey: ['wa-bridge-preview'] });
@@ -109,7 +109,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
   const logout = useMutation({
     mutationFn: () => leadApi.waBridgeLogout(),
     onSuccess: () => {
-      toast.success('سيُفصل الجسر خلال ثوانٍ');
+      toast.success('سيفصل الجسر خلال ثوان');
       qc.invalidateQueries({ queryKey: ['wa-bridge-session'] });
     },
   });
@@ -127,13 +127,13 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
     mutationFn: () => leadApi.waBridgeBulk({ limit: bulkCount?.willSend || 50 }),
     onSuccess: (res) => {
       const d = res.data.data as { queued: number; skipped: number; remainingToday: number };
-      toast.success(`أُدرجت ${d.queued} رسالة في الطابور — الجسر يرسلها تباعاً`, { duration: 6000 });
+      toast.success(`أدرجت ${d.queued} رسالة في الطابور الجسر يرسلها تباعا`, { duration: 6000 });
       setConfirmBulk(false);
       qc.invalidateQueries({ queryKey: ['wa-bridge-session'] });
       qc.invalidateQueries({ queryKey: ['wa-bridge-bulk-count'] });
     },
     onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر الإدراج'),
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر الإدراج'),
   });
 
   // جودة الأرقام: الأرضي يُهدر الحصّة ويُضعف السمعة — نعرضه ونصنّف غير المصنَّف
@@ -148,17 +148,17 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
     mutationFn: () => leadApi.phoneClassify(),
     onSuccess: (res) => {
       const d = res.data.data as { total: number; mobile: number; landline: number; changed: number };
-      toast.success(`صُنّف ${d.total} رقماً: ${d.mobile} جوّال · ${d.landline} أرضي (استُبعد)`, { duration: 6000 });
+      toast.success(`صنف ${d.total} رقما ${d.mobile} جوال ${d.landline} أرضي استبعد`, { duration: 6000 });
       qc.invalidateQueries({ queryKey: ['wa-phone-audit'] });
       qc.invalidateQueries({ queryKey: ['wa-bridge-bulk-count'] });
     },
-    onError: () => toast.error('تعذّر التصنيف'),
+    onError: () => toast.error('تعذر التصنيف'),
   });
 
   const clearQueue = useMutation({
     mutationFn: () => leadApi.waBridgeQueueClear(),
     onSuccess: (res) => {
-      toast.success(`أُفرغ الطابور (${(res.data.data as { cleared: number }).cleared} رسالة)`);
+      toast.success(`أفرغ الطابور (${(res.data.data as { cleared: number }).cleared} رسالة)`);
       qc.invalidateQueries({ queryKey: ['wa-bridge-session'] });
       qc.invalidateQueries({ queryKey: ['wa-bridge-bulk-count'] });
     },
@@ -193,8 +193,8 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
               {session?.keyConfigured === false ? (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 text-right">
                   <b className="flex items-center gap-1.5 mb-1"><AlertTriangle size={15} /> ينقص مفتاح الجسر</b>
-                  أضِف <code className="bg-red-100 px-1 rounded">WA_BRIDGE_KEY</code> في متغيّرات بيئة الخادم على Render،
-                  واستخدم القيمة نفسها عند تشغيل الجسر على جهازك.
+                  أضف <code className="bg-red-100 px-1 rounded">WA_BRIDGE_KEY</code> في متغيرات بيئة الخادم على Render 
+                  واستخدم القيمة نفسها عند تشغيل الجسر على جهازك
                 </div>
               ) : session?.qr ? (
                 <>
@@ -214,7 +214,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                   <div className="space-y-1.5">
                     <p className="font-semibold text-[#1F1A13]">الجسر غير متصل</p>
                     <p className="text-sm text-gray-500 leading-relaxed">
-                      شغّل الجسر على جهازك ثم سيظهر رمز QR هنا تلقائياً:
+                      شغل الجسر على جهازك ثم سيظهر رمز QR هنا تلقائيا
                     </p>
                     <code className="block bg-[#1F1A13] text-[#9A8F7E] rounded-lg p-2.5 text-xs text-left" dir="ltr">
                       cd wa-bridge<br />npm start
@@ -233,7 +233,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-right space-y-2">
                   <p className="text-sm text-amber-900 leading-relaxed">
                     <Clock size={13} className="inline ml-1" />
-                    <b>{session.queued}</b> رسالة تنتظر في الطابور — ستنطلق تلقائياً بمجرّد اتصال الجسر.
+                    <b>{session.queued}</b> رسالة تنتظر في الطابور ستنطلق تلقائيا بمجرد اتصال الجسر
                   </p>
                   <button
                     onClick={() => clearQueue.mutate()}
@@ -241,13 +241,13 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                     className="w-full border border-red-300 text-red-600 rounded-lg py-1.5 text-xs flex items-center justify-center gap-1 hover:bg-red-50 disabled:opacity-50"
                   >
                     {clearQueue.isPending ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
-                    إفراغ الطابور الآن (قبل الاتصال)
+                    إفراغ الطابور الآن قبل الاتصال
                   </button>
                 </div>
               )}
 
               <div className="flex items-center justify-center gap-1.5 text-xs text-gray-400">
-                <Loader2 size={12} className="animate-spin" /> بانتظار الجسر...
+                <Loader2 size={12} className="animate-spin" /> بانتظار الجسر
               </div>
             </div>
           </div>
@@ -276,7 +276,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
             <main className="flex-1 flex flex-col overflow-hidden">
               {!selected ? (
                 <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-                  اختر عميلاً من القائمة لإرسال رسالة
+                  اختر عميلا من القائمة لإرسال رسالة
                 </div>
               ) : (
                 <>
@@ -316,7 +316,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                       onChange={(e) => setText(e.target.value)}
                       rows={5}
                       className="input text-sm w-full"
-                      placeholder="نصّ الرسالة..."
+                      placeholder="نص الرسالة"
                     />
                     <div className="flex items-center gap-2">
                       <button
@@ -328,8 +328,8 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                         إرسال
                       </button>
                       <span className="text-xs text-gray-400">
-                        متبقٍّ اليوم {session?.remainingToday ?? 0} / {session?.dailyCap ?? '—'}
-                        {!!session?.queued && <> · في الطابور {session.queued}</>}
+                        متبق اليوم {session?.remainingToday ?? 0} / {session?.dailyCap ?? '—'}
+                        {!!session?.queued && <> في الطابور {session.queued}</>}
                       </span>
                     </div>
                   </div>
@@ -358,8 +358,8 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                   <p className="text-xs text-gray-500 bg-[#FAF7F0] rounded-lg p-2 whitespace-pre-wrap leading-relaxed max-h-52 overflow-y-auto">{draft}</p>
                 )}
                 <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
-                  عناصر نائبة: <code>{'{{name}}'}</code> <code>{'{{city}}'}</code> <code>{'{{country}}'}</code>{' '}
-                  <code className="text-[#E15A30]">{'{{angle}}'}</code> — زاوية دولة العميل تُحقن تلقائياً.
+                  عناصر نائبة <code>{'{{name}}'}</code> <code>{'{{city}}'}</code> <code>{'{{country}}'}</code>{' '}
+                  <code className="text-[#E15A30]">{'{{angle}}'}</code> زاوية دولة العميل تحقن تلقائيا
                 </p>
               </div>
 
@@ -368,10 +368,10 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                 <div className="border-t border-[#E9E1D3] pt-3">
                   <label className="label flex items-center gap-1"><Phone size={12} /> جودة الأرقام</label>
                   <div className="text-xs space-y-1 bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg p-2.5">
-                    <div className="flex justify-between"><span className="text-gray-500">جوّال (صالح لواتساب)</span><b className="text-[#166534]">{phones.mobile}</b></div>
-                    <div className="flex justify-between"><span className="text-gray-500">أرضي (مستبعَد)</span><b className="text-red-600">{phones.landline}</b></div>
+                    <div className="flex justify-between"><span className="text-gray-500">جوال صالح لواتساب</span><b className="text-[#166534]">{phones.mobile}</b></div>
+                    <div className="flex justify-between"><span className="text-gray-500">أرضي مستبعد</span><b className="text-red-600">{phones.landline}</b></div>
                     {!!phones.unclassified && (
-                      <div className="flex justify-between"><span className="text-gray-500">غير مصنَّف</span><b className="text-amber-600">{phones.unclassified}</b></div>
+                      <div className="flex justify-between"><span className="text-gray-500">غير مصنف</span><b className="text-amber-600">{phones.unclassified}</b></div>
                     )}
                   </div>
                   {!!phones.unclassified && (
@@ -381,11 +381,11 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                       className="w-full mt-2 border border-[#E9E1D3] rounded-lg py-1.5 text-xs text-gray-700 flex items-center justify-center gap-1 hover:border-[#E15A30] disabled:opacity-50"
                     >
                       {classify.isPending ? <Loader2 size={12} className="animate-spin" /> : <Phone size={12} />}
-                      صنّف {phones.unclassified} رقماً
+                      صنف {phones.unclassified} رقما
                     </button>
                   )}
                   <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
-                    الأرضي لا واتساب له — يُستبعد من الاستهداف ولا يُحذف من عملائك (يبقى للاتصال والبريد).
+                    الأرضي لا واتساب له يستبعد من الاستهداف ولا يحذف من عملائك يبقى للاتصال والبريد
                   </p>
                 </div>
               )}
@@ -394,9 +394,9 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
               <div className="border-t border-[#E9E1D3] pt-3">
                 <label className="label flex items-center gap-1"><Users size={12} /> إرسال جماعي</label>
                 <div className="bg-[#dcf8e8] rounded-lg p-2.5 text-xs text-[#166534] leading-relaxed mb-2">
-                  <b>{bulkCount?.eligible ?? 0}</b> عميل مؤهَّل (له رقم · لم يُراسَل · لم ينسحب)
-                  <br />سيُدرج الآن: <b>{bulkCount?.willSend ?? 0}</b> ضمن حصّة اليوم
-                  <br />من تصله الرسالة ⇒ <b>«تم التواصل»</b> تلقائياً
+                  <b>{bulkCount?.eligible ?? 0}</b> عميل مؤهل له رقم لم يراسل لم ينسحب
+                  <br />سيدرج الآن <b>{bulkCount?.willSend ?? 0}</b> ضمن حصة اليوم
+                  <br />من تصله الرسالة ⇒ <b>تم التواصل</b> تلقائيا
                 </div>
 
                 {!confirmBulk ? (
@@ -405,12 +405,12 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                     onClick={() => setConfirmBulk(true)}
                     className="w-full bg-[#128C7E] text-white rounded-lg py-2 text-sm flex items-center justify-center gap-2 hover:bg-[#0f7268] disabled:opacity-50"
                   >
-                    <Send size={14} /> إرسال جماعي لـ{bulkCount?.willSend ?? 0}
+                    <Send size={14} /> إرسال جماعي ل{bulkCount?.willSend ?? 0}
                   </button>
                 ) : (
                   <div className="space-y-1.5">
                     <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 leading-relaxed">
-                      ستُرسل <b>{bulkCount?.willSend}</b> رسالة حقيقية لأرقام حقيقية. متأكّد؟
+                      سترسل <b>{bulkCount?.willSend}</b> رسالة حقيقية لأرقام حقيقية متأكد
                     </p>
                     <div className="flex gap-1.5">
                       <button
@@ -418,7 +418,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                         onClick={() => bulk.mutate()}
                         className="flex-1 bg-[#128C7E] text-white rounded-lg py-1.5 text-xs flex items-center justify-center gap-1 disabled:opacity-50"
                       >
-                        {bulk.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} نعم، أرسل
+                        {bulk.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} نعم أرسل
                       </button>
                       <button onClick={() => setConfirmBulk(false)} className="flex-1 border border-[#E9E1D3] rounded-lg py-1.5 text-xs text-gray-600">
                         إلغاء
@@ -430,7 +430,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                 {!!session?.queued && (
                   <div className="flex items-center justify-between mt-2 text-xs">
                     <span className="text-gray-500 flex items-center gap-1">
-                      <Clock size={11} /> في الطابور: <b>{session.queued}</b>
+                      <Clock size={11} /> في الطابور <b>{session.queued}</b>
                     </span>
                     <button onClick={() => clearQueue.mutate()} className="text-red-500 hover:underline">إفراغ</button>
                   </div>
@@ -440,7 +440,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
               <div className="border-t border-[#E9E1D3] pt-3 space-y-2">
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 leading-relaxed">
                   <Ban size={11} className="inline ml-1" />
-                  من يردّ «إيقاف» يُستثنى تلقائياً وللأبد. ابدأ بعدد قليل يومياً — الحظر يأتي من البلاغات لا من العدد.
+                  من يرد إيقاف يستثنى تلقائيا وللأبد ابدأ بعدد قليل يوميا الحظر يأتي من البلاغات لا من العدد
                 </p>
                 <div className="flex gap-2">
                   <button

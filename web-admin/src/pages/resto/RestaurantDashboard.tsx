@@ -32,7 +32,7 @@ export default function RestaurantDashboard() {
       <div className="flex items-center gap-3 mb-1">
         <h1 className="text-2xl font-bold text-[#1F1A13]">لوحة المطعم</h1>
       </div>
-      <p className="text-[#6E6557] text-sm mb-6">أهلاً {user?.name} — أدِر قائمة مطعمك وطاولاتك من هنا.</p>
+      <p className="text-[#6E6557] text-sm mb-6">أهلا {user?.name} أدر قائمة مطعمك وطاولاتك من هنا</p>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stats.map(s => (
@@ -54,7 +54,7 @@ export default function RestaurantDashboard() {
             <UtensilsCrossed size={26} className="text-[#E15A30]" />
           </div>
           <h2 className="text-lg font-bold text-[#1F1A13]">ابدأ بإعداد مطعمك</h2>
-          <p className="text-sm text-[#6E6557] mt-1 mb-5">أنشئ قائمتك (الأقسام والأصناف) وحدّد صالاتك وطاولاتك لتصبح جاهزاً للكاشير.</p>
+          <p className="text-sm text-[#6E6557] mt-1 mb-5">أنشئ قائمتك الأقسام والأصناف وحدد صالاتك وطاولاتك لتصبح جاهزا للكاشير</p>
           <div className="flex items-center justify-center gap-3">
             <Link to="/app-r/menu" className="btn-primary"><Plus size={16} /> أضف القائمة</Link>
             <Link to="/app-r/tables" className="btn-secondary"><Plus size={16} /> أضف الطاولات</Link>
@@ -80,7 +80,7 @@ export default function RestaurantDashboard() {
       )}
 
       <p className="text-xs text-[#9A8F7E] mt-8 text-center">
-        قريباً: الكاشير (POS)، تذاكر المطبخ، المحاسبة والتقارير — قيد الإنشاء.
+        قريبا الكاشير POS تذاكر المطبخ المحاسبة والتقارير قيد الإنشاء
       </p>
     </div>
   );

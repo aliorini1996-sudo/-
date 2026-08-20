@@ -112,13 +112,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const body = userSchema.parse(req.body);
     if (!body.password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
     if (body.password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
-    if (await duplicateEmail(body.email)) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً' }); return; }
+    if (await duplicateEmail(body.email)) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا' }); return; }
 
     const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { maxAdminUsers: true } });
     if (tenant?.maxAdminUsers != null) {
       const current = await prisma.admin.count({ where: { tenantId: tid } });
       if (current >= tenant.maxAdminUsers) {
-        res.status(403).json({ success: false, message: `بلغت الشركة الحد الأقصى المسموح لمستخدمي الشركة (${tenant.maxAdminUsers}). تواصل مع مالك المنصة لرفع الحد.` });
+        res.status(403).json({ success: false, message: `بلغت الشركة الحد الأقصى المسموح لمستخدمي الشركة (${tenant.maxAdminUsers}) تواصل مع مالك المنصة لرفع الحد` });
         return;
       }
     }
@@ -160,7 +160,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const { password, ...data } = userSchema.partial().parse(req.body);
     if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (data.email && await duplicateEmail(data.email, current.id)) {
-      res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً' });
+      res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا' });
       return;
     }
     if (current.id === req.user?.id && (data.isActive === false || (data.role && data.role !== current.role) || data.canManageCompanyUsers === false)) {
@@ -204,7 +204,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 
     // القيد: المدير الرئيسي فقط (لا مشرف/محاسب) — مطابقةً لحذف المندوب
     if (req.user?.role !== 'ADMIN') {
-      res.status(403).json({ success: false, message: 'حذف مستخدم الشركة متاح للمدير الرئيسي فقط.' });
+      res.status(403).json({ success: false, message: 'حذف مستخدم الشركة متاح للمدير الرئيسي فقط' });
       return;
     }
 
@@ -216,7 +216,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 
     // حذف الذات يقطع الجلسة الحاليّة ويترك المستخدم أمام شاشة لا يفهمها
     if (target.id === req.user?.id) {
-      res.status(400).json({ success: false, message: 'لا يمكنك حذف حسابك الخاصّ' });
+      res.status(400).json({ success: false, message: 'لا يمكنك حذف حسابك الخاص' });
       return;
     }
 
@@ -251,7 +251,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 async function guardScopeAdmin(req: AuthRequest, res: Response): Promise<boolean> {
   if (!(await requireCompanyOwner(req, res))) return false;
   if (await adminScopeEnabled(req)) {
-    res.status(403).json({ success: false, message: 'حسابك مقيّد بنطاق محدّد — تحديد النطاقات يحتاج صلاحية غير مقيّدة.' });
+    res.status(403).json({ success: false, message: 'حسابك مقيد بنطاق محدد تحديد النطاقات يحتاج صلاحية غير مقيدة' });
     return false;
   }
   return true;

@@ -195,7 +195,7 @@ router.post('/balances', async (req: AuthRequest, res: Response, next: NextFunct
       const r = rows[i];
       try {
         const cid = findCust(r.customerName, r.customerCode, r.phone);
-        if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود — استورد العملاء أولاً' }); continue; }
+        if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود استورد العملاء أولا' }); continue; }
         if (!r.balance) { result.skipped++; continue; }
         // تخطّي إن كان للعميل رصيد افتتاحي مسبقاً (تفادي التكرار)
         const exists = await prisma.accountEntry.findFirst({ where: { customerId: cid, description: 'رصيد افتتاحي' }, select: { id: true } });
@@ -300,8 +300,8 @@ router.post('/prices', async (req: AuthRequest, res: Response, next: NextFunctio
       try {
         const cid = findCust(r.customerName, r.customerCode, r.phone);
         const pid = prodByCode.get(r.productCode);
-        if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود — استورد العملاء أولاً' }); continue; }
-        if (!pid) { result.errors.push({ row: i + 2, message: 'الصنف غير موجود — استورد المنتجات أولاً' }); continue; }
+        if (!cid) { result.errors.push({ row: i + 2, message: 'العميل غير موجود استورد العملاء أولا' }); continue; }
+        if (!pid) { result.errors.push({ row: i + 2, message: 'الصنف غير موجود استورد المنتجات أولا' }); continue; }
         const cp = await prisma.customerPrice.upsert({
           where: { customerId_productId: { customerId: cid, productId: pid } },
           create: { customerId: cid, productId: pid, price: r.price },
@@ -334,7 +334,7 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
   try {
     const tid = tenantId(req);
     const batch = await prisma.importBatch.findFirst({ where: { id: req.params.id, tenantId: tid, reverted: false } });
-    if (!batch) { res.status(404).json({ success: false, message: 'الدفعة غير موجودة أو متراجَع عنها' }); return; }
+    if (!batch) { res.status(404).json({ success: false, message: 'الدفعة غير موجودة أو متراجع عنها' }); return; }
     const ids: string[] = JSON.parse(batch.recordIds || '[]');
     let removed = 0, blocked = 0;
 

@@ -55,7 +55,7 @@ function notImplemented(id: ProviderId, label: string): ComplianceProvider {
     id, countryLabel: label,
     async build(): Promise<ComplianceResult> {
       return { ok: false, provider: id, status: 'not_implemented',
-        message: `محوّل ${label} نقطة امتداد لم تُنفَّذ بعد — يتطلّب تكاملًا حكوميًا معتمدًا.` };
+        message: `محول ${label} نقطة امتداد لم تنفذ بعد يتطلب تكاملا حكوميا معتمدا` };
     },
   };
 }
@@ -71,9 +71,9 @@ const noneProvider: ComplianceProvider = {
 // السجلّ: يربط معرّف المزوّد بتطبيقه
 const REGISTRY: Record<ProviderId, ComplianceProvider> = {
   zatca: zatcaProvider,
-  eta: notImplemented('eta', 'ETA — مصر (فاتورة/إيصال إلكتروني)'),
-  peppol: notImplemented('peppol', 'Peppol — الإمارات (5-corner)'),
-  ttn: notImplemented('ttn', 'TTN el-Fatoura — تونس'),
+  eta: notImplemented('eta', 'ETA مصر فاتورة/إيصال إلكتروني'),
+  peppol: notImplemented('peppol', 'Peppol الإمارات 5-corner'),
+  ttn: notImplemented('ttn', 'TTN el-Fatoura تونس'),
   none: noneProvider,
 };
 

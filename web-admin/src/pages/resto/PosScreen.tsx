@@ -105,7 +105,7 @@ export default function PosScreen() {
       return { orderId: o.id, total: o.total, isNew: true };
     },
     onSuccess: (p) => setPending(p),
-    onError: (e) => toast.error(errMsg(e, 'تعذّر تجهيز الطلب')),
+    onError: (e) => toast.error(errMsg(e, 'تعذر تجهيز الطلب')),
   });
 
   // (1ب) إرسال للمطبخ وحفظه كتبويب مفتوح (يُدفع لاحقاً)
@@ -123,10 +123,10 @@ export default function PosScreen() {
       return id;
     },
     onSuccess: () => {
-      toast.success('أُرسل الطلب للمطبخ');
+      toast.success('أرسل الطلب للمطبخ');
       setCart([]); setTableId(''); setActiveOrderId(null); refetchOpen();
     },
-    onError: (e) => toast.error(errMsg(e, 'تعذّر الإرسال للمطبخ')),
+    onError: (e) => toast.error(errMsg(e, 'تعذر الإرسال للمطبخ')),
   });
 
   // تحميل تبويب مفتوح في العربة للتعديل/الدفع
@@ -156,7 +156,7 @@ export default function PosScreen() {
       setReceipt({ company: d.company, invoice: d.invoice, items: d.order?.items ?? [] });
       setCart([]); setTableId(''); setPending(null); setActiveOrderId(null); refetchOpen();
     },
-    onError: (e) => toast.error(errMsg(e, 'تعذّر إتمام الدفع')),
+    onError: (e) => toast.error(errMsg(e, 'تعذر إتمام الدفع')),
   });
 
   // (3) إلغاء الدفع: الطلب المُنشأ للتوّ يُلغى (يحرّر الطاولة)، أما تبويب مفتوح قائم فيبقى كما هو
@@ -180,7 +180,7 @@ export default function PosScreen() {
       <header className="flex items-center justify-between px-4 h-14 bg-[#1F1A13] text-white flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <BrandIcon size={30} radius={0.28} />
-          <span className="font-bold"><span>Field</span><span className="text-[#E15A30]"> Restaurant</span> <span className="text-[#9A8F7E] text-sm">· الكاشير</span></span>
+          <span className="font-bold"><span>Field</span><span className="text-[#E15A30]"> Restaurant</span> <span className="text-[#9A8F7E] text-sm">الكاشير</span></span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-[#9A8F7E] hidden lg:block">{user?.companyName}</span>
@@ -212,7 +212,7 @@ export default function PosScreen() {
           <div className="flex-1 overflow-y-auto p-3">
             {items.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                <UtensilsCrossed size={32} className="mb-2" /> لا أصناف — أضف القائمة من اللوحة
+                <UtensilsCrossed size={32} className="mb-2" /> لا أصناف أضف القائمة من اللوحة
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
@@ -244,7 +244,7 @@ export default function PosScreen() {
             </div>
             {channel === 'DINE_IN' && (
               <select className="input" value={tableId} onChange={e => setTableId(e.target.value)}>
-                <option value="">اختر الطاولة (اختياري)</option>
+                <option value="">اختر الطاولة اختياري</option>
                 {(tablesData?.tables ?? []).map(t => <option key={t.id} value={t.id}>طاولة {t.number}</option>)}
               </select>
             )}
@@ -258,7 +258,7 @@ export default function PosScreen() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-bold text-sm text-[#1F1A13] truncate">{l.name}</p>
-                    {l.mods.length > 0 && <p className="text-[11px] text-[#9A8F7E] truncate">{l.mods.map(m => m.name).join('، ')}</p>}
+                    {l.mods.length > 0 && <p className="text-[11px] text-[#9A8F7E] truncate">{l.mods.map(m => m.name).join(' ')}</p>}
                   </div>
                   <button onClick={() => setCart(c => c.filter(x => x.key !== l.key))} className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
                 </div>
@@ -344,7 +344,7 @@ function ModifierPicker({ item, groups, onClose, onAdd }: { item: MenuItem; grou
       <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
         {itemGroups.map(g => (
           <div key={g.id}>
-            <p className="font-bold text-sm mb-2">{g.name} <span className="text-xs font-normal text-[#9A8F7E]">{(g.minSelect ?? 0) > 0 ? '(إلزامي)' : '(اختياري)'}</span></p>
+            <p className="font-bold text-sm mb-2">{g.name} <span className="text-xs font-normal text-[#9A8F7E]">{(g.minSelect ?? 0) > 0 ? 'إلزامي' : 'اختياري'}</span></p>
             <div className="flex flex-wrap gap-2">
               {(g.modifiers ?? []).map(m => {
                 const on = (sel[g.id] ?? []).includes(m.id);
@@ -370,13 +370,13 @@ function PaymentModal({ total, loading, onClose, onPay }: { total: number; loadi
   const [tendered, setTendered] = useState('');
   const change = method === 'CASH' && tendered ? Math.max(0, Number(tendered) - total) : 0;
   const submit = () => {
-    if (method === 'CASH' && tendered && Number(tendered) < total) { toast.error('المبلغ المستلَم أقل من الإجمالي'); return; }
+    if (method === 'CASH' && tendered && Number(tendered) < total) { toast.error('المبلغ المستلم أقل من الإجمالي'); return; }
     onPay([{ method, amount: total, tendered: method === 'CASH' && tendered ? Number(tendered) : undefined }]);
   };
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
-        <h2 className="font-bold text-[#1F1A13]">الدفع — {money(total)}</h2>
+        <h2 className="font-bold text-[#1F1A13]">الدفع {money(total)}</h2>
         <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
       </div>
       <div className="p-4 space-y-4">
@@ -386,7 +386,7 @@ function PaymentModal({ total, loading, onClose, onPay }: { total: number; loadi
         </div>
         {method === 'CASH' && (
           <div>
-            <label className="label">المبلغ المستلَم</label>
+            <label className="label">المبلغ المستلم</label>
             <input type="number" className="input text-lg" autoFocus value={tendered} onChange={e => setTendered(e.target.value)} placeholder={String(Math.ceil(total))} />
             {tendered && Number(tendered) >= total && (
               <div className="mt-2 flex items-center justify-between bg-[#EAF5EF] rounded-lg px-3 py-2">
@@ -412,7 +412,7 @@ function ReceiptModal({ receipt, onClose }: { receipt: ReceiptData; onClose: () 
     <Overlay onClose={onClose}>
       <div className="p-8 text-center">
         <div className="w-16 h-16 rounded-2xl bg-[#EAF5EF] flex items-center justify-center mx-auto mb-4"><Check size={32} className="text-[#1E7A52]" /></div>
-        <h2 className="text-lg font-bold text-[#1F1A13]">تمّ الدفع بنجاح</h2>
+        <h2 className="text-lg font-bold text-[#1F1A13]">تم الدفع بنجاح</h2>
         <p className="text-sm text-[#6E6557] mt-1">فاتورة رقم <span className="font-mono font-bold" dir="ltr">{receipt.invoice.number}</span></p>
         <p className="text-2xl font-bold text-[#E15A30] mt-3">{money(receipt.invoice.total)}</p>
         <div className="flex gap-3 mt-6">
@@ -449,12 +449,12 @@ function ThermalReceipt({ receipt }: { receipt: ReceiptData }) {
       <div className="pos-print" dir="rtl" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif", fontSize: 12, lineHeight: 1.55 }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{company?.name || 'مطعم'}</div>
-          {company?.taxNumber ? <div>الرقم الضريبي: <span dir="ltr">{company.taxNumber}</span></div> : null}
+          {company?.taxNumber ? <div>الرقم الضريبي <span dir="ltr">{company.taxNumber}</span></div> : null}
           {company?.phone ? <div dir="ltr">{company.phone}</div> : null}
           {company?.address ? <div>{company.address}</div> : null}
         </div>
         {dash}
-        <div style={{ textAlign: 'center', fontWeight: 700 }}>فاتورة ضريبية مبسّطة</div>
+        <div style={{ textAlign: 'center', fontWeight: 700 }}>فاتورة ضريبية مبسطة</div>
         {line('رقم الفاتورة', invoice.number)}
         {line('التاريخ', date.toLocaleString('ar-EG'))}
         {dash}
@@ -471,10 +471,10 @@ function ThermalReceipt({ receipt }: { receipt: ReceiptData }) {
         {invoice.qr ? (
           <div style={{ textAlign: 'center', marginTop: 10 }}>
             <QRCodeSVG value={invoice.qr} size={120} level="M" />
-            <div style={{ fontSize: 10, marginTop: 3 }}>فاتورة إلكترونية معتمدة — ZATCA</div>
+            <div style={{ fontSize: 10, marginTop: 3 }}>فاتورة إلكترونية معتمدة ZATCA</div>
           </div>
         ) : null}
-        <div style={{ textAlign: 'center', marginTop: 10 }}>شكراً لزيارتكم</div>
+        <div style={{ textAlign: 'center', marginTop: 10 }}>شكرا لزيارتكم</div>
       </div>
     </>
   );
@@ -498,18 +498,18 @@ function OpenOrdersModal({ orders, onClose, onPick }: { orders: OpenOrder[]; onC
       </div>
       <div className="p-4 max-h-[62vh] overflow-y-auto space-y-2">
         {orders.length === 0 ? (
-          <p className="text-center text-gray-400 py-10 text-sm">لا طلبات مفتوحة — كل الطاولات مسدّدة</p>
+          <p className="text-center text-gray-400 py-10 text-sm">لا طلبات مفتوحة كل الطاولات مسددة</p>
         ) : orders.map(o => (
           <button key={o.id} onClick={() => onPick(o)}
             className="w-full text-right rounded-xl border border-[#E9E1D3] hover:border-[#E15A30] hover:bg-[#FBEBE2]/40 p-3 transition-colors">
             <div className="flex items-center justify-between">
               <span className="font-bold text-[#1F1A13]">
-                #{o.number}{o.table?.number ? ` · طاولة ${o.table.number}` : o.channel === 'TAKEAWAY' ? ' · سفري' : ''}
+                #{o.number}{o.table?.number ? ` طاولة ${o.table.number}` : o.channel === 'TAKEAWAY' ? ' سفري' : ''}
               </span>
               <span className="font-bold text-[#E15A30]">{money(o.total)}</span>
             </div>
             <p className="text-xs text-[#9A8F7E] mt-1">
-              {o.items.length} صنف · {new Date(o.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+              {o.items.length} صنف {new Date(o.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
             </p>
           </button>
         ))}
@@ -525,8 +525,8 @@ function OpenShiftModal({ onClose, onDone }: { onClose: () => void; onDone: () =
   const [floatAmt, setFloatAmt] = useState('');
   const mut = useMutation({
     mutationFn: () => restaurantApi.openShift({ openingFloat: Number(floatAmt) || 0 }),
-    onSuccess: () => { toast.success('فُتحت الوردية'); onDone(); },
-    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذّر فتح الوردية'),
+    onSuccess: () => { toast.success('فتحت الوردية'); onDone(); },
+    onError: (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر فتح الوردية'),
   });
   return (
     <Overlay onClose={onClose}>
@@ -537,7 +537,7 @@ function OpenShiftModal({ onClose, onDone }: { onClose: () => void; onDone: () =
       <div className="p-5">
         <label className="label">النقد الافتتاحي في الدرج</label>
         <input type="number" min={0} className="input text-lg" autoFocus value={floatAmt} onChange={e => setFloatAmt(e.target.value)} placeholder="0.00" />
-        <p className="text-xs text-[#9A8F7E] mt-1">المبلغ النقدي الموجود في الدرج عند بدء الوردية.</p>
+        <p className="text-xs text-[#9A8F7E] mt-1">المبلغ النقدي الموجود في الدرج عند بدء الوردية</p>
       </div>
       <div className="p-4 border-t border-[#E9E1D3]">
         <button onClick={() => mut.mutate()} disabled={mut.isPending} className="w-full btn-primary justify-center py-3">
@@ -563,8 +563,8 @@ function CloseShiftModal({ shiftId, onClose, onDone }: { shiftId: string; onClos
   const variance = declared !== '' ? Math.round((Number(declared) - expected) * 100) / 100 : null;
   const mut = useMutation({
     mutationFn: () => restaurantApi.closeShift(shiftId, { declaredCash: Number(declared) || 0 }),
-    onSuccess: () => { toast.success('أُغلقت الوردية'); onDone(); },
-    onError: () => toast.error('تعذّر إغلاق الوردية'),
+    onSuccess: () => { toast.success('أغلقت الوردية'); onDone(); },
+    onError: () => toast.error('تعذر إغلاق الوردية'),
   });
   const stat = (label: string, value: string) => (
     <div className="bg-white rounded-xl border border-[#E9E1D3] p-3 text-center"><p className="text-base font-bold text-[#1F1A13]">{value}</p><p className="text-[11px] text-[#6E6557]">{label}</p></div>
@@ -572,11 +572,11 @@ function CloseShiftModal({ shiftId, onClose, onDone }: { shiftId: string; onClos
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
-        <h2 className="font-bold text-[#1F1A13]">إغلاق الوردية — تقرير Z</h2>
+        <h2 className="font-bold text-[#1F1A13]">إغلاق الوردية تقرير Z</h2>
         <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
       </div>
       <div className="p-5 space-y-3 max-h-[62vh] overflow-y-auto">
-        {!z ? <div className="text-center py-6 text-gray-400">جاري التحميل…</div> : (
+        {!z ? <div className="text-center py-6 text-gray-400">جاري التحميل</div> : (
           <>
             <div className="grid grid-cols-2 gap-2">
               {stat('عدد الفواتير', String(z.invoiceCount))}
@@ -592,10 +592,10 @@ function CloseShiftModal({ shiftId, onClose, onDone }: { shiftId: string; onClos
             )}
             <div className="bg-[#FAF7F0] rounded-xl p-3 border border-[#E9E1D3] space-y-1 text-sm">
               <div className="flex justify-between"><span>النقد الافتتاحي</span><span className="tabular-nums">{money(z.shift.openingFloat)}</span></div>
-              <div className="flex justify-between font-semibold"><span>النقد المتوقّع في الدرج</span><span className="tabular-nums">{money(expected)}</span></div>
+              <div className="flex justify-between font-semibold"><span>النقد المتوقع في الدرج</span><span className="tabular-nums">{money(expected)}</span></div>
             </div>
             <div>
-              <label className="label">النقد المعدود فعلياً</label>
+              <label className="label">النقد المعدود فعليا</label>
               <input type="number" min={0} className="input text-lg" autoFocus value={declared} onChange={e => setDeclared(e.target.value)} placeholder={String(expected)} />
               {variance !== null && (
                 <div className={`mt-2 flex justify-between items-center rounded-lg px-3 py-2 ${variance === 0 ? 'bg-[#EAF5EF] text-[#1E7A52]' : variance < 0 ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700'}`}>

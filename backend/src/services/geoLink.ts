@@ -19,7 +19,7 @@ export function parseCoords(input: string): LatLng | null {
   const s = input.trim();
 
   // 1) لصق مباشر: "24.7136, 46.6753" أو "24.7136،46.6753"
-  const plain = s.match(/^(-?\d{1,3}(?:\.\d+)?)\s*[,،]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  const plain = s.match(/^(-?\d{1,3}? \ \d+ ? \s* \s* -?\d{1,3}(?:\.\d+)?)$/);
   if (plain) { const r = valid(parseFloat(plain[1]), parseFloat(plain[2])); if (r) return r; }
 
   // 2) روابط Google: ...@lat,lng,zoom  |  ?q=lat,lng  |  ?ll=lat,lng  |  &destination=lat,lng

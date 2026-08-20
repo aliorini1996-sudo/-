@@ -121,7 +121,7 @@ export default function MainLayout() {
           </div>
           {!collapsed && (
             <div className="px-4 py-1.5">
-              <p className="text-xs text-[#9A8F7E] leading-tight">{t('login.welcomeName')}،</p>
+              <p className="text-xs text-[#9A8F7E] leading-tight">{t('login.welcomeName')}</p>
               <p className="text-sm font-semibold truncate leading-tight">{user?.name}</p>
             </div>
           )}

@@ -1,9 +1,9 @@
-// اختبارات ترميز ZATCA TLV — يفكّك الرمز الناتج ويطابقه مع المواصفة (المرحلة الأولى)
+// اختبارات ترميز ZATCA TLV — يفكك الرمز الناتج ويطابقه مع المواصفة (المرحلة الأولى)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zatcaQrBase64, zatcaProvider } from '../compliance/zatca';
 
-// يفكّك سلسلة TLV إلى خريطة {وسم → قيمة} مع التحقق من أن الطول = طول البايتات فعلاً
+// يفكك سلسلة TLV إلى خريطة {وسم → قيمة} مع التحقق من أن الطول = طول البايتات فعلا
 function parseTlv(base64: string): Map<number, string> {
   const buf = Buffer.from(base64, 'base64');
   const out = new Map<number, string>();
@@ -12,7 +12,7 @@ function parseTlv(base64: string): Map<number, string> {
     const tag = buf[i];
     const len = buf[i + 1];
     const val = buf.subarray(i + 2, i + 2 + len);
-    assert.equal(val.length, len, `طول الحقل ${tag} لا يطابق المعلَن`);
+    assert.equal(val.length, len, `طول الحقل ${tag} لا يطابق المعلن`);
     out.set(tag, val.toString('utf8'));
     i += 2 + len;
   }
@@ -36,7 +36,7 @@ test('TLV: الحقول الخمسة بقيمها الصحيحة، وطول ال
   assert.equal(f.size, 5);
 });
 
-test('التفكيك يعيد البناء بايتاً ببايت (لا فقد ولا زيادة)', () => {
+test('التفكيك يعيد البناء بايتا ببايت (لا فقد ولا زيادة)', () => {
   const qr = zatcaQrBase64({ sellerName: 'X', vatNumber: '3', timestampIso: 'T', total: '1.00', vatTotal: '0.15' });
   const buf = Buffer.from(qr, 'base64');
   // مجموع الأطوال: لكل حقل 2 (وسم+طول) + طول القيمة

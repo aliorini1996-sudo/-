@@ -26,7 +26,7 @@ export const ARAB_DIAL: DialCountry[] = [
   { code: 'KW', dial: '+965', ar: 'الكويت', en: 'Kuwait' },
   { code: 'QA', dial: '+974', ar: 'قطر', en: 'Qatar' },
   { code: 'BH', dial: '+973', ar: 'البحرين', en: 'Bahrain' },
-  { code: 'OM', dial: '+968', ar: 'عُمان', en: 'Oman' },
+  { code: 'OM', dial: '+968', ar: 'عمان', en: 'Oman' },
   { code: 'JO', dial: '+962', ar: 'الأردن', en: 'Jordan' },
   { code: 'MA', dial: '+212', ar: 'المغرب', en: 'Morocco' },
   { code: 'DZ', dial: '+213', ar: 'الجزائر', en: 'Algeria' },

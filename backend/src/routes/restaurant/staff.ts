@@ -25,7 +25,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
 const createSchema = z.object({
   name: z.string().min(1),
-  username: z.string().min(3).regex(/^[a-zA-Z0-9._-]+$/, 'اسم الدخول: حروف إنجليزية/أرقام فقط'),
+  username: z.string().min(3).regex(/^[a-zA-Z0-9._-]+$/, 'اسم الدخول حروف إنجليزية/أرقام فقط'),
   pin: z.string().regex(/^\d{4,6}$/, 'الرمز 4 إلى 6 أرقام'),
   canPay: z.boolean().optional(), // كاشير (يقبض) أم نادل (يأخذ الطلبات فقط)
 });
@@ -35,7 +35,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const tid = tenantId(req);
     const body = createSchema.parse(req.body);
     const taken = await prisma.salesRep.findUnique({ where: { username: body.username }, select: { id: true } });
-    if (taken) { res.status(409).json({ success: false, message: 'اسم الدخول مستخدم — اختر غيره' }); return; }
+    if (taken) { res.status(409).json({ success: false, message: 'اسم الدخول مستخدم اختر غيره' }); return; }
     const passwordHash = await bcrypt.hash(body.pin, 10);
     const rep = await prisma.salesRep.create({
       data: {
@@ -55,7 +55,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const tid = tenantId(req);
     const body = z.object({ name: z.string().min(1).optional(), isActive: z.boolean().optional(), canPay: z.boolean().optional() }).parse(req.body);
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, username: true } });
-    if (!rep || isSystemCashier(rep.username, tid)) { res.status(404).json({ success: false, message: 'الموظّف غير موجود' }); return; }
+    if (!rep || isSystemCashier(rep.username, tid)) { res.status(404).json({ success: false, message: 'الموظف غير موجود' }); return; }
     const data: Record<string, unknown> = {};
     if (body.name != null) data.name = body.name.trim();
     if (body.isActive != null) data.isActive = body.isActive;
@@ -71,7 +71,7 @@ router.post('/:id/pin', async (req: AuthRequest, res: Response, next: NextFuncti
     const tid = tenantId(req);
     const { pin } = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'الرمز 4 إلى 6 أرقام') }).parse(req.body);
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, username: true } });
-    if (!rep || isSystemCashier(rep.username, tid)) { res.status(404).json({ success: false, message: 'الموظّف غير موجود' }); return; }
+    if (!rep || isSystemCashier(rep.username, tid)) { res.status(404).json({ success: false, message: 'الموظف غير موجود' }); return; }
     await prisma.salesRep.update({ where: { id: rep.id }, data: { passwordHash: await bcrypt.hash(pin, 10) } });
     res.json({ success: true });
   } catch (err) { next(err); }
@@ -81,10 +81,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
   try {
     const tid = tenantId(req);
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, username: true } });
-    if (!rep || isSystemCashier(rep.username, tid)) { res.status(404).json({ success: false, message: 'الموظّف غير موجود' }); return; }
+    if (!rep || isSystemCashier(rep.username, tid)) { res.status(404).json({ success: false, message: 'الموظف غير موجود' }); return; }
     // للموظّف فواتير مُسنَدة (قيد FK) — عطّله بدل حذفه حفاظاً على سجلّ المبيعات
     const invoices = await prisma.invoice.count({ where: { salesRepId: rep.id } });
-    if (invoices > 0) { res.status(409).json({ success: false, message: 'للموظّف مبيعات مسجّلة — عطّله بدل حذفه' }); return; }
+    if (invoices > 0) { res.status(409).json({ success: false, message: 'للموظف مبيعات مسجلة عطله بدل حذفه' }); return; }
     await prisma.salesRep.delete({ where: { id: rep.id } });
     res.json({ success: true });
   } catch (err) { next(err); }

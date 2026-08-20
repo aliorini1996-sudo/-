@@ -131,7 +131,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         // تمنح المُرسِل إسناداً ولا تكشف بيانات العميل. الإسناد يُضمن لمنشئه فقط.
         const isMine = !!creatorRepId && existing.createdBySalesRepId === creatorRepId;
         if (creatorRepId && !isMine && !(await canAccessCustomer(req, tid, existing.id))) {
-          res.status(403).json({ success: false, message: 'هذا العميل غير مُسنَد لك' });
+          res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
           return;
         }
         if (isMine) await ensureAssignment(tid, existing.id, creatorRepId!);
@@ -309,7 +309,7 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
       prisma.accountEntry.count({ where: { customerId: req.params.id } }),
     ]);
     if (invoices > 0 || receipts > 0 || entries > 0) {
-      res.status(409).json({ success: false, message: 'لا يمكن حذف العميل لوجود فواتير أو سندات أو حركات في كشف حسابه. يمكنك تعطيله (تغيير حالته إلى «غير نشط») بدلاً من الحذف.' });
+      res.status(409).json({ success: false, message: 'لا يمكن حذف العميل لوجود فواتير أو سندات أو حركات في كشف حسابه يمكنك تعطيله تغيير حالته إلى غير نشط بدلا من الحذف' });
       return;
     }
 

@@ -46,7 +46,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   try {
     payload = jwt.verify(token, process.env.JWT_SECRET!) as AuthPayload;
   } catch {
-    res.status(401).json({ success: false, message: 'جلسة منتهية، يرجى تسجيل الدخول مجدداً' });
+    res.status(401).json({ success: false, message: 'جلسة منتهية يرجى تسجيل الدخول مجددا' });
     return;
   }
   req.user = payload;
@@ -65,7 +65,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       select: { isActive: true, lastSeenAt: true },
     });
     if (!admin?.isActive) {
-      res.status(401).json({ success: false, message: 'انتهت صلاحية الحساب، سجّل الدخول مجدداً' });
+      res.status(401).json({ success: false, message: 'انتهت صلاحية الحساب سجل الدخول مجددا' });
       return;
     }
     // لمسة «آخر ظهور» لعدّاد «الزيارات الحية» في لوحة المالك — مخنوقة لمرة/دقيقة،

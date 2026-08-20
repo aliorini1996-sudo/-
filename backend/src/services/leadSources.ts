@@ -145,7 +145,7 @@ export async function searchOSM(query: string, country?: string, city?: string, 
       lastErr = (e as Error).message;
     }
   }
-  if (!data) throw new Error(lastErr || 'Overpass غير متاح مؤقتاً');
+  if (!data) throw new Error(lastErr || 'Overpass غير متاح مؤقتا');
 
   const out: RawLead[] = [];
   for (const el of data.elements ?? []) {
@@ -154,7 +154,7 @@ export async function searchOSM(query: string, country?: string, city?: string, 
     if (!name) continue; // نتجاهل العناصر بلا اسم
     const lat = el.lat ?? el.center?.lat;
     const lng = el.lon ?? el.center?.lon;
-    const addr = [tg['addr:street'], tg['addr:city'], tg['addr:country']].filter(Boolean).join('، ');
+    const addr = [tg['addr:street'], tg['addr:city'], tg['addr:country']].filter(Boolean).join(' ');
     out.push({
       sourceId: `osm:${el.type}/${el.id}`,
       name,
@@ -186,7 +186,7 @@ interface OsmElement {
 // ----------------------------- مصدر: Geoapify Places ----------------------------- //
 export async function searchGeoapify(query: string, country?: string, city?: string, limit = 80): Promise<RawLead[]> {
   const key = (process.env.GEOAPIFY_API_KEY || '').trim();
-  if (!key) throw new Error('GEOAPIFY_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر Geoapify.');
+  if (!key) throw new Error('GEOAPIFY_API_KEY غير مضبوط أضفه في إعدادات الخادم لتفعيل مصدر Geoapify');
   const box = await geocode(country, city);
   if (!box) return [];
   // Geoapify يتطلّب تصنيفاً + صندوق إحاطة (rect:lon1,lat1,lon2,lat2 = west,south,east,north)
@@ -253,7 +253,7 @@ interface GeoapifyFeature {
 // ----------------------------- مصدر: HERE Discover ----------------------------- //
 export async function searchHERE(query: string, country?: string, city?: string, limit = 80): Promise<RawLead[]> {
   const key = (process.env.HERE_API_KEY || '').trim();
-  if (!key) throw new Error('HERE_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر HERE.');
+  if (!key) throw new Error('HERE_API_KEY غير مضبوط أضفه في إعدادات الخادم لتفعيل مصدر HERE');
   const box = await geocode(country, city);
   if (!box) return [];
   // HERE Discover يتطلّب سياق موقع: نستخدم صندوق الإحاطة (bbox:west,south,east,north)
@@ -311,7 +311,7 @@ interface HereItem {
 // ----------------------------- مصدر: Google Places (New) ----------------------------- //
 export async function searchGoogle(query: string, country?: string, city?: string, limit = 20): Promise<RawLead[]> {
   const key = (process.env.GOOGLE_MAPS_API_KEY || '').trim();
-  if (!key) throw new Error('GOOGLE_MAPS_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر Google.');
+  if (!key) throw new Error('GOOGLE_MAPS_API_KEY غير مضبوط أضفه في إعدادات الخادم لتفعيل مصدر Google');
   const textQuery = [query, city, country].filter(Boolean).join(' ');
   const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
@@ -373,7 +373,7 @@ interface GooglePlace {
 // بحث شركات عبر واجهة Apollo الرسمية — بديل قانوني لبيانات LinkedIn (اسم/موقع/هاتف/رابط LinkedIn/قطاع).
 export async function searchApollo(query: string, country?: string, city?: string, limit = 25): Promise<RawLead[]> {
   const key = (process.env.APOLLO_API_KEY || '').trim();
-  if (!key) throw new Error('APOLLO_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر Apollo.');
+  if (!key) throw new Error('APOLLO_API_KEY غير مضبوط أضفه في إعدادات الخادم لتفعيل مصدر Apollo');
   const location = [city, country].filter(Boolean).join(', ');
   const reqBody: Record<string, unknown> = {
     page: 1,
@@ -404,7 +404,7 @@ export async function searchApollo(query: string, country?: string, city?: strin
       name: o.name,
       phone: o.primary_phone?.number || o.phone || o.sanitized_phone || undefined,
       website,
-      address: [o.street_address, o.city, o.state, o.country].filter(Boolean).join('، ') || undefined,
+      address: [o.street_address, o.city, o.state, o.country].filter(Boolean).join(' ') || undefined,
       city: o.city || city || undefined,
       country: o.country || country || undefined,
       category: o.industry || undefined,
@@ -434,7 +434,7 @@ interface ApolloOrg {
 // ----------------------------- مصدر: TomTom Search ----------------------------- //
 export async function searchTomTom(query: string, country?: string, city?: string, limit = 60): Promise<RawLead[]> {
   const key = (process.env.TOMTOM_API_KEY || '').trim();
-  if (!key) throw new Error('TOMTOM_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر TomTom.');
+  if (!key) throw new Error('TOMTOM_API_KEY غير مضبوط أضفه في إعدادات الخادم لتفعيل مصدر TomTom');
   const box = await geocode(country, city);
   const params = new URLSearchParams({ key, limit: String(Math.min(limit, 100)) });
   if (box?.cc) params.set('countrySet', box.cc);
@@ -483,7 +483,7 @@ interface TomTomResult {
 // ----------------------------- بحث الويب عبر Serper (Google) ----------------------------- //
 async function serperSearch(q: string, gl?: string, num = 20): Promise<Array<{ title: string; link: string }>> {
   const key = (process.env.SERPER_API_KEY || '').trim();
-  if (!key) throw new Error('SERPER_API_KEY غير مضبوط — أضِفه في إعدادات الخادم لتفعيل بحث الويب/LinkedIn.');
+  if (!key) throw new Error('SERPER_API_KEY غير مضبوط أضفه في إعدادات الخادم لتفعيل بحث الويب/LinkedIn');
   const r = await fetch('https://google.serper.dev/search', {
     method: 'POST',
     headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' },
@@ -608,12 +608,12 @@ const APIFY_POLL_MS = 3_000;
 
 export async function searchApify(query: string, country?: string, city?: string, limit = 40): Promise<RawLead[]> {
   const token = (process.env.APIFY_TOKEN || '').trim();
-  if (!token) throw new Error('APIFY_TOKEN غير مضبوط — أضِفه في إعدادات الخادم لتفعيل مصدر Apify.');
+  if (!token) throw new Error('APIFY_TOKEN غير مضبوط أضفه في إعدادات الخادم لتفعيل مصدر Apify');
 
   // حارس الميزانية: لا نبدأ تشغيلاً إن نفد سقف الشهر، ونقيّد الطلب بالمتبقّي
   const remaining = await apifyRemaining();
   if (remaining <= 0) {
-    throw new Error('نفدت ميزانية Apify الشهرية — تتجدّد تلقائياً أوّل الشهر، أو ارفع السقف من نافذة البحث.');
+    throw new Error('نفدت ميزانية Apify الشهرية تتجدد تلقائيا أول الشهر أو ارفع السقف من نافذة البحث');
   }
   const cap = Math.max(1, Math.min(limit, remaining, 60));
 
@@ -637,13 +637,13 @@ export async function searchApify(query: string, country?: string, city?: string
   if (!startRes.ok) {
     const t = await startRes.text();
     // 402 = نفد رصيد الحساب المجاني (Apify تحظر بلا فوترة تجاوز)
-    if (startRes.status === 402) throw new Error('رصيد Apify المجاني نفد لهذا الشهر — يتجدّد تلقائياً أوّل الشهر التالي.');
+    if (startRes.status === 402) throw new Error('رصيد Apify المجاني نفد لهذا الشهر يتجدد تلقائيا أول الشهر التالي');
     throw new Error(`Apify ${startRes.status}: ${t.slice(0, 160)}`);
   }
   const started = (await startRes.json()) as { data?: { id?: string; defaultDatasetId?: string } };
   const runId = started.data?.id;
   const datasetId = started.data?.defaultDatasetId;
-  if (!runId || !datasetId) throw new Error('Apify: تعذّر بدء التشغيل (رد غير متوقّع).');
+  if (!runId || !datasetId) throw new Error('Apify تعذر بدء التشغيل رد غير متوقع');
 
   // 2) نستطلع حتى الانتهاء أو بلوغ المهلة
   const deadline = Date.now() + APIFY_MAX_WAIT_MS;
@@ -783,13 +783,13 @@ export async function qualifyLeads(
 
   const items = leads.map((l, i) => ({ i, name: l.name, type: l.category || '', city: l.city || '', country: l.country || '' }));
   const system =
-    'أنت محلّل مبيعات لمنصّة Field Sales (نظام إدارة مبيعات مناديب التوزيع الميدانيين، عالمي). ' +
-    'قيّم ملاءمة كل نشاط كعميل محتمل للمنصّة: شركات التوزيع/الجملة التي لديها مناديب ميدانيون = الأعلى؛ ' +
-    'التجزئة الصغيرة/غير المتعلّق = الأقل. أعِد JSON فقط: مصفوفة ' +
-    '{"i":رقم,"score":1-10,"note":"سبب موجز جداً بالعربية"}.';
+    'أنت محلل مبيعات لمنصة Field Sales نظام إدارة مبيعات مناديب التوزيع الميدانيين عالمي ' +
+    'قيم ملاءمة كل نشاط كعميل محتمل للمنصة شركات التوزيع/الجملة التي لديها مناديب ميدانيون = الأعلى ' +
+    'التجزئة الصغيرة/غير المتعلق = الأقل أعد JSON فقط مصفوفة ' +
+    '{"i":رقم,"score":1-10,"note":"سبب موجز جداً بالعربية"}';
 
   try {
-    const text = await geminiGenerate(system, 'النشاطات:\n' + JSON.stringify(items), { maxTokens: 3000, temperature: 0.3 });
+    const text = await geminiGenerate(system, 'النشاطات \n' + JSON.stringify(items), { maxTokens: 3000, temperature: 0.3 });
     const m = text.match(/\[[\s\S]*\]/);
     if (!m) return result;
     const arr = JSON.parse(m[0]) as Array<{ i: number; score: number; note: string }>;

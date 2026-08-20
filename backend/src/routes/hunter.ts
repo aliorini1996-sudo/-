@@ -85,12 +85,12 @@ function verifyPassword(password: string, stored: string): boolean {
 
 async function hunterAuth(req: HunterRequest, res: Response, next: NextFunction): Promise<void> {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) { res.status(401).json({ success: false, message: 'غير مصرّح' }); return; }
+  if (!token) { res.status(401).json({ success: false, message: 'غير مصرح' }); return; }
   let payload: HunterPayload;
   try {
     payload = jwt.verify(token, hunterSecret()) as HunterPayload;
   } catch {
-    res.status(401).json({ success: false, message: 'جلسة منتهية — سجّل الدخول مجدداً' }); return;
+    res.status(401).json({ success: false, message: 'جلسة منتهية سجل الدخول مجددا' }); return;
   }
   if (payload?.kind !== 'hunter' || !payload.hid) {
     res.status(401).json({ success: false, message: 'توكن غير صالح' }); return;
@@ -101,10 +101,10 @@ async function hunterAuth(req: HunterRequest, res: Response, next: NextFunction)
     select: { id: true, isActive: true, isOwner: true, expiresAt: true },
   });
   if (!user?.isActive) {
-    res.status(401).json({ success: false, message: 'الحساب معطّل' }); return;
+    res.status(401).json({ success: false, message: 'الحساب معطل' }); return;
   }
   if (isExpired(user.expiresAt)) {
-    res.status(401).json({ success: false, message: 'انتهت صلاحية الاشتراك — تواصل مع المالك' }); return;
+    res.status(401).json({ success: false, message: 'انتهت صلاحية الاشتراك تواصل مع المالك' }); return;
   }
   // جلسة الانتحال مربوطة بحالة المالك المُصدِر: إن عُطّل أو سُحبت ملكيّته أو انتهت
   // صلاحيته سقطت جلساته داخل حسابات العملاء فوراً — بلا انتظار الساعتين.
@@ -201,7 +201,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
     // الانتهاء يُكشف **بعد** التحقّق من كلمة المرور فقط: صاحب الحساب يعرف السبب،
     // ولا يتحوّل الردّ إلى أوراكل يكشف وجود البريد لمن لا يملكه.
     if (isExpired(user.expiresAt)) {
-      res.status(403).json({ success: false, message: 'انتهت صلاحية اشتراكك — تواصل مع المالك للتجديد' }); return;
+      res.status(403).json({ success: false, message: 'انتهت صلاحية اشتراكك تواصل مع المالك للتجديد' }); return;
     }
     const token = jwt.sign(
       { hid: user.id, kind: 'hunter', isOwner: user.isOwner } as HunterPayload,
@@ -244,7 +244,7 @@ function trialExpiry(): Date | null {
 router.post('/register', signupLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!signupAllowed()) {
-      res.status(403).json({ success: false, message: 'التسجيل الذاتي متوقّف حالياً — تواصل مع المالك للحصول على حساب' });
+      res.status(403).json({ success: false, message: 'التسجيل الذاتي متوقف حاليا تواصل مع المالك للحصول على حساب' });
       return;
     }
     await ensureOwner();
@@ -252,12 +252,12 @@ router.post('/register', signupLimiter, async (req: Request, res: Response, next
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
 
-    if (name.length < 2) { res.status(400).json({ success: false, message: 'أدخل اسمك (حرفان على الأقل)' }); return; }
+    if (name.length < 2) { res.status(400).json({ success: false, message: 'أدخل اسمك حرفان على الأقل' }); return; }
     if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) { res.status(400).json({ success: false, message: 'بريد إلكتروني غير صالح' }); return; }
     if (password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور ٨ أحرف على الأقل' }); return; }
 
     const exists = await prisma.hunterUser.findUnique({ where: { email }, select: { id: true } });
-    if (exists) { res.status(409).json({ success: false, message: 'هذا البريد مسجّل مسبقاً — سجّل الدخول بدلاً من ذلك' }); return; }
+    if (exists) { res.status(409).json({ success: false, message: 'هذا البريد مسجل مسبقا سجل الدخول بدلا من ذلك' }); return; }
 
     const user = await prisma.hunterUser.create({
       data: {
@@ -366,7 +366,7 @@ const huntLimiter = rateLimit({
   validate: false,
   keyGenerator: (req: Request) => (req as HunterRequest).hunter?.hid || 'anon',
   skip: (req: Request) => (req as HunterRequest).hunter?.isOwner === true,
-  message: { success: false, message: 'طلبات صيد كثيرة من هذا الحساب — انتظر قليلاً ثم أعد المحاولة' },
+  message: { success: false, message: 'طلبات صيد كثيرة من هذا الحساب انتظر قليلا ثم أعد المحاولة' },
 });
 
 router.post('/hunt', hunterAuth, huntLimiter, async (req: HunterRequest, res: Response, next: NextFunction) => {
@@ -381,23 +381,23 @@ router.post('/hunt', hunterAuth, huntLimiter, async (req: HunterRequest, res: Re
     const cities = (Array.isArray(body.cities) ? body.cities : [])
       .map((k) => String(k).trim()).filter(Boolean).slice(0, 20);
     if (!keywords.length) {
-      res.status(400).json({ success: false, message: 'أضِف كلمة بحث واحدة على الأقل' }); return;
+      res.status(400).json({ success: false, message: 'أضف كلمة بحث واحدة على الأقل' }); return;
     }
     if (!countries.length && !cities.length) {
-      res.status(400).json({ success: false, message: 'حدّد دولة أو مدينة' }); return;
+      res.status(400).json({ success: false, message: 'حدد دولة أو مدينة' }); return;
     }
 
     const ready = providersReady();
     const sources = (Array.isArray(body.sources) ? body.sources : [])
       .filter((s): s is SourceId => (s as SourceId) in ready && ready[s as SourceId]);
     if (!sources.length) {
-      res.status(400).json({ success: false, message: 'لا مصدر بحث جاهز — راجع الإعدادات' }); return;
+      res.status(400).json({ success: false, message: 'لا مصدر بحث جاهز راجع الإعدادات' }); return;
     }
 
     const perQuery = clamp(body.perQuery, 1, 50, 20);
     const quota = await readQuota(userId);
     if (quota.remaining <= 0) {
-      res.status(429).json({ success: false, message: 'انتهت حصّتك الشهرية' }); return;
+      res.status(429).json({ success: false, message: 'انتهت حصتك الشهرية' }); return;
     }
     const maxLeads = Math.min(clamp(body.maxLeads, 1, 1000, 200), quota.remaining);
 
@@ -487,7 +487,7 @@ router.post('/hunt', hunterAuth, huntLimiter, async (req: HunterRequest, res: Re
 
     await prisma.hunterSearch.create({
       data: {
-        userId, providers: sources.join('+'), keywords: keywords.join('، '),
+        userId, providers: sources.join('+'), keywords: keywords.join(' '),
         country: countries[0] || null, city: cities[0] || null,
         found, added: created.length, merged,
         errors: errors.length ? errors.join(' | ') : null,
@@ -519,7 +519,7 @@ router.post('/hunt', hunterAuth, huntLimiter, async (req: HunterRequest, res: Re
           }
         }
       } catch (e) {
-        qualifyNote = e instanceof Error ? e.message : 'تعذّر التأهيل';
+        qualifyNote = e instanceof Error ? e.message : 'تعذر التأهيل';
       }
     }
 
@@ -579,7 +579,7 @@ router.post('/admin/users', hunterAuth, requireOwner, async (req: HunterRequest,
       res.status(400).json({ success: false, message: 'بريد غير صالح' }); return;
     }
     const exists = await prisma.hunterUser.findUnique({ where: { email }, select: { id: true } });
-    if (exists) { res.status(409).json({ success: false, message: 'البريد مستخدم مسبقاً' }); return; }
+    if (exists) { res.status(409).json({ success: false, message: 'البريد مستخدم مسبقا' }); return; }
 
     // تاريخ انتهاء اختياريّ عند الإنشاء (وإلا HUNTER_TRIAL_DAYS إن ضُبط، وإلا بلا انتهاء)
     let expiresAt: Date | null = null;
@@ -663,7 +663,7 @@ router.post('/admin/users/:id/impersonate', hunterAuth, requireOwner, async (req
   try {
     const id = String(req.params.id);
     if (id === uid(req)) {
-      res.status(400).json({ success: false, message: 'أنت في حسابك أصلاً' }); return;
+      res.status(400).json({ success: false, message: 'أنت في حسابك أصلا' }); return;
     }
     const target = await prisma.hunterUser.findUnique({
       where: { id },
@@ -674,10 +674,10 @@ router.post('/admin/users/:id/impersonate', hunterAuth, requireOwner, async (req
       res.status(400).json({ success: false, message: 'لا يمكن الدخول إلى حساب مالك آخر' }); return;
     }
     if (!target.isActive) {
-      res.status(400).json({ success: false, message: 'الحساب معطّل — فعّله أولاً' }); return;
+      res.status(400).json({ success: false, message: 'الحساب معطل فعله أولا' }); return;
     }
     if (isExpired(target.expiresAt)) {
-      res.status(400).json({ success: false, message: 'انتهت صلاحية الحساب — مدّدها أولاً' }); return;
+      res.status(400).json({ success: false, message: 'انتهت صلاحية الحساب مددها أولا' }); return;
     }
 
     const token = jwt.sign(

@@ -82,7 +82,7 @@ export async function testErpConnection(config: NonNullable<ErpIntegration>) {
   return {
     ok: response.ok,
     status: response.status,
-    message: response.ok ? 'تم الاتصال بنجاح' : `فشل الاتصال: ${response.status}`,
+    message: response.ok ? 'تم الاتصال بنجاح' : `فشل الاتصال ${response.status}`,
     startedAt,
     finishedAt: new Date(),
   };
@@ -112,7 +112,7 @@ export async function syncErpResource(tenantId: string, resource: Resource) {
     });
     const text = await response.text().catch(() => '');
     const ok = response.ok;
-    const message = ok ? 'تمت المزامنة بنجاح' : `فشل ERP: ${response.status}${text ? ` - ${text.slice(0, 300)}` : ''}`;
+    const message = ok ? 'تمت المزامنة بنجاح' : `فشل ERP ${response.status}${text ? ` - ${text.slice(0, 300)}` : ''}`;
 
     await prisma.erpSyncLog.create({
       data: { tenantId, resource, status: ok ? 'SUCCESS' : 'FAILED', count: ok ? data.length : 0, message, startedAt, finishedAt: new Date() },
@@ -121,7 +121,7 @@ export async function syncErpResource(tenantId: string, resource: Resource) {
     if (!ok) throw new Error(message);
     return { resource, count: data.length, message };
   } catch (err) {
-    const message = (err as Error).message || 'تعذّرت المزامنة';
+    const message = (err as Error).message || 'تعذرت المزامنة';
     await prisma.erpSyncLog.create({
       data: { tenantId, resource, status: 'FAILED', count: 0, message, startedAt, finishedAt: new Date() },
     });

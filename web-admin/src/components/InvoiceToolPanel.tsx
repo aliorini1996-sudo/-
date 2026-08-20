@@ -51,8 +51,8 @@ export default function InvoiceToolPanel({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-[#1E7A52] flex items-center justify-center"><ReceiptText size={20} /></div>
             <div>
-              <h1 className="font-bold">عملاء مولّد الفواتير</h1>
-              <p className="text-slate-400 text-xs">شركات حقيقية استخدمت الأداة المجانية وأدخلت بياناتها بنفسها — أدفأ جمهور للتحويل</p>
+              <h1 className="font-bold">عملاء مولد الفواتير</h1>
+              <p className="text-slate-400 text-xs">شركات حقيقية استخدمت الأداة المجانية وأدخلت بياناتها بنفسها أدفأ جمهور للتحويل</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -67,15 +67,15 @@ export default function InvoiceToolPanel({ onClose }: { onClose: () => void }) {
       <div className="max-w-6xl mx-auto px-6 py-6">
         {/* KPIs */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-          <Kpi icon={Users} label="شركة استخدمت المولّد" value={data?.stats.total ?? 0} color="bg-[#1E7A52]" />
-          <Kpi icon={FileText} label="فاتورة أُصدرت عبر الأداة" value={data?.stats.uses ?? 0} color="bg-[#E15A30]" />
+          <Kpi icon={Users} label="شركة استخدمت المولد" value={data?.stats.total ?? 0} color="bg-[#1E7A52]" />
+          <Kpi icon={FileText} label="فاتورة أصدرت عبر الأداة" value={data?.stats.uses ?? 0} color="bg-[#E15A30]" />
           <Kpi icon={Sparkles} label="جدد هذا الأسبوع" value={data?.stats.newWeek ?? 0} color="bg-purple-600" />
           <Kpi icon={Globe2} label="دولة" value={data?.stats.countries ?? 0} color="bg-blue-600" />
         </div>
 
         {/* بحث */}
         <div className="mb-4">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث بالاسم / الرقم الضريبي / الدولة..." className="input max-w-md" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث بالاسم / الرقم الضريبي / الدولة" className="input max-w-md" />
         </div>
 
         {/* الجدول */}
@@ -90,11 +90,11 @@ export default function InvoiceToolPanel({ onClose }: { onClose: () => void }) {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={6} className="text-center py-10 text-gray-400">جارٍ التحميل...</td></tr>
+                  <tr><td colSpan={6} className="text-center py-10 text-gray-400">جار التحميل</td></tr>
                 ) : users.length === 0 ? (
                   <tr><td colSpan={6} className="text-center py-12 text-gray-400">
                     لا مستخدمون بعد 🧾<br />
-                    <span className="text-xs">شارك رابط الأداة في قروبات التجّار: <span dir="ltr" className="text-[#1E7A52] font-semibold">fieldsa.net/invoice-generator</span></span>
+                    <span className="text-xs">شارك رابط الأداة في قروبات التجار <span dir="ltr" className="text-[#1E7A52] font-semibold">fieldsa.net/invoice-generator</span></span>
                   </td></tr>
                 ) : users.map((u) => (
                   <tr key={u.id} className="cursor-pointer hover:bg-[#E4F1EA]/40" onClick={() => setSelected(u)}>
@@ -109,11 +109,11 @@ export default function InvoiceToolPanel({ onClose }: { onClose: () => void }) {
               </tbody>
             </table>
           </div>
-          {data && <div className="px-4 py-2 text-xs text-gray-400 border-t border-[#E9E1D3]">إجمالي: {users.length} شركة</div>}
+          {data && <div className="px-4 py-2 text-xs text-gray-400 border-t border-[#E9E1D3]">إجمالي {users.length} شركة</div>}
         </div>
 
         <p className="text-xs text-gray-400 mt-4">
-          💡 هذه الشركات تُصدر فواتير فعلياً وتعرف علامتك — الأولى بعرض مباشر: «أعجبك المولّد؟ مندوبك يصدرها تلقائياً من جواله».
+          💡 هذه الشركات تصدر فواتير فعليا وتعرف علامتك الأولى بعرض مباشر أعجبك المولد مندوبك يصدرها تلقائيا من جواله
         </p>
       </div>
 
@@ -133,7 +133,7 @@ export default function InvoiceToolPanel({ onClose }: { onClose: () => void }) {
               </div>
               <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
             </div>
-            <p className="text-sm font-bold text-gray-700 mb-2">🧾 آخر الفواتير الصادرة ({selected.uses} إجمالاً)</p>
+            <p className="text-sm font-bold text-gray-700 mb-2">🧾 آخر الفواتير الصادرة ({selected.uses} إجمالا)</p>
             <div className="space-y-2">
               {selected.activities.length === 0 ? (
                 <p className="text-sm text-gray-400">لا تفاصيل بعد</p>

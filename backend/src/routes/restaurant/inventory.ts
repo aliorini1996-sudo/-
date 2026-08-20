@@ -60,7 +60,7 @@ router.put('/ingredients/:id', requireAdmin, async (req: AuthRequest, res: Respo
     const tid = tenantId(req);
     const { openingQty: _o, openingCost: _c, ...body } = ingredientSchema.partial().parse(req.body);
     const exists = await prisma.ingredient.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
-    if (!exists) { res.status(404).json({ success: false, message: 'المكوّن غير موجود' }); return; }
+    if (!exists) { res.status(404).json({ success: false, message: 'المكون غير موجود' }); return; }
     const ing = await prisma.ingredient.update({ where: { id: req.params.id }, data: body as any });
     res.json({ success: true, data: ing });
   } catch (err) { next(err); }
@@ -70,11 +70,11 @@ router.delete('/ingredients/:id', requireAdmin, async (req: AuthRequest, res: Re
   try {
     const tid = tenantId(req);
     const exists = await prisma.ingredient.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
-    if (!exists) { res.status(404).json({ success: false, message: 'المكوّن غير موجود' }); return; }
+    if (!exists) { res.status(404).json({ success: false, message: 'المكون غير موجود' }); return; }
     // الحذف يُسقط أسطر الوصفات وسجلّ الحركات عبر Cascade فتنخفض تكلفة الأصناف صامتةً — امنعه عند الاستخدام
     const used = await prisma.recipeItem.count({ where: { ingredientId: req.params.id, tenantId: tid } });
     if (used > 0) {
-      res.status(409).json({ success: false, message: 'المكوّن مستخدم في وصفات — أزِله منها أولاً أو عطّله بدل حذفه' });
+      res.status(409).json({ success: false, message: 'المكون مستخدم في وصفات أزله منها أولا أو عطله بدل حذفه' });
       return;
     }
     await prisma.ingredient.delete({ where: { id: req.params.id } });
@@ -121,7 +121,7 @@ router.post('/ingredients/:id/movement', requireAdmin, async (req: AuthRequest, 
       });
       return true;
     });
-    if (!done) { res.status(404).json({ success: false, message: 'المكوّن غير موجود' }); return; }
+    if (!done) { res.status(404).json({ success: false, message: 'المكون غير موجود' }); return; }
     res.json({ success: true });
   } catch (err) { next(err); }
 });
@@ -154,7 +154,7 @@ router.put('/menu-items/:id/recipe', requireAdmin, async (req: AuthRequest, res:
     if (merged.length) {
       const ids = merged.map(i => i.ingredientId);
       const cnt = await prisma.ingredient.count({ where: { id: { in: ids }, tenantId: tid } });
-      if (cnt !== ids.length) { res.status(400).json({ success: false, message: 'أحد المكوّنات غير موجود' }); return; }
+      if (cnt !== ids.length) { res.status(400).json({ success: false, message: 'أحد المكونات غير موجود' }); return; }
     }
     await prisma.$transaction(async tx => {
       await tx.recipeItem.deleteMany({ where: { menuItemId: menuItem.id } });

@@ -12,7 +12,7 @@ const navItems = [
   { to: '/app-r/menu', icon: ScrollText, label: 'القائمة' },
   { to: '/app-r/tables', icon: LayoutGrid, label: 'الصالات والطاولات' },
   { to: '/app-r/inventory', icon: Boxes, label: 'المخزون' },
-  { to: '/app-r/staff', icon: Users, label: 'الموظّفون' },
+  { to: '/app-r/staff', icon: Users, label: 'الموظفون' },
   { to: '/app-r/reports', icon: BarChart3, label: 'التقارير' },
   { to: '/app-r/settings', icon: Settings, label: 'الإعدادات' },
 ];
@@ -29,7 +29,7 @@ export default function RestaurantLayout() {
       {impersonating && (
         <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
           <span className="flex items-center gap-2 font-medium">
-            <Eye size={16} /> تتصفّح «{impersonating}» كمالك للمنصّة
+            <Eye size={16} /> تتصفح «{impersonating}» كمالك للمنصة
           </span>
           <button onClick={backToPlatform} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 font-semibold">
             <ArrowRight size={14} /> العودة للوحة المالك
@@ -64,7 +64,7 @@ export default function RestaurantLayout() {
 
           <div className="p-2 border-t border-white/10 space-y-1">
             <div className="px-4 py-1.5">
-              <p className="text-xs text-[#9A8F7E] leading-tight">مرحباً،</p>
+              <p className="text-xs text-[#9A8F7E] leading-tight">مرحبا</p>
               <p className="text-sm font-semibold truncate leading-tight">{user?.name}</p>
             </div>
             {!impersonating && (

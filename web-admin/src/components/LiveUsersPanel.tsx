@@ -27,12 +27,12 @@ interface ReqStats { range: string; days: number; totalRequests: number; activeC
 const RANGES: { key: string; label: string }[] = [
   { key: '24h', label: '٢٤ ساعة' },
   { key: '7d', label: '٧ أيام' },
-  { key: '30d', label: '٣٠ يوماً' },
+  { key: '30d', label: '٣٠ يوما' },
 ];
 const REQ_RANGES: { key: string; label: string }[] = [
   { key: 'today', label: 'اليوم' },
   { key: '7d', label: '٧ أيام' },
-  { key: '30d', label: '٣٠ يوماً' },
+  { key: '30d', label: '٣٠ يوما' },
 ];
 
 // أرقام غربية بفواصل آلاف — لتوحيد الترقيم مع وضع «مباشر» وبقيّة اللوحة
@@ -103,12 +103,12 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
             </div>
             <div>
               <h2 className="text-lg font-bold text-[#1F1A13]">الزيارات الحية</h2>
-              <p className="text-xs text-[#6E6557]">من يستخدم المنصّة — مباشرةً واستهلاكاً، عبر كل الشركات</p>
+              <p className="text-xs text-[#6E6557]">من يستخدم المنصة مباشرة واستهلاكا عبر كل الشركات</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {mode === 'live' && (
-              <span className="hidden sm:inline text-[11px] text-[#9A8F7E]">آخر تحديث: {fmtClock(dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : undefined)}</span>
+              <span className="hidden sm:inline text-[11px] text-[#9A8F7E]">آخر تحديث {fmtClock(dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : undefined)}</span>
             )}
             <button onClick={() => { if (mode === 'live') { refetch(); histRefetch(); } else { reqRefetch(); } }} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" title="تحديث الآن">
               <RefreshCw size={15} className={(mode === 'live' ? isFetching : reqFetching) ? 'animate-spin' : ''} />
@@ -128,9 +128,9 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
         {/* ————— وضع «مباشر» ————— */}
         {mode === 'live' && (
           isLoading ? (
-            <div className="py-20 text-center text-gray-400">جارٍ قياس النشاط اللحظي…</div>
+            <div className="py-20 text-center text-gray-400">جار قياس النشاط اللحظي</div>
           ) : isError ? (
-            <div className="py-20 text-center text-red-500 px-6">تعذّر تحميل البيانات — قد تكون الخدمة قيد النشر. أعد المحاولة بعد قليل.</div>
+            <div className="py-20 text-center text-red-500 px-6">تعذر تحميل البيانات قد تكون الخدمة قيد النشر أعد المحاولة بعد قليل</div>
           ) : (
             <div className="p-5 space-y-5">
               {/* المؤشّر الزمنيّ */}
@@ -143,7 +143,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                     <span className="text-3xl font-extrabold text-[#1F1A13] tabular-nums leading-none">{total}</span>
                     {hist && hist.peak > 0 && (
                       <span className="text-[11px] text-[#6E6557] inline-flex items-center gap-1">
-                        <TrendingUp size={12} className="text-[#E15A30]" /> الذروة في المدّة: <b className="text-[#1F1A13]">{hist.peak}</b>
+                        <TrendingUp size={12} className="text-[#E15A30]" /> الذروة في المدة <b className="text-[#1F1A13]">{hist.peak}</b>
                       </span>
                     )}
                   </div>
@@ -158,10 +158,10 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                 </div>
 
                 {histLoading ? (
-                  <div className="h-[200px] grid place-items-center text-gray-400 text-sm">جارٍ تحميل المنحنى…</div>
+                  <div className="h-[200px] grid place-items-center text-gray-400 text-sm">جار تحميل المنحنى</div>
                 ) : histError ? (
                   <div className="h-[200px] grid place-items-center text-center px-6 text-sm text-red-500">
-                    تعذّر تحميل المؤشّر الزمنيّ — سيُعاد المحاولة تلقائياً.
+                    تعذر تحميل المؤشر الزمني سيعاد المحاولة تلقائيا
                   </div>
                 ) : (hist?.points?.length ?? 0) < 2 ? (
                   <div className="h-[200px] grid place-items-center text-center px-6">
@@ -169,9 +169,9 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                       <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
                         <TrendingUp size={22} className="text-[#1E7A52]" />
                       </div>
-                      <p className="font-bold text-[#1F1A13] text-sm">المؤشّر الزمنيّ يبدأ بالتجميع الآن</p>
+                      <p className="font-bold text-[#1F1A13] text-sm">المؤشر الزمني يبدأ بالتجميع الآن</p>
                       <p className="text-xs text-[#6E6557] mt-1 max-w-xs mx-auto">
-                        تُلتقط لقطةٌ لعدد المتصلين كل ٥ دقائق. عُد بعد قليل لرؤية المنحنى عبر التاريخ والوقت.
+                        تلتقط لقطة لعدد المتصلين كل ٥ دقائق عد بعد قليل لرؤية المنحنى عبر التاريخ والوقت
                       </p>
                     </div>
                   </div>
@@ -181,7 +181,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                   </Suspense>
                 )}
                 <p className="text-[11px] text-[#9A8F7E] text-center mt-2">
-                  مرّر فوق المنحنى لمعرفة عدد المتصلين في كل وقتٍ بعينه. {range !== '24h' ? 'النقطة = ذروة الإشغال في تلك الفترة.' : 'نقطةٌ كل ٥ دقائق.'}
+                  مرر فوق المنحنى لمعرفة عدد المتصلين في كل وقت بعينه {range !== '24h' ? 'النقطة = ذروة الإشغال في تلك الفترة' : 'نقطة كل ٥ دقائق'}
                 </p>
               </div>
 
@@ -193,7 +193,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
 
               <div className="flex items-center justify-center gap-2 text-[13px] text-[#6E6557]">
                 <Building2 size={15} className="text-[#9A8F7E]" />
-                <span>الشركات النشطة الآن: <b className="text-[#1F1A13]">{data?.activeCompanies ?? 0}</b></span>
+                <span>الشركات النشطة الآن <b className="text-[#1F1A13]">{data?.activeCompanies ?? 0}</b></span>
               </div>
 
               {/* جدول الشركات — قابل للتوسيع لإظهار أسماء المتصلين */}
@@ -206,7 +206,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                     </div>
                     <p className="font-bold text-[#1F1A13]">لا مستخدمين متصلين الآن</p>
                     <p className="text-sm text-[#6E6557] mt-1 max-w-sm mx-auto">
-                      يظهر المستخدمون هنا فور فتحهم تطبيق المندوب أو لوحة الشركة. اضغط أيّ شركة لرؤية أسماء المتصلين.
+                      يظهر المستخدمون هنا فور فتحهم تطبيق المندوب أو لوحة الشركة اضغط أي شركة لرؤية أسماء المتصلين
                     </p>
                   </div>
                 ) : (
@@ -274,7 +274,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
               </div>
 
               <p className="text-[11px] text-[#9A8F7E] text-center">
-                «متصل الآن» = نشاطٌ خلال آخر {data?.windowMinutes ?? 5} دقائق. اضغط أيّ شركة لأسماء المتصلين. اللوحة تُحدَّث تلقائياً كل ١٥ ثانية.
+                متصل الآن = نشاط خلال آخر {data?.windowMinutes ?? 5} دقائق اضغط أي شركة لأسماء المتصلين اللوحة تحدث تلقائيا كل ١٥ ثانية
               </p>
             </div>
           )
@@ -303,20 +303,20 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
             {/* المنحنى الزمنيّ للطلبات — كمؤشّر المتصلين */}
             <div className="rounded-2xl border border-[#E9E1D3] bg-white p-4">
               <div className="flex items-center gap-1.5 mb-3 text-[13px] font-semibold text-[#1F1A13]">
-                <TrendingUp size={15} className="text-[#E15A30]" /> المنحنى الزمنيّ للطلبات
+                <TrendingUp size={15} className="text-[#E15A30]" /> المنحنى الزمني للطلبات
               </div>
               {reqLoading ? (
-                <div className="h-[200px] grid place-items-center text-gray-400 text-sm">جارٍ تحميل المنحنى…</div>
+                <div className="h-[200px] grid place-items-center text-gray-400 text-sm">جار تحميل المنحنى</div>
               ) : reqError ? (
-                <div className="h-[200px] grid place-items-center text-center px-6 text-sm text-red-500">تعذّر تحميل المنحنى — سيُعاد المحاولة تلقائياً.</div>
+                <div className="h-[200px] grid place-items-center text-center px-6 text-sm text-red-500">تعذر تحميل المنحنى سيعاد المحاولة تلقائيا</div>
               ) : (req?.series?.length ?? 0) < 2 ? (
                 <div className="h-[200px] grid place-items-center text-center px-6">
                   <div>
                     <div className="w-12 h-12 bg-[#FBEBE2] rounded-2xl flex items-center justify-center mx-auto mb-3">
                       <TrendingUp size={22} className="text-[#E15A30]" />
                     </div>
-                    <p className="font-bold text-[#1F1A13] text-sm">اختر «٧ أيام» أو «٣٠ يوماً» لرؤية المنحنى</p>
-                    <p className="text-xs text-[#6E6557] mt-1 max-w-xs mx-auto">الطلبات تُجمَّع يومياً؛ مدى «اليوم» نقطةٌ واحدة، والمنحنى يتّضح عبر عدّة أيّام.</p>
+                    <p className="font-bold text-[#1F1A13] text-sm">اختر ٧ أيام أو ٣٠ يوما لرؤية المنحنى</p>
+                    <p className="text-xs text-[#6E6557] mt-1 max-w-xs mx-auto">الطلبات تجمع يوميا مدى اليوم نقطة واحدة والمنحنى يتضح عبر عدة أيام</p>
                   </div>
                 </div>
               ) : (
@@ -324,28 +324,28 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                   <RequestHistoryChart points={req!.series} />
                 </Suspense>
               )}
-              <p className="text-[11px] text-[#9A8F7E] text-center mt-2">مرّر فوق المنحنى لمعرفة عدد الطلبات في كل يومٍ بعينه.</p>
+              <p className="text-[11px] text-[#9A8F7E] text-center mt-2">مرر فوق المنحنى لمعرفة عدد الطلبات في كل يوم بعينه</p>
             </div>
 
             <div className="flex items-center justify-center gap-2 text-[13px] text-[#6E6557]">
               <Building2 size={15} className="text-[#9A8F7E]" />
-              <span>الشركات ذات النشاط: <b className="text-[#1F1A13]">{req?.activeCompanies ?? 0}</b></span>
+              <span>الشركات ذات النشاط <b className="text-[#1F1A13]">{req?.activeCompanies ?? 0}</b></span>
             </div>
 
             <div className="bg-white border border-[#E9E1D3] rounded-2xl overflow-hidden">
               <h3 className="text-sm font-bold text-[#1F1A13] px-4 pt-4 pb-2">استهلاك الطلبات حسب الشركة</h3>
               {reqLoading ? (
-                <div className="py-14 text-center text-gray-400 text-sm">جارٍ تحميل الاستهلاك…</div>
+                <div className="py-14 text-center text-gray-400 text-sm">جار تحميل الاستهلاك</div>
               ) : reqError ? (
-                <div className="py-14 text-center text-red-500 text-sm px-6">تعذّر تحميل استهلاك الطلبات — قد تكون الخدمة قيد النشر.</div>
+                <div className="py-14 text-center text-red-500 text-sm px-6">تعذر تحميل استهلاك الطلبات قد تكون الخدمة قيد النشر</div>
               ) : (!req || req.companies.length === 0) ? (
                 <div className="py-14 text-center px-6">
                   <div className="w-12 h-12 bg-[#FBEBE2] rounded-2xl flex items-center justify-center mx-auto mb-3">
                     <Activity size={22} className="text-[#9A8F7E]" />
                   </div>
-                  <p className="font-bold text-[#1F1A13]">لا طلبات مُسجّلة في هذه المدّة</p>
+                  <p className="font-bold text-[#1F1A13]">لا طلبات مسجلة في هذه المدة</p>
                   <p className="text-sm text-[#6E6557] mt-1 max-w-sm mx-auto">
-                    يبدأ عدّ الطلبات من لحظة تفعيل الميزة ويتراكم تصاعدياً. اضغط أيّ شركة لتفصيل كل مستخدم.
+                    يبدأ عد الطلبات من لحظة تفعيل الميزة ويتراكم تصاعديا اضغط أي شركة لتفصيل كل مستخدم
                   </p>
                 </div>
               ) : (
@@ -405,7 +405,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
             </div>
 
             <p className="text-[11px] text-[#9A8F7E] text-center">
-              «الطلبات» = عدد نداءات API الفعليّة لكل مستخدم (يشمل النبضات الخلفية للموقع والحضور). يبدأ العدّ من تفعيل الميزة ويُجمَّع بأيّام الرياض.
+              الطلبات = عدد نداءات API الفعلية لكل مستخدم يشمل النبضات الخلفية للموقع والحضور يبدأ العد من تفعيل الميزة ويجمع بأيام الرياض
             </p>
           </div>
         )}

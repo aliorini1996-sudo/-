@@ -66,21 +66,21 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
 
   // قائمة تحقّق صحّة الـSEO
   const checks: { label: string; ok: boolean; detail?: string; hint?: string }[] = [
-    { label: 'خريطة موقع محدّثة', ok: p.sitemapUrls > 0, detail: `${p.sitemapUrls} رابط` },
-    { label: 'روابط دولية hreflang (عربي/إنجليزي/فرنسي)', ok: p.hreflang > 0, detail: `${p.hreflang} رابط` },
+    { label: 'خريطة موقع محدثة', ok: p.sitemapUrls > 0, detail: `${p.sitemapUrls} رابط` },
+    { label: 'روابط دولية hreflang عربي/إنجليزي/فرنسي', ok: p.hreflang > 0, detail: `${p.hreflang} رابط` },
     { label: 'نسخة إنجليزية منفصلة /en', ok: p.enUrls > 0 },
     { label: 'نسخة فرنسية منفصلة /fr', ok: p.frUrls > 0 },
-    { label: 'ملف robots.txt', ok: p.robots },
-    { label: 'أيقونة الموقع (favicon)', ok: p.favicon },
+    { label: 'ملف robots txt', ok: p.robots },
+    { label: 'أيقونة الموقع favicon', ok: p.favicon },
     { label: 'عناوين ووصف فريدة لكل صفحة', ok: true },
-    { label: 'بيانات منظّمة (Schema)', ok: true, detail: '12 خدمة · 50 دولة' },
-    { label: 'مدوّنة ثلاثية اللغة (ع/إ/فر)', ok: seoArticles > 0, detail: `${seoArticles} مقال بثلاث لغات` },
-    { label: 'بطاقات صور احترافية (OG)', ok: true, detail: `${seoArticles * 3} بطاقة · 3 لغات` },
-    { label: 'خريطة صور Google (image sitemap)', ok: p.images > 0, detail: `${p.images} صورة` },
+    { label: 'بيانات منظمة Schema', ok: true, detail: '12 خدمة 50 دولة' },
+    { label: 'مدونة ثلاثية اللغة ع/إ/فر', ok: seoArticles > 0, detail: `${seoArticles} مقال بثلاث لغات` },
+    { label: 'بطاقات صور احترافية OG', ok: true, detail: `${seoArticles * 3} بطاقة 3 لغات` },
+    { label: 'خريطة صور Google image sitemap', ok: p.images > 0, detail: `${p.images} صورة` },
     { label: 'أزرار مشاركة اجتماعية', ok: true },
-    { label: 'تحقّق Google Search Console', ok: p.gscMeta },
-    { label: 'ربط الحسابات الاجتماعية (sameAs)', ok: socialCount > 0, hint: socialCount === 0 ? 'املأ روابط التواصل من «محتوى الصفحة»' : undefined },
-    { label: 'صيانة SEO يومية (أتمتة)', ok: true, detail: 'كل يوم 06:00' },
+    { label: 'تحقق Google Search Console', ok: p.gscMeta },
+    { label: 'ربط الحسابات الاجتماعية sameAs', ok: socialCount > 0, hint: socialCount === 0 ? 'املأ روابط التواصل من محتوى الصفحة' : undefined },
+    { label: 'صيانة SEO يومية أتمتة', ok: true, detail: 'كل يوم 06:00' },
   ];
   const passed = checks.filter((c) => c.ok).length;
   const score = Math.round((passed / checks.length) * 100);
@@ -89,9 +89,9 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
   const tools: { label: string; sub: string; href: string; icon: React.ElementType }[] = [
     { label: 'Google Search Console', sub: 'النقرات والكلمات والفهرسة', href: GSC, icon: Search },
     { label: 'PageSpeed Insights', sub: 'سرعة الموقع وتجربة المستخدم', href: 'https://pagespeed.web.dev/analysis?url=https://fieldsa.net/', icon: Zap },
-    { label: 'اختبار النتائج الغنية', sub: 'فحص البيانات المنظّمة', href: 'https://search.google.com/test/rich-results?url=https%3A%2F%2Ffieldsa.net%2F', icon: CheckCircle2 },
-    { label: 'خريطة الموقع الحيّة', sub: 'sitemap.xml', href: 'https://fieldsa.net/sitemap.xml', icon: FileText },
-    { label: 'أتمتة الصيانة (GitHub)', sub: 'تشغيلات الورك فلو اليومي', href: GH_ACTIONS, icon: RefreshCw },
+    { label: 'اختبار النتائج الغنية', sub: 'فحص البيانات المنظمة', href: 'https://search.google.com/test/rich-results?url=https%3A%2F%2Ffieldsa.net%2F', icon: CheckCircle2 },
+    { label: 'خريطة الموقع الحية', sub: 'sitemap.xml', href: 'https://fieldsa.net/sitemap.xml', icon: FileText },
+    { label: 'أتمتة الصيانة GitHub', sub: 'تشغيلات الورك فلو اليومي', href: GH_ACTIONS, icon: RefreshCw },
   ];
 
   return (
@@ -102,8 +102,8 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><TrendingUp size={20} className="text-[#E15A30]" /></div>
             <div>
-              <h2 className="text-lg font-bold text-[#1F1A13]">متابعة تحسين محرّك البحث (SEO)</h2>
-              <p className="text-xs text-[#6E6557]">صحّة الموقع، نموّ المحتوى، وروابط أدوات القياس</p>
+              <h2 className="text-lg font-bold text-[#1F1A13]">متابعة تحسين محرك البحث SEO</h2>
+              <p className="text-xs text-[#6E6557]">صحة الموقع نمو المحتوى وروابط أدوات القياس</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
@@ -121,22 +121,22 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className="text-2xl font-extrabold" style={{ color: scoreColor }}>{p.loading ? '…' : `${score}%`}</span>
-                  <span className="text-[10px] text-[#9A8F7E]">صحّة SEO</span>
+                  <span className="text-[10px] text-[#9A8F7E]">صحة SEO</span>
                 </div>
               </div>
               <p className="text-[11px] text-[#6E6557] mt-2">{passed}/{checks.length} عنصر مكتمل</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Kpi icon={Link2} value={p.loading ? '—' : String(p.sitemapUrls)} label="روابط في الخريطة" />
-              <Kpi icon={FileText} value={`${totalArticles}`} label={`مقال (${seoArticles} بـ3 لغات)`} />
-              <Kpi icon={Languages} value="3" label="لغات · عربي/إنجليزي/فرنسي" />
+              <Kpi icon={FileText} value={`${totalArticles}`} label={`مقال (${seoArticles} ب3 لغات)`} />
+              <Kpi icon={Languages} value="3" label="لغات عربي/إنجليزي/فرنسي" />
               <Kpi icon={MapPin} value={`${arabCountries}`} label="دولة عربية مستهدفة" />
             </div>
           </div>
 
           {/* قائمة التحقّق */}
           <div>
-            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><CheckCircle2 size={16} className="text-[#1E7A52]" /> قائمة صحّة الـSEO</h3>
+            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><CheckCircle2 size={16} className="text-[#1E7A52]" /> قائمة صحة الSEO</h3>
             <div className="grid sm:grid-cols-2 gap-2">
               {checks.map((c) => (
                 <div key={c.label} className="flex items-start gap-2.5 bg-white border border-[#E9E1D3] rounded-xl px-3.5 py-2.5">
@@ -155,7 +155,7 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
 
           {/* نموّ المحتوى */}
           <div className="bg-white border border-[#E9E1D3] rounded-2xl p-4">
-            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={16} className="text-[#E15A30]" /> نموّ المحتوى</h3>
+            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><TrendingUp size={16} className="text-[#E15A30]" /> نمو المحتوى</h3>
             <div className="space-y-2">
               {listArticles('ar').slice(0, 6).map((a) => (
                 <div key={a.slug} className="flex items-center gap-2 text-[13px]">
@@ -168,13 +168,13 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
             </div>
             <div className="mt-3 pt-3 border-t border-[#F1EBDF] flex items-center gap-2 text-[12px] text-[#6E6557]">
               <Globe size={14} className="text-[#E15A30]" />
-              مدوّنتك تضمّ {seoArticles} مقالًا مولّدًا لكل الدول العربية بثلاث لغات + مقالاتك اليدوية — كلها في الخريطة والفهرسة الآلية اليومية.
+              مدونتك تضم {seoArticles} مقالا مولدا لكل الدول العربية بثلاث لغات + مقالاتك اليدوية كلها في الخريطة والفهرسة الآلية اليومية
             </div>
           </div>
 
           {/* أدوات القياس الخارجية */}
           <div>
-            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Share2 size={16} className="text-[#E15A30]" /> أدوات القياس (بيانات الترتيب والزيارات الحقيقية)</h3>
+            <h3 className="text-sm font-bold text-[#1F1A13] mb-3 flex items-center gap-2"><Share2 size={16} className="text-[#E15A30]" /> أدوات القياس بيانات الترتيب والزيارات الحقيقية</h3>
             <div className="grid sm:grid-cols-2 gap-2">
               {tools.map((t) => (
                 <a key={t.label} href={t.href} target="_blank" rel="noreferrer"
@@ -189,7 +189,7 @@ export default function SeoDashboard({ onClose }: { onClose: () => void }) {
               ))}
             </div>
             <p className="text-[11px] text-[#9A8F7E] mt-3 leading-relaxed">
-              هذه الشاشة تراقب <b>أساس الـSEO ونموّ المحتوى</b> على موقعك. أما بيانات الترتيب والنقرات الفعلية فتأتي من <b>Google Search Console</b> (يحدّثها جوجل خلال 1–3 أيام).
+              هذه الشاشة تراقب <b>أساس الSEO ونمو المحتوى</b> على موقعك أما بيانات الترتيب والنقرات الفعلية فتأتي من <b>Google Search Console</b> يحدثها جوجل خلال 1 3 أيام
             </p>
           </div>
         </div>

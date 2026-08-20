@@ -24,7 +24,7 @@ export default function PosLoginPage() {
       const { token, user } = res.data.data;
       if (user.vertical !== 'restaurant') { toast.error('هذا الدخول لكاشير المطاعم فقط'); setLoading(false); return; }
       login(token, user);
-      toast.success(`أهلاً ${user.name}`);
+      toast.success(`أهلا ${user.name}`);
       window.location.replace('/pos');
     } catch (err: unknown) {
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'بيانات الدخول غير صحيحة');

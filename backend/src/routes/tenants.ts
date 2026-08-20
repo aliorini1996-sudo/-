@@ -89,7 +89,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const body = createTenantSchema.parse(req.body);
 
     const emailTaken = await prisma.admin.findUnique({ where: { email: body.adminEmail } });
-    if (emailTaken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقاً' }); return; }
+    if (emailTaken) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا' }); return; }
 
     const passwordHash = await bcrypt.hash(body.adminPassword, 10);
 
@@ -144,7 +144,7 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
     const admin = await prisma.admin.findFirst({ where: { tenantId: tenant.id, isActive: true }, orderBy: { createdAt: 'asc' } })
       ?? await prisma.admin.findFirst({ where: { tenantId: tenant.id }, orderBy: { createdAt: 'asc' } });
     if (!admin) { res.status(404).json({ success: false, message: 'لا يوجد مدير لهذه الشركة' }); return; }
-    if (!admin.isActive) { res.status(409).json({ success: false, message: 'كل مديري هذه الشركة معطَّلون — فعّل حساباً قبل الدخول.' }); return; }
+    if (!admin.isActive) { res.status(409).json({ success: false, message: 'كل مديري هذه الشركة معطلون فعل حسابا قبل الدخول' }); return; }
 
     const vertical = (tenant as any).vertical ?? 'distribution';
     const token = jwt.sign(

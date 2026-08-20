@@ -86,7 +86,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const table = await prisma.restaurantTable.create({ data: { ...body, tenantId: tid, areaId: body.areaId || null } as any });
     res.status(201).json({ success: true, data: table });
   } catch (err) {
-    if ((err as { code?: string }).code === 'P2002') { res.status(409).json({ success: false, message: 'رقم الطاولة مستخدم مسبقاً' }); return; }
+    if ((err as { code?: string }).code === 'P2002') { res.status(409).json({ success: false, message: 'رقم الطاولة مستخدم مسبقا' }); return; }
     next(err);
   }
 });
@@ -105,7 +105,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     const table = await prisma.restaurantTable.update({ where: { id: req.params.id }, data: body as any });
     res.json({ success: true, data: table });
   } catch (err) {
-    if ((err as { code?: string }).code === 'P2002') { res.status(409).json({ success: false, message: 'رقم الطاولة مستخدم مسبقاً' }); return; }
+    if ((err as { code?: string }).code === 'P2002') { res.status(409).json({ success: false, message: 'رقم الطاولة مستخدم مسبقا' }); return; }
     next(err);
   }
 });
