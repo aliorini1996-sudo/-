@@ -16,10 +16,12 @@ import { ArrowLeft, Globe, WifiOff, Receipt, MapPin, Printer, ScanLine } from 'l
  * — بلا نشر جديد. ورابط فارغ يعني «قريباً» فلا يُعرض للمستخدم رابط ميّت.
  */
 
-// روابط المتجرين الفعلية — تُستعمل حين لا يضبطها المالك من CMS.
-// App Store: منشور حيّ (Apple ID 6797991968).
-// Google Play: `net.fieldsa.twa` ما زال بانتظار موافقة النشر العلني ⇒ الافتراضي فارغ.
+// روابط المتجرين الفعلية — هي المصدر حين لا يضبطها المالك من CMS.
+// (لا تكفي القيمة في defaultContent: تلك يدمجها قالب الهبوط وحده، وهذه الصفحة
+//  تقرأ استجابة CMS مباشرةً — فلزم أن تحمل بدائلها بنفسها.)
+// حقل مضبوط في CMS يعلو عليها؛ وحقل **مُفرَّغ عمداً** يعيد الشعار إلى وسم «قريباً».
 const FALLBACK_APPLE = 'https://apps.apple.com/sa/app/id6797991968';
+const FALLBACK_PLAY = 'https://play.google.com/store/apps/details?id=net.fieldsa.twa';
 
 const FEATURES = [
   { icon: Receipt, title: 'فواتير وسندات من الجوال', desc: 'فاتورة ضريبية برمز QR وسند قبض، تُصدر وتُطبع أمام العميل.' },
@@ -94,7 +96,7 @@ export default function RepAppPage() {
 
   const repApp = (data?.repApp as Record<string, string> | undefined) || {};
   const appleUrl = (repApp.appStoreUrl ?? FALLBACK_APPLE).trim();
-  const playUrl = (repApp.playUrl ?? '').trim();
+  const playUrl = (repApp.playUrl ?? FALLBACK_PLAY).trim();
 
   return (
     <div dir="rtl" className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}>
