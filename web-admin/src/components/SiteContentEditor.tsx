@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { POSTS, emptyPost, slugify, type BlogPost } from '../blog/posts';
-import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw } from 'lucide-react';
+import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw, Eraser } from 'lucide-react';
+import { cleanDeep } from '../lib/textClean';
 import toast from 'react-hot-toast';
 
 const DEFAULT_HERO = '/hero-rep-phones.svg';
@@ -281,6 +282,16 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
     setDraft(base);
   }, [data]);
 
+  // تنظيف كل نصوص المحتوى دفعةً واحدة (إزالة التشكيل وعلامات الترقيم) — يُطبَّق
+  // على المسوّدة لا على المحفوظ، فيراجعه المالك ثم يحفظ أو يغلق بلا حفظ.
+  const cleanAll = () => {
+    if (!draft) return;
+    const { value, changed } = cleanDeep(draft);
+    if (!changed) { toast('النصوص نظيفة أصلاً — لا تشكيل ولا علامات ترقيم'); return; }
+    setDraft(value);
+    toast.success(`نُظّف ${changed} نصاً — راجعها ثم اضغط حفظ`);
+  };
+
   const save = useMutation({
     mutationFn: () => siteContentApi.update(draft),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['site-content'] }); toast.success('تم حفظ محتوى الصفحة'); onClose(); },
@@ -336,6 +347,10 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
         )}
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
+          <button onClick={cleanAll} disabled={!draft} title="يزيل التشكيل وعلامات الترقيم من كل نصوص الموقع"
+            className="px-4 py-2.5 rounded-xl border border-[#E9E1D3] text-[#6E6557] hover:border-[#E8C9BC] hover:text-[#1F1A13] text-sm font-bold flex items-center gap-2 transition-colors">
+            <Eraser size={15} /> تنظيف النصوص
+          </button>
           <button onClick={() => save.mutate()} disabled={save.isPending || !draft} className="btn-primary flex-1 justify-center py-2.5">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={16} />}
             حفظ المحتوى ونشره
