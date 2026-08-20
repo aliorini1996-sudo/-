@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
 import { getCountryTax } from '../config/countries';
 import { computeInvoiceTotals } from '../lib/invoiceCalc';
+import { netFromInclusive } from '../lib/money';
 import { computeStock } from './vanStock';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 import {
@@ -195,7 +196,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const productIds = [...new Set(body.items.map(i => i.productId))];
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, tenantId: tid, status: 'ACTIVE' },
-      select: { id: true, name: true, basePrice: true, damagedReturnToStock: true, priceTiers: { select: { price: true } } },
+      select: { id: true, name: true, basePrice: true, taxPct: true, damagedReturnToStock: true, priceTiers: { select: { price: true } } },
     });
     if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'أحد الأصناف غير موجود أو غير نشط' }); return; }
 
@@ -221,9 +222,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         const ref = cpMap.has(it.productId) ? cpMap.get(it.productId)! : p.basePrice;
         const minTier = p.priceTiers.length ? Math.min(...p.priceTiers.map(t => t.price)) : ref;
         const minAllowed = Math.min(ref, minTier);
+        // المراجع (basePrice/سعر العميل/الشرائح) مخزنة **صافية قبل الضريبة**، بينما
+        // تطبيق المندوب يرسل السعر **شاملا** كما اعلن للعميل — فنرد المرسل الى الاساس
+        // الصافي قبل المقارنة، وإلا رفض الحارس مندوبا لم يغير السعر اصلا (1.15 مقابل 1.00)
+        const refTaxPct = it.taxPct ?? p.taxPct ?? 0;
+        const priceNet = body.pricesIncludeTax ? netFromInclusive(it.unitPrice, refTaxPct) : it.unitPrice;
         if (!rep.canChangePrice) {
-          if (it.unitPrice < minAllowed - TOL || it.unitPrice > ref + TOL) { fail('لا تملك صلاحية تغيير سعر البيع'); return; }
-        } else if (!rep.canSellBelowPrice && it.unitPrice < minAllowed - TOL) {
+          if (priceNet < minAllowed - TOL || priceNet > ref + TOL) { fail('لا تملك صلاحية تغيير سعر البيع'); return; }
+        } else if (!rep.canSellBelowPrice && priceNet < minAllowed - TOL) {
           fail('لا تملك صلاحية البيع بأقل من السعر المحدد'); return;
         }
       }

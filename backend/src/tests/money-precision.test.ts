@@ -2,7 +2,7 @@
 // تحرس: التقريب الموحد نصف-لأعلى، توزيع أكبر الباقي، المحرك الشامل، وسلال الضريبة.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { roundHalfUp, distributeAmount } from '../lib/money';
+import { roundHalfUp, distributeAmount, netFromInclusive } from '../lib/money';
 import { computeInvoiceTotals } from '../lib/invoiceCalc';
 
 test('roundHalfUp: انصاف الهللات تصعد دائما مهما كانت ضوضاء الطفو', () => {
@@ -92,4 +92,60 @@ test('عملة 3 خانات: لا فقد للفلس الثالث', () => {
     [{ qty: 3, unitPrice: 1.999, discountPct: 0, taxPct: 0 }],
     { companyVat: 0, decimals: 3, invoiceDiscountPct: 0 });
   assert.equal(r.total, 5.997);
+});
+
+test('حارس الصلاحية: رد السعر الشامل لا يتجاوز هامش 0.01 لاي سعر او نسبة', () => {
+  // المندوب يرى round(basePrice×(1+t)) ويرسله كما هو؛ الخادم يرده ليقارنه بـbasePrice.
+  // ان تجاوز الفرق هامش الحارس (0.01) رُفض مندوب لم يمس السعر — وهذا ما حدث فعلا.
+  const TOL = 0.01;
+  for (const taxPct of [0, 5, 14, 15, 20]) {
+    for (const dec of [2, 3]) {
+      for (const base of [0.02, 1, 1.03, 6.7, 33.33, 199.99, 11000.25, 87654.31]) {
+        const shown = roundHalfUp(base * (1 + taxPct / 100), dec); // ما يعرضه التطبيق ويرسله
+        const back = netFromInclusive(shown, taxPct);
+        assert.ok(Math.abs(back - base) < TOL,
+          `base=${base} tax=${taxPct}% dec=${dec}: رجع ${back} بفارق ${Math.abs(back - base)}`);
+      }
+    }
+  }
+  // الحالة الحرفية من بلاغ الميدان: صنف 1.00 ريال @15% يعرض 1.15 ويجب ان يرجع 1.00 تماما
+  assert.equal(roundHalfUp(netFromInclusive(1.15, 15), 2), 1.00);
+  // ضريبة صفر: الشامل هو الصافي نفسه
+  assert.equal(netFromInclusive(7.5, 0), 7.5);
+});
+
+test('الثابت المحاسبي: subtotal − discountAmt + taxAmt = total في الوضعين', () => {
+  // العمودان المخزنان يحملان معنى واحدا (صافٍ قبل الضريبة) مهما كان وضع التسعير،
+  // والا جمع تقرير المبيعات خصوما بمقياسين وطبعت شاشة الفاتورة كتلة لا تتزن.
+  const cases = [
+    [[{ qty: 1, unitPrice: 1.15, discountPct: 0, taxPct: 15 }], 0],
+    [[{ qty: 10, unitPrice: 115, discountPct: 0, taxPct: 15 }], 5],
+    [[{ qty: 10, unitPrice: 115, discountPct: 10, taxPct: 15 }], 0],
+    [[{ qty: 3, unitPrice: 1.15, discountPct: 0, taxPct: 15 },
+      { qty: 2, unitPrice: 9, discountPct: 0, taxPct: 0 },
+      { qty: 1, unitPrice: 5.7, discountPct: 25, taxPct: 14 }], 7],
+  ] as const;
+  for (const [items, discPct] of cases) {
+    for (const inclusive of [false, true]) {
+      const r = computeInvoiceTotals(items as any, {
+        companyVat: 15, decimals: 2, invoiceDiscountPct: discPct, pricesIncludeTax: inclusive });
+      assert.equal(roundHalfUp(r.subtotal - r.discountAmt + r.taxAmt, 2), r.total,
+        `الوضع ${inclusive ? 'الشامل' : 'الحصري'}: ${r.subtotal} − ${r.discountAmt} + ${r.taxAmt} != ${r.total}`);
+    }
+  }
+});
+
+test('البيعة الواحدة تسجل الخصم نفسه من المندوب ومن اللوحة', () => {
+  // 10 قطع بـ100 صافٍ @15% وخصم 10%: المندوب يرسل 115 شاملا واللوحة 100 صافيا،
+  // والعميل يدفع المبلغ نفسه — فلا يجوز ان يخرج تقرير المبيعات بخصمين مختلفين.
+  const rep = computeInvoiceTotals(
+    [{ qty: 10, unitPrice: 115, discountPct: 10, taxPct: 15 }],
+    { companyVat: 15, decimals: 2, invoiceDiscountPct: 0, pricesIncludeTax: true });
+  const admin = computeInvoiceTotals(
+    [{ qty: 10, unitPrice: 100, discountPct: 10, taxPct: 15 }],
+    { companyVat: 15, decimals: 2, invoiceDiscountPct: 0 });
+  assert.equal(rep.total, admin.total);         // 1035
+  assert.equal(rep.taxAmt, admin.taxAmt);       // 135
+  assert.equal(rep.discountAmt, admin.discountAmt); // 100 — كان 115 قبل الاصلاح
+  assert.equal(rep.subtotal, admin.subtotal);   // 1000 — كان 1150 قبل الاصلاح
 });

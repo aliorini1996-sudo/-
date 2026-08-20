@@ -124,11 +124,24 @@ export function computeInvoiceTotals(rawItems: CalcItemInput[], opts: CalcOption
     lineTotal: inclusive ? nets[i] : roundDecimal(nets[i] + taxes[i], dec),
   }));
 
-  const subtotal = roundDecimal(bases.reduce((s, v) => s + v, 0), dec);
-  const discountAmt = roundDecimal(lineDiscounts.reduce((s, v) => s + v, 0) + headTarget, dec);
+  const grossSubtotal = roundDecimal(bases.reduce((s, v) => s + v, 0), dec);
+  const grossDiscount = roundDecimal(lineDiscounts.reduce((s, v) => s + v, 0) + headTarget, dec);
   const total = inclusive
-    ? roundDecimal(subtotal - discountAmt, dec)
-    : roundDecimal(subtotal - discountAmt + taxAmt, dec);
+    ? roundDecimal(grossSubtotal - grossDiscount, dec)
+    : roundDecimal(grossSubtotal - grossDiscount + taxAmt, dec);
+
+  // ═══ المخزن بلغة واحدة: subtotal و discountAmt **صافيان قبل الضريبة** دائما ═══
+  // عمودا Invoice.subtotal و discountAmt يحملان معنى واحدا في كل فواتير المنصة منذ
+  // نشاتها (الوعاء الصافي). لو تركنا الوضع الشامل يكتب فيهما مبلغا شاملا لصار العمود
+  // ذا معنيين بلا اي عمود يميزهما: تقرير المبيعات يجمع خصما مضخما بنسبة الضريبة،
+  // وشاشة الفاتورة تطبع «قبل الخصم 1150 · ضريبة 150 · الاجمالي 1150» فلا تتزن.
+  // فنرد الاساس الى صافيه هنا — وفي الوضع الحصري العملية محايدة تماما (لا مساس بالقديم).
+  const subtotal = inclusive
+    ? roundDecimal(bases.reduce((s, b, i) => s + (b * 100) / (100 + pcts[i]), 0), dec)
+    : grossSubtotal;
+  const discountAmt = inclusive
+    ? roundDecimal(subtotal - (total - taxAmt), dec)
+    : grossDiscount;
 
   return { items, subtotal, discountAmt, taxAmt, total };
 }

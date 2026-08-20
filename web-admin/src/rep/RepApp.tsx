@@ -13,7 +13,7 @@ import {
   Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw,
   Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
-import { computeInvoiceTotals } from './invoiceCalc';
+import { computeInvoiceTotals, roundDecimal } from './invoiceCalc';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import { startRenewLoop, clearRenewRejection } from './renew';
 import { BrandIcon } from '../components/BrandLogo';
@@ -724,7 +724,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   // السعر الذي يُدخله المندوب شامل الضريبة؛ نشتقّ السعر قبل الضريبة للنظام
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  const inclPrice = (p: any) => round2(Number(p.basePrice) * (1 + Number(p.taxPct) / 100)); // السعر شامل الضريبة
+  // بخانات عملة الدولة: round2 الثابتة صارت — بعد تخزين السعر كما يرسل — تقص الفلس
+  // الثالث في اسواق الدينار (KWD/BHD/OMR) فيخالف المخزن ما اعلن
+  const inclPrice = (p: any) => roundDecimal(Number(p.basePrice) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency())); // السعر شامل الضريبة
 
   const addProduct = (p: any) => {
     // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود
@@ -975,7 +977,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500"><span>{tr('قبل الخصم')}</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between text-red-500"><span>{tr('الخصم')}</span><span>- {formatCurrency(discount)}</span></div>
-              <div className="flex justify-between text-[#E15A30]"><span>{tr('منها ضريبة')} {(() => { const ps = [...new Set(lines.map(l => Number(l.taxPct)))]; return ps.length === 1 ? `${ps[0]}%` : tr('نسب متعددة'); })()}</span><span>{formatCurrency(tax)}</span></div>
+              <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')} {(() => { const ps = [...new Set(lines.map(l => Number(l.taxPct)))]; return ps.length === 1 ? `${ps[0]}%` : tr('نسب متعددة'); })()}</span><span>{formatCurrency(tax)}</span></div>
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>{tr('الإجمالي')}</span><span>{formatCurrency(total)}</span></div>
             </div>
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}

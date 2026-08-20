@@ -43,3 +43,18 @@ export function distributeAmount(target: number, weights: number[], decimals = 2
   }
   return floors.map(v => v / f);
 }
+
+/**
+ * يرد سعرا **شاملا الضريبة** الى اساسه **الصافي قبل الضريبة**.
+ *
+ * لماذا يلزم: تطبيق المندوب يرسل السعر شاملا كما اعلن للعميل، بينما المراجع
+ * المخزنة (Product.basePrice و CustomerPrice و PriceTier) كلها صافية — فاي
+ * مقارنة صلاحية بينهما بلا هذا الرد ترفض مندوبا لم يمس السعر (1.15 مقابل 1.00).
+ *
+ * دقة الرد: المرسل مقرب لخانات العملة، فالخطأ الاقصى بعد القسمة اقل من نصف
+ * اصغر وحدة عملة — واقل بكثير من هامش المقارنة 0.01 المستعمل في الحارس.
+ */
+export function netFromInclusive(price: number, taxPct: number): number {
+  if (!Number.isFinite(price) || !Number.isFinite(taxPct) || taxPct <= 0) return price;
+  return price / (1 + taxPct / 100);
+}
