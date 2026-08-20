@@ -372,6 +372,10 @@ info@fieldsa.net`
     }
   },
   "heroImage": "/hero-rep-phones.svg",
+  "repApp": {
+    "appStoreUrl": "https://apps.apple.com/sa/app/id6797991968",
+    "playUrl": ""
+  },
   "social": {
     "x": "https://x.com/fieldsa_net",
     "instagram": "",

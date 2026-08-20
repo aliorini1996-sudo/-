@@ -51,6 +51,10 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: bo
     ['pricing.plans.1.name', 'باقة ٢ — الاسم'], ['pricing.plans.1.price', 'السعر'], ['pricing.plans.1.limit', 'الحد'],
     ['pricing.plans.2.name', 'باقة ٣ — الاسم'], ['pricing.plans.2.price', 'السعر'], ['pricing.plans.2.limit', 'الحد'],
   ] },
+  { title: 'تطبيق المندوب (روابط المتاجر)', fields: [
+    ['repApp.appStoreUrl', 'رابط App Store — اتركه فارغاً ليظهر «قريباً»'],
+    ['repApp.playUrl', 'رابط Google Play — الصقه فور موافقة Google (https://play.google.com/store/apps/details?id=net.fieldsa.twa)'],
+  ] },
   { title: 'الأسئلة الشائعة', fields: [
     ['faq.title', 'عنوان القسم'],
     ['faq.items.0.q', 'سؤال ١'], ['faq.items.0.a', 'إجابة ١', true],
