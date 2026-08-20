@@ -10,7 +10,7 @@ import { LANDING_FIELDS, LANDING_DEFAULTS } from './landingContent';
 
 // ============ الأنواع ============
 
-/** شكل العميل كما يعيده الخادم (عقد /api/hunter) — لا نوسّعه هنا حتى لا نكذب على الواجهة */
+/** شكل العميل كما يعيده الخادم (عقد /api/hunter) — لا نوسعه هنا حتى لا نكذب على الواجهة */
 interface HunterLead {
   id: string;
   name: string;
@@ -63,7 +63,7 @@ interface HuntStats {
 
 type ContactFilter = 'email' | 'phone' | 'website';
 
-/** الهدف المحفوظ محلياً — يُعاد تحميله ليبدأ الصيد تلقائياً عند إعادة الفتح */
+/** الهدف المحفوظ محليا يعاد تحميله ليبدأ الصيد تلقائيا عند إعادة الفتح */
 interface SavedTarget {
   description?: string;
   keywords?: string[];
@@ -80,11 +80,11 @@ interface SavedTarget {
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 const TOKEN_KEY = 'hunter_token';
 const TARGET_KEY = 'hunter_target_v1';
-// توكن المالك يُحفظ جانباً أثناء الدخول إلى حساب عميل، ليعود بضغطة (ويصمد أمام تحديث الصفحة)
+// توكن المالك يحفظ جانبا أثناء الدخول إلى حساب عميل ليعود بضغطة ويصمد أمام تحديث الصفحة
 const OWNER_TOKEN_KEY = 'hunter_owner_token';
 
-// عميل مستقلّ بمفتاح توكن خاص — لوحة الصيد أداة قائمة بذاتها ولا يجوز أن
-// تتقاطع جلستها مع جلسة الأدمن أو المندوب على نفس المتصفّح.
+// عميل مستقل بمفتاح توكن خاص لوحة الصيد أداة قائمة بذاتها ولا يجوز أن
+// تتقاطع جلستها مع جلسة الأدمن أو المندوب على نفس المتصفح
 const hunterApi = axios.create({
   baseURL: `${BASE}/hunter`,
   headers: { 'Content-Type': 'application/json' },
@@ -96,7 +96,7 @@ hunterApi.interceptors.request.use(config => {
   return config;
 });
 
-/** رسالة خطأ مفهومة من ردّ الخادم أو من الشبكة */
+/** رسالة خطأ مفهومة من رد الخادم أو من الشبكة */
 function errMessage(err: unknown, fallback: string): string {
   const ax = err as AxiosError<{ message?: string; error?: string }>;
   return ax?.response?.data?.message || ax?.response?.data?.error || fallback;
@@ -104,7 +104,7 @@ function errMessage(err: unknown, fallback: string): string {
 
 // ============ هوية HOOK B ============
 
-/** خطّاف الصيد — عين + انحناءة + شوكة. اللون من currentColor. */
+/** خطاف الصيد عين + انحناءة + شوكة اللون من currentColor. */
 function HookMark({ size = 30, className = '' }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none" className={className} aria-hidden="true">
@@ -115,7 +115,7 @@ function HookMark({ size = 30, className = '' }: { size?: number; className?: st
   );
 }
 
-/** الوردمارك الكامل: خطّاف + HOOK + شارة B */
+/** الوردمارك الكامل خطاف + HOOK + شارة B */
 function HookWordmark({ mark = 28, text = 22 }: { mark?: number; text?: number }) {
   return (
     <span className="inline-flex items-center gap-2.5" dir="ltr">
@@ -128,7 +128,7 @@ function HookWordmark({ mark = 28, text = 22 }: { mark?: number; text?: number }
   );
 }
 
-// نمط النطاق الكامل — معزول تحت .hookb حتى لا يرث ألوان فيلد سيلز ولا يؤثّر عليها.
+// نمط النطاق الكامل معزول تحت .hookb حتى لا يرث ألوان فيلد سيلز ولا يؤثر عليها
 const HOOKB_CSS = `
 .hookb{
   --ink:#141A21; --ground:#EDF0F3; --card:#FFFFFF; --line:#E2E7EB; --line2:#EEF1F3;
@@ -251,7 +251,7 @@ const HOOKB_CSS = `
 
 // ============ المصادر ============
 
-/** المصادر الخمسة بترتيب ثابت؛ «الجاهزيّة» تأتي من الخادم لأنّ المفاتيح لا تصل المتصفّح */
+/** المصادر الخمسة بترتيب ثابت الجاهزية تأتي من الخادم لأن المفاتيح لا تصل المتصفح */
 const SOURCES: ReadonlyArray<{ id: string; label: string; keyless?: boolean }> = [
   { id: 'osm', label: 'OpenStreetMap', keyless: true },
   { id: 'geoapify', label: 'Geoapify Places' },
@@ -286,7 +286,7 @@ function csvCell(value: unknown): string {
 
 function toCsv(leads: HunterLead[]): string {
   const rows = leads.map(l => CSV_COLS.map(c => csvCell(l[c])).join(','));
-  // الـBOM ضروري: بدونه يقرأ Excel العربية كرموز مشوّهة
+  // الBOM ضروري بدونه يقرأ Excel العربية كرموز مشوهة
   return `﻿${[CSV_COLS.join(','), ...rows].join('\r\n')}`;
 }
 
@@ -300,12 +300,12 @@ function domainOf(website: string): string {
 }
 
 /**
- * رابط آمن للعرض — **حارس ضروريّ لا تجميل**.
+ * رابط آمن للعرض — **حارس ضروري لا تجميل**.
  *
- * موقع العميل يأتي من وسوم OpenStreetMap (يحرّرها أي أحد علناً) ويُخزَّن خاماً.
- * وضعه في href مباشرةً يسمح بـ`javascript:` مخزَّن ينفَّذ في أصل fieldsa.net،
+ * موقع العميل يأتي من وسوم OpenStreetMap يحررها أي أحد علنا ويخزن خاما
+ * وضعه في href مباشرة يسمح ب`javascript:` مخزن ينفذ في أصل fieldsa.net
  * فيقرأ توكن المالك المركون (hunter_owner_token) وتوكن لوحة الأدمن من localStorage.
- * لذلك: لا يُسمح إلا بـhttp/https، وما عداه يُعرض نصّاً بلا رابط.
+ * لذلك لا يسمح إلا بhttp/https وما عداه يعرض نصا بلا رابط
  */
 function safeHref(raw?: string | null): string | null {
   const s = String(raw || '').trim();
@@ -343,7 +343,7 @@ function ChipInput({ label, hint, placeholder, values, onChange }: ChipInputProp
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit(); }
-    // Backspace على حقل فارغ يحذف آخر شريحة — أسرع من ملاحقة زرّ الحذف الصغير
+    // Backspace على حقل فارغ يحذف آخر شريحة أسرع من ملاحقة زر الحذف الصغير
     else if (e.key === 'Backspace' && !draft && values.length) onChange(values.slice(0, -1));
   };
 
@@ -381,7 +381,7 @@ function ChipInput({ label, hint, placeholder, values, onChange }: ChipInputProp
 
 type AuthMode = 'login' | 'signup';
 
-/** يقرأ الوضع من رابط الصفحة (?mode=signup) ليدخل مباشرةً على التسجيل من الصفحة التعريفية */
+/** يقرأ الوضع من رابط الصفحة (?mode=signup) ليدخل مباشرة على التسجيل من الصفحة التعريفية */
 function initialMode(): AuthMode {
   try {
     const m = new URLSearchParams(window.location.search).get('mode');
@@ -390,11 +390,11 @@ function initialMode(): AuthMode {
   return 'login';
 }
 
-// خطوات إنشاء الحساب — تُعرض في اللوحة الجانبية لتوضّح المسار
+// خطوات إنشاء الحساب تعرض في اللوحة الجانبية لتوضح المسار
 const SIGNUP_STEPS = [
-  { t: 'أنشئ حسابك', d: 'بريدك وكلمة مرور — بلا بطاقة' },
-  { t: 'صِف عميلك المستهدف', d: 'وصف + كلمات بحث + مدن' },
-  { t: 'اصطَد وصدّر', d: 'نتائج مقيّمة جاهزة بضغطة' },
+  { t: 'أنشئ حسابك', d: 'بريدك وكلمة مرور بلا بطاقة' },
+  { t: 'صف عميلك المستهدف', d: 'وصف + كلمات بحث + مدن' },
+  { t: 'اصطد وصدر', d: 'نتائج مقيمة جاهزة بضغطة' },
 ];
 
 function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) => void }) {
@@ -424,13 +424,13 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
       const res = await hunterApi.post<{ success: boolean; token: string; user: HunterUser }>('/login', { email, password });
       localStorage.setItem(TOKEN_KEY, res.data.token);
       onLogin(res.data.token, res.data.user);
-      toast.success(`أهلاً ${res.data.user.name}`);
+      toast.success(`أهلا ${res.data.user.name}`);
     } catch (err: unknown) {
       toast.error(errMessage(err, 'بيانات الدخول غير صحيحة'));
     } finally { setLoading(false); }
   };
 
-  // الخطوة الأولى: تحقّق محلّي قبل الانتقال للثانية
+  // الخطوة الأولى تحقق محلي قبل الانتقال للثانية
   const nextStep = () => {
     if (name.trim().length < 2) { toast.error('أدخل اسمك'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email.trim())) { toast.error('بريد إلكتروني غير صالح'); return; }
@@ -448,9 +448,9 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
         { name: name.trim(), email: email.trim(), password });
       localStorage.setItem(TOKEN_KEY, res.data.token);
       onLogin(res.data.token, res.data.user);
-      toast.success(`تمّ إنشاء حسابك — أهلاً ${res.data.user.name}`);
+      toast.success(`تم إنشاء حسابك أهلا ${res.data.user.name}`);
     } catch (err: unknown) {
-      toast.error(errMessage(err, 'تعذّر إنشاء الحساب'));
+      toast.error(errMessage(err, 'تعذر إنشاء الحساب'));
     } finally { setLoading(false); }
   };
 
@@ -474,7 +474,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
     <div className="hookb min-h-screen grid lg:grid-cols-[1.05fr_1fr]" dir="rtl">
       <style>{HOOKB_CSS}</style>
 
-      {/* لوحة العلامة الداكنة — لحظة الهوية / خطوات التسجيل */}
+      {/* لوحة العلامة الداكنة لحظة الهوية / خطوات التسجيل */}
       <div className="relative hidden lg:flex flex-col justify-between p-12 overflow-hidden"
         style={{ background: 'var(--brand)', color: '#EAF0F0' }}>
         <div style={{ position: 'absolute', inset: 0, opacity: 0.10, color: 'var(--catch)' }} aria-hidden="true">
@@ -489,7 +489,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
 
         {mode === 'signup' ? (
           <div className="relative">
-            <h2 style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.25 }}>افتح حسابك<br />في ٣ خطوات.</h2>
+            <h2 style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.25 }}>افتح حسابك<br />في ٣ خطوات</h2>
             <div className="mt-8 space-y-5">
               {SIGNUP_STEPS.map((s, i) => (
                 <div key={i} className="flex items-start gap-3">
@@ -511,17 +511,17 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
         ) : (
           <div className="relative">
             <h2 style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.01em' }}>
-              اصطَد عملاءك<br />المحتملين.
+              اصطد عملاءك<br />المحتملين
             </h2>
             <p style={{ color: '#9BA8AC', marginTop: 14, fontSize: 15, maxWidth: 380, lineHeight: 1.8 }}>
-              منصّة صيد عملاء على الطلب — من عدّة مصادر، بإزالة تكرار ذكية وتقييم لكل عميل مقابل هدفك.
+              منصة صيد عملاء على الطلب من عدة مصادر بإزالة تكرار ذكية وتقييم لكل عميل مقابل هدفك
             </p>
           </div>
         )}
 
         <div className="relative flex items-center gap-2" style={{ color: '#6D7A7E', fontSize: 12.5 }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--catch)' }} />
-          كل حساب يرى عملاءه وحده — عزل تامّ.
+          كل حساب يرى عملاءه وحده عزل تام
         </div>
       </div>
 
@@ -533,7 +533,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
           {mode === 'login' ? (
             <>
               <p className="eyebrow">تسجيل الدخول</p>
-              <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>مرحباً بعودتك</h1>
+              <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>مرحبا بعودتك</h1>
               <p style={{ color: 'var(--muted)', marginTop: 6, fontSize: 14 }}>ادخل ببيانات حسابك لتكمل الصيد</p>
 
               <form onSubmit={doLogin} className="space-y-4 mt-7">
@@ -552,8 +552,8 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
               </form>
 
               <p className="text-center text-sm mt-6" style={{ color: 'var(--muted)' }}>
-                ليس لديك حساب؟{' '}
-                <button className="font-bold" style={{ color: 'var(--catch-ink)' }} onClick={() => switchMode('signup')}>أنشئ حساباً</button>
+                ليس لديك حساب{' '}
+                <button className="font-bold" style={{ color: 'var(--catch-ink)' }} onClick={() => switchMode('signup')}>أنشئ حسابا</button>
               </p>
             </>
           ) : (
@@ -563,13 +563,13 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
                 <span className="text-xs" style={{ color: 'var(--muted)' }}>الخطوة {step} من ٢</span>
               </div>
               <h1 style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>
-                {step === 1 ? 'ابدأ الآن' : 'أمّن حسابك'}
+                {step === 1 ? 'ابدأ الآن' : 'أمن حسابك'}
               </h1>
               <p style={{ color: 'var(--muted)', marginTop: 6, fontSize: 14 }}>
-                {step === 1 ? 'بياناتك الأساسية للبدء' : 'اختر كلمة مرور قويّة'}
+                {step === 1 ? 'بياناتك الأساسية للبدء' : 'اختر كلمة مرور قوية'}
               </p>
 
-              {/* شريط تقدّم */}
+              {/* شريط تقدم */}
               <div className="flex gap-2 mt-5">
                 {[1, 2].map(n => (
                   <span key={n} style={{ flex: 1, height: 4, borderRadius: 4, background: n <= step ? 'var(--catch)' : 'var(--line)' }} />
@@ -609,7 +609,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
                   </div>
                   <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--muted)' }}>
                     <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--catch)' }} />
-                    <span>أوافق على استخدام المنصّة لجمع بيانات أعمال عامّة، وأتحمّل مسؤولية أي مراسلة لاحقة وفق الأنظمة المعمول بها.</span>
+                    <span>أوافق على استخدام المنصة لجمع بيانات أعمال عامة وأتحمل مسؤولية أي مراسلة لاحقة وفق الأنظمة المعمول بها</span>
                   </label>
                   <div className="flex gap-2 mt-2">
                     <button type="button" className="btn-ghost" onClick={() => setStep(1)}>رجوع</button>
@@ -621,7 +621,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
               )}
 
               <p className="text-center text-sm mt-6" style={{ color: 'var(--muted)' }}>
-                لديك حساب؟{' '}
+                لديك حساب{' '}
                 <button className="font-bold" style={{ color: 'var(--catch-ink)' }} onClick={() => switchMode('login')}>تسجيل الدخول</button>
               </p>
             </>
@@ -634,7 +634,7 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, user: HunterUser) =>
 
 // ============ لوحة المالك ============
 
-/** تاريخ مختصر بالعربية، و«—» للفارغ. */
+/** تاريخ مختصر بالعربية و للفارغ */
 function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -642,7 +642,7 @@ function fmtDate(iso?: string | null): string {
   return d.toLocaleDateString('ar', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-/** `YYYY-MM-DD` لحقل input[type=date] (بالتوقيت المحلي، لا UTC). */
+/** `YYYY-MM-DD` لحقل input[type=date] (بالتوقيت المحلي لا UTC). */
 function toDateInput(iso?: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
@@ -651,10 +651,10 @@ function toDateInput(iso?: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** حالة الحساب المعروضة: معطّل / منتهٍ / ينتهي قريباً / نشط. */
+/** حالة الحساب المعروضة معطل / منته / ينتهي قريبا / نشط */
 function accountState(u: AdminUser): { label: string; cls: string } {
-  if (!u.isActive) return { label: 'معطّل', cls: 'st-off' };
-  if (u.expiresAt && new Date(u.expiresAt).getTime() <= Date.now()) return { label: 'منتهٍ', cls: 'st-exp' };
+  if (!u.isActive) return { label: 'معطل', cls: 'st-off' };
+  if (u.expiresAt && new Date(u.expiresAt).getTime() <= Date.now()) return { label: 'منته', cls: 'st-exp' };
   if (u.expiresAt) {
     const days = Math.ceil((new Date(u.expiresAt).getTime() - Date.now()) / 86400000);
     if (days <= 7) return { label: `ينتهي خلال ${days} يوم`, cls: 'st-warn' };
@@ -662,7 +662,7 @@ function accountState(u: AdminUser): { label: string; cls: string } {
   return { label: 'نشط', cls: 'st-on' };
 }
 
-/** صفّ حساب واحد مع إجراءاته. */
+/** صف حساب واحد مع إجراءاته */
 function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
   u: AdminUser;
   meId: string;
@@ -693,14 +693,14 @@ function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
         </div>
         <div className="hb-acct-nums">
           <span title="عدد العملاء المصطادين"><Users size={13} /> {u._count?.leads ?? 0}</span>
-          <span title="المستهلك من الحصّة هذا الشهر">{u.usedThisMonth} / {u.monthlyQuota}</span>
+          <span title="المستهلك من الحصة هذا الشهر">{u.usedThisMonth} / {u.monthlyQuota}</span>
         </div>
       </div>
 
       <div className="hb-acct-meta">
-        <span>أُنشئ: {fmtDate(u.createdAt)}</span>
-        <span>آخر دخول: {fmtDate(u.lastLoginAt)}</span>
-        <span>ينتهي: {u.expiresAt ? fmtDate(u.expiresAt) : 'بلا انتهاء'}</span>
+        <span>أنشئ {fmtDate(u.createdAt)}</span>
+        <span>آخر دخول {fmtDate(u.lastLoginAt)}</span>
+        <span>ينتهي {u.expiresAt ? fmtDate(u.expiresAt) : 'بلا انتهاء'}</span>
       </div>
 
       <div className="hb-acct-actions">
@@ -716,8 +716,8 @@ function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
         <button
           className="hb-btn"
           disabled={busy || isMe}
-          title={isMe ? 'لا يمكنك تعطيل حسابك' : u.isActive ? 'إيقاف الحساب فوراً' : 'إعادة تفعيل الحساب'}
-          onClick={() => onPatch(u.id, { isActive: !u.isActive }, u.isActive ? 'أُوقف الحساب' : 'فُعّل الحساب')}
+          title={isMe ? 'لا يمكنك تعطيل حسابك' : u.isActive ? 'إيقاف الحساب فورا' : 'إعادة تفعيل الحساب'}
+          onClick={() => onPatch(u.id, { isActive: !u.isActive }, u.isActive ? 'أوقف الحساب' : 'فعل الحساب')}
         >
           {u.isActive ? <><Ban size={14} /> إيقاف</> : <><Check size={14} /> تفعيل</>}
         </button>
@@ -736,9 +736,9 @@ function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
             disabled={busy || isMe || dateVal === toDateInput(u.expiresAt)}
             onClick={() => onPatch(
               u.id,
-              // نهاية اليوم المحدَّد محلياً: تاريخ الانتهاء يشمل يومه كاملاً
+              // نهاية اليوم المحدد محليا تاريخ الانتهاء يشمل يومه كاملا
               { expiresAt: dateVal ? new Date(`${dateVal}T23:59:59`).toISOString() : null },
-              dateVal ? 'حُدّد تاريخ الانتهاء' : 'أُلغي تاريخ الانتهاء',
+              dateVal ? 'حدد تاريخ الانتهاء' : 'ألغي تاريخ الانتهاء',
             )}
           >حفظ</button>
           {u.expiresAt && !isMe && (
@@ -746,13 +746,13 @@ function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
               className="hb-btn hb-btn-sm"
               disabled={busy}
               title="إلغاء تاريخ الانتهاء"
-              onClick={() => { setDateVal(''); onPatch(u.id, { expiresAt: null }, 'أُلغي تاريخ الانتهاء'); }}
+              onClick={() => { setDateVal(''); onPatch(u.id, { expiresAt: null }, 'ألغي تاريخ الانتهاء'); }}
             ><X size={13} /></button>
           )}
         </label>
 
         <label className="hb-inline">
-          <span className="hb-inline-lbl">الحصّة</span>
+          <span className="hb-inline-lbl">الحصة</span>
           <input
             type="number" min={10} max={100000} className="hb-num"
             value={quotaVal} disabled={busy}
@@ -761,16 +761,16 @@ function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
           <button
             className="hb-btn hb-btn-sm"
             disabled={busy || quotaVal === String(u.monthlyQuota) || !quotaVal}
-            onClick={() => onPatch(u.id, { monthlyQuota: Number(quotaVal) }, 'حُدّثت الحصّة')}
+            onClick={() => onPatch(u.id, { monthlyQuota: Number(quotaVal) }, 'حدثت الحصة')}
           >حفظ</button>
         </label>
 
         <button
           className="hb-btn"
           disabled={busy}
-          title="توليد كلمة مرور جديدة وعرضها مرّة واحدة"
+          title="توليد كلمة مرور جديدة وعرضها مرة واحدة"
           onClick={() => {
-            if (!window.confirm(`توليد كلمة مرور جديدة لـ${u.email}؟ الكلمة الحالية ستتوقّف فوراً.`)) return;
+            if (!window.confirm(`توليد كلمة مرور جديدة ل${u.email} الكلمة الحالية ستتوقف فورا`)) return;
             onPatch(u.id, { resetPassword: true }, 'كلمة المرور الجديدة');
           }}
         ><KeyRound size={14} /> كلمة مرور جديدة</button>
@@ -779,7 +779,7 @@ function AccountRow({ u, meId, busy, onPatch, onImpersonate }: {
   );
 }
 
-/** لوحة المالك: الحسابات + نصوص الصفحة التعريفية. */
+/** لوحة المالك الحسابات + نصوص الصفحة التعريفية */
 function AdminPanel({ meId, onClose, onImpersonate }: {
   meId: string;
   onClose: () => void;
@@ -800,7 +800,7 @@ function AdminPanel({ meId, onClose, onImpersonate }: {
       const r = await hunterApi.get<{ success: boolean; users: AdminUser[] }>('/admin/users');
       setUsers(r.data.users || []);
     } catch (err) {
-      toast.error(errMessage(err, 'تعذّر جلب الحسابات'));
+      toast.error(errMessage(err, 'تعذر جلب الحسابات'));
     } finally { setLoading(false); }
   }, []);
 
@@ -822,13 +822,13 @@ function AdminPanel({ meId, onClose, onImpersonate }: {
     try {
       const r = await hunterApi.patch<{ success: boolean; password?: string }>(`/admin/users/${id}`, body);
       if (r.data.password) {
-        window.prompt(`${note} — انسخها الآن، لن تظهر ثانيةً:`, r.data.password);
+        window.prompt(`${note} — انسخها الآن لن تظهر ثانية`, r.data.password);
       } else {
         toast.success(note);
       }
       await loadUsers();
     } catch (err) {
-      toast.error(errMessage(err, 'تعذّر التعديل'));
+      toast.error(errMessage(err, 'تعذر التعديل'));
     } finally { setBusy(false); }
   }, [loadUsers]);
 
@@ -837,9 +837,9 @@ function AdminPanel({ meId, onClose, onImpersonate }: {
     try {
       const r = await hunterApi.put<{ success: boolean; content: Record<string, string> }>('/admin/content', { content });
       setContent(r.data.content || {});
-      toast.success('حُفظت نصوص الصفحة التعريفية');
+      toast.success('حفظت نصوص الصفحة التعريفية');
     } catch (err) {
-      toast.error(errMessage(err, 'تعذّر الحفظ'));
+      toast.error(errMessage(err, 'تعذر الحفظ'));
     } finally { setSavingContent(false); }
   }, [content]);
 
@@ -858,7 +858,7 @@ function AdminPanel({ meId, onClose, onImpersonate }: {
               <Users size={14} /> الحسابات {users.length ? `(${users.length})` : ''}
             </button>
             <button className={tab === 'content' ? 'on' : ''} onClick={() => setTab('content')}>
-              <FileText size={14} /> نصّ الصفحة الرئيسية
+              <FileText size={14} /> نص الصفحة الرئيسية
             </button>
           </div>
           <span className="flex-1" />
@@ -891,8 +891,8 @@ function AdminPanel({ meId, onClose, onImpersonate }: {
           ) : (
             <>
               <p className="hb-hint">
-                اترك الحقل فارغاً ليظهر النصّ الافتراضي (المكتوب رماديّاً). التغيير يظهر على
-                <b> /hookb </b> خلال دقيقة. النصّ يُعرض كنصّ عاديّ — الوسوم لا تُنفَّذ.
+                اترك الحقل فارغا ليظهر النص الافتراضي المكتوب رماديا التغيير يظهر على
+                <b> /hookb </b> خلال دقيقة النص يعرض كنص عادي الوسوم لا تنفذ
               </p>
               <div className="hb-fields">
                 {LANDING_FIELDS.map(f => (
@@ -919,12 +919,12 @@ function AdminPanel({ meId, onClose, onImpersonate }: {
               <div className="hb-modal-foot">
                 <button className="hb-btn" disabled={savingContent || !changed}
                   onClick={() => {
-                    // مفاتيح فارغة صراحةً لا كائن فارغ: الخادم يحذف صفّ كل مفتاح فارغ،
-                    // بينما {} كان يُرفَض بـ«لا حقول معروفة للحفظ»
+                    // مفاتيح فارغة صراحة لا كائن فارغ الخادم يحذف صف كل مفتاح فارغ
+                    // بينما {} كان يرفض ب لا حقول معروفة للحفظ
                     setContent(Object.fromEntries(LANDING_FIELDS.map(f => [f.key, ''])));
-                    toast.success('أُفرغت الحقول — اضغط «حفظ النصوص» لتثبيت الافتراضي');
+                    toast.success('أفرغت الحقول اضغط حفظ النصوص لتثبيت الافتراضي');
                   }}>
-                  إعادة الكلّ للافتراضي
+                  إعادة الكل للافتراضي
                 </button>
                 <span className="flex-1" />
                 <a className="hb-btn" href="/hookb" target="_blank" rel="noreferrer">معاينة الصفحة</a>
@@ -958,7 +958,7 @@ export default function HunterApp() {
   const [maxLeads, setMaxLeads] = useState<number>(saved?.maxLeads ?? 500);
   const [qualify, setQualify] = useState<boolean>(saved?.qualify ?? true);
 
-  // جاهزية المصادر على الخادم (مفاتيح .env لا تصل المتصفّح)
+  // جاهزية المصادر على الخادم (مفاتيح .env لا تصل المتصفح)
   const [ready, setReady] = useState<Record<string, boolean>>({});
   const [qualifyAvailable, setQualifyAvailable] = useState(false);
 
@@ -987,7 +987,7 @@ export default function HunterApp() {
     setAdminOpen(false);
   }, []);
 
-  /** يستبدل التوكن الحالي بتوكن المالك المركون. true إن وُجد ورُدّ. */
+  /** يستبدل التوكن الحالي بتوكن المالك المركون true إن وجد ورد */
   const swapBackToOwnerToken = useCallback((): boolean => {
     const ownerToken = localStorage.getItem(OWNER_TOKEN_KEY);
     if (!ownerToken) return false;
@@ -996,7 +996,7 @@ export default function HunterApp() {
     return true;
   }, []);
 
-  /** يُنهي جلسة الانتحال ويعيد تحميل ملفّ المالك (أو يُخرج إن سقط توكنه هو أيضاً). */
+  /** ينهي جلسة الانتحال ويعيد تحميل ملف المالك أو يخرج إن سقط توكنه هو أيضا */
   const resumeOwnerSession = useCallback(async (msg: string) => {
     setImpersonating(false);
     setLeads([]);
@@ -1007,21 +1007,21 @@ export default function HunterApp() {
       toast.success(msg);
     } catch {
       logout();
-      toast.error('انتهت الجلسة — سجّل الدخول من جديد');
+      toast.error('انتهت الجلسة سجل الدخول من جديد');
     }
   }, [logout]);
 
   const handleAuthError = useCallback((err: unknown) => {
     const status = (err as AxiosError)?.response?.status;
     if (status !== 401 && status !== 403) return false;
-    // سقوط جلسة الدخول إلى حساب عميل (ساعتان، أو انتهاء اشتراكه) لا يجوز أن يطرد
-    // المالك: توكنه صالح ١٢ ساعة ومركون — نعود به بدل مسح الاثنين.
+    // سقوط جلسة الدخول إلى حساب عميل ساعتان أو انتهاء اشتراكه لا يجوز أن يطرد
+    // المالك توكنه صالح ١٢ ساعة ومركون نعود به بدل مسح الاثنين
     if (swapBackToOwnerToken()) {
-      void resumeOwnerSession('انتهت جلسة الدخول إلى الحساب — عُدت إلى حسابك');
+      void resumeOwnerSession('انتهت جلسة الدخول إلى الحساب عدت إلى حسابك');
       return true;
     }
     logout();
-    toast.error('انتهت الجلسة — سجّل الدخول من جديد');
+    toast.error('انتهت الجلسة سجل الدخول من جديد');
     return true;
   }, [logout, swapBackToOwnerToken, resumeOwnerSession]);
 
@@ -1034,7 +1034,7 @@ export default function HunterApp() {
         setUser(res.data.user);
         setImpersonating(res.data.impersonating === true);
       } catch {
-        // جلسة انتحال ساقطة عند التحديث: جرّب توكن المالك المركون قبل الاستسلام
+        // جلسة انتحال ساقطة عند التحديث جرب توكن المالك المركون قبل الاستسلام
         if (swapBackToOwnerToken()) {
           try {
             const res2 = await hunterApi.get<{ success: boolean; user: HunterUser }>('/me');
@@ -1068,19 +1068,19 @@ export default function HunterApp() {
       setUser(r.data.user);           // يعيد تشغيل تحميل الإعداد والعملاء لهذا الحساب
       toast.success(`أنت الآن داخل حساب ${target.name || target.email}`);
     } catch (err) {
-      toast.error(errMessage(err, 'تعذّر الدخول إلى الحساب'));
+      toast.error(errMessage(err, 'تعذر الدخول إلى الحساب'));
     }
   }, []);
 
   const backToOwner = useCallback(async () => {
     if (!swapBackToOwnerToken()) { logout(); return; }
-    await resumeOwnerSession('عُدت إلى حسابك');
+    await resumeOwnerSession('عدت إلى حسابك');
   }, [logout, swapBackToOwnerToken, resumeOwnerSession]);
 
   // ---- الصيد ----
   const runHunt = useCallback(async () => {
-    if (!keywords.length) { toast.error('أضِف كلمة بحث أولاً'); return; }
-    if (!countries.length && !cities.length) { toast.error('أضِف دولة أو مدينة'); return; }
+    if (!keywords.length) { toast.error('أضف كلمة بحث أولا'); return; }
+    if (!countries.length && !cities.length) { toast.error('أضف دولة أو مدينة'); return; }
     setHunting(true);
     try {
       const res = await hunterApi.post<{ success: boolean; stats: HuntStats; leads: HunterLead[] }>('/hunt', {
@@ -1091,12 +1091,12 @@ export default function HunterApp() {
       setLeads(found || []);
       setMerged(stats?.merged ?? 0);
       const errCount = stats?.errors?.length ?? 0;
-      toast.success(`تمّ: ${stats?.added ?? (found || []).length} عميل${errCount ? ` · ${errCount} خطأ مصدر` : ''}`);
-      // الحصّة تُستهلك على الخادم — نحدّث المستخدم لنعرض المتبقّي الصحيح
+      toast.success(`تم ${stats?.added ?? (found || []).length} عميل${errCount ? ` · ${errCount} خطأ مصدر` : ''}`);
+      // الحصة تستهلك على الخادم نحدث المستخدم لنعرض المتبقي الصحيح
       try {
         const me = await hunterApi.get<{ success: boolean; user: HunterUser }>('/me');
         setUser(me.data.user);
-      } catch { /* عرض الحصّة ثانويّ — لا يستحق إفشال نتيجة صيد ناجحة */ }
+      } catch { /* عرض الحصة ثانوي لا يستحق إفشال نتيجة صيد ناجحة */ }
     } catch (err: unknown) {
       if (!handleAuthError(err)) toast.error(errMessage(err, 'فشل الصيد'));
     } finally {
@@ -1104,7 +1104,7 @@ export default function HunterApp() {
     }
   }, [description, keywords, countries, cities, sources, perQuery, maxLeads, qualify, qualifyAvailable, handleAuthError]);
 
-  // إعداد الخادم + العملاء المحفوظون، ثم صيد تلقائيّ إن كان هناك هدف محفوظ
+  // إعداد الخادم + العملاء المحفوظون ثم صيد تلقائي إن كان هناك هدف محفوظ
   const autoHunted = useRef(false);
   useEffect(() => {
     if (!user) return;
@@ -1113,13 +1113,13 @@ export default function HunterApp() {
         const cfg = await hunterApi.get<{ success: boolean; sources: Record<string, boolean>; qualify: boolean }>('/config');
         setReady(cfg.data.sources || {});
         setQualifyAvailable(!!cfg.data.qualify);
-      } catch { /* بلا إعداد نعرض المصادر كلّها بلا وسم جاهزية */ }
+      } catch { /* بلا إعداد نعرض المصادر كلها بلا وسم جاهزية */ }
       try {
         const res = await hunterApi.get<{ success: boolean; leads: HunterLead[] }>('/leads');
         setLeads(res.data.leads || []);
       } catch (err: unknown) { handleAuthError(err); }
 
-      // يبدأ تلقائياً فقط من هدفٍ **محفوظ** — لا من كلمة كتبها المستخدم للتوّ
+      // يبدأ تلقائيا فقط من هدف **محفوظ** — لا من كلمة كتبها المستخدم للتو
       if (!autoHunted.current && saved?.keywords?.length && ((saved.countries?.length ?? 0) || (saved.cities?.length ?? 0))) {
         autoHunted.current = true;
         void runHunt();
@@ -1128,13 +1128,13 @@ export default function HunterApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // حفظ الهدف عند كل تغيير — كي تُستعاد الجلسة كما تركها المالك
+  // حفظ الهدف عند كل تغيير كي تستعاد الجلسة كما تركها المالك
   useEffect(() => {
     if (!user) return;
     try {
       const target: SavedTarget = { description, keywords, countries, cities, sources, perQuery, maxLeads, qualify };
       localStorage.setItem(TARGET_KEY, JSON.stringify(target));
-    } catch { /* الحفظ رفاهية: امتلاء التخزين لا يجوز أن يعطّل اللوحة */ }
+    } catch { /* الحفظ رفاهية امتلاء التخزين لا يجوز أن يعطل اللوحة */ }
   }, [user, description, keywords, countries, cities, sources, perQuery, maxLeads, qualify]);
 
   // ---- الاشتقاقات ----
@@ -1170,7 +1170,7 @@ export default function HunterApp() {
     a.download = `hookb-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast.success('نُزّل CSV');
+    toast.success('نزل CSV');
   };
 
   // ---- العرض ----
@@ -1197,11 +1197,11 @@ export default function HunterApp() {
     <div className="hookb min-h-screen" style={{ background: 'var(--ground)' }} dir="rtl">
       <style>{HOOKB_CSS}</style>
 
-      {/* شريط الانتحال — يبقى ظاهراً ما دام المالك داخل حساب عميل */}
+      {/* شريط الانتحال يبقى ظاهرا ما دام المالك داخل حساب عميل */}
       {impersonating && (
         <div className="hb-imp-bar">
           <LogIn size={15} />
-          <span>أنت داخل حساب <b>{user.name || user.email}</b> كمالك — ما تراه وتفعله يخصّ هذا الحساب.</span>
+          <span>أنت داخل حساب <b>{user.name || user.email}</b> كمالك ما تراه وتفعله يخص هذا الحساب</span>
           <span className="flex-1" />
           <button className="hb-btn hb-btn-sm" onClick={() => void backToOwner()}>
             <ArrowLeft size={14} /> العودة لحسابي
@@ -1218,11 +1218,11 @@ export default function HunterApp() {
           <span className="flex-1" />
           <span className="text-xs px-3 py-1.5 rounded-full" style={{ background: 'var(--ground)', border: '1px solid var(--line)', color: 'var(--muted)' }}>
             {user.isOwner
-              ? 'حصّة غير محدودة'
-              : <>المتبقّي هذا الشهر: <b className="hb-mono" style={{ color: 'var(--ink)' }}>{remaining}</b> / {user.quota}</>}
+              ? 'حصة غير محدودة'
+              : <>المتبقي هذا الشهر <b className="hb-mono" style={{ color: 'var(--ink)' }}>{remaining}</b> / {user.quota}</>}
           </span>
           {user.isOwner && (
-            <button onClick={() => setAdminOpen(true)} className="btn-ghost" title="لوحة المالك: الحسابات ونصّ الصفحة">
+            <button onClick={() => setAdminOpen(true)} className="btn-ghost" title="لوحة المالك الحسابات ونص الصفحة">
               <Settings size={15} />لوحة المالك
             </button>
           )}
@@ -1241,18 +1241,18 @@ export default function HunterApp() {
             <h2 className="eyebrow">الهدف</h2>
 
             <div>
-              <label className="label">وصف العميل المثالي <span className="font-normal text-xs" style={{ color: 'var(--muted)' }}>— يُغذّي التأهيل الذكي</span></label>
+              <label className="label">وصف العميل المثالي <span className="font-normal text-xs" style={{ color: 'var(--muted)' }}>— يغذي التأهيل الذكي</span></label>
               <textarea className="input min-h-[72px] resize-y" value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="مثال: شركات توزيع مواد غذائية بالجملة لديها مندوبون ميدانيون" />
+                placeholder="مثال شركات توزيع مواد غذائية بالجملة لديها مندوبون ميدانيون" />
             </div>
 
-            <ChipInput label="كلمات البحث" hint="Enter لإضافة كل كلمة" placeholder="أضِف كلمة…"
+            <ChipInput label="كلمات البحث" hint="Enter لإضافة كل كلمة" placeholder="أضف كلمة"
               values={keywords} onChange={setKeywords} />
 
             <div className="grid grid-cols-2 gap-3">
-              <ChipInput label="الدول" placeholder="دولة…" values={countries} onChange={setCountries} />
-              <ChipInput label="المدن" hint="اختياري" placeholder="مدينة…" values={cities} onChange={setCities} />
+              <ChipInput label="الدول" placeholder="دولة" values={countries} onChange={setCountries} />
+              <ChipInput label="المدن" hint="اختياري" placeholder="مدينة" values={cities} onChange={setCities} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1294,7 +1294,7 @@ export default function HunterApp() {
                 className={`src${qualify ? ' on ready' : ''}`}>
                 <span className="dot" />
                 <span className="font-semibold text-sm">تأهيل ذكي</span>
-                <span className="text-xs" style={{ color: 'var(--muted)' }}>تقييم كل عميل ١–١٠ مقابل وصف هدفك</span>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>تقييم كل عميل ١ ١٠ مقابل وصف هدفك</span>
                 <span className="flex-1" />
                 <span className="check">{qualify && <Check size={12} />}</span>
               </button>
@@ -1302,7 +1302,7 @@ export default function HunterApp() {
           </div>
 
           <button onClick={runHunt} disabled={hunting} className="btn-primary w-full py-3">
-            {hunting ? <><Loader2 size={18} className="animate-spin" /> يصطاد…</> : <><HookMark size={17} /> صيد على الطلب</>}
+            {hunting ? <><Loader2 size={18} className="animate-spin" /> يصطاد</> : <><HookMark size={17} /> صيد على الطلب</>}
           </button>
         </div>
 
@@ -1322,7 +1322,7 @@ export default function HunterApp() {
               <p className="n" style={{ color: 'var(--catch-ink)' }}>{withPhone}</p>
             </div>
             <div className="stat">
-              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}><Globe size={13} /> مكرّرات دُمجت</div>
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}><Globe size={13} /> مكررات دمجت</div>
               <p className="n">{merged}</p>
             </div>
           </div>
@@ -1331,7 +1331,7 @@ export default function HunterApp() {
             <div className="flex gap-3 flex-wrap items-center">
               <div className="relative flex-1 min-w-48">
                 <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
-                <input className="input pr-9" placeholder="بحث في الأسماء…" value={q} onChange={e => setQ(e.target.value)} />
+                <input className="input pr-9" placeholder="بحث في الأسماء" value={q} onChange={e => setQ(e.target.value)} />
               </div>
               <select className="input w-40" value={minScore} onChange={e => setMinScore(Number(e.target.value))}>
                 <option value={0}>كل الدرجات</option>
@@ -1361,10 +1361,10 @@ export default function HunterApp() {
                 </thead>
                 <tbody>
                   {hunting && !leads.length ? (
-                    <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--muted)' }}>جاري الصيد…</td></tr>
+                    <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--muted)' }}>جاري الصيد</td></tr>
                   ) : !shown.length ? (
                     <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--muted)' }}>
-                      {leads.length ? 'لا نتائج تطابق الفلتر — خفّف الفلاتر أعلاه' : 'لا عملاء بعد — اضبط الهدف وابدأ الصيد'}
+                      {leads.length ? 'لا نتائج تطابق الفلتر خفف الفلاتر أعلاه' : 'لا عملاء بعد اضبط الهدف وابدأ الصيد'}
                     </td></tr>
                   ) : shown.map(l => (
                     <tr key={l.id}>
@@ -1381,8 +1381,8 @@ export default function HunterApp() {
                             : l.website
                               ? (safeHref(l.website)
                                   ? <a href={safeHref(l.website) as string} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--catch-ink)' }} className="hover:underline">{domainOf(l.website)}</a>
-                                  // مخطّط غير آمن (javascript: مثلاً) — يُعرض نصّاً بلا رابط
-                                  : <span title="رابط غير صالح — لم يُفتح" style={{ color: 'var(--muted)' }}>{domainOf(l.website)}</span>)
+                                  // مخطط غير آمن (javascript: مثلا) يعرض نصا بلا رابط
+                                  : <span title="رابط غير صالح لم يفتح" style={{ color: 'var(--muted)' }}>{domainOf(l.website)}</span>)
                               : <span style={{ color: '#C6CDD4' }}>—</span>}
                       </td>
                       <td style={{ color: 'var(--muted)' }}>{l.city || '-'}</td>
@@ -1396,7 +1396,7 @@ export default function HunterApp() {
           </div>
 
           <p className="text-center text-xs mt-5" style={{ color: 'var(--muted)' }}>
-            HOOK B — صيد على الطلب بلا مراسلة. اجمع وصدّر، ثم راسِل بأدواتك مع مراعاة الأنظمة (الموافقة وإلغاء الاشتراك).
+            HOOK B — صيد على الطلب بلا مراسلة اجمع وصدر ثم راسل بأدواتك مع مراعاة الأنظمة الموافقة وإلغاء الاشتراك
           </p>
         </div>
       </div>
