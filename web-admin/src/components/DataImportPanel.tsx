@@ -7,6 +7,7 @@ import { formatDate } from '../utils/format';
 import ConfirmDialog from './ConfirmDialog';
 import { Users, Package, Wallet, BookOpen, Tags, Upload, X, Check, AlertTriangle, Loader2, FileUp, RotateCcw, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { backdropClose } from '../lib/backdropClose';
 
 type Rows = Record<string, unknown>[];
 interface Preview { kind: ImportKind; fileName: string; valid: Rows; errors: { row: number; message: string }[] }
@@ -145,7 +146,7 @@ export default function DataImportPanel() {
 
       {/* معاينة قبل الاستيراد */}
       {preview && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={() => setPreview(null)}>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => setPreview(null))}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
               <h3 className="font-bold text-gray-800">{tr('معاينة الاستيراد')} — {tr(IMPORT_TYPES[preview.kind].label)}</h3>
@@ -187,7 +188,7 @@ export default function DataImportPanel() {
 
       {/* نتيجة الاستيراد */}
       {result && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={() => setResult(null)}>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => setResult(null))}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 text-center">
               <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-3"><Check size={30} className="text-green-600" /></div>

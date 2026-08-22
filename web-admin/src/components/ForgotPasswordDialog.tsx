@@ -1,4 +1,5 @@
 import { LifeBuoy, X, UserCog, Building2 } from 'lucide-react';
+import { backdropClose } from '../lib/backdropClose';
 
 interface Props {
   role: 'admin' | 'rep'; // أدمن شركة أم مندوب
@@ -11,7 +12,7 @@ interface Props {
 export default function ForgotPasswordDialog({ role, onClose }: Props) {
   const isRep = role === 'rep';
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <div className="p-6 text-center">
           <div className="w-14 h-14 rounded-2xl bg-[#FBEBE2] flex items-center justify-center mx-auto mb-3">

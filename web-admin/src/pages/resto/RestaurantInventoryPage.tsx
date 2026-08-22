@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, X, Check, Boxes, AlertTriangle, ArrowDownUp } fro
 import toast from 'react-hot-toast';
 import { restaurantApi } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { backdropClose } from '../../lib/backdropClose';
 
 const money = (n: number) => `${(Math.round(n * 100) / 100).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س`;
 const num = (n: number) => (Math.round(n * 1000) / 1000).toLocaleString('ar-EG');
@@ -196,7 +197,7 @@ function MovementModal({ ing, onClose, onSaved }: { ing: Ingredient; onClose: ()
 
 function Shell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
           <h2 className="font-bold text-[#1F1A13] flex items-center gap-2"><Boxes size={18} className="text-[#E15A30]" /> {title}</h2>

@@ -1,3 +1,4 @@
+import { backdropClose } from '../lib/backdropClose';
 import { useQuery } from '@tanstack/react-query';
 import { tenantApi, analyticsApi } from '../api/client';
 import { Tenant } from '../types';
@@ -73,7 +74,7 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
   const analyticsUp = !visitsQ.isError && !!visitsQ.data;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {/* الترويسة */}
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3] sticky top-0 bg-white rounded-t-2xl z-10">

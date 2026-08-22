@@ -4,6 +4,7 @@ import { paymentsApi, tenantApi } from '../api/client';
 import { Tenant } from '../types';
 import { X, Link2, Copy, RefreshCw, CreditCard, MessageCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { backdropClose } from '../lib/backdropClose';
 
 interface PayLink {
   id: string; tenantId: string | null; tenantName: string | null;
@@ -87,7 +88,7 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
   const canSubmit = amt >= 1 && amt <= 1_000_000 && description.trim().length >= 3 && description.trim().length <= 255 && !create.isPending && (Number(months) === 0 || !!tenantId);
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div className="flex items-center gap-3">

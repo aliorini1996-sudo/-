@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '../api/client';
 import { X, RefreshCw, Radio, Truck, Users, Building2, UtensilsCrossed, TrendingUp, Activity, ChevronDown, Clock } from 'lucide-react';
 import type { HistPoint } from './LiveHistoryChart';
+import { backdropClose } from '../lib/backdropClose';
 
 // المؤشّرات البيانيّة (recharts الثقيلة) — كسولاً كي لا تُثقل إقلاع لوحة المالك
 const LiveHistoryChart = lazy(() => import('./LiveHistoryChart'));
@@ -92,7 +93,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
   const toggle = (id: string) => setExpanded(p => (p === id ? null : id));
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         {/* الترويسة */}
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3] sticky top-0 bg-white rounded-t-2xl z-10">

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { leadApi } from '../api/client';
 import { Lead } from '../types';
+import { backdropClose } from '../lib/backdropClose';
 
 interface Session {
   status: 'DISCONNECTED' | 'QR' | 'CONNECTED' | 'AUTH_FAILED';
@@ -165,7 +166,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
   });
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/40 p-4 flex items-center justify-center" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] bg-black/40 p-4 flex items-center justify-center" dir="rtl" {...backdropClose(onClose)}>
       <div
         className="bg-[#FAF7F0] rounded-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}

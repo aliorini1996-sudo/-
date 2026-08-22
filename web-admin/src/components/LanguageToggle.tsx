@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang, isAppRoute, type Lang } from '../i18n/lang';
 import { pathForLocale } from '../i18n/locale';
+import { backdropClose } from '../lib/backdropClose';
 
 const LANGS: { code: Lang; label: string }[] = [
   { code: 'ar', label: 'العربية' },
@@ -44,7 +45,7 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[90]" {...backdropClose(() => setOpen(false))} />
           <div className="absolute z-[91] mt-1 min-w-[140px] bg-white rounded-xl shadow-xl border border-[#E9E1D3] overflow-hidden"
             style={{ insetInlineEnd: 0 }} dir="rtl">
             {LANGS.map((l) => (

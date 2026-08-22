@@ -4,6 +4,7 @@ import { siteContentApi } from '../api/client';
 import { X, Save, ExternalLink, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PROFILE_FIELDS, PROFILE_DEFAULTS, mergeProfile, ProfileContent, ProfileLang } from '../content/profileContent';
+import { backdropClose } from '../lib/backdropClose';
 
 /**
  * محرر صفحة «بروفايل» — لمالك المنصة.
@@ -48,7 +49,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* الترويسة */}
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">

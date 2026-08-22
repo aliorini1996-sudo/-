@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, X, Check, Users, KeyRound, Power, Monitor, Utensi
 import toast from 'react-hot-toast';
 import { restaurantApi } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { backdropClose } from '../../lib/backdropClose';
 
 interface Staff { id: string; name: string; username: string; isActive: boolean; canCreateReceipt: boolean; createdAt: string }
 
@@ -152,7 +153,7 @@ function PinModal({ staff, onClose }: { staff: Staff; onClose: () => void }) {
 
 function Shell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
           <h2 className="font-bold text-[#1F1A13] flex items-center gap-2"><Users size={18} className="text-[#E15A30]" /> {title}</h2>

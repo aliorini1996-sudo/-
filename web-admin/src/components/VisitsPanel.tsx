@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '../api/client';
 import { X, Users, Globe2, TrendingUp, MapPin, Link2, FileText, Clock, RefreshCw } from 'lucide-react';
+import { backdropClose } from '../lib/backdropClose';
 
 interface Row { at: string; path: string; referrer: string; country: string | null; city: string | null; countryCode: string | null }
 interface Item { label: string; count: number }
@@ -45,7 +46,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
   const maxDay = Math.max(1, ...(data?.byDay ?? []).map((d) => d.count));
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3] sticky top-0 bg-white rounded-t-2xl z-10">

@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/authStore';
 import { CompanyUser } from '../types';
 import { formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { backdropClose } from '../lib/backdropClose';
 
 type FormValues = {
   name: string;
@@ -252,7 +253,7 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <form onSubmit={submit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div className="flex items-center gap-3">
@@ -351,7 +352,7 @@ function CredentialsModal({ creds, onClose }: { creds: { name: string; email: st
   const copy = () => navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <div className="p-5 border-b border-[#E9E1D3] flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-green-100 text-green-600 flex items-center justify-center"><Check size={18} /></div>

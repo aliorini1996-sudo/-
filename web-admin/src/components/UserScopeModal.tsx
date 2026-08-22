@@ -4,6 +4,7 @@ import { Users, Truck, X, Search, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { companyUserApi, customerApi, salesRepApi } from '../api/client';
 import { useTr } from '../i18n/strings';
+import { backdropClose } from '../lib/backdropClose';
 
 /**
  * نطاق مستخدم الشركة — تحديد العملاء والمناديب الذين يراهم.
@@ -103,7 +104,7 @@ export default function UserScopeModal({ userId, userName, onClose }: {
   const nR = countOf(baseR, addR, remR);
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
           <h2 className="font-bold text-[#1F1A13] flex items-center gap-2">

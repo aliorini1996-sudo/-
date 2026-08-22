@@ -6,6 +6,7 @@ import {
   CheckCircle2, AlertTriangle, Loader2, Clock, Download, Layers, Music,
 } from 'lucide-react';
 import { promoVideoApi, VideoFeature, VideoJob, PromoStats, Voice } from '../api/promoVideoApi';
+import { backdropClose } from '../lib/backdropClose';
 
 // روابط الوسائط مطلقة إلى الخادم — في الإنتاج الواجهة (fieldsa.net) والخادم (api.fieldsa.net) على نطاقين
 // مختلفين، فالمسار النسبي /media يجب أن يشير للخادم. محلياً VITE_API_URL فارغ فيمرّره vite proxy.
@@ -92,7 +93,7 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
   const produceWord = avatarReady ? 'فيديو' : 'التعليق الصوتي'; // نص الأزرار يتكيّف مع المحرّك المتاح
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3] sticky top-0 bg-white rounded-t-2xl z-10">
@@ -219,7 +220,7 @@ export default function PromoVideosPanel({ onClose }: { onClose: () => void }) {
 
       {/* محرّر السيناريو */}
       {editing && (
-        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4" onClick={() => setEditing(null)}>
+        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4" {...backdropClose(() => setEditing(null))}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
               <h3 className="text-[15px] font-bold text-[#1F1A13]">سيناريو {editing.nameAr}</h3>

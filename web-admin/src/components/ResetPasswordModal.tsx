@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { KeyRound, X, Eye, EyeOff, RefreshCw, Copy, Check, CheckCircle2 } from 'lucide-react';
 import { useTr } from '../i18n/strings';
+import { backdropClose } from '../lib/backdropClose';
 
 interface Props {
   title: string;            // عنوان النافذة، مثل: إعادة تعيين كلمة مرور المندوب
@@ -45,7 +46,7 @@ export default function ResetPasswordModal({ title, subject, onConfirm, onClose 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
         {/* الترويسة */}
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">

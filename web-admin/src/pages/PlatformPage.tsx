@@ -30,6 +30,7 @@ import PromoVideosPanel from '../components/PromoVideosPanel';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useTr } from '../i18n/strings';
+import { backdropClose } from '../lib/backdropClose';
 
 export default function PlatformPage() {
   const tr = useTr();
@@ -452,7 +453,7 @@ function PerformanceModal({ tenant, onClose }: { tenant: Tenant; onClose: () => 
   const maxRepSales = Math.max(1, ...(data?.topReps ?? []).map(r => r.salesTotal));
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3] sticky top-0 bg-white rounded-t-2xl">
           <div className="flex items-center gap-3">
@@ -616,7 +617,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div className="flex items-center gap-3">

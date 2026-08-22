@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { leadApi } from '../api/client';
 import { formatDate } from '../utils/format';
 import { X, ReceiptText, Users, Globe2, Sparkles, RefreshCw, FileText, MapPin } from 'lucide-react';
+import { backdropClose } from '../lib/backdropClose';
 
 /**
  * صفحة عملاء مولّد الفواتير — مستقلة عن العملاء المحتملين:
@@ -119,7 +120,7 @@ export default function InvoiceToolPanel({ onClose }: { onClose: () => void }) {
 
       {/* تفاصيل شركة: أنشطتها (آخر الفواتير) */}
       {selected && (
-        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" {...backdropClose(() => setSelected(null))}>
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div>

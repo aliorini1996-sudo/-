@@ -7,6 +7,7 @@ import { restaurantApi } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
 import { BrandIcon } from '../../components/BrandLogo';
 import type { MenuCategory, MenuItem, ModifierGroup, RestaurantTable } from '../../types';
+import { backdropClose } from '../../lib/backdropClose';
 
 // بيانات الإيصال للطباعة الحرارية (تأتي من استجابة الدفع)
 interface ReceiptData {
@@ -482,7 +483,7 @@ function ThermalReceipt({ receipt }: { receipt: ReceiptData }) {
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>{children}</div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import WhatsAppBridgePanel from './WhatsAppBridgePanel';
 import toast from 'react-hot-toast';
+import { backdropClose } from '../lib/backdropClose';
 
 const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const STAGE_LABEL: Record<LeadStage, string> = {
@@ -1601,7 +1602,7 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
 // ----------------------------- Modal مساعد ----------------------------- //
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
           <h3 className="font-bold text-gray-800">{title}</h3>

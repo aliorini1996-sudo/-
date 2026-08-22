@@ -8,6 +8,7 @@ import { trackingApi, visitsApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { backdropClose } from '../lib/backdropClose';
 
 interface LiveRep {
   id: string; name: string; phone: string; isActive: boolean;
@@ -479,7 +480,7 @@ export default function TrackingPage() {
 
       {/* تفاصيل الزيارة: الملاحظة + الصور */}
       {openVisit && (
-        <div className="fixed inset-0 z-[2000] bg-black/70 flex items-center justify-center p-4" onClick={() => setOpenVisit(null)}>
+        <div className="fixed inset-0 z-[2000] bg-black/70 flex items-center justify-center p-4" {...backdropClose(() => setOpenVisit(null))}>
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-[#F1EBDF] flex items-center justify-between">
               <span className="font-bold text-[#1F1A13] text-sm flex items-center gap-2 flex-wrap">
@@ -546,7 +547,7 @@ export default function TrackingPage() {
 
       {/* تكبير صورة (lightbox) — بديل فتح data: URL الذي يحجبه المتصفّح */}
       {zoomPhoto && (
-        <div className="fixed inset-0 z-[2100] bg-black/90 flex items-center justify-center p-4" onClick={() => setZoomPhoto(null)}>
+        <div className="fixed inset-0 z-[2100] bg-black/90 flex items-center justify-center p-4" {...backdropClose(() => setZoomPhoto(null))}>
           <img src={zoomPhoto} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
           <button onClick={() => setZoomPhoto(null)} className="absolute top-4 right-4 text-white/80 hover:text-white"><X size={28} /></button>
         </div>

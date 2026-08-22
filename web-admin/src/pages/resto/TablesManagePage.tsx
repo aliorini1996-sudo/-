@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { restaurantApi } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import type { RestaurantArea, RestaurantTable } from '../../types';
+import { backdropClose } from '../../lib/backdropClose';
 
 export default function TablesManagePage() {
   const qc = useQueryClient();
@@ -148,7 +149,7 @@ function TableModal({ table, areas, defaultArea, onClose, onSaved }: {
 
 function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-[#E9E1D3]">
           <h2 className="font-bold text-[#1F1A13] flex items-center gap-2"><LayoutGrid size={18} className="text-[#E15A30]" /> {title}</h2>
