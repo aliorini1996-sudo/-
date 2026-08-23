@@ -104,9 +104,13 @@ function buildPrompt(targetDesc: string, items: QualifyItem[]): { system: string
   return { system, user };
 }
 
-/** سقف التوكن محسوب من حجم الدفعة (الوكيل يقصّه إلى 4000 على أي حال). */
+/**
+ * سقف التوكن محسوب من حجم الدفعة (الوكيل يقصّه إلى 4000 على أي حال).
+ * هامش أوسع عمداً: نموذج ملي (gpt-oss) نموذج **تفكير** يستهلك جزءاً من الميزانية
+ * على الاستدلال قبل إخراج JSON؛ فالبخل بالتوكن يبتر الجواب حتى وهو دافئ.
+ */
 function tokensFor(n: number): number {
-  return Math.min(4000, 250 + n * 90);
+  return Math.min(4000, 500 + n * 120);
 }
 
 async function callMiali(system: string, user: string, maxTokens: number): Promise<string> {
@@ -158,19 +162,8 @@ export interface QualifyBatchOutcome {
   missing: number;
 }
 
-/**
- * يقيّم دفعة ويعيد خريطة **بمفتاح العنصر** لا بموضعه.
- * يرمي عند تعذّر الاتصال بملي (يلتقطه المستدعي ويوقف مرحلة التأهيل وحدها).
- */
-export async function qualifyBatch(
-  targetDesc: string,
-  items: QualifyItem[],
-): Promise<QualifyBatchOutcome> {
-  if (!items.length) return { scores: new Map(), missing: 0 };
-
-  const { system, user } = buildPrompt(targetDesc, items);
-  const text = await callMiali(system, user, tokensFor(items.length));
-
+/** يحوّل نصّ ملي إلى خريطة درجات بمفتاح العنصر (يُهمل المفاتيح المجهولة/المكرّرة). */
+function parseScores(text: string, items: QualifyItem[]): Map<string, QualifyResult> {
   const arr = extractJsonArray(text);
   const scores = new Map<string, QualifyResult>();
   const valid = new Set(items.map((i) => i.key));
@@ -190,6 +183,35 @@ export async function qualifyBatch(
       note: String(rec.note ?? '').slice(0, 120),
     });
   }
+  return scores;
+}
 
-  return { scores, missing: items.length - scores.size };
+/**
+ * يقيّم دفعة ويعيد خريطة **بمفتاح العنصر** لا بموضعه.
+ * يرمي عند تعذّر الاتصال بملي (يلتقطه المستدعي ويوقف مرحلة التأهيل وحدها).
+ *
+ * **إعادة المحاولة على فشل التحليل لا على 5xx وحدها:** الوكيل على خطة Render
+ * المجانية ينام، وأوّل طلب بعد سكون يعود أحياناً **مبتوراً بحالة 200** (الاستيقاظ
+ * البطيء يقطع التوليد). ذلك يُقبل كنجاح لكنه لا يُحلَّل ⇒ تضيع درجات الدفعة كلّها
+ * بصمت. فنعيد المحاولة بمهلة قصيرة؛ المحاولة التالية تضرب وكيلاً **دافئاً** فتكتمل.
+ */
+export async function qualifyBatch(
+  targetDesc: string,
+  items: QualifyItem[],
+): Promise<QualifyBatchOutcome> {
+  if (!items.length) return { scores: new Map(), missing: 0 };
+
+  const { system, user } = buildPrompt(targetDesc, items);
+  const maxTokens = tokensFor(items.length);
+
+  let best = new Map<string, QualifyResult>();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const text = await callMiali(system, user, maxTokens);
+    const scores = parseScores(text, items);
+    if (scores.size > best.size) best = scores; // نحتفظ بأفضل حصيلة عبر المحاولات
+    if (best.size >= items.length) break;        // اكتملت الدفعة
+    if (attempt < 2) await sleep(3000);          // مهلة قصيرة ليكتمل استيقاظ الوكيل
+  }
+
+  return { scores: best, missing: items.length - best.size };
 }
