@@ -48,11 +48,15 @@ jobs:
             echo "::error::النسخة أصغر من 1KB — مبتورة أو فارغة."
             exit 1
           fi
-          if ! gzip -dc "backup-$ts.sql.gz" | grep -qm1 'CREATE TABLE'; then
+          # مرورٌ واحد يعدّ ويتحقّق معاً. ⚠️ لا تُعِد `grep -qm1` هنا: مع `pipefail`
+          # يخرج grep عند أوّل تطابق فيتلقّى `gzip` إشارة SIGPIPE (خروج 141)،
+          # فيُعلَن الأنبوب فاشلاً وتُرفَض نسخةٌ سليمة تماماً — وهو ما كان يحدث
+          # فعلاً: نسخة 329MB صالحة رُفضت بحجّة «لا تحوي CREATE TABLE».
+          tables=$(gzip -dc "backup-$ts.sql.gz" | grep -c 'CREATE TABLE' || true)
+          if [ "${tables:-0}" -eq 0 ]; then
             echo "::error::النسخة لا تحوي أي CREATE TABLE — ليست نسخة قاعدة صالحة."
             exit 1
           fi
-          tables=$(gzip -dc "backup-$ts.sql.gz" | grep -c 'CREATE TABLE' || true)
           echo "✅ نسخة صالحة — $tables جدولاً."
 
       - name: رفع النسخة كـartifact (يُحتفظ بها 30 يوماً)
