@@ -1,4 +1,3 @@
-import { backdropClose } from '../lib/backdropClose';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi, siteContentApi } from '../api/client';
@@ -8,6 +7,7 @@ import {
   X, Bot, Sparkles, CheckCircle2, AlertTriangle, ExternalLink,
   FileText, MessageCircleQuestion, RefreshCw, Radar, Landmark, Search,
 } from 'lucide-react';
+import { backdropClose } from '../lib/backdropClose';
 
 const GH_ACTIONS = 'https://github.com/aliorini1996-sudo/-/actions';
 

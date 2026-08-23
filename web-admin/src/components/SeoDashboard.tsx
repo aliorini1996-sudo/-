@@ -1,4 +1,3 @@
-import { backdropClose } from '../lib/backdropClose';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
@@ -9,6 +8,7 @@ import {
   X, Search, TrendingUp, CheckCircle2, AlertTriangle, ExternalLink,
   Globe, Languages, MapPin, FileText, Share2, Zap, RefreshCw, Link2,
 } from 'lucide-react';
+import { backdropClose } from '../lib/backdropClose';
 
 const GH_ACTIONS = 'https://github.com/aliorini1996-sudo/-/actions';
 const GSC = 'https://search.google.com/search-console?resource_id=sc-domain:fieldsa.net';

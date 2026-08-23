@@ -1,4 +1,3 @@
-import { backdropClose } from '../lib/backdropClose';
 import { useQuery } from '@tanstack/react-query';
 import { tenantApi, analyticsApi } from '../api/client';
 import { Tenant } from '../types';
@@ -6,6 +5,7 @@ import {
   X, RefreshCw, Activity, Building2, CheckCircle2, AlertTriangle, Clock,
   Users, FileText, Globe2, TrendingUp, Sparkles, HeartPulse, Power,
 } from 'lucide-react';
+import { backdropClose } from '../lib/backdropClose';
 
 // لوحة «صحّة الشركة» الموحّدة — لمالك المنصّة (M1.P3 / T1.3.1-T1.3.2).
 // تجمّع مؤشّرات النمو والمنتج والتشغيل من المصادر القائمة (الشركات + التحليلات)
