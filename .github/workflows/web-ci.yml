@@ -1,0 +1,30 @@
+# حارس الواجهة: فحص الأنواع مع كل دفع يمسّ web-admin.
+#
+# لماذا هنا لا في بناء Render: الفحص لا يُنتج شيئاً للموقع (noEmit) لكنه كان
+# يلتهم ٥٥٪ من زمن كل نشر على ساعة Render المدفوعة — بينما دقائق GitHub مجانية.
+# فبقيت البوّابة قائمة وانتقلت كلفتها. وأي خطأ أنواع يُفشل هذا الفحص ويظهر
+# على الالتزام في GitHub قبل أن يصل الموقع.
+name: Web CI
+
+on:
+  push:
+    branches: [master]
+    paths: ['web-admin/**']
+  pull_request:
+    paths: ['web-admin/**']
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web-admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck   # tsc --noEmit — أخطاء الأنواع تُفشل الفحص
