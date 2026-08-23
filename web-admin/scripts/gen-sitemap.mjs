@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const ORIGIN = 'https://fieldsa.net';
 import { SECTORS } from './sectors-data.mjs';
+import { FEATURES } from '../src/content/features.mjs';
 import { TEMPLATES } from './templates-data.mjs';
 const API = 'https://api.fieldsa.net/api/site-content';
 const today = new Date().toISOString().slice(0, 10);
@@ -140,6 +141,10 @@ async function main() {
   urls.push(urlEntry(ORIGIN + '/نماذج', { freq: 'monthly', priority: '0.8' }));
   for (const t of TEMPLATES) {
     urls.push(urlEntry(ORIGIN + '/نماذج/' + t.slug, { freq: 'monthly', priority: '0.7' }));
+  }
+  urls.push(urlEntry(ORIGIN + '/مزايا', { freq: 'monthly', priority: '0.7' }));
+  for (const ft of FEATURES) {
+    urls.push(urlEntry(ORIGIN + '/مزايا/' + ft.slug, { freq: 'monthly', priority: '0.8' }));
   }
   urls.push(urlEntry(ORIGIN + '/قطاعات', { freq: 'monthly', priority: '0.7' }));
   for (const sec of SECTORS) {

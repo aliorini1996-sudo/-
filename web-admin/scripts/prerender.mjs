@@ -9,6 +9,7 @@ import { transformSync } from 'esbuild';
 import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf, isIndexable } from '../src/blog/seo/catalog.mjs';
 import { loadPricing } from './pricing-source.mjs';
 import { SECTORS } from './sectors-data.mjs';
+import { FEATURES } from '../src/content/features.mjs';
 import { TEMPLATES } from './templates-data.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -556,6 +557,59 @@ ${faqHtml}
   }));
   n++;
 
+  // 4.5b) صفحات الميزات المفردة — «كيف تفعلونها أنتم؟» بتفصيل لا يملكه إلا من بناها.
+  // قسم «ما لا تفعله» ظاهر عمداً: الحدّ المسكوت عنه يصير وعداً ضمنياً، والتفصيل
+  // الصادق هو ما يفرّق صفحة منتج عن صفحة تسويق فيجعلها تستحقّ الترتيب.
+  for (const ft of FEATURES) {
+    const canonical = canon(`${ORIGIN}/مزايا/${ft.slug}`);
+    const howHtml = ft.how.map((h) => `<h3>${esc(h.title)}</h3><p>${esc(h.body)}</p>`).join('');
+    const limHtml = ft.limits.map((l) => `<li>${esc(l)}</li>`).join('');
+    const faqHtml = ft.faq.map((f) => `<h2>${esc(f.q)}</h2><p>${esc(f.a)}</p>`).join('');
+    const alsoHtml = [
+      ft.pairSlug ? `<li><a href="/blog/${ft.pairSlug}/">دليل شامل ${esc(ft.name)}</a></li>` : '',
+      ft.templateSlug ? `<li><a href="/نماذج/${ft.templateSlug}">نموذج Excel جاهز ${esc(ft.name)}</a></li>` : '',
+    ].join('');
+    const otherHtml = FEATURES.filter((o) => o.id !== ft.id)
+      .map((o) => `<li><a href="/مزايا/${o.slug}">${esc(o.name)}</a></li>`).join('');
+    const body = `<main>
+<h1>${esc(ft.h1)}</h1>
+<p>${esc(ft.pain)}</p>
+<h2>المشهد الذي تعالجه</h2><p>${esc(ft.scene)}</p>
+<h2>كيف تعمل عندنا</h2>${howHtml}
+<h2>ما لا تفعله هذه الميزة</h2><ul>${limHtml}</ul>
+${faqHtml}
+${alsoHtml ? `<h2>اقرأ أيضاً</h2><ul>${alsoHtml}</ul>` : ''}
+<h2>مزايا أخرى</h2><ul>${otherHtml}</ul>
+<p><a href="/pricing">شاهد الأسعار</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
+</main>`;
+    const jsonLd = {
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'FAQPage', mainEntity: ft.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) },
+        { '@type': 'BreadcrumbList', itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'الرئيسية', item: canon(ORIGIN) },
+          { '@type': 'ListItem', position: 2, name: 'المزايا', item: canon(`${ORIGIN}/مزايا`) },
+          { '@type': 'ListItem', position: 3, name: ft.name, item: canonical },
+        ] },
+      ],
+    };
+    writeRoute(`/مزايا/${ft.slug}`, buildPage({
+      lang: 'ar',
+      title: `${ft.h1} | Field Sales`,
+      description: `${ft.pain} كيف تعمل ${ft.name} في Field Sales فعلاً وما حدودها بصراحة.`,
+      canonical, image: `${ORIGIN}/og-image.png`, jsonLd, bodyHtml: body,
+    }));
+    n++;
+  }
+  // فهرس المزايا
+  writeRoute('/مزايا', buildPage({
+    lang: 'ar', title: 'مزايا Field Sales للتوزيع الميداني وكيف تعمل فعلاً',
+    description: 'الفوترة بدون إنترنت، عهدة سيارة المندوب، الطباعة الحرارية ٥٨ مم، إثبات زيارة المندوب — كل ميزة وكيف تعمل وما لا تفعله بصراحة.',
+    canonical: canon(`${ORIGIN}/مزايا`), image: `${ORIGIN}/og-image.png`,
+    bodyHtml: `<main><h1>مزايا المنصّة</h1><ul>${FEATURES.map((f2) => `<li><a href="/مزايا/${f2.slug}">${esc(f2.name)}</a> — ${esc(f2.pain)}</li>`).join('')}</ul></main>`,
+  }));
+  n++;
+
   // 4.6) بنك النماذج — رفّ فارغ بلا منافس؛ تنزيل بلا بوابة بريد
   // كل نموذج يرتبط بصفحة الميزة التي تُغني عنه رقمياً — يقوّي العنقود ويحوّل باحث النموذج لمشترٍ محتمل.
   const TEMPLATE_FEATURE = {
@@ -674,6 +728,7 @@ ${PRICING_HTML}
 <p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
 <p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')}</p>
 <p>أدلّة متخصّصة: <a href="/blog/distributor-network-management-software/">برنامج إدارة الموزعين</a> · <a href="/blog/cash-van-software-guide/">برنامج كاش فان</a> · <a href="/blog/sales-reps-management-system/">نظام إدارة المناديب</a> · <a href="/blog/distribution-companies-management-system/">نظام إدارة شركات التوزيع</a> · <a href="/blog/field-sales-system-for-companies/">نظام مبيعات ميدانية للشركات</a> · <a href="/blog/field-sales-software-om/">برنامج مناديب التوزيع سلطنة عمان</a> · <a href="/blog/field-sales-software-market-report-2026/">تقرير سوق برامج المناديب 2026</a></p>
+<p>كيف تعمل مزايانا: <a href="/مزايا/فوترة-بدون-إنترنت">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/مزايا/عهدة-سيارة-المندوب">عهدة سيارة المندوب</a> · <a href="/مزايا/طباعة-فاتورة-من-الجوال">طباعة فاتورة من الجوال</a> · <a href="/مزايا/إثبات-زيارة-المندوب">إثبات زيارة المندوب</a> · <a href="/مزايا">كل المزايا</a></p>
 <p>الميزات: <a href="/blog/offline-invoicing-for-reps/">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/blog/rep-van-custody-management/">عهدة سيارة المندوب</a> · <a href="/blog/thermal-printing-field-invoices/">طباعة الفواتير الحرارية من الجوال</a> · <a href="/blog/rep-visit-tracking-gps/">متابعة زيارات المناديب</a> · <a href="/blog/mobile-receipt-vouchers/">سند قبض من الجوال</a> · <a href="/blog/field-sales-returns-management/">مرتجعات المبيعات الميدانية</a> · <a href="/blog/barcode-scanning-invoices/">مسح الباركود بالكاميرا</a> · <a href="/blog/sales-reps-permissions/">صلاحيات مناديب المبيعات</a> · <a href="/blog/distribution-reps-commissions/">عمولات مناديب التوزيع</a></p>
 </main>`;
   const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);

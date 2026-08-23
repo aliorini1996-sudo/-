@@ -369,7 +369,36 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
 // يحقن مربع التواصل قبل التذييل مباشرة (بعد دعوة الإجراء الأخيرة)
 function injectContactBox(html: string, contact: ContactInfo, lang: Lang): string {
   const anchor = '<!-- ============ FOOTER ============ -->';
-  return html.replace(anchor, `${contactSection(contact, lang)}\n  ${anchor}`);
+  return html.replace(anchor, `${contactSection(contact, lang)}\n  ${featureLinksRow(lang)}
+  ${anchor}`);
+}
+
+/**
+ * صفّ روابط صفحات المزايا — يُحقَن قبل التذييل مباشرةً.
+ *
+ * لماذا في المكوّن لا في التصيير المسبق وحده: React يمسح ما حقنه التصيير عند
+ * التحميل، وجوجل يُصيّر الجافاسكربت — فالرابط الموجود في HTML الأوّلي وحده
+ * رابطٌ ضعيف. صفحة بلا رابط داخلي في الشجرة المُصيَّرة صفحةٌ يتيمة مهما كانت
+ * في خريطة الموقع. ونصّ المرساة هنا هو العبارة الشرائية حرفياً — الحلقة
+ * الثالثة في سلسلة الضربة.
+ *
+ * عربي فقط: لا نسخة إنجليزية/فرنسية لهذه الصفحات بعد، ورابطٌ يقود لصفحة
+ * عربية من سياق إنجليزي إشارةٌ مضلِّلة.
+ */
+function featureLinksRow(lang: Lang): string {
+  if (lang !== 'ar') return '';
+  const item = (href: string, text: string) =>
+    `<a href="${href}" style="color:#8a5a3b; text-decoration:none; border-bottom:1px solid #E9E1D3; padding-bottom:1px">${text}</a>`;
+  const links = [
+    item('/مزايا/فوترة-بدون-إنترنت', 'برنامج فواتير يعمل بدون إنترنت'),
+    item('/مزايا/عهدة-سيارة-المندوب', 'عهدة سيارة المندوب'),
+    item('/مزايا/طباعة-فاتورة-من-الجوال', 'طباعة فاتورة من الجوال'),
+    item('/مزايا/إثبات-زيارة-المندوب', 'إثبات زيارة المندوب'),
+    item('/مزايا', 'كل المزايا'),
+  ].join('<span style="color:#C9BFAE"> · </span>');
+  return `<section style="max-width:1100px; margin:0 auto; padding:22px 20px 34px; text-align:center; font-size:14px; color:#6b6357; line-height:2.1">
+    <span style="color:#9a9184">كيف تعمل مزايانا: </span>${links}
+  </section>`;
 }
 
 // يضيف بادئة اللغة (/en · /fr) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.

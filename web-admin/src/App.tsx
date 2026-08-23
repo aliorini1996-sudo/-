@@ -22,6 +22,7 @@ import LeakCalculatorPage from './pages/LeakCalculatorPage';
 import InvoiceGeneratorPage from './pages/InvoiceGeneratorPage';
 import PricingPage from './pages/PricingPage';
 import SectorPage from './pages/SectorPage';
+import FeaturePage from './pages/FeaturePage';
 import TemplatesPage from './pages/TemplatesPage';
 import FreeToolsPage from './pages/FreeToolsPage';
 // لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
@@ -197,10 +198,12 @@ export default function App() {
         <Route path="/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/قطاعات" element={<SectorPage />} />
-        <Route path="/قطاعات/ slug" element={<SectorPage />} />
+        <Route path="/قطاعات/:slug" element={<SectorPage />} />
+        <Route path="/مزايا" element={<FeaturePage />} />
+        <Route path="/مزايا/:slug" element={<FeaturePage />} />
         {/* مقارنات — موقوفة خلف مفتاح COMPARE_ENABLED حتى مراجعة المالك */}
         <Route path="/نماذج" element={<TemplatesPage />} />
-        <Route path="/نماذج/ slug" element={<TemplatesPage />} />
+        <Route path="/نماذج/:slug" element={<TemplatesPage />} />
         <Route path="/free" element={<FreeToolsPage />} />
         <Route path="/free/:tool" element={<FreeToolsPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />
