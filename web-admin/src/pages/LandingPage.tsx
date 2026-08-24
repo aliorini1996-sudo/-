@@ -158,6 +158,18 @@ export function applyContent(template: string, content: Record<string, unknown>,
 // ترجمة النص الثابت داخل القالب (تنقّل، بطاقات العرض، تسميات الباقات، التذييل) إلى الإنجليزية
 const CHROME_EN: [string, string][] = [
   ['dir="rtl"', 'dir="ltr"'],
+  // خريطة الميدان الحيّة في البطل (المدن والمحطات والبطاقات)
+  ['>تتبع مباشر للميدان<', '>Live field tracking<'],
+  ['>الرياض<', '>Riyadh<'], ['>القاهرة<', '>Cairo<'], ['>دبي<', '>Dubai<'], ['>إسطنبول<', '>Istanbul<'],
+  ['>السعودية<', '>Saudi Arabia<'], ['>مصر<', '>Egypt<'], ['>الإمارات<', '>UAE<'], ['>تركيا<', '>Türkiye<'],
+  ['>الانطلاق<', '>Start<'], ['>زيارة ١<', '>Visit 1<'], ['>زيارة ٢<', '>Visit 2<'], ['>زيارة ٣<', '>Visit 3<'], ['>الوجهة<', '>Next stop<'],
+  ['>٨:٠٥ ص · بدء اليوم<', '>8:05 AM · Day start<'], ['>٩:٢٠ ص · تمّت ✓<', '>9:20 AM · Done ✓<'],
+  ['>١٠:٤٥ ص · تمّت ✓<', '>10:45 AM · Done ✓<'], ['>١٢:١٠ م · جارية<', '>12:10 PM · In progress<'],
+  ['>التالية · ١:٣٠ م<', '>Next · 1:30 PM<'],
+  // نص بطاقات الخريطة يتبع اتجاه اللغة (وإلا انعكس ترتيب الكلمات الإنجليزية)،
+  // وأرقام الدبابيس تتحوّل للاتينية — الأنماط داخل <text> في SVG فالمطابقة >رقم< آمنة
+  ['text-anchor:start; direction:rtl', 'text-anchor:end; direction:ltr'],
+  ['>١<', '>1<'], ['>٢<', '>2<'], ['>٣<', '>3<'], ['>٤<', '>4<'], ['>٥<', '>5<'],
   // التنقّل
   ['>المميزات<', '>Features<'], ['>كيف يعمل<', '>How it works<'], ['>الأسعار<', '>Pricing<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Admin login<'], ['>تطبيق المندوب<', '>Rep app<'],
@@ -199,6 +211,17 @@ function translateChrome(html: string): string {
 // ترجمة النص الثابت داخل القالب إلى الفرنسية (للأسواق الفرنكوفونية — المغرب العربي)
 const CHROME_FR: [string, string][] = [
   ['dir="rtl"', 'dir="ltr"'],
+  // خريطة الميدان الحيّة في البطل (المدن والمحطات والبطاقات)
+  ['>تتبع مباشر للميدان<', '>Suivi terrain en direct<'],
+  ['>الرياض<', '>Riyad<'], ['>القاهرة<', '>Le Caire<'], ['>دبي<', '>Dubaï<'], ['>إسطنبول<', '>Istanbul<'],
+  ['>السعودية<', '>Arabie saoudite<'], ['>مصر<', '>Égypte<'], ['>الإمارات<', '>EAU<'], ['>تركيا<', '>Turquie<'],
+  ['>الانطلاق<', '>Départ<'], ['>زيارة ١<', '>Visite 1<'], ['>زيارة ٢<', '>Visite 2<'], ['>زيارة ٣<', '>Visite 3<'], ['>الوجهة<', '>Prochain arrêt<'],
+  ['>٨:٠٥ ص · بدء اليوم<', '>8h05 · Début de journée<'], ['>٩:٢٠ ص · تمّت ✓<', '>9h20 · Terminée ✓<'],
+  ['>١٠:٤٥ ص · تمّت ✓<', '>10h45 · Terminée ✓<'], ['>١٢:١٠ م · جارية<', '>12h10 · En cours<'],
+  ['>التالية · ١:٣٠ م<', '>Prochaine · 13h30<'],
+  // نص بطاقات الخريطة يتبع اتجاه اللغة + أرقام الدبابيس لاتينية (أنماط داخل SVG)
+  ['text-anchor:start; direction:rtl', 'text-anchor:end; direction:ltr'],
+  ['>١<', '>1<'], ['>٢<', '>2<'], ['>٣<', '>3<'], ['>٤<', '>4<'], ['>٥<', '>5<'],
   // التنقّل
   ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>الأسعار<', '>Tarifs<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Espace admin<'], ['>تطبيق المندوب<', '>App commercial<'],
@@ -550,6 +573,81 @@ export default function LandingPage() {
   useEffect(() => {
     (window as unknown as { __fsSetCurrency?: (c: Currency) => void }).__fsSetCurrency = (c) => useCurrency.getState().setCurrency(c);
   }, []);
+
+  // خريطة الميدان الحيّة في البطل: تناوب المدن كل ٣٠ث + عرض ذاتي للبطاقات + لمس/مرور.
+  // القالب يُحقن بـdangerouslySetInnerHTML فلا تعمل سكربتاته — السلوك يُربط هنا بعد كل تصيير.
+  useEffect(() => {
+    const root = document.querySelector('[data-fslm]');
+    if (!root) return;
+    const layers = Array.from(root.querySelectorAll<HTMLElement>('.fs-lm-layer'));
+    const chips = Array.from(root.querySelectorAll<HTMLElement>('.fs-lm-chip'));
+    const dotBtns = Array.from(root.querySelectorAll<HTMLElement>('.fs-lm-dotbtn'));
+    const n = layers.length;
+    if (!n) return;
+    let city = 0, amb = 0, userHold = false, hovering = false;
+    const timers: number[] = [];
+    const front = (g: Element) => { const p = g.parentNode as Element | null; if (p && p.lastElementChild !== g) p.appendChild(g); };
+    const closeCards = () => root.querySelectorAll('.fs-lm-pin.open').forEach((g) => g.classList.remove('open'));
+    const paintDot = (idx: number) => {
+      dotBtns.forEach((d) => {
+        const f = d.querySelector<HTMLElement>('.fs-lm-fill');
+        d.classList.remove('is-on');
+        if (f) { f.style.transition = 'none'; f.style.width = '0'; }
+      });
+      const el = dotBtns[idx];
+      if (el) { void (el as HTMLElement).offsetWidth; el.classList.add('is-on'); const f = el.querySelector<HTMLElement>('.fs-lm-fill'); if (f) f.style.cssText = ''; }
+    };
+    const go = (idx: number) => {
+      city = (idx + n) % n; amb = 0; userHold = false;
+      closeCards();
+      layers.forEach((l, k) => l.classList.toggle('is-on', k === city));
+      chips.forEach((c, k) => c.classList.toggle('is-on', k === city));
+      paintDot(city);
+    };
+    const ambientTick = () => {
+      if (userHold || hovering) return;
+      const count = root.querySelectorAll('.fs-lm-layer.is-on .fs-lm-pin').length;
+      if (!count) return;
+      const g = root.querySelector(`.fs-lm-layer.is-on .fs-lm-pin[data-i="${amb % count}"]`);
+      amb += 1;
+      if (!g) return;
+      closeCards(); front(g); g.classList.add('open');
+      timers.push(window.setTimeout(() => { if (!userHold && !hovering) g.classList.remove('open'); }, 3000));
+    };
+    const rot = window.setInterval(() => go(city + 1), 30000);
+    const ambInt = window.setInterval(ambientTick, 4200);
+    timers.push(window.setTimeout(ambientTick, 1400));
+    const onClick = (e: Event) => {
+      const t = e.target as Element;
+      if (t.closest('.fs-lm-dotbtn')) { const d = t.closest('.fs-lm-dotbtn') as HTMLElement; go(Number(d.dataset.i || 0)); return; }
+      const g = t.closest('.fs-lm-pin');
+      if (g) { const was = g.classList.contains('open'); closeCards(); userHold = !was; if (!was) { g.classList.add('open'); front(g); } }
+      else { closeCards(); userHold = false; }
+    };
+    const onOver = (e: Event) => {
+      const g = (e.target as Element).closest('.fs-lm-pin');
+      if (g) { hovering = true; front(g); } else hovering = false;
+    };
+    const onLeave = () => { hovering = false; };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const g = (e.target as Element).closest?.('.fs-lm-pin');
+      if (g) { e.preventDefault(); const was = g.classList.contains('open'); closeCards(); userHold = !was; if (!was) { g.classList.add('open'); front(g); } }
+    };
+    root.addEventListener('click', onClick);
+    root.addEventListener('mouseover', onOver);
+    root.addEventListener('mouseleave', onLeave);
+    root.addEventListener('keydown', onKey as EventListener);
+    paintDot(0);
+    return () => {
+      window.clearInterval(rot); window.clearInterval(ambInt);
+      timers.forEach((t) => window.clearTimeout(t));
+      root.removeEventListener('click', onClick);
+      root.removeEventListener('mouseover', onOver);
+      root.removeEventListener('mouseleave', onLeave);
+      root.removeEventListener('keydown', onKey as EventListener);
+    };
+  });
 
   // محتوى CMS المحفوظ قد يكون قديماً (عدد ميزاته لا يطابق الكود الحالي) — حينها نتجاهله
   // ونستخدم المحتوى الافتراضي الحالي حتى لا تُعرَض ميزات/نصوص قديمة. وإلا ندمج تحرير المالك.
