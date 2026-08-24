@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import {
+import { Fuel,
   LayoutDashboard, Users, Package, UserCheck, FileText,
   Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap,
 } from 'lucide-react';
@@ -28,6 +28,7 @@ const navItems = [
   { to: '/app/reports', icon: BarChart3, label: 'nav.reports', permission: 'canViewReports' },
   { to: '/app/company-users', icon: UserCog, label: 'nav.companyUsers', permission: 'canManageCompanyUsers' },
   { to: '/app/erp', icon: DatabaseZap, label: 'nav.erp', permission: 'canManageCompanySettings' },
+  { to: '/app/petroapp', icon: Fuel, label: 'nav.petroapp', permission: 'canManageCompanySettings' },
   { to: '/app/company', icon: Building2, label: 'nav.company', permission: 'canManageCompanySettings' },
 ];
 

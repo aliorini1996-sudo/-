@@ -133,6 +133,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string }> = {
   'nav.reports': { ar: 'التقارير', en: 'Reports', fr: 'Rapports' },
   'nav.companyUsers': { ar: 'مستخدمو الشركة', en: 'Company users', fr: 'Utilisateurs de l entreprise' },
   'nav.erp': { ar: 'تكامل ERP', en: 'ERP integration', fr: 'Intégration ERP' },
+  'nav.petroapp': { ar: 'بترو اب', en: 'PetroApp', fr: 'PetroApp' },
   'nav.company': { ar: 'إعدادات الشركة', en: 'Company settings', fr: 'Paramètres de l entreprise' },
   'nav.notifications': { ar: 'الإشعارات', en: 'Notifications', fr: 'Notifications' },
   'nav.logout': { ar: 'تسجيل الخروج', en: 'Sign out', fr: 'Déconnexion' },

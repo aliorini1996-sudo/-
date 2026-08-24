@@ -151,6 +151,18 @@ export const erpApi = {
   logs: () => api.get('/erp/logs'),
 };
 
+export const petroappApi = {
+  settings: () => api.get('/petroapp/settings'),
+  saveSettings: (data: unknown) => api.put('/petroapp/settings', data),
+  test: () => api.post('/petroapp/test'),
+  sync: () => api.post('/petroapp/sync'),
+  vehicles: () => api.get('/petroapp/vehicles'),
+  delegates: () => api.get('/petroapp/delegates'),
+  linkVehicle: (id: string, salesRepId: string | null) => api.put(`/petroapp/vehicles/${id}/link`, { salesRepId }),
+  linkDelegate: (id: string, salesRepId: string | null) => api.put(`/petroapp/delegates/${id}/link`, { salesRepId }),
+  report: (from?: string, to?: string) => api.get('/petroapp/report', { params: { from, to } }),
+};
+
 // إدارة الشركات — لمالك المنصّة (السوبر أدمن)
 export const tenantApi = {
   list: () => api.get('/tenants'),

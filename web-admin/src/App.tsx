@@ -38,6 +38,7 @@ const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const CompanySettingsPage = lazy(() => import('./pages/CompanySettingsPage'));
 const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
 const ErpIntegrationPage = lazy(() => import('./pages/ErpIntegrationPage'));
+const PetroappPage = lazy(() => import('./pages/PetroappPage'));
 const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
@@ -267,6 +268,7 @@ export default function App() {
           <Route path="tracking" element={<PermissionRoute permission="canManageTracking"><TrackingPage /></PermissionRoute>} />
           <Route path="company-users" element={<PermissionRoute permission="canManageCompanyUsers"><CompanyUsersPage /></PermissionRoute>} />
           <Route path="erp" element={<PermissionRoute permission="canManageCompanySettings"><ErpIntegrationPage /></PermissionRoute>} />
+          <Route path="petroapp" element={<PermissionRoute permission="canManageCompanySettings"><PetroappPage /></PermissionRoute>} />
           <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>

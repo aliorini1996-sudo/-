@@ -54,6 +54,7 @@ model Tenant {
   notifications       Notification[]
   settings            CompanySettings?
   erpIntegration      ErpIntegration?
+  petroappIntegration PetroappIntegration?
   zatcaEgs            ZatcaEgs?
   erpSyncLogs         ErpSyncLog[]
   vanLoads            VanLoad[]
@@ -741,6 +742,102 @@ model ErpSyncLog {
   @@index([tenantId])
   @@index([resource])
   @@map("erp_sync_logs")
+}
+
+/// تكامل بترو آب — ربط اختياريّ لكل شركة حسب حاجتها (وقود/صيانة/غسيل).
+/// المفاتيح تُدخلها الشركة من إعداداتها (مفاتيح حسابها لدى بترو آب) ولا تُعاد للواجهة بعد الحفظ.
+model PetroappIntegration {
+  id          String    @id @default(uuid())
+  tenantId    String    @unique
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enabled     Boolean   @default(false)
+  baseUrl     String    @default("https://api.petroapp.com") // يُعدَّل حين تسلّم بترو آب الوثائق الرسمية
+  apiKey      String?
+  // الخدمات المفعّلة «حسب احتياج» الشركة — كل خدمة تُزامَن فقط إن فُعّلت
+  syncFuel    Boolean   @default(true)
+  syncService Boolean   @default(true)
+  syncWash    Boolean   @default(true)
+  status      String    @default("PENDING") // PENDING | OK | ERROR
+  lastSyncAt  DateTime?
+  lastError   String?
+  // كاش شبكة المحطات (قائمة كبيرة تتغيّر نادراً) — تتجدّد كل ٢٤ ساعة
+  stationsJson String?
+  stationsAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  vehicles     PetroappVehicle[]
+  delegates    PetroappDelegate[]
+  transactions FuelTransaction[]
+
+  @@map("petroapp_integrations")
+}
+
+/// مركبات الشركة لدى بترو آب — تُزامَن ثم تُربط يدوياً بالمناديب لتُنسب مصاريفها.
+model PetroappVehicle {
+  id            String              @id @default(uuid())
+  tenantId      String
+  integrationId String
+  integration   PetroappIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  externalId    String
+  plate         String?
+  model         String?
+  salesRepId    String? // ربط مركبة ↔ مندوب (يدويّ من شاشة المطابقة)
+  balance       Float? // رصيد رحلة/ميزانية من /updated_trips إن توفّر
+  balanceAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, salesRepId])
+  @@map("petroapp_vehicles")
+}
+
+/// سائقو بترو آب (delegates) — يُربطون بالمناديب فتُنسب فواتيرهم تلقائياً.
+model PetroappDelegate {
+  id            String              @id @default(uuid())
+  tenantId      String
+  integrationId String
+  integration   PetroappIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  externalId    String
+  name          String?
+  phone         String?
+  salesRepId    String?
+  balance       Float?
+  balanceAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, salesRepId])
+  @@map("petroapp_delegates")
+}
+
+/// فواتير بترو آب (وقود/صيانة/غسيل) — إزالة التكرار ببصمة محتوى **داخل الشركة**
+/// (درس العزل: البصمة العالمية باب خلفيّ يسرّب وجود سجلّ شركةٍ لأخرى).
+model FuelTransaction {
+  id                 String              @id @default(uuid())
+  tenantId           String
+  integrationId      String
+  integration        PetroappIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  kind               String // FUEL | SERVICE | WASH
+  externalId         String?
+  contentHash        String
+  vehicleExternalId  String?
+  delegateExternalId String?
+  salesRepId         String? // يُحلّ عند المزامنة من روابط المركبات/السائقين ويُعاد حلّه عند تغيير الربط
+  stationName        String?
+  liters             Float?
+  amount             Float    @default(0)
+  odometer           Int?
+  occurredAt         DateTime
+  raw                String? // لقطة JSON خام للفاتورة كما وصلت (تشخيص ومطابقة مستقبلية)
+  createdAt          DateTime @default(now())
+
+  @@unique([tenantId, contentHash])
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, salesRepId, occurredAt])
+  @@map("fuel_transactions")
 }
 
 model Notification {

@@ -12,6 +12,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import prisma from './config/database';
 import { startOpsScheduler } from './services/opsSchedule';
+import { startPetroappScheduler } from './services/petroapp';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -33,6 +34,7 @@ import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
+import petroappRouter from './routes/petroapp';
 import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
@@ -121,6 +123,7 @@ app.use('/api/visits', visitsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
 app.use('/api/erp', erpRouter);
+app.use('/api/petroapp', petroappRouter);
 app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
@@ -207,6 +210,7 @@ server.listen(PORT, async () => {
   console.log(`🚀 DSD API running on port ${PORT}`);
   await seedDefaults();
   startOpsScheduler();
+  startPetroappScheduler();
 });
 
 export default app;

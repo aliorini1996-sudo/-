@@ -10,7 +10,7 @@ import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
-  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw,
+  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel,
   Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal } from './invoiceCalc';
@@ -26,7 +26,7 @@ import { useT, useTr } from '../i18n/strings';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
 
 interface RepUser {
@@ -122,7 +122,140 @@ function RepLogin({ onLogin, onBack }: { onLogin: (token: string, user: RepUser)
 }
 
 // ============ الرئيسية ============
-function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => void }) {
+
+// ═══ شاشة الوقود (بترو آب) — تظهر فقط حين تربط الشركة حسابها ═══
+
+interface FuelTx { kind: string; amount: number; liters?: number | null; stationName?: string | null; occurredAt: string; odometer?: number | null }
+interface FuelSummary {
+  enabled: boolean; linked?: boolean;
+  vehicle?: { plate?: string | null; model?: string | null; balance?: number | null } | null;
+  delegate?: { name?: string | null; balance?: number | null } | null;
+  balance?: number | null; balanceAt?: string | null;
+  lastTransactions?: FuelTx[];
+  stations?: { name?: string; km: number; services?: string }[];
+  lastSyncAt?: string | null;
+}
+
+const FUEL_KIND_AR: Record<string, string> = { FUEL: 'وقود', SERVICE: 'صيانة', WASH: 'غسيل' };
+
+function RepFuel() {
+  const tr = useTr();
+  const [sum, setSum] = useState<FuelSummary | null>(null);
+  const [stale, setStale] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async (coords?: { lat: number; lng: number }) => {
+      try {
+        const { data } = await repApi.get('/petroapp/rep/summary', { params: coords });
+        if (cancelled) return;
+        setSum(data.data as FuelSummary); setStale(false);
+        await cacheSet('rep-fuel-summary', data.data);
+      } catch {
+        const cached = await cacheGet<FuelSummary>('rep-fuel-summary');
+        if (!cancelled && cached?.data) { setSum(cached.data); setStale(true); }
+      }
+    };
+    // نطلب الموقع لأقرب المحطات — ورفضه لا يمنع بقية الشاشة
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => load({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => load(),
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 },
+      );
+    } else load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!sum) return <div className="p-6 text-center text-sm text-gray-400">{tr('يحمل')}…</div>;
+  if (!sum.enabled) return <div className="p-6 text-center text-sm text-gray-400">{tr('ربط بترو اب غير مفعل لشركتك')}</div>;
+
+  const openDrive = () => {
+    // فتح تطبيق PetroApp Drive — رابط المتجر المناسب للنظام (لا مخطط رابط عميق موثق بعد)
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    window.open(ios
+      ? 'https://apps.apple.com/sa/app/petroapp-drive/id1267297826'
+      : 'https://play.google.com/store/apps/details?id=petro.petroapp', '_blank');
+  };
+
+  return (
+    <div className="p-4 space-y-4 overflow-y-auto h-full pb-24">
+      {/* بطاقة الرصيد */}
+      <div className="bg-gradient-to-l from-[#0b2a5e] to-[#1a73e8] rounded-3xl p-5 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs opacity-80">{tr('رصيد الوقود')}</p>
+            <p className="text-2xl font-bold mt-1">{sum.balance != null ? formatCurrency(sum.balance) : '—'}</p>
+            {sum.balanceAt && <p className="text-[10px] opacity-70 mt-0.5">{tr('حتى')} {formatDate(sum.balanceAt)}</p>}
+          </div>
+          <Fuel size={34} className="opacity-90" />
+        </div>
+        {(sum.vehicle?.plate || sum.delegate?.name) && (
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+            {sum.vehicle?.plate && <span className="bg-white/15 rounded-lg px-2.5 py-1" dir="ltr">🚚 {sum.vehicle.plate}</span>}
+            {sum.delegate?.name && <span className="bg-white/15 rounded-lg px-2.5 py-1">👤 {sum.delegate.name}</span>}
+          </div>
+        )}
+        {stale && <p className="text-[10px] opacity-70 mt-2">{tr('بيانات محفوظة — لا اتصال')}</p>}
+      </div>
+
+      {!sum.linked && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800">
+          {tr('حسابك غير مربوط بسائق او مركبة بترو اب بعد — اطلب من ادارتك الربط من شاشة بترو اب')}
+        </div>
+      )}
+
+      <button onClick={openDrive} className="w-full bg-[#E15A30] text-white rounded-2xl py-3.5 font-bold text-sm">
+        {tr('فتح تطبيق بترو اب للتعبئة')}
+      </button>
+
+      {/* أقرب المحطات */}
+      {!!sum.stations?.length && (
+        <div>
+          <p className="text-[#1F1A13] font-bold text-sm mb-2">{tr('اقرب المحطات')}</p>
+          <div className="space-y-2">
+            {sum.stations.map((s, i) => (
+              <div key={i} className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <MapPin size={16} className="text-[#E15A30]" />
+                  <div>
+                    <p className="text-sm font-semibold text-[#1F1A13]">{s.name || tr('محطة')}</p>
+                    {s.services && <p className="text-[10px] text-gray-400">{s.services}</p>}
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-[#1a73e8]" dir="ltr">{s.km} km</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* آخر الفواتير */}
+      <div>
+        <p className="text-[#1F1A13] font-bold text-sm mb-2">{tr('اخر التعبئات والخدمات')}</p>
+        {sum.lastTransactions?.length ? (
+          <div className="space-y-2">
+            {sum.lastTransactions.map((tx, i) => (
+              <div key={i} className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[#1F1A13]">
+                    {tr(FUEL_KIND_AR[tx.kind] || tx.kind)}{tx.liters ? ` · ${tx.liters} ${tr('لتر')}` : ''}
+                  </p>
+                  <p className="text-[10px] text-gray-400">{tx.stationName || ''} · {formatDate(tx.occurredAt)}</p>
+                </div>
+                <span className="text-sm font-bold text-[#E15A30]">{formatCurrency(tx.amount)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">{tr('لا عمليات بعد')}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RepHome({ user, onQuick, fuelOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -258,6 +391,7 @@ function RepHome({ user, onQuick }: { user: RepUser; onQuick: (s: Screen) => voi
           {quick(tr('فاتورة'), FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
           {quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
           {quick(tr('العملاء'), Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
+          {fuelOn && quick(tr('الوقود'), Fuel, 'text-blue-600', 'bg-blue-50 border-blue-100', 'fuel')}
         </div>
       </div>
     </div>
@@ -1580,6 +1714,7 @@ export default function RepApp() {
   // من أين فُتح المستند؟ لإعادة المندوب لشاشة العميل عند إغلاقه بدل قائمة الفواتير
   const [docBack, setDocBack] = useState<'customerDetail' | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
+  const [fuelOn, setFuelOn] = useState(false); // ربط بترو آب مفعّل لشركة المندوب؟
   const [pending, setPending] = useState(0);       // مستندات أوف‑لاين بانتظار الرفع
   const [rejected, setRejected] = useState(0);     // مستندات رفضها الخادم (تحتاج مراجعة)
   const [syncing, setSyncing] = useState(false);
@@ -1681,6 +1816,17 @@ export default function RepApp() {
       const { data } = await fetchThenCache<Company>('company', async () =>
         (await repApi.get('/company')).data.data);
       if (data) { setCompany(data); setActiveCurrency((data as { currency?: string })?.currency); }
+    })();
+    // هل ربطت الشركة بترو آب؟ (يظهر زرّ الوقود) — فشله الصامت يعني إخفاء الزرّ فقط
+    (async () => {
+      try {
+        const { data } = await repApi.get('/petroapp/rep/summary', { background: true });
+        const on = !!(data?.data?.enabled);
+        setFuelOn(on); await cacheSet('rep-fuel-on', on);
+      } catch {
+        const cached = await cacheGet<boolean>('rep-fuel-on');
+        if (cached?.data) setFuelOn(true);
+      }
     })();
     // تخزين دائم يقلّل طرد المتصفّح لبيانات الأوف‑لاين (أفضل جهد)
     requestPersistentStorage();
@@ -1802,11 +1948,12 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
+                {screen === 'fuel' && <RepFuel />}
               </div>
 
               {/* Bottom nav */}
