@@ -660,7 +660,8 @@ model CompanySettings {
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String @default("SA") // ISO alpha-2: دولة الشركة
-  currency         String @default("SAR") // عملة الفوترة (مشتقّة من الدولة)
+  currency         String @default("SAR") // عملة الفوترة الفعلية (من الدولة أو من التجاوز)
+  currencyOverride String? // تجاوز عملة اختياري (USD | EUR) — الدولة تبقى للضريبة والفوترة
   defaultVatPct    Float  @default(15) // نسبة الضريبة الافتراضية للدولة
   einvoiceProvider String @default("zatca") // zatca | eta | peppol | ttn | none
 

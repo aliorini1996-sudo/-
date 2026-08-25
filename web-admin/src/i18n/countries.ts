@@ -446,6 +446,9 @@ export function currencyDecimals(currency: string): number {
 
 // رمز عملة ISO (من السجلّ، أو رمز العملة نفسه احتياطًا)
 export function currencySymbol(currency: string, lang: 'ar' | 'en' = 'ar'): string {
+  // عملتا التجاوز الدوليتان (لا دولة لهما في السجل)
+  if (currency === 'USD') return '$';
+  if (currency === 'EUR') return '€';
   const match = Object.values(COUNTRIES).find((c) => c.currency === currency);
   if (!match) return currency;
   return lang === 'en' ? match.symbolEn : match.symbolAr;

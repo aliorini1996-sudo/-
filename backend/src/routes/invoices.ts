@@ -5,7 +5,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
-import { getCountryTax } from '../config/countries';
+import { getCountryTax, currencyDecimalsOf } from '../config/countries';
 import { computeInvoiceTotals } from '../lib/invoiceCalc';
 import { netFromInclusive } from '../lib/money';
 import { computeStock } from './vanStock';
@@ -259,10 +259,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب
     const company = await prisma.companySettings.findUnique({
       where: { tenantId: tid },
-      select: { defaultVatPct: true, countryCode: true, einvoiceProvider: true },
+      select: { defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true },
     });
     const companyVat = company?.defaultVatPct ?? 15;
-    const dec = getCountryTax(company?.countryCode).currencyDecimals;
+    // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
+    const dec = currencyDecimalsOf(company?.currency ?? getCountryTax(company?.countryCode).currency);
     // مزوّد الفوترة الإلكترونية وحالتها المبدئية: ZATCA/none = جاهزة (QR محلي)؛ ETA/Peppol/TTN = بانتظار الإرسال الحكومي
     const einvoiceProvider = (company as { einvoiceProvider?: string } | null)?.einvoiceProvider || getCountryTax(company?.countryCode).provider;
     const einvoiceStatus = ['eta', 'peppol', 'ttn'].includes(einvoiceProvider) ? 'pending' : 'generated';

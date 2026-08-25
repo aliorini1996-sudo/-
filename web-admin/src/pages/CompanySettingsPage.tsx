@@ -34,6 +34,7 @@ export default function CompanySettingsPage() {
   const [primaryColor, setPrimaryColor] = useState('#1e3a8a');
   const [headerStyle, setHeaderStyle] = useState('classic');
   const [countryCode, setCountryCode] = useState('SA'); // دولة الشركة (تُشتقّ منها العملة والضريبة)
+  const [currencyOverride, setCurrencyOverride] = useState(''); // '' = عملة الدولة | USD | EUR
   // بيانات ربط الفوترة الإلكترونية (السرّ لا يُعاد من الخادم — hasSecret يشير إن كان مضبوطاً)
   const [einv, setEinv] = useState({ enabled: false, env: 'preprod', clientId: '', clientSecret: '', activityCode: '', branchCode: '', intermediaryUrl: '' });
   const [hasSecret, setHasSecret] = useState(false);
@@ -58,6 +59,7 @@ export default function CompanySettingsPage() {
     setPrimaryColor(data.primaryColor || '#1e3a8a');
     setHeaderStyle(data.headerStyle || 'classic');
     setCountryCode(data.countryCode || 'SA');
+    setCurrencyOverride((data as { currencyOverride?: string | null }).currencyOverride || '');
     setEinv({
       enabled: data.einvoiceEnabled || false,
       env: data.einvoiceEnv || 'preprod',
@@ -72,7 +74,7 @@ export default function CompanySettingsPage() {
 
   const mutation = useMutation({
     mutationFn: (values: CompanyForm) => companyApi.update({
-      ...values, logo, primaryColor, headerStyle, countryCode,
+      ...values, logo, primaryColor, headerStyle, countryCode, currencyOverride,
       einvoiceEnabled: einv.enabled, einvoiceEnv: einv.env,
       einvoiceClientId: einv.clientId, einvoiceActivityCode: einv.activityCode,
       einvoiceBranchCode: einv.branchCode, einvoiceIntermediaryUrl: einv.intermediaryUrl,
@@ -147,10 +149,19 @@ export default function CompanySettingsPage() {
                 </select>
                 {(() => { const c = getCountry(countryCode); return (
                   <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed bg-[#FAF7F0] rounded-lg px-3 py-2 border border-[#E9E1D3]">
-                    {tr('العملة')}: <b>{c.symbolAr} ({c.currency})</b> · {tr('الضريبة الافتراضية')}: <b>{c.defaultVatPct}%</b><br />
+                    {tr('العملة')}: <b>{currencyOverride ? (currencyOverride === 'USD' ? '$ (USD)' : '€ (EUR)') : `${c.symbolAr} (${c.currency})`}</b> · {tr('الضريبة الافتراضية')}: <b>{c.defaultVatPct}%</b><br />
                     {tr('الفوترة الإلكترونية')}: <b>{c.einvoiceNoteAr}</b>
                   </p>
                 ); })()}
+              </div>
+              <div>
+                <label className="label">{tr('عملة التشغيل')}</label>
+                <select className="input" value={currencyOverride} onChange={e => setCurrencyOverride(e.target.value)}>
+                  <option value="">{tr('عملة الدولة (الافتراضي)')} — {getCountry(countryCode).currency}</option>
+                  <option value="USD">{tr('دولار امريكي')} — USD $</option>
+                  <option value="EUR">{tr('يورو')} — EUR €</option>
+                </select>
+                <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('تغير عملة الفواتير والسندات والتقارير كلها — الضريبة والفوترة الالكترونية تبقى حسب الدولة')}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

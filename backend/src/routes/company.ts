@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { getCountryTax } from '../config/countries';
+import { getCountryTax, OVERRIDE_CURRENCIES } from '../config/countries';
 
 const router = Router();
 router.use(authenticate);
@@ -19,6 +19,7 @@ const companySchema = z.object({
   primaryColor: z.string().nullish().or(z.literal('')), // hex
   headerStyle: z.enum(['classic', 'banner', 'minimal']).nullish(),
   countryCode: z.string().length(2).nullish(),          // دولة الشركة (تُشتقّ منها العملة والضريبة)
+  currencyOverride: z.enum(['USD', 'EUR']).nullish().or(z.literal('')), // '' أو null = عملة الدولة
   // بيانات ربط الفوترة الإلكترونية (تُدخلها الشركة نفسها)
   einvoiceEnabled: z.boolean().nullish(),
   einvoiceEnv: z.enum(['preprod', 'production']).nullish(),
@@ -75,6 +76,20 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
       clean.einvoiceProvider = country.provider;
     } else {
       delete clean.countryCode; // لا نلمس إعداد الدولة إن لم يُرسَل
+    }
+    // تجاوز العملة (دولار/يورو): يغلب عملة الدولة، والدولة تبقى للضريبة والفوترة.
+    // القيمة تؤخذ من الطلب إن أُرسلت، وإلا من المحفوظ — كي لا يمحو حفظٌ عاديّ تجاوزاً قائماً.
+    {
+      const existing = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currencyOverride: true, countryCode: true } });
+      const sent = 'currencyOverride' in (req.body ?? {});
+      const override = sent ? (data.currencyOverride || null) : (existing?.currencyOverride ?? null);
+      clean.currencyOverride = override;
+      if (override && OVERRIDE_CURRENCIES[override]) {
+        clean.currency = OVERRIDE_CURRENCIES[override].currency;
+      } else if (!data.countryCode && sent) {
+        // أُزيل التجاوز دون تغيير الدولة ⇒ نرجع لعملة الدولة المحفوظة
+        clean.currency = getCountryTax(existing?.countryCode).currency;
+      }
     }
     const company = await prisma.companySettings.upsert({
       where: { tenantId: tid },

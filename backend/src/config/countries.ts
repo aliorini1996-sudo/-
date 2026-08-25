@@ -70,6 +70,25 @@ export const COUNTRY_TAX: Record<string, CountryTax> = {
   ZA: { code: 'ZA', currency: 'ZAR', currencyDecimals: 2, defaultVatPct: 15, provider: 'none' },
 };
 
+// عملات تشغيل دولية يجوز للشركة اختيارها بدل عملة دولتها (قائمة موثوقة —
+// «لا نثق بقيم العميل»): الدولة تبقى مرجع الضريبة والفوترة، والعملة وحدها تتبدّل.
+export const OVERRIDE_CURRENCIES: Record<string, { currency: string; currencyDecimals: number }> = {
+  USD: { currency: 'USD', currencyDecimals: 2 },
+  EUR: { currency: 'EUR', currencyDecimals: 2 },
+};
+
+// خانات العملة من رمزها مباشرة — يغلب خانات الدولة عند تجاوز العملة
+// (شركة كويتية بعملة دولار: الفاتورة بخانتين لا ثلاث)
+const THREE_DECIMAL = new Set(['KWD', 'BHD', 'OMR', 'TND', 'JOD', 'LYD']);
+const ZERO_DECIMAL = new Set(['IQD', 'LBP', 'SYP', 'DJF', 'KMF', 'IDR', 'VND', 'IRR', 'XOF', 'XAF', 'UGX']);
+export function currencyDecimalsOf(currency?: string | null): number {
+  if (!currency) return 2;
+  const c = currency.toUpperCase();
+  if (THREE_DECIMAL.has(c)) return 3;
+  if (ZERO_DECIMAL.has(c)) return 0;
+  return 2;
+}
+
 export const DEFAULT_COUNTRY = 'SA';
 
 // يعيد إعداد ضريبة الدولة (يرجع السعودية لأي رمز غير معروف)
