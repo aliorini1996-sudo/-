@@ -20,6 +20,7 @@ const createTenantSchema = z.object({
   maxBranches: z.number().int().min(1).nullable().optional(),    // مطاعم: عدد الفروع
   erpEnabled: z.boolean().optional(),          // صلاحية ربط ERP (يمنحها المالك حسب الاشتراك)
   petroappEnabled: z.boolean().optional(),     // صلاحية ربط بترو آب (يمنحها المالك حسب الاشتراك)
+  hatifEnabled: z.boolean().optional(),        // ميزة ارقام العمل وربط هاتف (يمنحها المالك حسب الاشتراك)
   subscriptionEndsAt: z.string().optional(), // ISO date — فارغ = غير محدود
   notes: z.string().optional(),
   // بيانات أدمن الشركة الأول
@@ -35,6 +36,7 @@ const updateTenantSchema = z.object({
   maxAdminUsers: z.number().int().min(1).nullable().optional(),
   erpEnabled: z.boolean().optional(),
   petroappEnabled: z.boolean().optional(),
+  hatifEnabled: z.boolean().optional(),
   warehouseEnabled: z.boolean().optional(),
   receivablesSummaryEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
@@ -106,6 +108,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           maxBranches: body.maxBranches ?? null,
           erpEnabled: body.erpEnabled ?? false,
           petroappEnabled: body.petroappEnabled ?? false,
+          hatifEnabled: body.hatifEnabled ?? false,
           subscriptionEndsAt: body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null,
           notes: body.notes,
         } as any,

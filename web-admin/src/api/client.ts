@@ -163,6 +163,19 @@ export const petroappApi = {
   report: (from?: string, to?: string) => api.get('/petroapp/report', { params: { from, to } }),
 };
 
+export const workNumbersApi = {
+  settings: () => api.get('/work-numbers/settings'),
+  saveSettings: (data: unknown) => api.put('/work-numbers/settings', data),
+  test: () => api.post('/work-numbers/test'),
+  sync: () => api.post('/work-numbers/sync'),
+  list: () => api.get('/work-numbers'),
+  add: (e164: string, label?: string) => api.post('/work-numbers', { e164, label }),
+  assign: (id: string, salesRepId: string) => api.post(`/work-numbers/${id}/assign`, { salesRepId }),
+  release: (id: string) => api.post(`/work-numbers/${id}/release`),
+  remove: (id: string) => api.delete(`/work-numbers/${id}`),
+  calls: (from?: string, to?: string) => api.get('/work-numbers/calls', { params: { from, to } }),
+};
+
 // إدارة الشركات — لمالك المنصّة (السوبر أدمن)
 export const tenantApi = {
   list: () => api.get('/tenants'),

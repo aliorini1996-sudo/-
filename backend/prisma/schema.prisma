@@ -37,6 +37,7 @@ model Tenant {
   maxBranches               Int? // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
   erpEnabled                Boolean   @default(false) // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
   petroappEnabled           Boolean   @default(false) // صلاحية ربط بترو آب — يفعّلها المالك لكل شركة حسب الاشتراك
+  hatifEnabled              Boolean   @default(false) // ميزة أرقام العمل وربط هاتف — يفعّلها المالك لكل شركة حسب الاشتراك
   warehouseEnabled          Boolean   @default(false) // مخزون الشركة (المستودع المركزيّ) — يُفعّله المالك لكل شركة (طرح مدروس)
   receivablesSummaryEnabled Boolean   @default(false) // سطر «إجمالي مديونية العملاء المُسنَدين (بلا تكرار)» في تقرير المديونيات — يُفعّله المالك لكل شركة (طرح محدود)
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
@@ -56,6 +57,9 @@ model Tenant {
   settings            CompanySettings?
   erpIntegration      ErpIntegration?
   petroappIntegration PetroappIntegration?
+  telephonyIntegration TelephonyIntegration?
+  workChannels        WorkChannel[]
+  callLogs            CallLog[]
   zatcaEgs            ZatcaEgs?
   erpSyncLogs         ErpSyncLog[]
   vanLoads            VanLoad[]
@@ -193,6 +197,7 @@ model SalesRep {
 
   // Sales permissions
   canCreateInvoice Boolean @default(true)
+  workChannel      WorkChannel? // رقم العمل المُسنَد (يملكه المستأجر لا المندوب — يعود للمخزون عند الاستقالة)
   canSellOnCredit  Boolean @default(true)
   canSellInCash    Boolean @default(true)
   canEditInvoice   Boolean @default(false)
@@ -839,6 +844,78 @@ model FuelTransaction {
   @@index([tenantId, occurredAt])
   @@index([tenantId, salesRepId, occurredAt])
   @@map("fuel_transactions")
+}
+
+/// تكامل هاتف (أرقام العمل) — إعدادات المزوّد لكل شركة على نمط ErpIntegration.
+/// provider=manual: الشركة تُدخل أرقامها يدوياً بلا مزوّد (صفر كلفة) — وهو وضع M0 الافتراضي.
+/// provider=hatif: مفاتيح OAuth لحساب الشركة لدى هاتف (api.voxa.sa) — لا تُعاد للواجهة بعد الحفظ.
+model TelephonyIntegration {
+  tenantId      String    @id
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider      String    @default("manual") // manual | hatif
+  baseUrl       String    @default("https://api.voxa.sa")
+  clientId      String?
+  clientSecret  String?
+  // سرّ الويبهوك في المسار نفسه (عقد هاتف بلا توقيع HMAC موثّق) — عشوائي لكل شركة
+  webhookSecret String    @default(uuid())
+  status        String    @default("PENDING") // PENDING | OK | ERROR
+  lastSyncAt    DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("telephony_integrations")
+}
+
+/// رقم عمل مؤسسي — كيان يملكه المستأجر لا المندوب: يُسنَد ويُحرَّر، وعلاقة العميل
+/// تبقى عند الشركة بعد استقالة المندوب (جوهر الميزة).
+model WorkChannel {
+  id                String    @id @default(uuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  e164              String // ‎+9665XXXXXXXX — مُطبَّع عند الكتابة دائماً
+  label             String? // «الرياض ١» · «مندوب القصيم»
+  provider          String    @default("manual") // manual | hatif
+  providerChannelId String? // channel.id عند هاتف — يُمرَّر في كل إرسال
+  kind              String    @default("voice") // voice | whatsapp | both
+  isActive          Boolean   @default(true)
+  assignedRepId     String?   @unique @map("assigned_rep_id") // null = في المخزون حرّاً؛ فريد ⇒ مندوب واحد لقناة واحدة (المندوب لمستأجر واحد فالفريد العالمي يكافئ المركّب)
+  assignedRep       SalesRep? @relation(fields: [assignedRepId], references: [id], onDelete: SetNull)
+  assignedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  calls             CallLog[]
+
+  @@unique([tenantId, e164])
+  @@index([tenantId, isActive])
+  @@map("work_channels")
+}
+
+/// سجلّ مكالمة من ويبهوك المزوّد — salesRepId لقطة وقت الحدث (لا تتغيّر بإعادة
+/// إسناد القناة لاحقاً)، والقيد الفريد على providerCallId حصانة تكرار الويبهوك.
+model CallLog {
+  id             String       @id @default(uuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workChannelId  String?
+  workChannel    WorkChannel? @relation(fields: [workChannelId], references: [id], onDelete: SetNull)
+  salesRepId     String?
+  customerId     String?
+  direction      String // IN | OUT | MISSED
+  fromE164       String
+  toE164         String
+  startedAt      DateTime
+  durationSec    Int          @default(0)
+  recordingUrl   String? // رابط عند المزوّد — لا نخزّن الصوت عندنا (تقليل سطح البيانات)
+  transcript     String?
+  aiSummary      String?
+  providerCallId String
+  createdAt      DateTime     @default(now())
+
+  @@unique([tenantId, providerCallId])
+  @@index([tenantId, salesRepId, startedAt])
+  @@index([tenantId, customerId, startedAt])
+  @@map("call_logs")
 }
 
 model Notification {

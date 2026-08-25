@@ -35,6 +35,7 @@ import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
 import petroappRouter from './routes/petroapp';
+import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
@@ -97,6 +98,9 @@ app.use('/api/whatsapp', whatsappWebhookRouter);
 // webhook ميسر — قبل محدد المعدل: ميسر لا يعيد الارسال الا على غير 2xx فلا نضيع اشعار دفع على 429
 app.use('/api/payments/webhook', paymentsWebhookRouter);
 
+// webhook هاتف (ما بعد المكالمة) — قبل محدد المعدل لنفس السبب: 429 يضيع الاشعار او يغرقنا باعادة المحاولة
+app.use('/api/telephony/webhook', telephonyWebhookRouter);
+
 // جسر واتساب ويب — بحدّه الخاص السخيّ (السحب الدوري + لوحة المالك من نفس الـIP المنزلي)
 app.use('/api/wa-bridge', bridgeLimiter, waBridgeRouter);
 
@@ -124,6 +128,7 @@ app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/petroapp', petroappRouter);
+app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);

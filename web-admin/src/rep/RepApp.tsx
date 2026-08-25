@@ -10,7 +10,7 @@ import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
-  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel,
+  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal } from './invoiceCalc';
@@ -26,7 +26,7 @@ import { useT, useTr } from '../i18n/strings';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
 
 interface RepUser {
@@ -122,6 +122,89 @@ function RepLogin({ onLogin, onBack }: { onLogin: (token: string, user: RepUser)
 }
 
 // ============ الرئيسية ============
+
+// ═══ شاشة «رقم عملي» (تكامل هاتف) — تظهر فقط حين تفعّل الشركة الميزة ═══
+
+interface WorkNumSummary {
+  enabled: boolean;
+  channel?: { e164: string; label?: string | null; kind: string } | null;
+  lastCalls?: { direction: string; fromE164: string; toE164: string; startedAt: string; durationSec: number; aiSummary?: string | null }[];
+}
+
+function RepWorkNumber() {
+  const tr = useTr();
+  const [sum, setSum] = useState<WorkNumSummary | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await repApi.get('/work-numbers/rep/summary');
+        if (cancelled) return;
+        setSum(data.data as WorkNumSummary);
+        await cacheSet('rep-worknum-summary', data.data);
+      } catch {
+        const cached = await cacheGet<WorkNumSummary>('rep-worknum-summary');
+        if (!cancelled && cached?.data) setSum(cached.data);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!sum) return <div className="p-6 text-center text-sm text-gray-400">{tr('يحمل')}…</div>;
+  if (!sum.enabled) return <div className="p-6 text-center text-sm text-gray-400">{tr('ميزة ارقام العمل غير مفعلة لشركتك')}</div>;
+
+  const copy = () => {
+    if (!sum.channel) return;
+    navigator.clipboard?.writeText(sum.channel.e164);
+    setCopied(true); setTimeout(() => setCopied(false), 1500);
+  };
+  const dirIcon = (d: string) => d === 'OUT' ? <PhoneOutgoing size={15} className="text-blue-600" /> : d === 'MISSED' ? <PhoneMissed size={15} className="text-red-500" /> : <PhoneIncoming size={15} className="text-green-600" />;
+  const mins = (s: number) => (s >= 60 ? `${Math.floor(s / 60)}${tr('د')} ${s % 60}${tr('ث')}` : `${s}${tr('ث')}`);
+
+  return (
+    <div className="p-4 space-y-4 overflow-y-auto h-full pb-24">
+      <div className="bg-gradient-to-l from-[#0e4f46] to-[#17877a] rounded-3xl p-5 text-white">
+        <p className="text-xs opacity-80">{tr('رقم عملك — اعطه لعملائك')}</p>
+        {sum.channel ? (
+          <>
+            <button onClick={copy} className="text-2xl font-bold mt-1 tracking-wide" dir="ltr">{sum.channel.e164}</button>
+            <p className="text-[10px] opacity-70 mt-1">{copied ? tr('نسخ') : tr('اضغط الرقم لنسخه')}{sum.channel.label ? ` · ${sum.channel.label}` : ''}</p>
+          </>
+        ) : (
+          <p className="text-sm font-bold mt-1">{tr('لم يسند لك رقم بعد — اطلب من ادارتك')}</p>
+        )}
+      </div>
+
+      <div>
+        <p className="text-[#1F1A13] font-bold text-sm mb-2">{tr('اخر المكالمات')}</p>
+        {sum.lastCalls?.length ? (
+          <div className="space-y-2">
+            {sum.lastCalls.map((c, i) => (
+              <div key={i} className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  {dirIcon(c.direction)}
+                  <div>
+                    <p className="text-sm font-semibold text-[#1F1A13]" dir="ltr">{c.direction === 'OUT' ? c.toE164 : c.fromE164}</p>
+                    {c.aiSummary && <p className="text-[10px] text-gray-400 max-w-[200px] truncate">{c.aiSummary}</p>}
+                  </div>
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-[#6E6557]">{mins(c.durationSec)}</p>
+                  <p className="text-[10px] text-gray-400">{formatDate(c.startedAt)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">{tr('لا مكالمات بعد — تظهر تلقائيا بعد ربط شركتك بهاتف')}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 // ═══ شاشة الوقود (بترو آب) — تظهر فقط حين تربط الشركة حسابها ═══
 
@@ -255,7 +338,7 @@ function RepFuel() {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -392,6 +475,7 @@ function RepHome({ user, onQuick, fuelOn }: { user: RepUser; onQuick: (s: Screen
           {quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
           {quick(tr('العملاء'), Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
           {fuelOn && quick(tr('الوقود'), Fuel, 'text-blue-600', 'bg-blue-50 border-blue-100', 'fuel')}
+          {workNumOn && quick(tr('رقم عملي'), PhoneCall, 'text-teal-700', 'bg-teal-50 border-teal-100', 'worknum')}
         </div>
       </div>
     </div>
@@ -1715,6 +1799,7 @@ export default function RepApp() {
   const [docBack, setDocBack] = useState<'customerDetail' | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [fuelOn, setFuelOn] = useState(false); // ربط بترو آب مفعّل لشركة المندوب؟
+  const [workNumOn, setWorkNumOn] = useState(false); // ميزة أرقام العمل (هاتف) مفعّلة؟
   const [pending, setPending] = useState(0);       // مستندات أوف‑لاين بانتظار الرفع
   const [rejected, setRejected] = useState(0);     // مستندات رفضها الخادم (تحتاج مراجعة)
   const [syncing, setSyncing] = useState(false);
@@ -1826,6 +1911,17 @@ export default function RepApp() {
       } catch {
         const cached = await cacheGet<boolean>('rep-fuel-on');
         if (cached?.data) setFuelOn(true);
+      }
+    })();
+    // ميزة أرقام العمل (هاتف) — نفس نمط زرّ الوقود: فشل الفحص يخفي الزرّ فقط
+    (async () => {
+      try {
+        const { data } = await repApi.get('/work-numbers/rep/summary', { background: true });
+        const on = !!(data?.data?.enabled);
+        setWorkNumOn(on); await cacheSet('rep-worknum-on', on);
+      } catch {
+        const cached = await cacheGet<boolean>('rep-worknum-on');
+        if (cached?.data) setWorkNumOn(true);
       }
     })();
     // تخزين دائم يقلّل طرد المتصفّح لبيانات الأوف‑لاين (أفضل جهد)
@@ -1948,12 +2044,13 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
                 {screen === 'fuel' && <RepFuel />}
+                {screen === 'worknum' && <RepWorkNumber />}
               </div>
 
               {/* Bottom nav */}
