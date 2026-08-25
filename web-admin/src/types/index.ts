@@ -34,6 +34,7 @@ export interface Tenant {
   erpEnabled?: boolean;          // صلاحية ربط ERP (يتحكّم بها المالك)
   petroappEnabled?: boolean;     // صلاحية ربط بترو آب (يتحكّم بها المالك)
   hatifEnabled?: boolean;        // ميزة أرقام العمل وربط هاتف (يتحكّم بها المالك)
+  catalogEnabled?: boolean;      // ميزة منيو المنتجات العام (يتحكّم بها المالك)
   warehouseEnabled?: boolean;    // مخزون الشركة (المستودع) — يُفعّله المالك لكل شركة
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   subscriptionEndsAt?: string | null;

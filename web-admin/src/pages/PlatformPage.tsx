@@ -583,6 +583,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [erpEnabled, setErpEnabled] = useState(!!tenant.erpEnabled);
   const [petroappEnabled, setPetroappEnabled] = useState(!!tenant.petroappEnabled);
   const [hatifEnabled, setHatifEnabled] = useState(!!tenant.hatifEnabled);
+  const [catalogEnabled, setCatalogEnabled] = useState(!!tenant.catalogEnabled);
   const [warehouseEnabled, setWarehouseEnabled] = useState(!!tenant.warehouseEnabled);
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
@@ -597,6 +598,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       erpEnabled,
       petroappEnabled,
       hatifEnabled,
+      catalogEnabled,
       warehouseEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
@@ -684,6 +686,10 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={hatifEnabled} onChange={e => setHatifEnabled(e.target.checked)} />
               {tr('تفعيل ميزة ارقام العمل وربط هاتف لهذه الشركة')}
+            </label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={catalogEnabled} onChange={e => setCatalogEnabled(e.target.checked)} />
+              {tr('تفعيل ميزة منيو المنتجات لهذه الشركة')}
             </label>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={warehouseEnabled} onChange={e => setWarehouseEnabled(e.target.checked)} />

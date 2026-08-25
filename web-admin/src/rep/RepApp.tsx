@@ -376,7 +376,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -517,8 +517,8 @@ function RepHome({ user, onQuick, fuelOn, workNumOn }: { user: RepUser; onQuick:
         </div>
       </div>
 
-      {/* منيو المنتجات — رابط عام يشاركه المندوب مع عملائه (فتح او نسخ) */}
-      <MenuLinkCard repId={user.id} />
+      {/* منيو المنتجات — ميزة اشتراك يفعلها المالك (كنمط ERP)؛ البطاقة تظهر فقط عند التفعيل */}
+      {menuOn && <MenuLinkCard repId={user.id} />}
     </div>
   );
 }
@@ -2114,7 +2114,7 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}

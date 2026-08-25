@@ -20,7 +20,7 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
     if (!UUID_RE.test(tenantId) || !UUID_RE.test(repId)) { res.status(404).json({ success: false }); return; }
 
     const [tenant, company, rep] = await Promise.all([
-      prisma.tenant.findUnique({ where: { id: tenantId }, select: { isActive: true } }),
+      prisma.tenant.findUnique({ where: { id: tenantId }, select: { isActive: true, catalogEnabled: true } }),
       prisma.companySettings.findUnique({
         where: { tenantId },
         select: { name: true, logo: true, primaryColor: true, currency: true, phone: true },
@@ -30,7 +30,8 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
         select: { id: true, name: true, phone: true },
       }),
     ]);
-    if (!tenant?.isActive || !company || !rep) { res.status(404).json({ success: false }); return; }
+    // بوابة الاشتراك (كنمط ERP): الميزة يفعلها المالك لكل شركة — الإطفاء = الرابط غير موجود
+    if (!tenant?.isActive || !tenant.catalogEnabled || !company || !rep) { res.status(404).json({ success: false }); return; }
 
     // رقم العمل المؤسسي أولاً (تكامل هاتف) — يبقي علاقة العميل عند الشركة
     const channel = await prisma.workChannel.findFirst({
