@@ -7,8 +7,9 @@ import { adminScopeEnabled } from '../services/adminScope';
 import { reattributeFuel, syncPetroappTenant, testPetroappConnection } from '../services/petroapp';
 
 /**
- * تكامل بترو آب — متاح لكل شركة بلا بوّابة اشتراك (قرار المالك: كل مشترك يربط
- * حسب احتياجه). الإدارة تُدخل مفاتيح حساب شركتها لدى بترو آب وتختار الخدمات.
+ * تكامل بترو آب — ميزة اشتراك يفعّلها مالك المنصّة لكل شركة (كنمط ERP تماماً):
+ * علم petroappEnabled على الشركة، وعند الإطفاء تُخفى الميزة وتُرفض طلباتها.
+ * الإدارة تُدخل مفاتيح حساب شركتها لدى بترو آب وتختار الخدمات حسب احتياجها.
  */
 const router = Router();
 
@@ -22,6 +23,8 @@ router.get('/rep/summary', authenticate, requireSalesRep, async (req: AuthReques
   try {
     const tid = tenantId(req);
     const repId = req.user!.id;
+    const gate = await prisma.tenant.findUnique({ where: { id: tid }, select: { petroappEnabled: true } });
+    if (!gate?.petroappEnabled) { res.json({ success: true, data: { enabled: false } }); return; }
     const integ = await prisma.petroappIntegration.findUnique({
       where: { tenantId: tid },
       select: { enabled: true, apiKey: true, stationsJson: true, lastSyncAt: true },
@@ -76,6 +79,18 @@ router.get('/rep/summary', authenticate, requireSalesRep, async (req: AuthReques
 // ═══ مسارات الإدارة ═══
 
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageCompanySettings'));
+
+// بوابة الاشتراك (كنمط ERP): الميزة متاحة فقط للشركات التي فعّل لها المالك الصلاحية
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { petroappEnabled: true } });
+    if (!t?.petroappEnabled) {
+      res.status(403).json({ success: false, code: 'PETROAPP_NOT_ALLOWED', message: 'ميزة ربط بترو اب غير مفعلة لاشتراك شركتك تواصل مع مزود الخدمة لتفعيلها' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+});
 
 /**
  * كحارس ERP: إعدادات التكامل شأن على مستوى الشركة كاملة (مفاتيح حساب وقود بأرصدة

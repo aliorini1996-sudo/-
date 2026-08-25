@@ -268,8 +268,10 @@ async function syncStations(cfg: PetroappConfig, integ: Integration): Promise<St
  * والحالة النهائية OK إن نجحت أي خطوة، وERROR فقط إن فشل كل شيء.
  */
 export async function syncPetroappTenant(tenantId: string): Promise<{ ok: boolean; steps: StepResult[] }> {
-  const integ = await prisma.petroappIntegration.findUnique({ where: { tenantId } });
+  const integ = await prisma.petroappIntegration.findUnique({ where: { tenantId }, include: { tenant: { select: { petroappEnabled: true } } } });
   if (!integ || !integ.enabled || !integ.apiKey) return { ok: false, steps: [{ step: 'config', count: 0, error: 'غير مفعّل أو بلا مفتاح' }] };
+  // بوابة الاشتراك: المالك أطفأ الميزة ⇒ لا مزامنة حتى لو بقي الربط محفوظاً
+  if (!integ.tenant.petroappEnabled) return { ok: false, steps: [{ step: 'config', count: 0, error: 'الميزة غير مفعلة لاشتراك الشركة' }] };
   const cfg: PetroappConfig = { baseUrl: integ.baseUrl, apiKey: integ.apiKey };
 
   const steps: StepResult[] = [];
@@ -334,7 +336,8 @@ async function syncAllTenants() {
   syncing = true;
   try {
     const integrations = await prisma.petroappIntegration.findMany({
-      where: { enabled: true, apiKey: { not: null } },
+      // المجدول يلتقط فقط شركات فعّل المالك ميزتها — الإطفاء يوقف المزامنة فوراً
+      where: { enabled: true, apiKey: { not: null }, tenant: { petroappEnabled: true } },
       select: { tenantId: true },
     });
     for (const { tenantId } of integrations) {

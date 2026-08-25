@@ -19,6 +19,7 @@ const createTenantSchema = z.object({
   maxPosStations: z.number().int().min(1).nullable().optional(), // مطاعم: عدد نقاط البيع (null/غياب = غير محدود)
   maxBranches: z.number().int().min(1).nullable().optional(),    // مطاعم: عدد الفروع
   erpEnabled: z.boolean().optional(),          // صلاحية ربط ERP (يمنحها المالك حسب الاشتراك)
+  petroappEnabled: z.boolean().optional(),     // صلاحية ربط بترو آب (يمنحها المالك حسب الاشتراك)
   subscriptionEndsAt: z.string().optional(), // ISO date — فارغ = غير محدود
   notes: z.string().optional(),
   // بيانات أدمن الشركة الأول
@@ -33,6 +34,7 @@ const updateTenantSchema = z.object({
   maxSalesReps: z.number().int().min(1).nullable().optional(),
   maxAdminUsers: z.number().int().min(1).nullable().optional(),
   erpEnabled: z.boolean().optional(),
+  petroappEnabled: z.boolean().optional(),
   warehouseEnabled: z.boolean().optional(),
   receivablesSummaryEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
@@ -103,6 +105,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           maxPosStations: body.maxPosStations ?? null,
           maxBranches: body.maxBranches ?? null,
           erpEnabled: body.erpEnabled ?? false,
+          petroappEnabled: body.petroappEnabled ?? false,
           subscriptionEndsAt: body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null,
           notes: body.notes,
         } as any,
