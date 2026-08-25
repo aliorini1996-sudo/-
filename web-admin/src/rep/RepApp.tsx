@@ -922,6 +922,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const canSellAnyType = canSellOnCredit || canSellInCash;
   const [type, setType] = useState<'CASH' | 'CREDIT'>(canSellOnCredit ? 'CREDIT' : 'CASH');
   const [returnReason, setReturnReason] = useState<'NORMAL' | 'DAMAGED' | 'EXCHANGE'>('NORMAL'); // سبب المرتجع
+  const [deliveryDate, setDeliveryDate] = useState(''); // تاريخ التسليم الاختياري — فارغ = لا يظهر بالفاتورة
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
@@ -1045,6 +1046,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // الاسعار شاملة كما اعلنت للعميل — المحرك (عميلا وخادما) يشتق الضريبة داخليا
       pricesIncludeTax: true,
       items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
+      ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
       clientRef, clientCreatedAt, // idempotency + العمل دون اتصال
     };
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
@@ -1053,7 +1055,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       const res = await repApi.post('/invoices', payload);
       const inv = res.data.data;
       onDone({
-        kind: 'invoice', number: inv.number, date: inv.invoiceDate, type, isReturn,
+        kind: 'invoice', number: inv.number, date: inv.invoiceDate, deliveryDate: inv.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
         company, customer, repName, items: printItems,
         subtotal, discount, tax, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
@@ -1070,7 +1072,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
         const paid = type === 'CASH' && !isReturn ? total : 0;
         onDone({
-          kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, type, isReturn,
+          kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, deliveryDate: deliveryDate || undefined, type, isReturn,
           company, customer, repName, items: printItems,
           subtotal, discount, tax, total,
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
@@ -1246,6 +1248,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
               <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')} {(() => { const ps = [...new Set(lines.map(l => Number(l.taxPct)))]; return ps.length === 1 ? `${ps[0]}%` : tr('نسب متعددة'); })()}</span><span>{formatCurrency(tax)}</span></div>
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>{tr('الإجمالي')}</span><span>{formatCurrency(total)}</span></div>
             </div>
+            {!isReturn && (
+              <div className="bg-white rounded-xl p-3 mt-2 border border-gray-100">
+                <label className="text-[10px] text-gray-400 block mb-1">{tr('تاريخ التسليم (اختياري — لا يظهر بالفاتورة إن تُرك فارغاً)')}</label>
+                <div className="flex items-center gap-2">
+                  <input type="date" className="input !py-1.5 text-sm flex-1" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
+                  {deliveryDate && <button type="button" className="text-xs text-red-500" onClick={() => setDeliveryDate('')}>{tr('مسح')}</button>}
+                </div>
+              </div>
+            )}
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
           </div>
 

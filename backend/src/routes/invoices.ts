@@ -40,6 +40,7 @@ const createInvoiceSchema = z.object({
   customerClientRef: z.string().uuid().optional(),
   salesRepId: z.string().optional(),
   invoiceDate: z.string().optional(),
+  deliveryDate: z.string().optional(), // تاريخ التسليم الاختياري (YYYY-MM-DD)
   type: z.enum(['CASH', 'CREDIT', 'RETURN']).default('CREDIT'),
   // سبب الإرجاع (يُستخدم فقط عند type=RETURN): عادي/تالف/استبدال
   returnReason: z.enum(['NORMAL', 'DAMAGED', 'EXCHANGE']).optional(),
@@ -279,6 +280,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const finalItems = body.items.map((src, idx) => ({ ...src, ...calc.items[idx] }));
     const isReturn = body.type === 'RETURN';
     const docDate = body.invoiceDate ? new Date(body.invoiceDate) : undefined;
+    // تاريخ التسليم: اختياري — القيمة غير المفهومة تُهمل بصمت (عرض لا محاسبة)
+    const deliveryDate = body.deliveryDate ? new Date(body.deliveryDate) : undefined;
+    const deliveryOk = deliveryDate && !Number.isNaN(deliveryDate.getTime()) ? deliveryDate : undefined;
     const creditCheck = body.type === 'CREDIT' && Number(customer.balance) + total > Number(customer.creditLimit) && Number(customer.creditLimit) > 0;
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
@@ -306,6 +310,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             ),
           }),
           ...(docDate && { invoiceDate: docDate }),
+          ...(deliveryOk && { deliveryDate: deliveryOk }),
           dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
           notes: body.notes,
           pricesIncludeTax: body.pricesIncludeTax,

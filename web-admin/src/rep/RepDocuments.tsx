@@ -51,6 +51,7 @@ export interface InvoiceDoc {
   date: string;
   type: 'CASH' | 'CREDIT';
   isReturn?: boolean;
+  deliveryDate?: string; // تاريخ التسليم — يُعرض ويُطبع فقط إن حُدد
   company?: Company | null;
   customer: DocCustomer;
   repName: string;
@@ -283,6 +284,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
           <InfoBox label={tr('وقت الإصدار')} value={formatTime(doc.date)} />
           {!doc.isReturn && <InfoBox label={tr('النوع')} value={doc.type === 'CASH' ? tr('نقدي') : tr('آجل')} />}
+          {doc.deliveryDate && <InfoBox label={tr('تاريخ التسليم')} value={formatDate(doc.deliveryDate)} />}
           <InfoBox label={tr('المندوب')} value={doc.repName} />
         </div>
         <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
@@ -753,6 +755,7 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     kind: 'invoice',
     number: inv.number,
     date: inv.invoiceDate,
+    deliveryDate: inv.deliveryDate ?? undefined,
     type: inv.type === 'RETURN' ? 'CREDIT' : inv.type,
     isReturn: inv.type === 'RETURN',
     company: company ?? null,

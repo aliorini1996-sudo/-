@@ -97,6 +97,7 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
     <div class="sep"></div>
     <div class="row"><span>رقم</span><span class="b">${esc(doc.number)}</span></div>
     <div class="row"><span>التاريخ</span><span>${dt(doc.date)}</span></div>
+    ${doc.deliveryDate ? `<div class="row"><span>تاريخ التسليم</span><span>${dt(doc.deliveryDate).split(' ')[0]}</span></div>` : ''}
     <div class="row"><span>المندوب</span><span>${esc(doc.repName)}</span></div>
     <div class="row"><span>العميل</span><span>${esc(doc.customer.name)}</span></div>
     ${doc.customer.taxNumber ? `<div class="row"><span>ر.ضريبي</span><span>${esc(doc.customer.taxNumber)}</span></div>` : ''}

@@ -39,6 +39,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
   const [discountPct, setDiscountPct] = useState(0);
   const [notes, setNotes] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState(''); // تاريخ التسليم الاختياري — لا يظهر بالفاتورة إن تُرك فارغاً
   const [lines, setLines] = useState<LineItem[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [salesRepId, setSalesRepId] = useState('');
@@ -83,6 +84,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, type, isReturn: false,
         company: company ?? null, customer: selectedCustomer as Customer, repName,
         items: lines.map(l => ({ name: l.productName, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: l.lineTotal })),
+        deliveryDate: deliveryDate || undefined,
         subtotal, discount: totalDiscount, tax: taxTotal, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
       };
@@ -145,6 +147,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
       ...(invoiceDate && { invoiceDate }),
+      ...(deliveryDate && { deliveryDate }),
       items: lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
         discountPct: l.discountPct, taxPct: l.taxPct,
@@ -196,6 +199,10 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             <div>
               <label className="label">{tr('التاريخ')}</label>
               <input type="date" className="input" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} title={tr('اتركه فارغا لتاريخ اليوم')} />
+              </div>
+              <div>
+                <label className="label">{tr('تاريخ التسليم (اختياري)')}</label>
+                <input type="date" className="input" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} title={tr('لا يظهر بالفاتورة ان ترك فارغا')} />
             </div>
           </div>
 

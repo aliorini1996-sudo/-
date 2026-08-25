@@ -483,6 +483,7 @@ model Invoice {
   returnReason  String? // سبب الإرجاع (للمرتجعات): NORMAL | DAMAGED | EXCHANGE
   returnToStock Boolean   @default(true) // هل يعود المرتجع لمخزون السيارة؟ (الأدمن يتحكّم؛ التالف=لا افتراضياً)
   invoiceDate   DateTime  @default(now())
+  deliveryDate  DateTime? // تاريخ تسليم المنتج للعميل — يحدده المندوب اختيارياً ولا يُطبع إن غاب
   dueDate       DateTime?
   notes         String?
 
