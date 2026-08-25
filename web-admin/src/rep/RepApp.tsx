@@ -13,8 +13,9 @@ import {
   Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
-import { computeInvoiceTotals, roundDecimal } from './invoiceCalc';
+import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
+import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
 import { BrandIcon } from '../components/BrandLogo';
 import AppIntro from '../components/AppIntro';
@@ -1000,6 +1001,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       if (!perms?.canChangePrice) return;                                       // لا يملك تغيير السعر
       if (!perms?.canSellBelowPrice) v = Math.max(v || 0, c[i].refPrice);       // لا يبيع بأقل من السعر
     }
+    if (f === 'lineTotal') {
+      // تعديل إجمالي البند: يُشتق السعر الشامل عكسياً — بنفس صلاحيات السعر وحدوده
+      if (!perms?.canChangePrice) return;
+      const p = priceFromLineTotal(v, c[i].qty, c[i].discountPct, c[i].taxPct, true);
+      if (p === null) return;
+      c[i].unitPrice = perms?.canSellBelowPrice ? p : Math.max(p, c[i].refPrice);
+      setLines(c); return;
+    }
     c[i][f] = v; setLines(c);
   };
 
@@ -1207,16 +1216,26 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                         <label className="text-[10px] text-gray-400 flex items-center gap-0.5">
                           {tr(lbl)}{f === 'discountPct' && maxDisc > 0 && <span className="text-[#E15A30]">({tr('حد')} {maxDisc}%)</span>}
                         </label>
-                        <input type="number" step="any" inputMode="decimal" readOnly={locked} max={f === 'discountPct' ? maxDisc : undefined} min={0}
+                        <DecimalInput readOnly={locked} min={0}
                           className={`input text-center !py-1.5 text-sm ${locked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
-                          value={l[f]} onChange={e => upd(i, f, Number(e.target.value))} title={locked ? tr('غير مصرح لك بتعديل هذا الحقل') : undefined} />
+                          value={l[f]} onCommit={v => upd(i, f, v)} title={locked ? tr('غير مصرح لك بتعديل هذا الحقل') : undefined} />
                       </div>
                     );
                   })}
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
                   <span className="text-gray-400">{tr('منها ضريبة')}: {formatCurrency(repCalc.items[i]?.taxAmt ?? 0)}</span>
-                  <span className="font-bold text-[#E15A30]">{formatCurrency(repCalc.items[i]?.lineTotal ?? 0)}</span>
+                  {perms?.canChangePrice ? (
+                    <span className="inline-flex items-center gap-1">
+                      <DecimalInput min={0}
+                        className="input !py-1 !px-2 text-sm font-bold text-[#E15A30] w-28 text-center"
+                        title={tr('عدل الاجمالي وسينعكس على السعر الشامل')}
+                        value={repCalc.items[i]?.lineTotal ?? 0}
+                        onCommit={v => upd(i, 'lineTotal', v)} />
+                    </span>
+                  ) : (
+                    <span className="font-bold text-[#E15A30]">{formatCurrency(repCalc.items[i]?.lineTotal ?? 0)}</span>
+                  )}
                 </div>
               </div>
             ))}

@@ -4,7 +4,8 @@ import { invoiceApi, customerApi, productApi, salesRepApi, companyApi } from '..
 import { Customer, Product, SalesRep } from '../../types';
 import { formatCurrency } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
-import { computeInvoiceTotals } from '../../rep/invoiceCalc';
+import { computeInvoiceTotals, priceFromLineTotal } from '../../rep/invoiceCalc';
+import DecimalInput from '../DecimalInput';
 import { InvoiceDoc, Company } from '../../rep/RepDocuments';
 import { X, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -114,6 +115,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const updateLine = (idx: number, field: keyof LineItem, value: number) => {
     setLines(ls => ls.map((l, i) => {
       if (i !== idx) return l;
+      // تعديل الإجمالي مباشرة: يُشتق سعر الوحدة عكسياً ويبقى الإجمالي كما كُتب
+      // (لا يُعاد حسابه — وإلا حارب الحقلُ الكاتبَ أثناء الكتابة)
+      if (field === 'lineTotal') {
+        const p = priceFromLineTotal(value, l.qty, l.discountPct, l.taxPct, false);
+        return p === null ? l : { ...l, lineTotal: value, unitPrice: p };
+      }
       const updated = { ...l, [field]: value };
       return { ...updated, lineTotal: calcLine(updated.qty, updated.unitPrice, updated.discountPct, updated.taxPct) };
     }));
@@ -233,10 +240,10 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                         <p className="text-xs text-gray-400">{l.unit}</p>
                       </td>
                       <td><input type="number" className="input w-20 text-center" min="0.001" step="any" inputMode="decimal" value={l.qty} onChange={e => updateLine(i, 'qty', Number(e.target.value))} /></td>
-                      <td><input type="number" className="input w-24" min="0" step="any" inputMode="decimal" value={l.unitPrice} onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} /></td>
+                      <td><DecimalInput className="input w-24" min={0} value={Number(l.unitPrice.toFixed(6))} onCommit={v => updateLine(i, 'unitPrice', v)} /></td>
                       <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.discountPct} onChange={e => updateLine(i, 'discountPct', Number(e.target.value))} /></td>
                       <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.taxPct} onChange={e => updateLine(i, 'taxPct', Number(e.target.value))} /></td>
-                      <td className="font-semibold text-gray-800">{formatCurrency(l.lineTotal)}</td>
+                      <td><DecimalInput className="input w-28 font-semibold" min={0} title={tr('عدل الاجمالي وسينعكس على سعر الوحدة')} value={l.lineTotal} onCommit={v => updateLine(i, 'lineTotal', v)} /></td>
                     </tr>
                   ))}
                 </tbody>

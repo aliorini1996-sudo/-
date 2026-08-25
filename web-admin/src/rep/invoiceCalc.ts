@@ -145,3 +145,25 @@ export function computeInvoiceTotals(rawItems: CalcItemInput[], opts: CalcOption
 
   return { items, subtotal, discountAmt, taxAmt, total };
 }
+
+/**
+ * الاشتقاق العكسي: سعر الوحدة من إجمالي البند المكتوب يدوياً.
+ * لمن يملك صلاحية تعديل السعر: يتفاوض على الإجمالي فيُشتق الفردي —
+ * بلا تقريب على السعر المشتق (يبقى float كاملاً) كي يعيد المحرك إنتاج
+ * الإجمالي المكتوب نفسه بعد تقريبه، فلا تفترق الورقة عن السجل.
+ *
+ * الوضع الحصري (الأدمن، أسعار قبل الضريبة): T = qty×p×(1−d%)×(1+t%)
+ * الوضع الشامل (المندوب): السعر أصلاً شامل، T = qty×p×(1−d%)
+ * يعيد null عند مدخلات تكسر القسمة (كمية صفر أو خصم 100%).
+ */
+export function priceFromLineTotal(
+  lineTotal: number, qty: number, discountPct: number, taxPct: number,
+  pricesIncludeTax = false,
+): number | null {
+  if (!Number.isFinite(lineTotal) || lineTotal < 0) return null;
+  const discFactor = 1 - (discountPct || 0) / 100;
+  const taxFactor = pricesIncludeTax ? 1 : 1 + (taxPct || 0) / 100;
+  const divisor = qty * discFactor * taxFactor;
+  if (!Number.isFinite(divisor) || divisor <= 0) return null;
+  return lineTotal / divisor;
+}
