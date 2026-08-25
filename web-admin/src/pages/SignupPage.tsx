@@ -157,12 +157,12 @@ export default function SignupPage() {
                   value={phoneCountry}
                   onChange={e => setPhoneCountry(e.target.value)}
                 >
-                  <optgroup label={lang === 'ar' ? 'الدول العربية' : lang === 'fr' ? 'Pays arabes' : 'Arab countries'}>
+                  <optgroup label={lang === 'ar' ? 'الدول العربية' : lang === 'fr' ? 'Pays arabes' : lang === 'tr' ? 'Arap ülkeleri' : 'Arab countries'}>
                     {ARAB_DIAL.map(c => (
                       <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>
                     ))}
                   </optgroup>
-                  <optgroup label={lang === 'ar' ? 'دول أخرى' : lang === 'fr' ? 'Autres pays' : 'Other countries'}>
+                  <optgroup label={lang === 'ar' ? 'دول أخرى' : lang === 'fr' ? 'Autres pays' : lang === 'tr' ? 'Diğer ülkeler' : 'Other countries'}>
                     {WORLD_DIAL.map(c => (
                       <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>
                     ))}

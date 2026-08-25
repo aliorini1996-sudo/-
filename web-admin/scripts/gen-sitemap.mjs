@@ -96,10 +96,12 @@ const alt = (arPath) => {
   const ar = canon(ORIGIN + (arPath === '/' ? '/' : arPath));
   const en = canon(ORIGIN + '/en' + suffix);
   const fr = canon(ORIGIN + '/fr' + suffix);
+  const tr = canon(ORIGIN + '/tr' + suffix);
   return [
     `    <xhtml:link rel="alternate" hreflang="ar" href="${ar}"/>`,
     `    <xhtml:link rel="alternate" hreflang="en" href="${en}"/>`,
     `    <xhtml:link rel="alternate" hreflang="fr" href="${fr}"/>`,
+    `    <xhtml:link rel="alternate" hreflang="tr" href="${tr}"/>`,
     `    <xhtml:link rel="alternate" hreflang="x-default" href="${ar}"/>`,
   ].join('\n');
 };
@@ -117,13 +119,14 @@ async function main() {
   const posts = await effectivePosts();
   const urls = [];
 
-  // الصفحات التسويقية: نسخة عربية + /en + /fr، كلٌّ يحمل كل بدائل hreflang (ع/إ/فر)
+  // الصفحات التسويقية: نسخة عربية + /en + /fr + /tr، كلٌّ يحمل كل بدائل hreflang (ع/إ/فر/تر)
   for (const r of I18N_ROUTES) {
     const alternates = alt(r.p);
     const suffix = r.p === '/' ? '' : r.p;
     urls.push(urlEntry(ORIGIN + (r.p === '/' ? '/' : r.p), { freq: r.freq, priority: r.priority, alternates }));
     urls.push(urlEntry(ORIGIN + '/en' + suffix, { freq: r.freq, priority: r.priority, alternates }));
     urls.push(urlEntry(ORIGIN + '/fr' + suffix, { freq: r.freq, priority: r.priority, alternates }));
+    urls.push(urlEntry(ORIGIN + '/tr' + suffix, { freq: r.freq, priority: r.priority, alternates }));
   }
 
   // فهرس المدوّنة (عربي + /en + /fr مع hreflang)

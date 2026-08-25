@@ -222,6 +222,17 @@ export default function App() {
         <Route path="/en/pricing" element={<PricingPage />} />
         <Route path="/en/blog" element={<BlogIndexPage />} />
         <Route path="/en/blog/:slug" element={<BlogPostPage />} />
+        {/* النسخة التركية على /tr — سوق تركيا مع hreflang (المدونة تبقى ع/إ/فر — روابطها التركية تقود للإنجليزية) */}
+        <Route path="/tr" element={<LandingPage />} />
+        <Route path="/tr/about" element={<InfoPage pageKey="about" />} />
+        <Route path="/tr/terms" element={<InfoPage pageKey="terms" />} />
+        <Route path="/tr/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
+        <Route path="/tr/privacy" element={<InfoPage pageKey="privacy" />} />
+        <Route path="/tr/contact" element={<ContactPage />} />
+        <Route path="/tr/subscribe-request" element={<SubscriptionRequestPage />} />
+        <Route path="/tr/calculator" element={<LeakCalculatorPage />} />
+        <Route path="/tr/invoice-generator" element={<InvoiceGeneratorPage />} />
+        <Route path="/tr/pricing" element={<PricingPage />} />
         {/* النسخة الفرنسية على /fr — للأسواق الفرنكوفونية (المغرب العربي) مع hreflang */}
         <Route path="/fr" element={<LandingPage />} />
         <Route path="/fr/about" element={<InfoPage pageKey="about" />} />

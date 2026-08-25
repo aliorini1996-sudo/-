@@ -315,10 +315,22 @@ async function main() {
 <p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a></p>
 <p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application van sales</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
+    tr: {
+      title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Yazılımı',
+      desc: 'Suudi Arabistan Mısır ve Arap dünyasındaki dağıtımcılar için saha satış sistemi: vergi faturaları tahsilat araç stoku ve GPS takibi. 10 gün ücretsiz deneme.',
+      body: `<main><h1>FieldSales — Arap pazarları için saha satış ve dağıtım yönetimi</h1>
+<p>FieldSales dağıtım şirketleri için bir SaaS platformudur: saha temsilcileri mobil uygulamadan QR kodlu yapılandırılmış vergi faturaları keser, tahsilat yapar ve araç stokunu yönetir; yöneticiler canlı panolar, GPS takibi ve raporlar alır. Arapça, İngilizce, Fransızca ve Türkçe olarak 22 Arap ülkesinde kullanılabilir.</p>
+<ul><li>QR kodlu saha faturalama ve termal yazdırma</li><li>Tahsilat, cari hesap ve kredi limitli müşteri ekstreleri</li><li>Temsilci başına araç stoku ve canlı fark tespiti</li><li>GPS temsilci takibi ve rota planlama</li><li>Ürün kataloğu, fiyat listeleri ve ERP entegrasyonu</li></ul>
+<h2>İletişim ve abonelik talepleri</h2>
+<p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/tr/subscribe-request">Abonelik talebi gönderin</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
+<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/tr/about">Hakkında</a> · <a href="/tr/contact">İletişim</a></p></main>`,
+    },
   };
-  for (const L of ['en', 'fr']) {
+  // الرئيسية المترجمة: hreflang رباعي (ع/إ/فر/تر) — للتسويق فقط، والمدونة تبقى ثلاثية
+  const marketingHreflang = hreflangFor('/', [...LANGS, 'tr']);
+  for (const L of ['en', 'fr', 'tr']) {
     const canonical = canon(`${ORIGIN}/${L}`);
-    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang('/'), bodyHtml: homeMeta[L].body });
+    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: marketingHreflang, bodyHtml: homeMeta[L].body });
     writeRoute(`/${L}`, html);
     n++;
   }
@@ -735,7 +747,7 @@ ${PRICING_HTML}
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
   n++;
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية ع/إ/فر + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية ع/إ/فر/تر + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
 }
 
 await main();

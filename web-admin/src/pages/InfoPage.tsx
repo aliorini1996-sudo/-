@@ -4,6 +4,7 @@ import { siteContentApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
+import { defaultContentTr } from '../landing/defaultContentTr';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft } from 'lucide-react';
 import LanguageToggle from '../components/LanguageToggle';
@@ -108,10 +109,11 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
   const arPage = cmsPage && (cmsPage.body?.length || 0) > (defPage.body?.length || 0) ? cmsPage : defPage;
   const page = lang === 'en' ? defaultContentEn.pages[pageKey]
     : lang === 'fr' ? defaultContentFr.pages[pageKey]
+    : lang === 'tr' ? defaultContentTr.pages[pageKey]
     : arPage;
 
   const seo = PAGE_SEO[pageKey];
-  const m = lang === 'en' ? seo.en : lang === 'fr' ? seo.fr : seo.ar;
+  const m = lang === 'en' || lang === 'tr' ? seo.en : lang === 'fr' ? seo.fr : seo.ar; // tr: ميتا إنجليزية مؤقتاً والمحتوى تركي
   const home = pathForLocale('/', lang); // العودة للرئيسية بنفس اللغة الحالية
   const { canonical, alternates } = seoUrls(`/${seo.path}`, lang);
   useSeo({

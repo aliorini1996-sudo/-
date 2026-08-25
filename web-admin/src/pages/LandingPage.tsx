@@ -6,6 +6,7 @@ import { LANDING_TEMPLATE } from '../landing/landingTemplate';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
+import { defaultContentTr } from '../landing/defaultContentTr';
 import { useLang, type Lang } from '../i18n/lang';
 import { useCurrency, type Currency } from '../i18n/currency';
 import { seoUrls, pathForLocale } from '../i18n/locale';
@@ -50,6 +51,7 @@ function renderSocialSection(social: Record<string, string> = {}, lang: Lang = '
   if (!items) return '';
   const heading = lang === 'en' ? 'Follow us on social media'
     : lang === 'fr' ? 'Suivez-nous sur les réseaux sociaux'
+    : lang === 'tr' ? 'Sosyal medyada bizi takip edin'
     : 'تابعنا على مواقع التواصل';
   return `<section style="max-width:1200px; margin:0 auto; padding:6px 28px 64px; text-align:center;">
     <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">FOLLOW US</div>
@@ -87,6 +89,15 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       tool2Title: 'Générateur gratuit de factures fiscales',
       cta2: 'Créez gratuitement une facture fiscale QR en 30 secondes',
       note: '100 % gratuit sans inscription partagez sur WhatsApp',
+    },
+    tr: {
+      eyebrow: 'Ücretsiz araç Kendiniz görün',
+      h: 'Şirketiniz her ay ne kadar gelir kaybediyor?',
+      p: 'Gelir Kaçağı Hesaplayıcı kayıp faturalar belgelenmemiş tahsilatlar ve araç stoku açıkları arasında kaybolanı bir dakikada gösterir rakamlarınızı girin ve gerçeği görün',
+      cta: 'Kaçağınızı şimdi hesaplayın',
+      tool2Title: 'Ücretsiz Vergi Faturası Oluşturucu',
+      cta2: '30 saniyede ücretsiz QR kodlu vergi faturası oluşturun',
+      note: '%100 ücretsiz kayıt yok sonucunuzu WhatsApp ta paylaşın',
     },
   }[lang];
   const arrow = lang === 'ar'
@@ -260,9 +271,91 @@ function translateChromeFr(html: string): string {
   return out;
 }
 
+// ترجمة النص الثابت داخل القالب إلى التركية (سوق تركيا) — يُولَّد آلياً من CHROME_EN
+const CHROME_TR: [string, string][] = [
+  ['dir="rtl"', 'dir="ltr"'],
+  ['>تتبع مباشر للميدان<', '>Canlı saha takibi<'],
+  ['>الرياض<', '>Riyad<'],
+  ['>القاهرة<', '>Kahire<'],
+  ['>دبي<', '>Dubai<'],
+  ['>إسطنبول<', '>İstanbul<'],
+  ['>السعودية<', '>Suudi Arabistan<'],
+  ['>مصر<', '>Mısır<'],
+  ['>الإمارات<', '>BAE<'],
+  ['>تركيا<', '>Türkiye<'],
+  ['>الانطلاق<', '>Başlangıç<'],
+  ['>زيارة ١<', '>Ziyaret 1<'],
+  ['>زيارة ٢<', '>Ziyaret 2<'],
+  ['>زيارة ٣<', '>Ziyaret 3<'],
+  ['>الوجهة<', '>Sonraki durak<'],
+  ['>٨:٠٥ ص · بدء اليوم<', '>08:05 · Gün başlangıcı<'],
+  ['>٩:٢٠ ص · تمّت ✓<', '>09:20 · Tamamlandı ✓<'],
+  ['>١٠:٤٥ ص · تمّت ✓<', '>10:45 · Tamamlandı ✓<'],
+  ['>١٢:١٠ م · جارية<', '>12:10 · Devam ediyor<'],
+  ['>التالية · ١:٣٠ م<', '>Sıradaki · 13:30<'],
+  ['text-anchor:start; direction:rtl', 'text-anchor:end; direction:ltr'],
+  ['>١<', '>1<'],
+  ['>٢<', '>2<'],
+  ['>٣<', '>3<'],
+  ['>٤<', '>4<'],
+  ['>٥<', '>5<'],
+  ['>المميزات<', '>Özellikler<'],
+  ['>كيف يعمل<', '>Nasıl çalışır<'],
+  ['>الأسعار<', '>Fiyatlandırma<'],
+  ['>الأسئلة<', '>SSS<'],
+  ['>دخول الأدمن<', '>Yönetici girişi<'],
+  ['>تطبيق المندوب<', '>Temsilci uygulaması<'],
+  ['ابدأ مجانا', 'Ücretsiz başlayın'],
+  ['المدونة', 'Blog'],
+  ['حاسبة التسريب', 'Kayıp Hesaplayıcısı'],
+  ['مولد الفواتير', 'Fatura Oluşturucu'],
+  ['المبيعات والتحصيل', 'Satış ve tahsilat'],
+  ['٧ أيام', '7 gün'],
+  ['محصل اليوم', 'Bugünkü tahsilat'],
+  ['+12.4% عن أمس', 'Düne göre +%12,4'],
+  ['>سند قبض<', '>Tahsilat makbuzu<'],
+  ['>المبلغ<', '>Tutar<'],
+  ['>الحالة<', '>Durum<'],
+  ['تم الإرسال', 'Gönderildi'],
+  ['طلب #10428 قيد التنفيذ', 'Sipariş #10428 işlemde'],
+  ['٩٢٬٧٠٠', '92.700'],
+  ['٨٠٠٫٠٠ ر.س', '800,00 SAR'],
+  [' ر.س / شهريا', ' SAR / ay'],
+  ['إدارة الطلبات والتحصيل', 'Sipariş ve tahsilat yönetimi'],
+  ['فواتير ضريبية وسندات قبض', 'Vergi faturaları ve tahsilat makbuzları'],
+  ['تطبيق جوال للمناديب', 'Saha temsilcileri için mobil uygulama'],
+  ['تقارير أساسية', 'Temel raporlar'],
+  ['>ابدأ الآن<', '>Hemen başlayın<'],
+  ['كل مميزات الباقة', 'Şu paketteki her şey:'],
+  ['على الخريطة', 'harita üzerinde'],
+  ['تقارير وكشوف حساب متقدمة', 'Gelişmiş raporlar ve hesap ekstreleri'],
+  ['دعم أولوية', 'Öncelikli destek'],
+  ['كل مميزات', 'Şu paketin tüm özellikleri:'],
+  ['تكامل ERP ومحاسبة', 'ERP ve muhasebe entegrasyonu'],
+  ['مدير حساب مخصص', 'Özel hesap yöneticisi'],
+  ['تدريب وإعداد كامل', 'Eksiksiz eğitim ve kurulum'],
+  ['تواصل مع المبيعات', 'Satış ekibine ulaşın'],
+  ['>المنتج<', '>Ürün<'],
+  ['تطبيق الجوال', 'Mobil uygulama'],
+  ['>الشركة<', '>Şirket<'],
+  ['>من نحن<', '>Hakkımızda<'],
+  ['>تواصل معنا<', '>İletişim<'],
+  ['>قانوني<', '>Yasal<'],
+  ['>سياسة الخصوصية<', '>Gizlilik Politikası<'],
+  ['>الشروط والأحكام<', '>Şartlar ve Koşullar<'],
+  ['>اتفاقية الخدمة<', '>Hizmet Sözleşmesi<'],
+  ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales — Tüm hakları saklıdır'],
+];
+
+function translateChromeTr(html: string): string {
+  let out = html;
+  for (const [ar, tr] of CHROME_TR) out = out.split(ar).join(tr);
+  return out;
+}
+
 // مبدّل اللغة الثلاثي المحقون في شريط التنقّل (ع/إ/فر) — ينتقل عبر الروابط للفهرسة الدولية
 function langSwitcher(current: Lang): string {
-  const items: [Lang, string][] = [['ar', 'ع'], ['en', 'EN'], ['fr', 'FR']];
+  const items: [Lang, string][] = [['ar', 'ع'], ['en', 'EN'], ['fr', 'FR'], ['tr', 'TR']];
   const btn = (code: Lang, label: string) => {
     const active = code === current;
     return `<button onclick="window.__fsSetLangRoute&&window.__fsSetLangRoute('${code}')" aria-label="${code}" style="border:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:700; padding:6px 11px; border-radius:8px; transition:all .15s; ${active ? 'background:#E15A30; color:#fff;' : 'background:transparent; color:#6E6557;'}">${label}</button>`;
@@ -279,18 +372,18 @@ function injectLangSwitcher(html: string, current: Lang): string {
 }
 
 // ---- قسم «تغطية العالم العربي» — يبرز خدمة النظام وتوافقه مع أنظمة الدول العربية ----
-const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string }[] = [
-  { flag: '🇸🇦', ar: 'السعودية', en: 'Saudi Arabia', fr: 'Arabie saoudite' },
-  { flag: '🇪🇬', ar: 'مصر', en: 'Egypt', fr: 'Égypte' },
-  { flag: '🇦🇪', ar: 'الإمارات', en: 'UAE', fr: 'Émirats' },
-  { flag: '🇰🇼', ar: 'الكويت', en: 'Kuwait', fr: 'Koweït' },
-  { flag: '🇶🇦', ar: 'قطر', en: 'Qatar', fr: 'Qatar' },
-  { flag: '🇧🇭', ar: 'البحرين', en: 'Bahrain', fr: 'Bahreïn' },
-  { flag: '🇴🇲', ar: 'عمان', en: 'Oman', fr: 'Oman' },
-  { flag: '🇲🇦', ar: 'المغرب', en: 'Morocco', fr: 'Maroc' },
-  { flag: '🇩🇿', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie' },
-  { flag: '🇹🇳', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie' },
-  { flag: '🇯🇴', ar: 'الأردن', en: 'Jordan', fr: 'Jordanie' },
+const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string; tr: string }[] = [
+  { flag: '🇸🇦', ar: 'السعودية', en: 'Saudi Arabia', fr: 'Arabie saoudite', tr: 'Suudi Arabistan' },
+  { flag: '🇪🇬', ar: 'مصر', en: 'Egypt', fr: 'Égypte', tr: 'Mısır' },
+  { flag: '🇦🇪', ar: 'الإمارات', en: 'UAE', fr: 'Émirats', tr: 'BAE' },
+  { flag: '🇰🇼', ar: 'الكويت', en: 'Kuwait', fr: 'Koweït', tr: 'Kuveyt' },
+  { flag: '🇶🇦', ar: 'قطر', en: 'Qatar', fr: 'Qatar', tr: 'Katar' },
+  { flag: '🇧🇭', ar: 'البحرين', en: 'Bahrain', fr: 'Bahreïn', tr: 'Bahreyn' },
+  { flag: '🇴🇲', ar: 'عمان', en: 'Oman', fr: 'Oman', tr: 'Umman' },
+  { flag: '🇲🇦', ar: 'المغرب', en: 'Morocco', fr: 'Maroc', tr: 'Fas' },
+  { flag: '🇩🇿', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie', tr: 'Cezayir' },
+  { flag: '🇹🇳', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie', tr: 'Tunus' },
+  { flag: '🇯🇴', ar: 'الأردن', en: 'Jordan', fr: 'Jordanie', tr: 'Ürdün' },
 ];
 
 function coverageSection(lang: Lang): string {
@@ -312,6 +405,12 @@ function coverageSection(lang: Lang): string {
       title: 'Conçu pour les entreprises de distribution du monde arabe',
       sub: 'De l Arabie saoudite à l Égypte au Golfe et au Maghreb la devise la taxe et le format de facture de chaque pays en arabe anglais et français',
       note: 'Conforme aux systèmes de facturation électronique et de taxe de chaque marché ZATCA Arabie saoudite avec la devise et la TVA de chaque pays appliquées automatiquement',
+    },
+    tr: {
+      eyebrow: 'Bölgesel kapsam',
+      title: 'Arap dünyasındaki dağıtım şirketleri için tasarlandı',
+      sub: 'Suudi Arabistan dan Mısır a Körfez den Mağrip e her ülkenin para birimi vergisi ve fatura formatı Arapça İngilizce ve Fransızca',
+      note: 'Her pazarın e-fatura ve vergi sistemleriyle uyumlu ZATCA Suudi Arabistan her ülkenin para birimi ve KDV oranı otomatik uygulanır',
     },
   }[lang];
   const pills = COVERAGE_COUNTRIES.map((c) =>
@@ -345,11 +444,12 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
     ar: { title: 'للتواصل وطلبات الاشتراك', sub: 'راسلنا أو اتصل بنا مباشرة فريقنا جاهز لمساعدتك وتفعيل اشتراك شركتك', email: 'البريد الرسمي', phone: 'الهاتف', address: 'مقر الشركة', cta: 'اطلب اشتراكك الآن', whatsapp: 'واتساب' },
     en: { title: 'Contact & Subscription Requests', sub: 'Email or call us directly our team is ready to help and activate your company subscription', email: 'Official email', phone: 'Phone', address: 'Head office', cta: 'Request your subscription', whatsapp: 'WhatsApp' },
     fr: { title: 'Contact et demandes d abonnement', sub: 'Écrivez-nous ou appelez-nous directement notre équipe est prête à vous aider et à activer votre abonnement', email: 'E-mail officiel', phone: 'Téléphone', address: 'Siège social', cta: 'Demandez votre abonnement', whatsapp: 'WhatsApp' },
+    tr: { title: 'İletişim ve abonelik talepleri', sub: 'Bize yazın veya doğrudan arayın ekibimiz yardımcı olmaya ve şirket aboneliğinizi etkinleştirmeye hazır', email: 'Resmi e-posta', phone: 'Telefon', address: 'Merkez ofis', cta: 'Aboneliğinizi talep edin', whatsapp: 'WhatsApp' },
   }[lang];
   // العنوان الافتراضي العربي يُعرَض مترجماً في النسختين الأجنبيتين؛ وأي نص يكتبه المالك يُعرض كما هو
   const addressRaw = String(contact.address || '').trim();
   const address = addressRaw === 'المملكة العربية السعودية' && lang !== 'ar'
-    ? (lang === 'en' ? 'Saudi Arabia' : 'Arabie saoudite') : addressRaw;
+    ? (lang === 'en' ? 'Saudi Arabia' : lang === 'tr' ? 'Suudi Arabistan' : 'Arabie saoudite') : addressRaw;
   const email = String(contact.email || '').trim();
   const phone = String(contact.phone || '').trim();
   const wa = String(contact.whatsapp || '').trim();
@@ -429,11 +529,13 @@ function featureLinksRow(lang: Lang): string {
 const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
-  const prefix = lang === 'en' ? '/en' : '/fr';
+  const prefix = lang === 'en' ? '/en' : lang === 'tr' ? '/tr' : '/fr';
   let out = html;
   for (const p of LOCALIZED_PATHS) {
     // href="/contact" → href="/en/contact"  (تطابق تام مع علامة الاقتباس لتفادي مطابقة /blog داخل /blog/slug)
-    out = out.split(`href="${p}"`).join(`href="${prefix}${p}"`);
+    // المدونة بلا نسخة تركية بعد — روابطها من /tr تقود للإنجليزية كي لا نعرض محتوى عربياً في سياق تركي
+    const target = lang === 'tr' && p === '/blog' ? '/en' : prefix;
+    out = out.split(`href="${p}"`).join(`href="${target}${p}"`);
   }
   return out;
 }
@@ -560,6 +662,12 @@ export default function LandingPage() {
       keywords: 'système de vente terrain logiciel de gestion des commerciaux logiciel de gestion de distribution facturation électronique facture fiscale encaissement gestion des créances stock du véhicule suivi GPS des commerciaux gestion des clients catalogue produits intégration ERP logiciel de distribution Maroc logiciel commercial Algérie Tunisie',
       locale: 'fr' as const,
     },
+    tr: {
+      title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Sistemi',
+      description: 'FieldSales saha dağıtım ekipleri için eksiksiz bir platform vergi faturaları tahsilat araç stoku GPS takibi ve raporlar 10 gün ücretsiz deneyin',
+      keywords: 'saha satış sistemi saha ekibi yönetimi dağıtım yönetim yazılımı rota muhasebesi e-fatura vergi faturası tahsilat cari hesap araç stoku yönetimi GPS temsilci takibi müşteri yönetimi ürün kataloğu ERP entegrasyonu',
+      locale: 'tr' as const,
+    },
   }[lang];
   useSeo({ ...seoByLang, canonical, alternates, image: 'https://fieldsa.net/og-image.png', jsonLd: orgJsonLd });
 
@@ -668,6 +776,11 @@ export default function LandingPage() {
     const enBase = { ...defaultContentEn, social: socialLinks || defaultContentEn.social, heroImage: arContent.heroImage } as Record<string, unknown>;
     const enContent = applyCmsPrices(enBase, arContent);
     html = translateChrome(applyContent(LANDING_TEMPLATE, applyCurrency(enContent, currency), 'en'));
+  } else if (lang === 'tr') {
+    // النسخة التركية: محتوى تركي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
+    const trBase = { ...defaultContentTr, social: socialLinks || defaultContentTr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    const trContent = applyCmsPrices(trBase, arContent);
+    html = translateChromeTr(applyContent(LANDING_TEMPLATE, applyCurrency(trContent, currency), 'tr'));
   } else if (lang === 'fr') {
     // النسخة الفرنسية: محتوى فرنسي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت (المغرب العربي)
     const frBase = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
@@ -688,6 +801,7 @@ export default function LandingPage() {
     html = html
       .split(' ر.س / شهريا').join(' دولار / شهريا')
       .split(' SAR / mo').join(' USD / mo')
+      .split(' SAR / ay').join(' USD / ay')
       .split(' SAR / mois').join(' USD / mois');
   }
 

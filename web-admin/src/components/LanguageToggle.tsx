@@ -9,6 +9,7 @@ const LANGS: { code: Lang; label: string }[] = [
   { code: 'ar', label: 'العربية' },
   { code: 'en', label: 'English' },
   { code: 'fr', label: 'Français' },
+  { code: 'tr', label: 'Türkçe' },
 ];
 
 // مبدّل اللغة الثلاثي (عربي/English/Français) على كل الصفحات:

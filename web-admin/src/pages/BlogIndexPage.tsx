@@ -18,7 +18,8 @@ export default function BlogIndexPage() {
   const { posts } = useBlog();
   const rtl = lang === 'ar';
   const prefix = lang === 'ar' ? '' : `/${lang}`;
-  const tr = (ar: string, en: string, fr: string) => (lang === 'ar' ? ar : lang === 'en' ? en : fr);
+  const tr = (ar: string, en: string, fr: string) => (lang === 'ar' ? ar : lang === 'fr' ? fr : en); // tr → الإنجليزية (لا مدونة تركية بعد)
+  const blogLang = (lang === 'tr' ? 'en' : lang); // كتالوج المدونة ثلاثي اللغة فقط
   const { canonical, alternates } = seoUrls('/blog', lang);
 
   useSeo({
@@ -37,7 +38,7 @@ export default function BlogIndexPage() {
       'field sales blog, distribution management articles, van sales, sales rep management, e-invoicing, Arab countries',
       'blog vente terrain, articles distribution, van sales, gestion commerciaux, facturation électronique, pays arabes',
     ),
-    locale: lang, canonical, alternates, image: 'https://fieldsa.net/og-image.png',
+    locale: blogLang, canonical, alternates, image: 'https://fieldsa.net/og-image.png',
   });
 
   const home = prefix || '/';
@@ -63,7 +64,7 @@ export default function BlogIndexPage() {
     const v = postView(p, lang === 'en' ? 'en' : 'ar');
     return { slug: p.slug, title: v.title, excerpt: v.excerpt, date: p.date, readMinutes: p.readMinutes };
   });
-  const seoCards: Card[] = listArticles(lang).map((a) => ({ slug: a.slug, title: a.title, excerpt: a.excerpt, date: a.date, readMinutes: a.readMinutes, img: `/og/${a.slug}-${lang}.jpg` }));
+  const seoCards: Card[] = listArticles(blogLang).map((a) => ({ slug: a.slug, title: a.title, excerpt: a.excerpt, date: a.date, readMinutes: a.readMinutes, img: `/og/${a.slug}-${blogLang}.jpg` }));
   // كل المقالات مرتّبة بالأحدث؛ عرض تدريجي بزر «تحميل المزيد» حفاظاً على سرعة أوّل تحميل (الصور كسولة)
   const allCards: Card[] = [...handCards, ...seoCards].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const cards: Card[] = allCards.slice(0, shown);

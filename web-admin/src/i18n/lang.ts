@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Lang = 'ar' | 'en' | 'fr'; // الفرنسية للأسواق الفرنكوفونية (المغرب العربي) — LTR
+export type Lang = 'ar' | 'en' | 'fr' | 'tr'; // الفرنسية للمغرب العربي، والتركية لسوق تركيا — كلتاهما LTR
 const KEY = 'app_lang';
 
 // مسارات التطبيق (لا SEO): الدخول/التسجيل/اللوحة/المندوب/المالك — تدعم اختيار اللغة يدويًا (بما فيها الفرنسية)
@@ -15,11 +15,12 @@ function initial(): Lang {
     // داخل التطبيق: تُحترم اللغة المحفوظة يدويًا — تدعم الفرنسية أيضًا
     if (isAppRoute(p)) {
       const saved = localStorage.getItem(KEY);
-      if (saved === 'ar' || saved === 'en' || saved === 'fr') return saved;
+      if (saved === 'ar' || saved === 'en' || saved === 'fr' || saved === 'tr') return saved;
     }
     // على صفحات التسويق: اللغة مشتقّة من المسار (/en · /fr) لتطابق الفهرسة الدولية بلا وميض
     if (p === '/en' || p.startsWith('/en/')) return 'en';
     if (p === '/fr' || p.startsWith('/fr/')) return 'fr';
+    if (p === '/tr' || p.startsWith('/tr/')) return 'tr';
     return 'ar';
   }
   return 'ar';

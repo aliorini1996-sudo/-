@@ -14,7 +14,7 @@ export default function SubscriptionRequestPage() {
   const lang = useLang((s) => s.lang);
   const dir = useDir();
   // نصوص الصفحة ثلاثية اللغة (ذاتية الاحتواء كنمط صفحات المدوّنة)
-  const tr = (ar: string, en: string, fr: string) => (lang === 'en' ? en : lang === 'fr' ? fr : ar);
+  const tr = (ar: string, en: string, fr: string) => (lang === 'fr' ? fr : lang === 'ar' ? ar : en); // tr → الإنجليزية مؤقتاً
 
   const home = pathForLocale('/', lang);
   const seoUrl = seoUrls('/subscribe-request', lang);

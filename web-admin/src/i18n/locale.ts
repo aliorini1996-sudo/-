@@ -4,19 +4,20 @@ import type { Lang } from './lang';
 export const SITE_ORIGIN = 'https://fieldsa.net';
 
 // بادئة المسار لكل لغة (العربية بلا بادئة لأنها الأصل)
-const PREFIX: Record<Lang, string> = { ar: '', en: '/en', fr: '/fr' };
+const PREFIX: Record<Lang, string> = { ar: '', en: '/en', fr: '/fr', tr: '/tr' };
 
 // يشتقّ اللغة من المسار
 export function localeFromPath(pathname: string): Lang {
   if (pathname === '/en' || pathname.startsWith('/en/')) return 'en';
   if (pathname === '/fr' || pathname.startsWith('/fr/')) return 'fr';
+  if (pathname === '/tr' || pathname.startsWith('/tr/')) return 'tr';
   return 'ar';
 }
 
 // المسار العربي الأساسي (بدون بادئة /en أو /fr)
 export function basePath(pathname: string): string {
-  if (pathname === '/en' || pathname === '/fr') return '/';
-  if (pathname.startsWith('/en/') || pathname.startsWith('/fr/')) return pathname.slice(3); // يزيل "/en" أو "/fr"
+  if (pathname === '/en' || pathname === '/fr' || pathname === '/tr') return '/';
+  if (pathname.startsWith('/en/') || pathname.startsWith('/fr/') || pathname.startsWith('/tr/')) return pathname.slice(3); // يزيل بادئة اللغة (3 أحرف)
   return pathname;
 }
 
@@ -28,7 +29,7 @@ export function pathForLocale(pathname: string, locale: Lang): string {
   return ar === '/' ? prefix : prefix + ar;
 }
 
-// روابط canonical + hreflang البديلة لصفحة ما (بناءً على مسارها العربي) — عربي/إنجليزي/فرنسي
+// روابط canonical + hreflang البديلة لصفحة ما (بناءً على مسارها العربي) — عربي/إنجليزي/فرنسي/تركي
 export function seoUrls(arPath: string, locale: Lang): {
   canonical: string;
   alternates: { hreflang: string; href: string }[];
@@ -37,13 +38,15 @@ export function seoUrls(arPath: string, locale: Lang): {
   const arUrl = SITE_ORIGIN + (arPath === '/' ? '/' : arPath);
   const enUrl = SITE_ORIGIN + '/en' + suffix;
   const frUrl = SITE_ORIGIN + '/fr' + suffix;
-  const canonical = locale === 'en' ? enUrl : locale === 'fr' ? frUrl : arUrl;
+  const trUrl = SITE_ORIGIN + '/tr' + suffix;
+  const canonical = locale === 'en' ? enUrl : locale === 'fr' ? frUrl : locale === 'tr' ? trUrl : arUrl;
   return {
     canonical,
     alternates: [
       { hreflang: 'ar', href: arUrl },
       { hreflang: 'en', href: enUrl },
       { hreflang: 'fr', href: frUrl },
+      { hreflang: 'tr', href: trUrl },
       { hreflang: 'x-default', href: arUrl },
     ],
   };

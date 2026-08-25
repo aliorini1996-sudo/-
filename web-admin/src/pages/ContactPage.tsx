@@ -5,6 +5,7 @@ import { siteContentApi, contactApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
+import { defaultContentTr } from '../landing/defaultContentTr';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Mail, Phone, MapPin, MessageCircle, LifeBuoy, Send, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -29,6 +30,7 @@ export default function ContactPage() {
   // المقدمة بلغة الواجهة (إنجليزي/فرنسي من محتواها)، وبيانات التواصل (بريد/هاتف) من CMS دائماً
   const c = lang === 'en' ? { ...cms, intro: defaultContentEn.contact.intro }
     : lang === 'fr' ? { ...cms, intro: defaultContentFr.contact.intro }
+    : lang === 'tr' ? { ...cms, intro: defaultContentTr.contact.intro }
     : cms;
 
   const home = pathForLocale('/', lang); // العودة للرئيسية بنفس اللغة الحالية
@@ -51,6 +53,12 @@ export default function ContactPage() {
       description: 'Contactez l équipe FieldSales pour demander une démo ou un essai gratuit du système de gestion des ventes terrain et de la distribution factures fiscales encaissement stock du véhicule et suivi GPS',
       keywords: 'contact FieldSales demander une démo essai gratuit support système de vente terrain gestion des commerciaux',
       locale: 'fr' as const,
+    },
+    tr: {
+      title: 'İletişim | FieldSales Demo veya ücretsiz deneme talep edin',
+      description: 'Saha satış ve dağıtım yönetim sistemi için demo veya ücretsiz deneme talep etmek üzere FieldSales ekibiyle iletişime geçin vergi faturaları tahsilat araç stoku ve GPS takibi',
+      keywords: 'FieldSales iletişim demo talebi ücretsiz deneme destek saha satış sistemi saha ekibi yönetimi',
+      locale: 'tr' as const,
     },
   }[lang];
   useSeo({ ...contactSeo, canonical: seoUrl.canonical, alternates: seoUrl.alternates, image: 'https://fieldsa.net/og-image.png' });

@@ -4,7 +4,7 @@ import { useLang } from '../i18n/lang';
 // الـlocale الحالي حسب لغة الواجهة (لتنسيق الأرقام والتواريخ) — عربي/إنجليزي/فرنسي
 function locale(): string {
   const l = useLang.getState().lang;
-  return l === 'en' ? 'en-US' : l === 'fr' ? 'fr-FR' : 'ar-SA';
+  return l === 'en' ? 'en-US' : l === 'fr' ? 'fr-FR' : l === 'tr' ? 'tr-TR' : 'ar-SA';
 }
 
 // عملة العرض النشطة — تُضبط من إعدادات الشركة عند الإقلاع (افتراضي ر.س السعودي)

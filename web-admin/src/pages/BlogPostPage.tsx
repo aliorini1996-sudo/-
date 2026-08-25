@@ -52,9 +52,10 @@ export default function BlogPostPage() {
   // مقال يدوي إنجليزي غير متوفّر لهذه اللغة الإنجليزية → عد للنسخة العربية
   const handUnavailableEn = hand && lang === 'en' && !hand.en;
 
-  // اختر المصدر: مقال يدوي (ع/إ) أو مقال SEO مولّد (ع/إ/فر)
+  // اختر المصدر: مقال يدوي (ع/إ) أو مقال SEO مولّد (ع/إ/فر) — التركية تسقط للإنجليزية (لا مدونة تركية)
+  const blogLang = (lang === 'tr' ? 'en' : lang);
   const useHand = !!hand && lang !== 'fr' && !handUnavailableEn;
-  const seo = useHand ? null : getArticle(slug || '', lang);
+  const seo = useHand ? null : getArticle(slug || '', blogLang);
 
   type View = { title: string; description: string; keywords: string; contentHtml: string; date: string; readMinutes: number };
   let view: View | null = null;
