@@ -74,3 +74,13 @@ export function tokenSecondsLeft(token: string | null | undefined): number {
   if (!payload || typeof payload.exp !== 'number') return 0;
   return Math.max(0, Math.round(payload.exp - Date.now() / 1000));
 }
+
+/** معرف شركة المندوب من التوكن — لبناء رابط منيو المنتجات العام دون نداء خادم */
+export function tokenTenantId(token: string | null | undefined): string | null {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const payload = decodePayload(token);
+  const tid = payload && (payload as { tenantId?: unknown }).tenantId;
+  return typeof tid === 'string' && tid ? tid : null;
+}

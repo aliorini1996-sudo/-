@@ -36,6 +36,7 @@ import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
 import petroappRouter from './routes/petroapp';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
+import publicCatalogRouter from './routes/publicCatalog';
 import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
@@ -129,6 +130,7 @@ app.use('/api/company-users', companyUsersRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/petroapp', petroappRouter);
 app.use('/api/work-numbers', workNumbersRouter);
+app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
 app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);

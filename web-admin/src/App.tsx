@@ -40,6 +40,7 @@ const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
 const ErpIntegrationPage = lazy(() => import('./pages/ErpIntegrationPage'));
 const PetroappPage = lazy(() => import('./pages/PetroappPage'));
 const HatifPage = lazy(() => import('./pages/HatifPage'));
+const CatalogPage = lazy(() => import('./pages/CatalogPage'));
 const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
@@ -208,6 +209,8 @@ export default function App() {
         <Route path="/نماذج/:slug" element={<TemplatesPage />} />
         <Route path="/free" element={<FreeToolsPage />} />
         <Route path="/free/:tool" element={<FreeToolsPage />} />
+        {/* منيو المنتجات العام — يشاركه المندوب مع عملائه (بلا مصادقة، noindex) */}
+        <Route path="/c/:tenantId/:repId" element={<CatalogPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />
         <Route path="/blog/:slug" element={<BlogPostPage />} />
         {/* النسخة الإنجليزية على /en — نفس المكوّنات تُعرَض بالإنجليزية (دولي + hreflang) */}

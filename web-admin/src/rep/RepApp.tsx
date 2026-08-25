@@ -10,13 +10,14 @@ import {
   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
-  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed,
+  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Camera, X, ClipboardCheck, Timer, Square,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
+import { tokenTenantId } from './jwt';
 import { BrandIcon } from '../components/BrandLogo';
 import AppIntro from '../components/AppIntro';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
@@ -339,6 +340,42 @@ function RepFuel() {
   );
 }
 
+// ═══ بطاقة رابط منيو المنتجات — تفتح المنيو العام او تنسخ رابطه للمشاركة ═══
+function MenuLinkCard({ repId }: { repId: string }) {
+  const tr = useTr();
+  const [copied, setCopied] = useState(false);
+  const tenantId = tokenTenantId(localStorage.getItem('rep_token'));
+  if (!tenantId) return null;
+  const url = `${window.location.origin}/c/${tenantId}/${repId}`;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); }
+    catch { // سياقات غير آمنة — احتياط بحقل مؤقت
+      const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove();
+    }
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center gap-3">
+      <span className="w-9 h-9 rounded-xl bg-[#FBEBE2] border border-[#F5DACE] flex items-center justify-center flex-shrink-0">
+        <BookOpen size={18} className="text-[#E15A30]" />
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-[#1F1A13]">{tr('منيو المنتجات')}</p>
+        <p className="text-[10px] text-gray-400 truncate">{tr('شارك الرابط مع عملائك — اسعار محدثة دائما')}</p>
+      </div>
+      <button onClick={() => window.open(url, '_blank')} title={tr('فتح المنيو')}
+        className="w-9 h-9 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 hover:text-[#E15A30]">
+        <ExternalLink size={16} />
+      </button>
+      <button onClick={copy} title={tr('نسخ الرابط')}
+        className={`w-9 h-9 rounded-xl border flex items-center justify-center ${copied ? 'bg-green-50 border-green-200 text-green-600' : 'bg-gray-50 border-gray-100 text-gray-500 hover:text-[#E15A30]'}`}>
+        {copied ? <Check size={16} /> : <Copy size={16} />}
+      </button>
+    </div>
+  );
+}
+
 function RepHome({ user, onQuick, fuelOn, workNumOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
@@ -479,6 +516,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn }: { user: RepUser; onQuick:
           {workNumOn && quick(tr('رقم عملي'), PhoneCall, 'text-teal-700', 'bg-teal-50 border-teal-100', 'worknum')}
         </div>
       </div>
+
+      {/* منيو المنتجات — رابط عام يشاركه المندوب مع عملائه (فتح او نسخ) */}
+      <MenuLinkCard repId={user.id} />
     </div>
   );
 }
