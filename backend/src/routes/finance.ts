@@ -46,14 +46,43 @@ const expenseSchema = z.object({
   label: z.string().min(2).max(80),
   category: z.enum(['hosting', 'ai', 'marketing', 'tools', 'salaries', 'other']),
   amountSar: z.number().positive().max(1_000_000),
-  // الضريبة على المصروف: تُحسب آلياً من المبلغ إن لم تُعطَ، فالمالك لا يحسب يدوياً
+  /**
+   * وضع الضريبة على المصروف — ثلاث حالات صريحة لا مفتاح ثنائي:
+   *  • none      = بلا ضريبة سعودية (مورّد أجنبي: Render، Anthropic، نطاق) ← **الافتراض**
+   *  • inclusive = المبلغ شامل ضريبة تُستخرَج منه
+   *  • exclusive = الضريبة تُضاف فوق المبلغ، فالمدفوع نقداً = المبلغ + الضريبة
+   * المفتاح الثنائي السابق لم يكن يملك حالة «صفر»، فكان يخترع ضريبة مدخلات على
+   * فواتير أجنبية لا ضريبة فيها — فيُنقص المستحقّ للهيئة بلا سند.
+   */
+  vatMode: z.enum(['none', 'inclusive', 'exclusive']).optional(),
   vatSar: z.number().min(0).optional(),
-  vatIncluded: z.boolean().optional(),   // المبلغ شامل الضريبة؟ (الافتراض: لا)
+  vatIncluded: z.boolean().optional(),   // توافق خلفي مع الواجهة القديمة
   isRecurring: z.boolean().default(false),
   startsOn: z.string(),
   endsOn: z.string().nullish(),
   note: z.string().max(300).nullish(),
 });
+
+/**
+ * يحوّل ما أدخله المالك إلى الصورة المخزَّنة: `amountSar` = **النقد المدفوع
+ * فعلاً** دائماً، و`vatSar` = المدخلات القابلة للخصم منه. توحيد الدلالة شرطُ
+ * جمعٍ صحيح: عمودٌ يعني مرّةً «قبل الضريبة» ومرّةً «بعدها» لا يُجمع.
+ */
+function normalizeExpense(b: z.infer<typeof expenseSchema>): { amountSar: number; vatSar: number } {
+  const mode = b.vatMode ?? (b.vatIncluded === true ? 'inclusive' : b.vatIncluded === false ? 'none' : 'none');
+  if (b.vatSar !== undefined) {
+    // ضريبة صريحة: المبلغ يبقى كما أُدخل والضريبة جزء منه
+    return { amountSar: round2(b.amountSar), vatSar: round2(b.vatSar) };
+  }
+  if (mode === 'inclusive') {
+    return { amountSar: round2(b.amountSar), vatSar: vatFromInclusive(b.amountSar) };
+  }
+  if (mode === 'exclusive') {
+    const vat = round2((b.amountSar * VAT_PCT) / 100);
+    return { amountSar: round2(b.amountSar + vat), vatSar: vat };
+  }
+  return { amountSar: round2(b.amountSar), vatSar: 0 };
+}
 
 router.get('/expenses', async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -67,19 +96,41 @@ router.get('/expenses', async (_req: AuthRequest, res: Response, next: NextFunct
 router.post('/expenses', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const b = expenseSchema.parse(req.body);
-    // إن كان المبلغ شاملاً الضريبة نستخرجها منه؛ وإلا نحسبها فوقه — والفرق جوهري
-    const vatSar = b.vatSar !== undefined
-      ? round2(b.vatSar)
-      : b.vatIncluded
-        ? vatFromInclusive(b.amountSar)
-        : round2((b.amountSar * VAT_PCT) / 100);
+    const { amountSar, vatSar } = normalizeExpense(b);
     const row = await prisma.operatingExpense.create({
       data: {
-        label: b.label, category: b.category, amountSar: round2(b.amountSar), vatSar,
+        label: b.label, category: b.category, amountSar, vatSar,
         isRecurring: b.isRecurring, startsOn: new Date(b.startsOn),
         endsOn: b.endsOn ? new Date(b.endsOn) : null, note: b.note ?? null,
       },
     });
+    res.json({ success: true, data: row });
+  } catch (err) { next(err); }
+});
+
+const patchSchema = z.object({
+  label: z.string().min(2).max(80).optional(),
+  category: z.enum(['hosting', 'ai', 'marketing', 'tools', 'salaries', 'other']).optional(),
+  amountSar: z.number().positive().max(1_000_000).optional(),
+  vatSar: z.number().min(0).optional(),
+  note: z.string().max(300).nullish(),
+}).refine((v) => Object.keys(v).length > 0, 'لا تغيير مطلوب');
+
+/**
+ * تصحيح مصروف قائم — دون حذفه وإعادة إدخاله.
+ * لزم لأن أسطراً سُجّلت قبل فصل أوضاع الضريبة تحمل ضريبة مدخلات مخترَعة على
+ * فواتير أجنبية؛ الحذف كان سيمحو تاريخ الصرف معها.
+ */
+router.patch('/expenses/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const b = patchSchema.parse(req.body);
+    const data: Record<string, unknown> = {};
+    if (b.label !== undefined) data.label = b.label;
+    if (b.category !== undefined) data.category = b.category;
+    if (b.amountSar !== undefined) data.amountSar = round2(b.amountSar);
+    if (b.vatSar !== undefined) data.vatSar = round2(b.vatSar);
+    if ('note' in b) data.note = b.note ?? null;
+    const row = await prisma.operatingExpense.update({ where: { id: req.params.id }, data });
     res.json({ success: true, data: row });
   } catch (err) { next(err); }
 });

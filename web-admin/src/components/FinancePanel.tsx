@@ -16,7 +16,8 @@ interface MonthlyFinance {
 }
 interface Snapshot {
   vatPct: number; gatewayFeePct: number; mrrSar: number; arrSar: number;
-  activeTenants: number; trialTenants: number; expiringSoon: number;
+  payingTenants: number; unpaidTenants: number; totalTenants: number;
+  expiringSoon: number; mrrBasis: string;
   monthlyRecurringCostSar: number; runwayNote: string;
   current: MonthlyFinance; months: MonthlyFinance[];
   byCategory: { category: string; amountSar: number }[];
@@ -25,6 +26,9 @@ interface Revenue {
   id: string; clientName: string; description: string; amountSar: number;
   vatSar: number; gatewayFeeSar: number; netSar: number;
   isRecurring: boolean; months: number; paidAt: string;
+}
+interface RevenueList {
+  rows: Revenue[]; totalCount: number; totalSar: number; truncated: boolean;
 }
 interface Expense {
   id: string; label: string; category: string; amountSar: number; vatSar: number;
@@ -75,7 +79,7 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   const [category, setCategory] = useState('hosting');
   const [amount, setAmount] = useState('');
   const [isRecurring, setIsRecurring] = useState(true);
-  const [vatIncluded, setVatIncluded] = useState(false);
+  const [vatMode, setVatMode] = useState<'none' | 'inclusive' | 'exclusive'>('none');
   const [startsOn, setStartsOn] = useState(() => new Date().toISOString().slice(0, 10));
 
   const { data: snap, isLoading, isError } = useQuery({
@@ -84,7 +88,7 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   });
   const { data: revenues } = useQuery({
     queryKey: ['finance-revenues'],
-    queryFn: async () => (await financeApi.listRevenues()).data.data as Revenue[],
+    queryFn: async () => (await financeApi.listRevenues()).data.data as RevenueList,
   });
   const { data: expenses } = useQuery({
     queryKey: ['finance-expenses'],
@@ -99,7 +103,7 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   const add = useMutation({
     mutationFn: () => financeApi.addExpense({
       label: label.trim(), category, amountSar: Number(amount),
-      vatIncluded, isRecurring, startsOn,
+      vatMode, isRecurring, startsOn,
     }),
     onSuccess: () => {
       toast.success('سُجّل المصروف');
@@ -112,6 +116,10 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   const stop = useMutation({
     mutationFn: (id: string) => financeApi.stopExpense(id),
     onSuccess: () => { toast.success('أُوقف المصروف من اليوم'); invalidate(); },
+  });
+  const zeroVat = useMutation({
+    mutationFn: (id: string) => financeApi.updateExpense(id, { vatSar: 0 }),
+    onSuccess: () => { toast.success('صُفّرت ضريبة المدخلات على هذا المصروف'); invalidate(); },
   });
   const remove = useMutation({
     mutationFn: (id: string) => financeApi.deleteExpense(id),
@@ -163,7 +171,7 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
 
               {/* الأرقام الحاكمة */}
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                <Stat icon={Repeat} label="الإيراد الشهري المتكرّر (MRR)" value={sar(snap.mrrSar)} hint={`سنوياً ${sar(snap.arrSar)}`} />
+                <Stat icon={Repeat} label="الإيراد الشهري المتكرّر (MRR)" value={sar(snap.mrrSar)} hint={snap.mrrBasis} />
                 <Stat icon={TrendingUp} label="محصّل هذا الشهر" value={sar(cur.revenueSar)} hint={`${cur.paidCount} عملية دفع`} />
                 <Stat icon={TrendingDown} label="مصروفات الشهر" value={sar(cur.expensesSar)} hint={`متكرّر ${sar(snap.monthlyRecurringCostSar)}`} />
                 <Stat
@@ -180,6 +188,17 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                   tone={cur.profitSar >= 0 ? 'good' : 'bad'}
                 />
               </div>
+
+              {/* الشركات — مدفوعة مقابل غير مدفوعة، لا يتداخلان */}
+              <section className="rounded-xl border border-[#E7DECD] bg-white px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+                <span className="font-bold text-[#1F1A13]">الشركات الفعّالة {snap.totalTenants}</span>
+                <span className="text-emerald-700">باشتراك مدفوع سارٍ: <b className="tabular-nums">{snap.payingTenants}</b></span>
+                <span className="text-gray-600">بلا دفعة اشتراك: <b className="tabular-nums">{snap.unpaidTenants}</b></span>
+                {snap.expiringSoon > 0 && (
+                  <span className="text-amber-700">ينتهي اشتراكها خلال ٣٠ يوماً: <b className="tabular-nums">{snap.expiringSoon}</b></span>
+                )}
+                <span className="text-gray-400">سنوياً {sar(snap.arrSar)}</span>
+              </section>
 
               {/* الضريبة */}
               <section className="rounded-xl border border-[#E7DECD] bg-white p-4">
@@ -284,14 +303,28 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                   كل إيراد هنا دفعة ميسر مؤكَّدة — تُضاف بإصدار رابط دفع، وتُسجَّل تلقائياً لحظة دفع العميل.
                 </p>
 
-                {!revenues?.length && (
+                {!!revenues?.totalCount && (
+                  <div className="rounded-lg bg-[#FBF6EC] px-3 py-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                    <span className="text-gray-600">
+                      إجمالي المحصّل منذ البداية <b className="tabular-nums text-[#1F1A13]" dir="ltr">{sar(revenues.totalSar)}</b>
+                    </span>
+                    <span className="text-gray-500 tabular-nums">{revenues.totalCount} عملية دفع</span>
+                    {revenues.truncated && (
+                      <span className="text-amber-700">
+                        معروض أحدث {revenues.rows.length} فقط — المجموع أعلاه يشمل الكلّ
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {!revenues?.rows.length && (
                   <p className="text-sm text-gray-500 text-center py-6">
                     لا مدفوعات مؤكَّدة بعد — أصدر رابط دفع لعميلك ليظهر إيراده هنا.
                   </p>
                 )}
 
                 <div className="space-y-2">
-                  {revenues?.map((r) => (
+                  {revenues?.rows.map((r) => (
                     <div key={r.id} className="flex items-center gap-3 rounded-lg border border-[#E7DECD] bg-white p-2.5">
                       <span
                         className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
@@ -357,10 +390,15 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                       <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
                       يتكرّر شهرياً (يُحتسب تلقائياً كل شهر)
                     </label>
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input type="checkbox" checked={vatIncluded} onChange={(e) => setVatIncluded(e.target.checked)} />
-                      المبلغ شامل الضريبة
-                    </label>
+                    <select
+                      value={vatMode} onChange={(e) => setVatMode(e.target.value as typeof vatMode)}
+                      className="px-3 py-2 rounded-lg border border-[#E7DECD] text-sm bg-white"
+                      title="فواتير المورّدين الأجانب (Render · Anthropic · النطاق) بلا ضريبة سعودية قابلة للخصم"
+                    >
+                      <option value="none">بلا ضريبة (مورّد أجنبي)</option>
+                      <option value="inclusive">المبلغ شامل الضريبة</option>
+                      <option value="exclusive">الضريبة تُضاف فوق المبلغ</option>
+                    </select>
                     <div className="sm:col-span-2 flex justify-end">
                       <button
                         onClick={() => add.mutate()}
@@ -390,9 +428,18 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-[#1F1A13] truncate">{e.label}</p>
                           <p className="text-[11px] text-gray-500">
-                            {e.isRecurring ? 'شهري' : 'لمرّة واحدة'} · ضريبة {sar(e.vatSar)}
+                            {e.isRecurring ? 'شهري' : 'لمرّة واحدة'} · ضريبة مدخلات {sar(e.vatSar)}
                             {stopped && ' · موقوف'}
                           </p>
+                          {e.vatSar > 0 && (
+                            <button
+                              onClick={() => zeroVat.mutate(e.id)}
+                              className="mt-0.5 text-[10px] text-amber-700 underline underline-offset-2 hover:text-amber-800"
+                              title="المورّدون الأجانب لا ضريبة مدخلات قابلة للخصم على فواتيرهم — تصفيرها يرفع المستحقّ للهيئة إلى قيمته الصحيحة"
+                            >
+                              لا ضريبة على هذا المصروف؟ صفّرها
+                            </button>
+                          )}
                         </div>
                         <span className="text-sm font-bold tabular-nums text-[#1F1A13] shrink-0" dir="ltr">{sar(e.amountSar)}</span>
                         {e.isRecurring && !stopped && (

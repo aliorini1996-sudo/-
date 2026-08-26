@@ -314,8 +314,11 @@ export const financeApi = {
   addExpense: (data: {
     label: string; category: string; amountSar: number;
     vatSar?: number; vatIncluded?: boolean;
+    vatMode?: 'none' | 'inclusive' | 'exclusive';
     isRecurring: boolean; startsOn: string; endsOn?: string | null; note?: string | null;
   }) => api.post('/finance/expenses', data),
+  updateExpense: (id: string, data: { amountSar?: number; vatSar?: number; label?: string; category?: string }) =>
+    api.patch(`/finance/expenses/${id}`, data),
   deleteExpense: (id: string) => api.delete(`/finance/expenses/${id}`),
   stopExpense: (id: string) => api.patch(`/finance/expenses/${id}/stop`),
 };
