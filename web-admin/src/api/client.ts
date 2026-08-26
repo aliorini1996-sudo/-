@@ -309,6 +309,7 @@ export const paymentsApi = {
 export const financeApi = {
   snapshot: () => api.get('/finance/snapshot'),
   month: (year: number, month: number) => api.get(`/finance/month/${year}/${month}`),
+  listRevenues: () => api.get('/finance/revenues'),
   listExpenses: () => api.get('/finance/expenses'),
   addExpense: (data: {
     label: string; category: string; amountSar: number;

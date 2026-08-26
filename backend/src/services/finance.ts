@@ -178,3 +178,58 @@ export async function financeSnapshot(): Promise<FinanceSnapshot> {
       .sort((a, b) => b.amountSar - a.amountSar),
   };
 }
+
+export interface RevenueRow {
+  id: string;
+  clientName: string;      // اسم الشركة الدافعة، أو «غير مرتبط» إن لم تُربَط الدفعة
+  description: string;
+  amountSar: number;
+  vatSar: number;          // ضريبة مستخرَجة من المبلغ (أسعارنا شاملة)
+  gatewayFeeSar: number;   // عمولة ميسر ٣٪
+  netSar: number;          // ما يصل الحساب فعلاً بعد الضريبة والعمولة
+  isRecurring: boolean;    // اشتراك متكرّر (months > 0) أم دفعة لمرّة
+  months: number;
+  paidAt: string;
+}
+
+/**
+ * قائمة الإيرادات — مدفوعات ميسر المؤكَّدة، أمام كلٍّ اسم عميلها وهل هي متكرّرة.
+ *
+ * «متكرّر» ليس حقلاً يُدخله أحد بل **يُشتقّ من `months`**: الدفعة التي تمدّد
+ * اشتراكاً (months > 0) إيرادٌ متكرّر بطبعه، وما عداها دفعة لمرّة. اشتقاقه
+ * يمنع تضارباً بين وسمٍ يدويّ وحقيقة الاشتراك.
+ */
+export async function revenueRows(limit = 100): Promise<RevenueRow[]> {
+  const rows = await prisma.paymentLink.findMany({
+    where: { status: 'paid' },
+    orderBy: { paidAt: 'desc' },
+    take: limit,
+    select: { id: true, tenantId: true, description: true, amountHalalas: true, months: true, paidAt: true },
+  });
+
+  // اسم العميل من المستأجر المرتبط — استعلام واحد لكل المعرّفات لا واحد لكل صفّ
+  const ids = [...new Set(rows.map((r) => r.tenantId).filter(Boolean) as string[])];
+  const names = new Map<string, string>();
+  if (ids.length) {
+    const ts = await prisma.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+    for (const t of ts) names.set(t.id, t.name);
+  }
+
+  return rows.map((r) => {
+    const amountSar = round2(r.amountHalalas / 100);
+    const vatSar = vatFromInclusive(amountSar);
+    const feeSar = gatewayFee(amountSar);
+    return {
+      id: r.id,
+      clientName: (r.tenantId && names.get(r.tenantId)) || 'غير مرتبط بشركة',
+      description: r.description,
+      amountSar,
+      vatSar,
+      gatewayFeeSar: feeSar,
+      netSar: round2(amountSar - vatSar - feeSar),
+      isRecurring: r.months > 0,
+      months: r.months,
+      paidAt: r.paidAt?.toISOString().slice(0, 10) ?? '',
+    };
+  });
+}

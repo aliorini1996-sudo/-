@@ -11,7 +11,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { financeSnapshot, monthlyFinance, VAT_PCT, vatFromInclusive, round2 } from '../services/finance';
+import { financeSnapshot, monthlyFinance, revenueRows, VAT_PCT, vatFromInclusive, round2 } from '../services/finance';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -32,6 +32,13 @@ router.get('/month/:year/:month', async (req: AuthRequest, res: Response, next: 
       return;
     }
     res.json({ success: true, data: await monthlyFinance(year, month) });
+  } catch (err) { next(err); }
+});
+
+/** قائمة الإيرادات — مدفوعات ميسر بأسماء عملائها وتصنيف تكرارها */
+router.get('/revenues', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await revenueRows(100) });
   } catch (err) { next(err); }
 });
 

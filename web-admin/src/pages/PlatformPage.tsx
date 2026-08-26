@@ -249,7 +249,12 @@ export default function PlatformPage() {
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
       {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
       {showProfile && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
-      {showFinance && <FinancePanel onClose={() => setShowFinance(false)} />}
+      {showFinance && (
+        <FinancePanel
+          onClose={() => setShowFinance(false)}
+          onAddRevenue={() => { setShowFinance(false); setShowPayments(true); }}
+        />
+      )}
       {showPayments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (

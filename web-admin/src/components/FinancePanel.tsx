@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { financeApi } from '../api/client';
 import {
   X, TrendingUp, TrendingDown, Wallet, Receipt, Plus, Trash2, PauseCircle,
-  Repeat, Calendar, PieChart, AlertTriangle, CheckCircle2,
+  Repeat, Calendar, PieChart, AlertTriangle, CheckCircle2, Building2, Link2, RefreshCw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
@@ -20,6 +20,11 @@ interface Snapshot {
   monthlyRecurringCostSar: number; runwayNote: string;
   current: MonthlyFinance; months: MonthlyFinance[];
   byCategory: { category: string; amountSar: number }[];
+}
+interface Revenue {
+  id: string; clientName: string; description: string; amountSar: number;
+  vatSar: number; gatewayFeeSar: number; netSar: number;
+  isRecurring: boolean; months: number; paidAt: string;
 }
 interface Expense {
   id: string; label: string; category: string; amountSar: number; vatSar: number;
@@ -63,7 +68,7 @@ function Stat({ label, value, hint, tone = 'ink', icon: Icon }: {
  * الضريبة، الربح، والهامش. والمصروف المتكرّر يُحتسب في كل شهر يسري فيه دون
  * إعادة إدخال — وهذا ما يجعلها مؤتمتة لا دفتراً يدوياً.
  */
-export default function FinancePanel({ onClose }: { onClose: () => void }) {
+export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () => void; onAddRevenue?: () => void }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [label, setLabel] = useState('');
@@ -76,6 +81,10 @@ export default function FinancePanel({ onClose }: { onClose: () => void }) {
   const { data: snap, isLoading, isError } = useQuery({
     queryKey: ['finance-snapshot'],
     queryFn: async () => (await financeApi.snapshot()).data.data as Snapshot,
+  });
+  const { data: revenues } = useQuery({
+    queryKey: ['finance-revenues'],
+    queryFn: async () => (await financeApi.listRevenues()).data.data as Revenue[],
   });
   const { data: expenses } = useQuery({
     queryKey: ['finance-expenses'],
@@ -256,6 +265,62 @@ export default function FinancePanel({ onClose }: { onClose: () => void }) {
                   </div>
                 </section>
               )}
+
+              {/* الإيرادات — مدفوعات ميسر بأسماء عملائها */}
+              <section className="rounded-xl border border-[#E7DECD] bg-white p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-sm font-bold text-[#1F1A13]">الإيرادات</h3>
+                  {onAddRevenue && (
+                    <button
+                      onClick={onAddRevenue}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#1F1A13] text-white hover:bg-black"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> أضف إيراداً
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-500 mb-3 flex items-center gap-1">
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  كل إيراد هنا دفعة ميسر مؤكَّدة — تُضاف بإصدار رابط دفع، وتُسجَّل تلقائياً لحظة دفع العميل.
+                </p>
+
+                {!revenues?.length && (
+                  <p className="text-sm text-gray-500 text-center py-6">
+                    لا مدفوعات مؤكَّدة بعد — أصدر رابط دفع لعميلك ليظهر إيراده هنا.
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  {revenues?.map((r) => (
+                    <div key={r.id} className="flex items-center gap-3 rounded-lg border border-[#E7DECD] bg-white p-2.5">
+                      <span
+                        className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                          r.isRecurring ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {r.isRecurring ? <><RefreshCw className="w-3 h-3" /> متكرّر</> : <>لمرّة واحدة</>}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-[#1F1A13] truncate flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          {r.clientName}
+                        </p>
+                        <p className="text-[11px] text-gray-500 truncate">
+                          {r.description}
+                          {r.isRecurring && ` · اشتراك ${r.months} شهر`}
+                          {' · '}{r.paidAt}
+                        </p>
+                      </div>
+                      <div className="text-left shrink-0">
+                        <p className="text-sm font-bold tabular-nums text-emerald-700" dir="ltr">{sar(r.amountSar)}</p>
+                        <p className="text-[10px] text-gray-500 tabular-nums" dir="ltr" title="بعد الضريبة وعمولة ميسر">
+                          صافي {sar(r.netSar)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
               {/* المصروفات */}
               <section className="rounded-xl border border-[#E7DECD] bg-white p-4">
