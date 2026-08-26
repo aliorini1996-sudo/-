@@ -10,3 +10,6 @@ Thumbs.db
 web-admin/tsconfig.tsbuildinfo
 web-admin/.claude/
 backups/
+
+# عمل قيد التنفيذ من جلسة أخرى — يشير إلى waAgentApi غير الموجود فيكسر typecheck
+web-admin/src/components/WaAgentShadowPanel.tsx
