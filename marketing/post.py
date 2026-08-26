@@ -118,8 +118,49 @@ def pick_lang() -> str:
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash"
 
 
+def _ask_groq(system: str, user: str, max_tokens: int) -> str:
+    """يولّد عبر Groq (متوافق OpenAI). يُرجع '' عند أي فشل ليسقط المُنادي لجيميني.
+
+    لماذا Groq أولًا: جيميني ردّ 503 (ازدحام) فأسقط تشغيلة نشر كاملة — ومنشور
+    ضائع لا يُعوَّض. Groq أسرع وأوثق، ومفتاحان من حسابين يضاعفان السقف.
+    """
+    keys = [k.strip() for k in (
+        os.environ.get("GROQ_API_KEY", "").split(",") + [os.environ.get("GROQ_API_KEY_2", "")]
+    ) if k.strip()]
+    if not keys:
+        return ""
+    model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+    for key in dict.fromkeys(keys):  # بلا تكرار: مفتاحان متطابقان يتقاسمان الحصّة
+        try:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "reasoning_effort": "low",
+                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    "max_tokens": max(max_tokens, 900),  # نموذج تفكير: سقف ضيّق يُنتج نصًا فارغًا
+                    "temperature": 0.9,
+                },
+                timeout=90,
+            )
+            if not r.ok:
+                print(f"⚠️  Groq {r.status_code} — أجرّب التالي")
+                continue
+            text = (r.json()["choices"][0]["message"].get("content") or "").strip()
+            if text:
+                print(f"✍️  وُلّد عبر Groq ({model})")
+                return text.strip('"').strip()
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️  Groq فشل: {e}")
+    return ""
+
+
 def ask_gemini(system: str, user: str, max_tokens: int = 700) -> str:
-    """يولّد نصًا عبر Google Gemini 2.5 (generateContent). يُنهي بوضوح عند الخطأ."""
+    """يولّد نصًا: Groq أولًا (أسرع وأوثق)، وجيميني احتياطًا. الاسم باقٍ للتوافق."""
+    out = _ask_groq(system, user, max_tokens)
+    if out:
+        return out
     key = env("GEMINI_API_KEY")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     gen_config = {"maxOutputTokens": max_tokens, "temperature": 0.9}
