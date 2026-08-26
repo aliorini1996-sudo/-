@@ -84,7 +84,7 @@ export default function PaylinkPage() {
         <span className="w-10 h-10 rounded-xl bg-[#2E6FB0]/10 text-[#2E6FB0] flex items-center justify-center"><Link2 size={20} /></span>
         <div>
           <h1 className="text-xl font-bold text-gray-800">{tr('المدفوعات الالكترونية')}</h1>
-          <p className="text-xs text-gray-400">{tr('روابط دفع ميسر التي يصدرها مناديبك من ملف العميل والتوريد اسبوعي كل خميس')}</p>
+          <p className="text-xs text-gray-400">{tr('روابط الدفع التي يصدرها مناديبك من ملف العميل والتوريد اسبوعي كل خميس')}</p>
         </div>
       </div>
 

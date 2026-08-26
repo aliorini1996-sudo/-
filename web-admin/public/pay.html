@@ -16,7 +16,7 @@
   فتظهر فوراً. صفحة /pay في React باقية احتياطاً لو غابت قاعدة إعادة الكتابة.
 
   الأمان كما هو: الرمز العشوائي هو الإذن، والحقيقة كلها من الخادم، وبطاقة
-  العميل لا تمس هذه الصفحة إطلاقاً (الدفع على صفحة ميسر المستضافة).
+  العميل لا تمس هذه الصفحة إطلاقاً (الدفع على صفحة مزود الدفع المستضافة).
 -->
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -102,7 +102,7 @@
       if(dstr)h+='<div class="row"><span class="l">التاريخ</span><span class="v">'+esc(dstr)+'</span></div>';
       h+='<div class="row"><span class="l">رقم الفاتورة</span><span class="v">'+esc(v.invoiceNumber)+'</span></div>';
       h+='<div class="row"><span class="l">العميل</span><span class="v">'+esc(v.customerName)+'</span></div>';
-      h+='<div class="row" style="margin-bottom:0"><span class="l">طريقة الدفع</span><span class="v">دفع الكتروني — ميسر</span></div>';
+      h+='<div class="row" style="margin-bottom:0"><span class="l">طريقة الدفع</span><span class="v">دفع الكتروني</span></div>';
       h+='</div></div>';
       h+='<button class="btn2" onclick="window.print()">🖨&nbsp; حفظ الايصال</button>';
       h+='<p class="note">هذا الايصال مسجل لدى الشركة برقم السند اعلاه ولا يلزمك شيء اخر</p>'+foot();
@@ -114,7 +114,7 @@
       h+=stateHtml('⌛','انتهت صلاحية الرابط','اطلب من مندوبك رابط دفع جديدا');
     }else if(v.payUrl){
       h+='<a class="btn" style="background:'+esc(brand)+'" href="'+esc(v.payUrl)+'">💳&nbsp; ادفع الان بامان</a>';
-      h+='<p class="note">الدفع عبر بوابة ميسر المرخصة من البنك المركزي السعودي<br>بياناتك البنكية لا تمر بخوادمنا</p>'+foot();
+      h+=foot();
     }else{
       h+=stateHtml('⏳','الرابط قيد التجهيز','اعد فتح الرابط بعد لحظات');
     }
@@ -132,7 +132,7 @@
 
   if(!token){fail();return;}
 
-  // عائد من ميسر (?done=1): نطلب التأكيد أولاً — الخادم يجلب الحقيقة من ميسر
+  // عائد من صفحة الدفع (?done=1): نطلب التأكيد أولاً — الخادم يجلب الحقيقة من المزود
   // نفسه (صفحة النجاح ليست دليلاً) — ثم نعرض؛ ولو تأخر التأكيد نعيد المحاولة.
   if(location.search.indexOf('done=1')>-1){
     var tries=0;

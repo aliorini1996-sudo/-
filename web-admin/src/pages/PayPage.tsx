@@ -126,10 +126,6 @@ export default function PayPage() {
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: brand, color: '#fff', borderRadius: 14, padding: '14px 20px', fontWeight: 800, fontSize: 15, textDecoration: 'none' }}>
             <CreditCard size={18} /> ادفع الان بامان
           </a>
-          <p style={{ fontSize: 11, color: '#B7AD9D', textAlign: 'center', marginTop: 12, lineHeight: 1.7 }}>
-            الدفع عبر بوابة ميسر المرخصة من البنك المركزي السعودي
-            <br />بياناتك البنكية لا تمر بخوادمنا
-          </p>
         </>
       ) : (
         <p style={{ textAlign: 'center', fontSize: 13, color: '#8A8178' }}>الرابط قيد التجهيز حاول بعد لحظات</p>
