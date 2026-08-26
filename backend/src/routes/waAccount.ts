@@ -529,6 +529,9 @@ router.post('/signup-trial', async (req: Request, res: Response) => {
       adminName: z.string().min(2).max(60),
       email: z.string().email(),
       countryCode: z.string().length(2).optional(),
+      // فحص جاف: يتحقّق من كل الحواجز ويعيد شكل الاستجابة **بلا إنشاء أي شيء**.
+      // أُضيف لأن اختبار المنفذ على الإنتاج أنشأ حسابات حقيقية مرّتين.
+      dryRun: z.boolean().optional(),
     }).parse(req.body);
 
     const phone = normalizePhone(body.phone);
@@ -539,6 +542,12 @@ router.post('/signup-trial', async (req: Request, res: Response) => {
     }
     const emailTaken = await prisma.admin.findFirst({ where: { email: body.email }, select: { id: true } });
     if (emailTaken) { res.status(409).json({ success: false, message: 'البريد مستعمل مسبقاً' }); return; }
+
+    const FRONT = (process.env.FRONTEND_URL || 'https://fieldsa.net').split(',')[0].trim().replace(/\/$/, '');
+    if (body.dryRun) {
+      res.json({ success: true, data: { dryRun: true, companyName: body.companyName, username: body.email, loginUrl: `${FRONT}/login` } });
+      return;
+    }
 
     // كلمة مرور قوية وسهلة النطق في واتساب (بلا أحرف ملتبسة)، ٨ خانات = حدّ السياسة
     const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ', num = '23456789';
