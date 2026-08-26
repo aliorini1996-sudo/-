@@ -305,6 +305,20 @@ export const paymentsApi = {
   publicStatus: (id: string) => api.get(`/payments/public-status/${id}`),
 };
 
+// الإدارة المالية — للمالك وحده. كل الأرقام مشتقّة في الخادم؛ الواجهة تعرض فقط.
+export const financeApi = {
+  snapshot: () => api.get('/finance/snapshot'),
+  month: (year: number, month: number) => api.get(`/finance/month/${year}/${month}`),
+  listExpenses: () => api.get('/finance/expenses'),
+  addExpense: (data: {
+    label: string; category: string; amountSar: number;
+    vatSar?: number; vatIncluded?: boolean;
+    isRecurring: boolean; startsOn: string; endsOn?: string | null; note?: string | null;
+  }) => api.post('/finance/expenses', data),
+  deleteExpense: (id: string) => api.delete(`/finance/expenses/${id}`),
+  stopExpense: (id: string) => api.patch(`/finance/expenses/${id}/stop`),
+};
+
 // تحليلات زيارات الموقع — تسجيل عام (بلا مصادقة) + إحصاءات للمالك
 export const analyticsApi = {
   track: (data: { path: string; referrer?: string; lang?: string }) => api.post('/analytics/track', data),

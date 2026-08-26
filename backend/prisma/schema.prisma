@@ -46,31 +46,31 @@ model Tenant {
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
-  admins              Admin[]
-  salesReps           SalesRep[]
-  categories          ProductCategory[]
-  products            Product[]
-  customers           Customer[]
-  invoices            Invoice[]
-  receipts            Receipt[]
-  accountEntries      AccountEntry[]
-  notifications       Notification[]
-  settings            CompanySettings?
-  erpIntegration      ErpIntegration?
-  petroappIntegration PetroappIntegration?
+  admins               Admin[]
+  salesReps            SalesRep[]
+  categories           ProductCategory[]
+  products             Product[]
+  customers            Customer[]
+  invoices             Invoice[]
+  receipts             Receipt[]
+  accountEntries       AccountEntry[]
+  notifications        Notification[]
+  settings             CompanySettings?
+  erpIntegration       ErpIntegration?
+  petroappIntegration  PetroappIntegration?
   telephonyIntegration TelephonyIntegration?
-  workChannels        WorkChannel[]
-  callLogs            CallLog[]
-  zatcaEgs            ZatcaEgs?
-  erpSyncLogs         ErpSyncLog[]
-  vanLoads            VanLoad[]
-  warehouseEntries    WarehouseEntry[]
-  repLocations        RepLocation[]
-  repSettlements      RepSettlement[]
-  importBatches       ImportBatch[]
-  customerAssignments CustomerAssignment[]
-  adminCustomerScopes AdminCustomerScope[]
-  adminRepScopes      AdminRepScope[]
+  workChannels         WorkChannel[]
+  callLogs             CallLog[]
+  zatcaEgs             ZatcaEgs?
+  erpSyncLogs          ErpSyncLog[]
+  vanLoads             VanLoad[]
+  warehouseEntries     WarehouseEntry[]
+  repLocations         RepLocation[]
+  repSettlements       RepSettlement[]
+  importBatches        ImportBatch[]
+  customerAssignments  CustomerAssignment[]
+  adminCustomerScopes  AdminCustomerScope[]
+  adminRepScopes       AdminRepScope[]
 
   // عمودية المطاعم (M2+) — علاقات ظهر إضافية اختيارية
   restaurantAreas  RestaurantArea[]
@@ -197,13 +197,13 @@ model SalesRep {
   fcmToken     String?
 
   // Sales permissions
-  canCreateInvoice Boolean @default(true)
+  canCreateInvoice Boolean      @default(true)
   workChannel      WorkChannel? // رقم العمل المُسنَد (يملكه المستأجر لا المندوب — يعود للمخزون عند الاستقالة)
-  canSellOnCredit  Boolean @default(true)
-  canSellInCash    Boolean @default(true)
-  canEditInvoice   Boolean @default(false)
-  canDeleteInvoice Boolean @default(false)
-  canCancelInvoice Boolean @default(false)
+  canSellOnCredit  Boolean      @default(true)
+  canSellInCash    Boolean      @default(true)
+  canEditInvoice   Boolean      @default(false)
+  canDeleteInvoice Boolean      @default(false)
+  canCancelInvoice Boolean      @default(false)
 
   // Pricing permissions
   canChangePrice    Boolean @default(false)
@@ -493,13 +493,13 @@ model Invoice {
   // pricesIncludeTax=true — وهي فواتير تطبيق المندوب التي يبقى فيها السعر المعلن
   // للعميل كما هو حرفيا. الافتراضي false يجعل كل الصفوف التاريخية صحيحة بلا ترحيل.
   pricesIncludeTax Boolean @default(false)
-  subtotal     Float
-  discountPct  Float @default(0)
-  discountAmt  Float @default(0)
-  taxAmt       Float @default(0)
-  total        Float
-  paidAmt      Float @default(0)
-  remainingAmt Float
+  subtotal         Float
+  discountPct      Float   @default(0)
+  discountAmt      Float   @default(0)
+  taxAmt           Float   @default(0)
+  total            Float
+  paidAmt          Float   @default(0)
+  remainingAmt     Float
 
   // الفوترة الإلكترونية (اعتماد حكومي) — تُملأ عند الإرسال للمزوّد
   einvoiceProvider    String? // zatca | eta | peppol | ttn | none
@@ -661,11 +661,11 @@ model CompanySettings {
   customerIsolationEnabled Boolean @default(false)
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
-  countryCode      String @default("SA") // ISO alpha-2: دولة الشركة
-  currency         String @default("SAR") // عملة الفوترة الفعلية (من الدولة أو من التجاوز)
+  countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة
+  currency         String  @default("SAR") // عملة الفوترة الفعلية (من الدولة أو من التجاوز)
   currencyOverride String? // تجاوز عملة اختياري (USD | EUR) — الدولة تبقى للضريبة والفوترة
-  defaultVatPct    Float  @default(15) // نسبة الضريبة الافتراضية للدولة
-  einvoiceProvider String @default("zatca") // zatca | eta | peppol | ttn | none
+  defaultVatPct    Float   @default(15) // نسبة الضريبة الافتراضية للدولة
+  einvoiceProvider String  @default("zatca") // zatca | eta | peppol | ttn | none
 
   // --- بيانات ربط الفوترة الإلكترونية (تُدخلها كل شركة) — للمزوّدات الحكومية ETA/Peppol/TTN ---
   einvoiceEnabled         Boolean @default(false) // تفعيل الإرسال الحكومي لهذه الشركة
@@ -756,24 +756,24 @@ model ErpSyncLog {
 /// تكامل بترو آب — ربط اختياريّ لكل شركة حسب حاجتها (وقود/صيانة/غسيل).
 /// المفاتيح تُدخلها الشركة من إعداداتها (مفاتيح حسابها لدى بترو آب) ولا تُعاد للواجهة بعد الحفظ.
 model PetroappIntegration {
-  id          String    @id @default(uuid())
-  tenantId    String    @unique
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  enabled     Boolean   @default(false)
-  baseUrl     String    @default("https://api.petroapp.com") // يُعدَّل حين تسلّم بترو آب الوثائق الرسمية
-  apiKey      String?
+  id           String    @id @default(uuid())
+  tenantId     String    @unique
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enabled      Boolean   @default(false)
+  baseUrl      String    @default("https://api.petroapp.com") // يُعدَّل حين تسلّم بترو آب الوثائق الرسمية
+  apiKey       String?
   // الخدمات المفعّلة «حسب احتياج» الشركة — كل خدمة تُزامَن فقط إن فُعّلت
-  syncFuel    Boolean   @default(true)
-  syncService Boolean   @default(true)
-  syncWash    Boolean   @default(true)
-  status      String    @default("PENDING") // PENDING | OK | ERROR
-  lastSyncAt  DateTime?
-  lastError   String?
+  syncFuel     Boolean   @default(true)
+  syncService  Boolean   @default(true)
+  syncWash     Boolean   @default(true)
+  status       String    @default("PENDING") // PENDING | OK | ERROR
+  lastSyncAt   DateTime?
+  lastError    String?
   // كاش شبكة المحطات (قائمة كبيرة تتغيّر نادراً) — تتجدّد كل ٢٤ ساعة
   stationsJson String?
   stationsAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   vehicles     PetroappVehicle[]
   delegates    PetroappDelegate[]
@@ -837,11 +837,11 @@ model FuelTransaction {
   salesRepId         String? // يُحلّ عند المزامنة من روابط المركبات/السائقين ويُعاد حلّه عند تغيير الربط
   stationName        String?
   liters             Float?
-  amount             Float    @default(0)
+  amount             Float               @default(0)
   odometer           Int?
   occurredAt         DateTime
   raw                String? // لقطة JSON خام للفاتورة كما وصلت (تشخيص ومطابقة مستقبلية)
-  createdAt          DateTime @default(now())
+  createdAt          DateTime            @default(now())
 
   @@unique([tenantId, contentHash])
   @@index([tenantId, occurredAt])
@@ -1727,4 +1727,26 @@ model HunterContent {
   updatedAt DateTime @updatedAt
 
   @@map("hunter_content")
+}
+
+/// مصروف تشغيليّ للمنصّة نفسها (لا للشركات المشتركة) — أساس حساب الربح الحقيقي.
+/// المالك يسجّل تكاليفه (استضافة، مفاتيح API، تسويق، اشتراكات) فيُحسب صافي الربح
+/// آلياً بدل تقديره. `isRecurring` يعني يتكرّر شهرياً فيُحتسب في كل شهر لاحق
+/// دون إعادة إدخال — وهذا ما يجعل الأتمتة ممكنة أصلاً.
+model OperatingExpense {
+  id          String    @id @default(uuid())
+  label       String // وصف المصروف (Render، Groq، إعلانات…)
+  category    String // hosting | ai | marketing | tools | salaries | other
+  amountSar   Float // بالريال — التكاليف تُدخَل بعملة واحدة لتبسيط الجمع
+  vatSar      Float     @default(0) // ضريبة مدفوعة على المصروف (مدخلات قابلة للخصم)
+  isRecurring Boolean   @default(false) // يتكرّر شهرياً
+  startsOn    DateTime // بداية السريان (للمتكرّر) أو تاريخ الصرف (لغير المتكرّر)
+  endsOn      DateTime? // نهاية سريان المتكرّر (null = مستمرّ)
+  note        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([category])
+  @@index([startsOn])
+  @@map("operating_expenses")
 }
