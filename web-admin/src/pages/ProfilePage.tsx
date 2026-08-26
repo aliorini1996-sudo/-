@@ -13,8 +13,63 @@ import { mergeProfile, splitLines, splitPairs, ProfileLang, ProfileContent } fro
  * (بنفس الاسم) يحدّث الصفحة دون أي تغيير في الكود.
  */
 
+/**
+ * ورقة الطباعة — الملف المصدَّر نسخة من الصفحة لا اختصار لها.
+ *
+ * المتصفح افتراضاً يُسقط خلفيات الألوان والصور عند الطباعة (توفير حبر)، فكانت
+ * الأقسام الداكنة تخرج نصاً فاتحاً على ورق أبيض. ويقيس استعلامات الوسائط بعرض
+ * الورقة (A4 ≈ ٧٩٤ بكسل) فتسقط تخطيطات lg ذات العمودين إلى عمود واحد.
+ * وهنا يُعالَج الأمران، ويصير كل قسم صفحة كاملة بخلفيته كما يراه الزائر.
+ */
+const PRINT_CSS = `
+@page { size: A4; margin: 0; }
+
+@media print {
+  /* الخلفيات والصور جزء من الهوية لا زينة — بلا هذا يخرج الملف بلا لون */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  html, body { background: #FAF7F0 !important; }
+
+  /* ما لا ينتمي للوثيقة المطبوعة */
+  .wa-fab, [data-print-hide] { display: none !important; }
+
+  #profile-doc { min-height: 0 !important; }
+
+  /* عرض الورقة أضيق من عتبة lg فينهار العمودان إلى عمود — نُثبّتهما */
+  #profile-doc .lg\\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+  /* قسم لكل صفحة: نفس ترتيب الشاشة قسماً قسماً وخلفية تملأ الورقة */
+  #profile-doc > section, #profile-doc > footer {
+    break-before: page;
+    min-height: 100vh;
+    display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 10mm !important;
+    padding-bottom: 10mm !important;
+  }
+  #profile-doc > section:first-of-type { break-before: auto; }
+  #profile-doc > section > div, #profile-doc > footer > div {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    width: 100%;
+  }
+
+  /* لا يُقطع عنوان عن جسمه ولا بطاقة عن نفسها */
+  #profile-doc h1, #profile-doc h2 { break-after: avoid; }
+  #profile-doc .rounded-2xl { break-inside: avoid; }
+
+  /* الصور أقصر قليلاً على الورق كي يبقى القسم داخل صفحته */
+  #profile-doc img[data-profile-photo] { max-height: 95mm !important; }
+}
+`;
+
 const COLORS = { coral: '#E15A30', ink: '#1F1A13', cream: '#FAF7F0', coralL: '#FBEBE2', gray: '#6E6557', sand: '#E9E1D3', green: '#1E7A52' };
 const IMG = (n: string) => `/media/profile/${n}.jpg`;
+// كل صور الصفحة: ستّ صور <img> وأربع خلفيات أقسام — مصدر واحد للتسخين والتصدير
+const PHOTOS = ['cover', 'problem', 'clients', 'about', 'journey', 'achievements', 'goals', 'invest', 'closing'];
 
 export default function ProfilePage() {
   const [lang, setLang] = useState<ProfileLang>('ar');
@@ -33,6 +88,20 @@ export default function ProfilePage() {
     document.title = isAr ? 'بروفايل Field Sales' : 'Company Profile — Field Sales';
   }, [isAr]);
 
+  /**
+   * تسخين صور الصفحة بعد أول رسم.
+   * صور <img> كسولة وخلفيات الأقسام الداكنة تحت الطيّة، فلا يطلبها المتصفح حتى
+   * تُرى — وحوار الطباعة لا ينتظر ما لم يُطلب، فكان الملف المصدَّر يخرج بخانات
+   * بيضاء وأقسام بلا خلفيتها. نطلبها في وقت الخمول فلا تؤخّر أول رسم.
+   */
+  useEffect(() => {
+    const warm = () => PHOTOS.forEach(n => { const im = new Image(); im.src = IMG(n); });
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    if (ric) { ric(warm); return; }
+    const id = window.setTimeout(warm, 1200);
+    return () => window.clearTimeout(id);
+  }, []);
+
   const arFont = "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif";
   const enFont = "'IBM Plex Sans', sans-serif";
   const serif = "'IBM Plex Serif', serif";
@@ -40,6 +109,26 @@ export default function ProfilePage() {
   const headFont = isAr ? arFont : serif;
 
   const L = (ar: string, en: string) => (isAr ? ar : en);
+
+  /**
+   * تصدير PDF: نطبع الصفحة نفسها لا نسخة مبسّطة منها — لكن قبل الطباعة نُجبر
+   * الصور الكسولة على التحميل. الصورة التي لم تدخل الشاشة لم تُطلب أصلاً،
+   * وحوار الطباعة لا ينتظرها، فكانت خاناتها تخرج بيضاء في الملف.
+   */
+  const exportPdf = async () => {
+    const settle = (im: HTMLImageElement) => (im.complete && im.naturalWidth > 0
+      ? Promise.resolve()
+      : new Promise<void>(done => {
+        im.addEventListener('load', () => done(), { once: true });
+        im.addEventListener('error', () => done(), { once: true });
+      }));
+    const inline = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-profile-photo]'));
+    inline.forEach(im => { im.loading = 'eager'; });
+    // خلفيات الأقسام الداكنة ليست عناصر <img> فلا تُنتظر بذاتها — نطلبها بنسخ موازية
+    const backdrops = PHOTOS.map(n => { const im = new Image(); im.src = IMG(n); return im; });
+    await Promise.all([...inline, ...backdrops].map(settle));
+    window.print();
+  };
 
   const Wordmark = ({ dark }: { dark?: boolean }) => (
     <span style={{ fontFamily: serif, fontWeight: 700 }}>
@@ -68,7 +157,7 @@ export default function ProfilePage() {
   );
 
   const Photo = ({ name, alt, h = 'h-64 sm:h-80' }: { name: string; alt: string; h?: string }) => (
-    <img src={IMG(name)} alt={alt} loading="lazy"
+    <img src={IMG(name)} alt={alt} loading="lazy" data-profile-photo=""
       className={`w-full ${h} object-cover rounded-2xl`}
       style={{ border: `1px solid ${COLORS.sand}`, boxShadow: '0 10px 30px rgba(31,26,19,.10)' }} />
   );
@@ -82,7 +171,8 @@ export default function ProfilePage() {
   });
 
   return (
-    <div dir={dir} className="min-h-screen" style={{ background: COLORS.cream, fontFamily: font }}>
+    <div id="profile-doc" dir={dir} className="min-h-screen" style={{ background: COLORS.cream, fontFamily: font }}>
+      <style>{PRINT_CSS}</style>
 
       {/* الشريط العلوي: الشعار + مبدل اللغة + طباعة */}
       <header className="sticky top-0 z-40 border-b print:hidden" style={{ background: 'rgba(250,247,240,.92)', backdropFilter: 'blur(8px)', borderColor: COLORS.sand }}>
@@ -101,7 +191,7 @@ export default function ProfilePage() {
                 </button>
               ))}
             </div>
-            <button onClick={() => window.print()} title={L('حفظ PDF', 'Save PDF')}
+            <button onClick={exportPdf} title={L('حفظ PDF', 'Save PDF')}
               className="px-3.5 py-1.5 rounded-xl text-sm font-bold" style={{ background: COLORS.ink, color: COLORS.cream }}>
               PDF
             </button>
