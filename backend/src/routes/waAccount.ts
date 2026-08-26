@@ -580,7 +580,9 @@ router.post('/signup-trial', async (req: Request, res: Response) => {
         companyName: body.companyName,
         username: body.email,          // الدخول بالبريد
         password,                       // تُعرض مرّة واحدة ولا تُخزَّن عندنا
-        loginUrl: `${(process.env.FRONTEND_URL || 'https://fieldsa.net').replace(/\/$/, '')}/login`,
+        // FRONTEND_URL قد يحمل أكثر من أصل مفصولة بفاصلة (للـCORS) — نأخذ الأول
+        // فقط؛ لصقُ القائمة كاملةً أنتج رابطاً مشوّهاً لا يفتح (رُصد حيّاً).
+        loginUrl: `${(process.env.FRONTEND_URL || 'https://fieldsa.net').split(',')[0].trim().replace(/\/$/, '')}/login`,
         trialEndsAt: tenant?.subscriptionEndsAt?.toISOString().slice(0, 10) ?? null,
       },
     });
