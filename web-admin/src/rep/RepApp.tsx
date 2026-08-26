@@ -625,7 +625,11 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
     setIssuing(inv.id); setError(null);
     try {
       const res = await repApi.post('/paylink/issue', { invoiceId: inv.id });
-      setLink({ payUrl: res.data.data.payUrl, amount: res.data.data.amount, invoiceNumber: inv.number });
+      // الرابط يبنى هنا من الرمز — بنفس طريقة صفحة الادارة التي يثق بها المالك —
+      // لا من نص الخادم: بادئة الخادم انكسرت مرة (FRONTEND_URL قائمة بفاصلة)
+      // وبناء العميل من window.location.origin لا ينكسر ابدا
+      const payUrl = `${window.location.origin}/pay/${res.data.data.token}`;
+      setLink({ payUrl, amount: res.data.data.amount, invoiceNumber: inv.number });
     } catch (e: any) {
       setError(e?.response?.data?.message || tr('تعذر اصدار الرابط تحقق من الاتصال'));
     }
