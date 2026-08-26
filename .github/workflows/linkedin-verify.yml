@@ -1,0 +1,30 @@
+name: FieldSales — فحص جاهزية LinkedIn (بلا نشر)
+
+# فحصٌ يدويّ فقط: لا جدولة، ولا ينشر شيئاً.
+# غايته الإجابة عن سؤال «هل يستطيع الرمز النشر باسم صفحة الشركة؟» دون دفع ثمن
+# منشورٍ عامّ مقابل السؤال.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: افحص الرمز والصلاحيات
+        env:
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_ORG_ID: ${{ secrets.LINKEDIN_ORG_ID }}
+        run: python marketing/linkedin_verify.py
