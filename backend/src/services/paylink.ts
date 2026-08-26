@@ -21,7 +21,9 @@ import { postReceiptEntries, clean } from './accounting';
 
 const LINK_TTL_DAYS = 14; // رابط واتساب قد يُفتح متأخراً — أسبوعان ثم ينتهي
 
-const FRONT = (process.env.FRONTEND_URL || 'https://fieldsa.net').replace(/\/+$/, '');
+// FRONTEND_URL قائمة أصول بفاصلة (لأغراض CORS) — رابط العميل يبنى من الأول فقط.
+// أخذها كاملة أنتج روابط مكسورة «fieldsa.net,https://www.fieldsa.net/pay/…» لا تفتح.
+const FRONT = (process.env.FRONTEND_URL || 'https://fieldsa.net').split(',')[0].trim().replace(/\/+$/, '');
 
 export function paylinkConfigured(): boolean {
   return moyasarConfigured();
