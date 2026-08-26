@@ -17,6 +17,18 @@ import prisma from '../config/database';
 /** نسبة ضريبة القيمة المضافة السعودية — مصدر واحد لا يتكرّر في الحسابات */
 export const VAT_PCT = Number(process.env.PLATFORM_VAT_PCT || 15);
 
+/**
+ * عمولة بوابة الدفع (ميسر) — **نسبة من كل مبلغ محصّل**، لا مصروف شهري ثابت.
+ * تسجيلها مصروفاً ثابتاً كان سيتقادم مع كل تغيّر في حجم المبيعات؛ وحسابها هنا
+ * يجعلها تتبع الإيراد آلياً: شهرٌ بلا مبيعات = عمولة صفر.
+ */
+export const GATEWAY_FEE_PCT = Number(process.env.GATEWAY_FEE_PCT || 3);
+
+/** عمولة البوابة على مبلغ محصّل */
+export function gatewayFee(totalSar: number, pct = GATEWAY_FEE_PCT): number {
+  return round2((totalSar * pct) / 100);
+}
+
 /** يستخرج الضريبة من مبلغ **شامل** لها (لا يضيفها) */
 export function vatFromInclusive(totalSar: number, pct = VAT_PCT): number {
   return round2((totalSar * pct) / (100 + pct));
@@ -45,6 +57,7 @@ export interface MonthlyFinance {
   revenueSar: number;          // محصّل فعلاً هذا الشهر (شامل الضريبة)
   revenueNetSar: number;       // بعد استخراج الضريبة
   vatCollectedSar: number;     // ضريبة مخرجات
+  gatewayFeeSar: number;       // عمولة بوابة الدفع (٣٪ من المحصّل)
   expensesSar: number;         // مصروفات الشهر (متكرّرة + لمرّة)
   vatPaidSar: number;          // ضريبة مدخلات على المصروفات
   vatDueSar: number;           // المستحقّ للهيئة = مخرجات − مدخلات
@@ -80,11 +93,13 @@ export async function monthlyFinance(year: number, month: number): Promise<Month
   const expensesSar = round2([...oneOff, ...rec].reduce((s, e) => s + e.amountSar, 0));
   const vatPaidSar = round2([...oneOff, ...rec].reduce((s, e) => s + (e.vatSar || 0), 0));
 
-  const profitSar = round2(revenueNetSar - expensesSar);
+  // العمولة تُحسب على المبلغ الكامل المحصّل (البوابة تخصم من الإجمالي لا من الصافي)
+  const gatewayFeeSar = gatewayFee(revenueSar);
+  const profitSar = round2(revenueNetSar - expensesSar - gatewayFeeSar);
   return {
     year, month,
     revenueSar, revenueNetSar, vatCollectedSar,
-    expensesSar, vatPaidSar,
+    gatewayFeeSar, expensesSar, vatPaidSar,
     vatDueSar: round2(vatCollectedSar - vatPaidSar),
     profitSar,
     marginPct: revenueNetSar > 0 ? round2((profitSar / revenueNetSar) * 100) : 0,
@@ -94,6 +109,7 @@ export async function monthlyFinance(year: number, month: number): Promise<Month
 
 export interface FinanceSnapshot {
   vatPct: number;
+  gatewayFeePct: number;
   mrrSar: number;                 // إيراد شهري متكرّر من الاشتراكات الفعّالة
   arrSar: number;                 // سنويّ
   activeTenants: number;
@@ -143,9 +159,10 @@ export async function financeSnapshot(): Promise<FinanceSnapshot> {
     months.push(await monthlyFinance(d.getUTCFullYear(), d.getUTCMonth() + 1));
   }
 
-  const netMonthly = round2(mrrSar - vatFromInclusive(mrrSar) - monthlyRecurringCostSar);
+  const netMonthly = round2(mrrSar - vatFromInclusive(mrrSar) - gatewayFee(mrrSar) - monthlyRecurringCostSar);
   return {
     vatPct: VAT_PCT,
+    gatewayFeePct: GATEWAY_FEE_PCT,
     mrrSar,
     arrSar: round2(mrrSar * 12),
     activeTenants: paying.length,

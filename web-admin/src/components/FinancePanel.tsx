@@ -11,11 +11,11 @@ import { backdropClose } from '../lib/backdropClose';
 interface MonthlyFinance {
   year: number; month: number;
   revenueSar: number; revenueNetSar: number; vatCollectedSar: number;
-  expensesSar: number; vatPaidSar: number; vatDueSar: number;
+  gatewayFeeSar: number; expensesSar: number; vatPaidSar: number; vatDueSar: number;
   profitSar: number; marginPct: number; paidCount: number;
 }
 interface Snapshot {
-  vatPct: number; mrrSar: number; arrSar: number;
+  vatPct: number; gatewayFeePct: number; mrrSar: number; arrSar: number;
   activeTenants: number; trialTenants: number; expiringSoon: number;
   monthlyRecurringCostSar: number; runwayNote: string;
   current: MonthlyFinance; months: MonthlyFinance[];
@@ -153,10 +153,16 @@ export default function FinancePanel({ onClose }: { onClose: () => void }) {
               </div>
 
               {/* الأرقام الحاكمة */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <Stat icon={Repeat} label="الإيراد الشهري المتكرّر (MRR)" value={sar(snap.mrrSar)} hint={`سنوياً ${sar(snap.arrSar)}`} />
                 <Stat icon={TrendingUp} label="محصّل هذا الشهر" value={sar(cur.revenueSar)} hint={`${cur.paidCount} عملية دفع`} />
                 <Stat icon={TrendingDown} label="مصروفات الشهر" value={sar(cur.expensesSar)} hint={`متكرّر ${sar(snap.monthlyRecurringCostSar)}`} />
+                <Stat
+                  icon={Receipt}
+                  label={`عمولة بوابة الدفع (${snap.gatewayFeePct}%)`}
+                  value={sar(cur.gatewayFeeSar)}
+                  hint="تُخصم من كل مبلغ محصّل"
+                />
                 <Stat
                   icon={Wallet}
                   label="صافي الربح"
@@ -340,7 +346,7 @@ export default function FinancePanel({ onClose }: { onClose: () => void }) {
 
               <p className="text-[11px] text-gray-400 text-center leading-relaxed">
                 كل الأرقام مشتقّة آلياً: الإيراد من مدفوعات ميسر المؤكَّدة · الاشتراكات المتكرّرة من الشركات الفعّالة ·
-                الضريبة مستخرَجة من مبالغ شاملة لها · والمصروف المتكرّر يُحتسب في كل شهر يسري فيه بلا إعادة إدخال.
+                الضريبة مستخرَجة من مبالغ شاملة لها · عمولة البوابة تتبع الإيراد لا تُسجَّل ثابتة · والمصروف المتكرّر يُحتسب في كل شهر يسري فيه بلا إعادة إدخال.
               </p>
             </>
           )}
