@@ -46,6 +46,7 @@ import restaurantRouter from './routes/restaurant';
 import hunterRouter from './routes/hunter';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
+import waAccountRouter from './routes/waAccount';
 import paymentsRouter, { paymentsWebhookRouter } from './routes/payments';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
@@ -104,6 +105,8 @@ app.use('/api/telephony/webhook', telephonyWebhookRouter);
 
 // جسر واتساب ويب — بحدّه الخاص السخيّ (السحب الدوري + لوحة المالك من نفس الـIP المنزلي)
 app.use('/api/wa-bridge', bridgeLimiter, waBridgeRouter);
+// منفذ حساب واتساب (الموجة ٢ — قراءة فقط، مطفأ بلا WA_ACCOUNT_ENABLED)
+app.use('/api/wa-account', waAccountRouter);
 
 // حدّ عام واقٍ لكل واجهة API (حدود أدق على الدخول/التسجيل داخل كل مسار)
 app.use('/api', apiLimiter);
