@@ -139,6 +139,22 @@ async function tenantByPhone(phone: string): Promise<string | null> {
   return m.length === 1 ? m[0].tenantId : null;   // غموض ⇒ رفض
 }
 
+/**
+ * كم شركة يطابقها هذا الرقم؟ **منفصلة عن tenantByPhone عمداً.**
+ *
+ * العطب الذي أوجب فصلها: `tenantByPhone` تُرجع null في حالتين مختلفتين جذرياً —
+ * «لا شركة» و«أكثر من شركة». وهذا صحيح لتحديد الهوية (لا نخمّن)، لكنه **كارثيّ
+ * كحاجز إنشاء**: رقم مطابق لثلاث شركات يُقرأ «غير مربوط» فيُفتح له حساب رابع
+ * يزيد الغموض. رُصد حيّاً. فالحاجز يسأل «هل يوجد أيّ ارتباط؟» لا «مَن هو؟».
+ */
+async function tenantCountByPhone(phone: string): Promise<number> {
+  const rows = await prisma.companySettings.findMany({
+    where: { phone: { not: null } },
+    select: { phone: true },
+  });
+  return rows.filter((r) => normalizePhone(r.phone) === phone).length;
+}
+
 /** قائمة مناديب الشركة — للبوت كي يعرّف المندوب المقصود قبل طلب الإذن */
 router.get('/reps', async (req: Request, res: Response) => {
   if (!enabled() || !actionsEnabled()) { res.status(404).json({ success: false }); return; }
@@ -536,8 +552,15 @@ router.post('/signup-trial', async (req: Request, res: Response) => {
 
     const phone = normalizePhone(body.phone);
     if (overLimit(phone)) { res.status(429).json({ success: false }); return; }
-    if (await tenantByPhone(phone)) {
-      res.status(409).json({ success: false, message: 'هذا الرقم مربوط بشركة قائمة' });
+    // أيّ ارتباط يمنع — بما فيه الغامض (أكثر من شركة)
+    const linkedCount = await tenantCountByPhone(phone);
+    if (linkedCount > 0) {
+      res.status(409).json({
+        success: false,
+        message: linkedCount === 1
+          ? 'هذا الرقم مربوط بشركة قائمة'
+          : `هذا الرقم مربوط بـ${linkedCount} شركات — يحتاج مراجعة صاحب المنصّة`,
+      });
       return;
     }
     const emailTaken = await prisma.admin.findFirst({ where: { email: body.email }, select: { id: true } });
