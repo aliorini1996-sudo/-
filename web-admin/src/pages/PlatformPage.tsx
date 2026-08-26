@@ -8,7 +8,7 @@ import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
   BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug, Radio,
-  Truck, UtensilsCrossed, CreditCard,
+  Truck, UtensilsCrossed, CreditCard, MessagesSquare,
 } from 'lucide-react';
 
 // عمودية الفرع: توزيع (يمين، برتقالي) | مطاعم (يسار، قرميدي/أخضر)
@@ -24,6 +24,7 @@ import LiveUsersPanel from '../components/LiveUsersPanel';
 import ProfileEditorPanel from '../components/ProfileEditorPanel';
 import PaymentLinksPanel from '../components/PaymentLinksPanel';
 import FinancePanel from '../components/FinancePanel';
+import WaInboxPanel from '../components/WaInboxPanel';
 import LeadsPanel from '../components/LeadsPanel';
 import CompanyHealthPanel from '../components/CompanyHealthPanel';
 import InvoiceToolPanel from '../components/InvoiceToolPanel';
@@ -48,6 +49,7 @@ export default function PlatformPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showPayments, setShowPayments] = useState(false);
   const [showFinance, setShowFinance] = useState(false);
+  const [showWaInbox, setShowWaInbox] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [showInvoiceTool, setShowInvoiceTool] = useState(false);
   const [showPromoVideos, setShowPromoVideos] = useState(false);
@@ -132,6 +134,9 @@ export default function PlatformPage() {
           </button>
           <button onClick={() => setShowPromoVideos(true)} className="sidebar-link w-full">
             <Video size={18} className="flex-shrink-0" /> <span>{tr('الفيديوهات الترويجية')}</span>
+          </button>
+          <button onClick={() => setShowWaInbox(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
+            <MessagesSquare size={18} className="flex-shrink-0" /> <span>{tr('محادثات بوت واتساب')}</span>
           </button>
           <button onClick={() => setShowFinance(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
             <Wallet size={18} className="flex-shrink-0" /> <span>{tr('الإدارة المالية')}</span>
@@ -249,6 +254,7 @@ export default function PlatformPage() {
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
       {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
       {showProfile && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
+      {showWaInbox && <WaInboxPanel onClose={() => setShowWaInbox(false)} />}
       {showFinance && (
         <FinancePanel
           onClose={() => setShowFinance(false)}

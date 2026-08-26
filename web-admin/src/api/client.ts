@@ -328,6 +328,14 @@ export const financeApi = {
   stopExpense: (id: string) => api.patch(`/finance/expenses/${id}/stop`),
 };
 
+// محادثات بوت واتساب — عبر وسيط الباكند (رمز البوت يبقى في بيئة الخادم)
+export const waInboxApi = {
+  stats: () => api.get('/wa-inbox/stats'),
+  threads: (p: { stage?: string; q?: string; limit?: number }) =>
+    api.get('/wa-inbox/threads', { params: p }),
+  thread: (phone: string) => api.get(`/wa-inbox/thread/${phone}`),
+};
+
 // تحليلات زيارات الموقع — تسجيل عام (بلا مصادقة) + إحصاءات للمالك
 export const analyticsApi = {
   track: (data: { path: string; referrer?: string; lang?: string }) => api.post('/analytics/track', data),
