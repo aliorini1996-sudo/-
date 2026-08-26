@@ -41,6 +41,9 @@ model Tenant {
   catalogEnabled            Boolean   @default(false) // ميزة منيو المنتجات العام — يفعّلها المالك لكل شركة حسب الاشتراك
   warehouseEnabled          Boolean   @default(false) // مخزون الشركة (المستودع المركزيّ) — يُفعّله المالك لكل شركة (طرح مدروس)
   receivablesSummaryEnabled Boolean   @default(false) // سطر «إجمالي مديونية العملاء المُسنَدين (بلا تكرار)» في تقرير المديونيات — يُفعّله المالك لكل شركة (طرح محدود)
+  paylinkEnabled            Boolean   @default(false) // ميزة الدفع الإلكتروني (روابط دفع ميسر عبر حسابنا المجمِّع) — يفعّلها المالك لكل شركة حسب الاشتراك
+  paylinkFeePct             Float     @default(4) // نسبة عمولتنا على كل تحصيل إلكتروني — لكل شركة على حدة (شاملة الضريبة)
+  paylinkFeeFlat            Float     @default(1) // الريال الثابت لكل دفعة — شامل الضريبة
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -73,20 +76,23 @@ model Tenant {
   adminRepScopes       AdminRepScope[]
 
   // عمودية المطاعم (M2+) — علاقات ظهر إضافية اختيارية
-  restaurantAreas  RestaurantArea[]
-  restaurantTables RestaurantTable[]
-  menuCategories   MenuCategory[]
-  menuItems        MenuItem[]
-  modifierGroups   ModifierGroup[]
-  modifiers        Modifier[]
-  orders           Order[]
-  posShifts        PosShift[]
-  cashMovements    CashMovement[]
-  ingredients      Ingredient[]
-  recipeItems      RecipeItem[]
-  ingredientMoves  IngredientMovement[]
-  RepVisit         RepVisit[]
-  RepSession       RepSession[]
+  restaurantAreas      RestaurantArea[]
+  restaurantTables     RestaurantTable[]
+  menuCategories       MenuCategory[]
+  menuItems            MenuItem[]
+  modifierGroups       ModifierGroup[]
+  modifiers            Modifier[]
+  orders               Order[]
+  posShifts            PosShift[]
+  cashMovements        CashMovement[]
+  ingredients          Ingredient[]
+  recipeItems          RecipeItem[]
+  ingredientMoves      IngredientMovement[]
+  RepVisit             RepVisit[]
+  RepSession           RepSession[]
+  customerPaymentLinks CustomerPaymentLink[]
+  settlementEntries    SettlementEntry[]
+  payouts              Payout[]
 
   @@index([vertical])
   @@map("tenants")
@@ -249,7 +255,8 @@ model SalesRep {
   // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
   customerAssignments CustomerAssignment[]
   adminScopes         AdminRepScope[]
-  createdCustomers    Customer[]           @relation("CustomerCreatedByRep")
+  createdCustomers    Customer[]            @relation("CustomerCreatedByRep")
+  paymentLinks        CustomerPaymentLink[]
 
   @@index([tenantId])
   @@index([lastSeenAt])
@@ -275,6 +282,91 @@ model PaymentLink {
   @@index([tenantId])
   @@index([status])
   @@map("payment_links")
+}
+
+// رابط دفع فاتورة عميل — قلب ميزة «الدفع الإلكتروني».
+//
+// النموذج التشغيلي (قرار المالك): نحن نجمع ثم نوزّع — العميل يدفع عبر ميسر إلى
+// حسابنا المجمِّع، ونحن ندين للشركة بالمحصَّل ناقصَ عمولتنا (paylinkFeePct/Flat)،
+// والتوريد أسبوعي كل خميس من حسابنا البنكي (مؤتمت مع البنك خارج النظام).
+//
+// القيود المتعمدة:
+//  - الرابط لا يولد إلا من فاتورة قائمة وبكامل متبقيها لحظة الإصدار — لا رابط حر.
+//  - token غير قابل للتخمين (32 بايت عشوائية) لأن صفحة الدفع عامة بلا مصادقة.
+//  - المبلغ يجمد لحظة الإصدار، وصلاحية الرابط تفحص لحظة الدفع لا الإصدار:
+//    إن سدد نقدا بعد الإصدار مات الرابط بدل أن يصنع دفعة زائدة.
+model CustomerPaymentLink {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  token       String    @unique // معرف الصفحة العامة /pay/:token
+  invoiceId   String
+  invoice     Invoice   @relation(fields: [invoiceId], references: [id])
+  customerId  String
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  // المصدر مندوب أو أدمن — نحفظ الاثنين للتقرير («المحصل إلكترونيا لكل مندوب»)
+  salesRepId  String?
+  salesRep    SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  createdById String? // معرف الأدمن حين يصدر من اللوحة
+
+  amount           Float // متبقي الفاتورة لحظة الإصدار — مجمد، والتحقق لحظة الدفع
+  moyasarInvoiceId String?   @unique // فاتورة ميسر — مرجع المطابقة الوحيد الموثوق
+  url              String? // صفحة الدفع المستضافة لدى ميسر
+  status           String    @default("initiated") // initiated | paid | canceled | expired
+  paidAt           DateTime?
+  moyasarPaymentId String? // الدفعة لدى ميسر بعد السداد — يلزم للاسترداد
+  receiptId        String?   @unique // سند القبض الذي أنشأه السداد (المعاملة الواحدة)
+  expiresAt        DateTime // انتهاء تلقائي — رابط واتساب قد يفتح بعد أسابيع
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, invoiceId])
+  @@map("customer_payment_links")
+}
+
+// دفتر أمانات الشركات — نفس فلسفة AccountEntry: قيود موقعة لا رصيد مخزن.
+// الرصيد = مجموع القيود، فلا يوجد رقم قابل للانحراف عن مصدره.
+//
+// الأنواع: COLLECTED (+ المحصل كاملا) · FEE (− عمولتنا شاملة الضريبة) ·
+// PAYOUT (− ما ورد للشركة) · REFUND (− عكس استرداد).
+// feeNet/feeVat يفصلان إيرادنا عن ضريبته لإقرارنا — مجموعهما قيمة قيد FEE.
+model SettlementEntry {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind      String // COLLECTED | FEE | PAYOUT | REFUND
+  amount    Float // موقع: التحصيل موجب والباقي سالب
+  feeNet    Float? // على قيود FEE فقط: إيرادنا قبل الضريبة
+  feeVat    Float? // على قيود FEE فقط: ضريبة عمولتنا (تستخرج لا تضاف)
+  linkId    String? // رابط الدفع مصدر القيد (COLLECTED/FEE/REFUND)
+  payoutId  String?
+  payout    Payout?  @relation(fields: [payoutId], references: [id])
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, kind])
+  @@index([tenantId, createdAt])
+  @@map("settlement_entries")
+}
+
+// توريد أسبوعي لشركة — النظام يسجل ويوثق، والتحويل البنكي ينفذ خارجه
+// (مؤتمت مع البنك بترتيب المالك). القيد السالب المرافق في SettlementEntry
+// هو ما يصفر رصيد الأمانات، وهذا السجل مرجعه التوثيقي.
+model Payout {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  amount        Float
+  bankReference String? // مرجع التحويل البنكي
+  note          String?
+  createdAt     DateTime @default(now())
+
+  entries SettlementEntry[]
+
+  @@index([tenantId])
+  @@map("payouts")
 }
 
 /// لقطة دوريّة لعدد المتصلين بالمنصّة الآن (كل ٥ دقائق) — تُغذّي مؤشّر «الزيارات
@@ -418,6 +510,7 @@ model Customer {
   RepVisit       RepVisit[]
   assignments    CustomerAssignment[]
   adminScopes    AdminCustomerScope[]
+  paymentLinks   CustomerPaymentLink[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -531,6 +624,7 @@ model Invoice {
   receiptItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
   order          Order? // الطلب الذي وُلِّدت منه فاتورة المطعم (علاقة ظهر، بلا عمود)
+  paymentLinks   CustomerPaymentLink[]
 
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])

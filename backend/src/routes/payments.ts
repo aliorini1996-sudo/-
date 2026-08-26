@@ -280,6 +280,22 @@ paymentsWebhookRouter.post('/', async (req: Request, res: Response) => {
     return;
   }
 
+  // روابط دفع فواتير العملاء (ميزة «الدفع الإلكتروني») تمر من نفس الويب هوك —
+  // تمييزها kind='cpl' في الـmetadata، والتأكيد يجلب الحقيقة من ميسر لا من الجسم
+  if ((data.metadata?.kind as string) === 'cpl') {
+    const linkId = (data.metadata?.linkId as string) || '';
+    if (!linkId) { res.json({ success: true }); return; }
+    try {
+      const { confirmLinkPayment } = await import('../services/paylink');
+      await confirmLinkPayment(linkId);
+      res.json({ success: true });
+    } catch (e) {
+      console.error('paylink webhook error:', (e as Error).message);
+      res.status(500).json({ success: false }); // ميسر سيعيد الإرسال
+    }
+    return;
+  }
+
   const ref = (data.metadata?.ref as string) || '';
   if (!ref) { res.json({ success: true }); return; }
 

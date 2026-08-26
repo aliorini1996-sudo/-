@@ -50,6 +50,7 @@ import waAccountRouter from './routes/waAccount';
 import financeRouter from './routes/finance';
 import waInboxRouter from './routes/waInbox';
 import paymentsRouter, { paymentsWebhookRouter } from './routes/payments';
+import paylinkRouter from './routes/paylink';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 
@@ -142,6 +143,7 @@ app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/payments', paymentsRouter);
+app.use('/api/paylink', paylinkRouter);
 app.use('/api/promo-videos', promoVideosRouter);
 app.use('/api/import', importRouter);
 app.use('/api/restaurant', restaurantRouter);

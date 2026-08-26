@@ -58,5 +58,5 @@ export const statusLabels: Record<string, string> = {
 };
 
 export const paymentMethodLabels: Record<string, string> = {
-  CASH: 'نقدي', BANK_TRANSFER: 'تحويل بنكي', POS: 'شبكة', CHEQUE: 'شيك',
+  CASH: 'نقدي', BANK_TRANSFER: 'تحويل بنكي', POS: 'شبكة', CHEQUE: 'شيك', ONLINE: 'دفع الكتروني',
 };

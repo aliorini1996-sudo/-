@@ -43,8 +43,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const tid = tenantId(req);
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid } });
     // نُرفق أعلام الاشتراك التي يتحكّم بها المالك (لإظهار/إخفاء الميزات في الواجهة)
-    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true, petroappEnabled: true, hatifEnabled: true, catalogEnabled: true, warehouseEnabled: true, receivablesSummaryEnabled: true } });
-    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled };
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true, petroappEnabled: true, hatifEnabled: true, catalogEnabled: true, paylinkEnabled: true, warehouseEnabled: true, receivablesSummaryEnabled: true } });
+    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled };
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });

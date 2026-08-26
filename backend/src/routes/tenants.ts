@@ -21,7 +21,8 @@ const createTenantSchema = z.object({
   erpEnabled: z.boolean().optional(),          // صلاحية ربط ERP (يمنحها المالك حسب الاشتراك)
   petroappEnabled: z.boolean().optional(),     // صلاحية ربط بترو آب (يمنحها المالك حسب الاشتراك)
   hatifEnabled: z.boolean().optional(),        // ميزة ارقام العمل وربط هاتف (يمنحها المالك حسب الاشتراك)
-  catalogEnabled: z.boolean().optional(),      // ميزة منيو المنتجات العام (يمنحها المالك حسب الاشتراك)
+  catalogEnabled: z.boolean().optional(),
+  paylinkEnabled: z.boolean().optional(), // ميزة الدفع الإلكتروني — روابط دفع ميسر (يمنحها المالك حسب الاشتراك)
   subscriptionEndsAt: z.string().optional(), // ISO date — فارغ = غير محدود
   notes: z.string().optional(),
   // بيانات أدمن الشركة الأول
@@ -39,6 +40,7 @@ const updateTenantSchema = z.object({
   petroappEnabled: z.boolean().optional(),
   hatifEnabled: z.boolean().optional(),
   catalogEnabled: z.boolean().optional(),
+  paylinkEnabled: z.boolean().optional(),
   warehouseEnabled: z.boolean().optional(),
   receivablesSummaryEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
@@ -112,6 +114,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           petroappEnabled: body.petroappEnabled ?? false,
           hatifEnabled: body.hatifEnabled ?? false,
           catalogEnabled: body.catalogEnabled ?? false,
+          paylinkEnabled: body.paylinkEnabled ?? false,
           subscriptionEndsAt: body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null,
           notes: body.notes,
         } as any,

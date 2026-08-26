@@ -11,7 +11,7 @@ import {
   Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
   User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
   Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed,
-  Camera, X, ClipboardCheck, Timer, Square,
+  Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
@@ -594,8 +594,128 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
 }
 
 // ============ تفاصيل العميل ============
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit }: {
+/**
+ * ورقة «رابط دفع» — ميزة الدفع الإلكتروني (اشتراك يفعّله المالك كالمنيو).
+ *
+ * القاعدة من المالك: الرابط يصدر من فاتورة قائمة وبكامل متبقّيها — لا رابط حر.
+ * المندوب يختار الفاتورة فيصدر النظام رابط ميسر ويعرضه للنسخ أو مشاركة واتساب.
+ * الإصدار يحتاج اتصالاً (إنشاء فاتورة لدى ميسر) — لا عمل أوف‑لاين هنا عمداً.
+ */
+function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => void }) {
+  const tr = useTr();
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [issuing, setIssuing] = useState<string | null>(null);
+  const [link, setLink] = useState<{ payUrl: string; amount: number; invoiceNumber: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await repApi.get('/invoices', { params: { customerId: customer.id, status: 'CONFIRMED', type: 'CREDIT', limit: 50 } });
+        // غير المسددة فقط — الرابط بكامل المتبقي فلا معنى لفاتورة صفرية
+        setInvoices((res.data.data || []).filter((i: any) => Number(i.remainingAmt) > 0.004));
+      } catch { setError(tr('تعذر تحميل الفواتير تحقق من الاتصال')); }
+      setLoading(false);
+    })();
+  }, [customer.id]);
+
+  const issue = async (inv: any) => {
+    setIssuing(inv.id); setError(null);
+    try {
+      const res = await repApi.post('/paylink/issue', { invoiceId: inv.id });
+      setLink({ payUrl: res.data.data.payUrl, amount: res.data.data.amount, invoiceNumber: inv.number });
+    } catch (e: any) {
+      setError(e?.response?.data?.message || tr('تعذر اصدار الرابط تحقق من الاتصال'));
+    }
+    setIssuing(null);
+  };
+
+  const copy = async () => {
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link.payUrl); } catch {
+      const ta = document.createElement('textarea');
+      ta.value = link.payUrl; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+
+  const waText = link
+    ? encodeURIComponent(`${tr('مرحبا يمكنك سداد فاتورة')} ${link.invoiceNumber} ${tr('بمبلغ')} ${formatCurrency(link.amount)} ${tr('الكترونيا عبر الرابط')}\n${link.payUrl}`)
+    : '';
+  const waHref = link
+    ? (customer.phone ? `https://wa.me/${String(customer.phone).replace(/[^0-9]/g, '')}?text=${waText}` : `https://wa.me/?text=${waText}`)
+    : '#';
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl bg-[#2E6FB0]/10 text-[#2E6FB0] flex items-center justify-center"><Link2 size={18} /></span>
+          <div className="flex-1">
+            <p className="font-bold text-sm">{tr('رابط دفع الكتروني')}</p>
+            <p className="text-[11px] text-gray-400">{customer.name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400"><X size={20} /></button>
+        </div>
+
+        <div className="p-4 overflow-y-auto flex-1">
+          {link ? (
+            <div className="text-center">
+              <p className="text-sm text-gray-600 mb-1">{tr('فاتورة')} {link.invoiceNumber}</p>
+              <p className="text-2xl font-bold text-[#1F1A13] mb-3">{formatCurrency(link.amount)}</p>
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-[11px] text-gray-500 break-all mb-4" dir="ltr">{link.payUrl}</div>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={copy} className="bg-[#1F1A13] text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+                  {copied ? <ClipboardCheck size={16} /> : <ClipboardList size={16} />} {copied ? tr('نسخ') : tr('نسخ الرابط')}
+                </button>
+                <a href={waHref} target="_blank" rel="noreferrer" className="bg-green-600 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+                  <MessageCircle size={16} /> {tr('ارسال واتساب')}
+                </a>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">{tr('عند سداد العميل يسجل سند القبض تلقائيا باسمك وتسدد الفاتورة')}</p>
+              <button onClick={() => setLink(null)} className="mt-3 text-xs text-[#2E6FB0] font-semibold">{tr('اصدار رابط لفاتورة اخرى')}</button>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500 mb-3 leading-relaxed">{tr('اختر الفاتورة ليصدر رابط دفع بكامل المبلغ المتبقي عليها')}</p>
+              {error && <p className="bg-red-50 text-red-600 text-xs rounded-xl p-3 mb-3">{error}</p>}
+              {loading ? (
+                <p className="text-center text-gray-400 py-8 text-sm">{tr('جاري التحميل')}</p>
+              ) : invoices.length === 0 ? (
+                <p className="text-center text-gray-400 py-8 text-sm">{tr('لا توجد فواتير غير مسددة لهذا العميل')}</p>
+              ) : invoices.map(inv => (
+                <button key={inv.id} onClick={() => issue(inv)} disabled={!!issuing}
+                  className="w-full bg-white border border-gray-200 hover:border-[#2E6FB0] rounded-xl p-3.5 mb-2 flex items-center justify-between disabled:opacity-50">
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-800">{inv.number}</p>
+                    <p className="text-[10px] text-gray-400">{formatDate(inv.invoiceDate || inv.createdAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-left">
+                      <p className="text-sm font-bold text-[#2E6FB0]">{formatCurrency(inv.remainingAmt)}</p>
+                      <p className="text-[10px] text-gray-400">{tr('المتبقي')}</p>
+                    </div>
+                    {issuing === inv.id
+                      ? <span className="w-4 h-4 border-2 border-gray-300 border-t-[#2E6FB0] rounded-full animate-spin" />
+                      : <Link2 size={15} className="text-gray-300" />}
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn }: {
   customer: any; repName: string; company: Company | null;
+  /** ميزة الدفع الإلكتروني مفعلة لهذه الشركة (بوابة المالك كالمنيو) */
+  paylinkOn?: boolean;
   perms: RepUser;
   onClose: () => void; onInvoice: () => void; onReceipt: () => void; onReturn: () => void;
   onStatement: (doc: StatementDoc) => void;
@@ -611,6 +731,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   // 'unassigned' = نزعت الإدارة هذا العميل (عزل العملاء)، 'offline' = تعذّر الاتصال.
   // نميّزهما عن «لا توجد حركات» كي لا يظنّ المندوب أن العميل بلا حركات فعلاً.
   const [statementError, setStatementError] = useState<'unassigned' | 'offline' | null>(null);
+  const [payLinkOpen, setPayLinkOpen] = useState(false);
 
   // فتح مستند الحركة (فاتورة/سند) من كشف الحساب
   const openDoc = async (e: any) => {
@@ -745,6 +866,14 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           className="w-full mt-3 bg-[#5FBE92] hover:bg-[#4EA97E] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
           <ClipboardCheck size={16} /> {tr('تسجيل زيارة')}
         </button>
+        {/* الدفع الإلكتروني: رابط سداد يشاركه المندوب واتساب — يظهر فقط حين يفعل المالك الميزة */}
+        {paylinkOn && (
+          <button onClick={() => setPayLinkOpen(true)} disabled={unassigned}
+            className="w-full mt-3 bg-[#2E6FB0] hover:bg-[#255C94] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+            <Link2 size={16} /> {tr('رابط دفع الكتروني')}
+          </button>
+        )}
+        {payLinkOpen && <PayLinkSheet customer={customer} onClose={() => setPayLinkOpen(false)} />}
 
         {/* Statement */}
         <p className="font-bold text-gray-700 text-sm mt-5 mb-2">{tr('كشف الحساب')}</p>
@@ -2054,6 +2183,7 @@ export default function RepApp() {
             }} />
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
+              paylinkOn={(company as any)?.paylinkEnabled === true}
               // الخروج الحقيقي لقائمة العملاء يُنهي مؤقّت هذا العميل ويرفع الزيارة.
               // النوافذ الفرعية (فاتورة/سند) لا تمرّ من هنا فيبقى المؤقّت جارياً.
               onClose={() => { if (visitTimer && visitTimer.customerId === selectedCustomer.id) void finalizeVisit(visitTimer); setModal(null); }}

@@ -35,6 +35,7 @@ export interface Tenant {
   petroappEnabled?: boolean;     // صلاحية ربط بترو آب (يتحكّم بها المالك)
   hatifEnabled?: boolean;        // ميزة أرقام العمل وربط هاتف (يتحكّم بها المالك)
   catalogEnabled?: boolean;      // ميزة منيو المنتجات العام (يتحكّم بها المالك)
+  paylinkEnabled?: boolean;      // ميزة الدفع الإلكتروني — روابط دفع ميسر (يتحكّم بها المالك)
   warehouseEnabled?: boolean;    // مخزون الشركة (المستودع) — يُفعّله المالك لكل شركة
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   subscriptionEndsAt?: string | null;
@@ -296,7 +297,7 @@ export interface Receipt {
   // لحظة إصدار السند على جهاز المندوب (تسبق الرفع بساعات في العمل دون اتصال)
   clientCreatedAt?: string | null;
   amount: number;
-  paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE';
+  paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE' | 'ONLINE';
   chequeNumber?: string;
   bankName?: string;
   notes?: string;

@@ -98,6 +98,7 @@ export default function ReceiptsPage() {
     const colors: Record<string, string> = {
       CASH: 'bg-green-100 text-green-700', BANK_TRANSFER: 'bg-[#FBEBE2] text-[#C94E28]',
       POS: 'bg-purple-100 text-purple-700', CHEQUE: 'bg-orange-100 text-orange-700',
+      ONLINE: 'bg-sky-100 text-sky-700',
     };
     return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[m] || ''}`}>{tr(paymentMethodLabels[m])}</span>;
   };

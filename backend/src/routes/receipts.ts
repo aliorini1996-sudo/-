@@ -18,7 +18,7 @@ const receiptSchema = z.object({
   salesRepId: z.string().optional(),
   receiptDate: z.string().optional(),
   amount: z.number().positive(),
-  paymentMethod: z.enum(['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE']).default('CASH'),
+  paymentMethod: z.enum(['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE', 'ONLINE']).default('CASH'),
   chequeNumber: z.string().optional(),
   bankName: z.string().optional(),
   notes: z.string().optional(),
@@ -269,6 +269,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return rcp;
     });
     });
+
+    // «صلاحية الرابط تفحص لحظة الدفع»: تحصيل غير متبقي الفواتير يميت روابط
+    // الدفع الإلكتروني الحية عليها (وإلغاء فاتورة ميسر نفسها) — خارج المعاملة
+    // عمدا وbest-effort: فشل الإماتة لا يفشل سندا صحيحا، والتأكيد يعالج الفائض
+    if (allocations.length) {
+      import('../services/paylink')
+        .then(m => Promise.all(allocations.map(a => m.expireStaleLinks(tid, a.invoiceId))))
+        .catch(() => { /* best-effort */ });
+    }
 
     res.status(201).json({ success: true, data: receipt });
   } catch (err) {
