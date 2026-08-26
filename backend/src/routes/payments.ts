@@ -5,7 +5,8 @@ import prisma from '../config/database';
 import { Prisma } from '@prisma/client';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { moyasarConfigured, createInvoice, fetchInvoice, cancelInvoice, sarToHalalas } from '../services/moyasar';
+import { moyasarConfigured, createInvoice, fetchInvoice, fetchPayment, cancelInvoice, sarToHalalas } from '../services/moyasar';
+import { issueForPayment } from '../services/platformInvoice';
 
 // روابط الدفع الالكتروني (ميسر) — يصدرها مالك المنصة بمبلغ يحدده بنفسه.
 //
@@ -109,7 +110,52 @@ async function settleFromMoyasar(linkId: string): Promise<SettleResult> {
       await applyExtensionTx(tx, link.tenantId, link.months);
     }
   });
+
+  // الفاتورة الضريبية للمشترك — **بعد** المعاملة وخارجها عمدا: فشل الاصدار
+  // (رقم ضريبي غير مضبوط، عطل عابر) يجب الا يُرجع الرابط «غير مدفوع» فيُعاد
+  // تحصيله. ما يفوت هنا تلتقطه `backfillInvoices`.
+  const taxInv = await issueForPayment(link.id).catch((e) => ({ ok: false, reason: (e as Error).message }));
+  if (!taxInv.ok) console.error(`platform invoice for ${link.id} skipped: ${taxInv.reason}`);
+
   return { status: 'paid', paid: true };
+}
+
+/** حالات ميسر التي تعني «المال لم يعد عندنا» */
+const REVERSED = new Set(['refunded', 'voided', 'failed']);
+
+/**
+ * عكس دفعة استُردّت أو أُلغيت — بتحقق من ميسر لا بثقة في جسم الاشعار.
+ *
+ * قبل هذا كان `settleFromMoyasar` يعود فورا ان كانت الحالة `paid`، فالدفعة
+ * المستردة تبقى ايرادا في التقارير الى الابد. الردّ هنا يغير الحالة فقط:
+ * **لا يقلّص اشتراك العميل تلقائيا** — قطع خدمة عن شركة تعمل قرار المالك لا
+ * قرار webhook، وينبهه اليه سجلّ صريح.
+ */
+async function reversePayment(linkId: string, paymentId: string): Promise<{ reversed: boolean; status: string }> {
+  const link = await prisma.paymentLink.findUnique({ where: { id: linkId }, select: { id: true, status: true, amountHalalas: true } });
+  if (!link) throw new Error('رابط غير معروف');
+  if (link.status !== 'paid') return { reversed: false, status: link.status };
+
+  const pay = await fetchPayment(paymentId);
+  if (!REVERSED.has(pay.status)) {
+    // ميسر لا تزال تقول «مدفوعة» — لا نعكس بناء على ادعاء الجسم وحده
+    console.error(`payment ${linkId}: reversal claimed but Moyasar says ${pay.status} — ignored`);
+    return { reversed: false, status: link.status };
+  }
+
+  // ردّ جزئي يبقي جزءا من المال عندنا؛ عكسه كليا كان سيمحو ايرادا محصّلا فعلا
+  const refunded = pay.refunded ?? pay.amount;
+  if (pay.status === 'refunded' && refunded < link.amountHalalas) {
+    console.error(`payment ${linkId}: PARTIAL refund ${refunded}/${link.amountHalalas} — owner action required`);
+    return { reversed: false, status: link.status };
+  }
+
+  await prisma.paymentLink.updateMany({
+    where: { id: link.id, status: 'paid' },
+    data: { status: pay.status },
+  });
+  console.error(`payment ${linkId}: reversed to ${pay.status} — subscription NOT shortened, owner decides`);
+  return { reversed: true, status: pay.status };
 }
 
 // انشاء رابط دفع — المالك فقط
@@ -209,7 +255,32 @@ paymentsWebhookRouter.post('/', async (req: Request, res: Response) => {
   const got = (req.body?.secret_token as string) || '';
   if (!expected || !tokenMatches(got, expected)) { res.status(401).json({ success: false }); return; }
 
-  const ref = (req.body?.data?.metadata?.ref as string) || '';
+  const type = (req.body?.type as string) || '';
+  const data = req.body?.data ?? {};
+
+  // الردّ/الالغاء يصل بكائن **دفعة** لا فاتورة، وقد لا يحمل الـmetadata التي
+  // وضعناها على الفاتورة — فنستدلّ على رابطنا بمعرّف الفاتورة الفريد عندنا.
+  if (type === 'payment_refunded' || type === 'payment_voided' || type === 'payment_failed') {
+    const invId = (data.invoice_id as string) || '';
+    const payId = (data.id as string) || '';
+    const byRef = (data.metadata?.ref as string) || '';
+    const target = byRef
+      ? await prisma.paymentLink.findUnique({ where: { id: byRef }, select: { id: true } }).catch(() => null)
+      : invId
+        ? await prisma.paymentLink.findUnique({ where: { moyasarInvoiceId: invId }, select: { id: true } }).catch(() => null)
+        : null;
+    if (!target || !payId) { res.json({ success: true }); return; }
+    try {
+      await reversePayment(target.id, payId);
+      res.json({ success: true });
+    } catch (e) {
+      console.error('payments webhook reverse error:', (e as Error).message);
+      res.status(500).json({ success: false });
+    }
+    return;
+  }
+
+  const ref = (data.metadata?.ref as string) || '';
   if (!ref) { res.json({ success: true }); return; }
 
   const link = await prisma.paymentLink.findUnique({ where: { id: ref }, select: { id: true } }).catch(() => null);

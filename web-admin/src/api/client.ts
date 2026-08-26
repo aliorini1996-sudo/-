@@ -310,11 +310,16 @@ export const financeApi = {
   snapshot: () => api.get('/finance/snapshot'),
   month: (year: number, month: number) => api.get(`/finance/month/${year}/${month}`),
   listRevenues: () => api.get('/finance/revenues'),
+  quarter: (year: number, q: number) => api.get(`/finance/quarter/${year}/${q}`),
+  listInvoices: () => api.get('/finance/invoices'),
+  backfillInvoices: () => api.post('/finance/invoices/backfill'),
+  markReviewed: (id: string) => api.patch(`/finance/expenses/${id}/reviewed`),
   listExpenses: () => api.get('/finance/expenses'),
   addExpense: (data: {
     label: string; category: string; amountSar: number;
     vatSar?: number; vatIncluded?: boolean;
     vatMode?: 'none' | 'inclusive' | 'exclusive';
+    currency?: 'SAR' | 'USD' | 'EUR'; fxRate?: number;
     isRecurring: boolean; startsOn: string; endsOn?: string | null; note?: string | null;
   }) => api.post('/finance/expenses', data),
   updateExpense: (id: string, data: { amountSar?: number; vatSar?: number; label?: string; category?: string }) =>

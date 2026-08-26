@@ -1733,18 +1733,49 @@ model HunterContent {
 /// المالك يسجّل تكاليفه (استضافة، مفاتيح API، تسويق، اشتراكات) فيُحسب صافي الربح
 /// آلياً بدل تقديره. `isRecurring` يعني يتكرّر شهرياً فيُحتسب في كل شهر لاحق
 /// دون إعادة إدخال — وهذا ما يجعل الأتمتة ممكنة أصلاً.
+// فاتورة ضريبية تُصدرها **المنصّة** لمشتركها عن اشتراكه.
+// منفصلة تماماً عن فواتير الشركات لعملائها: البائع هنا نحن، والمشتري الشركة
+// المشتركة. مؤسسةٌ مسجَّلة في ض.ق.م ملزمة بإصدارها عن كل بيع خاضع.
+model PlatformInvoice {
+  id            String   @id @default(uuid())
+  number        String   @unique // تسلسل ظاهر للمشترك: FS-2026-0001
+  paymentLinkId String   @unique // دفعة ميسر التي ولّدتها — يمنع فاتورتين لدفعة
+  tenantId      String?
+  buyerName     String // اسم الشركة المشترية وقت الإصدار (لا يتغيّر بتغيّر اسمها لاحقاً)
+  buyerVatNo    String? // الرقم الضريبي للمشتري إن وُجد
+  description   String
+  totalSar      Float // الإجمالي شامل الضريبة
+  vatSar        Float // الضريبة المستخرَجة منه
+  netSar        Float // الوعاء قبل الضريبة
+  qrBase64      String // رمز ZATCA بترميز TLV
+  issuedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([issuedAt])
+  @@map("platform_invoices")
+}
+
 model OperatingExpense {
-  id          String    @id @default(uuid())
-  label       String // وصف المصروف (Render، Groq، إعلانات…)
-  category    String // hosting | ai | marketing | tools | salaries | other
-  amountSar   Float // بالريال — التكاليف تُدخَل بعملة واحدة لتبسيط الجمع
-  vatSar      Float     @default(0) // ضريبة مدفوعة على المصروف (مدخلات قابلة للخصم)
-  isRecurring Boolean   @default(false) // يتكرّر شهرياً
-  startsOn    DateTime // بداية السريان (للمتكرّر) أو تاريخ الصرف (لغير المتكرّر)
-  endsOn      DateTime? // نهاية سريان المتكرّر (null = مستمرّ)
-  note        String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  label          String // وصف المصروف (Render، Groq، إعلانات…)
+  category       String // hosting | ai | marketing | tools | salaries | other
+  amountSar      Float // بالريال — الوعاء الموحّد للجمع (= amountOriginal × fxRate)
+  // المبلغ كما يظهر في فاتورة المورّد فعلاً. حفظه يمنع الانحراف الصامت: حين
+  // تتغيّر فاتورة Render بالدولار تُحدَّث قيمة واحدة، ولا يُعاد حساب الريال يدوياً.
+  amountOriginal Float? // null = أُدخل بالريال مباشرة
+  currency       String    @default("SAR") // SAR | USD | EUR
+  fxRate         Float? // سعر التحويل المستعمل وقت الإدخال (الريال مربوط بالدولار 3.75)
+  // آخر مراجعة للمبلغ. مصروف متكرّر لا يُراجَع يتقادم صامتاً ويظلّ يُحتسب بقيمة
+  // قديمة إلى الأبد — وهذا أخطر من غيابه لأنه يبدو صحيحاً.
+  reviewedAt     DateTime  @default(now())
+  vatSar         Float     @default(0) // ضريبة مدفوعة على المصروف (مدخلات قابلة للخصم)
+  isRecurring    Boolean   @default(false) // يتكرّر شهرياً
+  startsOn       DateTime // بداية السريان (للمتكرّر) أو تاريخ الصرف (لغير المتكرّر)
+  endsOn         DateTime? // نهاية سريان المتكرّر (null = مستمرّ)
+  note           String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([category])
   @@index([startsOn])

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
-import { mergeProfile, splitLines, splitPairs, ProfileLang, ProfileContent } from '../content/profileContent';
+import { mergeProfile, splitLines, splitPairs, sectionOn, ProfileLang, ProfileContent } from '../content/profileContent';
 
 /**
  * «بروفايل» — الملف التعريفي التفاعلي fieldsa.net/profile
@@ -14,55 +14,122 @@ import { mergeProfile, splitLines, splitPairs, ProfileLang, ProfileContent } fro
  */
 
 /**
- * ورقة الطباعة — الملف المصدَّر نسخة من الصفحة لا اختصار لها.
+ * ورقة الطباعة — الملف المصدَّر وثيقة مصمَّمة لا لقطة شاشة مقصوصة.
  *
- * المتصفح افتراضاً يُسقط خلفيات الألوان والصور عند الطباعة (توفير حبر)، فكانت
- * الأقسام الداكنة تخرج نصاً فاتحاً على ورق أبيض. ويقيس استعلامات الوسائط بعرض
- * الورقة (A4 ≈ ٧٩٤ بكسل) فتسقط تخطيطات lg ذات العمودين إلى عمود واحد.
- * وهنا يُعالَج الأمران، ويصير كل قسم صفحة كاملة بخلفيته كما يراه الزائر.
+ * أربع حقائق تحكم كل قاعدة هنا:
+ *  ١ المتصفح يُسقط خلفيات الألوان والصور افتراضاً توفيراً للحبر.
+ *  ٢ يقيس استعلامات الوسائط بعرض الورقة (A4 ≈ ٧٩٤ بكسل) لا بعرض الشاشة،
+ *    فتنهار تخطيطات lg ذات العمودين إلى عمود واحد.
+ *  ٣ القسم أطول من الصفحة يُقطع بين ورقتين — أسوأ ما يظهر في وثيقة تُعرض على عميل.
+ *  ٤ خلفية الورقة تحكم قراءة كل قسم لا لون له: الأقسام الفاتحة تستمدّ لونها من
+ *    الجسم، فتغييره إلى داكن يُخفي نصّها الرماديّ. الجسم يبقى كريمياً دائماً.
+ *
+ * فالقاعدة: كل قسم صفحة واحدة بارتفاع مضبوط ومحتوى يملؤها — وأقسام الصورة
+ * تُقسم نصفين: صورة تسيل إلى حافة الورقة ونصّ يقابلها.
  */
 const PRINT_CSS = `
 @page { size: A4; margin: 0; }
 
+/* قسم أخفاه المالك لا يُعرض ولا يُطبع — قاعدة عامة لأن قواعد الطباعة تفرض display */
+#profile-doc > [hidden] { display: none !important; }
+
 @media print {
-  /* الخلفيات والصور جزء من الهوية لا زينة — بلا هذا يخرج الملف بلا لون */
+  /* الخلفيات والصور جزء من الهوية لا زينة */
   *, *::before, *::after {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  html, body { background: #FAF7F0 !important; }
+  html, body { background: #FAF7F0 !important; margin: 0 !important; }
+  #profile-doc { min-height: 0 !important; background: #FAF7F0 !important; }
 
-  /* ما لا ينتمي للوثيقة المطبوعة */
-  .wa-fab, [data-print-hide] { display: none !important; }
+  /* ما لا ينتمي للوثيقة */
+  .wa-fab, [data-wa-fab], [data-print-hide] { display: none !important; }
 
-  #profile-doc { min-height: 0 !important; }
-
-  /* عرض الورقة أضيق من عتبة lg فينهار العمودان إلى عمود — نُثبّتهما */
+  /* عرض الورقة دون عتبة lg فينهار العمودان */
   #profile-doc .lg\\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 
-  /* قسم لكل صفحة: نفس ترتيب الشاشة قسماً قسماً وخلفية تملأ الورقة */
+  /* ═══ صفحة كاملة لكل قسم ═══
+     ارتفاع مضبوط لا أدنى فلا يتسرّب سطر إلى ورقة تالية،
+     وoverflow حارس أخير ضد أي فيض فلا يظهر قطع أبداً. */
   #profile-doc > section, #profile-doc > footer {
     break-before: page;
-    min-height: 100vh;
+    break-inside: avoid;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
     display: flex !important;
     flex-direction: column;
     justify-content: center;
-    padding-top: 10mm !important;
-    padding-bottom: 10mm !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
   }
   #profile-doc > section:first-of-type { break-before: auto; }
-  #profile-doc > section > div, #profile-doc > footer > div {
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-    width: 100%;
+
+  /* ═══ الأقسام النصّية: حشوة داخلية والخلفية ممتدّة لحافة الورقة ═══ */
+  #profile-doc > section:not([data-split]) > div, #profile-doc > footer > div {
+    width: 100% !important;
+    max-width: 186mm !important;
+    margin-inline: auto !important;
+    padding: 0 18mm !important;
   }
 
-  /* لا يُقطع عنوان عن جسمه ولا بطاقة عن نفسها */
+  /* ═══ أقسام الصورة: نصف صورة سائلة للحافة ونصف نصّ ═══ */
+  #profile-doc > section[data-split] > div { padding: 0 !important; max-width: none !important; height: 100vh !important; }
+  #profile-doc > section[data-split] .lg\\:grid-cols-2 {
+    height: 100vh !important;
+    gap: 0 !important;
+    align-items: stretch !important;
+    margin: 0 !important;
+  }
+  #profile-doc > section[data-split] .lg\\:grid-cols-2 > div {
+    display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 16mm !important;
+  }
+  #profile-doc > section[data-split] img[data-profile-photo] {
+    height: 100vh !important;
+    max-height: none !important;
+    width: 100% !important;
+    object-fit: cover !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+
+  /* صورة العملاء لافتة عريضة لا عمود */
+  #profile-doc [data-sec="clients"] img[data-profile-photo] { height: 46vh !important; max-height: none !important; }
+  /* خلفيات الأقسام الداكنة تغطّي الورقة كاملة */
+  #profile-doc img[data-backdrop] { height: 100% !important; max-height: none !important; }
+
+  /* عنوان لا يُفصل عن جسمه وبطاقة لا تُشطر */
   #profile-doc h1, #profile-doc h2 { break-after: avoid; }
   #profile-doc .rounded-2xl { break-inside: avoid; }
 
-  /* الصور أقصر قليلاً على الورق كي يبقى القسم داخل صفحته */
-  #profile-doc img[data-profile-photo] { max-height: 95mm !important; }
+  /* ═══ مقاسات الورق: تملأ الصفحة ولا تفيض ═══ */
+  #profile-doc h1 { font-size: 34pt !important; line-height: 1.18 !important; }
+  #profile-doc h2 { font-size: 23pt !important; line-height: 1.3 !important; }
+  #profile-doc [data-sec="contact"] h2 { font-size: 30pt !important; }
+  #profile-doc [data-sec="numbers"] .grid p:first-child { font-size: 28pt !important; }
+
+  /* ═══ الأقسام قليلة المحتوى: نملأ الورقة بالتنفّس لا بالفراغ ═══
+     صفحة نصفها فارغ تقرأ كخطأ طباعة لا كتصميم — فنكبّر ونباعد بقدر ما تحتمل. */
+  #profile-doc [data-sec="contact"] > div { padding: 0 24mm !important; }
+  #profile-doc [data-sec="contact"] > div > .grid {
+    margin-top: 26mm !important; gap: 16mm !important; max-width: none !important;
+  }
+  #profile-doc [data-sec="contact"] .border-t-2 { padding-top: 9mm !important; }
+  #profile-doc [data-sec="contact"] .grid p:first-child { font-size: 11pt !important; margin-bottom: 3mm !important; }
+  #profile-doc [data-sec="contact"] .grid p:last-child { font-size: 15pt !important; }
+
+  /* بطاقات الأرقام والقوائم تتمدّد عمودياً فتملأ نصيبها من الصفحة */
+  #profile-doc [data-sec="numbers"] .grid > div { padding: 13mm 4mm !important; }
+  #profile-doc [data-sec="solution"] .rounded-2xl,
+  #profile-doc [data-sec="achievements"] .rounded-2xl,
+  #profile-doc [data-sec="goals"] .rounded-2xl { padding: 9mm !important; }
+  #profile-doc [data-sec="clients"] .grid > div { padding: 9mm !important; }
 }
 `;
 
@@ -162,13 +229,23 @@ export default function ProfilePage() {
       style={{ border: `1px solid ${COLORS.sand}`, boxShadow: '0 10px 30px rgba(31,26,19,.10)' }} />
   );
 
-  // خلفية داكنة بصورة معتمة — التعتيم الثقيل يحفظ قراءة النص ويُخفي حدود دقة الصورة
-  const darkBg = (name: string, opacity = 0.9) => ({
-    backgroundColor: COLORS.ink,
-    backgroundImage: `linear-gradient(rgba(31,26,19,${opacity}), rgba(31,26,19,${Math.min(1, opacity + 0.05)})), url(${IMG(name)})`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-  });
+  /**
+   * خلفية القسم الداكن: الصورة **عنصر img** لا خلفية CSS.
+   * حوار الطباعة يُسقط خلفيات CSS حين لا يُفعّل الطابع خيار «رسوم الخلفية»،
+   * بينما صور المحتوى تُطبع دائماً — فكانت صورة الغلاف تختفي من الملف المصدَّر.
+   * طبقة التعتيم تبقى فوقها كي يظل النص الفاتح مقروءاً كما على الشاشة.
+   */
+  const Backdrop = ({ name, grad }: { name: string; grad: string }) => (
+    <>
+      <img src={IMG(name)} alt="" aria-hidden="true" data-profile-photo="" data-backdrop=""
+        className="absolute inset-0 w-full h-full object-cover" style={{ zIndex: 0 }} />
+      <span aria-hidden="true" className="absolute inset-0" style={{ zIndex: 1, background: grad }} />
+    </>
+  );
+  const dim = (o: number) => `linear-gradient(rgba(31,26,19,${o}), rgba(31,26,19,${Math.min(1, o + 0.05)}))`;
+
+  // إظهار الأقسام كما ضبطها المالك — الغياب يعني الظهور
+  const on = (k: string) => sectionOn(content, k);
 
   return (
     <div id="profile-doc" dir={dir} className="min-h-screen" style={{ background: COLORS.cream, fontFamily: font }}>
@@ -200,12 +277,9 @@ export default function ProfilePage() {
       </header>
 
       {/* ١ الغلاف — صورة المندوب خلفية بتدرج داكن جهة النص */}
-      <section className="relative overflow-hidden" style={{
-        backgroundColor: COLORS.ink,
-        backgroundImage: `linear-gradient(${isAr ? '270deg' : '90deg'}, rgba(31,26,19,.35) 0%, rgba(31,26,19,.78) 45%, rgba(31,26,19,.96) 100%), url(${IMG('cover')})`,
-        backgroundSize: 'cover', backgroundPosition: 'center',
-      }}>
-        <div className="relative max-w-6xl mx-auto px-4 py-24 sm:py-32">
+      <section data-sec="cover" className="relative overflow-hidden" style={{ backgroundColor: COLORS.ink }}>
+        <Backdrop name="cover" grad={`linear-gradient(${isAr ? '270deg' : '90deg'}, rgba(31,26,19,.35) 0%, rgba(31,26,19,.78) 45%, rgba(31,26,19,.96) 100%)`} />
+        <div className="relative z-[2] max-w-6xl mx-auto px-4 py-24 sm:py-32">
           <Kicker>{L('الملف التعريفي', 'Company profile')}</Kicker>
           <h1 className="mt-4 text-4xl sm:text-6xl font-bold leading-tight max-w-3xl" style={{ color: COLORS.cream, fontFamily: headFont }}>
             {t.cover_title}
@@ -222,7 +296,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ٢ المشكلة — نص + صورة الدفاتر */}
-      <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+      <section data-sec="problem" data-split="" hidden={!on('problem')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
         <div className="grid lg:grid-cols-2 gap-10 items-center">
           <div>
             <Kicker>{L('المشكلة', 'The problem')}</Kicker>
@@ -234,7 +308,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ٣ الحل */}
-      <section style={{ background: COLORS.ink }}>
+      <section data-sec="solution" hidden={!on('solution')} style={{ background: COLORS.ink }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <Kicker>{L('الحل', 'The solution')}</Kicker>
           <H2 dark>{t.solution_title}</H2>
@@ -254,7 +328,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ٤ العملاء — صورة الاسطول لافتة ثم البطاقات */}
-      <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+      <section data-sec="clients" hidden={!on('clients')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
         <Kicker>{L('العملاء', 'Our clients')}</Kicker>
         <H2>{t.clients_title}</H2>
         <Lines text={t.clients_intro} />
@@ -272,7 +346,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ٥ من نحن — نص + صورة التسليم */}
-      <section style={{ background: COLORS.coralL }}>
+      <section data-sec="about" data-split="" hidden={!on('about')} style={{ background: COLORS.coralL }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <div className="grid lg:grid-cols-2 gap-10 items-center">
             <div>
@@ -286,7 +360,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ٦ الرحلة — الخط الزمني + صورة المستودع */}
-      <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+      <section data-sec="journey" data-split="" hidden={!on('journey')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
         <div className="grid lg:grid-cols-2 gap-10 items-center">
           <div>
             <Kicker>{L('الرحلة', 'The journey')}</Kicker>
@@ -311,8 +385,9 @@ export default function ProfilePage() {
       </section>
 
       {/* ٧ الانجازات — خلفية طرق المدينة ليلا */}
-      <section style={darkBg('achievements', 0.88)}>
-        <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+      <section data-sec="achievements" hidden={!on('achievements')} className="relative overflow-hidden" style={{ background: COLORS.ink }}>
+        <Backdrop name="achievements" grad={dim(0.88)} />
+        <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <Kicker>{L('الجاهز اليوم', 'Ready today')}</Kicker>
           <H2 dark>{t.achievements_title}</H2>
           <div className="mt-8 grid sm:grid-cols-3 gap-5">
@@ -327,7 +402,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ٨ الارقام */}
-      <section style={{ background: COLORS.coral }}>
+      <section data-sec="numbers" hidden={!on('numbers')} style={{ background: COLORS.coral }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <div className="flex items-center gap-2.5 font-bold text-sm" style={{ color: COLORS.cream }}>
             <span className="inline-block h-1 w-9 rounded-full" style={{ background: COLORS.cream }} />
@@ -346,8 +421,9 @@ export default function ProfilePage() {
       </section>
 
       {/* ٩ اهداف المستقبل — خلفية سلسلة الامداد الذكية */}
-      <section style={darkBg('goals', 0.9)}>
-        <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+      <section data-sec="goals" hidden={!on('goals')} className="relative overflow-hidden" style={{ background: COLORS.ink }}>
+        <Backdrop name="goals" grad={dim(0.9)} />
+        <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <Kicker>{L('خارطة الطريق', 'Roadmap')}</Kicker>
           <H2 dark>{t.goals_title}</H2>
           <div className="mt-8 grid sm:grid-cols-2 gap-5">
@@ -362,7 +438,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ١٠ الاستثمار — نص + صورة الدفع بالبطاقة */}
-      <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+      <section data-sec="invest" data-split="" hidden={!on('invest')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
         <div className="grid lg:grid-cols-2 gap-10 items-center">
           <div>
             <Kicker>{L('البدء معنا', 'Getting started')}</Kicker>
@@ -381,7 +457,7 @@ export default function ProfilePage() {
       </section>
 
       {/* ١١ تواصل معنا */}
-      <section style={{ background: COLORS.coralL }}>
+      <section data-sec="contact" hidden={!on('contact')} style={{ background: COLORS.coralL }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24 text-center">
           <h2 className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont }}>{t.contact_title}</h2>
           <div className="mt-8 grid sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
@@ -403,8 +479,9 @@ export default function ProfilePage() {
       </section>
 
       {/* ١٢ الختام — خلفية افق الرياض */}
-      <footer className="relative overflow-hidden" style={darkBg('closing', 0.85)}>
-        <div className="relative max-w-6xl mx-auto px-4 py-16 sm:py-20 text-center">
+      <footer data-sec="closing" className="relative overflow-hidden" style={{ background: COLORS.ink }}>
+        <Backdrop name="closing" grad={dim(0.85)} />
+        <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-20 text-center">
           <div className="flex justify-center mb-5"><BrandIcon size={64} radius={0.28} /></div>
           <p className="text-3xl mb-4"><Wordmark dark /></p>
           <div className="text-base sm:text-lg leading-loose" style={{ color: 'rgba(250,247,240,.7)' }}>

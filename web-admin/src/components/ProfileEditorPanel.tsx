@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { X, Save, ExternalLink, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { PROFILE_FIELDS, PROFILE_DEFAULTS, mergeProfile, ProfileContent, ProfileLang } from '../content/profileContent';
+import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, ProfileContent, ProfileLang } from '../content/profileContent';
 import { backdropClose } from '../lib/backdropClose';
 
 /**
@@ -29,6 +29,14 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
     setDraft({ ...content, [lang]: { ...content[lang], [key]: value } });
   };
 
+  /**
+   * إظهار القسم شأن واحد للغتين فيُكتب في العربية أياً كانت اللغة المعروضة —
+   * ولو خُزّن لكل لغة لرأى قارئ الإنجليزية قسماً أخفاه المالك.
+   */
+  const setShow = (key: string, visible: boolean) => {
+    setDraft({ ...content, ar: { ...content.ar, [showKey(key)]: visible ? '1' : '0' } });
+  };
+
   const save = useMutation({
     mutationFn: async () => {
       // ندمج فوق احدث نسخة من CMS كي لا نمسح اقسام الموقع الاخرى
@@ -44,7 +52,11 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
   });
 
   const resetLang = () => {
-    setDraft({ ...content, [lang]: { ...PROFILE_DEFAULTS[lang] } });
+    // الإظهار اختيار تحريريّ لا نصّ — لا يُمحى مع استرجاع النصوص
+    const kept = Object.fromEntries(
+      PROFILE_SECTIONS.map(s => [showKey(s.key), content.ar[showKey(s.key)]]).filter(([, v]) => v !== undefined),
+    ) as Record<string, string>;
+    setDraft({ ...content, [lang]: { ...PROFILE_DEFAULTS[lang], ...(lang === 'ar' ? kept : {}) } });
     toast('أعيدت نصوص هذه اللغة للافتراضي احفظ لتثبيتها', { icon: '↩️' });
   };
 
@@ -85,7 +97,25 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {isLoading ? (
             <p className="text-center text-gray-400 py-10">جار التحميل</p>
-          ) : PROFILE_FIELDS.map(f => (
+          ) : <>
+            {/* الأقسام الظاهرة — الإخفاء يزيل القسم من الصفحة ومن ملف الـPDF معاً */}
+            <div className="rounded-xl border border-[#E9E1D3] bg-[#FBF8F2] p-4">
+              <p className="text-[13px] font-bold text-[#1F1A13]">الاقسام الظاهرة</p>
+              <p className="text-[11px] text-[#9A8F7E] mt-0.5 mb-3">ازل علامة اي قسم ليختفي من الصفحة ومن ملف PDF — الغلاف والخاتمة دائمان</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {PROFILE_SECTIONS.map(s => {
+                  const visible = sectionOn(content, s.key);
+                  return (
+                    <label key={s.key} className="flex items-center gap-2 text-[12.5px] cursor-pointer select-none rounded-lg px-2 py-1.5 hover:bg-white">
+                      <input type="checkbox" checked={visible} onChange={e => setShow(s.key, e.target.checked)}
+                        className="w-4 h-4 accent-[#E15A30]" />
+                      <span className={visible ? 'text-[#1F1A13]' : 'text-[#B7AD9D] line-through'}>{s.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            {PROFILE_FIELDS.map(f => (
             <div key={f.key}>
               <label className="block text-[13px] font-bold text-[#1F1A13] mb-1">
                 {f.label}
@@ -100,7 +130,8 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
                   value={content[lang][f.key] || ''} onChange={e => setField(f.key, e.target.value)} />
               )}
             </div>
-          ))}
+            ))}
+          </>}
         </div>
 
         {/* الحفظ */}

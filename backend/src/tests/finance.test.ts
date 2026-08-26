@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   vatFromInclusive, gatewayFee, round2, monthBounds, recurringAppliesTo,
-  VAT_PCT, GATEWAY_FEE_PCT,
+  VAT_PCT, GATEWAY_FEE_PCT, staleDaysOf, EXPENSE_STALE_DAYS,
 } from '../services/finance';
 
 const SRC = readFileSync(join(__dirname, '..', 'services', 'finance.ts'), 'utf8');
@@ -123,4 +123,55 @@ test('حارس: التكلفة المتكرّرة الحالية تحترم تا
 test('حارس: قائمة الإيرادات تُعلن اقتطاعها ومجموعها الكامل', () => {
   assert.ok(/truncated/.test(SRC), 'لا إعلان عن اقتطاع القائمة');
   assert.ok(/totalSar/.test(SRC), 'لا مجموع كامل يطابق ما يجمعه المالك');
+});
+
+// ————— الموجة الثانية: الأتمتة المضافة —————
+
+const PAY_SRC = readFileSync(join(__dirname, '..', 'routes', 'payments.ts'), 'utf8');
+const INV_SRC = readFileSync(join(__dirname, '..', 'services', 'platformInvoice.ts'), 'utf8');
+
+test('التقادم يُقاس بالأيام من آخر مراجعة', () => {
+  const now = new Date('2026-08-26T00:00:00Z');
+  assert.equal(staleDaysOf(new Date('2026-08-26T00:00:00Z'), now), 0);
+  assert.equal(staleDaysOf(new Date('2026-06-27T00:00:00Z'), now), 60);
+  assert.ok(staleDaysOf(new Date('2026-06-27T00:00:00Z'), now) >= EXPENSE_STALE_DAYS);
+  assert.ok(staleDaysOf(new Date('2026-08-01T00:00:00Z'), now) < EXPENSE_STALE_DAYS);
+});
+
+test('حارس: الاسترداد يُتحقَّق منه بجلب الدفعة من ميسر لا بجسم الإشعار', () => {
+  assert.ok(/fetchPayment/.test(PAY_SRC), 'العكس لا يجلب الدفعة من ميسر');
+  assert.ok(/payment_refunded/.test(PAY_SRC), 'حدث الاسترداد غير مُعالَج');
+  // الردّ الجزئي يبقي جزءاً من المال عندنا — عكسه كلياً يمحو إيراداً محصّلاً
+  assert.ok(/PARTIAL refund/.test(PAY_SRC), 'الردّ الجزئي غير محروس');
+  // قطع خدمة عن شركة تعمل قرار المالك لا قرار webhook
+  assert.ok(/subscription NOT shortened/.test(PAY_SRC), 'العكس قد يقلّص اشتراك العميل تلقائياً');
+});
+
+test('حارس: الفاتورة الضريبية لا تُصدَر بلا رقم ضريبي صالح', () => {
+  assert.ok(INV_SRC.includes('{15}'), 'لا تحقّق من طول الرقم الضريبي (١٥ رقماً)');
+  assert.ok(/paymentLinkId/.test(INV_SRC) && /@unique/.test(
+    readFileSync(join(__dirname, '..', '..', 'prisma', 'schema.prisma'), 'utf8')
+      .split('model PlatformInvoice')[1].split('}')[0]), 'لا حارس ضدّ فاتورتين لدفعة واحدة');
+});
+
+test('حارس: إصدار الفاتورة لا يُسقط معاملة الدفع', () => {
+  // إسقاط الدفع بسبب فشل الإصدار كان سيُرجع الرابط «غير مدفوع» فيُعاد تحصيله
+  assert.ok(/issueForPayment\(link\.id\)\.catch/.test(PAY_SRC), 'فشل الإصدار قد يُسقط الدفع');
+  assert.ok(!/await issueForPayment[^;]*\n\s*\}\);/.test(PAY_SRC), 'الإصدار داخل المعاملة');
+});
+
+test('الربع السنوي يجمع ثلاثة أشهر بحدودها الصحيحة', () => {
+  // الربع الثالث = يوليو..سبتمبر؛ حدّه الأول أول يوليو بالرياض وآخره أول أكتوبر
+  const first = (3 - 1) * 3 + 1;
+  assert.equal(first, 7);
+  assert.equal(monthBounds(2026, first).from.toISOString(), '2026-06-30T21:00:00.000Z');
+  assert.equal(monthBounds(2026, first + 2).to.toISOString(), '2026-09-30T21:00:00.000Z');
+});
+
+test('حارس: المصروف يحفظ مبلغه الأصلي بعملته', () => {
+  const SCHEMA = readFileSync(join(__dirname, '..', '..', 'prisma', 'schema.prisma'), 'utf8');
+  const model = SCHEMA.split('model OperatingExpense')[1].split('\n}')[0];
+  assert.ok(/amountOriginal/.test(model), 'لا حفظ للمبلغ الأصلي');
+  assert.ok(/currency/.test(model), 'لا حفظ للعملة');
+  assert.ok(/reviewedAt/.test(model), 'لا تاريخ مراجعة — التقادم غير قابل للقياس');
 });

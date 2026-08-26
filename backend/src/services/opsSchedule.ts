@@ -4,6 +4,8 @@ import prisma from '../config/database';
 import { sendMail } from './mailer';
 import { recordPresenceSnapshot } from './presence';
 import { flushRequestCounts, pruneRequestStats } from './requestCounter';
+import { financeSnapshot, quarterFinance, staleDaysOf, EXPENSE_STALE_DAYS } from './finance';
+import { backfillInvoices, invoicingReady } from './platformInvoice';
 
 // خط تشغيل المالك: تذكير يومي ببطاقات القرار المتأخرة + تقرير أسبوعي (T1.4.2).
 // المصدر الوحيد للبطاقات: ops/decision-cards.json (يُحدَّث مع كل إغلاق/فتح بطاقة).
@@ -159,12 +161,78 @@ export async function sendWeeklyReport(): Promise<boolean> {
   return sendMail({ subject: `📊 التقرير الأسبوعي Field Sales (${riyadhDateStr()})`, html });
 }
 
+// ————— التقرير المالي الشهري —————
+
+const SAR = (n: number) => `${n.toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س`;
+
+/**
+ * تقرير مالي يصل المالك أول كل شهر عن الشهر المنقضي.
+ *
+ * غايته أن يُرى الرقم دون فتح اللوحة: المالك الذي لا يفتحها لا يكتشف أن مصروفاً
+ * تقادم أو أن الإيراد توقّف إلا بعد شهور. ويحمل التقرير **الإقرار الربعي** في
+ * أشهر إقفال الأرباع كي لا يُجمع بيد.
+ */
+export async function sendMonthlyFinanceReport(): Promise<boolean> {
+  const snap = await financeSnapshot();
+  const prev = snap.months[snap.months.length - 2] ?? snap.current;
+  const stale = await prisma.operatingExpense.findMany({
+    where: { isRecurring: true, OR: [{ endsOn: null }, { endsOn: { gt: new Date() } }] },
+    select: { label: true, amountSar: true, reviewedAt: true },
+  });
+  const staleRows = stale.filter((e) => staleDaysOf(e.reviewedAt) >= EXPENSE_STALE_DAYS);
+
+  // الربع يُقفل في يناير/أبريل/يوليو/أكتوبر عن الربع المنقضي
+  const nowR = riyadhNow();
+  const mo = nowR.getUTCMonth() + 1;
+  let quarterHtml = '';
+  if ([1, 4, 7, 10].includes(mo)) {
+    const qYear = mo === 1 ? nowR.getUTCFullYear() - 1 : nowR.getUTCFullYear();
+    const q = mo === 1 ? 4 : (mo - 1) / 3;
+    const qf = await quarterFinance(qYear, q);
+    quarterHtml = `<div style="background:#FBEBE2;border:1px solid #E9C9B8;border-radius:12px;padding:14px;margin-top:16px">
+      <h3 style="margin:0 0 6px">إقرار الربع ${q} — ${qf.periodLabel}</h3>
+      <p style="margin:0">ضريبة مخرجات <b>${SAR(qf.vatCollectedSar)}</b> · مدخلات <b>${SAR(qf.vatPaidSar)}</b>
+      ⇐ <b style="color:#B8431F">المستحقّ للهيئة ${SAR(qf.vatDueSar)}</b></p>
+      <p style="margin:6px 0 0;font-size:13px;color:#6E6557">إيراد الربع ${SAR(qf.revenueSar)} · مصروفه ${SAR(qf.expensesSar)} · ربحه ${SAR(qf.profitSar)}</p>
+    </div>`;
+  }
+
+  const html = mailLayoutFinance(`الصورة المالية — ${prev.month}/${prev.year}`, `
+    <ul style="line-height:1.9;padding-inline-start:18px">
+      <li>محصّل الشهر <b>${SAR(prev.revenueSar)}</b> من ${AR_NUM(prev.paidCount)} عملية دفع</li>
+      <li>الإيراد الشهري المتكرّر <b>${SAR(snap.mrrSar)}</b> — ${snap.mrrBasis}</li>
+      <li>مصروفات الشهر <b>${SAR(prev.expensesSar)}</b> · عمولة البوابة ${SAR(prev.gatewayFeeSar)}</li>
+      <li>صافي الربح <b style="color:${prev.profitSar >= 0 ? '#14614E' : '#9B3B2E'}">${SAR(prev.profitSar)}</b> · هامش ${prev.marginPct}%</li>
+      <li>المستحقّ للهيئة عن الشهر <b>${SAR(prev.vatDueSar)}</b></li>
+      <li>الشركات الفعّالة ${AR_NUM(snap.totalTenants)} — باشتراك مدفوع ${AR_NUM(snap.payingTenants)}</li>
+    </ul>
+    ${staleRows.length ? `<div style="background:#FEF6E7;border:1px solid #F0DCB4;border-radius:12px;padding:12px">
+      <b style="color:#8A6412">⚠️ ${AR_NUM(staleRows.length)} مصروف متكرّر لم يُراجَع منذ ${AR_NUM(EXPENSE_STALE_DAYS)} يوماً</b>
+      <p style="margin:6px 0 0;font-size:13px">${staleRows.map((e) => `${e.label} (${SAR(e.amountSar)})`).join(' · ')}</p>
+      <p style="margin:6px 0 0;font-size:12px;color:#6E6557">راجع فاتورة المورّد: مبلغٌ قديم يُحتسب صامتاً ويبدو صحيحاً.</p>
+    </div>` : ''}
+    ${invoicingReady() ? '' : `<p style="color:#9B3B2E;font-size:13px">🔴 لا تُصدَر فواتير ضريبية لمشتركيك — <b>PLATFORM_VAT_NUMBER</b> غير مضبوط في بيئة الخادم.</p>`}
+    ${quarterHtml}
+  `);
+  return sendMail({ subject: `💰 الصورة المالية — ${prev.month}/${prev.year}`, html });
+}
+
+function mailLayoutFinance(title: string, body: string): string {
+  return `<div dir="rtl" style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#FAF7F0;padding:24px">
+    <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #E9E1D3;border-radius:16px;overflow:hidden">
+      <div style="background:#1F1A13;padding:18px 22px;color:#fff;font-size:18px;font-weight:700">FieldSales — ${title}</div>
+      <div style="padding:18px 22px;color:#1F1A13;font-size:14px">${body}</div>
+    </div>
+  </div>`;
+}
+
 // ————— الجدولة —————
 // فحص كل ساعة بتوقيت الرياض (UTC+3): التذكير يومياً 8ص عند وجود متأخر، والتقرير كل اثنين 8ص.
 // dedupe في الذاكرة — إعادة تشغيل الخادم داخل ساعة الثامنة قد تكرّر رسالة نادرة، وهذا مقبول.
 
 let lastDaily = '';
 let lastWeekly = '';
+let lastMonthly = '';
 
 async function tick() {
   try {
@@ -179,6 +247,14 @@ async function tick() {
       if (lastDaily !== dateStr) {
         lastDaily = dateStr;
         await sendDailyReminder();
+      }
+      // أول كل شهر: الصورة المالية عن الشهر المنقضي (ومعها الإقرار الربعي عند إقفاله)
+      const monthKey = dateStr.slice(0, 7);
+      if (now.getUTCDate() === 1 && lastMonthly !== monthKey) {
+        lastMonthly = monthKey;
+        await sendMonthlyFinanceReport();
+        // وشبكة أمان الفواتير: ما فات إصداره لحظياً يُلتقط هنا
+        await backfillInvoices(50).catch((e) => console.error('invoice backfill error:', e));
       }
     }
   } catch (e) {
@@ -210,5 +286,5 @@ export function startOpsScheduler() {
     flushRequestCounts().catch(e => console.error('request flush error:', e));
   }, REQUEST_FLUSH_MS);
 
-  console.log('🗓️ Ops scheduler started (reminders 8am Riyadh · presence snapshot 5min · request flush 1min)');
+  console.log('🗓️ Ops scheduler started (reminders 8am Riyadh · monthly finance report 1st 8am · presence snapshot 5min · request flush 1min)');
 }

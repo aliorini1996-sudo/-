@@ -132,6 +132,17 @@ export async function monthlyFinance(year: number, month: number): Promise<Month
   };
 }
 
+/**
+ * المهلة التي بعدها يُعدّ المصروف المتكرّر متقادماً.
+ * مبلغٌ أُدخل مرّة ولم يُراجَع يظلّ يُحتسب بقيمته القديمة إلى الأبد — وهذا أخطر
+ * من غيابه لأنه يبدو صحيحاً. شهران يكفيان لالتقاط تغيّر فاتورة استضافة.
+ */
+export const EXPENSE_STALE_DAYS = Number(process.env.EXPENSE_STALE_DAYS || 60);
+
+export function staleDaysOf(reviewedAt: Date, now = new Date()): number {
+  return Math.floor((now.getTime() - reviewedAt.getTime()) / 86400_000);
+}
+
 export interface FinanceSnapshot {
   vatPct: number;
   gatewayFeePct: number;
@@ -143,6 +154,8 @@ export interface FinanceSnapshot {
   expiringSoon: number;           // اشتراكات مدفوعة تنتهي خلال ٣٠ يوماً
   mrrBasis: string;               // شرح مصدر MRR بالعربية — كي لا يكون رقماً بلا سند
   monthlyRecurringCostSar: number;
+  staleExpenses: number;          // مصروفات متكرّرة لم تُراجَع منذ المهلة
+  staleDaysThreshold: number;
   runwayNote: string;
   current: MonthlyFinance;
   months: MonthlyFinance[];       // آخر ٦ أشهر
@@ -182,7 +195,7 @@ export async function financeSnapshot(): Promise<FinanceSnapshot> {
     }),
     prisma.operatingExpense.findMany({
       where: { isRecurring: true },
-      select: { amountSar: true, category: true, startsOn: true, endsOn: true },
+      select: { amountSar: true, category: true, startsOn: true, endsOn: true, reviewedAt: true },
     }),
     latestSubscriptionPayments(),
   ]);
@@ -225,6 +238,8 @@ export async function financeSnapshot(): Promise<FinanceSnapshot> {
       ? 'لا اشتراك مدفوع سارٍ — MRR صفر حتى تصل أول دفعة تجديد عبر ميسر'
       : `من ${paying.length} اشتراك مدفوع سارٍ عبر ميسر`,
     monthlyRecurringCostSar,
+    staleExpenses: activeRec.filter((e) => staleDaysOf(e.reviewedAt, now) >= EXPENSE_STALE_DAYS).length,
+    staleDaysThreshold: EXPENSE_STALE_DAYS,
     runwayNote: mrrSar === 0
       ? `لا إيراد متكرّر بعد — التكاليف الشهرية ${monthlyRecurringCostSar} ر.س مموّلة ذاتياً`
       : netMonthly >= 0
@@ -312,5 +327,47 @@ export async function revenueRows(limit = 100): Promise<RevenueList> {
         paidAt: r.paidAt ? riyadhDate(r.paidAt) : '',
       };
     }),
+  };
+}
+
+
+export interface QuarterFinance {
+  year: number;
+  quarter: number;             // ١..٤
+  months: MonthlyFinance[];
+  revenueSar: number;
+  vatCollectedSar: number;
+  vatPaidSar: number;
+  vatDueSar: number;           // ما يُقدَّم للهيئة عن الفترة
+  expensesSar: number;
+  profitSar: number;
+  periodLabel: string;         // «١ يوليو – ٣٠ سبتمبر ٢٠٢٦»
+}
+
+const MONTH_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+
+/**
+ * الصورة المالية لربع سنة — الفترة التي تُقدَّم بها الإقرارات فعلاً.
+ * اللوحة الشهرية وحدها كانت تترك المالك يجمع ثلاثة أرقام بيده قبل كل إقرار،
+ * وجمعُ اليد هو حيث يقع الخطأ.
+ */
+export async function quarterFinance(year: number, quarter: number): Promise<QuarterFinance> {
+  const first = (quarter - 1) * 3 + 1;
+  const months: MonthlyFinance[] = [];
+  for (let i = 0; i < 3; i++) months.push(await monthlyFinance(year, first + i));
+
+  const sum = (f: (m: MonthlyFinance) => number) => round2(months.reduce((s, m) => s + f(m), 0));
+  const vatCollectedSar = sum((m) => m.vatCollectedSar);
+  const vatPaidSar = sum((m) => m.vatPaidSar);
+  const lastDay = new Date(Date.UTC(year, first + 2, 0)).getUTCDate();
+  return {
+    year, quarter, months,
+    revenueSar: sum((m) => m.revenueSar),
+    vatCollectedSar, vatPaidSar,
+    vatDueSar: round2(vatCollectedSar - vatPaidSar),
+    expensesSar: sum((m) => m.expensesSar),
+    profitSar: sum((m) => m.profitSar),
+    periodLabel: `١ ${MONTH_AR[first - 1]} – ${lastDay} ${MONTH_AR[first + 1]} ${year}`,
   };
 }

@@ -68,6 +68,26 @@ export function fetchInvoice(id: string): Promise<MoyasarInvoice> {
   return call<MoyasarInvoice>('GET', `/invoices/${encodeURIComponent(id)}`);
 }
 
+/** كائن الدفعة لدى ميسر — ما يخصنا منه: الحالة والمبلغ والمردود */
+export interface MoyasarPayment {
+  id: string;
+  status: string;          // paid | refunded | voided | failed | authorized | captured
+  amount: number;          // بالهللات
+  refunded?: number;       // المبلغ المردود بالهللات (٠ = لا ردّ)
+  currency?: string;
+  invoice_id?: string | null;
+  metadata?: Record<string, string> | null;
+}
+
+/**
+ * جلب دفعة من ميسر — لازم للاسترداد.
+ * حدث `payment_refunded` يصل في جسم webhook، وجسم webhook لا يُوثق به مبدئياً
+ * في هذا الملف؛ فالردّ لا يُعتمد حتى تؤكّده ميسر بمفتاحنا السرّي.
+ */
+export function fetchPayment(id: string): Promise<MoyasarPayment> {
+  return call<MoyasarPayment>('GET', `/payments/${encodeURIComponent(id)}`);
+}
+
 /** الغاء فاتورة لدى ميسر — يستخدم لتنظيف فاتورة انشئت ولم يكتمل ربطها عندنا */
 export function cancelInvoice(id: string): Promise<MoyasarInvoice> {
   return call<MoyasarInvoice>('PUT', `/invoices/${encodeURIComponent(id)}/cancel`);

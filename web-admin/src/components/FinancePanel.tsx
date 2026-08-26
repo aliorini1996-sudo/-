@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { financeApi } from '../api/client';
 import {
   X, TrendingUp, TrendingDown, Wallet, Receipt, Plus, Trash2, PauseCircle,
-  Repeat, Calendar, PieChart, AlertTriangle, CheckCircle2, Building2, Link2, RefreshCw,
+  Repeat, Calendar, PieChart, AlertTriangle, CheckCircle2, Building2, Link2, RefreshCw, FileText, Clock,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
@@ -19,6 +19,7 @@ interface Snapshot {
   payingTenants: number; unpaidTenants: number; totalTenants: number;
   expiringSoon: number; mrrBasis: string;
   monthlyRecurringCostSar: number; runwayNote: string;
+  staleExpenses: number; staleDaysThreshold: number;
   current: MonthlyFinance; months: MonthlyFinance[];
   byCategory: { category: string; amountSar: number }[];
 }
@@ -33,6 +34,20 @@ interface RevenueList {
 interface Expense {
   id: string; label: string; category: string; amountSar: number; vatSar: number;
   isRecurring: boolean; startsOn: string; endsOn: string | null; note: string | null;
+  amountOriginal: number | null; currency: string; fxRate: number | null;
+  staleDays: number; isStale: boolean;
+}
+interface QuarterFinance {
+  year: number; quarter: number; periodLabel: string;
+  revenueSar: number; vatCollectedSar: number; vatPaidSar: number; vatDueSar: number;
+  expensesSar: number; profitSar: number;
+}
+interface InvoiceRow {
+  id: string; number: string; buyerName: string; description: string;
+  totalSar: number; vatSar: number; issuedAt: string;
+}
+interface InvoiceList {
+  rows: InvoiceRow[]; ready: boolean; sellerName: string; vatNumber: string; note: string;
 }
 
 const sar = (n: number) => `${n.toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س`;
@@ -80,6 +95,8 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   const [amount, setAmount] = useState('');
   const [isRecurring, setIsRecurring] = useState(true);
   const [vatMode, setVatMode] = useState<'none' | 'inclusive' | 'exclusive'>('none');
+  const [currency, setCurrency] = useState<'SAR' | 'USD' | 'EUR'>('SAR');
+  const [quarter, setQuarter] = useState(() => Math.floor(new Date().getMonth() / 3) + 1);
   const [startsOn, setStartsOn] = useState(() => new Date().toISOString().slice(0, 10));
 
   const { data: snap, isLoading, isError } = useQuery({
@@ -90,6 +107,15 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
     queryKey: ['finance-revenues'],
     queryFn: async () => (await financeApi.listRevenues()).data.data as RevenueList,
   });
+  const year = new Date().getFullYear();
+  const { data: qtr } = useQuery({
+    queryKey: ['finance-quarter', year, quarter],
+    queryFn: async () => (await financeApi.quarter(year, quarter)).data.data as QuarterFinance,
+  });
+  const { data: invoices } = useQuery({
+    queryKey: ['finance-invoices'],
+    queryFn: async () => (await financeApi.listInvoices()).data.data as InvoiceList,
+  });
   const { data: expenses } = useQuery({
     queryKey: ['finance-expenses'],
     queryFn: async () => (await financeApi.listExpenses()).data.data as Expense[],
@@ -98,12 +124,14 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['finance-snapshot'] });
     qc.invalidateQueries({ queryKey: ['finance-expenses'] });
+    qc.invalidateQueries({ queryKey: ['finance-quarter'] });
+    qc.invalidateQueries({ queryKey: ['finance-invoices'] });
   };
 
   const add = useMutation({
     mutationFn: () => financeApi.addExpense({
       label: label.trim(), category, amountSar: Number(amount),
-      vatMode, isRecurring, startsOn,
+      vatMode, currency, isRecurring, startsOn,
     }),
     onSuccess: () => {
       toast.success('سُجّل المصروف');
@@ -120,6 +148,15 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   const zeroVat = useMutation({
     mutationFn: (id: string) => financeApi.updateExpense(id, { vatSar: 0 }),
     onSuccess: () => { toast.success('صُفّرت ضريبة المدخلات على هذا المصروف'); invalidate(); },
+  });
+  const reviewed = useMutation({
+    mutationFn: (id: string) => financeApi.markReviewed(id),
+    onSuccess: () => { toast.success('سُجّلت المراجعة — المبلغ ما زال صحيحاً'); invalidate(); },
+  });
+  const backfill = useMutation({
+    mutationFn: () => financeApi.backfillInvoices(),
+    onSuccess: (r) => { toast.success(`أُصدرت ${r.data.data.issued} فاتورة`); invalidate(); },
+    onError: () => toast.error('تعذّر الإصدار'),
   });
   const remove = useMutation({
     mutationFn: (id: string) => financeApi.deleteExpense(id),
@@ -168,6 +205,16 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                   </p>
                 </div>
               </div>
+
+              {snap.staleExpenses > 0 && (
+                <div className="rounded-xl p-3 bg-amber-50 border border-amber-200 flex items-start gap-2.5">
+                  <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-900">
+                    <b>{snap.staleExpenses} مصروف متكرّر لم يُراجَع منذ {snap.staleDaysThreshold} يوماً.</b>{' '}
+                    راجع فاتورة المورّد: مبلغٌ قديم يُحتسب صامتاً كل شهر ويبدو صحيحاً — وهذا أخطر من غيابه.
+                  </p>
+                </div>
+              )}
 
               {/* الأرقام الحاكمة */}
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -223,6 +270,88 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                     </div>
                   </div>
                 </div>
+              </section>
+
+              {/* الإقرار الربعي — الفترة التي تُقدَّم بها الإقرارات فعلاً */}
+              <section className="rounded-xl border border-[#E7DECD] bg-white p-4">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <Receipt className="w-4 h-4 text-[#E15A30]" />
+                  <h3 className="text-sm font-bold text-[#1F1A13]">الإقرار الربعي</h3>
+                  <span className="text-[11px] text-gray-400 flex-1">— زاتكا تُقدَّم بالربع، وجمع ثلاثة أشهر باليد هو حيث يقع الخطأ</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4].map((q) => (
+                      <button
+                        key={q} onClick={() => setQuarter(q)}
+                        className={`w-8 h-7 rounded-lg text-xs font-bold tabular-nums ${
+                          quarter === q ? 'bg-[#1F1A13] text-white' : 'bg-[#F1EADD] text-gray-600 hover:bg-[#E7DECD]'
+                        }`}
+                      >{q}</button>
+                    ))}
+                  </div>
+                </div>
+                {qtr ? (
+                  <>
+                    <p className="text-[11px] text-gray-500 mb-2">{qtr.periodLabel}</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                      <div className="rounded-lg bg-[#FBF6EC] p-3">
+                        <div className="text-[11px] text-gray-500">إيراد الربع</div>
+                        <div className="text-base font-bold tabular-nums text-[#1F1A13]" dir="ltr">{sar(qtr.revenueSar)}</div>
+                      </div>
+                      <div className="rounded-lg bg-[#FBF6EC] p-3">
+                        <div className="text-[11px] text-gray-500">مخرجات</div>
+                        <div className="text-base font-bold tabular-nums text-[#1F1A13]" dir="ltr">{sar(qtr.vatCollectedSar)}</div>
+                      </div>
+                      <div className="rounded-lg bg-[#FBF6EC] p-3">
+                        <div className="text-[11px] text-gray-500">مدخلات</div>
+                        <div className="text-base font-bold tabular-nums text-[#1F1A13]" dir="ltr">{sar(qtr.vatPaidSar)}</div>
+                      </div>
+                      <div className="rounded-lg bg-[#FBEBE2] p-3">
+                        <div className="text-[11px] text-gray-500">المستحقّ للهيئة</div>
+                        <div className="text-base font-bold tabular-nums text-[#B8431F]" dir="ltr">{sar(qtr.vatDueSar)}</div>
+                      </div>
+                    </div>
+                  </>
+                ) : <p className="text-sm text-gray-500 text-center py-4">جارٍ حساب الربع…</p>}
+              </section>
+
+              {/* الفواتير الضريبية التي نُصدرها لمشتركينا */}
+              <section className="rounded-xl border border-[#E7DECD] bg-white p-4">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <FileText className="w-4 h-4 text-[#E15A30]" />
+                  <h3 className="text-sm font-bold text-[#1F1A13]">فواتيرنا الضريبية للمشتركين</h3>
+                  <span className="flex-1" />
+                  {invoices?.ready && (
+                    <button
+                      onClick={() => backfill.mutate()} disabled={backfill.isPending}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#F1EADD] text-[#1F1A13] hover:bg-[#E7DECD] disabled:opacity-40"
+                    >
+                      {backfill.isPending ? 'جارٍ…' : 'أصدر ما فات'}
+                    </button>
+                  )}
+                </div>
+                <p className={`text-[11px] mb-3 ${invoices?.ready ? 'text-gray-500' : 'text-red-600 font-semibold'}`}>
+                  {invoices?.note}
+                  {invoices?.ready && invoices.vatNumber && ` · البائع ${invoices.sellerName} — الرقم الضريبي ${invoices.vatNumber}`}
+                </p>
+                {!invoices?.rows.length ? (
+                  <p className="text-sm text-gray-500 text-center py-4">لا فاتورة صادرة بعد.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {invoices.rows.map((v) => (
+                      <div key={v.id} className="flex items-center gap-3 rounded-lg border border-[#E7DECD] p-2.5">
+                        <span className="text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-[#F1EADD] text-[#1F1A13] shrink-0" dir="ltr">{v.number}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-[#1F1A13] truncate">{v.buyerName}</p>
+                          <p className="text-[11px] text-gray-500 truncate">{v.description} · {v.issuedAt.slice(0, 10)}</p>
+                        </div>
+                        <div className="text-left shrink-0">
+                          <p className="text-sm font-bold tabular-nums text-[#1F1A13]" dir="ltr">{sar(v.totalSar)}</p>
+                          <p className="text-[10px] text-gray-500 tabular-nums" dir="ltr">ضريبة {sar(v.vatSar)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
 
               {/* ستة أشهر */}
@@ -377,11 +506,22 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                     <select value={category} onChange={(e) => setCategory(e.target.value)} className="px-3 py-2 rounded-lg border border-[#E7DECD] text-sm bg-white">
                       {Object.entries(CATEGORY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                     </select>
-                    <input
-                      value={amount} onChange={(e) => setAmount(e.target.value)}
-                      inputMode="decimal" placeholder="المبلغ بالريال"
-                      className="px-3 py-2 rounded-lg border border-[#E7DECD] text-sm bg-white tabular-nums"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        value={amount} onChange={(e) => setAmount(e.target.value)}
+                        inputMode="decimal" placeholder={`المبلغ بـ${currency === 'SAR' ? 'الريال' : currency}`}
+                        className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-[#E7DECD] text-sm bg-white tabular-nums"
+                      />
+                      <select
+                        value={currency} onChange={(e) => setCurrency(e.target.value as typeof currency)}
+                        className="px-2 py-2 rounded-lg border border-[#E7DECD] text-sm bg-white shrink-0"
+                        title="أدخل المبلغ كما في فاتورة المورّد — يُحوَّل للريال ويُحفَظ الأصل، فتحديثه لاحقاً رقم واحد"
+                      >
+                        <option value="SAR">ر.س</option>
+                        <option value="USD">$</option>
+                        <option value="EUR">€</option>
+                      </select>
+                    </div>
                     <input
                       type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)}
                       className="px-3 py-2 rounded-lg border border-[#E7DECD] text-sm bg-white"
@@ -429,8 +569,18 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                           <p className="text-sm font-semibold text-[#1F1A13] truncate">{e.label}</p>
                           <p className="text-[11px] text-gray-500">
                             {e.isRecurring ? 'شهري' : 'لمرّة واحدة'} · ضريبة مدخلات {sar(e.vatSar)}
+                            {e.amountOriginal != null && ` · ${e.amountOriginal} ${e.currency} × ${e.fxRate}`}
                             {stopped && ' · موقوف'}
                           </p>
+                          {e.isStale && !stopped && (
+                            <p className="text-[10px] text-amber-700 font-semibold mt-0.5 flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> لم يُراجَع منذ {e.staleDays} يوماً
+                              <button
+                                onClick={() => reviewed.mutate(e.id)}
+                                className="underline underline-offset-2 hover:text-amber-800"
+                              >راجعتُه ولم يتغيّر</button>
+                            </p>
+                          )}
                           {e.vatSar > 0 && (
                             <button
                               onClick={() => zeroVat.mutate(e.id)}

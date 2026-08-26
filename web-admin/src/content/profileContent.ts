@@ -101,6 +101,32 @@ export const PROFILE_DEFAULTS: ProfileContent = {
   },
 };
 
+/**
+ * الأقسام التي يملك المالك إظهارها أو إخفاءها.
+ * الغلاف والختام خارج القائمة عمداً — وثيقة بلا غلاف ولا خاتمة ليست وثيقة.
+ */
+export const PROFILE_SECTIONS: { key: string; label: string; en: string }[] = [
+  { key: 'problem', label: 'المشكلة', en: 'The problem' },
+  { key: 'solution', label: 'الحل', en: 'The solution' },
+  { key: 'clients', label: 'العملاء', en: 'Our clients' },
+  { key: 'about', label: 'من نحن', en: 'Who we are' },
+  { key: 'journey', label: 'الرحلة', en: 'The journey' },
+  { key: 'achievements', label: 'الجاهز اليوم', en: 'Ready today' },
+  { key: 'numbers', label: 'الارقام', en: 'The numbers' },
+  { key: 'goals', label: 'خارطة الطريق', en: 'Roadmap' },
+  { key: 'invest', label: 'البدء معنا', en: 'Getting started' },
+  { key: 'contact', label: 'تواصل معنا', en: 'Contact' },
+];
+
+export const showKey = (k: string) => `show_${k}`;
+
+/**
+ * الظهور شأن واحد للغتين: يُقرأ من العربية دائماً.
+ * لو خُزّن لكل لغة لافترقت النسختان فرأى قارئ الإنجليزية قسماً أخفاه المالك.
+ * والغياب يعني الظهور — فالأقسام القديمة تبقى ظاهرة بلا تدخّل.
+ */
+export const sectionOn = (c: ProfileContent, k: string) => (c.ar[showKey(k)] ?? '1') !== '0';
+
 /** دمج تعديلات الـCMS فوق الافتراضيات على مستوى الحقل */
 export function mergeProfile(cms: Partial<ProfileContent> | null | undefined): ProfileContent {
   return {
