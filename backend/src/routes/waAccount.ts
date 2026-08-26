@@ -22,6 +22,8 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import { z } from 'zod';
 import prisma from '../config/database';
 
 const router = Router();
@@ -111,6 +113,103 @@ router.get('/lookup', async (req: Request, res: Response) => {
   } catch (e) {
     console.error('[wa-account] خطأ:', e);
     res.status(500).json({ success: false });
+  }
+});
+
+
+// ═══════════════════ الموجة ٣: إجراءات محدودة بإذن المالك ═══════════════════
+//
+// مفتاح منفصل عن القراءة: WA_ACTION_ENABLED. إطفاؤه يُبقي القراءة عاملةً ويوقف
+// كل فعل — فصلٌ مقصود، لأن سقف ضرر «يقرأ» غير سقف ضرر «يفعل».
+//
+// الخادم لا يثق بالبوت في تحديد الشركة: يستقبل رقم الهاتف الموثّق ويعيد استخراج
+// المستأجر بنفسه. فلو اختُرق البوت لم يستطع أن يفعل شيئاً لشركة غير شركة الرقم.
+// والمندوب المستهدف يُتحقَّق أنه يتبع المستأجر نفسه قبل أي تعديل.
+
+const actionsEnabled = () => (process.env.WA_ACTION_ENABLED || '').trim() === '1';
+
+/** يستخرج المستأجر من رقم موثّق — أو null. نفس منطق القراءة، مركزياً. */
+async function tenantByPhone(phone: string): Promise<string | null> {
+  const rows = await prisma.companySettings.findMany({
+    where: { phone: { not: null } },
+    select: { tenantId: true, phone: true },
+  });
+  const m = rows.filter((r) => normalizePhone(r.phone) === phone);
+  return m.length === 1 ? m[0].tenantId : null;   // غموض ⇒ رفض
+}
+
+/** قائمة مناديب الشركة — للبوت كي يعرّف المندوب المقصود قبل طلب الإذن */
+router.get('/reps', async (req: Request, res: Response) => {
+  if (!enabled() || !actionsEnabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  const phone = normalizePhone(String(req.query.phone || ''));
+  if (phone.length < 9 || overLimit(phone)) { res.status(phone.length < 9 ? 200 : 429).json({ success: true, data: { reps: [] } }); return; }
+  try {
+    const tid = await tenantByPhone(phone);
+    if (!tid) { res.json({ success: true, data: { reps: [] } }); return; }
+    const reps = await prisma.salesRep.findMany({
+      where: { tenantId: tid },
+      select: { id: true, name: true, username: true, isActive: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ success: true, data: { reps } });
+  } catch (e) {
+    console.error('[wa-account] reps خطأ:', e);
+    res.status(500).json({ success: false });
+  }
+});
+
+/** كلمة مرور مؤقّتة قوية وسهلة النطق في واتساب (بلا أحرف ملتبسة) */
+function tempPassword(): string {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ';       // بلا I و O
+  const num = '23456789';                        // بلا 0 و 1
+  const pick = (set: string, n: number) => Array.from({ length: n }, () => set[crypto.randomInt(set.length)]).join('');
+  return pick(abc, 4) + pick(num, 4);            // ٨ خانات — يطابق سياسة الحدّ الأدنى
+}
+
+/**
+ * تنفيذ إجراء — يُستدعى من البوت **بعد** موافقة المالك الصريحة على واتسابه.
+ * قائمة بيضاء بإجراءين فقط، كلاهما قابل للعكس:
+ *   reset_rep_password — كلمة مرور مؤقّتة (يمكن إعادتها ثانية)
+ *   toggle_rep_active  — تفعيل/إيقاف مندوب (يمكن عكسه)
+ */
+router.post('/action', async (req: Request, res: Response) => {
+  if (!enabled() || !actionsEnabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  try {
+    const body = z.object({
+      phone: z.string().min(9),
+      action: z.enum(['reset_rep_password', 'toggle_rep_active']),
+      repId: z.string().uuid(),
+    }).parse(req.body);
+
+    const phone = normalizePhone(body.phone);
+    const tid = await tenantByPhone(phone);
+    if (!tid) { res.status(403).json({ success: false, message: 'رقم غير مربوط بشركة' }); return; }
+
+    // المندوب يجب أن يتبع شركة الرقم — الحاجز الذي يمنع أي تسرّب عبر المستأجرين
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: body.repId, tenantId: tid },
+      select: { id: true, name: true, username: true, isActive: true },
+    });
+    if (!rep) { res.status(403).json({ success: false, message: 'المندوب لا يتبع هذه الشركة' }); return; }
+
+    const masked = phone.slice(0, 5) + '****' + phone.slice(-3);
+    if (body.action === 'reset_rep_password') {
+      const pwd = tempPassword();
+      await prisma.salesRep.update({ where: { id: rep.id }, data: { passwordHash: await bcrypt.hash(pwd, 10) } });
+      console.log(`[wa-action] ${masked} ⇒ إعادة تعيين كلمة مرور «${rep.name}» (${rep.username})`);
+      res.json({ success: true, data: { action: body.action, repName: rep.name, username: rep.username, tempPassword: pwd } });
+      return;
+    }
+
+    const next = !rep.isActive;
+    await prisma.salesRep.update({ where: { id: rep.id }, data: { isActive: next } });
+    console.log(`[wa-action] ${masked} ⇒ ${next ? 'تفعيل' : 'إيقاف'} «${rep.name}»`);
+    res.json({ success: true, data: { action: body.action, repName: rep.name, username: rep.username, isActive: next } });
+  } catch (e) {
+    console.error('[wa-account] action خطأ:', e);
+    res.status(400).json({ success: false });
   }
 });
 
