@@ -126,7 +126,7 @@ export default function ProfilePage() {
           <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2 text-sm" style={{ color: 'rgba(250,247,240,.6)' }}>
             <span style={{ color: COLORS.coral, fontWeight: 700, fontFamily: enFont }}>fieldsa.net</span>
             <span>{L('نسخة ٢٠٢٦', '2026 edition')}</span>
-            <span>{L('معد للشركاء والمستثمرين', 'Prepared for partners and investors')}</span>
+            <span>{L('معد لشركات التوزيع', 'Prepared for distribution companies')}</span>
           </div>
         </div>
       </section>
@@ -223,7 +223,7 @@ export default function ProfilePage() {
       {/* ٧ الانجازات — خلفية طرق المدينة ليلا */}
       <section style={darkBg('achievements', 0.88)}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker>{L('الانجازات', 'Achievements')}</Kicker>
+          <Kicker>{L('الجاهز اليوم', 'Ready today')}</Kicker>
           <H2 dark>{t.achievements_title}</H2>
           <div className="mt-8 grid sm:grid-cols-3 gap-5">
             {splitLines(t.achievements_items).map((a, i) => (
@@ -258,7 +258,7 @@ export default function ProfilePage() {
       {/* ٩ اهداف المستقبل — خلفية سلسلة الامداد الذكية */}
       <section style={darkBg('goals', 0.9)}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker>{L('اهداف المستقبل', 'Future targets')}</Kicker>
+          <Kicker>{L('خارطة الطريق', 'Roadmap')}</Kicker>
           <H2 dark>{t.goals_title}</H2>
           <div className="mt-8 grid sm:grid-cols-2 gap-5">
             {splitLines(t.goals_items).map((g, i) => (
@@ -275,7 +275,7 @@ export default function ProfilePage() {
       <section className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
         <div className="grid lg:grid-cols-2 gap-10 items-center">
           <div>
-            <Kicker>{L('الاستثمار', 'Investment')}</Kicker>
+            <Kicker>{L('البدء معنا', 'Getting started')}</Kicker>
             <H2>{t.invest_title}</H2>
             <div className="mt-8 grid gap-4">
               {splitLines(t.invest_tracks).map((tr, i) => (
