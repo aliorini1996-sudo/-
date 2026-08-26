@@ -381,4 +381,126 @@ router.get('/events', async (req: Request, res: Response) => {
   }
 });
 
+
+/**
+ * حالة روابط الدفع لهذا الرقم — يسدّ فجوة رصدها المالك: البوت كان يرسل الرابط
+ * ثم «ينساه»، فلا يعرف أدُفِع أم لا، ولا يستطيع تأكيد التفعيل ولا التذكير.
+ *
+ * مصدر الحقيقة هو صفّنا `payment_links` الذي يُوسم `paid` من webhook ميسر
+ * (والوسم يُمدّد الاشتراك ذرّياً) — فلا ننادي ميسر من هنا ولا نثق بأي جسم وارد.
+ */
+router.get('/payments', async (req: Request, res: Response) => {
+  if (!enabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  const phone = normalizePhone(String(req.query.phone || ''));
+  if (phone.length < 9) { res.json({ success: true, data: { links: [] } }); return; }
+  if (overLimit(phone)) { res.status(429).json({ success: false }); return; }
+  try {
+    const tid = await tenantByPhone(phone);
+    if (!tid) { res.json({ success: true, data: { links: [] } }); return; }
+    const links = await prisma.paymentLink.findMany({
+      where: { tenantId: tid },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { id: true, description: true, amountHalalas: true, months: true, status: true, paidAt: true, url: true, createdAt: true },
+    });
+    res.json({
+      success: true,
+      data: {
+        links: links.map((l) => ({
+          id: l.id,
+          amountSar: l.amountHalalas / 100,
+          months: l.months,
+          status: l.status,                                  // initiated | paid | canceled | expired
+          paidAt: l.paidAt?.toISOString().slice(0, 10) ?? null,
+          url: l.status === 'paid' ? null : l.url,           // رابط مدفوع لا يُعاد إرساله
+          createdAt: l.createdAt.toISOString().slice(0, 10),
+        })),
+      },
+    });
+  } catch (e) {
+    console.error('[wa-account] payments خطأ:', e);
+    res.status(500).json({ success: false });
+  }
+});
+
+
+/**
+ * رابط اشتراك لعميل **جديد** (غير مربوط بشركة بعد) — يسدّ فجوة رصدها المالك:
+ * التجديد كان للمربوطين وحدهم، فالعميل المحتمل الذي يريد الشراء الآن كان يُصعَّد
+ * ويُترك للمالك، وهذا أضعف نقطة في قمع البيع كلّه.
+ *
+ * الفارق الجوهري عن التجديد: لا `tenantId` (الشركة لم تُنشأ بعد) ⇒ `months = 0`
+ * فلا تمديد تلقائي؛ المالك يُنشئ الشركة يدوياً بعد الدفع. وهذا مقصود: إنشاء
+ * مستأجر آلياً من محادثة واتساب قرارٌ أكبر من أن يُتخذ بلا مراجعة.
+ *
+ * المبلغ من نفس القائمة البيضاء — لا يمرّره البوت.
+ */
+router.post('/signup-link', async (req: Request, res: Response) => {
+  if (!enabled() || !actionsEnabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  if (!moyasarConfigured()) { res.status(503).json({ success: false, message: 'بوابة الدفع غير مهيأة' }); return; }
+  try {
+    const body = z.object({
+      phone: z.string().min(9),
+      plan: z.enum(['basic', 'pro']),          // enterprise يتولّاه المالك — لا سعر ثابت له
+      months: z.number().int().min(1).max(12),
+      companyName: z.string().min(2).max(80),
+    }).parse(req.body);
+
+    const phone = normalizePhone(body.phone);
+    if (overLimit(phone)) { res.status(429).json({ success: false }); return; }
+
+    // رقم مربوط أصلاً ⇒ هذا تجديد لا اشتراك جديد؛ نوجّهه للمسار الصحيح
+    if (await tenantByPhone(phone)) {
+      res.status(409).json({ success: false, message: 'الرقم مربوط بشركة — استخدم التجديد' });
+      return;
+    }
+
+    const monthly = PLAN_MONTHLY_SAR[body.plan];
+    const amountSar = monthly * body.months;
+    const description = `اشتراك ${body.companyName} — ${body.plan} — ${body.months} شهر`;
+    const row = await prisma.paymentLink.create({
+      // بلا tenantId ⇒ months = 0: لا تمديد تلقائي لشركة غير موجودة
+      data: { tenantId: null, description, amountHalalas: Math.round(amountSar * 100), months: 0 },
+    });
+    const FRONT = (process.env.FRONTEND_URL || 'https://fieldsa.net').replace(/\/$/, '');
+    const inv = await createInvoice({
+      amountHalalas: row.amountHalalas,
+      description,
+      successUrl: `${FRONT}/payment/success?ref=${row.id}`,
+      backUrl: `${FRONT}/payment/success?ref=${row.id}`,
+      metadata: { ref: row.id, signupPhone: phone, plan: body.plan, months: String(body.months) },
+    });
+    await prisma.paymentLink.update({ where: { id: row.id }, data: { moyasarInvoiceId: inv.id, url: inv.url } });
+
+    const masked = phone.slice(0, 5) + '****' + phone.slice(-3);
+    console.log(`[wa-action] ${masked} ⇒ رابط اشتراك جديد ${amountSar} ريال (${body.plan}/${body.months}ش) لـ«${body.companyName}»`);
+    res.json({ success: true, data: { url: inv.url, amountSar, months: body.months, plan: body.plan, companyName: body.companyName, ref: row.id } });
+  } catch (e) {
+    console.error('[wa-account] signup خطأ:', e);
+    res.status(400).json({ success: false });
+  }
+});
+
+/** حالة رابط بمعرّفه — للعميل الجديد الذي لا شركة له بعد */
+router.get('/payment-status', async (req: Request, res: Response) => {
+  if (!enabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  try {
+    const ref = z.string().uuid().parse(String(req.query.ref || ''));
+    const l = await prisma.paymentLink.findUnique({
+      where: { id: ref },
+      select: { status: true, paidAt: true, amountHalalas: true, description: true },
+    });
+    if (!l) { res.json({ success: true, data: null }); return; }
+    res.json({
+      success: true,
+      data: { status: l.status, paid: l.status === 'paid', paidAt: l.paidAt?.toISOString().slice(0, 10) ?? null, amountSar: l.amountHalalas / 100 },
+    });
+  } catch {
+    res.status(400).json({ success: false });
+  }
+});
+
 export default router;
