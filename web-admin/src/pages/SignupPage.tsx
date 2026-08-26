@@ -40,6 +40,7 @@ export default function SignupPage() {
     if (!form.country) { toast.error(t('signup.errCountry')); return; }
     if (!form.adminName.trim()) { toast.error(t('signup.errName')); return; }
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.email)) { toast.error(t('signup.errEmail')); return; }
+    if (form.phone.replace(/\D/g, '').length < 8) { toast.error(t('signup.errPhone')); return; }
     if (form.password.length < 8) { toast.error(t('signup.errPass')); return; }
     if (form.password !== form.confirm) { toast.error(t('signup.errMatch')); return; }
     if (!agree) { toast.error(t('signup.errAgree')); return; }
@@ -49,7 +50,7 @@ export default function SignupPage() {
         companyName: form.companyName.trim(), adminName: form.adminName.trim(),
         countryCode: form.country,
         email: form.email.trim(), password: form.password,
-        phone: form.phone ? `${dial}${form.phone.replace(/^0+/, '')}` : undefined,
+        phone: `${dial}${form.phone.replace(/^0+/, '')}`,
         vertical,
       });
       const { token, user } = res.data.data;
@@ -148,7 +149,7 @@ export default function SignupPage() {
               </div>
             </div>
             <div>
-              <label className="label">{t('signup.phone')}</label>
+              <label className="label">{t('signup.phone')} *</label>
               <div className="flex gap-2" dir="ltr">
                 <select
                   aria-label={t('signup.country')}

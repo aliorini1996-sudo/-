@@ -51,6 +51,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'signup.errCompany': { ar: 'اسم الشركة مطلوب', en: 'Company name is required', fr: 'Le nom de l entreprise est requis', tr: 'Şirket adı zorunludur' },
   'signup.errName': { ar: 'اسمك مطلوب', en: 'Your name is required', fr: 'Votre nom est requis', tr: 'Adınız zorunludur' },
   'signup.errEmail': { ar: 'البريد الإلكتروني غير صحيح', en: 'Invalid email address', fr: 'Adresse e-mail invalide', tr: 'Geçersiz e-posta adresi' },
+  'signup.errPhone': { ar: 'رقم الجوال مطلوب', en: 'Mobile number is required', fr: 'Le numéro de mobile est requis', tr: 'Cep telefonu numarası gerekli' },
   'signup.errPass': { ar: 'كلمة المرور 8 أحرف على الأقل', en: 'Password must be at least 8 characters', fr: 'Le mot de passe doit comporter au moins 8 caractères', tr: 'Şifre en az 8 karakter olmalıdır' },
   'signup.errMatch': { ar: 'كلمتا المرور غير متطابقتين', en: 'Passwords do not match', fr: 'Les mots de passe ne correspondent pas', tr: 'Şifreler eşleşmiyor' },
   'signup.errAgree': { ar: 'يرجى الموافقة على الشروط وسياسة الخصوصية', en: 'Please accept the Terms and Privacy Policy', fr: 'Veuillez accepter les Conditions et la Politique de confidentialité', tr: 'Lütfen Hizmet Şartları\'nı ve Gizlilik Politikası\'nı kabul edin' },

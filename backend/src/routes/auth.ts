@@ -49,7 +49,11 @@ const signupSchema = z.object({
   adminName: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل'),
-  phone: z.string().optional(),
+  // الجوال إلزاميّ في التسجيل الذاتي: قناة التواصل الوحيدة المؤكَّدة مع صاحب التجربة
+  // (البريد قد يكون مؤقّتاً/خاطئاً)، وعليه يقوم التفعيل والمتابعة والدعم.
+  phone: z.string()
+    .transform((s) => s.replace(/[^\d+]/g, ''))
+    .refine((s) => s.replace(/\D/g, '').length >= 8, 'رقم الجوال مطلوب ويجب ان يكون صحيحا'),
   countryCode: z.string().length(2).optional(), // دولة الشركة — تُشتقّ منها العملة والضريبة ومزوّد الفوترة
   // عمودية التسجيل: صفحة هبوط التوزيع تُرسل distribution (افتراضي)، وهبوط المطاعم يُرسل restaurant.
   vertical: z.enum(['distribution', 'restaurant']).default('distribution'),
@@ -271,7 +275,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
         ['الشركة', body.companyName],
         ['المسؤول', body.adminName],
         ['البريد', body.email],
-        ['الجوال', body.phone || '—'],
+        ['الجوال', body.phone],
         ['الدولة', `${ct.code} · ${ct.currency} · ${ct.defaultVatPct}%`],
         ['الباقة', 'تجريبية مجانية'],
         ['مدة التجربة', `${TRIAL_DAYS} أيام`],
