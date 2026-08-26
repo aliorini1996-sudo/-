@@ -4,11 +4,10 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - run: pip install requests requests_oauthlib
-      - name: افحص طبقة X
+      - name: احذف الردّ التجريبي
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
@@ -20,21 +19,6 @@ jobs:
           from requests_oauthlib import OAuth1
           auth = OAuth1(os.environ['X_API_KEY'], os.environ['X_API_SECRET'],
                         os.environ['X_ACCESS_TOKEN'], os.environ['X_ACCESS_SECRET'])
-          me = requests.get('https://api.x.com/2/users/me', auth=auth, timeout=30)
-          print('users/me ->', me.status_code, me.text[:200])
-          if me.ok:
-              uid = me.json()['data']['id']
-              m = requests.get(f'https://api.x.com/2/users/{uid}/mentions',
-                               params={'max_results': 5}, auth=auth, timeout=30)
-              print('mentions ->', m.status_code, m.text[:300])
-              # هل الردّ ممكن؟ ننشئ ردّاً ثم نحذفه فوراً — لا نترك أثراً على الحساب
-              if m.ok and m.json().get('data'):
-                  tid = m.json()['data'][0]['id']
-                  r = requests.post('https://api.x.com/2/tweets', auth=auth, timeout=30,
-                                    json={'text': 'probe', 'reply': {'in_reply_to_tweet_id': tid}})
-                  print('reply ->', r.status_code, r.text[:200])
-                  if r.ok:
-                      rid = r.json()['data']['id']
-                      d = requests.delete(f'https://api.x.com/2/tweets/{rid}', auth=auth, timeout=30)
-                      print('cleanup ->', d.status_code)
+          d = requests.delete('https://api.x.com/2/tweets/2092496688556695953', auth=auth, timeout=30)
+          print('delete ->', d.status_code, d.text[:200])
           PY
