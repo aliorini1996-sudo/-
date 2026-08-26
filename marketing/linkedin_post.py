@@ -5,6 +5,7 @@
 يعيد استخدام نفس البطاقة بهوية FieldSales ونفس بنك المواضيع من post.py،
 ويكتب منشور LinkedIn احترافيًا بـClaude، وينشره على صفحة الشركة عبر LinkedIn API.
 """
+import os
 import sys
 import random
 
@@ -34,7 +35,18 @@ def ask_claude_linkedin(topic: dict) -> str:
     return ask_gemini(system, user, max_tokens=900)[:2900]
 
 
-# ------------------------------ النشر على LinkedIn (الحساب الشخصي) ------------------------------ #
+# ------------------------ النشر على LinkedIn (صفحة الشركة، وإلا الشخصي) ------------------------ #
+def _author_urn(token: str) -> str:
+    """هوية الناشر: صفحة الشركة إن ضُبط LINKEDIN_ORG_ID (قرار المالك: النشر باسم
+    المنصّة لا باسمه الشخصي)، وإلا سقوط للحساب الشخصي كي لا ينكسر الخطّ إن غاب
+    المعرّف. يتطلّب النشرُ باسم الصفحة رمزًا بصلاحية w_organization_social."""
+    org = (os.environ.get("LINKEDIN_ORG_ID") or "").strip()
+    if org:
+        org_id = org.rsplit(":", 1)[-1]  # يقبل الرقم وحده أو URN كاملًا
+        return f"urn:li:organization:{org_id}"
+    return _person_urn(token)
+
+
 def _person_urn(token: str) -> str:
     """يجلب هوية صاحب الحساب من OpenID userinfo → urn:li:person:{sub} (نشر شخصي، بلا معرّف شركة)."""
     r = requests.get(f"{LI}/v2/userinfo", headers={"Authorization": f"Bearer {token}"}, timeout=30)
@@ -79,7 +91,7 @@ def _upload_image(token: str, owner: str, image_path: str):
 
 def post_to_linkedin(text: str, image_path: str):
     token = env("LINKEDIN_ACCESS_TOKEN")
-    owner = _person_urn(token)
+    owner = _author_urn(token)
     asset = _upload_image(token, owner, image_path) if image_path else None
 
     share = {"shareCommentary": {"text": text}, "shareMediaCategory": "IMAGE" if asset else "NONE"}
