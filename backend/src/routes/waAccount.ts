@@ -25,6 +25,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../config/database';
+import { createInvoice, moyasarConfigured } from '../services/moyasar';
 
 const router = Router();
 
@@ -210,6 +211,173 @@ router.post('/action', async (req: Request, res: Response) => {
   } catch (e) {
     console.error('[wa-account] action خطأ:', e);
     res.status(400).json({ success: false });
+  }
+});
+
+
+// ═════════════ توسعة: قراءة أوسع · إجراءات إضافية · تجديد بالدفع ═════════════
+
+/**
+ * ملخّص تشغيلي موسّع — يجيب أسئلة الدعم الأكثر تكراراً بلا كشف تفاصيل حسّاسة.
+ * أعداد ومجاميع فقط: لا أسماء عملاء ولا أرقامهم ولا بنود فواتير.
+ */
+router.get('/summary', async (req: Request, res: Response) => {
+  if (!enabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  const phone = normalizePhone(String(req.query.phone || ''));
+  if (phone.length < 9) { res.json({ success: true, data: null }); return; }
+  if (overLimit(phone)) { res.status(429).json({ success: false }); return; }
+  try {
+    const tid = await tenantByPhone(phone);
+    if (!tid) { res.json({ success: true, data: null }); return; }
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const [invCount, invSum, recSum, custCount, overCredit, lastInv] = await Promise.all([
+      prisma.invoice.count({ where: { tenantId: tid, createdAt: { gte: monthStart } } }),
+      prisma.invoice.aggregate({ where: { tenantId: tid, createdAt: { gte: monthStart } }, _sum: { total: true } }),
+      prisma.receipt.aggregate({ where: { tenantId: tid, createdAt: { gte: monthStart } }, _sum: { amount: true } }),
+      prisma.customer.count({ where: { tenantId: tid } }),
+      prisma.customer.count({ where: { tenantId: tid, creditLimit: { gt: 0 }, balance: { gt: 0 } } }),
+      prisma.invoice.findFirst({ where: { tenantId: tid }, orderBy: { createdAt: 'desc' }, select: { number: true, total: true, createdAt: true } }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        monthInvoices: invCount,
+        monthSalesSar: Number(invSum._sum.total ?? 0),
+        monthCollectedSar: Number(recSum._sum.amount ?? 0),
+        customers: custCount,
+        customersWithBalance: overCredit,
+        lastInvoice: lastInv
+          ? { number: lastInv.number, totalSar: Number(lastInv.total), date: lastInv.createdAt.toISOString().slice(0, 10) }
+          : null,
+      },
+    });
+  } catch (e) {
+    console.error('[wa-account] summary خطأ:', e);
+    res.status(500).json({ success: false });
+  }
+});
+
+/**
+ * رابط تجديد — يُنشأ **بمبلغ من قائمة بيضاء صلبة** لا من أي رقم يمرّره البوت.
+ * سابقة Air Canada تنطبق مضاعفةً على المال: لو تُرك المبلغ للنموذج لألزم الشركة
+ * بسعرٍ اخترعه. الخادم يحسب المبلغ من الباقة والمدّة، ويتجاهل أي مبلغ وارد.
+ */
+const PLAN_MONTHLY_SAR: Record<string, number> = { basic: 299, pro: 599 };
+
+router.post('/renewal-link', async (req: Request, res: Response) => {
+  if (!enabled() || !actionsEnabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  if (!moyasarConfigured()) { res.status(503).json({ success: false, message: 'بوابة الدفع غير مهيأة' }); return; }
+  try {
+    const body = z.object({
+      phone: z.string().min(9),
+      months: z.number().int().min(1).max(12),   // سقف سنة — يمنع مبلغاً ضخماً بالخطأ
+    }).parse(req.body);
+
+    const phone = normalizePhone(body.phone);
+    const tid = await tenantByPhone(phone);
+    if (!tid) { res.status(403).json({ success: false, message: 'رقم غير مربوط بشركة' }); return; }
+
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { name: true, plan: true } });
+    if (!t) { res.status(403).json({ success: false }); return; }
+
+    const monthly = PLAN_MONTHLY_SAR[t.plan];
+    if (!monthly) {
+      // enterprise أو باقة غير قياسية ⇒ لا نخمّن سعراً، يتولّاها المالك
+      res.status(409).json({ success: false, message: 'باقة غير قياسية — التجديد يتم عبر صاحب المنصّة' });
+      return;
+    }
+
+    const amountSar = monthly * body.months;
+    const description = `تجديد اشتراك ${t.name} — ${body.months} شهر (${t.plan})`;
+    const row = await prisma.paymentLink.create({
+      data: { tenantId: tid, description, amountHalalas: Math.round(amountSar * 100), months: body.months },
+    });
+    const FRONT = (process.env.FRONTEND_URL || 'https://fieldsa.net').replace(/\/$/, '');
+    const inv = await createInvoice({
+      amountHalalas: row.amountHalalas,
+      description,
+      successUrl: `${FRONT}/payment/success?ref=${row.id}`,
+      backUrl: `${FRONT}/payment/success?ref=${row.id}`,
+      metadata: { ref: row.id, tenantId: tid },
+    });
+    await prisma.paymentLink.update({
+      where: { id: row.id },
+      data: { moyasarInvoiceId: inv.id, url: inv.url },
+    });
+
+    const masked = phone.slice(0, 5) + '****' + phone.slice(-3);
+    console.log(`[wa-action] ${masked} ⇒ رابط تجديد ${amountSar} ريال / ${body.months} شهر لـ«${t.name}»`);
+    res.json({ success: true, data: { url: inv.url, amountSar, months: body.months, companyName: t.name, plan: t.plan } });
+  } catch (e) {
+    console.error('[wa-account] renewal خطأ:', e);
+    res.status(400).json({ success: false });
+  }
+});
+
+
+/**
+ * ماسح الأحداث الاستباقية — يُستدعى دورياً من البوت (لا يرسل شيئاً بنفسه).
+ *
+ * فصلُ الكشف عن الإرسال مقصود: الخادم يعرف البيانات، والبوت يملك قناة واتساب
+ * وقوالبها. وهكذا يبقى الخادم بلا أي تبعية لميتا، ويبقى قرار الإرسال (والقالب
+ * والحدّ) في مكان واحد.
+ *
+ * يعيد فقط شركات **لها هاتف مسجَّل** — فبلا قناة لا معنى للحدث.
+ */
+router.get('/events', async (req: Request, res: Response) => {
+  if (!enabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  try {
+    const now = new Date();
+    const in3d = new Date(now.getTime() + 3 * 864e5);
+    const events: Array<Record<string, unknown>> = [];
+
+    // ١) اشتراك ينتهي خلال ٣ أيام (أو انتهى ولم يُجدَّد)
+    const ending = await prisma.tenant.findMany({
+      where: { isActive: true, subscriptionEndsAt: { not: null, lte: in3d } },
+      select: { id: true, name: true, subscriptionEndsAt: true, settings: { select: { phone: true } } },
+    });
+    for (const t of ending) {
+      const ph = normalizePhone(t.settings?.phone);
+      if (ph.length < 9) continue;
+      events.push({
+        kind: 'subscription_ending',
+        tenantId: t.id, companyName: t.name, phone: ph,
+        endsAt: t.subscriptionEndsAt?.toISOString().slice(0, 10),
+      });
+    }
+
+    // ٢) مندوب نشط لم يزامن منذ ٣ أيام (آخر فاتورة أو موقع)
+    const staleSince = new Date(now.getTime() - 3 * 864e5);
+    const reps = await prisma.salesRep.findMany({
+      where: { isActive: true },
+      select: {
+        id: true, name: true, tenantId: true,
+        tenant: { select: { name: true, isActive: true, settings: { select: { phone: true } } } },
+      },
+    });
+    for (const r of reps) {
+      if (!r.tenant?.isActive) continue;
+      const ph = normalizePhone(r.tenant.settings?.phone);
+      if (ph.length < 9) continue;
+      const last = await prisma.invoice.findFirst({
+        where: { salesRepId: r.id }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+      });
+      // مندوب بلا أي فاتورة قط ليس «متوقّفاً» — قد يكون جديداً. نتجاهله.
+      if (!last || last.createdAt >= staleSince) continue;
+      const days = Math.floor((now.getTime() - last.createdAt.getTime()) / 864e5);
+      events.push({ kind: 'rep_not_syncing', tenantId: r.tenantId, companyName: r.tenant.name, phone: ph, repName: r.name, days });
+    }
+
+    res.json({ success: true, data: { events } });
+  } catch (e) {
+    console.error('[wa-account] events خطأ:', e);
+    res.status(500).json({ success: false });
   }
 });
 
