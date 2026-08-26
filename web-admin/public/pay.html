@@ -43,6 +43,22 @@
   .foot a{color:#8A8178;font-weight:700;text-decoration:none}
   .spin{width:34px;height:34px;border:3px solid #E9E1D3;border-top-color:#E15A30;border-radius:50%;margin:24px auto;animation:sp .9s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
+  /* إيصال السداد — ما يراه العميل بعد إتمام الدفع ويحفظه دليلاً */
+  .rcp{border:1px solid #E9E1D3;border-radius:16px;overflow:hidden;margin-bottom:14px}
+  .rcp-head{color:#fff;text-align:center;padding:14px 12px}
+  .rcp-head .ok{font-size:34px;line-height:1}
+  .rcp-head .tt{font-weight:800;font-size:16px;margin-top:6px}
+  .rcp-body{background:#FBF8F2;padding:14px 16px}
+  .rcp-amt{text-align:center;border-bottom:1px dashed #E9E1D3;padding-bottom:12px;margin-bottom:12px}
+  .rcp-amt .a{font-weight:800;font-size:26px}
+  .rcp-amt .l{font-size:11px;color:#8A8178;margin-top:2px}
+  .btn2{display:block;text-align:center;background:#1F1A13;color:#fff;border-radius:14px;padding:12px;font-weight:800;
+        font-size:14px;border:0;width:100%;cursor:pointer;margin-top:4px}
+  @media print{
+    body{background:#fff;padding:0}
+    .card{border:0;max-width:none}
+    .btn2,.foot{display:none}
+  }
 </style>
 </head>
 <body>
@@ -74,7 +90,24 @@
     h+='<div class="total"><span class="l" style="font-size:13px">المبلغ المستحق</span><span class="amount" style="color:'+esc(brand)+'">'+fmt(v.amount)+'</span></div></div>';
 
     if(v.status==='paid'){
-      h+=stateHtml('✅','تم السداد بنجاح','سجل سند القبض لدى الشركة ولا يلزمك شيء اخر');
+      var r=v.receipt||{};
+      var d=r.date?new Date(r.date):(v.paidAt?new Date(v.paidAt):null);
+      var dstr='';
+      if(d){try{dstr=d.toLocaleDateString('ar-SA',{year:'numeric',month:'long',day:'numeric'})+' '+d.toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});}catch(e){dstr=d.toISOString().slice(0,16).replace('T',' ');}}
+      h='<div class="brand">'+(v.company&&v.company.logo?'<img class="logo" alt="" src="'+esc(v.company.logo)+'">':'<span class="logo-ph" style="background:'+esc(brand)+'">🏢</span>')+'<p class="cname">'+esc(v.company&&v.company.name)+'</p></div>';
+      h+='<div class="rcp"><div class="rcp-head" style="background:#1E7A52"><div class="ok">✓</div><div class="tt">تم الدفع بنجاح</div></div>';
+      h+='<div class="rcp-body">';
+      h+='<div class="rcp-amt"><div class="a" style="color:#1E7A52">'+fmt(r.amount!=null?r.amount:v.amount)+'</div><div class="l">المبلغ المدفوع</div></div>';
+      if(r.number)h+='<div class="row"><span class="l">رقم الايصال</span><span class="v">'+esc(r.number)+'</span></div>';
+      if(dstr)h+='<div class="row"><span class="l">التاريخ</span><span class="v">'+esc(dstr)+'</span></div>';
+      h+='<div class="row"><span class="l">رقم الفاتورة</span><span class="v">'+esc(v.invoiceNumber)+'</span></div>';
+      h+='<div class="row"><span class="l">العميل</span><span class="v">'+esc(v.customerName)+'</span></div>';
+      h+='<div class="row" style="margin-bottom:0"><span class="l">طريقة الدفع</span><span class="v">دفع الكتروني — ميسر</span></div>';
+      h+='</div></div>';
+      h+='<button class="btn2" onclick="window.print()">🖨&nbsp; حفظ الايصال</button>';
+      h+='<p class="note">هذا الايصال مسجل لدى الشركة برقم السند اعلاه ولا يلزمك شيء اخر</p>'+foot();
+      app.innerHTML=h;
+      return;
     }else if(v.status==='settled'){
       h+=stateHtml('✅','الفاتورة سددت لدى الشركة','لا حاجة للدفع عبر هذا الرابط');
     }else if(v.status==='expired'||v.status==='canceled'){
@@ -108,7 +141,10 @@
         .then(function(r){return r.json();})
         .then(function(j){
           var st=j&&j.data&&j.data.state;
-          if(st==='initiated'&&tries++<3){setTimeout(confirmThenLoad,2500);return;}
+          if(st==='initiated'&&tries++<3){
+            app.innerHTML='<div class="spin"></div><p class="state s" style="text-align:center;color:#8A8178;font-size:13px">جار تاكيد عملية الدفع</p>';
+            setTimeout(confirmThenLoad,2500);return;
+          }
           load();
         })
         .catch(load);

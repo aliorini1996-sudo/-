@@ -347,6 +347,17 @@ export async function publicLinkView(token: string) {
   const remaining = roundHalfUp(Number(link.invoice.remainingAmt), 2);
   const settled = link.status === 'initiated' && remaining < link.amount - 0.0005;
 
+  // إيصال السداد: سند القبض الذي أنشأه الدفع يُعرض للعميل دليلاً موثقاً —
+  // الرمز غير القابل للتخمين هو إذن الاطلاع، ولا يُكشف إلا ما يخص هذه العملية
+  let receipt: { number: string; amount: number; date: Date } | null = null;
+  if (link.status === 'paid' && link.receiptId) {
+    const r = await prisma.receipt.findUnique({
+      where: { id: link.receiptId },
+      select: { number: true, amount: true, receiptDate: true },
+    });
+    if (r) receipt = { number: r.number, amount: roundHalfUp(Number(r.amount), 2), date: r.receiptDate };
+  }
+
   return {
     company: { name: company?.name || link.tenant.name, logo: company?.logo ?? null, primaryColor: company?.primaryColor ?? null },
     customerName: link.customer.name,
@@ -354,5 +365,7 @@ export async function publicLinkView(token: string) {
     amount: link.amount,
     status: expired ? 'expired' : settled ? 'settled' : link.status,
     payUrl: link.status === 'initiated' && !expired && !settled ? link.url : null,
+    paidAt: link.paidAt,
+    receipt,
   };
 }

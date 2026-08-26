@@ -22,6 +22,8 @@ interface PayView {
   amount: number;
   status: string; // initiated | paid | canceled | expired | settled
   payUrl: string | null;
+  paidAt?: string | null;
+  receipt?: { number: string; amount: number; date: string } | null;
 }
 
 const API = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
@@ -100,8 +102,11 @@ export default function PayPage() {
       {view.status === 'paid' ? (
         <div style={{ textAlign: 'center' }}>
           <CheckCircle2 size={44} color="#1E7A52" style={{ margin: '0 auto 8px' }} />
-          <p style={{ fontWeight: 800, color: '#1E7A52' }}>تم السداد بنجاح</p>
-          <p style={{ fontSize: 12.5, color: '#8A8178', marginTop: 6 }}>سجل سند القبض لدى الشركة ولا يلزمك شيء اخر</p>
+          <p style={{ fontWeight: 800, color: '#1E7A52' }}>تم الدفع بنجاح</p>
+          {view.receipt?.number && (
+            <p style={{ fontSize: 13, marginTop: 8 }}>رقم الايصال <b>{view.receipt.number}</b></p>
+          )}
+          <p style={{ fontSize: 12.5, color: '#8A8178', marginTop: 6 }}>الايصال مسجل لدى الشركة ولا يلزمك شيء اخر</p>
         </div>
       ) : view.status === 'settled' ? (
         <div style={{ textAlign: 'center' }}>
