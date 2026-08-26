@@ -136,6 +136,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'nav.erp': { ar: 'تكامل ERP', en: 'ERP integration', fr: 'Intégration ERP', tr: 'ERP entegrasyonu' },
   'nav.petroapp': { ar: 'بترو اب', en: 'PetroApp', fr: 'PetroApp', tr: 'PetroApp' },
   'nav.hatif': { ar: 'ارقام العمل', en: 'Work numbers', fr: 'Numéros pro', tr: 'İş numaraları' },
+  'nav.paylink': { ar: 'المدفوعات الالكترونية', en: 'E-payments', fr: 'Paiements en ligne', tr: 'E-ödemeler' },
   'nav.company': { ar: 'إعدادات الشركة', en: 'Company settings', fr: 'Paramètres de l entreprise', tr: 'Şirket ayarları' },
   'nav.notifications': { ar: 'الإشعارات', en: 'Notifications', fr: 'Notifications', tr: 'Bildirimler' },
   'nav.logout': { ar: 'تسجيل الخروج', en: 'Sign out', fr: 'Déconnexion', tr: 'Çıkış yap' },

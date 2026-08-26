@@ -2,7 +2,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { PhoneCall, Fuel,
   LayoutDashboard, Users, Package, UserCheck, FileText,
   Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap,
-} from 'lucide-react';
+  CreditCard } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -30,6 +30,7 @@ const navItems = [
   { to: '/app/erp', icon: DatabaseZap, label: 'nav.erp', permission: 'canManageCompanySettings' },
   { to: '/app/petroapp', icon: Fuel, label: 'nav.petroapp', permission: 'canManageCompanySettings' },
   { to: '/app/hatif', icon: PhoneCall, label: 'nav.hatif', permission: 'canManageCompanySettings' },
+  { to: '/app/paylink', icon: CreditCard, label: 'nav.paylink', permission: 'canManageReceipts' },
   { to: '/app/company', icon: Building2, label: 'nav.company', permission: 'canManageCompanySettings' },
 ];
 
@@ -41,7 +42,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; warehouseEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => { setActiveCurrency(companyCfg?.currency); }, [companyCfg]);
@@ -92,7 +93,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true)).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true)).map(item => (
             <NavLink
               key={item.to}
               to={item.to}

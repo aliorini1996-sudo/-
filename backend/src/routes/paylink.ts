@@ -1,10 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireSuperAdmin, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireSuperAdmin, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
-import { issueLink, publicLinkView, confirmLinkPayment, paylinkConfigured } from '../services/paylink';
+import { issueLink, publicLinkView, confirmLinkPayment, paylinkConfigured, expireStaleLinks } from '../services/paylink';
+import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { roundHalfUp } from '../lib/money';
 import { settlementBalance, recordPayout } from '../services/settlement';
 
 /**
@@ -126,6 +128,94 @@ router.get('/for-invoice/:invoiceId', async (req: AuthRequest, res: Response, ne
       select: { id: true, token: true, amount: true, status: true, paidAt: true, expiresAt: true, createdAt: true },
     });
     res.json({ success: true, data: links });
+  } catch (err) { next(err); }
+});
+
+// ═══ صفحة الإدارة «المدفوعات الالكترونية» — أدمن الشركة ═══
+
+/**
+ * قائمة روابط الشركة بأسماء العميل والفاتورة والمندوب.
+ * نطاق المستخدم المقيد يسري (نفس شكل الفواتير/السندات): يرى روابط عملائه فقط.
+ */
+router.get('/links', requireAdmin, requireAdminPermission('canManageReceipts'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
+    const status = req.query.status as string | undefined;
+    const where = {
+      tenantId: tid,
+      ...(status ? { status } : {}),
+      ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.customerPaymentLink.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, token: true, amount: true, status: true, paidAt: true, expiresAt: true, createdAt: true,
+          customer: { select: { name: true } },
+          invoice: { select: { number: true } },
+          salesRep: { select: { name: true } },
+          receiptId: true,
+        },
+      }),
+      prisma.customerPaymentLink.count({ where }),
+    ]);
+    res.json({ success: true, data: rows, meta: { page, limit, total } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * ملخص الشركة المالي من دفتر الأمانات: المحصل إلكترونيا وعمولة المنصة
+ * وصافي مستحقهم وما ورد إليهم — شفافية كاملة تبني ثقة الاشتراك.
+ */
+router.get('/summary', requireAdmin, requireAdminPermission('canManageReceipts'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const groups = await prisma.settlementEntry.groupBy({
+      by: ['kind'],
+      where: { tenantId: tid },
+      _sum: { amount: true },
+      _count: true,
+    });
+    const sumOf = (k: string) => roundHalfUp(Number(groups.find(g => g.kind === k)?._sum.amount ?? 0), 2);
+    const collected = sumOf('COLLECTED');
+    const fees = Math.abs(sumOf('FEE'));
+    const payouts = Math.abs(sumOf('PAYOUT'));
+    const refunds = Math.abs(sumOf('REFUND'));
+    const paymentsCount = groups.find(g => g.kind === 'COLLECTED')?._count ?? 0;
+    const lastPayout = await prisma.payout.findFirst({
+      where: { tenantId: tid }, orderBy: { createdAt: 'desc' },
+      select: { amount: true, bankReference: true, createdAt: true },
+    });
+    res.json({
+      success: true,
+      data: {
+        collected, fees, refunds, payouts, paymentsCount,
+        // ما يستحقونه الآن = المحصل − العمولة − المسترد − ما ورد إليهم فعلا
+        balance: roundHalfUp(collected - fees - refunds - payouts, 2),
+        lastPayout,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+/** إلغاء رابط لم يدفع — يعلم canceled ويلغي فاتورة ميسر نفسها */
+router.post('/links/:id/cancel', requireAdmin, requireAdminPermission('canManageReceipts'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const link = await prisma.customerPaymentLink.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+      select: { id: true, invoiceId: true, status: true },
+    });
+    if (!link) { res.status(404).json({ success: false, message: 'الرابط غير موجود' }); return; }
+    if (link.status !== 'initiated') { res.status(400).json({ success: false, message: 'الرابط ليس قيد الانتظار' }); return; }
+    // إماتة كل روابط الفاتورة الحية (تشمل هذا) + إلغاء فواتير ميسر
+    await expireStaleLinks(tid, link.invoiceId);
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 
