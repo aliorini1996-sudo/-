@@ -67,12 +67,16 @@ const PRINT_CSS = `
   }
   #profile-doc > section:first-of-type { break-before: auto; }
 
-  /* ═══ الأقسام النصّية: حشوة داخلية والخلفية ممتدّة لحافة الورقة ═══ */
+  /* ═══ الأقسام النصّية ═══
+     الحشوة على القسم نفسه لا على حاويته الداخلية: بعض الأقسام (العملاء) بلا
+     حاوية أصلاً — عنوانها ابن مباشر للقسم — فكانت تلتصق بحافة الورقة وتُقرأ
+     كأنها مقطوعة. الخلفية لا تتأثر بالحشوة فتبقى ممتدّة للحافة. */
+  #profile-doc > section:not([data-split]), #profile-doc > footer { padding: 0 20mm !important; }
   #profile-doc > section:not([data-split]) > div, #profile-doc > footer > div {
     width: 100% !important;
-    max-width: 186mm !important;
-    margin-inline: auto !important;
-    padding: 0 18mm !important;
+    max-width: none !important;
+    margin-inline: 0 !important;
+    padding: 0 !important;
   }
 
   /* ═══ أقسام الصورة: نصف صورة سائلة للحافة ونصف نصّ ═══ */
@@ -100,7 +104,7 @@ const PRINT_CSS = `
   }
 
   /* صورة العملاء لافتة عريضة لا عمود */
-  #profile-doc [data-sec="clients"] img[data-profile-photo] { height: 46vh !important; max-height: none !important; }
+  #profile-doc [data-sec="clients"] img[data-profile-photo] { height: 40vh !important; max-height: none !important; }
   /* خلفيات الأقسام الداكنة تغطّي الورقة كاملة */
   #profile-doc img[data-backdrop] { height: 100% !important; max-height: none !important; }
 
@@ -110,26 +114,32 @@ const PRINT_CSS = `
 
   /* ═══ مقاسات الورق: تملأ الصفحة ولا تفيض ═══ */
   #profile-doc h1 { font-size: 34pt !important; line-height: 1.18 !important; }
-  #profile-doc h2 { font-size: 23pt !important; line-height: 1.3 !important; }
-  #profile-doc [data-sec="contact"] h2 { font-size: 30pt !important; }
+  #profile-doc h2 { font-size: 26pt !important; line-height: 1.3 !important; }
+  #profile-doc [data-sec="contact"] h2 { font-size: 40pt !important; line-height: 1.25 !important; }
   #profile-doc [data-sec="numbers"] .grid p:first-child { font-size: 28pt !important; }
 
   /* ═══ الأقسام قليلة المحتوى: نملأ الورقة بالتنفّس لا بالفراغ ═══
      صفحة نصفها فارغ تقرأ كخطأ طباعة لا كتصميم — فنكبّر ونباعد بقدر ما تحتمل. */
-  #profile-doc [data-sec="contact"] > div { padding: 0 24mm !important; }
+  #profile-doc [data-sec="contact"] { padding: 0 26mm !important; }
+  #profile-doc [data-sec="contact"] > div {
+    height: 100vh !important;
+    display: flex !important; flex-direction: column; justify-content: center;
+  }
   #profile-doc [data-sec="contact"] > div > .grid {
-    margin-top: 26mm !important; gap: 16mm !important; max-width: none !important;
+    margin-top: 34mm !important; gap: 16mm !important; max-width: none !important;
   }
   #profile-doc [data-sec="contact"] .border-t-2 { padding-top: 9mm !important; }
   #profile-doc [data-sec="contact"] .grid p:first-child { font-size: 11pt !important; margin-bottom: 3mm !important; }
   #profile-doc [data-sec="contact"] .grid p:last-child { font-size: 15pt !important; }
 
   /* بطاقات الأرقام والقوائم تتمدّد عمودياً فتملأ نصيبها من الصفحة */
-  #profile-doc [data-sec="numbers"] .grid > div { padding: 13mm 4mm !important; }
+  #profile-doc [data-sec="numbers"] .grid > div { padding: 22mm 6mm !important; }
   #profile-doc [data-sec="solution"] .rounded-2xl,
   #profile-doc [data-sec="achievements"] .rounded-2xl,
-  #profile-doc [data-sec="goals"] .rounded-2xl { padding: 9mm !important; }
-  #profile-doc [data-sec="clients"] .grid > div { padding: 9mm !important; }
+  #profile-doc [data-sec="goals"] .rounded-2xl { padding: 13mm !important; }
+  #profile-doc [data-sec="clients"] .grid > div { padding: 11mm !important; }
+  /* مسافة العنوان عن جسمه تتّسع على الورق فتتنفّس الصفحة */
+  #profile-doc > section:not([data-split]) h2 { margin-bottom: 10mm !important; }
 }
 `;
 
