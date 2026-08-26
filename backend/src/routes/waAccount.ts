@@ -503,4 +503,91 @@ router.get('/payment-status', async (req: Request, res: Response) => {
   }
 });
 
+
+/**
+ * فتح حساب تجريبي بالنيابة عن العميل — الموجة الخامسة.
+ *
+ * لماذا هو آمن رغم أنه «إنشاء مستأجر آلياً» الذي تحفّظنا عليه سابقاً: الفارق أن
+ * هذا **حساب تجريبي مجاني** لا اشتراك مدفوع — لا مال ولا التزام، وأسوأ ما يقع
+ * حساب فارغ يُهمَل. أما الاشتراك المدفوع فيبقى بيد المالك كما هو.
+ *
+ * الحوكمة:
+ *  • رقم الجوال **من الويب هوك الموثّق من ميتا** لا من نصّ كتبه العميل ⇒ لا
+ *    ينتحل أحد رقم غيره، والحساب يُربط بالرقم نفسه فيخدمه البوت فوراً.
+ *  • رقم مربوط بشركة أصلاً ⇒ 409، فلا ازدواج ولا فتح ثانٍ لمن عنده حساب.
+ *  • بريد مستعمل ⇒ 409 بدل انفجار قيد فريد.
+ *  • كلمة المرور تُولَّد هنا بـcrypto لا يقترحها النموذج، وتُعاد مرّة واحدة.
+ *  • سقف المعدّل نفسه يمنع إنشاء حسابات بالجملة.
+ */
+router.post('/signup-trial', async (req: Request, res: Response) => {
+  if (!enabled() || !actionsEnabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  try {
+    const body = z.object({
+      phone: z.string().min(9),
+      companyName: z.string().min(2).max(80),
+      adminName: z.string().min(2).max(60),
+      email: z.string().email(),
+      countryCode: z.string().length(2).optional(),
+    }).parse(req.body);
+
+    const phone = normalizePhone(body.phone);
+    if (overLimit(phone)) { res.status(429).json({ success: false }); return; }
+    if (await tenantByPhone(phone)) {
+      res.status(409).json({ success: false, message: 'هذا الرقم مربوط بشركة قائمة' });
+      return;
+    }
+    const emailTaken = await prisma.admin.findFirst({ where: { email: body.email }, select: { id: true } });
+    if (emailTaken) { res.status(409).json({ success: false, message: 'البريد مستعمل مسبقاً' }); return; }
+
+    // كلمة مرور قوية وسهلة النطق في واتساب (بلا أحرف ملتبسة)، ٨ خانات = حدّ السياسة
+    const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ', num = '23456789';
+    const pick = (set: string, n: number) => Array.from({ length: n }, () => set[crypto.randomInt(set.length)]).join('');
+    const password = pick(abc, 4) + pick(num, 4);
+
+    // نستدعي مسار التسجيل الذاتي نفسه — مصدر واحد للحقيقة: أي تغيير في قواعد
+    // التسجيل (مدّة التجربة، الحدود، العملة، الترحيب) يسري هنا تلقائياً.
+    const base = (process.env.SELF_BASE_URL || `http://127.0.0.1:${process.env.PORT || 5000}`).replace(/\/$/, '');
+    const r = await fetch(`${base}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyName: body.companyName,
+        adminName: body.adminName,
+        email: body.email,
+        password,
+        phone: '+' + phone,
+        countryCode: body.countryCode || 'SA',
+        vertical: 'distribution',
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+    const j = (await r.json()) as { success?: boolean; message?: string; data?: { user?: { tenantId?: string } } };
+    if (!r.ok || !j.success) {
+      res.status(400).json({ success: false, message: j.message || 'تعذّر إنشاء الحساب' });
+      return;
+    }
+
+    const masked = phone.slice(0, 5) + '****' + phone.slice(-3);
+    console.log(`[wa-signup] ${masked} ⇒ حساب تجريبي «${body.companyName}»`);
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: String(j.data?.user?.tenantId || '') },
+      select: { subscriptionEndsAt: true },
+    });
+    res.json({
+      success: true,
+      data: {
+        companyName: body.companyName,
+        username: body.email,          // الدخول بالبريد
+        password,                       // تُعرض مرّة واحدة ولا تُخزَّن عندنا
+        loginUrl: `${(process.env.FRONTEND_URL || 'https://fieldsa.net').replace(/\/$/, '')}/login`,
+        trialEndsAt: tenant?.subscriptionEndsAt?.toISOString().slice(0, 10) ?? null,
+      },
+    });
+  } catch (e) {
+    console.error('[wa-account] signup-trial خطأ:', e);
+    res.status(400).json({ success: false });
+  }
+});
+
 export default router;
