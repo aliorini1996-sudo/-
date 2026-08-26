@@ -27,4 +27,14 @@ jobs:
               m = requests.get(f'https://api.x.com/2/users/{uid}/mentions',
                                params={'max_results': 5}, auth=auth, timeout=30)
               print('mentions ->', m.status_code, m.text[:300])
+              # هل الردّ ممكن؟ ننشئ ردّاً ثم نحذفه فوراً — لا نترك أثراً على الحساب
+              if m.ok and m.json().get('data'):
+                  tid = m.json()['data'][0]['id']
+                  r = requests.post('https://api.x.com/2/tweets', auth=auth, timeout=30,
+                                    json={'text': 'probe', 'reply': {'in_reply_to_tweet_id': tid}})
+                  print('reply ->', r.status_code, r.text[:200])
+                  if r.ok:
+                      rid = r.json()['data']['id']
+                      d = requests.delete(f'https://api.x.com/2/tweets/{rid}', auth=auth, timeout=30)
+                      print('cleanup ->', d.status_code)
           PY
