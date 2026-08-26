@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import prisma from './config/database';
 import { startOpsScheduler } from './services/opsSchedule';
 import { startPetroappScheduler } from './services/petroapp';
+import { startPaylinkScheduler } from './services/paylink';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -227,6 +228,7 @@ server.listen(PORT, async () => {
   await seedDefaults();
   startOpsScheduler();
   startPetroappScheduler();
+  startPaylinkScheduler();
 });
 
 export default app;

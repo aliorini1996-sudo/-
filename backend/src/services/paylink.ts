@@ -279,6 +279,50 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
   return { ok: true, state: 'paid', receiptId: receipt.id };
 }
 
+// ═══ مجدول التسوية — الحقيقة تُجلب دورياً لا تُنتظر ═══
+
+const RECONCILE_INTERVAL_MS = 2 * 60_000; // كل دقيقتين
+const RECONCILE_BATCH = 40;
+
+/**
+ * تسوية الروابط المعلقة: يمر على «بانتظار الدفع» فيؤكد المدفوع وينهي المنتهي.
+ *
+ * لماذا لا يكفي الويب هوك: إشعار ميسر قناة قد تتأخر أو لا تصل (تسجيلها في
+ * لوحتهم خطوة يدوية، والشبكات تخذل)، وصفحة النجاح تفترض أن الدافع عاد إليها —
+ * ومن دفع من متصفح واتساب ثم أغلقه لا يعود. المال لا يعلق على افتراضين:
+ * المجدول يسأل ميسر بنفسه فيتأكد السداد خلال دقيقتين في أسوأ الأحوال،
+ * والويب هوك حين يعمل يجعله فورياً.
+ */
+export async function reconcilePendingLinks(): Promise<void> {
+  const now = new Date();
+  const pending = await prisma.customerPaymentLink.findMany({
+    where: { status: 'initiated', moyasarInvoiceId: { not: null } },
+    orderBy: { createdAt: 'desc' },
+    take: RECONCILE_BATCH,
+    select: { id: true, moyasarInvoiceId: true, expiresAt: true },
+  });
+  for (const link of pending) {
+    try {
+      if (link.expiresAt < now) {
+        // انتهت مهلتنا (١٤ يوماً): نعلم منتهياً ونلغي فاتورة ميسر كي لا تدفع يتيمة
+        await prisma.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'expired' } });
+        if (link.moyasarInvoiceId) cancelInvoice(link.moyasarInvoiceId).catch(() => { /* best-effort */ });
+        continue;
+      }
+      await confirmLinkPayment(link.id); // يجلب الحقيقة من ميسر ويتصرف بها
+    } catch (e) {
+      // رابط واحد معطوب لا يوقف تسوية البقية
+      console.error(`paylink reconcile ${link.id}:`, (e as Error).message);
+    }
+  }
+}
+
+export function startPaylinkScheduler(): void {
+  if (!paylinkConfigured()) return;
+  setInterval(() => { void reconcilePendingLinks(); }, RECONCILE_INTERVAL_MS);
+  console.log('💳 Paylink scheduler started (reconcile pending links every 2min)');
+}
+
 /** بيانات صفحة الدفع العامة /pay/:token — يُعاد فقط ما يصلح للعلن */
 export async function publicLinkView(token: string) {
   const link = await prisma.customerPaymentLink.findUnique({

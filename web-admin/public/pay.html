@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>سداد فاتورة</title>
+<link rel="preconnect" href="https://api.fieldsa.net">
+<link rel="preconnect" href="https://checkout.moyasar.com">
+<!--
+  صفحة الدفع الخفيفة — تُخدم لمسارات /pay/* بقاعدة إعادة كتابة تسبق قاعدة SPA.
+
+  لماذا ليست صفحة React: عميل الشركة يفتح الرابط من متصفح واتساب على بيانات
+  جوال، وصفحة داخل التطبيق كانت تحمّل ~٢ ميغابايت قبل أول بكسل — ثوان طويلة
+  قرأها الناس «الرابط لا يعمل». هذه الصفحة كاملة بضعة كيلوبايتات بلا أي اعتماد،
+  فتظهر فوراً. صفحة /pay في React باقية احتياطاً لو غابت قاعدة إعادة الكتابة.
+
+  الأمان كما هو: الرمز العشوائي هو الإذن، والحقيقة كلها من الخادم، وبطاقة
+  العميل لا تمس هذه الصفحة إطلاقاً (الدفع على صفحة ميسر المستضافة).
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{min-height:100vh;background:#FAF7F0;color:#1F1A13;display:flex;align-items:center;justify-content:center;padding:18px;
+       font-family:-apple-system,"Segoe UI","IBM Plex Sans Arabic",Tahoma,sans-serif}
+  .card{width:100%;max-width:400px;background:#fff;border:1px solid #E9E1D3;border-radius:22px;padding:26px 22px}
+  .brand{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:18px}
+  .logo{width:64px;height:64px;border-radius:16px;object-fit:cover;border:1px solid #E9E1D3;background:#F6F1E7}
+  .logo-ph{width:64px;height:64px;border-radius:16px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px}
+  .cname{font-weight:800;font-size:17px}
+  .box{background:#FBF8F2;border:1px solid #E9E1D3;border-radius:16px;padding:16px;margin-bottom:18px}
+  .row{display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px}
+  .row .l{color:#8A8178}.row .v{font-weight:700;font-size:13.5px}
+  .total{border-top:1px dashed #E9E1D3;margin-top:10px;padding-top:10px;display:flex;justify-content:space-between;align-items:baseline}
+  .amount{font-weight:800;font-size:22px}
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;border-radius:14px;padding:14px 20px;
+       font-weight:800;font-size:15px;text-decoration:none;border:0;width:100%;cursor:pointer}
+  .note{font-size:11px;color:#B7AD9D;text-align:center;margin-top:12px;line-height:1.8}
+  .state{text-align:center;padding:6px 0}
+  .state .big{font-size:44px;margin-bottom:8px}
+  .state .t{font-weight:800}
+  .state .s{font-size:12.5px;color:#8A8178;margin-top:6px;line-height:1.7}
+  .foot{text-align:center;font-size:10.5px;color:#B7AD9D;margin-top:26px}
+  .foot a{color:#8A8178;font-weight:700;text-decoration:none}
+  .spin{width:34px;height:34px;border:3px solid #E9E1D3;border-top-color:#E15A30;border-radius:50%;margin:24px auto;animation:sp .9s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="card" id="app"><div class="spin"></div></div>
+<script>
+(function(){
+  'use strict';
+  var API='https://api.fieldsa.net/api/paylink';
+  var token=(location.pathname.split('/pay/')[1]||'').split('/')[0].split('?')[0];
+  var app=document.getElementById('app');
+  var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  var fmt=function(n){try{return Number(n).toLocaleString('ar-SA',{minimumFractionDigits:2,maximumFractionDigits:2})+' ر.س';}catch(e){return n+' ر.س';}};
+
+  function stateHtml(icon,title,sub){
+    return '<div class="state"><div class="big">'+icon+'</div><p class="t">'+title+'</p><p class="s">'+sub+'</p></div>'+foot();
+  }
+  function foot(){return '<p class="foot">مدعوم من <a href="/">FieldSales</a></p>';}
+
+  function render(v){
+    var brand=(v.company&&v.company.primaryColor)||'#E15A30';
+    var h='<div class="brand">';
+    h+= v.company&&v.company.logo
+      ? '<img class="logo" alt="" src="'+esc(v.company.logo)+'">'
+      : '<span class="logo-ph" style="background:'+esc(brand)+'">🏢</span>';
+    h+='<p class="cname">'+esc(v.company&&v.company.name)+'</p></div>';
+    h+='<div class="box">';
+    h+='<div class="row"><span class="l">العميل</span><span class="v">'+esc(v.customerName)+'</span></div>';
+    h+='<div class="row"><span class="l">رقم الفاتورة</span><span class="v">'+esc(v.invoiceNumber)+'</span></div>';
+    h+='<div class="total"><span class="l" style="font-size:13px">المبلغ المستحق</span><span class="amount" style="color:'+esc(brand)+'">'+fmt(v.amount)+'</span></div></div>';
+
+    if(v.status==='paid'){
+      h+=stateHtml('✅','تم السداد بنجاح','سجل سند القبض لدى الشركة ولا يلزمك شيء اخر');
+    }else if(v.status==='settled'){
+      h+=stateHtml('✅','الفاتورة سددت لدى الشركة','لا حاجة للدفع عبر هذا الرابط');
+    }else if(v.status==='expired'||v.status==='canceled'){
+      h+=stateHtml('⌛','انتهت صلاحية الرابط','اطلب من مندوبك رابط دفع جديدا');
+    }else if(v.payUrl){
+      h+='<a class="btn" style="background:'+esc(brand)+'" href="'+esc(v.payUrl)+'">💳&nbsp; ادفع الان بامان</a>';
+      h+='<p class="note">الدفع عبر بوابة ميسر المرخصة من البنك المركزي السعودي<br>بياناتك البنكية لا تمر بخوادمنا</p>'+foot();
+    }else{
+      h+=stateHtml('⏳','الرابط قيد التجهيز','اعد فتح الرابط بعد لحظات');
+    }
+    app.innerHTML=h;
+  }
+
+  function fail(){app.innerHTML=stateHtml('❌','الرابط غير صحيح او لم يعد متاحا','تواصل مع مندوبك للحصول على رابط جديد');}
+
+  function load(){
+    fetch(API+'/public/'+encodeURIComponent(token))
+      .then(function(r){if(!r.ok)throw 0;return r.json();})
+      .then(function(j){render(j.data);})
+      .catch(fail);
+  }
+
+  if(!token){fail();return;}
+
+  // عائد من ميسر (?done=1): نطلب التأكيد أولاً — الخادم يجلب الحقيقة من ميسر
+  // نفسه (صفحة النجاح ليست دليلاً) — ثم نعرض؛ ولو تأخر التأكيد نعيد المحاولة.
+  if(location.search.indexOf('done=1')>-1){
+    var tries=0;
+    var confirmThenLoad=function(){
+      fetch(API+'/public/'+encodeURIComponent(token)+'/refresh',{method:'POST'})
+        .then(function(r){return r.json();})
+        .then(function(j){
+          var st=j&&j.data&&j.data.state;
+          if(st==='initiated'&&tries++<3){setTimeout(confirmThenLoad,2500);return;}
+          load();
+        })
+        .catch(load);
+    };
+    confirmThenLoad();
+  }else{
+    load();
+  }
+})();
+</script>
+</body>
+</html>
