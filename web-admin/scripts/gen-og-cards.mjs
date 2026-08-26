@@ -12,7 +12,7 @@ const OUT = path.resolve(__dirname, '../public/og');
 const LANGS = ['ar', 'en', 'fr'];
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const font = (L) => (L === 'ar' ? 'Tahoma, sans-serif' : 'Arial, sans-serif');
+const font = (L) => (L === 'ar' ? "Dubai, 'Segoe UI', Tahoma, sans-serif" : "'Segoe UI', Arial, sans-serif");
 
 // تقسيم النص إلى أسطر بحدّ أقصى للأحرف
 function wrap(text, maxChars) {
@@ -28,7 +28,10 @@ function wrap(text, maxChars) {
   return lines;
 }
 
-const tag = (L) => (L === 'ar' ? 'دليل عملي · fieldsa.net' : L === 'fr' ? 'Guide pratique · fieldsa.net' : 'Practical guide · fieldsa.net');
+// الشعار التسويقي المعتمد — يظهر في كل بطاقة مشاركة بلغتها.
+const tag = (L) => (L === 'ar' ? 'بخطوات جريئة نعيد تعريف الميدان · fieldsa.net'
+  : L === 'fr' ? 'Des pas audacieux pour redéfinir le terrain · fieldsa.net'
+  : 'Bold steps. Redefining the field. · fieldsa.net');
 
 export function buildSvg({ label, country, accent }, L) {
   const rtl = L === 'ar';
@@ -83,7 +86,7 @@ export function buildSvg({ label, country, accent }, L) {
     <circle cx='23' cy='61' r='7' fill='#FAF7F0'/><circle cx='42' cy='42' r='5.5' fill='#FAF7F0'/>
     <circle cx='61' cy='23' r='9' fill='#1F1A13'/><circle cx='61' cy='23' r='4.5' fill='#FAF7F0'/>
   </g>
-  <text x='182' y='120' font-family='Georgia, serif' font-weight='700' font-size='42'><tspan fill='#1F1A13'>Field</tspan><tspan fill='#E15A30'> Sales</tspan></text>
+  <text x='182' y='120' font-family='Cambria, Georgia, serif' font-weight='700' font-size='42'><tspan fill='#1F1A13'>Field</tspan><tspan fill='#E15A30' dx='13'>Sales</tspan></text>
 
   <!-- العنوان -->
   <text font-family="${font(L)}" font-weight='800' font-size='${fs2}' fill='#1F1A13' text-anchor='${anchor}'${dir}>${headlineTspans}</text>
