@@ -56,6 +56,36 @@ function overLimit(phone: string): boolean {
   return h.n > 60;
 }
 
+/**
+ * تشخيص محكوم — يجيب: كم شركة سجّلت هاتفاً، وكم منها تُطبَّع لأرقام صالحة.
+ * لا يكشف رقماً ولا اسم شركة إطلاقاً (أعداد فقط + آخر ٣ خانات مُقنَّعة)، ويخضع
+ * لنفس المفتاح والمفتاح الرئيسي. وُجد لأن `linked:false` لرقم مسجَّل قد يعني
+ * ثلاثة أشياء مختلفة (لم يُحفظ · صيغة لا تُطبَّع · شركة أخرى) والخلط بينها
+ * يجعل العطل غير قابل للتشخيص.
+ */
+router.get('/diag', async (req: Request, res: Response) => {
+  if (!enabled()) { res.status(404).json({ success: false }); return; }
+  if (!keyOk(req.get('x-account-key') || undefined)) { res.status(401).json({ success: false }); return; }
+  try {
+    const rows = await prisma.companySettings.findMany({
+      where: { phone: { not: null } },
+      select: { phone: true },
+    });
+    const norm = rows.map((r) => normalizePhone(r.phone)).filter((d) => d.length >= 9);
+    res.json({
+      success: true,
+      data: {
+        withPhone: rows.length,          // كم شركة سجّلت هاتفاً
+        normalizable: norm.length,       // كم منها يُطبَّع لرقم صالح
+        tails: norm.map((d) => '***' + d.slice(-3)), // آخر ٣ خانات فقط
+      },
+    });
+  } catch (e) {
+    console.error('[wa-account] diag خطأ:', e);
+    res.status(500).json({ success: false });
+  }
+});
+
 router.get('/lookup', async (req: Request, res: Response) => {
   // مطفأ = غير موجود (لا نكشف حتى وجود الميزة)
   if (!enabled()) { res.status(404).json({ success: false }); return; }
