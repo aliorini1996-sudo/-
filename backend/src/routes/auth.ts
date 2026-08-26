@@ -266,6 +266,30 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
       return { tenant, admin };
     });
 
+    // ترحيب فوري على واتساب — العميل سجّل بنفسه وأعطانا جواله، فالمراسلة مشروعة.
+    // لا يوقف التسجيل مهما حدث: فشل الترحيب لا يجوز أن يمنع عميلاً من الدخول.
+    void (async () => {
+      const url = (process.env.WA_BOT_URL || '').trim().replace(/\/$/, '');
+      const key = (process.env.WA_SWEEP_TOKEN || '').trim();
+      if (!url || !key) return;
+      try {
+        const r = await fetch(`${url}/outreach/welcome`, {
+          method: 'POST',
+          headers: { 'x-sweep-token': key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: body.phone,
+            adminName: body.adminName,
+            companyName: body.companyName,
+            trialEndsAt: trialEndsAt.toISOString().slice(0, 10),
+          }),
+          signal: AbortSignal.timeout(12000),
+        });
+        console.log(`[welcome] ${body.companyName} ⇒ ${r.status}`);
+      } catch (e) {
+        console.error('[welcome] تعذّر:', e);
+      }
+    })();
+
     // إشعار «عميل تجريبي جديد» إلى البريد الرئيسي للشركة
     const mailSent = await sendMail({
       to: process.env.MAIL_TO || 'info@fieldsa.net',
