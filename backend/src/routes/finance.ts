@@ -13,7 +13,7 @@ import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import {
   financeSnapshot, monthlyFinance, quarterFinance, revenueRows,
-  staleDaysOf, EXPENSE_STALE_DAYS, VAT_PCT, vatFromInclusive, round2,
+  staleDaysOf, EXPENSE_STALE_DAYS, VAT_PCT, vatFromInclusive, round2, settlementSummary,
 } from '../services/finance';
 import { backfillInvoices, invoicingReady, platformSeller } from '../services/platformInvoice';
 
@@ -55,6 +55,17 @@ router.get('/quarter/:year/:q', async (req: AuthRequest, res: Response, next: Ne
       return;
     }
     res.json({ success: true, data: await quarterFinance(year, q) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * أمانات الشركات — كم ندين لكل شركة من تحصيل الدفع الإلكتروني.
+ * يقرأ فقط؛ التوريد نفسه يُسجَّل من منفذ paylink القائم كي لا يوجد بابان
+ * يكتبان في دفتر واحد.
+ */
+router.get('/settlements', async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await settlementSummary() });
   } catch (err) { next(err); }
 });
 

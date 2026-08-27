@@ -310,6 +310,10 @@ export const financeApi = {
   snapshot: () => api.get('/finance/snapshot'),
   month: (year: number, month: number) => api.get(`/finance/month/${year}/${month}`),
   listRevenues: () => api.get('/finance/revenues'),
+  settlements: () => api.get('/finance/settlements'),
+  // التوريد يُكتب من منفذ paylink القائم — بابٌ واحد يكتب في دفتر الأمانات
+  recordPayout: (data: { tenantId: string; amount: number; bankReference?: string; note?: string }) =>
+    api.post('/paylink/owner/payouts', data),
   quarter: (year: number, q: number) => api.get(`/finance/quarter/${year}/${q}`),
   listInvoices: () => api.get('/finance/invoices'),
   backfillInvoices: () => api.post('/finance/invoices/backfill'),

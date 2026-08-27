@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { financeApi } from '../api/client';
 import {
   X, TrendingUp, TrendingDown, Wallet, Receipt, Plus, Trash2, PauseCircle,
-  Repeat, Calendar, PieChart, AlertTriangle, CheckCircle2, Building2, Link2, RefreshCw, FileText, Clock,
+  Repeat, Calendar, PieChart, AlertTriangle, CheckCircle2, Building2, Link2, RefreshCw, FileText, Clock, Landmark,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
@@ -13,6 +13,17 @@ interface MonthlyFinance {
   revenueSar: number; revenueNetSar: number; vatCollectedSar: number;
   gatewayFeeSar: number; expensesSar: number; vatPaidSar: number; vatDueSar: number;
   profitSar: number; marginPct: number; paidCount: number;
+  paylinkCollectedSar: number; paylinkFeeSar: number; paylinkFeeVatSar: number; paylinkCount: number;
+}
+interface SettlementRow {
+  tenantId: string; name: string; balanceSar: number; collectedSar: number;
+  feeSar: number; paidOutSar: number; payments: number; feePct: number; feeFlat: number;
+  lastPayoutAt: string | null; lastPayoutSar: number | null; lastCollectedAt: string | null;
+  negative: boolean;
+}
+interface SettlementSummary {
+  rows: SettlementRow[]; totalPayableSar: number; totalCollectedSar: number;
+  totalFeeSar: number; totalPaidOutSar: number; negativeCount: number; nextPayoutLabel: string;
 }
 interface Snapshot {
   vatPct: number; gatewayFeePct: number; mrrSar: number; arrSar: number;
@@ -116,6 +127,10 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
     queryKey: ['finance-invoices'],
     queryFn: async () => (await financeApi.listInvoices()).data.data as InvoiceList,
   });
+  const { data: settle } = useQuery({
+    queryKey: ['finance-settlements'],
+    queryFn: async () => (await financeApi.settlements()).data.data as SettlementSummary,
+  });
   const { data: expenses } = useQuery({
     queryKey: ['finance-expenses'],
     queryFn: async () => (await financeApi.listExpenses()).data.data as Expense[],
@@ -126,6 +141,7 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
     qc.invalidateQueries({ queryKey: ['finance-expenses'] });
     qc.invalidateQueries({ queryKey: ['finance-quarter'] });
     qc.invalidateQueries({ queryKey: ['finance-invoices'] });
+    qc.invalidateQueries({ queryKey: ['finance-settlements'] });
   };
 
   const add = useMutation({
@@ -148,6 +164,16 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
   const zeroVat = useMutation({
     mutationFn: (id: string) => financeApi.updateExpense(id, { vatSar: 0 }),
     onSuccess: () => { toast.success('صُفّرت ضريبة المدخلات على هذا المصروف'); invalidate(); },
+  });
+  const payout = useMutation({
+    mutationFn: (r: SettlementRow) => financeApi.recordPayout({
+      tenantId: r.tenantId,
+      amount: r.balanceSar,
+      note: `توريد أمانات — ${r.name}`,
+    }),
+    onSuccess: () => { toast.success('سُجّل التوريد وصُفّر الرصيد'); invalidate(); },
+    onError: (e: { response?: { data?: { message?: string } } }) =>
+      toast.error(e?.response?.data?.message || 'تعذّر تسجيل التوريد'),
   });
   const reviewed = useMutation({
     mutationFn: (id: string) => financeApi.markReviewed(id),
@@ -219,7 +245,14 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
               {/* الأرقام الحاكمة */}
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <Stat icon={Repeat} label="الإيراد الشهري المتكرّر (MRR)" value={sar(snap.mrrSar)} hint={snap.mrrBasis} />
-                <Stat icon={TrendingUp} label="محصّل هذا الشهر" value={sar(cur.revenueSar)} hint={`${cur.paidCount} عملية دفع`} />
+                <Stat
+                  icon={TrendingUp}
+                  label="إيراد هذا الشهر"
+                  value={sar(cur.revenueSar)}
+                  hint={cur.paylinkFeeSar > 0
+                    ? `${cur.paidCount} اشتراك + عمولة ${sar(cur.paylinkFeeSar)}`
+                    : `${cur.paidCount} عملية دفع`}
+                />
                 <Stat icon={TrendingDown} label="مصروفات الشهر" value={sar(cur.expensesSar)} hint={`متكرّر ${sar(snap.monthlyRecurringCostSar)}`} />
                 <Stat
                   icon={Receipt}
@@ -411,6 +444,100 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                       </div>
                     ))}
                   </div>
+                </section>
+              )}
+
+              {/* أمانات الشركات — مالٌ يمرّ بحسابنا ولا نملكه */}
+              {!!settle?.rows.length && (
+                <section className="rounded-xl border-2 border-[#C9A227] bg-[#FFFBF0] p-4">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <Landmark className="w-4 h-4 text-[#9A7B0A]" />
+                    <h3 className="text-sm font-bold text-[#1F1A13]">أمانات الشركات — المستحقّ للتوريد</h3>
+                    <span className="ms-auto text-[11px] font-semibold text-[#9A7B0A]">
+                      التوريد القادم: {settle.nextPayoutLabel}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#8A6412] mb-3">
+                    هذا المال <b>ليس لنا</b> — نحصّله لعملاء الشركات عبر حسابنا ثم نورّده لها كل خميس.
+                    لا يدخل في إيرادنا ولا في ربحنا؛ إيرادنا منه هو العمولة وحدها.
+                  </p>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+                    <div className="rounded-lg bg-white border border-[#E9DDB8] p-3">
+                      <div className="text-[11px] text-gray-500">المستحقّ للشركات الآن</div>
+                      <div className="text-lg font-bold tabular-nums text-[#9A7B0A]" dir="ltr">{sar(settle.totalPayableSar)}</div>
+                    </div>
+                    <div className="rounded-lg bg-white border border-[#E9DDB8] p-3">
+                      <div className="text-[11px] text-gray-500">إجمالي المحصّل لها</div>
+                      <div className="text-lg font-bold tabular-nums text-[#1F1A13]" dir="ltr">{sar(settle.totalCollectedSar)}</div>
+                    </div>
+                    <div className="rounded-lg bg-white border border-[#E9DDB8] p-3">
+                      <div className="text-[11px] text-gray-500">عمولتنا (إيرادنا)</div>
+                      <div className="text-lg font-bold tabular-nums text-emerald-700" dir="ltr">{sar(settle.totalFeeSar)}</div>
+                    </div>
+                    <div className="rounded-lg bg-white border border-[#E9DDB8] p-3">
+                      <div className="text-[11px] text-gray-500">وُرِّد لها سابقاً</div>
+                      <div className="text-lg font-bold tabular-nums text-gray-600" dir="ltr">{sar(settle.totalPaidOutSar)}</div>
+                    </div>
+                  </div>
+
+                  {settle.negativeCount > 0 && (
+                    <p className="text-[11px] text-red-700 font-semibold mb-2">
+                      ⚠️ {settle.negativeCount} شركة برصيد سالب — استرداد وقع بعد توريد، فهي مدينة لنا.
+                    </p>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs min-w-[560px]">
+                      <thead>
+                        <tr className="text-gray-500 text-[11px] border-b border-[#E9DDB8]">
+                          <th className="text-start font-semibold py-1.5">الشركة</th>
+                          <th className="text-start font-semibold">المستحقّ لها</th>
+                          <th className="text-start font-semibold">حُصّل</th>
+                          <th className="text-start font-semibold">عمولتنا</th>
+                          <th className="text-start font-semibold">آخر توريد</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {settle.rows.map((r) => (
+                          <tr key={r.tenantId} className="border-b border-[#F1E8D0] last:border-0">
+                            <td className="py-2">
+                              <span className="font-semibold text-[#1F1A13]">{r.name}</span>
+                              <span className="block text-[10px] text-gray-500">
+                                {r.feePct}% + {r.feeFlat} ر.س · {r.payments} دفعة
+                                {r.lastCollectedAt && ` · آخرها ${r.lastCollectedAt}`}
+                              </span>
+                            </td>
+                            <td className={`tabular-nums font-bold ${r.negative ? 'text-red-600' : 'text-[#9A7B0A]'}`} dir="ltr">
+                              {sar(r.balanceSar)}
+                            </td>
+                            <td className="tabular-nums text-gray-600" dir="ltr">{sar(r.collectedSar)}</td>
+                            <td className="tabular-nums text-emerald-700" dir="ltr">{sar(r.feeSar)}</td>
+                            <td className="text-gray-500 text-[11px]">
+                              {r.lastPayoutAt ? `${r.lastPayoutAt} · ${sar(r.lastPayoutSar || 0)}` : '—'}
+                            </td>
+                            <td className="text-end">
+                              {r.balanceSar > 0 && (
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`سجّل توريد ${sar(r.balanceSar)} لـ«${r.name}»؟\n\nالتحويل البنكي يقع خارج النظام — هذا توثيقٌ لما نفّذته.`)) payout.mutate(r);
+                                  }}
+                                  disabled={payout.isPending}
+                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-[#9A7B0A] text-white hover:bg-[#7E640A] disabled:opacity-40"
+                                >
+                                  سجّل التوريد
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-2">
+                    النظام يوثّق ولا يحوّل — نفّذ التحويل البنكي أوّلاً ثم سجّله هنا ليُخصم من الرصيد.
+                  </p>
                 </section>
               )}
 

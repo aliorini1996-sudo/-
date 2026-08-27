@@ -83,16 +83,32 @@ export interface MonthlyFinance {
   profitSar: number;           // صافي = صافي الإيراد − صافي المصروف − العمولة
   marginPct: number;           // هامش الربح
   paidCount: number;           // عدد المدفوعات
+
+  // ——— الدفع الإلكتروني (تحصيل نيابةً عن الشركات) ———
+  paylinkCollectedSar: number; // ما حُصّل لحساب الشركات — **ليس إيرادنا**
+  paylinkFeeSar: number;       // عمولتنا شاملة الضريبة — إيرادٌ لنا
+  paylinkFeeVatSar: number;    // ضريبة عمولتنا (مستخرَجة منها)
+  paylinkCount: number;        // عدد الدفعات المحصّلة
 }
 
 /** الصورة المالية لشهر واحد — كل رقم مشتقّ لا مُدخَل */
 export async function monthlyFinance(year: number, month: number): Promise<MonthlyFinance> {
   const { from, to } = monthBounds(year, month);
 
-  const [paid, oneOff, recurring] = await Promise.all([
+  const [paid, collected, fees, oneOff, recurring] = await Promise.all([
     prisma.paymentLink.findMany({
       where: { status: 'paid', paidAt: { gte: from, lt: to } },
       select: { amountHalalas: true },
+    }),
+    // تحصيل نيابةً عن الشركات — يمرّ بحسابنا ولا يملكه أحدٌ منّا
+    prisma.settlementEntry.aggregate({
+      where: { kind: 'COLLECTED', createdAt: { gte: from, lt: to } },
+      _sum: { amount: true }, _count: true,
+    }),
+    // عمولتنا على ذلك التحصيل — هذه وحدها إيرادنا
+    prisma.settlementEntry.aggregate({
+      where: { kind: 'FEE', createdAt: { gte: from, lt: to } },
+      _sum: { amount: true, feeNet: true, feeVat: true },
     }),
     prisma.operatingExpense.findMany({
       where: { isRecurring: false, startsOn: { gte: from, lt: to } },
@@ -104,17 +120,34 @@ export async function monthlyFinance(year: number, month: number): Promise<Month
     }),
   ]);
 
-  const revenueSar = round2(paid.reduce((s, p) => s + p.amountHalalas / 100, 0));
-  const vatCollectedSar = vatFromInclusive(revenueSar);
-  const revenueNetSar = round2(revenueSar - vatCollectedSar);
+  const subsSar = round2(paid.reduce((s, p) => s + p.amountHalalas / 100, 0));
+
+  // ——— الدفع الإلكتروني: تمييز مالنا من مال غيرنا ———
+  //
+  // ما يُحصَّل لعملاء الشركات يمرّ بحسابنا لكنه **أمانة لا إيراد**. عدّه إيراداً
+  // كان سيضخّم الرقم أضعافاً ويضاعف الضريبة على مالٍ لا نملكه. إيرادنا هو
+  // العمولة وحدها، وهي مخزَّنة مفكوكة سلفاً (feeNet + feeVat) على قيد FEE،
+  // فلا نعيد استخراج الضريبة منها ونخاطر بانحراف هللة عن دفتر الأمانات.
+  const paylinkCollectedSar = round2(Number(collected._sum.amount ?? 0));
+  const paylinkFeeSar = round2(Math.abs(Number(fees._sum.amount ?? 0)));
+  const paylinkFeeVatSar = round2(Number(fees._sum.feeVat ?? 0));
+  const paylinkFeeNetSar = round2(Number(fees._sum.feeNet ?? 0));
+
+  const revenueSar = round2(subsSar + paylinkFeeSar);
+  const vatCollectedSar = round2(vatFromInclusive(subsSar) + paylinkFeeVatSar);
+  const revenueNetSar = round2(round2(subsSar - vatFromInclusive(subsSar)) + paylinkFeeNetSar);
 
   const rec = recurring.filter((e) => recurringAppliesTo(e.startsOn, e.endsOn, from, to));
   const all = [...oneOff, ...rec];
   const expensesSar = round2(all.reduce((s, e) => s + e.amountSar, 0));
   const vatPaidSar = round2(all.reduce((s, e) => s + (e.vatSar || 0), 0));
 
-  // العمولة تُحسب على المبلغ الكامل المحصّل (البوابة تخصم من الإجمالي لا من الصافي)
-  const gatewayFeeSar = gatewayFee(revenueSar);
+  // عمولة البوابة تُحسب على **كل** ما مرّ بها: اشتراكاتنا + التحصيل نيابةً عن
+  // الشركات. وهذا هو الفرق الحاسم في الدفع الإلكتروني: ميسر تقتطع نسبتها من
+  // الألف المحصَّلة كاملةً لا من عمولتنا البالغة واحداً وأربعين — فحسابها على
+  // إيرادنا وحده كان سيُظهر ربحاً وهمياً على خدمة هامشها رقيق أصلاً.
+  const gatewayBaseSar = round2(subsSar + paylinkCollectedSar);
+  const gatewayFeeSar = gatewayFee(gatewayBaseSar);
 
   // الربح يقارن **صافياً بصافٍ**: الإيراد استُخرجت ضريبته، فالمصروف تُستبعَد
   // ضريبته القابلة للخصم كذلك — وإلا خُصمت المدخلات مرّتين (داخل المصروف وفي
@@ -129,6 +162,8 @@ export async function monthlyFinance(year: number, month: number): Promise<Month
     profitSar,
     marginPct: revenueNetSar > 0 ? round2((profitSar / revenueNetSar) * 100) : 0,
     paidCount: paid.length,
+    paylinkCollectedSar, paylinkFeeSar, paylinkFeeVatSar,
+    paylinkCount: collected._count,
   };
 }
 
@@ -369,5 +404,131 @@ export async function quarterFinance(year: number, quarter: number): Promise<Qua
     expensesSar: sum((m) => m.expensesSar),
     profitSar: sum((m) => m.profitSar),
     periodLabel: `١ ${MONTH_AR[first - 1]} – ${lastDay} ${MONTH_AR[first + 1]} ${year}`,
+  };
+}
+
+export interface SettlementRow {
+  tenantId: string;
+  name: string;
+  balanceSar: number;        // المستحقّ للشركة الآن — ما يجب أن نحوّله لها
+  collectedSar: number;      // إجمالي ما حُصّل لها منذ البداية
+  feeSar: number;            // إجمالي عمولتنا منها
+  paidOutSar: number;        // إجمالي ما ورّدناه لها
+  payments: number;
+  feePct: number;
+  feeFlat: number;
+  lastPayoutAt: string | null;
+  lastPayoutSar: number | null;
+  lastCollectedAt: string | null;
+  negative: boolean;         // رصيد سالب = الشركة مدينة لنا (استرداد بعد توريد)
+}
+
+export interface SettlementSummary {
+  rows: SettlementRow[];
+  totalPayableSar: number;   // ما ندين به لكل الشركات مجتمعةً
+  totalCollectedSar: number;
+  totalFeeSar: number;
+  totalPaidOutSar: number;
+  negativeCount: number;
+  nextPayoutLabel: string;   // موعد التوريد القادم (الخميس)
+}
+
+/** الخميس القادم بتوقيت الرياض — يوم التوريد المتّفق عليه */
+function nextThursday(now = new Date()): string {
+  const r = new Date(now.getTime() + RIYADH_OFFSET_MS);
+  const days = (4 - r.getUTCDay() + 7) % 7 || 7;   // 4 = الخميس
+  const d = new Date(r.getTime() + days * 86400_000);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * أمانات الشركات — كم ندين لكل شركة وما يجب أن نحوّله لها.
+ *
+ * **هذا المال ليس لنا.** يمرّ بحسابنا لدى ميسر ونحن أُمناء عليه حتى نورّده،
+ * فعرضه داخل «الإدارة المالية» ليس تحسيناً بل شرطُ صدقها: لوحةٌ تعرض رصيدنا
+ * دون أن تقول إن جزءاً منه ملك غيرنا تعرض رقماً صحيحاً بمعنى خاطئ.
+ *
+ * كل رقم هنا **مجموع قيود** لا رصيد مخزَّن — فلا رقم ثانٍ ينحرف عن مصدره.
+ */
+export async function settlementSummary(): Promise<SettlementSummary> {
+  const tenants = await prisma.tenant.findMany({
+    where: { paylinkEnabled: true },
+    select: { id: true, name: true, paylinkFeePct: true, paylinkFeeFlat: true },
+    orderBy: { name: 'asc' },
+  });
+  if (!tenants.length) {
+    return {
+      rows: [], totalPayableSar: 0, totalCollectedSar: 0, totalFeeSar: 0,
+      totalPaidOutSar: 0, negativeCount: 0, nextPayoutLabel: nextThursday(),
+    };
+  }
+
+  const ids = tenants.map((t) => t.id);
+  // تجميعة واحدة لكل الشركات بدل استعلامين لكل شركة — الحلقة كانت تُنتج
+  // ٢×عدد الشركات من الرحلات إلى القاعدة على نقطة يفتحها المالك كثيراً.
+  const [grouped, payouts, lastCollected] = await Promise.all([
+    prisma.settlementEntry.groupBy({
+      by: ['tenantId', 'kind'],
+      where: { tenantId: { in: ids } },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.payout.findMany({
+      where: { tenantId: { in: ids } },
+      orderBy: { createdAt: 'desc' },
+      select: { tenantId: true, amount: true, createdAt: true },
+    }),
+    prisma.settlementEntry.findMany({
+      where: { tenantId: { in: ids }, kind: 'COLLECTED' },
+      orderBy: { createdAt: 'desc' },
+      select: { tenantId: true, createdAt: true },
+    }),
+  ]);
+
+  const byTenant = new Map<string, Record<string, { sum: number; count: number }>>();
+  for (const g of grouped) {
+    const m = byTenant.get(g.tenantId) ?? {};
+    m[g.kind] = { sum: Number(g._sum.amount ?? 0), count: g._count._all };
+    byTenant.set(g.tenantId, m);
+  }
+  const lastPayout = new Map<string, { amount: number; createdAt: Date }>();
+  for (const p of payouts) if (!lastPayout.has(p.tenantId)) lastPayout.set(p.tenantId, p);
+  const lastColl = new Map<string, Date>();
+  for (const c of lastCollected) if (!lastColl.has(c.tenantId)) lastColl.set(c.tenantId, c.createdAt);
+
+  const rows: SettlementRow[] = tenants.map((t) => {
+    const m = byTenant.get(t.id) ?? {};
+    // الرصيد مجموع كل القيود بإشاراتها — لا يُعاد بناؤه من الأجزاء كي لا
+    // يظهر رقمان لنفس الحقيقة فينحرف أحدهما يوماً
+    const balanceSar = round2(Object.values(m).reduce((s, v) => s + v.sum, 0));
+    const lp = lastPayout.get(t.id);
+    const lc = lastColl.get(t.id);
+    return {
+      tenantId: t.id,
+      name: t.name,
+      balanceSar,
+      collectedSar: round2(m.COLLECTED?.sum ?? 0),
+      feeSar: round2(Math.abs(m.FEE?.sum ?? 0)),
+      paidOutSar: round2(Math.abs(m.PAYOUT?.sum ?? 0)),
+      payments: m.COLLECTED?.count ?? 0,
+      feePct: t.paylinkFeePct,
+      feeFlat: t.paylinkFeeFlat,
+      lastPayoutAt: lp ? riyadhDate(lp.createdAt) : null,
+      lastPayoutSar: lp ? round2(lp.amount) : null,
+      lastCollectedAt: lc ? riyadhDate(lc) : null,
+      negative: balanceSar < -0.005,
+    };
+  });
+
+  return {
+    rows,
+    // الموجب وحده هو ما ندين به؛ جمع السالب معه كان سيُخفي دَيناً على شركة
+    // خلف فائض شركة أخرى فيظهر إجمالي التوريد أقلّ من الواجب
+    totalPayableSar: round2(rows.filter((r) => r.balanceSar > 0).reduce((s, r) => s + r.balanceSar, 0)),
+    totalCollectedSar: round2(rows.reduce((s, r) => s + r.collectedSar, 0)),
+    totalFeeSar: round2(rows.reduce((s, r) => s + r.feeSar, 0)),
+    totalPaidOutSar: round2(rows.reduce((s, r) => s + r.paidOutSar, 0)),
+    negativeCount: rows.filter((r) => r.negative).length,
+    nextPayoutLabel: nextThursday(),
   };
 }
