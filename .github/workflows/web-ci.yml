@@ -9,9 +9,12 @@ name: Web CI
 on:
   push:
     branches: [master]
-    paths: ['web-admin/**']
+    # ملف الوورك فلو نفسه ضمن المسارات: تعديل الحارس دون تشغيله يترك آخر
+    # نتيجة معروضة نتيجةَ نسخةٍ لم تعد موجودة
+    paths: ['web-admin/**', '.github/workflows/web-ci.yml']
   pull_request:
-    paths: ['web-admin/**']
+    paths: ['web-admin/**', '.github/workflows/web-ci.yml']
+  workflow_dispatch:
 
 jobs:
   typecheck:
