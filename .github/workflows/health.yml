@@ -1,0 +1,139 @@
+name: نبضة الصحة والدخان
+
+# عين النظام — بدل أن يكون المالك هو العين.
+#
+# وجدت دراسة الأتمتة أن اكتشاف الخلل بعد النشر يقع بالصدفة أو بشكوى عميل
+# (٢٤٠ دقيقة/شهر)، والتحقق من وصول النشر يدوي بالمتصفح (١٨٠+٤٠)، ولا مراقب
+# توافر إطلاقا (٩٠). هذا الملف يحذف البنود الأربعة معا.
+#
+# مبادئ حاكمة:
+#  • يعمل على GitHub لا على Render — المراقب لا يموت مع المراقب.
+#  • التنبيه على **تغير الحالة** لا على الحالة: عطل جديد = فتح Issue (وGitHub
+#    يبرد المالك تلقائيا)، والتعافي = تعليق وإغلاق. لا عاصفة تنبيهات: العطل
+#    المستمر لا يكرر البريد لأن الـIssue مفتوحة سلفا — هي نفسها ذاكرة الحالة،
+#    فلا cache ولا ملف حالة يمكن أن يضيع.
+#  • البوت على خطة تنيم الخدمة — مهلة ٩٠ ثانية تسمح بإيقاظه، والنبضة نفسها
+#    تبقيه مستيقظا (تعويض جزئي عن فجوات keepalive الموثقة).
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # كل ١٠ دقائق
+    - cron: '5 5 * * *'      # ٥:٠٥ UTC = ٨:٠٥ص الرياض: فرز إخفاقات الأمس
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: health-pulse
+  cancel-in-progress: false
+
+jobs:
+  pulse:
+    if: github.event.schedule != '5 5 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: افحص الأهداف الثلاثة والدخان
+        id: checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          fails=""
+          note() { fails="${fails}${1}\n"; echo "::warning::$1"; }
+
+          # ١) الباكند: حي + نضارة النشر (الكوميت المعلن مقابل HEAD)
+          hj=$(curl -s --max-time 30 https://dsd-backend.onrender.com/api/health || echo "")
+          if ! echo "$hj" | grep -q '"status":"ok"'; then
+            note "الباكند لا يرد على /api/health"
+          else
+            ver=$(echo "$hj" | grep -oE '"version":"[0-9a-f]+"' | cut -d'"' -f4)
+            head_sha=$(git rev-parse --short=7 HEAD)
+            if [ -n "$ver" ] && [ "$ver" != "$head_sha" ]; then
+              # لا إنذار أثناء نشر جار: نتسامح ما دام آخر التزام أحدث من ٣٠ دقيقة
+              age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
+              if [ "$age" -gt 1800 ]; then
+                note "الباكند يخدم $ver بينما HEAD هو $head_sha منذ $((age/60)) دقيقة — نشر لم يصل"
+              fi
+            fi
+          fi
+
+          # ٢) دخان الباكند: الحراس أحياء (401 تعني المسار والمصادقة يعملان؛
+          #    500 أو timeout تعني انهيارا خلف الباب)
+          for p in "finance/snapshot" "tenants" "wa-inbox/stats"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://dsd-backend.onrender.com/api/$p")
+            [ "$code" = "401" ] || note "دخان: /api/$p رد $code والمتوقع 401"
+          done
+
+          # ٣) الموقع العام: يرد ويحمل وسم التطبيق
+          body=$(curl -s --max-time 30 https://fieldsa.net/ || echo "")
+          echo "$body" | grep -qi '<div id="root"' || note "fieldsa.net لا يعيد صفحة التطبيق"
+          # صفحة الدفع العامة (مسار مال حرج)
+          pc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://fieldsa.net/pay/health-probe)
+          case "$pc" in 200|404) : ;; *) note "صفحة الدفع /pay ردت $pc";; esac
+
+          # ٤) البوت: مهلة ٩٠ث تسمح بإيقاظ الخدمة النائمة
+          bj=$(curl -s --max-time 90 https://wa-sales-bot.onrender.com/ || echo "")
+          echo "$bj" | grep -q '"ok":true' || note "بوت واتساب لا يرد (حتى بعد مهلة الإيقاظ)"
+
+          {
+            echo "fails<<EOF"
+            printf "%b" "$fails"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: نبه على تغير الحالة لا على الحالة
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILS: ${{ steps.checks.outputs.fails }}
+        run: |
+          # الـIssue المفتوحة بوسم health-alert هي ذاكرة حالة الإنذار نفسها
+          open=$(gh issue list --label health-alert --state open --json number -q '.[0].number' || echo "")
+          if [ -n "$FAILS" ]; then
+            if [ -z "$open" ]; then
+              gh issue create \
+                --title "🔴 عطل مرصود — $(TZ=Asia/Riyadh date '+%Y-%m-%d %H:%M') بتوقيت الرياض" \
+                --label health-alert \
+                --body "$(printf 'رصدت نبضة الصحة:\n\n%b\nيفحص المراقب كل ١٠ دقائق وسيغلق هذه تلقائيا عند التعافي.' "$FAILS")"
+              echo "فتحت إنذارا جديدا"
+            else
+              echo "العطل مستمر — الإنذار #$open مفتوح سلفا ولا داعي لبريد ثان"
+            fi
+            exit 1
+          else
+            if [ -n "$open" ]; then
+              gh issue comment "$open" --body "✅ تعافى كل شيء — $(TZ=Asia/Riyadh date '+%H:%M') بتوقيت الرياض. تغلق آليا."
+              gh issue close "$open"
+              echo "أغلقت الإنذار #$open"
+            fi
+            echo "كل الأهداف سليمة"
+          fi
+
+  triage:
+    if: github.event.schedule == '5 5 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: فرز إخفاقات الوورك فلو أمس
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+          rows=$(gh run list --limit 100 \
+            --json name,conclusion,createdAt,url \
+            -q "[.[] | select(.createdAt > \"$since\" and .conclusion == \"failure\")] | group_by(.name) | map({name: .[0].name, count: length, url: .[0].url}) | .[] | \"• \(.name): \(.count) فشل — \(.url)\"" || echo "")
+          if [ -z "$rows" ]; then
+            echo "لا إخفاقات أمس — لا بريد (الصمت هنا نجاح مثبت لا غياب فحص)"
+            exit 0
+          fi
+          # تجميعة واحدة يوميا بدل بريد لكل فشل — الفرز كان يستهلك ٤٥ دقيقة/شهر
+          gh issue create \
+            --title "🟡 ملخص إخفاقات الوورك فلو — $(TZ=Asia/Riyadh date '+%Y-%m-%d')" \
+            --label ci-triage \
+            --body "$(printf 'إخفاقات آخر ٢٤ ساعة مجمعة حسب الوورك فلو:\n\n%s\n\nهذه تجميعة إخبارية تغلق بعد الاطلاع — الإخفاق المتكرر يستحق بطاقة قرار.' "$rows")"

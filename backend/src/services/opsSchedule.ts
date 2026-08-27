@@ -135,8 +135,55 @@ export async function sendDailyReminder(): Promise<boolean> {
   return sendMail({ subject: `⏰ ${AR_NUM(urgent.length)} بطاقة قرار متأخرة Field Sales`, html });
 }
 
+
+/**
+ * ملخّص الجذب لآخر ٧ أيام — من جدول الزيارات الذي يمتلئ آلياً ولا يقرؤه أحد.
+ *
+ * وجدت الدراسة أن حلقة القياس مقطوعة: كل شيء يُجمَع (القناة، محرّك الذكاء،
+ * نقرات واتساب، نوع المحتوى) والمالك يستخرجه **يدوياً** حين يتذكّر — ٤٥ دقيقة
+ * شهرياً لقراءة ما تعرفه القاعدة أصلاً. هذا يصل به التقريرَ الأسبوعي القائم.
+ */
+async function growthSummary(): Promise<string> {
+  try {
+    const since = new Date(Date.now() - 7 * 864e5);
+    const prevSince = new Date(Date.now() - 14 * 864e5);
+    const base = { createdAt: { gte: since }, isBot: false } as const;
+
+    const [visits, prevVisits, uniques, byChannel, ai, waClicks, topPaths, signups] = await Promise.all([
+      prisma.visit.count({ where: { ...base, waClicked: { not: true } } }),
+      prisma.visit.count({ where: { createdAt: { gte: prevSince, lt: since }, isBot: false, waClicked: { not: true } } }),
+      prisma.visit.findMany({ where: base, distinct: ['anonId'], select: { anonId: true } }),
+      prisma.visit.groupBy({ by: ['channel'], where: { ...base, waClicked: { not: true } }, _count: { _all: true } }),
+      prisma.visit.count({ where: { ...base, channel: 'ai_generative' } }),
+      prisma.visit.count({ where: { ...base, waClicked: true } }),
+      prisma.visit.groupBy({ by: ['path'], where: { ...base, waClicked: { not: true } }, _count: { _all: true }, orderBy: { _count: { path: 'desc' } }, take: 5 }),
+      prisma.tenant.count({ where: { createdAt: { gte: since } } }),
+    ]);
+
+    const delta = prevVisits > 0 ? Math.round(((visits - prevVisits) / prevVisits) * 100) : null;
+    const chan = byChannel
+      .filter(c => c.channel)
+      .sort((a, b) => b._count._all - a._count._all)
+      .map(c => `${c.channel}: ${AR_NUM(c._count._all)}`)
+      .join(' · ') || '—';
+
+    return `<h3>الجذب آخر ٧ أيام من جدول الزيارات </h3>
+    <ul>
+      <li>زيارات <b>${AR_NUM(visits)}</b>${delta !== null ? ` (${delta >= 0 ? '+' : ''}${AR_NUM(delta)}% عن الأسبوع السابق)` : ''} من <b>${AR_NUM(uniques.length)}</b> زائر فريد</li>
+      <li>القنوات ${chan}</li>
+      <li>من محركات الذكاء الاصطناعي <b>${AR_NUM(ai)}</b> · نقرات واتساب <b>${AR_NUM(waClicks)}</b> · تسجيلات جديدة <b>${AR_NUM(signups)}</b></li>
+      <li>أكثر الصفحات ${topPaths.map(t => `${t.path} (${AR_NUM(t._count._all)})`).join(' · ') || '—'}</li>
+    </ul>`;
+  } catch (e) {
+    // التقرير لا يسقط لغياب قسم منه — قسم فارغ خير من بريد لا يصل
+    console.error('growthSummary error:', (e as Error).message);
+    return '';
+  }
+}
+
 export async function sendWeeklyReport(): Promise<boolean> {
   const m = await platformMetrics();
+  const growth = await growthSummary();
   const statuses = cardStatuses();
   const overdue = statuses.filter(c => c.overdue);
   const oldest = statuses[0];
@@ -150,6 +197,7 @@ export async function sendWeeklyReport(): Promise<boolean> {
       <li>اشتراكات انتهت خلال 30 يوما إشارة انسحاب <b>${AR_NUM(m.expired30d)}</b> تنتهي خلال 7 أيام <b>${AR_NUM(m.expiring7d)}</b></li>
       <li>شركات جديدة آخر 30 يوما <b>${AR_NUM(m.new30d)}</b> بلغت التفعيل أول فاتورة <b>${AR_NUM(m.activated)}</b></li>
     </ul>
+    ${growth}
     <h3>فجوة التنفيذ مؤشرات الخطة </h3>
     <ul>
       <li>بطاقات مفتوحة <b>${AR_NUM(statuses.length)}</b> متأخرة عن مهلتها <b style="color${overdue.length ? '#9B3B2E' : '#14614E'}">${AR_NUM(overdue.length)}</b></li>
