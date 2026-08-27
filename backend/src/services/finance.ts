@@ -410,6 +410,7 @@ export async function quarterFinance(year: number, quarter: number): Promise<Qua
 export interface SettlementRow {
   tenantId: string;
   name: string;
+  enabled: boolean;          // مفعّلة الآن؟ المطفأة ذات الرصيد تبقى ظاهرة حتى تُورَّد
   balanceSar: number;        // المستحقّ للشركة الآن — ما يجب أن نحوّله لها
   collectedSar: number;      // إجمالي ما حُصّل لها منذ البداية
   feeSar: number;            // إجمالي عمولتنا منها
@@ -451,9 +452,21 @@ function nextThursday(now = new Date()): string {
  * كل رقم هنا **مجموع قيود** لا رصيد مخزَّن — فلا رقم ثانٍ ينحرف عن مصدره.
  */
 export async function settlementSummary(): Promise<SettlementSummary> {
+  // الشركات ذات الميزة المفعّلة **أو التي لها قيود أمانات** — الفلترة بالمفتاح
+  // وحده كانت تُخفي مال شركةٍ أُطفئت ميزتها وفي ذمّتنا رصيدها: إطفاء ميزة
+  // لا يُبرئ ذمّة، والدَّين يبقى حتى يُورَّد ولو توقّفت الخدمة.
+  const withEntries = await prisma.settlementEntry.findMany({
+    distinct: ['tenantId'],
+    select: { tenantId: true },
+  });
   const tenants = await prisma.tenant.findMany({
-    where: { paylinkEnabled: true },
-    select: { id: true, name: true, paylinkFeePct: true, paylinkFeeFlat: true },
+    where: {
+      OR: [
+        { paylinkEnabled: true },
+        { id: { in: withEntries.map((e) => e.tenantId) } },
+      ],
+    },
+    select: { id: true, name: true, paylinkEnabled: true, paylinkFeePct: true, paylinkFeeFlat: true },
     orderBy: { name: 'asc' },
   });
   if (!tenants.length) {
@@ -506,6 +519,7 @@ export async function settlementSummary(): Promise<SettlementSummary> {
     return {
       tenantId: t.id,
       name: t.name,
+      enabled: t.paylinkEnabled,
       balanceSar,
       collectedSar: round2(m.COLLECTED?.sum ?? 0),
       feeSar: round2(Math.abs(m.FEE?.sum ?? 0)),
@@ -520,15 +534,17 @@ export async function settlementSummary(): Promise<SettlementSummary> {
     };
   });
 
+  const visible = rows.filter((r) => r.enabled || Math.abs(r.balanceSar) > 0.005 || r.collectedSar > 0);
+
   return {
-    rows,
+    rows: visible,
     // الموجب وحده هو ما ندين به؛ جمع السالب معه كان سيُخفي دَيناً على شركة
     // خلف فائض شركة أخرى فيظهر إجمالي التوريد أقلّ من الواجب
-    totalPayableSar: round2(rows.filter((r) => r.balanceSar > 0).reduce((s, r) => s + r.balanceSar, 0)),
-    totalCollectedSar: round2(rows.reduce((s, r) => s + r.collectedSar, 0)),
-    totalFeeSar: round2(rows.reduce((s, r) => s + r.feeSar, 0)),
-    totalPaidOutSar: round2(rows.reduce((s, r) => s + r.paidOutSar, 0)),
-    negativeCount: rows.filter((r) => r.negative).length,
+    totalPayableSar: round2(visible.filter((r) => r.balanceSar > 0).reduce((s, r) => s + r.balanceSar, 0)),
+    totalCollectedSar: round2(visible.reduce((s, r) => s + r.collectedSar, 0)),
+    totalFeeSar: round2(visible.reduce((s, r) => s + r.feeSar, 0)),
+    totalPaidOutSar: round2(visible.reduce((s, r) => s + r.paidOutSar, 0)),
+    negativeCount: visible.filter((r) => r.negative).length,
     nextPayoutLabel: nextThursday(),
   };
 }

@@ -16,7 +16,7 @@ interface MonthlyFinance {
   paylinkCollectedSar: number; paylinkFeeSar: number; paylinkFeeVatSar: number; paylinkCount: number;
 }
 interface SettlementRow {
-  tenantId: string; name: string; balanceSar: number; collectedSar: number;
+  tenantId: string; name: string; enabled: boolean; balanceSar: number; collectedSar: number;
   feeSar: number; paidOutSar: number; payments: number; feePct: number; feeFlat: number;
   lastPayoutAt: string | null; lastPayoutSar: number | null; lastCollectedAt: string | null;
   negative: boolean;
@@ -504,6 +504,11 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                           <tr key={r.tenantId} className="border-b border-[#F1E8D0] last:border-0">
                             <td className="py-2">
                               <span className="font-semibold text-[#1F1A13]">{r.name}</span>
+                              {!r.enabled && (
+                                <span className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600" title="الميزة موقوفة عنها لكن في ذمّتنا رصيدها — يبقى ظاهراً حتى يُورَّد">
+                                  موقوفة
+                                </span>
+                              )}
                               <span className="block text-[10px] text-gray-500">
                                 {r.feePct}% + {r.feeFlat} ر.س · {r.payments} دفعة
                                 {r.lastCollectedAt && ` · آخرها ${r.lastCollectedAt}`}
