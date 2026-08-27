@@ -125,15 +125,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           since=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
-          rows=$(gh run list --limit 100 \
+          # -R إلزامي: هذه الوظيفة بلا checkout فلا سياق مستودع لـgh — وبدونه
+          # كان الفشل يُبتلع بـ|| echo فيُقرأ «لا إخفاقات» وهو أسوأ أعطال
+          # المراقب: صمت يبدو نجاحا. الفشل هنا يصرخ ولا يتنكر في هيئة هدوء.
+          rows=$(gh run list -R "${{ github.repository }}" --limit 100 \
             --json name,conclusion,createdAt,url \
-            -q "[.[] | select(.createdAt > \"$since\" and .conclusion == \"failure\")] | group_by(.name) | map({name: .[0].name, count: length, url: .[0].url}) | .[] | \"• \(.name): \(.count) فشل — \(.url)\"" || echo "")
+            -q "[.[] | select(.createdAt > \"$since\" and .conclusion == \"failure\")] | group_by(.name) | map({name: .[0].name, count: length, url: .[0].url}) | .[] | \"• \(.name): \(.count) فشل — \(.url)\"") \
+            || { echo "::error::تعذر جلب قائمة التشغيلات — الفرز نفسه معطل"; exit 1; }
           if [ -z "$rows" ]; then
             echo "لا إخفاقات أمس — لا بريد (الصمت هنا نجاح مثبت لا غياب فحص)"
             exit 0
           fi
           # تجميعة واحدة يوميا بدل بريد لكل فشل — الفرز كان يستهلك ٤٥ دقيقة/شهر
-          gh issue create \
+          gh issue create -R "${{ github.repository }}" \
             --title "🟡 ملخص إخفاقات الوورك فلو — $(TZ=Asia/Riyadh date '+%Y-%m-%d')" \
             --label ci-triage \
             --body "$(printf 'إخفاقات آخر ٢٤ ساعة مجمعة حسب الوورك فلو:\n\n%s\n\nهذه تجميعة إخبارية تغلق بعد الاطلاع — الإخفاق المتكرر يستحق بطاقة قرار.' "$rows")"
