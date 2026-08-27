@@ -104,6 +104,26 @@ app.use('/api/whatsapp', whatsappWebhookRouter);
 // webhook ميسر — قبل محدد المعدل: ميسر لا يعيد الارسال الا على غير 2xx فلا نضيع اشعار دفع على 429
 app.use('/api/payments/webhook', paymentsWebhookRouter);
 
+// شبكة أمان التقارير المجدولة — يناديها وورك فلو خارجي ٨:١٥ص الرياض.
+// الجدولة الداخلية setInterval تموت مع العملية: نشرةٌ داخل ساعة الثامنة كانت
+// تُسقط تقرير الشهر بلا تعويض. التبريد في القاعدة (OpsMarker) فالنداءان
+// المتوازيان لا يكرّران بريداً — الإنشاء الفريد هو القفل.
+app.post('/api/ops/run-reports', async (req, res) => {
+  const expected = (process.env.WA_SWEEP_TOKEN || '').trim();
+  const got = req.get('x-ops-token') || '';
+  const a = Buffer.from(got); const b = Buffer.from(expected);
+  if (!expected || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    res.sendStatus(401); return;
+  }
+  try {
+    const { ensureScheduledReports } = await import('./services/opsSchedule');
+    res.json({ success: true, data: await ensureScheduledReports() });
+  } catch (e) {
+    console.error('run-reports error:', (e as Error).message);
+    res.status(500).json({ success: false });
+  }
+});
+
 // webhook هاتف (ما بعد المكالمة) — قبل محدد المعدل لنفس السبب: 429 يضيع الاشعار او يغرقنا باعادة المحاولة
 app.use('/api/telephony/webhook', telephonyWebhookRouter);
 

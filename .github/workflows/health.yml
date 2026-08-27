@@ -19,6 +19,7 @@ on:
   schedule:
     - cron: '*/10 * * * *'   # كل ١٠ دقائق
     - cron: '5 5 * * *'      # ٥:٠٥ UTC = ٨:٠٥ص الرياض: فرز إخفاقات الأمس
+    - cron: '15 5 * * *'     # ٥:١٥ UTC = ٨:١٥ص الرياض: شبكة أمان التقارير
   workflow_dispatch: {}
 
 permissions:
@@ -31,8 +32,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # شبكة أمان التقارير: الجدولة الداخلية setInterval تموت مع العملية —
+  # نشرةٌ داخل ساعة الثامنة كانت تُسقط تقرير الشهر بلا تعويض ولا إنذار.
+  # التبريد في القاعدة (OpsMarker) فالنداء الخارجي لا يكرّر ما أرسلته النبضة
+  # الداخلية — الإنشاء الفريد هو القفل.
+  reports-safety-net:
+    if: github.event.schedule == '15 5 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: اضمن تقارير اليوم
+        env:
+          OPS_TOKEN: ${{ secrets.WA_SWEEP_TOKEN }}
+        run: |
+          [ -n "$OPS_TOKEN" ] || { echo "::error::WA_SWEEP_TOKEN غير مضبوط"; exit 1; }
+          code=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST --max-time 120 \
+            -H "x-ops-token: $OPS_TOKEN" \
+            https://dsd-backend.onrender.com/api/ops/run-reports)
+          echo "الرد: $code"; cat /tmp/r.json || true
+          [ "$code" = "200" ] || { echo "::error::شبكة أمان التقارير فشلت"; exit 1; }
+
   pulse:
-    if: github.event.schedule != '5 5 * * *'
+    if: github.event.schedule == '*/10 * * * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:

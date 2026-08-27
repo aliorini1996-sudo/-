@@ -1875,3 +1875,14 @@ model OperatingExpense {
   @@index([startsOn])
   @@map("operating_expenses")
 }
+
+// علامات تشغيلية معمّرة — تبريد التقارير المجدولة كان متغيّرات ذاكرة تموت مع
+// كل نشر: نشرةٌ داخل ساعة الثامنة تُسقط تقرير الشهر بلا تعويض ولا إنذار.
+model OpsMarker {
+  key       String   @id // daily:2026-08-27 | weekly:2026-W35 | monthly:2026-08
+  value     String   @default("sent")
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("ops_markers")
+}

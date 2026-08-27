@@ -18,7 +18,10 @@ services:
     buildCommand: npm install --include=dev && npx prisma generate && npm run build
     # db push بلا --accept-data-loss: يطبّق التغييرات الإضافية فقط، ويُفشل النشر عند أي تغيير مدمّر
     # (حذف عمود/جدول) بدل تنفيذه صامتاً على بيانات الإنتاج — التغيير المدمّر يتطلّب migration مقصودة.
-    startCommand: npx prisma db push && node dist/index.js
+    # db push في preDeploy لا في start: فشل الترحيل يوقف النشر والقديم يواصل
+    # الخدمة — بدل حلقة إقلاع فاشلة تساوي انقطاعا كاملا
+    preDeployCommand: npx prisma db push
+    startCommand: node dist/index.js
     # ── فلتر البناء: توفير دقائق Render (Build Pipeline Minutes) ───────────────
     # لا يُعاد بناء الباك-إند إلا حين يتغيّر كود backend/ فعلاً. قبل هذا الفلتر
     # كان كل push يعيد البناء الكامل (npm install --include=dev + prisma generate

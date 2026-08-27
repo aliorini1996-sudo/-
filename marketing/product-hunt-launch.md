@@ -24,7 +24,7 @@ FieldSales is an Arabic-first platform for distribution & field-sales teams. Rep
 **Topics** (اختر 3): `Sales` · `SaaS` · `Small Business`
 (بدائل: Productivity · Fintech)
 
-**Pricing:** `Free Trial` (تجربة 10 أيام، ثم من 125﷼/شهر لكل حساب)
+**Pricing:** `Free Trial` (تجربة 10 أيام، ثم 299﷼/شهر لكل الشركة — لا لكل مستخدم)
 
 **Makers:** أضف حسابك (Ali Aloraini) — وأي شريك.
 

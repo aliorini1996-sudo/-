@@ -278,32 +278,56 @@ function mailLayoutFinance(title: string, body: string): string {
 // فحص كل ساعة بتوقيت الرياض (UTC+3): التذكير يومياً 8ص عند وجود متأخر، والتقرير كل اثنين 8ص.
 // dedupe في الذاكرة — إعادة تشغيل الخادم داخل ساعة الثامنة قد تكرّر رسالة نادرة، وهذا مقبول.
 
-let lastDaily = '';
-let lastWeekly = '';
-let lastMonthly = '';
+/**
+ * علامة «أُرسل» معمّرة في القاعدة — كانت متغيّرات ذاكرة تموت مع كل نشر:
+ * نشرةٌ داخل ساعة الثامنة كانت تُسقط تقرير الشهر بلا تعويض ولا إنذار
+ * (وموعد الكسر الأول كان ١ سبتمبر). الإنشاء الفريد هو القفل نفسه: محاولتان
+ * متزامنتان (النبضة الداخلية + شبكة الأمان الخارجية) تكسب إحداهما ويصمت
+ * الآخر بتعارض المفتاح — فلا بريد مزدوج.
+ */
+async function claimMarker(key: string): Promise<boolean> {
+  try {
+    await prisma.opsMarker.create({ data: { key } });
+    return true;
+  } catch {
+    return false; // قائمة سلفاً أو تعذّرت الكتابة — لا نكرّر البريد على الشكّ
+  }
+}
+
+/**
+ * يضمن تقارير اليوم: يُرسل ما لم يُرسَل بعد ويُرجع ما فعله.
+ * تناديه النبضة الداخلية كل ساعة، **و**شبكة أمان خارجية (health.yml ٨:١٥ص
+ * الرياض) — فموت العملية أو نشرها في ساعة الثامنة لم يعد يُسقط شيئاً.
+ */
+export async function ensureScheduledReports(): Promise<{ daily: boolean; weekly: boolean; monthly: boolean }> {
+  const now = riyadhNow();
+  const dateStr = now.toISOString().slice(0, 10);
+  const out = { daily: false, weekly: false, monthly: false };
+
+  if (now.getUTCDay() === 1 && await claimMarker(`weekly:${dateStr}`)) {
+    await sendWeeklyReport();
+    out.weekly = true;
+  }
+  if (await claimMarker(`daily:${dateStr}`)) {
+    await sendDailyReminder();
+    out.daily = true;
+  }
+  // أول كل شهر: الصورة المالية عن الشهر المنقضي (ومعها الإقرار الربعي عند إقفاله)
+  if (now.getUTCDate() === 1 && await claimMarker(`monthly:${dateStr.slice(0, 7)}`)) {
+    await sendMonthlyFinanceReport();
+    out.monthly = true;
+    // وشبكة أمان الفواتير: ما فات إصداره لحظياً يُلتقط هنا
+    await backfillInvoices(50).catch((e) => console.error('invoice backfill error:', e));
+  }
+  return out;
+}
 
 async function tick() {
   try {
-    const now = riyadhNow();
-    const dateStr = now.toISOString().slice(0, 10);
-    const hour = now.getUTCHours(); // بعد إزاحة الرياض: هذه ساعة الرياض
-    if (hour === 8) {
-      if (now.getUTCDay() === 1 && lastWeekly !== dateStr) {
-        lastWeekly = dateStr;
-        await sendWeeklyReport();
-      }
-      if (lastDaily !== dateStr) {
-        lastDaily = dateStr;
-        await sendDailyReminder();
-      }
-      // أول كل شهر: الصورة المالية عن الشهر المنقضي (ومعها الإقرار الربعي عند إقفاله)
-      const monthKey = dateStr.slice(0, 7);
-      if (now.getUTCDate() === 1 && lastMonthly !== monthKey) {
-        lastMonthly = monthKey;
-        await sendMonthlyFinanceReport();
-        // وشبكة أمان الفواتير: ما فات إصداره لحظياً يُلتقط هنا
-        await backfillInvoices(50).catch((e) => console.error('invoice backfill error:', e));
-      }
+    // النبضة الداخلية تكتفي بساعة الثامنة؛ وشبكة الأمان الخارجية تنادي
+    // ensureScheduledReports مباشرةً فتلتقط ما أسقطه نشرٌ أو موتُ عملية
+    if (riyadhNow().getUTCHours() === 8) {
+      await ensureScheduledReports();
     }
   } catch (e) {
     console.error('opsSchedule tick error:', e);
