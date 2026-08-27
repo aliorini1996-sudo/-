@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
+import { printPlatformInvoice, SellerInfo } from '../lib/platformInvoicePrint';
 
 interface MonthlyFinance {
   year: number; month: number;
@@ -54,11 +55,12 @@ interface QuarterFinance {
   expensesSar: number; profitSar: number;
 }
 interface InvoiceRow {
-  id: string; number: string; buyerName: string; description: string;
-  totalSar: number; vatSar: number; issuedAt: string;
+  id: string; number: string; buyerName: string; buyerVatNo: string | null; description: string;
+  totalSar: number; vatSar: number; netSar: number; qrBase64: string; issuedAt: string;
 }
 interface InvoiceList {
   rows: InvoiceRow[]; ready: boolean; sellerName: string; vatNumber: string; note: string;
+  seller: SellerInfo;
 }
 
 const sar = (n: number) => `${n.toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س`;
@@ -381,6 +383,13 @@ export default function FinancePanel({ onClose, onAddRevenue }: { onClose: () =>
                           <p className="text-sm font-bold tabular-nums text-[#1F1A13]" dir="ltr">{sar(v.totalSar)}</p>
                           <p className="text-[10px] text-gray-500 tabular-nums" dir="ltr">ضريبة {sar(v.vatSar)}</p>
                         </div>
+                        <button
+                          onClick={() => invoices?.seller && printPlatformInvoice(v, invoices.seller)}
+                          title="طباعة الفاتورة الضريبية (برمز زاتكا)"
+                          className="p-1.5 rounded-lg hover:bg-[#F1EADD] text-[#6E6557] shrink-0"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>

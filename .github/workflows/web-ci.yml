@@ -28,3 +28,6 @@ jobs:
           cache-dependency-path: web-admin/package-lock.json
       - run: npm ci
       - run: npm run typecheck   # tsc --noEmit — أخطاء الأنواع تُفشل الفحص
+      # الاختبارات بالنمط لا بقائمة أسماء: القائمة اليدوية تركت ملفّين يتيمين
+      # أحدهما يحرس دلالة ضريبة قديمة خاطئة — أول تشغيل شامل كشف ٣ إخفاقات مكتومة
+      - run: npm test

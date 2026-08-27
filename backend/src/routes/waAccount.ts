@@ -356,7 +356,13 @@ router.get('/events', async (req: Request, res: Response) => {
     // ١) اشتراك ينتهي خلال ٣ أيام (أو انتهى ولم يُجدَّد)
     const ending = await prisma.tenant.findMany({
       where: { isActive: true, subscriptionEndsAt: { not: null, lte: in3d } },
-      select: { id: true, name: true, subscriptionEndsAt: true, settings: { select: { phone: true } } },
+      select: {
+        id: true, name: true, subscriptionEndsAt: true,
+        settings: { select: { phone: true } },
+        // بريد أول أدمن — قناة سقوط للإشعار حين تكون قوالب واتساب معلّقة عند ميتا:
+        // القناة الاحتياطية خيرٌ من إشعارٍ لا يصل
+        admins: { where: { isActive: true }, take: 1, orderBy: { createdAt: 'asc' }, select: { email: true } },
+      },
     });
     for (const t of ending) {
       const ph = normalizePhone(t.settings?.phone);
@@ -364,6 +370,7 @@ router.get('/events', async (req: Request, res: Response) => {
       events.push({
         kind: 'subscription_ending',
         tenantId: t.id, companyName: t.name, phone: ph,
+        email: t.admins[0]?.email || null,
         endsAt: t.subscriptionEndsAt?.toISOString().slice(0, 10),
       });
     }

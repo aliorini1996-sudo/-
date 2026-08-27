@@ -74,7 +74,7 @@ router.get('/invoices', async (_req: AuthRequest, res: Response, next: NextFunct
   try {
     const rows = await prisma.platformInvoice.findMany({
       orderBy: { issuedAt: 'desc' }, take: 100,
-      select: { id: true, number: true, buyerName: true, description: true, totalSar: true, vatSar: true, issuedAt: true },
+      select: { id: true, number: true, buyerName: true, buyerVatNo: true, description: true, totalSar: true, vatSar: true, netSar: true, qrBase64: true, issuedAt: true },
     });
     const seller = platformSeller();
     res.json({
@@ -84,6 +84,9 @@ router.get('/invoices', async (_req: AuthRequest, res: Response, next: NextFunct
         ready: invoicingReady(),
         sellerName: seller.name,
         vatNumber: seller.vatNumber ? `${seller.vatNumber.slice(0, 3)}…${seller.vatNumber.slice(-3)}` : '',
+        // بيانات البائع كاملة للطباعة — الفاتورة الضريبية تُلزم بإظهار الرقم
+        // كاملاً، والنقطة أصلاً للمالك وحده (requireSuperAdmin)
+        seller: { name: seller.name, vatNumber: seller.vatNumber, crNumber: seller.crNumber, address: seller.address },
         note: invoicingReady()
           ? 'تُصدَر آلياً لحظة تأكيد كل دفعة'
           : 'اضبط PLATFORM_VAT_NUMBER (١٥ رقماً) في بيئة الخادم ليبدأ الإصدار',

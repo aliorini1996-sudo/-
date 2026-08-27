@@ -125,8 +125,10 @@ test('أعمار الدين توزّع المبالغ على الشرائح ال
   ]);
   assert.equal(r.total, 10000);
   assert.equal(r.overdueTotal, 9000); // كل ما تجاوز 0 يوم
-  assert.equal(r.buckets.find((b) => b.label === '1–30 يوماً')!.amount, 2000);
-  assert.equal(r.buckets.find((b) => b.label === 'أكثر من 90 يوماً')!.amount, 4000);
+  // بالموضع لا بنصّ التسمية: التسمية نصُّ عرضٍ تغيّرت شرطته فانكسر البحث،
+  // وترتيب الشرائح ثابت بحكم التعريف
+  assert.equal(r.buckets[1].amount, 2000, r.buckets[1].label);
+  assert.equal(r.buckets[4].amount, 4000, r.buckets[4].label);
 });
 
 test('حدّ الائتمان المقترح يتناسب مع مدّة السداد', () => {
