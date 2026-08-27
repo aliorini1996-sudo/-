@@ -433,6 +433,12 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       return inv;
     });
 
+    // فاتورة ملغاة لا تُدفع: نميت روابط دفعها الحية ونلغي فواتير ميسر نفسها —
+    // كان الرابط يبقى قابلا للدفع بعد الإلغاء. خارج المعاملة عمدا (نداء شبكي)
+    void import('../services/paylink')
+      .then(m => m.expireStaleLinks(tid, updated.id))
+      .catch(e => console.error('invoice cancel: expire links failed:', (e as Error).message));
+
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });

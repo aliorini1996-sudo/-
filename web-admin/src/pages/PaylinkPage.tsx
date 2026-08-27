@@ -18,9 +18,11 @@ import { useTr } from '../i18n/strings';
  */
 
 interface Summary {
-  collected: number; fees: number; refunds: number; payouts: number;
-  paymentsCount: number; balance: number;
+  collected: number; fees: number | null; refunds: number | null; payouts: number | null;
+  paymentsCount: number; balance: number | null;
   lastPayout: { amount: number; bankReference?: string | null; createdAt: string } | null;
+  feePct?: number; feeFlat?: number;
+  scoped?: boolean; // مستخدم مقيد النطاق: أرقام روابط عملائه فقط بلا بطاقات الأمانات
 }
 
 interface LinkRow {
@@ -37,6 +39,7 @@ const STATUS_META: Record<string, { label: string; cls: string; Icon: typeof Clo
   paid: { label: 'مدفوع', cls: 'bg-green-100 text-green-700', Icon: CheckCircle2 },
   canceled: { label: 'ملغى', cls: 'bg-gray-100 text-gray-500', Icon: Ban },
   expired: { label: 'منتهي', cls: 'bg-orange-100 text-orange-600', Icon: XCircle },
+  refunded: { label: 'مسترد', cls: 'bg-purple-100 text-purple-700', Icon: Ban },
 };
 
 export default function PaylinkPage() {
@@ -45,14 +48,17 @@ export default function PaylinkPage() {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
 
+  // تحديث تلقائي كل ٣٠ ثانية: المالك يراقب دفعة واردة فلا يليق ببياناته الموت
   const { data: summary } = useQuery({
     queryKey: ['paylink-summary'],
     queryFn: async () => (await api.get('/paylink/summary')).data.data as Summary,
+    refetchInterval: 30_000,
   });
 
   const { data: linksRes, isLoading } = useQuery({
     queryKey: ['paylink-links', status, page],
     queryFn: async () => (await api.get('/paylink/links', { params: { status: status || undefined, page, limit: 25 } })).data as { data: LinkRow[]; meta: { total: number; limit: number } },
+    refetchInterval: 30_000,
   });
 
   const cancel = useMutation({
@@ -88,17 +94,20 @@ export default function PaylinkPage() {
         </div>
       </div>
 
-      {/* الملخص المالي — من دفتر الأمانات، بشفافية العمولة كاملة */}
+      {/* الملخص المالي — من دفتر الأمانات؛ المقيد النطاق يرى إحصاء روابط عملائه فقط */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card icon={ReceiptText} tint="text-green-600 bg-green-50" label={tr('المحصل الكترونيا')}
           value={formatCurrency(summary?.collected ?? 0)} sub={`${summary?.paymentsCount ?? 0} ${tr('دفعة')}`} />
-        <Card icon={Wallet} tint="text-[#C94E28] bg-[#FBEBE2]" label={tr('عمولة المنصة')}
-          value={formatCurrency(summary?.fees ?? 0)} sub={tr('4% + 1 ريال لكل دفعة شاملة الضريبة')} />
-        <Card icon={Banknote} tint="text-[#2E6FB0] bg-[#2E6FB0]/10" label={tr('صافي مستحقكم الان')}
-          value={formatCurrency(summary?.balance ?? 0)} sub={tr('يورد لحسابكم كل خميس')} />
-        <Card icon={CheckCircle2} tint="text-gray-600 bg-gray-100" label={tr('المورد اليكم سابقا')}
-          value={formatCurrency(summary?.payouts ?? 0)}
-          sub={summary?.lastPayout ? `${tr('اخر توريد')} ${formatDate(summary.lastPayout.createdAt)}` : tr('لا توريد بعد')} />
+        {!summary?.scoped && <>
+          <Card icon={Wallet} tint="text-[#C94E28] bg-[#FBEBE2]" label={tr('عمولة المنصة')}
+            value={formatCurrency(summary?.fees ?? 0)}
+            sub={`${summary?.feePct ?? 4}% + ${summary?.feeFlat ?? 1} ${tr('ريال لكل دفعة شاملة الضريبة')}`} />
+          <Card icon={Banknote} tint="text-[#2E6FB0] bg-[#2E6FB0]/10" label={tr('صافي مستحقكم الان')}
+            value={formatCurrency(summary?.balance ?? 0)} sub={tr('يورد لحسابكم كل خميس')} />
+          <Card icon={CheckCircle2} tint="text-gray-600 bg-gray-100" label={tr('المورد اليكم سابقا')}
+            value={formatCurrency(summary?.payouts ?? 0)}
+            sub={summary?.lastPayout ? `${tr('اخر توريد')} ${formatDate(summary.lastPayout.createdAt)}` : tr('لا توريد بعد')} />
+        </>}
       </div>
 
       {/* الروابط */}
@@ -111,6 +120,7 @@ export default function PaylinkPage() {
             <option value="paid">{tr('مدفوع')}</option>
             <option value="canceled">{tr('ملغى')}</option>
             <option value="expired">{tr('منتهي')}</option>
+            <option value="refunded">{tr('مسترد')}</option>
           </select>
         </div>
 

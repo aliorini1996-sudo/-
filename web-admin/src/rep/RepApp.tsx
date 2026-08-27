@@ -649,8 +649,16 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   const waText = link
     ? encodeURIComponent(`${tr('مرحبا يمكنك سداد فاتورة')} ${link.invoiceNumber} ${tr('بمبلغ')} ${formatCurrency(link.amount)} ${tr('الكترونيا عبر الرابط')}\n${link.payUrl}`)
     : '';
+  // wa.me لا يفهم الصيغة المحلية 05… — التطبيع لدولي كما في lib/phone.ts الخلفية
+  const waDigits = (p: unknown): string => {
+    let d = String(p ?? '').replace(/[^0-9]/g, '');
+    if (d.startsWith('00')) d = d.slice(2);
+    if (d.length === 10 && d.startsWith('05')) d = '966' + d.slice(1);
+    else if (d.length === 9 && d.startsWith('5')) d = '966' + d;
+    return d;
+  };
   const waHref = link
-    ? (customer.phone ? `https://wa.me/${String(customer.phone).replace(/[^0-9]/g, '')}?text=${waText}` : `https://wa.me/?text=${waText}`)
+    ? (customer.phone && waDigits(customer.phone) ? `https://wa.me/${waDigits(customer.phone)}?text=${waText}` : `https://wa.me/?text=${waText}`)
     : '#';
 
   return (

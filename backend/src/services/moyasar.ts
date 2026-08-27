@@ -17,6 +17,8 @@ export interface MoyasarInvoice {
   description: string | null;
   url: string;
   created_at: string;
+  /** دفعات الفاتورة — معرف الدفعة المسددة يلزمنا لمسار الاسترداد */
+  payments?: { id: string; status: string }[];
 }
 
 export function moyasarConfigured(): boolean {

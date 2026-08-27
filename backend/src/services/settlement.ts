@@ -97,13 +97,14 @@ export async function recordPayout(params: {
   const amount = roundHalfUp(params.amount, 2);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, message: 'مبلغ توريد غير صالح' };
 
-  // لا نورّد أكثر من الرصيد — توريدٌ زائد يقلب الأمانات ديناً على الشركة بلا سبب
-  const balance = await settlementBalance(params.tenantId);
-  if (amount > balance + 0.0005) {
-    return { ok: false, message: `المبلغ أكبر من رصيد الأمانات (${balance})` };
-  }
-
+  // لا نورّد أكثر من الرصيد — والفحص **داخل** المعاملة: خارجها كان توريدان
+  // متزامنان يقرآن نفس الرصيد فيمران معا ويقلبان الأمانات دينا على الشركة
   const payout = await prisma.$transaction(async tx => {
+    const agg = await tx.settlementEntry.aggregate({ where: { tenantId: params.tenantId }, _sum: { amount: true } });
+    const balance = roundHalfUp(Number(agg._sum.amount ?? 0), 2);
+    if (amount > balance + 0.0005) {
+      throw new Error(`المبلغ أكبر من رصيد الأمانات (${balance})`);
+    }
     const p = await tx.payout.create({
       data: {
         tenantId: params.tenantId,
@@ -122,6 +123,13 @@ export async function recordPayout(params: {
       },
     });
     return p;
+  }).catch((e: unknown) => {
+    const msg = (e as Error).message || '';
+    if (msg.includes('رصيد الأمانات')) return { __err: msg } as never;
+    throw e;
   });
-  return { ok: true, payoutId: payout.id };
+  if ((payout as unknown as { __err?: string }).__err) {
+    return { ok: false, message: (payout as unknown as { __err: string }).__err };
+  }
+  return { ok: true, payoutId: (payout as { id: string }).id };
 }

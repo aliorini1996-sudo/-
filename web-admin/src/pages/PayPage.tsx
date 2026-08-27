@@ -111,8 +111,14 @@ export default function PayPage() {
       ) : view.status === 'settled' ? (
         <div style={{ textAlign: 'center' }}>
           <CheckCircle2 size={44} color="#1E7A52" style={{ margin: '0 auto 8px' }} />
-          <p style={{ fontWeight: 800 }}>الفاتورة سددت لدى الشركة</p>
-          <p style={{ fontSize: 12.5, color: '#8A8178', marginTop: 6 }}>لا حاجة للدفع عبر هذا الرابط</p>
+          <p style={{ fontWeight: 800 }}>تغير المبلغ المستحق لهذه الفاتورة</p>
+          <p style={{ fontSize: 12.5, color: '#8A8178', marginTop: 6 }}>هذا الرابط لم يعد صالحا اطلب من مندوبك رابطا محدثا</p>
+        </div>
+      ) : view.status === 'refunded' ? (
+        <div style={{ textAlign: 'center' }}>
+          <CheckCircle2 size={44} color="#8A8178" style={{ margin: '0 auto 8px' }} />
+          <p style={{ fontWeight: 800 }}>اعيد مبلغ هذه العملية</p>
+          <p style={{ fontSize: 12.5, color: '#8A8178', marginTop: 6 }}>رُد المبلغ الى وسيلة الدفع التي استخدمتها</p>
         </div>
       ) : view.status === 'expired' || view.status === 'canceled' ? (
         <div style={{ textAlign: 'center' }}>

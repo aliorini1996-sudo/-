@@ -2,9 +2,9 @@ import crypto from 'crypto';
 import prisma from '../config/database';
 import { roundHalfUp } from '../lib/money';
 import { createInvoice, fetchInvoice, cancelInvoice, sarToHalalas, moyasarConfigured } from './moyasar';
-import { postCollectionEntries } from './settlement';
+import { postCollectionEntries, postRefundEntry } from './settlement';
 import { generateReceiptNumber, withNumberRetry } from '../utils/helpers';
-import { postReceiptEntries, clean } from './accounting';
+import { postReceiptEntries, reverseReceiptEntries, clean } from './accounting';
 
 /**
  * روابط دفع فواتير العملاء — «الدفع الإلكتروني» (ميزة اشتراك يفعّلها المالك).
@@ -77,6 +77,9 @@ export async function issueLink(params: {
   }
   const remaining = roundHalfUp(Number(invoice.remainingAmt), 2);
   if (remaining <= 0) return { ok: false, message: 'الفاتورة مسددة بالكامل' };
+  if (remaining > 1_000_000) {
+    return { ok: false, message: 'المبلغ يتجاوز حد الدفع الالكتروني للعملية الواحدة (مليون ريال) — قسط التحصيل او حصله بطريقة اخرى' };
+  }
 
   // رابط قائم بنفس المبلغ يعاد كما هو — تكرار النقر لا يصنع فاتورتي ميسر
   const existing = await prisma.customerPaymentLink.findFirst({
@@ -125,9 +128,11 @@ export async function issueLink(params: {
       metadata: { kind: 'cpl', linkId: row.id, tenantId: params.tenantId },
     });
   } catch (e) {
-    // فشل قبل تأكد الإنشاء لدى ميسر — ننظف صفنا (نفس فلسفة payments.ts)
+    // فشل قبل تأكد الإنشاء لدى ميسر — ننظف صفنا (نفس فلسفة payments.ts).
+    // الخطأ الخام (يحمل اسم المزود وتفاصيله) للسجل، والمندوب يرى رسالة عمل
     await prisma.customerPaymentLink.delete({ where: { id: row.id } }).catch(() => { /* best-effort */ });
-    throw e;
+    console.error('paylink issue: provider create failed:', (e as Error).message);
+    return { ok: false, message: 'تعذر انشاء رابط الدفع حاليا حاول بعد لحظات' };
   }
 
   try {
@@ -135,6 +140,28 @@ export async function issueLink(params: {
       where: { id: row.id },
       data: { moyasarInvoiceId: moyasar.id, url: moyasar.url },
     });
+
+    // سباق الإصدار المزدوج (جهازان في نفس اللحظة): لا قيد فريد يمنع رابطين حيين
+    // بفاتورتي ميسر قابلتين للدفع معا. القاعدة: يبقى الأقدم — فإن وجدنا أقدم منا
+    // حيا بمبلغنا ألغينا أنفسنا وأعدناه، فيتقارب الطرفان على رابط واحد
+    const rival = await prisma.customerPaymentLink.findFirst({
+      where: {
+        tenantId: params.tenantId, invoiceId: invoice.id, status: 'initiated',
+        amount: remaining, url: { not: null }, id: { not: row.id },
+        createdAt: { lt: updated.createdAt },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (rival?.url) {
+      await prisma.customerPaymentLink.update({ where: { id: row.id }, data: { status: 'canceled' } }).catch(() => { /* سباق */ });
+      cancelInvoice(moyasar.id).catch((e: unknown) =>
+        console.error(`paylink converge ${row.id}: cancel failed:`, (e as Error).message));
+      return {
+        ok: true, reused: true,
+        link: { id: rival.id, token: rival.token, url: rival.url, payUrl: `${FRONT}/pay/${rival.token}`, amount: rival.amount, expiresAt: rival.expiresAt },
+      };
+    }
+
     return {
       ok: true,
       link: { id: updated.id, token, url: updated.url, payUrl: `${FRONT}/pay/${token}`, amount: remaining, expiresAt },
@@ -162,7 +189,12 @@ export async function expireStaleLinks(tenantId: string, invoiceId: string, keep
   });
   for (const s of stale) {
     await prisma.customerPaymentLink.update({ where: { id: s.id }, data: { status: 'canceled' } }).catch(() => { /* سباق */ });
-    if (s.moyasarInvoiceId) cancelInvoice(s.moyasarInvoiceId).catch(() => { /* best-effort — الويب هوك يلتقط ما فلت */ });
+    // فشل إلغاء فاتورة ميسر يعني احتمال «دُفعت للتو» — لا يُبتلع صامتاً:
+    // الصوت هنا + مسح الموتى-حديثاً في المجدول يحييان أي دفعة سبقت الإلغاء
+    if (s.moyasarInvoiceId) {
+      cancelInvoice(s.moyasarInvoiceId).catch((e: unknown) =>
+        console.error(`paylink expire ${s.id}: moyasar cancel failed (may be paid):`, (e as Error).message));
+    }
   }
 }
 
@@ -188,10 +220,18 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
   if (link.status === 'paid' && link.receiptId) return { ok: true, state: 'already-paid', receiptId: link.receiptId };
 
   const remote = await fetchInvoice(link.moyasarInvoiceId);
+  // دفاتر الميزة بالريال حصرا — عملة أخرى من المزود تعني خللا يوقف القيد لا يمرره
+  if (remote.currency && remote.currency !== 'SAR') {
+    console.error(`CRITICAL paylink ${link.id}: currency ${remote.currency} != SAR — booking refused`);
+    return { ok: false, state: 'currency-mismatch' };
+  }
   if (remote.status !== 'paid') {
-    // انتهاء أو إلغاء لدى ميسر ينعكس عندنا — والحالات العابرة تُترك كما هي
+    // انتهاء أو إلغاء لدى ميسر ينعكس عندنا — لكن لا نكتب فوق paid أبدا (درس الدهس)
     if (remote.status === 'expired' || remote.status === 'canceled') {
-      await prisma.customerPaymentLink.update({ where: { id: link.id }, data: { status: remote.status } }).catch(() => { /* سباق */ });
+      await prisma.customerPaymentLink.updateMany({
+        where: { id: link.id, status: { in: ['initiated', 'canceled', 'expired'] } },
+        data: { status: remote.status },
+      }).catch(() => { /* سباق */ });
     }
     return { ok: false, state: remote.status };
   }
@@ -252,7 +292,11 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
 
       await tx.customerPaymentLink.update({
         where: { id: link.id },
-        data: { status: 'paid', paidAt: new Date(), receiptId: rcp.id },
+        data: {
+          status: 'paid', paidAt: new Date(), receiptId: rcp.id,
+          // معرف الدفعة لدى المزود — بدونه لا يُبنى مسار الاسترداد
+          moyasarPaymentId: remote.payments?.find(p => p.status === 'paid' || p.status === 'captured')?.id ?? null,
+        },
       });
 
       await tx.notification.create({
@@ -297,26 +341,130 @@ const RECONCILE_BATCH = 40;
  */
 export async function reconcilePendingLinks(): Promise<void> {
   const now = new Date();
+  // الأقدم-فحصاً أولاً: updatedAt يرتفع بكل لمسة فتدور الدفعة على الكل بلا تجويع —
+  // الأحدث-أولاً السابقة كانت تثبت النافذة على أحدث ٤٠ ويهمل ما بعدها حتى انتهائه
   const pending = await prisma.customerPaymentLink.findMany({
     where: { status: 'initiated', moyasarInvoiceId: { not: null } },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { updatedAt: 'asc' },
     take: RECONCILE_BATCH,
     select: { id: true, moyasarInvoiceId: true, expiresAt: true },
   });
   for (const link of pending) {
     try {
       if (link.expiresAt < now) {
-        // انتهت مهلتنا (١٤ يوماً): نعلم منتهياً ونلغي فاتورة ميسر كي لا تدفع يتيمة
-        await prisma.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'expired' } });
-        if (link.moyasarInvoiceId) cancelInvoice(link.moyasarInvoiceId).catch(() => { /* best-effort */ });
+        // انتهت مهلتنا: الحقيقة من المزود **قبل** الإماتة — دفعة اللحظة الأخيرة
+        // كانت تُمات ثم لا يحييها شيء، فالمال يؤخذ بلا سند
+        const out = await confirmLinkPayment(link.id);
+        if (out.state === 'paid' || out.state === 'already-paid') continue;
+        await prisma.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'expired' } }).catch(() => { /* سباق */ });
+        if (link.moyasarInvoiceId) {
+          cancelInvoice(link.moyasarInvoiceId).catch((e: unknown) =>
+            console.error(`paylink expire ${link.id}: cancel failed:`, (e as Error).message));
+        }
         continue;
       }
-      await confirmLinkPayment(link.id); // يجلب الحقيقة من ميسر ويتصرف بها
+      const out = await confirmLinkPayment(link.id); // يجلب الحقيقة من ميسر ويتصرف بها
+      if (out.state === 'initiated') {
+        // لمسة تدوير: ترفع updatedAt فيتقدم غيره في الدفعة القادمة
+        await prisma.customerPaymentLink.update({ where: { id: link.id }, data: {} }).catch(() => { /* شكلي */ });
+      }
     } catch (e) {
       // رابط واحد معطوب لا يوقف تسوية البقية
       console.error(`paylink reconcile ${link.id}:`, (e as Error).message);
     }
   }
+
+  // مسح الموتى-حديثاً: رابط أُمِيت محلياً وقد يكون دُفع لدى المزود في نافذة السباق
+  // (إلغاء إداري/تحصيل نقدي لحظة الدفع، أو فشل إلغاء ميسر) — نسأله عنه ثلاثة أيام.
+  // confirmLinkPayment يتجاهل الحالة المحلية ويقيد المدفوع فيُبعث الرابط paid بسنده
+  const dead = await prisma.customerPaymentLink.findMany({
+    where: {
+      status: { in: ['canceled', 'expired'] },
+      receiptId: null,
+      moyasarInvoiceId: { not: null },
+      updatedAt: { gt: new Date(now.getTime() - 72 * 3600_000) },
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: 25,
+    select: { id: true },
+  });
+  for (const link of dead) {
+    try {
+      const out = await confirmLinkPayment(link.id);
+      if (out.state === 'paid') console.error(`paylink resurrect ${link.id}: paid-under-cancel booked`);
+      else await prisma.customerPaymentLink.update({ where: { id: link.id }, data: {} }).catch(() => { /* تدوير */ });
+    } catch (e) {
+      console.error(`paylink dead-sweep ${link.id}:`, (e as Error).message);
+    }
+  }
+
+  // صفوف لم يكتمل ربطها بميسر (انهيار بين الإنشاء والربط): بلا url لا تُدفع ولا تُعاد —
+  // تُمات بعد ربع ساعة كي لا تسد إعادة الاستعمال على فاتورتها
+  await prisma.customerPaymentLink.updateMany({
+    where: { status: 'initiated', url: null, createdAt: { lt: new Date(now.getTime() - 15 * 60_000) } },
+    data: { status: 'canceled' },
+  }).catch(() => { /* best-effort */ });
+}
+
+/**
+ * عكس سداد رابط بعد استرداد كامل لدى المزود (نزاع بطاقة أو رد من لوحة ميسر).
+ *
+ * قبل هذا كان حدث الاسترداد يضيع صامتا: السند يبقى والفاتورة مسددة ورصيد
+ * أمانات الشركة شاملا مبلغا خرج فعليا من حسابنا للعميل — فالتوريد الأسبوعي
+ * كان سيدفع للشركة مالا رُدَّ. المعاملة الواحدة: إلغاء السند + إرجاع الفاتورة +
+ * عكس قيود العميل + قيد REFUND في الأمانات (العمولة لا تُرد — الخدمة قُدمت).
+ */
+export async function reverseLinkPayment(linkId: string, reason: string): Promise<{ ok: boolean; state: string }> {
+  const link = await prisma.customerPaymentLink.findUnique({
+    where: { id: linkId },
+    include: { invoice: { select: { number: true } } },
+  });
+  if (!link) return { ok: false, state: 'no-link' };
+  if (link.status === 'refunded') return { ok: true, state: 'already-refunded' };
+  if (link.status !== 'paid' || !link.receiptId) return { ok: false, state: 'not-paid' };
+
+  const receipt = await prisma.receipt.findUnique({
+    where: { id: link.receiptId },
+    include: { invoiceItems: true },
+  });
+  if (!receipt) return { ok: false, state: 'no-receipt' };
+  if (receipt.status === 'CANCELLED') {
+    await prisma.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'refunded' } }).catch(() => { /* سباق */ });
+    return { ok: true, state: 'already-refunded' };
+  }
+
+  await prisma.$transaction(async tx => {
+    await tx.receipt.update({ where: { id: receipt.id }, data: { status: 'CANCELLED' } });
+    for (const item of receipt.invoiceItems) {
+      const inv = await tx.invoice.findUnique({ where: { id: item.invoiceId }, select: { paidAmt: true, remainingAmt: true } });
+      if (!inv) continue;
+      await tx.invoice.update({
+        where: { id: item.invoiceId },
+        data: {
+          paidAmt: clean(Number(inv.paidAmt) - Number(item.amount)),
+          remainingAmt: clean(Number(inv.remainingAmt) + Number(item.amount)),
+        },
+      });
+    }
+    await reverseReceiptEntries(tx as never, link.tenantId, receipt.id, link.customerId, Number(receipt.amount));
+    await postRefundEntry(tx, {
+      tenantId: link.tenantId,
+      linkId: link.id,
+      refunded: Number(receipt.amount),
+      invoiceNumber: link.invoice.number,
+    });
+    await tx.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'refunded' } });
+    await tx.notification.create({
+      data: {
+        tenantId: link.tenantId,
+        type: 'PAYLINK_REFUNDED',
+        title: 'استرداد دفعة الكترونية',
+        body: `رُدَّ مبلغ ${Number(receipt.amount)} لفاتورة ${link.invoice.number} — الغي سند ${receipt.number} (${reason})`,
+      },
+    }).catch(() => { /* كمالي */ });
+  });
+  console.error(`paylink refund ${link.id}: reversed receipt ${receipt.number} (${reason})`);
+  return { ok: true, state: 'refunded' };
 }
 
 export function startPaylinkScheduler(): void {
@@ -358,8 +506,11 @@ export async function publicLinkView(token: string) {
     if (r) receipt = { number: r.number, amount: roundHalfUp(Number(r.amount), 2), date: r.receiptDate };
   }
 
+  // اللون يحقن في سياق style بصفحة عامة — لا يغادر الخادم الا لونا صرفا
+  const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(company?.primaryColor ?? '') ? company!.primaryColor : null;
+
   return {
-    company: { name: company?.name || link.tenant.name, logo: company?.logo ?? null, primaryColor: company?.primaryColor ?? null },
+    company: { name: company?.name || link.tenant.name, logo: company?.logo ?? null, primaryColor: safeColor },
     customerName: link.customer.name,
     invoiceNumber: link.invoice.number,
     amount: link.amount,

@@ -58,6 +58,8 @@
     body{background:#fff;padding:0}
     .card{border:0;max-width:none}
     .btn2,.foot{display:none}
+    /* الخلفية الخضراء جزء من الايصال — بدون exact كان النص الابيض يخرج على ابيض */
+    .rcp-head{-webkit-print-color-adjust:exact;print-color-adjust:exact;border-bottom:2px solid #1E7A52}
   }
 </style>
 </head>
@@ -77,8 +79,9 @@
   }
   function foot(){return '<p class="foot">مدعوم من <a href="/">FieldSales</a></p>';}
 
-  function render(v){
-    var brand=(v.company&&v.company.primaryColor)||'#E15A30';
+  function render(v,confirming){
+    var raw=(v.company&&v.company.primaryColor)||'';
+    var brand=/^#[0-9a-fA-F]{3,8}$/.test(raw)?raw:'#E15A30';
     var h='<div class="brand">';
     h+= v.company&&v.company.logo
       ? '<img class="logo" alt="" src="'+esc(v.company.logo)+'">'
@@ -109,9 +112,17 @@
       app.innerHTML=h;
       return;
     }else if(v.status==='settled'){
-      h+=stateHtml('✅','الفاتورة سددت لدى الشركة','لا حاجة للدفع عبر هذا الرابط');
+      h+=stateHtml('ℹ️','تغير المبلغ المستحق لهذه الفاتورة','هذا الرابط لم يعد صالحا اطلب من مندوبك رابطا محدثا');
+    }else if(v.status==='refunded'){
+      h+=stateHtml('↩️','اعيد مبلغ هذه العملية','رُد المبلغ الى وسيلة الدفع التي استخدمتها');
     }else if(v.status==='expired'||v.status==='canceled'){
       h+=stateHtml('⌛','انتهت صلاحية الرابط','اطلب من مندوبك رابط دفع جديدا');
+    }else if(confirming){
+      h+='<div class="spin"></div>';
+      h+=stateHtml('🕐','جار تاكيد عملية الدفع','ان اتممت الدفع فسيسجل تلقائيا خلال دقائق ويظهر ايصالك هنا');
+      app.innerHTML=h;
+      setTimeout(function(){location.replace(location.pathname);},20000);
+      return;
     }else if(v.payUrl){
       h+='<a class="btn" style="background:'+esc(brand)+'" href="'+esc(v.payUrl)+'">💳&nbsp; ادفع الان بامان</a>';
       h+=foot();
@@ -135,16 +146,24 @@
   // عائد من صفحة الدفع (?done=1): نطلب التأكيد أولاً — الخادم يجلب الحقيقة من المزود
   // نفسه (صفحة النجاح ليست دليلاً) — ثم نعرض؛ ولو تأخر التأكيد نعيد المحاولة.
   if(location.search.indexOf('done=1')>-1){
+    // الخادم يخنق refresh لكل رابط ٦ ثوان — محاولات اقرب ترتد «initiated» اصطناعيا
     var tries=0;
+    var loadConfirming=function(){
+      fetch(API+'/public/'+encodeURIComponent(token))
+        .then(function(r){if(!r.ok)throw 0;return r.json();})
+        .then(function(j){render(j.data,true);})
+        .catch(fail);
+    };
     var confirmThenLoad=function(){
       fetch(API+'/public/'+encodeURIComponent(token)+'/refresh',{method:'POST'})
         .then(function(r){return r.json();})
         .then(function(j){
           var st=j&&j.data&&j.data.state;
-          if(st==='initiated'&&tries++<3){
+          if(st==='initiated'&&tries++<2){
             app.innerHTML='<div class="spin"></div><p class="state s" style="text-align:center;color:#8A8178;font-size:13px">جار تاكيد عملية الدفع</p>';
-            setTimeout(confirmThenLoad,2500);return;
+            setTimeout(confirmThenLoad,6500);return;
           }
+          if(st==='initiated'){loadConfirming();return;}
           load();
         })
         .catch(load);

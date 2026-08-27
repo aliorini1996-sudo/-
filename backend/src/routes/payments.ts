@@ -264,6 +264,38 @@ paymentsWebhookRouter.post('/', async (req: Request, res: Response) => {
     const invId = (data.invoice_id as string) || '';
     const payId = (data.id as string) || '';
     const byRef = (data.metadata?.ref as string) || '';
+
+    // روابط دفع فواتير العملاء أولاً — كان الفرع يبحث في روابط الاشتراكات فقط
+    // فيضيع الاسترداد صامتاً وتُورَّد الشركة مالاً رُدَّ لعميلها
+    const cplLinkId = (data.metadata?.linkId as string) || '';
+    const cpl = cplLinkId
+      ? await prisma.customerPaymentLink.findUnique({ where: { id: cplLinkId }, select: { id: true, moyasarPaymentId: true } }).catch(() => null)
+      : invId
+        ? await prisma.customerPaymentLink.findUnique({ where: { moyasarInvoiceId: invId }, select: { id: true, moyasarPaymentId: true } }).catch(() => null)
+        : null;
+    if (cpl && payId) {
+      try {
+        // الحقيقة من ميسر بمفتاحنا — لا ثقة بجسم الويب هوك (المبدأ الحاكم)
+        const { fetchPayment } = await import('../services/moyasar');
+        const payment = await fetchPayment(payId);
+        const refundedAll = payment.status === 'refunded' || payment.status === 'voided'
+          || (Number(payment.refunded ?? 0) >= Number(payment.amount ?? 0) && Number(payment.amount ?? 0) > 0);
+        if (payment.status === 'failed') { res.json({ success: true }); return; }
+        if (refundedAll) {
+          const { reverseLinkPayment } = await import('../services/paylink');
+          await reverseLinkPayment(cpl.id, `حدث ${type} من المزود`);
+        } else if (Number(payment.refunded ?? 0) > 0) {
+          // استرداد جزئي: لا عكس آلي (السند لا يُشطر) — إنذار للمعالجة اليدوية
+          console.error(`CRITICAL paylink ${cpl.id}: partial refund ${payment.refunded} needs manual handling`);
+        }
+        res.json({ success: true });
+      } catch (e) {
+        console.error('paylink refund webhook error:', (e as Error).message);
+        res.status(500).json({ success: false }); // ميسر سيعيد الإرسال
+      }
+      return;
+    }
+
     const target = byRef
       ? await prisma.paymentLink.findUnique({ where: { id: byRef }, select: { id: true } }).catch(() => null)
       : invId

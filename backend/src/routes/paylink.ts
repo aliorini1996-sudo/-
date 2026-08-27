@@ -5,7 +5,7 @@ import { authenticate, requireAdmin, requireAdminPermission, requireSuperAdmin, 
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { issueLink, publicLinkView, confirmLinkPayment, paylinkConfigured, expireStaleLinks } from '../services/paylink';
-import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT, adminScopeEnabled } from '../services/adminScope';
 import { roundHalfUp } from '../lib/money';
 import { settlementBalance, recordPayout } from '../services/settlement';
 
@@ -48,7 +48,10 @@ router.post('/public/:token/refresh', async (req: Request, res: Response, next: 
     if (!TOKEN_RE.test(token)) { res.status(404).json({ success: false }); return; }
     const link = await prisma.customerPaymentLink.findUnique({ where: { token }, select: { id: true, status: true } });
     if (!link) { res.status(404).json({ success: false }); return; }
-    if (link.status !== 'initiated') { res.json({ success: true, data: { state: link.status } }); return; }
+    // paid/refunded نهائيتان؛ أما canceled/expired فتُسأل عنهما ميسر أيضا:
+    // من دفع في نافذة سباق الإلغاء وعاد لصفحة النجاح كان يُرَدّ «انتهى الرابط»
+    // بينما ماله محصل بلا سند — confirmLinkPayment يتجاهل الحالة المحلية ويقيده
+    if (link.status === 'paid' || link.status === 'refunded') { res.json({ success: true, data: { state: link.status } }); return; }
     const last = lastRefreshAt.get(link.id) || 0;
     if (Date.now() - last < 6000) { res.json({ success: true, data: { state: 'initiated' } }); return; }
     lastRefreshAt.set(link.id, Date.now());
@@ -56,6 +59,12 @@ router.post('/public/:token/refresh', async (req: Request, res: Response, next: 
     res.json({ success: true, data: { state: out.state } });
   } catch (err) { next(err); }
 });
+
+// خريطة الخنق تنظف دوريا كي لا تنمو بلا حد (روابط كثيرة عبر الزمن)
+setInterval(() => {
+  const cutoff = Date.now() - 3600_000;
+  for (const [k, v] of lastRefreshAt) if (v < cutoff) lastRefreshAt.delete(k);
+}, 15 * 60_000).unref?.();
 
 // ═══ مسارات الشركة — مصادقة ثم بوابة الاشتراك (نمط ERP حرفياً) ═══
 
@@ -175,6 +184,28 @@ router.get('/links', requireAdmin, requireAdminPermission('canManageReceipts'), 
 router.get('/summary', requireAdmin, requireAdminPermission('canManageReceipts'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+
+    // المستخدم المقيد النطاق: دفتر الأمانات شأن الشركة كلها ولا بعد عميل له —
+    // يرى إحصاء روابط عملائه فقط، وتُحجب بطاقات الأمانات والتوريد عنه
+    if (await adminScopeEnabled(req)) {
+      const where = { tenantId: tid, status: 'paid', ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) };
+      const [agg, cnt] = await Promise.all([
+        prisma.customerPaymentLink.aggregate({ where, _sum: { amount: true } }),
+        prisma.customerPaymentLink.count({ where }),
+      ]);
+      res.json({
+        success: true,
+        data: {
+          scoped: true,
+          collected: roundHalfUp(Number(agg._sum.amount ?? 0), 2),
+          paymentsCount: cnt,
+          fees: null, refunds: null, payouts: null, balance: null, lastPayout: null,
+        },
+      });
+      return;
+    }
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { paylinkFeePct: true, paylinkFeeFlat: true } });
     const groups = await prisma.settlementEntry.groupBy({
       by: ['kind'],
       where: { tenantId: tid },
@@ -198,6 +229,9 @@ router.get('/summary', requireAdmin, requireAdminPermission('canManageReceipts')
         // ما يستحقونه الآن = المحصل − العمولة − المسترد − ما ورد إليهم فعلا
         balance: roundHalfUp(collected - fees - refunds - payouts, 2),
         lastPayout,
+        // نسبة هذه الشركة تحديدا — البطاقة كانت تعرض 4%+1 نصا مثبتا
+        feePct: Number(tenant?.paylinkFeePct ?? 4),
+        feeFlat: Number(tenant?.paylinkFeeFlat ?? 1),
       },
     });
   } catch (err) { next(err); }
