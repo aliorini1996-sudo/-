@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { vanStockApi, productApi, salesRepApi, companyApi } from '../api/client';
-import { formatDate } from '../utils/format';
+import { formatDate, activeLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
 import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download } from 'lucide-react';
@@ -66,7 +66,7 @@ interface Movement {
   items: { name: string; unit: string; qty: number }[];
 }
 
-const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
+const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString(activeLocale());
 
 // لوحة مخزون سيارات المناديب — ملخّص لكل مندوب + تفاصيل المخزون وحركته
 export default function VanStockPage() {

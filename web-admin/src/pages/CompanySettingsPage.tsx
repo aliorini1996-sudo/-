@@ -35,6 +35,7 @@ export default function CompanySettingsPage() {
   const [headerStyle, setHeaderStyle] = useState('classic');
   const [countryCode, setCountryCode] = useState('SA'); // دولة الشركة (تُشتقّ منها العملة والضريبة)
   const [currencyOverride, setCurrencyOverride] = useState(''); // '' = عملة الدولة | USD | EUR
+  const [numerals, setNumerals] = useState('arabic'); // شكل الأرقام: arabic ٠١٢٣ | latin 0123
   // بيانات ربط الفوترة الإلكترونية (السرّ لا يُعاد من الخادم — hasSecret يشير إن كان مضبوطاً)
   const [einv, setEinv] = useState({ enabled: false, env: 'preprod', clientId: '', clientSecret: '', activityCode: '', branchCode: '', intermediaryUrl: '' });
   const [hasSecret, setHasSecret] = useState(false);
@@ -60,6 +61,7 @@ export default function CompanySettingsPage() {
     setHeaderStyle(data.headerStyle || 'classic');
     setCountryCode(data.countryCode || 'SA');
     setCurrencyOverride((data as { currencyOverride?: string | null }).currencyOverride || '');
+    setNumerals((data as { numerals?: string | null }).numerals || 'arabic');
     setEinv({
       enabled: data.einvoiceEnabled || false,
       env: data.einvoiceEnv || 'preprod',
@@ -74,7 +76,7 @@ export default function CompanySettingsPage() {
 
   const mutation = useMutation({
     mutationFn: (values: CompanyForm) => companyApi.update({
-      ...values, logo, primaryColor, headerStyle, countryCode, currencyOverride,
+      ...values, logo, primaryColor, headerStyle, countryCode, currencyOverride, numerals,
       einvoiceEnabled: einv.enabled, einvoiceEnv: einv.env,
       einvoiceClientId: einv.clientId, einvoiceActivityCode: einv.activityCode,
       einvoiceBranchCode: einv.branchCode, einvoiceIntermediaryUrl: einv.intermediaryUrl,
@@ -162,6 +164,22 @@ export default function CompanySettingsPage() {
                   <option value="EUR">{tr('يورو')} — EUR €</option>
                 </select>
                 <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('تغير عملة الفواتير والسندات والتقارير كلها — الضريبة والفوترة الالكترونية تبقى حسب الدولة')}</p>
+              </div>
+              <div>
+                <label className="label">{tr('شكل الارقام')}</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { v: 'arabic', label: tr('ارقام عربية'), sample: '١٢٣٤٥٦٫٧٨' },
+                    { v: 'latin', label: tr('ارقام انجليزية'), sample: '123456.78' },
+                  ] as const).map(o => (
+                    <button key={o.v} type="button" onClick={() => setNumerals(o.v)}
+                      className={`rounded-xl border-2 p-3 text-right transition-colors ${numerals === o.v ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#D8CDB9]'}`}>
+                      <span className="block text-[13px] font-bold text-[#1F1A13]">{o.label}</span>
+                      <span className="block text-lg font-bold mt-0.5" dir="ltr" style={{ color: numerals === o.v ? '#E15A30' : '#8A8178' }}>{o.sample}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('يسري على المبالغ والكميات والتواريخ في اللوحة وتطبيق المندوب والتقارير — الواجهة الانجليزية تبقى بارقام انجليزية دائما')}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

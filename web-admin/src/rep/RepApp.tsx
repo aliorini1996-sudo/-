@@ -3,7 +3,7 @@ import repApi from './repApi';
 import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
 import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
 import type { OutboxDoc } from './offlineDb';
-import { formatCurrency, formatDate, setActiveCurrency, getActiveCurrency } from '../utils/format';
+import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
@@ -1815,7 +1815,8 @@ function RepVanStock({ canLoad }: { canLoad: boolean }) {
   useEffect(() => { (async () => { const { data } = await fetchThenCache('products', async () => (await repApi.get('/products', { params: { limit: 1000, status: 'ACTIVE' } })).data.data); if (data) setProducts(data as { id: string; name: string; unit: string; code: string }[]); })(); }, []);
   useEffect(() => { if (!canLoad && view === 'load') setView('list'); }, [canLoad, view]);
 
-  const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
+  // الكميات تتبع خيار الشركة في شكل الأرقام كبقية المنصة (كانت مثبّتة لاتينية)
+  const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString(activeLocale());
 
   const addProduct = (id: string) => {
     if (!id || rows.some(r => r.productId === id)) return;
@@ -2111,7 +2112,11 @@ export default function RepApp() {
     (async () => {
       const { data } = await fetchThenCache<Company>('company', async () =>
         (await repApi.get('/company')).data.data);
-      if (data) { setCompany(data); setActiveCurrency((data as { currency?: string })?.currency); }
+      if (data) {
+        setCompany(data);
+        setActiveCurrency((data as { currency?: string })?.currency);
+        setActiveNumerals((data as { numerals?: string })?.numerals);
+      }
     })();
     // هل ربطت الشركة بترو آب؟ (يظهر زرّ الوقود) — فشله الصامت يعني إخفاء الزرّ فقط
     (async () => {

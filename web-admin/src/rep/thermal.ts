@@ -1,21 +1,35 @@
 // طباعة حرارية 58 مم — تعمل مع الطابعة المدمجة أو طابعة بلوتوث عبر نظام الطباعة في الجهاز
 import QRCode from 'qrcode';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
-import { paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { paymentMethodLabels, getActiveCurrency, getActiveNumerals } from '../utils/format';
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 
 function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 }
-// مبلغ بخانات عملة الشركة النشطة (٢/٣)، ورمز العملة النشط
-function money(n: number): string { return (Number(n) || 0).toFixed(currencyDecimals(getActiveCurrency())); }
+/**
+ * مبلغ بخانات عملة الشركة النشطة (٢/٣) وبشكل الأرقام الذي اختارته الشركة.
+ *
+ * الأساس toFixed (لاتيني بخانات مضبوطة) ثم تُترجم الخانات إن اختيرت العربية —
+ * وليس Intl: حاجز الآلاف يضيّق سطر الطابعة ٥٨ مم ويكسر محاذاة الأعمدة.
+ * ⚠️ لا يمس رمز الفاتورة الضريبية: حمولته تُبنى من الأرقام الخام مباشرة.
+ */
+const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+export function localizeDigits(s: string): string {
+  return getActiveNumerals() === 'arabic'
+    ? s.replace(/\d/g, d => AR_DIGITS[Number(d)]).replace(/\./g, '٫')
+    : s;
+}
+function money(n: number): string {
+  return localizeDigits((Number(n) || 0).toFixed(currencyDecimals(getActiveCurrency())));
+}
 function curSym(): string { return currencySymbol(getActiveCurrency()); }
 function dt(d: string): string {
   const t = new Date(d);
   if (isNaN(t.getTime())) return '';
   const p = (x: number) => String(x).padStart(2, '0');
-  return `${p(t.getDate())}/${p(t.getMonth() + 1)}/${t.getFullYear()} ${p(t.getHours())}:${p(t.getMinutes())}`;
+  return localizeDigits(`${p(t.getDate())}/${p(t.getMonth() + 1)}/${t.getFullYear()} ${p(t.getHours())}:${p(t.getMinutes())}`);
 }
 
 // يطبع محتوى HTML في إطار مخفي بمقاس 58 مم
@@ -82,7 +96,7 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
   const items = doc.items.map(it => `
     <div class="item">
       <div class="iname">${esc(it.name)}${it.unit ? ` <span class="muted">(${esc(it.unit)})</span>` : ''}</div>
-      <div class="row"><span>${it.qty} × ${money(it.unitPrice)}${it.discountPct > 0 ? ` -${it.discountPct}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>
+      <div class="row"><span>${localizeDigits(String(it.qty))} × ${money(it.unitPrice)}${it.discountPct > 0 ? ` -${localizeDigits(String(it.discountPct))}%` : ''}</span><span class="b">${money(it.lineTotal)}</span></div>
     </div>`).join('');
 
   // نسبة الضريبة من البنود نفسها: الاشتقاق العكسي من المبالغ كان يطبع نسبة

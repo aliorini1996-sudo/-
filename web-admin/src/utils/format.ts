@@ -1,11 +1,36 @@
 import { currencyDecimals } from '../i18n/countries';
 import { useLang } from '../i18n/lang';
 
-// الـlocale الحالي حسب لغة الواجهة (لتنسيق الأرقام والتواريخ) — عربي/إنجليزي/فرنسي
+/**
+ * شكل الأرقام المختار للشركة: arabic = ٠١٢٣ · latin = 0123.
+ * يُضبط عند الإقلاع من إعدادات الشركة (كما تُضبط العملة).
+ */
+let activeNumerals: 'arabic' | 'latin' = 'arabic';
+export function setActiveNumerals(v?: string | null) {
+  if (v === 'arabic' || v === 'latin') activeNumerals = v;
+}
+export function getActiveNumerals() { return activeNumerals; }
+
+/**
+ * الـlocale الحالي للتنسيق — لغة الواجهة + **نظام الترقيم المختار**.
+ *
+ * إلحاق `-u-nu-latn` أو `-u-nu-arab` هو المفتاح: Intl يطبّقه على الأرقام
+ * والتواريخ والعملات معاً، فيسري خيار الشركة على كل رقم في المنصة من نقطة
+ * واحدة بدل مطاردته في عشرات الشاشات.
+ *
+ * اللغات اللاتينية تبقى لاتينية دائماً — «أرقام عربية» في واجهة إنجليزية
+ * قراءة لا يريدها أحد، والخيار مقصود به الواجهة العربية.
+ */
 function locale(): string {
   const l = useLang.getState().lang;
-  return l === 'en' ? 'en-US' : l === 'fr' ? 'fr-FR' : l === 'tr' ? 'tr-TR' : 'ar-SA';
+  if (l === 'en') return 'en-US';
+  if (l === 'fr') return 'fr-FR';
+  if (l === 'tr') return 'tr-TR';
+  return activeNumerals === 'latin' ? 'ar-SA-u-nu-latn' : 'ar-SA-u-nu-arab';
 }
+
+/** الـlocale نفسه للاستعمال خارج هذا الملف (شاشات تنسّق بنفسها) */
+export function activeLocale(): string { return locale(); }
 
 // عملة العرض النشطة — تُضبط من إعدادات الشركة عند الإقلاع (افتراضي ر.س السعودي)
 let activeCurrency = 'SAR';

@@ -5,7 +5,7 @@ import { BrandIcon } from '../components/BrandLogo';
 import AppIntro from '../components/AppIntro';
 import LanguageToggle from '../components/LanguageToggle';
 import { useAuthStore } from '../store/authStore';
-import { setActiveCurrency } from '../utils/format';
+import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { User } from '../types';
 import MobileLogin from './MobileLogin';
@@ -76,6 +76,7 @@ export default function MobileApp() {
         if (!alive) return;
         setCompany(data?.data ?? null);
         setActiveCurrency((data?.data as { currency?: string })?.currency);
+        setActiveNumerals((data?.data as { numerals?: string })?.numerals);
       } catch { /* الفشل لا يمنع التطبيق — تبقى العملة الافتراضية */ }
     })();
     return () => { alive = false; };

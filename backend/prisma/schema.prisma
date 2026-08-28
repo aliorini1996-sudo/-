@@ -749,6 +749,10 @@ model CompanySettings {
   logo                     String? // شعار الشركة (base64 data URL)
   primaryColor             String? // لون الترويسة الأساسي (hex)
   headerStyle              String? @default("classic") // classic | banner | minimal
+  // شكل الأرقام في الواجهة والمطبوعات: arabic = ٠١٢٣ · latin = 0123.
+  // الافتراضي arabic لأنه سلوك المنصة القائم في الواجهة العربية — فلا تتبدّل
+  // شاشة أي شركة قائمة عند التحديث.
+  numerals                 String  @default("arabic")
   trackingEnabled          Boolean @default(false) // تفعيل تتبّع مواقع المناديب GPS على مستوى الشركة
   // عزل عملاء المناديب: عند التفعيل لا يرى المندوب إلا العملاء المُسنَدين له (CustomerAssignment).
   // افتراضي false ⇒ كل الشركات القائمة تبقى على سلوكها الحالي عند db push (لا انقطاع).

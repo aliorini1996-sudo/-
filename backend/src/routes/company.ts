@@ -18,6 +18,7 @@ const companySchema = z.object({
   logo: z.string().nullish().or(z.literal('')),        // base64 data URL
   primaryColor: z.string().nullish().or(z.literal('')), // hex
   headerStyle: z.enum(['classic', 'banner', 'minimal']).nullish(),
+  numerals: z.enum(['arabic', 'latin']).nullish(),
   countryCode: z.string().length(2).nullish(),          // دولة الشركة (تُشتقّ منها العملة والضريبة)
   currencyOverride: z.enum(['USD', 'EUR']).nullish().or(z.literal('')), // '' أو null = عملة الدولة
   // بيانات ربط الفوترة الإلكترونية (تُدخلها الشركة نفسها)

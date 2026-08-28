@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { companyApi } from '../api/client';
-import { setActiveCurrency } from '../utils/format';
+import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import SupportModal from '../components/SupportModal';
 import EmailVerifyBanner from '../components/EmailVerifyBanner';
@@ -45,7 +45,10 @@ export default function MainLayout() {
     queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean } | null,
     staleTime: 300_000,
   });
-  useEffect(() => { setActiveCurrency(companyCfg?.currency); }, [companyCfg]);
+  useEffect(() => {
+    setActiveCurrency(companyCfg?.currency);
+    setActiveNumerals((companyCfg as { numerals?: string } | null | undefined)?.numerals);
+  }, [companyCfg]);
   const [showPassword, setShowPassword] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
 

@@ -1,7 +1,7 @@
 import { useState, useMemo, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/client';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, activeLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
@@ -142,8 +142,8 @@ export default function ReportsPage() {
 
   // صيغة عرض المدة: «Xس Yد»
   const fmtDuration = (h: number, m: number) => `${h} ${tr('س')} ${m} ${tr('د')}`;
-  const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString('ar', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
-  const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('ar', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString(activeLocale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const fmtDay = (iso: string) => new Date(iso).toLocaleDateString(activeLocale(), { year: 'numeric', month: '2-digit', day: '2-digit' });
   const fmtClock = (iso: string) => new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
   const fmtMin = (min: number) => fmtDuration(Math.floor(min / 60), min % 60);
   // مدة الزيارة بالثواني — بنفس تدرّج خريطة التتبّع حتى يتطابق المعروضان
@@ -398,7 +398,7 @@ export default function ReportsPage() {
     }).join('');
     const el = document.createElement('div');
     el.style.cssText = 'position:fixed;left:-99999px;top:0;width:780px;background:#fff;padding:24px;font-family:Tahoma,Arial,sans-serif;direction:rtl';
-    el.innerHTML = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString('ar'))}</p></div>${tables}`;
+    el.innerHTML = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>${tables}`;
     document.body.appendChild(el);
     try {
       const blob = await elementToPdfBlob(el);
