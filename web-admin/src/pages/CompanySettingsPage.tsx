@@ -173,9 +173,9 @@ export default function CompanySettingsPage() {
                     { v: 'latin', label: tr('ارقام انجليزية'), sample: '123456.78' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setNumerals(o.v)}
-                      className={`rounded-xl border-2 p-3 text-right transition-colors ${numerals === o.v ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#D8CDB9]'}`}>
-                      <span className="block text-[13px] font-bold text-[#1F1A13]">{o.label}</span>
-                      <span className="block text-lg font-bold mt-0.5" dir="ltr" style={{ color: numerals === o.v ? '#E15A30' : '#8A8178' }}>{o.sample}</span>
+                      className={`rounded-xl border-2 px-3 py-2 text-right transition-colors ${numerals === o.v ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#D8CDB9]'}`}>
+                      <span className="block text-[12.5px] font-bold text-[#1F1A13]">{o.label}</span>
+                      <span className="block text-[12px] mt-0.5" dir="ltr" style={{ color: numerals === o.v ? '#E15A30' : '#9A8F7E' }}>{o.sample}</span>
                     </button>
                   ))}
                 </div>
