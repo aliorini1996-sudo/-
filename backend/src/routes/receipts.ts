@@ -6,6 +6,7 @@ import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../servi
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries, clean } from '../services/accounting';
+import { fillAllocationsFifo } from '../services/allocate';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 
 const router = Router();
@@ -190,7 +191,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return;
     }
 
-    const allocations = groupAllocations((body.invoiceAllocations ?? []) as { invoiceId: string; amount: number }[]);
+    let allocations = groupAllocations((body.invoiceAllocations ?? []) as { invoiceId: string; amount: number }[]);
     const allocatedTotal = allocations.reduce((sum, item) => sum + item.amount, 0);
     // نصف اصغر وحدة عملة — الحاجز القديم 0.001 كان يقبل فلسا زائدا كاملا في العملات الثلاثية
     if (allocatedTotal > body.amount + 0.0005) {
@@ -200,6 +201,24 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const docDate = body.receiptDate ? new Date(body.receiptDate) : undefined;
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (سندان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
+    // ═══ التوزيع إلزاميّ (قرار المالك) ═══
+    // الواجهة تُلزم المستخدم، والخادم يضمن القاعدة: أي متبقٍّ غير موزَّع يُكمَّل
+    // آلياً على أقدم الفواتير. بهذا لا يطفو سند بلا فواتير مهما كان مصدره —
+    // أوف‑لاين المندوب، تطبيق الإدارة، أو تكامل خارجيّ. والفائض عن مديونية
+    // العميل يبقى رصيداً دائناً له كما كان.
+    const openInvoices = await prisma.invoice.findMany({
+      where: { tenantId: tid, customerId, status: 'CONFIRMED', type: 'CREDIT', remainingAmt: { gt: 0.004 } },
+      orderBy: { invoiceDate: 'asc' },
+      select: { id: true, remainingAmt: true, invoiceDate: true },
+    });
+    const filled = fillAllocationsFifo(
+      body.amount,
+      allocations as { invoiceId: string; amount: number }[],
+      openInvoices.map(i => ({ id: i.id, remainingAmt: Number(i.remainingAmt), invoiceDate: i.invoiceDate })),
+    );
+    // التخصيص المكتمل يحلّ محلّ الوارد (الدالة تجمع المتكرّر بالفاتورة أصلاً)
+    allocations = filled;
+
     const receipt = await withNumberRetry(async () => {
     const number = await generateReceiptNumber(tid, docDate); // البادئة من تاريخ السند لا وقت الرفع
     return prisma.$transaction(async tx => {

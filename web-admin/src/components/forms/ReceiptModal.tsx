@@ -11,6 +11,9 @@ import SearchableSelect from '../SearchableSelect';
 
 interface Props { onClose: () => void; onSaved: (doc: ReceiptDoc) => void; }
 
+/** تقريب نقدي محلي — يمنع غبار العائمة في مقارنات التوزيع */
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
 export default function ReceiptModal({ onClose, onSaved }: Props) {
   const tr = useTr();
   const [customerId, setCustomerId] = useState('');
@@ -74,12 +77,38 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     },
   });
 
-  const totalAllocated = Object.values(allocations).reduce((s, v) => s + v, 0);
+  const totalAllocated = round2(Object.values(allocations).reduce((s, v) => s + v, 0));
+  // مديونية العميل المفتوحة — سقف ما يمكن توزيعه
+  const outstanding = round2((openInvoices ?? []).reduce((s, i) => s + Math.max(0, Number(i.remainingAmt) || 0), 0));
+  /**
+   * التوزيع إلزاميّ (قرار المالك) — لكن بحدّ المعقول: يُطالَب المستخدم بتوزيع
+   * الأصغر بين مبلغ السند ومديونية العميل. من دفع أكثر من دَينه يبقى الفائض
+   * رصيداً دائناً له، ولا يُطالَب أحد بتوزيع مبلغ لا فواتير له.
+   */
+  const required = round2(Math.min(Number(amount) || 0, outstanding));
+  const shortfall = round2(required - totalAllocated);
+
+  /** توزيع آليّ بالأقدم أولاً — يجعل الإلزام خطوة واحدة لا عبئاً */
+  const autoAllocate = () => {
+    let left = round2(Number(amount) || 0);
+    const next: Record<string, number> = {};
+    for (const inv of openInvoices ?? []) {
+      if (left <= 0.004) break;
+      const take = round2(Math.min(Number(inv.remainingAmt) || 0, left));
+      if (take > 0.004) { next[inv.id] = take; left = round2(left - take); }
+    }
+    setAllocations(next);
+  };
 
   const handleSubmit = () => {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
     if (!amount || Number(amount) <= 0) { toast.error(tr('أدخل المبلغ')); return; }
+    // التوزيع إلزاميّ: لا يُصدر سند يطفو بلا فواتير ما دام للعميل مديونية مفتوحة
+    if (shortfall > 0.004) {
+      toast.error(`${tr('وزع كامل مبلغ السند على الفواتير — المتبقي')}: ${formatCurrency(shortfall)}`);
+      return;
+    }
     const invoiceAllocations = Object.entries(allocations)
       .filter(([, v]) => v > 0)
       .map(([invoiceId, amt]) => ({ invoiceId, amount: amt }));
@@ -163,10 +192,16 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
             </div>
           )}
 
-          {/* Open Invoices */}
+          {/* Open Invoices — التوزيع إلزاميّ */}
           {openInvoices && openInvoices.length > 0 && (
             <div>
-              <label className="label">{tr('توزيع على الفواتير اختياري')}</label>
+              <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                <label className="label !mb-0">{tr('توزيع على الفواتير')} *</label>
+                <button type="button" onClick={autoAllocate} disabled={!amount || Number(amount) <= 0}
+                  className="text-xs font-bold text-[#2E6FB0] hover:underline disabled:text-gray-300 disabled:no-underline">
+                  {tr('توزيع تلقائي على الأقدم')}
+                </button>
+              </div>
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <table className="table">
                   <thead>
@@ -190,10 +225,24 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
                   </tbody>
                 </table>
               </div>
-              {totalAllocated > 0 && (
-                <p className="text-xs text-gray-500 mt-1">{tr('موزع')}: {formatCurrency(totalAllocated)}</p>
+              <div className="flex items-center justify-between mt-1.5 text-xs gap-2 flex-wrap">
+                <span className="text-gray-500">{tr('موزع')}: <b className="text-gray-700">{formatCurrency(totalAllocated)}</b> {tr('من')} {formatCurrency(required)}</span>
+                {shortfall > 0.004
+                  ? <span className="font-bold text-[#B4530A]">{tr('يلزم توزيع')} {formatCurrency(shortfall)}</span>
+                  : <span className="font-bold text-green-600">✓ {tr('التوزيع مكتمل')}</span>}
+              </div>
+              {Number(amount) > outstanding + 0.004 && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  {tr('الفائض عن مديونية العميل')} ({formatCurrency(round2(Number(amount) - outstanding))}) {tr('يبقى رصيدا دائنا له')}
+                </p>
               )}
             </div>
+          )}
+
+          {selectedCustomer && openInvoices && openInvoices.length === 0 && (
+            <p className="text-xs text-gray-500 bg-[#FAF7F0] border border-[#E9E1D3] rounded-xl px-3 py-2">
+              {tr('لا فواتير مفتوحة لهذا العميل — يسجل السند دفعة مقدمة ورصيدا دائنا له')}
+            </p>
           )}
 
           <div>

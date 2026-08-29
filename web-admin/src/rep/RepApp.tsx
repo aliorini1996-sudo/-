@@ -1461,15 +1461,57 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  // فواتير العميل المفتوحة + توزيع السند عليها (إلزاميّ عند الاتصال)
+  const [openInv, setOpenInv] = useState<any[] | null>(null);
+  const [alloc, setAlloc] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (customer._offline || !customer.id) { setOpenInv([]); return; }
+    (async () => {
+      try {
+        const res = await repApi.get('/invoices', { params: { customerId: customer.id, status: 'CONFIRMED', type: 'CREDIT', limit: 50 } });
+        setOpenInv((res.data.data || []).filter((i: any) => Number(i.remainingAmt) > 0.004));
+      } catch {
+        // بلا اتصال: القائمة تتعذّر — السند يمرّ والخادم يوزّعه بالأقدم عند الرفع
+        setOpenInv(null);
+      }
+    })();
+  }, [customer.id]);
+
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const allocated = r2(Object.values(alloc).reduce((s, v) => s + v, 0));
+  const outstanding = r2((openInv ?? []).reduce((s, i) => s + Math.max(0, Number(i.remainingAmt) || 0), 0));
+  const required = r2(Math.min(Number(amount) || 0, outstanding));
+  const shortfall = r2(required - allocated);
+
+  /** توزيع آليّ بالأقدم أولاً — الإلزام بضغطة لا بحساب يدويّ في الميدان */
+  const autoAlloc = (amt?: number) => {
+    let left = r2(amt ?? (Number(amount) || 0));
+    const next: Record<string, number> = {};
+    for (const inv of openInv ?? []) {
+      if (left <= 0.004) break;
+      const take = r2(Math.min(Number(inv.remainingAmt) || 0, left));
+      if (take > 0.004) { next[inv.id] = take; left = r2(left - take); }
+    }
+    setAlloc(next);
+  };
 
   const submit = async () => {
     if (perms.canCreateReceipt === false) { setMsg(tr('لا تملك صلاحية إصدار سند قبض')); return; }
     if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغا صحيحا')); return; }
+    // التوزيع إلزاميّ حين تتوفّر قائمة الفواتير — وبلا اتصال يوزّعه الخادم بالأقدم
+    if (openInv && openInv.length > 0 && shortfall > 0.004) {
+      setMsg(`${tr('وزع كامل المبلغ على الفواتير — المتبقي')}: ${formatCurrency(shortfall)}`);
+      return;
+    }
     setLoading(true); setMsg('');
     const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
     const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
-    const payload = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, clientRef, clientCreatedAt };
+    const invoiceAllocations = Object.entries(alloc)
+      .filter(([, v]) => v > 0.004)
+      .map(([invoiceId, a]) => ({ invoiceId, amount: a }));
+    const payload = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, clientRef, clientCreatedAt, ...(invoiceAllocations.length ? { invoiceAllocations } : {}) };
     try {
       const res = await repApi.post('/receipts', payload);
       const rcp = res.data.data;
@@ -1510,8 +1552,57 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 
         <div>
           <label className="label">{tr('المبلغ المحصل')}</label>
-          <input type="number" step="0.01" inputMode="decimal" className="input text-lg font-bold" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
+          <input type="number" step="0.01" inputMode="decimal" className="input text-lg font-bold" placeholder="0.00"
+            value={amount}
+            onChange={e => { setAmount(e.target.value); autoAlloc(Number(e.target.value)); }} />
         </div>
+
+        {/* توزيع السند على الفواتير — إلزاميّ */}
+        {openInv === null ? (
+          <p className="text-[11px] text-gray-500 bg-gray-100 rounded-xl px-3 py-2">
+            {tr('تعذر تحميل الفواتير — سيوزع السند تلقائيا على الاقدم عند رفعه')}
+          </p>
+        ) : openInv.length === 0 ? (
+          <p className="text-[11px] text-gray-500 bg-gray-100 rounded-xl px-3 py-2">
+            {tr('لا فواتير مفتوحة — يسجل السند رصيدا دائنا للعميل')}
+          </p>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-1.5 gap-2">
+              <label className="label !mb-0">{tr('توزيع على الفواتير')} *</label>
+              <button type="button" onClick={() => autoAlloc()} disabled={!amount || Number(amount) <= 0}
+                className="text-xs font-bold text-green-700 disabled:text-gray-300">{tr('توزيع تلقائي')}</button>
+            </div>
+            <div className="space-y-1.5">
+              {openInv.map(inv => (
+                <div key={inv.id} className="bg-white border border-gray-200 rounded-xl p-2.5 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12.5px] font-bold text-gray-700 truncate">{inv.number}</p>
+                    <p className="text-[11px] text-[#C0392B]">{tr('المتبقي')}: {formatCurrency(inv.remainingAmt)}</p>
+                  </div>
+                  <input type="number" step="0.01" inputMode="decimal" min="0" max={Number(inv.remainingAmt)}
+                    className="input !w-24 !py-1.5 text-sm text-center" placeholder="0"
+                    value={alloc[inv.id] || ''}
+                    onChange={e => {
+                      const v = Math.min(Number(e.target.value) || 0, Number(inv.remainingAmt) || 0);
+                      setAlloc(a => ({ ...a, [inv.id]: v }));
+                    }} />
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between mt-1.5 text-[11px] gap-2 flex-wrap">
+              <span className="text-gray-500">{tr('موزع')}: <b className="text-gray-700">{formatCurrency(allocated)}</b> {tr('من')} {formatCurrency(required)}</span>
+              {shortfall > 0.004
+                ? <span className="font-bold text-[#B4530A]">{tr('يلزم')} {formatCurrency(shortfall)}</span>
+                : <span className="font-bold text-green-600">✓ {tr('مكتمل')}</span>}
+            </div>
+            {Number(amount) > outstanding + 0.004 && (
+              <p className="text-[10.5px] text-gray-500 mt-1">
+                {tr('الفائض')} ({formatCurrency(r2(Number(amount) - outstanding))}) {tr('رصيد دائن للعميل')}
+              </p>
+            )}
+          </div>
+        )}
 
         <div>
           <label className="label">{tr('طريقة الدفع')}</label>
