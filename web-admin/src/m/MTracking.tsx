@@ -9,6 +9,7 @@ import {
 import toast from 'react-hot-toast';
 import { trackingApi, visitsApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
+import { useBackClose } from '../lib/useBackClose';
 import { MSpinner, MError } from './mobileUi';
 import { expectArray, expectObject } from './shape';
 import { SA_CENTER, isOnline, repIcon, visitIcon, customerIcon, fmtDur, timeText } from './mapIcons';
@@ -78,6 +79,11 @@ export default function MTracking() {
   const [showCustomers, setShowCustomers] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState(false);
   const [pickedCustomer, setPickedCustomer] = useState<CustomerLoc | null>(null);
+  // ملاحظة: لا نُسجّل الورقة السفلية (sheetOpen) — مبدؤها مفتوحة فهي حالة عرض
+  // لا طبقة تنقّل، وتسجيلها يجعل الرجوع يطويها بدل أن يخرج من التبويب
+  useBackClose(confirmToggle, () => setConfirmToggle(false));
+  useBackClose(!confirmToggle && !!pickedCustomer, () => setPickedCustomer(null));
+  useBackClose(!confirmToggle && !pickedCustomer && !!openVisit, () => setOpenVisit(null));
 
   const settingsQ = useQuery({
     queryKey: ['m-track-settings'],
@@ -396,6 +402,7 @@ function VisitScreen({ q, onBack }: {
 }) {
   const tr = useTr();
   const [zoom, setZoom] = useState<string | null>(null);
+  useBackClose(!!zoom, () => setZoom(null));
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">

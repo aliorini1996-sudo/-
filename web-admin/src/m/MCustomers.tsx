@@ -7,6 +7,7 @@ import { formatCurrency } from '../utils/format';
 import { channelLabel } from '../lib/channels';
 import { useLang } from '../i18n/lang';
 import { useTr } from '../i18n/strings';
+import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import MCustomerForm from './MCustomerForm';
 import { expectArray, expectObject } from './shape';
@@ -30,6 +31,9 @@ export default function MCustomers() {
   const [limit, setLimit] = useState(PAGE);
   const [detail, setDetail] = useState<Customer | null>(null);
   const [editing, setEditing] = useState<Customer | null | undefined>(undefined); // undefined = مغلق، null = جديد
+  // ⚠️ الشرط `!== undefined` لا `!!editing`: القيمة null تعني «عميل جديد» وهي مفتوحة
+  useBackClose(editing !== undefined, () => setEditing(undefined));
+  useBackClose(editing === undefined && !!detail, () => setDetail(null));
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { const t = setTimeout(() => { setDq(q.trim()); setLimit(PAGE); }, 300); return () => clearTimeout(t); }, [q]);
@@ -122,6 +126,7 @@ function MCustomerDetail({ customer, onClose, onEdit }: {
   const tr = useTr();
   const lang = useLang(s => s.lang);
   const [doc, setDoc] = useState<'invoice' | 'receipt' | null>(null);
+  useBackClose(!!doc, () => setDoc(null));
 
   // نجلب النسخة الحيّة: البطاقة في القائمة قد تكون قديمة بعد تعديل
   const q = useQuery({

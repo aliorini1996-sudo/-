@@ -15,6 +15,7 @@ import MDocList from './MDocList';
 const MTracking = lazy(() => import('./MTracking'));
 import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
+import { useBackClose } from '../lib/useBackClose';
 
 /**
  * تطبيق الإدارة على الجوال (`/m`) — قوقعة مستقلّة على نمط تطبيق المندوب:
@@ -62,6 +63,16 @@ export default function MobileApp() {
   useEffect(() => {
     if (tabs.length && !tabs.some(t => t.id === screen)) setScreen(tabs[0].id);
   }, [tabs, screen]);
+
+  /* ═══ زرّ الرجوع (أندرويد) وسحبة الحافة (آيفون) ═══
+   * طبقات الشاشات الداخلية مربوطة في مكوّناتها؛ هنا الجذر وحده.
+   * والعودة إلى `tabs[0].id` لا إلى 'home' حرفياً: التبويبات مصفّاة
+   * بالصلاحيات وقد لا تكون الرئيسية متاحةً لهذا المستخدم أصلاً. */
+  useBackClose(!!(!token || !user) && showLogin, () => setShowLogin(false));
+  useBackClose(
+    !!token && !!user && tabs.length > 0 && screen !== tabs[0].id,
+    () => setScreen(tabs[0].id),
+  );
 
   /**
    * عملة الشركة تُضبط عند الإقلاع. إغفالها **خطأ صامت لا يُسقط شاشة**: كل
@@ -183,8 +194,11 @@ function ScreenBody({ screen, company, userName }: { screen: Screen; company: un
   const tr = useTr();
   if (screen === 'home') return <MHome />;
   if (screen === 'customers') return <MCustomers />;
-  if (screen === 'invoices') return <MDocList kind="invoice" company={company} userName={userName} />;
-  if (screen === 'receipts') return <MDocList kind="receipt" company={company} userName={userName} />;
+  // key ضروريّ: المكوّنان في الموضع نفسه من الشجرة ومن النوع نفسه، فيوفّق
+  // React بينهما ويحتفظ بالحالة — فيبقى مستندٌ مفتوحاً عند تبديل التبويب
+  // ويُطلَب بمعرّف فاتورة ونوع سند. ويكسر ذلك مكدّس الرجوع أيضاً.
+  if (screen === 'invoices') return <MDocList key="invoice" kind="invoice" company={company} userName={userName} />;
+  if (screen === 'receipts') return <MDocList key="receipt" kind="receipt" company={company} userName={userName} />;
   // الخريطة (leaflet) في حزمة كسولة: لا يدفع ثمنها من لم يفتح التبويب
   return (
     <Suspense fallback={<MSpinner />}>

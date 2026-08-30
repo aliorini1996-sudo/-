@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
+import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
@@ -609,6 +610,8 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState<string | null>(null);
   const [link, setLink] = useState<{ payUrl: string; amount: number; invoiceNumber: string } | null>(null);
+  // الرجوع من شاشة الرابط يعود لقائمة الفواتير أولاً لا يُغلق الورقة كلّها
+  useBackClose(!!link, () => setLink(null));
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -746,6 +749,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   // نميّزهما عن «لا توجد حركات» كي لا يظنّ المندوب أن العميل بلا حركات فعلاً.
   const [statementError, setStatementError] = useState<'unassigned' | 'offline' | null>(null);
   const [payLinkOpen, setPayLinkOpen] = useState(false);
+  useBackClose(payLinkOpen, () => setPayLinkOpen(false));
 
   // فتح مستند الحركة (فاتورة/سند) من كشف الحساب
   const openDoc = async (e: any) => {
@@ -1218,6 +1222,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const discount = repCalc.discountAmt;
   const tax = repCalc.taxAmt;
   const total = repCalc.total;
+
+  // زرّ الرجوع داخل النموذج: الماسح أولاً (يغطّي الرأس) ثم السلّة
+  useBackClose(showScanner, () => setShowScanner(false));
+  useBackClose(!showScanner && showCart, () => setShowCart(false));
 
   // معاينة جدول الأقساط من الإجمالي المحليّ — والخادم يكتب الجدول الحقيقي
   // من إجماليّه هو، فتتطابق المعاينة معه ما دام الإجمالي واحداً
@@ -1994,6 +2002,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 function RepVanStock({ canLoad }: { canLoad: boolean }) {
   const tr = useTr();
   const [view, setView] = useState<'list' | 'load'>('list');
+  useBackClose(view === 'load', () => setView('list'));
   const [stock, setStock] = useState<{ productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<{ id: string; name: string; unit: string; code: string }[]>([]);
@@ -2213,6 +2222,26 @@ export default function RepApp() {
   const [syncing, setSyncing] = useState(false);
   const [showOutbox, setShowOutbox] = useState(false);
 
+  /**
+   * إغلاق عارض المستند — ليس «اسحب طبقةً واحدة»: أحياناً يعود لملفّ العميل
+   * وأحياناً يبدّل التبويب القاعديّ. دالّة مسمّاة ليتشاركها زرّ الشاشة وزرّ
+   * الجهاز، فلا يفترق سلوكهما.
+   */
+  const closeDocResult = useCallback(() => {
+    setDocResult(prev => {
+      if (!prev) return null;
+      const k = prev.kind;
+      setDocBack(back => {
+        // فُتح من شاشة العميل → نعود إليها؛ وإلا لقائمة نوع المستند
+        if (back === 'customerDetail' && selectedCustomer) setModal('customerDetail');
+        else setScreen(k === 'invoice' ? 'invoices' : k === 'receipt' ? 'receipts' : 'customers');
+        return null;
+      });
+      return null;
+    });
+  }, [selectedCustomer]);
+
+
   // تتبّع GPS — يعمل فقط عند تسجيل الدخول وتفعيل الشركة للتتبّع وموافقة المندوب
   const trackStatus = useRepTracking(!!token && !!user);
   useHeartbeat(!!token && !!user); // نبضة حضور لحساب ساعات العمل (مستقلّة عن GPS)
@@ -2250,6 +2279,34 @@ export default function RepApp() {
       // خطأ غير شبكي (عزل عميل مثلاً) يُتجاهَل بصمت — لا نكسر تجربة المندوب
     }
   };
+
+  /**
+   * إغلاق ملفّ العميل — **بأثره الجانبي**: يُنهي مؤقّت الزيارة ويرفعها.
+   * رجوعٌ لا يمرّ به يترك زيارةً ميدانية مفتوحة تعدّ بلا شاشة تُنهيها.
+   */
+  const closeCustomerDetail = useCallback(() => {
+    if (visitTimer && selectedCustomer && visitTimer.customerId === selectedCustomer.id) {
+      void finalizeVisit(visitTimer);
+    }
+    setModal(null);
+  }, [visitTimer, selectedCustomer, finalizeVisit]);
+
+  /* ═══ زرّ الرجوع (أندرويد) وسحبة الحافة (آيفون) ═══
+   * مرتّبة من الطبقة الأعلى بصرياً إلى الأدنى — الأعلى يُغلق أولاً.
+   * تُستدعى بلا شرط دائماً (قاعدة الخطّافات) والتحكّم بالوسيط الأول. */
+  useBackClose(showOutbox, () => setShowOutbox(false));
+  useBackClose(!!(!token || !user) && showLogin, () => setShowLogin(false));
+  useBackClose(!!docResult, closeDocResult);
+  useBackClose(modal === 'addCustomer', () => setModal(null));
+  useBackClose(
+    modal === 'createInvoice' || modal === 'createReturn'
+    || modal === 'createReceipt' || modal === 'logVisit',
+    () => setModal('customerDetail'),
+  );
+  useBackClose(modal === 'customerDetail', closeCustomerDetail);
+  // القاعدة: من أيّ تبويب غير الرئيسية يعود إليها أولاً، ومنها يخرج من التطبيق
+  // (مبدأ أندرويد «عُد لوجهة البداية قبل الخروج» — ولا نحبس المستخدم بحيلة).
+  useBackClose(!!token && !!user && !modal && !docResult && screen !== 'home', () => setScreen('home'));
 
   // بدء توقيت زيارة عميل. إن كان مؤقّت آخر نشطاً (عميل مختلف) نُنهيه أولاً
   // فلا تضيع مدّته ولا تختلط بالجديدة.
@@ -2386,14 +2443,7 @@ export default function RepApp() {
               <AppIntro app="rep" onProceed={() => setShowLogin(true)} />
             )
           ) : docResult ? (
-            <DocumentResult doc={docResult} onClose={() => {
-              const k = docResult.kind;
-              const back = docBack;
-              setDocResult(null); setDocBack(null);
-              // فُتح من شاشة العميل → نعود إليها؛ وإلا لقائمة نوع المستند
-              if (back === 'customerDetail' && selectedCustomer) { setModal('customerDetail'); return; }
-              setScreen(k === 'invoice' ? 'invoices' : k === 'receipt' ? 'receipts' : 'customers');
-            }} />
+            <DocumentResult doc={docResult} onClose={closeDocResult} />
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
               paylinkOn={(company as any)?.paylinkEnabled === true}

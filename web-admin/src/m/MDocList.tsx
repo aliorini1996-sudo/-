@@ -6,6 +6,7 @@ import { invoiceApi, receiptApi } from '../api/client';
 import { Invoice } from '../types';
 import { formatCurrency, formatDate, formatTime } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { useBackClose } from '../lib/useBackClose';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { MCard, MRow, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
@@ -41,6 +42,10 @@ export default function MDocList({ kind, company, userName }: {
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [creating, setCreating] = useState(false);
+  // ترتيب الأولوية: حوار الإلغاء يعلو شاشة المستند، وهي تعلو القائمة
+  useBackClose(!!cancelId, () => setCancelId(null));
+  useBackClose(!cancelId && !!openId, () => setOpenId(null));
+  useBackClose(!cancelId && !openId && creating, () => setCreating(false));
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { const t = setTimeout(() => { setDq(q.trim()); setLimit(PAGE); }, 300); return () => clearTimeout(t); }, [q]);
@@ -87,11 +92,28 @@ export default function MDocList({ kind, company, userName }: {
     );
   }
 
+  // ⚠️ حوار الإلغاء كان مكتوباً في فرع القائمة وحده، بينما يُفتح من شاشة
+  // المستند — والفرع أدناه يعود مبكّراً فلا يُرسَم الحوار أبداً: زرّ «إلغاء
+  // الفاتورة» كان لا يفعل شيئاً مرئياً. صار الحوار مشتركاً بين الفرعين.
+  const cancelDialog = cancelId ? (
+    <ConfirmDialog
+      danger
+      title={kind === 'invoice' ? tr('إلغاء الفاتورة') : tr('إلغاء السند')}
+      message={kind === 'invoice'
+        ? tr('سيلغى المستند وتعكس قيوده المحاسبية ويعود رصيد العميل كما كان لا يمكن التراجع')
+        : tr('سيلغى السند وتعكس قيوده ويعود المبلغ على ذمة العميل لا يمكن التراجع')}
+      confirmLabel={tr('تأكيد الإلغاء')}
+      loading={cancelling}
+      onConfirm={doCancel}
+      onClose={() => setCancelId(null)} />
+  ) : null;
+
   if (openId) {
     return (
       <Suspense fallback={<MSpinner />}>
         <MDocScreen kind={kind} id={openId} company={company} userName={userName}
           onClose={() => setOpenId(null)} onCancel={() => setCancelId(openId)} />
+        {cancelDialog}
       </Suspense>
     );
   }
@@ -125,18 +147,7 @@ export default function MDocList({ kind, company, userName }: {
         )}
       </div>
 
-      {cancelId && (
-        <ConfirmDialog
-          danger
-          title={kind === 'invoice' ? tr('إلغاء الفاتورة') : tr('إلغاء السند')}
-          message={kind === 'invoice'
-            ? tr('سيلغى المستند وتعكس قيوده المحاسبية ويعود رصيد العميل كما كان لا يمكن التراجع')
-            : tr('سيلغى السند وتعكس قيوده ويعود المبلغ على ذمة العميل لا يمكن التراجع')}
-          confirmLabel={tr('تأكيد الإلغاء')}
-          loading={cancelling}
-          onConfirm={doCancel}
-          onClose={() => setCancelId(null)} />
-      )}
+      {cancelDialog}
     </div>
   );
 }
