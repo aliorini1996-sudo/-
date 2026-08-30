@@ -402,12 +402,18 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
   );
 }
 
+interface Settlement { id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string }
+
 function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClose: () => void; onDone: () => void }) {
   const tr = useTr();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [filled, setFilled] = useState(false);
-  const [pdfOne, setPdfOne] = useState<{ id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string } | null>(null);
+  const [pdfOne, setPdfOne] = useState<Settlement | null>(null);
+  // حذف استلام: للأدمن الرئيسي وحده — والخادم يفرضه ثانيةً بقراءة الدور من القاعدة
+  const { user } = useAuthStore();
+  const isMainAdmin = user?.role === 'ADMIN';
+  const [deletingS, setDeletingS] = useState<Settlement | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['rep-collection', rep.id],
@@ -422,7 +428,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
     queryKey: ['rep-settlements', rep.id],
     queryFn: async () => {
       const r = await salesRepApi.settlements(rep.id);
-      return r.data.data as { id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string }[];
+      return r.data.data as Settlement[];
     },
   });
   const settlements = settlementsQ.data ?? [];
@@ -439,15 +445,33 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
   const settle = useMutation({
     mutationFn: () => salesRepApi.settle(rep.id, { amount: Number(amount), note: note || undefined }),
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success(tr('تم تسجيل الاستلام'));
-      setNote(''); setFilled(false);
-      refetch();
-      settlementsQ.refetch();
+      setNote('');
+      await Promise.all([refetch(), settlementsQ.refetch()]);
+      setFilled(false); // بعد وصول الرصيد الجديد لا قبله — وإلا أعيد ملء الحقل بالقديم
       onDone();
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر التسجيل');
+      toast.error(msg);
+    },
+  });
+
+  const removeSettlement = useMutation({
+    mutationFn: (s: Settlement) => salesRepApi.deleteSettlement(rep.id, s.id),
+    onSuccess: async () => {
+      toast.success(tr('تم حذف الاستلام'));
+      setDeletingS(null);
+      // الحذف يرفع الرصيد المتبقّي. الترتيب مقصود: يُنتظر وصول الرصيد الجديد
+      // **ثم** يُفتح قفل التعبئة — فالعكس يملأ الحقل بالرقم الذي سبق الحذف
+      // ويقفله عليه، إذ يُبقي react-query البيانات السابقة أثناء إعادة الجلب.
+      await Promise.all([refetch(), settlementsQ.refetch()]);
+      setFilled(false);
+      onDone();
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حذف الاستلام');
       toast.error(msg);
     },
   });
@@ -533,6 +557,12 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                         className="flex-shrink-0 p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700">
                         <Download size={15} />
                       </button>
+                      {isMainAdmin && (
+                        <button type="button" onClick={() => setDeletingS(s)} title={tr('حذف الاستلام')}
+                          className="flex-shrink-0 p-1.5 rounded-lg text-[#C0392B] hover:bg-red-50">
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -540,6 +570,18 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
             </>
           )}
         </div>
+
+        {deletingS && (
+          <ConfirmDialog
+            danger
+            title={tr('حذف استلام تحصيل')}
+            message={`${tr('سيحذف استلام بمبلغ')} ${formatCurrency(deletingS.amount)} ${tr('ويعود هذا المبلغ رصيدا مطلوبا من المندوب')} «${rep.name}» ${tr('ولا يمكن التراجع')}`}
+            confirmLabel={tr('حذف نهائي')}
+            loading={removeSettlement.isPending}
+            onConfirm={() => removeSettlement.mutate(deletingS)}
+            onClose={() => setDeletingS(null)}
+          />
+        )}
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
           <button onClick={() => settle.mutate()}

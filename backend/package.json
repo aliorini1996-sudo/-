@@ -12,7 +12,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate",
-    "test": "tsx --test src/services/adminScope.test.ts src/tests/attribution.test.ts src/tests/build-invoice.test.ts src/tests/helpers.test.ts src/tests/invoice-calc.test.ts src/tests/marketing-claims.test.ts src/tests/ledger-balance.test.ts src/tests/work-day.test.ts src/tests/route-shape.test.ts src/tests/suggestAccuracy.test.ts src/tests/suggestLoad.test.ts src/tests/money-precision.test.ts src/tests/tax.test.ts src/tests/finance.test.ts src/tests/visitDuration.test.ts src/tests/zatca.test.ts src/compliance/zatca/crypto.test.ts src/tests/warehouse.test.ts src/tests/petroapp.test.ts src/tests/telephony.test.ts src/tests/currency-override.test.ts src/tests/signup-phone.test.ts src/tests/paylink-fee.test.ts src/tests/allocate.test.ts"
+    "test": "tsx --test src/services/adminScope.test.ts src/tests/attribution.test.ts src/tests/build-invoice.test.ts src/tests/helpers.test.ts src/tests/invoice-calc.test.ts src/tests/marketing-claims.test.ts src/tests/ledger-balance.test.ts src/tests/work-day.test.ts src/tests/route-shape.test.ts src/tests/suggestAccuracy.test.ts src/tests/suggestLoad.test.ts src/tests/money-precision.test.ts src/tests/tax.test.ts src/tests/finance.test.ts src/tests/visitDuration.test.ts src/tests/zatca.test.ts src/compliance/zatca/crypto.test.ts src/tests/warehouse.test.ts src/tests/petroapp.test.ts src/tests/telephony.test.ts src/tests/currency-override.test.ts src/tests/signup-phone.test.ts src/tests/paylink-fee.test.ts src/tests/allocate.test.ts src/tests/rep-settlement-delete.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",

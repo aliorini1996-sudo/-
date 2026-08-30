@@ -188,8 +188,10 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    // القيد: الأدمن الرئيسي فقط (لا مدير/محاسب)
-    if (req.user?.role !== 'ADMIN') {
+    // القيد: الأدمن الرئيسي فقط (لا مدير/محاسب) — والدور من القاعدة لا من التوكن.
+    // هذا المسار يمحو في معاملته كل استلامات تحصيل المندوب، فلا يصحّ أن يكون
+    // حارسه أضعف من حارس حذف استلامٍ واحد.
+    if (!(await isPrimaryAdmin(req))) {
       res.status(403).json({ success: false, message: 'حذف المندوب متاح للأدمن الرئيسي فقط' });
       return;
     }
@@ -201,7 +203,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     await prisma.$transaction([
       prisma.invoice.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
       prisma.receipt.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
-      prisma.notification.deleteMany({ where: { salesRepId: req.params.id } }),
+      prisma.notification.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } }),
       prisma.vanLoadItem.deleteMany({ where: { vanLoad: { salesRepId: req.params.id } } }),
       prisma.vanLoad.deleteMany({ where: { salesRepId: req.params.id } }),
       prisma.repLocation.deleteMany({ where: { salesRepId: req.params.id } }),
@@ -350,15 +352,105 @@ router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: Ne
 });
 
 // سجلّ استلامات التحصيل لمندوب
+//
+// نطاق المستخدم المقيَّد يُفرض هنا كما يُفرض على شقيقيه (collection/settle):
+// جدول التسويات لا يحمل علاقة عميل تُقيَّد بها، فالقيد يكون على المندوب نفسه.
+// وبدونه كان مستخدمٌ مقيَّد يُعدّد استلامات مندوبٍ خارج نطاقه بتمرير معرّفه.
 router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) },
+      select: { id: true },
+    });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
     const items = await prisma.repSettlement.findMany({
-      where: { tenantId: tid, salesRepId: req.params.id },
+      where: { tenantId: tid, salesRepId: rep.id },
       orderBy: { settledAt: 'desc' },
       take: 100,
     });
     res.json({ success: true, data: items });
+  } catch (err) { next(err); }
+});
+
+/**
+ * الأدمن الرئيسي للشركة — الدور من القاعدة لا من التوكن.
+ *
+ * التوكن يحمل الدور لحظة إصداره، فمن خُفّض من ADMIN إلى MANAGER يبقى توكنه
+ * القديم يقول ADMIN حتى ينتهي أجله. لا يصحّ أن يُفتح بتوكنٍ فائتٍ بابُ عمليةٍ
+ * ماليّة لا رجعة فيها، فنقرأ الدور الحيّ. (والشركة تُطابَق أيضاً كي لا يُسقِط
+ * توكنُ شركةٍ حارساً على أخرى.)
+ */
+async function isPrimaryAdmin(req: AuthRequest): Promise<boolean> {
+  const id = req.user?.id;
+  if (!id) return false;
+  const admin = await prisma.admin.findUnique({ where: { id }, select: { role: true, tenantId: true, isActive: true } });
+  return !!admin && admin.isActive && admin.role === 'ADMIN' && admin.tenantId === tenantId(req);
+}
+
+/**
+ * حذف استلام تحصيل من سجلّ المندوب — للأدمن الرئيسي وحده.
+ *
+ * لماذا يُسمح بالحذف أصلاً: تسجيل الاستلام خطوة يدويّة، مبلغٌ يُكتب بلوحة
+ * مفاتيح. وخطؤها يقلب رصيد المندوب فيظهر مسدِّداً وهو لم يسدّد، أو تُسجَّل
+ * الدفعة مرّتين. فالتصحيح حاجةٌ تشغيليّة لا ترف.
+ *
+ * ولماذا للأدمن الرئيسي وحده: الحذف **يرفع** الرصيد المتبقّي على المندوب — أي
+ * يعيد مطالبته بمالٍ سلّمه فعلاً. قرارٌ ماليّ لا يُترك لمشرفٍ ولا لمحاسب،
+ * مطابقةً لحذف المندوب وحذف مستخدم الشركة.
+ *
+ * ولا يمضي الحذف صامتاً: يُقيَّد في الإشعارات بمبلغه ومن حذفه، ومعه نسخةٌ
+ * كاملة من الصفّ في `data` — فمن حذف خطأً يعيد تسجيله كما كان بلا تخمين.
+ */
+router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (!(await isPrimaryAdmin(req))) {
+      res.status(403).json({ success: false, message: 'حذف استلام التحصيل متاح للأدمن الرئيسي فقط' });
+      return;
+    }
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) },
+      select: { id: true, name: true },
+    });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+
+    // الشروط الثلاثة معاً: لا يُحذف صفّ شركةٍ أخرى ولا صفّ مندوبٍ آخر بمعرّفٍ منقول
+    const row = await prisma.repSettlement.findFirst({
+      where: { id: req.params.settlementId, tenantId: tid, salesRepId: rep.id },
+    });
+    if (!row) { res.status(404).json({ success: false, message: 'سجل الاستلام غير موجود' }); return; }
+
+    const by = req.user;
+    // من نفّذ الحذف — وجلسة تصفّح المالك تُوسَم كي لا يُنسب فعله لأدمن الشركة
+    const actor = `${by?.name || 'الادمن'}${by?.impersonated ? ' (الدعم الفني)' : ''}`;
+    const when = new Date(row.settledAt).toISOString().slice(0, 10);
+
+    await prisma.$transaction(async tx => {
+      await tx.repSettlement.delete({ where: { id: row.id } });
+      await tx.notification.create({
+        data: {
+          tenantId: tid,
+          type: 'REP_SETTLEMENT_DELETED',
+          title: 'حذف استلام تحصيل',
+          // النصّ يحمل كل ما يلزم لإعادة التسجيل يدوياً: المبلغ وتاريخه ومن
+          // استلمه ومن حذفه. حقل data نسخةٌ للآلة، وهذا السطر نسخةٌ للإنسان —
+          // ولا شاشة في المنتج تعرض data، فلو اكتُفي به لضاع الأثر عملياً.
+          body: `حذف ${actor} استلام تحصيل بمبلغ ${clean(row.amount)} كان مسجلا بتاريخ ${when}`
+            + ` باسم ${row.createdBy || 'غير معروف'} من المندوب ${rep.name}`
+            + ` — عاد المبلغ رصيدا مطلوبا من المندوب`,
+          salesRepId: rep.id,
+          data: JSON.stringify({
+            settlementId: row.id, amount: row.amount, note: row.note,
+            createdBy: row.createdBy, settledAt: row.settledAt,
+            deletedBy: actor, deletedById: by?.id,
+          }),
+        },
+      });
+    });
+
+    // الرصيد بعد الحذف — لتُحدّث الواجهة بطاقاتها من مصدرٍ واحد لا من حسابٍ محلّي
+    res.json({ success: true, data: await repCollection(tid, rep.id) });
   } catch (err) { next(err); }
 });
 
