@@ -92,6 +92,7 @@ model Tenant {
   RepSession           RepSession[]
   customerPaymentLinks CustomerPaymentLink[]
   settlementEntries    SettlementEntry[]
+  invoiceInstallments  InvoiceInstallment[]
   payouts              Payout[]
 
   @@index([vertical])
@@ -206,6 +207,9 @@ model SalesRep {
   canCreateInvoice Boolean      @default(true)
   workChannel      WorkChannel? // رقم العمل المُسنَد (يملكه المستأجر لا المندوب — يعود للمخزون عند الاستقالة)
   canSellOnCredit  Boolean      @default(true)
+  /// البيع بالتقسيط ائتمانٌ أطول أجلاً من الآجل — فله إذن مستقلّ فوقه.
+  /// الافتراضي false: لا يُفتح لأحد إلا بقرار صريح من الإدارة.
+  canSellOnInstallment Boolean  @default(false)
   canSellInCash    Boolean      @default(true)
   canEditInvoice   Boolean      @default(false)
   canDeleteInvoice Boolean      @default(false)
@@ -578,7 +582,16 @@ model Invoice {
   returnToStock Boolean   @default(true) // هل يعود المرتجع لمخزون السيارة؟ (الأدمن يتحكّم؛ التالف=لا افتراضياً)
   invoiceDate   DateTime  @default(now())
   deliveryDate  DateTime? // تاريخ تسليم المنتج للعميل — يحدده المندوب اختيارياً ولا يُطبع إن غاب
+  /// استحقاق الفاتورة. مع خطة أقساط = تاريخ **آخر** قسط (لحظة براءة الذمّة).
+  /// معنى واحد لا معنيان: «القسط القادم» يُشتقّ من الجدول الابن ولا يُخزَّن هنا.
   dueDate       DateTime?
+  /// خطة السداد — طبقة **جدولة** فوق النوع المحاسبي ولا تبدّله.
+  /// null = المنصّة كما هي. "INSTALLMENT" = فاتورة آجلة بجدول أقساط.
+  ///
+  /// ⚠️ ممنوع إضافة قيمة للتقسيط في `type`: ذاك مفتاح تفريع القيود المحاسبية
+  /// وأهليّة توزيع سند القبض (receipts.ts و invoices.ts:/open). قيمةٌ رابعة فيه
+  /// تُخرج فاتورة التقسيط من التوزيع الإلزامي ومن فحص الحدّ الائتماني معاً.
+  paymentPlan   String?
   notes         String?
 
   // subtotal و discountAmt **صافيان قبل الضريبة دائما** في كل فواتير المنصة.
@@ -625,6 +638,7 @@ model Invoice {
   accountEntries AccountEntry[]
   order          Order? // الطلب الذي وُلِّدت منه فاتورة المطعم (علاقة ظهر، بلا عمود)
   paymentLinks   CustomerPaymentLink[]
+  installments   InvoiceInstallment[]
 
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])
@@ -1889,4 +1903,31 @@ model OpsMarker {
   createdAt DateTime @default(now())
 
   @@map("ops_markers")
+}
+
+/// جدول أقساط فاتورة آجلة — **ثابت** بعد الإنشاء.
+///
+/// لا يغيّر محاسبة الفاتورة: القيد واحد بكامل الإجمالي لحظة البيع (الضريبة
+/// تستحقّ بالتوريد لا بالتحصيل)، و`Invoice.remainingAmt` يبقى المصدر الوحيد
+/// لأهليّة توزيع سند القبض.
+///
+/// ولا يحمل القسط `paidAmt` ولا `status` عمداً: حالته **دالّة** من
+/// `Invoice.paidAmt` تُشتقّ بشلّال ترتيبيّ عند القراءة. فلا عدّادان يمكن أن
+/// ينفصلا، ولا يُلمس مسار سداد واحد — إنشاء السند وإلغاؤه وتأكيد الدفع
+/// الإلكتروني وردّه كلّها تعدّل `paidAmt` وتتبعها الأقساط تلقائياً.
+model InvoiceInstallment {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  seq       Int // ترتيب الاستحقاق 1..n
+  dueDate   DateTime
+  amount    Float // حصّة القسط من إجمالي الفاتورة (شاملة الضريبة)
+  createdAt DateTime @default(now())
+
+  @@unique([invoiceId, seq])
+  @@index([invoiceId])
+  @@index([tenantId, dueDate])
+  @@map("invoice_installments")
 }

@@ -22,11 +22,12 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
   const tr = useTr();
   const [showPass, setShowPass] = useState(false);
   const defaults: FormData = rep
-    ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true, canManageVanStock: rep.canManageVanStock ?? true }
+    ? { ...rep, email: rep.email || '', canSellOnCredit: rep.canSellOnCredit ?? true, canSellInCash: rep.canSellInCash ?? true, canSellOnInstallment: rep.canSellOnInstallment ?? false, canManageVanStock: rep.canManageVanStock ?? true }
     : {
       isActive: true,
       canCreateInvoice: true,
       canSellOnCredit: true,
+      canSellOnInstallment: false, // التقسيط ائتمان أطول — لا يُفتح إلا بقرار
       canSellInCash: true,
       canCreateReceipt: true,
       canManageVanStock: true,
@@ -118,6 +119,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label={tr('إنشاء فاتورة')} {...register('canCreateInvoice')} />
               <PermToggle label={tr('البيع الآجل')} {...register('canSellOnCredit')} />
+              <PermToggle label={tr('البيع بالتقسيط')} {...register('canSellOnInstallment')} />
               <PermToggle label={tr('البيع النقدي')} {...register('canSellInCash')} />
               <PermToggle label={tr('تعديل فاتورة')} {...register('canEditInvoice')} />
               <PermToggle label={tr('إلغاء فاتورة')} {...register('canCancelInvoice')} />

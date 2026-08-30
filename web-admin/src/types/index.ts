@@ -229,6 +229,7 @@ export interface SalesRep {
   isActive: boolean;
   canCreateInvoice: boolean;
   canSellOnCredit: boolean;
+  canSellOnInstallment?: boolean; // البيع بالتقسيط — إذن مستقل فوق الآجل
   canSellInCash: boolean;
   canEditInvoice: boolean;
   canDeleteInvoice: boolean;

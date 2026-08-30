@@ -22,6 +22,7 @@ const repSchema = z.object({
   isActive: z.boolean().optional(),
   canCreateInvoice: z.boolean().optional(),
   canSellOnCredit: z.boolean().optional(),
+  canSellOnInstallment: z.boolean().optional(),
   canSellInCash: z.boolean().optional(),
   canEditInvoice: z.boolean().optional(),
   canDeleteInvoice: z.boolean().optional(),
@@ -41,7 +42,7 @@ const repSchema = z.object({
 
 const repSelect = {
   id: true, name: true, phone: true, email: true, username: true, isActive: true,
-  canCreateInvoice: true, canSellOnCredit: true, canSellInCash: true,
+  canCreateInvoice: true, canSellOnCredit: true, canSellOnInstallment: true, canSellInCash: true,
   canEditInvoice: true, canDeleteInvoice: true, canCancelInvoice: true,
   canChangePrice: true, maxDiscountPct: true, canSellBelowPrice: true,
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,

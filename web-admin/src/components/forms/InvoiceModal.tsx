@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { invoiceApi, customerApi, productApi, salesRepApi, companyApi } from '../../api/client';
 import { Customer, Product, SalesRep } from '../../types';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, formatDate } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
 import { computeInvoiceTotals, priceFromLineTotal } from '../../rep/invoiceCalc';
+import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../../lib/installments';
 import DecimalInput from '../DecimalInput';
 import { InvoiceDoc, Company } from '../../rep/RepDocuments';
 import { X, Trash2, Plus } from 'lucide-react';
@@ -37,6 +38,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const tr = useTr();
   const [customerId, setCustomerId] = useState('');
   const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
+  // «تقسيط» خطة سداد فوق البيع الآجل — لا نوع فاتورة ثالث في المحاسبة
+  const [plan, setPlan] = useState<'IMMEDIATE' | 'INSTALLMENT'>('IMMEDIATE');
+  const [insCount, setInsCount] = useState(3);
+  const [insFirst, setInsFirst] = useState(defaultFirstDue());
+  const [insPeriod, setInsPeriod] = useState<InstallmentPeriod>('MONTHLY');
   const [discountPct, setDiscountPct] = useState(0);
   const [notes, setNotes] = useState('');
   const [deliveryDate, setDeliveryDate] = useState(''); // تاريخ التسليم الاختياري — لا يظهر بالفاتورة إن تُرك فارغاً
@@ -139,15 +145,24 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const totalDiscount = calcAll.discountAmt;
   const taxTotal = calcAll.taxAmt;
   const total = calcAll.total;
+  // معاينة الجدول — والخادم يكتب الحقيقي من إجماليّه
+  const insPreview = plan === 'INSTALLMENT' ? previewInstallments(total, insCount, insFirst, insPeriod) : [];
 
   const handleSubmit = () => {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
     if (lines.length === 0) { toast.error(tr('أضف صنفا على الأقل')); return; }
+    if (plan === 'INSTALLMENT' && insPreview.length === 0) {
+      toast.error(tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')); return;
+    }
     mutation.mutate({
       customerId, salesRepId, type, discountPct, notes,
       ...(invoiceDate && { invoiceDate }),
       ...(deliveryDate && { deliveryDate }),
+      ...(plan === 'INSTALLMENT' && {
+        paymentPlan: 'INSTALLMENT',
+        installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
+      }),
       items: lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
         discountPct: l.discountPct, taxPct: l.taxPct,
@@ -191,9 +206,16 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             </div>
             <div>
               <label className="label">{tr('نوع الفاتورة')}</label>
-              <select className="input" value={type} onChange={e => setType(e.target.value as 'CASH' | 'CREDIT')}>
+              <select className="input"
+                value={plan === 'INSTALLMENT' ? 'INSTALLMENT' : type}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === 'INSTALLMENT') { setType('CREDIT'); setPlan('INSTALLMENT'); }
+                  else { setType(v as 'CASH' | 'CREDIT'); setPlan('IMMEDIATE'); }
+                }}>
                 <option value="CREDIT">{tr('آجل')}</option>
                 <option value="CASH">{tr('نقدي')}</option>
+                <option value="INSTALLMENT">{tr('تقسيط')}</option>
               </select>
             </div>
             <div>
@@ -205,6 +227,43 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 <input type="date" className="input" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} title={tr('لا يظهر بالفاتورة ان ترك فارغا')} />
             </div>
           </div>
+
+          {plan === 'INSTALLMENT' && (
+            <div className="border border-[#D6CFEA] bg-[#FAF9FD] rounded-xl p-3">
+              <p className="text-xs font-bold text-[#5B4B9C] mb-2">{tr('جدولة الأقساط')}</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="label">{tr('عدد الأقساط')}</label>
+                  <input type="number" min={2} max={MAX_INSTALLMENTS} className="input" value={insCount}
+                    onChange={e => setInsCount(Math.max(2, Math.min(MAX_INSTALLMENTS, Number(e.target.value) || 2)))} />
+                </div>
+                <div>
+                  <label className="label">{tr('أول قسط')}</label>
+                  <input type="date" className="input" value={insFirst} onChange={e => setInsFirst(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">{tr('الدورية')}</label>
+                  <select className="input" value={insPeriod} onChange={e => setInsPeriod(e.target.value as InstallmentPeriod)}>
+                    <option value="MONTHLY">{tr('شهري')}</option>
+                    <option value="SEMI_MONTHLY">{tr('نصف شهري')}</option>
+                    <option value="WEEKLY">{tr('أسبوعي')}</option>
+                  </select>
+                </div>
+              </div>
+              {insPreview.length === 0 ? (
+                <p className="text-xs text-[#C0392B] mt-2">{tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')}</p>
+              ) : (
+                <div className="mt-2 border-t border-[#E9E1D3] pt-2 max-h-44 overflow-y-auto">
+                  {insPreview.map(r => (
+                    <div key={r.seq} className="flex justify-between text-xs py-0.5">
+                      <span className="text-gray-500">{tr('قسط')} {r.seq} · {formatDate(r.dueDate as unknown as string)}</span>
+                      <span className="font-bold text-gray-700">{formatCurrency(r.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Products */}
           <div>

@@ -14,6 +14,7 @@ import {
   Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
+import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
@@ -36,6 +37,7 @@ interface RepUser {
   canAddCustomer?: boolean;
   canCreateInvoice?: boolean;
   canSellOnCredit?: boolean;
+  canSellOnInstallment?: boolean;
   canSellInCash?: boolean;
   canCreateReceipt?: boolean;
   canCancelReceipt?: boolean;
@@ -1100,8 +1102,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const isReturn = mode === 'return';
   const canSellOnCredit = perms.canSellOnCredit !== false;
   const canSellInCash = perms.canSellInCash !== false;
+  // التقسيط إذنٌ مستقلّ فوق الآجل — افتراضه مُغلق (خلافاً للآجل والنقدي)
+  const canSellOnInstallment = perms.canSellOnInstallment === true && canSellOnCredit;
   const canSellAnyType = canSellOnCredit || canSellInCash;
   const [type, setType] = useState<'CASH' | 'CREDIT'>(canSellOnCredit ? 'CREDIT' : 'CASH');
+  // خطة السداد منفصلة عن النوع المحاسبي: «تقسيط» بيعٌ آجل بجدول لا نوع رابع
+  const [plan, setPlan] = useState<'IMMEDIATE' | 'INSTALLMENT'>('IMMEDIATE');
+  const [insCount, setInsCount] = useState(3);
+  const [insFirst, setInsFirst] = useState(defaultFirstDue());
+  const [insPeriod, setInsPeriod] = useState<InstallmentPeriod>('MONTHLY');
   const [returnReason, setReturnReason] = useState<'NORMAL' | 'DAMAGED' | 'EXCHANGE'>('NORMAL'); // سبب المرتجع
   const [deliveryDate, setDeliveryDate] = useState(''); // تاريخ التسليم الاختياري — فارغ = لا يظهر بالفاتورة
   const [products, setProducts] = useState<any[]>([]);
@@ -1210,12 +1219,26 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const tax = repCalc.taxAmt;
   const total = repCalc.total;
 
+  // معاينة جدول الأقساط من الإجمالي المحليّ — والخادم يكتب الجدول الحقيقي
+  // من إجماليّه هو، فتتطابق المعاينة معه ما دام الإجمالي واحداً
+  const insPreview = plan === 'INSTALLMENT'
+    ? previewInstallments(total, insCount, insFirst, insPeriod, dec)
+    : [];
+
   const submit = async () => {
     if (lines.length === 0) { setMsg(tr('أضف صنفا')); return; }
     if (perms.canCreateInvoice === false) { setMsg(tr('لا تملك صلاحية إنشاء فاتورة')); return; }
     if (!isReturn && !canSellAnyType) { setMsg(tr('لا تملك صلاحية البيع النقدي أو الآجل')); return; }
     if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
     if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg(tr('لا تملك صلاحية البيع النقدي')); return; }
+    if (!isReturn && plan === 'INSTALLMENT') {
+      if (!canSellOnInstallment) { setMsg(tr('لا تملك صلاحية البيع بالتقسيط')); return; }
+      if (insPreview.length === 0) { setMsg(tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')); return; }
+      // فاتورة التقسيط عقدٌ بتواريخ ومبالغ يخرج بيد العميل ورقةً. والأوف-لاين
+      // يطبع برقم مؤقّت ويحسب محلياً، وأيّ انحراف بين الورقة والسجلّ خصومةٌ مع
+      // عميل حقيقي — فتُمنع حتى يعود الاتصال.
+      if (!navigator.onLine) { setMsg(tr('إصدار فاتورة تقسيط يتطلب اتصالا بالانترنت')); return; }
+    }
     setLoading(true); setMsg('');
     const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
@@ -1228,6 +1251,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       pricesIncludeTax: true,
       items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
       ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
+      ...(!isReturn && plan === 'INSTALLMENT' && {
+        paymentPlan: 'INSTALLMENT' as const,
+        installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
+      }),
       clientRef, clientCreatedAt, // idempotency + العمل دون اتصال
     };
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
@@ -1235,8 +1262,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     try {
       const res = await repApi.post('/invoices', payload);
       const inv = res.data.data;
+      // حارس نشرٍ حقيقيّ: زود يجرّد الحقول التي لا يعرفها بصمت، فواجهةٌ جديدة
+      // على خادم قديم تُصدر فاتورة آجلة بلا أقساط بلا خطأ. لا تُطبع ورقة أقساط
+      // كاذبة — يُخطَر المندوب قبل أن يسلّم الورقة للعميل.
+      if (plan === 'INSTALLMENT' && (inv.installments?.length ?? 0) !== insCount) {
+        setLoading(false);
+        setMsg(tr('صدرت الفاتورة آجلة بلا جدول أقساط — راجع الإدارة قبل تسليم الورقة'));
+        return;
+      }
       onDone({
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, deliveryDate: inv.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
+        paymentPlan: inv.paymentPlan ?? null,
+        installments: Array.isArray(inv.installments)
+          ? inv.installments.map((r: any) => ({ seq: Number(r.seq), dueDate: r.dueDate, amount: Number(r.amount) }))
+          : undefined,
         company, customer, repName, items: printItems,
         subtotal, discount, tax, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
@@ -1306,8 +1345,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             ) : (
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xs text-gray-600">{tr('النوع')}:</span>
-                <button disabled={!canSellOnCredit} onClick={() => setType('CREDIT')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('آجل')}</button>
-                <button disabled={!canSellInCash} onClick={() => setType('CASH')} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('نقدي')}</button>
+                <button disabled={!canSellOnCredit} onClick={() => { setType('CREDIT'); setPlan('IMMEDIATE'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' && plan !== 'INSTALLMENT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('آجل')}</button>
+                <button disabled={!canSellInCash} onClick={() => { setType('CASH'); setPlan('IMMEDIATE'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('نقدي')}</button>
+                {/* تقسيط: بيعٌ آجل بجدول سداد — يرسل type=CREDIT مع خطة أقساط */}
+                <button disabled={!canSellOnInstallment} onClick={() => { setType('CREDIT'); setPlan('INSTALLMENT'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${plan === 'INSTALLMENT' ? 'bg-[#5B4B9C] text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('تقسيط')}</button>
               </div>
             )}
             {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي أو الآجل')}.</p>}
@@ -1436,6 +1477,45 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   <input type="date" className="input !py-1.5 text-sm flex-1" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
                   {deliveryDate && <button type="button" className="text-xs text-red-500" onClick={() => setDeliveryDate('')}>{tr('مسح')}</button>}
                 </div>
+              </div>
+            )}
+            {!isReturn && plan === 'INSTALLMENT' && (
+              <div className="bg-white rounded-xl p-3 mt-2 border border-[#D6CFEA]">
+                <p className="text-[11px] font-bold text-[#5B4B9C] mb-2">{tr('جدولة الأقساط')}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">{tr('عدد الأقساط')}</label>
+                    <input type="number" min={2} max={MAX_INSTALLMENTS} inputMode="numeric"
+                      className="input !py-1.5 text-sm text-center" value={insCount}
+                      onChange={e => setInsCount(Math.max(2, Math.min(MAX_INSTALLMENTS, Number(e.target.value) || 2)))} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">{tr('أول قسط')}</label>
+                    <input type="date" className="input !py-1.5 text-sm" value={insFirst}
+                      onChange={e => setInsFirst(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">{tr('الدورية')}</label>
+                    <select className="input !py-1.5 text-sm" value={insPeriod}
+                      onChange={e => setInsPeriod(e.target.value as InstallmentPeriod)}>
+                      <option value="MONTHLY">{tr('شهري')}</option>
+                      <option value="SEMI_MONTHLY">{tr('نصف شهري')}</option>
+                      <option value="WEEKLY">{tr('أسبوعي')}</option>
+                    </select>
+                  </div>
+                </div>
+                {insPreview.length === 0 ? (
+                  <p className="text-[11px] text-[#C0392B] mt-2">{tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')}</p>
+                ) : (
+                  <div className="mt-2 border-t border-gray-100 pt-2 max-h-40 overflow-y-auto">
+                    {insPreview.map(r => (
+                      <div key={r.seq} className="flex justify-between text-[11.5px] py-0.5">
+                        <span className="text-gray-500">{tr('قسط')} {r.seq} · {formatDate(r.dueDate)}</span>
+                        <span className="font-bold text-gray-700">{formatCurrency(r.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}

@@ -50,6 +50,9 @@ export interface InvoiceDoc {
   number: string;
   date: string;
   type: 'CASH' | 'CREDIT';
+  /** خطة السداد — «تقسيط» جدولٌ فوق البيع الآجل لا نوع فاتورة ثالث */
+  paymentPlan?: 'IMMEDIATE' | 'INSTALLMENT' | null;
+  installments?: { seq: number; dueDate: string | Date; amount: number }[];
   isReturn?: boolean;
   deliveryDate?: string; // تاريخ التسليم — يُعرض ويُطبع فقط إن حُدد
   company?: Company | null;
@@ -283,7 +286,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           <InfoBox label={doc.isReturn ? tr('رقم المرتجع') : tr('رقم الفاتورة')} value={doc.number} />
           <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
           <InfoBox label={tr('وقت الإصدار')} value={formatTime(doc.date)} />
-          {!doc.isReturn && <InfoBox label={tr('النوع')} value={doc.type === 'CASH' ? tr('نقدي') : tr('آجل')} />}
+          {!doc.isReturn && <InfoBox label={tr('النوع')} value={
+            doc.paymentPlan === 'INSTALLMENT' ? tr('تقسيط') : (doc.type === 'CASH' ? tr('نقدي') : tr('آجل'))
+          } />}
           {doc.deliveryDate && <InfoBox label={tr('تاريخ التسليم')} value={formatDate(doc.deliveryDate)} />}
           <InfoBox label={tr('المندوب')} value={doc.repName} />
         </div>
@@ -399,6 +404,40 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           )}
         </div>
       </div>
+
+      {/* جدول الأقساط — الورقة تُثبت صحّتها للعميل: سطر المجموع يقابل الإجمالي */}
+      {!doc.isReturn && doc.paymentPlan === 'INSTALLMENT' && (doc.installments?.length ?? 0) > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: '#1F1A13' }}>{tr('جدول الأقساط')}</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, borderRadius: '8px 0 0 0' }}>#</th>
+                <th style={th}>{tr('تاريخ الاستحقاق')}</th>
+                <th style={{ ...th, borderRadius: '0 8px 0 0' }}>{tr('المبلغ')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {doc.installments!.map(r => (
+                <tr key={r.seq}>
+                  <td style={{ ...td, textAlign: 'center' }}>{r.seq}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>{formatDate(r.dueDate as string)}</td>
+                  <td style={{ ...td, textAlign: 'center', fontWeight: 700 }}>{formatCurrency(r.amount)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ ...td, borderTop: '2px solid #E15A30', fontWeight: 700 }} colSpan={2}>{tr('مجموع الأقساط')}</td>
+                <td style={{ ...td, borderTop: '2px solid #E15A30', textAlign: 'center', fontWeight: 700 }}>
+                  {formatCurrency(doc.installments!.reduce((s, r) => s + Number(r.amount), 0))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p style={{ fontSize: 11, color: '#6E6557', marginTop: 6 }}>
+            {tr('الضريبة مستحقة بالكامل على هذه الفاتورة عند التوريد والأقساط جدول سداد لا تجزئة ضريبية')}
+          </p>
+        </div>
+      )}
 
       <div style={{ marginTop: 60, display: 'flex', justifyContent: 'space-between', color: '#6b7280', fontSize: 13 }}>
         <div>{tr('توقيع المستلم')}: ........................</div>
@@ -777,6 +816,10 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     total: Number(inv.total),
     paidAmt: Number(inv.paidAmt),
     remainingAmt: Number(inv.remainingAmt),
+    paymentPlan: inv.paymentPlan ?? null,
+    installments: Array.isArray(inv.installments)
+      ? inv.installments.map((r: any) => ({ seq: Number(r.seq), dueDate: r.dueDate, amount: Number(r.amount) }))
+      : undefined,
     einvoice: {
       provider: inv.einvoiceProvider ?? null,
       status: inv.einvoiceStatus ?? null,

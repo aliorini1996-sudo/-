@@ -10,6 +10,7 @@ import { computeInvoiceTotals } from '../lib/invoiceCalc';
 import { netFromInclusive } from '../lib/money';
 import { computeStock } from './vanStock';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
+import { buildInstallments, MAX_INSTALLMENTS } from '../services/installments';
 import {
   postInvoiceEntries,
   postCashInvoiceEntries,
@@ -106,8 +107,29 @@ const createInvoiceSchema = z.object({
   // العمل دون اتصال: مفتاح idempotency ولحظة الإنشاء على الجهاز (اختياريان — لا يؤثّران أونلاين)
   clientRef: z.string().uuid().optional(),
   clientCreatedAt: z.string().optional(),
+  // ═══ خطة السداد ═══
+  // `type` يبقى CASH|CREDIT|RETURN حرفياً: التقسيط بيعٌ آجل بجدول، لا نوع رابع.
+  // انظر تعليق `paymentPlan` في المخطط لسبب المنع.
+  paymentPlan: z.enum(['IMMEDIATE', 'INSTALLMENT']).optional(),
+  installmentPlan: z.object({
+    count: z.number().int().min(2).max(60),
+    firstDueDate: z.string(),
+    period: z.enum(['MONTHLY', 'SEMI_MONTHLY', 'WEEKLY']).default('MONTHLY'),
+  }).optional(),
 }).refine((d) => !!d.customerId || !!d.customerClientRef, {
   message: 'يجب تحديد العميل customerId أو customerClientRef',
+}).superRefine((d, ctx) => {
+  const wantsPlan = d.paymentPlan === 'INSTALLMENT';
+  if (wantsPlan && !d.installmentPlan) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'جدولة الأقساط مطلوبة للبيع بالتقسيط' });
+  }
+  if (!wantsPlan && d.installmentPlan) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'جدولة الأقساط لا تُرسل إلا مع خطة التقسيط' });
+  }
+  // التقسيط ائتمان: لا يُجمع مع بيع نقديّ ولا مع مرتجع
+  if (wantsPlan && d.type !== 'CREDIT') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'التقسيط بيع آجل — لا يُجمع مع نقدي ولا مرتجع' });
+  }
 });
 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -176,6 +198,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       include: {
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
+        installments: { orderBy: { seq: 'asc' } },
         items: { include: { product: { select: { id: true, name: true, code: true, unit: true } } } },
         receiptItems: { include: { receipt: true } },
       },
@@ -258,6 +281,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (!rep.canCreateInvoice) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إنشاء فاتورة' }); return; }
       if (body.type === 'CREDIT' && !rep.canSellOnCredit) { res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع الآجل' }); return; }
       if (body.type === 'CASH' && !rep.canSellInCash) { res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع النقدي' }); return; }
+      // التقسيط فوق الآجل لا بديلاً عنه: يلزم الإذنان معاً
+      if (body.paymentPlan === 'INSTALLMENT' && !rep.canSellOnInstallment) {
+        res.status(403).json({ success: false, message: 'لا تملك صلاحية البيع بالتقسيط' }); return;
+      }
 
       const cps = await prisma.customerPrice.findMany({
         where: { customerId: customerId, productId: { in: productIds } },
@@ -338,6 +365,35 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const deliveryOk = deliveryDate && !Number.isNaN(deliveryDate.getTime()) ? deliveryDate : undefined;
     const creditCheck = body.type === 'CREDIT' && Number(customer.balance) + total > Number(customer.creditLimit) && Number(customer.creditLimit) > 0;
 
+    /**
+     * جدول الأقساط يُبنى على **الخادم** من الإجمالي الذي حسبه المحرّك أعلاه.
+     *
+     * لا من إجماليٍّ قدّرته الواجهة: الضريبة وخانات العملة و`pricesIncludeTax`
+     * كلّها تُحسم هنا، فجدولٌ مبنيّ على تقدير العميل قد لا يساوي مجموعه إجمال
+     * الفاتورة. والواجهة تعرض معاينة، والخادم يكتب الحقيقة.
+     */
+    let installmentRows: { seq: number; dueDate: Date; amount: number }[] = [];
+    if (body.paymentPlan === 'INSTALLMENT' && body.installmentPlan) {
+      try {
+        installmentRows = buildInstallments(total, {
+          count: body.installmentPlan.count,
+          startDate: body.installmentPlan.firstDueDate,
+          period: body.installmentPlan.period,
+        }, dec);
+      } catch (e) {
+        res.status(400).json({ success: false, message: (e as Error).message }); return;
+      }
+      // حارس رخيص على ثابتٍ غالٍ: لا تُولَد فاتورة تقسيط مجموع أقساطها ≠ إجمالها
+      const unit = Math.pow(10, dec);
+      const sum = installmentRows.reduce((s, r) => s + Math.round(r.amount * unit), 0);
+      if (!installmentRows.length || sum !== Math.round(total * unit)) {
+        res.status(400).json({ success: false, message: 'تعذر تقسيم إجمالي الفاتورة على الأقساط بالضبط' }); return;
+      }
+      if (installmentRows.length > MAX_INSTALLMENTS) {
+        res.status(400).json({ success: false, message: `عدد الأقساط يتجاوز الحد المسموح (${MAX_INSTALLMENTS})` }); return;
+      }
+    }
+
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const invoice = await withNumberRetry(async () => {
     // البادئة تُشتقّ من تاريخ الفاتورة (docDate) لا وقت الرفع — يحفظ تسلسل الفترة للمستندات الأوف-لاين
@@ -364,7 +420,18 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           }),
           ...(docDate && { invoiceDate: docDate }),
           ...(deliveryOk && { deliveryDate: deliveryOk }),
-          dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+          // مع خطة أقساط: الاستحقاق هو آخر قسط (لحظة براءة الذمّة) لا ما أرسله العميل
+          dueDate: installmentRows.length
+            ? installmentRows[installmentRows.length - 1].dueDate
+            : (body.dueDate ? new Date(body.dueDate) : undefined),
+          ...(body.paymentPlan && { paymentPlan: body.paymentPlan }),
+          ...(installmentRows.length && {
+            installments: {
+              create: installmentRows.map(r => ({
+                tenantId: tid, seq: r.seq, dueDate: r.dueDate, amount: r.amount,
+              })),
+            },
+          }),
           notes: body.notes,
           pricesIncludeTax: body.pricesIncludeTax,
           subtotal,
@@ -389,7 +456,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             })),
           },
         },
-        include: { items: true, customer: true },
+        include: { items: true, customer: true, installments: { orderBy: { seq: 'asc' } } },
       });
 
       if (isReturn) {

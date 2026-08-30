@@ -142,3 +142,47 @@ test('تخصيص الفاتورة لا يتجاوز متبقّيها في أيّ
 test('الخادم يُكمل أي توزيع ناقص بالأقدم — الواجهة تُلزم والخادم يضمن', () => {
   assert.match(receipts, /fillAllocationsFifo\(/, 'أُزيلت تكملة التوزيع من الخادم');
 });
+
+/**
+ * ═══ حرّاس التقسيط ═══
+ *
+ * «تقسيط» جدولُ سدادٍ فوق فاتورة آجلة، لا قيمةٌ رابعة في `Invoice.type`.
+ * والسبب ليس ذوقياً: `type` مفتاح تفريع القيود المحاسبية **وأهليّة التوزيع**.
+ * قيمةٌ رابعة فيه تُخرج كل فاتورة تقسيط من الاستعلامات الثلاثة أدناه، فيدفع
+ * العميل ولا يجد المندوب فاتورةً يوزّع عليها — ويُرفض سنده في وجهه بالميدان.
+ * هذه الحرّاس تُسقط البناء إن حاول أحدٌ ذلك لاحقاً.
+ */
+
+test('نوع الفاتورة يبقى ثلاث قيم — التقسيط ليس نوعاً رابعاً', () => {
+  assert.match(
+    invoices, /type: z\.enum\(\['CASH', 'CREDIT', 'RETURN'\]\)/,
+    'وُسّع اتحاد نوع الفاتورة — يُخرج التقسيط من التوزيع الإلزامي ومن فحص الحد الائتماني',
+  );
+});
+
+test('استعلامات التوزيع الثلاثة لا تفلتر على خطة السداد', () => {
+  const open = invoices.slice(invoices.indexOf("router.get('/open'"), invoices.indexOf("router.use(requireAdminPermission('canManageInvoices')"));
+  const alloc = receipts.slice(receipts.indexOf('const openInvoices = await prisma.invoice.findMany'));
+  for (const [name, src] of [['/invoices/open', open], ['توزيع السند', alloc.slice(0, 1200)]] as const) {
+    assert.doesNotMatch(src, /paymentPlan/, `${name}: يفلتر على خطة السداد فيُخرج فواتير التقسيط`);
+    assert.doesNotMatch(src, /INSTALLMENT/, `${name}: يذكر التقسيط — التقسيط لا يغيّر أهليّة التوزيع`);
+  }
+});
+
+test('التقسيط بيع آجل حصراً — لا يُجمع مع نقدي ولا مرتجع', () => {
+  assert.match(invoices, /wantsPlan && d\.type !== 'CREDIT'/, 'لا حارس يمنع التقسيط على النقدي أو المرتجع');
+});
+
+test('البيع بالتقسيط له إذن مستقلّ فوق الآجل', () => {
+  assert.match(invoices, /canSellOnInstallment/, 'لا حارس صلاحية على البيع بالتقسيط');
+  const schema = fs.readFileSync(path.join(B, 'prisma', 'schema.prisma'), 'utf8');
+  assert.match(
+    schema, /canSellOnInstallment Boolean\s+@default\(false\)/,
+    'صلاحية التقسيط ليست مغلقة افتراضياً — تُفتح لكل مندوب قائم عند النشر',
+  );
+});
+
+test('جدول الأقساط يُبنى على الخادم ويُحرَس مجموعه قبل الكتابة', () => {
+  assert.match(invoices, /buildInstallments\(total,/, 'الجدول لا يُبنى من إجمالي الخادم');
+  assert.match(invoices, /تعذر تقسيم إجمالي الفاتورة على الأقساط بالضبط/, 'بلا حارس على مساواة المجموع للإجمالي');
+});

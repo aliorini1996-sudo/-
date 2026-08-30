@@ -3,11 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Minus, Trash2, ShoppingCart, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { customerApi, productApi, salesRepApi, invoiceApi } from '../api/client';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { MHeader, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
 import { lineTotal, invoiceTotals, type Line } from './docMath';
+import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 
 interface Pick { id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string }
 
@@ -34,6 +35,11 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
   const [customerId, setCustomerId] = useState(presetCustomerId || '');
   const [salesRepId, setSalesRepId] = useState('');
   const [type, setType] = useState<'CASH' | 'CREDIT'>('CREDIT');
+  // «تقسيط» خطة سداد فوق البيع الآجل لا نوع محاسبي ثالث
+  const [plan, setPlan] = useState<'IMMEDIATE' | 'INSTALLMENT'>('IMMEDIATE');
+  const [insCount, setInsCount] = useState(3);
+  const [insFirst, setInsFirst] = useState(defaultFirstDue());
+  const [insPeriod, setInsPeriod] = useState<InstallmentPeriod>('MONTHLY');
   const [invoiceDate, setInvoiceDate] = useState('');
   const [discountPct, setDiscountPct] = useState(0);
   const [notes, setNotes] = useState('');
@@ -58,6 +64,11 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
   });
 
   const totals = useMemo(() => invoiceTotals(lines, discountPct), [lines, discountPct]);
+  // معاينة جدول الأقساط — والخادم يكتب الحقيقي من إجماليّه
+  const insPreview = useMemo(
+    () => (plan === 'INSTALLMENT' ? previewInstallments(totals.total, insCount, insFirst, insPeriod) : []),
+    [plan, totals.total, insCount, insFirst, insPeriod],
+  );
   const customer = customersQ.data?.find(c => c.id === customerId);
 
   const addProduct = (p: Pick) => {
@@ -89,6 +100,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
         customerId, salesRepId, type, discountPct,
         ...(notes.trim() && { notes: notes.trim() }),
         ...(invoiceDate && { invoiceDate }),
+        ...(plan === 'INSTALLMENT' && {
+          paymentPlan: 'INSTALLMENT',
+          installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
+        }),
         items: lines.map(l => ({
           productId: l.productId, qty: l.qty,
           unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
@@ -127,14 +142,50 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
           <>
             <Field label={tr('نوع الفاتورة')}>
               <div className="flex gap-2">
-                {(['CREDIT', 'CASH'] as const).map(t => (
-                  <button key={t} onClick={() => setType(t)}
-                    className={`flex-1 py-3 rounded-xl font-semibold text-sm min-h-[48px] border ${type === t ? 'bg-[#E15A30] text-white border-[#E15A30]' : 'bg-white text-[#6E6557] border-[#E9E1D3]'}`}>
-                    {t === 'CREDIT' ? tr('آجل') : tr('نقدي')}
-                  </button>
-                ))}
+                {(['CREDIT', 'CASH', 'INSTALLMENT'] as const).map(k => {
+                  const on = k === 'INSTALLMENT' ? plan === 'INSTALLMENT' : (type === k && plan !== 'INSTALLMENT');
+                  return (
+                    <button key={k} onClick={() => {
+                      if (k === 'INSTALLMENT') { setType('CREDIT'); setPlan('INSTALLMENT'); }
+                      else { setType(k); setPlan('IMMEDIATE'); }
+                    }}
+                      className={`flex-1 py-3 rounded-xl font-semibold text-sm min-h-[48px] border ${on ? (k === 'INSTALLMENT' ? 'bg-[#5B4B9C] text-white border-[#5B4B9C]' : 'bg-[#E15A30] text-white border-[#E15A30]') : 'bg-white text-[#6E6557] border-[#E9E1D3]'}`}>
+                      {k === 'CREDIT' ? tr('آجل') : k === 'CASH' ? tr('نقدي') : tr('تقسيط')}
+                    </button>
+                  );
+                })}
               </div>
             </Field>
+
+            {plan === 'INSTALLMENT' && (
+              <Field label={tr('جدولة الأقساط')}>
+                <div className="grid grid-cols-3 gap-2">
+                  <input type="number" min={2} max={MAX_INSTALLMENTS} inputMode="numeric"
+                    className="input text-center" value={insCount} aria-label={tr('عدد الأقساط')}
+                    onChange={e => setInsCount(Math.max(2, Math.min(MAX_INSTALLMENTS, Number(e.target.value) || 2)))} />
+                  <input type="date" className="input" value={insFirst} aria-label={tr('أول قسط')}
+                    onChange={e => setInsFirst(e.target.value)} />
+                  <select className="input" value={insPeriod} aria-label={tr('الدورية')}
+                    onChange={e => setInsPeriod(e.target.value as InstallmentPeriod)}>
+                    <option value="MONTHLY">{tr('شهري')}</option>
+                    <option value="SEMI_MONTHLY">{tr('نصف شهري')}</option>
+                    <option value="WEEKLY">{tr('أسبوعي')}</option>
+                  </select>
+                </div>
+                {insPreview.length === 0 ? (
+                  <p className="text-[11px] text-[#C0392B] mt-2">{tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')}</p>
+                ) : (
+                  <div className="mt-2 border-t border-[#E9E1D3] pt-2 max-h-40 overflow-y-auto">
+                    {insPreview.map(r => (
+                      <div key={r.seq} className="flex justify-between text-[11.5px] py-0.5">
+                        <span className="text-[#9A8F7E]">{tr('قسط')} {r.seq} · {formatDate(r.dueDate as unknown as string)}</span>
+                        <span className="font-bold text-[#1F1A13]">{formatCurrency(r.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Field>
+            )}
 
             <Field label={tr('المندوب')} required>
               {repsQ.isLoading ? <MSpinner /> : (
@@ -234,7 +285,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated }:
             <div className="rounded-2xl border border-[#F1EBDF] bg-white p-4 space-y-1.5 text-sm">
               <Row k={tr('العميل')} v={customer?.name || '—'} />
               <Row k={tr('المندوب')} v={repsQ.data?.find(r => r.id === salesRepId)?.name || '—'} />
-              <Row k={tr('النوع')} v={type === 'CASH' ? tr('نقدي') : tr('آجل')} />
+              <Row k={tr('النوع')} v={plan === 'INSTALLMENT' ? tr('تقسيط') : (type === 'CASH' ? tr('نقدي') : tr('آجل'))} />
               <Row k={tr('الأصناف')} v={String(lines.length)} />
             </div>
 
