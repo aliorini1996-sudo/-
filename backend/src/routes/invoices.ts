@@ -21,6 +21,59 @@ import {
 
 const router = Router();
 router.use(authenticate);
+
+/**
+ * فواتير العميل الآجلة المفتوحة — للتوزيع الإلزاميّ لسند القبض عليها.
+ *
+ * لماذا مسارٌ مستقلّ ولا يكفي `GET /invoices?customerId=`: ذاك يفرض على المندوب
+ * `salesRepId = معرّفه` (أعلاه) فلا يرى إلا فواتيره هو. وهو صوابٌ في شاشة تصفّح
+ * الفواتير، وخطأٌ هنا: المندوب يحصّل من العميل **دَينه كلّه** لا حصّته منه،
+ * والخادم عند إنشاء السند يوزّعه على كلّ فواتير العميل (`receipts.ts`) بلا نظرٍ
+ * إلى مُصدرها. فكانت القائمة التي تحرس بها الواجهةُ الإلزامَ أضيق من القائمة
+ * التي يوزّع عليها الخادم ⇒ يمرّ السند بتوزيعٍ ناقص، أو بلا توزيعٍ أصلاً حين
+ * تكون فواتير العميل صادرةً عن مندوبٍ آخر — وهو ما يُبطل الإلزام في التطبيق.
+ *
+ * والترتيب `invoiceDate: 'asc'` مقصود: هو ترتيب FIFO نفسه الذي يُكمل به الخادمُ
+ * التوزيعَ الناقص، فيتطابق ما يقترحه زرّ «التوزيع التلقائي على الأقدم» مع ما
+ * يفعله الخادم فعلاً. (كان المسار العام يرتّب `createdAt: 'desc'` فيوزّع الزرّ
+ * على **الأحدث** بينما يوزّع الخادم على الأقدم — وعدٌ في التسمية يخالف الفعل.)
+ *
+ * والحارس هنا هو حارس إنشاء السند نفسه — `canAccessCustomer` — فلا يصير هذا
+ * المسار باباً يقرأ به مندوبٌ فواتير عميلٍ ليس من عملائه.
+ *
+ * وبوابة صلاحيته `canManageReceipts` لا `canManageInvoices`: هو يخدم إصدار
+ * السند لا تصفّح الفواتير، وهما عمودان مستقلّان لكل مستخدم شركة. ولو بقي تحت
+ * بوابة الفواتير لرُدّ بـ403 مستخدمٌ يملك حقّ السند دون الفواتير، فتختفي واجهة
+ * التوزيع كلّها بصمت ويمرّ سنده بلا توزيع — أي أن حارس صلاحيةٍ خاطئ كان
+ * سيُلغي الإلزام بدل أن يحميه. (والمندوب يمرّ من كلتا البوابتين بلا فحص.)
+ */
+router.get('/open', requireAdminPermission('canManageReceipts'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const customerId = typeof req.query.customerId === 'string' ? req.query.customerId : '';
+    if (!customerId) { res.status(400).json({ success: false, message: 'معرف العميل مطلوب' }); return; }
+    if (!(await canAccessCustomer(req, tid, customerId))) {
+      res.status(403).json({ success: false, message: 'لا تملك صلاحية الوصول لهذا العميل' }); return;
+    }
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        tenantId: tid,
+        // نطاق مستخدم الشركة يبقى مطبَّقاً؛ ولا يُقيَّد المندوب بمُصدر الفاتورة
+        ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+        customerId,
+        status: 'CONFIRMED',
+        type: 'CREDIT',
+        remainingAmt: { gt: 0.004 },
+      },
+      orderBy: { invoiceDate: 'asc' },
+      select: { id: true, number: true, remainingAmt: true, invoiceDate: true },
+      take: 200,
+    });
+    res.json({ success: true, data: invoices });
+  } catch (err) { next(err); }
+});
+
+// بقيّة مسارات الفواتير تبقى على صلاحية الفواتير
 router.use(requireAdminPermission('canManageInvoices'));
 
 const invoiceItemSchema = z.object({

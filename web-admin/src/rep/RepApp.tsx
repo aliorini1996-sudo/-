@@ -1463,17 +1463,27 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const [msg, setMsg] = useState('');
   // فواتير العميل المفتوحة + توزيع السند عليها (إلزاميّ عند الاتصال)
   const [openInv, setOpenInv] = useState<any[] | null>(null);
+  // null كانت تعني «تحميل» و«فشل» معاً، فتظهر لافتة الفشل طوال التحميل العاديّ
+  const [invLoading, setInvLoading] = useState(true);
   const [alloc, setAlloc] = useState<Record<string, number>>({});
+  // هل لمس المندوب التوزيع بيده؟ عندها لا تمحوه إعادةُ التوزيع الآلي
+  const [allocTouched, setAllocTouched] = useState(false);
 
   useEffect(() => {
-    if (customer._offline || !customer.id) { setOpenInv([]); return; }
+    if (customer._offline || !customer.id) { setOpenInv([]); setInvLoading(false); return; }
+    setInvLoading(true);
     (async () => {
       try {
-        const res = await repApi.get('/invoices', { params: { customerId: customer.id, status: 'CONFIRMED', type: 'CREDIT', limit: 50 } });
-        setOpenInv((res.data.data || []).filter((i: any) => Number(i.remainingAmt) > 0.004));
+        // مسار الفواتير المفتوحة لا قائمة الفواتير العامّة: تلك تُقيَّد بفواتير
+        // المندوب نفسه، فكانت فواتير العميل الصادرة عن مندوب آخر تغيب عن قائمة
+        // التوزيع فيسقط الإلزام. والخادم يوزّع على كلّ فواتير العميل.
+        const res = await repApi.get('/invoices/open', { params: { customerId: customer.id } });
+        setOpenInv(res.data.data || []);
       } catch {
         // بلا اتصال: القائمة تتعذّر — السند يمرّ والخادم يوزّعه بالأقدم عند الرفع
         setOpenInv(null);
+      } finally {
+        setInvLoading(false);
       }
     })();
   }, [customer.id]);
@@ -1485,7 +1495,8 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const shortfall = r2(required - allocated);
 
   /** توزيع آليّ بالأقدم أولاً — الإلزام بضغطة لا بحساب يدويّ في الميدان */
-  const autoAlloc = (amt?: number) => {
+  const autoAlloc = (amt?: number, manual = false) => {
+    if (manual) setAllocTouched(true);
     let left = r2(amt ?? (Number(amount) || 0));
     const next: Record<string, number> = {};
     for (const inv of openInv ?? []) {
@@ -1500,6 +1511,10 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
     if (perms.canCreateReceipt === false) { setMsg(tr('لا تملك صلاحية إصدار سند قبض')); return; }
     if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغا صحيحا')); return; }
     // التوزيع إلزاميّ حين تتوفّر قائمة الفواتير — وبلا اتصال يوزّعه الخادم بالأقدم
+    if (allocated > Number(amount) + 0.004) {
+      setMsg(`${tr('التوزيع أكبر من مبلغ السند')}: ${formatCurrency(allocated)}`);
+      return;
+    }
     if (openInv && openInv.length > 0 && shortfall > 0.004) {
       setMsg(`${tr('وزع كامل المبلغ على الفواتير — المتبقي')}: ${formatCurrency(shortfall)}`);
       return;
@@ -1554,24 +1569,33 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
           <label className="label">{tr('المبلغ المحصل')}</label>
           <input type="number" step="0.01" inputMode="decimal" className="input text-lg font-bold" placeholder="0.00"
             value={amount}
-            onChange={e => { setAmount(e.target.value); autoAlloc(Number(e.target.value)); }} />
+            onChange={e => {
+              setAmount(e.target.value);
+              // إعادة التوزيع تتبع المبلغ ما لم يوزّع المندوب بيده — عندها يبقى
+              // ما اتّفق عليه مع العميل ولا تمحوه ضغطةُ مفتاح في حقل المبلغ
+              if (!allocTouched) autoAlloc(Number(e.target.value));
+            }} />
         </div>
 
         {/* توزيع السند على الفواتير — إلزاميّ */}
-        {openInv === null ? (
+        {invLoading ? (
+          <p className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2">
+            {tr('جار تحميل الفواتير')}
+          </p>
+        ) : openInv === null ? (
           <p className="text-[11px] text-gray-500 bg-gray-100 rounded-xl px-3 py-2">
             {tr('تعذر تحميل الفواتير — سيوزع السند تلقائيا على الاقدم عند رفعه')}
           </p>
         ) : openInv.length === 0 ? (
           <p className="text-[11px] text-gray-500 bg-gray-100 rounded-xl px-3 py-2">
-            {tr('لا فواتير مفتوحة — يسجل السند رصيدا دائنا للعميل')}
+            {tr('لا فواتير مفتوحة لهذا العميل — يسجل السند دفعة مقدمة ورصيدا دائنا له')}
           </p>
         ) : (
           <div>
             <div className="flex items-center justify-between mb-1.5 gap-2">
               <label className="label !mb-0">{tr('توزيع على الفواتير')} *</label>
-              <button type="button" onClick={() => autoAlloc()} disabled={!amount || Number(amount) <= 0}
-                className="text-xs font-bold text-green-700 disabled:text-gray-300">{tr('توزيع تلقائي')}</button>
+              <button type="button" onClick={() => { setAllocTouched(false); autoAlloc(); }} disabled={!amount || Number(amount) <= 0}
+                className="text-xs font-bold text-green-700 disabled:text-gray-300">{tr('توزيع تلقائي على الأقدم')}</button>
             </div>
             <div className="space-y-1.5">
               {openInv.map(inv => (
@@ -1585,6 +1609,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
                     value={alloc[inv.id] || ''}
                     onChange={e => {
                       const v = Math.min(Number(e.target.value) || 0, Number(inv.remainingAmt) || 0);
+                      setAllocTouched(true);
                       setAlloc(a => ({ ...a, [inv.id]: v }));
                     }} />
                 </div>
@@ -1593,12 +1618,12 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
             <div className="flex items-center justify-between mt-1.5 text-[11px] gap-2 flex-wrap">
               <span className="text-gray-500">{tr('موزع')}: <b className="text-gray-700">{formatCurrency(allocated)}</b> {tr('من')} {formatCurrency(required)}</span>
               {shortfall > 0.004
-                ? <span className="font-bold text-[#B4530A]">{tr('يلزم')} {formatCurrency(shortfall)}</span>
-                : <span className="font-bold text-green-600">✓ {tr('مكتمل')}</span>}
+                ? <span className="font-bold text-[#B4530A]">{tr('يلزم توزيع')} {formatCurrency(shortfall)}</span>
+                : <span className="font-bold text-green-600">✓ {tr('التوزيع مكتمل')}</span>}
             </div>
             {Number(amount) > outstanding + 0.004 && (
               <p className="text-[10.5px] text-gray-500 mt-1">
-                {tr('الفائض')} ({formatCurrency(r2(Number(amount) - outstanding))}) {tr('رصيد دائن للعميل')}
+                {tr('الفائض عن مديونية العميل')} ({formatCurrency(r2(Number(amount) - outstanding))}) {tr('يبقى رصيدا دائنا له')}
               </p>
             )}
           </div>

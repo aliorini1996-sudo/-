@@ -83,6 +83,8 @@ export const salesRepApi = {
 
 export const invoiceApi = {
   list: (params?: Record<string, string | number>) => api.get('/invoices', { params }),
+  // فواتير العميل المفتوحة لتوزيع سند القبض — كل فواتيره لا فواتير مندوب بعينه
+  open: (customerId: string) => api.get('/invoices/open', { params: { customerId } }),
   get: (id: string) => api.get(`/invoices/${id}`),
   create: (data: unknown) => api.post('/invoices', data),
   cancel: (id: string) => api.patch(`/invoices/${id}/cancel`),

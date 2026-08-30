@@ -48,12 +48,13 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     },
   });
 
-  const { data: openInvoices } = useQuery({
+  const { data: openInvoices, isError: invoicesFailed } = useQuery({
     queryKey: ['open-invoices', customerId],
     queryFn: async () => {
-      const res = await invoiceApi.list({ customerId, status: 'CONFIRMED', type: 'CREDIT', limit: 50 });
-      // 1e-6 يحجب غبار العائمة التاريخي (2.84e-14) دون اخفاء اي متبق حقيقي
-      return (res.data.data as Invoice[]).filter(i => Number(i.remainingAmt) > 1e-6);
+      // مسار مخصّص: كل فواتير العميل المفتوحة مرتّبة بالأقدم — وهو ترتيب
+      // التوزيع في الخادم نفسه، فيتطابق ما يقترحه الزرّ مع ما يُنفَّذ فعلاً
+      const res = await invoiceApi.open(customerId!);
+      return res.data.data as Invoice[];
     },
     enabled: !!customerId,
   });
@@ -104,6 +105,17 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
     if (!amount || Number(amount) <= 0) { toast.error(tr('أدخل المبلغ')); return; }
+    // فشل جلب الفواتير ليس «لا مديونية»: بدون القائمة لا يُعرف المطلوب توزيعه،
+    // وكان الإرسال يمرّ حينها بتوزيع صفر ويقرّر الخادم صامتاً بدل المستخدم
+    if (invoicesFailed) {
+      toast.error(tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند'));
+      return;
+    }
+    // ما وُزّع فوق مبلغ السند يجعل النقص سالباً فتمرّ البوابة كاذبةً — يُمنع صراحةً
+    if (totalAllocated > Number(amount) + 0.004) {
+      toast.error(`${tr('التوزيع أكبر من مبلغ السند')}: ${formatCurrency(totalAllocated)}`);
+      return;
+    }
     // التوزيع إلزاميّ: لا يُصدر سند يطفو بلا فواتير ما دام للعميل مديونية مفتوحة
     if (shortfall > 0.004) {
       toast.error(`${tr('وزع كامل مبلغ السند على الفواتير — المتبقي')}: ${formatCurrency(shortfall)}`);
@@ -217,7 +229,11 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
                             type="number" className="input w-28" min="0" step="0.01"
                             max={Number(inv.remainingAmt)}
                             value={allocations[inv.id] || ''}
-                            onChange={e => setAllocations(a => ({ ...a, [inv.id]: Number(e.target.value) }))}
+                            onChange={e => setAllocations(a => ({
+                              // القصّ برمجيّ لا بسمة max: الأخيرة لا تمنع الكتابة (ولا <form> هنا)،
+                              // فكان تخصيصٌ فوق المتبقّي يُعلن «✓ مكتمل» ثم يرتدّ من الخادم بخطأ
+                              ...a, [inv.id]: Math.min(Number(e.target.value) || 0, Number(inv.remainingAmt) || 0),
+                            }))}
                           />
                         </td>
                       </tr>
@@ -237,6 +253,12 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
                 </p>
               )}
             </div>
+          )}
+
+          {selectedCustomer && invoicesFailed && (
+            <p className="text-xs text-[#B4530A] bg-[#FDF3E7] border border-[#F5D9B0] rounded-xl px-3 py-2">
+              {tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند')}
+            </p>
           )}
 
           {selectedCustomer && openInvoices && openInvoices.length === 0 && (

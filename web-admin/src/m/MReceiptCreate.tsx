@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Banknote, Landmark, CreditCard, FileText, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { customerApi, salesRepApi, receiptApi } from '../api/client';
+import { customerApi, salesRepApi, receiptApi, invoiceApi } from '../api/client';
 import { Invoice } from '../types';
 import { formatCurrency, formatDate, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
@@ -57,17 +57,20 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
   // فواتير العميل المفتوحة — للتوزيع
   const invQ = useQuery({
     queryKey: ['m-rcp-invoices', customerId],
-    queryFn: async () => expectArray<Invoice>((await customerApi.invoices(customerId)).data?.data, tr('الفواتير')),
+    queryFn: async () => expectArray<Invoice>((await invoiceApi.open(customerId)).data?.data, tr('الفواتير')),
     enabled: !!customerId,
   });
 
-  const openInvoices = useMemo(
-    () => (invQ.data ?? []).filter(i => i.status === 'CONFIRMED' && i.type === 'CREDIT' && Number(i.remainingAmt) > 0.001),
-    [invQ.data],
-  );
+  // المسار الموحّد يفلتر ويرتّب بالأقدم في الخادم — نفس ترتيب توزيعه الفعليّ
+  const openInvoices = useMemo(() => invQ.data ?? [], [invQ.data]);
   const allocTotal = useMemo(() => Object.values(alloc).reduce((s, v) => s + (v || 0), 0), [alloc]);
   const amt = Number(amount) || 0;
   const overAllocated = allocTotal > amt + 0.001;
+  // التوزيع إلزاميّ هنا كما في لوحة الإدارة وتطبيق المندوب — سقفه الأصغر بين
+  // مبلغ السند ومديونية العميل، فلا يُطالَب أحد بتوزيع مبلغ لا فواتير له
+  const outstanding = openInvoices.reduce((s, i) => s + Math.max(0, Number(i.remainingAmt) || 0), 0);
+  const required = Math.min(amt, outstanding);
+  const shortfall = required - allocTotal;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -94,7 +97,8 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
       toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإصدار')),
   });
 
-  const ready = !!customerId && !!salesRepId && amt > 0 && !overAllocated;
+  const ready = !!customerId && !!salesRepId && amt > 0 && !overAllocated
+    && !invQ.isError && shortfall <= 0.004;
 
   /** يوزّع المبلغ تلقائياً على الأقدم فالأحدث — أكثر ما يُفعل يدوياً */
   const autoAllocate = () => {
@@ -216,9 +220,11 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
                 </div>
               ))}
             </div>
-            <p className={`text-[11px] mt-1.5 px-1 ${overAllocated ? 'text-[#C0392B] font-semibold' : 'text-[#9A8F7E]'}`}>
-              {tr('الموزع')}: {formatCurrency(allocTotal)} {tr('من')} {formatCurrency(amt)}
+            <p className={`text-[11px] mt-1.5 px-1 ${overAllocated || shortfall > 0.004 ? 'text-[#C0392B] font-semibold' : 'text-[#9A8F7E]'}`}>
+              {tr('الموزع')}: {formatCurrency(allocTotal)} {tr('من')} {formatCurrency(required)}
               {overAllocated && ` — ${tr('التوزيع أكبر من مبلغ السند')}`}
+              {!overAllocated && shortfall > 0.004 && ` — ${tr('يلزم توزيع')} ${formatCurrency(shortfall)}`}
+              {!overAllocated && shortfall <= 0.004 && required > 0 && ` — ✓ ${tr('التوزيع مكتمل')}`}
             </p>
           </div>
         )}
