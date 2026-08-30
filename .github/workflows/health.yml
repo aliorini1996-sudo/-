@@ -59,7 +59,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # التاريخ كاملاً: مقارنة النشر تسأل «آخر كوميت مسّ backend» وهو سؤالٌ
+          # عن التاريخ. بعمق ١ يرى git الكوميت الأخير وحده فيُرجع فراغاً أو HEAD.
+          fetch-depth: 0
 
       - name: افحص الأهداف الثلاثة والدخان
         id: checks
@@ -75,12 +77,17 @@ jobs:
             note "الباكند لا يرد على /api/health"
           else
             ver=$(echo "$hj" | grep -oE '"version":"[0-9a-f]+"' | cut -d'"' -f4)
-            head_sha=$(git rev-parse --short=7 HEAD)
-            if [ -n "$ver" ] && [ "$ver" != "$head_sha" ]; then
-              # لا إنذار أثناء نشر جار: نتسامح ما دام آخر التزام أحدث من ٣٠ دقيقة
-              age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
+            # المقارنة بآخر كوميت **مسّ backend** لا بـHEAD: render.yaml فيه
+            # buildFilter على backend/**، فكوميتٌ يمسّ الواجهة أو الوورك فلو لا
+            # يُعيد بناء الخادم عمداً — ومقارنته بـHEAD كانت تُنتج إنذاراً كاذباً
+            # مضمون التكرار، وهو الذي أبقى القناة مقفلة ١٧ ساعة.
+            back_sha=$(git log -1 --format=%h --abbrev=7 -- backend ':(exclude)backend/**/*.md' 2>/dev/null || echo "")
+            if [ -n "$ver" ] && [ -n "$back_sha" ] && [ "$ver" != "$back_sha" ]; then
+              # لا إنذار أثناء نشر جار: نتسامح ما دام ذلك الكوميت أحدث من ٣٠ دقيقة
+              back_ts=$(git log -1 --format=%ct -- backend ':(exclude)backend/**/*.md' 2>/dev/null || echo 0)
+              age=$(( $(date +%s) - back_ts ))
               if [ "$age" -gt 1800 ]; then
-                note "الباكند يخدم $ver بينما HEAD هو $head_sha منذ $((age/60)) دقيقة — نشر لم يصل"
+                note "الباكند يخدم $ver بينما آخر كوميت مسّ backend هو $back_sha منذ $((age/60)) دقيقة — نشر لم يصل"
               fi
             fi
           fi
@@ -114,22 +121,51 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FAILS: ${{ steps.checks.outputs.fails }}
         run: |
-          # الـIssue المفتوحة بوسم health-alert هي ذاكرة حالة الإنذار نفسها
+          # ذاكرة الحالة هي الـIssue المفتوحة بوسم health-alert. لكن «مفتوحة»
+          # وحدها كانت تكفي للصمت، فإنذارٌ واحد — ولو كاذباً — يقفل القناة عن
+          # **كل عطل يليه**. الدليل: إنذار بقي مفتوحاً ١٧ ساعة و٣٤ دقيقة.
+          #
+          # صارت الذاكرة **بصمة مجموعة الأعطال** لا مجرّد وجود الـIssue: ما دامت
+          # الأعطال نفسها يصمت المراقب، فإن تغيّرت — عطلٌ جديد ظهر أو قديمٌ زال —
+          # علّق على الـIssue فيصل إشعارٌ جديد ولا يضيع العطل الحقيقي خلف الكاذب.
           open=$(gh issue list --label health-alert --state open --json number -q '.[0].number' || echo "")
+          stamp=$(TZ=Asia/Riyadh date '+%Y-%m-%d %H:%M')
+
           if [ -n "$FAILS" ]; then
+            fp=$(printf '%b' "$FAILS" | sed '/^[[:space:]]*$/d' | sort -u | sha1sum | cut -c1-12)
+            printf '%s' "" > /tmp/body.md
+            {
+              echo "رصدت نبضة الصحة:"
+              echo
+              printf '%b' "$FAILS"
+              echo
+              echo "يغلق هذا الإنذار تلقائياً عند تعافي كل الأهداف."
+              echo
+              echo "<!-- fp:$fp -->"
+            } > /tmp/body.md
+
             if [ -z "$open" ]; then
-              gh issue create \
-                --title "🔴 عطل مرصود — $(TZ=Asia/Riyadh date '+%Y-%m-%d %H:%M') بتوقيت الرياض" \
-                --label health-alert \
-                --body "$(printf 'رصدت نبضة الصحة:\n\n%b\nيفحص المراقب كل ١٠ دقائق وسيغلق هذه تلقائيا عند التعافي.' "$FAILS")"
-              echo "فتحت إنذارا جديدا"
+              gh issue create --title "🔴 عطل مرصود — $stamp بتوقيت الرياض" --label health-alert --body-file /tmp/body.md
+              echo "فتحت إنذاراً جديداً (بصمة $fp)"
             else
-              echo "العطل مستمر — الإنذار #$open مفتوح سلفا ولا داعي لبريد ثان"
+              prev=$(gh issue view "$open" --json body -q .body | grep -oE 'fp:[0-9a-f]{12}' | cut -d: -f2 || echo "")
+              if [ "$prev" = "$fp" ]; then
+                echo "العطل نفسه مستمرّ (بصمة $fp) — لا إشعار مكرّر"
+              else
+                {
+                  echo "🔄 تغيّرت مجموعة الأعطال — $stamp بتوقيت الرياض"
+                  echo
+                  printf '%b' "$FAILS"
+                } > /tmp/comment.md
+                gh issue comment "$open" --body-file /tmp/comment.md
+                gh issue edit "$open" --body-file /tmp/body.md
+                echo "الأعطال تغيّرت من ${prev:-بلا بصمة} إلى $fp — علّقتُ على #$open"
+              fi
             fi
             exit 1
           else
             if [ -n "$open" ]; then
-              gh issue comment "$open" --body "✅ تعافى كل شيء — $(TZ=Asia/Riyadh date '+%H:%M') بتوقيت الرياض. تغلق آليا."
+              gh issue comment "$open" --body "✅ تعافى كل شيء — $stamp بتوقيت الرياض. تغلق آلياً."
               gh issue close "$open"
               echo "أغلقت الإنذار #$open"
             fi

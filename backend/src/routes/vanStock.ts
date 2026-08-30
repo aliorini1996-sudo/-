@@ -80,6 +80,9 @@ export async function computeStock(tid: string, salesRepId: string): Promise<Sto
     else m.adjusted += it.qty;
   }
   for (const it of invItems) {
+    // مخزون السيارة للمنتجات وحدها: بند فاتورة المطعم بلا productId، وتمريره
+    // كان يفتح صفّاً بمفتاح فارغ يلوّث كل الأرصدة.
+    if (!it.productId) continue;
     const m = ensure(it.productId);
     // المرتجع لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock (التالف عادةً لا يعود)
     if (it.invoice.type === 'RETURN') { if (it.invoice.returnToStock) m.returned += it.qty; }
@@ -359,7 +362,7 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
       ...invoices.map(inv => ({
         kind: inv.type === 'RETURN' ? 'RETURN' : 'SALE', date: inv.invoiceDate,
         ref: `${inv.number} · ${inv.customer.name}`, by: 'REP',
-        items: inv.items.map(i => ({ name: i.product.name, unit: i.product.unit, qty: i.qty })),
+        items: inv.items.map(i => ({ name: i.product?.name ?? 'صنف محذوف', unit: i.product?.unit ?? '', qty: i.qty })),
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 60);
 

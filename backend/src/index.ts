@@ -175,11 +175,54 @@ app.use('/api/hunter', hunterRouter);
 app.use('/media', express.static(path.join(process.cwd(), 'media'), { maxAge: '1d' }));
 
 // version = رقم الـcommit المنشور (يوفّره Render عبر RENDER_GIT_COMMIT) — للتحقق الخارجي من نجاح النشر
-app.get('/api/health', (_req, res) => res.json({
-  status: 'ok',
-  timestamp: new Date(),
-  version: (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7),
-}));
+/**
+ * الصحّة تُقاس ولا تُعلَن.
+ *
+ * كانت هذه النقطة تُرجع `status:'ok'` نصّاً محفوراً بلا لمس القاعدة، وفحوص
+ * الدخان الثلاثة تردّ 401 من التحقّق قبل أي استعلام — فكان **سقوط قاعدة
+ * البيانات لا يولّد إنذاراً واحداً**: الخادم حيّ، والنبضة خضراء، والمنصّة
+ * معطّلة تماماً عن كل عميل.
+ *
+ * والاستعلام بمهلة صريحة: قاعدةٌ لا تسقط بل **تتباطأ** كانت ستعلّق الفحص نفسه
+ * فيصير الصمت هو الجواب. والنتيجة مخزَّنة ثوانيَ معدودة كي لا يصير مِجسّ
+ * Render ومِجسّ النبضة حملاً على القاعدة التي يفحصانها.
+ */
+const HEALTH_CACHE_MS = 15_000;
+const DB_PROBE_TIMEOUT_MS = 4_000;
+let healthCache: { at: number; dbOk: boolean; ms: number } | null = null;
+
+async function probeDatabase(): Promise<{ dbOk: boolean; ms: number }> {
+  const now = Date.now();
+  if (healthCache && now - healthCache.at < HEALTH_CACHE_MS) {
+    return { dbOk: healthCache.dbOk, ms: healthCache.ms };
+  }
+  const started = Date.now();
+  let dbOk = false;
+  try {
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('مهلة')), DB_PROBE_TIMEOUT_MS)),
+    ]);
+    dbOk = true;
+  } catch (e) {
+    console.error('health: القاعدة لا تستجيب —', (e as Error).message);
+  }
+  const ms = Date.now() - started;
+  healthCache = { at: now, dbOk, ms };
+  return { dbOk, ms };
+}
+
+app.get('/api/health', async (_req, res) => {
+  const { dbOk, ms } = await probeDatabase();
+  // 503 لا 200: المِجسّ الذي يردّ 200 على عطل يُخفيه عن كل مراقبة تقرأ الرمز
+  res.status(dbOk ? 200 : 503).json({
+    status: dbOk ? 'ok' : 'degraded',
+    db: dbOk ? 'up' : 'down',
+    dbLatencyMs: ms,
+    timestamp: new Date(),
+    version: (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7),
+  });
+});
 
 // عرض الواجهة المبنيّة إن وُجدت (اختياري — الواجهة الرسمية على Vercel)
 const webDist = path.join(__dirname, '../../web-admin/dist');
