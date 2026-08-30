@@ -137,6 +137,41 @@ const STRIKE_FAQ = {
           'Trade marketing is B2B marketing aimed at channel partners — wholesalers, distributors and retailers — rather than at the consumer; its tools are channel promotions, incentives, merchandising, category management and shelf presence. Distribution is executing that outlet by outlet, and what was agreed only becomes real if a rep executes it — so the field record (visit, photo, invoice per channel) is the proof of execution.',
           "Le marketing commercial est un marketing B2B destiné aux partenaires du canal (grossistes, distributeurs, détaillants) : promotions canal, incitations, merchandising, gestion de catégorie, présence en rayon. La distribution en est l'exécution point par point — le relevé terrain en est la preuve.") },
   ],
+  // ——— موجة إنجليزية (28 أغسطس 2026): أسئلة مطابقة لاستعلامات مقيسة في مسافة الضربة ———
+  // القياس (90 يوماً، Search Console): dairy distribution 19 ظهوراً عند 10.9 ·
+  // distribution fmcg 25 عند 8.2 · what is field sales management 23 عند 25.6 ·
+  // distributor management system 23 عند 64.7 · primary and secondary sales objectives 31 عند 54.6.
+  // العبارة تُجاب حرفياً بصيغة السؤال الذي يكتبه الباحث لا بصياغتنا نحن.
+  'wholesale-food-distributors': (c, L) => [
+    { q: P(L, 'ما الذي يميز توزيع الألبان عن غيره', 'What makes dairy distribution different?', 'Ce qui distingue la distribution laitière ?'),
+      a: P(L, 'توزيع الألبان يجمع ثلاثة ضغوط لا تجتمع في غيره صلاحية قصيرة تقاس بالأيام وسلسلة تبريد لا تسامح فيها ونافذة تسليم صباحية ضيقة ولذلك يكون الاستبدال اليومي عملية شبه مؤكدة عند كل منفذ ومؤشر القطاع الحاكم هو نسبة الاستبدال لكل عميل فارتفاعها المفاجئ عند منفذ يكشف برادا معطلا أو طلبا فوق طاقة بيعه',
+          'Dairy distribution stacks three pressures that rarely meet elsewhere: shelf life measured in days, a cold chain with no tolerance, and a narrow morning delivery window. That makes same-day replacement a near-certain event at every outlet, and the governing metric is the replacement rate per customer — a sudden rise at one outlet reveals a broken chiller or an order beyond what that shop can sell.',
+          "La distribution laitière cumule trois pressions rares ailleurs : une durée de vie en jours, une chaîne du froid sans tolérance et une fenêtre de livraison matinale étroite. L'échange quotidien y est quasi certain, et l'indicateur clé reste le taux d'échange par client.") },
+    { q: P(L, 'كيف يوثق النظام مرتجع الاستبدال', 'How is a replacement return recorded in dairy distribution?', "Comment l'échange est-il enregistré ?"),
+      a: P(L, 'الاستبدال نوع مستقل عن المرتجع العادي والتالف يخرج القديم ويدخل الجديد بحركة واحدة موثقة فلا يظهر بيعا جديدا يضخم الأرقام ولا خسارة تخفي كلفته والفصل بين الأنواع الثلاثة هو ما يبقي جردك مطابقا للواقع',
+          'Replacement is a distinct type from an ordinary or a damaged return: the old stock leaves and the new enters in one recorded movement. It never inflates sales as a fresh order, nor hides its cost as a loss — and keeping the three types separate is what keeps the stock count matching reality.',
+          "L'échange est un type distinct du retour ordinaire ou avarié : l'ancien sort et le nouveau entre en un seul mouvement tracé — ni vente gonflée, ni coût masqué.") },
+  ],
+  'what-is-field-sales-management': (c, L) => [
+    { q: P(L, 'ما هو نظام إدارة المبيعات الميدانية', 'What is field sales management?', "Qu'est-ce que la gestion des ventes terrain ?"),
+      a: P(L, 'إدارة المبيعات الميدانية هي تشغيل الجزء من عملك الذي يحدث خارج المكتب تخطيط خطوط سير المناديب وتوثيق زياراتهم وإصدار الفاتورة والتحصيل عند العميل وضبط ما في سيارة كل مندوب ثم قراءة ذلك كله أرقاما في لوحة واحدة والفارق عن إدارة المبيعات الداخلية أن الحدث نفسه يقع بعيدا عنك فإما أن يوثق لحظته أو يضيع',
+          'Field sales management is running the part of your business that happens away from the office: planning rep routes, recording visits, issuing the invoice and collecting payment at the customer, controlling what sits in each rep vehicle, and reading all of it as numbers on one dashboard. What separates it from inside sales management is that the event itself happens away from you — it is either captured at that moment or lost.',
+          "La gestion des ventes terrain pilote la part de l'activité qui se déroule hors du bureau : tournées, visites, facturation et encaissement chez le client, stock du véhicule — le tout lisible sur un seul tableau de bord.") },
+    { q: P(L, 'ما الفرق بين برنامج المبيعات الميدانية ونظام إدارة علاقات العملاء', 'How is field sales software different from a CRM?', 'En quoi diffère-t-il d un CRM ?'),
+      a: P(L, 'نظام إدارة العلاقات يدير الفرصة والمحادثة حتى الإغلاق أما برنامج المبيعات الميدانية فيدير ما بعد ذلك التسليم والفاتورة والتحصيل ومخزون السيارة والزيارة الموثقة وفي التوزيع تكون الصفقة نفسها متكررة يوميا فمركز الثقل ليس الإغلاق بل تنفيذ الزيارة',
+          'A CRM manages the opportunity and the conversation up to the close. Field sales software manages what comes after: delivery, invoice, collection, van stock and the verified visit. In distribution the same deal repeats daily, so the centre of gravity is not closing — it is executing the visit.',
+          "Un CRM gère l'opportunité jusqu'à la signature ; le logiciel de vente terrain gère la suite : livraison, facture, encaissement, stock du véhicule et visite vérifiée.") },
+  ],
+  'distribution-management-system': (c, L) => [
+    { q: P(L, 'ما هو نظام إدارة الموزعين', 'What is a distributor management system?', "Qu'est-ce qu'un système de gestion des distributeurs ?"),
+      a: P(L, 'نظام إدارة الموزعين برنامج يربط الشركة المصنعة أو الموردة بشبكة موزعيها فيوحد الأصناف والأسعار وشروط الائتمان ويظهر المبيعات الثانوية أي ما باعه الموزع فعلا لمنافذ البيع لا ما اشتراه منك وحده وهذا الفرق تحديدا هو ما يكشف تكدس المخزون في القناة قبل أن يصير مرتجعا',
+          'A distributor management system connects a manufacturer or supplier to its distributor network: it unifies the item list, prices and credit terms, and surfaces secondary sales — what the distributor actually sold on to retail outlets, not merely what he bought from you. That distinction is exactly what exposes stock piling up in the channel before it turns into returns.',
+          "Un système de gestion des distributeurs relie le fabricant à son réseau : articles, prix et conditions de crédit unifiés, et surtout les ventes secondaires — ce que le distributeur a réellement revendu aux points de vente.") },
+    { q: P(L, 'ما الفرق بين المبيعات الأولية والثانوية', 'What is the difference between primary and secondary sales objectives?', 'Quelle différence entre ventes primaires et secondaires ?'),
+      a: P(L, 'المبيعات الأولية ما يبيعه المصنع للموزع والثانوية ما يبيعه الموزع لمنافذ البيع والاعتماد على الأولى وحدها يخدع لأنها ترتفع بالشحن لا بالاستهلاك فقد تبدو الأرقام ممتازة والبضاعة راكدة في مستودع الموزع والهدف التشغيلي الصحيح يقاس على الثانوية وعلى تغطية المنافذ لا على أوامر الشحن',
+          'Primary sales are what the manufacturer sells to the distributor; secondary sales are what the distributor sells on to outlets. Setting objectives on the first alone is misleading, because it rises with shipping rather than with consumption — the numbers can look excellent while the goods sit in the distributor warehouse. A sound operating objective is measured on secondary sales and outlet coverage, not on shipment orders.',
+          "Les ventes primaires vont du fabricant au distributeur ; les secondaires du distributeur aux points de vente. Fixer les objectifs sur les seules primaires trompe : elles montent avec les expéditions, pas avec la consommation.") },
+  ],
 };
 
 const faqData = (c, L, topicId) => {
@@ -1147,13 +1182,17 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  *              + «trade marketing and distribution» (pos 12.3) + «dairy distribution» (pos 10.9).
  * 2026-08-18: إصلاحات صدق من التحقّق العدائي (حدّ الائتمان تنبيه لا منع · لا ادّعاء عجز بلا جرد ·
  *             تسييج الأوف-لاين على أسواق المقاصّة اللحظية · تسييج تصنيف الفاتورة المبسّطة على الخليج).
+ * 2026-08-28: موجة العائلات الإنجليزية — أسئلة ضربة مطابقة لاستعلامات مقيسة
+ *             (dairy distribution 10.9 · distribution fmcg 8.2 · what is field sales
+ *             management 25.6 · distributor management system 64.7 · primary vs
+ *             secondary sales 54.6). السؤال يُجاب بصيغة الباحث حرفياً.
  */
-export const CONTENT_VERSION = '2026-08-18';
+export const CONTENT_VERSION = '2026-08-28';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً).
 // 10 أغسطس: تقليل التكرار غيّر كل صفحات الدول (أولوية وغيرها)، فالثابتان متساويان الآن —
 // تغيير حقيقيّ واحد واسع، لا churn كاذب (الخريطة تُخبر جوجل بصدق أنّ ~600 صفحة تغيّرت فيُعيد زحفها).
-const PRIORITY_CONTENT_VERSION = '2026-08-18';
+const PRIORITY_CONTENT_VERSION = '2026-08-28';
 export const modifiedOf = (date, cc) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
   return date > v ? date : v;
