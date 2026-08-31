@@ -567,6 +567,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string }> = {
   'خصم أقصى': { en: 'Max discount', fr: 'Remise max', tr: 'Maksimum indirim' },
   'مخزون السيارة': { en: 'Van stock', fr: 'Stock véhicule', tr: 'Araç stoku' },
   'استلام تحصيل': { en: 'Receive collection', fr: 'Encaisser', tr: 'Tahsilat teslim al' },
+  'تعديل البروفايل': { en: 'Edit profile deck', fr: "Modifier le profil", tr: 'Profili duzenle' },
+  'نصوص البروفايل القديمة': { en: 'Legacy profile texts', fr: "Anciens textes du profil", tr: 'Eski profil metinleri' },
   'تقسيط': { en: 'Installments', fr: "Paiement echelonne", tr: 'Taksit' },
   'جدولة الأقساط': { en: 'Installment schedule', fr: "Echeancier", tr: 'Taksit plani' },
   'جدول الأقساط': { en: 'Installment schedule', fr: "Echeancier", tr: 'Taksit plani' },

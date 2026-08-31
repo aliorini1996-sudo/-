@@ -62,7 +62,7 @@ test('ملفّ البروفايل PDF موجود ومسارُه هو ما تشي
   assert.ok(fs.existsSync(pdf), 'ملف البروفايل PDF مفقود من public');
   assert.ok(fs.statSync(pdf).size > 100_000, 'ملف البروفايل صغير بشكل مريب');
   const page = fs.readFileSync(path.join(process.cwd(), 'src', 'pages', 'ProfilePage.tsx'), 'utf8');
-  assert.match(page, /const PROFILE_PDF = '\/fieldsales-profile\.pdf'/, 'مسار الملف في الصفحة تغيّر');
+  assert.match(page, /const BUILTIN_PDF = '\/fieldsales-profile\.pdf'/, 'مسار الملف المدمَج في الصفحة تغيّر');
 });
 
 /**
@@ -78,6 +78,42 @@ test('صفحة البروفايل تسمح بالتكبير وتعيد الإع�
 
 test('الشرائح تُحمَّل كسولاً عدا الأولى — أحد عشر صورة دفعةً تُثقل أول رسم', () => {
   const page = fs.readFileSync(path.join(process.cwd(), 'src', 'pages', 'ProfilePage.tsx'), 'utf8');
-  assert.match(page, /loading=\{s\.n === 1 \? 'eager' : 'lazy'\}/, 'التحميل الكسول غائب');
+  assert.match(page, /loading=\{s\.seq === 1 \? 'eager' : 'lazy'\}/, 'التحميل الكسول غائب');
   assert.match(page, /aspectRatio: '16 \/ 9'/, 'نسبة الشريحة غير مثبَّتة — تنزلق الصفحة عند التحميل');
+});
+
+/**
+ * ═══ ما يرفعه المالك ═══
+ *
+ * الصفحة تفضّل ما رفعه المالك من لوحته وتسقط للمدمَج عند غيابه. والسقوط ليس
+ * ترفاً: لو تعذّر الخادم أو خلا الجدول لظهرت الصفحة **فارغة** لزائرٍ قد يكون
+ * مستثمراً. فأسوأ حالاتها أن تعرض النسخة السابقة لا أن تُكسَر.
+ */
+test('الصفحة تفضّل المرفوع وتسقط للمدمَج عند غيابه', () => {
+  const page = fs.readFileSync(path.join(process.cwd(), 'src', 'pages', 'ProfilePage.tsx'), 'utf8');
+  assert.match(page, /profileDeckApi\.get\(\)/, 'الصفحة لا تقرأ ما رفعه المالك');
+  assert.match(page, /const uploaded = \(up\?\.slides\?\.length \?\? 0\) > 0/, 'لا تفضيل للمرفوع');
+  assert.match(page, /: PROFILE_DECK\.map/, 'لا سقوط للشرائح المدمَجة — تُكسَر الصفحة عند تعذّر الخادم');
+  assert.match(page, /up\?\.file \? `\/api\/profile-deck\/file/, 'زرّ التنزيل لا يخدم الملفّ المرفوع');
+});
+
+/** بصمة النسخة في الرابط: بلا مفتاح لا يرى الزائر الشرائح الجديدة إلا بمسح تخزينه */
+test('رابط الشريحة المرفوعة يحمل بصمة نسختها', () => {
+  const page = fs.readFileSync(path.join(process.cwd(), 'src', 'pages', 'ProfilePage.tsx'), 'utf8');
+  assert.match(page, /profile-deck\/slide\/\$\{s\.seq\}\?v=\$\{s\.v\}/,
+    'رابط الشريحة بلا بصمة نسخة — تُخزَّن سنةً فلا يظهر التحديث');
+});
+
+/** الكتابة لمالك المنصّة وحده، والقراءة عامّة (الصفحة للزوّار) */
+test('مسارات البروفايل: القراءة عامة والكتابة محروسة بالمالك', () => {
+  const r = fs.readFileSync(
+    path.join(process.cwd(), '..', 'backend', 'src', 'routes', 'profileDeck.ts'), 'utf8');
+  const writes = r.match(/router\.(put|delete)\([^)]*/g) || [];
+  assert.ok(writes.length >= 3, 'مسارات الكتابة ناقصة');
+  for (const w of writes) {
+    assert.match(w, /authenticate, requireSuperAdmin/, `مسار كتابة بلا حارس المالك: ${w.slice(0, 40)}`);
+  }
+  assert.match(r, /router\.get\('\/', async \(_req: Request/, 'قراءة البيان ليست عامّة');
+  assert.match(r, /subarray\(0, 4\)\.toString\('latin1'\) !== '%PDF'/, 'لا فحص لتوقيع الملف');
+  assert.match(r, /max-age=31536000, immutable/, 'الصور بلا ترويسة تخزين طويلة');
 });

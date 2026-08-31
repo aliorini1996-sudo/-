@@ -81,6 +81,14 @@ export const salesRepApi = {
   setIsolation: (enabled: boolean) => api.patch('/sales-reps/settings/isolation', { enabled }),
 };
 
+// شرائح البروفايل — قراءة عامّة وكتابة لمالك المنصّة
+export const profileDeckApi = {
+  get: () => api.get('/profile-deck'),
+  putDeck: (slides: unknown[]) => api.put('/profile-deck', { slides }),
+  putFile: (dataBase64: string, name: string) => api.put('/profile-deck/file', { dataBase64, name }),
+  clear: () => api.delete('/profile-deck'),
+};
+
 export const invoiceApi = {
   list: (params?: Record<string, string | number>) => api.get('/invoices', { params }),
   // فواتير العميل المفتوحة لتوزيع سند القبض — كل فواتيره لا فواتير مندوب بعينه

@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
-import { PROFILE_DECK, DECK_COUNT, deckImg } from '../content/profileDeck';
+import { profileDeckApi } from '../api/client';
+import { PROFILE_DECK, deckImg } from '../content/profileDeck';
 
 /**
  * «بروفايل» — الملف التعريفي fieldsa.net/profile
@@ -24,12 +26,46 @@ import { PROFILE_DECK, DECK_COUNT, deckImg } from '../content/profileDeck';
  */
 
 const COLORS = { coral: '#E15A30', ink: '#1F1A13', cream: '#FAF7F0' };
-const PROFILE_PDF = '/fieldsales-profile.pdf';
+/** الملفّ المدمَج في البناء — يُستعمل حتى يرفع المالك ملفاً من لوحته */
+const BUILTIN_PDF = '/fieldsales-profile.pdf';
+
+interface Slide { seq: number; title: string; lines: string[]; src: string }
+
+interface Manifest {
+  slides: { seq: number; title: string; lines: string[]; v: number }[];
+  file: { name: string; v: number } | null;
+}
 
 export default function ProfilePage() {
   useEffect(() => {
     document.title = 'بروفايل Field Sales';
   }, []);
+
+  /**
+   * ما رفعه المالك أولاً، والمدمَج في البناء احتياطاً.
+   *
+   * والسقوط للمدمَج ليس ترفاً: لو تعذّر الخادم أو خلا الجدول لظهرت الصفحة
+   * فارغةً لزائرٍ قد يكون مستثمراً. فهي لا تُكسَر أبداً — أسوأ حالاتها أن تعرض
+   * النسخة السابقة.
+   */
+  const { data: up } = useQuery({
+    queryKey: ['profile-deck'],
+    queryFn: async () => (await profileDeckApi.get()).data.data as Manifest,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const uploaded = (up?.slides?.length ?? 0) > 0;
+  const slides: Slide[] = uploaded
+    ? up!.slides.map(s => ({
+      seq: s.seq, title: s.title || `شريحة ${s.seq}`, lines: s.lines,
+      // بصمة النسخة في الرابط: يُخزَّن طويلاً ويتجدّد عند الرفع وحده
+      src: `/api/profile-deck/slide/${s.seq}?v=${s.v}`,
+    }))
+    : PROFILE_DECK.map(s => ({ seq: s.n, title: s.title, lines: s.lines, src: deckImg(s.n) }));
+
+  const pdfHref = up?.file ? `/api/profile-deck/file?v=${up.file.v}` : BUILTIN_PDF;
+  const pdfName = up?.file?.name || 'بروفايل Field Sales.pdf';
 
   /**
    * السماح بالتكبير بالإصبعين في هذه الصفحة وحدها.
@@ -63,7 +99,7 @@ export default function ProfilePage() {
               <span style={{ color: COLORS.coral }}> Sales</span>
             </span>
           </a>
-          <a href={PROFILE_PDF} download="بروفايل Field Sales.pdf" title="تنزيل البروفايل PDF"
+          <a href={pdfHref} download={pdfName} title="تنزيل البروفايل PDF"
             className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5"
             style={{ background: COLORS.coral, color: '#fff' }}>
             <Download size={14} />
@@ -79,18 +115,18 @@ export default function ProfilePage() {
 
       {/* الشرائح — كل واحدة بنسبة 16:9 ثابتة فلا تُقتطع ولا تُشوَّه على أي شاشة */}
       <main className="max-w-[1400px] mx-auto sm:px-4 sm:py-4 flex flex-col sm:gap-4">
-        {PROFILE_DECK.map(s => (
-          <figure key={s.n} className="m-0 relative sm:rounded-2xl overflow-hidden"
+        {slides.map(s => (
+          <figure key={s.seq} className="m-0 relative sm:rounded-2xl overflow-hidden"
             style={{ aspectRatio: '16 / 9', background: COLORS.ink }}>
             <img
-              src={deckImg(s.n)}
-              alt={`${s.n}. ${s.title}`}
+              src={s.src}
+              alt={`${s.seq}. ${s.title}`}
               width={2400}
               height={1350}
               /* الأولى فوق الطيّة فتُحمَّل فوراً، والباقي عند الاقتراب */
-              loading={s.n === 1 ? 'eager' : 'lazy'}
+              loading={s.seq === 1 ? 'eager' : 'lazy'}
               decoding="async"
-              fetchPriority={s.n === 1 ? 'high' : 'auto'}
+              fetchPriority={s.seq === 1 ? 'high' : 'auto'}
               className="block w-full h-full object-contain select-none"
             />
             {/* نصّ الشريحة للزاحف وقارئ الشاشة — مخفيّ بصرياً لا بـdisplay:none */}
@@ -104,12 +140,12 @@ export default function ProfilePage() {
 
       <footer className="max-w-[1400px] mx-auto px-4 py-8 text-center"
         style={{ color: 'rgba(250,247,240,.55)', fontSize: 13 }}>
-        <a href={PROFILE_PDF} download="بروفايل Field Sales.pdf"
+        <a href={pdfHref} download={pdfName}
           className="font-bold" style={{ color: COLORS.coral }}>
           تنزيل الملف كاملا PDF
         </a>
         <span className="mx-2">·</span>
-        <span>{DECK_COUNT} شريحة</span>
+        <span>{slides.length} شريحة</span>
         <span className="mx-2">·</span>
         <a href="mailto:info@fieldsa.net" style={{ color: 'inherit' }}>info@fieldsa.net</a>
       </footer>
