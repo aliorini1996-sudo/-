@@ -7,9 +7,15 @@ import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn,
 import { backdropClose } from '../lib/backdropClose';
 
 /**
- * محرر صفحة «بروفايل» — لمالك المنصة.
- * يعدل اي نص في الصفحة التعريفية fieldsa.net/profile بأي وقت وباللغتين.
- * الحفظ يدمج مفتاح profile داخل siteContent دون المساس ببقية محتوى الموقع.
+ * محرر نصوص «بروفايل» — لمالك المنصة.
+ *
+ * ⚠️ **لم تعد صفحة fieldsa.net/profile تقرأ هذه النصوص**: صارت تعرض شرائح
+ * العرض التقديمي مصدَّرةً من بوربوينت كما هي (بقرار المالك: «طبّق العرض بالضبط
+ * بلا تعديل»)، فالتصميم والنصّ يُحرَّران في ملفّ العرض لا هنا.
+ *
+ * والنصوص محفوظةٌ في CMS كما هي ولم تُحذف، والمحرّر باقٍ ليُستعاد الوضع
+ * القديم بلا فقد متى أُريد. ولذلك ينبّه رأسُ اللوحة المستخدمَ صراحةً — محرّرٌ
+ * صامتٌ لا يظهر أثره أسوأ من محرّر محجوب.
  */
 export default function ProfileEditorPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -67,7 +73,9 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div>
             <h2 className="text-lg font-bold text-[#1F1A13]">محتوى البروفايل</h2>
-            <p className="text-xs text-[#6E6557]">كل نص في صفحة fieldsa net/profile عدل واحفظ ويظهر فورا</p>
+            <p className="text-xs text-[#B4530A] font-semibold">
+              صفحة البروفايل تعرض الان شرائح العرض التقديمي المصدرة كما هي — هذه النصوص محفوظة ولا تظهر فيها
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <a href="/profile" target="_blank" rel="noopener noreferrer"
