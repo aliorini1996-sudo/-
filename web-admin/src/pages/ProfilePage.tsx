@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
+import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import { mergeProfile, splitLines, splitPairs, sectionOn, ProfileLang, ProfileContent } from '../content/profileContent';
 
@@ -145,6 +146,15 @@ const PRINT_CSS = `
 
 const COLORS = { coral: '#E15A30', ink: '#1F1A13', cream: '#FAF7F0', coralL: '#FBEBE2', gray: '#6E6557', sand: '#E9E1D3', green: '#1E7A52' };
 const IMG = (n: string) => `/media/profile/${n}.jpg`;
+/**
+ * ملفّ البروفايل الجاهز — نسخة مصمَّمة بمقاس عرضيّ 16:9 يُنزّلها الزائر كما هي.
+ *
+ * ولماذا ملفّ جاهز لا `window.print()` على الصفحة نفسها: الطباعة تخرج بمقاس
+ * ورق المستخدم وبإعدادات طابعته، فتختلف النتيجة من جهاز لجهاز، وقد تسقط صورةٌ
+ * لم تُحمَّل بعد. والملفّ في `public` أي أصل ثابت يُخدَم قبل التحويل العام
+ * للـSPA (كما يُخدَم `privacy.html` اليوم).
+ */
+const PROFILE_PDF = '/fieldsales-profile.pdf';
 // كل صور الصفحة: ستّ صور <img> وأربع خلفيات أقسام — مصدر واحد للتسخين والتصدير
 const PHOTOS = ['cover', 'problem', 'clients', 'about', 'journey', 'achievements', 'goals', 'invest', 'closing'];
 
@@ -186,26 +196,6 @@ export default function ProfilePage() {
   const headFont = isAr ? arFont : serif;
 
   const L = (ar: string, en: string) => (isAr ? ar : en);
-
-  /**
-   * تصدير PDF: نطبع الصفحة نفسها لا نسخة مبسّطة منها — لكن قبل الطباعة نُجبر
-   * الصور الكسولة على التحميل. الصورة التي لم تدخل الشاشة لم تُطلب أصلاً،
-   * وحوار الطباعة لا ينتظرها، فكانت خاناتها تخرج بيضاء في الملف.
-   */
-  const exportPdf = async () => {
-    const settle = (im: HTMLImageElement) => (im.complete && im.naturalWidth > 0
-      ? Promise.resolve()
-      : new Promise<void>(done => {
-        im.addEventListener('load', () => done(), { once: true });
-        im.addEventListener('error', () => done(), { once: true });
-      }));
-    const inline = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-profile-photo]'));
-    inline.forEach(im => { im.loading = 'eager'; });
-    // خلفيات الأقسام الداكنة ليست عناصر <img> فلا تُنتظر بذاتها — نطلبها بنسخ موازية
-    const backdrops = PHOTOS.map(n => { const im = new Image(); im.src = IMG(n); return im; });
-    await Promise.all([...inline, ...backdrops].map(settle));
-    window.print();
-  };
 
   const Wordmark = ({ dark }: { dark?: boolean }) => (
     <span style={{ fontFamily: serif, fontWeight: 700 }}>
@@ -278,10 +268,16 @@ export default function ProfilePage() {
                 </button>
               ))}
             </div>
-            <button onClick={exportPdf} title={L('حفظ PDF', 'Save PDF')}
-              className="px-3.5 py-1.5 rounded-xl text-sm font-bold" style={{ background: COLORS.ink, color: COLORS.cream }}>
+            {/* الملفّ الجاهز لا طباعةُ الصفحة: نسخة مصمَّمة بمقاس عرضيّ 16:9
+                يقرؤها المتلقّي كما هي على أي جهاز، ولا تتغيّر بمقاس نافذته ولا
+                بإعدادات طابعته. والصفحة تبقى للقراءة على الشاشة. */}
+            <a href={PROFILE_PDF} download={L('بروفايل Field Sales.pdf', 'Field Sales Profile.pdf')}
+              title={L('تنزيل البروفايل PDF', 'Download profile PDF')}
+              className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5"
+              style={{ background: COLORS.ink, color: COLORS.cream }}>
+              <Download size={14} />
               PDF
-            </button>
+            </a>
           </div>
         </div>
       </header>
