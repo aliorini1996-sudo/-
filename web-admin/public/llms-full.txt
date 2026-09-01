@@ -2131,7 +2131,7 @@
 - [تقليل دوران المناديب: احتفظ بخبرتك الميدانية](https://fieldsa.net/blog/reducing-rep-turnover/)
 - [الكاش فان مقابل البيع المسبق (Pre-sales): أيّهما لشركتك؟](https://fieldsa.net/blog/cashvan-vs-presales/)
 - [نموذج البيع المسبق والتوصيل: نظّم الطلب والتحميل](https://fieldsa.net/blog/presales-delivery-model/)
-- [دورة الطلب حتى التحصيل (Order-to-Cash) في التوزيع](https://fieldsa.net/blog/order-to-cash-cycle/)
+- [دورة الطلب حتى التحصيل Order-to-Cash: خطواتها وزمنها وأين تنكسر](https://fieldsa.net/blog/order-to-cash-cycle/)
 - [من المستودع إلى السيارة: تحميل موثّق يمنع الفروقات](https://fieldsa.net/blog/warehouse-van-loading/)
 - [تتبّع الدفعات وتواريخ الصلاحية على مستوى الصنف](https://fieldsa.net/blog/batch-expiry-tracking/)
 - [مسح الباركود في الميدان: سرعة ودقّة في كل عملية](https://fieldsa.net/blog/barcode-scanning-field/)
