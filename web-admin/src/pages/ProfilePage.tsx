@@ -260,11 +260,21 @@ export default function ProfilePage() {
   // إظهار الأقسام كما ضبطها المالك — الغياب يعني الظهور
   const on = (k: string) => sectionOn(content, k);
 
+  /**
+   * ترقيم البطاقات بأرقام اللغة المعروضة.
+   *
+   * تُشتقّ من الرقم لا من جدول محارف ثابت: الجدول الثابت («١٢٣»[i]) ينهار صامتاً
+   * حين يضيف المالك بنداً رابعاً — يخرج `undefined` فتظهر بطاقة بلا رقم.
+   */
+  const num1 = (n: number) => (isAr ? n.toLocaleString('ar-EG') : String(n));
+  const num2 = (n: number) => (isAr ? n.toLocaleString('ar-EG').padStart(2, '٠') : String(n).padStart(2, '0'));
+
+
   return (
     <div id="profile-doc" dir={dir} className="min-h-screen" style={{ background: COLORS.cream, fontFamily: font }}>
       <style>{PRINT_CSS}</style>
 
-      {/* الشريط العلوي: الشعار + مبدل اللغة + طباعة */}
+      {/* الشريط العلوي: الشعار + مبدل اللغة + تنزيل الملف */}
       <header className="sticky top-0 z-40 border-b print:hidden" style={{ background: 'rgba(250,247,240,.92)', backdropFilter: 'blur(8px)', borderColor: COLORS.sand }}>
         <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2.5">
@@ -281,9 +291,6 @@ export default function ProfilePage() {
                 </button>
               ))}
             </div>
-            {/* الملفّ الجاهز لا طباعةُ الصفحة: نسخة مصمَّمة بمقاس عرضيّ 16:9
-                يقرؤها المتلقّي كما هي على أي جهاز، ولا تتغيّر بمقاس نافذته ولا
-                بإعدادات طابعته. والصفحة تبقى للقراءة على الشاشة. */}
             <a href={pdfHref} download={L('بروفايل Field Sales.pdf', 'Field Sales Profile.pdf')}
               title={L('تنزيل البروفايل PDF', 'Download profile PDF')}
               className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5"
@@ -295,48 +302,55 @@ export default function ProfilePage() {
         </div>
       </header>
 
-      {/* ١ الغلاف — صورة المندوب خلفية بتدرج داكن جهة النص */}
+      {/* ═══ ١ الغلاف — صورة كاملة والنصّ على جهة التدرّج الداكن ═══ */}
       <section data-sec="cover" className="relative overflow-hidden" style={{ backgroundColor: COLORS.ink }}>
-        <Backdrop name="cover" grad={`linear-gradient(${isAr ? '270deg' : '90deg'}, rgba(31,26,19,.35) 0%, rgba(31,26,19,.78) 45%, rgba(31,26,19,.96) 100%)`} />
-        <div className="relative z-[2] max-w-6xl mx-auto px-4 py-24 sm:py-32">
-          <Kicker>{L('الملف التعريفي', 'Company profile')}</Kicker>
-          <h1 className="mt-4 text-4xl sm:text-6xl font-bold leading-tight max-w-3xl" style={{ color: COLORS.cream, fontFamily: headFont }}>
-            {t.cover_title}
-          </h1>
-          <div className="mt-6 text-lg sm:text-2xl leading-relaxed" style={{ color: 'rgba(250,247,240,.8)' }}>
-            {splitLines(t.cover_promise).map((l, i) => <p key={i}>{l}</p>)}
+        <Backdrop name="cover" grad={`linear-gradient(${isAr ? '90deg' : '270deg'}, rgba(31,26,19,.25) 0%, rgba(31,26,19,.72) 46%, rgba(31,26,19,.95) 100%)`} />
+        <div className="relative z-[2] max-w-6xl mx-auto px-4 pt-24 pb-10 sm:pt-36 sm:pb-14">
+          <div className="max-w-2xl" style={{ marginInlineEnd: 'auto' }}>
+            <Kicker>{L('الملف التعريفي', 'Company profile')}</Kicker>
+            <h1 className="mt-4 text-3xl sm:text-5xl font-bold leading-tight" style={{ color: COLORS.cream, fontFamily: headFont }}>
+              {t.cover_title}
+            </h1>
+            <div className="mt-5 text-base sm:text-xl leading-relaxed" style={{ color: 'rgba(250,247,240,.82)' }}>
+              {splitLines(t.cover_promise).map((l, i) => <p key={i}>{l}</p>)}
+            </div>
           </div>
-          <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2 text-sm" style={{ color: 'rgba(250,247,240,.6)' }}>
-            <span style={{ color: COLORS.coral, fontWeight: 700, fontFamily: enFont }}>fieldsa.net</span>
-            <span>{L('نسخة ٢٠٢٦', '2026 edition')}</span>
-            <span>{L('معد للمستثمرين', 'Prepared for investors')}</span>
-          </div>
+        </div>
+        <div className="relative z-[2] max-w-6xl mx-auto px-4 pb-6 flex flex-wrap justify-between gap-3 text-xs" style={{ color: 'rgba(250,247,240,.55)' }}>
+          <span>
+            <span style={{ color: COLORS.coral, fontWeight: 700, fontFamily: enFont }}>{t.contact_website}</span>
+            {' · '}{L('نسخة ٢٠٢٦', '2026 edition')}
+          </span>
+          <span>{L('معد للمستثمرين', 'Prepared for investors')}</span>
         </div>
       </section>
 
-      {/* ٢ المشكلة — نص + صورة الدفاتر */}
-      <section data-sec="problem" data-split="" hidden={!on('problem')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <div className="grid lg:grid-cols-2 gap-10 items-center">
-          <div>
+      {/* ═══ ٢ المشكلة — الصورة نصفٌ والنصّ نصف ═══ */}
+      <section data-sec="problem" data-split="" hidden={!on('problem')} className="grid lg:grid-cols-2 items-stretch">
+        <div className="flex items-center px-4 sm:px-10 py-14 sm:py-24 order-2 lg:order-none">
+          <div className="max-w-xl mx-auto w-full">
             <Kicker>{L('المشكلة', 'The problem')}</Kicker>
             <H2>{t.problem_title}</H2>
-            <Lines text={t.problem_body} size="text-lg sm:text-xl" />
+            <Lines text={t.problem_body} size="text-base sm:text-lg" />
           </div>
-          <Photo name="problem" alt={L('دفاتر ورقية متكدسة', 'Piles of paper ledgers')} />
+        </div>
+        <div className="relative min-h-[240px] lg:min-h-[520px] order-1 lg:order-none">
+          <img src={IMG('problem')} alt={L('دفاتر ورقية متكدسة', 'Piles of paper ledgers')} loading="lazy" data-profile-photo=""
+            className="absolute inset-0 w-full h-full object-cover" />
         </div>
       </section>
 
-      {/* ٣ الحل */}
+      {/* ═══ ٣ الحل — داكن ببطاقتين ═══ */}
       <section data-sec="solution" hidden={!on('solution')} style={{ background: COLORS.ink }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <Kicker>{L('الحل', 'The solution')}</Kicker>
           <H2 dark>{t.solution_title}</H2>
-          <div className="mt-8 grid sm:grid-cols-2 gap-8">
+          <div className="mt-8 grid sm:grid-cols-2 gap-6">
             {[{ h: t.solution_col1_title, c: t.solution_col1 }, { h: t.solution_col2_title, c: t.solution_col2 }].map((col, ci) => (
-              <div key={ci} className="rounded-2xl p-6" style={{ background: 'rgba(250,247,240,.05)', border: '1px solid rgba(250,247,240,.12)' }}>
-                <p className="font-bold text-lg mb-3" style={{ color: COLORS.cream, fontFamily: headFont }}>{col.h}</p>
+              <div key={ci} className="rounded-2xl p-6 sm:p-7" style={{ background: 'rgba(250,247,240,.06)', border: '1px solid rgba(250,247,240,.14)' }}>
+                <p className="font-bold text-lg sm:text-xl mb-4" style={{ color: COLORS.cream, fontFamily: headFont }}>{col.h}</p>
                 {splitLines(col.c).map((l, i) => (
-                  <p key={i} className="flex items-start gap-3 text-base sm:text-lg leading-loose" style={{ color: 'rgba(250,247,240,.85)' }}>
+                  <p key={i} className="flex items-start gap-3 text-sm sm:text-base leading-loose" style={{ color: 'rgba(250,247,240,.85)' }}>
                     <span className="mt-3 inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: COLORS.coral }} />
                     <span>{l}</span>
                   </p>
@@ -347,64 +361,75 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ٤ الفرصة — صورة الأسطول لافتة ثم القوى الثلاث */}
-      <section data-sec="opportunity" hidden={!on('opportunity')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <Kicker>{L('الفرصة', 'The opportunity')}</Kicker>
-        <H2>{t.opportunity_title}</H2>
-        <Lines text={t.opportunity_intro} />
-        <div className="mt-8">
-          <Photo name="clients" alt={L('اسطول سيارات توزيع', 'A fleet of delivery vans')} h="h-56 sm:h-72" />
+      {/* ═══ ٤ الفرصة — لافتة صورة أعلى ثم ثلاث بطاقات ═══ */}
+      <section data-sec="opportunity" hidden={!on('opportunity')}>
+        <div className="relative h-52 sm:h-80 overflow-hidden">
+          <img src={IMG('clients')} alt={L('اسطول سيارات توزيع', 'A fleet of delivery vans')} loading="lazy" data-profile-photo=""
+            className="absolute inset-0 w-full h-full object-cover" />
+          <span aria-hidden="true" className="absolute inset-0"
+            style={{ background: `linear-gradient(rgba(31,26,19,.42), rgba(31,26,19,0) 32%), linear-gradient(rgba(250,247,240,0) 55%, ${COLORS.cream} 100%)` }} />
         </div>
-        <div className="mt-6 grid sm:grid-cols-3 gap-5">
-          {splitLines(t.opportunity_items).map((s, i) => (
-            <div key={i} className="rounded-2xl bg-white p-6 text-base leading-relaxed" style={{ border: `1px solid ${COLORS.sand}`, color: COLORS.ink }}>
-              <span className="block mb-3 text-2xl font-bold" style={{ color: COLORS.coral, fontFamily: headFont }}>{isAr ? '٠' + '١٢٣'[i] : `0${i + 1}`}</span>
-              {s}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ٥ لماذا نحن — نص + صورة التسليم */}
-      <section data-sec="why" data-split="" hidden={!on('why')} style={{ background: COLORS.coralL }}>
-        <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <div className="grid lg:grid-cols-2 gap-10 items-center">
-            <div>
-              <Kicker>{L('لماذا نحن', 'Why us')}</Kicker>
-              <H2>{t.why_title}</H2>
-              <Lines text={t.why_body} size="text-lg sm:text-xl" />
-            </div>
-            <Photo name="about" alt={L('مندوب يسلم بضاعة لعميل', 'A rep handing goods to a customer')} />
+        <div className="max-w-6xl mx-auto px-4 pb-16 sm:pb-24">
+          <Kicker>{L('الفرصة', 'The opportunity')}</Kicker>
+          <H2>{t.opportunity_title}</H2>
+          <Lines text={t.opportunity_intro} size="text-base sm:text-lg" />
+          <div className="mt-8 grid sm:grid-cols-3 gap-5">
+            {splitLines(t.opportunity_items).map((s, i) => (
+              <div key={i} className="rounded-2xl bg-white p-6 text-sm sm:text-base leading-relaxed"
+                style={{ border: `1px solid ${COLORS.sand}`, color: COLORS.ink }}>
+                <span className="block mb-3 text-2xl font-bold" style={{ color: COLORS.coral, fontFamily: headFont }}>{num2(i + 1)}</span>
+                {s}
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ٦ الرحلة — الخط الزمني + صورة المستودع */}
-      <section data-sec="journey" data-split="" hidden={!on('journey')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <div className="grid lg:grid-cols-2 gap-10 items-center">
-          <div>
-            <Kicker>{L('الرحلة', 'The journey')}</Kicker>
-            <H2>{t.journey_title}</H2>
-            <div className="mt-10 grid gap-0">
-              {splitPairs(t.journey_stations).map((st, i, arr) => (
-                <div key={i} className="flex gap-5">
-                  <div className="flex flex-col items-center">
-                    <span className="w-4 h-4 rounded-full shrink-0" style={{ background: COLORS.coral }} />
-                    {i < arr.length - 1 && <span className="w-0.5 flex-1" style={{ background: COLORS.sand }} />}
+      {/* ═══ ٥ لماذا نحن — النصّ نصفٌ والصورة نصف ═══ */}
+      <section data-sec="why" data-split="" hidden={!on('why')} className="grid lg:grid-cols-2 items-stretch">
+        <div className="relative min-h-[240px] lg:min-h-[520px] order-1 lg:order-none">
+          <img src={IMG('about')} alt={L('داخل مستودع توزيع', 'Inside a distribution warehouse')} loading="lazy" data-profile-photo=""
+            className="absolute inset-0 w-full h-full object-cover" />
+        </div>
+        <div className="flex items-center px-4 sm:px-10 py-14 sm:py-24 order-2 lg:order-none">
+          <div className="max-w-xl mx-auto w-full">
+            <Kicker>{L('لماذا نحن', 'Why us')}</Kicker>
+            <H2>{t.why_title}</H2>
+            <Lines text={t.why_body} size="text-base sm:text-lg" />
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ ٦ الرحلة — خطّ زمنيّ أفقيّ ═══ */}
+      <section data-sec="journey" hidden={!on('journey')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+        <Kicker>{L('الرحلة', 'The journey')}</Kicker>
+        <H2>{t.journey_title}</H2>
+        <div className="mt-12 relative">
+          {/* الخطّ يمرّ خلف النقاط — على الشاشات الواسعة وحدها */}
+          <span aria-hidden="true" className="hidden sm:block absolute h-0.5 rounded-full"
+            style={{ background: COLORS.sand, top: 9, insetInlineStart: '12%', insetInlineEnd: '12%' }} />
+          <div className="grid sm:grid-cols-4 gap-8 sm:gap-5 relative">
+            {splitPairs(t.journey_stations).map((st, i, arr) => {
+              const last = i === arr.length - 1;
+              return (
+                <div key={i} className="flex sm:block gap-4">
+                  <div className="flex sm:block flex-col items-center">
+                    <span className="block w-5 h-5 rounded-full shrink-0"
+                      style={{ background: last ? COLORS.ink : COLORS.coral, border: `4px solid ${COLORS.cream}`, boxShadow: `0 0 0 2px ${last ? COLORS.ink : COLORS.coral}` }} />
+                    <span className="sm:hidden w-0.5 flex-1 mt-1" style={{ background: COLORS.sand }} />
                   </div>
-                  <div className="pb-8 -mt-1">
-                    <p className="font-bold text-lg" style={{ color: COLORS.coral }}>{st.a}</p>
-                    <p className="text-base sm:text-lg mt-0.5" style={{ color: COLORS.ink }}>{st.b}</p>
+                  <div className="sm:mt-5 pb-4 sm:pb-0">
+                    <p className="font-bold text-base sm:text-lg" style={{ color: last ? COLORS.ink : COLORS.coral }}>{st.a}</p>
+                    <p className="text-sm sm:text-base mt-1 leading-relaxed" style={{ color: COLORS.ink }}>{st.b}</p>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-          <Photo name="journey" alt={L('داخل مستودع توزيع', 'Inside a distribution warehouse')} h="h-72 sm:h-96" />
         </div>
       </section>
 
-      {/* ٧ نموذج العمل — خلفية طرق المدينة ليلا */}
+      {/* ═══ ٧ نموذج العمل — خلفية داكنة بثلاث بطاقات ═══ */}
       <section data-sec="model" hidden={!on('model')} className="relative overflow-hidden" style={{ background: COLORS.ink }}>
         <Backdrop name="achievements" grad={dim(0.88)} />
         <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-24">
@@ -413,15 +438,15 @@ export default function ProfilePage() {
           <div className="mt-8 grid sm:grid-cols-3 gap-5">
             {splitLines(t.model_items).map((a, i) => (
               <div key={i} className="rounded-2xl p-6" style={{ background: 'rgba(250,247,240,.06)', border: '1px solid rgba(250,247,240,.14)' }}>
-                <span className="block mb-3 text-3xl font-bold" style={{ color: COLORS.coral, fontFamily: headFont }}>{isAr ? '١٢٣'[i] : i + 1}</span>
-                <p className="text-base leading-relaxed" style={{ color: 'rgba(250,247,240,.88)' }}>{a}</p>
+                <span className="block mb-3 text-3xl font-bold" style={{ color: COLORS.coral, fontFamily: headFont }}>{num1(i + 1)}</span>
+                <p className="text-sm sm:text-base leading-relaxed" style={{ color: 'rgba(250,247,240,.88)' }}>{a}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ٨ الارقام */}
+      {/* ═══ ٨ الانجاز — مرجانيّ بأربع بطاقات بيضاء ═══ */}
       <section data-sec="numbers" hidden={!on('numbers')} style={{ background: COLORS.coral }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <div className="flex items-center gap-2.5 font-bold text-sm" style={{ color: COLORS.cream }}>
@@ -431,16 +456,16 @@ export default function ProfilePage() {
           <h2 className="mt-3 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.cream, fontFamily: headFont }}>{t.numbers_title}</h2>
           <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-5">
             {splitPairs(t.numbers_items).map((n, i) => (
-              <div key={i} className="rounded-2xl bg-white p-6 text-center">
-                <p className="text-4xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont }}>{n.a}</p>
-                <p className="mt-2 text-sm leading-relaxed" style={{ color: COLORS.gray }}>{n.b}</p>
+              <div key={i} className="rounded-2xl bg-white p-6 sm:p-8 text-center">
+                <p className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont }}>{n.a}</p>
+                <p className="mt-3 text-xs sm:text-sm leading-relaxed" style={{ color: COLORS.gray }}>{n.b}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ٩ اهداف المستقبل — خلفية سلسلة الامداد الذكية */}
+      {/* ═══ ٩ خارطة الطريق — خلفية داكنة ببطاقات مزدوجة ═══ */}
       <section data-sec="roadmap" hidden={!on('roadmap')} className="relative overflow-hidden" style={{ background: COLORS.ink }}>
         <Backdrop name="goals" grad={dim(0.9)} />
         <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-24">
@@ -449,37 +474,39 @@ export default function ProfilePage() {
           <div className="mt-8 grid sm:grid-cols-2 gap-5">
             {splitLines(t.roadmap_items).map((g, i) => (
               <div key={i} className="rounded-2xl p-6 flex gap-5 items-start" style={{ background: 'rgba(250,247,240,.06)', border: '1px solid rgba(250,247,240,.14)' }}>
-                <span className="text-4xl sm:text-5xl font-bold leading-none" style={{ color: COLORS.coral, fontFamily: headFont }}>{isAr ? '١٢٣٤'[i] : i + 1}</span>
-                <p className="text-base sm:text-lg leading-relaxed" style={{ color: 'rgba(250,247,240,.92)' }}>{g}</p>
+                <span className="text-3xl sm:text-4xl font-bold leading-none" style={{ color: COLORS.coral, fontFamily: headFont }}>{num1(i + 1)}</span>
+                <p className="text-sm sm:text-base leading-relaxed" style={{ color: 'rgba(250,247,240,.92)' }}>{g}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ١٠ الطلب الاستثماري — نص + صورة الدفع بالبطاقة */}
-      <section data-sec="ask" data-split="" hidden={!on('ask')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <div className="grid lg:grid-cols-2 gap-10 items-center">
-          <div>
+      {/* ═══ ١٠ الطلب الاستثماري — النصّ نصفٌ والصورة نصف ═══ */}
+      <section data-sec="ask" data-split="" hidden={!on('ask')} className="grid lg:grid-cols-2 items-stretch">
+        <div className="relative min-h-[240px] lg:min-h-[520px] order-1 lg:order-none">
+          <img src={IMG('invest')} alt={L('دفع الكتروني على جوال المندوب', 'Contactless payment on a rep phone')} loading="lazy" data-profile-photo=""
+            className="absolute inset-0 w-full h-full object-cover" />
+        </div>
+        <div className="flex items-center px-4 sm:px-10 py-14 sm:py-24 order-2 lg:order-none">
+          <div className="max-w-xl mx-auto w-full">
             <Kicker>{L('الطلب الاستثماري', 'The ask')}</Kicker>
             <H2>{t.ask_title}</H2>
             <div className="mt-8 grid gap-4">
               {splitLines(t.ask_items).map((tr, i) => (
-                <div key={i} className="rounded-2xl bg-white p-5 flex items-center gap-4 text-base leading-relaxed" style={{ border: `1px solid ${COLORS.sand}`, color: COLORS.ink }}>
-                  <span className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm"
-                    style={{ background: COLORS.coralL, color: COLORS.coral, fontFamily: headFont }}>
-                    {isAr ? '١٢٣٤'[i] : i + 1}
-                  </span>
+                <div key={i} className="rounded-2xl bg-white p-4 sm:p-5 flex items-center gap-4 text-sm sm:text-base leading-relaxed"
+                  style={{ border: `1px solid ${COLORS.sand}`, color: COLORS.ink }}>
+                  <span className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-bold"
+                    style={{ background: COLORS.coralL, color: COLORS.coral, fontFamily: headFont }}>{num1(i + 1)}</span>
                   {tr}
                 </div>
               ))}
             </div>
           </div>
-          <Photo name="invest" alt={L('دفع الكتروني على جوال المندوب', 'Contactless payment on a rep phone')} />
         </div>
       </section>
 
-      {/* ١١ تواصل معنا */}
+      {/* ═══ ١١ التواصل ═══ */}
       <section data-sec="contact" hidden={!on('contact')} style={{ background: COLORS.coralL }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24 text-center">
           <h2 className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont }}>{L('تواصل معنا', 'Get in touch')}</h2>
@@ -501,10 +528,10 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ١٢ الختام — خلفية افق الرياض */}
+      {/* ═══ ١٢ الختام — أفق الرياض ═══ */}
       <footer data-sec="closing" className="relative overflow-hidden" style={{ background: COLORS.ink }}>
         <Backdrop name="closing" grad={dim(0.85)} />
-        <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-20 text-center">
+        <div className="relative z-[2] max-w-6xl mx-auto px-4 py-20 sm:py-28 text-center">
           <div className="flex justify-center mb-5"><BrandIcon size={64} radius={0.28} /></div>
           <p className="text-3xl mb-4"><Wordmark dark /></p>
           <h2 className="text-2xl sm:text-4xl font-bold mb-4" style={{ color: COLORS.cream, fontFamily: headFont }}>{t.closing_title}</h2>
