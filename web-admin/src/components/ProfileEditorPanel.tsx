@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi, profileDeckApi } from '../api/client';
 import { X, Save, ExternalLink, RotateCcw, Upload, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, ProfileContent, ProfileLang } from '../content/profileContent';
+import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, PROFILE_CMS_KEY, ProfileContent, ProfileLang } from '../content/profileContent';
 import { backdropClose } from '../lib/backdropClose';
 
 /**
@@ -58,7 +58,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
   });
 
   // المسودة تبدا من (الافتراضي + تعديلات CMS) عند اول تحميل
-  const content = draft ?? mergeProfile((cms?.profile as Partial<ProfileContent>) || null);
+  const content = draft ?? mergeProfile((cms?.[PROFILE_CMS_KEY] as Partial<ProfileContent>) || null);
 
   const setField = (key: string, value: string) => {
     setDraft({ ...content, [lang]: { ...content[lang], [key]: value } });
@@ -76,7 +76,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
     mutationFn: async () => {
       // ندمج فوق احدث نسخة من CMS كي لا نمسح اقسام الموقع الاخرى
       const latest = (await siteContentApi.get()).data.data as Record<string, unknown> | null;
-      return siteContentApi.update({ ...(latest || {}), profile: content });
+      return siteContentApi.update({ ...(latest || {}), [PROFILE_CMS_KEY]: content });
     },
     onSuccess: () => {
       toast.success('حفظ الصفحة تعرض النص الجديد فورا');

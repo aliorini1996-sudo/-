@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { siteContentApi, profileDeckApi } from '../api/client';
 import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
-import { mergeProfile, splitLines, splitPairs, sectionOn, ProfileLang, ProfileContent } from '../content/profileContent';
+import { mergeProfile, splitLines, splitPairs, sectionOn, PROFILE_CMS_KEY, ProfileLang, ProfileContent } from '../content/profileContent';
 
 /**
  * «بروفايل» — الملف التعريفي التفاعلي fieldsa.net/profile
@@ -166,10 +166,10 @@ export default function ProfilePage() {
 
   const { data: cms } = useQuery({
     queryKey: ['site-content'],
-    queryFn: async () => (await siteContentApi.get()).data.data as { profile?: Partial<ProfileContent> } | null,
+    queryFn: async () => (await siteContentApi.get()).data.data as Record<string, unknown> | null,
     staleTime: 300_000,
   });
-  const content = mergeProfile(cms?.profile);
+  const content = mergeProfile(cms?.[PROFILE_CMS_KEY] as Partial<ProfileContent> | undefined);
   const t = content[lang];
 
   /**

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS,
-  mergeProfile, sectionOn, showKey, splitLines, splitPairs,
+  mergeProfile, sectionOn, showKey, splitLines, splitPairs, PROFILE_CMS_KEY,
 } from './profileContent';
 
 /**
@@ -111,4 +111,24 @@ test('الصفحة تُصيَّر نصاً حقيقياً لا صور شرائح
   assert.ok(!page.includes('profile-deck/slide'), 'الصفحة ما زالت تعرض صور شرائح');
   assert.match(page, /<h1/, 'لا عنوان رئيسي — صفحة بلا بنية نصّية');
   assert.match(page, /setLang/, 'مبدّل اللغة مفقود');
+});
+
+/**
+ * ═══ فضاء اسم المحتوى ═══
+ *
+ * العطل الذي حدث فعلاً: بُدّلت مجموعة المحتوى كلّها وبقي مفتاح CMS هو نفسه،
+ * فبقيت ٢٧ قيمة محفوظة من البروفايل القديم تفوز على النصوص الجديدة بصمت —
+ * والزائر يرى عناوين قديمة داخل تصميم جديد، والكود سليمٌ ظاهراً.
+ *
+ * القاعدة المحروسة: **الصفحة والمحرّر يقرآن ويكتبان المفتاح نفسه، وهو ليس
+ * `profile` القديم.**
+ */
+test('الصفحة والمحرّر على مفتاح CMS واحد، وليس مفتاح المحتوى القديم', () => {
+  assert.notEqual(PROFILE_CMS_KEY, 'profile',
+    'مفتاح CMS هو القديم — قيم البروفايل السابق ستفوز على النصوص الجديدة');
+  for (const [name, src] of [['الصفحة', page], ['المحرّر', panel]] as const) {
+    assert.match(src, /PROFILE_CMS_KEY/, `${name}: لا يستعمل ثابت المفتاح`);
+    assert.doesNotMatch(src, /cms\?\.profile\b/, `${name}: ما زال يقرأ المفتاح القديم`);
+  }
+  assert.doesNotMatch(panel, /,\s*profile:\s*content/, 'المحرّر ما زال يكتب في المفتاح القديم');
 });
