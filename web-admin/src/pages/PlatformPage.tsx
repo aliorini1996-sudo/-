@@ -22,7 +22,6 @@ import GeoDashboard from '../components/GeoDashboard';
 import VisitsPanel from '../components/VisitsPanel';
 import LiveUsersPanel from '../components/LiveUsersPanel';
 import ProfileEditorPanel from '../components/ProfileEditorPanel';
-import ProfileDeckPanel from '../components/ProfileDeckPanel';
 import PaymentLinksPanel from '../components/PaymentLinksPanel';
 import FinancePanel from '../components/FinancePanel';
 import WaInboxPanel from '../components/WaInboxPanel';
@@ -48,7 +47,6 @@ export default function PlatformPage() {
   const [showVisits, setShowVisits] = useState(false);
   const [showLive, setShowLive] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [showDeck, setShowDeck] = useState(false);   // رفع بروفايل PDF وتحويله شرائح
   const [showPayments, setShowPayments] = useState(false);
   const [showFinance, setShowFinance] = useState(false);
   const [showWaInbox, setShowWaInbox] = useState(false);
@@ -146,11 +144,8 @@ export default function PlatformPage() {
           <button onClick={() => setShowPayments(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
             <CreditCard size={18} className="flex-shrink-0" /> <span>{tr('روابط الدفع')}</span>
           </button>
-          <button onClick={() => setShowDeck(true)} className="sidebar-link w-full">
-            <FileText size={18} className="flex-shrink-0" /> <span>{tr('تعديل البروفايل')}</span>
-          </button>
           <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
-            <FileText size={18} className="flex-shrink-0" /> <span>{tr('نصوص البروفايل القديمة')}</span>
+            <FileText size={18} className="flex-shrink-0" /> <span>{tr('تعديل البروفايل')}</span>
           </button>
           <button onClick={() => setShowContent(true)} className="sidebar-link w-full">
             <Globe size={18} className="flex-shrink-0" /> <span>{tr('محتوى الصفحة')}</span>
@@ -258,7 +253,6 @@ export default function PlatformPage() {
       {showGeo && <GeoDashboard onClose={() => setShowGeo(false)} />}
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
       {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
-      {showDeck && <ProfileDeckPanel onClose={() => setShowDeck(false)} />}
       {showProfile && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
       {showWaInbox && <WaInboxPanel onClose={() => setShowWaInbox(false)} />}
       {showFinance && (

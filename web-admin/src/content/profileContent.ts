@@ -3,6 +3,8 @@
 // الحقيقة تعيش في CMS الموقع (siteContent.profile) والقيم هنا افتراضياتٌ تُستخدم
 // حين لا يكون المالك عدّل الحقل بعد — فأي حقل يعدّله من لوحته يفوز فوراً.
 // القوائم تُخزَّن نصاً بأسطر (سطر = بند)، ومحطات الرحلة وأرقامها بصيغة «قيمة | وصف».
+//
+// المحتوى مأخوذ من عرض البروفايل المعتمد (نسخة المستثمرين) قسماً قسماً.
 
 export type ProfileLang = 'ar' | 'en';
 
@@ -16,132 +18,157 @@ export const PROFILE_FIELDS: { key: string; label: string; multiline?: boolean; 
   { key: 'problem_title', label: 'المشكلة العنوان' },
   { key: 'problem_body', label: 'المشكلة النص', multiline: true, hint: 'كل سطر يظهر سطرا مستقلا' },
   { key: 'solution_title', label: 'الحل العنوان' },
-  { key: 'solution_col1', label: 'الحل العمود الاول', multiline: true },
-  { key: 'solution_col2', label: 'الحل العمود الثاني', multiline: true },
-  { key: 'clients_title', label: 'العملاء العنوان' },
-  { key: 'clients_intro', label: 'العملاء التمهيد', multiline: true },
-  { key: 'clients_sectors', label: 'العملاء القطاعات', multiline: true, hint: 'كل سطر قطاع' },
-  { key: 'about_title', label: 'من نحن العنوان' },
-  { key: 'about_body', label: 'من نحن النص', multiline: true },
+  { key: 'solution_col1_title', label: 'الحل عنوان العمود الاول' },
+  { key: 'solution_col1', label: 'الحل بنود العمود الاول', multiline: true, hint: 'كل سطر بند' },
+  { key: 'solution_col2_title', label: 'الحل عنوان العمود الثاني' },
+  { key: 'solution_col2', label: 'الحل بنود العمود الثاني', multiline: true, hint: 'كل سطر بند' },
+  { key: 'opportunity_title', label: 'الفرصة العنوان' },
+  { key: 'opportunity_intro', label: 'الفرصة التمهيد', multiline: true },
+  { key: 'opportunity_items', label: 'الفرصة البنود', multiline: true, hint: 'كل سطر بند مرقم' },
+  { key: 'why_title', label: 'لماذا نحن العنوان' },
+  { key: 'why_body', label: 'لماذا نحن النص', multiline: true },
   { key: 'journey_title', label: 'الرحلة العنوان' },
   { key: 'journey_stations', label: 'الرحلة المحطات', multiline: true, hint: 'كل سطر التاريخ | الحدث' },
-  { key: 'achievements_title', label: 'الانجازات العنوان' },
-  { key: 'achievements_items', label: 'الانجازات البنود', multiline: true, hint: 'كل سطر بند' },
-  { key: 'numbers_title', label: 'الارقام العنوان' },
-  { key: 'numbers_items', label: 'الارقام البطاقات', multiline: true, hint: 'كل سطر الرقم | الوصف' },
-  { key: 'goals_title', label: 'خارطة الطريق العنوان' },
-  { key: 'goals_items', label: 'خارطة الطريق البنود', multiline: true, hint: 'كل سطر بند' },
-  { key: 'invest_title', label: 'البدء معنا العنوان' },
-  { key: 'invest_tracks', label: 'البدء معنا الخطوات', multiline: true, hint: 'كل سطر خطوة' },
-  { key: 'contact_title', label: 'تواصل معنا العنوان' },
+  { key: 'model_title', label: 'نموذج العمل العنوان' },
+  { key: 'model_items', label: 'نموذج العمل البنود', multiline: true, hint: 'كل سطر بند مرقم' },
+  { key: 'numbers_title', label: 'الانجاز العنوان' },
+  { key: 'numbers_items', label: 'الانجاز الارقام', multiline: true, hint: 'كل سطر الرقم | الوصف' },
+  { key: 'roadmap_title', label: 'خارطة الطريق العنوان' },
+  { key: 'roadmap_items', label: 'خارطة الطريق البنود', multiline: true, hint: 'كل سطر بند مرقم' },
+  { key: 'ask_title', label: 'الطلب الاستثماري العنوان' },
+  { key: 'ask_items', label: 'الطلب الاستثماري البنود', multiline: true, hint: 'كل سطر بند مرقم' },
+  { key: 'closing_title', label: 'الختام العنوان' },
+  { key: 'closing_line', label: 'سطر الختام', multiline: true },
   { key: 'contact_website', label: 'الموقع' },
   { key: 'contact_email', label: 'البريد' },
   { key: 'contact_location', label: 'المقر' },
-  { key: 'closing_line', label: 'سطر الختام', multiline: true },
 ];
 
 export const PROFILE_DEFAULTS: ProfileContent = {
   ar: {
-    cover_title: 'منصة واحدة تدير توزيعك من المستودع حتى يد العميل',
-    cover_promise: 'ترى مبيعات مناديبك وتحصيلهم ومخزون سياراتهم لحظة بلحظة\nويعمل تطبيقهم في الميدان حتى لو انقطع الانترنت',
-    problem_title: 'يوم كامل يمر قبل ان تعرف ماذا جرى في الميدان',
-    problem_body: 'فواتير تكتب بخط اليد وتصل المكتب بعد ايام\nوتحصيل نقدي بلا سند يثبت من قبضه ومتى\nومخزون سيارة لا يعرف رصيده الا صاحبها\nومدير يسال مناديبه في الواتساب بدل ان يقرا شاشته',
-    solution_title: 'كل ما يحتاجه فريقك في مكان واحد',
-    solution_col1: 'لوحة ادارة ترى المبيعات والتحصيل والمخزون لحظة بلحظة\nوتتبع مباشر لكل مندوب على الخريطة مع خط سيره\nوكشوف حساب ومديونيات مرتبة باعمار الدين\nوتقارير جاهزة تقرؤها قبل اجتماع الصباح',
-    solution_col2: 'تطبيق مندوب يعمل من الجيب بلا انترنت\nيصدر فاتورة ضريبية برمز الاستجابة السريعة وفق المرحلة الاولى من الفوترة الالكترونية\nوسند قبض يوثق كل ريال يستلمه من العميل\nويزامن كل شيء وحده حين يعود الاتصال',
-    clients_title: 'شركات تعمل في الميدان كل يوم',
-    clients_intro: 'عملاؤنا شركات عاملة في السوق السعودي تدير مناديبها وسياراتها عبر المنصة يوميا\nنذكر صفتهم لا اسماءهم احتراما لخصوصية اعمالهم',
-    clients_sectors: 'شركات توزيع المواد الغذائية والاستهلاكية بمناديبها وسياراتها\nمصانع ومستودعات توصل منتجاتها مباشرة الى نقاط البيع\nقطاعات متخصصة من المياه والثلج الى تموينات الجملة والمطاعم بفروعها',
-    about_title: 'منصة سعودية ولدت من الميدان',
-    about_body: 'فيلد سيلز منصة سحابية سعودية لادارة المبيعات الميدانية والتوزيع\nبنينا كل ميزة حول مشكلة رايناها تحدث امام اعيننا في الميدان\nونصمم كل شاشة بالعربية اولا ولرجل الميدان اولا\nوبيانات كل شركة معزولة تماما عن بيانات غيرها',
+    cover_title: 'البنية الرقمية لتوزيع سلاسل الإمداد',
+    cover_promise: 'بالذكاء الصناعي تتم إدارة سلاسل الإمداد والمبيعات الميدانية\nوالتحصيل والمخزون والسيارات لحظة بلحظة',
+
+    problem_title: 'قطاع بمليارات الريالات يدار بالورقة والواتساب',
+    problem_body: 'فاتورة الميدان تكتب باليد وتدخل النظام بعد ايام\nوالتحصيل النقدي عهدة بلا سند يثبت من قبضه ومتى وردها\nومخزون السيارة بلا جرد والمرتجع يذوب في الرصيد بلا اثر\nوالمدير يطارد مناديبه بالواتساب بدل ان يقرا شاشته',
+
+    solution_title: 'نظام تشغيل كامل لشركة التوزيع',
+    solution_col1_title: 'لوحة الادارة',
+    solution_col1: 'ترى المبيعات والتحصيل والمخزون لحظة بلحظة\nتتبع مباشر لكل مندوب على الخريطة مع خط سيره\nكشوف حساب ومديونيات مرتبة باعمار الدين\nتقارير جاهزة تقرؤها قبل اجتماع الصباح',
+    solution_col2_title: 'تطبيق المندوب',
+    solution_col2: 'يعمل من الجوال مباشرة كانه كاشير\nفاتورة ضريبية متوافقة مع متطلبات الفوترة الالكترونية\nسند قبض يوثق كل ريال يستلمه من العميل\nيزامن كل شيء وحده حين يعود الاتصال\nاصدار كشوف حسابات\nاستقبال مدفوعات الكترونية لقيمة الفاتورة',
+
+    opportunity_title: 'رقمنة هذا القطاع ليست خيارا',
+    opportunity_intro: 'ثلاث قوى تدفع السوق نحونا ولا تحتاج منا اقناع احد',
+    opportunity_items: 'كل موجة ربط جديدة من هيئة الزكاة تدفع الاف الشركات لحل متوافق\nمستهدفات المدفوعات الرقمية في رؤية ٢٠٣٠ تحاصر التحصيل النقدي\nسوق نقدر حجمه بقيمة مليارية سنويا قبل احتساب دخل المدفوعات',
+
+    why_title: 'منصة بناها مشغل توزيع حقيقي',
+    why_body: 'المؤسس يملك ويدير شركة توزيع غذائي في الرياض ونجد منذ ٢٠٢١\nنعرف المرتجع والعهدة وضغط نهاية الشهر لاننا نعيشها كل يوم\nكل شاشة جربناها على مناديبنا لفترة طويلة قبل ان تصل الى اي عميل\nلذلك كل الاجراءات والمميزات صدرت من داخل القطاع وتجاربه',
+
     journey_title: 'منصة بنيت طبقة فوق طبقة',
-    journey_stations: 'مطلع ٢٠٢٦ | اطلاق المنصة حية على السحابة\nربيع ٢٠٢٦ | العمل بلا انترنت والتتبع المباشر والتقارير\nصيف ٢٠٢٦ | نسخة المطاعم وتطبيقات الجوال وسطح المكتب\nاليوم | منصة مكتملة تعمل في الانتاج وتخدم شركات حقيقية',
-    achievements_title: 'ما تحصل عليه من اليوم الاول',
-    achievements_items: 'منصة كاملة تعمل في الانتاج ببيانات معزولة لكل شركة على حدة\nتطبيق ميداني يعمل بلا انترنت ويزامن ما اصدره وحده حين يعود الاتصال\nفوترة الكترونية برمز الاستجابة السريعة في كل فاتورة تصدرها المنصة',
-    numbers_title: 'ارقام تهمك قبل ان تقرر',
-    numbers_items: '٢٩٩ | ريالا شهريا تبدا بها باقتنا الاولى\n١٠ | ايام تجربة كاملة بلا بطاقة دفع\n٠ | ريال اضافي على كل مندوب داخل حدود باقتك\n٧ | قطاعات توزيع تعمل على المنصة اليوم',
-    goals_title: 'ما نبنيه الان في المنصة',
-    goals_items: 'تحويل جوال المندوب الى نقطة بيع شبكية بدل التحصيل النقدي\nتوسيع الذكاء في اقتراح حمولة اليوم والتنبؤ بالطلب لكل صنف\nربط المنصة بمنظومات الوقود وارقام العمل المؤسسية لكل مندوب\nتغطية اوسع لدول الخليج ومصر وشمال افريقيا',
-    invest_title: 'تبدا في نفس اليوم وبلا التزام',
-    invest_tracks: 'تفتح حسابك بنفسك وتجرب المنصة كاملة عشرة ايام بلا بطاقة دفع\nترفع عملاءك واصنافك من ملف اكسل قديم والنظام يفهم اعمدته وحده\nونرافق فريقك خطوة بخطوة حتى يصدر اول فاتورة من الميدان',
-    contact_title: 'تحدث الينا قبل ان تقرر',
+    journey_stations: 'مطلع ٢٠٢٦ | اطلاق المنصة حية على السحابة\nربيع ٢٠٢٦ | التتبع المباشر والتقارير\nصيف ٢٠٢٦ | اقبال كبير من شركات بعدة قطاعات\nاليوم | منصة مكتملة في الانتاج تخدم شركات في ١٣ قطاعا',
+
+    model_title: 'اشتراكات اليوم ومدفوعات الغد',
+    model_items: 'اشتراك شهري يبدا من ٢٩٩ ريالا وهو باب دخول سهل لشريحة تحسب كل ريال\nمتوسط دخلنا من العميل الواحد ٦٠٠ ريال في الشهر وهامشنا الاجمالي ٧٠٪\nواليوم اصبح جوال المندوب نقطة بيع وناخذ عمولة من كل عملية تمر عبرنا',
+
+    numbers_title: 'ارقام من الانتاج لا من العروض',
+    numbers_items: '١٦ | شركة جربوا العمل على المنصة\n٨٥ | مندوب نشط في الميدان يوميا\n+١٠٠٠٠ | فاتورة صادرة عبر المنصة شهريا\n١٣ | قطاعات توزيع تعمل على المنصة اليوم',
+
+    roadmap_title: 'ما بنيناه الان وكيف يكبر الدخل',
+    roadmap_items: 'جوال المندوب يصير نقطة بيع شبكية تفتح لنا دخل عمولات المدفوعات\nذكاء يقترح حمولة اليوم ويتنبا بالطلب لكل صنف فيلتصق العميل بنا اكثر\nربط منظومات الوقود وارقام العمل المؤسسية يفتح لنا الشركات الاكبر\nتطوير الذكاء الصناعي ليضاعف عمل المندوب الواحد ليعمل عمل ٣ مناديب',
+
+    ask_title: 'ماذا نطلب وماذا نحقق به',
+    ask_items: 'نفتح جولتنا الاستثمارية الاولى\nنوجه ١٠٪ للمنتج والفريق و٨٠٪ للنمو و١٠٪ للتشغيل\nوخلال ١٨ شهرا نصل الى ١٠ الاف شركة ودخل متكرر ٣ مليون ريال',
+
+    closing_title: 'نعيد تعريف الميدان',
+    closing_line: 'منصة حية في الانتاج وعملاء يشغلونها في الميدان كل يوم',
+
     contact_website: 'fieldsa.net',
-    contact_email: 'help@fieldsa.net',
-    contact_location: 'الرياض المملكة العربية السعودية',
-    closing_line: 'منصة واحدة تدير توزيعك من المستودع حتى يد العميل\nوتبدا بتجربة كاملة عشرة ايام',
+    contact_email: 'info@fieldsa.net',
+    contact_location: 'الرياض، المملكة العربية السعودية',
   },
   en: {
-    cover_title: 'One platform that runs your distribution from the warehouse to the customer',
-    cover_promise: 'See what your reps sell collect and carry in their vans as it happens\nAnd their app keeps working in the field even when the connection drops',
-    problem_title: 'A full day passes before you know what happened in the field',
-    problem_body: 'Invoices written by hand that reach the office days later\nCash collected with nothing to prove who took it and when\nVan stock nobody can count except the rep driving it\nAnd a manager asking his team on WhatsApp instead of reading his screen',
-    solution_title: 'Everything your team needs in one place',
-    solution_col1: 'An admin panel that shows sales collections and stock as they happen\nLive map tracking for every rep with the route he actually drove\nStatements and receivables sorted by ageing\nAnd reports you read before the morning meeting',
-    solution_col2: 'A rep app that works from the pocket with no internet\nIssuing a tax invoice with a QR code under phase one of Saudi e invoicing\nAnd a receipt that documents every riyal he collects\nAnd syncing everything on its own when the connection returns',
-    clients_title: 'Companies that work the field every day',
-    clients_intro: 'Our clients are operating companies in the Saudi market running their reps and vans on the platform daily\nWe describe who they are without naming them out of respect for their privacy',
-    clients_sectors: 'FMCG and food distribution companies with reps and van fleets\nFactories and warehouses delivering direct to points of sale\nSpecialized sectors from water and ice to wholesale supplies and multi branch restaurants',
-    about_title: 'A Saudi platform born in the field',
-    about_body: 'Field Sales is a Saudi cloud platform for field sales and distribution\nEvery feature was built around a problem we watched happen in the field\nEvery screen is designed Arabic first and field first\nAnd the data of each company stays fully isolated from the rest',
+    cover_title: 'The digital backbone for supply chain distribution',
+    cover_promise: 'AI runs supply chains and field sales,\nwith collections, inventory and vehicles tracked in real time',
+
+    problem_title: 'A multi-billion riyal sector run on paper and WhatsApp',
+    problem_body: 'Field invoices are handwritten and reach the system days later\nCash collection sits with the rep, with no receipt proving who took it or when it came back\nVan stock goes uncounted, and returns dissolve into the balance without a trace\nAnd the manager chases reps on WhatsApp instead of reading a screen',
+
+    solution_title: 'A complete operating system for a distribution company',
+    solution_col1_title: 'Admin dashboard',
+    solution_col1: 'See sales, collections and stock in real time\nLive tracking of every rep on the map with their route\nStatements and receivables sorted by debt age\nReports ready before the morning meeting',
+    solution_col2_title: 'Rep app',
+    solution_col2: 'Runs straight from the phone like a cash register\nE-invoicing compliant tax invoices\nA receipt documenting every riyal taken from the customer\nSyncs everything on its own when the connection returns\nIssues customer statements\nAccepts electronic payment of the invoice',
+
+    opportunity_title: 'Digitizing this sector is not optional',
+    opportunity_intro: 'Three forces push the market toward us, and none of them needs convincing from us',
+    opportunity_items: 'Every new ZATCA integration wave pushes thousands of companies to a compliant solution\nVision 2030 digital payment targets are closing in on cash collection\nA market we size in the billions of riyals a year, before payment revenue',
+
+    why_title: 'Built by a distributor who actually runs one',
+    why_body: 'The founder has owned and run a food distribution company in Riyadh and Najd since 2021\nWe know returns, custody and month-end pressure because we live them every day\nEvery screen was tested on our own reps for a long stretch before it reached a single customer\nSo every workflow and feature came out of the sector itself and its practice',
+
     journey_title: 'A platform built layer over layer',
-    journey_stations: 'Early 2026 | The platform went live on the cloud\nSpring 2026 | Offline mode live tracking and reporting\nSummer 2026 | Restaurants edition mobile and desktop apps\nToday | A complete platform running in production serving real companies',
-    achievements_title: 'What you get from day one',
-    achievements_items: 'A full platform running in production with data isolated per company\nA field app that works offline and syncs what it issued on its own when the connection returns\nQR e invoicing in every invoice the platform issues',
-    numbers_title: 'Numbers worth knowing before you decide',
-    numbers_items: '299 | SAR a month is where our first plan starts\n10 | days of full trial with no payment card\n0 | extra charge for every rep within your plan limit\n7 | distribution sectors running on the platform today',
-    goals_title: 'What we are building into the platform now',
-    goals_items: 'Turning the rep phone into a network point of sale instead of cash collection\nDeeper intelligence in suggesting the load of the day and forecasting demand per item\nConnecting the platform to fuel systems and a work number for every rep\nWider coverage across the Gulf Egypt and North Africa',
-    invest_title: 'You can start today with no commitment',
-    invest_tracks: 'You open your own account and try the whole platform for ten days with no payment card\nYou upload your customers and products from an old Excel file and the system reads its columns on its own\nAnd we walk beside your team until the first invoice goes out from the field',
-    contact_title: 'Talk to us before you decide',
-    contact_website: 'fieldsa net',
-    contact_email: 'help@fieldsa.net',
-    contact_location: 'Riyadh Saudi Arabia',
-    closing_line: 'One platform that runs your distribution from the warehouse to the customer\nStarting with a full ten day trial',
+    journey_stations: 'Early 2026 | Platform launched live on the cloud\nSpring 2026 | Live tracking and reports\nSummer 2026 | Strong uptake from companies across several sectors\nToday | A complete platform in production serving companies across 13 sectors',
+
+    model_title: "Subscriptions today, payments tomorrow",
+    model_items: 'A monthly subscription starting at 299 SAR, an easy entry point for a segment that counts every riyal\nAverage revenue per customer is 600 SAR a month at a 70% gross margin\nAnd today the rep phone is a point of sale, and we take a fee on every transaction that runs through us',
+
+    numbers_title: 'Numbers from production, not from decks',
+    numbers_items: '16 | companies have run their work on the platform\n85 | reps active in the field every day\n10,000+ | invoices issued through the platform monthly\n13 | distribution sectors running on the platform today',
+
+    roadmap_title: 'What we have built and how revenue grows',
+    roadmap_items: 'The rep phone becomes a card point of sale, opening payment fee revenue\nAI that suggests the day load and forecasts demand per item, so customers stay with us longer\nFuel systems and corporate work numbers open the door to larger companies\nAI that multiplies one rep into the output of three',
+
+    ask_title: 'What we are raising and what it delivers',
+    ask_items: 'We are opening our first investment round\nWe allocate 10% to product and team, 80% to growth and 10% to operations\nAnd within 18 months we reach 10,000 companies and 3 million SAR in recurring revenue',
+
+    closing_title: 'Redefining the field',
+    closing_line: 'A live platform in production, with customers running it in the field every day',
+
+    contact_website: 'fieldsa.net',
+    contact_email: 'info@fieldsa.net',
+    contact_location: 'Riyadh, Saudi Arabia',
   },
 };
 
-/**
- * الأقسام التي يملك المالك إظهارها أو إخفاءها.
- * الغلاف والختام خارج القائمة عمداً — وثيقة بلا غلاف ولا خاتمة ليست وثيقة.
- */
-export const PROFILE_SECTIONS: { key: string; label: string; en: string }[] = [
-  { key: 'problem', label: 'المشكلة', en: 'The problem' },
-  { key: 'solution', label: 'الحل', en: 'The solution' },
-  { key: 'clients', label: 'العملاء', en: 'Our clients' },
-  { key: 'about', label: 'من نحن', en: 'Who we are' },
-  { key: 'journey', label: 'الرحلة', en: 'The journey' },
-  { key: 'achievements', label: 'الجاهز اليوم', en: 'Ready today' },
-  { key: 'numbers', label: 'الارقام', en: 'The numbers' },
-  { key: 'goals', label: 'خارطة الطريق', en: 'Roadmap' },
-  { key: 'invest', label: 'البدء معنا', en: 'Getting started' },
-  { key: 'contact', label: 'تواصل معنا', en: 'Contact' },
+/** أقسام يمكن للمالك إخفاؤها من الصفحة — الغياب يعني الظهور */
+export const PROFILE_SECTIONS: { key: string; label: string }[] = [
+  { key: 'problem', label: 'المشكلة' },
+  { key: 'solution', label: 'الحل' },
+  { key: 'opportunity', label: 'الفرصة' },
+  { key: 'why', label: 'لماذا نحن' },
+  { key: 'journey', label: 'الرحلة' },
+  { key: 'model', label: 'نموذج العمل' },
+  { key: 'numbers', label: 'الانجاز' },
+  { key: 'roadmap', label: 'خارطة الطريق' },
+  { key: 'ask', label: 'الطلب الاستثماري' },
+  { key: 'contact', label: 'تواصل معنا' },
 ];
 
-export const showKey = (k: string) => `show_${k}`;
+/** مفتاح إظهار القسم داخل المحتوى */
+export const showKey = (section: string) => `show_${section}`;
 
 /**
- * الظهور شأن واحد للغتين: يُقرأ من العربية دائماً.
- * لو خُزّن لكل لغة لافترقت النسختان فرأى قارئ الإنجليزية قسماً أخفاه المالك.
- * والغياب يعني الظهور — فالأقسام القديمة تبقى ظاهرة بلا تدخّل.
+ * هل يظهر القسم؟ الإظهار شأنٌ واحد للغتين فيُقرأ من العربية أياً كانت اللغة
+ * المعروضة — ولو خُزّن لكل لغة لرأى قارئ الإنجليزية قسماً أخفاه المالك.
  */
-export const sectionOn = (c: ProfileContent, k: string) => (c.ar[showKey(k)] ?? '1') !== '0';
+export const sectionOn = (c: ProfileContent, section: string) => c.ar[showKey(section)] !== '0';
 
-/** دمج تعديلات الـCMS فوق الافتراضيات على مستوى الحقل */
-export function mergeProfile(cms: Partial<ProfileContent> | null | undefined): ProfileContent {
+/** يدمج ما حفظه المالك فوق الافتراضي — الحقل المحفوظ يفوز، والغائب يبقى افتراضياً */
+export function mergeProfile(saved: Partial<ProfileContent> | null | undefined): ProfileContent {
   return {
-    ar: { ...PROFILE_DEFAULTS.ar, ...(cms?.ar || {}) },
-    en: { ...PROFILE_DEFAULTS.en, ...(cms?.en || {}) },
+    ar: { ...PROFILE_DEFAULTS.ar, ...(saved?.ar || {}) },
+    en: { ...PROFILE_DEFAULTS.en, ...(saved?.en || {}) },
   };
 }
 
-/** قوائم نصية: سطر = بند */
-export const splitLines = (s: string | undefined): string[] =>
+/** يقسّم حقلاً متعدّد الأسطر إلى بنود — الفراغات تُهمَل */
+export const splitLines = (s: string): string[] =>
   (s || '').split('\n').map(l => l.trim()).filter(Boolean);
 
-/** بنود مزدوجة بصيغة «قيمة | وصف» */
-export const splitPairs = (s: string | undefined): { a: string; b: string }[] =>
+/** يقسّم بنود «قيمة | وصف» — ما لا فاصل فيه يصير وصفاً بلا قيمة */
+export const splitPairs = (s: string): { a: string; b: string }[] =>
   splitLines(s).map(l => {
     const i = l.indexOf('|');
-    return i === -1 ? { a: l, b: '' } : { a: l.slice(0, i).trim(), b: l.slice(i + 1).trim() };
+    return i === -1 ? { a: '', b: l.trim() } : { a: l.slice(0, i).trim(), b: l.slice(i + 1).trim() };
   });

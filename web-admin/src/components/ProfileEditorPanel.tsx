@@ -1,26 +1,55 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { siteContentApi } from '../api/client';
-import { X, Save, ExternalLink, RotateCcw } from 'lucide-react';
+import { siteContentApi, profileDeckApi } from '../api/client';
+import { X, Save, ExternalLink, RotateCcw, Upload, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, ProfileContent, ProfileLang } from '../content/profileContent';
 import { backdropClose } from '../lib/backdropClose';
 
 /**
- * محرر نصوص «بروفايل» — لمالك المنصة.
+ * محرر صفحة «بروفايل» — لمالك المنصة.
  *
- * ⚠️ **لم تعد صفحة fieldsa.net/profile تقرأ هذه النصوص**: صارت تعرض شرائح
- * العرض التقديمي مصدَّرةً من بوربوينت كما هي (بقرار المالك: «طبّق العرض بالضبط
- * بلا تعديل»)، فالتصميم والنصّ يُحرَّران في ملفّ العرض لا هنا.
+ * يعدّل أي نصّ في الصفحة التعريفية fieldsa.net/profile بأي وقت وباللغتين،
+ * والحفظ يدمج مفتاح profile داخل siteContent دون المساس ببقية محتوى الموقع.
  *
- * والنصوص محفوظةٌ في CMS كما هي ولم تُحذف، والمحرّر باقٍ ليُستعاد الوضع
- * القديم بلا فقد متى أُريد. ولذلك ينبّه رأسُ اللوحة المستخدمَ صراحةً — محرّرٌ
- * صامتٌ لا يظهر أثره أسوأ من محرّر محجوب.
+ * والأقسام محتواها من عرض البروفايل المعتمد — فالصفحة **صفحة ويب حقيقية**
+ * نصّها قابل للتحديد والبحث والترجمة، لا صور شرائح. وزرّ الـPDF في أعلاها
+ * يخدم الملفّ الذي يرفعه المالك من «ملف البروفايل» أدناه.
  */
 export default function ProfileEditorPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [lang, setLang] = useState<ProfileLang>('ar');
   const [draft, setDraft] = useState<ProfileContent | null>(null);
+
+  /**
+   * ملفّ البروفايل القابل للتنزيل — زرّ PDF في أعلى الصفحة يخدمه.
+   *
+   * يُرفع من هنا لا من لوحةٍ ثانية: البروفايل شيءٌ واحد في ذهن المالك، ولوحتان
+   * لشيءٍ واحد تُربكان أكثر ممّا تفيدان.
+   */
+  const { data: deck } = useQuery({
+    queryKey: ['profile-deck'],
+    queryFn: async () => (await profileDeckApi.get()).data.data as { file: { name: string; v: number } | null },
+    staleTime: 0,
+  });
+
+  const upload = useMutation({
+    mutationFn: async (f: File) => {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => { const s = String(r.result || ''); resolve(s.slice(s.indexOf(',') + 1)); };
+        r.onerror = () => reject(new Error('تعذر قراءة الملف'));
+        r.readAsDataURL(f);
+      });
+      await profileDeckApi.putFile(b64, 'بروفايل Field Sales.pdf');
+    },
+    onSuccess: () => {
+      toast.success('حُدث ملف التنزيل — زر PDF يخدمه الان');
+      qc.invalidateQueries({ queryKey: ['profile-deck'] });
+    },
+    onError: (e: unknown) =>
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'تعذر رفع الملف'),
+  });
 
   const { data: cms, isLoading } = useQuery({
     queryKey: ['site-content'],
@@ -73,9 +102,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div>
             <h2 className="text-lg font-bold text-[#1F1A13]">محتوى البروفايل</h2>
-            <p className="text-xs text-[#B4530A] font-semibold">
-              صفحة البروفايل تعرض الان شرائح العرض التقديمي المصدرة كما هي — هذه النصوص محفوظة ولا تظهر فيها
-            </p>
+            <p className="text-xs text-[#6E6557]">كل نص في صفحة fieldsa net/profile عدل واحفظ ويظهر فورا</p>
           </div>
           <div className="flex items-center gap-2">
             <a href="/profile" target="_blank" rel="noopener noreferrer"
@@ -140,6 +167,33 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
             </div>
             ))}
           </>}
+        </div>
+
+        {/* ملفّ التنزيل */}
+        <div className="px-4 py-3 border-t border-[#E9E1D3] bg-[#FAF7F0]">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 text-xs">
+              {deck?.file
+                ? <CheckCircle2 size={14} className="text-green-600" />
+                : <Upload size={14} className="text-[#9A8F7E]" />}
+              <span className="text-[#6E6557]">
+                {deck?.file ? 'زر PDF يخدم الملف المرفوع' : 'زر PDF يخدم الملف المدمج — ارفع نسختك'}
+              </span>
+            </div>
+            <label className="inline-flex items-center gap-1.5 text-xs font-bold cursor-pointer text-[#E15A30]">
+              <input type="file" accept="application/pdf,.pdf" className="hidden" disabled={upload.isPending}
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  e.currentTarget.value = '';
+                  if (!f) return;
+                  if (!/\.pdf$/i.test(f.name)) { toast.error('اختر ملف PDF'); return; }
+                  if (f.size > 25 * 1024 * 1024) { toast.error('الملف أكبر من ٢٥ ميغابايت'); return; }
+                  upload.mutate(f);
+                }} />
+              {upload.isPending ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {upload.isPending ? 'يرفع' : 'رفع ملف PDF للتنزيل'}
+            </label>
+          </div>
         </div>
 
         {/* الحفظ */}
