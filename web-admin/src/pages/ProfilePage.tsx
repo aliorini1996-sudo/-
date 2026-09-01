@@ -224,8 +224,16 @@ export default function ProfilePage() {
     </div>
   );
 
+  /**
+   * ارتفاع السطر يُضبط في `style` لا بصنف تايلويند.
+   *
+   * أصناف الحجم (`text-5xl`) تحمل معها `line-height: 1`، وتغلب `leading-*`
+   * حسب ترتيب الورقة. ونسبةُ ١٫٠ تكفي اللاتينية ولا تكفي العربية: قِيس على
+   * الصفحة الحيّة أن سطرَي عنوان بحجم ٤٨ بكسل **يتداخلان ٤٤ بكسل** — تصعد
+   * ألفات السطر الثاني في نزول السطر الأول. والقيمة في `style` تفوز دائماً.
+   */
   const H2 = ({ children, dark }: { children: React.ReactNode; dark?: boolean }) => (
-    <h2 className="mt-3 text-3xl sm:text-5xl font-bold leading-snug" style={{ color: dark ? COLORS.cream : COLORS.ink, fontFamily: headFont }}>
+    <h2 className="mt-3 text-3xl sm:text-5xl font-bold" style={{ color: dark ? COLORS.cream : COLORS.ink, fontFamily: headFont, lineHeight: 1.4 }}>
       {children}
     </h2>
   );
@@ -308,7 +316,7 @@ export default function ProfilePage() {
         <div className="relative z-[2] max-w-6xl mx-auto px-4 pt-24 pb-10 sm:pt-36 sm:pb-14">
           <div className="max-w-2xl" style={{ marginInlineEnd: 'auto' }}>
             <Kicker>{L('الملف التعريفي', 'Company profile')}</Kicker>
-            <h1 className="mt-4 text-3xl sm:text-5xl font-bold leading-tight" style={{ color: COLORS.cream, fontFamily: headFont }}>
+            <h1 className="mt-4 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.cream, fontFamily: headFont, lineHeight: 1.35 }}>
               {t.cover_title}
             </h1>
             <div className="mt-5 text-base sm:text-xl leading-relaxed" style={{ color: 'rgba(250,247,240,.82)' }}>
@@ -453,11 +461,11 @@ export default function ProfilePage() {
             <span className="inline-block h-1 w-9 rounded-full" style={{ background: COLORS.cream }} />
             {L('الانجاز', 'Traction')}
           </div>
-          <h2 className="mt-3 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.cream, fontFamily: headFont }}>{t.numbers_title}</h2>
+          <h2 className="mt-3 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.cream, fontFamily: headFont, lineHeight: 1.4 }}>{t.numbers_title}</h2>
           <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-5">
             {splitPairs(t.numbers_items).map((n, i) => (
               <div key={i} className="rounded-2xl bg-white p-6 sm:p-8 text-center">
-                <p className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont }}>{n.a}</p>
+                <p className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont, lineHeight: 1.25 }}>{n.a}</p>
                 <p className="mt-3 text-xs sm:text-sm leading-relaxed" style={{ color: COLORS.gray }}>{n.b}</p>
               </div>
             ))}
@@ -509,7 +517,7 @@ export default function ProfilePage() {
       {/* ═══ ١١ التواصل ═══ */}
       <section data-sec="contact" hidden={!on('contact')} style={{ background: COLORS.coralL }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24 text-center">
-          <h2 className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont }}>{L('تواصل معنا', 'Get in touch')}</h2>
+          <h2 className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont, lineHeight: 1.4 }}>{L('تواصل معنا', 'Get in touch')}</h2>
           <div className="mt-8 grid sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
             {[
               { label: L('الموقع', 'Website'), value: t.contact_website, coral: true, latin: true },
@@ -533,8 +541,8 @@ export default function ProfilePage() {
         <Backdrop name="closing" grad={dim(0.85)} />
         <div className="relative z-[2] max-w-6xl mx-auto px-4 py-20 sm:py-28 text-center">
           <div className="flex justify-center mb-5"><BrandIcon size={64} radius={0.28} /></div>
-          <p className="text-3xl mb-4"><Wordmark dark /></p>
-          <h2 className="text-2xl sm:text-4xl font-bold mb-4" style={{ color: COLORS.cream, fontFamily: headFont }}>{t.closing_title}</h2>
+          <p className="text-3xl mb-4" style={{ lineHeight: 1.25 }}><Wordmark dark /></p>
+          <h2 className="text-2xl sm:text-4xl font-bold mb-4" style={{ color: COLORS.cream, fontFamily: headFont, lineHeight: 1.4 }}>{t.closing_title}</h2>
           <div className="text-base sm:text-lg leading-loose" style={{ color: 'rgba(250,247,240,.7)' }}>
             {splitLines(t.closing_line).map((l, i) => <p key={i}>{l}</p>)}
           </div>
