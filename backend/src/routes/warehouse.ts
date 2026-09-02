@@ -8,6 +8,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { computeWarehouseStock } from '../services/warehouseStock';
+import { netUnitCost } from '../services/warehouseCost';
 
 const router = Router();
 router.use(authenticate);
@@ -34,7 +35,15 @@ const entrySchema = z.object({
   type: z.enum(['RECEIVE', 'ADJUST']).default('RECEIVE'),
   note: z.string().max(300).optional(),
   supplier: z.string().max(200).optional(),
-  items: z.array(z.object({ productId: z.string(), qty: z.number() })).min(1),
+  // هل الأسعار المكتوبة شاملةٌ للضريبة؟ يقرّره المستخدم بحسب فاتورة مورّده،
+  // والخادم يردّها إلى صافيها — فالمخزَّن معنى واحد لا معنيان (انظر warehouseCost)
+  costsIncludeTax: z.boolean().optional().default(false),
+  items: z.array(z.object({
+    productId: z.string(),
+    qty: z.number(),
+    // موجبٌ فقط: سعرٌ سالب لا معنى له، وصفرٌ يعني «بلا سعر» فيُرسَل غائباً
+    unitCost: z.number().positive().finite().max(1e9).optional(),
+  })).min(1),
 });
 
 // تسجيل وارد (استلام/شراء) أو تسوية للمستودع
@@ -49,15 +58,34 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       res.status(400).json({ success: false, message: 'كمية الوارد يجب أن تكون موجبة استخدم تسوية للتنقيص' });
       return;
     }
+    // التسوية جردٌ أو تالف لا شراء — فلا ثمن لها. والرفض الصريح أصدق من إسقاطٍ صامت
+    if (data.type === 'ADJUST' && items.some((i) => i.unitCost != null)) {
+      res.status(400).json({ success: false, message: 'سعر الوحدة يسجل مع الوارد فقط لا مع التسوية' });
+      return;
+    }
+
     const productIds = [...new Set(items.map((i) => i.productId))];
-    const valid = await prisma.product.count({ where: { id: { in: productIds }, tenantId: tid } });
-    if (valid !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    // نقرأ الضريبة مع التحقّق: الردّ من الشامل إلى الصافي يحتاج نسبة كل صنف
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds }, tenantId: tid },
+      select: { id: true, taxPct: true },
+    });
+    if (products.length !== productIds.length) { res.status(400).json({ success: false, message: 'منتج غير صالح' }); return; }
+    const taxOf = new Map(products.map((p) => [p.id, p.taxPct]));
 
     const by = req.user as { name?: string } | undefined;
     const entry = await prisma.warehouseEntry.create({
       data: {
         tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name,
-        items: { create: items.map((i) => ({ productId: i.productId, qty: i.qty })) },
+        items: {
+          create: items.map((i) => ({
+            productId: i.productId,
+            qty: i.qty,
+            unitCost: i.unitCost == null
+              ? null
+              : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax),
+          })),
+        },
       },
       include: { items: { include: { product: { select: { id: true, name: true, unit: true } } } } },
     });

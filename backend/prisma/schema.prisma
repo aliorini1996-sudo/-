@@ -1119,6 +1119,10 @@ model WarehouseEntryItem {
   productId String
   product   Product        @relation(fields: [productId], references: [id])
   qty       Float // موجب للوارد؛ + أو − للتسوية
+  // تكلفة شراء الوحدة **صافيةً قبل الضريبة** — معنى واحد لا معنيان:
+  // ما يُدخله المستخدم شاملاً الضريبة يُردّ إلى صافيه في الخادم قبل الحفظ.
+  // اختياريّ: الاستلام قد يُسجَّل قبل وصول فاتورة المورّد، ولا يُعطَّل لأجلها.
+  unitCost  Float? // للوارد (RECEIVE) فقط
 
   @@index([productId])
   @@map("warehouse_entry_items")

@@ -298,8 +298,11 @@ export const vanStockApi = {
 export const warehouseApi = {
   stock: () => api.get('/warehouse'),
   entries: () => api.get('/warehouse/entries'),
-  createEntry: (data: { type?: string; note?: string; supplier?: string; items: { productId: string; qty: number }[] }) =>
-    api.post('/warehouse/entries', data),
+  createEntry: (data: {
+    type?: string; note?: string; supplier?: string;
+    costsIncludeTax?: boolean;                                  // هل الأسعار المكتوبة شاملة الضريبة
+    items: { productId: string; qty: number; unitCost?: number }[]; // unitCost للوارد فقط
+  }) => api.post('/warehouse/entries', data),
 };
 
 // محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك
