@@ -1,5 +1,5 @@
 // ============================================================================
-// تكلفة الوارد للمستودع — حسابٌ نقيّ بلا قاعدة بيانات.
+// تكلفة الوارد وتقييم المخزون — حسابٌ نقيّ بلا قاعدة بيانات.
 // ----------------------------------------------------------------------------
 // القاعدة الحاكمة: `unitCost` المخزَّن **صافٍ قبل الضريبة، دائماً**.
 //
@@ -59,56 +59,113 @@ export function hasAnyCost(items: { unitCost?: number | null }[]): boolean {
   return items.some((i) => i.unitCost != null && Number.isFinite(i.unitCost) && i.unitCost > 0);
 }
 
-// ═══ تقييم المخزون بتكلفة الشراء ═══
+// ════════════════════════════════════════════════════════════════════════════
+// تقييم المخزون بتكلفة الشراء — متوسّط متحرّك على الرصيد الباقي، بدلوين
+// ════════════════════════════════════════════════════════════════════════════
+//
+// نسختان سابقتان من هذا الحساب كانتا خاطئتين، وكلتاهما تبدو معقولة على الورق:
+//
+// ✗ **جمع كل الوارد منذ الأزل**: دفعة يناير ١٠٠٠ بعشرة بيعت كلّها، ودفعة فبراير
+//   ١٠٠٠ بعشرين هي الباقية ⇒ المتوسّط ١٥ والقيمة ١٥٬٠٠٠، والحقيقة ٢٠٬٠٠٠.
+//   البضاعة المستهلَكة كانت تجرّ التقييم إلى الأبد. الصواب أن تخرج طبقتها من
+//   الحساب حين تخرج من المستودع — وهو ما يفعله المتوسّط المتحرّك.
+//
+// ✗ **تقييم الرصيد كلّه بمتوسّط المسعَّر منه**: عشرة آلاف كرتون وارد قديم بلا
+//   سعر + عشرة كراتين بـ١٢ ⇒ القيمة ١٢٠٬١٢٠ والحقيقة الموثَّقة ١٢٠. ألفُ ضعف.
+//   والأسوأ أن الشاشة كانت تقول «بلا سعر فلا يدخل هذه القيمة» — وهو نفيٌ لما
+//   يفعله الحساب. لذلك صار للكمّية عديمة السعر **دلوٌ منفصل لا يُقيَّم**.
+//
+// فالحالة الآن دلوان لكل صنف: `costed` له قيمة معروفة، و`uncosted` لا. والوارد
+// المسعَّر وحده يحرّك المتوسّط؛ والصرف ينقص الدلوين بنسبتهما فلا يُستنزف أحدهما
+// قبل الآخر بلا سبب؛ والعائد من السيارات والجرد الزائد يُقيَّم بمتوسّط اللحظة.
+//
+// وهذا هو النمط نفسه المطبَّق والمنشور في وحدة المطاعم
+// (routes/restaurant/inventory.ts) — فالوحدتان على معيار واحد لا معيارين.
 
-export interface CostBasis {
-  avgCost: number;      // متوسّط تكلفة الوحدة المرجّح بالكميات
-  costedQty: number;    // الكمية الواردة التي لها سعر
-  uncostedQty: number;  // الكمية الواردة بلا سعر — حدّ صدق المتوسّط
+/** حركة مخزون واحدة، مرتّبةً زمنياً */
+export interface CostMove {
+  /** موجب يدخل المستودع، سالب يخرج منه */
+  qty: number;
+  /** RECEIVE وحده يحمل سعراً ويحرّك المتوسّط */
+  kind: 'RECEIVE' | 'OTHER';
+  unitCost?: number | null;
 }
 
+export interface CostState {
+  costedQty: number;    // كمية في الرصيد تكلفتها معروفة
+  costedValue: number;  // قيمتها
+  uncostedQty: number;  // كمية في الرصيد بلا تكلفة معروفة — لا تُقيَّم
+}
+
+export interface Valuation {
+  avgCost: number;      // متوسّط تكلفة الوحدة للكمّية المعروفة
+  stockValue: number;   // قيمة الرصيد = الكمّية المعروفة × متوسّطها
+  costedQty: number;    // الكمّية المقيَّمة
+  uncostedQty: number;  // الكمّية خارج التقييم — تُعلَن للمستخدم صراحةً
+}
+
+const avgOf = (s: CostState) => (s.costedQty > 0 ? s.costedValue / s.costedQty : 0);
+
 /**
- * متوسّط تكلفة الوحدة، مرجّحاً بالكميّات، من **الوارد وحده**.
+ * يمرّ على الحركات **بترتيبها الزمنيّ** ويُخرج تقييم الرصيد الباقي.
  *
- * ثلاثة قرارات في هذه الدالّة تستحقّ التسمية:
- *
- * ١) **الترجيح بالكميّة لا المتوسّط الحسابيّ**: من اشترى ١٠٠٠ بريال ثمّ ١٠
- *    بريالين تكلفته الوسطى ١٫٠١ لا ١٫٥٠. المتوسّط الساذج يقلب التقييم رأساً على
- *    عقب عند أوّل شراء صغير بسعر شاذّ.
- *
- * ٢) **السطر بلا سعر يُستبعَد من البسط والمقام معاً** — لا يُحسب صفراً. لو حُسب
- *    صفراً لهبط المتوسّط كلّما سُجّل استلامٌ قبل وصول فاتورته، فيظهر المخزون
- *    أرخص ممّا كلّف. وتُردّ كميّته في `uncostedQty` ليُقال للمستخدم صراحةً كم
- *    من رصيده خارج التقييم بدل أن يُخفى النقص في رقمٍ واثق.
- *
- * ٣) **التسويات لا تدخل المتوسّط**: التسوية جردٌ أو تالف لا شراء، فليس لها ثمن
- *    تُسعَّر به. وتُقيَّم كميّتها لاحقاً بمتوسّط الشراء نفسه.
+ * الترتيب مسؤولية المستدعي — والمرور غير مرتَّب يعطي رقماً خاطئاً بصمت،
+ * فلذلك تُرتَّب في `composeWarehouse` قبل الاستدعاء لا هنا.
  */
-export function weightedAvgCost(receiveItems: { qty: number; unitCost?: number | null }[]): CostBasis {
-  let value = 0, costedQty = 0, uncostedQty = 0;
-  for (const it of receiveItems) {
-    if (!Number.isFinite(it.qty) || it.qty <= 0) continue;
-    if (it.unitCost != null && Number.isFinite(it.unitCost) && it.unitCost > 0) {
-      value += it.qty * it.unitCost;
-      costedQty += it.qty;
-    } else {
-      uncostedQty += it.qty;
+export function valueStock(moves: CostMove[]): Valuation {
+  const s: CostState = { costedQty: 0, costedValue: 0, uncostedQty: 0 };
+
+  for (const m of moves) {
+    if (!Number.isFinite(m.qty) || m.qty === 0) continue;
+    const priced = m.unitCost != null && Number.isFinite(m.unitCost) && m.unitCost > 0;
+
+    if (m.qty > 0) {
+      if (m.kind === 'RECEIVE' && priced) {
+        // شراء بسعر: يدخل الدلو المعروف ويعيد ترجيح المتوسّط
+        s.costedQty += m.qty;
+        s.costedValue += m.qty * (m.unitCost as number);
+      } else if (m.kind === 'RECEIVE') {
+        // شراء بلا سعر: كمية في المستودع بلا قيمة موثَّقة — لا تُخمَّن
+        s.uncostedQty += m.qty;
+      } else {
+        // عائد من سيارة أو جرد زائد: يُقيَّم بمتوسّط اللحظة إن وُجد
+        const avg = avgOf(s);
+        if (avg > 0) { s.costedQty += m.qty; s.costedValue += m.qty * avg; }
+        else s.uncostedQty += m.qty;
+      }
+      continue;
+    }
+
+    // خروج: تحميلٌ لسيارة أو تسوية بالنقص — ينقص الدلوين بنسبتهما
+    const out = -m.qty;
+    const total = s.costedQty + s.uncostedQty;
+    // المتوسّط يُلتقط **قبل** الاستنزاف: الخارج يُقيَّم بمتوسّط لحظة خروجه
+    const avg = avgOf(s);
+
+    // ما يمكن سحبه من الموجود فعلاً، وما زاد عنه سحبٌ مكشوف
+    const share = total > 0 ? Math.min(out, total) : 0;
+    if (share > 0) {
+      const fromCosted = share * (s.costedQty / total);
+      s.costedQty -= fromCosted;
+      s.costedValue -= fromCosted * avg;
+      s.uncostedQty -= share - fromCosted;
+    }
+
+    // السحب المكشوف (تحميلٌ يتجاوز الرصيد) يُقيَّد على الدلو المعروف بمتوسّطه،
+    // فيظهر الرصيد سالباً وقيمته سالبة — مؤشّر نقصٍ صريح. ولو ابتُلع في الدلو
+    // غير المقيَّم لعاد صفراً صامتاً يُخفي أن المحمَّل تجاوز الوارد.
+    const deficit = out - share;
+    if (deficit > 0) {
+      s.costedQty -= deficit;
+      s.costedValue -= deficit * avg;
     }
   }
-  return {
-    avgCost: costedQty > 0 ? roundDecimal(value / costedQty, COST_DECIMALS) : 0,
-    costedQty: roundDecimal(costedQty, 4),
-    uncostedQty: roundDecimal(uncostedQty, 4),
-  };
-}
 
-/**
- * قيمة الرصيد الحاليّ بتكلفة الشراء = الرصيد × متوسّط التكلفة.
- *
- * والرصيد السالب يُقيَّم سالباً عمداً — رقمٌ أحمر في التقرير أصدق من صفرٍ
- * يُخفي أن المحمّل للسيارات تجاوز الوارد.
- */
-export function stockValue(onHand: number, avgCost: number, decimals = 2): number {
-  if (!Number.isFinite(onHand) || !Number.isFinite(avgCost) || avgCost <= 0) return 0;
-  return roundDecimal(onHand * avgCost, decimals);
+  const avgCost = roundDecimal(avgOf(s), COST_DECIMALS);
+  return {
+    avgCost,
+    stockValue: roundDecimal(s.costedValue, 2),
+    costedQty: roundDecimal(s.costedQty, 4),
+    uncostedQty: roundDecimal(Math.max(0, s.uncostedQty), 4),
+  };
 }

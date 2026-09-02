@@ -8,10 +8,27 @@ import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { computeWarehouseStock } from '../services/warehouseStock';
-import { netUnitCost } from '../services/warehouseCost';
+import { netUnitCost, entryTotalCost } from '../services/warehouseCost';
 
 const router = Router();
 router.use(authenticate);
+
+/**
+ * المستودع للوحة الشركة وحدها — لا للمندوب.
+ *
+ * `requireAdminPermission` يمرّر `SALES_REP` بلا فحص (middleware/auth.ts)، وهو
+ * مقصودٌ في المسارات التي يشترك فيها التطبيقان. لكنّ هذا المسار صار يحمل
+ * **تكلفة الشراء وقيمة المخزون**، أي هامش ربح الشركة على كل صنف — ولا شيء في
+ * تطبيق المندوب يستدعيه أصلاً. فالمنع صريحٌ هنا لا متروكٌ لعمومية الحارس.
+ */
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.role === 'SALES_REP') {
+    res.status(403).json({ success: false, message: 'غير مسموح' });
+    return;
+  }
+  next();
+});
+
 // نفس صلاحية إدارة المخزون؛ المستودع مركزيّ على مستوى الشركة (لا يخصّ مندوباً)
 router.use(requireAdminPermission('canManageVanStock'));
 
@@ -103,7 +120,12 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
       take: 100,
       include: { items: { include: { product: { select: { name: true, unit: true } } } } },
     });
-    res.json({ success: true, data: entries });
+    // الإجمالي يُحسب هنا بالدالّة المختبَرة لا في المتصفّح: حسابان لرقمٍ واحد
+    // ينزاحان يوماً — وقاعدة التقريب (جمعُ أسطرٍ مقرَّبة) تعيش في مكان واحد
+    res.json({
+      success: true,
+      data: entries.map((e) => ({ ...e, totalCost: entryTotalCost(e.items) })),
+    });
   } catch (err) { next(err); }
 });
 

@@ -37,13 +37,20 @@ let activeCurrency = 'SAR';
 export function setActiveCurrency(c?: string | null) { if (c && c.trim()) activeCurrency = c; }
 export function getActiveCurrency() { return activeCurrency; }
 
-// ينسّق مبلغًا بعملة الشركة النشطة (أو عملة مُمرَّرة صراحةً) بخاناتها العشرية الصحيحة (٢/٣)
-export function formatCurrency(amount: number | string, currency?: string) {
+/**
+ * ينسّق مبلغًا بعملة الشركة النشطة (أو عملة مُمرَّرة صراحةً) بخاناتها العشرية (٢/٣).
+ *
+ * `maxDecimals` لسعرِ **وحدة** لا لمبلغ: تكلفة الوحدة تُخزَّن بأربع خانات
+ * (شراء ٣ حبّات بريال = ٠٫٣٣٣٣)، فعرضها بخانتين يجعل «المتوسّط × الكمية»
+ * لا يساوي القيمة المعروضة بجانبه فيبدو النظام متناقضاً وهو سليم.
+ */
+export function formatCurrency(amount: number | string, currency?: string, maxDecimals?: number) {
   const cur = currency || activeCurrency;
-  const dec = currencyDecimals(cur);
+  const base = currencyDecimals(cur);
+  const dec = maxDecimals != null ? Math.max(base, maxDecimals) : base;
   return new Intl.NumberFormat(locale(), {
     style: 'currency', currency: cur,
-    minimumFractionDigits: dec, maximumFractionDigits: dec,
+    minimumFractionDigits: base, maximumFractionDigits: dec,
   }).format(Number(amount));
 }
 

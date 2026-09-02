@@ -10,20 +10,18 @@ import toast from 'react-hot-toast';
 interface WhRow {
   productId: string; name: string; code: string; unit: string;
   received: number; adjusted: number; loadedToVans: number; returnedFromVans: number; onHand: number;
-  avgCost: number;     // متوسّط تكلفة الوحدة المرجّح (من الوارد المسعّر وحده)
+  avgCost: number;     // متوسّط تكلفة الوحدة (متحرّك، على الرصيد الباقي)
+  costedQty: number;   // كمية من الرصيد تكلفتها معروفة — هي وحدها المقيَّمة
   stockValue: number;  // قيمة الرصيد بتكلفة الشراء
   uncostedQty: number; // كمية واردة بلا سعر — حدّ صدق التقييم
 }
 interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null; createdBy: string | null; createdAt: string;
   items: { id: string; qty: number; unitCost: number | null; product: { name: string; unit: string } }[];
+  totalCost: number; // يحسبه الخادم بالدالّة المختبَرة — لا يُعاد حسابه هنا
 }
 
 const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
-
-/** قيمة حركة الوارد — تُجمع من أسطرها المسعّرة. المخزَّن صافٍ قبل الضريبة أصلاً. */
-const entryValue = (e: WhEntry) =>
-  e.items.reduce((s, it) => s + (it.unitCost != null && it.unitCost > 0 ? it.qty * it.unitCost : 0), 0);
 
 // مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات:
 // التحميل يخرج من المستودع، والتنزيل يعود إليه، والوارد يزيده.
@@ -69,7 +67,7 @@ export default function CompanyWarehousePage() {
           {uncostedRows > 0 && (
             <p className="text-[11px] text-[#9A8F7E] flex items-center gap-1.5 max-w-sm">
               <Info size={13} className="shrink-0 text-amber-600" />
-              {uncostedRows} {tr('صنفا له وارد بلا سعر فلا يدخل هذه القيمة سجل سعر الوحدة عند الاستلام ليكتمل التقييم')}
+              {uncostedRows} {tr('صنفا فيه كمية بلا تكلفة معروفة وهي خارج هذه القيمة سجل سعر الوحدة عند الاستلام ليكتمل التقييم')}
             </p>
           )}
         </div>
@@ -115,15 +113,17 @@ export default function CompanyWarehousePage() {
                     <td className="px-3 py-2.5 text-center text-[#C94E28]">−{fmtQty(r.loadedToVans)}</td>
                     <td className="px-3 py-2.5 text-center text-[#1E7A52]">+{fmtQty(r.returnedFromVans)}</td>
                     <td className="px-3 py-2.5 text-center text-[#6E6557]">
-                      {r.avgCost > 0 ? formatCurrency(r.avgCost) : <span className="text-[#C9BFAE]">—</span>}
+                      {r.avgCost > 0
+                        ? <span title={String(r.avgCost)}>{formatCurrency(r.avgCost, undefined, 4)}</span>
+                        : <span className="text-[#C9BFAE]">—</span>}
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      {r.avgCost > 0
+                      {r.costedQty !== 0
                         ? <span className={`font-bold ${r.stockValue < 0 ? 'text-red-600' : 'text-[#1F1A13]'}`}>{formatCurrency(r.stockValue)}</span>
                         : <span className="text-[#C9BFAE]">—</span>}
                       {r.uncostedQty > 0 && (
                         <span className="block text-[10px] text-amber-600 mt-0.5">
-                          {fmtQty(r.uncostedQty)} {tr('بلا سعر')}
+                          {fmtQty(r.uncostedQty)} {tr('خارج التقييم')}
                         </span>
                       )}
                     </td>
@@ -166,9 +166,9 @@ export default function CompanyWarehousePage() {
                     </span>
                   ))}
                 </div>
-                {entryValue(e) > 0 && (
+                {e.totalCost > 0 && (
                   <p className="text-[11px] text-[#6E6557] mt-1.5">
-                    {tr('قيمة البضاعة قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(entryValue(e))}</b>
+                    {tr('قيمة البضاعة قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(e.totalCost)}</b>
                   </p>
                 )}
                 {e.createdBy && <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('سجلها')}: {e.createdBy}</p>}
@@ -303,7 +303,11 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
               <div className="divide-y divide-[#F1EBDF]">
                 {rows.map(r => {
                   const q = Number(r.qty), c = Number(r.unitCost);
-                  const line = type === 'RECEIVE' && !Number.isNaN(q) && !Number.isNaN(c) && c > 0 ? q * c : null;
+                  // صافيةً دائماً كالإجمالي تحتها وكالمخزَّن — عرضُ السطر شاملاً
+                  // مع إجماليٍّ صافٍ يجعل الأسطر لا تجمع إجمالها أمام العين
+                  const pct = (prodQ.data || []).find(p => p.id === r.productId)?.taxPct ?? 0;
+                  const net = costsIncludeTax && pct > 0 ? c / (1 + pct / 100) : c;
+                  const line = type === 'RECEIVE' && !Number.isNaN(q) && !Number.isNaN(c) && c > 0 ? q * net : null;
                   return (
                     <div key={r.productId} className="px-3 py-2">
                       <div className="flex items-center gap-2">
@@ -320,7 +324,7 @@ function WarehouseEntryModal({ onClose }: { onClose: () => void }) {
                         <button onClick={() => removeRow(r.productId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={15} /></button>
                       </div>
                       {line !== null && (
-                        <p className="text-[11px] text-[#6E6557] mt-1">{tr('قيمة السطر')}: <b className="text-[#1F1A13]">{formatCurrency(line)}</b></p>
+                        <p className="text-[11px] text-[#6E6557] mt-1">{tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(line)}</b></p>
                       )}
                     </div>
                   );
