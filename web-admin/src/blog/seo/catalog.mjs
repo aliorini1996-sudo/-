@@ -1186,13 +1186,15 @@ const dateFor = (i) => new Date(BASE - (i % 120) * 86400000).toISOString().slice
  *             (dairy distribution 10.9 · distribution fmcg 8.2 · what is field sales
  *             management 25.6 · distributor management system 64.7 · primary vs
  *             secondary sales 54.6). السؤال يُجاب بصيغة الباحث حرفياً.
+ * 2026-08-28b: وصل المقال اليدوي «دورة الطلب حتى التحصيل» بالشبكة الداخلية —
+ *              كان بأربعة روابط وصفر من الرئيسية رغم أنه يستهدف 410 ظهور.
  */
-export const CONTENT_VERSION = '2026-08-28';
+export const CONTENT_VERSION = '2026-08-29';
 
 // تاريخ التعديل = الأحدث بين النشر ونسخة القالب (يبقى صحيحاً لو صار النشر أحدث لاحقاً).
 // 10 أغسطس: تقليل التكرار غيّر كل صفحات الدول (أولوية وغيرها)، فالثابتان متساويان الآن —
 // تغيير حقيقيّ واحد واسع، لا churn كاذب (الخريطة تُخبر جوجل بصدق أنّ ~600 صفحة تغيّرت فيُعيد زحفها).
-const PRIORITY_CONTENT_VERSION = '2026-08-28';
+const PRIORITY_CONTENT_VERSION = '2026-08-29';
 export const modifiedOf = (date, cc) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
   return date > v ? date : v;
@@ -1274,6 +1276,13 @@ function relatedLinks(topic, c, L) {
     add('van-sales-best-practices', P(L, 'أفضل ممارسات البيع من السيارة', 'Van sales best practices', 'Bonnes pratiques van sales'));
     // عنقود جغرافي: النظام في أسواق بارزة
     ['SA', 'EG', 'AE'].forEach((oc) => add(`field-sales-software-${oc.toLowerCase()}`, `${TOPIC_BY_ID['field-sales-software'].label[L]} ${inOf(countryByCode(oc), L)}`));
+  }
+  // المقال اليدوي «دورة الطلب حتى التحصيل» — وُسِّع إلى 1594 كلمة إنجليزية ويستهدف
+  // عائلة من 31 صيغة عليها 410 ظهور في Search Console. كان شبه يتيم: أربعة روابط
+  // داخلية وصفر من الرئيسية، فلا يصله وزن يُذكر. نمدّه من أقرب موضوعين إليه بنصّ
+  // مرساة مطابق للاستعلام — الحلقة الثالثة في سلسلة الضربة.
+  if (topic.id === 'collection-receivables' || topic.id === 'reduce-overdue-receivables') {
+    add('order-to-cash-cycle', P(L, 'دورة الطلب حتى التحصيل O2C', 'The order-to-cash (O2C) cycle', 'Le cycle order-to-cash (O2C)'));
   }
   const head = P(L, 'مقالات ذات صلة', 'Related articles', 'Articles liés');
   return `<h2>${head}</h2><ul>${items.map(([h, t]) => `<li><a href="${h}">${t}</a></li>`).join('')}</ul>`;
