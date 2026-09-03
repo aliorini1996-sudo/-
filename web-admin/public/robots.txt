@@ -4,6 +4,8 @@ Allow: /
 Disallow: /app
 Disallow: /platform
 Disallow: /owner
+# /rep-app صفحة تنزيل التطبيق العامّة — تُستثنى صراحةً لأن Disallow: /rep قاعدة بادئة تبتلعها
+Allow: /rep-app
 Disallow: /rep
 Disallow: /m
 Disallow: /login
@@ -89,6 +91,8 @@ Allow: /
 Disallow: /app
 Disallow: /platform
 Disallow: /owner
+# /rep-app صفحة تنزيل التطبيق العامّة — تُستثنى صراحةً لأن Disallow: /rep قاعدة بادئة تبتلعها
+Allow: /rep-app
 Disallow: /rep
 Disallow: /m
 Disallow: /login

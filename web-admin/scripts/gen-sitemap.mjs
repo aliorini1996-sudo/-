@@ -137,6 +137,8 @@ async function main() {
     `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}/blog/"/>`,
   ].join('\n');
   // صفحات القطاعات السبعة (عربية فقط حالياً — لا نسخة en/fr لها بعد، فلا hreflang كاذب)
+  // صفحة تنزيل التطبيق (عربية فقط — لا نسخة /en لها في الراوتر)
+  urls.push(urlEntry(ORIGIN + '/rep-app', { freq: 'monthly', priority: '0.8' }));
   urls.push(urlEntry(ORIGIN + '/free', { freq: 'monthly', priority: '0.9' }));
   for (const id of ['commission', 'van', 'reps', 'aging']) {
     urls.push(urlEntry(ORIGIN + '/free/' + id, { freq: 'monthly', priority: '0.8' }));
