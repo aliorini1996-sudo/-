@@ -126,15 +126,15 @@ ${pillarsEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')}): ${a.excerpt}`)
 
 ## Country guides (English)
 
-${hubsEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')})`).join('\n')}
+${hubsEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')}): ${a.excerpt}`).join('\n')}
 
 ## Best / comparison guides (buyer intent)
 
-${bestEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')})`).join('\n')}
+${bestEn.map((a) => `- [${a.title}](${blogUrl(a.slug, 'en')}): ${a.excerpt}`).join('\n')}
 
 ## أدلّة الدول (بالعربية)
 
-${hubsAr.map((a) => `- [${a.title}](${blogUrl(a.slug, 'ar')})`).join('\n')}
+${hubsAr.map((a) => `- [${a.title}](${blogUrl(a.slug, 'ar')}): ${a.excerpt}`).join('\n')}
 
 ## Blog highlights
 
