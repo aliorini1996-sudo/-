@@ -130,7 +130,7 @@ export const notificationApi = {
 
 export const authApi = {
   login: (data: { username: string; password: string; role: string }) => api.post('/auth/login', data),
-  signup: (data: { companyName: string; adminName: string; email: string; password: string; phone?: string; countryCode?: string; vertical?: 'distribution' | 'restaurant' }) => api.post('/auth/signup', data),
+  signup: (data: { companyName: string; adminName: string; email: string; password: string; phone?: string; countryCode?: string}) => api.post('/auth/signup', data),
   me: () => api.get('/auth/me'),
   changePassword: (data: { currentPassword: string; newPassword: string }) => api.post('/auth/change-password', data),
   verifyEmail: (token: string) => api.post('/auth/verify-email', { token }),
@@ -387,59 +387,3 @@ export const supportApi = {
   send: (data: { subject?: string; category?: string; message: string }) => api.post('/support', data),
 };
 
-// ── عمودية المطاعم (Field Restaurant) — القوائم والصالات والطاولات (M2) ──
-export const restaurantApi = {
-  // القائمة
-  menu: () => api.get('/restaurant/menu'),
-  createCategory: (data: unknown) => api.post('/restaurant/menu/categories', data),
-  updateCategory: (id: string, data: unknown) => api.put(`/restaurant/menu/categories/${id}`, data),
-  deleteCategory: (id: string) => api.delete(`/restaurant/menu/categories/${id}`),
-  createItem: (data: unknown) => api.post('/restaurant/menu/items', data),
-  updateItem: (id: string, data: unknown) => api.put(`/restaurant/menu/items/${id}`, data),
-  deleteItem: (id: string) => api.delete(`/restaurant/menu/items/${id}`),
-  groups: () => api.get('/restaurant/menu/groups'),
-  createGroup: (data: unknown) => api.post('/restaurant/menu/groups', data),
-  updateGroup: (id: string, data: unknown) => api.put(`/restaurant/menu/groups/${id}`, data),
-  deleteGroup: (id: string) => api.delete(`/restaurant/menu/groups/${id}`),
-  // الصالات والطاولات
-  tables: () => api.get('/restaurant/tables'),
-  createArea: (data: unknown) => api.post('/restaurant/tables/areas', data),
-  updateArea: (id: string, data: unknown) => api.put(`/restaurant/tables/areas/${id}`, data),
-  deleteArea: (id: string) => api.delete(`/restaurant/tables/areas/${id}`),
-  createTable: (data: unknown) => api.post('/restaurant/tables', data),
-  updateTable: (id: string, data: unknown) => api.put(`/restaurant/tables/${id}`, data),
-  deleteTable: (id: string) => api.delete(`/restaurant/tables/${id}`),
-  // الكاشير (M3)
-  orders: (status?: string) => api.get('/restaurant/pos/orders', { params: status ? { status } : undefined }),
-  createOrder: (data: unknown) => api.post('/restaurant/pos/orders', data),
-  updateOrderItems: (id: string, data: unknown) => api.put(`/restaurant/pos/orders/${id}/items`, data),
-  payOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/pay`, data),
-  voidOrder: (id: string, data: unknown) => api.post(`/restaurant/pos/orders/${id}/void`, data),
-  // المطبخ وخدمة الطاولات (M7)
-  fireOrder: (id: string) => api.post(`/restaurant/pos/orders/${id}/fire`),
-  kds: () => api.get('/restaurant/pos/kds'),
-  itemStatus: (itemId: string, status: string) => api.patch(`/restaurant/pos/items/${itemId}/status`, { status }),
-  serveOrder: (id: string) => api.post(`/restaurant/pos/orders/${id}/serve`),
-  // موظّفو المطعم (كاشير/نادل) — دخول بـPIN
-  staff: () => api.get('/restaurant/staff'),
-  createStaff: (data: unknown) => api.post('/restaurant/staff', data),
-  updateStaff: (id: string, data: unknown) => api.put(`/restaurant/staff/${id}`, data),
-  resetStaffPin: (id: string, pin: string) => api.post(`/restaurant/staff/${id}/pin`, { pin }),
-  deleteStaff: (id: string) => api.delete(`/restaurant/staff/${id}`),
-  // الورديات (M4)
-  currentShift: () => api.get('/restaurant/shifts/current'),
-  openShift: (data: unknown) => api.post('/restaurant/shifts/open', data),
-  shiftMovement: (id: string, data: unknown) => api.post(`/restaurant/shifts/${id}/movement`, data),
-  closeShift: (id: string, data: unknown) => api.post(`/restaurant/shifts/${id}/close`, data),
-  zReport: (id: string) => api.get(`/restaurant/shifts/${id}/zreport`),
-  // التقارير (M4)
-  reportSummary: (params?: Record<string, string>) => api.get('/restaurant/reports/summary', { params }),
-  // المخزون والوصفات (M6)
-  inventory: () => api.get('/restaurant/inventory'),
-  createIngredient: (data: unknown) => api.post('/restaurant/inventory/ingredients', data),
-  updateIngredient: (id: string, data: unknown) => api.put(`/restaurant/inventory/ingredients/${id}`, data),
-  deleteIngredient: (id: string) => api.delete(`/restaurant/inventory/ingredients/${id}`),
-  stockMovement: (id: string, data: unknown) => api.post(`/restaurant/inventory/ingredients/${id}/movement`, data),
-  recipe: (menuItemId: string) => api.get(`/restaurant/inventory/menu-items/${menuItemId}/recipe`),
-  saveRecipe: (menuItemId: string, data: unknown) => api.put(`/restaurant/inventory/menu-items/${menuItemId}/recipe`, data),
-};

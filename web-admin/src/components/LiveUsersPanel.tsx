@@ -1,7 +1,7 @@
 import { useState, lazy, Suspense, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '../api/client';
-import { X, RefreshCw, Radio, Truck, Users, Building2, UtensilsCrossed, TrendingUp, Activity, ChevronDown, Clock } from 'lucide-react';
+import { X, RefreshCw, Radio, Truck, Users, Building2, TrendingUp, Activity, ChevronDown, Clock } from 'lucide-react';
 import type { HistPoint } from './LiveHistoryChart';
 import { backdropClose } from '../lib/backdropClose';
 
@@ -10,7 +10,7 @@ const LiveHistoryChart = lazy(() => import('./LiveHistoryChart'));
 const RequestHistoryChart = lazy(() => import('./RequestHistoryChart'));
 
 interface LiveUser { id: string; name: string; kind: 'rep' | 'admin'; lastSeenAt: string | null }
-interface Company { tenantId: string; name: string; vertical: string; reps: number; admins: number; total: number; users: LiveUser[] }
+interface Company { tenantId: string; name: string; reps: number; admins: number; total: number; users: LiveUser[] }
 interface Live {
   windowMinutes: number;
   total: number; totalReps: number; totalAdmins: number;
@@ -21,7 +21,7 @@ interface Live {
 interface Hist { range: string; bucket: string; points: HistPoint[]; peak: number; count: number }
 
 interface ReqUser { userId: string; name: string; kind: 'rep' | 'admin'; requests: number }
-interface ReqCompany { tenantId: string; name: string; vertical: string; requests: number; users: ReqUser[] }
+interface ReqCompany { tenantId: string; name: string; requests: number; users: ReqUser[] }
 interface ReqSeriesPoint { day: string; requests: number; reps: number; admins: number }
 interface ReqStats { range: string; days: number; totalRequests: number; activeCompanies: number; companies: ReqCompany[]; series: ReqSeriesPoint[] }
 
@@ -223,7 +223,6 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                       </thead>
                       <tbody>
                         {data.companies.map((c) => {
-                          const Vic = c.vertical === 'restaurant' ? UtensilsCrossed : Truck;
                           const open = expanded === c.tenantId;
                           return (
                             <Fragment key={c.tenantId}>
@@ -231,7 +230,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                                 <td className="px-4 py-2.5">
                                   <span className="inline-flex items-center gap-1.5 font-medium text-[#1F1A13]">
                                     <ChevronDown size={13} className={`text-[#9A8F7E] transition-transform ${open ? '' : '-rotate-90'}`} />
-                                    <Vic size={14} className={c.vertical === 'restaurant' ? 'text-[#B5322A]' : 'text-[#E15A30]'} />
+                                    <Truck size={14} className="text-[#E15A30]" />
                                     <span className="truncate max-w-[200px]">{c.name}</span>
                                   </span>
                                 </td>
@@ -361,7 +360,6 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                     </thead>
                     <tbody>
                       {req.companies.map((c) => {
-                        const Vic = c.vertical === 'restaurant' ? UtensilsCrossed : Truck;
                         const open = expanded === c.tenantId;
                         return (
                           <Fragment key={c.tenantId}>
@@ -369,7 +367,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
                               <td className="px-4 py-2.5">
                                 <span className="inline-flex items-center gap-1.5 font-medium text-[#1F1A13]">
                                   <ChevronDown size={13} className={`text-[#9A8F7E] transition-transform ${open ? '' : '-rotate-90'}`} />
-                                  <Vic size={14} className={c.vertical === 'restaurant' ? 'text-[#B5322A]' : 'text-[#E15A30]'} />
+                                  <Truck size={14} className="text-[#E15A30]" />
                                   <span className="truncate max-w-[200px]">{c.name}</span>
                                 </span>
                               </td>

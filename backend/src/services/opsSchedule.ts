@@ -67,7 +67,7 @@ const PLAN_PRICES: Record<string, number> = { basic: 299, pro: 599 };
 export async function platformMetrics() {
   const tenants = await prisma.tenant.findMany({
     select: {
-      isActive: true, plan: true, vertical: true, createdAt: true, subscriptionEndsAt: true,
+      isActive: true, plan: true, createdAt: true, subscriptionEndsAt: true,
       _count: { select: { invoices: true } },
     },
   });

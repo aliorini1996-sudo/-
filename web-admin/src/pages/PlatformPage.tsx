@@ -8,11 +8,9 @@ import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
   BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug, Radio,
-  Truck, UtensilsCrossed, CreditCard, MessagesSquare,
+  Truck, CreditCard, MessagesSquare,
 } from 'lucide-react';
 
-// عمودية الفرع: توزيع (يمين، برتقالي) | مطاعم (يسار، قرميدي/أخضر)
-type Vertical = 'distribution' | 'restaurant';
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -38,7 +36,7 @@ export default function PlatformPage() {
   const tr = useTr();
   const qc = useQueryClient();
   const { user, logout, impersonate } = useAuthStore();
-  const [createVertical, setCreateVertical] = useState<Vertical | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
@@ -77,8 +75,7 @@ export default function PlatformPage() {
       const { token, user: companyUser } = res.data.data;
       impersonate(token, companyUser, companyUser.companyName);
       // إعادة تحميل كاملة على لوحة الشركة لتجنّب إعادة تقييم حارس المالك أثناء تبديل الهوية.
-      // العزل: عمودية المطاعم تفتح /app-r، والتوزيع /app.
-      window.location.href = (companyUser.vertical ?? 'distribution') === 'restaurant' ? '/app-r' : '/app';
+      window.location.href = '/app';
     },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الدخول للشركة')),
   });
@@ -91,9 +88,6 @@ export default function PlatformPage() {
 
   const handleLogout = () => { logout(); window.location.replace('/owner'); };
 
-  // تقسيم الشركات على العموديّتين — ?? 'distribution' يمنع تسرّب أي شركة قائمة إلى عمود المطاعم
-  const distTenants = useMemo(() => (tenants ?? []).filter(t => (t.vertical ?? 'distribution') === 'distribution'), [tenants]);
-  const restTenants = useMemo(() => (tenants ?? []).filter(t => t.vertical === 'restaurant'), [tenants]);
   const activeCount = (tenants ?? []).filter(t => t.isActive).length;
 
   const colHandlers = {
@@ -184,47 +178,29 @@ export default function PlatformPage() {
       {/* المحتوى الرئيسي */}
       <main className="flex-1 overflow-y-auto">
       <div className="max-w-7xl mx-auto px-6 py-6">
-        {/* لوحة علوية جامعة للعموديّتين */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <StatBox icon={Building2} label={tr('إجمالي العملاء')} value={String(tenants?.length ?? 0)} color="bg-[#1F1A13]" />
-          <StatBox icon={Truck} label={tr('شركات التوزيع')} value={String(distTenants.length)} color="bg-[#E15A30]" />
-          <StatBox icon={UtensilsCrossed} label={tr('عملاء المطاعم')} value={String(restTenants.length)} color="bg-[#B5322A]" />
+          <StatBox icon={Truck} label={tr('شركات التوزيع')} value={String(tenants?.length ?? 0)} color="bg-[#E15A30]" />
           <StatBox icon={CheckCircle2} label={tr('اشتراكات نشطة')} value={String(activeCount)} color="bg-green-500" />
         </div>
 
-        {/* عمودان — التوزيع أوّلاً في DOM فيظهر يميناً ضمن RTL، والمطاعم يساراً */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <TenantColumn
-            vertical="distribution"
-            title={tr('شركات التوزيع')}
-            icon={Truck}
-            accent="#E15A30"
-            accentSoft="#FBEBE2"
-            tenants={distTenants}
-            isLoading={isLoading}
-            onAdd={() => setCreateVertical('distribution')}
-            {...colHandlers}
-          />
-          <TenantColumn
-            vertical="restaurant"
-            title={tr('عملاء المطاعم')}
-            icon={UtensilsCrossed}
-            accent="#B5322A"
-            accentSoft="#F6E7E5"
-            tenants={restTenants}
-            isLoading={isLoading}
-            onAdd={() => setCreateVertical('restaurant')}
-            {...colHandlers}
-          />
-        </div>
+        <TenantColumn
+          title={tr('شركات التوزيع')}
+          icon={Truck}
+          accent="#E15A30"
+          accentSoft="#FBEBE2"
+          tenants={tenants ?? []}
+          isLoading={isLoading}
+          onAdd={() => setCreateOpen(true)}
+          {...colHandlers}
+        />
       </div>
       </main>
 
-      {createVertical && (
+      {createOpen && (
         <CreateTenantModal
-          vertical={createVertical}
-          onClose={() => setCreateVertical(null)}
-          onCreated={(info) => { setCreateVertical(null); setCreatedInfo(info); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(info) => { setCreateOpen(false); setCreatedInfo(info); qc.invalidateQueries({ queryKey: ['tenants'] }); }}
         />
       )}
       {createdInfo && <CredentialsModal info={createdInfo} onClose={() => setCreatedInfo(null)} />}
@@ -275,13 +251,11 @@ export default function PlatformPage() {
   );
 }
 
-// عمود عمودية واحدة (توزيع/مطاعم) — ترويسة ملوّنة + جدول شركات تلك العمودية فقط.
-// العزل مضمون بأن `tenants` مُرشَّحة مسبقاً حسب vertical في PlatformPage.
+// عمود شركات التوزيع — ترويسة ملوّنة + جدول الشركات.
 function TenantColumn({
-  vertical, title, icon: Icon, accent, accentSoft, tenants, isLoading,
+  title, icon: Icon, accent, accentSoft, tenants, isLoading,
   onAdd, onEnter, onPerf, onEdit, onReset, onToggle, onDelete, enterPending,
 }: {
-  vertical: Vertical;
   title: string;
   icon: React.ElementType;
   accent: string;
@@ -298,14 +272,13 @@ function TenantColumn({
   enterPending: boolean;
 }) {
   const tr = useTr();
-  const isResto = vertical === 'restaurant';
-  const limitLabel = isResto ? tr('نقاط البيع') : tr('المناديب');
+  const limitLabel = tr('المناديب');
   const subStatus = (t: Tenant) => {
     if (!t.isActive) return { label: tr('موقوف'), cls: 'bg-red-100 text-red-700' };
     if (t.subscriptionEndsAt && new Date(t.subscriptionEndsAt).getTime() < Date.now()) return { label: tr('منته'), cls: 'bg-amber-100 text-amber-700' };
     return { label: tr('نشط'), cls: 'bg-green-100 text-green-700' };
   };
-  const limitOf = (t: Tenant) => (isResto ? t.maxPosStations : t.maxSalesReps);
+  const limitOf = (t: Tenant) => t.maxSalesReps;
 
   return (
     <section className="card p-0 overflow-hidden flex flex-col">
@@ -346,7 +319,7 @@ function TenantColumn({
               <tr><td colSpan={7} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
             ) : tenants.length === 0 ? (
               <tr><td colSpan={7} className="text-center py-12 text-gray-400">
-                {isResto ? tr('لا يوجد عملاء مطاعم بعد') : tr('لا توجد شركات توزيع بعد')}
+                {tr('لا توجد شركات توزيع بعد')}
               </td></tr>
             ) : tenants.map(t => {
               const st = subStatus(t);
@@ -733,23 +706,20 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   );
 }
 
-function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertical; onClose: () => void; onCreated: (info: { company: string; email: string; password: string }) => void }) {
+function CreateTenantModal({ onClose, onCreated }: { onClose: () => void; onCreated: (info: { company: string; email: string; password: string }) => void }) {
   const tr = useTr();
-  const isResto = vertical === 'restaurant';
-  const accent = isResto ? '#B5322A' : '#E15A30';
-  const capLabel = isResto ? tr('عدد نقاط البيع المسموح') : tr('عدد المناديب المسموح');
+  const accent = '#E15A30';
+  const capLabel = tr('عدد المناديب المسموح');
   const [form, setForm] = useState({ companyName: '', adminName: '', adminEmail: '', adminPassword: '', maxSalesReps: '', unlimitedReps: true, maxAdminUsers: '', unlimitedUsers: true, subscriptionEndsAt: '' });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const mutation = useMutation({
     mutationFn: () => {
-      // العمودية: التوزيع يرسل maxSalesReps، والمطاعم يرسل maxPosStations (نفس حقل الإدخال).
       const cap = form.unlimitedReps ? null : Number(form.maxSalesReps);
       return tenantApi.create({
         companyName: form.companyName, adminName: form.adminName, adminEmail: form.adminEmail,
         adminPassword: form.adminPassword,
-        vertical,
-        ...(isResto ? { maxPosStations: cap } : { maxSalesReps: cap }),
+        maxSalesReps: cap,
         maxAdminUsers: form.unlimitedUsers ? null : Number(form.maxAdminUsers),
         ...(form.subscriptionEndsAt && { subscriptionEndsAt: form.subscriptionEndsAt }),
       });
@@ -761,7 +731,7 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
   const submit = () => {
     if (!form.companyName.trim()) { toast.error(tr('اسم الشركة مطلوب')); return; }
     if (!form.unlimitedReps && (!Number.isInteger(Number(form.maxSalesReps)) || Number(form.maxSalesReps) < 1)) {
-      toast.error(isResto ? tr('حدد عدد نقاط بيع صحيحا 1 أو أكثر أو اختر غير محدود') : tr('حدد عدد مناديب صحيحا 1 أو أكثر أو اختر غير محدود')); return;
+      toast.error(tr('حدد عدد مناديب صحيحا 1 أو أكثر أو اختر غير محدود')); return;
     }
     if (!form.unlimitedUsers && (!Number.isInteger(Number(form.maxAdminUsers)) || Number(form.maxAdminUsers) < 1)) {
       toast.error(tr('حدد عدد مستخدمين صحيحا 1 أو أكثر أو اختر غير محدود')); return;
@@ -776,15 +746,15 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-bold text-gray-800">{isResto ? tr('إضافة عميل مطعم') : tr('إضافة شركة توزيع')}</h2>
+          <h2 className="text-lg font-bold text-gray-800">{tr('إضافة شركة توزيع')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <p className="text-xs font-semibold text-gray-400 mb-2">{isResto ? tr('بيانات المطعم') : tr('بيانات الشركة')}</p>
+            <p className="text-xs font-semibold text-gray-400 mb-2">{tr('بيانات الشركة')}</p>
             <div className="space-y-3">
               <div>
-                <label className="label">{isResto ? tr('اسم المطعم *') : tr('اسم الشركة *')}</label>
+                <label className="label">{tr('اسم الشركة *')}</label>
                 <input className="input" value={form.companyName} onChange={e => set('companyName', e.target.value)} />
               </div>
               <div>
@@ -846,7 +816,7 @@ function CreateTenantModal({ vertical, onClose, onCreated }: { vertical: Vertica
             className="flex-1 justify-center py-2.5 rounded-xl text-white font-semibold flex items-center gap-2 disabled:opacity-60"
             style={{ background: accent }}>
             {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
-            {isResto ? tr('إنشاء المطعم') : tr('إنشاء الشركة')}
+            {tr('إنشاء الشركة')}
           </button>
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>

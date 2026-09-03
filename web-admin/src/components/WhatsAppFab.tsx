@@ -29,11 +29,11 @@ import { trackWhatsApp } from '../lib/ads';
  * والزائر المتعثّر في النموذج هو أولى من يحتاج قناة محادثة. أمّا `/login`
  * و`/verify-email` فيبقيان مستثنيين لأن صاحبهما عميل قائم لا زائر.
  *
- * حدّ `(\/|$)` ليس تجميلاً: بدونه يبتلع `rep` مسارَ `/restaurant` التسويقي
+ * حدّ `(\/|$)` ليس تجميلاً: بدونه يبتلع `rep` أيّ مسارٍ تسويقيّ يبدأ بحروفه
  * فيختفي الزرّ من صفحة هبوط كاملة بصمت.
  */
 // `m` (تطبيق الإدارة على الجوال) بحدّ نهاية — كي لا يلتقط مساراً تسويقياً يبدأ بالحرف نفسه
-const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|verify-email|rep|m)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home

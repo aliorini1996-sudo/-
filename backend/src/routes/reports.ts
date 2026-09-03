@@ -47,14 +47,8 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       include: {
         customer: { select: { id: true, name: true, channel: true, city: true } },
         salesRep: { select: { id: true, name: true } },
-        // بند فاتورة المطعم يشير إلى MenuItem و`productId` فيه فارغ (schema.prisma:
-        // InvoiceItem) — فجلبُ المنتج وحده يترك البند بلا اسم، وقراءته بلا حارس
-        // تُسقط تقرير المبيعات كلَّه لأي شركة عمودية «مطعم».
         items: {
-          include: {
-            product: { select: { id: true, name: true, code: true } },
-            menuItem: { select: { id: true, name: true, code: true } },
-          },
+          include: { product: { select: { id: true, name: true, code: true } } },
         },
       },
       orderBy: { invoiceDate: 'asc' },
@@ -64,9 +58,9 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       const byProduct: Record<string, { name: string; code: string; qty: number; total: number }> = {};
       invoices.forEach(inv => {
         inv.items.forEach(item => {
-          // المنتج أو صنف القائمة أيّهما وُجد؛ وبند بلا كليهما يُجمَع تحت مفتاح
-          // واحد بدل أن يُسقِط التقرير — الرقم الناقص أهون من صفحة لا تفتح.
-          const ref = item.product ?? item.menuItem;
+          // بندٌ بلا منتج يُجمَع تحت مفتاح واحد بدل أن يُسقِط التقرير —
+          // الرقم الناقص أهون من صفحة لا تفتح.
+          const ref = item.product;
           const key = ref?.id ?? 'unknown';
           if (!byProduct[key]) byProduct[key] = { name: ref?.name ?? 'صنف محذوف', code: ref?.code ?? '—', qty: 0, total: 0 };
           byProduct[key].qty += Number(item.qty);

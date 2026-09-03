@@ -170,14 +170,14 @@ router.get('/live-users', authenticate, requireSuperAdmin, async (_req: AuthRequ
     const c = await computeLiveCounts();
     const ids = c.companies.map(x => x.tenantId);
     const tenants = ids.length
-      ? await prisma.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, vertical: true } })
+      ? await prisma.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
       : [];
     const metaBy = new Map(tenants.map(t => [t.id, t]));
 
     const companies = c.companies
       .map(x => {
         const t = metaBy.get(x.tenantId);
-        return { ...x, name: t?.name || '—', vertical: t?.vertical || 'distribution' };
+        return { ...x, name: t?.name || '—' };
       })
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ar'));
 
@@ -292,7 +292,7 @@ router.get('/request-stats', authenticate, requireSuperAdmin, async (req: AuthRe
     const [repRows, adminRows, tenants] = await Promise.all([
       repIds.length ? prisma.salesRep.findMany({ where: { id: { in: repIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
       adminIds.length ? prisma.admin.findMany({ where: { id: { in: adminIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
-      tenantIds.length ? prisma.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true, vertical: true } }) : Promise.resolve([]),
+      tenantIds.length ? prisma.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
     ]);
     const repName = new Map(repRows.map(r => [r.id, r.name]));
     const adminName = new Map(adminRows.map(a => [a.id, a.name]));
@@ -313,7 +313,6 @@ router.get('/request-stats', authenticate, requireSuperAdmin, async (req: AuthRe
         return {
           tenantId,
           name: t?.name || '—',
-          vertical: t?.vertical || 'distribution',
           requests: e.requests,
           users: e.users.sort((a, b) => b.requests - a.requests),
         };

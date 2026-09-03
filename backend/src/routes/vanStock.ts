@@ -80,7 +80,7 @@ export async function computeStock(tid: string, salesRepId: string): Promise<Sto
     else m.adjusted += it.qty;
   }
   for (const it of invItems) {
-    // مخزون السيارة للمنتجات وحدها: بند فاتورة المطعم بلا productId، وتمريره
+    // مخزون السيارة للمنتجات وحدها: بندٌ بلا productId وتمريره
     // كان يفتح صفّاً بمفتاح فارغ يلوّث كل الأرصدة.
     if (!it.productId) continue;
     const m = ensure(it.productId);

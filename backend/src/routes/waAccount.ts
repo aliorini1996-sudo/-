@@ -597,7 +597,6 @@ router.post('/signup-trial', async (req: Request, res: Response) => {
         password,
         phone: '+' + phone,
         countryCode: body.countryCode || 'SA',
-        vertical: 'distribution',
       }),
       signal: AbortSignal.timeout(25000),
     });

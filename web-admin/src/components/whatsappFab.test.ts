@@ -8,7 +8,7 @@ import { refFromPath } from './WhatsAppFab';
  * يقرأ المصدر ويؤكّد تطابق التعبيرين حرفياً، فأي تعديل هناك بلا تعديل هنا
  * يُفشل الاختبار بدل أن يمرّ صامتاً.
  */
-const HIDDEN_ON = /^\/(app|app-r|pos|pos-login|kds|platform|owner|login|verify-email|rep|m)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m)(\/|$)/;
 const shows = (p: string) => !HIDDEN_ON.test(p);
 
 /** كل المسارات التسويقية المسجَّلة في App.tsx — الزرّ إلزامي على كلّها */
@@ -16,7 +16,7 @@ const MARKETING = [
   '/', '/about', '/contact', '/pricing', '/privacy', '/terms', '/service-agreement',
   '/blog', '/blog/field-sales-software-sa', '/calculator', '/invoice-generator',
   '/free', '/free/commission', '/free/van', '/free/reps', '/free/aging',
-  '/restaurant', '/signup', '/subscribe-request',
+  '/signup', '/subscribe-request',
   '/قطاعات', '/قطاعات/مواد-غذائية', '/نماذج', '/نماذج/كشف-حساب-عميل',
   '/en', '/en/about', '/en/blog', '/en/blog/field-sales-software-sa', '/en/pricing',
   '/en/calculator', '/en/invoice-generator', '/en/contact', '/en/privacy', '/en/terms',
@@ -28,7 +28,6 @@ const MARKETING = [
 /** مسارات التطبيق — الزرّ ممنوع عليها (الرقم رقم مبيعاتنا لا دعم الشركة المشتركة) */
 const APP = [
   '/app', '/app/customers', '/app/invoices', '/app/settings',
-  '/app-r', '/app-r/menu', '/pos', '/pos/', '/pos-login', '/kds',
   '/platform', '/platform/leads', '/owner', '/login', '/verify-email',
   '/rep', '/rep/',
 ];
@@ -43,15 +42,13 @@ test('الزرّ لا يظهر في أي مسار من مسارات التطبي
   assert.deepEqual(leaked, [], `تسرّب الزرّ إلى التطبيق: ${leaked.join(', ')}`);
 });
 
-test('حدّ الكلمة يحمي /restaurant من قاعدة /rep', () => {
-  // بلا (\/|$) يبتلع `rep` مسارَ `/restaurant` فتفقد صفحة هبوط كاملة زرّها بصمت
-  assert.equal(shows('/restaurant'), true);
+test('حدّ الكلمة يمنع قاعدة /rep من ابتلاع مسار تسويقيّ يبدأ بحروفها', () => {
   assert.equal(shows('/rep'), false);
   assert.equal(shows('/reports'), true); // ليس مسار تطبيق على الجذر
 });
 
 test('البادئات المتشابهة لا تُخطئ', () => {
-  assert.equal(shows('/privacy'), true);  // ليست /pos
+  assert.equal(shows('/privacy'), true);
   assert.equal(shows('/pricing'), true);  // ليست /platform
   assert.equal(shows('/about'), true);    // ليست /app
   assert.equal(shows('/apps-guide'), true); // /app يتبعها حرف لا فاصل

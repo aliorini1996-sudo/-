@@ -28,13 +28,14 @@ model Tenant {
   name                      String // اسم الشركة المشتركة
   isActive                  Boolean   @default(true) // تعطيل الاشتراك يمنع كل مستخدميها من الدخول
   plan                      String    @default("basic") // basic | pro | enterprise (لم يعد يُعرض في الواجهة)
-  // محور عزل العموديّات: distribution (التوزيع/المناديب) | restaurant (المطاعم/الكاشير).
+  // بقايا وحدة المطاعم المحذوفة — عمودٌ يتيم لا يقرؤه كود. لا يُسقط مع الحذف
+  // لأن إسقاط عمود من `tenants` يجري في preDeploy بينما النسخة القديمة تخدم.
   // القيمة الافتراضية distribution ⇒ كل الشركات القائمة تُصنَّف توزيعاً عند db push دون لمس القاعدة.
-  vertical                  String    @default("distribution") // distribution | restaurant
+  vertical                  String    @default("distribution") // يتيم بعد حذف وحدة المطاعم
   maxSalesReps              Int? // الحد الأقصى لعدد المناديب (null = غير محدود)
   maxAdminUsers             Int? // الحد الأقصى لمستخدمي لوحة الشركة (null = غير محدود)
-  maxPosStations            Int? // مطاعم: الحد الأقصى لنقاط البيع/الكاشير (null = غير محدود/لا ينطبق)
-  maxBranches               Int? // مطاعم: الحد الأقصى للفروع (null = غير محدود/لا ينطبق)
+  maxPosStations            Int? // يتيم بعد حذف وحدة المطاعم — يبقى لئلا يُسقط عمود من جدول حيّ
+  maxBranches               Int? // يتيم بعد حذف وحدة المطاعم
   erpEnabled                Boolean   @default(false) // صلاحية ربط ERP — يتحكّم بها المالك حسب الاشتراك
   petroappEnabled           Boolean   @default(false) // صلاحية ربط بترو آب — يفعّلها المالك لكل شركة حسب الاشتراك
   hatifEnabled              Boolean   @default(false) // ميزة أرقام العمل وربط هاتف — يفعّلها المالك لكل شركة حسب الاشتراك
@@ -75,19 +76,6 @@ model Tenant {
   adminCustomerScopes  AdminCustomerScope[]
   adminRepScopes       AdminRepScope[]
 
-  // عمودية المطاعم (M2+) — علاقات ظهر إضافية اختيارية
-  restaurantAreas      RestaurantArea[]
-  restaurantTables     RestaurantTable[]
-  menuCategories       MenuCategory[]
-  menuItems            MenuItem[]
-  modifierGroups       ModifierGroup[]
-  modifiers            Modifier[]
-  orders               Order[]
-  posShifts            PosShift[]
-  cashMovements        CashMovement[]
-  ingredients          Ingredient[]
-  recipeItems          RecipeItem[]
-  ingredientMoves      IngredientMovement[]
   RepVisit             RepVisit[]
   RepSession           RepSession[]
   customerPaymentLinks CustomerPaymentLink[]
@@ -95,7 +83,6 @@ model Tenant {
   invoiceInstallments  InvoiceInstallment[]
   payouts              Payout[]
 
-  @@index([vertical])
   @@map("tenants")
 }
 
@@ -204,16 +191,16 @@ model SalesRep {
   fcmToken     String?
 
   // Sales permissions
-  canCreateInvoice Boolean      @default(true)
-  workChannel      WorkChannel? // رقم العمل المُسنَد (يملكه المستأجر لا المندوب — يعود للمخزون عند الاستقالة)
-  canSellOnCredit  Boolean      @default(true)
+  canCreateInvoice     Boolean      @default(true)
+  workChannel          WorkChannel? // رقم العمل المُسنَد (يملكه المستأجر لا المندوب — يعود للمخزون عند الاستقالة)
+  canSellOnCredit      Boolean      @default(true)
   /// البيع بالتقسيط ائتمانٌ أطول أجلاً من الآجل — فله إذن مستقلّ فوقه.
   /// الافتراضي false: لا يُفتح لأحد إلا بقرار صريح من الإدارة.
-  canSellOnInstallment Boolean  @default(false)
-  canSellInCash    Boolean      @default(true)
-  canEditInvoice   Boolean      @default(false)
-  canDeleteInvoice Boolean      @default(false)
-  canCancelInvoice Boolean      @default(false)
+  canSellOnInstallment Boolean      @default(false)
+  canSellInCash        Boolean      @default(true)
+  canEditInvoice       Boolean      @default(false)
+  canDeleteInvoice     Boolean      @default(false)
+  canCancelInvoice     Boolean      @default(false)
 
   // Pricing permissions
   canChangePrice    Boolean @default(false)
@@ -624,11 +611,11 @@ model Invoice {
   clientRef       String?
   clientCreatedAt DateTime? // لحظة الإنشاء على جهاز المندوب (قد تسبق الرفع بساعات)
 
-  // إضافات عمودية المطاعم (M3) — كلها بقيم افتراضية/nullable (لا تمسّ فواتير التوزيع)
-  orderType        String? @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY (للمطاعم فقط)
-  serviceChargeAmt Float   @default(0) // رسوم الخدمة (للمطاعم)
+  // بقايا وحدة المطاعم المحذوفة — حقول يتيمة بقيم افتراضية لا يقرؤها كود
+  orderType        String? @default("DINE_IN") // يتيم بعد حذف وحدة المطاعم
+  serviceChargeAmt Float   @default(0) // يتيم بعد حذف وحدة المطاعم
   tipAmt           Float   @default(0) // إكرامية (ليست إيراداً ولا ضريبة)
-  shiftId          String? // ربط بوردية الكاشير (M4)
+  shiftId          String? // يتيم بعد حذف وحدة المطاعم
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -636,7 +623,6 @@ model Invoice {
   items          InvoiceItem[]
   receiptItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
-  order          Order? // الطلب الذي وُلِّدت منه فاتورة المطعم (علاقة ظهر، بلا عمود)
   paymentLinks   CustomerPaymentLink[]
   installments   InvoiceInstallment[]
 
@@ -647,28 +633,28 @@ model Invoice {
 }
 
 model InvoiceItem {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   invoiceId   String
-  invoice     Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  // تخفيف إضافي غير مُدمِّر (DROP NOT NULL): بند التوزيع يظلّ يملأ productId كما اليوم،
-  // أما بنود فاتورة المطعم (عمودية restaurant) فتشير إلى MenuItem وتترك productId فارغاً.
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  // nullable منذ وحدة المطاعم المحذوفة؛ بند التوزيع يملأه دائماً
   productId   String?
-  product     Product?  @relation(fields: [productId], references: [id])
-  // بنود فاتورة المطعم (M3) — تشير إلى MenuItem بدل Product، مع أثر رجعي للطلب وتكلفة مجمّدة
+  product     Product? @relation(fields: [productId], references: [id])
+  // بقايا وحدة المطاعم المحذوفة — عمودان يتيمان لا يقرؤهما كود ولا يكتبهما.
+  // بقيا لأن إسقاط عمود من جدول حيّ يجري في preDeploy بينما النسخة القديمة
+  // ما زالت تخدم، فتنكسر استعلاماتها لحظتَها. يُسقطان في نافذة هادئة مستقلّة.
   menuItemId  String?
-  menuItem    MenuItem? @relation(fields: [menuItemId], references: [id])
   orderItemId String?
-  unitCost    Float     @default(0) // تكلفة الصنف لحظة البيع (لحساب COGS في M6)
+  unitCost    Float    @default(0) // تكلفة الصنف لحظة البيع (لحساب COGS في M6)
   qty         Float
   unitPrice   Float
-  discountPct Float     @default(0)
-  discountAmt Float     @default(0)
+  discountPct Float    @default(0)
+  discountAmt Float    @default(0)
   taxPct      Float
   taxAmt      Float
   lineTotal   Float
 
   @@index([menuItemId])
-  // كان الجدول مفهرساً على `menuItemId` (حقل المطاعم) وحده، بينما **كل** قراءة
+  // كان الجدول مفهرساً على `menuItemId` وحده، بينما **كل** قراءة
   // فاتورة أو تقرير مبيعات أو حساب مخزون سيارة تصل بنودها عبر `invoiceId`،
   // وتجميع «المبيعات حسب الصنف» يمرّ على `productId`.
   @@index([invoiceId])
@@ -1392,356 +1378,12 @@ model Visit {
 }
 
 // ============================================================================
-// عمودية المطاعم (Field Restaurant) — القوائم والصالات والطاولات (M2)
-// كلها جداول جديدة (إضافية بحتة)، معزولة بـtenantId، والوصول محكوم بـrequireVertical('restaurant').
-// ============================================================================
-
-// صالة/منطقة داخل المطعم (تُجمَّع تحتها الطاولات)
-model RestaurantArea {
-  id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name      String
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tables RestaurantTable[]
-
-  @@index([tenantId])
-  @@map("restaurant_areas")
-}
-
-// طاولة — رقمها نصّي (يدعم "A1"/"طاولة 7")؛ الحالة تُدار في M3 (الكاشير)
-model RestaurantTable {
-  id        String          @id @default(uuid())
-  tenantId  String
-  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  areaId    String?
-  area      RestaurantArea? @relation(fields: [areaId], references: [id], onDelete: SetNull)
-  number    String // رقم/اسم الطاولة
-  seats     Int             @default(4)
-  status    String          @default("FREE") // FREE | OCCUPIED | BILL_REQUESTED | RESERVED
-  posX      Float? // إحداثيات مخطّط الصالة (لـ M3)
-  posY      Float?
-  isActive  Boolean         @default(true)
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-
-  orders Order[]
-
-  @@unique([tenantId, number])
-  @@index([tenantId])
-  @@index([areaId])
-  @@map("restaurant_tables")
-}
-
-// قسم في القائمة (مقبّلات، مشاوي، مشروبات...)
-model MenuCategory {
-  id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name      String
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  items MenuItem[]
-
-  @@index([tenantId])
-  @@map("menu_categories")
-}
-
-// صنف في القائمة — بديل Product لعمودية المطاعم (تسعير أساس + إضافات + محطة تحضير)
-model MenuItem {
-  id          String        @id @default(uuid())
-  tenantId    String
-  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  categoryId  String?
-  category    MenuCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  code        String // كود الصنف (فريد لكل مطعم)
-  name        String
-  description String?
-  basePrice   Float
-  taxPct      Float         @default(15)
-  costPrice   Float         @default(0) // تكلفة الصنف — لحساب COGS (M6)
-  prepStation String        @default("KITCHEN") // KITCHEN | BAR | GRILL | COLD
-  itemCode    String? // كود الصنف للفوترة الإلكترونية (EGS/GS1)
-  image       String? // صورة (base64 data URL)
-  isAvailable Boolean       @default(true)
-  sortOrder   Int           @default(0)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  modifierGroups MenuItemModifierGroup[]
-  orderItems     OrderItem[]
-  invoiceItems   InvoiceItem[]
-  recipeItems    RecipeItem[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
-  @@index([categoryId])
-  @@map("menu_items")
-}
-
-// مجموعة إضافات (الحجم، درجة الاستواء، إضافات) — minSelect/maxSelect يحكمان الإلزام والتعدّد
-model ModifierGroup {
-  id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name      String
-  minSelect Int      @default(0) // 0 = اختياري
-  maxSelect Int      @default(1) // 1 = اختيار واحد؛ >1 = متعدّد
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  modifiers Modifier[]
-  menuItems MenuItemModifierGroup[]
-
-  @@index([tenantId])
-  @@map("modifier_groups")
-}
-
-// خيار إضافة واحد داخل مجموعة (كبير +5، جبنة إضافية +3...)
-model Modifier {
-  id         String        @id @default(uuid())
-  tenantId   String
-  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  groupId    String
-  group      ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  name       String
-  priceDelta Float         @default(0)
-  isDefault  Boolean       @default(false)
-  sortOrder  Int           @default(0)
-  createdAt  DateTime      @default(now())
-
-  @@index([tenantId])
-  @@index([groupId])
-  @@map("modifiers")
-}
-
-// ربط صنف بمجموعة إضافات (علاقة كثير-لكثير)
-model MenuItemModifierGroup {
-  id         String        @id @default(uuid())
-  menuItemId String
-  menuItem   MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  groupId    String
-  group      ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  sortOrder  Int           @default(0)
-
-  @@unique([menuItemId, groupId])
-  @@index([groupId])
-  @@map("menu_item_modifier_groups")
-}
 
 // ============================================================================
-// عمودية المطاعم — الكاشير والطلبات والدفع (M3). كلها جداول جديدة (إضافية بحتة).
-// ============================================================================
-
-// طلب في الكاشير — يُفتح، تُضاف أصنافه، ثم يُدفع فيولّد فاتورة (checkout.ts)
-model Order {
-  id          String           @id @default(uuid())
-  tenantId    String
-  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  number      Int // رقم متسلسل معروض لكل مطعم
-  channel     String           @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY
-  status      String           @default("OPEN") // OPEN | PAID | VOID
-  tableId     String?
-  table       RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  cashierName String? // اسم مشغّل الكاشير (مبسّط في M3)
-  guests      Int              @default(1)
-  notes       String?
-
-  subtotal         Float @default(0) // صافي قبل الضريبة
-  discountAmt      Float @default(0)
-  serviceChargeAmt Float @default(0)
-  taxAmt           Float @default(0)
-  tipAmt           Float @default(0)
-  total            Float @default(0)
-
-  invoiceId  String?  @unique // القيد الفريد على الجدول الجديد (لا يمسّ جدول الفواتير)
-  invoice    Invoice? @relation(fields: [invoiceId], references: [id])
-  voidReason String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  items    OrderItem[]
-  payments OrderPayment[]
-
-  // ملاحظة: أُجِّل @@unique([tenantId, number]) لأن الإنتاج فيه أرقام طلبات مكرّرة قديمة
-  // (من سباق النقر المزدوج قبل التحصين) فيُفشل db push. الحماية الآن من مصدرها: الواجهة
-  // تفصل إنشاء الطلب عن الدفع فلا تُطلق إنشاءً مزدوجاً، والدفع ذرّي في checkout. يُعاد القيد
-  // بعد إزالة التكرارات القديمة (migration مقصودة بإذن). withNumberRetry يبقى (لا ضرر).
-  @@index([tenantId])
-  @@index([status])
-  @@index([tableId])
-  @@map("orders")
-}
-
-// بند في الطلب — لقطة الاسم/السعر لحظة الطلب (سجلّ تاريخي مستقلّ عن تعديل القائمة لاحقاً)
-model OrderItem {
-  id             String    @id @default(uuid())
-  orderId        String
-  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItemId     String?
-  menuItem       MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
-  nameSnap       String // لقطة اسم الصنف
-  qty            Float     @default(1)
-  unitPrice      Float // سعر الأساس + مجموع الإضافات للوحدة
-  modifiersTotal Float     @default(0)
-  taxPct         Float     @default(0)
-  taxAmt         Float     @default(0)
-  lineTotal      Float
-  unitCost       Float     @default(0)
-  station        String    @default("KITCHEN")
-  note           String?
-  // حالة تذكرة المطبخ (M7): PENDING = لم تُرسل بعد · FIRED = في المطبخ · READY = جاهز · SERVED = قُدِّم
-  kotStatus      String    @default("PENDING")
-  firedAt        DateTime?
-  createdAt      DateTime  @default(now())
-
-  modifiers OrderItemModifier[]
-
-  @@index([orderId])
-  @@index([kotStatus])
-  @@map("order_items")
-}
-
-// إضافة مختارة على بند طلب — لقطة الاسم وفرق السعر لحظة الطلب
-model OrderItemModifier {
-  id          String    @id @default(uuid())
-  orderItemId String
-  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  modifierId  String? // مرجع الخيار الأصلي — لإعادة تحميل الطلب المفتوح بلا فقد الإضافات (M7)
-  nameSnap    String
-  priceDelta  Float     @default(0)
-
-  @@index([orderItemId])
-  @@map("order_item_modifiers")
-}
-
-// دفعة على طلب — نقد/بطاقة/محفظة؛ صفوف متعددة = تقسيم الفاتورة (M3b)
-model OrderPayment {
-  id          String   @id @default(uuid())
-  orderId     String
-  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  method      String   @default("CASH") // CASH | CARD | WALLET | ON_ACCOUNT
-  amount      Float
-  tendered    Float? // المبلغ المستلَم نقداً (لحساب الباقي)
-  changeGiven Float?
-  reference   String?
-  createdAt   DateTime @default(now())
-
-  @@index([orderId])
-  @@map("order_payments")
-}
 
 // ============================================================================
-// عمودية المطاعم — الورديات ودرج النقد (M4). جداول جديدة (إضافية بحتة).
-// ============================================================================
-
-// وردية كاشير — تُفتح برصيد افتتاحي، تتراكم عليها الحركات، ثم تُغلق بعدّ الدرج واحتساب الفرق
-model PosShift {
-  id           String    @id @default(uuid())
-  tenantId     String
-  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  cashierName  String?
-  openingFloat Float     @default(0) // النقد الافتتاحي في الدرج
-  declaredCash Float? // النقد المعدود عند الإغلاق
-  expectedCash Float? // المتوقّع (محسوب من الحركات)
-  variance     Float? // declaredCash − expectedCash (سالب=عجز، موجب=فائض)
-  status       String    @default("OPEN") // OPEN | CLOSED
-  note         String?
-  openedAt     DateTime  @default(now())
-  closedAt     DateTime?
-
-  movements CashMovement[]
-
-  @@index([tenantId])
-  @@index([status])
-  @@map("pos_shifts")
-}
-
-// حركة نقدية على وردية — مبيعات/مرتجعات/إيداع/سحب/إخراج نقد
-model CashMovement {
-  id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  shiftId   String
-  shift     PosShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  type      String // OPENING | SALE | REFUND | PAY_IN | PAY_OUT | DROP
-  amount    Float
-  reason    String?
-  createdAt DateTime @default(now())
-
-  @@index([tenantId])
-  @@index([shiftId])
-  @@map("pos_cash_movements")
-}
 
 // ============================================================================
-// عمودية المطاعم — المخزون والوصفات وتكلفة البضاعة المباعة (M6). جداول جديدة.
-// ============================================================================
-
-// مكوّن/خامة في مخزون المطعم (لحم، جبن، زيت...)
-model Ingredient {
-  id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name      String
-  unit      String   @default("kg") // kg | g | l | ml | pcs
-  stockQty  Float    @default(0) // الرصيد الحالي
-  minQty    Float    @default(0) // حدّ التنبيه عند النفاد
-  avgCost   Float    @default(0) // متوسّط تكلفة الوحدة (يُحدَّث عند الشراء)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  recipeItems RecipeItem[]
-  movements   IngredientMovement[]
-
-  @@index([tenantId])
-  @@map("resto_ingredients")
-}
-
-// سطر وصفة: كمية المكوّن المستهلكة لكل وحدة مبيعة من الصنف
-model RecipeItem {
-  id           String     @id @default(uuid())
-  tenantId     String
-  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  menuItemId   String
-  menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  ingredientId String
-  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
-  qty          Float
-
-  @@unique([menuItemId, ingredientId])
-  @@index([tenantId])
-  @@index([menuItemId])
-  @@map("resto_recipe_items")
-}
-
-// حركة مخزون مكوّن — شراء/استهلاك بيع/تسوية/هدر (qty موجب=إدخال، سالب=إخراج)
-model IngredientMovement {
-  id           String     @id @default(uuid())
-  tenantId     String
-  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  ingredientId String
-  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
-  type         String // PURCHASE | SALE_OUT | ADJUST | WASTE
-  qty          Float
-  unitCost     Float? // للشراء — يُحدِّث متوسّط التكلفة
-  reason       String?
-  orderId      String? // مرجع الطلب عند SALE_OUT
-  createdAt    DateTime   @default(now())
-
-  @@index([tenantId])
-  @@index([ingredientId])
-  @@map("resto_ingredient_movements")
-}
 
 // ============================================================================
 // منصّة صيد العملاء المحتملين (Hunter) — **نسخة معزولة تماماً داخل فيلد سيلز**.

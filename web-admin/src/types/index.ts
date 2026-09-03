@@ -4,11 +4,10 @@ export interface User {
   email?: string;
   role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'SALES_REP';
   tenantId?: string;
-  vertical?: 'distribution' | 'restaurant'; // عمودية الشركة — تُوجّه اللوحة (/app أو /app-r)
   companyName?: string;
   emailVerified?: boolean;
   username?: string;
-  canCreateReceipt?: boolean; // كاشير المطعم: هل يقبض الدفع (نادل=لا)
+  canCreateReceipt?: boolean;
   canAccessDashboard?: boolean;
   canManageCustomers?: boolean;
   canManageProducts?: boolean;
@@ -26,11 +25,8 @@ export interface Tenant {
   id: string;
   name: string;
   isActive: boolean;
-  vertical?: 'distribution' | 'restaurant'; // عمودية الشركة (توزيع افتراضاً)
   maxSalesReps?: number | null; // null = عدد مناديب غير محدود
   maxAdminUsers?: number | null; // null = عدد مستخدمي شركة غير محدود
-  maxPosStations?: number | null; // مطاعم: عدد نقاط البيع
-  maxBranches?: number | null;    // مطاعم: عدد الفروع
   erpEnabled?: boolean;          // صلاحية ربط ERP (يتحكّم بها المالك)
   petroappEnabled?: boolean;     // صلاحية ربط بترو آب (يتحكّم بها المالك)
   hatifEnabled?: boolean;        // ميزة أرقام العمل وربط هاتف (يتحكّم بها المالك)
@@ -43,29 +39,6 @@ export interface Tenant {
   createdAt: string;
   admins?: { id?: string; name: string; email: string; isActive?: boolean }[];
   _count?: { admins?: number; salesReps?: number; customers?: number; invoices?: number; receipts?: number; products?: number };
-}
-
-// ── عمودية المطاعم (M2) ──
-export interface MenuCategory {
-  id: string; name: string; sortOrder?: number; isActive?: boolean;
-  items?: MenuItem[];
-}
-export interface MenuItem {
-  id: string; categoryId?: string | null; code: string; name: string;
-  description?: string | null; basePrice: number; taxPct?: number; costPrice?: number;
-  prepStation?: 'KITCHEN' | 'BAR' | 'GRILL' | 'COLD'; itemCode?: string | null;
-  image?: string | null; isAvailable?: boolean; sortOrder?: number;
-  modifierGroups?: { groupId: string }[];
-}
-export interface Modifier { id: string; name: string; priceDelta?: number; isDefault?: boolean; }
-export interface ModifierGroup {
-  id: string; name: string; minSelect?: number; maxSelect?: number; sortOrder?: number;
-  modifiers?: Modifier[];
-}
-export interface RestaurantArea { id: string; name: string; sortOrder?: number; isActive?: boolean; }
-export interface RestaurantTable {
-  id: string; areaId?: string | null; number: string; seats?: number;
-  status?: 'FREE' | 'OCCUPIED' | 'BILL_REQUESTED' | 'RESERVED'; isActive?: boolean;
 }
 
 export type LeadStage = 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'PROPOSAL' | 'WON' | 'LOST';

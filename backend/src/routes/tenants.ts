@@ -13,11 +13,8 @@ router.use(authenticate, requireSuperAdmin);
 
 const createTenantSchema = z.object({
   companyName: z.string().min(1),       // اسم الشركة
-  vertical: z.enum(['distribution', 'restaurant']).default('distribution'), // عمودية الشركة (يحدّدها العمود الذي ضغط منه المالك)
   maxSalesReps: z.number().int().min(1).nullable().optional(), // null/غياب = عدد مناديب غير محدود
   maxAdminUsers: z.number().int().min(1).nullable().optional(), // null/غياب = عدد مستخدمين غير محدود
-  maxPosStations: z.number().int().min(1).nullable().optional(), // مطاعم: عدد نقاط البيع (null/غياب = غير محدود)
-  maxBranches: z.number().int().min(1).nullable().optional(),    // مطاعم: عدد الفروع
   erpEnabled: z.boolean().optional(),          // صلاحية ربط ERP (يمنحها المالك حسب الاشتراك)
   petroappEnabled: z.boolean().optional(),     // صلاحية ربط بترو آب (يمنحها المالك حسب الاشتراك)
   hatifEnabled: z.boolean().optional(),        // ميزة ارقام العمل وربط هاتف (يمنحها المالك حسب الاشتراك)
@@ -105,11 +102,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const t = await tx.tenant.create({
         data: {
           name: body.companyName,
-          vertical: body.vertical,
           maxSalesReps: body.maxSalesReps ?? null,
           maxAdminUsers: body.maxAdminUsers ?? null,
-          maxPosStations: body.maxPosStations ?? null,
-          maxBranches: body.maxBranches ?? null,
           erpEnabled: body.erpEnabled ?? false,
           petroappEnabled: body.petroappEnabled ?? false,
           hatifEnabled: body.hatifEnabled ?? false,
@@ -158,15 +152,14 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
     if (!admin) { res.status(404).json({ success: false, message: 'لا يوجد مدير لهذه الشركة' }); return; }
     if (!admin.isActive) { res.status(409).json({ success: false, message: 'كل مديري هذه الشركة معطلون فعل حسابا قبل الدخول' }); return; }
 
-    const vertical = (tenant as any).vertical ?? 'distribution';
     const token = jwt.sign(
-      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, vertical, impersonated: true },
+      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, impersonated: true },
       process.env.JWT_SECRET!,
       { expiresIn: '2h' }
     );
     res.json({
       success: true,
-      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, vertical, companyName: tenant.name } },
+      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, companyName: tenant.name } },
     });
   } catch (err) { next(err); }
 });

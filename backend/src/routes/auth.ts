@@ -55,8 +55,6 @@ const signupSchema = z.object({
     .transform((s) => s.replace(/[^\d+]/g, ''))
     .refine((s) => s.replace(/\D/g, '').length >= 8, 'رقم الجوال مطلوب ويجب ان يكون صحيحا'),
   countryCode: z.string().length(2).optional(), // دولة الشركة — تُشتقّ منها العملة والضريبة ومزوّد الفوترة
-  // عمودية التسجيل: صفحة هبوط التوزيع تُرسل distribution (افتراضي)، وهبوط المطاعم يُرسل restaurant.
-  vertical: z.enum(['distribution', 'restaurant']).default('distribution'),
 });
 const TRIAL_DAYS = 10;
 
@@ -130,8 +128,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
       }
       const block = tenantBlockReason(admin.tenant);
       if (block) { res.status(403).json({ success: false, message: block }); return; }
-      const vertical = (admin.tenant as any).vertical ?? 'distribution';
-      const token = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId, vertical });
+      const token = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId });
       res.json({
         success: true,
         data: {
@@ -142,7 +139,6 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
             email: admin.email,
             role: admin.role,
             tenantId: admin.tenantId,
-            vertical,
             companyName: admin.tenant.name,
             emailVerified: (admin as any).emailVerified ?? true,
             ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, (admin as any)[key]])),
@@ -159,10 +155,9 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
     }
     const block = tenantBlockReason(rep.tenant);
     if (block) { res.status(403).json({ success: false, message: block }); return; }
-    const repVertical = (rep.tenant as any).vertical ?? 'distribution';
-    const token = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId, vertical: repVertical });
+    const token = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId });
     const { passwordHash: _ph, tenant: _t, ...repData } = rep;
-    res.json({ success: true, data: { token, user: { ...repData, role: 'SALES_REP', vertical: repVertical, companyName: rep.tenant.name } } });
+    res.json({ success: true, data: { token, user: { ...repData, role: 'SALES_REP', companyName: rep.tenant.name } } });
   } catch (err) { next(err); }
 });
 
@@ -202,10 +197,9 @@ router.post('/renew', renewLimiter, async (req: Request, res: Response, next: Ne
       if (!rep || !rep.isActive) { res.status(401).json({ success: false, message: 'الحساب غير نشط' }); return; }
       const block = tenantBlockReason(rep.tenant);
       if (block) { res.status(403).json({ success: false, message: block }); return; }
-      const vertical = (rep.tenant as any).vertical ?? 'distribution';
-      const fresh = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId, vertical });
+      const fresh = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId });
       const { passwordHash: _ph, tenant: _t, ...repData } = rep;
-      res.json({ success: true, data: { token: fresh, user: { ...repData, role: 'SALES_REP', vertical, companyName: rep.tenant.name } } });
+      res.json({ success: true, data: { token: fresh, user: { ...repData, role: 'SALES_REP', companyName: rep.tenant.name } } });
       return;
     }
 
@@ -214,13 +208,12 @@ router.post('/renew', renewLimiter, async (req: Request, res: Response, next: Ne
       if (!admin || !admin.isActive) { res.status(401).json({ success: false, message: 'الحساب غير نشط' }); return; }
       const block = tenantBlockReason(admin.tenant);
       if (block) { res.status(403).json({ success: false, message: block }); return; }
-      const vertical = (admin.tenant as any).vertical ?? 'distribution';
-      const fresh = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId, vertical });
+      const fresh = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId });
       res.json({
         success: true,
         data: {
           token: fresh,
-          user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: admin.tenantId, vertical, companyName: admin.tenant.name },
+          user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: admin.tenantId, companyName: admin.tenant.name },
         },
       });
       return;
@@ -242,18 +235,14 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
     // إعدادات دولة الشركة (العملة/الضريبة/مزوّد الفوترة) — تُشتقّ من رمز الدولة (افتراضي السعودية)
     const ct = getCountryTax(body.countryCode);
 
-    const isResto = body.vertical === 'restaurant';
     const created = await prisma.$transaction(async tx => {
       const tenant = await tx.tenant.create({
         data: {
           name: body.companyName,
           plan: 'trial',
-          vertical: body.vertical,
           subscriptionEndsAt: trialEndsAt,
-          // حدود التجربة الافتراضية حسب العمودية: التوزيع بالمناديب، والمطاعم بنقاط البيع.
-          maxSalesReps: isResto ? null : 5,
+          maxSalesReps: 5,
           maxAdminUsers: 1,
-          maxPosStations: isResto ? 3 : null,
         } as any,
       });
       const admin = await tx.admin.create({
@@ -317,12 +306,12 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
       html: verifyEmailHtml(body.adminName, verifyUrl),
     });
 
-    const token = signToken({ id: created.admin.id, role: created.admin.role, name: created.admin.name, tenantId: created.tenant.id, vertical: body.vertical });
+    const token = signToken({ id: created.admin.id, role: created.admin.role, name: created.admin.name, tenantId: created.tenant.id });
     res.status(201).json({
       success: true,
       data: {
         token,
-        user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, vertical: body.vertical, companyName: created.tenant.name, emailVerified: false },
+        user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, companyName: created.tenant.name, emailVerified: false },
         trialEndsAt,
         trialDays: TRIAL_DAYS,
         mailSent,

@@ -44,7 +44,6 @@ import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
 import promoVideosRouter from './routes/promoVideos';
 import importRouter from './routes/import';
-import restaurantRouter from './routes/restaurant';
 import hunterRouter from './routes/hunter';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
@@ -169,7 +168,6 @@ app.use('/api/payments', paymentsRouter);
 app.use('/api/paylink', paylinkRouter);
 app.use('/api/promo-videos', promoVideosRouter);
 app.use('/api/import', importRouter);
-app.use('/api/restaurant', restaurantRouter);
 // منصّة صيد العملاء — معزولة (مصادقة وجداول خاصّة بها)
 app.use('/api/hunter', hunterRouter);
 
