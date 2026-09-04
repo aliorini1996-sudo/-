@@ -165,12 +165,16 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     // المندوب يحتاج صلاحية "تعديل العميل"؛ الإدارة مسموح لها دائماً
+    let repPinsLocked = false;
     if (req.user?.role === 'SALES_REP') {
-      const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canEditCustomer: true } });
+      const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canEditCustomer: true, requireCustomerProximity: true } });
       if (!rep?.canEditCustomer) {
         res.status(403).json({ success: false, message: 'ليس لديك صلاحية تعديل العملاء' });
         return;
       }
+      // المقيَّد بـ«البيع داخل نطاق العميل» لا يحرّك نقطة العميل ولا يمسحها: البوّابة
+      // تقيس المسافة إلى هذه النقطة، فمن يملك تعديلها يفتح البوّابة على نفسه من أي مكان.
+      repPinsLocked = rep.requireCustomerProximity === true;
     }
     // التحقق أن العميل يخص شركة المستخدم (ومُسنَد للمندوب عند تفعيل العزل) قبل التعديل
     const exists = await prisma.customer.findFirst({
@@ -181,6 +185,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
     const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, ...data } = customerSchema.partial().parse(req.body);
     void _cr; void _cc;
+    if (repPinsLocked && (data.lat !== undefined || data.lng !== undefined || locationUrl)) {
+      res.status(403).json({ success: false, code: 'PIN_LOCKED', message: 'لا يمكنك تعديل موقع العميل اطلب من الادارة ضبطه' });
+      return;
+    }
     // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
     if (locationUrl) {
       const geo = await resolveLocationUrl(locationUrl);

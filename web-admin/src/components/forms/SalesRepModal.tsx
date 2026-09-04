@@ -34,6 +34,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
       canViewStatement: true,
       canAddCustomer: false,
       showCollectionBalance: true,
+      requireCustomerProximity: false,
       maxDiscountPct: 0,
     };
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>({
@@ -162,6 +163,16 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
               <PermToggle label={tr('تعديل بيانات العميل')} {...register('canEditCustomer')} />
               <PermToggle label={tr('عرض كشف الحساب')} {...register('canViewStatement')} />
             </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('قيود الموقع الميداني')}</h3>
+            <div className="grid grid-cols-1 gap-3">
+              <PermToggle label={tr('البيع داخل نطاق العميل')} {...register('requireCustomerProximity')} />
+            </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              {tr('عند التفعيل لا يفتح المندوب ملف العميل الا وهو داخل خمسين مترا من موقعه المسجل، والعميل بلا موقع يمنع منعا باتا، ويقفل عليه تعديل موقع العميل')}
+            </p>
           </div>
 
           <div>

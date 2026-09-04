@@ -219,6 +219,7 @@ export interface SalesRep {
   canEditCustomer: boolean;
   canViewStatement: boolean;
   showCollectionBalance?: boolean;
+  requireCustomerProximity?: boolean; // «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد
   createdAt: string;
 }
 

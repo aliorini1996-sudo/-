@@ -38,6 +38,7 @@ const repSchema = z.object({
   canEditCustomer: z.boolean().optional(),
   canViewStatement: z.boolean().optional(),
   showCollectionBalance: z.boolean().optional(),
+  requireCustomerProximity: z.boolean().optional(),
 });
 
 const repSelect = {
@@ -49,6 +50,7 @@ const repSelect = {
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
   showCollectionBalance: true,
+  requireCustomerProximity: true,
   createdAt: true,
 } as const;
 

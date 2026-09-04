@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence';
 import repApi from './repApi';
 import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
 import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
@@ -34,6 +35,8 @@ type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fue
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
 
 interface RepUser {
+  /** «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد بـ٥٠ متراً حول موقع العميل */
+  requireCustomerProximity?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   canCreateInvoice?: boolean;
@@ -2199,6 +2202,53 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
   );
 }
 
+/**
+ * شاشة حكم النطاق — تحلّ محلّ ملفّ العميل حين يكون المندوب خارجه.
+ *
+ * تُعرض بدل CustomerDetail لا داخله: تركيب المكوّن يُطلق جلب كشف الحساب،
+ * فحارسٌ في الداخل يسرّب الكشف قبل أن يُغلق الباب.
+ */
+function GeoGate({ verdict, customerName, busy, onRetry, onClose }: {
+  verdict: GeoVerdict; customerName: string; busy: boolean; onRetry: () => void; onClose: () => void;
+}) {
+  const tr = useTr();
+  const far = verdict.reason === 'too_far';
+  const noPin = verdict.reason === 'no_customer_pin';
+  const title = noPin ? tr('هذا العميل بلا موقع مسجل')
+    : far ? tr('انت خارج نطاق العميل')
+    : tr('تعذر تحديد موقعك');
+  const body = noPin ? tr('اطلب من الادارة تفعيل موقع للعميل')
+    : far ? `${tr('اقترب من موقع العميل')} ${GEOFENCE_RADIUS_M} ${tr('متر او اقل لفتح ملفه')}`
+    : tr('فعل اذن الموقع في جهازك ثم اعد المحاولة');
+  return (
+    <div className="h-full flex flex-col bg-[#FAF7F0]">
+      <div className="flex items-center gap-3 p-4 bg-white border-b border-[#E9E1D3]">
+        <button onClick={onClose} className="p-2 -m-2 text-gray-500"><X size={20} /></button>
+        <p className="font-bold text-[#1F1A13] truncate">{customerName}</p>
+      </div>
+      <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-4">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center">
+          <MapPin size={28} className="text-amber-600" />
+        </div>
+        <p className="font-bold text-[#1F1A13]">{title}</p>
+        <p className="text-sm text-[#6E6557] leading-relaxed">{body}</p>
+        {far && verdict.distanceM !== null && (
+          // منعٌ بلا رقم يُترجَم فوراً إلى مكالمة للإدارة
+          <p className="text-sm font-semibold text-amber-700">
+            {tr('المسافة الحالية')} {Math.round(verdict.distanceM)} {tr('متر')}
+          </p>
+        )}
+        {!noPin && (
+          <button onClick={onRetry} disabled={busy}
+            className="mt-2 px-5 py-2.5 rounded-xl bg-[#E15A30] text-white font-semibold text-sm disabled:opacity-60">
+            {busy ? tr('جار تحديد موقعك') : tr('اعد المحاولة')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function RepApp() {
   const tr = useTr();
   const [token, setToken] = useState(localStorage.getItem('rep_token'));
@@ -2210,10 +2260,44 @@ export default function RepApp() {
   const [screen, setScreen] = useState<Screen>('home');
   const [modal, setModal] = useState<Modal>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  // «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ يُقرأ بـ=== true — غيابه يعني غير مقيَّد
+  const proximityOn = user?.requireCustomerProximity === true;
+  const [geoVerdict, setGeoVerdict] = useState<GeoVerdict | null>(null);
+  const [geoBusy, setGeoBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [docResult, setDocResult] = useState<InvoiceDoc | ReceiptDoc | StatementDoc | null>(null);
   // من أين فُتح المستند؟ لإعادة المندوب لشاشة العميل عند إغلاقه بدل قائمة الفواتير
   const [docBack, setDocBack] = useState<'customerDetail' | null>(null);
+
+  /**
+   * يقيس موقع المندوب ويحكم على قربه من العميل.
+   *
+   * `maximumAge: 0` عمداً وليس نسخاً عن الجيران: قراءةٌ مخبّأة عمرها عشر ثوانٍ
+   * قد تكون من الشارع المجاور، وبوّابةٌ تحكم على موقع قديم لا تحكم على شيء.
+   */
+  const runGeoCheck = useCallback((customer: any) => {
+    if (!customer) return;
+    // العميل بلا نقطة: حكمٌ فوريّ بلا إزعاج الـGPS أصلاً
+    const preliminary = judgeProximity(true, customer, null);
+    if (preliminary.reason === 'no_customer_pin') { setGeoVerdict(preliminary); return; }
+    if (!navigator.geolocation) { setGeoVerdict({ allowed: false, reason: 'no_fix', distanceM: null }); return; }
+    setGeoBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setGeoBusy(false);
+        setGeoVerdict(judgeProximity(true, customer, { lat: pos.coords.latitude, lng: pos.coords.longitude }));
+      },
+      () => { setGeoBusy(false); setGeoVerdict({ allowed: false, reason: 'no_fix', distanceM: null }); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }, []);
+
+  // يُعاد القياس كلّما فُتح ملفّ عميل — يغطّي المدخلين وكلّ مسارات العودة معاً
+  useEffect(() => {
+    if (!proximityOn) { setGeoVerdict(null); return; }
+    if (modal === 'customerDetail' && selectedCustomer) runGeoCheck(selectedCustomer);
+    else setGeoVerdict(null);
+  }, [proximityOn, modal, selectedCustomer, runGeoCheck]);
   const [company, setCompany] = useState<Company | null>(null);
   const [fuelOn, setFuelOn] = useState(false); // ربط بترو آب مفعّل لشركة المندوب؟
   const [workNumOn, setWorkNumOn] = useState(false); // ميزة أرقام العمل (هاتف) مفعّلة؟
@@ -2361,6 +2445,24 @@ export default function RepApp() {
 
   useEffect(() => {
     if (!token) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await repApi.get('/auth/me', { background: true });
+        const fresh = data?.data;
+        if (!alive || !fresh?.id) return;
+        setUser(prev => {
+          const merged = { ...(prev || {}), ...fresh } as RepUser;
+          localStorage.setItem('rep_user', JSON.stringify(merged));
+          return merged;
+        });
+      } catch { /* أوف‑لاين أو عطل عابر: تبقى الصلاحيات المخزَّنة */ }
+    })();
+    return () => { alive = false; };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
     // إعدادات الشركة (العملة + countryCode/defaultVatPct لمحرّك الحساب) — تُخزَّن للعمل أوف‑لاين
     (async () => {
       const { data } = await fetchThenCache<Company>('company', async () =>
@@ -2455,6 +2557,13 @@ export default function RepApp() {
             )
           ) : docResult ? (
             <DocumentResult doc={docResult} onClose={closeDocResult} />
+          ) : modal === 'customerDetail' && selectedCustomer && proximityOn && !(geoVerdict?.allowed) ? (
+            <GeoGate
+              verdict={geoVerdict ?? { allowed: false, reason: 'no_fix', distanceM: null }}
+              customerName={selectedCustomer.name || ''}
+              busy={geoBusy}
+              onRetry={() => runGeoCheck(selectedCustomer)}
+              onClose={() => setModal(null)} />
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
               paylinkOn={(company as any)?.paylinkEnabled === true}

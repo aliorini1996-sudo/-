@@ -217,6 +217,11 @@ model SalesRep {
   canAddCustomer   Boolean @default(false)
   canEditCustomer  Boolean @default(false)
   canViewStatement Boolean @default(true)
+  /// «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ لا مانح — تفعيله يسلب لا يمنح.
+  /// حين يكون true لا يفتح المندوب ملفّ العميل إلا وهو داخل ٥٠ متراً من موقعه
+  /// المسجَّل، والعميل بلا إحداثيات يُمنع منعاً باتّاً. وحين يكون false يفتح
+  /// الجميع بلا قيد كما هو الحال اليوم.
+  requireCustomerProximity Boolean @default(false)
 
   // إظهار رصيد التحصيل المتراكم للمندوب على شاشته الرئيسية (يحدّده الأدمن لكل مندوب)
   showCollectionBalance Boolean @default(true)
