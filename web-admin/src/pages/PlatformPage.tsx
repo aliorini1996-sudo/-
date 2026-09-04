@@ -582,10 +582,20 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const currentReps = tenant._count?.salesReps ?? 0;
   const currentUsers = tenant._count?.admins ?? 0;
 
+  // حدٌّ مخزَّن أقلّ من العدد القائم فعلاً (بيانات قديمة أو كتابة مباشرة على القاعدة).
+  // لا نُجبر المالك على تصحيحه ليحفظ تعديلاً آخر: ما لم يمسّ الحقل لا نرسله أصلاً،
+  // فيبقى المخزَّن كما هو وتمرّ بقيّة التعديلات (تفعيل ميزة، تمديد اشتراك).
+  const repsValue = unlimitedReps ? null : Number(maxSalesReps);
+  const usersValue = unlimitedUsers ? null : Number(maxAdminUsers);
+  const repsUntouched = repsValue === (tenant.maxSalesReps ?? null);
+  const usersUntouched = usersValue === (tenant.maxAdminUsers ?? null);
+  const repsCapBreached = tenant.maxSalesReps != null && tenant.maxSalesReps < currentReps;
+  const usersCapBreached = tenant.maxAdminUsers != null && tenant.maxAdminUsers < currentUsers;
+
   const mutation = useMutation({
     mutationFn: () => tenantApi.update(tenant.id, {
-      maxSalesReps: unlimitedReps ? null : Number(maxSalesReps),
-      maxAdminUsers: unlimitedUsers ? null : Number(maxAdminUsers),
+      ...(repsUntouched ? {} : { maxSalesReps: repsValue }),
+      ...(usersUntouched ? {} : { maxAdminUsers: usersValue }),
       erpEnabled,
       petroappEnabled,
       hatifEnabled,
@@ -599,25 +609,29 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   });
 
   const submit = () => {
-    if (!unlimitedReps && (!Number.isInteger(Number(maxSalesReps)) || Number(maxSalesReps) < 1)) {
-      toast.error(tr('حدد عدد مناديب صحيحا 1 أو أكثر أو اختر غير محدود')); return;
+    if (!repsUntouched) {
+      if (!unlimitedReps && (!Number.isInteger(Number(maxSalesReps)) || Number(maxSalesReps) < 1)) {
+        toast.error(tr('حدد عدد مناديب صحيحا 1 أو أكثر أو اختر غير محدود')); return;
+      }
+      if (!unlimitedReps && Number(maxSalesReps) < currentReps) {
+        toast.error(`${tr('الشركة لديها')} ${currentReps} ${tr('مندوبا حاليا لا يمكن جعل الحد أقل من ذلك')}`); return;
+      }
     }
-    if (!unlimitedReps && Number(maxSalesReps) < currentReps) {
-      toast.error(`${tr('الشركة لديها')} ${currentReps} ${tr('مندوبا حاليا لا يمكن جعل الحد أقل من ذلك')}`); return;
-    }
-    if (!unlimitedUsers && (!Number.isInteger(Number(maxAdminUsers)) || Number(maxAdminUsers) < 1)) {
-      toast.error(tr('حدد عدد مستخدمين صحيحا 1 أو أكثر أو اختر غير محدود')); return;
-    }
-    if (!unlimitedUsers && Number(maxAdminUsers) < currentUsers) {
-      toast.error(`${tr('الشركة لديها')} ${currentUsers} ${tr('مستخدم حاليا لا يمكن جعل الحد أقل من ذلك')}`); return;
+    if (!usersUntouched) {
+      if (!unlimitedUsers && (!Number.isInteger(Number(maxAdminUsers)) || Number(maxAdminUsers) < 1)) {
+        toast.error(tr('حدد عدد مستخدمين صحيحا 1 أو أكثر أو اختر غير محدود')); return;
+      }
+      if (!unlimitedUsers && Number(maxAdminUsers) < currentUsers) {
+        toast.error(`${tr('الشركة لديها')} ${currentUsers} ${tr('مستخدم حاليا لا يمكن جعل الحد أقل من ذلك')}`); return;
+      }
     }
     mutation.mutate();
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3] shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center">
               <Pencil size={18} className="text-[#E15A30]" />
@@ -629,7 +643,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
           <div>
             <label className="label flex items-center gap-1"><Users size={12} /> {tr('عدد المناديب المسموح')}</label>
             <div className="flex items-center gap-3">
@@ -643,7 +657,10 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
                   value={maxSalesReps} onChange={e => setMaxSalesReps(e.target.value)} />
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">{tr('المناديب الحاليون')} {currentReps}</p>
+            <p className={`text-xs mt-1 ${repsCapBreached ? 'text-[#E15A30] font-semibold' : 'text-gray-400'}`}>
+              {tr('المناديب الحاليون')} {currentReps}
+              {repsCapBreached && ` — ${tr('الحد المخزن أقل من العدد القائم ارفعه أو اختر غير محدود')}`}
+            </p>
           </div>
           <div>
             <label className="label flex items-center gap-1"><Users size={12} /> {tr('عدد مستخدمي الشركة المسموح')}</label>
@@ -658,7 +675,10 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
                   value={maxAdminUsers} onChange={e => setMaxAdminUsers(e.target.value)} />
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">{tr('المستخدمون الحاليون')} {currentUsers}</p>
+            <p className={`text-xs mt-1 ${usersCapBreached ? 'text-[#E15A30] font-semibold' : 'text-gray-400'}`}>
+              {tr('المستخدمون الحاليون')} {currentUsers}
+              {usersCapBreached && ` — ${tr('الحد المخزن أقل من العدد القائم ارفعه أو اختر غير محدود')}`}
+            </p>
           </div>
           <div>
             <label className="label flex items-center gap-1"><Calendar size={12} /> {tr('انتهاء الاشتراك')}</label>
@@ -694,7 +714,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تخفى الميزة وترفض طلباتها للشركة')}</p>
           </div>
         </div>
-        <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
+        <div className="flex gap-3 p-5 border-t border-[#E9E1D3] shrink-0">
           <button onClick={submit} disabled={mutation.isPending} className="btn-primary flex-1 justify-center py-2.5">
             {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
             {tr('حفظ التعديلات')}
