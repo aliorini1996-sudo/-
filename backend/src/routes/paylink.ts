@@ -74,7 +74,11 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     // مسارات المالك تمر من بوابتها الخاصة أدناه لا من بوابة الشركة
     if (req.path.startsWith('/owner/')) { next(); return; }
-    const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { paylinkEnabled: true } });
+    const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { paylinkEnabled: true, accountingEnabled: true } });
+    if (t?.accountingEnabled === false) {
+      res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة فلا يمكن إصدار روابط دفع' });
+      return;
+    }
     if (!t?.paylinkEnabled) {
       res.status(403).json({ success: false, code: 'PAYLINK_NOT_ALLOWED', message: 'ميزة الدفع الالكتروني غير مفعلة لاشتراك شركتك تواصل مع مزود الخدمة لتفعيلها' });
       return;

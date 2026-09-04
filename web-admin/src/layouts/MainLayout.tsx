@@ -15,6 +15,11 @@ import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
 
+// صفحات «النظام المحاسبي» — تُخفى جميعاً حين يُطفئ المالك الميزة عن الشركة.
+// دلالة `!== false` لا `=== true`: هذا العَلَم وحده مفعّل افتراضياً عند الجميع،
+// فغيابه من ردّ قديم أو كاش يعني «مفعّل» لا «مطفأ».
+const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/invoices', '/app/receipts'];
+
 const navItems = [
   { to: '/app', icon: LayoutDashboard, label: 'nav.dashboard', exact: true, permission: 'canAccessDashboard' },
   { to: '/app/customers', icon: Users, label: 'nav.customers', permission: 'canManageCustomers' },
@@ -42,7 +47,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => {
@@ -96,7 +101,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true)).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true) && (!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false)).map(item => (
             <NavLink
               key={item.to}
               to={item.to}

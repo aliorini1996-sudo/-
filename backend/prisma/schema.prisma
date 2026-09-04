@@ -41,6 +41,7 @@ model Tenant {
   hatifEnabled              Boolean   @default(false) // ميزة أرقام العمل وربط هاتف — يفعّلها المالك لكل شركة حسب الاشتراك
   catalogEnabled            Boolean   @default(false) // ميزة منيو المنتجات العام — يفعّلها المالك لكل شركة حسب الاشتراك
   warehouseEnabled          Boolean   @default(false) // مخزون الشركة (المستودع المركزيّ) — يُفعّله المالك لكل شركة (طرح مدروس)
+  accountingEnabled         Boolean   @default(true) // النظام المحاسبي (منتجات · مخزون سيارات · مستودع · فواتير · سندات) — الوحيد المفعّل افتراضياً للجميع، يطفئه المالك لكل شركة
   receivablesSummaryEnabled Boolean   @default(false) // سطر «إجمالي مديونية العملاء المُسنَدين (بلا تكرار)» في تقرير المديونيات — يُفعّله المالك لكل شركة (طرح محدود)
   paylinkEnabled            Boolean   @default(false) // ميزة الدفع الإلكتروني (روابط دفع ميسر عبر حسابنا المجمِّع) — يفعّلها المالك لكل شركة حسب الاشتراك
   paylinkFeePct             Float     @default(4) // نسبة عمولتنا على كل تحصيل إلكتروني — لكل شركة على حدة (شاملة الضريبة)

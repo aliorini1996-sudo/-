@@ -56,8 +56,15 @@ export default function MobileApp() {
   // إعدادات الشركة — تُمرَّر لطابع المستندات (ترويسة، رقم ضريبي، رمز ZATCA)
   const [company, setCompany] = useState<unknown>(null);
 
-  // التبويبات المسموحة لهذا المستخدم — المنع عند `false` الصريحة وحدها
-  const tabs = useMemo(() => TABS.filter(t => can(user, t.perm)), [user]);
+  // «النظام المحاسبي» — مفعّل افتراضياً، فغيابه يعني مفعّل لا مطفأ
+  const accountingOn = (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
+
+  // التبويبات المسموحة لهذا المستخدم — المنع عند `false` الصريحة وحدها،
+  // ثم إسقاط التبويبين المحاسبيين حين يُطفئ المالك الميزة عن الشركة
+  const tabs = useMemo(
+    () => TABS.filter(t => can(user, t.perm) && (accountingOn || (t.id !== 'invoices' && t.id !== 'receipts'))),
+    [user, accountingOn]
+  );
 
   // أوّل تبويب مسموح يصير الشاشة الافتراضية، فلا تُفتح القوقعة على شاشة محجوبة
   useEffect(() => {

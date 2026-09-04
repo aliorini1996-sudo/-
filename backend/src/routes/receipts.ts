@@ -1,7 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from '../utils/helpers';
@@ -11,6 +11,7 @@ import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 
 const router = Router();
 router.use(authenticate);
+router.use(requireAccounting); // عزل «النظام المحاسبي»
 router.use(requireAdminPermission('canManageReceipts'));
 
 const receiptSchema = z.object({

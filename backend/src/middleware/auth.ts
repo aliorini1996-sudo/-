@@ -145,3 +145,21 @@ export function tenantId(req: AuthRequest): string {
   if (!req.user?.tenantId) throw new Error('لا توجد شركة مرتبطة بالحساب');
   return req.user.tenantId;
 }
+
+// حارس «النظام المحاسبي» — يعزل المنتجات ومخزون السيارات والمستودع والفواتير والسندات.
+// خلافاً لبقيّة أعلام الاشتراك، افتراض هذا العَلَم `true`: فلا نمنع إلا حين يكون
+// `false` صراحةً. و`!t?.accountingEnabled` خطأٌ هنا لأنّه يمنع أيضاً عند تعذّر القراءة.
+// ونقرأ tenantId من الطلب مباشرةً لا عبر tenantId(req): الأخيرة ترمي استثناءً
+// للسوبر أدمن (لا شركة له) فتحوّل مروره من 403 إلى 500.
+export async function requireAccounting(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const tid = req.user?.tenantId;
+    if (!tid) { next(); return; }
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true } });
+    if (t?.accountingEnabled === false) {
+      res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+}

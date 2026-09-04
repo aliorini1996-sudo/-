@@ -576,6 +576,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [catalogEnabled, setCatalogEnabled] = useState(!!tenant.catalogEnabled);
   const [paylinkEnabled, setPaylinkEnabled] = useState(!!tenant.paylinkEnabled);
   const [warehouseEnabled, setWarehouseEnabled] = useState(!!tenant.warehouseEnabled);
+  const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
   );
@@ -602,6 +603,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       catalogEnabled,
       paylinkEnabled,
       warehouseEnabled,
+      accountingEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success(tr('تم تحديث بيانات الشركة')); onSaved(); },
@@ -711,6 +713,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={warehouseEnabled} onChange={e => setWarehouseEnabled(e.target.checked)} />
               {tr('تفعيل مخزون الشركة المستودع لهذه الشركة')}
             </label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={accountingEnabled} onChange={e => setAccountingEnabled(e.target.checked)} />
+              {tr('تفعيل النظام المحاسبي لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('النظام المحاسبي يشمل المنتجات ومخزون السيارات ومخزون الشركة والفواتير وسندات القبض')}</p>
             <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تخفى الميزة وترفض طلباتها للشركة')}</p>
           </div>
         </div>

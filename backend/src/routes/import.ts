@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { currentBalance, clean } from '../services/accounting';
-import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAccounting, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { customerScope } from '../services/customerScope';
 
@@ -108,7 +108,7 @@ const productRow = z.object({
   category: z.string().trim().optional(),         // اسم الفئة — تُنشأ إن لزم
 });
 
-router.post('/products', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/products', requireAccounting, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const rows = z.array(productRow).max(5000).parse(req.body?.rows);
@@ -286,7 +286,7 @@ const priceRow = z.object({
   productCode: z.string().trim().min(1),
   price: z.number().nonnegative(),
 });
-router.post('/prices', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/prices', requireAccounting, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const rows = z.array(priceRow).max(20000).parse(req.body?.rows);

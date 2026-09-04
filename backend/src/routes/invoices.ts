@@ -1,7 +1,7 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
@@ -22,6 +22,8 @@ import {
 
 const router = Router();
 router.use(authenticate);
+// عزل «النظام المحاسبي»: هنا لا بعد حارس الصلاحية، لأنّ GET /open أدناه مُعرَّف قبله فيفلت منه.
+router.use(requireAccounting);
 
 /**
  * فواتير العميل الآجلة المفتوحة — للتوزيع الإلزاميّ لسند القبض عليها.

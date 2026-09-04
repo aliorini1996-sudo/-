@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { suggestLoad, type SaleRow } from '../services/suggestLoad';
 import { computeAccuracy } from '../services/suggestAccuracy';
@@ -10,6 +10,7 @@ import { roundDecimal } from '../utils/helpers';
 
 const router = Router();
 router.use(authenticate);
+router.use(requireAccounting); // عزل «النظام المحاسبي»
 router.use(requireAdminPermission('canManageVanStock'));
 
 const loadSchema = z.object({

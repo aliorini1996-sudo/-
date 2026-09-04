@@ -32,10 +32,13 @@ router.use((req: AuthRequest, res: Response, next: NextFunction) => {
 // نفس صلاحية إدارة المخزون؛ المستودع مركزيّ على مستوى الشركة (لا يخصّ مندوباً)
 router.use(requireAdminPermission('canManageVanStock'));
 
-// حارس التفعيل: الميزة مطفأة افتراضياً، يُفعّلها المالك لكل شركة على حدة (طرح مدروس)
+// حارس التفعيل: عَلَمان في استعلام واحد. «النظام المحاسبي» يعلو لأنّه يعزل الوحدة
+// كلّها، وافتراضه true فلا يمنع إلا حين يكون false صريحاً — بعكس warehouseEnabled
+// المطفأ افتراضياً والذي لا يمرّ إلا بتفعيلٍ صريح.
 router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { warehouseEnabled: true } });
+    const t = await prisma.tenant.findUnique({ where: { id: tenantId(req) }, select: { warehouseEnabled: true, accountingEnabled: true } });
+    if (t?.accountingEnabled === false) { res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' }); return; }
     if (!t?.warehouseEnabled) { res.status(403).json({ success: false, message: 'ميزة مخزون الشركة غير مفعلة لهذه الشركة' }); return; }
     next();
   } catch (err) { next(err); }

@@ -379,7 +379,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -512,8 +512,8 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn }: { user: RepUser; 
       <div>
         <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إجراءات سريعة')}</p>
         <div className="grid grid-cols-3 gap-3">
-          {quick(tr('فاتورة'), FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
-          {quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
+          {accountingOn && quick(tr('فاتورة'), FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
+          {accountingOn && quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
           {quick(tr('العملاء'), Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
           {fuelOn && quick(tr('الوقود'), Fuel, 'text-blue-600', 'bg-blue-50 border-blue-100', 'fuel')}
           {workNumOn && quick(tr('رقم عملي'), PhoneCall, 'text-teal-700', 'bg-teal-50 border-teal-100', 'worknum')}
@@ -2417,13 +2417,24 @@ export default function RepApp() {
     setToken(null); setUser(null);
   };
 
+  // «النظام المحاسبي» مفعّل افتراضياً، فغيابه من ردّ قديم أو من الكاش يعني مفعّل لا مطفأ
+  const accountingOn = (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
+  const ACCOUNTING_TABS: Screen[] = ['invoices', 'receipts', 'vanstock'];
   const tabs: { id: Screen; label: string; icon: React.ElementType }[] = [
     { id: 'home', label: 'الرئيسية', icon: Home },
     { id: 'invoices', label: 'الفواتير', icon: FileText },
     { id: 'receipts', label: 'التحصيل', icon: CreditCard },
     { id: 'customers', label: 'العملاء', icon: Users },
     { id: 'vanstock', label: 'مخزوني', icon: Truck },
-  ];
+  ].filter(t => accountingOn || !ACCOUNTING_TABS.includes(t.id as Screen)) as { id: Screen; label: string; icon: React.ElementType }[];
+  // شبكة الشريط السفلي بعدد التبويبات الباقية — أصناف صريحة لأن Tailwind لا يولّد المركَّب ديناميكياً
+  const TAB_COLS: Record<number, string> = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5' };
+  const tabCols = TAB_COLS[tabs.length] ?? 'grid-cols-5';
+  // لو أُطفئت الميزة والمندوب واقفٌ على شاشة محاسبية، تُعاد به إلى الرئيسية
+  // بدل تركه أمام شاشة لا يملك تبويباً يخرج به منها.
+  useEffect(() => {
+    if (!accountingOn && ACCOUNTING_TABS.includes(screen)) setScreen('home');
+  }, [accountingOn, screen]);
 
   // إطار الجوّال يظهر فقط على سطح المكتب (للمعاينة). أمّا على الجوّال الحقيقي أو داخل
   // التطبيق (PWA/TWA) فيُعرض المحتوى ملء الشاشة — وإلا ظهر «جوال داخل جوال».
@@ -2507,7 +2518,7 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}
@@ -2517,7 +2528,7 @@ export default function RepApp() {
               </div>
 
               {/* Bottom nav */}
-              <div className="flex-shrink-0 bg-white border-t border-gray-100 grid grid-cols-5 px-2 py-1.5">
+              <div className={`flex-shrink-0 bg-white border-t border-gray-100 grid ${tabCols} px-2 py-1.5`}>
                 {tabs.map(t => {
                   const Icon = t.icon;
                   const active = screen === t.id;

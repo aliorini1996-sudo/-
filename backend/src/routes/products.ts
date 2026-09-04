@@ -1,13 +1,14 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
+router.use(requireAccounting); // عزل «النظام المحاسبي»
 router.use(requireAdminPermission('canManageProducts'));
 
 const productSchema = z.object({

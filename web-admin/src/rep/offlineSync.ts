@@ -60,6 +60,13 @@ export async function syncOutbox(): Promise<SyncResult> {
         sent++;
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status;
+        const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+        if (code === 'ACCOUNTING_NOT_ALLOWED') {
+          // ليس رفض أعمال بل إطفاء اشتراك حدث بعد إنشاء المستند على الجهاز.
+          // إعدامه يُفقد المندوب عمل يومه بلا رجعة، فيبقى مصفوفاً حتى يُعاد التفعيل.
+          stopped = true;
+          break;
+        }
         if (status && status >= 400 && status < 500) {
           // رفض أعمال (تجاوز ائتمان/سعر مرفوض/صنف معطّل...) — لا يُعاد، يراجعه المندوب (M6)
           const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;

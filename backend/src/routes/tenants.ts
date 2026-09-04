@@ -40,6 +40,7 @@ const updateTenantSchema = z.object({
   paylinkEnabled: z.boolean().optional(),
   warehouseEnabled: z.boolean().optional(),
   receivablesSummaryEnabled: z.boolean().optional(),
+  accountingEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
   notes: z.string().nullish(),
 });
