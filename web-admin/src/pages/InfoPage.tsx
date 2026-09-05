@@ -113,7 +113,7 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
     : arPage;
 
   const seo = PAGE_SEO[pageKey];
-  const m = lang === 'en' || lang === 'tr' ? seo.en : lang === 'fr' ? seo.fr : seo.ar; // tr: ميتا إنجليزية مؤقتاً والمحتوى تركي
+  const m = lang === 'en' || lang === 'tr' || lang === 'zh' ? seo.en : lang === 'fr' ? seo.fr : seo.ar; // tr/zh: ميتا إنجليزية مؤقتاً
   const home = pathForLocale('/', lang); // العودة للرئيسية بنفس اللغة الحالية
   const { canonical, alternates } = seoUrls(`/${seo.path}`, lang);
   useSeo({

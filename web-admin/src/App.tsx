@@ -204,6 +204,17 @@ export default function App() {
         <Route path="/tr/calculator" element={<LeakCalculatorPage />} />
         <Route path="/tr/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/tr/pricing" element={<PricingPage />} />
+        {/* النسخة الصينية على /zh — المدونة تبقى ع/إ/فر فروابطها الصينية تقود للإنجليزية */}
+        <Route path="/zh" element={<LandingPage />} />
+        <Route path="/zh/about" element={<InfoPage pageKey="about" />} />
+        <Route path="/zh/terms" element={<InfoPage pageKey="terms" />} />
+        <Route path="/zh/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
+        <Route path="/zh/privacy" element={<InfoPage pageKey="privacy" />} />
+        <Route path="/zh/contact" element={<ContactPage />} />
+        <Route path="/zh/subscribe-request" element={<SubscriptionRequestPage />} />
+        <Route path="/zh/calculator" element={<LeakCalculatorPage />} />
+        <Route path="/zh/invoice-generator" element={<InvoiceGeneratorPage />} />
+        <Route path="/zh/pricing" element={<PricingPage />} />
         {/* النسخة الفرنسية على /fr — للأسواق الفرنكوفونية (المغرب العربي) مع hreflang */}
         <Route path="/fr" element={<LandingPage />} />
         <Route path="/fr/about" element={<InfoPage pageKey="about" />} />

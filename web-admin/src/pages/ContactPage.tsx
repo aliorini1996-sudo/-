@@ -60,6 +60,12 @@ export default function ContactPage() {
       keywords: 'FieldSales iletişim demo talebi ücretsiz deneme destek saha satış sistemi saha ekibi yönetimi',
       locale: 'tr' as const,
     },
+    zh: {
+      title: '联系我们 | FieldSales 预约演示或免费试用',
+      description: '联系 FieldSales 团队，预约外勤销售与分销管理系统的演示或免费试用：增值税发票、收款、车载库存与业务员 GPS 实时追踪',
+      keywords: '联系 FieldSales,预约演示,免费试用,技术支持,外勤销售系统,业务员管理',
+      locale: 'zh' as const,
+    },
   }[lang];
   useSeo({ ...contactSeo, canonical: seoUrl.canonical, alternates: seoUrl.alternates, image: 'https://fieldsa.net/og-image.png' });
 

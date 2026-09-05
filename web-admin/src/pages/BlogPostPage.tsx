@@ -53,7 +53,7 @@ export default function BlogPostPage() {
   const handUnavailableEn = hand && lang === 'en' && !hand.en;
 
   // اختر المصدر: مقال يدوي (ع/إ) أو مقال SEO مولّد (ع/إ/فر) — التركية تسقط للإنجليزية (لا مدونة تركية)
-  const blogLang = (lang === 'tr' ? 'en' : lang);
+  const blogLang = (lang === 'tr' || lang === 'zh' ? 'en' : lang);
   const useHand = !!hand && lang !== 'fr' && !handUnavailableEn;
   const seo = useHand ? null : getArticle(slug || '', blogLang);
 

@@ -52,6 +52,7 @@ function renderSocialSection(social: Record<string, string> = {}, lang: Lang = '
   const heading = lang === 'en' ? 'Follow us on social media'
     : lang === 'fr' ? 'Suivez-nous sur les réseaux sociaux'
     : lang === 'tr' ? 'Sosyal medyada bizi takip edin'
+    : lang === 'zh' ? '在社交媒体上关注我们'
     : 'تابعنا على مواقع التواصل';
   return `<section style="max-width:1200px; margin:0 auto; padding:6px 28px 64px; text-align:center;">
     <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">FOLLOW US</div>
@@ -98,6 +99,15 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       tool2Title: 'Ücretsiz Vergi Faturası Oluşturucu',
       cta2: '30 saniyede ücretsiz QR kodlu vergi faturası oluşturun',
       note: '%100 ücretsiz kayıt yok sonucunuzu WhatsApp ta paylaşın',
+    },
+    zh: {
+      eyebrow: '免费工具 亲自体验',
+      h: '您的企业每月正在流失多少收入？',
+      p: '收入流失计算器 一分钟算清 漏开的发票、未记录的收款、车载库存的亏空到底吞掉了多少 输入您的数字 立刻看清真相',
+      cta: '立即计算您的流失金额',
+      tool2Title: '免费增值税发票生成器',
+      cta2: '30 秒生成带二维码的免费增值税发票',
+      note: '100% 免费 无需注册 结果可一键分享到 WhatsApp',
     },
   }[lang];
   const arrow = lang === 'ar'
@@ -372,18 +382,18 @@ function injectLangSwitcher(html: string, current: Lang): string {
 }
 
 // ---- قسم «تغطية العالم العربي» — يبرز خدمة النظام وتوافقه مع أنظمة الدول العربية ----
-const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string; tr: string }[] = [
-  { flag: '🇸🇦', ar: 'السعودية', en: 'Saudi Arabia', fr: 'Arabie saoudite', tr: 'Suudi Arabistan' },
-  { flag: '🇪🇬', ar: 'مصر', en: 'Egypt', fr: 'Égypte', tr: 'Mısır' },
-  { flag: '🇦🇪', ar: 'الإمارات', en: 'UAE', fr: 'Émirats', tr: 'BAE' },
-  { flag: '🇰🇼', ar: 'الكويت', en: 'Kuwait', fr: 'Koweït', tr: 'Kuveyt' },
-  { flag: '🇶🇦', ar: 'قطر', en: 'Qatar', fr: 'Qatar', tr: 'Katar' },
-  { flag: '🇧🇭', ar: 'البحرين', en: 'Bahrain', fr: 'Bahreïn', tr: 'Bahreyn' },
-  { flag: '🇴🇲', ar: 'عمان', en: 'Oman', fr: 'Oman', tr: 'Umman' },
-  { flag: '🇲🇦', ar: 'المغرب', en: 'Morocco', fr: 'Maroc', tr: 'Fas' },
-  { flag: '🇩🇿', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie', tr: 'Cezayir' },
-  { flag: '🇹🇳', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie', tr: 'Tunus' },
-  { flag: '🇯🇴', ar: 'الأردن', en: 'Jordan', fr: 'Jordanie', tr: 'Ürdün' },
+const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string; tr: string; zh: string }[] = [
+  { flag: '🇸🇦', ar: 'السعودية', en: 'Saudi Arabia', fr: 'Arabie saoudite', tr: 'Suudi Arabistan', zh: '沙特' },
+  { flag: '🇪🇬', ar: 'مصر', en: 'Egypt', fr: 'Égypte', tr: 'Mısır', zh: '埃及' },
+  { flag: '🇦🇪', ar: 'الإمارات', en: 'UAE', fr: 'Émirats', tr: 'BAE', zh: '阿联酋' },
+  { flag: '🇰🇼', ar: 'الكويت', en: 'Kuwait', fr: 'Koweït', tr: 'Kuveyt', zh: '科威特' },
+  { flag: '🇶🇦', ar: 'قطر', en: 'Qatar', fr: 'Qatar', tr: 'Katar', zh: '卡塔尔' },
+  { flag: '🇧🇭', ar: 'البحرين', en: 'Bahrain', fr: 'Bahreïn', tr: 'Bahreyn', zh: '巴林' },
+  { flag: '🇴🇲', ar: 'عمان', en: 'Oman', fr: 'Oman', tr: 'Umman', zh: '阿曼' },
+  { flag: '🇲🇦', ar: 'المغرب', en: 'Morocco', fr: 'Maroc', tr: 'Fas', zh: '摩洛哥' },
+  { flag: '🇩🇿', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie', tr: 'Cezayir', zh: '阿尔及利亚' },
+  { flag: '🇹🇳', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie', tr: 'Tunus', zh: '突尼斯' },
+  { flag: '🇯🇴', ar: 'الأردن', en: 'Jordan', fr: 'Jordanie', tr: 'Ürdün', zh: '约旦' },
 ];
 
 function coverageSection(lang: Lang): string {
@@ -411,6 +421,12 @@ function coverageSection(lang: Lang): string {
       title: 'Arap dünyasındaki dağıtım şirketleri için tasarlandı',
       sub: 'Suudi Arabistan dan Mısır a Körfez den Mağrip e her ülkenin para birimi vergisi ve fatura formatı Arapça İngilizce ve Fransızca',
       note: 'Her pazarın e-fatura ve vergi sistemleriyle uyumlu ZATCA Suudi Arabistan her ülkenin para birimi ve KDV oranı otomatik uygulanır',
+    },
+    zh: {
+      eyebrow: '区域覆盖',
+      title: '为阿拉伯世界的分销企业而生',
+      sub: '从沙特到埃及 从海湾到马格里布 每个国家的货币 税率与发票格式 支持阿拉伯语 英语和法语',
+      note: '符合各市场的电子发票与税务体系 沙特 ZATCA 每个国家的货币与增值税率自动适用',
     },
   }[lang];
   const pills = COVERAGE_COUNTRIES.map((c) =>
@@ -445,11 +461,12 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
     en: { title: 'Contact & Subscription Requests', sub: 'Email or call us directly our team is ready to help and activate your company subscription', email: 'Official email', phone: 'Phone', address: 'Head office', cta: 'Request your subscription', whatsapp: 'WhatsApp' },
     fr: { title: 'Contact et demandes d abonnement', sub: 'Écrivez-nous ou appelez-nous directement notre équipe est prête à vous aider et à activer votre abonnement', email: 'E-mail officiel', phone: 'Téléphone', address: 'Siège social', cta: 'Demandez votre abonnement', whatsapp: 'WhatsApp' },
     tr: { title: 'İletişim ve abonelik talepleri', sub: 'Bize yazın veya doğrudan arayın ekibimiz yardımcı olmaya ve şirket aboneliğinizi etkinleştirmeye hazır', email: 'Resmi e-posta', phone: 'Telefon', address: 'Merkez ofis', cta: 'Aboneliğinizi talep edin', whatsapp: 'WhatsApp' },
+    zh: { title: '联系我们与订阅申请', sub: '来信或直接致电 我们的团队随时为您解答并开通企业订阅', email: '官方邮箱', phone: '电话', address: '总部地址', cta: '申请开通订阅', whatsapp: 'WhatsApp' },
   }[lang];
   // العنوان الافتراضي العربي يُعرَض مترجماً في النسختين الأجنبيتين؛ وأي نص يكتبه المالك يُعرض كما هو
   const addressRaw = String(contact.address || '').trim();
   const address = addressRaw === 'المملكة العربية السعودية' && lang !== 'ar'
-    ? (lang === 'en' ? 'Saudi Arabia' : lang === 'tr' ? 'Suudi Arabistan' : 'Arabie saoudite') : addressRaw;
+    ? (lang === 'en' ? 'Saudi Arabia' : lang === 'tr' ? 'Suudi Arabistan' : lang === 'zh' ? '沙特阿拉伯' : 'Arabie saoudite') : addressRaw;
   const email = String(contact.email || '').trim();
   const phone = String(contact.phone || '').trim();
   const wa = String(contact.whatsapp || '').trim();
@@ -529,12 +546,12 @@ function featureLinksRow(lang: Lang): string {
 const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
-  const prefix = lang === 'en' ? '/en' : lang === 'tr' ? '/tr' : '/fr';
+  const prefix = lang === 'en' ? '/en' : lang === 'tr' ? '/tr' : lang === 'zh' ? '/zh' : '/fr';
   let out = html;
   for (const p of LOCALIZED_PATHS) {
     // href="/contact" → href="/en/contact"  (تطابق تام مع علامة الاقتباس لتفادي مطابقة /blog داخل /blog/slug)
     // المدونة بلا نسخة تركية بعد — روابطها من /tr تقود للإنجليزية كي لا نعرض محتوى عربياً في سياق تركي
-    const target = lang === 'tr' && p === '/blog' ? '/en' : prefix;
+    const target = (lang === 'tr' || lang === 'zh') && p === '/blog' ? '/en' : prefix;
     out = out.split(`href="${p}"`).join(`href="${target}${p}"`);
   }
   return out;
@@ -667,6 +684,12 @@ export default function LandingPage() {
       description: 'FieldSales saha dağıtım ekipleri için eksiksiz bir platform vergi faturaları tahsilat araç stoku GPS takibi ve raporlar 10 gün ücretsiz deneyin',
       keywords: 'saha satış sistemi saha ekibi yönetimi dağıtım yönetim yazılımı rota muhasebesi e-fatura vergi faturası tahsilat cari hesap araç stoku yönetimi GPS temsilci takibi müşteri yönetimi ürün kataloğu ERP entegrasyonu',
       locale: 'tr' as const,
+    },
+    zh: {
+      title: 'FieldSales | 外勤销售与分销管理系统',
+      description: 'FieldSales 是外勤分销团队的一体化平台 增值税发票 收款 车载库存 GPS 追踪与报表 免费试用 10 天',
+      keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 增值税发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
+      locale: 'zh' as const,
     },
   }[lang];
   useSeo({ ...seoByLang, canonical, alternates, image: 'https://fieldsa.net/og-image.png', jsonLd: orgJsonLd });

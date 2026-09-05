@@ -152,12 +152,12 @@ export default function SignupPage() {
                   value={phoneCountry}
                   onChange={e => setPhoneCountry(e.target.value)}
                 >
-                  <optgroup label={lang === 'ar' ? 'الدول العربية' : lang === 'fr' ? 'Pays arabes' : lang === 'tr' ? 'Arap ülkeleri' : 'Arab countries'}>
+                  <optgroup label={lang === 'ar' ? 'الدول العربية' : lang === 'fr' ? 'Pays arabes' : lang === 'tr' ? 'Arap ülkeleri' : lang === 'zh' ? '阿拉伯国家' : 'Arab countries'}>
                     {ARAB_DIAL.map(c => (
                       <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>
                     ))}
                   </optgroup>
-                  <optgroup label={lang === 'ar' ? 'دول أخرى' : lang === 'fr' ? 'Autres pays' : lang === 'tr' ? 'Diğer ülkeler' : 'Other countries'}>
+                  <optgroup label={lang === 'ar' ? 'دول أخرى' : lang === 'fr' ? 'Autres pays' : lang === 'tr' ? 'Diğer ülkeler' : lang === 'zh' ? '其他国家' : 'Other countries'}>
                     {WORLD_DIAL.map(c => (
                       <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>
                     ))}

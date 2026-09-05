@@ -26,6 +26,7 @@ function locale(): string {
   if (l === 'en') return 'en-US';
   if (l === 'fr') return 'fr-FR';
   if (l === 'tr') return 'tr-TR';
+  if (l === 'zh') return 'zh-CN';
   return activeNumerals === 'latin' ? 'ar-SA-u-nu-latn' : 'ar-SA-u-nu-arab';
 }
 

@@ -65,7 +65,7 @@ export default function CatalogPage() {
 
   if (err) {
     return (
-      <div dir="rtl" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FAF7F0', fontFamily: 'system-ui', color: '#6E6557', padding: 24, textAlign: 'center' }}>
+      <div dir="rtl" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FAF7F0', fontFamily: 'system-ui, sans-serif', color: '#6E6557', padding: 24, textAlign: 'center' }}>
         الرابط غير صحيح او لم يعد متاحا — تواصل مع مندوبك
       </div>
     );

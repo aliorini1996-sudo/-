@@ -53,7 +53,7 @@ const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 // يستبدل وسوم <head> الافتراضية بقيم الصفحة، ويحقن hreflang + JSON-LD + المحتوى
 function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '' }) {
   const dir = lang === 'ar' ? 'rtl' : 'ltr';
-  const ogLocale = lang === 'en' ? 'en_US' : lang === 'fr' ? 'fr_FR' : 'ar_SA';
+  const ogLocale = { en: 'en_US', fr: 'fr_FR', tr: 'tr_TR', zh: 'zh_CN' }[lang] || 'ar_SA';
   let h = template;
   h = h.replace(/<html[^>]*>/, `<html lang="${lang}" dir="${dir}">`);
   h = h.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`);
@@ -121,7 +121,9 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   if (bodyHtml) ssr.push(bodyHtml);
   if (WA_LINK) {
     const label = lang === 'en' ? 'Chat with us on WhatsApp'
-      : lang === 'fr' ? 'Discutez avec nous sur WhatsApp' : 'تحدّث معنا على واتساب';
+      : lang === 'fr' ? 'Discutez avec nous sur WhatsApp'
+      : lang === 'tr' ? 'WhatsApp üzerinden bize yazın'
+      : lang === 'zh' ? '通过 WhatsApp 联系我们' : 'تحدّث معنا على واتساب';
     ssr.push(`<a href="${WA_LINK}" rel="noopener" data-wa-static>${label}</a>`);
   }
   if (ssr.length) h = h.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${ssr.join('\n')}</div></div>`);
@@ -169,8 +171,9 @@ const canon = (url) => {
 };
 
 // عنقود hreflang للغات المُمرَّرة فقط — تُستثنى منه لغةٌ مقلَّمة (noindex) حتى لا يتناقض العنقود.
+const HREFLANG_CODE = { zh: 'zh-Hans' }; // المحتوى بالمبسّطة تحديداً؛ بقيّة اللغات رمزها اسمها
 const hreflangFor = (blogPath, langs = LANGS) => langs
-  .map((L) => `\n    <link rel="alternate" hreflang="${L}" href="${canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}`)}"/>`)
+  .map((L) => `\n    <link rel="alternate" hreflang="${HREFLANG_CODE[L] || L}" href="${canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}`)}"/>`)
   .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${canon(ORIGIN + blogPath)}"/>`;
 const trilingualHreflang = (blogPath) => hreflangFor(blogPath, LANGS);
 
@@ -290,7 +293,7 @@ async function main() {
     n++;
   }
 
-  // 3) الصفحة الرئيسية بالإنجليزية والفرنسية — وسوم + محتوى دلالي مختصر (زواحف AI لا تُشغّل JavaScript)
+  // 3) الرئيسيات المترجمة (إنجليزي/فرنسي/تركي/صيني) — وسوم + محتوى دلالي مختصر (زواحف AI لا تُشغّل JavaScript)
   const homeMeta = {
     en: {
       title: 'FieldSales | Field Sales & Distribution Management Software for Arab Markets',
@@ -325,10 +328,20 @@ async function main() {
 <p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/tr/subscribe-request">Abonelik talebi gönderin</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
 <p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/tr/about">Hakkında</a> · <a href="/tr/contact">İletişim</a></p></main>`,
     },
+    zh: {
+      title: 'FieldSales | 外勤销售与分销管理软件',
+      desc: '面向沙特、埃及及阿拉伯世界分销商的外勤销售系统：增值税发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
+      body: `<main><h1>FieldSales — 面向阿拉伯市场的外勤销售与分销管理</h1>
+<p>FieldSales 是一套面向分销企业的 SaaS 平台：业务员通过手机应用开具带二维码的结构化增值税发票、完成收款并管理车载库存；管理者则获得实时看板、GPS 追踪与报表。支持阿拉伯语、英语、法语、土耳其语和中文，覆盖 22 个阿拉伯国家。</p>
+<ul><li>带二维码的外勤开票与热敏打印</li><li>收款、应收账款与带信用额度的客户对账单</li><li>按业务员划分的车载库存与实时差异检测</li><li>业务员 GPS 追踪与路线规划</li><li>产品目录、价格体系与 ERP 集成</li></ul>
+<h2>联系我们与订阅申请</h2>
+<p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/zh/subscribe-request">提交订阅申请</a>或直接<a href="/signup">开始免费试用</a>。</p>
+<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/zh/about">关于我们</a> · <a href="/zh/contact">联系我们</a></p></main>`,
+    },
   };
-  // الرئيسية المترجمة: hreflang رباعي (ع/إ/فر/تر) — للتسويق فقط، والمدونة تبقى ثلاثية
-  const marketingHreflang = hreflangFor('/', [...LANGS, 'tr']);
-  for (const L of ['en', 'fr', 'tr']) {
+  // الرئيسية المترجمة: hreflang خماسي (ع/إ/فر/تر/صيني) — للتسويق فقط، والمدونة تبقى ثلاثية
+  const marketingHreflang = hreflangFor('/', [...LANGS, 'tr', 'zh']);
+  for (const L of ['en', 'fr', 'tr', 'zh']) {
     const canonical = canon(`${ORIGIN}/${L}`);
     const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: marketingHreflang, bodyHtml: homeMeta[L].body });
     writeRoute(`/${L}`, html);
@@ -779,7 +792,7 @@ ${PRICING_HTML}
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
   n++;
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية ع/إ/فر/تر + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
 }
 
 await main();

@@ -97,11 +97,13 @@ const alt = (arPath) => {
   const en = canon(ORIGIN + '/en' + suffix);
   const fr = canon(ORIGIN + '/fr' + suffix);
   const tr = canon(ORIGIN + '/tr' + suffix);
+  const zh = canon(ORIGIN + '/zh' + suffix);
   return [
     `    <xhtml:link rel="alternate" hreflang="ar" href="${ar}"/>`,
     `    <xhtml:link rel="alternate" hreflang="en" href="${en}"/>`,
     `    <xhtml:link rel="alternate" hreflang="fr" href="${fr}"/>`,
     `    <xhtml:link rel="alternate" hreflang="tr" href="${tr}"/>`,
+    `    <xhtml:link rel="alternate" hreflang="zh-Hans" href="${zh}"/>`,
     `    <xhtml:link rel="alternate" hreflang="x-default" href="${ar}"/>`,
   ].join('\n');
 };
@@ -127,6 +129,7 @@ async function main() {
     urls.push(urlEntry(ORIGIN + '/en' + suffix, { freq: r.freq, priority: r.priority, alternates }));
     urls.push(urlEntry(ORIGIN + '/fr' + suffix, { freq: r.freq, priority: r.priority, alternates }));
     urls.push(urlEntry(ORIGIN + '/tr' + suffix, { freq: r.freq, priority: r.priority, alternates }));
+    urls.push(urlEntry(ORIGIN + '/zh' + suffix, { freq: r.freq, priority: r.priority, alternates }));
   }
 
   // فهرس المدوّنة (عربي + /en + /fr مع hreflang)

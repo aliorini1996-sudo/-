@@ -4,7 +4,9 @@
 
 /* هوية FieldSales — كريمي دافئ + مرجاني + حبر داكن */
 * {
-  font-family: 'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif;
+  /* عائلات CJK من النظام في ذيل القائمة: المتصفّح يمشيها لكل محرف على حدة،
+     فالعربي واللاتيني يبقيان كما هما والمحارف الصينية تجد خطّها بلا تحميل شبكة. */
+  font-family: 'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
 }
 
 body {

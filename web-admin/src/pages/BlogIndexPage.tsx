@@ -19,7 +19,7 @@ export default function BlogIndexPage() {
   const rtl = lang === 'ar';
   const prefix = lang === 'ar' ? '' : `/${lang}`;
   const tr = (ar: string, en: string, fr: string) => (lang === 'ar' ? ar : lang === 'fr' ? fr : en); // tr → الإنجليزية (لا مدونة تركية بعد)
-  const blogLang = (lang === 'tr' ? 'en' : lang); // كتالوج المدونة ثلاثي اللغة فقط
+  const blogLang = (lang === 'tr' || lang === 'zh' ? 'en' : lang); // كتالوج المدونة ثلاثي اللغة فقط
   const { canonical, alternates } = seoUrls('/blog', lang);
 
   useSeo({
