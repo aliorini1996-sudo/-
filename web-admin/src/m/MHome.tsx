@@ -20,7 +20,9 @@ const MSalesChart = lazy(() => import('./MSalesChart'));
  *    تطبيق «بإجراءات كاملة» لا يليق به طريق مسدود.
  *  - الاستطلاع مشروط بحياة الشاشة (بطارية وباقة).
  */
-export default function MHome({ onOpenInvoice, onOpenCustomer }: {
+export default function MHome({ accountingOn = true, onOpenInvoice, onOpenCustomer }: {
+  /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تختفي كل خانة تعرض مبلغاً */
+  accountingOn?: boolean;
   onOpenInvoice?: (inv: Invoice) => void;
   onOpenCustomer?: (id: string) => void;
 }) {
@@ -34,6 +36,7 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
   });
 
   const trendQ = useQuery({
+    enabled: accountingOn, // لا نطلب منحنى مبيعات لن يُعرض
     queryKey: ['m-sales-trend'],
     queryFn: async () => expectArray<{ date: string; total: number }>((await dashboardApi.salesTrend(30)).data?.data, 'مبيعات الشهر'),
   });
@@ -48,7 +51,7 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
   return (
     <div className="h-full overflow-y-auto overscroll-contain bg-[#FAF7F0] p-3 space-y-3">
       {/* اليوم */}
-      <Section title={tr('اليوم')}>
+      {accountingOn && (<Section title={tr('اليوم')}>
         <div className="grid grid-cols-2 gap-2.5">
           <MStat icon={DollarSign} label={tr('المبيعات')} value={formatCurrency(d.today.salesTotal)} />
           <MStat icon={CreditCard} label={tr('التحصيل')} value={formatCurrency(d.today.collectionsTotal)} tone="good" />
@@ -56,10 +59,10 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
         <p className="text-[11px] text-[#9A8F7E] px-1">
           {d.today.invoicesCount} {tr('فاتورة')} · {d.today.receiptsCount} {tr('سند')}
         </p>
-      </Section>
+      </Section>)}
 
       {/* الشهر */}
-      <Section title={tr('هذا الشهر')}>
+      {accountingOn && (<Section title={tr('هذا الشهر')}>
         <div className="grid grid-cols-2 gap-2.5">
           <MStat icon={ShoppingCart} label={tr('المبيعات')} value={formatCurrency(d.month.salesTotal)} />
           <MStat icon={TrendingUp} label={tr('التحصيل')} value={formatCurrency(d.month.collectionsTotal)} tone="good" />
@@ -67,7 +70,7 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
         <p className="text-[11px] text-[#9A8F7E] px-1">
           {d.month.invoicesCount} {tr('فاتورة')} · {d.month.receiptsCount} {tr('سند')}
         </p>
-      </Section>
+      </Section>)}
 
       {/* العملاء */}
       <Section title={tr('العملاء')}>
@@ -80,7 +83,7 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
       </Section>
 
       {/* الرسم البياني — حزمة مستقلّة */}
-      <Section title={tr('مبيعات آخر 30 يوم')}>
+      {accountingOn && (<Section title={tr('مبيعات آخر 30 يوم')}>
         <MCard className="p-2 pt-3">
           {trendQ.data && trendQ.data.length > 0 ? (
             <Suspense fallback={<div className="h-[170px] flex items-center justify-center text-xs text-[#9A8F7E]">{tr('جاري التحميل')}</div>}>
@@ -92,10 +95,10 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
             </div>
           )}
         </MCard>
-      </Section>
+      </Section>)}
 
       {/* أفضل المناديب */}
-      <Section title={tr('أفضل المناديب')} icon={Trophy}>
+      {accountingOn && (<Section title={tr('أفضل المناديب')} icon={Trophy}>
         <MCard>
           {d.topReps.length === 0 ? <Blank text={tr('لا توجد بيانات')} /> : d.topReps.slice(0, 5).map((r, i) => (
             <MRow key={r.id}
@@ -105,10 +108,10 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
               trailing={<span className="text-sm font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(r.salesTotal)}</span>} />
           ))}
         </MCard>
-      </Section>
+      </Section>)}
 
       {/* أفضل العملاء */}
-      <Section title={tr('أفضل العملاء')}>
+      {accountingOn && (<Section title={tr('أفضل العملاء')}>
         <MCard>
           {d.topCustomers.length === 0 ? <Blank text={tr('لا توجد بيانات')} /> : d.topCustomers.slice(0, 5).map((c, i) => (
             <MRow key={c.id}
@@ -124,10 +127,10 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
               } />
           ))}
         </MCard>
-      </Section>
+      </Section>)}
 
       {/* آخر الفواتير — أزرار تفتح المستند */}
-      <Section title={tr('آخر الفواتير')}>
+      {accountingOn && (<Section title={tr('آخر الفواتير')}>
         <MCard>
           {d.recentInvoices.length === 0 ? <Blank text={tr('لا توجد فواتير')} /> : d.recentInvoices.slice(0, 6).map(inv => (
             <MRow key={inv.id}
@@ -142,7 +145,7 @@ export default function MHome({ onOpenInvoice, onOpenCustomer }: {
               } />
           ))}
         </MCard>
-      </Section>
+      </Section>)}
 
       <div className="h-2" />
     </div>

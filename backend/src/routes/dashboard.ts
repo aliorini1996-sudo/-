@@ -64,6 +64,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     ]);
     })();
 
+    // «النظام المحاسبي» مطفأ ⇒ لا تغادر أرقامُ المبيعات والتحصيل الخادمَ أصلاً.
+    // الدلالة `!== false`: العَلَم افتراضه مفعّل، فغيابه يعني مفعّل لا مطفأ.
+    const tenantFlag = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true } });
+    const accountingOn = tenantFlag?.accountingEnabled !== false;
+
     const topRepsWithStats = topReps.map(r => ({
       id: r.id,
       name: r.name,
@@ -74,22 +79,27 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     res.json({
       success: true,
       data: {
-        today: {
-          salesTotal: Number(dailySales._sum.total ?? 0),
-          invoicesCount: dailySales._count.id,
-          collectionsTotal: Number(dailyReceipts._sum.amount ?? 0),
-          receiptsCount: dailyReceipts._count.id,
-        },
-        month: {
-          salesTotal: Number(monthSales._sum.total ?? 0),
-          invoicesCount: monthSales._count.id,
-          collectionsTotal: Number(monthReceipts._sum.amount ?? 0),
-          receiptsCount: monthReceipts._count.id,
-        },
+        accountingEnabled: accountingOn,
+        today: accountingOn
+          ? {
+            salesTotal: Number(dailySales._sum.total ?? 0),
+            invoicesCount: dailySales._count.id,
+            collectionsTotal: Number(dailyReceipts._sum.amount ?? 0),
+            receiptsCount: dailyReceipts._count.id,
+          }
+          : { salesTotal: 0, invoicesCount: 0, collectionsTotal: 0, receiptsCount: 0 },
+        month: accountingOn
+          ? {
+            salesTotal: Number(monthSales._sum.total ?? 0),
+            invoicesCount: monthSales._count.id,
+            collectionsTotal: Number(monthReceipts._sum.amount ?? 0),
+            receiptsCount: monthReceipts._count.id,
+          }
+          : { salesTotal: 0, invoicesCount: 0, collectionsTotal: 0, receiptsCount: 0 },
         customers: { total: totalCustomers, withBalance: overdueCustomers, creditExceeded },
-        topReps: topRepsWithStats,
-        topCustomers,
-        recentInvoices,
+        topReps: accountingOn ? topRepsWithStats : [],
+        topCustomers: accountingOn ? topCustomers : [],
+        recentInvoices: accountingOn ? recentInvoices : [],
       },
     });
   } catch (err) { next(err); }
@@ -98,6 +108,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 router.get('/sales-trend', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    // منحنى المبيعات محجوب أيضاً عند إطفاء المحاسبة — وإلا بقي مصدرُ ريالاتٍ مفتوحاً
+    const tf = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true } });
+    if (tf?.accountingEnabled === false) { res.json({ success: true, data: [] }); return; }
+
     const days = parseInt(req.query.days as string) || 30;
     const from = new Date();
     from.setDate(from.getDate() - days);

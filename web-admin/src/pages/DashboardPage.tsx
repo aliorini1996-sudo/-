@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { dashboardApi } from '../api/client';
+import { dashboardApi, companyApi } from '../api/client';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { DashboardStats } from '../types';
@@ -37,15 +37,24 @@ export default function DashboardPage() {
     refetchInterval: 60000,
   });
 
+  const companyQ = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { accountingEnabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  // «النظام المحاسبي» مطفأ عن هذه الشركة ⇒ تختفي كل خانة تعرض مبلغاً
+  const accountingOn = companyQ.data?.accountingEnabled !== false;
+
   const { data: trendData } = useQuery({
     queryKey: ['sales-trend'],
     queryFn: async () => {
       const res = await dashboardApi.salesTrend(30);
       return res.data.data as { date: string; total: number }[];
     },
+    enabled: accountingOn, // لا نطلب منحنى مبيعات لن يُعرض
   });
 
-  if (isLoading) return (
+  if (isLoading || companyQ.isLoading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" />
     </div>
@@ -69,6 +78,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Today Stats */}
+      {accountingOn && (
       <div>
         <h2 className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">{tr('إحصائيات اليوم')}</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -78,6 +88,7 @@ export default function DashboardPage() {
           <StatCard icon={TrendingUp} label={tr('تحصيل الشهر')} value={formatCurrency(d.month.collectionsTotal)} sub={`${d.month.receiptsCount} ${tr('سند')}`} color="bg-teal-500" />
         </div>
       </div>
+      )}
 
       {/* Customer Stats */}
       <div className="grid grid-cols-3 gap-4">
@@ -87,6 +98,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Chart + Top Reps */}
+      {accountingOn && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Sales Trend */}
         <div className="card lg:col-span-2">
@@ -131,8 +143,10 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Recent Invoices + Top Customers */}
+      {accountingOn && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Recent Invoices */}
         <div className="card">
@@ -176,6 +190,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

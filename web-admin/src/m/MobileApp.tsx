@@ -169,7 +169,7 @@ export default function MobileApp() {
       <div className="flex-1 overflow-hidden">
         {tabs.length === 0
           ? <MEmpty text={tr('لا تملك صلاحية أي قسم في التطبيق راجع مدير الشركة')} />
-          : <ScreenBody screen={screen} company={company} userName={user.name} />}
+          : <ScreenBody screen={screen} company={company} userName={user.name} accountingOn={accountingOn} />}
       </div>
 
       {/* الشريط السفليّ — يُخفى إن لم يبقَ تبويب مسموح */}
@@ -197,9 +197,9 @@ export default function MobileApp() {
 }
 
 /** شاشات التبويبات */
-function ScreenBody({ screen, company, userName }: { screen: Screen; company: unknown; userName: string }) {
+function ScreenBody({ screen, company, userName, accountingOn }: { screen: Screen; company: unknown; userName: string; accountingOn: boolean }) {
   const tr = useTr();
-  if (screen === 'home') return <MHome />;
+  if (screen === 'home') return <MHome accountingOn={accountingOn} />;
   if (screen === 'customers') return <MCustomers />;
   // key ضروريّ: المكوّنان في الموضع نفسه من الشجرة ومن النوع نفسه، فيوفّق
   // React بينهما ويحتفظ بالحالة — فيبقى مستندٌ مفتوحاً عند تبديل التبويب

@@ -95,3 +95,24 @@ test('نافذة المالك تقرأ الحالة بـ`!== false` لا `!!` �
   assert.match(s, /useState\(tenant\.accountingEnabled !== false\)/, 'الدلالة الصحيحة `!== false`');
   assert.doesNotMatch(s, /useState\(!!tenant\.accountingEnabled\)/, '`!!` يُظهر الخانة فارغة لشركة مفعّلة');
 });
+
+test('الصفحة الرئيسية تخفي كل خانة نقدية عند الإطفاء — لوحةً وجوالاً', () => {
+  const desk = read('..', 'web-admin', 'src', 'pages', 'DashboardPage.tsx');
+  assert.match(desk, /accountingEnabled !== false/, 'الدلالة الصحيحة `!== false`');
+  assert.doesNotMatch(desk, /accountingEnabled === true/, '`=== true` يخفي البطاقات عن كل الشركات');
+  // ثلاث لفّات: إحصائيات اليوم · المنحنى وأفضل المناديب · الفواتير وأفضل العملاء
+  assert.equal((desk.match(/\{accountingOn && \(/g) || []).length, 3, 'ثلاث كتل نقدية مسيَّجة');
+
+  const mob = read('..', 'web-admin', 'src', 'm', 'MHome.tsx');
+  // ستّة أقسام نقدية: اليوم · الشهر · المنحنى · أفضل المناديب · أفضل العملاء · آخر الفواتير
+  assert.equal((mob.match(/\{accountingOn && \(<Section/g) || []).length, 6, 'ستّة أقسام نقدية مسيَّجة');
+  assert.match(mob, /accountingOn = true/, 'الافتراض مفعّل فلا ينكسر مُستدعٍ لا يمرّره');
+});
+
+test('الخادم يصفّر المالي ولا يُسقط مفاتيحه — ثلاثة مستهلكين يقرأونها مباشرةً', () => {
+  const s = read('src', 'routes', 'dashboard.ts');
+  assert.match(s, /accountingEnabled !== false/, 'الدلالة الصحيحة على الخادم');
+  assert.match(s, /salesTotal: 0, invoicesCount: 0, collectionsTotal: 0, receiptsCount: 0/, 'تصفير لا إسقاط');
+  assert.match(s, /topReps: accountingOn \? topRepsWithStats : \[\]/, 'أفضل المناديب يفرغ لا يغيب');
+  assert.match(s, /data: \[\] \}\); return;/, 'منحنى المبيعات يردّ مصفوفة فارغة عند الإطفاء');
+});
