@@ -1,3 +1,4 @@
+import { useTr } from './i18n/strings';
 import { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
@@ -57,9 +58,11 @@ const HunterApp = lazy(() => import('./hunter/HunterApp'));
 // صفحة HOOK B التعريفية العامّة
 const HookBLandingPage = lazy(() => import('./pages/HookBLandingPage'));
 
-// شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة
+// شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة — تظهر على كل مسار كسول،
+// فنصّها العربي المثبَّت كان يومض بالعربية أمام كل مستخدم أجنبي
 function PageFallback() {
-  return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">جار التحميل</div>;
+  const tr = useTr();
+  return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">{tr('جار التحميل')}</div>;
 }
 
 // لوحة الأدمن على /app — الجذر "/" يبقى دائماً الصفحة التعريفية
