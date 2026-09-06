@@ -365,7 +365,7 @@ function translateChromeTr(html: string): string {
 
 // مبدّل اللغة الثلاثي المحقون في شريط التنقّل (ع/إ/فر) — ينتقل عبر الروابط للفهرسة الدولية
 function langSwitcher(current: Lang): string {
-  const items: [Lang, string][] = [['ar', 'ع'], ['en', 'EN'], ['fr', 'FR'], ['tr', 'TR']];
+  const items: [Lang, string][] = [['ar', 'ع'], ['en', 'EN'], ['fr', 'FR'], ['tr', 'TR'], ['zh', '中文']];
   const btn = (code: Lang, label: string) => {
     const active = code === current;
     return `<button onclick="window.__fsSetLangRoute&&window.__fsSetLangRoute('${code}')" aria-label="${code}" style="border:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:700; padding:6px 11px; border-radius:8px; transition:all .15s; ${active ? 'background:#E15A30; color:#fff;' : 'background:transparent; color:#6E6557;'}">${label}</button>`;

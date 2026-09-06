@@ -54,9 +54,16 @@ test('القاموسان يحملان الصينية لكل مدخل — بلا 
   assert.match(s, /PHRASES: Record<string, \{[^}]*zh: string \}>/, 'نوع PHRASES بلا zh');
 });
 
-test('مبدّل اللغة يعرض الخمس، والمسارات مسجَّلة', () => {
+test('مبدّلا اللغة كلاهما يعرض الخمس، والمسارات مسجَّلة', () => {
   const t = read('src', 'components', 'LanguageToggle.tsx');
-  for (const l of LANGS) assert.ok(t.includes(`code: '${l}'`), `اللغة ${l} غائبة عن المبدّل`);
+  for (const l of LANGS) assert.ok(t.includes(`code: '${l}'`), `اللغة ${l} غائبة عن مبدّل اللوحة`);
+
+  // مبدّل ثانٍ مستقلّ تماماً في شريط صفحة الهبوط (أزرار HTML مبنيّة نصّاً لا JSX).
+  // فاتني عند إضافة الصينية فظهرت اللوحة بخمس لغات والهبوط بأربع — فخّ المصدر المزدوج.
+  const land = read('src', 'pages', 'LandingPage.tsx');
+  const m = land.match(/const items: \[Lang, string\]\[\] = \[(.*?)\];/s);
+  assert.ok(m, 'مصفوفة مبدّل صفحة الهبوط غير موجودة');
+  for (const l of LANGS) assert.ok(m[1].includes(`'${l}'`), `اللغة ${l} غائبة عن مبدّل صفحة الهبوط`);
   const app = read('src', 'App.tsx');
   // /zh بلا مسارات = إعادة توجيه صامتة للرئيسية العربية عبر الالتقاط الشامل
   assert.match(app, /path="\/zh"/, 'مسار /zh غير مسجَّل');
