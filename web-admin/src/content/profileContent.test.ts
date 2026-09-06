@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS,
   mergeProfile, sectionOn, showKey, splitLines, splitPairs, PROFILE_CMS_KEY,
+  PROFILE_LANGS, PROFILE_LANG_LABEL,
 } from './profileContent';
 
 /**
@@ -32,10 +33,12 @@ test('كل حقل تقرؤه الصفحة موجود في المحرّر — و�
   assert.deepEqual(orphans, [], `حقول تقرؤها الصفحة ولا تظهر في المحرّر: ${orphans.join(', ')}`);
 });
 
-test('لكل حقل قيمة افتراضية باللغتين — الحقل الفارغ يترك فجوةً في الصفحة', () => {
+test('لكل حقل قيمة افتراضية في اللغات الخمس — الفارغ يترك فجوةً في الصفحة', () => {
   for (const f of PROFILE_FIELDS) {
-    assert.ok((PROFILE_DEFAULTS.ar[f.key] || '').trim(), `العربية بلا افتراضي: ${f.key}`);
-    assert.ok((PROFILE_DEFAULTS.en[f.key] || '').trim(), `الإنجليزية بلا افتراضي: ${f.key}`);
+    for (const l of PROFILE_LANGS) {
+      assert.ok((PROFILE_DEFAULTS[l][f.key] || '').trim(),
+        `${PROFILE_LANG_LABEL[l]} بلا افتراضي: ${f.key}`);
+    }
   }
 });
 
@@ -43,18 +46,20 @@ test('لكل حقل قيمة افتراضية باللغتين — الحقل ا
  * الحقول متعدّدة الأسطر تُعرَض بنداً لكل سطر، فاختلاف عددها بين اللغتين يعني
  * قارئاً يرى ثلاثة بنود وقارئاً آخر يرى أربعة من المحتوى نفسه.
  */
-test('عدد أسطر الحقول متعدّدة الأسطر متطابق بين اللغتين', () => {
+test('عدد أسطر الحقول متعدّدة الأسطر متطابق في اللغات الخمس', () => {
   for (const f of PROFILE_FIELDS.filter(x => x.multiline)) {
     const ar = splitLines(PROFILE_DEFAULTS.ar[f.key]).length;
-    const en = splitLines(PROFILE_DEFAULTS.en[f.key]).length;
-    assert.equal(en, ar, `${f.key}: العربية ${ar} سطراً والإنجليزية ${en}`);
+    for (const l of PROFILE_LANGS) {
+      const n = splitLines(PROFILE_DEFAULTS[l][f.key]).length;
+      assert.equal(n, ar, `${f.key}: العربية ${ar} سطراً و${PROFILE_LANG_LABEL[l]} ${n}`);
+    }
   }
 });
 
 /** حقول «قيمة | وصف»: الفاصل شرطٌ لظهور الرقم منفصلاً عن شرحه */
-test('محطات الرحلة وأرقام الإنجاز بصيغة «قيمة | وصف» في اللغتين', () => {
+test('محطات الرحلة والأرقام بصيغة «قيمة | وصف» في اللغات الخمس', () => {
   for (const key of ['journey_stations', 'numbers_items']) {
-    for (const lang of ['ar', 'en'] as const) {
+    for (const lang of PROFILE_LANGS) {
       const pairs = splitPairs(PROFILE_DEFAULTS[lang][key]);
       assert.ok(pairs.length >= 3, `${key}/${lang}: بنود قليلة`);
       for (const p of pairs) {
@@ -85,6 +90,7 @@ test('ما يحفظه المالك يفوز على الافتراضي، والغ
   assert.equal(m.ar.cover_title, 'عنوان المالك');
   assert.equal(m.ar.problem_title, PROFILE_DEFAULTS.ar.problem_title);
   assert.equal(m.en.cover_title, PROFILE_DEFAULTS.en.cover_title, 'تسرّبت العربية إلى الإنجليزية');
+  assert.equal(m.zh.cover_title, PROFILE_DEFAULTS.zh.cover_title, 'تسرّبت العربية إلى الصينية');
 });
 
 /**
@@ -157,4 +163,51 @@ test('كل عنوان كبير يحمل ارتفاع سطر صريحاً — و�
 /** ولا يُترك الأمر لأصناف leading التي تغلبها أصناف الحجم */
 test('العناوين لا تعتمد على leading-* وحدها', () => {
   assert.doesNotMatch(page, /text-3xl sm:text-5xl font-bold leading-/, 'عنوان يعتمد leading- وتغلبه فئة الحجم');
+});
+
+/**
+ * مبدّل اللغة ونصوص الواجهة: اللغة التي لا زرّ لها لا يصلها الزائر، والمفتاح
+ * الناقص من قاموس الواجهة يعرض للزائر التركيّ سطراً إنجليزياً وسط صفحته.
+ *
+ * الفحص بمسحٍ نصّيّ بلا هروبٍ نمطيّ: مولّد هذا الملف يبتلع الشرطة المائلة،
+ * فكتابتها هنا تُنتج سطراً حقيقياً يكسر السلسلة — وقد كسرها مرّة.
+ */
+test('اللغات الخمس كلها في مبدّل الصفحة وفي محرّر المالك', () => {
+  assert.equal(PROFILE_LANGS.length, 5, 'عدد اللغات تغيّر');
+  for (const l of PROFILE_LANGS) {
+    assert.ok(PROFILE_LANG_LABEL[l]?.trim(), `اللغة ${l} بلا اسم معروض`);
+  }
+  const HARDCODED = "['ar', 'en'] as ProfileLang";
+  for (const [name, src] of [['الصفحة', page], ['المحرّر', panel]] as const) {
+    assert.ok(src.includes('PROFILE_LANGS.map'), `${name}: المبدّل لا يمرّ على كل اللغات`);
+    assert.ok(!src.includes(HARDCODED), `${name}: بقيت لغتان مكتوبتان بأيديهما`);
+  }
+});
+
+test('كل مفتاح في قاموس واجهة الصفحة يحمل اللغات الخمس', () => {
+  const start = page.indexOf('const UI: Record<string, Record<ProfileLang, string>>');
+  assert.ok(start > 0, 'قاموس نصوص الواجهة غير موجود');
+  const END = String.fromCharCode(10) + '};';
+  const block = page.slice(start, page.indexOf(END, start));
+  // كل مدخلة تنتهي بـ«},» — القسمة عليها تعطي مدخلةً لكل مفتاح، سطراً كانت
+  // أو أسطراً. (العدّ بالأسطر وحده أسقط المدخلات المكتوبة في سطر واحد.)
+  const entries = block.split('},').filter(e => e.includes(': {'));
+  assert.ok(entries.length >= 15, `مفاتيح الواجهة قليلة: ${entries.length}`);
+  for (const e of entries) {
+    const name = e.slice(0, e.indexOf(': {')).trim().split(String.fromCharCode(10)).pop();
+    for (const l of PROFILE_LANGS) {
+      assert.ok(e.includes(l + ':'), `مفتاح الواجهة «${name}» بلا ${PROFILE_LANG_LABEL[l]}`);
+    }
+  }
+});
+
+/** النسخة تسويقية لا استثمارية: بقاء لغة الجولة والهوامش يناقض غرض الصفحة */
+test('لا لغة استثمارية في النصّ التسويقي', () => {
+  const banned = ['جولتنا الاستثمارية', 'هامشنا', 'investment round', 'gross margin', 'ARPU'];
+  for (const l of PROFILE_LANGS) {
+    const all = Object.values(PROFILE_DEFAULTS[l]).join(' ');
+    for (const b of banned) {
+      assert.ok(!all.includes(b), `${PROFILE_LANG_LABEL[l]}: بقيت عبارة استثمارية «${b}»`);
+    }
+  }
 });

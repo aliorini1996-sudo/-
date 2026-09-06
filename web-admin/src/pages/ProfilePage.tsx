@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { siteContentApi, profileDeckApi } from '../api/client';
 import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
-import { mergeProfile, splitLines, splitPairs, sectionOn, PROFILE_CMS_KEY, ProfileLang, ProfileContent } from '../content/profileContent';
+import { mergeProfile, splitLines, splitPairs, sectionOn, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileLang, ProfileContent } from '../content/profileContent';
 
 /**
  * «بروفايل» — الملف التعريفي التفاعلي fieldsa.net/profile
@@ -159,6 +159,65 @@ const PHOTOS = ['cover', 'problem', 'clients', 'about', 'journey', 'achievements
 /** الملفّ المدمَج — يُستعمل حتى يرفع المالك ملفاً من لوحته */
 const BUILTIN_PDF = '/fieldsales-profile.pdf';
 
+/**
+ * نصوص الواجهة (العناوين الصغيرة وأسماء الأزرار وبدائل الصور) بلغات المنصّة الخمس.
+ *
+ * كانت `L(ar, en)` تأخذ نصّين فقط، فأي لغة ثالثة كانت ستقرأ الإنجليزية صامتةً.
+ * القاموس يجعل النقص **مرئياً**: مفتاحٌ بلا لغةٍ ما يسقط في الاختبار البنيويّ
+ * بدل أن يظهر للزائر التركيّ سطرٌ إنجليزيّ وسط صفحته.
+ */
+const UI: Record<string, Record<ProfileLang, string>> = {
+  pdfName: {
+    ar: 'بروفايل Field Sales.pdf', en: 'Field Sales Profile.pdf', fr: 'Profil Field Sales.pdf',
+    tr: 'Field Sales Tanitim.pdf', zh: 'Field Sales 公司简介.pdf',
+  },
+  pdfTitle: {
+    ar: 'تنزيل البروفايل PDF', en: 'Download profile PDF', fr: 'Télécharger le profil PDF',
+    tr: 'Tanıtım dosyasını PDF indir', zh: '下载 PDF 简介',
+  },
+  kProfile: { ar: 'الملف التعريفي', en: 'Company profile', fr: 'Profil', tr: 'Tanıtım dosyası', zh: '公司简介' },
+  edition: { ar: 'نسخة ٢٠٢٦', en: '2026 edition', fr: 'Édition 2026', tr: '2026 sürümü', zh: '2026 版' },
+  audience: {
+    ar: 'لشركات التوزيع والمبيعات الميدانية', en: 'For distribution and field sales teams',
+    fr: 'Pour la distribution et la vente terrain', tr: 'Dağıtım ve saha satış ekipleri için',
+    zh: '面向分销与外勤销售团队',
+  },
+  kProblem: { ar: 'المشكلة', en: 'The problem', fr: 'Le problème', tr: 'Sorun', zh: '痛点' },
+  kSolution: { ar: 'المنصّة', en: 'The platform', fr: 'La plateforme', tr: 'Platform', zh: '平台' },
+  kSolve: { ar: 'ما نحلّه', en: 'What we solve', fr: 'Ce que nous résolvons', tr: 'Neyi çözüyoruz', zh: '我们解决什么' },
+  kWhy: { ar: 'لماذا نحن', en: 'Why us', fr: 'Pourquoi nous', tr: 'Neden biz', zh: '为什么选择我们' },
+  kJourney: { ar: 'الرحلة', en: 'The journey', fr: 'Notre parcours', tr: 'Yolculuk', zh: '发展历程' },
+  kModel: { ar: 'الاشتراك', en: 'Pricing', fr: 'Abonnement', tr: 'Abonelik', zh: '订阅方案' },
+  kNumbers: { ar: 'أرقامنا', en: 'By the numbers', fr: 'En chiffres', tr: 'Rakamlarla', zh: '数据一览' },
+  kRoadmap: { ar: 'قدرات إضافيّة', en: 'Add-ons', fr: 'Options avancées', tr: 'Ek yetenekler', zh: '增值功能' },
+  kAsk: { ar: 'ابدأ اليوم', en: 'Get started', fr: 'Commencer', tr: 'Hemen başlayın', zh: '立即开始' },
+  contactTitle: { ar: 'تواصل معنا', en: 'Get in touch', fr: 'Nous contacter', tr: 'Bize ulaşın', zh: '联系我们' },
+  lWebsite: { ar: 'الموقع', en: 'Website', fr: 'Site web', tr: 'Web sitesi', zh: '网站' },
+  lEmail: { ar: 'البريد', en: 'Email', fr: 'E-mail', tr: 'E-posta', zh: '邮箱' },
+  lLocation: { ar: 'المقر', en: 'Location', fr: 'Siège', tr: 'Merkez', zh: '总部' },
+  altProblem: {
+    ar: 'دفاتر ورقية متكدسة', en: 'Piles of paper ledgers', fr: 'Des registres papier empilés',
+    tr: 'Üst üste yığılmış kâğıt defterler', zh: '堆积如山的纸质账本',
+  },
+  altClients: {
+    ar: 'اسطول سيارات توزيع', en: 'A fleet of delivery vans', fr: 'Une flotte de camionnettes de livraison',
+    tr: 'Dağıtım araç filosu', zh: '配送车队',
+  },
+  altAbout: {
+    ar: 'داخل مستودع توزيع', en: 'Inside a distribution warehouse', fr: 'Dans un entrepôt de distribution',
+    tr: 'Bir dağıtım deposunun içi', zh: '分销仓库内部',
+  },
+  altInvest: {
+    ar: 'دفع الكتروني على جوال المندوب', en: 'Contactless payment on a rep phone',
+    fr: 'Paiement sans contact sur le téléphone du commercial',
+    tr: 'Temsilcinin telefonunda temassız ödeme', zh: '在业务员手机上完成刷卡支付',
+  },
+  docTitle: {
+    ar: 'بروفايل Field Sales', en: 'Company Profile — Field Sales', fr: 'Profil — Field Sales',
+    tr: 'Tanıtım Dosyası — Field Sales', zh: '公司简介 — Field Sales',
+  },
+};
+
 export default function ProfilePage() {
   const [lang, setLang] = useState<ProfileLang>('ar');
   const isAr = lang === 'ar';
@@ -185,8 +244,8 @@ export default function ProfilePage() {
   const pdfHref = deck?.file ? `/api/profile-deck/file?v=${deck.file.v}` : BUILTIN_PDF;
 
   useEffect(() => {
-    document.title = isAr ? 'بروفايل Field Sales' : 'Company Profile — Field Sales';
-  }, [isAr]);
+    document.title = UI.docTitle[lang] || UI.docTitle.en;
+  }, [lang]);
 
   /**
    * تسخين صور الصفحة بعد أول رسم.
@@ -205,10 +264,12 @@ export default function ProfilePage() {
   const arFont = "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif";
   const enFont = "'IBM Plex Sans', sans-serif";
   const serif = "'IBM Plex Serif', serif";
-  const font = isAr ? arFont : enFont;
-  const headFont = isAr ? arFont : serif;
+  const cjkFont = `'PingFang SC','Microsoft YaHei','Noto Sans SC',${enFont}`;
+  const font = isAr ? arFont : lang === 'zh' ? cjkFont : enFont;
+  const headFont = isAr ? arFont : lang === 'zh' ? cjkFont : serif;
 
-  const L = (ar: string, en: string) => (isAr ? ar : en);
+  // نصّ الواجهة بلغة العرض؛ والإنجليزية شبكة أمان لو نقص مفتاحٌ يوماً
+  const L = (k: keyof typeof UI) => UI[k][lang] || UI[k].en;
 
   const Wordmark = ({ dark }: { dark?: boolean }) => (
     <span style={{ fontFamily: serif, fontWeight: 700 }}>
@@ -291,16 +352,16 @@ export default function ProfilePage() {
           </a>
           <div className="flex items-center gap-2">
             <div className="flex rounded-xl p-0.5" style={{ background: '#F3EDE3' }}>
-              {(['ar', 'en'] as ProfileLang[]).map(l => (
-                <button key={l} onClick={() => setLang(l)}
-                  className="px-3.5 py-1.5 rounded-lg text-sm font-bold transition-colors"
+              {PROFILE_LANGS.map(l => (
+                <button key={l} onClick={() => setLang(l)} lang={l}
+                  className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-colors whitespace-nowrap"
                   style={lang === l ? { background: '#fff', color: COLORS.coral, boxShadow: '0 1px 3px rgba(0,0,0,.08)' } : { color: COLORS.gray }}>
-                  {l === 'ar' ? 'عربي' : 'EN'}
+                  {PROFILE_LANG_LABEL[l]}
                 </button>
               ))}
             </div>
-            <a href={pdfHref} download={L('بروفايل Field Sales.pdf', 'Field Sales Profile.pdf')}
-              title={L('تنزيل البروفايل PDF', 'Download profile PDF')}
+            <a href={pdfHref} download={L('pdfName')}
+              title={L('pdfTitle')}
               className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5"
               style={{ background: COLORS.ink, color: COLORS.cream }}>
               <Download size={14} />
@@ -315,7 +376,7 @@ export default function ProfilePage() {
         <Backdrop name="cover" grad={`linear-gradient(${isAr ? '90deg' : '270deg'}, rgba(31,26,19,.25) 0%, rgba(31,26,19,.72) 46%, rgba(31,26,19,.95) 100%)`} />
         <div className="relative z-[2] max-w-6xl mx-auto px-4 pt-24 pb-10 sm:pt-36 sm:pb-14">
           <div className="max-w-2xl" style={{ marginInlineEnd: 'auto' }}>
-            <Kicker>{L('الملف التعريفي', 'Company profile')}</Kicker>
+            <Kicker>{L('kProfile')}</Kicker>
             <h1 className="mt-4 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.cream, fontFamily: headFont, lineHeight: 1.35 }}>
               {t.cover_title}
             </h1>
@@ -327,9 +388,9 @@ export default function ProfilePage() {
         <div className="relative z-[2] max-w-6xl mx-auto px-4 pb-6 flex flex-wrap justify-between gap-3 text-xs" style={{ color: 'rgba(250,247,240,.55)' }}>
           <span>
             <span style={{ color: COLORS.coral, fontWeight: 700, fontFamily: enFont }}>{t.contact_website}</span>
-            {' · '}{L('نسخة ٢٠٢٦', '2026 edition')}
+            {' · '}{L('edition')}
           </span>
-          <span>{L('معد للمستثمرين', 'Prepared for investors')}</span>
+          <span>{L('audience')}</span>
         </div>
       </section>
 
@@ -337,13 +398,13 @@ export default function ProfilePage() {
       <section data-sec="problem" data-split="" hidden={!on('problem')} className="grid lg:grid-cols-2 items-stretch">
         <div className="flex items-center px-4 sm:px-10 py-14 sm:py-24 order-2 lg:order-none">
           <div className="max-w-xl mx-auto w-full">
-            <Kicker>{L('المشكلة', 'The problem')}</Kicker>
+            <Kicker>{L('kProblem')}</Kicker>
             <H2>{t.problem_title}</H2>
             <Lines text={t.problem_body} size="text-base sm:text-lg" />
           </div>
         </div>
         <div className="relative min-h-[240px] lg:min-h-[520px] order-1 lg:order-none">
-          <img src={IMG('problem')} alt={L('دفاتر ورقية متكدسة', 'Piles of paper ledgers')} loading="lazy" data-profile-photo=""
+          <img src={IMG('problem')} alt={L('altProblem')} loading="lazy" data-profile-photo=""
             className="absolute inset-0 w-full h-full object-cover" />
         </div>
       </section>
@@ -351,7 +412,7 @@ export default function ProfilePage() {
       {/* ═══ ٣ الحل — داكن ببطاقتين ═══ */}
       <section data-sec="solution" hidden={!on('solution')} style={{ background: COLORS.ink }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker>{L('الحل', 'The solution')}</Kicker>
+          <Kicker>{L('kSolution')}</Kicker>
           <H2 dark>{t.solution_title}</H2>
           <div className="mt-8 grid sm:grid-cols-2 gap-6">
             {[{ h: t.solution_col1_title, c: t.solution_col1 }, { h: t.solution_col2_title, c: t.solution_col2 }].map((col, ci) => (
@@ -372,13 +433,13 @@ export default function ProfilePage() {
       {/* ═══ ٤ الفرصة — لافتة صورة أعلى ثم ثلاث بطاقات ═══ */}
       <section data-sec="opportunity" hidden={!on('opportunity')}>
         <div className="relative h-52 sm:h-80 overflow-hidden">
-          <img src={IMG('clients')} alt={L('اسطول سيارات توزيع', 'A fleet of delivery vans')} loading="lazy" data-profile-photo=""
+          <img src={IMG('clients')} alt={L('altClients')} loading="lazy" data-profile-photo=""
             className="absolute inset-0 w-full h-full object-cover" />
           <span aria-hidden="true" className="absolute inset-0"
             style={{ background: `linear-gradient(rgba(31,26,19,.42), rgba(31,26,19,0) 32%), linear-gradient(rgba(250,247,240,0) 55%, ${COLORS.cream} 100%)` }} />
         </div>
         <div className="max-w-6xl mx-auto px-4 pb-16 sm:pb-24">
-          <Kicker>{L('الفرصة', 'The opportunity')}</Kicker>
+          <Kicker>{L('kSolve')}</Kicker>
           <H2>{t.opportunity_title}</H2>
           <Lines text={t.opportunity_intro} size="text-base sm:text-lg" />
           <div className="mt-8 grid sm:grid-cols-3 gap-5">
@@ -396,12 +457,12 @@ export default function ProfilePage() {
       {/* ═══ ٥ لماذا نحن — النصّ نصفٌ والصورة نصف ═══ */}
       <section data-sec="why" data-split="" hidden={!on('why')} className="grid lg:grid-cols-2 items-stretch">
         <div className="relative min-h-[240px] lg:min-h-[520px] order-1 lg:order-none">
-          <img src={IMG('about')} alt={L('داخل مستودع توزيع', 'Inside a distribution warehouse')} loading="lazy" data-profile-photo=""
+          <img src={IMG('about')} alt={L('altAbout')} loading="lazy" data-profile-photo=""
             className="absolute inset-0 w-full h-full object-cover" />
         </div>
         <div className="flex items-center px-4 sm:px-10 py-14 sm:py-24 order-2 lg:order-none">
           <div className="max-w-xl mx-auto w-full">
-            <Kicker>{L('لماذا نحن', 'Why us')}</Kicker>
+            <Kicker>{L('kWhy')}</Kicker>
             <H2>{t.why_title}</H2>
             <Lines text={t.why_body} size="text-base sm:text-lg" />
           </div>
@@ -410,7 +471,7 @@ export default function ProfilePage() {
 
       {/* ═══ ٦ الرحلة — خطّ زمنيّ أفقيّ ═══ */}
       <section data-sec="journey" hidden={!on('journey')} className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-        <Kicker>{L('الرحلة', 'The journey')}</Kicker>
+        <Kicker>{L('kJourney')}</Kicker>
         <H2>{t.journey_title}</H2>
         <div className="mt-12 relative">
           {/* الخطّ يمرّ خلف النقاط — على الشاشات الواسعة وحدها */}
@@ -441,7 +502,7 @@ export default function ProfilePage() {
       <section data-sec="model" hidden={!on('model')} className="relative overflow-hidden" style={{ background: COLORS.ink }}>
         <Backdrop name="achievements" grad={dim(0.88)} />
         <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker>{L('نموذج العمل', 'Business model')}</Kicker>
+          <Kicker>{L('kModel')}</Kicker>
           <H2 dark>{t.model_title}</H2>
           <div className="mt-8 grid sm:grid-cols-3 gap-5">
             {splitLines(t.model_items).map((a, i) => (
@@ -459,7 +520,7 @@ export default function ProfilePage() {
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <div className="flex items-center gap-2.5 font-bold text-sm" style={{ color: COLORS.cream }}>
             <span className="inline-block h-1 w-9 rounded-full" style={{ background: COLORS.cream }} />
-            {L('الانجاز', 'Traction')}
+            {L('kNumbers')}
           </div>
           <h2 className="mt-3 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.cream, fontFamily: headFont, lineHeight: 1.4 }}>{t.numbers_title}</h2>
           <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-5">
@@ -477,7 +538,7 @@ export default function ProfilePage() {
       <section data-sec="roadmap" hidden={!on('roadmap')} className="relative overflow-hidden" style={{ background: COLORS.ink }}>
         <Backdrop name="goals" grad={dim(0.9)} />
         <div className="relative z-[2] max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <Kicker>{L('خارطة الطريق', 'Roadmap')}</Kicker>
+          <Kicker>{L('kRoadmap')}</Kicker>
           <H2 dark>{t.roadmap_title}</H2>
           <div className="mt-8 grid sm:grid-cols-2 gap-5">
             {splitLines(t.roadmap_items).map((g, i) => (
@@ -493,12 +554,12 @@ export default function ProfilePage() {
       {/* ═══ ١٠ الطلب الاستثماري — النصّ نصفٌ والصورة نصف ═══ */}
       <section data-sec="ask" data-split="" hidden={!on('ask')} className="grid lg:grid-cols-2 items-stretch">
         <div className="relative min-h-[240px] lg:min-h-[520px] order-1 lg:order-none">
-          <img src={IMG('invest')} alt={L('دفع الكتروني على جوال المندوب', 'Contactless payment on a rep phone')} loading="lazy" data-profile-photo=""
+          <img src={IMG('invest')} alt={L('altInvest')} loading="lazy" data-profile-photo=""
             className="absolute inset-0 w-full h-full object-cover" />
         </div>
         <div className="flex items-center px-4 sm:px-10 py-14 sm:py-24 order-2 lg:order-none">
           <div className="max-w-xl mx-auto w-full">
-            <Kicker>{L('الطلب الاستثماري', 'The ask')}</Kicker>
+            <Kicker>{L('kAsk')}</Kicker>
             <H2>{t.ask_title}</H2>
             <div className="mt-8 grid gap-4">
               {splitLines(t.ask_items).map((tr, i) => (
@@ -517,12 +578,12 @@ export default function ProfilePage() {
       {/* ═══ ١١ التواصل ═══ */}
       <section data-sec="contact" hidden={!on('contact')} style={{ background: COLORS.coralL }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24 text-center">
-          <h2 className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont, lineHeight: 1.4 }}>{L('تواصل معنا', 'Get in touch')}</h2>
+          <h2 className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont, lineHeight: 1.4 }}>{L('contactTitle')}</h2>
           <div className="mt-8 grid sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
             {[
-              { label: L('الموقع', 'Website'), value: t.contact_website, coral: true, latin: true },
-              { label: L('البريد', 'Email'), value: t.contact_email, latin: true },
-              { label: L('المقر', 'Location'), value: t.contact_location },
+              { label: L('lWebsite'), value: t.contact_website, coral: true, latin: true },
+              { label: L('lEmail'), value: t.contact_email, latin: true },
+              { label: L('lLocation'), value: t.contact_location },
             ].map((c, i) => (
               <div key={i} className="border-t-2 pt-4" style={{ borderColor: COLORS.ink }}>
                 <p className="text-xs mb-1" style={{ color: COLORS.gray }}>{c.label}</p>

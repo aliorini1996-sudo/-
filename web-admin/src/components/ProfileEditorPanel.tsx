@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi, profileDeckApi } from '../api/client';
 import { X, Save, ExternalLink, RotateCcw, Upload, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, PROFILE_CMS_KEY, ProfileContent, ProfileLang } from '../content/profileContent';
+import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileContent, ProfileLang } from '../content/profileContent';
 import { backdropClose } from '../lib/backdropClose';
 
 /**
@@ -116,10 +116,10 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
         {/* مبدل اللغة + استرجاع */}
         <div className="px-5 pt-4 flex items-center justify-between">
           <div className="inline-flex bg-[#F3EDE3] rounded-xl p-0.5">
-            {(['ar', 'en'] as ProfileLang[]).map(l => (
-              <button key={l} onClick={() => setLang(l)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${lang === l ? 'bg-white text-[#E15A30] shadow-sm' : 'text-[#6E6557]'}`}>
-                {l === 'ar' ? 'النص العربي' : 'English'}
+            {PROFILE_LANGS.map(l => (
+              <button key={l} onClick={() => setLang(l)} lang={l}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${lang === l ? 'bg-white text-[#E15A30] shadow-sm' : 'text-[#6E6557]'}`}>
+                {PROFILE_LANG_LABEL[l]}
               </button>
             ))}
           </div>
