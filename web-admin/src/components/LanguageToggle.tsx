@@ -13,9 +13,9 @@ const LANGS: { code: Lang; label: string }[] = [
   { code: 'zh', label: '中文' },
 ];
 
-// مبدّل اللغة الثلاثي (عربي/English/Français) على كل الصفحات:
+// مبدّل اللغة الخماسي (عربي/English/Français/Türkçe/中文) على كل الصفحات:
 // - داخل التطبيق (/app · /rep · /platform · /login · /signup): يضبط اللغة مباشرةً بلا تنقّل.
-// - على صفحات التسويق: ينتقل بين المسارات (/ · /en · /fr) — روابط منفصلة للفهرسة الدولية (hreflang).
+// - على صفحات التسويق: ينتقل بين المسارات (/ · /en · /fr · /tr · /zh) — روابط منفصلة للفهرسة الدولية (hreflang).
 export default function LanguageToggle({ variant = 'light' }: { variant?: 'light' | 'dark' | 'floating' }) {
   const lang = useLang((s) => s.lang);
   const setLang = useLang((s) => s.setLang);
@@ -48,8 +48,8 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
       {open && (
         <>
           <div className="fixed inset-0 z-[90]" {...backdropClose(() => setOpen(false))} />
-          <div className="absolute z-[91] mt-1 min-w-[140px] bg-white rounded-xl shadow-xl border border-[#E9E1D3] overflow-hidden"
-            style={{ insetInlineEnd: 0 }} dir="rtl">
+          <div className="absolute z-[91] mt-1 min-w-[140px] max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-xl border border-[#E9E1D3] overflow-hidden"
+            style={{ insetInlineEnd: 0 }}>
             {LANGS.map((l) => (
               <button key={l.code} type="button"
                 onClick={() => choose(l.code)}

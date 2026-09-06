@@ -6,12 +6,13 @@ import { useAuthStore } from '../store/authStore';
 import { BrandIcon, BrandWordmark } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import LanguageToggle from '../components/LanguageToggle';
-import { useT } from '../i18n/strings';
+import { useT, useTr } from '../i18n/strings';
 import { useDir } from '../i18n/lang';
 
 export default function LoginPage() {
   const { login } = useAuthStore();
   const t = useT();
+  const tr = useTr();
   const dir = useDir();
   const [form, setForm] = useState({ username: '', password: '' });
   const [showPass, setShowPass] = useState(false);
@@ -62,14 +63,14 @@ export default function LoginPage() {
             <div className="rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur p-4 flex items-center justify-between">
               <div>
                 <p className="text-[#9A8F7E] text-xs">{t('login.salesToday')}</p>
-                <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>٨٬٤٥٠ <span className="text-xs text-[#C9BEAC]">ر.س</span></p>
+                <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }} dir="ltr">8,450 <span className="text-xs text-[#C9BEAC]">{tr('ر.س')}</span></p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-[#E15A30]/20 flex items-center justify-center text-[#E89B7E] text-lg">↗</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur p-4 flex items-center justify-between">
               <div>
                 <p className="text-[#9A8F7E] text-xs">{t('login.collectToday')}</p>
-                <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>٦٬٢٠٠ <span className="text-xs text-[#C9BEAC]">ر.س</span></p>
+                <p className="text-white font-bold text-lg" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }} dir="ltr">6,200 <span className="text-xs text-[#C9BEAC]">{tr('ر.س')}</span></p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-[#1E7A52]/25 flex items-center justify-center text-[#5FBE92] text-lg">✓</span>
             </div>

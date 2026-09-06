@@ -175,6 +175,7 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'ر.س': { en: 'SAR', fr: 'SAR', tr: 'SAR', zh: 'SAR' },
   // إجراءات وعناصر عامة متكرّرة
   'حفظ': { en: 'Save', fr: 'Enregistrer', tr: 'Kaydet', zh: '保存' },
   'حفظ التعديلات': { en: 'Save changes', fr: 'Enregistrer les modifications', tr: 'Değişiklikleri kaydet', zh: '保存修改' },
