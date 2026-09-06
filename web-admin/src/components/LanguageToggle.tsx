@@ -1,5 +1,5 @@
 import { Globe, Check } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang, isAppRoute, type Lang } from '../i18n/lang';
 import { pathForLocale } from '../i18n/locale';
@@ -23,6 +23,29 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const inApp = isAppRoute(loc.pathname);
+
+  /**
+   * حارس بصريّ: يزيح القائمة داخل الشاشة إن تجاوزت أي حافة.
+   *
+   * التموضع بالطرف المنطقي (insetInlineEnd) يعتمد الاتجاه **الموروث**، وأي حاوية
+   * في السلسلة تفرض dir تقلبه فتخرج القائمة عن الشاشة — وهو ما وقع فعلاً.
+   * فبدل الاتّكال على الوراثة، نقيس بعد الفتح ونصحّح بالبكسل. القياس يقع قبل
+   * الرسم (useLayoutEffect) فلا يراها المستخدم تقفز.
+   */
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open) { setShift(0); return; }
+    const el = menuRef.current;
+    if (!el) return;
+    const M = 8; // هامش من الحافة
+    const r = el.getBoundingClientRect();
+    const over = r.right - (window.innerWidth - M);
+    const under = M - r.left;
+    if (over > 0) setShift(-over);
+    else if (under > 0) setShift(under);
+    else setShift(0);
+  }, [open, lang]);
 
   const base = 'inline-flex items-center gap-1.5 font-semibold transition-colors rounded-xl';
   const styles: Record<string, string> = {
@@ -48,8 +71,9 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
       {open && (
         <>
           <div className="fixed inset-0 z-[90]" {...backdropClose(() => setOpen(false))} />
-          <div className="absolute z-[91] mt-1 min-w-[140px] max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-xl border border-[#E9E1D3] overflow-hidden"
-            style={{ insetInlineEnd: 0 }}>
+          <div ref={menuRef}
+            className="absolute z-[91] mt-1 min-w-[140px] max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-xl border border-[#E9E1D3] overflow-hidden"
+            style={{ insetInlineEnd: 0, transform: shift ? `translateX(${shift}px)` : undefined }}>
             {LANGS.map((l) => (
               <button key={l.code} type="button"
                 onClick={() => choose(l.code)}
