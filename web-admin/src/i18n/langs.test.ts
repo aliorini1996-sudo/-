@@ -90,3 +90,30 @@ test('التصيير المسبق وخريطة الموقع يشملان الص�
   assert.match(map, /hreflang="zh-Hans"/, 'خريطة الموقع بلا بديل صيني');
   assert.ok(map.includes("'/zh' + suffix"), 'روابط /zh غائبة عن خريطة الموقع');
 });
+
+test('كل مفتاح يُنادى في الكود موجود في القاموس — لا سقوط صامت للعربية', () => {
+  // درسٌ من بلاغ المالك: القاموس كان يغطّي ٩٣٧ مفتاحاً بينما الكود ينادي ١٢٤٩،
+  // فكانت ٥٠٧ نصوص تظهر عربيةً بالإنجليزية والفرنسية والتركية والصينية معاً.
+  const dict = read('src', 'i18n', 'strings.ts');
+  const have = new Set<string>();
+  for (const m of dict.matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) have.add(m[1]);
+
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return e.name === 'node_modules' ? [] : walk(full);
+    return /\.tsx?$/.test(e.name) && !e.name.endsWith('.test.ts') ? [full] : [];
+  });
+
+  const srcDir = path.join(root, 'src');
+  const strings = path.join(srcDir, 'i18n', 'strings.ts');
+  const missing = new Set<string>();
+  for (const f of walk(srcDir)) {
+    if (f === strings) continue;
+    const s = fs.readFileSync(f, 'utf8');
+    for (const m of s.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)) {
+      const k = m[1];
+      if (/[؀-ۿ]/.test(k) && !have.has(k)) missing.add(k);
+    }
+  }
+  assert.deepEqual([...missing], [], 'مفاتيح تُنادى ولا وجود لها في القاموس: ' + [...missing].slice(0, 20).join(' | '));
+});

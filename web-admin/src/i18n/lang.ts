@@ -6,7 +6,9 @@ const KEY = 'app_lang';
 // مسارات التطبيق (لا SEO): الدخول/التسجيل/اللوحة/المندوب/المالك — تدعم اختيار اللغة يدويًا (بما فيها الفرنسية)
 export function isAppRoute(p: string): boolean {
   // `m` بحدّ نهاية: كي لا يلتقط /maghreb أو أي مسار تسويقيّ يبدأ بالحرف نفسه
-  return /^\/(app|rep|pos|kds|platform|login|signup|verify)/.test(p) || /^\/m(\/|$)/.test(p);
+  // `owner` هنا إلزاماً: /platform يحوّل إليه، وغيابه يجعل LocaleSync يشتقّ اللغة
+  // من المسار فتُفرض العربية على شاشة دخول المالك مهما اختار المستخدم.
+  return /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/.test(p) || /^\/m(\/|$)/.test(p);
 }
 
 function initial(): Lang {

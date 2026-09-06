@@ -7,6 +7,7 @@ import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
 import { defaultContentTr } from '../landing/defaultContentTr';
+import { defaultContentZh } from '../landing/defaultContentZh';
 import { useLang, type Lang } from '../i18n/lang';
 import { useCurrency, type Currency } from '../i18n/currency';
 import { seoUrls, pathForLocale } from '../i18n/locale';
@@ -144,7 +145,7 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${arrow}</svg>
       </a>
       <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
-      < -- الأداة الثانية مولد الفواتير أيقونة عائمة مميزة أصغر من أيقونة الحاسبة 80px مقابل 116px بتدرج أخضر -->
+      <!-- الأداة الثانية مولد الفواتير أيقونة عائمة مميزة أصغر من أيقونة الحاسبة 80px مقابل 116px بتدرج أخضر -->
       <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(0,240,.12);">
         <a href="/invoice-generator" class="fs-inv-link" style="display:inline-block; text-decoration:none;">
           <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 1s ease-in-out infinite, fsInvGlow 2s ease-in-out infinite;">
@@ -360,6 +361,88 @@ const CHROME_TR: [string, string][] = [
 function translateChromeTr(html: string): string {
   let out = html;
   for (const [ar, tr] of CHROME_TR) out = out.split(ar).join(tr);
+  return out;
+}
+
+// ترجمة النصّ الثابت داخل القالب إلى الصينية المبسّطة — أطرافها العربية مطابقة
+// لـCHROME_TR حرفاً بحرف، وأي حرف مختلف يُبطل الاستبدال صامتاً فيبقى النصّ عربياً.
+const CHROME_ZH: [string, string][] = [
+  ['dir="rtl"', 'dir="ltr"'],
+  ['>تتبع مباشر للميدان<', '>外勤实时追踪<'],
+  ['>الرياض<', '>利雅得<'],
+  ['>القاهرة<', '>开罗<'],
+  ['>دبي<', '>迪拜<'],
+  ['>إسطنبول<', '>伊斯坦布尔<'],
+  ['>السعودية<', '>沙特阿拉伯<'],
+  ['>مصر<', '>埃及<'],
+  ['>الإمارات<', '>阿联酋<'],
+  ['>تركيا<', '>土耳其<'],
+  ['>الانطلاق<', '>出发<'],
+  ['>زيارة ١<', '>拜访 1<'],
+  ['>زيارة ٢<', '>拜访 2<'],
+  ['>زيارة ٣<', '>拜访 3<'],
+  ['>الوجهة<', '>下一站<'],
+  ['>٨:٠٥ ص · بدء اليوم<', '>08:05 · 开始一天<'],
+  ['>٩:٢٠ ص · تمّت ✓<', '>09:20 · 已完成 ✓<'],
+  ['>١٠:٤٥ ص · تمّت ✓<', '>10:45 · 已完成 ✓<'],
+  ['>١٢:١٠ م · جارية<', '>12:10 · 进行中<'],
+  ['>التالية · ١:٣٠ م<', '>下一次 · 13:30<'],
+  ['text-anchor:start; direction:rtl', 'text-anchor:end; direction:ltr'],
+  ['>١<', '>1<'],
+  ['>٢<', '>2<'],
+  ['>٣<', '>3<'],
+  ['>٤<', '>4<'],
+  ['>٥<', '>5<'],
+  ['>المميزات<', '>功能<'],
+  ['>كيف يعمل<', '>如何运作<'],
+  ['>الأسعار<', '>价格<'],
+  ['>الأسئلة<', '>常见问题<'],
+  ['>دخول الأدمن<', '>管理员登录<'],
+  ['>تطبيق المندوب<', '>业务员应用<'],
+  ['ابدأ مجانا', '免费开始使用'],
+  ['المدونة', '博客'],
+  ['حاسبة التسريب', '流失计算器'],
+  ['مولد الفواتير', '发票生成器'],
+  ['المبيعات والتحصيل', '销售与收款'],
+  ['٧ أيام', '7 天'],
+  ['محصل اليوم', '今日收款'],
+  ['+12.4% عن أمس', '较昨日 +12.4%'],
+  ['>سند قبض<', '>收款单<'],
+  ['>المبلغ<', '>金额<'],
+  ['>الحالة<', '>状态<'],
+  ['تم الإرسال', '已发送'],
+  ['طلب #10428 قيد التنفيذ', '订单 #10428 处理中'],
+  ['٩٢٬٧٠٠', '92,700'],
+  ['٨٠٠٫٠٠ ر.س', '800.00 SAR'],
+  [' ر.س / شهريا', ' SAR / 月'],
+  ['إدارة الطلبات والتحصيل', '订单与收款管理'],
+  ['فواتير ضريبية وسندات قبض', '增值税发票与收款单'],
+  ['تطبيق جوال للمناديب', '业务员移动应用'],
+  ['تقارير أساسية', '基础报表'],
+  ['>ابدأ الآن<', '>立即开始<'],
+  ['كل مميزات الباقة', '包含以下套餐的全部功能：'],
+  ['على الخريطة', '在地图上'],
+  ['تقارير وكشوف حساب متقدمة', '高级报表与对账单'],
+  ['دعم أولوية', '优先支持'],
+  ['كل مميزات', '包含以下套餐的全部功能：'],
+  ['تكامل ERP ومحاسبة', 'ERP 与会计系统集成'],
+  ['مدير حساب مخصص', '专属客户经理'],
+  ['تدريب وإعداد كامل', '完整培训与上线部署'],
+  ['تواصل مع المبيعات', '联系销售团队'],
+  ['>المنتج<', '>产品<'],
+  ['تطبيق الجوال', '移动应用'],
+  ['>الشركة<', '>企业<'],
+  ['>من نحن<', '>关于我们<'],
+  ['>تواصل معنا<', '>联系我们<'],
+  ['>قانوني<', '>法律条款<'],
+  ['>سياسة الخصوصية<', '>隐私政策<'],
+  ['>الشروط والأحكام<', '>条款与条件<'],
+  ['>اتفاقية الخدمة<', '>服务协议<'],
+  ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales 版权所有'],
+];
+function translateChromeZh(html: string): string {
+  let out = html;
+  for (const [ar, zh] of CHROME_ZH) out = out.split(ar).join(zh);
   return out;
 }
 
@@ -804,6 +887,11 @@ export default function LandingPage() {
     const trBase = { ...defaultContentTr, social: socialLinks || defaultContentTr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
     const trContent = applyCmsPrices(trBase, arContent);
     html = translateChromeTr(applyContent(LANDING_TEMPLATE, applyCurrency(trContent, currency), 'tr'));
+  } else if (lang === 'zh') {
+    // النسخة الصينية: محتوى صيني ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
+    const zhBase = { ...defaultContentZh, social: socialLinks || defaultContentZh.social, heroImage: arContent.heroImage } as Record<string, unknown>;
+    const zhContent = applyCmsPrices(zhBase, arContent);
+    html = translateChromeZh(applyContent(LANDING_TEMPLATE, applyCurrency(zhContent, currency), 'zh'));
   } else if (lang === 'fr') {
     // النسخة الفرنسية: محتوى فرنسي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت (المغرب العربي)
     const frBase = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage } as Record<string, unknown>;

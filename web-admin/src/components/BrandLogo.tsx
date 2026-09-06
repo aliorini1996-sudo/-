@@ -1,3 +1,4 @@
+import { useT } from '../i18n/strings';
 // شعار منصّة FieldSales — رمز «المسار الصاعد» مطابق لدليل الهوية الرسمي
 
 // الأيقونة المربّعة (مربع مرجاني + مسار التوزيع الصاعد + نقاط)
@@ -29,8 +30,12 @@ export function BrandMark({ size = 40 }: { size?: number }) {
 
 // الاسم اللفظي FieldSales — Field (حبر) + Sales (مرجاني)
 export function BrandWordmark({
-  iconSize = 44, dark = false, subtitle = 'إدارة مبيعات المناديب', showSubtitle = true,
+  iconSize = 44, dark = false, subtitle, showSubtitle = true,
 }: { iconSize?: number; dark?: boolean; subtitle?: string; showSubtitle?: boolean }) {
+  // الوصف كان عربياً مثبَّتاً في قيمة افتراضية فيظهر عربياً في كل اللغات،
+  // وترجمته موجودة في القاموس أصلاً تحت rep.tagline
+  const t = useT();
+  const sub = subtitle ?? t('rep.tagline');
   return (
     <div className="flex items-center gap-3">
       <BrandIcon size={iconSize} />
@@ -42,7 +47,7 @@ export function BrandWordmark({
           <span style={{ color: '#E15A30' }}> Sales</span>
         </div>
         {showSubtitle && (
-          <div style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', sans-serif", fontSize: iconSize * 0.27, color: dark ? '#9A8F7E' : '#6E6557', marginTop: 2 }}>{subtitle}</div>
+          <div style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', sans-serif", fontSize: iconSize * 0.27, color: dark ? '#9A8F7E' : '#6E6557', marginTop: 2 }}>{sub}</div>
         )}
       </div>
     </div>

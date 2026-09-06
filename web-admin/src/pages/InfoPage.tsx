@@ -5,6 +5,7 @@ import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
 import { defaultContentTr } from '../landing/defaultContentTr';
+import { defaultContentZh } from '../landing/defaultContentZh';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft } from 'lucide-react';
 import LanguageToggle from '../components/LanguageToggle';
@@ -110,6 +111,7 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
   const page = lang === 'en' ? defaultContentEn.pages[pageKey]
     : lang === 'fr' ? defaultContentFr.pages[pageKey]
     : lang === 'tr' ? defaultContentTr.pages[pageKey]
+    : lang === 'zh' ? defaultContentZh.pages[pageKey]
     : arPage;
 
   const seo = PAGE_SEO[pageKey];

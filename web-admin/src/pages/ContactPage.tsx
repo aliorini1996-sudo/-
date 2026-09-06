@@ -6,6 +6,7 @@ import { defaultContent } from '../landing/defaultContent';
 import { defaultContentEn } from '../landing/defaultContentEn';
 import { defaultContentFr } from '../landing/defaultContentFr';
 import { defaultContentTr } from '../landing/defaultContentTr';
+import { defaultContentZh } from '../landing/defaultContentZh';
 import { BrandIcon } from '../components/BrandLogo';
 import { ArrowLeft, Mail, Phone, MapPin, MessageCircle, LifeBuoy, Send, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -31,6 +32,7 @@ export default function ContactPage() {
   const c = lang === 'en' ? { ...cms, intro: defaultContentEn.contact.intro }
     : lang === 'fr' ? { ...cms, intro: defaultContentFr.contact.intro }
     : lang === 'tr' ? { ...cms, intro: defaultContentTr.contact.intro }
+    : lang === 'zh' ? { ...cms, intro: defaultContentZh.contact.intro }
     : cms;
 
   const home = pathForLocale('/', lang); // العودة للرئيسية بنفس اللغة الحالية
