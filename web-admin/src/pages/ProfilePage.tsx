@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { siteContentApi, profileDeckApi } from '../api/client';
+import { siteContentApi } from '../api/client';
 import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import { mergeProfile, splitLines, splitPairs, sectionOn, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileLang, ProfileContent } from '../content/profileContent';
@@ -105,7 +105,7 @@ const PRINT_CSS = `
   }
 
   /* صورة العملاء لافتة عريضة لا عمود */
-  #profile-doc [data-sec="clients"] img[data-profile-photo] { height: 40vh !important; max-height: none !important; }
+  #profile-doc [data-sec="opportunity"] img[data-profile-photo] { height: 40vh !important; max-height: none !important; }
   /* خلفيات الأقسام الداكنة تغطّي الورقة كاملة */
   #profile-doc img[data-backdrop] { height: 100% !important; max-height: none !important; }
 
@@ -136,9 +136,12 @@ const PRINT_CSS = `
   /* بطاقات الأرقام والقوائم تتمدّد عمودياً فتملأ نصيبها من الصفحة */
   #profile-doc [data-sec="numbers"] .grid > div { padding: 22mm 6mm !important; }
   #profile-doc [data-sec="solution"] .rounded-2xl,
-  #profile-doc [data-sec="achievements"] .rounded-2xl,
-  #profile-doc [data-sec="goals"] .rounded-2xl { padding: 13mm !important; }
-  #profile-doc [data-sec="clients"] .grid > div { padding: 11mm !important; }
+  /* أسماء الأقسام تغيّرت مع النسخة التسويقية، وبقيت هذه القواعد تخاطب
+     «achievements» و«clients» و«goals» — أقساماً لم تعد موجودة. فكانت قواعد
+     طباعةٍ تمرّ بلا أثر: تنسيقٌ يبدو مضبوطاً في المصدر وغائب عن الورق. */
+  #profile-doc [data-sec="numbers"] .rounded-2xl,
+  #profile-doc [data-sec="roadmap"] .rounded-2xl { padding: 13mm !important; }
+  #profile-doc [data-sec="opportunity"] .grid > div { padding: 11mm !important; }
   /* مسافة العنوان عن جسمه تتّسع على الورق فتتنفّس الصفحة */
   #profile-doc > section:not([data-split]) h2 { margin-bottom: 10mm !important; }
 }
@@ -147,17 +150,19 @@ const PRINT_CSS = `
 const COLORS = { coral: '#E15A30', ink: '#1F1A13', cream: '#FAF7F0', coralL: '#FBEBE2', gray: '#6E6557', sand: '#E9E1D3', green: '#1E7A52' };
 const IMG = (n: string) => `/media/profile/${n}.jpg`;
 /**
- * ملفّ البروفايل الجاهز — نسخة مصمَّمة بمقاس عرضيّ 16:9 يُنزّلها الزائر كما هي.
+ * تصدير البروفايل PDF = **طباعة الصفحة نفسها** بلغتها المعروضة.
  *
- * ولماذا ملفّ جاهز لا `window.print()` على الصفحة نفسها: الطباعة تخرج بمقاس
- * ورق المستخدم وبإعدادات طابعته، فتختلف النتيجة من جهاز لجهاز، وقد تسقط صورةٌ
- * لم تُحمَّل بعد. والملفّ في `public` أي أصل ثابت يُخدَم قبل التحويل العام
- * للـSPA (كما يُخدَم `privacy.html` اليوم).
+ * كان الزرّ يخدم ملفاً جاهزاً واحداً في `public`، وحُجّته أن الطباعة تخرج بمقاس
+ * ورق المستخدم وقد تسقط صورة لم تُحمَّل. لكنّ الحجّتين سقطتا: `@page { size: A4 }`
+ * يفرض المقاس في PRINT_CSS، والصور تُنتظَر صراحةً قبل فتح الحوار.
+ *
+ * وبقي عيبٌ لا علاج له في الملفّ الجاهز: **ملفٌّ واحد لا يمكن أن يطابق خمس
+ * لغات**، ولا يتبع نصّاً يعدّله المالك من لوحته. فكان الزائر التركيّ يقرأ صفحةً
+ * بالتركية ثم ينزّل ملفاً عربياً بمحتوى قديم. الطباعة تُلغي الفجوة **بالبناء**:
+ * المصدر واحد، فلا مجال لأن يفترقا.
  */
 // كل صور الصفحة: ستّ صور <img> وأربع خلفيات أقسام — مصدر واحد للتسخين والتصدير
 const PHOTOS = ['cover', 'problem', 'clients', 'about', 'journey', 'achievements', 'goals', 'invest', 'closing'];
-/** الملفّ المدمَج — يُستعمل حتى يرفع المالك ملفاً من لوحته */
-const BUILTIN_PDF = '/fieldsales-profile.pdf';
 
 /**
  * نصوص الواجهة (العناوين الصغيرة وأسماء الأزرار وبدائل الصور) بلغات المنصّة الخمس.
@@ -235,13 +240,56 @@ export default function ProfilePage() {
    * ملفّ التنزيل: ما رفعه المالك من لوحته أولاً، والمدمَج في البناء احتياطاً.
    * فلا يبقى الزرّ يخدم نسخةً قديمة بعد أن يحدّث المالك بروفايله.
    */
-  const { data: deck } = useQuery({
-    queryKey: ['profile-deck'],
-    queryFn: async () => (await profileDeckApi.get()).data.data as { file: { name: string; v: number } | null },
-    staleTime: 300_000,
-    retry: 1,
-  });
-  const pdfHref = deck?.file ? `/api/profile-deck/file?v=${deck.file.v}` : BUILTIN_PDF;
+  /**
+   * التصدير: ننتظر الخطوط وكل الصور، ثم نسمّي المستند باسم الملفّ المطلوب
+   * (المتصفّح يشتقّ اسم ملفّ الحفظ من عنوان المستند)، ثم نفتح حوار الطباعة.
+   * والانتظار ليس احتياطاً زائداً: الصور كسولة وخلفيات الأقسام تحت الطيّة،
+   * وحوار الطباعة لا ينتظر ما لم يُطلب — فكان الملفّ يخرج بخانات بيضاء.
+   */
+  const [exporting, setExporting] = useState(false);
+  const exportPdf = useCallback(async () => {
+    setExporting(true);
+    try {
+      // ① عناصر <img> في الصفحة كسولة وتحت الطيّة: تسخين المورد في الذاكرة
+      //    **لا يكفي** — المتصفّح لا يُحمّل الصورة الكسولة حتى تقارب الشاشة،
+      //    فتخرج الورقة بخانات بيضاء ولو كان الملفّ محمَّلاً سلفاً. نرفع الكسل
+      //    عنها صراحةً ثم ننتظرها هي لا نسخةً منها.
+      const domImages = Array.from(
+        document.querySelectorAll<HTMLImageElement>('#profile-doc img[data-profile-photo]'),
+      );
+      domImages.forEach(im => { im.loading = 'eager'; });
+
+      // ② وخلفيات الأقسام صورٌ في CSS لا عناصر، فتُسخَّن بنسخةٍ في الذاكرة
+      const settled = <T,>(p: Promise<T>) => p.catch(() => undefined);
+      const withDeadline = (p: Promise<unknown>) =>
+        Promise.race([p, new Promise(done => window.setTimeout(done, 6000))]);
+
+      await withDeadline(Promise.all([
+        settled(Promise.resolve((document as Document & { fonts?: FontFaceSet }).fonts?.ready)),
+        ...domImages.map(im => im.complete && im.naturalWidth > 0
+          ? Promise.resolve()
+          : new Promise<void>(done => { im.onload = () => done(); im.onerror = () => done(); })),
+        ...PHOTOS.map(n => new Promise<void>(done => {
+          const warm = new Image();
+          warm.onload = () => done();
+          warm.onerror = () => done();   // صورة ناقصة لا تمنع التصدير
+          warm.src = IMG(n);
+        })),
+      ]));
+      const previous = document.title;
+      document.title = (UI.pdfName[lang] || UI.pdfName.en).replace('.pdf', '');
+      const restore = () => {
+        document.title = previous;
+        window.removeEventListener('afterprint', restore);
+      };
+      window.addEventListener('afterprint', restore);
+      window.print();
+      // شبكة أمان: متصفّحٌ لا يُطلق afterprint لا يترك العنوان مبدَّلاً
+      window.setTimeout(restore, 4000);
+    } finally {
+      setExporting(false);
+    }
+  }, [lang]);
 
   useEffect(() => {
     document.title = UI.docTitle[lang] || UI.docTitle.en;
@@ -340,7 +388,7 @@ export default function ProfilePage() {
 
 
   return (
-    <div id="profile-doc" dir={dir} className="min-h-screen" style={{ background: COLORS.cream, fontFamily: font }}>
+    <div id="profile-doc" dir={dir} lang={lang} className="min-h-screen" style={{ background: COLORS.cream, fontFamily: font }}>
       <style>{PRINT_CSS}</style>
 
       {/* الشريط العلوي: الشعار + مبدل اللغة + تنزيل الملف */}
@@ -360,13 +408,13 @@ export default function ProfilePage() {
                 </button>
               ))}
             </div>
-            <a href={pdfHref} download={L('pdfName')}
-              title={L('pdfTitle')}
-              className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5"
+            <button type="button" onClick={exportPdf} disabled={exporting}
+              title={L('pdfTitle')} aria-label={L('pdfTitle')}
+              className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-60"
               style={{ background: COLORS.ink, color: COLORS.cream }}>
               <Download size={14} />
               PDF
-            </a>
+            </button>
           </div>
         </div>
       </header>

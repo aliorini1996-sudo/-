@@ -97,13 +97,16 @@ test('ما يحفظه المالك يفوز على الافتراضي، والغ
  * زرّ الـPDF يخدم ما يرفعه المالك ويسقط للمدمَج — فلا يبقى يخدم نسخةً قديمة
  * بعد أن يحدّث بروفايله، ولا يتعطّل إن لم يرفع شيئاً بعد.
  */
-test('زرّ التنزيل يخدم ملفّ المالك ويسقط للمدمَج', () => {
-  assert.match(page, /profileDeckApi\.get\(\)/, 'الصفحة لا تسأل عن الملفّ المرفوع');
-  assert.match(page, /deck\?\.file \? `\/api\/profile-deck\/file\?v=\$\{deck\.file\.v\}` : BUILTIN_PDF/,
-    'لا سقوط للملفّ المدمَج');
-  assert.ok(fs.existsSync(path.join(process.cwd(), 'public', 'fieldsales-profile.pdf')),
-    'الملفّ المدمَج مفقود من public');
+/**
+ * السلوك القديم كان: اخدم ملفّ المالك المرفوع، وإلا فالملفّ المدمَج في `public`.
+ * سقط الاثنان لسببٍ واحد: **ملفٌّ واحد لا يطابق خمس لغات** ولا يتبع نصّاً
+ * يعدّله المالك من لوحته. الاختبار الآن يحرس العقد الجديد لا القديم.
+ */
+test('التصدير مصدره الصفحة نفسها لا ملفٌّ منفصل', () => {
+  assert.ok(!page.includes('BUILTIN_PDF'), 'ما زال ثابت الملفّ المدمَج قائماً');
+  assert.ok(page.includes('exportPdf'), 'لا دالّة تصدير');
 });
+
 
 test('رفع الملفّ متاح من محرّر البروفايل نفسه — لا لوحة ثانية', () => {
   assert.match(panel, /profileDeckApi\.putFile/, 'المحرّر لا يرفع الملفّ');
@@ -210,4 +213,33 @@ test('لا لغة استثمارية في النصّ التسويقي', () => {
       assert.ok(!all.includes(b), `${PROFILE_LANG_LABEL[l]}: بقيت عبارة استثمارية «${b}»`);
     }
   }
+});
+
+/**
+ * تصدير PDF: المصدر واحد أو لا يكون.
+ *
+ * كان الزرّ يخدم ملفاً ثابتاً في `public`، فيقرأ الزائر التركيّ صفحةً بالتركية
+ * ثم ينزّل ملفاً عربياً بمحتوى ما قبل آخر تعديل. ملفٌّ واحد لا يطابق خمس لغات
+ * ولا يتبع نصّاً يعدّله المالك — فصار التصدير طباعةً للصفحة نفسها.
+ */
+test('تصدير PDF يطبع الصفحة ولا يخدم ملفاً ثابتاً', () => {
+  assert.ok(page.includes('window.print()'), 'التصدير لا يطبع الصفحة');
+  assert.ok(!page.includes('fieldsales-profile.pdf'), 'ما زال يخدم ملفاً ثابتاً منفصلاً');
+  assert.ok(!page.includes('profileDeckApi'), 'ما زال يقرأ ملفاً مرفوعاً لا يتبع اللغة');
+  // اسم الملف المحفوظ يتبع اللغة المعروضة
+  assert.ok(page.includes('UI.pdfName[lang]'), 'اسم الملفّ لا يتبع لغة العرض');
+  // والصور تُنتظر قبل الحوار وإلا خرجت الورقة بخانات بيضاء
+  assert.ok(page.includes('PHOTOS.map'), 'لا انتظار للصور قبل الطباعة');
+});
+
+/** قاعدة طباعة تخاطب قسماً غير موجود تمرّ بلا أثر — تنسيقٌ يبدو مضبوطاً وغائب عن الورق */
+test('كل قاعدة طباعة تخاطب قسماً موجوداً في الصفحة', () => {
+  const cssEnd = page.indexOf('`;', page.indexOf('const PRINT_CSS'));
+  const css = page.slice(0, cssEnd);
+  const body = page.slice(cssEnd);
+  const secsIn = (src: string) => new Set(
+    [...src.matchAll(/data-sec="([a-z]+)"/g)].map(m => m[1]),
+  );
+  const orphans = [...secsIn(css)].filter(x => !secsIn(body).has(x));
+  assert.deepEqual(orphans, [], `قواعد طباعة لأقسام غير موجودة: ${orphans.join(', ')}`);
 });

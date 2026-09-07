@@ -4,6 +4,7 @@ import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { paymentMethodLabels, getActiveCurrency, getActiveNumerals } from '../utils/format';
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
+import { isSaudiDoc } from './RepDocuments';
 
 function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -91,7 +92,10 @@ function head(company: InvoiceDoc['company']): string {
 
 export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
   const isSimplified = !doc.customer.taxNumber;
-  const title = doc.isReturn ? 'إشعار دائن مرتجع' : (isSimplified ? 'فاتورة ضريبية مبسطة' : 'فاتورة ضريبية');
+  // تصنيف ZATCA سعوديّ — خارج السعودية يبقى العنوان محايداً (انظر isSaudiDoc)
+  const title = doc.isReturn ? 'إشعار دائن مرتجع'
+    : !isSaudiDoc(doc.company) ? 'فاتورة'
+    : (isSimplified ? 'فاتورة ضريبية مبسطة' : 'فاتورة ضريبية');
   const qr = await qrBlock(doc.company, doc.date, doc.total, doc.tax);
   const items = doc.items.map(it => `
     <div class="item">

@@ -32,7 +32,16 @@ export interface Company {
   logo?: string | null;          // شعار (base64 data URL)
   primaryColor?: string | null;  // لون الترويسة (hex)
   headerStyle?: string | null;   // classic | banner | minimal
+  countryCode?: string | null;   // ISO alpha-2 — يصل مع ردّ /company
 }
+
+/**
+ * تصنيف «مبسّطة/ضريبية» مطلبٌ سعوديّ من هيئة الزكاة والضريبة (ZATCA).
+ * فلا يُطبع على مستند شركةٍ خارج السعودية — يوهم بامتثالٍ لنظامٍ لا يخصّها.
+ * وغياب الدولة يُعامَل سعوديّةً لأنه افتراض العمود في المخطّط (@default("SA")).
+ */
+export const isSaudiDoc = (company?: Company | null): boolean =>
+  (company?.countryCode ?? 'SA').toUpperCase() === 'SA';
 
 export interface DocCustomer {
   name: string;
@@ -259,6 +268,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   const isSimplified = !doc.customer.taxNumber;
   const docTitle = doc.isReturn
     ? tr('إشعار دائن مرتجع')
+    : !isSaudiDoc(doc.company) ? tr('فاتورة')
     : (isSimplified ? tr('فاتورة ضريبية مبسطة') : tr('فاتورة ضريبية'));
   // رمز QR وفق هيئة الزكاة والضريبة — يظهر فقط إذا كان للشركة رقم ضريبي
   const qrValue = doc.company?.taxNumber
