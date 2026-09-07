@@ -266,7 +266,10 @@ export default function ProfilePage() {
 
       await withDeadline(Promise.all([
         settled(Promise.resolve((document as Document & { fonts?: FontFaceSet }).fonts?.ready)),
-        ...domImages.map(im => im.complete && im.naturalWidth > 0
+        // `complete` وحدها هي الشرط، لا `naturalWidth > 0`: الصورة التي **فشلت**
+        // تبقى complete بعرضٍ صفر، ولن يُطلق لها onload ولا onerror مرّةً ثانية —
+        // فانتظارها انتظارٌ لحدثٍ وقع وانقضى، يعلّق الزرّ حتى تنقضي المهلة.
+        ...domImages.map(im => im.complete
           ? Promise.resolve()
           : new Promise<void>(done => { im.onload = () => done(); im.onerror = () => done(); })),
         ...PHOTOS.map(n => new Promise<void>(done => {
