@@ -46,6 +46,7 @@ model Tenant {
   paylinkEnabled            Boolean   @default(false) // ميزة الدفع الإلكتروني (روابط دفع ميسر عبر حسابنا المجمِّع) — يفعّلها المالك لكل شركة حسب الاشتراك
   paylinkFeePct             Float     @default(4) // نسبة عمولتنا على كل تحصيل إلكتروني — لكل شركة على حدة (شاملة الضريبة)
   paylinkFeeFlat            Float     @default(1) // الريال الثابت لكل دفعة — شامل الضريبة
+  dailyReportEnabled        Boolean   @default(false) // التقرير اليومي للمندوب وسلسلة اعتماده — يفعّلها المالك لكل شركة حسب الاشتراك
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -83,6 +84,11 @@ model Tenant {
   settlementEntries    SettlementEntry[]
   invoiceInstallments  InvoiceInstallment[]
   payouts              Payout[]
+  dailyReportFields    DailyReportField[]
+  dailyReportLevels    DailyReportLevel[]
+  dailyReports         DailyReport[]
+  dailyReportTasks     DailyReportTask[]
+  dailyReportConfigLog DailyReportConfigLog[]
 
   @@map("tenants")
 }
@@ -214,9 +220,9 @@ model SalesRep {
   canCancelReceipt Boolean @default(false)
 
   // Customer permissions
-  canAddCustomer   Boolean @default(false)
-  canEditCustomer  Boolean @default(false)
-  canViewStatement Boolean @default(true)
+  canAddCustomer           Boolean @default(false)
+  canEditCustomer          Boolean @default(false)
+  canViewStatement         Boolean @default(true)
   /// «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ لا مانح — تفعيله يسلب لا يمنح.
   /// حين يكون true لا يفتح المندوب ملفّ العميل إلا وهو داخل ٥٠ متراً من موقعه
   /// المسجَّل، والعميل بلا إحداثيات يُمنع منعاً باتّاً. وحين يكون false يفتح
@@ -254,6 +260,7 @@ model SalesRep {
   adminScopes         AdminRepScope[]
   createdCustomers    Customer[]            @relation("CustomerCreatedByRep")
   paymentLinks        CustomerPaymentLink[]
+  dailyReports        DailyReport[]
 
   @@index([tenantId])
   @@index([lastSeenAt])
@@ -1628,4 +1635,350 @@ model ProfileFile {
   updatedAt DateTime @updatedAt
 
   @@map("profile_file")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  التقرير اليومي — إقرارٌ يرفعه المندوب بنفسه، يمرّ بسلسلة اعتمادٍ تعرّفها
+//  الشركة (عدد المستويات ومن يملك كلاً منها)، وينتهي تقريراً شاملاً للفريق.
+//
+//  ملاحظتان عامّتان تسريان على الجداول الثمانية:
+//   • معرّفات المستخدمين الإداريين هنا **نصّ بلا مفتاح خارجيّ** عمداً، كي لا
+//     يمحو حذفُ حسابِ مشرفٍ تاريخَ اعتماداته ولا توجيهه. سابقتها في المستودع
+//     RequestStat.userId و CustomerPaymentLink.createdById.
+//   • لا enum ولا Json في هذا المخطّط كلّه — ليس منهما واحدٌ في هذا الملف.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// خانةٌ في نموذج التقرير — «تُضاف وتُزال من لوحة التحكم بالإدارة».
+///
+/// ⚠️ **لا تُحذف خانة لها قيم أبداً** — تُؤرشَف بـisActive=false. حذف صفّ
+/// التعريف ييتّم كل قيمةٍ رُفعت تحته في تقارير الشهر الماضي ويكسر التقرير
+/// الشامل. ونمط «deleteMany ثم create» المستعمل لشرائح السعر صالحٌ هناك
+/// لأنها بلا تابعين، وقاتلٌ هنا. ونظيرها القائم: إيقاف المصروف المتكرّر
+/// بتاريخ بدل حذفه.
+model DailyReportField {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// مفتاح ثابت لا يتغيّر بتغيّر التسمية (يولّده الخادم)
+  key   String
+  label String
+  /// NUMBER = رقم عام | MONEY = مبلغ (يمرّ بـroundHalfUp) | COUNT = عدد صحيح | TEXT = نصّ
+  kind  String @default("NUMBER")
+
+  /// **مصدر رقم النظام** — يبقى null في الطرح الأول بقرار المالك (إدخال يدويّ
+  /// بحت بلا مقارنة). العمود موجودٌ من اليوم الأول كي يُفعَّل ربطُ خانةٍ بمصدرٍ
+  /// من النظام لاحقاً بلا تعديل جداول. القيم المستقبليّة:
+  /// SALES | COLLECTIONS | INVOICE_COUNT | RECEIPT_COUNT | VISITS | WORK_MINUTES
+  systemSource String?
+
+  required Boolean @default(false)
+
+  /// من يملؤها: null = المندوب عند الرفع | seq مستوى = يملؤها صاحب ذلك المستوى
+  /// («ثم يتأكّد المحاسب من المعلومات ويسجّل بياناته هو»)
+  fillLevelSeq Int?
+
+  seq        Int
+  isActive   Boolean   @default(true)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  values DailyReportValue[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId, isActive, seq])
+  @@map("daily_report_fields")
+}
+
+/// مستوىً في سلسلة الاعتماد. seq هو **العمق** (١ = أوّل من يستقبل بعد
+/// المندوب، والمندوب نفسه في المستوى 0 ضمناً بلا صفّ).
+///
+/// ولماذا لا يُشتقّ من الأدوار: Admin.role نصٌّ بثلاث قيم بلا قيد تفرّد،
+/// ومسار مستخدمي الشركة يسمح بعددٍ غير محدود من MANAGER — فـ«أرسله للمشرف»
+/// تسأل: أيّهم؟ لذلك المستوى يُملَك بمعرّف مستخدمٍ بعينه لا بدور.
+model DailyReportLevel {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  seq  Int
+  name String
+
+  /// REVIEW = يعلّق ويعتمد | ENTER = يعلّق ويسجّل بياناته هو ثم يعتمد
+  kind String @default("REVIEW")
+
+  /// ALL = يوقّع كل ملّاك المستوى | ANY = يكفي أوّلهم (تغطية الإجازة).
+  /// العمود يُكتب مع إنشاء الجدول ولا تعرضه الواجهة إلا في م٦: إضافته بعد
+  /// امتلاء الجدول مكلفة، وغيابه يوقف تقارير فريقٍ أسبوعَ إجازةِ محاسب.
+  quorum String @default("ALL")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owners DailyReportLevelOwner[]
+
+  @@unique([tenantId, seq])
+  @@index([tenantId])
+  @@map("daily_report_levels")
+}
+
+/// **التشعّب**: صاحبُ مستوىً بعينه، ولأيّ مناديب.
+/// مستوىً بمالكٍ واحد isDefault=true = بلا تشعّب (يستقبل كل المناديب).
+/// مستوىً بثلاثة ملّاك لكلٍّ قائمة مناديبه ورابعٍ افتراضيّ = تشعّبٌ حقيقيّ.
+///
+/// ولا يُعاد استعمال AdminRepScope للتوجيه: دلالته «رؤية» لا «إشراف»، وقاعدته
+/// AND لا OR مع قائمة عملاء مستقلّة، وهو خامدٌ بالكامل (scopeEnabled مطفأ
+/// افتراضياً). وتفعيلُه لغرض التقارير يفتح في اللحظة نفسها رؤيةَ المستخدم
+/// للعملاء والفواتير والسندات.
+model DailyReportLevelOwner {
+  id       String           @id @default(uuid())
+  tenantId String
+  levelId  String
+  level    DailyReportLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  adminId   String
+  adminName String
+
+  /// المالك الافتراضي: يستقبل تقارير المناديب غير المُوجَّهين لأحد.
+  /// واحدٌ لكل مستوى — يحرسه المسار لا القاعدة (فهرس جزئيّ لا يعبّر عنه Prisma).
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  reps DailyReportOwnerRep[]
+
+  @@unique([levelId, adminId])
+  @@index([tenantId, adminId])
+  @@map("daily_report_level_owners")
+}
+
+/// توجيه: هذا المالك يستقبل تقارير هؤلاء المناديب عند مستواه.
+/// شبكةُ الإسناد في الواجهة (مندوب × مستوى ← من يستقبل) ليست إلا عرضاً لهذه الصفوف.
+model DailyReportOwnerRep {
+  id         String                @id @default(uuid())
+  tenantId   String
+  ownerId    String
+  owner      DailyReportLevelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  salesRepId String
+
+  @@unique([ownerId, salesRepId])
+  @@index([tenantId, salesRepId])
+  @@map("daily_report_owner_reps")
+}
+
+/// تقرير يومٍ واحد لمندوبٍ واحد.
+///
+/// **reportDate نصّ YYYY-MM-DD بالتوقيت المحلّي للمندوب لا DateTime**: القيد
+/// الفريد يجب أن يطابق «اليوم» مطابقةً حرفية، وDateTime بإزاحة مختلفة يولّد
+/// صفَّين ليومٍ واحد. وهو الشكل نفسه الذي يعيده dayKey() في محرّك يوم العمل.
+/// ⚠️ ولا يُنسَخ هنا نمط new Date(d + T00:00:00.000Z) من مسار الزيارات —
+/// ذاك يومُ الخادم لا يومُ المندوب.
+///
+/// **الجهاز يرسل reportDate وtzOffsetMin وclientCreatedAt**، ولا يشتقّها الخادم
+/// من new Date(): التقرير يُكتب آخر الخميس ويُرفع من الصندوق الصادر صباح
+/// السبت، واشتقاقُه على الخادم يحوّله تقريرَ السبت.
+model DailyReport {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+
+  reportDate  String
+  tzOffsetMin Int    @default(0)
+
+  /// SUBMITTED = وصل بانتظار المستوى ١ | IN_REVIEW = عند مستوى بعد أوّل فعل
+  /// RETURNED = أُعيد للمندوب | APPROVED = اجتاز آخر مستوى نهائياً
+  status String @default("SUBMITTED")
+
+  /// أين هو الآن. **مصدر الحقيقة DailyReportTask/Step**، وهذان العمودان مؤشّرٌ
+  /// هادٍ لصندوق الوارد، يُكتبان حصراً داخل المعاملة نفسها التي تكتب الخطوة،
+  /// ودالّة deriveCursor() النقيّة تشتقّهما، والاختبار يتحقّق من تطابقهما.
+  currentLevelId  String?
+  currentLevelSeq Int?
+
+  round Int @default(1)
+
+  approvedByAdminId   String?
+  approvedByAdminName String?
+  approvedAt          DateTime?
+
+  /// عدد الفاعلين المتمايزين في السلسلة كلها لحظة الاعتماد النهائي.
+  /// = 1 يعني أنّ شخصاً واحداً وقّع كل المستويات — لا يُمنع (شركةٌ بمستخدم
+  /// واحد حقيقةٌ قائمة) لكنه لا يُخفى: يُعرض وسماً في التقرير الشامل.
+  distinctApprovers Int @default(0)
+
+  note      String?
+  clientRef String?
+
+  clientCreatedAt DateTime?
+  intakeAt        DateTime  @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  values   DailyReportValue[]
+  comments DailyReportComment[]
+  steps    DailyReportStep[]
+  tasks    DailyReportTask[]
+
+  @@unique([tenantId, salesRepId, reportDate])
+  @@unique([tenantId, clientRef])
+  @@index([tenantId, salesRepId, reportDate])
+  @@index([tenantId, status, currentLevelSeq])
+  @@map("daily_reports")
+}
+
+/// قيمة خانةٍ واحدة في تقرير.
+///
+/// **المفتاح الفريد يحمل levelSeq** ولا يكتفي بـ(تقرير × خانة): وعد الميزة أن
+/// «المحاسب يسجّل بياناته هو»، وقيدٌ بعمودين يجعل إدخاله يكتب **فوق** إقرار
+/// المندوب — أي تعديل رقمٍ مُقرَّرٍ بعد رفعه، وهو عين ما يجب أن يستحيل.
+/// فتتجاور قيمة المندوب (levelSeq=0) وقيمة المحاسب (levelSeq=n) صفَّين مستقلَّين.
+model DailyReportValue {
+  id       String      @id @default(uuid())
+  tenantId String
+  reportId String
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  fieldId String
+  /// Restrict (بلا Cascade) عمداً: القاعدة نفسها ترفض حذف خانةٍ لها قيم،
+  /// فيبقى الحارس قائماً حتى لو نسي مسارٌ جديدٌ يوماً فحص العدد.
+  field   DailyReportField @relation(fields: [fieldId], references: [id])
+
+  /// 0 = كتبها المندوب عند الرفع | n = كتبها صاحب المستوى n
+  levelSeq Int @default(0)
+
+  /// لقطة التعريف وقت الكتابة: التهديد الأكبر ليس الحذف بل **إعادة التسمية** —
+  /// أدمنٌ يبدّل «مصروفات اليوم» إلى «مصروفات الوقود» بعد شهر فيعيد كتابة معنى
+  /// تقاريرَ اعتُمِدت ووُقِّعت، بلا سطر يقول إن شيئاً تغيّر.
+  labelSnapshot String
+  kindSnapshot  String
+
+  declaredNum  Float?
+  declaredText String?
+
+  /// **يبقيان null في الطرح الأول** (إدخال يدويّ بحت بقرار المالك).
+  /// موجودان من اليوم الأول كي تُشغَّل المقارنة لاحقاً بلا تعديل جداول:
+  ///   systemAtIntakeNum = ما حسبه الخادم لحظة وصول الإقرار (موثَّق، مجمَّد)
+  ///   clientSystemNum   = ما عرضه جهاز المندوب لحظة الكتابة (تشخيصيّ)
+  systemAtIntakeNum Float?
+  clientSystemNum   Float?
+
+  explanation String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reportId, fieldId, levelSeq])
+  @@index([tenantId, fieldId])
+  @@map("daily_report_values")
+}
+
+/// تعليقٌ على خانةٍ بعينها («ليضيف أي تعليق على أي خانة رُفعت»).
+/// fieldId اختياريّ: null = تعليقٌ عامّ على التقرير كلّه.
+model DailyReportComment {
+  id       String      @id @default(uuid())
+  tenantId String
+  reportId String
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  fieldId  String?
+  levelSeq Int
+  round    Int     @default(1)
+
+  authorAdminId   String?
+  authorAdminName String
+  body            String
+
+  createdAt DateTime @default(now())
+
+  @@index([reportId, fieldId])
+  @@index([tenantId, createdAt])
+  @@map("daily_report_comments")
+}
+
+/// خطوةٌ وقعت فعلاً في السلسلة — **سجلّ التدقيق**: من فعل ماذا ومتى.
+/// السجلّ يُكتب ولا يُعدَّل ولا يُحذف. وهو مصدر الحقيقة الذي تُشتقّ منه
+/// حالةُ التقرير ومؤشّراه، لا العكس.
+model DailyReportStep {
+  id       String      @id @default(uuid())
+  tenantId String
+  reportId String
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  levelSeq Int
+  round    Int @default(1)
+
+  /// SUBMIT | APPROVE | RETURN | ENTER (سجّل بياناته) | REASSIGN
+  action String
+
+  actorAdminId    String?
+  actorAdminName  String
+  actorSalesRepId String?
+
+  /// سبب الإعادة — **إلزاميّ مع RETURN** يحرسه المسار
+  reason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([reportId, createdAt])
+  @@index([tenantId, action, createdAt])
+  @@map("daily_report_steps")
+}
+
+/// مهمّة مفتوحة: هذا التقرير ينتظر هذا المستوى الآن.
+/// مهمّة **لكل مستوى** لا لكل موقّع، فيصير صندوق «بانتظارك» استعلاماً واحداً
+/// بفهرس بدل N+1 على كل تقرير.
+model DailyReportTask {
+  id       String      @id @default(uuid())
+  tenantId String
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reportId String
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  levelId  String
+  levelSeq Int
+  round    Int    @default(1)
+
+  /// PENDING = مفتوحة | DONE = فُعل بها | SKIPPED = أُلغيت بإعادة التقرير
+  state String @default("PENDING")
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@unique([reportId, levelSeq, round])
+  @@index([tenantId, state, levelSeq])
+  @@map("daily_report_tasks")
+}
+
+/// أثر تدقيق على **التهيئة** نفسها — لا على التقارير.
+/// بدونه يرفع أحدهم عتبةً أو يحذف خانةً أو يبدّل مالك مستوىً قبل الاعتماد
+/// بدقيقة، ولا يبقى لذلك أثر: فتشهد خطوة الاعتماد بصدقٍ تامّ على نموذجٍ
+/// غير الذي مُلئ.
+model DailyReportConfigLog {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// FIELD | LEVEL | OWNER | ROUTING
+  entity String
+  /// CREATE | UPDATE | ARCHIVE | DELETE | REORDER
+  action String
+
+  targetId   String?
+  targetName String?
+
+  /// وصفٌ عربيّ جاهز للعرض
+  summary String
+
+  actorAdminId   String?
+  actorAdminName String
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@map("daily_report_config_log")
 }

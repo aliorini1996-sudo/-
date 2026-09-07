@@ -28,10 +28,11 @@ import SearchableSelect from '../components/SearchableSelect';
 import BarcodeScanner from './BarcodeScanner';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
+import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
 
 interface RepUser {
@@ -382,7 +383,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, dailyReportOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; dailyReportOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -520,6 +521,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
           {quick(tr('العملاء'), Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
           {fuelOn && quick(tr('الوقود'), Fuel, 'text-blue-600', 'bg-blue-50 border-blue-100', 'fuel')}
           {workNumOn && quick(tr('رقم عملي'), PhoneCall, 'text-teal-700', 'bg-teal-50 border-teal-100', 'worknum')}
+          {dailyReportOn && quick(tr('تقرير اليوم'), ClipboardCheck, 'text-indigo-600', 'bg-indigo-50 border-indigo-100', 'dailyreport')}
         </div>
       </div>
 
@@ -2131,7 +2133,7 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
   const load = () => outboxDocs().then(setDocs);
   useEffect(() => { load(); const off = onOutboxChange(load); const iv = window.setInterval(load, 4000); return () => { off(); window.clearInterval(iv); }; }, []);
 
-  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : k === 'visit' ? tr('زيارة') : tr('عميل');
+  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : k === 'visit' ? tr('زيارة') : k === 'dailyReport' ? tr('تقرير يومي') : tr('عميل');
   const custName = (d: OutboxDoc) => (d.payload as any)?.name || (d.payload as any)?.customerName || '';
   const pendingList = docs.filter(d => d.status === 'queued');
   const rejectedList = docs.filter(d => d.status === 'rejected');
@@ -2521,6 +2523,8 @@ export default function RepApp() {
 
   // «النظام المحاسبي» مفعّل افتراضياً، فغيابه من ردّ قديم أو من الكاش يعني مفعّل لا مطفأ
   const accountingOn = (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
+  // مطفأ افتراضياً: === true لا !== false، وإلا فُتحت البلاطة لكل شركة
+  const dailyReportOn = (company as { dailyReportEnabled?: boolean } | null)?.dailyReportEnabled === true;
   const ACCOUNTING_TABS: Screen[] = ['invoices', 'receipts', 'vanstock'];
   const tabs: { id: Screen; label: string; icon: React.ElementType }[] = [
     { id: 'home', label: 'الرئيسية', icon: Home },
@@ -2536,7 +2540,10 @@ export default function RepApp() {
   // بدل تركه أمام شاشة لا يملك تبويباً يخرج به منها.
   useEffect(() => {
     if (!accountingOn && ACCOUNTING_TABS.includes(screen)) setScreen('home');
-  }, [accountingOn, screen]);
+    // والتقرير اليومي مثلها: شاشةٌ لا تبويب لها في الشريط السفلي، فإطفاء الميزة
+    // والمندوب واقفٌ عليها يتركه أمام شاشةٍ لا مخرج منها.
+    if (!dailyReportOn && screen === 'dailyreport') setScreen('home');
+  }, [accountingOn, dailyReportOn, screen]);
 
   // إطار الجوّال يظهر فقط على سطح المكتب (للمعاينة). أمّا على الجوّال الحقيقي أو داخل
   // التطبيق (PWA/TWA) فيُعرض المحتوى ملء الشاشة — وإلا ظهر «جوال داخل جوال».
@@ -2627,7 +2634,8 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} dailyReportOn={dailyReportOn} />}
+                {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}

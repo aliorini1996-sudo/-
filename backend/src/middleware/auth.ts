@@ -151,6 +151,28 @@ export function tenantId(req: AuthRequest): string {
 // `false` صراحةً. و`!t?.accountingEnabled` خطأٌ هنا لأنّه يمنع أيضاً عند تعذّر القراءة.
 // ونقرأ tenantId من الطلب مباشرةً لا عبر tenantId(req): الأخيرة ترمي استثناءً
 // للسوبر أدمن (لا شركة له) فتحوّل مروره من 403 إلى 500.
+/**
+ * التقرير اليومي — ميزة اشتراك **مطفأة افتراضياً**.
+ *
+ * الشرط `!== true` لا `=== false`، عكسَ حارس المحاسبة: ذاك عَلَمٌ مفعّل
+ * افتراضياً فيُمنع عند false الصريحة وحدها؛ وهذا مطفأ افتراضياً، فتعذّرُ
+ * قراءة الصفّ يجب أن **يمنع** لا أن يفتح. وقلبُ الشرط هنا يفتح الميزة
+ * لكل شركة تعذّرت قراءة صفّها.
+ */
+export async function requireDailyReport(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const tid = req.user?.tenantId;
+    // لا شركة = سوبر أدمن؛ تمريره كما في requireAccounting (tenantId(req) ترمي له)
+    if (!tid) { next(); return; }
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { dailyReportEnabled: true } });
+    if (t?.dailyReportEnabled !== true) {
+      res.status(403).json({ success: false, code: 'DAILY_REPORT_NOT_ALLOWED', message: 'التقرير اليومي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
 export async function requireAccounting(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const tid = req.user?.tenantId;

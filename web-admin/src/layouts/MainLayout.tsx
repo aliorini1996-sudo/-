@@ -1,8 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel,
-  LayoutDashboard, Users, Package, UserCheck, FileText,
-  Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap,
-  CreditCard } from 'lucide-react';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -27,6 +24,7 @@ const navItems = [
   { to: '/app/sales-reps', icon: UserCheck, label: 'nav.reps', permission: 'canManageSalesReps' },
   { to: '/app/van-stock', icon: Truck, label: 'nav.vanStock', permission: 'canManageVanStock' },
   { to: '/app/warehouse', icon: Warehouse, label: 'nav.warehouse', permission: 'canManageVanStock' },
+  { to: '/app/daily-reports', icon: ClipboardCheck, label: 'nav.dailyReports' },
   { to: '/app/tracking', icon: MapPin, label: 'nav.tracking', permission: 'canManageTracking' },
   { to: '/app/invoices', icon: FileText, label: 'nav.invoices', permission: 'canManageInvoices' },
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts', permission: 'canManageReceipts' },
@@ -47,7 +45,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => {
@@ -101,7 +99,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true) && (!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false)).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && (item.to !== '/app/warehouse' || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false)).map(item => (
             <NavLink
               key={item.to}
               to={item.to}

@@ -277,6 +277,35 @@ export const visitsApi = {
 };
 
 // مخزون سيارة المندوب — ملخّص ومخزون وحركة لكل مندوب
+// التقرير اليومي — الإقرار وسلسلة اعتماده
+export const dailyReportApi = {
+  // المندوب
+  form: (date: string, salesRepId?: string) => api.get('/daily-reports/form', { params: { date, ...(salesRepId && { salesRepId }) } }),
+  submit: (body: unknown) => api.post('/daily-reports', body),
+  mine: () => api.get('/daily-reports/mine'),
+  // المراجعة والاعتماد
+  inbox: () => api.get('/daily-reports/admin/inbox'),
+  get: (id: string) => api.get(`/daily-reports/admin/${id}`),
+  comment: (id: string, body: { fieldId?: string | null; body: string }) => api.post(`/daily-reports/admin/${id}/comment`, body),
+  saveValues: (id: string, values: unknown[]) => api.post(`/daily-reports/admin/${id}/values`, { values }),
+  approve: (id: string) => api.post(`/daily-reports/admin/${id}/approve`),
+  sendBack: (id: string, reason: string) => api.post(`/daily-reports/admin/${id}/return`, { reason }),
+  // التهيئة
+  config: () => api.get('/daily-reports/config'),
+  addField: (body: unknown) => api.post('/daily-reports/config/fields', body),
+  updateField: (id: string, body: unknown) => api.patch(`/daily-reports/config/fields/${id}`, body),
+  archiveField: (id: string, restore = false) => api.post(`/daily-reports/config/fields/${id}/archive`, { restore }),
+  deleteField: (id: string) => api.delete(`/daily-reports/config/fields/${id}`),
+  reorderFields: (ids: string[]) => api.post('/daily-reports/config/fields/reorder', { ids }),
+  addLevel: (body: unknown) => api.post('/daily-reports/config/levels', body),
+  updateLevel: (id: string, body: unknown) => api.patch(`/daily-reports/config/levels/${id}`, body),
+  deleteLevel: (id: string) => api.delete(`/daily-reports/config/levels/${id}`),
+  setOwners: (id: string, owners: unknown[]) => api.put(`/daily-reports/config/levels/${id}/owners`, { owners }),
+  preview: (salesRepId: string) => api.post('/daily-reports/config/preview', { salesRepId }),
+  // التقرير الشامل
+  team: (from: string, to: string) => api.get('/daily-reports/team', { params: { from, to } }),
+};
+
 export const vanStockApi = {
   summary: (params?: { from?: string; to?: string }) => api.get('/van-stock/summary', { params: { ...(params?.from && { from: params.from }), ...(params?.to && { to: params.to }) } }),
   current: (salesRepId: string) => api.get('/van-stock/current', { params: { salesRepId } }),

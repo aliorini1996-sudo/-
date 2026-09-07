@@ -44,9 +44,10 @@ export async function syncOutbox(): Promise<SyncResult> {
   let sent = 0, rejected = 0, stopped = false;
   try {
     // ترتيب التبعية: العميل قبل فاتورته/سنده/زيارته — يضمن حلّ customerClientRef على الخادم
-    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : 3);
+    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : k === 'visit' ? 3 : 4);
     const endpointOf = (k: OutboxDoc['kind']) =>
-      k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : k === 'receipt' ? '/receipts' : '/visits';
+      k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : k === 'receipt' ? '/receipts'
+      : k === 'visit' ? '/visits' : '/daily-reports';
     const queued = (await outboxAll())
       .filter((d) => d.status === 'queued' && ownedByCurrentRep(d))
       .sort((a, b) => (rank(a.kind) - rank(b.kind)) || a.clientCreatedAt.localeCompare(b.clientCreatedAt));
@@ -61,6 +62,13 @@ export async function syncOutbox(): Promise<SyncResult> {
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status;
         const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+        if (code === 'DAILY_REPORT_NOT_ALLOWED' || code === 'DAILY_REPORT_NO_LEVELS') {
+          // ليس رفض أعمال: الميزة أُطفئت أو سلسلة الاعتماد ناقصة بعد كتابة التقرير
+          // على الجهاز. يبقى التقرير مصفوفاً حتى يُصلح المالك التهيئة، ولا يُعدَم
+          // ولا يُعاد إرساله أبداً في حلقةٍ لا تنتهي.
+          stopped = true;
+          break;
+        }
         if (code === 'ACCOUNTING_NOT_ALLOWED') {
           // ليس رفض أعمال بل إطفاء اشتراك حدث بعد إنشاء المستند على الجهاز.
           // إعدامه يُفقد المندوب عمل يومه بلا رجعة، فيبقى مصفوفاً حتى يُعاد التفعيل.
