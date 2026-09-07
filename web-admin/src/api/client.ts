@@ -278,7 +278,7 @@ export const visitsApi = {
 
 // مخزون سيارة المندوب — ملخّص ومخزون وحركة لكل مندوب
 export const vanStockApi = {
-  summary: () => api.get('/van-stock/summary'),
+  summary: (params?: { from?: string; to?: string }) => api.get('/van-stock/summary', { params: { ...(params?.from && { from: params.from }), ...(params?.to && { to: params.to }) } }),
   current: (salesRepId: string) => api.get('/van-stock/current', { params: { salesRepId } }),
   loads: (salesRepId?: string) => api.get('/van-stock/loads', { params: salesRepId ? { salesRepId } : {} }),
   movements: (salesRepId: string) => api.get('/van-stock/movements', { params: { salesRepId } }),

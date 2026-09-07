@@ -55,48 +55,96 @@ interface StockRow {
   loaded: number; unloaded: number; adjusted: number; sold: number; returned: number; remaining: number;
 }
 
-// يحسب مخزون سيارة مندوب لكل منتج: المتبقي = المحمّل − المنزَّل + التسوية − المُباع + المُرتجع
-export async function computeStock(tid: string, salesRepId: string): Promise<StockRow[]> {
-  const [loadItems, invItems, products] = await Promise.all([
-    prisma.vanLoadItem.findMany({
-      where: { vanLoad: { tenantId: tid, salesRepId } },
-      select: { productId: true, qty: true, vanLoad: { select: { type: true } } },
-    }),
-    prisma.invoiceItem.findMany({
-      where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED' } },
-      select: { productId: true, qty: true, invoice: { select: { type: true, returnToStock: true } } },
-    }),
-    prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true } }),
-  ]);
+/**
+ * نافذة زمنية اختيارية لتصفية الجدول.
+ *
+ * ⚠️ الرصيد والتدفّق لا يُصفَّيان بالطريقة نفسها:
+ * «المحمَّل» و«المُباع» **تدفّقات** فتُحسب داخل النافذة [from, to].
+ * لكن «المتبقّي» **رصيدٌ** لا يخصّ مدّة — فيُحسب تراكميّاً **حتى** `to` لا داخل النافذة.
+ * لولا هذا الفصل لظهر مندوبٌ حُمِّل الشهر الماضي وباع هذا الشهر برصيد **سالب**.
+ * وحين لا تُمرَّر نافذة يبقى السلوك كما كان حرفياً (كل المستدعين الآخرين).
+ */
+export interface StockRange { from?: string; to?: string }
 
-  const acc = new Map<string, Omit<StockRow, 'productId' | 'name' | 'code' | 'unit' | 'remaining'>>();
-  const ensure = (pid: string) => {
-    if (!acc.has(pid)) acc.set(pid, { loaded: 0, unloaded: 0, adjusted: 0, sold: 0, returned: 0 });
-    return acc.get(pid)!;
+export interface StockBucket { loaded: number; unloaded: number; adjusted: number; sold: number; returned: number }
+export interface LoadRow { productId: string; qty: number; vanLoad: { type: string; createdAt: Date } }
+export interface InvRow { productId: string | null; qty: number; invoice: { type: string; returnToStock: boolean | null; invoiceDate: Date } }
+
+const blankBucket = (): StockBucket => ({ loaded: 0, unloaded: 0, adjusted: 0, sold: 0, returned: 0 });
+
+/**
+ * يطوي الحركات في دلوين: `bal` كل ما وصل (الرصيد)، و`acc` ما وقع داخل النافذة (التدفّق).
+ *
+ * مستخرَجة صرفةً عمداً: الفرق بين الرصيد والتدفّق هو مكمن الخطأ في هذه الميزة
+ * (نافذةٌ على الاثنين معاً تُنتج رصيداً سالباً)، وهو أهمّ ما يستحقّ اختباراً
+ * بلا قاعدة بيانات. الصفوف تصل مقيَّدة بـ`to` من الاستعلام، و`from` يُرشَّح هنا.
+ */
+export function foldStock(loadItems: LoadRow[], invItems: InvRow[], from?: Date): { acc: Map<string, StockBucket>; bal: Map<string, StockBucket> } {
+  const acc = new Map<string, StockBucket>();
+  const bal = new Map<string, StockBucket>();
+  const inWindow = (d: Date) => !from || d >= from;
+  const ensure = (map: Map<string, StockBucket>, pid: string) => {
+    if (!map.has(pid)) map.set(pid, blankBucket());
+    return map.get(pid)!;
+  };
+  const addLoad = (m: StockBucket, type: string, qty: number) => {
+    if (type === 'LOAD') m.loaded += qty;
+    else if (type === 'UNLOAD') m.unloaded += qty;
+    else m.adjusted += qty;
+  };
+  const addInv = (m: StockBucket, inv: { type: string; returnToStock: boolean | null }, qty: number) => {
+    // المرتجع لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock (التالف عادةً لا يعود)
+    if (inv.type === 'RETURN') { if (inv.returnToStock) m.returned += qty; }
+    else m.sold += qty;
   };
   for (const it of loadItems) {
-    const m = ensure(it.productId);
-    if (it.vanLoad.type === 'LOAD') m.loaded += it.qty;
-    else if (it.vanLoad.type === 'UNLOAD') m.unloaded += it.qty;
-    else m.adjusted += it.qty;
+    addLoad(ensure(bal, it.productId), it.vanLoad.type, it.qty);
+    if (inWindow(it.vanLoad.createdAt)) addLoad(ensure(acc, it.productId), it.vanLoad.type, it.qty);
   }
   for (const it of invItems) {
     // مخزون السيارة للمنتجات وحدها: بندٌ بلا productId وتمريره
     // كان يفتح صفّاً بمفتاح فارغ يلوّث كل الأرصدة.
     if (!it.productId) continue;
-    const m = ensure(it.productId);
-    // المرتجع لا يُعاد لمخزون السيارة إلا إذا حُدِّد returnToStock (التالف عادةً لا يعود)
-    if (it.invoice.type === 'RETURN') { if (it.invoice.returnToStock) m.returned += it.qty; }
-    else m.sold += it.qty;
+    addInv(ensure(bal, it.productId), it.invoice, it.qty);
+    if (inWindow(it.invoice.invoiceDate)) addInv(ensure(acc, it.productId), it.invoice, it.qty);
   }
+  return { acc, bal };
+}
+
+const rangeEnd = (to?: string) => (to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : undefined);
+
+// يحسب مخزون سيارة مندوب لكل منتج: المتبقي = المحمّل − المنزَّل + التسوية − المُباع + المُرتجع
+export async function computeStock(tid: string, salesRepId: string, range?: StockRange): Promise<StockRow[]> {
+  const from = range?.from ? new Date(range.from) : undefined;
+  const to = rangeEnd(range?.to);
+  // الاستعلام محدود بـ`to` وحده — فكل ما يعود يدخل الرصيد، والنافذة تُرشَّح في الذاكرة
+  // بـ`from`. استعلامٌ واحد لكل مصدر لا اثنان، والمسار يمرّ على كل مندوب في حلقة.
+  const inWindow = (d: Date) => !from || d >= from;
+
+  const [loadItems, invItems, products] = await Promise.all([
+    prisma.vanLoadItem.findMany({
+      where: { vanLoad: { tenantId: tid, salesRepId, ...(to && { createdAt: { lte: to } }) } },
+      select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true } } },
+    }),
+    prisma.invoiceItem.findMany({
+      where: { invoice: { tenantId: tid, salesRepId, status: 'CONFIRMED', ...(to && { invoiceDate: { lte: to } }) } },
+      select: { productId: true, qty: true, invoice: { select: { type: true, returnToStock: true, invoiceDate: true } } },
+    }),
+    prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, unit: true, code: true } }),
+  ]);
+
+  const { acc, bal } = foldStock(loadItems, invItems, from);
 
   const prodById = new Map(products.map(p => [p.id, p]));
   const rows: StockRow[] = [];
-  for (const [pid, m] of acc) {
+  // نمرّ على `bal` لا `acc`: صنفٌ في السيارة لم تُحرَّك كميّته داخل النافذة يجب أن
+  // يظهر برصيده لا أن يختفي من الجدول.
+  for (const [pid, b] of bal) {
     const p = prodById.get(pid);
     if (!p) continue;
+    const m = acc.get(pid) ?? blankBucket();
     // تقريب 4 خانات يمحو غبار سلسلة الجمع (3×0.1−0.3 = 5.55e-17 صف شبحي يتصدر الفرز)
-    const remaining = roundDecimal(m.loaded - m.unloaded + m.adjusted - m.sold + m.returned, 4);
+    const remaining = roundDecimal(b.loaded - b.unloaded + b.adjusted - b.sold + b.returned, 4);
     rows.push({ productId: pid, name: p.name, code: p.code, unit: p.unit, ...m, remaining });
   }
   rows.sort((a, b) => b.remaining - a.remaining);
@@ -280,11 +328,22 @@ router.get('/accuracy', async (req: AuthRequest, res: Response, next: NextFuncti
 router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    // نافذة اختيارية بنفس نمط بقيّة المسارات (from/to بصيغة YYYY-MM-DD).
+    // نصّ فاسد يُهمَل بدل أن يرمي: مُصفٍّ خاطئ لا يليق به إسقاط الصفحة كلها.
+    const valid = (v?: string) => (v && !Number.isNaN(new Date(v).getTime()) ? v : undefined);
+    let from = valid(req.query.from as string | undefined);
+    let to = valid(req.query.to as string | undefined);
+    // مدى مقلوب: نصحّحه بدل إرجاع جدول فارغ يحيّر المستخدم
+    if (from && to && new Date(from) > new Date(to)) [from, to] = [to, from];
+    const range = from || to ? { from, to } : undefined;
+    const lastLoadBefore = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : undefined;
+
     const reps = await prisma.salesRep.findMany({ where: { tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true, isActive: true, canSellWithoutStock: true } });
     const data = await Promise.all(reps.map(async r => {
-      const rows = await computeStock(tid, r.id);
+      const rows = await computeStock(tid, r.id, range);
       const lastLoad = await prisma.vanLoad.findFirst({
-        where: { tenantId: tid, salesRepId: r.id, type: 'LOAD' },
+        // «آخر تحميل» يلتزم نهاية المدّة أيضاً، وإلا عرض الجدولُ تاريخاً خارجها
+        where: { tenantId: tid, salesRepId: r.id, type: 'LOAD', ...(lastLoadBefore && { createdAt: { lte: lastLoadBefore } }) },
         orderBy: { createdAt: 'desc' }, select: { createdAt: true },
       });
       return {
@@ -296,7 +355,8 @@ router.get('/summary', requireAdmin, async (req: AuthRequest, res: Response, nex
         lastLoadAt: lastLoad?.createdAt || null,
       };
     }));
-    res.json({ success: true, data });
+    // `filtered` تُخبر الواجهة أن «محمَّل/مباع» صارا تدفّقَي مدّة لا إجماليين
+    res.json({ success: true, data, filtered: !!range, from: from || null, to: to || null });
   } catch (err) { next(err); }
 });
 

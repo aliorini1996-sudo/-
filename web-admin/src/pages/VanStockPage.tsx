@@ -76,10 +76,14 @@ export default function VanStockPage() {
   const [showLoad, setShowLoad] = useState(false);
   const [showAccuracy, setShowAccuracy] = useState(false);
   const [noticeMv, setNoticeMv] = useState<Movement | null>(null);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const filtered = !!(from || to);
 
   const summaryQ = useQuery({
-    queryKey: ['van-summary'],
-    queryFn: async () => (await vanStockApi.summary()).data.data as RepSummary[],
+    // المدّة جزء من المفتاح، وإلا خدَم الكاشُ أرقامَ مدّة سابقة
+    queryKey: ['van-summary', from, to],
+    queryFn: async () => (await vanStockApi.summary({ from, to })).data.data as RepSummary[],
   });
 
   // تبديل صلاحية «البيع بدون مخزون» لمندوب (تحديث متفائل)
@@ -129,6 +133,30 @@ export default function VanStockPage() {
         <button onClick={() => setShowLoad(true)} className="btn-primary"><Plus size={17} /> {tr('تسجيل تحميل')}</button>
       </div>
 
+      {/* تصفية بالمدّة */}
+      <div className="card">
+        <div className="flex gap-3 flex-wrap items-end">
+          <div>
+            <label className="label text-xs">{tr('من تاريخ')}</label>
+            <input type="date" className="input w-40" value={from} onChange={e => setFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="label text-xs">{tr('إلى تاريخ')}</label>
+            <input type="date" className="input w-40" value={to} onChange={e => setTo(e.target.value)} />
+          </div>
+          {filtered && (
+            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); }}>{tr('مسح الفلاتر')}</button>
+          )}
+          {filtered && (
+            // الأرقام تغيّر معناها مع المدّة، فالتنبيه ليس زينة: «المحمّل» و«المباع»
+            // صارا تدفّقَي مدّة، و«المتبقي» رصيدٌ بنهايتها لا رصيد اللحظة.
+            <p className="text-xs text-[#6E6557] basis-full sm:basis-auto sm:mb-2">
+              {tr('المحمل والمباع خلال المدة المحددة والمتبقي رصيد نهايتها')}
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* ملخّص المناديب */}
       <div className="card overflow-hidden p-0">
         <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
@@ -145,9 +173,9 @@ export default function VanStockPage() {
                 <tr className="text-[#6E6557] text-xs bg-[#FAF7F0]">
                   <th className="text-right font-semibold px-5 py-2.5">{tr('المندوب')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('أصناف بالسيارة')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي محمل')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('إجمالي مباع')}</th>
-                  <th className="text-center font-semibold px-3 py-2.5">{tr('المتبقي')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{filtered ? tr('محمل بالمدة') : tr('إجمالي محمل')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{filtered ? tr('مباع بالمدة') : tr('إجمالي مباع')}</th>
+                  <th className="text-center font-semibold px-3 py-2.5">{filtered ? tr('المتبقي بنهاية المدة') : tr('المتبقي')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>

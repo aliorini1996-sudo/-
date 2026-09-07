@@ -175,6 +175,10 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'محمل بالمدة': { en: 'Loaded in period', fr: 'Chargé sur la période', tr: 'Dönemde yüklenen', zh: '期间装载' },
+  'مباع بالمدة': { en: 'Sold in period', fr: 'Vendu sur la période', tr: 'Dönemde satılan', zh: '期间销售' },
+  'المتبقي بنهاية المدة': { en: 'Remaining at period end', fr: 'Restant en fin de période', tr: 'Dönem sonu kalan', zh: '期末剩余' },
+  'المحمل والمباع خلال المدة المحددة والمتبقي رصيد نهايتها': { en: 'Loaded and sold are for the selected period; remaining is the balance at its end', fr: 'Chargé et vendu portent sur la période choisie ; le restant est le solde à sa fin', tr: 'Yüklenen ve satılan seçilen döneme aittir; kalan ise dönem sonundaki bakiyedir', zh: '装载与销售为所选期间的数据，剩余为期末余额' },
   'ر.س': { en: 'SAR', fr: 'SAR', tr: 'SAR', zh: 'SAR' },
   // إجراءات وعناصر عامة متكرّرة
   'حفظ': { en: 'Save', fr: 'Enregistrer', tr: 'Kaydet', zh: '保存' },
