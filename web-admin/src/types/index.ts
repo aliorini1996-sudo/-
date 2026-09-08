@@ -18,6 +18,7 @@ export interface User {
   canManageVanStock?: boolean;
   canManageTracking?: boolean;
   canManageCompanySettings?: boolean;
+  canManageDailyReport?: boolean;
   canManageCompanyUsers?: boolean;
 }
 
@@ -108,6 +109,7 @@ export interface CompanyUser {
   canManageVanStock: boolean;
   canManageTracking: boolean;
   canManageCompanySettings: boolean;
+  canManageDailyReport: boolean;
   canManageCompanyUsers: boolean;
   createdAt: string;
 }

@@ -38,9 +38,9 @@ const STATUS_LABEL: Record<string, string> = {
 export default function DailyReportsPage() {
   const tr = useTr();
   const { user } = useAuthStore();
-  // التهيئة إعدادُ شركة: من يملكها يجعل نفسه مستقبِل كل التقارير ثم يعتمدها.
-  // الخادم يحرسها بصلاحيته، وهذا إخفاءٌ ليطابق ما تراه العين ما يقبله الخادم.
-  const canConfig = user?.canManageCompanySettings !== false;
+  // صلاحيةٌ مستقلّة اسمها «إعدادات التقرير اليومي» يمنحها المالك في صفحة
+  // مستخدمي الشركة. الخادم يحرسها، وهذا إخفاءٌ ليطابق ما تراه العين ما يقبله.
+  const canConfig = user?.canManageDailyReport !== false;
   const [tab, setTab] = useState<Tab>('inbox');
 
   return (

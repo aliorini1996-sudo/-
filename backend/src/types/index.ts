@@ -16,6 +16,7 @@ export interface AuthPayload {
   canManageVanStock?: boolean;
   canManageTracking?: boolean;
   canManageCompanySettings?: boolean;
+  canManageDailyReport?: boolean;
   canManageCompanyUsers?: boolean;
 }
 

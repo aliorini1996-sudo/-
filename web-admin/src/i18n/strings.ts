@@ -176,6 +176,7 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'إعدادات التقرير اليومي': { en: 'Daily report settings', fr: 'Parametres du rapport quotidien', tr: 'Gunluk rapor ayarlari', zh: '每日报告设置' },
   'التقارير اليومية': { en: 'Daily reports', fr: 'Rapports quotidiens', tr: 'Gunluk raporlar', zh: '每日报告' },
   'ما ينتظر اعتمادك أنت': { en: 'Waiting for your approval', fr: 'En attente de votre approbation', tr: 'Onayinizi bekleyenler', zh: '等待您审批' },
   'يقف عند مستواك': { en: 'Waiting at your level', fr: 'En attente a votre niveau', tr: 'Sizin seviyenizde bekliyor', zh: '在您的层级等待' },

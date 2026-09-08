@@ -132,6 +132,11 @@ model Admin {
   canManageTracking        Boolean @default(true)
   canManageCompanySettings Boolean @default(true)
   canManageCompanyUsers    Boolean @default(true)
+  /// تعديل إعدادات التقرير اليومي (لوحة العُقد والخانات). `true` افتراضاً
+  /// كنظائرها فلا ينقطع أحدٌ عند النشر، والمالك يسحبها ممّن لا يملكها.
+  /// وهي **أخطر من نظائرها**: من يملكها يجعل نفسه مستقبِل كل التقارير
+  /// عند كل عقدة ثم يعتمدها بنفسه — فاسحبها ممّن لا يبني المسار.
+  canManageDailyReport     Boolean @default(true)
 
   // عزل نطاق المستخدم الإداري: عند التفعيل لا يرى إلا العملاء والمناديب
   // المُسنَدين له (AdminCustomerScope / AdminRepScope). افتراضي false ⇒ كل

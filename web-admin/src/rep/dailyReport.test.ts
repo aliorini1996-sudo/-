@@ -91,7 +91,8 @@ test('الخادم لا يبتلع إعادة الرفع بحجّة التكرا
 test('الوحدة خلف صلاحية لا خلف requireAdmin وحده', () => {
   const s = read('..', 'backend', 'src', 'routes', 'dailyReports.ts');
   assert.match(s, /router\.use\('\/admin', requireAdmin, requireAdminPermission\('canViewReports'\)\)/, 'المراجعة بلا صلاحية');
-  assert.match(s, /router\.use\('\/config', requireAdmin, requireAdminPermission\('canManageCompanySettings'\)\)/, 'التهيئة بلا صلاحية');
+  // صارت لها صلاحيةٌ مخصّصة يمنحها المالك من صفحة مستخدمي الشركة
+  assert.match(s, /router\.use\('\/config', requireAdmin, requireAdminPermission\('canManageDailyReport'\)\)/, 'التهيئة بلا صلاحية');
   assert.match(s, /router\.get\('\/team', requireAdmin, requireAdminPermission\('canViewReports'\)/, 'التقرير الشامل بلا صلاحية');
 });
 

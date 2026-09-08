@@ -27,6 +27,7 @@ const userSchema = z.object({
   canManageVanStock: z.boolean().optional(),
   canManageTracking: z.boolean().optional(),
   canManageCompanySettings: z.boolean().optional(),
+  canManageDailyReport: z.boolean().optional(),
   canManageCompanyUsers: z.boolean().optional(),
   // ⚠️ **`scopeEnabled` مقصودٌ غيابه هنا** — لا يُكتب إلا من `PUT /:id/scope`
   // المحروس بـ`guardScopeAdmin`.
@@ -54,6 +55,7 @@ const userSelect = {
   canManageVanStock: true,
   canManageTracking: true,
   canManageCompanySettings: true,
+  canManageDailyReport: true,
   canManageCompanyUsers: true,
   createdAt: true,
 } as const;
@@ -142,6 +144,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         canManageVanStock: body.canManageVanStock ?? true,
         canManageTracking: body.canManageTracking ?? true,
         canManageCompanySettings: body.canManageCompanySettings ?? true,
+        canManageDailyReport: body.canManageDailyReport ?? true,
         canManageCompanyUsers: body.canManageCompanyUsers ?? false,
       },
       select: userSelect,

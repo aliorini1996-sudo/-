@@ -541,7 +541,7 @@ router.post('/admin/:id/return', async (req: AuthRequest, res: Response, next: N
 
 // تعريف سلسلة الاعتماد إعدادُ شركةٍ لا عمل يوميّ: من يملك تغييرها يملك أن
 // يجعل نفسه مستقبِل كل التقارير عند كل مستوى ثم يعتمدها كلها بنفسه.
-router.use('/config', requireAdmin, requireAdminPermission('canManageCompanySettings'));
+router.use('/config', requireAdmin, requireAdminPermission('canManageDailyReport'));
 
 /** التهيئة كاملةً: الخانات والمستويات والملّاك والتوجيه والمناديب */
 router.get('/config', async (req: AuthRequest, res: Response, next: NextFunction) => {

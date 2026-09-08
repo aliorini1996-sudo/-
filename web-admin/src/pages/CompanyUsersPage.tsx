@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Edit, Eye, EyeOff, KeyRound, Plus, ShieldCheck, UserCog, X, Filter, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { companyUserApi } from '../api/client';
+import { companyUserApi, companyApi } from '../api/client';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import UserScopeModal from '../components/UserScopeModal';
@@ -29,6 +29,7 @@ type FormValues = {
   canManageTracking: boolean;
   canManageCompanySettings: boolean;
   canManageCompanyUsers: boolean;
+  canManageDailyReport: boolean;
 };
 
 const roleLabels: Record<CompanyUser['role'], string> = {
@@ -36,6 +37,14 @@ const roleLabels: Record<CompanyUser['role'], string> = {
   MANAGER: 'مشرف',
   ACCOUNTANT: 'محاسب',
 };
+
+/**
+ * صلاحية «إعدادات التقرير اليومي» **لا تُعرض إلا لشركةٍ فعّلت الميزة**: خانةٌ
+ * لصلاحيةٍ على ميزةٍ غير مشتراة تُربك المالك ولا تعني شيئاً.
+ * وهي أخطر من نظائرها: من يملكها يجعل نفسه مستقبِل كل التقارير عند كل عقدة
+ * ثم يعتمدها بنفسه، فتصير سلسلة الاعتماد توقيعاً ذاتياً.
+ */
+const dailyReportPermission = { key: 'canManageDailyReport' as keyof FormValues, label: 'إعدادات التقرير اليومي' };
 
 const permissionItems: { key: keyof FormValues; label: string }[] = [
   { key: 'canAccessDashboard', label: 'لوحة التحكم' },
@@ -55,6 +64,13 @@ export default function CompanyUsersPage() {
   const qc = useQueryClient();
   const tr = useTr();
   const { user } = useAuthStore();
+  // العَلَم مطفأ افتراضياً: `=== true` لا `!== false`
+  const companyQ = useQuery({
+    queryKey: ['company-flags'],
+    queryFn: async () => (await companyApi.get()).data.data as { dailyReportEnabled?: boolean } | null,
+  });
+  const dailyReportOn = companyQ.data?.dailyReportEnabled === true;
+  const shownPermissions = dailyReportOn ? [...permissionItems, dailyReportPermission] : permissionItems;
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected] = useState<CompanyUser | null>(null);
   const [createdCreds, setCreatedCreds] = useState<{ name: string; email: string; password: string } | null>(null);
@@ -174,6 +190,7 @@ export default function CompanyUsersPage() {
 
       {showModal && (
         <CompanyUserModal
+          dailyReportOn={dailyReportOn}
           user={selected}
           currentUserId={user.id}
           loading={saveMutation.isPending}
@@ -212,14 +229,16 @@ export default function CompanyUsersPage() {
   );
 }
 
-function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
+function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, onClose, onSave }: {
   user: CompanyUser | null;
   currentUserId?: string;
   loading: boolean;
+  dailyReportOn: boolean;
   onClose: () => void;
   onSave: (values: FormValues) => void;
 }) {
   const tr = useTr();
+  const shownPermissions = dailyReportOn ? [...permissionItems, dailyReportPermission] : permissionItems;
   const [form, setForm] = useState<FormValues>({
     name: user?.name || '',
     email: user?.email || '',
@@ -237,6 +256,7 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
     canManageTracking: user?.canManageTracking ?? true,
     canManageCompanySettings: user?.canManageCompanySettings ?? true,
     canManageCompanyUsers: user?.canManageCompanyUsers ?? false,
+    canManageDailyReport: user?.canManageDailyReport ?? true,
   });
   const [showPass, setShowPass] = useState(false);
   const [err, setErr] = useState('');
@@ -308,12 +328,12 @@ function CompanyUserModal({ user, currentUserId, loading, onClose, onSave }: {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-500 uppercase">{tr('صلاحيات المستخدم')}</h3>
               <div className="flex items-center gap-3 text-xs">
-                <button type="button" onClick={() => setForm(f => ({ ...f, ...Object.fromEntries(permissionItems.map(p => [p.key, true])) } as FormValues))} className="text-[#E15A30] hover:text-[#C94E28]">{tr('تحديد الكل')}</button>
-                <button type="button" onClick={() => setForm(f => ({ ...f, ...Object.fromEntries(permissionItems.map(p => [p.key, false])), canManageCompanyUsers: isSelf ? f.canManageCompanyUsers : false } as FormValues))} className="text-gray-500 hover:text-gray-700">{tr('إلغاء الكل')}</button>
+                <button type="button" onClick={() => setForm(f => ({ ...f, ...Object.fromEntries(shownPermissions.map(p => [p.key, true])) } as FormValues))} className="text-[#E15A30] hover:text-[#C94E28]">{tr('تحديد الكل')}</button>
+                <button type="button" onClick={() => setForm(f => ({ ...f, ...Object.fromEntries(shownPermissions.map(p => [p.key, false])), canManageCompanyUsers: isSelf ? f.canManageCompanyUsers : false } as FormValues))} className="text-gray-500 hover:text-gray-700">{tr('إلغاء الكل')}</button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {permissionItems.map(p => {
+              {shownPermissions.map(p => {
                 const disabled = isSelf && p.key === 'canManageCompanyUsers';
                 return (
                   <label key={p.key} className={`flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm ${disabled ? 'text-gray-400' : 'text-gray-700'}`}>

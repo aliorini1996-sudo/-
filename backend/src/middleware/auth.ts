@@ -15,7 +15,8 @@ export type AdminPermission =
   | 'canManageVanStock'
   | 'canManageTracking'
   | 'canManageCompanySettings'
-  | 'canManageCompanyUsers';
+  | 'canManageCompanyUsers'
+  | 'canManageDailyReport';
 
 const COMPANY_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT'];
 
