@@ -176,6 +176,21 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'لوحة مسار الاعتماد': { en: 'Approval path board', fr: 'Tableau du parcours d approbation', tr: 'Onay yolu panosu', zh: '审批路径面板' },
+  'كل عقدة شخص بعينه — اسحبها لترتيب اللوحة واضغطها لتعديلها': { en: 'Each node is a specific person. Drag to arrange, click to edit', fr: 'Chaque noeud est une personne precise. Glissez pour organiser, cliquez pour modifier', tr: 'Her dugum belirli bir kisidir. Duzenlemek icin surukleyin, degistirmek icin tiklayin', zh: '每个节点代表一个具体人员。拖动排列，点击编辑' },
+  'إضافة عقدة': { en: 'Add node', fr: 'Ajouter un noeud', tr: 'Dugum ekle', zh: '添加节点' },
+  'عقدة جديدة': { en: 'New node', fr: 'Nouveau noeud', tr: 'Yeni dugum', zh: '新建节点' },
+  'حذف العقدة': { en: 'Delete node', fr: 'Supprimer le noeud', tr: 'Dugumu sil', zh: '删除节点' },
+  'الشخص': { en: 'Person', fr: 'Personne', tr: 'Kisi', zh: '人员' },
+  'صفته في المسار': { en: 'Title in the path', fr: 'Titre dans le parcours', tr: 'Yoldaki unvani', zh: '在路径中的职称' },
+  'دوره': { en: 'Role', fr: 'Role', tr: 'Rolu', zh: '角色' },
+  'الترتيب': { en: 'Order', fr: 'Ordre', tr: 'Sira', zh: '顺序' },
+  'يستقبل تقارير': { en: 'Receives reports from', fr: 'Recoit les rapports de', tr: 'Raporlari alir', zh: '接收报告来自' },
+  'اتركها فارغة ليستقبل تقارير كل المناديب': { en: 'Leave empty to receive reports from every rep', fr: 'Laissez vide pour recevoir les rapports de tous les representants', tr: 'Tum temsilcilerin raporlarini almak icin bos birakin', zh: '留空以接收所有业务代表的报告' },
+  'اللوحة فارغة — أضف أول عقدة ليبدأ مسار الاعتماد': { en: 'The board is empty. Add the first node to start the approval path', fr: 'Le tableau est vide. Ajoutez le premier noeud pour demarrer le parcours', tr: 'Pano bos. Onay yolunu baslatmak icin ilk dugumu ekleyin', zh: '面板为空，添加第一个节点以开始审批路径' },
+  'لن يستطيع المندوب رفع تقريره قبل وجود عقدة واحدة على الأقل': { en: 'The rep cannot submit until at least one node exists', fr: 'Le representant ne peut pas soumettre tant qu il n y a pas au moins un noeud', tr: 'En az bir dugum olmadan temsilci gonderemez', zh: '至少需要一个节点，业务代表才能提交' },
+  'تضاف في آخر المسار': { en: 'Added at the end of the path', fr: 'Ajoute a la fin du parcours', tr: 'Yolun sonuna eklenir', zh: '添加到路径末尾' },
+  'مستوى': { en: 'Level', fr: 'Niveau', tr: 'Seviye', zh: '层级' },
   'مسار اعتماد التقرير': { en: 'Report approval path', fr: 'Parcours d approbation du rapport', tr: 'Rapor onay yolu', zh: '报告审批路径' },
   'اضغط طبقة لتسميتها وتحديد من يستقبلها': { en: 'Click a layer to rename it and set who receives it', fr: 'Cliquez sur une couche pour la renommer et definir qui la recoit', tr: 'Adlandirmak ve kimin alacagini belirlemek icin bir katmana tiklayin', zh: '点击层级以重命名并设置接收人' },
   'يرفع التقرير': { en: 'Submits the report', fr: 'Soumet le rapport', tr: 'Raporu gonderir', zh: '提交报告' },

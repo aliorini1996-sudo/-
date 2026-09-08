@@ -694,6 +694,11 @@ const levelSchema = z.object({
   kind: z.enum(['REVIEW', 'ENTER']).default('REVIEW'),
   quorum: z.enum(['ALL', 'ANY']).default('ALL'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'لون غير صالح').nullish(),
+  posX: z.number().finite().nullish(),
+  posY: z.number().finite().nullish(),
+  /// المستخدم صاحب العقدة — تُنشأ العقدة وصاحبها معاً في نداءٍ واحد،
+  /// فالعقدة **شخصٌ بعينه** لا طبقةٌ تُملأ لاحقاً. وعقدةٌ بلا صاحب لا معنى لها.
+  adminId: z.string().uuid().nullish(),
 });
 
 router.post('/config/levels', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -716,9 +721,21 @@ router.post('/config/levels', async (req: AuthRequest, res: Response, next: Next
         for (const l of shift) await tx.dailyReportLevel.update({ where: { id: l.id }, data: { seq: l.seq + 1 } });
       }
       const l = await tx.dailyReportLevel.create({
-        data: { tenantId: tid, seq: at, name: body.name, kind: body.kind, quorum: body.quorum, color: body.color ?? null },
+        data: {
+          tenantId: tid, seq: at, name: body.name, kind: body.kind, quorum: body.quorum,
+          color: body.color ?? null, posX: body.posX ?? null, posY: body.posY ?? null,
+        },
       });
-      await logConfig(tx, tid, req, 'LEVEL', 'CREATE', `أضاف طبقة «${body.name}» في الموضع ${at}`, l.id, body.name);
+      // العقدة شخصٌ بعينه: يُربط صاحبها في المعاملة نفسها، فلا توجد لحظةٌ
+      // تكون فيها عقدةٌ منشورةً بلا مستقبِل تبتلع تقارير لا يراها أحد.
+      if (body.adminId) {
+        const adm = await tx.admin.findFirst({ where: { id: body.adminId, tenantId: tid }, select: { id: true, name: true } });
+        if (!adm) throw Object.assign(new Error('المستخدم غير موجود'), { status: 400 });
+        await tx.dailyReportLevelOwner.create({
+          data: { tenantId: tid, levelId: l.id, adminId: adm.id, adminName: adm.name, isDefault: true },
+        });
+      }
+      await logConfig(tx, tid, req, 'LEVEL', 'CREATE', `أضاف عقدة «${body.name}» في الموضع ${at}`, l.id, body.name);
       return l;
     });
     res.status(201).json({ success: true, data: created });
