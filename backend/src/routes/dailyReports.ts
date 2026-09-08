@@ -494,6 +494,11 @@ router.post('/admin/:id/approve', async (req: AuthRequest, res: Response, next: 
         },
       });
     });
+
+    // خارج المعاملة عمداً: الاعتماد وقع وسُجّل، وتعذّرُ إصدار الحصيلة عرَضٌ
+    // لا يجوز أن يتراجع بتوقيعٍ صحيح
+    if (tr.finalApproval) await issueDigestIfComplete(tid, report.reportDate).catch(() => { /* يُعاد في الاعتماد التالي */ });
+
     res.json({ success: true, data: { status: tr.status, finalApproval: tr.finalApproval, distinctApprovers: distinct } });
   } catch (err) { next(err); }
 });
@@ -547,12 +552,13 @@ router.use('/config', requireAdmin, requireAdminPermission('canManageDailyReport
 router.get('/config', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const [fields, chain, admins, reps, log] = await Promise.all([
+    const [fields, chain, admins, reps, log, viewers] = await Promise.all([
       prisma.dailyReportField.findMany({ where: { tenantId: tid }, orderBy: [{ isActive: 'desc' }, { seq: 'asc' }] }),
       loadChain(tid),
       prisma.admin.findMany({ where: { tenantId: tid, isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: 'asc' } }),
       prisma.salesRep.findMany({ where: { tenantId: tid, isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
       prisma.dailyReportConfigLog.findMany({ where: { tenantId: tid }, orderBy: { createdAt: 'desc' }, take: 40 }),
+      prisma.dailyReportDigestViewer.findMany({ where: { tenantId: tid }, orderBy: { adminName: 'asc' }, select: { adminId: true, adminName: true } }),
     ]);
     const owners = await prisma.dailyReportLevelOwner.findMany({
       where: { tenantId: tid }, include: { reps: { select: { salesRepId: true } } },
@@ -569,6 +575,7 @@ router.get('/config', async (req: AuthRequest, res: Response, next: NextFunction
         admins, reps,
         issues: chainIssues(chain.levels, chain.owners),
         configLog: log,
+        digestViewers: viewers,
       },
     });
   } catch (err) { next(err); }
@@ -860,6 +867,149 @@ router.post('/config/preview', async (req: AuthRequest, res: Response, next: Nex
  * معلَنٌ أيضاً: إجمالٌ يشمل مناديب المستخدم المُسنَدين وحدهم يجب أن يقول ذلك،
  * وإلا قُرئ إجمالاً للشركة.
  */
+
+// ═══════════════════════ التقرير الشامل: مستلموه وأرشيفه ═══════════════════════
+
+/**
+ * الحصائل التي تخصّ هذا المستخدم — **أرشيفٌ دائم لا صندوق وارد**.
+ *
+ * لا تُقرأ من صندوق الاعتماد ولا تختفي بفعلٍ عليها: ما صدر يبقى في قائمته
+ * ما دام مُسنَداً، وهو معنى «يبقى عنده مستمر». والإسناد يُقرأ لحظة الطلب
+ * لا يُنسَخ على الحصيلة: سحبُ الإسناد يُخفي الأرشيف كلّه، ومنحُه يفتحه
+ * كاملاً بما صدر قبل المنح.
+ */
+router.get('/digests', requireAdmin, requireAdminPermission('canViewReports'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const viewer = await prisma.dailyReportDigestViewer.findFirst({
+      where: { tenantId: tid, adminId: req.user!.id }, select: { id: true },
+    });
+    // الصلاحية يحرسها الوسيط أعلاه (يقرؤها من القاعدة — req.user لا يحملها)،
+    // ويبقى هنا فحص الإسناد وحده
+    if (!viewer) { res.json({ success: true, data: { assigned: false, digests: [] } }); return; }
+
+    const digests = await prisma.dailyReportDigest.findMany({
+      where: { tenantId: tid },
+      orderBy: { reportDate: 'desc' },
+      take: 180,
+    });
+    res.json({ success: true, data: { assigned: true, digests } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * محتوى حصيلة يومٍ صدر. الأرقام تُجمَّع من التقارير المُعتمَدة نفسها لا من
+ * نسخةٍ مخزَّنة: المُعتمَد مقفولٌ بـ409، فالتجميع ثابتٌ ولا ينزاح، ونسخةٌ
+ * ثانية كانت ستفتح باب تناقضٍ بين رقمين لمصدرٍ واحد.
+ */
+router.get('/digests/:date', requireAdmin, requireAdminPermission('canViewReports'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const date = String(req.params.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { res.status(400).json({ success: false, message: 'تاريخ غير صالح' }); return; }
+
+    const viewer = await prisma.dailyReportDigestViewer.findFirst({
+      where: { tenantId: tid, adminId: req.user!.id }, select: { id: true },
+    });
+    if (!viewer) { res.status(403).json({ success: false, message: 'التقرير الشامل غير مُسنَد لك' }); return; }
+
+    const digest = await prisma.dailyReportDigest.findFirst({ where: { tenantId: tid, reportDate: date } });
+    if (!digest) { res.status(404).json({ success: false, message: 'لم تصدر حصيلة هذا اليوم' }); return; }
+
+    const [fields, reports] = await Promise.all([
+      prisma.dailyReportField.findMany({ where: { tenantId: tid }, orderBy: { seq: 'asc' } }),
+      prisma.dailyReport.findMany({
+        where: { tenantId: tid, reportDate: date, status: 'APPROVED' },
+        include: { salesRep: { select: { id: true, name: true } }, values: true },
+        orderBy: { salesRepId: 'asc' },
+      }),
+    ]);
+
+    // تجميعٌ في المعالج لا استعلامٌ لكل مندوب
+    const rows = reports.map(r => ({
+      salesRepId: r.salesRepId,
+      salesRepName: r.salesRep.name,
+      soloApproved: r.distinctApprovers === 1,
+      approvedAt: r.approvedAt,
+      values: Object.fromEntries(r.values.map(v => [v.fieldId, v.declaredNum ?? v.declaredText ?? null])),
+    }));
+    const totals: Record<string, number> = {};
+    for (const r of reports) {
+      for (const v of r.values) {
+        if (v.declaredNum === null) continue;
+        totals[v.fieldId] = (totals[v.fieldId] ?? 0) + v.declaredNum;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        digest,
+        // الخانات المؤرشَفة تبقى معروضة: حصيلةٌ قديمة تُقرأ بخاناتها هي
+        fields: fields.map(f => ({ id: f.id, label: f.label, kind: f.kind, isActive: f.isActive })),
+        rows, totals,
+        missingReps: digest.repCount - digest.reportCount,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+/** مستلمو التقرير الشامل — قراءةً ضمن التهيئة، وكتابةً بصلاحيتها */
+router.put('/config/digest-viewers', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const ids: string[] = Array.isArray(req.body?.adminIds) ? req.body.adminIds.map(String) : [];
+    const admins = await prisma.admin.findMany({
+      where: { tenantId: tid, id: { in: ids } }, select: { id: true, name: true },
+    });
+    await prisma.$transaction(async tx => {
+      await tx.dailyReportDigestViewer.deleteMany({ where: { tenantId: tid } });
+      for (const a of admins) {
+        await tx.dailyReportDigestViewer.create({ data: { tenantId: tid, adminId: a.id, adminName: a.name } });
+      }
+      await logConfig(tx, tid, req, 'OWNER', 'UPDATE',
+        admins.length ? `عيّن مستلمي التقرير الشامل: ${admins.map(a => a.name).join('، ')}` : 'ألغى كل مستلمي التقرير الشامل');
+    });
+    res.json({ success: true, data: { count: admins.length } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * يُصدِر حصيلة اليوم إن اكتمل — يُستدعى بعد كل اعتمادٍ نهائيّ.
+ *
+ * **شرط الاكتمال**: كل تقريرٍ رُفع في ذلك اليوم صار APPROVED، ولا واحد منها
+ * ما زال في الطريق. ومندوبٌ لم يرفع أصلاً لا يمنع الإصدار — لكنّ غيابه
+ * **يُعدّ ويُعرض**: `repCount` مقابل `reportCount`. حصيلةٌ تخفي الغائبين تبدو
+ * كاملةً وهي ناقصة، والمدير يقرأ إجماليّ ثلاثة مناديب على أنه إجماليّ سبعة.
+ *
+ * ولا يُصدَر ليومٍ بلا تقارير: «صفر تقرير» ليس يوماً مكتملاً بل يومٌ لم يبدأ.
+ *
+ * الخطأ هنا **لا يُسقط الاعتماد**: التوقيع وقع وسُجّل، وتعذّرُ إصدار الحصيلة
+ * عرَضٌ يُعاد حسابه في الاعتماد التالي أو يُصدَر يدوياً. فيُستدعى **خارج**
+ * معاملة الاعتماد وبـcatch صامت.
+ */
+async function issueDigestIfComplete(tid: string, reportDate: string): Promise<void> {
+  const [pending, approved, repCount, existing] = await Promise.all([
+    prisma.dailyReport.count({ where: { tenantId: tid, reportDate, status: { not: 'APPROVED' } } }),
+    prisma.dailyReport.findMany({
+      where: { tenantId: tid, reportDate, status: 'APPROVED' },
+      select: { distinctApprovers: true },
+    }),
+    prisma.salesRep.count({ where: { tenantId: tid, isActive: true } }),
+    prisma.dailyReportDigest.findFirst({ where: { tenantId: tid, reportDate }, select: { id: true } }),
+  ]);
+  if (existing || pending > 0 || approved.length === 0) return;
+
+  await prisma.dailyReportDigest.create({
+    data: {
+      tenantId: tid, reportDate,
+      reportCount: approved.length,
+      repCount,
+      soloApprovedCount: approved.filter(r => r.distinctApprovers === 1).length,
+    },
+  }).catch(() => { /* سباقُ اعتمادين متزامنين — القيد الفريد يحسمه، والصفّ موجود */ });
+}
+
 router.get('/team', requireAdmin, requireAdminPermission('canViewReports'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);

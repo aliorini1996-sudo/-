@@ -176,6 +176,23 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'الحصائل الصادرة': { en: 'Issued digests', fr: 'Bilans emis', tr: 'Yayinlanan ozetler', zh: '已发布汇总' },
+  'الحصائل': { en: 'Digests', fr: 'Bilans', tr: 'Ozetler', zh: '汇总' },
+  'حصيلة': { en: 'Digest', fr: 'Bilan', tr: 'Ozet', zh: '汇总' },
+  'صدرت': { en: 'Issued', fr: 'Emis le', tr: 'Yayinlandi', zh: '发布于' },
+  'لم تصدر حصيلة بعد': { en: 'No digest issued yet', fr: 'Aucun bilan emis pour le moment', tr: 'Henuz ozet yayinlanmadi', zh: '尚未发布汇总' },
+  'التقرير الشامل غير مسند لك': { en: 'The team digest is not assigned to you', fr: 'Le bilan d equipe ne vous est pas attribue', tr: 'Ekip ozeti size atanmadi', zh: '团队汇总未分配给您' },
+  'يحدد المستلمين مدير الشركة من إعدادات التقرير اليومي': { en: 'The company manager sets recipients in the daily report settings', fr: 'Le responsable definit les destinataires dans les parametres du rapport quotidien', tr: 'Sirket yoneticisi alicilari gunluk rapor ayarlarindan belirler', zh: '公司管理员在每日报告设置中指定接收人' },
+  'تصدر حصيلة اليوم حين يعتمد آخر تقرير رفع فيه': { en: 'The daily digest is issued when its last report is approved', fr: 'Le bilan du jour est emis quand son dernier rapport est approuve', tr: 'Gunun ozeti son raporu onaylandiginda yayinlanir', zh: '当天最后一份报告获批后发布当日汇总' },
+  'تصدر حصيلة اليوم حين يعتمد آخر تقرير رفع فيه، وتبقى في أرشيف من تحدده هنا': { en: 'The daily digest is issued when its last report is approved, and stays in the archive of whoever you pick here', fr: 'Le bilan du jour est emis quand son dernier rapport est approuve et reste dans l archive des personnes choisies ici', tr: 'Gunun ozeti son raporu onaylandiginda yayinlanir ve burada sectiginiz kisilerin arsivinde kalir', zh: '当天最后一份报告获批后发布，并保留在此处所选人员的存档中' },
+  'من يستلم التقرير الشامل': { en: 'Who receives the team digest', fr: 'Qui recoit le bilan d equipe', tr: 'Ekip ozetini kim alir', zh: '谁接收团队汇总' },
+  'لا أحد يستلم الحصيلة — ستصدر وتبقى بلا قارئ': { en: 'Nobody receives the digest. It will be issued and left unread', fr: 'Personne ne recoit le bilan. Il sera emis et restera non lu', tr: 'Ozeti kimse almiyor. Yayinlanacak ve okunmadan kalacak', zh: '无人接收汇总，发布后将无人阅读' },
+  'مندوب لم يرفع': { en: 'reps did not submit', fr: 'representants n ont pas soumis', tr: 'temsilci gondermedi', zh: '位业务代表未提交' },
+  'مندوب لم يرفع تقريره هذا اليوم فلا تشملهم الإجماليات': { en: 'reps did not submit that day, so the totals exclude them', fr: 'representants n ont pas soumis ce jour, les totaux les excluent', tr: 'o gun rapor gondermedi, bu nedenle toplamlara dahil degiller', zh: '位业务代表当日未提交，故合计不含他们' },
+  'اعتمده شخص واحد': { en: 'approved by one person', fr: 'approuve par une seule personne', tr: 'tek kisi onayladi', zh: '由一人审批' },
+  'تقرير وقعه شخص واحد في كل مستوياته': { en: 'reports signed by one person across every level', fr: 'rapports signes par une seule personne a tous les niveaux', tr: 'her seviyede tek kisinin imzaladigi rapor', zh: '份报告各层级均由同一人签署' },
+  'مؤرشفة': { en: 'archived', fr: 'archive', tr: 'arsivlenmis', zh: '已归档' },
+  'لا مستخدمين': { en: 'No users', fr: 'Aucun utilisateur', tr: 'Kullanici yok', zh: '无用户' },
   'إعدادات التقرير اليومي': { en: 'Daily report settings', fr: 'Parametres du rapport quotidien', tr: 'Gunluk rapor ayarlari', zh: '每日报告设置' },
   'التقارير اليومية': { en: 'Daily reports', fr: 'Rapports quotidiens', tr: 'Gunluk raporlar', zh: '每日报告' },
   'ما ينتظر اعتمادك أنت': { en: 'Waiting for your approval', fr: 'En attente de votre approbation', tr: 'Onayinizi bekleyenler', zh: '等待您审批' },

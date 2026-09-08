@@ -282,6 +282,10 @@ export const dailyReportApi = {
   // المندوب
   form: (date: string, salesRepId?: string) => api.get('/daily-reports/form', { params: { date, ...(salesRepId && { salesRepId }) } }),
   submit: (body: unknown) => api.post('/daily-reports', body),
+  // التقرير الشامل — أرشيفٌ دائم لمن أُسند إليه
+  digests: () => api.get('/daily-reports/digests'),
+  digest: (date: string) => api.get(`/daily-reports/digests/${date}`),
+  setDigestViewers: (adminIds: string[]) => api.put('/daily-reports/config/digest-viewers', { adminIds }),
   mine: () => api.get('/daily-reports/mine'),
   // المراجعة والاعتماد
   inbox: () => api.get('/daily-reports/admin/inbox'),

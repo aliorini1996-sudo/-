@@ -89,6 +89,8 @@ model Tenant {
   dailyReports         DailyReport[]
   dailyReportTasks     DailyReportTask[]
   dailyReportConfigLog DailyReportConfigLog[]
+  dailyReportDigests   DailyReportDigest[]
+  dailyReportViewers   DailyReportDigestViewer[]
 
   @@map("tenants")
 }
@@ -1996,4 +1998,56 @@ model DailyReportConfigLog {
 
   @@index([tenantId, createdAt])
   @@map("daily_report_config_log")
+}
+
+/// من يستلم **التقرير الشامل** بعد صدوره — يُحدَّدون من صفحة إعدادات التقرير اليومي.
+///
+/// مستقلٌّ عن ملّاك العُقد عمداً: من يعتمد ليس بالضرورة من يقرأ الحصيلة.
+/// المدير العام قد يستلم الشامل بلا أن يكون عقدةً في المسار، ومشرفٌ يعتمد
+/// عشرة تقارير قد لا يُراد له أن يرى أرقام الفريق كلّه.
+model DailyReportDigestViewer {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  adminId   String // Admin بعينه — بلا FK كي لا يمحو حذفُه تاريخ الإسناد
+  adminName String
+
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, adminId])
+  @@index([tenantId])
+  @@map("daily_report_digest_viewers")
+}
+
+/// يومٌ **صدر تقريره الشامل**: كل تقرير رُفع فيه اجتاز سلسلته حتى الاعتماد.
+///
+/// الصفّ علامةٌ لا نسخة: الأرقام تُجمَّع عند القراءة من التقارير المُعتمَدة
+/// نفسها، وهي مقفولة بعد الاعتماد (409 على أي تعديل) فالتجميع ثابتٌ لا ينزاح.
+/// وتخزينُ نسخةٍ ثانية من الأرقام هنا يفتح باب تناقضٍ بين رقمين لمصدرٍ واحد.
+///
+/// ولا يُصدَر ليومٍ بلا تقارير: «صفر تقرير» ليس يوماً مكتملاً بل يومٌ لم يبدأ.
+model DailyReportDigest {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// 'YYYY-MM-DD' بتوقيت أجهزة المناديب — نفس مفتاح DailyReport.reportDate
+  reportDate String
+
+  issuedAt DateTime @default(now())
+
+  /// عدد التقارير التي دخلت الحصيلة، وعدد المناديب النشطين وقتها.
+  /// الفرق بينهما هو **من لم يرفع**، ويُعرض صراحةً: حصيلةٌ تخفي الغائبين
+  /// تبدو كاملةً وهي ناقصة.
+  reportCount Int
+  repCount    Int
+
+  /// كم تقريراً في هذا اليوم وقّعه شخصٌ واحد في كل مستوياته.
+  /// يُعرض وسماً على الحصيلة: يومٌ كل تقاريره اعتمدها موقّعٌ واحد ليس مُدقَّقاً.
+  soloApprovedCount Int @default(0)
+
+  @@unique([tenantId, reportDate])
+  @@index([tenantId, issuedAt])
+  @@map("daily_report_digests")
 }

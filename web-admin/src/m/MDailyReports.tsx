@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ClipboardCheck, CheckCircle2, RotateCcw, MessageSquare, AlertTriangle, UserRound } from 'lucide-react';
+import { ClipboardCheck, CheckCircle2, RotateCcw, MessageSquare, AlertTriangle, UserRound, Archive, Users } from 'lucide-react';
 import { dailyReportApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { MCard, MRow, MEmpty, MError, MSpinner, MHeader, MScreen } from './mobileUi';
@@ -30,6 +30,9 @@ const STATUS: Record<string, string> = {
 export default function MDailyReports() {
   const tr = useTr();
   const [openId, setOpenId] = useState<string | null>(null);
+  // «الحصائل» أرشيفٌ دائم لمن أُسند إليه التقرير الشامل — يبقى على الجوال
+  // كما يبقى على الويب، فمن يقرأ الحصيلة قد لا يفتح اللوحة أصلاً
+  const [tab, setTab] = useState<'inbox' | 'digests'>('inbox');
 
   const q = useQuery({
     queryKey: ['m-dr-inbox'],
@@ -49,7 +52,17 @@ export default function MDailyReports() {
         <p className="text-[11px] text-[#6E6557] mt-0.5">{tr('ما ينتظر اعتمادك أنت')}</p>
       </div>
     }>
-      {q.isLoading ? <MSpinner />
+      <div className="flex gap-1.5 px-3 pt-2">
+        {([['inbox', 'بانتظارك'], ['digests', 'الحصائل']] as const).map(([id, label]) => (
+          <button
+            key={id} onClick={() => setTab(id)}
+            className={`flex-1 py-2 rounded-xl text-xs font-semibold min-h-[40px] ${tab === id ? 'bg-[#FFF1EA] text-[#E15A30]' : 'bg-gray-50 text-gray-500'}`}
+          >{tr(label)}</button>
+        ))}
+      </div>
+
+      {tab === 'digests' ? <MDigests />
+        : q.isLoading ? <MSpinner />
         : q.isError ? <MError onRetry={() => q.refetch()} />
         : !q.data?.length ? <MEmpty text={tr('لا تقارير بانتظارك')} icon={ClipboardCheck} />
         : q.data.map(r => (
@@ -227,6 +240,110 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
           </div>
         )
       )}
+    </MScreen>
+  );
+}
+
+
+/** أرشيف الحصائل الصادرة على الجوال — نفس ما يراه صاحبه على الويب */
+function MDigests() {
+  const tr = useTr();
+  const [openDate, setOpenDate] = useState<string | null>(null);
+  const q = useQuery({
+    queryKey: ['m-dr-digests'],
+    queryFn: async () => (await dailyReportApi.digests()).data.data as {
+      assigned: boolean;
+      digests: { id: string; reportDate: string; reportCount: number; repCount: number; soloApprovedCount: number }[];
+    },
+  });
+
+  useBackClose(!!openDate, () => setOpenDate(null));
+  if (openDate) return <MDigestView date={openDate} onBack={() => setOpenDate(null)} />;
+
+  if (q.isLoading) return <MSpinner />;
+  if (q.isError) return <MError onRetry={() => q.refetch()} />;
+  if (!q.data?.assigned) return <MEmpty text={tr('التقرير الشامل غير مسند لك')} icon={Archive} />;
+  if (!q.data.digests.length) return <MEmpty text={tr('لم تصدر حصيلة بعد')} icon={Archive} />;
+
+  return (
+    <>
+      {q.data.digests.map(d => (
+        <MRow
+          key={d.id}
+          leading={<CheckCircle2 size={20} className="text-[#22C55E]" />}
+          title={d.reportDate}
+          subtitle={`${d.reportCount} ${tr('تقرير')}${d.repCount > d.reportCount ? ` · ${d.repCount - d.reportCount} ${tr('مندوب لم يرفع')}` : ''}`}
+          onClick={() => setOpenDate(d.reportDate)}
+        />
+      ))}
+    </>
+  );
+}
+
+function MDigestView({ date, onBack }: { date: string; onBack: () => void }) {
+  const tr = useTr();
+  const q = useQuery({
+    queryKey: ['m-dr-digest', date],
+    queryFn: async () => (await dailyReportApi.digest(date)).data.data,
+  });
+  if (q.isLoading) return <MSpinner />;
+  if (q.isError) return <MError onRetry={() => q.refetch()} />;
+
+  const d = q.data as {
+    digest: { reportDate: string; reportCount: number; soloApprovedCount: number };
+    fields: { id: string; label: string; kind: string }[];
+    rows: { salesRepId: string; salesRepName: string; soloApproved: boolean; values: Record<string, number | string | null> }[];
+    totals: Record<string, number>;
+    missingReps: number;
+  };
+  const num = (v: unknown): string =>
+    typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 2 })
+      : v === null || v === undefined ? '—' : String(v);
+
+  return (
+    <MScreen header={<MHeader title={`${tr('حصيلة')} ${d.digest.reportDate}`} subtitle={`${d.digest.reportCount} ${tr('تقرير')}`} onBack={onBack} />}>
+      {(d.missingReps > 0 || d.digest.soloApprovedCount > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 space-y-1">
+          {d.missingReps > 0 && (
+            <p className="text-[11px] text-amber-800 flex items-start gap-1">
+              <Users size={12} className="mt-0.5 shrink-0" />
+              {d.missingReps} {tr('مندوب لم يرفع')}
+            </p>
+          )}
+          {d.digest.soloApprovedCount > 0 && (
+            <p className="text-[11px] text-amber-800 flex items-start gap-1">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+              {d.digest.soloApprovedCount} {tr('اعتمده شخص واحد')}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* الإجماليات أولاً: على شاشة جوال يُقرأ المجموع قبل التفصيل */}
+      <MCard>
+        <p className="font-bold text-sm mb-2">{tr('الإجمالي')}</p>
+        {d.fields.filter(f => f.kind !== 'TEXT').map(f => (
+          <div key={f.id} className="flex items-center justify-between py-1.5 border-t border-[#F5F0E6] first:border-0">
+            <span className="text-xs text-[#6E6557]">{f.label}</span>
+            <span className="text-sm font-bold text-[#1F1A13]">{num(d.totals[f.id] ?? 0)}</span>
+          </div>
+        ))}
+      </MCard>
+
+      {d.rows.map(r => (
+        <MCard key={r.salesRepId}>
+          <p className="font-bold text-sm mb-1.5 flex items-center gap-1">
+            {r.salesRepName}
+            {r.soloApproved && <AlertTriangle size={12} className="text-amber-600" />}
+          </p>
+          {d.fields.map(f => (
+            <div key={f.id} className="flex items-center justify-between py-1 border-t border-[#F5F0E6] first:border-0">
+              <span className="text-[11px] text-[#6E6557]">{f.label}</span>
+              <span className="text-xs font-semibold text-[#1F1A13]">{num(r.values[f.id])}</span>
+            </div>
+          ))}
+        </MCard>
+      ))}
     </MScreen>
   );
 }

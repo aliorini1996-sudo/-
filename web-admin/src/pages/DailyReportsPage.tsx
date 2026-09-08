@@ -7,6 +7,7 @@ import {
 import { dailyReportApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import DailyReportCanvas, { CanvasNode } from './DailyReportCanvas';
+import DailyReportDigests from './DailyReportDigests';
 import { useAuthStore } from '../store/authStore';
 import { formatDate } from '../utils/format';
 
@@ -17,7 +18,7 @@ import { formatDate } from '../utils/format';
  *   • الشامل    — إجماليات الفريق لمدّة
  */
 
-type Tab = 'inbox' | 'config' | 'team';
+type Tab = 'inbox' | 'config' | 'team' | 'digests';
 
 interface InboxRow {
   reportId: string; levelSeq: number; round: number;
@@ -53,7 +54,7 @@ export default function DailyReportsPage() {
       </div>
 
       <div className="flex gap-2 border-b border-[#F1EBDF]">
-        {([['inbox', 'بانتظارك', Inbox], ['config', 'الإعداد', Settings], ['team', 'التقرير الشامل', BarChart3]] as const)
+        {([['inbox', 'بانتظارك', Inbox], ['digests', 'الحصائل الصادرة', Archive], ['config', 'الإعداد', Settings], ['team', 'التقرير الشامل', BarChart3]] as const)
           .filter(([id]) => id !== 'config' || canConfig)
           .map(([id, label, Icon]) => (
           <button
@@ -66,6 +67,7 @@ export default function DailyReportsPage() {
       </div>
 
       {tab === 'inbox' && <InboxTab />}
+      {tab === 'digests' && <DailyReportDigests />}
       {tab === 'config' && canConfig && <ConfigTab />}
       {tab === 'team' && <TeamTab />}
     </div>
@@ -311,13 +313,15 @@ function ConfigTab() {
   const mArchive = useMutation({ mutationFn: ({ id, restore }: { id: string; restore: boolean }) => dailyReportApi.archiveField(id, restore), onSuccess: done, onError: fail });
   const mDelField = useMutation({ mutationFn: (id: string) => dailyReportApi.deleteField(id), onSuccess: done, onError: fail });
   const mReorder = useMutation({ mutationFn: (ids: string[]) => dailyReportApi.reorderFields(ids), onSuccess: done, onError: fail });
+  const mViewers = useMutation({ mutationFn: (ids: string[]) => dailyReportApi.setDigestViewers(ids), onSuccess: done, onError: fail });
   const mAddLevel = useMutation({ mutationFn: (b: Record<string, unknown>) => dailyReportApi.addLevel(b), onSuccess: done, onError: fail });
   const mUpdLevel = useMutation({ mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => dailyReportApi.updateLevel(id, patch), onSuccess: done, onError: fail });
   const mDelLevel = useMutation({ mutationFn: (id: string) => dailyReportApi.deleteLevel(id), onSuccess: done, onError: fail });
   const mOwners = useMutation({ mutationFn: ({ id, owners }: { id: string; owners: unknown[] }) => dailyReportApi.setOwners(id, owners), onSuccess: done, onError: fail });
 
   if (q.isLoading) return <div className="card p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>;
-  const d = q.data as { fields: Field[]; levels: Level[]; owners: Owner[]; admins: Named[]; reps: Named[]; issues: string[]; configLog: { id: string; summary: string; actorAdminName: string; createdAt: string }[] };
+  const d = q.data as { fields: Field[]; levels: Level[]; owners: Owner[]; admins: Named[]; reps: Named[]; issues: string[]; configLog: { id: string; summary: string; actorAdminName: string; createdAt: string }[];
+    digestViewers: { adminId: string; adminName: string }[] };
 
   // العقدة على اللوحة = مستوىً + صاحبه الواحد. والمخطّط يحتمل أكثر من صاحب
   // للمستوى (تغطية الإجازة في م٦)، فنأخذ الأول ونُبقي الباقي في البيانات.
@@ -346,6 +350,12 @@ function ConfigTab() {
       {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">{err}</p>}
 
       {/* مسار الاعتماد — رسم العُقد */}
+      <DigestViewers
+        admins={d.admins}
+        current={d.digestViewers.map(v => v.adminId)}
+        onSave={ids => mViewers.mutate(ids)}
+      />
+
       <DailyReportCanvas
         nodes={canvasNodes} people={d.admins} reps={d.reps}
         onAdd={(afterSeq, adminId, name, color, pos) =>
@@ -603,3 +613,52 @@ function InsertBtn({ onClick, label }: { onClick: () => void; label: string }) {
   );
 }
 
+
+
+/**
+ * من يستلم التقرير الشامل بعد صدوره.
+ *
+ * مستقلٌّ عن ملّاك العُقد عمداً: من يعتمد ليس بالضرورة من يقرأ الحصيلة.
+ * والقائمة تُقرأ لحظة الطلب لا تُنسَخ على كل حصيلة — فمنحُ الإسناد يفتح
+ * الأرشيف كاملاً بما صدر قبله، وسحبُه يُخفيه كلّه.
+ */
+function DigestViewers({ admins, current, onSave }: {
+  admins: Named[]; current: string[]; onSave: (ids: string[]) => void;
+}) {
+  const tr = useTr();
+  const [sel, setSel] = useState<string[]>(current);
+  const dirty = sel.length !== current.length || sel.some(id => !current.includes(id));
+
+  return (
+    <div className="card">
+      <p className="font-bold text-sm mb-1">{tr('من يستلم التقرير الشامل')}</p>
+      <p className="text-xs text-[#6E6557] mb-3">
+        {tr('تصدر حصيلة اليوم حين يعتمد آخر تقرير رفع فيه، وتبقى في أرشيف من تحدده هنا')}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {admins.map(a => {
+          const on = sel.includes(a.id);
+          return (
+            <button
+              key={a.id}
+              onClick={() => setSel(v => on ? v.filter(x => x !== a.id) : [...v, a.id])}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border-2 transition
+                ${on ? 'border-[#E15A30] bg-[#FFF6F1] text-[#E15A30]' : 'border-[#E9E1D3] bg-white text-[#6E6557]'}`}
+            >
+              {a.name}
+            </button>
+          );
+        })}
+      </div>
+      {!admins.length && <p className="text-xs text-gray-400">{tr('لا مستخدمين')}</p>}
+      {dirty && (
+        <button className="btn-primary text-xs mt-3" onClick={() => onSave(sel)}>{tr('حفظ')}</button>
+      )}
+      {!sel.length && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-3">
+          {tr('لا أحد يستلم الحصيلة — ستصدر وتبقى بلا قارئ')}
+        </p>
+      )}
+    </div>
+  );
+}
