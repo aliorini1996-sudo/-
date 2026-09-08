@@ -25,7 +25,7 @@ interface InboxRow {
 }
 
 interface Field { id: string; label: string; kind: string; required: boolean; isActive: boolean; seq: number; fillLevelSeq: number | null }
-interface Level { id: string; seq: number; name: string; kind: string; quorum: string }
+interface Level { id: string; seq: number; name: string; kind: string; quorum: string; color: string | null }
 interface Owner { id: string; levelId: string; adminId: string; adminName: string; isDefault: boolean; repIds: string[] }
 interface Named { id: string; name: string; role?: string }
 
@@ -297,7 +297,6 @@ function ConfigTab() {
   const qc = useQueryClient();
   const [err, setErr] = useState('');
   const [newField, setNewField] = useState({ label: '', kind: 'NUMBER', required: false, fillLevelSeq: '' });
-  const [newLevel, setNewLevel] = useState({ name: '', kind: 'REVIEW' });
   const [previewRep, setPreviewRep] = useState('');
   const [preview, setPreview] = useState<string[] | null>(null);
 
@@ -309,7 +308,8 @@ function ConfigTab() {
   const mArchive = useMutation({ mutationFn: ({ id, restore }: { id: string; restore: boolean }) => dailyReportApi.archiveField(id, restore), onSuccess: done, onError: fail });
   const mDelField = useMutation({ mutationFn: (id: string) => dailyReportApi.deleteField(id), onSuccess: done, onError: fail });
   const mReorder = useMutation({ mutationFn: (ids: string[]) => dailyReportApi.reorderFields(ids), onSuccess: done, onError: fail });
-  const mAddLevel = useMutation({ mutationFn: () => dailyReportApi.addLevel(newLevel), onSuccess: () => { setNewLevel({ name: '', kind: 'REVIEW' }); done(); }, onError: fail });
+  const mAddLevel = useMutation({ mutationFn: (b: { afterSeq: number | null; name: string; color: string }) => dailyReportApi.addLevel(b), onSuccess: done, onError: fail });
+  const mUpdLevel = useMutation({ mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => dailyReportApi.updateLevel(id, patch), onSuccess: done, onError: fail });
   const mDelLevel = useMutation({ mutationFn: (id: string) => dailyReportApi.deleteLevel(id), onSuccess: done, onError: fail });
   const mOwners = useMutation({ mutationFn: ({ id, owners }: { id: string; owners: unknown[] }) => dailyReportApi.setOwners(id, owners), onSuccess: done, onError: fail });
 
@@ -329,31 +329,14 @@ function ConfigTab() {
       )}
       {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">{err}</p>}
 
-      {/* المستويات */}
-      <div className="card">
-        <p className="font-bold text-sm mb-3">{tr('مستويات الاعتماد')}</p>
-        <div className="space-y-3">
-          {d.levels.map(l => (
-            <LevelRow
-              key={l.id} level={l} owners={d.owners.filter(o => o.levelId === l.id)}
-              admins={d.admins} reps={d.reps}
-              onOwners={owners => mOwners.mutate({ id: l.id, owners })}
-              onDelete={() => mDelLevel.mutate(l.id)}
-            />
-          ))}
-        </div>
-        <div className="flex gap-2 mt-4 flex-wrap items-end">
-          <div><label className="label text-xs">{tr('اسم المستوى')}</label><input className="input w-48" value={newLevel.name} onChange={e => setNewLevel(v => ({ ...v, name: e.target.value }))} placeholder={tr('مشرف المبيعات')} /></div>
-          <div>
-            <label className="label text-xs">{tr('نوعه')}</label>
-            <select className="input w-44" value={newLevel.kind} onChange={e => setNewLevel(v => ({ ...v, kind: e.target.value }))}>
-              <option value="REVIEW">{tr('يراجع ويعتمد')}</option>
-              <option value="ENTER">{tr('يسجل بياناته ثم يعتمد')}</option>
-            </select>
-          </div>
-          <button className="btn-primary" disabled={!newLevel.name.trim()} onClick={() => mAddLevel.mutate()}><Plus size={16} /> {tr('إضافة مستوى')}</button>
-        </div>
-      </div>
+      {/* مسار الاعتماد — رسم العُقد */}
+      <ChainEditor
+        levels={d.levels} owners={d.owners} admins={d.admins} reps={d.reps}
+        onAdd={(afterSeq, name, color) => mAddLevel.mutate({ afterSeq, name, color })}
+        onUpdate={(id, patch) => mUpdLevel.mutate({ id, patch })}
+        onDelete={id => mDelLevel.mutate(id)}
+        onOwners={(id, owners) => mOwners.mutate({ id, owners })}
+      />
 
       {/* المحاكي */}
       <div className="card">
@@ -447,63 +430,6 @@ function ConfigTab() {
   );
 }
 
-function LevelRow({ level, owners, admins, reps, onOwners, onDelete }: {
-  level: Level; owners: Owner[]; admins: Named[]; reps: Named[];
-  onOwners: (o: unknown[]) => void; onDelete: () => void;
-}) {
-  const tr = useTr();
-  const [edit, setEdit] = useState(false);
-  const [draft, setDraft] = useState(() => owners.map(o => ({ adminId: o.adminId, isDefault: o.isDefault, repIds: o.repIds })));
-
-  return (
-    <div className="border border-[#E9E1D3] rounded-xl p-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="w-7 h-7 rounded-full bg-[#FBEBE2] text-[#E15A30] font-bold text-xs flex items-center justify-center shrink-0">{level.seq}</span>
-        <span className="font-semibold text-sm">{level.name}</span>
-        <span className="text-xs text-[#6E6557]">{tr(level.kind === 'ENTER' ? 'يسجل بياناته ثم يعتمد' : 'يراجع ويعتمد')}</span>
-        <span className="flex-1" />
-        <button onClick={() => { setDraft(owners.map(o => ({ adminId: o.adminId, isDefault: o.isDefault, repIds: o.repIds }))); setEdit(v => !v); }} className="btn-secondary text-xs"><UserCog size={13} /> {tr('من يستقبله')}</button>
-        <button onClick={onDelete} className="p-1.5 text-red-600"><Trash2 size={14} /></button>
-      </div>
-
-      {!edit && (
-        <p className="text-xs text-[#6E6557] mt-2">
-          {owners.length === 0 ? <span className="text-red-700 font-semibold">{tr('بلا صاحب — التقارير ستعلق هنا')}</span>
-            : owners.map(o => `${o.adminName}${o.isDefault ? ` (${tr('افتراضي')})` : o.repIds.length ? ` (${o.repIds.length} ${tr('مندوب')})` : ''}`).join(' · ')}
-        </p>
-      )}
-
-      {edit && (
-        <div className="mt-3 space-y-2">
-          {draft.map((o, i) => (
-            <div key={i} className="flex gap-2 flex-wrap items-center bg-[#FAF7F0] rounded-lg p-2">
-              <select className="input text-xs w-40" value={o.adminId} onChange={e => setDraft(d => d.map((x, n) => n === i ? { ...x, adminId: e.target.value } : x))}>
-                <option value="">{tr('اختر مستخدما')}</option>
-                {admins.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-              <label className="flex items-center gap-1 text-xs">
-                <input type="checkbox" checked={o.isDefault} onChange={e => setDraft(d => d.map((x, n) => n === i ? { ...x, isDefault: e.target.checked } : { ...x, isDefault: e.target.checked ? false : x.isDefault }))} />
-                {tr('يستقبل الباقي')}
-              </label>
-              <select
-                multiple className="input text-xs flex-1 min-w-[10rem] h-20" value={o.repIds}
-                onChange={e => setDraft(d => d.map((x, n) => n === i ? { ...x, repIds: [...e.target.selectedOptions].map(s => s.value) } : x))}
-              >
-                {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-              <button onClick={() => setDraft(d => d.filter((_, n) => n !== i))} className="p-1 text-red-600"><Trash2 size={13} /></button>
-            </div>
-          ))}
-          <div className="flex gap-2">
-            <button onClick={() => setDraft(d => [...d, { adminId: '', isDefault: d.length === 0, repIds: [] }])} className="btn-secondary text-xs"><Plus size={13} /> {tr('إضافة مستقبل')}</button>
-            <button onClick={() => { onOwners(draft.filter(o => o.adminId)); setEdit(false); }} className="btn-primary text-xs">{tr('حفظ')}</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ════════════════════════ التقرير الشامل ════════════════════════
 
 function TeamTab() {
@@ -574,6 +500,276 @@ function TeamTab() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * رسم سلسلة الاعتماد — طبقاتٌ متّصلة أفقياً على نسق أنظمة العُقد.
+ *
+ * لماذا رسمٌ لا قائمة: السلسلة **مسارٌ** لا مجموعة. والقائمة الرأسية تُخفي
+ * أهمّ ما يريد المالك رؤيته: إلى أين يمضي التقرير بعد كلٍّ، وأين ينقطع الخيط.
+ * العُقدة المعطوبة (بلا مستقبِل) تظهر هنا مقطوعةً من الوصلة بصرياً، لا سطراً
+ * أحمر في قائمة.
+ *
+ * العُقدة الأولى «المندوب» ثابتة ولا تُحذف: هي المستوى 0 الضمنيّ الذي يبدأ
+ * منه كل تقرير، وليست صفّاً في الجدول.
+ */
+
+/** لوحة ألوان الطبقات — الأحمر محجوزٌ للمندوب فلا يتكرّر */
+const LAYER_COLORS = ['#F5C400', '#1E5FE0', '#FFFFFF', '#22C55E', '#A855F7', '#06B6D4', '#F97316', '#EC4899'];
+const REP_COLOR = '#EF4444';
+const colorOf = (l: Level, i: number) => l.color || LAYER_COLORS[i % LAYER_COLORS.length];
+
+/** كتلة اللون في العُقدة — الشكل العضويّ نفسه في كل عُقدة، يميّزها اللون وحده */
+function Blob({ color, size = 46 }: { color: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
+      <path
+        d="M50 8c14 0 22 8 30 16s12 14 12 26-6 20-14 27-18 15-28 15-21-6-30-14S6 62 6 50s7-20 15-27S36 8 50 8z"
+        fill={color}
+        stroke={color === '#FFFFFF' ? '#D8D0C0' : 'none'}
+        strokeWidth={color === '#FFFFFF' ? 3 : 0}
+      />
+    </svg>
+  );
+}
+
+/** الوصلة بين عقدتين — مقطوعةٌ ومنقّطة حين تكون العُقدة التالية بلا مستقبِل */
+function Link({ broken }: { broken?: boolean }) {
+  return (
+    <div className="flex items-center shrink-0 px-1" aria-hidden="true">
+      <span className={`w-1.5 h-1.5 rounded-full ${broken ? 'bg-red-400' : 'bg-[#C9C0AE]'}`} />
+      <span
+        className={`h-px w-7 ${broken ? 'bg-transparent border-t border-dashed border-red-400' : 'bg-[#C9C0AE]'}`}
+      />
+      <svg width="9" height="9" viewBox="0 0 10 10" className={broken ? 'text-red-400' : 'text-[#C9C0AE]'}>
+        <path d="M1 1l5 4-5 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+/** عُقدةٌ في الرسم */
+function Node({ color, title, subtitle, badge, selected, broken, onClick, fixed }: {
+  color: string; title: string; subtitle?: string; badge?: string;
+  selected?: boolean; broken?: boolean; onClick?: () => void; fixed?: boolean;
+}) {
+  return (
+    <button
+      type="button" onClick={onClick} disabled={!onClick}
+      className={`shrink-0 w-[7.5rem] rounded-2xl border-2 p-2.5 text-center transition
+        ${selected ? 'border-[#E15A30] bg-[#FFF6F1]' : broken ? 'border-red-300 bg-red-50' : 'border-[#E9E1D3] bg-white'}
+        ${onClick ? 'hover:border-[#E15A30] cursor-pointer' : 'cursor-default'}`}
+    >
+      <div className="flex justify-center"><Blob color={color} /></div>
+      <p className="text-xs font-bold text-[#1F1A13] mt-1.5 truncate" title={title}>{title}</p>
+      <p className={`text-[10px] mt-0.5 truncate ${broken ? 'text-red-600 font-semibold' : 'text-[#6E6557]'}`} title={subtitle}>
+        {subtitle || (fixed ? '' : '—')}
+      </p>
+      {badge && <span className="inline-block mt-1 text-[9px] bg-[#FAF7F0] border border-[#E9E1D3] rounded px-1.5 py-0.5 text-[#6E6557]">{badge}</span>}
+    </button>
+  );
+}
+
+/** زرّ إدراج طبقة بين عقدتين */
+function InsertBtn({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button" onClick={onClick} title={label}
+      className="shrink-0 w-6 h-6 rounded-full border border-dashed border-[#C9C0AE] text-[#6E6557]
+                 flex items-center justify-center hover:border-[#E15A30] hover:text-[#E15A30] hover:bg-[#FFF6F1] transition"
+    >
+      <Plus size={13} />
+    </button>
+  );
+}
+
+function ChainEditor({ levels, owners, admins, reps, onAdd, onUpdate, onDelete, onOwners }: {
+  levels: Level[]; owners: Owner[]; admins: Named[]; reps: Named[];
+  onAdd: (afterSeq: number | null, name: string, color: string) => void;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+  onDelete: (id: string) => void;
+  onOwners: (id: string, o: unknown[]) => void;
+}) {
+  const tr = useTr();
+  const [sel, setSel] = useState<string | null>(null);
+  const [adding, setAdding] = useState<{ afterSeq: number | null } | null>(null);
+  const [draftName, setDraftName] = useState('');
+
+  const ownersOf = (id: string) => owners.filter(o => o.levelId === id);
+  const isBroken = (id: string) => ownersOf(id).length === 0;
+  const selected = levels.find(l => l.id === sel) || null;
+
+  const submitAdd = () => {
+    const name = draftName.trim();
+    if (!name) return;
+    const i = adding!.afterSeq === null ? levels.length : adding!.afterSeq;
+    onAdd(adding!.afterSeq, name, LAYER_COLORS[i % LAYER_COLORS.length]);
+    setDraftName(''); setAdding(null);
+  };
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <p className="font-bold text-sm">{tr('مسار اعتماد التقرير')}</p>
+        <p className="text-xs text-[#6E6557]">{tr('اضغط طبقة لتسميتها وتحديد من يستقبلها')}</p>
+      </div>
+
+      {/* الرسم */}
+      <div className="overflow-x-auto -mx-1 px-1 py-3">
+        <div className="flex items-start gap-0.5 min-w-min">
+          {/* المندوب — ثابت، لا يُحذف ولا يُعدّل */}
+          <Node color={REP_COLOR} title={tr('المندوب')} subtitle={tr('يرفع التقرير')} fixed />
+          <Link />
+          <InsertBtn onClick={() => { setAdding({ afterSeq: 0 }); setSel(null); }} label={tr('إدراج طبقة هنا')} />
+          <Link />
+
+          {levels.map((l, i) => (
+            <div key={l.id} className="flex items-start gap-0.5">
+              <Node
+                color={colorOf(l, i)}
+                title={l.name}
+                subtitle={isBroken(l.id) ? tr('بلا مستقبل') : ownersOf(l.id).map(o => o.adminName).join('، ')}
+                badge={l.kind === 'ENTER' ? tr('يسجل بياناته') : undefined}
+                selected={sel === l.id}
+                broken={isBroken(l.id)}
+                onClick={() => { setSel(sel === l.id ? null : l.id); setAdding(null); }}
+              />
+              <Link broken={isBroken(l.id)} />
+              <InsertBtn onClick={() => { setAdding({ afterSeq: l.seq }); setSel(null); }} label={tr('إدراج طبقة هنا')} />
+              <Link />
+            </div>
+          ))}
+
+          {/* النهاية */}
+          <div className="shrink-0 w-[7.5rem] rounded-2xl border-2 border-dashed border-[#E9E1D3] p-2.5 text-center">
+            <div className="flex justify-center items-center h-[46px]"><CheckCircle2 size={26} className="text-[#22C55E]" /></div>
+            <p className="text-xs font-bold text-[#1F1A13] mt-1.5">{tr('معتمد')}</p>
+            <p className="text-[10px] text-[#6E6557] mt-0.5">{tr('يدخل التقرير الشامل')}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* إضافة طبقة */}
+      {adding && (
+        <div className="bg-[#FAF7F0] border border-[#E9E1D3] rounded-xl p-3 flex gap-2 flex-wrap items-end">
+          <div>
+            <label className="label text-xs">{tr('اسم الطبقة')}</label>
+            <input
+              autoFocus className="input w-52" value={draftName}
+              placeholder={tr('مدير المبيعات')}
+              onChange={e => setDraftName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') { setAdding(null); setDraftName(''); } }}
+            />
+          </div>
+          <button className="btn-primary" disabled={!draftName.trim()} onClick={submitAdd}>{tr('إضافة')}</button>
+          <button className="btn-secondary" onClick={() => { setAdding(null); setDraftName(''); }}>{tr('إلغاء')}</button>
+          <p className="basis-full text-xs text-[#6E6557]">
+            {adding.afterSeq === 0 ? tr('تُدرج مباشرة بعد المندوب') : `${tr('تدرج بعد')} «${levels.find(l => l.seq === adding.afterSeq)?.name ?? ''}»`}
+          </p>
+        </div>
+      )}
+
+      {/* محرّر الطبقة المختارة */}
+      {selected && (
+        <LayerEditor
+          key={selected.id}
+          level={selected}
+          index={levels.findIndex(l => l.id === selected.id)}
+          owners={ownersOf(selected.id)}
+          admins={admins} reps={reps}
+          onUpdate={patch => onUpdate(selected.id, patch)}
+          onOwners={o => onOwners(selected.id, o)}
+          onDelete={() => { onDelete(selected.id); setSel(null); }}
+          onClose={() => setSel(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function LayerEditor({ level, index, owners, admins, reps, onUpdate, onOwners, onDelete, onClose }: {
+  level: Level; index: number; owners: Owner[]; admins: Named[]; reps: Named[];
+  onUpdate: (patch: Record<string, unknown>) => void;
+  onOwners: (o: unknown[]) => void;
+  onDelete: () => void; onClose: () => void;
+}) {
+  const tr = useTr();
+  const [name, setName] = useState(level.name);
+  const [draft, setDraft] = useState(() => owners.map(o => ({ adminId: o.adminId, isDefault: o.isDefault, repIds: o.repIds })));
+  const color = colorOf(level, index);
+
+  return (
+    <div className="border-2 border-[#E15A30] rounded-2xl p-4 mt-1 bg-[#FFFCFA] space-y-3">
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <Blob color={color} size={28} />
+        <input
+          className="input w-56 font-semibold" value={name}
+          onChange={e => setName(e.target.value)}
+          onBlur={() => { const n = name.trim(); if (n && n !== level.name) onUpdate({ name: n }); else setName(level.name); }}
+        />
+        <select className="input w-48 text-xs" value={level.kind} onChange={e => onUpdate({ kind: e.target.value })}>
+          <option value="REVIEW">{tr('يراجع ويعتمد')}</option>
+          <option value="ENTER">{tr('يسجل بياناته ثم يعتمد')}</option>
+        </select>
+        <span className="flex-1" />
+        <button onClick={onDelete} className="btn-secondary text-xs text-red-600"><Trash2 size={13} /> {tr('حذف الطبقة')}</button>
+        <button onClick={onClose} className="btn-secondary text-xs">{tr('إغلاق')}</button>
+      </div>
+
+      {/* اللون */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-[#6E6557]">{tr('اللون')}</span>
+        {[REP_COLOR, ...LAYER_COLORS].map(c => (
+          <button
+            key={c} onClick={() => onUpdate({ color: c })} title={c}
+            className={`w-6 h-6 rounded-full border-2 ${color.toLowerCase() === c.toLowerCase() ? 'border-[#E15A30]' : 'border-[#E9E1D3]'}`}
+            style={{ background: c }}
+          />
+        ))}
+      </div>
+
+      {/* من يستقبلها — التشعّب */}
+      <div>
+        <p className="text-xs font-semibold text-[#1F1A13] mb-2">{tr('من يستقبل التقارير عند هذه الطبقة')}</p>
+        <div className="space-y-2">
+          {draft.map((o, i) => (
+            <div key={i} className="flex gap-2 flex-wrap items-start bg-white border border-[#E9E1D3] rounded-lg p-2">
+              <select
+                className="input text-xs w-44" value={o.adminId}
+                onChange={e => setDraft(d => d.map((x, n) => n === i ? { ...x, adminId: e.target.value } : x))}
+              >
+                <option value="">{tr('اختر مستخدما')}</option>
+                {admins.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <label className="flex items-center gap-1 text-xs mt-2">
+                <input
+                  type="checkbox" checked={o.isDefault}
+                  onChange={e => setDraft(d => d.map((x, n) => n === i ? { ...x, isDefault: e.target.checked } : { ...x, isDefault: e.target.checked ? false : x.isDefault }))}
+                />
+                {tr('يستقبل الباقي')}
+              </label>
+              <div className="flex-1 min-w-[11rem]">
+                <p className="text-[10px] text-[#6E6557] mb-1">{tr('أو مناديب بعينهم')}</p>
+                <select
+                  multiple className="input text-xs w-full h-20" value={o.repIds}
+                  onChange={e => setDraft(d => d.map((x, n) => n === i ? { ...x, repIds: [...e.target.selectedOptions].map(s => s.value) } : x))}
+                >
+                  {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <button onClick={() => setDraft(d => d.filter((_, n) => n !== i))} className="p-1 text-red-600 mt-1.5"><Trash2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-2">
+          <button onClick={() => setDraft(d => [...d, { adminId: '', isDefault: d.length === 0, repIds: [] }])} className="btn-secondary text-xs">
+            <Plus size={13} /> {tr('إضافة مستقبل')}
+          </button>
+          <button onClick={() => onOwners(draft.filter(o => o.adminId))} className="btn-primary text-xs">{tr('حفظ')}</button>
+        </div>
+      </div>
     </div>
   );
 }

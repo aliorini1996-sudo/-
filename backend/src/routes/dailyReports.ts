@@ -693,18 +693,32 @@ const levelSchema = z.object({
   name: z.string().min(1).max(80),
   kind: z.enum(['REVIEW', 'ENTER']).default('REVIEW'),
   quorum: z.enum(['ALL', 'ANY']).default('ALL'),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'لون غير صالح').nullish(),
 });
 
 router.post('/config/levels', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const body = levelSchema.parse(req.body);
+    // `afterSeq` = تُدرَج الطبقة **بعد** هذا الموضع؛ غيابها = إلحاقٌ في آخر السلسلة.
+    // الإدراج وسط السلسلة مطلبُ رسمِ العُقد: المالك يضيف «مدير المبيعات» بين
+    // المشرف والمحاسب، لا في آخر الصفّ ثم يعيد الترتيب.
+    const afterSeq = typeof req.body?.afterSeq === 'number' ? req.body.afterSeq : null;
     const max = await prisma.dailyReportLevel.aggregate({ where: { tenantId: tid }, _max: { seq: true } });
+    const at = afterSeq === null ? (max._max.seq ?? 0) + 1 : afterSeq + 1;
+
     const created = await prisma.$transaction(async tx => {
+      if (afterSeq !== null) {
+        // إزاحةٌ تنازليّة: القيد الفريد (tenantId, seq) يصطدم لو أُزيح تصاعدياً
+        const shift = await tx.dailyReportLevel.findMany({
+          where: { tenantId: tid, seq: { gte: at } }, orderBy: { seq: 'desc' },
+        });
+        for (const l of shift) await tx.dailyReportLevel.update({ where: { id: l.id }, data: { seq: l.seq + 1 } });
+      }
       const l = await tx.dailyReportLevel.create({
-        data: { tenantId: tid, seq: (max._max.seq ?? 0) + 1, name: body.name, kind: body.kind, quorum: body.quorum },
+        data: { tenantId: tid, seq: at, name: body.name, kind: body.kind, quorum: body.quorum, color: body.color ?? null },
       });
-      await logConfig(tx, tid, req, 'LEVEL', 'CREATE', `أضاف مستوى «${body.name}»`, l.id, body.name);
+      await logConfig(tx, tid, req, 'LEVEL', 'CREATE', `أضاف طبقة «${body.name}» في الموضع ${at}`, l.id, body.name);
       return l;
     });
     res.status(201).json({ success: true, data: created });

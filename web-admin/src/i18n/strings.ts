@@ -176,6 +176,21 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'مسار اعتماد التقرير': { en: 'Report approval path', fr: 'Parcours d approbation du rapport', tr: 'Rapor onay yolu', zh: '报告审批路径' },
+  'اضغط طبقة لتسميتها وتحديد من يستقبلها': { en: 'Click a layer to rename it and set who receives it', fr: 'Cliquez sur une couche pour la renommer et definir qui la recoit', tr: 'Adlandirmak ve kimin alacagini belirlemek icin bir katmana tiklayin', zh: '点击层级以重命名并设置接收人' },
+  'يرفع التقرير': { en: 'Submits the report', fr: 'Soumet le rapport', tr: 'Raporu gonderir', zh: '提交报告' },
+  'يدخل التقرير الشامل': { en: 'Enters the team report', fr: 'Entre dans le rapport global', tr: 'Ekip raporuna girer', zh: '进入团队报告' },
+  'بلا مستقبل': { en: 'No recipient', fr: 'Aucun destinataire', tr: 'Alici yok', zh: '无接收人' },
+  'يسجل بياناته': { en: 'Records data', fr: 'Saisit des donnees', tr: 'Veri girer', zh: '录入数据' },
+  'إدراج طبقة هنا': { en: 'Insert a layer here', fr: 'Inserer une couche ici', tr: 'Buraya bir katman ekle', zh: '在此插入层级' },
+  'اسم الطبقة': { en: 'Layer name', fr: 'Nom de la couche', tr: 'Katman adi', zh: '层级名称' },
+  'مدير المبيعات': { en: 'Sales manager', fr: 'Directeur des ventes', tr: 'Satis muduru', zh: '销售经理' },
+  'تُدرج مباشرة بعد المندوب': { en: 'Inserted right after the rep', fr: 'Inseree juste apres le representant', tr: 'Temsilcinin hemen ardina eklenir', zh: '插入在业务代表之后' },
+  'تدرج بعد': { en: 'Inserted after', fr: 'Inseree apres', tr: 'Sonrasina eklenir', zh: '插入在其后' },
+  'حذف الطبقة': { en: 'Delete layer', fr: 'Supprimer la couche', tr: 'Katmani sil', zh: '删除层级' },
+  'اللون': { en: 'Colour', fr: 'Couleur', tr: 'Renk', zh: '颜色' },
+  'من يستقبل التقارير عند هذه الطبقة': { en: 'Who receives reports at this layer', fr: 'Qui recoit les rapports a cette couche', tr: 'Bu katmanda raporlari kim alir', zh: '谁在此层级接收报告' },
+  'أو مناديب بعينهم': { en: 'Or specific reps', fr: 'Ou des representants precis', tr: 'Veya belirli temsilciler', zh: '或指定业务代表' },
   'التقرير اليومي': { en: 'Daily report', fr: 'Rapport quotidien', tr: 'Günlük rapor', zh: '每日报告' },
   'تقرير اليوم': { en: 'Today report', fr: 'Rapport du jour', tr: 'Bugünün raporu', zh: '今日报告' },
   'تقرير يومي': { en: 'Daily report', fr: 'Rapport quotidien', tr: 'Günlük rapor', zh: '每日报告' },
