@@ -1,18 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence';
-import repApi from './repApi';
-import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
-import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
-import type { OutboxDoc } from './offlineDb';
-import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format';
-import { currencyDecimals } from '../i18n/countries';
-import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
-  TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users,
-  Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon,
-  User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon,
-  Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed,
-  Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle,
+  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import {   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
@@ -28,11 +15,12 @@ import SearchableSelect from '../components/SearchableSelect';
 import BarcodeScanner from './BarcodeScanner';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
+import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
 
 interface RepUser {
@@ -390,6 +378,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
   // ألفاً يقرأ «رصيد التحصيل لديك: ٠٫٠٠» بخطٍّ عريض أخضر، فيطمئنّ ويُسلّم ناقصاً.
   // فرّقنا الحالات الثلاث: تحميل · بيانات (طازجة أو موسومة بزمنها) · تعذّر.
   const [stats, setStats] = useState<null | { salesTotal: number; collectTotal: number; collectBalance: number; collectShow: boolean; invCount: number; rcpCount: number }>(null);
+  // خط سير اليوم — بطاقةٌ لا تظهر إلا لمن أُسند له خط. وفشل جلبها لا يُسقط
+  // الشاشة ولا يُخفي بقيّة الأرقام: البطاقة تغيب وحدها.
+  const [route, setRoute] = useState<RouteToday | null>(null);
   const [stale, setStale] = useState<number | null>(null); // لحظة آخر نجاح إن عرضنا مخزّناً
   const [failed, setFailed] = useState(false);             // لا شبكة ولا كاش ⇒ لا نزعم رقماً
   const [syncing, setSyncing] = useState(false);
@@ -423,6 +414,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       };
       setStats(fresh); setStale(null); setFailed(false);
       await cacheSet('rep-home-stats', fresh);
+      try { setRoute(await fetchMyRoute()); } catch { setRoute(null); }
     } catch {
       // انقطاع: نعرض آخر نسخة معروفة **موسومةً بزمنها**؛ فإن لم توجد فلا رقم أصلاً
       const cached = await cacheGet<NonNullable<typeof stats>>('rep-home-stats');
@@ -498,6 +490,27 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
             <Wallet size={26} className="text-green-600" />
           </div>
         </div>
+      )}
+
+      {/* خط سير اليوم — جوار رصيد التحصيل، ولا يظهر لمن لا خطّ له */}
+      {route && (
+        <button
+          onClick={() => onQuick('route')}
+          className="w-full text-right bg-white rounded-3xl p-5 border-2 border-[#E8DFF5] flex items-center justify-between"
+        >
+          <div>
+            <p className="text-xs text-gray-500">{tr('خط السير')}</p>
+            <p className="text-2xl font-extrabold text-[#6D28D9] mt-1">
+              {route.doneCount} <span className="text-base text-gray-400">/ {route.total}</span>
+            </p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              {route.doneCount === route.total ? tr('أنهيت خط سيرك اليوم') : tr('عملاء يجب زيارتهم اليوم')}
+            </p>
+          </div>
+          <div className="w-14 h-14 bg-[#F5F0FF] rounded-2xl flex items-center justify-center">
+            <RouteIcon size={26} className="text-[#6D28D9]" />
+          </div>
+        </button>
       )}
 
       {/* Stats */}
@@ -2643,6 +2656,7 @@ export default function RepApp() {
               <div className="flex-1 overflow-hidden">
                 {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} dailyReportOn={dailyReportOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
+                {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}

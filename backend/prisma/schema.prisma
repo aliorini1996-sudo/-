@@ -79,6 +79,7 @@ model Tenant {
   adminRepScopes       AdminRepScope[]
 
   RepVisit             RepVisit[]
+  repRoutes            RepRoute[]
   RepSession           RepSession[]
   customerPaymentLinks CustomerPaymentLink[]
   settlementEntries    SettlementEntry[]
@@ -260,6 +261,7 @@ model SalesRep {
   locations     RepLocation[]
   settlements   RepSettlement[]
   RepVisit      RepVisit[]
+  repRoutes     RepRoute[]
   RepSession    RepSession[]
 
   // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
@@ -519,6 +521,7 @@ model Customer {
   accountEntries AccountEntry[]
   notifications  Notification[]
   RepVisit       RepVisit[]
+  routeStops     RepRouteStop[]
   assignments    CustomerAssignment[]
   adminScopes    AdminCustomerScope[]
   paymentLinks   CustomerPaymentLink[]
@@ -2063,4 +2066,65 @@ model DailyReportDigest {
   @@unique([tenantId, reportDate])
   @@index([tenantId, issuedAt])
   @@map("daily_report_digests")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  خط سير المندوب — قائمة عملاء مرتّبة يجب زيارتهم.
+//
+//  الإنجاز **لا يُخزَّن على المحطّة**: تُقرأ زياراتُ اليوم (RepVisit) وتُطابَق
+//  بالعميل. فالمصدر واحد، ولا يقع تناقضٌ بين «✔ في خط السير» و«لا زيارة في
+//  سجلّ الزيارات». وزيارةٌ سُجّلت من ملفّ العميل مباشرةً تُحتسب كما هي.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// خط سير لمندوب: دائمٌ يتكرّر كل يوم، أو مؤقّتٌ ليومٍ بعينه.
+///
+/// **الدائم واحدٌ لكل مندوب** (قيد فريد جزئيّ يحرسه المسار): خطّان دائمان
+/// يجعلان «ما خط سيري اليوم؟» سؤالاً بلا جواب. والمؤقّت واحدٌ لكل يوم.
+/// وحين يجتمع دائمٌ ومؤقّتٌ ليوم، **يفوز المؤقّت**: تخصيصُ يومٍ بعينه أحدثُ
+/// قصداً من خطّةٍ عامّة وُضعت قبل شهر.
+model RepRoute {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+
+  name String // «خط الجمعة» · «مسار وسط الرياض»
+
+  /// true = يتكرّر كل يوم | false = ليومٍ واحد يحدّده routeDate
+  isPermanent Boolean @default(false)
+
+  /// 'YYYY-MM-DD' — إلزاميّ للمؤقّت، null للدائم. نصٌّ لا DateTime كي يطابق
+  /// «اليوم» مطابقةً حرفيّة بلا انزلاق منطقةٍ زمنية (نفس عرف reportDate).
+  routeDate String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stops RepRouteStop[]
+
+  @@index([tenantId, salesRepId, isActive])
+  @@index([tenantId, routeDate])
+  @@map("rep_routes")
+}
+
+/// محطّة في خط السير — عميلٌ في موضعٍ من الترتيب.
+model RepRouteStop {
+  id         String   @id @default(uuid())
+  tenantId   String
+  routeId    String
+  route      RepRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  seq  Int // ترتيب الزيارة ١..ن
+  note String? // ملاحظة للمندوب على هذه المحطّة
+
+  createdAt DateTime @default(now())
+
+  @@unique([routeId, customerId]) // العميل مرّة واحدة في الخط الواحد
+  @@index([tenantId, customerId])
+  @@map("rep_route_stops")
 }

@@ -278,6 +278,24 @@ export const visitsApi = {
 
 // مخزون سيارة المندوب — ملخّص ومخزون وحركة لكل مندوب
 // التقرير اليومي — الإقرار وسلسلة اعتماده
+export const repRouteApi = {
+  list: () => api.get('/rep-routes', { params: { tzOffsetMin: -new Date().getTimezoneOffset() } }),
+  get: (id: string) => api.get(`/rep-routes/${id}`),
+  save: (body: unknown) => api.post('/rep-routes', body),
+  remove: (id: string) => api.delete(`/rep-routes/${id}`),
+  /** خط سير المندوب اليوم — بيوم جهازه لا يوم الخادم */
+  mine: () => api.get('/rep-routes/mine', {
+    params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
+  }),
+};
+
+/** مفتاح يوم الجهاز 'YYYY-MM-DD' بلا انزلاق منطقة زمنية */
+function dayKeyLocal(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 export const dailyReportApi = {
   // المندوب
   form: (date: string, salesRepId?: string) => api.get('/daily-reports/form', { params: { date, ...(salesRepId && { salesRepId }) } }),

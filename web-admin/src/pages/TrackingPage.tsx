@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { trackingApi, visitsApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
-import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer } from 'lucide-react';
+import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer, Route as RouteIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 
@@ -379,6 +379,12 @@ export default function TrackingPage() {
                   className={`px-3 py-1.5 rounded-lg shadow-md text-xs font-semibold flex items-center gap-1.5 ${showCustomers ? 'bg-[#2563EB] text-white' : 'bg-white text-[#1F1A13]'}`}>
                   <Store size={13} /> {tr('مواقع العملاء')}{showCustomers && customerLocs.length ? ` (${customerLocs.length})` : ''}
                 </button>
+                {/* بناء خط السير — من الخريطة حيث ينظر المالك إلى مواقع عملائه
+                    وهو يقرّر من يزور المندوب وبأي ترتيب */}
+                <Link to="/app/rep-routes"
+                  className="px-3 py-1.5 rounded-lg shadow-md text-xs font-semibold flex items-center gap-1.5 bg-white text-[#1F1A13] hover:bg-[#FFF6F1] hover:text-[#E15A30]">
+                  <RouteIcon size={13} /> {tr('خطوط السير')}
+                </Link>
               </div>
               <MapContainer center={SA_CENTER} zoom={6} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
                 {/* بلاطات خرائط Google (طرق m / قمر صناعي هجين y) */}

@@ -46,6 +46,7 @@ const PayPage = lazy(() => import('./pages/PayPage'));
 const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
+const RepRoutesPage = lazy(() => import('./pages/RepRoutesPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
@@ -249,6 +250,7 @@ export default function App() {
           <Route path="van-stock" element={<PermissionRoute permission="canManageVanStock"><VanStockPage /></PermissionRoute>} />
           <Route path="warehouse" element={<PermissionRoute permission="canManageVanStock"><CompanyWarehousePage /></PermissionRoute>} />
           <Route path="daily-reports" element={<DailyReportsPage />} />
+          <Route path="rep-routes" element={<RepRoutesPage />} />
           <Route path="tracking" element={<PermissionRoute permission="canManageTracking"><TrackingPage /></PermissionRoute>} />
           <Route path="company-users" element={<PermissionRoute permission="canManageCompanyUsers"><CompanyUsersPage /></PermissionRoute>} />
           <Route path="erp" element={<PermissionRoute permission="canManageCompanySettings"><ErpIntegrationPage /></PermissionRoute>} />
