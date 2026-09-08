@@ -66,11 +66,33 @@ test('سلسلة غير مكتملة توقف الصفّ أيضاً — لا م�
   assert.match(s, /DAILY_REPORT_NO_LEVELS/, 'رمز السلسلة الناقصة غير مُعالَج');
 });
 
-test('مفتاح idempotency يحمل الجولة — إعادة الرفع ليست تكراراً', () => {
+test('مفتاح الرفع يختلف بين الرفع الأول وإعادة الرفع — وإلا علق التقرير أبداً', () => {
+  // الصيغة السابقة `report?.round ?? 1` كانت تعطي المفتاح نفسه في الحالتين:
+  // لا شيء يُكتب، والمندوب يرى «تمّ»، والتقرير عالقٌ في «أعيد للتصحيح».
+  // فالاختبار يحاكي التوليد بدل تثبيت نصّه، ويسأل السؤال الذي يهمّ.
+  const key = (round: number | null) => `dr-REP1-2026-09-07-${(round ?? 0) + 1}`;
+  assert.equal(key(null), 'dr-REP1-2026-09-07-1', 'الرفع الأول (لا تقرير بعد)');
+  assert.notEqual(key(1), key(null), 'إعادة الرفع بعد الجولة الأولى يجب أن تحمل مفتاحاً مختلفاً');
+  assert.equal(key(1), 'dr-REP1-2026-09-07-2');
+  // والمصدر يجب أن يستعمل الصيغة نفسها
   const s = read('src', 'rep', 'RepDailyReport.tsx');
-  // بلا الجولة يعود clientRef نفسه بعد الإعادة، فيردّ الخادم التقرير القديم
-  // idempotent ولا يصل التصحيح أبداً.
-  assert.match(s, /const clientRef = `dr-\$\{currentRepId\(\)\}-\$\{today\}-\$\{report\?\.round \?\? 1\}`/, 'مفتاح idempotency يجب أن يحمل الجولة');
+  assert.match(s, /\(report\?\.round \?\? 0\) \+ 1/, 'المفتاح يجب أن يُبنى على الجولة القادمة');
+  assert.doesNotMatch(s, /report\?\.round \?\? 1\}`/, 'الصيغة القديمة تُعلّق كل تقرير مُعاد');
+});
+
+test('الخادم لا يبتلع إعادة الرفع بحجّة التكرار', () => {
+  const s = read('..', 'backend', 'src', 'routes', 'dailyReports.ts');
+  // حزام أمانٍ ثانٍ يعمل مهما فعلت الواجهة بالمفتاح
+  assert.match(s, /existing && existing\.status !== 'RETURNED'/, 'حارس idempotency يجب أن يستثني الصفّ المُعاد');
+  // وفرع التحديث يكتب مفتاح الجولة الجديدة وإلا تعطّلت الحماية لما بعدها
+  assert.match(s, /\.\.\.\(body\.clientRef && \{ clientRef: body\.clientRef \}\)/, 'فرع التحديث يجب أن يحدّث clientRef');
+});
+
+test('الوحدة خلف صلاحية لا خلف requireAdmin وحده', () => {
+  const s = read('..', 'backend', 'src', 'routes', 'dailyReports.ts');
+  assert.match(s, /router\.use\('\/admin', requireAdmin, requireAdminPermission\('canViewReports'\)\)/, 'المراجعة بلا صلاحية');
+  assert.match(s, /router\.use\('\/config', requireAdmin, requireAdminPermission\('canManageCompanySettings'\)\)/, 'التهيئة بلا صلاحية');
+  assert.match(s, /router\.get\('\/team', requireAdmin, requireAdminPermission\('canViewReports'\)/, 'التقرير الشامل بلا صلاحية');
 });
 
 test('انقطاع الشبكة وحده يذهب للصندوق الصادر — لا رفض الخادم', () => {

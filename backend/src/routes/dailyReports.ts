@@ -10,7 +10,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, requireDailyReport, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, requireDailyReport, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { canAccessRep, scopedRepRecordWhere } from '../services/adminScope';
 import {
@@ -144,10 +144,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
     }
 
-    // idempotency للرفع دون اتصال — قبل أي كتابة
+    // idempotency للرفع دون اتصال — قبل أي كتابة.
+    //
+    // **والصفّ المُعاد للتصحيح مستثنى**: الـidempotency تحرس التكرار لا تسدّ
+    // التصحيح. مندوبٌ أُعيد إليه تقريره ثم أعاد رفعه بالمفتاح نفسه كان يتلقّى
+    // «تمّ» بينما لم يُكتب شيء — فيعلق التقرير في RETURNED إلى الأبد بلا مسارٍ
+    // يُخرجه. وهذا حزام أمانٍ على الخادم يعمل مهما فعلت الواجهة بالمفتاح.
     if (body.clientRef) {
       const existing = await prisma.dailyReport.findFirst({ where: { tenantId: tid, clientRef: body.clientRef } });
-      if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
+      if (existing && existing.status !== 'RETURNED') {
+        res.status(200).json({ success: true, data: existing, idempotent: true }); return;
+      }
     }
 
     const chain = await loadChain(tid);
@@ -190,6 +197,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             data: {
               status: 'SUBMITTED', currentLevelId: first.id, currentLevelSeq: first.seq,
               round, note: body.note ?? null, intakeAt: new Date(),
+              // المفتاح يتبع الجولة الجديدة، وإلا بقي الصفّ يحمل مفتاح الجولة
+              // الأولى فتعطّلت حماية التكرار لكل رفعةٍ بعدها
+              ...(body.clientRef && { clientRef: body.clientRef }),
               ...(clientCreatedAt && { clientCreatedAt }),
             },
           })
@@ -261,7 +271,10 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
 //  مسارات المراجعة والاعتماد — للوحة الإدارة وحدها
 // ════════════════════════════════════════════════════════════════════
 
-router.use('/admin', requireAdmin);
+// المراجعة والاعتماد صلاحيةُ تقارير. وrequireAdmin وحده لا يكفي: محاسبٌ
+// أُنشئ مقيَّداً بالسندات كان يفتح الوحدة كاملةً. وrequireAdminPermission
+// يُركَّب **بعد** requireAdmin فلا يضرّ تمريرُه SALES_REP بلا فحص.
+router.use('/admin', requireAdmin, requireAdminPermission('canViewReports'));
 
 /** صندوق «بانتظارك»: التقارير الواقفة عند مستوىً أملكه */
 router.get('/admin/inbox', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -526,7 +539,9 @@ router.post('/admin/:id/return', async (req: AuthRequest, res: Response, next: N
 //  على نموذجٍ غير الذي مُلئ.
 // ════════════════════════════════════════════════════════════════════
 
-router.use('/config', requireAdmin);
+// تعريف سلسلة الاعتماد إعدادُ شركةٍ لا عمل يوميّ: من يملك تغييرها يملك أن
+// يجعل نفسه مستقبِل كل التقارير عند كل مستوى ثم يعتمدها كلها بنفسه.
+router.use('/config', requireAdmin, requireAdminPermission('canManageCompanySettings'));
 
 /** التهيئة كاملةً: الخانات والمستويات والملّاك والتوجيه والمناديب */
 router.get('/config', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -814,7 +829,7 @@ router.post('/config/preview', async (req: AuthRequest, res: Response, next: Nex
  * معلَنٌ أيضاً: إجمالٌ يشمل مناديب المستخدم المُسنَدين وحدهم يجب أن يقول ذلك،
  * وإلا قُرئ إجمالاً للشركة.
  */
-router.get('/team', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/team', requireAdmin, requireAdminPermission('canViewReports'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const from = String(req.query.from || '');

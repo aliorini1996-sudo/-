@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { dailyReportApi } from '../api/client';
 import { useTr } from '../i18n/strings';
+import { useAuthStore } from '../store/authStore';
 import { formatDate } from '../utils/format';
 
 /**
@@ -35,6 +36,10 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function DailyReportsPage() {
   const tr = useTr();
+  const { user } = useAuthStore();
+  // التهيئة إعدادُ شركة: من يملكها يجعل نفسه مستقبِل كل التقارير ثم يعتمدها.
+  // الخادم يحرسها بصلاحيته، وهذا إخفاءٌ ليطابق ما تراه العين ما يقبله الخادم.
+  const canConfig = user?.canManageCompanySettings !== false;
   const [tab, setTab] = useState<Tab>('inbox');
 
   return (
@@ -47,7 +52,9 @@ export default function DailyReportsPage() {
       </div>
 
       <div className="flex gap-2 border-b border-[#F1EBDF]">
-        {([['inbox', 'بانتظارك', Inbox], ['config', 'الإعداد', Settings], ['team', 'التقرير الشامل', BarChart3]] as const).map(([id, label, Icon]) => (
+        {([['inbox', 'بانتظارك', Inbox], ['config', 'الإعداد', Settings], ['team', 'التقرير الشامل', BarChart3]] as const)
+          .filter(([id]) => id !== 'config' || canConfig)
+          .map(([id, label, Icon]) => (
           <button
             key={id} onClick={() => setTab(id as Tab)}
             className={`px-4 py-2.5 text-sm font-semibold flex items-center gap-1.5 border-b-2 -mb-px ${tab === id ? 'border-[#E15A30] text-[#E15A30]' : 'border-transparent text-[#6E6557]'}`}
@@ -58,7 +65,7 @@ export default function DailyReportsPage() {
       </div>
 
       {tab === 'inbox' && <InboxTab />}
-      {tab === 'config' && <ConfigTab />}
+      {tab === 'config' && canConfig && <ConfigTab />}
       {tab === 'team' && <TeamTab />}
     </div>
   );

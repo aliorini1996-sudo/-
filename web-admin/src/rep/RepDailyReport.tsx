@@ -100,7 +100,10 @@ export default function RepDailyReport({ onDone }: { onDone?: () => void }) {
     if (missing.length) { setMsg({ kind: 'err', text: `${tr('املأ')} «${missing[0].label}»` }); return; }
 
     setSaving(true);
-    const clientRef = `dr-${currentRepId()}-${today}-${report?.round ?? 1}`;
+    // الجولة **القادمة** لا المخزَّنة: بعد الإعادة تكون round=1 في القاعدة،
+    // فمفتاحٌ مبنيّ عليها يساوي مفتاح الرفع الأول — فيردّ الخادم «تمّ» بلا أن
+    // يكتب شيئاً، ويعلق التقرير في «أعيد للتصحيح» أبداً.
+    const clientRef = `dr-${currentRepId()}-${today}-${(report?.round ?? 0) + 1}`;
     const payload = {
       reportDate: today,
       tzOffsetMin: -new Date().getTimezoneOffset(),

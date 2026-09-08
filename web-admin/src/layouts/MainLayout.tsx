@@ -24,7 +24,7 @@ const navItems = [
   { to: '/app/sales-reps', icon: UserCheck, label: 'nav.reps', permission: 'canManageSalesReps' },
   { to: '/app/van-stock', icon: Truck, label: 'nav.vanStock', permission: 'canManageVanStock' },
   { to: '/app/warehouse', icon: Warehouse, label: 'nav.warehouse', permission: 'canManageVanStock' },
-  { to: '/app/daily-reports', icon: ClipboardCheck, label: 'nav.dailyReports' },
+  { to: '/app/daily-reports', icon: ClipboardCheck, label: 'nav.dailyReports', permission: 'canViewReports' },
   { to: '/app/tracking', icon: MapPin, label: 'nav.tracking', permission: 'canManageTracking' },
   { to: '/app/invoices', icon: FileText, label: 'nav.invoices', permission: 'canManageInvoices' },
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts', permission: 'canManageReceipts' },
