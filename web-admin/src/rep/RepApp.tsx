@@ -1976,6 +1976,13 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
                   {isReturn && <span className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0.5 rounded-full">{tr('مرتجع')}</span>}
                 </p>
                 <p className="text-[11px] text-gray-400">{it.customer?.name} • {formatDate(kind === 'invoice' ? it.invoiceDate : it.receiptDate)}</p>
+                {/* لا يظهر السطر إلا لفاتورةٍ لها موعد تسليم — سطرٌ فارغ في كل
+                    صفّ يزاحم رقم الفاتورة واسم العميل على شاشة جوال */}
+                {kind === 'invoice' && it.deliveryDate && (
+                  <p className="text-[10px] text-[#E15A30] font-medium flex items-center gap-1 mt-0.5">
+                    <Truck size={10} /> {tr('وقت التسليم')}: {formatDate(it.deliveryDate)}
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">

@@ -185,14 +185,15 @@ export default function InvoicesPage() {
                 <th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th><th>{tr('النوع')}</th>
                 <th>{tr('الإجمالي')}</th><th>{tr('المدفوع')}</th><th>{tr('المتبقي')}</th><th>{tr('التاريخ')}</th>
                 <th>{tr('الوقت')}</th>
+                <th>{tr('وقت التسليم')}</th>
                 <th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={11} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={12} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={11} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
+                <tr><td colSpan={12} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
               ) : data?.data.map(inv => (
                 <tr key={inv.id}>
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
@@ -207,6 +208,13 @@ export default function InvoicesPage() {
                   <td className="text-xs text-gray-400">{formatDate(inv.invoiceDate)}</td>
                   <td className="text-xs text-gray-500 font-mono whitespace-nowrap" title={formatDateTime(issuedAt(inv))}>
                     {formatTime(issuedAt(inv))}
+                  </td>
+                  {/* موعدٌ اختياريّ يحدّده مُصدِر الفاتورة — شرطةٌ حين لا يُحدَّد،
+                      لا فراغ: الخانة الفارغة تُقرأ «لم يُحمَّل» لا «لا موعد له» */}
+                  <td className="text-xs whitespace-nowrap">
+                    {inv.deliveryDate
+                      ? <span className="text-[#1F1A13] font-medium">{formatDate(inv.deliveryDate)}</span>
+                      : <span className="text-gray-300">—</span>}
                   </td>
                   <td>{statusBadge(inv.status)}</td>
                   <td>

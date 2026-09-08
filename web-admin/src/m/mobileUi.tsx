@@ -50,8 +50,11 @@ export function MStat({ label, value, tone = 'default', icon: Icon }: {
 }
 
 /** صفّ قائمة قابل للنقر — الارتفاع الأدنى 56px (هدف لمس مريح) */
-export function MRow({ title, subtitle, trailing, leading, onClick }: {
-  title: ReactNode; subtitle?: ReactNode; trailing?: ReactNode; leading?: ReactNode;
+export function MRow({ title, subtitle, note, trailing, leading, onClick }: {
+  title: ReactNode; subtitle?: ReactNode;
+  /** سطرٌ ثالث بارز — لِما يجب أن يُرى دون فتح الصفّ (موعد تسليم مثلاً) */
+  note?: ReactNode;
+  trailing?: ReactNode; leading?: ReactNode;
   onClick?: () => void;
 }) {
   const inner = (
@@ -60,6 +63,7 @@ export function MRow({ title, subtitle, trailing, leading, onClick }: {
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-[#1F1A13] truncate">{title}</span>
         {subtitle && <span className="block text-[11px] text-[#9A8F7E] truncate mt-0.5">{subtitle}</span>}
+        {note && <span className="block text-[10px] text-[#E15A30] font-medium truncate mt-0.5">{note}</span>}
       </span>
       {trailing}
     </div>

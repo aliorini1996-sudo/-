@@ -249,6 +249,8 @@ export interface Invoice {
   returnReason?: 'NORMAL' | 'DAMAGED' | 'EXCHANGE' | null;
   returnToStock?: boolean;
   invoiceDate: string;
+  /** موعد تسليم اختياريّ يحدّده مُصدِر الفاتورة — غيابه يعني «لا موعد» */
+  deliveryDate?: string | null;
   dueDate?: string;
   notes?: string;
   subtotal: number;

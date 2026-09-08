@@ -176,6 +176,7 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'وقت التسليم': { en: 'Delivery time', fr: 'Heure de livraison', tr: 'Teslim zamani', zh: '交付时间' },
   'الحصائل الصادرة': { en: 'Issued digests', fr: 'Bilans emis', tr: 'Yayinlanan ozetler', zh: '已发布汇总' },
   'الحصائل': { en: 'Digests', fr: 'Bilans', tr: 'Ozetler', zh: '汇总' },
   'حصيلة': { en: 'Digest', fr: 'Bilan', tr: 'Ozet', zh: '汇总' },
