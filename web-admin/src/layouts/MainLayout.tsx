@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Route } from 'lucide-react';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -25,7 +25,6 @@ const navItems = [
   { to: '/app/van-stock', icon: Truck, label: 'nav.vanStock', permission: 'canManageVanStock' },
   { to: '/app/warehouse', icon: Warehouse, label: 'nav.warehouse', permission: 'canManageVanStock' },
   { to: '/app/daily-reports', icon: ClipboardCheck, label: 'nav.dailyReports', permission: 'canViewReports' },
-  { to: '/app/rep-routes', icon: Route, label: 'nav.repRoutes', permission: 'canManageTracking' },
   { to: '/app/tracking', icon: MapPin, label: 'nav.tracking', permission: 'canManageTracking' },
   { to: '/app/invoices', icon: FileText, label: 'nav.invoices', permission: 'canManageInvoices' },
   { to: '/app/receipts', icon: Receipt, label: 'nav.receipts', permission: 'canManageReceipts' },

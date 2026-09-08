@@ -250,7 +250,10 @@ export default function App() {
           <Route path="van-stock" element={<PermissionRoute permission="canManageVanStock"><VanStockPage /></PermissionRoute>} />
           <Route path="warehouse" element={<PermissionRoute permission="canManageVanStock"><CompanyWarehousePage /></PermissionRoute>} />
           <Route path="daily-reports" element={<DailyReportsPage />} />
-          <Route path="rep-routes" element={<RepRoutesPage />} />
+          {/* لا تظهر في القائمة الجانبية — تُبلَغ من صفحة تتبّع المناديب.
+              والحارس هنا لا في القائمة: صفحةٌ تُبلَغ بالرابط مباشرةً
+              يجب أن تُمنع عمّن لا يملك صلاحيتها، لا أن تُخفى عنه فقط. */}
+          <Route path="rep-routes" element={<PermissionRoute permission="canManageTracking"><RepRoutesPage /></PermissionRoute>} />
           <Route path="tracking" element={<PermissionRoute permission="canManageTracking"><TrackingPage /></PermissionRoute>} />
           <Route path="company-users" element={<PermissionRoute permission="canManageCompanyUsers"><CompanyUsersPage /></PermissionRoute>} />
           <Route path="erp" element={<PermissionRoute permission="canManageCompanySettings"><ErpIntegrationPage /></PermissionRoute>} />
