@@ -4,7 +4,7 @@ import { Search, FileText, RotateCcw, Banknote, CreditCard, ChevronLeft, Plus } 
 import toast from 'react-hot-toast';
 import { invoiceApi, receiptApi } from '../api/client';
 import { Invoice } from '../types';
-import { formatCurrency, formatDate, formatTime } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -183,7 +183,7 @@ function DocRow({ kind, d, onOpen }: { kind: Kind; d: Record<string, unknown>; o
       subtitle={`${customerName} · ${repName} · ${issuedAt ? `${formatDate(issuedAt)} ${formatTime(issuedAt)}` : ''}`}
       // موعد التسليم سطرٌ ثالث لا يُلحق بالثاني: إلحاقُه يدفع اسم العميل
       // خارج الشاشة على جوالٍ ضيّق فيُقرأ نصفُ الاسم
-      note={d.deliveryDate ? `${tr('وقت التسليم')}: ${formatDate(String(d.deliveryDate))}` : undefined}
+      note={d.deliveryDate ? `${tr('وقت التسليم')}: ${formatDayOnly(String(d.deliveryDate))}` : undefined}
       trailing={
         <span className="flex items-center gap-1 flex-shrink-0">
           <span className="text-end">

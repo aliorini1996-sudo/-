@@ -4,7 +4,7 @@ import repApi from './repApi';
 import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb';
 import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync';
 import type { OutboxDoc } from './offlineDb';
-import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale } from '../utils/format';
+import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments';
 import {
@@ -1980,7 +1980,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
                     صفّ يزاحم رقم الفاتورة واسم العميل على شاشة جوال */}
                 {kind === 'invoice' && it.deliveryDate && (
                   <p className="text-[10px] text-[#E15A30] font-medium flex items-center gap-1 mt-0.5">
-                    <Truck size={10} /> {tr('وقت التسليم')}: {formatDate(it.deliveryDate)}
+                    <Truck size={10} /> {tr('وقت التسليم')}: {formatDayOnly(it.deliveryDate)}
                   </p>
                 )}
               </div>

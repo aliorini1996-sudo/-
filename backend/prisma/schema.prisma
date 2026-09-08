@@ -1966,7 +1966,10 @@ model DailyReportTask {
   createdAt  DateTime  @default(now())
   resolvedAt DateTime?
 
-  @@unique([reportId, levelSeq, round])
+  // **بالمعرّف لا بالرقم**: الرقم يتبدّل بحذف عقدةٍ أو إدراج أخرى، فمهمّةٌ
+  // مفتوحة تحمل رقماً مجمَّداً بينما العقدة صارت برقمٍ آخر — فيفشل الإغلاق
+  // ويصطدم إنشاءُ التالية بالقيد، فيعلق التقرير أبداً برسالةٍ لا تدلّ عليه.
+  @@unique([reportId, levelId, round])
   @@index([tenantId, state, levelSeq])
   @@map("daily_report_tasks")
 }

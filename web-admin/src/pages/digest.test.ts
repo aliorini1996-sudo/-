@@ -34,7 +34,10 @@ test('لا تصدر حصيلة ليومٍ بلا تقارير — «صفر» ل�
 test('الغائبون يُعدّون ويُعرضون — حصيلةٌ تخفيهم تبدو كاملة وهي ناقصة', () => {
   const s = routes();
   assert.match(s, /repCount,/, 'عدد المناديب النشطين يجب أن يُخزَّن');
-  assert.match(s, /missingReps: digest\.repCount - digest\.reportCount/, 'الفرق يجب أن يُحسب ويُرسل');
+  // **يُحسب حيّاً من نفس الصفوف التي يبنيها الجدول** لا من العدّاد المجمَّد:
+  // تقريرٌ متأخّر يصل بعد الإصدار كان يدخل الجدول بينما يبقى الرأس على رقمه
+  assert.match(s, /missingReps: Math\.max\(0, repCountNow - reports\.length\)/, 'الفرق يجب أن يُحسب حيّاً');
+  assert.match(s, /lateReports: Math\.max\(0, reports\.length - digest\.reportCount\)/, 'التقارير المتأخّرة يجب أن تُعرض صراحةً');
   const ui = read('src', 'pages', 'DailyReportDigests.tsx');
   assert.match(ui, /missingReps > 0/, 'الواجهة لا تعرض الغائبين');
 });

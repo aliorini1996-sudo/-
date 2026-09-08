@@ -33,13 +33,25 @@ const PALETTE = ['#F5C400', '#1E5FE0', '#F1F5F9', '#22C55E', '#A855F7', '#06B6D4
 const REP_COLOR = '#EF4444';
 const NODE_W = 132;
 const NODE_H = 116;
-const REP_X = 40;
+const STEP = NODE_W + 76;
+const EDGE_X = 40;
 const REP_Y = 150;
 
 const colorOf = (n: CanvasNode, i: number) => n.color || PALETTE[i % PALETTE.length];
-/** موضعٌ افتراضيّ لعقدةٍ لم تُسحب بعد: صفٌّ منتظم يمين اللوحة إلى يسارها */
-const posOf = (n: CanvasNode, i: number) => ({
-  x: n.posX ?? REP_X + (i + 1) * (NODE_W + 76),
+
+/**
+ * التخطيط الافتراضيّ **يمضي يميناً ← يساراً** كاتّجاه القراءة العربية:
+ * المندوب أقصى اليمين، وكل عقدةٍ تالية إلى يساره، و«معتمد» أقصى اليسار.
+ *
+ * وهو ما تفترضه الوصلات أصلاً (تخرج من يسار العقدة وتدخل يمين التالية).
+ * فالتخطيط الذي كان يزيد x مع الترتيب كان يعاكسها: أسهمٌ ترجع إلى الوراء،
+ * وبطاقة «معتمد» تُرسم فوق بطاقة المندوب.
+ */
+const repXFor = (count: number) => EDGE_X + (count + 1) * STEP;
+const defaultXFor = (repX: number, i: number) => repX - (i + 1) * STEP;
+
+const posOf = (n: CanvasNode, i: number, repX: number) => ({
+  x: n.posX ?? defaultXFor(repX, i),
   y: n.posY ?? REP_Y,
 });
 
@@ -86,9 +98,12 @@ export default function DailyReportCanvas({
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number; x: number; y: number } | null>(null);
 
   const ordered = useMemo(() => [...nodes].sort((a, b) => a.seq - b.seq), [nodes]);
+  const repX = repXFor(ordered.length);
+  /** هل تحرّك المؤشّر فعلاً بعد الضغط؟ — يفصل السحب عن النقر */
+  const movedRef = useRef(false);
   const live = useCallback((n: CanvasNode, i: number) => (
-    drag?.id === n.id ? { x: drag.x, y: drag.y } : posOf(n, i)
-  ), [drag]);
+    drag?.id === n.id ? { x: drag.x, y: drag.y } : posOf(n, i, repX)
+  ), [drag, repX]);
 
   // سحبُ العقدة — يُحفظ عند الإفلات لا مع كل بكسل
   useEffect(() => {
@@ -96,9 +111,14 @@ export default function DailyReportCanvas({
     const move = (e: PointerEvent) => {
       const r = boardRef.current?.getBoundingClientRect();
       if (!r) return;
+      movedRef.current = true;
       setDrag(d => d && ({ ...d, x: Math.max(0, e.clientX - r.left - d.dx), y: Math.max(0, e.clientY - r.top - d.dy) }));
     };
-    const up = () => { setDrag(d => { if (d) onMove(d.id, { x: Math.round(d.x), y: Math.round(d.y) }); return null; }); };
+    // **لا يُحفَظ موضعٌ لم يتغيّر**: كانت كل نقرةٍ ترسل طلب تعديل فتكتب سطراً
+    // كاذباً «عدّل المستوى» في سجلّ تغييرات الإعداد — سجلُّ تدقيقٍ يمتلئ بضجيج.
+    const up = () => {
+      setDrag(d => { if (d && movedRef.current) onMove(d.id, { x: Math.round(d.x), y: Math.round(d.y) }); return null; });
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
@@ -107,12 +127,13 @@ export default function DailyReportCanvas({
   const startDrag = (e: React.PointerEvent, n: CanvasNode, i: number) => {
     const r = boardRef.current?.getBoundingClientRect();
     if (!r) return;
-    const p = posOf(n, i);
+    const p = posOf(n, i, repX);
+    movedRef.current = false;
     setDrag({ id: n.id, dx: e.clientX - r.left - p.x, dy: e.clientY - r.top - p.y, x: p.x, y: p.y });
   };
 
   const height = Math.max(360, ...ordered.map((n, i) => live(n, i).y + NODE_H + 60), REP_Y + NODE_H + 60);
-  const width = Math.max(760, ...ordered.map((n, i) => live(n, i).x + NODE_W + 80), REP_X + NODE_W + 80);
+  const width = Math.max(760, ...ordered.map((n, i) => live(n, i).x + NODE_W + 80), repX + NODE_W + 80);
   const selected = ordered.find(n => n.id === sel) || null;
 
   // نقاط الوصل: العربية تمضي يميناً ← يساراً، فالخارج من يسار العقدة
@@ -145,7 +166,7 @@ export default function DailyReportCanvas({
           {/* الوصلات خلف العقد */}
           <svg className="absolute inset-0 pointer-events-none" width={width} height={height}>
             {ordered.map((n, i) => {
-              const from = i === 0 ? { x: REP_X, y: REP_Y } : live(ordered[i - 1], i - 1);
+              const from = i === 0 ? { x: repX, y: REP_Y } : live(ordered[i - 1], i - 1);
               const a = outOf(from);
               const b = inOf(live(n, i));
               const broken = !n.ownerAdminId;
@@ -165,14 +186,15 @@ export default function DailyReportCanvas({
             {ordered.length > 0 && (() => {
               const last = live(ordered[ordered.length - 1], ordered.length - 1);
               const a = outOf(last);
-              return <path d={edgePath(a.x, a.y, a.x - 90, a.y)} fill="none" stroke="#22C55E" strokeWidth={2} />;
+              const ex = Math.max(EDGE_X, last.x - STEP) + NODE_W;
+              return <path d={edgePath(a.x, a.y, ex, last.y + NODE_H / 2)} fill="none" stroke="#22C55E" strokeWidth={2} />;
             })()}
           </svg>
 
           {/* عقدة المندوب — ثابتة، نقطة البداية لا صفّ في الجدول */}
           <div
             className="absolute rounded-2xl border-2 text-center px-2 py-2.5 select-none"
-            style={{ left: REP_X, top: REP_Y, width: NODE_W, borderColor: '#3F3F52', background: '#1C1C28' }}
+            style={{ left: repX, top: REP_Y, width: NODE_W, borderColor: '#3F3F52', background: '#1C1C28' }}
           >
             <Avatar color={REP_COLOR} name={null} />
             <p className="text-xs font-bold text-white mt-1.5">{tr('المندوب')}</p>
@@ -188,7 +210,9 @@ export default function DailyReportCanvas({
               <div
                 key={n.id}
                 onPointerDown={e => startDrag(e, n, i)}
-                onClick={() => { if (!drag) { setSel(sel === n.id ? null : n.id); setAdding(null); } }}
+                // الحارس القديم كان يقرأ drag بعد أن صُفّرت في pointerup فلا يمنع
+                // شيئاً: كل سحبةٍ كانت تفتح المحرّر أو تُغلقه فتضيع تعديلاتٌ لم تُحفظ
+                onClick={() => { if (!movedRef.current) { setSel(sel === n.id ? null : n.id); setAdding(null); } }}
                 className={`absolute rounded-2xl border-2 text-center px-2 py-2.5 cursor-grab active:cursor-grabbing select-none transition-shadow
                   ${sel === n.id ? 'shadow-lg' : ''}`}
                 style={{
@@ -216,7 +240,7 @@ export default function DailyReportCanvas({
             return (
               <div
                 className="absolute rounded-2xl border-2 border-dashed text-center px-2 py-2.5 select-none"
-                style={{ left: Math.max(0, last.x - 90 - NODE_W), top: last.y, width: NODE_W, borderColor: '#22C55E44', background: '#16211A' }}
+                style={{ left: Math.max(EDGE_X, last.x - STEP), top: last.y, width: NODE_W, borderColor: '#22C55E44', background: '#16211A' }}
               >
                 <div className="flex justify-center items-center h-[42px]"><Check size={26} className="text-[#22C55E]" /></div>
                 <p className="text-xs font-bold text-white mt-1.5">{tr('معتمد')}</p>
@@ -241,7 +265,7 @@ export default function DailyReportCanvas({
           people={people}
           index={ordered.length}
           afterSeq={adding.afterSeq}
-          suggestedPos={{ x: REP_X + (ordered.length + 1) * (NODE_W + 76), y: REP_Y }}
+          suggestedPos={{ x: defaultXFor(repXFor(ordered.length + 1), ordered.length), y: REP_Y }}
           onCancel={() => setAdding(null)}
           onAdd={(adminId, name, color, pos) => { onAdd(adding.afterSeq, adminId, name, color, pos); setAdding(null); }}
         />

@@ -70,6 +70,9 @@ const adminPermissionSelect = {
   canManageTracking: true,
   canManageCompanySettings: true,
   canManageCompanyUsers: true,
+  // بدونها لا تصل الواجهةَ الصلاحيةُ الجديدة، فيبقى تبويب «الإعداد» ظاهراً
+  // لمن يمنعه الخادم — يضغطه فيرى صفحةً فارغة بلا سببٍ مفهوم.
+  canManageDailyReport: true,
 } as const;
 
 function signToken(payload: object): string {

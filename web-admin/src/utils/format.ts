@@ -63,6 +63,24 @@ export function formatDate(date: string | Date) {
   }).format(d);
 }
 
+/**
+ * تاريخُ **يومٍ خالص** (لا لحظة): يُقرأ بأجزائه النصّية لا بمنطقة القارئ.
+ *
+ * deliveryDate يُخزَّن منتصف ليل UTC، وformatDate تعرضه بتوقيت المتصفّح —
+ * فمتصفّحٌ غرب غرينتش يعرض اليوم السابق: موعد تسليمٍ في ٧ سبتمبر يقرؤه
+ * المحاسب في الرياض صحيحاً ويقرؤه شريكٌ في نيويورك «٦ سبتمبر». وهو يومٌ
+ * اتُّفق عليه مع العميل لا لحظةٌ زمنية، فلا معنى لإزاحته بمنطقة أحد.
+ */
+export function formatDayOnly(v: string | Date | null | undefined) {
+  if (!v) return '-';
+  const iso = typeof v === 'string' ? v : new Date(v).toISOString();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return formatDate(iso as string);
+  // يُبنى بمنطقة المتصفّح من الأجزاء نفسها، فلا إزاحة ولا انزلاق
+  return new Intl.DateTimeFormat(locale(), { year: 'numeric', month: 'short', day: 'numeric' })
+    .format(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
 export function formatDateTime(date: string | Date) {
   const d = new Date(date);
   if (isNaN(d.getTime())) return '-';

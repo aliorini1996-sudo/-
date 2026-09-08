@@ -114,6 +114,10 @@ const valueSchema = z.object({
   fieldId: z.string().min(1),
   num: z.number().nullish(),
   text: z.string().nullish(),
+}).refine(v => 'num' in v || 'text' in v, {
+  // عميلٌ يرسل مفتاحاً مجهولاً (declaredNum مثلاً) كان يمرّ صامتاً فتُكتب
+  // القيمة null ويُقال «تمّ». الرفض الصريح أصدق من قيمةٍ فارغة يظنّها صاحبها محفوظة.
+  message: 'قيمة الخانة يجب أن تحمل num أو text',
 });
 
 const submitSchema = z.object({
@@ -466,8 +470,10 @@ router.post('/admin/:id/approve', async (req: AuthRequest, res: Response, next: 
     const distinct = countDistinctApprovers(nowSteps as never);
 
     await prisma.$transaction(async tx => {
+      // بالمعرّف لا بالرقم: الرقم يتبدّل بإعادة ترقيم العقد، فيفشل الإغلاق
+      // ثم يصطدم إنشاءُ المهمّة التالية بالقيد الفريد فيعلق التقرير أبداً
       await tx.dailyReportTask.updateMany({
-        where: { reportId: report.id, levelSeq: perm.levelSeq!, round: report.round, state: 'PENDING' },
+        where: { reportId: report.id, levelId: perm.levelId!, round: report.round, state: 'PENDING' },
         data: { state: tr.closeCurrentAs, resolvedAt: new Date() },
       });
       if (tr.openNext) {
@@ -725,7 +731,19 @@ router.post('/config/levels', async (req: AuthRequest, res: Response, next: Next
         const shift = await tx.dailyReportLevel.findMany({
           where: { tenantId: tid, seq: { gte: at } }, orderBy: { seq: 'desc' },
         });
-        for (const l of shift) await tx.dailyReportLevel.update({ where: { id: l.id }, data: { seq: l.seq + 1 } });
+        for (const l of shift) {
+          await tx.dailyReportLevel.update({ where: { id: l.id }, data: { seq: l.seq + 1 } });
+          // التابعون يتحرّكون مع العقدة، وإلا سُلّمت خانةٌ لشخصٍ آخر
+          await tx.dailyReportTask.updateMany({ where: { tenantId: tid, levelId: l.id }, data: { levelSeq: l.seq + 1 } });
+          await tx.dailyReport.updateMany({ where: { tenantId: tid, currentLevelId: l.id }, data: { currentLevelSeq: l.seq + 1 } });
+        }
+        // الخانات تُزاح تنازلياً حتى لا يدهس تحديثٌ سابقٌ لاحقاً
+        const fields = await tx.dailyReportField.findMany({
+          where: { tenantId: tid, fillLevelSeq: { gte: at } }, orderBy: { fillLevelSeq: 'desc' }, select: { id: true, fillLevelSeq: true },
+        });
+        for (const f of fields) {
+          await tx.dailyReportField.update({ where: { id: f.id }, data: { fillLevelSeq: (f.fillLevelSeq ?? 0) + 1 } });
+        }
       }
       const l = await tx.dailyReportLevel.create({
         data: {
@@ -776,14 +794,14 @@ router.delete('/config/levels/:id', async (req: AuthRequest, res: Response, next
     const tid = tenantId(req);
     const cur = await prisma.dailyReportLevel.findFirst({ where: { id: String(req.params.id), tenantId: tid } });
     if (!cur) { res.status(404).json({ success: false, message: 'المستوى غير موجود' }); return; }
-    const stuck = await prisma.dailyReportTask.count({ where: { tenantId: tid, levelId: cur.id, state: 'PENDING' } });
-    if (stuck) { res.status(409).json({ success: false, message: `${stuck} تقرير واقفٌ عند هذا المستوى — اعتمدها أو أعِدها أولاً` }); return; }
+    // **كل تقريرٍ واقفٍ في السلسلة** لا الواقف عند هذه العقدة وحدها: حذفها
+    // يعيد ترقيم ما بعدها، وتقريرٌ واقفٌ عند عقدةٍ لاحقة يتحرّك رقمه تحته.
+    // والترقيم يُزامَن الآن، لكنّ المنع أصدق: المالك يرى العدد ويقرّر.
+    const stuck = await prisma.dailyReportTask.count({ where: { tenantId: tid, state: 'PENDING' } });
+    if (stuck) { res.status(409).json({ success: false, message: `${stuck} تقرير واقفٌ في المسار — اعتمدها أو أعِدها قبل حذف عقدة` }); return; }
     await prisma.$transaction(async tx => {
       await tx.dailyReportLevel.delete({ where: { id: cur.id } });
-      const rest = await tx.dailyReportLevel.findMany({ where: { tenantId: tid }, orderBy: { seq: 'asc' } });
-      for (let i = 0; i < rest.length; i++) {
-        if (rest[i].seq !== i + 1) await tx.dailyReportLevel.update({ where: { id: rest[i].id }, data: { seq: i + 1 } });
-      }
+      await renumberLevels(tx, tid);
       await logConfig(tx, tid, req, 'LEVEL', 'DELETE', `حذف المستوى «${cur.name}»`, cur.id, cur.name);
     });
     res.json({ success: true });
@@ -919,7 +937,9 @@ router.get('/digests/:date', requireAdmin, requireAdminPermission('canViewReport
     const [fields, reports] = await Promise.all([
       prisma.dailyReportField.findMany({ where: { tenantId: tid }, orderBy: { seq: 'asc' } }),
       prisma.dailyReport.findMany({
-        where: { tenantId: tid, reportDate: date, status: 'APPROVED' },
+        // نطاق المستخدم يُحترم هنا كما في كل مسارٍ آخر: الحصيلة لا تكون
+        // بابَ التفافٍ يرى منه مستخدمٌ مقيَّدٌ أرقامَ مناديب لا يراهم
+        where: { tenantId: tid, reportDate: date, status: 'APPROVED', ...(await scopedRepRecordWhere(req)) },
         include: { salesRep: { select: { id: true, name: true } }, values: true },
         orderBy: { salesRepId: 'asc' },
       }),
@@ -933,22 +953,41 @@ router.get('/digests/:date', requireAdmin, requireAdminPermission('canViewReport
       approvedAt: r.approvedAt,
       values: Object.fromEntries(r.values.map(v => [v.fieldId, v.declaredNum ?? v.declaredText ?? null])),
     }));
+    // إجماليّ خانةٍ لم يكتب فيها أحدٌ ذلك اليوم = غياب لا صفر. وخانةٌ أُضيفت
+    // بعد ذلك اليوم تظهر في حصيلته بـ«٠» فتبدو كأن الفريق أنفق صفراً وقتها.
     const totals: Record<string, number> = {};
+    const seen = new Set<string>();
     for (const r of reports) {
       for (const v of r.values) {
+        seen.add(v.fieldId);
         if (v.declaredNum === null) continue;
         totals[v.fieldId] = (totals[v.fieldId] ?? 0) + v.declaredNum;
       }
     }
 
+    // **العدّادات تُحسب حيّةً من نفس الصفوف التي يبنيها الجدول**، ولا تُقرأ من
+    // الصفّ المخزَّن. تقريرٌ متأخّر يصل بعد الإصدار (من صندوق صادرٍ أوف‑لاين)
+    // كان يدخل الجدول والإجمالي بينما يبقى الرأس يقول «تقريران» — رقمان
+    // متناقضان على شاشةٍ واحدة، وكلاهما من عندنا.
+    const repCountNow = await prisma.salesRep.count({ where: { tenantId: tid, isActive: true } });
+    const live = {
+      reportCount: reports.length,
+      repCount: repCountNow,
+      soloApprovedCount: reports.filter(r => r.distinctApprovers === 1).length,
+    };
+
     res.json({
       success: true,
       data: {
-        digest,
+        digest: { ...digest, ...live },
+        issuedCounts: { reportCount: digest.reportCount, repCount: digest.repCount, soloApprovedCount: digest.soloApprovedCount },
+        // تقارير وصلت بعد الإصدار — تُعرض صراحةً لا تُدَسّ في الإجمالي بصمت
+        lateReports: Math.max(0, reports.length - digest.reportCount),
         // الخانات المؤرشَفة تبقى معروضة: حصيلةٌ قديمة تُقرأ بخاناتها هي
-        fields: fields.map(f => ({ id: f.id, label: f.label, kind: f.kind, isActive: f.isActive })),
+        // hadData=false ⇒ الواجهة تطبع شرطة لا صفراً
+        fields: fields.map(f => ({ id: f.id, label: f.label, kind: f.kind, isActive: f.isActive, hadData: seen.has(f.id) })),
         rows, totals,
-        missingReps: digest.repCount - digest.reportCount,
+        missingReps: Math.max(0, repCountNow - reports.length),
       },
     });
   } catch (err) { next(err); }
@@ -975,6 +1014,30 @@ router.put('/config/digest-viewers', async (req: AuthRequest, res: Response, nex
 });
 
 /**
+ * يعيد ترقيم العقد ١..ن **ويُزامن كل ما يشير إلى الرقم** في المعاملة نفسها.
+ *
+ * الرقم مفتاحٌ مشتقّ يشير إليه ثلاثة: مهامّ التقارير الواقفة، وخانات النموذج
+ * المسنَدة لمستوى (fillLevelSeq)، ومؤشّر التقرير (currentLevelSeq). وتركُ
+ * أيٍّ منها على رقمٍ قديم بعد حذف عقدةٍ أو إدراج أخرى يُسلّم خانةً مطلوبة
+ * لشخصٍ آخر، أو يُعلّق تقريراً عند مستوىً لم يعد موجوداً.
+ *
+ * وقيم التقارير (DailyReportValue.levelSeq) **لا تُمَسّ**: تلك سجلٌّ تاريخيّ
+ * يقول من كتب الرقم، وإعادةُ كتابته تزوير.
+ */
+async function renumberLevels(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], tid: string) {
+  const rest = await tx.dailyReportLevel.findMany({ where: { tenantId: tid }, orderBy: { seq: 'asc' } });
+  for (let i = 0; i < rest.length; i++) {
+    const want = i + 1;
+    if (rest[i].seq === want) continue;
+    const from = rest[i].seq;
+    await tx.dailyReportLevel.update({ where: { id: rest[i].id }, data: { seq: want } });
+    await tx.dailyReportTask.updateMany({ where: { tenantId: tid, levelId: rest[i].id }, data: { levelSeq: want } });
+    await tx.dailyReportField.updateMany({ where: { tenantId: tid, fillLevelSeq: from }, data: { fillLevelSeq: want } });
+    await tx.dailyReport.updateMany({ where: { tenantId: tid, currentLevelId: rest[i].id }, data: { currentLevelSeq: want } });
+  }
+}
+
+/**
  * يُصدِر حصيلة اليوم إن اكتمل — يُستدعى بعد كل اعتمادٍ نهائيّ.
  *
  * **شرط الاكتمال**: كل تقريرٍ رُفع في ذلك اليوم صار APPROVED، ولا واحد منها
@@ -989,7 +1052,10 @@ router.put('/config/digest-viewers', async (req: AuthRequest, res: Response, nex
  * معاملة الاعتماد وبـcatch صامت.
  */
 async function issueDigestIfComplete(tid: string, reportDate: string): Promise<void> {
-  const [pending, approved, repCount, existing] = await Promise.all([
+  // القراءات في معاملةٍ واحدة: بلا ذلك قد يُقرأ pending=0 قبل وصول تقريرٍ
+  // متأخّر ثم يُعدّ approved بعده، فتُخزَّن عدّاداتٌ لم تقع في لحظةٍ واحدة.
+  // والقيد الفريد يحسم التصادم، وهذا يحسم اللقطة.
+  const [pending, approved, repCount, existing] = await prisma.$transaction([
     prisma.dailyReport.count({ where: { tenantId: tid, reportDate, status: { not: 'APPROVED' } } }),
     prisma.dailyReport.findMany({
       where: { tenantId: tid, reportDate, status: 'APPROVED' },

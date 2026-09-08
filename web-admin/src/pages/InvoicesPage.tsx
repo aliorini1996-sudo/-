@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, companyApi, salesRepApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
-import { formatCurrency, formatDate, formatTime, formatDateTime, statusLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatDateTime, statusLabels, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -213,7 +213,7 @@ export default function InvoicesPage() {
                       لا فراغ: الخانة الفارغة تُقرأ «لم يُحمَّل» لا «لا موعد له» */}
                   <td className="text-xs whitespace-nowrap">
                     {inv.deliveryDate
-                      ? <span className="text-[#1F1A13] font-medium">{formatDate(inv.deliveryDate)}</span>
+                      ? <span className="text-[#1F1A13] font-medium">{formatDayOnly(inv.deliveryDate)}</span>
                       : <span className="text-gray-300">—</span>}
                   </td>
                   <td>{statusBadge(inv.status)}</td>

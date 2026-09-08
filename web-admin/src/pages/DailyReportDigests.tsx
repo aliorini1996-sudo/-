@@ -30,6 +30,18 @@ export default function DailyReportDigests() {
   if (openDate) return <DigestView date={openDate} onBack={() => setOpenDate(null)} />;
   if (q.isLoading) return <div className="card p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>;
 
+  // **الفشل ليس عدم إسناد**: انقطاع شبكةٍ أو خطأ خادم كان يُعرض «غير مسند لك»،
+  // فيظنّ المستلم أن المالك سحب إسناده ويذهب يسأله عن شيء لم يقع.
+  if (q.isError) {
+    return (
+      <div className="card p-8 text-center">
+        <AlertTriangle size={28} className="mx-auto text-amber-400" />
+        <p className="text-sm text-[#6E6557] mt-2">{tr('تعذر تحميل الحصائل')}</p>
+        <button className="btn-secondary text-xs mt-3" onClick={() => q.refetch()}>{tr('إعادة المحاولة')}</button>
+      </div>
+    );
+  }
+
   if (!q.data?.assigned) {
     return (
       <div className="card p-8 text-center">
@@ -85,13 +97,23 @@ function DigestView({ date, onBack }: { date: string; onBack: () => void }) {
   });
 
   if (q.isLoading) return <div className="card p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>;
+  // 403 أو 404 كانا يتركان q.data undefined فتنهار القراءة أدناه بشاشةٍ بيضاء
+  if (q.isError || !q.data) {
+    return (
+      <div className="card p-8 text-center">
+        <button onClick={onBack} className="btn-secondary text-xs mb-3">{tr('رجوع')}</button>
+        <p className="text-sm text-[#6E6557]">{tr('تعذر تحميل هذه الحصيلة')}</p>
+      </div>
+    );
+  }
 
   const d = q.data as {
     digest: Digest;
-    fields: { id: string; label: string; kind: string; isActive: boolean }[];
+    fields: { id: string; label: string; kind: string; isActive: boolean; hadData: boolean }[];
     rows: { salesRepId: string; salesRepName: string; soloApproved: boolean; values: Record<string, number | string | null> }[];
     totals: Record<string, number>;
     missingReps: number;
+    lateReports: number;
   };
   const num = (v: unknown): string =>
     typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 2 })
@@ -106,6 +128,16 @@ function DigestView({ date, onBack }: { date: string; onBack: () => void }) {
           <p className="text-xs text-[#6E6557]">{tr('صدرت')} {formatDate(d.digest.issuedAt)}</p>
         </div>
       </div>
+
+      {d.lateReports > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+          {/* تقريرٌ وصل بعد الإصدار (صندوقٌ صادرٌ أوف‑لاين) — يدخل الأرقام
+              ويُقال ذلك صراحةً بدل أن يُدَسّ فيها بصمت */}
+          <p className="text-xs text-blue-800">
+            {d.lateReports} {tr('تقرير وصل بعد صدور الحصيلة ودخل هذه الأرقام')}
+          </p>
+        </div>
+      )}
 
       {(d.missingReps > 0 || d.digest.soloApprovedCount > 0) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 space-y-1">
@@ -154,7 +186,8 @@ function DigestView({ date, onBack }: { date: string; onBack: () => void }) {
                 <td className="px-5 py-3">{tr('الإجمالي')}</td>
                 {d.fields.map(f => (
                   <td key={f.id} className="px-3 py-3 text-center">
-                    {f.kind === 'TEXT' ? '—' : num(d.totals[f.id] ?? 0)}
+                    {/* خانةٌ لم يكتب فيها أحدٌ ذلك اليوم: غيابٌ لا صفر */}
+                    {f.kind === 'TEXT' || !f.hadData ? '—' : num(d.totals[f.id] ?? 0)}
                   </td>
                 ))}
               </tr>

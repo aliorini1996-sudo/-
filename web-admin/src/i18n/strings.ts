@@ -176,6 +176,9 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'تعذر تحميل الحصائل': { en: 'Could not load the digests', fr: 'Impossible de charger les bilans', tr: 'Ozetler yuklenemedi', zh: '无法加载汇总' },
+  'تعذر تحميل هذه الحصيلة': { en: 'Could not load this digest', fr: 'Impossible de charger ce bilan', tr: 'Bu ozet yuklenemedi', zh: '无法加载此汇总' },
+  'تقرير وصل بعد صدور الحصيلة ودخل هذه الأرقام': { en: 'reports arrived after the digest was issued and are included here', fr: 'rapports arrives apres emission du bilan et inclus ici', tr: 'ozet yayinlandiktan sonra gelen ve buraya dahil edilen rapor', zh: '份报告在汇总发布后送达并已计入' },
   'وقت التسليم': { en: 'Delivery time', fr: 'Heure de livraison', tr: 'Teslim zamani', zh: '交付时间' },
   'الحصائل الصادرة': { en: 'Issued digests', fr: 'Bilans emis', tr: 'Yayinlanan ozetler', zh: '已发布汇总' },
   'الحصائل': { en: 'Digests', fr: 'Bilans', tr: 'Ozetler', zh: '汇总' },

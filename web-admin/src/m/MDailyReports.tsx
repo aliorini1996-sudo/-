@@ -191,7 +191,12 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
             className="btn-secondary text-xs w-full mt-2"
             onClick={() => mVals.mutate(d.myFields
               .filter(f => (mine[f.id] ?? '').trim() !== '')
-              .map(f => ({ fieldId: f.id, ...(f.kind === 'TEXT' ? { declaredText: mine[f.id] } : { declaredNum: Number(mine[f.id]) }) })))}
+              // **num/text لا declaredNum/declaredText**: الخادم يقرأ الأولَين،
+              // وz.object يُسقط المفاتيح المجهولة صامتاً — فكانت القيمة تُحفظ
+              // null ويُقال «تمّ»، ثم يُمنع الاعتماد بحجّة خانةٍ لم تُملأ.
+              .map(f => f.kind === 'TEXT'
+                ? { fieldId: f.id, text: mine[f.id], num: null }
+                : { fieldId: f.id, num: Number(mine[f.id]), text: null }))}
           >{tr('حفظ بياناتي')}</button>
         </MCard>
       )}
