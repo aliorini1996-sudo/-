@@ -385,6 +385,16 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
   const [failed, setFailed] = useState(false);             // لا شبكة ولا كاش ⇒ لا نزعم رقماً
   const [syncing, setSyncing] = useState(false);
 
+  /**
+   * خط السير بنداءٍ **مستقلّ** عن سلسلة الإحصاءات: نداءٌ واحدٌ فاشل فيها
+   * (الرصيد أو الفواتير) كان يمنع ظهور البطاقة كلّها. ويُنادى مع كل تحديث
+   * يدويّ أيضاً — بعد فصله كان زرّ «تحديث» لا يحرّك البطاقة، فيسجّل المندوب
+   * زيارةً ويضغط تحديث فتبقى «٠ / ٤» حتى يُعيد فتح التطبيق.
+   */
+  const loadRoute = useCallback(async () => {
+    try { setRoute(await fetchMyRoute()); } catch { setRoute(null); }
+  }, []);
+
   const load = useCallback(async () => {
     setSyncing(true);
     try {
@@ -414,6 +424,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       };
       setStats(fresh); setStale(null); setFailed(false);
       await cacheSet('rep-home-stats', fresh);
+      loadRoute();
     } catch {
       // انقطاع: نعرض آخر نسخة معروفة **موسومةً بزمنها**؛ فإن لم توجد فلا رقم أصلاً
       const cached = await cacheGet<NonNullable<typeof stats>>('rep-home-stats');
@@ -421,25 +432,11 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       else { setStats(null); setStale(null); setFailed(true); }
     }
     setSyncing(false);
-  }, []);
+  }, [loadRoute]);
 
   useEffect(() => { load(); }, [load]);
 
-  /**
-   * خط السير يُجلب **بنداءٍ مستقلّ**، لا داخل سلسلة الإحصاءات.
-   *
-   * كان مربوطاً بها فيسقط معها: نداءٌ واحدٌ بطيء أو فاشل في تلك السلسلة
-   * (الرصيد أو الفواتير أو السندات) يمنع ظهور البطاقة كلّها، والمندوب يرى
-   * أرقامه ولا يرى خط سيره فيظنّ أنّ الإدارة لم تُسنِد له شيئاً.
-   */
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try { const r = await fetchMyRoute(); if (alive) setRoute(r); }
-      catch { if (alive) setRoute(null); }
-    })();
-    return () => { alive = false; };
-  }, []);
+  useEffect(() => { loadRoute(); }, [loadRoute]);
 
   const stat = (label: string, value: string, icon: React.ElementType, color: string, bg: string) => {
     const Icon = icon;

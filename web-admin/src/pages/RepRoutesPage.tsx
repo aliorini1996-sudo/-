@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Route as RouteIcon, Plus, Trash2, ArrowUp, ArrowDown, Search, X, CheckCircle2, Repeat, CalendarDays,
@@ -20,7 +20,9 @@ import { backdropClose } from '../lib/backdropClose';
 
 interface RouteRow {
   id: string; name: string; isPermanent: boolean; routeDate: string | null;
-  salesRepId: string; salesRepName: string; total: number; doneToday: number;
+  salesRepId: string; salesRepName: string; total: number;
+  /** null = ليس خطَّ اليوم فلا معنى لعدّاده */
+  doneToday: number | null;
 }
 interface Stop { customerId: string; customerName: string; note?: string | null }
 interface Named { id: string; name: string; businessName?: string | null }
@@ -99,9 +101,12 @@ export default function RepRoutesModal({ onClose }: { onClose: () => void }) {
                       </td>
                       <td className="px-3 py-3 text-center">{r.total}</td>
                       <td className="px-3 py-3 text-center">
-                        <span className={r.doneToday === r.total ? 'text-green-600 font-semibold' : 'text-[#6E6557]'}>
-                          {r.doneToday} / {r.total}
-                        </span>
+                        {/* خطٌّ ليس خطَّ اليوم لا «أنجز اليوم» له — شرطةٌ لا رقمٌ كاذب */}
+                        {r.doneToday === null ? <span className="text-gray-300">—</span> : (
+                          <span className={r.doneToday === r.total ? 'text-green-600 font-semibold' : 'text-[#6E6557]'}>
+                            {r.doneToday} / {r.total}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-left">
                         <div className="flex items-center gap-2 justify-end">
@@ -143,25 +148,46 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
     queryKey: ['customers-for-route', search],
     queryFn: async () => (await customerApi.list({ search, limit: 50 })).data.data as Named[],
   });
-  useQuery({
-    queryKey: ['rep-route', id],
-    enabled: !!id,
-    queryFn: async () => {
-      const d = (await repRouteApi.get(id!)).data.data;
-      setSalesRepId(d.salesRepId); setName(d.name);
-      setIsPermanent(d.isPermanent); setRouteDate(d.routeDate || '');
-      setStops(d.stops.map((s: Stop) => ({ customerId: s.customerId, customerName: s.customerName, note: s.note })));
-      return d;
-    },
-  });
+  /**
+    * التحميل الابتدائيّ في تأثيرٍ يعمل **مرّة واحدة**، لا في queryFn.
+    *
+    * كان في queryFn فوقع خطآن: إعادةُ الجلب عند عودة التركيز إلى النافذة
+    * تمحو ما كتبه المالك ولم يحفظه بعد، وإعادةُ فتح «تعديل» خلال مدّة الطزاجة
+    * تعرض نموذجاً **فارغاً** لخطٍّ ممتلئ (البيانات من الكاش فلا تُنفَّذ الدالّة
+    * ولا تُملأ الحقول) — فيحفظ المالك خطّاً بلا عملاء ظانّاً أنه يعدّل.
+    */
+  const [loadFailed, setLoadFailed] = useState(false);
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const d = (await repRouteApi.get(id)).data.data;
+        if (!alive) return;
+        setSalesRepId(d.salesRepId); setName(d.name);
+        setIsPermanent(d.isPermanent); setRouteDate(d.routeDate || '');
+        setStops(d.stops.map((s: Stop) => ({ customerId: s.customerId, customerName: s.customerName, note: s.note })));
+      } catch { if (alive) setLoadFailed(true); }
+    })();
+    return () => { alive = false; };
+  }, [id]);
 
   const save = useMutation({
     mutationFn: () => repRouteApi.save({
       salesRepId, name: name.trim(), isPermanent,
       routeDate: isPermanent ? null : routeDate,
+      // الخطّ المُحرَّر يُعطَّل بمعرّفه لا بمفاتيحه: تغييرُ التاريخ أو النوع أو
+      // المندوب كان يُنشئ خطّاً ثانياً ويترك الأول نشطاً يعمل عليه المندوب
+      ...(id && { replacesId: id }),
       stops: stops.map(s => ({ customerId: s.customerId, note: s.note ?? null })),
     }),
-    onSuccess: onDone,
+    onSuccess: (res) => {
+      // العملاء الساقطون خارج النطاق كان الخادم يُخبر بهم والواجهة تتجاهله،
+      // فيظنّ المالك أنّ خطّه كامل وهو ناقص
+      const w = (res as { data?: { warning?: string } })?.data?.warning;
+      if (w) { setErr(w); setTimeout(onDone, 2500); return; }
+      onDone();
+    },
     onError: (e: unknown) => setErr((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
@@ -191,6 +217,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
               <option value="">{tr('اختر مندوبا')}</option>
               {repsQ.data?.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
+            {repsQ.isError && <p className="text-[11px] text-amber-700 mt-1">{tr('تعذر جلب المناديب — تحقق من صلاحية المناديب')}</p>}
           </div>
           <div>
             <label className="label text-xs">{tr('اسم خط السير')}</label>
@@ -253,6 +280,11 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
           </div>
           <div className="divide-y divide-[#F5F0E6] max-h-[26rem] overflow-y-auto">
             {custQ.isLoading ? <p className="p-6 text-center text-xs text-gray-400">{tr('جار التحميل')}</p>
+              : custQ.isError ? (
+                /* «لا نتائج» تكذب هنا: الغالب أنّ المستخدم لا يملك صلاحية
+                   العملاء، فيظنّ الشركة بلا عملاء ويشكو من عطل لا وجود له */
+                <p className="p-6 text-center text-xs text-amber-700">{tr('تعذر جلب العملاء — تحقق من صلاحية العملاء')}</p>
+              )
               : !custQ.data?.length ? <p className="p-6 text-center text-xs text-gray-400">{tr('لا نتائج')}</p>
               : custQ.data.map(c => {
                 const on = chosen.has(c.id);

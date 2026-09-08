@@ -2117,7 +2117,10 @@ model RepRouteStop {
   routeId    String
   route      RepRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
+  /// Cascade: محطّةٌ في خط سير **ليست سجلّاً مالياً**، فحذف العميل يحذفها معه.
+  /// وRestrict الافتراضيّ كان يمنع حذف أي عميل وُضع يوماً في خط سير — حتى بعد
+  /// إيقاف الخط — برسالة قاعدة بيانات خام لا يفهمها المالك.
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   seq  Int // ترتيب الزيارة ١..ن
   note String? // ملاحظة للمندوب على هذه المحطّة

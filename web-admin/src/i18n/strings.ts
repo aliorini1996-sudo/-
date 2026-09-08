@@ -177,6 +177,8 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'تعذر جلب العملاء — تحقق من صلاحية العملاء': { en: 'Could not load customers. Check the customers permission', fr: 'Impossible de charger les clients. Verifiez la permission clients', tr: 'Musteriler yuklenemedi. Musteri yetkisini kontrol edin', zh: '无法加载客户，请检查客户权限' },
+  'تعذر جلب المناديب — تحقق من صلاحية المناديب': { en: 'Could not load reps. Check the reps permission', fr: 'Impossible de charger les representants. Verifiez la permission representants', tr: 'Temsilciler yuklenemedi. Temsilci yetkisini kontrol edin', zh: '无法加载业务代表，请检查代表权限' },
   'موقع العميل على الخريطة': { en: 'Customer location on the map', fr: 'Position du client sur la carte', tr: 'Musterinin haritadaki konumu', zh: '客户在地图上的位置' },
   'لا موقع مسجل لهذا العميل': { en: 'No location recorded for this customer', fr: 'Aucune position enregistree pour ce client', tr: 'Bu musteri icin konum kaydi yok', zh: '该客户无位置记录' },
   'خط السير': { en: 'Route', fr: 'Itineraire', tr: 'Rota', zh: '路线' },
