@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { repRouteApi, salesRepApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
+import { backdropClose } from '../lib/backdropClose';
 
 /**
  * بناء خطوط سير المناديب — قائمة عملاء مرتّبة يجب زيارتهم.
@@ -24,7 +25,11 @@ interface RouteRow {
 interface Stop { customerId: string; customerName: string; note?: string | null }
 interface Named { id: string; name: string; businessName?: string | null }
 
-export default function RepRoutesPage() {
+/**
+ * نافذةٌ لا صفحة: خطوط السير تُبنى وأنت تنظر إلى مواقع عملائك على الخريطة.
+ * إخراجُها إلى صفحةٍ مستقلّة يقطع تلك النظرة — فتُبنى فوق الخريطة نفسها.
+ */
+export default function RepRoutesModal({ onClose }: { onClose: () => void }) {
   const tr = useTr();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<{ id?: string } | null>(null);
@@ -38,22 +43,29 @@ export default function RepRoutesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['rep-routes'] }),
   });
 
-  if (editing) {
-    return <RouteEditor id={editing.id} onDone={() => { setEditing(null); qc.invalidateQueries({ queryKey: ['rep-routes'] }); }} />;
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-[#1F1A13] flex items-center gap-2">
-            <RouteIcon size={26} className="text-[#E15A30]" /> {tr('خطوط سير المناديب')}
-          </h1>
-          <p className="text-[#6E6557] text-sm mt-1">{tr('حدد لكل مندوب العملاء الذين يزورهم وبأي ترتيب')}</p>
+    <div className="fixed inset-0 z-[2000] bg-black/70 flex items-center justify-center p-4" {...backdropClose(onClose)}>
+      <div
+        className="bg-white rounded-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-5 py-3.5 border-b border-[#F1EBDF] flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-bold text-[#1F1A13] flex items-center gap-2">
+              <RouteIcon size={18} className="text-[#E15A30]" /> {tr('خطوط سير المناديب')}
+            </p>
+            <p className="text-[#6E6557] text-xs mt-0.5 truncate">{tr('حدد لكل مندوب العملاء الذين يزورهم وبأي ترتيب')}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {!editing && <button className="btn-primary text-xs" onClick={() => setEditing({})}><Plus size={15} /> {tr('خط سير جديد')}</button>}
+            <button onClick={onClose} className="p-1.5 text-[#9A8F7E] hover:text-[#1F1A13]" aria-label={tr('إغلاق')}><X size={18} /></button>
+          </div>
         </div>
-        <button className="btn-primary" onClick={() => setEditing({})}><Plus size={17} /> {tr('خط سير جديد')}</button>
-      </div>
 
+        <div className="flex-1 overflow-y-auto p-4">
+          {editing ? (
+            <RouteEditor id={editing.id} onDone={() => { setEditing(null); qc.invalidateQueries({ queryKey: ['rep-routes'] }); }} />
+          ) : (
       <div className="card overflow-hidden p-0">
         {q.isLoading ? <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
           : !q.data?.length ? (
@@ -105,6 +117,9 @@ export default function RepRoutesPage() {
               </table>
             </div>
           )}
+      </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -160,10 +175,10 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
   const ready = !!salesRepId && !!name.trim() && stops.length > 0 && (isPermanent || !!routeDate);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
         <button onClick={onDone} className="btn-secondary text-xs"><X size={14} /> {tr('رجوع')}</button>
-        <h1 className="text-xl font-bold text-[#1F1A13]">{id ? tr('تعديل خط السير') : tr('خط سير جديد')}</h1>
+        <p className="text-sm font-bold text-[#1F1A13]">{id ? tr('تعديل خط السير') : tr('خط سير جديد')}</p>
       </div>
 
       {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">{err}</p>}
