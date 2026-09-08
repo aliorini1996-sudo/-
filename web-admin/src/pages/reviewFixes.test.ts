@@ -29,8 +29,10 @@ test('المهمّة تُغلَق بمعرّف العقدة لا برقمها', 
   assert.doesNotMatch(s, /where: \{ reportId: report\.id, levelSeq: perm\.levelSeq!/,
     'الإغلاق بالرقم يعود بالعيب');
   const schema = read('..', 'backend', 'prisma', 'schema.prisma');
-  assert.match(schema, /@@unique\(\[reportId, levelId, round\]\)/, 'القيد الفريد يجب أن يكون بالمعرّف');
-  assert.doesNotMatch(schema, /@@unique\(\[reportId, levelSeq, round\]\)/, 'القيد بالرقم يعود بالعيب');
+  // القيد على الرقم هو سبب العطل، ولا يُستبدل بقيدٍ آخر لأن **إضافة** قيدٍ
+  // فريد تُفشل db push بلا --accept-data-loss، وذلك العلم غائبٌ من preDeploy
+  // عمداً. فالإحكام في الكود، ووجود القيد القديم وحده هو ما يُحرَس ضدّه.
+  assert.doesNotMatch(schema, /@@unique\(\[reportId, levelSeq, round\]\)/, 'القيد بالرقم يعود بالعيب القاتل');
 });
 
 test('إعادة الترقيم تُزامن كل ما يشير إلى الرقم', () => {
