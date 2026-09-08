@@ -13,7 +13,8 @@ export type PermKey =
   | 'canManageTracking'
   | 'canManageCustomers'
   | 'canManageInvoices'
-  | 'canManageReceipts';
+  | 'canManageReceipts'
+  | 'canViewReports';
 
 export function can(user: User | null, key: PermKey): boolean {
   if (!user) return false;

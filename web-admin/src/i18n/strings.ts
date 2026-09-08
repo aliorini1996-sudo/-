@@ -176,6 +176,19 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'التقارير اليومية': { en: 'Daily reports', fr: 'Rapports quotidiens', tr: 'Gunluk raporlar', zh: '每日报告' },
+  'ما ينتظر اعتمادك أنت': { en: 'Waiting for your approval', fr: 'En attente de votre approbation', tr: 'Onayinizi bekleyenler', zh: '等待您审批' },
+  'يقف عند مستواك': { en: 'Waiting at your level', fr: 'En attente a votre niveau', tr: 'Sizin seviyenizde bekliyor', zh: '在您的层级等待' },
+  'مسار التقرير': { en: 'Report trail', fr: 'Parcours du rapport', tr: 'Rapor izi', zh: '报告轨迹' },
+  'بياناتك أنت': { en: 'Your own entries', fr: 'Vos propres saisies', tr: 'Kendi girdileriniz', zh: '您的录入' },
+  'حفظ بياناتي': { en: 'Save my entries', fr: 'Enregistrer mes saisies', tr: 'Girdilerimi kaydet', zh: '保存我的录入' },
+  'سبب الإعادة': { en: 'Reason for returning', fr: 'Motif du renvoi', tr: 'Iade nedeni', zh: '退回原因' },
+  'اكتب ما يجب تصحيحه': { en: 'Write what needs correcting', fr: 'Indiquez ce qui doit etre corrige', tr: 'Nelerin duzeltilmesi gerektigini yazin', zh: '写明需要更正的内容' },
+  'إعادة': { en: 'Return', fr: 'Renvoyer', tr: 'Iade et', zh: '退回' },
+  'لا خانات': { en: 'No fields', fr: 'Aucun champ', tr: 'Alan yok', zh: '无字段' },
+  'ملاحظته': { en: 'Their note', fr: 'Sa note', tr: 'Notu', zh: '其备注' },
+  'جولة': { en: 'Round', fr: 'Tour', tr: 'Tur', zh: '轮次' },
+  'وقعه شخص واحد حتى الآن': { en: 'Signed by one person so far', fr: 'Signe par une seule personne jusqu ici', tr: 'Simdiye kadar tek kisi imzaladi', zh: '目前仅一人签署' },
   'لوحة مسار الاعتماد': { en: 'Approval path board', fr: 'Tableau du parcours d approbation', tr: 'Onay yolu panosu', zh: '审批路径面板' },
   'كل عقدة شخص بعينه — اسحبها لترتيب اللوحة واضغطها لتعديلها': { en: 'Each node is a specific person. Drag to arrange, click to edit', fr: 'Chaque noeud est une personne precise. Glissez pour organiser, cliquez pour modifier', tr: 'Her dugum belirli bir kisidir. Duzenlemek icin surukleyin, degistirmek icin tiklayin', zh: '每个节点代表一个具体人员。拖动排列，点击编辑' },
   'إضافة عقدة': { en: 'Add node', fr: 'Ajouter un noeud', tr: 'Dugum ekle', zh: '添加节点' },

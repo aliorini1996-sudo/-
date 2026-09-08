@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { Home, FileText, CreditCard, Users, MapPin, LogOut, Download } from 'lucide-react';
+import { Home, FileText, CreditCard, Users, MapPin, LogOut, Download, ClipboardCheck } from 'lucide-react';
 import { companyApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
 import AppIntro from '../components/AppIntro';
@@ -12,6 +12,7 @@ import MobileLogin from './MobileLogin';
 import MHome from './MHome';
 import MCustomers from './MCustomers';
 import MDocList from './MDocList';
+import MDailyReports from './MDailyReports';
 const MTracking = lazy(() => import('./MTracking'));
 import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
@@ -28,7 +29,7 @@ import { useBackClose } from '../lib/useBackClose';
  * بهوية مندوب في صميمها (تختم المستندات بـ`repId` وترفع عبر مسارات المندوب)،
  * ومسار الفواتير الإداريّ لا يقبل `clientRef` فلا حماية من التكرار.
  */
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'tracking';
+type Screen = 'home' | 'invoices' | 'receipts' | 'dailyReports' | 'customers' | 'tracking';
 
 interface Tab { id: Screen; label: string; icon: React.ElementType; perm: PermKey }
 
@@ -36,6 +37,8 @@ const TABS: Tab[] = [
   { id: 'home', label: 'm.tabHome', icon: Home, perm: 'canAccessDashboard' },
   { id: 'invoices', label: 'm.tabInvoices', icon: FileText, perm: 'canManageInvoices' },
   { id: 'receipts', label: 'm.tabReceipts', icon: CreditCard, perm: 'canManageReceipts' },
+  // يحلّ محلّ «التحصيل» حين تُفعّل الشركة التقرير اليومي — انظر `tabs` أدناه
+  { id: 'dailyReports', label: 'm.tabDailyReports', icon: ClipboardCheck, perm: 'canViewReports' },
   { id: 'customers', label: 'm.tabCustomers', icon: Users, perm: 'canManageCustomers' },
   { id: 'tracking', label: 'm.tabTracking', icon: MapPin, perm: 'canManageTracking' },
 ];
@@ -58,12 +61,25 @@ export default function MobileApp() {
 
   // «النظام المحاسبي» — مفعّل افتراضياً، فغيابه يعني مفعّل لا مطفأ
   const accountingOn = (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
+  /* «التقرير اليومي» — مطفأ افتراضياً، فالشرط `=== true` لا `!== false`.
+   * وقلبه هنا يُظهر التبويب لكل شركة تعذّرت قراءة إعداداتها. */
+  const dailyReportOn = (company as { dailyReportEnabled?: boolean } | null)?.dailyReportEnabled === true;
 
   // التبويبات المسموحة لهذا المستخدم — المنع عند `false` الصريحة وحدها،
   // ثم إسقاط التبويبين المحاسبيين حين يُطفئ المالك الميزة عن الشركة
+  /* التقارير اليومية **تحلّ محلّ** التحصيل لا تُضاف إليه: الشريط السفليّ
+   * خمسة تبويبات على عرض جوال، وسادسٌ يضغطها حتى تتلاصق أيقوناتها.
+   * وثمنُ ذلك صريح: قائمة السندات تصير غير مبلوغة من تطبيق الجوال لشركةٍ
+   * فعّلت الميزة — تبقى في لوحة الويب، ورقم تحصيل اليوم يبقى في الرئيسية. */
   const tabs = useMemo(
-    () => TABS.filter(t => can(user, t.perm) && (accountingOn || (t.id !== 'invoices' && t.id !== 'receipts'))),
-    [user, accountingOn]
+    () => TABS.filter(t => {
+      if (!can(user, t.perm)) return false;
+      if (t.id === 'dailyReports') return dailyReportOn;
+      if (t.id === 'receipts' && dailyReportOn) return false;
+      if (!accountingOn && (t.id === 'invoices' || t.id === 'receipts')) return false;
+      return true;
+    }),
+    [user, accountingOn, dailyReportOn]
   );
 
   // أوّل تبويب مسموح يصير الشاشة الافتراضية، فلا تُفتح القوقعة على شاشة محجوبة
@@ -186,6 +202,7 @@ export default function MobileApp() {
                 <span className="text-[10px] font-medium">{tr(t.label === 'm.tabHome' ? 'الرئيسية'
                   : t.label === 'm.tabInvoices' ? 'الفواتير'
                   : t.label === 'm.tabReceipts' ? 'التحصيل'
+                  : t.label === 'm.tabDailyReports' ? 'التقارير'
                   : t.label === 'm.tabCustomers' ? 'العملاء' : 'التتبع')}</span>
               </button>
             );
@@ -206,6 +223,7 @@ function ScreenBody({ screen, company, userName, accountingOn }: { screen: Scree
   // ويُطلَب بمعرّف فاتورة ونوع سند. ويكسر ذلك مكدّس الرجوع أيضاً.
   if (screen === 'invoices') return <MDocList key="invoice" kind="invoice" company={company} userName={userName} />;
   if (screen === 'receipts') return <MDocList key="receipt" kind="receipt" company={company} userName={userName} />;
+  if (screen === 'dailyReports') return <MDailyReports />;
   // الخريطة (leaflet) في حزمة كسولة: لا يدفع ثمنها من لم يفتح التبويب
   return (
     <Suspense fallback={<MSpinner />}>
