@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, Circle, MapPin, Phone, ChevronRight, Repeat, CalendarDays, Route as RouteIcon } from 'lucide-react';
+import { CheckCircle2, Circle, MapPin, ChevronRight, Repeat, CalendarDays, Route as RouteIcon } from 'lucide-react';
 import repApi from './repApi';
 import { useTr } from '../i18n/strings';
 
@@ -41,10 +41,7 @@ export async function fetchMyRoute(): Promise<RouteToday | null> {
   return (res.data?.data ?? null) as RouteToday | null;
 }
 
-export default function RepRouteScreen({ onBack, onOpenCustomer }: {
-  onBack: () => void;
-  onOpenCustomer?: (customerId: string) => void;
-}) {
+export default function RepRouteScreen({ onBack }: { onBack: () => void }) {
   const tr = useTr();
   const [route, setRoute] = useState<RouteToday | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,9 +106,8 @@ export default function RepRouteScreen({ onBack, onOpenCustomer }: {
 
           <div className="space-y-2">
             {route.stops.map(s => (
-              <button
+              <div
                 key={s.id}
-                onClick={() => onOpenCustomer?.(s.customerId)}
                 className={`w-full text-right rounded-2xl p-3 border-2 flex items-start gap-3
                   ${s.done ? 'bg-green-50/60 border-green-200' : 'bg-white border-gray-100'}`}
               >
@@ -136,15 +132,28 @@ export default function RepRouteScreen({ onBack, onOpenCustomer }: {
                     </span>
                   )}
                 </span>
-                {s.phone && (
+                {/* موقع العميل على الخرائط — أنفع للمندوب من الاتصال وهو في
+                    الطريق. وعميلٌ بلا إحداثيات تظهر أيقونته باهتةً معطَّلة، لا
+                    تختفي: غيابها يُقرأ «العميل بلا موقع» فيبحث عنه بنفسه، بينما
+                    الفراغ يُقرأ عطلاً في التطبيق. */}
+                {s.lat != null && s.lng != null ? (
                   <a
-                    href={`tel:${s.phone}`} onClick={e => e.stopPropagation()}
+                    href={`https://www.google.com/maps?q=${s.lat},${s.lng}`}
+                    target="_blank" rel="noreferrer"
+                    title={tr('موقع العميل على الخريطة')}
                     className="shrink-0 w-9 h-9 rounded-xl bg-[#FFF1EA] text-[#E15A30] flex items-center justify-center"
                   >
-                    <Phone size={15} />
+                    <MapPin size={16} />
                   </a>
+                ) : (
+                  <span
+                    title={tr('لا موقع مسجل لهذا العميل')}
+                    className="shrink-0 w-9 h-9 rounded-xl bg-gray-50 text-gray-300 flex items-center justify-center"
+                  >
+                    <MapPin size={16} />
+                  </span>
                 )}
-              </button>
+              </div>
             ))}
           </div>
 

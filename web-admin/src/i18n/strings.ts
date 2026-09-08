@@ -177,6 +177,8 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'موقع العميل على الخريطة': { en: 'Customer location on the map', fr: 'Position du client sur la carte', tr: 'Musterinin haritadaki konumu', zh: '客户在地图上的位置' },
+  'لا موقع مسجل لهذا العميل': { en: 'No location recorded for this customer', fr: 'Aucune position enregistree pour ce client', tr: 'Bu musteri icin konum kaydi yok', zh: '该客户无位置记录' },
   'خط السير': { en: 'Route', fr: 'Itineraire', tr: 'Rota', zh: '路线' },
   'خطوط السير': { en: 'Routes', fr: 'Itineraires', tr: 'Rotalar', zh: '路线' },
   'خطوط سير المناديب': { en: 'Rep routes', fr: 'Itineraires des representants', tr: 'Temsilci rotalari', zh: '业务代表路线' },
