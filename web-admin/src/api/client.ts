@@ -284,6 +284,10 @@ export const repRouteApi = {
   save: (body: unknown) => api.post('/rep-routes', body),
   remove: (id: string) => api.delete(`/rep-routes/${id}`),
   /** خط سير المندوب اليوم — بيوم جهازه لا يوم الخادم */
+  /** خط سير مندوبٍ بعينه ليومٍ بعينه — للوحة الإدارة (خلف صلاحية التتبّع) */
+  mineFor: (salesRepId: string, date: string) => api.get('/rep-routes/mine', {
+    params: { salesRepId, date, tzOffsetMin: -new Date().getTimezoneOffset() },
+  }),
   mine: () => api.get('/rep-routes/mine', {
     params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
   }),

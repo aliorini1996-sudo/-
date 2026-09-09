@@ -177,6 +177,10 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'خط السير المخطط': { en: 'Planned route', fr: 'Itineraire planifie', tr: 'Planlanan rota', zh: '计划路线' },
+  'عميل بلا موقع مسجل لا يظهر على الخريطة': { en: 'customers without a saved location are not shown on the map', fr: 'clients sans position enregistree ne sont pas affiches sur la carte', tr: 'kayitli konumu olmayan musteri haritada gosterilmez', zh: '位客户无保存位置，不在地图上显示' },
+  'تمت زيارته': { en: 'Visited', fr: 'Visite', tr: 'Ziyaret edildi', zh: '已拜访' },
+  'لم تتم زيارته بعد': { en: 'Not visited yet', fr: 'Pas encore visite', tr: 'Henuz ziyaret edilmedi', zh: '尚未拜访' },
   'تعذر جلب العملاء — تحقق من صلاحية العملاء': { en: 'Could not load customers. Check the customers permission', fr: 'Impossible de charger les clients. Verifiez la permission clients', tr: 'Musteriler yuklenemedi. Musteri yetkisini kontrol edin', zh: '无法加载客户，请检查客户权限' },
   'تعذر جلب المناديب — تحقق من صلاحية المناديب': { en: 'Could not load reps. Check the reps permission', fr: 'Impossible de charger les representants. Verifiez la permission representants', tr: 'Temsilciler yuklenemedi. Temsilci yetkisini kontrol edin', zh: '无法加载业务代表，请检查代表权限' },
   'موقع العميل على الخريطة': { en: 'Customer location on the map', fr: 'Position du client sur la carte', tr: 'Musterinin haritadaki konumu', zh: '客户在地图上的位置' },

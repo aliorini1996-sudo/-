@@ -6,6 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { trackingApi, visitsApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
+import { repRouteApi } from '../api/client';
 import RepRoutesModal from './RepRoutesPage';
 import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer, Route as RouteIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -64,11 +65,35 @@ function visitIcon(n: number) {
 }
 
 // دبّوس موقع عميل (أزرق مميّز عن المناديب والزيارات)
+/** محطّة في خط السير المخطَّط كما يعيدها الخادم */
+interface PlanStop {
+  customerId: string; customerName: string; seq: number;
+  address: string | null; lat: number | null; lng: number | null; done: boolean;
+}
+interface PlanRoute { id: string; name: string; isPermanent: boolean; routeDate: string | null; stops: PlanStop[]; doneCount: number; total: number }
+
 function customerIcon() {
   return L.divIcon({
     className: '',
     html: `<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#2563EB;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);color:#fff;font-size:10px;font-weight:700">●</span></div>`,
     iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -20],
+  });
+}
+
+/**
+ * محطّة خط السير المخطَّط — **بنفسجيّة مرقّمة**، ولونها وحده يفصلها عن كل
+ * ما سواها على الخريطة: البرتقاليّ مسارٌ مرصود، والأزرق مواقع عملاء، والأخضر
+ * زيارات وقعت. فالبنفسجيّ يقول «هذا ما كان **مخطّطاً** له» لا ما حدث.
+ *
+ * والمنجَزة تُملأ خضراء داخل الإطار البنفسجيّ: المشرف يقرأ من نظرةٍ واحدة
+ * كم محطّةً من الخطّة أُنجزت وأين توقّف المندوب.
+ */
+function planStopIcon(n: number, done: boolean) {
+  const bg = done ? '#16A34A' : '#7C3AED';
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:26px;height:26px;border-radius:50%;background:${bg};border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center"><span style="color:#fff;font-size:11px;font-weight:800">${n}</span></div>`,
+    iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -14],
   });
 }
 
@@ -148,6 +173,24 @@ export default function TrackingPage() {
     enabled: !!openVisit,
   });
   // مواقع العملاء على الخريطة — تُجلب مرّة عند تفعيل الطبقة
+  /**
+   * خط سير المندوب المحدَّد لليوم المعروض — يُجلب عند اختياره وحده.
+   *
+   * `date` هو اليوم المعروض في الشاشة لا يوم الخادم: المشرف قد يستعرض أمس،
+   * فيجب أن يرى خطّ **ذلك** اليوم لا خطّ اليوم الجاري.
+   */
+  const planQ = useQuery({
+    queryKey: ['rep-plan', selected, date],
+    queryFn: async () => (await repRouteApi.mineFor(selected, date)).data.data as PlanRoute | null,
+    enabled: !!selected && enabled,
+    retry: false,
+  });
+  const plan = planQ.data ?? null;
+  // محطّاتٌ بلا إحداثيّات لا تُرسم — ويُقال عددها بدل إسقاطها صامتاً
+  const planStops = (plan?.stops ?? []).filter(p => p.lat != null && p.lng != null);
+  const planLatLng = planStops.map(p => [p.lat as number, p.lng as number] as [number, number]);
+  const planMissing = (plan?.stops.length ?? 0) - planStops.length;
+
   const customerLocsQ = useQuery({
     queryKey: ['customer-locations'],
     queryFn: async () => (await customerApi.locations()).data.data as CustomerLoc[],
@@ -272,6 +315,26 @@ export default function TrackingPage() {
                 <p className="text-[11px] text-[#9A8F7E]">
                   {routeQ.isLoading ? tr('جار التحميل') : `${route.length} ${tr('نقطة مسجلة')}`}
                 </p>
+                {/* خط السير المخطَّط — بنفسجيّ، ومفتاحه يفصله عن المسار المرصود:
+                    ذاك ما فعله المندوب، وهذا ما كان **مطلوباً** منه. */}
+                {plan && (
+                  <div className="space-y-1 pt-1 border-t border-[#F1EBDF]">
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#6E6557]">
+                      <span className="inline-block w-5 h-[3px] rounded" style={{ background: 'repeating-linear-gradient(90deg,#7C3AED 0 6px,transparent 6px 11px)' }} />
+                      <span>
+                        {tr('خط السير المخطط')}: <b className="tabular-nums">{plan.doneCount}</b> / <b className="tabular-nums">{plan.total}</b> {tr('زيارة')}
+                      </span>
+                    </div>
+                    {planMissing > 0 && (
+                      /* محطّةٌ بلا إحداثيّات لا تُرسم — وإسقاطها صامتاً يجعل
+                         الخريطة تكذب على المشرف بخطٍّ أقصر مما خُطّط */
+                      <p className="text-[10px] text-amber-700">
+                        {planMissing} {tr('عميل بلا موقع مسجل لا يظهر على الخريطة')}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* مفتاح القراءة: الرقمان يقولان كم من اليوم رُصد فعلاً وكم أُعيد
                     بناؤه — والفرق بينهما هو الفرق بين الدليل والترجيح. */}
                 {shape && (shape.observedMeters > 0 || shape.inferredMeters > 0 || shape.rawMeters > 0) && (
@@ -459,6 +522,27 @@ export default function TrackingPage() {
                 ))}
 
                 {/* طبقة مواقع العملاء (اختيارية) */}
+                {/* خط السير المخطَّط — بنفسجيّ متقطّع يميّزه عن المسار المرصود */}
+                {selected && planLatLng.length > 1 && (
+                  <Polyline
+                    positions={planLatLng}
+                    pathOptions={{ color: '#7C3AED', weight: 3.5, opacity: 0.85, dashArray: '8 6' }}
+                  />
+                )}
+                {selected && planStops.map((p, i) => (
+                  <Marker key={`plan-${p.customerId}`} position={[p.lat as number, p.lng as number]} icon={planStopIcon(i + 1, p.done)}>
+                    <Popup>
+                      <div className="text-xs">
+                        <p className="font-bold text-[#1F1A13]">{p.seq}. {p.customerName}</p>
+                        {p.address && <p className="text-[#6E6557] mt-0.5">{p.address}</p>}
+                        <p className={`mt-1 font-semibold ${p.done ? 'text-green-700' : 'text-[#7C3AED]'}`}>
+                          {p.done ? tr('تمت زيارته') : tr('لم تتم زيارته بعد')}
+                        </p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+
                 {customerLocs.map(c => (
                   <Marker key={`cust-${c.id}`} position={[c.lat, c.lng]} icon={customerIcon()}>
                     <Popup>
