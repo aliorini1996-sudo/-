@@ -58,8 +58,15 @@ async function routeFor(tid: string, salesRepId: string, day: string) {
     include: { stops: { include: { customer: { select: { id: true, name: true, businessName: true, phone: true, address: true, lat: true, lng: true } } }, orderBy: { seq: 'asc' } } },
   });
   if (dated) return dated;
+  /* الخطّ الدائم لا يسري على يومٍ **سبق إنشاءه**.
+   *
+   * بلا هذا القيد كان خطٌّ أُنشئ اليوم يُرسم على الأسبوع الماضي بوصفه «ما كان
+   * مطلوباً» حينها، وعدّاده «0 / N» يتّهم المندوب بتقصيرٍ في خطّةٍ لم تكن
+   * موجودة أصلاً. والحدّ نهايةُ ذلك اليوم لا بدايته: خطّةٌ وُضعت صباحاً تسري
+   * على يومها. */
+  const endOfDay = new Date(new Date(`${day}T00:00:00.000Z`).getTime() + 86400000);
   return prisma.repRoute.findFirst({
-    where: { tenantId: tid, salesRepId, isActive: true, isPermanent: true },
+    where: { tenantId: tid, salesRepId, isActive: true, isPermanent: true, createdAt: { lt: endOfDay } },
     include: { stops: { include: { customer: { select: { id: true, name: true, businessName: true, phone: true, address: true, lat: true, lng: true } } }, orderBy: { seq: 'asc' } } },
   });
 }
@@ -111,9 +118,16 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
      * محطّةٌ لعميلٍ غير مُسنَدٍ للمندوب كانت تُسلّمه هاتفه وعنوانه وإحداثيّاته،
      * وهي محطّةٌ **يستحيل إنجازها** أصلاً: تسجيل الزيارة يمرّ بنفس العزل فيُردّ.
      * فبقاؤها يعني عدّاداً لا يكتمل أبداً ومندوباً يطارد عميلاً ممنوعاً منه. */
+    /* العزل يُطبَّق على **الجميع** لا على المندوب وحده.
+     *
+     * `canAccessCustomer` تغطّي قيدَي المندوب والإداريّ المقيَّد معاً، وتعيد
+     * true لغير المقيَّدين — فاستثناء الإداريّ كان يفتح لطبقة الخطّة ما تُغلقه
+     * طبقة مواقع العملاء على الشاشة نفسها: حاجزٌ مفتوحٌ بلونٍ ومغلقٌ بآخر. */
     const visible = [];
+    let hidden = 0;
     for (const st of route.stops) {
-      if (!isRep || (await canAccessCustomer(req, tid, st.customerId))) visible.push(st);
+      if (await canAccessCustomer(req, tid, st.customerId)) visible.push(st);
+      else hidden++;
     }
 
     // الإنجاز من سجلّ الزيارات — مصدرٌ واحد لا نسخة ثانية
@@ -142,6 +156,9 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
         })),
         doneCount: visible.filter(s => doneAt.has(s.customerId)).length,
         total: visible.length,
+        // محطّاتٌ حجبها نطاقُ القارئ — تُقال ولا تُخفى، وإلا رأى خطّاً أقصر
+        // من المخطَّط وظنّه كاملاً
+        hiddenByScope: hidden,
       },
     });
   } catch (err) { next(err); }

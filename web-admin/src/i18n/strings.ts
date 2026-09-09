@@ -177,6 +177,7 @@ export function useT() {
 // العبارات، وتعيد العربية عند غياب الترجمة. تُستخدم لأتمتة تعريب جسم التطبيق.
 // ============================================================================
 export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: string }> = {
+  'محطة خارج نطاقك لا تظهر': { en: 'stops outside your scope are not shown', fr: 'etapes hors de votre perimetre non affichees', tr: 'kapsaminiz disindaki duraklar gosterilmez', zh: '超出您范围的站点不显示' },
   'خط السير المخطط': { en: 'Planned route', fr: 'Itineraire planifie', tr: 'Planlanan rota', zh: '计划路线' },
   'عميل بلا موقع مسجل لا يظهر على الخريطة': { en: 'customers without a saved location are not shown on the map', fr: 'clients sans position enregistree ne sont pas affiches sur la carte', tr: 'kayitli konumu olmayan musteri haritada gosterilmez', zh: '位客户无保存位置，不在地图上显示' },
   'تمت زيارته': { en: 'Visited', fr: 'Visite', tr: 'Ziyaret edildi', zh: '已拜访' },

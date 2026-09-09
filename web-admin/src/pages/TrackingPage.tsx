@@ -70,7 +70,12 @@ interface PlanStop {
   customerId: string; customerName: string; seq: number;
   address: string | null; lat: number | null; lng: number | null; done: boolean;
 }
-interface PlanRoute { id: string; name: string; isPermanent: boolean; routeDate: string | null; stops: PlanStop[]; doneCount: number; total: number }
+interface PlanRoute {
+  id: string; name: string; isPermanent: boolean; routeDate: string | null;
+  stops: PlanStop[]; doneCount: number; total: number;
+  /** محطّات حجبها نطاق القارئ — تُقال ولا تُخفى */
+  hiddenByScope?: number;
+}
 
 function customerIcon() {
   return L.divIcon({
@@ -184,6 +189,9 @@ export default function TrackingPage() {
     queryFn: async () => (await repRouteApi.mineFor(selected, date)).data.data as PlanRoute | null,
     enabled: !!selected && enabled,
     retry: false,
+    // تتحدّث مع بقيّة الخريطة: كانت متجمّدة بينما الزيارات تتحدّث كل ٢٠ ثانية،
+    // فتظهر زيارةٌ خضراء على الخريطة ومحطّتها البنفسجيّة ما زالت «لم تتم»
+    refetchInterval: enabled && !!selected ? 20000 : false,
   });
   const plan = planQ.data ?? null;
   // محطّاتٌ بلا إحداثيّات لا تُرسم — ويُقال عددها بدل إسقاطها صامتاً
@@ -244,11 +252,14 @@ export default function TrackingPage() {
   // النقاط المعروضة على الخريطة لضبط الحدود
   const focusPoints: [number, number][] = useMemo(() => {
     if (selected) {
-      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number])];
+      // **الخطّة تدخل الإطار**: مندوبٌ لم يتحرّك بعد وله خطّ سير كانت خريطته
+      // تبقى على السعودية كلّها وخطّه البنفسجيّ خارج الشاشة — فيظنّ المشرف
+      // أنّ الميزة معطوبة وهي تعمل.
+      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...planLatLng];
       if (pts.length) return pts;
     }
     return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
-  }, [selected, rawLatLng, visitPins, reps]);
+  }, [selected, rawLatLng, visitPins, planLatLng, reps]);
 
   const selectedRep = reps.find(r => r.id === selected);
 
@@ -325,6 +336,13 @@ export default function TrackingPage() {
                         {tr('خط السير المخطط')}: <b className="tabular-nums">{plan.doneCount}</b> / <b className="tabular-nums">{plan.total}</b> {tr('زيارة')}
                       </span>
                     </div>
+                    {!!plan.hiddenByScope && (
+                      /* محطّاتٌ خارج نطاق هذا المستخدم — يُقال عددها كي لا يقرأ
+                         خطّاً أقصر من المخطَّط على أنّه الخطّة كاملةً */
+                      <p className="text-[10px] text-amber-700">
+                        {plan.hiddenByScope} {tr('محطة خارج نطاقك لا تظهر')}
+                      </p>
+                    )}
                     {planMissing > 0 && (
                       /* محطّةٌ بلا إحداثيّات لا تُرسم — وإسقاطها صامتاً يجعل
                          الخريطة تكذب على المشرف بخطٍّ أقصر مما خُطّط */
@@ -529,8 +547,8 @@ export default function TrackingPage() {
                     pathOptions={{ color: '#7C3AED', weight: 3.5, opacity: 0.85, dashArray: '8 6' }}
                   />
                 )}
-                {selected && planStops.map((p, i) => (
-                  <Marker key={`plan-${p.customerId}`} position={[p.lat as number, p.lng as number]} icon={planStopIcon(i + 1, p.done)}>
+                {selected && planStops.map(p => (
+                  <Marker key={`plan-${p.customerId}`} position={[p.lat as number, p.lng as number]} icon={planStopIcon(p.seq, p.done)}>
                     <Popup>
                       <div className="text-xs">
                         <p className="font-bold text-[#1F1A13]">{p.seq}. {p.customerName}</p>
