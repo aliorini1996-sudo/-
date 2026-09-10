@@ -15,7 +15,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { loadPricing, waDigits } from './pricing-source.mjs';
+import { loadPricing, waDigits, repsCap } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../dist');
@@ -134,6 +134,47 @@ if (apiRoot) {
       ok.push(`زرّ واتساب يشير إلى ${apiRoot}`);
     }
   }
+}
+
+// 5) بنية الباقات في النثر — لا في حقول JSON الرقمية وحدها.
+//
+// الثغرة التي يسدّها: حين صارت الباقات ثلاثاً بقي وصف AggregateOffer في أكثر من ألف
+// صفحة مُصيَّرة يقول «299 ر.س حتى 5 مناديب، و599 ر.س حتى 20 مندوبًا» — أي عالم الباقتين.
+// ومرّ هذا الحارس عليه لأن 299 و599 سعران حيّان فعلاً: الكذب كان في **البنية** لا في
+// الرقم. وفي llms.txt أُعلن 399 بحدّ «up to 20 reps» لأن شرطاً ثلاثياً لم يعرف حدّ العشرة.
+// الدرس: حارسٌ يفحص الأرقام وحدها يحرس نصف الحقيقة.
+const numericPlans = pricing.plans.filter((p) => /^\d+$/.test(String(p.price)));
+
+// (أ) وصف العرض في القوقعة يذكر كل باقة رقمية — وإلا فهو يصف بنية أضيق من الحيّة
+if (fs.existsSync(home)) {
+  const shell = fs.readFileSync(home, 'utf8');
+  const desc = shell.match(/"description"\s*:\s*"(تجربة مجانية[^"]*)"/);
+  if (!desc) {
+    fail.push('لم أجد وصف AggregateOffer في dist/index.html — تحقّق من قالب القوقعة');
+  } else {
+    const missing = numericPlans.filter((p) => !desc[1].includes(String(p.price)));
+    if (missing.length) {
+      fail.push(`وصف العرض يغفل ${missing.map((p) => p.price).join('، ')} — يصف بنية باقات أضيق من الحيّة، ويُنسَخ إلى كل صفحة`);
+    } else {
+      ok.push(`وصف العرض يذكر الباقات الـ${numericPlans.length} كلّها`);
+    }
+  }
+}
+
+// (ب) اقتران السعر بحدّ المناديب في llms.txt — ما تقتبسه محرّكات الذكاء حرفياً
+const llmsPath = path.join(DIST, 'llms.txt');
+if (fs.existsSync(llmsPath)) {
+  const txt = fs.readFileSync(llmsPath, 'utf8');
+  const expect = new Map(numericPlans.map((p) => [String(p.price), repsCap(p.limit)]));
+  let bad = 0;
+  for (const m of txt.matchAll(/(\d{2,4})\s*SAR\/month\s*\(up to (\d+) reps\)/g)) {
+    const want = expect.get(m[1]);
+    if (want && Number(m[2]) !== want) {
+      fail.push(`llms.txt يقرن ${m[1]} ر.س بحدّ ${m[2]} مندوباً والحقيقة ${want} — ومحرّكات الذكاء تقتبس هذا السطر حرفياً`);
+      bad++;
+    }
+  }
+  if (!bad) ok.push('اقتران السعر بحدّ المناديب في llms.txt مطابق للـCMS');
 }
 
 for (const o of ok) console.log('  ✓ ' + o);

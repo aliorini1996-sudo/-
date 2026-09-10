@@ -29,12 +29,36 @@ type Lang = 'ar' | 'en' | 'fr';
 
 interface Plan { name: string; price: string; limit?: string; period?: string; features?: string[]; badge?: string }
 
+// مطابق لـ data.pricing.plans في الـCMS (قِيس 10 سبتمبر 2026): ثلاث باقات رقمية.
+// لا تُضِف باقة هنا ما لم تُضَف هناك — الاحتياطي يظهر عند تعذّر الشبكة وحده.
 const FALLBACK_PLANS: Plan[] = [
-  { name: 'المبتدئة', price: '299', limit: 'حتى ٥ مناديب · مستخدم إداري واحد', period: 'ر.س / شهريا' },
-  { name: 'المتوسطة', price: '399', limit: 'حتى ١٠ مناديب · مستخدمان إداريان', period: 'ر.س / شهريا' },
-  { name: 'المتقدمة', price: '599', limit: 'حتى ٢٠ مندوبا · ٥ مستخدمين إداريين', period: 'ر.س / شهريا', badge: 'الأكثر طلبا' },
-  { name: 'المؤسسات', price: 'حسب الطلب', limit: 'مناديب غير محدودين', period: '' },
+  { name: 'المبتدئة', price: '299', limit: 'حتى ٥ مناديب وإداري واحد', period: 'ر.س / شهريا' },
+  { name: 'المتوسطة', price: '399', limit: 'حتى 10 مناديب و حسابين إداريين', period: 'ر.س / شهريا', badge: 'الأكثر طلبا' },
+  { name: 'الاحترافية', price: '599', limit: 'حتى ٢٠ مندوب و 5 إداريين', period: 'ر.س / شهريا' },
 ];
+
+/**
+ * حدّ المندوبين من نصّ الحدّ (يوحّد الأرقام الهندية). نظيره في scripts/pricing-source.mjs
+ * لأن هذا ملفّ تطبيق وذاك ملفّ بناء. لا تُقسِّم الباقات بأرقام مكتوبة يدوياً:
+ * كانت الحاسبة تحسب لشركةٍ بثمانية مناديب سعرَ الباقة العليا لأنها تعرف حدَّين فقط.
+ */
+const repsCap = (limit?: string): number | null => {
+  const m = String(limit || '')
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .match(/\d+/);
+  return m ? Number(m[0]) : null;
+};
+
+/**
+ * أسماء الباقات بالإنجليزية والفرنسية مفتاحُها السعر، لأن الـCMS يخزّن الاسم والحدّ
+ * بالعربية وحدها فكانت صفحة /en/pricing تعرضهما عربيَّين للقارئ الإنجليزي والزاحف معاً.
+ * الحلّ الجذري حقول en/fr في الـCMS؛ وحتى ذلك الحين يسقط غيرُ المعروف إلى اسم الـCMS.
+ */
+const PLAN_I18N: Record<string, { en: string; fr: string }> = {
+  '299': { en: 'Starter', fr: 'Débutant' },
+  '399': { en: 'Growth', fr: 'Croissance' },
+  '599': { en: 'Professional', fr: 'Professionnel' },
+};
 
 const T: Record<Lang, Record<string, string>> = {
   ar: {
@@ -141,12 +165,18 @@ export default function PricingPage() {
   const numeric = plans.filter((p) => /^\d+$/.test(String(p.price)));
   const entry = numeric[0]?.price || '299';
   const top = numeric[numeric.length - 1]?.price || '599';
+  const arTiers = numeric.map((p) => `${p.price} ر.س حتى ${repsCap(p.limit) ?? '؟'} مناديب`).join(' و');
+  const enTiers = numeric.length
+    ? `${numeric.map((p) => p.price).join(' / ')} SAR per month for up to ${numeric.map((p) => repsCap(p.limit) ?? '?').join(' / ')} reps.`
+    : `${entry}–${top} SAR per month.`;
 
   useSeo({
     title: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات | Field Sales' : t.title,
+    // الوصف يُبنى من الباقات الحيّة لا من حدَّين مكتوبين: بقي «299 حتى ٥ و599 حتى ٢٠»
+    // منشوراً بعد إضافة الباقة الوسطى، فوصل جوجل بنيةُ باقتين لا وجود لها.
     description: lang === 'ar'
-      ? `أسعار Field Sales معلنة ${entry} ر.س حتى ٥ مناديب و${top} ر.س حتى ٢٠ مندوبا شامل ضريبة القيمة المضافة لكل شركة لا لكل مستخدم بلا رسوم تأسيس وتجربة ١٠ أيام بلا بطاقة`
-      : `${entry}–${top} SAR per month, VAT included, per company not per user. No setup fees. 10-day free trial, no credit card.`,
+      ? `أسعار Field Sales معلنة ${arTiers} شاملة ضريبة القيمة المضافة لكل شركة لا لكل مستخدم بلا رسوم تأسيس وتجربة ١٠ أيام بلا بطاقة`
+      : `${enTiers} VAT included, per company not per user. No setup fees. 10-day free trial, no credit card.`,
     keywords: lang === 'ar' ? 'كم سعر برنامج مندوبين المبيعات سعر برنامج إدارة المناديب تسعير نظام التوزيع' : undefined,
     canonical: seoUrls('/pricing', lang).canonical,
     alternates: seoUrls('/pricing', lang).alternates,
@@ -160,13 +190,19 @@ export default function PricingPage() {
   const [vat, setVat] = useState(15);
 
   const calc = useMemo(() => {
-    const ourMonthly = reps <= 5 ? Number(entry) : reps <= 20 ? Number(top) : NaN;
+    // أوّل باقة يتّسع حدُّها لعدد المناديب — لا شرطٌ ثنائيّ يقفز فوق الباقة الوسطى.
+    const tiers = numeric
+      .map((p) => ({ price: Number(p.price), cap: repsCap(p.limit) }))
+      .filter((t) => t.cap && Number.isFinite(t.price))
+      .sort((a, b) => (a.cap as number) - (b.cap as number));
+    const hit = tiers.find((t) => reps <= (t.cap as number));
+    const ourMonthly = hit ? hit.price : NaN;
     const theirMonthly = reps * perUser;
     const v = 1 + vat / 100;
     const ourYear = Number.isFinite(ourMonthly) ? ourMonthly * 12 * v : NaN;
     const theirYear = (theirMonthly * 12 + setup) * v;
     return { ourMonthly, theirMonthly, ourYear, theirYear, diff: theirYear - ourYear };
-  }, [reps, perUser, setup, vat, entry, top]);
+  }, [reps, perUser, setup, vat, numeric]);
 
   const overLimit = reps > 20;
 
@@ -202,12 +238,18 @@ export default function PricingPage() {
             return (
               <div key={p.name} className={`bg-white rounded-xl border p-5 flex flex-col ${p.badge ? 'border-[#E15A30] shadow-sm' : 'border-[#E8E0D2]'}`}>
                 {p.badge && <span className="self-start text-[10px] bg-[#FBEBE2] text-[#C94E28] px-2 py-0.5 rounded-full mb-2">{p.badge}</span>}
-                <h2 className="font-semibold">{p.name}</h2>
+                <h2 className="font-semibold">{lang === 'ar' ? p.name : (PLAN_I18N[String(p.price)]?.[lang] ?? p.name)}</h2>
                 <p className="mt-2">
                   <span className="text-3xl font-bold">{p.price}</span>
                   {p.period && <span className="text-xs text-[#9A8F7E]"> {p.period}</span>}
                 </p>
-                <p className="text-xs text-[#6b6357] mt-1">{p.limit}</p>
+                <p className="text-xs text-[#6b6357] mt-1">
+                  {lang === 'ar'
+                    ? p.limit
+                    : repsCap(p.limit)
+                      ? `Up to ${repsCap(p.limit)} reps`
+                      : p.limit}
+                </p>
                 {Array.isArray(p.features) && p.features.length > 0 && (
                   <ul className="mt-3 space-y-1.5 text-xs text-[#4a443a]">
                     {p.features.slice(0, 6).map((f) => (

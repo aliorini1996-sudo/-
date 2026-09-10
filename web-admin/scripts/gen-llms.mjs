@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { listArticles, shortAnswer, ORIGIN } from '../src/blog/seo/catalog.mjs';
-import { loadPricing } from './pricing-source.mjs';
+import { loadPricing, repsCap } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -64,7 +64,10 @@ async function main() {
   const pricing = await loadPricing();
   const PRICING_LINE = `Per company, not per user — ${pricing.plans
     .filter((p) => /^\d+$/.test(String(p.price)))
-    .map((p) => `${p.price} SAR/month (${/٥|5/.test(p.limit || '') && !/٢٠|20/.test(p.limit || '') ? 'up to 5 reps' : 'up to 20 reps'})`)
+    .map((p) => {
+      const n = repsCap(p.limit);
+      return `${p.price} SAR/month (${n ? `up to ${n} reps` : 'see plan limits'})`;
+    })
     .join(', ')}${pricing.hasCustomTier ? ', and an unlimited-reps enterprise plan on request' : ''}. All prices include VAT.`;
   console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
 

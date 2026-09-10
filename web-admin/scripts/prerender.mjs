@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
 import { buildCatalog, getArticle, listArticles, COUNTRIES, modifiedOf, isIndexable } from '../src/blog/seo/catalog.mjs';
-import { loadPricing } from './pricing-source.mjs';
+import { loadPricing, repsCap } from './pricing-source.mjs';
 import { SECTORS } from './sectors-data.mjs';
 import { FEATURES } from '../src/content/features.mjs';
 import { TEMPLATES } from './templates-data.mjs';
@@ -48,7 +48,7 @@ async function loadManualPosts() {
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
+let template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 
 // يستبدل وسوم <head> الافتراضية بقيم الصفحة، ويحقن hreflang + JSON-LD + المحتوى
 function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '' }) {
@@ -204,6 +204,20 @@ async function main() {
   console.log(`  التسعير: ${pricing.live ? 'CMS الحيّ' : 'احتياطي'} — ${pricing.arSummary}`);
   const waHref = pricing.waLink;
   setWaLink(waHref); // يتيح لـbuildPage حقن الرابط في كل صفحة بلا استثناء
+
+  // قوقعة index.html تحمل كتلة AggregateOffer ثابتة تُنسَخ حرفياً إلى كل صفحة مُصيَّرة —
+  // أكثر من ألف ملف. فلمّا صارت الباقات ثلاثاً بقي وصف عالم الباقتين منشوراً فيها كلّها،
+  // ومرّ حارسُ السعر لأنه يفحص حقول JSON الرقمية لا النثر الذي يقرؤه الزاحف فعلاً.
+  // فتُعاد كتابة الكتلة هنا من نفس مصدر الزائر قبل أوّل بناء صفحة.
+  const numericCount = pricing.plans.filter((p) => /^\d+$/.test(String(p.price))).length;
+  template = template
+    .replace(/("lowPrice"\s*:\s*")[^"]*(")/, `$1${pricing.low}$2`)
+    .replace(/("highPrice"\s*:\s*")[^"]*(")/, `$1${pricing.high}$2`)
+    .replace(/("offerCount"\s*:\s*)\d+/, `$1${numericCount}`)
+    .replace(
+      /("description"\s*:\s*")تجربة مجانية[^"]*(")/,
+      `$1تجربة مجانية 10 أيام بلا بطاقة ائتمان. الاشتراك شهري لكل شركة لا لكل مستخدم: ${pricing.arSummary}.$2`,
+    );
   if (!fs.existsSync(path.join(DIST, 'index.html'))) { console.error('لا يوجد dist/index.html — شغّل vite build أولاً'); process.exit(0); }
   let n = 0;
 
@@ -419,9 +433,36 @@ async function main() {
     ],
   });
 
-  const planRows = pricing.plans
-    .map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.price)}${/^\d+$/.test(String(p.price)) ? ' ر.س' : ''}</td><td>${esc(p.limit || '')}</td></tr>`)
-    .join('');
+  /**
+   * جدول الباقات بلغة الصفحة.
+   *
+   * العطل الذي يُصلحه: أسماء الباقات وحدودها تعيش في الـCMS بالعربية وحدها، وكان
+   * الجدول نفسه يُحقن في الصفحات الثلاث — فقرأ الزاحفُ الإنجليزيّ «المبتدئة … حتى ٥
+   * مناديب» داخل صفحة إنجليزية، وهي أوّل ما يقرؤه عن تسعيرنا. الحلّ الجذري حقول
+   * en/fr للباقات في الـCMS؛ وحتى تُضاف نترجم الاسم بمفتاح السعر ونشتقّ الحدّ رقماً.
+   * أي باقة بسعر غير معروف تسقط إلى اسم الـCMS كما هو — أفضل من إخفائها.
+   */
+  const PLAN_I18N = {
+    '299': { en: 'Starter', fr: 'Débutant' },
+    '399': { en: 'Growth', fr: 'Croissance' },
+    '599': { en: 'Professional', fr: 'Professionnel' },
+  };
+  const planRowsFor = (lang) =>
+    pricing.plans
+      .map((p) => {
+        const isNum = /^\d+$/.test(String(p.price));
+        const name = lang === 'ar' ? p.name : PLAN_I18N[String(p.price)]?.[lang] || p.name;
+        const price = `${esc(p.price)}${isNum ? (lang === 'ar' ? ' ر.س' : ' SAR') : ''}`;
+        const cap = repsCap(p.limit);
+        const limit =
+          lang === 'ar' || !cap
+            ? esc(p.limit || '')
+            : lang === 'fr'
+              ? `Jusqu'à ${cap} commerciaux`
+              : `Up to ${cap} reps`;
+        return `<tr><td>${esc(name)}</td><td>${price}</td><td>${limit}</td></tr>`;
+      })
+      .join('');
 
   const PRICING_AR_FAQ = [
     ['كم سعر برنامج مندوبين المبيعات؟', `${pricing.arSummary}. السعر لكل شركة لا لكل مستخدم، وما فوق ذلك يُحدَّد بالمحادثة.`],
@@ -439,7 +480,7 @@ async function main() {
         j: priceFaq(PRICING_AR_FAQ),
         b: `<h1>أسعار Field Sales — معلنة وبلا رسوم خفية</h1>
 <p>السعر <strong>لكل شركة لا لكل مستخدم</strong>: إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك الشهرية. بلا رسوم تأسيس، وبلا التزام سنوي، وتجربة عشرة أيام دون بطاقة ائتمان.</p>
-<table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>السعر شهرياً</th><th>الحدّ</th></tr></thead><tbody>${planRows}</tbody></table>
+<table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>السعر شهرياً</th><th>الحدّ</th></tr></thead><tbody>${planRowsFor('ar')}</tbody></table>
 <p>فوق ${pricing.high === 599 ? '٢٠' : pricing.high} مندوبًا نحدّد السعر بالمحادثة حسب حجمك — <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
 <h2>ما لا نملكه — بصراحة</h2>
 <p>ندعم الفاتورة الإلكترونية <strong>المرحلة الأولى</strong> (رمز QR بترميز TLV) فقط؛ المرحلة الثانية غير مبنية لدينا حتى الآن. وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها، وليست لدينا شهادات SOC2 أو ISO.</p>
@@ -456,7 +497,7 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
         ]),
         b: `<h1>Field Sales pricing — published, with no hidden fees</h1>
 <p>Priced <strong>per company, not per user</strong>: ${pricing.enSummary} per month. No setup fees, no annual lock-in, and a 10-day trial without a credit card.</p>
-<table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Monthly</th><th>Limit</th></tr></thead><tbody>${planRows}</tbody></table>
+<table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Monthly</th><th>Limit</th></tr></thead><tbody>${planRowsFor('en')}</tbody></table>
 <p>Above 20 reps we price in conversation — <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
 <h2>What we do not have — plainly</h2>
 <p>We support <strong>phase one</strong> of e-invoicing (TLV QR) only; phase two is not built. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.</p>`,
@@ -466,7 +507,7 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
         d: `Tarifs publiés : ${pricing.enSummary} par mois, par entreprise et non par utilisateur. Sans frais de mise en service, essai 10 jours sans carte.`,
         b: `<h1>Tarifs Field Sales — publiés, sans frais cachés</h1>
 <p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ${pricing.enSummary} par mois. Sans frais de mise en service ni engagement annuel, avec un essai de 10 jours sans carte bancaire.</p>
-<table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Par mois</th><th>Limite</th></tr></thead><tbody>${planRows}</tbody></table>
+<table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Par mois</th><th>Limite</th></tr></thead><tbody>${planRowsFor('fr')}</tbody></table>
 <p>Au-delà de 20 commerciaux, le prix se définit en conversation — <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
 <h2>Ce que nous n’avons pas — clairement</h2>
 <p>Nous prenons en charge la <strong>phase un</strong> de la facturation électronique (QR TLV) uniquement. La ZATCA ne certifie aucun éditeur ; nous ne revendiquons aucune homologation.</p>`,
@@ -627,7 +668,7 @@ ${faqHtml}
       ft.templateSlug ? `<li><a href="/نماذج/${ft.templateSlug}">نموذج Excel جاهز ${esc(ft.name)}</a></li>` : '',
     ].join('');
     const otherHtml = FEATURES.filter((o) => o.id !== ft.id)
-      .map((o) => `<li><a href="/مزايا/${o.slug}">${esc(o.name)}</a></li>`).join('');
+      .map((o) => `<li><a href="/مزايا/${o.slug}/">${esc(o.name)}</a></li>`).join('');
     const body = `<main>
 <h1>${esc(ft.h1)}</h1>
 <p>${esc(ft.pain)}</p>
@@ -663,7 +704,7 @@ ${alsoHtml ? `<h2>اقرأ أيضاً</h2><ul>${alsoHtml}</ul>` : ''}
     lang: 'ar', title: 'مزايا Field Sales للتوزيع الميداني وكيف تعمل فعلاً',
     description: 'الفوترة بدون إنترنت، عهدة سيارة المندوب، الطباعة الحرارية ٥٨ مم، إثبات زيارة المندوب — كل ميزة وكيف تعمل وما لا تفعله بصراحة.',
     canonical: canon(`${ORIGIN}/مزايا`), image: `${ORIGIN}/og-image.png`,
-    bodyHtml: `<main><h1>مزايا المنصّة</h1><ul>${FEATURES.map((f2) => `<li><a href="/مزايا/${f2.slug}">${esc(f2.name)}</a> — ${esc(f2.pain)}</li>`).join('')}</ul></main>`,
+    bodyHtml: `<main><h1>مزايا المنصّة</h1><ul>${FEATURES.map((f2) => `<li><a href="/مزايا/${f2.slug}/">${esc(f2.name)}</a> — ${esc(f2.pain)}</li>`).join('')}</ul></main>`,
   }));
   n++;
 
@@ -785,12 +826,57 @@ ${PRICING_HTML}
 <p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
 <p>أدلّة الدول: ${COUNTRIES.slice(0, 12).map((c) => `<a href="/blog/field-sales-software-${c.code.toLowerCase()}/">${esc(c.ar)}</a>`).join(' · ')}</p>
 <p>أدلّة متخصّصة: <a href="/blog/distributor-network-management-software/">برنامج إدارة الموزعين</a> · <a href="/blog/cash-van-software-guide/">برنامج كاش فان</a> · <a href="/blog/sales-reps-management-system/">نظام إدارة المناديب</a> · <a href="/blog/distribution-companies-management-system/">نظام إدارة شركات التوزيع</a> · <a href="/blog/field-sales-system-for-companies/">نظام مبيعات ميدانية للشركات</a> · <a href="/blog/field-sales-software-om/">برنامج مناديب التوزيع سلطنة عمان</a> · <a href="/blog/field-sales-software-market-report-2026/">تقرير سوق برامج المناديب 2026</a></p>
-<p>كيف تعمل مزايانا: <a href="/مزايا/فوترة-بدون-إنترنت">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/مزايا/عهدة-سيارة-المندوب">عهدة سيارة المندوب</a> · <a href="/مزايا/طباعة-فاتورة-من-الجوال">طباعة فاتورة من الجوال</a> · <a href="/مزايا/إثبات-زيارة-المندوب">إثبات زيارة المندوب</a> · <a href="/مزايا">كل المزايا</a></p>
+<p>كيف تعمل مزايانا: <a href="/مزايا/فوترة-بدون-إنترنت/">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/مزايا/عهدة-سيارة-المندوب/">عهدة سيارة المندوب</a> · <a href="/مزايا/طباعة-فاتورة-من-الجوال/">طباعة فاتورة من الجوال</a> · <a href="/مزايا/إثبات-زيارة-المندوب/">إثبات زيارة المندوب</a> · <a href="/مزايا/">كل المزايا</a></p>
 <p>الميزات: <a href="/blog/order-to-cash-cycle/">دورة الطلب حتى التحصيل</a> · <a href="/blog/offline-invoicing-for-reps/">برنامج فواتير يعمل بدون إنترنت</a> · <a href="/blog/rep-van-custody-management/">عهدة سيارة المندوب</a> · <a href="/blog/thermal-printing-field-invoices/">طباعة الفواتير الحرارية من الجوال</a> · <a href="/blog/rep-visit-tracking-gps/">متابعة زيارات المناديب</a> · <a href="/blog/mobile-receipt-vouchers/">سند قبض من الجوال</a> · <a href="/blog/field-sales-returns-management/">مرتجعات المبيعات الميدانية</a> · <a href="/blog/barcode-scanning-invoices/">مسح الباركود بالكاميرا</a> · <a href="/blog/sales-reps-permissions/">صلاحيات مناديب المبيعات</a> · <a href="/blog/distribution-reps-commissions/">عمولات مناديب التوزيع</a></p>
 </main>`;
   const rootHtml = template.replace(/<div id="root">\s*<\/div>/, `<div id="root"><div data-ssr>${homeAr}</div></div>`);
   fs.writeFileSync(path.join(DIST, 'index.html'), rootHtml);
   n++;
+
+  // ── تطبيع الشرطة الأخيرة في الروابط الداخلية ───────────────────────────
+  //
+  // Render يخدم مجلّداً فقط حين ينتهي الطلب بشرطة. فرابطٌ إلى /pricing بلا شرطة لا
+  // يجد ملفاً، فتبتلعه قاعدة `/* → /index.html` ويردّ **قوقعة الرئيسية بالرمز 200** —
+  // لا 301 ولا 404. أي أن الزاحف يتسلّم نسخة مكرَّرة من الرئيسية تحت عنوان الصفحة،
+  // وهذا بعينه ما يملأ دلو «مكرّرة — اختار جوجل صفحة أساسية مختلفة» في Search Console.
+  //
+  // قِيس فوُجد 37 مساراً كذلك، منها /pricing في 42 ملفاً وصفحات المزايا الأربع في 9.
+  // ولأن الروابط مكتوبة يدوياً في عشرات القوالب هنا، لا يُصلحها رشُّ شرطات يدويّ يسهو
+  // عن التالي: تُطبَّع مرّة واحدة على المخرَج النهائي بشرطٍ لا يخطئ — تُضاف الشرطة
+  // إن وُجد لهذا المسار مجلّد مُصيَّر فعلاً، ولا شيء غيره. فأي رابط جديد يُكتب لاحقاً
+  // يُصحَّح تلقائياً، وأي مسار لا صفحة له (‏/signup مثلاً) يبقى كما هو للراوتر.
+  const routes = new Set();
+  (function collectRoutes(dir, rel = '') {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isDirectory() || e.name === 'assets') continue;
+      const sub = `${rel}/${e.name}`;
+      if (fs.existsSync(path.join(dir, e.name, 'index.html'))) {
+        routes.add(sub);
+        try { routes.add(decodeURIComponent(sub)); } catch { /* ترميز سيّئ — يكفي الأصل */ }
+      }
+      collectRoutes(path.join(dir, e.name), sub);
+    }
+  })(DIST);
+
+  let patched = 0;
+  let links = 0;
+  (function normalize(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'assets') normalize(p); continue; }
+      if (!e.name.endsWith('.html')) continue;
+      const src = fs.readFileSync(p, 'utf8');
+      const out = src.replace(/href="(\/[^"#?]*[^/"])"/g, (m, href) => {
+        let plain = href;
+        try { plain = decodeURIComponent(href); } catch { /* يبقى كما هو */ }
+        if (!routes.has(href) && !routes.has(plain)) return m;
+        links++;
+        return `href="${href}/"`;
+      });
+      if (out !== src) { fs.writeFileSync(p, out); patched++; }
+    }
+  })(DIST);
+  console.log(`  تطبيع الشرطة الأخيرة: ${links} رابطاً في ${patched} ملف`);
 
   console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
 }

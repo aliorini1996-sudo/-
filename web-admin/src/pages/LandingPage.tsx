@@ -613,11 +613,11 @@ function featureLinksRow(lang: Lang): string {
   const item = (href: string, text: string) =>
     `<a href="${href}" style="color:#8a5a3b; text-decoration:none; border-bottom:1px solid #E9E1D3; padding-bottom:1px">${text}</a>`;
   const links = [
-    item('/مزايا/فوترة-بدون-إنترنت', 'برنامج فواتير يعمل بدون إنترنت'),
-    item('/مزايا/عهدة-سيارة-المندوب', 'عهدة سيارة المندوب'),
-    item('/مزايا/طباعة-فاتورة-من-الجوال', 'طباعة فاتورة من الجوال'),
-    item('/مزايا/إثبات-زيارة-المندوب', 'إثبات زيارة المندوب'),
-    item('/مزايا', 'كل المزايا'),
+    item('/مزايا/فوترة-بدون-إنترنت/', 'برنامج فواتير يعمل بدون إنترنت'),
+    item('/مزايا/عهدة-سيارة-المندوب/', 'عهدة سيارة المندوب'),
+    item('/مزايا/طباعة-فاتورة-من-الجوال/', 'طباعة فاتورة من الجوال'),
+    item('/مزايا/إثبات-زيارة-المندوب/', 'إثبات زيارة المندوب'),
+    item('/مزايا/', 'كل المزايا'),
   ].join('<span style="color:#C9BFAE"> · </span>');
   return `<section style="max-width:1100px; margin:0 auto; padding:22px 20px 34px; text-align:center; font-size:14px; color:#6b6357; line-height:2.1">
     <span style="color:#9a9184">كيف تعمل مزايانا: </span>${links}
