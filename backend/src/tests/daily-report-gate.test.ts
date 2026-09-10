@@ -48,8 +48,8 @@ test('الحارس مركّب قبل تعريف أي مسار — فلا يُف�
 test('مسارات الكتابة الإدارية خلف requireAdmin لا خلف الحارس وحده', () => {
   const s = read('src', 'routes', 'dailyReports.ts');
   // requireAdminPermission يمرّر SALES_REP بلا فحص؛ الاعتماد والتهيئة لا يحتملانه
-  assert.match(s, /router\.use\('\/admin', requireAdmin\)/, 'مسارات المراجعة يجب أن تكون خلف requireAdmin');
-  assert.match(s, /router\.use\('\/config', requireAdmin\)/, 'مسارات التهيئة يجب أن تكون خلف requireAdmin');
+  assert.match(s, /router\.use\('\/admin', requireAdmin[,)]/, 'مسارات المراجعة يجب أن تكون خلف requireAdmin');
+  assert.match(s, /router\.use\('\/config', requireAdmin[,)]/, 'مسارات التهيئة يجب أن تكون خلف requireAdmin');
 });
 
 test('العَلَم في مخطّط تحديث الشركة ولا يُقبل عند إنشائها', () => {
