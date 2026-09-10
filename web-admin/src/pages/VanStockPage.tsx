@@ -8,6 +8,7 @@ import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, 
 import toast from 'react-hot-toast';
 import DocumentModal from '../components/DocumentModal';
 import { loadNoticeDocFromData, Company } from '../rep/RepDocuments';
+import { splitVanMovement } from '../lib/vanMovement';
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
 interface SuggestRow {
@@ -473,12 +474,19 @@ function LoadModal({ preselectRep, onClose }: { preselectRep: string; onClose: (
   };
 
   const save = useMutation({
-    mutationFn: () => {
-      // موجب = تحميل، سالب = تنقيص؛ أي سالب ⇒ حركة تسوية/تنقيص
-      const items = rows.map(r => ({ productId: r.productId, qty: Number(r.qty), suggestedQty: r.suggestedQty, expectedQty: r.expectedQty }))
-        .filter(i => !Number.isNaN(i.qty) && i.qty !== 0);
-      const type = items.some(i => i.qty < 0) ? 'ADJUST' : 'LOAD';
-      return vanStockApi.createLoad({ salesRepId: repId, type, note: note.trim() || undefined, items });
+    mutationFn: async () => {
+      // موجب = تحميل للسيارة، سالب = تنزيل للمستودع (يعود بكلفة خروجه).
+      //
+      // والسالب يُرسَل **بقيمته المطلقة** بنوع UNLOAD لا سالباً كما هو: النوعان يقرآن
+      // الإشارة عكسياً — ADJUST يجمع الكمّية كما وردت فالسالب ينقص الرصيد، أمّا UNLOAD
+      // فيطرح «المُرجَع» فالسالب فيه **يزيد** رصيد السيارة بدل أن ينقصه. ولأنّ الوثيقة
+      // الواحدة تحمل نوعاً واحداً، تُقسَّم الحركة المختلطة إلى وثيقتين.
+      const { out, back } = splitVanMovement(
+        rows.map(r => ({ productId: r.productId, qty: Number(r.qty), suggestedQty: r.suggestedQty, expectedQty: r.expectedQty })),
+      );
+      const trimmed = note.trim() || undefined;
+      if (out.length) await vanStockApi.createLoad({ salesRepId: repId, type: 'LOAD', note: trimmed, items: out });
+      if (back.length) await vanStockApi.createLoad({ salesRepId: repId, type: 'UNLOAD', note: trimmed, items: back });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['van-summary'] });
