@@ -6,7 +6,8 @@
 //   + العائد من السيارات (VanLoad UNLOAD)
 //   − المحمّل للسيارات   (VanLoad LOAD)
 // تسوية السيارة (VanLoad ADJUST) حركةٌ داخل السيارة لا تمسّ المستودع.
-// والعائد يدخل بالكلفة التي خرج بها لا بمتوسّط لحظة عودته — انظر `valueStock`.
+// والعائد يدخل بالكلفة التي خرج بها لا بمتوسّط لحظة عودته، وبكلفة **سيارته هو**
+// لا كلفة حمولة زميله — انظر `valueStock`.
 // ============================================================================
 import prisma from '../config/database';
 import { roundDecimal } from '../utils/helpers';
@@ -34,7 +35,7 @@ interface ProdMeta { id: string; name: string; code: string; unit: string }
 // المرور غير المرتَّب يعطي متوسّطاً خاطئاً بصمت. اختياريّ لتبقى الاختبارات
 // النقيّة تمرّر ترتيبها بترتيب المصفوفة.
 interface WhItem { productId: string; qty: number; type: string; unitCost?: number | null; at?: Date | string | number }
-interface VanItem { productId: string; qty: number; type: string; at?: Date | string | number }
+interface VanItem { productId: string; qty: number; type: string; salesRepId?: string | null; at?: Date | string | number }
 
 /** دالّة نقيّة (بلا قاعدة بيانات) — تُختبَر وحدها. تُظهر كل المنتجات المُمرَّرة. */
 export function composeWarehouse(products: ProdMeta[], warehouseItems: WhItem[], vanItems: VanItem[]): WarehouseRow[] {
@@ -71,10 +72,10 @@ export function composeWarehouse(products: ProdMeta[], warehouseItems: WhItem[],
   for (const it of vanItems) {
     if (it.type === 'LOAD') {
       ensure(it.productId).loadedToVans += it.qty;
-      push(it.productId, { qty: -it.qty, kind: 'VAN_OUT' }, it.at); // خروجٌ بكلفة اللحظة
+      push(it.productId, { qty: -it.qty, kind: 'VAN_OUT', vanId: it.salesRepId }, it.at); // خروجٌ بكلفة اللحظة
     } else if (it.type === 'UNLOAD') {
       ensure(it.productId).returnedFromVans += it.qty;
-      push(it.productId, { qty: it.qty, kind: 'VAN_IN' }, it.at);  // عودةٌ بكلفة خروجها
+      push(it.productId, { qty: it.qty, kind: 'VAN_IN', vanId: it.salesRepId }, it.at);  // عودةٌ بكلفة خروجها
     }
     // ADJUST للسيارة لا يمسّ المستودع
   }
@@ -109,12 +110,12 @@ export async function computeWarehouseStock(tid: string): Promise<WarehouseRow[]
     }),
     prisma.vanLoadItem.findMany({
       where: { vanLoad: { tenantId: tid } },
-      select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true } } },
+      select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true } } },
     }),
   ]);
   return composeWarehouse(
     products,
     whItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, at: i.entry.createdAt })),
-    vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, at: i.vanLoad.createdAt })),
+    vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: i.vanLoad.salesRepId, at: i.vanLoad.createdAt })),
   );
 }

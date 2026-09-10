@@ -261,6 +261,51 @@ test('التقييم يمر عبر composeWarehouse مرتبا زمنيا لا �
   assert.equal(a.stockValue, 20000);
 });
 
+test('لكل سيارة مكدسها — عودة مندوب لا تأخذ كلفة حمولة زميله', () => {
+  const v = valueStock([
+    { qty: 100, kind: 'RECEIVE', unitCost: 10 },
+    { qty: -100, kind: 'VAN_OUT', vanId: 'repA' },   // خرجت مئة (أ) بعشرة
+    { qty: 100, kind: 'RECEIVE', unitCost: 30 },
+    { qty: -40, kind: 'VAN_OUT', vanId: 'repB' },    // وخرجت اربعون (ب) بثلاثين
+    { qty: 100, kind: 'VAN_IN', vanId: 'repA' },     // ثم انزل (أ) حمولته هو
+  ]);
+  assert.equal(v.costedQty, 160);
+  assert.equal(v.stockValue, 2800, 'لا ٣٦٠٠: حمولة (ب) ما زالت في سيارته فلا يعود بها (أ)');
+  assert.equal(v.avgCost, 17.5);
+});
+
+test('مكدس السيارة لا يعبر حد الدلوين — غير المسعر لا يلتقط سعر حمولة زميل', () => {
+  const v = valueStock([
+    { qty: 100, kind: 'RECEIVE' },                   // رصيد افتتاحي بلا فاتورة
+    { qty: -100, kind: 'VAN_OUT', vanId: 'repA' },
+    { qty: 100, kind: 'RECEIVE', unitCost: 20 },
+    { qty: -100, kind: 'VAN_OUT', vanId: 'repB' },
+    { qty: 100, kind: 'VAN_IN', vanId: 'repA' },     // العائد هو نفسه بلا كلفة موثقة
+  ]);
+  assert.equal(v.stockValue, 0, 'لا ٢٠٠٠: لا تختلق قيمة لبضاعة لم تعرف كلفتها قط');
+  assert.equal(v.costedQty, 0);
+  assert.equal(v.uncostedQty, 100, 'تبقى معلنة خارج التقييم لا مبتلعة فيه');
+});
+
+test('عزل السيارات يمر عبر المسار الكامل بمعرف المندوب', () => {
+  const rows = composeWarehouse(
+    P,
+    [
+      { productId: 'a', qty: 100, type: 'RECEIVE', unitCost: 10, at: '2026-01-01' },
+      { productId: 'a', qty: 100, type: 'RECEIVE', unitCost: 30, at: '2026-01-03' },
+    ],
+    [
+      { productId: 'a', qty: 100, type: 'LOAD', salesRepId: 'repA', at: '2026-01-02' },
+      { productId: 'a', qty: 40, type: 'LOAD', salesRepId: 'repB', at: '2026-01-04' },
+      { productId: 'a', qty: 100, type: 'UNLOAD', salesRepId: 'repA', at: '2026-01-05' },
+    ],
+  );
+  const a = byId(rows, 'a');
+  assert.equal(a.onHand, 160);
+  assert.equal(a.avgCost, 17.5);
+  assert.equal(a.stockValue, 2800);
+});
+
 test('كلفة العائد تصمد عبر المسار الكامل — تحميل بين شرائين مختلفي السعر', () => {
   const rows = composeWarehouse(
     P,

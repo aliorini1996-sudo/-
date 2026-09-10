@@ -89,6 +89,13 @@ export function hasAnyCost(items: { unitCost?: number | null }[]): boolean {
 // ليس اصطلاحاً: ما بِيع من حمولةٍ قديمة لن يعود أبداً، فلو طابقنا العائد بالأقدم
 // لأعطيناه سعر بضاعةٍ باعها المندوب منذ شهر. وعودةٌ لا تحميل يقابلها — بضاعةٌ
 // كانت في السيارة قبل تشغيل النظام — تبقى على متوسّط اللحظة، فلا كلفةَ خروجٍ لها.
+//
+// ✗ **مكدّسٌ واحدٌ لكلّ السيارات**: القاعدة أعلاه صادقةٌ داخل سيارةٍ واحدة وحدها.
+//   فلو حُمّلت سيارةُ أ بمئةٍ بعشرة، ثمّ سيارةُ ب بمئةٍ بثلاثين، ثمّ أنزل أ حمولته،
+//   لأخذ العائدُ كلفةَ ب — وحمولةُ ب ما زالت ماديّاً في سيارتها فلا يمكن أن تكون
+//   هي ما نزل. وما يبيعه ب لن يعود، فتبقى طبقةُ أ الرخيصة في القاع أبداً وتبقى
+//   القيمة مضخَّمةً في كلّ إقفال. لذلك للطبقات **مكدّسٌ لكلّ سيارة** لا مكدّسٌ
+//   لكلّ صنف؛ والحركة التي لا سيارة لها تُجمع في مكدّسٍ مشترك واحد.
 
 /** حركة مخزون واحدة، مرتّبةً زمنياً */
 export interface CostMove {
@@ -101,6 +108,11 @@ export interface CostMove {
    */
   kind: 'RECEIVE' | 'VAN_OUT' | 'VAN_IN' | 'OTHER';
   unitCost?: number | null;
+  /**
+   * السيارة (المندوب) صاحبة الحركة — لـVAN_OUT وVAN_IN وحدهما.
+   * بدونه تُخلط حمولات المناديب في مكدّسٍ واحد فيعود مندوبٌ بكلفة حمولة زميله.
+   */
+  vanId?: string | null;
 }
 
 export interface CostState {
@@ -151,8 +163,15 @@ function addAtAvg(s: CostState, qty: number): void {
  */
 export function valueStock(moves: CostMove[]): Valuation {
   const s: CostState = { costedQty: 0, costedValue: 0, uncostedQty: 0 };
-  // ما هو على السيارات الآن، بترتيب خروجه — يُستهلَك من آخره
-  const vanLayers: VanLayer[] = [];
+  // ما على كلّ سيارةٍ الآن، بترتيب خروجه — يُستهلَك من آخره.
+  // المفتاح معرّف السيارة؛ وحركةٌ بلا معرّف تقع في مكدّسٍ مشترك واحد.
+  const stacks = new Map<string, VanLayer[]>();
+  const stackOf = (vanId?: string | null) => {
+    const key = vanId || '';
+    let list = stacks.get(key);
+    if (!list) { list = []; stacks.set(key, list); }
+    return list;
+  };
 
   for (const m of moves) {
     if (!Number.isFinite(m.qty) || m.qty === 0) continue;
@@ -169,11 +188,12 @@ export function valueStock(moves: CostMove[]): Valuation {
       } else if (m.kind === 'VAN_IN') {
         // عائدٌ من سيارة: يرجع بالكلفة التي خرج بها، من آخر طبقةٍ حُمّلت
         let back = m.qty;
-        while (back > EPS && vanLayers.length > 0) {
-          const layer = vanLayers[vanLayers.length - 1];
+        const mine = stackOf(m.vanId);
+        while (back > EPS && mine.length > 0) {
+          const layer = mine[mine.length - 1];
           const avail = layer.costedQty + layer.uncostedQty;
           if (avail <= EPS) {
-            vanLayers.pop();
+            mine.pop();
             continue;
           }
           const take = Math.min(back, avail);
@@ -223,7 +243,7 @@ export function valueStock(moves: CostMove[]): Valuation {
     // تحميل سيارة يحفظ طبقته بكلفة خروجها — والمكشوف منه يُحفَظ كذلك ليعود
     // بنفس ما خُصم به تماماً، فلا يخلّف الذهابُ والإيابُ فرقاً في القيمة.
     if (m.kind === 'VAN_OUT') {
-      vanLayers.push({
+      stackOf(m.vanId).push({
         costedQty: fromCosted + deficit,
         unitCost: avg,
         uncostedQty: share - fromCosted,
