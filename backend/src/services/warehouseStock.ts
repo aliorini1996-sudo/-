@@ -6,6 +6,7 @@
 //   + العائد من السيارات (VanLoad UNLOAD)
 //   − المحمّل للسيارات   (VanLoad LOAD)
 // تسوية السيارة (VanLoad ADJUST) حركةٌ داخل السيارة لا تمسّ المستودع.
+// والعائد يدخل بالكلفة التي خرج بها لا بمتوسّط لحظة عودته — انظر `valueStock`.
 // ============================================================================
 import prisma from '../config/database';
 import { roundDecimal } from '../utils/helpers';
@@ -70,10 +71,10 @@ export function composeWarehouse(products: ProdMeta[], warehouseItems: WhItem[],
   for (const it of vanItems) {
     if (it.type === 'LOAD') {
       ensure(it.productId).loadedToVans += it.qty;
-      push(it.productId, { qty: -it.qty, kind: 'OTHER' }, it.at); // خروجٌ من المستودع
+      push(it.productId, { qty: -it.qty, kind: 'VAN_OUT' }, it.at); // خروجٌ بكلفة اللحظة
     } else if (it.type === 'UNLOAD') {
       ensure(it.productId).returnedFromVans += it.qty;
-      push(it.productId, { qty: it.qty, kind: 'OTHER' }, it.at);  // عودةٌ إليه
+      push(it.productId, { qty: it.qty, kind: 'VAN_IN' }, it.at);  // عودةٌ بكلفة خروجها
     }
     // ADJUST للسيارة لا يمسّ المستودع
   }

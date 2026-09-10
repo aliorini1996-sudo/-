@@ -155,14 +155,73 @@ test('الصرف ينقص الدلوين بنسبتهما — لا يستنزف 
   assert.equal(v.avgCost, 10, 'الصرف بالمتوسط لا يغير المتوسط');
 });
 
-test('العائد من السيارة يقيَّم بمتوسط اللحظة', () => {
+test('العائد من السيارة بلا شراء بينهما — الذهاب والاياب لا يخلفان فرقا', () => {
   const v = valueStock([
     { qty: 100, kind: 'RECEIVE', unitCost: 4 },
-    { qty: -30, kind: 'OTHER' },  // حُمل
-    { qty: 10, kind: 'OTHER' },   // عاد
+    { qty: -30, kind: 'VAN_OUT' },  // حُمل
+    { qty: 10, kind: 'VAN_IN' },    // عاد
   ]);
   assert.equal(v.costedQty, 80);
   assert.equal(v.stockValue, 320);
+  assert.equal(v.avgCost, 4);
+});
+
+test('العائد يعود بكلفة خروجه لا بمتوسط لحظة عودته', () => {
+  const v = valueStock([
+    { qty: 100, kind: 'RECEIVE', unitCost: 10 },
+    { qty: -50, kind: 'VAN_OUT' },                 // خرجت الخمسون بعشرة
+    { qty: 100, kind: 'RECEIVE', unitCost: 20 },   // شراء ارفع رفع المتوسط الى ١٦٫٦٧
+    { qty: 50, kind: 'VAN_IN' },                   // وعادت الخمسون نفسها
+  ]);
+  assert.equal(v.costedQty, 200);
+  assert.equal(v.stockValue, 3000, 'لا ٣٣٣٣: شراء فبراير لا يرفع كلفة حبات كانت خارج المستودع');
+  assert.equal(v.avgCost, 15);
+});
+
+test('اخر ما حُمّل اول ما يعود — المبيع من الحمولة الاقدم لا يعود ليطالب بسعره', () => {
+  const v = valueStock([
+    { qty: 100, kind: 'RECEIVE', unitCost: 10 },
+    { qty: -100, kind: 'VAN_OUT' },                // حمولة قديمة بعشرة، بيعت كلها
+    { qty: 100, kind: 'RECEIVE', unitCost: 20 },
+    { qty: -100, kind: 'VAN_OUT' },                // حمولة اليوم بعشرين
+    { qty: 50, kind: 'VAN_IN' },                   // العائد منها هي
+  ]);
+  assert.equal(v.costedQty, 50);
+  assert.equal(v.stockValue, 1000, 'لا ٥٠٠: العائد من حمولة اليوم لا من حمولة الشهر الماضي');
+  assert.equal(v.avgCost, 20);
+});
+
+test('ما خرج بلا كلفة يعود بلا كلفة — لا يلتقط سعر شراء لم يمسه', () => {
+  const v = valueStock([
+    { qty: 100, kind: 'RECEIVE' },                 // وارد قديم بلا سعر
+    { qty: -50, kind: 'VAN_OUT' },
+    { qty: 100, kind: 'RECEIVE', unitCost: 20 },
+    { qty: 50, kind: 'VAN_IN' },
+  ]);
+  assert.equal(v.stockValue, 2000, 'لا ٣٠٠٠: العائد لم يكن مسعرا يوم خرج');
+  assert.equal(v.costedQty, 100);
+  assert.equal(v.uncostedQty, 100);
+  assert.equal(v.avgCost, 20);
+});
+
+test('التحميل المكشوف يعود بما خُصم به تماما — لا ربح من ذهاب واياب', () => {
+  const v = valueStock([
+    { qty: 10, kind: 'RECEIVE', unitCost: 2 },
+    { qty: -25, kind: 'VAN_OUT' },                 // حُمل اكثر من الوارد
+    { qty: 25, kind: 'VAN_IN' },
+  ]);
+  assert.equal(v.costedQty, 10);
+  assert.equal(v.stockValue, 20);
+  assert.equal(v.avgCost, 2);
+});
+
+test('عودة بلا تحميل يقابلها تبقى على متوسط اللحظة — بضاعة سابقة للنظام', () => {
+  const v = valueStock([
+    { qty: 100, kind: 'RECEIVE', unitCost: 4 },
+    { qty: 10, kind: 'VAN_IN' },
+  ]);
+  assert.equal(v.costedQty, 110);
+  assert.equal(v.stockValue, 440);
   assert.equal(v.avgCost, 4);
 });
 
@@ -200,6 +259,24 @@ test('التقييم يمر عبر composeWarehouse مرتبا زمنيا لا �
   assert.equal(a.onHand, 1000);
   assert.equal(a.avgCost, 20, 'دفعة يناير خرجت قبل شراء فبراير');
   assert.equal(a.stockValue, 20000);
+});
+
+test('كلفة العائد تصمد عبر المسار الكامل — تحميل بين شرائين مختلفي السعر', () => {
+  const rows = composeWarehouse(
+    P,
+    [
+      { productId: 'a', qty: 100, type: 'RECEIVE', unitCost: 10, at: '2026-01-01' },
+      { productId: 'a', qty: 100, type: 'RECEIVE', unitCost: 20, at: '2026-02-01' },
+    ],
+    [
+      { productId: 'a', qty: 50, type: 'LOAD', at: '2026-01-15' },
+      { productId: 'a', qty: 50, type: 'UNLOAD', at: '2026-02-15' },
+    ],
+  );
+  const a = byId(rows, 'a');
+  assert.equal(a.onHand, 200);
+  assert.equal(a.avgCost, 15, 'العائد رجع بعشرة لا بمتوسط فبراير');
+  assert.equal(a.stockValue, 3000);
 });
 
 test('صنف نصفه مسعر عبر المسار الكامل — الفجوة التي فاتت النسخة المشحونة', () => {

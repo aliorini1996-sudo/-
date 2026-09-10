@@ -75,16 +75,31 @@ export function hasAnyCost(items: { unitCost?: number | null }[]): boolean {
 //   والأسوأ أن الشاشة كانت تقول «بلا سعر فلا يدخل هذه القيمة» — وهو نفيٌ لما
 //   يفعله الحساب. لذلك صار للكمّية عديمة السعر **دلوٌ منفصل لا يُقيَّم**.
 //
+// ✗ **تقييم العائد من السيارة بمتوسّط لحظة عودته**: شراء ١٠٠ بعشرة، ثمّ تحميل ٥٠
+//   إلى سيارة، ثمّ شراء ١٠٠ بعشرين فيصير المتوسّط ١٦٫٦٧، ثمّ تعود الخمسون ⇒ ترجع
+//   البضاعة نفسها بكلفةٍ أعلى ممّا خرجت بها، فتُضخَّم قيمة المخزون ٣٣٣ ريالاً من
+//   شراءٍ لم يمسّ هذه الحبّات أصلاً. والصواب أن تعود بكلفة خروجها: ٣٬٠٠٠ ومتوسّط ١٥.
+//
 // فالحالة الآن دلوان لكل صنف: `costed` له قيمة معروفة، و`uncosted` لا. والوارد
 // المسعَّر وحده يحرّك المتوسّط؛ والصرف ينقص الدلوين بنسبتهما فلا يُستنزف أحدهما
-// قبل الآخر بلا سبب؛ والعائد من السيارات والجرد الزائد يُقيَّم بمتوسّط اللحظة.
+// قبل الآخر بلا سبب؛ والجرد الزائد يُقيَّم بمتوسّط اللحظة.
+//
+// أمّا السيارات فلها **طبقات**: كل تحميلٍ يحفظ كمّيته وكلفتها لحظة خروجها، وكل
+// عودةٍ تسحب من الطبقات بالمقلوب — **آخرُ ما حُمّل أوّلُ ما يعود**. والمقلوب هنا
+// ليس اصطلاحاً: ما بِيع من حمولةٍ قديمة لن يعود أبداً، فلو طابقنا العائد بالأقدم
+// لأعطيناه سعر بضاعةٍ باعها المندوب منذ شهر. وعودةٌ لا تحميل يقابلها — بضاعةٌ
+// كانت في السيارة قبل تشغيل النظام — تبقى على متوسّط اللحظة، فلا كلفةَ خروجٍ لها.
 
 /** حركة مخزون واحدة، مرتّبةً زمنياً */
 export interface CostMove {
   /** موجب يدخل المستودع، سالب يخرج منه */
   qty: number;
-  /** RECEIVE وحده يحمل سعراً ويحرّك المتوسّط */
-  kind: 'RECEIVE' | 'OTHER';
+  /**
+   * RECEIVE وحده يحمل سعراً ويحرّك المتوسّط.
+   * VAN_OUT تحميلٌ لسيارة يحفظ كلفة خروجه، وVAN_IN عودةٌ منها تستردّ تلك الكلفة.
+   * OTHER تسويةُ جردٍ في المستودع — بلا ثمنٍ وبلا طبقة.
+   */
+  kind: 'RECEIVE' | 'VAN_OUT' | 'VAN_IN' | 'OTHER';
   unitCost?: number | null;
 }
 
@@ -104,6 +119,31 @@ export interface Valuation {
 const avgOf = (s: CostState) => (s.costedQty > 0 ? s.costedValue / s.costedQty : 0);
 
 /**
+ * طبقةٌ خرجت إلى سيارة ولم تعُد بعد، تحفظ كلفة خروجها لتعود بها.
+ * `uncostedQty` هو جزء الحمولة الذي خرج من الدلو غير المقيَّم فيعود إليه لا إلى
+ * الدلو المقيَّم — وإلّا لاختلق التقييمُ قيمةً لبضاعةٍ لم تُعرف كلفتها قطّ.
+ */
+interface VanLayer {
+  costedQty: number;
+  unitCost: number;
+  uncostedQty: number;
+}
+
+/** عتبةُ صفرٍ للكسور العائمة — أدقّ بمراتب من أصغر خانةٍ تُعرَض (١٠⁻⁴) */
+const EPS = 1e-9;
+
+/** يُدخل كمّيةً بلا ثمنٍ موثَّق: بمتوسّط اللحظة إن وُجد، وإلّا فخارج التقييم */
+function addAtAvg(s: CostState, qty: number): void {
+  const avg = avgOf(s);
+  if (avg > 0) {
+    s.costedQty += qty;
+    s.costedValue += qty * avg;
+  } else {
+    s.uncostedQty += qty;
+  }
+}
+
+/**
  * يمرّ على الحركات **بترتيبها الزمنيّ** ويُخرج تقييم الرصيد الباقي.
  *
  * الترتيب مسؤولية المستدعي — والمرور غير مرتَّب يعطي رقماً خاطئاً بصمت،
@@ -111,6 +151,8 @@ const avgOf = (s: CostState) => (s.costedQty > 0 ? s.costedValue / s.costedQty :
  */
 export function valueStock(moves: CostMove[]): Valuation {
   const s: CostState = { costedQty: 0, costedValue: 0, uncostedQty: 0 };
+  // ما هو على السيارات الآن، بترتيب خروجه — يُستهلَك من آخره
+  const vanLayers: VanLayer[] = [];
 
   for (const m of moves) {
     if (!Number.isFinite(m.qty) || m.qty === 0) continue;
@@ -124,11 +166,31 @@ export function valueStock(moves: CostMove[]): Valuation {
       } else if (m.kind === 'RECEIVE') {
         // شراء بلا سعر: كمية في المستودع بلا قيمة موثَّقة — لا تُخمَّن
         s.uncostedQty += m.qty;
+      } else if (m.kind === 'VAN_IN') {
+        // عائدٌ من سيارة: يرجع بالكلفة التي خرج بها، من آخر طبقةٍ حُمّلت
+        let back = m.qty;
+        while (back > EPS && vanLayers.length > 0) {
+          const layer = vanLayers[vanLayers.length - 1];
+          const avail = layer.costedQty + layer.uncostedQty;
+          if (avail <= EPS) {
+            vanLayers.pop();
+            continue;
+          }
+          const take = Math.min(back, avail);
+          // الطبقة تُسحب بنسبة دلويها كما خرجت بها تماماً
+          const fromCosted = take * (layer.costedQty / avail);
+          s.costedQty += fromCosted;
+          s.costedValue += fromCosted * layer.unitCost;
+          s.uncostedQty += take - fromCosted;
+          layer.costedQty -= fromCosted;
+          layer.uncostedQty -= take - fromCosted;
+          back -= take;
+        }
+        // ما زاد عن كلّ ما حُمّل: بضاعةٌ كانت في السيارة قبل النظام — متوسّط اللحظة
+        if (back > EPS) addAtAvg(s, back);
       } else {
-        // عائد من سيارة أو جرد زائد: يُقيَّم بمتوسّط اللحظة إن وُجد
-        const avg = avgOf(s);
-        if (avg > 0) { s.costedQty += m.qty; s.costedValue += m.qty * avg; }
-        else s.uncostedQty += m.qty;
+        // جردٌ زائد في المستودع: يُقيَّم بمتوسّط اللحظة إن وُجد
+        addAtAvg(s, m.qty);
       }
       continue;
     }
@@ -141,8 +203,9 @@ export function valueStock(moves: CostMove[]): Valuation {
 
     // ما يمكن سحبه من الموجود فعلاً، وما زاد عنه سحبٌ مكشوف
     const share = total > 0 ? Math.min(out, total) : 0;
+    let fromCosted = 0;
     if (share > 0) {
-      const fromCosted = share * (s.costedQty / total);
+      fromCosted = share * (s.costedQty / total);
       s.costedQty -= fromCosted;
       s.costedValue -= fromCosted * avg;
       s.uncostedQty -= share - fromCosted;
@@ -155,6 +218,16 @@ export function valueStock(moves: CostMove[]): Valuation {
     if (deficit > 0) {
       s.costedQty -= deficit;
       s.costedValue -= deficit * avg;
+    }
+
+    // تحميل سيارة يحفظ طبقته بكلفة خروجها — والمكشوف منه يُحفَظ كذلك ليعود
+    // بنفس ما خُصم به تماماً، فلا يخلّف الذهابُ والإيابُ فرقاً في القيمة.
+    if (m.kind === 'VAN_OUT') {
+      vanLayers.push({
+        costedQty: fromCosted + deficit,
+        unitCost: avg,
+        uncostedQty: share - fromCosted,
+      });
     }
   }
 
