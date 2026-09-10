@@ -130,7 +130,7 @@ export default function CompanyHealthPanel({ onClose }: { onClose: () => void })
                 <Kpi icon={Sparkles} value={String(opsQ.data?.new30d ?? '—')} label="جديدة آخر 30 يوما" color="text-[#E0A02C]" bg="bg-[#FBF0D8]" />
               </div>
               <p className="text-[11px] text-[#9A8F7E] mt-2 leading-relaxed">
-                تقدير نظري الاشتراكات السارية × سعر الباقة المعتمد 299/599 يشمل التجارب النشطة ولا يعكس تحصيلا فعليا
+                تقدير نظري الاشتراكات السارية × سعر الباقة المعتمد 299/399/599 يشمل التجارب النشطة ولا يعكس تحصيلا فعليا
                 {opsQ.data && opsQ.data.unpricedPlans > 0 ? ` (${opsQ.data.unpricedPlans} شركة بباقة بلا سعر معتمد غير محسوبة)` : ''}
               </p>
             </div>

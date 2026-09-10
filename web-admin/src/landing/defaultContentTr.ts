@@ -51,9 +51,10 @@ export const defaultContentTr = {
     title: 'Şirketinizle birlikte büyüyen planlar',
     subtitle: '10 gün ücretsiz başlayın — kredi kartı gerekmez.',
     plans: [
-      { name: 'Başlangıç', price: '299', limit: '5 temsilciye kadar' },
-      { name: 'Profesyonel', price: '799', limit: '20 temsilciye kadar', badge: 'En popüler' },
-      { name: 'Kurumsal', price: 'Özel', limit: 'Sınırsız temsilci' },
+      { name: 'Başlangıç', price: '299', limit: '5 temsilciye kadar · 1 yönetici' },
+      { name: 'Büyüme', price: '399', limit: '10 temsilciye kadar · 2 yönetici' },
+      { name: 'Gelişmiş', price: '599', limit: '20 temsilciye kadar · 5 yönetici', badge: 'En çok tercih edilen' },
+      { name: 'Kurumsal', price: 'Teklife göre', limit: 'Sınırsız temsilci' },
     ],
   },
   faq: {

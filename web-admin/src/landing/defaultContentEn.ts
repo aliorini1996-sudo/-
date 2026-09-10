@@ -51,8 +51,9 @@ export const defaultContentEn = {
     title: 'Plans that grow with your company',
     subtitle: 'Start free for 10 days — no credit card.',
     plans: [
-      { name: 'Starter', price: '299', limit: 'Up to 5 reps' },
-      { name: 'Professional', price: '799', limit: 'Up to 20 reps', badge: 'Most popular' },
+      { name: 'Starter', price: '299', limit: 'Up to 5 reps · 1 admin user' },
+      { name: 'Growth', price: '399', limit: 'Up to 10 reps · 2 admin users' },
+      { name: 'Advanced', price: '599', limit: 'Up to 20 reps · 5 admin users', badge: 'Most popular' },
       { name: 'Enterprise', price: 'Custom', limit: 'Unlimited reps' },
     ],
   },

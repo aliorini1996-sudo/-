@@ -51,9 +51,10 @@ export const defaultContentZh = {
     title: '随企业一起成长的订阅方案',
     subtitle: '免费试用 10 天 — 无需信用卡。',
     plans: [
-      { name: '入门版', price: '299', limit: '5 位业务员以内' },
-      { name: '专业版', price: '799', limit: '20 位业务员以内', badge: '最受欢迎' },
-      { name: '旗舰版', price: '定制', limit: '业务员数量不限' },
+      { name: '入门版', price: '299', limit: '5 位业务员以内 · 1 个管理账号' },
+      { name: '成长版', price: '399', limit: '10 位业务员以内 · 2 个管理账号' },
+      { name: '进阶版', price: '599', limit: '20 位业务员以内 · 5 个管理账号', badge: '最受欢迎' },
+      { name: '企业版', price: '按需定价', limit: '业务员不限' },
     ],
   },
   faq: {

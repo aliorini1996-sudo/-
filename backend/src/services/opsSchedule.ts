@@ -62,7 +62,7 @@ export function cardStatuses(): CardStatus[] {
 
 // ————— مقاييس المنصّة (عدّاد MRR/الاشتراكات من جدول Tenant القائم) —————
 
-const PLAN_PRICES: Record<string, number> = { basic: 299, pro: 599 };
+const PLAN_PRICES: Record<string, number> = { basic: 299, growth: 399, pro: 599 };
 
 export async function platformMetrics() {
   const tenants = await prisma.tenant.findMany({
@@ -93,7 +93,7 @@ export async function platformMetrics() {
     activeTenants: active.length,
     activeNotExpired: notExpired.length,
     byPlan,
-    // تقدير نظري: عدد الشركات النشطة غير المنتهية × سعر الباقة المعتمد (299/599).
+    // تقدير نظري: عدد الشركات النشطة غير المنتهية × سعر الباقة المعتمد (299/399/599).
     // يشمل التجارب النشطة ولا يعكس تحصيلاً فعلياً — دقّته تكتمل عند وجود سجل دفع.
     mrrEstimate: mrr,
     unpricedPlans: unpriced,

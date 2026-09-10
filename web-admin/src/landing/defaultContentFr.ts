@@ -51,8 +51,9 @@ export const defaultContentFr = {
     title: 'Des offres qui grandissent avec votre entreprise',
     subtitle: 'Commencez gratuitement pendant 10 jours — sans carte bancaire.',
     plans: [
-      { name: 'Débutant', price: '299', limit: 'Jusqu’à 5 commerciaux' },
-      { name: 'Professionnel', price: '799', limit: 'Jusqu’à 20 commerciaux', badge: 'Le plus populaire' },
+      { name: 'Débutant', price: '299', limit: 'Jusqu’à 5 commerciaux · 1 utilisateur admin' },
+      { name: 'Croissance', price: '399', limit: 'Jusqu’à 10 commerciaux · 2 utilisateurs admin' },
+      { name: 'Avancé', price: '599', limit: 'Jusqu’à 20 commerciaux · 5 utilisateurs admin', badge: 'Le plus demandé' },
       { name: 'Entreprise', price: 'Sur devis', limit: 'Commerciaux illimités' },
     ],
   },

@@ -30,8 +30,9 @@ type Lang = 'ar' | 'en' | 'fr';
 interface Plan { name: string; price: string; limit?: string; period?: string; features?: string[]; badge?: string }
 
 const FALLBACK_PLANS: Plan[] = [
-  { name: 'المبتدئة', price: '299', limit: 'حتى ٥ مناديب', period: 'ر.س / شهريا' },
-  { name: 'الاحترافية', price: '599', limit: 'حتى ٢٠ مندوبا', period: 'ر.س / شهريا', badge: 'الأكثر طلبا' },
+  { name: 'المبتدئة', price: '299', limit: 'حتى ٥ مناديب · مستخدم إداري واحد', period: 'ر.س / شهريا' },
+  { name: 'المتوسطة', price: '399', limit: 'حتى ١٠ مناديب · مستخدمان إداريان', period: 'ر.س / شهريا' },
+  { name: 'المتقدمة', price: '599', limit: 'حتى ٢٠ مندوبا · ٥ مستخدمين إداريين', period: 'ر.س / شهريا', badge: 'الأكثر طلبا' },
   { name: 'المؤسسات', price: 'حسب الطلب', limit: 'مناديب غير محدودين', period: '' },
 ];
 

@@ -125,8 +125,9 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       اليوم | منصّة مكتملة في الإنتاج تخدم شركات في ١٣ قطاعاً`,
 
     model_title: 'باقتان تختار بينهما بعدد مناديبك',
-    model_items: `الأساسيّة ٢٩٩ ريالاً شهريّاً حتى خمسة مناديب، شاملةً ضريبة القيمة المضافة
-      المتقدّمة ٥٩٩ ريالاً شهريّاً حتى عشرين مندوباً بصلاحيات موسّعة وقدرات إضافيّة
+    model_items: `المبتدئة ٢٩٩ ريالاً شهريّاً حتى خمسة مناديب ومستخدم إداريّ واحد، شاملةً ضريبة القيمة المضافة
+      المتوسّطة ٣٩٩ ريالاً شهريّاً حتى عشرة مناديب ومستخدمَين إداريَّين
+      المتقدّمة ٥٩٩ ريالاً شهريّاً حتى عشرين مندوباً وخمسة مستخدمين إداريين بصلاحيات موسّعة
       تجربة عشرة أيّام مجّاناً بلا بطاقة ولا التزام، وبياناتك تبقى ملكك`,
 
     numbers_title: 'أرقام من الإنتاج لا من العروض',
@@ -207,8 +208,9 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Today | A complete platform in production serving companies across 13 sectors`,
 
     model_title: 'Two plans, chosen by your number of reps',
-    model_items: `Basic at 299 SAR a month for up to five reps, VAT included
-      Advanced at 599 SAR a month for up to twenty reps, with extended permissions and added capabilities
+    model_items: `Starter at 299 SAR a month for up to five reps and one admin user, VAT included
+      Growth at 399 SAR a month for up to ten reps and two admin users
+      Advanced at 599 SAR a month for up to twenty reps and five admin users, with extended permissions
       A ten-day free trial, no card and no commitment, and your data stays yours`,
 
     numbers_title: 'Numbers from production, not from decks',
@@ -289,8 +291,9 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Aujourd’hui | Une plateforme complète en production au service de 13 secteurs`,
 
     model_title: 'Deux formules, choisies selon votre nombre de commerciaux',
-    model_items: `Essentiel à 299 SAR par mois jusqu’à cinq commerciaux, TVA comprise
-      Avancé à 599 SAR par mois jusqu’à vingt commerciaux, avec droits étendus et capacités supplémentaires
+    model_items: `Débutant à 299 SAR par mois jusqu’à cinq commerciaux et un utilisateur admin, TVA comprise
+      Croissance à 399 SAR par mois jusqu’à dix commerciaux et deux utilisateurs admin
+      Avancé à 599 SAR par mois jusqu’à vingt commerciaux et cinq utilisateurs admin, avec droits étendus
       Dix jours d’essai gratuit, sans carte ni engagement, et vos données restent les vôtres`,
 
     numbers_title: 'Des chiffres issus de la production, pas des présentations',
@@ -371,8 +374,9 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Bugün | Üretimde, 13 sektörde şirketlere hizmet veren eksiksiz bir platform`,
 
     model_title: 'Temsilci sayınıza göre seçtiğiniz iki paket',
-    model_items: `Temel paket, beş temsilciye kadar aylık 299 SAR, KDV dâhil
-      Gelişmiş paket, yirmi temsilciye kadar aylık 599 SAR; genişletilmiş yetkiler ve ek yetenekler
+    model_items: `Başlangıç paketi, beş temsilci ve bir yönetici hesabına kadar aylık 299 SAR, KDV dâhil
+      Büyüme paketi, on temsilci ve iki yönetici hesabına kadar aylık 399 SAR
+      Gelişmiş paket, yirmi temsilci ve beş yönetici hesabına kadar aylık 599 SAR; genişletilmiş yetkiler
       On gün ücretsiz deneme; kart yok, taahhüt yok ve verileriniz sizin kalır`,
 
     numbers_title: 'Sunumlardan değil, üretimden gelen rakamlar',
@@ -453,8 +457,9 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       今天 | 已在生产环境稳定运行，服务 13 个行业的企业`,
 
     model_title: '两种套餐，按业务员人数选择',
-    model_items: `基础版每月 299 沙特里亚尔，最多 5 位业务员，含增值税
-      进阶版每月 599 沙特里亚尔，最多 20 位业务员，权限更广并含增值能力
+    model_items: `入门版每月 299 沙特里亚尔，最多 5 位业务员和 1 个管理账号，含增值税
+      成长版每月 399 沙特里亚尔，最多 10 位业务员和 2 个管理账号
+      进阶版每月 599 沙特里亚尔，最多 20 位业务员和 5 个管理账号，权限更广
       十天免费试用，无需银行卡、无需承诺，数据始终属于您`,
 
     numbers_title: '来自生产环境的数字，而非演示文稿',
