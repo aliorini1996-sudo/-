@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: FieldSales.FieldSalesAdmin
+PackageVersion: 1.0.0
+MinimumOSVersion: 10.0.17763.0
+InstallerType: nullsoft
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: 2026-07-23
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/aliorini1996-sudo/-/releases/download/desktop-v1.0.0/FieldSales-Admin-Setup.exe
+    InstallerSha256: 2503FA377FD122EE3019E93DCCE750746ECB9FEBF8B401E9C28AF090CE18FB18
+ManifestType: installer
+ManifestVersion: 1.6.0
+
+# ملاحظتان لمن يراجع هذا لاحقاً:
+#
+# 1) حقل Scope محذوف عمداً. مثبّت NSIS من electron-builder يكون لكل مستخدم افتراضياً
+#    لكن لم أجد إعداد البناء في المستودع، فتركتُه غير معلن بدل أن أزعم نطاقاً لم أتحقّق منه.
+#    أضِفه (user أو machine) بعد تأكيده من إعداد البناء الفعلي.
+#
+# 2) InstallerType: nullsoft يجعل winget يستنتج مفاتيح الصمت (/S) بنفسه، فلا حاجة
+#    لـInstallerSwitches. وقد تُحقّق أن الملفّ NSIS فعلاً بقراءة توقيعه الثنائي:
+#    السلسلة "Nullsoft.NSIS.exehead" موجودة عند الإزاحة 51100.

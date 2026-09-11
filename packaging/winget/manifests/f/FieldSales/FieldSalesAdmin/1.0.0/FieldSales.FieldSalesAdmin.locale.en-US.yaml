@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: FieldSales.FieldSalesAdmin
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: FieldSales
+PublisherUrl: https://fieldsa.net/
+PublisherSupportUrl: https://fieldsa.net/contact/
+PrivacyUrl: https://fieldsa.net/privacy
+Author: FieldSales
+PackageName: FieldSales Admin
+PackageUrl: https://fieldsa.net/
+License: Proprietary
+Copyright: Copyright (c) 2026 FieldSales
+ShortDescription: Arabic-first field sales and distribution management for Windows.
+Description: >-
+  FieldSales is a field sales and distribution (van sales / DSD) platform built Arabic-first for Saudi Arabia and the Gulf. Reps issue tax invoices from a phone with no connection at all, van stock is reconciled by item against the morning load, visits are proven by location and photo, and collections are recorded against specific invoices. This Windows app is the company admin console: customers, reps, catalogue, orders, receipts and live reports. Subscription is per company rather than per user.
+Moniker: fieldsales
+Tags:
+  - field-sales
+  - van-sales
+  - distribution
+  - dsd
+  - invoicing
+  - arabic
+  - saudi-arabia
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

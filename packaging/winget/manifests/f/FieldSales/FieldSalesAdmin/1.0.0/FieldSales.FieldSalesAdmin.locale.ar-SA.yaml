@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+PackageIdentifier: FieldSales.FieldSalesAdmin
+PackageVersion: 1.0.0
+PackageLocale: ar-SA
+Publisher: فيلد سيلز
+PublisherUrl: https://fieldsa.net/
+PublisherSupportUrl: https://fieldsa.net/contact/
+PrivacyUrl: https://fieldsa.net/privacy
+PackageName: فيلد سيلز — إدارة الشركة
+PackageUrl: https://fieldsa.net/
+License: Proprietary
+ShortDescription: نظام إدارة المبيعات الميدانية والتوزيع، عربيّ أولاً، لويندوز.
+Description: >-
+  فيلد سيلز منصّة لإدارة المبيعات الميدانية والتوزيع مبنيّة بالعربية أولاً للسعودية والخليج.
+  يُصدر المندوب فاتورة ضريبية من جواله دون اتصال بالإنترنت، وتُطابَق عهدة السيارة بالصنف مقابل
+  التحميل الصباحي، وتُثبَت الزيارة بالموقع والصورة، ويُسجَّل التحصيل على فواتير بعينها.
+  وهذا تطبيق ويندوز للوحة إدارة الشركة: العملاء والمناديب والأصناف والطلبات والسندات والتقارير
+  اللحظية. الاشتراك لكل شركة لا لكل مستخدم.
+Tags:
+  - مبيعات-ميدانية
+  - مناديب
+  - توزيع
+  - كاش-فان
+  - فاتورة-ضريبية
+ManifestType: locale
+ManifestVersion: 1.6.0

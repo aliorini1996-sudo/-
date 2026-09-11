@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>fieldsales-admin</id>
+    <version>1.0.0</version>
+    <packageSourceUrl>https://github.com/aliorini1996-sudo/-/tree/master/packaging/chocolatey</packageSourceUrl>
+    <owners>FieldSales</owners>
+
+    <title>FieldSales Admin</title>
+    <authors>FieldSales</authors>
+    <projectUrl>https://fieldsa.net/</projectUrl>
+    <iconUrl>https://fieldsa.net/icons/icon-192.png</iconUrl>
+    <copyright>Copyright (c) 2026 FieldSales</copyright>
+    <licenseUrl>https://fieldsa.net/terms/</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://fieldsa.net/</projectSourceUrl>
+    <docsUrl>https://fieldsa.net/blog/</docsUrl>
+    <bugTrackerUrl>https://fieldsa.net/contact/</bugTrackerUrl>
+    <tags>fieldsales van-sales distribution dsd invoicing arabic saudi-arabia admin</tags>
+    <summary>Arabic-first field sales and distribution management for Windows.</summary>
+    <description><![CDATA[
+FieldSales is a field sales and distribution (van sales / DSD) platform built Arabic-first for
+Saudi Arabia and the Gulf.
+
+Reps issue tax invoices from a phone with no connection at all, van stock is reconciled by item
+against the morning load, visits are proven by location and photo, and collections are recorded
+against specific invoices rather than as one lump sum.
+
+This Windows application is the company admin console: customers, reps, catalogue, orders,
+receipts and live reports. Subscription is per company rather than per user.
+
+### Notes
+
+* The app signs in against the hosted service at fieldsa.net — an account is required.
+* Interface is Arabic; the platform also serves English, French, Turkish and Chinese.
+]]></description>
+    <releaseNotes>https://github.com/aliorini1996-sudo/-/releases/tag/desktop-v1.0.0</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
