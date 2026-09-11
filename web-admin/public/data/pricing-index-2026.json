@@ -1,0 +1,773 @@
+{
+ "name": "Arabic & Gulf Field-Sales Software Pricing Index 2026",
+ "nameAr": "مؤشّر أسعار برمجيات المبيعات الميدانية في السوق العربي ٢٠٢٦",
+ "version": "1.0",
+ "surveyDate": "2026-07-25",
+ "publisher": "FieldSales (fieldsa.net)",
+ "license": "CC BY 4.0 — attribution required",
+ "anonymised": true,
+ "anonymisationNote": "Vendor names are withheld by policy. Each row keeps an opaque id so rows stay countable and joinable without naming anyone.",
+ "census": {
+  "vendorsSurveyed": 123,
+  "priceDisclosed": 57,
+  "priceWithheld": 66,
+  "independentlyAudited": 11,
+  "provenance": "Reported in the July 2026 survey's own data-quality summary. The raw survey file is no longer held, so these four counts cannot be recomputed from the rows below."
+ },
+ "detail": {
+  "rows": 74,
+  "note": "The 74 vendors the survey recorded a full pricing row for. This subset is biased toward vendors whose price was findable, so its disclosure rate (30% withheld) is lower than the census rate (54%). Do not quote the subset rate as a market rate."
+ },
+ "fields": {
+  "id": "Opaque row id. Carries no ordering or ranking meaning.",
+  "region": "Normalised headquarters region.",
+  "segment": "Who the vendor sells to, as recorded.",
+  "pricing_model": "per user / per company / one-time licence / per device / freemium / on request.",
+  "price_disclosed": "Whether a price is published: disclosed | withheld | partial.",
+  "has_extra_fees": "A setup or other additional fee was recorded. null where the field was blank.",
+  "trial_offered": "A trial was recorded.",
+  "audited": "Price was re-checked against the vendor's own pricing page by an independent pass whose brief was to refute it."
+ },
+ "rows": [
+  {
+   "id": "V001",
+   "region": "الخليج",
+   "segment": "شركات ومصانع صغيرة ومتوسطة في مصر والسعودية؛ يقدّم وحدة «تطب",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V002",
+   "region": "أخرى",
+   "segment": "موزّعو خطوط السير: مياه معبّأة، غاز وسلع صناعية، مغاسل، أغذي",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V003",
+   "region": "الخليج",
+   "segment": "محلات وشركات مصرية صغيرة ومتوسطة بمبيعات يومية ومخازن ونقاط ",
+   "pricing_model": "رخصة لمرّة واحدة",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V004",
+   "region": "الخليج",
+   "segment": "شركات التوزيع والجملة والتجزئة والمصانع المتوسطة في السعودية",
+   "pricing_model": "أخرى",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V005",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V006",
+   "region": "أمريكا الشمالية",
+   "segment": "مشغّلو المطاعم والموزّعون في خدمات الأغذية بأمريكا الشمالية ",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V007",
+   "region": "أوروبا",
+   "segment": "",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V008",
+   "region": "أمريكا الشمالية",
+   "segment": "شركات صغيرة ومتوسطة تريد CRM + مشاريع + اتصال داخلي بسعر ثاب",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V009",
+   "region": "أمريكا الشمالية",
+   "segment": "موزّعو وتجّار الجملة الصغار والمتوسطون في أمريكا الشمالية",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V010",
+   "region": "أخرى",
+   "segment": "موزّعو DSD والبيع من الشاحنة — من مندوب واحد إلى مئات المسار",
+   "pricing_model": "أخرى",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V011",
+   "region": "أمريكا الشمالية",
+   "segment": "",
+   "pricing_model": "أخرى",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V012",
+   "region": "الخليج",
+   "segment": "شركات البيع والتوزيع المتنقّل المحترفة في السعودية (صفحة عرب",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V013",
+   "region": "أخرى",
+   "segment": "سلاسل التجزئة المتوسطة والمؤسسية المُدارة من مقر واحد",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V014",
+   "region": "الخليج",
+   "segment": "شركات صغيرة ومتوسطة عربية تريد ERP سحابياً شاملاً بسعر منخفض",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V015",
+   "region": "أمريكا الشمالية",
+   "segment": "مصنّعو وموزّعو الكيماويات والبلاستيك؛ شركات من مليون إلى أكث",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V016",
+   "region": "مصر",
+   "segment": "موزّعون ومصنّعون صغار ومتوسطون في FMCG",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V017",
+   "region": "الخليج",
+   "segment": "محلات وشركات تجارية ومصانع وتوريدات صغيرة ومتوسطة",
+   "pricing_model": "رخصة لمرّة واحدة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V018",
+   "region": "أوروبا",
+   "segment": "",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V019",
+   "region": "الهند",
+   "segment": "شركات متوسطة وكبيرة تريد ERP كاملاً تكون SFA وحدةً فيه",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V020",
+   "region": "مصر",
+   "segment": "شركات صغيرة ومتوسطة مصرية تحتاج حسابات ومخازن ومبيعات وPOS س",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V021",
+   "region": "الخليج",
+   "segment": "شركات صغيرة ومتوسطة خليجية: تجارة وتصنيع ومقاولات وخدمات",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V022",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V023",
+   "region": "أمريكا الشمالية",
+   "segment": "",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V024",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V025",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "أخرى",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V026",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V027",
+   "region": "الخليج",
+   "segment": "فرق مبيعات متنقّلة وأساطيل بيع في الشرق الأوسط والهند — تغطي",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V028",
+   "region": "أخرى",
+   "segment": "موزّعو DSD الصغار والمتوسطون — أغذية ومشروبات وسلع استهلاكية",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V029",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V030",
+   "region": "أمريكا الشمالية",
+   "segment": "",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V031",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "مجاني/فريميوم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V032",
+   "region": "الهند",
+   "segment": "فرق ميدانية في الأدوية وتوزيع السلع الاستهلاكية والبنوك — من",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V033",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "أخرى",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V034",
+   "region": "أخرى",
+   "segment": "",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V035",
+   "region": "الخليج",
+   "segment": "شركات التوزيع والمواد الغذائية السعودية، من مندوب واحد إلى ف",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": true
+  },
+  {
+   "id": "V036",
+   "region": "الخليج",
+   "segment": "شركات سعودية صغيرة ومتوسطة متعددة القطاعات (+1,000 منشأة باد",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V037",
+   "region": "الهند",
+   "segment": "موزّعون ومصنّعون هنود في FMCG والأدوية والتجزئة",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V038",
+   "region": "الخليج",
+   "segment": "شركات متوسطة وكبيرة تقبل بمشروع تنفيذ وميزانية تخصيص",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V039",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V040",
+   "region": "أمريكا الشمالية",
+   "segment": "شركات التوصيل عند الطلب: بقالة، صيدليات، تجزئة، طرود",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V041",
+   "region": "أفريقيا",
+   "segment": "موزّعون وتجّار جملة ومصنّعون صغار ومتوسطون بمناديب ميدانيين ",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V042",
+   "region": "الخليج",
+   "segment": "المؤسسات الكبيرة متعددة الفروع وشركات التوزيع والصناعة",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V043",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V044",
+   "region": "أخرى",
+   "segment": "شركات التوزيع والمبيعات المغربية (+200 مؤسسة، +5,000 مندوب م",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V045",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V046",
+   "region": "أوروبا",
+   "segment": "شركات التوزيع العربية بفرق ميدانية؛ ضمن منظومة أوسع (محاسبة/",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V047",
+   "region": "أخرى",
+   "segment": "شركات التوزيع والتجارة الجزائرية المحتاجة DSD وقوة بيع ميدان",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V048",
+   "region": "الخليج",
+   "segment": "شركات سعودية صغيرة ومتوسطة تريد محاسبة معتمدة من ZATCA؛ 1–5 ",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V049",
+   "region": "أمريكا الشمالية",
+   "segment": "مصنّعون ومستودعات (DuPont، Bridgestone، General Dynamics)",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V050",
+   "region": "الهند",
+   "segment": "",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V051",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V052",
+   "region": "أمريكا الشمالية",
+   "segment": "أساطيل التوصيل والخدمة الميدانية عالمياً — محرّك تخطيط مسارا",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V053",
+   "region": "أمريكا الشمالية",
+   "segment": "أساطيل التوصيل والخدمات الميدانية من 4 مركبات فأكثر",
+   "pricing_model": "أخرى",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V054",
+   "region": "الخليج",
+   "segment": "المحلات والمخازن الصغيرة جداً التي تريد أرخص طريق للامتثال ل",
+   "pricing_model": "لكل جهاز",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V055",
+   "region": "الهند",
+   "segment": "شركات FMCG والتجزئة والأدوية الصغيرة والمتوسطة في الهند",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V056",
+   "region": "أمريكا الشمالية",
+   "segment": "فرق البيع من باب لباب: طاقة شمسية، تسقيف، مكافحة حشرات، أليا",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": true
+  },
+  {
+   "id": "V057",
+   "region": "تركيا",
+   "segment": "",
+   "pricing_model": "رخصة لمرّة واحدة",
+   "price_disclosed": "جزئيّ",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V058",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V059",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "مجاني/فريميوم",
+   "price_disclosed": "جزئيّ",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V060",
+   "region": "الهند",
+   "segment": "شركات خليجية تقليدية تدير حساباتها على Tally وتريد إضافة بيع",
+   "pricing_model": "أخرى",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V061",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V062",
+   "region": "أخرى",
+   "segment": "الشركات الصغيرة والمتوسطة التونسية: تجارة وتوزيع ومخازن",
+   "pricing_model": "أخرى",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V063",
+   "region": "أمريكا الشمالية",
+   "segment": "المؤسسات الصحية الكبرى والموزّعون ومزوّدو اللوجستيات؛ من الس",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V064",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "أخرى",
+   "price_disclosed": "جزئيّ",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V065",
+   "region": "الهند",
+   "segment": "شركات ذات قوى عاملة ميدانية وأساطيل — من 10 إلى 100+ مستخدم",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V066",
+   "region": "الخليج",
+   "segment": "تجزئة وتوزيع في الأردن والسعودية وقطر: ERP + كاش فان + POS +",
+   "pricing_model": "حسب الطلب",
+   "price_disclosed": "مخفيّ",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V067",
+   "region": "أخرى",
+   "segment": "",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V068",
+   "region": "الهند",
+   "segment": "شركات بفرق ميدانية من 2 إلى 10,000+ موظف (1,000+ شركة، 20,00",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V069",
+   "region": "مصر",
+   "segment": "محلات وشركات عربية صغيرة تشتري ترخيصاً مرة واحدة",
+   "pricing_model": "أخرى",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  },
+  {
+   "id": "V070",
+   "region": "الهند",
+   "segment": "",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V071",
+   "region": "الخليج",
+   "segment": "شركات صغيرة ومتوسطة ومكاتب محاسبة تريد فوترة ZATCA مباشرة عب",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": true,
+   "audited": false
+  },
+  {
+   "id": "V072",
+   "region": "الخليج",
+   "segment": "من رائد الأعمال الفردي إلى الشركات المتوسطة؛ من يريد منظومة ",
+   "pricing_model": "لكل شركة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V073",
+   "region": "الخليج",
+   "segment": "أقسام الموارد البشرية التي تريد حضوراً وإجازات للموظفين بمن ",
+   "pricing_model": "لكل مستخدم",
+   "price_disclosed": "معلن",
+   "has_extra_fees": true,
+   "trial_offered": true,
+   "audited": true
+  },
+  {
+   "id": "V074",
+   "region": "الخليج",
+   "segment": "",
+   "pricing_model": "رخصة لمرّة واحدة",
+   "price_disclosed": "معلن",
+   "has_extra_fees": false,
+   "trial_offered": false,
+   "audited": false
+  }
+ ]
+}
