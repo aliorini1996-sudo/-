@@ -295,7 +295,7 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
   if (layer === 'load') {
     return (
       <Suspense fallback={<MSpinner />}>
-        <MRepLoad rep={rep} onClose={() => setLayer(null)} />
+        <MRepLoad rep={rep} company={company} onClose={() => setLayer(null)} />
       </Suspense>
     );
   }

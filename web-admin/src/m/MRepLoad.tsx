@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Package, Truck, Sparkles, AlertTriangle,
-  ArrowDownToLine, TrendingDown,
+  ArrowDownToLine, TrendingDown, Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { vanStockApi, productApi } from '../api/client';
@@ -70,6 +70,13 @@ const KIND_META: Record<string, { label: string; cls: string; sign: string }> = 
   ADJUST: { label: 'تسوية', cls: 'text-[#6B46C1] bg-[#F3EEFB]', sign: '±' },
 };
 
+/* إشعار الحركة في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
+const MLoadNoticeDoc = lazy(() => import('./MLoadNoticeDoc'));
+
+/** الحركات التي لها إشعارٌ يُطبع: حركات السيارة وحدها لا المبيعات والمرتجعات،
+ *  فتلك مستنداتها فواتيرُ وسندات لا إشعارُ مخزون — وهو تمييز اللوحة نفسه. */
+const EXPORTABLE = ['LOAD', 'UNLOAD', 'ADJUST'];
+
 /** كسورٌ محتملة في الوحدات الموزونة — لكن بلا أصفارٍ زائدة على «١٢» */
 const fmtQty = (n: number) => formatNumber(Number(n.toFixed(2)));
 
@@ -78,11 +85,21 @@ function errMsg(e: unknown, fallback: string): string {
   return (e as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
 }
 
-export default function MRepLoad({ rep, onClose }: { rep: SalesRep; onClose: () => void }) {
+export default function MRepLoad({ rep, company, onClose }: {
+  rep: SalesRep;
+  /** إعدادات الشركة — لترويسة إشعار الحركة وحدها */
+  company?: unknown;
+  onClose: () => void;
+}) {
   const tr = useTr();
   const qc = useQueryClient();
 
   const [rows, setRows] = useState<Row[]>([]);
+  // إشعار حركةٍ واحدة معروضٌ الآن — طبقةٌ فوق هذه الشاشة
+  const [noticeMv, setNoticeMv] = useState<Movement | null>(null);
+
+  useBackClose(!!noticeMv, () => setNoticeMv(null));
+
   const [note, setNote] = useState('');
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
@@ -225,6 +242,17 @@ export default function MRepLoad({ rep, onClose }: { rep: SalesRep; onClose: () 
   };
 
   const suggestRows = (suggestQ.data?.rows ?? []).filter(r => r.suggested > 0);
+
+  /* تصدير حركةٍ واحدة: نعرض إشعارها ملء الشاشة بدل شاشة التحميل — مطابقةً
+   * للوحة، ولأن عارض المستندات يحتاج الشاشة كلّها ليُخرج PDF بمقاس A4. */
+  if (noticeMv) {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        <MLoadNoticeDoc repName={rep.name} movement={noticeMv} company={company}
+          onClose={() => setNoticeMv(null)} />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -517,7 +545,13 @@ export default function MRepLoad({ rep, onClose }: { rep: SalesRep; onClose: () 
                     )}
                     title={`${meta.sign}${fmtQty(Math.abs(qty))} · ${m.items.length} ${tr('صنف')}`}
                     subtitle={m.ref || undefined}
-                    note={`${formatDate(m.date)} · ${formatTime(m.date)}`} />
+                    note={`${formatDate(m.date)} · ${formatTime(m.date)}`}
+                    trailing={EXPORTABLE.includes(m.kind) ? (
+                      <button onClick={() => setNoticeMv(m)} aria-label={tr('إشعار PDF')}
+                        className="p-2.5 -m-1 rounded-xl text-[#6E6557] active:bg-[#F1EBDF] flex-shrink-0">
+                        <Download size={16} />
+                      </button>
+                    ) : undefined} />
                 );
               })}
             </MCard>
