@@ -3,6 +3,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import {
   Search, Plus, ChevronLeft, Phone, Pencil, ShieldCheck, Banknote, Trash2, KeyRound,
   Loader2, Check, Copy, RefreshCw, Eye, EyeOff, UserRound, AlertTriangle, Wallet, Download,
+  Users, Truck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesRepApi } from '../api/client';
@@ -13,10 +14,14 @@ import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
 import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
+import { can } from './perms';
 import { expectArray, expectObject } from './shape';
 
 /* سند الاستلام في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MSettlementDoc = lazy(() => import('./MSettlementDoc'));
+/* شاشتا الإسناد والتحميل: لا تُفتحان في كل زيارةٍ لملفّ مندوب، فلا تدخلان حزمته */
+const MRepCustomers = lazy(() => import('./MRepCustomers'));
+const MRepLoad = lazy(() => import('./MRepLoad'));
 
 const PAGE = 25;
 
@@ -207,12 +212,13 @@ function RepRow({ rep, balance, onOpen }: { rep: SalesRep; balance?: number; onO
 
 /* ═══════════════════════ ملفّ المندوب ═══════════════════════ */
 
-type Layer = 'form' | 'perms' | 'collect' | null;
+type Layer = 'form' | 'perms' | 'collect' | 'customers' | 'load' | null;
 
 function RepDetail({ repId, company, onBack }: { repId: string; company?: unknown; onBack: () => void }) {
   const tr = useTr();
   const qc = useQueryClient();
-  const role = useAuthStore(s => s.user?.role);
+  const user = useAuthStore(s => s.user);
+  const role = user?.role;
   // حذف المندوب للأدمن الرئيسي وحده — والخادم يفرضه ثانيةً بقراءة الدور من
   // القاعدة؛ إخفاء الزرّ هنا كي لا يُعرض بابٌ سيُغلق في وجه من يفتحه
   const isMainAdmin = role === 'ADMIN';
@@ -262,6 +268,10 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
 
   const rep = repQ.data;
   const canCollect = rep.showCollectionBalance !== false;
+  /* تسجيل التحميل خلف حارسَي الخادم نفسيهما: عزل «النظام المحاسبي» ثمّ صلاحية
+   * مخزون السيارة. إظهار بلاطةٍ تُفضي إلى ٤٠٣ أسوأ من إخفائها. */
+  const accountingOn = (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
+  const canLoad = accountingOn && can(user, 'canManageVanStock');
 
   if (layer === 'form') {
     return (
@@ -274,6 +284,20 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
   }
   if (layer === 'collect') {
     return <RepCollect rep={rep} company={company} onClose={() => setLayer(null)} />;
+  }
+  if (layer === 'customers') {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        <MRepCustomers rep={rep} onClose={() => setLayer(null)} />
+      </Suspense>
+    );
+  }
+  if (layer === 'load') {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        <MRepLoad rep={rep} onClose={() => setLayer(null)} />
+      </Suspense>
+    );
   }
 
   const col = colQ.data;
@@ -335,6 +359,10 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
             <Tile icon={ShieldCheck} label={tr('الصلاحيات')} onClick={() => setLayer('perms')} />
             {canCollect && (
               <Tile icon={Banknote} label={tr('استلام تحصيل')} color="#2F855A" onClick={() => setLayer('collect')} />
+            )}
+            <Tile icon={Users} label={tr('إسناد العملاء')} onClick={() => setLayer('customers')} />
+            {canLoad && (
+              <Tile icon={Truck} label={tr('تسجيل تحميل')} color="#2F855A" onClick={() => setLayer('load')} />
             )}
             {isMainAdmin && (
               <Tile icon={Trash2} label={tr('حذف المندوب')} color="#C0392B" onClick={() => setConfirmDel(true)} />

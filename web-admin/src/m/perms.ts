@@ -18,7 +18,9 @@ export type PermKey =
   // أقسام الإدارة الثلاثة في الرئيسية — لا تبويبات لها في الشريط السفليّ،
   // فالشريط خمسة مقاعد وقد امتلأ؛ وهي أبعد عن العمل الميدانيّ اليوميّ.
   | 'canManageSalesReps'
-  | 'canManageProducts';
+  | 'canManageProducts'
+  // تسجيل التحميل في ملفّ المندوب — الخادم يفرضها على كل مسارات /van-stock
+  | 'canManageVanStock';
 
 export function can(user: User | null, key: PermKey): boolean {
   if (!user) return false;
