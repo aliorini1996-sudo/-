@@ -489,13 +489,25 @@ export default function ProfilePage() {
 
       {/* الشريط العلوي: الشعار + مبدل اللغة + تنزيل الملف */}
       <header className="sticky top-0 z-40 border-b print:hidden" style={{ background: 'rgba(250,247,240,.92)', backdropFilter: 'blur(8px)', borderColor: COLORS.sand }}>
-        <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2.5">
+        {/* صفٌّ واحد لا يلتفّ كان يفيض على الجوّال: خمسة أزرار لغة + زرّ التنزيل
+            + العلامة أعرض من ٣٩٠ بكسل، فيُدفع **زرّ التنزيل** خارج الشاشة —
+            وهو الزرّ الوحيد الذي لا بديل عنه. فيلتفّ الرأس صفّين على الضيّق:
+            العلامة والتنزيل معاً أولاً، واللغات تحتهما. */}
+        <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2 flex flex-wrap items-center gap-2">
+          <a href="/" className="flex items-center gap-2.5 shrink-0">
             <BrandIcon size={32} radius={0.28} />
-            <span className="text-lg"><Wordmark /></span>
+            <span className="text-lg whitespace-nowrap"><Wordmark /></span>
           </a>
-          <div className="flex items-center gap-2">
-            <div className="flex rounded-xl p-0.5" style={{ background: '#F3EDE3' }}>
+          <button type="button" onClick={exportPdf} disabled={exporting}
+            title={L('pdfTitle')} aria-label={L('pdfTitle')}
+            className="shrink-0 ms-auto order-2 sm:order-3 sm:ms-0 px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-60"
+            style={{ background: COLORS.ink, color: COLORS.cream }}>
+            <Download size={14} />
+            {exporting ? (progress || '…') : 'PDF'}
+          </button>
+          <div className="order-3 sm:order-2 w-full sm:w-auto sm:ms-auto flex justify-center">
+            {/* والمبدّل نفسه يمرّر أفقياً عند الحاجة فلا يقصّ لغةً مهما ضاقت الشاشة */}
+            <div className="flex rounded-xl p-0.5 max-w-full overflow-x-auto" style={{ background: '#F3EDE3' }}>
               {PROFILE_LANGS.map(l => (
                 <button key={l} onClick={() => setLang(l)} lang={l}
                   className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-colors whitespace-nowrap"
@@ -504,13 +516,6 @@ export default function ProfilePage() {
                 </button>
               ))}
             </div>
-            <button type="button" onClick={exportPdf} disabled={exporting}
-              title={L('pdfTitle')} aria-label={L('pdfTitle')}
-              className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-60"
-              style={{ background: COLORS.ink, color: COLORS.cream }}>
-              <Download size={14} />
-              {exporting ? (progress || '…') : 'PDF'}
-            </button>
           </div>
         </div>
       </header>
