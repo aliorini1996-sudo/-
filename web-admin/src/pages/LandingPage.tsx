@@ -195,7 +195,7 @@ const CHROME_EN: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Features<'], ['>كيف يعمل<', '>How it works<'], ['>الأسعار<', '>Pricing<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Admin login<'], ['>تطبيق المندوب<', '>Rep app<'],
-  ['ابدأ مجانا', 'Get started free'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'], ['مولد الفواتير', 'Invoice Generator'],
+  ['طلب اجتماع', 'Request a meeting'], ['ابدأ مجانا', 'Get started free'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Leak Calculator'], ['مولد الفواتير', 'Invoice Generator'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Sales & collection'], ['٧ أيام', '7 days'], ['محصل اليوم', 'Collected today'],
   ['+12.4% عن أمس', '+12.4% vs. yesterday'], ['>سند قبض<', '>Receipt<'], ['>المبلغ<', '>Amount<'],
@@ -247,7 +247,7 @@ const CHROME_FR: [string, string][] = [
   // التنقّل
   ['>المميزات<', '>Fonctionnalités<'], ['>كيف يعمل<', '>Comment ça marche<'], ['>الأسعار<', '>Tarifs<'],
   ['>الأسئلة<', '>FAQ<'], ['>دخول الأدمن<', '>Espace admin<'], ['>تطبيق المندوب<', '>App commercial<'],
-  ['ابدأ مجانا', 'Essai gratuit'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'], ['مولد الفواتير', 'Générateur de factures'],
+  ['طلب اجتماع', 'Demander une reunion'], ['ابدأ مجانا', 'Essai gratuit'], ['المدونة', 'Blog'], ['حاسبة التسريب', 'Calculateur de fuite'], ['مولد الفواتير', 'Générateur de factures'],
   // بطاقات العرض في القسم الرئيسي
   ['المبيعات والتحصيل', 'Ventes et encaissement'], ['٧ أيام', '7 jours'], ['محصل اليوم', 'Encaissé aujourd’hui'],
   ['+12.4% عن أمس', '+12,4 % vs hier'], ['>سند قبض<', '>Bon de reçu<'], ['>المبلغ<', '>Montant<'],
@@ -316,7 +316,7 @@ const CHROME_TR: [string, string][] = [
   ['>الأسئلة<', '>SSS<'],
   ['>دخول الأدمن<', '>Yönetici girişi<'],
   ['>تطبيق المندوب<', '>Temsilci uygulaması<'],
-  ['ابدأ مجانا', 'Ücretsiz başlayın'],
+  ['طلب اجتماع', 'Toplanti talep edin'], ['ابدأ مجانا', 'Ücretsiz başlayın'],
   ['المدونة', 'Blog'],
   ['حاسبة التسريب', 'Kayıp Hesaplayıcısı'],
   ['مولد الفواتير', 'Fatura Oluşturucu'],
@@ -399,7 +399,7 @@ const CHROME_ZH: [string, string][] = [
   ['>الأسئلة<', '>常见问题<'],
   ['>دخول الأدمن<', '>管理员登录<'],
   ['>تطبيق المندوب<', '>业务员应用<'],
-  ['ابدأ مجانا', '免费开始使用'],
+  ['طلب اجتماع', '预约会议'], ['ابدأ مجانا', '免费开始使用'],
   ['المدونة', '博客'],
   ['حاسبة التسريب', '流失计算器'],
   ['مولد الفواتير', '发票生成器'],
