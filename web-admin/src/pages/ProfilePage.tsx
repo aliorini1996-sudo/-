@@ -66,13 +66,11 @@ const DOC_RULES = (S: string) => `
   }
   ${S} > section:first-of-type { break-before: auto; }
 
-  /* قسم الصورة **هو** الشبكة نفسها، لا حاوية لها. والقاعدة أعلاه تفرض
-     display:flex على كل قسم فتُلغي العمودين ويتكدّسان طولياً — عندها تصير
-     الصورة (بارتفاع ورقة كاملة) داخل نصف ورقة، فيفيض القسم ويُقصّ نصفه.
-     فيُستثنى صراحةً ويبقى شبكةً بعمودين. */
+  /* قسم الصورة **هو** الشبكة نفسها لا حاوية لها، والقاعدة أعلاه تفرض
+     display:flex على كل قسم فتُلغي الشبكة. يُستثنى ليبقى شبكةً — وتوزيعُ
+     صفوفها في كتلة «أقسام الصورة» أدناه. */
   ${S} > section[data-split] {
     display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     align-items: stretch !important;
   }
 
@@ -88,22 +86,37 @@ const DOC_RULES = (S: string) => `
     padding: 0 !important;
   }
 
-  /* ═══ أقسام الصورة: نصف صورة سائلة للحافة ونصف نصّ ═══ */
-  ${S} > section[data-split] > div { padding: 0 !important; max-width: none !important; height: var(--pg-h) !important; }
-  ${S} > section[data-split] .lg\\:grid-cols-2 {
-    height: var(--pg-h) !important;
+  /* ═══ أقسام الصورة: شريطٌ عريض أعلى الورقة ونصٌّ تحته ═══
+     كانت تُقسم نصفين رأسيّين — وهذا يصلح لشاشةٍ عريضة لا لورقة طوليّة: نصف
+     العرض يصير شريطاً طوله ثلاثة أمثال عرضه، فتُقصّ الصورة قصّاً يفسد تكوينها
+     (رؤوس مقطوعة) ويمرّ النصّ تحتها لأن حشوته تُلغى. فتُكدَّس: الصورة عريضة
+     بنسبةٍ طبيعية، والنصّ تحتها بحشوةٍ تخصّه وحده. */
+  ${S} > section[data-split] {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 42% 58% !important;
     gap: 0 !important;
-    align-items: stretch !important;
     margin: 0 !important;
   }
-  ${S} > section[data-split] .lg\\:grid-cols-2 > div {
+  ${S} > section[data-split] > div { max-width: none !important; height: auto !important; min-height: 0 !important; }
+
+  /* عمود الصورة يسبق النصّ بصريّاً ويسيل إلى الحوافّ الثلاث */
+  ${S} > section[data-split] > div:has(img[data-profile-photo]) {
+    order: -1;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+  /* وعمود النصّ وحده يأخذ حشوته — القاعدة القديمة كانت تخاطب شبكةً **داخل**
+     القسم، والقسم نفسه هو الشبكة، فلم تنطبق قطّ وبقي النصّ بلا حشوة. */
+  ${S} > section[data-split] > div:not(:has(img[data-profile-photo])) {
     display: flex !important;
     flex-direction: column;
     justify-content: center;
-    padding: 0 16mm !important;
+    padding: 0 18mm !important;
   }
   ${S} > section[data-split] img[data-profile-photo] {
-    height: var(--pg-h) !important;
+    position: absolute !important;
+    inset: 0 !important;
+    height: 100% !important;
     max-height: none !important;
     width: 100% !important;
     object-fit: cover !important;
