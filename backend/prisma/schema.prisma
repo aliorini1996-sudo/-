@@ -712,11 +712,26 @@ model Receipt {
 
   invoiceItems   ReceiptInvoice[]
   accountEntries AccountEntry[]
+  photos         ReceiptPhoto[]
 
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@map("receipts")
+}
+
+// مرفق سند القبض (إيصال تحويل، صورة شيك، إشعار بنكي) — تُخزَّن base64 مضغوطةً
+// على الجهاز، في **جدول منفصل** كصور الزيارة: قائمة السندات تُقرأ عشرات المرّات
+// يومياً، وحملُ صورةٍ في كل صفّ يجعلها ثقيلة بلا داعٍ. تُطلَب عند فتح السند وحده.
+model ReceiptPhoto {
+  id        String   @id @default(uuid())
+  receiptId String
+  receipt   Receipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  data      String // data URL: data:image/jpeg;base64,...
+  createdAt DateTime @default(now())
+
+  @@index([receiptId])
+  @@map("receipt_photos")
 }
 
 model ReceiptInvoice {

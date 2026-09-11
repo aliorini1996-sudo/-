@@ -1822,6 +1822,11 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'ثقة عالية': { en: 'High confidence', fr: 'Confiance elevee', tr: 'Yuksek guven', zh: '高置信度' },
   'ثقة متوسطة': { en: 'Medium confidence', fr: 'Confiance moyenne', tr: 'Orta guven', zh: '中等置信度' },
   'ثقة منخفضة': { en: 'Low confidence', fr: 'Confiance faible', tr: 'Dusuk guven', zh: '低置信度' },
+  // ——— مرفقات سند القبض ———
+  'مرفقات': { en: 'Attachments', fr: 'Pieces jointes', tr: 'Ekler', zh: '附件' },
+  'حذف الصورة': { en: 'Remove photo', fr: 'Supprimer la photo', tr: 'Fotografi kaldir', zh: '删除图片' },
+  'الحد الأقصى 4 صور': { en: 'Up to 4 photos', fr: 'Jusqu a 4 photos', tr: 'En fazla 4 fotograf', zh: '最多 4 张图片' },
+  'أرفق إيصال التحويل أو صورة الشيك حتى 4 صور': { en: 'Attach the transfer receipt or a photo of the cheque up to 4 photos', fr: 'Joignez le recu de virement ou une photo du cheque jusqu a 4 photos', tr: 'Havale dekontunu veya cek fotografini ekleyin en fazla 4 fotograf', zh: '可附上转账凭证或支票照片，最多 4 张' },
 };
 
 export function useTr() {

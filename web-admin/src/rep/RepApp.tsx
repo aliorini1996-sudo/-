@@ -2,6 +2,7 @@ import {
   useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import {   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
+import { compressImage } from './imageCompress';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
@@ -995,31 +996,7 @@ function LogVisit({ customer, onClose, onDone }: { customer: any; onClose: () =>
     );
   }, []);
 
-  // ضغط الصورة عبر canvas (أقصى بُعد 1280 وجودة 0.7) — يبقيها صغيرة للرفع والتخزين
-  const compress = (file: File): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const max = 1280;
-        let { width, height } = img;
-        if (width > max || height > max) {
-          const s = Math.min(max / width, max / height);
-          width = Math.round(width * s); height = Math.round(height * s);
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { reject(new Error('canvas')); return; }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
-      };
-      img.onerror = () => reject(new Error('img'));
-      img.src = reader.result as string;
-    };
-    reader.onerror = () => reject(new Error('read'));
-    reader.readAsDataURL(file);
-  });
+  const compress = compressImage;
 
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -1577,6 +1554,10 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('CASH');
   const [notes, setNotes] = useState('');
+  /* مرفقات السند — إيصال تحويل أو صورة شيك. تمرّ في نفس حمولة السند فتلتقطها
+   * منظومة الأوف‑لاين كما هي: مرفقٌ يُرفع في طلبٍ ثانٍ كان سيضيع حين ينقطع
+   * الاتصال بين الطلبين، وهو بالضبط ما يقع في الميدان. */
+  const [photos, setPhotos] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   // فواتير العميل المفتوحة + توزيع السند عليها (إلزاميّ عند الاتصال)
@@ -1644,7 +1625,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
     const invoiceAllocations = Object.entries(alloc)
       .filter(([, v]) => v > 0.004)
       .map(([invoiceId, a]) => ({ invoiceId, amount: a }));
-    const payload = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, clientRef, clientCreatedAt, ...(invoiceAllocations.length ? { invoiceAllocations } : {}) };
+    const payload = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, clientRef, clientCreatedAt, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}) };
     try {
       const res = await repApi.post('/receipts', payload);
       const rcp = res.data.data;
@@ -1662,6 +1643,18 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
           company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
         });
       } else { setMsg(err?.response?.data?.message || tr('تعذر إصدار السند حاول مجددا')); setLoading(false); }
+    }
+  };
+
+  const pickPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // يسمح بإعادة اختيار نفس الملف
+    for (const f of files) {
+      if (photos.length >= 4) { setMsg(tr('الحد الأقصى 4 صور')); break; }
+      try {
+        const url = await compressImage(f);
+        setPhotos(prev => (prev.length < 4 ? [...prev, url] : prev));
+      } catch { /* ملفٌ تالف أو غير صورة — يُتجاهل ولا يُسقط البقيّة */ }
     }
   };
 
@@ -1757,6 +1750,33 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
               </button>
             ))}
           </div>
+        </div>
+
+        <div>
+          <label className="label">{tr('مرفقات')}</label>
+          <div className="flex flex-wrap gap-2">
+            {photos.map((p, i) => (
+              <span key={i} className="relative w-[72px] h-[72px] rounded-xl overflow-hidden border border-gray-200">
+                <img src={p} alt="" className="w-full h-full object-cover" />
+                <button type="button" onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                  aria-label={tr('حذف الصورة')}
+                  className="absolute top-0.5 left-0.5 bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center">
+                  <X size={13} />
+                </button>
+              </span>
+            ))}
+            {photos.length < 4 && (
+              <label className="w-[72px] h-[72px] rounded-xl border-2 border-dashed border-gray-300 text-gray-400 flex flex-col items-center justify-center gap-1 active:bg-gray-50">
+                {/* capture يفتح الكاميرا مباشرةً على الجوال، ويسقط للمعرض على سطح المكتب */}
+                <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={pickPhotos} />
+                <Camera size={18} />
+                <span className="text-[10px]">{tr('صورة')}</span>
+              </label>
+            )}
+          </div>
+          <p className="text-[10.5px] text-gray-500 mt-1.5">
+            {tr('أرفق إيصال التحويل أو صورة الشيك حتى 4 صور')}
+          </p>
         </div>
 
         <div>

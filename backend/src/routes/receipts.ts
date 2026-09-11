@@ -24,6 +24,10 @@ const receiptSchema = z.object({
   chequeNumber: z.string().optional(),
   bankName: z.string().optional(),
   notes: z.string().optional(),
+  // مرفقات السند — نفس حدود صور الزيارة: ٨ صور، كلٌّ حتى ٢٫٥ ميغابايت base64.
+  // والسقف ليس تزيّناً: جسم الطلب محدودٌ بـ10mb، وبلا حدٍّ هنا يردّ الخادم 413
+  // بلا رسالةٍ مفهومة بدل رفضٍ صريح.
+  photos: z.array(z.string().max(2_500_000)).max(8).optional(),
   invoiceAllocations: z.array(z.object({
     invoiceId: z.string(),
     amount: z.number().positive(),
@@ -126,6 +130,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
         invoiceItems: { include: { invoice: true } },
+        // المرفقات هنا وحدها لا في القائمة: صفٌّ يحمل base64 يُثقل قائمةً تُقرأ يومياً
+        photos: { select: { id: true, data: true }, orderBy: { createdAt: 'asc' } },
       },
     });
     if (!receipt) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }
@@ -264,6 +270,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           chequeNumber: body.chequeNumber,
           bankName: body.bankName,
           notes: body.notes,
+          // المرفقات في نفس المعاملة: لو كُتبت بعدها وسقط الاتصال لبقي سندُ
+          // تحويلٍ بلا إيصاله — وهو ما وُضع المرفق أصلاً ليمنعه
+          ...(body.photos?.length && { photos: { create: body.photos.map((data) => ({ data })) } }),
         },
       });
 

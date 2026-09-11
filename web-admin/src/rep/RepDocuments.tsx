@@ -5,7 +5,9 @@ import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { printThermalInvoice, printThermalReceipt } from './thermal';
-import { Share2, Download, Check, ArrowRight, Printer } from 'lucide-react';
+import { backdropClose } from '../lib/backdropClose';
+import { useBackClose } from '../lib/useBackClose';
+import { Share2, Download, Check, ArrowRight, Printer, X } from 'lucide-react';
 
 // رمز QR كصورة PNG (data URL) بدل <canvas> — لأن html2canvas لا يلتقط محتوى الـcanvas
 // عند توليد الـPDF فيختفي الرمز. الصورة (data URL) تُلتقط بثبات في PDF والطباعة والمشاركة.
@@ -80,6 +82,9 @@ export interface InvoiceDoc {
   offline?: boolean; // أُنشئت دون اتصال — رقم مؤقّت، ترتفع للخادم عند الاتصال
 }
 
+/** مرفق سند قبض — صورة إيصال تحويل أو شيك بصيغة data URL */
+export interface ReceiptPhoto { id: string; data: string }
+
 export interface ReceiptDoc {
   kind: 'receipt';
   number: string;
@@ -90,6 +95,12 @@ export interface ReceiptDoc {
   amount: number;
   paymentMethod: string;
   notes?: string;
+  /**
+   * مرفقات رفعها المندوب عند الإصدار. **لا تدخل قالب الطباعة** —
+   * انظر `ReceiptAttachments` لسبب فصلها عن المستند.
+   * وتصل من `GET /receipts/:id` وحده؛ القائمة لا تُرجعها فتكون غائبة.
+   */
+  photos?: ReceiptPhoto[];
   offline?: boolean;
 }
 
@@ -839,6 +850,23 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
   };
 }
 
+/**
+ * مرفقات السند من ردّ الخادم. تُفحص صفّاً صفّاً لا تُمرَّر جملةً: الحقل غائب في
+ * ردّ القائمة، وغائب عن كل سند أُنشئ قبل الميزة، وقد يصل صفٌّ بلا `data` —
+ * وصورةٌ مصدرها `undefined` تطبع مربّعاً مكسوراً في وجه المحاسب.
+ */
+function receiptPhotosFrom(raw: unknown): ReceiptPhoto[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ReceiptPhoto[] = [];
+  raw.forEach((row, i) => {
+    const { id, data } = (row ?? {}) as { id?: unknown; data?: unknown };
+    if (typeof data === 'string' && data) {
+      out.push({ id: typeof id === 'string' ? id : String(i), data });
+    }
+  });
+  return out.length ? out : undefined;   // لا مصفوفة فارغة: الشريط يختفي بالغياب
+}
+
 export function receiptDocFromDetail(rcp: any, repName: string, company?: Company | null): ReceiptDoc {
   return {
     kind: 'receipt',
@@ -850,6 +878,7 @@ export function receiptDocFromDetail(rcp: any, repName: string, company?: Compan
     amount: Number(rcp.amount),
     paymentMethod: rcp.paymentMethod,
     notes: rcp.notes ?? undefined,
+    photos: receiptPhotosFrom(rcp.photos),
   };
 }
 
@@ -926,6 +955,76 @@ export function loadNoticeDocFromData(
     by: movement.by || undefined,
     items: movement.items.map((i) => ({ name: i.name, qty: Number(i.qty), unit: i.unit || undefined })),
   };
+}
+
+// ============ شريط مرفقات سند القبض ============
+/**
+ * صور إيصال التحويل أو الشيك التي أرفقها المندوب بالسند.
+ *
+ * **لماذا شريطٌ خارج المستند لا قسمٌ داخله:** `PrintableReceipt` تُلتقط كاملةً
+ * إلى PDF بمقاس A4 (`PAGE`) — سندٌ رسميّ يُسلَّم للعميل ويُحفظ في دفاتره. وحشوُ
+ * صورِ هاتفٍ بعرض الصفحة فيه يدفع التوقيعين إلى صفحة ثانية ويضخّم الملفّ
+ * المُرسَل. فالمرفق **دليلٌ للمحاسب** لا بندٌ في السند: يُعرض هنا مصغّراً بمقاس
+ * ثابت، ويُفتح كاملاً بنقرة. ولا يظهر عنوانٌ إن لم يكن ثمّة مرفق.
+ *
+ * ويكفي وجوده هنا لتُرى المرفقات في الأسطح الثلاثة: لوحة الويب (داخل
+ * `DocumentModal`)، ولوحة الجوال (`MDocScreen`)، وتطبيق المندوب — فكلّها تفتح
+ * السند بهذا المكوّن نفسه.
+ */
+function ReceiptAttachments({ photos }: { photos: ReceiptPhoto[] }) {
+  const tr = useTr();
+  const [zoom, setZoom] = useState<string | null>(null);
+
+  // زرّ الرجوع في أندرويد يُغلق التكبير لا التطبيق — سطحان من الثلاثة تطبيقا جوّال
+  useBackClose(!!zoom, () => setZoom(null));
+  // وEscape للوحة الويب: المحاسب على لوحة مفاتيح لا على شاشة لمس
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoom(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoom]);
+
+  return (
+    <>
+      {/* نفس مفتاح لافتة الرفع في شاشة المندوب: من أرفق «مرفقات» يجدها «مرفقات» */}
+      <p className="text-xs text-gray-400 mb-2">{tr('مرفقات')} ({photos.length})</p>
+      {/* شريط أفقيّ يمتدّ لحافّتي الحاوية (-mx-4 px-4): سقف الخادم ثمانية مرفقات
+          لا تسعها شبكةٌ في عرض 400px، والمقاس الثابت يمنع قفزة التخطيط عند التحميل */}
+      <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1 mb-4">
+        {photos.map((p, i) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setZoom(p.data)}
+            aria-label={`${tr('مرفقات')} ${i + 1}`}
+            className="shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-gray-200 bg-white hover:border-[#1E7A52]"
+          >
+            <img src={p.data} alt="" loading="lazy" className="w-full h-full object-cover" />
+          </button>
+        ))}
+      </div>
+
+      {/* تكبير — طبقة بسيطة فوق كل شيء: فتح data: URL في تبويب جديد يحجبه المتصفّح */}
+      {zoom && (
+        <div
+          className="fixed inset-0 z-[1200] bg-black/90 flex items-center justify-center p-4"
+          {...backdropClose(() => setZoom(null))}
+        >
+          <img src={zoom} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
+          <button
+            type="button"
+            onClick={() => setZoom(null)}
+            aria-label={tr('إغلاق')}
+            className="absolute p-2 text-white/80 hover:text-white"
+            style={{ insetInlineEnd: 16, top: 'calc(1rem + env(safe-area-inset-top))' }}
+          >
+            <X size={26} />
+          </button>
+        </div>
+      )}
+    </>
+  );
 }
 
 // ============ شاشة النتيجة (معاينة + مشاركة/حفظ PDF) ============
@@ -1017,6 +1116,10 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
             <b>{tr('أنشئ دون اتصال')}</b> — {tr('الرقم مؤقت ويعتمد رقمه النهائي تلقائيا عند اتصالك بالإنترنت اطبع/سلم نسختك الآن بشكل طبيعي')}
           </div>
         )}
+
+        {/* المرفقات قبل المعاينة عمداً: المعاينة كتلة بطول 470px تدفع الشريط تحت
+            حافّة الشاشة، والمحاسب إنما فتح السند ليرى إيصال التحويل */}
+        {doc.kind === 'receipt' && !!doc.photos?.length && <ReceiptAttachments photos={doc.photos} />}
 
         {/* معاينة مصغّرة للمستند */}
         <p className="text-xs text-gray-400 mb-2">{tr('معاينة المستند')}</p>
