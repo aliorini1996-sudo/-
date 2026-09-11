@@ -6,6 +6,7 @@ import { invoiceApi, receiptApi } from '../api/client';
 import { Invoice } from '../types';
 import { formatCurrency, formatDate, formatTime, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { invalidateAfterReceipt } from '../lib/receiptEffects';
 import { useBackClose } from '../lib/useBackClose';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { MCard, MRow, MEmpty, MError, MSpinner } from './mobileUi';
@@ -71,8 +72,9 @@ export default function MDocList({ kind, company, userName }: {
     setCancelling(true);
     try {
       await api.cancel(cancelId);
-      qc.invalidateQueries({ queryKey: ['m-docs', kind] });
-      qc.invalidateQueries({ queryKey: ['m-dashboard'] });
+      // إلغاء السند يردّ المبلغ على الفواتير، وإلغاء الفاتورة يغيّر مديونية
+      // العميل — فكلاهما يمسّ ما يمسّه الإصدار. القائمة الواحدة تكفيهما.
+      invalidateAfterReceipt(qc);
       toast.success(kind === 'invoice' ? tr('تم إلغاء الفاتورة') : tr('تم إلغاء السند'));
       setCancelId(null); setOpenId(null);
     } catch (e) {

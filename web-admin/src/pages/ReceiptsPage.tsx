@@ -4,6 +4,7 @@ import { receiptApi, companyApi, salesRepApi } from '../api/client';
 import { Receipt, SalesRep } from '../types';
 import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { invalidateAfterReceipt } from '../lib/receiptEffects';
 import { Plus, XCircle, ChevronLeft, ChevronRight, FileText, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ReceiptModal from '../components/forms/ReceiptModal';
@@ -90,7 +91,7 @@ export default function ReceiptsPage() {
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => receiptApi.cancel(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['receipts'] }); toast.success(tr('تم إلغاء السند')); },
+    onSuccess: () => { invalidateAfterReceipt(qc); toast.success(tr('تم إلغاء السند')); },
     onError: () => toast.error(tr('خطأ في الإلغاء')),
   });
 
@@ -212,7 +213,7 @@ export default function ReceiptsPage() {
       {showCreate && (
         <ReceiptModal
           onClose={() => setShowCreate(false)}
-          onSaved={(doc) => { setShowCreate(false); qc.invalidateQueries({ queryKey: ['receipts'] }); setDocResult(doc); }}
+          onSaved={(doc) => { setShowCreate(false); invalidateAfterReceipt(qc); setDocResult(doc); }}
         />
       )}
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}

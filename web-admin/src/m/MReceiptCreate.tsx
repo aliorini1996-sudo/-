@@ -7,6 +7,7 @@ import { Invoice } from '../types';
 import { formatCurrency, formatDate, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
+import { invalidateAfterReceipt } from '../lib/receiptEffects';
 import { MHeader, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
 
@@ -88,8 +89,7 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
       return res.data.data as { id: string };
     },
     onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ['m-docs', 'receipt'] });
-      qc.invalidateQueries({ queryKey: ['m-dashboard'] });
+      invalidateAfterReceipt(qc);
       toast.success(tr('تم إصدار السند'));
       onCreated(r.id);
     },
