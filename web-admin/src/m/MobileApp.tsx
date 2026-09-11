@@ -9,11 +9,16 @@ import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { User } from '../types';
 import MobileLogin from './MobileLogin';
-import MHome from './MHome';
+import MHome, { HomeSection } from './MHome';
 import MCustomers from './MCustomers';
 import MDocList from './MDocList';
 import MDailyReports from './MDailyReports';
 const MTracking = lazy(() => import('./MTracking'));
+/* أقسام الإدارة في حزمٍ كسولة: ثلاث شاشاتٍ ثقيلة (جداول ونماذج وتقارير) لا
+ * يدفع ثمنها من لم يفتحها — والرئيسية أوّل ما يُحمَّل عند كل إقلاع. */
+const MSalesReps = lazy(() => import('./MSalesReps'));
+const MProducts = lazy(() => import('./MProducts'));
+const MReports = lazy(() => import('./MReports'));
 import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
 import { useBackClose } from '../lib/useBackClose';
@@ -55,6 +60,9 @@ export default function MobileApp() {
   // شاشة تعريفية قبل الدخول (متطلّب App Store 5.1.1(v)): يفتح التطبيق عليها لا على الدخول
   const [showLogin, setShowLogin] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');
+  /* قسمٌ إداريّ مفتوحٌ فوق كل شيء — طبقةٌ لا تبويب: هذه صفحاتٌ يدخلها المستخدم
+   * ليضبط شيئاً ثمّ يخرج، لا محطّاتٌ يتنقّل بينها طوال اليوم. */
+  const [section, setSection] = useState<HomeSection | null>(null);
   const [installEvt, setInstallEvt] = useState<InstallPromptEvent | null>(null);
   // إعدادات الشركة — تُمرَّر لطابع المستندات (ترويسة، رقم ضريبي، رمز ZATCA)
   const [company, setCompany] = useState<unknown>(null);
@@ -87,13 +95,26 @@ export default function MobileApp() {
     if (tabs.length && !tabs.some(t => t.id === screen)) setScreen(tabs[0].id);
   }, [tabs, screen]);
 
+  /* بلاطات أقسام الإدارة في الرئيسية — تُحسب هنا لا في MHome: الصلاحيات شأن
+   * القوقعة، والشاشة تعرض ما يُعطى لها. والمنع عند `false` الصريحة وحدها كبقيّة
+   * التطبيق، وإلا حُجبت الأقسام عن مدير الشركة الأصليّ المُنشأ قبل أعمدة الصلاحيات. */
+  const allowedSections = useMemo<HomeSection[]>(() => {
+    const out: HomeSection[] = [];
+    if (can(user, 'canManageSalesReps')) out.push('reps');
+    if (can(user, 'canManageProducts')) out.push('products');
+    if (can(user, 'canViewReports')) out.push('reports');
+    return out;
+  }, [user]);
+
   /* ═══ زرّ الرجوع (أندرويد) وسحبة الحافة (آيفون) ═══
    * طبقات الشاشات الداخلية مربوطة في مكوّناتها؛ هنا الجذر وحده.
    * والعودة إلى `tabs[0].id` لا إلى 'home' حرفياً: التبويبات مصفّاة
    * بالصلاحيات وقد لا تكون الرئيسية متاحةً لهذا المستخدم أصلاً. */
   useBackClose(!!(!token || !user) && showLogin, () => setShowLogin(false));
+  // القسم الإداريّ فوق التبويبات، فيُغلق أوّلاً عند الرجوع
+  useBackClose(!!section, () => setSection(null));
   useBackClose(
-    !!token && !!user && tabs.length > 0 && screen !== tabs[0].id,
+    !!token && !!user && !section && tabs.length > 0 && screen !== tabs[0].id,
     () => setScreen(tabs[0].id),
   );
 
@@ -185,7 +206,8 @@ export default function MobileApp() {
       <div className="flex-1 overflow-hidden">
         {tabs.length === 0
           ? <MEmpty text={tr('لا تملك صلاحية أي قسم في التطبيق راجع مدير الشركة')} />
-          : <ScreenBody screen={screen} company={company} userName={user.name} accountingOn={accountingOn} />}
+          : <ScreenBody screen={screen} company={company} userName={user.name} accountingOn={accountingOn}
+              allowedSections={allowedSections} onOpenSection={setSection} />}
       </div>
 
       {/* الشريط السفليّ — يُخفى إن لم يبقَ تبويب مسموح */}
@@ -209,14 +231,30 @@ export default function MobileApp() {
           })}
         </div>
       )}
+
+      {/* قسم إداريّ مفتوح — صفحةٌ كاملة فوق الشريطين معاً، بترويستها وزرّ رجوعها */}
+      {section && (
+        <div className="absolute inset-0 z-20 bg-white">
+          <Suspense fallback={<MSpinner />}>
+            {section === 'reps' ? <MSalesReps onBack={() => setSection(null)} />
+              : section === 'products' ? <MProducts onBack={() => setSection(null)} />
+                : <MReports onBack={() => setSection(null)} />}
+          </Suspense>
+        </div>
+      )}
     </>
   );
 }
 
 /** شاشات التبويبات */
-function ScreenBody({ screen, company, userName, accountingOn }: { screen: Screen; company: unknown; userName: string; accountingOn: boolean }) {
+function ScreenBody({ screen, company, userName, accountingOn, allowedSections, onOpenSection }: {
+  screen: Screen; company: unknown; userName: string; accountingOn: boolean;
+  allowedSections: HomeSection[]; onOpenSection: (s: HomeSection) => void;
+}) {
   const tr = useTr();
-  if (screen === 'home') return <MHome accountingOn={accountingOn} />;
+  if (screen === 'home') {
+    return <MHome accountingOn={accountingOn} allowedSections={allowedSections} onOpenSection={onOpenSection} />;
+  }
   if (screen === 'customers') return <MCustomers />;
   // key ضروريّ: المكوّنان في الموضع نفسه من الشجرة ومن النوع نفسه، فيوفّق
   // React بينهما ويحتفظ بالحالة — فيبقى مستندٌ مفتوحاً عند تبديل التبويب

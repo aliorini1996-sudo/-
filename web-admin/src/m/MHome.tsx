@@ -1,8 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft } from 'lucide-react';
+import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3 } from 'lucide-react';
 import { dashboardApi } from '../api/client';
-import { DashboardStats, Invoice } from '../types';
+import { DashboardStats } from '../types';
 import { formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { MCard, MStat, MRow, MError, MSpinner } from './mobileUi';
@@ -16,15 +16,28 @@ const MSalesChart = lazy(() => import('./MSalesChart'));
  *
  * الفروق المقصودة عن نسخة سطح المكتب:
  *  - بطاقات عمودية `grid-cols-2` لا صفوفاً أفقية بأيقونة 48px (العرض ٣٦٠px).
- *  - «آخر الفواتير» و«أفضل العملاء/المناديب» **أزرارٌ تنقل**، لا نصّاً ميتاً:
- *    تطبيق «بإجراءات كاملة» لا يليق به طريق مسدود.
+ *  - «أفضل العملاء/المناديب» **أزرارٌ تنقل**، لا نصّاً ميتاً: تطبيق «بإجراءات
+ *    كاملة» لا يليق به طريق مسدود.
+ *  - أسفل الشاشة بلاطات أقسام الإدارة (المناديب · المنتجات · التقارير) — وهي
+ *    المدخل الوحيد إليها، إذ امتلأت مقاعد الشريط السفليّ الخمسة.
  *  - الاستطلاع مشروط بحياة الشاشة (بطارية وباقة).
  */
-export default function MHome({ accountingOn = true, onOpenInvoice, onOpenCustomer }: {
+/** أقسام الإدارة التي تُفتح من الرئيسية صفحاتٍ كاملة */
+export type HomeSection = 'reps' | 'products' | 'reports';
+
+const SECTION_TILES: { id: HomeSection; label: string; icon: React.ElementType }[] = [
+  { id: 'reps', label: 'المناديب', icon: UserCog },
+  { id: 'products', label: 'المنتجات', icon: Package },
+  { id: 'reports', label: 'التقارير', icon: BarChart3 },
+];
+
+export default function MHome({ accountingOn = true, onOpenCustomer, onOpenSection, allowedSections = [] }: {
   /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تختفي كل خانة تعرض مبلغاً */
   accountingOn?: boolean;
-  onOpenInvoice?: (inv: Invoice) => void;
   onOpenCustomer?: (id: string) => void;
+  onOpenSection?: (s: HomeSection) => void;
+  /** ما يملك المستخدم صلاحيته منها — تُحسب في القوقعة لا هنا */
+  allowedSections?: HomeSection[];
 }) {
   const tr = useTr();
   const live = useIsLive();
@@ -129,23 +142,18 @@ export default function MHome({ accountingOn = true, onOpenInvoice, onOpenCustom
         </MCard>
       </Section>)}
 
-      {/* آخر الفواتير — أزرار تفتح المستند */}
-      {accountingOn && (<Section title={tr('آخر الفواتير')}>
-        <MCard>
-          {d.recentInvoices.length === 0 ? <Blank text={tr('لا توجد فواتير')} /> : d.recentInvoices.slice(0, 6).map(inv => (
-            <MRow key={inv.id}
-              title={inv.number}
-              subtitle={`${inv.customer?.name || '—'} · ${inv.salesRep?.name || tr('الإدارة')}`}
-              onClick={onOpenInvoice ? () => onOpenInvoice(inv) : undefined}
-              trailing={
-                <span className="flex items-center gap-1">
-                  <span className="text-sm font-bold text-[#1F1A13] whitespace-nowrap">{formatCurrency(inv.total)}</span>
-                  {onOpenInvoice && <ChevronLeft size={15} className="text-[#C9BFB0]" />}
-                </span>
-              } />
-          ))}
-        </MCard>
-      </Section>)}
+      {/* أقسام الإدارة — مدخل الشاشات التي لا مقعد لها في الشريط السفليّ.
+          حلّت محلّ قائمة «آخر الفواتير»: تلك كانت تكرّر تبويب الفواتير بصفوفٍ
+          ستّة، وهذه تفتح ما لم يكن بالغاً من الجوال إطلاقاً. */}
+      {onOpenSection && allowedSections.length > 0 && (
+        <Section title={tr('الإدارة')}>
+          <div className="grid grid-cols-3 gap-2.5">
+            {SECTION_TILES.filter(t => allowedSections.includes(t.id)).map(t => (
+              <SectionTile key={t.id} icon={t.icon} label={tr(t.label)} onClick={() => onOpenSection(t.id)} />
+            ))}
+          </div>
+        </Section>
+      )}
 
       <div className="h-2" />
     </div>
@@ -173,4 +181,20 @@ function Rank({ n }: { n: number }) {
 
 function Blank({ text }: { text: string }) {
   return <p className="text-center text-xs text-[#9A8F7E] py-6">{text}</p>;
+}
+
+/**
+ * بلاطة قسم — مربّعة لا صفّاً: ثلاثٌ في السطر على عرض ٣٦٠px تعطي ~١٠٥px لكلّ
+ * واحدة، وهو هدف لمسٍ مريح بالإبهام وأوسع من الأدنى المطلوب بكثير.
+ */
+function SectionTile({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="bg-white rounded-2xl border border-[#F1EBDF] flex flex-col items-center justify-center gap-2 py-4 min-h-[88px] active:bg-[#FAF7F0] transition-colors">
+      <span className="w-10 h-10 rounded-full bg-[#FBEBE2] text-[#C94E28] flex items-center justify-center">
+        <Icon size={19} />
+      </span>
+      <span className="text-[11px] font-semibold text-[#1F1A13] text-center leading-tight px-1">{label}</span>
+    </button>
+  );
 }

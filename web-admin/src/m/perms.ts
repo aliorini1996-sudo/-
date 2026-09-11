@@ -14,7 +14,11 @@ export type PermKey =
   | 'canManageCustomers'
   | 'canManageInvoices'
   | 'canManageReceipts'
-  | 'canViewReports';
+  | 'canViewReports'
+  // أقسام الإدارة الثلاثة في الرئيسية — لا تبويبات لها في الشريط السفليّ،
+  // فالشريط خمسة مقاعد وقد امتلأ؛ وهي أبعد عن العمل الميدانيّ اليوميّ.
+  | 'canManageSalesReps'
+  | 'canManageProducts';
 
 export function can(user: User | null, key: PermKey): boolean {
   if (!user) return false;
