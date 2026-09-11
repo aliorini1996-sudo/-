@@ -1767,10 +1767,15 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
             ))}
             {photos.length < 4 && (
               <label className="w-[72px] h-[72px] rounded-xl border-2 border-dashed border-gray-300 text-gray-400 flex flex-col items-center justify-center gap-1 active:bg-gray-50">
-                {/* capture يفتح الكاميرا مباشرةً على الجوال، ويسقط للمعرض على سطح المكتب */}
-                <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={pickPhotos} />
-                <Camera size={18} />
-                <span className="text-[10px]">{tr('صورة')}</span>
+                {/* بلا `capture` عمداً: النظام يعرض الاختيار بين الكاميرا والمعرض.
+                    ووضعُها هنا كان خطأً — إيصال التحويل غالباً لقطةُ شاشةٍ من تطبيق
+                    البنك محفوظةٌ سلفاً، و`capture` كانت تفرض الكاميرا فتحجب الحالة
+                    الأشيع. (وتبقى في تسجيل الزيارة عن قصد: تصوير الرفّ يُراد له
+                    لقطةٌ حيّة لا صورةٌ قديمة.) */}
+                <input type="file" accept="image/*" multiple className="hidden" onChange={pickPhotos} />
+                {/* أيقونة صورة لا كاميرا: الزرّ يقبل الالتقاط والاختيار من المعرض معاً */}
+                <ImageIcon size={18} />
+                <span className="text-[10px]">{tr('إضافة صورة')}</span>
               </label>
             )}
           </div>

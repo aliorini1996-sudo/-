@@ -1823,6 +1823,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'ثقة متوسطة': { en: 'Medium confidence', fr: 'Confiance moyenne', tr: 'Orta guven', zh: '中等置信度' },
   'ثقة منخفضة': { en: 'Low confidence', fr: 'Confiance faible', tr: 'Dusuk guven', zh: '低置信度' },
   // ——— مرفقات سند القبض ———
+  'إضافة صورة': { en: 'Add photo', fr: 'Ajouter une photo', tr: 'Fotograf ekle', zh: '添加图片' },
   'مرفقات': { en: 'Attachments', fr: 'Pieces jointes', tr: 'Ekler', zh: '附件' },
   'حذف الصورة': { en: 'Remove photo', fr: 'Supprimer la photo', tr: 'Fotografi kaldir', zh: '删除图片' },
   'الحد الأقصى 4 صور': { en: 'Up to 4 photos', fr: 'Jusqu a 4 photos', tr: 'En fazla 4 fotograf', zh: '最多 4 张图片' },
