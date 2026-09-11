@@ -28,35 +28,33 @@ import { mergeProfile, splitLines, splitPairs, sectionOn, PROFILE_CMS_KEY, PROFI
  * فالقاعدة: كل قسم صفحة واحدة بارتفاع مضبوط ومحتوى يملؤها — وأقسام الصورة
  * تُقسم نصفين: صورة تسيل إلى حافة الورقة ونصّ يقابلها.
  */
-const PRINT_CSS = `
-@page { size: A4; margin: 0; }
-
-/* قسم أخفاه المالك لا يُعرض ولا يُطبع — قاعدة عامة لأن قواعد الطباعة تفرض display */
-#profile-doc > [hidden] { display: none !important; }
-
-@media print {
+/**
+ * قواعد صفحة الوثيقة — **مصدر واحد** يخدم مسارَي الإخراج معاً.
+ *
+ * كانت هذه القواعد داخل `@media print` وحدها، فلمّا صار التصدير يلتقط الصفحة
+ * بنفسه (لا بحوار الطباعة) لم تكن تنطبق عليه. ونسخُها نسختين يعيد فخّ «المصدر
+ * المزدوج» الموثّق في هذا المستودع: تُصلَح واحدة وتبقى الأخرى.
+ *
+ * وارتفاع الورقة صار متغيّراً لأن `100vh` **لا يساوي ارتفاع A4 عند الطباعة** —
+ * قِيس فخرج القسم بنحو ٧٨٪ من الورقة، فظهر شريط فاتح أسفل كل صفحة، و`overflow`
+ * حذف ما فاض: بندان كاملان وسطرٌ مشطور في صفحة «المنصّة».
+ */
+const DOC_RULES = (S: string) => `
   /* الخلفيات والصور جزء من الهوية لا زينة */
-  *, *::before, *::after {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  html, body { background: #FAF7F0 !important; margin: 0 !important; }
-  #profile-doc { min-height: 0 !important; background: #FAF7F0 !important; }
+  ${S} { min-height: 0 !important; background: #FAF7F0 !important; }
 
   /* ما لا ينتمي للوثيقة */
-  .wa-fab, [data-wa-fab], [data-print-hide] { display: none !important; }
 
   /* عرض الورقة دون عتبة lg فينهار العمودان */
-  #profile-doc .lg\\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  ${S} .lg\\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 
   /* ═══ صفحة كاملة لكل قسم ═══
      ارتفاع مضبوط لا أدنى فلا يتسرّب سطر إلى ورقة تالية،
      وoverflow حارس أخير ضد أي فيض فلا يظهر قطع أبداً. */
-  #profile-doc > section, #profile-doc > footer {
+  ${S} > section, ${S} > footer {
     break-before: page;
     break-inside: avoid;
-    height: 100vh !important;
-    max-height: 100vh !important;
+    height: var(--pg-h) !important;
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column;
@@ -66,14 +64,24 @@ const PRINT_CSS = `
     max-width: none !important;
     width: 100% !important;
   }
-  #profile-doc > section:first-of-type { break-before: auto; }
+  ${S} > section:first-of-type { break-before: auto; }
+
+  /* قسم الصورة **هو** الشبكة نفسها، لا حاوية لها. والقاعدة أعلاه تفرض
+     display:flex على كل قسم فتُلغي العمودين ويتكدّسان طولياً — عندها تصير
+     الصورة (بارتفاع ورقة كاملة) داخل نصف ورقة، فيفيض القسم ويُقصّ نصفه.
+     فيُستثنى صراحةً ويبقى شبكةً بعمودين. */
+  ${S} > section[data-split] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+  }
 
   /* ═══ الأقسام النصّية ═══
      الحشوة على القسم نفسه لا على حاويته الداخلية: بعض الأقسام (العملاء) بلا
      حاوية أصلاً — عنوانها ابن مباشر للقسم — فكانت تلتصق بحافة الورقة وتُقرأ
      كأنها مقطوعة. الخلفية لا تتأثر بالحشوة فتبقى ممتدّة للحافة. */
-  #profile-doc > section:not([data-split]), #profile-doc > footer { padding: 0 20mm !important; }
-  #profile-doc > section:not([data-split]) > div, #profile-doc > footer > div {
+  ${S} > section:not([data-split]), ${S} > footer { padding: 0 20mm !important; }
+  ${S} > section:not([data-split]) > div, ${S} > footer > div {
     width: 100% !important;
     max-width: none !important;
     margin-inline: 0 !important;
@@ -81,21 +89,21 @@ const PRINT_CSS = `
   }
 
   /* ═══ أقسام الصورة: نصف صورة سائلة للحافة ونصف نصّ ═══ */
-  #profile-doc > section[data-split] > div { padding: 0 !important; max-width: none !important; height: 100vh !important; }
-  #profile-doc > section[data-split] .lg\\:grid-cols-2 {
-    height: 100vh !important;
+  ${S} > section[data-split] > div { padding: 0 !important; max-width: none !important; height: var(--pg-h) !important; }
+  ${S} > section[data-split] .lg\\:grid-cols-2 {
+    height: var(--pg-h) !important;
     gap: 0 !important;
     align-items: stretch !important;
     margin: 0 !important;
   }
-  #profile-doc > section[data-split] .lg\\:grid-cols-2 > div {
+  ${S} > section[data-split] .lg\\:grid-cols-2 > div {
     display: flex !important;
     flex-direction: column;
     justify-content: center;
     padding: 0 16mm !important;
   }
-  #profile-doc > section[data-split] img[data-profile-photo] {
-    height: 100vh !important;
+  ${S} > section[data-split] img[data-profile-photo] {
+    height: var(--pg-h) !important;
     max-height: none !important;
     width: 100% !important;
     object-fit: cover !important;
@@ -105,47 +113,79 @@ const PRINT_CSS = `
   }
 
   /* صورة العملاء لافتة عريضة لا عمود */
-  #profile-doc [data-sec="opportunity"] img[data-profile-photo] { height: 40vh !important; max-height: none !important; }
+  ${S} [data-sec="opportunity"] img[data-profile-photo] { height: calc(var(--pg-h) * 0.4) !important; max-height: none !important; }
   /* خلفيات الأقسام الداكنة تغطّي الورقة كاملة */
-  #profile-doc img[data-backdrop] { height: 100% !important; max-height: none !important; }
+  ${S} img[data-backdrop] { height: 100% !important; max-height: none !important; }
 
   /* عنوان لا يُفصل عن جسمه وبطاقة لا تُشطر */
-  #profile-doc h1, #profile-doc h2 { break-after: avoid; }
-  #profile-doc .rounded-2xl { break-inside: avoid; }
+  ${S} h1, ${S} h2 { break-after: avoid; }
+  ${S} .rounded-2xl { break-inside: avoid; }
 
   /* ═══ مقاسات الورق: تملأ الصفحة ولا تفيض ═══ */
-  #profile-doc h1 { font-size: 34pt !important; line-height: 1.18 !important; }
-  #profile-doc h2 { font-size: 26pt !important; line-height: 1.3 !important; }
-  #profile-doc [data-sec="contact"] h2 { font-size: 40pt !important; line-height: 1.25 !important; }
-  #profile-doc [data-sec="numbers"] .grid p:first-child { font-size: 28pt !important; }
+  ${S} h1 { font-size: 34pt !important; line-height: 1.18 !important; }
+  ${S} h2 { font-size: 26pt !important; line-height: 1.3 !important; }
+  ${S} [data-sec="contact"] h2 { font-size: 40pt !important; line-height: 1.25 !important; }
+  ${S} [data-sec="numbers"] .grid p:first-child { font-size: 28pt !important; }
 
   /* ═══ الأقسام قليلة المحتوى: نملأ الورقة بالتنفّس لا بالفراغ ═══
      صفحة نصفها فارغ تقرأ كخطأ طباعة لا كتصميم — فنكبّر ونباعد بقدر ما تحتمل. */
-  #profile-doc [data-sec="contact"] { padding: 0 26mm !important; }
-  #profile-doc [data-sec="contact"] > div {
-    height: 100vh !important;
+  ${S} [data-sec="contact"] { padding: 0 26mm !important; }
+  ${S} [data-sec="contact"] > div {
+    height: var(--pg-h) !important;
     display: flex !important; flex-direction: column; justify-content: center;
   }
-  #profile-doc [data-sec="contact"] > div > .grid {
+  ${S} [data-sec="contact"] > div > .grid {
     margin-top: 34mm !important; gap: 16mm !important; max-width: none !important;
   }
-  #profile-doc [data-sec="contact"] .border-t-2 { padding-top: 9mm !important; }
-  #profile-doc [data-sec="contact"] .grid p:first-child { font-size: 11pt !important; margin-bottom: 3mm !important; }
-  #profile-doc [data-sec="contact"] .grid p:last-child { font-size: 15pt !important; }
+  ${S} [data-sec="contact"] .border-t-2 { padding-top: 9mm !important; }
+  ${S} [data-sec="contact"] .grid p:first-child { font-size: 11pt !important; margin-bottom: 3mm !important; }
+  ${S} [data-sec="contact"] .grid p:last-child { font-size: 15pt !important; }
 
   /* بطاقات الأرقام والقوائم تتمدّد عمودياً فتملأ نصيبها من الصفحة */
-  #profile-doc [data-sec="numbers"] .grid > div { padding: 22mm 6mm !important; }
-  #profile-doc [data-sec="solution"] .rounded-2xl,
+  ${S} [data-sec="numbers"] .grid > div { padding: 22mm 6mm !important; }
+  ${S} [data-sec="solution"] .rounded-2xl,
   /* أسماء الأقسام تغيّرت مع النسخة التسويقية، وبقيت هذه القواعد تخاطب
      «achievements» و«clients» و«goals» — أقساماً لم تعد موجودة. فكانت قواعد
      طباعةٍ تمرّ بلا أثر: تنسيقٌ يبدو مضبوطاً في المصدر وغائب عن الورق. */
-  #profile-doc [data-sec="numbers"] .rounded-2xl,
-  #profile-doc [data-sec="roadmap"] .rounded-2xl { padding: 13mm !important; }
-  #profile-doc [data-sec="opportunity"] .grid > div { padding: 11mm !important; }
+  ${S} [data-sec="numbers"] .rounded-2xl,
+  ${S} [data-sec="roadmap"] .rounded-2xl { padding: 13mm !important; }
+  ${S} [data-sec="opportunity"] .grid > div { padding: 11mm !important; }
   /* مسافة العنوان عن جسمه تتّسع على الورق فتتنفّس الصفحة */
-  #profile-doc > section:not([data-split]) h2 { margin-bottom: 10mm !important; }
-}
+  ${S} > section:not([data-split]) h2 { margin-bottom: 10mm !important; }
 `;
+
+const PRINT_CSS = `
+@page { size: A4; margin: 0; }
+
+/* قسم أخفاه المالك لا يُعرض ولا يُطبع — قاعدة عامة لأن قواعد الطباعة تفرض display */
+#profile-doc > [hidden] { display: none !important; }
+
+@media print {
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  html, body { background: #FAF7F0 !important; margin: 0 !important; }
+  .wa-fab, [data-wa-fab], [data-print-hide] { display: none !important; }
+  #profile-doc { --pg-h: 297mm; }
+${DOC_RULES('#profile-doc')}
+}
+
+/* ═══ وضع الالتقاط: نفس القواعد بمقاس A4 بالبكسل (٩٦ نقطة/بوصة) ═══
+   يُفعَّل لحظة التصدير ثم يُرفع، فالزائر لا يراه. */
+#profile-doc.pdf-capture {
+  --pg-h: 1123px;
+  width: 794px !important;
+  max-width: none !important;
+  background: #FAF7F0 !important;
+}
+#profile-doc.pdf-capture .wa-fab,
+#profile-doc.pdf-capture [data-print-hide] { display: none !important; }
+${DOC_RULES('#profile-doc.pdf-capture')}
+`;
+
+/** عرض ورقة A4 بالبكسل عند ٩٦ نقطة/بوصة — نفس ما يفترضه `.pdf-capture` */
+const PAGE_PX_W = 794;
 
 const COLORS = { coral: '#E15A30', ink: '#1F1A13', cream: '#FAF7F0', coralL: '#FBEBE2', gray: '#6E6557', sand: '#E9E1D3', green: '#1E7A52' };
 const IMG = (n: string) => `/media/profile/${n}.jpg`;
@@ -237,16 +277,21 @@ export default function ProfilePage() {
   const t = content[lang];
 
   /**
-   * ملفّ التنزيل: ما رفعه المالك من لوحته أولاً، والمدمَج في البناء احتياطاً.
-   * فلا يبقى الزرّ يخدم نسخةً قديمة بعد أن يحدّث المالك بروفايله.
-   */
-  /**
-   * التصدير: ننتظر الخطوط وكل الصور، ثم نسمّي المستند باسم الملفّ المطلوب
-   * (المتصفّح يشتقّ اسم ملفّ الحفظ من عنوان المستند)، ثم نفتح حوار الطباعة.
-   * والانتظار ليس احتياطاً زائداً: الصور كسولة وخلفيات الأقسام تحت الطيّة،
-   * وحوار الطباعة لا ينتظر ما لم يُطلب — فكان الملفّ يخرج بخانات بيضاء.
+   * التصدير: **نبني الملفّ بأنفسنا** — لا نفتح حوار الطباعة.
+   *
+   * كان الزرّ ينادي `window.print()`، فصار الناتج رهينةَ إعدادات الحوار عند كل
+   * زائر: خيار «الرؤوس والتذييلات» يفرض هوامش فتظهر **أطراف بيضاء** ويُطبع
+   * رابط الصفحة وتاريخها ورقم الورقة على وثيقةٍ تسويقية. ولا يملك الكود إطفاء
+   * ذلك الخيار — فالمخرج لم يكن لنا أصلاً.
+   *
+   * الآن: نلتقط كل قسم في مقاس A4 ونضعه ورقةً كاملة من الحافة إلى الحافة.
+   * المخرج واحد عند كل زائر، بلغته المعروضة، بلا هامش ولا رأس ولا تذييل.
+   *
+   * والانتظار قبل الالتقاط ليس احتياطاً زائداً: الصور كسولة وخلفيات الأقسام
+   * تحت الطيّة، فالتقاطٌ قبل تحميلها يُخرج ورقاً بخانات بيضاء.
    */
   const [exporting, setExporting] = useState(false);
+  const [progress, setProgress] = useState('');
   const exportPdf = useCallback(async () => {
     setExporting(true);
     try {
@@ -279,17 +324,52 @@ export default function ProfilePage() {
           warm.src = IMG(n);
         })),
       ]));
-      const previous = document.title;
-      document.title = (UI.pdfName[lang] || UI.pdfName.en).replace('.pdf', '');
-      const restore = () => {
-        document.title = previous;
-        window.removeEventListener('afterprint', restore);
-      };
-      window.addEventListener('afterprint', restore);
-      window.print();
-      // شبكة أمان: متصفّحٌ لا يُطلق afterprint لا يترك العنوان مبدَّلاً
-      window.setTimeout(restore, 4000);
+      // ③ وضع الالتقاط: مقاس A4 بالبكسل وقواعد الوثيقة نفسها
+      const doc = document.getElementById('profile-doc');
+      if (!doc) return;
+      doc.classList.add('pdf-capture');
+      // ريشتان لا واحدة: الأولى تُطبّق الأنماط والثانية تُنهي التخطيط قبل الالتقاط.
+      // ومهلةٌ تسابقهما لأن **التبويب المخفيّ لا يُطلق رسم الإطار أصلاً** — رُصد
+      // حيّاً: بلا هذا السباق يعلّق التصدير أبداً لمن صدّر من تبويب في الخلفية.
+      await Promise.race([
+        new Promise<void>(done =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+        new Promise<void>(done => window.setTimeout(done, 400)),
+      ]);
+
+      try {
+        const [{ default: JsPDF }, { default: html2canvas }] = await Promise.all([
+          import('jspdf'),
+          import('html2canvas'),
+        ]);
+        const pdf = new JsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+
+        const pages = Array.from(doc.children).filter(
+          el => (el.tagName === 'SECTION' || el.tagName === 'FOOTER')
+            && !el.hasAttribute('hidden'),
+        ) as HTMLElement[];
+
+        for (let i = 0; i < pages.length; i++) {
+          setProgress(`${i + 1}/${pages.length}`);
+          const canvas = await html2canvas(pages[i], {
+            scale: 2,                 // ضِعف الدقّة: النصّ العربي يبقى حادّاً
+            useCORS: true,
+            backgroundColor: '#FAF7F0',
+            logging: false,
+            windowWidth: PAGE_PX_W,
+          });
+          if (i > 0) pdf.addPage();
+          // من الحافة إلى الحافة: لا هامش ولا إطار أبيض
+          pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, pageW, pageH);
+        }
+        pdf.save(UI.pdfName[lang] || UI.pdfName.en);
+      } finally {
+        doc.classList.remove('pdf-capture');
+      }
     } finally {
+      setProgress('');
       setExporting(false);
     }
   }, [lang]);
@@ -416,7 +496,7 @@ export default function ProfilePage() {
               className="px-3.5 py-1.5 rounded-xl text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-60"
               style={{ background: COLORS.ink, color: COLORS.cream }}>
               <Download size={14} />
-              PDF
+              {exporting ? (progress || '…') : 'PDF'}
             </button>
           </div>
         </div>
