@@ -236,7 +236,7 @@ export default function MobileApp() {
       {section && (
         <div className="absolute inset-0 z-20 bg-white">
           <Suspense fallback={<MSpinner />}>
-            {section === 'reps' ? <MSalesReps onBack={() => setSection(null)} />
+            {section === 'reps' ? <MSalesReps company={company} onBack={() => setSection(null)} />
               : section === 'products' ? <MProducts onBack={() => setSection(null)} />
                 : <MReports onBack={() => setSection(null)} />}
           </Suspense>

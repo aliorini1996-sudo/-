@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, ChevronLeft, Phone, Pencil, ShieldCheck, Banknote, Trash2, KeyRound,
-  Loader2, Check, Copy, RefreshCw, Eye, EyeOff, UserRound, AlertTriangle, Wallet,
+  Loader2, Check, Copy, RefreshCw, Eye, EyeOff, UserRound, AlertTriangle, Wallet, Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesRepApi } from '../api/client';
@@ -14,6 +14,9 @@ import { useAuthStore } from '../store/authStore';
 import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
+
+/* سند الاستلام في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
+const MSettlementDoc = lazy(() => import('./MSettlementDoc'));
 
 const PAGE = 25;
 
@@ -37,7 +40,11 @@ function errMsg(e: unknown, fallback: string): string {
  * منبثقة داخل ٤٠٠px تصير علبةً ضيقة يُمرَّر داخلها، وزرّ رجوع أندرويد كان
  * سيخرج من التطبيق بدل أن يغلقها.
  */
-export default function MSalesReps({ onBack }: { onBack: () => void }) {
+export default function MSalesReps({ onBack, company }: {
+  onBack: () => void;
+  /** إعدادات الشركة — لترويسة سند الاستلام وحدها */
+  company?: unknown;
+}) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   // بيانات دخول المندوب المُنشأ حديثاً — كلمة المرور لا تُعرض مرّة أخرى أبداً
@@ -58,7 +65,7 @@ export default function MSalesReps({ onBack }: { onBack: () => void }) {
         if (res.creds) setCreds(res.creds);
       }} />
   ) : openId ? (
-    <RepDetail repId={openId} onBack={() => setOpenId(null)} />
+    <RepDetail repId={openId} company={company} onBack={() => setOpenId(null)} />
   ) : (
     <RepList onBack={onBack} onAdd={() => setCreating(true)} onOpen={setOpenId} />
   );
@@ -202,7 +209,7 @@ function RepRow({ rep, balance, onOpen }: { rep: SalesRep; balance?: number; onO
 
 type Layer = 'form' | 'perms' | 'collect' | null;
 
-function RepDetail({ repId, onBack }: { repId: string; onBack: () => void }) {
+function RepDetail({ repId, company, onBack }: { repId: string; company?: unknown; onBack: () => void }) {
   const tr = useTr();
   const qc = useQueryClient();
   const role = useAuthStore(s => s.user?.role);
@@ -266,7 +273,7 @@ function RepDetail({ repId, onBack }: { repId: string; onBack: () => void }) {
     return <RepPerms rep={rep} onClose={() => setLayer(null)} onSaved={() => { setLayer(null); repQ.refetch(); }} />;
   }
   if (layer === 'collect') {
-    return <RepCollect rep={rep} onClose={() => setLayer(null)} />;
+    return <RepCollect rep={rep} company={company} onClose={() => setLayer(null)} />;
   }
 
   const col = colQ.data;
@@ -684,7 +691,7 @@ function RepPerms({ rep, onClose, onSaved }: { rep: SalesRep; onClose: () => voi
 
 /* ═══════════════════════ استلام التحصيل ═══════════════════════ */
 
-function RepCollect({ rep, onClose }: { rep: SalesRep; onClose: () => void }) {
+function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknown; onClose: () => void }) {
   const tr = useTr();
   const role = useAuthStore(s => s.user?.role);
   const isMainAdmin = role === 'ADMIN'; // حذف استلام يرفع مطالبة المندوب — للأدمن الرئيسي وحده
@@ -692,6 +699,10 @@ function RepCollect({ rep, onClose }: { rep: SalesRep; onClose: () => void }) {
   const [note, setNote] = useState('');
   const [filled, setFilled] = useState(false);
   const [delRow, setDelRow] = useState<Settlement | null>(null);
+  // سند استلامٍ واحد معروضٌ الآن — طبقةٌ فوق هذه الشاشة
+  const [pdfRow, setPdfRow] = useState<Settlement | null>(null);
+
+  useBackClose(!!pdfRow, () => setPdfRow(null));
 
   // المفتاح نفسه الذي تقرأه القائمة وملفّ المندوب — فالاستلام يحدّث الثلاثة معاً
   const colQ = useQuery({
@@ -742,6 +753,17 @@ function RepCollect({ rep, onClose }: { rep: SalesRep; onClose: () => void }) {
   const col = colQ.data;
   const amountNum = Number(amount);
   const amountOk = Number.isFinite(amountNum) && amountNum > 0;
+
+  /* تصدير تسجيلٍ واحد: نعرض مستنده ملء الشاشة بدل شاشة الاستلام — مطابقةً
+   * للوحة، ولأن عارض المستندات يحتاج الشاشة كلّها ليُخرج PDF بمقاس A4. */
+  if (pdfRow) {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        <MSettlementDoc repName={rep.name} settlement={pdfRow} company={company}
+          onClose={() => setPdfRow(null)} />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -806,12 +828,20 @@ function RepCollect({ rep, onClose }: { rep: SalesRep; onClose: () => void }) {
                   title={formatCurrency(s.amount)}
                   subtitle={`${tr('استلمه')}: ${s.createdBy || '—'}${s.note ? ` · ${s.note}` : ''}`}
                   note={`${formatDate(s.settledAt)} · ${formatTime(s.settledAt)}`}
-                  trailing={isMainAdmin ? (
-                    <button onClick={() => setDelRow(s)} aria-label={tr('حذف الاستلام')}
-                      className="p-2.5 -m-1 rounded-xl text-[#C0392B] active:bg-[#FDF2F0] flex-shrink-0">
-                      <Trash2 size={16} />
-                    </button>
-                  ) : undefined} />
+                  trailing={(
+                    <span className="flex items-center gap-0.5 flex-shrink-0">
+                      <button onClick={() => setPdfRow(s)} aria-label={tr('تصدير PDF')}
+                        className="p-2.5 -m-1 rounded-xl text-[#6E6557] active:bg-[#F1EBDF]">
+                        <Download size={16} />
+                      </button>
+                      {isMainAdmin && (
+                        <button onClick={() => setDelRow(s)} aria-label={tr('حذف الاستلام')}
+                          className="p-2.5 -m-1 rounded-xl text-[#C0392B] active:bg-[#FDF2F0]">
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </span>
+                  )} />
               ))}
             </MCard>
           )}
