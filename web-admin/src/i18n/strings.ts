@@ -1828,6 +1828,12 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'حذف الصورة': { en: 'Remove photo', fr: 'Supprimer la photo', tr: 'Fotografi kaldir', zh: '删除图片' },
   'الحد الأقصى 4 صور': { en: 'Up to 4 photos', fr: 'Jusqu a 4 photos', tr: 'En fazla 4 fotograf', zh: '最多 4 张图片' },
   'أرفق إيصال التحويل أو صورة الشيك حتى 4 صور': { en: 'Attach the transfer receipt or a photo of the cheque up to 4 photos', fr: 'Joignez le recu de virement ou une photo du cheque jusqu a 4 photos', tr: 'Havale dekontunu veya cek fotografini ekleyin en fazla 4 fotograf', zh: '可附上转账凭证或支票照片，最多 4 张' },
+  // ——— تصفية سجلّ استلام التحصيل بالتاريخ ———
+  'إلغاء التصفية': { en: 'Clear filter', fr: 'Effacer le filtre', tr: 'Filtreyi temizle', zh: '清除筛选' },
+  'استلام': { en: 'collection', fr: 'encaissement', tr: 'tahsilat', zh: '笔收款' },
+  'لا استلامات في هذا المدى': { en: 'No collections in this range', fr: 'Aucun encaissement sur cette periode', tr: 'Bu aralikta tahsilat yok', zh: '此时间段内无收款' },
+  'مجموع المدى': { en: 'Range total', fr: 'Total de la periode', tr: 'Aralik toplami', zh: '区间合计' },
+  'مجموع المعروض': { en: 'Shown total', fr: 'Total affiche', tr: 'Gosterilen toplam', zh: '显示合计' },
 };
 
 export function useTr() {

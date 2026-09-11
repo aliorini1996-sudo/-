@@ -423,15 +423,27 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
     },
   });
 
+  /* مدى تصفية السجلّ — يدخل مفتاح الاستعلام فيُعاد الجلب عند تغيّره، والتصفية
+   * تقع على الخادم: السقف ١٠٠ صفّ، وتصفيةٌ محليّة كانت ستبحث داخل آخر مئة وحدها
+   * فيرى مندوبٌ كثير الاستلامات «لا نتائج» لشهرٍ قديم بينما صفوفه محفوظة. */
+  const [logFrom, setLogFrom] = useState('');
+  const [logTo, setLogTo] = useState('');
+
   // سجلّ استلامات التحصيل لهذا المندوب (مرتّب بالوقت من الخادم)
   const settlementsQ = useQuery({
-    queryKey: ['rep-settlements', rep.id],
+    queryKey: ['rep-settlements', rep.id, logFrom, logTo],
     queryFn: async () => {
-      const r = await salesRepApi.settlements(rep.id);
+      const r = await salesRepApi.settlements(rep.id, {
+        ...(logFrom && { from: logFrom }),
+        ...(logTo && { to: logTo }),
+      });
       return r.data.data as Settlement[];
     },
   });
   const settlements = settlementsQ.data ?? [];
+  const rangeOn = !!(logFrom || logTo);
+  // مجموع المعروض — تصفيةُ مالٍ بلا مجموعها تترك المحاسب يجمع بعينه
+  const rangeTotal = settlements.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
 
   // بيانات الشركة لرأس ملفّ الـPDF
   const companyQ = useQuery({
@@ -535,12 +547,34 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
 
               {/* سجلّ الاستلامات — مرتّب بالوقت والمبلغ ومن استلم، قابل للتصدير PDF */}
               <div>
-                <label className="label">{tr('سجل الاستلامات')}</label>
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                  <label className="label mb-0">{tr('سجل الاستلامات')}</label>
+                  {rangeOn && (
+                    <button type="button" onClick={() => { setLogFrom(''); setLogTo(''); }}
+                      className="text-[11px] font-semibold text-[#C94E28] hover:underline">
+                      {tr('إلغاء التصفية')}
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <label className="text-[11px] text-[#9A8F7E] block mb-1">{tr('من تاريخ')}</label>
+                    <input type="date" className="input py-1.5 text-xs" value={logFrom}
+                      max={logTo || undefined} onChange={e => setLogFrom(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-[#9A8F7E] block mb-1">{tr('إلى تاريخ')}</label>
+                    <input type="date" className="input py-1.5 text-xs" value={logTo}
+                      min={logFrom || undefined} onChange={e => setLogTo(e.target.value)} />
+                  </div>
+                </div>
                 <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF] max-h-52 overflow-y-auto">
                   {settlementsQ.isLoading ? (
                     <p className="text-center text-gray-400 text-xs py-4">{tr('جار التحميل')}</p>
                   ) : settlements.length === 0 ? (
-                    <p className="text-center text-gray-400 text-xs py-5">{tr('لا توجد استلامات بعد')}</p>
+                    <p className="text-center text-gray-400 text-xs py-5">
+                      {rangeOn ? tr('لا استلامات في هذا المدى') : tr('لا توجد استلامات بعد')}
+                    </p>
                   ) : settlements.map(s => (
                     <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2">
                       <div className="min-w-0 flex-1">
@@ -566,6 +600,14 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                     </div>
                   ))}
                 </div>
+                {settlements.length > 0 && (
+                  <p className="text-[11px] text-[#6E6557] mt-1.5 px-0.5">
+                    {rangeOn ? tr('مجموع المدى') : tr('مجموع المعروض')}:{' '}
+                    <b className="text-[#1F1A13]">{formatCurrency(rangeTotal)}</b>
+                    {' · '}
+                    <span className="text-[#9A8F7E]">{settlements.length} {tr('استلام')}</span>
+                  </p>
+                )}
               </div>
             </>
           )}

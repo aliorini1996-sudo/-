@@ -69,7 +69,8 @@ export const salesRepApi = {
   remove: (id: string) => api.delete(`/sales-reps/${id}`),
   collection: (id: string) => api.get(`/sales-reps/${id}/collection`),
   settle: (id: string, data: { amount: number; note?: string }) => api.post(`/sales-reps/${id}/settlements`, data),
-  settlements: (id: string) => api.get(`/sales-reps/${id}/settlements`),
+  settlements: (id: string, params?: { from?: string; to?: string }) =>
+    api.get(`/sales-reps/${id}/settlements`, { params }),
   deleteSettlement: (id: string, settlementId: string) =>
     api.delete(`/sales-reps/${id}/settlements/${settlementId}`),
   // عزل العملاء: إسناد عملاء لكل مندوب + مفتاح تفعيل العزل للشركة

@@ -367,8 +367,27 @@ router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: Nex
       select: { id: true },
     });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    /* التصفية على الخادم لا في المتصفّح: السقف ١٠٠ صفّ، فتصفيةٌ محليّة تبحث
+     * داخل آخر مئة وحدها — ومندوبٌ تجاوزها يرى «لا استلامات» لشهرٍ قديم بينما
+     * صفوفه محفوظة. والمدى هنا يُضيّق الاستعلام نفسه فيبلغ ما وراء المئة. */
+    const from = typeof req.query.from === 'string' ? req.query.from : '';
+    const to = typeof req.query.to === 'string' ? req.query.to : '';
+    const gte = from ? new Date(from) : null;
+    // نهاية اليوم لا بدايته: `lte` على منتصف ليل «إلى» يُسقط استلامات اليوم نفسه
+    const lte = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : null;
+    const ranged = (gte && !Number.isNaN(gte.getTime())) || (lte && !Number.isNaN(lte.getTime()));
+
     const items = await prisma.repSettlement.findMany({
-      where: { tenantId: tid, salesRepId: rep.id },
+      where: {
+        tenantId: tid,
+        salesRepId: rep.id,
+        ...(ranged && {
+          settledAt: {
+            ...(gte && !Number.isNaN(gte.getTime()) ? { gte } : {}),
+            ...(lte && !Number.isNaN(lte.getTime()) ? { lte } : {}),
+          },
+        }),
+      },
       orderBy: { settledAt: 'desc' },
       take: 100,
     });
