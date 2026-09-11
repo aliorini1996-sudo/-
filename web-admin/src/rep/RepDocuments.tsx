@@ -134,6 +134,12 @@ export interface SettlementEntry {
   amount: number;
   by?: string;   // اسم مستخدم الشركة الذي استلم
   note?: string;
+  /**
+   * نوع الاستلام — قاموسٌ مغلق مطابقٌ لسند القبض حرفاً بحرف:
+   * CASH · BANK_TRANSFER · POS · CHEQUE. والاستلامات السابقة لهذا العمود تصل
+   * بلا قيمة فتُقرأ **نقديّاً** — وهو افتراض العمود على الخادم، لا تخميناً منّا.
+   */
+  method?: string;
 }
 
 /** سجلّ استلامات التحصيل لمندوب — لكل مندوب على حدة، قابل للتصدير PDF */
@@ -647,6 +653,13 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
   const single = doc.entries.length === 1; // تصدير تسجيلٍ واحد = سند استلام
+  /**
+   * وسم نوع الاستلام — قاموس سند القبض نفسه (`paymentMethodLabels`) لا قاموسٌ
+   * ثانٍ: النوعان يصفان الحركة المالية ذاتها، فاختلاف الوسمين بينهما يربك
+   * المحاسب حين يطابق السند بالاستلام. والغياب يُقرأ CASH لأن استلامات ما قبل
+   * العمود نقديّة بافتراض الخادم، وأيّ قيمة خارج القاموس يردّها الخادم إلى CASH.
+   */
+  const methodLabel = (m?: string): string => tr(paymentMethodLabels[m || 'CASH'] || paymentMethodLabels.CASH);
 
   return (
     <div ref={ref} style={PAGE}>
@@ -676,19 +689,21 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
             <th style={th}>{tr('التاريخ')}</th>
             <th style={th}>{tr('الوقت')}</th>
             <th style={th}>{tr('المبلغ المستلم')}</th>
+            <th style={th}>{tr('النوع')}</th>
             <th style={th}>{tr('استلمه')}</th>
             <th style={{ ...th, textAlign: 'right', borderRadius: '8px 0 0 0' }}>{tr('ملاحظة')}</th>
           </tr>
         </thead>
         <tbody>
           {doc.entries.length === 0 ? (
-            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={6}>{tr('لا توجد استلامات')}</td></tr>
+            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={7}>{tr('لا توجد استلامات')}</td></tr>
           ) : doc.entries.map((e, i) => (
             <tr key={i}>
               <td style={td}>{i + 1}</td>
               <td style={td}>{formatDate(e.settledAt)}</td>
               <td style={td}>{formatTime(e.settledAt)}</td>
               <td style={{ ...td, fontWeight: 700, color: '#16a34a' }}>{formatCurrency(e.amount)}</td>
+              <td style={td}>{methodLabel(e.method)}</td>
               <td style={td}>{e.by || '-'}</td>
               <td style={{ ...td, textAlign: 'right', color: '#6b7280' }}>{e.note || '-'}</td>
             </tr>
@@ -698,7 +713,8 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
           <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
             <td style={{ ...td, borderTop: `2px solid ${brand}` }} colSpan={3}>{tr('الإجمالي')}</td>
             <td style={{ ...td, color: '#16a34a', borderTop: `2px solid ${brand}` }}>{formatCurrency(doc.total)}</td>
-            <td style={{ ...td, borderTop: `2px solid ${brand}` }} colSpan={2}></td>
+            {/* النوع + استلمه + ملاحظة — لا يُجمَع منها شيء */}
+            <td style={{ ...td, borderTop: `2px solid ${brand}` }} colSpan={3}></td>
           </tr>
         </tfoot>
       </table>
@@ -917,7 +933,9 @@ export function statementDocFromData(
 
 export function settlementLogDocFromData(
   repName: string,
-  items: { amount: number | string; note?: string | null; createdBy?: string | null; settledAt: string }[],
+  // `method` اختياريّ هنا عمداً: صفوف الخادم تحمله، والمستدعون القدامى (ومسار
+  // العمل دون اتصال) يمرّون بلا حقل — فيقع الصفّ على «نقدي» افتراضَ العمود.
+  items: { amount: number | string; note?: string | null; createdBy?: string | null; settledAt: string; method?: string | null }[],
   company?: Company | null,
   summary?: { collected?: number; outstanding?: number },
 ): SettlementLogDoc {
@@ -926,6 +944,7 @@ export function settlementLogDocFromData(
     amount: Number(s.amount),
     by: s.createdBy || undefined,
     note: s.note || undefined,
+    method: s.method || undefined,
   }));
   const total = entries.reduce((a, e) => a + e.amount, 0);
   return {

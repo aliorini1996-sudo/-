@@ -346,9 +346,26 @@ router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: Ne
     const amount = Number(req.body?.amount);
     if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ success: false, message: 'أدخل مبلغا صحيحا أكبر من صفر' }); return; }
     const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : undefined;
+
+    /* نوع الاستلام — قاموسٌ مغلق لا نصّ حرّ: عمودٌ يقبل أيّ كلمة يصير بعد شهور
+     * خليطاً من «نقدا» و«كاش» و«CASH» لا يُجمَّع في تقرير. وأيّ قيمة خارجه تُردّ
+     * إلى النقديّ بدل رفض الاستلام — المبلغ أهمّ من وسمه. */
+    const METHODS = ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'];
+    const method = METHODS.includes(String(req.body?.method)) ? String(req.body.method) : 'CASH';
+
+    // المرفقات بحدود مرفقات سند القبض نفسها — جسم الطلب محدودٌ بـ10mb
+    const rawPhotos = Array.isArray(req.body?.photos) ? req.body.photos : [];
+    const photos: string[] = rawPhotos
+      .filter((p: unknown): p is string => typeof p === 'string' && p.length <= 2_500_000)
+      .slice(0, 4);
     const by = req.user as { name?: string; id?: string } | undefined;
     await prisma.repSettlement.create({
-      data: { tenantId: tid, salesRepId: req.params.id, amount, note, createdBy: by?.name || by?.id },
+      data: {
+        tenantId: tid, salesRepId: req.params.id, amount, method, note,
+        createdBy: by?.name || by?.id,
+        // في نفس الكتابة: استلامٌ بلا إيصاله ليس أفضل من لا استلام
+        ...(photos.length && { photos: { create: photos.map((data) => ({ data })) } }),
+      },
     });
     res.status(201).json({ success: true, data: await repCollection(tid, req.params.id) });
   } catch (err) { next(err); }
@@ -390,6 +407,7 @@ router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: Nex
       },
       orderBy: { settledAt: 'desc' },
       take: 100,
+      include: { photos: { select: { id: true, data: true }, orderBy: { createdAt: 'asc' } } },
     });
     res.json({ success: true, data: items });
   } catch (err) { next(err); }

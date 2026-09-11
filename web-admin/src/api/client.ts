@@ -68,7 +68,10 @@ export const salesRepApi = {
   stats: (id: string, params?: Record<string, string>) => api.get(`/sales-reps/${id}/stats`, { params }),
   remove: (id: string) => api.delete(`/sales-reps/${id}`),
   collection: (id: string) => api.get(`/sales-reps/${id}/collection`),
-  settle: (id: string, data: { amount: number; note?: string }) => api.post(`/sales-reps/${id}/settlements`, data),
+  // method: قاموس مغلق مطابق لسند القبض (CASH · BANK_TRANSFER · POS · CHEQUE) — والخادم
+  // يردّ أيّ قيمة خارجه إلى CASH. photos: حتى ٤ صور data URL مضغوطة بوحدة imageCompress
+  settle: (id: string, data: { amount: number; method?: string; note?: string; photos?: string[] }) =>
+    api.post(`/sales-reps/${id}/settlements`, data),
   settlements: (id: string, params?: { from?: string; to?: string }) =>
     api.get(`/sales-reps/${id}/settlements`, { params }),
   deleteSettlement: (id: string, settlementId: string) =>

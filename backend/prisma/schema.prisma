@@ -1224,13 +1224,32 @@ model RepSettlement {
   salesRepId String
   salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
   amount     Float
+  // كيف استُلم المبلغ من المندوب — نفس قاموس سند القبض حرفياً كي يقرأ المحاسب
+  // مصطلحاً واحداً في المستندين. والافتراضي نقديّ: الاستلامات السابقة كلّها نقد.
+  method     String   @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
   note       String?
   createdBy  String? // اسم/معرّف الأدمن الذي استلم
   settledAt  DateTime @default(now())
   createdAt  DateTime @default(now())
 
+  photos RepSettlementPhoto[]
+
   @@index([tenantId, salesRepId])
   @@map("rep_settlements")
+}
+
+// مرفق استلام التحصيل (إيصال إيداع، صورة شيك، إشعار تحويل) — جدولٌ منفصل كمرفقات
+// سند القبض: سجلّ الاستلامات يُقرأ في نافذةٍ تُفتح مراراً، وحملُ base64 في كل صفّ
+// يُثقلها. تُطلَب عند فتح الاستلام وحده.
+model RepSettlementPhoto {
+  id           String        @id @default(uuid())
+  settlementId String
+  settlement   RepSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  data         String // data URL: data:image/jpeg;base64,...
+  createdAt    DateTime      @default(now())
+
+  @@index([settlementId])
+  @@map("rep_settlement_photos")
 }
 
 // جلسة حضور: تُمدَّد بنبضات القلب من تطبيق المندوب أثناء فتحه، لحساب ساعات العمل

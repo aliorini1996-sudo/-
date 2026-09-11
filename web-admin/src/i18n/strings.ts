@@ -1834,6 +1834,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'لا استلامات في هذا المدى': { en: 'No collections in this range', fr: 'Aucun encaissement sur cette periode', tr: 'Bu aralikta tahsilat yok', zh: '此时间段内无收款' },
   'مجموع المدى': { en: 'Range total', fr: 'Total de la periode', tr: 'Aralik toplami', zh: '区间合计' },
   'مجموع المعروض': { en: 'Shown total', fr: 'Total affiche', tr: 'Gosterilen toplam', zh: '显示合计' },
+  // ——— نوع استلام التحصيل ومرفقاته ———
+  'نوع الاستلام': { en: 'Collection type', fr: 'Type de reception', tr: 'Tahsilat turu', zh: '收款方式' },
+  'مثال رقم الإيصال أو اسم البنك': { en: 'For example the deposit slip number or the bank name', fr: 'Par exemple le numero du recu ou le nom de la banque', tr: 'Ornegin dekont numarasi veya banka adi', zh: '例如：回单编号或银行名称' },
 };
 
 export function useTr() {

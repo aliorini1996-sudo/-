@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -14,6 +14,8 @@ import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAuthStore } from '../store/authStore';
 import DocumentModal from '../components/DocumentModal';
 import { settlementLogDocFromData, Company } from '../rep/RepDocuments';
+// الوحدة المشتركة وحدها — حدّاها (١٢٨٠px وجودة ٠٫٧) مُعايَران ليقعا تحت سقف الخادم
+import { compressImage } from '../rep/imageCompress';
 
 interface Creds { name: string; username: string; password: string; }
 
@@ -402,14 +404,32 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
   );
 }
 
-interface Settlement { id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string }
+/* نوع الاستلام — نفس قاموس سند القبض حرفاً بحرف. أيّ قيمة خارجه يردّها الخادم إلى CASH */
+const SETTLE_METHODS = ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'] as const;
+type SettleMethod = typeof SETTLE_METHODS[number];
+const isSettleMethod = (v: string): v is SettleMethod => (SETTLE_METHODS as readonly string[]).includes(v);
+
+interface SettlementPhoto { id: string; data: string }
+/* method وphotos اختياريان في النوع لا لأنّ الخادم قد يُغفلهما — بل ليمرّ صفٌّ قديم
+ * أو ردٌّ مخبوء من نسخةٍ أقدم بلا سقوط. القراءة تُسقط الغياب إلى CASH و[] لا إلى إخفاء الصفّ. */
+interface Settlement {
+  id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string;
+  method?: string | null; photos?: SettlementPhoto[] | null;
+}
+
+/** سقف المرفقات لكلّ استلام — يطابق سقف الخادم (جدول RepSettlementPhoto) */
+const MAX_SETTLE_PHOTOS = 4;
 
 function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClose: () => void; onDone: () => void }) {
   const tr = useTr();
   const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState<SettleMethod>('CASH');
+  const [photos, setPhotos] = useState<string[]>([]); // data URLs مضغوطة
   const [note, setNote] = useState('');
   const [filled, setFilled] = useState(false);
   const [pdfOne, setPdfOne] = useState<Settlement | null>(null);
+  // عارض مرفقات صفٍّ من السجلّ — صور الصفّ كاملةً، تُفتح بالنقر على المصغّرة
+  const [viewPhotos, setViewPhotos] = useState<SettlementPhoto[] | null>(null);
   // حذف استلام: للأدمن الرئيسي وحده — والخادم يفرضه ثانيةً بقراءة الدور من القاعدة
   const { user } = useAuthStore();
   const isMainAdmin = user?.role === 'ADMIN';
@@ -455,11 +475,39 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
   // خانات العملة الفعلية: toFixed(2) الثابتة كانت تقص الفلس الثالث فتبقى 0.005 معلقة للابد
   if (data && !filled) { setAmount(String(Math.max(0, Number(Number(data.outstanding).toFixed(currencyDecimals(getActiveCurrency())))))); setFilled(true); }
 
+  /** وسم نوع الاستلام — قاموس سند القبض نفسه، والمجهول يُقرأ نقدياً كما يفعل الخادم */
+  const methodLabel = (m?: string | null) => tr(paymentMethodLabels[m || 'CASH'] || paymentMethodLabels.CASH);
+
+  /* اختيار المرفقات: يُضغط كلّ ملفٍ بالوحدة المشتركة ثم يُضاف. الفائض عن السقف
+   * يُقصّ ويُنبَّه عليه صراحةً — وصمتُه كان سيجعل المستخدم يظنّ صورةً أُرفِقت ولم تُرفَق. */
+  const pickPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // يسمح بإعادة اختيار نفس الملف
+    if (files.length === 0) return;
+    const room = MAX_SETTLE_PHOTOS - photos.length;
+    if (room <= 0) { toast.error(tr('الحد الأقصى 4 صور')); return; }
+    const urls: string[] = [];
+    for (const f of files.slice(0, room)) {
+      try { urls.push(await compressImage(f)); }
+      catch { /* ملفٌ تالف أو غير صورة — يُتجاهل ولا يُسقط البقيّة */ }
+    }
+    if (files.length > room) toast.error(tr('الحد الأقصى 4 صور'));
+    if (urls.length) setPhotos(prev => [...prev, ...urls].slice(0, MAX_SETTLE_PHOTOS));
+  };
+
   const settle = useMutation({
-    mutationFn: () => salesRepApi.settle(rep.id, { amount: Number(amount), note: note || undefined }),
+    mutationFn: () => salesRepApi.settle(rep.id, {
+      amount: Number(amount),
+      method,
+      note: note || undefined,
+      ...(photos.length ? { photos } : {}),
+    }),
     onSuccess: async () => {
       toast.success(tr('تم تسجيل الاستلام'));
       setNote('');
+      // النوع والمرفقات يُفرَّغان كما يُفرَّغ المبلغ — وإلا لحق مرفقُ استلامٍ سابق باستلامٍ تالٍ
+      setMethod('CASH');
+      setPhotos([]);
       await Promise.all([refetch(), settlementsQ.refetch()]);
       setFilled(false); // بعد وصول الرصيد الجديد لا قبله — وإلا أعيد ملء الحقل بالقديم
       onDone();
@@ -540,6 +588,44 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                   onChange={e => setAmount(e.target.value)} placeholder="0.00" />
                 <p className="text-[11px] text-gray-400 mt-1">{tr('المبلغ معبأ بالرصيد المتبقي تسليم كامل عدله للتسليم الجزئي')}</p>
               </div>
+
+              <div>
+                <label className="label">{tr('نوع الاستلام')}</label>
+                <select className="input" value={method}
+                  onChange={e => { const v = e.target.value; if (isSettleMethod(v)) setMethod(v); }}>
+                  <option value="CASH">{tr('نقدي')}</option>
+                  <option value="BANK_TRANSFER">{tr('تحويل بنكي')}</option>
+                  <option value="POS">{tr('شبكة')}</option>
+                  <option value="CHEQUE">{tr('شيك')}</option>
+                </select>
+              </div>
+
+              {/* مرفقات — إيصال الإيداع غالباً لقطةُ شاشةٍ محفوظة، فلا سمة `capture`:
+                  النظام يعرض الاختيار بين الكاميرا والمعرض معاً */}
+              <div>
+                <label className="label">{tr('مرفقات')} ({photos.length}/{MAX_SETTLE_PHOTOS})</label>
+                <div className="flex flex-wrap gap-2">
+                  {photos.map((p, i) => (
+                    <span key={i} className="relative w-[72px] h-[72px] rounded-xl overflow-hidden border border-[#E9E1D3]">
+                      <img src={p} alt="" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                        aria-label={tr('حذف الصورة')} title={tr('حذف الصورة')}
+                        className="absolute top-0.5 left-0.5 bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center">
+                        <X size={13} />
+                      </button>
+                    </span>
+                  ))}
+                  {photos.length < MAX_SETTLE_PHOTOS && (
+                    <label className="w-[72px] h-[72px] rounded-xl border-2 border-dashed border-gray-300 text-gray-400 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-gray-50">
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={pickPhotos} />
+                      <ImageIcon size={18} />
+                      <span className="text-[10px]">{tr('إضافة صورة')}</span>
+                    </label>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">{tr('أرفق إيصال التحويل أو صورة الشيك حتى 4 صور')}</p>
+              </div>
+
               <div>
                 <label className="label">{tr('ملاحظة اختياري')}</label>
                 <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال نقدا تحويل بنكي')} />
@@ -575,10 +661,26 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                     <p className="text-center text-gray-400 text-xs py-5">
                       {rangeOn ? tr('لا استلامات في هذا المدى') : tr('لا توجد استلامات بعد')}
                     </p>
-                  ) : settlements.map(s => (
+                  ) : settlements.map(s => {
+                    // الصفوف القديمة تأتي بـmethod نقديّ وphotos فارغة — تُقرأ ولا تُسقَط
+                    const rowPhotos = s.photos ?? [];
+                    return (
                     <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2">
                       <div className="min-w-0 flex-1">
-                        <p className="font-bold text-sm text-[#1F1A13]">{formatCurrency(s.amount)}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-bold text-sm text-[#1F1A13]">{formatCurrency(s.amount)}</p>
+                          <span className="text-[10px] bg-[#F1EBDF] text-[#6E6557] px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            {methodLabel(s.method)}
+                          </span>
+                          {rowPhotos.length > 0 && (
+                            <button type="button" onClick={() => setViewPhotos(rowPhotos)}
+                              title={tr('مرفقات')} aria-label={tr('مرفقات')}
+                              className="flex items-center gap-1 rounded-lg border border-[#E9E1D3] pl-1.5 hover:bg-[#FAF7F0]">
+                              <img src={rowPhotos[0].data} alt="" className="w-5 h-5 rounded-md object-cover" />
+                              <span className="text-[10px] text-[#6E6557]">{rowPhotos.length}</span>
+                            </button>
+                          )}
+                        </div>
                         <p className="text-[11px] text-[#9A8F7E] truncate">
                           {tr('استلمه')}: {s.createdBy || '—'}{s.note ? ` · ${s.note}` : ''}
                         </p>
@@ -598,7 +700,8 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                         </button>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {settlements.length > 0 && (
                   <p className="text-[11px] text-[#6E6557] mt-1.5 px-0.5">
@@ -612,6 +715,23 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
             </>
           )}
         </div>
+
+        {/* عارض مرفقات صفّ السجلّ — فوق نافذة الاستلام (z-[60]) كي لا تحجبه */}
+        {viewPhotos && (
+          <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-4"
+            onClick={() => setViewPhotos(null)}>
+            <div className="w-full max-w-md max-h-[85vh] overflow-y-auto space-y-2" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between text-white">
+                <span className="text-sm font-semibold">{tr('مرفقات')} ({viewPhotos.length})</span>
+                <button type="button" onClick={() => setViewPhotos(null)} aria-label={tr('إغلاق')} title={tr('إغلاق')}
+                  className="p-2 rounded-lg hover:bg-white/10"><X size={18} /></button>
+              </div>
+              {viewPhotos.map(p => (
+                <img key={p.id} src={p.data} alt="" className="w-full rounded-xl bg-white" />
+              ))}
+            </div>
+          </div>
+        )}
 
         {deletingS && (
           <ConfirmDialog

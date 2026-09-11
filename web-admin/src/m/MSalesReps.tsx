@@ -3,7 +3,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import {
   Search, Plus, ChevronLeft, Phone, Pencil, ShieldCheck, Banknote, Trash2, KeyRound,
   Loader2, Check, Copy, RefreshCw, Eye, EyeOff, UserRound, AlertTriangle, Wallet, Download,
-  Users, Truck,
+  Users, Truck, Landmark, CreditCard, FileText, Paperclip, X, Image as ImageIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesRepApi } from '../api/client';
@@ -12,6 +12,7 @@ import { formatCurrency, formatDate, formatTime, getActiveCurrency } from '../ut
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
 import { useAuthStore } from '../store/authStore';
+import { compressImage } from '../rep/imageCompress';
 import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MStat, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { can } from './perms';
@@ -29,6 +30,30 @@ interface Creds { name: string; username: string; password: string }
 interface Collection { collected: number; settled: number; outstanding: number }
 interface Settlement {
   id: string; amount: number; note?: string | null; createdBy?: string | null; settledAt: string;
+  /** نوع الاستلام — يغيب في صفوفٍ سبقت العمود، وغيابه نقديٌّ كما يفترض الخادم */
+  method?: string | null;
+  /** مرفقات الاستلام كما يردّها الخادم — data URL لكلّ صورة */
+  photos?: { id: string; data: string }[];
+}
+
+/**
+ * قاموس نوع الاستلام — مطابقٌ لقاموس الخادم المغلق ولسند القبض حرفاً بحرف،
+ * وأيّ قيمةٍ خارجه يردّها الخادم إلى `CASH`.
+ */
+const SETTLE_METHODS = [
+  { v: 'CASH', label: 'نقدي', icon: Banknote },
+  { v: 'BANK_TRANSFER', label: 'تحويل بنكي', icon: Landmark },
+  { v: 'POS', label: 'شبكة', icon: CreditCard },
+  { v: 'CHEQUE', label: 'شيك', icon: FileText },
+] as const;
+type SettleMethod = (typeof SETTLE_METHODS)[number]['v'];
+
+/** سقف المرفقات — سقف الخادم نفسه، وسقف مرفقات سند القبض نفسه */
+const MAX_PHOTOS = 4;
+
+/** اسم نوع الاستلام للعرض؛ ما لا يُعرف نقديٌّ لأن الخادم يردّه كذلك */
+function methodLabel(m?: string | null): string {
+  return SETTLE_METHODS.find(x => x.v === m)?.label ?? SETTLE_METHODS[0].label;
 }
 
 /** رسالة الخادم أولى من رسالتنا: 409 «اسم المستخدم مستخدم مسبقا» تُصلح الخطأ، و«تعذر الحفظ» لا تُصلح شيئاً */
@@ -725,6 +750,11 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
   const isMainAdmin = role === 'ADMIN'; // حذف استلام يرفع مطالبة المندوب — للأدمن الرئيسي وحده
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [method, setMethod] = useState<SettleMethod>('CASH');
+  /* مرفقات الاستلام — إيصال إيداعٍ أو صورة تحويل، تُمرَّر في حمولة الاستلام
+   * نفسها لا في طلبٍ ثانٍ: مرفقٌ يُرفع بعد تسجيل الاستلام يضيع كلّما انقطع
+   * الاتصال بين الطلبين، ويبقى الاستلام بلا سنده. */
+  const [photos, setPhotos] = useState<string[]>([]);
   const [filled, setFilled] = useState(false);
   const [delRow, setDelRow] = useState<Settlement | null>(null);
   // سند استلامٍ واحد معروضٌ الآن — طبقةٌ فوق هذه الشاشة
@@ -759,14 +789,41 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
   };
 
   const settle = useMutation({
-    mutationFn: () => salesRepApi.settle(rep.id, { amount: Number(amount), note: note.trim() || undefined }),
+    mutationFn: () => salesRepApi.settle(rep.id, {
+      amount: Number(amount),
+      method,
+      note: note.trim() || undefined,
+      photos: photos.length ? photos : undefined,
+    }),
     onSuccess: async () => {
       toast.success(tr('تم تسجيل الاستلام'));
       setNote('');
+      // النوع والمرفقات يعودان إلى الصفر: الاستلام التالي حدثٌ آخر، وإبقاء صور
+      // الأوّل معلّقةً كان يُرفقها بالثاني دون أن ينتبه المستلِم
+      setMethod('CASH');
+      setPhotos([]);
       await afterWrite();
     },
     onError: (e: unknown) => toast.error(errMsg(e, tr('تعذر التسجيل'))),
   });
+
+  /* اختيار الصور: الضغط بالوحدة المشتركة وحدها (١٢٨٠px / ٠٫٧) — حدّاها مُعايَران
+   * تحت سقف الخادم. وبلا `capture` عمداً: إيصال الإيداع لقطةُ شاشةٍ محفوظةٌ
+   * غالباً، ففرضُ الكاميرا كان يحجب الحالة الأشيع. */
+  const pickPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // يسمح بإعادة اختيار الملفّ نفسه بعد حذفه
+    let room = MAX_PHOTOS - photos.length;
+    if (files.length > room) toast.error(tr('الحد الأقصى 4 صور'));
+    for (const f of files) {
+      if (room <= 0) break;
+      try {
+        const url = await compressImage(f);
+        room -= 1;
+        setPhotos(prev => (prev.length < MAX_PHOTOS ? [...prev, url] : prev));
+      } catch { /* ملفٌ تالف أو غير صورة — يُتجاهل ولا يُسقط بقيّة الاختيار */ }
+    }
+  };
 
   const removeRow = useMutation({
     mutationFn: (s: Settlement) => salesRepApi.deleteSettlement(rep.id, s.id),
@@ -819,10 +876,62 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
                       value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
                     <Hint text={tr('معبأ بالرصيد المتبقي تسليم كامل عدله للتسليم الجزئي')} />
                   </div>
+
+                  {/* شرائح لا قائمة منسدلة: الشاشة تُشغَّل بإبهامٍ واحد، والمنسدلة
+                      تُخفي الخيارات الأربعة خلف لمستين ونافذة نظام */}
+                  <div>
+                    <label className="label">{tr('نوع الاستلام')}</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {SETTLE_METHODS.map(m => {
+                        const Icon = m.icon;
+                        const on = method === m.v;
+                        return (
+                          <button key={m.v} type="button" onClick={() => setMethod(m.v)}
+                            aria-pressed={on}
+                            className={`flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl border min-h-[60px] ${on ? 'bg-[#E9F6EF] border-[#2F855A] text-[#2F855A]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>
+                            <Icon size={17} />
+                            <span className="text-[10px] font-semibold leading-tight text-center">{tr(m.label)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* المرفقات: سند الاستلام ورقيّاً هو إيصال الإيداع أو صورة التحويل */}
+                  <div>
+                    <label className="label">{tr('مرفقات')}</label>
+                    <div className="flex flex-wrap gap-2">
+                      {photos.map((p, i) => (
+                        <span key={i} className="relative w-[72px] h-[72px] rounded-xl overflow-hidden border border-[#E9E1D3] bg-[#FAF7F0]">
+                          <img src={p} alt="" className="w-full h-full object-cover" />
+                          {/* الدائرة ٢٤px كما في سند القبض، وهدف اللمس حولها ٤٠px
+                              بحشوةٍ شفّافة — إبهامٌ يخطئ زرّ حذفٍ فوق صورةٍ يمسح غيرها */}
+                          <button type="button" onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                            aria-label={tr('حذف الصورة')}
+                            className="absolute top-0 start-0 p-2">
+                            <span className="bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center">
+                              <X size={13} />
+                            </span>
+                          </button>
+                        </span>
+                      ))}
+                      {photos.length < MAX_PHOTOS && (
+                        <label className="w-[72px] h-[72px] rounded-xl border-2 border-dashed border-[#E0D7C6] text-[#9A8F7E] flex flex-col items-center justify-center gap-1 active:bg-[#FAF7F0]">
+                          {/* بلا `capture` عمداً: المعرض مطلوبٌ بقدر الكاميرا — إيصال
+                              الإيداع لقطةُ شاشةٍ من تطبيق البنك محفوظةٌ سلفاً غالباً */}
+                          <input type="file" accept="image/*" multiple className="hidden" onChange={pickPhotos} />
+                          <ImageIcon size={18} />
+                          <span className="text-[10px]">{tr('إضافة صورة')}</span>
+                        </label>
+                      )}
+                    </div>
+                    <Hint text={tr('الحد الأقصى 4 صور')} />
+                  </div>
+
                   <div>
                     <label className="label">{tr('ملاحظة اختياري')}</label>
                     <input className="input" value={note} onChange={e => setNote(e.target.value)}
-                      placeholder={tr('مثال نقدا تحويل بنكي')} />
+                      placeholder={tr('مثال رقم الإيصال أو اسم البنك')} />
                   </div>
                   <button onClick={() => settle.mutate()} disabled={!amountOk || settle.isPending}
                     className="w-full bg-[#2F855A] text-white font-bold py-3 rounded-xl min-h-[48px] flex items-center justify-center gap-2 disabled:bg-[#9CC3AE]">
@@ -853,7 +962,22 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
             <MCard>
               {logQ.data.map(s => (
                 <MRow key={s.id}
-                  title={formatCurrency(s.amount)}
+                  title={(
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{formatCurrency(s.amount)}</span>
+                      <span className="flex-shrink-0 rounded-full bg-[#F1EBDF] text-[#6E6557] text-[10px] font-semibold px-1.5 py-0.5">
+                        {tr(methodLabel(s.method))}
+                      </span>
+                      {/* مؤشّر المرفقات لا صورها: الصفّ عرضه ٣٦٠px، ومصغّرةٌ فيه
+                          لا تُقرأ — وعدد المرفقات وحده يقول إنّ للاستلام سنداً */}
+                      {!!s.photos?.length && (
+                        <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] text-[#9A8F7E]"
+                          aria-label={tr('مرفقات')}>
+                          <Paperclip size={11} />{s.photos.length}
+                        </span>
+                      )}
+                    </span>
+                  )}
                   subtitle={`${tr('استلمه')}: ${s.createdBy || '—'}${s.note ? ` · ${s.note}` : ''}`}
                   note={`${formatDate(s.settledAt)} · ${formatTime(s.settledAt)}`}
                   trailing={(
