@@ -125,10 +125,10 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       صيف ٢٠٢٦ | العمل بلا إنترنت والمدفوعات الإلكترونيّة
       اليوم | منصّة مكتملة في الإنتاج تخدم شركات في ١٣ قطاعاً`,
 
-    model_title: 'باقتان تختار بينهما بعدد مناديبك',
+    model_title: 'ثلاث باقات تختار بينها بعدد مناديبك',
     model_items: `المبتدئة ٢٩٩ ريالاً شهريّاً حتى خمسة مناديب ومستخدم إداريّ واحد، شاملةً ضريبة القيمة المضافة
       المتوسّطة ٣٩٩ ريالاً شهريّاً حتى عشرة مناديب ومستخدمَين إداريَّين
-      المتقدّمة ٥٩٩ ريالاً شهريّاً حتى عشرين مندوباً وخمسة مستخدمين إداريين بصلاحيات موسّعة
+      الاحترافيّة ٥٩٩ ريالاً شهريّاً حتى عشرين مندوباً وخمسة مستخدمين إداريين بصلاحيات موسّعة
       تجربة عشرة أيّام مجّاناً بلا بطاقة ولا التزام، وبياناتك تبقى ملكك`,
 
     numbers_title: 'أرقام من الإنتاج لا من العروض',
@@ -209,7 +209,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Summer 2026 | Offline mode and electronic payments
       Today | A complete platform in production serving companies across 13 sectors`,
 
-    model_title: 'Two plans, chosen by your number of reps',
+    model_title: 'Three plans, chosen by your number of reps',
     model_items: `Starter at 299 SAR a month for up to five reps and one admin user, VAT included
       Growth at 399 SAR a month for up to ten reps and two admin users
       Advanced at 599 SAR a month for up to twenty reps and five admin users, with extended permissions
@@ -293,7 +293,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Été 2026 | Mode hors ligne et paiements électroniques
       Aujourd’hui | Une plateforme complète en production au service de 13 secteurs`,
 
-    model_title: 'Deux formules, choisies selon votre nombre de commerciaux',
+    model_title: 'Trois formules, choisies selon votre nombre de commerciaux',
     model_items: `Débutant à 299 SAR par mois jusqu’à cinq commerciaux et un utilisateur admin, TVA comprise
       Croissance à 399 SAR par mois jusqu’à dix commerciaux et deux utilisateurs admin
       Avancé à 599 SAR par mois jusqu’à vingt commerciaux et cinq utilisateurs admin, avec droits étendus
@@ -377,7 +377,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       2026 yazı | Çevrimdışı çalışma ve elektronik ödemeler
       Bugün | Üretimde, 13 sektörde şirketlere hizmet veren eksiksiz bir platform`,
 
-    model_title: 'Temsilci sayınıza göre seçtiğiniz iki paket',
+    model_title: 'Temsilci sayınıza göre seçtiğiniz üç paket',
     model_items: `Başlangıç paketi, beş temsilci ve bir yönetici hesabına kadar aylık 299 SAR, KDV dâhil
       Büyüme paketi, on temsilci ve iki yönetici hesabına kadar aylık 399 SAR
       Gelişmiş paket, yirmi temsilci ve beş yönetici hesabına kadar aylık 599 SAR; genişletilmiş yetkiler
@@ -461,7 +461,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       2026 年夏 | 离线作业与电子支付
       今天 | 已在生产环境稳定运行，服务 13 个行业的企业`,
 
-    model_title: '两种套餐，按业务员人数选择',
+    model_title: '三种套餐，按业务员人数选择',
     model_items: `入门版每月 299 沙特里亚尔，最多 5 位业务员和 1 个管理账号，含增值税
       成长版每月 399 沙特里亚尔，最多 10 位业务员和 2 个管理账号
       进阶版每月 599 沙特里亚尔，最多 20 位业务员和 5 个管理账号，权限更广

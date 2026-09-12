@@ -245,6 +245,43 @@ test('تصدير PDF يطبع الصفحة ولا يخدم ملفاً ثابتا
 });
 
 /**
+ * عنوان الاشتراك يعدّ الباقات، والبنود تسردها.
+ *
+ * وقع فعلاً: أُضيفت باقة ثالثة (٣٩٩) إلى البنود في اللغات الخمس وبقي العنوان
+ * «باقتان» في الخمس كلّها — فالزائر يقرأ عدداً ويرى غيره. العدد في نصّين
+ * يفترقان صامتين، فيُحرَس.
+ */
+test('عدد الباقات في العنوان يطابق عددها في البنود', () => {
+  const WORD: Record<string, RegExp> = {
+    ar: /باقتان|ثلاث باقات|أربع باقات/,
+    en: /\b(Two|Three|Four) plans\b/i,
+    fr: /\b(Deux|Trois|Quatre) formules\b/i,
+    // بلا `\b` قبل «üç»: حدّ الكلمة في JS مبنيّ على \w اللاتينيّة فيفشل أمام ü
+    tr: /(iki|üç|dört)\s+paket/i,
+    zh: /[两三四]种套餐/,
+  };
+  const COUNT: Record<string, number> = {
+    'باقتان': 2, 'ثلاث باقات': 3, 'أربع باقات': 4,
+    two: 2, three: 3, four: 4,
+    deux: 2, trois: 3, quatre: 4,
+    iki: 2, 'üç': 3, 'dört': 4,
+    '两': 2, '三': 3, '四': 4,
+  };
+  for (const l of PROFILE_LANGS) {
+    const title = PROFILE_DEFAULTS[l].model_title || '';
+    const m = title.match(WORD[l]);
+    assert.ok(m, `${PROFILE_LANG_LABEL[l]}: عنوان الاشتراك لا يذكر عدد الباقات — «${title}»`);
+    const key = m[0].replace(/\s*(plans|formules|paket|种套餐)\s*/i, '').trim().toLowerCase();
+    const said = COUNT[key] ?? COUNT[m[0]];
+    assert.ok(said, `${PROFILE_LANG_LABEL[l]}: تعذّر قراءة العدد من «${m[0]}»`);
+    // آخر سطر تجربة مجانية لا باقة مدفوعة
+    const paid = splitLines(PROFILE_DEFAULTS[l].model_items).length - 1;
+    assert.equal(said, paid,
+      `${PROFILE_LANG_LABEL[l]}: العنوان يقول ${said} والبنود ${paid}`);
+  }
+});
+
+/**
  * شركاء النجاح: الاسم والشعار خارج خريطة اللغات عمداً.
  *
  * لو دخلا فيها لوجب رفع كل شعار **خمس مرّات**، ولتضاعف حجم الـbase64 خمسةً في
