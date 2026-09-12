@@ -197,8 +197,11 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
  * فالحذف قد يقفل الشركة على نفسها إن أزال آخر مديرٍ يملك إدارة المستخدمين.
  *
  * ولا يُترك للحذف أثرٌ يتيم: `AdminCustomerScope` و`AdminRepScope` معرَّفان
- * بـ`onDelete: Cascade` فيمضيان مع السجلّ. ولا جدول آخر يشير إلى Admin —
- * الفواتير والسندات تُنسَب للمندوب لا لمستخدم اللوحة، فلا سجلّ ماليّ يُمسّ.
+ * بـ`onDelete: Cascade` فيمضيان مع السجلّ. والفواتير والسندات تُنسَب للمندوب لا
+ * لمستخدم اللوحة، فلا سجلّ ماليّ يُمسّ.
+ *
+ * ويبقى جدولٌ واحد يشير إلى Admin **بلا مفتاح أجنبيّ**: أصحاب عقد سلسلة
+ * التقرير اليومي — وهم مُعالَجون داخل المسار أدناه حارساً وتنظيفاً.
  */
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -234,7 +237,70 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       }
     }
 
-    await prisma.admin.delete({ where: { id: target.id } });
+    /* عقدة سلسلة الاعتماد — الأثر اليتيم الذي كان يفلت.
+     *
+     * `DailyReportLevelOwner.adminId` نصٌّ **بلا مفتاح أجنبيّ**: القاعدة لا تمنع
+     * شيئاً، فتبقى العقدة باسم رجلٍ لا حساب له — مهامّها لا تظهر في صندوق أحد،
+     * ولا تصدر حصيلة أيّامها، ولا تُحذف العقدة (مهامّها واقفة). ولا شكوى من
+     * أيّ شيء في المنظومة كلّها، أسبوعاً كاملاً.
+     *
+     * والرفض محصورٌ في الحالتين اللتين **توقفان** المسار، لا كل عضوية:
+     *  ١) آخر صاحبٍ حيٍّ لمستوى — فلا مستقبِل لتقاريره إطلاقاً.
+     *  ٢) آخر صاحبٍ **افتراضيٍّ** حيّ — فالمناديب غير المُوجَّهين بلا مستقبِل،
+     *     وهو نفسه ما يرفضه مسار تعيين الأصحاب حين تُفرَّغ قائمة الافتراضيين.
+     * وما عدا ذلك تُحذف عقدُه مع حسابه: عقدةٌ شاغرة أسوأ من غيابها، والمناديب
+     * المُوجَّهون إليه يعودون إلى الصاحب الافتراضي وهو مقصود.
+     *
+     * والرفض مشروطٌ بكون الميزة **مفعّلة**: شركةٌ أُطفئت عندها لا تستطيع فتح
+     * شاشة السلسلة أصلاً (حارس `requireDailyReport`)، فرفضُ الحذف يحبسها أمام
+     * علاجٍ لا سبيل إليه. أمّا التنظيف فيجري في الحالين.
+     */
+    const myNodes = await prisma.dailyReportLevelOwner.findMany({
+      where: { tenantId: tid, adminId: target.id },
+      select: { id: true, levelId: true, isDefault: true },
+    });
+    const feature = await prisma.tenant.findUnique({ where: { id: tid }, select: { dailyReportEnabled: true } });
+    if (myNodes.length && feature?.dailyReportEnabled === true) {
+      const levelIds = [...new Set(myNodes.map(n => n.levelId))];
+      const [levels, siblings, liveAdmins] = await Promise.all([
+        prisma.dailyReportLevel.findMany({ where: { tenantId: tid, id: { in: levelIds } }, select: { id: true, name: true } }),
+        prisma.dailyReportLevelOwner.findMany({
+          where: { tenantId: tid, levelId: { in: levelIds }, adminId: { not: target.id } },
+          select: { levelId: true, adminId: true, isDefault: true },
+        }),
+        // «حيّ» = موجودٌ ونشِط: المعطَّل لا يفتح صندوقه فلا يُحسب خلَفاً
+        prisma.admin.findMany({ where: { tenantId: tid, isActive: true }, select: { id: true } }),
+      ]);
+      const liveIds = new Set(liveAdmins.map(a => a.id));
+      const nameOf = new Map(levels.map(l => [l.id, l.name]));
+      for (const lid of levelIds) {
+        const label = nameOf.get(lid) || 'مستوى';
+        const rest = siblings.filter(s => s.levelId === lid && liveIds.has(s.adminId));
+        if (!rest.length) {
+          res.status(400).json({
+            success: false,
+            message: `${target.name} آخر صاحب لمستوى «${label}» في سلسلة التقرير اليومي عين صاحبا غيره من صفحة التقرير اليومي قبل حذفه`,
+          });
+          return;
+        }
+        const mineHere = myNodes.filter(n => n.levelId === lid);
+        if (mineHere.some(n => n.isDefault) && !rest.some(s => s.isDefault)) {
+          res.status(400).json({
+            success: false,
+            message: `${target.name} الصاحب الافتراضي لمستوى «${label}» في سلسلة التقرير اليومي عين افتراضيا غيره قبل حذفه`,
+          });
+          return;
+        }
+      }
+    }
+
+    /* معاملة واحدة: التوجيهات ثمّ العقد ثمّ الحساب — فلا تبقى عقدة باسم محذوف
+     * ولو انقطع الطلب بين السطرين. */
+    await prisma.$transaction([
+      prisma.dailyReportOwnerRep.deleteMany({ where: { tenantId: tid, ownerId: { in: myNodes.map(n => n.id) } } }),
+      prisma.dailyReportLevelOwner.deleteMany({ where: { tenantId: tid, adminId: target.id } }),
+      prisma.admin.delete({ where: { id: target.id } }),
+    ]);
     res.json({ success: true });
   } catch (err) { next(err); }
 });

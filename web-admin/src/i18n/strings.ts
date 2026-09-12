@@ -1852,6 +1852,17 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'التصنيف': { en: 'Classification', fr: 'Classification', tr: 'Siniflandirma', zh: '分类' },
   'النظام المحاسبي غير مفعل لشركتك': { en: 'The accounting system is not enabled for your company', fr: 'Le systeme comptable est desactive pour votre entreprise', tr: 'Muhasebe sistemi sirketiniz icin etkin degil', zh: '贵企业未启用会计系统' },
   'عملاء تمت زيارتهم': { en: 'Customers visited', fr: 'Clients visites', tr: 'Ziyaret edilen musteriler', zh: '已拜访客户' },
+  // ——— سجلّ التقارير اليومية لكل مندوب ———
+  'سجل التقارير اليومية': { en: 'Daily reports log', fr: 'Journal des rapports quotidiens', tr: 'Gunluk rapor gecmisi', zh: '日报记录' },
+  'معاد للتصحيح': { en: 'Returned for correction', fr: 'Renvoye pour correction', tr: 'Duzeltmeye geri gonderildi', zh: '已退回修正' },
+  'تعذر تحميل سجل التقارير': { en: 'Could not load the reports log', fr: 'Impossible de charger le journal des rapports', tr: 'Rapor gecmisi yuklenemedi', zh: '无法加载日报记录' },
+  'لا تقارير في هذا المدى': { en: 'No reports in this range', fr: 'Aucun rapport dans cette periode', tr: 'Bu aralikta rapor yok', zh: '该期间没有日报' },
+  'لا تقارير بعد': { en: 'No reports yet', fr: 'Aucun rapport pour le moment', tr: 'Henuz rapor yok', zh: '暂无日报' },
+  'محاولة': { en: 'Attempt', fr: 'Tentative', tr: 'Deneme', zh: '第' },
+  'رفع في': { en: 'Submitted at', fr: 'Depose le', tr: 'Gonderildi', zh: '提交于' },
+  'اعتمد في': { en: 'Approved at', fr: 'Valide le', tr: 'Onaylandi', zh: '批准于' },
+  'عند': { en: 'At', fr: 'Au niveau', tr: 'Seviyede', zh: '位于' },
+  'تعذر تحميل السجل': { en: 'Could not load the log', fr: 'Impossible de charger le journal', tr: 'Kayit yuklenemedi', zh: '无法加载记录' },
 };
 
 export function useTr() {

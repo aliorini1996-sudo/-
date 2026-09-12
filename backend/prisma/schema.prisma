@@ -1837,8 +1837,12 @@ model DailyReport {
   id         String   @id @default(uuid())
   tenantId   String
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  salesRepId String
-  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  // اختياري + SetNull كالفاتورة والسند: الإقرار اليوميّ **سجلٌّ** وُقِّع عليه
+  // وصدرت به حصائل، فحذفُ المندوب يجب أن يُفرِّغ مرجعه لا أن يمحوه. وكان
+  // Cascade يمحو تقارير شهورٍ موقَّعة بحذف مستقيلٍ واحد، بلا سطرٍ يقول ذلك في
+  // مسار الحذف — بينما المسار نفسه يحرص على حفظ فواتيره وسنداته.
+  salesRepId String?
+  salesRep   SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
 
   reportDate  String
   tzOffsetMin Int    @default(0)

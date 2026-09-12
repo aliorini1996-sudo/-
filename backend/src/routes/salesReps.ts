@@ -201,11 +201,18 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
-    // معاملة واحدة: تفريغ مرجع المندوب من الفواتير/السندات (حفظ السجلّ المالي)،
-    // ثم حذف بياناته التشغيلية (إشعارات/تحميلات/مواقع/زيارات/تسويات) وأخيراً المندوب.
+    // معاملة واحدة: تفريغ مرجع المندوب من الفواتير/السندات/التقارير اليومية
+    // (حفظ السجلّ)، ثم حذف بياناته التشغيلية (إشعارات/تحميلات/مواقع/زيارات/
+    // تسويات) وأخيراً المندوب.
     await prisma.$transaction([
       prisma.invoice.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
       prisma.receipt.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
+      /* الإقرار اليوميّ سجلٌّ كالفاتورة: وُقِّع عليه وصدرت به حصائل. وكان يُمحى
+       * تعاقبياً بحذف المندوب بلا سطرٍ هنا يقول ذلك — فتختفي تقارير شهورٍ
+       * وتبقى حصائلها تُعلن أرقاماً لا مصدر لها. */
+      prisma.dailyReport.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
+      // توجيه العقد لهذا المندوب تهيئةٌ لا سجلّ — يُحذف
+      prisma.dailyReportOwnerRep.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } }),
       prisma.notification.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } }),
       prisma.vanLoadItem.deleteMany({ where: { vanLoad: { salesRepId: req.params.id } } }),
       prisma.vanLoad.deleteMany({ where: { salesRepId: req.params.id } }),

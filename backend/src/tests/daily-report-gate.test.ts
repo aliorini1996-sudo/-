@@ -130,3 +130,65 @@ test('التقرير الشامل يُعلن ما قصّه وما قيّده —
   assert.match(block, /scopedNote/, 'تقييد النطاق يجب أن يُعلَن');
   assert.match(block, /soloApproved/, 'وسم «اعتمده شخص واحد» مفقود من التقرير الشامل');
 });
+
+/* ═══════════════════════════════════════════════════════════════════
+ * الإقرار اليوميّ **سجلّ** لا بيانات تشغيل — ثلاثة حرّاس يحفظون ذلك
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/** كتلة نموذجٍ واحدة من المخطّط — لا نافذة أحرفٍ ثابتة تنزلق مع أيّ تعليق */
+function model(schema: string, name: string): string {
+  const i = schema.indexOf(`model ${name} {`);
+  assert.ok(i > 0, `النموذج ${name} مفقود من المخطّط`);
+  const end = schema.indexOf('\n}', i);
+  assert.ok(end > i, `تعذّر تحديد نهاية النموذج ${name}`);
+  return schema.slice(i, end);
+}
+
+test('حذف المندوب يُفرّغ مرجعه من تقاريره ولا يمحوها — كالفاتورة حرفاً', () => {
+  const sch = read('prisma', 'schema.prisma');
+  const dr = model(sch, 'DailyReport');
+  assert.match(dr, /salesRepId String\?/, 'المرجع يجب أن يكون اختيارياً وإلا محا Cascade تقارير شهور');
+  assert.match(dr, /salesRep\s+SalesRep\? @relation\([^)]*onDelete: SetNull\)/, 'العلاقة يجب أن تكون SetNull لا Cascade');
+  // وهي سابقة الفاتورة نفسها لا اجتهاداً جديداً
+  assert.match(model(sch, 'Invoice'), /onDelete: SetNull/, 'سابقة الفاتورة تغيّرت — راجع هذا القرار كلّه');
+
+  // والقاعدة وحدها لا تكفي: مسار الحذف يقول ما يفعل صراحةً
+  const r = read('src', 'routes', 'salesReps.ts');
+  const i = r.indexOf('await prisma.$transaction([');
+  assert.ok(i > 0, 'معاملة حذف المندوب مفقودة');
+  const tx = r.slice(i, r.indexOf('])', i));
+  assert.match(tx, /dailyReport\.updateMany\([^)]*salesRepId: null/, 'المعاملة لا تُفرّغ مرجع التقارير');
+  // توجيه العقد للمندوب تهيئةٌ لا سجلّ — يُحذف معه
+  assert.match(tx, /dailyReportOwnerRep\.deleteMany/, 'توجيهات العقد تبقى يتيمةً بعد حذف المندوب');
+});
+
+test('حذف مستخدمٍ يملك عقدة في السلسلة محروسٌ ومنظَّف', () => {
+  const s = read('src', 'routes', 'companyUsers.ts');
+  const i = s.indexOf("router.delete('/:id'");
+  assert.ok(i > 0, 'مسار حذف مستخدم الشركة مفقود');
+  const end = s.indexOf('\n});', i);
+  assert.ok(end > i, 'تعذّر تحديد نهاية المسار');
+  const body = s.slice(i, end);
+
+  // الحارس: آخر صاحبٍ حيّ لمستوى، وآخر صاحبٍ افتراضيّ
+  assert.match(body, /dailyReportLevelOwner\.findMany/, 'المسار لا يقرأ عقد المستخدم أصلاً');
+  assert.match(body, /isActive: true/, 'الخلَف يجب أن يكون **حيّاً** — المعطَّل لا يفتح صندوقه');
+  assert.match(body, /آخر صاحب لمستوى/, 'رسالة آخر صاحبٍ مفقودة');
+  assert.match(body, /الصاحب الافتراضي لمستوى/, 'رسالة آخر صاحبٍ افتراضيّ مفقودة');
+  // والرفض لا يُطبَّق على شركةٍ أُطفئت عندها الميزة: لا سبيل لها إلى العلاج
+  assert.match(body, /dailyReportEnabled === true/, 'الرفض يجب أن يكون مشروطاً بتفعيل الميزة');
+  // والتنظيف في معاملةٍ واحدة: لا عقدة باسم محذوف
+  assert.match(body, /\$transaction\(\[[\s\S]*dailyReportLevelOwner\.deleteMany[\s\S]*admin\.delete/, 'الحذف يجب أن يزيل العقد في معاملةٍ واحدة مع الحساب');
+});
+
+test('سجلّ تقارير المندوب خلف الدور والصلاحية والنطاق معاً', () => {
+  const s = read('src', 'routes', 'dailyReports.ts');
+  const i = s.indexOf("router.get('/rep/:salesRepId'");
+  assert.ok(i > 0, 'مسار سجلّ المندوب مفقود');
+  const head = s.slice(i, i + 200);
+  assert.match(head, /requireAdmin, requireAdminPermission\('canViewReports'\)/, 'المسار ليس تحت `/admin` فيلزمه حارساه صراحةً');
+  const end = s.indexOf('\n});', i);
+  const body = s.slice(i, end);
+  assert.match(body, /canAccessRep/, 'النطاق غير محروس — مستخدمٌ مقيَّد يقرأ سجلّ مندوبٍ خارج نطاقه');
+  assert.match(body, /cappedNote/, 'قصّ المدّة يجب أن يُعلَن لا أن يقع صامتاً');
+});

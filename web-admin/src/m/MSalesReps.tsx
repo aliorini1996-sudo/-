@@ -4,6 +4,7 @@ import {
   Search, Plus, ChevronLeft, Phone, Pencil, ShieldCheck, Banknote, Trash2, KeyRound,
   Loader2, Check, Copy, RefreshCw, Eye, EyeOff, UserRound, AlertTriangle, Wallet, Download,
   Users, Truck, Landmark, CreditCard, FileText, Paperclip, X, Image as ImageIcon,
+  ClipboardList,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesRepApi } from '../api/client';
@@ -23,6 +24,9 @@ const MSettlementDoc = lazy(() => import('./MSettlementDoc'));
 /* شاشتا الإسناد والتحميل: لا تُفتحان في كل زيارةٍ لملفّ مندوب، فلا تدخلان حزمته */
 const MRepCustomers = lazy(() => import('./MRepCustomers'));
 const MRepLoad = lazy(() => import('./MRepLoad'));
+/* سجلّ التقارير اليومية — ميزة اشتراكٍ مطفأة عند أكثر الشركات، فلا تدخل
+ * حزمة ملفّ المندوب عند من لا يراها أصلاً */
+const MRepDailyLog = lazy(() => import('./MRepDailyLog'));
 
 const PAGE = 25;
 
@@ -242,7 +246,7 @@ function RepRow({ rep, balance, onOpen }: { rep: SalesRep; balance?: number; onO
 
 /* ═══════════════════════ ملفّ المندوب ═══════════════════════ */
 
-type Layer = 'form' | 'perms' | 'collect' | 'customers' | 'load' | null;
+type Layer = 'form' | 'perms' | 'collect' | 'customers' | 'load' | 'dailyLog' | null;
 
 function RepDetail({ repId, company, accountingOn, onBack }: {
   repId: string; company?: unknown; accountingOn: boolean; onBack: () => void;
@@ -305,6 +309,12 @@ function RepDetail({ repId, company, accountingOn, onBack }: {
   /* تسجيل التحميل خلف حارسَي الخادم نفسيهما: عزل «النظام المحاسبي» ثمّ صلاحية
    * مخزون السيارة. إظهار بلاطةٍ تُفضي إلى ٤٠٣ أسوأ من إخفائها. */
   const canLoad = accountingOn && can(user, 'canManageVanStock');
+  /* سجلّ التقارير اليومية خلف حارسَي الخادم نفسيهما: ميزةُ الاشتراك **مطفأة
+   * افتراضياً** (فالشرط `=== true` لا `!== false`) ثمّ صلاحية قراءة التقارير.
+   * وهو يستقلّ عن «النظام المحاسبي»: الإقرار اليوميّ ليس فوترةً، وشركةٌ أطفأت
+   * المحاسبة قد تكون مفعّلةً للتقرير. */
+  const dailyReportOn = (company as { dailyReportEnabled?: boolean } | null)?.dailyReportEnabled === true
+    && can(user, 'canViewReports');
 
   if (layer === 'form') {
     return (
@@ -334,6 +344,13 @@ function RepDetail({ repId, company, accountingOn, onBack }: {
     return (
       <Suspense fallback={<MSpinner />}>
         <MRepLoad rep={rep} company={company} onClose={() => setLayer(null)} />
+      </Suspense>
+    );
+  }
+  if (layer === 'dailyLog' && dailyReportOn) {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        <MRepDailyLog rep={rep} onClose={() => setLayer(null)} />
       </Suspense>
     );
   }
@@ -402,6 +419,9 @@ function RepDetail({ repId, company, accountingOn, onBack }: {
             <Tile icon={Users} label={tr('إسناد العملاء')} onClick={() => setLayer('customers')} />
             {canLoad && (
               <Tile icon={Truck} label={tr('تسجيل تحميل')} color="#2F855A" onClick={() => setLayer('load')} />
+            )}
+            {dailyReportOn && (
+              <Tile icon={ClipboardList} label={tr('التقارير اليومية')} onClick={() => setLayer('dailyLog')} />
             )}
             {isMainAdmin && (
               <Tile icon={Trash2} label={tr('حذف المندوب')} color="#C0392B" onClick={() => setConfirmDel(true)} />

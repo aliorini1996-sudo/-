@@ -146,6 +146,23 @@ function reportDateIssue(date: string, nowMs = Date.now()): string | null {
   return null;
 }
 
+/**
+ * مرجع المندوب في تقريرٍ **يتيم** — حُذف صاحبه بعد أن وقّع إقراره.
+ *
+ * `salesRepId` صار اختيارياً كالفاتورة والسند: الإقرار سجلٌّ يبقى بعد صاحبه.
+ * والغياب يُقرأ هنا سلسلةً فارغة لا `null`، لأنّ لكلّ مستهلكٍ للمرجع جواباً
+ * صحيحاً عند الغياب:
+ *  - `ownersFor` لا يجد توجيهاً خاصاً بمعرّفٍ فارغ فيعيد **الأصحاب
+ *    الافتراضيين**، فتُكمل السلسلة طريقها بدل أن تقف عند تقريرٍ بلا صاحب.
+ *  - `canAccessRep` لا يجد مندوباً بهذا المعرّف فيمنع المستخدم **المقيَّد
+ *    بنطاق** — وهو الاتجاه الآمن: من رآه بنطاقه لا يرثه بعد زواله.
+ * والمستخدم غير المقيَّد يرى التقرير كما يرى فاتورة مندوبٍ مستقيل.
+ */
+const REP_GONE = '';
+/** ما يُعرض مكان اسم مندوبٍ حُذف — لا فراغٌ يُقرأ عطلاً في الواجهة */
+const REP_GONE_NAME = 'مندوب محذوف';
+const repRef = (id: string | null): string => id ?? REP_GONE;
+
 /** يقرأ تعريف السلسلة كاملاً لهذه الشركة */
 async function loadChain(tid: string) {
   const [levels, owners, ownerReps, admins] = await Promise.all([
@@ -491,7 +508,7 @@ router.get('/admin/inbox', async (req: AuthRequest, res: Response, next: NextFun
 
     // التوجيه يُطبَّق بعد الاستعلام: المهمّة للمستوى، والملكية قد تكون مُشعّبة
     const mine = tasks.filter(t => {
-      const rep = t.report.salesRepId;
+      const rep = repRef(t.report.salesRepId);
       const eligible = ownersFor(chain.owners, chain.ownerReps, t.levelId, rep);
       return eligible.some(o => o.adminId === me);
     });
@@ -501,7 +518,7 @@ router.get('/admin/inbox', async (req: AuthRequest, res: Response, next: NextFun
       data: mine.map(t => ({
         reportId: t.reportId, levelSeq: t.levelSeq, round: t.round,
         reportDate: t.report.reportDate, status: t.report.status,
-        salesRepId: t.report.salesRepId, salesRepName: t.report.salesRep.name,
+        salesRepId: t.report.salesRepId, salesRepName: t.report.salesRep?.name ?? REP_GONE_NAME,
         submittedAt: t.report.intakeAt,
       })),
     });
@@ -523,7 +540,7 @@ router.get('/admin/:id', async (req: AuthRequest, res: Response, next: NextFunct
       },
     });
     if (!report) { res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return; }
-    if (!(await canAccessRep(req, tid, report.salesRepId))) {
+    if (!(await canAccessRep(req, tid, repRef(report.salesRepId)))) {
       res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return;
     }
 
@@ -531,7 +548,7 @@ router.get('/admin/:id', async (req: AuthRequest, res: Response, next: NextFunct
     const fields = await prisma.dailyReportField.findMany({ where: { tenantId: tid }, orderBy: { seq: 'asc' } });
     const perm = canAct(
       { adminId: req.user!.id, role: req.user!.role },
-      report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, report.salesRepId,
+      report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, repRef(report.salesRepId),
     );
     // الخانات التي يملؤها مستواي (مستوى ENTER)
     const myLevel = chain.levels.find(l => l.id === perm.levelId);
@@ -577,13 +594,13 @@ router.post('/admin/:id/comment', async (req: AuthRequest, res: Response, next: 
      * فمستخدمٌ مقيَّدٌ يُمنع من فتح التقرير ويستطيع التوقيع عليه بطلبٍ مباشر
      * بمعرّفٍ وصله — أسوأ الاحتمالين معاً. والقاعدة موثّقة في adminScope.ts:
      * «والقراءة وحدها لا تكفي: مسارات الإنشاء تحرس المندوب بـcanAccessRep». */
-    if (!(await canAccessRep(req, tid, report.salesRepId))) {
+    if (!(await canAccessRep(req, tid, repRef(report.salesRepId)))) {
       res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return;
     }
     if (report.status === 'APPROVED') { res.status(409).json({ success: false, message: 'التقرير مُعتمَد ومقفول' }); return; }
 
     const chain = await loadChain(tid);
-    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, report.salesRepId);
+    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, repRef(report.salesRepId));
     if (!perm.allowed) { res.status(403).json({ success: false, message: perm.reason || 'غير مسموح' }); return; }
 
     const c = await prisma.dailyReportComment.create({
@@ -604,13 +621,13 @@ router.post('/admin/:id/values', async (req: AuthRequest, res: Response, next: N
     const body = z.object({ values: z.array(valueSchema) }).parse(req.body);
     const report = await prisma.dailyReport.findFirst({ where: { id: String(req.params.id), tenantId: tid }, include: { tasks: true } });
     if (!report) { res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return; }
-    if (!(await canAccessRep(req, tid, report.salesRepId))) {
+    if (!(await canAccessRep(req, tid, repRef(report.salesRepId)))) {
       res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return;
     }
     if (report.status === 'APPROVED') { res.status(409).json({ success: false, message: 'التقرير مُعتمَد ومقفول' }); return; }
 
     const chain = await loadChain(tid);
-    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, report.salesRepId);
+    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, repRef(report.salesRepId));
     if (!perm.allowed || perm.levelSeq === null) { res.status(403).json({ success: false, message: perm.reason || 'غير مسموح' }); return; }
 
     const fields = await prisma.dailyReportField.findMany({ where: { tenantId: tid, isActive: true, fillLevelSeq: perm.levelSeq } });
@@ -662,13 +679,13 @@ router.post('/admin/:id/approve', async (req: AuthRequest, res: Response, next: 
       include: { tasks: true, steps: true, values: true },
     });
     if (!report) { res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return; }
-    if (!(await canAccessRep(req, tid, report.salesRepId))) {
+    if (!(await canAccessRep(req, tid, repRef(report.salesRepId)))) {
       res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return;
     }
     if (report.status === 'APPROVED') { res.status(409).json({ success: false, message: 'التقرير مُعتمَد ومقفول' }); return; }
 
     const chain = await loadChain(tid);
-    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, report.salesRepId);
+    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, repRef(report.salesRepId));
     if (!perm.allowed || perm.levelSeq === null) { res.status(403).json({ success: false, message: perm.reason || 'غير مسموح' }); return; }
 
     const level = chain.levels.find(l => l.id === perm.levelId);
@@ -695,7 +712,7 @@ router.post('/admin/:id/approve', async (req: AuthRequest, res: Response, next: 
     /* سياق النصاب يُمرَّر وإلّا بقي «يوقّعان معاً» وعداً في المحاكي لا يُنفَّذ:
      * مستوىً عرّفته الشركة بتوقيعين كان يعبره توقيعٌ واحد ويُقفل التقرير. */
     const tr = applyAction('APPROVE', chain.levels, perm.levelSeq, report.round, {
-      eligible: ownersFor(chain.owners, chain.ownerReps, perm.levelId!, report.salesRepId),
+      eligible: ownersFor(chain.owners, chain.ownerReps, perm.levelId!, repRef(report.salesRepId)),
       steps: report.steps as never,
       actorAdminId: req.user!.id,
     });
@@ -763,13 +780,13 @@ router.post('/admin/:id/return', async (req: AuthRequest, res: Response, next: N
     const body = z.object({ reason: z.string().min(3, 'اكتب سبب الإعادة').max(1000) }).parse(req.body);
     const report = await prisma.dailyReport.findFirst({ where: { id: String(req.params.id), tenantId: tid }, include: { tasks: true } });
     if (!report) { res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return; }
-    if (!(await canAccessRep(req, tid, report.salesRepId))) {
+    if (!(await canAccessRep(req, tid, repRef(report.salesRepId)))) {
       res.status(404).json({ success: false, message: 'التقرير غير موجود' }); return;
     }
     if (report.status === 'APPROVED') { res.status(409).json({ success: false, message: 'التقرير مُعتمَد ومقفول' }); return; }
 
     const chain = await loadChain(tid);
-    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, report.salesRepId);
+    const perm = canAct({ adminId: req.user!.id }, report.tasks as unknown as ChainTask[], chain.levels, chain.owners, chain.ownerReps, repRef(report.salesRepId));
     if (!perm.allowed || perm.levelSeq === null) { res.status(403).json({ success: false, message: perm.reason || 'غير مسموح' }); return; }
 
     const tr = applyAction('RETURN', chain.levels, perm.levelSeq, report.round);
@@ -1320,8 +1337,10 @@ router.get('/digests/:date', requireAdmin, requireAdminPermission('canViewReport
     // يعرضها الجدول، فلا يقع رقمان متناقضان على شاشةٍ واحدة
     const liveByReport = reports.map(r => ({ r, vals: liveValues(r.values, ownerSeq) }));
     const rows = liveByReport.map(({ r, vals }) => ({
-      salesRepId: r.salesRepId,
-      salesRepName: r.salesRep.name,
+      /* صفٌّ لكل تقرير، ومفتاحه في الجدول هو `salesRepId` — فتقريران ليتيمين
+       * مختلفَين كانا سيحملان المفتاح نفسه. معرّف التقرير يفرّقهما. */
+      salesRepId: r.salesRepId ?? `gone:${r.id}`,
+      salesRepName: r.salesRep?.name ?? REP_GONE_NAME,
       soloApproved: r.distinctApprovers === 1,
       approvedAt: r.approvedAt,
       values: Object.fromEntries(vals.map(v => [v.fieldId, v.declaredNum ?? v.declaredText ?? null])),
@@ -1567,7 +1586,7 @@ router.post('/digests/:date/issue', requireAdmin, requireAdminPermission('canMan
  * لها قيمٌ في المدّة، ولا تظهر خانةٌ أُضيفت بعدها.
  */
 function teamRows(
-  reports: { salesRepId: string; salesRep: { name: string }; status: string; distinctApprovers: number; values: LiveValue[] }[],
+  reports: { salesRepId: string | null; salesRep: { name: string } | null; status: string; distinctApprovers: number; values: LiveValue[] }[],
   fields: { id: string; kind: string; fillLevelSeq: number | null }[],
 ) {
   const ownerSeq = new Map(fields.map(f => [f.id, f.fillLevelSeq ?? 0]));
@@ -1575,10 +1594,13 @@ function teamRows(
   const byRep = new Map<string, { salesRepId: string; salesRepName: string; days: number; approved: number; soloApproved: number; pending: number; returned: number; totals: Record<string, number> }>();
   const seen = new Set<string>();
   for (const r of reports) {
-    let row = byRep.get(r.salesRepId);
+    /* تقارير كل من حُذف تُجمع في صفٍّ واحد: المعرّف زال فلا سبيل للتفريق
+     * بينهم، وإخفاؤها يُنقص إجماليّ المدّة عن مجموع ما رُفع فيها فعلاً. */
+    const key = repRef(r.salesRepId);
+    let row = byRep.get(key);
     if (!row) {
-      row = { salesRepId: r.salesRepId, salesRepName: r.salesRep.name, days: 0, approved: 0, soloApproved: 0, pending: 0, returned: 0, totals: {} };
-      byRep.set(r.salesRepId, row);
+      row = { salesRepId: key, salesRepName: r.salesRep?.name ?? REP_GONE_NAME, days: 0, approved: 0, soloApproved: 0, pending: 0, returned: 0, totals: {} };
+      byRep.set(key, row);
     }
     row.days += 1;
     if (r.status === 'APPROVED') {
@@ -1601,6 +1623,103 @@ function teamRows(
     seen,
   };
 }
+
+/**
+ * سجلّ تقارير مندوبٍ واحد — يوماً بيوم.
+ *
+ * الطرق الثلاثة تجيب أسئلة مختلفة ولا يُغني أحدها عن الآخر: `/team` يطوي
+ * المدّة كلّها في صفٍّ واحد لكل مندوب، و`/digests/:date` يقطع الفريق كلّه في
+ * يومٍ واحد. وبقي السؤال الذي يُسأل في **صفحة المندوب نفسها** — حيث سجلّ
+ * تحصيله وسجلّ تحميله — بلا جواب: ماذا أقرّ هذا المندوب في كلّ يوم؟
+ *
+ * والصفّ يحمل الحالة وزمن الرفع والاعتماد وعند أيّ مستوى يقف الآن، لا الأرقام
+ * وحدها: تقريرٌ عالقٌ أربعة أيام عند مستوىً واحد معلومةٌ إداريّة لا تقلّ عن
+ * مبالغه، وهي لا تظهر في أيّ شاشةٍ أخرى.
+ *
+ * والمُعاد للتصحيح **يظهر في السجلّ** وإن كان خارج إجماليّ `/team`: السجلّ
+ * سردُ ما جرى لا حصيلةَ ما اعتُمد، وإخفاؤه يطمس سبب فجوة يومٍ في الحصيلة.
+ */
+router.get('/rep/:salesRepId', requireAdmin, requireAdminPermission('canViewReports'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const repId = String(req.params.salesRepId || '');
+    // النطاق أوّلاً: ٤٠٤ لا ٤٠٣ — لا يفصح عن وجود مندوبٍ خارج نطاق السائل
+    if (!(await canAccessRep(req, tid, repId))) {
+      res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
+    }
+    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { id: true, name: true } });
+    if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+
+    /* المدّة اختيارية: بلا مدّةٍ يُعرض آخر ٣٠ يوماً — وهو ما يريده من يفتح
+     * صفحة مندوب، لا شهرٌ يختاره أوّلاً ليرى شيئاً. والسقف ٩٢ يوماً: مندوبٌ
+     * واحد لا الفريق، فالحمل ثلث حمل `/team` عند نفس المدّة. */
+    const DEF_DAYS = 30;
+    const MAX_DAYS = 92;
+    const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const qTo = String(req.query.to || '');
+    const qFrom = String(req.query.from || '');
+    const to = isDate(qTo) ? qTo : new Date().toISOString().slice(0, 10);
+    let from = isDate(qFrom) ? qFrom : new Date(Date.parse(to) - (DEF_DAYS - 1) * 86400000).toISOString().slice(0, 10);
+    const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    const capped = days > MAX_DAYS;
+    // القصّ من **الطرف الأقدم**: من يوسّع المدّة يريد الأحدث لا الأقدم
+    if (capped) from = new Date(Date.parse(to) - (MAX_DAYS - 1) * 86400000).toISOString().slice(0, 10);
+
+    const [fields, reports, chain] = await Promise.all([
+      // بلا قيد isActive: خانةٌ أُرشفت لها أرقامٌ في أيّامٍ ماضية، وإخفاء عمودها
+      // يمحو ما أُقرّ به فعلاً يومها (نفس قاعدة `/team` و`/digests`)
+      prisma.dailyReportField.findMany({ where: { tenantId: tid }, orderBy: { seq: 'asc' } }),
+      prisma.dailyReport.findMany({
+        where: { tenantId: tid, salesRepId: repId, reportDate: { gte: from, lte: to } },
+        include: { values: true },
+        orderBy: { reportDate: 'desc' },
+      }),
+      loadChain(tid),
+    ]);
+
+    const ownerSeq = new Map(fields.map(f => [f.id, f.fillLevelSeq ?? 0]));
+    const levelName = new Map(chain.levels.map(l => [l.seq, l.name]));
+    const seen = new Set<string>();
+    const rows = reports.map(r => {
+      const vals = liveValues(r.values, ownerSeq);
+      for (const v of vals) {
+        if (v.declaredNum !== null || String(v.declaredText || '').trim()) seen.add(v.fieldId);
+      }
+      return {
+        id: r.id,
+        reportDate: r.reportDate,
+        status: r.status,
+        round: r.round,
+        note: r.note,
+        submittedAt: r.intakeAt,
+        approvedAt: r.approvedAt,
+        // «اعتمده شخص واحد» — يُعلَن هنا كما يُعلَن في الحصيلة، لا يُخفى
+        soloApproved: r.status === 'APPROVED' && r.distinctApprovers <= 1,
+        // عند أيّ مستوىً يقف الآن — فارغٌ للمعتمَد والمُعاد
+        currentLevelName: r.status === 'PENDING' ? (levelName.get(r.currentLevelSeq ?? -1) ?? null) : null,
+        values: Object.fromEntries(vals.map(v => [v.fieldId, v.declaredNum ?? v.declaredText ?? null])),
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        rep,
+        // الخانات النصّية تبقى: السجلّ سردٌ لا جدول إجماليّات، وملاحظةُ يومٍ
+        // قد تكون كلّ ما يفسّر رقمه
+        fields: fields.filter(f => f.isActive || seen.has(f.id)).map(f => ({ id: f.id, label: f.label, kind: f.kind })),
+        rows,
+        meta: {
+          from, to, capped,
+          cappedNote: capped ? `المدّة قُصّت إلى ${MAX_DAYS} يوماً (من ${from} إلى ${to})` : null,
+          approved: rows.filter(r => r.status === 'APPROVED').length,
+          pending: rows.filter(r => r.status === 'PENDING').length,
+          returned: rows.filter(r => r.status === 'RETURNED').length,
+        },
+      },
+    });
+  } catch (err) { next(err); }
+});
 
 router.get('/team', requireAdmin, requireAdminPermission('canViewReports'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
