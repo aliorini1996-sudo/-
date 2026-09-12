@@ -1,10 +1,49 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { siteContentApi, profileDeckApi } from '../api/client';
-import { X, Save, ExternalLink, RotateCcw, Upload, Loader2, CheckCircle2 } from 'lucide-react';
+import { X, Save, ExternalLink, RotateCcw, Upload, Loader2, CheckCircle2, Plus, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileContent, ProfileLang } from '../content/profileContent';
+import { PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS, showKey, sectionOn, mergeProfile, readPartners, PROFILE_CMS_KEY, PROFILE_PARTNERS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileContent, ProfileLang, ProfilePartner } from '../content/profileContent';
 import { backdropClose } from '../lib/backdropClose';
+
+/**
+ * يصغّر الشعار قبل تخزينه.
+ *
+ * الشعار يُخزَّن data URL داخل محتوى الموقع، و**محتوى الموقع يُجلب مع كل زيارة
+ * لكل صفحة** — فشعارٌ خام بحجم ٤٠٠ كيلوبايت يُبطئ الموقع كلّه لا صفحة البروفايل
+ * وحدها. التصغير إلى ٣٢٠ بكسل يكفي لعرضٍ ارتفاعه ٥٦ بكسل على شاشةٍ مضاعفة
+ * الكثافة، ويهبط بالحجم إلى عشرات الكيلوبايتات.
+ *
+ * وPNG لا JPEG: أكثر الشعارات بخلفيّة شفّافة، وJPEG يملؤها أسوداً.
+ */
+const MAX_LOGO_PX = 320;
+async function shrinkLogo(file: File): Promise<string> {
+  const raw = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = () => reject(new Error('تعذر قراءة الملف'));
+    r.readAsDataURL(file);
+  });
+  // SVG لا يُرسم على canvas بثقة عبر المتصفّحات، وهو خفيف أصلاً فيُخزَّن كما هو
+  if (file.type === 'image/svg+xml') return raw;
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('تعذر فتح الصورة'));
+    im.src = raw;
+  });
+  const scale = Math.min(1, MAX_LOGO_PX / Math.max(img.naturalWidth, img.naturalHeight));
+  if (scale === 1 && raw.length < 60_000) return raw;   // صغيرٌ أصلاً فلا نعيد ترميزه
+
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.naturalWidth * scale);
+  c.height = Math.round(img.naturalHeight * scale);
+  const ctx = c.getContext('2d');
+  if (!ctx) return raw;
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/png');
+}
 
 /**
  * محرر صفحة «بروفايل» — لمالك المنصة.
@@ -60,6 +99,13 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
   // المسودة تبدا من (الافتراضي + تعديلات CMS) عند اول تحميل
   const content = draft ?? mergeProfile((cms?.[PROFILE_CMS_KEY] as Partial<ProfileContent>) || null);
 
+  /** الشركاء مسودّة مستقلّة لأنهم خارج خريطة اللغات (يُرفعون مرّة لكل اللغات) */
+  const [partnersDraft, setPartnersDraft] = useState<ProfilePartner[] | null>(null);
+  const partners = partnersDraft ?? readPartners(cms);
+  const setPartners = (next: ProfilePartner[]) => setPartnersDraft(next);
+  const editPartner = (i: number, patch: Partial<ProfilePartner>) =>
+    setPartners(partners.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+
   const setField = (key: string, value: string) => {
     setDraft({ ...content, [lang]: { ...content[lang], [key]: value } });
   };
@@ -76,12 +122,18 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
     mutationFn: async () => {
       // ندمج فوق احدث نسخة من CMS كي لا نمسح اقسام الموقع الاخرى
       const latest = (await siteContentApi.get()).data.data as Record<string, unknown> | null;
-      return siteContentApi.update({ ...(latest || {}), [PROFILE_CMS_KEY]: content });
+      return siteContentApi.update({
+        ...(latest || {}),
+        [PROFILE_CMS_KEY]: content,
+        // الصفوف الفارغة تماماً تُسقط عند الحفظ فلا تظهر بطاقة بيضاء في الصفحة
+        [PROFILE_PARTNERS_KEY]: partners.filter(p => p.name.trim() || p.logo),
+      });
     },
     onSuccess: () => {
       toast.success('حفظ الصفحة تعرض النص الجديد فورا');
       qc.invalidateQueries({ queryKey: ['site-content'] });
       setDraft(null);
+      setPartnersDraft(null);
     },
     onError: () => toast.error('تعذر الحفظ حاول مجددا'),
   });
@@ -166,6 +218,58 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
               )}
             </div>
             ))}
+
+            {/* ═══ شركاء النجاح ═══
+                خارج حلقة الحقول لأنهم ليسوا نصّاً لكل لغة: الاسم علامة تجارية
+                والشعار صورة — يُرفعان مرّة ويظهران في اللغات الخمس. */}
+            <div className="rounded-xl border border-[#E9E1D3] bg-[#FBF8F2] p-4">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <p className="text-[13px] font-bold text-[#1F1A13]">شركاء النجاح</p>
+                <button type="button" onClick={() => setPartners([...partners, { name: '', logo: '' }])}
+                  className="inline-flex items-center gap-1 text-xs font-bold text-[#E15A30] hover:underline">
+                  <Plus size={14} /> اضف شريكا
+                </button>
+              </div>
+              <p className="text-[11px] text-[#9A8F7E] mb-3">
+                الاسم والشعار يظهران في اللغات الخمس — ارفعهما مرة واحدة. اخف القسم من «الاقسام الظاهرة» اعلاه.
+              </p>
+
+              {partners.length === 0 ? (
+                <p className="text-[12px] text-[#B7AD9D] py-3 text-center">لا شركاء بعد — اضغط «اضف شريكا»</p>
+              ) : (
+                <div className="space-y-2">
+                  {partners.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2.5 bg-white rounded-lg border border-[#E9E1D3] p-2">
+                      {/* معاينة الشعار: المالك يرى ما سيراه الزائر لا اسم ملف */}
+                      <div className="w-16 h-12 shrink-0 rounded-md bg-[#FAF7F0] border border-[#EFE8DC] flex items-center justify-center overflow-hidden">
+                        {p.logo
+                          ? <img src={p.logo} alt="" className="max-w-full max-h-full object-contain" />
+                          : <ImageIcon size={16} className="text-[#C9BFB0]" />}
+                      </div>
+                      <input dir="rtl" className="input flex-1 text-sm" placeholder="اسم الشريك"
+                        value={p.name} onChange={e => editPartner(i, { name: e.target.value })} />
+                      <label className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold cursor-pointer text-[#E15A30] px-1.5">
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={async e => {
+                            const f = e.target.files?.[0];
+                            e.currentTarget.value = '';
+                            if (!f) return;
+                            try {
+                              editPartner(i, { logo: await shrinkLogo(f) });
+                            } catch {
+                              toast.error('تعذر قراءة الصورة جرب صيغة اخرى');
+                            }
+                          }} />
+                        <Upload size={13} /> {p.logo ? 'تغيير' : 'شعار'}
+                      </label>
+                      <button type="button" onClick={() => setPartners(partners.filter((_, j) => j !== i))}
+                        className="shrink-0 p-1.5 rounded-md text-[#B7AD9D] hover:text-red-600 hover:bg-red-50"
+                        title="حذف الشريك"><Trash2 size={15} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </>}
         </div>
 

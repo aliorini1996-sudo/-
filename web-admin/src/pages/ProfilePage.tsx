@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
-import { mergeProfile, splitLines, splitPairs, sectionOn, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileLang, ProfileContent } from '../content/profileContent';
+import { mergeProfile, splitLines, splitPairs, sectionOn, readPartners, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileLang, ProfileContent } from '../content/profileContent';
 
 /**
  * «بروفايل» — الملف التعريفي التفاعلي fieldsa.net/profile
@@ -163,6 +163,9 @@ const DOC_RULES = (S: string) => `
   ${S} [data-sec="numbers"] .rounded-2xl,
   ${S} [data-sec="roadmap"] .rounded-2xl { padding: 13mm !important; }
   ${S} [data-sec="opportunity"] .grid > div { padding: 11mm !important; }
+  /* بطاقات الشركاء: شعارٌ أكبر ومساحةٌ تتنفّس على الورق */
+  ${S} [data-sec="partners"] .grid > div { padding: 10mm 6mm !important; }
+  ${S} [data-sec="partners"] img[data-partner-logo] { height: 22mm !important; }
   /* مسافة العنوان عن جسمه تتّسع على الورق فتتنفّس الصفحة */
   ${S} > section:not([data-split]) h2 { margin-bottom: 10mm !important; }
 `;
@@ -248,6 +251,7 @@ const UI: Record<string, Record<ProfileLang, string>> = {
   kModel: { ar: 'الاشتراك', en: 'Pricing', fr: 'Abonnement', tr: 'Abonelik', zh: '订阅方案' },
   kNumbers: { ar: 'أرقامنا', en: 'By the numbers', fr: 'En chiffres', tr: 'Rakamlarla', zh: '数据一览' },
   kRoadmap: { ar: 'قدرات إضافيّة', en: 'Add-ons', fr: 'Options avancées', tr: 'Ek yetenekler', zh: '增值功能' },
+  kPartners: { ar: 'شركاء النجاح', en: 'Our partners', fr: 'Nos partenaires', tr: 'İş ortaklarımız', zh: '合作伙伴' },
   kAsk: { ar: 'ابدأ اليوم', en: 'Get started', fr: 'Commencer', tr: 'Hemen başlayın', zh: '立即开始' },
   contactTitle: { ar: 'تواصل معنا', en: 'Get in touch', fr: 'Nous contacter', tr: 'Bize ulaşın', zh: '联系我们' },
   lWebsite: { ar: 'الموقع', en: 'Website', fr: 'Site web', tr: 'Web sitesi', zh: '网站' },
@@ -288,6 +292,8 @@ export default function ProfilePage() {
   });
   const content = mergeProfile(cms?.[PROFILE_CMS_KEY] as Partial<ProfileContent> | undefined);
   const t = content[lang];
+  // الشركاء خارج خريطة اللغات: يُرفعون مرّة ويظهرون في اللغات كلّها
+  const partners = readPartners(cms);
 
   /**
    * التصدير: **نبني الملفّ بأنفسنا** — لا نفتح حوار الطباعة.
@@ -313,7 +319,9 @@ export default function ProfilePage() {
       //    فتخرج الورقة بخانات بيضاء ولو كان الملفّ محمَّلاً سلفاً. نرفع الكسل
       //    عنها صراحةً ثم ننتظرها هي لا نسخةً منها.
       const domImages = Array.from(
-        document.querySelectorAll<HTMLImageElement>('#profile-doc img[data-profile-photo]'),
+        // وشعارات الشركاء معها: كسولةٌ مثلها، وغيابها يُخرج بطاقاتٍ فارغة
+        document.querySelectorAll<HTMLImageElement>(
+          '#profile-doc img[data-profile-photo], #profile-doc img[data-partner-logo]'),
       );
       domImages.forEach(im => { im.loading = 'eager'; });
 
@@ -724,7 +732,39 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* ═══ ١١ التواصل ═══ */}
+      {/* ═══ ١١ شركاء النجاح ═══
+          لا يُعرض القسم بلا شركاء: صفحةٌ عنوانها «شركاؤنا» وتحتها فراغ تقرأ
+          كوعدٍ لم يُوفَ، وتخرج ورقةً بيضاء في الملفّ المصدَّر. */}
+      {partners.length > 0 && (
+      <section data-sec="partners" hidden={!on('partners')} style={{ background: COLORS.cream }}>
+        <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
+          <div className="flex flex-col items-center text-center">
+            <Kicker>{L('kPartners')}</Kicker>
+            <h2 className="mt-3 text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont, lineHeight: 1.35 }}>
+              {t.partners_title}
+            </h2>
+          </div>
+          <div className="mt-10 sm:mt-14 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+            {partners.map((p, i) => (
+              <div key={i} className="rounded-2xl bg-white flex flex-col items-center justify-center gap-3 px-4 py-7"
+                style={{ border: `1px solid ${COLORS.sand}` }}>
+                {p.logo && (
+                  /* `contain` لا `cover`: شعارٌ مقصوص أسوأ من شعارٍ صغير */
+                  <img src={p.logo} alt={p.name} data-partner-logo=""
+                    className="h-12 sm:h-14 w-full object-contain" loading="lazy" />
+                )}
+                {p.name && (
+                  <p className="text-sm font-bold text-center leading-snug"
+                    style={{ color: COLORS.ink, fontFamily: font }}>{p.name}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      )}
+
+      {/* ═══ ١٢ التواصل ═══ */}
       <section data-sec="contact" hidden={!on('contact')} style={{ background: COLORS.coralL }}>
         <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24 text-center">
           <h2 className="text-3xl sm:text-5xl font-bold" style={{ color: COLORS.ink, fontFamily: headFont, lineHeight: 1.4 }}>{L('contactTitle')}</h2>

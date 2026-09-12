@@ -62,6 +62,7 @@ export const PROFILE_FIELDS: { key: string; label: string; multiline?: boolean; 
   { key: 'numbers_items', label: 'الارقام', multiline: true, hint: 'كل سطر الرقم | الوصف' },
   { key: 'roadmap_title', label: 'القدرات الاضافية العنوان' },
   { key: 'roadmap_items', label: 'القدرات الاضافية البنود', multiline: true, hint: 'كل سطر بند مرقم' },
+  { key: 'partners_title', label: 'شركاء النجاح العنوان' },
   { key: 'ask_title', label: 'ابدا اليوم العنوان' },
   { key: 'ask_items', label: 'ابدا اليوم الخطوات', multiline: true, hint: 'كل سطر خطوة مرقمة' },
   { key: 'closing_title', label: 'الختام العنوان' },
@@ -142,6 +143,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       منيو المطاعم مع كاشير وشاشة مطبخ لقطاع الأغذية
       ربطٌ مع أنظمتك القائمة ومنظومات الوقود وأرقام العمل المؤسّسيّة`,
 
+    partners_title: 'شركاء نثق بهم ويثقون بنا',
     ask_title: 'ابدأ اليوم في ثلاث خطوات',
     ask_items: `سجّل تجربة عشرة أيّام مجّاناً من الموقع بلا بطاقة
       استورد عملاءك ومنتجاتك من ملفّ إكسل في دقائق
@@ -225,6 +227,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Restaurant menu with cashier and kitchen screen for the food sector
       Integration with your existing systems, fuel platforms and corporate work numbers`,
 
+    partners_title: 'Partners we trust, and who trust us',
     ask_title: 'Start today in three steps',
     ask_items: `Sign up for a ten-day free trial from the website, no card needed
       Import your customers and products from an Excel file in minutes
@@ -308,6 +311,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Menu restaurant avec caisse et écran cuisine pour le secteur alimentaire
       Intégration à vos systèmes existants, aux plateformes carburant et aux numéros professionnels`,
 
+    partners_title: 'Des partenaires de confiance, réciproque',
     ask_title: 'Commencez aujourd’hui en trois étapes',
     ask_items: `Ouvrez un essai gratuit de dix jours depuis le site, sans carte
       Importez vos clients et vos produits depuis un fichier Excel en quelques minutes
@@ -391,6 +395,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Gıda sektörü için kasa ve mutfak ekranıyla restoran menüsü
       Mevcut sistemlerinizle, yakıt platformlarıyla ve kurumsal iş numaralarıyla entegrasyon`,
 
+    partners_title: 'Güvendiğimiz ve bize güvenen iş ortakları',
     ask_title: 'Bugün üç adımda başlayın',
     ask_items: `Siteden kartsız, on günlük ücretsiz denemeyi başlatın
       Müşterilerinizi ve ürünlerinizi Excel dosyasından dakikalar içinde aktarın
@@ -474,6 +479,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       面向餐饮业的菜单、收银台与厨房显示屏
       与现有系统、燃油平台及企业办公号码的对接`,
 
+    partners_title: '彼此信赖的合作伙伴',
     ask_title: '三步即可开始',
     ask_items: `在官网开通十天免费试用，无需银行卡
       几分钟内从 Excel 文件导入客户与商品
@@ -499,8 +505,36 @@ export const PROFILE_SECTIONS: { key: string; label: string }[] = [
   { key: 'numbers', label: 'الارقام' },
   { key: 'roadmap', label: 'القدرات الاضافية' },
   { key: 'ask', label: 'ابدا اليوم' },
+  { key: 'partners', label: 'شركاء النجاح' },
   { key: 'contact', label: 'تواصل معنا' },
 ];
+
+/**
+ * شركاء النجاح — **خارج خريطة اللغات عمداً**.
+ *
+ * بقيّة المحتوى `Record<lang, ...>`، ولو وُضع الشركاء فيها لوجب على المالك رفع
+ * كل شعار **خمس مرّات**، ولتضاعف حجم الـbase64 خمسةً في حمولةٍ تُجلب مع كل
+ * زيارة. واسم الشريك علامةٌ تجارية لا تُترجَم أصلاً. فالشركاء مفتاحٌ مستقلّ
+ * يُرفع مرّة ويُعرض في اللغات كلّها، والعنوان وحده يُترجَم (`partners_title`).
+ */
+export const PROFILE_PARTNERS_KEY = 'profileV3Partners';
+
+export interface ProfilePartner {
+  /** اسم الشريك كما يُكتب على شعاره */
+  name: string;
+  /** الشعار data URL — يُصغَّر عند الرفع فلا يُثقل الحمولة */
+  logo: string;
+}
+
+/** يقرأ الشركاء من محتوى الموقع، ويتجاهل أي صفٍّ بلا اسم ولا شعار */
+export function readPartners(cms: Record<string, unknown> | null | undefined): ProfilePartner[] {
+  const raw = cms?.[PROFILE_PARTNERS_KEY];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x): x is ProfilePartner => !!x && typeof x === 'object')
+    .map(x => ({ name: String(x.name || '').trim(), logo: String(x.logo || '').trim() }))
+    .filter(x => x.name || x.logo);
+}
 
 /** مفتاح إظهار القسم داخل المحتوى */
 export const showKey = (section: string) => `show_${section}`;

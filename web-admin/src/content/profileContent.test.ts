@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS,
   mergeProfile, sectionOn, showKey, splitLines, splitPairs, PROFILE_CMS_KEY,
+  readPartners, PROFILE_PARTNERS_KEY,
   PROFILE_LANGS, PROFILE_LANG_LABEL,
 } from './profileContent';
 
@@ -241,6 +242,35 @@ test('تصدير PDF يطبع الصفحة ولا يخدم ملفاً ثابتا
   assert.ok(page.includes('UI.pdfName[lang]'), 'اسم الملفّ لا يتبع لغة العرض');
   // والصور تُنتظر قبل الحوار وإلا خرجت الورقة بخانات بيضاء
   assert.ok(page.includes('PHOTOS.map'), 'لا انتظار للصور قبل الطباعة');
+});
+
+/**
+ * شركاء النجاح: الاسم والشعار خارج خريطة اللغات عمداً.
+ *
+ * لو دخلا فيها لوجب رفع كل شعار **خمس مرّات**، ولتضاعف حجم الـbase64 خمسةً في
+ * حمولة تُجلب مع كل زيارة لكل صفحة. الحارس يمنع عودتهما إليها.
+ */
+test('الشركاء مفتاحٌ مستقلّ لا حقلٌ لكل لغة', () => {
+  assert.equal(PROFILE_PARTNERS_KEY, 'profileV3Partners');
+  const perLang = PROFILE_FIELDS.map(f => f.key).filter(k => /^partner/.test(k) && k !== 'partners_title');
+  assert.deepEqual(perLang, [], `حقول شركاء تسرّبت إلى خريطة اللغات: ${perLang.join(', ')}`);
+  // والعنوان وحده يُترجَم، فله افتراضيٌّ في كل لغة
+  for (const l of PROFILE_LANGS) {
+    assert.ok((PROFILE_DEFAULTS[l].partners_title || '').trim(), `${PROFILE_LANG_LABEL[l]}: بلا عنوان للشركاء`);
+  }
+  // والقسم يُخفى كبقيّة الأقسام
+  assert.ok(PROFILE_SECTIONS.some(s => s.key === 'partners'), 'القسم غير قابل للإخفاء');
+});
+
+test('قارئ الشركاء يصمد على محتوى مشوَّه', () => {
+  assert.deepEqual(readPartners(null), []);
+  assert.deepEqual(readPartners({}), []);
+  assert.deepEqual(readPartners({ [PROFILE_PARTNERS_KEY]: 'نصّ لا مصفوفة' }), []);
+  // صفٌّ فارغ تماماً يسقط فلا تظهر بطاقة بيضاء
+  assert.deepEqual(
+    readPartners({ [PROFILE_PARTNERS_KEY]: [{ name: '  ', logo: '' }, { name: 'شريك', logo: '' }] }),
+    [{ name: 'شريك', logo: '' }],
+  );
 });
 
 /** قاعدة طباعة تخاطب قسماً غير موجود تمرّ بلا أثر — تنسيقٌ يبدو مضبوطاً وغائب عن الورق */
