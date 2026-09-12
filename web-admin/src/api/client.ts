@@ -1,5 +1,8 @@
 import axios from 'axios';
-import { sessionSpace } from '../store/authStore';
+import { sessionSpace, useAuthStore } from '../store/authStore';
+
+/** مساران واحدٌ بعد تطبيع الشرطة الأخيرة — الخادم يخدم `/m` و`/m/` معاً */
+const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 
@@ -24,12 +27,17 @@ api.interceptors.response.use(
     // لا نتعامل مع 401 لطلب تسجيل الدخول نفسه (لتظهر رسالة «بيانات غير صحيحة» في مكانها بلا إعادة توجيه)
     const isLogin = (err.config?.url as string | undefined)?.includes('/auth/login');
     if (err.response?.status === 401 && !isLogin) {
-      const { tokenKey, userKey, loginPath } = spaceKeys();
-      localStorage.removeItem(tokenKey);
-      localStorage.removeItem(userKey);
-      // «الانتحال» شأن اللوحة — لا يُمحى من مساحة تطبيق الجوال
-      if (tokenKey !== 'm_token') localStorage.removeItem('impersonating');
-      window.location.href = loginPath; // المالك→/owner ، التطبيق→/m ، الأدمن→/login
+      const { loginPath } = spaceKeys();
+      // المحو ووسمُ التوكن المرفوض في المتجر — مصدرٌ واحد لمنطق المساحات
+      useAuthStore.getState().sessionExpired();
+      /* والانتقال **فقط إن كانت الوجهة صفحةً أخرى**.
+       *
+       * وجهة التطبيق هي `/m` وهو المسار الذي يقف عليه أصلاً، فكان الانتقال
+       * إعادةَ تحميلٍ كاملة تُعيد إقلاعه — وهي الحركة التي ركبتها الحلقة.
+       * وبمسحِ المتجر في الذاكرة تُرسَم شاشة الدخول في اللحظة نفسها بلا
+       * تحميل، فلا سبيل للدوران أصلاً. أمّا لوحة الأدمن والمالك فوجهتهما
+       * صفحةٌ أخرى حقيقةً (`/login` و`/owner`) فتنتقل كما كانت. */
+      if (!samePath(window.location.pathname, loginPath)) window.location.href = loginPath;
     }
     return Promise.reject(err);
   }

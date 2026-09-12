@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { User } from '../types';
+import { shouldAdopt, REJECTED_KEY, SIGNED_OUT_KEY } from './sessionAdoption';
 
 interface AuthState {
   token: string | null;
@@ -7,6 +8,7 @@ interface AuthState {
   impersonating: string | null; // اسم الشركة التي يتصفّحها المالك حالياً (أو null)
   login: (token: string, user: User) => void;
   logout: () => void;
+  sessionExpired: () => void;
   isAdmin: () => boolean;
   isSuperAdmin: () => boolean;
   impersonate: (token: string, user: User, companyName: string) => void;
@@ -31,7 +33,7 @@ interface AuthState {
 type Space = { tokenKey: string; userKey: string; loginPath: string };
 
 /** علامة «خرج من تطبيق الجوال عمداً» — تمنع التبنّي التلقائيّ بعدها */
-const SIGNED_OUT = 'm_signed_out';
+const SIGNED_OUT = SIGNED_OUT_KEY;
 
 /**
  * مساحة الجلسة للمسار الحاليّ — **المصدر الوحيد**، يستوردها عميل الـAPI أيضاً
@@ -65,19 +67,22 @@ const UKEY = () => sessionSpace().userKey;
  */
 function adoptDashboardSession() {
   try {
-    const p = window.location.pathname;
-    if (p !== '/m' && !p.startsWith('/m/')) return;
-    if (localStorage.getItem('m_token')) return;          // للتطبيق جلسته
-    // **خروجٌ صريح يمنع التبنّي.** بدونه يعود التطبيق مسجَّلاً عند أوّل إعادة
-    // فتح، فيُلغي زرُّ الخروج نفسَه — وهذا أسوأ من غياب الزرّ.
-    if (localStorage.getItem(SIGNED_OUT) === '1') return;
     const t = localStorage.getItem('token');
     const u = localStorage.getItem('user');
-    if (!t || !u) return;
-    // مالك المنصّة لا يُتبنّى: مساحته sa_*، ووجوده في token يعني انتحالاً جارياً
-    if ((JSON.parse(u) as { role?: string })?.role === 'SUPER_ADMIN') return;
-    localStorage.setItem('m_token', t);
-    localStorage.setItem('m_user', u);
+    /* القرار كلّه في `sessionAdoption.ts` دالّةً نقيّة مُختبَرة — ولا نسخة هنا.
+     * وأهمّ شروطه: **لا يُتبنّى توكنٌ ردّه الخادم من قبل**. بدونه كان محوُ
+     * التوكن عند ٤٠١ يعقبه إحياؤه عند الإقلاع التالي، فتدور الحلقة أبداً. */
+    if (!shouldAdopt({
+      path: window.location.pathname,
+      mToken: localStorage.getItem('m_token'),
+      dashToken: t,
+      dashUserRaw: u,
+      signedOut: localStorage.getItem(SIGNED_OUT),
+      rejected: localStorage.getItem(REJECTED_KEY),
+      nowMs: Date.now(),
+    })) return;
+    localStorage.setItem('m_token', t as string);
+    localStorage.setItem('m_user', u as string);
   } catch { /* تجاهل: غياب التبنّي يعني شاشة دخول فقط */ }
 }
 adoptDashboardSession();
@@ -121,6 +126,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.setItem(space.userKey, JSON.stringify(user));
     // دخولٌ صريح يرفع علامة الخروج، فيعود التبنّي متاحاً لاحقاً
     if (space.tokenKey === 'm_token') localStorage.removeItem(SIGNED_OUT);
+    // ووسمُ الرفض يُمسح بأيّ دخولٍ ناجح: التوكن الجديد غير المرفوض
+    localStorage.removeItem(REJECTED_KEY);
     // «الانتحال» شأن اللوحة وحدها — لا يُمسّ من مساحة تطبيق الجوال
     if (space.tokenKey !== 'm_token') localStorage.removeItem('impersonating');
     set({ token, user, impersonating: space.tokenKey === 'm_token' ? get().impersonating : null });
@@ -145,6 +152,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (space.tokenKey !== 'm_token') {
       ['impersonating', 'owner_token', 'owner_user'].forEach(k => localStorage.removeItem(k));
     }
+    set({ token: null, user: null, impersonating: space.tokenKey === 'm_token' ? get().impersonating : null });
+  },
+
+  /**
+   * انتهت الجلسة من طرف الخادم (٤٠١) — لا خروجٌ اختاره المستخدم.
+   *
+   * والفرق بينهما ليس تسميةً: الخروج الصريح يرفع `m_signed_out` فيمنع التبنّي
+   * أبداً حتى دخولٍ يدويّ، وهذا لا يرفعه — بل يسجّل **التوكن المرفوض وحده**،
+   * فتبقى ميزة التبنّي حيّةً لأيّ جلسةٍ صحيحة لاحقة.
+   */
+  sessionExpired: () => {
+    const space = get().user?.role === 'SUPER_ADMIN'
+      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
+      : sessionSpace();
+    const dead = localStorage.getItem(space.tokenKey);
+    localStorage.removeItem(space.tokenKey);
+    localStorage.removeItem(space.userKey);
+    // الوسم لمساحة التطبيق وحدها: هي التي تتبنّى، وهي التي دارت فيها الحلقة
+    if (space.tokenKey === 'm_token' && dead) localStorage.setItem(REJECTED_KEY, dead);
+    if (space.tokenKey !== 'm_token') localStorage.removeItem('impersonating');
     set({ token: null, user: null, impersonating: space.tokenKey === 'm_token' ? get().impersonating : null });
   },
 
