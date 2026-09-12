@@ -148,7 +148,8 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   if (q.isError) return <MError onRetry={() => q.refetch()} />;
 
   const d = q.data as {
-    salesRep: { id: string; name: string }; reportDate: string; status: string; round: number; note: string | null;
+    // `null` لتقريرٍ حُذف صاحبه — سجلٌّ يبقى بعده (انظر DailyReport في المخطّط)
+    salesRep: { id: string; name: string } | null; reportDate: string; status: string; round: number; note: string | null;
     values: { fieldId: string; levelSeq: number; declaredNum: number | null; declaredText: string | null; labelSnapshot: string }[];
     comments: { id: string; fieldId: string | null; authorAdminName: string; body: string }[];
     steps: { id: string; action: string; actorAdminName: string; reason: string | null; levelSeq: number }[];
@@ -161,7 +162,7 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
     v.declaredText ?? (v.declaredNum === null ? '—' : String(v.declaredNum));
 
   return (
-    <MScreen header={<MHeader title={d.salesRep.name} subtitle={`${d.reportDate} · ${tr(STATUS[d.status] || d.status)}`} onBack={onBack} />}>
+    <MScreen header={<MHeader title={d.salesRep?.name ?? tr('مندوب محذوف')} subtitle={`${d.reportDate} · ${tr(STATUS[d.status] || d.status)}`} onBack={onBack} />}>
       {err && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{err}</p>}
 
       {d.canAct && d.actLevelName && (

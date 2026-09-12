@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ClipboardList, CheckCircle2, Clock, RotateCcw, AlertTriangle } from 'lucide-react';
 import { dailyReportApi } from '../api/client';
 import { SalesRep } from '../types';
-import { formatCurrency, formatDate, formatTime, formatNumber } from '../utils/format';
+import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { MCard, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectObject } from './shape';
@@ -33,10 +33,13 @@ interface DrHistory {
   meta: { from: string; to: string; capped: boolean; cappedNote: string | null; approved: number; pending: number; returned: number };
 }
 
+/* الأربع كما يكتبها الخادم، وبألفاظ شاشة التقارير اليومية نفسها — و`PENDING`
+ * ليست حالةَ تقرير بل حالةَ مهمّةٍ في السلسلة. */
 const STATUS: Record<string, { label: string; cls: string; icon: React.ElementType }> = {
   APPROVED: { label: 'معتمد', cls: 'text-[#2F855A] bg-[#EAF6F0]', icon: CheckCircle2 },
-  PENDING: { label: 'قيد المراجعة', cls: 'text-[#B7791F] bg-[#FDF6E7]', icon: Clock },
-  RETURNED: { label: 'معاد للتصحيح', cls: 'text-[#C0392B] bg-[#FDF2F0]', icon: RotateCcw },
+  SUBMITTED: { label: 'مرفوع', cls: 'text-[#B7791F] bg-[#FDF6E7]', icon: Clock },
+  IN_REVIEW: { label: 'قيد المراجعة', cls: 'text-[#B7791F] bg-[#FDF6E7]', icon: Clock },
+  RETURNED: { label: 'أعيد للتصحيح', cls: 'text-[#C0392B] bg-[#FDF2F0]', icon: RotateCcw },
 };
 
 export default function MRepDailyLog({ rep, onClose }: { rep: SalesRep; onClose: () => void }) {
@@ -91,7 +94,7 @@ export default function MRepDailyLog({ rep, onClose }: { rep: SalesRep; onClose:
           <div className="grid grid-cols-3 gap-2 text-center">
             <Count label={tr('معتمد')} n={meta.approved} cls="text-[#2F855A] bg-[#EAF6F0]" />
             <Count label={tr('قيد المراجعة')} n={meta.pending} cls="text-[#B7791F] bg-[#FDF6E7]" />
-            <Count label={tr('معاد للتصحيح')} n={meta.returned} cls="text-[#C0392B] bg-[#FDF2F0]" />
+            <Count label={tr('أعيد للتصحيح')} n={meta.returned} cls="text-[#C0392B] bg-[#FDF2F0]" />
           </div>
         )}
 
@@ -114,7 +117,8 @@ export default function MRepDailyLog({ rep, onClose }: { rep: SalesRep; onClose:
               <MCard key={r.id} className="p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-bold text-sm text-[#1F1A13]">
-                    {formatDate(r.reportDate)}
+                    {/* يومٌ نصّاً لا لحظة — `formatDate` ينزلق يوماً في المناطق السالبة */}
+                    {formatDayOnly(r.reportDate)}
                     {r.round > 1 && <span className="text-[10px] text-[#9A8F7E] mr-1">({tr('محاولة')} {r.round})</span>}
                   </span>
                   <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${st.cls}`}>

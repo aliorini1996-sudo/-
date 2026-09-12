@@ -33,7 +33,11 @@ interface Named { id: string; name: string; role?: string }
 
 interface ReportValue { fieldId: string; levelSeq: number; declaredNum: number | null; declaredText: string | null; labelSnapshot: string }
 interface ReportData {
-  salesRep: Named; reportDate: string; status: string; round: number; note: string | null;
+  /* `null` بعد أن صار التقرير سجلّاً يبقى بعد صاحبه: حذف المندوب يُفرّغ
+   * المرجع ولا يمحو التقرير، فيردّ `/admin/:id` صاحباً معدوماً. وقراءة
+   * `.name` منه ترمي TypeError أثناء التصيير — **ولا ErrorBoundary في اللوحة**
+   * فتُفرَّغ شجرة React كلّها لا هذه الشاشة (اقرأ التعليق أعلاه). */
+  salesRep: Named | null; reportDate: string; status: string; round: number; note: string | null;
   values: ReportValue[];
   comments: { id: string; fieldId: string | null; authorAdminName: string; body: string; createdAt: string }[];
   steps: { id: string; action: string; actorAdminName: string; reason: string | null; createdAt: string; levelSeq: number }[];
@@ -224,7 +228,7 @@ function ReportDetail({ id, onBack }: { id: string; onBack: () => void }) {
       <div className="card">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
-            <p className="font-bold text-[#1F1A13]">{d.salesRep.name}</p>
+            <p className="font-bold text-[#1F1A13]">{d.salesRep?.name ?? tr('مندوب محذوف')}</p>
             <p className="text-xs text-[#6E6557]">{d.reportDate} · {tr(STATUS_LABEL[d.status] || d.status)}{d.round > 1 ? ` · ${tr('الجولة')} ${d.round}` : ''}</p>
           </div>
           {d.canAct && d.actLevelName && (

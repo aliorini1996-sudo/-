@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { isCalendarDay } from '../lib/day';
 
 /**
  * حرّاس ثابتة على تسييج «التقرير اليومي».
@@ -177,8 +178,22 @@ test('حذف مستخدمٍ يملك عقدة في السلسلة محروسٌ �
   assert.match(body, /الصاحب الافتراضي لمستوى/, 'رسالة آخر صاحبٍ افتراضيّ مفقودة');
   // والرفض لا يُطبَّق على شركةٍ أُطفئت عندها الميزة: لا سبيل لها إلى العلاج
   assert.match(body, /dailyReportEnabled === true/, 'الرفض يجب أن يكون مشروطاً بتفعيل الميزة');
-  // والتنظيف في معاملةٍ واحدة: لا عقدة باسم محذوف
-  assert.match(body, /\$transaction\(\[[\s\S]*dailyReportLevelOwner\.deleteMany[\s\S]*admin\.delete/, 'الحذف يجب أن يزيل العقد في معاملةٍ واحدة مع الحساب');
+  /* والتنظيف في معاملةٍ واحدة مع الحساب.
+   *
+   * ويُقاس هنا **بالخاصّية لا بالشكل**: أوّل صياغةٍ لهذا الحارس طلبت أن يقع
+   * `dailyReportLevelOwner.deleteMany` حرفياً بين قوسَي `$transaction([` و
+   * `admin.delete`، فسقط الحارس حين أُخرجت الجملتان إلى متغيّرٍ يُنشَر في
+   * المصفوفة — وهي إعادة صياغةٍ لا تغيّر سلوكاً البتّة. الحارس الذي يسقط على
+   * ما لا يضرّ يُروَّض بالتعطيل، ثمّ لا يحرس شيئاً. */
+  const txStart = body.indexOf('$transaction([');
+  assert.ok(txStart > 0, 'الحذف يجب أن يقع داخل معاملة');
+  const tx = body.slice(txStart, body.indexOf(']);', txStart));
+  assert.match(tx, /prisma\.admin\.delete/, 'الحساب يجب أن يُحذف داخل المعاملة');
+  // التنظيف إمّا مُسطَّرٌ في المعاملة أو مُدخَلٌ إليها بالنشر — والمهمّ ألّا يقع خارجها
+  assert.ok(/dailyReportLevelOwner\.deleteMany/.test(tx) || /\.\.\.\w+/.test(tx),
+    'تنظيف العقد يجب أن يدخل المعاملة نفسها');
+  assert.doesNotMatch(body.slice(0, txStart), /await prisma\.dailyReportLevelOwner\.deleteMany/,
+    'تنظيف العقد وقع خارج المعاملة — انقطاعُ الطلب بينهما يترك عقدةً باسم محذوف');
 });
 
 test('سجلّ تقارير المندوب خلف الدور والصلاحية والنطاق معاً', () => {
@@ -191,4 +206,61 @@ test('سجلّ تقارير المندوب خلف الدور والصلاحية 
   const body = s.slice(i, end);
   assert.match(body, /canAccessRep/, 'النطاق غير محروس — مستخدمٌ مقيَّد يقرأ سجلّ مندوبٍ خارج نطاقه');
   assert.match(body, /cappedNote/, 'قصّ المدّة يجب أن يُعلَن لا أن يقع صامتاً');
+});
+
+/* ═══ اليوم التقويميّ — قاعدة نقيّة تُختبَر سلوكاً لا نصّاً ═══ */
+
+test('نصٌّ بشكل تاريخ ليس تاريخاً — الشهر ١٣ يُردّ ولا يُسقِط الخادم', () => {
+  // هذا هو المدخل الذي كان يجعل `new Date(NaN).toISOString()` يرمي RangeError
+  // فيصير الردّ ٥٠٠ بدل ٤٠٠
+  assert.equal(isCalendarDay('2026-13-01'), false);
+  assert.equal(isCalendarDay('2026-00-10'), false);
+  assert.equal(isCalendarDay('2026-01-32'), false);
+});
+
+test('يومٌ لا وجود له في شهره يُردّ ولا يُقرأ يوماً آخر بصمت', () => {
+  // Date.parse تقرأ «2026-02-30» أوّلَ مارس — فيرى المستخدم مدّةً غير التي طلب
+  assert.equal(isCalendarDay('2026-02-30'), false);
+  assert.equal(isCalendarDay('2025-02-29'), false, '٢٠٢٥ ليست كبيسة');
+  assert.equal(isCalendarDay('2024-02-29'), true, '٢٠٢٤ كبيسة');
+});
+
+test('الصيغة وحدها لا تكفي ولا تُتجاوَز', () => {
+  assert.equal(isCalendarDay(''), false);
+  assert.equal(isCalendarDay('2026-1-1'), false, 'بلا تصفير بادئ');
+  assert.equal(isCalendarDay('2026-01-01T00:00:00Z'), false, 'يومٌ لا لحظة');
+  assert.equal(isCalendarDay('  2026-01-01  '), false);
+  assert.equal(isCalendarDay('2026-01-01'), true);
+  assert.equal(isCalendarDay('2026-12-31'), true);
+});
+
+test('سجلّ المندوب يستعمل القاعدة نفسها ويردّ ٤٠٠ لا يسقط صامتاً لليوم', () => {
+  const s = read('src', 'routes', 'dailyReports.ts');
+  const i = s.indexOf("router.get('/rep/:salesRepId'");
+  const body = s.slice(i, s.indexOf('\n});', i));
+  assert.match(body, /isCalendarDay\(qTo\)/, 'المدخل الخاطئ يجب أن يُفحص لا أن يُبتلع');
+  assert.match(body, /isCalendarDay\(qFrom\)/, 'الطرف الآخر كذلك');
+  assert.match(body, /from > to/, 'المدّة المقلوبة تُسمّى لا تُعيد صفر صفوفٍ بلا سبب');
+});
+
+/* ═══ الجداول التي تشير إلى Admin بلا مفتاح أجنبيّ ═══ */
+
+test('لا ثالث للجدولين المُشيرَين إلى Admin بلا FK — وكلاهما يُنظَّف مع الحساب', () => {
+  const sch = read('prisma', 'schema.prisma');
+  /* القاعدة لا تحرس هذين العمودين، فحذفُ مستخدمٍ يترك صفّاً باسم رجلٍ لا حساب
+   * له. والحصر هنا هو الحارس الحقيقيّ: جدولٌ ثالث يُضاف بعمود `adminId` بلا
+   * علاقة يُسقِط هذا الاختبار، فيُقرَّر له تنظيفٌ بدل أن يُكتشف بعد شهر. */
+  const orphanTables = [...sch.matchAll(/model (\w+) \{([\s\S]*?)\n\}/g)]
+    .filter(([, , body]) => /\n\s*adminId\s+String/.test(body) && !/@relation\(fields: \[adminId\]/.test(body))
+    .map(([, name]) => name)
+    .sort();
+  assert.deepEqual(orphanTables, ['DailyReportDigestViewer', 'DailyReportLevelOwner'],
+    `جدولٌ جديد يشير إلى Admin بلا مفتاح أجنبيّ: ${orphanTables.join(' · ')} — قرّر تنظيفه في مسار حذف المستخدم`);
+
+  const s = read('src', 'routes', 'companyUsers.ts');
+  const i = s.indexOf("router.delete('/:id'");
+  const body = s.slice(i, s.indexOf('\n});', i));
+  const tx = body.slice(body.indexOf('$transaction(['));
+  assert.match(tx, /dailyReportDigestViewer\.deleteMany/, 'مستلمو التقرير الشامل يبقون أشباحاً في قائمة «من يستلم»');
+  assert.match(tx, /prisma\.admin\.delete/, 'التنظيف يجب أن يقع في معاملة الحذف نفسها');
 });

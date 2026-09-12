@@ -14,6 +14,8 @@ import { authenticate, requireAdmin, requireAdminPermission, requireDailyReport,
 import { AuthRequest } from '../types';
 import { adminRepFilter, canAccessRep, scopedRepRecordWhere } from '../services/adminScope';
 import { roundHalfUp } from '../lib/money';
+// اجتياز التقويم قاعدةٌ نقيّة تُختبَر وحدها بلا قاعدة بيانات — اقرأ تعليقها
+import { isCalendarDay } from '../lib/day';
 import {
   ChainLevel, ChainOwner, OwnerRep, ChainTask,
   firstLevel, ownersFor, chainIssues, deriveCursor, canAct,
@@ -137,8 +139,8 @@ function addMoney(acc: number, v: number, isMoney: boolean): number {
  * تصحيحِ تاريخٍ لا حارسُ مدخلات.
  */
 function reportDateIssue(date: string, nowMs = Date.now()): string | null {
+  if (!isCalendarDay(date)) return 'تاريخ غير موجود في التقويم';
   const t = Date.parse(`${date}T00:00:00.000Z`);
-  if (!Number.isFinite(t) || new Date(t).toISOString().slice(0, 10) !== date) return 'تاريخ غير موجود في التقويم';
   const maxDay = new Date(nowMs + 14 * 3600_000).toISOString().slice(0, 10);
   const minDay = new Date(nowMs - 365 * 86400_000).toISOString().slice(0, 10);
   if (date > maxDay) return 'تاريخ التقرير في المستقبل — راجع تاريخ جهازك';
@@ -1655,11 +1657,19 @@ router.get('/rep/:salesRepId', requireAdmin, requireAdminPermission('canViewRepo
      * واحد لا الفريق، فالحمل ثلث حمل `/team` عند نفس المدّة. */
     const DEF_DAYS = 30;
     const MAX_DAYS = 92;
-    const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
     const qTo = String(req.query.to || '');
     const qFrom = String(req.query.from || '');
-    const to = isDate(qTo) ? qTo : new Date().toISOString().slice(0, 10);
-    let from = isDate(qFrom) ? qFrom : new Date(Date.parse(to) - (DEF_DAYS - 1) * 86400000).toISOString().slice(0, 10);
+    /* الغياب مقبول (المدّة اختيارية)، والحضورُ الخاطئ **يُردّ** ولا يسقط صامتاً
+     * إلى «اليوم»: مستخدمٌ يرى مدّةً غير التي طلب أسوأ من رسالة خطأ. */
+    if ((qTo && !isCalendarDay(qTo)) || (qFrom && !isCalendarDay(qFrom))) {
+      res.status(400).json({ success: false, message: 'حدّد المدّة بصيغة YYYY-MM-DD' }); return;
+    }
+    const to = qTo || new Date().toISOString().slice(0, 10);
+    let from = qFrom || new Date(Date.parse(to) - (DEF_DAYS - 1) * 86400000).toISOString().slice(0, 10);
+    // مدّةٌ مقلوبة تُعيد صفر صفوفٍ بلا سبب ظاهر — تُسمّى لا تُبتلع
+    if (from > to) {
+      res.status(400).json({ success: false, message: 'تاريخ البداية بعد تاريخ النهاية' }); return;
+    }
     const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
     const capped = days > MAX_DAYS;
     // القصّ من **الطرف الأقدم**: من يوسّع المدّة يريد الأحدث لا الأقدم
@@ -1679,6 +1689,11 @@ router.get('/rep/:salesRepId', requireAdmin, requireAdminPermission('canViewRepo
 
     const ownerSeq = new Map(fields.map(f => [f.id, f.fillLevelSeq ?? 0]));
     const levelName = new Map(chain.levels.map(l => [l.seq, l.name]));
+    /* حالات التقرير أربع لا ثلاث: SUBMITTED (وصل بانتظار المستوى ١) ·
+     * IN_REVIEW (عند مستوىً بعد أوّل فعل) · RETURNED · APPROVED.
+     * و«في الطريق» هما الأوليان. و`PENDING` حالةُ **مهمّة** لا حالةُ تقرير
+     * (DailyReportTask.state)، فقياسُ التقرير بها يعطي صفراً أبداً. */
+    const inFlight = (st: string) => st === 'SUBMITTED' || st === 'IN_REVIEW';
     const seen = new Set<string>();
     const rows = reports.map(r => {
       const vals = liveValues(r.values, ownerSeq);
@@ -1696,7 +1711,7 @@ router.get('/rep/:salesRepId', requireAdmin, requireAdminPermission('canViewRepo
         // «اعتمده شخص واحد» — يُعلَن هنا كما يُعلَن في الحصيلة، لا يُخفى
         soloApproved: r.status === 'APPROVED' && r.distinctApprovers <= 1,
         // عند أيّ مستوىً يقف الآن — فارغٌ للمعتمَد والمُعاد
-        currentLevelName: r.status === 'PENDING' ? (levelName.get(r.currentLevelSeq ?? -1) ?? null) : null,
+        currentLevelName: inFlight(r.status) ? (levelName.get(r.currentLevelSeq ?? -1) ?? null) : null,
         values: Object.fromEntries(vals.map(v => [v.fieldId, v.declaredNum ?? v.declaredText ?? null])),
       };
     });
@@ -1713,7 +1728,7 @@ router.get('/rep/:salesRepId', requireAdmin, requireAdminPermission('canViewRepo
           from, to, capped,
           cappedNote: capped ? `المدّة قُصّت إلى ${MAX_DAYS} يوماً (من ${from} إلى ${to})` : null,
           approved: rows.filter(r => r.status === 'APPROVED').length,
-          pending: rows.filter(r => r.status === 'PENDING').length,
+          pending: rows.filter(r => inFlight(r.status)).length,
           returned: rows.filter(r => r.status === 'RETURNED').length,
         },
       },

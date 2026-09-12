@@ -200,8 +200,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
  * بـ`onDelete: Cascade` فيمضيان مع السجلّ. والفواتير والسندات تُنسَب للمندوب لا
  * لمستخدم اللوحة، فلا سجلّ ماليّ يُمسّ.
  *
- * ويبقى جدولٌ واحد يشير إلى Admin **بلا مفتاح أجنبيّ**: أصحاب عقد سلسلة
- * التقرير اليومي — وهم مُعالَجون داخل المسار أدناه حارساً وتنظيفاً.
+ * ويبقى **جدولان** يشيران إلى Admin بلا مفتاح أجنبيّ، وكلاهما مُعالَج أدناه:
+ * أصحاب عقد سلسلة التقرير اليومي (حارساً وتنظيفاً)، ومستلمو التقرير الشامل
+ * (تنظيفاً). ولا ثالث لهما — بقيّة الجداول تُنسَب للمندوب لا لمستخدم اللوحة.
  */
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -295,10 +296,29 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     }
 
     /* معاملة واحدة: التوجيهات ثمّ العقد ثمّ الحساب — فلا تبقى عقدة باسم محذوف
-     * ولو انقطع الطلب بين السطرين. */
+     * ولو انقطع الطلب بين السطرين.
+     *
+     * وسطرا العقد يسقطان حين لا يملك المستخدم عقدةً أصلاً — لا لتوفير استعلام،
+     * بل لأنّ `in: []` مدخلٌ **لا يُراهَن عليه في مسار حذف**: تفسيرُه «لا شيء»
+     * هو المتوقَّع، وثمنُ الخطأ فيه محوُ توجيهات الشركة كلّها في جدولٍ لا مفتاح
+     * أجنبيّ يحميه. وثمن تجنّبه سطرٌ واحد. */
+    const chainCleanup = myNodes.length
+      ? [
+        prisma.dailyReportOwnerRep.deleteMany({ where: { tenantId: tid, ownerId: { in: myNodes.map(n => n.id) } } }),
+        prisma.dailyReportLevelOwner.deleteMany({ where: { tenantId: tid, adminId: target.id } }),
+      ]
+      : [];
     await prisma.$transaction([
-      prisma.dailyReportOwnerRep.deleteMany({ where: { tenantId: tid, ownerId: { in: myNodes.map(n => n.id) } } }),
-      prisma.dailyReportLevelOwner.deleteMany({ where: { tenantId: tid, adminId: target.id } }),
+      ...chainCleanup,
+      /* ومستلمو التقرير الشامل — الجدول الثاني بلا مفتاح أجنبيّ.
+       *
+       * تعليقُ عموده في المخطّط يقول «بلا FK كي لا يمحو حذفُه تاريخ الإسناد»،
+       * والجدول **لا يحفظ تاريخاً**: مسار `PUT /config/digest-viewers` يمسح
+       * صفوف الشركة كلّها ويعيد كتابتها عند كلّ حفظ. فما يبقى ليس سجلّاً بل
+       * اسمُ رجلٍ محذوف في قائمة «من يستلم» الحيّة، تعرضها شاشة التهيئة كما
+       * هي بينما قائمة المرشّحين لا تعرض إلّا الأحياء. ولا أثر له على الوصول
+       * (الفحص بمعرّفٍ لا يستطيع الدخول) — أثره أن يقرأ المالك اسم من رحل. */
+      prisma.dailyReportDigestViewer.deleteMany({ where: { tenantId: tid, adminId: target.id } }),
       prisma.admin.delete({ where: { id: target.id } }),
     ]);
     res.json({ success: true });

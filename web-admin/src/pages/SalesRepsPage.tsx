@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { formatCurrency, formatDate, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
 import { shareOrDownloadExcel, num } from '../utils/excel';
@@ -1090,10 +1090,15 @@ function CredentialsModal({ creds, onClose }: { creds: Creds; onClose: () => voi
  * المكان الذي يُسأل فيه «ماذا أقرّ هذا الرجل هذا الشهر». والشاشتان القائمتان
  * لا تجيبان: «الحصيلة» تقطع الفريق كلّه في يوم، و«تقرير الفريق» يطوي المدّة
  * كلّها في صفٍّ واحد لكل مندوب. */
+/* الأربع كما يكتبها الخادم، وبألفاظ الشاشات القائمة نفسها (DailyReportsPage
+ * وMDailyReports) — لا لفظَ ثانٍ للحالة الواحدة. و`PENDING` ليست منها: تلك
+ * حالةُ مهمّةٍ في السلسلة، ووضعُها هنا كان يُسقِط كلّ تقريرٍ حيٍّ إلى الفرع
+ * الافتراضيّ فيقرأ العربيُّ «SUBMITTED». */
 const DR_STATUS: Record<string, { label: string; cls: string }> = {
   APPROVED: { label: 'معتمد', cls: 'bg-green-50 text-green-700 border-green-200' },
-  PENDING: { label: 'قيد المراجعة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  RETURNED: { label: 'معاد للتصحيح', cls: 'bg-red-50 text-red-700 border-red-200' },
+  SUBMITTED: { label: 'مرفوع', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  IN_REVIEW: { label: 'قيد المراجعة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  RETURNED: { label: 'أعيد للتصحيح', cls: 'bg-red-50 text-red-700 border-red-200' },
 };
 
 interface DrField { id: string; label: string; kind: string }
@@ -1164,7 +1169,7 @@ function RepDailyReportsModal({ rep, onClose }: { rep: SalesRep; onClose: () => 
               <div className="flex items-center gap-1.5 flex-wrap text-[11px] pb-1 mr-auto">
                 <span className="px-2 py-1 rounded-full border bg-green-50 text-green-700 border-green-200">{tr('معتمد')}: {meta.approved}</span>
                 <span className="px-2 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200">{tr('قيد المراجعة')}: {meta.pending}</span>
-                <span className="px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200">{tr('معاد للتصحيح')}: {meta.returned}</span>
+                <span className="px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200">{tr('أعيد للتصحيح')}: {meta.returned}</span>
               </div>
             )}
           </div>
@@ -1197,7 +1202,10 @@ function RepDailyReportsModal({ rep, onClose }: { rep: SalesRep; onClose: () => 
                     return (
                       <tr key={r.id} className="hover:bg-[#FAF7F0]">
                         <td className="px-3 py-2 font-semibold text-[#1F1A13]">
-                          {formatDate(r.reportDate)}
+                          {/* `reportDate` يومٌ نصّاً لا لحظة: `formatDate` يقرؤه منتصف
+                              ليلٍ عالميّ ثمّ يعرضه بمنطقة الجهاز، فينزلق يوماً للوراء
+                              عند كلّ منطقةٍ سالبة. `formatDayOnly` يبنيه من أجزائه. */}
+                          {formatDayOnly(r.reportDate)}
                           {r.round > 1 && <span className="text-[10px] text-[#9A8F7E] mr-1">({tr('محاولة')} {r.round})</span>}
                         </td>
                         <td className="px-3 py-2">
@@ -1228,7 +1236,7 @@ function RepDailyReportsModal({ rep, onClose }: { rep: SalesRep; onClose: () => 
             <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF]">
               {rows.filter(r => r.note).map(r => (
                 <p key={r.id} className="px-3 py-2 text-[11px] text-[#6E6557]">
-                  <b className="text-[#1F1A13]">{formatDate(r.reportDate)}</b> · {r.note}
+                  <b className="text-[#1F1A13]">{formatDayOnly(r.reportDate)}</b> · {r.note}
                 </p>
               ))}
             </div>
