@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardCheck, Inbox, Settings, BarChart3, Plus, Trash2, Archive, ArrowUp, ArrowDown,
@@ -30,6 +30,17 @@ interface Field { id: string; label: string; kind: string; required: boolean; is
 interface Level { id: string; seq: number; name: string; kind: string; quorum: string; color: string | null; posX: number | null; posY: number | null }
 interface Owner { id: string; levelId: string; adminId: string; adminName: string; isDefault: boolean; repIds: string[] }
 interface Named { id: string; name: string; role?: string }
+
+interface ReportValue { fieldId: string; levelSeq: number; declaredNum: number | null; declaredText: string | null; labelSnapshot: string }
+interface ReportData {
+  salesRep: Named; reportDate: string; status: string; round: number; note: string | null;
+  values: ReportValue[];
+  comments: { id: string; fieldId: string | null; authorAdminName: string; body: string; createdAt: string }[];
+  steps: { id: string; action: string; actorAdminName: string; reason: string | null; createdAt: string; levelSeq: number }[];
+  levels: { id: string; seq: number; name: string; kind: string }[];
+  canAct: boolean; actLevelSeq: number | null; actLevelName: string | null; actLevelKind: string | null;
+  myFields: Field[]; distinctApproversNow: number;
+}
 
 const KIND_LABEL: Record<string, string> = { NUMBER: 'رقم', MONEY: 'مبلغ', COUNT: 'عدد', TEXT: 'نص' };
 const STATUS_LABEL: Record<string, string> = {
@@ -74,6 +85,27 @@ export default function DailyReportsPage() {
   );
 }
 
+/**
+ * فشل التحميل يُقال صراحةً — **الفشل ليس فراغاً ولا شاشةً بيضاء**.
+ *
+ * كان كل تبويبٍ هنا يفحص `isLoading` وحده ثم يقرأ `q.data`: عند ٤٠٣ أو ٤٠٤ أو
+ * انقطاعِ شبكةٍ تنتهي الاستعلامة بخطأ فتبقى `data` معدومة، فإمّا يُقرأ الخطأ
+ * «لا تقارير بانتظارك» فيغلق المشرف اللوحة مطمئناً وتقاريره واقفة، وإمّا
+ * تُفكَّك `undefined` فتُرمى TypeError أثناء التصيير — ولا ErrorBoundary في
+ * اللوحة كلّها، فتُفرَّغ شجرة React بأسرها لا هذه الشاشة وحدها.
+ */
+function LoadError({ text, onRetry, onBack }: { text: string; onRetry: () => void; onBack?: () => void }) {
+  const tr = useTr();
+  return (
+    <div className="card p-8 text-center">
+      {onBack && <button onClick={onBack} className="btn-secondary text-xs mb-3">{tr('رجوع')}</button>}
+      <AlertTriangle size={28} className="mx-auto text-amber-400" />
+      <p className="text-sm text-[#6E6557] mt-2">{text}</p>
+      <button className="btn-secondary text-xs mt-3" onClick={onRetry}>{tr('إعادة المحاولة')}</button>
+    </div>
+  );
+}
+
 // ════════════════════════ بانتظارك ════════════════════════
 
 function InboxTab() {
@@ -85,6 +117,7 @@ function InboxTab() {
   });
 
   if (openId) return <ReportDetail id={openId} onBack={() => { setOpenId(null); q.refetch(); }} />;
+  if (q.isError) return <LoadError text={tr('تعذر تحميل البيانات')} onRetry={() => q.refetch()} />;
 
   return (
     <div className="card overflow-hidden p-0">
@@ -157,18 +190,32 @@ function ReportDetail({ id, onBack }: { id: string; onBack: () => void }) {
     onSuccess: () => { setErr(''); onBack(); }, onError: fail,
   });
 
+  /* بذرُ «بياناتك» ممّا هو محفوظ فعلاً — لا من فراغ.
+   * الشاشة كانت تفتح خاناتِ مستوى ENTER فارغةً دائماً وإن كانت له قيمٌ محفوظة،
+   * والحفظ يرسل الخانات كلَّها فالفارغةُ تُكتب null فوق رقمٍ سجّله صاحبها
+   * بالأمس أو قبل «رجوع» بدقيقة، ثم يُردّ عليه «سجّل الخانة قبل الاعتماد» وهو
+   * يقسم أنّه سجّلها. البذر يجعل ما تراه العين هو ما يُرسَل: الخانة الفارغة
+   * على الشاشة تعني «امسحها» قصداً لا سهواً. */
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    const data = q.data as ReportData | undefined;
+    if (!data || seededFor.current === id) return;
+    seededFor.current = id; // مرّةً لكل تقرير: إعادةُ الجلب بعد الحفظ لا تدهس ما يكتبه الآن
+    const mine: Record<string, string> = {};
+    for (const f of data.myFields) {
+      const v = data.values.find(x => x.fieldId === f.id && x.levelSeq === data.actLevelSeq);
+      if (!v) continue;
+      mine[f.id] = f.kind === 'TEXT' ? (v.declaredText ?? '') : (v.declaredNum === null ? '' : String(v.declaredNum));
+    }
+    setMyVals(mine);
+  }, [q.data, id]);
+
   if (q.isLoading) return <div className="card p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>;
-  const d = q.data as {
-
-
-    salesRep: Named; reportDate: string; status: string; round: number; note: string | null;
-    values: { fieldId: string; levelSeq: number; declaredNum: number | null; declaredText: string | null; labelSnapshot: string }[];
-    comments: { id: string; fieldId: string | null; authorAdminName: string; body: string; createdAt: string }[];
-    steps: { id: string; action: string; actorAdminName: string; reason: string | null; createdAt: string; levelSeq: number }[];
-    canAct: boolean; actLevelName: string | null; actLevelKind: string | null;
-    myFields: Field[]; distinctApproversNow: number;
-  };
+  if (q.isError || !q.data) return <LoadError text={tr('تعذر تحميل التقرير')} onRetry={() => q.refetch()} onBack={onBack} />;
+  const d = q.data as ReportData;
   const repValues = d.values.filter(v => v.levelSeq === 0);
+  // ما سجّلته المستويات (ENTER) — يُعرض لمن بعدهم: الاعتماد توقيعٌ على المستند كلّه
+  const levelValues = d.values.filter(v => v.levelSeq > 0);
 
   return (
     <div className="space-y-4">
@@ -224,6 +271,29 @@ function ReportDetail({ id, onBack }: { id: string; onBack: () => void }) {
         {d.note && <p className="px-5 py-3 text-xs text-[#6E6557] border-t border-[#F5F0E6]">{tr('ملاحظة')}: {d.note}</p>}
       </div>
 
+      {/* ما سجّلته المستويات قبلي — أرقامٌ كانت لا تُعرض لأحد.
+          المعتمِد النهائي كان يوقّع على مستندٍ ناقص: رقم المحاسب لا يظهر إلا في
+          «الحصائل» بعد أن يصير الاعتماد نهائياً ومقفولاً. وصاحب المستوى نفسه لا
+          يرى ما سجّله عند إعادة الفتح. والبيانات كانت تصل كاملةً وتُهمَل. */}
+      {levelValues.length > 0 && (
+        <div className="card p-0 overflow-hidden">
+          <div className="px-5 py-3 border-b border-[#F1EBDF] font-bold text-sm">{tr('ما سجلته المستويات')}</div>
+          <table className="w-full text-sm">
+            <tbody>
+              {levelValues.map(v => (
+                <tr key={`${v.levelSeq}-${v.fieldId}`} className="border-t border-[#F5F0E6]">
+                  <td className="px-5 py-3 text-[#6E6557] w-1/3">{v.labelSnapshot}</td>
+                  <td className="px-3 py-3 font-semibold">{v.declaredText ?? (v.declaredNum ?? '—')}</td>
+                  <td className="px-5 py-3 text-xs text-[#6E6557]">
+                    {d.levels.find(l => l.seq === v.levelSeq)?.name ?? `#${v.levelSeq}`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* مستوى ENTER: بياناتي أنا — صفوف مستقلّة لا تمسّ إقرار المندوب */}
       {d.canAct && d.actLevelKind === 'ENTER' && d.myFields.length > 0 && (
         <div className="card">
@@ -238,6 +308,8 @@ function ReportDetail({ id, onBack }: { id: string; onBack: () => void }) {
               </div>
             ))}
           </div>
+          {/* تُرسَل الخانات كلُّها بما فيها الفارغة عمداً: الشاشة مبذورةٌ ممّا هو
+              محفوظ، فالفراغ إرادةُ مسحٍ لا نسيان — وبه وحده يُصحَّح رقمٌ أُدخل خطأً. */}
           <button
             className="btn-secondary mt-3 text-xs"
             onClick={() => saveVals.mutate(d.myFields.map(f => {
@@ -304,6 +376,13 @@ function ConfigTab() {
   const [newField, setNewField] = useState({ label: '', kind: 'NUMBER', required: false, fillLevelSeq: '' });
   const [previewRep, setPreviewRep] = useState('');
   const [preview, setPreview] = useState<string[] | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+
+  /* رسالة الرفض تُساق إلى العين لا تُترك فوق الصفحة.
+   * الحفظ يقع في لوحةٍ قد تكون مبعدةً عن أعلى الصفحة (محرّر العقدة، آخر القائمة)،
+   * فرسالةُ الخادم تُكتب في لافتةٍ لا يراها أحد فتُقرأ الرفضةُ «لم يحدث شيء». */
+  const errRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { if (err) errRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [err]);
 
   const q = useQuery({ queryKey: ['dr-config'], queryFn: async () => (await dailyReportApi.config()).data.data });
   const done = () => { setErr(''); qc.invalidateQueries({ queryKey: ['dr-config'] }); };
@@ -311,7 +390,7 @@ function ConfigTab() {
 
   const mAddField = useMutation({ mutationFn: () => dailyReportApi.addField({ ...newField, fillLevelSeq: newField.fillLevelSeq ? Number(newField.fillLevelSeq) : null }), onSuccess: () => { setNewField({ label: '', kind: 'NUMBER', required: false, fillLevelSeq: '' }); done(); }, onError: fail });
   const mArchive = useMutation({ mutationFn: ({ id, restore }: { id: string; restore: boolean }) => dailyReportApi.archiveField(id, restore), onSuccess: done, onError: fail });
-  const mDelField = useMutation({ mutationFn: (id: string) => dailyReportApi.deleteField(id), onSuccess: done, onError: fail });
+  const mDelField = useMutation({ mutationFn: (id: string) => dailyReportApi.deleteField(id), onSuccess: () => { setConfirmDel(null); done(); }, onError: fail });
   const mReorder = useMutation({ mutationFn: (ids: string[]) => dailyReportApi.reorderFields(ids), onSuccess: done, onError: fail });
   const mViewers = useMutation({ mutationFn: (ids: string[]) => dailyReportApi.setDigestViewers(ids), onSuccess: done, onError: fail });
   const mAddLevel = useMutation({ mutationFn: (b: Record<string, unknown>) => dailyReportApi.addLevel(b), onSuccess: done, onError: fail });
@@ -320,13 +399,16 @@ function ConfigTab() {
   const mOwners = useMutation({ mutationFn: ({ id, owners }: { id: string; owners: unknown[] }) => dailyReportApi.setOwners(id, owners), onSuccess: done, onError: fail });
 
   if (q.isLoading) return <div className="card p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>;
+  if (q.isError || !q.data) return <LoadError text={tr('تعذر تحميل البيانات')} onRetry={() => q.refetch()} />;
   const d = q.data as { fields: Field[]; levels: Level[]; owners: Owner[]; admins: Named[]; reps: Named[]; issues: string[]; configLog: { id: string; summary: string; actorAdminName: string; createdAt: string }[];
     digestViewers: { adminId: string; adminName: string }[] };
 
-  // العقدة على اللوحة = مستوىً + صاحبه الواحد. والمخطّط يحتمل أكثر من صاحب
-  // للمستوى (تغطية الإجازة في م٦)، فنأخذ الأول ونُبقي الباقي في البيانات.
+  // العقدة على اللوحة = مستوىً + صاحبٍ واحد، والمخطّط يحتمل أكثر (تغطية الإجازة
+  // في م٦). فالمعروض هو **المالك الافتراضيّ**: من يستقبل تقرير مندوبٍ لا توجيه
+  // له. وعرضُ أوّل ما يرِد كان قد يُظهر مُوجَّهاً لمندوبَين بوصفه صاحب العقدة كلّها.
   const canvasNodes: CanvasNode[] = (d?.levels ?? []).map(l => {
-    const own = (d?.owners ?? []).find(o => o.levelId === l.id);
+    const at = (d?.owners ?? []).filter(o => o.levelId === l.id);
+    const own = at.find(o => o.isDefault) ?? at[0];
     return {
       id: l.id, seq: l.seq, name: l.name, kind: l.kind, color: l.color,
       posX: l.posX, posY: l.posY,
@@ -347,7 +429,7 @@ function ConfigTab() {
           <p className="text-xs mt-2">{tr('لن يستطيع المناديب رفع تقاريرهم حتى تكتمل')}</p>
         </div>
       )}
-      {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">{err}</p>}
+      {err && <p ref={errRef} className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">{err}</p>}
 
       {/* مسار الاعتماد — رسم العُقد */}
       <DigestViewers
@@ -363,7 +445,34 @@ function ConfigTab() {
         onUpdate={(id, patch) => mUpdLevel.mutate({ id, patch })}
         onDelete={id => mDelLevel.mutate(id)}
         onMove={(id, pos) => mUpdLevel.mutate({ id, patch: { posX: pos.x, posY: pos.y } })}
-        onOwner={(id, adminId, repIds) => mOwners.mutate({ id, owners: [{ adminId, isDefault: repIds.length === 0, repIds }] })}
+        /* ملّاك العقدة — أخطر حفظٍ في الشاشة.
+         *
+         * كان يُكتب مالكٌ واحد بـ`isDefault: repIds.length === 0`، فاختيارُ مناديبَ
+         * للعقدة يجعلها بلا مالكٍ افتراضيّ: كلُّ مندوبٍ خارج القائمة — بل والذي
+         * فيها — يُردّ رفعه بـ٤٠٩ وتتوقّف الميزة للشركة كلّها. والخادم صار يرفض
+         * هذه الحالة عند الحفظ، لكنّ الرفض بعد الفعل لا يكفي: المنعُ هنا قبله.
+         *
+         * وكتابةُ مالكٍ واحد كانت تمحو أيّ مُوجَّهٍ آخر على العقدة صامتةً لأنّ
+         * المسار يستبدل القائمة كاملةً — فما لا تعرضه اللوحة يُحفَظ لا يُحذَف. */
+        onOwner={(id, adminId, repIds) => {
+          const at = d.owners.filter(o => o.levelId === id);
+          const others = at.filter(o => o.adminId !== adminId);
+          if (!repIds.length) {
+            // مستقبِلُ الجميع: هو الافتراضيّ، ويبقى المُوجَّهون لمناديبهم كما هم.
+            // ومن لا توجيه له ولا افتراضيّةً يُسقَط: صاحبٌ لا يصله شيء أبداً.
+            mOwners.mutate({ id, owners: [
+              { adminId, isDefault: true, repIds: [] },
+              ...others.filter(o => o.repIds.length).map(o => ({ adminId: o.adminId, isDefault: false, repIds: o.repIds })),
+            ] });
+            return;
+          }
+          const fallback = others.find(o => o.isDefault) ?? others[0];
+          if (!fallback) { setErr(tr('اترك قائمة المناديب فارغة — لا مستقبل في هذه العقدة لبقية المناديب وتوجيهها يوقف رفع التقارير للشركة كلها')); return; }
+          mOwners.mutate({ id, owners: [
+            { adminId, isDefault: false, repIds },
+            ...others.map(o => ({ adminId: o.adminId, isDefault: o.adminId === fallback.adminId, repIds: o.repIds })),
+          ] });
+        }}
       />
 
       {/* المحاكي */}
@@ -403,7 +512,18 @@ function ConfigTab() {
               <button disabled={i === 0} onClick={() => { const ids = active.map(x => x.id); [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]]; mReorder.mutate(ids); }} className="p-1 disabled:opacity-30"><ArrowUp size={14} /></button>
               <button disabled={i === active.length - 1} onClick={() => { const ids = active.map(x => x.id); [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]]; mReorder.mutate(ids); }} className="p-1 disabled:opacity-30"><ArrowDown size={14} /></button>
               <button onClick={() => mArchive.mutate({ id: f.id, restore: false })} className="p-1 text-amber-700" title={tr('أرشفة')}><Archive size={14} /></button>
-              <button onClick={() => mDelField.mutate(f.id)} className="p-1 text-red-600" title={tr('حذف')}><Trash2 size={14} /></button>
+              {/* الحذف يجاور الأرشفة بالحجم والشكل ولا نصّ على أيّهما، وهو وحده
+                  غير قابلٍ للتراجع: خانةٌ أُنشئت اليوم ولم تُستعمل بعد لا يمنعها
+                  حارس الخادم (فحصُ القيم)، فتذهب من نقرةٍ زائغة ولا يبقى منها إلا
+                  سطرٌ في سجلّ الإعداد. فنقرةٌ ثانيةٌ مسمّاةٌ قبل الطلب. */}
+              {confirmDel === f.id ? (
+                <>
+                  <button onClick={() => mDelField.mutate(f.id)} className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">{tr('حذف نهائي')}</button>
+                  <button onClick={() => setConfirmDel(null)} className="text-[11px] text-[#6E6557] px-1.5">{tr('إلغاء')}</button>
+                </>
+              ) : (
+                <button onClick={() => setConfirmDel(f.id)} className="p-1 text-red-600" title={tr('حذف')}><Trash2 size={14} /></button>
+              )}
             </div>
           ))}
         </div>
@@ -487,11 +607,21 @@ function TeamTab() {
         <div className="card p-8 text-center text-gray-400 text-sm">{tr('حدد المدة لعرض التقرير الشامل')}</div>
       ) : q.isLoading ? (
         <div className="card p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
+      ) : q.isError || !d ? (
+        // فشلُ الاستعلام كان يُقرأ «لا تقارير في هذه المدة» — فراغُ شركةٍ لا انقطاعُ شبكة
+        <LoadError text={tr('تعذر تحميل البيانات')} onRetry={() => q.refetch()} />
       ) : (
         <>
           {/* ما قُصّ وما قُيّد يُقال صراحةً — لا قصّ صامت */}
           {d?.meta.cappedNote && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{d.meta.cappedNote}</p>}
           {d?.meta.scopedNote && <p className="text-xs text-[#6E6557] bg-[#FAF7F0] border border-[#E9E1D3] rounded-xl px-3 py-2">{d.meta.scopedNote}</p>}
+          {/* الإجماليات تجمع قيم كلّ تقريرٍ في المدّة مهما كانت حالته — رقمٌ رفضه
+              المشرف صراحةً يدخل تقرير الفريق. لا يُخفى ولا يُقرأ معتمَداً. */}
+          {d.rows.some(r => r.days > r.approved) && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              {tr('الإجماليات تشمل كل التقارير المرفوعة في المدة بما فيها غير المعتمدة والمعادة للتصحيح')}
+            </p>
+          )}
 
           <div className="card overflow-hidden p-0">
             {!d?.rows.length ? (
@@ -514,6 +644,9 @@ function TeamTab() {
                           {r.salesRepName}
                           {r.soloApproved > 0 && (
                             <span className="block text-[10px] text-amber-700 font-normal mt-0.5">{r.soloApproved} {tr('اعتمدها شخص واحد')}</span>
+                          )}
+                          {r.days > r.approved && (
+                            <span className="block text-[10px] text-amber-700 font-normal mt-0.5">{r.days - r.approved} {tr('غير معتمدة')}</span>
                           )}
                         </td>
                         <td className="px-3 py-3 text-center">{r.days}</td>

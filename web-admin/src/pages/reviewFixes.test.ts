@@ -52,11 +52,18 @@ test('إعادة الترقيم تُزامن كل ما يشير إلى الرق�
   assert.doesNotMatch(body, /dailyReportValue\.updateMany/, 'قيم التقارير سجلٌّ تاريخيّ — إعادة كتابته تزوير');
 });
 
-test('الجوال يرسل num/text لا declaredNum/declaredText', () => {
+test('الجوال يرسل num/text لا declaredNum/declaredText — ورقماً لا NaN', () => {
   // z.object يُسقط المفاتيح المجهولة صامتاً، فكانت القيمة تُحفظ null ويُقال «تمّ»
   const s = read('src', 'm', 'MDailyReports.tsx');
-  assert.match(s, /\{ fieldId: f\.id, num: Number\(mine\[f\.id\]\), text: null \}/, 'الجوال يرسل مفاتيح خاطئة');
+  assert.match(s, /\{ fieldId: f\.id, num: toNum\(mine\[f\.id\]\), text: null \}/, 'الجوال يرسل مفاتيح خاطئة');
   assert.doesNotMatch(s, /declaredNum: Number\(mine/, 'المفاتيح القديمة تعود بالعيب');
+  /* كان هذا الحارس يُثبِّت `num: Number(mine[f.id])` حرفاً بحرف، فحرس المفتاح
+   * الصحيح وحرس معه **العيب نفسه** من بابٍ آخر: الحقل نصٌّ حرّ و`Number('١٢٥')`
+   * NaN، وJSON يحوّلها null — فتعود القيمة الفارغة «المحفوظة» التي وُضع هذا
+   * الاختبار أصلاً ليمنعها. المحروس الآن هو المعنى: مطبِّعٌ يقرأ ما كتبه
+   * الإنسان، ولا Number() خاماً على مدخل الشاشة. */
+  assert.doesNotMatch(s, /num: Number\(mine\[/, 'Number الخام يحوّل «١٢٥» إلى NaN ثمّ null');
+  assert.match(s, /function toNum\(raw: string\): number \| null/, 'مطبِّع المدخل الرقميّ مفقود');
   // وحارسٌ على الخادم يرفض جسماً بلا num ولا text
   assert.match(routes(), /refine\(v => 'num' in v \|\| 'text' in v/, 'الخادم يقبل جسماً فارغاً صامتاً');
 });
@@ -69,9 +76,17 @@ test('الصلاحية الجديدة تصل الواجهة', () => {
 
 test('حصيلة اليوم: عدّاداتها حيّة، ونطاق المستخدم محترَم', () => {
   const s = routes();
-  assert.match(s, /const repCountNow = await prisma\.salesRep\.count/, 'العدّادات ما زالت مجمَّدة');
+  // التقارير تُعدّ حيّةً من نفس الصفوف التي يبنيها الجدول — لا من الصفّ المجمَّد
+  assert.match(s, /reportCount: reports\.length,/, 'عدّاد التقارير ما زال مجمَّداً');
+  // وعدّاد المناديب يتبع **نطاق القارئ** لا الشركة كلّها: مقامٌ غير مقيَّد فوق
+  // بسطٍ مقيَّد كان يُعلن غائبين لم يغيبوا
+  assert.match(s, /const repCountEff = scoped/, 'عدّاد المناديب يجب أن يتبع نطاق القارئ');
   assert.match(s, /scopedRepRecordWhere\(req\)/, 'الحصيلة تتجاوز عزل نطاق المستخدم');
   assert.match(s, /hadData: seen\.has\(f\.id\)/, 'خانةٌ بلا بيانات ذلك اليوم يجب أن تُعرض شرطةً لا صفراً');
+  // و«بلا بيانات» = بلا رقمٍ ولا نصّ، لا «بلا صفّ»: تطبيق المندوب يرسل الخانات
+  // الفارغة بـnull فيُنشأ صفّ، فكان الإجمالي يُطبع «٠» على خانةٍ لم يملأها أحد
+  assert.match(s, /if \(v\.declaredNum === null && !String\(v\.declaredText \|\| ''\)\.trim\(\)\) continue;\s*\n\s*seen\.add/,
+    'hadData يجب أن تعني «كُتب فيها شيء» لا «وُجد لها صفّ»');
 });
 
 test('اللوحة: التخطيط يمضي يميناً ← يساراً ولا تتراكب البطاقات', () => {

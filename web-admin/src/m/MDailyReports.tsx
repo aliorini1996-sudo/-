@@ -27,6 +27,35 @@ const STATUS: Record<string, string> = {
   SUBMITTED: 'مرفوع', IN_REVIEW: 'قيد المراجعة', RETURNED: 'أعيد للتصحيح', APPROVED: 'معتمد',
 };
 
+const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+
+/**
+ * قراءة رقمٍ كتبه إنسانٌ على لوحة مفاتيح عربية.
+ *
+ * حقول هذه الشاشة نصٌّ حرّ (لا `type="number"` كالويب): `Number('١٢٥')` و
+ * `Number('12,5')` كلاهما NaN، و`JSON.stringify` يحوّل NaN إلى **null** —
+ * فتصل الخادمَ قيمةٌ فارغة يقبلها `z.number().nullish()` ويُقال «تمّ»، ثمّ
+ * يحجب حارسُ الاعتماد الاعتمادَ للأبد بحجّة خانةٍ لم تُملأ. التطبيع هنا قبل
+ * الإرسال أصدق من ردّ ما كتبه المستخدم حرفاً حرفاً.
+ *
+ * وتُقرأ الثلاثيات الكاملة فواصلَ آلافٍ لا عشرية: «1,250» ألفٌ ومئتان وخمسون
+ * لا واحدٌ وربع — وقراءتها عشريةً خطأ مالٍ لا خطأ عرض.
+ */
+function toNum(raw: string): number | null {
+  const s0 = (raw || '').trim()
+    .replace(/[٠-٩]/g, d => String(AR_DIGITS.indexOf(d)))
+    .replace(/[\s٬]/g, '')  // مسافات وفاصلة الآلاف العربية ٬
+    .replace(/٫/g, '.');    // الفاصلة العشرية العربية ٫
+  const neg = s0.startsWith('-');
+  const body = neg ? s0.slice(1) : s0;
+  const s = /^\d{1,3}([,،.]\d{3})+$/.test(body)
+    ? body.replace(/[,،.]/g, '')
+    : body.replace(/[,،]/g, '.');
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? (neg ? -n : n) : null;
+}
+
 export default function MDailyReports() {
   const tr = useTr();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -95,6 +124,8 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
   const [reason, setReason] = useState('');
   const [asking, setAsking] = useState(false);
   const [err, setErr] = useState('');
+  // خانات رقميّة لم تُقرأ رقماً — تُسمّى عند زرّ الحفظ لا في بانر الشاشة البعيد
+  const [badNums, setBadNums] = useState<string[]>([]);
 
   const q = useQuery({
     queryKey: ['m-dr', id],
@@ -182,22 +213,44 @@ function Detail({ id, onBack }: { id: string; onBack: () => void }) {
             <div key={f.id} className="flex items-center gap-2 py-1.5">
               <span className="text-xs text-[#6E6557] flex-1">{f.label}{f.required && ' *'}</span>
               <input
-                className="input w-28 text-sm" inputMode={f.kind === 'TEXT' ? 'text' : 'decimal'}
-                value={mine[f.id] ?? ''} onChange={e => setMine(m => ({ ...m, [f.id]: e.target.value }))}
+                className={`input w-28 text-sm ${badNums.includes(f.id) ? 'border-red-400' : ''}`}
+                inputMode={f.kind === 'TEXT' ? 'text' : 'decimal'}
+                value={mine[f.id] ?? ''}
+                onChange={e => {
+                  setMine(m => ({ ...m, [f.id]: e.target.value }));
+                  setBadNums(b => b.filter(x => x !== f.id));
+                }}
+                // يرى المحاسب ما سيُحفَظ فعلاً: «١٢٥» تصير 125 أمام عينيه لا في الخفاء
+                onBlur={() => {
+                  if (f.kind === 'TEXT') return;
+                  const n = toNum(mine[f.id] ?? '');
+                  if (n !== null) setMine(m => ({ ...m, [f.id]: String(n) }));
+                }}
               />
             </div>
           ))}
           <button
             className="btn-secondary text-xs w-full mt-2"
-            onClick={() => mVals.mutate(d.myFields
-              .filter(f => (mine[f.id] ?? '').trim() !== '')
+            onClick={() => {
+              const filled = d.myFields.filter(f => (mine[f.id] ?? '').trim() !== '');
+              // الحقل نصٌّ حرّ: ما لا يُقرأ رقماً يُسمّى هنا في وجه الزرّ الذي
+              // ضُغط، بدل أن يُرسَل NaN فيصل الخادمَ null «محفوظاً» ويُقال «تمّ»
+              const bad = filled.filter(f => f.kind !== 'TEXT' && toNum(mine[f.id]) === null);
+              setBadNums(bad.map(f => f.id));
+              if (bad.length) return;
               // **num/text لا declaredNum/declaredText**: الخادم يقرأ الأولَين،
               // وz.object يُسقط المفاتيح المجهولة صامتاً — فكانت القيمة تُحفظ
               // null ويُقال «تمّ»، ثم يُمنع الاعتماد بحجّة خانةٍ لم تُملأ.
-              .map(f => f.kind === 'TEXT'
+              mVals.mutate(filled.map(f => f.kind === 'TEXT'
                 ? { fieldId: f.id, text: mine[f.id], num: null }
-                : { fieldId: f.id, num: Number(mine[f.id]), text: null }))}
+                : { fieldId: f.id, num: toNum(mine[f.id]), text: null }));
+            }}
           >{tr('حفظ بياناتي')}</button>
+          {badNums.length > 0 && (
+            <p className="text-[11px] text-red-700 mt-1.5">
+              {tr('رقم غير صحيح')}: {d.myFields.filter(f => badNums.includes(f.id)).map(f => f.label).join('، ')}
+            </p>
+          )}
         </MCard>
       )}
 
@@ -294,12 +347,15 @@ function MDigestView({ date, onBack }: { date: string; onBack: () => void }) {
   if (q.isLoading) return <MSpinner />;
   if (q.isError) return <MError onRetry={() => q.refetch()} />;
 
+  // النوع يعلن ما يرسله الخادم كاملاً: إغفال hadData/isActive/lateReports من
+  // النوع هو ما أخفاها عن الشاشة أصلاً فقرأت الحصيلةَ نفسها غيرَ اللوحة
   const d = q.data as {
     digest: { reportDate: string; reportCount: number; soloApprovedCount: number };
-    fields: { id: string; label: string; kind: string }[];
+    fields: { id: string; label: string; kind: string; isActive: boolean; hadData: boolean }[];
     rows: { salesRepId: string; salesRepName: string; soloApproved: boolean; values: Record<string, number | string | null> }[];
     totals: Record<string, number>;
     missingReps: number;
+    lateReports: number;
   };
   const num = (v: unknown): string =>
     typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 2 })
@@ -307,6 +363,15 @@ function MDigestView({ date, onBack }: { date: string; onBack: () => void }) {
 
   return (
     <MScreen header={<MHeader title={`${tr('حصيلة')} ${d.digest.reportDate}`} subtitle={`${d.digest.reportCount} ${tr('تقرير')}`} onBack={onBack} />}>
+      {d.lateReports > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+          {/* تقريرٌ وصل بعد الإصدار يدخل هذه الأرقام — يُقال صراحةً لا يُدَسّ بصمت */}
+          <p className="text-[11px] text-blue-800">
+            {d.lateReports} {tr('تقرير وصل بعد صدور الحصيلة ودخل هذه الأرقام')}
+          </p>
+        </div>
+      )}
+
       {(d.missingReps > 0 || d.digest.soloApprovedCount > 0) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 space-y-1">
           {d.missingReps > 0 && (
@@ -329,8 +394,12 @@ function MDigestView({ date, onBack }: { date: string; onBack: () => void }) {
         <p className="font-bold text-sm mb-2">{tr('الإجمالي')}</p>
         {d.fields.filter(f => f.kind !== 'TEXT').map(f => (
           <div key={f.id} className="flex items-center justify-between py-1.5 border-t border-[#F5F0E6] first:border-0">
-            <span className="text-xs text-[#6E6557]">{f.label}</span>
-            <span className="text-sm font-bold text-[#1F1A13]">{num(d.totals[f.id] ?? 0)}</span>
+            <span className="text-xs text-[#6E6557]">
+              {f.label}{!f.isActive && <span className="text-gray-400"> ({tr('مؤرشفة')})</span>}
+            </span>
+            {/* خانةٌ لم يكتب فيها أحدٌ ذلك اليوم: غيابٌ لا صفر — والصفر هنا
+                يُقرأ إنفاقاً حقيقياً في يومٍ لم تكن الخانة موجودة فيه أصلاً */}
+            <span className="text-sm font-bold text-[#1F1A13]">{f.hadData ? num(d.totals[f.id] ?? 0) : '—'}</span>
           </div>
         ))}
       </MCard>
@@ -343,7 +412,9 @@ function MDigestView({ date, onBack }: { date: string; onBack: () => void }) {
           </p>
           {d.fields.map(f => (
             <div key={f.id} className="flex items-center justify-between py-1 border-t border-[#F5F0E6] first:border-0">
-              <span className="text-[11px] text-[#6E6557]">{f.label}</span>
+              <span className="text-[11px] text-[#6E6557]">
+                {f.label}{!f.isActive && <span className="text-gray-400"> ({tr('مؤرشفة')})</span>}
+              </span>
               <span className="text-xs font-semibold text-[#1F1A13]">{num(r.values[f.id])}</span>
             </div>
           ))}
