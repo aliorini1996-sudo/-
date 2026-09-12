@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import CustomerModal from '../components/forms/CustomerModal';
 import CustomerStatementModal from '../components/forms/CustomerStatementModal';
 import DocumentModal from '../components/DocumentModal';
+import { useAccountingOn } from '../components/AccountingGate';
 import { StatementDoc, statementDocFromData, Company } from '../rep/RepDocuments';
 
 export default function CustomersPage() {
@@ -34,6 +35,16 @@ export default function CustomersPage() {
     queryKey: ['company'],
     queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
   });
+
+  // المحاسبة مطفأة ⇒ يختفي الرصيد والحد الائتماني وكشف الحساب من هذه الصفحة،
+  // ويبقى العميل بهويته: الاسم والجوال والمدينة والقناة والحالة.
+  /* «مفعّل» قبل وصول الإعداد يعني ومضةَ أرقامٍ ثم إخفاءها — وهي تسريبٌ حقيقي
+   * يلتقطه المستخدم (والصورة). والعكس — ومضة إخفاءٍ ثم عرض — لا يُسرّب شيئاً،
+   * ولا يتجمّد: `ready` تصدق أيضاً حين توقف الشبكةُ المحاولة، فتعود الدلالة
+   * الافتراضية «مفعّل» ولا تُحجب الأرقام عمّن تعذّرت قراءة إعداداته. */
+  const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  const accountingOn = accountingReady && accountingFlag;
+  const cols = accountingOn ? 9 : 7;
 
   const { data, isLoading } = useQuery({
     queryKey: ['customers', search, status, channel, page],
@@ -76,8 +87,18 @@ export default function CustomersPage() {
   // فتح مباشر لكشف حساب عميل عبر ?open=<id> (من زر «ملف العميل» في خريطة التتبّع)
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
+    // ننتظر قراءة إعداد الشركة أوّلاً: العَلَم يبدأ «مفعّلاً» قبل وصول الرد،
+    // ولو فتحنا قبل وصوله لجلبنا كشف حساب شركةٍ محاسبتُها مطفأة.
+    if (!accountingReady) return;
     const openId = searchParams.get('open');
     if (!openId) return;
+    // كشف الحساب مالي: لا يُجلب ولا يُفتح حين تكون المحاسبة مطفأة — ويُنظَّف
+    // الرابط كي لا يعاود المحاولة عند كل تحديث.
+    if (!accountingOn) {
+      searchParams.delete('open');
+      setSearchParams(searchParams, { replace: true });
+      return;
+    }
     (async () => {
       try {
         const res = await customerApi.get(openId);
@@ -89,7 +110,7 @@ export default function CustomersPage() {
       setSearchParams(searchParams, { replace: true });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [accountingReady]);
 
   // كشف حساب PDF بنفس شكل المندوب
   const openStatementPdf = async (c: Customer) => {
@@ -144,14 +165,16 @@ export default function CustomersPage() {
             <thead>
               <tr>
                 <th>{tr('الكود')}</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('القناة')}</th>
-                <th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
+                {accountingOn && <th>{tr('الرصيد')}</th>}
+                {accountingOn && <th>{tr('الحد الائتماني')}</th>}
+                <th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
+                <tr><td colSpan={cols} className="text-center py-12 text-gray-400">{tr('لا توجد نتائج')}</td></tr>
               ) : data?.data.map(c => (
                 <tr key={c.id}>
                   <td className="font-mono text-xs text-gray-500">{c.code}</td>
@@ -166,22 +189,29 @@ export default function CustomersPage() {
                       ? <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-[#FBEBE2] text-[#C94E28] whitespace-nowrap">{tr(channelLabel(c.channel))}</span>
                       : <span className="text-gray-300">-</span>}
                   </td>
-                  <td className={`font-semibold ${Number(c.balance) > 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                    {formatCurrency(c.balance)}
-                  </td>
-                  <td className="text-gray-600">{formatCurrency(c.creditLimit)}</td>
+                  {accountingOn && (
+                    <td className={`font-semibold ${Number(c.balance) > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                      {formatCurrency(c.balance)}
+                    </td>
+                  )}
+                  {accountingOn && <td className="text-gray-600">{formatCurrency(c.creditLimit)}</td>}
                   <td>{statusBadge(c.status)}</td>
                   <td>
                     <div className="flex items-center gap-2">
                       <button onClick={() => openEdit(c)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}>
                         <Edit size={14} />
                       </button>
-                      <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('كشف حساب عرض')}>
-                        <FileText size={14} />
-                      </button>
-                      <button onClick={() => openStatementPdf(c)} className="p-1.5 hover:bg-slate-100 rounded text-slate-600" title={tr('كشف حساب PDF')}>
-                        {openingId === c.id ? <span className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin inline-block" /> : <FileBarChart2 size={14} />}
-                      </button>
+                      {/* كشف الحساب فعلٌ محاسبي: زرّاه يختفيان مع المحاسبة */}
+                      {accountingOn && (
+                        <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('كشف حساب عرض')}>
+                          <FileText size={14} />
+                        </button>
+                      )}
+                      {accountingOn && (
+                        <button onClick={() => openStatementPdf(c)} className="p-1.5 hover:bg-slate-100 rounded text-slate-600" title={tr('كشف حساب PDF')}>
+                          {openingId === c.id ? <span className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin inline-block" /> : <FileBarChart2 size={14} />}
+                        </button>
+                      )}
                       <button onClick={() => setDeleting(c)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title={tr('حذف العميل')}>
                         <Trash2 size={14} />
                       </button>
@@ -212,6 +242,7 @@ export default function CustomersPage() {
 
       {showModal && (
         <CustomerModal
+          accountingOn={accountingOn}
           customer={selected}
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}

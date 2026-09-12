@@ -8,6 +8,7 @@ import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-re
 import toast from 'react-hot-toast';
 import ProductModal from '../components/forms/ProductModal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 
 export default function ProductsPage() {
   const qc = useQueryClient();
@@ -18,12 +19,17 @@ export default function ProductsPage() {
   const [selected, setSelected] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState<Product | null>(null);
 
+  // صفحة الأصناف كلّها أسعارٌ وضريبة: تُمنع مع المحاسبة، ولا يُطلَب جدولها أصلاً
+  // (مسار /products يردّ ٤٠٣ فتظهر لافتة خطأ — واللافتة نفسها تسريب).
+  const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+
   const { data, isLoading } = useQuery({
     queryKey: ['products', search, page],
     queryFn: async () => {
       const res = await productApi.list({ search, page, limit: 15 });
       return res.data as { data: Product[]; pagination: { total: number; pages: number } };
     },
+    enabled: accountingReady && accountingOn,
   });
 
   const saveMutation = useMutation({
@@ -47,6 +53,9 @@ export default function ProductsPage() {
       setDeleting(null);
     },
   });
+
+  if (!accountingReady) return null;
+  if (!accountingOn) return <AccountingOffNotice />;
 
   return (
     <div>

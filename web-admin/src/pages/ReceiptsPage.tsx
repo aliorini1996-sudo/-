@@ -12,6 +12,7 @@ import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { ReceiptDoc, receiptDocFromDetail, Company } from '../rep/RepDocuments';
 import { shareOrDownloadExcel, num } from '../utils/excel';
+import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 
 export default function ReceiptsPage() {
   const qc = useQueryClient();
@@ -31,9 +32,13 @@ export default function ReceiptsPage() {
     queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
   });
 
+  // سندات القبض تحصيلٌ خالص: الصفحة كلّها تختفي مع المحاسبة ولا تُصدر طلباً
+  const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+
   const { data: reps } = useQuery({
     queryKey: ['sales-reps-all'],
     queryFn: async () => { const res = await salesRepApi.list({ limit: 200 }); return res.data.data as SalesRep[]; },
+    enabled: accountingReady && accountingOn,
   });
 
   const filters = () => {
@@ -51,6 +56,7 @@ export default function ReceiptsPage() {
       const res = await receiptApi.list({ ...filters(), page, limit: 15 });
       return res.data as { data: Receipt[]; pagination: { total: number; pages: number } };
     },
+    enabled: accountingReady && accountingOn,
   });
 
   // تصدير/مشاركة السندات
@@ -108,6 +114,9 @@ export default function ReceiptsPage() {
   // الميدان ويُرفع بعد ساعات)، وإلا لحظة الإنشاء على الخادم. لا نستخدم receiptDate
   // لأنه قد يُضبط من منتقي تاريخ (بلا وقت = منتصف الليل) أو يُؤرَّخ بأثر رجعي.
   const issuedAt = (r: Receipt) => r.clientCreatedAt || r.createdAt;
+
+  if (!accountingReady) return null;
+  if (!accountingOn) return <AccountingOffNotice />;
 
   return (
     <div>

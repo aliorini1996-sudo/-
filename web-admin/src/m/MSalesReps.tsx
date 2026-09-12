@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, ChevronLeft, Phone, Pencil, ShieldCheck, Banknote, Trash2, KeyRound,
@@ -70,10 +70,13 @@ function errMsg(e: unknown, fallback: string): string {
  * منبثقة داخل ٤٠٠px تصير علبةً ضيقة يُمرَّر داخلها، وزرّ رجوع أندرويد كان
  * سيخرج من التطبيق بدل أن يغلقها.
  */
-export default function MSalesReps({ onBack, company }: {
+export default function MSalesReps({ onBack, company, accountingOn = true }: {
   onBack: () => void;
   /** إعدادات الشركة — لترويسة سند الاستلام وحدها */
   company?: unknown;
+  /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false يسقط رصيد التحصيل
+   *  (قائمةً وملفّاً وشاشة استلام) وأقصى نسبة الخصم وصلاحيات المال. */
+  accountingOn?: boolean;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -95,9 +98,9 @@ export default function MSalesReps({ onBack, company }: {
         if (res.creds) setCreds(res.creds);
       }} />
   ) : openId ? (
-    <RepDetail repId={openId} company={company} onBack={() => setOpenId(null)} />
+    <RepDetail repId={openId} company={company} accountingOn={accountingOn} onBack={() => setOpenId(null)} />
   ) : (
-    <RepList onBack={onBack} onAdd={() => setCreating(true)} onOpen={setOpenId} />
+    <RepList onBack={onBack} accountingOn={accountingOn} onAdd={() => setCreating(true)} onOpen={setOpenId} />
   );
 
   return (
@@ -110,8 +113,8 @@ export default function MSalesReps({ onBack, company }: {
 
 /* ═══════════════════════ القائمة ═══════════════════════ */
 
-function RepList({ onBack, onAdd, onOpen }: {
-  onBack: () => void; onAdd: () => void; onOpen: (id: string) => void;
+function RepList({ onBack, accountingOn, onAdd, onOpen }: {
+  onBack: () => void; accountingOn: boolean; onAdd: () => void; onOpen: (id: string) => void;
 }) {
   const tr = useTr();
   const [q, setQ] = useState('');
@@ -135,7 +138,9 @@ function RepList({ onBack, onAdd, onOpen }: {
   // فعلاً لا نظرياً: باقات المنتج تسقّف المناديب بعشرين، والصفحة بخمسة وعشرين.
   // وتُستثنى مَن أُطفئ لهم «إظهار رصيد التحصيل» — مطابقةً للّوحة التي تخفي
   // زرّ الاستلام عنهم أصلاً، فلا معنى لطلبٍ لن يُعرض رقمه.
-  const balanceReps = reps.filter(r => r.showCollectionBalance !== false);
+  // وحين يُطفأ النظام المحاسبي لا يُصدَر الطلب إطلاقاً: القائمة فارغة فلا
+  // استعلام ولا لافتة خطأ تقول للمستخدم إنّ رقماً حُجب عنه.
+  const balanceReps = accountingOn ? reps.filter(r => r.showCollectionBalance !== false) : [];
   const balanceQs = useQueries({
     queries: balanceReps.map(r => ({
       queryKey: ['m-rep-collection', r.id],
@@ -239,7 +244,9 @@ function RepRow({ rep, balance, onOpen }: { rep: SalesRep; balance?: number; onO
 
 type Layer = 'form' | 'perms' | 'collect' | 'customers' | 'load' | null;
 
-function RepDetail({ repId, company, onBack }: { repId: string; company?: unknown; onBack: () => void }) {
+function RepDetail({ repId, company, accountingOn, onBack }: {
+  repId: string; company?: unknown; accountingOn: boolean; onBack: () => void;
+}) {
   const tr = useTr();
   const qc = useQueryClient();
   const user = useAuthStore(s => s.user);
@@ -260,6 +267,7 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
   });
 
   const colQ = useQuery({
+    enabled: accountingOn, // لا نطلب رصيد تحصيلٍ لن يُعرض — ولا لافتة خطأ مكانه
     queryKey: ['m-rep-collection', repId],
     queryFn: async () => expectObject<Collection>((await salesRepApi.collection(repId)).data?.data, 'رصيد التحصيل'),
   });
@@ -292,10 +300,10 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
   }
 
   const rep = repQ.data;
-  const canCollect = rep.showCollectionBalance !== false;
+  // رصيد التحصيل مالٌ صراح: يسقط كلّه حين يُطفأ النظام المحاسبي
+  const canCollect = accountingOn && rep.showCollectionBalance !== false;
   /* تسجيل التحميل خلف حارسَي الخادم نفسيهما: عزل «النظام المحاسبي» ثمّ صلاحية
    * مخزون السيارة. إظهار بلاطةٍ تُفضي إلى ٤٠٣ أسوأ من إخفائها. */
-  const accountingOn = (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
   const canLoad = accountingOn && can(user, 'canManageVanStock');
 
   if (layer === 'form') {
@@ -305,9 +313,14 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
     );
   }
   if (layer === 'perms') {
-    return <RepPerms rep={rep} onClose={() => setLayer(null)} onSaved={() => { setLayer(null); repQ.refetch(); }} />;
+    return (
+      <RepPerms rep={rep} accountingOn={accountingOn} onClose={() => setLayer(null)}
+        onSaved={() => { setLayer(null); repQ.refetch(); }} />
+    );
   }
-  if (layer === 'collect') {
+  // الشرطان مكرَّران على الطبقة لا على بلاطتها وحدها: إعدادات الشركة قد تصل
+  // بعد فتح الطبقة، فتنطوي حينها بدل أن تبقى معروضةً بأرقامها
+  if (layer === 'collect' && canCollect) {
     return <RepCollect rep={rep} company={company} onClose={() => setLayer(null)} />;
   }
   if (layer === 'customers') {
@@ -317,7 +330,7 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
       </Suspense>
     );
   }
-  if (layer === 'load') {
+  if (layer === 'load' && canLoad) {
     return (
       <Suspense fallback={<MSpinner />}>
         <MRepLoad rep={rep} company={company} onClose={() => setLayer(null)} />
@@ -376,7 +389,8 @@ function RepDetail({ repId, company, onBack }: { repId: string; company?: unknow
             <Info label={tr('اسم المستخدم')} value={rep.username} />
             {rep.email && <Info label={tr('البريد الإلكتروني')} value={rep.email} />}
             <Info label={tr('الحالة')} value={rep.isActive ? tr('نشط') : tr('موقوف')} />
-            <Info label={tr('أقصى نسبة خصم')} value={`${rep.maxDiscountPct ?? 0}%`} />
+            {/* الخصم بندٌ ماليّ وإن عُرض نسبةً لا مبلغاً */}
+            {accountingOn && <Info label={tr('أقصى نسبة خصم')} value={`${rep.maxDiscountPct ?? 0}%`} />}
           </MCard>
 
           <div className="grid grid-cols-2 gap-2.5">
@@ -638,6 +652,22 @@ const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
   { title: 'صلاحيات العملاء', keys: ['canAddCustomer', 'canEditCustomer', 'canViewStatement'] },
 ];
 
+/**
+ * الصلاحيات المحاسبية — تُحذف من شاشة الصلاحيات حين يُطفأ النظام المحاسبي.
+ *
+ * مفتاحٌ كـ«البيع أقل من السعر» أو «عرض كشف الحساب» لا يحمل مبلغاً، لكنّه
+ * يُعلن للمستخدم وجود بابٍ ماليّ في المنتج أُغلق عنه — وهذا عين التسريب الذي
+ * نسدّه. وقيمها تبقى في الحالة وتُرسَل كما هي في الحفظ، فالإخفاء لا يسلب
+ * المندوبَ صلاحيةً تعود إن أُعيد تفعيل الميزة.
+ */
+const ACCOUNTING_PERMS = new Set<PermKey>([
+  'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment', 'canSellInCash',
+  'canEditInvoice', 'canCancelInvoice', 'canDeleteInvoice',
+  'canChangePrice', 'canSellBelowPrice',
+  'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'showCollectionBalance',
+  'canManageVanStock', 'canViewStatement',
+]);
+
 function readPerms(rep: SalesRep): PermState {
   const out: PermState = { ...PERM_DEFAULTS };
   (Object.keys(out) as PermKey[]).forEach(k => {
@@ -647,19 +677,28 @@ function readPerms(rep: SalesRep): PermState {
   return out;
 }
 
-function RepPerms({ rep, onClose, onSaved }: { rep: SalesRep; onClose: () => void; onSaved: () => void }) {
+function RepPerms({ rep, accountingOn, onClose, onSaved }: {
+  rep: SalesRep; accountingOn: boolean; onClose: () => void; onSaved: () => void;
+}) {
   const tr = useTr();
   const qc = useQueryClient();
   const [perms, setPerms] = useState<PermState>(() => readPerms(rep));
   const [maxDisc, setMaxDisc] = useState(String(rep.maxDiscountPct ?? 0));
 
+  // المجموعات المعروضة — بلا نظامٍ محاسبيّ تسقط كل صلاحيةٍ مالية،
+  // وتسقط معها مجموعةٌ خلت من مفاتيحها كلّها فلا يبقى عنوانٌ فوق فراغ
+  const groups = useMemo(() => (accountingOn ? PERM_GROUPS : PERM_GROUPS
+    .map(g => ({ ...g, keys: g.keys.filter(k => !ACCOUNTING_PERMS.has(k)) }))
+    .filter(g => g.keys.length > 0)), [accountingOn]);
+
   const set = (k: PermKey, v: boolean) => setPerms(p => ({ ...p, [k]: v }));
-  // «تحديد الكل» يمسّ المانحة وحدها: `requireCustomerProximity` قيدٌ معكوس
-  // الدلالة، فتحديده ضمن «الكل» كان سيقفل البيع على كل عميل بلا إحداثيات
-  // بينما يظنّ الضاغط أنه وسّع الصلاحيات.
+  /* «تحديد الكل» يمسّ المانحة وحدها: `requireCustomerProximity` قيدٌ معكوس
+   * الدلالة، فتحديده ضمن «الكل» كان سيقفل البيع على كل عميل بلا إحداثيات
+   * بينما يظنّ الضاغط أنه وسّع الصلاحيات.
+   * ولا يمسّ ما أُخفي أيضاً: زرٌّ يقلب صلاحيةً لا يراها الضاغط تغييرٌ أعمى. */
   const setAllGrants = (v: boolean) => setPerms(p => {
     const next = { ...p };
-    GRANTS.forEach(k => { next[k] = v; });
+    GRANTS.forEach(k => { if (accountingOn || !ACCOUNTING_PERMS.has(k)) next[k] = v; });
     return next;
   });
 
@@ -697,7 +736,7 @@ function RepPerms({ rep, onClose, onSaved }: { rep: SalesRep; onClose: () => voi
           </button>
         </div>
 
-        {PERM_GROUPS.map(g => (
+        {groups.map(g => (
           <Group key={g.title} title={tr(g.title)} flush>
             {g.keys.map(k => (
               <MToggle key={k} label={tr(PERM_LABELS[k])} checked={perms[k]} onChange={v => set(k, v)} />
@@ -705,16 +744,18 @@ function RepPerms({ rep, onClose, onSaved }: { rep: SalesRep; onClose: () => voi
           </Group>
         ))}
 
-        <Group title={tr('أقصى نسبة خصم')}>
-          <div>
-            <label className="label">{tr('أقصى نسبة خصم %')}</label>
-            <input className="input" dir="ltr" type="number" inputMode="decimal" min={0} max={100} step="any"
-              value={maxDisc} onChange={e => setMaxDisc(e.target.value)} />
-            {!discOk
-              ? <Hint text={tr('نسبة بين صفر ومئة')} bad />
-              : <Hint text={tr('أعلى خصم يمنحه المندوب على سطر الفاتورة')} />}
-          </div>
-        </Group>
+        {accountingOn && (
+          <Group title={tr('أقصى نسبة خصم')}>
+            <div>
+              <label className="label">{tr('أقصى نسبة خصم %')}</label>
+              <input className="input" dir="ltr" type="number" inputMode="decimal" min={0} max={100} step="any"
+                value={maxDisc} onChange={e => setMaxDisc(e.target.value)} />
+              {!discOk
+                ? <Hint text={tr('نسبة بين صفر ومئة')} bad />
+                : <Hint text={tr('أعلى خصم يمنحه المندوب على سطر الفاتورة')} />}
+            </div>
+          </Group>
+        )}
 
         <Group title={tr('قيود الموقع الميداني')} flush>
           <MToggle label={tr(PERM_LABELS.requireCustomerProximity)}

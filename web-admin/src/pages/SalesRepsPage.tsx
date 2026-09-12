@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi } from '../api/client';
+import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -16,6 +16,7 @@ import DocumentModal from '../components/DocumentModal';
 import { settlementLogDocFromData, Company } from '../rep/RepDocuments';
 // الوحدة المشتركة وحدها — حدّاها (١٢٨٠px وجودة ٠٫٧) مُعايَران ليقعا تحت سقف الخادم
 import { compressImage } from '../rep/imageCompress';
+import { useAccountingOn } from '../components/AccountingGate';
 
 interface Creds { name: string; username: string; password: string; }
 
@@ -33,6 +34,7 @@ export default function SalesRepsPage() {
   const [deleting, setDeleting] = useState<SalesRep | null>(null);
   const [collectRep, setCollectRep] = useState<SalesRep | null>(null);
   const [assignRep, setAssignRep] = useState<SalesRep | null>(null); // نافذة إسناد العملاء
+  const [historyRep, setHistoryRep] = useState<SalesRep | null>(null); // سجلّ التقارير اليومية
 
   const { data, isLoading } = useQuery({
     queryKey: ['sales-reps', search],
@@ -96,6 +98,27 @@ export default function SalesRepsPage() {
   });
   const isolationOn = isolation?.enabled === true;
 
+  /* التقرير اليوميّ ميزةُ اشتراكٍ **مطفأة افتراضياً**، وقراءتُه صلاحيةٌ قائمة
+   * بذاتها. والشرطان معاً قبل إظهار الزرّ: زرٌّ يفتح نافذةً تردّ ٤٠٣ عيبٌ
+   * حقيقيّ لا تجميل — والخادم يحرس على كل حال. */
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { dailyReportEnabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const dailyReportOn = companyCfg?.dailyReportEnabled === true && user?.canViewReports !== false;
+
+  // المحاسبة مطفأة ⇒ تختفي صلاحيات الفوترة والتسعير والتحصيل ومخزون السيارة
+  // من الجدول ومن نافذة المندوب، ويختفي زرّا «استلام تحصيل» و«كشف الأداء
+  // والمبيعات» — فلا تُفتح نافذةٌ تقرأ رصيداً ولا يُطلَب رقمٌ مالي أصلاً.
+  /* «مفعّل» قبل وصول الإعداد يعني ومضةَ أرقامٍ ثم إخفاءها — وهي تسريبٌ حقيقي
+   * يلتقطه المستخدم (والصورة). والعكس — ومضة إخفاءٍ ثم عرض — لا يُسرّب شيئاً،
+   * ولا يتجمّد: `ready` تصدق أيضاً حين توقف الشبكةُ المحاولة، فتعود الدلالة
+   * الافتراضية «مفعّل» ولا تُحجب الأرقام عمّن تعذّرت قراءة إعداداته. */
+  const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  const accountingOn = accountingReady && accountingFlag;
+  const repCols = accountingOn ? 13 : 6;
+
   return (
     <div>
       <div className="page-header">
@@ -146,13 +169,13 @@ export default function SalesRepsPage() {
             <thead>
               <tr>
                 <th>{tr('المندوب')}</th><th>{tr('الجوال')}</th><th>{tr('اسم المستخدم')}</th>
-                <th className="text-center">{tr('فاتورة')}</th>
-                <th className="text-center">{tr('آجل')}</th>
-                <th className="text-center">{tr('نقدي')}</th>
-                <th className="text-center">{tr('تحصيل')}</th>
-                <th className="text-center">{tr('تغيير سعر')}</th>
-                <th className="text-center">{tr('خصم أقصى')}</th>
-                <th className="text-center">{tr('مخزون السيارة')}</th>
+                {accountingOn && <th className="text-center">{tr('فاتورة')}</th>}
+                {accountingOn && <th className="text-center">{tr('آجل')}</th>}
+                {accountingOn && <th className="text-center">{tr('نقدي')}</th>}
+                {accountingOn && <th className="text-center">{tr('تحصيل')}</th>}
+                {accountingOn && <th className="text-center">{tr('تغيير سعر')}</th>}
+                {accountingOn && <th className="text-center">{tr('خصم أقصى')}</th>}
+                {accountingOn && <th className="text-center">{tr('مخزون السيارة')}</th>}
                 <th className="text-center">{tr('إضافة عميل')}</th>
                 <th>{tr('الحالة')}</th>
                 <th>{tr('إجراءات')}</th>
@@ -160,7 +183,7 @@ export default function SalesRepsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={13} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={repCols} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.map(r => (
                 <tr key={r.id}>
                   <td>
@@ -169,22 +192,27 @@ export default function SalesRepsPage() {
                   </td>
                   <td className="font-mono text-sm text-gray-600">{r.phone}</td>
                   <td className="font-mono text-sm text-gray-500">{r.username}</td>
-                  <td className="text-center">{perm(r.canCreateInvoice)}</td>
-                  <td className="text-center">{perm(r.canSellOnCredit)}</td>
-                  <td className="text-center">{perm(r.canSellInCash)}</td>
-                  <td className="text-center">{perm(r.canCreateReceipt)}</td>
-                  <td className="text-center">{perm(r.canChangePrice)}</td>
-                  <td className="text-center text-sm text-gray-600">{r.maxDiscountPct}%</td>
-                  <td className="text-center">{perm(r.canManageVanStock)}</td>
+                  {accountingOn && <td className="text-center">{perm(r.canCreateInvoice)}</td>}
+                  {accountingOn && <td className="text-center">{perm(r.canSellOnCredit)}</td>}
+                  {accountingOn && <td className="text-center">{perm(r.canSellInCash)}</td>}
+                  {accountingOn && <td className="text-center">{perm(r.canCreateReceipt)}</td>}
+                  {accountingOn && <td className="text-center">{perm(r.canChangePrice)}</td>}
+                  {accountingOn && <td className="text-center text-sm text-gray-600">{r.maxDiscountPct}%</td>}
+                  {accountingOn && <td className="text-center">{perm(r.canManageVanStock)}</td>}
                   <td className="text-center">{perm(r.canAddCustomer)}</td>
                   <td><span className={r.isActive ? 'badge-active' : 'badge-inactive'}>{r.isActive ? tr('نشط') : tr('غير نشط')}</span></td>
                   <td>
                     <div className="flex items-center gap-1">
-                      {r.showCollectionBalance !== false && (
+                      {accountingOn && r.showCollectionBalance !== false && (
                         <button onClick={() => setCollectRep(r)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('استلام تحصيل')}><Banknote size={14} /></button>
                       )}
                       <button onClick={() => setAssignRep(r)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title={tr('إسناد العملاء')}><Users size={14} /></button>
-                      <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title={tr('كشف الأداء والمبيعات')}><FileBarChart2 size={14} /></button>
+                      {dailyReportOn && (
+                        <button onClick={() => setHistoryRep(r)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#C94E28]" title={tr('سجل التقارير اليومية')}><ClipboardList size={14} /></button>
+                      )}
+                      {accountingOn && (
+                        <button onClick={() => setStatementRep(r)} className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#1F1A13]" title={tr('كشف الأداء والمبيعات')}><FileBarChart2 size={14} /></button>
+                      )}
                       <button onClick={() => { setSelected({ ...r, canSellOnCredit: r.canSellOnCredit ?? true, canSellInCash: r.canSellInCash ?? true, canManageVanStock: r.canManageVanStock ?? true }); setShowModal(true); }} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}><Edit size={14} /></button>
                       <button onClick={() => setResetRep(r)} className="p-1.5 hover:bg-amber-50 rounded text-amber-600" title={tr('إعادة تعيين كلمة المرور')}><KeyRound size={14} /></button>
                       {isMainAdmin && (
@@ -201,6 +229,7 @@ export default function SalesRepsPage() {
 
       {showModal && (
         <SalesRepModal
+          accountingOn={accountingOn}
           rep={selected}
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}
@@ -244,6 +273,10 @@ export default function SalesRepsPage() {
 
       {assignRep && (
         <AssignCustomersModal rep={assignRep} isolationOn={isolationOn} onClose={() => setAssignRep(null)} />
+      )}
+
+      {historyRep && (
+        <RepDailyReportsModal rep={historyRep} onClose={() => setHistoryRep(null)} />
       )}
     </div>
   );
@@ -1045,6 +1078,161 @@ function CredentialsModal({ creds, onClose }: { creds: Creds; onClose: () => voi
             {tr('نسخ الكل')}
           </button>
           <button onClick={onClose} className="btn-primary flex-1 justify-center">{tr('تم')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ سجلّ التقارير اليومية لمندوب ═══
+ *
+ * صفحة المندوب تحمل سجلّ تحصيله وسجلّ تحميله، ولم تحمل سجلّ إقراراته — وهي
+ * المكان الذي يُسأل فيه «ماذا أقرّ هذا الرجل هذا الشهر». والشاشتان القائمتان
+ * لا تجيبان: «الحصيلة» تقطع الفريق كلّه في يوم، و«تقرير الفريق» يطوي المدّة
+ * كلّها في صفٍّ واحد لكل مندوب. */
+const DR_STATUS: Record<string, { label: string; cls: string }> = {
+  APPROVED: { label: 'معتمد', cls: 'bg-green-50 text-green-700 border-green-200' },
+  PENDING: { label: 'قيد المراجعة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  RETURNED: { label: 'معاد للتصحيح', cls: 'bg-red-50 text-red-700 border-red-200' },
+};
+
+interface DrField { id: string; label: string; kind: string }
+interface DrRow {
+  id: string; reportDate: string; status: string; round: number; note: string | null;
+  submittedAt: string | null; approvedAt: string | null; soloApproved: boolean;
+  currentLevelName: string | null; values: Record<string, number | string | null>;
+}
+
+function RepDailyReportsModal({ rep, onClose }: { rep: SalesRep; onClose: () => void }) {
+  const tr = useTr();
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const rangeOn = !!(from || to);
+
+  const q = useQuery({
+    queryKey: ['rep-daily-reports', rep.id, from, to],
+    queryFn: async () => (await dailyReportApi.repHistory(rep.id, { from: from || undefined, to: to || undefined })).data.data as {
+      rep: { id: string; name: string };
+      fields: DrField[];
+      rows: DrRow[];
+      meta: { from: string; to: string; capped: boolean; cappedNote: string | null; approved: number; pending: number; returned: number };
+    },
+  });
+
+  const fields = q.data?.fields ?? [];
+  const rows = q.data?.rows ?? [];
+  const meta = q.data?.meta;
+
+  /* عرض القيمة بنوع خانتها: المبلغ بعملة الشركة، والعدد بفواصله، والنصّ كما
+   * كُتب. و«لا قيمة» شرطةٌ لا صفر — الصفر إقرارٌ بأن اليوم كان صفراً. */
+  const show = (f: DrField, v: number | string | null) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (f.kind === 'TEXT') return String(v);
+    if (typeof v !== 'number') return String(v);
+    return f.kind === 'MONEY' ? formatCurrency(v) : formatNumber(v);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[88vh]">
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><ClipboardList size={20} className="text-[#C94E28]" /></div>
+            <div>
+              <h2 className="text-lg font-bold text-[#1F1A13]">{tr('سجل التقارير اليومية')}</h2>
+              <p className="text-xs text-[#6E6557]">{rep.name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" aria-label={tr('إغلاق')} title={tr('إغلاق')}><X size={18} /></button>
+        </div>
+
+        <div className="p-5 space-y-3 overflow-y-auto">
+          <div className="flex items-end gap-2 flex-wrap">
+            <div>
+              <label className="text-[11px] text-[#9A8F7E] block mb-1">{tr('من تاريخ')}</label>
+              <input type="date" className="input py-1.5 text-xs" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[11px] text-[#9A8F7E] block mb-1">{tr('إلى تاريخ')}</label>
+              <input type="date" className="input py-1.5 text-xs" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} />
+            </div>
+            {rangeOn && (
+              <button type="button" onClick={() => { setFrom(''); setTo(''); }}
+                className="text-[11px] font-semibold text-[#C94E28] hover:underline pb-2">{tr('إلغاء التصفية')}</button>
+            )}
+            {meta && (
+              <div className="flex items-center gap-1.5 flex-wrap text-[11px] pb-1 mr-auto">
+                <span className="px-2 py-1 rounded-full border bg-green-50 text-green-700 border-green-200">{tr('معتمد')}: {meta.approved}</span>
+                <span className="px-2 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200">{tr('قيد المراجعة')}: {meta.pending}</span>
+                <span className="px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200">{tr('معاد للتصحيح')}: {meta.returned}</span>
+              </div>
+            )}
+          </div>
+
+          {meta?.cappedNote && <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{meta.cappedNote}</p>}
+
+          {q.isLoading ? (
+            <p className="text-center text-gray-400 text-sm py-8">{tr('جار التحميل')}</p>
+          ) : q.isError ? (
+            <p className="text-center text-red-500 text-sm py-8">{tr('تعذر تحميل السجل')}</p>
+          ) : rows.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-8">
+              {rangeOn ? tr('لا تقارير في هذا المدى') : tr('لا تقارير بعد')}
+            </p>
+          ) : (
+            <div className="overflow-x-auto border border-[#E9E1D3] rounded-xl">
+              <table className="w-full text-xs whitespace-nowrap">
+                <thead className="bg-[#FAF7F0] text-[#6E6557]">
+                  <tr>
+                    <th className="text-right font-semibold px-3 py-2">{tr('اليوم')}</th>
+                    <th className="text-right font-semibold px-3 py-2">{tr('الحالة')}</th>
+                    <th className="text-right font-semibold px-3 py-2">{tr('رفع في')}</th>
+                    <th className="text-right font-semibold px-3 py-2">{tr('اعتمد في')}</th>
+                    {fields.map(f => <th key={f.id} className="text-right font-semibold px-3 py-2">{f.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#F1EBDF]">
+                  {rows.map(r => {
+                    const st = DR_STATUS[r.status] ?? { label: r.status, cls: 'bg-gray-50 text-gray-600 border-gray-200' };
+                    return (
+                      <tr key={r.id} className="hover:bg-[#FAF7F0]">
+                        <td className="px-3 py-2 font-semibold text-[#1F1A13]">
+                          {formatDate(r.reportDate)}
+                          {r.round > 1 && <span className="text-[10px] text-[#9A8F7E] mr-1">({tr('محاولة')} {r.round})</span>}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`px-2 py-0.5 rounded-full border ${st.cls}`}>{tr(st.label)}</span>
+                          {/* عند أيّ مستوىً يقف الآن — وهو سبب تأخّره */}
+                          {r.currentLevelName && <span className="text-[10px] text-[#9A8F7E] block mt-0.5">{tr('عند')} {r.currentLevelName}</span>}
+                          {/* «اعتمده شخص واحد» يُعلَن هنا كما في الحصيلة */}
+                          {r.soloApproved && <span className="text-[10px] text-amber-700 block mt-0.5">{tr('اعتمده شخص واحد')}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-[#6E6557]">{r.submittedAt ? `${formatDate(r.submittedAt)} ${formatTime(r.submittedAt)}` : '—'}</td>
+                        <td className="px-3 py-2 text-[#6E6557]">{r.approvedAt ? `${formatDate(r.approvedAt)} ${formatTime(r.approvedAt)}` : '—'}</td>
+                        {fields.map(f => (
+                          <td key={f.id} className={`px-3 py-2 ${f.kind === 'TEXT' ? 'text-[#6E6557] max-w-[220px] truncate' : 'text-[#1F1A13] font-semibold'}`}
+                            title={f.kind === 'TEXT' ? String(r.values[f.id] ?? '') : undefined}>
+                            {show(f, r.values[f.id] ?? null)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ملاحظات الأيّام أسفل الجدول لا عموداً فيه: نصٌّ حرّ يكسر عرض الصفّ */}
+          {rows.some(r => r.note) && (
+            <div className="border border-[#E9E1D3] rounded-xl divide-y divide-[#F1EBDF]">
+              {rows.filter(r => r.note).map(r => (
+                <p key={r.id} className="px-3 py-2 text-[11px] text-[#6E6557]">
+                  <b className="text-[#1F1A13]">{formatDate(r.reportDate)}</b> · {r.note}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

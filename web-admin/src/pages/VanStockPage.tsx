@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import DocumentModal from '../components/DocumentModal';
 import { loadNoticeDocFromData, Company } from '../rep/RepDocuments';
 import { splitVanMovement } from '../lib/vanMovement';
+import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 
 /** استجابة /van-stock/suggest — تطابق SuggestResult في الخادم */
 interface SuggestRow {
@@ -81,10 +82,15 @@ export default function VanStockPage() {
   const [to, setTo] = useState('');
   const filtered = !!(from || to);
 
+  // مخزون السيارة بضاعةٌ وقيمة: صفحته تُمنع مع المحاسبة، ومسار /van-stock
+  // محروسٌ بالخادم فكلّ طلبٍ هنا كان سيعود ٤٠٣ بلافتة خطأ.
+  const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+
   const summaryQ = useQuery({
     // المدّة جزء من المفتاح، وإلا خدَم الكاشُ أرقامَ مدّة سابقة
     queryKey: ['van-summary', from, to],
     queryFn: async () => (await vanStockApi.summary({ from, to })).data.data as RepSummary[],
+    enabled: accountingReady && accountingOn,
   });
 
   // تبديل صلاحية «البيع بدون مخزون» لمندوب (تحديث متفائل)
@@ -104,12 +110,12 @@ export default function VanStockPage() {
   const currentQ = useQuery({
     queryKey: ['van-current', selected],
     queryFn: async () => (await vanStockApi.current(selected)).data.data as StockRow[],
-    enabled: !!selected,
+    enabled: !!selected && accountingReady && accountingOn,
   });
   const movementsQ = useQuery({
     queryKey: ['van-movements', selected],
     queryFn: async () => (await vanStockApi.movements(selected)).data.data as Movement[],
-    enabled: !!selected,
+    enabled: !!selected && accountingReady && accountingOn,
   });
   // بيانات الشركة لرأس ملفّ الإشعار
   const companyQ = useQuery({
@@ -120,6 +126,9 @@ export default function VanStockPage() {
 
   const reps = summaryQ.data || [];
   const selectedRep = reps.find(r => r.salesRepId === selected);
+
+  if (!accountingReady) return null;
+  if (!accountingOn) return <AccountingOffNotice />;
 
   return (
     <div className="space-y-6">

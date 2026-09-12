@@ -11,6 +11,7 @@ import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { InvoiceDoc, invoiceDocFromDetail, Company } from '../rep/RepDocuments';
 import { shareOrDownloadExcel, num } from '../utils/excel';
+import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
@@ -33,9 +34,13 @@ export default function InvoicesPage() {
     queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
   });
 
+  // صفحة الفواتير مالية بالكامل: لا جدول ولا تصفية ولا زرّ إصدار حين تُطفأ المحاسبة
+  const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+
   const { data: reps } = useQuery({
     queryKey: ['sales-reps-all'],
     queryFn: async () => { const res = await salesRepApi.list({ limit: 200 }); return res.data.data as SalesRep[]; },
+    enabled: accountingReady && accountingOn,
   });
 
   // معاملات التصفية المشتركة (تُستخدم في الجدول والتصدير)
@@ -57,6 +62,7 @@ export default function InvoicesPage() {
       const res = await invoiceApi.list({ ...filters(), page, limit: 15 });
       return res.data as { data: Invoice[]; pagination: { total: number; pages: number } };
     },
+    enabled: accountingReady && accountingOn,
   });
 
   // فتح مستند PDF لفاتورة موجودة (جديدة أو قديمة) بنفس شكل المندوب
@@ -123,6 +129,9 @@ export default function InvoicesPage() {
     const map: Record<string, string> = { CONFIRMED: 'badge-confirmed', CANCELLED: 'badge-cancelled', DRAFT: 'badge-inactive' };
     return <span className={map[s] || ''}>{tr(statusLabels[s])}</span>;
   };
+
+  if (!accountingReady) return null;
+  if (!accountingOn) return <AccountingOffNotice />;
 
   return (
     <div>

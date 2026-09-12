@@ -12,9 +12,11 @@ interface Props {
   onClose: () => void;
   onSave: (data: CustomerForm) => void;
   loading: boolean;
+  /** المحاسبة مفعّلة؟ افتراضه `true` — الغياب يعني «مفعّل» كما في العَلَم نفسه */
+  accountingOn?: boolean;
 }
 
-export default function CustomerModal({ customer, onClose, onSave, loading }: Props) {
+export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true }: Props) {
   const tr = useTr();
   const { register, handleSubmit, formState: { errors } } = useForm<CustomerForm>({
     defaultValues: customer || { status: 'ACTIVE', creditLimit: 0, paymentDays: 30 },
@@ -125,7 +127,10 @@ export default function CustomerModal({ customer, onClose, onSave, loading }: Pr
             </div>
           </div>
 
-          {/* Financial */}
+          {/* Financial — الحد الائتماني ومدة السداد ماليّان: يُحذف القسم كلّه مع
+              المحاسبة. وعدم تسجيل الحقلين يُبقي قيمتيهما المحفوظتين كما هما،
+              لأن react-hook-form يرسل defaultValues لما لم يُسجَّل. */}
+          {accountingOn && (
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('البيانات المالية')}</h3>
             <div className="grid grid-cols-2 gap-4">
@@ -139,6 +144,7 @@ export default function CustomerModal({ customer, onClose, onSave, loading }: Pr
               </div>
             </div>
           </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">

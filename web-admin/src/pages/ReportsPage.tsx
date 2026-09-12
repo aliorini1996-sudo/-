@@ -10,6 +10,7 @@ import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wa
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
+import { useAccountingOn } from '../components/AccountingGate';
 
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
@@ -40,21 +41,34 @@ interface CustGroup { customerId: string; customerName: string; visitsCount: num
 
 export default function ReportsPage() {
   const tr = useTr();
-  const [tab, setTab] = useState<Tab>('sales');
+
+  /* المحاسبة مطفأة ⇒ تبقى من التقارير أعمال الميدان وحدها: زيارات العملاء
+   * وساعات عمل المناديب. المبيعات والتحصيل وأرصدة العملاء ومديونيات المندوب
+   * وأداؤه (فواتير ومبيعات وتحصيل) تُحذف من التبويبات ومن قوائم نوع التقرير،
+   * ولا يُطلَب استعلامها. والقيم «الفعّالة» أدناه تُشتقّ من الحالة لا تحلّ محلّها:
+   * فلو كان التبويب المحفوظ مالياً سقط إلى تبويبٍ مسموح بدل أن يُعرض فارغاً. */
+  const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+
+  const [tabState, setTab] = useState<Tab>('sales');
+  const tab: Tab = accountingOn ? tabState : (tabState === 'sales' || tabState === 'collections' ? 'balances' : tabState);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
   const [search, setSearch] = useState('');
   // نوع تقرير المناديب: أداء | ساعات العمل | مديونيات
-  const [perfType, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
+  const [perfTypeState, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
+  const perfType = accountingOn ? perfTypeState : 'hours';
   // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
-  const [custType, setCustType] = useState<'balances' | 'visits'>('balances');
+  const [custTypeState, setCustType] = useState<'balances' | 'visits'>('balances');
+  const custType = accountingOn ? custTypeState : 'visits';
 
   const methodLabel = (m: string) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي') : m === 'POS' ? tr('شبكة') : tr('شيك');
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: 'sales', label: tr('تقارير المبيعات'), icon: TrendingUp },
-    { id: 'collections', label: tr('تقارير التحصيل'), icon: Download },
+    ...(accountingOn ? [
+      { id: 'sales' as Tab, label: tr('تقارير المبيعات'), icon: TrendingUp },
+      { id: 'collections' as Tab, label: tr('تقارير التحصيل'), icon: Download },
+    ] : []),
     { id: 'balances', label: tr('العملاء'), icon: Users },
     { id: 'performance', label: tr('أداء المناديب'), icon: UserCheck },
   ];
@@ -65,7 +79,7 @@ export default function ReportsPage() {
       const res = await reportApi.sales({ from, to, groupBy });
       return res.data.data;
     },
-    enabled: tab === 'sales',
+    enabled: accountingReady && accountingOn && tab === 'sales',
   });
 
   const { data: collectData } = useQuery({
@@ -74,7 +88,7 @@ export default function ReportsPage() {
       const res = await reportApi.collections({ from, to });
       return res.data.data as { receipts: unknown[]; summary: { total: number; count: number; byMethod: Record<string, number> } };
     },
-    enabled: tab === 'collections',
+    enabled: accountingReady && accountingOn && tab === 'collections',
   });
 
   const { data: balancesData } = useQuery({
@@ -83,7 +97,7 @@ export default function ReportsPage() {
       const res = await reportApi.balances({ type: 'overdue' });
       return res.data.data as { id: string; name: string; phone: string; balance: number; creditLimit: number }[];
     },
-    enabled: tab === 'balances' && custType === 'balances',
+    enabled: accountingReady && accountingOn && tab === 'balances' && custType === 'balances',
   });
 
   // تقرير زيارات العملاء — كل الزيارات في تقرير واحد (العميل، المندوب الزائر، الوقت)
@@ -105,7 +119,7 @@ export default function ReportsPage() {
       const res = await reportApi.repPerformance({ from, to });
       return res.data.data as PerfRow[];
     },
-    enabled: tab === 'performance' && perfType === 'performance',
+    enabled: accountingReady && accountingOn && tab === 'performance' && perfType === 'performance',
   });
 
   // مديونيات المندوب: رصيد كل عميل مُسنَد — لحظيّ، فلا يدخل التاريخ في مفتاح الكاش
@@ -120,7 +134,7 @@ export default function ReportsPage() {
       const res = await reportApi.repReceivables();
       return res.data.data as RecvRow[];
     },
-    enabled: tab === 'performance' && perfType === 'receivables',
+    enabled: accountingReady && accountingOn && tab === 'performance' && perfType === 'receivables',
   });
 
   // نفس درس المديونيات: fetchStatus='paused' يجعل isLoading كاذباً فيُعرض
@@ -563,21 +577,21 @@ export default function ReportsPage() {
               </select>
             </div>
           )}
-          {tab === 'performance' && (
+          {tab === 'performance' && accountingOn && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
               <select className="input w-44" value={perfType} onChange={e => setPerfType(e.target.value as 'performance' | 'hours' | 'receivables')}>
-                <option value="performance">{tr('أداء المندوب')}</option>
+                {accountingOn && <option value="performance">{tr('أداء المندوب')}</option>}
                 <option value="hours">{tr('ساعات العمل')}</option>
-                <option value="receivables">{tr('مديونيات المندوب')}</option>
+                {accountingOn && <option value="receivables">{tr('مديونيات المندوب')}</option>}
               </select>
             </div>
           )}
-          {tab === 'balances' && (
+          {tab === 'balances' && accountingOn && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
               <select className="input w-44" value={custType} onChange={e => setCustType(e.target.value as 'balances' | 'visits')}>
-                <option value="balances">{tr('أرصدة العملاء')}</option>
+                {accountingOn && <option value="balances">{tr('أرصدة العملاء')}</option>}
                 <option value="visits">{tr('زيارات العملاء')}</option>
               </select>
             </div>

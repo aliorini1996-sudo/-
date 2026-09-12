@@ -8,6 +8,7 @@ import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck } from
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 import DataImportPanel from '../components/DataImportPanel';
+import { useAccountingOn } from '../components/AccountingGate';
 
 interface CompanyForm {
   name: string;
@@ -27,6 +28,11 @@ const STYLES = [
 
 export default function CompanySettingsPage() {
   const qc = useQueryClient();
+  // المحاسبة مطفأة ⇒ تختفي من الإعدادات: نسبة الضريبة والفوترة الإلكترونية
+  // وعملة الفواتير ومعاينة «فاتورة ضريبية» واستيراد الأصناف والأسعار
+  // (مساراه /import/products و/import/prices محروسان بالخادم فيردّان ٤٠٣).
+  const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  const accountingOn = accountingReady && accountingFlag;
   const tr = useTr();
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CompanyForm>();
   // الهوية البصرية تُدار بـ state عادي لضمان إرسالها بدقّة
@@ -149,13 +155,14 @@ export default function CompanySettingsPage() {
                     <option key={c.code} value={c.code}>{c.nameAr} — {c.currency}</option>
                   ))}
                 </select>
-                {(() => { const c = getCountry(countryCode); return (
+                {accountingOn && (() => { const c = getCountry(countryCode); return (
                   <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed bg-[#FAF7F0] rounded-lg px-3 py-2 border border-[#E9E1D3]">
                     {tr('العملة')}: <b>{currencyOverride ? (currencyOverride === 'USD' ? '$ (USD)' : '€ (EUR)') : `${c.symbolAr} (${c.currency})`}</b> · {tr('الضريبة الافتراضية')}: <b>{c.defaultVatPct}%</b><br />
                     {tr('الفوترة الإلكترونية')}: <b>{c.einvoiceNoteAr}</b>
                   </p>
                 ); })()}
               </div>
+              {accountingOn && (
               <div>
                 <label className="label">{tr('عملة التشغيل')}</label>
                 <select className="input" value={currencyOverride} onChange={e => setCurrencyOverride(e.target.value)}>
@@ -165,6 +172,7 @@ export default function CompanySettingsPage() {
                 </select>
                 <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('تغير عملة الفواتير والسندات والتقارير كلها — الضريبة والفوترة الالكترونية تبقى حسب الدولة')}</p>
               </div>
+              )}
               <div>
                 <label className="label">{tr('شكل الارقام')}</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -270,6 +278,7 @@ export default function CompanySettingsPage() {
           </div>
 
           {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة */}
+          {accountingOn && (
           <div className="card">
             <div className="flex items-center gap-3 mb-5 pb-4 border-b border-gray-100">
               <div className="w-11 h-11 bg-[#E4F1EA] rounded-xl flex items-center justify-center">
@@ -341,6 +350,7 @@ export default function CompanySettingsPage() {
               );
             })()}
           </div>
+          )}
 
           <button type="submit" disabled={mutation.isPending} className="btn-primary px-6 py-2.5">
             {mutation.isPending
@@ -350,7 +360,8 @@ export default function CompanySettingsPage() {
           </button>
         </div>
 
-        {/* العمود الأيسر: المعاينة الحيّة */}
+        {/* العمود الأيسر: المعاينة الحيّة — ترويسة فاتورة ضريبية، فتُحذف مع المحاسبة */}
+        {accountingOn && (
         <div className="space-y-3">
           <p className="text-sm font-semibold text-gray-500">{tr('معاينة الترويسة كما ستظهر في المطبوعات')}</p>
           <div className="card bg-white p-0 overflow-hidden">
@@ -361,12 +372,15 @@ export default function CompanySettingsPage() {
           </div>
           <p className="text-xs text-gray-400">{tr('التغييرات تظهر فورا هنا وتنعكس على الفواتير وسندات القبض وكشوف الحساب بعد الحفظ')}</p>
         </div>
+        )}
       </form>
 
-      {/* استيراد بيانات الشركة السابقة */}
-      <div className="mt-6">
-        <DataImportPanel />
-      </div>
+      {/* استيراد بيانات الشركة السابقة — أصنافٌ وأسعار: يختفي مع المحاسبة */}
+      {accountingOn && (
+        <div className="mt-6">
+          <DataImportPanel />
+        </div>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
 import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 
 interface WhRow {
   productId: string; name: string; code: string; unit: string;
@@ -29,13 +30,18 @@ export default function CompanyWarehousePage() {
   const tr = useTr();
   const [showEntry, setShowEntry] = useState(false);
 
+  // المستودع كميّاتٌ وتكلفةٌ وقيمة مخزون: يُمنع كلّه مع المحاسبة
+  const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+
   const stockQ = useQuery({
     queryKey: ['warehouse-stock'],
     queryFn: async () => (await warehouseApi.stock()).data.data as WhRow[],
+    enabled: accountingReady && accountingOn,
   });
   const entriesQ = useQuery({
     queryKey: ['warehouse-entries'],
     queryFn: async () => (await warehouseApi.entries()).data.data as WhEntry[],
+    enabled: accountingReady && accountingOn,
   });
 
   const rows = stockQ.data || [];
@@ -43,6 +49,9 @@ export default function CompanyWarehousePage() {
   // قيمة المخزون بتكلفة الشراء — ومعها حدّ صدقها: كم صنفا وارده بلا سعر
   const totalValue = rows.reduce((s, r) => s + r.stockValue, 0);
   const uncostedRows = rows.filter(r => r.uncostedQty > 0).length;
+
+  if (!accountingReady) return null;
+  if (!accountingOn) return <AccountingOffNotice />;
 
   return (
     <div className="space-y-5" dir="rtl">

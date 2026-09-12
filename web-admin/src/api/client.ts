@@ -334,6 +334,9 @@ export const dailyReportApi = {
   preview: (salesRepId: string) => api.post('/daily-reports/config/preview', { salesRepId }),
   // التقرير الشامل
   team: (from: string, to: string) => api.get('/daily-reports/team', { params: { from, to } }),
+  // سجلّ مندوبٍ واحد يوماً بيوم — بلا مدّة يعيد آخر ٣٠ يوماً
+  repHistory: (salesRepId: string, params?: { from?: string; to?: string }) =>
+    api.get(`/daily-reports/rep/${salesRepId}`, { params: { ...(params?.from && { from: params.from }), ...(params?.to && { to: params.to }) } }),
 };
 
 export const vanStockApi = {

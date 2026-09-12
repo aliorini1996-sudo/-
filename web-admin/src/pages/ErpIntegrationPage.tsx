@@ -6,6 +6,7 @@ import { erpApi } from '../api/client';
 import { ErpIntegration, ErpSyncLog } from '../types';
 import { formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { useAccountingOn } from '../components/AccountingGate';
 
 type FormState = ErpIntegration & {
   apiKey?: string;
@@ -98,6 +99,10 @@ export default function ErpIntegrationPage() {
   });
 
   const set = (key: keyof FormState, value: string | boolean) => setForm(f => ({ ...f, [key]: value }));
+  // مسارات مزامنة الأصناف والفواتير والسندات محاسبية: تختفي مع المحاسبة
+  // ويبقى مسار العملاء — والإعداد المحفوظ لا يُمسّ لأننا نخفي لا نُصفّر.
+  const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  const accountingOn = accountingReady && accountingFlag;
   const busy = saveMutation.isPending || testMutation.isPending || syncMutation.isPending;
 
   return (
@@ -189,9 +194,9 @@ export default function ErpIntegrationPage() {
             </div>
 
             <EndpointRow label={tr('العملاء')} enabled={form.syncCustomers} endpoint={form.customersEndpoint || ''} onEnabled={v => set('syncCustomers', v)} onEndpoint={v => set('customersEndpoint', v)} />
-            <EndpointRow label={tr('المنتجات')} enabled={form.syncProducts} endpoint={form.productsEndpoint || ''} onEnabled={v => set('syncProducts', v)} onEndpoint={v => set('productsEndpoint', v)} />
-            <EndpointRow label={tr('الفواتير')} enabled={form.syncInvoices} endpoint={form.invoicesEndpoint || ''} onEnabled={v => set('syncInvoices', v)} onEndpoint={v => set('invoicesEndpoint', v)} />
-            <EndpointRow label={tr('سندات القبض')} enabled={form.syncReceipts} endpoint={form.receiptsEndpoint || ''} onEnabled={v => set('syncReceipts', v)} onEndpoint={v => set('receiptsEndpoint', v)} />
+            {accountingOn && <EndpointRow label={tr('المنتجات')} enabled={form.syncProducts} endpoint={form.productsEndpoint || ''} onEnabled={v => set('syncProducts', v)} onEndpoint={v => set('productsEndpoint', v)} />}
+            {accountingOn && <EndpointRow label={tr('الفواتير')} enabled={form.syncInvoices} endpoint={form.invoicesEndpoint || ''} onEnabled={v => set('syncInvoices', v)} onEndpoint={v => set('invoicesEndpoint', v)} />}
+            {accountingOn && <EndpointRow label={tr('سندات القبض')} enabled={form.syncReceipts} endpoint={form.receiptsEndpoint || ''} onEnabled={v => set('syncReceipts', v)} onEndpoint={v => set('receiptsEndpoint', v)} />}
           </div>
         </div>
 

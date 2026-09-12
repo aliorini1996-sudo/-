@@ -28,8 +28,12 @@ const empty: Form = {
  * الفارغة، ومخطّط الخادم يرفض `null` على حقل اختياريّ فيفشل التعديل صامتاً.
  * هنا نُرسل حالةً محكومة ونحذف الفارغ من الحمولة أصلاً — فلا `null` يُرسَل.
  */
-export default function MCustomerForm({ customer, onClose, onSaved }: {
+export default function MCustomerForm({ customer, accountingOn = true, onClose, onSaved }: {
   customer: Customer | null;
+  /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تُحذف حقول الائتمان
+   *  والفوترة الضريبية من النموذج. وقيمها تبقى كما هي في الحالة المحكومة
+   *  فتُرسَل بلا تغيير — الإخفاء لا يصفّر حدّ عميلٍ قائم. */
+  accountingOn?: boolean;
   onClose: () => void;
   onSaved: (c: Customer) => void;
 }) {
@@ -122,7 +126,7 @@ export default function MCustomerForm({ customer, onClose, onSaved }: {
           )}
         </Group>
 
-        <Group title={tr('التصنيف والائتمان')}>
+        <Group title={accountingOn ? tr('التصنيف والائتمان') : tr('التصنيف')}>
           <div>
             <label className="label">{tr('قناة البيع')}</label>
             <select className="input" value={form.channel} onChange={e => set('channel', e.target.value)}>
@@ -138,14 +142,20 @@ export default function MCustomerForm({ customer, onClose, onSaved }: {
               <option value="BLOCKED">{tr('محظور')}</option>
             </select>
           </div>
-          <Field label={tr('الحد الائتماني')} dir="ltr" type="number" value={form.creditLimit} onChange={v => set('creditLimit', v)} />
-          <Field label={tr('مدة السداد يوم')} dir="ltr" type="number" value={form.paymentDays} onChange={v => set('paymentDays', v)} />
+          {accountingOn && (
+            <Field label={tr('الحد الائتماني')} dir="ltr" type="number" value={form.creditLimit} onChange={v => set('creditLimit', v)} />
+          )}
+          {accountingOn && (
+            <Field label={tr('مدة السداد يوم')} dir="ltr" type="number" value={form.paymentDays} onChange={v => set('paymentDays', v)} />
+          )}
         </Group>
 
-        <Group title={tr('بيانات ضريبية')}>
-          <Field label={tr('السجل التجاري')} dir="ltr" value={form.commercialReg} onChange={v => set('commercialReg', v)} />
-          <Field label={tr('الرقم الضريبي')} dir="ltr" value={form.taxNumber} onChange={v => set('taxNumber', v)} />
-        </Group>
+        {accountingOn && (
+          <Group title={tr('بيانات ضريبية')}>
+            <Field label={tr('السجل التجاري')} dir="ltr" value={form.commercialReg} onChange={v => set('commercialReg', v)} />
+            <Field label={tr('الرقم الضريبي')} dir="ltr" value={form.taxNumber} onChange={v => set('taxNumber', v)} />
+          </Group>
+        )}
 
         <div className="h-2" />
       </div>

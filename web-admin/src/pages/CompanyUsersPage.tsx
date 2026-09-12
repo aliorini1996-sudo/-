@@ -7,6 +7,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import UserScopeModal from '../components/UserScopeModal';
 import { useAuthStore } from '../store/authStore';
+import { useAccountingOn } from '../components/AccountingGate';
 import { CompanyUser } from '../types';
 import { formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -46,6 +47,9 @@ const roleLabels: Record<CompanyUser['role'], string> = {
  */
 const dailyReportPermission = { key: 'canManageDailyReport' as keyof FormValues, label: 'إعدادات التقرير اليومي' };
 
+/** صلاحيات أقسامٍ محاسبية — تُخفى مع إطفاء المحاسبة لأن أقسامها نفسها مخفيّة */
+const ACCOUNTING_PERMS = new Set(['canManageProducts', 'canManageInvoices', 'canManageReceipts', 'canManageVanStock']);
+
 const permissionItems: { key: keyof FormValues; label: string }[] = [
   { key: 'canAccessDashboard', label: 'لوحة التحكم' },
   { key: 'canManageCustomers', label: 'العملاء' },
@@ -70,7 +74,9 @@ export default function CompanyUsersPage() {
     queryFn: async () => (await companyApi.get()).data.data as { dailyReportEnabled?: boolean } | null,
   });
   const dailyReportOn = companyQ.data?.dailyReportEnabled === true;
-  const shownPermissions = dailyReportOn ? [...permissionItems, dailyReportPermission] : permissionItems;
+  // المحاسبة على النقيض: مفعّلة افتراضياً ⇒ `!== false` (تقرأها البوّابة المشتركة)
+  const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  const accountingOn = accountingReady && accountingFlag;
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected] = useState<CompanyUser | null>(null);
   const [createdCreds, setCreatedCreds] = useState<{ name: string; email: string; password: string } | null>(null);
@@ -191,6 +197,7 @@ export default function CompanyUsersPage() {
       {showModal && (
         <CompanyUserModal
           dailyReportOn={dailyReportOn}
+          accountingOn={accountingOn}
           user={selected}
           currentUserId={user.id}
           loading={saveMutation.isPending}
@@ -229,16 +236,21 @@ export default function CompanyUsersPage() {
   );
 }
 
-function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, onClose, onSave }: {
+function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, accountingOn, onClose, onSave }: {
   user: CompanyUser | null;
   currentUserId?: string;
   loading: boolean;
   dailyReportOn: boolean;
+  accountingOn: boolean;
   onClose: () => void;
   onSave: (values: FormValues) => void;
 }) {
   const tr = useTr();
-  const shownPermissions = dailyReportOn ? [...permissionItems, dailyReportPermission] : permissionItems;
+  const withDaily = dailyReportOn ? [...permissionItems, dailyReportPermission] : permissionItems;
+  // ثم تُسقَط صلاحيات الأقسام المحاسبية حين تُطفأ المحاسبة. والإخفاء لا يُصفّر:
+  // النموذج يرسل `form` كاملاً بقيم المستخدم المحفوظة، فصلاحية «الفواتير» تبقى
+  // كما هي وتعود بعودة المحاسبة.
+  const shownPermissions = accountingOn ? withDaily : withDaily.filter(p => !ACCOUNTING_PERMS.has(p.key));
   const [form, setForm] = useState<FormValues>({
     name: user?.name || '',
     email: user?.email || '',

@@ -165,6 +165,45 @@ router.get('/count-by-rep', requireAdmin, async (req: AuthRequest, res: Response
   } catch (err) { next(err); }
 });
 
+/**
+ * عدّاد زيارات المندوب لنفسه — لشاشته الرئيسية.
+ *
+ * ولماذا مسارٌ مستقلّ عن `/count-by-rep`: ذاك خلف `requireAdmin` ويردّ خريطة
+ * الشركة كلّها، وفتحه للمندوب يكشف له نشاط زملائه. وهذا يقرأ هويّته من التوكن
+ * فلا يقبل `salesRepId` من العميل أصلاً — فلا سبيل لمندوبٍ أن يسأل عن غيره.
+ *
+ * واليوم يُحسب بإزاحة جهاز المندوب لا بتوقيت الخادم: مندوبٌ في +٣ يُنهي يومه
+ * والخادم ما زال في يوم أمس، فيرى صفراً بينما زار عشرة.
+ */
+router.get('/mine/count', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (req.user?.role !== 'SALES_REP') {
+      res.status(403).json({ success: false, message: 'هذا المسار للمندوب' }); return;
+    }
+    const tz = Number(req.query.tz);
+    const offsetMin = Number.isFinite(tz) ? Math.max(-840, Math.min(840, tz)) : 0;
+    const now = Date.now();
+    // بداية يوم الجهاز: نُزيح إلى توقيته، نقصّ عند منتصف الليل، ثمّ نعود
+    const local = new Date(now + offsetMin * 60_000);
+    const localMidnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+    const start = new Date(localMidnight - offsetMin * 60_000);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+
+    const [today, customers] = await Promise.all([
+      prisma.repVisit.count({
+        where: { tenantId: tid, salesRepId: req.user.id, createdAt: { gte: start, lt: end } },
+      }),
+      prisma.repVisit.findMany({
+        where: { tenantId: tid, salesRepId: req.user.id, createdAt: { gte: start, lt: end } },
+        select: { customerId: true },
+        distinct: ['customerId'],
+      }),
+    ]);
+    res.json({ success: true, data: { today, customers: customers.length } });
+  } catch (err) { next(err); }
+});
+
 // تفاصيل زيارة واحدة مع صورها كاملة (تُحمَّل عند الطلب فقط)
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

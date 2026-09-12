@@ -4,6 +4,19 @@ import { formatDateTime } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { Bell, CheckCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAccountingOn } from '../components/AccountingGate';
+
+/**
+ * إشعارات محاسبية — نصّها نفسه يحمل مبالغ: «تجاوز حده الائتماني»، «سداد
+ * الكتروني ٤٥٠ لفاتورة ٧٧»، «حذف استلام تحصيل بمبلغ …». تُخفى كلّها حين تُطفأ
+ * المحاسبة. القائمة **حاصرة لما هو محاسبيّ لا لما هو مسموح**: نوعٌ جديد غير
+ * مذكور هنا يبقى ظاهراً، فلا يبتلع الحارسُ إشعاراً ميدانياً لا شأن له بالمال.
+ */
+const ACCOUNTING_TYPES = new Set([
+  'CREDIT_LIMIT_EXCEEDED', 'DISCOUNT_LIMIT_EXCEEDED', 'OVERDUE_PAYMENT',
+  'INVOICE_CANCELLED', 'PRICE_MODIFIED', 'RECEIPT_CANCELLED',
+  'REP_SETTLEMENT_DELETED', 'PAYLINK_PAID', 'PAYLINK_REFUNDED',
+]);
 
 const typeLabels: Record<string, string> = {
   CREDIT_LIMIT_EXCEEDED: 'تجاوز الحد الائتماني',
@@ -45,7 +58,12 @@ export default function NotificationsPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['notifications'] }); toast.success(tr('تم تحديد الكل كمقروء')); },
   });
 
-  const unreadCount = data?.filter(n => !n.isRead).length ?? 0;
+  const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  // نُخفي ريثما يصل الإعداد: ومضةُ إشعارٍ يحمل مبلغاً لا تُسترَدّ
+  const accountingOn = accountingReady && accountingFlag;
+  // التصفية قبل العدّ: عدّادٌ يحصي إشعاراتٍ محجوبة يخبر المستخدم بوجود ما لا يراه
+  const shown = (data ?? []).filter(n => accountingOn || !ACCOUNTING_TYPES.has(n.type));
+  const unreadCount = shown.filter(n => !n.isRead).length;
 
   return (
     <div>
@@ -64,12 +82,12 @@ export default function NotificationsPage() {
       <div className="card p-0 divide-y divide-gray-50">
         {isLoading ? (
           <div className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</div>
-        ) : data?.length === 0 ? (
+        ) : shown.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <Bell size={40} className="mx-auto mb-3 opacity-30" />
             <p>{tr('لا توجد إشعارات')}</p>
           </div>
-        ) : data?.map(n => (
+        ) : shown.map(n => (
           <div key={n.id} className={`flex items-start gap-4 p-4 ${!n.isRead ? 'bg-[#FBEBE2]/50' : ''}`}>
             <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.isRead ? 'bg-[#E15A30]' : 'bg-gray-200'}`} />
             <div className="flex-1">

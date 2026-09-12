@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../api/client';
 import { formatCurrency, formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
+import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 
 /**
  * صفحة «المدفوعات الالكترونية» — لوحة أدمن الشركة (ميزة اشتراك كبترو آب وهاتف).
@@ -48,17 +49,23 @@ export default function PaylinkPage() {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
 
+  // محصَّلٌ وعمولةٌ ومستحقٌّ وفواتير تُسدَّد: الصفحة مالية بالكامل مهما كان
+  // مفتاح الميزة الخاص بها — إطفاء المحاسبة يوقف حتى تحديثها الدوري.
+  const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+
   // تحديث تلقائي كل ٣٠ ثانية: المالك يراقب دفعة واردة فلا يليق ببياناته الموت
   const { data: summary } = useQuery({
     queryKey: ['paylink-summary'],
     queryFn: async () => (await api.get('/paylink/summary')).data.data as Summary,
     refetchInterval: 30_000,
+    enabled: accountingReady && accountingOn,
   });
 
   const { data: linksRes, isLoading } = useQuery({
     queryKey: ['paylink-links', status, page],
     queryFn: async () => (await api.get('/paylink/links', { params: { status: status || undefined, page, limit: 25 } })).data as { data: LinkRow[]; meta: { total: number; limit: number } },
     refetchInterval: 30_000,
+    enabled: accountingReady && accountingOn,
   });
 
   const cancel = useMutation({
@@ -83,6 +90,9 @@ export default function PaylinkPage() {
   const rows = linksRes?.data ?? [];
   const total = linksRes?.meta?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / (linksRes?.meta?.limit || 25)));
+
+  if (!accountingReady) return null;
+  if (!accountingOn) return <AccountingOffNotice />;
 
   return (
     <div className="space-y-5">

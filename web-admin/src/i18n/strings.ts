@@ -1848,6 +1848,10 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'غير معتمدة': { en: 'Not approved', fr: 'Non validee', tr: 'Onaylanmadi', zh: '未批准' },
   'الإجماليات تشمل كل التقارير المرفوعة في المدة بما فيها غير المعتمدة والمعادة للتصحيح': { en: 'Totals include every report filed in the period including those not approved and those returned for correction', fr: 'Les totaux incluent tous les rapports deposes sur la periode y compris ceux non valides et ceux renvoyes pour correction', tr: 'Toplamlar donemde girilen tum raporlari icerir onaylanmayanlar ve duzeltmeye geri gonderilenler dahil', zh: '合计包含该期间提交的全部日报，含未批准与已退回修正的日报' },
   'اترك قائمة المناديب فارغة — لا مستقبل في هذه العقدة لبقية المناديب وتوجيهها يوقف رفع التقارير للشركة كلها': { en: 'Leave the rep list empty: this node has no receiver for the remaining reps and routing it stops report submission for the whole company', fr: 'Laissez la liste des commerciaux vide: ce noeud na pas de destinataire pour les autres commerciaux et le router arrete les depots pour toute la societe', tr: 'Temsilci listesini bos birakin: bu dugumde diger temsilciler icin alici yok ve yonlendirmek tum sirkette rapor gonderimini durdurur', zh: '请将业务员列表留空：该节点没有承接其余业务员的接收人，设定路由会导致全公司无法提交日报' },
+  // ——— إخفاء المالي حين يُطفأ النظام المحاسبي ———
+  'التصنيف': { en: 'Classification', fr: 'Classification', tr: 'Siniflandirma', zh: '分类' },
+  'النظام المحاسبي غير مفعل لشركتك': { en: 'The accounting system is not enabled for your company', fr: 'Le systeme comptable est desactive pour votre entreprise', tr: 'Muhasebe sistemi sirketiniz icin etkin degil', zh: '贵企业未启用会计系统' },
+  'عملاء تمت زيارتهم': { en: 'Customers visited', fr: 'Clients visites', tr: 'Ziyaret edilen musteriler', zh: '已拜访客户' },
 };
 
 export function useTr() {

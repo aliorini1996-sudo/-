@@ -219,7 +219,7 @@ interface FuelSummary {
 
 const FUEL_KIND_AR: Record<string, string> = { FUEL: 'وقود', SERVICE: 'صيانة', WASH: 'غسيل' };
 
-function RepFuel() {
+function RepFuel({ accountingOn = true }: { accountingOn?: boolean }) {
   const tr = useTr();
   const [sum, setSum] = useState<FuelSummary | null>(null);
   const [stale, setStale] = useState(false);
@@ -261,13 +261,20 @@ function RepFuel() {
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto h-full pb-24">
-      {/* بطاقة الرصيد */}
+      {/* بطاقة الرصيد — رصيد الوقود مبلغٌ بعملة، فيغيب كلّه حين يُطفأ «النظام
+          المحاسبي»، وتبقى البطاقة لهويّة المركبة والسائق (ليست مالاً) */}
       <div className="bg-gradient-to-l from-[#0b2a5e] to-[#1a73e8] rounded-3xl p-5 text-white">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs opacity-80">{tr('رصيد الوقود')}</p>
-            <p className="text-2xl font-bold mt-1">{sum.balance != null ? formatCurrency(sum.balance) : '—'}</p>
-            {sum.balanceAt && <p className="text-[10px] opacity-70 mt-0.5">{tr('حتى')} {formatDate(sum.balanceAt)}</p>}
+            {accountingOn ? (
+              <>
+                <p className="text-xs opacity-80">{tr('رصيد الوقود')}</p>
+                <p className="text-2xl font-bold mt-1">{sum.balance != null ? formatCurrency(sum.balance) : '—'}</p>
+                {sum.balanceAt && <p className="text-[10px] opacity-70 mt-0.5">{tr('حتى')} {formatDate(sum.balanceAt)}</p>}
+              </>
+            ) : (
+              <p className="text-xl font-bold">{tr('الوقود')}</p>
+            )}
           </div>
           <Fuel size={34} className="opacity-90" />
         </div>
@@ -324,7 +331,7 @@ function RepFuel() {
                   </p>
                   <p className="text-[10px] text-gray-400">{tx.stationName || ''} · {formatDate(tx.occurredAt)}</p>
                 </div>
-                <span className="text-sm font-bold text-[#E15A30]">{formatCurrency(tx.amount)}</span>
+                {accountingOn && <span className="text-sm font-bold text-[#E15A30]">{formatCurrency(tx.amount)}</span>}
               </div>
             ))}
           </div>
@@ -372,7 +379,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, dailyReportOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; dailyReportOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -385,6 +392,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
   const [stale, setStale] = useState<number | null>(null); // لحظة آخر نجاح إن عرضنا مخزّناً
   const [failed, setFailed] = useState(false);             // لا شبكة ولا كاش ⇒ لا نزعم رقماً
   const [syncing, setSyncing] = useState(false);
+  // عدّاد زيارات اليوم — بديل «إحصائيات اليوم» المالية حين يُطفأ النظام المحاسبي.
+  // مساره للمندوب وحده ولا يمرّ بحارس المحاسبة، فلا يُردّ ٤٠٣.
+  const [visits, setVisits] = useState<{ today: number; customers: number } | null>(null);
 
   /**
    * خط السير بنداءٍ **مستقلّ** عن سلسلة الإحصاءات: نداءٌ واحدٌ فاشل فيها
@@ -435,7 +445,37 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
     setSyncing(false);
   }, [loadRoute]);
 
-  useEffect(() => { load(); }, [load]);
+  /**
+   * الأرقام المالية لا تُجلب **أصلاً** حين يكون «النظام المحاسبي» مطفأً: الخادم
+   * يردّ `/invoices` و`/receipts` بـ٤٠٣ فتظهر لافتة «تعذر تحميل الأرقام» — وهي
+   * بذاتها تسريبٌ للمعنى: تُخبر المندوب أنّ ثمّة أرقاماً حُجبت عنه. ولا نُطلق
+   * الطلب قبل وصول إعدادات الشركة كي لا يسبق الطلبُ معرفتَنا بالمفتاح.
+   */
+  useEffect(() => {
+    if (!settingsReady) return;
+    if (!accountingOn) { setStats(null); setStale(null); setFailed(false); return; }
+    load();
+  }, [load, accountingOn, settingsReady]);
+
+  // بديل الأرقام المالية: زيارات اليوم وعدد العملاء المزارين — يُجلب عند الإطفاء وحده
+  const loadVisits = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const { data } = await repApi.get('/visits/mine/count', { params: { tz: -new Date().getTimezoneOffset() } });
+      const fresh = data.data as { today: number; customers: number };
+      setVisits(fresh); await cacheSet('rep-visit-count', fresh);
+    } catch {
+      // انقطاع: آخر عددٍ معروف — والزيارات ليست مالاً فلا ضرر في عرضه موسوماً بلا شيء
+      const cached = await cacheGet<{ today: number; customers: number }>('rep-visit-count');
+      if (cached?.data) setVisits(cached.data);
+    }
+    setSyncing(false);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsReady || accountingOn) return;
+    loadVisits();
+  }, [settingsReady, accountingOn, loadVisits]);
 
   useEffect(() => { loadRoute(); }, [loadRoute]);
 
@@ -479,8 +519,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
         </div>
       </div>
 
-      {/* شريط الحالة: يفصل «لا نعرف» عن «صفر» — والفرق بينهما نقدٌ في جيب المندوب */}
-      {(stale !== null || failed) && (
+      {/* شريط الحالة: يفصل «لا نعرف» عن «صفر» — والفرق بينهما نقدٌ في جيب المندوب.
+          ولا وجود له حين يُطفأ النظام المحاسبي: لا رقمَ يُطلب فلا حالةَ له. */}
+      {accountingOn && (stale !== null || failed) && (
         <div className={`rounded-2xl px-4 py-3 border text-xs flex items-center justify-between gap-3 ${failed ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
           <span>
             {failed
@@ -492,7 +533,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       )}
 
       {/* رصيد التحصيل المتراكم — لا يُصفّر يوميًا، ينقص فقط عند تسليمه للإدارة (اختياري حسب صلاحية المندوب) */}
-      {stats?.collectShow && (
+      {accountingOn && stats?.collectShow && (
         <div className="bg-white rounded-3xl p-5 border-2 border-green-100 flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-500">{tr('رصيد التحصيل لديك')}</p>
@@ -526,17 +567,28 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
         </button>
       )}
 
-      {/* Stats */}
-      <div>
-        <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إحصائيات اليوم')}</p>
-        <div className="grid grid-cols-2 gap-3">
-          {/* «—» لا «٠»: رقمٌ لم يصل ليس رقماً يساوي صفراً */}
-          {stat(tr('المبيعات'), stats ? formatCurrency(stats.salesTotal) : '—', TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
-          {stat(tr('تحصيل اليوم'), stats ? formatCurrency(stats.collectTotal) : '—', Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
-          {stat(tr('الفواتير'), stats ? String(stats.invCount) : '—', FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
-          {stat(tr('سندات القبض'), stats ? String(stats.rcpCount) : '—', CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
+      {/* Stats — أربعُ بطاقاتٍ مالية حين يعمل «النظام المحاسبي»، وبطاقتا زياراتٍ
+          **بديلاً** عنها حين يُطفأ: لا خانة مال، ولا شرطةً مكانها، ولا طلبَ يُردّ ٤٠٣.
+          والقسم كلّه ينتظر إعدادات الشركة كي لا يومض المال قبل أن يُعرف المفتاح. */}
+      {settingsReady && (
+        <div>
+          <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إحصائيات اليوم')}</p>
+          {accountingOn ? (
+            <div className="grid grid-cols-2 gap-3">
+              {/* «—» لا «٠»: رقمٌ لم يصل ليس رقماً يساوي صفراً */}
+              {stat(tr('المبيعات'), stats ? formatCurrency(stats.salesTotal) : '—', TrendingUp, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]')}
+              {stat(tr('تحصيل اليوم'), stats ? formatCurrency(stats.collectTotal) : '—', Wallet, 'text-green-600', 'bg-green-50 border-green-100')}
+              {stat(tr('الفواتير'), stats ? String(stats.invCount) : '—', FileText, 'text-orange-600', 'bg-orange-50 border-orange-100')}
+              {stat(tr('سندات القبض'), stats ? String(stats.rcpCount) : '—', CreditCard, 'text-purple-600', 'bg-purple-50 border-purple-100')}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {stat(tr('زيارات اليوم'), visits ? String(visits.today) : '—', ClipboardCheck, 'text-indigo-600', 'bg-indigo-50 border-indigo-100')}
+              {stat(tr('عملاء تمت زيارتهم'), visits ? String(visits.customers) : '—', Users, 'text-orange-600', 'bg-orange-50 border-orange-100')}
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Quick actions */}
       <div>
@@ -558,7 +610,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
 }
 
 // ============ قائمة العملاء ============
-function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void; canAdd: boolean; onAdd: () => void }) {
+function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true }: { onSelect: (c: any) => void; canAdd: boolean; onAdd: () => void; accountingOn?: boolean }) {
   const tr = useTr();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -586,8 +638,9 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
             options={customers.map(c => ({
               value: c.id,
               label: c.name,
-              hint: Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : c.phone,
-              hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
+              // الرصيد مال: حين يُطفأ «النظام المحاسبي» يعود التلميح جوّالاً لا رصيداً
+              hint: accountingOn && Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : c.phone,
+              hintColor: accountingOn && Number(c.balance) > 0 ? 'text-red-500' : undefined,
             }))}
             onChange={(v) => { const c = customers.find(x => x.id === v); if (c) onSelect(c); }}
           />
@@ -614,12 +667,15 @@ function RepCustomers({ onSelect, canAdd, onAdd }: { onSelect: (c: any) => void;
               <p className="font-semibold text-gray-800 text-sm truncate">{c.name}</p>
               <p className="text-xs text-gray-400">{c.phone} • {c.city || ''}</p>
             </div>
-            <div className="text-left">
-              <p className={`text-sm font-bold ${Number(c.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {formatCurrency(c.balance)}
-              </p>
-              <p className="text-[10px] text-gray-400">{tr('الرصيد')}</p>
-            </div>
+            {/* عمود الرصيد يُحذف من الشجرة كلّها عند الإطفاء — لا صفرٌ ولا شرطة */}
+            {accountingOn && (
+              <div className="text-left">
+                <p className={`text-sm font-bold ${Number(c.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {formatCurrency(c.balance)}
+                </p>
+                <p className="text-[10px] text-gray-400">{tr('الرصيد')}</p>
+              </div>
+            )}
           </button>
         ))}
       </div>
@@ -760,10 +816,12 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   );
 }
 
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn, accountingOn = true }: {
   customer: any; repName: string; company: Company | null;
   /** ميزة الدفع الإلكتروني مفعلة لهذه الشركة (بوابة المالك كالمنيو) */
   paylinkOn?: boolean;
+  /** «النظام المحاسبي» مفعّل؟ إطفاؤه يحذف كل ما هو ماليّ من هذا الملفّ */
+  accountingOn?: boolean;
   perms: RepUser;
   onClose: () => void; onInvoice: () => void; onReceipt: () => void; onReturn: () => void;
   onStatement: (doc: StatementDoc) => void;
@@ -805,8 +863,10 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   const canCreateReceipt = perms.canCreateReceipt !== false && !unassigned;
   const canViewStatement = perms.canViewStatement !== false;
 
+  // كشف الحساب مالٌ صريح، ومساره **ليس** خلف حارس المحاسبة في الخادم — فالكفّ
+  // عن طلبه هنا هو الحاجز الوحيد حين يُطفأ «النظام المحاسبي».
   useEffect(() => {
-    if (!canViewStatement) { setEntries([]); setLoading(false); return; }
+    if (!accountingOn || !canViewStatement) { setEntries([]); setLoading(false); return; }
     (async () => {
       try {
         const res = await repApi.get(`/customers/${customer.id}/statement`);
@@ -820,7 +880,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
       }
       setLoading(false);
     })();
-  }, [customer.id, canViewStatement]);
+  }, [customer.id, canViewStatement, accountingOn]);
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
@@ -866,9 +926,11 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         <div className={`bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 text-white ${unassigned ? 'opacity-60' : ''}`}>
           <p className="font-bold text-lg">{customer.name}</p>
           {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
-          <p className="text-[#E8C9BC] text-xs mb-4">{customer.phone}</p>
-          {/* الأرقام المالية مخزّنة محلياً وقد تكون قديمة — نخفيها بعد نزع العميل بدل عرض رقم مضلّل */}
-          {unassigned ? (
+          <p className={`text-[#E8C9BC] text-xs ${accountingOn ? 'mb-4' : ''}`}>{customer.phone}</p>
+          {/* الأرقام المالية مخزّنة محلياً وقد تكون قديمة — نخفيها بعد نزع العميل بدل عرض رقم مضلّل.
+              وحين يُطفأ «النظام المحاسبي» تغيب الشبكة كلّها بلا بديل: حتى جملة
+              «البيانات المالية غير متاحة» تُخبر أنّ ثمّة مالاً حُجب. */}
+          {!accountingOn ? null : unassigned ? (
             <p className="text-[#E8C9BC] text-xs text-center py-2">{tr('البيانات المالية غير متاحة')}</p>
           ) : (
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -888,35 +950,39 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           )}
         </div>
 
-        {/* Actions */}
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          <button onClick={onInvoice} disabled={!canCreateInvoice || !canSellAnyType}
-            className="bg-[#E15A30] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <FileText size={16} /> {tr('فاتورة جديدة')}
-          </button>
-          <button onClick={onReceipt} disabled={!canCreateReceipt} className="bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <CreditCard size={16} /> {tr('سند قبض')}
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          <button onClick={onReturn} disabled={unassigned}
-            className="bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
-            <RotateCcw size={16} /> {tr('فاتورة إرجاع')}
-          </button>
-          <button
-            onClick={() => onStatement(statementDocFromData(customer, entries, repName, company))}
-            disabled={loading || !canViewStatement || unassigned || !!statementError}
-            className="bg-slate-700 hover:bg-slate-800 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
-            <FileBarChart2 size={16} /> {tr('كشف حساب')}
-          </button>
-        </div>
+        {/* Actions — كلّها أفعالٌ محاسبية: تغيب أزرارها كلياً عند الإطفاء */}
+        {accountingOn && (
+          <>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <button onClick={onInvoice} disabled={!canCreateInvoice || !canSellAnyType}
+                className="bg-[#E15A30] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+                <FileText size={16} /> {tr('فاتورة جديدة')}
+              </button>
+              <button onClick={onReceipt} disabled={!canCreateReceipt} className="bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+                <CreditCard size={16} /> {tr('سند قبض')}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <button onClick={onReturn} disabled={unassigned}
+                className="bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+                <RotateCcw size={16} /> {tr('فاتورة إرجاع')}
+              </button>
+              <button
+                onClick={() => onStatement(statementDocFromData(customer, entries, repName, company))}
+                disabled={loading || !canViewStatement || unassigned || !!statementError}
+                className="bg-slate-700 hover:bg-slate-800 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+                <FileBarChart2 size={16} /> {tr('كشف حساب')}
+              </button>
+            </div>
+          </>
+        )}
         {/* تسجيل زيارة ميدانية: ملاحظة + صور رفوف مع إثبات موقع — تراها الإدارة في خريطة التتبّع */}
         <button onClick={onLogVisit} disabled={unassigned}
           className="w-full mt-3 bg-[#5FBE92] hover:bg-[#4EA97E] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
           <ClipboardCheck size={16} /> {tr('تسجيل زيارة')}
         </button>
         {/* الدفع الإلكتروني: رابط سداد يشاركه المندوب واتساب — يظهر فقط حين يفعل المالك الميزة */}
-        {paylinkOn && (
+        {accountingOn && paylinkOn && (
           <button onClick={() => setPayLinkOpen(true)} disabled={unassigned}
             className="w-full mt-3 bg-[#2E6FB0] hover:bg-[#255C94] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
             <Link2 size={16} /> {tr('رابط دفع الكتروني')}
@@ -924,7 +990,8 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         )}
         {payLinkOpen && <PayLinkSheet customer={customer} onClose={() => setPayLinkOpen(false)} />}
 
-        {/* Statement */}
+        {/* Statement — القسم كلّه (عنوانه ولافتاته وحركاته) يُحذف عند الإطفاء */}
+        {accountingOn && <>
         <p className="font-bold text-gray-700 text-sm mt-5 mb-2">{tr('كشف الحساب')}</p>
         {!canViewStatement ? (
           <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تملك صلاحية عرض كشف الحساب')}</p>
@@ -968,6 +1035,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
             </button>
           );
         })}
+        </>}
       </div>
     </div>
   );
@@ -1802,7 +1870,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 }
 
 // ============ إضافة عميل جديد ============
-function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (c: any) => void }) {
+function AddCustomer({ onClose, onCreated, accountingOn = true }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean }) {
   const tr = useTr();
   const [form, setForm] = useState({
     name: '', businessName: '', phone: '', commercialReg: '', taxNumber: '',
@@ -1846,8 +1914,10 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       lat: coords?.lat,
       lng: coords?.lng,
       locationUrl: locUrl.trim() || undefined,
-      creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined,
-      paymentDays: form.paymentDays ? Number(form.paymentDays) : undefined,
+      // حقلان ماليّان: لا يُرسلان أصلاً حين يُطفأ «النظام المحاسبي» — شاشةٌ لا
+      // تعرض المال لا تكتبه، ويبقى للخادم افتراضُه هو
+      creditLimit: accountingOn && form.creditLimit ? Number(form.creditLimit) : undefined,
+      paymentDays: accountingOn && form.paymentDays ? Number(form.paymentDays) : undefined,
       clientRef, clientCreatedAt,
     };
     try {
@@ -1925,13 +1995,15 @@ function AddCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
           <p className="text-[10px] text-gray-400 mt-1">{tr('من تطبيق خرائط Google مشاركة ← نسخ الرابط ثم الصقه هنا')}</p>
         </div>
 
-        <div>
-          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات المالية')}</p>
-          <div className="grid grid-cols-2 gap-3">
-            {field(tr('الحد الائتماني'), 'creditLimit', { type: 'number', ltr: true })}
-            {field(tr('فترة السداد يوم'), 'paymentDays', { type: 'number', ltr: true })}
+        {accountingOn && (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات المالية')}</p>
+            <div className="grid grid-cols-2 gap-3">
+              {field(tr('الحد الائتماني'), 'creditLimit', { type: 'number', ltr: true })}
+              {field(tr('فترة السداد يوم'), 'paymentDays', { type: 'number', ltr: true })}
+            </div>
           </div>
-        </div>
+        )}
 
         {msg && <p className="text-red-500 text-xs text-center">{msg}</p>}
       </div>
@@ -2358,6 +2430,9 @@ export default function RepApp() {
     else setGeoVerdict(null);
   }, [proximityOn, modal, selectedCustomer, runGeoCheck]);
   const [company, setCompany] = useState<Company | null>(null);
+  // هل فرغنا من محاولة قراءة إعدادات الشركة؟ (نجاحاً أو سقوطاً للكاش أو عجزاً)
+  // قبلها لا نعرف المفتاح، فلا يُطلق طلبٌ ماليّ ولا تُرسم خانة مال.
+  const [companyReady, setCompanyReady] = useState(false);
   const [fuelOn, setFuelOn] = useState(false); // ربط بترو آب مفعّل لشركة المندوب؟
   const [workNumOn, setWorkNumOn] = useState(false); // ميزة أرقام العمل (هاتف) مفعّلة؟
   const [pending, setPending] = useState(0);       // مستندات أوف‑لاين بانتظار الرفع
@@ -2531,6 +2606,9 @@ export default function RepApp() {
         setActiveCurrency((data as { currency?: string })?.currency);
         setActiveNumerals((data as { numerals?: string })?.numerals);
       }
+      // حتى حين يعجز الجلب والكاش معاً: انتهت المحاولة، ويبقى المفتاح على
+      // افتراضه «مفعّل» — فقلبُه يُخفي المال عن شركةٍ تعذّرت قراءة إعداداتها.
+      setCompanyReady(true);
     })();
     // هل ربطت الشركة بترو آب؟ (يظهر زرّ الوقود) — فشله الصامت يعني إخفاء الزرّ فقط
     (async () => {
@@ -2631,6 +2709,7 @@ export default function RepApp() {
           ) : modal === 'customerDetail' && selectedCustomer ? (
             <CustomerDetail customer={selectedCustomer} repName={user.name} company={company} perms={user}
               paylinkOn={(company as any)?.paylinkEnabled === true}
+              accountingOn={accountingOn}
               // الخروج الحقيقي لقائمة العملاء يُنهي مؤقّت هذا العميل ويرفع الزيارة.
               // النوافذ الفرعية (فاتورة/سند) لا تمرّ من هنا فيبقى المؤقّت جارياً.
               onClose={() => { if (visitTimer && visitTimer.customerId === selectedCustomer.id) void finalizeVisit(visitTimer); setModal(null); }}
@@ -2654,7 +2733,7 @@ export default function RepApp() {
             <LogVisit customer={selectedCustomer} onClose={() => setModal('customerDetail')}
               onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
           ) : modal === 'addCustomer' ? (
-            <AddCustomer onClose={() => setModal(null)}
+            <AddCustomer onClose={() => setModal(null)} accountingOn={accountingOn}
               onCreated={(c) => { setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (
             <>
@@ -2691,14 +2770,14 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} dailyReportOn={dailyReportOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
-                {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} />}
+                {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} accountingOn={accountingOn} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
-                {screen === 'fuel' && <RepFuel />}
+                {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
               </div>
 

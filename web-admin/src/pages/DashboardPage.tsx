@@ -90,11 +90,12 @@ export default function DashboardPage() {
       </div>
       )}
 
-      {/* Customer Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Customer Stats — «بأرصدة» و«تجاوز الحد الائتماني» عدّادان ماليّان:
+          يُحذفان مع المحاسبة ولا يُستبدلان بصفر، ويبقى عدّاد العملاء وحده. */}
+      <div className={`grid ${accountingOn ? 'grid-cols-3' : 'grid-cols-1'} gap-4`}>
         <StatCard icon={Users} label={tr('العملاء النشطون')} value={String(d.customers.total)} color="bg-purple-500" />
-        <StatCard icon={FileText} label={tr('العملاء بأرصدة')} value={String(d.customers.withBalance)} color="bg-orange-500" />
-        <StatCard icon={AlertTriangle} label={tr('تجاوز الحد الائتماني')} value={String(d.customers.creditExceeded)} color="bg-red-500" />
+        {accountingOn && <StatCard icon={FileText} label={tr('العملاء بأرصدة')} value={String(d.customers.withBalance)} color="bg-orange-500" />}
+        {accountingOn && <StatCard icon={AlertTriangle} label={tr('تجاوز الحد الائتماني')} value={String(d.customers.creditExceeded)} color="bg-red-500" />}
       </div>
 
       {/* Chart + Top Reps */}

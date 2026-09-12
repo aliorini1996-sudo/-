@@ -98,13 +98,22 @@ export default function MobileApp() {
   /* بلاطات أقسام الإدارة في الرئيسية — تُحسب هنا لا في MHome: الصلاحيات شأن
    * القوقعة، والشاشة تعرض ما يُعطى لها. والمنع عند `false` الصريحة وحدها كبقيّة
    * التطبيق، وإلا حُجبت الأقسام عن مدير الشركة الأصليّ المُنشأ قبل أعمدة الصلاحيات. */
+  /* و«المنتجات» تسقط كاملةً حين يُطفأ النظام المحاسبي: الشاشة كلّها أسعارٌ
+   * وشرائح تسعير، ومسار `/products` خلف `requireAccounting` في الخادم — فبلاطةٌ
+   * تُفضي إلى ٤٠٣ تقول للمستخدم إنّ ثمّة أرقاماً حُجبت عنه، وذاك تسريبٌ بذاته. */
   const allowedSections = useMemo<HomeSection[]>(() => {
     const out: HomeSection[] = [];
     if (can(user, 'canManageSalesReps')) out.push('reps');
-    if (can(user, 'canManageProducts')) out.push('products');
+    if (can(user, 'canManageProducts') && accountingOn) out.push('products');
     if (can(user, 'canViewReports')) out.push('reports');
     return out;
-  }, [user]);
+  }, [user, accountingOn]);
+
+  /* قسمٌ مفتوحٌ خرج من قائمة المسموح (وصلت إعدادات الشركة بعد فتحه) يُغلق —
+   * وإلا بقيت شاشة المنتجات معروضةً فوق كل شيء بأسعارها. */
+  useEffect(() => {
+    if (section && !allowedSections.includes(section)) setSection(null);
+  }, [section, allowedSections]);
 
   /* ═══ زرّ الرجوع (أندرويد) وسحبة الحافة (آيفون) ═══
    * طبقات الشاشات الداخلية مربوطة في مكوّناتها؛ هنا الجذر وحده.
@@ -236,9 +245,9 @@ export default function MobileApp() {
       {section && (
         <div className="absolute inset-0 z-20 bg-white">
           <Suspense fallback={<MSpinner />}>
-            {section === 'reps' ? <MSalesReps company={company} onBack={() => setSection(null)} />
+            {section === 'reps' ? <MSalesReps company={company} accountingOn={accountingOn} onBack={() => setSection(null)} />
               : section === 'products' ? <MProducts onBack={() => setSection(null)} />
-                : <MReports onBack={() => setSection(null)} />}
+                : <MReports accountingOn={accountingOn} onBack={() => setSection(null)} />}
           </Suspense>
         </div>
       )}
@@ -255,7 +264,7 @@ function ScreenBody({ screen, company, userName, accountingOn, allowedSections, 
   if (screen === 'home') {
     return <MHome accountingOn={accountingOn} allowedSections={allowedSections} onOpenSection={onOpenSection} />;
   }
-  if (screen === 'customers') return <MCustomers />;
+  if (screen === 'customers') return <MCustomers accountingOn={accountingOn} />;
   // key ضروريّ: المكوّنان في الموضع نفسه من الشجرة ومن النوع نفسه، فيوفّق
   // React بينهما ويحتفظ بالحالة — فيبقى مستندٌ مفتوحاً عند تبديل التبويب
   // ويُطلَب بمعرّف فاتورة ونوع سند. ويكسر ذلك مكدّس الرجوع أيضاً.

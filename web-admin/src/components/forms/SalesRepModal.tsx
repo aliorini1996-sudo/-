@@ -5,7 +5,11 @@ import { useTr } from '../../i18n/strings';
 import { X, Eye, EyeOff, RefreshCw } from 'lucide-react';
 
 interface FormData extends Partial<SalesRep> { password?: string; }
-interface Props { rep: SalesRep | null; onClose: () => void; onSave: (data: FormData) => void; loading: boolean; }
+interface Props {
+  rep: SalesRep | null; onClose: () => void; onSave: (data: FormData) => void; loading: boolean;
+  /** المحاسبة مفعّلة؟ افتراضه `true` — الغياب يعني «مفعّل» كما في العَلَم نفسه */
+  accountingOn?: boolean;
+}
 
 // forwardRef ضروري ليصل ref الخاص بـ react-hook-form إلى مربع الاختيار فعلياً
 const PermToggle = forwardRef<HTMLInputElement, { label: string } & React.InputHTMLAttributes<HTMLInputElement>>(
@@ -18,7 +22,7 @@ const PermToggle = forwardRef<HTMLInputElement, { label: string } & React.InputH
 );
 PermToggle.displayName = 'PermToggle';
 
-export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) {
+export default function SalesRepModal({ rep, onClose, onSave, loading, accountingOn = true }: Props) {
   const tr = useTr();
   const [showPass, setShowPass] = useState(false);
   const defaults: FormData = rep
@@ -114,7 +118,10 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
             </div>
           </div>
 
-          {/* Permissions */}
+          {/* صلاحيات محاسبية بحتة (فوترة · تسعير وخصم · تحصيل · مخزون سيارة):
+              تُحذف كلّها حين تُطفأ المحاسبة. وما لا يُسجَّل في النموذج تُرسَل
+              قيمته المحفوظة من defaultValues، فلا تُصفَّر صلاحية بالإخفاء. */}
+          {accountingOn && (<>
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات المبيعات')}</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -155,13 +162,14 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
               <PermToggle label={tr('تحميل مخزون السيارة')} {...register('canManageVanStock')} />
             </div>
           </div>
+          </>)}
 
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات العملاء')}</h3>
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label={tr('إضافة عميل')} {...register('canAddCustomer')} />
               <PermToggle label={tr('تعديل بيانات العميل')} {...register('canEditCustomer')} />
-              <PermToggle label={tr('عرض كشف الحساب')} {...register('canViewStatement')} />
+              {accountingOn && <PermToggle label={tr('عرض كشف الحساب')} {...register('canViewStatement')} />}
             </div>
           </div>
 
@@ -175,12 +183,14 @@ export default function SalesRepModal({ rep, onClose, onSave, loading }: Props) 
             </p>
           </div>
 
+          {accountingOn && (
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات التحصيل')}</h3>
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label={tr('إظهار رصيد التحصيل المتراكم')} {...register('showCollectionBalance')} />
             </div>
           </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center py-2.5">

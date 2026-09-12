@@ -85,13 +85,17 @@ export default function MHome({ accountingOn = true, onOpenCustomer, onOpenSecti
         </p>
       </Section>)}
 
-      {/* العملاء */}
+      {/* العملاء — «بأرصدة» و«تجاوز الحد» عدّادان مشتقّان من الرصيد والحدّ
+          الائتمانيّ، فهما معلومةٌ مالية وإن لم يحملا عملة: يسقطان مع المفتاح
+          ويبقى عدد العملاء وحده بعرضٍ كامل لا خانةً يتيمة في شبكة ثلاثية. */}
       <Section title={tr('العملاء')}>
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className={`grid gap-2.5 ${accountingOn ? 'grid-cols-3' : 'grid-cols-1'}`}>
           <MStat icon={Users} label={tr('نشطون')} value={String(d.customers.total)} />
-          <MStat label={tr('بأرصدة')} value={String(d.customers.withBalance)} tone="warn" />
-          <MStat icon={AlertTriangle} label={tr('تجاوز الحد')} value={String(d.customers.creditExceeded)}
-            tone={d.customers.creditExceeded > 0 ? 'bad' : 'default'} />
+          {accountingOn && <MStat label={tr('بأرصدة')} value={String(d.customers.withBalance)} tone="warn" />}
+          {accountingOn && (
+            <MStat icon={AlertTriangle} label={tr('تجاوز الحد')} value={String(d.customers.creditExceeded)}
+              tone={d.customers.creditExceeded > 0 ? 'bad' : 'default'} />
+          )}
         </div>
       </Section>
 

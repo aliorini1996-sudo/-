@@ -299,6 +299,15 @@ const REPORTS = [
 type ReportId = typeof REPORTS[number]['id'];
 type GroupBy = 'rep' | 'customer' | 'product';
 
+/**
+ * التقارير المالية — تُحذف من المبدّل كلّه حين يُطفأ «النظام المحاسبي».
+ *
+ * الخمسة الأولى مبالغ صريحة (مبيعات · تحصيل · أرصدة · أداء بالريال ·
+ * مديونيات)، ويبقى «ساعات العمل» و«زيارات العملاء» — وقتٌ وعددٌ لا مال.
+ * والحذف من القائمة يمنع الاستعلام أصلاً: لا طلب يُردّ، ولا لافتة خطأ.
+ */
+const MONEY_REPORTS = new Set<ReportId>(['sales', 'collections', 'balances', 'performance', 'receivables']);
+
 /** طبقة تفصيلٍ فوق القائمة — بيانات الصفّ كاملةٌ أصلاً فلا طلب ثانٍ */
 type Detail =
   | { kind: 'perf'; row: PerfRow }
@@ -306,7 +315,12 @@ type Detail =
   | { kind: 'hours'; row: WorkHoursRow }
   | { kind: 'cust'; group: CustGroup };
 
-export default function MReports({ onBack }: { onBack: () => void }) {
+export default function MReports({ onBack, accountingOn = true }: {
+  onBack: () => void;
+  /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تبقى تقارير الوقت
+   *  والزيارات وحدها، ولا يُصدَر أيّ استعلامٍ لتقريرٍ ماليّ. */
+  accountingOn?: boolean;
+}) {
   const tr = useTr();
   const qc = useQueryClient();
   const [id, setId] = useState<ReportId>('sales');
@@ -317,7 +331,15 @@ export default function MReports({ onBack }: { onBack: () => void }) {
 
   useBackClose(!!detail, () => setDetail(null));
 
-  const meta = REPORTS.find(r => r.id === id) ?? REPORTS[0];
+  const reports = useMemo(
+    () => (accountingOn ? [...REPORTS] : REPORTS.filter(r => !MONEY_REPORTS.has(r.id))),
+    [accountingOn],
+  );
+  /* التقرير المعروض مشتقٌّ لا حالة خام: «المبيعات» هي البداية الافتراضية،
+   * فلو وصلت إعدادات الشركة بعد فتح الشاشة لانزلق العرض تلقائياً إلى أوّل
+   * تقريرٍ غير ماليّ بدل أن يبقى معلّقاً على تقريرٍ محذوف. */
+  const shown: ReportId = reports.some(r => r.id === id) ? id : reports[0].id;
+  const meta = reports.find(r => r.id === shown) ?? reports[0];
   const activeQuick = QUICKS.find(k => {
     const r = quickRange(k.id);
     return r.from === from && r.to === to;
@@ -326,11 +348,15 @@ export default function MReports({ onBack }: { onBack: () => void }) {
   // التحديث يُبطل مفاتيح هذا التقرير وحده: إبطال الكلّ يُعيد جلب ستّة تقارير
   // لا ينظر إليها أحد على باقة بياناتٍ محدودة.
   const refresh = () => {
-    qc.invalidateQueries({ queryKey: ['m-report', id] });
+    qc.invalidateQueries({ queryKey: ['m-report', shown] });
     toast.success(tr('يجري تحديث التقرير'));
   };
 
-  if (detail) return <DetailPane detail={detail} onClose={() => setDetail(null)} />;
+  /* طبقتا «أداء المندوب» و«مديونيات العملاء» مبالغُ صريحة: تُطوى هي الأخرى إن
+   * وصلت إعدادات الشركة بعد فتحها، وتبقى طبقتا الساعات والزيارات */
+  const openDetail = detail && !accountingOn && (detail.kind === 'perf' || detail.kind === 'recv')
+    ? null : detail;
+  if (openDetail) return <DetailPane detail={openDetail} onClose={() => setDetail(null)} />;
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -347,10 +373,10 @@ export default function MReports({ onBack }: { onBack: () => void }) {
 
       {/* مبدّل التقارير — شرائح تُمرَّر أفقياً بالإبهام */}
       <div className="flex-shrink-0 bg-white border-b border-[#F1EBDF] px-3 py-2 flex gap-1.5 overflow-x-auto overscroll-x-contain">
-        {REPORTS.map(r => (
+        {reports.map(r => (
           <button key={r.id} onClick={() => setId(r.id)}
             className={`flex items-center gap-1.5 flex-shrink-0 px-3.5 min-h-[44px] rounded-xl text-xs font-semibold whitespace-nowrap transition-colors
-              ${id === r.id ? 'bg-[#E15A30] text-white' : 'bg-[#FAF7F0] text-[#6E6557]'}`}>
+              ${shown === r.id ? 'bg-[#E15A30] text-white' : 'bg-[#FAF7F0] text-[#6E6557]'}`}>
             <r.icon size={14} />{tr(r.label)}
           </button>
         ))}
@@ -392,13 +418,13 @@ export default function MReports({ onBack }: { onBack: () => void }) {
         </p>
       )}
 
-      {id === 'sales' && <SalesReport from={from} to={to} groupBy={groupBy} onGroupBy={setGroupBy} />}
-      {id === 'collections' && <CollectionsReport from={from} to={to} />}
-      {id === 'balances' && <BalancesReport />}
-      {id === 'performance' && <PerformanceReport from={from} to={to} onOpen={setDetail} />}
-      {id === 'receivables' && <ReceivablesReport onOpen={setDetail} />}
-      {id === 'hours' && <HoursReport from={from} to={to} onOpen={setDetail} />}
-      {id === 'visits' && <VisitsReport from={from} to={to} onOpen={setDetail} />}
+      {shown === 'sales' && <SalesReport from={from} to={to} groupBy={groupBy} onGroupBy={setGroupBy} />}
+      {shown === 'collections' && <CollectionsReport from={from} to={to} />}
+      {shown === 'balances' && <BalancesReport />}
+      {shown === 'performance' && <PerformanceReport from={from} to={to} onOpen={setDetail} />}
+      {shown === 'receivables' && <ReceivablesReport onOpen={setDetail} />}
+      {shown === 'hours' && <HoursReport from={from} to={to} onOpen={setDetail} />}
+      {shown === 'visits' && <VisitsReport from={from} to={to} onOpen={setDetail} />}
     </div>
   );
 }

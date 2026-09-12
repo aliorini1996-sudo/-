@@ -15,7 +15,9 @@ import { useT } from '../i18n/strings';
 // صفحات «النظام المحاسبي» — تُخفى جميعاً حين يُطفئ المالك الميزة عن الشركة.
 // دلالة `!== false` لا `=== true`: هذا العَلَم وحده مفعّل افتراضياً عند الجميع،
 // فغيابه من ردّ قديم أو كاش يعني «مفعّل» لا «مطفأ».
-const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/invoices', '/app/receipts'];
+// «المدفوعات الالكترونية» (paylink) منها: محصَّلٌ ومستحقٌّ وعمولةٌ وفواتير تُسدَّد،
+// فلا يكفي مفتاحها الخاصّ — إطفاء المحاسبة يُخفيها ولو كانت مشتراة.
+const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/invoices', '/app/receipts', '/app/paylink'];
 
 const navItems = [
   { to: '/app', icon: LayoutDashboard, label: 'nav.dashboard', exact: true, permission: 'canAccessDashboard' },
