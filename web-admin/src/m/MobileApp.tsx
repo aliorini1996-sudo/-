@@ -19,6 +19,7 @@ const MTracking = lazy(() => import('./MTracking'));
 const MSalesReps = lazy(() => import('./MSalesReps'));
 const MProducts = lazy(() => import('./MProducts'));
 const MReports = lazy(() => import('./MReports'));
+const MWarehouse = lazy(() => import('./MWarehouse'));
 import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
 import { useBackClose } from '../lib/useBackClose';
@@ -72,6 +73,9 @@ export default function MobileApp() {
   /* «التقرير اليومي» — مطفأ افتراضياً، فالشرط `=== true` لا `!== false`.
    * وقلبه هنا يُظهر التبويب لكل شركة تعذّرت قراءة إعداداتها. */
   const dailyReportOn = (company as { dailyReportEnabled?: boolean } | null)?.dailyReportEnabled === true;
+  /* «مخزون الشركة» ميزة اشتراك **مطفأة افتراضياً** — الشرط `=== true` لا
+   * `!== false`، بعكس النظام المحاسبيّ المفعّل افتراضاً. */
+  const warehouseOn = (company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true;
 
   // التبويبات المسموحة لهذا المستخدم — المنع عند `false` الصريحة وحدها،
   // ثم إسقاط التبويبين المحاسبيين حين يُطفئ المالك الميزة عن الشركة
@@ -106,8 +110,11 @@ export default function MobileApp() {
     if (can(user, 'canManageSalesReps')) out.push('reps');
     if (can(user, 'canManageProducts') && accountingOn) out.push('products');
     if (can(user, 'canViewReports')) out.push('reports');
+    /* مخزون الشركة بحارسٍ ثلاثيّ يطابق حارس الخادم: الصلاحية، ثمّ النظام
+     * المحاسبيّ، ثمّ ميزة المستودع. وبلاطةٌ تُفضي إلى ٤٠٣ أسوأ من غيابها. */
+    if (can(user, 'canManageVanStock') && accountingOn && warehouseOn) out.push('warehouse');
     return out;
-  }, [user, accountingOn]);
+  }, [user, accountingOn, warehouseOn]);
 
   /* قسمٌ مفتوحٌ خرج من قائمة المسموح (وصلت إعدادات الشركة بعد فتحه) يُغلق —
    * وإلا بقيت شاشة المنتجات معروضةً فوق كل شيء بأسعارها. */
@@ -247,7 +254,8 @@ export default function MobileApp() {
           <Suspense fallback={<MSpinner />}>
             {section === 'reps' ? <MSalesReps company={company} accountingOn={accountingOn} onBack={() => setSection(null)} />
               : section === 'products' ? <MProducts onBack={() => setSection(null)} />
-                : <MReports accountingOn={accountingOn} onBack={() => setSection(null)} />}
+                : section === 'warehouse' ? <MWarehouse onBack={() => setSection(null)} />
+                  : <MReports accountingOn={accountingOn} onBack={() => setSection(null)} />}
           </Suspense>
         </div>
       )}

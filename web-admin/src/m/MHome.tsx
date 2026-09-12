@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3 } from 'lucide-react';
+import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3, Warehouse } from 'lucide-react';
 import { dashboardApi } from '../api/client';
 import { DashboardStats } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -18,18 +18,26 @@ const MSalesChart = lazy(() => import('./MSalesChart'));
  *  - بطاقات عمودية `grid-cols-2` لا صفوفاً أفقية بأيقونة 48px (العرض ٣٦٠px).
  *  - «أفضل العملاء/المناديب» **أزرارٌ تنقل**، لا نصّاً ميتاً: تطبيق «بإجراءات
  *    كاملة» لا يليق به طريق مسدود.
- *  - أسفل الشاشة بلاطات أقسام الإدارة (المناديب · المنتجات · التقارير) — وهي
+ *  - أسفل الشاشة بلاطات أقسام الإدارة (المناديب · المنتجات · التقارير ·
+ *    مخزون الشركة) — وهي
  *    المدخل الوحيد إليها، إذ امتلأت مقاعد الشريط السفليّ الخمسة.
  *  - الاستطلاع مشروط بحياة الشاشة (بطارية وباقة).
  */
 /** أقسام الإدارة التي تُفتح من الرئيسية صفحاتٍ كاملة */
-export type HomeSection = 'reps' | 'products' | 'reports';
+export type HomeSection = 'reps' | 'products' | 'reports' | 'warehouse';
 
 const SECTION_TILES: { id: HomeSection; label: string; icon: React.ElementType }[] = [
   { id: 'reps', label: 'المناديب', icon: UserCog },
   { id: 'products', label: 'المنتجات', icon: Package },
   { id: 'reports', label: 'التقارير', icon: BarChart3 },
+  { id: 'warehouse', label: 'مخزون الشركة', icon: Warehouse },
 ];
+
+/* عدد الأعمدة يُشتقّ من عدد البلاطات المعروضة لا يُثبَّت على ثلاثة: البلاطات
+ * تتراوح بين واحدة وأربع بحسب الصلاحيات وميزة المستودع، و«ثلاثة» ثابتةً تترك
+ * الرابعة وحيدةً في سطرٍ بعرض الثلث. أربعٌ ⇒ شبكة ٢×٢ متّزنة. */
+const tileCols = (n: number): string =>
+  n >= 4 ? 'grid-cols-2' : n === 3 ? 'grid-cols-3' : n === 2 ? 'grid-cols-2' : 'grid-cols-1';
 
 export default function MHome({ accountingOn = true, onOpenCustomer, onOpenSection, allowedSections = [] }: {
   /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تختفي كل خانة تعرض مبلغاً */
@@ -151,7 +159,7 @@ export default function MHome({ accountingOn = true, onOpenCustomer, onOpenSecti
           ستّة، وهذه تفتح ما لم يكن بالغاً من الجوال إطلاقاً. */}
       {onOpenSection && allowedSections.length > 0 && (
         <Section title={tr('الإدارة')}>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className={`grid gap-2.5 ${tileCols(allowedSections.length)}`}>
             {SECTION_TILES.filter(t => allowedSections.includes(t.id)).map(t => (
               <SectionTile key={t.id} icon={t.icon} label={tr(t.label)} onClick={() => onOpenSection(t.id)} />
             ))}

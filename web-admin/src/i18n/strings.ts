@@ -1854,7 +1854,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'عملاء تمت زيارتهم': { en: 'Customers visited', fr: 'Clients visites', tr: 'Ziyaret edilen musteriler', zh: '已拜访客户' },
   // ——— سجلّ التقارير اليومية لكل مندوب ———
   'سجل التقارير اليومية': { en: 'Daily reports log', fr: 'Journal des rapports quotidiens', tr: 'Gunluk rapor gecmisi', zh: '日报记录' },
-  'معاد للتصحيح': { en: 'Returned for correction', fr: 'Renvoye pour correction', tr: 'Duzeltmeye geri gonderildi', zh: '已退回修正' },
   'تعذر تحميل سجل التقارير': { en: 'Could not load the reports log', fr: 'Impossible de charger le journal des rapports', tr: 'Rapor gecmisi yuklenemedi', zh: '无法加载日报记录' },
   'لا تقارير في هذا المدى': { en: 'No reports in this range', fr: 'Aucun rapport dans cette periode', tr: 'Bu aralikta rapor yok', zh: '该期间没有日报' },
   'لا تقارير بعد': { en: 'No reports yet', fr: 'Aucun rapport pour le moment', tr: 'Henuz rapor yok', zh: '暂无日报' },
@@ -1863,6 +1862,23 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'اعتمد في': { en: 'Approved at', fr: 'Valide le', tr: 'Onaylandi', zh: '批准于' },
   'عند': { en: 'At', fr: 'Au niveau', tr: 'Seviyede', zh: '位于' },
   'تعذر تحميل السجل': { en: 'Could not load the log', fr: 'Impossible de charger le journal', tr: 'Kayit yuklenemedi', zh: '无法加载记录' },
+  // ——— مخزون الشركة في تطبيق الإدارة على الجوال ———
+  'بحث بالاسم أو الكود': { en: 'Search by name or code', fr: 'Rechercher par nom ou code', tr: 'Ada veya koda gore ara', zh: '按名称或编码搜索' },
+  'استلام بضاعة أو تسوية': { en: 'Receive goods or adjust', fr: 'Reception de marchandises ou ajustement', tr: 'Mal kabulu veya duzeltme', zh: '收货或库存调整' },
+  'الوارد استلام أو شراء يزيد المستودع بكميات موجبة': { en: 'Receiving is a purchase or delivery that increases the warehouse with positive quantities', fr: 'La reception est un achat ou une livraison qui augmente le stock avec des quantites positives', tr: 'Mal kabulu depoyu artiran bir alim veya teslimattir ve miktarlari artidir', zh: '入库为采购或收货，以正数增加仓库库存' },
+  'تسويات': { en: 'Adjustments', fr: 'Ajustements', tr: 'Duzeltmeler', zh: '调整' },
+  'الكمية المقيمة': { en: 'Costed quantity', fr: 'Quantite valorisee', tr: 'Maliyetlenen miktar', zh: '已计价数量' },
+  'كمية خارج التقييم': { en: 'Quantity outside valuation', fr: 'Quantite hors valorisation', tr: 'Degerleme disi miktar', zh: '未计价数量' },
+  'خارج التقييم لا تعرف تكلفتها': { en: 'Outside valuation, its cost is unknown', fr: 'Hors valorisation, son cout est inconnu', tr: 'Degerleme disi, maliyeti bilinmiyor', zh: '未计价，成本未知' },
+  'قيمة المخزون تغطي الكمية المقيمة وحدها ولا تشمل الكمية خارج التقييم وهي كمية في المستودع لا تعرف تكلفتها سجل سعر الوحدة عند الاستلام ليكتمل التقييم': { en: 'The stock value covers the costed quantity only and does not include the quantity outside valuation, which is stock whose cost is unknown. Record the unit cost on receiving to complete the valuation', fr: 'La valeur du stock couvre uniquement la quantite valorisee et exclut la quantite hors valorisation, dont le cout est inconnu. Saisissez le cout unitaire a la reception pour completer la valorisation', tr: 'Stok degeri yalnizca maliyetlenen miktari kapsar ve maliyeti bilinmeyen degerleme disi miktari icermez. Degerlemeyi tamamlamak icin mal kabulunde birim maliyeti girin', zh: '库存金额仅覆盖已计价数量，不含成本未知的未计价数量；请在入库时录入单位成本以完成计价' },
+  'كل الرصيد مقيم بتكلفة معروفة والقيمة أعلاه تغطيه كاملا': { en: 'All stock is costed and the value above covers it in full', fr: 'Tout le stock est valorise et la valeur ci-dessus le couvre entierement', tr: 'Tum stok maliyetlenmistir ve yukaridaki deger tamamini kapsar', zh: '全部库存均已计价，上方金额完整覆盖' },
+  'كل قيم التكلفة قبل الضريبة': { en: 'All cost figures are before tax', fr: 'Tous les montants de cout sont hors taxe', tr: 'Tum maliyet tutarlari vergi haric', zh: '所有成本金额均为税前' },
+  'المخزن صافي قبل الضريبة دائما فإن كان سعر فاتورة المورد شاملا فأشر هنا ليرده النظام إلى صافيه قبل الحفظ': { en: 'The stored cost is always net of tax. If the supplier invoice price includes tax, tick this so the system converts it to net before saving', fr: 'Le cout enregistre est toujours hors taxe. Si le prix de la facture fournisseur est TTC, cochez ceci pour que le systeme le convertisse en net avant enregistrement', tr: 'Kaydedilen maliyet her zaman vergi haricidir. Tedarikci fatura fiyati vergi dahilse bunu isaretleyin ki sistem kaydetmeden once nete cevirsin', zh: '存储的成本始终为税前。若供应商发票价格含税，请勾选此项，系统将在保存前折算为税前' },
+  'بلا سعر تدخل الكمية المخزون خارج التقييم': { en: 'Without a price the quantity enters stock outside valuation', fr: 'Sans prix, la quantite entre en stock hors valorisation', tr: 'Fiyatsiz girilen miktar degerleme disi stoka girer', zh: '未填价格时，该数量将作为未计价库存入库' },
+  'سعر الوحدة يجب أن يكون أكبر من صفر أو يترك فارغا': { en: 'The unit cost must be greater than zero or left empty', fr: 'Le cout unitaire doit etre superieur a zero ou laisse vide', tr: 'Birim maliyet sifirdan buyuk olmali veya bos birakilmali', zh: '单位成本须大于零，或留空' },
+  'كمية الوارد يجب أن تكون موجبة': { en: 'The received quantity must be positive', fr: 'La quantite recue doit etre positive', tr: 'Kabul miktari pozitif olmali', zh: '入库数量必须为正数' },
+  'اكتب كمية غير صفرية موجبة أو سالبة': { en: 'Enter a non zero quantity, positive or negative', fr: 'Saisissez une quantite non nulle, positive ou negative', tr: 'Sifirdan farkli bir miktar girin, arti veya eksi', zh: '请输入非零数量，可为正或负' },
+  'يعرض أحدث الحركات': { en: 'Showing the most recent movements', fr: 'Affiche les mouvements les plus recents', tr: 'En son hareketler gosteriliyor', zh: '显示最近的库存变动' },
 };
 
 export function useTr() {
