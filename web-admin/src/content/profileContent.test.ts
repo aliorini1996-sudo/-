@@ -274,10 +274,13 @@ test('عدد الباقات في العنوان يطابق عددها في ال�
     const key = m[0].replace(/\s*(plans|formules|paket|种套餐)\s*/i, '').trim().toLowerCase();
     const said = COUNT[key] ?? COUNT[m[0]];
     assert.ok(said, `${PROFILE_LANG_LABEL[l]}: تعذّر قراءة العدد من «${m[0]}»`);
-    // آخر سطر تجربة مجانية لا باقة مدفوعة
-    const paid = splitLines(PROFILE_DEFAULTS[l].model_items).length - 1;
+    // الباقة سطرٌ فيه سعر. والعدّ بـ«الأسطر ناقص واحد» كان يفترض أن الزائد سطرُ
+    // التجربة وحده — فأي سطر آخر (كسطر «وما زاد فبالتفاوض») كان يُحسب باقةً.
+    const paid = splitLines(PROFILE_DEFAULTS[l].model_items)
+      .filter(line => /(299|399|599|٢٩٩|٣٩٩|٥٩٩)/.test(line)).length;
+    assert.ok(paid >= 2, `${PROFILE_LANG_LABEL[l]}: لم تُرصد أسطر الباقات`);
     assert.equal(said, paid,
-      `${PROFILE_LANG_LABEL[l]}: العنوان يقول ${said} والبنود ${paid}`);
+      `${PROFILE_LANG_LABEL[l]}: العنوان يقول ${said} والبنود المسعَّرة ${paid}`);
   }
 });
 
