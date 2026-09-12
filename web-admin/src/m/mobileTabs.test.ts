@@ -27,22 +27,26 @@ test('العَلَم يُقرأ بـ=== true — لا !== false', () => {
     '`!== false` يفتح التبويب لكل شركة تعذّرت قراءة إعداداتها');
 });
 
-test('التقارير تحلّ محلّ التحصيل ولا تُضاف إليه', () => {
-  const s = read('src', 'm', 'MobileApp.tsx');
-  // التحصيل يسقط حين تُفعّل الميزة
-  assert.match(s, /t\.id === 'receipts' && dailyReportOn\) return false/,
-    'التحصيل يجب أن يسقط عند تفعيل التقرير اليومي');
-  // والتقارير لا تظهر حين تُطفأ
+test('التقارير تحلّ محلّ التحصيل — وتبقي له مقعده حين لا فواتير له', () => {
+  // القاعدة انتقلت إلى وحدةٍ نقيّة تُشغَّل على كل التباديل (tabRules.test.ts)؛
+  // وهذا يحرس صياغتها هناك، وذاك يحرس سلوكها.
+  const s = read('src', 'm', 'tabRules.ts');
+  assert.match(s, /t\.id === 'receipts' && dailyReportOn && invoicesSeat\) return false/,
+    'مقعد التحصيل يُسحب ممّن له مقعد فواتير وحده — وإلّا بقي بلا طريق');
   assert.match(s, /t\.id === 'dailyReports'\) return dailyReportOn/,
     'تبويب التقارير يجب أن يتبع العَلَم');
 });
 
-test('التبويبات لا تتجاوز خمسة في أي حالة', () => {
-  const s = read('src', 'm', 'MobileApp.tsx');
-  const block = s.slice(s.indexOf('const TABS'), s.indexOf('/** حدث تثبيت PWA'));
-  const count = (block.match(/\{ id: '/g) || []).length;
-  // ستّة معرَّفة، وواحدٌ منها بديلٌ لا إضافة — فالمعروض خمسة كحدّ أقصى
-  assert.equal(count, 6, 'عدد التبويبات المعرَّفة تغيّر — راجع أن المعروض يبقى خمسة');
+test('قائمة التبويبات المعرَّفة تطابق نسخة الاختبار النقيّ', () => {
+  /* سقف الخمسة **يُشغَّل** في tabRules.test.ts على ٢٥٦ حالة، لا يُعدّ نصّاً
+   * هنا. والباقي على هذا الحارس أن يمنع تباعد المصفوفتين: تبويبٌ يُضاف في
+   * المكوّن ولا يُضاف لنسخة الاختبار يبقى خارج البرهان كلّه. */
+  const app = read('src', 'm', 'MobileApp.tsx');
+  const block = app.slice(app.indexOf('const TABS'), app.indexOf('/** حدث تثبيت PWA'));
+  const ids = [...block.matchAll(/\{ id: '(\w+)'/g)].map(m => m[1]).sort();
+  const t = read('src', 'm', 'tabRules.test.ts');
+  const mirror = [...t.matchAll(/\{ id: '(\w+)', perm:/g)].map(m => m[1]).sort();
+  assert.deepEqual(mirror, ids, 'نسخة الاختبار تباعدت عن المصفوفة الحقيقية');
 });
 
 test('التبويب خلف صلاحية التقارير', () => {

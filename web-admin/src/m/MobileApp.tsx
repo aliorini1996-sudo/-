@@ -22,6 +22,7 @@ const MReports = lazy(() => import('./MReports'));
 const MWarehouse = lazy(() => import('./MWarehouse'));
 import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
+import { visibleTabs } from './tabRules';
 import { useBackClose } from '../lib/useBackClose';
 
 /**
@@ -43,7 +44,7 @@ const TABS: Tab[] = [
   { id: 'home', label: 'm.tabHome', icon: Home, perm: 'canAccessDashboard' },
   { id: 'invoices', label: 'm.tabInvoices', icon: FileText, perm: 'canManageInvoices' },
   { id: 'receipts', label: 'm.tabReceipts', icon: CreditCard, perm: 'canManageReceipts' },
-  // يحلّ محلّ «التحصيل» حين تُفعّل الشركة التقرير اليومي — انظر `tabs` أدناه
+  // يحلّ محلّ «التحصيل» حين تُفعّل الشركة التقرير اليومي — القاعدة في tabRules.ts
   { id: 'dailyReports', label: 'm.tabDailyReports', icon: ClipboardCheck, perm: 'canViewReports' },
   { id: 'customers', label: 'm.tabCustomers', icon: Users, perm: 'canManageCustomers' },
   { id: 'tracking', label: 'm.tabTracking', icon: MapPin, perm: 'canManageTracking' },
@@ -83,14 +84,11 @@ export default function MobileApp() {
    * خمسة تبويبات على عرض جوال، وسادسٌ يضغطها حتى تتلاصق أيقوناتها.
    * وثمنُ ذلك صريح: قائمة السندات تصير غير مبلوغة من تطبيق الجوال لشركةٍ
    * فعّلت الميزة — تبقى في لوحة الويب، ورقم تحصيل اليوم يبقى في الرئيسية. */
+  /* القاعدة نفسها في `tabRules.ts` دالّةً نقيّة — لا نسخة هنا: كانت مدفونةً
+   * في هذا الـ`useMemo` لا يبلغها اختبار، فحارسها الوحيد يعدّ سطور المصفوفة.
+   * وهي هناك مُشغَّلة على كل تباديل الصلاحيات والمفتاحين. */
   const tabs = useMemo(
-    () => TABS.filter(t => {
-      if (!can(user, t.perm)) return false;
-      if (t.id === 'dailyReports') return dailyReportOn;
-      if (t.id === 'receipts' && dailyReportOn) return false;
-      if (!accountingOn && (t.id === 'invoices' || t.id === 'receipts')) return false;
-      return true;
-    }),
+    () => visibleTabs(TABS, p => can(user, p), { accountingOn, dailyReportOn }),
     [user, accountingOn, dailyReportOn]
   );
 
