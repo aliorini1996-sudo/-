@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { resolveAttribution, contentTypeOf, makeWaCode } from '../services/attribution';
 import { computeLiveCounts, LIVE_WINDOW_MIN } from '../services/presence';
 import { riyadhDay } from '../services/requestCounter';
+import { setInfraSnapshot, getInfraSnapshot } from '../services/infraMetrics';
 
 // تحليلات زيارات الموقع التعريفي — تسجيل عام + إحصاءات لمالك المنصّة
 const router = Router();
@@ -190,10 +191,38 @@ router.get('/live-users', authenticate, requireSuperAdmin, async (_req: AuthRequ
         totalAdmins: c.totalAdmins,
         activeCompanies: companies.length,
         companies,
+        // سعة القاعدة — آخر قياس دفعته النبضة. `null` يعني «لا قياس حديث»
+        // ويُعرض فراغاً: رقمٌ بائت يُطمئن المالك زوراً.
+        infra: getInfraSnapshot(),
         serverTime: new Date().toISOString(),
       },
     });
   } catch (err) { next(err); }
+});
+
+/**
+ * استقبال قياس سعة القاعدة من النبضة الدوريّة.
+ *
+ * برمز النبضة نفسه لا بجلسة مالك: النبضة تعمل في GitHub Actions بلا مستخدم.
+ * والمقارنة `timingSafeEqual` لا `===` فلا يُسرَّب طول التطابق بزمن الردّ.
+ */
+router.post('/infra-metrics', (req: Request, res: Response) => {
+  const expected = (process.env.WA_SWEEP_TOKEN || process.env.WHATSAPP_VERIFY_TOKEN || '').trim();
+  const given = String(req.get('x-ops-token') || '').trim();
+  if (!expected) { res.status(503).json({ success: false, message: 'رمز النبضة غير مضبوط' }); return; }
+  const a = Buffer.from(given), b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) { res.sendStatus(401); return; }
+
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+  const body = req.body || {};
+  if (!n(body.memoryLimitBytes)) { res.status(400).json({ success: false, message: 'سقف الذاكرة مطلوب' }); return; }
+  setInfraSnapshot({
+    memoryBytes: n(body.memoryBytes),
+    memoryLimitBytes: n(body.memoryLimitBytes),
+    connections: n(body.connections),
+    connectionLimit: n(body.connectionLimit) || 100,
+  });
+  res.json({ success: true });
 });
 
 // المؤشّر الزمنيّ لـ«الزيارات الحية» — سلسلة لقطات الحضور عبر الوقت (للمالك فقط).

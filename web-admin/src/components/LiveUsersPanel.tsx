@@ -1,7 +1,7 @@
 import { useState, lazy, Suspense, Fragment } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '../api/client';
-import { X, RefreshCw, Radio, Truck, Users, Building2, TrendingUp, Activity, ChevronDown, Clock } from 'lucide-react';
+import { X, RefreshCw, Radio, Truck, Users, Building2, TrendingUp, Activity, ChevronDown, Clock, Database } from 'lucide-react';
 import type { HistPoint } from './LiveHistoryChart';
 import { backdropClose } from '../lib/backdropClose';
 
@@ -11,12 +11,53 @@ const RequestHistoryChart = lazy(() => import('./RequestHistoryChart'));
 
 interface LiveUser { id: string; name: string; kind: 'rep' | 'admin'; lastSeenAt: string | null }
 interface Company { tenantId: string; name: string; reps: number; admins: number; total: number; users: LiveUser[] }
+interface Infra {
+  memoryBytes: number; memoryLimitBytes: number; memoryPct: number;
+  connections: number; connectionLimit: number; connectionsPct: number;
+  at: string;
+}
 interface Live {
   windowMinutes: number;
   total: number; totalReps: number; totalAdmins: number;
   activeCompanies: number;
   companies: Company[];
+  /** سعة القاعدة — `null` حين لا قياس حديث (تُعرض فراغاً لا رقماً بائتاً) */
+  infra: Infra | null;
   serverTime: string;
+}
+
+/**
+ * سعة قاعدة البيانات — الرقم الوحيد الذي يسبق الانهيار.
+ *
+ * الخادم يعمل عند ٠٫٤٪ من طاقته بينما ذاكرة القاعدة عند ثلثيها: فالعنق الضيّق
+ * هناك لا هنا، وترقية الخادم لا تصنع شيئاً. ولذلك تُعرض ذاكرة القاعدة لا حِمل
+ * الخادم مهما بدا الثاني أوضح للعين.
+ *
+ * والفراغ حين لا قياس حديث مقصود: رقمٌ بائتٌ يُطمئن زوراً، فالصمت أصدق.
+ */
+function DbGauge({ infra }: { infra?: Infra | null }) {
+  if (!infra) return null;
+  const pct = infra.memoryPct;
+  // العتبات من قياس حيّ: ٦٧٪ هي الحالة الطبيعية اليوم، والترقية تُقرَّر عند ٨٠٪
+  const tone = pct >= 80 ? { c: '#B42318', bg: '#FEF3F2', b: '#FECDCA' }
+    : pct >= 70 ? { c: '#B54708', bg: '#FFFAEB', b: '#FEDF89' }
+    : { c: '#1E7A52', bg: '#F0FDF4', b: '#BBF7D0' };
+  return (
+    <div className="rounded-xl px-3 py-2 border flex items-center gap-2.5"
+      style={{ background: tone.bg, borderColor: tone.b }}
+      title={`ذاكرة قاعدة البيانات ${pct}% · الاتصالات ${infra.connections} من ${infra.connectionLimit}`}>
+      <Database size={15} style={{ color: tone.c }} />
+      <div className="leading-tight">
+        <p className="text-[10px] text-[#6E6557]">ذاكرة القاعدة</p>
+        <p className="text-sm font-bold" style={{ color: tone.c }}>
+          {pct}%{pct >= 80 && ' — رقِّ الخطة'}
+        </p>
+      </div>
+      <div className="w-16 h-1.5 rounded-full bg-white/70 overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, background: tone.c }} />
+      </div>
+    </div>
+  );
 }
 interface Hist { range: string; bucket: string; points: HistPoint[]; peak: number; count: number }
 
@@ -92,6 +133,7 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
   const total = data?.total ?? 0;
   const toggle = (id: string) => setExpanded(p => (p === id ? null : id));
 
+
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -118,12 +160,13 @@ export default function LiveUsersPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        {/* مبدّل الوضع */}
-        <div className="px-5 pt-4">
-          <div className="inline-flex w-full sm:w-auto bg-[#F3EDE3] rounded-xl p-0.5">
+        {/* مبدّل الوضع + سعة القاعدة */}
+        <div className="px-5 pt-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="inline-flex bg-[#F3EDE3] rounded-xl p-0.5">
             <ModeBtn active={mode === 'live'} onClick={() => { setMode('live'); setExpanded(null); }} icon={Radio} label="مباشر" />
             <ModeBtn active={mode === 'requests'} onClick={() => { setMode('requests'); setExpanded(null); }} icon={Activity} label="الطلبات" />
           </div>
+          <DbGauge infra={data?.infra} />
         </div>
 
         {/* ————— وضع «مباشر» ————— */}

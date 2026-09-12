@@ -67,9 +67,46 @@ jobs:
         id: checks
         env:
           GH_TOKEN: ${{ github.token }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          OPS_TOKEN: ${{ secrets.WA_SWEEP_TOKEN }}
         run: |
           fails=""
           note() { fails="${fails}${1}\n"; echo "::warning::$1"; }
+
+          # ٠) سعة قاعدة البيانات — الرقم الذي يسبق الانهيار.
+          #
+          # الخادم يعمل عند ٠٫٤٪ من طاقته بينما ذاكرة القاعدة عند ثلثيها، فالعنق
+          # الضيّق هناك. والقياس يُدفع أيضاً للوحة المالك كي يراه قبل أن نُنبّه.
+          #
+          # المفتاح هنا لا في الباكند عمداً: مفتاح Render يملك الحساب كلّه، فوضعه
+          # في خدمة مكشوفة للإنترنت يجعل اختراقها اختراقاً للحساب بأسره.
+          if [ -n "$RENDER_API_KEY" ]; then
+            DB_ID=dpg-d8rp9dho3t8c73ecg2r0-a
+            DB_MEM_LIMIT=268435456   # خطة basic_256mb
+            DB_CONN_LIMIT=100
+            mem=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/metrics/memory?resource=$DB_ID&resolutionSeconds=3600" \
+              | grep -oE '"value":[0-9.]+' | tail -1 | cut -d: -f2)
+            con=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/metrics/active-connections?resource=$DB_ID&resolutionSeconds=3600" \
+              | grep -oE '"value":[0-9.]+' | tail -1 | cut -d: -f2)
+            if [ -n "$mem" ]; then
+              pct=$(awk -v m="$mem" -v l="$DB_MEM_LIMIT" 'BEGIN{printf "%.0f", (m/l)*100}')
+              echo "ذاكرة القاعدة: ${pct}% · الاتصالات: ${con:-؟}"
+              # التنبيه عند ٨٠٪: يترك مهلة للترقية قبل أن يشعر عميل بشيء
+              [ "$pct" -ge 80 ] && note "ذاكرة قاعدة البيانات ${pct}% من ٢٥٦ ميغابايت — رقِّ الخطة قبل أن تمتلئ"
+              [ "${con:-0}" -ge 70 ] && note "اتصالات القاعدة ${con} من ١٠٠ — راجع حوض Prisma"
+              # ادفع القياس للوحة المالك (فشل الدفع لا يُسقط النبضة)
+              if [ -n "$OPS_TOKEN" ]; then
+                curl -s -o /dev/null --max-time 20 -X POST \
+                  -H "x-ops-token: $OPS_TOKEN" -H 'Content-Type: application/json' \
+                  -d "{\"memoryBytes\":$mem,\"memoryLimitBytes\":$DB_MEM_LIMIT,\"connections\":${con:-0},\"connectionLimit\":$DB_CONN_LIMIT}" \
+                  https://dsd-backend.onrender.com/api/analytics/infra-metrics || true
+              fi
+            else
+              note "تعذّر قياس ذاكرة قاعدة البيانات من Render"
+            fi
+          fi
 
           # ١) الباكند: حي + نضارة النشر (الكوميت المعلن مقابل HEAD)
           hj=$(curl -s --max-time 30 https://dsd-backend.onrender.com/api/health || echo "")
