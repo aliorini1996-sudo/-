@@ -282,7 +282,11 @@ router.get('/summary', async (req: Request, res: Response) => {
  * سابقة Air Canada تنطبق مضاعفةً على المال: لو تُرك المبلغ للنموذج لألزم الشركة
  * بسعرٍ اخترعه. الخادم يحسب المبلغ من الباقة والمدّة، ويتجاهل أي مبلغ وارد.
  */
-const PLAN_MONTHLY_SAR: Record<string, number> = { basic: 299, pro: 599 };
+// ⚠️ كان `{ basic: 299, pro: 599 }` بعد أن صارت الباقات ثلاثاً، فتعذّر إصدار
+// رابط بـ٣٩٩ لأحد: من قيل له في المحادثة «المتوسطة ٣٩٩» يصله رابط ميسر بـ٥٩٩.
+// ونسخةٌ ثانية من الحقيقة السعرية كانت تعرفها (`services/opsSchedule.ts`) —
+// فالموضع الذي **يُنتج المال** هو الذي تخلّف.
+const PLAN_MONTHLY_SAR: Record<string, number> = { basic: 299, growth: 399, pro: 599 };
 
 router.post('/renewal-link', async (req: Request, res: Response) => {
   if (!enabled() || !actionsEnabled()) { res.status(404).json({ success: false }); return; }
@@ -466,7 +470,8 @@ router.post('/signup-link', async (req: Request, res: Response) => {
   try {
     const body = z.object({
       phone: z.string().min(9),
-      plan: z.enum(['basic', 'pro']),          // enterprise يتولّاه المالك — لا سعر ثابت له
+      // ما زاد على عشرين مندوباً بالتفاوض — يتولّاه المالك، ولا سعر ثابت له
+      plan: z.enum(['basic', 'growth', 'pro']),
       months: z.number().int().min(1).max(12),
       companyName: z.string().min(2).max(80),
     }).parse(req.body);
