@@ -106,3 +106,20 @@ test('تاريخ التقرير يُعرض بدالّة اليوم لا بدال
     assert.match(s, /formatDayOnly\(r\.reportDate\)/, `${file.join('/')}: دالّة اليوم مفقودة`);
   }
 });
+
+test('ألفاظ خريطة الحالات في القاموس كذلك — النداء بمتغيّر لا يراه الحارس العامّ', () => {
+  const dict = read('src', 'i18n', 'strings.ts');
+  for (const [file, anchor] of [
+    [['src', 'm', 'MRepDailyLog.tsx'], 'const STATUS'],
+    [['src', 'pages', 'SalesRepsPage.tsx'], 'const DR_STATUS'],
+  ] as [string[], string][]) {
+    const s = read(...file);
+    const i = s.indexOf(anchor);
+    const map = s.slice(i, s.indexOf('};', i));
+    const labels = [...map.matchAll(/label: '([^']+)'/g)].map(m => m[1]);
+    assert.equal(labels.length, 4, `${file.join('/')}: عدد الألفاظ ${labels.length}`);
+    for (const l of labels) {
+      assert.ok(dict.includes(`'${l}':`), `${file.join('/')}: اللفظ «${l}» ليس في القاموس`);
+    }
+  }
+});

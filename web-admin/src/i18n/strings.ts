@@ -1879,6 +1879,16 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'كمية الوارد يجب أن تكون موجبة': { en: 'The received quantity must be positive', fr: 'La quantite recue doit etre positive', tr: 'Kabul miktari pozitif olmali', zh: '入库数量必须为正数' },
   'اكتب كمية غير صفرية موجبة أو سالبة': { en: 'Enter a non zero quantity, positive or negative', fr: 'Saisissez une quantite non nulle, positive ou negative', tr: 'Sifirdan farkli bir miktar girin, arti veya eksi', zh: '请输入非零数量，可为正或负' },
   'يعرض أحدث الحركات': { en: 'Showing the most recent movements', fr: 'Affiche les mouvements les plus recents', tr: 'En son hareketler gosteriliyor', zh: '显示最近的库存变动' },
+  // ——— كشف حساب العميل في تطبيق الإدارة ———
+  'لا حركات في هذا المدى': { en: 'No movements in this range', fr: 'Aucun mouvement dans cette periode', tr: 'Bu aralikta hareket yok', zh: '该期间没有流水' },
+  'لا حركات بعد': { en: 'No movements yet', fr: 'Aucun mouvement pour le moment', tr: 'Henuz hareket yok', zh: '暂无流水' },
+  'أصناف أخرى': { en: 'more items', fr: 'autres articles', tr: 'diger urunler', zh: '项其他商品' },
+  'مجموع المدين': { en: 'Total debit', fr: 'Total debit', tr: 'Borc toplami', zh: '借方合计' },
+  'مجموع الدائن': { en: 'Total credit', fr: 'Total credit', tr: 'Alacak toplami', zh: '贷方合计' },
+  // ——— أنواع قيود كشف الحساب ———
+  'إلغاء أو مرتجع': { en: 'Cancellation or return', fr: 'Annulation ou retour', tr: 'Iptal veya iade', zh: '取消或退货' },
+  'عكس تحصيل': { en: 'Collection reversal', fr: 'Contrepassation de reglement', tr: 'Tahsilat ters kaydi', zh: '收款冲销' },
+  'رصيد نهاية الفترة': { en: 'Period closing balance', fr: 'Solde de fin de periode', tr: 'Donem sonu bakiyesi', zh: '期末余额' },
 };
 
 export function useTr() {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Plus, Phone, MapPin, Pencil, ChevronLeft, FileText, Wallet } from 'lucide-react';
+import { Search, Plus, Phone, MapPin, Pencil, ChevronLeft, FileText, Wallet, BookOpen } from 'lucide-react';
 import { customerApi } from '../api/client';
 import { Customer } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -16,6 +16,9 @@ import { expectArray, expectObject } from './shape';
 
 const MInvoiceCreate = lazy(() => import('./MInvoiceCreate'));
 const MReceiptCreate = lazy(() => import('./MReceiptCreate'));
+/* الكشف في حزمة مستقلّة: لا يُفتح في كل زيارةٍ لملفّ عميل، ويجرّ معه مستند
+ * الطباعة (jspdf) حين يُصدَّر */
+const MCustomerStatement = lazy(() => import('./MCustomerStatement'));
 
 const PAGE = 30;
 
@@ -26,11 +29,13 @@ const PAGE = 30;
  * التحميل تراكميّ لا مُرقَّم: الترقيم على الجوال يعني ضغطاتٍ صغيرة متكرّرة،
  * والتمرير أطبعُ للإبهام.
  */
-export default function MCustomers({ accountingOn = true }: {
+export default function MCustomers({ accountingOn = true, company }: {
   /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false يسقط كل رقمٍ ماليّ عن
    *  العميل (الرصيد والحدّ الائتمانيّ ومدة السداد والمبيعات والتحصيل) ويسقط
    *  معه بابا «فاتورة جديدة» و«سند قبض». */
   accountingOn?: boolean;
+  /** إعدادات الشركة — لترويسة كشف الحساب المطبوع وحدها */
+  company?: unknown;
 }) {
   const tr = useTr();
   const [q, setQ] = useState('');
@@ -67,7 +72,7 @@ export default function MCustomers({ accountingOn = true }: {
 
   if (detail) {
     return (
-      <MCustomerDetail customer={detail} accountingOn={accountingOn}
+      <MCustomerDetail customer={detail} accountingOn={accountingOn} company={company}
         onClose={() => setDetail(null)} onEdit={() => setEditing(detail)} />
     );
   }
@@ -137,20 +142,27 @@ function CustomerRow({ c, accountingOn, onOpen }: {
 }
 
 /** تفاصيل العميل — ملء الشاشة، بقيّة الحقول وأزرار الإجراءات */
-function MCustomerDetail({ customer, accountingOn, onClose, onEdit }: {
-  customer: Customer; accountingOn: boolean; onClose: () => void; onEdit: () => void;
+function MCustomerDetail({ customer, accountingOn, company, onClose, onEdit }: {
+  customer: Customer; accountingOn: boolean; company?: unknown; onClose: () => void; onEdit: () => void;
 }) {
   const tr = useTr();
   const lang = useLang(s => s.lang);
   const user = useAuthStore(s => s.user);
   const [doc, setDoc] = useState<'invoice' | 'receipt' | null>(null);
+  const [statement, setStatement] = useState(false);
   useBackClose(!!doc, () => setDoc(null));
+  useBackClose(statement, () => setStatement(false));
 
   /* بابا الإنشاء كانا معروضين بلا أيّ فحص — لا للصلاحية ولا للمفتاح — فيفتح
    * مستخدمٌ بلا صلاحية الفواتير شاشةَ فاتورةٍ يردّها الخادم ٤٠٣ عند الحفظ،
    * وتراها شركةٌ بلا نظام محاسبيّ أصلاً. الفحصان هنا معاً. */
   const canInvoice = accountingOn && can(user, 'canManageInvoices');
   const canReceipt = accountingOn && can(user, 'canManageReceipts');
+  /* والكشف حركاتٌ ومدين ودائن ورصيد — مالٌ صراح، فيسقط مع النظام المحاسبي
+   * كما تسقط بطاقات الأرصدة أعلى الشاشة. ولا صلاحيةَ ثانيةً تحرسه في الخادم
+   * لمستخدم اللوحة (المندوب وحده يحتاج `canViewStatement`)، فمن بلغ ملفّ
+   * العميل يقرأ كشفه. */
+  const canStatement = accountingOn;
 
   // نجلب النسخة الحيّة: البطاقة في القائمة قد تكون قديمة بعد تعديل
   const q = useQuery({
@@ -166,6 +178,16 @@ function MCustomerDetail({ customer, accountingOn, onClose, onEdit }: {
    * نفسها لحظة وصولها، بلا تحديث حالةٍ أثناء الرسم. */
   const openDoc = doc === 'invoice' ? (canInvoice ? 'invoice' : null)
     : doc === 'receipt' ? (canReceipt ? 'receipt' : null) : null;
+  /* الحارس مشتقٌّ لا حالة، كنظيره أدناه: شاشةٌ فُتحت قبل وصول إعدادات الشركة
+   * تُطوى من تلقاء نفسها لحظة وصولها بـ`accountingEnabled:false`. */
+  if (statement && canStatement) {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        <MCustomerStatement customer={c} company={company} repName={user?.name || tr('الإدارة')}
+          onClose={() => setStatement(false)} />
+      </Suspense>
+    );
+  }
   if (openDoc) {
     return (
       <Suspense fallback={<MSpinner />}>
@@ -235,8 +257,8 @@ function MCustomerDetail({ customer, accountingOn, onClose, onEdit }: {
 
         {/* إجراءان مباشران لهذا العميل — بلا إعادة اختياره في الشاشة التالية.
             وكلٌّ خلف حارسَيه: صلاحية المستخدم ومفتاح النظام المحاسبي. */}
-        {(canInvoice || canReceipt) && (
-          <div className={`grid gap-2.5 ${canInvoice && canReceipt ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        {(canInvoice || canReceipt || canStatement) && (
+          <div className={`grid gap-2.5 ${[canInvoice, canReceipt, canStatement].filter(Boolean).length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
             {canInvoice && (
               <button onClick={() => setDoc('invoice')}
                 className="rounded-2xl border border-[#E9E1D3] bg-white p-3.5 min-h-[76px] flex flex-col items-center justify-center gap-1.5">
@@ -249,6 +271,13 @@ function MCustomerDetail({ customer, accountingOn, onClose, onEdit }: {
                 className="rounded-2xl border border-[#E9E1D3] bg-white p-3.5 min-h-[76px] flex flex-col items-center justify-center gap-1.5">
                 <Wallet size={19} className="text-[#2F855A]" />
                 <span className="text-[11px] font-semibold text-[#1F1A13]">{tr('سند قبض')}</span>
+              </button>
+            )}
+            {canStatement && (
+              <button onClick={() => setStatement(true)}
+                className="rounded-2xl border border-[#E9E1D3] bg-white p-3.5 min-h-[76px] flex flex-col items-center justify-center gap-1.5">
+                <BookOpen size={19} className="text-[#2B6CB0]" />
+                <span className="text-[11px] font-semibold text-[#1F1A13]">{tr('كشف حساب')}</span>
               </button>
             )}
           </div>

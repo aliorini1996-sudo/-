@@ -1,6 +1,7 @@
 import { forwardRef, useRef, useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
+import { periodShape, statementFinalBalance } from './statementFacts';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
@@ -124,6 +125,9 @@ export interface StatementDoc {
   fromDate?: string;
   toDate?: string;
   entries: StatementEntry[];
+  /** رصيد ما قبل الفترة — يُطبع صفّاً أوّل حين تكون للكشف بداية.
+   *  بدونه يبدأ عمود الرصيد من رقمٍ لا تُنتجه أيّ حركةٍ في الورقة. */
+  openingBalance?: number;
   totalDebit: number;
   totalCredit: number;
   finalBalance: number;
@@ -540,7 +544,14 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
   const addr = fullAddress(doc.customer);
-  const period = doc.fromDate && doc.toDate ? `${formatDate(doc.fromDate)} — ${formatDate(doc.toDate)}` : tr('كل الفترات');
+  /* كل طرفٍ على حدة: اشتراطُ الطرفين كان يطبع «كل الفترات» على كشفٍ مُصفّى
+   * بطرفٍ واحد — ورقةٌ تقول للعميل إنّها تاريخه كلّه وهي شهرٌ منه. (ولم يظهر
+   * قبل اليوم لأنّ كلّ المستدعين كانوا يطلبون الكشف بلا مدّة.) */
+  const shape = periodShape(doc.fromDate, doc.toDate);
+  const period = shape === 'range' ? `${formatDate(doc.fromDate as string)} — ${formatDate(doc.toDate as string)}`
+    : shape === 'from' ? `${tr('من')} ${formatDate(doc.fromDate as string)}`
+    : shape === 'to' ? `${tr('حتى')} ${formatDate(doc.toDate as string)}`
+    : tr('كل الفترات');
   // عدد الأصناف المباعة (مجموع الكميات) — يظهر في صف الإجماليات أسفل الكشف
   const soldUnits = (() => {
     const m = new Map<string, number>();
@@ -595,6 +606,18 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
           </tr>
         </thead>
         <tbody>
+          {/* الرصيد المرحَّل صفّاً أوّل — كما يعرضه تطبيق الإدارة فوق الحركات */}
+          {doc.fromDate && doc.openingBalance !== undefined && (
+            <tr style={{ background: '#f8fafc' }}>
+              <td style={{ ...td }}>-</td>
+              <td style={{ ...td }}>{formatDate(doc.fromDate)}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{tr('رصيد مرحل من قبل الفترة')}</td>
+              <td style={{ ...td }}>-</td>
+              <td style={{ ...td, color: '#cbd5e1' }}>-</td>
+              <td style={{ ...td, color: '#cbd5e1' }}>-</td>
+              <td style={{ ...td, fontWeight: 700 }}>{formatCurrency(doc.openingBalance)}</td>
+            </tr>
+          )}
           {doc.entries.length === 0 ? (
             <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={7}>{tr('لا توجد حركات في هذه الفترة')}</td></tr>
           ) : doc.entries.map((e, i) => (
@@ -900,7 +923,15 @@ export function receiptDocFromDetail(rcp: any, repName: string, company?: Compan
 
 export function statementDocFromData(
   customer: any, entries: any[], repName: string, company?: Company | null,
-  range?: { from?: string; to?: string }
+  /**
+   * مدّة الكشف وطرفا رصيدها **كما حسبهما الخادم**.
+   *
+   * `closingBalance` ليس تزيّداً: عند مدّةٍ بلا حركات كان المستند يسقط إلى
+   * `customer.balance` — وهي لقطةٌ لكلّ الزمن يحذّر الخادم نفسه من قراءتها
+   * (اقرأ تعليقه في `/statement`). فتطبع ورقةُ شهرٍ ساكنٍ رصيدَ اليوم مطالَباً
+   * به عن ذلك الشهر. والمستدعون القدامى لا يمرّرون شيئاً فيبقى سلوكهم كما كان.
+   */
+  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number }
 ): StatementDoc {
   const mapped: StatementEntry[] = entries.map((e: any) => ({
     date: e.entryDate,
@@ -915,7 +946,11 @@ export function statementDocFromData(
   }));
   const totalDebit = mapped.reduce((s, e) => s + e.debit, 0);
   const totalCredit = mapped.reduce((s, e) => s + e.credit, 0);
-  const finalBalance = mapped.length ? mapped[mapped.length - 1].balance : Number(customer.balance ?? 0);
+  const finalBalance = statementFinalBalance({
+    closingBalance: range?.closingBalance,
+    lastEntryBalance: mapped.length ? mapped[mapped.length - 1].balance : undefined,
+    customerBalance: Number(customer.balance ?? 0),
+  });
   return {
     kind: 'statement',
     company: company ?? null,
@@ -924,6 +959,7 @@ export function statementDocFromData(
     date: new Date().toISOString(),
     fromDate: range?.from,
     toDate: range?.to,
+    openingBalance: range?.openingBalance,
     entries: mapped,
     totalDebit,
     totalCredit,

@@ -309,7 +309,7 @@ function ScreenBody({ screen, company, userName, accountingOn, allowedSections, 
   if (screen === 'home') {
     return <MHome accountingOn={accountingOn} allowedSections={allowedSections} onOpenSection={onOpenSection} />;
   }
-  if (screen === 'customers') return <MCustomers accountingOn={accountingOn} />;
+  if (screen === 'customers') return <MCustomers accountingOn={accountingOn} company={company} />;
   // key ضروريّ: المكوّنان في الموضع نفسه من الشجرة ومن النوع نفسه، فيوفّق
   // React بينهما ويحتفظ بالحالة — فيبقى مستندٌ مفتوحاً عند تبديل التبويب
   // ويُطلَب بمعرّف فاتورة ونوع سند. ويكسر ذلك مكدّس الرجوع أيضاً.
