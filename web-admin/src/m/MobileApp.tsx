@@ -94,10 +94,27 @@ export default function MobileApp() {
     [user, accountingOn, dailyReportOn]
   );
 
-  // أوّل تبويب مسموح يصير الشاشة الافتراضية، فلا تُفتح القوقعة على شاشة محجوبة
+  /* ═══ شاشةٌ متاحةٌ بلا مقعد ═══
+   *
+   * «التقارير اليومية» تحلّ محلّ «التحصيل» في الشريط السفليّ حين تُفعّلها
+   * الشركة (المقاعد خمسة وقد امتلأت)، فتصير شاشة السندات بلا طريقٍ في التطبيق
+   * كلّه — لا من تبويب ولا من بلاطة. وهي شاشةٌ يملك المستخدم صلاحيتها ويحتاجها
+   * يومياً. فتُبلَغ من شاشة الفواتير بزرٍّ في أعلاها.
+   *
+   * والشرط ثلاثيّ يطابق شرط التبويب حرفاً: لا مقعد لها · النظام المحاسبيّ
+   * مفعّل · وله صلاحية السندات. وإسقاط أيٍّ منها يعطي زرّاً يُفضي إلى شاشةٍ
+   * فارغة أو إلى ٤٠٣. */
+  const receiptsSeatless = !tabs.some(t => t.id === 'receipts')
+    && accountingOn && can(user, 'canManageReceipts');
+
+  // أوّل تبويب مسموح يصير الشاشة الافتراضية، فلا تُفتح القوقعة على شاشة محجوبة.
+  // و«بلا مقعد» ليست «محجوبة»: بلوغها من زرٍّ لا من تبويب، فلا تُرتدّ عنه.
   useEffect(() => {
-    if (tabs.length && !tabs.some(t => t.id === screen)) setScreen(tabs[0].id);
-  }, [tabs, screen]);
+    if (!tabs.length) return;
+    if (tabs.some(t => t.id === screen)) return;
+    if (screen === 'receipts' && receiptsSeatless) return;
+    setScreen(tabs[0].id);
+  }, [tabs, screen, receiptsSeatless]);
 
   /* بلاطات أقسام الإدارة في الرئيسية — تُحسب هنا لا في MHome: الصلاحيات شأن
    * القوقعة، والشاشة تعرض ما يُعطى لها. والمنع عند `false` الصريحة وحدها كبقيّة
@@ -129,8 +146,24 @@ export default function MobileApp() {
   useBackClose(!!(!token || !user) && showLogin, () => setShowLogin(false));
   // القسم الإداريّ فوق التبويبات، فيُغلق أوّلاً عند الرجوع
   useBackClose(!!section, () => setSection(null));
+  /* والرجوع من الشاشة بلا مقعد يعود إلى **من فتحها** لا إلى الرئيسية: زرُّ
+   * التحويل فتحها من الفواتير، فالرجوع نقضُ تلك الخطوة لا قفزٌ فوقها.
+   *
+   * وهي **طبقةٌ ثانية** لا وجهةٌ ثانية للطبقة الجذر — وهذا ليس تنظيماً:
+   * `useBackClose` يسحب الطبقة من المكدّس **قبل** استدعاء `close` (اقرأ
+   * `onPop`)، ولا يعيد تسجيلها إلّا حين يتحوّل `open`، وهو تبعيّة التأثير
+   * الوحيدة. فإغلاقٌ يترك شرطَ طبقته صادقاً يترك المكوّن يظنّ طبقته مسجّلةً
+   * وقد زالت من المكدّس: الضغطة التالية لا تجد طبقةً فتخرج من التطبيق
+   * (يُغلق التطبيق المثبَّت، ويغادر تبويبُ المتصفّح الصفحة).
+   *
+   * والجذر كان يفعل ذلك حرفاً: الرجوع من السندات إلى «الفواتير» يُبقي
+   * `screen !== tabs[0].id` صادقاً حين تكون الأولى «الرئيسية». وبالطبقتين
+   * المتنافيتين يتحوّل شرطُ كلٍّ منهما عند الانتقال، فتُسجَّل التالية دائماً. */
+  const onSeatlessDoc = !!token && !!user && !section && tabs.length > 0
+    && screen === 'receipts' && receiptsSeatless;
+  useBackClose(onSeatlessDoc, () => setScreen('invoices'));
   useBackClose(
-    !!token && !!user && !section && tabs.length > 0 && screen !== tabs[0].id,
+    !!token && !!user && !section && tabs.length > 0 && !onSeatlessDoc && screen !== tabs[0].id,
     () => setScreen(tabs[0].id),
   );
 
@@ -223,16 +256,20 @@ export default function MobileApp() {
         {tabs.length === 0
           ? <MEmpty text={tr('لا تملك صلاحية أي قسم في التطبيق راجع مدير الشركة')} />
           : <ScreenBody screen={screen} company={company} userName={user.name} accountingOn={accountingOn}
-              allowedSections={allowedSections} onOpenSection={setSection} />}
+              allowedSections={allowedSections} onOpenSection={setSection}
+              onSwitchDoc={receiptsSeatless ? (k => setScreen(k === 'receipt' ? 'receipts' : 'invoices')) : undefined} />}
       </div>
 
       {/* الشريط السفليّ — يُخفى إن لم يبقَ تبويب مسموح */}
       {tabs.length > 0 && (
         <div className="flex-shrink-0 bg-white border-t border-gray-100 flex px-2 py-1.5"
           style={{ paddingBottom: 'calc(0.375rem + env(safe-area-inset-bottom))' }}>
+          {/* الشاشة بلا مقعدٍ تُضيء مقعد من فتحها: شريطٌ سفليٌّ بلا أيّ مقعدٍ
+              مُضاء يقول للمستخدم إنّه «خارج التطبيق». */}
           {tabs.map(t => {
             const Icon = t.icon;
-            const active = screen === t.id;
+            const active = screen === t.id
+              || (screen === 'receipts' && receiptsSeatless && t.id === 'invoices');
             return (
               <button key={t.id} onClick={() => setScreen(t.id)}
                 className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-xl min-h-[48px] ${active ? 'text-[#E15A30]' : 'text-gray-400'}`}>
@@ -264,9 +301,11 @@ export default function MobileApp() {
 }
 
 /** شاشات التبويبات */
-function ScreenBody({ screen, company, userName, accountingOn, allowedSections, onOpenSection }: {
+function ScreenBody({ screen, company, userName, accountingOn, allowedSections, onOpenSection, onSwitchDoc }: {
   screen: Screen; company: unknown; userName: string; accountingOn: boolean;
   allowedSections: HomeSection[]; onOpenSection: (s: HomeSection) => void;
+  /** يُعطى حين تكون إحدى شاشتَي المستندات بلا مقعد — وإلّا `undefined` فلا يظهر الزرّ */
+  onSwitchDoc?: (k: 'invoice' | 'receipt') => void;
 }) {
   const tr = useTr();
   if (screen === 'home') {
@@ -276,8 +315,8 @@ function ScreenBody({ screen, company, userName, accountingOn, allowedSections, 
   // key ضروريّ: المكوّنان في الموضع نفسه من الشجرة ومن النوع نفسه، فيوفّق
   // React بينهما ويحتفظ بالحالة — فيبقى مستندٌ مفتوحاً عند تبديل التبويب
   // ويُطلَب بمعرّف فاتورة ونوع سند. ويكسر ذلك مكدّس الرجوع أيضاً.
-  if (screen === 'invoices') return <MDocList key="invoice" kind="invoice" company={company} userName={userName} />;
-  if (screen === 'receipts') return <MDocList key="receipt" kind="receipt" company={company} userName={userName} />;
+  if (screen === 'invoices') return <MDocList key="invoice" kind="invoice" company={company} userName={userName} onSwitchKind={onSwitchDoc} />;
+  if (screen === 'receipts') return <MDocList key="receipt" kind="receipt" company={company} userName={userName} onSwitchKind={onSwitchDoc} />;
   if (screen === 'dailyReports') return <MDailyReports />;
   // الخريطة (leaflet) في حزمة كسولة: لا يدفع ثمنها من لم يفتح التبويب
   return (

@@ -29,10 +29,16 @@ type Kind = 'invoice' | 'receipt';
  * والوقت من `clientCreatedAt` حين يوجد: مستند أُصدر أوف‑لاين ورُفع بعد ساعات
  * تاريخُه الحقيقيّ لحظة إصداره عند العميل لا لحظة وصوله للخادم.
  */
-export default function MDocList({ kind, company, userName }: {
+export default function MDocList({ kind, company, userName, onSwitchKind }: {
   kind: Kind;
   company: unknown;
   userName: string;
+  /**
+   * التحويل إلى النوع الآخر — يُمرَّر **فقط حين يكون الآخر بلا مقعد** في
+   * الشريط السفليّ (تُفصّله القوقعة). فالزرّ طريقٌ بديل لا اختصارٌ مكرَّر:
+   * إظهاره وللنوع الآخر تبويبُه يعني مدخلين لشاشةٍ واحدة على عرض ٣٦٠px.
+   */
+  onSwitchKind?: (k: Kind) => void;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
@@ -123,11 +129,29 @@ export default function MDocList({ kind, company, userName }: {
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
       <div className="flex-shrink-0 p-3 pb-2 flex items-center gap-2">
-        <div className="relative flex-1">
+        {/* `min-w-0` لا زينة: عنصر flex لا ينكمش تحت عرضه الذاتيّ الأدنى، وحقل
+            الإدخال عرضه الذاتيّ ~١٨٠px. فبزرّ التحويل (~٩١px) والإضافة (٤٤px)
+            يتجاوز الصفّ ٣٢٠px ويفيض. وهذه هي الفتحة الوحيدة التي يسمح بها. */}
+        <div className="relative flex-1 min-w-0">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
           <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
             placeholder={kind === 'invoice' ? tr('ابحث برقم الفاتورة أو العميل') : tr('ابحث برقم السند أو العميل')} />
         </div>
+        {/* التحويل إلى النوع الآخر — بأيقونته ولونه هو لا أيقونة الشاشة الحاليّة:
+            الزرّ يعِد بوجهته. ونصّه معه لا وحدها: من فقد تبويب «التحصيل» يبحث
+            عن اسمه، وأيقونةٌ صامتة بين حقل بحثٍ وزرّ إضافة لا يقرؤها أحد. */}
+        {onSwitchKind && (
+          <button type="button" onClick={() => onSwitchKind(kind === 'invoice' ? 'receipt' : 'invoice')}
+            title={kind === 'invoice' ? tr('التحصيل') : tr('الفواتير')}
+            aria-label={kind === 'invoice' ? tr('التحصيل') : tr('الفواتير')}
+            className={`h-11 rounded-xl px-2.5 flex items-center gap-1.5 flex-shrink-0 border font-semibold text-[11px] ${
+              kind === 'invoice'
+                ? 'border-[#BEE3CF] bg-[#EAF6F0] text-[#2F855A]'
+                : 'border-[#F7D6C7] bg-[#FBEBE2] text-[#C94E28]'}`}>
+            {kind === 'invoice' ? <CreditCard size={17} /> : <FileText size={17} />}
+            <span className="whitespace-nowrap">{kind === 'invoice' ? tr('التحصيل') : tr('الفواتير')}</span>
+          </button>
+        )}
         <button onClick={() => setCreating(true)}
           className={`w-11 h-11 rounded-xl text-white flex items-center justify-center flex-shrink-0 ${kind === 'invoice' ? 'bg-[#E15A30]' : 'bg-[#2F855A]'}`}
           aria-label={kind === 'invoice' ? tr('فاتورة جديدة') : tr('سند جديد')}>
