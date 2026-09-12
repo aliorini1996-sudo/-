@@ -40,7 +40,11 @@ test('إعادة الترقيم تُزامن كل ما يشير إلى الرق�
   assert.match(s, /async function renumberLevels/, 'دالّة إعادة الترقيم مفقودة');
   // ثلاثة يشيرون إلى الرقم: المهامّ الواقفة · خانات النموذج · مؤشّر التقرير
   const i = s.indexOf('async function renumberLevels');
-  const body = s.slice(i, i + 1200);
+  /* الجسم كلّه لا شريحةٌ بعدد أحرف: شريحةٌ ثابتة يُعطّلها تعليقٌ يُضاف داخل
+   * الدالّة فيدفع السطر المحروس خارجها — حارسٌ يصمت بلا أن يكسر شيئاً. */
+  const end = s.indexOf('\n}', i);
+  assert.ok(end > i, 'تعذّر تحديد نهاية الدالّة');
+  const body = s.slice(i, end);
   assert.match(body, /dailyReportTask\.updateMany/, 'المهامّ لا تُزامَن');
   assert.match(body, /dailyReportField\.updateMany/, 'خانات النموذج لا تُزامَن');
   assert.match(body, /dailyReport\.updateMany/, 'مؤشّر التقرير لا يُزامَن');

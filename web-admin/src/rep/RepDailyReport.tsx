@@ -62,16 +62,21 @@ export default function RepDailyReport({ onDone }: { onDone?: () => void }) {
   const [offline, setOffline] = useState(false);
 
   const today = deviceDay();
+  /* اليوم المعروض قد لا يكون يوم الجهاز: تقريرٌ أُعيد للتصحيح أمس يجب أن
+   * يُفتح ويُصحَّح، وشاشةٌ مقفولة على `today` كانت تحبسه إلى الأبد. */
+  const [activeDate, setActiveDate] = useState(deviceDay());
+  const [returnedElsewhere, setReturnedElsewhere] = useState<{ reportDate: string; reason: string | null } | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const res = await repApi.get('/daily-reports/form', { params: { date: today } });
+      const res = await repApi.get('/daily-reports/form', { params: { date: activeDate } });
       const d = res.data.data;
       setFields(d.fields || []);
       setReport(d.report || null);
       setReturnReason(d.returnReason || null);
       setChainIssues(d.chainIssues || []);
+      setReturnedElsewhere(d.returnedElsewhere || null);
       // إعادة تعبئة ما كتبه سابقاً حين يكون التقرير مُعاداً للتصحيح
       if (d.report) {
         const m: Record<string, string> = {};
@@ -90,7 +95,7 @@ export default function RepDailyReport({ onDone }: { onDone?: () => void }) {
     setLoading(false);
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeDate]);
 
   const locked = report && (report.status === 'SUBMITTED' || report.status === 'IN_REVIEW' || report.status === 'APPROVED');
 
@@ -103,9 +108,10 @@ export default function RepDailyReport({ onDone }: { onDone?: () => void }) {
     // الجولة **القادمة** لا المخزَّنة: بعد الإعادة تكون round=1 في القاعدة،
     // فمفتاحٌ مبنيّ عليها يساوي مفتاح الرفع الأول — فيردّ الخادم «تمّ» بلا أن
     // يكتب شيئاً، ويعلق التقرير في «أعيد للتصحيح» أبداً.
-    const clientRef = `dr-${currentRepId()}-${today}-${(report?.round ?? 0) + 1}`;
+    // المفتاح والتاريخ يتبعان **اليوم المعروض**: تصحيحُ تقرير أمسِ يُرفع لأمس
+    const clientRef = `dr-${currentRepId()}-${activeDate}-${(report?.round ?? 0) + 1}`;
     const payload = {
-      reportDate: today,
+      reportDate: activeDate,
       tzOffsetMin: -new Date().getTimezoneOffset(),
       clientCreatedAt: new Date().toISOString(),
       clientRef,
@@ -183,6 +189,33 @@ export default function RepDailyReport({ onDone }: { onDone?: () => void }) {
       </div>
 
       {/* سبب الإعادة — يظهر فوق النموذج لا في سجلٍّ مطويّ */}
+      {/* يومٌ سابق أُعيد للتصحيح — المدخل الوحيد إليه، وبدونه يعلق إلى الأبد */}
+      {returnedElsewhere && returnedElsewhere.reportDate !== activeDate && (
+        <button type="button" onClick={() => setActiveDate(returnedElsewhere.reportDate)}
+          className="w-full text-start bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
+          <p className="text-xs font-bold text-amber-800">
+            {tr('تقرير يوم')} {returnedElsewhere.reportDate} {tr('أعيد إليك للتصحيح')}
+          </p>
+          {returnedElsewhere.reason && (
+            <p className="text-[11px] text-amber-700 mt-1 leading-relaxed">{returnedElsewhere.reason}</p>
+          )}
+          <p className="text-[11px] font-bold text-amber-900 mt-1.5">{tr('افتحه وصححه')}</p>
+        </button>
+      )}
+
+      {/* تنبيهٌ صريح حين لا يكون المعروض يوم الجهاز — وإلا ظنّ أنّه يرفع اليوم */}
+      {activeDate !== today && (
+        <div className="flex items-center justify-between gap-2 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl p-3 mb-3">
+          <p className="text-xs text-[#1E40AF]">
+            {tr('تعرض تقرير يوم')} <b>{activeDate}</b> {tr('لا تقرير اليوم')}
+          </p>
+          <button type="button" onClick={() => setActiveDate(today)}
+            className="text-xs font-bold text-[#1E40AF] underline flex-shrink-0">
+            {tr('عد لليوم')}
+          </button>
+        </div>
+      )}
+
       {report?.status === 'RETURNED' && returnReason && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-800 text-sm flex gap-2">
           <RotateCcw size={18} className="shrink-0 mt-0.5" />

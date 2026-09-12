@@ -29,6 +29,31 @@ router.use(requireDailyReport);
 
 const actorName = (req: AuthRequest) => req.user?.name || 'مستخدم';
 
+/**
+ * هل يملك هذا المستخدم حقّ فعلٍ إداريّ على التقارير؟
+ *
+ * تُقرأ الصلاحية **من القاعدة** لا من `req.user` — التوكن لا يحمل الصلاحيات،
+ * وقراءتها منه كانت ستعطي `undefined` فتمرّ كأنّها ممنوحة. والدور ADMIN يمرّ
+ * دائماً: هو مالك الشركة في هذا النظام.
+ */
+async function hasDailyReportAdminRight(req: AuthRequest): Promise<boolean> {
+  const uid = req.user?.id;
+  if (!uid) return false;
+  if (req.user?.role === 'ADMIN') return true;
+  const row = await prisma.admin.findUnique({
+    where: { id: uid },
+    select: { canViewReports: true, canManageDailyReport: true },
+  });
+  if (!row) return false;
+  // `!== false` لا `=== true`: مستخدمو الشركة القدامى أُنشئوا قبل أعمدة الصلاحيات
+  return row.canViewReports !== false || row.canManageDailyReport === true;
+}
+
+/** يُنقل عبر المعاملة ليُترجَم إلى ٤٠٩ خارجها — لا خطأ خادم */
+class StuckLevels extends Error {
+  constructor(public count: number) { super('stuck'); }
+}
+
 /** يقرأ تعريف السلسلة كاملاً لهذه الشركة */
 async function loadChain(tid: string) {
   const [levels, owners, ownerReps] = await Promise.all([
@@ -90,6 +115,16 @@ router.get('/form', async (req: AuthRequest, res: Response, next: NextFunction) 
       loadChain(tid),
     ]);
 
+    /* تقريرٌ أُعيد للتصحيح في يومٍ **آخر** — وهو الحالة الأشيع لا النادرة:
+     * المندوب يرفع مساءً والمراجعة تقع صباح الغد، فحين يفتح تطبيقه يرى يومه
+     * الجديد ولا سبيل له إلى المُعاد. وبلا هذا الحقل يعلق التقرير «مُعاداً»
+     * إلى الأبد ويُجمّد حصيلة يومه، ولا أحد في المنصّة يستطيع إصلاحه. */
+    const returnedElsewhere = await prisma.dailyReport.findFirst({
+      where: { tenantId: tid, salesRepId, status: 'RETURNED', reportDate: { not: date } },
+      orderBy: { reportDate: 'asc' },
+      include: { steps: { where: { action: 'RETURN' }, orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+
     // المندوب يملأ ما لا مستوى له (fillLevelSeq = null)
     const repFields = fields.filter(f => f.fillLevelSeq === null);
     const issues = chainIssues(chain.levels, chain.owners);
@@ -105,6 +140,13 @@ router.get('/form', async (req: AuthRequest, res: Response, next: NextFunction) 
           : null,
         chainReady: issues.length === 0,
         chainIssues: issues,
+        // يومٌ آخر ينتظر تصحيح المندوب — الشاشة تعرضه وتفتحه
+        returnedElsewhere: returnedElsewhere
+          ? {
+              reportDate: returnedElsewhere.reportDate,
+              reason: returnedElsewhere.steps[0]?.reason ?? null,
+            }
+          : null,
       },
     });
   } catch (err) { next(err); }
@@ -144,6 +186,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const isRep = req.user!.role === 'SALES_REP';
     const salesRepId = isRep ? req.user!.id : String(body.salesRepId || '');
     if (!salesRepId) { res.status(400).json({ success: false, message: 'المندوب مطلوب' }); return; }
+    /* الرفع نيابةً عن مندوب **فعلٌ إداريّ** يحتاج صلاحيته صراحةً. حارسا
+     * `/admin` و`/config` مركَّبان على فرعيهما وحدهما، فكان هذا المسار يقبل أيّ
+     * مستخدم شركة — ولو أُنشئ بلا صلاحية تقارير ولا يرى الوحدة أصلاً — فيرفع
+     * إقراراً باسم مندوب أو يستبدل إقراراً أُعيد إليه للتصحيح.
+     * وفحص النطاق وحده لا يكفي: `canAccessRep` تعيد true بلا استعلام حين يكون
+     * عزل النطاق مطفأً — وهو مطفأ افتراضياً. */
+    if (!isRep && !(await hasDailyReportAdminRight(req))) {
+      res.status(403).json({ success: false, message: 'لا تملك صلاحية رفع تقرير نيابةً عن مندوب' });
+      return;
+    }
     if (!isRep && !(await canAccessRep(req, tid, salesRepId))) {
       res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return;
     }
@@ -290,11 +342,15 @@ router.get('/admin/inbox', async (req: AuthRequest, res: Response, next: NextFun
     if (!myOwnerIds.length) { res.json({ success: true, data: [] }); return; }
     const myLevelIds = [...new Set(chain.owners.filter(o => o.adminId === me).map(o => o.levelId))];
 
+    /* النطاق يدخل الاستعلام نفسه لا يُصفّى بعده: المرشّح السابق كان يقرأ
+     * `salesRepId.in` من كائنٍ لا يحمله، فلا يُقصي أحداً — كودٌ ميت. */
     const scope = await scopedRepRecordWhere(req);
+    /* والترتيب **بالأحدث** لا بالأقدم: السقف ٢٠٠ يقع قبل تصفية الملكية، فبالأقدم
+     * كانت مهامّ اليوم تسقط خارج النافذة وتختفي من الصندوق بلا أثر. */
     const tasks = await prisma.dailyReportTask.findMany({
-      where: { tenantId: tid, state: 'PENDING', levelId: { in: myLevelIds } },
+      where: { tenantId: tid, state: 'PENDING', levelId: { in: myLevelIds }, report: { is: scope } },
       include: { report: { include: { salesRep: { select: { id: true, name: true } } } } },
-      orderBy: { createdAt: 'asc' }, take: 200,
+      orderBy: { createdAt: 'desc' }, take: 200,
     });
 
     // التوجيه يُطبَّق بعد الاستعلام: المهمّة للمستوى، والملكية قد تكون مُشعّبة
@@ -302,10 +358,6 @@ router.get('/admin/inbox', async (req: AuthRequest, res: Response, next: NextFun
       const rep = t.report.salesRepId;
       const eligible = ownersFor(chain.owners, chain.ownerReps, t.levelId, rep);
       return eligible.some(o => o.adminId === me);
-    }).filter(t => {
-      // نطاق المستخدم على المناديب (إن كان مفعّلاً) يُحترم فوق الملكية
-      const w = scope as { salesRepId?: { in?: string[] } };
-      return !w.salesRepId?.in || w.salesRepId.in.includes(t.report.salesRepId);
     });
 
     res.json({
@@ -797,13 +849,24 @@ router.delete('/config/levels/:id', async (req: AuthRequest, res: Response, next
     // **كل تقريرٍ واقفٍ في السلسلة** لا الواقف عند هذه العقدة وحدها: حذفها
     // يعيد ترقيم ما بعدها، وتقريرٌ واقفٌ عند عقدةٍ لاحقة يتحرّك رقمه تحته.
     // والترقيم يُزامَن الآن، لكنّ المنع أصدق: المالك يرى العدد ويقرّر.
-    const stuck = await prisma.dailyReportTask.count({ where: { tenantId: tid, state: 'PENDING' } });
-    if (stuck) { res.status(409).json({ success: false, message: `${stuck} تقرير واقفٌ في المسار — اعتمدها أو أعِدها قبل حذف عقدة` }); return; }
-    await prisma.$transaction(async tx => {
-      await tx.dailyReportLevel.delete({ where: { id: cur.id } });
-      await renumberLevels(tx, tid);
-      await logConfig(tx, tid, req, 'LEVEL', 'DELETE', `حذف المستوى «${cur.name}»`, cur.id, cur.name);
-    });
+    /* الفحص **داخل** المعاملة: كان خارجها، فتقريرٌ يُرفع في تلك اللحظة — من
+     * مندوبٍ عادت شبكته مثلاً — يُنشئ مهمّةً على عقدةٍ تُحذف بعدها بأجزاء من
+     * الثانية، فيقف بلا مخرج: لا يظهر في صندوق أحد ولا يُعتمد ولا يُعاد. */
+    try {
+      await prisma.$transaction(async tx => {
+        const stuck = await tx.dailyReportTask.count({ where: { tenantId: tid, state: 'PENDING' } });
+        if (stuck) throw new StuckLevels(stuck);
+        await tx.dailyReportLevel.delete({ where: { id: cur.id } });
+        await renumberLevels(tx, tid);
+        await logConfig(tx, tid, req, 'LEVEL', 'DELETE', `حذف المستوى «${cur.name}»`, cur.id, cur.name);
+      });
+    } catch (e) {
+      if (e instanceof StuckLevels) {
+        res.status(409).json({ success: false, message: `${e.count} تقرير واقفٌ في المسار — اعتمدها أو أعِدها قبل حذف عقدة` });
+        return;
+      }
+      throw e;
+    }
     res.json({ success: true });
   } catch (err) { next(err); }
 });
@@ -828,6 +891,18 @@ router.put('/config/levels/:id/owners', async (req: AuthRequest, res: Response, 
 
     const defaults = body.owners.filter(o => o.isDefault).length;
     if (defaults > 1) { res.status(400).json({ success: false, message: 'مالكٌ افتراضيٌّ واحد لكل مستوى' }); return; }
+    /* ولا **صفر** أيضاً: مستوىً كل ملّاكه موجَّهون لمناديب بعينهم يترك كل مندوبٍ
+     * خارج القوائم بلا مستقبِل، فيرفض `chainIssues` السلسلةَ كلّها ويرتدّ رفعُ
+     * **كل** مناديب الشركة بـ٤٠٩. وكان يُقبل هنا صامتاً ثمّ ينفجر بعيداً عن سببه:
+     * المالك يضبط التوجيه فتتوقّف الميزة، ولا شيء يربط الأمرين. الرفض هنا يقع
+     * في وجه الفعل الذي سبّبه ويسمّي العلاج. */
+    if (body.owners.length && defaults === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'عيّن مستقبِلاً لبقية المناديب: عقدةٌ كل مُلّاكها موجَّهون تُوقف رفع التقارير للشركة كلّها',
+      });
+      return;
+    }
 
     const admins = await prisma.admin.findMany({ where: { tenantId: tid, id: { in: body.owners.map(o => o.adminId) } }, select: { id: true, name: true } });
     const nameOf = new Map(admins.map(a => [a.id, a.name]));
@@ -1026,6 +1101,19 @@ router.put('/config/digest-viewers', async (req: AuthRequest, res: Response, nex
  */
 async function renumberLevels(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], tid: string) {
   const rest = await tx.dailyReportLevel.findMany({ where: { tenantId: tid }, orderBy: { seq: 'asc' } });
+
+  /* خانات العقدة المحذوفة **تُحرَّر أوّلاً**: الترقيم أدناه ينقل الخانات بمطابقة
+   * الرقم القديم، ورقمُ المحذوفة لم يعد لأيّ مستوىً باقٍ فلا تُلمَس — فترثها
+   * العقدة التي تأخذ رقمها. والوارث إن كان REVIEW لم يرَ الخانة ولم يفحصها
+   * حارس الاعتماد ولا يراها المندوب: خانةٌ «مطلوبة» لا يملؤها أحدٌ أبداً. وإن
+   * كان ENTER مُنع من الاعتماد بخانةٍ لم تكن له قطّ.
+   * فتعود الخانة إلى المندوب (`null`) — وهو الموضع الوحيد الذي يُرى فيه دائماً. */
+  const liveSeqs = rest.map(l => l.seq);
+  await tx.dailyReportField.updateMany({
+    where: { tenantId: tid, fillLevelSeq: { not: null, notIn: liveSeqs } },
+    data: { fillLevelSeq: null },
+  });
+
   for (let i = 0; i < rest.length; i++) {
     const want = i + 1;
     if (rest[i].seq === want) continue;
@@ -1088,8 +1176,11 @@ router.get('/team', requireAdmin, requireAdminPermission('canViewReports'), asyn
     const capped = days > 31;
     const toEff = capped ? new Date(Date.parse(from) + 30 * 86400000).toISOString().slice(0, 10) : to;
 
+    /* النطاق يُنشر كما هو لا يُستخرَج منه مفتاح: الدالّة تُرجع مرشّحَ علاقةٍ
+     * `{ salesRep: { adminScopes } }`، وقراءة `salesRepId.in` منه كانت تقرأ
+     * مفتاحاً غير موجود فتصير undefined ويسقط القيد **صامتاً** — فيرى مستخدمٌ
+     * مقيَّدٌ بمندوبَين أرقامَ الشركة كلّها. وهذا هو نمط بقيّة المسارات. */
     const scope = await scopedRepRecordWhere(req);
-    const scopedRepIds = (scope as { salesRepId?: { in?: string[] } }).salesRepId?.in;
 
     const [fields, reports] = await Promise.all([
       prisma.dailyReportField.findMany({ where: { tenantId: tid, isActive: true }, orderBy: { seq: 'asc' } }),
@@ -1097,7 +1188,7 @@ router.get('/team', requireAdmin, requireAdminPermission('canViewReports'), asyn
         where: {
           tenantId: tid,
           reportDate: { gte: from, lte: toEff },
-          ...(scopedRepIds && { salesRepId: { in: scopedRepIds } }),
+          ...scope,
         },
         include: { salesRep: { select: { id: true, name: true } }, values: true },
         orderBy: [{ salesRepId: 'asc' }, { reportDate: 'asc' }],
@@ -1132,8 +1223,9 @@ router.get('/team', requireAdmin, requireAdminPermission('canViewReports'), asyn
         meta: {
           from, to: toEff,
           capped, cappedNote: capped ? `المدّة قُصّت إلى ٣١ يوماً (من ${from} إلى ${toEff})` : null,
-          scoped: !!scopedRepIds,
-          scopedNote: scopedRepIds ? 'الإجمالي يشمل المناديب المُسنَدين لك وحدهم' : null,
+          // النطاق كائنُ مرشِّحٍ الآن لا قائمة معرّفات: وجودُ مفتاحٍ فيه = مقيَّد
+          scoped: Object.keys(scope).length > 0,
+          scopedNote: Object.keys(scope).length > 0 ? 'الإجمالي يشمل المناديب المُسنَدين لك وحدهم' : null,
         },
       },
     });

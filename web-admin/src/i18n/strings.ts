@@ -1837,6 +1837,12 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // ——— نوع استلام التحصيل ومرفقاته ———
   'نوع الاستلام': { en: 'Collection type', fr: 'Type de reception', tr: 'Tahsilat turu', zh: '收款方式' },
   'مثال رقم الإيصال أو اسم البنك': { en: 'For example the deposit slip number or the bank name', fr: 'Par exemple le numero du recu ou le nom de la banque', tr: 'Ornegin dekont numarasi veya banka adi', zh: '例如：回单编号或银行名称' },
+  // ——— تصحيح تقرير يومٍ سابق أُعيد للمندوب ———
+  'تقرير يوم': { en: 'Report for', fr: 'Rapport du', tr: 'Gun raporu', zh: '日报日期' },
+  'افتحه وصححه': { en: 'Open and correct it', fr: 'Ouvrez-le et corrigez-le', tr: 'Acin ve duzeltin', zh: '打开并修正' },
+  'تعرض تقرير يوم': { en: 'You are viewing the report for', fr: 'Vous consultez le rapport du', tr: 'Su gunun raporunu goruyorsunuz', zh: '您正在查看该日的日报' },
+  'لا تقرير اليوم': { en: 'not today', fr: 'pas celui du jour', tr: 'bugunun raporu degil', zh: '并非今日日报' },
+  'عد لليوم': { en: 'Back to today', fr: 'Revenir a aujourd hui', tr: 'Bugune don', zh: '返回今日' },
 };
 
 export function useTr() {
