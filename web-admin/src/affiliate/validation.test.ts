@@ -2,13 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  CITY_MAX, containsContactInfo, normPhoneSA, normCR, normVat, normIbanSA, isIsoDate, normMawthooqNo, mawthooqError,
+  CITY_MAX, CONTACT_PHONE_MAX, containsContactInfo, isValidEmail, normContactPhone, normPhoneSA, normCR, normVat, normIbanSA,
   EMPTY_REGISTER, registerError, buildRegisterBody, type RegisterForm,
   EMPTY_CLAIM, claimError, buildClaimBody, type ClaimForm,
   buildProfileBody, profileError, type ProfileForm, payoutError,
 } from './validation';
+import { AX_DICT, translate } from './i18n';
+import { z } from 'zod';
 
-const TODAY = '2026-09-13';
+/** مفتاح رسالة التحقّق أو null — الرسائل مفاتيح قاموس لا نصوص */
+const key = (r: { key: string } | null) => r?.key ?? null;
 
 test('كاشف بيانات الاتصال: بريد، أو سلسلة أرقام بفواصل تحوي ثمانية أرقام فأكثر — مرآة الخادم', () => {
   const rejected = [
@@ -111,23 +114,6 @@ test('الآيبان السعودي بفحص mod-97', () => {
   assert.equal(normIbanSA('AE070331234567890123456'), null, 'ليس سعودياً');
 });
 
-test('ترخيص موثوق', () => {
-  assert.equal(isIsoDate('2026-02-28'), true);
-  assert.equal(isIsoDate('2026-02-30'), false);
-  assert.equal(isIsoDate('2026-9-1'), false);
-  assert.equal(normMawthooqNo(' 123456 '), '123456');
-  assert.equal(normMawthooqNo('١٢٣٤٥٦'), '123456');
-  assert.equal(normMawthooqNo('12'), null);
-  assert.equal(normMawthooqNo('12 34<script>'), null);
-
-  assert.equal(mawthooqError('123456', '2027-01-01', TODAY), null);
-  assert.equal(mawthooqError('123456', TODAY, TODAY), null, 'ينتهي اليوم = ما زال سارياً');
-  assert.match(mawthooqError('', '2027-01-01', TODAY)!, /رقم/);
-  assert.match(mawthooqError('123456', '', TODAY)!, /تاريخ/);
-  assert.match(mawthooqError('123456', '2026-09-12', TODAY)!, /منتهٍ/);
-  assert.match(mawthooqError('123456', '2026-13-01', TODAY)!, /غير صالح/);
-});
-
 const validRegister = (): RegisterForm => ({
   ...EMPTY_REGISTER,
   fullName: 'سارة أحمد',
@@ -135,144 +121,213 @@ const validRegister = (): RegisterForm => ({
   phone: '0551234567',
   password: 'correct-horse',
   acceptTerms: true,
-  declarations: { independent: true, noSpam: true, disclose: true },
 });
 
-test('التسجيل: الحقول الإلزامية والإقرارات الثلاثة', () => {
-  assert.equal(registerError(validRegister(), TODAY), null);
-  assert.ok(registerError({ ...validRegister(), fullName: 'س' }, TODAY));
-  assert.ok(registerError({ ...validRegister(), email: 'nope' }, TODAY));
-  assert.ok(registerError({ ...validRegister(), phone: '12345' }, TODAY));
-  assert.ok(registerError({ ...validRegister(), password: '1234567' }, TODAY), 'كلمة المرور ≥ 8');
-  assert.equal(registerError({ ...validRegister(), password: '12345678' }, TODAY), null);
-  assert.ok(registerError({ ...validRegister(), vatNumber: '123' }, TODAY));
-  assert.ok(registerError({ ...validRegister(), acceptTerms: false }, TODAY));
-  for (const k of ['independent', 'noSpam', 'disclose'] as const) {
-    const f = validRegister();
-    f.declarations = { ...f.declarations, [k]: false };
-    assert.ok(registerError(f, TODAY), `الإقرار ${k} إلزامي`);
-  }
+test('التسجيل: الحقول الإلزامية والموافقة على الشروط — بلا إقرارات ولا «موثوق»', () => {
+  assert.equal(registerError(validRegister()), null);
+  assert.equal(key(registerError({ ...validRegister(), fullName: 'س' })), 'val.fullName');
+  assert.equal(key(registerError({ ...validRegister(), email: 'nope' })), 'val.email');
+  assert.equal(key(registerError({ ...validRegister(), phone: '12345' })), 'val.phone');
+  assert.equal(key(registerError({ ...validRegister(), password: '1234567' })), 'val.passwordMin', 'كلمة المرور ≥ 8');
+  assert.equal(registerError({ ...validRegister(), password: '12345678' }), null);
+  assert.equal(key(registerError({ ...validRegister(), password: 'x'.repeat(129) })), 'val.passwordMax');
+  assert.equal(key(registerError({ ...validRegister(), vatNumber: '123' })), 'val.vat');
+  assert.equal(key(registerError({ ...validRegister(), acceptTerms: false })), 'val.acceptTerms');
+  // لا شرط غير هذه: نموذجٌ بالحقول الإلزامية والموافقة وحدها صالح
+  assert.deepEqual(Object.keys(EMPTY_REGISTER).sort(), ['acceptTerms', 'city', 'email', 'fullName', 'marketingConsent', 'password', 'phone', 'vatNumber']);
 });
 
-test('التسجيل: الناشر العلني يلزمه موثوق', () => {
-  const f = { ...validRegister(), publicPromoter: true };
-  assert.ok(registerError(f, TODAY));
-  assert.equal(registerError({ ...f, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30' }, TODAY), null);
-});
-
-test('جسم التسجيل بالشكل الدقيق في API.md', () => {
+test('جسم التسجيل: بلا declarations ولا publicPromoter ولا حقول موثوق', () => {
   const body = buildRegisterBody(validRegister(), '2026-09-v1');
   assert.deepEqual(body, {
     fullName: 'سارة أحمد',
     email: 'sara@example.com',
     phone: '966551234567',
     password: 'correct-horse',
-    publicPromoter: false,
     marketingConsent: false,
     acceptTerms: true,
     termsVersion: '2026-09-v1',
-    declarations: { independent: true, noSpam: true, disclose: true },
   });
-  assert.ok(!('mawthooqNo' in body) && !('city' in body) && !('vatNumber' in body), 'الاختيارية الفارغة لا تُرسل');
+  for (const k of ['declarations', 'publicPromoter', 'mawthooqNo', 'mawthooqExpiry', 'city', 'vatNumber']) {
+    assert.ok(!(k in body), `${k} لا يُرسل`);
+  }
 
-  const full = buildRegisterBody({
-    ...validRegister(), city: ' الرياض ', vatNumber: '300000000000003', marketingConsent: true,
-    publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30',
-  }, 'v2');
+  const full = buildRegisterBody({ ...validRegister(), city: ' الرياض ', vatNumber: '300000000000003', marketingConsent: true }, 'v2');
   assert.equal(full.city, 'الرياض');
   assert.equal(full.vatNumber, '300000000000003');
-  assert.equal(full.mawthooqNo, '778899');
-  assert.equal(full.mawthooqExpiry, '2027-06-30');
   assert.equal(full.marketingConsent, true);
-
-  // بيانات موثوق لا تُرسل إن أُطفئ «سأنشر علناً» بعد كتابتها
-  const off = buildRegisterBody({ ...validRegister(), publicPromoter: false, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30' }, 'v2');
-  assert.ok(!('mawthooqNo' in off) && !('mawthooqExpiry' in off));
 });
 
-const validClaim = (): ClaimForm => ({ ...EMPTY_CLAIM, companyName: 'مؤسسة النخبة للتوزيع', crNumber: '١٠١٠١٢٣٤٥٦', how: 'visit' });
+const validClaim = (): ClaimForm => ({ ...EMPTY_CLAIM, companyName: 'مؤسسة النخبة للتوزيع', crNumber: '١٠١٠١٢٣٤٥٦', contactPhone: '0551234567', how: 'visit' });
+
+test('رقم التواصل: جوال سعودي بصيغه، أو أيّ رقمٍ من 8 إلى 15 رقماً — مرآة الخادم', () => {
+  const ok = [
+    '0551234567', '551234567', '+966551234567', '00966551234567', '٠٥٥١٢٣٤٥٦٧',
+    '011 234 5678', '(011) 234-5678', '+971 4 123 4567', '0097141234567', '12345678', '123456789012345',
+    '055.123.4567',
+  ];
+  for (const v of ok) assert.ok(normContactPhone(v), `يجب قبول: ${v}`);
+  const bad = ['', '   ', '1234567', '1234567890123456', 'abc12345678', '011/234/5678', '12-34', 'x'.repeat(31), '+'];
+  for (const v of bad) assert.equal(normContactPhone(v), null, `يجب رفض: ${v}`);
+  assert.equal(CONTACT_PHONE_MAX, 30);
+  assert.equal(normContactPhone(' ٠٥٥١٢٣٤٥٦٧ '), '0551234567', 'أرقام لاتينية بلا فراغات طرفية');
+  assert.equal(normContactPhone('+971 4 123 4567'), '+971 4 123 4567', 'يُرسل كما كُتب');
+});
+
+test('رقم التواصل: NFKC قبل كل شيء — الأرقام و«＋» و«（）» العريضة مقبولة كالخادم', () => {
+  assert.equal(normContactPhone('０５５１２３４５６７'), '0551234567');
+  assert.ok(normContactPhone('＋９７１ ５０ １２３ ４５６７'));
+  assert.ok(normContactPhone('（０１１）２３４５６７８'));
+});
+
+/** مدخلاتٌ مشتركة تُمرَّر على نسخة الواجهة ونسخة الخادم معاً — القبول والرفض يجب أن يتطابقا */
+const CONTACT_PHONE_TABLE = [
+  '0551234567', '551234567', '+966551234567', '00966551234567', '٠٥٥١٢٣٤٥٦٧', '۰۵۵۱۲۳۴۵۶۷',
+  '０５５１２３４５６７', '＋９７１５０１２３４５６７', '（０１１）２３４５６７８',
+  '011 234 5678', '(011) 234-5678', '+971 4 123 4567', '0097141234567', '12345678', '123456789012345',
+  '055.123.4567', '920012345',
+  '', '   ', '1234567', '1234567890123456', 'abc12345678', '011/234/5678', '12-34', '+', '٠١٢٣',
+];
+
+test('رقم التواصل: نسخة الواجهة تطابق الخادم على جدولٍ مشترك (العريضة منها)', async (t) => {
+  const url = new URL('../../../backend/src/services/affiliate/rules.ts', import.meta.url);
+  let server: { normContactPhone: (v: unknown) => string | null } | null = null;
+  try {
+    readFileSync(url);
+    server = await import(url.href);
+  } catch {
+    t.skip('مصدر الخادم غير متاح في هذا الفحص');
+    return;
+  }
+  for (const v of CONTACT_PHONE_TABLE) {
+    const client = normContactPhone(v) !== null;
+    const srv = server!.normContactPhone(v) !== null;
+    assert.equal(client, srv, `اختلاف القبول على «${v}»: الواجهة ${client} · الخادم ${srv}`);
+  }
+  // الجوال بأرقامٍ عريضة يُخزَّن بالصيغة الموحّدة في الخادم
+  assert.equal(server!.normContactPhone('０５５１２３４５６７'), '966551234567');
+});
+
+test('البريد: قاعدة zod .email() حرفياً — ما يرفضه الخادم يُرفض في المتصفّح', () => {
+  const zodEmail = z.string().trim().email();
+  const table = [
+    'sara@example.com', ' Sara@Example.COM ', 'a.b+tag@sub.domain.sa', "o'neil@mail.co", 'x_y-z@d-1.io',
+    'ali@gmail,com.sa', 'ali@gmail.com.', 'ali..h@gmail.com', 'ali.@gmail.com', '.ali@gmail.com',
+    'علي@gmail.com', 'ali@جوجل.com', 'ali@gmail.c0m', 'ali@gmail.c', 'ali@-gmail.com', 'ali@gmail', 'ali gmail.com', '',
+  ];
+  for (const v of table) {
+    assert.equal(isValidEmail(v), zodEmail.safeParse(v).success, `اختلاف على «${v}»`);
+  }
+  for (const bad of ['ali@gmail,com.sa', 'ali@gmail.com.', 'ali..h@gmail.com', 'ali.@gmail.com', 'علي@gmail.com']) {
+    assert.equal(isValidEmail(bad), false, `يجب رفض ${bad}`);
+  }
+  assert.equal(isValidEmail('sara@example.com'), true);
+});
+
+test('الترشيح: رقم التواصل إلزاميّ وصالح، والكاشف لا يُطبَّق عليه', () => {
+  assert.equal(key(claimError({ ...validClaim(), contactPhone: '' })), 'val.contactPhoneRequired');
+  assert.equal(key(claimError({ ...validClaim(), contactPhone: '   ' })), 'val.contactPhoneRequired');
+  assert.equal(key(claimError({ ...validClaim(), contactPhone: '12345' })), 'val.contactPhone');
+  assert.equal(claimError({ ...validClaim(), contactPhone: '+966 55 123 4567' }), null, 'رقمٌ فيه ثمانية أرقام مقبول في خانته');
+  // ترتيب الحقول على الشاشة: السجل ثم المدينة ثم رقم التواصل ثم «كيف عرّفتهم»
+  assert.equal(key(claimError({ ...validClaim(), contactPhone: '', how: '' })), 'val.contactPhoneRequired');
+  assert.equal(key(claimError({ ...validClaim(), contactPhone: '', crNumber: '1' })), 'val.cr');
+});
 
 test('الترشيح: سجل 10 أرقام وطريقة تعريف وملاحظة بلا بيانات اتصال', () => {
   assert.equal(claimError(validClaim()), null);
-  assert.ok(claimError({ ...validClaim(), companyName: 'م' }));
-  assert.ok(claimError({ ...validClaim(), crNumber: '123' }));
-  assert.ok(claimError({ ...validClaim(), how: '' }));
-  assert.ok(claimError({ ...validClaim(), note: 'x'.repeat(201) }));
+  assert.equal(key(claimError({ ...validClaim(), companyName: 'م' })), 'val.companyName');
+  assert.equal(key(claimError({ ...validClaim(), crNumber: '123' })), 'val.cr');
+  assert.equal(key(claimError({ ...validClaim(), how: '' })), 'val.how');
+  const long = claimError({ ...validClaim(), note: 'x'.repeat(201) });
+  assert.deepEqual(long, { key: 'val.noteTooLong', vars: { max: 200 } });
   assert.equal(claimError({ ...validClaim(), note: 'x'.repeat(200) }), null);
-  assert.ok(claimError({ ...validClaim(), note: 'كلّم أبو فهد 0551234567' }));
-  assert.ok(claimError({ ...validClaim(), note: 'fahd@mail.com' }));
-  assert.ok(claimError({ ...validClaim(), note: 'جواله 055.123.4567' }));
+  assert.equal(key(claimError({ ...validClaim(), note: 'كلّم أبو فهد 0551234567' })), 'val.noteContact');
+  assert.equal(key(claimError({ ...validClaim(), note: 'fahd@mail.com' })), 'val.noteContact');
+  assert.equal(key(claimError({ ...validClaim(), note: 'جواله 055.123.4567' })), 'val.noteContact');
   assert.equal(claimError({ ...validClaim(), note: 'تعرّفنا في معرض الرياض ٢٠٢٦' }), null);
 });
 
 test('الترشيح: بيانات الاتصال مرفوضة في الاسم والملاحظة **والمدينة**', () => {
-  assert.match(claimError({ ...validClaim(), companyName: 'مؤسسة النخبة 055/123/4567' })!, /اسم المنشأة/);
-  assert.match(claimError({ ...validClaim(), city: 'الرياض 0551234567' })!, /المدينة/);
-  assert.match(claimError({ ...validClaim(), city: 'jeddah@mail.com' })!, /المدينة/);
+  assert.equal(key(claimError({ ...validClaim(), companyName: 'مؤسسة النخبة 055/123/4567' })), 'val.companyContact');
+  assert.equal(key(claimError({ ...validClaim(), city: 'الرياض 0551234567' })), 'val.cityContact');
+  assert.equal(key(claimError({ ...validClaim(), city: 'jeddah@mail.com' })), 'val.cityContact');
   assert.equal(claimError({ ...validClaim(), city: 'الرياض' }), null);
   assert.equal(claimError({ ...validClaim(), city: 'حي 2026' }), null);
 });
 
-test('جسم الترشيح', () => {
-  assert.deepEqual(buildClaimBody(validClaim()), { companyName: 'مؤسسة النخبة للتوزيع', crNumber: '1010123456', how: 'visit' });
+test('جسم الترشيح يحمل contactPhone دائماً', () => {
+  assert.deepEqual(buildClaimBody(validClaim()), { companyName: 'مؤسسة النخبة للتوزيع', crNumber: '1010123456', contactPhone: '0551234567', how: 'visit' });
   assert.deepEqual(
-    buildClaimBody({ ...validClaim(), city: ' جدة ', note: ' معرض ' }),
-    { companyName: 'مؤسسة النخبة للتوزيع', crNumber: '1010123456', how: 'visit', city: 'جدة', note: 'معرض' },
+    buildClaimBody({ ...validClaim(), city: ' جدة ', note: ' معرض ', contactPhone: ' ٠١١ ٢٣٤ ٥٦٧٨ ' }),
+    { companyName: 'مؤسسة النخبة للتوزيع', crNumber: '1010123456', contactPhone: '011 234 5678', how: 'visit', city: 'جدة', note: 'معرض' },
   );
 });
 
-const baseProfile: ProfileForm = { city: 'الرياض', marketingConsent: false, publicPromoter: false, mawthooqNo: '', mawthooqExpiry: '', vatNumber: '' };
+const baseProfile: ProfileForm = { city: 'الرياض', marketingConsent: false, vatNumber: '' };
 
-test('جسم PUT /me بالحقول المتغيّرة فقط', () => {
+test('جسم PUT /me بالحقول المتغيّرة فقط — بلا حقول «موثوق»', () => {
   assert.deepEqual(buildProfileBody(baseProfile, baseProfile), {});
   assert.deepEqual(buildProfileBody({ ...baseProfile, city: 'جدة' }, baseProfile), { city: 'جدة' });
   assert.deepEqual(buildProfileBody({ ...baseProfile, marketingConsent: true }, baseProfile), { marketingConsent: true });
-  assert.deepEqual(
-    buildProfileBody({ ...baseProfile, publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30' }, baseProfile),
-    { publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30' },
-  );
-  const promoter = { ...baseProfile, publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30' };
-  assert.deepEqual(buildProfileBody({ ...promoter, publicPromoter: false }, promoter), { publicPromoter: false });
   assert.deepEqual(buildProfileBody({ ...baseProfile, vatNumber: '300000000000003' }, baseProfile), { vatNumber: '300000000000003' });
   assert.deepEqual(buildProfileBody(baseProfile, { ...baseProfile, vatNumber: '300000000000003' }), { vatNumber: '' }, 'المسح صريح');
+  assert.deepEqual(Object.keys(baseProfile).sort(), ['city', 'marketingConsent', 'vatNumber']);
 });
 
-test('تحقق الملف: شرط موثوق فقط حين يحمل الجسم publicPromoter أو mawthooqNo أو mawthooqExpiry', () => {
-  assert.equal(profileError(baseProfile, baseProfile, TODAY), null);
-  assert.ok(profileError({ ...baseProfile, publicPromoter: true }, baseProfile, TODAY), 'تفعيل النشر العلني بلا ترخيص');
-  assert.ok(profileError({ ...baseProfile, vatNumber: '12' }, baseProfile, TODAY));
-
-  // ناشر علنيّ ترخيصه انتهى — لا يُمنع من حفظ ما لا يمسّ موثوق
-  const expired: ProfileForm = { ...baseProfile, publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2026-09-01' };
-  assert.equal(profileError({ ...expired, city: 'جدة' }, expired, TODAY), null, 'المدينة وحدها');
-  assert.equal(profileError({ ...expired, marketingConsent: true }, expired, TODAY), null, 'الموافقة التسويقية وحدها');
-  assert.equal(profileError({ ...expired, vatNumber: '300000000000003' }, expired, TODAY), null, 'الرقم الضريبي وحده');
-  assert.equal(profileError(expired, expired, TODAY), null, 'بلا تغيير');
-  // لكن لمس حقول موثوق يُطلق الشرط على القيم الناتجة
-  assert.match(profileError({ ...expired, mawthooqNo: '112233' }, expired, TODAY)!, /منتهٍ/, 'تغيير الرقم مع تاريخ منتهٍ');
-  assert.equal(profileError({ ...expired, mawthooqExpiry: '2027-09-01' }, expired, TODAY), null, 'تجديد التاريخ');
-  assert.equal(profileError({ ...expired, mawthooqExpiry: TODAY }, expired, TODAY), null, 'سارٍ حتى نهاية يوم الانتهاء');
-  assert.match(profileError({ ...expired, mawthooqExpiry: '2026-09-12' }, expired, TODAY)!, /منتهٍ/);
-  // إطفاء النشر العلني لا يستلزم ترخيصاً
-  assert.equal(profileError({ ...expired, publicPromoter: false }, expired, TODAY), null);
+test('تحقق الملف: المدينة والرقم الضريبي فقط', () => {
+  assert.equal(profileError(baseProfile), null);
+  assert.equal(key(profileError({ ...baseProfile, vatNumber: '12' })), 'val.vat');
+  assert.equal(profileError({ ...baseProfile, vatNumber: '300000000000003', marketingConsent: true }), null);
 });
 
 test('تحقق الاستلام', () => {
   assert.equal(payoutError('SA0380000000608010167519', 'سارة أحمد', ''), null);
-  assert.ok(payoutError('SA0380000000608010167518', 'سارة أحمد', ''));
-  assert.ok(payoutError('SA0380000000608010167519', 'س', ''));
+  assert.equal(key(payoutError('SA0380000000608010167518', 'سارة أحمد', '')), 'val.iban');
+  assert.equal(key(payoutError('SA0380000000608010167519', 'س', '')), 'val.holder');
+  assert.equal(key(payoutError('SA0380000000608010167519', 'سارة أحمد', 'x'.repeat(81))), 'val.bank');
+});
+
+test('رسائل التحقّق مفاتيح في القاموس — ولا نصّ عربي معروض في وحدة التحقّق', () => {
+  const samples = [
+    registerError({ ...EMPTY_REGISTER }), claimError({ ...EMPTY_CLAIM }), profileError({ ...baseProfile, city: 'م'.repeat(61) }),
+    payoutError('', '', ''),
+  ];
+  for (const r of samples) {
+    assert.ok(r && r.key in AX_DICT, `مفتاح غير موجود في القاموس: ${r?.key}`);
+  }
+  // الترجمة تملأ المتغيّرات بكل اللغات
+  const city = profileError({ ...baseProfile, city: 'م'.repeat(61) })!;
+  assert.equal(translate('ar', city.key, city.vars), 'اسم المدينة 60 حرفاً كحدّ أقصى');
+  assert.equal(translate('en', city.key, city.vars), 'City name can be at most 60 characters');
+
+  // مصدر الوحدة: لا سلاسل عربية إلا كلمتا الاستبدال الداخليتان في كاشف الاتصال (مرآة الخادم، لا تُعرض)
+  const src = readFileSync(new URL('./validation.ts', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const arabicLiterals = [...src.matchAll(/'([^'\n]*[\u0600-\u06FF][^'\n]*)'/g)].map((x) => x[1])
+    .filter((x) => !/^[٠-٩۰-۹]+$/.test(x));
+  assert.deepEqual(arabicLiterals.sort(), [' تاريخ ', ' وقت '], `نصوص عربية في validation.ts: ${arabicLiterals.join(' | ')}`);
 });
 
 test('المدينة 60 حرفاً كحدّ أقصى في التسجيل والترشيح والملف — مطابق للخادم', () => {
   assert.equal(CITY_MAX, 60);
   const city60 = 'م'.repeat(60);
   const city61 = 'م'.repeat(61);
-  assert.equal(registerError({ ...validRegister(), city: city60 }, TODAY), null);
-  assert.match(registerError({ ...validRegister(), city: city61 }, TODAY)!, /المدينة/);
+  const tooLong = { key: 'val.cityTooLong', vars: { max: 60 } };
+  assert.equal(registerError({ ...validRegister(), city: city60 }), null);
+  assert.deepEqual(registerError({ ...validRegister(), city: city61 }), tooLong);
   assert.equal(claimError({ ...validClaim(), city: city60 }), null);
-  assert.match(claimError({ ...validClaim(), city: city61 })!, /المدينة/);
-  assert.equal(profileError({ ...baseProfile, city: city60 }, baseProfile, TODAY), null);
-  assert.match(profileError({ ...baseProfile, city: city61 }, baseProfile, TODAY)!, /المدينة/);
+  assert.deepEqual(claimError({ ...validClaim(), city: city61 }), tooLong);
+  assert.equal(profileError({ ...baseProfile, city: city60 }), null);
+  assert.deepEqual(profileError({ ...baseProfile, city: city61 }), tooLong);
+  const claims = readFileSync(new URL('./screens/ClaimsScreen.tsx', import.meta.url), 'utf8');
+  const phoneInput = claims.match(/value=\{form\.contactPhone\}[^\n]*/);
+  assert.ok(phoneInput, 'خانة رقم التواصل غير موجودة');
+  assert.match(claims, /<Field label=\{t\('claims\.contactPhone'\)\} required hint=\{t\('claims\.contactPhoneHint'\)\}>/);
+  assert.match(claims, /type="tel" dir="ltr" inputMode="tel"/);
+  assert.match(phoneInput![0], /maxLength=\{CONTACT_PHONE_MAX\}/);
+  assert.doesNotMatch(claims, /containsContactInfo\(form\.contactPhone\)/, 'الكاشف لا يُطبَّق على خانة رقم التواصل');
+  assert.match(claims, /c\.contactPhone && \(/, 'رقم التواصل لا يُعرض في «ترشيحاتي»');
   for (const f of ['screens/AuthScreens.tsx', 'screens/ClaimsScreen.tsx', 'screens/ProfileScreen.tsx']) {
     const src = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8');
     const inputs = src.match(/value=\{form\.city\}[^\n]*/g) ?? [];

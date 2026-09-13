@@ -10,6 +10,8 @@
  * يساوي `28.999999999999996` فيُقطع هللةً من مال السفير.
  */
 
+import { contactPhoneDisplay, contactPhoneTel } from '../lib/contactPhone';
+
 // ─── التعدادات (API.md — الأنواع المشتركة) ─────────────────────────────────
 
 export const USER_STATUSES = ['pending_email', 'pending_review', 'approved', 'rejected', 'suspended'] as const;
@@ -608,12 +610,6 @@ export function syncSettingsDraft(draft: SettingsDraft, prevBase: SettingsDraft,
 
 // ─── التواريخ ──────────────────────────────────────────────────────────────
 
-/** مفتاح يوم الجهاز 'YYYY-MM-DD' بلا انزلاق منطقة زمنية */
-export function todayKey(now: Date = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
-}
-
 /** الرياض UTC+3 بلا توقيت صيفي — إزاحة ثابتة */
 const RIYADH_OFFSET_MS = 3 * 3_600_000;
 
@@ -626,8 +622,8 @@ export function riyadhDayKey(at: Date | number = Date.now()): string {
 }
 
 /**
- * مفتاح يوم لقيمةٍ من الخادم: `'YYYY-MM-DD'` (حقول اليوم الخالص — `mawthooqExpiry`
- * و`transferredAt`) تُؤخذ كما هي، ولحظةٌ ISO كاملة تُحوَّل ليوم الرياض — **لا تُقصّ**
+ * مفتاح يوم لقيمةٍ من الخادم: `'YYYY-MM-DD'` (حقول اليوم الخالص — `transferredAt` وبداية
+ * الإسناد) تُؤخذ كما هي، ولحظةٌ ISO كاملة تُحوَّل ليوم الرياض — **لا تُقصّ**
  * أوّل عشرة أحرف منها (`2026-09-12T22:00Z` يومها في الرياض 13 لا 12). غير الصالح ⇒ null.
  */
 export function dayKeyOf(v: string | null | undefined): string | null {
@@ -639,15 +635,6 @@ export function dayKeyOf(v: string | null | undefined): string | null {
   return Number.isFinite(t) ? riyadhDayKey(t) : null;
 }
 
-/**
- * انتهى تاريخٌ خالص (ترخيص موثوق)؟ منتهٍ فقط إن كان **قبل** يوم الرياض الحالي —
- * يوم الانتهاء نفسه ما زال سارياً. قيمة فارغة أو غير صالحة لا تُعدّ منتهية.
- */
-export function isDayExpired(v: string | null | undefined, now: Date | number = Date.now()): boolean {
-  const day = dayKeyOf(v);
-  if (!day) return false;
-  return day < riyadhDayKey(now);
-}
 
 // ─── التصفية والاستعلام ─────────────────────────────────────────────────────
 
@@ -713,6 +700,13 @@ export function apiErrorMessage(e: unknown, fallback: string): string {
   return typeof msg === 'string' && msg.trim() ? msg : fallback;
 }
 
+/**
+ * رقم تواصل الترشيح كما يخزّنه الخادم (أرقامٌ بلا «+»: `966551234567` · `971501234567` ·
+ * `0112345678` · `920012345`) ⇒ رابط `tel:` يُضيف «+» للجوال والدولي، وعرضٌ مقروء.
+ */
+export const telHref = contactPhoneTel;
+export const phoneDisplay = contactPhoneDisplay;
+
 /** آيبان بمجموعات رباعية للقراءة عند التحويل اليدوي («SA03 8000 …») */
 export function groupIban(iban: string): string {
   return String(iban ?? '').replace(/\s+/g, '').toUpperCase().replace(/(.{4})(?=.)/g, '$1 ');
@@ -742,8 +736,7 @@ export interface TermsVersion { version: string; body: string; publishedAt: stri
 
 export interface AffiliateRow {
   id: string; fullName: string; email: string; phone: string | null; city: string | null; code: string;
-  status: UserStatus; statusReason: string | null; publicPromoter: boolean;
-  mawthooqNo: string | null; mawthooqExpiry: string | null; createdAt: string; lastLoginAt: string | null;
+  status: UserStatus; statusReason: string | null; createdAt: string; lastLoginAt: string | null;
   counts: { claims: number; attributions: number; commissions: number };
   earnedHalalas: number; paidHalalas: number; hasPayout: boolean;
 }
@@ -774,7 +767,9 @@ export interface AffiliateDetail {
 export interface RevealedIban { iban: string; holderName: string; bankName: string | null }
 
 export interface ClaimRow {
-  id: string; affiliate: AffRef; companyName: string; crNumber: string; city: string | null; how: ClaimHow;
+  id: string; affiliate: AffRef; companyName: string; crNumber: string; city: string | null;
+  /** رقم تواصل المنشأة (إلزامي في الترشيحات الجديدة، null للأقدم) */
+  contactPhone: string | null; how: ClaimHow;
   note: string | null; status: ClaimStatus; reasonCode: ClaimReason | null; submittedAt: string;
   reviewedAt: string | null; lockedUntil: string | null; tenantId: string | null; tenantName: string | null;
   conflicts: Array<{ claimId: string; affiliateName: string; status: ClaimStatus }>;

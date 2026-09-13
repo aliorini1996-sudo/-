@@ -32,14 +32,10 @@ export interface RegisterBody {
   phone: string;
   city?: string;
   password: string;
-  publicPromoter: boolean;
-  mawthooqNo?: string;
-  mawthooqExpiry?: string;
   vatNumber?: string;
   marketingConsent: boolean;
   acceptTerms: true;
   termsVersion: string;
-  declarations: { independent: true; noSpam: true; disclose: true };
 }
 
 export interface AffiliateMe {
@@ -51,9 +47,10 @@ export interface AffiliateMe {
   code: string;
   status: UserStatus;
   statusReason: string | null;
-  publicPromoter: boolean;
-  mawthooqNo: string | null;
-  mawthooqExpiry: string | null;
+  /** حقول قديمة قد يُرسلها الخادم — لم تعد البوابة تعرضها ولا تطلبها */
+  publicPromoter?: boolean;
+  mawthooqNo?: string | null;
+  mawthooqExpiry?: string | null;
   vatNumber: string | null;
   marketingConsent: boolean;
   termsVersion: string;
@@ -79,9 +76,6 @@ export interface MeResponse {
 export interface UpdateMeBody {
   city?: string;
   marketingConsent?: boolean;
-  publicPromoter?: boolean;
-  mawthooqNo?: string;
-  mawthooqExpiry?: string;
   vatNumber?: string;
 }
 
@@ -111,6 +105,8 @@ export interface ClaimBody {
   companyName: string;
   crNumber: string;
   city?: string;
+  /** إلزامي — جوال أو هاتف المنشأة أو المسؤول (≤30) */
+  contactPhone: string;
   how: ClaimHow;
   note?: string;
 }
@@ -120,6 +116,8 @@ export interface ClaimRow {
   companyName: string;
   crNumber: string;
   city: string | null;
+  /** null للترشيحات الأقدم من الخانة */
+  contactPhone?: string | null;
   how: ClaimHow;
   status: ClaimStatus;
   lockedUntil: string | null;

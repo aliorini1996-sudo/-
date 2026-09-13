@@ -58,7 +58,6 @@ export function mailOwnerNewApplicant(a: { fullName: string; email: string; phon
   send(to, `طلب سفير جديد: ${a.fullName}`, layout('طلب انضمام جديد', [
     `<b>${escapeHtml(a.fullName)}</b> أكّد بريده وينتظر موافقتك.`,
     `البريد: ${escapeHtml(a.email)} · الجوال: ${escapeHtml(a.phone ?? '—')} · المدينة: ${escapeHtml(a.city ?? '—')}`,
-    a.publicPromoter ? `سينشر علناً — رقم موثوق: ${escapeHtml(a.mawthooqNo ?? '—')}` : 'لن ينشر علناً.',
     'راجع الطلب من لوحة المالك ← السفراء.',
   ]));
 }

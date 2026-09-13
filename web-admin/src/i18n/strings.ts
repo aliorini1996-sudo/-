@@ -58,8 +58,8 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'signup.success': { ar: 'تم إنشاء حسابك مرحبا بك في تجربتك المجانية', en: 'Account created welcome to your free trial', fr: 'Compte créé bienvenue dans votre essai gratuit', tr: 'Hesabınız oluşturuldu, ücretsiz denemenize hoş geldiniz', zh: '账户已创建，欢迎开始免费试用' },
   'signup.failed': { ar: 'تعذر إنشاء الحساب', en: 'Could not create account', fr: 'Impossible de créer le compte', tr: 'Hesap oluşturulamadı', zh: '账户创建失败' },
   // رمز الإحالة (برنامج سفير فيلد سيلز) — الفرنسية بلا فواصل علوية عمداً
-  'signup.refHave': { ar: 'لديك رمز إحالة؟', en: 'Have a referral code?', fr: 'Vous avez un code de parrainage ?', tr: 'Yönlendirme kodunuz var mı?', zh: '有推荐码？' },
-  'signup.refLabel': { ar: 'رمز الإحالة', en: 'Referral code', fr: 'Code de parrainage', tr: 'Yönlendirme kodu', zh: '推荐码' },
+  'signup.refHave': { ar: 'لديك رمز إحالة؟', en: 'Have a referral code?', fr: 'Vous avez un code de parrainage ?', tr: 'Referans kodunuz var mı?', zh: '有推荐码？' },
+  'signup.refLabel': { ar: 'رمز الإحالة', en: 'Referral code', fr: 'Code de parrainage', tr: 'Referans kodu', zh: '推荐码' },
   'signup.refNotice': { ar: 'سيطّلع صاحب الرمز على اسم منشأتك وحالة اشتراكها لاحتساب عمولته', en: 'The code owner will see your business name and subscription status to calculate their commission', fr: 'Le titulaire du code verra le nom de votre entreprise et le statut de son abonnement pour calculer sa commission', tr: 'Kod sahibi, komisyonunu hesaplamak için işletmenizin adını ve abonelik durumunu görecektir', zh: '推荐码持有人将看到您的企业名称及订阅状态，用于计算其佣金' },
   'signup.refRemove': { ar: 'إزالة', en: 'Remove', fr: 'Retirer', tr: 'Kaldır', zh: '移除' },
 

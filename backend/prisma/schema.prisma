@@ -2226,6 +2226,7 @@ model AffiliateClaim {
   companyName     String
   companyNameNorm String
   crNumber        String                          // ^\d{10}$ — إلزامي (يغلق ثغرة الترشيح بلا مفتاح)
+  contactPhone    String?                         // رقم التواصل مع المنشأة — إلزاميّ في الواجهة (قرار المالك)، فارغٌ للترشيحات الأقدم
   city            String?
   how             String                          // visit|relationship|event|online|other
   note            String?                         // ≤200، بلا جوال/بريد

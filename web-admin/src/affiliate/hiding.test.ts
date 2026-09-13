@@ -18,7 +18,11 @@ test('البوابة تحقن noindex, nofollow وتعيده عند المغاد
   assert.match(s, /meta\[name="robots"\]/, 'لا بحث عن وسم robots القائم');
   assert.match(s, /'noindex, nofollow'/, 'noindex, nofollow غير محقون');
   assert.match(s, /return \(\) => \{[\s\S]*prevRobots/, 'لا استعادة لوسم robots عند المغادرة');
-  assert.match(s, /document\.title = 'سفير فيلد سيلز'/);
+  // العنوان مترجم بلغة العرض، ولا تفرض البوابة لغة المستند ولا اتجاهه بعد الآن
+  assert.match(s, /usePrivatePageHead\(t\('app\.title'\)\)/);
+  assert.match(s, /document\.title = title/);
+  assert.doesNotMatch(s, /setAttribute\('dir', 'rtl'\)|setAttribute\('lang', 'ar'\)/, 'البوابة ما زالت تفرض العربية على المستند');
+  assert.doesNotMatch(s, /dir="rtl"/, 'غلاف البوابة ما زال RTL ثابتاً');
 });
 
 test('البوابة لا تستورد عميل لوحة الشركة ولا مخزن مصادقتها', () => {

@@ -5,7 +5,7 @@ import {
   generateCode, parseRef, CODE_ALPHABET, CODE_LENGTH,
   normEmail, normPhoneSA, normCR, normCompanyName, containsContactInfo, normIbanSA,
   attributionFlags, isDisputedByFlags, canTransition, canApproveCommission, payoutTotals,
-  commissionAfterRefund, clawbackDelta,
+  commissionAfterRefund, clawbackDelta, normContactPhone,
 } from '../services/affiliate/rules';
 
 /**
@@ -477,9 +477,9 @@ test('البوابة: الدخول بعدّادٍ ذرّي، والتأكيد ب
   assert.match(reset, /token: signSession\(fresh\.id, fresh\.tokenVersion\)/, 'الاستعادة تُدخل صاحبها رغم القفل');
   assert.match(portal, /code: 'terms_outdated'/, 'قبول الشروط على الخادم لا في الواجهة وحدها');
   const me = portal.slice(portal.indexOf("router.put('/me'"), portal.indexOf("router.post('/accept-terms'"));
-  assert.match(me, /if \(touchesPromotion\) \{/, 'ترخيصٌ منتهٍ لا يمنع سحب الموافقة');
+  assert.doesNotMatch(me, /mawthooq|publicPromoter:/, 'لا شرط موثوق في الملف (قرار المالك)');
   assert.match(portal, /containsContactInfo\(b\.city\)/);
-  assert.match(portal, /if \(expiry < riyadhDay\(\)\)/, 'الترخيص سارٍ حتى نهاية يومه');
+  assert.doesNotMatch(portal, /mawthooqProblem/, 'لا يُرفض انضمامٌ أو حفظٌ بسبب ترخيص موثوق');
   assert.match(portal, /a\.commission && a\.commission\.affiliateId === aid\(req\)/, 'عمولة سفيرٍ سابق لا تُعرض لغيره');
   const mail = strip(src('services', 'affiliate', 'mail.ts'));
   for (const sig of ['export function mailVerify', 'export function mailReset']) {
@@ -538,13 +538,52 @@ test('البوابة: محاولات كلمة المرور الصحيحة قبل
 
 test('الشروط v2: إحالة المنشأة التي يعمل فيها السفير مسموحة، ونصّ v1 محفوظٌ لمن قبله', async () => {
   const core = await import('../services/affiliate/core');
-  assert.equal(core.DEFAULT_TERMS_VERSION, '2026-09-v2');
-  assert.deepEqual([...core.BUILTIN_TERMS_VERSIONS], ['2026-09-v1', '2026-09-v2']);
-  assert.ok(core.DEFAULT_TERMS_BODY.includes('يجوز لك إحالة المنشأة التي تعمل فيها أو تملكها أو تديرها'));
-  assert.ok(!core.DEFAULT_TERMS_BODY.includes('إحالةٌ ذاتية لا تستحقّ عمولة'));
-  assert.ok(core.DEFAULT_TERMS_BODY.includes('لا عمولة على شركةٍ كانت عميلاً لفيلد سيلز قبل إحالتك'), 'قاعدة العميل الجديد باقية');
+  assert.equal(core.DEFAULT_TERMS_VERSION, '2026-09-v3');
+  assert.deepEqual([...core.BUILTIN_TERMS_VERSIONS], ['2026-09-v1', '2026-09-v2', '2026-09-v3']);
+  for (const v of ['2026-09-v2', '2026-09-v3']) {
+    const body = core.builtinTermsBody(v) ?? '';
+    assert.ok(body.includes(`الإصدار ${v}`), `ترويسة ${v}`);
+    assert.ok(body.includes('يجوز لك إحالة المنشأة التي تعمل فيها أو تملكها أو تديرها'), v);
+    assert.ok(!body.includes('إحالةٌ ذاتية لا تستحقّ عمولة'), v);
+    assert.ok(body.includes('لا عمولة على شركةٍ كانت عميلاً لفيلد سيلز قبل إحالتك'), `قاعدة العميل الجديد باقية: ${v}`);
+  }
+  assert.equal(core.builtinTermsBody('2026-09-v3'), core.DEFAULT_TERMS_BODY);
+  assert.ok(core.DEFAULT_TERMS_BODY.includes('ورقم التواصل معها'), 'v3: الترشيح يحمل رقم التواصل');
+  assert.ok(!core.DEFAULT_TERMS_BODY.includes('لا تُرسل لنا بيانات أشخاص'), 'v3 لا يناقض الخانة الإلزامية');
+  assert.ok((core.builtinTermsBody('2026-09-v2') ?? '').includes('لا تُرسل لنا بيانات أشخاص'), 'نصّ v2 كما قُبل');
   const v1 = core.builtinTermsBody('2026-09-v1') ?? '';
   assert.ok(v1.includes('الإصدار 2026-09-v1') && v1.includes('إحالةٌ ذاتية لا تستحقّ عمولة'), 'النصّ الذي قُبل لا يُعاد كتابته');
   const portal = strip(src('routes', 'affiliate.ts'));
-  assert.match(portal, /noSelfReferral: z\.boolean\(\)\.optional\(\)/, 'الإقرار الرابع لا يُشترط');
+  assert.doesNotMatch(portal, /noSelfReferral: z\.literal/, 'الإقرار الرابع لا يُشترط');
+});
+
+
+test('بلا قيود على السفير: لا إقرارات مشروطة ولا ترخيص موثوق عند الانضمام', () => {
+  const portal = strip(src('routes', 'affiliate.ts'));
+  const schema = portal.slice(portal.indexOf('const registerSchema'), portal.indexOf('});', portal.indexOf('const registerSchema')));
+  assert.match(schema, /declarations: z\.record\(z\.boolean\(\)\)\.optional\(\)/, 'الإقرارات لا تُشترط');
+  assert.match(schema, /publicPromoter: z\.boolean\(\)\.optional\(\)/);
+  assert.doesNotMatch(schema, /z\.literal\(true\)\s*,\s*noSpam|independent: z\.literal/, 'لا إقرار إلزامي');
+  assert.match(schema, /acceptTerms: z\.literal\(true\)/, 'قبول الشروط وحده باقٍ');
+  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf('const BAD_VERIFY'));
+  assert.match(reg, /publicPromoter: false, mawthooqNo: null, mawthooqExpiry: null/);
+});
+
+
+test('رقم التواصل في الترشيح: إلزاميّ، جوالٌ سعوديّ مُطبَّع أو رقمٌ من ٨–١٥ خانة', () => {
+  for (const p of ['0551234567', '+966 55 123 4567', '٠٥٥١٢٣٤٥٦٧', '(055) 123-4567']) assert.equal(normContactPhone(p), '966551234567', p);
+  assert.equal(normContactPhone('011 234 5678'), '0112345678', 'هاتف ثابت');
+  assert.equal(normContactPhone('920012345'), '920012345', 'الرقم الموحّد');
+  assert.equal(normContactPhone('+971 50 123 4567'), '971501234567', 'دوليّ');
+  assert.equal(normContactPhone('０５５１２３４５６７'), '966551234567', 'أرقامٌ عريضة تُطبَّع قبل فحص الجوال');
+  for (const bad of ['', '1234567', 'abc', '05512', '1234567890123456', null, 42]) assert.equal(normContactPhone(bad as unknown), null, String(bad));
+  const portal = strip(src('routes', 'affiliate.ts'));
+  const create = portal.slice(portal.indexOf("router.post('/claims'"), portal.indexOf("router.get('/claims'"));
+  assert.match(create, /contactPhone: z\.string\(\)\.max\(30\)/, 'إلزاميّ في الجسم');
+  assert.match(create, /normContactPhone\(b\.contactPhone\)/);
+  assert.doesNotMatch(create, /containsContactInfo\(b\.contactPhone\)/, 'الكاشف لا يرفض الخانة المخصّصة للرقم');
+  assert.match(create, /crNumber: cr, contactPhone,/, 'يُحفظ');
+  assert.match(strip(src('routes', 'affiliateAdmin.ts')), /contactPhone: c\.contactPhone/, 'يراه المالك');
+  const schema = read('prisma', 'schema.prisma');
+  assert.match(schema, /contactPhone\s+String\?/, 'عمودٌ اختياريّ في القاعدة — db push لا يفشل على صفوفٍ قائمة');
 });

@@ -17,7 +17,7 @@ import {
   getSettings, getTerms, logEvent, logEventSafe, signSession, verifySession, signPurpose, verifyPurpose,
   hashPassword, verifyPassword, ipHash, encryptIban, referralLink, riyadhDay, isUniqueViolation, DAY_MS,
 } from '../services/affiliate/core';
-import { generateCode, normEmail, normPhoneSA, normCR, normCompanyName, containsContactInfo, normIbanSA, parseRef } from '../services/affiliate/rules';
+import { generateCode, normEmail, normPhoneSA, normCR, normCompanyName, containsContactInfo, normIbanSA, parseRef, normContactPhone } from '../services/affiliate/rules';
 import { mailVerify, mailReset, mailOwnerNewApplicant, mailPayoutProfileChanged } from '../services/affiliate/mail';
 import { expireStaleClaims } from '../services/affiliate/ledger';
 
@@ -83,8 +83,6 @@ async function requireApproved(req: AxRequest, res: Response, next: NextFunction
   } catch (e) { next(e); }
 }
 
-const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s), 'تاريخ غير صحيح');
-const riyadhDate = (s: string) => new Date(`${s}T00:00:00+03:00`);
 const vat = z.string().trim().regex(/^\d{15}$/, 'الرقم الضريبي 15 رقماً');
 
 // ───────────────────────────── عام ─────────────────────────────
@@ -106,24 +104,17 @@ const registerSchema = z.object({
   phone: z.string().max(30),
   city: z.string().trim().max(60).optional().nullable(),
   password: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل').max(128),
-  publicPromoter: z.boolean(),
+  // «سأنشر علناً» وترخيص موثوق والإقرارات أُلغيت من الانضمام بقرار المالك («لا نريد تقييد
+  // السفير») — تُقبل من نسخةٍ قديمة مخزَّنة في متصفّح ولا تُشترط ولا تُحفظ
+  publicPromoter: z.boolean().optional(),
   mawthooqNo: z.string().trim().max(40).optional().nullable(),
-  mawthooqExpiry: dateStr.optional().nullable(),
+  mawthooqExpiry: z.string().max(20).optional().nullable(),
   vatNumber: vat.optional().nullable().or(z.literal('')),
   marketingConsent: z.boolean().optional().default(false),
   acceptTerms: z.literal(true),
   termsVersion: z.string().min(1).max(40),
-  // ثلاثة إقرارات؛ «لن أحيل منشأةً أعمل فيها» أُلغي بقرار المالك (يُقبل من عميلٍ قديم مخزَّن ولا يُشترط)
-  declarations: z.object({ independent: z.literal(true), noSpam: z.literal(true), disclose: z.literal(true), noSelfReferral: z.boolean().optional() }),
+  declarations: z.record(z.boolean()).optional(),
 });
-
-/** الترخيص ساري **حتى نهاية** يوم انتهائه بتوقيت الرياض — المقارنة بين أيّامٍ لا لحظات */
-function mawthooqProblem(publicPromoter: boolean, no?: string | null, expiry?: string | null): string | null {
-  if (!publicPromoter) return null;
-  if (!no || !expiry) return 'النشر العلني يتطلّب رقم ترخيص موثوق وتاريخ انتهائه';
-  if (expiry < riyadhDay()) return 'ترخيص موثوق منتهٍ';
-  return null;
-}
 
 /** مهلة البريد لكلّ عنوان: التسجيل وإعادة الإرسال والاستعادة لا تُغرق صندوق أحدٍ ولا حصّة الإرسال */
 const MAIL_COOLDOWN_MS = 5 * 60_000;
@@ -145,8 +136,6 @@ router.post('/register', axRegisterLimiter, async (req, res, next) => {
     if (b.termsVersion !== settings.currentTermsVersion) { res.status(409).json({ success: false, message: 'تحدّثت الشروط — أعد تحميل الصفحة واقرأها' }); return; }
     const phone = normPhoneSA(b.phone);
     if (!phone) { res.status(400).json({ success: false, message: 'رقم الجوال السعودي غير صحيح' }); return; }
-    const mp = mawthooqProblem(b.publicPromoter, b.mawthooqNo, b.mawthooqExpiry);
-    if (mp) { res.status(400).json({ success: false, message: mp }); return; }
 
     const email = normEmail(b.email);
     // التجزئة قبل البحث: scrypt يستغرق عشرات الملّي ثانية، وتخطّيه للبريد المسجَّل
@@ -155,9 +144,7 @@ router.post('/register', axRegisterLimiter, async (req, res, next) => {
     const profile = {
       passwordHash, fullName: b.fullName, phone, city: b.city || null,
       termsVersion: b.termsVersion, termsAcceptedAt: new Date(), termsIpHash: ipHash(req.ip),
-      marketingConsent: b.marketingConsent, publicPromoter: b.publicPromoter,
-      mawthooqNo: b.publicPromoter ? b.mawthooqNo : null,
-      mawthooqExpiry: b.publicPromoter && b.mawthooqExpiry ? riyadhDate(b.mawthooqExpiry) : null,
+      marketingConsent: b.marketingConsent, publicPromoter: false, mawthooqNo: null, mawthooqExpiry: null,
       vatNumber: b.vatNumber || null,
     };
     const existing = await prisma.affiliateUser.findUnique({ where: { email } });
@@ -364,39 +351,22 @@ router.get('/me', axAuth, async (req: AxRequest, res, next) => {
 
 router.put('/me', axAuth, async (req: AxRequest, res, next) => {
   try {
+    // لا شرط «موثوق» ولا «سأنشر علناً» (قرار المالك): حقولهما القديمة تُقبل وتُهمل
     const b = z.object({
       city: z.string().trim().max(60).nullable().optional(),
       marketingConsent: z.boolean().optional(),
-      publicPromoter: z.boolean().optional(),
-      mawthooqNo: z.string().trim().max(40).nullable().optional(),
-      mawthooqExpiry: dateStr.nullable().optional(),
       vatNumber: vat.nullable().optional().or(z.literal('')),
-    }).parse(req.body);
+    }).passthrough().parse(req.body);
     const u = req.affiliate!;
-    // شرط موثوق يُفحص حين يُعدَّل النشر العلني أو الترخيص فقط: ترخيصٌ انتهى لا يجوز
-    // أن يمنع سحب الموافقة على الرسائل أو تعديل المدينة
-    const touchesPromotion = b.publicPromoter !== undefined || b.mawthooqNo !== undefined || b.mawthooqExpiry !== undefined;
-    const publicPromoter = b.publicPromoter ?? u.publicPromoter;
-    const mawthooqNo = b.mawthooqNo !== undefined ? b.mawthooqNo : u.mawthooqNo;
-    const mawthooqExpiry = b.mawthooqExpiry !== undefined ? b.mawthooqExpiry : (u.mawthooqExpiry ? riyadhDay(u.mawthooqExpiry) : null);
-    if (touchesPromotion) {
-      const mp = mawthooqProblem(publicPromoter, mawthooqNo, mawthooqExpiry);
-      if (mp) { res.status(400).json({ success: false, message: mp }); return; }
-    }
     const fresh = await prisma.affiliateUser.update({
       where: { id: u.id },
       data: {
         ...(b.city !== undefined ? { city: b.city || null } : {}),
         ...(b.marketingConsent !== undefined ? { marketingConsent: b.marketingConsent } : {}),
         ...(b.vatNumber !== undefined ? { vatNumber: b.vatNumber || null } : {}),
-        ...(touchesPromotion ? {
-          publicPromoter,
-          mawthooqNo: publicPromoter ? mawthooqNo : null,
-          mawthooqExpiry: publicPromoter && mawthooqExpiry ? riyadhDate(mawthooqExpiry) : null,
-        } : {}),
       },
     });
-    logEventSafe({ entity: 'user', entityId: u.id, action: 'profile_updated', actorType: 'affiliate', actorId: u.id, meta: { fields: Object.keys(b) } });
+    logEventSafe({ entity: 'user', entityId: u.id, action: 'profile_updated', actorType: 'affiliate', actorId: u.id, meta: { fields: Object.keys(b).filter(k => ['city', 'marketingConsent', 'vatNumber'].includes(k)) } });
     res.json({ success: true, data: { user: publicUser(fresh) } });
   } catch (e) { next(e); }
 });
@@ -473,24 +443,28 @@ router.post('/claims', axAuth, requireApproved, async (req: AxRequest, res, next
     const b = z.object({
       companyName: z.string().trim().min(2).max(120),
       crNumber: z.string().max(30),
+      // رقم التواصل مع المنشأة — إلزاميّ بقرار المالك، في خانته لا في الملاحظة
+      contactPhone: z.string().max(30),
       city: z.string().trim().max(60).optional().nullable(),
       how: z.enum(CLAIM_HOW),
       note: z.string().trim().max(200).optional().nullable(),
     }).parse(req.body);
     const cr = normCR(b.crNumber);
     if (!cr) { res.status(400).json({ success: false, message: 'السجل التجاري 10 أرقام' }); return; }
+    const contactPhone = normContactPhone(b.contactPhone);
+    if (!contactPhone) { res.status(400).json({ success: false, message: 'رقم التواصل غير صحيح' }); return; }
     if (containsContactInfo(b.note) || containsContactInfo(b.companyName) || containsContactInfo(b.city)) {
-      res.status(400).json({ success: false, message: 'لا تُدخل أرقام جوال أو بريداً — اسم المنشأة وسجلها ومدينتها تكفي' }); return;
+      res.status(400).json({ success: false, message: 'أدخل رقم التواصل في خانته — ولا تكتب أرقاماً أو بريداً في الاسم أو المدينة أو الملاحظة' }); return;
     }
     const id = aid(req);
     // ترشيحه السابق بالسجل نفسه يُعاد كما هو — بلا كشفٍ لترشيحات غيره
     const mine = await prisma.affiliateClaim.findFirst({ where: { affiliateId: id, crNumber: cr, status: { in: ['under_review', 'approved', 'converted'] } }, select: { id: true } });
     if (mine) { res.status(201).json({ success: true, data: { id: mine.id, message: 'استلمنا الترشيح وسيُراجع' } }); return; }
     const open = await prisma.affiliateClaim.count({ where: { affiliateId: id, status: 'under_review' } });
-    if (open >= MAX_OPEN_CLAIMS) { res.status(429).json({ success: false, message: 'لديك ترشيحات كثيرة قيد المراجعة — انتظر البتّ فيها' }); return; }
+    if (open >= MAX_OPEN_CLAIMS) { res.status(429).json({ success: false, message: 'لديك ترشيحات كثيرة قيد المراجعة — انتظر البتّ فيها', code: 'too_many_open_claims' }); return; }
     const claim = await prisma.$transaction(async tx => {
       const row = await tx.affiliateClaim.create({
-        data: { affiliateId: id, companyName: b.companyName, companyNameNorm: normCompanyName(b.companyName), crNumber: cr, city: b.city || null, how: b.how, note: b.note || null },
+        data: { affiliateId: id, companyName: b.companyName, companyNameNorm: normCompanyName(b.companyName), crNumber: cr, contactPhone, city: b.city || null, how: b.how, note: b.note || null },
       });
       await logEvent(tx, { entity: 'claim', entityId: row.id, action: 'submitted', toState: 'under_review', actorType: 'affiliate', actorId: id });
       return row;
@@ -504,7 +478,7 @@ router.get('/claims', axAuth, requireApproved, async (req: AxRequest, res, next)
     await expireStaleClaims(aid(req));
     const rows = await prisma.affiliateClaim.findMany({ where: { affiliateId: aid(req) }, orderBy: { submittedAt: 'desc' }, take: 500 });
     res.json({ success: true, data: rows.map(c => ({
-      id: c.id, companyName: c.companyName, crNumber: c.crNumber, city: c.city, how: c.how, status: c.status,
+      id: c.id, companyName: c.companyName, crNumber: c.crNumber, contactPhone: c.contactPhone, city: c.city, how: c.how, status: c.status,
       lockedUntil: c.lockedUntil?.toISOString() ?? null, submittedAt: c.submittedAt.toISOString(),
     })) });
   } catch (e) { next(e); }

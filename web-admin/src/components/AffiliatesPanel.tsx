@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import {
   X, Handshake, LayoutDashboard, Users, FileSearch, Link2, BadgePercent, Landmark, Scale, Settings,
   Search, Eye, EyeOff, Copy, AlertTriangle, CheckCircle2, XCircle, PauseCircle, PlayCircle, Ban,
-  Building2, Plus, Wallet, ShieldAlert, RefreshCw, History, Info, Lock, RotateCcw, Shuffle, CalendarClock,
+  Building2, Plus, Wallet, ShieldAlert, RefreshCw, History, Info, Lock, RotateCcw, Shuffle, CalendarClock, Phone,
 } from 'lucide-react';
 import api from '../api/client';
 import { backdropClose } from '../lib/backdropClose';
@@ -194,7 +194,7 @@ function AffCell({ a }: { a: { fullName: string; code: string } | null | undefin
 
 const day = (s: string | null | undefined) => (s ? formatDate(s) : '—');
 /**
- * حقول اليوم الخالص (`mawthooqExpiry`، `transferredAt`) تصل 'YYYY-MM-DD' بيوم الرياض —
+ * حقول اليوم الخالص (`transferredAt`) تصل 'YYYY-MM-DD' بيوم الرياض —
  * و`dayKeyOf` يحوّل أي لحظة ISO كاملة ليوم الرياض بدل قصّ أول عشرة أحرف منها.
  */
 const dayOnly = (s: string | null | undefined) => {
@@ -676,24 +676,6 @@ function AffiliateActions({ a, actions }: { a: { id: string; fullName: string; s
   );
 }
 
-function MawthooqCell({ a }: { a: { publicPromoter: boolean; mawthooqNo: string | null; mawthooqExpiry: string | null } }) {
-  if (!a.publicPromoter && !a.mawthooqNo) return <span className="text-[11px] text-gray-400">لا ينشر علناً</span>;
-  const expired = L.isDayExpired(a.mawthooqExpiry);
-  const missing = a.publicPromoter && (!a.mawthooqNo || !a.mawthooqExpiry);
-  return (
-    <div className="text-[11.5px]">
-      {a.publicPromoter && <p className="text-[#6E6557]">ينشر علناً</p>}
-      {a.mawthooqNo && <p className="font-mono" dir="ltr">{a.mawthooqNo}</p>}
-      {a.mawthooqExpiry && (
-        <p className={expired ? 'text-red-600 font-bold' : 'text-[#9A8F7E]'}>
-          {expired ? 'منتهٍ ' : 'ينتهي '}{dayOnly(a.mawthooqExpiry)}
-        </p>
-      )}
-      {missing && <p className="text-red-600 font-bold">بيانات موثوق ناقصة</p>}
-    </div>
-  );
-}
-
 function AffiliatesTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
   const actions = useActions();
   const [q, setQ] = useState('');
@@ -720,7 +702,7 @@ function AffiliatesTab({ status, setStatus }: { status: string; setStatus: (v: s
       ) : (
         <div className={isFetching ? 'opacity-70 transition-opacity' : ''}>
           <Table head={<>
-            <Th>السفير</Th><Th>التواصل</Th><Th>الحالة</Th><Th>موثوق</Th><Th>النشاط</Th><Th>الأرباح</Th><Th>التسجيل</Th><Th>إجراءات</Th>
+            <Th>السفير</Th><Th>التواصل</Th><Th>الحالة</Th><Th>النشاط</Th><Th>الأرباح</Th><Th>التسجيل</Th><Th>إجراءات</Th>
           </>}>
             {data.map((a) => (
               <tr key={a.id} className="hover:bg-[#FBEBE2]/30">
@@ -739,7 +721,6 @@ function AffiliatesTab({ status, setStatus }: { status: string; setStatus: (v: s
                   <StatusChip map={L.USER_STATUS_LABEL} value={a.status} />
                   {a.statusReason && <p className="text-[10.5px] text-[#9A8F7E] mt-1 max-w-[160px]">{a.statusReason}</p>}
                 </Td>
-                <Td><MawthooqCell a={a} /></Td>
                 <Td className="text-[11.5px] text-[#6E6557] whitespace-nowrap">
                   <p>ترشيحات {a.counts.claims}</p>
                   <p>شركات {a.counts.attributions}</p>
@@ -821,22 +802,6 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
                   <Row k="موافقة تسويقية" v={a.marketingConsent ? 'نعم' : 'لا'} />
                 </div>
                 {a.statusReason && <p className="mt-2 text-[12px] text-[#6E6557]">سبب الحالة: {a.statusReason}</p>}
-              </DrawerSection>
-
-              <DrawerSection title="موثوق (النشر العلني)">
-                {(() => {
-                  const expired = L.isDayExpired(a.mawthooqExpiry);
-                  const missing = a.publicPromoter && (!a.mawthooqNo || !a.mawthooqExpiry);
-                  return (
-                    <div className="grid sm:grid-cols-2 gap-x-5 gap-y-1.5 text-[12.5px]">
-                      <Row k="ينشر علناً" v={a.publicPromoter ? 'نعم' : 'لا'} />
-                      <Row k="رقم الترخيص" v={a.mawthooqNo ? <span className="font-mono" dir="ltr">{a.mawthooqNo}</span> : '—'} />
-                      <Row k="تاريخ الانتهاء" v={a.mawthooqExpiry ? `${dayOnly(a.mawthooqExpiry)}${expired ? ' — منتهٍ' : ''}` : '—'} danger={expired} />
-                      {missing && <p className="sm:col-span-2 text-[12px] text-red-600 font-bold">يعلن أنه ينشر علناً بلا ترخيص موثوق كامل.</p>}
-                      {expired && <p className="sm:col-span-2 text-[12px] text-red-600 font-bold">انتهى ترخيص موثوق — النشر العلني دون ترخيص ساري مخالفة.</p>}
-                    </div>
-                  );
-                })()}
               </DrawerSection>
 
               <DrawerSection title="بيانات الاستلام">
@@ -1007,6 +972,14 @@ function ClaimsTab({ status, setStatus }: { status: string; setStatus: (v: strin
                       سجل تجاري <span className="font-mono" dir="ltr">{c.crNumber}</span>
                       {c.city ? ` · ${c.city}` : ''} · {L.labelOf(L.CLAIM_HOW_LABEL, c.how)}
                     </p>
+                    {c.contactPhone && (
+                      <p className="text-[12px] text-[#6E6557] mt-0.5 flex items-center gap-1">
+                        <Phone className="w-3.5 h-3.5 shrink-0" /> رقم التواصل:{' '}
+                        {L.telHref(c.contactPhone)
+                          ? <a href={L.telHref(c.contactPhone)!} className="font-mono text-[#E15A30] hover:underline" dir="ltr">{L.phoneDisplay(c.contactPhone)}</a>
+                          : <span className="font-mono" dir="ltr">{L.phoneDisplay(c.contactPhone)}</span>}
+                      </p>
+                    )}
                     {c.note && <p className="text-[12px] text-[#1F1A13] mt-1 bg-[#FAF7F0] rounded-lg px-2 py-1">«{c.note}»</p>}
                     <p className="text-[11px] text-[#9A8F7E] mt-1">
                       من <b className="text-[#1F1A13]">{c.affiliate.fullName}</b> <span className="font-mono" dir="ltr">{c.affiliate.code}</span>

@@ -18,25 +18,20 @@ function session(): Storage | null {
   try { return (globalThis as { sessionStorage?: Storage }).sessionStorage ?? null; } catch { return null; }
 }
 
-const TEXT_FIELDS = ['fullName', 'email', 'phone', 'city', 'mawthooqNo', 'mawthooqExpiry', 'vatNumber'] as const;
-const DECLARATIONS = ['independent', 'noSpam', 'disclose'] as const;
+const TEXT_FIELDS = ['fullName', 'email', 'phone', 'city', 'vatNumber'] as const;
 const TEXT_MAX = 200;
 
 /** يستخرج من النموذج ما يجوز حفظه — بلا كلمة المرور ولا الموافقة على الشروط */
 export function draftOf(f: RegisterForm): RegisterDraft {
   return {
     fullName: f.fullName, email: f.email, phone: f.phone, city: f.city,
-    publicPromoter: f.publicPromoter, mawthooqNo: f.mawthooqNo, mawthooqExpiry: f.mawthooqExpiry,
     vatNumber: f.vatNumber, marketingConsent: f.marketingConsent,
-    declarations: { ...f.declarations },
   };
 }
 
 /** مسودّةٌ بلا أي قيمة مُدخلة لا تستحق الحفظ */
 export function isEmptyDraft(d: RegisterDraft): boolean {
-  return TEXT_FIELDS.every((k) => !d[k].trim())
-    && !d.publicPromoter && !d.marketingConsent
-    && DECLARATIONS.every((k) => !d.declarations[k]);
+  return TEXT_FIELDS.every((k) => !d[k].trim()) && !d.marketingConsent;
 }
 
 export function saveRegisterDraft(f: RegisterForm): void {
@@ -51,7 +46,8 @@ export function saveRegisterDraft(f: RegisterForm): void {
 
 /**
  * يقرأ المسودّة ويدمجها في نموذجٍ فارغ بأنواعٍ مُتحقَّقة (قيمةٌ تالفة تُهمل حقلها
- * لا النموذج كلّه). كلمة المرور فارغة والموافقة على الشروط غير مؤشَّرة دائماً.
+ * لا النموذج كلّه). كلمة المرور فارغة والموافقة على الشروط غير مؤشَّرة دائماً،
+ * وأي حقلٍ قديم في مسودّةٍ سابقة (كإقرارات أو «موثوق») يُتجاهل.
  */
 export function loadRegisterDraft(): RegisterForm | null {
   let raw: string | null = null;
@@ -64,20 +60,12 @@ export function loadRegisterDraft(): RegisterForm | null {
   } catch { obj = null; }
   if (!obj) { clearRegisterDraft(); return null; }
 
-  const form: RegisterForm = { ...EMPTY_REGISTER, declarations: { ...EMPTY_REGISTER.declarations } };
+  const form: RegisterForm = { ...EMPTY_REGISTER };
   for (const k of TEXT_FIELDS) {
     const v = obj[k];
     if (typeof v === 'string') form[k] = v.slice(0, TEXT_MAX);
   }
-  if (typeof obj.publicPromoter === 'boolean') form.publicPromoter = obj.publicPromoter;
   if (typeof obj.marketingConsent === 'boolean') form.marketingConsent = obj.marketingConsent;
-  const decl = obj.declarations;
-  if (decl && typeof decl === 'object') {
-    for (const k of DECLARATIONS) {
-      const v = (decl as Record<string, unknown>)[k];
-      if (typeof v === 'boolean') form.declarations[k] = v;
-    }
-  }
   form.password = '';
   form.acceptTerms = false;
   return form;

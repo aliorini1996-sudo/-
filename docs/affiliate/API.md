@@ -28,12 +28,11 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
 - `POST /register` جسم:
   ```ts
   { fullName: string /*2..80*/, email: string, phone: string /*جوال سعودي*/, city?: string, password: string /*8..128*/,
-    publicPromoter: boolean, mawthooqNo?: string, mawthooqExpiry?: 'YYYY-MM-DD',
     vatNumber?: string /*15 رقماً*/, marketingConsent: boolean,
-    acceptTerms: true, termsVersion: string,
-    declarations: { independent: true, noSpam: true, disclose: true } }   // الإقرار الرابع (عدم إحالة منشأةٍ يعمل فيها) أُلغي بقرار المالك
+    acceptTerms: true, termsVersion: string }
+  // أُلغيت بقرار المالك («لا نريد تقييد السفير»): الإقرارات، و«سأنشر علناً»، وترخيص موثوق —
+  // تُقبل من نسخةٍ قديمة وتُهمل (publicPromoter/mawthooqNo/mawthooqExpiry/declarations)
   ```
-  - `publicPromoter=true` ⇒ `mawthooqNo` و`mawthooqExpiry` إلزاميّان.
   - ⇒ **202** `{ message }` دائماً (حتى لو البريد مسجَّل). بريدٌ مسجَّل **لم يؤكَّد** يُحدَّث بآخر طلب (كلمة المرور والبيانات)؛ والتأكيد يطلب كلمة مرور آخر طلب، فلا يُفعِّل أحدٌ طلباً لا يعرف كلمة مروره.
   - البريد (تأكيد/استعادة/إعادة إرسال) مرّةً كلّ ٥ دقائق لكلّ عنوان على الأكثر، والردّ 202 في كلّ الأحوال.
   - 403 إن كان الانضمام مغلقاً `intakeOpen=false`. 409 إن كان `termsVersion` لا يطابق الحالي (أعد تحميل الشروط).
@@ -54,14 +53,14 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
     publicPromoter: boolean, mawthooqNo: string|null, mawthooqExpiry: string|null, vatNumber: string|null, marketingConsent: boolean,
     termsVersion: string, payout: { holderName: string, bankName: string|null, ibanLast4: string, updatedAt: string } | null, createdAt: string }
   ```
-- `PUT /me` `{ city?, marketingConsent?, publicPromoter?, mawthooqNo?, mawthooqExpiry?, vatNumber? }` ⇒ `{ user: AffiliateMe }` — `''` يمسح الحقل. شرط موثوق يُفحص **فقط** إن تضمّن الجسم `publicPromoter` أو `mawthooqNo` أو `mawthooqExpiry`، والترخيص سارٍ حتى نهاية يوم انتهائه بتوقيت الرياض.
+- `PUT /me` `{ city?, marketingConsent?, vatNumber? }` ⇒ `{ user: AffiliateMe }` — `''` يمسح الحقل. (لا «سأنشر علناً» ولا ترخيص موثوق.)
 - `POST /accept-terms` `{ termsVersion }` ⇒ `{ user: AffiliateMe }` (عند نشر إصدار جديد)
 
 ### بجلسة **approved** وبالشروط الحالية مقبولة (غير ذلك 403 `{message}`؛ و`code: 'terms_outdated'` إن نُشرت شروطٌ لم يقبلها)
 - `GET /dashboard` ⇒ `{ clicks30d: number, signups: number, paidCompanies: number, pendingHalalas: number, approvedHalalas: number, paidHalalas: number, adjustmentsHalalas: number /* غير المسوّاة فقط */ }`
 - `GET /companies` ⇒ `Array<{ id: string /*attributionId*/, tenantName: string, source: 'signup_code'|'claim'|'owner', status: 'trial'|'paid'|'disputed'|'void'|'expired', signedUpAt: string, firstPaymentDeadline: string, firstPaidAt: string|null, commission: { status: CommissionStatus, commissionHalalas: number, eligibleAt: string } | null /* عمولة السفير نفسه فقط */ }>`
-- `POST /claims` `{ companyName: string /*2..120*/, crNumber: string /*10 أرقام*/, city?: string, how: ClaimHow, note?: string /*≤200*/ }` ⇒ **201** `{ id: string, message: 'استلمنا الترشيح وسيُراجع' }` — يُرفض (400) بريدٌ أو سلسلة أرقامٍ بأيّ فواصل فيها ٨ أرقامٍ فأكثر (عدا التاريخ) في الاسم أو المدينة أو الملاحظة.
-- `GET /claims` ⇒ `Array<{ id, companyName, crNumber, city: string|null, how: ClaimHow, status: ClaimStatus, lockedUntil: string|null, submittedAt: string }>`
+- `POST /claims` `{ companyName: string /*2..120*/, crNumber: string /*10 أرقام*/, contactPhone: string /*إلزامي: جوال سعودي أو 8–15 رقماً*/, city?: string, how: ClaimHow, note?: string /*≤200*/ }` ⇒ **201** `{ id: string, message: 'استلمنا الترشيح وسيُراجع' }` — يُرفض (400) بريدٌ أو سلسلة أرقامٍ بأيّ فواصل فيها ٨ أرقامٍ فأكثر (عدا التاريخ) في الاسم أو المدينة أو الملاحظة.
+- `GET /claims` ⇒ `Array<{ id, companyName, crNumber, contactPhone: string|null, city: string|null, how: ClaimHow, status: ClaimStatus, lockedUntil: string|null, submittedAt: string }>`
 - `POST /claims/:id/withdraw` ⇒ `{ ok: true }` (فقط `under_review`، وإلا 409)
 - `GET /commissions` ⇒ `Array<{ id, tenantName, paymentAmountHalalas, refundedHalalas, commissionHalalas, rateBps, status: CommissionStatus, paymentPaidAt: string, eligibleAt: string, reasonNote: string|null, paidAt: string|null }>`
 - `GET /adjustments` ⇒ `Array<{ id, kind: 'clawback_refund'|'correction', amountHalalas: number, note: string|null, createdAt: string, settled: boolean }>`
@@ -80,7 +79,7 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
 - `GET /affiliates/:id` ⇒ `{ affiliate: (مثل عنصر القائمة + vatNumber, termsVersion, termsAcceptedAt, marketingConsent, payout: {holderName, bankName, ibanLast4, updatedAt}|null), claims: [...], attributions: [...], commissions: [...], adjustments: [...{ settled: boolean /*في دفعة مسجَّلة*/, inDraft: boolean }], payouts: [...{ transferredAt: 'YYYY-MM-DD'|null }], events: AffiliateEvent[] }` (صفوف خام من المخطّط)
 - `POST /affiliates/:id/approve` · `POST /affiliates/:id/reject {reason}` · `POST /affiliates/:id/suspend {reason}` · `POST /affiliates/:id/reactivate` (موقوف ⇒ مقبول، مرفوض ⇒ قيد المراجعة) ⇒ `{ status }` (409 انتقال غير مسموح)
 - `POST /affiliates/:id/reveal-iban` ⇒ `{ iban: string, holderName, bankName }` (يُسجَّل حدثاً)
-- `GET /claims?status=` ⇒ `Array<{ id, affiliate: {id, fullName, code}, companyName, crNumber, city, how, note, status, reasonCode, submittedAt, reviewedAt, lockedUntil, tenantId, tenantName: string|null, conflicts: Array<{ claimId, affiliateName, status }> /*ترشيحات أخرى بالسجل نفسه*/, suggestions: Array<{ tenantId, tenantName, match: 'cr'|'name', createdAt }> }>`
+- `GET /claims?status=` ⇒ `Array<{ id, affiliate: {id, fullName, code}, companyName, crNumber, contactPhone: string|null, city, how, note, status, reasonCode, submittedAt, reviewedAt, lockedUntil, tenantId, tenantName: string|null, conflicts: Array<{ claimId, affiliateName, status }> /*ترشيحات أخرى بالسجل نفسه*/, suggestions: Array<{ tenantId, tenantName, match: 'cr'|'name', createdAt }> }>`
 - `POST /claims/:id/approve` ⇒ `{ status: 'approved', lockedUntil }` · 409 إن وُجد ترشيح معتمد ساري بالسجل نفسه
 - `POST /claims/:id/reject {reasonCode: ClaimReason}` ⇒ `{ status: 'rejected' }`
 - `POST /claims/:id/link-tenant {tenantId}` ⇒ `{ attribution: {id, status}, commission: {id, status}|null, commissionCreated: boolean, accrualReason: string|null, conflict: { attributionStatus: string, commissionHeld: boolean } | null }` — الترشيح `approved`، أو `expired` إن سجّلت الشركة داخل قفله. بداية الإسناد = لحظة **تقديم** الترشيح (وتُسحب إليها بداية إسنادٍ قائم للسفير نفسه إن لم تنشأ عمولة). مدّة القفل عند الاعتماد من شروط صاحب الترشيح.

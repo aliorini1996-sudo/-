@@ -34,9 +34,7 @@ afterEach(() => {
 const filled = (): RegisterForm => ({
   ...EMPTY_REGISTER,
   fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'الرياض',
-  password: 'correct-horse-battery', publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30',
-  vatNumber: '300000000000003', marketingConsent: true, acceptTerms: true,
-  declarations: { independent: true, noSpam: false, disclose: true },
+  password: 'correct-horse-battery', vatNumber: '300000000000003', marketingConsent: true, acceptTerms: true,
 });
 
 test('كلمة المرور لا تُحفظ أبداً — ولا الموافقة على الشروط', () => {
@@ -65,6 +63,10 @@ test('تُمسح بعد الإرسال الناجح، والنموذج الفا�
   assert.equal(isEmptyDraft(draftOf(EMPTY_REGISTER)), true);
   saveRegisterDraft({ ...EMPTY_REGISTER, password: 'only-password' });
   assert.equal(sessionStorage.getItem(REGISTER_DRAFT_KEY), null, 'كلمة مرور وحدها ليست مسودّة');
+  saveRegisterDraft({ ...EMPTY_REGISTER, acceptTerms: true });
+  assert.equal(sessionStorage.getItem(REGISTER_DRAFT_KEY), null, 'الموافقة وحدها ليست مسودّة');
+  saveRegisterDraft({ ...EMPTY_REGISTER, marketingConsent: true });
+  assert.ok(sessionStorage.getItem(REGISTER_DRAFT_KEY), 'الموافقة التسويقية وحدها تُحفظ');
   saveRegisterDraft(filled());
   saveRegisterDraft(EMPTY_REGISTER);
   assert.equal(sessionStorage.getItem(REGISTER_DRAFT_KEY), null, 'تفريغ النموذج يمسح المسودّة');
@@ -72,21 +74,34 @@ test('تُمسح بعد الإرسال الناجح، والنموذج الفا�
 
 test('قيم تالفة: الحقل التالف يُهمل لا النموذج، والتالف كلياً يُمسح', () => {
   sessionStorage.setItem(REGISTER_DRAFT_KEY, JSON.stringify({
-    fullName: 'سارة', email: 42, city: 'x'.repeat(500), publicPromoter: 'yes', password: 'leaked',
-    declarations: { independent: true, noSpam: 'true' },
+    fullName: 'سارة', email: 42, city: 'x'.repeat(500), marketingConsent: 'yes', password: 'leaked', acceptTerms: true,
   }));
   const f = loadRegisterDraft()!;
   assert.equal(f.fullName, 'سارة');
   assert.equal(f.email, '');
   assert.equal(f.city.length, 200);
-  assert.equal(f.publicPromoter, false);
+  assert.equal(f.marketingConsent, false);
   assert.equal(f.password, '', 'كلمة مرور مزروعة في التخزين لا تُقرأ');
-  assert.deepEqual(f.declarations, { independent: true, noSpam: false, disclose: false });
+  assert.equal(f.acceptTerms, false, 'موافقة مزروعة في التخزين لا تُقرأ');
 
   for (const bad of ['{nope', '[]', 'null', '"str"']) {
     sessionStorage.setItem(REGISTER_DRAFT_KEY, bad);
     assert.equal(loadRegisterDraft(), null, bad);
   }
+});
+
+test('مسودّة قديمة بإقرارات و«موثوق» تُستعاد بحقولها الحالية فقط', () => {
+  sessionStorage.setItem(REGISTER_DRAFT_KEY, JSON.stringify({
+    fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'جدة', vatNumber: '', marketingConsent: true,
+    publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30',
+    declarations: { independent: true, noSpam: true, disclose: true, noSelfReferral: true },
+  }));
+  const f = loadRegisterDraft()!;
+  assert.deepEqual(f, { ...EMPTY_REGISTER, fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'جدة', marketingConsent: true });
+  for (const k of ['publicPromoter', 'mawthooqNo', 'mawthooqExpiry', 'declarations']) assert.ok(!(k in f), `${k} لا يُستعاد`);
+  saveRegisterDraft(f);
+  const raw = JSON.parse(sessionStorage.getItem(REGISTER_DRAFT_KEY)!);
+  assert.deepEqual(Object.keys(raw).sort(), ['city', 'email', 'fullName', 'marketingConsent', 'phone', 'vatNumber']);
 });
 
 test('تخزين محجوب أو غائب لا يُسقط النموذج', () => {

@@ -289,7 +289,7 @@ router.get('/claims', handle(async (req, res) => {
       }
     }
     return {
-      id: c.id, affiliate: c.affiliate, companyName: c.companyName, crNumber: c.crNumber, city: c.city, how: c.how, note: c.note,
+      id: c.id, affiliate: c.affiliate, companyName: c.companyName, crNumber: c.crNumber, contactPhone: c.contactPhone, city: c.city, how: c.how, note: c.note,
       status: c.status, reasonCode: c.reasonCode, submittedAt: c.submittedAt, reviewedAt: c.reviewedAt, lockedUntil: c.lockedUntil,
       tenantId: c.tenantId, tenantName: c.tenantId ? (nameOf.get(c.tenantId) ?? null) : null,
       conflicts: siblings.filter(s => s.crNumber === c.crNumber && s.id !== c.id).map(s => ({ claimId: s.id, affiliateName: s.affiliate.fullName, status: s.status })),

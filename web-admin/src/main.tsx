@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import App from './App';
+import { useDir } from './i18n/lang';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -10,6 +11,25 @@ const queryClient = new QueryClient({
     queries: { retry: 1, staleTime: 30000 },
   },
 });
+
+/**
+ * التنبيهات بعامّة التطبيق — اتجاهها يتبع اللغة (RTL للعربية وحدها). كان مثبّتاً RTL فتظهر
+ * الأيقونة يمين النصّ الإنجليزي وتنحاز أسطره لليمين.
+ */
+function AppToaster() {
+  const dir = useDir();
+  return (
+    <Toaster
+      position="top-center"
+      toastOptions={{
+        duration: 3000,
+        style: { fontFamily: 'Noto Kufi Arabic, IBM Plex Sans, system-ui, sans-serif', direction: dir, fontSize: '14px' },
+        success: { iconTheme: { primary: '#10b981', secondary: 'white' } },
+        error: { iconTheme: { primary: '#ef4444', secondary: 'white' } },
+      }}
+    />
+  );
+}
 
 // تسجيل Service Worker (PWA) — يجعل تطبيق المندوب قابلاً للتثبيت على الجوال
 if ('serviceWorker' in navigator) {
@@ -22,15 +42,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <App />
-      <Toaster
-        position="top-center"
-        toastOptions={{
-          duration: 3000,
-          style: { fontFamily: 'Noto Kufi Arabic, IBM Plex Sans, system-ui, sans-serif', direction: 'rtl', fontSize: '14px' },
-          success: { iconTheme: { primary: '#10b981', secondary: 'white' } },
-          error: { iconTheme: { primary: '#ef4444', secondary: 'white' } },
-        }}
-      />
+      <AppToaster />
     </QueryClientProvider>
   </React.StrictMode>
 );

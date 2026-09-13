@@ -20,9 +20,9 @@ import {
   USER_ACTIONS, ATTRIBUTION_ACTIONS, COMMISSION_ACTIONS,
   labelOf, toneOf, normalizeNumeric, parseSarToHalalas, halalasToSarInput, formatHalalas,
   bpsToPercent, parsePercentToBps, parseIntInRange, validateTermsForm, validateReason,
-  validatePayoutRecord, validateAdjustment, isIsoDay, isDayExpired, todayKey,
+  validatePayoutRecord, validateAdjustment, isIsoDay,
   cleanParams, matchesSearch, sortAffiliatesForSelect, apiErrorMessage, candidateBlocker, groupIban,
-  normalizeDetail, normalizeClaims, normalizeAttributions,
+  normalizeDetail, normalizeClaims, normalizeAttributions, telHref, phoneDisplay,
   riyadhDayKey, dayKeyOf, reactivateCopy, attributionActions, canCreatePayout, adjustmentState,
   ACCRUAL_REASONS, ACCRUAL_REASON_LABEL, conflictMessage, withAccrual, claimLinkMessage, reassignMessage, claimActions,
   validateReassign, buildReassignBody, reassignClaimOptions, validateWindow,
@@ -280,7 +280,6 @@ test('التواريخ: يوم ISO، ويوم الرياض لا UTC ولا يو�
   assert.equal(isIsoDay('2026-09-13'), true);
   assert.equal(isIsoDay('2026-13-01'), false);
   assert.equal(isIsoDay('2026-9-1'), false);
-  assert.equal(todayKey(new Date(2026, 8, 13, 15, 0, 0)), '2026-09-13');
 
   // 21:00 UTC = منتصف ليل الرياض: قبلها اليوم نفسه، وبعدها الغد — تقطيع UTC يُخطئ هنا
   assert.equal(riyadhDayKey(Date.parse('2026-09-13T20:59:59Z')), '2026-09-13');
@@ -297,23 +296,11 @@ test('التواريخ: يوم ISO، ويوم الرياض لا UTC ولا يو�
   assert.equal(dayKeyOf(null), null);
 });
 
-test('انتهاء ترخيص موثوق: منتهٍ فقط إن سبق يوم الرياض الحالي', () => {
-  const noon = Date.parse('2026-09-13T09:00:00Z'); // 12:00 بالرياض يوم 13
-  assert.equal(isDayExpired('2026-09-12', noon), true);
-  assert.equal(isDayExpired('2026-09-13', noon), false, 'يوم الانتهاء نفسه سارٍ');
-  assert.equal(isDayExpired('2026-09-14', noon), false);
-
-  // 00:30 بالرياض يوم 14 = 21:30 UTC يوم 13: ترخيصٌ ينتهي 13 صار منتهياً (UTC يقول لا)
-  const afterMidnight = Date.parse('2026-09-13T21:30:00Z');
-  assert.equal(isDayExpired('2026-09-13', afterMidnight), true);
-  assert.equal(isDayExpired('2026-09-14', afterMidnight), false);
-  // 23:30 بالرياض يوم 13 = 20:30 UTC: ما زال سارياً
-  assert.equal(isDayExpired('2026-09-13', Date.parse('2026-09-13T20:30:00Z')), false);
-
-  assert.equal(isDayExpired('2026-09-12T22:00:00.000Z', noon), false, 'لحظة كاملة يومها بالرياض 13');
-  assert.equal(isDayExpired(null, noon), false);
-  assert.equal(isDayExpired('garbage', noon), false);
-  assert.equal(isDayExpired('2026-09-12', new Date(noon)), true, 'يقبل Date أيضاً');
+test('لوحة المالك بلا «موثوق»: لا عمود ولا قسم ولا علامات مخالفة', () => {
+  const src = fs.readFileSync(fileURLToPath(new URL('./AffiliatesPanel.tsx', import.meta.url)), 'utf8');
+  assert.doesNotMatch(src, /MawthooqCell|موثوق|mawthooq|publicPromoter|ينشر علناً/, 'بقايا «موثوق» في لوحة المالك');
+  const logic = fs.readFileSync(fileURLToPath(new URL('./affiliatesPanelLogic.ts', import.meta.url)), 'utf8');
+  assert.doesNotMatch(logic, /isDayExpired|mawthooq|publicPromoter/, 'منطق «موثوق» غير المستعمل ما زال');
 });
 
 test('التصفية: معاملات نظيفة وبحث عربي مطبَّع', () => {
@@ -626,4 +613,23 @@ test('AffiliatesPanel: سلوكيات العرض المرتبطة بالعقد �
   assert.match(src, /const can = L\.canCreatePayout\(c\)/);
   // التصحيحات: الحالة من settled/inDraft لا من payoutId
   assert.doesNotMatch(src, /j\.settled \?\? !!j\.payoutId/);
+});
+
+test('رقم تواصل الترشيح بصيغة الخادم المخزّنة: رابط tel: يُضيف + للجوال والدولي، وصفّ الترشيح يعرضه', () => {
+  // قيمٌ كما يُعيدها GET /affiliate-admin/claims فعلاً (أرقامٌ مطبَّعة بلا +)
+  assert.equal(telHref('966551234567'), 'tel:+966551234567', 'جوال سعودي');
+  assert.equal(telHref('971501234567'), 'tel:+971501234567', 'دولي');
+  assert.equal(telHref('0112345678'), 'tel:0112345678', 'ثابت يبدأ بصفر يُترك');
+  assert.equal(telHref('920012345'), 'tel:920012345', 'موحّد قصير يُترك');
+  assert.equal(telHref(''), null);
+  assert.equal(telHref(null), null);
+  assert.equal(phoneDisplay('966551234567'), '+966 55 123 4567');
+  assert.equal(phoneDisplay('971501234567'), '+971501234567');
+  assert.equal(phoneDisplay('0112345678'), '0112345678');
+  assert.match(fs.readFileSync(fileURLToPath(new URL('./AffiliatesPanel.tsx', import.meta.url)), 'utf8'), /L\.phoneDisplay\(c\.contactPhone\)/);
+
+  const src = fs.readFileSync(fileURLToPath(new URL('./AffiliatesPanel.tsx', import.meta.url)), 'utf8');
+  assert.match(src, /c\.contactPhone && \(/, 'رقم التواصل لا يُعرض في صفّ الترشيح');
+  assert.match(src, /href=\{L\.telHref\(c\.contactPhone\)!\}/, 'رقم التواصل ليس رابط tel:');
+  assert.match(src, /رقم التواصل:/, 'لوحة المالك تبقى عربية');
 });

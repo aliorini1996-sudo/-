@@ -118,6 +118,22 @@ export function normPhoneSA(phone: unknown): string | null {
   return /^5\d{8}$/.test(d) ? `966${d}` : null;
 }
 
+/**
+ * رقم التواصل مع منشأةٍ مرشَّحة: جوالٌ سعوديّ بصيغة `9665XXXXXXXX`، أو أيّ رقمٍ آخر
+ * (هاتف ثابت، 9200، دولي) من ٨ إلى ١٥ رقماً بلا فواصل — أو `null`.
+ */
+export function normContactPhone(phone: unknown): string | null {
+  if (typeof phone !== 'string') return null;
+  // NFKC قبل كلّ شيء: جوالٌ بأرقامٍ عريضة يُخزَّن بالصيغة الموحّدة لا كما كُتب
+  const raw = phone.normalize('NFKC');
+  const mobile = normPhoneSA(raw);
+  if (mobile) return mobile;
+  let d = latinDigits(raw).replace(/[\s\-().]/g, '');
+  if (d.startsWith('+')) d = d.slice(1);
+  else if (d.startsWith('00')) d = d.slice(2);
+  return /^\d{8,15}$/.test(d) ? d : null;
+}
+
 /** السجل التجاري: عشرة أرقام — أو `null` */
 export function normCR(cr: unknown): string | null {
   if (typeof cr !== 'string') return null;

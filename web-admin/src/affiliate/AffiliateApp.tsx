@@ -5,16 +5,18 @@
 //   عميل لوحة الشركة ولا مخزن مصادقتها.
 // · غير مُدرجة: `noindex, nofollow` يُحقن عند التحميل ويُستعاد عند المغادرة، ولا
 //   روابط إليها من أي صفحة عامة، ولا في robots/sitemap/llms/prerender.
-// · عربية فقط ومن اليمين لليسار، والجوال أولاً (أغلب السفراء على هواتفهم).
+// · خمس لغات (ar · en · fr · tr · zh) بقاموس ./i18n ومبدّلٍ أعلى كل شاشة؛ الاتجاه يتبع
+//   اللغة (RTL للعربية وحدها)، والجوال أولاً (أغلب السفراء على هواتفهم).
 // ============================================================================
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { Home, Link2, Send, Building2, Wallet, UserRound, FileText, LogOut } from 'lucide-react';
 import { affiliateApi, clearToken, getToken, httpStatus, onTermsOutdated, onUnauthorized, qk, shouldRetry } from './api';
 import type { AffiliateMe, MeResponse } from './types';
-import { AuthShell, BrandLockup, ErrorBox, Loading } from './ui';
+import { AuthShell, AxLanguageToggle, BrandLockup, ErrorBox, Loading } from './ui';
+import { useAxT, type AxKey } from './i18n';
 import {
   ForgotScreen, LoginScreen, RegisterScreen, ResendScreen, ResetScreen, VerifyScreen,
 } from './screens/AuthScreens';
@@ -29,28 +31,23 @@ import { CompaniesTab } from './screens/CompaniesScreen';
 import { EarningsTab } from './screens/EarningsScreen';
 import { ProfileTab, TermsTab } from './screens/ProfileScreen';
 
-const TABS: Array<{ id: Tab; label: string; icon: ReactNode }> = [
-  { id: 'home', label: 'الرئيسية', icon: <Home size={15} /> },
-  { id: 'link', label: 'رابطي', icon: <Link2 size={15} /> },
-  { id: 'claims', label: 'رشّح شركة', icon: <Send size={15} /> },
-  { id: 'companies', label: 'شركاتي', icon: <Building2 size={15} /> },
-  { id: 'earnings', label: 'أرباحي', icon: <Wallet size={15} /> },
-  { id: 'profile', label: 'الملف', icon: <UserRound size={15} /> },
-  { id: 'terms', label: 'الشروط', icon: <FileText size={15} /> },
+const TABS: Array<{ id: Tab; label: AxKey; icon: ReactNode }> = [
+  { id: 'home', label: 'tab.home', icon: <Home size={15} /> },
+  { id: 'link', label: 'tab.link', icon: <Link2 size={15} /> },
+  { id: 'claims', label: 'tab.claims', icon: <Send size={15} /> },
+  { id: 'companies', label: 'tab.companies', icon: <Building2 size={15} /> },
+  { id: 'earnings', label: 'tab.earnings', icon: <Wallet size={15} /> },
+  { id: 'profile', label: 'tab.profile', icon: <UserRound size={15} /> },
+  { id: 'terms', label: 'tab.terms', icon: <FileText size={15} /> },
 ];
 
-/** يحقن noindex ويضبط العنوان واتجاه المستند — ويُعيد كل شيء كما كان عند المغادرة */
-function usePrivatePageHead() {
+/**
+ * يحقن noindex ويضبط العنوان بلغة العرض — ويُعيد العنوان ووسم robots عند المغادرة.
+ * لغة المستند واتجاهه يضبطهما مخزن اللغة (`useLang`) لا البوابة.
+ */
+function usePrivatePageHead(title: string) {
   useEffect(() => {
     const prevTitle = document.title;
-    document.title = 'سفير فيلد سيلز';
-
-    const html = document.documentElement;
-    const prevLang = html.getAttribute('lang');
-    const prevDir = html.getAttribute('dir');
-    html.setAttribute('lang', 'ar');
-    html.setAttribute('dir', 'rtl');
-
     let meta = document.head.querySelector<HTMLMetaElement>('meta[name="robots"]');
     const created = !meta;
     const prevRobots = meta?.getAttribute('content') ?? null;
@@ -63,16 +60,17 @@ function usePrivatePageHead() {
 
     return () => {
       document.title = prevTitle;
-      if (prevLang === null) html.removeAttribute('lang'); else html.setAttribute('lang', prevLang);
-      if (prevDir === null) html.removeAttribute('dir'); else html.setAttribute('dir', prevDir);
       if (created) meta?.remove();
       else if (prevRobots !== null) meta?.setAttribute('content', prevRobots);
     };
   }, []);
+  // العنوان يتبع تبديل اللغة
+  useEffect(() => { document.title = title; }, [title]);
 }
 
 export default function AffiliateApp() {
-  usePrivatePageHead();
+  const { t, dir, lang } = useAxT();
+  usePrivatePageHead(t('app.title'));
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -124,12 +122,17 @@ export default function AffiliateApp() {
   const [termsOutdated, setTermsOutdated] = useState(false);
 
   useEffect(() => { window.scrollTo({ top: 0 }); }, [view, tab, hasToken]);
+  // التبويب النشط في منتصف الشريط — ويُعاد توسيطه بعد تبديل اللغة: الاتجاه يقلب بداية التمرير
+  // وعروض العناوين تتغيّر، فيخرج التبويب عن الشاشة. تبديل اللغة يُوسِّط فوراً (auto) لا بانزلاق.
+  const lastLang = useRef(lang);
   useEffect(() => {
     if (!hasToken) return;
+    const langChanged = lastLang.current !== lang;
+    lastLang.current = lang;
     requestAnimationFrame(() => {
-      document.getElementById(`ax-tab-${tab}`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+      document.getElementById(`ax-tab-${tab}`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: langChanged ? 'auto' : 'smooth' });
     });
-  }, [tab, hasToken]);
+  }, [tab, hasToken, dir, lang]);
 
   /** انتقالٌ إلى شاشة ما قبل الجلسة — مدخلٌ جديد في السجل */
   const go = useCallback((v: AuthView) => {
@@ -156,8 +159,8 @@ export default function AffiliateApp() {
   // 401 على أي طلبٍ بجلسة ⇒ مسح ax_token وحده (في api.ts) والعودة للدخول
   useEffect(() => onUnauthorized(() => {
     resetSession();
-    toast.error('انتهت الجلسة — سجّل الدخول من جديد');
-  }), [resetSession]);
+    toast.error(t('session.expired'));
+  }), [resetSession, t]);
 
   const me = useQuery({ queryKey: qk.me, queryFn: affiliateApi.me, enabled: hasToken, retry: shouldRetry, staleTime: 60_000 });
 
@@ -214,14 +217,14 @@ export default function AffiliateApp() {
     }
   }
 
-  if (me.isLoading) return <AuthShell title="سفير فيلد سيلز"><Loading /></AuthShell>;
+  if (me.isLoading) return <AuthShell title={t('app.title')}><Loading /></AuthShell>;
   if (me.isError || !me.data) {
     if (httpStatus(me.error) === 401) return <LoginScreen {...nav} onLoggedIn={onLoggedIn} />;
     return (
-      <AuthShell title="تعذّر تحميل حسابك">
+      <AuthShell title={t('me.loadFailed')}>
         <ErrorBox err={me.error} onRetry={() => void me.refetch()} />
         <button type="button" className="btn-secondary w-full justify-center py-2.5 mt-4" onClick={logout}>
-          <LogOut size={16} /> تسجيل الخروج
+          <LogOut size={16} /> {t('common.logout')}
         </button>
       </AuthShell>
     );
@@ -246,30 +249,33 @@ export default function AffiliateApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF7F0]" dir="rtl">
-      <header className="sticky top-0 z-30 bg-[#FAF7F0]/95 backdrop-blur border-b border-[#E9E1D3]">
-        <div className="max-w-3xl mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-3">
-          <BrandLockup compact />
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="hidden sm:inline text-[12.5px] text-[#6E6557] truncate max-w-[180px]">{data.user.fullName}</span>
-            <button type="button" className="btn-secondary px-3" onClick={logout} aria-label="تسجيل الخروج">
-              <LogOut size={15} /> <span className="hidden sm:inline">خروج</span>
+    <div className="min-h-screen bg-[#FAF7F0]" dir={dir} lang={lang}>
+      {/* خلفية صلبة لا backdrop-blur: أيّ backdrop-filter يجعل الرأس حاويةً لعناصر position:fixed،
+          فتنحبس خلفية إغلاق قائمة اللغة (fixed inset-0) داخل الرأس ولا تُغلق بلمسة خارجها. */}
+      <header className="sticky top-0 z-30 bg-[#FAF7F0] border-b border-[#E9E1D3]">
+        <div className="max-w-3xl mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="min-w-0 flex-1"><BrandLockup compact /></div>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span className="hidden md:inline text-[12.5px] text-[#6E6557] truncate max-w-[180px]">{data.user.fullName}</span>
+            <AxLanguageToggle />
+            <button type="button" className="btn-secondary px-3" onClick={logout} aria-label={t('common.logout')}>
+              <LogOut size={15} /> <span className="hidden sm:inline">{t('common.logoutShort')}</span>
             </button>
           </div>
         </div>
-        <nav className="max-w-3xl mx-auto overflow-x-auto pb-2.5" style={{ scrollbarWidth: 'none' }} aria-label="أقسام البوابة">
+        <nav className="max-w-3xl mx-auto overflow-x-auto pb-2.5" style={{ scrollbarWidth: 'none' }} aria-label={t('nav.sections')}>
           <div className="flex gap-1.5 w-max px-4">
-            {TABS.map((t) => {
-              const active = t.id === tab;
+            {TABS.map((item) => {
+              const active = item.id === tab;
               return (
                 <button
-                  key={t.id} id={`ax-tab-${t.id}`} type="button" onClick={() => setTab(t.id)}
+                  key={item.id} id={`ax-tab-${item.id}`} type="button" onClick={() => setTab(item.id)}
                   aria-current={active ? 'page' : undefined}
                   className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[13px] font-semibold whitespace-nowrap transition-colors ${
                     active ? 'bg-[#E15A30] text-white shadow-sm' : 'bg-white text-[#44403a] border border-[#E9E1D3] hover:border-[#E15A30]'
                   }`}
                 >
-                  {t.icon} {t.label}
+                  {item.icon} {t(item.label)}
                 </button>
               );
             })}

@@ -5,9 +5,10 @@ import {
   USER_STATUS, CLAIM_STATUS, ATTRIBUTION_STATUS, COMMISSION_STATUS, PAYOUT_STATUS,
   COMPANY_STATUS, COMPANY_SOURCE, ADJUSTMENT_KIND, CLAIM_HOW, CLAIM_HOW_ORDER, labelOf, textOf,
 } from './labels';
+import { AX_DICT, AX_LANGS, type AxKey } from './i18n';
 
 /**
- * كل قيمة حالة في المواصفة لها تسمية عربية — والقوائم تُقرأ من
+ * كل قيمة حالة في المواصفة لها تسمية بخمس لغات (مفتاح قاموس) — والقوائم تُقرأ من
  * docs/affiliate/API.md نفسه لا من نسخةٍ هنا، فقيمةٌ تُضاف للمواصفة بلا
  * تسمية تُفشل الاختبار بدل أن تظهر للسفير نصّاً إنجليزياً خاماً.
  */
@@ -29,13 +30,17 @@ function inlineUnion(anchor: string, field: string): string[] {
   return [...m![1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
 }
 
-function assertLabelled(name: string, values: string[], map: Record<string, { label: string } | string>) {
+function assertLabelled(name: string, values: string[], map: Record<string, { key: AxKey } | AxKey>) {
   assert.ok(values.length >= 2, `${name}: قائمة قصيرة على نحوٍ مريب (${values.join(',')})`);
   for (const v of values) {
     const entry = map[v];
-    assert.ok(entry, `${name}.${v} بلا تسمية عربية`);
-    const text = typeof entry === 'string' ? entry : entry.label;
-    assert.match(text, ARABIC, `${name}.${v} تسميته ليست عربية: ${text}`);
+    assert.ok(entry, `${name}.${v} بلا تسمية`);
+    const k = typeof entry === 'string' ? entry : entry.key;
+    const dict = AX_DICT[k];
+    assert.ok(dict, `${name}.${v}: المفتاح ${k} غير موجود في القاموس`);
+    assert.match(dict.ar, ARABIC, `${name}.${v} تسميته العربية ليست عربية: ${dict.ar}`);
+    for (const l of AX_LANGS) assert.ok(dict[l]?.trim(), `${name}.${v}: لا تسمية ${l}`);
+    for (const l of AX_LANGS.filter((x) => x !== 'ar')) assert.doesNotMatch(dict[l], ARABIC, `${name}.${v}: نصٌّ عربي في ${l}`);
   }
   // ولا تسميات لقيمٍ خرجت من المواصفة
   assert.deepEqual(Object.keys(map).sort(), [...values].sort(), `${name}: مفاتيح التسميات لا تطابق المواصفة`);
@@ -76,5 +81,16 @@ test('التسميات المطلوبة حرفياً للسفير', () => {
 
 test('قيمة مجهولة من خادمٍ أحدث لا تُسقط الواجهة', () => {
   assert.deepEqual(labelOf(COMMISSION_STATUS, 'brand_new'), { label: 'brand_new', tone: 'gray' });
+  assert.deepEqual(labelOf(COMMISSION_STATUS, 'brand_new', 'en'), { label: 'brand_new', tone: 'gray' });
   assert.equal(textOf(CLAIM_HOW, 'brand_new'), 'brand_new');
+});
+
+test('التسميات بلغة العرض — والنبرة لا تتغيّر', () => {
+  assert.deepEqual(labelOf(COMMISSION_STATUS, 'paid', 'en'), { label: 'Paid', tone: 'coral' });
+  assert.deepEqual(labelOf(COMMISSION_STATUS, 'paid', 'fr'), { label: 'Versée', tone: 'coral' });
+  assert.deepEqual(labelOf(CLAIM_STATUS, 'converted', 'tr'), { label: 'Müşteriye dönüştü', tone: 'coral' });
+  assert.equal(labelOf(USER_STATUS, 'approved', 'zh').label, '已通过');
+  assert.equal(textOf(CLAIM_HOW, 'visit', 'en'), 'Field visit');
+  assert.equal(textOf(COMPANY_SOURCE, 'claim', 'ar'), 'ترشيح معتمد');
+  assert.equal(textOf(ADJUSTMENT_KIND, 'correction', 'zh'), '更正');
 });

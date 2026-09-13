@@ -82,30 +82,20 @@ export function httpStatus(err: unknown): number | undefined {
   return (err as AxiosError)?.response?.status;
 }
 
-/** رسالة الخادم العربية، وإلا رسالة مفهومة حسب الحالة */
-export function errMessage(err: unknown, fallback = 'حدث خطأ غير متوقع'): string {
-  const ax = err as AxiosError<{ message?: string }>;
-  const msg = ax?.response?.data?.message;
-  if (typeof msg === 'string' && msg.trim()) return msg;
-  const s = ax?.response?.status;
-  if (s === 429) return 'محاولات كثيرة — انتظر قليلاً ثم أعد المحاولة';
-  if (!ax?.response && ax?.isAxiosError) return 'تعذّر الاتصال بالخادم — تحقق من الإنترنت';
-  return fallback;
-}
-
-const REGISTER_FALLBACK = 'إن كانت البيانات صحيحة فستصلك رسالة تأكيد على بريدك';
-
-/** الرسالة الموحّدة لردود 202 */
-function uniformMessage(res: AxiosResponse, fallback: string): string {
+/**
+ * نصّ الرسالة الموحّدة لردود 202 كما أرسلها الخادم (عربي) أو null — والشاشة تختار
+ * بين عرضه بالعربية ونصّه المترجم (errors.ts: localizedServerText).
+ */
+function uniformMessage(res: AxiosResponse): string | null {
   const d = unwrap<{ message?: string } | undefined>(res);
   const top = (res.data as { message?: string } | undefined)?.message;
-  return (d && typeof d.message === 'string' && d.message) || (typeof top === 'string' && top) || fallback;
+  return (d && typeof d.message === 'string' && d.message) || (typeof top === 'string' && top) || null;
 }
 
 export const affiliateApi = {
   // ---- عام ----
   publicTerms: async () => unwrap<PublicTerms>(await axApi.get('/terms/public')),
-  register: async (body: RegisterBody) => uniformMessage(await axApi.post('/register', body), REGISTER_FALLBACK),
+  register: async (body: RegisterBody) => uniformMessage(await axApi.post('/register', body)),
   /**
    * يتطلّب كلمة المرور التي سُجّل بها آخر طلب (400 `password_mismatch` إن لم تطابق).
    * `status` = حالة الحساب **الفعلية** (قد يكون مؤكَّداً مسبقاً ومقبولاً أو مرفوضاً).
@@ -114,10 +104,8 @@ export const affiliateApi = {
     unwrap<{ status: UserStatus }>(await axApi.post('/verify-email', { token, password })),
   login: async (email: string, password: string) =>
     unwrap<{ token: string; user: AffiliateMe }>(await axApi.post('/login', { email, password })),
-  resendVerification: async (email: string) =>
-    uniformMessage(await axApi.post('/resend-verification', { email }), 'إن كان البريد مسجّلاً وغير مؤكَّد فستصلك رسالة تأكيد جديدة'),
-  forgot: async (email: string) =>
-    uniformMessage(await axApi.post('/forgot', { email }), 'إن كان البريد مسجّلاً فستصلك رسالة لاستعادة كلمة المرور'),
+  resendVerification: async (email: string) => uniformMessage(await axApi.post('/resend-verification', { email })),
+  forgot: async (email: string) => uniformMessage(await axApi.post('/forgot', { email })),
   /** `token`/`user` يُعادان لكل حساب مؤكَّد البريد — الاستعادة تُدخل صاحبها وتفكّ القفل */
   reset: async (token: string, password: string) =>
     unwrap<{ ok: true; token?: string; user?: AffiliateMe }>(await axApi.post('/reset', { token, password })),

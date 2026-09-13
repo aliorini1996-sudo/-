@@ -25,6 +25,9 @@ test('الهللات ⇒ ريال بخانتين وفواصل آلاف، بحس�
   ];
   for (const [h, want] of table) assert.equal(sarNumber(h), want, `sarNumber(${h})`);
   assert.equal(formatSar(123456), '1,234.56 ر.س');
+  // «ر.س» بالعربية و«SAR» بغيرها — والأرقام لاتينية دائماً
+  assert.equal(formatSar(123456, 'ar'), '1,234.56 ر.س');
+  for (const l of ['en', 'fr', 'tr', 'zh'] as const) assert.equal(formatSar(123456, l), '1,234.56 SAR', l);
 });
 
 test('النسبة من نقاط الأساس', () => {
@@ -47,6 +50,21 @@ test('التاريخ بتوقيت الرياض — منتصف الليل UTC ل�
   // حقول اليوم الخالص تصل 'YYYY-MM-DD' بيوم الرياض (transferredAt، mawthooqExpiry) — لا تنزلق يوماً
   assert.equal(formatDay('2026-09-13'), '13 سبتمبر 2026');
   assert.equal(formatDay('2027-01-01'), '1 يناير 2027');
+});
+
+test('التاريخ بلغة العرض عبر Intl وبتوقيت الرياض — أرقام لاتينية بكل اللغات', () => {
+  const late = '2026-09-13T22:30:00.000Z'; // 01:30 الرياض يوم 14
+  assert.equal(formatDay(late, 'en'), '14 September 2026');
+  assert.equal(formatDay(late, 'fr'), '14 septembre 2026');
+  assert.equal(formatDay(late, 'tr'), '14 Eylül 2026');
+  assert.equal(formatDay(late, 'zh'), '2026年9月14日');
+  // اليوم الخالص يبقى يومه في كل لغة
+  for (const l of ['ar', 'en', 'fr', 'tr', 'zh'] as const) {
+    const out = formatDay('2026-09-13', l);
+    assert.match(out, /13/, `${l}: ${out}`);
+    assert.doesNotMatch(out, /[٠-٩۰-۹]/, `${l}: أرقام غير لاتينية ${out}`);
+    assert.equal(formatDay(null, l), '—');
+  }
 });
 
 test('اليوم بتوقيت الرياض وحقل التاريخ', () => {
@@ -72,6 +90,14 @@ test('الأيام المتبقية وتمييز العدد', () => {
   assert.equal(daysLabel(10), '10 أيام');
   assert.equal(daysLabel(11), '11 يوماً');
   assert.equal(daysLabel(30), '30 يوماً');
+  // اللغات الأخرى من القاموس
+  assert.equal(daysLabel(0, 'en'), 'today');
+  assert.equal(daysLabel(1, 'en'), '1 day');
+  assert.equal(daysLabel(3, 'en'), '3 days');
+  assert.equal(daysLabel(2, 'fr'), '2 jours');
+  assert.equal(daysLabel(0, 'fr'), 'aujourd’hui');
+  assert.equal(daysLabel(11, 'tr'), '11 gün');
+  assert.equal(daysLabel(5, 'zh'), '5 天');
 });
 
 test('الآيبان مُقنَّع دائماً', () => {
