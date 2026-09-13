@@ -119,14 +119,14 @@ export interface RegisterForm {
   vatNumber: string;
   marketingConsent: boolean;
   acceptTerms: boolean;
-  declarations: { independent: boolean; noSpam: boolean; disclose: boolean; noSelfReferral: boolean };
+  declarations: { independent: boolean; noSpam: boolean; disclose: boolean };
 }
 
 export const EMPTY_REGISTER: RegisterForm = {
   fullName: '', email: '', phone: '', city: '', password: '',
   publicPromoter: false, mawthooqNo: '', mawthooqExpiry: '', vatNumber: '',
   marketingConsent: false, acceptTerms: false,
-  declarations: { independent: false, noSpam: false, disclose: false, noSelfReferral: false },
+  declarations: { independent: false, noSpam: false, disclose: false },
 };
 
 /** أوّل خطأ في نموذج التسجيل (بترتيب الحقول على الشاشة) أو null */
@@ -145,7 +145,7 @@ export function registerError(f: RegisterForm, today: string): string | null {
   }
   if (!f.acceptTerms) return 'يجب قراءة الشروط والموافقة عليها';
   const d = f.declarations;
-  if (!d.independent || !d.noSpam || !d.disclose || !d.noSelfReferral) return 'يجب الإقرار بجميع البنود الأربعة';
+  if (!d.independent || !d.noSpam || !d.disclose) return 'يجب الإقرار بجميع البنود الثلاثة';
   return null;
 }
 
@@ -160,7 +160,7 @@ export function buildRegisterBody(f: RegisterForm, termsVersion: string): Regist
     marketingConsent: f.marketingConsent,
     acceptTerms: true,
     termsVersion,
-    declarations: { independent: true, noSpam: true, disclose: true, noSelfReferral: true },
+    declarations: { independent: true, noSpam: true, disclose: true },
   };
   const city = f.city.trim();
   if (city) body.city = city;

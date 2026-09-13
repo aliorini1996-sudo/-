@@ -98,7 +98,6 @@ const DECLARATIONS: Array<{ key: keyof RegisterForm['declarations']; text: strin
   { key: 'independent', text: 'أعمل مستقلاً بنفسي، ولست موظفاً أو وكيلاً أو ممثلاً لفيلد سيلز.' },
   { key: 'noSpam', text: 'لن أرسل رسائل جماعية أو غير مرغوب فيها، ولن أتواصل مع أحد بلا معرفة سابقة أو إذن.' },
   { key: 'disclose', text: 'سأُفصح بوضوح لكل من أحيله أنني أحصل على عمولة إن اشترك.' },
-  { key: 'noSelfReferral', text: 'لن أحيل منشأةً أملكها أو أديرها أو أعمل فيها.' },
 ];
 
 export function RegisterScreen({ go, email, setEmail }: NavProps) {

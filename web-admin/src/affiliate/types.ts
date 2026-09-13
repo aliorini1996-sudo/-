@@ -39,7 +39,7 @@ export interface RegisterBody {
   marketingConsent: boolean;
   acceptTerms: true;
   termsVersion: string;
-  declarations: { independent: true; noSpam: true; disclose: true; noSelfReferral: true };
+  declarations: { independent: true; noSpam: true; disclose: true };
 }
 
 export interface AffiliateMe {

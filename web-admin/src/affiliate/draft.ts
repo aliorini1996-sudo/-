@@ -19,7 +19,7 @@ function session(): Storage | null {
 }
 
 const TEXT_FIELDS = ['fullName', 'email', 'phone', 'city', 'mawthooqNo', 'mawthooqExpiry', 'vatNumber'] as const;
-const DECLARATIONS = ['independent', 'noSpam', 'disclose', 'noSelfReferral'] as const;
+const DECLARATIONS = ['independent', 'noSpam', 'disclose'] as const;
 const TEXT_MAX = 200;
 
 /** يستخرج من النموذج ما يجوز حفظه — بلا كلمة المرور ولا الموافقة على الشروط */

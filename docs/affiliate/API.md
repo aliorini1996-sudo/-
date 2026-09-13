@@ -31,7 +31,7 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
     publicPromoter: boolean, mawthooqNo?: string, mawthooqExpiry?: 'YYYY-MM-DD',
     vatNumber?: string /*15 رقماً*/, marketingConsent: boolean,
     acceptTerms: true, termsVersion: string,
-    declarations: { independent: true, noSpam: true, disclose: true, noSelfReferral: true } }
+    declarations: { independent: true, noSpam: true, disclose: true } }   // الإقرار الرابع (عدم إحالة منشأةٍ يعمل فيها) أُلغي بقرار المالك
   ```
   - `publicPromoter=true` ⇒ `mawthooqNo` و`mawthooqExpiry` إلزاميّان.
   - ⇒ **202** `{ message }` دائماً (حتى لو البريد مسجَّل). بريدٌ مسجَّل **لم يؤكَّد** يُحدَّث بآخر طلب (كلمة المرور والبيانات)؛ والتأكيد يطلب كلمة مرور آخر طلب، فلا يُفعِّل أحدٌ طلباً لا يعرف كلمة مروره.

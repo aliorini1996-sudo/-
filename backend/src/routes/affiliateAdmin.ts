@@ -11,7 +11,8 @@ import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import {
-  getSettings, logEvent, logEventSafe, decryptIban, isUniqueViolation, riyadhDay, DEFAULT_TERMS_BODY, DEFAULT_TERMS_VERSION, DEFAULT_SETTINGS,
+  getSettings, logEvent, logEventSafe, decryptIban, isUniqueViolation, riyadhDay, DEFAULT_TERMS_VERSION, DEFAULT_SETTINGS,
+  BUILTIN_TERMS_VERSIONS, builtinTermsBody,
   TERMS_RULE_KEYS, TERMS_RULE_RANGES, TermsRuleKey, parseTermsRules, pickRules, rulesFor,
 } from '../services/affiliate/core';
 import { canTransition, normCompanyName, normCR } from '../services/affiliate/rules';
@@ -104,8 +105,8 @@ router.get('/terms', handle(async (_req, res) => {
   const rows = await prisma.affiliateTerms.findMany({ orderBy: { publishedAt: 'desc' } });
   const defaults = pickRules(DEFAULT_SETTINGS);
   const list = rows.map(t => ({ version: t.version, body: t.body, publishedAt: t.publishedAt, publishedBy: t.publishedBy, rules: parseTermsRules(t.rulesJson, defaults) }));
-  if (!rows.some(r => r.version === DEFAULT_TERMS_VERSION)) {
-    list.push({ version: DEFAULT_TERMS_VERSION, body: DEFAULT_TERMS_BODY, publishedAt: new Date('2026-09-13T00:00:00Z'), publishedBy: 'system', rules: defaults });
+  for (const v of [...BUILTIN_TERMS_VERSIONS].reverse()) {
+    if (!rows.some(r => r.version === v)) list.push({ version: v, body: builtinTermsBody(v) ?? '', publishedAt: new Date('2026-09-13T00:00:00Z'), publishedBy: 'system', rules: defaults });
   }
   res.json({ success: true, data: list });
 }));
@@ -116,7 +117,7 @@ router.post('/terms', handle(async (req, res) => {
     body: z.string().trim().min(50).max(50_000),
     rules: rulesSchema.optional(),
   }).parse(req.body);
-  if (b.version === DEFAULT_TERMS_VERSION) throw new LedgerError(409, 'هذا الإصدار موجود');
+  if ((BUILTIN_TERMS_VERSIONS as readonly string[]).includes(b.version)) throw new LedgerError(409, 'هذا الإصدار موجود');
   const settings = await getSettings();
   // القواعد والنصّ يُنشران معاً في معاملةٍ واحدة — لا لحظة يسري فيها أحدهما دون الآخر
   const rules = { ...pickRules(settings), ...Object.fromEntries(Object.entries(b.rules ?? {}).filter(([, v]) => v !== undefined)) };

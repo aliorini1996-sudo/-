@@ -113,7 +113,8 @@ const registerSchema = z.object({
   marketingConsent: z.boolean().optional().default(false),
   acceptTerms: z.literal(true),
   termsVersion: z.string().min(1).max(40),
-  declarations: z.object({ independent: z.literal(true), noSpam: z.literal(true), disclose: z.literal(true), noSelfReferral: z.literal(true) }),
+  // ثلاثة إقرارات؛ «لن أحيل منشأةً أعمل فيها» أُلغي بقرار المالك (يُقبل من عميلٍ قديم مخزَّن ولا يُشترط)
+  declarations: z.object({ independent: z.literal(true), noSpam: z.literal(true), disclose: z.literal(true), noSelfReferral: z.boolean().optional() }),
 });
 
 /** الترخيص ساري **حتى نهاية** يوم انتهائه بتوقيت الرياض — المقارنة بين أيّامٍ لا لحظات */

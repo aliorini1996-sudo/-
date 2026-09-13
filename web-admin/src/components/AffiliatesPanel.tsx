@@ -571,7 +571,7 @@ function OverviewTab({ go }: { go: (t: TabKey, filter?: string) => void }) {
   const cards: Array<{ label: string; value: string; hint: string; icon: React.ElementType; hot: boolean; onClick: () => void }> = [
     { label: 'طلبات انضمام بانتظار المراجعة', value: String(o.affiliates.pending_review), hint: 'اعتماد أو رفض كل طلب', icon: Users, hot: o.affiliates.pending_review > 0, onClick: () => go('affiliates', 'pending_review') },
     { label: 'ترشيحات قيد المراجعة', value: String(o.claimsUnderReview), hint: 'الأسبق بالسجل التجاري يفوز', icon: FileSearch, hot: o.claimsUnderReview > 0, onClick: () => go('claims', 'under_review') },
-    { label: 'إسنادات متنازع عليها', value: String(o.attributions.disputed), hint: 'إشارات إحالة ذاتية أو تعارض', icon: AlertTriangle, hot: o.attributions.disputed > 0, onClick: () => go('attributions', 'disputed') },
+    { label: 'إسنادات متنازع عليها', value: String(o.attributions.disputed), hint: 'عميل عائد أو تعارض ترشيح أو شروط غير مقبولة', icon: AlertTriangle, hot: o.attributions.disputed > 0, onClick: () => go('attributions', 'disputed') },
     { label: 'عمولات جاهزة للاعتماد', value: String(o.commissions.readyToApprove), hint: 'انتهت فترة حجزها', icon: BadgePercent, hot: o.commissions.readyToApprove > 0, onClick: () => go('commissions', 'pending') },
     { label: 'معتمدة لم تُصرف', value: L.formatHalalas(o.commissions.approvedUnpaidHalalas), hint: 'بانتظار دفعة وتحويل يدوي', icon: Wallet, hot: o.commissions.approvedUnpaidHalalas > 0, onClick: () => go('commissions', 'approved') },
     { label: 'مرشّحون للصرف', value: String(o.payoutCandidates), hint: 'أنشئ دفعة ثم حوّل من بنكك', icon: Landmark, hot: o.payoutCandidates > 0, onClick: () => go('payouts') },

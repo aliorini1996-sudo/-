@@ -135,10 +135,10 @@ const validRegister = (): RegisterForm => ({
   phone: '0551234567',
   password: 'correct-horse',
   acceptTerms: true,
-  declarations: { independent: true, noSpam: true, disclose: true, noSelfReferral: true },
+  declarations: { independent: true, noSpam: true, disclose: true },
 });
 
-test('التسجيل: الحقول الإلزامية والإقرارات الأربعة', () => {
+test('التسجيل: الحقول الإلزامية والإقرارات الثلاثة', () => {
   assert.equal(registerError(validRegister(), TODAY), null);
   assert.ok(registerError({ ...validRegister(), fullName: 'س' }, TODAY));
   assert.ok(registerError({ ...validRegister(), email: 'nope' }, TODAY));
@@ -147,7 +147,7 @@ test('التسجيل: الحقول الإلزامية والإقرارات ال�
   assert.equal(registerError({ ...validRegister(), password: '12345678' }, TODAY), null);
   assert.ok(registerError({ ...validRegister(), vatNumber: '123' }, TODAY));
   assert.ok(registerError({ ...validRegister(), acceptTerms: false }, TODAY));
-  for (const k of ['independent', 'noSpam', 'disclose', 'noSelfReferral'] as const) {
+  for (const k of ['independent', 'noSpam', 'disclose'] as const) {
     const f = validRegister();
     f.declarations = { ...f.declarations, [k]: false };
     assert.ok(registerError(f, TODAY), `الإقرار ${k} إلزامي`);
@@ -171,7 +171,7 @@ test('جسم التسجيل بالشكل الدقيق في API.md', () => {
     marketingConsent: false,
     acceptTerms: true,
     termsVersion: '2026-09-v1',
-    declarations: { independent: true, noSpam: true, disclose: true, noSelfReferral: true },
+    declarations: { independent: true, noSpam: true, disclose: true },
   });
   assert.ok(!('mawthooqNo' in body) && !('city' in body) && !('vatNumber' in body), 'الاختيارية الفارغة لا تُرسل');
 

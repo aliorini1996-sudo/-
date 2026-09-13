@@ -28,7 +28,12 @@ export interface AffiliateSettingsValue {
   disclosureText: string;
 }
 
-export const DEFAULT_TERMS_VERSION = '2026-09-v1';
+/**
+ * إصدارات الشروط المدمجة بترتيب نشرها — آخرها هو الافتراضيّ. الإصدار الذي قبله سفيرٌ
+ * يبقى نصّه محفوظاً هنا ولو نُسخ، فيُعرض له ما قبله فعلاً.
+ */
+export const BUILTIN_TERMS_VERSIONS = ['2026-09-v1', '2026-09-v2'] as const;
+export const DEFAULT_TERMS_VERSION = BUILTIN_TERMS_VERSIONS[BUILTIN_TERMS_VERSIONS.length - 1];
 
 export const DEFAULT_SETTINGS: AffiliateSettingsValue = {
   intakeOpen: true,
@@ -45,6 +50,10 @@ export const DEFAULT_SETTINGS: AffiliateSettingsValue = {
 export async function getSettings(db: Db = prisma): Promise<AffiliateSettingsValue> {
   const row = await db.affiliateSettings.findUnique({ where: { id: 'global' } });
   if (!row) return { ...DEFAULT_SETTINGS };
+  // صفٌّ حُفظ وإصداره الحالي مدمجٌ أقدم (قبل تحديث النصّ في الشيفرة) يُرقّى للمدمج الأحدث؛
+  // الإصدارات التي نشرها المالك من لوحته لا تُمسّ
+  const builtinIdx = (BUILTIN_TERMS_VERSIONS as readonly string[]).indexOf(row.currentTermsVersion);
+  const currentTermsVersion = builtinIdx >= 0 && builtinIdx < BUILTIN_TERMS_VERSIONS.length - 1 ? DEFAULT_TERMS_VERSION : row.currentTermsVersion;
   return {
     intakeOpen: row.intakeOpen,
     rateBps: row.rateBps,
@@ -53,7 +62,7 @@ export async function getSettings(db: Db = prisma): Promise<AffiliateSettingsVal
     refWindowDays: row.refWindowDays,
     claimLockDays: row.claimLockDays,
     firstPaymentWithinDays: row.firstPaymentWithinDays,
-    currentTermsVersion: row.currentTermsVersion,
+    currentTermsVersion,
     disclosureText: row.disclosureText,
   };
 }
@@ -65,7 +74,8 @@ export async function getSettings(db: Db = prisma): Promise<AffiliateSettingsVal
  * إصداراً جديداً من لوحة المالك (لا تعديلاً هنا)، فالسفير الذي قبل نصّاً يبقى
  * نصّه محفوظاً بإصداره.
  */
-export const DEFAULT_TERMS_BODY = `شروط برنامج «سفير فيلد سيلز» — الإصدار ${DEFAULT_TERMS_VERSION}
+/** الإصدار الأوّل كما نُشر (١٣ سبتمبر ٢٠٢٦) — كان يمنع إحالة منشأةٍ يعمل فيها السفير */
+const TERMS_V1_BODY = `شروط برنامج «سفير فيلد سيلز» — الإصدار 2026-09-v1
 
 ١. الطرفان
 فيلد سيلز (منشأة سعودية بسجل تجاري) تدير البرنامج. والسفير فردٌ مستقلّ يسوّق للمنصّة، وليس موظفاً ولا وكيلاً عنها، ولا يحقّ له التعاقد أو الوعد باسمها.
@@ -102,10 +112,58 @@ export const DEFAULT_TERMS_BODY = `شروط برنامج «سفير فيلد س�
 ٧. الإيقاف والتعديل
 لفيلد سيلز إيقاف الحساب أو رفض العمولة عند مخالفة هذه الشروط أو الاشتباه بالتحايل، مع ذكر السبب. وتعديل الشروط يُنشر إصداراً جديداً يلزم قبوله لمواصلة المشاركة، ولا يمسّ عمولةً نشأت قبله.`;
 
+/**
+ * الإصدار الثاني: إحالة المنشأة التي يعمل فيها السفير أو يملكها **مسموحة** (قرار المالك
+ * ١٣ سبتمبر ٢٠٢٦: «الأغلب سيجلب منشأة هو يعمل بها ولا مخالفة قانونية بذلك») ما دامت
+ * عميلاً جديداً.
+ */
+export const DEFAULT_TERMS_BODY = `شروط برنامج «سفير فيلد سيلز» — الإصدار ${DEFAULT_TERMS_VERSION}
+
+١. الطرفان
+فيلد سيلز (منشأة سعودية بسجل تجاري) تدير البرنامج. والسفير فردٌ مستقلّ يسوّق للمنصّة، وليس موظفاً ولا وكيلاً عنها، ولا يحقّ له التعاقد أو الوعد باسمها.
+
+٢. العمولة
+- ٣٠٪ من أوّل دفعة مؤكَّدة تدفعها الشركة المُحالة للاشتراك، محسوبةً على المبلغ المدفوع شاملاً ضريبة القيمة المضافة، ولو غطّت الدفعة سنةً مقدّماً.
+- عمولةٌ واحدة لكلّ شركة، ولا عمولة على التجديدات أو الدفعات اللاحقة.
+- تُحتسب الدفعة إن تمّت خلال ١٨٠ يوماً من تاريخ إسناد الشركة إليك.
+- لا عمولة على شركةٍ كانت عميلاً لفيلد سيلز قبل إحالتك.
+
+٣. الإسناد
+- رابطك الخاص يُحفظ في متصفّح الزائر ٩٠ يوماً، وآخر رابطٍ فتحه الزائر هو المعتمد.
+- يمكن للشركة إدخال رمزك يدوياً عند التسجيل.
+- ترشيح شركةٍ بسجلّها التجاري يُراجع، وإن قُبل حُجزت لك ٩٠ يوماً، والأسبق بترشيحٍ مقبول له الأولوية.
+- يجوز لك إحالة المنشأة التي تعمل فيها أو تملكها أو تديرها، ما دامت عميلاً جديداً لم يسبق له الاشتراك في فيلد سيلز.
+- لفيلد سيلز القرار النهائي في الإسناد المتنازع عليه.
+
+٤. الاستحقاق والصرف
+- تبقى العمولة معلّقة ٣٠ يوماً من تاريخ الدفع، ثم تُعتمد إن بقيت الدفعة قائمة.
+- الاسترداد الكامل قبل الصرف يلغي العمولة، والجزئي يخفّضها بقدره، وما يُستردّ بعد الصرف أو بعد تجهيز دفعتك يُخصم من مستحقّاتك القادمة.
+- الصرف تحويلٌ بنكي يدوي إلى آيبان سعودي باسمك، متى بلغ رصيدك المعتمد ١٠٠ ريال على الأقل.
+- أنت مسؤولٌ عن التزاماتك الضريبية والنظامية المتعلّقة بدخلك من البرنامج.
+
+٥. قواعد التسويق
+- يُسمح بالنشر العلني، بشرط أن تحمل ترخيص «موثوق» ساري المفعول، وأن تُظهر وسم «إعلان» بوضوح في كلّ منشور.
+- أفصح دائماً أنّك تحصل على عمولة.
+- لا رسائل جماعية ولا تواصل بارد مزعج ولا شراء قوائم أرقام، ولا انتحال صفة فيلد سيلز، ولا إعلانات مدفوعة على اسم العلامة.
+- لا وعود بمزايا أو أسعار أو خصومات غير منشورة على الموقع الرسمي.
+- لا تُرسل لنا بيانات أشخاص. الترشيح اسم منشأة وسجلّها التجاري ومدينتها فقط.
+
+٦. البيانات
+نحفظ بياناتك لإدارة حسابك وصرف مستحقّاتك. والآيبان يُخزَّن مشفّراً. ولا ترى من الشركات المُحالة إلا اسمها وحالة اشتراكها.
+
+٧. الإيقاف والتعديل
+لفيلد سيلز إيقاف الحساب أو رفض العمولة عند مخالفة هذه الشروط أو الاشتباه بالتحايل، مع ذكر السبب. وتعديل الشروط يُنشر إصداراً جديداً يلزم قبوله لمواصلة المشاركة، ولا يمسّ عمولةً نشأت قبله.`;
+
+const BUILTIN_TERMS_BODIES: Record<string, string> = { '2026-09-v1': TERMS_V1_BODY, '2026-09-v2': DEFAULT_TERMS_BODY };
+
+export function builtinTermsBody(version: string): string | null {
+  return BUILTIN_TERMS_BODIES[version] ?? null;
+}
+
 export async function getTerms(version: string, db: Db = prisma): Promise<{ version: string; body: string } | null> {
   const row = await db.affiliateTerms.findUnique({ where: { version } });
   if (row) return { version: row.version, body: row.body };
-  if (version === DEFAULT_TERMS_VERSION) return { version, body: DEFAULT_TERMS_BODY };
+  if (BUILTIN_TERMS_BODIES[version]) return { version, body: BUILTIN_TERMS_BODIES[version] };
   return null;
 }
 
@@ -147,7 +205,7 @@ export function pickRules(s: AffiliateSettingsValue): TermsRules {
 export async function rulesFor(termsVersion: string, db: Db = prisma): Promise<TermsRules> {
   const row = await db.affiliateTerms.findUnique({ where: { version: termsVersion }, select: { rulesJson: true } });
   if (row) return parseTermsRules(row.rulesJson, pickRules(DEFAULT_SETTINGS));
-  if (termsVersion === DEFAULT_TERMS_VERSION) return pickRules(DEFAULT_SETTINGS);
+  if (BUILTIN_TERMS_BODIES[termsVersion]) return pickRules(DEFAULT_SETTINGS);
   return pickRules(await getSettings(db));
 }
 

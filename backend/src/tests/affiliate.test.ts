@@ -125,7 +125,9 @@ test('إشارات الإحالة الذاتية والعميل العائد', (
   assert.deepEqual(attributionFlags({ ...base, adminEmail: 'MARKETER@mail.com' }), ['self_email']);
   assert.deepEqual(attributionFlags({ ...base, companyPhone: '+966551111111' }), ['self_phone']);
   assert.deepEqual(attributionFlags({ ...base, existingCompanyPhones: ['966552222222'] }), ['returning_company']);
-  assert.equal(isDisputedByFlags(['self_email']), true);
+  assert.equal(isDisputedByFlags(['returning_company']), true, 'العميل العائد ليس عميلاً جديداً');
+  assert.equal(isDisputedByFlags(['self_email']), false, 'إحالة المنشأة التي يعمل فيها السفير مسموحة (الشروط v2)');
+  assert.equal(isDisputedByFlags(['self_phone']), false);
   assert.equal(isDisputedByFlags(['ip_match']), false, 'تطابق الشبكة وحده لا يوقف الإسناد');
   assert.equal(isDisputedByFlags([]), false);
 });
@@ -531,4 +533,18 @@ test('البوابة: محاولات كلمة المرور الصحيحة قبل
   assert.match(csp, /amountHalalas: \{ gt: 0 \}/, 'تصحيحٌ موجبٌ وحده يفتح بيانات الاستلام');
   assert.match(portal, /refundedHalalas: c\.refundedHalalas/, 'المسترد ظاهرٌ للسفير');
   assert.match(strip(src('routes', 'affiliateAdmin.ts')), /refundedHalalas: c\.refundedHalalas/, 'والمالك');
+});
+
+
+test('الشروط v2: إحالة المنشأة التي يعمل فيها السفير مسموحة، ونصّ v1 محفوظٌ لمن قبله', async () => {
+  const core = await import('../services/affiliate/core');
+  assert.equal(core.DEFAULT_TERMS_VERSION, '2026-09-v2');
+  assert.deepEqual([...core.BUILTIN_TERMS_VERSIONS], ['2026-09-v1', '2026-09-v2']);
+  assert.ok(core.DEFAULT_TERMS_BODY.includes('يجوز لك إحالة المنشأة التي تعمل فيها أو تملكها أو تديرها'));
+  assert.ok(!core.DEFAULT_TERMS_BODY.includes('إحالةٌ ذاتية لا تستحقّ عمولة'));
+  assert.ok(core.DEFAULT_TERMS_BODY.includes('لا عمولة على شركةٍ كانت عميلاً لفيلد سيلز قبل إحالتك'), 'قاعدة العميل الجديد باقية');
+  const v1 = core.builtinTermsBody('2026-09-v1') ?? '';
+  assert.ok(v1.includes('الإصدار 2026-09-v1') && v1.includes('إحالةٌ ذاتية لا تستحقّ عمولة'), 'النصّ الذي قُبل لا يُعاد كتابته');
+  const portal = strip(src('routes', 'affiliate.ts'));
+  assert.match(portal, /noSelfReferral: z\.boolean\(\)\.optional\(\)/, 'الإقرار الرابع لا يُشترط');
 });

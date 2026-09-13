@@ -210,9 +210,13 @@ export function attributionFlags(input: {
   return flags;
 }
 
-/** الإشارات التي تُوقف الإسناد للمراجعة */
+/**
+ * الإشارات التي تُوقف الإسناد للمراجعة: **العميل العائد** وحده. تسجيل الشركة ببريد
+ * السفير أو جواله لا يُوقفه — السفير الموظّف أو المالك يسجّل منشأته بنفسه غالباً،
+ * وإحالتها مسموحة (الشروط ٢٠٢٦-09-v2). الإشارتان تبقيان معلومةً للمالك.
+ */
 export function isDisputedByFlags(flags: string[]): boolean {
-  return flags.some(f => f === 'self_email' || f === 'self_phone' || f === 'returning_company');
+  return flags.some(f => f === 'returning_company');
 }
 
 // ───────────────────────────── الانتقالات ─────────────────────────────

@@ -36,7 +36,7 @@ const filled = (): RegisterForm => ({
   fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'الرياض',
   password: 'correct-horse-battery', publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30',
   vatNumber: '300000000000003', marketingConsent: true, acceptTerms: true,
-  declarations: { independent: true, noSpam: false, disclose: true, noSelfReferral: false },
+  declarations: { independent: true, noSpam: false, disclose: true },
 });
 
 test('كلمة المرور لا تُحفظ أبداً — ولا الموافقة على الشروط', () => {
@@ -81,7 +81,7 @@ test('قيم تالفة: الحقل التالف يُهمل لا النموذج�
   assert.equal(f.city.length, 200);
   assert.equal(f.publicPromoter, false);
   assert.equal(f.password, '', 'كلمة مرور مزروعة في التخزين لا تُقرأ');
-  assert.deepEqual(f.declarations, { independent: true, noSpam: false, disclose: false, noSelfReferral: false });
+  assert.deepEqual(f.declarations, { independent: true, noSpam: false, disclose: false });
 
   for (const bad of ['{nope', '[]', 'null', '"str"']) {
     sessionStorage.setItem(REGISTER_DRAFT_KEY, bad);
