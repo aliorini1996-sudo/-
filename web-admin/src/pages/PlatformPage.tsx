@@ -7,26 +7,23 @@ import { useAuthStore } from '../store/authStore';
 import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
-  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, Sparkles, Video, ReceiptText, Plug, Radio,
-  Truck, CreditCard, MessagesSquare,
+  BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, ReceiptText, Plug, Radio,
+  Truck, CreditCard, MessagesSquare, Handshake,
 } from 'lucide-react';
 
 import toast from 'react-hot-toast';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import SiteContentEditor from '../components/SiteContentEditor';
-import SeoDashboard from '../components/SeoDashboard';
-import GeoDashboard from '../components/GeoDashboard';
 import VisitsPanel from '../components/VisitsPanel';
 import LiveUsersPanel from '../components/LiveUsersPanel';
 import ProfileEditorPanel from '../components/ProfileEditorPanel';
 import PaymentLinksPanel from '../components/PaymentLinksPanel';
+import AffiliatesPanel from '../components/AffiliatesPanel';
 import FinancePanel from '../components/FinancePanel';
 import WaInboxPanel from '../components/WaInboxPanel';
 import LeadsPanel from '../components/LeadsPanel';
-import CompanyHealthPanel from '../components/CompanyHealthPanel';
 import InvoiceToolPanel from '../components/InvoiceToolPanel';
-import PromoVideosPanel from '../components/PromoVideosPanel';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useTr } from '../i18n/strings';
@@ -39,18 +36,15 @@ export default function PlatformPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showContent, setShowContent] = useState(false);
-  const [showHealth, setShowHealth] = useState(false);
-  const [showSeo, setShowSeo] = useState(false);
-  const [showGeo, setShowGeo] = useState(false);
   const [showVisits, setShowVisits] = useState(false);
   const [showLive, setShowLive] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showPayments, setShowPayments] = useState(false);
+  const [showAffiliates, setShowAffiliates] = useState(false);
   const [showFinance, setShowFinance] = useState(false);
   const [showWaInbox, setShowWaInbox] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
   const [showInvoiceTool, setShowInvoiceTool] = useState(false);
-  const [showPromoVideos, setShowPromoVideos] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);
@@ -117,17 +111,11 @@ export default function PlatformPage() {
 
         {/* روابط التنقّل */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          <button onClick={() => setShowHealth(true)} className="sidebar-link w-full">
-            <BarChart3 size={18} className="flex-shrink-0" /> <span>{tr('صحة الشركة')}</span>
-          </button>
           <button onClick={() => setShowLeads(true)} className="sidebar-link w-full text-[#E15A30] hover:bg-[#E15A30]/15 hover:text-[#f0703f]">
             <Target size={18} className="flex-shrink-0" /> <span>{tr('العملاء المحتملون')}</span>
           </button>
           <button onClick={() => setShowInvoiceTool(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
             <ReceiptText size={18} className="flex-shrink-0" /> <span>{tr('عملاء مولد الفواتير')}</span>
-          </button>
-          <button onClick={() => setShowPromoVideos(true)} className="sidebar-link w-full">
-            <Video size={18} className="flex-shrink-0" /> <span>{tr('الفيديوهات الترويجية')}</span>
           </button>
           <button onClick={() => setShowWaInbox(true)} className="sidebar-link w-full text-[#7ED9A9] hover:bg-[#1E7A52]/20 hover:text-[#9fe7c0]">
             <MessagesSquare size={18} className="flex-shrink-0" /> <span>{tr('محادثات بوت واتساب')}</span>
@@ -138,17 +126,14 @@ export default function PlatformPage() {
           <button onClick={() => setShowPayments(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
             <CreditCard size={18} className="flex-shrink-0" /> <span>{tr('روابط الدفع')}</span>
           </button>
+          <button onClick={() => setShowAffiliates(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+            <Handshake size={18} className="flex-shrink-0" /> <span>{tr('السفراء')}</span>
+          </button>
           <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
             <FileText size={18} className="flex-shrink-0" /> <span>{tr('تعديل البروفايل')}</span>
           </button>
           <button onClick={() => setShowContent(true)} className="sidebar-link w-full">
             <Globe size={18} className="flex-shrink-0" /> <span>{tr('محتوى الصفحة')}</span>
-          </button>
-          <button onClick={() => setShowSeo(true)} className="sidebar-link w-full">
-            <TrendingUp size={18} className="flex-shrink-0" /> <span>{tr('متابعة SEO')}</span>
-          </button>
-          <button onClick={() => setShowGeo(true)} className="sidebar-link w-full">
-            <Sparkles size={18} className="flex-shrink-0" /> <span>{tr('متابعة GEO')}</span>
           </button>
           <button onClick={() => setShowVisits(true)} className="sidebar-link w-full">
             <Globe2 size={18} className="flex-shrink-0" /> <span>{tr('زيارات الموقع')}</span>
@@ -220,13 +205,9 @@ export default function PlatformPage() {
           onClose={() => setResetTarget(null)}
         />
       )}
-      {showHealth && <CompanyHealthPanel onClose={() => setShowHealth(false)} />}
       {showLeads && <LeadsPanel onClose={() => setShowLeads(false)} />}
       {showInvoiceTool && <InvoiceToolPanel onClose={() => setShowInvoiceTool(false)} />}
-      {showPromoVideos && <PromoVideosPanel onClose={() => setShowPromoVideos(false)} />}
       {showContent && <SiteContentEditor onClose={() => setShowContent(false)} />}
-      {showSeo && <SeoDashboard onClose={() => setShowSeo(false)} />}
-      {showGeo && <GeoDashboard onClose={() => setShowGeo(false)} />}
       {showVisits && <VisitsPanel onClose={() => setShowVisits(false)} />}
       {showLive && <LiveUsersPanel onClose={() => setShowLive(false)} />}
       {showProfile && <ProfileEditorPanel onClose={() => setShowProfile(false)} />}
@@ -238,6 +219,7 @@ export default function PlatformPage() {
         />
       )}
       {showPayments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
+      {showAffiliates && <AffiliatesPanel onClose={() => setShowAffiliates(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal
