@@ -8,7 +8,7 @@ import {
   Building2, Plus, LogOut, Power, Users, FileText,
   CheckCircle2, Copy, Check, X, Calendar, LogIn, Trash2, KeyRound, AlertTriangle,
   BarChart3, TrendingUp, Wallet, RotateCcw, Package, Trophy, Pencil, Globe, Globe2, Target, ReceiptText, Plug, Radio,
-  Truck, CreditCard, MessagesSquare, Handshake,
+  Truck, CreditCard, MessagesSquare,
 } from 'lucide-react';
 
 import toast from 'react-hot-toast';
@@ -19,7 +19,6 @@ import VisitsPanel from '../components/VisitsPanel';
 import LiveUsersPanel from '../components/LiveUsersPanel';
 import ProfileEditorPanel from '../components/ProfileEditorPanel';
 import PaymentLinksPanel from '../components/PaymentLinksPanel';
-import AffiliatesPanel from '../components/AffiliatesPanel';
 import FinancePanel from '../components/FinancePanel';
 import WaInboxPanel from '../components/WaInboxPanel';
 import LeadsPanel from '../components/LeadsPanel';
@@ -40,7 +39,6 @@ export default function PlatformPage() {
   const [showLive, setShowLive] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showPayments, setShowPayments] = useState(false);
-  const [showAffiliates, setShowAffiliates] = useState(false);
   const [showFinance, setShowFinance] = useState(false);
   const [showWaInbox, setShowWaInbox] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
@@ -125,9 +123,6 @@ export default function PlatformPage() {
           </button>
           <button onClick={() => setShowPayments(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
             <CreditCard size={18} className="flex-shrink-0" /> <span>{tr('روابط الدفع')}</span>
-          </button>
-          <button onClick={() => setShowAffiliates(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
-            <Handshake size={18} className="flex-shrink-0" /> <span>{tr('السفراء')}</span>
           </button>
           <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
             <FileText size={18} className="flex-shrink-0" /> <span>{tr('تعديل البروفايل')}</span>
@@ -219,7 +214,6 @@ export default function PlatformPage() {
         />
       )}
       {showPayments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
-      {showAffiliates && <AffiliatesPanel onClose={() => setShowAffiliates(false)} />}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal
