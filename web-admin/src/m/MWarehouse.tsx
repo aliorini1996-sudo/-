@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Warehouse, PackagePlus, Package, Wallet,
   Boxes, AlertTriangle, TrendingUp, TrendingDown, ChevronDown, ChevronUp,
-  ArrowRightLeft,
+  ArrowRightLeft, FileDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { warehouseApi, productApi } from '../api/client';
@@ -12,6 +12,9 @@ import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import { MScreen, MCard, MRow, MStat, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
+
+/* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
+const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
 
 /**
  * مخزون الشركة (المستودع المركزيّ) في تطبيق الإدارة على الجوال.
@@ -50,7 +53,8 @@ interface WhRow {
 interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null;
   createdBy: string | null; createdAt: string;
-  items: { id: string; qty: number; unitCost: number | null; product: { name: string; unit: string } }[];
+  // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost
+  items: { id: string; qty: number; unitCost: number | null; lineCost?: number | null; product: { name: string; unit: string } }[];
   totalCost: number;
 }
 
@@ -64,7 +68,11 @@ function errMsg(e: unknown, fallback: string): string {
   return (e as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
 }
 
-export default function MWarehouse({ onBack }: { onBack: () => void }) {
+export default function MWarehouse({ onBack, company }: {
+  onBack: () => void;
+  /** إعدادات الشركة — لترويسة إشعار الوارد والتسوية وحدها */
+  company?: unknown;
+}) {
   const tr = useTr();
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
@@ -72,6 +80,9 @@ export default function MWarehouse({ onBack }: { onBack: () => void }) {
   const [entryOpen, setEntryOpen] = useState(false);         // طبقة تسجيل الحركة
 
   useBackClose(entryOpen, () => setEntryOpen(false));
+  // إشعار حركةٍ مفتوح — طبقةٌ فوق الشاشة، إغلاقها يُطفئ شرطها
+  const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
+  useBackClose(!!noticeOf, () => setNoticeOf(null));
 
   useEffect(() => {
     const t = setTimeout(() => setDq(q.trim()), 250);
@@ -109,6 +120,15 @@ export default function MWarehouse({ onBack }: { onBack: () => void }) {
   }), { value: 0, costed: 0, uncosted: 0 }), [all]);
 
   if (entryOpen) return <MWarehouseEntry onClose={() => setEntryOpen(false)} />;
+  /* الإشعار طبقةٌ ملء الشاشة كطبقة التسجيل — ولا تجتمعان: كلتاهما تُفتح من
+   * هذه الشاشة وحدها، والتسجيل يسبق في الترتيب */
+  if (noticeOf) {
+    return (
+      <Suspense fallback={<MSpinner />}>
+        <MWarehouseNoticeDoc entry={noticeOf} company={company} onClose={() => setNoticeOf(null)} />
+      </Suspense>
+    );
+  }
 
   const searching = dq !== '';
 
@@ -224,7 +244,7 @@ export default function MWarehouse({ onBack }: { onBack: () => void }) {
           ) : (
             <>
               <MCard>
-                {entriesQ.data.slice(0, 20).map(e => <EntryRow key={e.id} e={e} />)}
+                {entriesQ.data.slice(0, 20).map(e => <EntryRow key={e.id} e={e} onNotice={() => setNoticeOf(e)} />)}
               </MCard>
               {entriesQ.data.length > 20 && (
                 <p className="text-[11px] text-[#9A8F7E] px-1">{tr('يعرض أحدث الحركات')}</p>
@@ -321,7 +341,7 @@ function Cell({ label, value, tone = 'default' }: {
 
 /* ═══════════════════════ صفّ حركةٍ في السجلّ ═══════════════════════ */
 
-function EntryRow({ e }: { e: WhEntry }) {
+function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
   const tr = useTr();
   const receive = e.type === 'RECEIVE';
   return (
@@ -335,15 +355,25 @@ function EntryRow({ e }: { e: WhEntry }) {
       title={`${formatNumber(e.items.length)} ${tr('صنف')}`}
       subtitle={[e.supplier, e.note, e.createdBy].filter(Boolean).join(' · ') || undefined}
       note={formatDate(e.createdAt)}
-      trailing={e.totalCost > 0 ? (
-        <span className="text-end flex-shrink-0">
-          <span className="block text-xs font-bold text-[#1F1A13] whitespace-nowrap tabular-nums" dir="ltr">
-            {formatCurrency(e.totalCost)}
-          </span>
-          {/* الإجمالي يحسبه الخادم صافياً — والوسم يمنع قراءته شاملاً */}
-          <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+      trailing={
+        <span className="flex items-center gap-1 flex-shrink-0">
+          {e.totalCost > 0 && (
+            <span className="text-end">
+              <span className="block text-xs font-bold text-[#1F1A13] whitespace-nowrap tabular-nums" dir="ltr">
+                {formatCurrency(e.totalCost)}
+              </span>
+              {/* الإجمالي يحسبه الخادم صافياً — والوسم يمنع قراءته شاملاً */}
+              <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+            </span>
+          )}
+          {/* هدف لمسٍ ٤٠px: الصفّ نفسه غير قابل للنقر، فالزرّ وحده يستقبل الإبهام */}
+          <button type="button" onClick={onNotice}
+            aria-label={receive ? tr('إشعار وارد PDF') : tr('إشعار تسوية PDF')}
+            className="w-10 h-10 -me-1.5 rounded-xl flex items-center justify-center text-[#9A8F7E] active:bg-[#FAF7F0]">
+            <FileDown size={17} />
+          </button>
         </span>
-      ) : undefined} />
+      } />
   );
 }
 

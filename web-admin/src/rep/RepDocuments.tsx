@@ -2,6 +2,7 @@ import { forwardRef, useRef, useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
 import { periodShape, statementFinalBalance } from './statementFacts';
+import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef } from './warehouseNoticeFacts';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
@@ -172,7 +173,44 @@ export interface LoadNoticeDoc {
   items: LoadNoticeItem[];
 }
 
-export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc;
+/** سطر إشعار المستودع — القيمة من الخادم (`lineCost`) لا تُحسب هنا */
+export interface WarehouseNoticeItem {
+  name: string;
+  unit?: string;
+  /** موجبٌ للوارد، وموجبٌ أو سالبٌ للتسوية */
+  qty: number;
+  /** صافٍ قبل الضريبة بأربع خانات — `null` = بلا سعر معروف */
+  unitCost?: number | null;
+  /** قيمة السطر كما قرّبها الخادم — مجموعها يطابق `totalCost` فلساً بفلس */
+  lineCost?: number | null;
+}
+
+/**
+ * إشعار حركة مستودع الشركة (وارد أو تسوية) — ورقةٌ تُوقَّع.
+ *
+ * منفصلٌ عن `LoadNoticeDoc` عمداً لا نسخةً معدّلة منه: ذاك إشعارٌ **لمندوب**
+ * (بياناته وتوقيعه)، يطبع الكمّيات مطلقةً بلا إشارة ولا سعر. وإشعار المستودع
+ * طرفاه أمين المستودع والمورّد، وتسويته **ذات إشارة** (زيادة أو نقص)، ووارده
+ * **ذو قيمة** قبل الضريبة. وتحميلُ هذه الفروق على نوعٍ واحد كان سيطبع تسوية
+ * «−١٠» على أنّها «١٠» بتوقيع مندوبٍ لا وجود له.
+ */
+export interface WarehouseNoticeDoc {
+  kind: 'warehouseNotice';
+  company?: Company | null;
+  /** RECEIVE | ADJUST */
+  entryType: string;
+  /** مرجعٌ قصير مشتقّ من معرّف الحركة */
+  ref: string;
+  date: string;
+  supplier?: string;
+  note?: string;
+  by?: string;
+  items: WarehouseNoticeItem[];
+  /** إجمالي الوارد قبل الضريبة — كما حسبه الخادم */
+  totalCost: number;
+}
+
+export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc;
 
 function fullAddress(c: { address?: string; district?: string; city?: string }): string {
   return [c.address, c.district, c.city].filter(Boolean).join(' ');
@@ -839,6 +877,127 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
 });
 PrintableLoadNotice.displayName = 'PrintableLoadNotice';
 
+/** كمّية بلا أصفارٍ زائدة — الوحدات الموزونة قد تحمل كسوراً */
+const fmtNoticeQty = (n: number) => String(Number(Number(n).toFixed(2)));
+
+export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: WarehouseNoticeDoc }>(({ doc }, ref) => {
+  const tr = useTr();
+  const brand = brandColor(doc.company);
+  const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
+  const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
+  const receive = doc.entryType === 'RECEIVE';
+  const title = receive ? tr('إشعار وارد بضاعة') : tr('إشعار تسوية مخزون');
+  const adj = adjustTotals(doc.items);
+  const uncosted = receive ? uncostedCount(doc.items) : 0;
+  /* وارد بلا أيّ سطرٍ مسعَّر (سُجّل قبل وصول فاتورة المورّد): إجماليه صفرٌ
+   * حسابياً، لكنّ طباعته «٠٫٠٠» تقول على ورقةٍ موقَّعة إنّ البضاعة بلا ثمن —
+   * وهي القاعدة نفسها التي تطبع «—» لسطرٍ بلا سعر، والشاشة تُخفي القيمة
+   * أصلاً حين تكون صفراً. */
+  const anyCosted = doc.items.some(isCosted);
+  const cols = receive ? 6 : 4;
+
+  return (
+    <div ref={ref} style={PAGE}>
+      <Header title={title} company={doc.company} />
+
+      {/* بيانات الحركة + ملخّصها */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
+        <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات الحركة')}</div>
+          <InfoBox label={tr('مرجع الحركة')} value={doc.ref} />
+          <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
+          <InfoBox label={tr('الوقت')} value={formatTime(doc.date)} />
+          {doc.by && <InfoBox label={tr('سجلها')} value={doc.by} />}
+        </div>
+        <div style={{ flex: 1, background: receive ? '#f0fdf4' : '#faf5ff', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخص الحركة')}</div>
+          {receive && doc.supplier && <InfoBox label={tr('المورد')} value={doc.supplier} />}
+          <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
+          {/* التسوية تُطبع زيادتها ونقصها منفصلين: صافيها يخفي حركةً نقلت كمّيات */}
+          {receive
+            ? <InfoBox label={tr('إجمالي الكميات')} value={fmtNoticeQty(receiveTotalQty(doc.items))} />
+            : <>
+                <InfoBox label={tr('إجمالي الزيادة')} value={fmtNoticeQty(adj.added)} />
+                <InfoBox label={tr('إجمالي النقص')} value={fmtNoticeQty(adj.removed)} />
+              </>}
+        </div>
+      </div>
+
+      {doc.note && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+          <b>{tr('ملاحظة')}:</b> {doc.note}
+        </div>
+      )}
+
+      {/* جدول الأصناف */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
+            <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
+            <th style={th}>{tr('الكمية')}</th>
+            <th style={receive ? th : { ...th, borderRadius: '8px 0 0 0' }}>{tr('الوحدة')}</th>
+            {receive && <th style={th}>{tr('سعر الوحدة قبل الضريبة')}</th>}
+            {receive && <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('القيمة قبل الضريبة')}</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {doc.items.length === 0 ? (
+            <tr><td style={{ ...td, padding: 20, color: '#9ca3af' }} colSpan={cols}>{tr('لا توجد أصناف')}</td></tr>
+          ) : doc.items.map((it, i) => {
+            const q = Number(it.qty);
+            const costed = isCosted(it);
+            return (
+              <tr key={i}>
+                <td style={td}>{i + 1}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{it.name}</td>
+                {/* الإشارة جزءٌ من الرقم في التسوية: «١٠» و«−١٠» حركتان متعاكستان */}
+                <td style={{ ...td, fontWeight: 700, color: receive ? '#1f2937' : q < 0 ? '#dc2626' : '#16a34a' }} dir="ltr">
+                  {receive ? fmtNoticeQty(q) : `${q < 0 ? '−' : '+'}${fmtNoticeQty(Math.abs(q))}`}
+                </td>
+                <td style={{ ...td, color: '#6b7280' }}>{it.unit || '-'}</td>
+                {/* سطرٌ بلا سعر يُطبع «—» لا صفراً: الصفر ادّعاءٌ بأنّ البضاعة مجّانية */}
+                {receive && <td style={td}>{costed ? formatCurrency(Number(it.unitCost), undefined, 4) : '—'}</td>}
+                {receive && <td style={{ ...td, fontWeight: 600 }}>{costed && it.lineCost != null ? formatCurrency(Number(it.lineCost)) : '—'}</td>}
+              </tr>
+            );
+          })}
+        </tbody>
+        {receive && (
+          <tfoot>
+            <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
+              <td style={{ ...td, borderTop: `2px solid ${brand}`, textAlign: 'right' }} colSpan={5}>{tr('قيمة البضاعة قبل الضريبة')}</td>
+              <td style={{ ...td, borderTop: `2px solid ${brand}`, color: brand }}>{anyCosted ? formatCurrency(doc.totalCost) : '—'}</td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+
+      {/* حدّ صدق القيمة — يُقال لا يُترك للاستنتاج */}
+      {uncosted > 0 && (
+        <p style={{ fontSize: 11.5, color: '#b45309', margin: '0 0 12px' }}>
+          {tr('أصناف بلا سعر وحدة لا تدخل في القيمة')}: {uncosted}
+        </p>
+      )}
+
+      {/* التوقيعان */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 40, marginTop: 24 }}>
+        <div style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+          <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 44 }}>{tr('توقيع أمين المستودع')}</div>
+        </div>
+        <div style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+          <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 44 }}>{receive ? tr('توقيع المورد') : tr('توقيع المعتمد')}</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
+        {doc.company?.name || ''} — {tr('تاريخ الحركة')} {formatDateTime(doc.date)}
+      </div>
+    </div>
+  );
+});
+PrintableWarehouseNotice.displayName = 'PrintableWarehouseNotice';
+
 function Row({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: color || '#374151' }}>
@@ -1012,6 +1171,41 @@ export function loadNoticeDocFromData(
   };
 }
 
+/**
+ * إشعار مستودع من حركةٍ كما يردّها `GET /warehouse/entries`.
+ *
+ * يُبنى من الصفّ الذي في اليد لا بطلبٍ جديد: السجلّ ردّ بالحركة كاملةً بأسطرها
+ * وقيمها المحسوبة في الخادم، وإعادة حسابها هنا حسابٌ ثانٍ لرقمٍ واحد.
+ */
+export function warehouseNoticeDocFromEntry(
+  entry: {
+    id: string; type: string; createdAt: string;
+    supplier?: string | null; note?: string | null; createdBy?: string | null;
+    items: { qty: number; unitCost?: number | null; lineCost?: number | null; product: { name: string; unit?: string } }[];
+    totalCost: number;
+  },
+  company?: Company | null,
+): WarehouseNoticeDoc {
+  return {
+    kind: 'warehouseNotice',
+    company: company ?? null,
+    entryType: entry.type,
+    ref: noticeRef(entry.id),
+    date: entry.createdAt,
+    supplier: entry.supplier || undefined,
+    note: entry.note || undefined,
+    by: entry.createdBy || undefined,
+    items: entry.items.map(i => ({
+      name: i.product.name,
+      unit: i.product.unit || undefined,
+      qty: Number(i.qty),
+      unitCost: i.unitCost == null ? null : Number(i.unitCost),
+      lineCost: i.lineCost == null ? null : Number(i.lineCost),
+    })),
+    totalCost: Number(entry.totalCost) || 0,
+  };
+}
+
 // ============ شريط مرفقات سند القبض ============
 /**
  * صور إيصال التحويل أو الشيك التي أرفقها المندوب بالسند.
@@ -1093,7 +1287,8 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
   const isStatement = doc.kind === 'statement';
   const isSettlement = doc.kind === 'settlement';
   const isLoadNotice = doc.kind === 'loadNotice';
-  const green = isReceipt || isSettlement || isLoadNotice; // سند القبض وسجلّ التحصيل وإشعار التحميل بطابع أخضر
+  const isWarehouseNotice = doc.kind === 'warehouseNotice';
+  const green = isReceipt || isSettlement || isLoadNotice || isWarehouseNotice; // مستندات الاستلام والحركة بطابع أخضر
   const headerBg = 'bg-[#1F1A13]';
   const accentBtn = green ? 'bg-[#1E7A52] hover:bg-[#176A46]' : 'bg-[#E15A30] hover:bg-[#C94E28]';
   const confirmBg = green ? 'bg-[#E4F1EA] border-[#cfe8db]' : 'bg-[#FBEBE2] border-[#F5DACE]';
@@ -1109,7 +1304,12 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
   };
 
   const isReturnDoc = doc.kind === 'invoice' && doc.isReturn;
-  const subjectName = (doc.kind === 'settlement' || doc.kind === 'loadNotice') ? doc.repName : doc.customer.name;
+  const subjectName = (doc.kind === 'settlement' || doc.kind === 'loadNotice') ? doc.repName
+    : doc.kind === 'warehouseNotice' ? (doc.supplier || tr('مخزون الشركة'))
+    : doc.customer.name;
+  const warehouseLabel = doc.kind === 'warehouseNotice'
+    ? (doc.entryType === 'RECEIVE' ? tr('إشعار وارد') : tr('إشعار تسوية'))
+    : '';
   const noticeLabel = doc.kind === 'loadNotice'
     ? (doc.movementKind === 'UNLOAD' ? tr('إشعار تنزيل') : doc.movementKind === 'ADJUST' ? tr('إشعار تسوية') : tr('إشعار تحميل'))
     : '';
@@ -1117,19 +1317,22 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     : doc.kind === 'receipt' ? `${tr('سند القبض')} — ${doc.number}`
     : doc.kind === 'settlement' ? `${doc.entries.length === 1 ? tr('سند استلام') : tr('سجل التحصيل')} — ${doc.repName}`
     : doc.kind === 'loadNotice' ? `${noticeLabel} — ${doc.repName}`
+    : doc.kind === 'warehouseNotice' ? `${warehouseLabel} — ${doc.ref}`
     : `${tr('كشف حساب')} — ${doc.customer.name}`;
   const filename = (doc.kind === 'invoice' ? `${isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند قبض')}-${doc.number}`
     : doc.kind === 'settlement' ? `${doc.entries.length === 1 ? tr('سند تحصيل') : tr('سجل تحصيل')}-${doc.repName}`
     : doc.kind === 'loadNotice' ? `${noticeLabel}-${doc.repName}`
+    : doc.kind === 'warehouseNotice' ? `${warehouseLabel}-${doc.ref}`
     : `${tr('كشف حساب')}-${doc.customer.name}`) + '.pdf';
-  const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : isLoadNotice ? tr('الإشعار جاهز') : isStatement ? tr('كشف الحساب جاهز') : tr('تم الإصدار بنجاح');
+  const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : (isLoadNotice || isWarehouseNotice) ? tr('الإشعار جاهز') : isStatement ? tr('كشف الحساب جاهز') : tr('تم الإصدار بنجاح');
 
   const renderDoc = (refProp?: React.Ref<HTMLDivElement>) => {
     if (doc.kind === 'invoice') return <PrintableInvoice ref={refProp} doc={doc} />;
     if (doc.kind === 'receipt') return <PrintableReceipt ref={refProp} doc={doc} />;
     if (doc.kind === 'settlement') return <PrintableSettlementLog ref={refProp} doc={doc} />;
     if (doc.kind === 'loadNotice') return <PrintableLoadNotice ref={refProp} doc={doc} />;
+    if (doc.kind === 'warehouseNotice') return <PrintableWarehouseNotice ref={refProp} doc={doc} />;
     return <PrintableStatement ref={refProp} doc={doc} />;
   };
 

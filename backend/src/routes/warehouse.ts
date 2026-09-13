@@ -8,7 +8,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { computeWarehouseStock } from '../services/warehouseStock';
-import { netUnitCost, entryTotalCost } from '../services/warehouseCost';
+import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost';
 
 const router = Router();
 router.use(authenticate);
@@ -124,10 +124,18 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
       include: { items: { include: { product: { select: { name: true, unit: true } } } } },
     });
     // الإجمالي يُحسب هنا بالدالّة المختبَرة لا في المتصفّح: حسابان لرقمٍ واحد
-    // ينزاحان يوماً — وقاعدة التقريب (جمعُ أسطرٍ مقرَّبة) تعيش في مكان واحد
+    // ينزاحان يوماً — وقاعدة التقريب (جمعُ أسطرٍ مقرَّبة) تعيش في مكان واحد.
+    //
+    // و**قيمة كل سطر** تُرسَل معه للسبب نفسه: إشعار الوارد المطبوع يعرض الأسطر
+    // والإجمالي معاً على ورقةٍ تُوقَّع، فإن حسب المتصفّح الأسطر بقاعدته هو
+    // وجاء الإجمالي من هنا، أمكن أن تقول الورقة «مجموع الأسطر ≠ الإجمالي».
     res.json({
       success: true,
-      data: entries.map((e) => ({ ...e, totalCost: entryTotalCost(e.items) })),
+      data: entries.map((e) => ({
+        ...e,
+        items: e.items.map((i) => ({ ...i, lineCost: lineCost(i.qty, i.unitCost) })),
+        totalCost: entryTotalCost(e.items),
+      })),
     });
   } catch (err) { next(err); }
 });

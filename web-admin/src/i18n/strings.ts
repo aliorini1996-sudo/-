@@ -1889,6 +1889,22 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'إلغاء أو مرتجع': { en: 'Cancellation or return', fr: 'Annulation ou retour', tr: 'Iptal veya iade', zh: '取消或退货' },
   'عكس تحصيل': { en: 'Collection reversal', fr: 'Contrepassation de reglement', tr: 'Tahsilat ters kaydi', zh: '收款冲销' },
   'رصيد نهاية الفترة': { en: 'Period closing balance', fr: 'Solde de fin de periode', tr: 'Donem sonu bakiyesi', zh: '期末余额' },
+  // ——— إشعار الوارد والتسوية لمخزون الشركة ———
+  'إشعار وارد PDF': { en: 'Inbound notice PDF', fr: 'Avis de reception PDF', tr: 'Giris bildirimi PDF', zh: '入库通知 PDF' },
+  'إشعار تسوية PDF': { en: 'Adjustment notice PDF', fr: 'Avis de regularisation PDF', tr: 'Duzeltme bildirimi PDF', zh: '调整通知 PDF' },
+  'إشعار وارد بضاعة': { en: 'Goods inbound notice', fr: 'Avis de reception de marchandises', tr: 'Mal giris bildirimi', zh: '货物入库通知' },
+  'بيانات الحركة': { en: 'Movement details', fr: 'Details du mouvement', tr: 'Hareket bilgileri', zh: '变动信息' },
+  'مرجع الحركة': { en: 'Movement ref', fr: 'Reference du mouvement', tr: 'Hareket referansi', zh: '变动编号' },
+  'المورد': { en: 'Supplier', fr: 'Fournisseur', tr: 'Tedarikci', zh: '供应商' },
+  'إجمالي الزيادة': { en: 'Total added', fr: 'Total ajoute', tr: 'Toplam artis', zh: '增加合计' },
+  'إجمالي النقص': { en: 'Total removed', fr: 'Total retire', tr: 'Toplam azalis', zh: '减少合计' },
+  'سعر الوحدة قبل الضريبة': { en: 'Unit cost before tax', fr: 'Cout unitaire hors taxe', tr: 'Vergi oncesi birim maliyet', zh: '税前单价' },
+  'القيمة قبل الضريبة': { en: 'Value before tax', fr: 'Valeur hors taxe', tr: 'Vergi oncesi deger', zh: '税前金额' },
+  'أصناف بلا سعر وحدة لا تدخل في القيمة': { en: 'Items without a unit cost are excluded from the value', fr: 'Articles sans cout unitaire exclus de la valeur', tr: 'Birim maliyeti olmayan urunler degere dahil degildir', zh: '无单价的商品不计入金额' },
+  'توقيع أمين المستودع': { en: 'Storekeeper signature', fr: 'Signature du magasinier', tr: 'Depo sorumlusu imzasi', zh: '仓管员签字' },
+  'توقيع المورد': { en: 'Supplier signature', fr: 'Signature du fournisseur', tr: 'Tedarikci imzasi', zh: '供应商签字' },
+  'توقيع المعتمد': { en: 'Approver signature', fr: 'Signature du valideur', tr: 'Onaylayan imzasi', zh: '审批人签字' },
+  'إشعار وارد': { en: 'Inbound notice', fr: 'Avis de reception', tr: 'Giris bildirimi', zh: '入库通知' },
 };
 
 export function useTr() {

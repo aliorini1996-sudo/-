@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { warehouseApi, productApi } from '../api/client';
+import { warehouseApi, productApi, companyApi } from '../api/client';
 import { formatDate, formatCurrency } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import SearchableSelect from '../components/SearchableSelect';
-import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info } from 'lucide-react';
+import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
+import DocumentModal from '../components/DocumentModal';
+import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
 
 interface WhRow {
   productId: string; name: string; code: string; unit: string;
@@ -18,7 +20,8 @@ interface WhRow {
 }
 interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null; createdBy: string | null; createdAt: string;
-  items: { id: string; qty: number; unitCost: number | null; product: { name: string; unit: string } }[];
+  // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost
+  items: { id: string; qty: number; unitCost: number | null; lineCost?: number | null; product: { name: string; unit: string } }[];
   totalCost: number; // يحسبه الخادم بالدالّة المختبَرة — لا يُعاد حسابه هنا
 }
 
@@ -29,6 +32,14 @@ const fmtQty = (n: number) => Number(n.toFixed(2)).toLocaleString('en-US');
 export default function CompanyWarehousePage() {
   const tr = useTr();
   const [showEntry, setShowEntry] = useState(false);
+  // الحركة المعروض إشعارها الآن
+  const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
+  // إعدادات الشركة لترويسة الإشعار — المفتاح نفسه الذي تقرؤه القوقعة
+  const companyQ = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as Company | null,
+    staleTime: 300_000,
+  });
 
   // المستودع كميّاتٌ وتكلفةٌ وقيمة مخزون: يُمنع كلّه مع المحاسبة
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
@@ -162,7 +173,15 @@ export default function CompanyWarehousePage() {
                     {e.type === 'RECEIVE' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                     {e.type === 'RECEIVE' ? tr('وارد') : tr('تسوية')}
                   </span>
-                  <span className="text-[11px] text-[#9A8F7E] flex items-center gap-1"><Calendar size={11} /> {formatDate(e.createdAt)}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-[11px] text-[#9A8F7E] flex items-center gap-1"><Calendar size={11} /> {formatDate(e.createdAt)}</span>
+                    <button type="button" onClick={() => setNoticeOf(e)}
+                      title={e.type === 'RECEIVE' ? tr('إشعار وارد PDF') : tr('إشعار تسوية PDF')}
+                      aria-label={e.type === 'RECEIVE' ? tr('إشعار وارد PDF') : tr('إشعار تسوية PDF')}
+                      className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+                      <FileDown size={15} />
+                    </button>
+                  </span>
                 </div>
                 {(e.supplier || e.note) && <p className="text-xs text-[#6E6557] mt-1.5">{[e.supplier, e.note].filter(Boolean).join(' · ')}</p>}
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -188,6 +207,13 @@ export default function CompanyWarehousePage() {
       </div>
 
       {showEntry && <WarehouseEntryModal onClose={() => setShowEntry(false)} />}
+
+      {/* إشعار الحركة — يُبنى من الصفّ الذي في اليد بقيمه المحسوبة في الخادم */}
+      {noticeOf && (
+        <DocumentModal
+          doc={warehouseNoticeDocFromEntry(noticeOf, companyQ.data ?? null)}
+          onClose={() => setNoticeOf(null)} />
+      )}
     </div>
   );
 }

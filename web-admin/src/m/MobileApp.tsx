@@ -289,7 +289,7 @@ export default function MobileApp() {
           <Suspense fallback={<MSpinner />}>
             {section === 'reps' ? <MSalesReps company={company} accountingOn={accountingOn} onBack={() => setSection(null)} />
               : section === 'products' ? <MProducts onBack={() => setSection(null)} />
-                : section === 'warehouse' ? <MWarehouse onBack={() => setSection(null)} />
+                : section === 'warehouse' ? <MWarehouse company={company} onBack={() => setSection(null)} />
                   : <MReports accountingOn={accountingOn} onBack={() => setSection(null)} />}
           </Suspense>
         </div>
