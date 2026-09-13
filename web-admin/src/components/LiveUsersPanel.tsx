@@ -14,8 +14,18 @@ interface Company { tenantId: string; name: string; reps: number; admins: number
 interface Infra {
   memoryBytes: number; memoryLimitBytes: number; memoryPct: number;
   connections: number; connectionLimit: number; connectionsPct: number;
+  /** عمر القياس بالدقائق — النبضة تصل كل ساعتين تقريباً لا كل ١٠ دقائق */
+  ageMinutes: number;
   at: string;
 }
+
+/** عمر القياس بلغة يقرؤها المالك: «قبل ٢٥ د» · «قبل ٣ س» */
+const fmtAge = (m: number): string => {
+  if (m < 2) return 'الآن';
+  if (m < 60) return `قبل ${m} د`;
+  const h = Math.round(m / 60);
+  return `قبل ${h} س`;
+};
 interface Live {
   windowMinutes: number;
   total: number; totalReps: number; totalAdmins: number;
@@ -45,10 +55,11 @@ function DbGauge({ infra }: { infra?: Infra | null }) {
   return (
     <div className="rounded-xl px-3 py-2 border flex items-center gap-2.5"
       style={{ background: tone.bg, borderColor: tone.b }}
-      title={`ذاكرة قاعدة البيانات ${pct}% · الاتصالات ${infra.connections} من ${infra.connectionLimit}`}>
+      title={`ذاكرة قاعدة البيانات ${pct}% · الاتصالات ${infra.connections} من ${infra.connectionLimit} · آخر قياس ${fmtAge(infra.ageMinutes)}`}>
       <Database size={15} style={{ color: tone.c }} />
       <div className="leading-tight">
-        <p className="text-[10px] text-[#6E6557]">ذاكرة القاعدة</p>
+        {/* العمر ظاهرٌ لا مخفيّ: القياس يصل كل ساعتين، فرقمٌ بلا عمره يُقرأ لحظيّاً */}
+        <p className="text-[10px] text-[#6E6557]">ذاكرة القاعدة · {fmtAge(infra.ageMinutes)}</p>
         <p className="text-sm font-bold" style={{ color: tone.c }}>
           {pct}%{pct >= 80 && ' — رقِّ الخطة'}
         </p>

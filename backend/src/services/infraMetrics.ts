@@ -34,20 +34,30 @@ export function setInfraSnapshot(s: Omit<InfraSnapshot, 'at'>): void {
 }
 
 /**
- * آخر قياس مع نسبته المئويّة — أو `null` إن لم تصل نبضة بعد.
+ * آخر قياس مع نسبته المئويّة وعمره — أو `null` إن لم يصل قياسٌ يُعتدّ به.
  *
- * ويُعتبر القياس **قديماً** بعد ٣٠ دقيقة (ثلاثة أضعاف دورة النبضة): عرضُ رقمٍ
- * بائتٍ على أنّه حاليّ أسوأ من عدم عرضه، لأنّ المالك يطمئنّ إلى قياسٍ مضى.
+ * ⚠️ **كانت نافذة القِدَم ٣٠ دقيقة فاختفت البطاقة أغلب اليوم.** افترضتُ أن
+ * النبضة تعمل كل ١٠ دقائق كما في جدولها (`*\/10`)، والقياس الحيّ لسجلّ GitHub
+ * يقول غير ذلك: ١٣:١٧ · ١٦:٢١ · ١٨:٣٢ · ٢٠:٥٤ · ٢٢:٤٤ · ٠٠:٢٥ · ٠٥:٠٦ — أي
+ * **كل ساعتين تقريباً، وأربع ساعات ونصف ليلاً**. جدولة GitHub «أفضل جهد» لا
+ * وعد، وتُؤخَّر الجدولات المتكرّرة تحت الضغط. فكل قياسٍ كان يُعدّ قديماً بعد
+ * نصف ساعة من وصوله، وتختفي البطاقة ساعةً ونصفاً من كل ساعتين.
+ *
+ * والعلاج ليس إخفاء القديم بل **إظهار عمره**: ذاكرة القاعدة تتحرّك ببطء (كاشٌ
+ * يمتلئ على مدى ساعات)، فقياسٌ عمره ساعتان يبقى صالحاً لقرار الترقية — بشرط أن
+ * يُكتب عمره بجانبه فلا يُقرأ كأنّه لحظيّ. ويُخفى فقط بعد ٦ ساعات.
  */
-const STALE_MS = 30 * 60 * 1000;
+const STALE_MS = 6 * 60 * 60 * 1000;
 
-export function getInfraSnapshot(): (InfraSnapshot & { memoryPct: number; connectionsPct: number }) | null {
+export function getInfraSnapshot(): (InfraSnapshot & { memoryPct: number; connectionsPct: number; ageMinutes: number }) | null {
   if (!snapshot) return null;
-  if (Date.now() - new Date(snapshot.at).getTime() > STALE_MS) return null;
+  const ageMs = Date.now() - new Date(snapshot.at).getTime();
+  if (ageMs > STALE_MS) return null;
   const pct = (used: number, cap: number) => (cap > 0 ? Math.round((used / cap) * 1000) / 10 : 0);
   return {
     ...snapshot,
     memoryPct: pct(snapshot.memoryBytes, snapshot.memoryLimitBytes),
     connectionsPct: pct(snapshot.connections, snapshot.connectionLimit),
+    ageMinutes: Math.max(0, Math.round(ageMs / 60000)),
   };
 }
