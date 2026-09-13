@@ -8,7 +8,9 @@ export function isAppRoute(p: string): boolean {
   // `m` بحدّ نهاية: كي لا يلتقط /maghreb أو أي مسار تسويقيّ يبدأ بالحرف نفسه
   // `owner` هنا إلزاماً: /platform يحوّل إليه، وغيابه يجعل LocaleSync يشتقّ اللغة
   // من المسار فتُفرض العربية على شاشة دخول المالك مهما اختار المستخدم.
-  return /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/.test(p) || /^\/m(\/|$)/.test(p);
+  // `ax` (بوابة السفير) بحدّ نهاية: عربية ثابتة تضبط اتجاه المستند بنفسها وتُعيده عند
+  // المغادرة — فلا يدهس LocaleSync لغة التطبيق المحفوظة لمندوبٍ هو سفيرٌ أيضاً.
+  return /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/.test(p) || /^\/(m|ax)(\/|$)/.test(p);
 }
 
 function initial(): Lang {

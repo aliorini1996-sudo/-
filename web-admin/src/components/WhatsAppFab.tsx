@@ -33,7 +33,8 @@ import { trackWhatsApp } from '../lib/ads';
  * فيختفي الزرّ من صفحة هبوط كاملة بصمت.
  */
 // `m` (تطبيق الإدارة على الجوال) بحدّ نهاية — كي لا يلتقط مساراً تسويقياً يبدأ بالحرف نفسه
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m)(\/|$)/;
+// `ax` بوابة «سفير فيلد سيلز» الخاصة — ليست صفحة تسويقية ولا قمع اشتراك
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|ax)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home

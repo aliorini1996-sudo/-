@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { paymentsApi, tenantApi } from '../api/client';
 import { Tenant } from '../types';
-import { X, Link2, Copy, RefreshCw, CreditCard, MessageCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { X, Link2, Copy, RefreshCw, CreditCard, MessageCircle, CheckCircle2, Clock, XCircle, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
+import { LinkPaymentTenantDialog } from './AffiliatesPanel';
 
 interface PayLink {
   id: string; tenantId: string | null; tenantName: string | null;
@@ -30,6 +31,8 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
   const [description, setDescription] = useState('');
   const [tenantId, setTenantId] = useState('');
   const [months, setMonths] = useState('0');
+  // دفعة مدفوعة بلا شركة ⇒ ربطها يجعلها تُحتسب دفعةً أولى لعمولة سفير فيلد سيلز
+  const [linkTarget, setLinkTarget] = useState<PayLink | null>(null);
 
   const { data: links, isLoading, isError } = useQuery({
     queryKey: ['payment-links'],
@@ -176,6 +179,13 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
                         <div className="inline-flex items-center gap-1">
                           {l.url && <button onClick={() => copy(l.url!)} title="نسخ الرابط" className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><Copy size={14} /></button>}
                           {l.url && <button onClick={() => wa(l)} title="ارسال واتساب" className="p-1.5 rounded-lg text-[#1E7A52] hover:bg-green-50"><MessageCircle size={14} /></button>}
+                          {l.status === 'paid' && !l.tenantId && (
+                            <button onClick={() => setLinkTarget(l)}
+                              title="ربط بشركة — يتيح احتساب هذه الدفعة دفعةً أولى للشركة ضمن عمولة السفير الذي أحالها"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-[#E15A30] hover:bg-[#FBEBE2] whitespace-nowrap">
+                              <Building2 size={13} /> ربط بشركة
+                            </button>
+                          )}
                           {l.status !== 'paid' && (
                             <button onClick={() => refresh.mutate(l.id)} title="تحديث الحالة من ميسر" disabled={refresh.isPending}
                               className="p-1.5 rounded-lg text-[#E15A30] hover:bg-[#FBEBE2] disabled:opacity-50">
@@ -196,6 +206,13 @@ export default function PaymentLinksPanel({ onClose }: { onClose: () => void }) 
           الدفع يتم على صفحة ميسر المستضافة لا تمر اي بيانات بطاقة بنظامنا الحالة تعتمد من ميسر عبر الاشعارات او زر التحديث
         </p>
       </div>
+      {linkTarget && (
+        <LinkPaymentTenantDialog
+          payment={linkTarget}
+          onClose={() => setLinkTarget(null)}
+          onLinked={() => { setLinkTarget(null); qc.invalidateQueries({ queryKey: ['payment-links'] }); }}
+        />
+      )}
     </div>
   );
 }

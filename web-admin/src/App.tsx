@@ -6,6 +6,7 @@ import { useLang, isAppRoute } from './i18n/lang';
 import { localeFromPath } from './i18n/locale';
 import { analyticsApi } from './api/client';
 import { attributionPayload } from './lib/attribution';
+import { captureRefFromUrl } from './lib/referral';
 import WhatsAppFab from './components/WhatsAppFab';
 // صفحات عامّة — تحميل فوري (مدخل سريع + SEO)
 import LandingPage from './pages/LandingPage';
@@ -56,6 +57,8 @@ const PaymentResultPage = lazy(() => import('./pages/PaymentResultPage'));
 const MobileApp = lazy(() => import('./m/MobileApp'));
 // منصّة صيد العملاء — صفحة سرّية غير مُدرَجة ولا مرتبطة من أي مكان
 const HunterApp = lazy(() => import('./hunter/HunterApp'));
+// بوابة «سفير فيلد سيلز» — خاصة غير مُدرجة (noindex، ولا روابط إليها من الصفحات العامة)
+const AffiliateApp = lazy(() => import('./affiliate/AffiliateApp'));
 // صفحة HOOK B التعريفية العامّة
 const HookBLandingPage = lazy(() => import('./pages/HookBLandingPage'));
 
@@ -124,7 +127,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|signup|verify-email|rep|m)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|login|signup|verify-email|rep|m|ax)(\/|$)/.test(pathname)) return;
     // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — تُعيد {} عند رفض التتبّع
     analyticsApi.track({
       path: pathname,
@@ -136,11 +139,27 @@ function VisitTracker() {
   return null;
 }
 
+/**
+ * يلتقط رمز الإحالة `?ref=CODE` لبرنامج «سفير فيلد سيلز» (docs/affiliate/CONTRACT.md §3)
+ * على كل صفحة عامة وعلى صفحة التسجيل. لا يلتقطه داخل التطبيق ولا البوابات الخاصة:
+ * رابطٌ يُفتح من داخل لوحةٍ أو من بوابة السفير نفسها ليس زيارة منشأةٍ جاءت تشترك.
+ * يتبع `search` لا المسار وحده — `/?ref=A` ثم `/?ref=B` مساران متطابقان.
+ */
+function ReferralCapture() {
+  const { pathname, search } = useLocation();
+  useEffect(() => {
+    if (/^\/(app|platform|owner|login|verify-email|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
+    captureRefFromUrl(search);
+  }, [pathname, search]);
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <LocaleSync />
       <VisitTracker />
+      <ReferralCapture />
       <WhatsAppFab />
       <Suspense fallback={<PageFallback />}>
       <Routes>
@@ -150,6 +169,7 @@ export default function App() {
         {/* تطبيق الإدارة على الجوال — قوقعة مستقلّة بجلسة لوحة الشركة */}
         <Route path="/m" element={<MobileRoute><MobileApp /></MobileRoute>} />
         <Route path="/hx" element={<HunterApp />} />
+        <Route path="/ax" element={<AffiliateApp />} />
         <Route path="/hookb" element={<HookBLandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />

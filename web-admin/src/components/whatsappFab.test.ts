@@ -8,7 +8,7 @@ import { refFromPath } from './WhatsAppFab';
  * يقرأ المصدر ويؤكّد تطابق التعبيرين حرفياً، فأي تعديل هناك بلا تعديل هنا
  * يُفشل الاختبار بدل أن يمرّ صامتاً.
  */
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|ax)(\/|$)/;
 const shows = (p: string) => !HIDDEN_ON.test(p);
 
 /** كل المسارات التسويقية المسجَّلة في App.tsx — الزرّ إلزامي على كلّها */
@@ -29,7 +29,7 @@ const MARKETING = [
 const APP = [
   '/app', '/app/customers', '/app/invoices', '/app/settings',
   '/platform', '/platform/leads', '/owner', '/login', '/verify-email',
-  '/rep', '/rep/',
+  '/rep', '/rep/', '/ax', '/ax/',
 ];
 
 test('الزرّ يظهر على كل صفحة تسويقية بلا استثناء', () => {

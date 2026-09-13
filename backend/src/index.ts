@@ -47,6 +47,8 @@ import analyticsRouter from './routes/analytics';
 import promoVideosRouter from './routes/promoVideos';
 import importRouter from './routes/import';
 import hunterRouter from './routes/hunter';
+import affiliateRouter from './routes/affiliate';
+import affiliateAdminRouter from './routes/affiliateAdmin';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
 import waAccountRouter from './routes/waAccount';
@@ -174,6 +176,9 @@ app.use('/api/promo-videos', promoVideosRouter);
 app.use('/api/import', importRouter);
 // منصّة صيد العملاء — معزولة (مصادقة وجداول خاصّة بها)
 app.use('/api/hunter', hunterRouter);
+// برنامج «سفير فيلد سيلز» — بوابة معزولة المصادقة (/ax) ولوحة المالك
+app.use('/api/affiliate', affiliateRouter);
+app.use('/api/affiliate-admin', affiliateAdminRouter);
 
 // الوسائط المُنتجة (فيديوهات/أصوات ترويجية) — قبل التقاط الواجهة المبنيّة كي لا تبتلعها
 app.use('/media', express.static(path.join(process.cwd(), 'media'), { maxAge: '1d' }));

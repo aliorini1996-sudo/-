@@ -289,6 +289,7 @@ model PaymentLink {
   url              String? // رابط صفحة الدفع المستضافة
   status           String    @default("initiated") // initiated | paid | canceled | expired
   paidAt           DateTime?
+  refundedHalalas  Int       @default(0) // استردادٌ جزئيّ تراكميّ مؤكَّد من ميسر (الرابط يبقى paid) — تقرؤه عمولات السفراء
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -2168,4 +2169,226 @@ model RepRouteStop {
   @@unique([routeId, customerId]) // العميل مرّة واحدة في الخط الواحد
   @@index([tenantId, customerId])
   @@map("rep_route_stops")
+}
+
+// ============================================================================
+// برنامج «سفير فيلد سيلز» (Affiliate) — جداول جديدة معزولة، لا FK لأي جدول قائم.
+// مصدر حقيقة «الدفع»: payment_links(status='paid', tenantId NOT NULL) فقط.
+// العقد الحاكم: docs/affiliate/CONTRACT.md (قرارات المالك ١٣ سبتمبر ٢٠٢٦).
+// ============================================================================
+model AffiliateUser {
+  id                 String    @id @default(uuid())
+  email              String    @unique            // lowercase
+  emailVerifiedAt    DateTime?
+  passwordHash       String                        // scrypt salt:hash
+  tokenVersion       Int       @default(0)
+  failedLogins       Int       @default(0)
+  lockedUntil        DateTime?
+  fullName           String
+  phone              String?                       // 9665XXXXXXXX — فهرس لا unique (منع التعداد)
+  city               String?
+  code               String    @unique            // ^[2-9A-HJ-NP-Z]{8}$
+  status             String    @default("pending_email") // pending_email|pending_review|approved|rejected|suspended
+  statusReason       String?
+  reviewedAt         DateTime?
+  reviewedBy         String?
+  termsVersion       String
+  termsAcceptedAt    DateTime
+  termsIpHash        String?
+  marketingConsent   Boolean   @default(false)
+  publicPromoter     Boolean   @default(false)    // سينشر علناً
+  mawthooqNo         String?
+  mawthooqExpiry     DateTime?
+  vatNumber          String?
+  ibanEnc            String?                       // AES-256-GCM iv:tag:cipher
+  ibanLast4          String?
+  ibanHolderName     String?
+  bankName           String?
+  payoutUpdatedAt    DateTime?
+  lastLoginAt        DateTime?
+  lastMailAt         DateTime?                     // آخر بريد تأكيد/استعادة — مهلةٌ تمنع إغراق صندوقٍ بالطلبات
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  claims       AffiliateClaim[]
+  attributions TenantAttribution[]
+  commissions  AffiliateCommission[]
+  adjustments  AffiliateAdjustment[]
+  payouts      AffiliatePayout[]
+  @@index([status])
+  @@index([phone])
+  @@map("affiliate_users")
+}
+
+model AffiliateClaim {
+  id              String        @id @default(uuid())
+  affiliateId     String
+  affiliate       AffiliateUser @relation(fields: [affiliateId], references: [id])
+  companyName     String
+  companyNameNorm String
+  crNumber        String                          // ^\d{10}$ — إلزامي (يغلق ثغرة الترشيح بلا مفتاح)
+  city            String?
+  how             String                          // visit|relationship|event|online|other
+  note            String?                         // ≤200، بلا جوال/بريد
+  status          String        @default("under_review") // under_review|approved|rejected|withdrawn|expired|converted
+  reasonCode      String?                         // existing_customer|duplicate|self_referral|insufficient|other
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  lockedUntil     DateTime?
+  tenantId        String?
+  convertedAt     DateTime?
+  submittedAt     DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  @@index([affiliateId, status])
+  @@index([status, submittedAt])
+  @@index([crNumber])
+  @@index([tenantId])
+  @@map("affiliate_claims")
+}
+
+model TenantAttribution {
+  id                 String        @id @default(uuid())
+  tenantId           String        @unique
+  tenantNameSnapshot String
+  affiliateId        String
+  affiliate          AffiliateUser @relation(fields: [affiliateId], references: [id])
+  source             String                        // signup_code|claim|owner
+  claimId            String?
+  codeUsed           String?
+  refVia             String?                       // link|typed
+  status             String        @default("active") // active|disputed|void
+  flags              String[]      @default([])    // self_email|self_phone|returning_company|ip_match
+  reasonNote         String?
+  effectiveFrom      DateTime
+  rateBps            Int                           // لقطة من شروط السفير المقبولة
+  holdDays           Int           @default(30)    // لقطة — تغيير الإعدادات لا يمسّ إسناداً قائماً
+  firstPaymentDeadline DateTime                    // effectiveFrom + firstPaymentWithinDays
+  termsVersion       String
+  decidedBy          String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  commission         AffiliateCommission?
+  @@index([affiliateId, status])
+  @@map("tenant_attributions")
+}
+
+model AffiliateCommission {
+  id                   String            @id @default(uuid())
+  tenantId             String            @unique   // عمولة واحدة لكل شركة — الدفعة الأولى
+  paymentLinkId        String            @unique
+  affiliateId          String
+  affiliate            AffiliateUser     @relation(fields: [affiliateId], references: [id])
+  attributionId        String            @unique
+  attribution          TenantAttribution @relation(fields: [attributionId], references: [id])
+  tenantNameSnapshot   String
+  paymentAmountHalalas Int                          // شامل الضريبة
+  coveredMonths        Int
+  rateBps              Int
+  commissionHalalas    Int
+  refundedHalalas      Int               @default(0) // استرداد جزئي تراكمي من ميسر — العمولة = النسبة × (الدفعة − المسترد)
+  clawbackAffiliateId  String?                       // بعد نقل إسنادٍ صُرفت عمولته: من يتحمّل الاسترداد لاحقاً
+  paymentPaidAt        DateTime
+  eligibleAt           DateTime                     // paidAt + holdDays — مخزَّن
+  status               String            @default("pending") // pending|on_hold|approved|paid|reversed|declined
+  reasonNote           String?
+  approvedAt           DateTime?
+  approvedBy           String?
+  payoutId             String?
+  payout               AffiliatePayout?  @relation(fields: [payoutId], references: [id])
+  reversedAt           DateTime?
+  termsVersion         String
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  @@index([affiliateId, status])
+  @@index([status, eligibleAt])
+  @@index([payoutId])
+  @@map("affiliate_commissions")
+}
+
+model AffiliateAdjustment {
+  id            String        @id @default(uuid())
+  affiliateId   String
+  affiliate     AffiliateUser @relation(fields: [affiliateId], references: [id])
+  commissionId  String?
+  kind          String                              // clawback_refund|correction
+  sourceRef     String        @default("")          // معرّف الاسترداد أو لقطة — يسمح بأكثر من استرداد جزئي
+  amountHalalas Int                                 // سالب للاسترداد
+  note          String?
+  createdBy     String                              // system | superAdminId
+  payoutId      String?
+  createdAt     DateTime      @default(now())
+  @@unique([commissionId, kind, sourceRef])
+  @@index([affiliateId, payoutId])
+  @@map("affiliate_adjustments")
+}
+
+model AffiliatePayout {
+  id                 String        @id @default(uuid())
+  affiliateId        String
+  affiliate          AffiliateUser @relation(fields: [affiliateId], references: [id])
+  commissionsHalalas Int
+  adjustmentsHalalas Int
+  netHalalas         Int
+  status             String        @default("draft") // draft|recorded|void
+  ibanLast4          String
+  holderName         String
+  transferredAt      DateTime?
+  bankReference      String?
+  createdBy          String
+  recordedBy         String?
+  voidReason         String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  commissions        AffiliateCommission[]
+  @@index([affiliateId, status])
+  @@map("affiliate_payouts")
+}
+
+model AffiliateEvent {
+  id        String   @id @default(uuid())
+  entity    String   // user|claim|attribution|commission|payout|settings|terms|mail
+  entityId  String
+  action    String
+  fromState String?
+  toState   String?
+  actorType String   // system|affiliate|owner|company
+  actorId   String?
+  reason    String?
+  meta      Json?
+  createdAt DateTime @default(now())
+  @@index([entity, entityId])
+  @@index([action, createdAt])
+  @@map("affiliate_events")
+}
+
+model AffiliateSettings {
+  id                    String   @id @default("global")
+  intakeOpen            Boolean  @default(true)
+  rateBps               Int      @default(3000)
+  holdDays              Int      @default(30)
+  minPayoutHalalas      Int      @default(10000)
+  refWindowDays         Int      @default(90)
+  claimLockDays         Int      @default(90)
+  firstPaymentWithinDays Int     @default(180)
+  currentTermsVersion   String   @default("2026-09-v1")
+  disclosureText        String   @default("أحصل على عمولة من فيلد سيلز إذا اشتركت عبر رابطي")
+  updatedBy             String?
+  updatedAt             DateTime @updatedAt
+  @@map("affiliate_settings")
+}
+
+model AffiliateTerms {
+  version     String   @id
+  body        String   // نص عادي يُعرض مُهرَّباً
+  rulesJson   Json
+  publishedAt DateTime @default(now())
+  publishedBy String
+  @@map("affiliate_terms")
+}
+
+model AffiliateClickDaily {
+  code  String
+  day   String   // YYYY-MM-DD بتوقيت الرياض
+  count Int      @default(0)
+  @@id([code, day])
+  @@map("affiliate_click_daily")
 }

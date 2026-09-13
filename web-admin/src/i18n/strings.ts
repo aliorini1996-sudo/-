@@ -57,6 +57,11 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'signup.errAgree': { ar: 'يرجى الموافقة على الشروط وسياسة الخصوصية', en: 'Please accept the Terms and Privacy Policy', fr: 'Veuillez accepter les Conditions et la Politique de confidentialité', tr: 'Lütfen Hizmet Şartları\'nı ve Gizlilik Politikası\'nı kabul edin', zh: '请同意服务条款和隐私政策' },
   'signup.success': { ar: 'تم إنشاء حسابك مرحبا بك في تجربتك المجانية', en: 'Account created welcome to your free trial', fr: 'Compte créé bienvenue dans votre essai gratuit', tr: 'Hesabınız oluşturuldu, ücretsiz denemenize hoş geldiniz', zh: '账户已创建，欢迎开始免费试用' },
   'signup.failed': { ar: 'تعذر إنشاء الحساب', en: 'Could not create account', fr: 'Impossible de créer le compte', tr: 'Hesap oluşturulamadı', zh: '账户创建失败' },
+  // رمز الإحالة (برنامج سفير فيلد سيلز) — الفرنسية بلا فواصل علوية عمداً
+  'signup.refHave': { ar: 'لديك رمز إحالة؟', en: 'Have a referral code?', fr: 'Vous avez un code de parrainage ?', tr: 'Yönlendirme kodunuz var mı?', zh: '有推荐码？' },
+  'signup.refLabel': { ar: 'رمز الإحالة', en: 'Referral code', fr: 'Code de parrainage', tr: 'Yönlendirme kodu', zh: '推荐码' },
+  'signup.refNotice': { ar: 'سيطّلع صاحب الرمز على اسم منشأتك وحالة اشتراكها لاحتساب عمولته', en: 'The code owner will see your business name and subscription status to calculate their commission', fr: 'Le titulaire du code verra le nom de votre entreprise et le statut de son abonnement pour calculer sa commission', tr: 'Kod sahibi, komisyonunu hesaplamak için işletmenizin adını ve abonelik durumunu görecektir', zh: '推荐码持有人将看到您的企业名称及订阅状态，用于计算其佣金' },
+  'signup.refRemove': { ar: 'إزالة', en: 'Remove', fr: 'Retirer', tr: 'Kaldır', zh: '移除' },
 
   // لوحة المالك (تسجيل الدخول)
   'owner.title': { ar: 'مدخل مالك المنصة', en: 'Platform owner access', fr: 'Accès propriétaire de la plateforme', tr: 'Platform sahibi girişi', zh: '平台所有者入口' },
@@ -526,6 +531,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'زيارات الموقع': { en: 'Site visits', fr: 'Visites du site', tr: 'Site ziyaretleri', zh: '网站访问量' },
   'محتوى البروفايل': { en: 'Profile page', fr: 'Page profil', tr: 'Profil içeriği', zh: '资料页内容' },
   'روابط الدفع': { en: 'Payment links', fr: 'Liens de paiement', tr: 'Ödeme bağlantıları', zh: '支付链接' },
+  'السفراء': { en: 'Ambassadors', fr: 'Ambassadeurs', tr: 'Elçiler', zh: '推广大使' },
   'نسب متعددة': { en: 'Mixed rates', fr: 'Taux multiples', tr: 'Çoklu oran', zh: '多种税率' },
   'منها ضريبة القيمة المضافة': { en: 'Of which VAT', fr: 'Dont TVA', tr: 'İçindeki KDV', zh: '其中增值税' },
   'الزيارات الحية': { en: 'Live sessions', fr: 'Sessions en direct', tr: 'Canlı oturumlar', zh: '实时访问' },

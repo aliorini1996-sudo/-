@@ -11,6 +11,7 @@ import { useT } from '../i18n/strings';
 import { useDir, useLang } from '../i18n/lang';
 import { supportedCountries } from '../i18n/countries';
 import { ARAB_DIAL, WORLD_DIAL, flagOf, dialOf } from '../i18n/dialCodes';
+import { readRef, clearRef, normalizeRef, refFromSearch } from '../lib/referral';
 
 // التسجيل الذاتي للتجربة المجانية — ينشئ شركة بتجربة 14 يوماً ويدخل مباشرة
 export default function SignupPage() {
@@ -30,6 +31,31 @@ export default function SignupPage() {
   useEffect(() => { if (form.country) setPhoneCountry(form.country); }, [form.country]);
   const dial = dialOf(phoneCountry) || '+966'; // بادئة الجوال حسب دولة الهاتف المختارة
 
+  // رمز الإحالة (عقد «سفير فيلد سيلز» §3): من رابطٍ محفوظ يظهر مملوءاً مع تنبيه وزرّ إزالة،
+  // وإلا يبقى مطوياً خلف «لديك رمز إحالة؟» — والرمز الخاطئ لا يُفشل التسجيل أبداً (يُهمله الخادم)
+  // رمز الرابط في شريط العنوان أولاً (آخر نقرة، ويحفظه ReferralCapture بعد الرسم)، ثم المحفوظ.
+  // `at` لحظة الالتقاط تُرسل refAt، والخادم وحده يفرض نافذة الإسناد — نافذة **كل سفير** من
+  // الشروط التي قبلها، وهي لا تُعرف هنا؛ فلا يُسقط المتصفّح رمزاً بنفسه (يحتفظ به 365 يوماً).
+  const [linkRefState, setLinkRefState] = useState<{ code: string; at: number } | null>(() => {
+    const fromUrl = refFromSearch();
+    if (fromUrl) return { code: fromUrl, at: Date.now() };
+    const stored = readRef();
+    return stored ? { code: stored.code, at: stored.at } : null;
+  });
+  const linkRef = linkRefState?.code ?? '';
+  const [refOpen, setRefOpen] = useState(false);
+  const [typedRef, setTypedRef] = useState('');
+  const removeLinkRef = () => { clearRef(); setLinkRefState(null); };
+  const refPayload = (): { ref?: string; refVia?: 'link' | 'typed'; refAt?: number } => {
+    // رمزٌ كُتب يغلب رمز الرابط المحفوظ: قد يكون السفير أبلغ الشركة برمزه بعد أن تجاوز
+    // رابطه القديم مدّته، أو أحالها سفيرٌ غير صاحب الرابط
+    const typed = typedRef.trim();
+    // الخادم يقبل حتى 40 حرفاً — نقصّ حتى لا يُرفض التسجيل كلّه بسبب رمز
+    if (typed) return { ref: (normalizeRef(typed) ?? typed).slice(0, 40), refVia: 'typed' };
+    if (linkRefState) return { ref: linkRefState.code, refVia: 'link', refAt: linkRefState.at };
+    return {};
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.companyName.trim()) { toast.error(t('signup.errCompany')); return; }
@@ -47,8 +73,10 @@ export default function SignupPage() {
         countryCode: form.country,
         email: form.email.trim(), password: form.password,
         phone: `${dial}${form.phone.replace(/^0+/, '')}`,
+        ...refPayload(),
       });
       const { token, user } = res.data.data;
+      clearRef(); // أُرسل مع التسجيل — لا يُعاد استعماله لتسجيلٍ آخر من المتصفّح نفسه
       login(token, user);
       toast.success(t('signup.success'));
       const dest = '/app';
@@ -188,6 +216,45 @@ export default function SignupPage() {
                 </div>
               </div>
             </div>
+
+            {linkRef ? (
+              <div className="rounded-xl border border-[#F3D3C4] bg-[#FBEBE2]/60 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-[#44403a]">
+                    {t('signup.refLabel')}: <bdi dir="ltr" className="font-bold tracking-widest text-[#1F1A13]">{linkRef}</bdi>
+                  </span>
+                  <button type="button" onClick={removeLinkRef} className="text-xs font-semibold text-[#C0392B] hover:underline">
+                    {t('signup.refRemove')}
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#6E6557] mt-1 leading-relaxed">{t('signup.refNotice')}</p>
+                {refOpen ? (
+                  <input
+                    dir="ltr" className="input text-right uppercase tracking-widest mt-2" maxLength={40}
+                    value={typedRef} onChange={e => setTypedRef(e.target.value)} placeholder="XXXXXXXX"
+                    autoComplete="off" spellCheck={false}
+                  />
+                ) : (
+                  <button type="button" onClick={() => setRefOpen(true)} className="text-xs font-semibold text-[#E15A30] hover:underline mt-1">
+                    {t('signup.refHave')}
+                  </button>
+                )}
+              </div>
+            ) : refOpen ? (
+              <div>
+                <label className="label">{t('signup.refLabel')}</label>
+                <input
+                  dir="ltr" className="input text-right uppercase tracking-widest" maxLength={40}
+                  value={typedRef} onChange={e => setTypedRef(e.target.value)} placeholder="XXXXXXXX"
+                  autoComplete="off" spellCheck={false}
+                />
+                {typedRef.trim() && <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{t('signup.refNotice')}</p>}
+              </div>
+            ) : (
+              <button type="button" onClick={() => setRefOpen(true)} className="text-xs font-semibold text-[#E15A30] hover:underline">
+                {t('signup.refHave')}
+              </button>
+            )}
 
             <label className="flex items-start gap-2 text-xs text-[#6E6557] cursor-pointer pt-1">
               <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30] shrink-0" checked={agree} onChange={e => setAgree(e.target.checked)} />

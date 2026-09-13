@@ -142,7 +142,9 @@ export const notificationApi = {
 
 export const authApi = {
   login: (data: { username: string; password: string; role: string }) => api.post('/auth/login', data),
-  signup: (data: { companyName: string; adminName: string; email: string; password: string; phone?: string; countryCode?: string}) => api.post('/auth/signup', data),
+  // ref/refVia: رمز «سفير فيلد سيلز» — يُرسل فقط إن وُجد، والخادم يُهمل الخاطئ بصمت ولا يُفشل التسجيل.
+  // refAt: لحظة التقاط رمز الرابط (epoch ms) — الخادم يفرض بها نافذة الإسناد
+  signup: (data: { companyName: string; adminName: string; email: string; password: string; phone?: string; countryCode?: string; ref?: string; refVia?: 'link' | 'typed'; refAt?: number }) => api.post('/auth/signup', data),
   me: () => api.get('/auth/me'),
   changePassword: (data: { currentPassword: string; newPassword: string }) => api.post('/auth/change-password', data),
   verifyEmail: (token: string) => api.post('/auth/verify-email', { token }),

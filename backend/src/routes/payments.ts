@@ -7,6 +7,8 @@ import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { moyasarConfigured, createInvoice, fetchInvoice, fetchPayment, cancelInvoice, sarToHalalas } from '../services/moyasar';
 import { issueForPayment } from '../services/platformInvoice';
+import { accrueForPayment, reverseForPayment, applyPartialRefund } from '../services/affiliate/ledger';
+import { logEvent } from '../services/affiliate/core';
 
 // روابط الدفع الالكتروني (ميسر) — يصدرها مالك المنصة بمبلغ يحدده بنفسه.
 //
@@ -101,7 +103,7 @@ async function settleFromMoyasar(linkId: string): Promise<SettleResult> {
   }
 
   // الوسم والتمديد معا — فشل التمديد يفك الوسم فتتكفل اعادة المحاولة بالاثنين
-  await prisma.$transaction(async tx => {
+  const flipped = await prisma.$transaction(async tx => {
     const won = await tx.paymentLink.updateMany({
       where: { id: link.id, status: { not: 'paid' } },
       data: { status: 'paid', paidAt: new Date() },
@@ -109,7 +111,12 @@ async function settleFromMoyasar(linkId: string): Promise<SettleResult> {
     if (won.count === 1 && link.tenantId && link.months > 0) {
       await applyExtensionTx(tx, link.tenantId, link.months);
     }
+    return won.count === 1;
   });
+
+  // عمولة السفير — خارج المعاملة ولا ترمي: فشلها لا يُرجع الدفعة «غير مدفوعة»،
+  // وما يفوت هنا تلتقطه مصالحة الدفتر عند فتح المالك لوحة السفراء
+  if (flipped) void accrueForPayment(link.id);
 
   // الفاتورة الضريبية للمشترك — **بعد** المعاملة وخارجها عمدا: فشل الاصدار
   // (رقم ضريبي غير مضبوط، عطل عابر) يجب الا يُرجع الرابط «غير مدفوع» فيُعاد
@@ -147,14 +154,20 @@ async function reversePayment(linkId: string, paymentId: string): Promise<{ reve
   const refunded = pay.refunded ?? pay.amount;
   if (pay.status === 'refunded' && refunded < link.amountHalalas) {
     console.error(`payment ${linkId}: PARTIAL refund ${refunded}/${link.amountHalalas} — owner action required`);
+    // الاسترداد الجزئيّ يُحفظ على الرابط أوّلاً (تراكميّ، لا يتراجع) — مصدرٌ تقرؤه عمولة
+    // السفير الآن، وتُكمله المصالحة إن فات الخطاف. ثمّ تُخفَّض العمولة أو يُقيَّد الفرق
+    await prisma.paymentLink.updateMany({ where: { id: link.id, refundedHalalas: { lt: refunded } }, data: { refundedHalalas: refunded } });
+    void applyPartialRefund(link.id);
     return { reversed: false, status: link.status };
   }
 
-  await prisma.paymentLink.updateMany({
+  const flippedBack = await prisma.paymentLink.updateMany({
     where: { id: link.id, status: 'paid' },
     data: { status: pay.status },
   });
   console.error(`payment ${linkId}: reversed to ${pay.status} — subscription NOT shortened, owner decides`);
+  // عمولة السفير: تُعكس قبل صرفها، أو يُقيَّد عليه سالبٌ بعده
+  if (flippedBack.count === 1) void reverseForPayment(link.id);
   return { reversed: true, status: pay.status };
 }
 
@@ -236,6 +249,44 @@ router.post('/:id/refresh', authenticate, requireSuperAdmin, async (req: AuthReq
     if (!moyasarConfigured()) { res.status(503).json({ success: false, message: 'بوابة الدفع غير مهيأة' }); return; }
     const out = await settleFromMoyasar(req.params.id);
     res.json({ success: true, data: out });
+  } catch (err) { next(err); }
+});
+
+/**
+ * ربط دفعةٍ يتيمة بشركة — المالك فقط.
+ *
+ * رابط «التسجيل» من بوت واتساب يُدفع قبل أن توجد الشركة، فيبقى بلا `tenantId`
+ * إلى الأبد ولا مسار لإصلاحه — فلا يُحتسب إيراد شركةٍ ولا عمولة سفيرها. الربط
+ * هنا للروابط **المدفوعة بلا شركة** وحدها (لا نقلٌ من شركةٍ لأخرى)، ولا يمدّد
+ * اشتراكاً: التمديد يتبع `months` عند الإنشاء، وروابط التسجيل شهورها صفر.
+ */
+router.post('/:id/link-tenant', authenticate, requireSuperAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { tenantId } = z.object({ tenantId: z.string().uuid() }).parse(req.body);
+    const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true, name: true } });
+    if (!t) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+    const won = await prisma.paymentLink.updateMany({
+      where: { id: req.params.id, status: 'paid', tenantId: null },
+      data: { tenantId },
+    });
+    if (won.count !== 1) {
+      res.status(409).json({ success: false, message: 'يُربط رابطٌ مدفوع بلا شركة فقط' });
+      return;
+    }
+    await logEvent(prisma, {
+      entity: 'payment', entityId: req.params.id, action: 'linked_tenant', actorType: 'owner', actorId: req.user!.id,
+      meta: { tenantId, tenantName: t.name },
+    });
+    const accrual = await accrueForPayment(req.params.id);
+    const link = await prisma.paymentLink.findUnique({ where: { id: req.params.id } });
+    const commission = accrual.created
+      ? await prisma.affiliateCommission.findUnique({ where: { id: accrual.commissionId }, select: { id: true, status: true, commissionHalalas: true } })
+      : null;
+    const { moyasarInvoiceId: _hide, ...pub } = link ?? ({} as NonNullable<typeof link>);
+    res.json({ success: true, data: {
+      link: link ? { ...pub, tenantName: t.name } : null, commission,
+      commissionCreated: accrual.created, accrualReason: accrual.created ? null : accrual.reason,
+    } });
   } catch (err) { next(err); }
 });
 

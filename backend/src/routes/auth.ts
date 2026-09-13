@@ -8,6 +8,7 @@ import { AuthRequest } from '../types';
 import { sendMail, mailLayout } from '../services/mailer';
 import { authLimiter, signupLimiter, mailLimiter, renewLimiter } from '../middleware/rateLimits';
 import { getCountryTax } from '../config/countries';
+import { attachSignupAttribution } from '../services/affiliate/ledger';
 
 const router = Router();
 
@@ -55,6 +56,11 @@ const signupSchema = z.object({
     .transform((s) => s.replace(/[^\d+]/g, ''))
     .refine((s) => s.replace(/\D/g, '').length >= 8, 'رقم الجوال مطلوب ويجب ان يكون صحيحا'),
   countryCode: z.string().length(2).optional(), // دولة الشركة — تُشتقّ منها العملة والضريبة ومزوّد الفوترة
+  // رمز إحالة سفير — متسامحٌ عمداً بلا regex: «لا يوجد» أو رقم جوال في الخانة
+  // يُهمَل بصمت، ولا يجوز أبداً أن يُفشل تسجيل شركة (CONTRACT §1.6)
+  ref: z.unknown().optional().transform(v => (typeof v === 'string' ? v.slice(0, 40) : undefined)),
+  refVia: z.unknown().optional().transform(v => (v === 'link' ? 'link' : 'typed')),
+  refAt: z.unknown().optional().transform(v => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)),
 });
 const TRIAL_DAYS = 10;
 
@@ -257,6 +263,14 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
       } as any });
       return { tenant, admin };
     });
+
+    // إسناد السفير — بعد الالتزام لا داخله، ولا يرمي (خطأٌ داخل المعاملة كان سيُسقط التسجيل)
+    if (body.ref) {
+      await attachSignupAttribution({
+        tenantId: created.tenant.id, tenantName: body.companyName, adminEmail: body.email,
+        companyPhone: body.phone, ref: body.ref, refVia: body.refVia, refAt: body.refAt,
+      });
+    }
 
     // ترحيب فوري على واتساب — العميل سجّل بنفسه وأعطانا جواله، فالمراسلة مشروعة.
     // لا يوقف التسجيل مهما حدث: فشل الترحيب لا يجوز أن يمنع عميلاً من الدخول.
