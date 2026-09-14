@@ -241,6 +241,7 @@ export default function CompanySettingsPage() {
                     </button>
                   )}
                   <span className="text-[10px] text-gray-400">PNG/JPG — 600KB</span>
+                  <span className="text-[10px] text-gray-500">{tr('يظهر الشعار في رأس كل صفحات حسابك وتطبيق الإدارة وتطبيق المندوب وفي الفواتير والسندات')}</span>
                 </div>
               </div>
             </div>

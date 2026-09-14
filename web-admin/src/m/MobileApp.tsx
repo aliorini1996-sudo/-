@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, CreditCard, Users, MapPin, LogOut, Download, ClipboardCheck } from 'lucide-react';
 import { companyApi } from '../api/client';
 import { BrandIcon } from '../components/BrandLogo';
+import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
 import LanguageToggle from '../components/LanguageToggle';
 import { useAuthStore } from '../store/authStore';
@@ -226,15 +227,8 @@ export default function MobileApp() {
     <>
       {/* الشريط العلويّ */}
       <div className="bg-[#1F1A13] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
-        <span className="flex items-center gap-2 min-w-0">
-          <BrandIcon size={26} radius={0.3} />
-          <span className="min-w-0">
-            <span className="block text-sm leading-tight" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
-              <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
-            </span>
-            <span className="block text-[10px] text-[#9A8F7E] truncate">{user.companyName || user.name}</span>
-          </span>
-        </span>
+        <CompanyBrand variant="bar" logo={(company as { logo?: string | null } | null)?.logo}
+          companyName={user.companyName} fallbackSubtitle={user.companyName || user.name} />
         <div className="flex items-center gap-2.5 flex-shrink-0">
           {installEvt && (
             <button onClick={doInstall} title={tr('ثبت التطبيق')}

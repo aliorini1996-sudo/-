@@ -8,7 +8,7 @@ import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import SupportModal from '../components/SupportModal';
 import EmailVerifyBanner from '../components/EmailVerifyBanner';
-import { BrandIcon } from '../components/BrandLogo';
+import CompanyBrand from '../components/CompanyBrand';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
 
@@ -47,7 +47,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; logo?: string | null; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => {
@@ -86,17 +86,10 @@ export default function MainLayout() {
     <div className="flex flex-1 overflow-hidden bg-slate-100">
       {/* Sidebar */}
       <aside className={`${collapsed ? 'w-16' : 'w-60'} flex-shrink-0 bg-[#1F1A13] text-white flex flex-col transition-all duration-300`}>
-        {/* Logo */}
+        {/* الشعار: شعار الشركة من «إعدادات الشركة» إن رُفع، وإلا علامة Field Sales */}
         <div className={`flex items-center gap-3 px-4 py-3.5 border-b border-white/10 ${collapsed ? 'justify-center' : ''}`}>
-          <BrandIcon size={36} radius={0.28} />
-          {!collapsed && (
-            <div>
-              <p className="text-sm leading-tight" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}>
-                <span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span>
-              </p>
-              <p className="text-[#9A8F7E] text-xs truncate max-w-[150px]">{user?.companyName || ''}</p>
-            </div>
-          )}
+          <CompanyBrand variant="sidebar" logo={companyCfg?.logo} companyName={user?.companyName}
+            collapsed={collapsed} fallbackSubtitle={user?.companyName || ''} />
         </div>
 
         {/* Nav */}

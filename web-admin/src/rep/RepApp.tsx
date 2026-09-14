@@ -10,6 +10,7 @@ import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
 import { tokenTenantId } from './jwt';
 import { BrandIcon } from '../components/BrandLogo';
+import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
@@ -2739,10 +2740,7 @@ export default function RepApp() {
             <>
               {/* Top bar */}
               <div className="bg-[#1F1A13] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
-                <span className="flex items-center gap-2">
-                  <BrandIcon size={26} radius={0.3} />
-                  <span className="text-sm" style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700 }}><span className="text-[#FAF7F0]">Field</span><span className="text-[#E15A30]"> Sales</span></span>
-                </span>
+                <CompanyBrand variant="bar" logo={company?.logo} companyName={company?.name} />
                 <div className="flex items-center gap-3">
                   {/* شارة العمل دون اتصال: بانتظار الرفع / مرفوض — نقرة تفتح لوحة المراجعة */}
                   {(pending > 0 || rejected > 0) && (

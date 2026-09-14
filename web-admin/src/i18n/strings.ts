@@ -1913,6 +1913,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'إشعار وارد': { en: 'Inbound notice', fr: 'Avis de reception', tr: 'Giris bildirimi', zh: '入库通知' },
   // ——— لوحة المالك: سجل عروض الأسعار ———
   'عروض الأسعار': { en: 'Quotations', fr: 'Devis', tr: 'Fiyat teklifleri', zh: '报价单' },
+  // ——— إعدادات الشركة: موضع ظهور الشعار ———
+  'يظهر الشعار في رأس كل صفحات حسابك وتطبيق الإدارة وتطبيق المندوب وفي الفواتير والسندات': { en: 'The logo appears at the top of every page in your account, the admin app and the rep app, and on invoices and receipts', fr: 'Le logo apparait en haut de chaque page de votre compte, dans l application admin et l application commerciale, ainsi que sur les factures et recus', tr: 'Logo hesabinizin tum sayfalarinin ustunde, yonetim ve temsilci uygulamalarinda, fatura ve makbuzlarda gorunur', zh: '徽标显示在您账户每个页面顶部、管理应用和业务员应用中，以及发票和收据上' },
 };
 
 export function useTr() {
