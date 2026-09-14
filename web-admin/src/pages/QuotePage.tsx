@@ -8,7 +8,8 @@ import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
  * غير مُدرج: noindex ولا روابط إليه، ولا يستدعي أيّ API — لا بيانات تُقرأ أو تُكتب.
  *
  * يُغني عن فتح ملفّ الوورد في كل مرّة: اسم المنشأة ورقمها الموحّد والباقة ودورة
- * السداد، ثمّ PDF جاهز يُشارَك عبر قائمة الجوال (واتساب وغيره).
+ * السداد، واسم مقدّم العرض ونصٌّ إضافيّ اختياريّان، ثمّ PDF **بصفحة واحدة** جاهز
+ * يُشارَك عبر قائمة الجوال (واتساب وغيره).
  *
  * العربية هنا ثابتة لا `tr()`: المستند نفسه عربيّ بتصميمه.
  */
@@ -31,6 +32,10 @@ const INCLUDED = [
   'لوحة إدارة ويب كاملة + تطبيق لسطح المكتب (ويندوز).',
   'دعم فنّي.',
 ];
+
+/** سقف النصّ الإضافيّ — يُبقي المستند صفحةً واحدة مقروءة بلا تصغيرٍ ظاهر */
+const NOTE_MAX = 500;
+const PRESENTER_KEY = 'fs_quote_presenter';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -62,6 +67,11 @@ export default function QuotePage() {
   const [unifiedNo, setUnifiedNo] = useState('');
   const [pkgId, setPkgId] = useState<(typeof PACKAGES)[number]['id']>('pro');
   const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
+  // اسم مقدّم العرض يُتذكَّر على جهاز الموظّف فلا يُكتب في كل عرض
+  const [presenter, setPresenter] = useState(() => {
+    try { return localStorage.getItem(PRESENTER_KEY) ?? ''; } catch { return ''; }
+  });
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const docRef = useRef<HTMLDivElement>(null);
@@ -92,7 +102,8 @@ export default function QuotePage() {
     if (!ready || !docRef.current) return;
     setBusy(true); setErr('');
     try {
-      const blob = await elementToPdfBlob(docRef.current);
+      try { localStorage.setItem(PRESENTER_KEY, presenter.trim()); } catch { /* تخزينٌ محجوب */ }
+      const blob = await elementToPdfBlob(docRef.current, { singlePage: true });
       const safe = company.trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 40);
       await shareOrDownloadPdf(blob, `عرض سعر - ${safe} - ${meta.no}.pdf`);
     } catch {
@@ -123,6 +134,11 @@ export default function QuotePage() {
             <label className="block text-xs font-semibold text-[#6E6557] mb-1">الرقم الموحد</label>
             <input className="input" dir="ltr" inputMode="numeric" value={unifiedNo}
               onChange={e => setUnifiedNo(e.target.value.replace(/[^\d]/g, ''))} placeholder="7000000000" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-[#6E6557] mb-1">اسم مقدم العرض</label>
+            <input className="input" value={presenter} onChange={e => setPresenter(e.target.value)}
+              placeholder="مثال: محمد العتيبي" />
           </div>
         </section>
 
@@ -165,6 +181,14 @@ export default function QuotePage() {
           </div>
         </section>
 
+        <section className="bg-white rounded-2xl border border-[#F1EBDF] p-4">
+          <label className="block text-xs font-semibold text-[#6E6557] mb-1">نص إضافي (اختياري)</label>
+          <textarea className="input min-h-[96px] resize-y" value={note} maxLength={NOTE_MAX}
+            onChange={e => setNote(e.target.value)}
+            placeholder="مثال: خصم خاص عند الاشتراك خلال هذا الأسبوع" />
+          <p dir="ltr" className="text-[10px] text-[#9A8F7E] mt-1 text-left tabular-nums">{note.length} / {NOTE_MAX}</p>
+        </section>
+
         {err && <p className="text-center text-sm text-[#C0392B]">{err}</p>}
 
         <button type="button" onClick={issue} disabled={!ready || busy}
@@ -182,6 +206,7 @@ export default function QuotePage() {
       {/* ═══ المستند المطبوع — خارج الشاشة، يُلتقط بمقاس A4 ═══ */}
       <div style={{ position: 'fixed', left: -10000, top: 0 }} aria-hidden>
         <QuoteDocument ref={docRef} company={company.trim()} unifiedNo={unifiedNo.trim()}
+          presenter={presenter.trim()} note={note.trim()}
           pkg={pkg} yearly={yearly} figures={figures} meta={meta} />
       </div>
     </div>
@@ -207,19 +232,22 @@ const LINE = '#E9E1D3';
 interface DocProps {
   company: string;
   unifiedNo: string;
+  presenter: string;
+  note: string;
   pkg: (typeof PACKAGES)[number];
   yearly: boolean;
   figures: { total: number; net: number; vat: number };
   meta: { no: string; date: string; valid: string };
 }
 
-const QuoteDocument = forwardRef<HTMLDivElement, DocProps>(({ company, unifiedNo, pkg, yearly, figures, meta }, ref) => {
+const QuoteDocument = forwardRef<HTMLDivElement, DocProps>(({ company, unifiedNo, presenter, note, pkg, yearly, figures, meta }, ref) => {
   const th: React.CSSProperties = { background: INK, color: '#fff', padding: '10px 8px', fontSize: 12, fontWeight: 700, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '12px 8px', fontSize: 13, textAlign: 'center', borderBottom: `1px solid ${LINE}` };
   return (
     <div ref={ref} dir="rtl" style={{
-      width: 794, minHeight: 1123, background: '#fff', color: INK, padding: '48px 54px',
+      width: 794, minHeight: 1123, background: '#fff', color: INK, padding: '44px 54px 34px',
       fontFamily: "'IBM Plex Sans Arabic', 'Noto Sans Arabic', Tahoma, sans-serif", boxSizing: 'border-box',
+      display: 'flex', flexDirection: 'column',
     }}>
       {/* الترويسة */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `3px solid ${ACCENT}`, paddingBottom: 18 }}>
@@ -251,6 +279,7 @@ const QuoteDocument = forwardRef<HTMLDivElement, DocProps>(({ company, unifiedNo
           <div>رقم العرض: <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{meta.no}</b></div>
           <div>التاريخ: <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{meta.date}</b></div>
           <div>صالح حتى: <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{meta.valid}</b></div>
+          {presenter && <div>مقدّم العرض: <b>{presenter}</b></div>}
         </div>
       </div>
 
@@ -293,6 +322,13 @@ const QuoteDocument = forwardRef<HTMLDivElement, DocProps>(({ company, unifiedNo
         </p>
       )}
 
+      {note && (
+        <div style={{ marginTop: 20, background: '#FBEBE2', borderRadius: 10, padding: '12px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: ACCENT, marginBottom: 4 }}>ملاحظات</div>
+          <div style={{ fontSize: 12.5, lineHeight: 1.85, color: INK, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note}</div>
+        </div>
+      )}
+
       <Block title="ما تشمله جميع الباقات" items={INCLUDED} />
       <Block title="الشروط والأحكام" items={[
         `هذا العرض صالحٌ لمدّة ${VALID_DAYS} أيام من تاريخه.`,
@@ -303,7 +339,7 @@ const QuoteDocument = forwardRef<HTMLDivElement, DocProps>(({ company, unifiedNo
         'الدفع عبر تحويل بنكيّ؛ تُرسَل تفاصيل الحساب عند تأكيد الطلب.',
       ]} />
 
-      <div style={{ marginTop: 40, borderTop: `1px solid ${LINE}`, paddingTop: 12, textAlign: 'center', fontSize: 12, color: MUTED, direction: 'ltr' }}>
+      <div style={{ marginTop: 'auto', borderTop: `1px solid ${LINE}`, paddingTop: 12, textAlign: 'center', fontSize: 12, color: MUTED, direction: 'ltr' }}>
         Field Sales · fieldsa.net · help@fieldsa.net
       </div>
     </div>
@@ -313,12 +349,12 @@ QuoteDocument.displayName = 'QuoteDocument';
 
 function Block({ title, items }: { title: string; items: string[] }) {
   return (
-    <div style={{ marginTop: 26 }}>
+    <div style={{ marginTop: 22 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: INK, borderRight: `4px solid ${ACCENT}`, paddingRight: 10, marginBottom: 10 }}>
         {title}
       </div>
       {items.map((t, i) => (
-        <div key={i} style={{ fontSize: 12.5, lineHeight: 1.9, color: INK, display: 'flex', gap: 8 }}>
+        <div key={i} style={{ fontSize: 12.5, lineHeight: 1.8, color: INK, display: 'flex', gap: 8 }}>
           <span style={{ color: ACCENT }}>•</span><span>{t}</span>
         </div>
       ))}

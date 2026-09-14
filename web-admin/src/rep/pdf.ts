@@ -21,7 +21,9 @@ async function waitForImages(el: HTMLElement, timeout = 4000): Promise<void> {
 }
 
 // يحوّل عنصر DOM إلى PDF بصيغة Blob (صفحة A4، يدعم تعدد الصفحات)
-export async function elementToPdfBlob(el: HTMLElement): Promise<Blob> {
+// `singlePage`: يُصغَّر الالتقاط ليسع صفحة واحدة دائماً — عنصرٌ بمقاس 794×1123px أطول من
+// نسبة A4 بجزءٍ من النقطة، فكان يُنتج صفحةً ثانية فارغة تقريباً
+export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: boolean }): Promise<Blob> {
   await waitForImages(el);
   const canvas = await html2canvas(el, {
     scale: 2,
@@ -33,6 +35,15 @@ export async function elementToPdfBlob(el: HTMLElement): Promise<Blob> {
   const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
+
+  if (opts?.singlePage) {
+    const fit = Math.min(pageW / canvas.width, pageH / canvas.height);
+    const w = canvas.width * fit;
+    const h = canvas.height * fit;
+    pdf.addImage(imgData, 'JPEG', (pageW - w) / 2, 0, w, h);
+    return pdf.output('blob');
+  }
+
   const imgW = pageW;
   const imgH = (canvas.height * imgW) / canvas.width;
 
