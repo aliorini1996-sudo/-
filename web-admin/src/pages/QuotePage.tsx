@@ -1,15 +1,16 @@
-import { forwardRef, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import { FileDown, Loader2, Share2 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 
 /**
- * مُصدِر عروض الأسعار السريع — `/qt`، للمالك وحده (خلف SuperAdminRoute).
+ * مُصدِر عروض الأسعار السريع — رابطٌ خاصّ `/q-fs7k2m` بلا دخول، للمالك وموظّفي المبيعات.
+ * غير مُدرج: noindex ولا روابط إليه، ولا يستدعي أيّ API — لا بيانات تُقرأ أو تُكتب.
  *
  * يُغني عن فتح ملفّ الوورد في كل مرّة: اسم المنشأة ورقمها الموحّد والباقة ودورة
  * السداد، ثمّ PDF جاهز يُشارَك عبر قائمة الجوال (واتساب وغيره).
  *
- * العربية هنا ثابتة لا `tr()`: المستند نفسه عربيّ بتصميمه، والصفحة للمالك وحده.
+ * العربية هنا ثابتة لا `tr()`: المستند نفسه عربيّ بتصميمه.
  */
 
 /** الأسعار المعتمدة — **شاملة الضريبة** (المنشأة مسجّلة في ضريبة القيمة المضافة) */
@@ -37,6 +38,26 @@ const dmy = (d: Date) =>
   `${String(d.getDate()).padStart(2, '0')} / ${String(d.getMonth() + 1).padStart(2, '0')} / ${d.getFullYear()}`;
 
 export default function QuotePage() {
+  // رابطٌ خاصّ: لا فهرسة، ويُستعاد وسم robots والعنوان عند المغادرة
+  useEffect(() => {
+    const prevTitle = document.title;
+    let meta = document.head.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    const created = !meta;
+    const prevRobots = meta?.getAttribute('content') ?? null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'robots');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', 'noindex, nofollow');
+    document.title = 'عرض سعر — Field Sales';
+    return () => {
+      document.title = prevTitle;
+      if (created) meta?.remove();
+      else if (prevRobots !== null) meta?.setAttribute('content', prevRobots);
+    };
+  }, []);
+
   const [company, setCompany] = useState('');
   const [unifiedNo, setUnifiedNo] = useState('');
   const [pkgId, setPkgId] = useState<(typeof PACKAGES)[number]['id']>('pro');

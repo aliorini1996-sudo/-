@@ -49,7 +49,7 @@ const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
-// مُصدِر عروض الأسعار السريع — رابطٌ غير مُدرج للمالك وحده
+// مُصدِر عروض الأسعار السريع — رابطٌ خاصّ غير مُدرج للمالك وموظّفي المبيعات
 const QuotePage = lazy(() => import('./pages/QuotePage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
 const TutorialPage = lazy(() => import('./pages/TutorialPage'));
@@ -172,6 +172,9 @@ export default function App() {
         <Route path="/m" element={<MobileRoute><MobileApp /></MobileRoute>} />
         <Route path="/hx" element={<HunterApp />} />
         <Route path="/ax" element={<AffiliateApp />} />
+        {/* مُصدِر عروض الأسعار — رابطٌ خاصّ بلا دخول للمالك وموظّفي المبيعات (noindex، لا روابط إليه).
+            لا يستدعي أيّ API: كل ما فيه يُحسب ويُطبع على جهاز المستخدم */}
+        <Route path="/q-fs7k2m" element={<QuotePage />} />
         <Route path="/hookb" element={<HookBLandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/owner" element={<OwnerLoginPage />} />
@@ -255,7 +258,6 @@ export default function App() {
         <Route path="/fr/blog" element={<BlogIndexPage />} />
         <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
-        <Route path="/qt" element={<SuperAdminRoute><QuotePage /></SuperAdminRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
           <ProtectedRoute>
