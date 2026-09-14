@@ -49,6 +49,8 @@ const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
+// مُصدِر عروض الأسعار السريع — رابطٌ غير مُدرج للمالك وحده
+const QuotePage = lazy(() => import('./pages/QuotePage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
 const TutorialPage = lazy(() => import('./pages/TutorialPage'));
 const RepAppPage = lazy(() => import('./pages/RepAppPage'));
@@ -253,6 +255,7 @@ export default function App() {
         <Route path="/fr/blog" element={<BlogIndexPage />} />
         <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
+        <Route path="/qt" element={<SuperAdminRoute><QuotePage /></SuperAdminRoute>} />
         {/* لوحة الأدمن على /app */}
         <Route path="/app" element={
           <ProtectedRoute>
