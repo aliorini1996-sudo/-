@@ -792,10 +792,10 @@ function applyPriceSuffix(html: string, billing: Billing, currency: Currency): s
 }
 
 const segPill = (active: boolean) =>
-  `padding:8px 22px; border:none; border-radius:9px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s;` +
+  `flex:1; padding:8px 18px; border:none; white-space:nowrap; border-radius:9px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s;` +
   (active ? 'background:#E15A30; color:#fff; box-shadow:0 1px 4px rgba(225,90,48,.35);' : 'background:transparent; color:#6E6557;');
 const segWrap = (inner: string) =>
-  `<div style="display:inline-flex; align-items:center; gap:4px; background:#F3EDE3; border:1.5px solid #DED5C4; border-radius:13px; padding:4px;">${inner}</div>`;
+  `<div style="display:flex; align-items:center; gap:4px; width:100%; background:#F3EDE3; border:1.5px solid #DED5C4; border-radius:13px; padding:4px; box-sizing:border-box;">${inner}</div>`;
 
 // مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين
 function currencyToggle(currency: Currency, lang: Lang): string {
@@ -804,22 +804,19 @@ function currencyToggle(currency: Currency, lang: Lang): string {
   return segWrap(`<button type="button" aria-label="SAR" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('sar')" style="${segPill(currency === 'sar')}">${sarLabel}</button><button type="button" aria-label="USD" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('usd')" style="${segPill(currency === 'usd')}">${usdLabel}</button>`);
 }
 
-// مبدّل الدورة (شهري ⇄ سنوي) — شارة «شهران مجاناً» على السنويّ متى كان التوفير أشهراً صحيحة
-function billingToggle(billing: Billing, lang: Lang, freeMonths: number | null): string {
+// مبدّل الدورة (شهري ⇄ سنوي) — التوفير يُذكر تحت كل سعر لا على الزرّ (قرار المالك)
+function billingToggle(billing: Billing, lang: Lang): string {
   const labels = {
     ar: ['شهري', 'سنوي'], en: ['Monthly', 'Yearly'], fr: ['Mensuel', 'Annuel'], tr: ['Aylık', 'Yıllık'], zh: ['按月', '按年'],
   }[lang];
-  const badge = freeMonths
-    ? `<span style="font-size:11px; font-weight:700; background:#2F7A4B; color:#fff; border-radius:6px; padding:2px 7px; margin-inline-start:8px; vertical-align:middle;">${freeMonthsText(freeMonths, lang)}</span>`
-    : '';
-  return segWrap(`<button type="button" aria-label="Monthly" onclick="window.__fsSetBilling&&window.__fsSetBilling('monthly')" style="${segPill(billing === 'monthly')}">${labels[0]}</button><button type="button" aria-label="Yearly" onclick="window.__fsSetBilling&&window.__fsSetBilling('yearly')" style="${segPill(billing === 'yearly')}">${labels[1]}${badge}</button>`);
+  return segWrap(`<button type="button" aria-label="Monthly" onclick="window.__fsSetBilling&&window.__fsSetBilling('monthly')" style="${segPill(billing === 'monthly')}">${labels[0]}</button><button type="button" aria-label="Yearly" onclick="window.__fsSetBilling&&window.__fsSetBilling('yearly')" style="${segPill(billing === 'yearly')}">${labels[1]}</button>`);
 }
 
-// يحقن مبدّلَي الدورة والعملة قبل شبكة بطاقات الباقات مباشرةً (المُحدِّد فريد في القالب)
-function injectPricingToggles(html: string, billing: Billing, currency: Currency, lang: Lang, freeMonths: number | null): string {
+// يحقن مبدّلَي الدورة والعملة **فوق بعضهما** بعرضٍ واحد قبل شبكة بطاقات الباقات (المُحدِّد فريد في القالب)
+function injectPricingToggles(html: string, billing: Billing, currency: Currency, lang: Lang): string {
   const anchor = '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:stretch;">';
-  const row = `<div style="display:flex; justify-content:center; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:30px;">${billingToggle(billing, lang, freeMonths)}${currencyToggle(currency, lang)}</div>`;
-  return html.replace(anchor, `${row}${anchor}`);
+  const stack = `<div style="display:flex; flex-direction:column; align-items:stretch; gap:10px; width:260px; max-width:100%; margin:0 auto 30px;">${billingToggle(billing, lang)}${currencyToggle(currency, lang)}</div>`;
+  return html.replace(anchor, `${stack}${anchor}`);
 }
 
 function mergeContent<T>(base: T, saved: unknown): T {
@@ -1004,7 +1001,6 @@ export default function LandingPage() {
   const socialLinks = (arContent.social as Record<string, string>) || {};
   const arPlans = ((arContent.pricing as { plans?: Array<Record<string, unknown>> } | undefined)?.plans) || [];
   const TEMPLATE = pricingTemplate(!!arPlans[2] && planCycle(arPlans[2]) != null);
-  const freeMonths = arPlans[0] ? planCycle(arPlans[0])?.freeMonths ?? null : null;
   // الدورة ثم العملة: السعر السنويّ يُحوَّل إلى الدولار كالشهريّ
   const priced = (c: Record<string, unknown>, l: Lang) => applyCurrency(applyBilling(c, billing, l, currency), currency);
   let html: string;
@@ -1039,7 +1035,7 @@ export default function LandingPage() {
 
   // مبدّلا الدورة والعملة داخل قسم الأسعار + لاحقة السعر حسب الدورة والعملة (اللاحقة ثابتة في القالب)
   html = applyPriceSuffix(html, billing, currency);
-  html = injectPricingToggles(html, billing, currency, lang, freeMonths);
+  html = injectPricingToggles(html, billing, currency, lang);
 
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
