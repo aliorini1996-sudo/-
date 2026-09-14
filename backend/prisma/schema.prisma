@@ -2393,3 +2393,33 @@ model AffiliateClickDaily {
   @@id([code, day])
   @@map("affiliate_click_daily")
 }
+
+// عرض سعر صادر من الرابط الخاص /q-fs7k2m (المالك وموظّفو المبيعات بلا حسابات) —
+// لقطةٌ كاملة لما طُبع في الملف ليُعرض للمالك كما رآه العميل ولو تغيّرت الأسعار لاحقاً.
+// الباقة والمبالغ والصلاحية من كتالوج الخادم لا من المتصفّح (services/quotes.ts).
+model IssuedQuote {
+  id             String   @id @default(uuid())
+  seq            Int      @unique @default(autoincrement()) // رقم العرض المعروض: FS-QT-السنة-0001
+  quoteNo        String?  @unique // الرقم المطبوع حين أُصدر العرض بلا اتصال؛ وإلا يُشتقّ من seq
+  clientRef      String   @unique // معرّف الإصدار من الجوال — إعادة الإرسال لا تكرّر العرض
+  offline        Boolean  @default(false) // صدر برقمٍ مؤقّت ولحظةٍ من الجوال (بلا تسجيلٍ لحظتها)
+  company        String
+  unifiedNo      String
+  packageId      String
+  packageName    String
+  packageLimit   String   @default("")
+  monthlyHalalas Int // سعر الباقة الشهريّ الشامل ساعة الإصدار
+  yearlyHalalas  Int // سعر السنة المعتمد الشامل ساعة الإصدار (يظهر في الملف مقارنةً أو سعراً)
+  cycle          String // monthly | yearly
+  totalHalalas   Int
+  netHalalas     Int
+  vatHalalas     Int
+  presenter      String?
+  note           String?
+  validDays      Int
+  issuedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([issuedAt])
+  @@map("issued_quotes")
+}

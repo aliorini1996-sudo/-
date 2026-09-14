@@ -1,46 +1,92 @@
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
-import { FileDown, Loader2, Share2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
+import { AlertTriangle, CheckCircle2, CloudUpload, FileDown, Loader2, Share2 } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
 import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
+import { quotesApi, type QuoteIssuePayload } from '../api/client';
+import {
+  NOTE_MAX, PACKAGES, PackageId, QuoteDocument, VALID_DAYS, docMeta, localQuoteNo, money, quoteFigures,
+} from '../quote/quoteDoc';
 
 /**
  * مُصدِر عروض الأسعار السريع — رابطٌ خاصّ `/q-fs7k2m` بلا دخول، للمالك وموظّفي المبيعات.
- * غير مُدرج: noindex ولا روابط إليه، ولا يستدعي أيّ API — لا بيانات تُقرأ أو تُكتب.
+ * غير مُدرج: noindex ولا روابط إليه.
  *
  * يُغني عن فتح ملفّ الوورد في كل مرّة: اسم المنشأة ورقمها الموحّد والباقة ودورة
  * السداد، واسم مقدّم العرض ونصٌّ إضافيّ اختياريّان، ثمّ PDF **بصفحة واحدة** جاهز
  * يُشارَك عبر قائمة الجوال (واتساب وغيره).
  *
- * العربية هنا ثابتة لا `tr()`: المستند نفسه عربيّ بتصميمه.
+ * كل إصدارٍ **يُسجَّل** في سجلّ المالك (لوحة المالك ← عروض الأسعار) ويأخذ رقمه
+ * التسلسليّ من الخادم. وإن تعذّر التسجيل لا يتعطّل الموظّف أمام العميل: يُصدَر الملف
+ * برقمٍ مؤقّت ويُحفظ في طابور الجوال ليُسجَّل تلقائياً.
  */
 
-/** الأسعار المعتمدة — **شاملة الضريبة** (المنشأة مسجّلة في ضريبة القيمة المضافة) */
-const PACKAGES = [
-  { id: 'starter', name: 'المبتدئة', total: 299, limit: 'حتى ٥ مناديب ومستخدم إداري واحد' },
-  { id: 'growth', name: 'المتوسطة', total: 399, limit: 'حتى ١٠ مناديب ومستخدمَين إداريَّين' },
-  { id: 'pro', name: 'المتقدمة', total: 599, limit: 'حتى ٢٠ مندوباً و٥ مستخدمين إداريين', badge: 'الأكثر طلباً' },
-] as const;
-
-const VAT = 0.15;
-/** صلاحية العرض بالأيام — كما في نصّ الشروط بملفّ الوورد */
-const VALID_DAYS = 10;
-
-const INCLUDED = [
-  'تطبيق مندوب ميدانيّ (أندرويد / iOS / ويب).',
-  'التتبّع المباشر (GPS) وتسجيل الزيارات الميدانية على الخريطة.',
-  'تقارير شاملة: أداء المناديب، مديونيات العملاء، ساعات العمل، والمبيعات.',
-  'لوحة إدارة ويب كاملة + تطبيق لسطح المكتب (ويندوز).',
-  'دعم فنّي.',
-];
-
-/** سقف النصّ الإضافيّ — يُبقي المستند صفحةً واحدة مقروءة بلا تصغيرٍ ظاهر */
-const NOTE_MAX = 500;
 const PRESENTER_KEY = 'fs_quote_presenter';
+const PENDING_KEY = 'fs_quote_pending';
+/** نافذة «تفعيل المستخدم» لقائمة المشاركة ~٥ث بعد اللمسة — بعدها تُرفض المشاركة الآلية */
+const SHARE_GESTURE_MS = 4000;
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
-const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const dmy = (d: Date) =>
-  `${String(d.getDate()).padStart(2, '0')} / ${String(d.getMonth() + 1).padStart(2, '0')} / ${d.getFullYear()}`;
+type Pending = QuoteIssuePayload & { localNo: string; issuedAt: string };
+
+const readPending = (): Pending[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+};
+const writePending = (list: Pending[]) => {
+  try {
+    // سقفٌ واقٍ من امتلاء التخزين لا حدٌّ عمليّ (العرض الواحد أقلّ من ١ك.ب)
+    if (list.length) localStorage.setItem(PENDING_KEY, JSON.stringify(list.slice(-500)));
+    else localStorage.removeItem(PENDING_KEY);
+  } catch { /* تخزينٌ محجوب — يبقى الملف صادراً وإن فات التسجيل */ }
+};
+
+const statusOf = (e: unknown) => (e as { response?: { status?: number } })?.response?.status;
+/**
+ * رفضٌ نهائيّ للبيانات نفسها — لا فائدة من إعادة المحاولة. وما عداه (الشبكة، 429، 5xx،
+ * و404 حين تسبق الواجهةُ الخادمَ في النشر) مؤقّتٌ: يُصدَر الملف ويبقى العرض في الطابور.
+ */
+const isFinalReject = (s: number | undefined) => s === 400 || s === 413 || s === 422;
+
+let flushing: Promise<void> | null = null;
+let rerun = false;
+/**
+ * يرفع طابور العروض غير المسجَّلة — تشغيلٌ واحدٌ في آن، ونداءٌ أثناءه يُعيد الدورة بعده
+ * (لا يُهمَل). انقطاع الشبكة يوقف الدورة؛ ورفض الخادم لعرضٍ بعينه لا يحجز ما بعده.
+ */
+function flushPending(): Promise<void> {
+  if (flushing) { rerun = true; return flushing; }
+  flushing = (async () => {
+    do {
+      rerun = false;
+      const done = new Set<string>();
+      for (const p of readPending()) {
+        try { await quotesApi.issue(p); done.add(p.clientRef); } catch (e) {
+          const s = statusOf(e);
+          if (isFinalReject(s)) done.add(p.clientRef);
+          else if (!s) break; // لا اتصال — المحاولة التالية لاحقاً
+        }
+      }
+      if (done.size) writePending(readPending().filter(p => !done.has(p.clientRef)));
+    } while (rerun);
+  })().finally(() => { flushing = null; });
+  return flushing;
+}
+
+const newRef = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+
+const oneLine = (s: string) => s.trim().replace(/\s+/g, ' ');
+
+/** لقطة محتوى العرض — تُجمَّد لحظة اللمس فيُطبع ويُسجَّل الشيء نفسه ولو تغيّرت الحقول بعدها */
+interface Snap { company: string; unifiedNo: string; pkgId: PackageId; cycle: 'monthly' | 'yearly'; presenter: string; note: string }
+interface Issued { key: string; no: string; issuedAt: string; recorded: boolean; reason?: 'offline' | 'server' }
 
 export default function QuotePage() {
   // رابطٌ خاصّ: لا فهرسة، ويُستعاد وسم robots والعنوان عند المغادرة
@@ -63,54 +109,124 @@ export default function QuotePage() {
     };
   }, []);
 
+  const [pendingCount, setPendingCount] = useState(() => readPending().length);
+  const syncQueue = () => { void flushPending().then(() => setPendingCount(readPending().length)); };
+
+  /* الطابور يُرفع عند فتح الصفحة، وعودة الاتصال، والرجوع إليها، وكل دقيقة ما دام فيه شيء —
+   * لا يكفي حدث «online»: رفض الخادم المؤقّت (نشرٌ جارٍ، 429، 5xx) لا يطلقه أبداً */
+  useEffect(() => {
+    syncQueue();
+    const onVisible = () => { if (document.visibilityState === 'visible') syncQueue(); };
+    window.addEventListener('online', syncQueue);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(() => { if (readPending().length) syncQueue(); }, 60_000);
+    return () => {
+      window.removeEventListener('online', syncQueue);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [company, setCompany] = useState('');
   const [unifiedNo, setUnifiedNo] = useState('');
-  const [pkgId, setPkgId] = useState<(typeof PACKAGES)[number]['id']>('pro');
+  const [pkgId, setPkgId] = useState<PackageId>('pro');
   const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
-  // اسم مقدّم العرض يُتذكَّر على جهاز الموظّف فلا يُكتب في كل عرض
+  // اسم مقدّم العرض يُتذكَّر على جهاز الموظّف فلا يُكتب في كل عرض (بسقف الخادم)
   const [presenter, setPresenter] = useState(() => {
-    try { return localStorage.getItem(PRESENTER_KEY) ?? ''; } catch { return ''; }
+    try { return (localStorage.getItem(PRESENTER_KEY) ?? '').slice(0, 80); } catch { return ''; }
   });
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [issued, setIssued] = useState<Issued | null>(null);
+  const [snap, setSnap] = useState<Snap | null>(null);
+  const [meta, setMeta] = useState(() => docMeta('—', new Date(), VALID_DAYS));
+  const [share, setShare] = useState<{ key: string; blob: Blob; filename: string } | null>(null);
   const docRef = useRef<HTMLDivElement>(null);
+
+  const live: Snap = {
+    company: oneLine(company), unifiedNo: unifiedNo.trim(), pkgId, cycle, presenter: oneLine(presenter), note: note.trim(),
+  };
+  const key = JSON.stringify(live);
+  const current = issued && issued.key === key ? issued : null;
+  const readyShare = share && share.key === key ? share : null;
 
   const pkg = PACKAGES.find(p => p.id === pkgId)!;
   const yearly = cycle === 'yearly';
+  const figures = quoteFigures(yearly ? pkg.yearly : pkg.total);
 
-  /* الضريبة **تُستخرَج من السعر لا تُضاف إليه**: ٢٩٩ شاملةٌ أصلاً. والسنويّ يُحسب
-   * على إجماليّ الاثني عشر شهراً مباشرةً لا بضرب صافي الشهر، فلا ينحرف فلسٌ بالتقريب. */
-  const figures = useMemo(() => {
-    const total = yearly ? pkg.total * 12 : pkg.total;
-    const net = r2(total / (1 + VAT));
-    return { total, net, vat: r2(total - net) };
-  }, [pkg, yearly]);
+  const ready = live.company.length > 1 && /^\d{5,20}$/.test(live.unifiedNo);
 
-  // رقم العرض وتاريخاه يُثبَّتان لحظة فتح الصفحة، فلا يتغيّر الرقم بين المعاينة والملفّ
-  const meta = useMemo(() => {
-    const now = new Date();
-    const valid = new Date(now.getTime() + VALID_DAYS * 86400000);
-    const p = (n: number) => String(n).padStart(2, '0');
-    const no = `FS-QT-${now.getFullYear()}-${p(now.getMonth() + 1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}`;
-    return { no, date: dmy(now), valid: dmy(valid) };
-  }, []);
+  // المستند المطبوع من اللقطة المجمّدة أثناء الإصدار، ومن الحقول الحيّة خارجه
+  const view = snap ?? live;
+  const vPkg = PACKAGES.find(p => p.id === view.pkgId)!;
+  const vYearly = view.cycle === 'yearly';
 
-  const ready = company.trim().length > 1 && /^\d{5,}$/.test(unifiedNo.trim());
+  /** يسجّل العرض ويُرجع رقمه — أو رقماً مؤقّتاً في الطابور حين يتعذّر التسجيل */
+  const record = async (s: Snap, k: string): Promise<Issued | null> => {
+    const payload: QuoteIssuePayload = {
+      clientRef: newRef(),
+      company: s.company,
+      unifiedNo: s.unifiedNo,
+      packageId: s.pkgId,
+      cycle: s.cycle,
+      presenter: s.presenter || undefined,
+      note: s.note || undefined,
+    };
+    try {
+      const res = await quotesApi.issue(payload);
+      const d = res.data.data as { quoteNo: string; issuedAt: string };
+      syncQueue(); // الخادم متاح — فرصةٌ لرفع ما تعلّق قبله
+      return { key: k, no: d.quoteNo, issuedAt: d.issuedAt, recorded: true };
+    } catch (e) {
+      const s2 = statusOf(e);
+      if (isFinalReject(s2)) {
+        const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+        setErr(msg || 'تعذر تسجيل العرض راجع البيانات');
+        return null;
+      }
+      const at = new Date();
+      const localNo = localQuoteNo(at);
+      writePending([...readPending(), { ...payload, localNo, issuedAt: at.toISOString() }]);
+      setPendingCount(readPending().length);
+      return { key: k, no: localNo, issuedAt: at.toISOString(), recorded: false, reason: s2 ? 'server' : 'offline' };
+    }
+  };
 
   const issue = async () => {
-    if (!ready || !docRef.current) return;
-    setBusy(true); setErr('');
+    if (!ready || !docRef.current || busy) return;
+    const t0 = performance.now();
+    const s = live;
+    const k = key;
+    setBusy(true); setErr(''); setShare(null);
     try {
-      try { localStorage.setItem(PRESENTER_KEY, presenter.trim()); } catch { /* تخزينٌ محجوب */ }
+      try { localStorage.setItem(PRESENTER_KEY, s.presenter); } catch { /* تخزينٌ محجوب */ }
+      const q = current ?? await record(s, k);
+      if (!q) return;
+      setIssued(q);
+      // اللقطة والرقم والتاريخ تُرسم في المستند **قبل** الالتقاط لا بعده
+      flushSync(() => { setSnap(s); setMeta(docMeta(q.no, new Date(q.issuedAt), VALID_DAYS)); });
       const blob = await elementToPdfBlob(docRef.current, { singlePage: true });
-      const safe = company.trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 40);
-      await shareOrDownloadPdf(blob, `عرض سعر - ${safe} - ${meta.no}.pdf`);
+      const safe = s.company.replace(/[\\/:*?"<>|]/g, '').slice(0, 40);
+      const filename = `عرض سعر - ${safe} - ${q.no}.pdf`;
+      /* شبكةٌ بطيئة + التقاطٌ على جوالٍ متوسّط قد يستهلكان نافذة اللمسة، فتُرفض قائمة
+       * المشاركة وينزل الملف صامتاً في التنزيلات. حينها يُعرض زرّ مشاركةٍ بلمسةٍ جديدة. */
+      if (performance.now() - t0 > SHARE_GESTURE_MS) setShare({ key: k, blob, filename });
+      else await shareOrDownloadPdf(blob, filename);
     } catch {
       setErr('تعذر إصدار الملف حاول مجددا');
     } finally {
+      setSnap(null);
       setBusy(false);
     }
+  };
+
+  const shareNow = async () => {
+    if (!readyShare) return;
+    const { blob, filename } = readyShare;
+    setShare(null);
+    await shareOrDownloadPdf(blob, filename).catch(() => setErr('تعذر مشاركة الملف حاول مجددا'));
   };
 
   return (
@@ -119,95 +235,133 @@ export default function QuotePage() {
         <BrandIcon size={30} radius={0.3} />
         <div>
           <p className="text-sm font-bold leading-tight">عرض سعر سريع</p>
-          <p className="text-[11px] text-[#9A8F7E]">{meta.no}</p>
+          <p className="text-[11px] text-[#9A8F7E]" dir={current ? 'ltr' : undefined}>
+            {current ? current.no : 'يُرقَّم العرض عند إصداره'}
+          </p>
         </div>
       </header>
 
       <main className="max-w-md mx-auto p-4 space-y-4">
-        <section className="bg-white rounded-2xl border border-[#F1EBDF] p-4 space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-[#6E6557] mb-1">اسم المنشأة</label>
-            <input className="input" value={company} onChange={e => setCompany(e.target.value)}
-              placeholder="مثال: شركة الأمل للتجارة" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-[#6E6557] mb-1">الرقم الموحد</label>
-            <input className="input" dir="ltr" inputMode="numeric" value={unifiedNo}
-              onChange={e => setUnifiedNo(e.target.value.replace(/[^\d]/g, ''))} placeholder="7000000000" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-[#6E6557] mb-1">اسم مقدم العرض</label>
-            <input className="input" value={presenter} onChange={e => setPresenter(e.target.value)}
-              placeholder="مثال: محمد العتيبي" />
-          </div>
-        </section>
+        {/* الحقول تُقفل أثناء الإصدار: ما يُطبع ويُسجَّل هو ما كان لحظة اللمس */}
+        <fieldset disabled={busy} className="space-y-4 min-w-0 border-0 p-0 m-0 disabled:opacity-70">
+          <section className="bg-white rounded-2xl border border-[#F1EBDF] p-4 space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-[#6E6557] mb-1">اسم المنشأة</label>
+              <input className="input" value={company} maxLength={200} onChange={e => setCompany(e.target.value)}
+                placeholder="مثال: شركة الأمل للتجارة" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[#6E6557] mb-1">الرقم الموحد</label>
+              <input className="input" dir="ltr" inputMode="numeric" value={unifiedNo} maxLength={20}
+                onChange={e => setUnifiedNo(e.target.value.replace(/[^\d]/g, ''))} placeholder="7000000000" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[#6E6557] mb-1">اسم مقدم العرض</label>
+              <input className="input" value={presenter} maxLength={80} onChange={e => setPresenter(e.target.value)}
+                placeholder="مثال: محمد العتيبي" />
+            </div>
+          </section>
 
-        <section className="space-y-2">
-          <p className="text-xs font-bold text-[#9A8F7E] px-1">الباقة</p>
-          {PACKAGES.map(p => (
-            <button key={p.id} type="button" onClick={() => setPkgId(p.id)}
-              className={`w-full text-start rounded-2xl border p-3.5 flex items-center justify-between gap-3 transition-colors ${
-                pkgId === p.id ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#F1EBDF] bg-white'}`}>
-              <span className="min-w-0">
-                <span className="block font-bold">{p.name}</span>
-                <span className="block text-[11px] text-[#9A8F7E]">{p.limit}</span>
-              </span>
-              <span className="text-left flex-shrink-0">
-                <span className="block font-bold tabular-nums">{p.total} ر.س</span>
-                <span className="block text-[10px] text-[#9A8F7E]">شهرياً شامل الضريبة</span>
-              </span>
-            </button>
-          ))}
-        </section>
+          <section className="space-y-2">
+            <p className="text-xs font-bold text-[#9A8F7E] px-1">دورة السداد</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['monthly', 'yearly'] as const).map(c => (
+                <button key={c} type="button" onClick={() => setCycle(c)}
+                  className={`rounded-xl border py-3 font-semibold ${
+                    cycle === c ? 'border-[#E15A30] bg-[#E15A30] text-white' : 'border-[#F1EBDF] bg-white'}`}>
+                  {c === 'monthly' ? 'شهرية' : 'سنوية — شهران مجاناً'}
+                </button>
+              ))}
+            </div>
+          </section>
 
-        <section className="space-y-2">
-          <p className="text-xs font-bold text-[#9A8F7E] px-1">دورة السداد</p>
-          <div className="grid grid-cols-2 gap-2">
-            {(['monthly', 'yearly'] as const).map(c => (
-              <button key={c} type="button" onClick={() => setCycle(c)}
-                className={`rounded-xl border py-3 font-semibold ${
-                  cycle === c ? 'border-[#E15A30] bg-[#E15A30] text-white' : 'border-[#F1EBDF] bg-white'}`}>
-                {c === 'monthly' ? 'شهرية' : 'سنوية'}
+          <section className="space-y-2">
+            <p className="text-xs font-bold text-[#9A8F7E] px-1">الباقة</p>
+            {PACKAGES.map(p => (
+              <button key={p.id} type="button" onClick={() => setPkgId(p.id)}
+                className={`w-full text-start rounded-2xl border p-3.5 flex items-center justify-between gap-3 transition-colors ${
+                  pkgId === p.id ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#F1EBDF] bg-white'}`}>
+                <span className="min-w-0">
+                  <span className="block font-bold">{p.name}</span>
+                  <span className="block text-[11px] text-[#9A8F7E]">{p.limit}</span>
+                </span>
+                <span className="text-left flex-shrink-0">
+                  <span className="block font-bold tabular-nums">{yearly ? p.yearly : p.total} ر.س</span>
+                  <span className="block text-[10px] text-[#9A8F7E]">
+                    {yearly
+                      ? <>سنوياً بدل <span className="line-through tabular-nums">{p.total * 12}</span></>
+                      : 'شهرياً شامل الضريبة'}
+                  </span>
+                </span>
               </button>
             ))}
-          </div>
-        </section>
+          </section>
 
-        <section className="bg-white rounded-2xl border border-[#F1EBDF] p-4 text-sm space-y-1.5 tabular-nums">
-          <Row label={yearly ? 'السعر السنوي قبل الضريبة' : 'السعر الشهري قبل الضريبة'} value={`${money(figures.net)} ر.س`} />
-          <Row label="ضريبة القيمة المضافة ١٥٪" value={`${money(figures.vat)} ر.س`} />
-          <div className="border-t border-[#F1EBDF] pt-1.5">
-            <Row strong label={yearly ? 'الإجمالي السنوي' : 'الإجمالي الشهري'} value={`${money(figures.total)} ر.س`} />
-          </div>
-        </section>
+          <section className="bg-white rounded-2xl border border-[#F1EBDF] p-4 text-sm space-y-1.5 tabular-nums">
+            <Row label={yearly ? 'السعر السنوي قبل الضريبة' : 'السعر الشهري قبل الضريبة'} value={`${money(figures.net)} ر.س`} />
+            <Row label="ضريبة القيمة المضافة ١٥٪" value={`${money(figures.vat)} ر.س`} />
+            <div className="border-t border-[#F1EBDF] pt-1.5">
+              <Row strong label={yearly ? 'الإجمالي السنوي' : 'الإجمالي الشهري'} value={`${money(figures.total)} ر.س`} />
+            </div>
+            {yearly && (
+              <p className="text-[11px] text-[#2F7A4B] pt-1">
+                توفير {money(pkg.total * 12 - pkg.yearly)} ر.س مقارنة بالسداد الشهري ({pkg.total} × ١٢)
+              </p>
+            )}
+          </section>
 
-        <section className="bg-white rounded-2xl border border-[#F1EBDF] p-4">
-          <label className="block text-xs font-semibold text-[#6E6557] mb-1">نص إضافي (اختياري)</label>
-          <textarea className="input min-h-[96px] resize-y" value={note} maxLength={NOTE_MAX}
-            onChange={e => setNote(e.target.value)}
-            placeholder="مثال: خصم خاص عند الاشتراك خلال هذا الأسبوع" />
-          <p dir="ltr" className="text-[10px] text-[#9A8F7E] mt-1 text-left tabular-nums">{note.length} / {NOTE_MAX}</p>
-        </section>
+          <section className="bg-white rounded-2xl border border-[#F1EBDF] p-4">
+            <label className="block text-xs font-semibold text-[#6E6557] mb-1">نص إضافي (اختياري)</label>
+            <textarea className="input min-h-[96px] resize-y" value={note} maxLength={NOTE_MAX}
+              onChange={e => setNote(e.target.value)}
+              placeholder="مثال: خصم خاص عند الاشتراك خلال هذا الأسبوع" />
+            <p dir="ltr" className="text-[10px] text-[#9A8F7E] mt-1 text-left tabular-nums">{note.length} / {NOTE_MAX}</p>
+          </section>
+        </fieldset>
 
         {err && <p className="text-center text-sm text-[#C0392B]">{err}</p>}
 
-        <button type="button" onClick={issue} disabled={!ready || busy}
-          className="w-full bg-[#E15A30] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
-          {busy ? <Loader2 size={18} className="animate-spin" /> : <Share2 size={18} />}
-          إصدار العرض ومشاركته
-        </button>
+        {readyShare ? (
+          <button type="button" onClick={shareNow}
+            className="w-full bg-[#2F7A4B] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2">
+            <Share2 size={18} /> الملف جاهز — شاركه الآن
+          </button>
+        ) : (
+          <button type="button" onClick={issue} disabled={!ready || busy}
+            className="w-full bg-[#E15A30] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+            {busy ? <Loader2 size={18} className="animate-spin" /> : <Share2 size={18} />}
+            إصدار العرض ومشاركته
+          </button>
+        )}
         {!ready && (
           <p className="text-center text-[11px] text-[#9A8F7E] flex items-center justify-center gap-1">
             <FileDown size={12} /> أدخل اسم المنشأة ورقمها الموحد
+          </p>
+        )}
+        {current && (current.recorded ? (
+          <p className="text-center text-[11px] text-[#2F7A4B] flex items-center justify-center gap-1">
+            <CheckCircle2 size={12} /> سُجّل العرض في سجل عروض الأسعار
+          </p>
+        ) : (
+          <p className="text-center text-[11px] text-[#9A6B1E] flex items-center justify-center gap-1">
+            <AlertTriangle size={12} className="flex-shrink-0" />
+            {current.reason === 'offline'
+              ? 'لا اتصال الآن — صدر الملف برقم مؤقت ويُسجَّل تلقائياً عند عودة الاتصال'
+              : 'تعذر الوصول لسجل العروض الآن — صدر الملف برقم مؤقت ويُسجَّل تلقائياً'}
+          </p>
+        ))}
+        {pendingCount > 0 && (
+          <p className="text-center text-[11px] text-[#9A8F7E] flex items-center justify-center gap-1">
+            <CloudUpload size={12} /> عروض بانتظار التسجيل على هذا الجهاز: <span className="tabular-nums">{pendingCount}</span>
           </p>
         )}
       </main>
 
       {/* ═══ المستند المطبوع — خارج الشاشة، يُلتقط بمقاس A4 ═══ */}
       <div style={{ position: 'fixed', left: -10000, top: 0 }} aria-hidden>
-        <QuoteDocument ref={docRef} company={company.trim()} unifiedNo={unifiedNo.trim()}
-          presenter={presenter.trim()} note={note.trim()}
-          pkg={pkg} yearly={yearly} figures={figures} meta={meta} />
+        <QuoteDocument ref={docRef} company={view.company} unifiedNo={view.unifiedNo}
+          presenter={view.presenter} note={view.note} pkg={vPkg} yearly={vYearly}
+          figures={quoteFigures(vYearly ? vPkg.yearly : vPkg.total)} meta={meta} validDays={VALID_DAYS} />
       </div>
     </div>
   );
@@ -217,147 +371,6 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   return (
     <div className={`flex items-center justify-between ${strong ? 'font-bold text-base' : 'text-[#6E6557]'}`}>
       <span>{label}</span><span className="text-[#1F1A13]">{value}</span>
-    </div>
-  );
-}
-
-/* ═══════════════════════ المستند ═══════════════════════ */
-
-
-const ACCENT = '#E15A30';
-const INK = '#1F1A13';
-const MUTED = '#6E6557';
-const LINE = '#E9E1D3';
-
-interface DocProps {
-  company: string;
-  unifiedNo: string;
-  presenter: string;
-  note: string;
-  pkg: (typeof PACKAGES)[number];
-  yearly: boolean;
-  figures: { total: number; net: number; vat: number };
-  meta: { no: string; date: string; valid: string };
-}
-
-const QuoteDocument = forwardRef<HTMLDivElement, DocProps>(({ company, unifiedNo, presenter, note, pkg, yearly, figures, meta }, ref) => {
-  const th: React.CSSProperties = { background: INK, color: '#fff', padding: '10px 8px', fontSize: 12, fontWeight: 700, textAlign: 'center' };
-  const td: React.CSSProperties = { padding: '12px 8px', fontSize: 13, textAlign: 'center', borderBottom: `1px solid ${LINE}` };
-  return (
-    <div ref={ref} dir="rtl" style={{
-      width: 794, minHeight: 1123, background: '#fff', color: INK, padding: '44px 54px 34px',
-      fontFamily: "'IBM Plex Sans Arabic', 'Noto Sans Arabic', Tahoma, sans-serif", boxSizing: 'border-box',
-      display: 'flex', flexDirection: 'column',
-    }}>
-      {/* الترويسة */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `3px solid ${ACCENT}`, paddingBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <BrandIcon size={54} radius={0.28} />
-          <div>
-            <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 24, fontWeight: 700, direction: 'ltr' }}>
-              <span style={{ color: INK }}>Field</span> <span style={{ color: ACCENT }}>Sales</span>
-            </div>
-            <div style={{ fontSize: 12, color: MUTED }}>منصّة إدارة المبيعات الميدانية والتوزيع</div>
-          </div>
-        </div>
-        <div style={{ textAlign: 'left' }}>
-          <div style={{ fontSize: 26, fontWeight: 800, color: ACCENT }}>عرض سعر</div>
-          <div style={{ fontSize: 11, letterSpacing: 3, color: MUTED }}>QUOTATION</div>
-        </div>
-      </div>
-
-      {/* بيانات العرض + المُقدَّم إليه */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginTop: 22 }}>
-        <div style={{ flex: 1, background: '#FAF7F0', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>مُقدَّم إلى</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{company || '—'}</div>
-          <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>
-            الرقم الموحد: <span style={{ direction: 'ltr', unicodeBidi: 'embed', color: INK }}>{unifiedNo || '—'}</span>
-          </div>
-        </div>
-        <div style={{ fontSize: 12, lineHeight: 2, minWidth: 210 }}>
-          <div>رقم العرض: <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{meta.no}</b></div>
-          <div>التاريخ: <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{meta.date}</b></div>
-          <div>صالح حتى: <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{meta.valid}</b></div>
-          {presenter && <div>مقدّم العرض: <b>{presenter}</b></div>}
-        </div>
-      </div>
-
-      <p style={{ fontSize: 13, lineHeight: 1.9, color: INK, marginTop: 22 }}>
-        يسعدنا في Field Sales أن نقدّم لكم عرض السعر التالي لاشتراك منصّتنا في إدارة فريق المبيعات
-        الميداني والتوزيع — بأسعارٍ معلنة وشفّافة، وتفعيلٍ فوريّ، ودعمٍ عربيّ مباشر.
-      </p>
-
-      {/* جدول الباقة */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 18 }}>
-        <thead>
-          <tr>
-            <th style={{ ...th, borderTopRightRadius: 8 }}>الباقة</th>
-            <th style={th}>الحدّ الأقصى</th>
-            <th style={th}>{yearly ? 'السعر السنوي (ر.س)' : 'السعر الشهري (ر.س)'}</th>
-            <th style={th}>ض.ق.م ١٥٪</th>
-            <th style={{ ...th, borderTopLeftRadius: 8 }}>{yearly ? 'الإجمالي السنوي' : 'الإجمالي الشهري'}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style={{ ...td, fontWeight: 700 }}>
-              {pkg.name}
-              {'badge' in pkg && pkg.badge && (
-                <div style={{ fontSize: 10, color: ACCENT, fontWeight: 600, marginTop: 2 }}>{pkg.badge}</div>
-              )}
-            </td>
-            <td style={{ ...td, fontSize: 12 }}>{pkg.limit}</td>
-            <td style={{ ...td, direction: 'ltr' }}>{money(figures.net)}</td>
-            <td style={{ ...td, direction: 'ltr' }}>{money(figures.vat)}</td>
-            <td style={{ ...td, fontWeight: 800, color: ACCENT, fontSize: 15 }}>
-              <span style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{money(figures.total)}</span> ريال
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      {yearly && (
-        <p style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
-          يعادل {pkg.total} ريالاً شهرياً شاملة الضريبة × ١٢ شهراً.
-        </p>
-      )}
-
-      {note && (
-        <div style={{ marginTop: 20, background: '#FBEBE2', borderRadius: 10, padding: '12px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: ACCENT, marginBottom: 4 }}>ملاحظات</div>
-          <div style={{ fontSize: 12.5, lineHeight: 1.85, color: INK, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note}</div>
-        </div>
-      )}
-
-      <Block title="ما تشمله جميع الباقات" items={INCLUDED} />
-      <Block title="الشروط والأحكام" items={[
-        `هذا العرض صالحٌ لمدّة ${VALID_DAYS} أيام من تاريخه.`,
-        yearly
-          ? 'الاشتراك سنويّ ويُجدَّد تلقائياً ما لم يُطلب إيقافه، ويمكن الترقية في أي وقت.'
-          : 'الاشتراك شهريّ ويُجدَّد تلقائياً ما لم يُطلب إيقافه، ويمكن الترقية أو التخفيض في أي وقت.',
-        'الأسعار شاملة ضريبة القيمة المضافة ١٥٪.',
-        'الدفع عبر تحويل بنكيّ؛ تُرسَل تفاصيل الحساب عند تأكيد الطلب.',
-      ]} />
-
-      <div style={{ marginTop: 'auto', borderTop: `1px solid ${LINE}`, paddingTop: 12, textAlign: 'center', fontSize: 12, color: MUTED, direction: 'ltr' }}>
-        Field Sales · fieldsa.net · help@fieldsa.net
-      </div>
-    </div>
-  );
-});
-QuoteDocument.displayName = 'QuoteDocument';
-
-function Block({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div style={{ marginTop: 22 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: INK, borderRight: `4px solid ${ACCENT}`, paddingRight: 10, marginBottom: 10 }}>
-        {title}
-      </div>
-      {items.map((t, i) => (
-        <div key={i} style={{ fontSize: 12.5, lineHeight: 1.8, color: INK, display: 'flex', gap: 8 }}>
-          <span style={{ color: ACCENT }}>•</span><span>{t}</span>
-        </div>
-      ))}
     </div>
   );
 }

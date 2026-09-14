@@ -49,6 +49,7 @@ import importRouter from './routes/import';
 import hunterRouter from './routes/hunter';
 import affiliateRouter from './routes/affiliate';
 import affiliateAdminRouter from './routes/affiliateAdmin';
+import quotesRouter from './routes/quotes';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
 import waAccountRouter from './routes/waAccount';
@@ -179,6 +180,8 @@ app.use('/api/hunter', hunterRouter);
 // برنامج «سفير فيلد سيلز» — بوابة معزولة المصادقة (/ax) ولوحة المالك
 app.use('/api/affiliate', affiliateRouter);
 app.use('/api/affiliate-admin', affiliateAdminRouter);
+// عروض الأسعار — تسجيلٌ بلا دخول من الرابط الخاص /q-fs7k2m، وسجلٌّ للمالك
+app.use('/api/quotes', quotesRouter);
 
 // الوسائط المُنتجة (فيديوهات/أصوات ترويجية) — قبل التقاط الواجهة المبنيّة كي لا تبتلعها
 app.use('/media', express.static(path.join(process.cwd(), 'media'), { maxAge: '1d' }));

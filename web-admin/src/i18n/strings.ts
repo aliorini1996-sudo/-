@@ -1911,6 +1911,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'توقيع المورد': { en: 'Supplier signature', fr: 'Signature du fournisseur', tr: 'Tedarikci imzasi', zh: '供应商签字' },
   'توقيع المعتمد': { en: 'Approver signature', fr: 'Signature du valideur', tr: 'Onaylayan imzasi', zh: '审批人签字' },
   'إشعار وارد': { en: 'Inbound notice', fr: 'Avis de reception', tr: 'Giris bildirimi', zh: '入库通知' },
+  // ——— لوحة المالك: سجل عروض الأسعار ———
+  'عروض الأسعار': { en: 'Quotations', fr: 'Devis', tr: 'Fiyat teklifleri', zh: '报价单' },
 };
 
 export function useTr() {

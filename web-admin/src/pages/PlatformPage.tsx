@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tenantApi } from '../api/client';
 import { Tenant } from '../types';
@@ -28,6 +28,8 @@ import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
+// سجلّ عروض الأسعار — كسولٌ: يجرّ html2canvas وjsPDF لمعاينة المستند وتنزيله
+const QuotesPanel = lazy(() => import('../components/QuotesPanel'));
 
 export default function PlatformPage() {
   const tr = useTr();
@@ -41,6 +43,7 @@ export default function PlatformPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showPayments, setShowPayments] = useState(false);
   const [showAffiliates, setShowAffiliates] = useState(false);
+  const [showQuotes, setShowQuotes] = useState(false);
   const [showFinance, setShowFinance] = useState(false);
   const [showWaInbox, setShowWaInbox] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
@@ -128,6 +131,9 @@ export default function PlatformPage() {
           </button>
           <button onClick={() => setShowAffiliates(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
             <Handshake size={18} className="flex-shrink-0" /> <span>{tr('السفراء')}</span>
+          </button>
+          <button onClick={() => setShowQuotes(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+            <FileText size={18} className="flex-shrink-0" /> <span>{tr('عروض الأسعار')}</span>
           </button>
           <button onClick={() => setShowProfile(true)} className="sidebar-link w-full">
             <FileText size={18} className="flex-shrink-0" /> <span>{tr('تعديل البروفايل')}</span>
@@ -220,6 +226,7 @@ export default function PlatformPage() {
       )}
       {showPayments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
       {showAffiliates && <AffiliatesPanel onClose={() => setShowAffiliates(false)} />}
+      {showQuotes && <Suspense fallback={null}><QuotesPanel onClose={() => setShowQuotes(false)} /></Suspense>}
       {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
       {deleteTarget && (
         <DeleteConfirmModal

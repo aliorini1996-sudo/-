@@ -51,6 +51,17 @@ export const mailLimiter = rateLimit({
   message: { success: false, message: 'طلبات كثيرة حاول بعد قليل' },
 });
 
+/**
+ * تسجيل عروض الأسعار من الرابط الخاص بلا دخول — سخيٌّ لفريق مبيعاتٍ يخرج من IP مكتبٍ
+ * واحد (ستّون عرضاً في الساعة تفوق أيّ يوم عمل)، وضيّقٌ على من يكتشف الواجهة فيُغرقها.
+ */
+export const quoteLimiter = rateLimit({
+  ...base,
+  windowMs: 60 * 60 * 1000,
+  limit: 60,
+  message: { success: false, message: 'عروض كثيرة خلال ساعة حاول لاحقا' },
+});
+
 // حدّ عام واقٍ لكل واجهة API
 export const apiLimiter = rateLimit({
   ...base,

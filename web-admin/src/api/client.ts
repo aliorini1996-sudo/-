@@ -392,6 +392,26 @@ export const paymentsApi = {
   publicStatus: (id: string) => api.get(`/payments/public-status/${id}`),
 };
 
+// عروض الأسعار — التسجيل بلا دخول من الرابط الخاص /q-fs7k2m، والسجلّ والحذف للمالك وحده.
+// الباقة وسعرها وحدّها والصلاحية من كتالوج الخادم بمعرّف الباقة وحده؛ لا يُرسَل سعرٌ ولا إجماليّ.
+export interface QuoteIssuePayload {
+  clientRef: string;
+  company: string;
+  unifiedNo: string;
+  packageId: string;
+  cycle: 'monthly' | 'yearly';
+  presenter?: string;
+  note?: string;
+  /** عرضٌ صدر بلا تسجيل: رقمه المطبوع ولحظته (يتحقّق الخادم من تطابقهما) */
+  localNo?: string;
+  issuedAt?: string;
+}
+export const quotesApi = {
+  issue: (data: QuoteIssuePayload) => api.post('/quotes', data, { timeout: 10_000 }),
+  list: (params: { q?: string; page?: number }) => api.get('/quotes/admin', { params }),
+  remove: (id: string) => api.delete(`/quotes/admin/${id}`),
+};
+
 // الإدارة المالية — للمالك وحده. كل الأرقام مشتقّة في الخادم؛ الواجهة تعرض فقط.
 export const financeApi = {
   snapshot: () => api.get('/finance/snapshot'),
