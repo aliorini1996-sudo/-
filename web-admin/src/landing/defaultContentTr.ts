@@ -53,7 +53,7 @@ export const defaultContentTr = {
     plans: [
       { name: 'Başlangıç', price: '299', limit: '5 temsilciye kadar · 1 yönetici' },
       { name: 'Büyüme', price: '399', limit: '10 temsilciye kadar · 2 yönetici' },
-      { name: 'Gelişmiş', price: '599', limit: '20 temsilciye kadar · 5 yönetici', badge: 'En çok tercih edilen' },
+      { name: 'Profesyonel', price: '599', limit: '20 temsilciye kadar · 5 yönetici', badge: 'En çok tercih edilen' },
       { name: 'Kurumsal', price: 'Teklife göre', limit: 'Sınırsız temsilci' },
     ],
   },

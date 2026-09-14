@@ -53,7 +53,7 @@ export const defaultContentFr = {
     plans: [
       { name: 'Débutant', price: '299', limit: 'Jusqu’à 5 commerciaux · 1 utilisateur admin' },
       { name: 'Croissance', price: '399', limit: 'Jusqu’à 10 commerciaux · 2 utilisateurs admin' },
-      { name: 'Avancé', price: '599', limit: 'Jusqu’à 20 commerciaux · 5 utilisateurs admin', badge: 'Le plus demandé' },
+      { name: 'Professionnel', price: '599', limit: 'Jusqu’à 20 commerciaux · 5 utilisateurs admin', badge: 'Le plus demandé' },
       { name: 'Entreprise', price: 'Sur devis', limit: 'Commerciaux illimités' },
     ],
   },

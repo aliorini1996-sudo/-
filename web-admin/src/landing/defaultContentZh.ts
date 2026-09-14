@@ -53,7 +53,7 @@ export const defaultContentZh = {
     plans: [
       { name: '入门版', price: '299', limit: '5 位业务员以内 · 1 个管理账号' },
       { name: '成长版', price: '399', limit: '10 位业务员以内 · 2 个管理账号' },
-      { name: '进阶版', price: '599', limit: '20 位业务员以内 · 5 个管理账号', badge: '最受欢迎' },
+      { name: '专业版', price: '599', limit: '20 位业务员以内 · 5 个管理账号', badge: '最受欢迎' },
       { name: '企业版', price: '按需定价', limit: '业务员不限' },
     ],
   },

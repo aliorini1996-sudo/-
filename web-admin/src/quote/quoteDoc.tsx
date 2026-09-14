@@ -16,7 +16,7 @@ import { BrandIcon } from '../components/BrandLogo';
 export const PACKAGES = [
   { id: 'starter', name: 'المبتدئة', total: 299, yearly: 2990, limit: 'حتى ٥ مناديب ومستخدم إداري واحد' },
   { id: 'growth', name: 'المتوسطة', total: 399, yearly: 3990, limit: 'حتى ١٠ مناديب ومستخدمَين إداريَّين' },
-  { id: 'pro', name: 'المتقدمة', total: 599, yearly: 5990, limit: 'حتى ٢٠ مندوباً و٥ مستخدمين إداريين', badge: 'الأكثر طلباً' },
+  { id: 'pro', name: 'الاحترافية', total: 599, yearly: 5990, limit: 'حتى ٢٠ مندوباً و٥ مستخدمين إداريين', badge: 'الأكثر طلباً' },
 ] as const;
 export type PackageId = (typeof PACKAGES)[number]['id'];
 

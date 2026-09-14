@@ -55,7 +55,7 @@ test('السعر والباقة والصلاحية من كتالوج الخاد�
   assert.equal(rec.yearlyHalalas, 599_000);
   assert.equal(rec.totalHalalas, 599_000);
   assert.equal(toQuoteRecord(quoteInput.parse({ ...forged, cycle: 'monthly' }), NOW).totalHalalas, 59_900);
-  assert.equal(rec.packageName, 'المتقدمة');
+  assert.equal(rec.packageName, 'الاحترافية');
   assert.equal(rec.packageLimit, QUOTE_PACKAGES.pro.limit);
   assert.equal(rec.validDays, QUOTE_VALID_DAYS);
 });
