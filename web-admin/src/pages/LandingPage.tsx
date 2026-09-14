@@ -10,6 +10,7 @@ import { defaultContentTr } from '../landing/defaultContentTr';
 import { defaultContentZh } from '../landing/defaultContentZh';
 import { useLang, type Lang } from '../i18n/lang';
 import { useCurrency, type Currency } from '../i18n/currency';
+import { useBilling, type Billing } from '../i18n/billing';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 
@@ -677,25 +678,148 @@ function applyCmsPrices(target: Record<string, unknown>, arContent: Record<strin
     const raw = arPricing.plans?.[i]?.price;
     if (typeof raw !== 'string') return p;
     const digits = raw.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, '');
-    return /\d/.test(digits) ? { ...p, price: digits } : p; // رقمي فقط؛ «حسب الطلب» يبقى كما هو
+    if (!/\d/.test(digits)) return p; // رقمي فقط؛ «حسب الطلب» يبقى كما هو
+    const yearly = arPricing.plans?.[i]?.yearlyPrice;
+    return { ...p, price: digits, ...(typeof yearly === 'string' && yearly.trim() ? { yearlyPrice: yearly } : {}) };
   });
   return { ...target, pricing: { ...tPricing, plans } };
 }
 
-// مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين, يُحقن داخل قسم الأسعار بجوار البطاقات
+// ---- دورة عرض الأسعار (شهري ⇄ سنوي) ----
+// السعر السنويّ: حقل `yearlyPrice` إن حرّره المالك في الـCMS، وإلا **عشرة أشهر** (شهران مجاناً) —
+// قرار المالك ١٤ سبتمبر ٢٠٢٦: ٢٩٩٠ / ٣٩٩٠ / ٥٩٩٠، ومطابقٌ لكتالوج عروض الأسعار
+// (backend/src/services/quotes.ts). اشتقاقه من الشهريّ يُبقيه صادقاً إن تغيّر الشهريّ ولم يُحرَّر السنويّ.
+const YEARLY_PAID_MONTHS = 10;
+
+const priceNum = (raw: unknown): number | null => {
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+  const n = parseFloat(String(raw).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** السعر الشهريّ والسنويّ لباقةٍ رقمية — null لباقة «حسب الطلب» */
+function planCycle(plan: Record<string, unknown>): { monthly: number; yearly: number; freeMonths: number | null } | null {
+  const monthly = priceNum(plan.price);
+  if (monthly == null) return null;
+  const yearly = priceNum(plan.yearlyPrice) ?? monthly * YEARLY_PAID_MONTHS;
+  const free = Math.round(((monthly * 12 - yearly) / monthly) * 100) / 100;
+  return { monthly, yearly, freeMonths: Number.isInteger(free) && free >= 1 ? free : null };
+}
+
+const fmtAmount = (sar: number, cur: Currency) => {
+  if (cur === 'usd') return sarToUsd(String(sar)) ?? String(sar);
+  return sar.toLocaleString('en-US', { maximumFractionDigits: 2 });
+};
+
+function freeMonthsText(n: number, lang: Lang): string {
+  if (lang === 'en') return `${n} month${n > 1 ? 's' : ''} free`;
+  if (lang === 'fr') return `${n} mois offert${n > 1 ? 's' : ''}`;
+  if (lang === 'tr') return `${n} ay ücretsiz`;
+  if (lang === 'zh') return `免费 ${n} 个月`;
+  return n === 1 ? 'شهر مجانا' : n === 2 ? 'شهران مجانا' : `${n} أشهر مجانا`;
+}
+
+/** سطر التوفير تحت السعر السنويّ: «شهران مجاناً · بدلاً من ٣٥٨٨ ر.س» بلغة الصفحة وعملتها */
+function yearlyNote(c: { monthly: number; freeMonths: number | null }, lang: Lang, cur: Currency): string {
+  const amt = fmtAmount(c.monthly * 12, cur);
+  const unit = cur === 'usd' ? (lang === 'ar' ? 'دولار' : 'USD') : (lang === 'ar' ? 'ر.س' : 'SAR');
+  const instead = {
+    ar: `بدلا من ${amt} ${unit}`, en: `instead of ${unit} ${amt}`, fr: `au lieu de ${amt} ${unit}`,
+    tr: `${amt} ${unit} yerine`, zh: `原价 ${amt} ${unit}`,
+  }[lang];
+  const text = c.freeMonths ? `${freeMonthsText(c.freeMonths, lang)} · ${instead}` : instead;
+  return `<div style="font-size:12.5px; font-weight:700; color:#E15A30; margin-top:6px;">${text}</div>`;
+}
+
+/**
+ * يطبّق الدورة على محتوى الأسعار: في السنويّ يصير سعر كل باقةٍ رقمية سعرَ سنتها ويُضاف سطر
+ * توفيرها، ويُقلب «الشهري» في وصف القسم إلى «السنوي». يسبق تحويل العملة فيُحوَّل السنويّ أيضاً.
+ */
+function applyBilling(content: Record<string, unknown>, billing: Billing, lang: Lang, cur: Currency): Record<string, unknown> {
+  const pricing = content.pricing as { subtitle?: unknown; plans?: Array<Record<string, unknown>> } | undefined;
+  if (!pricing?.plans) return content;
+  const plans = pricing.plans.map((p) => {
+    const c = planCycle(p);
+    if (billing === 'monthly' || !c) return { ...p, billingNote: '' };
+    // يحافظ على نمط أرقام السعر المحرَّر (٢٩٩ أو 299)
+    const yearly = /[٠-٩]/.test(String(p.price)) ? String(c.yearly).replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)]) : String(c.yearly);
+    return { ...p, price: yearly, billingNote: yearlyNote(c, lang, cur) };
+  });
+  const subtitle = billing === 'yearly' && typeof pricing.subtitle === 'string'
+    ? pricing.subtitle.split('الشهري').join('السنوي')
+    : pricing.subtitle;
+  return { ...content, pricing: { ...pricing, subtitle, plans } };
+}
+
+/**
+ * قالب الأسعار مهيّأً للدورة: موضعٌ لسطر التوفير تحت سعر كل باقة، والباقة الثالثة — المصمَّمة
+ * أصلاً «حسب الطلب» بلا لاحقة وبخطٍّ أصغر — تُوحَّد مع أختيها متى كان سعرها رقماً (٥٩٩ اليوم).
+ */
+function pricingTemplate(plan2Numeric: boolean): string {
+  let t = LANDING_TEMPLATE;
+  for (const i of [0, 1, 2]) {
+    const limit = `<div style="font-size:13.5px; color:#9A8F7E; margin-top:6px;">{{pricing.plans.${i}.limit}}</div>`;
+    t = t.replace(limit, `{{pricing.plans.${i}.billingNote}}${limit}`);
+  }
+  if (plan2Numeric) {
+    t = t.replace(
+      `<span style="font-family:'IBM Plex Sans',sans-serif; font-size:34px; font-weight:700; letter-spacing:-1px;">{{pricing.plans.2.price}}</span></div>`,
+      `<span style="font-family:'IBM Plex Sans',sans-serif; font-size:42px; font-weight:700; letter-spacing:-1px;">{{pricing.plans.2.price}}</span><span style="font-size:15px; color:#9A8F7E; font-weight:500;"> ر.س / شهريا</span></div>`,
+    );
+  }
+  return t;
+}
+
+/** لاحقة السعر حسب الدورة ثم العملة — اللاحقة الشهرية ثابتة في القالب ومترجمة لكل لغة */
+function applyPriceSuffix(html: string, billing: Billing, currency: Currency): string {
+  let out = html;
+  if (billing === 'yearly') {
+    out = out
+      .split(' ر.س / شهريا').join(' ر.س / سنويا')
+      .split(' SAR / mois').join(' SAR / an')
+      .split(' SAR / mo').join(' SAR / yr')
+      .split(' SAR / ay').join(' SAR / yıl')
+      .split(' SAR / 月').join(' SAR / 年');
+  }
+  if (currency === 'usd') {
+    out = out
+      .split(' ر.س / شهريا').join(' دولار / شهريا')
+      .split(' ر.س / سنويا').join(' دولار / سنويا');
+    // قائمةٌ صريحة لا « SAR / » عامّة — كي لا يُمسّ نصٌّ آخر في الصفحة يحوي العملة
+    for (const unit of ['mois', 'mo', 'yr', 'an', 'ay', 'yıl', '月', '年']) out = out.split(` SAR / ${unit}`).join(` USD / ${unit}`);
+  }
+  return out;
+}
+
+const segPill = (active: boolean) =>
+  `padding:8px 22px; border:none; border-radius:9px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s;` +
+  (active ? 'background:#E15A30; color:#fff; box-shadow:0 1px 4px rgba(225,90,48,.35);' : 'background:transparent; color:#6E6557;');
+const segWrap = (inner: string) =>
+  `<div style="display:inline-flex; align-items:center; gap:4px; background:#F3EDE3; border:1.5px solid #DED5C4; border-radius:13px; padding:4px;">${inner}</div>`;
+
+// مبدّل عملة الأسعار (ريال ⇄ دولار) على شكل زرّين مقسّمين
 function currencyToggle(currency: Currency, lang: Lang): string {
   const sarLabel = lang === 'ar' ? 'ريال ﷼' : 'SAR ﷼';
   const usdLabel = lang === 'ar' ? 'دولار $' : 'USD $';
-  const pill = (active: boolean) =>
-    `padding:8px 22px; border:none; border-radius:9px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s;` +
-    (active ? 'background:#E15A30; color:#fff; box-shadow:0 1px 4px rgba(225,90,48,.35);' : 'background:transparent; color:#6E6557;');
-  return `<div style="text-align:center; margin-bottom:30px;"><div style="display:inline-flex; align-items:center; gap:4px; background:#F3EDE3; border:1.5px solid #DED5C4; border-radius:13px; padding:4px;"><button type="button" aria-label="SAR" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('sar')" style="${pill(currency === 'sar')}">${sarLabel}</button><button type="button" aria-label="USD" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('usd')" style="${pill(currency === 'usd')}">${usdLabel}</button></div></div>`;
+  return segWrap(`<button type="button" aria-label="SAR" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('sar')" style="${segPill(currency === 'sar')}">${sarLabel}</button><button type="button" aria-label="USD" onclick="window.__fsSetCurrency&&window.__fsSetCurrency('usd')" style="${segPill(currency === 'usd')}">${usdLabel}</button>`);
 }
 
-// يحقن مبدّل العملة قبل شبكة بطاقات الباقات مباشرةً (المُحدِّد فريد في القالب)
-function injectCurrencyToggle(html: string, currency: Currency, lang: Lang): string {
+// مبدّل الدورة (شهري ⇄ سنوي) — شارة «شهران مجاناً» على السنويّ متى كان التوفير أشهراً صحيحة
+function billingToggle(billing: Billing, lang: Lang, freeMonths: number | null): string {
+  const labels = {
+    ar: ['شهري', 'سنوي'], en: ['Monthly', 'Yearly'], fr: ['Mensuel', 'Annuel'], tr: ['Aylık', 'Yıllık'], zh: ['按月', '按年'],
+  }[lang];
+  const badge = freeMonths
+    ? `<span style="font-size:11px; font-weight:700; background:#2F7A4B; color:#fff; border-radius:6px; padding:2px 7px; margin-inline-start:8px; vertical-align:middle;">${freeMonthsText(freeMonths, lang)}</span>`
+    : '';
+  return segWrap(`<button type="button" aria-label="Monthly" onclick="window.__fsSetBilling&&window.__fsSetBilling('monthly')" style="${segPill(billing === 'monthly')}">${labels[0]}</button><button type="button" aria-label="Yearly" onclick="window.__fsSetBilling&&window.__fsSetBilling('yearly')" style="${segPill(billing === 'yearly')}">${labels[1]}${badge}</button>`);
+}
+
+// يحقن مبدّلَي الدورة والعملة قبل شبكة بطاقات الباقات مباشرةً (المُحدِّد فريد في القالب)
+function injectPricingToggles(html: string, billing: Billing, currency: Currency, lang: Lang, freeMonths: number | null): string {
   const anchor = '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:stretch;">';
-  return html.replace(anchor, `${currencyToggle(currency, lang)}${anchor}`);
+  const row = `<div style="display:flex; justify-content:center; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:30px;">${billingToggle(billing, lang, freeMonths)}${currencyToggle(currency, lang)}</div>`;
+  return html.replace(anchor, `${row}${anchor}`);
 }
 
 function mergeContent<T>(base: T, saved: unknown): T {
@@ -720,6 +844,7 @@ function mergeContent<T>(base: T, saved: unknown): T {
 export default function LandingPage() {
   const lang = useLang((s) => s.lang);
   const currency = useCurrency((s) => s.currency);
+  const billing = useBilling((s) => s.billing);
   const navigate = useNavigate();
   const { canonical, alternates } = seoUrls('/', lang);
 
@@ -783,9 +908,10 @@ export default function LandingPage() {
       navigate(pathForLocale('/', l));
   }, [navigate]);
 
-  // مبدّل العملة — يضبط الريال/الدولار محليًا دون تغيير المسار (يُحفظ الاختيار)
+  // مبدّلا العملة والدورة — يضبطان الريال/الدولار والشهري/السنوي محليًا دون تغيير المسار (يُحفظ الاختيار)
   useEffect(() => {
     (window as unknown as { __fsSetCurrency?: (c: Currency) => void }).__fsSetCurrency = (c) => useCurrency.getState().setCurrency(c);
+    (window as unknown as { __fsSetBilling?: (b: Billing) => void }).__fsSetBilling = (b) => useBilling.getState().setBilling(b);
   }, []);
 
   // خريطة الميدان الحيّة في البطل: تناوب المدن كل ٣٠ث + عرض ذاتي للبطاقات + لمس/مرور.
@@ -876,29 +1002,34 @@ export default function LandingPage() {
   }) as Record<string, unknown>;
 
   const socialLinks = (arContent.social as Record<string, string>) || {};
+  const arPlans = ((arContent.pricing as { plans?: Array<Record<string, unknown>> } | undefined)?.plans) || [];
+  const TEMPLATE = pricingTemplate(!!arPlans[2] && planCycle(arPlans[2]) != null);
+  const freeMonths = arPlans[0] ? planCycle(arPlans[0])?.freeMonths ?? null : null;
+  // الدورة ثم العملة: السعر السنويّ يُحوَّل إلى الدولار كالشهريّ
+  const priced = (c: Record<string, unknown>, l: Lang) => applyCurrency(applyBilling(c, billing, l, currency), currency);
   let html: string;
   if (lang === 'en') {
     // النسخة الإنجليزية: محتوى إنجليزي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
     const enBase = { ...defaultContentEn, social: socialLinks || defaultContentEn.social, heroImage: arContent.heroImage } as Record<string, unknown>;
     const enContent = applyCmsPrices(enBase, arContent);
-    html = translateChrome(applyContent(LANDING_TEMPLATE, applyCurrency(enContent, currency), 'en'));
+    html = translateChrome(applyContent(TEMPLATE, priced(enContent, 'en'), 'en'));
   } else if (lang === 'tr') {
     // النسخة التركية: محتوى تركي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
     const trBase = { ...defaultContentTr, social: socialLinks || defaultContentTr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
     const trContent = applyCmsPrices(trBase, arContent);
-    html = translateChromeTr(applyContent(LANDING_TEMPLATE, applyCurrency(trContent, currency), 'tr'));
+    html = translateChromeTr(applyContent(TEMPLATE, priced(trContent, 'tr'), 'tr'));
   } else if (lang === 'zh') {
     // النسخة الصينية: محتوى صيني ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت
     const zhBase = { ...defaultContentZh, social: socialLinks || defaultContentZh.social, heroImage: arContent.heroImage } as Record<string, unknown>;
     const zhContent = applyCmsPrices(zhBase, arContent);
-    html = translateChromeZh(applyContent(LANDING_TEMPLATE, applyCurrency(zhContent, currency), 'zh'));
+    html = translateChromeZh(applyContent(TEMPLATE, priced(zhContent, 'zh'), 'zh'));
   } else if (lang === 'fr') {
     // النسخة الفرنسية: محتوى فرنسي ثابت + روابط CMS + أسعار CMS الرقمية + ترجمة النص الثابت (المغرب العربي)
     const frBase = { ...defaultContentFr, social: socialLinks || defaultContentFr.social, heroImage: arContent.heroImage } as Record<string, unknown>;
     const frContent = applyCmsPrices(frBase, arContent);
-    html = translateChromeFr(applyContent(LANDING_TEMPLATE, applyCurrency(frContent, currency), 'fr'));
+    html = translateChromeFr(applyContent(TEMPLATE, priced(frContent, 'fr'), 'fr'));
   } else {
-    html = applyContent(LANDING_TEMPLATE, applyCurrency(arContent, currency), 'ar');
+    html = applyContent(TEMPLATE, priced(arContent, 'ar'), 'ar');
   }
   html = injectLangSwitcher(html, lang);
   html = injectCoverage(html, lang);
@@ -906,15 +1037,9 @@ export default function LandingPage() {
   html = injectContactBox(html, (arContent.contact as ContactInfo) || {}, lang);
   html = localizeLinks(html, lang); // يبقي لغة الروابط ثابتة عند الانتقال للصفحات التالية
 
-  // مبدّل العملة داخل قسم الأسعار + ضبط لاحقة السعر حسب العملة (لاحقة « ر.س / شهريًا» ثابتة في القالب)
-  html = injectCurrencyToggle(html, currency, lang);
-  if (currency === 'usd') {
-    html = html
-      .split(' ر.س / شهريا').join(' دولار / شهريا')
-      .split(' SAR / mo').join(' USD / mo')
-      .split(' SAR / ay').join(' USD / ay')
-      .split(' SAR / mois').join(' USD / mois');
-  }
+  // مبدّلا الدورة والعملة داخل قسم الأسعار + لاحقة السعر حسب الدورة والعملة (اللاحقة ثابتة في القالب)
+  html = applyPriceSuffix(html, billing, currency);
+  html = injectPricingToggles(html, billing, currency, lang, freeMonths);
 
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;

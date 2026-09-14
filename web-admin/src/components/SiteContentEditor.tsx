@@ -48,9 +48,9 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: bo
   ] },
   { title: 'الأسعار', fields: [
     ['pricing.title', 'عنوان القسم'], ['pricing.subtitle', 'الوصف'],
-    ['pricing.plans.0.name', 'باقة ١ الاسم'], ['pricing.plans.0.price', 'السعر'], ['pricing.plans.0.limit', 'الحد'],
-    ['pricing.plans.1.name', 'باقة ٢ الاسم'], ['pricing.plans.1.price', 'السعر'], ['pricing.plans.1.limit', 'الحد'],
-    ['pricing.plans.2.name', 'باقة ٣ الاسم'], ['pricing.plans.2.price', 'السعر'], ['pricing.plans.2.limit', 'الحد'],
+    ['pricing.plans.0.name', 'باقة ١ الاسم'], ['pricing.plans.0.price', 'السعر الشهري'], ['pricing.plans.0.yearlyPrice', 'السعر السنوي اتركه فارغا ليكون عشرة أشهر'], ['pricing.plans.0.limit', 'الحد'],
+    ['pricing.plans.1.name', 'باقة ٢ الاسم'], ['pricing.plans.1.price', 'السعر الشهري'], ['pricing.plans.1.yearlyPrice', 'السعر السنوي اتركه فارغا ليكون عشرة أشهر'], ['pricing.plans.1.limit', 'الحد'],
+    ['pricing.plans.2.name', 'باقة ٣ الاسم'], ['pricing.plans.2.price', 'السعر الشهري'], ['pricing.plans.2.yearlyPrice', 'السعر السنوي اتركه فارغا ليكون عشرة أشهر'], ['pricing.plans.2.limit', 'الحد'],
   ] },
   { title: 'تطبيق المندوب روابط المتاجر', fields: [
     ['repApp.appStoreUrl', 'رابط App Store اتركه فارغا ليظهر قريبا'],
