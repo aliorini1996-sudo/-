@@ -1,5 +1,5 @@
 import {
-  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import {   TrendingUp, Eye, EyeOff, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon,
+  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { compressImage } from './imageCompress';
@@ -23,13 +23,15 @@ import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route';
-type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'logVisit';
+type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit';
 
 interface RepUser {
   /** «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد بـ٥٠ متراً حول موقع العميل */
   requireCustomerProximity?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
+  /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
+  canEditCustomer?: boolean;
   canCreateInvoice?: boolean;
   canSellOnCredit?: boolean;
   canSellOnInstallment?: boolean;
@@ -817,8 +819,10 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   );
 }
 
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn, accountingOn = true }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn, accountingOn = true, onEdit }: {
   customer: any; repName: string; company: Company | null;
+  /** فتح شاشة تعديل بيانات العميل — يُمرَّر دائماً والظهور تقرّره الصلاحية هنا */
+  onEdit?: () => void;
   /** ميزة الدفع الإلكتروني مفعلة لهذه الشركة (بوابة المالك كالمنيو) */
   paylinkOn?: boolean;
   /** «النظام المحاسبي» مفعّل؟ إطفاؤه يحذف كل ما هو ماليّ من هذا الملفّ */
@@ -863,6 +867,10 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   const canSellAnyType = perms.canSellOnCredit !== false || perms.canSellInCash !== false;
   const canCreateReceipt = perms.canCreateReceipt !== false && !unassigned;
   const canViewStatement = perms.canViewStatement !== false;
+  /* التعديل: صلاحيةٌ صريحة، وعميلٌ ما زال مُسنَداً، ومحفوظٌ في الخادم — العميل المضاف دون
+   * اتصال لم يُرفع بعد فلا سجلّ يُعدَّل، والتعديل نفسه يلزمه اتصال */
+  const canEdit = !!onEdit && perms.canEditCustomer === true && !unassigned
+    && !customer._offline && !String(customer.id || '').startsWith('local-');
 
   // كشف الحساب مالٌ صريح، ومساره **ليس** خلف حارس المحاسبة في الخادم — فالكفّ
   // عن طلبه هنا هو الحاجز الوحيد حين يُطفأ «النظام المحاسبي».
@@ -925,9 +933,19 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
 
         {/* Summary */}
         <div className={`bg-gradient-to-l from-[#1F1A13] to-[#E15A30] rounded-3xl p-5 text-white ${unassigned ? 'opacity-60' : ''}`}>
-          <p className="font-bold text-lg">{customer.name}</p>
-          {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
-          <p className={`text-[#E8C9BC] text-xs ${accountingOn ? 'mb-4' : ''}`}>{customer.phone}</p>
+          <div className={`flex items-start justify-between gap-3 ${accountingOn ? 'mb-4' : ''}`}>
+            <div className="min-w-0">
+              <p className="font-bold text-lg">{customer.name}</p>
+              {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
+              <p className="text-[#E8C9BC] text-xs">{customer.phone}</p>
+            </div>
+            {canEdit && (
+              <button onClick={onEdit} aria-label={tr('تعديل بيانات العميل')}
+                className="flex-shrink-0 flex items-center gap-1.5 bg-white/15 hover:bg-white/25 border border-white/25 rounded-full px-3 py-1.5 text-xs font-bold active:scale-95 transition">
+                <Pencil size={13} /> {tr('تعديل')}
+              </button>
+            )}
+          </div>
           {/* الأرقام المالية مخزّنة محلياً وقد تكون قديمة — نخفيها بعد نزع العميل بدل عرض رقم مضلّل.
               وحين يُطفأ «النظام المحاسبي» تغيب الشبكة كلّها بلا بديل: حتى جملة
               «البيانات المالية غير متاحة» تُخبر أنّ ثمّة مالاً حُجب. */}
@@ -2019,6 +2037,159 @@ function AddCustomer({ onClose, onCreated, accountingOn = true }: { onClose: () 
   );
 }
 
+// ============ تعديل بيانات العميل ============
+/**
+ * لمن يملك «تعديل بيانات العميل». البيانات الوصفية فقط (الاسم، المنشأة، الجوال، النظامية،
+ * العنوان، الموقع) — الحدّ الائتماني وفترة السداد وحالة العميل قرارٌ للإدارة ويرفضها الخادم
+ * من المندوب. والمقيَّد بـ«البيع داخل نطاق العميل» لا يحرّك موقع العميل (يفتح البوّابة على نفسه).
+ * يلزمه اتصال: تعديلٌ يُكتب فوق سجلٍّ قائم لا يُطابَق من طابور.
+ */
+function EditCustomer({ customer, pinLocked, onClose, onSaved }: {
+  customer: any; pinLocked: boolean; onClose: () => void; onSaved: (c: any) => void;
+}) {
+  const tr = useTr();
+  const str = (v: unknown) => (v == null ? '' : String(v));
+  const [form, setForm] = useState({
+    name: str(customer.name), businessName: str(customer.businessName), phone: str(customer.phone),
+    altPhone: str(customer.altPhone), commercialReg: str(customer.commercialReg), taxNumber: str(customer.taxNumber),
+    city: str(customer.city), district: str(customer.district), address: str(customer.address),
+  });
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+  const hasPin = customer.lat != null && customer.lng != null;
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locUrl, setLocUrl] = useState('');
+  const [gps, setGps] = useState<'idle' | 'getting' | 'ok' | 'denied'>('idle');
+
+  const captureGps = () => {
+    if (!navigator.geolocation) { setGps('denied'); return; }
+    setGps('getting');
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); },
+      () => setGps('denied'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    );
+  };
+
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  // الحقل الاختياري المُفرَّغ يُرسَل null فيُمحى فعلاً، لا undefined فيبقى القديم
+  const opt = (v: string) => (v.trim() ? v.trim() : null);
+
+  const submit = async () => {
+    if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
+    if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب 9 أرقام على الأقل')); return; }
+    setLoading(true); setMsg('');
+    const payload: Record<string, unknown> = {
+      name: form.name.trim(),
+      businessName: opt(form.businessName),
+      phone: form.phone.trim(),
+      altPhone: opt(form.altPhone),
+      commercialReg: opt(form.commercialReg),
+      taxNumber: opt(form.taxNumber),
+      city: opt(form.city),
+      district: opt(form.district),
+      address: opt(form.address),
+    };
+    // الموقع يُرسَل فقط إن غيّره المندوب — وإلا بقي كما هو
+    if (!pinLocked) {
+      if (coords) { payload.lat = coords.lat; payload.lng = coords.lng; }
+      else if (locUrl.trim()) payload.locationUrl = locUrl.trim();
+    }
+    try {
+      const res = await repApi.put(`/customers/${customer.id}`, payload);
+      onSaved(res.data.data);
+    } catch (err: any) {
+      setMsg(isNetworkError(err)
+        ? tr('يلزم اتصال بالإنترنت لحفظ تعديل بيانات العميل')
+        : (err?.response?.data?.message || tr('تعذر حفظ التعديل')));
+      setLoading(false);
+    }
+  };
+
+  const field = (label: string, key: string, opts?: { required?: boolean; ltr?: boolean; type?: string }) => (
+    <div>
+      <label className="label">{label}{opts?.required && ' *'}</label>
+      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'}
+        value={(form as any)[key]} onChange={e => set(key, e.target.value)} />
+    </div>
+  );
+
+  return (
+    <div className="h-full flex flex-col bg-gray-50">
+      <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
+        <button onClick={onClose} aria-label={tr('رجوع')}><ArrowRight size={20} /></button>
+        <span className="font-bold flex-1 truncate">{tr('تعديل بيانات العميل')}</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات الأساسية')}</p>
+          <div className="space-y-3">
+            {field(tr('اسم العميل'), 'name', { required: true })}
+            {field(tr('اسم المنشأة'), 'businessName')}
+            <div className="grid grid-cols-2 gap-3">
+              {field(tr('رقم الجوال'), 'phone', { required: true, ltr: true, type: 'tel' })}
+              {field(tr('جوال بديل'), 'altPhone', { ltr: true, type: 'tel' })}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات النظامية')}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {field(tr('السجل التجاري'), 'commercialReg', { ltr: true })}
+            {field(tr('الرقم الضريبي'), 'taxNumber', { ltr: true })}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('العنوان')}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {field(tr('المدينة'), 'city')}
+            {field(tr('الحي'), 'district')}
+          </div>
+          <div className="mt-3">{field(tr('العنوان التفصيلي'), 'address')}</div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('موقع العميل على الخريطة')}</p>
+          {pinLocked ? (
+            <p className="text-[11px] text-gray-500 bg-white border border-gray-200 rounded-xl p-3 leading-relaxed">
+              {tr('موقع العميل تضبطه الإدارة لأن البيع مقيد داخل نطاق العميل')}
+            </p>
+          ) : (
+            <>
+              {hasPin && !coords && !locUrl.trim() && (
+                <p className="text-[11px] text-gray-500 mb-2">{tr('للعميل موقع محفوظ ويبقى كما هو ما لم تحدد موقعا جديدا')}</p>
+              )}
+              <button type="button" onClick={captureGps}
+                className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold border ${coords ? 'border-green-600 text-green-700 bg-green-50' : 'border-[#E15A30] text-[#E15A30]'}`}>
+                <MapPin size={16} />
+                {coords ? tr('تم تحديد الموقع ✓') : gps === 'getting' ? tr('جار تحديد الموقع') : tr('التقاط موقعي الحالي عند العميل')}
+              </button>
+              {coords && <p className="text-[11px] text-green-600 mt-1 text-center" dir="ltr">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</p>}
+              {gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr('تعذر الوصول للموقع الصق الرابط أدناه بدلا منه')}</p>}
+              <div className="mt-2">
+                <input className="input" dir="ltr" placeholder={tr('أو الصق رابط الموقع من خرائط Google')}
+                  value={locUrl} onChange={e => setLocUrl(e.target.value)} disabled={!!coords} />
+              </div>
+            </>
+          )}
+        </div>
+
+        {msg && <p className="text-red-500 text-xs text-center">{msg}</p>}
+      </div>
+
+      <div className="p-4 border-t bg-white">
+        <button onClick={submit} disabled={loading} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+          {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Pencil size={16} />}
+          {tr('حفظ التعديلات')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ============ قائمة بسيطة (فواتير/سندات) ============
 function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoice' | 'receipt'; onOpen: (detail: any) => void }) {
   const tr = useTr();
@@ -2519,7 +2690,7 @@ export default function RepApp() {
   useBackClose(modal === 'addCustomer', () => setModal(null));
   useBackClose(
     modal === 'createInvoice' || modal === 'createReturn'
-    || modal === 'createReceipt' || modal === 'logVisit',
+    || modal === 'createReceipt' || modal === 'logVisit' || modal === 'editCustomer',
     () => setModal('customerDetail'),
   );
   useBackClose(modal === 'customerDetail', closeCustomerDetail);
@@ -2717,6 +2888,7 @@ export default function RepApp() {
               visitActive={!!visitTimer && visitTimer.customerId === selectedCustomer.id}
               visitElapsedLabel={fmtElapsed(visitElapsed)}
               onStartVisit={() => startVisit(selectedCustomer)}
+              onEdit={() => setModal('editCustomer')}
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
               onLogVisit={() => setModal('logVisit')}
               onStatement={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }}
@@ -2733,6 +2905,19 @@ export default function RepApp() {
           ) : modal === 'logVisit' && selectedCustomer ? (
             <LogVisit customer={selectedCustomer} onClose={() => setModal('customerDetail')}
               onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
+          ) : modal === 'editCustomer' && selectedCustomer ? (
+            <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true}
+              onClose={() => setModal('customerDetail')}
+              onSaved={(c) => {
+                // الردّ سجلُّ العميل من الخادم؛ نُبقي ما حسبه التطبيق فوقه (الرصيد وغيره) ونحدّث الكاش
+                const merged = { ...selectedCustomer, ...c };
+                setSelectedCustomer(merged);
+                void (async () => {
+                  const hit = await cacheGet<any[]>('customers');
+                  if (hit && Array.isArray(hit.data)) await cacheSet('customers', hit.data.map(x => (x.id === merged.id ? { ...x, ...c } : x)));
+                })();
+                setModal('customerDetail');
+              }} />
           ) : modal === 'addCustomer' ? (
             <AddCustomer onClose={() => setModal(null)} accountingOn={accountingOn}
               onCreated={(c) => { setModal('customerDetail'); setSelectedCustomer(c); }} />

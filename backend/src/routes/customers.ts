@@ -185,6 +185,11 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
     const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, ...data } = customerSchema.partial().parse(req.body);
     void _cr; void _cc;
+    // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
+    // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
+    if (req.user?.role === 'SALES_REP') {
+      delete data.creditLimit; delete data.paymentDays; delete data.status;
+    }
     if (repPinsLocked && (data.lat !== undefined || data.lng !== undefined || locationUrl)) {
       res.status(403).json({ success: false, code: 'PIN_LOCKED', message: 'لا يمكنك تعديل موقع العميل اطلب من الادارة ضبطه' });
       return;
@@ -196,7 +201,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     }
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
-      data: { ...data, email: data.email || null, ...(data.channel !== undefined && { channel: data.channel || null }) },
+      // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل
+      data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }) },
     });
     res.json({ success: true, data: customer });
   } catch (err) { next(err); }

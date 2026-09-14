@@ -1915,6 +1915,12 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'عروض الأسعار': { en: 'Quotations', fr: 'Devis', tr: 'Fiyat teklifleri', zh: '报价单' },
   // ——— إعدادات الشركة: موضع ظهور الشعار ———
   'يظهر الشعار في رأس كل صفحات حسابك وتطبيق الإدارة وتطبيق المندوب وفي الفواتير والسندات': { en: 'The logo appears at the top of every page in your account, the admin app and the rep app, and on invoices and receipts', fr: 'Le logo apparait en haut de chaque page de votre compte, dans l application admin et l application commerciale, ainsi que sur les factures et recus', tr: 'Logo hesabinizin tum sayfalarinin ustunde, yonetim ve temsilci uygulamalarinda, fatura ve makbuzlarda gorunur', zh: '徽标显示在您账户每个页面顶部、管理应用和业务员应用中，以及发票和收据上' },
+  // ——— تطبيق المندوب: تعديل بيانات العميل ———
+  'يلزم اتصال بالإنترنت لحفظ تعديل بيانات العميل': { en: 'An internet connection is required to save customer changes', fr: 'Une connexion internet est requise pour enregistrer les modifications du client', tr: 'Musteri degisikliklerini kaydetmek icin internet baglantisi gerekir', zh: '保存客户修改需要联网' },
+  'تعذر حفظ التعديل': { en: 'Could not save the changes', fr: 'Impossible d enregistrer les modifications', tr: 'Degisiklikler kaydedilemedi', zh: '无法保存修改' },
+  'جوال بديل': { en: 'Alternate mobile', fr: 'Mobile secondaire', tr: 'Alternatif cep telefonu', zh: '备用手机' },
+  'موقع العميل تضبطه الإدارة لأن البيع مقيد داخل نطاق العميل': { en: 'The customer location is set by management because selling is restricted to the customer area', fr: 'La position du client est definie par la direction car la vente est limitee a la zone du client', tr: 'Satis musteri alaniyla sinirli oldugu icin musteri konumunu yonetim belirler', zh: '由于销售限制在客户范围内，客户位置由管理层设置' },
+  'للعميل موقع محفوظ ويبقى كما هو ما لم تحدد موقعا جديدا': { en: 'The customer has a saved location that stays unchanged unless you set a new one', fr: 'Le client a une position enregistree qui reste inchangee sauf si vous en definissez une nouvelle', tr: 'Musterinin kayitli bir konumu var ve yeni bir konum belirlemediginiz surece degismez', zh: '客户已有保存的位置，除非您设置新位置，否则保持不变' },
 };
 
 export function useTr() {
