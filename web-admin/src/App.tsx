@@ -129,7 +129,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|signup|verify-email|rep|m|ax)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|login|signup|verify-email|rep|m|q-fs7k2m|ax)(\/|$)/.test(pathname)) return;
     // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — تُعيد {} عند رفض التتبّع
     analyticsApi.track({
       path: pathname,

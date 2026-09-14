@@ -34,7 +34,8 @@ import { trackWhatsApp } from '../lib/ads';
  */
 // `m` (تطبيق الإدارة على الجوال) بحدّ نهاية — كي لا يلتقط مساراً تسويقياً يبدأ بالحرف نفسه
 // `ax` بوابة «سفير فيلد سيلز» الخاصة — ليست صفحة تسويقية ولا قمع اشتراك
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|ax)(\/|$)/;
+// `q-fs7k2m` مُصدِر عروض الأسعار الخاصّ — الزرّ كان يغطّي زرّ الإصدار على الجوال
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|ax)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home
