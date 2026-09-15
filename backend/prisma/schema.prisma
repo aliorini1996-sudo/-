@@ -47,6 +47,7 @@ model Tenant {
   paylinkFeePct             Float     @default(4) // نسبة عمولتنا على كل تحصيل إلكتروني — لكل شركة على حدة (شاملة الضريبة)
   paylinkFeeFlat            Float     @default(1) // الريال الثابت لكل دفعة — شامل الضريبة
   dailyReportEnabled        Boolean   @default(false) // التقرير اليومي للمندوب وسلسلة اعتماده — يفعّلها المالك لكل شركة حسب الاشتراك
+  invoiceSignatureEnabled   Boolean   @default(false) // توقيع المستلم اليدويّ على فواتير تطبيق المندوب (يُطبع آخر الفاتورة) — يفعّله المالك لكل شركة
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -649,6 +650,7 @@ model Invoice {
   accountEntries AccountEntry[]
   paymentLinks   CustomerPaymentLink[]
   installments   InvoiceInstallment[]
+  signature      InvoiceSignature?
 
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])
@@ -2422,4 +2424,18 @@ model IssuedQuote {
 
   @@index([issuedAt])
   @@map("issued_quotes")
+}
+
+// توقيع المستلم اليدويّ على فاتورة (تطبيق المندوب، خلف Tenant.invoiceSignatureEnabled).
+// جدولٌ مستقلّ لا عمودٌ في invoices: صورةٌ بعشرات الكيلوبايت كانت ستُحمَّل مع كل سطرٍ
+// في قوائم الفواتير وتقاريرها (findMany بلا select يجلب كل الأعمدة)، وتُقرأ هنا في التفصيل وحده.
+model InvoiceSignature {
+  invoiceId String   @id
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  tenantId  String
+  image     String // data:image/png;base64 — مقصوصٌ على حدود الخطّ
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("invoice_signatures")
 }

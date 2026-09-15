@@ -68,6 +68,8 @@ export interface InvoiceDoc {
   installments?: { seq: number; dueDate: string | Date; amount: number }[];
   isReturn?: boolean;
   deliveryDate?: string; // تاريخ التسليم — يُعرض ويُطبع فقط إن حُدد
+  /** توقيع المستلم اليدويّ (PNG base64) — يُطبع آخر الفاتورة مكان سطر «توقيع المستلم» */
+  recipientSignature?: string | null;
   company?: Company | null;
   customer: DocCustomer;
   repName: string;
@@ -508,8 +510,15 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         </div>
       )}
 
-      <div style={{ marginTop: 60, display: 'flex', justifyContent: 'space-between', color: '#6b7280', fontSize: 13 }}>
-        <div>{tr('توقيع المستلم')}: ........................</div>
+      <div style={{ marginTop: isSignatureSrc(doc.recipientSignature) ? 28 : 60, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', color: '#6b7280', fontSize: 13 }}>
+        {isSignatureSrc(doc.recipientSignature) ? (
+          <div style={{ textAlign: 'center', minWidth: 170 }}>
+            <img src={doc.recipientSignature} alt="" style={{ display: 'block', margin: '0 auto', height: 64, maxWidth: 220, objectFit: 'contain' }} />
+            <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: 4, marginTop: 2 }}>{tr('توقيع المستلم')}</div>
+          </div>
+        ) : (
+          <div>{tr('توقيع المستلم')}: ........................</div>
+        )}
         <div>{tr('توقيع المندوب')}: ........................</div>
       </div>
 
@@ -1007,6 +1016,10 @@ function Row({ label, value, color }: { label: string; value: string; color?: st
   );
 }
 
+/** صورة توقيعٍ صالحة للعرض: PNG base64 كما تصدرها لوحة التوقيع ويقبلها الخادم */
+export const isSignatureSrc = (v: unknown): v is string =>
+  typeof v === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(v);
+
 // ============ بناء مستند من بيانات الخادم ============
 export function invoiceDocFromDetail(inv: any, repName: string, company?: Company | null): InvoiceDoc {
   return {
@@ -1014,6 +1027,7 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     number: inv.number,
     date: inv.invoiceDate,
     deliveryDate: inv.deliveryDate ?? undefined,
+    recipientSignature: inv.signature?.image ?? null,
     type: inv.type === 'RETURN' ? 'CREDIT' : inv.type,
     isReturn: inv.type === 'RETURN',
     company: company ?? null,

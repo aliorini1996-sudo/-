@@ -4,7 +4,7 @@ import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { paymentMethodLabels, getActiveCurrency, getActiveNumerals } from '../utils/format';
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
-import { isSaudiDoc } from './RepDocuments';
+import { isSaudiDoc, isSignatureSrc } from './RepDocuments';
 
 function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -130,6 +130,7 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
       <div class="row muted"><span>المدفوع</span><span>${money(doc.paidAmt ?? 0)}</span></div>
       <div class="row muted"><span>المتبقي</span><span>${money(doc.remainingAmt)}</span></div>` : ''}
     <div class="sep"></div>
+    ${isSignatureSrc(doc.recipientSignature) ? `<div class="c"><img src="${esc(doc.recipientSignature)}" alt="" style="max-width:70%;max-height:60px"><div class="muted">توقيع المستلم</div></div><div class="sep"></div>` : ''}
     ${qr}
     <div class="c muted">${esc(doc.company?.name || '')}</div>
     <div class="c muted">شكرا لتعاملكم معنا</div>

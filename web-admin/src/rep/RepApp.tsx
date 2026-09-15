@@ -9,6 +9,7 @@ import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, 
 import DecimalInput from '../components/DecimalInput';
 import { startRenewLoop, clearRenewRejection } from './renew';
 import { tokenTenantId } from './jwt';
+import SignaturePad from './SignaturePad';
 import { BrandIcon } from '../components/BrandLogo';
 import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
@@ -1211,6 +1212,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const [insPeriod, setInsPeriod] = useState<InstallmentPeriod>('MONTHLY');
   const [returnReason, setReturnReason] = useState<'NORMAL' | 'DAMAGED' | 'EXCHANGE'>('NORMAL'); // سبب المرتجع
   const [deliveryDate, setDeliveryDate] = useState(''); // تاريخ التسليم الاختياري — فارغ = لا يظهر بالفاتورة
+  /* توقيع المستلم (ميزة يفعّلها المالك للشركة) — اختياريّ، ولا توقيع على مرتجع.
+   * يُربط بإجماليّ الفاتورة لحظة التوقيع: تعديل الأصناف بعده يُسقطه فيُطلب توقيعٌ جديد،
+   * كي لا يُطبع توقيع العميل تحت فاتورةٍ غير التي وقّع عليها */
+  const signatureOn = !isReturn && (company as { invoiceSignatureEnabled?: boolean } | null)?.invoiceSignatureEnabled === true;
+  const [signature, setSignature] = useState<{ png: string; total: number } | null>(null);
+  const [sigPadKey, setSigPadKey] = useState(0);
+  const [sigDropped, setSigDropped] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [lines, setLines] = useState<any[]>([]);
@@ -1316,6 +1324,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const discount = repCalc.discountAmt;
   const tax = repCalc.taxAmt;
   const total = repCalc.total;
+  useEffect(() => {
+    if (signature && Math.abs(signature.total - total) > 0.001) {
+      setSignature(null); setSigPadKey(k => k + 1); setSigDropped(true);
+    }
+  }, [total, signature]);
 
   // زرّ الرجوع داخل النموذج: الماسح أولاً (يغطّي الرأس) ثم السلّة
   useBackClose(showScanner, () => setShowScanner(false));
@@ -1353,6 +1366,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       pricesIncludeTax: true,
       items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
       ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
+      ...(signatureOn && signature && { recipientSignature: signature.png }), // يُهمَل في الخادم إن أُطفئت الميزة
       ...(!isReturn && plan === 'INSTALLMENT' && {
         paymentPlan: 'INSTALLMENT' as const,
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
@@ -1374,6 +1388,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       }
       onDone({
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, deliveryDate: inv.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
+        recipientSignature: inv.signature?.image ?? null,
         paymentPlan: inv.paymentPlan ?? null,
         installments: Array.isArray(inv.installments)
           ? inv.installments.map((r: any) => ({ seq: Number(r.seq), dueDate: r.dueDate, amount: Number(r.amount) }))
@@ -1395,6 +1410,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         const paid = type === 'CASH' && !isReturn ? total : 0;
         onDone({
           kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, deliveryDate: deliveryDate || undefined, type, isReturn,
+          recipientSignature: signatureOn && signature ? signature.png : null,
           company, customer, repName, items: printItems,
           subtotal, discount, tax, total,
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
@@ -1579,6 +1595,18 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   <input type="date" className="input !py-1.5 text-sm flex-1" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
                   {deliveryDate && <button type="button" className="text-xs text-red-500" onClick={() => setDeliveryDate('')}>{tr('مسح')}</button>}
                 </div>
+              </div>
+            )}
+            {signatureOn && (
+              <div className="bg-white rounded-xl p-3 mt-2 border border-gray-100">
+                <p className="text-[11px] font-bold text-gray-600 mb-1">{tr('توقيع المستلم')}</p>
+                <p className="text-[10px] text-gray-400 mb-2">{tr('اختياري يوقع العميل بإصبعه ويظهر التوقيع آخر الفاتورة')}</p>
+                {sigDropped && !signature && (
+                  <p className="text-[11px] text-amber-600 mb-2">{tr('عدلت الأصناف بعد التوقيع فأزيل التوقيع اطلب من العميل التوقيع مجددا')}</p>
+                )}
+                <SignaturePad key={sigPadKey} value={signature?.png ?? null}
+                  onChange={png => { setSignature(png ? { png, total } : null); if (png) setSigDropped(false); }}
+                  clearLabel={tr('مسح التوقيع')} placeholder={tr('وقع هنا')} />
               </div>
             )}
             {!isReturn && plan === 'INSTALLMENT' && (

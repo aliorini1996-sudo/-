@@ -35,6 +35,7 @@ export interface Tenant {
   paylinkEnabled?: boolean;      // ميزة الدفع الإلكتروني — روابط دفع ميسر (يتحكّم بها المالك)
   warehouseEnabled?: boolean;    // مخزون الشركة (المستودع) — يُفعّله المالك لكل شركة
   dailyReportEnabled?: boolean;  // التقرير اليومي وسلسلة اعتماده — يُفعّله المالك لكل شركة
+  invoiceSignatureEnabled?: boolean; // توقيع المستلم اليدويّ على فواتير المندوب — يُفعّله المالك لكل شركة
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
   subscriptionEndsAt?: string | null;

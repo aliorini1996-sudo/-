@@ -1921,6 +1921,12 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'جوال بديل': { en: 'Alternate mobile', fr: 'Mobile secondaire', tr: 'Alternatif cep telefonu', zh: '备用手机' },
   'موقع العميل تضبطه الإدارة لأن البيع مقيد داخل نطاق العميل': { en: 'The customer location is set by management because selling is restricted to the customer area', fr: 'La position du client est definie par la direction car la vente est limitee a la zone du client', tr: 'Satis musteri alaniyla sinirli oldugu icin musteri konumunu yonetim belirler', zh: '由于销售限制在客户范围内，客户位置由管理层设置' },
   'للعميل موقع محفوظ ويبقى كما هو ما لم تحدد موقعا جديدا': { en: 'The customer has a saved location that stays unchanged unless you set a new one', fr: 'Le client a une position enregistree qui reste inchangee sauf si vous en definissez une nouvelle', tr: 'Musterinin kayitli bir konumu var ve yeni bir konum belirlemediginiz surece degismez', zh: '客户已有保存的位置，除非您设置新位置，否则保持不变' },
+  // ——— توقيع المستلم على فواتير المندوب ———
+  'اختياري يوقع العميل بإصبعه ويظهر التوقيع آخر الفاتورة': { en: 'Optional, the customer signs with a finger and the signature appears at the end of the invoice', fr: 'Facultatif, le client signe du doigt et la signature apparait en bas de la facture', tr: 'Istege bagli, musteri parmagiyla imzalar ve imza faturanin sonunda gorunur', zh: '可选，客户用手指签名，签名显示在发票末尾' },
+  'عدلت الأصناف بعد التوقيع فأزيل التوقيع اطلب من العميل التوقيع مجددا': { en: 'Items changed after signing so the signature was removed, ask the customer to sign again', fr: 'Les articles ont change apres la signature, elle a ete supprimee, demandez au client de signer a nouveau', tr: 'Imzadan sonra urunler degisti ve imza kaldirildi, musteriden tekrar imzalamasini isteyin', zh: '签名后商品已更改，签名已移除，请客户重新签名' },
+  'مسح التوقيع': { en: 'Clear signature', fr: 'Effacer la signature', tr: 'Imzayi temizle', zh: '清除签名' },
+  'وقع هنا': { en: 'Sign here', fr: 'Signez ici', tr: 'Buraya imzalayin', zh: '请在此签名' },
+  'تفعيل توقيع المستلم على فواتير المندوب لهذه الشركة': { en: 'Enable recipient signature on rep invoices for this company', fr: 'Activer la signature du destinataire sur les factures des commerciaux pour cette societe', tr: 'Bu sirket icin temsilci faturalarinda alici imzasini etkinlestir', zh: '为该公司启用业务员发票的收货人签名' },
 };
 
 export function useTr() {
