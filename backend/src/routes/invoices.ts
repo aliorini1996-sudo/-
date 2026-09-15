@@ -87,6 +87,10 @@ const invoiceItemSchema = z.object({
   taxPct: z.number().min(0).max(100).optional(), // يُورَث من ضريبة دولة الشركة عند الغياب
 });
 
+/** صورة توقيع: PNG base64 كما تصدرها لوحة التوقيع، ≤٣٠٠ كيلوبايت */
+const signaturePng = z.string().max(300_000, 'صورة التوقيع كبيرة')
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/, 'صورة التوقيع غير صالحة').optional();
+
 const createInvoiceSchema = z.object({
   // تطبيق المندوب يرسل الاسعار شاملة الضريبة كما اعلنت للعميل — المحرك يشتق
   // الضريبة من الداخل فلا يدفع العميل قرشا فوق السعر المعلن بسبب تحويل وسيط
@@ -99,8 +103,8 @@ const createInvoiceSchema = z.object({
   deliveryDate: z.string().optional(), // تاريخ التسليم الاختياري (YYYY-MM-DD)
   // توقيع المستلم اليدويّ (PNG base64) — يُحفظ فقط إن فعّل المالك الميزة للشركة، ويُهمَل صامتاً
   // إن أُطفئت بين التوقيع والرفع: فاتورةٌ أوف-لاين لا تُرفض بسبب مرفقٍ اختياريّ
-  recipientSignature: z.string().max(300_000, 'صورة التوقيع كبيرة')
-    .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/, 'صورة التوقيع غير صالحة').optional(),
+  recipientSignature: signaturePng,
+  repSignature: signaturePng, // توقيع المندوب — بالقيود نفسها
   type: z.enum(['CASH', 'CREDIT', 'RETURN']).default('CREDIT'),
   // سبب الإرجاع (يُستخدم فقط عند type=RETURN): عادي/تالف/استبدال
   returnReason: z.enum(['NORMAL', 'DAMAGED', 'EXCHANGE']).optional(),
@@ -207,7 +211,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         installments: { orderBy: { seq: 'asc' } },
         items: { include: { product: { select: { id: true, name: true, code: true, unit: true } } } },
         receiptItems: { include: { receipt: true } },
-        signature: { select: { image: true, createdAt: true } },
+        signature: { select: { image: true, repImage: true, createdAt: true } },
       },
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
@@ -262,9 +266,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!salesRepId) { res.status(400).json({ success: false, message: 'يجب تحديد المندوب' }); return; }
 
     // توقيع المستلم: ميزةٌ يفعّلها المالك — ولا توقيع على مرتجع (المستلم هناك المندوب لا العميل)
-    const signatureImage = body.recipientSignature && body.type !== 'RETURN'
-      && (await prisma.tenant.findUnique({ where: { id: tid }, select: { invoiceSignatureEnabled: true } }))?.invoiceSignatureEnabled === true
-      ? body.recipientSignature : null;
+    const signatureOn = (!!body.recipientSignature || !!body.repSignature) && body.type !== 'RETURN'
+      && (await prisma.tenant.findUnique({ where: { id: tid }, select: { invoiceSignatureEnabled: true } }))?.invoiceSignatureEnabled === true;
+    const signatureImages = signatureOn
+      ? { image: body.recipientSignature ?? null, repImage: body.repSignature ?? null }
+      : null;
 
     const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
@@ -445,7 +451,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             },
           }),
           notes: body.notes,
-          ...(signatureImage && { signature: { create: { tenantId: tid, image: signatureImage } } }),
+          ...(signatureImages && { signature: { create: { tenantId: tid, ...signatureImages } } }),
           pricesIncludeTax: body.pricesIncludeTax,
           subtotal,
           discountPct: body.discountPct,
@@ -469,7 +475,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             })),
           },
         },
-        include: { items: true, customer: true, installments: { orderBy: { seq: 'asc' } }, signature: { select: { image: true } } },
+        include: { items: true, customer: true, installments: { orderBy: { seq: 'asc' } }, signature: { select: { image: true, repImage: true } } },
       });
 
       if (isReturn) {

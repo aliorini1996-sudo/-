@@ -1927,6 +1927,10 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'مسح التوقيع': { en: 'Clear signature', fr: 'Effacer la signature', tr: 'Imzayi temizle', zh: '清除签名' },
   'وقع هنا': { en: 'Sign here', fr: 'Signez ici', tr: 'Buraya imzalayin', zh: '请在此签名' },
   'تفعيل توقيع المستلم على فواتير المندوب لهذه الشركة': { en: 'Enable recipient signature on rep invoices for this company', fr: 'Activer la signature du destinataire sur les factures des commerciaux pour cette societe', tr: 'Bu sirket icin temsilci faturalarinda alici imzasini etkinlestir', zh: '为该公司启用业务员发票的收货人签名' },
+  // ——— توقيع المندوب بجانب توقيع المستلم ———
+  'المستلم': { en: 'Recipient', fr: 'Destinataire', tr: 'Alici', zh: '收货人' },
+  'اختياري يوقع المندوب ويظهر توقيعه آخر الفاتورة': { en: 'Optional, the rep signs and the signature appears at the end of the invoice', fr: 'Facultatif, le commercial signe et sa signature apparait en bas de la facture', tr: 'Istege bagli, temsilci imzalar ve imzasi faturanin sonunda gorunur', zh: '可选，业务员签名，签名显示在发票末尾' },
+  'توقيع المندوب هنا': { en: 'Rep signs here', fr: 'Le commercial signe ici', tr: 'Temsilci buraya imzalar', zh: '业务员在此签名' },
 };
 
 export function useTr() {

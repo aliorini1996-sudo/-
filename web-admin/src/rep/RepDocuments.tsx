@@ -70,6 +70,8 @@ export interface InvoiceDoc {
   deliveryDate?: string; // تاريخ التسليم — يُعرض ويُطبع فقط إن حُدد
   /** توقيع المستلم اليدويّ (PNG base64) — يُطبع آخر الفاتورة مكان سطر «توقيع المستلم» */
   recipientSignature?: string | null;
+  /** توقيع المندوب اليدويّ (PNG base64) — يُطبع مكان سطر «توقيع المندوب» */
+  repSignature?: string | null;
   company?: Company | null;
   customer: DocCustomer;
   repName: string;
@@ -510,16 +512,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         </div>
       )}
 
-      <div style={{ marginTop: isSignatureSrc(doc.recipientSignature) ? 28 : 60, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', color: '#6b7280', fontSize: 13 }}>
-        {isSignatureSrc(doc.recipientSignature) ? (
-          <div style={{ textAlign: 'center', minWidth: 170 }}>
-            <img src={doc.recipientSignature} alt="" style={{ display: 'block', margin: '0 auto', height: 64, maxWidth: 220, objectFit: 'contain' }} />
-            <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: 4, marginTop: 2 }}>{tr('توقيع المستلم')}</div>
-          </div>
-        ) : (
-          <div>{tr('توقيع المستلم')}: ........................</div>
-        )}
-        <div>{tr('توقيع المندوب')}: ........................</div>
+      <div style={{ marginTop: isSignatureSrc(doc.recipientSignature) || isSignatureSrc(doc.repSignature) ? 28 : 60, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', color: '#6b7280', fontSize: 13 }}>
+        <SignatureSlot src={doc.recipientSignature} label={tr('توقيع المستلم')} />
+        <SignatureSlot src={doc.repSignature} label={tr('توقيع المندوب')} />
       </div>
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
@@ -1016,6 +1011,17 @@ function Row({ label, value, color }: { label: string; value: string; color?: st
   );
 }
 
+/** خانة توقيع آخر الفاتورة: الصورة فوق خطٍّ وتسمية، أو سطر نقاطٍ للتوقيع باليد على الورق */
+function SignatureSlot({ src, label }: { src?: string | null; label: string }) {
+  if (!isSignatureSrc(src)) return <div>{label}: ........................</div>;
+  return (
+    <div style={{ textAlign: 'center', minWidth: 170 }}>
+      <img src={src} alt="" style={{ display: 'block', margin: '0 auto', height: 64, maxWidth: 220, objectFit: 'contain' }} />
+      <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: 4, marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+
 /** صورة توقيعٍ صالحة للعرض: PNG base64 كما تصدرها لوحة التوقيع ويقبلها الخادم */
 export const isSignatureSrc = (v: unknown): v is string =>
   typeof v === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(v);
@@ -1028,6 +1034,7 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     date: inv.invoiceDate,
     deliveryDate: inv.deliveryDate ?? undefined,
     recipientSignature: inv.signature?.image ?? null,
+    repSignature: inv.signature?.repImage ?? null,
     type: inv.type === 'RETURN' ? 'CREDIT' : inv.type,
     isReturn: inv.type === 'RETURN',
     company: company ?? null,

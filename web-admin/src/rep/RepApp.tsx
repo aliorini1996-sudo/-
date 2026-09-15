@@ -1216,7 +1216,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * يُربط بإجماليّ الفاتورة لحظة التوقيع: تعديل الأصناف بعده يُسقطه فيُطلب توقيعٌ جديد،
    * كي لا يُطبع توقيع العميل تحت فاتورةٍ غير التي وقّع عليها */
   const signatureOn = !isReturn && (company as { invoiceSignatureEnabled?: boolean } | null)?.invoiceSignatureEnabled === true;
-  const [signature, setSignature] = useState<{ png: string; total: number } | null>(null);
+  // توقيعان مستقلّان: المستلم (العميل) والمندوب — مبدّلٌ صغير يختار أيّهما تُرسم عليه اللوحة
+  const [signatures, setSignatures] = useState<{ recipient?: { png: string; total: number }; rep?: { png: string; total: number } }>({});
+  const [sigWho, setSigWho] = useState<'recipient' | 'rep'>('recipient');
   const [sigPadKey, setSigPadKey] = useState(0);
   const [sigDropped, setSigDropped] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
@@ -1325,10 +1327,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const tax = repCalc.taxAmt;
   const total = repCalc.total;
   useEffect(() => {
-    if (signature && Math.abs(signature.total - total) > 0.001) {
-      setSignature(null); setSigPadKey(k => k + 1); setSigDropped(true);
+    const signed = [signatures.recipient, signatures.rep].filter(Boolean) as { total: number }[];
+    if (signed.some(s => Math.abs(s.total - total) > 0.001)) {
+      setSignatures({}); setSigPadKey(k => k + 1); setSigDropped(true);
     }
-  }, [total, signature]);
+  }, [total, signatures]);
 
   // زرّ الرجوع داخل النموذج: الماسح أولاً (يغطّي الرأس) ثم السلّة
   useBackClose(showScanner, () => setShowScanner(false));
@@ -1366,7 +1369,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       pricesIncludeTax: true,
       items: lines.map(l => ({ productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
       ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
-      ...(signatureOn && signature && { recipientSignature: signature.png }), // يُهمَل في الخادم إن أُطفئت الميزة
+      // يُهمَلان في الخادم إن أُطفئت الميزة
+      ...(signatureOn && signatures.recipient && { recipientSignature: signatures.recipient.png }),
+      ...(signatureOn && signatures.rep && { repSignature: signatures.rep.png }),
       ...(!isReturn && plan === 'INSTALLMENT' && {
         paymentPlan: 'INSTALLMENT' as const,
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
@@ -1389,6 +1394,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       onDone({
         kind: 'invoice', number: inv.number, date: inv.invoiceDate, deliveryDate: inv.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
         recipientSignature: inv.signature?.image ?? null,
+        repSignature: inv.signature?.repImage ?? null,
         paymentPlan: inv.paymentPlan ?? null,
         installments: Array.isArray(inv.installments)
           ? inv.installments.map((r: any) => ({ seq: Number(r.seq), dueDate: r.dueDate, amount: Number(r.amount) }))
@@ -1410,7 +1416,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         const paid = type === 'CASH' && !isReturn ? total : 0;
         onDone({
           kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, deliveryDate: deliveryDate || undefined, type, isReturn,
-          recipientSignature: signatureOn && signature ? signature.png : null,
+          recipientSignature: signatureOn && signatures.recipient ? signatures.recipient.png : null,
+          repSignature: signatureOn && signatures.rep ? signatures.rep.png : null,
           company, customer, repName, items: printItems,
           subtotal, discount, tax, total,
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
@@ -1599,14 +1606,36 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             )}
             {signatureOn && (
               <div className="bg-white rounded-xl p-3 mt-2 border border-gray-100">
-                <p className="text-[11px] font-bold text-gray-600 mb-1">{tr('توقيع المستلم')}</p>
-                <p className="text-[10px] text-gray-400 mb-2">{tr('اختياري يوقع العميل بإصبعه ويظهر التوقيع آخر الفاتورة')}</p>
-                {sigDropped && !signature && (
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="text-[11px] font-bold text-gray-600">{sigWho === 'recipient' ? tr('توقيع المستلم') : tr('توقيع المندوب')}</p>
+                  {/* مبدّل صغير: أيّ التوقيعين تُرسم عليه اللوحة — نقطةٌ خضراء على ما وُقّع */}
+                  <div className="inline-flex items-center bg-gray-100 rounded-full p-0.5" role="tablist">
+                    {(['recipient', 'rep'] as const).map(who => (
+                      <button key={who} type="button" role="tab" aria-selected={sigWho === who}
+                        onClick={() => setSigWho(who)}
+                        className={`flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2.5 py-1 transition ${
+                          sigWho === who ? 'bg-[#E15A30] text-white shadow-sm' : 'text-gray-500'}`}>
+                        {who === 'recipient' ? tr('المستلم') : tr('المندوب')}
+                        {signatures[who] && <span className={`w-1.5 h-1.5 rounded-full ${sigWho === who ? 'bg-white' : 'bg-green-500'}`} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-400 mb-2">
+                  {sigWho === 'recipient'
+                    ? tr('اختياري يوقع العميل بإصبعه ويظهر التوقيع آخر الفاتورة')
+                    : tr('اختياري يوقع المندوب ويظهر توقيعه آخر الفاتورة')}
+                </p>
+                {sigDropped && !signatures.recipient && !signatures.rep && (
                   <p className="text-[11px] text-amber-600 mb-2">{tr('عدلت الأصناف بعد التوقيع فأزيل التوقيع اطلب من العميل التوقيع مجددا')}</p>
                 )}
-                <SignaturePad key={sigPadKey} value={signature?.png ?? null}
-                  onChange={png => { setSignature(png ? { png, total } : null); if (png) setSigDropped(false); }}
-                  clearLabel={tr('مسح التوقيع')} placeholder={tr('وقع هنا')} />
+                <SignaturePad key={`${sigWho}-${sigPadKey}`} value={signatures[sigWho]?.png ?? null}
+                  onChange={png => {
+                    const who = sigWho;
+                    setSignatures(s => ({ ...s, [who]: png ? { png, total } : undefined }));
+                    if (png) setSigDropped(false);
+                  }}
+                  clearLabel={tr('مسح التوقيع')} placeholder={sigWho === 'recipient' ? tr('وقع هنا') : tr('توقيع المندوب هنا')} />
               </div>
             )}
             {!isReturn && plan === 'INSTALLMENT' && (

@@ -24,6 +24,7 @@ test('المخطّط: مفتاحٌ لكل شركة مطفأ افتراضياً،
   const model = s.match(/model InvoiceSignature \{[\s\S]*?\n\}/);
   assert.ok(model, 'جدول التوقيع غير موجود');
   assert.match(model![0], /invoiceId\s+String\s+@id/);
+  assert.match(model![0], /repImage\s+String\?/);
   assert.match(model![0], /onDelete: Cascade/);
   const invoice = s.match(/model Invoice \{[\s\S]*?\n\}/)![0];
   assert.doesNotMatch(invoice, /\n\s+(recipientSignature|signatureImage)\s+String/, 'صورة التوقيع عمودٌ في جدول الفواتير');
@@ -31,18 +32,21 @@ test('المخطّط: مفتاحٌ لكل شركة مطفأ افتراضياً،
 
 test('الخادم: التوقيع يُحفظ فقط والمفتاح مفعّل، ولا توقيع على مرتجع، والصيغة PNG محدودة الحجم', () => {
   const src = read('src', 'routes', 'invoices.ts');
-  assert.match(src, /recipientSignature: z\.string\(\)\.max\(300_000/);
+  assert.match(src, /const signaturePng = z\.string\(\)\.max\(300_000/);
   assert.match(src, /data:image\\\/png;base64/);
-  const gate = src.slice(src.indexOf('const signatureImage'), src.indexOf('const signatureImage') + 400);
+  assert.match(src, /recipientSignature: signaturePng,/);
+  assert.match(src, /repSignature: signaturePng,/);
+  const gate = src.slice(src.indexOf('const signatureOn'), src.indexOf('const signatureOn') + 500);
   assert.match(gate, /body\.type !== 'RETURN'/);
   assert.match(gate, /invoiceSignatureEnabled === true/);
-  assert.match(src, /\.\.\.\(signatureImage && \{ signature: \{ create: \{ tenantId: tid, image: signatureImage \} \} \}\)/);
+  assert.match(gate, /image: body\.recipientSignature \?\? null, repImage: body\.repSignature \?\? null/);
+  assert.match(src, /\.\.\.\(signatureImages && \{ signature: \{ create: \{ tenantId: tid, \.\.\.signatureImages \} \} \}\)/);
 });
 
 test('الخادم: التفصيل يُرجع التوقيع، والشركة تعرف المفتاح، والمالك يستطيع تبديله', () => {
   const inv = read('src', 'routes', 'invoices.ts');
   const detail = inv.slice(inv.indexOf("router.get('/:id'"), inv.indexOf("router.post('/'"));
-  assert.match(detail, /signature: \{ select: \{ image: true/);
+  assert.match(detail, /signature: \{ select: \{ image: true, repImage: true/);
   assert.match(read('src', 'routes', 'company.ts'), /invoiceSignatureEnabled: tenant\?\.invoiceSignatureEnabled === true/);
   assert.match(read('src', 'routes', 'tenants.ts'), /invoiceSignatureEnabled: z\.boolean\(\)\.optional\(\)/);
 });
@@ -51,9 +55,11 @@ test('الواجهة: اللوحة خلف المفتاح الصريح وليست
   const app = read('..', 'web-admin', 'src', 'rep', 'RepApp.tsx');
   assert.match(app, /const signatureOn = !isReturn && \(company as \{ invoiceSignatureEnabled\?: boolean \} \| null\)\?\.invoiceSignatureEnabled === true;/);
   assert.match(app, /recipientSignature: inv\.signature\?\.image \?\? null/);
-  // تعديل الأصناف بعد التوقيع يُسقطه
-  assert.match(app, /Math\.abs\(signature\.total - total\) > 0\.001/);
+  assert.match(app, /repSignature: inv\.signature\?\.repImage \?\? null/);
+  // تعديل الأصناف بعد التوقيع يُسقط التوقيعين معاً
+  assert.match(app, /signed\.some\(s => Math\.abs\(s\.total - total\) > 0\.001\)/);
   const docs = read('..', 'web-admin', 'src', 'rep', 'RepDocuments.tsx');
   assert.match(docs, /recipientSignature: inv\.signature\?\.image \?\? null/);
+  assert.match(docs, /repSignature: inv\.signature\?\.repImage \?\? null/);
   assert.match(docs, /isSignatureSrc\(doc\.recipientSignature\)/);
 });

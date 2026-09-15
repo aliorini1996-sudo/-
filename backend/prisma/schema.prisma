@@ -2426,14 +2426,15 @@ model IssuedQuote {
   @@map("issued_quotes")
 }
 
-// توقيع المستلم اليدويّ على فاتورة (تطبيق المندوب، خلف Tenant.invoiceSignatureEnabled).
+// توقيعا المستلم والمندوب اليدويّان على فاتورة (تطبيق المندوب، خلف Tenant.invoiceSignatureEnabled).
 // جدولٌ مستقلّ لا عمودٌ في invoices: صورةٌ بعشرات الكيلوبايت كانت ستُحمَّل مع كل سطرٍ
 // في قوائم الفواتير وتقاريرها (findMany بلا select يجلب كل الأعمدة)، وتُقرأ هنا في التفصيل وحده.
 model InvoiceSignature {
   invoiceId String   @id
   invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   tenantId  String
-  image     String // data:image/png;base64 — مقصوصٌ على حدود الخطّ
+  image     String? // توقيع المستلم: data:image/png;base64 مقصوصٌ على حدود الخطّ
+  repImage  String? // توقيع المندوب — أحد التوقيعين يكفي لإنشاء السجلّ
   createdAt DateTime @default(now())
 
   @@index([tenantId])

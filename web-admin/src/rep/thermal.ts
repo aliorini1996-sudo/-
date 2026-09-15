@@ -130,7 +130,9 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
       <div class="row muted"><span>المدفوع</span><span>${money(doc.paidAmt ?? 0)}</span></div>
       <div class="row muted"><span>المتبقي</span><span>${money(doc.remainingAmt)}</span></div>` : ''}
     <div class="sep"></div>
-    ${isSignatureSrc(doc.recipientSignature) ? `<div class="c"><img src="${esc(doc.recipientSignature)}" alt="" style="max-width:70%;max-height:60px"><div class="muted">توقيع المستلم</div></div><div class="sep"></div>` : ''}
+    ${[[doc.recipientSignature, 'توقيع المستلم'], [doc.repSignature, 'توقيع المندوب']].map(([src, label]) => isSignatureSrc(src)
+      ? `<div class="c"><img src="${esc(src)}" alt="" style="max-width:70%;max-height:60px"><div class="muted">${label}</div></div><div class="sep"></div>`
+      : '').join('')}
     ${qr}
     <div class="c muted">${esc(doc.company?.name || '')}</div>
     <div class="c muted">شكرا لتعاملكم معنا</div>
