@@ -48,6 +48,7 @@ model Tenant {
   paylinkFeeFlat            Float     @default(1) // الريال الثابت لكل دفعة — شامل الضريبة
   dailyReportEnabled        Boolean   @default(false) // التقرير اليومي للمندوب وسلسلة اعتماده — يفعّلها المالك لكل شركة حسب الاشتراك
   invoiceSignatureEnabled   Boolean   @default(false) // توقيع المستلم اليدويّ على فواتير تطبيق المندوب (يُطبع آخر الفاتورة) — يفعّله المالك لكل شركة
+  accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -146,6 +147,16 @@ model Admin {
   /// وهي **أخطر من نظائرها**: من يملكها يجعل نفسه مستقبِل كل التقارير
   /// عند كل عقدة ثم يعتمدها بنفسه — فاسحبها ممّن لا يبني المسار.
   canManageDailyReport     Boolean @default(true)
+
+  /// صلاحيات النظام المحاسبي المتكامل (الدفاتر) — **`false` افتراضاً خلافاً لنظائرها**:
+  /// الدفاتر ميزة جديدة لا يُمنح أحدٌ مفاتيحها بالنشر. مالك الشركة (ADMIN مع
+  /// canManageCompanyUsers) يملكها ضمناً في الحارس، وغيره يلزمه `true` الصريحة.
+  canViewLedger          Boolean @default(false)
+  canPostJournals        Boolean @default(false)
+  canManagePayables      Boolean @default(false)
+  canManageBank          Boolean @default(false)
+  canCloseLedgerPeriods  Boolean @default(false)
+  canConfigureLedger     Boolean @default(false)
 
   // عزل نطاق المستخدم الإداري: عند التفعيل لا يرى إلا العملاء والمناديب
   // المُسنَدين له (AdminCustomerScope / AdminRepScope). افتراضي false ⇒ كل

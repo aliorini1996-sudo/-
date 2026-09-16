@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../config/database';
 import { AuthRequest, AuthPayload } from '../types';
 import { bumpRequest } from '../services/requestCounter';
+import { ledgerPermissionDecision, LedgerKey } from '../services/gl/permissions';
 
 export type AdminPermission =
   | 'canAccessDashboard'
@@ -16,7 +17,15 @@ export type AdminPermission =
   | 'canManageTracking'
   | 'canManageCompanySettings'
   | 'canManageCompanyUsers'
-  | 'canManageDailyReport';
+  | 'canManageDailyReport'
+  // صلاحيات الدفاتر — تُحرس بـrequireLedgerPermission لا بـrequireAdminPermission
+  // (ذاك يمنع عند === false وحدها ويتجاهل الدور، وهذه افتراضها false)
+  | 'canViewLedger'
+  | 'canPostJournals'
+  | 'canManagePayables'
+  | 'canManageBank'
+  | 'canCloseLedgerPeriods'
+  | 'canConfigureLedger';
 
 const COMPANY_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT'];
 
@@ -185,4 +194,59 @@ export async function requireAccounting(req: AuthRequest, res: Response, next: N
     }
     next();
   } catch (err) { next(err); }
+}
+
+/**
+ * النظام المحاسبي المتكامل — مطفأ افتراضياً: الشرط `!== true` (نمط requireDailyReport).
+ * ويشترط أيضاً ألا يكون النظام المحاسبي (accountingEnabled) مطفأً صراحةً.
+ * tenantId من req.user مباشرةً: tenantId(req) ترمي للسوبر أدمن فتحوّل 403 إلى 500.
+ */
+export async function requireAccountingSuite(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const tid = req.user?.tenantId;
+    if (!tid) { next(); return; }
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingSuiteEnabled: true, accountingEnabled: true } });
+    if (t?.accountingSuiteEnabled !== true || t?.accountingEnabled === false) {
+      res.status(403).json({ success: false, code: 'ACCOUNTING_SUITE_NOT_ALLOWED', message: 'النظام المحاسبي المتكامل غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
+/**
+ * صلاحية الدفاتر (§9.1) — يُقرأ المستخدم من القاعدة لا من التوكن، والمسند الصرف
+ * `ledgerPermissionDecision` يطابق `canLedger` في الويب:
+ * مقيّد النطاق ⇒ LEDGER_SCOPED_ADMIN؛ مالك الشركة (ADMIN مع canManageCompanyUsers)
+ * يمرّ؛ canViewLedger يمرّ بأيٍّ من الست؛ غير ذلك true الصريحة وحدها ⇒ وإلا
+ * LEDGER_PERMISSION_DENIED. المندوب يمنعه requireAdmin قبله في سلسلة الموجّه.
+ */
+export function requireLedgerPermission(key: LedgerKey) {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const tid = req.user?.tenantId;
+      if (!req.user || !tid || !COMPANY_ROLES.includes(req.user.role)) {
+        res.status(403).json({ success: false, code: 'LEDGER_PERMISSION_DENIED', message: 'لا تملك صلاحية الوصول لهذا القسم' });
+        return;
+      }
+      const admin = await prisma.admin.findUnique({
+        where: { id: req.user.id },
+        select: {
+          isActive: true, tenantId: true, role: true, canManageCompanyUsers: true, scopeEnabled: true,
+          canViewLedger: true, canPostJournals: true, canManagePayables: true,
+          canManageBank: true, canCloseLedgerPeriods: true, canConfigureLedger: true,
+        },
+      });
+      const decision = ledgerPermissionDecision(admin, key, tid);
+      if (decision === 'SCOPED') {
+        res.status(403).json({ success: false, code: 'LEDGER_SCOPED_ADMIN', message: 'الدفاتر على مستوى الشركة كلها وحسابك مقيد بنطاق محدد' });
+        return;
+      }
+      if (decision !== 'ALLOW') {
+        res.status(403).json({ success: false, code: 'LEDGER_PERMISSION_DENIED', message: 'لا تملك صلاحية الوصول لهذا القسم' });
+        return;
+      }
+      next();
+    } catch (err) { next(err); }
+  };
 }

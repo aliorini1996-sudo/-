@@ -64,7 +64,7 @@ const signupSchema = z.object({
 });
 const TRIAL_DAYS = 10;
 
-const adminPermissionSelect = {
+export const adminPermissionSelect = {
   canAccessDashboard: true,
   canManageCustomers: true,
   canManageProducts: true,
@@ -79,7 +79,29 @@ const adminPermissionSelect = {
   // بدونها لا تصل الواجهةَ الصلاحيةُ الجديدة، فيبقى تبويب «الإعداد» ظاهراً
   // لمن يمنعه الخادم — يضغطه فيرى صفحةً فارغة بلا سببٍ مفهوم.
   canManageDailyReport: true,
+  // صلاحيات الدفاتر — افتراضها false، فتُنشر في الدخول بـ?? false (جلسة قديمة أو صف بلا عمود)
+  canViewLedger: true,
+  canPostJournals: true,
+  canManagePayables: true,
+  canManageBank: true,
+  canCloseLedgerPeriods: true,
+  canConfigureLedger: true,
 } as const;
+
+// مفاتيح يكون غيابها منعاً لا سماحاً — `canLedger` في الويب يقرأ true الصريحة وحدها
+export const LEDGER_PERMISSION_KEYS = new Set(['canViewLedger', 'canPostJournals', 'canManagePayables', 'canManageBank', 'canCloseLedgerPeriods', 'canConfigureLedger']);
+
+/**
+ * حقول الصلاحيات ونطاق المستخدم كما تصل الويب — مصدر واحد للدخول والانتحال والتسجيل،
+ * فلا يُخفي الويب عنصراً يسمح به الخادم (§9.1: الانتحال يمرّ كصاحب الحساب).
+ */
+export function adminPermissionFields(admin: Record<string, unknown>) {
+  return {
+    ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, LEDGER_PERMISSION_KEYS.has(key) ? ((admin as any)[key] ?? false) : (admin as any)[key]])),
+    // مقيّد النطاق لا يرى الدفاتر (LEDGER_SCOPED_ADMIN) — الواجهة تحتاجه لتطابق الخادم
+    scopeEnabled: (admin as any).scopeEnabled ?? false,
+  };
+}
 
 function signToken(payload: object): string {
   const secret = process.env.JWT_SECRET;
@@ -150,7 +172,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
             tenantId: admin.tenantId,
             companyName: admin.tenant.name,
             emailVerified: (admin as any).emailVerified ?? true,
-            ...Object.fromEntries(Object.keys(adminPermissionSelect).map(key => [key, (admin as any)[key]])),
+            ...adminPermissionFields(admin),
           },
         },
       });
@@ -328,7 +350,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
       success: true,
       data: {
         token,
-        user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, companyName: created.tenant.name, emailVerified: false },
+        user: { id: created.admin.id, name: created.admin.name, email: created.admin.email, role: created.admin.role, tenantId: created.tenant.id, companyName: created.tenant.name, emailVerified: false, ...adminPermissionFields(created.admin) },
         trialEndsAt,
         trialDays: TRIAL_DAYS,
         mailSent,
@@ -431,7 +453,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
     } else {
       const admin = await prisma.admin.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, role: true, tenantId: true, emailVerified: true, ...adminPermissionSelect }
+        select: { id: true, name: true, email: true, role: true, tenantId: true, emailVerified: true, scopeEnabled: true, ...adminPermissionSelect }
       });
       res.json({ success: true, data: admin });
     }

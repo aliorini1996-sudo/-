@@ -49,6 +49,9 @@ const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
 const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
+// النظام المحاسبي المتكامل — كل مسار /app/ledger ملفوف بـLedgerRoute لا PermissionRoute (§8.1)
+const LedgerRoute = lazy(() => import('./components/ledger/LedgerRoute'));
+const LedgerComingSoonPage = lazy(() => import('./pages/ledger/LedgerComingSoonPage'));
 // مُصدِر عروض الأسعار السريع — رابطٌ خاصّ غير مُدرج للمالك وموظّفي المبيعات
 const QuotePage = lazy(() => import('./pages/QuotePage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
@@ -281,6 +284,7 @@ export default function App() {
           <Route path="paylink" element={<PermissionRoute permission="canManageReceipts"><PaylinkPage /></PermissionRoute>} />
           <Route path="hatif" element={<PermissionRoute permission="canManageCompanySettings"><HatifPage /></PermissionRoute>} />
           <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />
+          <Route path="ledger" element={<LedgerRoute perm="canViewLedger"><LedgerComingSoonPage /></LedgerRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

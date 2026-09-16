@@ -8,6 +8,8 @@ import ResetPasswordModal from '../components/ResetPasswordModal';
 import UserScopeModal from '../components/UserScopeModal';
 import { useAuthStore } from '../store/authStore';
 import { useAccountingOn } from '../components/AccountingGate';
+import { useLedgerOn } from '../components/LedgerGate';
+import { ledgerPermissionItems } from '../lib/ledger/labels';
 import { CompanyUser } from '../types';
 import { formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -31,6 +33,13 @@ type FormValues = {
   canManageCompanySettings: boolean;
   canManageCompanyUsers: boolean;
   canManageDailyReport: boolean;
+  // صلاحيات الدفاتر — افتراضها false، فلا `?? true` إطلاقاً (§9.2)
+  canViewLedger?: boolean;
+  canPostJournals?: boolean;
+  canManagePayables?: boolean;
+  canManageBank?: boolean;
+  canCloseLedgerPeriods?: boolean;
+  canConfigureLedger?: boolean;
 };
 
 const roleLabels: Record<CompanyUser['role'], string> = {
@@ -77,6 +86,9 @@ export default function CompanyUsersPage() {
   // المحاسبة على النقيض: مفعّلة افتراضياً ⇒ `!== false` (تقرأها البوّابة المشتركة)
   const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
   const accountingOn = accountingReady && accountingFlag;
+  // الدفاتر مطفأة افتراضياً — `ledgerOn` لا `accountingOn` (اسمٌ تحرسه اختبارات العدّ)
+  const { on: ledgerFlag, ready: ledgerReady } = useLedgerOn();
+  const ledgerOn = ledgerReady && ledgerFlag;
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected] = useState<CompanyUser | null>(null);
   const [createdCreds, setCreatedCreds] = useState<{ name: string; email: string; password: string } | null>(null);
@@ -198,6 +210,7 @@ export default function CompanyUsersPage() {
         <CompanyUserModal
           dailyReportOn={dailyReportOn}
           accountingOn={accountingOn}
+          ledgerOn={ledgerOn}
           user={selected}
           currentUserId={user.id}
           loading={saveMutation.isPending}
@@ -236,12 +249,13 @@ export default function CompanyUsersPage() {
   );
 }
 
-function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, accountingOn, onClose, onSave }: {
+function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, accountingOn, ledgerOn, onClose, onSave }: {
   user: CompanyUser | null;
   currentUserId?: string;
   loading: boolean;
   dailyReportOn: boolean;
   accountingOn: boolean;
+  ledgerOn: boolean;
   onClose: () => void;
   onSave: (values: FormValues) => void;
 }) {
@@ -269,7 +283,16 @@ function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, account
     canManageCompanySettings: user?.canManageCompanySettings ?? true,
     canManageCompanyUsers: user?.canManageCompanyUsers ?? false,
     canManageDailyReport: user?.canManageDailyReport ?? true,
+    canViewLedger: user?.canViewLedger === true,
+    canPostJournals: user?.canPostJournals === true,
+    canManagePayables: user?.canManagePayables === true,
+    canManageBank: user?.canManageBank === true,
+    canCloseLedgerPeriods: user?.canCloseLedgerPeriods === true,
+    canConfigureLedger: user?.canConfigureLedger === true,
   });
+  const ledgerItems = ledgerPermissionItems(tr);
+  // المدير الذي يملك إدارة المستخدمين يملك الست ضمناً (§9.2 ج): تُعرض مؤشَّرةً ومعطّلة ولا تُرسل
+  const ledgerImplicit = form.role === 'ADMIN' && form.canManageCompanyUsers;
   const [showPass, setShowPass] = useState(false);
   const [err, setErr] = useState('');
 
@@ -281,6 +304,12 @@ function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, account
     if (!form.name.trim()) { setErr(tr('اسم المستخدم مطلوب')); return; }
     if (!form.email.includes('@')) { setErr(tr('البريد الإلكتروني غير صحيح')); return; }
     if (!user && (form.password || '').trim().length < 8) { setErr(tr('كلمة المرور 8 أحرف على الأقل')); return; }
+    // الدفاتر المخفية لا ترسل قيمة (PUT جزئي فتبقى المخزّنة)، وكذا الضمنية للمالك
+    if (!ledgerOn || ledgerImplicit) {
+      const { canViewLedger, canPostJournals, canManagePayables, canManageBank, canCloseLedgerPeriods, canConfigureLedger, ...rest } = form;
+      onSave({ ...rest, name: form.name.trim(), email: form.email.trim(), password: form.password?.trim() || undefined });
+      return;
+    }
     onSave({ ...form, name: form.name.trim(), email: form.email.trim(), password: form.password?.trim() || undefined });
   };
 
@@ -361,6 +390,25 @@ function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, account
               })}
             </div>
           </div>
+          {ledgerOn && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-500 uppercase mb-3">{tr('صلاحيات الدفاتر')}</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {ledgerItems.map(p => (
+                  <label key={p.key} className={`flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm ${ledgerImplicit ? 'text-gray-400' : 'text-gray-700'}`}>
+                    <input
+                      type="checkbox"
+                      checked={ledgerImplicit || form[p.key] === true}
+                      disabled={ledgerImplicit}
+                      onChange={e => set(p.key, e.target.checked)}
+                    />
+                    {p.label}
+                  </label>
+                ))}
+              </div>
+              {ledgerImplicit && <p className="text-xs text-gray-400 mt-2">{tr('المدير الذي يملك إدارة المستخدمين يملك صلاحيات الدفاتر كاملة')}</p>}
+            </div>
+          )}
           {isSelf && <p className="text-xs text-amber-600">{tr('لا يمكنك تعطيل حسابك أو تغيير دورك من هذه النافذة')}</p>}
           {err && <p className="text-[#C0392B] text-xs">{err}</p>}
         </div>

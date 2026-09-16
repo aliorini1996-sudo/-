@@ -20,6 +20,14 @@ export interface User {
   canManageCompanySettings?: boolean;
   canManageDailyReport?: boolean;
   canManageCompanyUsers?: boolean;
+  // صلاحيات الدفاتر — تُقرأ بـcanLedger (true الصريحة وحدها، والغائب منع)
+  canViewLedger?: boolean;
+  canPostJournals?: boolean;
+  canManagePayables?: boolean;
+  canManageBank?: boolean;
+  canCloseLedgerPeriods?: boolean;
+  canConfigureLedger?: boolean;
+  scopeEnabled?: boolean; // مقيّد النطاق لا يرى الدفاتر (LEDGER_SCOPED_ADMIN)
 }
 
 export interface Tenant {
@@ -38,6 +46,8 @@ export interface Tenant {
   invoiceSignatureEnabled?: boolean; // توقيع المستلم اليدويّ على فواتير المندوب — يُفعّله المالك لكل شركة
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
+  accountingSuiteEnabled?: boolean; // النظام المحاسبي المتكامل (الدفاتر) — مطفأ افتراضياً، وغيابه يعني مطفأ
+  ledgerPilotAllowed?: boolean;  // الشركة في قائمة تجربة الدفاتر (LEDGER_PILOT_TENANTS) — يحسبها الخادم
   subscriptionEndsAt?: string | null;
   notes?: string | null;
   createdAt: string;
@@ -112,6 +122,12 @@ export interface CompanyUser {
   canManageCompanySettings: boolean;
   canManageDailyReport: boolean;
   canManageCompanyUsers: boolean;
+  canViewLedger?: boolean;
+  canPostJournals?: boolean;
+  canManagePayables?: boolean;
+  canManageBank?: boolean;
+  canCloseLedgerPeriods?: boolean;
+  canConfigureLedger?: boolean;
   createdAt: string;
 }
 

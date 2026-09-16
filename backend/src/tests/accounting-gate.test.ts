@@ -29,10 +29,14 @@ test('العمود مُعرَّف بافتراض true — وهو الوحيد ك
 test('الحارس المشترك يمنع عند false الصريحة وحدها — لا عند تعذّر القراءة', () => {
   const s = read('src', 'middleware', 'auth.ts');
   assert.match(s, /export async function requireAccounting/, 'الحارس المشترك مفقود من auth.ts');
-  assert.match(s, /t\?\.accountingEnabled === false/, 'الشرط يجب أن يكون === false');
-  assert.doesNotMatch(s, /if \(!t\?\.accountingEnabled\)/, '`!t?.accountingEnabled` يمنع أيضاً حين يتعذّر قراءة الصف');
+  // جسم requireAccounting وحده — «(» تمنع مطابقة requireAccountingSuite التي تحمل النص نفسه
+  const i = s.indexOf('export async function requireAccounting(');
+  assert.ok(i >= 0, 'الحارس المشترك مفقود');
+  const body = s.slice(i, s.indexOf('\n}', i));
+  assert.match(body, /t\?\.accountingEnabled === false/, 'الشرط يجب أن يكون === false');
+  assert.doesNotMatch(body, /accountingEnabled !== true|!t\?\.accountingEnabled/, '`!t?.accountingEnabled` أو `!== true` يمنع أيضاً حين يتعذّر قراءة الصف');
   // tenantId(req) ترمي للسوبر أدمن فتحوّل 403 إلى 500
-  assert.match(s, /const tid = req\.user\?\.tenantId/, 'اقرأ tenantId من الطلب لا عبر tenantId(req)');
+  assert.match(body, /const tid = req\.user\?\.tenantId/, 'اقرأ tenantId من الطلب لا عبر tenantId(req)');
 });
 
 test('كل راوتر محاسبيّ يركّب الحارس', () => {

@@ -57,6 +57,7 @@ import financeRouter from './routes/finance';
 import waInboxRouter from './routes/waInbox';
 import paymentsRouter, { paymentsWebhookRouter } from './routes/payments';
 import paylinkRouter from './routes/paylink';
+import ledgerRouter from './routes/ledger';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 
@@ -173,6 +174,8 @@ app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/paylink', paylinkRouter);
+// النظام المحاسبي المتكامل — سلسلة الحراسة داخل الموجّه (§9.1)
+app.use('/api/ledger', ledgerRouter);
 app.use('/api/promo-videos', promoVideosRouter);
 app.use('/api/import', importRouter);
 // منصّة صيد العملاء — معزولة (مصادقة وجداول خاصّة بها)

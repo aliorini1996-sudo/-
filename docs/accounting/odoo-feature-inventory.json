@@ -1,0 +1,1431 @@
+{
+ "videoSummary": "Screen recording of about 9 min 40 s (145 frames, one every 4 s). It shows Odoo Accounting on Odoo Online: rya-cafe.odoo.com, database rya-cafe, company 'Rya Cafe', user 'Rayya cafe'. The interface is Arabic, right to left, with developer mode on (?debug=1). It was recorded on 14 Sep 2026 between about 9:56 and 10:05 PM (Monday). The presenter only looks around: nothing is posted, saved or changed.\n00:00-00:28 Home screen with 19 installed apps, including Accounting, Point of Sale, Kitchen Display, Sales, Purchase, Inventory, Barcode, Documents and Employees. Hovering the Accounting tile shows the link /odoo/accounting.\n00:32-00:48 Accounting dashboard with 9 journal cards, filtered by Favorites:\n- Sales: due-date bar chart and a New button.\n- Purchases: email alias purchases@rya-cafe.odoo.com, Upload, New, kebab menu and a due-date chart.\n- Al Rajhi Bank: Balance 408,568.91 SR, Misc operations -344,531.19 SR, Bank setup and Transactions buttons.\n- Miscellaneous Operations: Tax Returns button.\n- Cash (النقديه): Balance 71,906.90 SR, Misc operations -66,774.55 SR, Transactions button.\n- Point of Sale, Tax Adjustments, IFRS 16 Right of Use Asset and Zakat: a New button each.\n00:52-01:04 Configuration > Chart of Accounts (/odoo/action-273). 213 accounts, 80 per page. Columns: Code, Account Name, Type, Allow Reconciliation toggle. A side panel filters by code prefix (1, 2, 3, 4, 5, 9). A debug tooltip on the Account Name header shows field 'name', model account.account, char, required.\n01:08-01:16 Search dropdown. Filters: Receivable, Payable, Equity, Assets, Liability, Income, Expenses, Accounts with entries, Inactive accounts, custom filter. Group By: Account type or a custom field. Favorites: Save current search.\n01:20-02:20 Grouped by account type: 16 types whose counts add up to 213. The Bank and Cash group is expanded (111101 النقدية, 111201 بنك الراجحي), then collapsed.\n02:24-02:44 Accounting menu opened, in three sections:\n- Transactions: Journal Entries.\n- Assets & Liabilities: Assets, Loans.\n- Closing: Reconcile, Tax Returns, Lock Dates..., Secure Entries.\n02:48 Journal Entries list (/odoo/entries): 808 posted entries under the default Posted filter. Each POS session creates three entries: a session entry (POSS/2026/09/xxxx), a combined card-payment entry in Al Rajhi Bank (PBNK1/2026/xxxxx) and a cash entry (CSH2/2026/xxxxx). There are also manual MISC entries for payouts, a profit distribution and expenses.\n02:52-03:52 New manual journal entry (/odoo/entries/new):\n- Fields: Reference, Accounting Date (defaults to today, 14 Sep), Journal (defaults to Miscellaneous Operations).\n- Tabs: Journal Items and Other Info.\n- A line is added (debit and credit 0.00 SR, totals row) and the account autocomplete shows code, name and description.\n- The Post button is hovered but never clicked, and the draft is abandoned.\n03:56-04:56 Back to the list, the presenter opens MISC/2026/09/0006 'ديكور اليوم الوطني' (/odoo/entries/1007):\n- Posted entry: debit 400034 اعلانات 360.00, credit 111201 بنك الراجحي 360.00.\n- Header: Reverse Entry and Reset to Draft buttons, and a 'لا توجد مراجعة' (not reviewed) badge.\n- The attached Al Rajhi transfer receipt PDF is previewed beside the form.\n- Chatter tracking: created on 12 Sep, date changed from 2026/09/12 to 2026/09/10, then number assigned and state set to Posted.\n05:00-05:44 Reporting menu, then Profit and Loss for 2026 (/odoo/profit-and-loss), shown with a banner warning about unposted entries:\n\n| Line | Amount (SR) |\n|---|---|\n| Revenue | 610,001.09 |\n| Cost of Revenue (400071) | 259,999.13 |\n| Gross Profit | 350,001.96 |\n| Operating Expenses (15 accounts, unfolded) | 198,735.24 |\n| Operating Income | 151,266.72 |\n| Other Income | 0.00 |\n| Other Expenses | 47,080.39 |\n| Net Profit | 104,186.33 |\n| Allocations & Drawings (custom line) | 107,396.67 |\n| Remaining profit after allocations (custom line) | -3,210.34 |\n\n05:48-06:12 Date filter: Month, Quarter and Fiscal year presets with previous/next arrows, plus custom dates with day and month pickers. The range is changed to Jul-Dec 2026, then to Jul-Aug 2026 (Revenue 220,171.18, Operating Income 68,021.50).\n06:16-06:52 Balance Sheet as of 14/09/2026 (/odoo/balance-sheet):\n- Assets 542,850.61 = Liabilities 7,315.00 + Equity 535,535.61.\n- Current-year unallocated earnings -3,210.34.\n- Bank and Cash unfolded to 111101 (5,132.35) and 111201 (64,037.72), then folded back.\n06:56-07:00 Reporting menu reopened, then the full Configuration menu. Settings; Accounting section: Chart of Accounts, Taxes, Journals, Currencies, Fiscal Positions, Multi-Ledger, Tax Groups, Tax Units, Account Tags, Accounting Reports, Horizontal Groups, Checks, Financial categories, Depreciation Models, Return Types, Financial Budgets, Online Synchronization. Invoicing section: Payment Terms, Incoterms. The list continues below the visible area.\n07:04-07:12 Settings > Accounting (/odoo/action-294):\n- Fiscal localization package SA Saudi Arabia, with a Reload button.\n- Initial setup: review manually (end-of-year balances) or import (full history).\n- Default taxes: sales tax empty, purchase tax 15%, prices tax-excluded.\n- Tax return periodicity monthly, deadline 7 days after the period, journal Miscellaneous Operations.\n- Cash basis taxes enabled.\n- Further toggles: taxes in company currency (on), GCC formats (off), authorized signatory (off), automatic invoice reminders (off), units of measure and packagings (on), invoice online payment (on), QR codes (off), batch payments (off), auto-validate vendor bills (on), predict vendor bill product (off).\n07:16-08:32 Default Accounts:\n- Bank suspense 116004; internal transfer 100001.\n- Deferred expense 104020 and deferred revenue 201018: journal Miscellaneous Operations, generated on validation, monthly, By Months.\n- Invoice line discount accounts: empty.\n- Early payment discount gain 999997, loss 999998.\n- Product income 410001, expense 511001, down payment account empty.\n- Withholding Tax Base: empty.\n08:36 Inventory Valuation: Periodic (at closing), Manual, Standard Price, valuation account 131100, Inventory Valuation journal.\n08:40-09:00 Back at the Taxes section: rounding set to round per tax, cash basis journal 'ضرائب بأساس نقدي', base tax received account 201030, fiscal country Saudi Arabia. The tax return periodicity dropdown is opened (Monthly, Every 2 months, Quarterly, Every 4 months, Semi-annually, Annually, Fiscal year) and closed without a change.\n09:04-09:36 Reporting > Trial Balance for September 2026 (/odoo/trial-balance). Columns: Opening balance | Debit | Credit | End balance. 22 account rows are visible and the grand totals are below the fold. The presenter hovers the Dashboard menu at 09:32, and the recording ends on the Trial Balance.",
+ "modules": [
+  {
+   "module": "Application Shell & Navigation",
+   "features": [
+    {
+     "id": "NAV-01",
+     "name": "Home app launcher and installed apps",
+     "nameAr": "شاشة التطبيقات الرئيسية والتطبيقات المثبتة",
+     "details": "The home grid (tab 'الرئيسية') shows 19 installed apps: المناقشة Discuss, التقويم Calendar, المواعيد Appointments, المهام المراد تنفيذها To-Do, المعرفة Knowledge, المبيعات Sales, لوحات البيانات Dashboards, نقطة البيع Point of Sale, شاشة المطبخ Kitchen Display, المحاسبة Accounting, المستندات Documents, التخطيط Planning, الشراء Purchase, المخزون Inventory, باركود Barcode, الموظفون Employees, متتبع الرابط Link Tracker, التطبيقات Apps, الإعدادات Settings. Hovering the Accounting tile shows its link https://rya-cafe.odoo.com/odoo/accounting. The app opens on the journal dashboard. Apps that feed accounting here: POS and Kitchen Display (sales), Purchase, Inventory, Sales, Documents.",
+     "evidence": "frames 1-9 (0:00-0:32)",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-02",
+     "name": "Accounting app top menu bar",
+     "nameAr": "شريط القوائم العلوي لتطبيق المحاسبة",
+     "details": "Right to left: the app name and logo المحاسبة, then لوحة البيانات Dashboard (links to /odoo/accounting), العملاء Customers, الموردين Vendors, المحاسبة Accounting, مراجعة Review, إعداد التقارير Reporting, التهيئة Configuration. Only the Accounting, Reporting and Configuration dropdowns were opened. Customers, Vendors and Review were never expanded, so their submenus are unknown.",
+     "evidence": "all frames 9-145 (0:32-9:36); dropdowns opened at frames 38-42, 77, 105, 106, 138; Dashboard hover link at frame 144 (9:32)",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-03",
+     "name": "Accounting menu dropdown (Transactions / Assets & Liabilities / Closing)",
+     "nameAr": "قائمة المحاسبة المنسدلة (المعاملات / الأصول والالتزامات / جاري الإغلاق)",
+     "details": "Items grouped under grey section headers:\n- المعاملات (Transactions): قيود اليومية Journal Entries (/odoo/entries).\n- الأصول والالتزامات (Assets & Liabilities): أصول Assets, القروض Loans.\n- جاري الإغلاق (Closing): تسوية Reconcile, الإقرارات الضريبية Tax Returns, تواريخ الإقفال... Lock Dates (the ellipsis means it opens a dialog), تأمين القيود Secure Entries.\nThis dropdown has no separate Journal Items entry.",
+     "evidence": "frames 38-42 (2:28-2:44)",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-04",
+     "name": "Reporting menu dropdown",
+     "nameAr": "قائمة إعداد التقارير",
+     "details": "Five groups:\n- تقارير كشف الحساب (Statement Reports): الميزانية العمومية Balance Sheet (/odoo/balance-sheet), الربح والخسارة Profit and Loss (/odoo/profit-and-loss), كشف التدفقات النقدية Cash Flow Statement.\n- دفاتر الأستاذ (Ledgers): ميزان المراجعة Trial Balance (/odoo/trial-balance), دفتر الأستاذ العام General Ledger.\n- تقارير الشركاء (Partner Reports): دفتر الأستاذ العام للشركاء Partner Ledger, المتأخر المدين Aged Receivable, حسابات دائنة مستحقة متأخرة Aged Payable.\n- الضرائب والشؤون المالية (Taxes & Financial): التقرير الضريبي Tax Report, التقرير المالي Financial Report.\n- الإدارة (Management): تحليل الفاتورة Invoice Analysis, تقرير تحليلي Analytic Report, الملخص التنفيذي Executive Summary.",
+     "evidence": "frames 76-77 (5:00-5:04), 94 (6:12), 105 (6:56), 137-138 (9:04-9:08)",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-05",
+     "name": "Configuration menu dropdown",
+     "nameAr": "قائمة التهيئة",
+     "details": "A scrollable dropdown, cut off at the bottom:\n- الإعدادات Settings (/odoo/action-294).\n- المحاسبة (Accounting): شجرة الحسابات Chart of Accounts (/odoo/action-273), الضرائب Taxes, دفاتر اليومية Journals, العملات Currencies, الأوضاع المالية Fiscal Positions, دفتر الأستاذ المتعدد Multi-Ledger, مجموعات الضرائب Tax Groups, الوحدات الضريبية Tax Units, علامات تصنيف الحساب Account Tags, التقارير المحاسبية Accounting Reports, المجموعات الأفقية Horizontal Groups, الفحوصات Checks, الفئات المالية Financial categories, Depreciation Models (untranslated), أنواع الإقرارات Return Types, الميزانيات المالية Financial Budgets, المزامنة عبر الإنترنت Online Synchronization.\n- الفوترة (Invoicing): شروط السداد Payment Terms, الشروط التجارية Incoterms.\nMore items below were not visible. Of these screens, only Chart of Accounts and Settings were opened.",
+     "evidence": "frames 14-15 (0:52-0:56), 106 (7:00)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "NAV-06",
+     "name": "Systray: company/database context, activities, discuss, AI",
+     "nameAr": "شريط النظام: الشركة وقاعدة البيانات والأنشطة والمحادثات والذكاء الاصطناعي",
+     "details": "From the left: company/database badge 'Rya Cafe / rya-cafe' with a database icon, user avatar 'R' named 'Rayya cafe' with a green online dot, developer tools icon, activities clock, Discuss chat icon with a red badge of 4, AI icon, and the debug bug icon. The company switcher itself was never opened.",
+     "evidence": "frames 1-2 (0:00-0:04), 10, 25, 43, 73, 109, 133",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-07",
+     "name": "Friendly URL routes",
+     "nameAr": "روابط الشاشات المقروءة",
+     "details": "Routes seen:\n- Dashboard: /odoo/accounting\n- Chart of Accounts: /odoo/action-273\n- Journal Entries list: /odoo/entries\n- New entry: /odoo/entries/new\n- Entry record: /odoo/entries/1007\n- Profit and Loss: /odoo/profit-and-loss\n- Balance Sheet: /odoo/balance-sheet\n- Trial Balance: /odoo/trial-balance\n- Settings: /odoo/action-294\nAll routes carry ?debug=1.",
+     "evidence": "frames 6, 16, 42-44, 63, 77-78, 95, 106-108, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-08",
+     "name": "Developer mode and technical field tooltips",
+     "nameAr": "وضع المطوّر وتلميحات الحقول التقنية",
+     "details": "The URL carries ?debug=1 and a bug icon shows in the systray. Hovering a list column header shows a technical tooltip: 'بطاقة العنوان: اسم الحساب' (label), 'الحقل: name', 'النموذج: account.account', 'النوع: char', 'السياق: {}', 'مطلوب: True'. Form fields show '?' help tooltips (Reference, Accounting Date, Journal, Prices, Default Taxes, Tax Return Periodicity, Cash Basis, deferrals). Debug mode also shows technical menus (Tax Groups, Account Tags, Accounting Reports, Horizontal Groups), a bug icon in the Trial Balance header, and the Tax Grids column on journal items.",
+     "evidence": "frames 16-17 (1:00-1:04), 44, 63, 106, 108, 139, 145",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-09",
+     "name": "Standard list/search/form interaction patterns",
+     "nameAr": "أنماط القوائم والبحث والنماذج القياسية",
+     "details": "Features that recur across screens:\n- Removable search facets with icons (funnel for a filter, layers for a group-by, star for favorites).\n- A search dropdown with three columns: Filters, Group By, Favorites.\n- Pager 'first-last / total' with previous/next arrows.\n- View switcher icons.\n- Optional-columns toggler at the end of the header.\n- Select-all and per-row checkboxes for bulk actions.\n- Breadcrumbs back to the list, and a record pager inside a form (e.g. 16 / 80).\n- Gear actions menu next to the title.\n- Manual save (cloud icon) and discard (x) on forms.\n- A 'جاري التحميل...' loading toast at bottom-left.\n- Hovered rows highlight.",
+     "evidence": "frames 10, 16-24, 43, 60-63, 73",
+     "confidence": "seen"
+    },
+    {
+     "id": "NAV-10",
+     "name": "Arabic RTL localization, number/date formatting and translation quirks",
+     "nameAr": "الواجهة العربية وتنسيق الأرقام والتواريخ وملاحظات الترجمة",
+     "details": "Layout is fully right to left.\n- Amounts: 2 decimals, comma thousands separators, 'SR' suffix (e.g. 36,147.00 SR). Report negatives are red with a trailing minus (3,210.34-); negatives on the dashboard use a leading minus (-344,531.19).\n- Dates: lists and forms show Arabic-Indic day and month without the year for the current year (١٣ سبتمبر). The chatter shows full dates (١٢ سبتمبر ٢٠٢٦) and time ٩:٥٨ م. Report date labels use Latin digits (14/09/2026). Custom date inputs use Arabic-Indic digits (٠١/٠٧/٢٠٢٦).\n- Literal or wrong translations: عدد (Number), بطاقة عنوان (Label), منشور (for the Post button), الطرد (Package), خصائص خصم الدفع المبكر (for the early payment discount loss account), 'عند تصديق فاتورة المورّد' (used for deferred revenue too).\n- Untranslated English strings: Automatic Invoice Reminders, Withholding / Withholding Tax Base, By Months, Depreciation Models, Previous Years Earnings, Inventory Accounting, Periodic (at closing), Periodic Valuation, Inventory Cost Method, Valuation Account, 'There are ... prior or included in this period', 'end of year balances', 'for full history'.",
+     "evidence": "frames 10, 43-44, 63, 79, 88-92, 96, 108-110, 130, 139",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Accounting Dashboard",
+   "features": [
+    {
+     "id": "DASH-01",
+     "name": "Journal kanban dashboard",
+     "nameAr": "لوحة بيانات دفاتر اليومية (بطاقات)",
+     "details": "Landing page 'لوحة البيانات' at /odoo/accounting. It shows one card per journal in a 3-column grid, pager '1-9 / 9', and a gear actions icon beside the title. The search bar has a default removable 'المفضلات' (Favorites) facet, so only journals marked to show on the dashboard appear. Placeholder 'بحث...'; the filter dropdown was not opened.\n\nCard order, right to left by row:\n- المبيعات, المشتريات, بنك الراجحي\n- عمليات متنوعة, النقديه, Point of Sale\n- Tax Adjustments, IFRS 16 Right of Use Asset, Zakat\n\nCard content depends on journal type:\n- sale/purchase: due-date bar chart plus action buttons\n- bank/cash: Balance and Misc operations figures, a balance trend line chart and Transactions\n- general: a New button\n\nOnly the Sales and Purchases cards have a coloured (purple) side border, which suggests a per-journal colour field. Charts load asynchronously behind a 'جاري التحميل...' toast and then re-render. Journals seen in settings but not on the dashboard: ضرائب بأساس نقدي, تقييم المخزون.",
+     "evidence": "frames 9-14 (0:32-0:52)",
+     "confidence": "seen"
+    },
+    {
+     "id": "DASH-02",
+     "name": "Sales journal card with receivables due-date buckets",
+     "nameAr": "بطاقة دفتر المبيعات مع تقادم المستحقات",
+     "details": "Card titled 'المبيعات' with a 'جديد' (New) button that creates a customer invoice in this journal. The bar chart has 6 buckets, left to right: 'مستحق' (overdue), '7 - 13 سبتمبر', 'هذا الأسبوع' (this week, 14-20 Sep; today is Monday 14 Sep 2026, so buckets are Monday-based weeks), '21 - 27 سبتمبر', '28 سبتمبر - 4 أكتوبر', 'غير مستحق' (not due, later). There are no axis values. Bars are light grey and changed height after loading, which matches Odoo sample-data placeholders; the Balance Sheet shows Receivables 0.00, so there are no open invoices.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "DASH-03",
+     "name": "Purchases journal card",
+     "nameAr": "بطاقة دفتر المشتريات",
+     "details": "Card titled 'المشتريات' with a purple border. It shows the email alias purchases@rya-cafe.odoo.com, a primary 'رفع' (Upload bill document) button, a secondary 'جديد' (New bill) button, and a kebab '⋮' menu whose contents were not shown. Its due-date chart uses the same 6 buckets as Sales (مستحق, 7-13 سبتمبر, هذا الأسبوع, 21-27 سبتمبر, 28 سبتمبر-4 أكتوبر, غير مستحق). Bars are grey sample-style and changed after loading; Payables are 0.00 on the Balance Sheet.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "DASH-04",
+     "name": "Bank journal card (Al Rajhi Bank)",
+     "nameAr": "بطاقة دفتر بنك الراجحي",
+     "details": "Card titled 'بنك الراجحي' with buttons 'إعداد البنك' (Bank setup / connect bank) and 'المعاملات' (Transactions). It shows two figures: 'الرصيد' (Balance) 408,568.91 SR and 'العمليات المنوعة/المتنوعة' (Misc. operations) -344,531.19 SR. Below them is a faint grey balance line chart with no axes, wave-shaped after loading and possibly sample styling. Derived check: 408,568.91 + (-344,531.19) = 64,037.72, exactly the GL balance of 111201 on the Balance Sheet and Trial Balance. So 'Balance' is the bank-transactions (statement lines) balance and 'Misc. operations' is the amount posted directly to the account outside statement lines.",
+     "evidence": "frames 10-13 (0:36-0:48); cross-check frames 100, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "DASH-05",
+     "name": "Cash journal card",
+     "nameAr": "بطاقة دفتر النقدية",
+     "details": "Card titled 'النقديه' with a 'المعاملات' (Transactions) button and no bank-setup button. Figures: 'الرصيد' 71,906.90 SR and 'العمليات المنوعة' -66,774.55 SR. A purple area/line chart with about 28 points trends steadily upward (real data). Derived check: 71,906.90 - 66,774.55 = 5,132.35, the GL balance of 111101 النقدية.",
+     "evidence": "frames 10-13 (0:36-0:48); cross-check frames 100, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "DASH-06",
+     "name": "Miscellaneous Operations card with Tax Returns shortcut",
+     "nameAr": "بطاقة العمليات المتنوعة مع اختصار الإقرارات الضريبية",
+     "details": "Card titled 'عمليات متنوعة' with a single button 'الإقرارات الضريبية' (Tax Returns) and no chart or figures. This journal is also the default for manual entries, tax return closing and deferral entries (see Settings). The Tax Returns screen was not opened.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "DASH-07",
+     "name": "Point of Sale, Tax Adjustments, IFRS 16 and Zakat journal cards",
+     "nameAr": "بطاقات نقطة البيع وتسويات الضريبة وIFRS 16 والزكاة",
+     "details": "Four cards with English names, each with only a 'جديد' (New entry) button and no figures or charts: 'Point of Sale', 'Tax Adjustments', 'IFRS 16 Right of Use Asset', 'Zakat'.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Chart of Accounts",
+   "features": [
+    {
+     "id": "COA-01",
+     "name": "Chart of Accounts list view",
+     "nameAr": "قائمة شجرة الحسابات",
+     "details": "Configuration > شجرة الحسابات at /odoo/action-273 (model account.account).\n- Control panel: primary 'جديد' (New account), 'استيراد' (Import), title with a gear actions menu, search 'بحث...' with a dropdown toggle.\n- Views: list (active) and kanban.\n- Pager '1-80 / 213': 80 per page, 213 accounts.\n- Columns: select-all checkbox, 'رمز' Code, 'اسم الحساب' Account Name (char, required), 'النوع' Type, 'تسوية المدفوعات' Allow Reconciliation (switch), optional-columns toggler.\n- Rows are sorted by code; the first page starts at 100001.",
+     "evidence": "frames 16-17 (1:00-1:04), 25 (1:36), 37 (2:24)",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-02",
+     "name": "Inline Allow Reconciliation toggle per account",
+     "nameAr": "مفتاح السماح بالتسوية لكل حساب",
+     "details": "The 'تسوية المدفوعات' column is a switch in each list row.\n- ON: 100001 الأموال قيد التحويل, 100103 ضريبة القيمة المضافة المدينة, 101003 الإيصالات المستحقة, 101004 المدفوعات المستحقة.\n- OFF: fixed-asset accounts (1001xx), 101005 الخزنة الرئيسية, 101006 الخزنة الرئيسية - العملات الأجنبية.\n- Hidden (blank cell): Bank and Cash accounts 111101 and 111201, so the toggle is hidden for liquidity-type accounts.",
+     "evidence": "frames 16-17 (1:00-1:04), 25-28 (1:36-1:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-03",
+     "name": "Account types (16 in use) driving report placement",
+     "nameAr": "أنواع الحسابات (16 نوعاً) وتحديد موقعها في التقارير",
+     "details": "Types and account counts (total 213):\n- البنك والنقد (Bank and Cash): 2\n- الأصول المتداولة (Current Assets): 25\n- أصول ثابتة (Fixed Assets): 13\n- المدفوعات المسددة مقدمًا (Prepayments): 17\n- المدين (Receivable): 4\n- رأس المال (Equity): 4\n- أرباح السنة الجارية (Current Year Earnings): 3\n- النفقات (Expenses): 90\n- إهلاك (Depreciation): 8\n- تكاليف الإيرادات (Cost of Revenue): 3\n- الدخل (Income): 12\n- دخل آخر (Other Income): 2\n- البطاقة الائتمانية (Credit Card): 4\n- الالتزامات الجارية (Current Liabilities): 20\n- الالتزامات غير الجارية (Non-current Liabilities): 2\n- الدائن (Payable): 4\n\nReport sections follow the type, not the code prefix. For example, 400071 falls under Cost of Revenue while the other 4000xx accounts fall under Operating Expenses. The Balance Sheet still shows lines for types with no balance (e.g. Non-current Assets 0.00). One quirk: 100103 VAT receivable has type Receivable.",
+     "evidence": "frames 16, 21-25 (1:00, 1:20-1:36), 33-37 (2:08-2:24)",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-04",
+     "name": "Group by account type with collapsible groups and counts",
+     "nameAr": "التجميع حسب نوع الحساب مع مجموعات قابلة للطي وعدّاد",
+     "details": "Applying Group By 'نوع الحساب' adds a removable facet with a layers icon. The pager then counts groups ('1-16 / 16') and a 'التعداد' (Count) column appears. Each group header has a caret that expands it to account rows or collapses it. The video expands Bank and Cash (111101 النقدية, 111201 بنك الراجحي, both typed البنك والنقد), then collapses it. Group rows highlight on hover.",
+     "evidence": "frames 20-36 (1:16-2:20)",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-05",
+     "name": "Account code hierarchy side panel",
+     "nameAr": "لوحة جانبية لتسلسل رموز الحسابات",
+     "details": "A collapsible search panel lists 'الكل' (All, selected) and the top-level code roots 1, 2, 3, 4, 5, 9, each with a caret to drill into deeper prefixes. Selecting a node filters the accounts by code prefix. Only the top level was shown.",
+     "evidence": "frames 16-37 (1:00-2:24)",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-06",
+     "name": "Search filters, group-by options and saved favorites",
+     "nameAr": "عوامل التصفية وخيارات التجميع والمفضلات",
+     "details": "Search dropdown with three columns:\n- 'عوامل التصفية' (Filters, funnel icon): المدين Receivable, الدائن Payable, رأس المال Equity, أصول Assets, التزام Liability, الدخل Income, النفقات Expenses. After a separator: 'حساب مع قيود' (Accounts with entries) and 'الحسابات غير النشطة' (Inactive/archived accounts). After another separator: 'فلتر مخصص...' (Add custom filter, a domain builder).\n- 'تجميع حسب' (Group By, layers icon): 'نوع الحساب' (Account type), then 'مجموعة مخصصة' (custom group-by, a field select).\n- 'المفضلات' (Favorites, star icon): 'حفظ البحث الحالي' (Save current search, expandable).",
+     "evidence": "frames 18-21 (1:08-1:20)",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-07",
+     "name": "Import accounts",
+     "nameAr": "استيراد الحسابات",
+     "details": "'استيراد' (Import) button in the Chart of Accounts control panel for bulk-loading accounts from a file. The import wizard was not opened.",
+     "evidence": "frames 16, 25, 37 (1:00, 1:36, 2:24)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "COA-08",
+     "name": "Account selector autocomplete with code, name and description",
+     "nameAr": "منتقي الحساب بالإكمال التلقائي (الرمز والاسم والوصف)",
+     "details": "The Account many2one on a journal item line opens a dropdown of about 8 results, each '<6-digit code> <name>' with an optional grey description line, then 'البحث عن المزيد...' (Search More...). A loading toast shows while it fetches. Examples:\n- 100001 الأموال قيد التحويل\n- 100101 حق استخدام الأصول (IFRS 16)\n- 100102 الاستهلاك المتراكم استخدام حق الأصول (IFRS 16)\n- 100103 ضريبة القيمة المضافة المدينة\n- 100105 بناء: 'تشييد المباني والتكاليف المرتبطة بها'\n- 100106 تأسيس: 'مشتريات التركيبات المتعلقة بالمباني، مثل الألواح الشمسية أو السخانات'\n- 100107 الآلات والأدوات: 'الآلات والأدوات المرتبطة مباشرة بعملك'\n- 100108 الأثاث والمعدات: 'النفقات الكبيرة المتعلقة بأماكن العمل'\nThis confirms that accounts carry a description field.",
+     "evidence": "frames 58-59 (3:48-3:52)",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-09",
+     "name": "6-digit numeric account code scheme",
+     "nameAr": "ترميز الحسابات بستة أرقام",
+     "details": "All codes have 6 digits.\n- 1xxxxx assets: 1001xx fixed assets and IFRS 16; 100103 VAT receivable; 1010xx outstanding receipts/payments and cash boxes; 1020xx receivables; 104020 prepaid; 1111xx cash; 1112xx banks; 116004 bank suspense; 131100 inventory.\n- 2xxxxx liabilities: 200100 accruals; 2010xx payables, owner payable, deferred income 201018, VAT 201030.\n- 3xxxxx equity: 310001 capital; 320001 owner current account; 3400xx owner/partner drawings.\n- 4xxxxx profit and loss: 410001 revenue; 4000xx cost of revenue and expenses.\n- 5xxxxx: 511001 cost of goods (default product expense).\n- 9xxxxx: 999997/999998 cash discount gain/loss.\nThe prefixes are only loosely hierarchical, and report placement follows the account type (COA-03).",
+     "evidence": "frames 16, 25, 58, 63, 80-83, 100, 110, 130, 132, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "COA-10",
+     "name": "Owner and partner equity, current and drawings accounts",
+     "nameAr": "حسابات رأس مال المالك والشريك والجاري والمسحوبات",
+     "details": "Accounts and Trial Balance figures (Sep 2026):\n- 310001 راس المال: -488,745.95\n- 320001 جاري المالك (حسان): -50,000.00\n- 340002 راس مال ( المالك حسان): opening 51,124.67 + Sept debit 25,303.00 = 76,427.67\n- 340003 شريك ( اسامة): 20,125.00 + 10,844.00 = 30,969.00\n- 201003 حسان (المالك), an owner payable: -7,515.00\n\nDerived:\n- 310001 + 320001 = Balance Sheet 'رأس المال' 538,745.95.\n- 340002 + 340003 = 107,396.67, exactly the custom P&L line 'التخصيصات والسحوبات' (so these drawings accounts are reported inside the P&L, probably typed Current Year Earnings, which has 3 accounts).\n- Their September debits (25,303 + 10,844 = 36,147.00) match entry MISC/2026/09/0008 'جزء من ارباح'.",
+     "evidence": "frames 79, 85, 96, 139, 145 (5:12, 5:36, 6:20, 9:12, 9:36)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Journals",
+   "features": [
+    {
+     "id": "JRN-01",
+     "name": "Journals in use and their codes",
+     "nameAr": "دفاتر اليومية المستخدمة ورموزها",
+     "details": "Journals seen:\n- المبيعات: type sale; code not visible.\n- المشتريات: type purchase; alias purchases@rya-cafe.odoo.com.\n- بنك الراجحي: type bank; account 111201. Entries are numbered PBNK1/..., which suggests journal code BNK1 with Odoo's 'P' prefix for payment entries (inference).\n- النقديه: type cash; account 111101; entries CSH2/... (code CSH2, inferred).\n- عمليات متنوعة: type general; code MISC.\n- Point of Sale: code POSS (inferred from numbering).\n- Tax Adjustments, IFRS 16 Right of Use Asset, Zakat: general.\n- ضرائب بأساس نقدي (Cash Basis Taxes): referenced in settings.\n- تقييم المخزون (Inventory Valuation): referenced in settings.",
+     "evidence": "frames 10-13, 43, 60-61, 108, 130, 132",
+     "confidence": "seen"
+    },
+    {
+     "id": "JRN-02",
+     "name": "Per-journal entry sequence formats",
+     "nameAr": "صيغ ترقيم القيود لكل دفتر",
+     "details": "Numbers are prefixed with the journal code.\n- Monthly-reset sequences: POSS/2026/09/0013 (Point of Sale) and MISC/2026/09/0010 (Miscellaneous), format CODE/YYYY/MM/NNNN.\n- Yearly sequences: PBNK1/2026/00187 (Al Rajhi Bank payments) and CSH2/2026/00169 (Cash), format CODE/YYYY/NNNNN.\nThe number is assigned at posting; drafts show 'مسودة'.",
+     "evidence": "frames 43-44 (2:48-2:52), 60-63 (3:56-4:08), 73",
+     "confidence": "seen"
+    },
+    {
+     "id": "JRN-03",
+     "name": "User-defined general journals: Zakat, IFRS 16 ROU asset, Tax Adjustments",
+     "nameAr": "دفاتر عامة مخصصة: الزكاة وأصول حق الاستخدام IFRS 16 وتسويات الضريبة",
+     "details": "Extra general journals that appear on the dashboard with a New entry button: 'Zakat' (Saudi Zakat accrual/settlement), 'IFRS 16 Right of Use Asset' (lease right-of-use asset and lease liability entries) and 'Tax Adjustments' (manual VAT adjustments). They show that multiple miscellaneous journals can be defined. None was opened.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JRN-04",
+     "name": "Journals configuration screen",
+     "nameAr": "شاشة إعداد دفاتر اليومية",
+     "details": "Menu Configuration > دفاتر اليومية (Journals). The journal form (code, type, default account, sequence, dashboard flag, colour, alias) was not opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Journal Entries",
+   "features": [
+    {
+     "id": "JE-01",
+     "name": "Journal Entries list",
+     "nameAr": "قائمة قيود اليومية",
+     "details": "Accounting > قيود اليومية at /odoo/entries (model account.move), covering all journals.\n- Columns: row checkbox, التاريخ Date (e.g. ١٣ سبتمبر), عدد Number, الشريك Partner (empty on every visible row), الرقم المرجعي Reference, دفتر اليومية Journal, الإجمالي Total (e.g. 1,398.00 SR), الحالة Status (green badge مُرحّل), optional-columns toggler.\n- Sorted by date, newest first.\n- 808 posted entries, 80 per page ('1-80 / 808').\n- Clicking a row opens the form.",
+     "evidence": "frames 43 (2:48), 60-62 (3:56-4:04)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-02",
+     "name": "Default Posted filter on journal entries",
+     "nameAr": "تصفية افتراضية على القيود المرحّلة",
+     "details": "The list opens with a removable 'مُرحّل' (Posted) facet (funnel icon), so drafts are hidden by default. There is a free-text 'بحث...' box and a Filters / Group By / Favorites dropdown whose contents were not opened.",
+     "evidence": "frames 43, 60-61 (2:48, 3:56-4:00)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-03",
+     "name": "Alternative views for journal entries",
+     "nameAr": "طرق عرض بديلة للقيود",
+     "details": "The view switcher offers list (active), kanban, pivot, graph and activity. Only the list view was used.",
+     "evidence": "frames 43, 60-61",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "JE-04",
+     "name": "Create manual journal entry",
+     "nameAr": "إنشاء قيد يومية يدوي",
+     "details": "The 'جديد' button opens /odoo/entries/new.\n- Breadcrumb: 'قيود اليومية / مسودة قيد'. The sheet title reads 'مسودة' until posting (no number yet).\n- Icons: gear actions, cloud upload (save), x (discard), and a bookmark icon.\n- Header: primary button labelled 'منشور' (the Post action) and a status bar مسودة (active) → مُرحّل.\n- Fields, each with a '?' tooltip: الرقم المرجعي Reference (free text, empty by default); تاريخ المحاسبة Accounting Date (defaults to today, ١٤ سبتمبر); دفتر اليومية Journal (defaults to عمليات متنوعة).\n- Tabs: عناصر اليومية (Journal Items) and معلومات أخرى (Other Info).\n- The chatter logs 'جاري إنشاء سجل جديد ...' by Rya Cafe at ٩:٥٨ م.\nThe draft was abandoned without being posted.",
+     "evidence": "frames 43-59 (2:48-3:52)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-05",
+     "name": "Draft to Posted workflow with numbering at posting",
+     "nameAr": "دورة المسودة إلى المرحّل مع الترقيم عند الترحيل",
+     "details": "States: مسودة (Draft) and مُرحّل (Posted), shown as a status bar on the form and a green badge in the list. The chatter on MISC/2026/09/0006 shows Number (عدد) None → MISC/2026/09/0006 and Status مسودة → مُرحّل in the same tracking message, so the number is assigned at posting. Posting was never clicked on camera. The rule that debits must equal credits before posting is standard Odoo and was not demonstrated.",
+     "evidence": "frames 44, 59, 63, 73 (2:52, 3:52, 4:08, 4:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-06",
+     "name": "Reverse entry",
+     "nameAr": "عكس القيد",
+     "details": "Posted entries show a header button 'عكس القيد' (Reverse Entry). The reversal wizard (date, journal) was not opened.",
+     "evidence": "frames 63, 73 (4:08, 4:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "JE-07",
+     "name": "Reset to draft",
+     "nameAr": "إعادة التعيين كمسودة",
+     "details": "Posted entries show a header button 'إعادة التعيين كمسودة' (Reset to Draft) so they can be edited again. It was not clicked.",
+     "evidence": "frames 63, 73 (4:08, 4:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "JE-08",
+     "name": "Posted journal entry form",
+     "nameAr": "نموذج القيد المرحّل",
+     "details": "MISC/2026/09/0006 at /odoo/entries/1007.\n- Breadcrumb 'قيود اليومية > MISC/2026/09/0006 (ديكور اليوم الوطني)', so the display name is Number (Reference).\n- Record pager 16 / 80, a جديد button and a gear menu.\n- Header: عكس القيد, إعادة التعيين كمسودة, a 'لا توجد مراجعة' review pill, status مُرحّل.\n- Title MISC/2026/09/0006; Reference ديكور اليوم الوطني; Accounting Date ١٠ سبتمبر; Journal عمليات متنوعة.\n- Lines: 400034 اعلانات, label ديكور اليوم الوطني, debit 360.00 SR, credit 0.00; 111201 بنك الراجحي, same label, debit 0.00, credit 360.00 SR.\n- Totals 360.00 / 360.00.",
+     "evidence": "frames 62-75 (4:04-4:56)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-09",
+     "name": "Source document attachment with side-by-side PDF preview",
+     "nameAr": "إرفاق المستند المصدر ومعاينته بجانب القيد",
+     "details": "The attached PDF is an Al Rajhi Bank 'إيصال التحويل / Transfer Receipt': Al Rajhi Transfers (within Al Rajhi), dated 2026/09/10 10:46 PM, Total Amount 360.00, masked From/To accounts, Remarks ديكور اليوم الوطني, and a QR code. It is embedded in a PDF viewer to the left of the form. Viewer tools: sidebar toggle, search, page 1 of 1, zoom - / +, 'Automatic Zoom', and a '>>' tools menu. The chatter paperclip shows 1 attachment.",
+     "evidence": "frames 63-75 (4:08-4:56)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-10",
+     "name": "Chatter with messages, notes, activities, followers and field tracking",
+     "nameAr": "سجل المحادثة مع الرسائل والملاحظات والأنشطة والمتابعين وتتبّع الحقول",
+     "details": "Buttons: إرسال رسالة (Send message), ملاحظة (Log note), النشاط (Schedule activity). Icons: search messages, attachments (1), followers (1; 0 on a new record). The timeline is grouped by date (اليوم, or ١٢ سبتمبر ٢٠٢٦) and shows the author 'Rya Cafe' with a time. Tracking on MISC/2026/09/0006:\n- 10:24 AM 'قيد اليومية تم إنشائها' (created)\n- 10:27 AM التاريخ changed 2026/09/12 → 2026/09/10\n- 10:27 AM عدد None → MISC/2026/09/0006 and الحالة مسودة → مُرحّل\nThis is the audit trail of the entry.",
+     "evidence": "frames 44-58 (2:52-3:48), 63, 73 (4:08, 4:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-11",
+     "name": "Accounting date different from creation date (backdating)",
+     "nameAr": "تاريخ محاسبي مختلف عن تاريخ الإنشاء (الترحيل بتاريخ سابق)",
+     "details": "The entry was created on 12 Sep and its date changed to 10 Sep (the bank transfer date) before posting. The change is tracked, and the list shows the entry under ١٠ سبتمبر.",
+     "evidence": "frames 61, 63 (4:00, 4:08)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JE-12",
+     "name": "Other Info tab",
+     "nameAr": "تبويب معلومات أخرى",
+     "details": "The 'معلومات أخرى' tab sits next to Journal Items on the entry form but was never opened; its fields are unknown.",
+     "evidence": "frames 44, 63 (2:52, 4:08)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "JE-13",
+     "name": "Manual miscellaneous entries for payouts, profit distribution and expenses",
+     "nameAr": "قيود متنوعة يدوية للسداد وتوزيع الأرباح والمصروفات",
+     "details": "Usage pattern: the cafe books expenses paid from the bank as MISC entries with free-text references and no partner, not as vendor bills. Examples:\n- 'سداد سمية من يوم 28/8/2026 الي 12/9/2026': 3,283.00\n- 'سداد معمل (or معلم) عبد العزيز من يوم 28/8/2026 الي 12/9/2026': 7,428.65\n- 'جزء من ارباح من 28/7/2026 الي 27/8/2026': 36,147.00\n- 'اعمال خارجية للزراعة': 500.00\n- 'ديكور اليوم الوطني': 360.00\n- 'جمعة 28/8/2026 ويوم 4/9/2026': 510.00\nThe September Trial Balance debits (400017 +500, 400022 +510, 340002 +25,303 / 340003 +10,844) match these amounts (derived).",
+     "evidence": "frames 43, 60-61 (2:48, 3:56-4:00), 139",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Journal Items (entry lines)",
+   "features": [
+    {
+     "id": "JI-01",
+     "name": "Editable journal items grid",
+     "nameAr": "جدول بنود القيد القابل للتحرير",
+     "details": "Tab 'عناصر اليومية' with inline-editable rows. Columns: الحساب (Account, many2one showing code + name), بطاقة عنوان (Label), المدين (Debit, SR), الدائن (Credit, SR), شبكات الضرائب (Tax Grids), plus an optional-columns toggler for more fields. A sort/resize handle appears on header hover.",
+     "evidence": "frames 44-59 (2:52-3:52), 63-67 (4:08-4:24)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JI-02",
+     "name": "Add and delete lines",
+     "nameAr": "إضافة البنود وحذفها",
+     "details": "The 'إضافة بند' (Add a line) link inserts a row with the Account input focused and empty, an empty Label, Debit 0.00 SR and Credit 0.00 SR. The link then moves below the row. Each row has a trash icon to delete it. On posted entries, empty rows below the lines highlight on hover.",
+     "evidence": "frames 51-57 (3:20-3:44), 67 (4:24)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JI-03",
+     "name": "Debit and credit totals footer",
+     "nameAr": "صف إجماليات المدين والدائن",
+     "details": "A footer under the grid sums Debit and Credit separately: 0.00 SR / 0.00 SR on the new draft, 360.00 SR / 360.00 SR on the posted entry. The balance check before posting is implied by these totals (standard Odoo).",
+     "evidence": "frames 52-58 (3:24-3:48), 63, 73",
+     "confidence": "seen"
+    },
+    {
+     "id": "JI-04",
+     "name": "Tax grids column on journal items",
+     "nameAr": "عمود شبكات الضرائب على البنود",
+     "details": "The 'شبكات الضرائب' column lets a line be tagged to VAT return report grids. It is empty on the sample expense entry. It shows in debug mode.",
+     "evidence": "frames 44, 63 (2:52, 4:08)",
+     "confidence": "seen"
+    },
+    {
+     "id": "JI-05",
+     "name": "Line label hover tooltip",
+     "nameAr": "تلميح نص البيان عند التمرير",
+     "details": "Hovering a Label cell shows a dark tooltip with the full text ('ديكور اليوم الوطني').",
+     "evidence": "frames 65-66 (4:16-4:20)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "POS Integration",
+   "features": [
+    {
+     "id": "POS-01",
+     "name": "Point of Sale journal",
+     "nameAr": "دفتر نقطة البيع",
+     "details": "A dedicated 'Point of Sale' journal (sequence prefix POSS) receives the session sales postings. Its dashboard card has only a New button. The Point of Sale and Kitchen Display apps are installed, and Settings has a نقطة البيع tab (not opened).",
+     "evidence": "frames 1-2, 10-13, 43, 108",
+     "confidence": "seen"
+    },
+    {
+     "id": "POS-02",
+     "name": "Session closing sales entry",
+     "nameAr": "قيد إقفال جلسة نقطة البيع",
+     "details": "Each POS session posts one entry in the Point of Sale journal with Reference = session name and the session total, one per day and with no partner:\n- POSS/2026/09/0013, 13 Sep, 'Rayya cafe/00172': 1,398.00\n- POSS/2026/09/0012, 12 Sep, 00171: 1,885.00\n- POSS/2026/09/0011, 11 Sep, 00170: 4,099.00\n- POSS/2026/09/0010, 10 Sep, 00169: 3,227.00\n- POSS/2026/09/0009, about 9 Sep, 00168: amount unreadable\nRevenue lands in 410001 ايرادات المبيعات.",
+     "evidence": "frames 43, 60-61 (2:48, 3:56-4:00)",
+     "confidence": "seen"
+    },
+    {
+     "id": "POS-03",
+     "name": "Combined card payments entry into bank journal",
+     "nameAr": "قيد تجميع مدفوعات البطاقات إلى دفتر البنك",
+     "details": "For each session, one entry in بنك الراجحي with reference 'قم بجمع Card مدفوعات نقطة البيع من Rayya cafe/00172' (combine Card POS payments from the session):\n- PBNK1/2026/00187: 1,270.00\n- PBNK1/2026/00186: 1,664.00\n- PBNK1/2026/00185: 3,562.00\n- PBNK1/2026/00184: 3,037.00\nThe card payment method is set to combine payments into one entry per session, and the 'P' numbering prefix suggests these are payment records (inference).",
+     "evidence": "frames 43, 60-61 (2:48, 3:56-4:00)",
+     "confidence": "seen"
+    },
+    {
+     "id": "POS-04",
+     "name": "Cash takings entry into cash journal",
+     "nameAr": "قيد المقبوضات النقدية إلى دفتر النقدية",
+     "details": "For each session, one entry in النقديه with an empty reference: CSH2/2026/00169 128.00; 00168 201.00; 00167 517.00; 00166 190.00.\nCard + cash versus the POS total:\n- 13 Sep: 1,270 + 128 = 1,398 (matches)\n- 10 Sep: 3,037 + 190 = 3,227 (matches)\n- 12 Sep: 1,664 + 201 = 1,865, which is 20.00 below 1,885\n- 11 Sep: 3,562 + 517 = 4,079, which is 20.00 below 4,099\nThe 20.00 gaps possibly come from another payment method not visible. September cash debits total 3,337.00 in the Trial Balance.",
+     "evidence": "frames 43, 60-61, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "POS-05",
+     "name": "PoS receivable clearing account",
+     "nameAr": "حساب ذمم نقطة البيع الوسيط",
+     "details": "Account 102012 حسابات القبض (PoS): opening 0.00, September debit 34,053.00, credit 34,053.00, ending 0.00. Session receivables are cleared by the card and cash payment postings in the same period.",
+     "evidence": "frames 139, 145 (9:12, 9:36)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Bank & Cash",
+   "features": [
+    {
+     "id": "BNK-01",
+     "name": "Cash and bank GL accounts and balances",
+     "nameAr": "حسابات النقدية والبنك وأرصدتها",
+     "details": "Liquidity accounts (type البنك والنقد), with September 2026 Trial Balance figures:\n- 111101 النقدية: opening 1,894.35, debit 3,337.00, credit 99.00, ending 5,132.35.\n- 111201 بنك الراجحي: opening 81,956.87, debit 30,757.00, credit 48,676.15, ending 64,037.72.\nOn the Balance Sheet, 'الحسابات البنكية والنقدية' = 69,170.07.",
+     "evidence": "frames 25-28 (1:36-1:48), 100 (6:36), 139, 145",
+     "confidence": "seen"
+    },
+    {
+     "id": "BNK-02",
+     "name": "Dashboard balance versus miscellaneous operations split",
+     "nameAr": "تقسيم رصيد اللوحة بين المعاملات والعمليات المتنوعة",
+     "details": "Bank and cash cards show 'الرصيد' (transactions balance) and 'العمليات المنوعة' (amounts posted to the liquidity account outside bank transactions). Their sum equals the GL balance: Al Rajhi 408,568.91 - 344,531.19 = 64,037.72; Cash 71,906.90 - 66,774.55 = 5,132.35 (derived cross-check).",
+     "evidence": "frames 10-13, 100, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "BNK-03",
+     "name": "Bank setup / connect bank",
+     "nameAr": "إعداد البنك وربطه",
+     "details": "The 'إعداد البنك' button on the bank journal card starts bank account setup (online synchronisation or statement import). It was not clicked.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "BNK-04",
+     "name": "Bank/cash transactions (statement lines) screen",
+     "nameAr": "شاشة معاملات البنك والنقدية",
+     "details": "The 'المعاملات' (Transactions) button on the Al Rajhi and Cash cards opens that journal's bank/cash transactions for review and matching. The target screen was not opened.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "BNK-05",
+     "name": "Online bank synchronization configuration",
+     "nameAr": "إعداد المزامنة البنكية عبر الإنترنت",
+     "details": "Configuration menu item 'المزامنة عبر الإنترنت' (Online Synchronization). It was not opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "BNK-06",
+     "name": "Default bank suspense account",
+     "nameAr": "الحساب البنكي المعلق الافتراضي",
+     "details": "Settings > Default Accounts > 'المعاملات البنكية والمدفوعات' > 'الحساب البنكي المعلق' = 116004 حساب بنك معلق (truncated on screen). It is the counterpart for unreconciled bank statement lines. The many2one has a dropdown and an internal link arrow.",
+     "evidence": "frames 110-129 (7:16-8:32)",
+     "confidence": "seen"
+    },
+    {
+     "id": "BNK-07",
+     "name": "Default internal transfer (liquidity transfer) account",
+     "nameAr": "حساب التحويل الداخلي الافتراضي",
+     "details": "'تحويل داخلي' = 100001 الأموال قيد التحويل (funds in transit), type Current Assets, reconcile ON. It is used for transfers between the company's own bank and cash journals.",
+     "evidence": "frames 16, 110-129",
+     "confidence": "seen"
+    },
+    {
+     "id": "BNK-08",
+     "name": "Cash box accounts including foreign currency",
+     "nameAr": "حسابات الخزنة الرئيسية بما فيها العملات الأجنبية",
+     "details": "101005 الخزنة الرئيسية and 101006 الخزنة الرئيسية - العملات الأجنبية, both typed الأصول المتداولة with reconcile off. This is a separate account for foreign-currency cash.",
+     "evidence": "frame 16 (1:00)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Reconciliation",
+   "features": [
+    {
+     "id": "REC-01",
+     "name": "Reconcile tool",
+     "nameAr": "أداة التسوية",
+     "details": "Menu Accounting > جاري الإغلاق > 'تسوية' (Reconcile). The screen (matching open journal items per account or partner) was not opened.",
+     "evidence": "frames 38-42 (2:28-2:44)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "REC-02",
+     "name": "Reconcilable accounts and outstanding receipts/payments accounts",
+     "nameAr": "الحسابات القابلة للتسوية وحسابات المقبوضات والمدفوعات المعلقة",
+     "details": "Reconciliation is enabled per account with the Allow Reconciliation toggle. It is ON for 101003 الإيصالات المستحقة (Outstanding Receipts), 101004 المدفوعات المستحقة (Outstanding Payments), 100001 funds in transit and 100103 VAT receivable. These are the clearing accounts that payments post to before bank matching.",
+     "evidence": "frames 16-17 (1:00-1:04)",
+     "confidence": "seen"
+    },
+    {
+     "id": "REC-03",
+     "name": "Bank statement line matching workflow",
+     "nameAr": "مطابقة بنود كشف البنك",
+     "details": "Implied by the Transactions buttons, the bank suspense account 116004, the outstanding receipt/payment accounts and the Reconcile menu. Imported or synchronised statement lines are matched to payments, invoices or counterpart accounts, and differences are posted through write-off or reconciliation models. No matching screen appears in the video.",
+     "evidence": "frames 10-13, 16, 38, 110",
+     "confidence": "implied-by-odoo-standard"
+    }
+   ]
+  },
+  {
+   "module": "Customers / Invoicing",
+   "features": [
+    {
+     "id": "INV-01",
+     "name": "Customers menu",
+     "nameAr": "قائمة العملاء",
+     "details": "Top menu 'العملاء' (Customers: invoices, credit notes, payments, customers). It was never opened, so the submenu items are not visible.",
+     "evidence": "frames 9-145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "INV-02",
+     "name": "Create customer invoice from Sales journal card",
+     "nameAr": "إنشاء فاتورة عميل من بطاقة المبيعات",
+     "details": "The 'جديد' button on the Sales card creates a customer invoice in the المبيعات journal. The invoice form was not shown. The receivables due chart is described in DASH-02.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "INV-03",
+     "name": "Customer credit limit check",
+     "nameAr": "التحقق من حد ائتمان العميل",
+     "details": "Only the tail of the setting's help text is visible: warn when a partner's total receivable exceeds a limit, and set a value greater than 0.0 to activate the credit limit check. The title and checkbox state are off-screen.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "INV-04",
+     "name": "Show taxes in company currency",
+     "nameAr": "عرض الضرائب بعملة الشركة",
+     "details": "Setting 'الضرائب بعملة الشركة' is ENABLED: taxes are also shown in the local currency (SAR) on customer invoices issued in another currency.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "INV-05",
+     "name": "GCC bilingual invoice format",
+     "nameAr": "تنسيق فواتير مجلس التعاون الخليجي ثنائي اللغة",
+     "details": "Setting 'تنسيق مجلس التعاون الخليجي' is DISABLED. When enabled it adds Arabic as a second language on invoices, credit notes, debit notes, vendor bills and refunds.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "INV-06",
+     "name": "Authorized signatory on invoices",
+     "nameAr": "الموقّع المصرّح له في الفاتورة",
+     "details": "Setting 'الموقّع المصرّح له في الفاتورة' is DISABLED. It adds a signature to invoices to strengthen document authenticity.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "INV-07",
+     "name": "Automatic invoice reminders",
+     "nameAr": "التذكير التلقائي بالفواتير غير المدفوعة",
+     "details": "Setting 'Automatic Invoice Reminders' (English label) is DISABLED. Help text: 'Send automatically reminder for all your unpaid invoices.' (payment follow-up automation).",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "INV-08",
+     "name": "Invoice line discount accounts",
+     "nameAr": "حسابات خصومات بنود الفاتورة",
+     "details": "Default Accounts > 'خصومات بند الفاتورة': 'فواتير العملاء' and 'فواتير المورد' are both empty with the placeholder 'نفس الحساب الذي لدى المنتج' (same account as the product line). Optional dedicated accounts for posting line discounts separately.",
+     "evidence": "frames 110-131 (7:16-8:40)",
+     "confidence": "seen"
+    },
+    {
+     "id": "INV-09",
+     "name": "Receivables usage status in this database",
+     "nameAr": "حالة استخدام الذمم المدينة في قاعدة البيانات",
+     "details": "102011 الحسابات المستحقة has 0.00 for opening, movement and ending in September. Balance Sheet 'المدينين' = 0.00. Journal entries show no partners. Sales are recorded only through POS, with no open customer invoices, which explains the sample-style Sales chart.",
+     "evidence": "frames 43, 96, 139",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Vendors / Bills",
+   "features": [
+    {
+     "id": "BILL-01",
+     "name": "Vendors menu",
+     "nameAr": "قائمة الموردين",
+     "details": "Top menu 'الموردين' (Vendors: bills, refunds, payments, vendors). It was never opened.",
+     "evidence": "frames 9-145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "BILL-02",
+     "name": "Upload vendor bill document / new bill",
+     "nameAr": "رفع مستند فاتورة المورد وإنشاء فاتورة جديدة",
+     "details": "The Purchases card has a primary 'رفع' (Upload) button, which creates a draft bill from an uploaded PDF or image, and 'جديد' (manual new bill). Neither was clicked.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "BILL-03",
+     "name": "Email alias for incoming vendor bills",
+     "nameAr": "بريد إلكتروني لاستقبال فواتير الموردين",
+     "details": "The Purchases journal shows the alias purchases@rya-cafe.odoo.com. Emails with attachments sent there create draft vendor bills in that journal.",
+     "evidence": "frames 10-13 (0:36-0:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "BILL-04",
+     "name": "Auto-validate vendor bills",
+     "nameAr": "تصديق فواتير الموردين تلقائياً",
+     "details": "Setting 'تصديق فواتير الموردين تلقائياً' under 'فواتير المورد' is ENABLED.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "BILL-05",
+     "name": "Predict vendor bill product",
+     "nameAr": "توقع منتج فاتورة المورد",
+     "details": "Setting 'توقع منتج فاتورة المورّد' is DISABLED. It suggests the product on bill lines from history; the help text is cut off.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "BILL-06",
+     "name": "Payables usage status",
+     "nameAr": "حالة استخدام الذمم الدائنة",
+     "details": "201002 مستحقات الدفع is 0.00 in the Trial Balance, and Balance Sheet 'الدائنون' = 0.00. Supplier costs are booked as manual MISC entries paid from the bank rather than as vendor bills.",
+     "evidence": "frames 43, 96, 139",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Payments",
+   "features": [
+    {
+     "id": "PAY-01",
+     "name": "Invoice online payment with optional QR link on PDF",
+     "nameAr": "سداد الفواتير عبر الإنترنت مع رابط QR اختياري في PDF",
+     "details": "Setting 'سداد قيمة الفاتورة عبر الإنترنت' (with a '?' tooltip) is ENABLED and lets customers pay invoices online through the portal. Its nested sub-option 'أضف رابط رمز QR إلى ملف PDF' (QR payment link on the invoice PDF) is DISABLED.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "PAY-02",
+     "name": "QR codes on invoices",
+     "nameAr": "رموز QR على الفواتير",
+     "details": "Setting 'QR Codes' (with a '?' tooltip) is DISABLED. Help text: 'إضافة رمز QR لفواتيرك'.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "PAY-03",
+     "name": "Batch payments",
+     "nameAr": "الدفعات المجمعة",
+     "details": "Setting 'الدفعات المجمعة' (with a '?' tooltip) is DISABLED. It groups several payments into one batch deposit to ease reconciliation.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "PAY-04",
+     "name": "Early payment (cash) discount gain and loss accounts",
+     "nameAr": "حسابات أرباح وخسائر خصم الدفع المبكر",
+     "details": "Default Accounts > 'خصومات الدفع المبكر': 'أرباح خصم الدفع المبكر' = 999997 أرباح الخصم النقدي; the loss account (mislabelled 'خصائص خصم الدفع المبكر') = 999998 خسائر الخصم (names truncated on screen). They are posted when payment terms with an early-payment discount are used.",
+     "evidence": "frames 110-131 (7:16-8:40)",
+     "confidence": "seen"
+    },
+    {
+     "id": "PAY-05",
+     "name": "Payment entries numbered with P-prefixed journal sequence",
+     "nameAr": "قيود الدفعات بترقيم مسبوق بحرف P",
+     "details": "POS card collections are numbered PBNK1/2026/NNNNN in the Al Rajhi journal while cash lines use CSH2/2026/NNNNN. This matches Odoo's convention of prefixing payment entries with 'P' plus the journal code (inference).",
+     "evidence": "frames 43, 60-61",
+     "confidence": "implied-by-odoo-standard"
+    }
+   ]
+  },
+  {
+   "module": "Taxes",
+   "features": [
+    {
+     "id": "TAX-01",
+     "name": "Fiscal localization package (Saudi Arabia)",
+     "nameAr": "حزمة الأقلمة المالية (السعودية)",
+     "details": "Settings > 'الأقلمة المالية': 'الضرائب، والأوضاع المالية، وشجرة الحسابات، والتقارير المحاسبية القانونية التابعة لدولتك'. The field (mislabelled 'الطرد', meaning Package) = 'SA المملكة العربية السعودية'. The 'إعادة تحميل' (Reload) button reloads the localization data.",
+     "evidence": "frame 108 (7:08)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-02",
+     "name": "Fiscal country",
+     "nameAr": "الدولة المالية",
+     "details": "'الدولة المالية', described as 'الدولة المحلية لمحاسبتك', = المملكة العربية السعودية. It drives the domestic tax reports and localization.",
+     "evidence": "frames 132-133 (8:44-8:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-03",
+     "name": "Default sales and purchase taxes for new products",
+     "nameAr": "الضرائب الافتراضية للمنتجات الجديدة",
+     "details": "Block 'ضرائب افتراضية' ('يتم تطبيق الضرائب الافتراضية عند إنشاء منتجات جديدة.'): 'ضريبة المبيعات' (Sales Tax) = empty; 'ضريبة الشراء' (Purchase Tax) = 15%, with an internal link to the tax record.",
+     "evidence": "frames 108, 132-134 (7:08, 8:44-8:52)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-04",
+     "name": "Default price tax mode",
+     "nameAr": "وضع الأسعار شاملة/غير شاملة الضريبة",
+     "details": "Field 'الأسعار' (with a '?' tooltip) = 'غير شامل الضريبة' (Tax Excluded). The tax-included alternative was not opened.",
+     "evidence": "frames 108, 132-134",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-05",
+     "name": "Tax return periodicity, deadline reminder and closing journal",
+     "nameAr": "دورية الإقرار الضريبي والموعد النهائي ودفتر الإقفال",
+     "details": "Block 'مدى دورية الإقرار الضريبي' ('مدى تواتر الإقرارات الضريبية'):\n- 'الوتيرة' (Periodicity) = شهرياً. Dropdown options: شهرياً Monthly, كل شهرين Every 2 months, ربع سنوي Quarterly, كل 4 شهور Every 4 months, شبه سنوي Semi-annually, سنوياً Annually, السنة المالية Fiscal year.\n- 'الموعد النهائي' (Deadline) = 7 'أيام بعد الفترة' (days after period end).\n- 'دفتر اليومية' = عمليات متنوعة, the journal for tax closing entries.\nThe dropdown was opened and closed without changing the value.",
+     "evidence": "frames 108, 132-136 (7:08, 8:44-9:00)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-06",
+     "name": "Configure tax accounts shortcut",
+     "nameAr": "اختصار تهيئة الحسابات الضريبية",
+     "details": "Link '→ قم بتهيئة حساباتك الضريبية' (Configure your tax accounts) under tax return periodicity. The target was not opened.",
+     "evidence": "frames 108, 132-133",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "TAX-07",
+     "name": "Tax rounding method",
+     "nameAr": "طريقة تقريب الضريبة",
+     "details": "'طريقة التقريب' ('كيفية احتساب مبلغ الضريبة في أوامر البيع والشراء وفي الفواتير'), a radio choice: 'التقريب حسب الضريبة' (round globally per tax) is SELECTED; 'التقريب لكل بند' (round per line) is not.",
+     "evidence": "frames 132-133 (8:44-8:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-08",
+     "name": "Cash basis taxes",
+     "nameAr": "الضرائب على الأساس النقدي",
+     "details": "Checkbox 'على أساس نقدي' ('السماح بتهيئة الضرائب على أساس نقدي') is ENABLED. Fields: 'دفتر اليومية للضرائب المعتمدة على النقد' = ضرائب بأساس نقدي (Cash Basis Taxes journal); 'حساب تحصيل الضرائب الأساسية' (Base Tax Received Account) = 201030 ضريبة القيمة المضافة (truncated).",
+     "evidence": "frames 108, 132-133 (7:08, 8:44-8:48)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-09",
+     "name": "Withholding tax base",
+     "nameAr": "أساس ضريبة الاقتطاع",
+     "details": "Block 'Withholding:' with the selection field 'Withholding Tax Base' (English labels), currently empty. Its options were not shown.",
+     "evidence": "frames 110-131 (7:16-8:40)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TAX-10",
+     "name": "Tax Returns (VAT return / closing) entry points",
+     "nameAr": "الإقرارات الضريبية (إقرار وإقفال ضريبة القيمة المضافة)",
+     "details": "Reachable from the 'الإقرارات الضريبية' button on the Miscellaneous Operations dashboard card and from Accounting > جاري الإغلاق > الإقرارات الضريبية. The screen (periodic return list, closing entry) was not opened. The 'Tax Adjustments' journal is used for manual VAT adjustments.",
+     "evidence": "frames 10-13, 38-42",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "TAX-11",
+     "name": "Tax master data configuration menus",
+     "nameAr": "قوائم إعداد بيانات الضرائب",
+     "details": "Configuration menu items 'الضرائب' (Taxes), 'مجموعات الضرائب' (Tax Groups), 'الوحدات الضريبية' (Tax Units) and 'أنواع الإقرارات' (Return Types). None was opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "TAX-12",
+     "name": "VAT accounts in chart of accounts",
+     "nameAr": "حسابات ضريبة القيمة المضافة في الشجرة",
+     "details": "100103 ضريبة القيمة المضافة المدينة (input VAT), type Receivable, reconcile ON. 201030 ضريبة القيمة المضافة (truncated) is used as the cash basis base account. A further current-asset row 'ضريبة القيمة المضافة ...' is partly legible after 101006.",
+     "evidence": "frames 16, 58, 132",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Deferred Revenue & Expenses",
+   "features": [
+    {
+     "id": "DEF-01",
+     "name": "Deferred expense configuration",
+     "nameAr": "إعداد النفقات المؤجلة",
+     "details": "Default Accounts > 'قيود النفقات المؤجلة:' (with a '?' tooltip):\n- 'دفتر اليومية' = عمليات متنوعة\n- 'النفقة المؤجلة' = 104020 مصروف مدفوع مقدم (prepaid expense)\n- 'إنشاء القيود' = 'عند تصديق فاتورة المورّد' (on bill validation)\n- 'الوتيرة' = شهرياً (Monthly)\n- 'احتساب' = 'By Months'\nThe dropdown options were not opened. Bill lines with start/end dates would generate monthly recognition entries (standard Odoo). 104020 holds 24,999.98 (Balance Sheet Prepayments).",
+     "evidence": "frames 110-131 (7:16-8:40), 96, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "DEF-02",
+     "name": "Deferred revenue configuration",
+     "nameAr": "إعداد الإيرادات المؤجلة",
+     "details": "Default Accounts > 'قيود الإيرادات المؤجلة:' (with a '?' tooltip):\n- 'دفتر اليومية' = عمليات متنوعة\n- 'الإيرادات المؤجلة' = 201018 الدخل المؤجل\n- 'إنشاء القيود' = 'عند تصديق فاتورة المورّد' (label reuses the vendor-bill wording; it means on invoice validation)\n- 'الوتيرة' = شهرياً\n- 'احتساب' = 'By Months'",
+     "evidence": "frames 110-131 (7:16-8:40)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Assets, Leases & Loans",
+   "features": [
+    {
+     "id": "AST-01",
+     "name": "Fixed assets management",
+     "nameAr": "إدارة الأصول الثابتة",
+     "details": "Menu Accounting > الأصول والالتزامات > 'أصول' (Assets). The asset register and depreciation boards were not opened.",
+     "evidence": "frames 38-42 (2:28-2:44)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "AST-02",
+     "name": "Depreciation models",
+     "nameAr": "نماذج الإهلاك",
+     "details": "Configuration menu item 'Depreciation Models' (untranslated). It was not opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "AST-03",
+     "name": "Fixed asset and depreciation accounts",
+     "nameAr": "حسابات الأصول الثابتة والإهلاك",
+     "details": "Account types: Fixed Assets (13) and Depreciation (8). Fixed-asset accounts include 100105 بناء, 100106 تأسيس, 100107 الآلات والأدوات, 100108 الأثاث والمعدات, 100109 أجهزة وبرامج الكمبيوتر, 100110 المركبات الآلية, 100111 ملحقات المركبات, 100112 مصاريف تأسيس الكوفي, 100113 تحسينات الإيجار and 100119 الاستهلاك على تحسينات الإيجار. Balance Sheet 'الأصول الثابتة' = 448,680.56 = 100112 488,745.95 + 100109 6,009.41 + 100106 (-46,074.80, a credit balance) (derived from the Trial Balance).",
+     "evidence": "frames 16, 21, 96, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "AST-04",
+     "name": "IFRS 16 lease (right-of-use) accounting setup",
+     "nameAr": "محاسبة عقود الإيجار وفق IFRS 16 (حق الاستخدام)",
+     "details": "Journal 'IFRS 16 Right of Use Asset' and accounts 100101 حق استخدام الأصول (IFRS 16) and 100102 الاستهلاك المتراكم استخدام حق الأصول (IFRS 16), both Fixed Assets type. No lease schedule screen was shown.",
+     "evidence": "frames 10-13, 16, 58",
+     "confidence": "seen"
+    },
+    {
+     "id": "AST-05",
+     "name": "Loans management",
+     "nameAr": "إدارة القروض",
+     "details": "Menu Accounting > الأصول والالتزامات > 'القروض' (Loans). It was not opened. The Balance Sheet shows Non-current Liabilities 0.00.",
+     "evidence": "frames 38-42, 96",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Period Closing: Lock Dates & Secure Entries",
+   "features": [
+    {
+     "id": "LOCK-01",
+     "name": "Lock dates",
+     "nameAr": "تواريخ الإقفال",
+     "details": "Menu Accounting > جاري الإغلاق > 'تواريخ الإقفال...' opens a dialog for period locks (sales, purchase, tax, hard lock), per standard Odoo. The dialog was not shown.",
+     "evidence": "frames 38-42 (2:28-2:44)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "LOCK-02",
+     "name": "Secure entries (inalterability hash)",
+     "nameAr": "تأمين القيود (بصمة عدم القابلية للتعديل)",
+     "details": "Menu Accounting > جاري الإغلاق > 'تأمين القيود' locks posted entries with a hash chain so they cannot be altered. It was not opened.",
+     "evidence": "frames 38-42 (2:28-2:44)",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Review / Audit Tools",
+   "features": [
+    {
+     "id": "REV-01",
+     "name": "Review menu",
+     "nameAr": "قائمة المراجعة",
+     "details": "Top menu 'مراجعة' (Review), between Accounting and Reporting. It was never opened.",
+     "evidence": "frames 9-145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "REV-02",
+     "name": "Entry review status",
+     "nameAr": "حالة مراجعة القيد",
+     "details": "The posted entry form shows a pill button 'لا توجد مراجعة' (not reviewed) next to the status bar. The accountant can mark entries as reviewed; the other states and toggling were not shown.",
+     "evidence": "frames 63, 73 (4:08, 4:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "REV-03",
+     "name": "Checks configuration",
+     "nameAr": "إعداد الفحوصات",
+     "details": "Configuration menu item 'الفحوصات' (Checks), likely audit or return validation checks. Its exact function is not visible.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Reports - Common Report Engine",
+   "features": [
+    {
+     "id": "RPT-01",
+     "name": "Export report to PDF and XLSX",
+     "nameAr": "تصدير التقرير إلى PDF وXLSX",
+     "details": "A primary purple 'PDF' button and a secondary 'XLSX' button sit next to the report title on P&L, Balance Sheet and Trial Balance.",
+     "evidence": "frames 78-79, 85, 95-97, 139, 145",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-02",
+     "name": "Date period filter with presets and previous/next",
+     "nameAr": "فلتر فترة التقرير مع فترات جاهزة وتنقل للسابق/التالي",
+     "details": "A calendar button shows the current period ('2026', 'يوليو 2026 - ديسمبر 2026', 'يوليو 2026 - أغسطس 2026', 'سبتمبر 2026', or 'اعتبارًا من 14/09/2026' on the Balance Sheet). The dropdown offers:\n- 'الشهر' (Month) = سبتمبر ٢٠٢٦\n- 'ربع السنة' (Quarter) = يوليو ٢٠٢٦ - سبتمبر ٢٠٢٦\n- 'السنة المالية' (Fiscal year) = ٢٠٢٦\nEach preset has left/right arrows for the previous/next period. After a separator comes 'التواريخ المخصصة' (Custom dates), with from and 'إلى' (to) inputs; the active option is check-marked. The period label becomes the column group header on the Trial Balance.",
+     "evidence": "frames 87-92 (5:44-6:04), 95, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-03",
+     "name": "Custom date range calendar picker",
+     "nameAr": "منتقي التاريخ المخصص بالتقويم",
+     "details": "The day grid shows a month/year header with chevrons, Saturday-first weekdays (س ح ن ث ر خ ج), a bold week-number column, the selected day in a teal circle and greyed adjacent-month days. Clicking the header zooms out to a 12-month grid (يناير ... ديسمبر). Picking a month for the start date sets the 1st (01/07/2026). When picking the end date, months before the start month are disabled (Jan-May greyed). Dates show Arabic-Indic digits (٠١/٠١/٢٠٢٦ to ٣١/١٢/٢٠٢٦).",
+     "evidence": "frames 88-91 (5:48-6:00)",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-04",
+     "name": "Period comparison",
+     "nameAr": "مقارنة الفترات",
+     "details": "Button '% مقارنة' (Comparison) on the P&L, Balance Sheet and Trial Balance toolbars, for adding previous-period columns. It was not opened.",
+     "evidence": "frames 78-79, 95-97, 139, 145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "RPT-05",
+     "name": "Posted/draft entries inclusion filter",
+     "nameAr": "فلتر تضمين القيود المرحّلة أو المسودة",
+     "details": "Button 'القيود المُرحّلة' (Posted Entries, sliders icon) sets whether only posted or also draft entries are included. The reports currently use posted entries only; the options were not opened.",
+     "evidence": "frames 78-79, 95-97, 139, 145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "RPT-06",
+     "name": "Amount display unit / currency option",
+     "nameAr": "خيار وحدة عرض المبالغ والعملة",
+     "details": "Button 'في .SR' (In SR), probably for SR / thousands / millions or the display currency. It was not opened.",
+     "evidence": "frames 78-79, 97, 139, 145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "RPT-07",
+     "name": "Additional report options and report actions",
+     "nameAr": "خيارات التقرير الإضافية وإجراءات التقرير",
+     "details": "A multi-gear icon button at the end of the filter bar holds extra options (hierarchy, hiding zero lines and similar), and a gear icon next to the report title holds report actions. Neither was opened.",
+     "evidence": "frames 78-79, 97, 139, 145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "RPT-08",
+     "name": "Unposted entries warning banner",
+     "nameAr": "تنبيه وجود قيود غير مرحّلة",
+     "details": "A light-blue banner that can be closed with X: 'There are قيود يومية غير مُرحلة prior or included in this period'. The bold Arabic phrase links to the draft entries affecting the period. It appears on the P&L, Balance Sheet and Trial Balance.",
+     "evidence": "frames 79-104 (5:12-6:52), 139, 145",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-09",
+     "name": "Fold/unfold hierarchical report lines to account level",
+     "nameAr": "طي وفتح أسطر التقرير حتى مستوى الحساب",
+     "details": "Section lines have a caret (▾ unfolded, ◂ folded). Unfolding lists child accounts as 'code name' with a balance. Several sections can be open at once, and an unfolded parent turns bold. Examples: Revenue → 410001; Cost of Revenue → 400071; Operating Expenses → 15 accounts; Balance Sheet Bank and Cash → 111101 and 111201, then folded back. Lines without children (e.g. Credit Card, Non-current Assets) have no caret.",
+     "evidence": "frames 80-87 (5:16-5:44), 99-102 (6:32-6:44)",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-10",
+     "name": "Per-account line kebab menu",
+     "nameAr": "قائمة إجراءات لكل سطر حساب",
+     "details": "Each account-level line in the P&L, Balance Sheet and Trial Balance has a vertical ⋮ icon beside the name, typically for General Ledger / Journal Items drill-down and annotations. It was never opened.",
+     "evidence": "frames 80-87, 100-101, 139, 145",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "RPT-11",
+     "name": "Hover annotation icon and clickable amounts",
+     "nameAr": "أيقونة التعليق عند التمرير والمبالغ القابلة للنقر",
+     "details": "Hovering an account line highlights the row grey, turns the amount teal (clickable drill-down to journal items) and shows a speech-bubble icon for adding an annotation. Neither was clicked.",
+     "evidence": "frames 90 (5:56), 99 (6:32)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "RPT-12",
+     "name": "Line info (i) icons",
+     "nameAr": "أيقونات المعلومات (i) على الأسطر",
+     "details": "Aggregate and section lines show a circled (i) icon at the far left that turns teal on hover, probably showing the line's formula or definition. The tooltip content was not shown.",
+     "evidence": "frames 79-83, 96-99",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "RPT-13",
+     "name": "Report formatting and layout behaviour",
+     "nameAr": "تنسيق التقرير وسلوك العرض",
+     "details": "The report sits in a centred white card. Total lines are bold on a grey band. Negative amounts are red with a trailing minus. Zero-value lines still show, with 0.00 greyed. The control panel, banner and column header stay sticky while scrolling. A spinner and a 'جاري التحميل...' toast show while computing. Toolbar buttons shift left as the date label grows.",
+     "evidence": "frames 78-79, 84-85, 91, 96",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-14",
+     "name": "Live recomputation and hiding accounts without movement",
+     "nameAr": "إعادة الحساب الفوري وإخفاء الحسابات بلا حركة",
+     "details": "Changing the date range recalculates every line immediately. In the P&L, accounts with no movement in the chosen period disappear (400004, 400017, 400076 and 400087 are absent for Jul-Aug 2026). The Trial Balance still showed all-zero rows (102011, 201002).",
+     "evidence": "frames 91-92 (6:00-6:04), 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-15",
+     "name": "Search within report",
+     "nameAr": "البحث داخل التقرير",
+     "details": "Search box 'بحث...' in the Trial Balance control panel for filtering lines by account. It was not visible or not noted on the P&L and Balance Sheet.",
+     "evidence": "frames 139, 145 (9:12, 9:36)",
+     "confidence": "seen"
+    },
+    {
+     "id": "RPT-16",
+     "name": "Report definition configuration (custom financial reports)",
+     "nameAr": "إعداد تعريفات التقارير المالية المخصصة",
+     "details": "Configuration menu items 'التقارير المحاسبية' (Accounting Reports: report lines and formulas) and 'المجموعات الأفقية' (Horizontal Groups: column breakdowns). They were not opened. The custom P&L lines 'التخصيصات والسحوبات' and 'صافي الربح المتبقي بعد المخصصات والمسحوبات' show that report lines were customised.",
+     "evidence": "frames 79, 106",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Profit & Loss Report",
+   "features": [
+    {
+     "id": "PL-01",
+     "name": "Profit and Loss structure and subtotal formulas",
+     "nameAr": "هيكل قائمة الدخل ومعادلات المجاميع",
+     "details": "Route /odoo/profit-and-loss, one column 'الرصيد'. Figures for 2026:\n- الإيرادات (Revenue): 610,001.09\n- تكاليف الإيرادات (Cost of Revenue): 259,999.13\n- [total] إجمالي الربح (Gross Profit) = Revenue - COR: 350,001.96\n- نفقات التشغيل (Operating Expenses): 198,735.24\n- [total] الدخل التشغيلي (أو الخسائر التشغيلية) (Operating Income/Loss) = GP - OpEx: 151,266.72\n- دخل آخر (Other Income): 0.00\n- النفقات الأخرى (Other Expenses): 47,080.39\n- [total] صافي الربح (Net Profit) = Operating Income + Other Income - Other Expenses: 104,186.33\nThe arithmetic was verified.",
+     "evidence": "frames 78-87 (5:08-5:44)",
+     "confidence": "seen"
+    },
+    {
+     "id": "PL-02",
+     "name": "Custom Allocations & Drawings section after Net Profit",
+     "nameAr": "قسم مخصص للتخصيصات والمسحوبات بعد صافي الربح",
+     "details": "Two extra lines:\n- 'التخصيصات والسحوبات' (Allocations & Drawings, foldable): 107,396.67. Derived composition: 340002 راس مال (المالك حسان) 76,427.67 + 340003 شريك (اسامة) 30,969.00.\n- [total] 'صافي الربح المتبقي بعد المخصصات والمسحوبات' = Net Profit - Allocations: -3,210.34, shown in red.\nThis residual equals the Balance Sheet current-year unallocated earnings.",
+     "evidence": "frames 79-85 (5:12-5:36), 96, 139",
+     "confidence": "seen"
+    },
+    {
+     "id": "PL-03",
+     "name": "Account-level P&L detail (FY 2026)",
+     "nameAr": "تفاصيل قائمة الدخل على مستوى الحسابات (2026)",
+     "details": "Revenue: 410001 ايرادات المبيعات 610,001.09.\nCost of Revenue: 400071 تكلفة مشروبات 259,999.13.\nOperating Expenses (sum = 198,735.24):\n- 400003 رواتب: 66,080.00\n- 400004 السكن: 3,500.00\n- 400010 ايجار: 20,833.35\n- 400017 اعمال خارجية: 7,240.00\n- 400018 المياه والكهرباء: 10,799.77\n- 400020 الهاتف والإنترنت: 675.00\n- 400022 استضافة: 4,873.00\n- 400026 مصروفات عامة: 49,806.80\n- 400034 اعلانات: 22,494.06\n- 400042 صيانة: 2,700.35\n- 400044 ادوات تنظيف: 1,477.00\n- 400061 تامينات الاجتماعية: 66.24\n- 400076 اجهزة كهربائية: 1,400.58\n- 400087 مكافاءات: 3,120.00\n- 400089 رسوم بنكية: 3,669.09\nOther Expenses 47,080.39 was not unfolded.",
+     "evidence": "frames 80-87 (5:16-5:44)",
+     "confidence": "seen"
+    },
+    {
+     "id": "PL-04",
+     "name": "P&L recomputed for custom periods",
+     "nameAr": "إعادة احتساب قائمة الدخل لفترات مخصصة",
+     "details": "Jul-Dec 2026 (partly visible): 400018 5,035.14; 400020 258.00; 400022 3,398.00; 400026 13,137.97; 400034 6,736.71; 400042 2,084.00; 400044 1,429.00; 400061 66.24; 400089 2,008.84; Operating Income 89,487.35; Other Expenses 15,747.94.\n\nJul-Aug 2026:\n- Revenue (410001): 220,171.18\n- Cost of Revenue (400071): 86,332.44\n- Gross Profit: 133,838.74\n- Operating Expenses: 65,817.24 (400003 24,200.00; 400010 8,333.34; 400018 5,035.14; 400020 258.00; 400022 2,888.00; 400026 13,137.97; 400034 6,376.71; 400042 2,084.00; 400044 1,429.00; 400061 66.24; 400089 2,008.84)\n- Operating Income: 68,021.50\n- Other Income: 0.00\n- Other Expenses: 15,747.94\n- Net Profit (computed, below the fold): 52,273.56\n\nThe Jul-Dec minus Jul-Aug differences (400022 +510, 400034 +360) match the September MISC entries.",
+     "evidence": "frames 90-93 (5:56-6:08)",
+     "confidence": "seen"
+    },
+    {
+     "id": "PL-05",
+     "name": "P&L default period and toolbar",
+     "nameAr": "الفترة الافتراضية وشريط أدوات قائمة الدخل",
+     "details": "The report opens on fiscal year '2026'. Toolbar: PDF, XLSX, title gear, date '2026', '% مقارنة', 'القيود المُرحّلة', 'الميزانية' (Budget, P&L only), 'في .SR', options cogs.",
+     "evidence": "frames 78-79 (5:08-5:12)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Balance Sheet Report",
+   "features": [
+    {
+     "id": "BS-01",
+     "name": "Balance Sheet structure",
+     "nameAr": "هيكل الميزانية العمومية",
+     "details": "Route /odoo/balance-sheet, one column 'الرصيد'. As of 14/09/2026:\n- [band] الأصول (Assets): 542,850.61\n  - الأصول المتداولة (Current Assets): 94,170.05; children الحسابات البنكية والنقدية 69,170.07, المدينين 0.00, الأصول المتداولة 0.00, المدفوعات المسددة مقدما 24,999.98\n  - الأصول الثابتة (Fixed Assets): 448,680.56\n  - الأصول غير المتداولة (Non-current Assets): 0.00\n- [band] التزامات (Liabilities): 7,315.00\n  - الالتزامات الجارية: 7,315.00; children الالتزامات الجارية 7,315.00, البطاقة الائتمانية 0.00, الدائنون 0.00\n  - الالتزامات غير الجارية: 0.00\n- [band] رأس المال (Equity): 535,535.61\n  - رأس المال (Capital): 538,745.95\n  - الأرباح (Earnings): -3,210.34; children الأرباح غير المخصصة للسنة الجارية -3,210.34, Previous Years Earnings 0.00\nThe bottom band (Liabilities + Equity) is cut off; the figures balance: 7,315.00 + 535,535.61 = 542,850.61.",
+     "evidence": "frames 95-104 (6:16-6:52)",
+     "confidence": "seen"
+    },
+    {
+     "id": "BS-02",
+     "name": "As-of date filter and toolbar",
+     "nameAr": "فلتر التاريخ اعتباراً من وشريط الأدوات",
+     "details": "A single point-in-time date 'اعتبارًا من 14/09/2026', defaulting to today. Toolbar: PDF, XLSX, title gear, '% مقارنة', 'القيود المُرحّلة', 'في .SR', options cogs. There is no Budget button, unlike the P&L. The unposted-entries banner shows here too.",
+     "evidence": "frames 95-97 (6:16-6:24)",
+     "confidence": "seen"
+    },
+    {
+     "id": "BS-03",
+     "name": "Automatic current-year earnings in equity",
+     "nameAr": "أرباح السنة الجارية تلقائياً ضمن حقوق الملكية",
+     "details": "'الأرباح غير المخصصة للسنة الجارية' = -3,210.34 is computed from the P&L residual without a closing entry. Its label is teal and link-styled (drill-down). The separate 'Previous Years Earnings' line is 0.00, suggesting 2026 is the first fiscal year (inference).",
+     "evidence": "frames 85, 96-97",
+     "confidence": "seen"
+    },
+    {
+     "id": "BS-04",
+     "name": "Balance Sheet line composition (derived from Trial Balance)",
+     "nameAr": "تركيب أسطر الميزانية (مشتق من ميزان المراجعة)",
+     "details": "Derived reconciliation of figures:\n- Bank & Cash 69,170.07 = 111101 5,132.35 + 111201 64,037.72 (seen when unfolded)\n- Prepayments 24,999.98 = 104020\n- Fixed Assets 448,680.56 = 100112 + 100109 + 100106\n- Current Liabilities 7,315.00 = 201003 credit 7,515.00 - 200100 debit 200.00\n- Capital 538,745.95 = 310001 488,745.95 + 320001 50,000.00\n- Earnings -3,210.34 = Net Profit 104,186.33 - drawings accounts 340002/340003 107,396.67",
+     "evidence": "frames 96, 100, 139, 145",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Trial Balance Report",
+   "features": [
+    {
+     "id": "TB-01",
+     "name": "Trial Balance layout and formula",
+     "nameAr": "تخطيط ميزان المراجعة ومعادلته",
+     "details": "Route /odoo/trial-balance. There are two header rows:\n- 'الرصيد الافتتاحي' (Opening Balance) with a 'الرصيد' sub-column\n- the period group ('سبتمبر 2026') with 'المدين' (Debit) and 'الدائن' (Credit), tinted light blue\n- 'الرصيد النهائي' (End Balance) with a 'الرصيد' sub-column\n- a debug bug icon at the far column\nOne row per account 'code name' with a ⋮ menu. End = Opening + Debit - Credit (e.g. 111201: 81,956.87 + 30,757.00 - 48,676.15 = 64,037.72). Credit balances are negative in red with a trailing minus; zeros are grey. Opening balances of P&L accounts reflect the current fiscal year up to the period start. The grand totals row is below the fold.",
+     "evidence": "frames 139-145 (9:12-9:36)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TB-02",
+     "name": "Trial Balance default period and toolbar",
+     "nameAr": "الفترة الافتراضية وشريط أدوات ميزان المراجعة",
+     "details": "Opens on the current month 'سبتمبر 2026'. Toolbar: PDF, XLSX, title gear, 'بحث...' search, date, '% مقارنة', 'القيود المُرحّلة', 'في .SR', options cogs. The unposted-entries banner shows. A 'جاري التحميل...' toast appears while it loads.",
+     "evidence": "frames 139-145 (9:12-9:36)",
+     "confidence": "seen"
+    },
+    {
+     "id": "TB-03",
+     "name": "Trial Balance September 2026 sample rows",
+     "nameAr": "أسطر ميزان المراجعة لشهر سبتمبر 2026",
+     "details": "Each row reads opening | debit | credit | end:\n- 100106 تأسيس: -46,074.80 | 0 | 0 | -46,074.80\n- 100109 أجهزة وبرامج الكمبيوتر: 6,009.41 | 0 | 0 | 6,009.41\n- 100112 مصاريف تأسيس الكوفي: 488,745.95 | 0 | 0 | 488,745.95\n- 102011 الحسابات المستحقة: 0 | 0 | 0 | 0\n- 102012 حسابات القبض (PoS): 0 | 34,053.00 | 34,053.00 | 0\n- 104020 مصروف مدفوع مقدم: 24,999.98 | 0 | 0 | 24,999.98\n- 111101 النقدية: 1,894.35 | 3,337.00 | 99.00 | 5,132.35\n- 111201 بنك الراجحي: 81,956.87 | 30,757.00 | 48,676.15 | 64,037.72\n- 200100 المستحقات - الرواتب: 200.00 | 0 | 0 | 200.00\n- 201002 مستحقات الدفع: 0 | 0 | 0 | 0\n- 201003 حسان (المالك): -7,515.00 | 0 | 0 | -7,515.00\n- 310001 راس المال: -488,745.95 | 0 | 0 | -488,745.95\n- 320001 جاري المالك (حسان): -50,000.00 | 0 | 0 | -50,000.00\n- 340002 راس مال ( المالك حسان): 51,124.67 | 25,303.00 | 0 | 76,427.67\n- 340003 شريك ( اسامة): 20,125.00 | 10,844.00 | 0 | 30,969.00\n- 400003 رواتب: 66,080.00 | 0 | 0 | 66,080.00\n- 400004 السكن: 3,500.00 | 0 | 0 | 3,500.00\n- 400010 ايجار: 20,833.35 | 0 | 0 | 20,833.35\n- 400017 اعمال خارجية: 6,740.00 | 500.00 | 0 | 7,240.00\n- 400018 المياه والكهرباء: 10,799.77 | 0 | 0 | 10,799.77\n- 400020 الهاتف والإنترنت: 675.00 | 0 | 0 | 675.00\n- 400022 استضافة: 4,363.00 | 510.00 | 0 | 4,873.00\nMore rows follow below.",
+     "evidence": "frames 139-145 (9:12-9:36)",
+     "confidence": "seen"
+    }
+   ]
+  },
+  {
+   "module": "Other Reports (menu entries only)",
+   "features": [
+    {
+     "id": "ORPT-01",
+     "name": "Cash Flow Statement",
+     "nameAr": "كشف التدفقات النقدية",
+     "details": "Reporting > تقارير كشف الحساب > كشف التدفقات النقدية. Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-02",
+     "name": "General Ledger",
+     "nameAr": "دفتر الأستاذ العام",
+     "details": "Reporting > دفاتر الأستاذ > دفتر الأستاذ العام. Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-03",
+     "name": "Partner Ledger",
+     "nameAr": "دفتر الأستاذ العام للشركاء",
+     "details": "Reporting > تقارير الشركاء > دفتر الأستاذ العام للشركاء. Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-04",
+     "name": "Aged Receivable",
+     "nameAr": "المتأخر المدين (أعمار الذمم المدينة)",
+     "details": "Reporting > تقارير الشركاء > المتأخر المدين. Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-05",
+     "name": "Aged Payable",
+     "nameAr": "حسابات دائنة مستحقة متأخرة (أعمار الذمم الدائنة)",
+     "details": "Reporting > تقارير الشركاء > حسابات دائنة مستحقة متأخرة. Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-06",
+     "name": "Tax Report",
+     "nameAr": "التقرير الضريبي",
+     "details": "Reporting > الضرائب والشؤون المالية > التقرير الضريبي (VAT report by tax grids). Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-07",
+     "name": "Financial Report",
+     "nameAr": "التقرير المالي",
+     "details": "Reporting > الضرائب والشؤون المالية > التقرير المالي. The exact English equivalent is uncertain. Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-08",
+     "name": "Invoice Analysis",
+     "nameAr": "تحليل الفاتورة",
+     "details": "Reporting > الإدارة > تحليل الفاتورة (pivot/graph analysis of invoices). Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "ORPT-09",
+     "name": "Executive Summary",
+     "nameAr": "الملخص التنفيذي",
+     "details": "Reporting > الإدارة > الملخص التنفيذي (KPI summary). Not opened.",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Analytic Accounting",
+   "features": [
+    {
+     "id": "ANL-01",
+     "name": "Analytic Report",
+     "nameAr": "التقرير التحليلي",
+     "details": "Reporting > الإدارة > تقرير تحليلي. Not opened. No analytic distribution column is visible on journal item lines (it may be hidden under optional columns).",
+     "evidence": "frames 77, 105, 138",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Budgets",
+   "features": [
+    {
+     "id": "BUD-01",
+     "name": "Budget comparison on Profit and Loss",
+     "nameAr": "مقارنة الموازنة في قائمة الدخل",
+     "details": "Button 'الميزانية' (Budget, bar-chart icon) on the P&L toolbar only (absent on the Balance Sheet), for budget-versus-actual columns. Not opened.",
+     "evidence": "frames 78-79, 85, 92, 95",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "BUD-02",
+     "name": "Financial budgets configuration",
+     "nameAr": "إعداد الموازنات المالية",
+     "details": "Configuration menu item 'الميزانيات المالية' (Financial Budgets). Not opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Currencies",
+   "features": [
+    {
+     "id": "CUR-01",
+     "name": "Currencies configuration and settings section",
+     "nameAr": "إعداد العملات وقسم العملات في الإعدادات",
+     "details": "Configuration menu item 'العملات', plus a settings section header 'العملات' at the bottom of the Taxes block (its content is not visible). The company currency is SAR, shown as 'SR'. Account 101006 is a foreign-currency cash box, and 'الضرائب بعملة الشركة' is enabled.",
+     "evidence": "frames 106, 109, 133, 16",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Fiscal Positions",
+   "features": [
+    {
+     "id": "FPOS-01",
+     "name": "Fiscal positions",
+     "nameAr": "الأوضاع المالية",
+     "details": "Configuration menu item 'الأوضاع المالية' (tax and account mapping by partner situation). The localization text notes that the SA package loads fiscal positions. Not opened.",
+     "evidence": "frames 106, 108",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Payment Terms & Incoterms",
+   "features": [
+    {
+     "id": "PTERM-01",
+     "name": "Payment terms",
+     "nameAr": "شروط السداد",
+     "details": "Configuration > الفوترة > 'شروط السداد' (Payment Terms). Not opened. The early payment discount accounts (999997/999998) configured in settings relate to payment terms with discounts.",
+     "evidence": "frames 106, 110",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "PTERM-02",
+     "name": "Incoterms",
+     "nameAr": "الشروط التجارية (Incoterms)",
+     "details": "Configuration > الفوترة > 'الشروط التجارية' (Incoterms). Not opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Configuration & Settings",
+   "features": [
+    {
+     "id": "CFG-01",
+     "name": "Accounting settings page",
+     "nameAr": "صفحة إعدادات المحاسبة",
+     "details": "Configuration > الإعدادات at /odoo/action-294 (res.config.settings). Buttons: 'حفظ' (Save, primary) and 'إهمال' (Discard). Settings search box 'بحث...'. The app sidebar lists الإعدادات العامة, المبيعات, التقويم, الشراء, المخزون, المحاسبة (active), نقطة البيع.\n\nAccounting sections in order: الأقلمة المالية, استيراد المحاسبة, الضرائب, العملات, (invoice options), الوحدات والتغليف, مدفوعات العميل, فواتير المورد, الحسابات الافتراضية, تقييم المخزون.\n\nEach setting shows a checkbox or fields, a bold title, grey help text and optional '?' tooltips, laid out in a two-column grid. Many2one fields have a dropdown and an internal link arrow. Nothing was saved.",
+     "evidence": "frames 106-136 (7:00-9:00)",
+     "confidence": "seen"
+    },
+    {
+     "id": "CFG-02",
+     "name": "Initial setup: opening balances or full-history import",
+     "nameAr": "الإعداد المبدئي: الأرصدة الافتتاحية أو استيراد السجل الكامل",
+     "details": "Section 'استيراد المحاسبة' > 'الإعداد المبدئي' ('اختر الطريقة التي تود إعداد شجرة حساباتك بها') with two link buttons: '→ المراجعة يدوياً (end of year balances)', for entering opening balances on the chart of accounts, and '→ استيراد (for full history)'. Neither was opened.",
+     "evidence": "frames 108, 132-133 (7:08, 8:44-8:48)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "CFG-03",
+     "name": "Default product accounts and down payment account",
+     "nameAr": "حسابات المنتج الافتراضية وحساب الدفعة المقدمة",
+     "details": "Default Accounts > 'حسابات المنتج:'. These are fallbacks for products or categories without their own accounts:\n- 'حساب الدخل' (Income): 410001 ايرادات المبيعات\n- 'حساب النفقات' (Expense): 511001 تكلفة البضاعة (truncated)\n- 'حساب الدفعة المقدمة' (Down Payment): empty, placeholder 'الحساب الأكثر استخدامًا من ...' (falls back to the most used account)",
+     "evidence": "frames 110-131 (7:16-8:40)",
+     "confidence": "seen"
+    },
+    {
+     "id": "CFG-04",
+     "name": "Units of measure and packaging",
+     "nameAr": "وحدات القياس والتغليف",
+     "details": "Section 'الوحدات والتغليف': 'وحدات القياس والعبوات والتغليفات' is ENABLED (sell and buy in different units of measure or by package), with a link button '← الوحدات والتغليف'.",
+     "evidence": "frame 109 (7:12)",
+     "confidence": "seen"
+    },
+    {
+     "id": "CFG-05",
+     "name": "Multi-ledger",
+     "nameAr": "دفتر الأستاذ المتعدد",
+     "details": "Configuration menu item 'دفتر الأستاذ المتعدد' (Multi-Ledger), for parallel ledgers such as IFRS vs local GAAP adjustments. Not opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    },
+    {
+     "id": "CFG-06",
+     "name": "Account tags and financial categories",
+     "nameAr": "علامات تصنيف الحساب والفئات المالية",
+     "details": "Configuration menu items 'علامات تصنيف الحساب' (Account Tags, used for tax grids and report tagging) and 'الفئات المالية' (Financial categories, exact purpose unclear). Not opened.",
+     "evidence": "frame 106 (7:00)",
+     "confidence": "partially-seen"
+    }
+   ]
+  },
+  {
+   "module": "Inventory Valuation (Accounting side)",
+   "features": [
+    {
+     "id": "STK-01",
+     "name": "Company inventory accounting settings",
+     "nameAr": "إعدادات محاسبة المخزون للشركة",
+     "details": "Settings section 'تقييم المخزون' > 'Inventory Accounting': 'Default accounts, valuation and cost method for the company. These option can be overridden on each product category'. Fields:\n- 'تقييم المخزون' = 'Periodic (at closing)'\n- 'Periodic Valuation' = 'يدوي' (Manual)\n- 'Inventory Cost Method' = 'السعر القياسي' (Standard Price)\n- 'Valuation Account' = 131100 مخزون المواد (truncated)\n- 'دفتر اليومية' = تقييم المخزون (Inventory Valuation journal)\nA note says Inventory Loss and Production accounts are defined on the dedicated 'المواقع' (Locations), which is a link. Selection options were not expanded.",
+     "evidence": "frame 130 (8:36)",
+     "confidence": "seen"
+    }
+   ]
+  }
+ ],
+ "sampleData": "COMPANY / CONTEXT\n- Company 'Rya Cafe' (user and display name 'Rayya cafe'), database rya-cafe, https://rya-cafe.odoo.com, on Odoo Online.\n- Arabic interface, developer mode on.\n- Recorded Monday 14 Sep 2026.\n- Fiscal localization 'SA المملكة العربية السعودية'; fiscal country Saudi Arabia.\n- Company currency SAR, shown as 'SR'.\n- Fiscal year = calendar year 2026. Previous Years Earnings 0.00, so 2026 is probably the first fiscal year.\n- Installed apps: Accounting, Point of Sale, Kitchen Display, Sales, Purchase, Inventory, Barcode, Documents, Employees, Planning, Knowledge, To-Do, Appointments, Calendar, Discuss, Dashboards, Link Tracker, Apps, Settings.\n\nACCOUNT TYPES IN USE (16 types, 213 accounts)\n| Type | Accounts |\n|---|---|\n| البنك والنقد Bank and Cash | 2 |\n| الأصول المتداولة Current Assets | 25 |\n| أصول ثابتة Fixed Assets | 13 |\n| المدفوعات المسددة مقدمًا Prepayments | 17 |\n| المدين Receivable | 4 |\n| رأس المال Equity | 4 |\n| أرباح السنة الجارية Current Year Earnings | 3 |\n| النفقات Expenses | 90 |\n| إهلاك Depreciation | 8 |\n| تكاليف الإيرادات Cost of Revenue | 3 |\n| الدخل Income | 12 |\n| دخل آخر Other Income | 2 |\n| البطاقة الائتمانية Credit Card | 4 |\n| الالتزامات الجارية Current Liabilities | 20 |\n| الالتزامات غير الجارية Non-current Liabilities | 2 |\n| الدائن Payable | 4 |\n\n- Code-root side panel: 1, 2, 3, 4, 5, 9.\n- Chart of Accounts filters: Receivable, Payable, Equity, Assets, Liability, Income, Expenses, Accounts with entries, Inactive accounts, custom filter.\n\nCHART OF ACCOUNTS SEEN\nFormat: code | name | meaning | type | reconcile | notes. Balances are from the Sep 2026 Trial Balance end column (debit positive, credit negative) unless stated.\n\nAssets:\n- 100001 | الأموال قيد التحويل | liquidity transfer / funds in transit | Current Assets | ON | default Internal Transfer account\n- 100101 | حق استخدام الأصول (IFRS 16) | right-of-use assets | Fixed Assets | off\n- 100102 | الاستهلاك المتراكم استخدام حق الأصول (IFRS 16) | accumulated depreciation, ROU | Fixed Assets | off\n- 100103 | ضريبة القيمة المضافة المدينة | VAT receivable / input VAT | Receivable | ON\n- 100105 | بناء | building | Fixed Assets | description 'تشييد المباني والتكاليف المرتبطة بها'\n- 100106 | تأسيس | fit-out / establishment | Fixed Assets | description 'مشتريات التركيبات المتعلقة بالمباني، مثل الألواح الشمسية أو السخانات' | -46,074.80\n- 100107 | الآلات والأدوات | machinery & tools | Fixed Assets | description 'الآلات والأدوات المرتبطة مباشرة بعملك'\n- 100108 | الأثاث والمعدات | furniture & equipment | Fixed Assets | description 'النفقات الكبيرة المتعلقة بأماكن العمل'\n- 100109 | أجهزة وبرامج الكمبيوتر | computer hardware & software | Fixed Assets | 6,009.41\n- 100110 | المركبات الآلية | motor vehicles | Fixed Assets\n- 100111 | ملحقات المركبات | vehicle accessories | Fixed Assets\n- 100112 | مصاريف تأسيس الكوفي | cafe establishment costs | Fixed Assets | 488,745.95\n- 100113 | تحسينات الإيجار | leasehold improvements | Fixed Assets\n- 100119 | الاستهلاك على تحسينات الإيجار | depreciation on leasehold improvements | Fixed Assets\n- 101003 | الإيصالات المستحقة | outstanding receipts | Current Assets | ON\n- 101004 | المدفوعات المستحقة | outstanding payments | Current Assets | ON\n- 101005 | الخزنة الرئيسية | main cash box | Current Assets | off\n- 101006 | الخزنة الرئيسية - العملات الأجنبية | main cash box, foreign currencies | Current Assets | off\n- Next row, partly legible: 'ضريبة القيمة المضافة ...' | Current Assets\n- 102011 | الحسابات المستحقة | accounts receivable | 0.00\n- 102012 | حسابات القبض (PoS) | POS receivable | Sep debit 34,053.00, credit 34,053.00, end 0.00\n- 104020 | مصروف مدفوع مقدم | prepaid expense | Prepayments | 24,999.98 | default deferred expense account\n- 111101 | النقدية | cash | Bank and Cash | 5,132.35\n- 111201 | بنك الراجحي | Al Rajhi Bank | Bank and Cash | 64,037.72\n- 116004 | حساب بنك معلق | bank suspense | default suspense account\n- 131100 | مخزون المواد ... (truncated) | materials inventory | inventory valuation account\n\nLiabilities:\n- 200100 | المستحقات - الرواتب | accrued salaries | current liability | +200.00\n- 201002 | مستحقات الدفع | accounts payable | 0.00\n- 201003 | حسان (المالك) | owner Hassan payable | current liability | -7,515.00\n- 201018 | الدخل المؤجل | deferred income | default deferred revenue account\n- 201030 | ضريبة القيمة ا... (truncated) | VAT | cash basis base tax received account\n\nEquity:\n- 310001 | راس المال | capital | Equity | -488,745.95\n- 320001 | جاري المالك (حسان) | owner current account | Equity | -50,000.00\n- 340002 | راس مال ( المالك حسان) | owner drawings/allocation | shown in P&L Allocations | opening 51,124.67 + Sep debit 25,303.00 = 76,427.67\n- 340003 | شريك ( اسامة) | partner Osama | shown in P&L Allocations | 20,125.00 + 10,844.00 = 30,969.00\n\nRevenue and cost of revenue:\n- 410001 | ايرادات المبيعات | sales revenue | Income | FY2026 610,001.09; Jul-Aug 220,171.18 | default product income account\n- 400071 | تكلفة مشروبات | beverage cost | Cost of Revenue | FY 259,999.13; Jul-Aug 86,332.44\n\nOperating expenses (FY2026 | Jul-Aug 2026):\n| Code | Name | Meaning | FY2026 | Jul-Aug 2026 |\n|---|---|---|---|---|\n| 400003 | رواتب | salaries | 66,080.00 | 24,200.00 |\n| 400004 | السكن | housing | 3,500.00 | - |\n| 400010 | ايجار | rent | 20,833.35 | 8,333.34 |\n| 400017 | اعمال خارجية | outsourced work | 7,240.00 | - |\n| 400018 | المياه والكهرباء | water & electricity | 10,799.77 | 5,035.14 |\n| 400020 | الهاتف والإنترنت | phone & internet | 675.00 | 258.00 |\n| 400022 | استضافة | hospitality | 4,873.00 | 2,888.00 |\n| 400026 | مصروفات عامة | general expenses | 49,806.80 | 13,137.97 |\n| 400034 | اعلانات | advertising | 22,494.06 | 6,376.71 |\n| 400042 | صيانة | maintenance | 2,700.35 | 2,084.00 |\n| 400044 | ادوات تنظيف | cleaning supplies | 1,477.00 | 1,429.00 |\n| 400061 | تامينات الاجتماعية | social insurance / GOSI | 66.24 | 66.24 |\n| 400076 | اجهزة كهربائية | electrical appliances | 1,400.58 | - |\n| 400087 | مكافاءات | bonuses | 3,120.00 | - |\n| 400089 | رسوم بنكية | bank fees | 3,669.09 | 2,008.84 |\n\nOther:\n- 511001 | تكلفة البضاعة ... | cost of goods | default product expense account\n- 999997 | أرباح الخصم النقدي | cash / early payment discount gain | truncated on screen\n- 999998 | خسائر الخصم ... | cash / early payment discount loss\n- Other Expenses total: FY 47,080.39, Jul-Aug 15,747.94 (accounts not unfolded).\n\nJOURNALS\n| Journal | Type | Account / setting | Numbering | Code (from numbering) | Dashboard |\n|---|---|---|---|---|---|\n| المبيعات | sale | - | - | not visible | yes |\n| المشتريات | purchase | alias purchases@rya-cafe.odoo.com | - | not visible | yes |\n| بنك الراجحي | bank | 111201 | payments PBNK1/2026/NNNNN | probably BNK1 plus 'P' payment prefix | yes |\n| النقديه | cash | 111101 | CSH2/2026/NNNNN | CSH2 | yes |\n| عمليات متنوعة | general | default for manual entries, tax return closing, deferrals | MISC/2026/MM/NNNN | MISC | yes |\n| Point of Sale | POS | - | POSS/2026/MM/NNNN | POSS | yes |\n| Tax Adjustments | general | - | - | - | yes |\n| IFRS 16 Right of Use Asset | general | - | - | - | yes |\n| Zakat | general | - | - | - | yes |\n| ضرائب بأساس نقدي | cash basis taxes | - | - | - | no |\n| تقييم المخزون | inventory valuation | - | - | - | no |\n\nTAX SETTINGS\n- Default sales tax: empty.\n- Default purchase tax: 15%.\n- Prices: tax excluded (غير شامل الضريبة).\n- Tax return periodicity: monthly. Options: Monthly, Every 2 months, Quarterly, Every 4 months, Semi-annually, Annually, Fiscal year.\n- Tax return deadline: 7 days after period end; journal عمليات متنوعة.\n- Rounding: round per tax (global); round per line is the alternative.\n- Cash basis: enabled; journal ضرائب بأساس نقدي; base tax received account 201030.\n- Withholding Tax Base: empty.\n- Taxes in company currency: on.\n- GCC bilingual invoice format: off.\n- Configuration menus: Taxes, Tax Groups, Tax Units, Return Types.\n\nOTHER SETTINGS\n- Authorized signatory: off.\n- Automatic Invoice Reminders: off.\n- Units of measure & packagings: on.\n- Invoice online payment: on; its QR link on PDF sub-option: off.\n- QR Codes: off.\n- Batch payments: off.\n- Auto-validate vendor bills: on.\n- Predict vendor bill product: off.\n- Credit limit: help text only.\n\nDEFAULT ACCOUNTS\n- Bank suspense 116004; internal transfer 100001.\n- Deferred expense: journal عمليات متنوعة, account 104020, generate on bill validation, monthly, By Months.\n- Deferred revenue: journal عمليات متنوعة, account 201018, generate on validation, monthly, By Months.\n- Invoice line discounts: customer and vendor both empty (same account as product line).\n- Early payment discounts: gain 999997, loss 999998.\n- Product accounts: income 410001, expense 511001, down payment empty.\n- Inventory valuation: Periodic (at closing); periodic valuation Manual; cost method Standard Price; valuation account 131100; journal تقييم المخزون; loss and production accounts set on locations.\n\nPROFIT AND LOSS (FY 2026)\n| Line | Amount (SR) |\n|---|---|\n| الإيرادات | 610,001.09 |\n| تكاليف الإيرادات | 259,999.13 |\n| [total] إجمالي الربح | 350,001.96 |\n| نفقات التشغيل | 198,735.24 |\n| [total] الدخل التشغيلي (أو الخسائر التشغيلية) | 151,266.72 |\n| دخل آخر | 0.00 |\n| النفقات الأخرى | 47,080.39 |\n| [total] صافي الربح | 104,186.33 |\n| التخصيصات والسحوبات (= 340002 + 340003) | 107,396.67 |\n| [total] صافي الربح المتبقي بعد المخصصات والمسحوبات | -3,210.34 |\n\n- Jul-Aug 2026: GP 133,838.74, OpEx 65,817.24, Operating Income 68,021.50, Other Expenses 15,747.94, Net Profit (computed) 52,273.56.\n- Jul-Dec 2026: Operating Income 89,487.35, Other Expenses 15,747.94.\n\nBALANCE SHEET (as of 14/09/2026)\n- الأصول 542,850.61\n  - الأصول المتداولة 94,170.05\n    - الحسابات البنكية والنقدية 69,170.07 (111101 5,132.35; 111201 64,037.72)\n    - المدينين 0.00\n    - الأصول المتداولة 0.00\n    - المدفوعات المسددة مقدما 24,999.98\n  - الأصول الثابتة 448,680.56\n  - الأصول غير المتداولة 0.00\n- التزامات 7,315.00\n  - الالتزامات الجارية 7,315.00 (الالتزامات الجارية 7,315.00; البطاقة الائتمانية 0.00; الدائنون 0.00)\n  - الالتزامات غير الجارية 0.00\n- رأس المال 535,535.61\n  - رأس المال 538,745.95\n  - الأرباح -3,210.34 (الأرباح غير المخصصة للسنة الجارية -3,210.34; Previous Years Earnings 0.00)\n\nTRIAL BALANCE (September 2026)\nRows are listed under TB-03. Columns: Opening balance | Debit | Credit | End balance; End = Opening + Debit - Credit.\n\nDASHBOARD FIGURES\n- Al Rajhi Bank: Balance 408,568.91 SR, Misc operations -344,531.19 SR, sum 64,037.72 = GL.\n- Cash: Balance 71,906.90 SR, Misc operations -66,774.55 SR, sum 5,132.35 = GL.\n- Due-date buckets: مستحق | 7-13 سبتمبر | هذا الأسبوع | 21-27 سبتمبر | 28 سبتمبر-4 أكتوبر | غير مستحق.\n\nPOS SESSION POSTINGS\nEach session posts three entries; the combined card entries carry reference 'قم بجمع Card مدفوعات نقطة البيع من Rayya cafe/NNNNN'.\n| Session | Date | POS entry | POS total | Card entry (Al Rajhi) | Card | Cash entry | Cash | Gap |\n|---|---|---|---|---|---|---|---|---|\n| Rayya cafe/00172 | 13 Sep | POSS/2026/09/0013 | 1,398.00 | PBNK1/2026/00187 | 1,270.00 | CSH2/2026/00169 | 128.00 | 0 |\n| 00171 | 12 Sep | POSS/2026/09/0012 | 1,885.00 | PBNK1/2026/00186 | 1,664.00 | CSH2/2026/00168 | 201.00 | 20.00 |\n| 00170 | 11 Sep | POSS/2026/09/0011 | 4,099.00 | PBNK1/2026/00185 | 3,562.00 | CSH2/2026/00167 | 517.00 | 20.00 |\n| 00169 | 10 Sep | POSS/2026/09/0010 | 3,227.00 | PBNK1/2026/00184 | 3,037.00 | CSH2/2026/00166 | 190.00 | 0 |\n| 00168 | ~9 Sep | POSS/2026/09/0009 | unreadable | - | - | - | - | - |\n\nMANUAL MISC ENTRIES (posted, no partner)\n- MISC/2026/09/0010 | 12 Sep | 'سداد سمية من يوم 28/8/2026 الي 12/9/2026' | 3,283.00\n- MISC/2026/09/0009 | 12 Sep | 'سداد معمل/معلم عبد العزيز من يوم 28/8/2026 الي 12/9/2026' | 7,428.65\n- MISC/2026/09/0008 | 10 Sep | 'جزء من ارباح من 28/7/2026 الي 27/8/2026' | 36,147.00 (= debit 340002 25,303 + debit 340003 10,844, derived)\n- MISC/2026/09/0007 | 10 Sep | 'اعمال خارجية للزراعة' | 500.00 (debit 400017, derived)\n- MISC/2026/09/0006 | 10 Sep | 'ديكور اليوم الوطني' | 360.00 (debit 400034 اعلانات / credit 111201 بنك الراجحي, seen; record id 1007; attached Al Rajhi transfer receipt dated 2026/09/10 10:46 PM)\n- MISC/2026/09/0005 | 10 Sep | 'جمعة 28/8/2026 ويوم 4/9/2026' | 510.00 (debit 400022 استضافة, derived)\n- Journal Entries total: 808 posted.\n\nMENUS\nAccounting menu:\n- المعاملات: قيود اليومية\n- الأصول والالتزامات: أصول; القروض\n- جاري الإغلاق: تسوية; الإقرارات الضريبية; تواريخ الإقفال...; تأمين القيود\n\nReporting menu:\n- تقارير كشف الحساب: الميزانية العمومية; الربح والخسارة; كشف التدفقات النقدية\n- دفاتر الأستاذ: ميزان المراجعة; دفتر الأستاذ العام\n- تقارير الشركاء: دفتر الأستاذ العام للشركاء; المتأخر المدين; حسابات دائنة مستحقة متأخرة\n- الضرائب والشؤون المالية: التقرير الضريبي; التقرير المالي\n- الإدارة: تحليل الفاتورة; تقرير تحليلي; الملخص التنفيذي\n\nConfiguration menu:\n- الإعدادات\n- المحاسبة: شجرة الحسابات; الضرائب; دفاتر اليومية; العملات; الأوضاع المالية; دفتر الأستاذ المتعدد; مجموعات الضرائب; الوحدات الضريبية; علامات تصنيف الحساب; التقارير المحاسبية; المجموعات الأفقية; الفحوصات; الفئات المالية; Depreciation Models; أنواع الإقرارات; الميزانيات المالية; المزامنة عبر الإنترنت\n- الفوترة: شروط السداد; الشروط التجارية\n- More items below were not visible."
+}

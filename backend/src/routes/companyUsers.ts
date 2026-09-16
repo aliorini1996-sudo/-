@@ -29,6 +29,13 @@ const userSchema = z.object({
   canManageCompanySettings: z.boolean().optional(),
   canManageDailyReport: z.boolean().optional(),
   canManageCompanyUsers: z.boolean().optional(),
+  // صلاحيات الدفاتر (§9.2) — تُنزع في الإنشاء والتعديل ما لم تكن الميزة مفعّلة للشركة
+  canViewLedger: z.boolean().optional(),
+  canPostJournals: z.boolean().optional(),
+  canManagePayables: z.boolean().optional(),
+  canManageBank: z.boolean().optional(),
+  canCloseLedgerPeriods: z.boolean().optional(),
+  canConfigureLedger: z.boolean().optional(),
   // ⚠️ **`scopeEnabled` مقصودٌ غيابه هنا** — لا يُكتب إلا من `PUT /:id/scope`
   // المحروس بـ`guardScopeAdmin`.
   //
@@ -57,8 +64,28 @@ const userSelect = {
   canManageCompanySettings: true,
   canManageDailyReport: true,
   canManageCompanyUsers: true,
+  // بدونها يقرأ نموذج التعديل undefined فيعيد كل حفظٍ كتابة صلاحيات الدفاتر
+  canViewLedger: true,
+  canPostJournals: true,
+  canManagePayables: true,
+  canManageBank: true,
+  canCloseLedgerPeriods: true,
+  canConfigureLedger: true,
   createdAt: true,
 } as const;
+
+const LEDGER_PERMISSION_KEYS = ['canViewLedger', 'canPostJournals', 'canManagePayables', 'canManageBank', 'canCloseLedgerPeriods', 'canConfigureLedger'] as const;
+
+/** النظام المحاسبي المتكامل مفعّل للشركة؟ مطفأ افتراضياً ⇒ `=== true` (تعذّر القراءة يمنع). */
+async function ledgerSuiteOn(tid: string): Promise<boolean> {
+  const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingSuiteEnabled: true, accountingEnabled: true } });
+  return t?.accountingSuiteEnabled === true && t?.accountingEnabled !== false;
+}
+
+/** حارس الخادم: صلاحية مخفية لا تُكتب — تُحذف مفاتيح الدفاتر حين تكون الميزة مطفأة. */
+function stripLedgerKeys(data: Record<string, unknown>): void {
+  for (const k of LEDGER_PERMISSION_KEYS) delete data[k];
+}
 
 async function requireCompanyOwner(req: AuthRequest, res: Response): Promise<boolean> {
   if (!req.user || !['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
@@ -125,6 +152,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
 
+    if (!(await ledgerSuiteOn(tid))) stripLedgerKeys(body as Record<string, unknown>);
+
     const passwordHash = await bcrypt.hash(body.password, 10);
     const user = await prisma.admin.create({
       data: {
@@ -146,6 +175,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         canManageCompanySettings: body.canManageCompanySettings ?? true,
         canManageDailyReport: body.canManageDailyReport ?? true,
         canManageCompanyUsers: body.canManageCompanyUsers ?? false,
+        // الدفاتر ميزة جديدة: ?? false لا ?? true كنظائرها
+        canViewLedger: body.canViewLedger ?? false,
+        canPostJournals: body.canPostJournals ?? false,
+        canManagePayables: body.canManagePayables ?? false,
+        canManageBank: body.canManageBank ?? false,
+        canCloseLedgerPeriods: body.canCloseLedgerPeriods ?? false,
+        canConfigureLedger: body.canConfigureLedger ?? false,
       },
       select: userSelect,
     });
@@ -179,6 +215,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // حزامٌ ثانٍ فوق حذفه من المخطّط: حقلُ نطاقٍ يُضاف مستقبلاً لـ`userSchema`
     // سيمرّ من هنا صامتاً وإلا. النطاق لا يُكتب إلا من مساره المحروس.
     delete updateData.scopeEnabled;
+    // صلاحيات الدفاتر لا تُكتب ما لم تكن الميزة مفعّلة للشركة (§9.2)
+    if (!(await ledgerSuiteOn(tid))) stripLedgerKeys(updateData);
     if (password) updateData.passwordHash = await bcrypt.hash(password, 10);
 
     const user = await prisma.admin.update({

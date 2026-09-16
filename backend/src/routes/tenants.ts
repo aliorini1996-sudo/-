@@ -6,6 +6,8 @@ import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { cardStatuses, platformMetrics, sendWeeklyReport } from '../services/opsSchedule';
+import { isLedgerPilotTenant } from '../services/gl/pilot';
+import { adminPermissionFields } from './auth';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -43,6 +45,8 @@ const updateTenantSchema = z.object({
   accountingEnabled: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
   invoiceSignatureEnabled: z.boolean().optional(),
+  // النظام المحاسبي المتكامل — في التحديث وحده، ومحروسٌ بقائمة التجربة في PUT /:id (§8.1)
+  accountingSuiteEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),
   notes: z.string().nullish(),
 });
@@ -73,7 +77,8 @@ router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => 
         admins: { select: { name: true, email: true }, take: 1, orderBy: { createdAt: 'asc' } },
       },
     });
-    res.json({ success: true, data: tenants });
+    // ledgerPilotAllowed: هل تقبل الشركة تفعيل النظام المحاسبي المتكامل الآن (قائمة التجربة، بلا استعلام إضافي)
+    res.json({ success: true, data: tenants.map(t => ({ ...t, ledgerPilotAllowed: isLedgerPilotTenant(t.id, process.env) })) });
   } catch (err) { next(err); }
 });
 
@@ -134,6 +139,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = updateTenantSchema.parse(req.body);
+    // حارس قائمة التجربة (§8.1): التغيير من غير true إلى true لشركة خارج
+    // LEDGER_PILOT_TENANTS مرفوض قبل الكتابة. الإطفاء وحفظ بقية الحقول مع true
+    // قائمة لا يُفحصان، فتبقى الشركة التي أُزيلت من القائمة قابلةً للإطفاء.
+    if (body.accountingSuiteEnabled === true) {
+      const prev = await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { accountingSuiteEnabled: true } });
+      if (prev && prev.accountingSuiteEnabled !== true && !isLedgerPilotTenant(req.params.id, process.env)) {
+        res.status(403).json({ success: false, code: 'LEDGER_PILOT_ONLY', message: 'النظام المحاسبي المتكامل في مرحلة تجربة ولا يفعل إلا للشركات المدرجة في قائمة التجربة' });
+        return;
+      }
+    }
     const data: Record<string, unknown> = { ...body };
     if ('subscriptionEndsAt' in body) {
       data.subscriptionEndsAt = body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null;
@@ -162,7 +177,8 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
     );
     res.json({
       success: true,
-      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, companyName: tenant.name } },
+      // صلاحيات صاحب الحساب ونطاقه — وإلا أخفى الويب الدفاتر التي يسمح بها الخادم (§9.1)
+      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, companyName: tenant.name, ...adminPermissionFields(admin) } },
     });
   } catch (err) { next(err); }
 });

@@ -327,7 +327,16 @@ function TenantColumn({
                   </td>
                   <td className="text-center text-gray-600">{t._count?.customers ?? 0}</td>
                   <td className="text-sm text-gray-500">{t.subscriptionEndsAt ? formatDate(t.subscriptionEndsAt) : tr('غير محدود')}</td>
-                  <td><span className={`px-2 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span></td>
+                  <td>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span>
+                    {/* شارة الدفاتر (M0): من العَلَم وحده، وaccountingEnabled === false يُعامل «غير مفعّل».
+                        تُعرض لشركات قائمة التجربة أو المفعّلة فقط — فلا أثر مرئي لغيرها */}
+                    {(t.ledgerPilotAllowed === true || t.accountingSuiteEnabled === true) && (
+                      <span className={`block w-fit mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${t.accountingSuiteEnabled === true && t.accountingEnabled !== false ? 'bg-[#FBEBE2] text-[#C94E28]' : 'bg-gray-100 text-gray-500'}`}>
+                        {tr('الدفاتر')}: {t.accountingSuiteEnabled === true && t.accountingEnabled !== false ? tr('مفعّل') : tr('غير مفعّل')}
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <div className="flex items-center gap-1">
                       <button
@@ -568,6 +577,10 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [dailyReportEnabled, setDailyReportEnabled] = useState(!!tenant.dailyReportEnabled);
   const [invoiceSignatureEnabled, setInvoiceSignatureEnabled] = useState(!!tenant.invoiceSignatureEnabled);
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
+  // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. والخانة لا تُعرض إلا لشركة في قائمة
+  // التجربة أو مفعّلة أصلاً (فتبقى قابلة للإطفاء بعد إزالتها من القائمة)؛ الخادم هو الحارس.
+  const [accountingSuiteEnabled, setAccountingSuiteEnabled] = useState(!!tenant.accountingSuiteEnabled);
+  const showLedgerToggle = tenant.ledgerPilotAllowed === true || tenant.accountingSuiteEnabled === true;
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
   );
@@ -597,6 +610,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       dailyReportEnabled,
       invoiceSignatureEnabled,
       accountingEnabled,
+      accountingSuiteEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success(tr('تم تحديث بيانات الشركة')); onSaved(); },
@@ -720,6 +734,15 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('النظام المحاسبي يشمل المنتجات ومخزون السيارات ومخزون الشركة والفواتير وسندات القبض')}</p>
             <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تخفى الميزة وترفض طلباتها للشركة')}</p>
+            {showLedgerToggle && (
+              <>
+                <label className={`flex items-center gap-2.5 text-sm cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2 ${accountingEnabled ? 'text-gray-700' : 'text-gray-400'}`}>
+                  <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={accountingSuiteEnabled} disabled={!accountingEnabled} onChange={e => setAccountingSuiteEnabled(e.target.checked)} />
+                  {tr('النظام المحاسبي المتكامل (شجرة حسابات وقيود يومية وقوائم مالية)')}
+                </label>
+                <p className="text-xs text-gray-400 mt-1">{tr('يتطلب تفعيل النظام المحاسبي — الدفاتر لا تُحذف عند الإطفاء')}</p>
+              </>
+            )}
           </div>
         </div>
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3] shrink-0">
