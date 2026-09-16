@@ -5,6 +5,7 @@ import { Customer, Invoice, SalesRep } from '../../types';
 import { formatCurrency } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
 import { ReceiptDoc, Company } from '../../rep/RepDocuments';
+import { receiptInvoicesFrom } from '../../rep/receiptLinks';
 import { X, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
@@ -48,7 +49,10 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     },
   });
 
-  const { data: openInvoices, isError: invoicesFailed } = useQuery({
+  const {
+    data: openInvoices, isError: invoicesFailed,
+    isPending: invoicesPending, isFetching: invoicesFetching, refetch: refetchInvoices,
+  } = useQuery({
     queryKey: ['open-invoices', customerId],
     queryFn: async () => {
       // مسار مخصّص: كل فواتير العميل المفتوحة مرتّبة بالأقدم — وهو ترتيب
@@ -58,6 +62,9 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     },
     enabled: !!customerId,
   });
+  // أيّ جلبٍ جارٍ — الأول أو إعادة الجلب عند الفتح — يوقف الإصدار: الإرسال قبل
+  // وصول القائمة كان يمرّ بتوزيع صفر فيختار الخادم الفاتورة بدل المستخدم
+  const invoicesLoading = !!customerId && (invoicesPending || invoicesFetching);
 
   const mutation = useMutation({
     mutationFn: (data: unknown) => receiptApi.create(data),
@@ -68,6 +75,8 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
         kind: 'receipt', number: rcp.number, date: rcp.receiptDate,
         company: company ?? null, customer: selectedCustomer as Customer, repName,
         amount: Number(amount), paymentMethod, notes: notes || undefined,
+        // من روابط الخادم لا من جدول التوزيع — الخادم قد يكون أكمل التوزيع
+        invoices: receiptInvoicesFrom(rcp.invoiceItems),
       };
       toast.success(tr('تم إصدار السند'));
       onSaved(doc);
@@ -105,6 +114,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
     if (!amount || Number(amount) <= 0) { toast.error(tr('أدخل المبلغ')); return; }
+    if (invoicesLoading) { toast.error(tr('انتظر تحميل فواتير العميل قبل إصدار السند')); return; }
     // فشل جلب الفواتير ليس «لا مديونية»: بدون القائمة لا يُعرف المطلوب توزيعه،
     // وكان الإرسال يمرّ حينها بتوزيع صفر ويقرّر الخادم صامتاً بدل المستخدم
     if (invoicesFailed) {
@@ -255,10 +265,17 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
             </div>
           )}
 
-          {selectedCustomer && invoicesFailed && (
-            <p className="text-xs text-[#B4530A] bg-[#FDF3E7] border border-[#F5D9B0] rounded-xl px-3 py-2">
-              {tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند')}
+          {selectedCustomer && invoicesLoading && !openInvoices && (
+            <p className="text-xs text-gray-500 bg-[#FAF7F0] border border-[#E9E1D3] rounded-xl px-3 py-2">
+              {tr('جار تحميل الفواتير')}
             </p>
+          )}
+
+          {selectedCustomer && invoicesFailed && !invoicesFetching && (
+            <div className="text-xs text-[#B4530A] bg-[#FDF3E7] border border-[#F5D9B0] rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+              <span>{tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند')}</span>
+              <button type="button" onClick={() => refetchInvoices()} className="font-bold underline flex-shrink-0">{tr('إعادة المحاولة')}</button>
+            </div>
           )}
 
           {selectedCustomer && openInvoices && openInvoices.length === 0 && (
@@ -274,7 +291,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
         </div>
 
         <div className="flex gap-3 p-5 border-t">
-          <button onClick={handleSubmit} disabled={mutation.isPending} className="btn-primary flex-1 justify-center py-2.5">
+          <button onClick={handleSubmit} disabled={mutation.isPending || invoicesLoading || invoicesFailed} className="btn-primary flex-1 justify-center py-2.5">
             {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
             {tr('إصدار السند')}
           </button>

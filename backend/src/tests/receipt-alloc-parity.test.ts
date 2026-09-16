@@ -121,6 +121,45 @@ test('فشل جلب الفواتير يمنع الإصدار ولا يُسقط �
   assert.match(repApp, /invLoading/, 'التطبيق ما زال يخلط التحميل بالفشل');
 });
 
+/**
+ * قرار المالك: الضغط على «إصدار» قبل ظهور قائمة الفواتير، أو بعد فشل تحميلها،
+ * لا يُصدر سنداً — يتوقّف حتى تُحمَّل القائمة ويُسنَد السند إلى فاتورة. كان
+ * الإرسال يمرّ حينها بتوزيع صفر فيختار الخادم الفاتورة بالأقدم بدل المستخدم.
+ */
+test('التحميل الجاري وفشله يوقفان الإصدار في الشاشات الثلاث', () => {
+  assert.match(modal, /const invoicesLoading = !!customerId && \(invoicesPending \|\| invoicesFetching\)/,
+    'لوحة الإدارة لا تعرف أن الفواتير قيد التحميل');
+  assert.match(modal, /if \(invoicesLoading\) \{/, 'لوحة الإدارة تُصدر السند قبل وصول الفواتير');
+  assert.match(modal, /disabled=\{mutation\.isPending \|\| invoicesLoading \|\| invoicesFailed\}/,
+    'زرّ الإصدار في اللوحة متاح أثناء التحميل أو بعد فشله');
+
+  assert.match(mobile, /const invBusy = !!customerId && \(invQ\.isPending \|\| invQ\.isFetching\)/,
+    'لوحة الجوال لا تعرف أن الفواتير قيد التحميل');
+  assert.match(mobile, /&& !invBusy && !invQ\.isError && shortfall <= 0\.004/,
+    'بوابة الإرسال في الجوال لا تنتظر الفواتير');
+
+  const rep = repApp.slice(repApp.indexOf('function CreateReceipt'));
+  const submit = rep.slice(rep.indexOf('const submit'), rep.indexOf('const pickPhotos'));
+  assert.match(submit, /if \(invLoading\) \{/, 'تطبيق المندوب يُصدر السند أثناء تحميل الفواتير');
+  assert.match(submit, /if \(invFailed\) \{/, 'تطبيق المندوب يُصدر السند بعد فشل تحميل الفواتير');
+  // فشلٌ ردّ به الخادم يختلف عن انقطاع الشبكة — الأول يوقف، والثاني مسار الأوف‑لاين
+  assert.match(rep, /setInvFailed\(!offline\)/, 'تطبيق المندوب يخلط فشل الخادم بانقطاع الشبكة');
+  // قائمةٌ غابت لانقطاعٍ تُعاد لحظة الإصدار — ولا يُرسَل سندٌ حيّ بلا قائمة
+  assert.match(submit, /const fresh = await loadOpenInvoices\(\)/, 'لا إعادة جلب للفواتير لحظة الإصدار');
+  assert.match(submit, /if \(offlineOnly\) \{ await queueOffline\(\); return; \}/,
+    'سندٌ بلا قائمة فواتير يُرسَل حيّاً بدل التقاطه أوف‑لاين');
+  assert.match(rep, /disabled=\{loading \|\| invLoading \|\| invFailed\}/, 'زرّ الإصدار متاح أثناء التحميل أو بعد فشله');
+});
+
+/** ردّ الإنشاء يحمل روابط السند — منها يُطبع «مقابل الفاتورة رقم …» فور الإصدار */
+test('ردّ إنشاء السند وإعادتاه المتطابقتان تحمل روابط الفواتير', () => {
+  const post = receipts.slice(receipts.indexOf("router.post('/'"), receipts.indexOf("router.patch('/:id/cancel'"));
+  assert.equal((post.match(/include: RECEIPT_LINKS/g) || []).length, 3,
+    'أحد ردود الإنشاء (الجديد أو الإعادتان) بلا روابط الفواتير');
+  assert.match(receipts, /invoiceItems: \{ select: \{ amount: true, invoice: \{ select: \{ id: true, number: true \} \} \} \}/,
+    'روابط الردّ تكشف صفّ الفاتورة كاملاً أو فقدت رقمها');
+});
+
 /** تخصيصٌ فوق مبلغ السند يجعل النقص سالباً فتمرّ البوابة كاذبةً */
 test('التوزيع الزائد ممنوع صراحةً لا بالنقص السالب', () => {
   assert.match(modal, /totalAllocated > Number\(amount\) \+ 0\.004/, 'اللوحة تقبل توزيعاً يفوق السند');

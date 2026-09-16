@@ -1,12 +1,14 @@
 import { forwardRef, useRef, useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels } from '../utils/format';
+import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { currencyDecimals } from '../i18n/countries';
 import { periodShape, statementFinalBalance } from './statementFacts';
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef } from './warehouseNoticeFacts';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { printThermalInvoice, printThermalReceipt } from './thermal';
+import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from './receiptLinks';
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
 import { Share2, Download, Check, ArrowRight, Printer, X } from 'lucide-react';
@@ -108,6 +110,14 @@ export interface ReceiptDoc {
    */
   photos?: ReceiptPhoto[];
   offline?: boolean;
+  /**
+   * الفواتير التي خُصّص لها مبلغ السند — تُطبع «مقابل الفاتورة رقم …».
+   * `undefined` = غير معروفة (لا يُطبع شيء)، و`[]` = مؤكَّدٌ أنه بلا فاتورة.
+   * انظر `receiptLinks.ts`.
+   */
+  invoices?: ReceiptInvoiceLink[];
+  /** سند ملغى يُعاد فتحه من كشف الحساب — يُوسَم كي لا يُسلَّم كسندٍ ساري */
+  cancelled?: boolean;
 }
 
 export interface StatementEntry {
@@ -545,10 +555,18 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
         <InfoBox label={tr('المندوب')} value={doc.repName} />
       </div>
 
+      {doc.cancelled && (
+        <div style={{ background: '#fef2f2', border: '2px solid #dc2626', borderRadius: 10, padding: 10, textAlign: 'center', marginBottom: 16, color: '#b91c1c', fontWeight: 700, fontSize: 18 }}>
+          {tr('سند ملغى')}
+        </div>
+      )}
+
       <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: 14, padding: 24, textAlign: 'center', marginBottom: 20 }}>
         <div style={{ color: '#15803d', fontSize: 14, marginBottom: 8 }}>{tr('المبلغ المستلم')}</div>
         <div style={{ fontSize: 38, fontWeight: 700, color: '#15803d' }}>{formatCurrency(doc.amount)}</div>
       </div>
+
+      <ReceiptInvoicesBox doc={doc} />
 
       <div style={{ background: '#f8fafc', borderRadius: 10, padding: 16, marginBottom: 20 }}>
         <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات العميل')}</div>
@@ -578,6 +596,51 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
   );
 });
 PrintableReceipt.displayName = 'PrintableReceipt';
+
+/**
+ * «مقابل الفاتورة رقم …» داخل سند القبض — تحت المبلغ مباشرةً لأنه جواب سؤال
+ * «هذا المبلغ عن ماذا؟». فاتورة واحدة ⇒ رقمها بخطّ كبير؛ أكثر ⇒ سطرٌ لكلٍّ
+ * بمبلغه. والفائض عن الفواتير يُسمّى رصيداً دائناً لا يُترك صامتاً.
+ */
+function ReceiptInvoicesBox({ doc }: { doc: ReceiptDoc }) {
+  const tr = useTr();
+  const view = receiptLinkView(doc, currencyDecimals(getActiveCurrency()));
+  if (view.kind === 'unknown') return null;
+  const box: React.CSSProperties = { border: '1.5px solid #cbd5e1', borderRadius: 12, padding: '14px 18px', marginBottom: 20 };
+  if (view.kind === 'pending' || view.kind === 'onAccount') {
+    return (
+      <div style={{ ...box, color: '#475569', fontSize: 14, textAlign: 'center' }}>
+        {view.kind === 'pending' ? tr('يحدد رقم الفاتورة عند مزامنة السند') : tr('دفعة على الحساب غير مرتبطة بفاتورة')}
+      </div>
+    );
+  }
+  const single = view.links.length === 1;
+  const showAmounts = !single || view.unallocated > 0;
+  return (
+    <div style={box}>
+      {single ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+          <span style={{ color: '#475569', fontSize: 14 }}>{tr('مقابل الفاتورة رقم')}</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', direction: 'ltr' }}>{view.links[0].number}</span>
+        </div>
+      ) : (
+        <div style={{ color: '#475569', fontSize: 14, marginBottom: 8 }}>{tr('مقابل الفواتير')}</div>
+      )}
+      {showAmounts && view.links.map((l) => (
+        <div key={l.number} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 14, padding: '5px 0', borderTop: single ? 'none' : '1px solid #eef2f7' }}>
+          <span>{tr('فاتورة رقم')} <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{l.number}</b></span>
+          <span style={{ fontWeight: 700 }}>{formatCurrency(l.amount)}</span>
+        </div>
+      ))}
+      {view.unallocated > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, padding: '5px 0', borderTop: '1px solid #eef2f7', color: '#475569' }}>
+          <span>{tr('رصيد دائن للعميل غير مخصص لفاتورة')}</span>
+          <span style={{ fontWeight: 700 }}>{formatCurrency(view.unallocated)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ============ قالب كشف الحساب ============
 export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc }>(({ doc }, ref) => {
@@ -1098,6 +1161,8 @@ export function receiptDocFromDetail(rcp: any, repName: string, company?: Compan
     paymentMethod: rcp.paymentMethod,
     notes: rcp.notes ?? undefined,
     photos: receiptPhotosFrom(rcp.photos),
+    invoices: receiptInvoicesFrom(rcp.invoiceItems),
+    ...(rcp.status === 'CANCELLED' && { cancelled: true }),
   };
 }
 

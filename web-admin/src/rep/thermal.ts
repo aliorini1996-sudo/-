@@ -5,6 +5,7 @@ import { paymentMethodLabels, getActiveCurrency, getActiveNumerals } from '../ut
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import { isSaudiDoc, isSignatureSrc } from './RepDocuments';
+import { receiptLinkView } from './receiptLinks';
 
 function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -139,11 +140,33 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
   `);
 }
 
+/** «مقابل الفاتورة رقم …» بنفس قرار قالب A4 (`receiptLinkView`) — سطورٌ لا جدول */
+function receiptInvoiceRows(doc: ReceiptDoc): string {
+  const view = receiptLinkView(doc, currencyDecimals(getActiveCurrency()));
+  if (view.kind === 'unknown') return '';
+  if (view.kind === 'pending') return '<div class="sep"></div><div class="c muted">يحدد رقم الفاتورة عند مزامنة السند</div>';
+  if (view.kind === 'onAccount') return '<div class="sep"></div><div class="c muted">دفعة على الحساب غير مرتبطة بفاتورة</div>';
+  // المفرد والجمع بعدد الفواتير وحده كقالب A4 — والمبالغ تُفصَّل حين تتعدّد أو يفيض رصيد
+  const single = view.links.length === 1;
+  const showAmounts = !single || view.unallocated > 0;
+  const heading = single
+    ? `<div class="row"><span>مقابل الفاتورة رقم</span><span class="b">${esc(view.links[0].number)}</span></div>`
+    : `<div class="c muted">مقابل الفواتير</div>`;
+  const rows = heading + (showAmounts
+    ? view.links.map(l => `<div class="row"><span>${esc(l.number)}</span><span>${money(l.amount)}</span></div>`).join('')
+    : '');
+  const rest = view.unallocated > 0
+    ? `<div class="row"><span>رصيد دائن للعميل</span><span>${money(view.unallocated)}</span></div>`
+    : '';
+  return `<div class="sep"></div>${rows}${rest}`;
+}
+
 export async function printThermalReceipt(doc: ReceiptDoc): Promise<void> {
   printHTML(`
     ${head(doc.company)}
     <div class="sep"></div>
     <div class="c b">سند قبض</div>
+    ${doc.cancelled ? '<div class="c b">— سند ملغى —</div>' : ''}
     <div class="sep"></div>
     <div class="row"><span>رقم</span><span class="b">${esc(doc.number)}</span></div>
     <div class="row"><span>التاريخ</span><span>${dt(doc.date)}</span></div>
@@ -155,6 +178,7 @@ export async function printThermalReceipt(doc: ReceiptDoc): Promise<void> {
     <div class="sep"></div>
     <div class="c muted">المبلغ المستلم</div>
     <div class="c b xl">${money(doc.amount)} ${curSym()}</div>
+    ${receiptInvoiceRows(doc)}
     <div class="sep"></div>
     <div class="c muted">${esc(doc.company?.name || '')}</div>
     <div class="c muted">شكرا لتعاملكم معنا</div>

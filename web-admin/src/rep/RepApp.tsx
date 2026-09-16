@@ -1,5 +1,5 @@
 import {
-  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon,
+  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { compressImage } from './imageCompress';
@@ -1708,28 +1708,39 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const [openInv, setOpenInv] = useState<any[] | null>(null);
   // null كانت تعني «تحميل» و«فشل» معاً، فتظهر لافتة الفشل طوال التحميل العاديّ
   const [invLoading, setInvLoading] = useState(true);
+  // فشلٌ ردّ به الخادم (لا انقطاع شبكة) — يوقف الإصدار حتى تُحمَّل القائمة.
+  // أمّا «لا ردّ إطلاقاً» فهو بلا اتصال، ويبقى openInv=null ومسار الأوف‑لاين كما هو
+  const [invFailed, setInvFailed] = useState(false);
   const [alloc, setAlloc] = useState<Record<string, number>>({});
   // هل لمس المندوب التوزيع بيده؟ عندها لا تمحوه إعادةُ التوزيع الآلي
   const [allocTouched, setAllocTouched] = useState(false);
 
-  useEffect(() => {
-    if (customer._offline || !customer.id) { setOpenInv([]); setInvLoading(false); return; }
+  /**
+   * فواتير العميل المفتوحة. تُرجع النتيجة أيضاً لا الحالة وحدها: الإصدار يعيد
+   * الجلب ويحكم في النداء نفسه، والحالة لا تتحدّث قبل انتهائه.
+   */
+  const loadOpenInvoices = useCallback(async (): Promise<any[] | 'offline' | 'failed'> => {
+    if (customer._offline || !customer.id) { setOpenInv([]); setInvFailed(false); setInvLoading(false); return []; }
     setInvLoading(true);
-    (async () => {
-      try {
-        // مسار الفواتير المفتوحة لا قائمة الفواتير العامّة: تلك تُقيَّد بفواتير
-        // المندوب نفسه، فكانت فواتير العميل الصادرة عن مندوب آخر تغيب عن قائمة
-        // التوزيع فيسقط الإلزام. والخادم يوزّع على كلّ فواتير العميل.
-        const res = await repApi.get('/invoices/open', { params: { customerId: customer.id } });
-        setOpenInv(res.data.data || []);
-      } catch {
-        // بلا اتصال: القائمة تتعذّر — السند يمرّ والخادم يوزّعه بالأقدم عند الرفع
-        setOpenInv(null);
-      } finally {
-        setInvLoading(false);
-      }
-    })();
-  }, [customer.id]);
+    try {
+      // مسار الفواتير المفتوحة لا قائمة الفواتير العامّة: تلك تُقيَّد بفواتير
+      // المندوب نفسه، فكانت فواتير العميل الصادرة عن مندوب آخر تغيب عن قائمة
+      // التوزيع فيسقط الإلزام. والخادم يوزّع على كلّ فواتير العميل.
+      const res = await repApi.get('/invoices/open', { params: { customerId: customer.id } });
+      const list = res.data.data || [];
+      setOpenInv(list); setInvFailed(false);
+      return list;
+    } catch (err) {
+      setOpenInv(null);
+      const offline = isNetworkError(err);
+      setInvFailed(!offline);
+      return offline ? 'offline' : 'failed';
+    } finally {
+      setInvLoading(false);
+    }
+  }, [customer.id, customer._offline]);
+
+  useEffect(() => { loadOpenInvoices(); }, [loadOpenInvoices]);
 
   const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
   const allocated = r2(Object.values(alloc).reduce((s, v) => s + v, 0));
@@ -1753,6 +1764,23 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   const submit = async () => {
     if (perms.canCreateReceipt === false) { setMsg(tr('لا تملك صلاحية إصدار سند قبض')); return; }
     if (!amount || Number(amount) <= 0) { setMsg(tr('أدخل مبلغا صحيحا')); return; }
+    // ═══ لا سند قبل أن تُعرف فواتير العميل (قرار المالك) ═══
+    // الضغط أثناء التحميل أو بعد فشله كان يُرسل السند بلا توزيع، فيختار الخادم
+    // الفاتورة بدل المندوب. الإصدار يتوقّف حتى تُحمَّل القائمة ويُسنَد السند.
+    if (invLoading) { setMsg(tr('انتظر تحميل فواتير العميل قبل إصدار السند')); return; }
+    if (invFailed) { setMsg(tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند')); return; }
+    // القائمة غابت لانقطاع الشبكة: نعيد المحاولة لحظة الإصدار. عاد الاتصال وللعميل
+    // فواتير ⇒ يتوقّف ليوزّع المندوب؛ وما زال بلا اتصال ⇒ يُلتقط أوف‑لاين مباشرةً،
+    // فلا يصل الخادمَ سندٌ حيّ لم تُعرض فواتيره على مُصدِره
+    let offlineOnly = false;
+    if (openInv === null && !customer._offline) {
+      setLoading(true); setMsg('');
+      const fresh = await loadOpenInvoices();
+      setLoading(false);
+      if (fresh === 'failed') { setMsg(tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند')); return; }
+      if (fresh === 'offline') offlineOnly = true;
+      else if (fresh.length > 0) { setMsg(tr('تم تحميل فواتير العميل — وزع المبلغ عليها ثم أصدر السند')); return; }
+    }
     // التوزيع إلزاميّ حين تتوفّر قائمة الفواتير — وبلا اتصال يوزّعه الخادم بالأقدم
     if (allocated > Number(amount) + 0.004) {
       setMsg(`${tr('التوزيع أكبر من مبلغ السند')}: ${formatCurrency(allocated)}`);
@@ -1770,22 +1798,33 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       .filter(([, v]) => v > 0.004)
       .map(([invoiceId, a]) => ({ invoiceId, amount: a }));
     const payload = { ...custRef, amount: Number(amount), paymentMethod: method, notes: notes || undefined, clientRef, clientCreatedAt, ...(photos.length ? { photos } : {}), ...(invoiceAllocations.length ? { invoiceAllocations } : {}) };
+    /** التقاط السند في الصفّ وطباعته برقم مؤقّت — وفواتيره من توزيع المندوب إن وُجد */
+    const queueOffline = async () => {
+      const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
+      await outboxAdd({ clientRef, repId: currentRepId(), kind: 'receipt', payload, status: 'queued', clientCreatedAt, localNumber });
+      const localLinks = invoiceAllocations
+        .map(a => ({ number: (openInv ?? []).find(i => i.id === a.invoiceId)?.number as string, amount: a.amount }))
+        .filter(l => !!l.number);
+      onDone({
+        kind: 'receipt', number: localNumber, offline: true, date: clientCreatedAt,
+        company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
+        ...(localLinks.length && { invoices: localLinks }),
+      });
+    };
+    if (offlineOnly) { await queueOffline(); return; }
     try {
       const res = await repApi.post('/receipts', payload);
       const rcp = res.data.data;
       onDone({
         kind: 'receipt', number: rcp.number, date: rcp.receiptDate,
         company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
+        // من روابط الخادم لا من التوزيع المحلي — هي ما خُزّن فعلاً
+        invoices: receiptInvoicesFrom(rcp.invoiceItems),
       });
     } catch (err: any) {
       // انقطاع الشبكة ⇒ التقاط السند في الصفّ وطباعته برقم مؤقّت
       if (isNetworkError(err)) {
-        const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
-        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'receipt', payload, status: 'queued', clientCreatedAt, localNumber });
-        onDone({
-          kind: 'receipt', number: localNumber, offline: true, date: clientCreatedAt,
-          company, customer, repName, amount: Number(amount), paymentMethod: method, notes: notes || undefined,
-        });
+        await queueOffline();
       } else { setMsg(err?.response?.data?.message || tr('تعذر إصدار السند حاول مجددا')); setLoading(false); }
     }
   };
@@ -1837,9 +1876,14 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
           <p className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2">
             {tr('جار تحميل الفواتير')}
           </p>
+        ) : invFailed ? (
+          <div className="text-[11px] text-[#B4530A] bg-[#FDF3E7] border border-[#F5D9B0] rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+            <span>{tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند')}</span>
+            <button type="button" onClick={() => { setMsg(''); loadOpenInvoices(); }} className="font-bold underline flex-shrink-0">{tr('إعادة المحاولة')}</button>
+          </div>
         ) : openInv === null ? (
           <p className="text-[11px] text-gray-500 bg-gray-100 rounded-xl px-3 py-2">
-            {tr('تعذر تحميل الفواتير — سيوزع السند تلقائيا على الاقدم عند رفعه')}
+            {tr('لا اتصال بالخادم — يحفظ السند في الجهاز ويوزع على أقدم الفواتير عند رفعه')}
           </p>
         ) : openInv.length === 0 ? (
           <p className="text-[11px] text-gray-500 bg-gray-100 rounded-xl px-3 py-2">
@@ -1936,7 +1980,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
       </div>
 
       <div className="p-4 border-t bg-white">
-        <button onClick={submit} disabled={loading} className="w-full bg-green-600 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-green-400">
+        <button onClick={submit} disabled={loading || invLoading || invFailed} className="w-full bg-green-600 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-green-400">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
           {tr('إصدار السند')}
         </button>

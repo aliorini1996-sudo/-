@@ -97,8 +97,11 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
       toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الإصدار')),
   });
 
+  // أيّ جلبٍ جارٍ لفواتير العميل يوقف الإصدار: الإرسال قبل وصولها كان يمرّ بتوزيع
+  // صفر فيختار الخادم الفاتورة بدل المستخدم (قرار المالك: لا سند قبل إسناده)
+  const invBusy = !!customerId && (invQ.isPending || invQ.isFetching);
   const ready = !!customerId && !!salesRepId && amt > 0 && !overAllocated
-    && !invQ.isError && shortfall <= 0.004;
+    && !invBusy && !invQ.isError && shortfall <= 0.004;
 
   /** يوزّع المبلغ تلقائياً على الأقدم فالأحدث — أكثر ما يُفعل يدوياً */
   const autoAllocate = () => {
@@ -194,6 +197,23 @@ export default function MReceiptCreate({ presetCustomerId, onClose, onCreated }:
           <label className="label">{tr('تاريخ السند')}</label>
           <input type="date" className="input" dir="ltr" value={receiptDate} onChange={e => setReceiptDate(e.target.value)} />
         </div>
+
+        {customerId && invBusy && !invQ.data && (
+          <p className="text-[11px] text-[#9A8F7E] bg-white border border-[#F1EBDF] rounded-xl px-3 py-2">
+            {tr('جار تحميل الفواتير')}
+          </p>
+        )}
+        {customerId && invQ.isError && !invQ.isFetching && (
+          <div className="text-[11px] text-[#B4530A] bg-[#FDF3E7] border border-[#F5D9B0] rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+            <span>{tr('تعذر تحميل فواتير العميل — أعد المحاولة قبل إصدار السند')}</span>
+            <button type="button" onClick={() => invQ.refetch()} className="font-bold underline flex-shrink-0 min-h-[36px]">{tr('إعادة المحاولة')}</button>
+          </div>
+        )}
+        {customerId && invQ.isSuccess && !invBusy && openInvoices.length === 0 && (
+          <p className="text-[11px] text-[#6E6557] bg-white border border-[#F1EBDF] rounded-xl px-3 py-2">
+            {tr('لا فواتير مفتوحة لهذا العميل — يسجل السند دفعة مقدمة ورصيدا دائنا له')}
+          </p>
+        )}
 
         {/* توزيع المبلغ على الفواتير المفتوحة — بطاقات لا جدول */}
         {customerId && openInvoices.length > 0 && (

@@ -47,6 +47,16 @@ function groupAllocations(allocations: { invoiceId: string; amount: number }[] =
   return [...grouped.entries()].map(([invoiceId, amount]) => ({ invoiceId, amount }));
 }
 
+/**
+ * روابط السند بفواتيره كما خزّنها الخادم — تُرفق بردّ الإنشاء (وبإعادته
+ * المتطابقة) ليطبع العميلُ «مقابل الفاتورة رقم …» من الحقيقة المخزّنة، لا من
+ * توزيع الشاشة: الخادم قد يُكمل التوزيع بالأقدم، والإعادة المتطابقة تُرجع سنداً
+ * قديماً لم تره الشاشة. رقم الفاتورة ومبلغها وحدهما — لا صفّ الفاتورة كاملاً.
+ */
+const RECEIPT_LINKS = {
+  invoiceItems: { select: { amount: true, invoice: { select: { id: true, number: true } } } },
+} as const;
+
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -155,6 +165,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (body.clientRef) {
       const existing = await prisma.receipt.findUnique({
         where: { tenantId_clientRef: { tenantId: tid, clientRef: body.clientRef } },
+        include: RECEIPT_LINKS,
       });
       if (existing) {
         // النطاق يسبق الـidempotency (كما في الفواتير): معرفةُ clientRef لا تكشف سنداً خارج النطاق
@@ -308,7 +319,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         .catch(() => { /* best-effort */ });
     }
 
-    res.status(201).json({ success: true, data: receipt });
+    // الروابط تُقرأ بعد الالتزام: هي ما سيُطبع «مقابل الفاتورة رقم …» — وإن تعذّرت
+    // القراءة لا يسقط سندٌ التُزم فعلاً؛ يُعاد بلا روابط وتُطبع عند فتحه لاحقاً
+    const withLinks = await prisma.receipt
+      .findUnique({ where: { id: receipt.id }, include: RECEIPT_LINKS })
+      .catch(() => null);
+    res.status(201).json({ success: true, data: withLinks ?? receipt });
   } catch (err) {
     // سباق تزامن: رفعان متزامنان بنفس clientRef — نعيد السند القائم بدل الفشل
     const e = err as { code?: string; meta?: { target?: unknown } };
@@ -317,6 +333,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         const tid2 = tenantId(req);
         const existing = await prisma.receipt.findUnique({
           where: { tenantId_clientRef: { tenantId: tid2, clientRef: req.body.clientRef } },
+          include: RECEIPT_LINKS,
         });
         if (existing && existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId))) {
           res.status(404).json({ success: false, message: 'السند غير موجود' }); return;

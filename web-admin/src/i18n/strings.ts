@@ -1931,6 +1931,16 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'المستلم': { en: 'Recipient', fr: 'Destinataire', tr: 'Alici', zh: '收货人' },
   'اختياري يوقع المندوب ويظهر توقيعه آخر الفاتورة': { en: 'Optional, the rep signs and the signature appears at the end of the invoice', fr: 'Facultatif, le commercial signe et sa signature apparait en bas de la facture', tr: 'Istege bagli, temsilci imzalar ve imzasi faturanin sonunda gorunur', zh: '可选，业务员签名，签名显示在发票末尾' },
   'توقيع المندوب هنا': { en: 'Rep signs here', fr: 'Le commercial signe ici', tr: 'Temsilci buraya imzalar', zh: '业务员在此签名' },
+  // ——— سند القبض: الإسناد إلى فاتورة وطباعة رقمها ———
+  'سند ملغى': { en: 'Cancelled receipt', fr: 'Reçu annulé', tr: 'İptal edilmiş makbuz', zh: '已作废收据' },
+  'مقابل الفاتورة رقم': { en: 'Against invoice no.', fr: 'Au titre de la facture n°', tr: 'Karşılığı olan fatura no.', zh: '对应发票号' },
+  'مقابل الفواتير': { en: 'Against invoices', fr: 'Au titre des factures', tr: 'Karşılığı olan faturalar', zh: '对应发票' },
+  'رصيد دائن للعميل غير مخصص لفاتورة': { en: 'Customer credit not allocated to an invoice', fr: 'Crédit client non affecté à une facture', tr: 'Faturaya dağıtılmamış müşteri alacağı', zh: '未分配至发票的客户贷方余额' },
+  'دفعة على الحساب غير مرتبطة بفاتورة': { en: 'Payment on account, not linked to an invoice', fr: 'Acompte sur compte, non lié à une facture', tr: 'Hesaba ödeme, faturaya bağlı değil', zh: '记入账户的付款，未关联发票' },
+  'يحدد رقم الفاتورة عند مزامنة السند': { en: 'The invoice number is set when the receipt syncs', fr: 'Le numéro de facture sera fixé à la synchronisation du reçu', tr: 'Fatura numarası makbuz senkronize edildiğinde belirlenir', zh: '收据同步后确定发票号' },
+  'انتظر تحميل فواتير العميل قبل إصدار السند': { en: 'Wait for the customer invoices to load before issuing the receipt', fr: 'Attendez le chargement des factures du client avant de créer le reçu', tr: 'Makbuzu düzenlemeden önce müşteri faturalarının yüklenmesini bekleyin', zh: '请等待客户发票加载完成后再开具收据' },
+  'تم تحميل فواتير العميل — وزع المبلغ عليها ثم أصدر السند': { en: 'Customer invoices loaded — allocate the amount to them, then issue the receipt', fr: 'Factures du client chargées — répartissez le montant puis créez le reçu', tr: 'Müşteri faturaları yüklendi — tutarı faturalara dağıtın, sonra makbuzu düzenleyin', zh: '客户发票已加载，请先分配金额再开具收据' },
+  'لا اتصال بالخادم — يحفظ السند في الجهاز ويوزع على أقدم الفواتير عند رفعه': { en: 'No connection — the receipt is saved on the device and allocated to the oldest invoices when uploaded', fr: 'Pas de connexion — le reçu est enregistré sur l appareil et affecté aux factures les plus anciennes lors de l envoi', tr: 'Bağlantı yok — makbuz cihaza kaydedilir ve yüklendiğinde en eski faturalara dağıtılır', zh: '无连接，收据保存在设备上，上传时分配至最早的发票' },
 };
 
 export function useTr() {
