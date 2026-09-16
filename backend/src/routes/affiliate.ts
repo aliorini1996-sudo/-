@@ -17,7 +17,7 @@ import {
   getSettings, getTerms, logEvent, logEventSafe, signSession, verifySession, signPurpose, verifyPurpose,
   hashPassword, verifyPassword, ipHash, encryptIban, referralLink, riyadhDay, isUniqueViolation, DAY_MS,
 } from '../services/affiliate/core';
-import { generateCode, normEmail, normPhoneSA, normCR, normCompanyName, containsContactInfo, normIbanSA, parseRef, normContactPhone } from '../services/affiliate/rules';
+import { generateCode, normEmail, normAffiliatePhone, normCR, normCompanyName, containsContactInfo, normIbanSA, parseRef, normContactPhone } from '../services/affiliate/rules';
 import { mailVerify, mailReset, mailOwnerNewApplicant, mailPayoutProfileChanged } from '../services/affiliate/mail';
 import { expireStaleClaims } from '../services/affiliate/ledger';
 
@@ -134,8 +134,9 @@ router.post('/register', axRegisterLimiter, async (req, res, next) => {
     const settings = await getSettings();
     if (!settings.intakeOpen) { res.status(403).json({ success: false, message: 'الانضمام مغلق حالياً' }); return; }
     if (b.termsVersion !== settings.currentTermsVersion) { res.status(409).json({ success: false, message: 'تحدّثت الشروط — أعد تحميل الصفحة واقرأها' }); return; }
-    const phone = normPhoneSA(b.phone);
-    if (!phone) { res.status(400).json({ success: false, message: 'رقم الجوال السعودي غير صحيح' }); return; }
+    // جوالٌ من أيّ دولة: السعوديّ بصيغته، وغيره بمفتاح دولته — انظر normAffiliatePhone
+    const phone = normAffiliatePhone(b.phone);
+    if (!phone) { res.status(400).json({ success: false, message: 'رقم الجوال غير صحيح اختر مفتاح الدولة وأدخل الرقم' }); return; }
 
     const email = normEmail(b.email);
     // التجزئة قبل البحث: scrypt يستغرق عشرات الملّي ثانية، وتخطّيه للبريد المسجَّل

@@ -5,7 +5,7 @@ import {
   generateCode, parseRef, CODE_ALPHABET, CODE_LENGTH,
   normEmail, normPhoneSA, normCR, normCompanyName, containsContactInfo, normIbanSA,
   attributionFlags, isDisputedByFlags, canTransition, canApproveCommission, payoutTotals,
-  commissionAfterRefund, clawbackDelta, normContactPhone,
+  commissionAfterRefund, clawbackDelta, normContactPhone, normAffiliatePhone,
 } from '../services/affiliate/rules';
 
 /**
@@ -586,4 +586,24 @@ test('رقم التواصل في الترشيح: إلزاميّ، جوالٌ س�
   assert.match(strip(src('routes', 'affiliateAdmin.ts')), /contactPhone: c\.contactPhone/, 'يراه المالك');
   const schema = read('prisma', 'schema.prisma');
   assert.match(schema, /contactPhone\s+String\?/, 'عمودٌ اختياريّ في القاعدة — db push لا يفشل على صفوفٍ قائمة');
+});
+
+test('جوال السفير من أيّ دولة: السعوديّ بصيغته، وغيره بمفتاح دولته صراحةً', () => {
+  for (const p of ['0551234567', '551234567', '+966 55 123 4567', '00966551234567', '٠٥٥١٢٣٤٥٦٧']) {
+    assert.equal(normAffiliatePhone(p), '966551234567', p);
+  }
+  assert.equal(normAffiliatePhone('+971 50 123 4567'), '971501234567', 'الإمارات');
+  assert.equal(normAffiliatePhone('0020 101 234 5678'), '201012345678', 'مصر بـ00');
+  assert.equal(normAffiliatePhone('+1 (555) 123-4567'), '15551234567', 'أمريكا');
+  assert.equal(normAffiliatePhone('＋９７１５０１２３４５６７'), '971501234567', 'أرقامٌ عريضة');
+  for (const bad of ['', '12345', '971501234567', '+966 11 234 5678', '+0971501234567', '+12345', '+1234567890123456', 'abc', null, 42]) {
+    assert.equal(normAffiliatePhone(bad as unknown), null, String(bad));
+  }
+});
+
+test('تسجيل السفير يقبل جوال أيّ دولة عبر normAffiliatePhone', () => {
+  const portal = strip(src('routes', 'affiliate.ts'));
+  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf('const BAD_VERIFY'));
+  assert.match(reg, /const phone = normAffiliatePhone\(b\.phone\)/);
+  assert.doesNotMatch(reg, /normPhoneSA\(b\.phone\)/, 'التسجيل ما زال سعودياً فقط');
 });

@@ -101,7 +101,17 @@ test('مسودّة قديمة بإقرارات و«موثوق» تُستعاد �
   for (const k of ['publicPromoter', 'mawthooqNo', 'mawthooqExpiry', 'declarations']) assert.ok(!(k in f), `${k} لا يُستعاد`);
   saveRegisterDraft(f);
   const raw = JSON.parse(sessionStorage.getItem(REGISTER_DRAFT_KEY)!);
-  assert.deepEqual(Object.keys(raw).sort(), ['city', 'email', 'fullName', 'marketingConsent', 'phone', 'vatNumber']);
+  assert.deepEqual(Object.keys(raw).sort(), ['city', 'email', 'fullName', 'marketingConsent', 'phone', 'phoneCountry', 'vatNumber']);
+});
+
+test('مفتاح دولة الجوال يُحفظ ويُستعاد، وقيمةٌ تالفة تعود للسعودية', () => {
+  saveRegisterDraft({ ...EMPTY_REGISTER, fullName: 'Omar', phoneCountry: 'AE', phone: '501234567' });
+  assert.equal(loadRegisterDraft()!.phoneCountry, 'AE');
+  sessionStorage.setItem(REGISTER_DRAFT_KEY, JSON.stringify({ fullName: 'Omar', phoneCountry: '<script>' }));
+  assert.equal(loadRegisterDraft()!.phoneCountry, 'SA');
+  // المفتاح وحده لا يجعل المسودّة «غير فارغة»
+  saveRegisterDraft({ ...EMPTY_REGISTER, phoneCountry: 'EG' });
+  assert.equal(sessionStorage.getItem(REGISTER_DRAFT_KEY), null);
 });
 
 test('تخزين محجوب أو غائب لا يُسقط النموذج', () => {

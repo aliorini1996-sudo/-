@@ -9,6 +9,7 @@
 import type { ClaimBody, ClaimHow, RegisterBody, UpdateMeBody } from './types';
 import { CLAIM_HOW_ORDER } from './labels';
 import { msg, type AxMsg } from './i18n';
+import { dialOf } from '../i18n/dialCodes';
 
 /** أقصى طول لاسم المدينة — مطابق للخادم (التسجيل والترشيح والملف) */
 export const CITY_MAX = 60;
@@ -66,6 +67,30 @@ export function normPhoneSA(phone: string): string | null {
   return /^5\d{8}$/.test(d) ? `966${d}` : null;
 }
 
+/**
+ * جوال السفير من أيّ دولة — مرآة normAffiliatePhone في الخادم: السعوديّ `9665XXXXXXXX`،
+ * وغيره بمفتاح دولته صراحةً أرقاماً دوليةً بلا `+`، أو null.
+ */
+export function normAffiliatePhone(phone: string): string | null {
+  const raw = latinDigits((phone || '').normalize('NFKC')).trim();
+  if (!raw || raw.length > 30) return null;
+  const mobile = normPhoneSA(raw);
+  if (mobile) return mobile;
+  let d = raw.replace(/[\s\-().]/g, '');
+  if (d.startsWith('+')) d = d.slice(1);
+  else if (d.startsWith('00')) d = d.slice(2);
+  else return null;
+  if (!/^[1-9]\d{7,14}$/.test(d)) return null;
+  if (d.startsWith('966')) return null;
+  return d;
+}
+
+/** الرقم كاملاً من مفتاح الدولة المختار والرقم المحلّي (الصفر الأول يُحذف: 050… ← +971 50…) */
+export function composeAffiliatePhone(country: string, local: string): string {
+  const digits = latinDigits((local || '').normalize('NFKC')).replace(/\D/g, '').replace(/^0+/, '');
+  return `${dialOf(country) || '+966'}${digits}`;
+}
+
 /** أقصى طول لرقم التواصل كما كُتب — مطابق للخادم */
 export const CONTACT_PHONE_MAX = 30;
 
@@ -115,6 +140,8 @@ export function normIbanSA(iban: string): string | null {
 export interface RegisterForm {
   fullName: string;
   email: string;
+  /** مفتاح دولة الجوال (ISO alpha-2) — السعودية افتراضاً */
+  phoneCountry: string;
   phone: string;
   city: string;
   password: string;
@@ -124,7 +151,7 @@ export interface RegisterForm {
 }
 
 export const EMPTY_REGISTER: RegisterForm = {
-  fullName: '', email: '', phone: '', city: '', password: '', vatNumber: '',
+  fullName: '', email: '', phoneCountry: 'SA', phone: '', city: '', password: '', vatNumber: '',
   marketingConsent: false, acceptTerms: false,
 };
 
@@ -133,7 +160,7 @@ export function registerError(f: RegisterForm): AxMsg | null {
   const name = f.fullName.trim();
   if (name.length < 2 || name.length > 80) return msg('val.fullName');
   if (!isValidEmail(f.email)) return msg('val.email');
-  if (!normPhoneSA(f.phone)) return msg('val.phone');
+  if (!normAffiliatePhone(composeAffiliatePhone(f.phoneCountry, f.phone))) return msg('val.phone');
   if (f.city.trim().length > CITY_MAX) return cityTooLong();
   if (f.password.length < 8) return msg('val.passwordMin');
   if (f.password.length > 128) return msg('val.passwordMax');
@@ -142,12 +169,20 @@ export function registerError(f: RegisterForm): AxMsg | null {
   return null;
 }
 
+/** الجوال كما يُرسل: السعوديّ `9665…` كما كان، والدوليّ بـ`+` كي لا يُقرأ رقماً محلياً */
+function registerPhone(f: RegisterForm): string {
+  const composed = composeAffiliatePhone(f.phoneCountry, f.phone);
+  const n = normAffiliatePhone(composed);
+  if (!n) return composed;
+  return n.startsWith('966') ? n : `+${n}`;
+}
+
 /** جسم POST /register — الحقول الاختيارية تُرسل فقط إن وُجدت */
 export function buildRegisterBody(f: RegisterForm, termsVersion: string): RegisterBody {
   const body: RegisterBody = {
     fullName: f.fullName.trim(),
     email: f.email.trim().toLowerCase(),
-    phone: normPhoneSA(f.phone) ?? f.phone.trim(),
+    phone: registerPhone(f),
     password: f.password,
     marketingConsent: f.marketingConsent,
     acceptTerms: true,

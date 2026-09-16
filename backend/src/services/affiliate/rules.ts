@@ -119,6 +119,29 @@ export function normPhoneSA(phone: unknown): string | null {
 }
 
 /**
+ * جوال السفير من أيّ دولة — أو `null`.
+ * - السعوديّ بصيغته المعتادة `9665XXXXXXXX` (05… · 5… · +9665… · 009665…) كما كان.
+ * - غيره **بمفتاح دولته صراحةً** (`+971…` أو `00971…`): ٨–١٥ رقماً لا تبدأ بصفر، ويُخزَّن
+ *   أرقاماً دوليةً بلا `+` (`971501234567`). رقمٌ محلّيّ بلا مفتاح لا يُخمَّن دولته:
+ *   `050…` جوالٌ سعوديّ وإماراتيّ معاً.
+ * - مفتاح السعودية مع رقمٍ ليس جوالاً سعودياً مرفوض (لا هاتف ثابت).
+ */
+export function normAffiliatePhone(phone: unknown): string | null {
+  if (typeof phone !== 'string') return null;
+  const raw = latinDigits(phone.normalize('NFKC')).trim();
+  if (!raw || raw.length > 30) return null;
+  const mobile = normPhoneSA(raw);
+  if (mobile) return mobile;
+  let d = raw.replace(/[\s\-().]/g, '');
+  if (d.startsWith('+')) d = d.slice(1);
+  else if (d.startsWith('00')) d = d.slice(2);
+  else return null;
+  if (!/^[1-9]\d{7,14}$/.test(d)) return null;
+  if (d.startsWith('966')) return null;
+  return d;
+}
+
+/**
  * رقم التواصل مع منشأةٍ مرشَّحة: جوالٌ سعوديّ بصيغة `9665XXXXXXXX`، أو أيّ رقمٍ آخر
  * (هاتف ثابت، 9200، دولي) من ٨ إلى ١٥ رقماً بلا فواصل — أو `null`.
  */

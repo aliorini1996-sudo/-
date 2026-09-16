@@ -73,7 +73,7 @@ export function ProfileTab({ me, refreshMe, onUserUpdated }: TabProps) {
         <SectionTitle action={<Badge value={labelOf(USER_STATUS, user.status, lang)} />}>{t('profile.mine')}</SectionTitle>
         <ReadOnly k={t('profile.name')}>{user.fullName}</ReadOnly>
         <ReadOnly k={t('profile.email')}><bdi dir="ltr">{user.email}</bdi></ReadOnly>
-        <ReadOnly k={t('profile.phone')}><bdi dir="ltr">{user.phone ? (/^966\d+$/.test(user.phone) ? `+${user.phone}` : user.phone) : '—'}</bdi></ReadOnly>
+        <ReadOnly k={t('profile.phone')}><bdi dir="ltr">{user.phone ? (/^\d{8,15}$/.test(user.phone) ? `+${user.phone}` : user.phone) : '—'}</bdi></ReadOnly>
         <ReadOnly k={t('profile.code')}><bdi dir="ltr" className="tracking-widest font-bold">{user.code}</bdi></ReadOnly>
         <ReadOnly k={t('profile.memberSince')}>{formatDay(user.createdAt, lang)}</ReadOnly>
         <p className="text-[11.5px] text-[#8A8072] mt-2">{t('profile.editHint')}</p>

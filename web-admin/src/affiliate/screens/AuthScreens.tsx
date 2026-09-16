@@ -5,6 +5,7 @@
 // كل النصوص من قاموس البوابة (../i18n)؛ نصّ الشروط العربي يُعرض عربياً.
 // ============================================================================
 import { useEffect, useState, type FormEvent } from 'react';
+import { ARAB_DIAL, WORLD_DIAL, flagOf } from '../../i18n/dialCodes';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { CheckCircle2, MailCheck, ShieldAlert, AlertCircle } from 'lucide-react';
@@ -188,7 +189,22 @@ export function RegisterScreen({ go, email, setEmail }: NavProps) {
             <input type="email" dir="ltr" className={`input ${ltrFieldAlign(dir)}`} value={form.email} onChange={(e) => set('email', e.target.value)} autoComplete="email" inputMode="email" />
           </Field>
           <Field label={t('f.phone')} required hint={t('f.phoneHint')}>
-            <input dir="ltr" className={`input ${ltrFieldAlign(dir)}`} value={form.phone} onChange={(e) => set('phone', e.target.value)} autoComplete="tel" inputMode="tel" placeholder="05XXXXXXXX" maxLength={16} />
+            {/* مفتاح الدولة + الرقم: جوالٌ من أيّ دولة، والسعودية افتراضاً */}
+            <div className="flex gap-2" dir="ltr">
+              <select aria-label={t('f.phoneCountry')} className="input font-semibold text-sm"
+                style={{ width: 118, flex: '0 0 auto', paddingInline: '8px' }}
+                value={form.phoneCountry} onChange={(e) => set('phoneCountry', e.target.value)}>
+                <optgroup label={t('f.arabCountries')}>
+                  {ARAB_DIAL.map((c) => <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>)}
+                </optgroup>
+                <optgroup label={t('f.otherCountries')}>
+                  {WORLD_DIAL.map((c) => <option key={c.code} value={c.code}>{flagOf(c.code)} {c.dial} {lang === 'ar' ? c.ar : c.en}</option>)}
+                </optgroup>
+              </select>
+              <input dir="ltr" className="input flex-1 min-w-0 text-left" value={form.phone}
+                onChange={(e) => set('phone', e.target.value)} autoComplete="tel-national" inputMode="tel"
+                placeholder={form.phoneCountry === 'SA' ? '5XXXXXXXX' : ''} maxLength={16} />
+            </div>
           </Field>
         </div>
         <div className="grid sm:grid-cols-2 gap-4">

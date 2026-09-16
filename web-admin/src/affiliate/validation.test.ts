@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   CITY_MAX, CONTACT_PHONE_MAX, containsContactInfo, isValidEmail, normContactPhone, normPhoneSA, normCR, normVat, normIbanSA,
-  EMPTY_REGISTER, registerError, buildRegisterBody, type RegisterForm,
+  EMPTY_REGISTER, registerError, buildRegisterBody, type RegisterForm, normAffiliatePhone, composeAffiliatePhone,
   EMPTY_CLAIM, claimError, buildClaimBody, type ClaimForm,
   buildProfileBody, profileError, type ProfileForm, payoutError,
 } from './validation';
@@ -134,7 +134,7 @@ test('التسجيل: الحقول الإلزامية والموافقة على 
   assert.equal(key(registerError({ ...validRegister(), vatNumber: '123' })), 'val.vat');
   assert.equal(key(registerError({ ...validRegister(), acceptTerms: false })), 'val.acceptTerms');
   // لا شرط غير هذه: نموذجٌ بالحقول الإلزامية والموافقة وحدها صالح
-  assert.deepEqual(Object.keys(EMPTY_REGISTER).sort(), ['acceptTerms', 'city', 'email', 'fullName', 'marketingConsent', 'password', 'phone', 'vatNumber']);
+  assert.deepEqual(Object.keys(EMPTY_REGISTER).sort(), ['acceptTerms', 'city', 'email', 'fullName', 'marketingConsent', 'password', 'phone', 'phoneCountry', 'vatNumber']);
 });
 
 test('جسم التسجيل: بلا declarations ولا publicPromoter ولا حقول موثوق', () => {
@@ -334,4 +334,32 @@ test('المدينة 60 حرفاً كحدّ أقصى في التسجيل وال�
     assert.ok(inputs.length > 0, `${f}: حقل المدينة غير موجود`);
     for (const i of inputs) assert.match(i, /maxLength=\{CITY_MAX\}/, `${f}: حقل المدينة بلا maxLength={CITY_MAX}`);
   }
+});
+
+test('جوال السفير من أيّ دولة: مفتاح الدولة + الرقم، والسعوديّ كما كان', () => {
+  const base = validRegister();
+  assert.equal(registerError({ ...base, phoneCountry: 'AE', phone: '050 123 4567' }), null, 'الإمارات بصفرٍ محلّي');
+  assert.equal(buildRegisterBody({ ...base, phoneCountry: 'AE', phone: '0501234567' }, 'v').phone, '+971501234567');
+  assert.equal(buildRegisterBody({ ...base, phoneCountry: 'EG', phone: '1012345678' }, 'v').phone, '+201012345678');
+  assert.equal(buildRegisterBody({ ...base, phoneCountry: 'SA', phone: '0551234567' }, 'v').phone, '966551234567', 'السعوديّ بصيغته');
+  assert.equal(key(registerError({ ...base, phoneCountry: 'SA', phone: '0112345678' })), 'val.phone', 'ثابتٌ سعوديّ ليس جوالاً');
+  assert.equal(key(registerError({ ...base, phoneCountry: 'AE', phone: '12' })), 'val.phone');
+  assert.equal(composeAffiliatePhone('ZZ', '551234567'), '+966551234567', 'مفتاحٌ مجهول ⇒ السعودية');
+  assert.equal(normAffiliatePhone('971501234567'), null, 'بلا مفتاح دولة لا يُخمَّن');
+});
+
+test('جوال السفير: نسخة الواجهة تطابق الخادم على جدولٍ مشترك', async (t) => {
+  const url = new URL('../../../backend/src/services/affiliate/rules.ts', import.meta.url);
+  let server: { normAffiliatePhone: (v: unknown) => string | null } | null = null;
+  try {
+    readFileSync(url);
+    server = await import(url.href);
+  } catch {
+    t.skip('مصدر الخادم غير متاح في هذا الفحص');
+    return;
+  }
+  const table = ['0551234567', '+966 55 123 4567', '00966551234567', '٠٥٥١٢٣٤٥٦٧', '+971 50 123 4567', '0020 101 234 5678',
+    '+1 (555) 123-4567', '＋９７１５０１２３４５６７', '', '12345', '971501234567', '+966 11 234 5678', '+0971501234567', '+12345',
+    '+1234567890123456', 'abc'];
+  for (const v of table) assert.equal(normAffiliatePhone(v), server!.normAffiliatePhone(v), v);
 });

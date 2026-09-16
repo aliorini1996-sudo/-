@@ -24,7 +24,7 @@ const TEXT_MAX = 200;
 /** يستخرج من النموذج ما يجوز حفظه — بلا كلمة المرور ولا الموافقة على الشروط */
 export function draftOf(f: RegisterForm): RegisterDraft {
   return {
-    fullName: f.fullName, email: f.email, phone: f.phone, city: f.city,
+    fullName: f.fullName, email: f.email, phoneCountry: f.phoneCountry, phone: f.phone, city: f.city,
     vatNumber: f.vatNumber, marketingConsent: f.marketingConsent,
   };
 }
@@ -66,6 +66,7 @@ export function loadRegisterDraft(): RegisterForm | null {
     if (typeof v === 'string') form[k] = v.slice(0, TEXT_MAX);
   }
   if (typeof obj.marketingConsent === 'boolean') form.marketingConsent = obj.marketingConsent;
+  if (typeof obj.phoneCountry === 'string' && /^[A-Z]{2}$/.test(obj.phoneCountry)) form.phoneCountry = obj.phoneCountry;
   form.password = '';
   form.acceptTerms = false;
   return form;
