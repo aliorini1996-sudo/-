@@ -51,23 +51,28 @@ export interface QrBudgetInput {
   simplified: boolean;
 }
 
+/** أسوأ عدد بايتات TLV (قبل base64) بهذه القيم واسمٍ بطول nameBytes. */
+function worstCaseBytes(p: Omit<QrBudgetInput, 'sellerName'>, nameBytes: number): number {
+  const w = QR_WORST_CASE_BYTES;
+  const values = [nameBytes, w.vat, w.timestamp, utf8Bytes(p.totalWithVat), utf8Bytes(p.vatTotal), w.invoiceHash, w.signature, w.spki];
+  if (p.simplified) values.push(w.certSignature);
+  return values.reduce((a, v) => a + 2 + v, 0);
+}
+
+const base64Length = (bytes: number) => Math.ceil(bytes / 3) * 4;
+
 /** أسوأ طول base64 ممكن للـQR بهذه القيم. */
 export function qrWorstCaseBase64Length(p: QrBudgetInput): number {
-  const w = QR_WORST_CASE_BYTES;
-  const values = [utf8Bytes(p.sellerName), w.vat, w.timestamp, utf8Bytes(p.totalWithVat), utf8Bytes(p.vatTotal), w.invoiceHash, w.signature, w.spki];
-  if (p.simplified) values.push(w.certSignature);
-  const bytes = values.reduce((a, v) => a + 2 + v, 0);
-  return Math.ceil(bytes / 3) * 4;
+  return base64Length(worstCaseBytes(p, utf8Bytes(p.sellerName)));
 }
 
 /**
  * أطول اسم بائع (بايت UTF-8، ≤ 255) يضمن ألّا يتجاوز الـQR السقف مع هذه المبالغ؛ -1 إن لم يتّسع حتى الاسم الفارغ.
- * الطول رتيب في طول الاسم، فأول قيمة تتّسع نزولاً من 255 هي الجواب.
+ * صيغة مغلقة: ⌈(b0 + n)/3⌉·4 ≤ max ⇔ b0 + n ≤ ⌊max/4⌋·3 (بايتات المبالغ تُحسب مرة واحدة لا 256 مرة).
  */
 export function maxSellerNameBytes(p: Omit<QrBudgetInput, 'sellerName'>, maxLength = QR_MAX_BASE64_LENGTH): number {
   const max = assertQrMaxLength(maxLength);
-  for (let n = TLV_MAX_VALUE_BYTES; n >= 0; n--) {
-    if (qrWorstCaseBase64Length({ ...p, sellerName: 'x'.repeat(n) }) <= max) return n;
-  }
-  return -1;
+  const b0 = worstCaseBytes(p, 0);
+  const n = Math.floor(max / 4) * 3 - b0;
+  return n < 0 ? -1 : Math.min(TLV_MAX_VALUE_BYTES, n);
 }

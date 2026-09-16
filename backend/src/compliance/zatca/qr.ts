@@ -224,18 +224,23 @@ const onlyText = (el: XmlElement | undefined, what: string): string => {
   return directText(el);
 };
 
-/** قيم الوسوم 1–5 كما هي مكتوبة في الـXML (المصدر المرجعي للتحقق الذاتي والاختبار الذهبي). */
-export function readQrSourceFromXml(xml: XmlInput): QrXmlSource {
+/**
+ * قيم الوسوم 1–5 كما هي مكتوبة في الـXML (المصدر المرجعي للتحقق الذاتي والاختبار الذهبي).
+ * lenient: العنصر المفقود يُقرأ '' بدل رمي STRUCTURE — فيصنّفه الختم خطأ بيانات باسم الحقل (المُسلسِل يُسقط
+ * العنصر الفارغ أصلاً، فلا يصل «فارغ» إلى هنا إلا مفقوداً).
+ */
+export function readQrSourceFromXml(xml: XmlInput, opts: { lenient?: boolean } = {}): QrXmlSource {
   const doc = toDocument(xml);
   const root = doc.root;
   const { CAC, CBC } = UBL_NS;
+  const text = opts.lenient ? (el: XmlElement | undefined) => (el ? directText(el) : '') : onlyText;
   const party = childPath(root, [[CAC, 'AccountingSupplierParty'], [CAC, 'Party']]);
-  if (!party) throw new XmlError('STRUCTURE', 'AccountingSupplierParty/Party مفقود');
-  const sellerName = onlyText(childPath(party, [[CAC, 'PartyLegalEntity'], [CBC, 'RegistrationName']]), 'RegistrationName');
-  const vat = onlyText(childPath(party, [[CAC, 'PartyTaxScheme'], [CBC, 'CompanyID']]), 'CompanyID');
-  const issueDate = onlyText(childElements(root, CBC, 'IssueDate')[0], 'IssueDate');
-  const issueTime = onlyText(childElements(root, CBC, 'IssueTime')[0], 'IssueTime');
-  const payable = onlyText(childPath(root, [[CAC, 'LegalMonetaryTotal'], [CBC, 'PayableAmount']]), 'PayableAmount');
+  if (!party && !opts.lenient) throw new XmlError('STRUCTURE', 'AccountingSupplierParty/Party مفقود');
+  const sellerName = text(party && childPath(party, [[CAC, 'PartyLegalEntity'], [CBC, 'RegistrationName']]), 'RegistrationName');
+  const vat = text(party && childPath(party, [[CAC, 'PartyTaxScheme'], [CBC, 'CompanyID']]), 'CompanyID');
+  const issueDate = text(childElements(root, CBC, 'IssueDate')[0], 'IssueDate');
+  const issueTime = text(childElements(root, CBC, 'IssueTime')[0], 'IssueTime');
+  const payable = text(childPath(root, [[CAC, 'LegalMonetaryTotal'], [CBC, 'PayableAmount']]), 'PayableAmount');
   const taxCurrency = childElements(root, CBC, 'TaxCurrencyCode')[0];
   const cur = taxCurrency ? directText(taxCurrency).trim() : 'SAR';
   const taxAmounts = childElements(root, CAC, 'TaxTotal')
@@ -243,13 +248,13 @@ export function readQrSourceFromXml(xml: XmlInput): QrXmlSource {
     .filter((a): a is XmlElement => !!a && attr(a, 'currencyID') === cur);
   const typeCode = childElements(root, CBC, 'InvoiceTypeCode')[0];
   const name = typeCode ? attr(typeCode, 'name') ?? '' : '';
-  if (!taxAmounts.length) throw new XmlError('STRUCTURE', `لا TaxTotal/TaxAmount بعملة الضريبة ${cur}`);
+  if (!taxAmounts.length && !opts.lenient) throw new XmlError('STRUCTURE', `لا TaxTotal/TaxAmount بعملة الضريبة ${cur}`);
   return {
     sellerName,
     vat,
     timestamp: `${issueDate}T${issueTime}`,
     totalWithVat: payable,
-    vatTotal: directText(taxAmounts[0]),
+    vatTotal: taxAmounts.length ? directText(taxAmounts[0]) : '',
     subtype: name.slice(0, 2),
   };
 }

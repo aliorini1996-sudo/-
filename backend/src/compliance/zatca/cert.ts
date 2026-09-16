@@ -15,6 +15,16 @@ import crypto from 'crypto';
 import {
   DerError, DerNode, TAG, childrenOf, decodeBitString, decodeInteger, decodeOid, decodeString, decodeTime, expectTag, parseDer,
 } from './der';
+import { isXmlCharCode } from './xml';
+
+/** هل كل نقاط النص محارف XML 1.0 (بلا U+FFFE/U+FFFF ولا بدائل منفردة) وبلا محارف تحكّم C0/C1؟ */
+export function isXmlSafeText(s: string): boolean {
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!;
+    if (!isXmlCharCode(cp) || cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return false;
+  }
+  return true;
+}
 
 /** كل أخطاء قراءة الشهادة تحمل code ثابتاً كي يصنّفها Z4 (رمز CSID معيب ⇒ CONFIG) وZ5 دون تحليل نصوص. */
 export class CsidCertError extends Error {
@@ -93,6 +103,8 @@ function formatName(name: DerNode): string {
       if (value === '' || /[,+"\\<>;=#\n\r]/.test(value) || /^\s|\s$/.test(value) || /\s\s/.test(value)) {
         throw new CsidCertError(`قيمة RDN بمحارف خاصّة غير مدعومة: «${value}»`);
       }
+      // الاسم يُكتب في ds:X509IssuerName: محرف خارج XML 1.0 (U+FFFE مثلاً) كان يمرّ من OpenSSL ثم يُفشل كل ختم كخطأ بيانات
+      if (!isXmlSafeText(value)) throw new CsidCertError('قيمة RDN فيها محارف لا تصلح في XML');
       return `${short}=${value}`;
     })[0];
   });

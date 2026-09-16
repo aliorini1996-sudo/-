@@ -203,8 +203,12 @@ export function decodeBitString(node: DerNode): { unusedBits: number; bytes: Uin
 
 const PRINTABLE = /^[A-Za-z0-9 '()+,\-./:=?]*$/;
 
+/** أقصى طول نصّ ASN.1 يُفكّ (أسماء الشهادات مئات البايتات؛ TLV واحد قد يبلغ 4GB بلا هذا الحدّ). */
+export const MAX_DER_STRING_BYTES = 64 * 1024;
+
 /** نص ASN.1: UTF8String وPrintableString وIA5String وBMPString (وT61 كـlatin1). */
 export function decodeString(node: DerNode): string {
+  if (node.value.length > MAX_DER_STRING_BYTES) throw new DerError(`نصّ أطول من ${MAX_DER_STRING_BYTES} بايت`, node.offset);
   const v = Buffer.from(node.value.buffer, node.value.byteOffset, node.value.byteLength);
   switch (node.tag) {
     case TAG.UTF8_STRING: {
@@ -225,9 +229,8 @@ export function decodeString(node: DerNode): string {
       return v.toString('latin1');
     case TAG.BMP_STRING: {
       if (v.length % 2) throw new DerError('BMPString بطول فردي', node.offset);
-      let s = '';
-      for (let i = 0; i < v.length; i += 2) s += String.fromCharCode((v[i] << 8) | v[i + 1]);
-      return s;
+      // فكّ دفعة واحدة (الإلحاق محرفاً محرفاً كان يبني حبل نصّ من ملايين الخلايا)
+      return Buffer.from(v).swap16().toString('utf16le');
     }
     default:
       throw new DerError(`وسم 0x${node.tag.toString(16)} ليس نصاً`, node.offset);
@@ -293,29 +296,38 @@ export function encSet(items: Uint8Array[], sort = true): Uint8Array {
   return encTlv(TAG.SET, concat(list));
 }
 
-/** INTEGER من bigint/number بإشارة، أو من بايتات مقدار موجب (بلا إشارة). */
+/** أقصى حجم INTEGER يكتبه الكاتب (CSR/الاختبارات؛ أكبر قيمة واقعية رقم تسلسلي 20 بايت). */
+export const MAX_ENC_INTEGER_BYTES = 4096;
+
+/** INTEGER من bigint/number بإشارة، أو من بايتات مقدار موجب (بلا إشارة). خطّي: من hex دفعة واحدة لا إزاحة لكل بايت. */
 export function encInteger(v: bigint | number | Uint8Array): Uint8Array {
-  let bytes: number[];
+  let bytes: Uint8Array;
   if (v instanceof Uint8Array) {
     let i = 0;
     while (i < v.length - 1 && v[i] === 0) i++;
-    bytes = Array.from(v.subarray(i));
-    if (bytes.length === 0) bytes = [0];
-    if (bytes[0] & 0x80) bytes.unshift(0);
+    const mag = v.subarray(i);
+    if (mag.length === 0) bytes = Uint8Array.from([0]);
+    else if (mag[0] & 0x80) { bytes = new Uint8Array(mag.length + 1); bytes.set(mag, 1); }
+    else bytes = Uint8Array.from(mag);
   } else {
     if (typeof v === 'number' && !Number.isSafeInteger(v)) throw new DerError(`عدد غير صحيح ${v}`);
-    let x = typeof v === 'number' ? BigInt(v) : v;
-    bytes = [];
-    const neg = x < BigInt(0);
-    // مكمّل الاثنين بأقل عدد بايتات
-    for (;;) {
-      const b = Number(x & BigInt(0xff));
-      bytes.unshift(b);
-      x >>= BigInt(8);
-      if ((!neg && x === BigInt(0) && (b & 0x80) === 0) || (neg && x === BigInt(-1) && (b & 0x80) !== 0)) break;
+    const x = typeof v === 'number' ? BigInt(v) : v;
+    let hex: string;
+    if (x >= BigInt(0)) {
+      hex = x.toString(16);
+      if (hex.length % 2) hex = `0${hex}`;
+      if (parseInt(hex.slice(0, 2), 16) & 0x80) hex = `00${hex}`;
+    } else {
+      // مكمّل الاثنين بأقل عدد بايتات: L = ⌈(bits(−x−1) + 1) / 8⌉
+      const m = -x - BigInt(1);
+      const bits = m === BigInt(0) ? 0 : m.toString(2).length;
+      const len = Math.ceil((bits + 1) / 8);
+      hex = ((BigInt(1) << BigInt(8 * len)) + x).toString(16).padStart(2 * len, '0');
     }
+    bytes = Uint8Array.from(Buffer.from(hex, 'hex'));
   }
-  return encTlv(TAG.INTEGER, Uint8Array.from(bytes));
+  if (bytes.length > MAX_ENC_INTEGER_BYTES) throw new DerError(`INTEGER أطول من ${MAX_ENC_INTEGER_BYTES} بايت`);
+  return encTlv(TAG.INTEGER, bytes);
 }
 
 export function encOid(oid: string): Uint8Array {
@@ -324,9 +336,13 @@ export function encOid(oid: string): Uint8Array {
   if (arcs[0] < BigInt(2) && arcs[1] >= BigInt(40)) throw new DerError(`القوس الثاني ≥ 40 في «${oid}»`);
   const out: number[] = [];
   const push = (a: bigint) => {
-    const tmp: number[] = [Number(a & BigInt(0x7f))];
-    for (let x = a >> BigInt(7); x > BigInt(0); x >>= BigInt(7)) tmp.unshift(Number(x & BigInt(0x7f)) | 0x80);
-    out.push(...tmp);
+    // قوس واحد ≤ MAX_OID_ARC_BYTES بايت base-128 (يطابق القارئ) — وبلا نشر (spread) يفيض المكدّس
+    if (a >= BigInt(1) << BigInt(7 * MAX_OID_ARC_BYTES)) throw new DerError(`قوس OID أكبر من ${MAX_OID_ARC_BYTES} بايت في «${oid.slice(0, 40)}»`);
+    const tmp: number[] = [];
+    let x = a;
+    do { tmp.push(Number(x & BigInt(0x7f))); x >>= BigInt(7); } while (x > BigInt(0));
+    for (let i = tmp.length - 1; i >= 0; i--) out.push(i === 0 ? tmp[i] : tmp[i] | 0x80);
+    if (out.length > MAX_OID_BYTES) throw new DerError(`OID أطول من ${MAX_OID_BYTES} بايت`);
   };
   push(arcs[0] * BigInt(40) + arcs[1]);
   for (const a of arcs.slice(2)) push(a);

@@ -134,16 +134,18 @@ test('assertNoForeignSignature: يقبل قالب Z1 ويرفض Signature/UBLExt
   const layout = assertNoForeignSignature(base);
   assert.equal(layout.dsSignature.qname, 'ds:Signature');
   assert.equal(layout.cacSignature.qname, 'cac:Signature');
-  const variants: Array<[string, string]> = [
-    ['توقيع في بند', base.replace('<cbc:Name>', '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"/><cbc:Name>')],
-    ['cac:Signature ثانٍ', base.replace('<cac:AccountingSupplierParty>', '<cac:Signature><cbc:ID>x</cbc:ID></cac:Signature><cac:AccountingSupplierParty>')],
-    ['مرجع QR ثانٍ', base.replace('<cac:Signature>', '<cac:AdditionalDocumentReference><cbc:ID>QR</cbc:ID></cac:AdditionalDocumentReference><cac:Signature>')],
-    ['UBLExtensions متداخل', base.replace('<cbc:Name>', '<ext:UBLExtensions/><cbc:Name>')],
-    ['ds:Signature ثانٍ داخل الامتدادات', base.replace('<sac:SignatureInformation>', '<sac:SignatureInformation><ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"/>')],
+  // FOREIGN_SIGNATURE لعنصر Signature غريب في الجسم فقط؛ كتلة قالب مكرّرة أو في غير موضعها = STRUCTURE (خلل قالب)
+  const variants: Array<[string, string, XmlErrorCode]> = [
+    ['توقيع في بند', base.replace('<cbc:Name>', '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"/><cbc:Name>'), 'FOREIGN_SIGNATURE'],
+    ['cac:Signature ثانٍ', base.replace('<cac:AccountingSupplierParty>', '<cac:Signature><cbc:ID>x</cbc:ID></cac:Signature><cac:AccountingSupplierParty>'), 'STRUCTURE'],
+    ['مرجع QR ثانٍ', base.replace('<cac:Signature>', '<cac:AdditionalDocumentReference><cbc:ID>QR</cbc:ID></cac:AdditionalDocumentReference><cac:Signature>'), 'STRUCTURE'],
+    ['UBLExtensions متداخل', base.replace('<cbc:Name>', '<ext:UBLExtensions/><cbc:Name>'), 'STRUCTURE'],
+    ['ds:Signature ثانٍ داخل الامتدادات', base.replace('<sac:SignatureInformation>', '<sac:SignatureInformation><ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"/>'), 'STRUCTURE'],
+    ['ds:Signature خارج مساره (داخل ExtensionContent مباشرة)', base.replace('<sig:UBLDocumentSignatures', '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"/><sig:UBLDocumentSignatures'), 'FOREIGN_SIGNATURE'],
   ];
-  for (const [why, xml] of variants) {
+  for (const [why, xml, code] of variants) {
     assert.notEqual(xml, base, why);
-    assert.throws(() => assertNoForeignSignature(xml), (e: unknown) => e instanceof XmlError && e.code === 'FOREIGN_SIGNATURE', why);
+    assert.throws(() => assertNoForeignSignature(xml), (e: unknown) => e instanceof XmlError && e.code === code || assert.fail(`${why}: ${String(e)}`), why);
   }
   assert.throws(() => assertNoForeignSignature(base.replace(/<cac:Signature>[\s\S]*?<\/cac:Signature>/, '')), (e: unknown) => e instanceof XmlError && e.code === 'STRUCTURE');
 });

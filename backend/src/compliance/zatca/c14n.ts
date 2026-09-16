@@ -245,28 +245,38 @@ export function assertNoForeignSignature(input: XmlInput): HashExclusionLayout {
   let dsSignature: XmlElement | undefined;
   let qrReference: XmlElement | undefined;
   let cacSignature: XmlElement | undefined;
-  const fail = (el: XmlElement, why: string): never => {
-    throw new XmlError('FOREIGN_SIGNATURE', `${why}: <${el.qname}>`, el.start);
+  // STRUCTURE = كتلة قالب في غير موضعها أو مكرّرة (خلل قالب ⇒ SELF_CHECK_LAYOUT عند الختم)؛
+  // FOREIGN_SIGNATURE = عنصر Signature غريب في جسم الفاتورة (محتوى ⇒ XML_INVALID).
+  const fail = (el: XmlElement, why: string, code: 'STRUCTURE' | 'FOREIGN_SIGNATURE' = 'STRUCTURE'): never => {
+    throw new XmlError(code, `${why}: <${el.qname}>`, el.start);
+  };
+  const onDsPath = (el: XmlElement): boolean => {
+    let p: XmlElement | null = el;
+    for (let i = DS_SIGNATURE_PATH.length - 1; i >= 0; i--) {
+      if (!p || p.ns !== DS_SIGNATURE_PATH[i][0] || p.local !== DS_SIGNATURE_PATH[i][1]) return false;
+      p = p.parent;
+    }
+    return p !== null && p === ublExtensions;
   };
   for (const el of descendants(root)) {
     const qr = isQrReference(el);
     if (el.local === 'UBLExtensions') {
-      if (el.parent !== root || el.ns !== UBL_NS.EXT || el !== firstChild || ublExtensions) fail(el, 'UBLExtensions في غير موضعه');
+      if (el.parent !== root || el.ns !== UBL_NS.EXT || el !== firstChild || ublExtensions) fail(el, 'UBLExtensions في غير موضعه أو مكرّر');
       ublExtensions = el;
     } else if (el.local === 'Signature') {
-      if (el.parent === root && el.ns === UBL_NS.CAC && !cacSignature) { cacSignature = el; continue; }
-      if (el.ns === UBL_NS.DS && !dsSignature && ublExtensions) {
-        let p: XmlElement | null = el;
-        let ok = true;
-        for (let i = DS_SIGNATURE_PATH.length - 1; i >= 0; i--) {
-          if (!p || p.ns !== DS_SIGNATURE_PATH[i][0] || p.local !== DS_SIGNATURE_PATH[i][1]) { ok = false; break; }
-          p = p.parent;
-        }
-        if (ok && p === ublExtensions) { dsSignature = el; continue; }
+      if (el.parent === root && el.ns === UBL_NS.CAC) {
+        if (cacSignature) fail(el, 'cac:Signature مكرّر');
+        cacSignature = el;
+        continue;
       }
-      fail(el, 'عنصر Signature غير متوقَّع');
+      if (el.ns === UBL_NS.DS && onDsPath(el)) {
+        if (dsSignature) fail(el, 'ds:Signature مكرّر');
+        dsSignature = el;
+        continue;
+      }
+      fail(el, 'عنصر Signature غريب في جسم الفاتورة', 'FOREIGN_SIGNATURE');
     } else if (qr) {
-      if (el.parent !== root || el.ns !== UBL_NS.CAC || qrReference) fail(el, 'مرجع QR غير متوقَّع');
+      if (el.parent !== root || el.ns !== UBL_NS.CAC || qrReference) fail(el, 'مرجع QR في غير موضعه أو مكرّر');
       qrReference = el;
     }
   }

@@ -14,12 +14,15 @@
 // ============================================================================
 
 import crypto from 'crypto';
-import { assertNoForeignSignature, computeInvoiceHash, UBL_NS } from './c14n';
+import { HashExclusionLayout, assertNoForeignSignature, computeInvoiceHash, UBL_NS } from './c14n';
 import { CsidCert, CsidCertError, isCanonicalBase64, parseCsidCertificate } from './cert';
 import { verifySha256 } from './crypto';
 import { childrenOf, decodeInteger, expectTag, parseDer, TAG } from './der';
 import { UblDocument } from './model';
 import { buildPhase2Qr, decodeQr, MAX_QR_DECODE_LENGTH, QR_MAX_BASE64_LENGTH, QrError, QrXmlSource, readQrSourceFromXml } from './qr';
+import { TLV_MAX_VALUE_BYTES, maxSellerNameBytes } from './qrBudget';
+import { isIsoDate, isIsoTime } from './time';
+import { DEFAULT_XML_LIMITS } from './xml';
 import { serializeUnsigned } from './ubl';
 import { sanitizeText } from './validators';
 import { riyadhDateTime } from './time';
@@ -28,6 +31,7 @@ import {
   embeddedSignedPropertiesString, locateSignatureSlots, signedPropertiesDigest, signedPropertiesDigestOf,
 } from './xades';
 import { XmlDocument, XmlElement, XmlError, attr, childElements, directText, fillEmptyElements, parseXml } from './xml';
+import { isXmlSafeText } from './cert';
 
 export type StampKind = 'standard' | 'simplified';
 
@@ -177,7 +181,15 @@ function assertQrReference(ref: XmlElement): void {
 }
 
 function layoutOf(doc: XmlDocument): StampLayout {
-  const layout = assertNoForeignSignature(doc);
+  let layout: HashExclusionLayout;
+  try {
+    layout = assertNoForeignSignature(doc);
+  } catch (e) {
+    // كتلة قالب ناقصة/مكرّرة/في غير موضعها = خلل قالب (SELF_CHECK_LAYOUT)؛ عنصر Signature غريب في الجسم أو جذر
+    // ليس Invoice = محتوى المستند (يبقى XML_INVALID عبر toStampError)
+    if (e instanceof XmlError && e.code === 'STRUCTURE') throw new StampError('SELF_CHECK_LAYOUT', e.message, { cause: e });
+    throw e;
+  }
   let slots: SignatureSlots;
   try {
     // كل مخالفة لقالب C-S8 (خوارزمية، معرّف، XPath، ExtensionURI، موضع) كود واحد: SELF_CHECK_LAYOUT
@@ -405,11 +417,33 @@ async function stampXmlUnsafe(
 /** قيم QR 1–5 المقروءة من الـXML يجب أن تكون صالحة قبل التوقيع؛ خطؤها خطأ بيانات يسمّي الحقل لا عطل داخلي. */
 function assertQrSourceValues(src: QrXmlSource): void {
   const bad = (field: string, msg: string): never => { throw new StampError('INPUT', msg, { field }); };
-  if (src.sellerName.trim() === '') bad('supplier.registrationName', 'الاسم القانوني للمنشأة فارغ في المستند');
-  if (src.vat.trim() === '') bad('supplier.vatNumber', 'الرقم الضريبي للمنشأة فارغ في المستند');
-  if (!isValidSigningTime(src.timestamp)) bad('issueTime', `تاريخ/وقت الإصدار «${String(src.timestamp).slice(0, 40)}» ليس بصيغة YYYY-MM-DD وHH:mm:ss صالحة`);
-  if (!/^\d+(\.\d+)?$/.test(src.totalWithVat)) bad('totals.payable', `المبلغ المستحق «${src.totalWithVat.slice(0, 40)}» ليس عدداً عشرياً غير سالب`);
-  if (!/^\d+(\.\d+)?$/.test(src.vatTotal)) bad('totals.taxTotal', `إجمالي الضريبة «${src.vatTotal.slice(0, 40)}» ليس عدداً عشرياً غير سالب`);
+  const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
+  if (src.sellerName.trim() === '') bad('supplier.registrationName', 'الاسم القانوني للمنشأة مفقود أو فارغ في المستند');
+  if (src.vat.trim() === '') bad('supplier.vatNumber', 'الرقم الضريبي للمنشأة مفقود أو فارغ في المستند');
+  if (bytes(src.vat) > TLV_MAX_VALUE_BYTES) bad('supplier.vatNumber', `الرقم الضريبي أطول من ${TLV_MAX_VALUE_BYTES} بايت`);
+  const [date, time] = src.timestamp.split('T');
+  if (!isIsoDate(date)) bad('issueDate', `تاريخ الإصدار «${String(date).slice(0, 40)}» ليس تاريخاً صالحاً بصيغة YYYY-MM-DD`);
+  if (!isIsoTime(time)) bad('issueTime', `وقت الإصدار «${String(time).slice(0, 40)}» ليس بصيغة HH:mm:ss`);
+  if (!/^\d+(\.\d+)?$/.test(src.totalWithVat)) bad('totals.payable', `المبلغ المستحق «${src.totalWithVat.slice(0, 40)}» مفقود أو ليس عدداً عشرياً غير سالب`);
+  if (bytes(src.totalWithVat) > TLV_MAX_VALUE_BYTES) bad('totals.payable', `المبلغ المستحق أطول من ${TLV_MAX_VALUE_BYTES} بايت`);
+  if (!/^\d+(\.\d+)?$/.test(src.vatTotal)) bad('totals.taxTotal', `إجمالي الضريبة «${src.vatTotal.slice(0, 40)}» مفقود أو ليس عدداً عشرياً غير سالب`);
+  if (bytes(src.vatTotal) > TLV_MAX_VALUE_BYTES) bad('totals.taxTotal', `إجمالي الضريبة أطول من ${TLV_MAX_VALUE_BYTES} بايت`);
+}
+
+/** حين يتجاوز الـQR سقفه: الحقل المسؤول فعلاً (الاسم فوق ميزانيته، وإلا الرقم الضريبي غير القياسي، وإلا المبالغ). */
+function qrOverflowField(src: QrXmlSource, kind: StampKind, qrMaxLength: number): string {
+  const amounts = { totalWithVat: src.totalWithVat, vatTotal: src.vatTotal, simplified: kind === 'simplified' };
+  if (Buffer.byteLength(src.sellerName, 'utf8') > Math.max(0, maxSellerNameBytes(amounts, qrMaxLength))) return 'supplier.registrationName';
+  if (Buffer.byteLength(src.vat, 'utf8') > 15) return 'supplier.vatNumber';
+  if (src.totalWithVat.length > 20) return 'totals.payable';
+  if (src.vatTotal.length > 20) return 'totals.taxTotal';
+  return 'supplier.registrationName';
+}
+
+/** أقصى نموّ ممكن للمستند بملء الخانات التسع (لا يُوقَّع مستندٌ يفشل تحليله بعد الملء لتجاوزه الحدّ). */
+function fillGrowthBound(cert: CsidCert, qrMaxLength: number): number {
+  const esc = (s: string) => Buffer.byteLength(s, 'utf8') * 5; // & < > قد تُهرَّب حتى 5 أضعاف
+  return cert.certB64.length + esc(cert.issuerName) + cert.serialDecimal.length + 44 + 88 + 96 + 88 + 19 + qrMaxLength + 64;
 }
 
 async function prepareStamp(
@@ -442,8 +476,20 @@ async function prepareStamp(
   }
 
   // ─── قيم QR من الـXML ومطابقتها بالنموذج ───
-  const src = readQrSourceFromXml(doc);
+  const src = readQrSourceFromXml(doc, { lenient: true });
   assertQrSourceValues(src);
+  if (Buffer.byteLength(unsignedXml, 'utf8') + fillGrowthBound(cert, qrMaxLength) > DEFAULT_XML_LIMITS.maxBytes) {
+    throw new StampError('INPUT', `المستند قريب من حدّ الحجم (${DEFAULT_XML_LIMITS.maxBytes} بايت) ولن يُقبل بعد ملء خانات الختم`);
+  }
+  // 3–5 قبل الموقِّع: كل مدخلاتها من الشهادة والساعة، فخللها خلل إعداد يظهر قبل أي استدعاء لـKMS
+  const cd = computeCertDigest(cert.certB64);
+  const signingTime = riyadhDateTime(now);
+  let spDigest: string;
+  try {
+    spDigest = signedPropertiesDigest(signingTime, cd, cert.issuerName, cert.serialDecimal);
+  } catch (e) {
+    throw new StampError('CERT_INVALID', `تعذّر بناء SignedProperties من الشهادة: ${(e as Error)?.message ?? String(e)}`, { cause: e });
+  }
   if (opts.expected) {
     for (const k of ['sellerName', 'vat', 'timestamp', 'totalWithVat', 'vatTotal'] as const) {
       if (opts.expected[k] !== src[k]) throw new StampError('DOC_MISMATCH', `${k}: النموذج «${opts.expected[k]}» ≠ الـXML «${src[k]}»`);
@@ -459,20 +505,20 @@ async function prepareStamp(
     signatureB64 = await signer.signHash(Uint8Array.from(hashBytes));
   } catch (e) {
     if (e instanceof StampError) throw e;
-    throw new StampError('SIGNER', `فشل التوقيع: ${(e as Error).message}`);
+    throw new StampError('SIGNER', `فشل التوقيع: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
   }
   assertEcdsaDer(signatureB64, 'SIGNER');
-  // 3
-  const cd = computeCertDigest(cert.certB64);
-  // 4
-  const signingTime = riyadhDateTime(now);
-  // 5
-  const spDigest = signedPropertiesDigest(signingTime, cd, cert.issuerName, cert.serialDecimal);
   // 6
-  const qr = buildPhase2Qr({
-    sellerName: src.sellerName, vat: src.vat, timestamp: src.timestamp, totalWithVat: src.totalWithVat, vatTotal: src.vatTotal,
-    invoiceHash, signatureB64, spkiDer: cert.spkiDer, certSignatureDer: kind === 'simplified' ? cert.certSignatureDer : undefined,
-  }, qrMaxLength);
+  let qr: string;
+  try {
+    qr = buildPhase2Qr({
+      sellerName: src.sellerName, vat: src.vat, timestamp: src.timestamp, totalWithVat: src.totalWithVat, vatTotal: src.vatTotal,
+      invoiceHash, signatureB64, spkiDer: cert.spkiDer, certSignatureDer: kind === 'simplified' ? cert.certSignatureDer : undefined,
+    }, qrMaxLength);
+  } catch (e) {
+    if (e instanceof QrError && e.code === 'QR_TOO_LONG') throw new StampError('QR_TOO_LONG', e.message, { field: qrOverflowField(src, kind, qrMaxLength), cause: e });
+    throw e;
+  }
   // 7
   const s = l.slots;
   const xml = fillEmptyElements(doc, [
@@ -505,6 +551,26 @@ async function stampDocumentUnsafe(
 ): Promise<StampResult> {
   if (typeof unsignedXml !== 'string') throw new StampError('INPUT', 'المستند يجب أن يكون نصاً');
   if (!doc || typeof doc !== 'object' || typeof doc.typeName !== 'string') throw new StampError('INPUT', 'نموذج المستند مفقود');
+  // في دالتين منفصلتين لا تُعيدان شيئاً: شجرة المطابقة ونصّ التسلسل المتوقَّع يتحرّران قبل الختم، فلا تعيش
+  // شجرتان معاً وقت التوقيع (كان ذلك يضاعف ذروة الذاكرة على فاتورة بآلاف البنود)
+  assertModelFieldsMatchXml(unsignedXml, doc);
+  assertModelSerializationMatches(unsignedXml, doc);
+  const expectedKind: StampKind = doc.typeName.slice(0, 2) === '01' ? 'standard' : 'simplified';
+  if (expectedKind !== kind) throw new StampError('KIND_MISMATCH', `النوع ${kind} لا يطابق نموذج المستند (${doc.typeName})`);
+  return stampXml(unsignedXml, signer, cert, now, kind, {
+    ...opts,
+    expected: {
+      sellerName: doc.supplier.registrationName ?? '',
+      vat: doc.supplier.vatNumber ?? '',
+      timestamp: `${doc.issueDate}T${doc.issueTime}`,
+      totalWithVat: doc.totals.payable,
+      vatTotal: doc.totals.taxTotal,
+    },
+  });
+}
+
+/** المعرّفات والسلسلة والنوع ومراجع الفوترة: تسمية الحقل المختلف في الحالات الشائعة. */
+function assertModelFieldsMatchXml(unsignedXml: string, doc: UblDocument): void {
   const parsed = parseXml(unsignedXml);
   const root = parsed.root;
   const cbc = (local: string) => {
@@ -536,8 +602,10 @@ async function stampDocumentUnsafe(
   if (xmlRefs.some(r => r.length !== 1) || xmlRefs.length !== modelRefs.length || xmlRefs.some((r, i) => r[0] !== modelRefs[i])) {
     throw new StampError('DOC_MISMATCH', `BillingReference: الـXML [${xmlRefs.map(r => r.join('+')).join(', ')}] ≠ النموذج [${modelRefs.join(', ')}]`);
   }
-  // المستند كاملاً: ما يُختم هو بالضبط تسلسل النموذج (سبب الإشعار، العميل، البنود، تاريخ التوريد…)، فلا يُقيَّد
-  // في السجلّ مستندٌ ويُختم غيره. الفحوص أعلاه تبقى لتسمية الحقل المختلف في الحالات الشائعة.
+}
+
+/** المستند كاملاً: ما يُختم هو بالضبط تسلسل النموذج (سبب الإشعار، العميل، البنود، تاريخ التوريد…). */
+function assertModelSerializationMatches(unsignedXml: string, doc: UblDocument): void {
   let expectedXml: string;
   try {
     expectedXml = serializeUnsigned(doc);
@@ -551,16 +619,4 @@ async function stampDocumentUnsafe(
     while (i < a.length && i < b.length && a[i] === b[i]) i++;
     throw new StampError('DOC_MISMATCH', `الـXML لا يطابق تسلسل النموذج عند السطر ${i + 1}: الـXML «${(b[i] ?? '∅').trim().slice(0, 120)}» ≠ النموذج «${(a[i] ?? '∅').trim().slice(0, 120)}»`);
   }
-  const expectedKind: StampKind = doc.typeName.slice(0, 2) === '01' ? 'standard' : 'simplified';
-  if (expectedKind !== kind) throw new StampError('KIND_MISMATCH', `النوع ${kind} لا يطابق نموذج المستند (${doc.typeName})`);
-  return stampXml(unsignedXml, signer, cert, now, kind, {
-    ...opts,
-    expected: {
-      sellerName: doc.supplier.registrationName ?? '',
-      vat: doc.supplier.vatNumber ?? '',
-      timestamp: `${doc.issueDate}T${doc.issueTime}`,
-      totalWithVat: doc.totals.payable,
-      vatTotal: doc.totals.taxTotal,
-    },
-  });
 }

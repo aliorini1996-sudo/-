@@ -312,7 +312,9 @@ function qrLengthIssues(doc: UblDocument, kind: 'standard' | 'simplified', qrMax
     return;
   }
   const t = doc.totals ?? ({} as UblDocument['totals']);
-  const amounts = { totalWithVat: typeof t.payable === 'string' ? t.payable : '', vatTotal: typeof t.taxTotal === 'string' ? t.taxTotal : '', simplified: kind === 'simplified' };
+  // المبالغ غير الصالحة أو الطويلة تبلّغها فحوص المجاميع؛ لا تدخل ميزانية QR (كانت نصوص بملايين المحارف تُبطئ الفحص ثوانيَ)
+  if (!isAmountString(t.payable) || !isAmountString(t.taxTotal) || t.payable.length > 64 || t.taxTotal.length > 64) return;
+  const amounts = { totalWithVat: t.payable, vatTotal: t.taxTotal, simplified: kind === 'simplified' };
   const worst = qrWorstCaseBase64Length({ ...amounts, sellerName: name! });
   if (worst <= qrMaxLength) return;
   const maxBytes = maxSellerNameBytes(amounts, qrMaxLength);

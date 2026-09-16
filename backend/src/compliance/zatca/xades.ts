@@ -12,7 +12,7 @@
 
 import { sha256HexB64 } from './crypto';
 import { UBL_NS } from './c14n';
-import { isCanonicalBase64 } from './cert';
+import { isCanonicalBase64, isXmlSafeText } from './cert';
 import { isIsoDate } from './time';
 import { ROOT_OPEN, UBL_EXTENSIONS_TEMPLATE } from './ubl';
 import {
@@ -122,12 +122,21 @@ export function locateSignatureSlots(dsSignature: XmlElement): SignatureSlots {
  * (وبادئات سماته) إن لم يُعلَن على سلفٍ داخل الجزء المقتطَع — مباشرة بعد اسم العنصر.
  * هذا ما يعيد به المُتحقِّق تسلسل SignedProperties: xmlns:xades على الجذر وxmlns:ds على كل ds:*.
  */
-export function pushDownNamespaces(doc: XmlDocument, el: XmlElement): string {
+/** حدود دفع النطاقات: كتلة SignedProperties نحو 12 عنصراً وأقل من 1KB إدراجات — لا مستند محشوّ يتضخّم 1000×. */
+export const PUSH_DOWN_MAX_ELEMENTS = 256;
+export const PUSH_DOWN_MAX_INSERT_CHARS = 64 * 1024;
+
+export function pushDownNamespaces(doc: XmlDocument, el: XmlElement, limits: { maxElements?: number; maxInsertChars?: number } = {}): string {
+  const maxElements = limits.maxElements ?? PUSH_DOWN_MAX_ELEMENTS;
+  const maxInsertChars = limits.maxInsertChars ?? PUSH_DOWN_MAX_INSERT_CHARS;
   const src = doc.source;
   const inserts: Array<[number, string]> = [];
+  let elements = 0;
+  let inserted = 0;
   const stack: Array<{ e: XmlElement; scope: ReadonlyMap<string, string> }> = [{ e: el, scope: new Map() }];
   while (stack.length) {
     const { e, scope } = stack.pop()!;
+    if (++elements > maxElements) throw new XmlError('STRUCTURE', `دفع النطاقات: أكثر من ${maxElements} عنصراً`, e.start);
     // نسخ كسول: لا تُنسخ الخريطة إلا حين يُضاف إليها فعلاً (النسخ لكل عنصر كان تربيعياً على مستند محشوّ)
     let own: ReadonlyMap<string, string> = scope;
     let mutable: Map<string, string> | null = null;
@@ -147,7 +156,11 @@ export function pushDownNamespaces(doc: XmlDocument, el: XmlElement): string {
     };
     want(e.prefix, e.ns);
     for (const a of e.attributes) if (a.prefix !== '') want(a.prefix, a.ns);
-    if (added.length) inserts.push([e.start + 1 + e.qname.length, added.join('')]);
+    if (added.length) {
+      const text = added.join('');
+      if ((inserted += text.length) > maxInsertChars) throw new XmlError('STRUCTURE', `دفع النطاقات: إدراجات أطول من ${maxInsertChars}`, e.start);
+      inserts.push([e.start + 1 + e.qname.length, text]);
+    }
     for (let i = e.children.length - 1; i >= 0; i--) {
       const c = e.children[i];
       if (c.kind === 'element') stack.push({ e: c, scope: own });
@@ -269,7 +282,7 @@ export interface SignedPropertiesValues {
 export function assertSignedPropertiesValues(v: SignedPropertiesValues): void {
   if (!isValidSigningTime(v.signingTime)) throw new XmlError('STRUCTURE', `SigningTime ليس تاريخاً صالحاً بصيغة YYYY-MM-DDTHH:mm:ss: «${v.signingTime}»`);
   if (!isCanonicalBase64(v.certDigest) || Buffer.from(v.certDigest, 'base64').length !== 64) throw new XmlError('STRUCTURE', 'CertDigest ليس base64 لـ hex SHA-256');
-  if (!v.issuerName || /[\u0000-\u001F\u007F]/.test(v.issuerName)) throw new XmlError('STRUCTURE', 'اسم المُصدِر فارغ أو فيه محارف تحكّم');
+  if (!v.issuerName || !isXmlSafeText(v.issuerName)) throw new XmlError('STRUCTURE', 'اسم المُصدِر فارغ أو فيه محارف تحكّم أو محارف لا تصلح في XML');
   if (!/^[1-9]\d*$/.test(v.serialDecimal)) throw new XmlError('STRUCTURE', 'الرقم التسلسلي ليس عدداً عشرياً موجباً');
 }
 

@@ -660,10 +660,17 @@ export function fillEmptyElements(doc: XmlDocument, fills: ReadonlyArray<{ eleme
       throw new XmlError('STRUCTURE', `الخانة <${el.qname}> ليست فارغة بصيغة <x></x>`, el.start);
     }
   }
-  const sorted = [...fills].sort((a, b) => b.element.openEnd - a.element.openEnd);
-  let s = doc.source;
-  for (const f of sorted) s = s.slice(0, f.element.openEnd) + escapeXmlText(f.text) + s.slice(f.element.openEnd);
-  return s;
+  // مرور واحد تصاعدياً (إعادة بناء النص لكل خانة كانت تربيعية في عدد الخانات)
+  const sorted = [...fills].sort((a, b) => a.element.openEnd - b.element.openEnd);
+  const src = doc.source;
+  const parts: string[] = [];
+  let pos = 0;
+  for (const f of sorted) {
+    parts.push(src.slice(pos, f.element.openEnd), escapeXmlText(f.text));
+    pos = f.element.openEnd;
+  }
+  parts.push(src.slice(pos));
+  return parts.join('');
 }
 
 /** normalize-space في XPath 1.0 (فراغ، TAB، LF، CR فقط). */
