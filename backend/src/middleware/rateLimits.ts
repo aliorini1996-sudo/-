@@ -79,3 +79,19 @@ export const bridgeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 1500,
 });
+
+/**
+ * تصدير الدفاتر (DESIGN.md §9.4، §7.1، §8.3): `POST /api/ledger/lists/:list/export` و`/reports/:key/export`
+ * وبدء الحزمة النظامية — 20 طلباً كل 15 دقيقة **لكل مستخدم** فوق `apiLimiter` العام. يُركَّب بعد
+ * `authenticate` فيُقرأ المستخدم من التوكن؛ وبلا مستخدم يُحتسب على الـIP.
+ */
+export const ledgerExportLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  keyGenerator: (req) => {
+    const uid = (req as typeof req & { user?: { id?: string } }).user?.id;
+    return uid ? `ledger-export:user:${uid}` : `ledger-export:ip:${req.ip ?? ''}`;
+  },
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات تصدير كثيرة حاول بعد 15 دقيقة' },
+});

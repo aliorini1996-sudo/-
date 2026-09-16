@@ -130,7 +130,8 @@ test('PUT /:id يرد LEDGER_PILOT_ONLY قبل tenant.update — مشروطاً 
   assert.ok(i > 0, 'مسار التحديث مفقود');
   const body = s.slice(i, s.indexOf('\n});', i));
   const code = body.indexOf('LEDGER_PILOT_ONLY');
-  const update = body.indexOf('prisma.tenant.update');
+  // M2: التحديث داخل $transaction مع تدقيق FLAG_TOGGLE (tx.tenant.update)
+  const update = body.search(/(prisma|tx)\.tenant\.update/);
   assert.ok(code > 0 && update > 0, 'الحارس أو التحديث مفقود');
   assert.ok(code < update, 'الحارس يجب أن يسبق tenant.update');
   const guard = body.slice(0, code);

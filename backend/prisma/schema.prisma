@@ -100,6 +100,27 @@ model Tenant {
   zatcaUnits     ZatcaEgsUnit[]
   zatcaDocuments ZatcaDocument[]
 
+  // النظام المحاسبي المتكامل — علاقات عكسية (بلا أثر على القاعدة)، تُضاف مرحلياً مع نماذجها (§3.0/§3.1)
+  // M2:
+  glSettings            GlSettings?
+  glAccounts            GlAccount[]
+  glAccountMappings     GlAccountMapping[]
+  glAccountTags         GlAccountTag[]
+  glJournals            GlJournal[]
+  glTaxes               GlTax[]
+  glMoves               GlMove[]
+  glPeriodBalances      GlPeriodBalance[]
+  glPartialReconciles   GlPartialReconcile[]
+  glSourceEvents        GlSourceEvent[]
+  glSyncCursors         GlSyncCursor[]
+  glAuditLogs           GlAuditLog[]
+  glAttachments         GlAttachment[]
+  glSavedFilters        GlSavedFilter[]
+  glFiscalYears         GlFiscalYear[]
+  glCategoryAccounts    GlProductCategoryAccount[]
+  glRepAnalyticDefaults GlRepAnalyticDefault[]
+  glVendors             GlVendor[] // النموذج في M2 (§3.5)
+
   @@map("tenants")
 }
 
@@ -832,6 +853,7 @@ model AccountEntry {
   // مالية — وهو أثقل مسار في المنظومة لأنه على الكتابة لا القراءة.
   // وكشف الحساب يقرأ بالترتيب نفسه، فيستفيد منه أيضاً.
   @@index([customerId, entryDate])
+  @@index([tenantId, createdAt, id]) // مؤشر المُطابِق المركّب للنظام المحاسبي المتكامل (§5.2) — فهرس غير فريد
   @@map("account_entries")
 }
 
@@ -2626,3 +2648,509 @@ model ZatcaApiLog {
   @@index([documentId])
   @@map("zatca_api_logs")
 }
+
+// ═══ النظام المحاسبي المتكامل (gl_*) ═══
+// النماذج حرفياً من docs/accounting/DESIGN.md §3.2–§3.4 (عدا GlTaxGroup M5 وGlCustodyShortage M4)،
+// وGlVendor (§3.5) بلا bills/payments، وGlRepAnalyticDefault (§3.6)، وGlProductCategoryAccount (§3.8) — M2.
+
+model GlSettings {
+  id                   String    @id @default(uuid())
+  tenantId             String    @unique
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  templateKey          String    // SA_6D | GENERIC_6D
+  countryCode          String    // لقطة
+  currency             String    // لقطة مجمّدة
+  currencyDecimals     Int
+  timezone             String    @default("Asia/Riyadh")
+  fiscalYearEndMonth   Int       @default(12)
+  fiscalYearEndDay     Int       @default(31)
+  weekStartsOn         Int       @default(0) // 0=الأحد 6=السبت
+  setupMethod          String?   // OPENING | FULL_HISTORY
+  cutoverDate          DateTime? @db.Date
+  openingSnapshotAt    DateTime?
+  activatedAt          DateTime?
+  activatedBy          String?
+  backfillState        String    @default("NONE") // NONE | RUNNING | DONE | PAUSED
+  inventoryMode        String    @default("PERIODIC") // PERIODIC | PERPETUAL
+  perpetualFromDate    DateTime? @db.Date
+  salesLockDate        DateTime? @db.Date
+  purchaseLockDate     DateTime? @db.Date
+  taxLockDate          DateTime? @db.Date
+  hardLockDate         DateTime? @db.Date
+  taxPeriodicity       String    @default("QUARTERLY") // MONTHLY|BIMONTHLY|QUARTERLY|FOUR_MONTHS|SEMIANNUAL|ANNUAL|FISCAL_YEAR — يُسأل عنه صراحةً في المعالج
+  taxDeadlineRule      String    @default("END_OF_NEXT_MONTH") // END_OF_NEXT_MONTH (SA_6D) | DAYS_AFTER (GENERIC_6D)
+  taxDeadlineDays      Int?      // مع DAYS_AFTER فقط
+  taxClosingJournalId  String?
+  cashBasisEnabled     Boolean   @default(false) // مؤجّل — يبقى false
+  defaultPurchaseTaxId String?   // TAX-03 — القالب السعودي: S15_PURCH
+  billPricesIncludeTax Boolean   @default(false)
+  billPredictionEnabled Boolean  @default(true)  // BILL-05
+  postPurchaseDiscountSeparately Boolean @default(false) // INV-08 — true ⇒ 512002
+  earlyDiscountAdjustsVat Boolean @default(true) // خصم الدفع المبكر يخفّض ضريبة المدخلات بنسبتها
+  taxRoundingMethod    String    @default("PER_TAX") // PER_TAX | PER_LINE (للموردين واليدوي)
+  zeroRatedSalesTaxKey String?   @default("Z_SALE") // null حين لا ضريبة (دول 0٪)
+  postSalesDiscountSeparately Boolean @default(true)
+  postReturnsToContra  Boolean   @default(true)
+  receiptRouting       Json?     // {"CASH":"CUSTODY","BANK_TRANSFER":"CUSTODY","POS":"CUSTODY","CHEQUE":"CUSTODY"}
+  cashInvoiceRouting   String    @default("MAIN_CASH") // MAIN_CASH | CUSTODY — CUSTODY فقط إن اعتُمد الخيار (أ) في D3 (§5.5 P2)
+  paylinkFeeTaxInvoiceFrom DateTime? @db.Date // D2 (محسوم): null ⇒ ضريبة عمولة الدفع الإلكتروني غير قابلة للاسترداد؛ تاريخ ⇒ تُسترد لعمولة تاريخها المحلي ≥ هذا التاريخ. يضبطه مالك المنصة وحده (§8.1)
+  autoValidateBills    Boolean   @default(false)
+  batchPaymentsEnabled Boolean   @default(false) // PAY-03 (M7)
+  deferralJournalId    String?   // DEF-01/02 — افتراضياً MISC
+  deferralGenerate     String    @default("ON_VALIDATION") // ON_VALIDATION | MANUAL
+  deferralMethod       String    @default("BY_MONTHS") // BY_MONTHS | BY_DAYS
+  drawingsAfterNetProfit Boolean @default(false)
+  depreciationInOperatingExpenses Boolean @default(false) // false = مطابقة Odoo: الإهلاك في «النفقات الأخرى» (§7.3)
+  workerLeaseUntil     DateTime? // عقد إيجار المعالج (§5.1) — لا أقفال جلسة
+  workerLeaseToken     String?
+  lastSyncAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  @@map("gl_settings")
+}
+
+model GlAccount {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code         String   // ^\d{4,10}$ — القالب ٦ أرقام
+  name         String
+  nameEn       String?
+  nameI18n     Json?    // {ar,en,fr,tr,zh} من القالب؛ تعديل المستخدم لـname يعلو عليه (§8.7)
+  description  String?
+  type         String   // ACCOUNT_TYPES (§4.1)
+  reconcile    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  isSystem     Boolean  @default(false) // لا يُحذف ولا يتغيّر نوعه بعد أوّل حركة
+  controlKind  String?  // AR|AP|CUSTODY|PAYLINK|INVENTORY|VAT_OUT|VAT_IN|SUSPENSE
+  currencyCode String?
+  cashFlowTag  String?  // OPERATING|INVESTING|FINANCING|EXCLUDE|CASH_EQUIVALENT (null = حسب النوع)
+  templateRef  String?  // مفتاح القالب لإعادة التحميل
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lines        GlMoveLine[]
+  mappings     GlAccountMapping[]
+  tagLinks     GlAccountTagLink[]
+  @@unique([tenantId, code])
+  @@index([tenantId, type])
+  @@map("gl_accounts")
+}
+
+model GlAccountMapping { // مفاتيح MAPPING_KEYS (§4.5)
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key       String
+  accountId String
+  account   GlAccount @relation(fields: [accountId], references: [id], onDelete: NoAction)
+  updatedAt DateTime  @updatedAt
+  @@unique([tenantId, key])
+  @@map("gl_account_mappings")
+}
+
+model GlAccountTag {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  nameEn        String?
+  applicability String   @default("ACCOUNTS") // ACCOUNTS | REPORTS
+  links         GlAccountTagLink[]
+  @@unique([tenantId, name])
+  @@map("gl_account_tags")
+}
+
+model GlAccountTagLink {
+  tenantId  String
+  accountId String
+  tagId     String
+  account   GlAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tag       GlAccountTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  @@id([accountId, tagId])
+  @@map("gl_account_tag_links")
+}
+
+model GlFiscalYear {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  dateFrom      DateTime @db.Date
+  dateTo        DateTime @db.Date
+  state         String   @default("OPEN") // OPEN | CLOSED
+  closingMoveId String?
+  closedAt      DateTime?
+  closedBy      String?
+  @@unique([tenantId, dateFrom])
+  @@map("gl_fiscal_years")
+}
+
+model GlJournal {
+  id                String   @id @default(uuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code              String   // ≤6 أحرف لاتينية
+  name              String
+  nameEn            String?
+  nameI18n          Json?
+  type              String   // SALE | PURCHASE | CASH | BANK | GENERAL
+  systemKey         String?  // SALES|RECEIPTS|CUSTODY|PURCHASES|PAYMENTS|EXPENSES|CASH_MAIN|BANK_MAIN|PAYLINK|MISC|STOCK|TAX|DEPRECIATION|ZAKAT|OPENING|FX
+  defaultAccountId  String?
+  suspenseAccountId String?
+  useOutstandingAccounts Boolean @default(false) // true ⇒ القاعدة R‑BNK (§5.5): لا ترحيل آلي على defaultAccountId
+  sequenceReset     String   @default("YEARLY") // MONTHLY | YEARLY
+  showOnDashboard   Boolean  @default(true)
+  color             Int      @default(0)
+  bankName          String?
+  ibanMasked        String?
+  isActive          Boolean  @default(true)
+  isSystem          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  moves             GlMove[]
+  sequences         GlSequence[]
+  @@unique([tenantId, code])
+  @@map("gl_journals")
+}
+
+model GlSequence {
+  id         String    @id @default(uuid())
+  tenantId   String
+  journalId  String
+  journal    GlJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  prefix     String    // INV | RINV | PAY ...
+  periodKey  String    // "2026" | "2026-09"
+  nextNumber Int       @default(1)
+  @@unique([journalId, prefix, periodKey])
+  @@map("gl_sequences")
+}
+
+model GlTax {
+  id                String   @id @default(uuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key               String?  // مفتاح القالب (S15_SALE…) — null للمخصّص
+  name              String
+  nameEn            String?
+  nameI18n          Json?
+  groupId           String?  // GlTaxGroup (M5) — للعرض والتجميع فقط
+  use               String   // SALE | PURCHASE | NONE
+  rate              Float
+  vatCategory       String   // S | Z | E | O
+  priceInclude      Boolean  @default(false)
+  accountId         String?  // حساب الضريبة؛ للضرائب الصفرية: حساب سطر العلامة (§4.4)
+  rcOutputAccountId String?  // الاحتساب العكسي
+  deductible        Boolean  @default(true) // false ⇒ تُضاف للتكلفة
+  vatBox            String?  // SA_1..SA_11 | null
+  isActive          Boolean  @default(true)
+  isSystem          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@unique([tenantId, key])
+  @@index([tenantId, use, rate])
+  @@map("gl_taxes")
+}
+
+model GlMove {
+  id               String    @id @default(uuid())
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  journalId        String
+  journal          GlJournal @relation(fields: [journalId], references: [id], onDelete: NoAction)
+  number           String?   // null للمسودة
+  state            String    @default("DRAFT") // DRAFT | POSTED
+  moveType         String    @default("ENTRY") // ENTRY|OUT_INVOICE|OUT_REFUND|CUST_RECEIPT|CUSTODY_SETTLEMENT|PAYLINK_FEE|PAYLINK_PAYOUT|IMPORT|IN_INVOICE|IN_REFUND|PAYMENT|EXPENSE|STATEMENT_LINE|RECONCILE|STOCK|COGS|INV_CLOSING|DEPRECIATION|LOAN|DEFERRAL|TAX_CLOSING|OPENING|FY_CLOSING|FX|CUSTOMER_ADJUSTMENT|CUSTODY_SHORTAGE|CONTROL_ADJUSTMENT
+  origin           String    @default("MANUAL") // MANUAL | AUTO — يُنسخ إلى القيد العكسي (I7)
+  date             DateTime  @db.Date
+  originalDate     DateTime? @db.Date
+  lateArrival      Boolean   @default(false)
+  ref              String?
+  narration        String?
+  currencyCode     String
+  currencyDecimals Int
+  totalMilli       BigInt    @default(0)
+  customerId       String?
+  vendorId         String?
+  salesRepId       String?
+  sourceType       String?
+  sourceId         String?
+  reversedMoveId   String?   @unique
+  reversedMove     GlMove?   @relation("GlReversal", fields: [reversedMoveId], references: [id], onDelete: NoAction)
+  reversal         GlMove?   @relation("GlReversal")
+  reversalReason   String?
+  draftOfMoveId    String?   // نسخة «إعادة إلى مسودة»
+  autoPostOn       DateTime? @db.Date
+  reviewState      String    @default("NONE") // NONE | REVIEWED | FLAGGED
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  needsAttention   Boolean   @default(false)
+  attentionReason  String?
+  createdBy        String?
+  createdByImpersonated Boolean @default(false)
+  postedAt         DateTime?
+  postedBy         String?
+  postedByImpersonated Boolean @default(false)
+  secureSeq        Int?
+  secureHash       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  lines            GlMoveLine[]
+  sources          GlMoveSource[]
+  notes            GlMoveNote[]
+  @@unique([tenantId, number])
+  @@index([tenantId, state, date])
+  @@index([tenantId, journalId, date])
+  @@index([tenantId, sourceType, sourceId])
+  @@map("gl_moves")
+}
+
+model GlMoveLine {
+  id                  String    @id @default(uuid())
+  tenantId            String
+  moveId              String
+  move                GlMove    @relation(fields: [moveId], references: [id], onDelete: Cascade)
+  seq                 Int       @default(0)
+  accountId           String
+  account             GlAccount @relation(fields: [accountId], references: [id], onDelete: NoAction)
+  journalId           String    // منسوخ للتقارير
+  date                DateTime  @db.Date // منسوخ
+  posted              Boolean   @default(false) // منسوخ؛ يُقلب داخل معاملة الترحيل وحدها
+  label               String?
+  debitMilli          BigInt    @default(0)
+  creditMilli         BigInt    @default(0)
+  customerId          String?
+  vendorId            String?
+  salesRepId          String?
+  partnerName         String?   // لقطة
+  analyticAccountId   String?
+  productId           String?
+  quantity            Float?
+  taxId               String?
+  taxRole             String?   // BASE | TAX | MARKER
+  taxBaseMilli        BigInt?   // على TAX/MARKER: الوعاء بعد كل خصم (موقَّع)
+  vatBox              String?
+  vatAdjustment       Boolean   @default(false) // مرتجع/إشعار ⇒ عمود «التعديلات»
+  dueDate             DateTime? @db.Date
+  currencyCode        String?
+  amountCurrencyMilli BigInt?
+  bankMatchedLineId   String?   // M7 — مطابقة سطر مرحّل مباشرة على حساب البنك بسطر كشف (المرشح 7، §6.5)
+  createdAt           DateTime  @default(now())
+  @@index([moveId])
+  @@index([tenantId, accountId, date])
+  @@index([tenantId, customerId, accountId])
+  @@index([tenantId, vendorId, accountId])
+  @@index([tenantId, journalId, date])   // وضع مسح البنود للتقارير المفلترة (§7.1)
+  @@index([tenantId, salesRepId, date])
+  @@map("gl_move_lines")
+}
+
+model GlMoveSource { // ربط قيد ← مفتاح مصدر: حماية التكرار الحاسمة
+  id         String @id @default(uuid())
+  tenantId   String
+  moveId     String
+  move       GlMove @relation(fields: [moveId], references: [id], onDelete: Cascade)
+  sourceKey  String // INVOICE:<id>:POST …
+  sourceType String
+  sourceId   String
+  event      String
+  @@unique([tenantId, sourceKey])
+  @@index([moveId])
+  @@map("gl_move_sources")
+}
+
+model GlPeriodBalance { // يُحدَّث تزايدياً داخل معاملة الترحيل
+  id          String @id @default(uuid())
+  tenantId    String
+  tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  accountId   String
+  periodKey   String // YYYY-MM من التاريخ المحاسبي؛ و"YYYY-CL" لبنود قيد إقفال السنة (§2.5)
+  debitMilli  BigInt @default(0)
+  creditMilli BigInt @default(0)
+  @@unique([tenantId, accountId, periodKey])
+  @@map("gl_period_balances")
+}
+
+model GlPartialReconcile {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  debitLineId  String
+  creditLineId String
+  amountMilli  BigInt
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  @@index([tenantId, debitLineId])
+  @@index([tenantId, creditLineId])
+  @@map("gl_partial_reconciles")
+}
+
+model GlSourceEvent {
+  id            String    @id @default(uuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceKey     String
+  sourceType    String    // INVOICE|RECEIPT|AR_ENTRY|SETTLEMENT|PAYLINK_FEE|PAYOUT|WH_ENTRY|VAN_LOAD|RESTOCK|CUSTOMER_ADJUSTMENT
+  sourceId      String
+  event         String    // POST | REVERSE | COGS | RESTOCK
+  effectAt      DateTime  // لحظة الأثر: entryDate / settledAt / createdAt
+  detectedAt    DateTime  @default(now())
+  payload       Json?     // لقطة ثابتة لحظة الأثر (§5.2) — إلزامية لكل INVOICE/RECEIPT POST ولكل tombstone؛ المبالغ نصوص
+  status        String    @default("PENDING") // PENDING|DONE|SKIPPED|BLOCKED|ERROR|HELD
+  skipReason    String?   // OPENING | NETTED | MANUAL | NEVER_MATERIALIZED | ZERO_VALUE
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?
+  moveId        String?
+  processedAt   DateTime?
+  nonCustodyClearedMilli BigInt? // P7 فقط: r = amount − covered − recovered (§5.5)
+  shortageRecoveredMilli BigInt? // P7 فقط: المسترد من عجز العهدة على 113003 (P27)
+  @@unique([tenantId, sourceKey])
+  @@index([tenantId, status, effectAt])
+  @@index([status, nextAttemptAt])
+  @@map("gl_source_events")
+}
+
+model GlSyncCursor {
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source      String    // ACCOUNT_ENTRY|REP_SETTLEMENT|SETTLEMENT_ENTRY|WAREHOUSE_ENTRY|VAN_LOAD|RETURN_RESTOCK
+  watermarkAt DateTime  // نصف المفتاح المركّب (createdAt) — لا يتقدم أبعد من dbNow − 10min ولا يتراجع
+  watermarkId String    @default("") // نصف المفتاح (id) لكسر التعادل
+  lastRunAt   DateTime?
+  lastCount   Int       @default(0)
+  stallTicks  Int       @default(0) // صفحات ممتلئة لم تحرّك المؤشر (يجب أن تبقى 0)
+  @@unique([tenantId, source])
+  @@map("gl_sync_cursors")
+}
+
+model GlAuditLog { // إلحاقي فقط، مسلسل بتجزئة لكل شركة
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  seq          Int      // prev.seq + 1 تحت قفل gl-audit — السلسلة تُبنى وتُتحقق بالتسلسل لا بالوقت
+  at           DateTime @default(now())
+  actorType    String   // ADMIN | IMPERSONATION | SYSTEM | OWNER
+  actorId      String?
+  actorName    String?
+  impersonated Boolean  @default(false)
+  action       String   // §9.3
+  entityType   String
+  entityId     String?
+  summary      String   // عربي مقروء
+  beforeJson   Json?
+  afterJson    Json?
+  requestIp    String?
+  prevHash     String?
+  hash         String
+  @@unique([tenantId, seq])
+  @@index([tenantId, at])
+  @@index([tenantId, entityType, entityId])
+  @@map("gl_audit_logs")
+}
+
+model GlMoveNote {
+  id         String   @id @default(uuid())
+  tenantId   String
+  moveId     String
+  move       GlMove   @relation(fields: [moveId], references: [id], onDelete: Cascade)
+  authorId   String?
+  authorName String?
+  body       String
+  createdAt  DateTime @default(now())
+  @@index([moveId])
+  @@map("gl_move_notes")
+}
+
+model GlAttachment {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entityType String   // MOVE|BILL|EXPENSE|PAYMENT|STATEMENT|ASSET
+  entityId   String
+  fileName   String
+  mimeType   String   // application/pdf | image/jpeg | image/png فقط
+  sizeBytes  Int
+  sha256     String
+  uploadedBy String?
+  createdAt  DateTime @default(now())
+  blob       GlAttachmentBlob?
+  @@index([tenantId, entityType, entityId])
+  @@map("gl_attachments")
+}
+
+model GlAttachmentBlob { // المحتوى منفصل عن البيانات الوصفية — بايتات خام لا base64
+  tenantId     String
+  id           String       @id @default(uuid())
+  attachmentId String       @unique
+  attachment   GlAttachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  bytes        Bytes        // سقوف §3.9
+  @@map("gl_attachment_blobs")
+}
+
+model GlSavedFilter {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId     String
+  screen     String
+  name       String
+  domainJson Json
+  isDefault  Boolean  @default(false)
+  isShared   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  @@index([tenantId, userId, screen])
+  @@map("gl_saved_filters")
+}
+
+model GlVendor { // M2 — الحقلان bills وpayments يُضافان في M6 مع نماذجهما (§3.0)
+  id               String   @id @default(uuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  nameEn           String?
+  vatNumber        String?
+  crNumber         String?
+  phone            String?
+  email            String?
+  address          String?
+  city             String?
+  countryCode      String   @default("SA")
+  iban             String?
+  bankName         String?
+  paymentTermId    String?
+  defaultAccountId String?
+  defaultTaxId     String?
+  fiscalPositionId String?
+  isActive         Boolean  @default(true) // أرشفة لا حذف بعد أوّل حركة
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  @@index([tenantId, name])
+  @@index([tenantId, vatNumber])
+  @@map("gl_vendors")
+}
+
+model GlRepAnalyticDefault { // مندوب ⇒ فرع/مركز تكلفة افتراضي — النموذج في M2 (الـbuilder يقرأه، وغياب الصف = بلا تحليلي)، والواجهة في M11
+  id                String @id @default(uuid())
+  tenantId          String
+  tenant            Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId        String
+  analyticAccountId String
+  @@unique([tenantId, salesRepId])
+  @@map("gl_rep_analytic_defaults")
+}
+
+model GlProductCategoryAccount { // النموذج في M2 (غياب الصف = مفاتيح الربط الافتراضية)، والربط في معالج M3
+  id                 String  @id @default(uuid())
+  tenantId           String
+  tenant             Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryId         String  // ProductCategory.id (بلا FK — لا مساس بالجدول)
+  incomeAccountId    String?
+  expenseAccountId   String?
+  cogsAccountId      String?
+  inventoryAccountId String?
+  @@unique([tenantId, categoryId])
+  @@map("gl_product_category_accounts")
+}
+// ═══ نهاية النظام المحاسبي المتكامل ═══

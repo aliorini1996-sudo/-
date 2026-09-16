@@ -2865,6 +2865,7 @@ router.use(authenticate, requireAdmin, requireAccountingSuite, ledgerContext);
 | `/journals`، `/taxes`، `/mappings`، `/mappings/categories` (CFG‑03، M3)، `/settings`، `/fiscal-years`، `/tags` | GET/PUT/POST | canConfigureLedger (عدا `GET /fiscal-years`: canViewLedger، لأن فلتر «السنة المالية» في التقارير وصفحة إقفال السنة يقرآنها) | M2 |
 | `/lock-dates` | GET/PUT | canCloseLedgerPeriods | M2 |
 | `/moves`، `/moves/:id` | GET | canViewLedger | M2 |
+| `/moves/options` (الدفاتر والضرائب المختصرة لنموذج القيد: رمز واسم ونوع و`defaultAccountId` للدفتر، ونسبة و`accountId` ومربع للضريبة، ومنها المؤرشف لعرض قيد قديم؛ بلا بيانات بنك) | GET | canViewLedger | M2 |
 | `/moves`، `/moves/:id` (مسودة) | POST/PUT | canPostJournals | M2 |
 | `/moves/:id` (مسودة يدوية غير مملوكة لمستند فقط، JE‑05b، §6.1) | DELETE | canPostJournals | M2 |
 | `/moves/delete-drafts` (جسم `{ids[]}`، كل شيء أو لا شيء، ويرد المرفوض مع سببه) | POST | canPostJournals | M2 |
@@ -2909,6 +2910,8 @@ router.use(authenticate, requireAdmin, requireAccountingSuite, ledgerContext);
 | `LEDGER_PERIOD_LOCKED` | 422 | التاريخ ضمن فترة مقفلة (القيود اليدوية ومستندات الواجهة كتسوية ذمة العميل §6.10؛ القيود الآلية تُزاح ولا تُرفض). |
 | `LEDGER_CONTROL_ACCOUNT_MANUAL` | 422 | حساب رئيسي في قيد يدوي. |
 | `LEDGER_ACCOUNT_ARCHIVED` | 422 | حساب مؤرشف. |
+| `LEDGER_ACCOUNT_NOT_FOUND` | 422 | سطر يشير إلى حساب لا يُحلّ (معرّف أو رمز أو مفتاح ربط غير موجود للشركة)؛ المُرحِّل يترجمه إلى `HELD(MISSING_MAPPING)`. |
+| `LEDGER_PARTNER_REQUIRED` | 422 | سطر ذمم عملاء أو موردين بلا `customerId` أو `vendorId` (I5). |
 | `LEDGER_ADJUSTMENT_BEFORE_CUTOVER` | 422 | تسوية ذمة عميل بتاريخ قبل تاريخ البدء (§6.10)، لأنها تكسر C3. |
 | `LEDGER_ADJUSTMENT_EXCEEDS_BALANCE` | 422 | تسوية ذمة عميل تتجاوز رصيده الدائن (رد) أو المدين (شطب)، أو عجز عهدة يتجاوز رصيد 111003 للمندوب (§6.10). |
 | `LEDGER_OFF_BALANCE_MIXED` | 422 | قيد يخلط سطور `off_balance` بسطور حسابات الميزانية أو قائمة الدخل (I8). |
@@ -2924,6 +2927,7 @@ router.use(authenticate, requireAdmin, requireAccountingSuite, ledgerContext);
 | `LEDGER_HAS_POSTED_MOVES` | 409 | حذف شركة لها دفاتر **بعد انقضاء مدة الحفظ** دون `?confirmLedgerDestroy=1` (المرحلة الثانية في `DeleteConfirmModal`، §8.1). |
 | `LEDGER_RESET_BLOCKED` | 409 | إعادة ضبط الدفاتر مرفوضة، مع `reasons: ('POSTED_MOVES'\|'FILED_RETURN'\|'SECURED_MOVES'\|'HARD_LOCK'\|'CUSTOMER_ADJUSTMENTS')[]` تُعرض بالعربية في `EditTenantModal` (§5.7). |
 | `LEDGER_JOURNAL_HAS_POSTED_MOVES` | 409 | تغيير `code` أو `sequenceReset` لدفتر له قيد مرحَّل (§9.5 G2). |
+| `LEDGER_JOURNAL_CODE_CONFLICT` | 409 | رمز دفتر يساوي رمز دفتر آخر أو بادئة مرتجعه (`R`+الرمز)، فيتكرر رقم القيد (§4.3، I6). |
 | `LEDGER_REVERSAL_REASON_REQUIRED` | 422 | عكس يدوي أو «إعادة إلى مسودة» بلا سبب (§9.5 G5). |
 | `LEDGER_EXPORT_IN_PROGRESS` | 409 | بدء حزمة نظامية وأخرى جارية للشركة نفسها (§9.5 G8). |
 | `LEDGER_NAME_ARABIC_REQUIRED` | 422 | اسم الحساب أو الدفتر أو الضريبة بلا حرف عربي؛ الاسم بلغة أخرى يُكتب في `nameEn` (§9.5 G7). |

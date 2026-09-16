@@ -1,5 +1,6 @@
 import { useTr } from './i18n/strings';
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
+import { LEDGER_ROUTES } from './pages/ledger/routes';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { useLang, isAppRoute } from './i18n/lang';
@@ -51,7 +52,28 @@ const TrackingPage = lazy(() => import('./pages/TrackingPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 // النظام المحاسبي المتكامل — كل مسار /app/ledger ملفوف بـLedgerRoute لا PermissionRoute (§8.1)
 const LedgerRoute = lazy(() => import('./components/ledger/LedgerRoute'));
-const LedgerComingSoonPage = lazy(() => import('./pages/ledger/LedgerComingSoonPage'));
+const LedgerLayout = lazy(() => import('./pages/ledger/LedgerLayout'));
+// مكوّنات الصفحات بتحميل كسول من جدول LEDGER_ROUTES (§8.2) — مصدر التسجيل والقوائم معاً
+const ledgerPageModules = import.meta.glob<{ default: ComponentType }>(['./pages/ledger/*.tsx', './pages/ledger/*/*.tsx']);
+const ledgerPages = new Map<string, LazyExoticComponent<ComponentType>>();
+function ledgerPage(component: string): LazyExoticComponent<ComponentType> {
+  let c = ledgerPages.get(component);
+  if (!c) {
+    const load = ledgerPageModules[`./pages/ledger/${component}.tsx`];
+    if (!load) throw new Error(`صفحة دفاتر غير موجودة: ${component}`);
+    c = lazy(load);
+    ledgerPages.set(component, c);
+  }
+  return c;
+}
+// كل صف ملفوف بـLedgerRoute perm={العرض}؛ والفهرس index
+const ledgerChildRoutes = LEDGER_ROUTES.map(r => {
+  const Page = ledgerPage(r.component);
+  const element = <LedgerRoute perm={r.view}><Page /></LedgerRoute>;
+  return r.path === ''
+    ? <Route key="(index)" index element={element} />
+    : <Route key={r.path} path={r.path} element={element} />;
+});
 // مُصدِر عروض الأسعار السريع — رابطٌ خاصّ غير مُدرج للمالك وموظّفي المبيعات
 const QuotePage = lazy(() => import('./pages/QuotePage'));
 const RepApp = lazy(() => import('./rep/RepApp'));
@@ -284,7 +306,8 @@ export default function App() {
           <Route path="paylink" element={<PermissionRoute permission="canManageReceipts"><PaylinkPage /></PermissionRoute>} />
           <Route path="hatif" element={<PermissionRoute permission="canManageCompanySettings"><HatifPage /></PermissionRoute>} />
           <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />
-          <Route path="ledger" element={<LedgerRoute perm="canViewLedger"><LedgerComingSoonPage /></LedgerRoute>} />
+          {/* الدفاتر: الهيكل (قوائم LedgerLayout) ثم صفوف LEDGER_ROUTES أبناءً — children بخاصية لا بوسوم متداخلة كي يبقى السطر ذاتي الإغلاق لحارس ledgerGate.test */}
+          <Route path="ledger" element={<LedgerRoute perm="canViewLedger"><LedgerLayout /></LedgerRoute>} children={ledgerChildRoutes} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

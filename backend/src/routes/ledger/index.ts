@@ -1,7 +1,14 @@
 import { Router, Response, NextFunction } from 'express';
+import prisma from '../../config/database';
 import { authenticate, requireAdmin, requireAccountingSuite, requireLedgerPermission } from '../../middleware/auth';
 import { AuthRequest } from '../../types';
 import { ledgerContext, LedgerLocals } from './context';
+import { fromDbDate } from '../../services/gl/dates';
+import configRouter from './config';
+import lockDatesRouter from './lockDates';
+import movesRouter from './moves';
+import savedFiltersRouter from './savedFilters';
+import listsRouter from './lists';
 
 /**
  * النظام المحاسبي المتكامل — `/api/ledger` (§9.1، ملحق أ).
@@ -11,7 +18,9 @@ import { ledgerContext, LedgerLocals } from './context';
  * ← العَلَم (`accountingSuiteEnabled === true` و`accountingEnabled !== false`)
  * ← سياق الدفاتر. ثم لكل مسار `requireLedgerPermission(...)`.
  *
- * M0: مسار `GET /status` وحده، ولا جداول gl بعد.
+ * M0: `GET /status`. M2: الموجّهات الفرعية تُركَّب **بعد** السلسلة (فتمرّ بها كلها) وكلٌّ منها يحرس
+ * مساراته بـrequireLedgerPermission: التهيئة (config)، تواريخ الإقفال (lockDates)، القيود وبنودها (moves)،
+ * المفضلات (savedFilters)، وتصدير القوائم (lists).
  */
 const router = Router();
 router.use(authenticate, requireAdmin, requireAccountingSuite, ledgerContext);
@@ -19,17 +28,40 @@ router.use(authenticate, requireAdmin, requireAccountingSuite, ledgerContext);
 router.get('/status', requireLedgerPermission('canViewLedger'), async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const ctx = res.locals.ledger as LedgerLocals;
-    // لا GlSettings قبل M2: الميزة مفعّلة والدفاتر لم تُعدّ بعد
+    // M2: الحالة من GlSettings — غياب الصف أو activatedAt فارغ ⇒ الإعداد مطلوب (§5.6 الخطوة 2، §8.1)
+    const s = await prisma.glSettings.findUnique({
+      where: { tenantId: ctx.tenantId },
+      select: {
+        activatedAt: true, backfillState: true, templateKey: true, countryCode: true, currency: true,
+        currencyDecimals: true, cutoverDate: true, setupMethod: true, timezone: true, lastSyncAt: true,
+      },
+    });
     res.json({
       success: true,
       data: {
         tenantId: ctx.tenantId,
         suiteEnabled: true,
-        activatedAt: null,
-        setupRequired: true,
+        activatedAt: s?.activatedAt ?? null,
+        setupRequired: s?.activatedAt == null,
+        seeded: !!s,
+        backfillState: s?.backfillState ?? 'NONE',
+        templateKey: s?.templateKey ?? null,
+        countryCode: s?.countryCode ?? null,
+        currency: s?.currency ?? null,
+        currencyDecimals: s?.currencyDecimals ?? null,
+        cutoverDate: s?.cutoverDate ? fromDbDate(s.cutoverDate) : null,
+        setupMethod: s?.setupMethod ?? null,
+        timezone: s?.timezone ?? null,
+        lastSyncAt: s?.lastSyncAt ?? null,
       },
     });
   } catch (err) { next(err); }
 });
+
+router.use(configRouter);
+router.use(lockDatesRouter);
+router.use(movesRouter);
+router.use(savedFiltersRouter);
+router.use(listsRouter);
 
 export default router;

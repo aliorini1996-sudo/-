@@ -6,6 +6,7 @@ import { recordPresenceSnapshot } from './presence';
 import { flushRequestCounts, pruneRequestStats } from './requestCounter';
 import { financeSnapshot, quarterFinance, staleDaysOf, EXPENSE_STALE_DAYS } from './finance';
 import { backfillInvoices, invoicingReady } from './platformInvoice';
+import { startLedgerAutoPostScheduler } from './gl/autoPost';
 
 // خط تشغيل المالك: تذكير يومي ببطاقات القرار المتأخرة + تقرير أسبوعي (T1.4.2).
 // المصدر الوحيد للبطاقات: ops/decision-cards.json (يُحدَّث مع كل إغلاق/فتح بطاقة).
@@ -357,6 +358,9 @@ export function startOpsScheduler() {
   setInterval(() => {
     flushRequestCounts().catch(e => console.error('request flush error:', e));
   }, REQUEST_FLUSH_MS);
+
+  // النظام المحاسبي المتكامل: ترحيل مسودات autoPostOn كل ساعة (يتخطى الشركة قبل activatedAt، DESIGN §6.1)
+  startLedgerAutoPostScheduler();
 
   console.log('🗓️ Ops scheduler started (reminders 8am Riyadh · monthly finance report 1st 8am · presence snapshot 5min · request flush 1min)');
 }

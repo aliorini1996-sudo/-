@@ -7,6 +7,7 @@ import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { cardStatuses, platformMetrics, sendWeeklyReport } from '../services/opsSchedule';
 import { isLedgerPilotTenant } from '../services/gl/pilot';
+import { appendAudit } from '../services/gl/audit';
 import { adminPermissionFields } from './auth';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
@@ -75,6 +76,8 @@ router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => 
       include: {
         _count: { select: { admins: true, salesReps: true, customers: true, invoices: true } },
         admins: { select: { name: true, email: true }, take: 1, orderBy: { createdAt: 'asc' } },
+        // M2 (§8.1): حالة الدفاتر لشارة بطاقة الشركة
+        glSettings: { select: { activatedAt: true, backfillState: true } },
       },
     });
     // ledgerPilotAllowed: هل تقبل الشركة تفعيل النظام المحاسبي المتكامل الآن (قائمة التجربة، بلا استعلام إضافي)
@@ -153,7 +156,27 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if ('subscriptionEndsAt' in body) {
       data.subscriptionEndsAt = body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null;
     }
-    const tenant = await prisma.tenant.update({ where: { id: req.params.id }, data });
+    // M2 (§5.6 الخطوة 1، §9.3): تبديل العَلَم يُدوَّن FLAG_TOGGLE في معاملة التحديث نفسها، حين تتغير
+    // القيمة فعلاً وحدها، دون اشتراط صف GlSettings ولا أي زرع في مسار المالك.
+    const tenant = await prisma.$transaction(async tx => {
+      const before = body.accountingSuiteEnabled === undefined
+        ? null
+        : await tx.tenant.findUnique({ where: { id: req.params.id }, select: { accountingSuiteEnabled: true } });
+      const updated = await tx.tenant.update({ where: { id: req.params.id }, data });
+      if (before && before.accountingSuiteEnabled !== updated.accountingSuiteEnabled) {
+        await appendAudit(tx, {
+          tenantId: updated.id,
+          actor: { actorType: 'OWNER', actorId: req.user!.id, actorName: req.user!.name ?? null, impersonated: false, requestIp: req.ip ?? null },
+          action: 'FLAG_TOGGLE',
+          entityType: 'TENANT',
+          entityId: updated.id,
+          summary: updated.accountingSuiteEnabled ? 'تفعيل النظام المحاسبي المتكامل' : 'إطفاء النظام المحاسبي المتكامل',
+          before: { accountingSuiteEnabled: before.accountingSuiteEnabled },
+          after: { accountingSuiteEnabled: updated.accountingSuiteEnabled },
+        });
+      }
+      return updated;
+    });
     res.json({ success: true, data: tenant });
   } catch (err) { next(err); }
 });
