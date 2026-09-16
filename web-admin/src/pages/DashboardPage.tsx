@@ -157,7 +157,7 @@ export default function DashboardPage() {
               <div key={inv.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                 <div>
                   <p className="text-sm font-medium text-gray-800">{inv.number}</p>
-                  <p className="text-xs text-gray-400">{inv.customer.name} • {inv.salesRep.name}</p>
+                  <p className="text-xs text-gray-400">{inv.customer.name} • {inv.salesRep?.name ?? '—'}</p>
                 </div>
                 <div className="text-left">
                   <p className="text-sm font-semibold text-gray-800">{formatCurrency(inv.total)}</p>

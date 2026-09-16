@@ -6,6 +6,7 @@ import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
 import LanguageToggle from '../components/LanguageToggle';
 import { useAuthStore } from '../store/authStore';
+import { useLiveInvoiceUpdates } from '../lib/liveInvoices';
 import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { User } from '../types';
@@ -60,6 +61,8 @@ interface InstallPromptEvent extends Event {
 export default function MobileApp() {
   const tr = useTr();
   const { token, user, login, logout } = useAuthStore();
+  // «المدفوع» لحظيّ على الجوال أيضاً — سندٌ من أيّ جهازٍ آخر يظهر دون سحبٍ للتحديث
+  useLiveInvoiceUpdates(!!token && !!user, token);
   // شاشة تعريفية قبل الدخول (متطلّب App Store 5.1.1(v)): يفتح التطبيق عليها لا على الدخول
   const [showLogin, setShowLogin] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');

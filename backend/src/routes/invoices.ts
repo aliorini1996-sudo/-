@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
+import { publishInvoicesChanged } from '../services/liveEvents';
 import { paginate, paginationMeta, generateInvoiceNumber, generateReturnNumber, withNumberRetry } from '../utils/helpers';
 import { getCountryTax, currencyDecimalsOf } from '../config/countries';
 import { computeInvoiceTotals } from '../lib/invoiceCalc';
@@ -503,6 +504,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     });
     });
 
+    // فاتورة جديدة (ونقدية مدفوعة معها) تظهر في قوائم الشاشات المفتوحة لحظتها
+    publishInvoicesChanged(tid);
     res.status(201).json({ success: true, data: invoice });
   } catch (err) {
     // سباق تزامن: رفعان متزامنان بنفس clientRef تجاوزا الفحص المبكر — الثاني يصطدم بالقيد.
@@ -578,6 +581,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       .then(m => m.expireStaleLinks(tid, updated.id))
       .catch(e => console.error('invoice cancel: expire links failed:', (e as Error).message));
 
+    publishInvoicesChanged(tid);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });

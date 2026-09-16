@@ -260,7 +260,8 @@ export interface Invoice {
   id: string;
   number: string;
   customer: { id: string; name: string; phone: string };
-  salesRep: { id: string; name: string };
+  // null حين يُحذف المندوب (onDelete: SetNull) — والقراءة بلا ?. كانت تُسقط الصفحة بيضاء
+  salesRep: { id: string; name: string } | null;
   type: 'CASH' | 'CREDIT' | 'RETURN';
   status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
   returnReason?: 'NORMAL' | 'DAMAGED' | 'EXCHANGE' | null;
@@ -290,7 +291,8 @@ export interface Receipt {
   id: string;
   number: string;
   customer: { id: string; name: string };
-  salesRep: { id: string; name: string };
+  // null حين يُحذف المندوب (onDelete: SetNull) — والقراءة بلا ?. كانت تُسقط الصفحة بيضاء
+  salesRep: { id: string; name: string } | null;
   receiptDate: string;
   // لحظة إصدار السند على جهاز المندوب (تسبق الرفع بساعات في العمل دون اتصال)
   clientCreatedAt?: string | null;

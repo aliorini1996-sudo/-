@@ -12,6 +12,7 @@ import CompanyBrand from '../components/CompanyBrand';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
 import { canLedger } from '../lib/ledgerPerms';
+import { useLiveInvoiceUpdates } from '../lib/liveInvoices';
 
 // صفحات «النظام المحاسبي» — تُخفى جميعاً حين يُطفئ المالك الميزة عن الشركة.
 // دلالة `!== false` لا `=== true`: هذا العَلَم وحده مفعّل افتراضياً عند الجميع،
@@ -43,9 +44,11 @@ const navItems = [
 ];
 
 export default function MainLayout() {
-  const { user, logout, impersonating, stopImpersonating } = useAuthStore();
+  const { user, token, logout, impersonating, stopImpersonating } = useAuthStore();
   const t = useT();
   const [collapsed, setCollapsed] = useState(false);
+  // «المدفوع» لحظيّ: سندٌ من جوال مندوب أو من إداريٍّ آخر يظهر هنا دون إعادة تحميل
+  useLiveInvoiceUpdates(!!token && !!user && user.role !== 'SALES_REP' && user.role !== 'SUPER_ADMIN', token);
 
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({

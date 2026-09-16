@@ -30,7 +30,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
               <p><span className="text-gray-500">{tr('الجوال')}:</span> <span>{invoice.customer.phone}</span></p>
             </div>
             <div className="space-y-2">
-              <p><span className="text-gray-500">{tr('المندوب')}:</span> <span className="font-medium">{invoice.salesRep.name}</span></p>
+              <p><span className="text-gray-500">{tr('المندوب')}:</span> <span className="font-medium">{invoice.salesRep?.name ?? '—'}</span></p>
               <p>
                 <span className="text-gray-500">{tr('النوع')}:</span>
                 <span className={`badge-${invoice.type.toLowerCase()} mr-1`}>{tr(statusLabels[invoice.type])}</span>

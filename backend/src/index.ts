@@ -50,6 +50,7 @@ import hunterRouter from './routes/hunter';
 import affiliateRouter from './routes/affiliate';
 import affiliateAdminRouter from './routes/affiliateAdmin';
 import quotesRouter from './routes/quotes';
+import liveRouter from './routes/live';
 import whatsappWebhookRouter from './routes/whatsappWebhook';
 import waBridgeRouter from './routes/waBridge';
 import waAccountRouter from './routes/waAccount';
@@ -185,6 +186,8 @@ app.use('/api/affiliate', affiliateRouter);
 app.use('/api/affiliate-admin', affiliateAdminRouter);
 // عروض الأسعار — تسجيلٌ بلا دخول من الرابط الخاص /q-fs7k2m، وسجلٌّ للمالك
 app.use('/api/quotes', quotesRouter);
+// التحديث اللحظيّ للوحة الشركة (SSE) — سندٌ من أيّ جهاز يظهر في «المدفوع» فوراً
+app.use('/api/live', liveRouter);
 
 // الوسائط المُنتجة (فيديوهات/أصوات ترويجية) — قبل التقاط الواجهة المبنيّة كي لا تبتلعها
 app.use('/media', express.static(path.join(process.cwd(), 'media'), { maxAge: '1d' }));

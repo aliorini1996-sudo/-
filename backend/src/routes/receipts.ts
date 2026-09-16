@@ -8,6 +8,7 @@ import { paginate, paginationMeta, generateReceiptNumber, withNumberRetry } from
 import { postReceiptEntries, reverseReceiptEntries, clean } from '../services/accounting';
 import { fillAllocationsFifo } from '../services/allocate';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
+import { publishInvoicesChanged } from '../services/liveEvents';
 
 const router = Router();
 router.use(authenticate);
@@ -324,6 +325,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const withLinks = await prisma.receipt
       .findUnique({ where: { id: receipt.id }, include: RECEIPT_LINKS })
       .catch(() => null);
+    // بعد الالتزام: كل شاشة مفتوحة لهذه الشركة تعيد قراءة «المدفوع» لحظتها
+    publishInvoicesChanged(tid);
     res.status(201).json({ success: true, data: withLinks ?? receipt });
   } catch (err) {
     // سباق تزامن: رفعان متزامنان بنفس clientRef — نعيد السند القائم بدل الفشل
@@ -391,6 +394,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       return rcp;
     });
 
+    publishInvoicesChanged(tid);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });

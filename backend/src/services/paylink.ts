@@ -5,6 +5,7 @@ import { createInvoice, fetchInvoice, cancelInvoice, sarToHalalas, moyasarConfig
 import { postCollectionEntries, postRefundEntry } from './settlement';
 import { generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries, clean } from './accounting';
+import { publishInvoicesChanged } from './liveEvents';
 
 /**
  * روابط دفع فواتير العملاء — «الدفع الإلكتروني» (ميزة اشتراك يفعّلها المالك).
@@ -322,6 +323,9 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
     throw e;
   });
 
+  // الدفعة الإلكترونية تصل من ميسر لا من شاشة — فلا شيء غير هذا البثّ يُخبر
+  // الإداريّ الواقف على قائمة الفواتير أن «المدفوع» تغيّر
+  publishInvoicesChanged(link.tenantId);
   return { ok: true, state: 'paid', receiptId: receipt.id };
 }
 
@@ -464,6 +468,7 @@ export async function reverseLinkPayment(linkId: string, reason: string): Promis
     }).catch(() => { /* كمالي */ });
   });
   console.error(`paylink refund ${link.id}: reversed receipt ${receipt.number} (${reason})`);
+  publishInvoicesChanged(link.tenantId);
   return { ok: true, state: 'refunded' };
 }
 

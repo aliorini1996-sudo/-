@@ -69,7 +69,7 @@ export default function ReceiptsPage() {
       const rows = receipts.map(r => ({
         [tr('رقم السند')]: r.number,
         [tr('العميل')]: r.customer.name,
-        [tr('المندوب')]: r.salesRep.name,
+        [tr('المندوب')]: r.salesRep?.name ?? '—',
         [tr('المبلغ')]: num(r.amount),
         [tr('طريقة الدفع')]: tr(paymentMethodLabels[r.paymentMethod] || r.paymentMethod),
         [tr('التاريخ')]: formatDate(r.receiptDate),
@@ -170,7 +170,7 @@ export default function ReceiptsPage() {
                 <tr key={r.id}>
                   <td className="font-mono text-sm text-green-600">{r.number}</td>
                   <td className="font-medium text-gray-800">{r.customer.name}</td>
-                  <td className="text-gray-600 text-sm">{r.salesRep.name}</td>
+                  <td className="text-gray-600 text-sm">{r.salesRep?.name ?? '—'}</td>
                   <td className="font-bold text-green-700">{formatCurrency(r.amount)}</td>
                   <td>{methodBadge(r.paymentMethod)}</td>
                   <td className="text-xs text-gray-400">{formatDate(r.receiptDate)}</td>

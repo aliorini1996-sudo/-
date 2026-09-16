@@ -5,6 +5,8 @@ import { sessionSpace, useAuthStore } from '../store/authStore';
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+/** أساس الواجهة البرمجية — مُصدَّر لقناة البثّ اللحظيّ (fetch لا axios) كي لا يُكرَّر */
+export const API_BASE = BASE;
 
 const api = axios.create({
   baseURL: BASE,

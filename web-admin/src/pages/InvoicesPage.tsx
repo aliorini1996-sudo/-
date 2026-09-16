@@ -101,7 +101,7 @@ export default function InvoicesPage() {
       const rows = invoices.map(inv => ({
         [tr('رقم الفاتورة')]: inv.number,
         [tr('العميل')]: inv.customer.name,
-        [tr('المندوب')]: inv.salesRep.name,
+        [tr('المندوب')]: inv.salesRep?.name ?? '—',
         [tr('النوع')]: tr(statusLabels[inv.type] || inv.type),
         [tr('التاريخ')]: formatDate(inv.invoiceDate),
         [tr('الوقت')]: formatTime(issuedAt(inv)),
@@ -207,7 +207,7 @@ export default function InvoicesPage() {
                 <tr key={inv.id}>
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
                   <td className="font-medium text-gray-800">{inv.customer.name}</td>
-                  <td className="text-gray-600 text-sm">{inv.salesRep.name}</td>
+                  <td className="text-gray-600 text-sm">{inv.salesRep?.name ?? '—'}</td>
                   <td>{typeBadge(inv.type)}</td>
                   <td className="font-semibold text-gray-800">{formatCurrency(inv.total)}</td>
                   <td className="text-green-600">{formatCurrency(inv.paidAmt)}</td>
