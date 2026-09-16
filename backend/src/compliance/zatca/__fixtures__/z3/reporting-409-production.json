@@ -1,0 +1,27 @@
+{
+  "name": "reporting-409-production",
+  "source": "COMMUNITY S12 D3932 production Oct 2024, staff agreed it is a duplicate (report §4.5)",
+  "evidence": "COMMUNITY",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 409,
+  "contentType": "application/json",
+  "notes": "errorMessages entry and reportingStatus quoted; the validationResults wrapper and type/status fields assumed.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [],
+      "warningMessages": [],
+      "errorMessages": [
+        {
+          "type": "ERROR",
+          "code": "Invoice-Errors",
+          "category": "Duplicate-Invoice",
+          "message": "Invoice Hash Previously Submitted",
+          "status": "ERROR"
+        }
+      ],
+      "status": "ERROR"
+    },
+    "reportingStatus": "NOT_REPORTED"
+  }
+}

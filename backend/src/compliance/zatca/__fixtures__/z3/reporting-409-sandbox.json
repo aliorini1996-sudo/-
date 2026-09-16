@@ -1,0 +1,27 @@
+{
+  "name": "reporting-409-sandbox",
+  "source": "SWG S1 REPORTING 409 description (report §4.5: \"Invoice was already Reported successfully earlier.\")",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 409,
+  "contentType": "application/json",
+  "notes": "Message quoted from the report; the envelope is assumed (validationResults like the production 409).",
+  "body": {
+    "validationResults": {
+      "infoMessages": [],
+      "warningMessages": [],
+      "errorMessages": [
+        {
+          "type": "ERROR",
+          "code": "Invoice-Errors",
+          "category": "Duplicate-Invoice",
+          "message": "Invoice was already Reported successfully earlier.",
+          "status": "ERROR"
+        }
+      ],
+      "status": "ERROR"
+    },
+    "reportingStatus": "NOT_REPORTED"
+  }
+}

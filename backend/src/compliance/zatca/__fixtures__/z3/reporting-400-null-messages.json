@@ -1,0 +1,27 @@
+{
+  "name": "reporting-400-null-messages",
+  "source": "STAFF S27 D1399 (report §4.6 and §6: code, category and message can be null; resubmit unchanged)",
+  "evidence": "STAFF",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "notes": "Shape reconstructed from the report; the thread itself was not quoted.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [],
+      "warningMessages": [],
+      "errorMessages": [
+        {
+          "type": "ERROR",
+          "code": null,
+          "category": null,
+          "message": null,
+          "status": "ERROR"
+        }
+      ],
+      "status": "ERROR"
+    },
+    "reportingStatus": "NOT_REPORTED"
+  }
+}

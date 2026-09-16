@@ -1,0 +1,13 @@
+{
+  "name": "error-500-invalid-request",
+  "source": "SWG S1 500 example (report §3.4 row 7, first shape)",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 500,
+  "contentType": "application/json",
+  "body": {
+    "code": "Invalid-Request",
+    "message": "System failed to process your request"
+  }
+}

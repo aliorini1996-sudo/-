@@ -1,0 +1,12 @@
+{
+  "name": "clearance-303",
+  "source": "SWG S1 CLEARANCE 303 example (report §4.6), verbatim including the \"deactiviated\" misspelling",
+  "evidence": "OFFICIAL",
+  "endpoint": "clearance",
+  "kind": "response",
+  "httpStatus": 303,
+  "contentType": "application/json",
+  "body": {
+    "message": "Clearance is deactiviated. Please use the /invoices/reporting/single endpoint instead."
+  }
+}

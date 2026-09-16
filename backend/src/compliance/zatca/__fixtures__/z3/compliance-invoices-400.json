@@ -1,0 +1,37 @@
+{
+  "name": "compliance-invoices-400",
+  "source": "SWG S1 COMPLIANCE_INVOICE 400 (report §4.2: same envelope, status ERROR, NOT_REPORTED, BR-KSA-37 and BR-KSA-09)",
+  "evidence": "OFFICIAL",
+  "endpoint": "compliance-invoices",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "notes": "Codes from the report; message texts are illustrative.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [],
+      "warningMessages": [],
+      "errorMessages": [
+        {
+          "type": "ERROR",
+          "code": "BR-KSA-37",
+          "category": "KSA",
+          "message": "The seller address building number must contain 4 digits.",
+          "status": "ERROR"
+        },
+        {
+          "type": "ERROR",
+          "code": "BR-KSA-09",
+          "category": "KSA",
+          "message": "Seller address must contain street name, building number, postal code, city and district.",
+          "status": "ERROR"
+        }
+      ],
+      "status": "ERROR"
+    },
+    "reportingStatus": "NOT_REPORTED",
+    "clearanceStatus": null,
+    "qrSellertStatus": null,
+    "qrBuyertStatus": null
+  }
+}

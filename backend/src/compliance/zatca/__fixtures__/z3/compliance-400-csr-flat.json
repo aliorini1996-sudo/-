@@ -1,0 +1,17 @@
+{
+  "name": "compliance-400-csr-flat",
+  "source": "COMMUNITY S15/S16 D9188 CSR validation since ~Nov 2025 (report §3.4 row 3, with the optional status_code)",
+  "evidence": "COMMUNITY",
+  "endpoint": "compliance",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "body": {
+    "type": "ERROR",
+    "message": "The provided Certificate Signing Request (CSR) is invalid. Maximum number of characters for Serial Number should be less than or equal to 64.",
+    "category": "CSR_VALIDATION",
+    "code": "EXCEED_CHARACTER_LIMIT",
+    "status": "ERROR",
+    "status_code": 400
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "compliance-400-invalid-otp",
+  "source": "SWG S1 certificate endpoints 400 (report §3.4 row 1)",
+  "evidence": "OFFICIAL",
+  "endpoint": "compliance",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "body": {
+    "errors": [
+      {
+        "code": "Invalid-OTP",
+        "message": "The provided OTP is invalid"
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "error-401",
+  "source": "SWG S1 401 example (report §3.4 row 5)",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 401,
+  "contentType": "application/json",
+  "body": {
+    "timestamp": 1654514661409,
+    "status": 401,
+    "error": "Unauthorized",
+    "message": ""
+  }
+}

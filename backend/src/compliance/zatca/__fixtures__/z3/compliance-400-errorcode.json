@@ -1,0 +1,14 @@
+{
+  "name": "compliance-400-errorcode",
+  "source": "COMMUNITY S22 D8636 (report §3.4 row 4)",
+  "evidence": "COMMUNITY",
+  "endpoint": "compliance",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "body": {
+    "errorCode": "400",
+    "errorCategory": "Invalid-CSR",
+    "errorMessage": "The provided Certificate Signing Request (CSR) is invalid."
+  }
+}

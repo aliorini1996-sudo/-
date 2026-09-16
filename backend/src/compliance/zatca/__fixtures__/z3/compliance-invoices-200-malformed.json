@@ -1,0 +1,28 @@
+{
+  "name": "compliance-invoices-200-malformed",
+  "source": "SWG S1 COMPLIANCE_INVOICE 200 example as described in report §4.2 (infoMessages as an object, warningMessages outside validationResults)",
+  "evidence": "OFFICIAL",
+  "endpoint": "compliance-invoices",
+  "kind": "response",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "notes": "The report describes the malformation but does not quote the example verbatim; reconstructed from that description.",
+  "body": {
+    "validationResults": {
+      "infoMessages": {
+        "type": "INFO",
+        "code": "XSD_ZATCA_VALID",
+        "category": "XSD validation",
+        "message": "Complied with UBL 2.1 standards in line with ZATCA specifications",
+        "status": "PASS"
+      },
+      "errorMessages": [],
+      "status": "PASS"
+    },
+    "warningMessages": [],
+    "reportingStatus": "REPORTED",
+    "clearanceStatus": null,
+    "qrSellertStatus": null,
+    "qrBuyertStatus": null
+  }
+}

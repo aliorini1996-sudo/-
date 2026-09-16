@@ -1,0 +1,36 @@
+{
+  "name": "clearance-202",
+  "source": "SWG S1 CLEARANCE 202 example (report §4.6: WARNING, CLEARED, clearedInvoice, BR-KSA-51)",
+  "evidence": "OFFICIAL",
+  "endpoint": "clearance",
+  "kind": "response",
+  "httpStatus": 202,
+  "contentType": "application/json",
+  "notes": "BR-KSA-51 message text illustrative. clearedInvoice/invoice is truncated in the report (\"PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4K...\"); replaced by base64 of a minimal stub XML with the same prefix.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [
+        {
+          "type": "INFO",
+          "code": "XSD_ZATCA_VALID",
+          "category": "XSD validation",
+          "message": "Complied with UBL 2.1 standards in line with ZATCA specifications",
+          "status": "PASS"
+        }
+      ],
+      "warningMessages": [
+        {
+          "type": "WARNING",
+          "code": "BR-KSA-51",
+          "category": "KSA",
+          "message": "The line amount with VAT (KSA-12) must be Invoice line net amount (BT-131) + line VAT amount (KSA-11).",
+          "status": "WARNING"
+        }
+      ],
+      "errorMessages": [],
+      "status": "WARNING"
+    },
+    "clearanceStatus": "CLEARED",
+    "clearedInvoice": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPEludm9pY2UgeG1sbnM9InVybjpvYXNpczpuYW1lczpzcGVjaWZpY2F0aW9uOnVibDpzY2hlbWE6eHNkOkludm9pY2UtMiIvPgo="
+  }
+}

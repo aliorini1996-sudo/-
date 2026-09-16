@@ -1,0 +1,42 @@
+{
+  "name": "reporting-202",
+  "source": "SWG S1 REPORTING 202 example (report §4.5: WARNING, REPORTED, BR-CO-17 and BR-KSA-98)",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 202,
+  "contentType": "application/json",
+  "notes": "BR-KSA-98 message quoted in the report; BR-CO-17 message text illustrative.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [
+        {
+          "type": "INFO",
+          "code": "XSD_ZATCA_VALID",
+          "category": "XSD validation",
+          "message": "Complied with UBL 2.1 standards in line with ZATCA specifications",
+          "status": "PASS"
+        }
+      ],
+      "warningMessages": [
+        {
+          "type": "WARNING",
+          "code": "BR-CO-17",
+          "category": "EN_16931",
+          "message": "VAT category tax amount (BT-117) = VAT category taxable amount (BT-116) x (VAT category rate (BT-119) / 100), rounded to two decimals.",
+          "status": "WARNING"
+        },
+        {
+          "type": "WARNING",
+          "code": "BR-KSA-98",
+          "category": "KSA",
+          "message": "The simplified invoice should be submitted within 24 hours of issuing the invoice.",
+          "status": "WARNING"
+        }
+      ],
+      "errorMessages": [],
+      "status": "WARNING"
+    },
+    "reportingStatus": "REPORTED"
+  }
+}

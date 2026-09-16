@@ -1,0 +1,19 @@
+{
+  "name": "compliance-400-not-compliant",
+  "source": "COMMUNITY S16 D9405 (report §3.4 row 2)",
+  "evidence": "COMMUNITY",
+  "endpoint": "compliance",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "notes": "Error text is truncated with \"...\" in the report and kept as quoted.",
+  "body": {
+    "requestID": -2,
+    "tokenType": null,
+    "dispositionMessage": "NOT_COMPLIANT",
+    "binarySecurityToken": null,
+    "errors": [
+      "unable to submit and sign the csr..."
+    ]
+  }
+}

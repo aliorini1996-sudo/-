@@ -1,0 +1,10 @@
+{
+  "name": "error-406",
+  "source": "SWG S1 406 text/plain example (report §3.4 row 6)",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 406,
+  "contentType": "text/plain",
+  "bodyFile": "error-406.txt"
+}

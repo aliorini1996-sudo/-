@@ -1,0 +1,26 @@
+{
+  "name": "reporting-200",
+  "source": "SWG S1 REPORTING 200 example (report §4.5)",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "body": {
+    "validationResults": {
+      "infoMessages": [
+        {
+          "type": "INFO",
+          "code": "XSD_ZATCA_VALID",
+          "category": "XSD validation",
+          "message": "Complied with UBL 2.1 standards in line with ZATCA specifications",
+          "status": "PASS"
+        }
+      ],
+      "warningMessages": [],
+      "errorMessages": [],
+      "status": "PASS"
+    },
+    "reportingStatus": "REPORTED"
+  }
+}

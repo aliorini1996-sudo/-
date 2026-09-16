@@ -1,0 +1,28 @@
+{
+  "name": "clearance-208",
+  "source": "SWG S1 CLEARANCE 208 (report §4.6: \"Invoice Hash Previously Submitted\", CLEARED with clearedInvoice)",
+  "evidence": "OFFICIAL",
+  "endpoint": "clearance",
+  "kind": "response",
+  "httpStatus": 208,
+  "contentType": "application/json",
+  "notes": "Message quoted; placement in warningMessages is assumed. clearedInvoice/invoice is truncated in the report (\"PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4K...\"); replaced by base64 of a minimal stub XML with the same prefix.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [],
+      "warningMessages": [
+        {
+          "type": "WARNING",
+          "code": "Invoice-Errors",
+          "category": "Duplicate-Invoice",
+          "message": "Invoice Hash Previously Submitted",
+          "status": "WARNING"
+        }
+      ],
+      "errorMessages": [],
+      "status": "WARNING"
+    },
+    "clearanceStatus": "CLEARED",
+    "clearedInvoice": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPEludm9pY2UgeG1sbnM9InVybjpvYXNpczpuYW1lczpzcGVjaWZpY2F0aW9uOnVibDpzY2hlbWE6eHNkOkludm9pY2UtMiIvPgo="
+  }
+}

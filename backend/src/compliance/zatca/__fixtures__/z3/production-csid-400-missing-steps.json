@@ -1,0 +1,18 @@
+{
+  "name": "production-csid-400-missing-steps",
+  "source": "SWG S1 ONBOARDING 400 code Missing-ComplianceSteps (report §4.3); envelope from report §3.4 row 1",
+  "evidence": "OFFICIAL",
+  "endpoint": "production-csid",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "notes": "Code and message are from the report; the {errors:[...]} envelope is assumed from the certificate-endpoint shape.",
+  "body": {
+    "errors": [
+      {
+        "code": "Missing-ComplianceSteps",
+        "message": "Compliance steps for this CSID are not yet complete"
+      }
+    ]
+  }
+}

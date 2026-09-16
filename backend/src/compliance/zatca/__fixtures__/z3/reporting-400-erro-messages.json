@@ -1,0 +1,27 @@
+{
+  "name": "reporting-400-erro-messages",
+  "source": "3P mirror of the OpenAPI (report_libraries §3: both erroMessages and errorMessages appear)",
+  "evidence": "3P",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "notes": "UNVERIFIED on the live gateway; message text illustrative.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [],
+      "warningMessages": [],
+      "erroMessages": [
+        {
+          "type": "ERROR",
+          "code": "BR-KSA-37",
+          "category": "KSA",
+          "message": "The seller address building number must contain 4 digits.",
+          "status": "ERROR"
+        }
+      ],
+      "status": "ERROR"
+    },
+    "reportingStatus": "NOT_REPORTED"
+  }
+}

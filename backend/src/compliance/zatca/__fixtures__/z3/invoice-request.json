@@ -1,0 +1,13 @@
+{
+  "name": "invoice-request",
+  "source": "SWG S1 InvoiceRequest example (report §3.3)",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "request",
+  "notes": "clearedInvoice/invoice is truncated in the report (\"PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4K...\"); replaced by base64 of a minimal stub XML with the same prefix.",
+  "body": {
+    "invoiceHash": "V4U5qlZ3yXQ/Si1AC/R8SLc3F+iNy27wdVe8IWRqFAQ=",
+    "uuid": "8d487816-70b8-4ade-a618-9d620b73814a",
+    "invoice": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPEludm9pY2UgeG1sbnM9InVybjpvYXNpczpuYW1lczpzcGVjaWZpY2F0aW9uOnVibDpzY2hlbWE6eHNkOkludm9pY2UtMiIvPgo="
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "clearance-400",
+  "source": "SWG S1 CLEARANCE 400 (report §4.6: NOT_CLEARED, clearedInvoice null, BR-KSA-14)",
+  "evidence": "OFFICIAL",
+  "endpoint": "clearance",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "notes": "Code from the report; message text illustrative.",
+  "body": {
+    "validationResults": {
+      "infoMessages": [],
+      "warningMessages": [],
+      "errorMessages": [
+        {
+          "type": "ERROR",
+          "code": "BR-KSA-14",
+          "category": "KSA",
+          "message": "The buyer identification scheme ID must be one of the allowed codes.",
+          "status": "ERROR"
+        }
+      ],
+      "status": "ERROR"
+    },
+    "clearanceStatus": "NOT_CLEARED",
+    "clearedInvoice": null
+  }
+}

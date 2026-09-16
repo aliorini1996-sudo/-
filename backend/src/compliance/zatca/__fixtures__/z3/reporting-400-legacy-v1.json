@@ -1,0 +1,27 @@
+{
+  "name": "reporting-400-legacy-v1",
+  "source": "SWG S1 legacy V1 error example (report §4.2: {invoiceHash, status:\"Not Reported\", warnings, errors}; codes Missing-QR-Code, Signature-Errors), historical",
+  "evidence": "OFFICIAL",
+  "endpoint": "reporting",
+  "kind": "response",
+  "httpStatus": 400,
+  "contentType": "application/json",
+  "notes": "Codes from the report; categories and message texts illustrative.",
+  "body": {
+    "invoiceHash": "V4U5qlZ3yXQ/Si1AC/R8SLc3F+iNy27wdVe8IWRqFAQ=",
+    "status": "Not Reported",
+    "warnings": [],
+    "errors": [
+      {
+        "code": "Missing-QR-Code",
+        "category": "QR-Errors",
+        "message": "QR code is missing"
+      },
+      {
+        "code": "Signature-Errors",
+        "category": "Signature-Errors",
+        "message": "Invalid signature"
+      }
+    ]
+  }
+}
