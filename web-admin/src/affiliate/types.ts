@@ -165,3 +165,19 @@ export interface PayoutProfileBody {
   holderName: string;
   bankName?: string;
 }
+
+/** الباقات والأسعار في البوابة — شاملة الضريبة، بالهللات؛ `discountPct` خصمٌ إقليميّ (سفير اليمن ٣٣) */
+export type PricingPackageId = 'starter' | 'growth' | 'pro';
+export interface PricingResponse {
+  region: string | null;
+  discountPct: number;
+  vatInclusive: true;
+  packages: Array<{
+    id: PricingPackageId;
+    listMonthlyHalalas: number;
+    listYearlyHalalas: number;
+    monthlyHalalas: number;
+    yearlyHalalas: number;
+  }>;
+}
+

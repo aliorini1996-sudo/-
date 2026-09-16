@@ -15,8 +15,8 @@
 export type AuthView = 'login' | 'register' | 'verify' | 'forgot' | 'reset' | 'resend';
 export const AUTH_VIEWS: readonly AuthView[] = ['login', 'register', 'verify', 'forgot', 'reset', 'resend'];
 
-export type Tab = 'home' | 'link' | 'claims' | 'companies' | 'earnings' | 'profile' | 'terms';
-export const TAB_IDS: readonly Tab[] = ['home', 'link', 'claims', 'companies', 'earnings', 'profile', 'terms'];
+export type Tab = 'home' | 'link' | 'pricing' | 'claims' | 'companies' | 'earnings' | 'profile' | 'terms';
+export const TAB_IDS: readonly Tab[] = ['home', 'link', 'pricing', 'claims', 'companies', 'earnings', 'profile', 'terms'];
 
 export const VIEW_PARAM = 'view';
 

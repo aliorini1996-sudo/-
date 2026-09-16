@@ -607,3 +607,28 @@ test('تسجيل السفير يقبل جوال أيّ دولة عبر normAffil
   assert.match(reg, /const phone = normAffiliatePhone\(b\.phone\)/);
   assert.doesNotMatch(reg, /normPhoneSA\(b\.phone\)/, 'التسجيل ما زال سعودياً فقط');
 });
+
+test('أسعار البوابة: سفير اليمن (+967) بخصم ٣٣٪ مقرّباً للريال، وغيره بالسعر المعلن من الكتالوج', async () => {
+  const { affiliatePricing, regionalDiscountFor } = await import('../services/affiliate/pricing');
+  const sa = affiliatePricing('966551234567');
+  assert.equal(sa.discountPct, 0);
+  assert.equal(sa.region, null);
+  assert.deepEqual(sa.packages.map(p => [p.id, p.monthlyHalalas, p.yearlyHalalas]),
+    [['starter', 29_900, 299_000], ['growth', 39_900, 399_000], ['pro', 59_900, 599_000]]);
+  const ye = affiliatePricing('967771234567');
+  assert.equal(ye.region, 'YE');
+  assert.equal(ye.discountPct, 33);
+  assert.deepEqual(ye.packages.map(p => [p.id, p.monthlyHalalas / 100, p.yearlyHalalas / 100]),
+    [['starter', 200, 2003], ['growth', 267, 2673], ['pro', 401, 4013]]);
+  assert.deepEqual(ye.packages.map(p => p.listMonthlyHalalas), [29_900, 39_900, 59_900], 'السعر المعلن يبقى للمقارنة');
+  assert.equal(ye.vatInclusive, true);
+  for (const p of [null, undefined, '', '971501234567', '+966 55', '9677']) {
+    assert.equal(regionalDiscountFor(p as string | null)?.region ?? null, p === '9677' ? 'YE' : null, String(p));
+  }
+});
+
+test('مسار الأسعار خلف جلسة السفير', () => {
+  const portal = strip(src('routes', 'affiliate.ts'));
+  assert.match(portal, /router\.get\('\/pricing', axAuth,/);
+  assert.match(portal, /affiliatePricing\(req\.affiliate!\.phone\)/);
+});

@@ -8,8 +8,7 @@
 import axios, { AxiosError, type AxiosResponse } from 'axios';
 import type {
   PublicTerms, RegisterBody, AffiliateMe, MeResponse, UpdateMeBody, Dashboard, CompanyRow, UserStatus,
-  ClaimBody, ClaimRow, CommissionRow, AdjustmentRow, PayoutRow, PayoutProfileBody,
-} from './types';
+  ClaimBody, ClaimRow, CommissionRow, AdjustmentRow, PayoutRow, PayoutProfileBody, PricingResponse } from './types';
 import { isTermsOutdated } from './errors';
 
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
@@ -117,6 +116,7 @@ export const affiliateApi = {
 
   // ---- approved فقط ----
   dashboard: async () => unwrap<Dashboard>(await axApi.get('/dashboard')),
+  pricing: async () => unwrap<PricingResponse>(await axApi.get('/pricing')),
   companies: async () => unwrap<CompanyRow[]>(await axApi.get('/companies')),
   createClaim: async (body: ClaimBody) =>
     unwrap<{ id: string; message: string }>(await axApi.post('/claims', body)),
@@ -134,6 +134,7 @@ export const qk = {
   me: ['ax', 'me'] as const,
   terms: ['ax', 'terms'] as const,
   dashboard: ['ax', 'dashboard'] as const,
+  pricing: ['ax', 'pricing'] as const,
   companies: ['ax', 'companies'] as const,
   claims: ['ax', 'claims'] as const,
   commissions: ['ax', 'commissions'] as const,

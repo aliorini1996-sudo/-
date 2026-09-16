@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Home, Link2, Send, Building2, Wallet, UserRound, FileText, LogOut } from 'lucide-react';
+import { Home, Link2, Tags, Send, Building2, Wallet, UserRound, FileText, LogOut } from 'lucide-react';
 import { affiliateApi, clearToken, getToken, httpStatus, onTermsOutdated, onUnauthorized, qk, shouldRetry } from './api';
 import type { AffiliateMe, MeResponse } from './types';
 import { AuthShell, AxLanguageToggle, BrandLockup, ErrorBox, Loading } from './ui';
@@ -29,11 +29,13 @@ import { HomeTab, LinkTab } from './screens/HomeScreens';
 import { ClaimsTab } from './screens/ClaimsScreen';
 import { CompaniesTab } from './screens/CompaniesScreen';
 import { EarningsTab } from './screens/EarningsScreen';
+import { PricingTab } from './screens/PricingScreen';
 import { ProfileTab, TermsTab } from './screens/ProfileScreen';
 
 const TABS: Array<{ id: Tab; label: AxKey; icon: ReactNode }> = [
   { id: 'home', label: 'tab.home', icon: <Home size={15} /> },
   { id: 'link', label: 'tab.link', icon: <Link2 size={15} /> },
+  { id: 'pricing', label: 'tab.pricing', icon: <Tags size={15} /> },
   { id: 'claims', label: 'tab.claims', icon: <Send size={15} /> },
   { id: 'companies', label: 'tab.companies', icon: <Building2 size={15} /> },
   { id: 'earnings', label: 'tab.earnings', icon: <Wallet size={15} /> },
@@ -240,6 +242,7 @@ export default function AffiliateApp() {
   let content: ReactNode;
   switch (tab) {
     case 'link': content = <LinkTab {...tabProps} />; break;
+    case 'pricing': content = <PricingTab {...tabProps} />; break;
     case 'claims': content = <ClaimsTab {...tabProps} />; break;
     case 'companies': content = <CompaniesTab {...tabProps} />; break;
     case 'earnings': content = <EarningsTab {...tabProps} />; break;

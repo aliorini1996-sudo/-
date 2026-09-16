@@ -18,6 +18,7 @@ import {
   hashPassword, verifyPassword, ipHash, encryptIban, referralLink, riyadhDay, isUniqueViolation, DAY_MS,
 } from '../services/affiliate/core';
 import { generateCode, normEmail, normAffiliatePhone, normCR, normCompanyName, containsContactInfo, normIbanSA, parseRef, normContactPhone } from '../services/affiliate/rules';
+import { affiliatePricing } from '../services/affiliate/pricing';
 import { mailVerify, mailReset, mailOwnerNewApplicant, mailPayoutProfileChanged } from '../services/affiliate/mail';
 import { expireStaleClaims } from '../services/affiliate/ledger';
 
@@ -347,6 +348,13 @@ router.get('/me', axAuth, async (req: AxRequest, res, next) => {
       link: referralLink(req.affiliate!.code),
       canSetPayout: await canSetPayout(aid(req)),
     } });
+  } catch (e) { next(e); }
+});
+
+// الباقات والأسعار كما يعرضها السفير — من كتالوج الخادم، وبخصم سفير اليمن (مفتاح جواله +967)
+router.get('/pricing', axAuth, async (req: AxRequest, res, next) => {
+  try {
+    res.json({ success: true, data: affiliatePricing(req.affiliate!.phone) });
   } catch (e) { next(e); }
 });
 
