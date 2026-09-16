@@ -15,7 +15,7 @@ import crypto from 'crypto';
 import {
   DerError, DerNode, TAG, childrenOf, decodeBitString, decodeInteger, decodeOid, decodeString, decodeTime, expectTag, parseDer,
 } from './der';
-import { isXmlCharCode } from './xml';
+import { clipMessage, isXmlCharCode } from './xml';
 
 /** هل كل نقاط النص محارف XML 1.0 (بلا U+FFFE/U+FFFF ولا بدائل منفردة) وبلا محارف تحكّم C0/C1؟ */
 export function isXmlSafeText(s: string): boolean {
@@ -32,7 +32,7 @@ export class CsidCertError extends Error {
   /** الخطأ الأصلي (DerError أو غيره) — lib ES2020 لا يعرّف Error.cause فيُحفظ هنا. */
   readonly cause?: unknown;
   constructor(message: string, options?: { cause?: unknown }) {
-    super(`CSID: ${message}`);
+    super(clipMessage(`CSID: ${message}`));
     this.name = 'CsidCertError';
     if (options && 'cause' in options) this.cause = options.cause;
   }

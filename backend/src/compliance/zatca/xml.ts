@@ -62,11 +62,25 @@ export type XmlErrorCode =
   // تُستعمل من c14n/stamp للبنية الخاصّة بالهيئة
   | 'NOT_INVOICE' | 'FOREIGN_SIGNATURE' | 'AMBIGUOUS_QR_ID' | 'STRUCTURE';
 
+/** أطول رسالة خطأ: نصوص مشتقّة من مستند عدائي (أسماء، قيم خانات) كانت تُنتج رسائل بالميغابايتات تصل الاستجابة والسجلّ. */
+export const MAX_ERROR_MESSAGE_CHARS = 2000;
+
+/** يقصّ رسالة طويلة مع ذكر طولها الأصلي، دون شطر زوج بدائل UTF-16. */
+export function clipMessage(s: string, max = MAX_ERROR_MESSAGE_CHARS): string {
+  if (s.length <= max) return s;
+  let head = Math.floor(max * 0.7);
+  let tail = s.length - Math.floor(max * 0.2);
+  const hi = (c: number) => c >= 0xd800 && c <= 0xdbff;
+  if (hi(s.charCodeAt(head - 1))) head--;
+  if (hi(s.charCodeAt(tail - 1))) tail--;
+  return `${s.slice(0, head)} … [قُصّت الرسالة: ${s.length} محرفاً] … ${s.slice(tail)}`;
+}
+
 export class XmlError extends Error {
   readonly code: XmlErrorCode;
   readonly offset: number;
   constructor(code: XmlErrorCode, message: string, offset = -1) {
-    super(offset >= 0 ? `${code}: ${message} (offset ${offset})` : `${code}: ${message}`);
+    super(clipMessage(offset >= 0 ? `${code}: ${message} (offset ${offset})` : `${code}: ${message}`));
     this.name = 'XmlError';
     this.code = code;
     this.offset = offset;
@@ -530,6 +544,17 @@ class Parser {
 }
 
 const EMPTY_SCOPE: ReadonlyMap<string, string> = new Map();
+
+/**
+ * حدود مسار الختم والتحقّق (أضيق من الافتراضي العام): فاتورة الفوترة الميدانية بضعة كيلوبايتات، والحدّ الأقصى
+ * للبنود 3000 (≈ 3MB، ≈ 165 ألف عقدة). بالحدّ العام (8MB) كان ختم مستند عدائي يحجب الخادم ثانيتين ويستهلك 500MB.
+ */
+export const STAMP_XML_LIMITS: Readonly<XmlLimits> = Object.freeze({
+  ...DEFAULT_XML_LIMITS,
+  maxBytes: 4 * 1024 * 1024,
+  maxNodes: 250_000,
+  maxTotalAttributes: 60_000,
+});
 /** مصفوفتان مجمَّدتان مشتركتان لكل عنصر بلا سمات (التعديل عليهما يرمي في الوضع الصارم). */
 const EMPTY_ATTRS = Object.freeze([]) as unknown as XmlAttribute[];
 const EMPTY_DECLS = Object.freeze([]) as unknown as XmlNsDecl[];

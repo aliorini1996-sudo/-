@@ -107,7 +107,7 @@ test('من الـXML: extractQrFromXml يعيد null للخانة الفارغة
   const src = readQrSourceFromXml(xml);
   assert.deepEqual(src, {
     sellerName: doc.supplier.registrationName, vat: doc.supplier.vatNumber, timestamp: `${doc.issueDate}T${doc.issueTime}`,
-    totalWithVat: doc.totals.payable, vatTotal: doc.totals.taxTotal, subtype: '02',
+    totalWithVat: doc.totals.payable, vatTotal: doc.totals.taxTotal, subtype: '02', issueDate: doc.issueDate, issueTime: doc.issueTime,
   });
   assert.notEqual(doc.totals.payable, doc.totals.taxInclusive, 'المبسّطة المرجعية فيها PayableRoundingAmount');
   assert.equal(readQrSourceFromXml(serializeUnsigned(mapInvoiceToUbl(STANDARD_INVOICE, chainFor(2)))).subtype, '01');

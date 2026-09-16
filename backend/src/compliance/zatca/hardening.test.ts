@@ -2,24 +2,25 @@
 // المدخلات العدائية تُبنى داخل الاختبار؛ الاختبار الذهبي الوحيد (CRLF على عيّنة الهيئة) يتخطّى عند غياب العيّنات.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import v8 from 'v8';
 import vm from 'vm';
 import { CsidCertError, MAX_CERT_B64_LENGTH, parseCsidCertificate, parseCsidToken } from './cert';
-import { assertNoForeignSignature, canonicalize } from './c14n';
+import { assertNoForeignSignature, canonicalize, computeInvoiceHash, invoiceHashInput } from './c14n';
 import {
   DerError, decodeInteger, decodeOid, decodeString, encBitString, encContext, encInteger, encOid, encSequence, encTlv, encUtcTime, parseDer, TAG,
 } from './der';
 import { mapInvoiceToUbl } from './mapInvoice';
 import { UblDocument } from './model';
-import { preflightIssues } from './preflight';
+import { MAX_INVOICE_LINES, preflightIssues } from './preflight';
 import { QrError, buildPhase2Qr, decodeQr, extractQrFromXml } from './qr';
 import { maxSellerNameBytes, qrWorstCaseBase64Length } from './qrBudget';
-import { HashSigner, StampError, StampErrorCode, createServerSigner, stampDocument, stampXml, verifyStampedXml } from './stamp';
+import { HashSigner, StampError, StampErrorCode, createServerSigner, stampDocument, stampXml, unstampedForm, verifyStampedXml } from './stamp';
 import { serializeUnsigned } from './ubl';
 import { certDigest, embeddedSignedPropertiesString, locateSignatureSlots, signedPropertiesDigestOf, signedPropertiesString } from './xades';
-import { XmlElement, XmlError, XmlErrorCode, fillEmptyElements, parseXml } from './xml';
+import { STAMP_XML_LIMITS, XmlElement, XmlError, XmlErrorCode, fillEmptyElements, parseXml } from './xml';
 import { SIMPLIFIED_INVOICE, STANDARD_INVOICE, STANDARD_CREDIT_NOTE, chainFor } from './__fixtures__/z1-sources';
 import { CN, DC, buildTestCert, encName } from './__fixtures__/z2-testcert';
 import { SDK_SKIP, sdkCertB64, sdkSample } from './__fixtures__/z2-sdk';
@@ -423,7 +424,8 @@ test('[high] ترتيب سمات C14N لا يقارن URIs كاملة: 64 نطا
   assert.equal(canonicalize('<r xmlns:a="urn:z" xmlns:b="urn:a" a:k="1" b:k="2" b:j="3"/>'), '<r xmlns:a="urn:z" xmlns:b="urn:a" b:j="3" b:k="2" a:k="1"></r>');
   // داخل فاتورة مختومة: التحقق يرفض (تغيّر الجسم) بسرعة
   const r = await stampDocument(STANDARD.xml, STANDARD.doc, SIGNER, CERT, NOW, 'standard');
-  const tampered = r.xml.replace('</Invoice>', `<w ${decls}>${body}</w></Invoice>`);
+  // ضمن ميزانية سمات مسار الختم (60 ألفاً): 900 عنصر × 64 سمة
+  const tampered = r.xml.replace('</Invoice>', `<w ${decls}>${nsSortBomb(900).body}</w></Invoice>`);
   const t0 = Date.now();
   await stampRejects(() => verifyStampedXml(tampered, CERT, 'standard'), 'SELF_CHECK_HASH', 'جسم محشوّ');
   assert.ok(Date.now() - t0 < 3000, `استغرق ${Date.now() - t0}ms`);
@@ -724,4 +726,121 @@ test('[medium] دفع النطاقات محدود: SignedProperties محشوّة
   within(500, () => assert.throws(() => embeddedSignedPropertiesString(d, slots), XmlError), 'دفع محشوّ');
   assert.ok(process.memoryUsage().rss - rss0 < 200 * 1024 * 1024);
   await stampRejects(() => verifyStampedXml(padded, CERT, 'standard'), 'SELF_CHECK_LAYOUT', 'تحقق');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// الجولة الخامسة
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('[low] IssueTime أو IssueDate فيه T زائد ⇒ INPUT باسم الحقل الصحيح قبل استدعاء الموقِّع', async () => {
+  let calls = 0;
+  const counting: HashSigner = { publicKeySpkiDer: SIGNER.publicKeySpkiDer, async signHash(h) { calls++; return SIGNER.signHash(h); } };
+  const cases: Array<[string, (x: string) => string, string]> = [
+    ['IssueTime 10:15:30T00', x => x.replace(/<cbc:IssueTime>[^<]+</, '<cbc:IssueTime>10:15:30T00<'), 'issueTime'],
+    ['IssueTime 10:15:30T', x => x.replace(/<cbc:IssueTime>[^<]+</, '<cbc:IssueTime>10:15:30T<'), 'issueTime'],
+    ['IssueDate 2026-09-14T', x => x.replace(/<cbc:IssueDate>[^<]+</, '<cbc:IssueDate>2026-09-14T<'), 'issueDate'],
+  ];
+  for (const [why, mutate, field] of cases) {
+    const x = mutate(STANDARD.xml);
+    assert.notEqual(x, STANDARD.xml, why);
+    await assert.rejects(stampXml(x, counting, CERT, NOW, 'standard'), (e: unknown) => {
+      assert.ok(e instanceof StampError && e.code === 'INPUT', `${why}: ${String(e)}`);
+      assert.equal(e.field, field, why);
+      return true;
+    });
+  }
+  assert.equal(calls, 0, 'لم يُستدعَ الموقِّع');
+  const d: UblDocument = JSON.parse(JSON.stringify(STANDARD.doc));
+  d.issueTime = '10:15:31T00';
+  await assert.rejects(stampDocument(serializeUnsigned(d), d, counting, CERT, NOW, 'standard'), (e: unknown) => e instanceof StampError && e.code === 'INPUT' && e.field === 'issueTime');
+  assert.equal(calls, 0);
+});
+
+test('[low] مبلغ صالح الصيغة أطول مما يتّسع له QR ⇒ الفحص المسبق يسمّي حقل المبلغ، والختم ينسب التجاوز للمبالغ', async () => {
+  const base = mapInvoiceToUbl(SIMPLIFIED_INVOICE, chainFor(1));
+  const big = `${'9'.repeat(100)}.00`;
+  const d: UblDocument = { ...base, totals: { ...base.totals, payable: big, taxTotal: big } };
+  const issues = preflightIssues(d, 'simplified').filter(i => i.rule === 'QR-LENGTH');
+  assert.deepEqual(issues.map(i => i.field).sort(), ['totals.payable', 'totals.taxTotal']);
+  // عبر XML مباشرة: لا اسم بأي طول يتّسع ⇒ الحقل المبلغ لا الاسم
+  const x = STANDARD.xml.replace(/(<cbc:PayableAmount[^>]*>)[^<]+</, `$1${'9'.repeat(200)}.00<`);
+  await assert.rejects(stampXml(x, SIGNER, CERT, NOW, 'standard'), (e: unknown) => {
+    assert.ok(e instanceof StampError && e.code === 'QR_TOO_LONG', String(e));
+    assert.equal(e.field, 'totals.payable');
+    return true;
+  });
+});
+
+test('[medium] تجزئة متدفّقة: نصّ 3.5MB من «>» وسمة من «"» تُجزَّأ بذاكرة محدودة وتطابق التجزئة غير المتدفّقة', () => {
+  for (const [why, body] of [
+    ['نصّ >', `<a>${'>'.repeat(3_500_000)}</a>`],
+    ['سمة "', `<a x='${'"'.repeat(3_500_000)}'/>`],
+    ['نصّ عربي بأزواج بدائل', `<a>${'😀ب>'.repeat(700_000)}</a>`],
+  ] as const) {
+    const xml = STANDARD.xml.replace('</Invoice>', `${body}</Invoice>`);
+    const gc = gcOrNull();
+    if (gc) gc();
+    const rss0 = process.memoryUsage().rss;
+    let h = '';
+    within(2500, () => { h = computeInvoiceHash(xml); }, why);
+    const grew = process.memoryUsage().rss - rss0;
+    assert.equal(h, crypto.createHash('sha256').update(invoiceHashInput(xml)).digest('base64'), `${why}: تطابق`);
+    assert.ok(grew < 180 * 1024 * 1024, `${why}: ${(grew / 1048576).toFixed(0)}MB`);
+  }
+});
+
+test('[low] رسائل الأخطاء مقصوصة مهما طال النصّ المشتقّ من المستند', async () => {
+  const cases: Array<() => unknown> = [
+    () => parseXml('<' + 'a'.repeat(3_000_000)),
+    () => parseXml('<' + 'p'.repeat(3_000_000) + ':a/>'),
+    () => parseXml('<a></' + 'b'.repeat(3_000_000) + '>'),
+  ];
+  for (const run of cases) {
+    try { run(); assert.fail('لم يرمِ'); } catch (e) {
+      assert.ok(e instanceof XmlError, String(e).slice(0, 200));
+      assert.ok(e.message.length <= 2100, `طول الرسالة ${e.message.length}`);
+      assert.match(e.message, /قُصّت الرسالة/);
+    }
+  }
+  const x = STANDARD.xml.replace(/<cbc:ID>INV-[^<]+</, `<cbc:ID>${'X'.repeat(1_000_000)}<`);
+  await assert.rejects(stampDocument(x, STANDARD.doc, SIGNER, CERT, NOW, 'standard'), (e: unknown) => e instanceof StampError && e.code === 'DOC_MISMATCH' && e.message.length <= 2100);
+});
+
+test('[low] مُدخل ليس نصاً ولا بايتات ولا XmlDocument ⇒ INPUT؛ البايتات مقبولة؛ unstampedForm يرمي StampError فقط', async () => {
+  const r = await stampDocument(STANDARD.xml, STANDARD.doc, SIGNER, CERT, NOW, 'standard');
+  verifyStampedXml(Buffer.from(r.xml, 'utf8'), CERT, 'standard');
+  assert.equal(unstampedForm(Buffer.from(r.xml, 'utf8')), STANDARD.xml);
+  for (const bad of [undefined, null, 123, {}, []]) {
+    await stampRejects(() => verifyStampedXml(bad as unknown as string, CERT, 'standard'), 'INPUT', `verify ${JSON.stringify(bad)}`);
+    await stampRejects(() => unstampedForm(bad as unknown as string), 'INPUT', `unstamped ${JSON.stringify(bad)}`);
+  }
+  await stampRejects(() => unstampedForm('<Invoice'), 'XML_INVALID', 'XML مبتور');
+});
+
+test('[low] حدّ البنود: 3000 بند يُختم ضمن حدود مسار الختم، و3001 يمنعه الفحص المسبق، والأكبر حجماً INPUT باسم lines', async () => {
+  const ok = bigInvoice(MAX_INVOICE_LINES);
+  assert.equal(preflightIssues(ok.doc, 'standard').filter(i => i.rule === 'ZATCA_LINES').length, 0);
+  const t0 = Date.now();
+  const stamped = await stampDocument(ok.xml, ok.doc, SIGNER, CERT, NOW, 'standard');
+  assert.ok(Date.now() - t0 < 6000, `ختم 3000 بند: ${Date.now() - t0}ms`);
+  verifyStampedXml(stamped.xml, CERT, 'standard');
+  const over = bigInvoice(MAX_INVOICE_LINES + 1);
+  assert.ok(preflightIssues(over.doc, 'standard').some(i => i.rule === 'ZATCA_LINES' && i.field === 'lines'));
+  const huge = bigInvoice(5000);
+  await assert.rejects(stampDocument(huge.xml, huge.doc, SIGNER, CERT, NOW, 'standard'), (e: unknown) => {
+    assert.ok(e instanceof StampError && e.code === 'INPUT', String(e).slice(0, 300));
+    assert.equal(e.field, 'lines');
+    return true;
+  });
+});
+
+test('[low] مستند قرب حدّ مسار الختم (4MB) يُرفض INPUT قبل استدعاء الموقِّع', async () => {
+  let calls = 0;
+  const counting: HashSigner = { publicKeySpkiDer: SIGNER.publicKeySpkiDer, async signHash(h) { calls++; return SIGNER.signHash(h); } };
+  const target = STAMP_XML_LIMITS.maxBytes - 400;
+  const pad = 'a'.repeat(target - Buffer.byteLength(STANDARD.xml, 'utf8'));
+  const near = STANDARD.xml.replace('<cbc:Name>سكر ناعم</cbc:Name>', `<cbc:Name>${pad}</cbc:Name>`);
+  assert.ok(Buffer.byteLength(near, 'utf8') < STAMP_XML_LIMITS.maxBytes);
+  await assert.rejects(stampXml(near, counting, CERT, NOW, 'standard'), (e: unknown) => e instanceof StampError && e.code === 'INPUT' && e.field === 'lines');
+  assert.equal(calls, 0);
 });

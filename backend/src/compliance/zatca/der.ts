@@ -8,10 +8,12 @@
 // يُستعمل في cert.ts لقراءة شهادة CSID، ويعيد Z4 استعمال الكاتب لبناء CSR.
 // ============================================================================
 
+import { clipMessage } from './xml';
+
 export class DerError extends Error {
   readonly offset: number;
   constructor(message: string, offset = -1) {
-    super(offset >= 0 ? `DER: ${message} (offset ${offset})` : `DER: ${message}`);
+    super(clipMessage(offset >= 0 ? `DER: ${message} (offset ${offset})` : `DER: ${message}`));
     this.name = 'DerError';
     this.offset = offset;
   }

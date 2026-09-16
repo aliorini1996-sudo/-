@@ -28,6 +28,50 @@ import {
   XmlChild, XmlDocument, XmlElement, XmlError, XmlLimits, XmlMisc, descendants, directText, normalizeSpace, parseXml,
 } from './xml';
 
+/** مستقبِل التسلسل القانوني: مصفوفة أجزاء (للنصّ) أو تجزئة متدفّقة (للبصمة) — بلا نسخة كاملة في الذاكرة. */
+interface C14nSink { write(s: string): void }
+
+/** حجم دفعة الكتابة: النصوص والسمات الأطول تُهرَّب وتُكتب مقطّعة. */
+const C14N_CHUNK = 16 * 1024;
+
+class ArraySink implements C14nSink {
+  readonly parts: string[] = [];
+  write(s: string): void { this.parts.push(s); }
+}
+
+class HashSink implements C14nSink {
+  private pending: string[] = [];
+  private size = 0;
+  constructor(private readonly hash: crypto.Hash) {}
+  write(s: string): void {
+    this.pending.push(s);
+    this.size += s.length;
+    if (this.size >= 4 * C14N_CHUNK) this.flush();
+  }
+  flush(): void {
+    if (!this.pending.length) return;
+    // الأجزاء لا تشطر أزواج البدائل (انظر writeEscaped)، فالدمج ثم ترميز UTF-8 سليم
+    this.hash.update(this.pending.length === 1 ? this.pending[0] : this.pending.join(''), 'utf8');
+    this.pending = [];
+    this.size = 0;
+  }
+}
+
+/** يهرّب نصاً طويلاً على مقاطع لا تشطر زوج بدائل — لا نسخة مُهرَّبة كاملة (نصّ 8MB من «>» كان يصير 32MB مرتين). */
+function writeEscaped(sink: C14nSink, s: string, escape: (x: string) => string): void {
+  if (s.length <= C14N_CHUNK) { sink.write(escape(s)); return; }
+  let i = 0;
+  while (i < s.length) {
+    let j = Math.min(s.length, i + C14N_CHUNK);
+    if (j < s.length) {
+      const c = s.charCodeAt(j - 1);
+      if (c >= 0xd800 && c <= 0xdbff) j--;
+    }
+    sink.write(escape(s.slice(i, j)));
+    i = j;
+  }
+}
+
 export const UBL_NS = Object.freeze({
   INVOICE: 'urn:oasis:names:specification:ubl:schema:xsd:Invoice-2',
   CAC: 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
@@ -99,8 +143,9 @@ function attributeNsRanks(root: XmlElement): Map<string, number> {
   return ranks;
 }
 
-function startTag(el: XmlElement, out: string[], nsRank: ReadonlyMap<string, number>): void {
-  out.push('<', el.qname);
+function startTag(el: XmlElement, out: C14nSink, nsRank: ReadonlyMap<string, number>): void {
+  out.write('<');
+  out.write(el.qname);
   const parentScope = el.parent ? el.parent.inScope : null;
   if (el.nsDecls.length) {
     const rendered = el.nsDecls.filter(d => {
@@ -109,21 +154,27 @@ function startTag(el: XmlElement, out: string[], nsRank: ReadonlyMap<string, num
     });
     rendered.sort((a, b) => compareCodepoints(a.prefix, b.prefix));
     for (const d of rendered) {
-      out.push(d.prefix === '' ? ' xmlns="' : ` xmlns:${d.prefix}="`, c14nEscapeAttr(d.uri), '"');
+      out.write(d.prefix === '' ? ' xmlns="' : ` xmlns:${d.prefix}="`);
+      out.write(c14nEscapeAttr(d.uri));
+      out.write('"');
     }
   }
   if (el.attributes.length) {
     const attrs = el.attributes.length === 1 ? el.attributes : [...el.attributes].sort((a, b) => (nsRank.get(a.ns)! - nsRank.get(b.ns)!) || compareCodepoints(a.local, b.local));
-    for (const a of attrs) out.push(' ', a.qname, '="', c14nEscapeAttr(a.value), '"');
+    for (const a of attrs) {
+      out.write(` ${a.qname}="`);
+      writeEscaped(out, a.value, c14nEscapeAttr);
+      out.write('"');
+    }
   }
-  out.push('>');
+  out.write('>');
 }
 
 function pi(p: { target: string; data: string }): string {
   return p.data === '' ? `<?${p.target}?>` : `<?${p.target} ${p.data}?>`;
 }
 
-function serializeElement(root: XmlElement, out: string[], excluded: ReadonlySet<XmlElement>): void {
+function serializeElement(root: XmlElement, out: C14nSink, excluded: ReadonlySet<XmlElement>): void {
   const nsRank = attributeNsRanks(root);
   // تكراري: كل إطار = عنصر ومؤشّر ابنه التالي
   const stack: Array<{ e: XmlElement; i: number }> = [];
@@ -132,30 +183,34 @@ function serializeElement(root: XmlElement, out: string[], excluded: ReadonlySet
   while (stack.length) {
     const top = stack[stack.length - 1];
     if (top.i >= top.e.children.length) {
-      out.push('</', top.e.qname, '>');
+      out.write(`</${top.e.qname}>`);
       stack.pop();
       continue;
     }
     const c: XmlChild = top.e.children[top.i++];
-    if (c.kind === 'text') out.push(c14nEscapeText(c.value));
+    if (c.kind === 'text') writeEscaped(out, c.value, c14nEscapeText);
     else if (c.kind === 'element') {
       if (excluded.has(c)) continue;
       startTag(c, out, nsRank);
       stack.push({ e: c, i: 0 });
-    } else if (c.kind === 'pi') out.push(pi(c));
+    } else if (c.kind === 'pi') out.write(pi(c));
     // التعليقات: تُحذف
   }
 }
 
+function canonicalizeTo(doc: XmlDocument, excluded: ReadonlySet<XmlElement>, out: C14nSink): void {
+  if (excluded.has(doc.root)) throw new XmlError('STRUCTURE', 'لا يمكن حذف العنصر الجذر');
+  const misc = (m: XmlMisc) => m.kind === 'pi';
+  for (const p of doc.prolog) if (misc(p)) { out.write(pi(p as { target: string; data: string })); out.write('\n'); }
+  serializeElement(doc.root, out, excluded);
+  for (const p of doc.epilog) if (misc(p)) { out.write('\n'); out.write(pi(p as { target: string; data: string })); }
+}
+
 /** C14N شامل (بلا تعليقات) لمستند كامل؛ excluded: عناصر تُحذف بشجراتها. */
 export function canonicalizeDocument(doc: XmlDocument, excluded: ReadonlySet<XmlElement> = new Set()): string {
-  if (excluded.has(doc.root)) throw new XmlError('STRUCTURE', 'لا يمكن حذف العنصر الجذر');
-  const out: string[] = [];
-  const misc = (m: XmlMisc) => m.kind === 'pi';
-  for (const p of doc.prolog) if (misc(p)) out.push(pi(p as { target: string; data: string }), '\n');
-  serializeElement(doc.root, out, excluded);
-  for (const p of doc.epilog) if (misc(p)) out.push('\n', pi(p as { target: string; data: string }));
-  return out.join('');
+  const out = new ArraySink();
+  canonicalizeTo(doc, excluded, out);
+  return out.parts.join('');
 }
 
 /** Canonical XML (inclusive، بلا تعليقات) لمستند كامل بلا حذف. */
@@ -209,9 +264,14 @@ export function invoiceHashInput(input: XmlInput): Buffer {
   return Buffer.from(canonicalizeDocument(doc, new Set(hashExcludedElements(doc))), 'utf8');
 }
 
-/** C-S1: base64(SHA-256(C14N(المستند بعد حذف الكتل الثلاث))). */
+/** C-S1: base64(SHA-256(C14N(المستند بعد حذف الكتل الثلاث))) — متدفّقة: لا تبني النصّ القانوني كاملاً. */
 export function computeInvoiceHash(input: XmlInput): string {
-  return crypto.createHash('sha256').update(invoiceHashInput(input)).digest('base64');
+  const doc = toDocument(input);
+  const hash = crypto.createHash('sha256');
+  const sink = new HashSink(hash);
+  canonicalizeTo(doc, new Set(hashExcludedElements(doc)), sink);
+  sink.flush();
+  return hash.digest('base64');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@
 // ============================================================================
 
 import { UBL_NS, isQrReference, qrReferenceText, toDocument, XmlInput } from './c14n';
-import { XmlDocument, XmlElement, XmlError, childElements, childPath, directText, attr } from './xml';
+import { XmlDocument, XmlElement, XmlError, childElements, childPath, clipMessage, directText, attr } from './xml';
 import { isCanonicalBase64 } from './cert';
 import { QR_MAX_BASE64_LENGTH, TLV_MAX_VALUE_BYTES, assertQrMaxLength } from './qrBudget';
 
@@ -30,7 +30,7 @@ export type QrErrorCode = 'QR_TOO_LONG' | 'QR_INVALID';
 export class QrError extends Error {
   readonly code: QrErrorCode;
   constructor(message: string, code: QrErrorCode = 'QR_INVALID') {
-    super(`QR: ${message}`);
+    super(clipMessage(`QR: ${message}`));
     this.name = 'QrError';
     this.code = code;
   }
@@ -217,6 +217,9 @@ export interface QrXmlSource {
   vatTotal: string;
   /** '01' قياسي أو '02' مبسّط (أول خانتين من InvoiceTypeCode/@name). */
   subtype: string;
+  /** نصّا IssueDate وIssueTime منفصلين: الختم الزمني المجمَّع بـT لا يُفكّ بلا غموض إن احتوى أحدهما T. */
+  issueDate?: string;
+  issueTime?: string;
 }
 
 const onlyText = (el: XmlElement | undefined, what: string): string => {
@@ -253,6 +256,8 @@ export function readQrSourceFromXml(xml: XmlInput, opts: { lenient?: boolean } =
     sellerName,
     vat,
     timestamp: `${issueDate}T${issueTime}`,
+    issueDate,
+    issueTime,
     totalWithVat: payable,
     vatTotal: taxAmounts.length ? directText(taxAmounts[0]) : '',
     subtype: name.slice(0, 2),

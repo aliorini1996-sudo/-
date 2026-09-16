@@ -22,7 +22,7 @@ import { UblDocument } from './model';
 import { buildPhase2Qr, decodeQr, MAX_QR_DECODE_LENGTH, QR_MAX_BASE64_LENGTH, QrError, QrXmlSource, readQrSourceFromXml } from './qr';
 import { TLV_MAX_VALUE_BYTES, maxSellerNameBytes } from './qrBudget';
 import { isIsoDate, isIsoTime } from './time';
-import { DEFAULT_XML_LIMITS } from './xml';
+
 import { serializeUnsigned } from './ubl';
 import { sanitizeText } from './validators';
 import { riyadhDateTime } from './time';
@@ -30,7 +30,7 @@ import {
   SignatureSlots, assertCacSignature, assertSignatureTemplate, certDigest as computeCertDigest, isValidSigningTime,
   embeddedSignedPropertiesString, locateSignatureSlots, signedPropertiesDigest, signedPropertiesDigestOf,
 } from './xades';
-import { XmlDocument, XmlElement, XmlError, attr, childElements, directText, fillEmptyElements, parseXml } from './xml';
+import { STAMP_XML_LIMITS, XmlDocument, XmlElement, XmlError, attr, childElements, clipMessage, directText, fillEmptyElements, parseXml } from './xml';
 import { isXmlSafeText } from './cert';
 
 export type StampKind = 'standard' | 'simplified';
@@ -55,7 +55,7 @@ export class StampError extends Error {
   /** الخطأ الأصلي (XmlError/QrError/CsidCertError/…) — lib ES2020 لا يعرّف Error.cause. */
   readonly cause?: unknown;
   constructor(code: StampErrorCode, message: string, extra: { field?: string; cause?: unknown } = {}) {
-    super(`${code}: ${message}`);
+    super(clipMessage(`${code}: ${message}`));
     this.name = 'StampError';
     this.code = code;
     if (extra.field !== undefined) this.field = extra.field;
@@ -64,6 +64,15 @@ export class StampError extends Error {
 }
 
 /** يحوّل أي خطأ إلى StampError مصنَّف؛ fallback للأخطاء غير المتوقَّعة في مسار بعينه. */
+const LIMIT_CODES: ReadonlySet<string> = new Set(['SIZE', 'NODES', 'DEPTH', 'ATTRS', 'NS_LIMIT']);
+
+/** مستند مسار الختم: نصّ أو بايتات UTF-8 (تُحلَّل بحدود الختم) أو XmlDocument محلَّل؛ غير ذلك INPUT. */
+function stampPathDocument(xml: unknown): XmlDocument {
+  if (typeof xml === 'string' || xml instanceof Uint8Array) return parseXml(xml, STAMP_XML_LIMITS);
+  if (xml && typeof xml === 'object' && 'root' in xml && 'source' in xml) return xml as XmlDocument;
+  throw new StampError('INPUT', 'المستند يجب أن يكون نصاً أو بايتات UTF-8 أو XmlDocument');
+}
+
 function toStampError(e: unknown, fallback: StampErrorCode = 'INTERNAL'): StampError {
   if (e instanceof StampError) return e;
   if (e instanceof QrError) {
@@ -72,6 +81,8 @@ function toStampError(e: unknown, fallback: StampErrorCode = 'INTERNAL'): StampE
       : new StampError('SELF_CHECK_QR', e.message, { cause: e });
   }
   if (e instanceof CsidCertError) return new StampError('CERT_INVALID', e.message, { cause: e });
+  // تجاوز حدود الحجم/العقد/العمق/السمات: مستند أكبر من المدعوم (خطأ مدخلات) لا XML مشوّه
+  if (e instanceof XmlError && LIMIT_CODES.has(e.code)) return new StampError('INPUT', `المستند أكبر من الحدّ المدعوم للختم: ${e.message}`, { field: 'lines', cause: e });
   if (e instanceof XmlError) return new StampError('XML_INVALID', e.message, { cause: e });
   return new StampError(fallback, (e as Error)?.message ?? String(e), { cause: e });
 }
@@ -127,7 +138,7 @@ export interface StampOptions {
   /** سقف طول QR (UNVERIFIED(U1): 700 مقابل 1000 — design §6.2). */
   qrMaxLength?: number;
   /** قيم الوسوم 1–5 المتوقَّعة من النموذج؛ أي اختلاف عن الـXML يرمي DOC_MISMATCH. */
-  expected?: Omit<QrXmlSource, 'subtype'>;
+  expected?: Omit<QrXmlSource, 'subtype' | 'issueDate' | 'issueTime'>;
 }
 
 interface StampLayout {
@@ -219,16 +230,28 @@ function allSlots(l: StampLayout): XmlElement[] {
 }
 
 /** يعيد المستند المختوم إلى صورته قبل الختم (يُفرغ الخانات التسع نصّاً) — لإثبات أن لا بايت آخر تغيّر. */
-export function unstampedForm(xml: string | XmlDocument): string {
-  const doc = typeof xml === 'string' ? parseXml(xml) : xml;
+export function unstampedForm(xml: string | Uint8Array | XmlDocument): string {
+  try {
+    return unstampedFormUnsafe(xml);
+  } catch (e) {
+    throw toStampError(e);
+  }
+}
+
+function unstampedFormUnsafe(xml: string | Uint8Array | XmlDocument): string {
+  const doc = stampPathDocument(xml);
   const l = layoutOf(doc);
   const ranges = allSlots(l).map(e => {
     if (e.selfClosing || e.children.some(c => c.kind !== 'text')) throw new StampError('SELF_CHECK_LAYOUT', `الخانة <${e.qname}> ليست نصّية`);
     return [e.openEnd, e.closeStart] as const;
   }).sort((a, b) => b[0] - a[0]);
-  let s = doc.source;
-  for (const [a, b] of ranges) s = s.slice(0, a) + s.slice(b);
-  return s;
+  // مرور واحد تصاعدياً
+  const asc = [...ranges].reverse();
+  const parts: string[] = [];
+  let pos = 0;
+  for (const [a, b] of asc) { parts.push(doc.source.slice(pos, a)); pos = b; }
+  parts.push(doc.source.slice(pos));
+  return parts.join('');
 }
 
 function subtypeOfXml(doc: XmlDocument): string {
@@ -273,7 +296,7 @@ export interface VerifyExpectations {
  * التحقّق الكامل من مستند مختوم مقابل شهادة: التجزئة، التوقيع، XAdES، الشهادة، وQR (round-trip + مطابقة الـXML).
  * يرمي StampError عند أول مخالفة، ويعيد القيم المستخرجة.
  */
-export function verifyStampedXml(xml: string | XmlDocument, cert: CsidCert, kind: StampKind, exp: VerifyExpectations = {}): Omit<StampResult, 'xml'> {
+export function verifyStampedXml(xml: string | Uint8Array | XmlDocument, cert: CsidCert, kind: StampKind, exp: VerifyExpectations = {}): Omit<StampResult, 'xml'> {
   try {
     return verifyStampedXmlUnsafe(xml, cert, kind, exp);
   } catch (e) {
@@ -295,9 +318,9 @@ function assertCertObjectMatches(reparsed: CsidCert, cert: CsidCert, code: Stamp
   }
 }
 
-function verifyStampedXmlUnsafe(xml: string | XmlDocument, cert: CsidCert, kind: StampKind, exp: VerifyExpectations): Omit<StampResult, 'xml'> {
+function verifyStampedXmlUnsafe(xml: string | Uint8Array | XmlDocument, cert: CsidCert, kind: StampKind, exp: VerifyExpectations): Omit<StampResult, 'xml'> {
   if (!cert || typeof cert !== 'object') throw new StampError('INPUT', 'الشهادة مفقودة');
-  const doc = typeof xml === 'string' ? parseXml(xml) : xml;
+  const doc = stampPathDocument(xml);
   assertKind(doc, kind);
   const l = layoutOf(doc);
   const s = l.slots;
@@ -406,7 +429,7 @@ async function stampXmlUnsafe(
   // الخطوات 1–7 في دالة مستقلّة: شجرة المستند غير المختوم لا تبقى حيّة أثناء تحليل المختوم (ذروة ذاكرة شجرة واحدة)
   const p = await prepareStamp(unsignedXml, signer, cert, now, kind, opts, qrMaxLength);
   // 8
-  const stamped = parseXml(p.xml);
+  const stamped = parseXml(p.xml, STAMP_XML_LIMITS);
   const verified = verifyStampedXml(stamped, cert, kind, {
     invoiceHash: p.invoiceHash, signatureB64: p.signatureB64, qr: p.qr, signingTime: p.signingTime, signedPropertiesDigest: p.spDigest,
   });
@@ -421,9 +444,13 @@ function assertQrSourceValues(src: QrXmlSource): void {
   if (src.sellerName.trim() === '') bad('supplier.registrationName', 'الاسم القانوني للمنشأة مفقود أو فارغ في المستند');
   if (src.vat.trim() === '') bad('supplier.vatNumber', 'الرقم الضريبي للمنشأة مفقود أو فارغ في المستند');
   if (bytes(src.vat) > TLV_MAX_VALUE_BYTES) bad('supplier.vatNumber', `الرقم الضريبي أطول من ${TLV_MAX_VALUE_BYTES} بايت`);
-  const [date, time] = src.timestamp.split('T');
+  // نصّا العنصرين منفصلين (الختم المجمَّع بـT غامض إن احتوى أحدهما T: «10:15:30T00» كان يمرّ ثم يفشل QR داخلياً)
+  const date = src.issueDate ?? src.timestamp.split('T')[0];
+  const time = src.issueTime ?? src.timestamp.split('T').slice(1).join('T');
   if (!isIsoDate(date)) bad('issueDate', `تاريخ الإصدار «${String(date).slice(0, 40)}» ليس تاريخاً صالحاً بصيغة YYYY-MM-DD`);
   if (!isIsoTime(time)) bad('issueTime', `وقت الإصدار «${String(time).slice(0, 40)}» ليس بصيغة HH:mm:ss`);
+  // حارس أخير: ما يقبله هذا الفحص يقبله بناء QR حرفياً
+  if (!isValidSigningTime(src.timestamp)) bad('issueTime', `الختم الزمني «${String(src.timestamp).slice(0, 40)}» ليس بصيغة YYYY-MM-DDTHH:mm:ss`);
   if (!/^\d+(\.\d+)?$/.test(src.totalWithVat)) bad('totals.payable', `المبلغ المستحق «${src.totalWithVat.slice(0, 40)}» مفقود أو ليس عدداً عشرياً غير سالب`);
   if (bytes(src.totalWithVat) > TLV_MAX_VALUE_BYTES) bad('totals.payable', `المبلغ المستحق أطول من ${TLV_MAX_VALUE_BYTES} بايت`);
   if (!/^\d+(\.\d+)?$/.test(src.vatTotal)) bad('totals.taxTotal', `إجمالي الضريبة «${src.vatTotal.slice(0, 40)}» مفقود أو ليس عدداً عشرياً غير سالب`);
@@ -433,10 +460,11 @@ function assertQrSourceValues(src: QrXmlSource): void {
 /** حين يتجاوز الـQR سقفه: الحقل المسؤول فعلاً (الاسم فوق ميزانيته، وإلا الرقم الضريبي غير القياسي، وإلا المبالغ). */
 function qrOverflowField(src: QrXmlSource, kind: StampKind, qrMaxLength: number): string {
   const amounts = { totalWithVat: src.totalWithVat, vatTotal: src.vatTotal, simplified: kind === 'simplified' };
-  if (Buffer.byteLength(src.sellerName, 'utf8') > Math.max(0, maxSellerNameBytes(amounts, qrMaxLength))) return 'supplier.registrationName';
+  const nameBudget = maxSellerNameBytes(amounts, qrMaxLength);
+  const longerAmount = src.totalWithVat.length >= src.vatTotal.length ? 'totals.payable' : 'totals.taxTotal';
+  // الحقل الشاذّ أولاً: مبلغ غير واقعي الطول أو رقم ضريبي غير قياسي يضيّق ميزانية الاسم، فلا يُلام الاسم العادي
+  if (nameBudget < 0 || src.totalWithVat.length > 20 || src.vatTotal.length > 20) return longerAmount;
   if (Buffer.byteLength(src.vat, 'utf8') > 15) return 'supplier.vatNumber';
-  if (src.totalWithVat.length > 20) return 'totals.payable';
-  if (src.vatTotal.length > 20) return 'totals.taxTotal';
   return 'supplier.registrationName';
 }
 
@@ -449,7 +477,7 @@ function fillGrowthBound(cert: CsidCert, qrMaxLength: number): number {
 async function prepareStamp(
   unsignedXml: string, signer: HashSigner, cert: CsidCert, now: Date, kind: StampKind, opts: StampOptions, qrMaxLength: number,
 ): Promise<{ xml: string; invoiceHash: string; signatureB64: string; qr: string; signingTime: string; spDigest: string }> {
-  const doc = parseXml(unsignedXml);
+  const doc = parseXml(unsignedXml, STAMP_XML_LIMITS);
   assertKind(doc, kind);
   const l = layoutOf(doc);
   for (const e of allSlots(l)) {
@@ -478,8 +506,8 @@ async function prepareStamp(
   // ─── قيم QR من الـXML ومطابقتها بالنموذج ───
   const src = readQrSourceFromXml(doc, { lenient: true });
   assertQrSourceValues(src);
-  if (Buffer.byteLength(unsignedXml, 'utf8') + fillGrowthBound(cert, qrMaxLength) > DEFAULT_XML_LIMITS.maxBytes) {
-    throw new StampError('INPUT', `المستند قريب من حدّ الحجم (${DEFAULT_XML_LIMITS.maxBytes} بايت) ولن يُقبل بعد ملء خانات الختم`);
+  if (Buffer.byteLength(unsignedXml, 'utf8') + fillGrowthBound(cert, qrMaxLength) > STAMP_XML_LIMITS.maxBytes) {
+    throw new StampError('INPUT', `المستند قريب من حدّ الحجم (${STAMP_XML_LIMITS.maxBytes} بايت) ولن يُقبل بعد ملء خانات الختم`, { field: 'lines' });
   }
   // 3–5 قبل الموقِّع: كل مدخلاتها من الشهادة والساعة، فخللها خلل إعداد يظهر قبل أي استدعاء لـKMS
   const cd = computeCertDigest(cert.certB64);
@@ -571,7 +599,7 @@ async function stampDocumentUnsafe(
 
 /** المعرّفات والسلسلة والنوع ومراجع الفوترة: تسمية الحقل المختلف في الحالات الشائعة. */
 function assertModelFieldsMatchXml(unsignedXml: string, doc: UblDocument): void {
-  const parsed = parseXml(unsignedXml);
+  const parsed = parseXml(unsignedXml, STAMP_XML_LIMITS);
   const root = parsed.root;
   const cbc = (local: string) => {
     const el = childElements(root, UBL_NS.CBC, local)[0];

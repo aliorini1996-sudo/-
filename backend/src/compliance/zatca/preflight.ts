@@ -10,7 +10,13 @@
 
 import { Dec, decFromString, divRoundHalfUp, isAmountString, parseAmount, pow10 } from './decimal';
 import { UblDocument, VAT_CATEGORIES, ZatcaIssue } from './model';
-import { QR_MAX_BASE64_LENGTH, maxSellerNameBytes, qrWorstCaseBase64Length } from './qrBudget';
+import { QR_MAX_BASE64_LENGTH, TLV_MAX_VALUE_BYTES, maxSellerNameBytes, qrWorstCaseBase64Length } from './qrBudget';
+
+/**
+ * أقصى عدد بنود لمستند مختوم: ≈ 3MB و≈ 165 ألف عقدة، ضمن حدود مسار الختم (STAMP_XML_LIMITS في xml.ts).
+ * بلا هذا يمرّ الفحص المسبق ثم يفشل الختم بخطأ «XML غير صالح» على مستند ولّده النظام نفسه.
+ */
+export const MAX_INVOICE_LINES = 3000;
 import { isIsoDate, isIsoTime } from './time';
 import { buyerIssues, charLength, sanitizeText, sellerIssues, TEXT_MAX_CHARS, VATEX_CATEGORY } from './validators';
 
@@ -124,6 +130,7 @@ export function preflightIssues(doc: UblDocument, kind: 'standard' | 'simplified
   // ═══ البنود ═══
   const lines = doc.lines ?? [];
   if (!lines.length) out.push(err('BR-16', 'lines', 'الفاتورة بلا بنود'));
+  if (lines.length > MAX_INVOICE_LINES) out.push(err('ZATCA_LINES', 'lines', `عدد البنود ${lines.length} يتجاوز الحدّ المدعوم للفوترة الإلكترونية (${MAX_INVOICE_LINES}) — قسّم الفاتورة`));
   let sumLines: bigint | null = 0n;
   const lineNet = new Map<string, bigint>(); // (فئة|نسبة) ⇒ Σ BT-131
   const lineCodes = new Map<string, Set<string>>();
@@ -312,8 +319,17 @@ function qrLengthIssues(doc: UblDocument, kind: 'standard' | 'simplified', qrMax
     return;
   }
   const t = doc.totals ?? ({} as UblDocument['totals']);
-  // المبالغ غير الصالحة أو الطويلة تبلّغها فحوص المجاميع؛ لا تدخل ميزانية QR (كانت نصوص بملايين المحارف تُبطئ الفحص ثوانيَ)
-  if (!isAmountString(t.payable) || !isAmountString(t.taxTotal) || t.payable.length > 64 || t.taxTotal.length > 64) return;
+  // المبالغ غير الصالحة تبلّغها فحوص المجاميع؛ لا تدخل ميزانية QR (نصوص بملايين المحارف كانت تُبطئ الفحص ثوانيَ)
+  if (!isAmountString(t.payable) || !isAmountString(t.taxTotal)) return;
+  // مبلغ صالح الصيغة لكنه أطول مما يتّسع له QR: خطأ باسم حقله (لا تخطٍّ صامت يترك الختم يفشل لاحقاً)
+  let tooLong = false;
+  for (const [field, v] of [['totals.payable', t.payable], ['totals.taxTotal', t.taxTotal]] as const) {
+    if (v.length > 64) {
+      tooLong = true;
+      out.push(err('QR-LENGTH', field, `المبلغ أطول (${Math.min(v.length, TLV_MAX_VALUE_BYTES + 1)}${v.length > TLV_MAX_VALUE_BYTES ? '+' : ''} رقماً) مما يتّسع له رمز QR`));
+    }
+  }
+  if (tooLong) return;
   const amounts = { totalWithVat: t.payable, vatTotal: t.taxTotal, simplified: kind === 'simplified' };
   const worst = qrWorstCaseBase64Length({ ...amounts, sellerName: name! });
   if (worst <= qrMaxLength) return;
