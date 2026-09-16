@@ -64,6 +64,19 @@ export function formatDate(date: string | Date) {
 }
 
 /**
+ * تاريخٌ رقميّ مضغوط (يوم/شهر/سنة) — لأعمدة ضيّقة على عرض الجوال حيث لا يتّسع
+ * اسم الشهر. نفس الـlocale ونظام الترقيم الذي تختاره الشركة.
+ */
+export function formatDateShort(date: string | Date | null | undefined) {
+  if (!date) return '-';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '-';
+  return new Intl.DateTimeFormat(locale(), {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/**
  * تاريخُ **يومٍ خالص** (لا لحظة): يُقرأ بأجزائه النصّية لا بمنطقة القارئ.
  *
  * deliveryDate يُخزَّن منتصف ليل UTC، وformatDate تعرضه بتوقيت المتصفّح —

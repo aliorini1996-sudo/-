@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { receiptApi, customerApi, invoiceApi, salesRepApi, companyApi } from '../../api/client';
 import { Customer, Invoice, SalesRep } from '../../types';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, formatDate } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
 import { ReceiptDoc, Company } from '../../rep/RepDocuments';
 import { receiptInvoicesFrom } from '../../rep/receiptLinks';
@@ -227,12 +227,13 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <table className="table">
                   <thead>
-                    <tr><th>{tr('رقم الفاتورة')}</th><th>{tr('المتبقي')}</th><th>{tr('التخصيص')}</th></tr>
+                    <tr><th>{tr('رقم الفاتورة')}</th><th>{tr('تاريخ الفاتورة')}</th><th>{tr('المتبقي')}</th><th>{tr('التخصيص')}</th></tr>
                   </thead>
                   <tbody>
                     {openInvoices.map(inv => (
                       <tr key={inv.id}>
                         <td className="font-mono text-sm">{inv.number}</td>
+                        <td className="text-sm text-gray-600 whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
                         <td className="text-red-600">{formatCurrency(inv.remainingAmt)}</td>
                         <td>
                           <input

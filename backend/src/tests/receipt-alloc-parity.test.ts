@@ -160,6 +160,17 @@ test('ردّ إنشاء السند وإعادتاه المتطابقتان تح�
     'روابط الردّ تكشف صفّ الفاتورة كاملاً أو فقدت رقمها');
 });
 
+/** طلب المالك: كل فاتورة في شاشة إصدار السند تُظهر تاريخ إصدارها بجانب رقمها */
+test('تاريخ الفاتورة يظهر في قائمة التوزيع — والمسار يُرجعه', () => {
+  assert.match(openHandler(), /select: \{[^}]*invoiceDate: true/, 'مسار الفواتير المفتوحة لا يُرجع تاريخ الفاتورة');
+  const rep = repApp.slice(repApp.indexOf('function CreateReceipt'));
+  const list = rep.slice(rep.indexOf('openInv.map(inv =>'), rep.indexOf('openInv.map(inv =>') + 1800);
+  assert.match(list, /formatDateShort\(inv\.invoiceDate\)/, 'تطبيق المندوب لا يعرض تاريخ الفاتورة');
+  assert.match(modal, /<th>\{tr\('تاريخ الفاتورة'\)\}<\/th>/, 'لوحة الإدارة بلا عمود تاريخ الفاتورة');
+  assert.match(modal, /formatDate\(inv\.invoiceDate\)/, 'لوحة الإدارة لا تعرض تاريخ الفاتورة');
+  assert.match(mobile, /formatDate\(inv\.invoiceDate\)/, 'لوحة الجوال لا تعرض تاريخ الفاتورة');
+});
+
 /** تخصيصٌ فوق مبلغ السند يجعل النقص سالباً فتمرّ البوابة كاذبةً */
 test('التوزيع الزائد ممنوع صراحةً لا بالنقص السالب', () => {
   assert.match(modal, /totalAllocated > Number\(amount\) \+ 0\.004/, 'اللوحة تقبل توزيعاً يفوق السند');
