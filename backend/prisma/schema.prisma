@@ -94,6 +94,11 @@ model Tenant {
   dailyReportDigests   DailyReportDigest[]
   dailyReportViewers   DailyReportDigestViewer[]
 
+
+  // ZATCA المرحلة الثانية (علاقات فقط، بلا أعمدة)
+  zatcaUnits     ZatcaEgsUnit[]
+  zatcaDocuments ZatcaDocument[]
+
   @@map("tenants")
 }
 
@@ -456,6 +461,12 @@ model Product {
   vanLoadItems        VanLoadItem[]
   warehouseEntryItems WarehouseEntryItem[]
 
+
+  // ZATCA المرحلة الثانية — الفئة الضريبية
+  vatCategory        String? // S|Z|E|O ؛ null ⇒ S حين taxPct>0
+  vatExemptionCode   String? // VATEX-SA-*
+  vatExemptionReason String?
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@map("products")
@@ -527,6 +538,17 @@ model Customer {
   assignments    CustomerAssignment[]
   adminScopes    AdminCustomerScope[]
   paymentLinks   CustomerPaymentLink[]
+
+
+  // ZATCA المرحلة الثانية — بيانات المشتري (اختيارية؛ countryCode بلا قيمة افتراضية كي لا تُوسَم عملاء دول أخرى SA — المُطابِق يعامل null كـSA)
+  buyerType        String?  // INDIVIDUAL | BUSINESS | GOVERNMENT ؛ null = غير مصنّف (D2)
+  buyerIdScheme    String?  // BR-KSA-14: TIN|CRN|MOM|MLS|700|SAG|NAT|GCC|IQA|PAS|OTH
+  buyerIdValue     String?  // null + CRN ⇒ commercialReg
+  addrStreet       String?  // BT-50
+  addrBuildingNo   String?  // KSA-18 (4 أرقام)
+  addrAdditionalNo String?
+  addrPostalCode   String?  // BT-53 (5 أرقام، BR-KSA-67)
+  countryCode      String?  // BT-55 (null ⇒ SA)
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -652,9 +674,24 @@ model Invoice {
   installments   InvoiceInstallment[]
   signature      InvoiceSignature?
 
+
+  // ZATCA المرحلة الثانية (مجمَّدة عند الإصدار)
+  zatcaPhase        Int?      // 1 | 2
+  documentKind      String?   // INVOICE | CREDIT_NOTE | DEBIT_NOTE ؛ null ⇒ قديم
+  invoiceSubtype    String?   // "01" قياسية | "02" مبسّطة — لا يُعاد استنتاجها أبداً
+  issuedAt          DateTime? // لحظة الخادم لـIssueDate/IssueTime (توقيت الرياض)
+  originalInvoiceId String?   // الفاتورة الأصلية للإشعار 381/383
+  originalInvoice   Invoice?  @relation("InvoiceAdjustments", fields: [originalInvoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adjustments       Invoice[] @relation("InvoiceAdjustments")
+  billingReference  String?   // BT-25 كما كُتب (BR-KSA-56)
+  noteReason        String?   // KSA-10 InstructionNote (BR-KSA-17)
+  einvoiceSnapshot  Json?     // البائع/المشتري/البنود/المبالغ كما دخلت الـXML
+  zatcaDocuments    ZatcaDocument[]
+
   @@unique([tenantId, number])
   @@unique([tenantId, clientRef])
   @@index([tenantId])
+  @@index([originalInvoiceId])
   @@map("invoices")
 }
 
@@ -678,6 +715,16 @@ model InvoiceItem {
   taxPct      Float
   taxAmt      Float
   lineTotal   Float
+
+
+  // ZATCA المرحلة الثانية — لقطة البند
+  seq                Int?    // BT-126
+  itemName           String? // BT-153
+  unitCode           String? // UN/ECE Rec 20 (PCE…)
+  vatCategory        String? // BT-151
+  vatExemptionCode   String?
+  vatExemptionReason String?
+  creditedItemId     String? // في بنود الإشعار الدائن: InvoiceItem الأصلي
 
   @@index([menuItemId])
   // كان الجدول مفهرساً على `menuItemId` وحده، بينما **كل** قراءة
@@ -816,6 +863,21 @@ model CompanySettings {
   einvoiceIntermediaryUrl String? // رابط الوسيط/المُجمِّع المعتمد (اختياري)
 
   updatedAt DateTime @updatedAt
+
+
+  // ZATCA المرحلة الثانية — بيانات البائع (كلها اختيارية كي يبقى db push إضافياً)
+  legalName            String?   // BT-27 PartyLegalEntity/RegistrationName
+  sellerIdScheme       String?   // BR-KSA-08: CRN|MOM|MLS|700|SAG|OTH (null ⇒ CRN)
+  sellerIdValue        String?   // null ⇒ commercialReg
+  addrStreet           String?   // BT-35
+  addrBuildingNo       String?   // KSA-17 — 4 أرقام (BR-KSA-37)
+  addrAdditionalNo     String?   // KSA-23 PlotIdentification
+  addrDistrict         String?   // KSA-3 CitySubdivisionName
+  addrCity             String?   // BT-37
+  addrPostalCode       String?   // BT-38 — 5 أرقام (BR-KSA-66)
+  vatGroupTin          String?   // TIN من 10 أرقام لـOU في CSR حين الخانة 11 من الرقم الضريبي = 1
+  zatcaPhase2StartedAt DateTime? // يُضبط مرة واحدة عند التفعيل ولا تمسحه واجهة الشركة
+  zatcaOfflineOrders   Boolean   @default(false) // قرار المالك D1: مطفأ ما لم يُعتمد
 
   @@map("company_settings")
 }
@@ -2439,4 +2501,117 @@ model InvoiceSignature {
 
   @@index([tenantId])
   @@map("invoice_signatures")
+}
+
+/// ZATCA المرحلة الثانية — وحدة EGS (واحدة أو أكثر لكل شركة). تحلّ محلّ ZatcaEgs الذي يبقى خاملاً ولا يُكتب إليه أبداً.
+model ZatcaEgsUnit {
+  id                  String    @id @default(uuid())
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  kind                String    @default("SERVER") // SERVER | DEVICE (DEVICE محجوز للمرحلة ٢)
+  environment         String                       // sandbox | simulation | production
+  commonName          String                       // CSR CN
+  serialNumber        String                       // CSR SN "1-…|2-…|3-<uuid>" (≤ 64)
+  functionMap         String    @default("1100")   // CSR title: 1000 | 0100 | 1100
+  orgName             String                       // CSR O
+  orgUnit             String                       // CSR OU (الفرع، أو TIN لمجموعة ضريبية)
+  vatNumber           String                       // CSR UID (مجمَّد)
+  locationAddress     String                       // CSR registeredAddress (≤ 64)
+  industry            String                       // CSR businessCategory
+  salesRepId          String?                      // DEVICE فقط
+  deviceInstallId     String?                      // DEVICE فقط
+  status              String    @default("DRAFT")  // آلة حالات Z4
+  keyVersion          Int       @default(1)
+  privateKeyEnc       String?                      // مشفّر AES-256-GCM (secrets.ts) — لا تُعيده أي واجهة
+  publicKeyPem        String?
+  csrPem              String?
+  complianceRequestId String?
+  complianceToken     String?                      // binarySecurityToken (شهادة، ليست سرّاً)
+  complianceSecretEnc String?
+  complianceSteps     Json?
+  productionToken     String?
+  productionSecretEnc String?
+  certSerial          String?
+  certNotBefore       DateTime?
+  certNotAfter        DateTime?                    // من الشهادة الصادرة لا قيمة ثابتة
+  lastIcv             Int       @default(0)
+  lastInvoiceHash     String?                      // PIH التالي؛ null ⇒ INITIAL_PIH
+  activatedAt         DateTime?
+  revokedAt           DateTime?
+  lastError           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  documents ZatcaDocument[]
+  apiLogs   ZatcaApiLog[]
+
+  @@unique([tenantId, environment, serialNumber])
+  @@index([tenantId, status])
+  @@map("zatca_egs_units")
+}
+
+/// ZATCA المرحلة الثانية — صفّ لكل مستند موقَّع (للفاتورة أكثر من صفّ فقط بعد رفض 400).
+model ZatcaDocument {
+  id              String       @id @default(uuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  egsUnitId       String
+  egsUnit         ZatcaEgsUnit @relation(fields: [egsUnitId], references: [id], onDelete: Restrict)
+  invoiceId       String
+  invoice         Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  attemptNo       Int          @default(1)
+  icv             Int
+  uuid            String
+  pih             String
+  invoiceHash     String
+  typeCode        String       // 388 | 381 | 383
+  typeName        String       // 7 خانات، مثل 0200000
+  issueDate       String       // YYYY-MM-DD بتوقيت الرياض
+  issueTime       String       // HH:mm:ss بتوقيت الرياض بلا Z
+  flow            String       // REPORTING | CLEARANCE
+  xmlGz           Bytes        // البايتات المُرسلة حرفياً (gzip بلا فقد)
+  qr              String
+  clearedXmlGz    Bytes?       // clearedInvoice من الهيئة (المستند القانوني للقياسية)
+  clearedQr       String?
+  status          String       @default("SIGNED") // آلة حالات Z5
+  httpStatus      Int?
+  validation      Json?        // آخر validationResults (منقّحة)
+  attempts        Int          @default(0)
+  priorEmpty400   Int          @default(0) // EscalationCounts لـZ3: ردود 400 بلا رسائل سابقة لنفس البايتات
+  priorPayload413 Int          @default(0) // EscalationCounts لـZ3: ردود 413 سابقة لنفس البايتات
+  nextAttemptAt   DateTime?
+  leaseUntil      DateTime?
+  firstSubmitAt   DateTime?
+  finalizedAt     DateTime?
+  reportDeadline  DateTime?    // issuedAt + 24 ساعة (المبسّطة فقط)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([egsUnitId, icv])
+  @@unique([uuid])
+  @@unique([invoiceId, attemptNo])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+  @@map("zatca_documents")
+}
+
+/// ZATCA المرحلة الثانية — أثر كل محاولة API وكل إجراء تسجيل. لا يخزّن أبداً الرمز ولا السرّ ولا OTP.
+model ZatcaApiLog {
+  id         String        @id @default(uuid())
+  tenantId   String
+  egsUnitId  String?
+  egsUnit    ZatcaEgsUnit? @relation(fields: [egsUnitId], references: [id], onDelete: SetNull)
+  documentId String?
+  actorId    String?
+  endpoint   String        // compliance | compliance-invoices | production-csid | renewal | reporting | clearance | ui:*
+  httpStatus Int?
+  outcome    String
+  durationMs Int?
+  response   Json?         // منقّح
+  errorText  String?
+  createdAt  DateTime      @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([documentId])
+  @@map("zatca_api_logs")
 }
