@@ -8,6 +8,8 @@
 // • Basic base64(token:secret) والرمز حرفياً كما أعادته الهيئة (يبدأ بـTUlJ…) لا الشهادة المفكوكة [SWG].
 // • التحقق من كل مُدخل قبل أي fetch (FatooraInputError بلا قيم)، ومهلة AbortController تغطي الاتصال والجسم معاً،
 //   وسقف لحجم الجسم يُفرض أثناء القراءة، وredirect: 'manual' كي تُرى 303 ولا يُرسَل التفويض لمضيف آخر.
+// • القراءة تنسخ كل قطعة فوراً في مخزن واحد، وتحدّ عدد القطع والفارغ منها، وتتنازل لحلقة الأحداث دورياً (BODY_READ_LIMITS):
+//   جسم مقطّع لملايين القطع ضمن السقف لا يستنفد الذاكرة، ولا يحجب مؤقّت المهلة.
 // • log يُستدعى مرة واحدة بالضبط لكل محاولة HTTP، بملخّص منقّح؛ فشله أو تعليقه لا يغيّر النتيجة.
 // • لا حلقات إعادة محاولة هنا: Z5 يملك الجدولة. العميل يتلقّى رقم المحاولة للسجلّ فقط، وعدّادَي التصعيد
 //   (priorEmpty400 / priorPayload413 = ردود سابقة من النوع نفسه لهذا المستند) لتصنيف empty400/413.
@@ -245,6 +247,69 @@ type Exchange =
 const TIMEOUT = Symbol('timeout');
 
 /**
+ * حدود قراءة الجسم غير سقف البايتات: قطع كثيرة صغيرة أو فارغة ضمن السقف لا تستهلك الذاكرة ولا تحجب المهلة.
+ * • كل قطعة تُنسخ فور وصولها في مخزن واحد ينمو بالمضاعفة حتى السقف — لا يُحتفظ بكائنات القطع.
+ * • أقصى عدد قراءات = max(minReads, السقف ÷ minAvgChunkBytes): 8 MiB ⇒ 131072 (متوسط ≥ 64 بايت؛ مقبس حقيقي يقرأ كيلوبايتات).
+ * • القطع الفارغة المتتالية محدودة؛ وبعد كل yieldEveryReads قراءة نتنازل لحلقة الأحداث (setImmediate) كي يعمل مؤقّت
+ *   المهلة ولو كانت القراءات تُحلّ دون تنازل (تدفّق WHATWG يُملأ متزامناً).
+ * تجاوز العدد أو الفراغ ⇒ فشل شبكة (TooManyChunks / EmptyChunks): الرد لم يُستلم فعلياً، كالمهلة.
+ */
+export const BODY_READ_LIMITS = Object.freeze({
+  minReads: 4096,
+  minAvgChunkBytes: 64,
+  maxConsecutiveEmptyReads: 64,
+  yieldEveryReads: 256,
+  initialBufferBytes: 64 * 1024,
+});
+
+/** أقصى عدد قطع غير منتهية يُقرأ لجسم بهذا السقف. */
+export function maxBodyReads(cap: number): number {
+  return Math.max(BODY_READ_LIMITS.minReads, Math.ceil(cap / BODY_READ_LIMITS.minAvgChunkBytes));
+}
+
+/**
+ * مهلة واحدة للطلب كلّه. race() يسجّل منتظراً ويزيله حين يستقرّ الوعد، فلا تتراكم ردود فعل على وعد طويل العمر
+ * مع كل قطعة (Promise.race مع وعد مهلة معلّق كان يُبقي ≈ 300 بايت لكل قراءة حتى نهاية الاستدعاء).
+ */
+class Deadline {
+  expired = false;
+  private readonly waiters = new Set<() => void>();
+
+  expire(): void {
+    if (this.expired) return;
+    this.expired = true;
+    const ws = [...this.waiters];
+    this.waiters.clear();
+    for (const w of ws) w();
+  }
+
+  race<T>(value: T | PromiseLike<T>): Promise<T | typeof TIMEOUT> {
+    if (this.expired) {
+      swallow(value);
+      return Promise.resolve(TIMEOUT);
+    }
+    return new Promise<T | typeof TIMEOUT>((resolve, reject) => {
+      const onTimeout = () => resolve(TIMEOUT);
+      this.waiters.add(onTimeout);
+      Promise.resolve(value).then(
+        v => {
+          this.waiters.delete(onTimeout);
+          resolve(v);
+        },
+        e => {
+          this.waiters.delete(onTimeout);
+          reject(e);
+        },
+      );
+    });
+  }
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
+/**
  * اسم الخطأ ورمز السبب فقط — رسائل الأخطاء قد تحمل أي شيء. القيم تُقبل كما هي إن طابقت شكل الأسماء والرموز
  * المعروفة (TypeError، ECONNRESET، UND_ERR_SOCKET) وإلا تُسقط: التنقية بحذف المحارف كانت تُبقي سرّاً بلا حشوه
  * «=» فيفلت من المطابقة الحرفية.
@@ -272,7 +337,7 @@ function readHeader(res: FatooraFetchResponse, name: string): string | null {
   }
 }
 
-async function readBodyCapped(res: FatooraFetchResponse, cap: number, deadline: Promise<typeof TIMEOUT>): Promise<BodyRead> {
+async function readBodyCapped(res: FatooraFetchResponse, cap: number, deadline: Deadline): Promise<BodyRead> {
   const declared = readHeader(res, 'content-length');
   const cancelBody = () => {
     try {
@@ -289,36 +354,51 @@ async function readBodyCapped(res: FatooraFetchResponse, cap: number, deadline: 
   try {
     if (res.body && typeof res.body.getReader === 'function') {
       const reader = res.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      for (;;) {
-        const next = reader.read();
-        swallow(next);
-        const r = await Promise.race([next, deadline]);
-        if (r === TIMEOUT) {
+      const stop = (result: BodyRead): BodyRead => {
+        try {
           swallow(reader.cancel());
-          return { kind: 'timeout' };
+        } catch {
+          /* قارئ معطوب */
         }
-        if (!r || typeof r !== 'object') return { kind: 'network', errorText: 'InvalidChunk' };
+        return result;
+      };
+      const L = BODY_READ_LIMITS;
+      const maxReads = maxBodyReads(cap);
+      let buf = Buffer.alloc(Math.min(cap, L.initialBufferBytes));
+      let total = 0;
+      let reads = 0;
+      let empty = 0;
+      for (;;) {
+        // القراءات التي تُحلّ دون تنازل لا تترك مؤقّت المهلة يعمل: نتنازل دورياً ثم نفحص المهلة
+        if (reads > 0 && reads % L.yieldEveryReads === 0) await yieldToEventLoop();
+        if (deadline.expired) return stop({ kind: 'timeout' });
+        const r = await deadline.race(reader.read());
+        if (r === TIMEOUT) return stop({ kind: 'timeout' });
+        if (!r || typeof r !== 'object') return stop({ kind: 'network', errorText: 'InvalidChunk' });
         if (r.done) break;
         const chunk = r.value;
-        if (!(chunk instanceof Uint8Array)) {
-          swallow(reader.cancel());
-          return { kind: 'network', errorText: 'InvalidChunk' };
+        if (!(chunk instanceof Uint8Array)) return stop({ kind: 'network', errorText: 'InvalidChunk' });
+        if (++reads > maxReads) return stop({ kind: 'network', errorText: 'TooManyChunks' });
+        const len = chunk.byteLength;
+        if (len === 0) {
+          if (++empty > L.maxConsecutiveEmptyReads) return stop({ kind: 'network', errorText: 'EmptyChunks' });
+          continue;
         }
-        total += chunk.byteLength;
-        if (total > cap) {
-          swallow(reader.cancel());
-          return { kind: 'too-large', bytes: total };
+        empty = 0;
+        if (total + len > cap) return stop({ kind: 'too-large', bytes: total + len });
+        if (total + len > buf.length) {
+          const grown = Buffer.alloc(Math.min(cap, Math.max(total + len, buf.length * 2)));
+          buf.copy(grown, 0, 0, total);
+          buf = grown;
         }
-        chunks.push(chunk);
+        // نسخ فوري: لا يُحتفظ بالقطعة (ولا يتأثّر الناتج إن أعاد المصدر استعمال ذاكرتها)
+        buf.set(chunk, total);
+        total += len;
       }
-      return { kind: 'ok', bytes: Buffer.concat(chunks, total) };
+      return { kind: 'ok', bytes: buf.subarray(0, total) };
     }
     if (typeof res.arrayBuffer === 'function') {
-      const p = res.arrayBuffer();
-      swallow(p);
-      const r = await Promise.race([p, deadline]);
+      const r = await deadline.race(res.arrayBuffer());
       if (r === TIMEOUT) return { kind: 'timeout' };
       if (!(r instanceof ArrayBuffer)) return { kind: 'network', errorText: 'InvalidBody' };
       if (r.byteLength > cap) return { kind: 'too-large', bytes: r.byteLength };
@@ -524,30 +604,25 @@ export class FatooraClient {
     const f = this.fetchImpl ?? ((globalThis as { fetch?: unknown }).fetch as FatooraFetch | undefined);
     if (typeof f !== 'function') return { kind: 'invalid-response', detail: 'fetch-unavailable' };
     const controller = new AbortController();
-    let timedOut = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // مهلة واحدة للاتصال والجسم معاً؛ لا نعتمد على احترام fetch للإشارة (fetch معطوب قد يتجاهلها)
-    const deadline = new Promise<typeof TIMEOUT>(resolve => {
-      timer = setTimeout(() => {
-        timedOut = true;
-        resolve(TIMEOUT);
-        try {
-          controller.abort();
-        } catch {
-          /* لا شيء */
-        }
-      }, timeoutMs);
-    });
+    // مهلة واحدة للاتصال والجسم معاً؛ لا نعتمد على احترام fetch للإشارة (fetch معطوب قد يتجاهلها)،
+    // وقراءة الجسم تتنازل دورياً لحلقة الأحداث كي يعمل هذا المؤقّت ولو حُلّت القراءات دون تنازل
+    const deadline = new Deadline();
+    const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+      deadline.expire();
+      try {
+        controller.abort();
+      } catch {
+        /* لا شيء */
+      }
+    }, timeoutMs);
     try {
       let res: FatooraFetchResponse;
       try {
-        const p = Promise.resolve().then(() => f(url, { ...init, signal: controller.signal }));
-        swallow(p);
-        const r = await Promise.race([p, deadline]);
+        const r = await deadline.race(Promise.resolve().then(() => f(url, { ...init, signal: controller.signal })));
         if (r === TIMEOUT) return { kind: 'no-response', failure: 'timeout', errorText: 'Timeout' };
         res = r;
       } catch (e) {
-        if (timedOut) return { kind: 'no-response', failure: 'timeout', errorText: 'Timeout' };
+        if (deadline.expired) return { kind: 'no-response', failure: 'timeout', errorText: 'Timeout' };
         return { kind: 'no-response', failure: 'network', errorText: describeError(e) };
       }
       const status = res && typeof res === 'object' ? res.status : undefined;
@@ -571,7 +646,7 @@ export class FatooraClient {
         bytes: body.kind === 'too-large' ? body.bytes : body.bytes.byteLength,
       };
     } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
     }
   }
 

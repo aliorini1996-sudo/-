@@ -6,6 +6,8 @@
 // • التصعيد (empty400 ثم REJECTED، 413 ثم CONFIG) يُحسب بعدد الردود السابقة من النوع نفسه لا برقم المحاولة الكلّي:
 //   مستند تجاوز انقطاعاً (5xx/مهلة/شبكة) يستحقّ إعادة إرسال كاملة عند أول 400 فارغ [S27].
 // • سقف الجسم لكل مسار وحالة، وفحص خطّي لشكل JSON قبل JSON.parse (المتزامن الذي لا تقطعه المهلة).
+// • 200/202 لا يُقبل بالحالة وحدها: يلزم دليل إيجابي من الجسم (REPORTED/CLEARED أو validationResults.status PASS/WARNING)،
+//   وإلا CONFIG unconfirmed-2xx — بوابة وسيطة تردّ 200 {} لا تُغلق مستنداً لم يُبلَّغ عنه (confirmed2xx).
 // • design §3 Z3 «Classification» + report_apis-onboarding §3.4 (أشكال الأخطاء) و§5 (مصفوفة الحالات) و§6.
 // • تسامح مقصود [D9405]: الهيئة تغيّر أشكال الردود بلا سجلّ تغييرات — errorMessages/erroMessages،
 //   errors نصوص أو كائنات، error مفرداً، الشكل المسطّح لفحص CSR، {errorCode,errorCategory,errorMessage}،
@@ -51,7 +53,7 @@ export type RetryReason = 'rate' | 'server' | 'timeout' | 'network' | 'empty400'
 
 /** design §3 Z3 — نتيجة مسارات المستندات (compliance/invoices، reporting، clearance). */
 export type Outcome =
-  | { kind: 'ACCEPTED'; warnings: Msg[]; clearedXmlB64?: string }        // 200 / 202
+  | { kind: 'ACCEPTED'; warnings: Msg[]; clearedXmlB64?: string }        // 200 / 202 بدليل إيجابي في الجسم
   | { kind: 'DUPLICATE'; clearedXmlB64?: string }                        // 409 / 208
   | { kind: 'CLEARANCE_OFF' }                                            // 303 على clearance
   | { kind: 'REJECTED'; errors: Msg[]; warnings: Msg[] }                 // 400 برسائل
@@ -568,6 +570,33 @@ function contradiction2xx(endpoint: InvoiceEndpoint, inv: InvoiceResponse, error
   return null;
 }
 
+const VALIDATION_OK: ReadonlySet<string> = new Set(['PASS', 'WARNING']);
+
+/**
+ * دليل إيجابي على القبول في جسم 200/202 (report_libraries §9: لا تعتمد على حالة HTTP وحدها). بلا هذا الدليل
+ * يصير 200 {} أو {"status":"OK"} من بوابة وسيطة «مقبولاً» فلا يُعاد الإبلاغ عن مستند مبسّط ولا يُنبَّه المالك.
+ * يُستدعى بعد contradiction2xx (فلا حالة سلبية هنا). الأشكال الرسمية [SWG] تحمل الحقلين معاً (report §4.2/§4.5/§4.6):
+ * • reporting: reportingStatus = REPORTED، أو غيابه مع validationResults.status = PASS/WARNING، أو status القديم REPORTED (V1).
+ * • clearance: clearanceStatus = CLEARED، أو غيابه مع PASS/WARNING (والمستند المعتمد شرط مستقلّ قبله).
+ * • compliance-invoices: PASS/WARNING **و**(REPORTED أو CLEARED) — مستند مبسّط أو قياسي.
+ * حالة غير معروفة (PENDING مثلاً) ليست دليلاً.
+ */
+function confirmed2xx(endpoint: InvoiceEndpoint, inv: InvoiceResponse): boolean {
+  const validationOk = inv.validationStatus !== null && VALIDATION_OK.has(inv.validationStatus);
+  const reported = inv.reportingStatus === 'REPORTED';
+  const cleared = inv.clearanceStatus === 'CLEARED';
+  switch (endpoint) {
+    case 'reporting':
+      return reported || (inv.reportingStatus === null && (validationOk || inv.legacyStatus === 'REPORTED'));
+    case 'clearance':
+      return cleared || (inv.clearanceStatus === null && (validationOk || inv.legacyStatus === 'CLEARED'));
+    case 'compliance-invoices':
+      return validationOk && (reported || cleared);
+    default:
+      return false;
+  }
+}
+
 /** empty400Count = عدد ردود 400 الفارغة لهذه البايتات بما فيها هذا الرد. */
 function exhaustedEmpty400(empty400Count: number): Msg {
   return {
@@ -634,6 +663,8 @@ function classifyInvoiceUnsafe(endpoint: InvoiceEndpoint, status: number, parsed
     const c = contradiction2xx(endpoint, inv, errors);
     if (c) return config(`contradictory-2xx:${c}`);
     if (endpoint === 'clearance' && !cleared) return config('cleared-invoice-missing');
+    // ولا يكفي غياب التناقض: يلزم دليل إيجابي، وإلا CONFIG (يُنبَّه المالك ولا يُغلق المستند)
+    if (!confirmed2xx(endpoint, inv)) return config('unconfirmed-2xx');
     return cleared ? { kind: 'ACCEPTED', warnings, clearedXmlB64: cleared } : { kind: 'ACCEPTED', warnings };
   }
 

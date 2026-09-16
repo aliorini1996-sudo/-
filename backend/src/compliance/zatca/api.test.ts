@@ -5,11 +5,14 @@ import { NET_GUARD_MESSAGE, expectGuardHit, guardFetch, guardHits } from './__fi
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ApiLogEntry, CallOptions, Creds, DEFAULT_ONBOARDING_TIMEOUT_MS, DEFAULT_SUBMISSION_TIMEOUT_MS, FATOORA_BASE_URLS, FATOORA_ENDPOINT_SPECS,
+  ApiLogEntry, BODY_READ_LIMITS, CallOptions, Creds, DEFAULT_ONBOARDING_TIMEOUT_MS, DEFAULT_SUBMISSION_TIMEOUT_MS, FATOORA_BASE_URLS, FATOORA_ENDPOINT_SPECS,
   FatooraClient, FatooraClientOptions, FatooraFetch, FatooraFetchInit, FatooraFetchResponse, FatooraInputError, InvoiceBody, credsFromCsid, decodeCsid,
+  maxBodyReads,
 } from './api';
 import { CsidCertError } from './cert';
 import { performance } from 'perf_hooks';
+import v8 from 'v8';
+import vm from 'vm';
 import { EMPTY400_EXHAUSTED_CODE, MAX_ESCALATION_COUNT, Outcome, RESPONSE_LIMITS, SECRET_WINDOW_CHARS } from './responses';
 import { z3Body, z3Fixture } from './__fixtures__/z3-fixtures';
 
@@ -547,6 +550,197 @@ test('سقف حجم الجسم: Content-Length معلن، أو تدفّق يتج
   // 5) الافتراضي 8 MiB: رد عادي يمرّ
   const normal = makeClient(async () => fixtureResponse('clearance-200'));
   assert.equal((await normal.client.clear(CREDS, INVOICE)).kind, 'ACCEPTED');
+});
+
+// ─── جسم مقطّع لقطع كثيرة (بوابة معادية ضمن السقف) ───
+
+/** قارئ مزيَّف: next(i) يعيد القطعة رقم i أو null للنهاية؛ pace = كيف يُحلّ read() (فوراً بلا تنازل، أو بعد setImmediate كمقبس). */
+function chunkReader(next: (i: number) => Uint8Array | null, pace: 'instant' | 'immediate' = 'instant') {
+  const state = { reads: 0, cancelled: false };
+  const reader = {
+    read: () => {
+      const v = next(state.reads++);
+      const r = v === null ? { done: true } : { done: false, value: v };
+      return pace === 'instant' ? Promise.resolve(r) : new Promise<typeof r>(resolve => setImmediate(() => resolve(r)));
+    },
+    cancel: async () => {
+      state.cancelled = true;
+    },
+  };
+  const response = (status: number): FatooraFetchResponse => ({ status, body: { getReader: () => reader } });
+  return { response, state };
+}
+
+/** جسم reporting-200 صالح محشوّ حتى size بايت بالضبط. */
+function paddedReporting200(size: number): Uint8Array {
+  const base = z3Body<Record<string, unknown>>('reporting-200');
+  const skeleton = JSON.stringify({ ...base, pad: '' });
+  const bytes = new TextEncoder().encode(JSON.stringify({ ...base, pad: 'x'.repeat(size - skeleton.length) }));
+  assert.equal(bytes.length, size);
+  return bytes;
+}
+
+/** gc() قسري عبر علم V8 وقت التشغيل (بلا --expose-gc في npm test). */
+function forcedGc(): () => void {
+  v8.setFlagsFromString('--expose-gc');
+  const gc: unknown = vm.runInNewContext('gc');
+  assert.equal(typeof gc, 'function', 'gc القسري متاح');
+  return gc as () => void;
+}
+
+test('قطع كثيرة صغيرة ضمن السقف: كل قطعة تُنسخ فور وصولها ولا يُحتفظ بها ولا بردود فعل المهلة — الذاكرة المحتجزة لا تنمو مع عدد القطع', async () => {
+  // 1) مصدر يعيد استعمال ذاكرة القطعة نفسها: النسخ الفوري يُبقي الجسم سليماً (الاحتفاظ بالقطع كان يُفسده)
+  const raw = new TextEncoder().encode(z3Fixture('reporting-200').raw);
+  const shared = new Uint8Array(7);
+  const reuse = chunkReader(i => {
+    const start = i * shared.length;
+    if (start >= raw.length) return null;
+    const part = raw.subarray(start, start + shared.length);
+    shared.set(part);
+    return shared.subarray(0, part.length);
+  });
+  const a = makeClient(async () => reuse.response(200));
+  assert.deepEqual(await a.client.report(CREDS, INVOICE), { kind: 'ACCEPTED', warnings: [] });
+  assert.equal(a.logs[0].responseBytes, raw.length);
+
+  // 2) 100000 قطعة من بايت واحد تُحلّ دون تنازل: الذاكرة المحتجزة (بعد gc قسري) بين القطعة 1000 والأخيرة لا تنمو
+  //    (قبل الإصلاح: ≈ 55 MiB — كائن لكل قطعة وردّ فعل لكل قراءة على وعد المهلة؛ ومليون قطعة ⇒ نفاد الذاكرة)
+  const gc = forcedGc();
+  const body = paddedReporting200(100000);
+  let heapAt1000 = 0;
+  let heapAtEnd = 0;
+  const many = chunkReader(i => {
+    if (i === 1000) {
+      gc();
+      heapAt1000 = process.memoryUsage().heapUsed;
+    }
+    if (i === body.length - 1) {
+      gc();
+      heapAtEnd = process.memoryUsage().heapUsed;
+    }
+    return i < body.length ? body.subarray(i, i + 1).slice() : null;
+  });
+  const b = makeClient(async () => many.response(200), { submissionTimeoutMs: 120000 });
+  assert.deepEqual(await b.client.report(CREDS, INVOICE), { kind: 'ACCEPTED', warnings: [] });
+  assert.equal(many.state.reads, body.length + 1);
+  const grownMiB = (heapAtEnd - heapAt1000) / 1048576;
+  assert.ok(heapAt1000 > 0 && heapAtEnd > 0);
+  assert.ok(grownMiB < 16, `الذاكرة المحتجزة نمت ${grownMiB.toFixed(1)} MiB لـ${body.length} قطعة`);
+});
+
+test('المهلة تعمل ولو حُلّت القراءات دون تنازل لحلقة الأحداث: القراءة تتنازل دورياً فيعمل المؤقّت ويُلغى الجسم', async () => {
+  // قبل الإصلاح: القراءات الفورية لا تترك المؤقّت يعمل فتُقرأ الـ100000 كلها وتُقبل رغم مهلة 1 ms
+  const body = paddedReporting200(100000);
+  const instant = chunkReader(i => (i < body.length ? body.subarray(i, i + 1).slice() : null));
+  const a = makeClient(async () => instant.response(200), { submissionTimeoutMs: 1 });
+  assert.deepEqual(await a.client.report(CREDS, INVOICE), { kind: 'RETRY', reason: 'timeout' });
+  assert.ok(instant.state.reads < body.length / 4, `قُرئت ${instant.state.reads} قطعة`);
+  assert.equal(instant.state.cancelled, true);
+  assert.deepEqual([a.logs[0].httpStatus, a.logs[0].errorText], [200, 'Timeout']);
+
+  // تدفّق WHATWG يُملأ متزامناً ببايت واحد بلا نهاية داخل Response حقيقي: يعود سريعاً، وحلقة الأحداث لم تُحجب
+  let ticked = false;
+  const tick = setTimeout(() => {
+    ticked = true;
+  }, 1);
+  const endless = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(new Uint8Array([0x20]));
+    },
+  });
+  const b = makeClient(async () => new Response(endless, { status: 200 }), { submissionTimeoutMs: 50 });
+  const t0 = performance.now();
+  const out = await b.client.report(CREDS, INVOICE);
+  clearTimeout(tick);
+  assert.equal(out.kind, 'RETRY');
+  assert.ok(out.kind === 'RETRY' && (out.reason === 'timeout' || out.reason === 'network'), JSON.stringify(out));
+  assert.ok(performance.now() - t0 < 5000, `استغرق ${Math.round(performance.now() - t0)} ms`);
+  assert.equal(ticked, true, 'مؤقّت آخر عمل أثناء القراءة');
+});
+
+test('عدد القطع محدود بالسقف (maxBodyReads): تجاوزه ⇒ RETRY network (TooManyChunks) مع إلغاء الجسم، والحدّ نفسه يمرّ', async () => {
+  // 1) 400 على الإبلاغ (سقف 1 MiB ⇒ 16384 قراءة): 20000 بايت، قطعة لكل setImmediate كمقبس
+  //    قبل الإصلاح: تُقرأ كلها ثم CONFIG unparseable-body (وبمليون قطعة: مئات الميغابايت ونفاد الذاكرة)
+  const trickle = chunkReader(i => (i < 20000 ? new Uint8Array([0x78]) : null), 'immediate');
+  const a = makeClient(async () => trickle.response(400));
+  assert.deepEqual(await a.client.report(CREDS, INVOICE), { kind: 'RETRY', reason: 'network' });
+  assert.ok(trickle.state.reads <= 16385, `قُرئت ${trickle.state.reads} قطعة`);
+  assert.equal(trickle.state.cancelled, true);
+  assert.deepEqual([a.logs[0].httpStatus, a.logs[0].errorText, a.logs[0].reason], [400, 'TooManyChunks', 'network']);
+
+  // 2) الحدّ بالضبط: سقف 262144 ⇒ 4096 قراءة؛ جسم 4096 بايت ببايت لكل قطعة يُقبل، و4097 ⇒ TooManyChunks
+  const exact = paddedReporting200(4096);
+  const ok = chunkReader(i => (i < exact.length ? exact.subarray(i, i + 1).slice() : null));
+  const b = makeClient(async () => ok.response(200), { maxResponseBytes: 262144 });
+  assert.deepEqual(await b.client.report(CREDS, INVOICE), { kind: 'ACCEPTED', warnings: [] });
+  const over = paddedReporting200(4097);
+  const tooMany = chunkReader(i => (i < over.length ? over.subarray(i, i + 1).slice() : null));
+  const c = makeClient(async () => tooMany.response(200), { maxResponseBytes: 262144 });
+  assert.deepEqual(await c.client.report(CREDS, INVOICE), { kind: 'RETRY', reason: 'network' });
+  assert.equal(c.logs[0].errorText, 'TooManyChunks');
+  assert.equal(tooMany.state.cancelled, true);
+
+  // 3) قطع فارغة وبايت بالتناوب بلا نهاية: الفارغة تُعدّ في الحدّ (لا تُفلت منه لأنها غير متتالية)
+  const alternating = chunkReader(i => new Uint8Array(i % 2));
+  const d = makeClient(async () => alternating.response(200), { maxResponseBytes: 65536 });
+  assert.deepEqual(await d.client.clear(CREDS, INVOICE), { kind: 'RETRY', reason: 'network' });
+  assert.equal(d.logs[0].errorText, 'TooManyChunks');
+
+  // 4) الحالات المستقلّة عن الجسم تُصنَّف بالحالة، ورد حقيقي بقطع 1 KiB يمرّ
+  const e = makeClient(async () => chunkReader(() => new Uint8Array([0x78])).response(503));
+  assert.deepEqual(await e.client.report(CREDS, INVOICE), { kind: 'RETRY', reason: 'server' });
+  const clearance = new TextEncoder().encode(JSON.stringify({ ...z3Body('clearance-200'), clearedInvoice: Buffer.from(`<Invoice>${'a'.repeat(3 * 1024 * 1024)}</Invoice>`).toString('base64') }));
+  const kib = chunkReader(i => (i * 1024 < clearance.length ? clearance.subarray(i * 1024, (i + 1) * 1024) : null));
+  const f = makeClient(async () => kib.response(200));
+  assert.equal((await f.client.clear(CREDS, INVOICE)).kind, 'ACCEPTED');
+
+  // الحدود المعلنة
+  assert.deepEqual([maxBodyReads(RESPONSE_LIMITS.maxBodyBytes), maxBodyReads(RESPONSE_LIMITS.maxRejectionBodyBytes), maxBodyReads(RESPONSE_LIMITS.maxSmallBodyBytes), maxBodyReads(1024)], [131072, 16384, 4096, 4096]);
+  assert.equal(Object.isFrozen(BODY_READ_LIMITS), true);
+});
+
+test('القطع الفارغة: حتى 64 متتالية داخل جسم صالح مقبولة، وما زاد ⇒ RETRY network (EmptyChunks) فوراً بلا تعليق — قارئ مزيّف وتدفّق WHATWG', async () => {
+  // قبل الإصلاح: قطع فارغة تُحلّ دون تنازل تعلّق العملية كلها (لا مؤقّت يعمل) حتى نفاد الذاكرة
+  const raw = new TextEncoder().encode(z3Fixture('reporting-200').raw);
+  // كل 32 بايتاً تسبقها 64 قطعة فارغة متتالية
+  const padded = chunkReader(i => {
+    const k = Math.floor(i / 65);
+    if (k * 32 >= raw.length) return null;
+    return i % 65 === 64 ? raw.subarray(k * 32, (k + 1) * 32) : new Uint8Array(0);
+  });
+  const a = makeClient(async () => padded.response(200), { maxResponseBytes: 1024 * 1024 });
+  assert.deepEqual(await a.client.report(CREDS, INVOICE), { kind: 'ACCEPTED', warnings: [] });
+
+  const sources: Array<[string, () => FatooraFetchResponse]> = [
+    ['قارئ مزيّف', () => chunkReader(() => new Uint8Array(0)).response(200)],
+    ['تدفّق WHATWG', () => new Response(new ReadableStream<Uint8Array>({ pull(controller) { controller.enqueue(new Uint8Array(0)); } }), { status: 200 })],
+  ];
+  for (const [label, respond] of sources) {
+    const b = makeClient(async () => respond(), { submissionTimeoutMs: 60000 });
+    const t0 = performance.now();
+    assert.deepEqual(await b.client.report(CREDS, INVOICE), { kind: 'RETRY', reason: 'network' }, label);
+    assert.ok(performance.now() - t0 < 2000, `${label}: ${Math.round(performance.now() - t0)} ms`);
+    assert.equal(b.logs[0].errorText, 'EmptyChunks', label);
+  }
+  // 401 لا يحتاج الجسم: AUTH ولو كان الجسم قطعاً فارغة بلا نهاية
+  const c = makeClient(async () => chunkReader(() => new Uint8Array(0)).response(401));
+  assert.deepEqual(await c.client.report(CREDS, INVOICE), { kind: 'AUTH' });
+  assert.equal(BODY_READ_LIMITS.maxConsecutiveEmptyReads, 64);
+});
+
+test('2xx بلا دليل إيجابي من العميل: 200/202 {} أو {"status":"OK"} على الإبلاغ وفحص الامتثال ⇒ CONFIG unconfirmed-2xx مسجَّلاً، لا ACCEPTED', async () => {
+  for (const status of [200, 202]) {
+    for (const body of [{}, { status: 'OK' }, { foo: 1 }, { validationResults: {} }, { timestamp: 1, path: '/x' }]) {
+      const { client, logs } = makeClient(async () => jsonResponse(status, body));
+      const label = `${status} ${JSON.stringify(body)}`;
+      assert.deepEqual(await client.report(CREDS, INVOICE), { kind: 'CONFIG', detail: 'unconfirmed-2xx' }, `report ${label}`);
+      assert.deepEqual(await client.checkComplianceInvoice(CREDS, INVOICE), { kind: 'CONFIG', detail: 'unconfirmed-2xx' }, `compliance ${label}`);
+      assert.deepEqual(logs.map(l => [l.endpoint, l.httpStatus, l.outcome, l.reason]), [['reporting', status, 'CONFIG', 'unconfirmed-2xx'], ['compliance-invoices', status, 'CONFIG', 'unconfirmed-2xx']]);
+    }
+  }
+  // والأشكال الرسمية ما زالت مقبولة
+  const ok = makeClient(async () => fixtureResponse('reporting-202'));
+  assert.equal((await ok.client.report(CREDS, INVOICE)).kind, 'ACCEPTED');
 });
 
 test('ردود fetch غير صالحة ⇒ CONFIG invalid-fetch-response؛ ومسار arrayBuffer الاحتياطي يعمل', async () => {

@@ -21,7 +21,7 @@ const NONE = NO_PRIOR_ESCALATIONS;
 const counts = (priorEmpty400: number, priorPayload413 = 0): EscalationCounts => ({ priorEmpty400, priorPayload413 });
 const codes = (list: Msg[]) => list.map(m => m.code);
 /** كل قيم detail الممكنة — قائمة مغلقة، فلا يتسرّب إليها شيء من الجسم. */
-const SAFE_DETAIL = /^(version-not-accepted|payload-too-large|unexpected-status:[1-5][0-9]{2}|invalid-status|invalid-counts|unknown-endpoint|classifier-internal-error|body-too-large|cleared-invoice-(invalid|missing)|empty-body|unparseable-body|contradictory-2xx:(validation-error|error-messages|legacy-status|reporting-status|clearance-status)|csid-incomplete:(binarySecurityToken|secret|requestID))$/;
+const SAFE_DETAIL = /^(version-not-accepted|payload-too-large|unexpected-status:[1-5][0-9]{2}|invalid-status|invalid-counts|unknown-endpoint|classifier-internal-error|body-too-large|cleared-invoice-(invalid|missing)|empty-body|unparseable-body|unconfirmed-2xx|contradictory-2xx:(validation-error|error-messages|legacy-status|reporting-status|clearance-status)|csid-incomplete:(binarySecurityToken|secret|requestID))$/;
 
 /** كل نوافذ السرّ (16 محرفاً) بلا حساسية لحالة الأحرف — ما يُعدّ تسريباً في السجلّ. */
 function leaksSecretWindow(text: string, secret: string): boolean {
@@ -170,6 +170,59 @@ test('2xx لا يُقبل حين يناقضه الجسم أو يغيب المس�
   assert.equal(classifyInvoiceResponse('compliance-invoices', 200, JSON.stringify(std), NONE).kind, 'CONFIG');
   // V1 القديمة "Not Reported" مع 200
   assert.deepEqual(classifyInvoiceResponse('reporting', 200, JSON.stringify({ status: 'Not Reported', errors: [] }), NONE), { kind: 'CONFIG', detail: 'contradictory-2xx:legacy-status' });
+});
+
+test('2xx بلا دليل إيجابي (لا REPORTED/CLEARED ولا validationResults.status PASS/WARNING) ⇒ CONFIG unconfirmed-2xx لا ACCEPTED [report_libraries §9]', () => {
+  const unconfirmed = { kind: 'CONFIG', detail: 'unconfirmed-2xx' };
+  // أجسام بوابة وسيطة أو معطوبة: JSON سليم بلا أي حقل من حقول الهيئة — كانت ACCEPTED فيُغلق مستند لم يُبلَّغ عنه
+  const gateway: unknown[] = [
+    {}, { foo: 1 }, { validationResults: {} }, { status: 'OK' }, { status: 'SUCCESS' }, { timestamp: 1, path: '/x' },
+    { validationResults: { status: 'OK' } }, { validationResults: { status: null, errorMessages: [] }, reportingStatus: null, clearanceStatus: null },
+    { warningMessages: [{ type: 'WARNING', code: 'BR-KSA-98', message: 'late' }] },
+  ];
+  for (const s of [200, 202]) {
+    for (const body of gateway) {
+      for (const ep of ['reporting', 'compliance-invoices'] as const) {
+        assert.deepEqual(classifyInvoiceResponse(ep, s, JSON.stringify(body), NONE), unconfirmed, `${ep} ${s} ${JSON.stringify(body)}`);
+      }
+      // الاعتماد: مستند معتمد صالح وحده لا يكفي حين لا يؤكّده الجسم
+      assert.deepEqual(classifyInvoiceResponse('clearance', s, JSON.stringify({ ...(body as object), clearedInvoice: STUB_B64 }), NONE), unconfirmed, `clearance ${s} ${JSON.stringify(body)}`);
+    }
+  }
+
+  // نزع الدليل من كل مثبّت 2xx رسمي يقلبه إلى unconfirmed-2xx، وإبقاء أيّ منهما وحده يكفي حيث يكفي
+  for (const name of ['reporting-200', 'reporting-202', 'compliance-invoices-200', 'compliance-invoices-200-malformed', 'clearance-200', 'clearance-202']) {
+    const f = z3Fixture(name);
+    const ep = f.endpoint as InvoiceEndpoint;
+    const stripped = z3Body<Record<string, unknown> & { validationResults: Record<string, unknown> }>(name);
+    delete stripped.reportingStatus;
+    delete stripped.clearanceStatus;
+    delete stripped.validationResults.status;
+    assert.deepEqual(classifyInvoiceResponse(ep, f.httpStatus!, JSON.stringify(stripped), NONE), unconfirmed, name);
+    assert.equal(classifyInvoiceResponse(ep, f.httpStatus!, f.raw, NONE).kind, 'ACCEPTED', `${name} الأصلي`);
+  }
+
+  const vr = (status: string | null) => ({ validationResults: { infoMessages: [], warningMessages: [], errorMessages: [], status } });
+  const kind = (ep: InvoiceEndpoint, body: unknown, s = 200) => classifyInvoiceResponse(ep, s, JSON.stringify(body), NONE).kind;
+  // الإبلاغ: REPORTED، أو غيابه مع PASS/WARNING، أو V1 "Reported"؛ حالة غير معروفة ليست دليلاً
+  assert.equal(kind('reporting', { reportingStatus: 'REPORTED' }), 'ACCEPTED');
+  assert.equal(kind('reporting', vr('PASS')), 'ACCEPTED');
+  assert.equal(kind('reporting', { ...vr('WARNING'), reportingStatus: null }, 202), 'ACCEPTED');
+  assert.equal(kind('reporting', { status: 'Reported', warnings: [], errors: [] }), 'ACCEPTED');
+  assert.equal(kind('reporting', { ...vr('PASS'), reportingStatus: 'PENDING' }), 'CONFIG');
+  assert.equal(kind('reporting', { clearanceStatus: 'CLEARED' }), 'CONFIG', 'CLEARED ليس دليل إبلاغ');
+  // فحص الامتثال: PASS/WARNING و(REPORTED أو CLEARED) معاً
+  assert.equal(kind('compliance-invoices', vr('PASS')), 'CONFIG');
+  assert.equal(kind('compliance-invoices', { reportingStatus: 'REPORTED' }), 'CONFIG');
+  assert.equal(kind('compliance-invoices', { ...vr('WARNING'), reportingStatus: 'REPORTED' }, 202), 'ACCEPTED');
+  assert.equal(kind('compliance-invoices', { ...vr('PASS'), reportingStatus: null, clearanceStatus: 'CLEARED' }), 'ACCEPTED');
+  // الاعتماد: CLEARED، أو غيابه مع PASS/WARNING — مع المستند المعتمد دائماً
+  assert.equal(kind('clearance', { clearanceStatus: 'CLEARED', clearedInvoice: STUB_B64 }), 'ACCEPTED');
+  assert.equal(kind('clearance', { ...vr('PASS'), clearedInvoice: STUB_B64 }), 'ACCEPTED');
+  assert.equal(kind('clearance', { ...vr('PASS'), clearanceStatus: 'PENDING', clearedInvoice: STUB_B64 }), 'CONFIG');
+  assert.deepEqual(classifyInvoiceResponse('clearance', 200, JSON.stringify(vr('PASS')), NONE), { kind: 'CONFIG', detail: 'cleared-invoice-missing' });
+  // التكرار لم يتغيّر: 409/208 بالحالة وحدها
+  assert.deepEqual(classifyInvoiceResponse('reporting', 409, '{}', NONE), { kind: 'DUPLICATE' });
 });
 
 test('صفّ 409 على الإبلاغ ⇒ DUPLICATE [D3932]، وصفّ 208 على الاعتماد ⇒ DUPLICATE مع المستند المعتمد', () => {
@@ -666,7 +719,7 @@ test('fuzz: 3000 رد عشوائي على كل مسار وحالة وعدّاد�
   let seed = 20260916;
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000);
   const pickOne = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)];
-  const atoms: unknown[] = [null, true, 0, -2, 1e308, '', 'ISSUED', 'NOT_COMPLIANT', 'CLEARED', 'NOT_REPORTED', STUB_B64, 'TUlJ', '\u0000', 'م', [], {}];
+  const atoms: unknown[] = [null, true, 0, -2, 1e308, '', 'ISSUED', 'NOT_COMPLIANT', 'CLEARED', 'NOT_REPORTED', 'REPORTED', 'PASS', 'WARNING', 'OK', STUB_B64, 'TUlJ', '\u0000', 'م', [], {}];
   const keys = ['validationResults', 'errorMessages', 'erroMessages', 'warningMessages', 'infoMessages', 'errors', 'error', 'warnings', 'message', 'code',
     'category', 'type', 'status', 'errorCode', 'errorCategory', 'errorMessage', 'reportingStatus', 'clearanceStatus', 'clearedInvoice', 'requestID',
     'dispositionMessage', 'binarySecurityToken', 'secret', 'tokenType', 'qrSellertStatus', '__proto__'];
@@ -681,18 +734,37 @@ test('fuzz: 3000 رد عشوائي على كل مسار وحالة وعدّاد�
   const statuses = [200, 202, 208, 303, 400, 401, 406, 409, 413, 428, 429, 500, 502, 503, 504, 418, 0];
   const invoiceKinds = new Set(['ACCEPTED', 'DUPLICATE', 'CLEARANCE_OFF', 'REJECTED', 'RETRY', 'AUTH', 'CONFIG']);
   const csidKinds = new Set(['ISSUED', 'NOT_COMPLIANT', 'REJECTED', 'RETRY', 'AUTH', 'CONFIG']);
+  let accepted = 0;
+  // بعض الأجسام مثبّتات 2xx رسمية بمفاتيح مُبدَّلة عشوائياً، كي يُبلَغ فرع القبول وتُختبر شروطه
+  const official2xx = ['reporting-200', 'reporting-202', 'compliance-invoices-200', 'clearance-200', 'clearance-202'];
+  const mutated = (): unknown => {
+    const o = z3Body<Record<string, unknown>>(pickOne(official2xx));
+    for (let k = Math.floor(rnd() * 3); k > 0; k--) o[pickOne(keys)] = gen(1);
+    return o;
+  };
   for (let i = 0; i < 3000; i++) {
-    const v = gen(0);
+    const v = rnd() < 0.2 ? mutated() : gen(0);
     const body = rnd() < 0.5 ? JSON.stringify(v) ?? 'undefined' : rnd() < 0.5 ? v : `${JSON.stringify(v)}`.slice(0, Math.floor(rnd() * 20));
     const status = pickOne(statuses);
     const c = counts(pickOne([0, 1, 2, 3, 4]), pickOne([0, 1, 2]));
-    const a = classifyInvoiceResponse(pickOne(INVOICE_EPS), status, body, c);
+    const ep = pickOne(INVOICE_EPS);
+    const a = classifyInvoiceResponse(ep, status, body, c);
     const b = classifyCsidResponse(pickOne(CSID_EPS), status, body, c);
     assert.ok(invoiceKinds.has(a.kind), a.kind);
     assert.ok(csidKinds.has(b.kind), b.kind);
     for (const o of [a, b]) if (o.kind === 'CONFIG') assert.match(o.detail, SAFE_DETAIL);
     if (a.kind === 'ACCEPTED' || a.kind === 'DUPLICATE') assert.ok(a.clearedXmlB64 === undefined || looksLikeBase64Xml(a.clearedXmlB64));
+    if (a.kind === 'ACCEPTED') {
+      // لا قبول بلا دليل إيجابي من الجسم
+      const p = parseResponseBody(body);
+      const inv = p.kind === 'json' ? parseInvoiceResponse(p.value) : null;
+      assert.ok(inv !== null, `${ep} ${status}`);
+      const evidence = [inv.reportingStatus, inv.clearanceStatus, inv.validationStatus, inv.legacyStatus];
+      assert.ok(evidence.some(x => x === 'REPORTED' || x === 'CLEARED' || x === 'PASS' || x === 'WARNING'), `${ep} ${status} ${JSON.stringify(evidence)}`);
+      accepted++;
+    }
   }
+  assert.ok(accepted > 0, 'المولّد يبلغ فرع القبول');
 });
 
 test('looksLikeBase64Xml: base64 قانوني لمستند يبدأ بـ«<» (مع BOM وفراغات) فقط', () => {
