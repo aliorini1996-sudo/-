@@ -37,6 +37,14 @@ export function sha256Hex(data: string | Buffer): string {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
+/**
+ * (Z2) base64 لنصّ hex الخاص بـ SHA-256 — «الترميز المزدوج» الذي تستعمله الهيئة لـ CertDigest (C-S4)
+ * وSignedProperties (C-S7) وINITIAL_PIH. ليس base64 للبايتات الخام (ذاك sha256Base64 لتجزئة الفاتورة).
+ */
+export function sha256HexB64(data: string | Buffer): string {
+  return Buffer.from(sha256Hex(data), 'utf8').toString('base64');
+}
+
 /** UUID للفاتورة (حقل cbc:UUID في UBL 2.1). */
 export function newInvoiceUuid(): string {
   return crypto.randomUUID();

@@ -10,6 +10,7 @@
 
 import { Dec, decFromString, divRoundHalfUp, isAmountString, parseAmount, pow10 } from './decimal';
 import { UblDocument, VAT_CATEGORIES, ZatcaIssue } from './model';
+import { QR_MAX_BASE64_LENGTH, maxSellerNameBytes, qrWorstCaseBase64Length } from './qrBudget';
 import { isIsoDate, isIsoTime } from './time';
 import { buyerIssues, charLength, sanitizeText, sellerIssues, TEXT_MAX_CHARS, VATEX_CATEGORY } from './validators';
 
@@ -65,8 +66,9 @@ function pctEquals(p: Dec, n: bigint): boolean {
 /**
  * يعيد كل مخالفات المستند. kind يأتي من النوع الفرعي المجمَّد (01 ⇒ standard).
  * لا يرمي أبداً — المستند قد يكون ناقصاً أو مشوّهاً وهذا بالضبط ما يُبلَّغ عنه.
+ * opts.qrMaxLength: سقف طول QR نفسه الذي يمرَّر للختم (UNVERIFIED(U1)) — فما يمرّ هنا لا يفشل هناك بسبب الطول.
  */
-export function preflightIssues(doc: UblDocument, kind: 'standard' | 'simplified'): ZatcaIssue[] {
+export function preflightIssues(doc: UblDocument, kind: 'standard' | 'simplified', opts: { qrMaxLength?: number } = {}): ZatcaIssue[] {
   const out: ZatcaIssue[] = [];
   const isNote = doc.typeCode === '381' || doc.typeCode === '383';
   textIssues(doc, '', out);
@@ -93,6 +95,9 @@ export function preflightIssues(doc: UblDocument, kind: 'standard' | 'simplified
 
   // ═══ الإشعارات الدائنة والمدينة ═══
   if (isNote) {
+    (doc.billingReferences ?? []).forEach((r, i) => {
+      if (blank(r)) out.push(err('BR-KSA-56', `billingReferences[${i}]`, 'مرجع فاتورة أصلية فارغ — احذفه أو أدخل رقم الفاتورة'));
+    });
     const refs = (doc.billingReferences ?? []).filter(r => !blank(r));
     if (!refs.length) out.push(err('BR-KSA-56', 'billingReferences', 'رقم الفاتورة الأصلية مفقود — الإشعار يجب أن يُربط بفاتورته'));
     else if (refs.join(',').length > 5000) out.push(err('BR-KSA-56', 'billingReferences', 'مراجع الفواتير الأصلية أطول من 5000 حرف'));
@@ -113,6 +118,7 @@ export function preflightIssues(doc: UblDocument, kind: 'standard' | 'simplified
 
   // ═══ الأطراف ═══
   out.push(...sellerIssues(doc.supplier));
+  qrLengthIssues(doc, kind, opts.qrMaxLength ?? QR_MAX_BASE64_LENGTH, out);
   out.push(...buyerIssues(kind, doc.customer));
 
   // ═══ البنود ═══
@@ -293,6 +299,27 @@ export function preflightIssues(doc: UblDocument, kind: 'standard' | 'simplified
 }
 
 /** هل في القائمة ما يمنع الإصدار؟ */
+/**
+ * ميزانية طول QR (C-Q4): اسم البائع بين ~163 و255 بايت كان يمرّ هنا (تحذير فقط) ثم يفشل الختم داخل معاملة
+ * الإصدار بخطأ غير مصنَّف — وللمبسّطة وحدها (الوسم 9). نحسب أسوأ طول ممكن بالمبالغ الفعلية ونمنع مسبقاً.
+ * الاسم فوق 255 بايت تبلّغه sellerIssues، فلا تكرار هنا.
+ */
+function qrLengthIssues(doc: UblDocument, kind: 'standard' | 'simplified', qrMaxLength: number, out: ZatcaIssue[]): void {
+  const name = doc.supplier?.registrationName;
+  if (blank(name) || Buffer.byteLength(name!, 'utf8') > 255) return;
+  if (!Number.isSafeInteger(qrMaxLength) || qrMaxLength < 1) {
+    out.push(err('QR-LENGTH', 'supplier.registrationName', `سقف طول رمز QR غير صالح في الإعداد (${String(qrMaxLength)})`));
+    return;
+  }
+  const t = doc.totals ?? ({} as UblDocument['totals']);
+  const amounts = { totalWithVat: typeof t.payable === 'string' ? t.payable : '', vatTotal: typeof t.taxTotal === 'string' ? t.taxTotal : '', simplified: kind === 'simplified' };
+  const worst = qrWorstCaseBase64Length({ ...amounts, sellerName: name! });
+  if (worst <= qrMaxLength) return;
+  const maxBytes = maxSellerNameBytes(amounts, qrMaxLength);
+  out.push(err('QR-LENGTH', 'supplier.registrationName',
+    `الاسم القانوني للمنشأة طويل على رمز QR لهذا المستند (${Buffer.byteLength(name!, 'utf8')} بايت؛ المتاح ${Math.max(0, maxBytes)} بايت ${kind === 'simplified' ? 'للفاتورة المبسّطة' : 'للفاتورة الضريبية'}) — اختصر الاسم في إعدادات الفوترة الإلكترونية`));
+}
+
 export function hasBlockingIssues(issues: ZatcaIssue[]): boolean {
   return issues.some(i => i.severity === 'error');
 }
