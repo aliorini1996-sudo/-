@@ -96,15 +96,46 @@ jobs:
               # التنبيه عند ٨٠٪: يترك مهلة للترقية قبل أن يشعر عميل بشيء
               [ "$pct" -ge 80 ] && note "ذاكرة قاعدة البيانات ${pct}% من ٢٥٦ ميغابايت — رقِّ الخطة قبل أن تمتلئ"
               [ "${con:-0}" -ge 70 ] && note "اتصالات القاعدة ${con} من ١٠٠ — راجع حوض Prisma"
-              # ادفع القياس للوحة المالك (فشل الدفع لا يُسقط النبضة)
-              if [ -n "$OPS_TOKEN" ]; then
-                curl -s -o /dev/null --max-time 20 -X POST \
-                  -H "x-ops-token: $OPS_TOKEN" -H 'Content-Type: application/json' \
-                  -d "{\"memoryBytes\":$mem,\"memoryLimitBytes\":$DB_MEM_LIMIT,\"connections\":${con:-0},\"connectionLimit\":$DB_CONN_LIMIT}" \
-                  https://dsd-backend.onrender.com/api/analytics/infra-metrics || true
-              fi
             else
               note "تعذّر قياس ذاكرة قاعدة البيانات من Render"
+            fi
+
+            # مساحة التخزين — كادت تُعلِّق القاعدة (١٦ سبتمبر) بلا تنبيه منّا: كنّا
+            # نقيس الذاكرة وحدها، والإنذار جاء من بريد Render.
+            #
+            # السعة تُقرأ من Render لا تُكتب هنا: الزيادة التلقائية تغيّرها بلا علمنا،
+            # ورقمٌ مكتوب كان سيجعل النسبة تتجاوز ١٠٠٪ بعد أول توسيع.
+            #
+            # والقسمة على 10^9 لا 2^30: Render يحسب الغيغابايت عشرياً. قِيس ٨٦٢ MiB
+            # فأرسل Render «أكثر من ٩٠٪» — ÷10^9 = ٩٠٫٤٪ و÷2^30 = ٨٤٪ فقط.
+            dbj=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/postgres/$DB_ID")
+            disk_gb=$(echo "$dbj" | grep -oE '"diskSizeGB":[0-9]+' | head -1 | cut -d: -f2)
+            disk_auto=$(echo "$dbj" | grep -oE '"diskAutoscalingEnabled":(true|false)' | head -1 | cut -d: -f2)
+            disk=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/metrics/disk-usage?resource=$DB_ID&resolutionSeconds=3600" \
+              | grep -oE '"value":[0-9.]+' | tail -1 | cut -d: -f2)
+            disk_limit=0
+            if [ -n "$disk" ] && [ -n "$disk_gb" ]; then
+              disk_limit=$((disk_gb * 1000000000))
+              dpct=$(awk -v u="$disk" -v l="$disk_limit" 'BEGIN{printf "%.0f", (u/l)*100}')
+              echo "مساحة القاعدة: ${dpct}% من ${disk_gb} GB · التوسيع التلقائي: ${disk_auto:-؟}"
+              # ٨٥٪ لا ٩٠٪: Render يوسّع عند ٩٠٪ ولا يوسّع أكثر من مرّة كل ٦ ساعات،
+              # فنموٌّ سريع بعد توسيعٍ حديث قد يبلغ الامتلاء قبل أن يُسمح بالتالي.
+              [ "$dpct" -ge 85 ] && note "مساحة قاعدة البيانات ${dpct}% من ${disk_gb} GB — تحقّق أن التوسيع التلقائي يعمل"
+            else
+              note "تعذّر قياس مساحة قاعدة البيانات من Render"
+            fi
+            # الزيادة التلقائية هي ما يمنع تعليق القاعدة عند الامتلاء — إطفاؤها
+            # (يدوياً أو بمزامنة render.yaml) يستحقّ تنبيهاً حتى لو كانت المساحة فارغة
+            [ "$disk_auto" = "false" ] && note "التوسيع التلقائي لمساحة قاعدة البيانات مطفأ — القاعدة ستُعلَّق عند امتلائها"
+
+            # ادفع القياس للوحة المالك ما دام قيس شيءٌ منه (فشل الدفع لا يُسقط النبضة)
+            if [ -n "$OPS_TOKEN" ] && { [ -n "$mem" ] || [ -n "$disk" ]; }; then
+              curl -s -o /dev/null --max-time 20 -X POST \
+                -H "x-ops-token: $OPS_TOKEN" -H 'Content-Type: application/json' \
+                -d "{\"memoryBytes\":${mem:-0},\"memoryLimitBytes\":$DB_MEM_LIMIT,\"connections\":${con:-0},\"connectionLimit\":$DB_CONN_LIMIT,\"diskBytes\":${disk:-0},\"diskLimitBytes\":$disk_limit,\"diskAutoscaling\":${disk_auto:-null}}" \
+                https://dsd-backend.onrender.com/api/analytics/infra-metrics || true
             fi
           fi
 

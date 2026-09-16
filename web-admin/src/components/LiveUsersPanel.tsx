@@ -14,6 +14,9 @@ interface Company { tenantId: string; name: string; reps: number; admins: number
 interface Infra {
   memoryBytes: number; memoryLimitBytes: number; memoryPct: number;
   connections: number; connectionLimit: number; connectionsPct: number;
+  /** المساحة — `diskPct` فارغ حين لم تُرسل النبضة سعة التخزين */
+  diskBytes: number; diskLimitBytes: number; diskPct: number | null;
+  diskAutoscaling: boolean | null;
   /** عمر القياس بالدقائق — النبضة تصل كل ساعتين تقريباً لا كل ١٠ دقائق */
   ageMinutes: number;
   at: string;
@@ -45,27 +48,66 @@ interface Live {
  *
  * والفراغ حين لا قياس حديث مقصود: رقمٌ بائتٌ يُطمئن زوراً، فالصمت أصدق.
  */
+const TONE = {
+  ok: { c: '#1E7A52', bg: '#F0FDF4', b: '#BBF7D0', rank: 0 },
+  warn: { c: '#B54708', bg: '#FFFAEB', b: '#FEDF89', rank: 1 },
+  bad: { c: '#B42318', bg: '#FEF3F2', b: '#FECDCA', rank: 2 },
+};
+
+/** سطر واحد في البطاقة: اسم المورد ونسبته وشريطه بلونه */
+function GaugeRow({ label, pct, tone, note }: { label: string; pct: number; tone: typeof TONE.ok; note?: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-[#6E6557] w-11 shrink-0">{label}</span>
+      <div className="w-16 h-1.5 rounded-full bg-white/70 overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, background: tone.c }} />
+      </div>
+      <span className="text-xs font-bold tabular-nums" style={{ color: tone.c }}>{pct}%</span>
+      {note && <span className="text-[10px] font-bold" style={{ color: tone.c }}>{note}</span>}
+    </div>
+  );
+}
+
 function DbGauge({ infra }: { infra?: Infra | null }) {
   if (!infra) return null;
-  const pct = infra.memoryPct;
-  // العتبات من قياس حيّ: ٦٧٪ هي الحالة الطبيعية اليوم، والترقية تُقرَّر عند ٨٠٪
-  const tone = pct >= 80 ? { c: '#B42318', bg: '#FEF3F2', b: '#FECDCA' }
-    : pct >= 70 ? { c: '#B54708', bg: '#FFFAEB', b: '#FEDF89' }
-    : { c: '#1E7A52', bg: '#F0FDF4', b: '#BBF7D0' };
+  const mem = infra.memoryPct;
+  // عتبات الذاكرة من قياس حيّ: ٦٧٪ حالة طبيعية، والترقية تُقرَّر عند ٨٠٪
+  const memTone = mem >= 80 ? TONE.bad : mem >= 70 ? TONE.warn : TONE.ok;
+
+  // عتبات المساحة: Render يوسّعها تلقائياً عند ٩٠٪ ولا يسمح بأكثر من توسيع كل
+  // ٦ ساعات — فالأحمر عند ٨٥٪ يسبق ذلك بمهلة، والبرتقالي عند ٧٠٪ للمتابعة.
+  // وإن كانت الزيادة التلقائية **مطفأة** فالمساحة وحدها تحمي النظام من التعليق،
+  // فيُقدَّم البرتقالي إلى ٦٠٪.
+  const disk = infra.diskPct;
+  const noAuto = infra.diskAutoscaling === false;
+  const diskTone = disk === null ? TONE.ok
+    : disk >= 85 ? TONE.bad
+    : disk >= (noAuto ? 60 : 70) ? TONE.warn
+    : TONE.ok;
+
+  // حدود البطاقة بلون أسوأ المؤشّرين: خطرٌ في أحدهما لا يخفيه سلامة الآخر
+  const tone = diskTone.rank > memTone.rank ? diskTone : memTone;
+  const gb = (b: number) => (b / 1e9).toLocaleString('en-US', { maximumFractionDigits: 1 });
+
   return (
     <div className="rounded-xl px-3 py-2 border flex items-center gap-2.5"
       style={{ background: tone.bg, borderColor: tone.b }}
-      title={`ذاكرة قاعدة البيانات ${pct}% · الاتصالات ${infra.connections} من ${infra.connectionLimit} · آخر قياس ${fmtAge(infra.ageMinutes)}`}>
+      title={[
+        disk !== null ? `مساحة القاعدة ${gb(infra.diskBytes)} من ${gb(infra.diskLimitBytes)} GB (${disk}%)` : '',
+        infra.diskAutoscaling === true ? 'التوسيع التلقائي مفعّل عند ٩٠٪' : noAuto ? 'التوسيع التلقائي مطفأ' : '',
+        `ذاكرة القاعدة ${mem}%`,
+        `الاتصالات ${infra.connections} من ${infra.connectionLimit}`,
+        `آخر قياس ${fmtAge(infra.ageMinutes)}`,
+      ].filter(Boolean).join(' · ')}>
       <Database size={15} style={{ color: tone.c }} />
-      <div className="leading-tight">
+      <div className="leading-tight space-y-1">
         {/* العمر ظاهرٌ لا مخفيّ: القياس يصل كل ساعتين، فرقمٌ بلا عمره يُقرأ لحظيّاً */}
-        <p className="text-[10px] text-[#6E6557]">ذاكرة القاعدة · {fmtAge(infra.ageMinutes)}</p>
-        <p className="text-sm font-bold" style={{ color: tone.c }}>
-          {pct}%{pct >= 80 && ' — رقِّ الخطة'}
-        </p>
-      </div>
-      <div className="w-16 h-1.5 rounded-full bg-white/70 overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, background: tone.c }} />
+        <p className="text-[10px] text-[#6E6557]">قاعدة البيانات · {fmtAge(infra.ageMinutes)}</p>
+        {disk !== null && (
+          <GaugeRow label="المساحة" pct={disk} tone={diskTone}
+            note={disk >= 85 ? (noAuto ? 'كبّرها الآن' : 'تتوسّع عند ٩٠٪') : noAuto ? 'التوسيع مطفأ' : undefined} />
+        )}
+        <GaugeRow label="الذاكرة" pct={mem} tone={memTone} note={mem >= 80 ? 'رقِّ الخطة' : undefined} />
       </div>
     </div>
   );

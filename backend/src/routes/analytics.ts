@@ -221,6 +221,10 @@ router.post('/infra-metrics', (req: Request, res: Response) => {
     memoryLimitBytes: n(body.memoryLimitBytes),
     connections: n(body.connections),
     connectionLimit: n(body.connectionLimit) || 100,
+    // المساحة اختيارية: نبضة قديمة بلا هذه الحقول لا تُرفض، وتُعرض المساحة فراغاً
+    diskBytes: n(body.diskBytes),
+    diskLimitBytes: n(body.diskLimitBytes),
+    diskAutoscaling: typeof body.diskAutoscaling === 'boolean' ? body.diskAutoscaling : null,
   });
   res.json({ success: true });
 });

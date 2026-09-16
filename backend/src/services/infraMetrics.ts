@@ -22,6 +22,21 @@ export interface InfraSnapshot {
   connections: number;
   /** سقف اتصالات الخطّة */
   connectionLimit: number;
+  /**
+   * مساحة التخزين المستهلَكة بالبايت — ٠ حين لم تُرسلها النبضة.
+   *
+   * أُضيفت بعد أن كادت المساحة (١ GB) تُعلِّق القاعدة بلا أي تنبيه منّا: البطاقة
+   * كانت تقيس **الذاكرة** وحدها، والإنذار الذي أنقذ الموقف جاء من بريد Render.
+   */
+  diskBytes: number;
+  /**
+   * سعة التخزين بالبايت = `diskSizeGB × 10⁹` — **غيغابايت عشري لا ثنائي**.
+   * قِيس: ٨٦٢ MiB ÷ 2³⁰ = ٨٤٪، بينما Render أرسل «أكثر من ٩٠٪»، و٨٦٢ MiB ÷ 10⁹
+   * = ٩٠٫٤٪ بالضبط. القسمة الثنائية تُظهر الامتلاء أقلّ من حقيقته بنحو ٧٪.
+   */
+  diskLimitBytes: number;
+  /** هل الزيادة التلقائية للمساحة مفعّلة — هي ما يمنع التعليق عند الامتلاء */
+  diskAutoscaling: boolean | null;
   /** لحظة القياس (ISO) */
   at: string;
 }
@@ -49,7 +64,12 @@ export function setInfraSnapshot(s: Omit<InfraSnapshot, 'at'>): void {
  */
 const STALE_MS = 6 * 60 * 60 * 1000;
 
-export function getInfraSnapshot(): (InfraSnapshot & { memoryPct: number; connectionsPct: number; ageMinutes: number }) | null {
+export function getInfraSnapshot(): (InfraSnapshot & {
+  memoryPct: number; connectionsPct: number;
+  /** `null` حين لا سعة معروفة — يُعرض فراغاً لا صفراً مُطمئناً */
+  diskPct: number | null;
+  ageMinutes: number;
+}) | null {
   if (!snapshot) return null;
   const ageMs = Date.now() - new Date(snapshot.at).getTime();
   if (ageMs > STALE_MS) return null;
@@ -58,6 +78,7 @@ export function getInfraSnapshot(): (InfraSnapshot & { memoryPct: number; connec
     ...snapshot,
     memoryPct: pct(snapshot.memoryBytes, snapshot.memoryLimitBytes),
     connectionsPct: pct(snapshot.connections, snapshot.connectionLimit),
+    diskPct: snapshot.diskLimitBytes > 0 ? pct(snapshot.diskBytes, snapshot.diskLimitBytes) : null,
     ageMinutes: Math.max(0, Math.round(ageMs / 60000)),
   };
 }
