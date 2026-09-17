@@ -4,7 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { getCountryTax, OVERRIDE_CURRENCIES } from '../config/countries';
-import { ZATCA_ROUTE_CODES, companyZatcaFieldChanges } from './zatca';
+import { ZATCA_ROUTE_CODES, auditOwnerImpersonationWrite, companyZatcaFieldChanges } from './zatca';
 
 const router = Router();
 router.use(authenticate);
@@ -80,17 +80,17 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
       delete clean.countryCode; // لا نلمس إعداد الدولة إن لم يُرسَل
     }
     // ربط فوترة ZATCA المرحلة الثانية (علم المالك): الرقم الضريبي والسجل التجاري والدولة تغذّي شهادة الوحدة وبوابة /api/zatca —
-    // تغييرها لمدير الشركة وحده (دوره من القاعدة لا التوكن) خارج جلسة الانتحال وغير مقيّد النطاق (كبوابة /api/zatca)،
-    // وبصيغ PUT /api/zatca/seller ومعالجتها
+    // تغييرها لمدير الشركة وحده (دوره من القاعدة لا التوكن) غير مقيّد النطاق (كبوابة /api/zatca)، وبصيغ PUT /api/zatca/seller
+    // ومعالجتها. جلسة دخول مالك المنصة تعمل كحساب المدير الذي يمثّله توكنها (قرار المالك 17 سبتمبر 2026) بسطر تدقيق واحد
     {
       const flag = await prisma.tenant.findUnique({ where: { id: tid }, select: { zatcaPhase2Enabled: true } });
       if (flag?.zatcaPhase2Enabled === true) {
         const current = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { taxNumber: true, commercialReg: true, countryCode: true } });
         const z = companyZatcaFieldChanges(current, { taxNumber: data.taxNumber, commercialReg: data.commercialReg, countryCode: clean.countryCode as string | undefined });
         if (z.changed.length > 0) {
+          // أسماء الحقول المتغيّرة وحالة الردّ فقط — لا قيمها
           if (req.user?.impersonated === true) {
-            res.status(403).json({ success: false, code: 'SELLER_FIELDS_READ_ONLY', message: ZATCA_ROUTE_CODES.SELLER_FIELDS_READ_ONLY, fields: z.changed });
-            return;
+            auditOwnerImpersonationWrite(res, { tenantId: tid, actorAdminId: req.user.id, action: 'company.seller-fields', fields: z.changed });
           }
           const actor = await prisma.admin.findUnique({ where: { id: req.user!.id }, select: { role: true, tenantId: true, isActive: true, scopeEnabled: true } });
           if (actor?.role !== 'ADMIN' || actor.tenantId !== tid || actor.isActive !== true) {

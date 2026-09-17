@@ -9,9 +9,11 @@
 //   2) مدير الشركة (دور ADMIN) وحده — المشرف (MANAGER) والمحاسب (ACCOUNTANT) 403 COMPANY_ADMIN_ONLY ولو ملكا صلاحية
 //      الإعدادات (قرار المالك، design §5.1) — وبصلاحية canManageCompanySettings (تُنزع من المدير أيضاً) وغير مقيّد النطاق
 //      (كتكاملات الشركة: بترو آب وERP). الدور والشركة وحياة الحساب والصلاحية تُقرأ من القاعدة لكل طلب (loadAdmin) لا من
-//      التوكن: مدير خُفِّض إلى مشرف يُمنع فوراً لا بعد 8 ساعات. جلسة انتحال المالك للاطلاع فقط (design §5.3: لا ربط نيابةً).
+//      التوكن: مدير خُفِّض إلى مشرف يُمنع فوراً لا بعد 8 ساعات. جلسة دخول مالك المنصة («الدخول كشركة»، توكن impersonated)
+//      تعمل كحساب المدير الذي يحمل التوكن معرّفه بالشروط نفسها من صفّه في القاعدة (قرار المالك 17 سبتمبر 2026) — وكل كتابة
+//      بها سطر تدقيق واحد ZATCA_OWNER_IMPERSONATION_WRITE (بلا OTP ولا أسرار ولا جسم ولا قيم)، وactorId في ZatcaApiLog موسوم.
 //      والحقول نفسها خارج هذا الموجّه (PUT /api/company: الرقم الضريبي والسجل والدولة) تُحرس بـcompanyZatcaFieldChanges
-//      بالشروط نفسها (الدور من القاعدة، لا انتحال، غير مقيّد النطاق).
+//      بالشروط نفسها (الدور من القاعدة، غير مقيّد النطاق) وسطر التدقيق نفسه للانتحال.
 //   3) البيئات المسموحة من ZATCA_ALLOWED_ENVS (افتراضياً simulation وحدها)، وsandbox لا تُسمح أبداً على NODE_ENV=production.
 //      قيمة غير معروفة ⇒ لا بيئة مسموحة (فشل مغلق). تُفحص عند الإنشاء وعند كل ربط أو تجديد لوحدة قائمة.
 //   4) التفعيل (go-live) غير متاح قبل بناء إصدار الفواتير (Z5): 409 دائماً.
@@ -139,6 +141,8 @@ export interface ZatcaRouteDeps {
   leaseMs?: number;
   /** سجلّ تشغيلي آمن (أكواد وأسماء فقط) — افتراضياً console.warn. */
   log?: (event: string, fields: Record<string, string | number | boolean | null>) => void;
+  /** سطر تدقيق كتابة جلسة دخول مالك المنصة (JSON واحد لكل طلب — ownerImpersonationAuditLine) — افتراضياً console.warn. */
+  audit?: (line: string) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +154,6 @@ export const ZATCA_ROUTE_CODES = Object.freeze({
   COMPANY_ADMIN_ONLY: 'ربط الفوترة الإلكترونية متاح لمدير الشركة فقط',
   PERMISSION_DENIED: 'لا تملك صلاحية الوصول لهذا القسم',
   SCOPED_ADMIN: 'حسابك مقيد بنطاق محدد — ربط الفوترة الإلكترونية يحتاج صلاحية غير مقيدة على مستوى الشركة',
-  IMPERSONATION_READ_ONLY: 'جلسة دخول مالك المنصة للاطلاع فقط — ربط الفوترة الإلكترونية يجريه مدير الشركة بنفسه',
   ZATCA_PHASE2_NOT_ALLOWED: 'ربط فوترة المرحلة الثانية (فاتورة) غير مفعّل لاشتراك شركتك — تواصل مع مزوّد الخدمة',
   ZATCA_COUNTRY_NOT_SUPPORTED: 'ربط فوترة المرحلة الثانية متاح للمنشآت السعودية فقط',
   JOB_RUNNING: 'عملية جارية على هذه الوحدة — انتظر حتى تنتهي ثم أعد المحاولة',
@@ -160,7 +163,6 @@ export const ZATCA_ROUTE_CODES = Object.freeze({
   INVALID_JSON: 'صيغة الطلب غير صالحة',
   SELLER_INVALID: 'بيانات المنشأة غير صحيحة — صحّح الحقول المذكورة',
   SELLER_FIELDS_ADMIN_ONLY: 'الرقم الضريبي والسجل التجاري ودولة المنشأة مرتبطة بربط الفوترة الإلكترونية (المرحلة الثانية) — يعدّلها مدير الشركة فقط',
-  SELLER_FIELDS_READ_ONLY: 'جلسة دخول مالك المنصة للاطلاع فقط — الرقم الضريبي والسجل التجاري ودولة المنشأة يعدّلها مدير الشركة بنفسه',
   SELLER_FIELDS_SCOPED: 'حسابك مقيد بنطاق محدد — الرقم الضريبي والسجل التجاري ودولة المنشأة يعدّلها مدير الشركة بصلاحية غير مقيدة',
   SERVER_ERROR: 'خطأ في الخادم',
 });
@@ -472,7 +474,7 @@ export const COMPANY_ZATCA_FIELDS = ['taxNumber', 'commercialReg', 'countryCode'
 export type CompanyZatcaField = (typeof COMPANY_ZATCA_FIELDS)[number];
 
 export interface CompanyZatcaChanges {
-  /** الحقول التي تتغيّر فعلاً (بعد التطبيع) — لا يغيّرها إلا مدير الشركة خارج جلسة الانتحال. */
+  /** الحقول التي تتغيّر فعلاً (بعد التطبيع) — لا يغيّرها إلا مدير الشركة (أو جلسة دخول المالك بحسابه، مع سطر التدقيق). */
   changed: CompanyZatcaField[];
   /** القيم المطبَّعة (كـPUT /api/zatca/seller) للرقم الضريبي والسجل المتغيّرين. */
   write: Partial<Record<'taxNumber' | 'commercialReg', string | null>>;
@@ -619,6 +621,93 @@ export function jobOutcomeOf(kind: 'onboard' | 'renew', r: { ok: true } | Onboar
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// تدقيق كتابة جلسة دخول مالك المنصة (قرار المالك 17 سبتمبر 2026)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const OWNER_IMPERSONATION_AUDIT_EVENT = 'ZATCA_OWNER_IMPERSONATION_WRITE';
+
+export type OwnerImpersonationAction =
+  | 'seller.update' | 'unit.create' | 'unit.onboard' | 'unit.renew' | 'unit.abort-renewal' | 'unit.retire' | 'go-live'
+  | 'company.seller-fields' | 'unknown';
+
+export interface OwnerImpersonationAuditFields {
+  tenantId: string | null | undefined;
+  /** معرّف حساب مدير الشركة الذي يحمله توكن الانتحال (أقدم مدير نشط — POST /api/tenants/:id/impersonate). */
+  actorAdminId: string | null | undefined;
+  action: OwnerImpersonationAction;
+  unitId?: string;
+  /** أسماء حقول PUT /api/company المتغيّرة وحدها — لا قيمها. */
+  fields?: readonly string[];
+}
+
+/**
+ * ZatcaApiLog.actorId نصّ حرّ بلا مفتاح أجنبي (schema.prisma، onboardingStore.writeApiLog) — كتابة جلسة دخول المالك تُوسم
+ * بالبادئة فلا تُقرأ في السجلّ كأنها من مدير الشركة نفسه.
+ */
+export const IMPERSONATION_ACTOR_PREFIX = 'owner-impersonation:';
+
+export function zatcaActorId(user: { id: string; impersonated?: boolean }): string {
+  return user.impersonated === true ? `${IMPERSONATION_ACTOR_PREFIX}${user.id}` : user.id;
+}
+
+const AUDIT_ACTIONS: Record<string, OwnerImpersonationAction> = {
+  'PUT /seller': 'seller.update', 'POST /units': 'unit.create', 'POST /go-live': 'go-live',
+};
+const UNIT_ACTION_RE = /^\/units\/([^/]+)\/(onboard|renew|abort-renewal|retire)\/?$/i;
+
+/** العملية من مسار الطلب داخل الموجّه (req.path، قبل مطابقة المسار) — ومعرّف الوحدة حين يطابق صيغته وحدها. */
+export function zatcaWriteAction(method: string, path: string): { action: OwnerImpersonationAction; unitId?: string } {
+  const m = method.toUpperCase();
+  const p = path.length > 1 ? path.replace(/\/$/, '') : path;
+  const fixed = AUDIT_ACTIONS[`${m} ${p.toLowerCase()}`];
+  if (fixed) return { action: fixed };
+  const u = m === 'POST' ? UNIT_ACTION_RE.exec(p) : null;
+  if (u) return { action: `unit.${u[2].toLowerCase()}` as OwnerImpersonationAction, ...(UNIT_ID_RE.test(u[1]) ? { unitId: u[1] } : {}) };
+  return { action: 'unknown' };
+}
+
+const auditId = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v.slice(0, 128) : null);
+
+/**
+ * سطر JSON واحد بمفاتيح ثابتة: event وtenantId وactorAdminId وaction و(unitId) و(fields) وstatus (رمز HTTP المُرسَل، null إن
+ * انقطع الاتصال قبل الردّ). لا OTP ولا أسرار ولا جسم الطلب ولا قيم البائع — أسماء الحقول وحدها ومن قائمة ثابتة.
+ */
+export function ownerImpersonationAuditLine(f: OwnerImpersonationAuditFields, status: number | null): string {
+  const fields = f.fields?.filter(x => (COMPANY_ZATCA_FIELDS as readonly string[]).includes(x));
+  return JSON.stringify({
+    event: OWNER_IMPERSONATION_AUDIT_EVENT,
+    tenantId: auditId(f.tenantId),
+    actorAdminId: auditId(f.actorAdminId),
+    action: f.action,
+    ...(typeof f.unitId === 'string' && UNIT_ID_RE.test(f.unitId) ? { unitId: f.unitId } : {}),
+    ...(fields ? { fields } : {}),
+    status,
+  });
+}
+
+export const defaultAuditEmit = (line: string): void => {
+  console.warn(line);
+};
+
+/** يُصدر سطر التدقيق مرة واحدة عند انتهاء الردّ (نجاحاً أو رفضاً أو خطأً) أو انقطاع الاتصال — ولا يُسقط الطلب إن فشل. */
+export function auditOwnerImpersonationWrite(res: Response, f: OwnerImpersonationAuditFields, emit: (line: string) => void = defaultAuditEmit): void {
+  let done = false;
+  const fire = () => {
+    if (done) return;
+    done = true;
+    try {
+      emit(ownerImpersonationAuditLine(f, res.headersSent ? res.statusCode : null));
+    } catch {
+      /* السجلّ لا يُسقط الطلب */
+    }
+  };
+  res.once('finish', fire);
+  res.once('close', fire);
+}
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // الموجّه
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -687,6 +776,7 @@ function h(log: NonNullable<ZatcaRouteDeps['log']>, fn: (req: AuthRequest, res: 
 export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
   const router = Router() as ZatcaRouter;
   const log = deps.log ?? ((event, fields) => console.warn(event, JSON.stringify(fields)));
+  const audit = deps.audit ?? defaultAuditEmit;
   const leaseMs = deps.leaseMs ?? ONBOARDING_DEFAULTS.leaseMs;
   const policy: EnvironmentPolicy = { productionBackend: deps.config.productionBackend };
   const allowedEnvs = [...deps.config.allowedEnvs];
@@ -776,6 +866,14 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
   // ─── سلسلة الحراسة (قبل أي مسار) ───
 
   router.use((req, res, next) => { callMiddleware(deps.authenticate, req, res, next); });
+  // جلسة دخول مالك المنصة: كل طلب كتابة (مقبولاً أو مرفوضاً في أي حارس لاحق أو فاشلاً) سطر تدقيق واحد عند انتهاء ردّه
+  router.use((req, res, next) => {
+    const u = (req as AuthRequest).user;
+    if (u?.impersonated === true && !READ_METHODS.has(req.method)) {
+      auditOwnerImpersonationWrite(res, { tenantId: u.tenantId, actorAdminId: u.id, ...zatcaWriteAction(req.method, req.path) }, audit);
+    }
+    next();
+  });
   router.use((req, res, next) => {
     const u = (req as AuthRequest).user;
     if (!u || !COMPANY_ROLES.includes(u.role) || typeof u.tenantId !== 'string' || u.tenantId === '') {
@@ -801,8 +899,8 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
       if ((await deps.loadTenantFlag(tenantId)) !== true) { sendRouteError(res, 403, 'ZATCA_PHASE2_NOT_ALLOWED'); return; }
       const settings = await deps.store.loadSellerSettings(tenantId);
       if (!settings || settings.countryCode !== 'SA') { sendRouteError(res, 403, 'ZATCA_COUNTRY_NOT_SUPPORTED'); return; }
-      if (req.method !== 'GET' && req.method !== 'HEAD' && r.user!.impersonated === true) { sendRouteError(res, 403, 'IMPERSONATION_READ_ONLY'); return; }
-      res.locals.zatca = { tenantId, actorId: r.user!.id, settings } satisfies Ctx;
+      // جلسة دخول مالك المنصة تكتب كالمدير الذي يمثّله توكنها (الشروط أعلاه من صفّه) — وactorId في ZatcaApiLog موسوم
+      res.locals.zatca = { tenantId, actorId: zatcaActorId(r.user!), settings } satisfies Ctx;
       next();
     })().catch((e: unknown) => {
       log('zatca.gate.error', { name: e instanceof Error ? e.name.slice(0, 40) : typeof e });

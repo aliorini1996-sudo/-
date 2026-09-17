@@ -4,13 +4,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi } from '../api/client';
 import { supportedCountries, getCountry } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
-import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck } from 'lucide-react';
+import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 import DataImportPanel from '../components/DataImportPanel';
 import { useAccountingOn } from '../components/AccountingGate';
 import { keepLocalEdits } from '../components/zatca/settingsMerge';
-import { companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';
+import { LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';
 import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
 import { useAuthStore } from '../store/authStore';
 
@@ -58,9 +58,9 @@ export default function CompanySettingsPage() {
   // بيانات ربط الفوترة الإلكترونية (السرّ لا يُعاد من الخادم — hasSecret يشير إن كان مضبوطاً)
   const [einv, setEinv] = useState<EinvState>({ enabled: false, env: 'preprod', clientId: '', clientSecret: '', activityCode: '', branchCode: '', intermediaryUrl: '' });
   const [hasSecret, setHasSecret] = useState(false);
-  // تبويب ربط فوترة المرحلة الثانية — يظهر فقط بعلم المالك وللشركة السعودية ولمدير الشركة (ADMIN) وحده (الخادم يفرض الشروط نفسها)
+  // تبويب ربط فوترة المرحلة الثانية — يظهر فقط بعلم المالك وللشركة السعودية ولمدير الشركة (ADMIN) وحده (الخادم يفرض الشروط نفسها).
+  // جلسة دخول مالك المنصة تحمل دور الحساب الذي دخل به ونطاقه فتعمل كذلك الحساب (قرار المالك 17 سبتمبر 2026)
   const role = useAuthStore(s => s.user?.role);
-  const impersonating = !!useAuthStore(s => s.impersonating);
   const scopeEnabled = useAuthStore(s => s.user?.scopeEnabled === true);
   const [tab, setTab] = useState<'general' | 'zatca'>('general');
   // يُركَّب عند أول فتح ثم يبقى مخفيّاً لا مُزالاً: التنقّل بين التبويبين لا يمحو ما لم يُحفظ في أيٍّ منهما
@@ -141,7 +141,7 @@ export default function CompanySettingsPage() {
       qc.invalidateQueries({ queryKey: ['zatca', 'overview'] });
       toast.success(tr('تم حفظ بيانات الشركة'));
     },
-    // رفض حارس حقول البائع (المدير وحده، الانتحال، النطاق، صيغة الرقم الضريبي) بعبارته مترجمة — وغيره كما كان.
+    // رفض حارس حقول البائع (المدير وحده، النطاق، صيغة الرقم الضريبي) بعبارته مترجمة — وغيره كما كان.
     // رفض الصلاحية يعيد جلب ['company'] (تبقى تعديلات الحقول الأخرى) فلا يتكرّر 403 حتى إعادة تحميل الصفحة
     onError: (err: unknown) => {
       if (companySaveNeedsRefetch(err)) qc.invalidateQueries({ queryKey: ['company'] });
@@ -176,7 +176,9 @@ export default function CompanySettingsPage() {
   const showZatca = zatcaTabOn && tab === 'zatca';
   // شركة سعودية (أو بلا دولة محفوظة) بعلم المالك: الرقم الضريبي والسجل والدولة لمدير الشركة غير المقيّد وحده (الخادم يرفض غيره
   // 403 SELLER_FIELDS_*)؛ وغير السعودية تبقى قابلة للتعديل بلا خيار السعودية (zatcaCountryChoiceAllowed)
-  const sellerLocked = zatcaSellerFieldsLocked(data, role, impersonating, scopeEnabled);
+  const sellerLocked = zatcaSellerFieldsLocked(data, role, scopeEnabled);
+  // الحقل المقفل يبدو مقفلاً (لا حقلاً يتجاهل الكتابة صامتاً) ويُقرأ معه سبب القفل
+  const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};
 
   return (
     <div>
@@ -242,8 +244,8 @@ export default function CompanySettingsPage() {
               </div>
               <div>
                 <label className="label">{tr('الدولة تحدد العملة والضريبة والفوترة الإلكترونية')}</label>
-                <select className="input" value={countryCode} disabled={sellerLocked} onChange={e => setCountryCode(e.target.value)}>
-                  {supportedCountries().filter(c => zatcaCountryChoiceAllowed(c.code, data, role, impersonating, scopeEnabled)).map(c => (
+                <select className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} value={countryCode} disabled={sellerLocked} {...lockedProps} onChange={e => setCountryCode(e.target.value)}>
+                  {supportedCountries().filter(c => zatcaCountryChoiceAllowed(c.code, data, role, scopeEnabled)).map(c => (
                     <option key={c.code} value={c.code}>{c.nameAr} — {c.currency}</option>
                   ))}
                 </select>
@@ -284,14 +286,17 @@ export default function CompanySettingsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">{tr('الرقم الضريبي')}</label>
-                  <input className="input" dir="ltr" readOnly={sellerLocked} {...register('taxNumber')} />
+                  <input className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} dir="ltr" readOnly={sellerLocked} {...lockedProps} {...register('taxNumber')} />
                 </div>
                 <div>
                   <label className="label">{tr('السجل التجاري')}</label>
-                  <input className="input" dir="ltr" readOnly={sellerLocked} {...register('commercialReg')} />
+                  <input className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} dir="ltr" readOnly={sellerLocked} {...lockedProps} {...register('commercialReg')} />
                 </div>
                 {sellerLocked && (
-                  <p className="col-span-2 -mt-2 text-[11px] text-[#6E6557]">{tr(zatcaSellerLockHint(role, impersonating, scopeEnabled))}</p>
+                  <p id={SELLER_LOCK_HINT_ID} className="col-span-2 -mt-2 text-[11px] text-[#6E6557] flex items-start gap-1.5">
+                    <Lock size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+                    {tr(zatcaSellerLockHint(role, scopeEnabled))}
+                  </p>
                 )}
                 <div>
                   <label className="label">{tr('رقم الهاتف')}</label>

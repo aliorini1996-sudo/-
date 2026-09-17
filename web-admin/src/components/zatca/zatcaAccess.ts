@@ -3,8 +3,8 @@
  *
  * مطابق لحارس /api/zatca في الخادم: علم المالك للشركة (=== true وحدها) + شركة سعودية + مدير الشركة (دور ADMIN) وحده غير مقيّد
  * النطاق — قرار المالك: المشرف (MANAGER) والمحاسب (ACCOUNTANT) لا يرون التبويب ولو ملكا صلاحية الإعدادات (الخادم يردّهما 403)،
- * والمدير المقيّد النطاق يردّه الخادم 403 SCOPED_ADMIN. جلسة انتحال المالك تحمل دور حساب الشركة الذي دخل به، فترى التبويب
- * للاطلاع فقط حين يكون مديراً.
+ * والمدير المقيّد النطاق يردّه الخادم 403 SCOPED_ADMIN. جلسة دخول مالك المنصة تحمل دور حساب الشركة الذي دخل به ونطاقه، فتعمل
+ * كذلك الحساب تماماً (قرار المالك 17 سبتمبر 2026: يحفظ ويربط ويجدّد ويوقف كالمدير، والخادم يسجّل كل كتابة بها) — لا وضع اطلاع.
  */
 export const ZATCA_TAB_ROLE = 'ADMIN';
 
@@ -16,14 +16,13 @@ export function zatcaTabVisible(
   return company?.zatcaPhase2Enabled === true && company.countryCode === 'SA' && role === ZATCA_TAB_ROLE && scopeEnabled !== true;
 }
 
-/** شركة بعلم المالك والمستخدم ليس مدير الشركة أو مقيّد النطاق أو الجلسة انتحال المالك — من يردّه حارس حقول البائع في الخادم. */
+/** شركة بعلم المالك والمستخدم ليس مدير الشركة أو مقيّد النطاق — من يردّه حارس حقول البائع في الخادم. */
 function zatcaSellerRestricted(
   company: { zatcaPhase2Enabled?: boolean | null } | null | undefined,
   role: string | null | undefined,
-  impersonating: boolean,
   scopeEnabled?: boolean | null,
 ): boolean {
-  return company?.zatcaPhase2Enabled === true && (role !== ZATCA_TAB_ROLE || impersonating || scopeEnabled === true);
+  return company?.zatcaPhase2Enabled === true && (role !== ZATCA_TAB_ROLE || scopeEnabled === true);
 }
 
 /**
@@ -37,10 +36,9 @@ function zatcaSellerRestricted(
 export function zatcaSellerFieldsLocked(
   company: { zatcaPhase2Enabled?: boolean | null; countryCode?: string | null } | null | undefined,
   role: string | null | undefined,
-  impersonating: boolean,
   scopeEnabled?: boolean | null,
 ): boolean {
-  return zatcaSellerRestricted(company, role, impersonating, scopeEnabled) && (!company?.countryCode || company.countryCode === 'SA');
+  return zatcaSellerRestricted(company, role, scopeEnabled) && (!company?.countryCode || company.countryCode === 'SA');
 }
 
 /** خيار دولة في قائمة «الدولة»: السعودية لا تُعرض لمستخدم مردود على شركة بعلم المالك دولتها المحفوظة غير السعودية (غير المقفلة). */
@@ -48,20 +46,27 @@ export function zatcaCountryChoiceAllowed(
   code: string,
   company: { zatcaPhase2Enabled?: boolean | null; countryCode?: string | null } | null | undefined,
   role: string | null | undefined,
-  impersonating: boolean,
   scopeEnabled?: boolean | null,
 ): boolean {
-  return code !== 'SA' || !zatcaSellerRestricted(company, role, impersonating, scopeEnabled) || zatcaSellerFieldsLocked(company, role, impersonating, scopeEnabled);
+  return code !== 'SA' || !zatcaSellerRestricted(company, role, scopeEnabled) || zatcaSellerFieldsLocked(company, role, scopeEnabled);
 }
 
 /**
- * سبب القفل (عبارة القاموس العامّ، تُمرَّر إلى tr) تحت الحقول المقفلة — بترتيب حارس الخادم: الانتحال، ثم غير المدير، ثم النطاق.
+ * سبب القفل (عبارة القاموس العامّ، تُمرَّر إلى tr) تحت الحقول المقفلة — بترتيب حارس الخادم: غير المدير، ثم النطاق.
  */
-export function zatcaSellerLockHint(role: string | null | undefined, impersonating: boolean, scopeEnabled?: boolean | null): string {
-  if (impersonating) return COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_READ_ONLY;
+export function zatcaSellerLockHint(role: string | null | undefined, scopeEnabled?: boolean | null): string {
   if (role === ZATCA_TAB_ROLE && scopeEnabled === true) return COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_SCOPED;
   return COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_ADMIN_ONLY;
 }
+
+/**
+ * مظهر الحقل المقفل في «الإعدادات العامة» (الرقم الضريبي والسجل والدولة لمستخدم مردود): خلفية باهتة ومؤشّر «ممنوع» وبلا حلقة
+ * التركيز البرتقالية التي توحي بالكتابة — أدوات Tailwind فوق .input (طبقة المكوّنات) لا تغيير في أنماط الحقول العامة.
+ */
+export const LOCKED_INPUT_CLASS = 'bg-[#F1EBDF] text-[#6E6557] cursor-not-allowed focus:ring-0 focus:border-[#D8CDB9]';
+
+/** معرّف سطر سبب القفل تحت الحقول — تشير إليه الحقول المقفلة (aria-describedby) فيُقرأ السبب مع الحقل. */
+export const SELLER_LOCK_HINT_ID = 'company-seller-lock-hint';
 
 /** حقول PUT /api/company التي يحرسها الخادم لشركة سعودية بعلم المالك (COMPANY_ZATCA_FIELDS). */
 export const COMPANY_SELLER_FIELDS = ['taxNumber', 'commercialReg', 'countryCode'] as const;
@@ -80,7 +85,6 @@ export function withoutLockedSellerFields<T extends Record<string, unknown>>(bod
 /** رموز رفض PUT /api/company من حارس حقول البائع ⇒ عبارة القاموس العامّ (تُترجم بـtr) بدل «حدث خطأ في الحفظ». */
 export const COMPANY_SELLER_ERROR_PHRASES: Readonly<Record<string, string>> = {
   SELLER_FIELDS_ADMIN_ONLY: 'الرقم الضريبي والسجل التجاري والدولة مرتبطة بربط الفوترة الإلكترونية — يعدلها مدير الشركة',
-  SELLER_FIELDS_READ_ONLY: 'جلسة دخول مالك المنصة للاطلاع فقط — الرقم الضريبي والسجل التجاري والدولة يعدلها مدير الشركة بنفسه',
   SELLER_FIELDS_SCOPED: 'حسابك مقيد بنطاق محدد — الرقم الضريبي والسجل التجاري والدولة يعدلها مدير الشركة بصلاحية غير مقيدة',
   SELLER_INVALID: 'الرقم الضريبي أو السجل التجاري غير صحيح',
 };

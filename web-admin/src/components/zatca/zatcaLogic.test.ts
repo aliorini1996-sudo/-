@@ -24,7 +24,7 @@ import { ZATCA_PHRASES, zatcaTranslate } from './zatcaPhrases';
 import { keepLocalEdits } from './settingsMerge';
 import { supportedCountries } from '../../i18n/countries';
 import {
-  COMPANY_SELLER_ERROR_CODES, COMPANY_SELLER_ERROR_PHRASES, COMPANY_SELLER_FIELD_ERROR_PHRASES, ZATCA_TAB_ROLE, companySaveErrorMessage, companySaveNeedsRefetch,
+  COMPANY_SELLER_ERROR_CODES, COMPANY_SELLER_ERROR_PHRASES, COMPANY_SELLER_FIELD_ERROR_PHRASES, LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, ZATCA_TAB_ROLE, companySaveErrorMessage, companySaveNeedsRefetch,
   withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible,
 } from './zatcaAccess';
 import ZatcaTabBoundary, { ZatcaTabLoadError } from './ZatcaTabBoundary';
@@ -293,7 +293,7 @@ test('رأس الحالة يقرأ نسخة الاستطلاع الحيّة لا
   assert.equal(liveUnits([snap], [undefined])[0], snap);
   assert.equal(liveUnits([snap], [payload({ id: 'b', status: 'ACTIVE', updatedAt: '2026-09-17T09:00:00.000Z' })])[0], snap, 'معرّف مختلف لا يُخلط');
   const tab = fs.readFileSync(fileURLToPath(new URL('./ZatcaPhase2Tab.tsx', import.meta.url)), 'utf8');
-  assert.match(tab, /<StatusHeader ov=\{ov\} units=\{units\} readOnly=\{readOnly\} \/>/);
+  assert.match(tab, /<StatusHeader ov=\{ov\} units=\{units\} ownerSession=\{ownerSession\} \/>/);
   assert.doesNotMatch(tab, /primaryUnit\(ov\.units/, 'رأس الحالة يقرأ لقطة النظرة العامّة');
 });
 
@@ -310,7 +310,7 @@ test('كل نصّ tr(\'…\') في التبويب له مدخل في القام�
 
 test('توصيل البطاقة: العرض من cardControls والاستطلاع من unitPollInterval/shouldRetryUnitFetch، وخطأ الاستطلاع ظاهر بتحديث يدوي', () => {
   const tab = fs.readFileSync(fileURLToPath(new URL('./ZatcaPhase2Tab.tsx', import.meta.url)), 'utf8');
-  assert.match(tab, /const actions = cardControls\(p, ov\.allowedEnvs, readOnly\)/);
+  assert.match(tab, /const actions = cardControls\(p, ov\.allowedEnvs\);/);
   assert.doesNotMatch(tab, /actions\.canResume && !failure/, 'المتابعة مخفية عند أي نتيجة فشل');
   for (const wire of ['{actions.showResume && (', '{actions.showOtpForm && (', '{actions.showRenew && (', 'const onRetry = actions.showRetry', 'retry: shouldRetryUnitFetch', 'refetchInterval: query => unitPollInterval(', "tr('تعذر تحديث حالة الوحدة')", "tr('بيئة هذه الوحدة غير مسموحة على الخادم حاليا')", "tr('أوقف الوحدة واربط وحدة جديدة')"]) {
     assert.ok(tab.includes(wire), `غير موصول: ${wire}`);
@@ -415,23 +415,41 @@ test('الشهادة المنتهية «انتهت في» لا «صالحة حت
   assert.match(tab, /const st = primary \? cardStatusLabel\(primary\) : null/);
 });
 
-test('جلسة انتحال المالك: لا خانة رمز ولا متابعة ولا تجديد ولا إيقاف ولا حفظ ولا إنشاء (الخادم 403) — والقراءة كاملة', () => {
+test('جلسة دخول مالك المنصة (قرار المالك 17 سبتمبر 2026): خانة الرمز والمتابعة والتجديد والإيقاف والحفظ والإنشاء كمدير الشركة — لا وضع اطلاع، ولافتة معلومات بأن ما يُحفظ يُنسب ويُسجَّل', () => {
   const needs = payload({ status: 'ERROR_NEEDS_OTP' }, { job: finished(outcomeOf('COMPLIANCE_CHECK_REJECTED', { needsNewOtp: true })) });
-  for (const p of [needs, payload({ status: 'CHECKS_PASSED' }, { job: finished(outcomeOf('ZATCA_RETRY', { retryable: true })) }), payload({ status: 'ACTIVE' }),
-    payload({ status: 'AUTH_FAILED' }, { job: finished(outcomeOf('CSID_CERT_INVALID', { needsNewOtp: true })) })]) {
-    const c = cardControls(p, ['simulation'], true);
-    assert.deepEqual(
-      [c.showOtpForm, c.showResume, c.showRetry, c.showRenew, c.canAbort, c.canRetire, c.newOtpAction, c.showOtpLocation, c.csrFix],
-      [false, false, false, false, false, false, null, false, null], p.unit.status,
-    );
-    assert.equal(c.envAllowed, true);
-  }
-  assert.equal(cardControls(needs, ['simulation']).showOtpForm, true, 'مدير الشركة نفسه يرى النموذج');
+  assert.equal(cardControls.length, 2, 'cardControls بلا معامل اطلاع');
+  const c = cardControls(needs, ['simulation']);
+  assert.deepEqual([c.showOtpForm, c.newOtpAction, c.canRetire], [true, 'focus-otp', true]);
+  assert.equal(cardControls(payload({ status: 'ACTIVE' }), ['simulation']).showRenew, true);
+
   const tab = readTab();
+  // لا حقل للاطلاع ولا زرّ مخفيّ بسبب الجلسة — الحقول تُكتب والأزرار كما للمدير
+  assert.doesNotMatch(tab, /readOnly/, 'وضع اطلاع باقٍ في التبويب');
+  assert.doesNotMatch(tab, /<(input|select|textarea)\b[^>]*\b(readOnly|disabled)=\{(?!sellerLocked)/, 'حقل إدخال معطّل أو للاطلاع في التبويب');
   for (const wire of [
-    'const readOnly = !!useAuthStore(s => s.impersonating)', '{!readOnly && <CreateUnit', '{!readOnly && (', 'readOnly={readOnly} />',
-    "tr('جلسة اطلاع من مالك المنصة — للاطلاع فقط')",
+    'const ownerSession = !!useAuthStore(s => s.impersonating);',
+    '          <CreateUnit ov={ov} units={units} />',
+    '<SellerCard ov={ov} />',
+    '<UnitCard key={p.unit.id} initial={p} overviewUpdatedAt={overviewUpdatedAt} ov={ov} />',
+    "{ownerSession && (\n        <Banner tone=\"info\" icon={<Eye size={16} />} title={tr('أنت داخل كمالك المنصة — ما تحفظه أو تربطه هنا يُنسب إلى مدير الشركة ويُسجَّل')} />",
+    // الأزرار المعطّلة تبدو معطّلة داخل التبويب وحده (لا أنماط عامة)
+    '<div className={`space-y-5 max-w-4xl ${TAB_DISABLED_BUTTONS}`} dir="rtl">',
   ]) assert.ok(tab.includes(wire), `غير موصول: ${wire}`);
+  for (const cls of ['[&_.btn-primary:disabled]:opacity-50', '[&_.btn-primary:disabled]:cursor-not-allowed', '[&_.btn-secondary:disabled]:opacity-50', '[&_.btn-danger:disabled]:opacity-50']) {
+    assert.ok(tab.includes(cls), cls);
+  }
+  // حفظ بيانات المنشأة غير مشروط بالجلسة
+  const saveAt = tab.indexOf("{tr('حفظ بيانات المنشأة')}");
+  assert.ok(saveAt > 0);
+  assert.doesNotMatch(tab.slice(tab.lastIndexOf('<div className="mt-4 flex items-center gap-3 flex-wrap">', saveAt) - 40, saveAt), /&& \(/);
+  // العبارات: الجديدة بأربع لغات، والقديمة («للاطلاع فقط») محذوفة من عبارات التبويب والقاموس العامّ
+  const banner = ZATCA_PHRASES['أنت داخل كمالك المنصة — ما تحفظه أو تربطه هنا يُنسب إلى مدير الشركة ويُسجَّل'];
+  assert.ok(banner);
+  for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.ok(banner[lang] && !/[؀-ۿ]/.test(banner[lang]), lang);
+  for (const gone of ['جلسة اطلاع من مالك المنصة — للاطلاع فقط', 'حفظ بيانات المنشأة وربط الوحدات وتجديدها وإيقافها يجريها مدير الشركة بنفسه']) {
+    assert.ok(!(gone in ZATCA_PHRASES), gone);
+  }
+  assert.ok(!Object.keys(PHRASES).some(k => k.startsWith('جلسة دخول مالك المنصة للاطلاع فقط')), 'عبارة SELLER_FIELDS_READ_ONLY باقية في القاموس العامّ');
 });
 
 test('إعدادات الشركة: التبويب كسول ومُبقى عليه، وتحديث «company» لا يمحو تعديلات غير محفوظة، والجاهزية تُجلب بعد حفظ الإعدادات العامة', () => {
@@ -476,7 +494,7 @@ test('التبويب لمدير الشركة وحده (قرار المالك، �
 
   const page = readPage();
   for (const wire of [
-    "import { companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';",
+    "import { LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';",
     'const role = useAuthStore(s => s.user?.role);', 'const scopeEnabled = useAuthStore(s => s.user?.scopeEnabled === true);', 'const zatcaTabOn = zatcaTabVisible(data, role, scopeEnabled);',
   ]) assert.ok(page.includes(wire), `غير موصول: ${wire}`);
   assert.doesNotMatch(page, /zatcaPhase2Enabled === true && data\?\.countryCode === 'SA'/, 'شرط التبويب القديم بلا الدور');
@@ -681,45 +699,44 @@ test('تبويب الفوترة الكسول داخل حاجز أخطاء: فش�
   assert.doesNotMatch(src, /console\.\w+\([^)]*error\.message/, 'تسجيل رسالة خطأ التبويب');
 });
 
-test('الإعدادات العامة لشركة بعلم المالك: الرقم الضريبي والسجل والدولة للاطلاع لغير المدير ولجلسة الانتحال، ورسالة رفض الخادم تُعرض', () => {
+test('الإعدادات العامة لشركة بعلم المالك: الرقم الضريبي والسجل والدولة مقفلة لغير المدير وللمدير المقيّد (وجلسة دخول المالك كالحساب الذي تمثّله)، وتبدو مقفلة، ورسالة رفض الخادم تُعرض', () => {
   const on = { zatcaPhase2Enabled: true, countryCode: 'SA' };
-  assert.equal(zatcaSellerFieldsLocked(on, 'ADMIN', false), false);
-  for (const role of ['MANAGER', 'ACCOUNTANT', undefined]) assert.equal(zatcaSellerFieldsLocked(on, role, false), true, String(role));
-  assert.equal(zatcaSellerFieldsLocked(on, 'ADMIN', true), true, 'انتحال المالك');
+  // لا معامل انتحال (قرار المالك 17 سبتمبر 2026): جلسة دخول المالك تحمل دور الحساب ونطاقه فتُقفل أو تُفتح مثله
+  assert.equal(zatcaSellerFieldsLocked.length, 3);
+  assert.equal(zatcaSellerLockHint.length, 2);
+  assert.equal(zatcaCountryChoiceAllowed.length, 4);
+  assert.equal(zatcaSellerFieldsLocked(on, 'ADMIN'), false, 'مدير الشركة (ومنه جلسة دخول المالك بحسابه)');
+  for (const role of ['MANAGER', 'ACCOUNTANT', undefined]) assert.equal(zatcaSellerFieldsLocked(on, role), true, String(role));
   for (const c of [{ zatcaPhase2Enabled: false, countryCode: 'SA' }, { zatcaPhase2Enabled: false, countryCode: 'AE' }, null]) {
-    assert.equal(zatcaSellerFieldsLocked(c, 'MANAGER', true), false, JSON.stringify(c));
-    assert.equal(zatcaSellerFieldsLocked(c, 'ADMIN', false, true), false, `مقيّد بلا العلم: ${JSON.stringify(c)}`);
+    assert.equal(zatcaSellerFieldsLocked(c, 'MANAGER'), false, JSON.stringify(c));
+    assert.equal(zatcaSellerFieldsLocked(c, 'ADMIN', true), false, `مقيّد بلا العلم: ${JSON.stringify(c)}`);
   }
   // بعلم المالك وبلا دولة محفوظة (الصفحة تعرض السعودية وترسلها فيردّها الخادم) ⇒ مقفل أيضاً
   for (const c of [{ zatcaPhase2Enabled: true, countryCode: null }, { zatcaPhase2Enabled: true, countryCode: '' }, { zatcaPhase2Enabled: true }]) {
     for (const role of ['MANAGER', 'ACCOUNTANT']) assert.equal(zatcaSellerFieldsLocked(c, role, false), true, `${role} ${JSON.stringify(c)}`);
-    assert.equal(zatcaSellerFieldsLocked(c, 'ADMIN', true), true, `انتحال ${JSON.stringify(c)}`);
-    assert.equal(zatcaSellerFieldsLocked(c, 'ADMIN', false, true), true, `مقيّد ${JSON.stringify(c)}`);
-    assert.equal(zatcaSellerFieldsLocked(c, 'ADMIN', false, false), false, `المدير ${JSON.stringify(c)}`);
+    assert.equal(zatcaSellerFieldsLocked(c, 'ADMIN', true), true, `مقيّد ${JSON.stringify(c)}`);
+    assert.equal(zatcaSellerFieldsLocked(c, 'ADMIN', false), false, `المدير ${JSON.stringify(c)}`);
   }
   // بعلم المالك ودولة محفوظة غير السعودية: الخادم لا يحرس الحقول (companyZatcaFieldChanges) ⇒ غير مقفلة لأحد
   for (const code of ['AE', 'EG']) {
     const c = { zatcaPhase2Enabled: true, countryCode: code };
-    for (const [role, imp, scoped] of [['MANAGER', false, false], ['ACCOUNTANT', false, false], ['ADMIN', true, false], ['ADMIN', false, true], ['ADMIN', false, false]] as const) {
-      assert.equal(zatcaSellerFieldsLocked(c, role, imp, scoped), false, `${role} انتحال=${imp} مقيّد=${scoped} ${code}`);
+    for (const [role, scoped] of [['MANAGER', false], ['ACCOUNTANT', false], ['ADMIN', true], ['ADMIN', false]] as const) {
+      assert.equal(zatcaSellerFieldsLocked(c, role, scoped), false, `${role} مقيّد=${scoped} ${code}`);
     }
   }
   // المدير المقيّد النطاق (الخادم يردّه 403 SELLER_FIELDS_SCOPED)
-  assert.equal(zatcaSellerFieldsLocked(on, 'ADMIN', false, true), true, 'مدير مقيّد النطاق');
-  assert.equal(zatcaSellerFieldsLocked(on, 'ADMIN', false, false), false);
-  // سبب القفل تحت الحقول بترتيب حارس الخادم (الانتحال ثم الدور ثم النطاق) — عبارات القاموس العامّ نفسها لرموز الرفض
-  assert.equal(zatcaSellerLockHint('ADMIN', true, false), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_READ_ONLY);
-  assert.equal(zatcaSellerLockHint('ADMIN', true, true), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_READ_ONLY);
-  assert.equal(zatcaSellerLockHint('MANAGER', true, false), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_READ_ONLY);
-  assert.equal(zatcaSellerLockHint('ADMIN', false, true), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_SCOPED);
+  assert.equal(zatcaSellerFieldsLocked(on, 'ADMIN', true), true, 'مدير مقيّد النطاق');
+  assert.equal(zatcaSellerFieldsLocked(on, 'ADMIN', false), false);
+  // سبب القفل تحت الحقول بترتيب حارس الخادم (الدور ثم النطاق) — عبارات القاموس العامّ نفسها لرموز الرفض
+  assert.equal(zatcaSellerLockHint('ADMIN', true), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_SCOPED);
   for (const role of ['MANAGER', 'ACCOUNTANT', undefined]) {
-    assert.equal(zatcaSellerLockHint(role, false, false), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_ADMIN_ONLY, String(role));
-    assert.equal(zatcaSellerLockHint(role, false, true), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_ADMIN_ONLY, `${String(role)} مقيّد: الدور أولاً`);
+    assert.equal(zatcaSellerLockHint(role, false), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_ADMIN_ONLY, String(role));
+    assert.equal(zatcaSellerLockHint(role, true), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_ADMIN_ONLY, `${String(role)} مقيّد: الدور أولاً`);
   }
   const err = (data: unknown) => ({ response: { status: 403, data } });
   // عبارات القاموس العامّ (تُترجم بـtr) لا نصّ الخادم العربي
   assert.equal(companySaveErrorMessage(err({ code: 'SELLER_FIELDS_ADMIN_ONLY', message: 'للمدير' })), 'الرقم الضريبي والسجل التجاري والدولة مرتبطة بربط الفوترة الإلكترونية — يعدلها مدير الشركة');
-  assert.equal(companySaveErrorMessage(err({ code: 'SELLER_FIELDS_READ_ONLY', message: 'انتحال' })), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_READ_ONLY);
+  assert.equal(companySaveErrorMessage(err({ code: 'SELLER_FIELDS_READ_ONLY', message: 'انتحال' })), null, 'رمز «للاطلاع فقط» أُزيل من الخادم');
   assert.equal(companySaveErrorMessage(err({ code: 'SELLER_FIELDS_SCOPED', message: 'نطاق' })), COMPANY_SELLER_ERROR_PHRASES.SELLER_FIELDS_SCOPED);
   assert.equal(companySaveErrorMessage(err({ code: 'SELLER_INVALID', message: 'عامّة', fieldErrors: [{ field: 'taxNumber', messageAr: 'الرقم الضريبي يجب…' }] })), COMPANY_SELLER_FIELD_ERROR_PHRASES.taxNumber);
   assert.equal(companySaveErrorMessage(err({ code: 'SELLER_INVALID', fieldErrors: [{ field: 'commercialReg', messageAr: 'القيمة أطول من المسموح' }] })), COMPANY_SELLER_FIELD_ERROR_PHRASES.commercialReg);
@@ -728,7 +745,7 @@ test('الإعدادات العامة لشركة بعلم المالك: الرق
   assert.equal(companySaveErrorMessage(err({ message: 'بيانات غير صحيحة name' })), null, 'غير رموز الحارس: الرسالة العامة كما كانت');
   assert.equal(companySaveErrorMessage(err({ code: 'toString' })), null, 'مفتاح من نموذج الكائن ليس رمز حارس');
   assert.equal(companySaveErrorMessage(new Error('network')), null);
-  assert.deepEqual([...COMPANY_SELLER_ERROR_CODES].sort(), ['SELLER_FIELDS_ADMIN_ONLY', 'SELLER_FIELDS_READ_ONLY', 'SELLER_FIELDS_SCOPED', 'SELLER_INVALID']);
+  assert.deepEqual([...COMPANY_SELLER_ERROR_CODES].sort(), ['SELLER_FIELDS_ADMIN_ONLY', 'SELLER_FIELDS_SCOPED', 'SELLER_INVALID']);
   // كل عبارة يعيدها الحارس في القاموس العامّ (حزمة الصفحة لا التبويب الكسول) بأربع لغات — مفاتيح ديناميكية لا يلتقطها حارس tr('…')
   for (const k of [...Object.values(COMPANY_SELLER_ERROR_PHRASES), ...Object.values(COMPANY_SELLER_FIELD_ERROR_PHRASES)]) {
     const t = PHRASES[k];
@@ -737,59 +754,77 @@ test('الإعدادات العامة لشركة بعلم المالك: الرق
     assert.ok(!(k in ZATCA_PHRASES), `«${k}» مكرّر في عبارات التبويب`);
   }
   // رفض الصلاحية يعيد جلب ['company']، وخطأ الصيغة لا (الحقل بيد المستخدم)
-  for (const code of ['SELLER_FIELDS_ADMIN_ONLY', 'SELLER_FIELDS_READ_ONLY', 'SELLER_FIELDS_SCOPED']) assert.equal(companySaveNeedsRefetch(err({ code })), true, code);
+  for (const code of ['SELLER_FIELDS_ADMIN_ONLY', 'SELLER_FIELDS_SCOPED']) assert.equal(companySaveNeedsRefetch(err({ code })), true, code);
   assert.equal(companySaveNeedsRefetch(err({ code: 'SELLER_INVALID' })), false);
   assert.equal(companySaveNeedsRefetch(err({ message: 'x' })), false);
   assert.equal(companySaveNeedsRefetch(new Error('network')), false);
 
   const page = readPage();
   for (const wire of [
-    'const sellerLocked = zatcaSellerFieldsLocked(data, role, impersonating, scopeEnabled);',
-    '<select className="input" value={countryCode} disabled={sellerLocked}',
-    "readOnly={sellerLocked} {...register('taxNumber')}",
-    "readOnly={sellerLocked} {...register('commercialReg')}",
-    '{tr(zatcaSellerLockHint(role, impersonating, scopeEnabled))}</p>',
+    'const sellerLocked = zatcaSellerFieldsLocked(data, role, scopeEnabled);',
+    "const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};",
+    "<select className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} value={countryCode} disabled={sellerLocked} {...lockedProps}",
+    "<input className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} dir=\"ltr\" readOnly={sellerLocked} {...lockedProps} {...register('taxNumber')} />",
+    "<input className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} dir=\"ltr\" readOnly={sellerLocked} {...lockedProps} {...register('commercialReg')} />",
+    '<p id={SELLER_LOCK_HINT_ID} className="col-span-2 -mt-2 text-[11px] text-[#6E6557] flex items-start gap-1.5">',
+    '{tr(zatcaSellerLockHint(role, scopeEnabled))}',
     "if (companySaveNeedsRefetch(err)) qc.invalidateQueries({ queryKey: ['company'] });",
     "toast.error(sellerError ? tr(sellerError) : tr('حدث خطأ في الحفظ'));",
   ]) assert.ok(page.includes(wire), `غير موصول: ${wire}`);
+  assert.doesNotMatch(page, /impersonating/, 'قفل حقول البائع بجلسة دخول المالك');
   assert.doesNotMatch(page, /toast\.error\(companySaveErrorMessage\(err\) \?\?/, 'نصّ الخادم العربي يُعرض بلا ترجمة');
-  assert.ok(!page.includes("tr('الرقم الضريبي والسجل التجاري والدولة مرتبطة بربط الفوترة الإلكترونية — يعدلها مدير الشركة')"), 'تلميح «يعدلها مدير الشركة» ثابت للمقيّد والانتحال');
+  assert.ok(!page.includes("tr('الرقم الضريبي والسجل التجاري والدولة مرتبطة بربط الفوترة الإلكترونية — يعدلها مدير الشركة')"), 'تلميح «يعدلها مدير الشركة» ثابت للمقيّد');
+  // الحقل المقفل يبدو مقفلاً (لا يتجاهل الكتابة صامتاً): خلفية باهتة، مؤشّر «ممنوع»، بلا حلقة التركيز البرتقالية — أدوات فوق .input
+  // على الحقول الثلاثة وحدها، لا تغيير في .input العامّ
+  const locked = LOCKED_INPUT_CLASS.split(' ');
+  assert.ok(locked.some(c => /^bg-\[#[0-9A-Fa-f]{6}\]$/.test(c) && c !== 'bg-[#FFFFFF]'), LOCKED_INPUT_CLASS);
+  for (const cls of ['cursor-not-allowed', 'focus:ring-0']) assert.ok(locked.includes(cls), cls);
+  assert.ok(!locked.some(c => c === 'bg-white' || c.includes('#E15A30')), 'مظهر القفل يوحي بالكتابة');
+  assert.equal(page.match(/LOCKED_INPUT_CLASS/g)?.length, 4, 'الاستيراد والحقول المقفلة الثلاثة وحدها');
+  assert.equal(page.match(/\{\.\.\.lockedProps\}/g)?.length, 3);
+  const css = fs.readFileSync(fileURLToPath(new URL('../../index.css', import.meta.url)), 'utf8');
+  assert.ok(css.includes('.input {\n    @apply w-full border border-[#E0D7C6] rounded-xl px-3 py-2 text-sm text-[#1F1A13] focus:outline-none focus:ring-2 focus:ring-[#E15A30]/40 focus:border-[#E15A30] bg-white;'), '.input العامّ تغيّر');
+  // رسم فعلي: الحقل المقفل بالأدوات والسبب مرتبط به
+  const html = renderToStaticMarkup(createElement('input', { className: `input ${LOCKED_INPUT_CLASS}`, readOnly: true, 'aria-describedby': SELLER_LOCK_HINT_ID }));
+  assert.match(html, /cursor-not-allowed/);
+  assert.match(html, new RegExp(`aria-describedby="${SELLER_LOCK_HINT_ID}"`));
+  assert.match(html, /readOnly=""|readonly=""/i);
 });
 
-test('شركة غير سعودية بعلم المالك: المشرف والمحاسب وانتحال المالك والمدير المقيّد يعدّلون الرقم الضريبي والسجل والدولة كما يقبل الخادم — بلا خيار السعودية (يردّه الخادم فتتكرّر 403)', () => {
-  const callers = [['MANAGER', false, false], ['ACCOUNTANT', false, false], ['ADMIN', true, false], ['ADMIN', false, true]] as const;
+test('شركة غير سعودية بعلم المالك: المشرف والمحاسب والمدير المقيّد يعدّلون الرقم الضريبي والسجل والدولة كما يقبل الخادم — بلا خيار السعودية (يردّه الخادم فتتكرّر 403)', () => {
+  const callers = [['MANAGER', false], ['ACCOUNTANT', false], ['ADMIN', true]] as const;
   const codes = supportedCountries().map(c => c.code);
   assert.ok(codes.includes('SA') && codes.length > 5, 'ضبط: قائمة الدول');
-  for (const [role, imp, scoped] of callers) {
-    const label = `${role} انتحال=${imp} مقيّد=${scoped}`;
+  for (const [role, scoped] of callers) {
+    const label = `${role} مقيّد=${scoped}`;
     const company = { zatcaPhase2Enabled: true, countryCode: 'AE' };
-    const locked = zatcaSellerFieldsLocked(company, role, imp, scoped);
+    const locked = zatcaSellerFieldsLocked(company, role, scoped);
     assert.equal(locked, false, label);
-    const allowed = codes.filter(code => zatcaCountryChoiceAllowed(code, company, role, imp, scoped));
+    const allowed = codes.filter(code => zatcaCountryChoiceAllowed(code, company, role, scoped));
     assert.deepEqual(allowed, codes.filter(code => code !== 'SA'), `${label}: كل الدول إلا السعودية`);
     // الحفظ يرسل الحقول الثلاثة كما كُتبت (الخادم يقبلها: لا سعودية قبل الحفظ ولا بعده)
     const body = withoutLockedSellerFields({ name: 'Co', taxNumber: '311111111111113', commercialReg: '1010', countryCode: 'EG', logo: 'data:new' }, locked);
     assert.deepEqual(Object.keys(body).sort(), ['commercialReg', 'countryCode', 'logo', 'name', 'taxNumber'], `${label}: ${JSON.stringify(body)}`);
     // السعودية المحفوظة أو بلا دولة محفوظة: مقفلة، وخيار السعودية معروض (القائمة معطّلة على قيمتها)
     for (const c of [{ zatcaPhase2Enabled: true, countryCode: 'SA' }, { zatcaPhase2Enabled: true, countryCode: null }, { zatcaPhase2Enabled: true }]) {
-      assert.equal(zatcaSellerFieldsLocked(c, role, imp, scoped), true, `${label} ${JSON.stringify(c)}`);
-      assert.equal(zatcaCountryChoiceAllowed('SA', c, role, imp, scoped), true, `${label} ${JSON.stringify(c)}`);
+      assert.equal(zatcaSellerFieldsLocked(c, role, scoped), true, `${label} ${JSON.stringify(c)}`);
+      assert.equal(zatcaCountryChoiceAllowed('SA', c, role, scoped), true, `${label} ${JSON.stringify(c)}`);
       assert.deepEqual(withoutLockedSellerFields({ name: 'Co', taxNumber: 'x', commercialReg: 'y', countryCode: 'SA' }, true), { name: 'Co' });
     }
   }
-  // مدير الشركة غير المقيّد خارج الانتحال، وكل الشركات بلا العلم: كل الدول ولا قفل — كما كان
+  // مدير الشركة غير المقيّد (ومنه جلسة دخول المالك بحسابه)، وكل الشركات بلا العلم: كل الدول ولا قفل — كما كان
   for (const c of [{ zatcaPhase2Enabled: true, countryCode: 'AE' }, { zatcaPhase2Enabled: true, countryCode: 'SA' }, { zatcaPhase2Enabled: true }]) {
-    assert.deepEqual(codes.filter(code => zatcaCountryChoiceAllowed(code, c, 'ADMIN', false, false)), codes, JSON.stringify(c));
+    assert.deepEqual(codes.filter(code => zatcaCountryChoiceAllowed(code, c, 'ADMIN', false)), codes, JSON.stringify(c));
   }
   for (const c of [{ zatcaPhase2Enabled: false, countryCode: 'AE' }, { zatcaPhase2Enabled: false, countryCode: 'SA' }, { zatcaPhase2Enabled: false }, null, undefined]) {
-    for (const [role, imp, scoped] of callers) {
-      assert.equal(zatcaSellerFieldsLocked(c, role, imp, scoped), false, `${role} ${JSON.stringify(c)}`);
-      assert.deepEqual(codes.filter(code => zatcaCountryChoiceAllowed(code, c, role, imp, scoped)), codes, `${role} ${JSON.stringify(c)}`);
+    for (const [role, scoped] of callers) {
+      assert.equal(zatcaSellerFieldsLocked(c, role, scoped), false, `${role} ${JSON.stringify(c)}`);
+      assert.deepEqual(codes.filter(code => zatcaCountryChoiceAllowed(code, c, role, scoped)), codes, `${role} ${JSON.stringify(c)}`);
     }
   }
   // موصول في الصفحة: القائمة تُرشَّح بالخيار المسموح، ومعطّلة حين القفل
   const page = readPage();
-  assert.ok(page.includes('{supportedCountries().filter(c => zatcaCountryChoiceAllowed(c.code, data, role, impersonating, scopeEnabled)).map(c => ('), 'قائمة الدول غير مرشّحة');
+  assert.ok(page.includes('{supportedCountries().filter(c => zatcaCountryChoiceAllowed(c.code, data, role, scopeEnabled)).map(c => ('), 'قائمة الدول غير مرشّحة');
   assert.equal(page.match(/supportedCountries\(\)/g)?.length, 1, 'قائمة دول ثانية بلا ترشيح');
 });
 

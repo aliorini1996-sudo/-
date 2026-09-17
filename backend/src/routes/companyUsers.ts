@@ -109,7 +109,6 @@ export const ADMIN_ACCOUNT_REFUSALS = Object.freeze({
   COMPANY_ADMIN_ACCOUNT_ONLY: 'حسابات مدير الشركة (إنشاؤها أو الترقية إليها أو تغيير دورها أو كلمة مرورها) يديرها مدير الشركة فقط',
   // لشركة بعلم المالك وحدها: تغيير تقييد نطاق مدير (بلا دور ولا كلمة مرور) من مشرف أو محاسب
   COMPANY_ADMIN_SCOPE_ONLY: 'تقييد نطاق حساب مدير الشركة أو رفعه مرتبط بربط الفوترة الإلكترونية — يديره مدير الشركة فقط',
-  ADMIN_ACCOUNT_READ_ONLY: 'جلسة دخول مالك المنصة للاطلاع فقط على ربط الفوترة الإلكترونية — حسابات مدير الشركة (إنشاؤها أو الترقية إليها أو تغيير دورها أو كلمة مرورها أو تقييد نطاقها) يديرها مدير الشركة بنفسه',
   ADMIN_ACCOUNT_SCOPED: 'حسابك مقيد بنطاق محدد — حسابات مدير الشركة (إنشاؤها أو الترقية إليها أو تغيير دورها أو كلمة مرورها أو تقييد نطاقها) يديرها مدير شركة بصلاحية غير مقيدة',
 });
 export type AdminAccountRefusal = keyof typeof ADMIN_ACCOUNT_REFUSALS;
@@ -130,14 +129,15 @@ export function changesAdminAccount(change: AdminAccountChange): boolean {
  * حسابات «مدير الشركة» (ADMIN) لا يُنشئها ولا يرقّي إليها ولا يخفّض منها ولا يغيّر كلمة مرورها إلا مدير شركة (دوره في القاعدة).
  * وإلا فمشرف أو محاسب يملك canManageCompanyUsers ينشئ حساب مدير بكلمة مرور يختارها، أو يرقّي حساباً، أو يعيد تعيين كلمة مرور
  * المدير — ثم يدخل به فيلتفّ بطلبين على ما قصره المالك على مدير الشركة (ربط فوترة ZATCA المرحلة الثانية، وحذف المستخدمين).
- * ولشركة فعّل لها المالك ربط فوترة المرحلة الثانية: جلسة انتحال المالك (للاطلاع فقط) والمدير مقيّد النطاق — وكلاهما تردّه بوابة
- * /api/zatca — لا يُنشئان مديراً غير مقيّد ولا يعيدان تعيين كلمة مرور مدير فيدخلان به. التقييد (من القاعدة) وعلم الشركة يُقرآن
- * عند تغيير يمسّ حساب مدير وحده، وبلا العلم يبقى سلوكهما كما كان (لا أثر على الشركات الأخرى). null = مسموح.
+ * ولشركة فعّل لها المالك ربط فوترة المرحلة الثانية: المدير مقيّد النطاق — تردّه بوابة /api/zatca — لا يُنشئ مديراً غير مقيّد ولا
+ * يعيد تعيين كلمة مرور مدير فيدخل به. التقييد (من القاعدة) وعلم الشركة يُقرآن عند تغيير يمسّ حساب مدير وحده، وبلا العلم يبقى
+ * سلوكه كما كان (لا أثر على الشركات الأخرى). جلسة دخول مالك المنصة تُعامل كحساب المدير الذي يمثّله توكنها — دوره ونطاقه من صفّه
+ * في القاعدة (قرار المالك 17 سبتمبر 2026: الانتحال يربط الفوترة كالمدير، فلا رفض خاصّ به هنا). null = مسموح.
  * وتقييد نطاق المدير وحده (بلا دور ولا كلمة مرور) يُحرس لشركة بعلم المالك وحدها — وإلا فمدير مقيّد ينشئ مشرفاً يملك إدارة
  * المستخدمين (أو يعيد تعيين كلمة مرور مشرف) ثم يرفع به تقييد نفسه فيعبر بوابة /api/zatca؛ وبلا العلم كما كان لكل الأدوار.
  */
 export async function adminAccountChangeRefusal(
-  caller: { role: string; impersonated: boolean },
+  caller: { role: string },
   change: AdminAccountChange,
   load: { scoped: () => Promise<boolean>; zatcaPhase2On: () => Promise<boolean> },
 ): Promise<AdminAccountRefusal | null> {
@@ -147,16 +147,14 @@ export async function adminAccountChangeRefusal(
     if (!scopeOnly) return 'COMPANY_ADMIN_ACCOUNT_ONLY';
     return (await load.zatcaPhase2On()) === true ? 'COMPANY_ADMIN_SCOPE_ONLY' : null;
   }
-  const scoped = caller.impersonated ? false : (await load.scoped()) === true;
-  if (!caller.impersonated && !scoped) return null;
-  if ((await load.zatcaPhase2On()) !== true) return null;
-  return caller.impersonated ? 'ADMIN_ACCOUNT_READ_ONLY' : 'ADMIN_ACCOUNT_SCOPED';
+  if ((await load.scoped()) !== true) return null;
+  return (await load.zatcaPhase2On()) === true ? 'ADMIN_ACCOUNT_SCOPED' : null;
 }
 
 /** يطبّق adminAccountChangeRefusal على الطلب: false بعد ردّ 403 برمز الرفض ورسالته. */
 async function guardAdminAccountChange(req: AuthRequest, res: Response, caller: { role: string }, change: AdminAccountChange): Promise<boolean> {
   const tid = tenantId(req);
-  const refusal = await adminAccountChangeRefusal({ role: caller.role, impersonated: req.user?.impersonated === true }, change, {
+  const refusal = await adminAccountChangeRefusal({ role: caller.role }, change, {
     scoped: () => adminScopeEnabled(req),
     zatcaPhase2On: async () => (await prisma.tenant.findUnique({ where: { id: tid }, select: { zatcaPhase2Enabled: true } }))?.zatcaPhase2Enabled === true,
   });
@@ -478,7 +476,7 @@ router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
       salesRepIds: z.array(z.string()).max(5000).nullable().optional(),
       scopeEnabled: z.boolean().optional(),
     }).parse(req.body);
-    // تغيير تقييد نطاق مدير الشركة حسابُ مدير (لشركة بعلم المالك): لا يرفعه مشرف أو محاسب ولا انتحال المالك
+    // تغيير تقييد نطاق مدير الشركة حسابُ مدير (لشركة بعلم المالك): لا يرفعه مشرف أو محاسب ولا مدير مقيّد (ولو بجلسة دخول المالك)
     const scopeChange = body.scopeEnabled !== undefined && body.scopeEnabled !== admin.scopeEnabled;
     if (!(await guardAdminAccountChange(req, res, caller, { targetRole: admin.role, scope: scopeChange }))) return;
 

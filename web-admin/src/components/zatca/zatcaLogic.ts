@@ -437,17 +437,11 @@ export interface CardControls extends UnitActions {
  * ما تعرضه بطاقة الوحدة. نتيجة مهمّة منتهية لا تُخفي مسار الاستئناف: فشل غير قابل لإعادة المحاولة وليس برمز جديد
  * (ZATCA_CONFIG، SELLER_DATA_INCOMPLETE، SECRETS_UNAVAILABLE…) يترك الوحدة قابلة للاستئناف، فيعالج المدير السبب ثم يتابع.
  */
-export function cardControls(p: ZatcaUnitPayload, allowedEnvs: readonly string[], readOnly = false): CardControls {
+export function cardControls(p: ZatcaUnitPayload, allowedEnvs: readonly string[]): CardControls {
   const a = unitActions(p);
   const failure = failureOf(p);
   const envAllowed = allowedEnvs.includes(p.unit.environment);
-  // جلسة انتحال المالك: الخادم يرفض كل كتابة (403 IMPERSONATION_READ_ONLY) ⇒ لا زرّ كتابة يفشل عند النقر
-  if (readOnly) {
-    return {
-      ...a, canAbort: false, canRetire: false, envAllowed, showOtpForm: false, showResume: false, showRetry: false, showRenew: false,
-      newOtpAction: null, showOtpLocation: false, csrFix: null,
-    };
-  }
+  // لا وضع اطلاع: جلسة دخول مالك المنصة تكتب كمدير الشركة (قرار المالك 17 سبتمبر 2026) فترى الأزرار نفسها
   const showRetry = envAllowed && a.canResume && failure?.retryable === true;
   let newOtpAction: CardControls['newOtpAction'] = null;
   if (failure?.needsNewOtp) {

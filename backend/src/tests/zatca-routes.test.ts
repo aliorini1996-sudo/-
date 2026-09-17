@@ -21,8 +21,9 @@ import { EgsUnitView, ONBOARDING_CODES, RETIRE_CONFIRMATION_TEXT } from '../comp
 import { keyringFromEnv } from '../compliance/zatca/secrets';
 import { z3Body } from '../compliance/zatca/__fixtures__/z3-fixtures';
 import {
-  AdminAccessRecord, ZATCA_ROUTE_CODES, ZatcaRouteDeps, companyZatcaFieldChanges, createZatcaRouter, csrDefaultLocation, csrTextProblem, httpStatusForCode, jobOutcomeOf, latinDigits,
-  sellerReadiness, sellerWarnings, unitActivity, unitChecklist, validateSellerBody, zatcaEnvConfig, zatcaErrorGuard,
+  AdminAccessRecord, IMPERSONATION_ACTOR_PREFIX, OWNER_IMPERSONATION_AUDIT_EVENT, ZATCA_ROUTE_CODES, ZatcaRouteDeps, companyZatcaFieldChanges, createZatcaRouter,
+  csrDefaultLocation, csrTextProblem, httpStatusForCode, jobOutcomeOf, latinDigits, ownerImpersonationAuditLine, sellerReadiness, sellerWarnings, unitActivity,
+  unitChecklist, validateSellerBody, zatcaActorId, zatcaEnvConfig, zatcaErrorGuard, zatcaWriteAction,
 } from '../routes/zatca';
 import { AuthRequest } from '../types';
 
@@ -67,6 +68,8 @@ interface Rig {
   /** صفوف الحسابات في «القاعدة» بالمعرّف (null = محذوف) — غيابه = مطابق للتوكن. */
   admins: Map<string, AdminAccessRecord | null>;
   logs: string[];
+  /** أسطر تدقيق كتابة جلسة دخول مالك المنصة (deps.audit). */
+  audits: string[];
   morganLines: string[];
   texts: string[];
   close: () => Promise<void>;
@@ -87,6 +90,7 @@ async function rig(o: {
   const flags = new Map<string, boolean>([[TENANT, true], [OTHER, true]]);
   const admins = new Map<string, AdminAccessRecord | null>();
   const logs: string[] = [];
+  const audits: string[] = [];
   const morganLines: string[] = [];
   const deps: ZatcaRouteDeps = {
     authenticate: (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -116,6 +120,7 @@ async function rig(o: {
     config: zatcaEnvConfig({ NODE_ENV: o.nodeEnv ?? 'production', ZATCA_ALLOWED_ENVS: o.allowed ?? 'simulation' }),
     sleep: fakeSleep(h),
     log: (event, fields) => logs.push(`${event} ${JSON.stringify(fields)}`),
+    audit: line => { audits.push(line); },
     ...(o.otpRateLimit ? { otpRateLimit: o.otpRateLimit } : {}),
     ...(o.resumeRateLimit ? { resumeRateLimit: o.resumeRateLimit } : {}),
     ...o.deps,
@@ -130,7 +135,7 @@ async function rig(o: {
   const server = http.createServer(app);
   const port = await new Promise<number>(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)));
   const r: Rig = {
-    h, deps, router, port, server, flags, admins, logs, morganLines, texts: [],
+    h, deps, router, port, server, flags, admins, logs, audits, morganLines, texts: [],
     close: async () => {
       await router.idle();
       await new Promise(res => server.close(res));
@@ -187,7 +192,7 @@ async function poll(r: Rig, unitId: string, user: User = ADMIN): Promise<Reply> 
 
 /** كل ما خرج: الردود، سجلّ الموجّه، سطور morgan، وكل ما طُبع — مع المخزن ونتائج «الهيئة» (assertNoLeaks). */
 function assertNothingLeaked(r: Rig) {
-  const everything = [...r.texts, ...r.logs, ...r.morganLines, ...consoleLines];
+  const everything = [...r.texts, ...r.logs, ...r.audits, ...r.morganLines, ...consoleLines];
   assertNoLeaks(r.h, everything);
   const joined = everything.join('\n');
   for (const k of ['privateKeyEnc', 'complianceSecretEnc', 'productionSecretEnc', 'complianceToken', 'productionToken', 'csrPem', 'PRIVATE KEY']) {
@@ -203,6 +208,14 @@ async function activeSimUnit(r: Rig): Promise<EgsUnitView> {
   const done = await poll(r, u.id);
   assert.equal(done.body.data.unit.status, 'ACTIVE', done.text);
   return done.body.data.unit;
+}
+
+/** أسطر التدقيق تُصدر عند انتهاء الردّ على الخادم («finish») — قد يصل الردّ للعميل قبلها بدورة؛ تُنتظر حتى العدد المتوقَّع. */
+async function settledAudits(r: Rig, count: number): Promise<Array<Record<string, unknown>>> {
+  const deadline = Date.now() + 5000;
+  while (r.audits.length < count && Date.now() < deadline) await new Promise(res => setTimeout(res, 5));
+  await new Promise(res => setImmediate(res));
+  return r.audits.map(l => JSON.parse(l) as Record<string, unknown>);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,7 +268,7 @@ test('الصلاحيات: بلا جلسة 401، مندوب ومالك المنص
   }
 });
 
-test('مدير الشركة وحده (قرار المالك): المشرف والمحاسب 403 COMPANY_ADMIN_ONLY على كل مسار ولو بصلاحية الإعدادات — قبل قراءة الصلاحية وبلا أي كتابة أو طلب للهيئة، والمدير يمرّ، وانتحال المالك للاطلاع فقط', async () => {
+test('مدير الشركة وحده (قرار المالك): المشرف والمحاسب 403 COMPANY_ADMIN_ONLY على كل مسار ولو بصلاحية الإعدادات — قبل قراءة الصلاحية وبلا أي كتابة أو طلب للهيئة، والمدير يمرّ، وانتحال المالك يمرّ كالمدير', async () => {
   let permissionReads = 0;
   const r = await rig({
     deps: {
@@ -306,18 +319,15 @@ test('مدير الشركة وحده (قرار المالك): المشرف وا�
     assert.equal((await call(r, 'GET', `/units/${unit.id}`)).status, 200);
     assert.ok(permissionReads > readsBefore, 'مسار المدير يقرأ حسابه (الدور والصلاحية) من القاعدة');
 
-    // انتحال المالك (توكن ADMIN مع impersonated): القراءة كاملة والكتابة 403 IMPERSONATION_READ_ONLY — لا يُلتفّ عليه بالدور
+    // انتحال المالك (توكن ADMIN مع impersonated — قرار المالك 17 سبتمبر 2026): يمرّ كمدير الشركة الذي يمثّله قراءةً وكتابةً، بقراءة صفّه
     const imp: User = { ...ADMIN, impersonated: true };
+    const readsBeforeImp = permissionReads;
     assert.equal((await call(r, 'GET', '/overview', { user: imp })).status, 200);
     assert.equal((await call(r, 'GET', `/units/${unit.id}`, { user: imp })).status, 200);
-    for (const [m, u, b] of [
-      ['PUT', '/seller', { legalName: 'x' }], ['POST', '/units', { environment: 'simulation' }], ['POST', `/units/${unit.id}/onboard`, { otp: newOtp() }],
-      ['POST', `/units/${unit.id}/retire`, { confirmation: RETIRE_CONFIRMATION_TEXT, reason: 'abandoned' }],
-    ] as Array<[string, string, unknown]>) {
-      const w = await call(r, m, u, { user: imp, body: b });
-      assert.equal(w.status, 403, `${m} ${u}: ${w.text}`);
-      assert.equal(w.body.code, 'IMPERSONATION_READ_ONLY');
-    }
+    const saved = await call(r, 'PUT', '/seller', { user: imp, body: { legalName: 'مؤسسة الانتحال' } });
+    assert.equal(saved.status, 200, saved.text);
+    assert.equal(r.h.store.settings.get(TENANT)?.legalName, 'مؤسسة الانتحال');
+    assert.equal(permissionReads, readsBeforeImp + 3, 'جلسة الانتحال تقرأ صفّ الحساب الذي يمثّله لكل طلب');
     assert.equal(r.h.store.received.length, writes);
     assert.equal(r.h.zatca.calls.length, calls);
     assertNothingLeaked(r);
@@ -420,19 +430,151 @@ test('شركة غير سعودية ⇒ 403 ZATCA_COUNTRY_NOT_SUPPORTED حتى م
   }
 });
 
-test('جلسة انتحال المالك: القراءة مسموحة والكتابة 403 (design §5.3 — لا ربط نيابةً عن الشركة)', async () => {
+test('جلسة دخول مالك المنصة (قرار المالك 17 سبتمبر 2026): حفظ البائع والإنشاء والربط برمز والتجديد وإلغاء التجديد المتوقف والإيقاف كالمدير — وسطر تدقيق واحد لكل كتابة بلا OTP ولا قيم، وactorId موسوم', async () => {
   const r = await rig();
   try {
     const imp: User = { ...ADMIN, impersonated: true };
+    const legalName = 'مؤسسة دخول المالك للتجارة';
     assert.equal((await call(r, 'GET', '/overview', { user: imp })).status, 200);
-    const w = await call(r, 'POST', '/units', { user: imp, body: { environment: 'simulation' } });
-    assert.equal(w.status, 403);
-    assert.equal(w.body.code, 'IMPERSONATION_READ_ONLY');
-    assert.equal((await call(r, 'PUT', '/seller', { user: imp, body: { legalName: 'x' } })).status, 403);
-    assert.equal(r.h.store.received.length, 0);
+
+    const seller = await call(r, 'PUT', '/seller', { user: imp, body: { legalName, addrCity: 'الرياض' } });
+    assert.equal(seller.status, 200, seller.text);
+    assert.equal(r.h.store.settings.get(TENANT)?.legalName, legalName);
+
+    const u = await createSimUnit(r, imp);
+    const noOtp = await call(r, 'POST', `/units/${u.id}/onboard`, { user: imp, body: {} });
+    assert.equal(noOtp.status, 400, noOtp.text);
+    assert.equal(noOtp.body.code, 'OTP_REQUIRED');
+    const otp = r.h.otps.shift() as string;
+    const start = await call(r, 'POST', `/units/${u.id}/onboard`, { user: imp, body: { otp } });
+    assert.equal(start.status, 202, start.text);
+    const onboarded = await poll(r, u.id, imp);
+    assert.equal(onboarded.body.data.unit.status, 'ACTIVE', onboarded.text);
+
+    // تجديد متوقف قبل أي إرسال (عامل مات) ⇒ إلغاؤه يعيد الوحدة ACTIVE
+    const row = r.h.store.units.get(u.id)!;
+    row.status = 'RENEWING';
+    row.updatedAt = r.h.clock.now();
+    r.h.clock.advance(11 * 60 * 1000);
+    const abort = await call(r, 'POST', `/units/${u.id}/abort-renewal`, { user: imp, body: {} });
+    assert.equal(abort.status, 200, abort.text);
+    assert.equal(abort.body.data.unit.status, 'ACTIVE');
+
+    const renewOtp = r.h.renewalOtps.shift() as string;
+    const renew = await call(r, 'POST', `/units/${u.id}/renew`, { user: imp, body: { otp: renewOtp } });
+    assert.equal(renew.status, 202, renew.text);
+    const renewed = await poll(r, u.id, imp);
+    assert.equal(renewed.body.data.unit.status, 'ACTIVE', renewed.text);
+    assert.equal(renewed.body.data.unit.keyVersion, 2);
+
+    const golive = await call(r, 'POST', '/go-live', { user: imp, body: {} });
+    assert.equal(golive.status, 409, 'التفعيل غير متاح قبل Z5 للانتحال أيضاً');
+    assert.equal(golive.body.code, 'GO_LIVE_UNAVAILABLE');
+
+    const retire = await call(r, 'POST', `/units/${u.id}/retire`, { user: imp, body: { reason: 'abandoned', confirmation: RETIRE_CONFIRMATION_TEXT } });
+    assert.equal(retire.status, 200, retire.text);
+    assert.equal(retire.body.data.unit.status, 'REVOKED');
+
+    // سطر واحد لكل طلب كتابة (مقبولاً أو مرفوضاً)، بالترتيب، بمفاتيح ثابتة — والقراءة لا تُسجَّل
+    const lines = await settledAudits(r, 8);
+    const base = { event: OWNER_IMPERSONATION_AUDIT_EVENT, tenantId: TENANT, actorAdminId: ADMIN.id };
+    assert.deepEqual(lines, [
+      { ...base, action: 'seller.update', status: 200 },
+      { ...base, action: 'unit.create', status: 201 },
+      { ...base, action: 'unit.onboard', unitId: u.id, status: 400 },
+      { ...base, action: 'unit.onboard', unitId: u.id, status: 202 },
+      { ...base, action: 'unit.abort-renewal', unitId: u.id, status: 200 },
+      { ...base, action: 'unit.renew', unitId: u.id, status: 202 },
+      { ...base, action: 'go-live', status: 409 },
+      { ...base, action: 'unit.retire', unitId: u.id, status: 200 },
+    ]);
+    const joined = r.audits.join('\n');
+    for (const secret of [otp, renewOtp]) assert.doesNotMatch(joined, otpPattern(secret), 'OTP في سطر التدقيق');
+    for (const leak of [legalName, 'الرياض', 'otp', 'legalName', 'addrCity', RETIRE_CONFIRMATION_TEXT, 'abandoned', 'simulation', 'PRIVATE', 'Secret', 'csr']) {
+      assert.ok(!joined.includes(leak), `سطر التدقيق يحمل «${leak}»`);
+    }
+    // سجلّ الهيئة وأحداث الواجهة: actorId موسوم (نصّ حرّ لا مفتاح أجنبي) لكل ما جرى على الوحدة
+    const unitLogs = r.h.store.apiLogs.filter(l => l.egsUnitId === u.id);
+    assert.ok(unitLogs.length > 0);
+    assert.ok(unitLogs.every(l => l.actorId === `${IMPERSONATION_ACTOR_PREFIX}${ADMIN.id}`), JSON.stringify(unitLogs.map(l => l.actorId)));
+
+    // مدير الشركة نفسه: لا سطر تدقيق ولا وسم
+    const own = await call(r, 'PUT', '/seller', { body: { legalName: 'مؤسسة المدير' } });
+    assert.equal(own.status, 200, own.text);
+    const u2 = await createSimUnit(r);
+    await new Promise(res => setTimeout(res, 20));
+    assert.equal(r.audits.length, 8, 'كتابة المدير نفسه سُجّلت كانتحال');
+    assert.ok(r.h.store.apiLogs.filter(l => l.egsUnitId === u2.id).every(l => l.actorId === ADMIN.id));
+    assertNothingLeaked(r);
   } finally {
     await r.close();
   }
+});
+
+test('جلسة دخول مالك المنصة لا تتجاوز أي حارس آخر: مقيّد النطاق، صفّ خُفِّض أو نُزعت صلاحيته، علم المالك مطفأ، شركة غير سعودية، بيئة غير مسموحة، وحدة شركة أخرى — بالرموز نفسها للمدير، وكل محاولة مسجَّلة', async () => {
+  const r = await rig();
+  try {
+    const imp: User = { ...ADMIN, impersonated: true };
+    const foreign = await createSimUnit(r, ADMIN2);
+    const writes = r.h.store.received.length;
+    const cases: Array<[string, () => void, User, [string, string, unknown], number, string]> = [
+      ['مقيّد النطاق', () => {}, { ...imp, scopeEnabled: true }, ['POST', '/units', { environment: 'simulation' }], 403, 'SCOPED_ADMIN'],
+      ['صفّه مشرف', () => { r.admins.set(ADMIN.id, { isActive: true, role: 'MANAGER', tenantId: TENANT, canManageCompanySettings: true }); }, imp, ['PUT', '/seller', { legalName: 'x' }], 403, 'COMPANY_ADMIN_ONLY'],
+      ['نُزعت صلاحيته', () => { r.admins.set(ADMIN.id, { isActive: true, role: 'ADMIN', tenantId: TENANT, canManageCompanySettings: false }); }, imp, ['POST', '/units', { environment: 'simulation' }], 403, 'PERMISSION_DENIED'],
+      ['العلم مطفأ', () => { r.admins.delete(ADMIN.id); r.flags.set(TENANT, false); }, imp, ['POST', '/units', { environment: 'simulation' }], 403, 'ZATCA_PHASE2_NOT_ALLOWED'],
+      ['غير سعودية', () => { r.flags.set(TENANT, true); r.h.store.settings.get(TENANT)!.countryCode = 'AE'; }, imp, ['PUT', '/seller', { legalName: 'x' }], 403, 'ZATCA_COUNTRY_NOT_SUPPORTED'],
+      ['بيئة غير مسموحة', () => { r.h.store.settings.get(TENANT)!.countryCode = 'SA'; }, imp, ['POST', '/units', { environment: 'production' }], 403, 'ENV_NOT_ALLOWED'],
+      ['وحدة شركة أخرى', () => {}, imp, ['POST', `/units/${foreign.id}/retire`, { reason: 'abandoned', confirmation: RETIRE_CONFIRMATION_TEXT }], 404, 'UNIT_NOT_FOUND'],
+    ];
+    for (const [label, arrange, user, [m, url, body], status, code] of cases) {
+      arrange();
+      const res = await call(r, m, url, { user, body });
+      assert.equal(res.status, status, `${label}: ${res.text}`);
+      assert.equal(res.body.code, code, label);
+      // ضبط: مدير الشركة نفسه في الحال نفسها يُردّ بالرمز نفسه
+      const own = await call(r, m, url, { user: { ...user, impersonated: undefined }, body });
+      assert.equal(own.body.code, code, `${label} (المدير)`);
+    }
+    assert.equal(r.h.store.received.length, writes, 'محاولة مرفوضة كتبت في المخزن');
+    assert.equal(r.h.store.units.get(foreign.id)?.status, 'CSR_READY');
+    assert.equal(r.h.store.settings.get(TENANT)?.legalName, sellerSettings().legalName);
+    const lines = await settledAudits(r, cases.length);
+    assert.deepEqual(lines.map(l => [l.action, l.status]), [
+      ['unit.create', 403], ['seller.update', 403], ['unit.create', 403], ['unit.create', 403], ['seller.update', 403], ['unit.create', 403], ['unit.retire', 404],
+    ]);
+    assert.equal(lines[6].unitId, foreign.id);
+    assert.ok(lines.every(l => l.tenantId === TENANT && l.actorAdminId === ADMIN.id));
+    assertNothingLeaked(r);
+  } finally {
+    await r.close();
+  }
+});
+
+test('سطر تدقيق الانتحال: العملية من المسار ومعرّف الوحدة بصيغته وحدها، أسماء حقول الشركة من القائمة الثابتة، وactorId موسوم للانتحال وحده', () => {
+  assert.deepEqual(zatcaWriteAction('PUT', '/seller'), { action: 'seller.update' });
+  assert.deepEqual(zatcaWriteAction('put', '/Seller/'), { action: 'seller.update' }, 'توجيه Express غير حسّاس لحالة الأحرف والشرطة الأخيرة');
+  assert.deepEqual(zatcaWriteAction('POST', '/units'), { action: 'unit.create' });
+  assert.deepEqual(zatcaWriteAction('POST', '/go-live'), { action: 'go-live' });
+  for (const op of ['onboard', 'renew', 'abort-renewal', 'retire']) {
+    assert.deepEqual(zatcaWriteAction('POST', `/units/u-1/${op}`), { action: `unit.${op}`, unitId: 'u-1' });
+  }
+  assert.deepEqual(zatcaWriteAction('POST', '/units/..%2F..%2Fetc/onboard'), { action: 'unit.onboard' }, 'معرّف بصيغة غير صالحة لا يُكتب');
+  assert.deepEqual(zatcaWriteAction('POST', `/units/${'a'.repeat(129)}/retire`), { action: 'unit.retire' });
+  assert.deepEqual(zatcaWriteAction('DELETE', '/units/u-1'), { action: 'unknown' });
+  assert.deepEqual(zatcaWriteAction('PUT', '/units/u-1/retire'), { action: 'unknown' });
+  assert.deepEqual(zatcaWriteAction('POST', '/constructor'), { action: 'unknown' });
+
+  const line = ownerImpersonationAuditLine({ tenantId: 't1', actorAdminId: 'a1', action: 'company.seller-fields', fields: ['taxNumber', 'legalName', '311111111111113', 'countryCode'] }, 403);
+  assert.equal(line, '{"event":"ZATCA_OWNER_IMPERSONATION_WRITE","tenantId":"t1","actorAdminId":"a1","action":"company.seller-fields","fields":["taxNumber","countryCode"],"status":403}');
+  const odd = JSON.parse(ownerImpersonationAuditLine({ tenantId: undefined, actorAdminId: 'x'.repeat(300), action: 'unit.retire', unitId: 'bad id\n' }, null));
+  assert.deepEqual(Object.keys(odd), ['event', 'tenantId', 'actorAdminId', 'action', 'status']);
+  assert.equal(odd.tenantId, null);
+  assert.equal(odd.actorAdminId.length, 128);
+  assert.equal(odd.status, null, 'انقطع الاتصال قبل الردّ');
+
+  assert.equal(zatcaActorId({ id: 'admin-1' }), 'admin-1');
+  assert.equal(zatcaActorId({ id: 'admin-1', impersonated: false }), 'admin-1');
+  assert.equal(zatcaActorId({ id: 'admin-1', impersonated: true }), 'owner-impersonation:admin-1');
 });
 
 test('IDOR: وحدة شركة أخرى ⇒ 404 على القراءة والربط والتجديد والإلغاء والإيقاف، ولا تظهر في النظرة العامّة، ولا يُستهلك OTP', async () => {
@@ -1175,13 +1317,22 @@ test('التوصيل: العمود مطفأ افتراضياً، في مخطّط
   const route = read('src', 'routes', 'zatca.ts');
   assert.doesNotMatch(route, /config\/database/, 'الموجّه لا يستورد قاعدة البيانات (الاختبارات بلا اتصال)');
   assert.doesNotMatch(route, /console\.(log|error)\([^)]*(req\.body|otp)/i, 'تسجيل جسم الطلب أو OTP');
+  // قرار المالك 17 سبتمبر 2026: لا رفض «للاطلاع فقط» للانتحال في ربط الفوترة وحقول البائع وحسابات المدير — وسطر التدقيق موصول
+  for (const [name, src] of [['zatca.ts', route], ['company.ts', company], ['companyUsers.ts', read('src', 'routes', 'companyUsers.ts')]] as const) {
+    assert.doesNotMatch(src, /IMPERSONATION_READ_ONLY|SELLER_FIELDS_READ_ONLY|ADMIN_ACCOUNT_READ_ONLY/, name);
+  }
+  assert.match(route, /if \(u\?\.impersonated === true && !READ_METHODS\.has\(req\.method\)\) \{\s*auditOwnerImpersonationWrite\(res,/);
+  assert.match(route, /actorId: zatcaActorId\(r\.user!\)/);
+  assert.match(company, /auditOwnerImpersonationWrite\(res, \{ tenantId: tid, actorAdminId: req\.user\.id, action: 'company\.seller-fields', fields: z\.changed \}\)/);
+  const auth = read('src', 'routes', 'auth.ts');
+  assert.match(auth, /if \(payload\.impersonated\) \{\s*res\.status\(401\)\.json\(\{ success: false, code: 'IMPERSONATION_RENEW_REFUSED'/, 'رفض تجديد توكن الانتحال باقٍ');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // انتحال المالك وتجديد التوكن (آخر الملف: يحمّل موجّه /api/auth الحقيقي وPrisma — بلا أي اتصال بقاعدة البيانات)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('انتحال المالك: /api/auth/renew يرفض تجديد توكن الانتحال قبل أي قراءة للحساب، فيبقى ربط الفوترة للاطلاع فقط (IMPERSONATION_READ_ONLY)', async () => {
+test('انتحال المالك: /api/auth/renew يرفض تجديد توكن الانتحال قبل أي قراءة للحساب، فتبقى كتابة ربط الفوترة به موسومة ومسجَّلة حتى انتهائه', async () => {
   // قاعدة بيانات مستحيلة: عنوان حلقة محلية مغلق يُضبط قبل تحميل Prisma (ملف .env لا يطغى على متغيّر مضبوط)،
   // وكل مفوَّض نموذج يُستبدل بفخّ يسجّل ويرمي — فلو وصل التجديد إلى prisma لفشل الاختبار بلا أي اتصال.
   process.env.DATABASE_URL = 'postgresql://offline:offline@127.0.0.1:9/offline?connect_timeout=1';
@@ -1233,9 +1384,11 @@ test('انتحال المالك: /api/auth/renew يرفض تجديد توكن ا
     const impToken = jwt.sign(claims, SECRET, { expiresIn: '2h' });
     const expiredImp = jwt.sign({ ...claims, exp: Math.floor(Date.now() / 1000) - 3600 }, SECRET);
 
+    // قرار المالك 17 سبتمبر 2026: الانتحال يكتب كمدير الشركة — بسطر تدقيق ووسم actorId
     const before = await send('POST', '/api/zatca/units', impToken, { environment: 'simulation' });
-    assert.equal(before.status, 403, before.text);
-    assert.equal(before.body.code, 'IMPERSONATION_READ_ONLY');
+    assert.equal(before.status, 201, before.text);
+    const unitId = before.body.data.unit.id as string;
+    assert.equal((await settledAudits(r, 1)).length, 1);
 
     for (const attempt of [
       () => send('POST', '/api/auth/renew', impToken, {}),
@@ -1250,16 +1403,20 @@ test('انتحال المالك: /api/auth/renew يرفض تجديد توكن ا
       assert.doesNotMatch(renew.text, /eyJ[A-Za-z0-9_-]+\./, 'الردّ يحمل JWT');
     }
 
-    const after = await send('POST', '/api/zatca/units', impToken, { environment: 'simulation' });
-    assert.equal(after.status, 403, after.text);
-    assert.equal(after.body.code, 'IMPERSONATION_READ_ONLY');
-    assert.equal((await send('PUT', '/api/zatca/seller', impToken, { legalName: 'x' })).body.code, 'IMPERSONATION_READ_ONLY');
-    assert.equal(r.h.store.received.length, 0, 'جلسة الانتحال كتبت في المخزن');
+    // بعد رفض التجديد: التوكن نفسه ما زال موسوماً — كل كتابة به سطر تدقيق (لا توكن بلا علم الانتحال يمحو الأثر)
+    const after = await send('PUT', '/api/zatca/seller', impToken, { legalName: 'مؤسسة بعد رفض التجديد' });
+    assert.equal(after.status, 200, after.text);
+    const lines = await settledAudits(r, 2);
+    assert.deepEqual(lines.map(l => [l.action, l.status, l.actorAdminId, l.tenantId]), [['unit.create', 201, ADMIN.id, TENANT], ['seller.update', 200, ADMIN.id, TENANT]]);
+    const logs = r.h.store.apiLogs.filter(l => l.egsUnitId === unitId);
+    assert.ok(logs.length > 0 && logs.every(l => l.actorId === `${IMPERSONATION_ACTOR_PREFIX}${ADMIN.id}`), JSON.stringify(logs.map(l => l.actorId)));
 
-    // ضبط: توكن مدير الشركة نفسه بلا علم الانتحال يمرّ — فالرفض أعلاه بسبب الانتحال وحده
+    // ضبط: توكن مدير الشركة نفسه بلا علم الانتحال — لا سطر تدقيق ولا وسم
     const plain = jwt.sign({ id: ADMIN.id, role: 'ADMIN', name: ADMIN.name, tenantId: TENANT }, SECRET, { expiresIn: '1h' });
-    const own = await send('POST', '/api/zatca/units', plain, { environment: 'simulation' });
-    assert.equal(own.status, 201, own.text);
+    const own = await send('PUT', '/api/zatca/seller', plain, { legalName: 'مؤسسة المدير' });
+    assert.equal(own.status, 200, own.text);
+    await new Promise(res => setTimeout(res, 20));
+    assert.equal(r.audits.length, 2, 'كتابة المدير نفسه سُجّلت كانتحال');
     assert.deepEqual(dbHits, [], 'مسار التجديد قرأ قاعدة البيانات لتوكن انتحال');
   } finally {
     await r.close();

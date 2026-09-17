@@ -24,7 +24,8 @@ import { useZatcaTr as useTr } from './zatcaPhrases';
  * يُعرض فقط حين يفعّل المالك zatcaPhase2Enabled والشركة سعودية — والخادم يفرض الشرطين نفسيهما على كل مسار.
  * رمز التحقق (OTP) يبقى في حالة الحقل حتى الإرسال ثم يُمسح فوراً، ولا يمرّ عبر react-query ولا يُطبع.
  * يُحمَّل كسولاً (CompanySettingsPage) مع عباراته (zatcaPhrases.ts) — لا يدخل حزمة من لا يفتحه.
- * جلسة انتحال المالك للاطلاع فقط (الخادم يردّ كل كتابة 403 IMPERSONATION_READ_ONLY) ⇒ لا تُعرض أزرار الكتابة.
+ * جلسة دخول مالك المنصة تعمل كمدير الشركة تماماً (قرار المالك 17 سبتمبر 2026): كل الحقول والأزرار كما للمدير، مع لافتة معلومات
+ * بأن ما يُحفظ أو يُربط يُنسب إلى مدير الشركة ويُسجَّل (الخادم يكتب سطر تدقيق لكل كتابة ويسم actorId).
  */
 
 /** تركيز حقل (في البطاقة أو في بيانات المنشأة) بعد رسمه. */
@@ -43,6 +44,13 @@ const TONE_CLASS: Record<Tone, string> = {
   warning: 'bg-[#FDF3D8] text-[#8A6100]',
   danger: 'bg-[#FBE3DF] text-[#C0392B]',
 };
+
+/**
+ * زرّ معطَّل يبدو معطَّلاً داخل التبويب وحده (.btn-* بلا حالة disabled عامة): «ربط الوحدة» برمز ناقص أو «حفظ» بلا تغييرات لا
+ * يبدو زرّاً يتجاهل النقر صامتاً. صفوف قائمة الخطوات (أزرار بلا .btn-*) لا تتأثّر.
+ */
+const TAB_DISABLED_BUTTONS = '[&_.btn-primary:disabled]:opacity-50 [&_.btn-primary:disabled]:cursor-not-allowed [&_.btn-secondary:disabled]:opacity-50 '
+  + '[&_.btn-secondary:disabled]:cursor-not-allowed [&_.btn-danger:disabled]:opacity-50 [&_.btn-danger:disabled]:cursor-not-allowed';
 
 const OVERVIEW_KEY = ['zatca', 'overview'] as const;
 const unitKey = (id: string) => ['zatca', 'unit', id] as const;
@@ -155,21 +163,22 @@ function ZatcaPhase2Body({ ov, overviewUpdatedAt, refreshError }: {
 }) {
   const tr = useTr();
   const units = useLiveUnits(ov, overviewUpdatedAt);
-  const readOnly = !!useAuthStore(s => s.impersonating);
+  // جلسة دخول مالك المنصة: لافتة معلومات وحدها — لا وضع اطلاع (الحقول والأزرار كما لمدير الشركة)
+  const ownerSession = !!useAuthStore(s => s.impersonating);
   const active = ov.units.filter(u => u.unit.status !== 'REVOKED');
   const retired = ov.units.filter(u => u.unit.status === 'REVOKED');
 
   return (
-    <div className="space-y-5 max-w-4xl" dir="rtl">
+    <div className={`space-y-5 max-w-4xl ${TAB_DISABLED_BUTTONS}`} dir="rtl">
       {refreshError && <OverviewRefreshError {...refreshError} />}
-      <StatusHeader ov={ov} units={units} readOnly={readOnly} />
-      <SellerCard ov={ov} readOnly={readOnly} />
+      <StatusHeader ov={ov} units={units} ownerSession={ownerSession} />
+      <SellerCard ov={ov} />
       <div className="card">
         <SectionTitle icon={<Plug size={20} />} title={tr('ربط وحدة الفوترة مع هيئة الزكاة والضريبة والجمارك')}
           subtitle={tr('وحدة واحدة لكل بيئة تُصدر شهادة الإنتاج التي تُوقَّع بها فواتير شركتك')} />
         <div className="space-y-4">
-          {active.map(p => <UnitCard key={p.unit.id} initial={p} overviewUpdatedAt={overviewUpdatedAt} ov={ov} readOnly={readOnly} />)}
-          {!readOnly && <CreateUnit ov={ov} units={units} />}
+          {active.map(p => <UnitCard key={p.unit.id} initial={p} overviewUpdatedAt={overviewUpdatedAt} ov={ov} />)}
+          <CreateUnit ov={ov} units={units} />
         </div>
       </div>
       <GoLiveCard ov={ov} />
@@ -180,7 +189,7 @@ function ZatcaPhase2Body({ ov, overviewUpdatedAt, refreshError }: {
 
 // ─── رأس الحالة ───
 
-function StatusHeader({ ov, units, readOnly }: { ov: ZatcaOverview; units: ZatcaUnitPayload[]; readOnly: boolean }) {
+function StatusHeader({ ov, units, ownerSession }: { ov: ZatcaOverview; units: ZatcaUnitPayload[]; ownerSession: boolean }) {
   const tr = useTr();
   const now = new Date();
   const primary = primaryUnit(units.filter(u => u.unit.status !== 'REVOKED'));
@@ -222,10 +231,8 @@ function StatusHeader({ ov, units, readOnly }: { ov: ZatcaOverview; units: Zatca
         </div>
       </div>
 
-      {readOnly && (
-        <Banner tone="info" icon={<Eye size={16} />} title={tr('جلسة اطلاع من مالك المنصة — للاطلاع فقط')}>
-          {tr('حفظ بيانات المنشأة وربط الوحدات وتجديدها وإيقافها يجريها مدير الشركة بنفسه')}
-        </Banner>
+      {ownerSession && (
+        <Banner tone="info" icon={<Eye size={16} />} title={tr('أنت داخل كمالك المنصة — ما تحفظه أو تربطه هنا يُنسب إلى مدير الشركة ويُسجَّل')} />
       )}
       {!ov.secretsReady && (
         <Banner tone="danger" icon={<Lock size={16} />} title={tr('الخادم غير مهيأ بعد لربط الفوترة الإلكترونية')}>
@@ -270,7 +277,7 @@ function StatusHeader({ ov, units, readOnly }: { ov: ZatcaOverview; units: Zatca
 const ADDRESS_FIELDS: ZatcaSellerField[] = ['addrStreet', 'addrBuildingNo', 'addrAdditionalNo', 'addrDistrict', 'addrCity', 'addrPostalCode'];
 const LTR_FIELDS: ReadonlySet<ZatcaSellerField> = new Set<ZatcaSellerField>(['taxNumber', 'commercialReg', 'sellerIdValue', 'addrBuildingNo', 'addrAdditionalNo', 'addrPostalCode', 'vatGroupTin']);
 
-function SellerCard({ ov, readOnly }: { ov: ZatcaOverview; readOnly: boolean }) {
+function SellerCard({ ov }: { ov: ZatcaOverview }) {
   const tr = useTr();
   const qc = useQueryClient();
   const [draft, setDraft] = useState<SellerDraft>(() => draftOf(ov.seller));
@@ -338,7 +345,7 @@ function SellerCard({ ov, readOnly }: { ov: ZatcaOverview; readOnly: boolean }) 
         <label className="label" htmlFor={`zatca-${f}`}>{tr(SELLER_FIELD_LABEL[f])}</label>
         <input id={`zatca-${f}`} className={`input ${err || hintIsError ? 'border-[#C0392B] focus:ring-[#C0392B]/30' : hint ? 'border-[#E0B040]' : ''}`} value={draft[f]}
           dir={LTR_FIELDS.has(f) ? 'ltr' : undefined} inputMode={LTR_FIELDS.has(f) && f !== 'sellerIdValue' && f !== 'commercialReg' ? 'numeric' : undefined}
-          placeholder={opts.placeholder} onChange={e => set(f, e.target.value)} aria-invalid={!!err || hintIsError} readOnly={readOnly} />
+          placeholder={opts.placeholder} onChange={e => set(f, e.target.value)} aria-invalid={!!err || hintIsError} />
         {err && <p className="text-[#C0392B] text-xs mt-1">{tr(err)}</p>}
         {hint && <p className={`text-xs mt-1 leading-relaxed ${hintIsError ? 'text-[#C0392B]' : 'text-[#8A6100]'}`}>{hint}</p>}
       </div>
@@ -355,7 +362,7 @@ function SellerCard({ ov, readOnly }: { ov: ZatcaOverview; readOnly: boolean }) 
         {field('commercialReg')}
         <div>
           <label className="label" htmlFor="zatca-sellerIdScheme">{tr(SELLER_FIELD_LABEL.sellerIdScheme)}</label>
-          <select id="zatca-sellerIdScheme" className="input" value={draft.sellerIdScheme} disabled={readOnly} onChange={e => set('sellerIdScheme', e.target.value)}>
+          <select id="zatca-sellerIdScheme" className="input" value={draft.sellerIdScheme} onChange={e => set('sellerIdScheme', e.target.value)}>
             <option value="">{tr('السجل التجاري (الافتراضي)')}</option>
             {SELLER_ID_SCHEMES.map(s => <option key={s} value={s}>{tr(SELLER_ID_SCHEME_LABEL[s])}</option>)}
           </select>
@@ -385,15 +392,13 @@ function SellerCard({ ov, readOnly }: { ov: ZatcaOverview; readOnly: boolean }) 
         </div>
       )}
 
-      {!readOnly && (
-        <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <button type="button" className="btn-primary" disabled={saving || !dirty} onClick={save}>
-            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            {tr('حفظ بيانات المنشأة')}
-          </button>
-          {!dirty && <span className="text-xs text-[#6E6557]">{tr('لا تغييرات غير محفوظة')}</span>}
-        </div>
-      )}
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <button type="button" className="btn-primary" disabled={saving || !dirty} onClick={save}>
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          {tr('حفظ بيانات المنشأة')}
+        </button>
+        {!dirty && <span className="text-xs text-[#6E6557]">{tr('لا تغييرات غير محفوظة')}</span>}
+      </div>
 
       <div className="mt-4 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] px-4 py-3">
         <p className="text-sm font-semibold text-[#1F1A13] flex items-center gap-2">
@@ -677,7 +682,7 @@ function FailurePanel({ outcome, lastError, onNewOtp, onRetire, onRetry, onFix, 
   );
 }
 
-function UnitCard({ initial, overviewUpdatedAt, ov, readOnly }: { initial: ZatcaUnitPayload; overviewUpdatedAt: number; ov: ZatcaOverview; readOnly: boolean }) {
+function UnitCard({ initial, overviewUpdatedAt, ov }: { initial: ZatcaUnitPayload; overviewUpdatedAt: number; ov: ZatcaOverview }) {
   const tr = useTr();
   const qc = useQueryClient();
   const id = initial.unit.id;
@@ -702,7 +707,7 @@ function UnitCard({ initial, overviewUpdatedAt, ov, readOnly }: { initial: Zatca
 
   const p = q.data ?? initial;
   const u = p.unit;
-  const actions = cardControls(p, ov.allowedEnvs, readOnly);
+  const actions = cardControls(p, ov.allowedEnvs);
   const failure = failureOf(p);
   const st = cardStatusLabel(p);
   const pollError = q.isError ? apiErrorOf(q.error) : null;

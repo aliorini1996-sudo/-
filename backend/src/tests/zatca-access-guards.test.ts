@@ -1,11 +1,13 @@
 // حرّاس الوصول إلى بيانات ربط فوترة ZATCA خارج مسارات الخدمة نفسها — بالموجّهات الإنتاجية الحقيقية (authenticate بتوقيع JWT
 // حقيقي، productionZatcaDeps، /api/company، /api/company-users) فوق Prisma مزيّف في الذاكرة: لا قاعدة بيانات ولا شبكة.
 //   1) الدور من القاعدة لا من التوكن: مدير خُفِّض إلى مشرف وتوكنه ما زال ADMIN يُمنع من /api/zatca فوراً.
-//   2) PUT /api/company لشركة بعلم المالك: الرقم الضريبي والسجل التجاري والدولة لمدير الشركة (دوره من القاعدة) خارج الانتحال
-//      وغير مقيّد النطاق، وبصيغ PUT /api/zatca/seller — وحفظ الشعار أو الاسم بالقيم نفسها لا يُرفض.
+//   2) PUT /api/company لشركة بعلم المالك: الرقم الضريبي والسجل التجاري والدولة لمدير الشركة (دوره من القاعدة) غير مقيّد النطاق،
+//      وبصيغ PUT /api/zatca/seller — وحفظ الشعار أو الاسم بالقيم نفسها لا يُرفض.
 //   3) /api/company-users: مشرف أو محاسب يملك إدارة المستخدمين لا ينشئ حساب مدير ولا يرقّي إليه ولا يخفّضه ولا يغيّر كلمة مروره،
-//      ولشركة بعلم المالك لا يفعل ذلك انتحالُ المالك ولا المدير المقيّد، ولا يغيّر تقييد نطاق مدير إلا مدير غير مقيّد خارج الانتحال
-//      (وإلا رفع المقيّد تقييد نفسه بمشرف ينشئه)؛ والحذف بدور القاعدة لا التوكن.
+//      ولشركة بعلم المالك لا يفعل ذلك المدير المقيّد، ولا يغيّر تقييد نطاق مدير إلا مدير غير مقيّد (وإلا رفع المقيّد تقييد نفسه
+//      بمشرف ينشئه)؛ والحذف بدور القاعدة لا التوكن.
+//   4) جلسة دخول مالك المنصة (قرار المالك 17 سبتمبر 2026) تعمل في الثلاثة كحساب المدير الذي يمثّله توكنها — دوره ونطاقه من صفّه —
+//      وكل كتابة بها على ربط الفوترة أو حقول البائع (بعلم المالك) سطر تدقيق واحد بلا قيم (console.warn افتراضياً).
 import { guardHits } from '../compliance/zatca/__fixtures__/z3-netguard';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +23,27 @@ const T2 = 'tenant-guard-2';
 after(() => {
   assert.equal(guardHits(), 0, 'محاولة شبكة حقيقية من اختبارات الحرّاس');
 });
+
+// ─── أسطر تدقيق جلسة دخول المالك كما يصدرها الإنتاج (defaultAuditEmit ⇒ console.warn) ───
+
+const AUDIT_EVENT = 'ZATCA_OWNER_IMPERSONATION_WRITE';
+const auditLines: string[] = [];
+const forwardWarn = console.warn.bind(console);
+console.warn = (...args: unknown[]) => {
+  if (args.length === 1 && typeof args[0] === 'string' && args[0].includes(`"event":"${AUDIT_EVENT}"`)) {
+    auditLines.push(args[0]);
+    return;
+  }
+  forwardWarn(...args);
+};
+
+/** تُصدر عند «finish» على الخادم — تُنتظر حتى العدد المتوقَّع ثم دورة إضافية (لا سطر زائد من «close»). */
+async function settledAudits(count: number): Promise<Array<Record<string, unknown>>> {
+  const deadline = Date.now() + 5000;
+  while (auditLines.length < count && Date.now() < deadline) await new Promise(res => setTimeout(res, 5));
+  await new Promise(res => setTimeout(res, 20));
+  return auditLines.map(l => JSON.parse(l) as Record<string, unknown>);
+}
 
 // ─── Prisma مزيّف في الذاكرة ───
 
@@ -243,6 +266,41 @@ test('productionZatcaDeps: توكن ADMIN وصفّ القاعدة MANAGER أو A
   assert.equal(golive.body.code, 'GO_LIVE_UNAVAILABLE');
 });
 
+test('productionZatcaDeps وجلسة دخول مالك المنصة: تعبر البوابة بصفّ الحساب الذي يمثّله توكنها (مقيّد ⇒ SCOPED_ADMIN، خُفِّض ⇒ COMPANY_ADMIN_ONLY، مدير ⇒ مسار التفعيل 409) — وسطر تدقيق console.warn واحد لكل كتابة بلا OTP، ولا شيء للقراءة', async () => {
+  reset();
+  auditLines.length = 0;
+  const imp = token('admin-1', 'ADMIN', T1, true);
+  const unitId = '00000000-0000-4000-8000-000000000001';
+  db.admins.get('admin-1')!.scopeEnabled = true;
+  const scoped = await send('POST', '/api/zatca/go-live', imp, {});
+  assert.equal(scoped.status, 403, scoped.text);
+  assert.equal(scoped.body.code, 'SCOPED_ADMIN');
+  db.admins.get('admin-1')!.scopeEnabled = false;
+  const golive = await send('POST', '/api/zatca/go-live', imp, {});
+  assert.equal(golive.status, 409, golive.text);
+  assert.equal(golive.body.code, 'GO_LIVE_UNAVAILABLE', 'الانتحال يعبر كل البوابة كالمدير');
+  db.admins.get('admin-1')!.role = 'MANAGER';
+  const demoted = await send('POST', `/api/zatca/units/${unitId}/onboard`, imp, { otp: '123456' });
+  assert.equal(demoted.status, 403, demoted.text);
+  assert.equal(demoted.body.code, 'COMPANY_ADMIN_ONLY');
+  const read = await send('GET', '/api/zatca/overview', imp);
+  assert.equal(read.body.code, 'COMPANY_ADMIN_ONLY');
+  const lines = await settledAudits(3);
+  const base = { event: AUDIT_EVENT, tenantId: T1, actorAdminId: 'admin-1' };
+  assert.deepEqual(lines, [
+    { ...base, action: 'go-live', status: 403 },
+    { ...base, action: 'go-live', status: 409 },
+    { ...base, action: 'unit.onboard', unitId, status: 403 },
+  ]);
+  assert.ok(!auditLines.join('\n').includes('123456'), 'OTP في سطر التدقيق');
+  assert.deepEqual(db.writes, []);
+  // مدير الشركة نفسه: لا سطر
+  db.admins.get('admin-1')!.role = 'ADMIN';
+  assert.equal((await send('POST', '/api/zatca/go-live', token('admin-1', 'ADMIN'), {})).status, 409);
+  await new Promise(res => setTimeout(res, 30));
+  assert.equal(auditLines.length, 3, 'كتابة المدير نفسه سُجّلت كانتحال');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 2) PUT /api/company وحقول البائع
 // ─────────────────────────────────────────────────────────────────────────────
@@ -275,20 +333,45 @@ test('PUT /api/company بعلم المالك: المشرف والمحاسب (د�
   assert.equal(db.settings.get(T1)!.countryCode, 'SA');
 });
 
-test('PUT /api/company بعلم المالك: توكن ADMIN وصفّ القاعدة MANAGER ⇒ 403، وانتحال المالك ⇒ 403 للاطلاع فقط، والمدير يغيّر بصيغ /api/zatca/seller (تطبيع وVAT سعودي)', async () => {
+test('PUT /api/company بعلم المالك: توكن ADMIN وصفّ القاعدة MANAGER ⇒ 403، وانتحال المالك يغيّر كحساب المدير الذي يمثّله (بسطر تدقيق بأسماء الحقول لا قيمها)، والمدير يغيّر بصيغ /api/zatca/seller (تطبيع وVAT سعودي)', async () => {
   reset();
+  auditLines.length = 0;
   db.admins.get('admin-2')!.role = 'MANAGER';
   const demoted = await send('PUT', '/api/company', token('admin-2', 'ADMIN'), generalSave({ taxNumber: '311111111111113' }));
   assert.equal(demoted.status, 403, demoted.text);
   assert.equal(demoted.body.code, 'SELLER_FIELDS_ADMIN_ONLY');
-
-  const imp = await send('PUT', '/api/company', token('admin-1', 'ADMIN', T1, true), generalSave({ countryCode: 'AE' }));
-  assert.equal(imp.status, 403, imp.text);
-  assert.equal(imp.body.code, 'SELLER_FIELDS_READ_ONLY');
-  assert.deepEqual(imp.body.fields, ['countryCode']);
   assert.equal(settingsWrites().length, 0);
-  // الانتحال بلا تغيير في هذه الحقول (شعار) يمرّ كما كان
-  assert.equal((await send('PUT', '/api/company', token('admin-1', 'ADMIN', T1, true), generalSave({ logo: '' }))).status, 200);
+
+  // قرار المالك 17 سبتمبر 2026: جلسة دخول المالك بحساب المدير admin-1 تغيّر الحقول بصيغ /api/zatca/seller نفسها
+  const impTok = token('admin-1', 'ADMIN', T1, true);
+  const impBad = await send('PUT', '/api/company', impTok, generalSave({ taxNumber: '12345' }));
+  assert.equal(impBad.status, 400, impBad.text);
+  assert.equal(impBad.body.code, 'SELLER_INVALID');
+  const imp = await send('PUT', '/api/company', impTok, generalSave({ taxNumber: ' ٣٢٢٢٢٢٢٢٢٢٢٢٢٢٣', countryCode: 'SA' }));
+  assert.equal(imp.status, 200, imp.text);
+  assert.equal(db.settings.get(T1)!.taxNumber, '322222222222223', 'يُحفظ مطبَّعاً');
+  // الانتحال بلا تغيير في هذه الحقول (شعار) يمرّ بلا سطر تدقيق
+  assert.equal((await send('PUT', '/api/company', impTok, generalSave({ taxNumber: '322222222222223', logo: '' }))).status, 200);
+  // وانتحال حساب خُفِّض صفّه ⇒ الرفض نفسه للمدير المخفَّض
+  const impDemoted = await send('PUT', '/api/company', token('admin-2', 'ADMIN', T1, true), generalSave({ taxNumber: '311111111111113', commercialReg: '2020020202' }));
+  assert.equal(impDemoted.status, 403, impDemoted.text);
+  assert.equal(impDemoted.body.code, 'SELLER_FIELDS_ADMIN_ONLY');
+  const lines = await settledAudits(3);
+  const base = { event: AUDIT_EVENT, tenantId: T1, action: 'company.seller-fields' };
+  assert.deepEqual(lines, [
+    { ...base, actorAdminId: 'admin-1', fields: ['taxNumber'], status: 400 },
+    { ...base, actorAdminId: 'admin-1', fields: ['taxNumber'], status: 200 },
+    { ...base, actorAdminId: 'admin-2', fields: ['taxNumber', 'commercialReg'], status: 403 },
+  ]);
+  const joined = auditLines.join('\n');
+  for (const value of ['12345', '322222222222223', '٣٢٢', '311111111111113', '2020020202', '1010010101', 'شركة']) assert.ok(!joined.includes(value), `قيمة «${value}» في سطر التدقيق`);
+  // بلا علم المالك: لا حارس ولا سطر (السلوك كما كان)
+  db.tenants.get(T1)!.zatcaPhase2Enabled = false;
+  assert.equal((await send('PUT', '/api/company', impTok, generalSave({ taxNumber: '333333333333333' }))).status, 200);
+  await new Promise(res => setTimeout(res, 30));
+  assert.equal(auditLines.length, 3, 'سطر تدقيق لشركة بلا علم المالك');
+  db.tenants.get(T1)!.zatcaPhase2Enabled = true;
+  db.settings.get(T1)!.taxNumber = '399999999900003';
 
   const bad = await send('PUT', '/api/company', token('admin-1', 'ADMIN'), generalSave({ taxNumber: '12345' }));
   assert.equal(bad.status, 400, bad.text);
@@ -410,7 +493,7 @@ test('company-users: مشرف أو محاسب يملك إدارة المستخد
   assert.notEqual(db.admins.get('admin-2')!.passwordHash, 'h');
 });
 
-test('company-users بعلم المالك: انتحال المالك والمدير المقيّد (تردّهما بوابة /api/zatca) لا ينشئان مديراً ولا يرقّيان إليه ولا يخفّضانه ولا يغيّران كلمة مروره — وما دون ذلك يمرّ، وبلا العلم كما كان', async () => {
+test('company-users بعلم المالك: المدير المقيّد (تردّه بوابة /api/zatca) — ولو بجلسة دخول المالك — لا ينشئ مديراً ولا يرقّي إليه ولا يخفّضه ولا يغيّر كلمة مروره، وجلسة دخول المالك بحساب مدير غير مقيّد تديرها كالمدير — وما دون ذلك يمرّ، وبلا العلم كما كان', async () => {
   const escalations: Array<[string, string, Row]> = [
     ['POST', '/api/company-users', newUser('ADMIN')],
     ['PUT', '/api/company-users/manager-1', { role: 'ADMIN' }],
@@ -419,8 +502,9 @@ test('company-users بعلم المالك: انتحال المالك والمد�
     ['PUT', '/api/company-users/admin-1', { password: 'NewPassw0rd!!' }],
   ];
   const callers: Array<[string, () => string, string]> = [
-    ['انتحال المالك', () => token('admin-1', 'ADMIN', T1, true), 'ADMIN_ACCOUNT_READ_ONLY'],
     ['مدير مقيّد النطاق', () => { db.admins.get('admin-1')!.scopeEnabled = true; return token('admin-1', 'ADMIN'); }, 'ADMIN_ACCOUNT_SCOPED'],
+    // جلسة دخول المالك تعمل كحساب المدير الذي يمثّله توكنها (قرار المالك 17 سبتمبر 2026): مقيّد ⇒ الرفض نفسه
+    ['انتحال مدير مقيّد النطاق', () => { db.admins.get('admin-1')!.scopeEnabled = true; return token('admin-1', 'ADMIN', T1, true); }, 'ADMIN_ACCOUNT_SCOPED'],
   ];
   for (const [label, tokOf, code] of callers) {
     reset();
@@ -447,19 +531,20 @@ test('company-users بعلم المالك: انتحال المالك والمد�
     assert.equal((await send('PUT', '/api/company-users/admin-2', tok, { password: 'NewPassw0rd!!' })).status, 200, `${label} بلا العلم`);
   }
 
-  // مدير غير مقيّد خارج الانتحال: لا يُقرأ علم الشركة أصلاً، وكل حسابات المدير كما كانت
-  reset();
-  const adminTok = token('admin-1', 'ADMIN');
-  assert.equal((await send('POST', '/api/company-users', adminTok, newUser('ADMIN'))).status, 201);
-  assert.equal((await send('PUT', '/api/company-users/manager-1', adminTok, { role: 'ADMIN' })).status, 200);
-  assert.equal((await send('PUT', '/api/company-users/admin-2', adminTok, { password: 'NewPassw0rd!!' })).status, 200);
-  assert.equal((await send('PUT', '/api/company-users/admin-2', adminTok, { role: 'MANAGER' })).status, 200);
-  const flagReads = db.tenantReads;
-  assert.equal((await send('PUT', '/api/company-users/manager-1', adminTok, { password: 'NewPassw0rd!!' })).status, 200);
-  assert.equal(db.tenantReads, flagReads + 1, 'قراءة واحدة (ledgerSuiteOn) — لا قراءة للعلم لمدير غير مقيّد');
+  // مدير غير مقيّد — بتوكنه أو بجلسة دخول المالك بحسابه: لا يُقرأ علم الشركة أصلاً، وكل حسابات المدير كما كانت
+  for (const [label, adminTok] of [['المدير', token('admin-1', 'ADMIN')], ['انتحال المدير', token('admin-1', 'ADMIN', T1, true)]] as const) {
+    reset();
+    assert.equal((await send('POST', '/api/company-users', adminTok, newUser('ADMIN'))).status, 201, label);
+    assert.equal((await send('PUT', '/api/company-users/manager-1', adminTok, { role: 'ADMIN' })).status, 200, label);
+    assert.equal((await send('PUT', '/api/company-users/admin-2', adminTok, { password: 'NewPassw0rd!!' })).status, 200, label);
+    assert.equal((await send('PUT', '/api/company-users/admin-2', adminTok, { role: 'MANAGER' })).status, 200, label);
+    const flagReads = db.tenantReads;
+    assert.equal((await send('PUT', '/api/company-users/manager-1', adminTok, { password: 'NewPassw0rd!!' })).status, 200, label);
+    assert.equal(db.tenantReads, flagReads + 1, `${label}: قراءة واحدة (ledgerSuiteOn) — لا قراءة للعلم لمدير غير مقيّد`);
+  }
 });
 
-test('company-users/:id/scope بعلم المالك: مدير مقيّد لا يرفع تقييد نفسه عبر مشرف ينشئه أو يعيد تعيين كلمة مروره، ولا انتحال المالك — فتبقى بوابة /api/zatca وحقول البائع مغلقة؛ وما ليس تقييد مدير وبلا العلم كما كان', async () => {
+test('company-users/:id/scope بعلم المالك: مدير مقيّد لا يرفع تقييد نفسه عبر مشرف ينشئه أو يعيد تعيين كلمة مروره، ولا بجلسة دخول المالك بحسابه — فتبقى بوابة /api/zatca وحقول البائع مغلقة؛ وما ليس تقييد مدير وبلا العلم كما كان', async () => {
   reset();
   db.admins.get('admin-1')!.scopeEnabled = true;
   const scopedTok = token('admin-1', 'ADMIN');
@@ -474,13 +559,16 @@ test('company-users/:id/scope بعلم المالك: مدير مقيّد لا ي
     assert.equal(lift.status, 403, `${id}: ${lift.text}`);
     assert.equal(lift.body.code, 'COMPANY_ADMIN_SCOPE_ONLY', id);
   }
-  // ولا يقيّد المشرف مديراً غير مقيّد، ولا يرفع انتحال المالك التقييد
+  // ولا يقيّد المشرف مديراً غير مقيّد، ولا يرفع المقيّد تقييد نفسه بجلسة دخول المالك (تعمل كحسابه المقيّد)
   const tighten = await send('PUT', '/api/company-users/admin-2/scope', token('manager-1', 'MANAGER'), { scopeEnabled: true });
   assert.equal(tighten.status, 403, tighten.text);
   assert.equal(tighten.body.code, 'COMPANY_ADMIN_SCOPE_ONLY');
-  const imp = await send('PUT', '/api/company-users/admin-1/scope', token('admin-2', 'ADMIN', T1, true), { scopeEnabled: false });
-  assert.equal(imp.status, 403, imp.text);
-  assert.equal(imp.body.code, 'ADMIN_ACCOUNT_READ_ONLY');
+  // (مسار النطاق يردّ المستخدم المقيّد قبل حارس حسابات المدير — guardScopeAdmin — والجلسة تُردّ ردَّ حسابها نفسه)
+  for (const tok of [token('admin-1', 'ADMIN', T1, true), scopedTok]) {
+    const self = await send('PUT', '/api/company-users/admin-1/scope', tok, { scopeEnabled: false });
+    assert.equal(self.status, 403, self.text);
+    assert.match(self.body.message, /مقيد بنطاق/);
+  }
   assert.ok(!db.writes.some(w => w.op === 'admin.update' && 'scopeEnabled' in (w.data as Row)), JSON.stringify(db.writes));
   assert.equal(db.admins.get('admin-1')!.scopeEnabled, true);
   assert.equal(db.admins.get('admin-2')!.scopeEnabled, false);
@@ -503,6 +591,11 @@ test('company-users/:id/scope بعلم المالك: مدير مقيّد لا ي
   const byAdmin = await send('PUT', '/api/company-users/admin-1/scope', token('admin-2', 'ADMIN'), { scopeEnabled: false });
   assert.equal(byAdmin.status, 200, byAdmin.text);
   assert.equal(db.admins.get('admin-1')!.scopeEnabled, false);
+  // وجلسة دخول المالك بحساب المدير غير المقيّد ترفعه كالمدير (قرار المالك 17 سبتمبر 2026)
+  db.admins.get('admin-1')!.scopeEnabled = true;
+  const byImp = await send('PUT', '/api/company-users/admin-1/scope', token('admin-2', 'ADMIN', T1, true), { scopeEnabled: false });
+  assert.equal(byImp.status, 200, byImp.text);
+  assert.equal(db.admins.get('admin-1')!.scopeEnabled, false);
   assert.equal((await send('POST', '/api/zatca/go-live', scopedTok, {})).body.code, 'GO_LIVE_UNAVAILABLE');
 
   // بلا علم المالك: المشرف يغيّر تقييد المدير كما كان
@@ -523,17 +616,17 @@ test('رسائل رفض حسابات المدير لا تذكر ما يُسمح 
   const emitted = new Map<string, Set<string>>(); // الرمز ⇒ حالات العلم التي يُردّ فيها
   for (const flag of [false, true]) {
     for (const role of ['ADMIN', 'MANAGER', 'ACCOUNTANT']) {
-      for (const impersonated of [false, true]) {
-        for (const scoped of [false, true]) {
-          for (const [kind, change] of kinds) {
-            const code = await adminAccountChangeRefusal({ role, impersonated }, change, { scoped: async () => scoped, zatcaPhase2On: async () => flag });
-            const label = `علم=${flag} ${role} انتحال=${impersonated} مقيّد=${scoped} ${kind}`;
-            if (role !== 'ADMIN' && kind === 'تقييد النطاق') assert.equal(code, flag ? 'COMPANY_ADMIN_SCOPE_ONLY' : null, label);
-            else if (role !== 'ADMIN') assert.equal(code, 'COMPANY_ADMIN_ACCOUNT_ONLY', label);
-            if (code) {
-              if (!emitted.has(code)) emitted.set(code, new Set());
-              emitted.get(code)!.add(`${flag}:${kind}`);
-            }
+      // لا بُعد للانتحال: جلسة دخول المالك تُعامل كحساب المدير الذي يمثّله (دوره ونطاقه من صفّه)
+      for (const scoped of [false, true]) {
+        for (const [kind, change] of kinds) {
+          const code = await adminAccountChangeRefusal({ role }, change, { scoped: async () => scoped, zatcaPhase2On: async () => flag });
+          const label = `علم=${flag} ${role} مقيّد=${scoped} ${kind}`;
+          if (role !== 'ADMIN' && kind === 'تقييد النطاق') assert.equal(code, flag ? 'COMPANY_ADMIN_SCOPE_ONLY' : null, label);
+          else if (role !== 'ADMIN') assert.equal(code, 'COMPANY_ADMIN_ACCOUNT_ONLY', label);
+          else assert.equal(code, flag && scoped ? 'ADMIN_ACCOUNT_SCOPED' : null, label);
+          if (code) {
+            if (!emitted.has(code)) emitted.set(code, new Set());
+            emitted.get(code)!.add(`${flag}:${kind}`);
           }
         }
       }
