@@ -1,10 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import http from 'http';
+import https from 'https';
 import crypto from 'crypto';
 import prisma from '../config/database';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { resolveAttribution, contentTypeOf, makeWaCode } from '../services/attribution';
+import { resolveAttribution, contentTypeOf, makeWaCode, requestOptedOut, ipFingerprint, geoLookupUrl } from '../services/attribution';
 import { computeLiveCounts, LIVE_WINDOW_MIN } from '../services/presence';
 import { riyadhDay } from '../services/requestCounter';
 import { setInfraSnapshot, getInfraSnapshot } from '../services/infraMetrics';
@@ -20,11 +21,17 @@ function clientIp(req: Request): string {
   return ip.replace(/^::ffff:/, '');
 }
 
-// تحديد الدولة/المدينة من IP عبر خدمة مجانية (best-effort مع مهلة قصيرة)
+// تحديد الدولة/المدينة من IP عبر خدمة خارجية (best-effort مع مهلة قصيرة)
+// ⚠️ النقطة المجانية ip-api.com تعمل بـHTTP فقط (العنوان يُرسل غير مشفّر) وشروطها تمنع
+// الاستخدام التجاري. ضبط `IPAPI_KEY` (اشتراك ip-api Pro) ينقل الطلب إلى HTTPS بترخيص تجاري.
+// لا يُستدعى أصلاً لزائر رفض القياس (requestOptedOut).
 function geoLookup(ip: string): Promise<{ country?: string; countryCode?: string; region?: string; city?: string }> {
   return new Promise((resolve) => {
     if (!ip || ip.startsWith('127.') || ip === '::1' || ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) return resolve({});
-    const r = http.get(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,regionName,city`, (resp) => {
+    // عنوان غير صالح (X-Forwarded-For عبث) ⇒ لا طلب؛ ip-api كان سيردّ فشلاً فالناتج {} نفسه
+    const url = geoLookupUrl(ip, process.env.IPAPI_KEY);
+    if (!url) return resolve({});
+    const onResp = (resp: http.IncomingMessage) => {
       let d = '';
       resp.on('data', (c) => (d += c));
       resp.on('end', () => {
@@ -33,7 +40,8 @@ function geoLookup(ip: string): Promise<{ country?: string; countryCode?: string
           resolve(j.status === 'success' ? { country: j.country, countryCode: j.countryCode, region: j.regionName, city: j.city } : {});
         } catch { resolve({}); }
       });
-    });
+    };
+    const r = url.startsWith('https:') ? https.get(url, onResp) : http.get(url, onResp);
     r.on('error', () => resolve({}));
     r.setTimeout(2500, () => { r.destroy(); resolve({}); });
   });
@@ -42,17 +50,22 @@ function geoLookup(ip: string): Promise<{ country?: string; countryCode?: string
 // تسجيل زيارة — عام (يُستدعى من الواجهة عند تحميل صفحة عامّة)
 router.post('/track', async (req: Request, res: Response) => {
   try {
-    const { path, referrer, lang, utm, anonId, sessionId, first } = req.body || {};
+    const body = req.body || {};
+    const { path, referrer, lang } = body;
     if (!path || typeof path !== 'string') { res.status(204).end(); return; }
+    // رفض القياس (Sec-GPC/DNT أو علَم الواجهة) ⇒ لا بصمة IP ولا تحديد موقع ولا معرّفات ولا وسوم
+    const optedOut = requestOptedOut(req.headers, body.optOut);
+    const { utm, anonId, sessionId, first } = optedOut ? ({} as Record<string, undefined>) : body;
     const ua = String(req.headers['user-agent'] || '');
     const isBot = BOT_RE.test(ua);
-    const ip = clientIp(req);
-    const ipHash = ip ? crypto.createHash('sha256').update(ip + (process.env.IP_SALT || 'fieldsa-visits')).digest('hex').slice(0, 16) : null;
+    const ip = optedOut ? '' : clientIp(req);
+    // بصمة بملح سرّي دائماً (IP_SALT أو مشتقّ من JWT_SECRET) — لا ملح مكتوب في الكود
+    const ipHash = ipFingerprint(ip);
     let referrerHost: string | null = null;
     if (referrer && typeof referrer === 'string') {
       try { const h = new URL(referrer).hostname; if (h && !/(^|\.)fieldsa\.net$/.test(h)) referrerHost = h; } catch { /* تجاهل */ }
     }
-    const geo = isBot ? {} : await geoLookup(ip);
+    const geo = isBot || !ip ? {} : await geoLookup(ip);
     // الإسناد: يُشتقّ على الخادم من وسوم مُطبَّعة + نطاق المُحيل (لا يُوثق بقيم العميل خاماً)
     const attr = resolveAttribution({ utm, referrerHost, path });
     const s40 = (v: unknown, n = 40) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);
@@ -101,15 +114,17 @@ router.get('/go/wa', async (req: Request, res: Response) => {
   const ref = String(req.query.ref || 'home').slice(0, 48);
   const fallback = `https://wa.me/${number}`;
   try {
-    const anonId = String(req.query.a || '').slice(0, 40) || null;
+    // رفض القياس (Sec-GPC/DNT في طلب التنقّل أو `o=1` من الواجهة) ⇒ لا معرّف زائر ولا بصمة IP
+    const optedOut = requestOptedOut(req.headers, req.query.o);
+    const anonId = optedOut ? null : String(req.query.a || '').slice(0, 40) || null;
     const code = makeWaCode(anonId || ref);
     const ua = String(req.headers['user-agent'] || '');
     const isBot = BOT_RE.test(ua);
 
     // نسجّل النقرة كصفّ زيارة موسوم (waClicked) — لا جدول جديد (قرار المالك)
     if (!isBot) {
-      const ip = clientIp(req);
-      const ipHash = ip ? crypto.createHash('sha256').update(ip + (process.env.IP_SALT || 'fieldsa-visits')).digest('hex').slice(0, 16) : null;
+      const ip = optedOut ? '' : clientIp(req);
+      const ipHash = ipFingerprint(ip);
       prisma.visit.create({
         data: {
           path: `/go/wa/${ref}`.slice(0, 300),
@@ -149,18 +164,26 @@ function topCounts(items: V[], key: (v: V) => string | null, limit = 8) {
 }
 
 // محركات الإجابة بالذكاء الاصطناعي — زيارة من أحد هذه المصادر = اقتباس/توصية من AI (مؤشّر GEO)
-const AI_ENGINES: { label: string; re: RegExp }[] = [
-  { label: 'ChatGPT', re: /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/i },
-  { label: 'Perplexity', re: /(^|\.)perplexity\.ai$/i },
-  { label: 'Gemini', re: /(^|\.)gemini\.google\.com$|(^|\.)bard\.google\.com$/i },
-  { label: 'Claude', re: /(^|\.)claude\.ai$/i },
-  { label: 'Copilot', re: /(^|\.)copilot\.microsoft\.com$/i },
+// `engine` = قيمة عمود aiEngine التي يخزّنها resolveAttribution (services/attribution.ts · AI_ENGINE_IDS)
+const AI_ENGINES: { label: string; engine?: string; re: RegExp }[] = [
+  { label: 'ChatGPT', engine: 'chatgpt', re: /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/i },
+  { label: 'Perplexity', engine: 'perplexity', re: /(^|\.)perplexity\.ai$/i },
+  { label: 'Gemini', engine: 'gemini', re: /(^|\.)gemini\.google\.com$|(^|\.)bard\.google\.com$/i },
+  { label: 'Claude', engine: 'claude', re: /(^|\.)claude\.ai$/i },
+  { label: 'Copilot', engine: 'copilot', re: /(^|\.)copilot\.microsoft\.com$/i },
   { label: 'Grok', re: /(^|\.)grok\.com$|(^|\.)x\.ai$/i },
   { label: 'DeepSeek', re: /(^|\.)deepseek\.com$/i },
   { label: 'Meta AI', re: /(^|\.)meta\.ai$/i },
   { label: 'أخرى AI', re: /(^|\.)you\.com$|(^|\.)poe\.com$|(^|\.)phind\.com$|(^|\.)mistral\.ai$|(^|\.)kagi\.com$/i },
 ];
 const aiEngineOf = (host: string | null) => (host ? AI_ENGINES.find((e) => e.re.test(host))?.label || null : null);
+/**
+ * محرّك الذكاء لصفّ زيارة: من المُحيل أولاً، وإلا من عمود aiEngine لزيارة صُنّفت ai_generative
+ * بلا مُحيل (مثل `utm_source=chatgpt.com` من تطبيق الجوال) — وإلا لسقطت من إحصاء GEO.
+ */
+const aiLabelOf = (r: Pick<V, 'referrerHost' | 'channel' | 'aiEngine'>) =>
+  aiEngineOf(r.referrerHost)
+  || (r.channel === 'ai_generative' && r.aiEngine ? AI_ENGINES.find((e) => e.engine === r.aiEngine)?.label || null : null);
 
 // «الزيارات الحية» — عدد المستخدمين المتصلين بالمنصّة الآن عبر كل الشركات (للمالك فقط).
 // «متصل الآن» = آخر ظهور خلال آخر ٥ دقائق. المندوب يُحدَّث lastSeenAt بنبض الحضور
@@ -387,8 +410,8 @@ router.get('/stats', authenticate, requireSuperAdmin, async (req: AuthRequest, r
     }
 
     // زيارات قادمة من محركات الذكاء الاصطناعي (GEO) — إجمالي + لكل محرك + سلسلة يومية
-    const aiRows = rows.filter((r) => aiEngineOf(r.referrerHost));
-    const aiByEngine = topCounts(aiRows, (r) => aiEngineOf(r.referrerHost), AI_ENGINES.length);
+    const aiRows = rows.filter((r) => aiLabelOf(r));
+    const aiByEngine = topCounts(aiRows, (r) => aiLabelOf(r), AI_ENGINES.length);
     const aiByDay = byDay.map(({ date }) => ({
       date,
       count: aiRows.filter((r) => new Date(r.createdAt).toISOString().slice(0, 10) === date).length,

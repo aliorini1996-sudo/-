@@ -15,6 +15,8 @@ import { useLang, useDir } from '../i18n/lang';
 import { useT } from '../i18n/strings';
 import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
+import { waHref, refFromPath } from '../components/WhatsAppFab';
+import { trackWhatsApp } from '../lib/ads';
 
 // صفحة التواصل مع الشركة — بياناتها من CMS + نموذج يرسل رسالة لبريد الشركة
 export default function ContactPage() {
@@ -96,9 +98,14 @@ export default function ContactPage() {
   const cards = [
     c.email && { icon: Mail, label: t('contact.cardEmail'), value: c.email, href: `mailto:${c.email}` },
     c.phone && { icon: Phone, label: t('contact.cardPhone'), value: c.phone, href: `tel:${c.phone}` },
-    c.whatsapp && { icon: MessageCircle, label: t('contact.cardWhatsapp'), value: c.whatsapp, href: `https://wa.me/${String(c.whatsapp).replace(/[^0-9]/g, '')}` },
+    // واتساب عبر محوّل /go/wa (نقرة طرف أول + رمز FS) مع تحويل الحملة — لا wa.me مباشرة
+    c.whatsapp && {
+      icon: MessageCircle, label: t('contact.cardWhatsapp'), value: c.whatsapp, external: true,
+      href: waHref(pathForLocale('/contact', lang), { lang, number: String(c.whatsapp) }),
+      onClick: () => trackWhatsApp(refFromPath(pathForLocale('/contact', lang))),
+    },
     c.address && { icon: MapPin, label: t('contact.cardAddress'), value: c.address, href: undefined },
-  ].filter(Boolean) as { icon: React.ElementType; label: string; value: string; href?: string }[];
+  ].filter(Boolean) as { icon: React.ElementType; label: string; value: string; href?: string; external?: boolean; onClick?: () => void }[];
 
   return (
     <div dir={dir} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]" style={{ fontFamily: "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" }}>
@@ -144,7 +151,7 @@ export default function ContactPage() {
                 </div>
               );
               return card.href
-                ? <a key={i} href={card.href} target={card.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer" className="block">{inner}</a>
+                ? <a key={i} href={card.href} target={card.external || card.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer" onClick={card.onClick} className="block">{inner}</a>
                 : <div key={i}>{inner}</div>;
             })}
           </div>

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '../api/client';
 import { X, Users, Globe2, TrendingUp, MapPin, Link2, FileText, Clock, RefreshCw } from 'lucide-react';
 import { backdropClose } from '../lib/backdropClose';
+import { visitChannelLabel } from '../lib/visitChannels';
 
 interface Row { at: string; path: string; referrer: string; country: string | null; city: string | null; countryCode: string | null }
 interface Item { label: string; count: number }
@@ -150,7 +151,7 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <TopList title="نقرات واتساب حسب الصفحة" icon={Link2} items={data.attribution.whatsapp.byRef} mono />
-                  <TopList title="القناة" icon={Link2} items={data.attribution.byChannel} />
+                  <TopList title="القناة" icon={Link2} items={data.attribution.byChannel.map((it) => ({ ...it, label: visitChannelLabel(it.label) }))} />
                   <TopList title="أول لمسة القناة الجالبة" icon={Link2} items={data.attribution.byFirstTouch} />
                   <TopList title="نوع المحتوى" icon={FileText} items={data.attribution.byContentType} />
                   {data.attribution.byUtmSource.length > 0 && (

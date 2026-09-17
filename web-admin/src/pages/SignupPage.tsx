@@ -67,6 +67,7 @@ export default function SignupPage() {
     if (form.password !== form.confirm) { toast.error(t('signup.errMatch')); return; }
     if (!agree) { toast.error(t('signup.errAgree')); return; }
     setLoading(true);
+    let redirecting = false;
     try {
       const res = await authApi.signup({
         companyName: form.companyName.trim(), adminName: form.adminName.trim(),
@@ -76,6 +77,8 @@ export default function SignupPage() {
         ...refPayload(),
       });
       const { token, user } = res.data.data;
+      // لا جلسة ⇒ لا حساب أُنشئ فعلاً: يذهب للخطأ ولا يُحتسب تحويلاً عند جوجل
+      if (!token || !user) throw new Error('signup: missing session');
       clearRef(); // أُرسل مع التسجيل — لا يُعاد استعماله لتسجيلٍ آخر من المتصفّح نفسه
       login(token, user);
       toast.success(t('signup.success'));
@@ -83,12 +86,15 @@ export default function SignupPage() {
       // تحويل «بدء تجربة» يُرسَل **قبل** الانتقال: `location.replace` يقتل أي بيكسل معلّق
       // فيضيع أهمّ تحويل صامتاً. trackSignup ينفّذ الانتقال بعد تأكيد الإرسال أو مهلة
       // قصيرة، ودائماً مرّة واحدة — فلا يُحبَس المستخدم إن حُجب الوسم.
+      // الزرّ يبقى معطّلاً خلال هذه المهلة: إعادة تفعيله كانت تسمح بإرسال ثانٍ للنموذج
+      // (خطأ «البريد مستخدم» فوق شاشة نجاح) قبل أن يكتمل الانتقال.
+      redirecting = true;
       trackSignup(() => window.location.replace(dest));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('signup.failed');
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!redirecting) setLoading(false);
     }
   };
 

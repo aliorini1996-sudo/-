@@ -6,7 +6,8 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
-import { waHref } from '../components/WhatsAppFab';
+import { waHref, refFromPath } from '../components/WhatsAppFab';
+import { trackWhatsApp } from '../lib/ads';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
 
@@ -154,6 +155,12 @@ export default function PricingPage() {
   const dir = useDir();
   const t = T[lang] || T.ar;
   const path = pathForLocale('/pricing', lang);
+  // صفحة التسجيل بلا بادئة لغة في كل اللغات — `/signup` مسار تطبيق يدير لغته بنفسه
+  // (isAppRoute): يقرأ اللغة المحفوظة التي ضبطها LocaleSync على `/en/pricing` نفسها.
+  // كان الرابط يُبنى بـpathForLocale ⇒ `/en/signup` غير المسجَّل، فيحوّله
+  // المسار `*` إلى الرئيسية العربية: لا تسجيل ولا تحويل لزائر الحملة غير العربي.
+  // (localizeLinks في LandingPage وprerender.mjs يتركان `/signup` بلا بادئة للسبب نفسه.)
+  const signupPath = '/signup';
 
   // الأسعار من الـCMS — نفس مصدر الصفحة الرئيسية، فلا تنزاح صفحتان عن بعضهما
   const { data: cms } = useQuery({
@@ -235,6 +242,7 @@ export default function PricingPage() {
         <section className="mt-8 grid gap-4 sm:grid-cols-3">
           {plans.map((p) => {
             const isCustom = !/^\d+$/.test(String(p.price));
+            const cta = `mt-4 text-center text-sm rounded-lg py-2 ${p.badge ? 'bg-[#E15A30] text-white' : 'border border-[#E8E0D2]'}`;
             return (
               <div key={p.name} className={`bg-white rounded-xl border p-5 flex flex-col ${p.badge ? 'border-[#E15A30] shadow-sm' : 'border-[#E8E0D2]'}`}>
                 {p.badge && <span className="self-start text-[10px] bg-[#FBEBE2] text-[#C94E28] px-2 py-0.5 rounded-full mb-2">{p.badge}</span>}
@@ -257,14 +265,26 @@ export default function PricingPage() {
                     ))}
                   </ul>
                 )}
-                <a
-                  href={isCustom ? waHref(path, { lang }) : pathForLocale('/signup', lang)}
-                  target={isCustom ? '_blank' : undefined}
-                  rel={isCustom ? 'noopener noreferrer' : undefined}
-                  className={`mt-4 text-center text-sm rounded-lg py-2 ${p.badge ? 'bg-[#E15A30] text-white' : 'border border-[#E8E0D2]'}`}
-                >
-                  {isCustom ? t.talk : t.startTrial}
-                </a>
+                {isCustom ? (
+                  <a
+                    href={waHref(path, { lang })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    // تحويل «محادثة واتساب» للباقة المخصّصة — الحملة تهبط على هذه الصفحة. لا نمنع
+                    // الانتقال: الرابط يفتح تبويباً جديداً فتبقى الصفحة حيّة ويكتمل البيكسل.
+                    onClick={() => trackWhatsApp(refFromPath(path))}
+                    className={cta}
+                  >
+                    {t.talk}
+                  </a>
+                ) : (
+                  // <Link> لا <a>: إعادة تحميل الصفحة تُضيع وسوم الهبوط المحفوظة في الذاكرة
+                  // (landingTags في lib/attribution.ts) فتُسجَّل زيارة /signup «مباشرة» بدل
+                  // الحملة، وقد يضيع gclid إن سبقت النقرةُ كتابةَ الوسم لكوكي _gcl_aw.
+                  <Link to={signupPath} className={cta}>
+                    {t.startTrial}
+                  </Link>
+                )}
               </div>
             );
           })}
@@ -330,10 +350,11 @@ export default function PricingPage() {
 
         <div className="mt-8 flex flex-wrap gap-3">
           <a href={waHref(path, { lang })} target="_blank" rel="noopener noreferrer"
+             onClick={() => trackWhatsApp(refFromPath(path))}
              className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-4 py-2.5 text-sm">
             <MessageCircle size={16} />{t.talk}
           </a>
-          <Link to={pathForLocale('/signup', lang)} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
+          <Link to={signupPath} className="inline-flex items-center gap-2 border border-[#E8E0D2] bg-white rounded-lg px-4 py-2.5 text-sm">
             {t.startTrial}
           </Link>
         </div>

@@ -35,7 +35,17 @@ import { trackWhatsApp } from '../lib/ads';
 // `m` (تطبيق الإدارة على الجوال) بحدّ نهاية — كي لا يلتقط مساراً تسويقياً يبدأ بالحرف نفسه
 // `ax` بوابة «سفير فيلد سيلز» الخاصة — ليست صفحة تسويقية ولا قمع اشتراك
 // `q-fs7k2m` مُصدِر عروض الأسعار الخاصّ — الزرّ كان يغطّي زرّ الإصدار على الجوال
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|ax)(\/|$)/;
+// `hx` (بوابة الصيد) و`c` (منيو مندوب شركة مشتركة) و`pay` (دفع زبون الشركة المشتركة):
+//   ليست موقعنا العام. الزرّ هنا كان يُنشئ `fs_anon` لزبون شركة عميلة بمجرّد الرسم
+//   (`waHref` ⇒ `anonId()`)، ويخزّن رمز الدفع كاملاً مرجعاً للنقرة (`pay-<token>`)،
+//   ويضع رقم مبيعاتنا مقابل زرّ واتساب المندوب في المنيو.
+// `/payment/success` **ليست** منها ويبقى الزرّ فيها عمداً: هي صفحة عودة عملائنا نحن من ميسر
+//   بعد دفع اشتراك الشركة أو تجديد بوت واتساب (routes/payments.ts وroutes/waAccount.ts)، وتطلب
+//   منهم «تواصل معنا» عند تعذّر التحقق أو انتهاء الرابط. المرجع فيها `payment-success` لأن
+//   `?ref=` في الاستعلام لا في المسار. دفع زبائن الشركات يعود إلى `/pay/<token>` لا إليها.
+// القاعدة **نفسها حرفياً** في استثناءات VisitTracker في App.tsx — whatsappFab.test.ts
+// يفرض التطابق، و`ax` آخر البدائل لأن affiliate/hiding.test.ts يفحص ذلك.
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|ax)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home
@@ -73,12 +83,21 @@ function apiBase(): string {
   return root ? `${root.replace(/\/+$/, '')}/api` : '/api';
 }
 
-/** رابط المحادثة لأي مسار — يُستخدم في الأزرار السياقية داخل الصفحات أيضاً */
-export function waHref(path: string, extra?: { lang?: string }): string {
+/**
+ * رابط المحادثة لأي مسار — يُستخدم في الأزرار السياقية داخل الصفحات أيضاً.
+ * `number` اختياري: رقم واتساب من CMS (بطاقة التواصل/أيقونة التواصل) كي يبقى
+ * رقم المالك هو الوجهة؛ بدونه يحوّل الخادم إلى رقم المبيعات الافتراضي.
+ */
+export function waHref(path: string, extra?: { lang?: string; number?: string }): string {
   const params = new URLSearchParams({ ref: refFromPath(path), p: path });
-  const a = isOptedOut() ? null : anonId();
+  const out = isOptedOut();
+  const a = out ? null : anonId();
   if (a) params.set('a', a);
+  // الإيقاف من الزرّ أو من تخزين محجوب لا يصل في ترويسات الطلب — فيُعلَم به المحوّل صراحةً
+  if (out) params.set('o', '1');
   if (extra?.lang) params.set('l', extra.lang);
+  const n = String(extra?.number || '').replace(/[^0-9]/g, '');
+  if (n) params.set('n', n);
   return `${apiBase()}/analytics/go/wa?${params.toString()}`;
 }
 

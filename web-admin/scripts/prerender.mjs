@@ -48,6 +48,32 @@ async function loadManualPosts() {
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+// سياسة الخصوصية للزاحف ومراجع الإعلانات — **من المصدر نفسه الذي يعرضه InfoPage للزائر** لا نسخة ثالثة:
+// defaultContent*.ts لكل لغة، **والعربية من الكود دائماً لا من CMS** (القاعدة ذاتها في InfoPage.tsx):
+// السياسة تصف سلوك الكود، ونصّ CMS القديم يَعِد بـ«لا أغراض إعلانية» — لو طال لعاد إلى HTML الزاحف.
+// لولا ذلك لقرأ الزاحف ملخّصاً عامّاً بينما يرى الزائر سياسة القياس الإعلاني الكاملة (فخّ المصدر المزدوج).
+async function loadPrivacyHtml() {
+  const loadTs = async (file, exportName) => {
+    const src = fs.readFileSync(path.resolve(__dirname, `../src/landing/${file}`), 'utf8');
+    const { code } = transformSync(src, { loader: 'ts', format: 'esm' });
+    const tmp = path.join(DIST, `_${exportName}_tmp.mjs`);
+    fs.writeFileSync(tmp, code);
+    try { return (await import(pathToFileURL(tmp).href))[exportName]; } finally { fs.unlinkSync(tmp); }
+  };
+  const bodies = {
+    ar: (await loadTs('defaultContent.ts', 'defaultContent')).pages.privacy.body,
+    en: (await loadTs('defaultContentEn.ts', 'defaultContentEn')).pages.privacy.body,
+    fr: (await loadTs('defaultContentFr.ts', 'defaultContentFr')).pages.privacy.body,
+  };
+  // فقرة تبدأ برقم قسم ⇒ عنوانه h2، والأسطر الباقية فقرة واحدة بفواصل أسطر
+  const toHtml = (body) => String(body).trim().split(/\n\s*\n/).map((block) => {
+    const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+    const head = lines.length > 1 && /^[0-9٠-٩]+\.?\s/.test(lines[0]) ? `<h2>${esc(lines.shift())}</h2>` : '';
+    return `${head}<p>${lines.map(esc).join('<br/>')}</p>`;
+  }).join('');
+  return { ar: toHtml(bodies.ar), en: toHtml(bodies.en), fr: toHtml(bodies.fr) };
+}
+
 let template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 
 // يستبدل وسوم <head> الافتراضية بقيم الصفحة، ويحقن hreflang + JSON-LD + المحتوى
@@ -472,6 +498,12 @@ async function main() {
     ['هل يدعم النظام الفاتورة الإلكترونية؟', 'يدعم المرحلة الأولى (رمز QR بترميز TLV). المرحلة الثانية غير متاحة حتى الآن، وهيئة الزكاة والضريبة والجمارك لا تعتمد مزوّدي البرمجيات.'],
   ];
 
+  // النصّ الكامل لسياسة الخصوصية (انظر loadPrivacyHtml) — تعذّر التحميل ⇒ الملخّص القصير أدناه
+  const privacyHtml = await loadPrivacyHtml().catch((e) => {
+    console.log('⚠️  تعذّر تحميل نصّ سياسة الخصوصية (غير مانع): ' + e.message);
+    return null;
+  });
+
   const INFO = {
     pricing: {
       ar: {
@@ -551,9 +583,9 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
       fr: { t: 'Conditions générales | FieldSales', d: 'Conditions générales d\'utilisation de la plateforme FieldSales.', b: '<h1>Conditions générales</h1><p>Les conditions générales d\'utilisation de la plateforme FieldSales — le texte complet est disponible sur cette page.</p>' },
     },
     privacy: {
-      ar: { t: 'سياسة الخصوصية | FieldSales', d: 'كيف تجمع منصّة FieldSales بياناتك وتحميها وتستخدمها.', b: '<h1>سياسة الخصوصية</h1><p>توضّح هذه السياسة كيف تجمع منصّة FieldSales البيانات وتحميها وتستخدمها — النص الكامل متاح في هذه الصفحة داخل التطبيق. للاستفسار: info@fieldsa.net</p>' },
-      en: { t: 'Privacy Policy | FieldSales', d: 'How FieldSales collects, protects and uses your data.', b: '<h1>Privacy Policy</h1><p>This policy explains how FieldSales collects, protects and uses data — the full text is available on this page in the app. Questions: info@fieldsa.net</p>' },
-      fr: { t: 'Politique de confidentialité | FieldSales', d: 'Comment FieldSales collecte, protège et utilise vos données.', b: '<h1>Politique de confidentialité</h1><p>Cette politique explique comment FieldSales collecte, protège et utilise les données — texte complet disponible sur cette page. Questions : info@fieldsa.net</p>' },
+      ar: { t: 'سياسة الخصوصية | FieldSales', d: 'كيف تجمع منصّة FieldSales بياناتك وتحميها وتستخدمها.', b: '<h1>سياسة الخصوصية</h1>' + (privacyHtml ? privacyHtml.ar : '<p>توضّح هذه السياسة كيف تجمع منصّة FieldSales البيانات وتحميها وتستخدمها — النص الكامل متاح في هذه الصفحة داخل التطبيق. للاستفسار: info@fieldsa.net</p>') },
+      en: { t: 'Privacy Policy | FieldSales', d: 'How FieldSales collects, protects and uses your data.', b: '<h1>Privacy Policy</h1>' + (privacyHtml ? privacyHtml.en : '<p>This policy explains how FieldSales collects, protects and uses data — the full text is available on this page in the app. Questions: info@fieldsa.net</p>') },
+      fr: { t: 'Politique de confidentialité | FieldSales', d: 'Comment FieldSales collecte, protège et utilise vos données.', b: '<h1>Politique de confidentialité</h1>' + (privacyHtml ? privacyHtml.fr : '<p>Cette politique explique comment FieldSales collecte, protège et utilise les données — texte complet disponible sur cette page. Questions : info@fieldsa.net</p>') },
     },
     'service-agreement': {
       ar: { t: 'اتفاقية الخدمة | FieldSales', d: 'اتفاقية مستوى الخدمة والاشتراك في منصّة FieldSales.', b: '<h1>اتفاقية الخدمة</h1><p>اتفاقية مستوى الخدمة والاشتراك في منصّة FieldSales — النص الكامل متاح في هذه الصفحة داخل التطبيق.</p>' },

@@ -5,7 +5,8 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useLang, useDir } from '../i18n/lang';
 import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
-import { waHref } from '../components/WhatsAppFab';
+import { waHref, refFromPath } from '../components/WhatsAppFab';
+import { trackWhatsApp } from '../lib/ads';
 import { SECTORS, sectorBySlug } from '../content/sectors';
 
 /**
@@ -136,6 +137,7 @@ export default function SectorPage() {
 
             <div className="mt-8 flex flex-wrap gap-3">
               <a href={waHref(arPath, { lang })} target="_blank" rel="noopener noreferrer"
+                 onClick={() => trackWhatsApp(refFromPath(arPath))}
                  className="inline-flex items-center gap-2 bg-[#25D366] text-white rounded-lg px-4 py-2.5 text-sm">
                 <MessageCircle size={16} />تحدث معنا على واتساب
               </a>

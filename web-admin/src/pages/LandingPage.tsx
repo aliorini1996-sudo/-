@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
@@ -13,6 +13,8 @@ import { useCurrency, type Currency } from '../i18n/currency';
 import { useBilling, type Billing } from '../i18n/billing';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
+import { waHref, refFromPath } from '../components/WhatsAppFab';
+import { trackWhatsApp } from '../lib/ads';
 
 // مسارات أيقونات منصّات التواصل (SVG glyph واحد لكل منصّة)
 const SOCIAL_ICONS: Record<string, string> = {
@@ -26,30 +28,39 @@ const SOCIAL_ICONS: Record<string, string> = {
   tiktok: 'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z',
 };
 
+/**
+ * رابط واتساب داخل HTML المحقون: يمرّ عبر محوّل `/go/wa` (نقرة طرف أول + رمز FS)
+ * لا `wa.me` مباشرة، ويحمل `data-wa-track` كي يُطلق مستمع النقر في LandingPage
+ * تحويل الحملة. `&` مُهرَّبة لأن الرابط يُكتب داخل سمة HTML نصّاً.
+ */
+function waLink(number: string, lang: Lang): string {
+  return waHref(pathForLocale('/', lang), { lang, number }).replace(/&/g, '&amp;');
+}
+
 // يبني صف أيقونات التواصل بحجم قابل للضبط (الروابط الفارغة تُخفى)
-function socialIcons(social: Record<string, string> = {}, size = 38): string {
+function socialIcons(social: Record<string, string> = {}, size = 38, lang: Lang = 'ar'): string {
   const r = Math.round(size * 0.29);
   const ic = Math.round(size * 0.48);
   return Object.entries(SOCIAL_ICONS)
     .filter(([k]) => social[k] && String(social[k]).trim())
     .map(([k, path]) => {
       let url = String(social[k]).trim();
-      if (k === 'whatsapp') url = `https://wa.me/${url.replace(/[^0-9]/g, '')}`;
+      if (k === 'whatsapp') url = waLink(url, lang);
       else if (!/^https?:\/\//.test(url)) url = `https://${url}`;
-      return `<a href="${url}" target="_blank" rel="noreferrer" aria-label="${k}" style="width:${size}px;height:${size}px;border-radius:${r}px;background:#2C261D;display:inline-flex;align-items:center;justify-content:center;transition:background .2s,transform .2s" onmouseover="this.style.background='#E15A30';this.style.transform='translateY(-3px)'" onmouseout="this.style.background='#2C261D';this.style.transform='none'"><svg width="${ic}" height="${ic}" viewBox="0 0 24 24" fill="#FAF7F0"><path d="${path}"></path></svg></a>`;
+      return `<a href="${url}" target="_blank" rel="noreferrer"${k === 'whatsapp' ? ' data-wa-track' : ''} aria-label="${k}" style="width:${size}px;height:${size}px;border-radius:${r}px;background:#2C261D;display:inline-flex;align-items:center;justify-content:center;transition:background .2s,transform .2s" onmouseover="this.style.background='#E15A30';this.style.transform='translateY(-3px)'" onmouseout="this.style.background='#2C261D';this.style.transform='none'"><svg width="${ic}" height="${ic}" viewBox="0 0 24 24" fill="#FAF7F0"><path d="${path}"></path></svg></a>`;
     })
     .join('');
 }
 
 // أيقونات التذييل الصغيرة
-function renderSocial(social: Record<string, string> = {}): string {
-  const items = socialIcons(social, 38);
+function renderSocial(social: Record<string, string> = {}, lang: Lang = 'ar'): string {
+  const items = socialIcons(social, 38, lang);
   return items ? `<div style="display:flex;gap:9px;flex-wrap:wrap">${items}</div>` : '';
 }
 
 // القسم البارز «تابعنا على مواقع التواصل» (يظهر فقط عند وجود رابط واحد على الأقل)
 function renderSocialSection(social: Record<string, string> = {}, lang: Lang = 'ar'): string {
-  const items = socialIcons(social, 50);
+  const items = socialIcons(social, 50, lang);
   if (!items) return '';
   const heading = lang === 'en' ? 'Follow us on social media'
     : lang === 'fr' ? 'Suivez-nous sur les réseaux sociaux'
@@ -170,7 +181,7 @@ export function applyContent(template: string, content: Record<string, unknown>,
   let html = template.split('{{__SOCIAL_SECTION__}}').join(renderSocialSection(social, lang));
   // حقن قسم الحاسبة البارز قبل قسم الأسعار مباشرة (منتصف الصفحة)
   html = html.replace('<section id="pricing"', renderCalculatorSection(lang) + '<section id="pricing"');
-  html = html.split('{{__SOCIAL__}}').join(renderSocial(social));
+  html = html.split('{{__SOCIAL__}}').join(renderSocial(social, lang));
   html = html.replace(/\{\{([^}]+)\}\}/g, (_, path: string) => {
     const val = path.split('.').reduce<unknown>((o, k) => (o == null ? o : (o as Record<string, unknown>)[k]), content);
     return val == null ? '' : String(val);
@@ -572,7 +583,7 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
   const cards = [
     email ? card(icEmail, t.email, `<a href="mailto:${email}" style="color:#1F1A13;text-decoration:none" dir="ltr">${email}</a>`) : '',
     phone ? card(icPhone, t.phone, `<a href="tel:${phone.replace(/[^+0-9]/g, '')}" style="color:#1F1A13;text-decoration:none" dir="ltr">${phone}</a>`) : '',
-    wa ? card(icWa, t.whatsapp, `<a href="https://wa.me/${wa.replace(/[^0-9]/g, '')}" target="_blank" rel="noreferrer" style="color:#1F1A13;text-decoration:none" dir="ltr">${wa}</a>`) : '',
+    wa ? card(icWa, t.whatsapp, `<a href="${waLink(wa, lang)}" target="_blank" rel="noreferrer" data-wa-track style="color:#1F1A13;text-decoration:none" dir="ltr">${wa}</a>`) : '',
     address ? card(icPin, t.address, address) : '',
   ].filter(Boolean).join('');
   if (!cards) return '';
@@ -857,7 +868,7 @@ export default function LandingPage() {
     ...Object.fromEntries(Object.entries(cmsSocial).filter(([, v]) => v && String(v).trim())),
   };
   const sameAs = [social.x, social.instagram, social.linkedin, social.facebook, social.youtube, social.tiktok, social.snapchat,
-    social.whatsapp ? `https://wa.me/${String(social.whatsapp).replace(/[^0-9]/g, '')}` : '']
+    social.whatsapp ? `https://wa.me/${String(social.whatsapp).replace(/[^0-9]/g, '')}` : ''] // wa-identity: هويةٌ للزاحف لا زرّ نقر
     .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
   const orgJsonLd = sameAs.length
     ? { '@context': 'https://schema.org', '@type': 'Organization', '@id': 'https://fieldsa.net/#organization', url: 'https://fieldsa.net/', sameAs }
@@ -909,6 +920,20 @@ export default function LandingPage() {
   useEffect(() => {
     (window as unknown as { __fsSetCurrency?: (c: Currency) => void }).__fsSetCurrency = (c) => useCurrency.getState().setCurrency(c);
     (window as unknown as { __fsSetBilling?: (b: Billing) => void }).__fsSetBilling = (b) => useBilling.getState().setBilling(b);
+  }, []);
+
+  // أزرار واتساب داخل HTML المحقون (بطاقة التواصل وأيقونة التواصل) لا تحمل onClick —
+  // مستمع واحد على الحاوية يُطلق تحويل الحملة كما يفعل الزرّ العائم.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as Element | null)?.closest?.('a[data-wa-track]');
+      if (a) trackWhatsApp(refFromPath(window.location.pathname));
+    };
+    root.addEventListener('click', onClick);
+    return () => root.removeEventListener('click', onClick);
   }, []);
 
   // خريطة الميدان الحيّة في البطل: تناوب المدن كل ٣٠ث + عرض ذاتي للبطاقات + لمس/مرور.
@@ -1038,5 +1063,5 @@ export default function LandingPage() {
   html = injectPricingToggles(html, billing, currency, lang);
 
 
-  return <div dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div ref={rootRef} dangerouslySetInnerHTML={{ __html: html }} />;
 }

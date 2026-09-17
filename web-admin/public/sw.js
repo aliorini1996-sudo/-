@@ -15,11 +15,38 @@ self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL).catch(() => {})));
 });
 
+// طلبات القياس الإعلاني (وسم Google Ads): نطاقات الوسم ومسارات التحويل على www.google.com.
+// لا تُخزَّن إطلاقاً — روابطها فريدة في كل تحميل وتحمل رابط الهبوط بمعرّف النقر (gclid)،
+// فكانت تتراكم استجابات opaque بلا انتهاء في حصّة النطاق نفسها التي يستخدمها صندوق
+// فواتير المندوب الأوف-لاين، وتبقى بعد «إيقاف القياس».
+// ⚠️ القاعدة نفسها في web-admin/src/lib/attribution.ts (isAdMeasurementUrl) —
+// adsTracking.test.ts يشغّل هذا الملف ويفرض تطابق الطرفين.
+const AD_MEASUREMENT_HOST = /(^|\.)(googletagmanager\.com|googleadservices\.com|doubleclick\.net|google-analytics\.com)$/i;
+const isAdMeasurement = (url) =>
+  AD_MEASUREMENT_HOST.test(url.hostname) ||
+  (url.hostname === 'www.google.com' && /^\/(pagead|ccm|rmkt)/.test(url.pathname));
+
+// يمحو ما خُزّن من طلبات القياس قبل هذا الإصدار — بلا رفع اسم الكاش، فالقوقعة والأصول
+// المخزّنة للعمل دون اتصال تبقى كما هي.
+// ⚠️ يُطلق من activate **خارج** waitUntil: يمرّ على كل مدخلات dsd-rep-v3 (أصول كل نشر سابق
+// وبلاطات الخرائط والخطوط)، وطلبات الصفحات المفتوحة تنتظر انتهاء وعد التفعيل بحسب المواصفة
+// (skipWaiting يفعّل العامل والصفحات مفتوحة) ⇒ لو انتُظر لتأخّرت الملاحة والأصول بعد النشر.
+// تكراره لا يضرّ، و«إيقاف القياس» (optOut) يعيد تنظيف ما قد يبقى.
+const purgeAdMeasurement = () =>
+  caches.open(CACHE)
+    .then((c) => c.keys().then((reqs) => Promise.all(
+      reqs.filter((r) => { try { return isAdMeasurement(new URL(r.url)); } catch { return false; } })
+        .map((r) => c.delete(r)),
+    )))
+    .catch(() => {});
+
 self.addEventListener('activate', (event) => {
+  // حذف الكاشات القديمة وحده يُنتظر: عدد أسمائها صغير ولا يمرّ على المدخلات
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))),
   );
   self.clients.claim();
+  purgeAdMeasurement();
 });
 
 // تحديث فوري عند نشر نسخة جديدة (يُرسله العميل بعد اكتشاف تحديث)
@@ -40,6 +67,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  // القياس الإعلاني يمرّ إلى الشبكة مباشرةً بلا تخزين (انظر isAdMeasurement أعلاه)
+  if (isAdMeasurement(url)) return;
 
   // طلبات API لا تُخزَّن إطلاقاً — الأوف-لاين لها عبر IndexedDB لا SW
   if (url.pathname.startsWith('/api/')) return;

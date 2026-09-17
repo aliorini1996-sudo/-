@@ -7,7 +7,8 @@ import { useLang, isAppRoute } from './i18n/lang';
 import { localeFromPath } from './i18n/locale';
 import { analyticsApi } from './api/client';
 import { attributionPayload } from './lib/attribution';
-import { captureRefFromUrl } from './lib/referral';
+import { initAdsTag } from './lib/ads';
+import { captureRefFromUrl, readRef } from './lib/referral';
 import WhatsAppFab from './components/WhatsAppFab';
 // صفحات عامّة — تحميل فوري (مدخل سريع + SEO)
 import LandingPage from './pages/LandingPage';
@@ -151,11 +152,21 @@ function LocaleSync() {
 }
 
 // يسجّل زيارة لكل صفحة عامّة (يتجاهل لوحات الدخول والتطبيق) — لتحليلات المالك
+// - `/signup` **مُسجَّل**: صفحة القمع التي تُحوِّل، ونقرة إعلان تهبط عليها مباشرة
+//   (رابط فرعي «ابدأ التجربة») كانت تضيع بلا زيارة ولا أول لمسة.
+// - مستثنى مع لوحات الدخول: `/hx` (بوابة الصيد) و`/c/…` (منيو مندوب شركة مشتركة)
+//   و`/pay/…` (الرمز في المسار هو الإذن نفسه) — ليست موقعنا العام،
+//   وسياسة الخصوصية (القسم ٥) تَعِد بأن الإحصاءات للموقع العام وحده.
+// - `/payment/success` **مُسجَّل**: صفحة عامة يعود إليها عملاؤنا نحن من ميسر بعد دفع
+//   الاشتراك (لا زبائن الشركات)، ولا يصل منها إلا المسار؛ معرّف الدفع في الاستعلام لا يُرسل.
+// `ax` يبقى آخر البدائل: affiliate/hiding.test.ts يفحص ذلك.
+// القاعدة نفسها حرفياً في HIDDEN_ON (components/WhatsAppFab.tsx) — حيث لا نسجّل زيارة
+// لا يظهر الزرّ العائم ولا ينشئ معرّف زائر؛ whatsappFab.test.ts يفرض التطابق.
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|signup|verify-email|rep|m|q-fs7k2m|ax)(\/|$)/.test(pathname)) return;
-    // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — تُعيد {} عند رفض التتبّع
+    if (/^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|ax)(\/|$)/.test(pathname)) return;
+    // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — وعند رفض التتبّع تُرسل {optOut:true} وحده
     analyticsApi.track({
       path: pathname,
       referrer: document.referrer || '',
@@ -163,6 +174,19 @@ function VisitTracker() {
       ...attributionPayload(),
     }).catch(() => { /* تجاهل */ });
   }, [pathname]);
+  return null;
+}
+
+/**
+ * وسم Google Ads عند فتح الصفحة التسويقية — لا عند التحويل فقط.
+ * معرّف النقر (`gclid`) لا يوجد إلا في رابط الهبوط، ويضيع بأول تنقّل داخلي؛
+ * فيُحمَّل الوسم هنا ليحفظه قبل ذلك. خامل تماماً بلا `VITE_ADS_ID`، ويحترم رفض
+ * التتبّع، ولا يُحمَّل داخل لوحات الدخول والبوابات الخاصة (قائمة السماح: lib/adsRoutes.ts).
+ * يأتي قبل `<Routes>` عمداً كي يسبق أثرُه أيّ `<Navigate>` قد يُسقط الاستعلام.
+ */
+function AdsTagLoader() {
+  const { pathname } = useLocation();
+  useEffect(() => { initAdsTag(pathname); }, [pathname]);
   return null;
 }
 
@@ -177,6 +201,8 @@ function ReferralCapture() {
   useEffect(() => {
     if (/^\/(app|platform|owner|login|verify-email|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
     captureRefFromUrl(search);
+    // readRef يحذف الرمز المنتهي (٣٦٥ يوماً) — وإلا بقي في متصفّح من لم يصل /signup أبداً
+    readRef();
   }, [pathname, search]);
   return null;
 }
@@ -185,6 +211,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <LocaleSync />
+      <AdsTagLoader />
       <VisitTracker />
       <ReferralCapture />
       <WhatsAppFab />

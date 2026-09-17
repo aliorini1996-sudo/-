@@ -85,7 +85,8 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: bo
     ['pages.about.title', 'من نحن العنوان'], ['pages.about.body', 'من نحن المحتوى', true],
     ['pages.terms.title', 'الشروط والأحكام العنوان'], ['pages.terms.body', 'الشروط والأحكام المحتوى', true],
     ['pages.serviceAgreement.title', 'اتفاقية الخدمة العنوان'], ['pages.serviceAgreement.body', 'اتفاقية الخدمة المحتوى', true],
-    ['pages.privacy.title', 'الخصوصية العنوان'], ['pages.privacy.body', 'الخصوصية المحتوى', true],
+    // سياسة الخصوصية تُعرض من الكود دائماً (InfoPage.tsx) لأنها تصف سلوك وسم الإعلانات والقياس
+    ['pages.privacy.title', 'الخصوصية العنوان (غير معروض: الصفحة تعرض النسخة المعتمدة في الكود)'], ['pages.privacy.body', 'الخصوصية المحتوى (غير معروض: الصفحة تعرض النسخة المعتمدة في الكود)', true],
   ] },
   { title: 'المدونة المقالات', fields: [], blog: true },
   { title: 'صورة الصفحة الرئيسية', fields: [], heroImage: true },

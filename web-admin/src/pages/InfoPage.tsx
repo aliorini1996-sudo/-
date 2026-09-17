@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { siteContentApi } from '../api/client';
@@ -13,6 +14,7 @@ import { useLang, useDir } from '../i18n/lang';
 import { useT } from '../i18n/strings';
 import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
+import { optOut, optIn, isOptedOut, isExplicitOptOut } from '../lib/attribution';
 
 type PageKey = 'about' | 'terms' | 'serviceAgreement' | 'privacy';
 type SeoText = { title: string; description: string; keywords: string };
@@ -93,6 +95,88 @@ const PAGE_SEO: Record<PageKey, { path: string; ar: SeoText; en: SeoText; fr: Se
   },
 };
 
+/** نصوص زرّ «إيقاف القياس» — سياسة الخصوصية (القسم ٧) تحيل إليه */
+const OPTOUT_TEXT = {
+  ar: {
+    title: 'إيقاف القياس على هذا المتصفح',
+    body: 'يوقف هذا الزر على هذا المتصفح معرف الزائر ومعرف الجلسة ومصدر الزيارة الأولى ووسم Google Ads ويحذف ما خزناه منها ولا يشمل إحصاءات الزيارة الأساسية المبينة في القسم ٧',
+    stop: 'أوقف القياس',
+    stoppedByYou: 'القياس متوقف على هذا المتصفح بناء على طلبك',
+    resume: 'استئناف القياس',
+    stoppedByBrowser: 'القياس متوقف على هذا المتصفح بسبب إشارة الخصوصية في متصفحك أو حظر التخزين المحلي',
+  },
+  en: {
+    title: 'Stop measurement on this browser',
+    body: 'This button turns off the visitor ID, session ID, first-visit source and Google Ads tag on this browser and deletes what we stored. It does not cover the basic visit statistics described in Section 7.',
+    stop: 'Stop measurement',
+    stoppedByYou: 'Measurement is stopped on this browser at your request.',
+    resume: 'Resume measurement',
+    stoppedByBrowser: 'Measurement is stopped on this browser because of your browser privacy signal or blocked local storage.',
+  },
+  fr: {
+    title: 'Arrêter la mesure sur ce navigateur',
+    body: 'Ce bouton désactive sur ce navigateur l’identifiant visiteur, l’identifiant de session, la source de la première visite et la balise Google Ads, et supprime ce que nous avons enregistré. Il ne couvre pas les statistiques de visite de base décrites à la section 7.',
+    stop: 'Arrêter la mesure',
+    stoppedByYou: 'La mesure est arrêtée sur ce navigateur à votre demande.',
+    resume: 'Reprendre la mesure',
+    stoppedByBrowser: 'La mesure est arrêtée sur ce navigateur en raison du signal de confidentialité de votre navigateur ou du blocage du stockage local.',
+  },
+  tr: {
+    title: 'Bu tarayıcıda ölçümü durdur',
+    body: 'Bu düğme bu tarayıcıda ziyaretçi kimliğini, oturum kimliğini, ilk ziyaret kaynağını ve Google Ads etiketini kapatır ve kaydettiğimiz verileri siler. Bölüm 7’de açıklanan temel ziyaret istatistiklerini kapsamaz.',
+    stop: 'Ölçümü durdur',
+    stoppedByYou: 'İsteğiniz üzerine bu tarayıcıda ölçüm durduruldu.',
+    resume: 'Ölçümü sürdür',
+    stoppedByBrowser: 'Tarayıcınızın gizlilik sinyali veya engellenen yerel depolama nedeniyle bu tarayıcıda ölçüm durduruldu.',
+  },
+  zh: {
+    title: '在此浏览器上停止衡量',
+    body: '此按钮会在你所用的浏览器上停止衡量：停用访问者标识符、会话标识符、首次访问来源和 Google Ads 代码，并删除已存储的相关数据。它不包括第 7 节所述的最基本的访问统计。',
+    stop: '停止统计',
+    stoppedByYou: '已按你的要求在此浏览器上停止衡量。',
+    resume: '恢复衡量',
+    stoppedByBrowser: '由于你的浏览器发出隐私信号或阻止了本地存储，此浏览器上的衡量已停止。',
+  },
+} as const;
+
+/**
+ * زرّ «إيقاف القياس» — الوسيلة الظاهرة لممارسة حق الاعتراض الذي تَعِد به السياسة
+ * (القسمان ٦ و٧). قبله كانت `optOut()` بلا أي مستدعٍ، فلا يملك زائر Safari (بلا DNT)
+ * طريقة لإيقاف وسم الإعلانات سوى حظر التخزين كلّه. إعادة التحميل تضمن ألّا يبقى
+ * وسم محمَّل في ذاكرة الصفحة.
+ */
+function MeasurementControl({ lang }: { lang: string }) {
+  const tx = OPTOUT_TEXT[(lang in OPTOUT_TEXT ? lang : 'ar') as keyof typeof OPTOUT_TEXT];
+  const [state] = useState(() => ({ off: isOptedOut(), explicit: isExplicitOptOut() }));
+  const reload = () => { try { window.location.reload(); } catch { /* تجاهل */ } };
+  return (
+    <section id="optout" className="mt-6 bg-white rounded-2xl border border-[#E9E1D3] p-6 lg:p-7">
+      <h2 className="text-lg font-bold text-[#1F1A13]">{tx.title}</h2>
+      {!state.off && (
+        <>
+          <p className="text-sm text-[#6E6557] mt-2 leading-relaxed">{tx.body}</p>
+          <button type="button" onClick={() => { void optOut().then(reload); }}
+            className="mt-4 rounded-xl bg-[#1F1A13] text-[#FAF7F0] px-5 py-2.5 text-sm font-semibold hover:bg-[#E15A30] transition-colors">
+            {tx.stop}
+          </button>
+        </>
+      )}
+      {state.off && state.explicit && (
+        <>
+          <p className="text-sm text-[#6E6557] mt-2 leading-relaxed" role="status">{tx.stoppedByYou}</p>
+          <button type="button" onClick={() => { optIn(); reload(); }}
+            className="mt-4 rounded-xl border border-[#E9E1D3] px-5 py-2.5 text-sm font-semibold text-[#1F1A13] hover:border-[#E15A30] transition-colors">
+            {tx.resume}
+          </button>
+        </>
+      )}
+      {state.off && !state.explicit && (
+        <p className="text-sm text-[#6E6557] mt-2 leading-relaxed" role="status">{tx.stoppedByBrowser}</p>
+      )}
+    </section>
+  );
+}
+
 // صفحة نصّية عامة (من نحن / الشروط / اتفاقية الخدمة / الخصوصية) — محتواها من CMS
 export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
   const lang = useLang((s) => s.lang);
@@ -105,9 +189,12 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
   });
   // نُفضّل المحتوى الأغنى للعربية: إن كان نصّ الـCMS أطول من الافتراضي فهو تخصيص فعلي للمالك،
   // وإلا نعرض الوثيقة الاحترافية من الكود (الوثائق القانونية المحدّثة) بدل نصّ CMS قديم قصير.
+  // سياسة الخصوصية **من الكود دائماً**: تصف سلوك الكود نفسه (الوسم والمعرّفات والمسارات)،
+  // ونصّ CMS القديم فيها يَعِد بـ«لا أغراض إعلانية»؛ لو طال يوماً لعاد وعده الكاذب إلى الصفحة.
+  // القاعدة نفسها في scripts/prerender.mjs (loadPrivacyHtml).
   const cmsPage = (data as typeof defaultContent | null | undefined)?.pages?.[pageKey];
   const defPage = defaultContent.pages[pageKey];
-  const arPage = cmsPage && (cmsPage.body?.length || 0) > (defPage.body?.length || 0) ? cmsPage : defPage;
+  const arPage = pageKey !== 'privacy' && cmsPage && (cmsPage.body?.length || 0) > (defPage.body?.length || 0) ? cmsPage : defPage;
   const page = lang === 'en' ? defaultContentEn.pages[pageKey]
     : lang === 'fr' ? defaultContentFr.pages[pageKey]
     : lang === 'tr' ? defaultContentTr.pages[pageKey]
@@ -152,6 +239,7 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
         <div className="bg-white rounded-2xl border border-[#E9E1D3] p-7 lg:p-9 text-[#3a342b] leading-loose text-[16px] whitespace-pre-line">
           {page.body}
         </div>
+        {pageKey === 'privacy' && <MeasurementControl lang={lang} />}
       </main>
 
       <footer className="border-t border-[#E9E1D3] py-6 text-center text-xs text-[#9A8F7E]">

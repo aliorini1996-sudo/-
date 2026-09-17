@@ -1,14 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refFromPath } from './WhatsAppFab';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { StaticRouter } from 'react-router-dom/server';
+import WhatsAppFab, { refFromPath } from './WhatsAppFab';
 
 /**
- * قاعدة الإخفاء منسوخة من WhatsAppFab.tsx عمداً — استيراد المكوّن يجرّ React
- * وDOM إلى بيئة node. النسخ مقبول هنا لأن الاختبار الأخير يمنع الانحراف:
- * يقرأ المصدر ويؤكّد تطابق التعبيرين حرفياً، فأي تعديل هناك بلا تعديل هنا
- * يُفشل الاختبار بدل أن يمرّ صامتاً.
+ * قاعدة الإخفاء منسوخة من WhatsAppFab.tsx عمداً — التعبير غير مُصدَّر من المكوّن.
+ * النسخ مقبول هنا لأن اختبارَي الانحراف في آخر الملف يمنعانه: يقرآن المصدر وApp.tsx
+ * ويؤكّدان تطابق التعبيرات حرفياً، فأي تعديل هناك بلا تعديل هنا يُفشل الاختبار بدل
+ * أن يمرّ صامتاً. وسلوك المكوّن نفسه يُختبر برسمه فعلاً (renderToStaticMarkup).
  */
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|ax)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|ax)(\/|$)/;
 const shows = (p: string) => !HIDDEN_ON.test(p);
 
 /** كل المسارات التسويقية المسجَّلة في App.tsx — الزرّ إلزامي على كلّها */
@@ -25,16 +28,32 @@ const MARKETING = [
   '/fr/invoice-generator', '/fr/privacy', '/fr/terms', '/fr/service-agreement',
 ];
 
-/** مسارات التطبيق — الزرّ ممنوع عليها (الرقم رقم مبيعاتنا لا دعم الشركة المشتركة) */
+/**
+ * صفحات عامة لعملائنا نحن خارج القمع التسويقي — الزرّ إلزامي عليها أيضاً.
+ * `/payment/success` عودة ميسر بعد دفع اشتراك الشركة أو تجديد بوت واتساب، وتطلب من
+ * العميل «تواصل معنا» عند تعذّر التحقق أو انتهاء الرابط ولا وسيلة تواصل فيها غير الزرّ.
+ */
+const OUR_CUSTOMERS = ['/payment/success', '/payment/success/'];
+
+/**
+ * مسارات التطبيق والبوابات الخاصة وصفحات عملاء عملائنا — الزرّ ممنوع عليها
+ * (الرقم رقم مبيعاتنا لا دعم الشركة المشتركة، والإحصاءات للموقع العام وحده).
+ */
 const APP = [
   '/app', '/app/customers', '/app/invoices', '/app/settings',
   '/platform', '/platform/leads', '/owner', '/login', '/verify-email',
   '/rep', '/rep/', '/ax', '/ax/', '/q-fs7k2m',
+  '/hx', '/hx/', '/c/tenant1/rep1', '/c/tenant1/rep1/', '/pay/tok123', '/pay/tok123/',
 ];
 
 test('الزرّ يظهر على كل صفحة تسويقية بلا استثناء', () => {
   const missing = MARKETING.filter((p) => !shows(p));
   assert.deepEqual(missing, [], `صفحات تسويقية بلا زرّ: ${missing.join(', ')}`);
+});
+
+test('الزرّ يظهر في صفحة عودة الدفع لعملائنا (/payment/success)', () => {
+  const missing = OUR_CUSTOMERS.filter((p) => !shows(p));
+  assert.deepEqual(missing, [], `صفحات عملائنا بلا زرّ: ${missing.join(', ')}`);
 });
 
 test('الزرّ لا يظهر في أي مسار من مسارات التطبيق', () => {
@@ -52,6 +71,13 @@ test('البادئات المتشابهة لا تُخطئ', () => {
   assert.equal(shows('/pricing'), true);  // ليست /platform
   assert.equal(shows('/about'), true);    // ليست /app
   assert.equal(shows('/apps-guide'), true); // /app يتبعها حرف لا فاصل
+  // `c` حرف واحد: بلا حدّ النهاية لابتلع التواصل والحاسبة
+  assert.equal(shows('/contact'), true);
+  assert.equal(shows('/calculator'), true);
+  assert.equal(shows('/en/contact'), true);
+  assert.equal(shows('/payments-guide'), true); // ليست /pay
+  assert.equal(shows('/payment/success'), true); // `pay` بحدّ نهاية لا يبتلع `/payment`
+  assert.equal(shows('/hookb'), true);          // ليست /hx
 });
 
 test('الاستعلام والشرطة الختامية لا يكسران القاعدة', () => {
@@ -99,4 +125,71 @@ test('قاعدة الإخفاء هنا تطابق المصدر حرفياً', as
   const m = src.match(/const HIDDEN_ON = (\/\^[^\n]+\/);/);
   assert.ok(m, 'تعذّر العثور على HIDDEN_ON في المصدر');
   assert.equal(m![1], String(HIDDEN_ON), 'القاعدة في الاختبار انحرفت عن المصدر — حدّثها');
+});
+
+/**
+ * قاعدة واحدة لا قاعدتان: ما يستثنيه VisitTracker من الإحصاءات (ليس موقعنا العام)
+ * يُخفى فيه الزرّ أيضاً — وإلا أنشأ الزرّ معرّف زائر وسجّل نقرةً حيث لا نسجّل زيارة.
+ */
+test('قاعدة الإخفاء تطابق استثناءات VisitTracker في App.tsx حرفياً', async () => {
+  const { readFileSync } = await import('node:fs');
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  const tracker = app.match(/function VisitTracker\(\)[\s\S]*?\.test\(pathname\)\) return;/);
+  assert.ok(tracker, 'تعذّر العثور على قاعدة VisitTracker');
+  const re = tracker![0].match(/(\/\^\\\/\([^)]*\)\(\\\/\|\$\)\/)/);
+  assert.ok(re, 'تعذّر استخراج تعبير VisitTracker');
+  assert.equal(re![1], String(HIDDEN_ON), 'الزرّ العائم وVisitTracker يستثنيان مسارات مختلفة — وحّدهما');
+});
+
+/* ─── رسم المكوّن فعلاً ────────────────────────────────────────────────────
+ * الخلل الأصلي لم يكن في النقر بل في الرسم: `waHref` تستدعي `anonId()` فتكتب
+ * `fs_anon` في متصفّح زبون الشركة المشتركة بمجرّد فتح منيو المندوب أو صفحة الدفع. */
+
+function renderAt(path: string): { html: string; store: Map<string, string> } {
+  const store = new Map<string, string>();
+  const g = globalThis as unknown as Record<string, unknown>;
+  const values: Record<string, unknown> = {
+    window: {},
+    navigator: {},
+    localStorage: {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { store.set(k, v); },
+      removeItem: (k: string) => { store.delete(k); },
+    },
+  };
+  const saved = Object.keys(values).map((k) => [k, Object.getOwnPropertyDescriptor(g, k)] as const);
+  for (const k of Object.keys(values)) Object.defineProperty(g, k, { value: values[k], configurable: true, writable: true });
+  try {
+    const html = renderToStaticMarkup(createElement(StaticRouter, { location: path }, createElement(WhatsAppFab)));
+    return { html, store };
+  } finally {
+    for (const [k, d] of saved) {
+      if (d) Object.defineProperty(g, k, d);
+      else delete g[k];
+    }
+  }
+}
+
+test('الرسم: لا زرّ ولا fs_anon في البوابات الخاصة وصفحات عملاء عملائنا', () => {
+  for (const p of ['/hx', '/c/tenant1/rep1', '/pay/tok123', '/app', '/ax']) {
+    const { html, store } = renderAt(p);
+    assert.equal(html, '', `الزرّ ظهر على ${p}`);
+    assert.equal(store.has('fs_anon'), false, `أُنشئ fs_anon على ${p}`);
+  }
+});
+
+test('الرسم: الزرّ يظهر على الصفحة التسويقية (ضابط للاختبار السابق)', () => {
+  const { html, store } = renderAt('/pricing');
+  assert.match(html, /class="wa-fab"/);
+  assert.match(html, /ref=pricing/);
+  // بلا هذا الضابط قد يمرّ الاختبار السابق لأن البيئة نفسها تمنع الكتابة لا لأن الزرّ مخفيّ
+  assert.equal(store.has('fs_anon'), true);
+});
+
+test('الرسم: الزرّ يظهر في صفحة عودة الدفع لعملائنا، ومرجعه من المسار وحده', () => {
+  // الاستعلام (`?id=` من ميسر) لا يصل إلى StaticRouter كمسار، والمرجع يُشتقّ من pathname فقط
+  const { html } = renderAt('/payment/success?id=pay_abc123&status=paid');
+  assert.match(html, /class="wa-fab"/);
+  assert.match(html, /ref=payment-success/);
+  assert.doesNotMatch(html, /pay_abc123/);
 });

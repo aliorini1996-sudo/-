@@ -4,76 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>سياسة الخصوصية — FieldSales</title>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!--
+    نسخة ثابتة قديمة كانت هنا (يونيو 2026) تقول «لا نجمع موقعك الجغرافي» ولا تذكر قياس Google Ads —
+    فناقضت السياسة المعتمدة. السياسة لها مصدر واحد الآن: https://fieldsa.net/privacy/
+    (web-admin/src/landing/defaultContent*.ts). يبقى هذا الملف تحويلاً فقط لأن روابط خارجية
+    (قوائم المتاجر مثلاً) قد تشير إليه. لا تُعِد كتابة نصّ سياسة هنا.
+    الوجهة بالشرطة الأخيرة (/privacy/) عمداً: Render لا يخدم الصفحة المصيَّرة مسبقاً
+    (dist/privacy/index.html) إلا بها، و/privacy بلا شرطة تبتلعه قاعدة SPA فيصل الزاحف ومن
+    يتبع التحويل بلا JavaScript إلى قوقعة الرئيسية بلا نصّ السياسة (انظر scripts/prerender.mjs).
+  -->
+  <meta name="robots" content="noindex, follow" />
+  <link rel="canonical" href="https://fieldsa.net/privacy/" />
+  <meta http-equiv="refresh" content="0; url=/privacy/" />
+  <script>location.replace('/privacy/' + location.hash);</script>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif; color: #1f2937; line-height: 1.9; background: #FAF7F0; }
-    .hero { background: linear-gradient(135deg, #E15A30, #1F1A13); color: #fff; padding: 48px 24px; text-align: center; }
-    .brand { font-size: 32px; font-weight: 700; }
-    .brand .s { color: #FBEBE2; }
-    .hero p { color: #cbd5e1; margin-top: 8px; font-size: 15px; }
-    .container { max-width: 820px; margin: -24px auto 40px; background: #fff; border-radius: 16px; padding: 36px 32px; box-shadow: 0 10px 40px rgba(0,0,0,.08); }
-    h2 { color: #1F1A13; font-size: 20px; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #E9E1D3; }
-    h2:first-child { margin-top: 0; }
-    p, li { color: #374151; font-size: 15px; }
-    ul { padding-right: 22px; margin: 8px 0; }
-    li { margin: 6px 0; }
-    .date { color: #94a3b8; font-size: 13px; margin-top: 6px; }
+    body { font-family: system-ui, sans-serif; background: #FAF7F0; color: #1F1A13; text-align: center; padding: 48px 16px; line-height: 1.8; }
     a { color: #E15A30; }
-    .footer { text-align: center; color: #94a3b8; font-size: 13px; padding: 20px; }
   </style>
 </head>
 <body>
-  <div class="hero">
-    <div class="brand">Field<span class="s">Sales</span></div>
-    <p>سياسة الخصوصية</p>
-  </div>
-  <div class="container">
-    <p class="date">آخر تحديث: 22 يونيو 2026</p>
-
-    <h2>مقدمة</h2>
-    <p>يوضّح هذا المستند كيف يتعامل تطبيق ومنصّة <strong>FieldSales</strong> («التطبيق» أو «الخدمة») مع بياناتك. نحن نلتزم بحماية خصوصية مستخدمينا (مديري الشركات والمناديب الميدانيين)، ونجمع الحد الأدنى من البيانات اللازمة لتشغيل الخدمة فقط.</p>
-
-    <h2>البيانات التي نجمعها</h2>
-    <ul>
-      <li><strong>بيانات الحساب:</strong> الاسم، اسم المستخدم، رقم الجوال، والبريد الإلكتروني — لإنشاء حسابك وتسجيل الدخول.</li>
-      <li><strong>بيانات العمل:</strong> بيانات العملاء والمنتجات والفواتير وسندات القبض وكشوف الحساب التي تُدخلها أنت أثناء استخدام الخدمة.</li>
-      <li><strong>بيانات تقنية:</strong> معلومات أساسية عن الجلسة لأغراض الأمان وتشغيل الخدمة.</li>
-    </ul>
-    <p>لا نجمع موقعك الجغرافي ولا جهات اتصالك ولا أي بيانات شخصية خارج نطاق تشغيل الخدمة.</p>
-
-    <h2>كيف نستخدم بياناتك</h2>
-    <ul>
-      <li>تشغيل الخدمة وتمكينك من إصدار الفواتير والسندات وإدارة العملاء.</li>
-      <li>عزل بيانات كل شركة عن غيرها وحمايتها.</li>
-      <li>تحسين أداء الخدمة وموثوقيتها.</li>
-    </ul>
-
-    <h2>مشاركة البيانات</h2>
-    <p>نحن <strong>لا نبيع</strong> بياناتك ولا نشاركها مع أطراف ثالثة لأغراض تسويقية. بيانات كل شركة معزولة تماماً ولا يمكن لأي شركة أخرى الاطلاع عليها.</p>
-
-    <h2>صلاحيات التطبيق</h2>
-    <ul>
-      <li><strong>التخزين / الملفات:</strong> لحفظ ومشاركة ملفات PDF (الفواتير وكشوف الحساب) على جهازك.</li>
-      <li><strong>الإنترنت:</strong> للاتصال بخوادم الخدمة ومزامنة بياناتك.</li>
-    </ul>
-
-    <h2>أمان البيانات</h2>
-    <p>تُحفظ كلمات المرور مشفّرة، وتُؤمَّن الجلسات عبر رموز مصادقة (JWT). تُنقل البيانات عبر اتصال مشفّر (HTTPS). نتّخذ إجراءات تقنية وتنظيمية معقولة لحماية بياناتك من الوصول غير المصرّح به.</p>
-
-    <h2>الاحتفاظ بالبيانات وحذفها</h2>
-    <p>نحتفظ ببياناتك طوال فترة اشتراك شركتك في الخدمة. عند إلغاء الاشتراك أو حذف الشركة، تُحذف بياناتها نهائياً. لطلب حذف حسابك أو بياناتك، تواصل معنا عبر البريد أدناه.</p>
-
-    <h2>خصوصية الأطفال</h2>
-    <p>الخدمة موجّهة للاستخدام التجاري من قبل البالغين، وليست موجّهة للأطفال دون 13 عاماً.</p>
-
-    <h2>التعديلات على هذه السياسة</h2>
-    <p>قد نحدّث هذه السياسة من وقت لآخر. سيظهر تاريخ آخر تحديث أعلى الصفحة، ويسري التعديل فور نشره.</p>
-
-    <h2>تواصل معنا</h2>
-    <p>لأي استفسار بخصوص الخصوصية أو لطلب حذف بياناتك:<br />
-    البريد الإلكتروني: <a href="mailto:info@fieldsales.app">info@fieldsales.app</a></p>
-  </div>
-  <div class="footer">© 2026 FieldSales — جميع الحقوق محفوظة</div>
+  <p>انتقلت سياسة الخصوصية إلى <a href="/privacy/">fieldsa.net/privacy</a></p>
+  <p lang="en" dir="ltr">Our privacy policy has moved to <a href="/en/privacy/">fieldsa.net/en/privacy</a></p>
 </body>
 </html>
