@@ -14,16 +14,17 @@ import { parseCsidToken } from './cert';
 import { assertZatcaCsr } from './csr';
 import {
   GO_LIVE_CONFIRMATION_TEXT, ONBOARDING_CODES, OnboardingCode, OnboardingFailure,
-  checkLiveUnitAllowed, createUnit, goLive, onboardUnit, openUnitSigningKey,
+  checkLiveUnitAllowed, createUnit, goLive, onboardUnit, openUnitSigningKey, renewUnit,
 } from './onboarding';
 import { EgsUnitRecord, MemoryEgsUnitStore, SellerSettingsRecord } from './onboardingStore';
 import { decryptSecret, decryptSecretBytes } from './secrets';
 import { SELLER } from './__fixtures__/z1-sources';
 import { CsidCertSpec } from './__fixtures__/z4-csidcert';
-import { ALL_STEPS, FakeZatca, FakeZatcaOptions } from './__fixtures__/z4-fakezatca';
+import { ALL_STEPS, FAKE_TOKEN_TYPE, FakeZatca, FakeZatcaOptions } from './__fixtures__/z4-fakezatca';
 import { z3Body } from './__fixtures__/z3-fixtures';
 import {
-  ACTOR, TENANT, activeUnit, assertNoLeaks, create, endpoints, failed, harness, newOtp, newUnit, ok, onboard, renew, row, usedOtps,
+  ACTOR, RESERVED_OTPS, TENANT, activeUnit, assertNoLeaks, create, endpoints, failed, fakeSleep, harness, newOtp, newUnit, ok, onboard, renew, row,
+  usedOtps,
 } from './__fixtures__/z4-harness';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -808,7 +809,7 @@ test('الماسح نفسه يلتقط كل نوع تسريب مزروع (OTP، 
   const der = decryptSecretBytes(row(h, u.id).privateKeyEnc as string, { purpose: 'egs-key', ownerId: u.id }, h.keyring);
   const d = crypto.createPrivateKey({ key: der, format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d as string;
   const plants: unknown[] = [
-    { note: `otp=${[...usedOtps][0]}` },
+    { note: `otp=${[...h.leakOtps][0]}` },
     { secret: pcsid.secret },
     { part: `xx${pcsid.secret.slice(10, 30).toUpperCase()}yy` },
     { basic: Buffer.from(`${pcsid.token}:${pcsid.secret}`, 'utf8').toString('base64') },
@@ -817,6 +818,48 @@ test('الماسح نفسه يلتقط كل نوع تسريب مزروع (OTP، 
     { marker: `-----BEGIN ${['PRIVATE', 'KEY'].join(' ')}-----` },
   ];
   for (const p of plants) assert.throws(() => assertNoLeaks(h, [p]), JSON.stringify(Object.keys(p as object)));
+});
+
+test('الماسح بلا إنذار كاذب: ستّ خانات داخل UUID/hex/base64، ورموز عُدّة أخرى، و200401 الثابت لا يُسحب؛ وكل رمز للعُدّة يُلتقط', async () => {
+  const h = harness();
+  const u = await activeUnit(h);
+  // رمزان خاطئان سُحبا في الاختبار: أحدهما عبر renew والآخر باستدعاء مباشر (لا يعرفه إلا «الهيئة» في ترويسة otp)
+  const viaHelper = newOtp();
+  failed(await renew(h, u.id, viaHelper), 'NEW_OTP_REQUIRED');
+  const direct = newOtp();
+  failed(await renewUnit({
+    store: h.store, policy: h.policy, now: h.clock.now, unitId: u.id, tenantId: TENANT, otp: direct, actorId: ACTOR, client: h.client,
+    keyring: h.keyring, sleep: fakeSleep(h),
+  }), 'NEW_OTP_REQUIRED');
+  assert.ok(h.zatca.calls.some(c => c.headers.otp === direct) && !h.leakOtps.has(direct));
+  assertNoLeaks(h);
+
+  // سالب: رموز هذه العُدّة داخل معرّف عشوائي ليست تسريباً (attemptId وuuid الفواتير كانا يُسقطان الاختبار مصادفةً)
+  const [o0, o1, o2] = [...h.leakOtps];
+  for (const p of [
+    { attemptId: `00000023-0000-4000-8000-a${o0}bcdef` },
+    { uuid: `c${o1}d-0000-4000-8000-000000000000` },
+    { hex: `ab${o2}cd`, b64: `Zm9v${direct}YmFy` },
+  ]) assertNoLeaks(h, [p]);
+  // سالب: رمز سُحب لعُدّة أخرى في العملية نفسها لا يخصّ هذه
+  const other = harness();
+  assertNoLeaks(h, [{ note: `otp=${other.otps[0]}` }]);
+
+  // الرقم الثابت في tokenType (يصل المخزن مع كل شهادة) محجوز: السحب يتخطّاه
+  assert.ok(RESERVED_OTPS.has('200401'));
+  assert.ok(JSON.stringify([h.store.apiLogs, h.store.received, h.results]).includes(FAKE_TOKEN_TYPE), 'tokenType يصل المخزن');
+  let fresh = 100000;
+  while (usedOtps.has(String(fresh)) || RESERVED_OTPS.has(String(fresh))) fresh++;
+  const draws = [200401, 200401, fresh];
+  assert.equal(newOtp(() => draws.shift() as number), String(fresh));
+  assert.equal(draws.length, 0);
+
+  // موجب: رمز مسحوب لم يُستعمل، ومُمرَّر عبر renew، وواصل «الهيئة» مباشرة — كلها تُلتقط بصيغ واقعية
+  for (const otp of [h.renewalOtps[1], viaHelper, direct]) {
+    for (const p of [{ note: `otp=${otp}` }, { headers: { otp } }, { message: `OTP ${otp} is not valid` }, { code: `Invalid-OTP:${otp}` }]) {
+      assert.throws(() => assertNoLeaks(h, [p]), /OTP ظاهر/, JSON.stringify(p));
+    }
+  }
 });
 
 test('كل كود له رسالة عربية وعلَمان منطقيان؛ الأكواد التي تطلب رمزاً جديداً لا تُعدّ قابلة لإعادة المحاولة', () => {

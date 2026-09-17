@@ -83,6 +83,9 @@ export const ALL_STEPS: ComplianceStep[] = [
   'simplified-compliant', 'simplified-credit-note-compliant', 'simplified-debit-note-compliant',
 ];
 
+/** tokenType الثابت في كل ردّ CSID (يُحفظ في سجلّ API؛ رقمه 200401 محجوز عن سحب OTP في العُدّة). */
+export const FAKE_TOKEN_TYPE = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3';
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
@@ -115,7 +118,7 @@ export function fakeZatca(opts: FakeZatcaOptions): FakeZatca {
   };
 
   const csidBody = (r: IssuedCsid, disposition = 'ISSUED') => ({
-    requestID: r.requestID, tokenType: 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3',
+    requestID: r.requestID, tokenType: FAKE_TOKEN_TYPE,
     dispositionMessage: disposition, binarySecurityToken: r.token, secret: r.secret, errors: null,
   });
 
