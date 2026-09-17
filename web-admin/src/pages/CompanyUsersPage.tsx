@@ -315,8 +315,11 @@ function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, account
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
-      <form onSubmit={submit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+      {/* النافذة لا تتجاوز ارتفاع الشاشة: رأسها وزرّ الحفظ ثابتان والمحتوى يُمرَّر بينهما.
+          بلا ذلك كانت تُوسَّط وهي أطول من الشاشة (بعد إضافة «صلاحيات الدفاتر») فيُقصّ
+          عنوانها وزرّ «حفظ التعديلات» خارج الشاشة بلا تمرير يبلغهما */}
+      <form onSubmit={submit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex-shrink-0 flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center"><UserCog size={18} /></div>
             <div>
@@ -327,7 +330,7 @@ function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, account
           <button type="button" onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">{tr('الاسم')}</label>
@@ -413,7 +416,7 @@ function CompanyUserModal({ user, currentUserId, loading, dailyReportOn, account
           {err && <p className="text-[#C0392B] text-xs">{err}</p>}
         </div>
 
-        <div className="p-5 border-t border-[#E9E1D3] flex gap-3">
+        <div className="flex-shrink-0 p-5 border-t border-[#E9E1D3] flex gap-3">
           <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center py-2.5">
             {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
             {user ? tr('حفظ التعديلات') : tr('إضافة المستخدم')}
