@@ -7,6 +7,9 @@ import { Customer } from '../types';
 import { SALES_CHANNELS } from '../lib/channels';
 import { useTr } from '../i18n/strings';
 import { MHeader } from './mobileUi';
+import BuyerDataFields from '../components/BuyerDataFields';
+import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
+import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 
 type Form = {
   name: string; phone: string; businessName: string; altPhone: string; email: string;
@@ -28,8 +31,10 @@ const empty: Form = {
  * الفارغة، ومخطّط الخادم يرفض `null` على حقل اختياريّ فيفشل التعديل صامتاً.
  * هنا نُرسل حالةً محكومة ونحذف الفارغ من الحمولة أصلاً — فلا `null` يُرسَل.
  */
-export default function MCustomerForm({ customer, accountingOn = true, onClose, onSaved }: {
+export default function MCustomerForm({ customer, accountingOn = true, zatcaCollect = false, onClose, onSaved }: {
   customer: Customer | null;
+  /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج كما اليوم */
+  zatcaCollect?: boolean;
   /** «النظام المحاسبي» مفعّل للشركة؟ حين يكون false تُحذف حقول الائتمان
    *  والفوترة الضريبية من النموذج. وقيمها تبقى كما هي في الحالة المحكومة
    *  فتُرسَل بلا تغيير — الإخفاء لا يصفّر حدّ عميلٍ قائم. */
@@ -52,6 +57,13 @@ export default function MCustomerForm({ customer, accountingOn = true, onClose, 
   } : empty);
 
   const set = (k: keyof Form, v: string) => setForm(f => ({ ...f, [k]: v }));
+  // بيانات المشتري (Z5.1a): مع قسم «بيانات ضريبية» نفسه (المحاسبة) — والحقول الجديدة وحدها تُرسل null حين تُفرَّغ قيمة محفوظة
+  const showBuyer = zatcaCollect && accountingOn;
+  const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer as BuyerRowLike | null));
+  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
+  const buyerView = {
+    ...buyer, taxNumber: form.taxNumber, commercialReg: form.commercialReg, businessName: form.businessName, city: form.city, district: form.district,
+  };
 
   const save = useMutation({
     mutationFn: async () => {
@@ -68,6 +80,9 @@ export default function MCustomerForm({ customer, accountingOn = true, onClose, 
         const v = form[k].trim();
         if (v) payload[k] = v;
       });
+      if (showBuyer) {
+        Object.assign(payload, customer ? buyerUpdatePayload(buyer, customer as BuyerRowLike) : buyerCreatePayload(buyer));
+      }
       const res = customer
         ? await customerApi.update(customer.id, payload)
         : await customerApi.create(payload);
@@ -98,6 +113,17 @@ export default function MCustomerForm({ customer, accountingOn = true, onClose, 
   };
 
   const valid = form.name.trim().length > 0 && form.phone.trim().length > 0;
+
+  /** الحفظ: فحص بيانات الفوترة قبل الإرسال بقواعد الخادم نفسها (للشركة الجامعة وحدها) */
+  const onSave = () => {
+    if (showBuyer) {
+      const check = buyerFormCheck(buyerView, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS);
+      setBuyerErrors(check.errors);
+      if (!check.ok) { toast.error(tr('صحح بيانات الفوترة الإلكترونية')); return; }
+    }
+    save.mutate();
+  };
+  const legacyBuyerErrors = Object.entries(buyerErrors).filter(([f]) => !(BUYER_PHASE2_FIELDS as readonly string[]).includes(f));
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -157,13 +183,22 @@ export default function MCustomerForm({ customer, accountingOn = true, onClose, 
           </Group>
         )}
 
+        {/* فوترة ZATCA المرحلة الثانية (D2) — للشركة التي تجمع بيانات الفوترة وحدها، ولا تمنع الحفظ قبل التفعيل */}
+        {showBuyer && (
+          <Group title={tr('بيانات الفوترة الإلكترونية المشتري')}>
+            <BuyerDataFields title={false} values={{ ...buyerView, name: form.name, channel: form.channel }} stored={customer as BuyerRowLike | null}
+              errors={buyerErrors} onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))} />
+            {legacyBuyerErrors.map(([f, m]) => <p key={f} className="text-red-500 text-[11px]">{m}</p>)}
+          </Group>
+        )}
+
         <div className="h-2" />
       </div>
 
       {/* زرّ الحفظ ثابت أسفل — لا يُبحث عنه بالتمرير */}
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={() => save.mutate()} disabled={!valid || save.isPending}
+        <button onClick={onSave} disabled={!valid || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {customer ? tr('حفظ التعديلات') : tr('إضافة العميل')}

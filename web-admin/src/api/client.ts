@@ -57,6 +57,10 @@ export const customerApi = {
   locations: () => api.get('/customers/locations'),
   updatePrices: (id: string, prices: unknown) => api.put(`/customers/${id}/prices`, { prices }),
   remove: (id: string) => api.delete(`/customers/${id}`),
+  // فوترة ZATCA (Z5.1a، D2) — للشركة التي تجمع بيانات الفوترة وحدها (غيرها 404): القائمة، اعتماد التصنيف المقترح، حقول الفوترة وحدها
+  buyerData: (params?: Record<string, string | number>) => api.get('/customers/zatca-buyer-data', { params }),
+  applySuggestedType: (ids: string[]) => api.post('/customers/zatca-buyer-data/apply-suggested', { ids }),
+  updateBuyerData: (id: string, data: unknown) => api.patch(`/customers/${id}/buyer-data`, data),
 };
 
 export const productApi = {

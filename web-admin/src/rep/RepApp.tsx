@@ -22,9 +22,16 @@ import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
+import { underCutoverReview } from './outboxReview';
+import { companyRefreshDue } from './companyRefresh';
+import { zatcaCollectOn } from '../lib/zatcaRegime';
+import BuyerDataFields from '../components/BuyerDataFields';
+import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
+import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
+import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route';
-type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit';
+type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit' | 'buyerData';
 
 interface RepUser {
   /** «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد بـ٥٠ متراً حول موقع العميل */
@@ -614,10 +621,29 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
 }
 
 // ============ قائمة العملاء ============
-function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true }: { onSelect: (c: any) => void; canAdd: boolean; onAdd: () => void; accountingOn?: boolean }) {
+function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaCollect = false }: { onSelect: (c: any) => void; canAdd: boolean; onAdd: () => void; accountingOn?: boolean; zatcaCollect?: boolean }) {
   const tr = useTr();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // فوترة ZATCA (Z5.1a، D2): شريحة «بيانات فوترة ناقصة (n)» من الخادم لا من كاش الألف — للشركة الجامعة وحدها ومتصلاً
+  const [incomplete, setIncomplete] = useState<{ rows: any[]; count: number } | null>(null);
+  const [onlyIncomplete, setOnlyIncomplete] = useState(false);
+  useEffect(() => {
+    if (!zatcaCollect || !navigator.onLine) return;
+    let alive = true;
+    fetchIncompleteBuyers()
+      .then(r => { if (alive) setIncomplete(r); })
+      .catch(() => { /* دون اتصال أو غير مفعّل: بلا شريحة */ });
+    return () => { alive = false; };
+  }, [zatcaCollect]);
+  const shown = onlyIncomplete && incomplete ? incomplete.rows.map(r => customers.find(x => x.id === r.id) ?? r) : customers;
+  // صفّ القائمة من الخادم بلا الحقول المالية ⇒ يُجلب العميل كاملاً قبل فتح ملفه
+  const pick = async (c: any) => {
+    if (c.balance === undefined) {
+      try { onSelect((await repApi.get(`/customers/${c.id}`)).data.data); return; } catch { /* يُفتح بما لديه */ }
+    }
+    onSelect(c);
+  };
 
   useEffect(() => {
     (async () => {
@@ -656,13 +682,21 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true }: { onSele
           </button>
         )}
       </div>
+      {zatcaCollect && incomplete && incomplete.count > 0 && (
+        <div className="px-3 pb-2">
+          <button onClick={() => setOnlyIncomplete(v => !v)}
+            className={`text-xs px-3 py-1.5 rounded-full border font-semibold ${onlyIncomplete ? 'bg-amber-600 text-white border-amber-600' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
+            {tr('بيانات فوترة ناقصة')} ({incomplete.count})
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-3 pb-24">
         {loading ? (
           <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</div>
-        ) : customers.length === 0 ? (
+        ) : shown.length === 0 ? (
           <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد نتائج')}</div>
-        ) : customers.map(c => (
-          <button key={c.id} onClick={() => onSelect(c)}
+        ) : shown.map(c => (
+          <button key={c.id} onClick={() => pick(c)}
             className="w-full flex items-center gap-3 bg-white rounded-2xl p-3 mb-2 border border-gray-100 text-right hover:border-[#E8C9BC]">
             <div className="w-10 h-10 rounded-full bg-[#FBEBE2] text-[#E15A30] flex items-center justify-center font-bold flex-shrink-0">
               {c.name.charAt(0)}
@@ -670,9 +704,14 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true }: { onSele
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-gray-800 text-sm truncate">{c.name}</p>
               <p className="text-xs text-gray-400">{c.phone} • {c.city || ''}</p>
+              {zatcaCollect && buyerBadge(c) && (
+                <span className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${buyerBadge(c) === 'incomplete' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+                  {buyerBadge(c) === 'incomplete' ? tr('بيانات فوترة ناقصة') : tr('غير مصنف')}
+                </span>
+              )}
             </div>
             {/* عمود الرصيد يُحذف من الشجرة كلّها عند الإطفاء — لا صفرٌ ولا شرطة */}
-            {accountingOn && (
+            {accountingOn && c.balance !== undefined && (
               <div className="text-left">
                 <p className={`text-sm font-bold ${Number(c.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
                   {formatCurrency(c.balance)}
@@ -820,8 +859,11 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   );
 }
 
-function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn, accountingOn = true, onEdit }: {
+function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice, onReceipt, onReturn, onStatement, onOpenDoc, onLogVisit, visitActive, visitElapsedLabel, onStartVisit, paylinkOn, accountingOn = true, onEdit, zatcaCollect = false, onCompleteBuyer }: {
   customer: any; repName: string; company: Company | null;
+  /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ ⇒ لافتة النواقص و«أكمل البيانات» (نقطة الفوترة الضيّقة — Q3) */
+  zatcaCollect?: boolean;
+  onCompleteBuyer?: () => void;
   /** فتح شاشة تعديل بيانات العميل — يُمرَّر دائماً والظهور تقرّره الصلاحية هنا */
   onEdit?: () => void;
   /** ميزة الدفع الإلكتروني مفعلة لهذه الشركة (بوابة المالك كالمنيو) */
@@ -871,6 +913,9 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   /* التعديل: صلاحيةٌ صريحة، وعميلٌ ما زال مُسنَداً، ومحفوظٌ في الخادم — العميل المضاف دون
    * اتصال لم يُرفع بعد فلا سجلّ يُعدَّل، والتعديل نفسه يلزمه اتصال */
   const canEdit = !!onEdit && perms.canEditCustomer === true && !unassigned
+    && !customer._offline && !String(customer.id || '').startsWith('local-');
+  // إكمال بيانات الفوترة (Q3): من يصدر الفواتير (أو يعدّل العملاء)، لعميل مُسنَد محفوظ في الخادم
+  const canCompleteBuyer = !!onCompleteBuyer && (perms.canCreateInvoice !== false || perms.canEditCustomer === true) && !unassigned
     && !customer._offline && !String(customer.id || '').startsWith('local-');
 
   // كشف الحساب مالٌ صريح، ومساره **ليس** خلف حارس المحاسبة في الخادم — فالكفّ
@@ -930,6 +975,11 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
             <p className="font-bold mb-1">{tr('هذا العميل لم يعد ضمن عملائك')}</p>
             <p className="text-xs">{tr('نقلته الإدارة إلى مندوب آخر فلا يمكنك إصدار فاتورة أو سند أو زيارة له راجع الإدارة إن كان ذلك غير متوقع')}</p>
           </div>
+        )}
+
+        {/* فوترة ZATCA (D2): نواقص الفاتورة الضريبية — للشركة الجامعة وحدها، ولا تمنع البيع قبل التفعيل */}
+        {zatcaCollect && !unassigned && (
+          <RepBuyerBanner customer={customer} canComplete={canCompleteBuyer} onComplete={() => onCompleteBuyer?.()} />
         )}
 
         {/* Summary */}
@@ -1995,12 +2045,16 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 }
 
 // ============ إضافة عميل جديد ============
-function AddCustomer({ onClose, onCreated, accountingOn = true }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean }) {
+function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean }) {
   const tr = useTr();
   const [form, setForm] = useState({
     name: '', businessName: '', phone: '', commercialReg: '', taxNumber: '',
     city: '', district: '', address: '', creditLimit: '', paymentDays: '30',
   });
+  // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — تُفحص قبل الإرسال وتبقى مع العميل في الصفّ دون اتصال
+  const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(null));
+  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
+  const buyerView = { ...buyer, taxNumber: form.taxNumber, commercialReg: form.commercialReg, businessName: form.businessName, city: form.city, district: form.district };
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   // الموقع على الخريطة (اختياري): التقاط GPS مباشر أو لصق رابط خرائط Google
@@ -2023,6 +2077,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true }: { onClose: () 
   const submit = async () => {
     if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
     if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب 9 أرقام على الأقل')); return; }
+    if (zatcaCollect) {
+      const check = buyerFormCheck(buyerView, null, BUYER_BILLING_FIELDS);
+      setBuyerErrors(check.errors);
+      if (!check.ok) { setMsg(Object.values(check.errors)[0] || tr('صحح بيانات الفوترة الإلكترونية')); return; }
+    }
     setLoading(true); setMsg('');
     const clientRef = newClientRef();
     const clientCreatedAt = new Date().toISOString();
@@ -2044,6 +2103,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true }: { onClose: () 
       creditLimit: accountingOn && form.creditLimit ? Number(form.creditLimit) : undefined,
       paymentDays: accountingOn && form.paymentDays ? Number(form.paymentDays) : undefined,
       clientRef, clientCreatedAt,
+      ...(zatcaCollect ? buyerCreatePayload(buyer) : {}),
     };
     try {
       const res = await repApi.post('/customers', payload);
@@ -2103,6 +2163,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true }: { onClose: () 
           <div className="mt-3">{field(tr('العنوان التفصيلي'), 'address')}</div>
         </div>
 
+        {zatcaCollect && (
+          <BuyerDataFields values={{ ...buyerView, name: form.name }} stored={null} errors={buyerErrors}
+            onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))} />
+        )}
+
         {/* الموقع على الخريطة — اختياري: يظهر للإدارة على خريطة التتبّع */}
         <div>
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('موقع العميل على الخريطة اختياري')}</p>
@@ -2150,8 +2215,10 @@ function AddCustomer({ onClose, onCreated, accountingOn = true }: { onClose: () 
  * من المندوب. والمقيَّد بـ«البيع داخل نطاق العميل» لا يحرّك موقع العميل (يفتح البوّابة على نفسه).
  * يلزمه اتصال: تعديلٌ يُكتب فوق سجلٍّ قائم لا يُطابَق من طابور.
  */
-function EditCustomer({ customer, pinLocked, onClose, onSaved }: {
+function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = false }: {
   customer: any; pinLocked: boolean; onClose: () => void; onSaved: (c: any) => void;
+  /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ */
+  zatcaCollect?: boolean;
 }) {
   const tr = useTr();
   const str = (v: unknown) => (v == null ? '' : String(v));
@@ -2180,10 +2247,19 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved }: {
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
   // الحقل الاختياري المُفرَّغ يُرسَل null فيُمحى فعلاً، لا undefined فيبقى القديم
   const opt = (v: string) => (v.trim() ? v.trim() : null);
+  // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — يُرسل المتغيّر منها فقط
+  const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer));
+  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
+  const buyerView = { ...buyer, taxNumber: form.taxNumber, commercialReg: form.commercialReg, businessName: form.businessName, city: form.city, district: form.district };
 
   const submit = async () => {
     if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
     if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب 9 أرقام على الأقل')); return; }
+    if (zatcaCollect) {
+      const check = buyerFormCheck(buyerView, customer, BUYER_BILLING_FIELDS);
+      setBuyerErrors(check.errors);
+      if (!check.ok) { setMsg(Object.values(check.errors)[0] || tr('صحح بيانات الفوترة الإلكترونية')); return; }
+    }
     setLoading(true); setMsg('');
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
@@ -2196,6 +2272,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved }: {
       district: opt(form.district),
       address: opt(form.address),
     };
+    if (zatcaCollect) Object.assign(payload, buyerUpdatePayload(buyer, customer));
     // الموقع يُرسَل فقط إن غيّره المندوب — وإلا بقي كما هو
     if (!pinLocked) {
       if (coords) { payload.lat = coords.lat; payload.lng = coords.lng; }
@@ -2256,6 +2333,11 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved }: {
           </div>
           <div className="mt-3">{field(tr('العنوان التفصيلي'), 'address')}</div>
         </div>
+
+        {zatcaCollect && (
+          <BuyerDataFields values={{ ...buyerView, name: form.name, channel: customer.channel ?? '' }} stored={customer} errors={buyerErrors}
+            onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))} />
+        )}
 
         <div>
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('موقع العميل على الخريطة')}</p>
@@ -2572,7 +2654,9 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
                   <p className="text-xs text-red-600 mt-1 leading-relaxed">{d.error || tr('رفضه الخادم')}</p>
                   <div className="flex gap-2 mt-2">
                     <button onClick={() => requeue(d.clientRef)} className="flex-1 text-xs bg-[#1F1A13] text-white rounded-lg py-1.5">{tr('إعادة المحاولة')}</button>
+                    {!underCutoverReview(d) && (
                     <button onClick={() => { if (confirm(tr('إزالة هذا المستند نهائيا من الصف'))) discard(d.clientRef); }} className="flex-1 text-xs border border-red-300 text-red-600 rounded-lg py-1.5">{tr('إزالة')}</button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2590,7 +2674,7 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
               {pendingList.map(d => (
                 <div key={d.clientRef} className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-center justify-between">
                   <span className="text-sm text-gray-800">{kindLabel(d.kind)} {d.localNumber ? `· ${d.localNumber}` : ''} {custName(d) && `· ${custName(d)}`}</span>
-                  <span className="text-[11px] text-amber-600">{new Date(d.clientCreatedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="text-[11px] text-amber-600">{underCutoverReview(d) ? tr('قيد مراجعة الإدارة') : new Date(d.clientCreatedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               ))}
             </div>
@@ -2799,6 +2883,8 @@ export default function RepApp() {
     || modal === 'createReceipt' || modal === 'logVisit' || modal === 'editCustomer',
     () => setModal('customerDetail'),
   );
+  // فوترة ZATCA (Z5.1a): نموذج بيانات الفوترة الضيّق يعود لملف العميل
+  useBackClose(modal === 'buyerData', () => setModal('customerDetail'));
   useBackClose(modal === 'customerDetail', closeCustomerDetail);
   // القاعدة: من أيّ تبويب غير الرئيسية يعود إليها أولاً، ومنها يخرج من التطبيق
   // (مبدأ أندرويد «عُد لوجهة البداية قبل الخروج» — ولا نحبس المستخدم بحيلة).
@@ -2914,6 +3000,30 @@ export default function RepApp() {
     requestPersistentStorage();
   }, [token]);
 
+  // إعدادات الشركة تتجدّد عند العودة إلى التطبيق أو عودة الاتصال (Z5.0): مرة كل 5 دقائق على الأكثر، وفشلها صامت (يبقى الكاش)
+  useEffect(() => {
+    if (!token) return;
+    let last = Date.now(); // الجلب الأول في المؤثّر أعلاه
+    const refresh = () => {
+      if (!navigator.onLine || document.hidden || !companyRefreshDue(last, Date.now())) return;
+      last = Date.now();
+      repApi.get('/company', { background: true }).then(async ({ data }) => {
+        const fresh = data?.data as Company | undefined;
+        if (!fresh) return;
+        await cacheSet('company', fresh);
+        setCompany(fresh);
+        setActiveCurrency((fresh as { currency?: string })?.currency);
+        setActiveNumerals((fresh as { numerals?: string })?.numerals);
+      }).catch(() => { /* أوف‑لاين أو عطل عابر: يبقى المحفوظ */ });
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+    };
+  }, [token]);
+
   // جهاز مشترك: قاعدة IndexedDB مشتركة للأصل، فلا يرث المندوب الجديد بيانات سابقه
   // المخزّنة (عملاء/أصناف) — وإلا ظهرت له قائمة عملاء زميله عند أول تعذّر شبكة.
   // الصفّ الصادر لا يُمسح (مستندات لم تُرفع بعد)، بل يُرفَع كلٌّ بجلسة صاحبه.
@@ -2936,6 +3046,8 @@ export default function RepApp() {
 
   // «النظام المحاسبي» مفعّل افتراضياً، فغيابه من ردّ قديم أو من الكاش يعني مفعّل لا مطفأ
   const accountingOn = (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
+  // فوترة ZATCA (Z5.1a، D2): جمع بيانات المشتري — (علم المالك || التفعيل) && SA؛ غير ذلك لا قسم ولا لافتة ولا شريحة
+  const zatcaCollect = zatcaCollectOn(company);
   // مطفأ افتراضياً: === true لا !== false، وإلا فُتحت البلاطة لكل شركة
   const dailyReportOn = (company as { dailyReportEnabled?: boolean } | null)?.dailyReportEnabled === true;
   const ACCOUNTING_TABS: Screen[] = ['invoices', 'receipts', 'vanstock'];
@@ -2995,6 +3107,8 @@ export default function RepApp() {
               visitElapsedLabel={fmtElapsed(visitElapsed)}
               onStartVisit={() => startVisit(selectedCustomer)}
               onEdit={() => setModal('editCustomer')}
+              zatcaCollect={zatcaCollect}
+              onCompleteBuyer={() => setModal('buyerData')}
               onInvoice={() => setModal('createInvoice')} onReceipt={() => setModal('createReceipt')} onReturn={() => setModal('createReturn')}
               onLogVisit={() => setModal('logVisit')}
               onStatement={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }}
@@ -3012,7 +3126,7 @@ export default function RepApp() {
             <LogVisit customer={selectedCustomer} onClose={() => setModal('customerDetail')}
               onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
           ) : modal === 'editCustomer' && selectedCustomer ? (
-            <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true}
+            <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true} zatcaCollect={zatcaCollect}
               onClose={() => setModal('customerDetail')}
               onSaved={(c) => {
                 // الردّ سجلُّ العميل من الخادم؛ نُبقي ما حسبه التطبيق فوقه (الرصيد وغيره) ونحدّث الكاش
@@ -3024,8 +3138,21 @@ export default function RepApp() {
                 })();
                 setModal('customerDetail');
               }} />
+          ) : modal === 'buyerData' && selectedCustomer ? (
+            <RepBuyerDataForm customer={selectedCustomer} canEditCustomer={user.canEditCustomer === true}
+              onClose={() => setModal('customerDetail')}
+              onSaved={(c) => {
+                // حقول الفوترة كما حفظها الخادم فوق العميل المحدَّد والكاش (لا مال ولا موقع)
+                const merged = { ...selectedCustomer, ...c };
+                setSelectedCustomer(merged);
+                void (async () => {
+                  const hit = await cacheGet<any[]>('customers');
+                  if (hit && Array.isArray(hit.data)) await cacheSet('customers', hit.data.map(x => (x.id === merged.id ? { ...x, ...c } : x)));
+                })();
+                setModal('customerDetail');
+              }} />
           ) : modal === 'addCustomer' ? (
-            <AddCustomer onClose={() => setModal(null)} accountingOn={accountingOn}
+            <AddCustomer onClose={() => setModal(null)} accountingOn={accountingOn} zatcaCollect={zatcaCollect}
               onCreated={(c) => { setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (
             <>
@@ -3064,7 +3191,7 @@ export default function RepApp() {
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
-                {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} accountingOn={accountingOn} />}
+                {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} accountingOn={accountingOn} zatcaCollect={zatcaCollect} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}

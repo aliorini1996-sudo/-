@@ -8,10 +8,19 @@ import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
 import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { deriveRunningBalances, clean } from '../services/accounting';
+import { CustomerBuyerDataDeps, applyBuyerGateToWrite, createCustomerBuyerDataRouter } from './customersZatca';
 
 const router = Router();
 router.use(authenticate);
 router.use(requireAdminPermission('canManageCustomers'));
+
+// فوترة ZATCA (Z5.1a، D2): بيانات المشتري — شركة تجمع بيانات الفوترة وحدها ((العلم || التفعيل) && SA)؛ غيرها كما اليوم
+const buyerDataDeps: CustomerBuyerDataDeps = {
+  db: prisma,
+  customerScope: (req, tid) => customerScope(req, tid) as Promise<Record<string, unknown>>,
+  canAccessCustomer,
+  tenantId,
+};
 
 const customerSchema = z.object({
   name: z.string().min(1),
@@ -93,6 +102,9 @@ router.get('/locations', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (err) { next(err); }
 });
 
+// قائمة بيانات الفوترة + «اعتماد التصنيف المقترح» + نقطة الفوترة الضيّقة للمندوب (Q3) — قبل /:id وإلا التُقطت كمعرّف عميل
+router.use(createCustomerBuyerDataRouter(buyerDataDeps));
+
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -140,6 +152,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
 
+    // فوترة ZATCA (Z5.1a): حقول المشتري للشركة الجامعة وحدها (البوابة لا تُقرأ إلا إن حمل الجسم حقلاً منها أو الرقم الضريبي/السجل).
+    // إنشاء بـclientRef (الرفع المؤجَّل من الصفّ) لا يُرفض أبداً: تُسقط حقول المرحلة الثانية الخاطئة ويعود warnings
+    const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef });
+    if (!buyerGate.ok) { res.status(buyerGate.status).json(buyerGate.body); return; }
+
     const { clientCreatedAt, locationUrl, ...rest } = data;
     // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
     if (locationUrl) {
@@ -157,7 +174,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     });
     // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
     if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
-    res.status(201).json({ success: true, data: customer });
+    res.status(201).json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
   } catch (err) { next(err); }
 });
 
@@ -194,6 +211,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       res.status(403).json({ success: false, code: 'PIN_LOCKED', message: 'لا يمكنك تعديل موقع العميل اطلب من الادارة ضبطه' });
       return;
     }
+    // فوترة ZATCA (Z5.1a): حقول المشتري للشركة الجامعة وحدها — فحص المتغيّر فقط، والمندوب لا يحوّل منشأة إلى فرد (نقد الخطة 21)
+    const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: req.params.id, replay: false });
+    if (!buyerGate.ok) { res.status(buyerGate.status).json(buyerGate.body); return; }
     // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
     if (locationUrl) {
       const geo = await resolveLocationUrl(locationUrl);
@@ -204,7 +224,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل
       data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }) },
     });
-    res.json({ success: true, data: customer });
+    res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
   } catch (err) { next(err); }
 });
 

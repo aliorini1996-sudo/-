@@ -10,6 +10,7 @@
 
 import repApi from './repApi';
 import { outboxAll, outboxUpdate, outboxDelete, OutboxDoc, currentRepId } from './offlineDb';
+import { CUTOVER_REVIEW_CODE, clearReview, reviewRecheckDue } from './outboxReview';
 
 let syncing = false;
 type Listener = () => void;
@@ -48,16 +49,18 @@ export async function syncOutbox(): Promise<SyncResult> {
     const endpointOf = (k: OutboxDoc['kind']) =>
       k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : k === 'receipt' ? '/receipts'
       : k === 'visit' ? '/visits' : '/daily-reports';
+    const startedAt = Date.now();
     const queued = (await outboxAll())
-      .filter((d) => d.status === 'queued' && ownedByCurrentRep(d))
+      .filter((d) => d.status === 'queued' && ownedByCurrentRep(d) && reviewRecheckDue(d, startedAt))
       .sort((a, b) => (rank(a.kind) - rank(b.kind)) || a.clientCreatedAt.localeCompare(b.clientCreatedAt));
 
     for (const doc of queued) {
       const endpoint = endpointOf(doc.kind);
       try {
-        const res = await repApi.post(endpoint, doc.payload);
+        // X-FS-Replay: إعادة رفع من الصفّ (Z5.0) — تميّزها قاعدة التحويل عند تفعيل الفوترة (Z5.8) عن الإصدار المباشر
+        const res = await repApi.post(endpoint, doc.payload, { headers: { 'X-FS-Replay': '1' } });
         const server = res.data?.data ?? {};
-        await outboxUpdate({ ...doc, status: 'sent', serverNumber: server.number, serverId: server.id });
+        await outboxUpdate({ ...clearReview(doc), status: 'sent', serverNumber: server.number, serverId: server.id });
         sent++;
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status;
@@ -75,10 +78,17 @@ export async function syncOutbox(): Promise<SyncResult> {
           stopped = true;
           break;
         }
+        if (code === CUTOVER_REVIEW_CODE) {
+          // فوترة ZATCA (خامل حتى Z5.8): مستند من قبل التفعيل بانتظار مراجعة الإدارة — لا رفض أعمال ولا إعدام. يبقى مصفوفاً
+          // بوسم «قيد مراجعة الإدارة»، ولا يُسأل عنه قبل المهلة، والمزامنة تتابع ما بعده (لا توقّف يحبس بقية الصفّ)
+          const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+          await outboxUpdate({ ...doc, reviewCode: CUTOVER_REVIEW_CODE, reviewCheckedAt: new Date().toISOString(), error: msg || undefined });
+          continue;
+        }
         if (status && status >= 400 && status < 500) {
           // رفض أعمال (تجاوز ائتمان/سعر مرفوض/صنف معطّل...) — لا يُعاد، يراجعه المندوب (M6)
           const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-          await outboxUpdate({ ...doc, status: 'rejected', error: msg || 'رفضه الخادم' });
+          await outboxUpdate({ ...clearReview(doc), status: 'rejected', error: msg || 'رفضه الخادم' });
           rejected++;
         } else {
           // انقطاع أو خطأ خادم مؤقّت (5xx) — يبقى مصفوفاً، ونتوقّف (الشبكة غير مستقرّة)
@@ -119,7 +129,7 @@ export async function outboxDocs(): Promise<OutboxDoc[]> {
 // إعادة مستند مرفوض إلى الصفّ (بعد أن يعالج سببه — مثل رفع حدّ الائتمان من الأدمن)
 export async function requeue(clientRef: string): Promise<void> {
   const doc = (await outboxAll()).find((d) => d.clientRef === clientRef);
-  if (doc) { await outboxUpdate({ ...doc, status: 'queued', error: undefined }); notify(); }
+  if (doc) { await outboxUpdate({ ...clearReview(doc), status: 'queued', error: undefined }); notify(); }
 }
 
 // إزالة مستند من الصفّ (المندوب يعالج الورقة يدوياً)

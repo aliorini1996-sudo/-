@@ -6,6 +6,7 @@ import { adminRepFilter, scopedRepRecordWhere, scopedRecordWhere, canAccessRep, 
 import { AuthRequest } from '../types';
 import { snapToRoads, routeThrough } from '../services/mapMatch';
 import { buildRouteShape } from '../services/routeShape';
+import { heartbeatClientState } from '../services/repHeartbeat';
 
 const router = Router();
 router.use(authenticate);
@@ -98,7 +99,8 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
       await prisma.repSession.create({ data: { tenantId: tid, salesRepId: repId, startedAt: now, lastBeatAt: now } });
     }
     // آخر ظهور = الآن (يجعل مؤشّر «متصل» يعكس فتح التطبيق حتى بلا GPS)
-    await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
+    // + حالة الجهاز الاختيارية من الحزمة الحديثة (Z5.0: الحزمة وعدّا الصفّ الصادر) في التحديث نفسه — جسم غائب ⇒ كما كان
+    await prisma.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now, ...heartbeatClientState(req.body, now) } });
 
     res.json({ success: true });
   } catch (err) { next(err); }

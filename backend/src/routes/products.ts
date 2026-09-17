@@ -5,6 +5,7 @@ import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, 
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
+import { applyProductVatGate } from './productsZatca';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -137,7 +138,10 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
       data.taxPct = company?.defaultVatPct ?? 15;
     }
-    const product = await prisma.product.create({ data: { ...data, barcode: data.barcode || null, categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true } });
+    // فوترة ZATCA (Z5.1a): الفئة الضريبية للشركة الجامعة وحدها — لا تُقرأ البوابة إلا إن حمل الجسم حقلاً منها
+    const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: null, taxPct: data.taxPct });
+    if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
+    const product = await prisma.product.create({ data: { ...data, ...vatGate.patch, barcode: data.barcode || null, categoryId: data.categoryId || null, image: data.image || null, itemCode: data.itemCode || null, unitCode: data.unitCode || null, tenantId: tid } as any, include: { category: true } });
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });
@@ -156,6 +160,10 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     if ('image' in updateData) updateData.image = updateData.image || null;
     if ('itemCode' in updateData) updateData.itemCode = updateData.itemCode || null;
     if ('unitCode' in updateData) updateData.unitCode = updateData.unitCode || null;
+    // فوترة ZATCA (Z5.1a): الفئة الضريبية للشركة الجامعة وحدها — على الحالة المدمجة مع المحفوظ والنسبة التي ستُحفظ
+    const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: req.params.id, taxPct: updateData.taxPct as number | undefined });
+    if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
+    Object.assign(updateData, vatGate.patch);
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data: updateData,

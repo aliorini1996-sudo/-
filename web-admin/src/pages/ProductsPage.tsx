@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { productApi } from '../api/client';
+import { productApi, companyApi } from '../api/client';
+import { zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
 import { Product } from '../types';
 import { formatCurrency, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -22,6 +23,12 @@ export default function ProductsPage() {
   // صفحة الأصناف كلّها أسعارٌ وضريبة: تُمنع مع المحاسبة، ولا يُطلَب جدولها أصلاً
   // (مسار /products يردّ ٤٠٣ فتظهر لافتة خطأ — واللافتة نفسها تسريب).
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+  // فوترة ZATCA (Z5.1a): الفئة الضريبية في بطاقة الصنف للشركة التي تجمع بيانات الفوترة وحدها
+  const { data: company } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => { const res = await companyApi.get(); return res.data.data as ZatcaCompanyLike; },
+  });
+  const zatcaCollect = zatcaCollectOn(company);
 
   const { data, isLoading } = useQuery({
     queryKey: ['products', search, page],
@@ -118,6 +125,7 @@ export default function ProductsPage() {
 
       {showModal && (
         <ProductModal
+          zatcaCollect={zatcaCollect}
           product={selected}
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}

@@ -20,6 +20,7 @@ import {
   stuckCountsByTenant, summarizePendingFees,
 } from '../services/gl/ownerLedger';
 import { adminPermissionFields } from './auth';
+import { tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -234,6 +235,11 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     const tid = req.params.id;
     const tenant = await prisma.tenant.findUnique({ where: { id: tid } });
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+
+    // فوترة ZATCA (Z5.0، F12): وحدات الفوترة ومستنداتها محفوظة نظاماً (onDelete: Restrict) — ردّ 409 واضح قبل أي حذف بدل
+    // P2003 يصل 500. شركة بلا وحدة ⇒ الحذف كما اليوم
+    const einvoiceArchive = tenantDeleteArchiveBlock(await prisma.zatcaEgsUnit.count({ where: { tenantId: tid } }));
+    if (einvoiceArchive) { res.status(einvoiceArchive.status).json(einvoiceArchive.body); return; }
 
     // ضمانة الحفظ G6 (§3.9، §9.5 (د) و(ط)): قبل أول عبارة حذف وقبل قراءة confirmLedgerDestroy.
     // بلا صف GlSettings لا قيد مرحَّل ممكن ⇒ الحذف كما اليوم دون أي عدّ.

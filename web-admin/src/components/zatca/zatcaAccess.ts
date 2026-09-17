@@ -9,11 +9,13 @@
 export const ZATCA_TAB_ROLE = 'ADMIN';
 
 export function zatcaTabVisible(
-  company: { zatcaPhase2Enabled?: boolean | null; countryCode?: string | null } | null | undefined,
+  company: { zatcaPhase2Enabled?: boolean | null; countryCode?: string | null; zatcaPhase2StartedAt?: string | null } | null | undefined,
   role: string | null | undefined,
   scopeEnabled?: boolean | null,
 ): boolean {
-  return company?.zatcaPhase2Enabled === true && company.countryCode === 'SA' && role === ZATCA_TAB_ROLE && scopeEnabled !== true;
+  // Z5.0: شركة فُعّلت حيّاً (zatcaPhase2StartedAt) لا تفقد التبويب بإطفاء العلم بعد التفعيل — كبوابة الخادم
+  const live = typeof company?.zatcaPhase2StartedAt === 'string' && company.zatcaPhase2StartedAt !== '';
+  return (company?.zatcaPhase2Enabled === true || live) && company?.countryCode === 'SA' && role === ZATCA_TAB_ROLE && scopeEnabled !== true;
 }
 
 /** شركة بعلم المالك والمستخدم ليس مدير الشركة أو مقيّد النطاق — من يردّه حارس حقول البائع في الخادم. */

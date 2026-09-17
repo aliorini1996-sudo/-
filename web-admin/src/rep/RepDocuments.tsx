@@ -39,6 +39,11 @@ export interface Company {
   primaryColor?: string | null;  // لون الترويسة (hex)
   headerStyle?: string | null;   // classic | banner | minimal
   countryCode?: string | null;   // ISO alpha-2 — يصل مع ردّ /company
+  // فوترة ZATCA المرحلة الثانية (Z5.0 أنواع فقط — تصل مع ردّ /company؛ الخادم هو المرجع، انظر lib/zatcaRegime.ts)
+  einvoiceProvider?: string | null;
+  zatcaPhase2Enabled?: boolean;
+  zatcaPhase2StartedAt?: string | null;
+  zatcaRegime?: { phase: 1 | 2; mode?: 'live' | 'rehearsal'; blocked?: string | null } | null;
 }
 
 /**

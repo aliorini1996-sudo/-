@@ -69,6 +69,23 @@ test('accounting.ts وinvoices.ts وreceipts.ts وpaylink.ts وsettlement.ts (و
   }
 });
 
+// فوترة ZATCA المرحلة الثانية (z5_plan §0.5): وحدات compliance/zatca ومسار invoicesZatca.ts (حين يوجد) لا تعرف الدفاتر
+test('compliance/zatca/* وroutes/invoicesZatca.ts لا تستورد services/gl ولا تكتب أحداثه', () => {
+  const dir = path.join(SRC, 'compliance', 'zatca');
+  const files = fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name))
+    .map((e) => path.join('compliance', 'zatca', e.name));
+  assert.ok(files.includes(path.join('compliance', 'zatca', 'regime.ts')), 'regime.ts مفقود من الفحص');
+  if (fs.existsSync(path.join(SRC, 'routes', 'invoicesZatca.ts'))) files.push(path.join('routes', 'invoicesZatca.ts'));
+  for (const f of files) {
+    const s = read(f);
+    assert.doesNotMatch(s, /from\s+['"][^'"]*services\/gl[^'"]*['"]/, `${f} يستورد services/gl`);
+    assert.doesNotMatch(s, /from\s+['"]\.\.?\/gl[/'"]/, `${f} يستورد gl نسبياً`);
+    assert.doesNotMatch(s, /require\(\s*['"][^'"]*\/gl[/'"]/, `${f} يطلب gl`);
+    assert.doesNotMatch(s, /glSourceEvent|glMove|glSyncCursor/, `${f} يلمس جداول الدفاتر`);
+  }
+});
+
 // ═══ تراجع الاستيراد (import.ts) ═══
 
 /** فرع من معالج التراجع بين علامتين */

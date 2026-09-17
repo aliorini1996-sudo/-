@@ -100,6 +100,9 @@ export interface OutboxDoc {
   error?: string;                 // سبب الرفض إن وُجد
   serverNumber?: string;          // الرقم النهائي بعد الرفع
   serverId?: string;
+  // فوترة ZATCA (Z5.0، خامل حتى Z5.8): مستند دون اتصال من قبل التفعيل ينتظر مراجعة الإدارة — يبقى مصفوفاً (لا «مرفوض»)
+  reviewCode?: string;            // ZATCA_CUTOVER_REVIEW
+  reviewCheckedAt?: string;       // ISO — آخر سؤال للخادم (لا يُعاد قبل مهلة)
 }
 
 export async function outboxAdd(doc: OutboxDoc): Promise<void> {
@@ -109,6 +112,12 @@ export async function outboxAdd(doc: OutboxDoc): Promise<void> {
 export async function outboxAll(): Promise<OutboxDoc[]> {
   try { return (await tx<OutboxDoc[]>(STORE_OUTBOX, 'readonly', (s) => s.getAll())) || []; }
   catch { return []; }
+}
+
+/** كـoutboxAll لكن null حين تتعذّر القراءة — كي لا تُبلَّغ «صفّ فارغ» كاذبة (نبضة المندوب، Z5.0). */
+export async function outboxAllOrNull(): Promise<OutboxDoc[] | null> {
+  try { return (await tx<OutboxDoc[]>(STORE_OUTBOX, 'readonly', (s) => s.getAll())) || []; }
+  catch { return null; }
 }
 
 export async function outboxUpdate(doc: OutboxDoc): Promise<void> {

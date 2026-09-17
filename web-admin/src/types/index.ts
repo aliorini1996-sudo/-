@@ -188,6 +188,15 @@ export interface Customer {
   totalSales: number;
   totalCollected: number;
   createdAt: string;
+  // فوترة ZATCA المرحلة الثانية — بيانات المشتري (D2؛ أعمدة قائمة، تُعرض وتُحرَّر لشركة تجمعها فقط — lib/zatcaRegime.ts)
+  buyerType?: 'BUSINESS' | 'INDIVIDUAL' | 'GOVERNMENT' | null;
+  buyerIdScheme?: string | null;
+  buyerIdValue?: string | null;
+  addrStreet?: string | null;
+  addrBuildingNo?: string | null;
+  addrAdditionalNo?: string | null;
+  addrPostalCode?: string | null;
+  countryCode?: string | null;
 }
 
 export interface Product {
@@ -207,6 +216,10 @@ export interface Product {
   itemCode?: string | null;     // كود الصنف للفوترة الإلكترونية (EGS/GS1)
   itemCodeType?: 'EGS' | 'GS1' | null;
   unitCode?: string | null;     // كود الوحدة حسب جدول المزوّد
+  // فوترة ZATCA المرحلة الثانية — الفئة الضريبية (Z5.1a؛ تُحرَّر لشركة تجمع بيانات الفوترة فقط — lib/zatcaRegime.ts)
+  vatCategory?: 'S' | 'Z' | 'E' | 'O' | null;
+  vatExemptionCode?: string | null;
+  vatExemptionReason?: string | null;
 }
 
 export interface PriceTier {
@@ -287,6 +300,19 @@ export interface Invoice {
   einvoiceProvider?: string | null;
   einvoiceStatus?: string | null;
   einvoiceUuid?: string | null;
+  // فوترة ZATCA المرحلة الثانية (Z5.0 أنواع فقط — null لكل فاتورة قديمة أو مرحلة أولى؛ المرجع zatcaPhase لا einvoiceStatus)
+  einvoiceQr?: string | null;
+  einvoiceHash?: string | null;
+  einvoiceIcv?: number | null;
+  einvoiceWarnings?: string | null;
+  zatcaPhase?: number | null;
+  documentKind?: 'INVOICE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | null;
+  invoiceSubtype?: '01' | '02' | null;
+  issuedAt?: string | null;
+  originalInvoiceId?: string | null;
+  billingReference?: string | null;
+  noteReason?: string | null;
+  einvoiceSnapshot?: unknown;
 }
 
 export interface Receipt {

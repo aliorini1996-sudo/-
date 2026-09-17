@@ -1,8 +1,12 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Customer } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { SALES_CHANNELS } from '../../lib/channels';
 import { X, MapPin } from 'lucide-react';
+import BuyerDataFields from '../BuyerDataFields';
+import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../../lib/zatca/buyerData';
+import { BuyerFormValues, buyerFormCheck, buyerFormValues } from '../../lib/zatca/buyerForm';
 
 // locationUrl حقل إدخال فقط (يحلّه الخادم إلى lat/lng) — ليس حقلاً مخزّناً
 type CustomerForm = Partial<Customer> & { locationUrl?: string };
@@ -14,14 +18,34 @@ interface Props {
   loading: boolean;
   /** المحاسبة مفعّلة؟ افتراضه `true` — الغياب يعني «مفعّل» كما في العَلَم نفسه */
   accountingOn?: boolean;
+  /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج كما اليوم بلا قسم ولا فحص */
+  zatcaCollect?: boolean;
 }
 
-export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true }: Props) {
+/** حقول المرحلة الثانية من الحالة المحكومة (الرقم الضريبي والسجل والمدينة والحي والاسم من حقول النموذج المسجّلة). */
+const pickPhase2 = (b: BuyerFormValues): Partial<BuyerFormValues> =>
+  Object.fromEntries(BUYER_PHASE2_FIELDS.map(f => [f, b[f]])) as Partial<BuyerFormValues>;
+
+export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true, zatcaCollect = false }: Props) {
   const tr = useTr();
-  const { register, handleSubmit, formState: { errors } } = useForm<CustomerForm>({
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<CustomerForm>({
     defaultValues: customer || { status: 'ACTIVE', creditLimit: 0, paymentDays: 30 },
   });
   const hasLoc = customer?.lat != null && customer?.lng != null;
+  // بيانات المشتري (Z5.1a): حالة محكومة تُدمج في الحمولة للشركة الجامعة وحدها، وتُفحص قبل الإرسال بقواعد الخادم (مع الرقم
+  // الضريبي والسجل والاسم والمدينة والحي من النموذج نفسه). غير الجامعة: الحمولة كما اليوم حرفياً
+  const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer as BuyerRowLike | null));
+  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
+  const watched = zatcaCollect ? watch() : null;
+  const submit = (data: CustomerForm) => {
+    if (!zatcaCollect) { onSave(data); return; }
+    const values = { ...buyerFormValues(data as BuyerRowLike), ...pickPhase2(buyer) };
+    const check = buyerFormCheck(values, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS);
+    setBuyerErrors(check.errors);
+    if (!check.ok) return;
+    onSave({ ...data, ...pickPhase2(buyer) } as CustomerForm);
+  };
+  const legacyBuyerErrors = Object.entries(buyerErrors).filter(([f]) => !(BUYER_PHASE2_FIELDS as readonly string[]).includes(f));
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
@@ -32,7 +56,7 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
 
-        <form onSubmit={handleSubmit(onSave)} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit(submit)} className="p-6 space-y-6">
           {/* Basic Info */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('البيانات الأساسية')}</h3>
@@ -106,6 +130,16 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
             </div>
           </div>
 
+          {/* فوترة ZATCA المرحلة الثانية (D2): للشركة التي تجمع بيانات الفوترة وحدها — لا تمنع الحفظ قبل التفعيل */}
+          {zatcaCollect && watched && (
+            <BuyerDataFields
+              values={{ ...buyerFormValues(watched as BuyerRowLike), ...pickPhase2(buyer), name: watched.name ?? '', channel: watched.channel ?? '' }}
+              stored={customer as BuyerRowLike | null}
+              errors={buyerErrors}
+              onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
+            />
+          )}
+
           {/* Location — رابط موقع يظهر العميل على الخريطة */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase flex items-center gap-1.5"><MapPin size={15} /> {tr('الموقع على الخريطة')}</h3>
@@ -144,6 +178,12 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
               </div>
             </div>
           </div>
+          )}
+
+          {zatcaCollect && legacyBuyerErrors.length > 0 && (
+            <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs p-3 space-y-1">
+              {legacyBuyerErrors.map(([f, m]) => <p key={f}>{m}</p>)}
+            </div>
           )}
 
           {/* Actions */}

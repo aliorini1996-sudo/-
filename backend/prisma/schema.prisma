@@ -296,6 +296,13 @@ model SalesRep {
   lastLng      Float?
   lastSeenAt   DateTime?
 
+  // فوترة ZATCA المرحلة الثانية (Z5.0): حالة جهاز المندوب كما تُبلغها النبضة — لجاهزية التفعيل (Z5.8) وحدها، لا يقرؤها
+  // مسار آخر. تُكتب في تحديث lastSeenAt نفسه (لا استعلام إضافي)؛ null = لم تُبلغ نسخة حديثة من التطبيق بعد.
+  clientBundle     String?   // معرّف حزمة الواجهة (BUILD_ID، ≤ 40)
+  outboxPending    Int?      // مستندات الصفّ الصادر على الجهاز غير المرفوعة (كل المناديب على الجهاز)
+  outboxTaxPending Int?      // منها فواتير/مرتجعات (مستندات ضريبية)
+  outboxReportedAt DateTime? // وقت الخادم لآخر إبلاغ صالح بالعدّين
+
   invoices      Invoice[]
   receipts      Receipt[]
   notifications Notification[]
@@ -2623,6 +2630,7 @@ model ZatcaDocument {
   firstSubmitAt   DateTime?
   finalizedAt     DateTime?
   reportDeadline  DateTime?    // issuedAt + 24 ساعة (المبسّطة فقط)
+  keyVersion      Int?         // Z5.0: ZatcaEgsUnit.keyVersion الذي وُقِّعت به البايتات (إعادة محاولة بعد تجديد الشهادة تُكشف)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 

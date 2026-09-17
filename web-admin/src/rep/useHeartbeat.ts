@@ -1,5 +1,8 @@
 import { useEffect } from 'react';
 import repApi from './repApi';
+import { outboxAllOrNull } from './offlineDb';
+import { heartbeatPayload } from './outboxReview';
+import { BUILD_ID } from '../lib/buildId';
 
 /**
  * نبضة حضور: تُعلم الخادم أن تطبيق المندوب مفتوح ومتصل — لحساب ساعات العمل.
@@ -10,7 +13,13 @@ export function useHeartbeat(active: boolean): void {
   useEffect(() => {
     if (!active) return;
     // background: نبضة خلفية — فشلها العابر لا يُخرج المندوب (انظر repApi.ts)
-    const beat = () => { if (navigator.onLine) repApi.post('/tracking/heartbeat', undefined, { background: true }).catch(() => { /* تجاهل */ }); };
+    // + حالة الجهاز (Z5.0): معرّف الحزمة وعدّا الصفّ الصادر لكل المناديب على الجهاز — لجاهزية تفعيل الفوترة (Z5.8)
+    const beat = () => {
+      if (!navigator.onLine) return;
+      outboxAllOrNull()
+        .then((docs) => repApi.post('/tracking/heartbeat', heartbeatPayload(BUILD_ID, docs), { background: true }))
+        .catch(() => { /* تجاهل */ });
+    };
     beat(); // فور فتح التطبيق
     const timer = setInterval(beat, 60000); // نبضة كل دقيقة
     const onVisible = () => { if (!document.hidden) beat(); };

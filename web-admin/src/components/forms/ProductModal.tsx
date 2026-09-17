@@ -6,8 +6,13 @@ import { Product } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { X, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { PRODUCT_VAT_CATEGORY_LABELS_AR, VATEX_LABELS_AR, productVatPayload, vatexCodesFor } from '../../lib/zatca/productVatForm';
 
-interface Props { product: Product | null; onClose: () => void; onSave: (data: Partial<Product>) => void; loading: boolean; }
+interface Props {
+  product: Product | null; onClose: () => void; onSave: (data: Partial<Product>) => void; loading: boolean;
+  /** فوترة ZATCA (Z5.1a): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج والحمولة كما اليوم */
+  zatcaCollect?: boolean;
+}
 
 // يضغط الصورة في المتصفح (يصغّر الأبعاد ويحوّلها JPEG) لتقليل حجمها قبل التخزين
 function compressImage(file: File, maxSize = 400, quality = 0.7): Promise<string> {
@@ -36,9 +41,9 @@ function compressImage(file: File, maxSize = 400, quality = 0.7): Promise<string
   });
 }
 
-export default function ProductModal({ product, onClose, onSave, loading }: Props) {
+export default function ProductModal({ product, onClose, onSave, loading, zatcaCollect = false }: Props) {
   const tr = useTr();
-  const { register, handleSubmit, formState: { errors } } = useForm<Partial<Product>>({
+  const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<Partial<Product>>({
     defaultValues: product || { status: 'ACTIVE', taxPct: 15, basePrice: 0 },
   });
   // صورة الصنف تُدار بـ state ليتم ضغطها ودمجها يدوياً
@@ -59,7 +64,12 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
     } catch { toast.error(tr('تعذر معالجة الصورة')); }
   };
 
-  const submit = (data: Partial<Product>) => onSave({ ...data, image: image || null });
+  // الفئة الضريبية (Z5.1a) تُرسل للشركة الجامعة وحدها — غيرها لا تصله الحقول الثلاثة أصلاً (كان الخادم يُسقطها)
+  const vatCategory = zatcaCollect ? watch('vatCategory') : null;
+  const submit = (data: Partial<Product>) => {
+    const { vatCategory: cat, vatExemptionCode, vatExemptionReason, ...rest } = data;
+    onSave({ ...rest, image: image || null, ...(zatcaCollect ? productVatPayload({ vatCategory: cat, vatExemptionCode, vatExemptionReason }) : {}) } as Partial<Product>);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
@@ -142,6 +152,40 @@ export default function ProductModal({ product, onClose, onSave, loading }: Prop
             <span className="text-sm text-gray-700">{tr('المرتجع التالف من هذا الصنف يعود لمخزون السيارة')}</span>
             <span className="text-[10px] text-gray-400 mr-auto">{tr('الأدمن يبقى يتحكم لكل مرتجع')}</span>
           </label>
+
+          {/* فوترة ZATCA المرحلة الثانية: الفئة الضريبية للصنف — للشركة التي تجمع بيانات الفوترة وحدها */}
+          {zatcaCollect && (
+            <div className="rounded-xl border border-gray-200 p-4 space-y-3" data-zatca-product-vat="">
+              <p className="text-sm font-semibold text-gray-700">{tr('الفئة الضريبية للفوترة الإلكترونية')}</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className={vatCategory && vatCategory !== 'S' ? '' : 'col-span-2'}>
+                  <label className="label">{tr('الفئة الضريبية')}</label>
+                  <select className="input" {...register('vatCategory')}>
+                    <option value="">{tr('تلقائية قياسية عند نسبة أكبر من صفر')}</option>
+                    {(['S', 'Z', 'E', 'O'] as const).map(c => <option key={c} value={c}>{tr(PRODUCT_VAT_CATEGORY_LABELS_AR[c])}</option>)}
+                  </select>
+                </div>
+                {vatCategory && vatCategory !== 'S' && (
+                  <div>
+                    <label className="label">{tr('رمز سبب الإعفاء أو الصفرية')}</label>
+                    <select className="input" {...register('vatExemptionCode', {
+                      onChange: e => { if (!getValues('vatExemptionReason')) setValue('vatExemptionReason', VATEX_LABELS_AR[e.target.value] ?? ''); },
+                    })}>
+                      <option value="">{tr('اختر')}</option>
+                      {vatexCodesFor(vatCategory).map(code => <option key={code} value={code}>{`${code} — ${tr(VATEX_LABELS_AR[code])}`}</option>)}
+                    </select>
+                  </div>
+                )}
+                {vatCategory && vatCategory !== 'S' && (
+                  <div className="col-span-2">
+                    <label className="label">{tr('نص سبب الإعفاء أو الصفرية')}</label>
+                    <input className="input" {...register('vatExemptionReason')} />
+                    <p className="text-[11px] text-gray-400 mt-1">{tr('نسبة الضريبة لهذه الفئة يجب أن تكون 0%')}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* أكواد الفوترة الإلكترونية — تلزم لبعض الدول (مصر ETA وغيرها) */}
           <details className="rounded-xl border border-gray-200 bg-gray-50/60">

@@ -13,6 +13,7 @@ import { defaultFatooraClientFactory } from '../compliance/zatca/onboarding';
 import { prismaEgsUnitStore } from '../compliance/zatca/onboardingStore';
 import { keyringFromEnv } from '../compliance/zatca/secrets';
 import { ZatcaRouteDeps, zatcaEnvConfig } from './zatca';
+import { buyerDataReadiness } from './customersZatca';
 
 export function productionZatcaDeps(env: NodeJS.ProcessEnv = process.env): ZatcaRouteDeps {
   return {
@@ -32,5 +33,7 @@ export function productionZatcaDeps(env: NodeJS.ProcessEnv = process.env): Zatca
     clientFactory: defaultFatooraClientFactory,
     now: () => new Date(),
     config: zatcaEnvConfig(env),
+    // Z5.1a (D2): عدّادات جاهزية بيانات الفوترة (مسح محدود بالمؤشّر، إعلامي)
+    loadReadiness: tenantId => buyerDataReadiness(prisma, tenantId),
   };
 }

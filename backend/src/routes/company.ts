@@ -5,6 +5,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { AuthRequest } from '../types';
 import { getCountryTax, OVERRIDE_CURRENCIES } from '../config/countries';
 import { ZATCA_ROUTE_CODES, auditOwnerImpersonationWrite, companyZatcaFieldChanges } from './zatca';
+import { phase2LockedSettingChanges, phase2SettingsLockedBody } from '../compliance/zatca/settingsGuards';
 
 const router = Router();
 router.use(authenticate);
@@ -114,7 +115,7 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
     // تجاوز العملة (دولار/يورو): يغلب عملة الدولة، والدولة تبقى للضريبة والفوترة.
     // القيمة تؤخذ من الطلب إن أُرسلت، وإلا من المحفوظ — كي لا يمحو حفظٌ عاديّ تجاوزاً قائماً.
     {
-      const existing = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currencyOverride: true, countryCode: true } });
+      const existing = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currencyOverride: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true } });
       const sent = 'currencyOverride' in (req.body ?? {});
       const override = sent ? (data.currencyOverride || null) : (existing?.currencyOverride ?? null);
       clean.currencyOverride = override;
@@ -123,6 +124,13 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
       } else if (!data.countryCode && sent) {
         // أُزيل التجاوز دون تغيير الدولة ⇒ نرجع لعملة الدولة المحفوظة
         clean.currency = getCountryTax(existing?.countryCode).currency;
+      }
+      // فوترة ZATCA (Z5.0، D9): بعد التفعيل الحيّ لا تتغيّر الدولة ولا العملة ولا تجاوزها ولا المزوّد — مقارنةً بالقيم المشتقّة
+      // النهائية (حفظ بلا تغيير فعلي يمرّ). شركة غير مفعّلة (zatcaPhase2StartedAt فارغ) ⇒ لا شيء يتغيّر عمّا اليوم
+      const zatcaLocked = phase2LockedSettingChanges(existing, clean);
+      if (zatcaLocked.length > 0) {
+        res.status(409).json(phase2SettingsLockedBody(zatcaLocked));
+        return;
       }
     }
     const company = await prisma.companySettings.upsert({

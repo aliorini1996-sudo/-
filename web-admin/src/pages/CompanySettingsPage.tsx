@@ -12,6 +12,7 @@ import { useAccountingOn } from '../components/AccountingGate';
 import { keepLocalEdits } from '../components/zatca/settingsMerge';
 import { LOCKED_INPUT_CLASS, SELLER_LOCK_HINT_ID, companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';
 import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
+import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
 
 // تبويب ربط فوترة المرحلة الثانية كسول: لا يُحمَّل (ولا عباراته) إلا لشركة فعّل لها المالك العلم وفتحت التبويب
@@ -174,6 +175,8 @@ export default function CompanySettingsPage() {
 
   const zatcaTabOn = zatcaTabVisible(data, role, scopeEnabled);
   const showZatca = zatcaTabOn && tab === 'zatca';
+  // فوترة ZATCA (Z5.0، D9): بعد التفعيل الحيّ يرفض الخادم تغيير العملة (409 ZATCA_SETTINGS_LOCKED) — فلا يُعرض اختيارها
+  const zatcaLive = isZatcaPhase2Live(data);
   // شركة سعودية (أو بلا دولة محفوظة) بعلم المالك: الرقم الضريبي والسجل والدولة لمدير الشركة غير المقيّد وحده (الخادم يرفض غيره
   // 403 SELLER_FIELDS_*)؛ وغير السعودية تبقى قابلة للتعديل بلا خيار السعودية (zatcaCountryChoiceAllowed)
   const sellerLocked = zatcaSellerFieldsLocked(data, role, scopeEnabled);
@@ -259,12 +262,12 @@ export default function CompanySettingsPage() {
               {accountingOn && (
               <div>
                 <label className="label">{tr('عملة التشغيل')}</label>
-                <select className="input" value={currencyOverride} onChange={e => setCurrencyOverride(e.target.value)}>
+                <select className={zatcaLive ? 'input bg-[#F1EBDF] text-[#6E6557] cursor-not-allowed' : 'input'} value={currencyOverride} disabled={zatcaLive} onChange={e => setCurrencyOverride(e.target.value)}>
                   <option value="">{tr('عملة الدولة (الافتراضي)')} — {getCountry(countryCode).currency}</option>
                   <option value="USD">{tr('دولار امريكي')} — USD $</option>
                   <option value="EUR">{tr('يورو')} — EUR €</option>
                 </select>
-                <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('تغير عملة الفواتير والسندات والتقارير كلها — الضريبة والفوترة الالكترونية تبقى حسب الدولة')}</p>
+                <p className="text-[11px] text-[#6E6557] mt-1.5">{zatcaLive ? tr('العملة مقفلة على الريال السعودي بعد تفعيل الفوترة الإلكترونية المرحلة الثانية') : tr('تغير عملة الفواتير والسندات والتقارير كلها — الضريبة والفوترة الالكترونية تبقى حسب الدولة')}</p>
               </div>
               )}
               <div>

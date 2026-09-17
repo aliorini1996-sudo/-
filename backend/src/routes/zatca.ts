@@ -5,7 +5,8 @@
 // المصادقة والصلاحية) — فالاختبارات تشغّله بلا قاعدة بيانات ولا شبكة. الربط الإنتاجي في zatcaDeps.ts.
 //
 // قواعد الأمان (قرار المالك — تُفرض هنا لا في الواجهة وحدها):
-//   1) Tenant.zatcaPhase2Enabled === true وCompanySettings.countryCode === 'SA' لكل مسار، وإلا 403 برمز ثابت.
+//   1) Tenant.zatcaPhase2Enabled === true (أو شركة فُعّلت حيّاً: zatcaPhase2StartedAt — Z5.0) وCompanySettings.countryCode === 'SA'
+//      لكل مسار، وإلا 403 برمز ثابت.
 //   2) مدير الشركة (دور ADMIN) وحده — المشرف (MANAGER) والمحاسب (ACCOUNTANT) 403 COMPANY_ADMIN_ONLY ولو ملكا صلاحية
 //      الإعدادات (قرار المالك، design §5.1) — وبصلاحية canManageCompanySettings (تُنزع من المدير أيضاً) وغير مقيّد النطاق
 //      (كتكاملات الشركة: بترو آب وERP). الدور والشركة وحياة الحساب والصلاحية تُقرأ من القاعدة لكل طلب (loadAdmin) لا من
@@ -143,6 +144,11 @@ export interface ZatcaRouteDeps {
   log?: (event: string, fields: Record<string, string | number | boolean | null>) => void;
   /** سطر تدقيق كتابة جلسة دخول مالك المنصة (JSON واحد لكل طلب — ownerImpersonationAuditLine) — افتراضياً console.warn. */
   audit?: (line: string) => void;
+  /**
+   * Z5.1a (D2): جاهزية بيانات الفوترة — عدّادات إعلامية (عملاء ناقصون وغير مصنّفين، أصناف 0% بلا فئة، مناديب بصفّ ضريبي أو حزمة
+   * قديمة). الإنتاج: buyerDataReadiness في customersZatca.ts. غيابها ⇒ GET /readiness 404.
+   */
+  loadReadiness?: (tenantId: string) => Promise<unknown>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -715,6 +721,8 @@ interface Ctx {
   tenantId: string;
   actorId: string;
   settings: SellerSettingsRecord;
+  /** علم المالك كما قُرئ (قد يكون مطفأً لشركة مفعّلة حيّاً). */
+  tenantFlag: boolean;
 }
 
 export type ZatcaRouter = Router & {
@@ -896,11 +904,13 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
       if (admin.canManageCompanySettings === false) { sendRouteError(res, 403, 'PERMISSION_DENIED'); return; }
       if (await deps.isScopeRestricted(r)) { sendRouteError(res, 403, 'SCOPED_ADMIN'); return; }
       const tenantId = r.user!.tenantId as string;
-      if ((await deps.loadTenantFlag(tenantId)) !== true) { sendRouteError(res, 403, 'ZATCA_PHASE2_NOT_ALLOWED'); return; }
+      const tenantFlag = (await deps.loadTenantFlag(tenantId)) === true;
       const settings = await deps.store.loadSellerSettings(tenantId);
+      // Z5.0 (z5_plan §2.1): شركة فُعّلت حيّاً (zatcaPhase2StartedAt) لا تفقد الربط والتجديد بإطفاء علم المالك بعد التفعيل
+      if (!tenantFlag && settings?.zatcaPhase2StartedAt == null) { sendRouteError(res, 403, 'ZATCA_PHASE2_NOT_ALLOWED'); return; }
       if (!settings || settings.countryCode !== 'SA') { sendRouteError(res, 403, 'ZATCA_COUNTRY_NOT_SUPPORTED'); return; }
       // جلسة دخول مالك المنصة تكتب كالمدير الذي يمثّله توكنها (الشروط أعلاه من صفّه) — وactorId في ZatcaApiLog موسوم
-      res.locals.zatca = { tenantId, actorId: zatcaActorId(r.user!), settings } satisfies Ctx;
+      res.locals.zatca = { tenantId, actorId: zatcaActorId(r.user!), settings, tenantFlag } satisfies Ctx;
       next();
     })().catch((e: unknown) => {
       log('zatca.gate.error', { name: e instanceof Error ? e.name.slice(0, 40) : typeof e });
@@ -912,14 +922,14 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
 
   router.get('/overview', h(log, async (_req, res) => {
     pruneJobs();
-    const { tenantId, settings } = ctxOf(res);
+    const { tenantId, settings, tenantFlag } = ctxOf(res);
     const units = await deps.store.listUnits(tenantId);
     let secretsReady = true;
     try { deps.loadKeyring(); } catch { secretsReady = false; }
     res.json({
       success: true,
       data: {
-        gate: { zatcaPhase2Enabled: true, countryCode: settings.countryCode },
+        gate: { zatcaPhase2Enabled: tenantFlag, countryCode: settings.countryCode },
         regime: settings.zatcaPhase2StartedAt ? 'PHASE2' : 'PHASE1',
         phase2StartedAt: settings.zatcaPhase2StartedAt,
         goLiveAvailable: false,
@@ -943,6 +953,12 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
     const unit = await loadOwned(res, req.params.id);
     if (!unit) return;
     res.json({ success: true, data: unitPayload(toEgsUnitView(unit), ctxOf(res).tenantId) });
+  }));
+
+  // Z5.1a (D2، z5_plan §3): جاهزية بيانات الفوترة — إعلامية فقط، لا تمنع شيئاً (خلف بوابة المدير نفسها)
+  router.get('/readiness', h(log, async (_req, res) => {
+    if (!deps.loadReadiness) { sendError(res, 404, 'READINESS_UNAVAILABLE', 'تقرير الجاهزية غير متاح'); return; }
+    res.json({ success: true, data: await deps.loadReadiness(ctxOf(res).tenantId) });
   }));
 
   // ─── بيانات البائع ───
