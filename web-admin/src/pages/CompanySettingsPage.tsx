@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi } from '../api/client';
@@ -9,6 +9,13 @@ import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 import DataImportPanel from '../components/DataImportPanel';
 import { useAccountingOn } from '../components/AccountingGate';
+import { keepLocalEdits } from '../components/zatca/settingsMerge';
+import { companySaveErrorMessage, companySaveNeedsRefetch, withoutLockedSellerFields, zatcaCountryChoiceAllowed, zatcaSellerFieldsLocked, zatcaSellerLockHint, zatcaTabVisible } from '../components/zatca/zatcaAccess';
+import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
+import { useAuthStore } from '../store/authStore';
+
+// تبويب ربط فوترة المرحلة الثانية كسول: لا يُحمَّل (ولا عباراته) إلا لشركة فعّل لها المالك العلم وفتحت التبويب
+const loadZatcaPhase2Tab = () => import('../components/zatca/ZatcaPhase2Tab');
 
 interface CompanyForm {
   name: string;
@@ -18,6 +25,12 @@ interface CompanyForm {
   phone?: string;
   email?: string;
 }
+
+interface IdentityState { logo: string; primaryColor: string; headerStyle: string; countryCode: string; currencyOverride: string; numerals: string }
+interface EinvState { enabled: boolean; env: string; clientId: string; clientSecret: string; activityCode: string; branchCode: string; intermediaryUrl: string }
+/** ما أُرسل في الحفظ — يصير خطّ الأساس بعد نجاحه (ما لم يُعدَّل بعده يأخذ قيمة الخادم عند التحديث، ومنها ما طبّعه).
+ * sellerLocked: الرقم الضريبي والسجل والدولة للاطلاع وقت الإرسال ⇒ لا تُرسل (withoutLockedSellerFields). */
+interface SaveSnapshot { form: CompanyForm; state: IdentityState; einv: EinvState; sellerLocked: boolean }
 
 const PRESET_COLORS = ['#1e3a8a', '#0f766e', '#b91c1c', '#7c3aed', '#b45309', '#0e7490', '#15803d', '#374151'];
 const STYLES = [
@@ -34,7 +47,7 @@ export default function CompanySettingsPage() {
   const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
   const accountingOn = accountingReady && accountingFlag;
   const tr = useTr();
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<CompanyForm>();
+  const { register, handleSubmit, reset, getValues, formState: { errors } } = useForm<CompanyForm>();
   // الهوية البصرية تُدار بـ state عادي لضمان إرسالها بدقّة
   const [logo, setLogo] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#1e3a8a');
@@ -43,8 +56,21 @@ export default function CompanySettingsPage() {
   const [currencyOverride, setCurrencyOverride] = useState(''); // '' = عملة الدولة | USD | EUR
   const [numerals, setNumerals] = useState('arabic'); // شكل الأرقام: arabic ٠١٢٣ | latin 0123
   // بيانات ربط الفوترة الإلكترونية (السرّ لا يُعاد من الخادم — hasSecret يشير إن كان مضبوطاً)
-  const [einv, setEinv] = useState({ enabled: false, env: 'preprod', clientId: '', clientSecret: '', activityCode: '', branchCode: '', intermediaryUrl: '' });
+  const [einv, setEinv] = useState<EinvState>({ enabled: false, env: 'preprod', clientId: '', clientSecret: '', activityCode: '', branchCode: '', intermediaryUrl: '' });
   const [hasSecret, setHasSecret] = useState(false);
+  // تبويب ربط فوترة المرحلة الثانية — يظهر فقط بعلم المالك وللشركة السعودية ولمدير الشركة (ADMIN) وحده (الخادم يفرض الشروط نفسها)
+  const role = useAuthStore(s => s.user?.role);
+  const impersonating = !!useAuthStore(s => s.impersonating);
+  const scopeEnabled = useAuthStore(s => s.user?.scopeEnabled === true);
+  const [tab, setTab] = useState<'general' | 'zatca'>('general');
+  // يُركَّب عند أول فتح ثم يبقى مخفيّاً لا مُزالاً: التنقّل بين التبويبين لا يمحو ما لم يُحفظ في أيٍّ منهما
+  const [zatcaMounted, setZatcaMounted] = useState(false);
+  // «إعادة المحاولة» بعد فشل تحميل حزمة التبويب: React.lazy يحفظ الوعد المرفوض ⇒ مكوّن كسول جديد لكل محاولة
+  const [zatcaAttempt, setZatcaAttempt] = useState(0);
+  const ZatcaPhase2Tab = useMemo(() => lazy(loadZatcaPhase2Tab), [zatcaAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // خطّ الأساس لكل حقل (آخر قيم طُبّقت من الخادم، أو ما أُرسل بعد حفظ ناجح) — تحديث ['company'] (حفظ بيانات المنشأة من تبويب
+  // الفوترة، أو إعادة جلب) يأخذ قيمة الخادم لكل حقل لم يعدّله المدير عن خطّ الأساس ويُبقي ما عدّله ولم يحفظه
+  const appliedRef = useRef<{ data: unknown; form: CompanyForm; state: IdentityState; einv: EinvState } | null>(null);
   const setE = (k: keyof typeof einv, v: string | boolean) => setEinv(s => ({ ...s, [k]: v }));
 
   const { data, isLoading } = useQuery({
@@ -58,17 +84,24 @@ export default function CompanySettingsPage() {
 
   useEffect(() => {
     if (!data) return;
-    reset({
+    const applied = appliedRef.current;
+    if (applied?.data === data) return; // التأثير نفسه مرة ثانية (StrictMode) بقيم محلية لم تُرسم بعد
+    const nextForm: CompanyForm = {
       name: data.name || '', address: data.address || '', taxNumber: data.taxNumber || '',
       commercialReg: data.commercialReg || '', phone: data.phone || '', email: data.email || '',
-    });
-    setLogo(data.logo || '');
-    setPrimaryColor(data.primaryColor || '#1e3a8a');
-    setHeaderStyle(data.headerStyle || 'classic');
-    setCountryCode(data.countryCode || 'SA');
-    setCurrencyOverride((data as { currencyOverride?: string | null }).currencyOverride || '');
-    setNumerals((data as { numerals?: string | null }).numerals || 'arabic');
-    setEinv({
+    };
+    // أول تحميل: كل القيم من الخادم. بعده دمج حقلاً بحقل ثم reset عادي — لا خيار keepDirtyValues (RHF يُبقي معه dirtyFields القديمة
+    // بعد الحفظ فيرفض الحقلُ كل قيمة لاحقة من الخادم، ويعيد الحفظ التالي كتابة القيمة القديمة فوق تعديل تبويب الفوترة)
+    reset(keepLocalEdits(applied?.form ?? null, nextForm, { ...nextForm, ...getValues() }));
+    const nextState: IdentityState = {
+      logo: data.logo || '',
+      primaryColor: data.primaryColor || '#1e3a8a',
+      headerStyle: data.headerStyle || 'classic',
+      countryCode: data.countryCode || 'SA',
+      currencyOverride: (data as { currencyOverride?: string | null }).currencyOverride || '',
+      numerals: (data as { numerals?: string | null }).numerals || 'arabic',
+    };
+    const nextEinv: EinvState = {
       enabled: data.einvoiceEnabled || false,
       env: data.einvoiceEnv || 'preprod',
       clientId: data.einvoiceClientId || '',
@@ -76,24 +109,45 @@ export default function CompanySettingsPage() {
       activityCode: data.einvoiceActivityCode || '',
       branchCode: data.einvoiceBranchCode || '',
       intermediaryUrl: data.einvoiceIntermediaryUrl || '',
-    });
+    };
+    appliedRef.current = { data, form: nextForm, state: nextState, einv: nextEinv };
+    const st = keepLocalEdits(applied?.state ?? null, nextState, { logo, primaryColor, headerStyle, countryCode, currencyOverride, numerals });
+    setLogo(st.logo);
+    setPrimaryColor(st.primaryColor);
+    setHeaderStyle(st.headerStyle);
+    setCountryCode(st.countryCode);
+    setCurrencyOverride(st.currencyOverride);
+    setNumerals(st.numerals);
+    setEinv(keepLocalEdits(applied?.einv ?? null, nextEinv, einv));
     setHasSecret(!!data.einvoiceHasSecret);
-  }, [data, reset]);
+  }, [data, reset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mutation = useMutation({
-    mutationFn: (values: CompanyForm) => companyApi.update({
-      ...values, logo, primaryColor, headerStyle, countryCode, currencyOverride, numerals,
-      einvoiceEnabled: einv.enabled, einvoiceEnv: einv.env,
-      einvoiceClientId: einv.clientId, einvoiceActivityCode: einv.activityCode,
-      einvoiceBranchCode: einv.branchCode, einvoiceIntermediaryUrl: einv.intermediaryUrl,
+    mutationFn: ({ form: values, state: st, einv: e, sellerLocked: locked }: SaveSnapshot) => companyApi.update(withoutLockedSellerFields({
+      ...values, ...st,
+      einvoiceEnabled: e.enabled, einvoiceEnv: e.env,
+      einvoiceClientId: e.clientId, einvoiceActivityCode: e.activityCode,
+      einvoiceBranchCode: e.branchCode, einvoiceIntermediaryUrl: e.intermediaryUrl,
       // السرّ يُرسَل فقط إن كُتب من جديد (فارغ = أبقِ الحالي)
-      ...(einv.clientSecret.trim() ? { einvoiceClientSecret: einv.clientSecret.trim() } : {}),
-    }),
-    onSuccess: () => {
+      ...(e.clientSecret.trim() ? { einvoiceClientSecret: e.clientSecret.trim() } : {}),
+    }, locked)),
+    onSuccess: (_res, sent) => {
+      // ما أُرسل وحُفظ صار خطّ الأساس: التحديث التالي يأخذ قيمة الخادم لكل حقل لم يُعدَّل بعد الإرسال (ومنها ما طبّعه الخادم أو
+      // غيّره تبويب الفوترة لاحقاً)، ويُبقي ما كُتب أثناء الحفظ
+      if (appliedRef.current) appliedRef.current = { ...appliedRef.current, form: sent.form, state: sent.state, einv: { ...sent.einv, clientSecret: '' } };
+      setEinv(s => ({ ...s, clientSecret: '' })); // أُرسل وحُفظ — لا يبقى في الخانة (التحديث التالي يُبقي ما عُدِّل فقط)
       qc.invalidateQueries({ queryKey: ['company'] });
+      // الرقم الضريبي والسجل والعملة تغذّي جاهزية تبويب الفوترة الإلكترونية
+      qc.invalidateQueries({ queryKey: ['zatca', 'overview'] });
       toast.success(tr('تم حفظ بيانات الشركة'));
     },
-    onError: () => toast.error(tr('حدث خطأ في الحفظ')),
+    // رفض حارس حقول البائع (المدير وحده، الانتحال، النطاق، صيغة الرقم الضريبي) بعبارته مترجمة — وغيره كما كان.
+    // رفض الصلاحية يعيد جلب ['company'] (تبقى تعديلات الحقول الأخرى) فلا يتكرّر 403 حتى إعادة تحميل الصفحة
+    onError: (err: unknown) => {
+      if (companySaveNeedsRefetch(err)) qc.invalidateQueries({ queryKey: ['company'] });
+      const sellerError = companySaveErrorMessage(err);
+      toast.error(sellerError ? tr(sellerError) : tr('حدث خطأ في الحفظ'));
+    },
   });
 
   const onLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -118,13 +172,51 @@ export default function CompanySettingsPage() {
     logo, primaryColor, headerStyle,
   };
 
+  const zatcaTabOn = zatcaTabVisible(data, role, scopeEnabled);
+  const showZatca = zatcaTabOn && tab === 'zatca';
+  // شركة سعودية (أو بلا دولة محفوظة) بعلم المالك: الرقم الضريبي والسجل والدولة لمدير الشركة غير المقيّد وحده (الخادم يرفض غيره
+  // 403 SELLER_FIELDS_*)؛ وغير السعودية تبقى قابلة للتعديل بلا خيار السعودية (zatcaCountryChoiceAllowed)
+  const sellerLocked = zatcaSellerFieldsLocked(data, role, impersonating, scopeEnabled);
+
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('إعدادات الشركة')}</h1>
       </div>
 
-      <form onSubmit={handleSubmit(values => mutation.mutate(values))} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {zatcaTabOn && (
+        <div className="flex gap-2 mb-5 overflow-x-auto pb-1" role="tablist">
+          {([
+            { id: 'general', label: tr('الإعدادات العامة') },
+            { id: 'zatca', label: tr('الفوترة الإلكترونية — المرحلة الثانية (فاتورة)') },
+          ] as const).map(t => (
+            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => { setTab(t.id); if (t.id === 'zatca') setZatcaMounted(true); }}
+              className={`shrink-0 whitespace-nowrap rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-colors ${tab === t.id ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a] hover:border-[#D8CDB9]'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {zatcaTabOn && zatcaMounted && (
+        <div hidden={!showZatca}>
+          {/* فشل تحميل الحزمة أو خطأ داخل التبويب: لافتة وإعادة محاولة هنا — لا صفحة بيضاء تُسقط النموذج العام وتعديلاته */}
+          <ZatcaTabBoundary onRetry={() => setZatcaAttempt(n => n + 1)}>
+            <Suspense fallback={(
+              <div className="flex items-center justify-center h-48">
+                <div className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}>
+              <ZatcaPhase2Tab />
+            </Suspense>
+          </ZatcaTabBoundary>
+        </div>
+      )}
+
+      <div hidden={showZatca}>
+      <form onSubmit={handleSubmit(values => mutation.mutate({
+        form: values, state: { logo, primaryColor, headerStyle, countryCode, currencyOverride, numerals }, einv, sellerLocked,
+      }))} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* العمود الأيمن: البيانات + الهوية */}
         <div className="space-y-5">
           <div className="card">
@@ -150,8 +242,8 @@ export default function CompanySettingsPage() {
               </div>
               <div>
                 <label className="label">{tr('الدولة تحدد العملة والضريبة والفوترة الإلكترونية')}</label>
-                <select className="input" value={countryCode} onChange={e => setCountryCode(e.target.value)}>
-                  {supportedCountries().map(c => (
+                <select className="input" value={countryCode} disabled={sellerLocked} onChange={e => setCountryCode(e.target.value)}>
+                  {supportedCountries().filter(c => zatcaCountryChoiceAllowed(c.code, data, role, impersonating, scopeEnabled)).map(c => (
                     <option key={c.code} value={c.code}>{c.nameAr} — {c.currency}</option>
                   ))}
                 </select>
@@ -192,12 +284,15 @@ export default function CompanySettingsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">{tr('الرقم الضريبي')}</label>
-                  <input className="input" dir="ltr" {...register('taxNumber')} />
+                  <input className="input" dir="ltr" readOnly={sellerLocked} {...register('taxNumber')} />
                 </div>
                 <div>
                   <label className="label">{tr('السجل التجاري')}</label>
-                  <input className="input" dir="ltr" {...register('commercialReg')} />
+                  <input className="input" dir="ltr" readOnly={sellerLocked} {...register('commercialReg')} />
                 </div>
+                {sellerLocked && (
+                  <p className="col-span-2 -mt-2 text-[11px] text-[#6E6557]">{tr(zatcaSellerLockHint(role, impersonating, scopeEnabled))}</p>
+                )}
                 <div>
                   <label className="label">{tr('رقم الهاتف')}</label>
                   <input className="input" dir="ltr" {...register('phone')} />
@@ -382,6 +477,7 @@ export default function CompanySettingsPage() {
           <DataImportPanel />
         </div>
       )}
+      </div>
     </div>
   );
 }

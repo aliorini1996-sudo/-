@@ -158,6 +158,20 @@ export const companyApi = {
   update: (data: unknown) => api.put('/company', data),
 };
 
+// ربط فوترة ZATCA المرحلة الثانية (تبويب إعدادات الشركة) — OTP يُرسل في جسم الربط/التجديد وحدهما ولا يُحفظ في الواجهة
+export const zatcaApi = {
+  overview: () => api.get('/zatca/overview'),
+  unit: (id: string) => api.get(`/zatca/units/${encodeURIComponent(id)}`),
+  saveSeller: (data: Record<string, string | null>) => api.put('/zatca/seller', data),
+  createUnit: (data: { environment: string; locationAddress?: string; industry?: string; branchName?: string }) => api.post('/zatca/units', data),
+  // csrFields: العنوان المختصر في الشهادة — الخدمة تعيد اشتقاق العنوان من عنوان المنشأة عند إعادة الربط بعد رفض وعند التجديد
+  onboard: (id: string, data: { otp?: string; csrFields?: { locationAddress?: string } }) => api.post(`/zatca/units/${encodeURIComponent(id)}/onboard`, data),
+  renew: (id: string, data: { otp: string; csrFields?: { locationAddress?: string } }) => api.post(`/zatca/units/${encodeURIComponent(id)}/renew`, data),
+  abortRenewal: (id: string) => api.post(`/zatca/units/${encodeURIComponent(id)}/abort-renewal`, {}),
+  retire: (id: string, data: { confirmation: string; reason: 'revoked-in-portal' | 'abandoned' }) =>
+    api.post(`/zatca/units/${encodeURIComponent(id)}/retire`, data),
+};
+
 // مستخدمو الشركة الذين يدخلون لوحة الإدارة
 export const companyUserApi = {
   list: () => api.get('/company-users'),

@@ -60,6 +60,8 @@ import waInboxRouter from './routes/waInbox';
 import paymentsRouter, { paymentsWebhookRouter } from './routes/payments';
 import paylinkRouter from './routes/paylink';
 import ledgerRouter from './routes/ledger';
+import { createZatcaRouter, zatcaErrorGuard } from './routes/zatca';
+import { productionZatcaDeps } from './routes/zatcaDeps';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 
@@ -180,6 +182,9 @@ app.use('/api/payments', paymentsRouter);
 app.use('/api/paylink', paylinkRouter);
 // النظام المحاسبي المتكامل — سلسلة الحراسة داخل الموجّه (§9.1)
 app.use('/api/ledger', ledgerRouter);
+// ربط فوترة ZATCA المرحلة الثانية (تسجيل وحدة EGS) — الحراسة كلها داخل الموجّه: مدير الشركة، علم المالك
+// zatcaPhase2Enabled، دولة SA، البيئات المسموحة. zatcaErrorGuard يمنع وصول خطأ تحليل جسمٍ يحمل OTP إلى السجلّ العامّ
+app.use('/api/zatca', createZatcaRouter(productionZatcaDeps()), zatcaErrorGuard);
 app.use('/api/promo-videos', promoVideosRouter);
 app.use('/api/import', importRouter);
 // منصّة صيد العملاء — معزولة (مصادقة وجداول خاصّة بها)

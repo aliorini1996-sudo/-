@@ -207,12 +207,20 @@ router.post('/renew', renewLimiter, async (req: Request, res: Response, next: Ne
     const token = req.headers.authorization?.split(' ')[1] || (req.body?.token as string | undefined);
     if (!token) { res.status(401).json({ success: false, message: 'غير مصرح' }); return; }
 
-    let payload: { id?: string; role?: string; exp?: number };
+    let payload: { id?: string; role?: string; exp?: number; impersonated?: unknown };
     try {
       payload = jwt.verify(token, process.env.JWT_SECRET as jwt.Secret, { ignoreExpiration: true }) as typeof payload;
     } catch {
       // توقيع فاسد = ليس توكننا. لا تجديد.
       res.status(401).json({ success: false, message: 'جلسة غير صالحة سجل الدخول مجددا' });
+      return;
+    }
+
+    // توكن انتحال المالك (POST /api/tenants/:id/impersonate، ساعتان) لا يُجدَّد أبداً — وقبل أي قراءة للحساب:
+    // التجديد يوقّع توكناً جديداً بلا علم impersonated فتسقط كل حراسة «للاطلاع فقط» (ربط ZATCA، تغيير كلمة المرور،
+    // عدّ الاستهلاك) وتُنسب الكتابة لمدير الشركة، ويُجدَّد بلا نهاية. المالك يدخل مجدداً من لوحة المنصّة.
+    if (payload.impersonated) {
+      res.status(401).json({ success: false, code: 'IMPERSONATION_RENEW_REFUSED', message: 'انتهت جلسة دخول مالك المنصة — ادخل مجددا من لوحة المنصة' });
       return;
     }
 

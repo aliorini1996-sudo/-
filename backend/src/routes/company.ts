@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { getCountryTax, OVERRIDE_CURRENCIES } from '../config/countries';
+import { ZATCA_ROUTE_CODES, companyZatcaFieldChanges } from './zatca';
 
 const router = Router();
 router.use(authenticate);
@@ -44,8 +45,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const tid = tenantId(req);
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid } });
     // نُرفق أعلام الاشتراك التي يتحكّم بها المالك (لإظهار/إخفاء الميزات في الواجهة)
-    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true, petroappEnabled: true, hatifEnabled: true, catalogEnabled: true, paylinkEnabled: true, warehouseEnabled: true, receivablesSummaryEnabled: true, accountingEnabled: true, dailyReportEnabled: true, invoiceSignatureEnabled: true, accountingSuiteEnabled: true } });
-    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true };
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { erpEnabled: true, petroappEnabled: true, hatifEnabled: true, catalogEnabled: true, paylinkEnabled: true, warehouseEnabled: true, receivablesSummaryEnabled: true, accountingEnabled: true, dailyReportEnabled: true, invoiceSignatureEnabled: true, accountingSuiteEnabled: true, zatcaPhase2Enabled: true } });
+    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true, zatcaPhase2Enabled: tenant?.zatcaPhase2Enabled === true };
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });
@@ -77,6 +78,38 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
       clean.einvoiceProvider = country.provider;
     } else {
       delete clean.countryCode; // لا نلمس إعداد الدولة إن لم يُرسَل
+    }
+    // ربط فوترة ZATCA المرحلة الثانية (علم المالك): الرقم الضريبي والسجل التجاري والدولة تغذّي شهادة الوحدة وبوابة /api/zatca —
+    // تغييرها لمدير الشركة وحده (دوره من القاعدة لا التوكن) خارج جلسة الانتحال وغير مقيّد النطاق (كبوابة /api/zatca)،
+    // وبصيغ PUT /api/zatca/seller ومعالجتها
+    {
+      const flag = await prisma.tenant.findUnique({ where: { id: tid }, select: { zatcaPhase2Enabled: true } });
+      if (flag?.zatcaPhase2Enabled === true) {
+        const current = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { taxNumber: true, commercialReg: true, countryCode: true } });
+        const z = companyZatcaFieldChanges(current, { taxNumber: data.taxNumber, commercialReg: data.commercialReg, countryCode: clean.countryCode as string | undefined });
+        if (z.changed.length > 0) {
+          if (req.user?.impersonated === true) {
+            res.status(403).json({ success: false, code: 'SELLER_FIELDS_READ_ONLY', message: ZATCA_ROUTE_CODES.SELLER_FIELDS_READ_ONLY, fields: z.changed });
+            return;
+          }
+          const actor = await prisma.admin.findUnique({ where: { id: req.user!.id }, select: { role: true, tenantId: true, isActive: true, scopeEnabled: true } });
+          if (actor?.role !== 'ADMIN' || actor.tenantId !== tid || actor.isActive !== true) {
+            res.status(403).json({ success: false, code: 'SELLER_FIELDS_ADMIN_ONLY', message: ZATCA_ROUTE_CODES.SELLER_FIELDS_ADMIN_ONLY, fields: z.changed });
+            return;
+          }
+          // مدير مقيّد النطاق: بوابة /api/zatca تردّه SCOPED_ADMIN (ومنها PUT /seller) — فلا يغيّر الحقول نفسها من هنا
+          if (actor.scopeEnabled === true) {
+            res.status(403).json({ success: false, code: 'SELLER_FIELDS_SCOPED', message: ZATCA_ROUTE_CODES.SELLER_FIELDS_SCOPED, fields: z.changed });
+            return;
+          }
+          if (z.errors.length > 0) {
+            res.status(400).json({ success: false, code: 'SELLER_INVALID', message: ZATCA_ROUTE_CODES.SELLER_INVALID, fieldErrors: z.errors });
+            return;
+          }
+        }
+        Object.assign(clean, z.write);
+        for (const f of z.unchanged) delete clean[f];
+      }
     }
     // تجاوز العملة (دولار/يورو): يغلب عملة الدولة، والدولة تبقى للضريبة والفوترة.
     // القيمة تؤخذ من الطلب إن أُرسلت، وإلا من المحفوظ — كي لا يمحو حفظٌ عاديّ تجاوزاً قائماً.

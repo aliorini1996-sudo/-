@@ -57,6 +57,8 @@ const updateTenantSchema = z.object({
   accountingEnabled: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
   invoiceSignatureEnabled: z.boolean().optional(),
+  // ربط فوترة ZATCA المرحلة الثانية — في التحديث وحده (مطفأ افتراضياً)
+  zatcaPhase2Enabled: z.boolean().optional(),
   // النظام المحاسبي المتكامل — في التحديث وحده، ومحروسٌ بقائمة التجربة في PUT /:id (§8.1)
   accountingSuiteEnabled: z.boolean().optional(),
   subscriptionEndsAt: z.string().nullish(),

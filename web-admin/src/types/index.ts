@@ -44,6 +44,7 @@ export interface Tenant {
   warehouseEnabled?: boolean;    // مخزون الشركة (المستودع) — يُفعّله المالك لكل شركة
   dailyReportEnabled?: boolean;  // التقرير اليومي وسلسلة اعتماده — يُفعّله المالك لكل شركة
   invoiceSignatureEnabled?: boolean; // توقيع المستلم اليدويّ على فواتير المندوب — يُفعّله المالك لكل شركة
+  zatcaPhase2Enabled?: boolean;  // تبويب ربط فوترة ZATCA المرحلة الثانية — مطفأ افتراضياً، يُفعّله المالك لكل شركة سعودية
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
   accountingSuiteEnabled?: boolean; // النظام المحاسبي المتكامل (الدفاتر) — مطفأ افتراضياً، وغيابه يعني مطفأ
@@ -339,4 +340,128 @@ export interface DashboardStats {
   topReps: { id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number }[];
   topCustomers: { id: string; name: string; totalSales: number; balance: number }[];
   recentInvoices: Invoice[];
+}
+
+// ─── ربط فوترة ZATCA المرحلة الثانية (/api/zatca) — أشكال الردود كما يرسلها الخادم (routes/zatca.ts) ───
+
+export type ZatcaEnv = 'sandbox' | 'simulation' | 'production';
+
+export type ZatcaUnitStatus =
+  | 'DRAFT' | 'CSR_READY' | 'CCSID_ISSUED' | 'CHECKS_RUNNING' | 'CHECKS_PASSED' | 'ERROR_NEEDS_OTP'
+  | 'ACTIVE' | 'RENEWING' | 'AUTH_FAILED' | 'EXPIRED' | 'REVOKED';
+
+export interface ZatcaStepMessage { type: 'ERROR' | 'WARNING'; code: string | null; message: string | null }
+
+export interface ZatcaIssue { rule: string; field: string; messageAr: string; severity: 'error' | 'warning' }
+
+export interface ZatcaReadinessIssue extends ZatcaIssue { settingsField: string | null }
+
+/** عرض الوحدة الآمن (toEgsUnitView): بلا مفتاح خاص ولا أسرار ولا رموز ولا CSR. التواريخ نصوص ISO. */
+export interface ZatcaUnitView {
+  id: string;
+  tenantId: string;
+  environment: ZatcaEnv;
+  status: ZatcaUnitStatus;
+  commonName: string;
+  serialNumber: string;
+  functionMap: string;
+  orgName: string;
+  orgUnit: string;
+  vatNumber: string;
+  locationAddress: string;
+  industry: string;
+  keyVersion: number;
+  publicKeyPem: string | null;
+  complianceRequestId: string | null;
+  complianceProgress: {
+    v: 1;
+    phase: 'onboarding' | 'renewal';
+    keyVersion: number;
+    requestId: string | null;
+    steps: Record<string, { status: string; at: string; warnings: ZatcaStepMessage[]; errors: ZatcaStepMessage[]; detail: string | null }>;
+    inFlight?: { op: 'compliance' | 'production-csid'; at: string };
+    renewal?: { origin: string; stage: string; uncertain: boolean; at: string };
+  } | null;
+  certSerial: string | null;
+  certNotBefore: string | null;
+  certNotAfter: string | null;
+  lastIcv: number;
+  activatedAt: string | null;
+  revokedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ZatcaChecklistItem {
+  key: string;
+  kind: 'setup' | 'check';
+  status: 'done' | 'warning' | 'running' | 'failed' | 'pending';
+  warnings: ZatcaStepMessage[];
+  errors: ZatcaStepMessage[];
+  detail: string | null;
+}
+
+export interface ZatcaUnitChecklist {
+  phase: 'onboarding' | 'renewal';
+  items: ZatcaChecklistItem[];
+  checksPassed: number;
+  checksTotal: number;
+  renewal: { stage: string; uncertain: boolean; origin: string } | null;
+}
+
+export interface ZatcaJobOutcome {
+  ok: boolean;
+  code: string;
+  messageAr: string;
+  retryable: boolean;
+  needsNewOtp: boolean;
+  zatcaMessages: ZatcaStepMessage[];
+  detail: string | null;
+  step: string | null;
+  field: string | null;
+  issues: ZatcaIssue[];
+}
+
+export interface ZatcaJobView {
+  id: string;
+  kind: 'onboard' | 'renew';
+  state: 'running' | 'finished';
+  startedAt: string;
+  finishedAt: string | null;
+  outcome: ZatcaJobOutcome | null;
+}
+
+export interface ZatcaUnitPayload {
+  unit: ZatcaUnitView;
+  job: ZatcaJobView | null;
+  activity: { busy: boolean; reason: 'job' | 'checks' | 'renewal' | 'csid-request' | null };
+  checklist: ZatcaUnitChecklist;
+}
+
+export type ZatcaSellerField =
+  | 'legalName' | 'taxNumber' | 'commercialReg' | 'sellerIdScheme' | 'sellerIdValue' | 'addrStreet' | 'addrBuildingNo'
+  | 'addrAdditionalNo' | 'addrDistrict' | 'addrCity' | 'addrPostalCode' | 'vatGroupTin';
+
+export type ZatcaSellerData = Record<ZatcaSellerField, string | null>;
+
+export interface ZatcaSellerWarning { code: string; messageAr: string; unitId?: string }
+
+export interface ZatcaOverview {
+  gate: { zatcaPhase2Enabled: boolean; countryCode: string };
+  regime: 'PHASE1' | 'PHASE2';
+  phase2StartedAt: string | null;
+  goLiveAvailable: boolean;
+  goLiveUnavailableMessage: string;
+  allowedEnvs: ZatcaEnv[];
+  envConfigIssues: string[];
+  productionBackend: boolean;
+  secretsReady: boolean;
+  seller: ZatcaSellerData;
+  sellerIssues: ZatcaReadinessIssue[];
+  /** عنوان الوحدة المشتقّ من عنوان المنشأة لطلب الشهادة (حين لا يُدخل المدير «العنوان المختصر»). */
+  csrDefaultLocation?: string;
+  currency: { currency: string; currencyOverride: string | null; isSar: boolean };
+  units: ZatcaUnitPayload[];
+  constants: { retireConfirmationText: string; otpLength: number; otpValidityMinutes: number; pollIntervalMs: number };
 }

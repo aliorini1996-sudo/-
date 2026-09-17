@@ -48,6 +48,7 @@ model Tenant {
   paylinkFeeFlat            Float     @default(1) // الريال الثابت لكل دفعة — شامل الضريبة
   dailyReportEnabled        Boolean   @default(false) // التقرير اليومي للمندوب وسلسلة اعتماده — يفعّلها المالك لكل شركة حسب الاشتراك
   invoiceSignatureEnabled   Boolean   @default(false) // توقيع المستلم اليدويّ على فواتير تطبيق المندوب (يُطبع آخر الفاتورة) — يفعّله المالك لكل شركة
+  zatcaPhase2Enabled        Boolean   @default(false) // تبويب ربط فوترة ZATCA المرحلة الثانية (/api/zatca) — يفعّله المالك لكل شركة سعودية؛ لا يغيّر إصدار الفواتير
   accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?

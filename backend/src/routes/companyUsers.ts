@@ -87,20 +87,82 @@ function stripLedgerKeys(data: Record<string, unknown>): void {
   for (const k of LEDGER_PERMISSION_KEYS) delete data[k];
 }
 
-async function requireCompanyOwner(req: AuthRequest, res: Response): Promise<boolean> {
+/** من يدير مستخدمي الشركة — يعيد دوره من القاعدة (لا من التوكن) لحارس حسابات المدير، أو null بعد ردّ 403. */
+async function requireCompanyOwner(req: AuthRequest, res: Response): Promise<{ role: string } | null> {
   if (!req.user || !['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(req.user.role)) {
     res.status(403).json({ success: false, message: 'غير مسموح' });
-    return false;
+    return null;
   }
   const admin = await prisma.admin.findUnique({
     where: { id: req.user.id },
-    select: { isActive: true, canManageCompanyUsers: true },
+    select: { isActive: true, canManageCompanyUsers: true, role: true },
   });
   if (!admin?.isActive || !admin.canManageCompanyUsers) {
     res.status(403).json({ success: false, message: 'إدارة مستخدمي الشركة غير متاحة لهذا الحساب' });
-    return false;
+    return null;
   }
-  return true;
+  return { role: admin.role };
+}
+
+export const ADMIN_ACCOUNT_REFUSALS = Object.freeze({
+  // لكل الشركات: الإنشاء والترقية والخفض وكلمة المرور وحدها (تقييد النطاق بلا علم المالك يغيّره المشرف والمحاسب كما كان)
+  COMPANY_ADMIN_ACCOUNT_ONLY: 'حسابات مدير الشركة (إنشاؤها أو الترقية إليها أو تغيير دورها أو كلمة مرورها) يديرها مدير الشركة فقط',
+  // لشركة بعلم المالك وحدها: تغيير تقييد نطاق مدير (بلا دور ولا كلمة مرور) من مشرف أو محاسب
+  COMPANY_ADMIN_SCOPE_ONLY: 'تقييد نطاق حساب مدير الشركة أو رفعه مرتبط بربط الفوترة الإلكترونية — يديره مدير الشركة فقط',
+  ADMIN_ACCOUNT_READ_ONLY: 'جلسة دخول مالك المنصة للاطلاع فقط على ربط الفوترة الإلكترونية — حسابات مدير الشركة (إنشاؤها أو الترقية إليها أو تغيير دورها أو كلمة مرورها أو تقييد نطاقها) يديرها مدير الشركة بنفسه',
+  ADMIN_ACCOUNT_SCOPED: 'حسابك مقيد بنطاق محدد — حسابات مدير الشركة (إنشاؤها أو الترقية إليها أو تغيير دورها أو كلمة مرورها أو تقييد نطاقها) يديرها مدير شركة بصلاحية غير مقيدة',
+});
+export type AdminAccountRefusal = keyof typeof ADMIN_ACCOUNT_REFUSALS;
+
+/**
+ * targetRole = دور الحساب قبل التعديل (null عند الإنشاء)، newRole = الدور المرسَل، password = أُرسلت كلمة مرور جديدة،
+ * scope = يتغيّر تفعيل تقييد النطاق (PUT /:id/scope) — رفعه عن مدير مقيّد يفتح له بوابة /api/zatca وحقول البائع.
+ */
+export interface AdminAccountChange { targetRole: string | null; newRole?: string; password?: boolean; scope?: boolean }
+
+/** تغيير يمسّ حساب «مدير الشركة»: إنشاء مدير أو الترقية إليه، أو خفض دور مدير أو تعيين كلمة مروره أو تغيير تقييد نطاقه. */
+export function changesAdminAccount(change: AdminAccountChange): boolean {
+  if (change.newRole === 'ADMIN' && change.targetRole !== 'ADMIN') return true;
+  return change.targetRole === 'ADMIN' && ((change.newRole !== undefined && change.newRole !== 'ADMIN') || change.password === true || change.scope === true);
+}
+
+/**
+ * حسابات «مدير الشركة» (ADMIN) لا يُنشئها ولا يرقّي إليها ولا يخفّض منها ولا يغيّر كلمة مرورها إلا مدير شركة (دوره في القاعدة).
+ * وإلا فمشرف أو محاسب يملك canManageCompanyUsers ينشئ حساب مدير بكلمة مرور يختارها، أو يرقّي حساباً، أو يعيد تعيين كلمة مرور
+ * المدير — ثم يدخل به فيلتفّ بطلبين على ما قصره المالك على مدير الشركة (ربط فوترة ZATCA المرحلة الثانية، وحذف المستخدمين).
+ * ولشركة فعّل لها المالك ربط فوترة المرحلة الثانية: جلسة انتحال المالك (للاطلاع فقط) والمدير مقيّد النطاق — وكلاهما تردّه بوابة
+ * /api/zatca — لا يُنشئان مديراً غير مقيّد ولا يعيدان تعيين كلمة مرور مدير فيدخلان به. التقييد (من القاعدة) وعلم الشركة يُقرآن
+ * عند تغيير يمسّ حساب مدير وحده، وبلا العلم يبقى سلوكهما كما كان (لا أثر على الشركات الأخرى). null = مسموح.
+ * وتقييد نطاق المدير وحده (بلا دور ولا كلمة مرور) يُحرس لشركة بعلم المالك وحدها — وإلا فمدير مقيّد ينشئ مشرفاً يملك إدارة
+ * المستخدمين (أو يعيد تعيين كلمة مرور مشرف) ثم يرفع به تقييد نفسه فيعبر بوابة /api/zatca؛ وبلا العلم كما كان لكل الأدوار.
+ */
+export async function adminAccountChangeRefusal(
+  caller: { role: string; impersonated: boolean },
+  change: AdminAccountChange,
+  load: { scoped: () => Promise<boolean>; zatcaPhase2On: () => Promise<boolean> },
+): Promise<AdminAccountRefusal | null> {
+  if (!changesAdminAccount(change)) return null;
+  if (caller.role !== 'ADMIN') {
+    const scopeOnly = !changesAdminAccount({ ...change, scope: false });
+    if (!scopeOnly) return 'COMPANY_ADMIN_ACCOUNT_ONLY';
+    return (await load.zatcaPhase2On()) === true ? 'COMPANY_ADMIN_SCOPE_ONLY' : null;
+  }
+  const scoped = caller.impersonated ? false : (await load.scoped()) === true;
+  if (!caller.impersonated && !scoped) return null;
+  if ((await load.zatcaPhase2On()) !== true) return null;
+  return caller.impersonated ? 'ADMIN_ACCOUNT_READ_ONLY' : 'ADMIN_ACCOUNT_SCOPED';
+}
+
+/** يطبّق adminAccountChangeRefusal على الطلب: false بعد ردّ 403 برمز الرفض ورسالته. */
+async function guardAdminAccountChange(req: AuthRequest, res: Response, caller: { role: string }, change: AdminAccountChange): Promise<boolean> {
+  const tid = tenantId(req);
+  const refusal = await adminAccountChangeRefusal({ role: caller.role, impersonated: req.user?.impersonated === true }, change, {
+    scoped: () => adminScopeEnabled(req),
+    zatcaPhase2On: async () => (await prisma.tenant.findUnique({ where: { id: tid }, select: { zatcaPhase2Enabled: true } }))?.zatcaPhase2Enabled === true,
+  });
+  if (!refusal) return true;
+  res.status(403).json({ success: false, code: refusal, message: ADMIN_ACCOUNT_REFUSALS[refusal] });
+  return false;
 }
 
 async function duplicateEmail(email: string, excludeId?: string): Promise<boolean> {
@@ -136,9 +198,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (!(await requireCompanyOwner(req, res))) return;
+    const caller = await requireCompanyOwner(req, res);
+    if (!caller) return;
     const tid = tenantId(req);
     const body = userSchema.parse(req.body);
+    if (!(await guardAdminAccountChange(req, res, caller, { targetRole: null, newRole: body.role }))) return;
     if (!body.password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
     if (body.password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (await duplicateEmail(body.email)) { res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا' }); return; }
@@ -191,12 +255,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (!(await requireCompanyOwner(req, res))) return;
+    const caller = await requireCompanyOwner(req, res);
+    if (!caller) return;
     const tid = tenantId(req);
     const current = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid } });
     if (!current) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
 
     const { password, ...data } = userSchema.partial().parse(req.body);
+    if (!(await guardAdminAccountChange(req, res, caller, { targetRole: current.role, newRole: data.role, password: !!password }))) return;
     if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (data.email && await duplicateEmail(data.email, current.id)) {
       res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا' });
@@ -244,11 +310,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
  */
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (!(await requireCompanyOwner(req, res))) return;
+    const caller = await requireCompanyOwner(req, res);
+    if (!caller) return;
     const tid = tenantId(req);
 
-    // القيد: المدير الرئيسي فقط (لا مشرف/محاسب) — مطابقةً لحذف المندوب
-    if (req.user?.role !== 'ADMIN') {
+    // القيد: المدير الرئيسي فقط (لا مشرف/محاسب) — مطابقةً لحذف المندوب. الدور من القاعدة لا التوكن (كالإنشاء والتعديل):
+    // مدير خُفِّض إلى مشرف وبقي توكنه ADMIN لا يحذف حتى انتهائه
+    if (caller.role !== 'ADMIN') {
       res.status(403).json({ success: false, message: 'حذف مستخدم الشركة متاح للمدير الرئيسي فقط' });
       return;
     }
@@ -375,13 +443,14 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
  *  2. المستخدم المقيّد نفسه ممنوع من إدارة النطاقات إطلاقاً — ولو مُنح
  *     canManageCompanyUsers سهواً — فلا يوسّع نطاقه ولا يقرأ نطاق غيره.
  */
-async function guardScopeAdmin(req: AuthRequest, res: Response): Promise<boolean> {
-  if (!(await requireCompanyOwner(req, res))) return false;
+async function guardScopeAdmin(req: AuthRequest, res: Response): Promise<{ role: string } | null> {
+  const caller = await requireCompanyOwner(req, res);
+  if (!caller) return null;
   if (await adminScopeEnabled(req)) {
     res.status(403).json({ success: false, message: 'حسابك مقيد بنطاق محدد تحديد النطاقات يحتاج صلاحية غير مقيدة' });
-    return false;
+    return null;
   }
-  return true;
+  return caller;
 }
 
 router.get('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -397,9 +466,10 @@ router.get('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
 
 router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (!(await guardScopeAdmin(req, res))) return;
+    const caller = await guardScopeAdmin(req, res);
+    if (!caller) return;
     const tid = tenantId(req);
-    const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    const admin = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, role: true, scopeEnabled: true } });
     if (!admin) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
 
     // null (أو غياب المفتاح) = «لا تلمس هذه القائمة» — يسمح بتحديث إحداهما وحدها
@@ -408,6 +478,9 @@ router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
       salesRepIds: z.array(z.string()).max(5000).nullable().optional(),
       scopeEnabled: z.boolean().optional(),
     }).parse(req.body);
+    // تغيير تقييد نطاق مدير الشركة حسابُ مدير (لشركة بعلم المالك): لا يرفعه مشرف أو محاسب ولا انتحال المالك
+    const scopeChange = body.scopeEnabled !== undefined && body.scopeEnabled !== admin.scopeEnabled;
+    if (!(await guardAdminAccountChange(req, res, caller, { targetRole: admin.role, scope: scopeChange }))) return;
 
     if (body.scopeEnabled !== undefined) {
       await prisma.admin.update({ where: { id: admin.id }, data: { scopeEnabled: body.scopeEnabled } });
