@@ -15,6 +15,7 @@ import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
 import { getComplianceProvider, type ProviderId, type ComplianceInvoice } from '../compliance/provider';
+import { ZATCA_CLAIM_PHRASES } from '../services/wa-agent/pricing';
 
 const SRC = path.join(process.cwd(), 'src');
 const readSrc = (rel: string) => {
@@ -74,21 +75,38 @@ test('لا تذكر منظومة فوترة غير مبنية في زوايا ا
 // ربط المرحلة الثانية مع منصة فاتورة صار قدرة معلنة بقرار المالك بعد التفعيل الفعلي (مبني في
 // مجلد compliance/zatca/). الكشف القديم كان يقرأ compliance/zatca.ts — وهو محول المرحلة الأولى
 // الخالي من «المرحلة الثانية» — فكان سيفشل فور ذكر الربط الصادق. الممنوع ولو بعد التفعيل:
-// الاعتماد/المصادقة/الترخيص من الهيئة (الهيئة لا تعتمد مزودي البرمجيات)، والشراكة الرسمية، وأي موعد.
-const APPROVAL_CLAIM = /(معتمد|مصادق|مرخ.?ص)[ةه]?\s*(رسمي[اً]*\s*)?(من|لدى)\s*(هيئة|الهيئة|الزكاة|ZATCA)|شريك\s*رسمي|ZATCA[\s-]*(certified|approved|accredited)|(certified|approved|accredited)\s+by\s+(the\s+)?ZATCA/i;
-const PHASE2_DATED = /(المرحلة الثانية|Phase[- ]?2)[^.\n]{0,80}(منذ|بحلول|اعتبارا|ابتداء|(19|20)\d{2}|الموجة\s*\d|since|as\s+of|by\s+(\d|January|February|March|April|May|June|July|August|September|October|November|December))/i;
+// الاعتماد/المصادقة/الترخيص من الهيئة (الهيئة لا تعتمد مزودي البرمجيات)، والشراكة الرسمية، وأي موعد أو رقم.
+//
+// ⚠️ الأنماط **مستوردة** من حارس وكيل واتساب (ZATCA_CLAIM_PHRASES في wa-agent/pricing.ts) لا منسوخة:
+// كانت نسخة هذا الملف لا تطبّع التشكيل («مُعتمد من الهيئة» تمرّ) ولا تعرف «من قبل» ولا الأرقام الهندية
+// («الموجة ٢٥» · «٢٠٢٦») ولا الأشهر العربية («في مارس» · «من يناير») — فتباعد الحارسان في الخادم نفسه.
+// والنصّ يُفحص بتشكيله وبلا تشكيل كما يفعل guard.ts.
+const stripMarks = (s: string) => s.replace(/[ً-ْٰـ]/g, '');
+const zatcaViolation = (text: string): string | null => {
+  for (const { pattern, reason } of ZATCA_CLAIM_PHRASES) {
+    const m = text.match(pattern) || stripMarks(text).match(pattern);
+    if (m) return `${reason}: «${m[0]}»`;
+  }
+  return null;
+};
 
 test('الحارس نفسه يلتقط صيغ الاعتماد والمواعيد (فحص سلبي مزروع)', () => {
   // حارس لا يلتقط شيئا ينجح كاذبا — نثبت أولا أن الأنماط تعض
-  for (const t of ['نظامنا معتمد من هيئة الزكاة', 'مصادق من الهيئة', 'شريك رسمي لهيئة الزكاة', 'Certified by ZATCA', 'ZATCA-approved invoicing']) {
-    assert.ok(APPROVAL_CLAIM.test(t), `نمط الاعتماد لم يلتقط: ${t}`);
+  for (const t of [
+    'نظامنا معتمد من هيئة الزكاة', 'مصادق من الهيئة', 'شريك رسمي لهيئة الزكاة', 'Certified by ZATCA', 'ZATCA-approved invoicing',
+    'نظامنا مُعتمد من الهيئة', 'مُعتمَد من هيئة الزكاة', 'معتمد من قبل هيئة الزكاة',
+  ]) {
+    assert.match(zatcaViolation(t) ?? '', /اعتماد رسمي|شراكة رسمية/, `نمط الاعتماد لم يلتقط: ${t}`);
   }
-  for (const t of ['ندعم ربط المرحلة الثانية منذ سبتمبر 2026', 'المرحلة الثانية مفعلة قبل الموجة 25', 'Phase 2 integration live since January']) {
-    assert.ok(PHASE2_DATED.test(t), `نمط الموعد لم يلتقط: ${t}`);
+  for (const t of [
+    'ندعم ربط المرحلة الثانية منذ سبتمبر 2026', 'المرحلة الثانية مفعلة قبل الموجة 25', 'Phase 2 integration live since January',
+    'ندعم ربط المرحلة الثانية في مارس', 'ربط المرحلة الثانية مفعّل من يناير', 'المرحلة الثانية مفعلة قبل الموجة ٢٥', 'ندعم المرحلة الثانية عام ٢٠٢٦',
+  ]) {
+    assert.match(zatcaViolation(t) ?? '', /موعد أو رقم/, `نمط الموعد لم يلتقط: ${t}`);
   }
   // والصيغة المعتمدة تمر
   const ok = 'فاتورة ضريبية برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك ZATCA';
-  assert.ok(!APPROVAL_CLAIM.test(ok) && !PHASE2_DATED.test(ok), 'الصيغة المعتمدة محجوبة');
+  assert.equal(zatcaViolation(ok), null, 'الصيغة المعتمدة محجوبة');
 });
 
 test('ادعاء المرحلة الثانية مسموح بصيغة الدعم وحدها: بلا اعتماد ولا شراكة ولا موعد', () => {
@@ -97,9 +115,7 @@ test('ادعاء المرحلة الثانية مسموح بصيغة الدعم 
     if (!fs.existsSync(p)) continue;
     // التعليقات تشرح **لماذا** تمنع الصيغ، فتذكرها حتما — نفحص الكود المرسل وحده
     const t = stripComments(fs.readFileSync(p, 'utf8'));
-    const approval = t.match(APPROVAL_CLAIM);
-    assert.equal(approval, null, `${rel}: ادعاء اعتماد/شراكة رسمية من الهيئة «${approval?.[0]}» — الهيئة لا تعتمد مزودي البرمجيات`);
-    const dated = t.match(PHASE2_DATED);
-    assert.equal(dated, null, `${rel}: موعد أو سنة قرب المرحلة الثانية «${dated?.[0]}» — لا موعد مثبت ينشر`);
+    const v = zatcaViolation(t);
+    assert.equal(v, null, `${rel}: ${v} — الهيئة لا تعتمد مزودي البرمجيات ولا موعد أو رقم مثبت ينشر`);
   }
 });

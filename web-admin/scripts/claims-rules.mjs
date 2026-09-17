@@ -15,9 +15,25 @@
 /** حذف التشكيل (U+064B–U+0652) والألف الخنجرية (U+0670) والتطويل (U+0640) */
 export const norm = (s) => String(s).replace(/[ً-ْٰـ]/g, '');
 
-/** مصطلح المرحلة الثانية بلغات الموقع الخمس */
-export const PHASE2 = '(?:المرحلة\\s*(?:الثانية|2|٢)|Phase\\s*(?:2|II|two)\\b|phase\\s*deux|2\\.\\s*Aşama|第二阶段)';
-const PHASE1_ONLY = '(?:المرحلة\\s*الأولى|Phase[\\s-]*(?:1|one|un)\\b)';
+/**
+ * ⚠️ خطوة ما بعد تحرير نفي CMS الواحدة: اقلب هذا العلم إلى true.
+ * فتصير قاعدة النفي القديم حاجبة، واختبار claimsGuard.test.ts يقرأ العلم نفسه فلا يفشل
+ * (كان التعليق يقول «احذف severity» والاختبار يثبّت 'warn' ⇒ الخطوة الموثّقة تُفشل web-ci).
+ * بنود CMS التي تُحرَّر قبل القلب: docs/owner-actions.md §٨.
+ */
+export const PHASE2_CMS_CLEANED = false;
+
+/** حدود الكلمة العربية: \b في JS لاتيني فقط، فـ«مارس» كانت ستطابق داخل «ممارسة» */
+const AR = '\\u0600-\\u06FF';
+
+/**
+ * مصطلح المرحلة الثانية بلغات الموقع الخمس. يطابق «للمرحلة» (اللام تُسقط ألف «ال»)
+ * و«المرحله الثانيه» (التاء المربوطة هاءً) — كانت «جاهز للمرحلة الثانية منذ 2026»
+ * و«المرحله الثانيه مفعله» تفلتان من المصطلح نفسه.
+ */
+export const PHASE2 = '(?:(?:ال|لل)مرحل[ةه]\\s*(?:الثاني[ةه]|2|٢)|Phase\\s*(?:2|II|two)\\b|phase\\s*deux|2\\.\\s*Aşama|第二阶段)';
+/** المرحلة الأولى — بأل وبلاها («مرحلة أولى» في مقال CMS كانت تفلت) وبالهمزة وبلاها */
+export const PHASE1 = '(?:(?:ال|لل)مرحل[ةه]\\s*ال[أا]ول[ىي]|مرحل[ةه]\\s*[أا]ول[ىي]|Phase[\\s-]*(?:1|one|un)\\b)';
 
 /**
  * ⚠️ الفارق الحاكم: **ادّعاء دعم** ما لم يُبنَ ممنوع، و**الذكر التعليمي** مشروع بل مطلوب.
@@ -25,36 +41,96 @@ const PHASE1_ONLY = '(?:المرحلة\\s*الأولى|Phase[\\s-]*(?:1|one|un)\
  * على مقربة من المصطلح، لا المصطلح وحده — وإلا صرخ الحارس على محتوانا الصحيح فعُطّل،
  * وهو أسوأ من غيابه.
  */
-export const SUPPORT_VERB = '(?:ندعم|يدعم|تدعم|مدعوم|مدعومة|متوافق|متوافقة|نوفر|يوفر|جاهز(?:ون|ة)?\\s*لـ?|نلتزم|مفعل|مفعلة|فعلنا|مربوط|مرتبط|we\\s+support|supports?|supported|compliant\\s+with|ready\\s+for|enabled|is\\s+live|prend\\s+en\\s+charge|prenons\\s+en\\s+charge|pris\\s+en\\s+charge|activ[ée]e?|destekl|etkin|支持|已启用|已上线)';
-export const near = (term) => new RegExp(`(${SUPPORT_VERB}[^.،؛\\n]{0,60}${term})|(${term}[^.،؛\\n]{0,60}${SUPPORT_VERB})`, 'i');
+export const SUPPORT_VERB = '(?:ندعم|يدعم|تدعم|مدعوم|مدعومة|متوافق|متوافقة|نوفر|يوفر|جاهز(?:ون|ة)?\\s*لـ?|نلتزم|مفعل|مفعلة|فعلنا|مربوط|مرتبط|we\\s+support|supports?|supported|compliant\\s+with|ready\\s+for|enabled|is\\s+live|prend\\s+en\\s+charge|prenons\\s+en\\s+charge|prise?s?\\s+en\\s+charge|activ[ée]e?|destekl|etkin|支持|已启用|已上线)';
 
-// موعد أو رقم عملاء — «منذ سبتمبر 2026» · «قبل الموجة 25» · «لـ16 شركة».
-// أُخرجت % والعملة والمليمترات عمداً: «ضريبة 15%» و«58مم» و«299 ر.س» ليست مواعيد.
-const MONTHS_AR_FR = 'يناير|فبراير|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر|janvier|février|avril|juillet|août|septembre|octobre|novembre|décembre';
+/**
+ * أفعال إعلان ربط المرحلة الثانية — أوسع من SUPPORT_VERB: «تم تفعيل ربط المرحلة الثانية في
+ * سبتمبر 2026» و«أطلقنا…» و«جاهزة منذ…» و«went live in…» كانت تمرّ بموعدها لأن فعلها غائب.
+ * لا تُضاف إلى SUPPORT_VERB نفسها: قاعدة ETA تستعملها، و«منظومة ETA متاحة للشركات» شرحٌ لا ادّعاء.
+ */
+export const PHASE2_VERB = `(?:${SUPPORT_VERB}|تفعيل|فعلناه|فعلناها|أطلقنا|اطلقنا|ربطنا|متاح|متاحة|جاهز|جاهزة|جاهزون|مفعله|launched|went\\s+live|now\\s+live|live\\s+(?:for|since|in|with|now)|available|disponible|kullanıma\\s+sunuldu|已推出)`;
+
+/** عبارة المنتج نفسها — تُحجب مع الموعد أو الرقم ولو بلا فعل («ربط المرحلة الثانية لمئات الشركات») */
+export const PHASE2_INTEGRATION = '(?:ربط\\s*(?:ال|لل)?مرحل[ةه]\\s*(?:الثاني[ةه]|2|٢)|Phase\\s*(?:2|II|two)\\s*integration|integration\\s+(?:for\\s+|of\\s+)?Phase\\s*(?:2|II|two)\\b|int[ée]gration\\s*(?:de\\s*la\\s*)?phase\\s*(?:2|deux)|2\\.\\s*Aşama\\s*entegrasyon|第二阶段(?:的)?对接)';
+
+const nearWith = (verb, term) => new RegExp(`(${verb}[^.،؛\\n]{0,60}${term})|(${term}[^.،؛\\n]{0,60}${verb})`, 'i');
+export const near = (term) => nearWith(SUPPORT_VERB, term);
+
+// موعد أو رقم — «منذ سبتمبر 2026» · «قبل الموجة 25» · «لـ16 شركة» · «في رمضان ١٤٤٨» · «لمئات الشركات» ·
+// «متوافق 100%» · «خلال أيام» · «سندعم… قريباً».
+// أُخرجت % العامّة والعملة والمليمترات عمداً: «ضريبة 15%» و«58مم» و«299 ر.س» ليست مواعيد.
+const MONTHS_AR = 'يناير|فبراير|مارس|أبريل|ابريل|إبريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر'
+  + '|محرم|رجب|شعبان|رمضان|شوال|ذو\\s*القعد[ةه]|ذو\\s*الحج[ةه]|ربيع\\s*(?:الأول|الاول|الآخر|الاخر|الثاني)|جمادى\\s*(?:الأولى|الاولى|الآخرة|الاخرة|الأول|الاول|الآخر|الاخر)|صفر\\s*[\\d٠-٩]{4}';
+const MONTHS_FR = 'janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre';
 const MONTHS_EN = 'January|February|March|April|May|June|July|August|September|October|November|December';
-export const DATE_OR_NUMBER = new RegExp(`(?:منذ|بحلول|ابتداء\\s*من|اعتبارا\\s*من|خلال\\s*[\\d٠-٩]+|الموجة\\s*[\\d٠-٩]+|موجة\\s*[\\d٠-٩]+|\\b(?:19|20)\\d{2}\\b|[١٢][٠٩][٠-٩]{2}|[\\d٠-٩][\\d٠-٩,.٬]*\\s*\\+?\\s*(?:شركة|شركات|عميل|عملاء|منشأة|منشآت|companies|customers|clients|entreprises|şirket|家企业)|(?:${MONTHS_AR_FR})|\\b(?:since|as\\s+of|starting|from|by|in|until|before)\\s+(?:${MONTHS_EN}|\\d)|depuis|à\\s+partir\\s+d|itibaren|起)`, 'i');
+const COUNT_UNIT = 'شرك[ةه]|شركات|عميل|عملاء|منشأ[ةه]|منشآت|مؤسس[ةه]|مؤسسات|تاجر|تجار|موزع|موزعين|موزعا|فاتور[ةه]|فواتير'
+  + '|companies|company|customers|clients|businesses|distributors|merchants|invoices|firms|entreprises|şirket|家企业|家公司';
+export const DATE_OR_NUMBER = new RegExp([
+  'منذ|بحلول|ابتداء\\s*من|اعتبارا\\s*من',
+  'خلال\\s*(?:[\\d٠-٩]+|أيام|ايام|يوم|ساعات|ساعة|أسابيع|اسابيع|أسبوع|اسبوع|دقائق|دقيقة|أشهر|اشهر|شهر)',
+  '(?:ال)?موج[ةه]\\s*[\\d٠-٩]+|\\b(?:wave|vague|dalga)\\s*[\\d٠-٩]+',
+  '\\b(?:19|20)\\d{2}\\b|[١٢][٠٩][٠-٩]{2}',
+  '(?<![\\d٠-٩])(?:1[34]\\d{2}|١[٣٤][٠-٩]{2})(?![\\d٠-٩])', // السنة الهجرية
+  `[\\d٠-٩][\\d٠-٩,.٬]*\\s*\\+?\\s*(?:${COUNT_UNIT})`,
+  `(?<![${AR}])[وبل]?(?:مئات|عشرات|آلاف|الاف)(?![${AR}])|\\b(?:dozens|hundreds|thousands)\\b|des\\s+(?:centaines|dizaines|milliers)`,
+  '(?<![\\d٠-٩])(?:100|١٠٠)\\s*[%٪]|[\\d٠-٩]+\\s*[%٪]\\s*(?:مع|متوافق|compliant|conforme)|(?:متوافق[ةه]?|compliant|conforme)\\s*(?:بنسب[ةه]\\s*)?[\\d٠-٩]+\\s*[%٪]',
+  `(?<![${AR}])(?:${MONTHS_AR})(?![${AR}])`,
+  `\\b(?:${MONTHS_FR})\\b`,
+  `\\b(?:since|as\\s+of|starting|from|by|in|until|before)\\s+(?:${MONTHS_EN}|\\d)`,
+  '\\bwithin\\s+(?:\\d+|days|hours|weeks|minutes|a\\s+(?:day|week))\\b|\\bin\\s+minutes\\b|en\\s+quelques\\s+(?:jours|minutes|heures)',
+  // وعد مستقبلي: «ندعم» تطابق داخل «سندعم» فكان الوعد يمرّ صيغةَ دعم
+  `قريبا(?!\\s*من)|\\bsoon\\b|bientôt|yakında|即将|(?<![${AR}])(?:سن|ست|سي|سوف\\s*[نتي])(?:دعم|ربط|وفر|فعل)|\\bwill\\s+(?:soon\\s+)?(?:support|be\\s+(?:available|enabled|live|supported))`,
+  'depuis|à\\s+partir\\s+d|itibaren|起',
+].join('|'), 'i');
+
+/** جهة الادّعاء: الهيئة أو منصتها (مع «منصة فاتورة» — كانت «معتمد في منصة فاتورة» تفلت) */
+const ZATCA_BODY_AR = '(?:الزكاة|ZATCA|زاتكا|الهيئة|منص[ةه]\\s*«?فاتور[ةه]»?)';
+
+/** نفي قديم بعد المصطلح: «المرحلة الثانية غير مبنية/قيد التطوير/قريباً» · «Phase 2 is not supported yet» */
+const STALE_AFTER = '(?:غير\\s*(?:مبني|مبنية|متاح|متاحة|مدعوم|مدعومة)|لم\\s*(?:نبنها|نبنه|نبن|تبن|يبن|ندعمها|ندعمه)|قيد\\s*(?:التطوير|البناء|الإنشاء|الانشاء)|قريبا(?!\\s*من)'
+  + '|not\\s*(?:yet\\s*)?(?:built|available|supported|live)|isn.t\\s*(?:yet\\s*)?(?:built|available|supported|live)|coming\\s*soon|(?:in|under)\\s*development|on\\s*(?:our|the)\\s*roadmap'
+  + '|n.est\\s*pas\\s*(?:encore\\s*)?(?:disponible|d[ée]velopp[ée]e|prise\\s*en\\s*charge)|bientôt|henüz\\s*(?:hazır\\s*değil|desteklenmiyor|mevcut\\s*değil)|yakında|尚未(?:上线|支持)|即将)';
+/** نفي قديم قبل المصطلح: «لا ندعم المرحلة الثانية» · «what is honestly not built (Phase 2)» · «We don't support Phase 2 yet» */
+const STALE_BEFORE = '(?:لا\\s*(?:ندعم|نربط|يدعم|تدعم|نوفر|يوفر)|لم\\s*(?:نبن|نبني|ندعم)|do\\s*not\\s*support|don.t\\s*support|does\\s*not\\s*support|doesn.t\\s*support'
+  + '|not\\s*(?:yet\\s*)?(?:built|supported|available)|ne\\s*(?:prenons|prend)\\s*pas\\s*en\\s*charge|desteklemiyoruz|desteklemiyor|尚不支持|不支持)';
+/** تموضع «المرحلة الأولى» منتجاً: «يُصدر فاتورة… وفق متطلبات المرحلة الأولى» · «supports phase one» · «فواتير ZATCA (مرحلة أولى)» */
+const PHASE1_VERB = '(?:نصدر|يصدر|تصدر|ندعم|يدعم|تدعم|نوفر|يوفر|توفر|نغطي|يغطي|supports?|issues?|covers?|émet|prend\\s*en\\s*charge|prenons\\s*en\\s*charge)';
+const PHASE1_NOUN = '(?:فاتور[ةه]|فواتير|فوترة|invoices?|invoicing|factures?|facturation)';
 
 export const RULES = [
   {
     id: 'zatca-approved',
     // تبقى محجوبة بعد تفعيل الربط وتُشدَّد: الهيئة لا تعتمد مزوّدي البرمجيات ولا تُشاركهم رسمياً.
-    // الثغرات المسدودة: «معتمد من الهيئة» (كان يطابق الزكاة/ZATCA وحدهما) · «معتمدة · ZATCA» ·
-    // صيغ الإنجليزية والفرنسية والتركية والصينية · «شريك رسمي للهيئة».
+    // الثغرات المسدودة: «معتمد من الهيئة» · «معتمدة · ZATCA» · «معتمد هيئة الزكاة» بلا حرف جر (كان
+    // النمط الأقدم يحجبها فتراجع عنها الأحدث) · «معتمد في/عند» · «حاصلون على اعتماد الهيئة» ·
+    // «بشهادة هيئة الزكاة» · «شريك تقني رسمي» · «بالشراكة مع الهيئة» · «Fatoora-certified» ·
+    // «ZATCA-compliant and certified» · «certifiée ZATCA» · «tarafından onaylanmış» · «认可».
     re: new RegExp([
-      '(?:معتمد|مصادق|مرخص|موثق)(?:ة|ون|ين)?\\s*(?:رسميا?\\s*)?(?:من\\s*قبل|من|لدى)\\s*(?:هيئة\\s*)?(?:الزكاة|ZATCA|زاتكا|الهيئة|منصة\\s*فاتورة)',
-      '(?:اعتماد|مصادقة|ترخيص|شهادة)\\s*(?:رسمية?\\s*)?(?:من|لدى)\\s*(?:هيئة\\s*)?(?:الزكاة|ZATCA|زاتكا|الهيئة)',
-      'شريك\\s*(?:رسمي|معتمد)\\s*(?:لـ?|لل|مع|من)?\\s*(?:هيئة\\s*)?(?:الزكاة|ZATCA|زاتكا|الهيئة|هيئة)',
+      `(?:معتمد|مصادق|مرخص|موثق)(?:ة|ه|ون|ين)?\\s*(?:رسمي[اةه]?\\s*)?(?:(?:من\\s*قبل|من|لدى|في|عند)\\s*)?(?:هيئة\\s*)?${ZATCA_BODY_AR}`,
+      // «فاتورة» وحدها تلتبس بـ«العملة المعتمدة في فاتورة المبيعات» ⇒ حرف جر ونهاية العبارة شرطان
+      '(?:معتمد|مصادق|مرخص)(?:ة|ه|ون|ين)?\\s*(?:من|لدى|في|عند)\\s*«?فاتور[ةه]»?(?=\\s*(?:$|[.،؛,:)»!؟?\\n(]|التابع|ZATCA|ل?لربط))',
+      `(?:اعتماد|مصادق[ةه]|ترخيص|شهاد[ةه])\\s*(?:رسمي[ةه]?\\s*)?(?:من\\s*قبل|من|لدى)\\s*(?:هيئة\\s*)?${ZATCA_BODY_AR}`,
+      // الاسم بلا حرف جر يحتاج فعل حيازة: «اعتماد الهيئة» وحده يصف اعتماد الفاتورة (Clearance) في الشرح
+      `(?:حاصل(?:ون|ين|ة|ه)?\\s*على|حصلنا\\s*على|حصلت\\s*على|حصل\\s*على|نحمل|يحمل|نملك|لدينا|ب)\\s*(?:ال)?(?:اعتماد|شهاد[ةه]|مصادق[ةه]|ترخيص)\\s*(?:رسمي[ةه]?\\s*)?(?:(?:من\\s*قبل|من|لدى)\\s*)?(?:هيئة\\s*)?${ZATCA_BODY_AR}`,
+      'شريك[^.،\\n]{0,15}(?:رسمي|معتمد)[^.،\\n]{0,10}(?:هيئ[ةه]|الزكاة|ZATCA|زاتكا|منص[ةه]\\s*«?فاتور[ةه])',
+      `(?:بال)?شراك[ةه]\\s*(?:رسمي[ةه]\\s*)?مع\\s*(?:هيئة\\s*)?${ZATCA_BODY_AR}`,
       '(?:معتمدة?|مصادقة?|مرخصة?)\\s*[·•|:–—-]\\s*(?:ZATCA|الزكاة|الهيئة)',
-      'ZATCA[\\s-]*(?:certified|approved|accredited|authori[sz]ed|endorsed)',
-      '(?:certified|approved|accredited|authori[sz]ed|endorsed)\\s+by\\s+(?:the\\s+)?(?:ZATCA|Zakat)',
-      'official\\s+ZATCA\\s+partner|official\\s+partner\\s+of\\s+(?:the\\s+)?(?:ZATCA|Zakat)',
-      '(?:certifi|homologu|agré|approuv)[ée]e?s?\\s+par\\s+la\\s+ZATCA',
-      'ZATCA\\s*(?:onaylı|sertifikalı|tarafından\\s+onaylı)',
-      'ZATCA\\s*(?:认证|批准|官方合作)',
+      // «ZATCA-compliant and certified» · «ZATCA Phase 2 certified» · «Fatoora-certified»؛ ولا تعبر
+      // كلمات النفي والإسناد («ZATCA does not certify» · «ZATCA has approved…» شرح لا ادّعاء)
+      '(?:ZATCA|Fatoora)(?:[\\s-]+(?!(?:not|no|never|does|did|do|has|have|had|is|was|isn.t|doesn.t|hasn.t)\\b)[\\w’\'-]+){0,3}?[\\s-]+(?:certified|approved|accredited|authori[sz]ed|endorsed)\\b',
+      '(?:certified|approved|accredited|authori[sz]ed|endorsed)\\s+(?:by\\s+(?:the\\s+)?)?(?:ZATCA|Zakat|Fatoora)',
+      'official\\s+(?:ZATCA|Fatoora)\\s+partner',
+      '(?:official|certified|approved|authori[sz]ed|accredited)\\s+(?:[\\w-]+\\s+){0,2}partner\\s+(?:of|for|with|to)\\s+(?:the\\s+)?(?:ZATCA|Zakat|Fatoora)',
+      'in\\s+partnership\\s+with\\s+(?:the\\s+)?(?:ZATCA|Zakat|Fatoora)',
+      '(?:certifi|homologu|agré|approuv)[ée]e?s?\\s+(?:par\\s+(?:la\\s+)?)?ZATCA',
+      'partenaire\\s+officiel\\s+de\\s+la\\s+ZATCA',
+      'ZATCA\\s*(?:onaylı|sertifikalı|tarafından\\s+(?:onay|sertifika)\\w*)',
+      'ZATCA\\s*(?:认证|认可|批准|授权|官方合作)',
     ].join('|'), 'i'),
-    // النفي يُقبل ملاصقاً قبل المطابقة فقط («لسنا معتمدين من الهيئة»). النافذة ±220 القديمة
-    // كانت تمرّر «الهيئة لا تعتمد المزودين، لكن نظامنا معتمد من الهيئة».
-    unless: /(?:لا|ليس|ليست|لسنا|غير|لا\s*ندعي\s*(?:أننا|اننا)?|not|never|no)\s*$/i,
+    // النفي يُقبل ملاصقاً قبل المطابقة فقط («لسنا معتمدين من الهيئة»)، و**كلمةً مستقلة**:
+    // بلا حدّ كلمة كانت «فعلاً/أصلاً/مثلاً معتمد من الهيئة» تُعدّ نفياً («لا» في آخرها)،
+    // و«Casino certified by ZATCA» كذلك («no»). والواو والفاء السابقتان مقبولتان («ولا مصادق»).
+    unless: /(?:^|[\s(«"'،,.؛:])[وف]?(?:لا|ليس|ليست|لسنا|غير|لا\s*ندعي\s*(?:أننا|اننا)?|not|never|no)(?:\s+(?:a|an))?\s*$|n['’]t(?:\s+(?:a|an))?\s*$/i,
     unlessBefore: 25,
     unlessAfter: 0,
     why: 'ZATCA لا تعتمد ولا تصادق مزوّدي البرمجيات — ادّعاء الاعتماد أو الشراكة الرسمية ممنوع ولو بعد تفعيل الربط',
@@ -62,19 +138,29 @@ export const RULES = [
   {
     id: 'zatca-phase2-dated',
     // ربط المرحلة الثانية مع منصة فاتورة قدرة معلنة بقرار المالك بعد التفعيل الفعلي، فصيغة الدعم
-    // تمرّ. الممنوع: اقترانها بموعد أو رقم غير مثبت.
-    re: near(PHASE2),
+    // تمرّ. الممنوع: اقترانها بموعد أو رقم غير مثبت — بفعل إعلان أو بعبارة المنتج نفسها.
+    re: new RegExp(`${nearWith(PHASE2_VERB, PHASE2).source}|${PHASE2_INTEGRATION}`, 'i'),
     requireNear: { re: DATE_OR_NUMBER, before: 80, after: 120 },
     why: 'ادّعاء ربط المرحلة الثانية مقروناً بموعد أو رقم — لا موعد ولا رقم مثبت يُنشر',
   },
   {
     id: 'zatca-phase2-stale-denial',
-    // نفي قديم يناقض الحقيقة الجديدة. **تحذير غير حاجب** عمداً: prerender يجلب مقالات CMS إلى
-    // dist وفيها نفي قديم يحرّره المالك من لوحة CMS بعد التفعيل؛ لو حُجب الآن لفشل كل بناء.
-    // بعد تحرير CMS: احذف severity لتصير حاجبة.
-    re: new RegExp(`(${PHASE2}[^.؛\\n]{0,90}(?:غير\\s*(?:مبني|مبنية|متاح|متاحة)|لم\\s*(?:نبنها|تبن)|not\\s*(?:yet\\s*)?(?:built|available)|n.est\\s*pas\\s*(?:encore\\s*)?(?:disponible|d[ée]velopp[ée]e)|henüz\\s*hazır\\s*değil|尚未上线))|((?:لا\\s*ندعم|do\\s*not\\s*support)[^.؛\\n]{0,40}${PHASE2})|(${PHASE1_ONLY}[^.؛\\n]{0,45}(?:فقط|وحدها|(?<![\\w-])only\\b|uniquement))`, 'i'),
-    severity: 'warn',
-    why: 'نفي قديم للمرحلة الثانية (أو «الأولى فقط») بعد تفعيل الربط — يناقض الحقيقة الجديدة',
+    // نفي قديم أو تموضع «المرحلة الأولى» يناقض الحقيقة الجديدة. **تحذير غير حاجب** حتى يُحرَّر CMS:
+    // prerender يجلب مقالات CMS إلى dist وفيها نفي قديم يحرّره المالك من لوحة CMS بعد التفعيل؛
+    // لو حُجب الآن لفشل كل بناء. بعد التحرير: PHASE2_CMS_CLEANED = true أعلاه (لا حذف severity يدوياً).
+    // تموضع «المرحلة الأولى» لا يُعدّ نفياً إن ذُكرت المرحلة الثانية في الجملة نفسها
+    // («نصدر فاتورة المرحلة الأولى وندعم ربط المرحلة الثانية» صادقة).
+    re: new RegExp([
+      `${PHASE2}[^.؛\\n]{0,90}${STALE_AFTER}`,
+      `${STALE_BEFORE}[^.؛\\n]{0,40}${PHASE2}`,
+      '(?:لا\\s*(?:نربط|نرتبط)|غير\\s*(?:مربوط|مربوطة|مرتبط|مرتبطة)|لسنا\\s*(?:مربوطين|مرتبطين))[^.؛\\n]{0,30}(?:منص[ةه]\\s*«?فاتور[ةه]|«فاتور[ةه]»|ZATCA|الهيئة)|not\\s*(?:yet\\s*)?(?:integrated|connected|linked)\\s*(?:to|with)\\s*(?:the\\s*)?(?:ZATCA|Fatoora)',
+      `${PHASE1}[^.؛\\n]{0,45}(?:فقط|وحدها|(?<![\\w-])only\\b|uniquement)`,
+      // والسؤال ليس تموضعاً: «اسأل مورّدك: هل تُصدر وفق المرحلة الأولى؟» قائمة فحص للقارئ
+      `(?<!${PHASE2}[^.؛\\n]{0,160})(?:${PHASE1_VERB}[^.؛\\n]{0,80}?|${PHASE1_NOUN}\\s*(?:ZATCA\\s*)?[(«]?\\s*)${PHASE1}(?![^.؛\\n]{0,160}${PHASE2})(?![^.؛\\n]{0,40}[؟?])`,
+      'النطاق\\s*الذي\\s*(?:نعلنه|نغطيه|ندعمه)',
+    ].join('|'), 'i'),
+    ...(PHASE2_CMS_CLEANED ? {} : { severity: 'warn' }),
+    why: 'نفي قديم للمرحلة الثانية (أو تموضع «المرحلة الأولى» وحدها) بعد تفعيل الربط — يناقض الحقيقة الجديدة',
   },
   {
     id: 'eta-egypt-claim',
@@ -139,8 +225,15 @@ export const RULES = [
  * قريب مرّ أي ادّعاء لاحق في الصفحة نفسها دون فحص.
  */
 export function findViolation(rule, haystack) {
+  const all = findViolations(rule, haystack, 1);
+  return all.length ? all[0] : null;
+}
+
+/** كل المطابقات المُدانة (حتى limit) — لحصر بنود CMS كاملةً لا أول مطابقة في كل ملف */
+export function findViolations(rule, haystack, limit = Infinity) {
   const hay = norm(haystack);
   const flags = rule.re.flags.includes('g') ? rule.re.flags : `${rule.re.flags}g`;
+  const out = [];
   for (const m of hay.matchAll(new RegExp(rule.re.source, flags))) {
     const i = m.index;
     if (rule.unless) {
@@ -153,9 +246,10 @@ export function findViolation(rule, haystack) {
         .replace(new RegExp(PHASE2, 'gi'), ' '); // «2» في «المرحلة 2» ليس رقماً
       if (!rule.requireNear.re.test(w)) continue;
     }
-    return { index: i, match: m[0] };
+    out.push({ index: i, match: m[0] });
+    if (out.length >= limit) break;
   }
-  return null;
+  return out;
 }
 
 /** معرّفات القواعد المُدانة في نصّ واحد (كل القواعد على النص نفسه) — للاختبار */

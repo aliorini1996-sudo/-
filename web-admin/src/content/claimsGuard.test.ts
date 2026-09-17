@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RULES, checkText, findViolation, norm } from '../../scripts/claims-rules.mjs';
+import { readFileSync } from 'node:fs';
+import { RULES, checkText, findViolation, norm, PHASE2_CMS_CLEANED } from '../../scripts/claims-rules.mjs';
+import { defaultContent } from '../landing/defaultContent';
+import { defaultContentEn } from '../landing/defaultContentEn';
+import { defaultContentFr } from '../landing/defaultContentFr';
+import { defaultContentTr } from '../landing/defaultContentTr';
+import { defaultContentZh } from '../landing/defaultContentZh';
+import { FEATURES } from './features.mjs';
+import { PRICING_TEXT } from './pricingText';
+import { SECTORS, SECTOR_FAIRNESS_NOTE, SECTOR_FAIRNESS_TITLE } from './sectors';
+import { POSTS } from '../blog/posts';
 
 /**
  * حرّاس حارس الادّعاءات (scripts/verify-claims.mjs) — بالقواعد نفسها التي تحرس dist.
@@ -8,7 +18,7 @@ import { RULES, checkText, findViolation, norm } from '../../scripts/claims-rule
  * قرار المالك: «ربط المرحلة الثانية مع منصة فاتورة» يُعلَن بعد اكتمال التفعيل الفعلي.
  * فصيغة الدعم تمرّ، ويبقى محجوباً ولو بعد التفعيل: الاعتماد/المصادقة/الترخيص من الهيئة،
  * والشراكة الرسمية معها، وأي موعد أو رقم مقرون بالمرحلة الثانية. والنفي القديم
- * («غير مبنية» · «الأولى فقط») يُكشف تحذيراً حتى يُحرَّر من CMS.
+ * («غير مبنية» · «الأولى فقط» · «يُصدر وفق المرحلة الأولى») يُكشف تحذيراً حتى يُحرَّر من CMS.
  *
  * حارسٌ لا يعضّ ينجح كاذباً، وحارسٌ يعضّ المحتوى الصحيح يُعطَّل — فيُختبر الطرفان.
  */
@@ -33,6 +43,11 @@ test('صيغة دعم ربط المرحلة الثانية تمرّ بلغات �
     '支持与 Fatoora 平台（ZATCA）的第二阶段对接。',
     'Phase 2 integration enabled. Nothing else.',
     'We support Phase 2 integration with Fatoora; requirements may vary by business size.',
+    // صيغة صادقة تجمع المرحلتين: «المرحلة الأولى» هنا ليست تموضعاً قديماً
+    'نصدر فاتورة المرحلة الأولى برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة',
+    // قيد الاتصال للشركات المربوطة (قرار المالك: لا فاتورة ضريبية دون اتصال لها)
+    'وللشركات المفعل لها ربط المرحلة الثانية تحتاج الفاتورة الضريبية والمرتجع اتصالا لحظة الإصدار بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت',
+    'For companies with Phase 2 integration enabled, tax invoices and returns need a connection at issuance; receipts and visits still work offline.',
   ]) expectHits(t, []);
 });
 
@@ -41,19 +56,28 @@ test('النفي الصادق للاعتماد والنص التعليمي لا 
     'وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات، فلا ندّعي اعتماداً منها.',
     'ZATCA does not certify software vendors, so we claim no certification from it.',
     'لسنا معتمدين من الهيئة، فالهيئة لا تعتمد المزودين.',
+    'We are not a ZATCA-certified vendor.',
+    'ولا مصادق من الهيئة',
     'المرحلة الثانية (الربط والتكامل): ربط أنظمة الفوترة مباشرةً بمنصّة «فاتورة» التابعة للهيئة، مع توقيع تشفيري، وتُطبَّق على دفعات حسب حجم المنشأة.',
     'من بين 123 مورّداً في المسح، لا يعلن اكتمال الربط بـ«المرحلة الثانية (الربط والتكامل)» سوى 7 مورّدين.',
     'ZATCA e-invoicing (Fatoora) is mandatory in two phases.',
     'رمز QR متطلب أساسي في المرحلة الأولى من فوترة ZATCA.',
     'المرحلة 2 (أسبوع): سيارة الإثبات.',
+    'العملة المعتمدة في فاتورة المبيعات تتبع إعداد الشركة',
+    // سؤال يطرحه القارئ على مورّده ليس تموضعاً
+    'اسأل مورّدك: هل تُصدر وفق المرحلة الأولى (مرحلة الإصدار)؟',
   ]) expectHits(t, []);
 });
 
-test('لا إنذار كاذب على الأرقام العادية قرب الادّعاء: 15% و58مم و299 ر.س و«View-only»', () => {
+test('لا إنذار كاذب على الأرقام العادية قرب الادّعاء: 15% و58مم و299 ر.س و«View-only» و«ممارسات» و«maintenant»', () => {
   for (const t of [
     'كل فاتورة تحمل ضريبة 15% ونطبعها على 58مم، وندعم ربط المرحلة الثانية مع منصة فاتورة. من 299 ر.س شهرياً.',
     'فاتورة ضريبية مبسطة برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة وطباعة حرارية 58مم',
     'Tax invoice from the field Not included Simplified invoice with QR, Phase 1 (Generation) Offline day of work View-only at best',
+    // حدود الكلمة: «مارس» داخل «ممارسات» و«mai» داخل «maintenant» ليستا شهرين
+    'ندعم ربط المرحلة الثانية مع منصة فاتورة وممارسات التحصيل الميداني',
+    'Nous prenons en charge l’intégration phase 2 avec la plateforme Fatoora maintenant et dans le domaine',
+    'الفاتورة منظمة مرقمة برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة وكشوف حساب العميل جاهزة بضغطة',
   ]) expectHits(t, []);
 });
 
@@ -73,6 +97,34 @@ test('يحجب ادّعاء الاعتماد أو المصادقة أو التر
     'ZATCA onaylı e-fatura',
     // نفيٌ بعيد لا يُعفي ادّعاءً صريحاً (ثغرة نافذة ±220 القديمة)
     'الهيئة لا تعتمد المزودين، لكن نظامنا معتمد من الهيئة.',
+    // بلا حرف جر — كان النمط الأقدم يحجبها فتراجع عنها الأحدث
+    'نظام معتمد هيئة الزكاة',
+    'حل مرخص ZATCA للمرحلة الثانية',
+    'مُعتمد الزكاة',
+    'فواتيرنا معتمدة ZATCA',
+    'نظامنا معتمد من قبل هيئة الزكاة',
+    'نظامنا حل معتمد في منصة فاتورة',
+    'معتمد عند الزكاة',
+    'نظامنا معتمد من فاتورة',
+    'حاصلون على اعتماد هيئة الزكاة والضريبة والجمارك',
+    'حاصلون على اعتماد الهيئة لربط المرحلة الثانية',
+    'بشهادة هيئة الزكاة والضريبة والجمارك',
+    'شريك تقني رسمي للهيئة',
+    'الشريك الرسمي لمنصة فاتورة',
+    'بالشراكة مع هيئة الزكاة والضريبة والجمارك',
+    'A Fatoora-certified e-invoicing solution',
+    'ZATCA-compliant and certified Phase 2 solution',
+    'ZATCA Phase 2 certified',
+    'an approved ZATCA e-invoicing provider',
+    'certifiée ZATCA phase 2',
+    'homologuée ZATCA',
+    'ZATCA tarafından onaylanmış',
+    'ZATCA 认可的发票系统',
+    // كلمة تنتهي بـ«لا» أو «no» ليست نفياً (ثغرة الاستثناء بلا حدّ كلمة)
+    'نظامنا فعلاً معتمد من الهيئة',
+    'نحن أصلاً معتمدون من هيئة الزكاة',
+    'حل كامل مثلا مرخص من الهيئة',
+    'Casino certified by ZATCA',
   ]) assert.ok(checkText(t).includes(APPROVED), `مرّ ادّعاء اعتماد: «${t}»`);
 });
 
@@ -84,10 +136,42 @@ test('يحجب أي موعد أو رقم مقرون بالمرحلة الثان�
     'ندعم المرحلة الثانية لأكثر من ١٠٠ شركة',
     'We support Phase 2 integration since January.',
     '2. Aşama entegrasyonu 2027 itibaren destekleniyor',
-  ]) assert.deepEqual(checkText(t), [DATED], `«${t}»`);
+    // أفعال إعلان لم تكن في القائمة
+    'تم تفعيل ربط المرحلة الثانية مع منصة فاتورة في سبتمبر 2026',
+    'أطلقنا ربط المرحلة الثانية مع منصة فاتورة عام 2026',
+    'المرحلة الثانية جاهزة منذ يناير 2027',
+    'Phase 2 integration went live in September 2026',
+    'ربط المرحلة الثانية متاح الآن لأكثر من 40 شركة',
+    'Phase 2 live since January',
+    'Phase II integration live for 30 distributors',
+    // مواعيد وأرقام لم يعرفها النمط
+    'ندعم ربط المرحلة الثانية في مارس',
+    'ندعم ربط المرحلة الثانية من إبريل',
+    'La phase 2 est prise en charge en mars',
+    'La phase 2 est prise en charge en juin',
+    'ندعم ربط المرحلة الثانية في رمضان ١٤٤٨',
+    'ربطنا أكثر من ١٠٠٠٠ فاتورة بالمرحلة الثانية مع منصة فاتورة',
+    'Phase 2 integration supported for 500+ businesses',
+    'ندعم ربط المرحلة الثانية لـ٥٠ مؤسسة',
+    'ندعم ربط المرحلة الثانية لمئات الشركات',
+    'Phase 2 integration enabled for dozens of companies',
+    'Phase 2 integration ready for Wave 24',
+    'متوافق 100% مع المرحلة الثانية',
+    'ربط المرحلة الثانية مفعل خلال أيام',
+    'ندعم ربط المرحلة الثانية مع منصة فاتورة وأصدر أول فاتورة خلال دقائق',
+    // الموعد قبل المصطلح، والتاء المربوطة هاءً
+    'منذ يناير وإحنا ندعم ربط المرحلة الثانية مع منصة فاتورة',
+    'ندعم ربط المرحلة الثانية مع منصة فاتورة قبل الموجة ٢٥',
+    'ربط المرحلة الثانية مفعّل عند أكثر من ٤٠ شركة',
+    'المرحله الثانيه مفعله من سنة ٢٠٢٦',
+  ]) assert.ok(checkText(t).includes(DATED), `مرّ موعد أو رقم: «${t}»`);
+  // الوعد المستقبلي يُحجب موعداً (ويُكشف نفياً قديماً معه)
+  for (const t of ['سندعم ربط المرحلة الثانية قريباً', 'Phase 2 integration is coming soon']) {
+    assert.ok(checkText(t).includes(DATED), `مرّ وعد مستقبلي: «${t}»`);
+  }
 });
 
-test('يكشف النفي القديم للمرحلة الثانية و«الأولى فقط» بلغاته الخمس', () => {
+test('يكشف النفي القديم للمرحلة الثانية وتموضع «المرحلة الأولى» بلغاته الخمس', () => {
   for (const t of [
     'المرحلة الثانية (الربط والتكامل) غير مبنية لدينا حتى الآن.',
     'We support phase one of e-invoicing (TLV QR) only; phase two is not built.',
@@ -97,12 +181,26 @@ test('يكشف النفي القديم للمرحلة الثانية و«الأ�
     '2. Aşama (entegrasyon) henüz hazır değildir.',
     '第二阶段（对接阶段）尚未上线。',
     'ندعم الفاتورة الإلكترونية المرحلة الأولى رمز QR بترميز TLV فقط',
+    // الحالات الخمس التي فاتت القاعدة على CMS الحي
+    'نظام FieldSales يُصدر فاتورة ضريبية مبسّطة برمز QR وفق متطلبات المرحلة الأولى (مرحلة الإصدار)، وهذا هو النطاق الذي نعلنه حرفياً من دون زيادة',
+    'what is honestly not built (Phase 2)',
+    'Phase 2 is not supported yet',
+    'We don’t support Phase 2 yet',
+    'المرحلة الثانية قيد التطوير',
+    'لا نربط مع منصة فاتورة',
+    'E-invoicing supports phase one (TLV QR)',
+    'منصّة FieldSales تُصدر فواتير ZATCA (مرحلة أولى) برمز QR وطباعة حرارية 58مم',
+    'with Saudi e-invoicing phase one (QR) support',
   ]) assert.deepEqual(checkText(t), [STALE], `«${t}»`);
+  for (const t of ['ربط المرحلة الثانية قريباً', 'Phase 2 integration is coming soon']) {
+    assert.ok(checkText(t).includes(STALE), `مرّ نفي قديم: «${t}»`);
+  }
 });
 
-test('قاعدة النفي القديم تحذير غير حاجب حتى يُحرَّر CMS، وقاعدتا الاعتماد والموعد حاجبتان', () => {
+test('شدّة قاعدة النفي القديم يحكمها علم واحد (PHASE2_CMS_CLEANED)، وقاعدتا الاعتماد والموعد حاجبتان', () => {
   const byId = (id: string) => RULES.find((r) => r.id === id);
-  assert.equal(byId(STALE)?.severity, 'warn');
+  // خطوة ما بعد تحرير CMS هي قلب العلم وحده — فلا يُفشل هذا الاختبار web-ci
+  assert.equal(byId(STALE)?.severity, PHASE2_CMS_CLEANED ? undefined : 'warn');
   assert.equal(byId(APPROVED)?.severity, undefined, 'قاعدة الاعتماد يجب أن تبقى حاجبة');
   assert.equal(byId(DATED)?.severity, undefined, 'قاعدة الموعد يجب أن تبقى حاجبة');
   assert.equal(byId('zatca-phase2-claim'), undefined, 'القاعدة القديمة تحجب صيغة الدعم المعتمدة');
@@ -120,23 +218,58 @@ test('التطبيع يحذف التشكيل والتطويل', () => {
   assert.equal(norm('مُفعَّل ومُعتمَد وجاهز لـ'), 'مفعل ومعتمد وجاهز ل');
 });
 
-test('النصوص المعدّلة في الموقع تمرّ من الحارس ولا تحمل نفياً قديماً', () => {
-  for (const t of [
-    'يُصدر النظام فاتورة ضريبية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد مزوّدي البرمجيات، فلا ندّعي اعتماداً منها.',
-    'يصدر النظام فاتورة ضريبية برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك والهيئة لا تعتمد مزودي البرمجيات فلا ندعي اعتمادا منها',
-    'The system issues tax invoices with a QR code and supports Phase 2 integration with ZATCA’s Fatoora platform. ZATCA does not certify software vendors, so we claim no certification from it.',
-    'Le système émet des factures fiscales avec code QR et prend en charge l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA. La ZATCA ne certifie pas les éditeurs de logiciels. Les paramètres de taxe s’adaptent au pays de l’entreprise.',
-    'Sistem QR kodlu vergi faturaları düzenler ve ZATCA’nın Fatoora platformuyla 2. Aşama entegrasyonunu destekler. ZATCA yazılım sağlayıcılarına sertifika vermez. Vergi ayarları şirketin ülkesine göre uyarlanır.',
-    '系统开具带二维码的增值税发票，并支持与 ZATCA Fatoora 平台的第二阶段对接。ZATCA 不向软件厂商发放认证。税务设置会按企业所在国家进行适配。',
-    'ندعم الفاتورة الإلكترونية برمز QR وندعم **ربط المرحلة الثانية** مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك والهيئة لا تعتمد ولا تصادق مزودي البرمجيات فلا ندعي اعتمادا منها وليست لدينا شهادات SOC2 أو ISO',
-    'We support **Phase 2 integration** with the Fatoora platform of ZATCA ZATCA does not certify or approve software vendors so we claim no approval from it We hold no SOC2 or ISO certification',
-    'Nous prenons en charge **l intégration phase 2** avec la plateforme Fatoora de la ZATCA La ZATCA ne certifie aucun éditeur nous ne revendiquons donc aucune homologation',
-    'ما نملكه وما لا نملكه — بصراحة ندعم الفاتورة الإلكترونية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها، وليست لدينا شهادات SOC2 أو ISO. فوق ٢٠ مندوبًا نحدّد السعر بالمحادثة 299 ر.س 599 ر.س حتى 5 مناديب',
-    'What we have and do not have — plainly We support Phase 2 integration with ZATCA’s Fatoora platform. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.',
-    'هل النظام يصدر فواتير ضريبية متوافقة؟ نعم، يُصدر فاتورة ضريبية منظّمة برمز QR وطباعة حرارية، وندعم ربط المرحلة الثانية مع منصة فاتورة في السعودية، والنظام قابل للتكيّف مع متطلبات الدول العربية الأخرى.',
-    'رمز QR يخدم الفاتورة الضريبية المبسّطة. وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات، فلا ندّعي اعتماداً منها.',
-    'Core features: field tax invoicing (ZATCA-compliant QR in Saudi Arabia, with Phase 2 integration with ZATCA’s Fatoora platform supported), returns/credit notes, payment collection & receivables',
-    'Is it tax-compliant? It issues structured tax invoices with a QR code and supports Phase 2 integration with ZATCA’s Fatoora platform in Saudi Arabia, and adapts to other Arab markets’ requirements. ZATCA does not certify software vendors.',
-    'متوافقة · ZATCA',
-  ]) expectHits(t, []);
+/** كل سلسلة نصية في بنية المحتوى مع مسارها — لا نسخ ملصوقة تنحرف عن المشحون */
+const collectStrings = (v: unknown, path: string, out: [string, string][] = []): [string, string][] => {
+  if (typeof v === 'string') out.push([path, v]);
+  else if (Array.isArray(v)) v.forEach((x, i) => collectStrings(x, `${path}[${i}]`, out));
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) collectStrings(x, `${path}.${k}`, out);
+  return out;
+};
+const stripTags = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\*\*/g, '');
+
+test('النصوص المشحونة فعلاً (مستوردة من مصادرها) تمرّ من الحارس ولا تحمل نفياً قديماً', () => {
+  // ما يراه الزائر بعد تحميل React — verify-claims لا يرى حزم JS، فهذا حارسها الوحيد
+  const sources: Record<string, unknown> = {
+    defaultContent, defaultContentEn, defaultContentFr, defaultContentTr, defaultContentZh,
+    FEATURES, PRICING_TEXT, SECTORS,
+    sectorFairness: { SECTOR_FAIRNESS_TITLE, SECTOR_FAIRNESS_NOTE },
+    POSTS, // احتياطي CMS: يظهر حين يتعذّر جلب المقالات
+  };
+  const all = Object.entries(sources).flatMap(([name, src]) => collectStrings(src, name));
+  assert.ok(all.length > 500, `المجمِّع لم يقرأ المصادر (${all.length} سلسلة) — الاختبار سينجح كاذباً`);
+  const offenders = all
+    .map(([p, s]) => [p, checkText(stripTags(s))] as const)
+    .filter(([, ids]) => ids.length)
+    .map(([p, ids]) => `${p}: ${ids.join(',')}`);
+  assert.deepEqual(offenders, [], `نصوص مشحونة يدينها الحارس:\n${offenders.join('\n')}`);
+
+  // الحارس يرى الصيغة المعلنة فعلاً في المصادر (وإلا مرّ حذفها أو استبدالها بنفي دون أن نلاحظ)
+  assert.match(PRICING_TEXT.ar.fairBody, /ربط المرحلة الثانية/);
+  assert.match(PRICING_TEXT.en.fairBody, /Phase 2 integration/);
+  assert.match(PRICING_TEXT.fr.fairBody, /intégration phase 2/);
+  assert.match(SECTOR_FAIRNESS_NOTE, /ربط المرحلة الثانية مع منصة فاتورة/);
+  for (const [name, c] of Object.entries({ defaultContent, defaultContentEn, defaultContentFr, defaultContentTr, defaultContentZh })) {
+    assert.ok(collectStrings(c.faq.items, name).some(([, s]) => /ربط المرحلة الثانية|Phase 2 integration|intégration de la phase 2|2\. Aşama entegrasyon|第二阶段对接/.test(s)), `${name}: سؤال الامتثال فقد صيغة الربط`);
+  }
+
+  // والحارس يعضّ على المصدر نفسه: نفيٌ مزروع في نسخة من صندوق الإنصاف يُكشف
+  const planted = PRICING_TEXT.en.fairBody.replace('We support **Phase 2 integration**', 'Phase 2 integration is not built yet');
+  assert.ok(checkText(stripTags(planted)).includes(STALE), 'نفيٌ مزروع في نص التسعير لم يُكشف');
+});
+
+test('النصوص المصيَّرة للزاحف في المصادر الخام (index.html · قالب llms · prerender · القطاعات) بلا ادّعاء محظور ولا نفي قديم', () => {
+  const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+  // public/llms.txt يُولَّد عند البناء من عناوين مقالات CMS (يفحصه verify-claims في dist) — يُفحص قالبه هنا
+  for (const rel of ['../../index.html', '../../scripts/gen-llms.mjs', '../../scripts/sectors-data.mjs']) {
+    const ids = checkText(stripTags(read(rel)));
+    assert.deepEqual(ids, [], `${rel}: ${ids.join(',')}`);
+  }
+  // prerender.mjs شيفرة ونصوص: تُفحص قوالبه النصية وحدها (سطور تحمل حروفاً عربية أو وسوم HTML)
+  const pre = read('../../scripts/prerender.mjs').split('\n')
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .filter((l) => /[؀-ۿ]|<p>|<li>|<h[1-3]/.test(l))
+    .join('\n');
+  assert.ok(pre.length > 5000, 'لم تُقرأ قوالب prerender.mjs');
+  const ids = checkText(stripTags(pre));
+  assert.deepEqual(ids, [], `scripts/prerender.mjs: ${ids.join(',')}`);
 });

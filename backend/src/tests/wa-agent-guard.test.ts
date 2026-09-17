@@ -9,6 +9,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert';
+import fs from 'fs';
+import path from 'path';
+import { pathToFileURL } from 'url';
 import { guardReply, safeFallback } from '../services/wa-agent/guard';
 import { OFFER, PLANS, priceForReps } from '../services/wa-agent/pricing';
 
@@ -37,24 +40,88 @@ test('يحجب وعد خصم', () => {
   assert.strictEqual(v.forceEscalate, true);
 });
 
-test('يمرر صيغة دعم ربط المرحلة الثانية مع منصة فاتورة', () => {
-  const v = guardReply('نعم، ندعم ربط المرحلة الثانية مع منصة فاتورة.');
-  assert.strictEqual(v.ok, true, `حُجبت الصيغة المعتمدة: ${v.violations.join(' | ')}`);
-  assert.strictEqual(v.forceEscalate, false);
+/** صيغ ZATCA المسموحة — تمرّ في الحارسين (البوت والموقع) */
+const ZATCA_ALLOWED = [
+  'نعم، ندعم ربط المرحلة الثانية مع منصة فاتورة.',
+  'ندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك، والهيئة لا تعتمد مزوّدي البرمجيات.',
+  'ربط المرحلة الثانية مع منصة فاتورة مفعّل.',
+  'أما الشركات المفعّل لها ربط المرحلة الثانية فتحتاج الفاتورة الضريبية والمرتجع فيها اتصالاً لحظة الإصدار، ويبقى سند القبض متاحاً دون اتصال.',
+];
+
+/** ادّعاء اعتماد أو شراكة رسمية — يُحجب في الحارسين ولو بعد التفعيل */
+const ZATCA_APPROVAL = [
+  'نظامنا معتمد من هيئة الزكاة',
+  'نظامنا مُعتمَد من الهيئة',
+  'النظام مصادق من الهيئة',
+  'نظامنا معتمد في منصة فاتورة',
+  'معتمد عند الزكاة',
+  'حاصلين على اعتماد هيئة الزكاة',
+  'نظامنا معتمد من قبل هيئة الزكاة',
+  'نحن معتمدين من قِبل الهيئة',
+  'فواتيرنا معتمدة ZATCA',
+  'نظامنا معتمد من فاتورة',
+];
+const ZATCA_PARTNER = ['شريك رسمي للهيئة', 'شريك رسمي لمنصة فاتورة', 'الشريك الرسمي لمنصة فاتورة', 'بالشراكة مع هيئة الزكاة'];
+
+/**
+ * موعد أو رقم مقرون بالمرحلة الثانية — بلا أرقام فوق 60: حارس المال يحجب «2027» وحده،
+ * فكانت حالة «منذ يناير 2027» تنجح ولو حُذف نمط الموعد كله.
+ */
+const ZATCA_DATED = [
+  'ربط المرحلة الثانية مفعّل منذ يناير',
+  'منذ يناير وإحنا ندعم ربط المرحلة الثانية مع منصة فاتورة',
+  'ندعم ربط المرحلة الثانية مع منصة فاتورة قبل الموجة ٢٥',
+  'ندعم المرحلة الثانية قبل الموجة 25',
+  'ربط المرحلة الثانية مفعّل عند أكثر من 40 شركة',
+  'ربط المرحلة الثانية مفعّل عند أكثر من ٤٠ شركة',
+  'Phase 2 live since January',
+  'المرحله الثانيه مفعله من سنة ٢٠٢٦',
+  'ربط المرحلة الثانية مفعل من يناير',
+  'ربط المرحلة الثانية مفعل في مارس',
+  'ربطنا المرحلة الثانية في الموجة ٢٤',
+  'منذ ٢٠٢٦ ندعم ربط المرحلة الثانية',
+  'سندعم ربط المرحلة الثانية قريباً',
+];
+
+const hasReason = (t: string, re: RegExp) => {
+  const v = guardReply(t);
+  assert.strictEqual(v.ok, false, `مرّ ادعاء تنظيمي ممنوع: ${t}`);
+  assert.strictEqual(v.forceEscalate, true, `لم يُصعَّد: ${t}`);
+  // سبب الحجب نفسه لا أي سبب: حارس المال وحده كان يُنجح حالة الموعد
+  assert.ok(v.violations.some((x) => re.test(x)), `حُجب «${t}» بسبب آخر: ${v.violations.join(' | ')}`);
+};
+
+test('يمرر صيغة دعم ربط المرحلة الثانية مع منصة فاتورة وقيد الاتصال', () => {
+  for (const t of ZATCA_ALLOWED) {
+    const v = guardReply(t);
+    assert.strictEqual(v.ok, true, `حُجبت الصيغة المعتمدة «${t}»: ${v.violations.join(' | ')}`);
+    assert.strictEqual(v.forceEscalate, false);
+  }
 });
 
-test('يحجب ادعاء الاعتماد والشراكة الرسمية وأي موعد للمرحلة الثانية', () => {
-  for (const t of [
-    'نظامنا معتمد من هيئة الزكاة',
-    'نظامنا مُعتمَد من الهيئة',
-    'النظام مصادق من الهيئة',
-    'شريك رسمي للهيئة',
-    'ربط المرحلة الثانية مفعّل منذ يناير 2027',
-    'ندعم المرحلة الثانية قبل الموجة 25',
-  ]) {
-    const v = guardReply(t);
-    assert.strictEqual(v.ok, false, `مرّ ادعاء تنظيمي ممنوع: ${t}`);
-    assert.strictEqual(v.forceEscalate, true, `لم يُصعَّد: ${t}`);
+test('يحجب ادعاء الاعتماد والشراكة الرسمية — بسببه هو', () => {
+  for (const t of ZATCA_APPROVAL) hasReason(t, /ادّعاء اعتماد رسمي/);
+  for (const t of ZATCA_PARTNER) hasReason(t, /ادّعاء شراكة رسمية/);
+  hasReason('المنصة مرتبطة مع هيئة الزكاة', /ارتباط مباشر بالهيئة/);
+  // والربط مع منصة فاتورة التابعة للهيئة ليس ارتباطاً مباشراً بها
+  assert.strictEqual(guardReply('المنصة مرتبطة بهيئة الزكاة عبر منصة فاتورة').ok, true);
+});
+
+test('يحجب أي موعد أو رقم للمرحلة الثانية — قبل المصطلح وبعده وبالأرقام الهندية', () => {
+  for (const t of ZATCA_DATED) hasReason(t, /موعد أو رقم غير مثبت للمرحلة الثانية/);
+});
+
+test('الحارسان متسقان: جمل ZATCA نفسها تُحجب وتمرّ في حارس الموقع (claims-rules.mjs)', async () => {
+  const rulesPath = path.join(process.cwd(), '..', 'web-admin', 'scripts', 'claims-rules.mjs');
+  assert.ok(fs.existsSync(rulesPath), `قواعد حارس الموقع غير موجودة: ${rulesPath} — الاتساق لا يُختبر`);
+  const site = await import(pathToFileURL(rulesPath).href);
+  const siteIds = (t: string): string[] => site.checkText(t);
+  for (const t of ZATCA_ALLOWED) assert.deepStrictEqual(siteIds(t), [], `حارس الموقع يحجب صيغة يمرّرها البوت: «${t}»`);
+  for (const t of [...ZATCA_APPROVAL, ...ZATCA_PARTNER]) {
+    assert.ok(siteIds(t).includes('zatca-approved'), `حارس الموقع يمرّر ادّعاء اعتماد يحجبه البوت: «${t}»`);
+  }
+  for (const t of ZATCA_DATED) {
+    assert.ok(siteIds(t).includes('zatca-phase2-dated'), `حارس الموقع يمرّر موعداً يحجبه البوت: «${t}»`);
   }
 });
 
@@ -109,6 +176,8 @@ test('رسالة السقوط الآمن تمر بالحارس نفسه في ك�
 });
 
 test('التسعير المعتمد لم يتغير خلسة', () => {
-  assert.deepStrictEqual(PLANS.map((p) => p.priceSar), [299, 599], 'تغير التسعير المعتمد');
+  // الباقات الثلاث بقرار المالك (١٠ سبتمبر ٢٠٢٦ — انظر تعليق OFFER في pricing.ts)؛ كان الاختبار
+  // يتوقّع باقتين فيفشل، فبقي الملف خارج npm test ولم يشغّله CI إطلاقاً.
+  assert.deepStrictEqual(PLANS.map((p) => p.priceSar), [299, 399, 599], 'تغير التسعير المعتمد');
   assert.strictEqual(OFFER.pricePerRepSar, 20, 'تغير سعر العرض');
 });

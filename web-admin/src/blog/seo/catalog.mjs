@@ -87,7 +87,8 @@ const citiesLine = (c, L) => {
  * لماذا: استعلاماتنا الرابحة **أسئلة حرفية** (ما معنى كاش فان؟ · الفرق بين الفاتورتين؟)
  * بينما أسئلة القالب عامّة («هل يعمل النظام؟») فلا تطابق أي استعلام. ومطابقة نصّ السؤال
  * أقوى إشارة صلة ممكنة، وهي أيضاً ما تقتبسه محرّكات الذكاء الاصطناعي.
- * ⚠️ الإجابات مختصرة (40–60 كلمة) وصادقة: المرحلة الأولى فقط، وبلا ادّعاء قدرة غير مبنيّة.
+ * ⚠️ الإجابات مختصرة (40–60 كلمة) وصادقة: رمز QR وربط المرحلة الثانية مع منصة فاتورة؛ بلا اعتماد
+ *    ولا شراكة رسمية مع الهيئة ولا موعد أو رقم للربط، وبلا ادّعاء قدرة غير مبنيّة (scripts/claims-rules.mjs).
  */
 /** دول الخليج ذات ضريبة القيمة المضافة — حيث يسري تصنيف «فاتورة ضريبية / مبسّطة». */
 const GCC_VAT = new Set(['SA', 'AE', 'BH', 'OM']);
@@ -127,9 +128,9 @@ const STRIKE_FAQ = {
           `Une application de vente terrain hors ligne permet d'enregistrer visites, reçus et données clients sans connexion, puis synchronise au retour du réseau. La facture fiscale ${c.inFr} exige en revanche une connexion au moment de l'émission (modèle de clearance).`) },
   ] : [
     { q: P(L, 'هل يعمل تطبيق المندوب بدون إنترنت', 'What is an offline field sales app?', "Qu'est-ce qu'une application de vente terrain hors ligne ?"),
-      a: P(L, 'نعم يصدر المندوب الفاتورة وسند القبض ويطبعهما للعميل بلا اتصال ثم ترتفع المستندات تلقائيا للإدارة فور عودة الشبكة فيخصم المبيع من مخزون السيارة بلا تكرار ومع تنبيه المندوب لأي مستند يحتاج مراجعة',
-          'An offline field sales app lets the rep issue and print invoices and receipts for the customer with no connection at all, then syncs automatically the moment connectivity returns — the sale is deducted from van stock on sync, with no duplicates, and the rep is flagged for any document that needs review.',
-          "Une application de vente terrain hors ligne permet d'émettre et d'imprimer factures et reçus sans connexion, puis synchronise automatiquement au retour du réseau : la vente est alors déduite du stock du véhicule, sans doublons.") },
+      a: P(L, `نعم يصدر المندوب الفاتورة وسند القبض ويطبعهما للعميل بلا اتصال ثم ترتفع المستندات تلقائيا للإدارة فور عودة الشبكة فيخصم المبيع من مخزون السيارة بلا تكرار ومع تنبيه المندوب لأي مستند يحتاج مراجعة${c.code === 'SA' ? ' أما الشركات المفعل لها ربط المرحلة الثانية مع منصة فاتورة فتحتاج فيها الفاتورة الضريبية اتصالا لحظة الإصدار' : ''}`,
+          `An offline field sales app lets the rep issue and print invoices and receipts for the customer with no connection at all, then syncs automatically the moment connectivity returns — the sale is deducted from van stock on sync, with no duplicates, and the rep is flagged for any document that needs review.${c.code === 'SA' ? ' In Saudi Arabia, companies with Phase 2 integration with ZATCA’s Fatoora platform enabled need a connection to issue tax invoices.' : ''}`,
+          `Une application de vente terrain hors ligne permet d'émettre et d'imprimer factures et reçus sans connexion, puis synchronise automatiquement au retour du réseau : la vente est alors déduite du stock du véhicule, sans doublons.${c.code === 'SA' ? " En Arabie saoudite, les entreprises dont l'intégration de la phase 2 avec la plateforme Fatoora est activée ont besoin d'une connexion pour émettre les factures fiscales." : ''}`) },
   ]),
   'fmcg-distribution': (c, L) => [
     { q: P(L, 'ما المقصود بالتسويق التجاري والتوزيع', 'What is trade marketing and distribution?', "Qu'est-ce que le marketing commercial et la distribution ?"),
@@ -414,7 +415,8 @@ const S = {
      <p><strong>Différence avec la prévente :</strong> la vente en camion conclut vente et livraison ensemble depuis le stock du véhicule, tandis que la prévente ne saisit qu'une commande livrée plus tard. Elle accélère la rotation et convient aux produits de grande consommation ${c.inFr}, mais exige un contrôle strict du stock véhicule.</p>`),
 
   // قسم مطابق تماماً لاستعلام سعودي في «مسافة الضربة» (pos 18–19): «الفرق بين الفاتورة الضريبية والمبسّطة».
-  // مقيّد بدول ضريبة القيمة المضافة (c.vat != null) فلا يظهر حيث لا يصحّ، وصادق: نُصدر المبسّطة ضمن المرحلة الأولى فقط.
+  // مقيّد بدول ضريبة القيمة المضافة (c.vat != null) فلا يظهر حيث لا يصحّ، وصادق: نُصدر المبسّطة برمز QR وندعم ربط المرحلة
+  // الثانية مع منصة فاتورة — بلا اعتماد ولا شراكة رسمية مع الهيئة ولا موعد أو رقم للربط.
   invoicetypes: (c, L) => {
     // تصنيف «ضريبية/مبسّطة» مصدره الاتفاقية الموحّدة لضريبة القيمة المضافة الخليجية،
     // فلا يصحّ تقديمه كحقيقة محلية في مصر أو المغرب العربي أو الشام. يُقصَر على الخليج.

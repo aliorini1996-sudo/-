@@ -30,7 +30,7 @@ const DIST = path.resolve(__dirname, '../dist');
 /** ملفات مستثناة بسبب موثّق (لا استثناء بلا سبب) */
 const ALLOW = [
   // صفحة المطاعم: ادّعاء ZATCA م٢/ETA معلّق بقرار المالك (يُعالَج خارج هذا المسار)
-  { match: /[\/]restaurant[\/]/i, why: 'عمودية المطاعم — بقرار المالك' },
+  { match: /[\\/]restaurant[\\/]/i, why: 'عمودية المطاعم — بقرار المالك' },
 ];
 
 // القواعد وأسبابها واستثناءاتها: scripts/claims-rules.mjs
@@ -40,14 +40,24 @@ const ALLOW = [
 // ⚠️ ثغرة مُكتشفة (4 أغسطس 2026): تجريد <script> كان يُخفي JSON-LD عن قواعد النصّ،
 // فعاش ادّعاء «Phase 2» الكاذب في FAQPage بـindex.html غير مكشوف — وهو ما يقرؤه جوجل
 // تحديداً. الحلّ: نصّ JSON-LD يُستخرَج ويُلحَق بالنصّ المرئي قبل الفحص.
-const ldJsonText = (h) => [...h.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi)]
+// ⚠️ وسوم JSON-LD تحمل سمات إضافية (`data-seo-page="1"` في صفحات prerender)، فالنمط الحرفي
+// `<script type="application/ld+json">` كان يُفوّت وصف المقال في كتلة Article.
+const ldJsonText = (h) => [...h.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)]
   .map((m) => m[1].replace(/["{}\[\],]/g, ' '))
   .join(' ');
+const decodeAttr = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+// ⚠️ تجريد الوسوم يحذف سمات content، فوصف meta وog/twitter — أول ما يظهر في نتائج البحث
+// وبطاقة المشاركة — لم يكن يمرّ بقاعدتي الاعتماد والموعد. يُلحَق نصّه بالنصّ المرئي.
+const metaText = (h) => [...h.matchAll(/<meta\b[^>]*>/gi)]
+  .map((m) => m[0])
+  .filter((tag) => /\b(?:name|property)="(?:description|og:description|twitter:description|og:title|twitter:title)"/i.test(tag))
+  .map((tag) => decodeAttr((tag.match(/\bcontent="([^"]*)"/i) || [])[1] || ''))
+  .join(' . ');
 const stripHtml = (h) => (h
   .replace(/<script[\s\S]*?<\/script>/gi, ' ')
   .replace(/<style[\s\S]*?<\/style>/gi, ' ')
   .replace(/<[^>]+>/g, ' ')
-  .replace(/&nbsp;/g, ' ') + ' ' + ldJsonText(h))
+  .replace(/&nbsp;/g, ' ') + ' . ' + ldJsonText(h) + ' . ' + metaText(h))
   .replace(/\s+/g, ' ');
 
 function collect(dir, out = [], depth = 0) {

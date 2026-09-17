@@ -25,7 +25,7 @@ export const defaultContentTr = {
       { title: 'Şirket ekibi ve roller', desc: 'Yönetici, müdür ve muhasebeci kullanıcılar ekleyin; bölüm bazında ayrıntılı yetkilerle her üye yalnızca izin verdiklerinizi görür ve yapar.' },
       { title: 'ERP entegrasyonu', desc: 'Müşterilerinizi, ürünlerinizi, faturalarınızı ve makbuzlarınızı güvenli bir bağlantı üzerinden ERP sisteminizle senkronize edin; ayrıntılı senkronizasyon kayıtlarıyla.' },
       { title: 'Satış kanalı sınıflandırması', desc: 'Müşterileri satış kanalına göre sınıflandırın (Modern Kanal, Toptan, Geleneksel Kanal, İndirim Marketleri, Sıcak Satış, E-Ticaret) ve satışları kanal ve coğrafi bölge bazında analiz edin.' },
-      { title: 'Çevrimdışı çalışır', desc: 'Temsilci uygulaması gün boyu internetsiz çalışır: QR kodlu vergi faturalarını ve makbuzları düzenleyip yazdırın ve müşterilere teslim edin; bağlantı geri geldiğinde her belge ofise otomatik yüklenir — mükerrer kayıt yok, veri kaybı yok.' },
+      { title: 'Çevrimdışı çalışır', desc: 'Temsilci uygulaması gün boyu internetsiz çalışır: QR kodlu vergi faturalarını ve makbuzları düzenleyip yazdırın ve müşterilere teslim edin; bağlantı geri geldiğinde her belge ofise otomatik yüklenir — mükerrer kayıt yok, veri kaybı yok. 2. Aşama entegrasyonu etkin olan şirketlerde vergi faturaları ve iadeler düzenlendiği anda bağlantı gerektirir; makbuzlar ve ziyaretler çevrimdışı çalışmaya devam eder.' },
       { title: 'Barkod okuma', desc: 'Temsilcinin telefon kamerasıyla ürün barkodlarını okutun; ürünleri sahada faturaya hızlı ve hatasız ekleyin.' },
       { title: 'Akıllı iadeler (hasarlı/değişim)', desc: 'Sınıflandırılmış iadeler oluşturun (normal/hasarlı/değişim); her iadenin araç stokuna dönüp dönmeyeceği yönetici kontrolünde, üstelik ürün bazında stok iade politikasıyla.' },
     ],
@@ -62,7 +62,7 @@ export const defaultContentTr = {
     items: [
       { q: 'Faturalar mevzuata uygun mu?', a: 'Sistem QR kodlu vergi faturaları düzenler ve ZATCA’nın Fatoora platformuyla 2. Aşama entegrasyonunu destekler. ZATCA yazılım sağlayıcılarına sertifika vermez. Vergi ayarları şirketin ülkesine göre uyarlanır.' },
       { q: 'Özel bir donanıma ihtiyacım var mı?', a: 'Hayır — uygulama her akıllı telefonda çalışır. Sahada yazdırmak için 58 mm termal yazıcı (Bluetooth veya dahili) yeterlidir.' },
-      { q: 'Uygulama çevrimdışı çalışıyor mu?', a: 'Evet — temsilci uygulaması gün boyu internetsiz çalışır: QR kodlu vergi faturalarını ve makbuzları düzenleyip yazdırın ve müşterilere teslim edin; bağlantı geri geldiğinde her belge ofise otomatik yüklenir, mükerrer kayıt ve veri kaybı olmaz.' },
+      { q: 'Uygulama çevrimdışı çalışıyor mu?', a: 'Evet — temsilci uygulaması gün boyu internetsiz çalışır: QR kodlu vergi faturalarını ve makbuzları düzenleyip yazdırın ve müşterilere teslim edin; bağlantı geri geldiğinde her belge ofise otomatik yüklenir, mükerrer kayıt ve veri kaybı olmaz. 2. Aşama entegrasyonu etkin olan şirketlerde vergi faturaları ve iadeler düzenlendiği anda bağlantı gerektirir; makbuzlar ve ziyaretler çevrimdışı çalışmaya devam eder.' },
       { q: 'Kurulum ne kadar sürer?', a: 'Şirketinizi, ürünlerinizi ve temsilcilerinizi dakikalar içinde tanımlayıp hemen fatura düzenlemeye başlayabilirsiniz.' },
       { q: 'Abone olmadan önce sistemi deneyebilir miyim?', a: 'Evet, info@fieldsa.net adresinden bize ulaşın; abonelik öncesinde sistemi denemenize yardımcı olalım.' },
     ],

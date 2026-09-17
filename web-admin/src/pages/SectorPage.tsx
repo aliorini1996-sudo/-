@@ -7,7 +7,7 @@ import { useSeo } from '../lib/seo';
 import { seoUrls, pathForLocale } from '../i18n/locale';
 import { waHref, refFromPath } from '../components/WhatsAppFab';
 import { trackWhatsApp } from '../lib/ads';
-import { SECTORS, sectorBySlug } from '../content/sectors';
+import { SECTORS, sectorBySlug, SECTOR_FAIRNESS_TITLE, SECTOR_FAIRNESS_NOTE } from '../content/sectors';
 
 /**
  * صفحة قطاع — سبع صفحات بمحتوى مكتوب لكلٍّ منها لا مولّد.
@@ -128,10 +128,9 @@ export default function SectorPage() {
 
             {/* صندوق الإنصاف — إلزامي حيثما لُمّح للامتثال */}
             <section className="mt-6 bg-white border border-[#E8E0D2] rounded-xl p-5">
-              <h2 className="font-semibold text-sm">ما نملكه وما لا نملكه بصراحة</h2>
+              <h2 className="font-semibold text-sm">{SECTOR_FAIRNESS_TITLE}</h2>
               <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">
-                ندعم الفاتورة الإلكترونية برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة 
-                وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزودي البرمجيات فلا ندعي اعتمادا منها
+                {SECTOR_FAIRNESS_NOTE}
               </p>
             </section>
 
