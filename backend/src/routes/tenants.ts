@@ -8,7 +8,6 @@ import { mailLayout, sendMail } from '../services/mailer';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { cardStatuses, platformMetrics, sendWeeklyReport } from '../services/opsSchedule';
-import { isLedgerPilotTenant } from '../services/gl/pilot';
 import { appendAudit } from '../services/gl/audit';
 import type { GlActor } from '../services/gl/audit';
 import { acquirePostLock } from '../services/gl/post';
@@ -99,12 +98,10 @@ router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => 
       _count: { _all: true },
     });
     const stuck = stuckCountsByTenant(stuckRows);
-    // ledgerPilotAllowed: هل تقبل الشركة تفعيل النظام المحاسبي المتكامل الآن (قائمة التجربة، بلا استعلام إضافي)
     res.json({
       success: true,
       data: tenants.map(t => ({
         ...t,
-        ledgerPilotAllowed: isLedgerPilotTenant(t.id, process.env),
         ledgerStatus: ledgerStatusOf({
           accountingSuiteEnabled: t.accountingSuiteEnabled,
           accountingEnabled: t.accountingEnabled,
@@ -174,16 +171,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const body = updateTenantSchema.parse(req.body);
-    // حارس قائمة التجربة (§8.1): التغيير من غير true إلى true لشركة خارج
-    // LEDGER_PILOT_TENANTS مرفوض قبل الكتابة. الإطفاء وحفظ بقية الحقول مع true
-    // قائمة لا يُفحصان، فتبقى الشركة التي أُزيلت من القائمة قابلةً للإطفاء.
-    if (body.accountingSuiteEnabled === true) {
-      const prev = await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { accountingSuiteEnabled: true } });
-      if (prev && prev.accountingSuiteEnabled !== true && !isLedgerPilotTenant(req.params.id, process.env)) {
-        res.status(403).json({ success: false, code: 'LEDGER_PILOT_ONLY', message: 'النظام المحاسبي المتكامل في مرحلة تجربة ولا يفعل إلا للشركات المدرجة في قائمة التجربة' });
-        return;
-      }
-    }
+    // النظام المحاسبي المتكامل: يفعّله المالك لأي شركة (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة، §8.1)
     const data: Record<string, unknown> = { ...body };
     if ('subscriptionEndsAt' in body) {
       data.subscriptionEndsAt = body.subscriptionEndsAt ? new Date(body.subscriptionEndsAt) : null;

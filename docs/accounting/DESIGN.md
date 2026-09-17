@@ -2448,12 +2448,7 @@ for event in PENDING / BLOCKED(nextAttemptAt≤now) / ERROR(nextAttemptAt≤now)
   - `const [accountingSuiteEnabled, setAccountingSuiteEnabled] = useState(!!tenant.accountingSuiteEnabled)`، وتُضاف إلى حمولة الحفظ.
   - خانة بعنوان `tr('النظام المحاسبي المتكامل (شجرة حسابات وقيود يومية وقوائم مالية)')` وتلميح: `tr('يتطلب تفعيل النظام المحاسبي — الدفاتر لا تُحذف عند الإطفاء')`.
   - الخانة **معطّلة** حين `accountingEnabled` غير مؤشّر.
-  - **قائمة التجربة (من M0 حتى قرار المالك بالإتاحة العامة):** متغير البيئة `LEDGER_PILOT_TENANTS` (معرّفات شركات مفصولة بفواصل؛ **غيابه أو فراغه = لا أحد**، فشلٌ مغلق). السبب: من M0 إلى M3 لا ترحيل آلي ولا معالج كامل، وتفعيل شركة حقيقية فيها يُنتج دفاتر يصطدم بها إعداد M3 (§6.1).
-    - الدالة الصرفة `services/gl/pilot.ts → isLedgerPilotTenant(tenantId, env)` (تقسيم بفواصل مع `trim`).
-    - `GET /api/tenants` يضيف لكل صف `ledgerPilotAllowed` من الدالة (بلا استعلام إضافي).
-    - الخانة تُعرض فقط حين `tenant.ledgerPilotAllowed === true || tenant.accountingSuiteEnabled === true`، فتبقى قابلة للإطفاء لشركة أُزيلت من القائمة.
-    - **الخادم هو الحارس:** `PUT /api/tenants/:id` يقرأ القيمة السابقة، وإن كان التغيير من غير `true` إلى `true` لشركة خارج القائمة يرد 403 `LEDGER_PILOT_ONLY` قبل `tenant.update`. الإطفاء وحفظ بقية الحقول مع قيمة `true` قائمة لا يُفحصان.
-    - M4 (أول طرح لشركة حقيقية) يضيف معرّفها إلى القائمة. إزالة الحارس التزام مستقل بقرار المالك، يحذف الدالة واختبارها معاً.
+  - **الخانة ظاهرة لكل الشركات وغير مؤشّرة افتراضياً (قرار المالك، 17 سبتمبر 2026):** أُزيلت قائمة التجربة `LEDGER_PILOT_TENANTS` وحارسها `LEDGER_PILOT_ONLY` و`ledgerPilotAllowed` و`services/gl/pilot.ts` معاً، والمالك يفعّل الميزة بنفسه لأي شركة؛ والتفعيل يتطلب تشغيل معالج الإعداد (§5.6) قبل أي ترحيل.
   - **شارة الحالة في بطاقة الشركة، بمصدر بيانات لكل مرحلة:**
     - **M0:** «غير مفعّل» / «مفعّل» فقط من العَلَم، و`accountingEnabled === false` يُعامل «غير مفعّل».
     - **M2:** `GET /api/tenants` يضيف إلى `include` القائم `glSettings: { select: { activatedAt: true, backfillState: true } }`.
@@ -2469,7 +2464,7 @@ for event in PENDING / BLOCKED(nextAttemptAt≤now) / ERROR(nextAttemptAt≤now)
     - تعديل تاريخ قائم أو مسحه مرفوض بعد ترحيل أي عمولة تاريخها ≥ التاريخ القائم (409 `LEDGER_PAYLINK_FEE_INVOICE_DATE_LOCKED`).
     - تدقيق `SETTINGS_CHANGE` بـ`actorType=OWNER` و`beforeJson/afterJson`، وإشعار للأدمن الرئيسي للشركة.
   - كل النصوص الجديدة عبر `tr()` بخمس لغات (§8.7).
-- **`types/index.ts`:** يُضاف `accountingSuiteEnabled?: boolean` إلى `Tenant` وإلى نوع إعدادات الشركة، و`ledgerPilotAllowed?: boolean` إلى `Tenant` (M0)، و`ledgerRetentionActive?: boolean` إلى نوع إعدادات الشركة (M4)، ومن M3 `ledgerStatus?: 'OFF'|'PENDING_SETUP'|'RUNNING'|'STUCK'` و`ledgerActivatedAt?: string | null` إلى `Tenant`.
+- **`types/index.ts`:** يُضاف `accountingSuiteEnabled?: boolean` إلى `Tenant` وإلى نوع إعدادات الشركة، و`ledgerRetentionActive?: boolean` إلى نوع إعدادات الشركة (M4)، ومن M3 `ledgerStatus?: 'OFF'|'PENDING_SETUP'|'RUNNING'|'STUCK'` و`ledgerActivatedAt?: string | null` إلى `Tenant`.
 - **`components/LedgerGate.tsx`:** `useLedgerOn() → {on, ready}` و`on = company.accountingSuiteEnabled === true && company.accountingEnabled !== false`. اسم المتغير في الصفحات `ledgerOn`. **لا يُستعمل `accountingOn`** لأن اختبارات العدّ تحرسه.
 - **`MainLayout.tsx`:** عنصر `{ to: '/app/ledger', icon: Landmark, label: 'nav.ledger' }`، والشرط في الفلتر:
   `(item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))`.
@@ -2905,7 +2900,6 @@ router.use(authenticate, requireAdmin, requireAccountingSuite, ledgerContext);
 | `ACCOUNTING_SUITE_NOT_ALLOWED` | 403 | الميزة غير مفعّلة، أو النظام المحاسبي مطفأ. |
 | `LEDGER_PERMISSION_DENIED` | 403 | لا يملك الصلاحية. |
 | `LEDGER_SCOPED_ADMIN` | 403 | مستخدم مقيّد النطاق. |
-| `LEDGER_PILOT_ONLY` | 403 | تفعيل الميزة لشركة خارج قائمة التجربة `LEDGER_PILOT_TENANTS` (§8.1)؛ الإطفاء غير مشمول. |
 | `LEDGER_NOT_SETUP` | 409 | الإعداد المبدئي لم يكتمل: تواريخ الإقفال (§2.5)، أو ترحيل قيد يدوي قبل `activatedAt` (§6.1). |
 | `LEDGER_UNBALANCED` | 422 | القيد غير متوازن. |
 | `LEDGER_PERIOD_LOCKED` | 422 | التاريخ ضمن فترة مقفلة (القيود اليدوية ومستندات الواجهة كتسوية ذمة العميل §6.10؛ القيود الآلية تُزاح ولا تُرفض). |

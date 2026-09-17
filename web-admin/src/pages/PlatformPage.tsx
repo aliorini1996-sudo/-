@@ -322,10 +322,10 @@ function TenantColumn({
                   <td className="text-sm text-gray-500">{t.subscriptionEndsAt ? formatDate(t.subscriptionEndsAt) : tr('غير محدود')}</td>
                   <td>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span>
-                    {/* شارة الدفاتر (M3، §8.1): ledgerStatus من الخادم بقيمه الأربع. تُعرض لشركات قائمة التجربة
-                        أو المفعّلة أو التي فُعّلت دفاترها سابقاً فقط — فلا أثر مرئي لغيرها.
+                    {/* شارة الدفاتر (M3، §8.1): ledgerStatus من الخادم بقيمه الأربع. تُعرض للشركات المفعّلة
+                        أو التي فُعّلت دفاترها سابقاً فقط — فلا أثر مرئي لغيرها.
                         وخادم أقدم بلا ledgerStatus ⇒ دلالة M0 من العَلَم وحده */}
-                    {(t.ledgerPilotAllowed === true || t.accountingSuiteEnabled === true || !!t.ledgerActivatedAt) && (() => {
+                    {(t.accountingSuiteEnabled === true || !!t.ledgerActivatedAt) && (() => {
                       const b = ledgerBadge(t, tr);
                       return (
                         <span className={`block w-fit mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${b.cls}`}>
@@ -739,10 +739,9 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [dailyReportEnabled, setDailyReportEnabled] = useState(!!tenant.dailyReportEnabled);
   const [invoiceSignatureEnabled, setInvoiceSignatureEnabled] = useState(!!tenant.invoiceSignatureEnabled);
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
-  // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. والخانة لا تُعرض إلا لشركة في قائمة
-  // التجربة أو مفعّلة أصلاً (فتبقى قابلة للإطفاء بعد إزالتها من القائمة)؛ الخادم هو الحارس.
+  // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. الخانة ظاهرة لكل الشركات والمالك يفعّلها
+  // بنفسه (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة).
   const [accountingSuiteEnabled, setAccountingSuiteEnabled] = useState(!!tenant.accountingSuiteEnabled);
-  const showLedgerToggle = tenant.ledgerPilotAllowed === true || tenant.accountingSuiteEnabled === true;
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
   );
@@ -896,15 +895,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('النظام المحاسبي يشمل المنتجات ومخزون السيارات ومخزون الشركة والفواتير وسندات القبض')}</p>
             <p className="text-xs text-gray-400 mt-1">{tr('عند الإطفاء تخفى الميزة وترفض طلباتها للشركة')}</p>
-            {showLedgerToggle && (
-              <>
-                <label className={`flex items-center gap-2.5 text-sm cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2 ${accountingEnabled ? 'text-gray-700' : 'text-gray-400'}`}>
-                  <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={accountingSuiteEnabled} disabled={!accountingEnabled} onChange={e => setAccountingSuiteEnabled(e.target.checked)} />
-                  {tr('النظام المحاسبي المتكامل (شجرة حسابات وقيود يومية وقوائم مالية)')}
-                </label>
-                <p className="text-xs text-gray-400 mt-1">{tr('يتطلب تفعيل النظام المحاسبي — الدفاتر لا تُحذف عند الإطفاء')}</p>
-              </>
-            )}
+            <label className={`flex items-center gap-2.5 text-sm cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2 ${accountingEnabled ? 'text-gray-700' : 'text-gray-400'}`}>
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={accountingSuiteEnabled} disabled={!accountingEnabled} onChange={e => setAccountingSuiteEnabled(e.target.checked)} />
+              {tr('النظام المحاسبي المتكامل (شجرة حسابات وقيود يومية وقوائم مالية)')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('يتطلب تفعيل النظام المحاسبي — الدفاتر لا تُحذف عند الإطفاء')}</p>
           </div>
           {/* D2 (§8.1): يظهر حين ledgerActivatedAt مضبوط — حفظ مستقل عن زر حفظ التعديلات */}
           {!!tenant.ledgerActivatedAt && <LedgerPaylinkFeeSection tenant={tenant} />}

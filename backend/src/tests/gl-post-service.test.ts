@@ -469,8 +469,6 @@ test('tenants.ts PUT /:id: FLAG_TOGGLE داخل $transaction مع tenant.update�
   assert.doesNotMatch(body, /glSettings|seedTemplate/, 'لا GlSettings ولا زرع في PUT /:id');
   // لا كتابة مباشرة على glAuditLog — عبر appendAudit وحده (السلسلة والقفل)
   assert.doesNotMatch(src, /glAuditLog\./, 'tenants.ts يكتب التدقيق عبر appendAudit لا glAuditLog مباشرة');
-  // حارس قائمة التجربة يبقى قبل المعاملة
-  assert.ok(body.indexOf('LEDGER_PILOT_ONLY') < txStart, 'LEDGER_PILOT_ONLY يجب أن يسبق المعاملة');
   assert.ok(isAuditAction('FLAG_TOGGLE'));
 });
 

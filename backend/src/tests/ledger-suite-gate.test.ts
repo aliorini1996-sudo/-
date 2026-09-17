@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isLedgerPilotTenant } from '../services/gl/pilot';
 
 /**
  * حرّاس ثابتة على تسييج «النظام المحاسبي المتكامل» (M0، §8.1، §9.1).
@@ -95,55 +94,20 @@ test('الواجهة: عنصر الدفاتر بـ=== true ولا يدخل قا�
   assert.doesNotMatch(pages[1], /ledger/, '/app/ledger لا يُضاف إلى ACCOUNTING_PAGES');
 });
 
-test('نافذة المالك: useState(!!…) وشرط عرض الخانة بقائمة التجربة', () => {
+test('نافذة المالك: useState(!!…) والخانة ظاهرة لكل الشركات (قرار المالك: لا قائمة تجربة)', () => {
   const s = read('..', 'web-admin', 'src', 'pages', 'PlatformPage.tsx');
   assert.match(s, /useState\(!!tenant\.accountingSuiteEnabled\)/, 'الدلالة الصحيحة !! (مطفأ افتراضياً)');
-  assert.match(s, /tenant\.ledgerPilotAllowed === true \|\| tenant\.accountingSuiteEnabled === true/, 'الخانة تُعرض بشرط قائمة التجربة أو التفعيل القائم');
+  assert.doesNotMatch(s, /ledgerPilotAllowed|showLedgerToggle/, 'الخانة لا تُشترط بقائمة تجربة');
+  assert.match(s, /checked=\{accountingSuiteEnabled\} disabled=\{!accountingEnabled\}/, 'الخانة معطّلة حين النظام المحاسبي مطفأ');
   const i = s.indexOf('mutationFn: () => tenantApi.update(');
   assert.ok(i > 0);
   assert.match(s.slice(i, i + 800), /accountingSuiteEnabled/, 'العَلَم غائب عن حمولة الحفظ');
 });
 
-/* ═══ قائمة التجربة ═══ */
+/* ═══ قرار المالك: لا قائمة تجربة ═══ */
 
-test('isLedgerPilotTenant: متغير غائب أو فارغ ⇒ false لكل شركة', () => {
-  assert.equal(isLedgerPilotTenant('t1', {}), false);
-  assert.equal(isLedgerPilotTenant('t1', { LEDGER_PILOT_TENANTS: undefined }), false);
-  assert.equal(isLedgerPilotTenant('t1', { LEDGER_PILOT_TENANTS: '' }), false);
-  assert.equal(isLedgerPilotTenant('t1', { LEDGER_PILOT_TENANTS: '   ' }), false);
-  assert.equal(isLedgerPilotTenant('t1', { LEDGER_PILOT_TENANTS: ' , ,' }), false);
-  assert.equal(isLedgerPilotTenant('', { LEDGER_PILOT_TENANTS: 'a,,b' }), false, 'معرّف فارغ لا يطابق خانة فارغة');
-});
-
-test('isLedgerPilotTenant: معرّف في القائمة بمسافات حوله ⇒ true، وغيره false', () => {
-  const env = { LEDGER_PILOT_TENANTS: ' abc-1 ,  def-2,ghi-3  ' };
-  assert.equal(isLedgerPilotTenant('abc-1', env), true);
-  assert.equal(isLedgerPilotTenant('def-2', env), true);
-  assert.equal(isLedgerPilotTenant('ghi-3', env), true);
-  assert.equal(isLedgerPilotTenant('abc', env), false, 'لا مطابقة جزئية');
-  assert.equal(isLedgerPilotTenant('xyz', env), false);
-});
-
-test('PUT /:id يرد LEDGER_PILOT_ONLY قبل tenant.update — مشروطاً بالتغيير إلى true لا بالإطفاء', () => {
+test('tenants.ts: لا حارس قائمة تجربة ولا ledgerPilotAllowed (قرار المالك 17 سبتمبر 2026)', () => {
   const s = read('src', 'routes', 'tenants.ts');
-  const i = s.indexOf("router.put('/:id'");
-  assert.ok(i > 0, 'مسار التحديث مفقود');
-  const body = s.slice(i, s.indexOf('\n});', i));
-  const code = body.indexOf('LEDGER_PILOT_ONLY');
-  // M2: التحديث داخل $transaction مع تدقيق FLAG_TOGGLE (tx.tenant.update)
-  const update = body.search(/(prisma|tx)\.tenant\.update/);
-  assert.ok(code > 0 && update > 0, 'الحارس أو التحديث مفقود');
-  assert.ok(code < update, 'الحارس يجب أن يسبق tenant.update');
-  const guard = body.slice(0, code);
-  assert.match(guard, /body\.accountingSuiteEnabled === true/, 'الحارس يُفحص عند طلب التفعيل وحده (لا الإطفاء)');
-  assert.match(guard, /accountingSuiteEnabled !== true/, 'الحارس يقرأ القيمة السابقة: true القائمة لا تُفحص');
-  assert.match(guard, /isLedgerPilotTenant\(req\.params\.id, process\.env\)/, 'الحارس لا يستعمل قائمة التجربة');
-  assert.match(body.slice(code - 40, code + 20), /403/, 'الرمز يجب أن يُرد بـ403');
-});
-
-test('GET /api/tenants يضيف ledgerPilotAllowed لكل صف', () => {
-  const s = read('src', 'routes', 'tenants.ts');
-  const i = s.indexOf("router.get('/',");
-  const body = s.slice(i, s.indexOf('\n});', i));
-  assert.match(body, /ledgerPilotAllowed: isLedgerPilotTenant\(t\.id, process\.env\)/, 'ledgerPilotAllowed مفقود من قائمة الشركات');
+  assert.doesNotMatch(s, /LEDGER_PILOT_ONLY|isLedgerPilotTenant|ledgerPilotAllowed|LEDGER_PILOT_TENANTS/, 'بقايا قائمة التجربة في tenants.ts');
+  assert.ok(!fs.existsSync(path.join(__dirname, '..', 'services', 'gl', 'pilot.ts')), 'services/gl/pilot.ts يجب أن يُحذف مع الحارس');
 });
