@@ -1,12 +1,17 @@
 import type { ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pause, Play, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTr } from '../../../i18n/strings';
-import { formatDateTime } from '../../../utils/format';
+import { formatDateTime, formatDayOnly } from '../../../utils/format';
 import { ledgerErrorOf, ledgerKeys, type BackfillState } from '../../../api/ledgerConfig';
-import { ledgerSetupApi, ledgerSetupKeys, type BackfillProgress, type SetupCommitResult, type SetupState } from '../../../api/ledgerSetup';
+import {
+  ledgerSetupApi, ledgerSetupKeys, type BackfillProgress, type ImportedAfterCutoverJson, type OpeningStockCheckJson, type SetupCommitResult, type SetupState,
+} from '../../../api/ledgerSetup';
+import LedgerAmount from '../../../components/ledger/LedgerAmount';
 import { useConfigErrorText, WriteButton } from '../config/parts/configUi';
+import { DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, WAREHOUSE_HREF, hasPostCutoverImports, openingStockReview, type DerivedAccountKind } from './setupLogic';
 
 /**
  * أجزاء معالج الإعداد المشتركة (M3، §5.6، §8.4 القسم 2): نص أخطاء المعالج، وتسميات أسباب صفوف الأرصدة اليدوية،
@@ -32,6 +37,127 @@ export const manualIssueLabels = (tr: Tr): Record<string, string> => ({
   INVALID_DUE_DATE: tr('تاريخ الاستحقاق غير صالح'),
 });
 
+/** نص DERIVED_ACCOUNT حسب نوع الحساب: الذمم ⇒ صفحة الاستيراد، ومخزون المستودع ⇒ وارد المستودع، والباقي النص العام */
+export function derivedAccountText(tr: Tr, kind: DerivedAccountKind): string {
+  if (kind === 'AR') return tr('ذمم العملاء تُحسب من حركات حساباتهم: استورد الأرصدة الافتتاحية من صفحة استيراد البيانات ثم حدّث المعاينة');
+  if (kind === 'INVENTORY') return tr('مخزون المستودع يُحسب من حركات وارد المستودع بتكلفتها المسجّلة قبل تاريخ البدء: راجعها في المستودع');
+  return tr('رصيد هذا الحساب يُحسب من المستندات ولا يُدخل يدويا');
+}
+
+/** نص سبب رفض صف يدوي، وDERIVED_ACCOUNT حسب نوع الحساب */
+export function manualIssueText(tr: Tr, reason: string, kind: DerivedAccountKind = 'OTHER'): string {
+  if (reason === 'DERIVED_ACCOUNT') return derivedAccountText(tr, kind);
+  return manualIssueLabels(tr)[reason] ?? reason;
+}
+
+/**
+ * رابط قسم الاستيراد في إعدادات الشركة (/app/company#data-import): التنقل داخل التطبيق لا يمرّر إلى المرساة
+ * وحده، والقسم يُحمَّل كسولاً — فيُحاول التمرير بضع مرات حتى يظهر العنصر.
+ */
+export function DataImportLink({ children, className }: { children: ReactNode; className?: string }) {
+  const navigate = useNavigate();
+  return (
+    <a href={DATA_IMPORT_HREF} className={className ?? 'underline'}
+      onClick={e => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        navigate(DATA_IMPORT_HREF);
+        let tries = 0;
+        const tick = () => {
+          const el = document.getElementById(DATA_IMPORT_ANCHOR);
+          if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+          if (++tries < 30) window.setTimeout(tick, 150);
+        };
+        window.setTimeout(tick, 50);
+      }}>
+      {children}
+    </a>
+  );
+}
+
+export function WarehouseLink({ children, className }: { children: ReactNode; className?: string }) {
+  return <Link to={WAREHOUSE_HREF} className={className ?? 'underline'}>{children}</Link>;
+}
+
+/** تنبيه حركات مستوردة بتاريخ ≥ البدء (الخطوتان 4 و6): لا تدخل القيد الافتتاحي وتُرحَّل بتاريخها على 319002 */
+export function PostCutoverImportsNotice({ data, decimals, children }: { data: ImportedAfterCutoverJson | null | undefined; decimals: number; children?: ReactNode }) {
+  const tr = useTr();
+  if (!data || !hasPostCutoverImports(data)) return null;
+  return (
+    <Notice tone="warn">
+      <p className="font-semibold">
+        <AlertTriangle size={12} className="inline me-1" />
+        {tr('حركات مستوردة بتاريخ بعد تاريخ البدء')}: <bdi className="tabular-nums">{data.count}</bdi> · {tr('عملاء')}: <bdi className="tabular-nums">{data.customers}</bdi>
+      </p>
+      <p className="flex flex-wrap gap-x-3">
+        <span>{tr('مدين')}: <LedgerAmount value={data.debit} decimals={decimals} /></span>
+        <span>{tr('دائن')}: <LedgerAmount value={data.credit} decimals={decimals} /></span>
+      </p>
+      <p>
+        {tr('لا تدخل هذه الحركات القيد الافتتاحي، وتُرحَّل بعد التفعيل بتواريخها على حساب الأرصدة الافتتاحية لا إيرادا ولا ضريبة. إن كانت أرصدة افتتاحية فتراجع عن دفعتها وأعد استيرادها بتاريخ قبل البدء')}{' '}
+        <DataImportLink>{tr('سجل الاستيرادات')}</DataImportLink>
+      </p>
+      {children}
+    </Notice>
+  );
+}
+
+/**
+ * المخزون الافتتاحي المستورد خارج لقطة الافتتاح (الخطوتان 4 و6) — القيمة إرشادية (الكمية × التكلفة)، والحكم في الاعتماد:
+ * التاريخ الكامل مع دفعة ⇒ ممنوع بتوجيه؛ بعد البدء ⇒ خياران (تاريخ بدء لاحق، أو التراجع عن الدفعة) أو الإقرار (children)؛
+ * أحدث من لقطة الاعتماد ⇒ إعادة الاعتماد بعد retryAfter.
+ */
+export function OpeningStockNotice({ data, decimals, children }: { data: OpeningStockCheckJson | null | undefined; decimals: number; children?: ReactNode }) {
+  const tr = useTr();
+  const r = openingStockReview(data, false, new Date());
+  if (!data || !r.visible) return null;
+  const hint = <p className="text-[11px] opacity-80">{tr('قيمة إرشادية: الكمية × تكلفة الوحدة المسجّلة، وتُقيَّم فعليا داخل معاملة التفعيل')}</p>;
+  const importsLink = <DataImportLink>{tr('سجل الاستيرادات')}</DataImportLink>;
+  if (r.fullHistoryBlocked) {
+    return (
+      <Notice tone="error">
+        <p className="font-semibold"><AlertTriangle size={12} className="inline me-1" />{tr('مخزون افتتاحي مستورد لا يدخل الدفاتر في طريقة ترحيل التاريخ الكامل')}</p>
+        <p>{tr('لا يمكن التفعيل بهذه الطريقة مع دفعة مخزون افتتاحي: اختر طريقة الأرصدة الافتتاحية في الخطوة 2، أو تراجع عن دفعة المخزون ثم سجّل المخزون بعد التفعيل')}{' '}{importsLink}</p>
+      </Notice>
+    );
+  }
+  return (
+    <>
+      {r.afterCutover && (
+        <Notice tone="warn">
+          <p className="font-semibold">
+            <AlertTriangle size={12} className="inline me-1" />
+            {tr('مخزون افتتاحي مستورد في تاريخ البدء أو بعده')}: <bdi className="tabular-nums">{data.afterCutover.count}</bdi>
+            {' · '}{tr('القيمة')}: <LedgerAmount value={data.afterCutover.value} decimals={decimals} />
+          </p>
+          {hint}
+          <p>{tr('لا يدخل هذا المخزون القيد الافتتاحي ولا يُرحَّل بعد التفعيل، فيبقى حساب المخزون ناقصا بقيمته. اختر أحد الخيارين')}:</p>
+          <ul className="list-disc ps-5 space-y-0.5">
+            <li>
+              {tr('تاريخ بدء لاحق: عدّل تاريخ البدء في الخطوة 1 في يوم لاحق إلى تاريخ لا يسبق')}
+              {r.minCutoverDate && <> <bdi className="tabular-nums font-semibold">{formatDayOnly(r.minCutoverDate)}</bdi></>}
+              {' '}{tr('ثم اعتمد، فيدخل المخزون القيد الافتتاحي')}
+            </li>
+            <li>{tr('التراجع عن الدفعة من سجل الاستيرادات فتعتمد دون هذا المخزون؛ ولا يدخل القيد الافتتاحي إلا بالخيار الأول')}{' '}{importsLink}</li>
+          </ul>
+          {children}
+        </Notice>
+      )}
+      {r.tooRecent && (
+        <Notice tone="warn">
+          <p className="font-semibold">
+            <AlertTriangle size={12} className="inline me-1" />
+            {tr('مخزون افتتاحي استُورد قبل أقل من 10 دقائق فلا تشمله لقطة الافتتاح بعد')}: <bdi className="tabular-nums">{data.tooRecent.count}</bdi>
+            {' · '}{tr('القيمة')}: <LedgerAmount value={data.tooRecent.value} decimals={decimals} />
+          </p>
+          {hint}
+          {r.retryAfter && <p>{tr('أعد الاعتماد بعد')}: <bdi className="tabular-nums">{formatDateTime(r.retryAfter)}</bdi></p>}
+        </Notice>
+      )}
+    </>
+  );
+}
+
 /** نص خطأ نقاط المعالج: رموز الإعداد وأسبابه أولاً، ثم نص التهيئة العام. */
 export function useSetupErrorText() {
   const tr = useTr();
@@ -47,12 +173,23 @@ export function useSetupErrorText() {
       OPENING_BALANCE_ROWS_INVALID: tr('أرصدة افتتاحية يدوية غير صالحة'),
       BACKFILL_STATE_CONFLICT: tr('لا يمكن تغيير حالة الترحيل التاريخي من حالتها الحالية'),
       CATEGORY_ACCOUNT_TYPE: tr('نوع الحساب لا يوافق حقل الفئة'),
+      POST_CUTOVER_IMPORTS_ACK_REQUIRED: tr('توجد حركات مستوردة بتاريخ بعد تاريخ البدء: راجعها وأقرّ بها قبل التفعيل'),
+      IMPORT_IN_PROGRESS: tr('استيراد بيانات جارٍ الآن لهذه الشركة: انتظر انتهاءه وراجع سجل الدفعات ثم أعد التفعيل'),
+      OPENING_STOCK_FULL_HISTORY: tr('يوجد مخزون افتتاحي مستورد لا يدخل الدفاتر في طريقة ترحيل التاريخ الكامل: اختر طريقة الأرصدة الافتتاحية أو تراجع عن دفعة المخزون من سجل الاستيرادات'),
+      OPENING_STOCK_AFTER_CUTOVER: tr('مخزون افتتاحي مستورد في تاريخ البدء أو بعده لا يدخل القيد الافتتاحي: اعتمد في يوم لاحق بتاريخ بدء بعد يوم الاستيراد، أو تراجع عن الدفعة، أو أقرّ بالمتابعة دون قيمته'),
+      OPENING_STOCK_TOO_RECENT: tr('استُورد مخزون افتتاحي قبل أقل من 10 دقائق فلا تشمله لقطة الافتتاح: أعد الاعتماد بعد دقائق'),
     };
+    // TOO_RECENT: موعد إعادة الاعتماد من الخادم
+    if (reason === 'OPENING_STOCK_TOO_RECENT') {
+      const at = typeof b.retryAfter === 'string' ? b.retryAfter : typeof b.details?.retryAfter === 'string' ? (b.details.retryAfter as string) : null;
+      if (at) return `${reasons[reason]} · ${tr('أعد الاعتماد بعد')}: ${formatDateTime(at)}`;
+    }
     if (reason && reasons[reason]) return reasons[reason];
     switch (b.code) {
       case 'LEDGER_CUTOVER_IN_FUTURE': return tr('لا يجوز تاريخ بدء بعد اليوم بتوقيت الشركة');
       case 'LEDGER_CUTOVER_MID_VAT_PERIOD': return tr('تاريخ البدء داخل فترة إقرار: أكّد الاختيار وأدخل مبالغ المربعات قبل البدء، أو اختر بداية فترة');
       case 'LEDGER_HISTORY_TOO_LARGE': return tr('الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية');
+      case 'LEDGER_POST_CUTOVER_IMPORTS_ACK': return tr('توجد حركات مستوردة بتاريخ بعد تاريخ البدء: راجعها وأقرّ بها قبل التفعيل');
       case 'ACCOUNTING_SUITE_NOT_ALLOWED': return tr('النظام المحاسبي المتكامل غير مفعل لشركتك');
       default: break;
     }

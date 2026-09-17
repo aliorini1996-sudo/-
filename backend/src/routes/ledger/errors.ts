@@ -52,6 +52,28 @@ export const LEDGER_ERROR_MESSAGES: Readonly<Partial<Record<LedgerErrorCode, str
   LEDGER_HISTORY_LOCKED: REP_HISTORY_LOCKED_MESSAGE,
 };
 
+/**
+ * رموز مسارات محلية خارج ملحق ب (LedgerHttpError بحالة ورمز صريحين):
+ * LEDGER_POST_CUTOVER_IMPORTS_ACK (409) — /setup/commit وحركات مستوردة بتاريخ ≥ البدء بلا acknowledgePostCutoverImports.
+ * LEDGER_IMPORT_IN_PROGRESS (409) — /setup/commit ودفعة استيراد جارية للشركة (running بنبض خلال المهلة).
+ */
+export const LEDGER_POST_CUTOVER_IMPORTS_ACK_MESSAGE =
+  'توجد حركات مستوردة بتاريخ بعد تاريخ البدء تُرحَّل بتاريخها على حساب الأرصدة الافتتاحية لا في القيد الافتتاحي: راجعها وأقرّ بها قبل التفعيل';
+export const LEDGER_IMPORT_IN_PROGRESS_MESSAGE =
+  'استيراد بيانات جارٍ الآن لهذه الشركة: انتظر انتهاءه وراجع سجل الدفعات ثم أعد التفعيل';
+/**
+ * المخزون الافتتاحي المستورد (دفعات opening_stock) في /setup/commit — قبل أي كتابة:
+ * LEDGER_OPENING_STOCK_FULL_HISTORY (409) — طريقة التاريخ الكامل مع دفعة غير متراجَع عنها (حركات المستودع تُرحَّل مع M9).
+ * LEDGER_OPENING_STOCK_AFTER_CUTOVER (409) — حركة createdAt ≥ بداية تاريخ البدء بلا acknowledgeOpeningStockExcluded.
+ * LEDGER_OPENING_STOCK_TOO_RECENT (409) — حركة قبل البدء أحدث من لقطة T0 (آخر 10 دقائق): أعد الاعتماد بعد retryAfter.
+ */
+export const LEDGER_OPENING_STOCK_FULL_HISTORY_MESSAGE =
+  'يوجد مخزون افتتاحي مستورد لا يدخل الدفاتر في طريقة ترحيل التاريخ الكامل (حركات المستودع تُرحَّل مع M9): اختر طريقة الأرصدة الافتتاحية أو تراجع عن دفعة المخزون من سجل الدفعات';
+export const LEDGER_OPENING_STOCK_AFTER_CUTOVER_MESSAGE =
+  'مخزون افتتاحي مستورد في تاريخ البدء أو بعده لا يدخل القيد الافتتاحي ولا يُرحَّل لاحقاً: اعتمد في يوم لاحق بتاريخ بدء بعد يوم الاستيراد، أو تراجع عن الدفعة، أو أقرّ بالمتابعة دون قيمته';
+export const LEDGER_OPENING_STOCK_TOO_RECENT_MESSAGE =
+  'استُورد مخزون افتتاحي قبل أقل من 10 دقائق فلا تشمله لقطة الافتتاح: أعد الاعتماد بعد دقائق';
+
 /** خطأ مسار محلي بحالة HTTP صريحة (قيود تحرير لا رمز لها في ملحق ب) — يُحمل سببه في reason. */
 export class LedgerHttpError extends Error {
   readonly status: number;

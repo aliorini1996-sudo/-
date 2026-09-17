@@ -20,7 +20,7 @@ import { reconcileHorizon, reconcileTenant, type ReconcileSettings, type Reconci
 import { createPrismaReconcilerStore } from './sync/reconcilerStore.prisma';
 import type { ReconcileFn } from './sync/tick';
 import {
-  SYNC_HEARTBEAT_MS, TICK_EVENT_BUDGET,
+  IMPORT_LANE_SOURCE_TYPES, SYNC_HEARTBEAT_MS, TICK_DB_BUDGET_MS, TICK_EVENT_BUDGET,
   type DesiredEvent, type SyncCursorSource,
 } from './sync/types';
 
@@ -46,19 +46,81 @@ export interface HistoryEstimate {
   rows: number;
   /** حد أعلى تقريبي للأحداث (صف ≈ حدث) */
   estimatedEvents: number;
-  /** بالدقائق بإيقاع TICK_EVENT_BUDGET لكل نبضة */
+  /** بالدقائق بالإنتاجية المقيسة، أو بالحد المتحفظ المقيّد بـTICK_DB_BUDGET_MS حين لا قياس */
   estimatedMinutes: number;
+  /** الأحداث في الدقيقة المستعملة في التقدير */
+  eventsPerMinute: number;
+  /** MEASURED: من سجل الترحيل الفعلي؛ CONSERVATIVE: حد متحفظ (معاملة لكل حدث ضمن ميزانية زمن النبضة) */
+  throughputBasis: ThroughputBasis;
   maxRows: number;
   tooLarge: boolean;
 }
 
-export function estimateHistory(c: HistoryCounts): HistoryEstimate {
+export type ThroughputBasis = 'MEASURED' | 'CONSERVATIVE';
+
+/**
+ * زمن متحفظ لمعاملة ترحيل حدث واحد (قفل + قراءة + بناء + postMove + تحديث الحدث) على قاعدة Render الصغيرة.
+ * TICK_EVENT_BUDGET (300) سقف لا إنتاجية: ميزانية الزمن 3 ثوانٍ للنبضة تسمح بنحو 75 حدثاً بهذا الزمن.
+ */
+export const CONSERVATIVE_MS_PER_EVENT = 40;
+/** أقل عدد أحداث مقيسة في النافذة ليُعتمد القياس */
+export const MIN_MEASURED_EVENTS = 50;
+/** نافذة قياس الإنتاجية من سجل الترحيل */
+export const THROUGHPUT_WINDOW_MS = 30 * 60_000;
+
+/** الحد المتحفظ للأحداث في الدقيقة: min(TICK_EVENT_BUDGET، TICK_DB_BUDGET_MS / زمن الحدث) لكل نبضة */
+export function conservativeEventsPerMinute(): number {
+  const perTick = Math.max(1, Math.min(TICK_EVENT_BUDGET, Math.floor(TICK_DB_BUDGET_MS / CONSERVATIVE_MS_PER_EVENT)));
+  return perTick * (60_000 / SYNC_HEARTBEAT_MS);
+}
+
+/** الإنتاجية المعتمدة: المقيسة (مقيّدة بالسقف الاسمي) إن وُجدت وإلا الحد المتحفظ */
+export function throughputOf(measuredEventsPerMinute?: number | null): { eventsPerMinute: number; basis: ThroughputBasis } {
+  const nominal = TICK_EVENT_BUDGET * (60_000 / SYNC_HEARTBEAT_MS);
+  if (typeof measuredEventsPerMinute === 'number' && Number.isFinite(measuredEventsPerMinute) && measuredEventsPerMinute > 0) {
+    return { eventsPerMinute: Math.min(nominal, measuredEventsPerMinute), basis: 'MEASURED' };
+  }
+  return { eventsPerMinute: conservativeEventsPerMinute(), basis: 'CONSERVATIVE' };
+}
+
+/**
+ * من سجل الترحيل (البند 4 (ج)): أحداث حُسمت فعلاً (DONE أو SKIPPED غير الافتتاح) في النافذة، مقسومة على مدة العمل بين
+ * أول حسم وآخره (فترة خمول قبل استيراد جديد لا تُخفض الإنتاجية)، بحد أدنى دقيقة واحدة (نبضة). null إن قلّت عن
+ * MIN_MEASURED_EVENTS.
+ */
+export function measuredEventsPerMinute(input: { processed: number; firstProcessedAt: Date | null; lastProcessedAt?: Date | null; dbNow: Date }): number | null {
+  if (input.processed < MIN_MEASURED_EVENTS || !input.firstProcessedAt) return null;
+  const end = input.lastProcessedAt ?? input.dbNow;
+  const minutes = Math.max(1, (end.getTime() - input.firstProcessedAt.getTime()) / 60_000);
+  return input.processed / minutes;
+}
+
+/** الإنتاجية المقيسة للشركة من GlSourceEvent.processedAt في THROUGHPUT_WINDOW_MS — null ⇒ الحد المتحفظ (ولمعاينة المعالج) */
+export async function loadMeasuredEventsPerMinute(db: GlDb | PrismaClient, tenantId: string, dbNow: Date): Promise<number | null> {
+  const since = new Date(dbNow.getTime() - THROUGHPUT_WINDOW_MS);
+  const processed = await db.glSourceEvent.aggregate({
+    where: {
+      tenantId, status: { in: ['DONE', 'SKIPPED'] }, processedAt: { gte: since },
+      // SKIPPED(OPENING) يُحسم جماعياً بلا ترحيل ⇒ لا يُعدّ إنتاجية
+      OR: [{ skipReason: null }, { skipReason: { not: 'OPENING' } }],
+    },
+    _count: { _all: true }, _min: { processedAt: true }, _max: { processedAt: true },
+  });
+  return measuredEventsPerMinute({
+    processed: processed._count._all, firstProcessedAt: processed._min.processedAt ?? null,
+    lastProcessedAt: processed._max.processedAt ?? null, dbNow,
+  });
+}
+
+export function estimateHistory(c: HistoryCounts, opts: { measuredEventsPerMinute?: number | null } = {}): HistoryEstimate {
   const rows = c.accountEntries + c.repSettlements + c.settlementEntries + (c.inventoryMoves ?? 0);
-  const perMinute = TICK_EVENT_BUDGET * (60_000 / SYNC_HEARTBEAT_MS);
+  const t = throughputOf(opts.measuredEventsPerMinute);
   return {
     rows,
     estimatedEvents: rows,
-    estimatedMinutes: rows === 0 ? 0 : Math.ceil(rows / perMinute),
+    estimatedMinutes: rows === 0 ? 0 : Math.ceil(rows / t.eventsPerMinute),
+    eventsPerMinute: t.eventsPerMinute,
+    throughputBasis: t.basis,
     maxRows: HISTORY_MAX_ROWS,
     tooLarge: rows > HISTORY_MAX_ROWS,
   };
@@ -127,6 +189,10 @@ export interface BackfillProgressInput {
   sources: readonly BackfillSourceState[];
   /** أحداث PENDING (بلا BLOCKED/ERROR/HELD: تلك تظهر في المراجعة ولا تؤخر اكتمال المؤشرات) */
   pendingEvents: number;
+  /** منها أحداث الاستيراد (AR_ENTRY) — والباقي مستندات حية (البند 4 (ج)) */
+  pendingImportEvents?: number;
+  /** الإنتاجية المقيسة (أحداث/دقيقة) أو null ⇒ الحد المتحفظ */
+  measuredEventsPerMinute?: number | null;
   /** PENDING + BLOCKED + ERROR + HELD — للعرض */
   openEvents: number;
   doneEvents: number;
@@ -140,10 +206,14 @@ export interface BackfillProgress {
   nextState: BackfillState;
   sources: { source: SyncCursorSource; watermarkAt: string; lastRunAt: string | null; lagMs: number; caughtUp: boolean; stallTicks: number }[];
   pendingEvents: number;
+  /** المعلّق مفصولاً: الاستيراد والمستندات الحية */
+  pendingByLane: { import: number; live: number };
   openEvents: number;
   doneEvents: number;
-  /** دقائق تقريبية بإيقاع النبضة */
+  /** دقائق تقريبية بالإنتاجية المقيسة أو الحد المتحفظ */
   etaMinutes: number | null;
+  eventsPerMinute: number;
+  throughputBasis: ThroughputBasis;
 }
 
 /** اكتمال المؤشرات حتى اللحظة: لا صفوف غير مقروءة حتى الأفق في أي مصدر، ولا حدث PENDING */
@@ -158,11 +228,16 @@ export function backfillProgress(i: BackfillProgressInput): BackfillProgress {
   }));
   const caughtUp = sources.length > 0 && sources.every((s) => s.caughtUp) && i.pendingEvents === 0;
   const nextState: BackfillState = i.state === 'RUNNING' && caughtUp ? 'DONE' : i.state;
-  const perMinute = TICK_EVENT_BUDGET * (60_000 / SYNC_HEARTBEAT_MS);
+  const t = throughputOf(i.measuredEventsPerMinute);
+  const importPending = Math.max(0, Math.min(i.pendingEvents, i.pendingImportEvents ?? 0));
   return {
     state: i.state, caughtUp, nextState, sources,
-    pendingEvents: i.pendingEvents, openEvents: i.openEvents, doneEvents: i.doneEvents,
-    etaMinutes: caughtUp ? 0 : i.pendingEvents > 0 ? Math.ceil(i.pendingEvents / perMinute) : null,
+    pendingEvents: i.pendingEvents,
+    pendingByLane: { import: importPending, live: i.pendingEvents - importPending },
+    openEvents: i.openEvents, doneEvents: i.doneEvents,
+    etaMinutes: caughtUp ? 0 : i.pendingEvents > 0 ? Math.ceil(i.pendingEvents / t.eventsPerMinute) : null,
+    eventsPerMinute: t.eventsPerMinute,
+    throughputBasis: t.basis,
   };
 }
 
@@ -191,12 +266,18 @@ export async function refreshBackfillState(db: PrismaClient, tenantId: string): 
       : c.lastRunAt === null;
     sources.push({ source, watermarkAt: c.watermarkAt, lastRunAt: c.lastRunAt, lastCount: c.lastCount, stallTicks: c.stallTicks, unread });
   }
-  const grouped = await db.glSourceEvent.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } });
-  const countOf = (st: string) => grouped.find((g) => g.status === st)?._count._all ?? 0;
+  const grouped = await db.glSourceEvent.groupBy({ by: ['status', 'sourceType'], where: { tenantId }, _count: { _all: true } });
+  const countOf = (st: string, types?: readonly string[]) => grouped
+    .filter((g) => g.status === st && (!types || types.includes(g.sourceType)))
+    .reduce((n, g) => n + g._count._all, 0);
+  // الإنتاجية المقيسة للشركة (البند 4 (ج)): الحسم الجماعي SKIPPED(OPENING) لا يُعدّ إنتاجية ترحيل
+  const measured = await loadMeasuredEventsPerMinute(db, tenantId, dbNow);
   const progress = backfillProgress({
     state: (s.backfillState || 'NONE') as BackfillState,
     sources,
     pendingEvents: countOf('PENDING'),
+    pendingImportEvents: countOf('PENDING', IMPORT_LANE_SOURCE_TYPES),
+    measuredEventsPerMinute: measured,
     openEvents: countOf('PENDING') + countOf('BLOCKED') + countOf('ERROR') + countOf('HELD'),
     doneEvents: countOf('DONE') + countOf('SKIPPED'),
     dbNow,

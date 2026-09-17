@@ -478,7 +478,7 @@ export default function CompanySettingsPage() {
 
       {/* استيراد بيانات الشركة السابقة — أصنافٌ وأسعار: يختفي مع المحاسبة */}
       {accountingOn && (
-        <div className="mt-6">
+        <div id="data-import" className="mt-6 scroll-mt-4">
           <DataImportPanel />
         </div>
       )}

@@ -244,3 +244,105 @@ export function milliText(m: bigint): string {
 
 /** قيمة مبلغ معاينة (نص formatMilli) صفرية؟ */
 export const isZeroAmount = (v: string | number | null | undefined) => !v || /^-?[0.]*$/.test(String(v));
+
+// ═══ الاستيراد والدفاتر (تنبيهات المعالج) ═══
+
+/** رابط قسم «استيراد البيانات من نظامك السابق» في إعدادات الشركة */
+export const DATA_IMPORT_HREF = '/app/company#data-import';
+export const DATA_IMPORT_ANCHOR = 'data-import';
+/** وارد المستودع بتكلفته (المخزون الافتتاحي) */
+export const WAREHOUSE_HREF = '/app/warehouse';
+
+/** تنبيه «حركات مستوردة بعد تاريخ البدء» يظهر حين عددها > 0 */
+export const hasPostCutoverImports = (x: { count: number } | null | undefined): boolean => !!x && Number(x.count) > 0;
+
+/** زر التفعيل ينتظر الإقرار بالحركات المستوردة بعد البدء */
+export const importsAckBlocksCommit = (x: { count: number } | null | undefined, acknowledged: boolean): boolean =>
+  hasPostCutoverImports(x) && !acknowledged;
+
+// ═══ المخزون الافتتاحي المستورد (openingStock في المعاينة) ═══
+
+export type OpeningStockCommitBlock = 'FULL_HISTORY' | 'AFTER_CUTOVER_ACK' | 'TOO_RECENT' | null;
+
+export interface OpeningStockReview {
+  /** للمعاينة شيء يُعرض */
+  visible: boolean;
+  fullHistoryBlocked: boolean;
+  afterCutover: boolean;
+  tooRecent: boolean;
+  /** أقرب تاريخ بدء يشمل كل الحركات المستوردة بعد البدء (الاعتماد في يوم لاحق) */
+  minCutoverDate: LocalDate | null;
+  retryAfter: string | null;
+  /** المتبقي حتى retryAfter بالملّي ثانية (0 حين مضى) */
+  waitMs: number;
+  /** ما يمنع زر التفعيل، بترتيب فحوص /setup/commit */
+  block: OpeningStockCommitBlock;
+}
+
+type OpeningStockLike = {
+  fullHistoryBlocked?: boolean;
+  afterCutover?: { count: number; minCutoverDate?: LocalDate | null } | null;
+  tooRecent?: { count: number; retryAfter?: string | null } | null;
+} | null | undefined;
+
+/**
+ * مرآة فحوص /setup/commit للمخزون الافتتاحي على المعاينة (الخادم هو الحكم):
+ * التاريخ الكامل مع دفعة ⇒ ممنوع؛ بعد البدء ⇒ إقرار acknowledgeOpeningStockExcluded؛ أحدث من اللقطة ⇒ انتظار retryAfter.
+ * retryAfter مضى ⇒ لا يمنع (تُعاد المعاينة فيختفي).
+ */
+export function openingStockReview(os: OpeningStockLike, acknowledged: boolean, now: Date): OpeningStockReview {
+  const fullHistoryBlocked = os?.fullHistoryBlocked === true;
+  const afterCutover = Number(os?.afterCutover?.count ?? 0) > 0;
+  const tooRecent = Number(os?.tooRecent?.count ?? 0) > 0;
+  const retryAfter = tooRecent ? os?.tooRecent?.retryAfter ?? null : null;
+  const at = retryAfter ? Date.parse(retryAfter) : NaN;
+  const waitMs = Number.isFinite(at) ? Math.max(0, at - now.getTime()) : 0;
+  const block: OpeningStockCommitBlock = fullHistoryBlocked ? 'FULL_HISTORY'
+    : afterCutover && !acknowledged ? 'AFTER_CUTOVER_ACK'
+      : tooRecent && waitMs > 0 ? 'TOO_RECENT'
+        : null;
+  return {
+    visible: fullHistoryBlocked || afterCutover || tooRecent,
+    fullHistoryBlocked, afterCutover, tooRecent,
+    minCutoverDate: afterCutover ? os?.afterCutover?.minCutoverDate ?? null : null,
+    retryAfter, waitMs, block,
+  };
+}
+
+/** رفض اعتماد يستوجب إعادة المعاينة وإلغاء الإقرارات (الأرقام تغيّرت بعد المعاينة) */
+export const COMMIT_REFRESH_CODES = [
+  'LEDGER_POST_CUTOVER_IMPORTS_ACK', 'LEDGER_IMPORT_IN_PROGRESS',
+  'LEDGER_OPENING_STOCK_AFTER_CUTOVER', 'LEDGER_OPENING_STOCK_FULL_HISTORY', 'LEDGER_OPENING_STOCK_TOO_RECENT',
+] as const;
+export const commitNeedsRefresh = (code: string | null | undefined): boolean =>
+  !!code && (COMMIT_REFRESH_CODES as readonly string[]).includes(code);
+
+/** تلميحات الخطوة 4: ذمم صفرية وللشركة عملاء، ومخزون صفري وللشركة منتجات */
+export function openingDataHints(p: {
+  opening: { receivablesTotal: string; warehouse: { value: string } };
+  tenantCounts?: { customers: number; products: number } | null;
+  openingStock?: { batches: number } | null;
+}): { receivablesMissing: boolean; inventoryMissing: boolean } {
+  const c = p.tenantCounts;
+  return {
+    receivablesMissing: !!c && c.customers > 0 && isZeroAmount(p.opening.receivablesTotal),
+    // مخزون مستورد خارج الافتتاح يُشرح في تنبيهه، لا «مخزون صفري»
+    inventoryMissing: !!c && c.products > 0 && isZeroAmount(p.opening.warehouse.value) && !(p.openingStock && p.openingStock.batches > 0),
+  };
+}
+
+export type DerivedAccountKind = 'AR' | 'INVENTORY' | 'OTHER';
+
+/**
+ * نوع الحساب المشتق لنص DERIVED_ACCOUNT: الذمم ⇒ صفحة الاستيراد، ومخزون المستودع ⇒ وارد المستودع، والباقي النص العام.
+ * بلا نوع رئيسي (الشجرة لم تُزرع بعد) يُستدل بالرمز القالبي 113001/114001.
+ */
+export function derivedAccountKind(controlKind: string | null | undefined, accountCode?: string | number | null): DerivedAccountKind {
+  if (controlKind === 'AR') return 'AR';
+  if (controlKind === 'INVENTORY') return 'INVENTORY';
+  if (controlKind) return 'OTHER';
+  const code = String(accountCode ?? '').trim();
+  if (code === '113001') return 'AR';
+  if (code === '114001') return 'INVENTORY';
+  return 'OTHER';
+}

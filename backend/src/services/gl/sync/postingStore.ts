@@ -117,6 +117,30 @@ export interface PostingTx {
   listRepReceiptEvents(salesRepId: string, upTo: Date): Promise<{ status: EventStatus; effectAt: Date }[]>;
   /** ساعة القاعدة داخل المعاملة */
   dbNow(): Promise<Date>;
+
+  /**
+   * البند 4 (أ): مرشّحو حسم OPENING الجماعي — AR_ENTRY:POST بحالة PENDING/BLOCKED/ERROR وeffectAt < before، بترتيب
+   * (effectAt, id) بعد after، مع حالة شقيق REVERSE. اختياري: غيابه ⇒ لا حسم جماعي (المسار الفردي كما هو).
+   */
+  listOpeningImportCandidates?(opts: { before: Date; after: CompositeKey | null; limit: number }): Promise<OpeningImportCandidate[]>;
+  /**
+   * updateMany: status=SKIPPED وskipReason=OPENING وprocessedAt=now وlastError/nextAttemptAt=null، بشرط id ∈ ids
+   * وsourceType=AR_ENTRY وevent=POST وstatus ∈ (PENDING, BLOCKED, ERROR) — يعيد عدد المتأثر.
+   */
+  skipOpeningImports?(ids: readonly string[], now: Date): Promise<number>;
+}
+
+/** مرشّح حسم OPENING الجماعي كما يُقرأ تحت القفل */
+export interface OpeningImportCandidate {
+  id: string;
+  sourceKey: string;
+  sourceId: string;
+  effectAt: Date;
+  status: EventStatus;
+  /** payload.sourceCreatedAt ?? payload.createdAt كما هو (selfRow في poster.ts يقرأ الشيء نفسه) */
+  createdAtHint: unknown;
+  /** حالة AR_ENTRY:<id>:REVERSE أو null إن لم يوجد */
+  reverseStatus: EventStatus | null;
 }
 
 export interface WithPostLockOptions {
@@ -129,6 +153,8 @@ export interface ListDueEventsOptions {
   limit: number;
   /** استبعاد معرّفات عولجت في النبضة نفسها */
   excludeIds?: readonly string[];
+  /** البند 4 (ب): ترشيح بالنوع (in أو notIn) — يُحترم فقط حين filtersDueEventsBySourceType=true */
+  sourceTypes?: { in?: readonly SourceType[]; notIn?: readonly SourceType[] };
 }
 
 export interface PostingStore {
@@ -163,6 +189,11 @@ export interface PostingStore {
   // ── الطابور (§5.4) ──
   /** PENDING، وBLOCKED/ERROR بـnextAttemptAt ≤ now، مرتبة effectAt ثم rank ثم sourceKey */
   listDueEvents(tenantId: string, opts: ListDueEventsOptions): Promise<SourceEventRecord[]>;
+  /**
+   * true ⇔ listDueEvents يحترم opts.sourceTypes، فيعمل المُرحِّل بمساري العدالة (البند 4 (ب)). غيابه (المخازن المزيّفة
+   * القديمة) ⇒ الحلقة الواحدة بترتيب effectAt كما كانت.
+   */
+  readonly filtersDueEventsBySourceType?: boolean;
   /** PENDING + BLOCKED + ERROR(بـnextAttemptAt) — لـ202 {pendingEvents} ولشريط التقدم */
   countPendingEvents(tenantId: string): Promise<number>;
 

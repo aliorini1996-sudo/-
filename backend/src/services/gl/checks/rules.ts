@@ -8,6 +8,7 @@
 import {
   custodyC4Gap, custodyC4bGap, type CustodyComponents,
 } from '../custody';
+import { toMilli } from '../money';
 import { checkSequenceGaps, parseMoveNumber } from '../sequence';
 import type { BackfillState, LocalDate, Milli } from '../types';
 import {
@@ -85,6 +86,11 @@ export interface C3Input {
   entriesAfterCutover: ReadonlyMap<string, Milli>;
   /** صفوف استيراد مشمولة بالافتتاح ثم تُراجع عنها (حدث AR_ENTRY:REVERSE وشقيقه SKIPPED(OPENING)) */
   deletedOpeningImports: ReadonlyMap<string, Milli>;
+  /**
+   * Σ(مدين − دائن) لصفوف AccountEntry **الحالية** المشمولة بالافتتاح (بقاعدة computeDerivedOpening) لكل عميل — لتعمّق
+   * «صف افتتاحي حُذف بلا حدث» (استيراد البند 6 (ج)). غيابه ⇒ لا تعمّق (مخازن قديمة، أو الطريقة (ب) بلا قيد افتتاحي).
+   */
+  openingEntries?: ReadonlyMap<string, Milli> | null;
   names: ReadonlyMap<string, string>;
   pendingCustomers: ReadonlySet<string>;
   /** لا نبضة بعد، أو أحداث بلا عميل معروف ⇒ كل انحراف أصفر */
@@ -115,6 +121,119 @@ export function c3Gaps(input: C3Input): PartnerGap[] {
   return out.sort((a, b) => (abs(b.gapMilli) > abs(a.gapMilli) ? 1 : abs(b.gapMilli) < abs(a.gapMilli) ? -1 : a.partnerId < b.partnerId ? -1 : 1));
 }
 
+/**
+ * تعمّق C3 (استيراد البند 6 (ج)): سطور AR في قيد OPEN لكل عميل مقابل Σ صفوفه الحالية المشمولة بالافتتاح + ما حُذف منها
+ * بحدث (deletedOpeningImports). الفرق = صف افتتاحي حُذف بلا tombstone (تراجع سابَق اعتماد التفعيل) فبقي في الافتتاح
+ * ولا صف له ولا حدث عكس — وهو ما لا يراه c3Gaps لأن «المتوقَّع» فيه يبدأ من قيد الافتتاح نفسه.
+ */
+export interface OpeningEntryGap {
+  customerId: string;
+  name: string | null;
+  openingMilli: Milli;
+  openingEntriesMilli: Milli;
+  deletedWithEventMilli: Milli;
+  gapMilli: Milli;
+  pending: boolean;
+}
+
+export const OPENING_DELETED_WITHOUT_EVENT = 'OPENING_DELETED_WITHOUT_EVENT';
+
+/** مجموعة صفوف AccountEntry المشمولة بنافذة الافتتاح لعميل ومستند ونوع (مجاميع لا صفوف) */
+export interface OpeningEntryGroup {
+  customerId: string;
+  invoiceId: string | null;
+  receiptId: string | null;
+  type: string;
+  invoiceType: string | null;
+  debit: number;
+  credit: number;
+  /**
+   * مجموع الصفوف بعد تقريب كل صف وحده (toMilli لكل صف ثم الجمع) — مرآة computeDerivedOpening. حين يوجد
+   * يُعتمد بدل debit/credit، فكشف بثلاث منازل (1.005 + 2.005 + 3.125) لا يعطي تعمّقاً ≠ القيد الافتتاحي.
+   */
+  debitMilli?: Milli;
+  creditMilli?: Milli;
+}
+
+/** صف AccountEntry واحد في نافذة الافتتاح (قراءة المخزن صفاً صفاً) */
+export type OpeningEntryRow = Omit<OpeningEntryGroup, 'debitMilli' | 'creditMilli'>;
+
+/**
+ * يجمع الصفوف إلى مجموعات (عميل، فاتورة، سند، نوع) بعد تقريب كل صف وحده بـtoMilli — التقريب قبل الجمع
+ * كما في computeDerivedOpening لا بعده (groupBy على Float ثم تقريب المجموع يعطي أحمر C3 كاذباً).
+ */
+export function openingEntryGroupsFromRows(rows: Iterable<OpeningEntryRow>, decimals: number, into: Map<string, OpeningEntryGroup> = new Map()): Map<string, OpeningEntryGroup> {
+  for (const r of rows) {
+    const key = `${r.customerId}|${r.invoiceId ?? ''}|${r.receiptId ?? ''}|${r.type}`;
+    let g = into.get(key);
+    if (!g) {
+      g = { customerId: r.customerId, invoiceId: r.invoiceId, receiptId: r.receiptId, type: r.type, invoiceType: r.invoiceType, debit: 0, credit: 0, debitMilli: 0n, creditMilli: 0n };
+      into.set(key, g);
+    }
+    g.debitMilli = (g.debitMilli ?? 0n) + toMilli(r.debit ?? 0, decimals);
+    g.creditMilli = (g.creditMilli ?? 0n) + toMilli(r.credit ?? 0, decimals);
+  }
+  return into;
+}
+
+/**
+ * مرآة openingRowRole في opening.ts (اختبار gl-checks يثبت التطابق) — لا يُستورد opening.ts هنا لأنه يجرّ
+ * config/database عبر warehouseStock إلى المجدول والفحوص.
+ */
+export function openingEntryRole(e: Pick<OpeningEntryGroup, 'invoiceId' | 'receiptId' | 'type' | 'invoiceType'>): 'EFFECT' | 'REVERSAL' | null {
+  if (e.invoiceId) {
+    if (!e.invoiceType) return null;
+    if (e.invoiceType === 'RETURN') return e.type === 'INVOICE_CREDIT' ? 'EFFECT' : e.type === 'INVOICE_DEBIT' ? 'REVERSAL' : null;
+    if (e.type === 'INVOICE_DEBIT' || e.type === 'RECEIPT_CREDIT') return 'EFFECT';
+    if (e.type === 'INVOICE_CREDIT' || e.type === 'RECEIPT_DEBIT') return 'REVERSAL';
+    return null;
+  }
+  if (e.receiptId) return e.type === 'RECEIPT_CREDIT' ? 'EFFECT' : e.type === 'RECEIPT_DEBIT' ? 'REVERSAL' : null;
+  return null;
+}
+
+/**
+ * Σ(مدين − دائن) لكل عميل بقاعدة computeDerivedOpening: مجموعة «إلغاء» لمستند لا مجموعة «أثر» له في النافذة تُسقط
+ * (مستند مؤرخ مستقبلاً أُلغي قبل البدء يُرحَّل POST وREVERSE معاً). roleOf = openingEntryRole افتراضياً.
+ */
+export function openingEntryTotalsFromGroups(
+  groups: readonly OpeningEntryGroup[], decimals: number,
+  roleOf: (g: Pick<OpeningEntryGroup, 'invoiceId' | 'receiptId' | 'type' | 'invoiceType'>) => 'EFFECT' | 'REVERSAL' | null = openingEntryRole,
+): Map<string, Milli> {
+  const docOf = (g: OpeningEntryGroup) => (g.invoiceId ? `I:${g.invoiceId}` : g.receiptId ? `R:${g.receiptId}` : null);
+  const withEffect = new Set<string>();
+  for (const g of groups) {
+    const doc = docOf(g);
+    if (doc && roleOf(g) === 'EFFECT') withEffect.add(doc);
+  }
+  const out = new Map<string, Milli>();
+  for (const g of groups) {
+    const doc = docOf(g);
+    if (doc && roleOf(g) === 'REVERSAL' && !withEffect.has(doc)) continue;
+    out.set(g.customerId, (out.get(g.customerId) ?? 0n) + (g.debitMilli ?? toMilli(g.debit, decimals)) - (g.creditMilli ?? toMilli(g.credit, decimals)));
+  }
+  return out;
+}
+
+export function c3OpeningEntryGaps(input: C3Input): OpeningEntryGap[] {
+  const entries = input.openingEntries;
+  if (!entries) return [];
+  const ids = new Set<string>([...input.opening.keys(), ...entries.keys(), ...input.deletedOpeningImports.keys()]);
+  const out: OpeningEntryGap[] = [];
+  for (const id of ids) {
+    const openingMilli = input.opening.get(id) ?? 0n;
+    const openingEntriesMilli = entries.get(id) ?? 0n;
+    const deletedWithEventMilli = input.deletedOpeningImports.get(id) ?? 0n;
+    const gapMilli = openingMilli - openingEntriesMilli - deletedWithEventMilli;
+    if (gapMilli === 0n) continue;
+    out.push({
+      customerId: id, name: input.names.get(id) ?? null, openingMilli, openingEntriesMilli, deletedWithEventMilli, gapMilli,
+      pending: input.pendingAll || input.pendingCustomers.has(id),
+    });
+  }
+  return out.sort((a, b) => (abs(b.gapMilli) > abs(a.gapMilli) ? 1 : abs(b.gapMilli) < abs(a.gapMilli) ? -1 : a.customerId < b.customerId ? -1 : 1));
+}
+
 function sumMap(m: ReadonlyMap<string, Milli>): Milli {
   let t = 0n;
   for (const v of m.values()) t += v;
@@ -135,15 +254,28 @@ function gapStatus(gaps: readonly PartnerGap[]): CheckStatus {
 
 export function evaluateC3(input: C3Input): CheckResult {
   const gaps = c3Gaps(input);
-  const status = gapStatus(gaps);
+  const gapsStatus = gapStatus(gaps);
+  const openingGaps = c3OpeningEntryGaps(input);
+  const openingStatus: CheckStatus = openingGaps.length === 0 ? 'GREEN' : openingGaps.some((g) => !g.pending) ? 'RED' : 'YELLOW';
+  const status = worstStatus([gapsStatus, openingStatus]);
   const ledgerTotal = sumMap(input.ledger);
   const expectedTotal = sumMap(input.opening) + sumMap(input.entriesAfterCutover) - sumMap(input.deletedOpeningImports);
-  const metrics = { ledgerTotalMilli: milliText(ledgerTotal), expectedTotalMilli: milliText(expectedTotal), totalGapMilli: milliText(ledgerTotal - expectedTotal) };
+  const metrics: CheckResult['metrics'] = { ledgerTotalMilli: milliText(ledgerTotal), expectedTotalMilli: milliText(expectedTotal), totalGapMilli: milliText(ledgerTotal - expectedTotal) };
+  if (openingGaps.length > 0) metrics.openingDeletedWithoutEvent = openingGaps.length;
   if (status === 'GREEN') return result('C3', 'GREEN', 'رصيد ذمم كل عميل يطابق حركاته', [], null, metrics);
-  const summary = status === 'RED'
-    ? `${gaps.filter((g) => !g.pending).length} عميل ينحرف رصيد ذممه عن حركاته`
-    : 'انحرافات مؤقتة بانتظار الترحيل الآلي';
-  return result('C3', status, summary, gapRows(gaps, 'customerId'), status === 'RED' ? 'CONTROL_ADJUSTMENT' : 'SYNC_NOW', metrics);
+  const parts: string[] = [];
+  if (gapsStatus === 'RED') parts.push(`${gaps.filter((g) => !g.pending).length} عميل ينحرف رصيد ذممه عن حركاته`);
+  if (openingStatus === 'RED') parts.push(`${openingGaps.filter((g) => !g.pending).length} صف افتتاحي حُذف بلا حدث`);
+  const summary = parts.length > 0 ? parts.join('، ') : 'انحرافات مؤقتة بانتظار الترحيل الآلي';
+  // صف «حُذف بلا حدث» لا يُصحَّح بقيد التصحيح من هنا (انحراف c3Gaps له صفر): adjustable=false دائماً
+  const openingRows: CheckRow[] = openingGaps.map((g) => ({
+    kind: OPENING_DELETED_WITHOUT_EVENT, customerId: g.customerId, name: g.name,
+    openingMilli: milliText(g.openingMilli), openingEntriesMilli: milliText(g.openingEntriesMilli),
+    deletedWithEventMilli: milliText(g.deletedWithEventMilli), openingGapMilli: milliText(g.gapMilli),
+    pending: g.pending, adjustable: false,
+  }));
+  const fix: CheckFix | null = gapsStatus === 'RED' ? 'CONTROL_ADJUSTMENT' : status === 'YELLOW' ? 'SYNC_NOW' : null;
+  return result('C3', status, summary, [...gapRows(gaps, 'customerId'), ...openingRows], fix, metrics);
 }
 
 // ═══ C4 وC4b: العهدة ═══
@@ -292,7 +424,24 @@ export interface SuspenseAccountFacts {
   attentionMoves: readonly { moveId: string; number: string | null; date: LocalDate; attentionReason: string | null; amountMilli: Milli }[];
 }
 
-export function evaluateC9(accounts: readonly SuspenseAccountFacts[]): CheckResult {
+/**
+ * استيراد البند 7 (ب): صافي 319002 (OPENING_EQUITY) من قيود IMPORT بتاريخ ≥ البدء — حركات مستوردة بعد البدء رُحّلت على
+ * الأرصدة الافتتاحية لا على الإيراد والضريبة. المخزن يستبعد الوصولات المتأخرة (مكانها الصحيح الافتتاح بتاريخ البدء)
+ * وعكس صف افتتاحي (مصدره REVERSE بلا قيد معكوس)، ويُدخل عكس قيد مشمول فيصفّيه.
+ */
+export interface ImportAfterCutoverFacts {
+  accountId: string;
+  accountCode: string | null;
+  cutoverDate: LocalDate;
+  netMilli: Milli;
+  moveCount: number;
+  /** أحدثها أولاً — مقصوصة */
+  moves: readonly { moveId: string; number: string | null; date: LocalDate; attentionReason: string | null; amountMilli: Milli; reversal: boolean }[];
+}
+
+export const IMPORT_AFTER_CUTOVER_ROW = 'IMPORT_AFTER_CUTOVER';
+
+export function evaluateC9(accounts: readonly SuspenseAccountFacts[], importAfterCutover: ImportAfterCutoverFacts | null = null): CheckResult {
   const rows: CheckRow[] = [];
   for (const a of accounts) {
     if (a.balanceMilli === 0n) continue;
@@ -301,10 +450,27 @@ export function evaluateC9(accounts: readonly SuspenseAccountFacts[]): CheckResu
       rows.push({ kind: 'MOVE', key: a.key, accountCode: a.accountCode, moveId: m.moveId, number: m.number, date: m.date, attentionReason: m.attentionReason, amountMilli: milliText(m.amountMilli) });
     }
   }
+  const imported = importAfterCutover && importAfterCutover.netMilli !== 0n ? importAfterCutover : null;
+  if (imported) {
+    rows.push({
+      kind: IMPORT_AFTER_CUTOVER_ROW, key: 'OPENING_EQUITY', accountId: imported.accountId, accountCode: imported.accountCode,
+      cutoverDate: imported.cutoverDate, balanceMilli: milliText(imported.netMilli), moveCount: imported.moveCount,
+    });
+    for (const m of imported.moves) {
+      rows.push({
+        kind: 'IMPORT_MOVE', key: 'OPENING_EQUITY', accountCode: imported.accountCode, moveId: m.moveId, number: m.number, date: m.date,
+        attentionReason: m.attentionReason, amountMilli: milliText(m.amountMilli), reversal: m.reversal,
+      });
+    }
+  }
   const nonZero = accounts.filter((a) => a.balanceMilli !== 0n);
-  const metrics = Object.fromEntries(accounts.map((a) => [`${a.key}Milli`, milliText(a.balanceMilli)]));
-  if (nonZero.length === 0) return result('C9', 'GREEN', 'الحسابات المعلّقة صفرية', [], null, metrics);
-  return result('C9', 'YELLOW', 'رصيد معلّق ينتظر التسوية إلى حسابه الصحيح', rows, 'REVIEW_SUSPENSE', metrics);
+  const metrics: CheckResult['metrics'] = Object.fromEntries(accounts.map((a) => [`${a.key}Milli`, milliText(a.balanceMilli)]));
+  if (importAfterCutover) metrics.importAfterCutoverMilli = milliText(importAfterCutover.netMilli);
+  if (nonZero.length === 0 && !imported) return result('C9', 'GREEN', 'الحسابات المعلّقة صفرية', [], null, metrics);
+  const parts: string[] = [];
+  if (nonZero.length > 0) parts.push('رصيد معلّق ينتظر التسوية إلى حسابه الصحيح');
+  if (imported) parts.push('حركات مستوردة بعد تاريخ البدء على الأرصدة الافتتاحية 319002 — راجع تصنيفها');
+  return result('C9', 'YELLOW', parts.join('، '), rows, 'REVIEW_SUSPENSE', metrics);
 }
 
 // ═══ C10: المسودات قبل الإقفال ═══

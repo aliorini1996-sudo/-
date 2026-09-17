@@ -28,6 +28,7 @@ import { resolveTemplate } from './seed';
 import { isIncludedInOpening } from './sync/classify';
 import { LATE_COMMIT_WINDOW_MS } from './sync/types';
 import { composeWarehouse } from '../warehouseStock';
+import { IMPORT_BATCH_RUNNING, importBatchState } from '../importLedger';
 import {
   JOURNAL_CODE_BY_SYSTEM_KEY, LedgerError, createBuildContext,
   type AccountRef, type BuildContext, type CashInvoiceRouting, type GlSettingsSnapshot, type JournalRef, type LineDraft,
@@ -428,6 +429,67 @@ export function computeDerivedOpening(src: OpeningSources, cut: OpeningCutoff, o
   };
 }
 
+// ═══ حركات مستوردة بعد تاريخ البدء (تنبيه المعالج — عرض وتأكيد فقط) ═══
+
+/** أنواع صفوف الاستيراد (routes/import.ts: /balances و/ledger) */
+export const IMPORT_ENTRY_TYPES = ['ADJUSTMENT_DEBIT', 'ADJUSTMENT_CREDIT'] as const;
+/** أنواع دفعات ImportBatch التي تكتب AccountEntry */
+export const IMPORT_ENTRY_BATCH_KINDS = ['balances', 'ledger'] as const;
+
+export interface ImportedAfterCutover {
+  count: number;
+  customers: number;
+  debitMilli: Milli;
+  creditMilli: Milli;
+}
+
+/**
+ * صفوف مستوردة (ضمن دفعة ImportBatch غير متراجَع عنها) بتاريخ أثر ≥ البدء وcreatedAt ≤ اللقطة: لا تدخل القيد
+ * الافتتاحي بل تُرحَّل بتاريخها على 319002 — فيُعرض عددها ويُطلب الإقرار قبل التفعيل. صرفة: التسويات اليدوية
+ * خارج الدفعات وصفوف المستندات لا تُعدّ، ولا تمسّ الذمم الافتتاحية (المسند نفسه includedInOpening يُسقطها منها).
+ */
+export function computeImportedAfterCutover(
+  rows: readonly OpeningAccountEntryRow[],
+  importedIds: ReadonlySet<string>,
+  cut: OpeningCutoff,
+  decimals: number,
+): ImportedAfterCutover {
+  const customers = new Set<string>();
+  let count = 0;
+  let debitMilli = 0n;
+  let creditMilli = 0n;
+  const snap = cut.snapshotAt.getTime();
+  const start = cut.cutoverStart.getTime();
+  for (const e of rows) {
+    if (!importedIds.has(e.id)) continue;
+    if (e.invoiceId || e.receiptId) continue;
+    if (!(IMPORT_ENTRY_TYPES as readonly string[]).includes(e.type)) continue;
+    if (new Date(e.entryDate).getTime() < start) continue;
+    if (new Date(e.createdAt).getTime() > snap) continue;
+    count++;
+    customers.add(e.customerId);
+    debitMilli += toMilli(e.debit, decimals);
+    creditMilli += toMilli(e.credit, decimals);
+  }
+  return { count, customers: customers.size, debitMilli, creditMilli };
+}
+
+/** /setup/commit: حركات مستوردة بعد البدء بلا acknowledgePostCutoverImports=true ⇒ 409 LEDGER_POST_CUTOVER_IMPORTS_ACK */
+export function postCutoverImportsAckMissing(s: Pick<ImportedAfterCutover, 'count'>, acknowledged: boolean | null | undefined): boolean {
+  return s.count > 0 && acknowledged !== true;
+}
+
+/** معرّفات AccountEntry في recordIds (مصفوفة JSON) — الشكل غير المتوقع يُتجاهل */
+export function importBatchRecordIds(recordIds: string | null | undefined): string[] {
+  if (!recordIds) return [];
+  try {
+    const v: unknown = JSON.parse(recordIds);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
 // ═══ الأرصدة اليدوية (الخطوة 5) ═══
 
 /** أعمدة قالب XLSX بالترتيب (الويب يحلّل الملف ويرسل الصفوف JSON) */
@@ -739,7 +801,199 @@ export async function loadOpeningSources(db: GlDb, tenantId: string, cut: Openin
   return { accountEntries, receipts, cashInvoices, settlements, settlementEntries, warehouseItems, vanItems, customerNames, salesRepNames };
 }
 
+/**
+ * صفوف AccountEntry من دفعات balances/ledger غير المتراجَع عنها بتاريخ ≥ البدء وcreatedAt ≤ اللقطة
+ * (computeImportedAfterCutover يعيد الترشيح نفسه). قراءة فقط.
+ */
+export async function loadImportedAfterCutover(db: GlDb, tenantId: string, cut: OpeningCutoff, decimals: number): Promise<ImportedAfterCutover> {
+  const batches = await db.importBatch.findMany({
+    where: { tenantId, reverted: false, kind: { in: [...IMPORT_ENTRY_BATCH_KINDS] } },
+    select: { recordIds: true },
+  });
+  const ids = [...new Set(batches.flatMap((b) => importBatchRecordIds(b.recordIds)))];
+  if (!ids.length) return { count: 0, customers: 0, debitMilli: 0n, creditMilli: 0n };
+  const CHUNK = 5000;
+  const rows: OpeningAccountEntryRow[] = [];
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    rows.push(...await db.accountEntry.findMany({
+      where: {
+        tenantId, id: { in: ids.slice(i, i + CHUNK) }, invoiceId: null, receiptId: null,
+        type: { in: [...IMPORT_ENTRY_TYPES] }, entryDate: { gte: cut.cutoverStart }, createdAt: { lte: cut.snapshotAt },
+      },
+      select: { id: true, customerId: true, invoiceId: true, receiptId: true, type: true, debit: true, credit: true, entryDate: true, createdAt: true },
+    }));
+  }
+  return computeImportedAfterCutover(rows, new Set(ids), cut, decimals);
+}
+
+// ═══ دفعة استيراد جارية تمنع الاعتماد ═══
+
+/**
+ * قفل حجز دفعات الاستيراد نفسه الذي يأخذه routes/import.ts (reserveEntryBatch): الاعتماد يأخذه داخل معاملته قبل
+ * فحص الدفعة الجارية، فلا تُحجز دفعة جديدة بين الفحص والتفعيل (تنتظر انتهاء الاعتماد). الترتيب: قفل الترحيل ثم هذا.
+ */
+export const IMPORT_ENTRIES_LOCK_PREFIX = 'import-entries:';
+
+export async function acquireImportEntriesLock(tx: GlDb, tenantId: string): Promise<void> {
+  if (!tenantId) throw new RangeError('acquireImportEntriesLock: tenantId مطلوب');
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${IMPORT_ENTRIES_LOCK_PREFIX + tenantId}::text))`;
+}
+
+export interface ImportBatchStateRow {
+  id: string;
+  kind: string;
+  createdAt: Date;
+  status: string | null;
+  heartbeatAt: Date | null;
+}
+
+/**
+ * أول دفعة «جارية» فعلاً بدلالة importBatchState: status=running بنبض أحدث من المهلة (10 دقائق).
+ * running بنبض متوقف = منقطعة (إعادة تشغيل الخادم) فلا تمنع الاعتماد؛ done/null/interrupted لا تمنع.
+ */
+export function findRunningImportBatch(rows: readonly ImportBatchStateRow[], now: Date): ImportBatchStateRow | null {
+  return rows.find((b) => importBatchState(b, now) === 'running') ?? null;
+}
+
+/** دفعات الشركة غير المتراجَع عنها بحالة running (أي نوع) ⇒ الجارية منها فعلاً. قراءة فقط. */
+export async function loadRunningImportBatch(db: GlDb, tenantId: string, now: Date): Promise<ImportBatchStateRow | null> {
+  const rows = await db.importBatch.findMany({
+    where: { tenantId, reverted: false, status: IMPORT_BATCH_RUNNING },
+    select: { id: true, kind: true, createdAt: true, status: true, heartbeatAt: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  return findRunningImportBatch(rows, now);
+}
+
+/** تفاصيل 409 LEDGER_IMPORT_IN_PROGRESS */
+export function importInProgressDetails(b: ImportBatchStateRow) {
+  return {
+    reason: 'IMPORT_IN_PROGRESS', batchId: b.id, kind: b.kind, createdAt: b.createdAt.toISOString(),
+    heartbeatAt: (b.heartbeatAt ?? b.createdAt).toISOString(),
+  };
+}
+
+// ═══ المخزون الافتتاحي المستورد (opening_stock) خارج لقطة الافتتاح ═══
+
+/**
+ * حركة وارد من دفعة opening_stock تدخل الافتتاح بالمسند نفسه في loadOpeningSources (createdAt < cutoverStart و≤ اللقطة).
+ * - AFTER_CUTOVER: createdAt ≥ cutoverStart — لا تدخل الافتتاح ولا يرحّلها شيء قبل M9 (WH_ENTRY)، فحساب المستودع ناقص دائماً.
+ *   تدخل فقط بتاريخ بدء بعد يوم الاستيراد المحلي (minCutoverDate)، أي اعتماداً في يوم لاحق.
+ * - TOO_RECENT: قبل البدء لكن createdAt > اللقطة (T0 = الآن − 10 دقائق) — تدخل إن أُعيد الاعتماد بعد retryAfter.
+ * قراءة فقط، والمحرك لا يتغير.
+ */
+export const OPENING_STOCK_BATCH_KIND = 'opening_stock';
+
+export interface OpeningStockEntryRow {
+  batchId: string;
+  entryId: string;
+  createdAt: Date;
+  items: readonly { qty: number; unitCost: number | null }[];
+}
+
+export interface OpeningStockExcludedEntry {
+  batchId: string;
+  entryId: string;
+  createdAt: Date;
+  valueMilli: Milli;
+  /** اليوم المحلي للاستيراد بتوقيت الشركة */
+  importedOn: LocalDate;
+  /** أقرب تاريخ بدء يشمل الحركة: اليوم التالي لـimportedOn */
+  minCutoverDate: LocalDate;
+}
+
+export interface OpeningStockExclusionGroup {
+  count: number;
+  valueMilli: Milli;
+  entries: OpeningStockExcludedEntry[];
+}
+
+export interface OpeningStockCheck {
+  /** دفعات opening_stock غير المتراجَع عنها (ولو كانت حركاتها داخل الافتتاح) */
+  batches: number;
+  afterCutover: OpeningStockExclusionGroup;
+  tooRecent: OpeningStockExclusionGroup;
+}
+
+function emptyGroup(): OpeningStockExclusionGroup {
+  return { count: 0, valueMilli: 0n as Milli, entries: [] };
+}
+
+/** قيمة الحركة = Σ toMilli(qty × unitCost) — الإرشاد لا المحرك (valueStock يقيّم في القيد) */
+export function openingStockEntryValueMilli(items: OpeningStockEntryRow['items'], decimals: number): Milli {
+  let v = 0n;
+  for (const i of items) {
+    const cost = typeof i.unitCost === 'number' && Number.isFinite(i.unitCost) ? i.unitCost : 0;
+    const qty = Number.isFinite(i.qty) ? i.qty : 0;
+    v += toMilli(qty * cost, decimals) as bigint;
+  }
+  return v as Milli;
+}
+
+/** تصنيف صرف: الحد createdAt = cutoverStart خارج الافتتاح (المسند lt)، وcreatedAt = اللقطة داخله (lte) */
+export function classifyOpeningStockEntries(rows: readonly OpeningStockEntryRow[], cut: OpeningCutoff, decimals: number, batches = 0): OpeningStockCheck {
+  const out: OpeningStockCheck = { batches, afterCutover: emptyGroup(), tooRecent: emptyGroup() };
+  const start = cut.cutoverStart.getTime();
+  const snap = cut.snapshotAt.getTime();
+  for (const r of rows) {
+    const t = new Date(r.createdAt).getTime();
+    const group = t >= start ? out.afterCutover : t > snap ? out.tooRecent : null;
+    if (!group) continue;
+    const importedOn = todayLocal(new Date(t), cut.timezone);
+    const valueMilli = openingStockEntryValueMilli(r.items, decimals);
+    group.count++;
+    group.valueMilli = ((group.valueMilli as bigint) + (valueMilli as bigint)) as Milli;
+    group.entries.push({ batchId: r.batchId, entryId: r.entryId, createdAt: new Date(t), valueMilli, importedOn, minCutoverDate: addDays(importedOn, 1) });
+  }
+  return out;
+}
+
+/** دفعات opening_stock غير المتراجَع عنها ⇒ حركاتها (recordIds) ⇒ التصنيف. قراءة فقط. */
+export async function loadOpeningStockCheck(db: GlDb, tenantId: string, cut: OpeningCutoff, decimals: number): Promise<OpeningStockCheck> {
+  const batches = await db.importBatch.findMany({
+    where: { tenantId, reverted: false, kind: OPENING_STOCK_BATCH_KIND },
+    select: { id: true, recordIds: true },
+  });
+  if (!batches.length) return classifyOpeningStockEntries([], cut, decimals, 0);
+  const batchOf = new Map<string, string>();
+  for (const b of batches) for (const id of importBatchRecordIds(b.recordIds)) if (!batchOf.has(id)) batchOf.set(id, b.id);
+  const ids = [...batchOf.keys()];
+  const entries = ids.length
+    ? await db.warehouseEntry.findMany({
+      where: { tenantId, id: { in: ids } },
+      select: { id: true, createdAt: true, items: { select: { qty: true, unitCost: true } } },
+    })
+    : [];
+  const rows: OpeningStockEntryRow[] = entries.map((e) => ({ batchId: batchOf.get(e.id) ?? '', entryId: e.id, createdAt: e.createdAt, items: e.items }));
+  return classifyOpeningStockEntries(rows, cut, decimals, batches.length);
+}
+
+export function openingStockCheckJson(s: OpeningStockCheck, decimals: number, cut: OpeningCutoff) {
+  const group = (g: OpeningStockExclusionGroup) => ({
+    count: g.count,
+    value: formatMilli(g.valueMilli, decimals),
+    entries: g.entries.slice(0, 50).map((e) => ({
+      batchId: e.batchId, entryId: e.entryId, createdAt: e.createdAt.toISOString(), value: formatMilli(e.valueMilli, decimals),
+      importedOn: e.importedOn, minCutoverDate: e.minCutoverDate,
+    })),
+  });
+  const minCutoverDate = s.afterCutover.entries.reduce<LocalDate | null>(
+    (m, e) => (m === null || compareLocalDate(e.minCutoverDate, m) > 0 ? e.minCutoverDate : m), null,
+  );
+  const lastTooRecent = s.tooRecent.entries.reduce<number>((m, e) => Math.max(m, e.createdAt.getTime()), 0);
+  return {
+    batches: s.batches,
+    cutoverDate: cut.cutoverDate,
+    afterCutover: { ...group(s.afterCutover), minCutoverDate },
+    tooRecent: { ...group(s.tooRecent), retryAfter: lastTooRecent ? new Date(lastTooRecent + LATE_COMMIT_WINDOW_MS).toISOString() : null },
+  };
+}
+
 // ═══ JSON للاستجابة ═══
+
+export function importedAfterCutoverJson(s: ImportedAfterCutover, decimals: number) {
+  return { count: s.count, customers: s.customers, debit: formatMilli(s.debitMilli, decimals), credit: formatMilli(s.creditMilli, decimals) };
+}
 
 export function derivedOpeningJson(d: DerivedOpening, decimals: number) {
   const f = (m: Milli) => formatMilli(m, decimals);

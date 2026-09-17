@@ -168,6 +168,36 @@ export interface DerivedOpeningJson {
 }
 export interface OpeningMoveJson { equityDiff: string; totalDebit: string; manualDebit: string; manualCredit: string; lineCount: number }
 
+/** حركات مستوردة (دفعات balances/ledger غير متراجَع عنها) بتاريخ ≥ البدء — تُرحَّل بتاريخها على 319002 لا في الافتتاح */
+export interface ImportedAfterCutoverJson { count: number; customers: number; debit: string; credit: string }
+
+/** حركة مخزون افتتاحي مستورد خارج لقطة الافتتاح (openingStockCheckJson) — القيمة Σ الكمية × التكلفة **إرشادية** */
+export interface OpeningStockEntryJson {
+  batchId: string;
+  entryId: string;
+  createdAt: string;
+  value: string;
+  /** اليوم المحلي للاستيراد بتوقيت الشركة */
+  importedOn: LocalDate;
+  /** أقرب تاريخ بدء يشملها: اليوم التالي لـimportedOn */
+  minCutoverDate: LocalDate;
+}
+
+/**
+ * دفعات opening_stock غير المتراجَع عنها مقابل تاريخ البدء (services/gl/opening.ts openingStockCheckJson):
+ * - afterCutover: مستوردة في تاريخ البدء أو بعده ⇒ لا تدخل الافتتاح ولا تُرحَّل؛ الاعتماد يتطلب acknowledgeOpeningStockExcluded
+ *   أو تاريخ بدء ≥ minCutoverDate (في يوم لاحق) أو التراجع عن الدفعة.
+ * - tooRecent: قبل البدء لكن أحدث من لقطة الاعتماد (آخر 10 دقائق) ⇒ الاعتماد بعد retryAfter.
+ * - fullHistoryBlocked: طريقة التاريخ الكامل مع دفعة ⇒ الاعتماد ممنوع.
+ */
+export interface OpeningStockCheckJson {
+  batches: number;
+  cutoverDate: LocalDate;
+  afterCutover: { count: number; value: string; entries: OpeningStockEntryJson[]; minCutoverDate: LocalDate | null };
+  tooRecent: { count: number; value: string; entries: OpeningStockEntryJson[]; retryAfter: string | null };
+  fullHistoryBlocked: boolean;
+}
+
 export interface OpeningPreview {
   preview: true;
   method: SetupMethod;
@@ -176,6 +206,11 @@ export interface OpeningPreview {
   manual: { lineCount: number; issues: ManualBalanceIssue[] };
   move: OpeningMoveJson;
   draftsBeforeCutover: DraftsBeforeCutover | null;
+  /** اختياري للتوافق مع خادم أقدم */
+  importedAfterCutover?: ImportedAfterCutoverJson;
+  /** اختياري للتوافق مع خادم أقدم */
+  openingStock?: OpeningStockCheckJson;
+  tenantCounts?: { customers: number; products: number };
 }
 
 export interface SetupCommitResult {
@@ -232,9 +267,19 @@ export const ledgerSetupApi = {
     api.post<LedgerEnvelope<{ draft: SetupDraft; effective: SetupEffective; history: HistoryEstimate | null }>>(`${L}/setup/draft`, draft),
   /** معاينة إرشادية بلا أي كتابة (الخطوة 4) */
   previewOpening: (draft?: SetupDraft) => api.post<LedgerEnvelope<OpeningPreview>>(`${L}/setup/preview-opening`, draft ?? {}),
-  /** التفعيل: معاملة واحدة (60 ثانية) — الأرقام النهائية الملتزمة في الرد */
-  commit: (draft?: SetupDraft) =>
-    api.post<LedgerEnvelope<SetupCommitResult>>(`${L}/setup/commit`, { acknowledgeStatutory: true, ...(draft ? { draft } : {}) }, { timeout: 90_000 }),
+  /**
+   * التفعيل: معاملة واحدة (60 ثانية) — الأرقام النهائية الملتزمة في الرد. حركات مستوردة بتاريخ ≥ البدء بلا
+   * acknowledgePostCutoverImports ⇒ 409 LEDGER_POST_CUTOVER_IMPORTS_ACK. مخزون افتتاحي مستورد في تاريخ البدء أو بعده بلا
+   * acknowledgeOpeningStockExcluded ⇒ 409 LEDGER_OPENING_STOCK_AFTER_CUTOVER؛ والتاريخ الكامل مع دفعة مخزون ⇒ 409
+   * LEDGER_OPENING_STOCK_FULL_HISTORY؛ ودفعة أحدث من لقطة الاعتماد ⇒ 409 LEDGER_OPENING_STOCK_TOO_RECENT (retryAfter).
+   */
+  commit: (draft?: SetupDraft, opts?: { acknowledgePostCutoverImports?: boolean; acknowledgeOpeningStockExcluded?: boolean }) =>
+    api.post<LedgerEnvelope<SetupCommitResult>>(`${L}/setup/commit`, {
+      acknowledgeStatutory: true,
+      ...(opts?.acknowledgePostCutoverImports ? { acknowledgePostCutoverImports: true } : {}),
+      ...(opts?.acknowledgeOpeningStockExcluded ? { acknowledgeOpeningStockExcluded: true } : {}),
+      ...(draft ? { draft } : {}),
+    }, { timeout: 90_000 }),
   /** «إيقاف مؤقت» / «استئناف» الترحيل التاريخي */
   backfill: (action: 'PAUSE' | 'RESUME') => api.post<LedgerEnvelope<{ backfillState: BackfillState }>>(`${L}/setup/backfill`, { action }),
 

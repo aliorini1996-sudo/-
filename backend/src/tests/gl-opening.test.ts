@@ -7,12 +7,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, includedInOpening, isVatPeriodStart,
-  openingCutoff, openingSnapshotFromDbNow, suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
+  assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, computeImportedAfterCutover, importBatchRecordIds,
+  importedAfterCutoverJson, includedInOpening, isVatPeriodStart, openingCutoff, openingSnapshotFromDbNow, postCutoverImportsAckMissing,
+  suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
+  IMPORT_ENTRIES_LOCK_PREFIX, findRunningImportBatch, importInProgressDetails, type ImportBatchStateRow,
   type OpeningAccountEntryRow, type OpeningSources, type ManualBalanceRowInput,
 } from '../services/gl/opening';
 import {
-  HISTORY_MAX_ROWS, assertHistoryNotTooLarge, backfillProgress, backfillTransition, estimateHistory, fullHistoryCutoverDate,
+  HISTORY_MAX_ROWS, assertHistoryNotTooLarge, backfillProgress, backfillTransition, conservativeEventsPerMinute, estimateHistory, fullHistoryCutoverDate,
   initialCursorRows, shouldReconcile,
 } from '../services/gl/backfill';
 import { classifyCutover, initialWatermarkAt } from '../services/gl/sync/classify';
@@ -20,7 +22,8 @@ import { LATE_COMMIT_WINDOW_MS } from '../services/gl/sync/types';
 import { validateMove } from '../services/gl/validate';
 import { saContext, accountIdOf } from '../services/gl/testing/fixtures';
 import { LedgerError, isLedgerError } from '../services/gl/types';
-import { ledgerErrorResponse } from '../routes/ledger/errors';
+import { LEDGER_IMPORT_IN_PROGRESS_MESSAGE, LEDGER_POST_CUTOVER_IMPORTS_ACK_MESSAGE, LedgerHttpError, ledgerErrorResponse } from '../routes/ledger/errors';
+import { IMPORT_RUNNING_STALE_MS } from '../services/importLedger';
 import { zonedStartOfDay } from '../services/gl/dates';
 
 const TZ = 'Asia/Riyadh';
@@ -416,7 +419,10 @@ test('الطريقة (ب): السقف 60 ألف صف ⇒ 422 LEDGER_HISTORY_TOO_
   assert.equal(ok.rows, HISTORY_MAX_ROWS);
   assert.equal(ok.tooLarge, false);
   assert.doesNotThrow(() => assertHistoryNotTooLarge(ok));
-  assert.equal(ok.estimatedMinutes, 200);
+  // البند 4(ج): بلا قياس ⇒ الحد المتحفظ (75 حدثاً/دقيقة) لا السقف الاسمي 300
+  assert.equal(ok.throughputBasis, 'CONSERVATIVE');
+  assert.equal(ok.estimatedMinutes, Math.ceil(HISTORY_MAX_ROWS / conservativeEventsPerMinute()));
+  assert.equal(ok.estimatedMinutes, 800);
   const big = estimateHistory({ accountEntries: 60_000, repSettlements: 1, settlementEntries: 0 });
   assert.throws(() => assertHistoryNotTooLarge(big), (e: unknown) => isLedgerError(e, 'LEDGER_HISTORY_TOO_LARGE') && e.httpStatus === 422);
   assert.equal(fullHistoryCutoverDate(at('2024-03-05T22:00:00Z'), TZ), '2024-01-01');
@@ -444,4 +450,145 @@ test('حالة الترحيل التاريخي: RUNNING ⇄ PAUSED، وDONE عن
   const done = backfillProgress({ state: 'RUNNING', sources: src(false), pendingEvents: 0, openEvents: 2, doneEvents: 10, dbNow });
   assert.equal(done.nextState, 'DONE');
   assert.equal(backfillProgress({ state: 'PAUSED', sources: src(false), pendingEvents: 0, openEvents: 0, doneEvents: 0, dbNow }).nextState, 'PAUSED');
+});
+
+// ═══ حركات مستوردة بعد تاريخ البدء (خطة الاستيراد، البند 2ج) ═══
+
+test('importedAfterCutover: صف مستورد بتاريخ ≥ البدء وcreatedAt ≤ اللقطة يُعدّ ولا يدخل الذمم؛ قبل البدء والتسوية اليدوية لا', () => {
+  const imported = [
+    // يوم البدء بتوقيت الرياض ⇒ بعد البدء
+    entry({ id: 'imp-after', customerId: 'c1', type: 'ADJUSTMENT_DEBIT', debit: 500, entryDate: at('2026-12-31T21:00:00.000Z'), createdAt: at('2027-01-10T08:00:00Z') }),
+    entry({ id: 'imp-after2', customerId: 'c2', type: 'ADJUSTMENT_CREDIT', credit: 120.25, entryDate: at('2027-01-05T08:00:00Z'), createdAt: at('2027-01-10T08:00:00Z') }),
+    // قبل البدء ⇒ في الافتتاح، لا يُعدّ
+    entry({ id: 'imp-before', customerId: 'c1', type: 'ADJUSTMENT_DEBIT', debit: 1000, entryDate: at('2026-12-31T20:59:59.999Z'), createdAt: at('2027-01-10T08:00:00Z') }),
+    // بعد اللقطة ⇒ لا يُعدّ
+    entry({ id: 'imp-late', customerId: 'c3', type: 'ADJUSTMENT_DEBIT', debit: 70, entryDate: at('2027-01-05T08:00:00Z'), createdAt: new Date(T0.getTime() + 1) }),
+  ];
+  const manual = entry({ id: 'manual-adj', customerId: 'c4', type: 'ADJUSTMENT_DEBIT', debit: 999, entryDate: at('2027-01-05T08:00:00Z'), createdAt: at('2027-01-06T08:00:00Z') });
+  const invoiceRow = entry({ id: 'imp-inv', customerId: 'c1', type: 'INVOICE_DEBIT', invoiceId: 'i9', debit: 10, entryDate: at('2027-01-05T08:00:00Z'), createdAt: at('2027-01-06T08:00:00Z') });
+  const rows = [...imported, manual, invoiceRow];
+  const ids = new Set([...imported.map((r) => r.id), 'imp-inv']);
+  const s = computeImportedAfterCutover(rows, ids, CUT, DEC);
+  assert.equal(s.count, 2);
+  assert.equal(s.customers, 2);
+  assert.equal(s.debitMilli, 500_000n);
+  assert.equal(s.creditMilli, 120_250n);
+  assert.deepEqual(importedAfterCutoverJson(s, DEC), { count: 2, customers: 2, debit: '500.00', credit: '120.25' });
+  // لا يدخل سطور AR: الافتتاح يأخذ صف ما قبل البدء وحده
+  const d = computeDerivedOpening(sources({ accountEntries: rows }), CUT, { decimals: DEC, routing: ROUTING });
+  assert.deepEqual(d.receivables.map((r) => [r.customerId, r.balanceMilli]), [['c1', 1_000_000n]]);
+  // بلا دفعات ⇒ صفر
+  assert.equal(computeImportedAfterCutover(rows, new Set(), CUT, DEC).count, 0);
+  // recordIds: مصفوفة نصوص فقط
+  assert.deepEqual(importBatchRecordIds('["a","b",3]'), ['a', 'b']);
+  assert.deepEqual(importBatchRecordIds('{"products":["x"]}'), []);
+  assert.deepEqual(importBatchRecordIds('not json'), []);
+});
+
+test('/setup/commit: حركات مستوردة بعد البدء بلا إقرار ⇒ 409 LEDGER_POST_CUTOVER_IMPORTS_ACK، ومع الإقرار يمضي', () => {
+  assert.equal(postCutoverImportsAckMissing({ count: 3 }, undefined), true);
+  assert.equal(postCutoverImportsAckMissing({ count: 3 }, false), true);
+  assert.equal(postCutoverImportsAckMissing({ count: 3 }, true), false);
+  assert.equal(postCutoverImportsAckMissing({ count: 0 }, undefined), false);
+  const r = ledgerErrorResponse(new LedgerHttpError(409, LEDGER_POST_CUTOVER_IMPORTS_ACK_MESSAGE, { reason: 'POST_CUTOVER_IMPORTS_ACK_REQUIRED' }, 'LEDGER_POST_CUTOVER_IMPORTS_ACK'))!;
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, 'LEDGER_POST_CUTOVER_IMPORTS_ACK');
+  assert.equal(r.body.reason, 'POST_CUTOVER_IMPORTS_ACK_REQUIRED');
+  // حارس ثابت: الفحص داخل المعاملة وقبل أي كتابة، والمعاينة تعيد الحقل، والمخطط يقبل الإقرار
+  const commit = handlerBody(SETUP_SRC, "router.post('/setup/commit'");
+  assertOrder(commit, [
+    'acquirePostLock(tx, tenantId)', 'assertCutoverNotInFuture(cutoverDate', 'loadImportedAfterCutover(tx',
+    'postCutoverImportsAckMissing(importedAfterCutover, parsed.data.acknowledgePostCutoverImports)', "'LEDGER_POST_CUTOVER_IMPORTS_ACK'",
+    'ensureSettingsRow(', 'seedTemplate(tx', 'postMove(tx',
+  ], '/setup/commit ack');
+  assert.match(SETUP_SRC, /acknowledgePostCutoverImports: z\.boolean\(\)\.optional\(\)/);
+  const preview = handlerBody(SETUP_SRC, "router.post('/setup/preview-opening'");
+  assert.match(preview, /loadImportedAfterCutover\(prisma, tenantId, cut, decimals\)/);
+  assert.match(preview, /importedAfterCutover: importedAfterCutoverJson\(/);
+  // المُحمِّل محصور في دفعات balances/ledger غير المتراجَع عنها
+  const opening = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'opening.ts'), 'utf8');
+  const loader = opening.slice(opening.indexOf('export async function loadImportedAfterCutover('), opening.indexOf('// ═══ JSON للاستجابة ═══'));
+  assert.match(loader, /reverted: false, kind: \{ in: \[\.\.\.IMPORT_ENTRY_BATCH_KINDS\] \}/);
+  assert.match(loader, /invoiceId: null, receiptId: null/);
+  assert.match(loader, /entryDate: \{ gte: cut\.cutoverStart \}, createdAt: \{ lte: cut\.snapshotAt \}/);
+});
+
+// ═══ LEDGER_IMPORT_IN_PROGRESS ═══
+
+test('/setup/commit: دفعة استيراد جارية ⇒ 409 LEDGER_IMPORT_IN_PROGRESS، والمنقطعة والمنتهية لا تمنع', () => {
+  const NOW = new Date('2027-01-15T09:00:00.000Z');
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+  const row = (id: string, p: Partial<ImportBatchStateRow>): ImportBatchStateRow =>
+    ({ id, kind: 'balances', createdAt: ago(60 * 60_000), status: null, heartbeatAt: null, ...p });
+  // قلب ينبض خلال المهلة ⇒ جارية
+  const live = row('b-live', { kind: 'ledger', status: 'running', heartbeatAt: ago(IMPORT_RUNNING_STALE_MS - 1_000) });
+  assert.equal(findRunningImportBatch([live], NOW)?.id, 'b-live');
+  // نبض متوقف أكثر من المهلة ⇒ منقطعة لا تمنع؛ وبلا نبض يُحتسب من createdAt
+  assert.equal(findRunningImportBatch([row('b-stale', { status: 'running', heartbeatAt: ago(IMPORT_RUNNING_STALE_MS + 1_000) })], NOW), null);
+  assert.equal(findRunningImportBatch([row('b-old', { status: 'running', heartbeatAt: null })], NOW), null);
+  assert.equal(findRunningImportBatch([row('b-new', { status: 'running', heartbeatAt: null, createdAt: ago(5_000) })], NOW)?.id, 'b-new');
+  // done / interrupted / null (دفعات ما قبل الحجز) لا تمنع
+  assert.equal(findRunningImportBatch([row('d', { status: 'done', heartbeatAt: ago(0) }), row('i', { status: 'interrupted', heartbeatAt: ago(0) }), row('n', {})], NOW), null);
+  // الجارية بين غيرها تُلتقط
+  assert.equal(findRunningImportBatch([row('d', { status: 'done' }), row('s', { status: 'running', heartbeatAt: ago(IMPORT_RUNNING_STALE_MS * 2) }), live], NOW)?.id, 'b-live');
+
+  const details = importInProgressDetails(live);
+  assert.equal(details.reason, 'IMPORT_IN_PROGRESS');
+  assert.equal(details.batchId, 'b-live');
+  assert.equal(details.kind, 'ledger');
+  const r = ledgerErrorResponse(new LedgerHttpError(409, LEDGER_IMPORT_IN_PROGRESS_MESSAGE, details, 'LEDGER_IMPORT_IN_PROGRESS'))!;
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, 'LEDGER_IMPORT_IN_PROGRESS');
+  assert.equal(r.body.reason, 'IMPORT_IN_PROGRESS');
+  assert.equal(r.body.batchId, 'b-live');
+
+  // حارس ثابت: داخل معاملة الاعتماد، بعد قفل الترحيل، وقفل حجز الدفعات قبل الفحص، وكل ذلك قبل أي كتابة
+  const commit = handlerBody(SETUP_SRC, "router.post('/setup/commit'");
+  assertOrder(commit, [
+    'prisma.$transaction(async (tx)', 'acquirePostLock(tx, tenantId)', 'assertNotActivated(before)', 'acquireImportEntriesLock(tx, tenantId)',
+    'loadRunningImportBatch(tx, tenantId, dbNow)', "'LEDGER_IMPORT_IN_PROGRESS'", 'ensureSettingsRow(', 'seedTemplate(tx', 'postMove(tx',
+  ], '/setup/commit import in progress');
+  // القفل نفسه الذي يأخذه حجز دفعات الاستيراد، والتحميل على كل الأنواع غير المتراجَع عنها بحالة running
+  const importSrc = fs.readFileSync(path.join(__dirname, '..', 'routes', 'import.ts'), 'utf8');
+  assert.ok(importSrc.includes(`'${IMPORT_ENTRIES_LOCK_PREFIX}'`), 'بادئة القفل تطابق routes/import.ts');
+  assert.match(importSrc, /pg_advisory_xact_lock\(hashtext\(\$\{IMPORT_ENTRIES_LOCK_PREFIX \+ tid\}::text\)\)/);
+  const opening = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'opening.ts'), 'utf8');
+  const loader = opening.slice(opening.indexOf('export async function loadRunningImportBatch('), opening.indexOf('export function importInProgressDetails('));
+  assert.match(loader, /where: \{ tenantId, reverted: false, status: IMPORT_BATCH_RUNNING \}/);
+  assert.match(loader, /findRunningImportBatch\(rows, now\)/);
+  assert.match(opening, /pg_advisory_xact_lock\(hashtext\(\$\{IMPORT_ENTRIES_LOCK_PREFIX \+ tenantId\}::text\)\)/);
+});
+
+// ═══ البند 9: المخزون الافتتاحي المستورد (opening_stock) ═══
+import { openingStockProductFinder, resolveOpeningStockRows } from '../services/importLedger';
+
+test('opening_stock: حركة وارد مستوردة بتكلفة صافية وcreatedAt قبل البدء تظهر في قيمة المستودع بالقيد الافتتاحي، وبعد البدء لا', () => {
+  const find = openingStockProductFinder([
+    { id: 'p1', code: 'A-1', barcode: null, name: 'أرز', taxPct: 15 },
+    { id: 'p2', code: 'B-2', barcode: '628000', name: 'سكر', taxPct: 15 },
+  ]);
+  // التكلفة شاملة الضريبة: 11.5 ⇒ 10 صافٍ، و23 ⇒ 20
+  const { lines, errors } = resolveOpeningStockRows([
+    { productCode: 'A-1', qty: 12, unitCost: 11.5 },
+    { barcode: '628000', qty: 5, unitCost: 23 },
+  ], find, true);
+  assert.equal(errors.length, 0);
+  assert.deepEqual(lines.map((l) => l.unitCost), [10, 20]);
+  const importedAt = at('2026-12-20T10:00:00Z'); // createdAt الحركة المستوردة قبل البدء
+  const asItems = (createdAt: Date) => lines.map((l) => ({ productId: l.productId, qty: l.qty, type: 'RECEIVE', unitCost: l.unitCost, createdAt }));
+  const d = computeDerivedOpening(sources({ warehouseItems: asItems(importedAt) }), CUT, { decimals: DEC, routing: ROUTING });
+  // 12 × 10 + 5 × 20 = 220
+  assert.equal(d.warehouse.valueMilli, 220_000n);
+  assert.equal(d.warehouse.uncostedQty, 0);
+  assert.equal(d.counts.warehouseMovesIncluded, 2);
+  const move = buildOpeningMove({ derived: d, manual: [], ctx: saContext() });
+  const inv = move.draft!.lines.find((l) => l.accountKey === 'INVENTORY_WAREHOUSE')!;
+  assert.equal(inv.debitMilli, 220_000n);
+  const eq = move.draft!.lines.find((l) => l.accountKey === 'OPENING_EQUITY')!;
+  assert.equal(eq.creditMilli, 220_000n);
+  assert.doesNotThrow(() => validateMove(move.draft!, saContext(), { mode: 'SYSTEM' }));
+  // مستوردة في يوم البدء نفسه (createdAt ≥ cutoverStart) ⇒ خارج الافتتاح — لذلك يرفض الاستيراد تاريخ بدء ≤ اليوم
+  const after = computeDerivedOpening(sources({ warehouseItems: asItems(CUT.cutoverStart) }), CUT, { decimals: DEC, routing: ROUTING });
+  assert.equal(after.warehouse.valueMilli, 0n);
+  assert.equal(after.counts.warehouseMovesIncluded, 0);
 });

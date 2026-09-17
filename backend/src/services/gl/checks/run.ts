@@ -12,7 +12,7 @@ import type { BackfillState, InventoryMode, LocalDate, Milli } from '../types';
 import {
   evaluateC1, evaluateC10, evaluateC11, evaluateC12, evaluateC14, evaluateC15, evaluateC2, evaluateC3, evaluateC4, evaluateC4b,
   evaluateC5, evaluateC8, evaluateC9,
-  type C3Input, type C5Input, type CursorFacts, type PeriodTotal, type ProblemEvent, type RepCustodyFacts, type SequenceFacts,
+  type C3Input, type C5Input, type CursorFacts, type ImportAfterCutoverFacts, type PeriodTotal, type ProblemEvent, type RepCustodyFacts, type SequenceFacts,
   type SuspenseAccountFacts, type UnbalancedMove,
 } from './rules';
 import { CHECK_KEYS, worstStatus, type CheckKey, type CheckResult, type ChecksReport } from './types';
@@ -65,6 +65,11 @@ export interface CheckStore {
   accountEntryTotals(tenantId: string, excludeOpening: { cutoverStart: Date; openingSnapshotAt: Date } | null, decimals: number): Promise<Map<string, Milli>>;
   /** صفوف استيراد مشمولة بالافتتاح تُراجع عنها: حمولة AR_ENTRY:<id>:REVERSE وشقيقها POST = SKIPPED(OPENING) */
   deletedOpeningImports(tenantId: string, decimals: number): Promise<Map<string, Milli>>;
+  /**
+   * Σ(مدين − دائن) لصفوف AccountEntry الحالية المشمولة بالافتتاح لكل عميل بقاعدة computeDerivedOpening (نافذة البدء
+   * واللقطة، وإسقاط صف إلغاء مستند لا أثر له في النافذة) — تعمّق C3 «صف افتتاحي حُذف بلا حدث». اختياري.
+   */
+  accountEntryOpeningTotals?(tenantId: string, window: { cutoverStart: Date; openingSnapshotAt: Date }, decimals: number): Promise<Map<string, Milli>>;
   customerNames(tenantId: string, ids: readonly string[]): Promise<Map<string, string>>;
 
   // C4/C4b
@@ -83,6 +88,11 @@ export interface CheckStore {
 
   // C9–C14
   attentionMovesOn(tenantId: string, accountId: string, limit: number): Promise<SuspenseAccountFacts['attentionMoves']>;
+  /**
+   * استيراد البند 7 (ب): صافي الحساب (319002) من قيود IMPORT مرحّلة بتاريخ ≥ البدء مصدرها POST بلا وصول متأخر، مع عكوسها،
+   * وأحدث القيود للتعمّق. اختياري.
+   */
+  importMovesAfterCutover?(tenantId: string, input: { accountId: string; cutoverDate: LocalDate; limit: number }): Promise<Omit<ImportAfterCutoverFacts, 'accountId' | 'accountCode' | 'cutoverDate'>>;
   draftsUpTo(tenantId: string, date: LocalDate, limit: number): Promise<{ count: number; drafts: { id: string; date: LocalDate; ref: string | null }[] }>;
   taxes(tenantId: string): Promise<{ id: string; key: string | null; name: string; rate: number; vatBox: string | null }[]>;
   sequences(tenantId: string): Promise<SequenceFacts[]>;
@@ -126,16 +136,21 @@ export async function loadC3Input(store: CheckStore, tenantId: string, s: CheckS
   const exclude = s.cutoverDate && s.openingSnapshotAt
     ? { cutoverStart: zonedStartOfDay(cut.cutoverDate, cut.timezone), openingSnapshotAt: cut.openingSnapshotAt }
     : null;
-  const [ledger, opening, entriesAfterCutover, deletedOpeningImports] = await Promise.all([
+  // تعمّق «صف افتتاحي حُذف بلا حدث» (البند 6 (ج)): للطريقة (أ) وحدها — (ب) لا قيد افتتاحي لها
+  const withOpeningEntries = !!exclude && s.setupMethod !== 'FULL_HISTORY' && typeof store.accountEntryOpeningTotals === 'function';
+  const [ledger, opening, entriesAfterCutover, deletedOpeningImports, openingEntries] = await Promise.all([
     ar.length ? store.ledgerByPartner(tenantId, ar, 'customerId') : Promise.resolve(new Map<string, Milli>()),
     ar.length ? store.ledgerByPartner(tenantId, ar, 'customerId', { moveType: 'OPENING' }) : Promise.resolve(new Map<string, Milli>()),
     store.accountEntryTotals(tenantId, exclude, s.currencyDecimals),
     exclude ? store.deletedOpeningImports(tenantId, s.currencyDecimals) : Promise.resolve(new Map<string, Milli>()),
+    withOpeningEntries && exclude && store.accountEntryOpeningTotals
+      ? store.accountEntryOpeningTotals(tenantId, exclude, s.currencyDecimals)
+      : Promise.resolve(null),
   ]);
-  const ids = new Set<string>([...ledger.keys(), ...entriesAfterCutover.keys()]);
+  const ids = new Set<string>([...ledger.keys(), ...entriesAfterCutover.keys(), ...opening.keys()]);
   const names = await store.customerNames(tenantId, [...ids]);
   return {
-    ledger, opening, entriesAfterCutover, deletedOpeningImports, names,
+    ledger, opening, entriesAfterCutover, deletedOpeningImports, openingEntries, names,
     pendingCustomers: pending.customerIds, pendingAll: pending.unknown,
   };
 }
@@ -177,6 +192,18 @@ export async function loadC5Input(store: CheckStore, tenantId: string, s: CheckS
 }
 
 /**
+ * حقائق «حركات مستوردة بعد البدء على 319002» (استيراد البند 7 (ب)) — تُعرض في C9 أصفر مع التعمّق. null للطريقة (ب)
+ * (البدء = أقدم أثر فكل رصيد مستورد «بعده»)، أو بلا تاريخ بدء، أو حساب غير مربوط، أو مخزن لا يدعمها.
+ */
+export async function loadImportAfterCutover(
+  store: CheckStore, tenantId: string, s: CheckSettingsFacts, account: { id: string; code: string } | null,
+): Promise<ImportAfterCutoverFacts | null> {
+  if (!account || !s.cutoverDate || s.setupMethod === 'FULL_HISTORY' || typeof store.importMovesAfterCutover !== 'function') return null;
+  const r = await store.importMovesAfterCutover(tenantId, { accountId: account.id, cutoverDate: s.cutoverDate, limit: DETAIL_LIMIT });
+  return { accountId: account.id, accountCode: account.code, cutoverDate: s.cutoverDate, ...r };
+}
+
+/**
  * يشغّل الفحوصات (كلها أو `only`). شركة غير مفعّلة ⇒ تقرير بلا نتائج (overall GREEN) — الفحوص تفترض activatedAt.
  */
 export async function runChecks(store: CheckStore, tenantId: string, opts: RunChecksOptions = {}): Promise<ChecksReport> {
@@ -208,7 +235,7 @@ export async function runChecks(store: CheckStore, tenantId: string, opts: RunCh
   if (want.has('C5')) results.push(evaluateC5(await loadC5Input(store, tenantId, s, pending, accounts)));
   if (want.has('C8')) results.push(evaluateC8(await store.problemEvents(tenantId, MAX_PROBLEM_EVENTS), now));
   if (want.has('C9')) {
-    const mapped = await store.mappedAccounts(tenantId, ['POSTING_SUSPENSE', 'BANK_SUSPENSE']);
+    const mapped = await store.mappedAccounts(tenantId, ['POSTING_SUSPENSE', 'BANK_SUSPENSE', 'OPENING_EQUITY']);
     const facts: SuspenseAccountFacts[] = [];
     for (const key of ['POSTING_SUSPENSE', 'BANK_SUSPENSE'] as const) {
       const a = mapped.find((m) => m.key === key);
@@ -217,7 +244,7 @@ export async function runChecks(store: CheckStore, tenantId: string, opts: RunCh
       const attentionMoves = balanceMilli !== 0n ? await store.attentionMovesOn(tenantId, a.id, DETAIL_LIMIT) : [];
       facts.push({ key, accountId: a.id, accountCode: a.code, balanceMilli, attentionMoves });
     }
-    results.push(evaluateC9(facts));
+    results.push(evaluateC9(facts, await loadImportAfterCutover(store, tenantId, s, mapped.find((m) => m.key === 'OPENING_EQUITY') ?? null)));
   }
   if (want.has('C10')) {
     const lockDate = latestLockDate(s.lockDates);

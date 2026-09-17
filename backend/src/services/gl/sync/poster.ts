@@ -16,7 +16,7 @@
  */
 import { SYSTEM_ACTOR, type GlActor } from '../audit';
 import { custodyComponents, custodyComponentsForRep, settlementInputsFrom, type CustodyComponentsInput, type SettlementSplit } from '../custody';
-import { localDate, maxLocalDate } from '../dates';
+import { compareLocalDate, localDate, maxLocalDate, zonedStartOfDay } from '../dates';
 import { buildInvoiceMove, type InvoicePayload } from '../builders/invoice';
 import { buildReceiptMove, buildReceiptReversalMove, type ReceiptPostPayload } from '../builders/receipt';
 import { buildSettlementMove } from '../builders/custody';
@@ -28,14 +28,16 @@ import {
   type BuildResult, type EventHoldReason, type LocalDate, type Milli, type MoveDraft, type SkipReason,
 } from '../types';
 import {
-  blockedRetry, compareEventsForPosting, currencyMismatch, decodeEventNote, encodeEventNote, errorRetry, initialWatermarkAt,
+  blockedRetry, classifyCutover, compareEventsForPosting, currencyMismatch, decodeEventNote, encodeEventNote, errorRetry, initialWatermarkAt,
   inventoryGate, isInventoryEvent, isStillActionable, isTombstoneSource, planEvent, settlementOrderReady,
   type CutoverContext, type CutoverRow, type EventPlan, type LiveMoveState, type OriginFacts, type SiblingState, type SiblingWrite,
 } from './classify';
 import { reverseKeyOf, siblingPostKey } from './keys';
 import { reconcileHorizon } from './reconciler';
-import type { PosterSettings, PostingStore, PostingTx } from './postingStore';
+import type { OpeningImportCandidate, PosterSettings, PostingStore, PostingTx } from './postingStore';
 import {
+  IMPORT_AFTER_CUTOVER_ATTENTION_REASON, IMPORT_LANE_SOURCE_TYPES, OPENING_BULK_BATCH_SIZE, OPENING_BULK_MAX_BATCHES,
+  OPENING_BULK_TIME_SHARE, POSTER_LANE_PATTERN,
   SOURCE_KEY_UNIQUE_TARGET, TICK_DB_BUDGET_MS, TICK_EVENT_BUDGET, TICK_POST_CUTOFF_MS, isUniqueViolation, maxCompositeKey,
   type ArEntryEventPayload, type BlockReason, type CompositeKey, type DesiredEvent, type InvoiceReverseEventPayload,
   type PendingHoldReason, type PostOutcome, type PosterRunResult, type ReceiptPostEventPayload, type ReceiptReverseEventPayload,
@@ -182,6 +184,17 @@ export async function runPoster(
   const batchSize = Math.max(1, opts.batchSize ?? 50);
   const seen = new Set<string>();
 
+  // (4 أ) حسم OPENING جماعياً قبل الحلقة: آلاف صفوف الاستيراد المشمولة بالافتتاح لا تستهلك معاملة لكل حدث
+  try {
+    const bulk = await resolveOpeningImports(env, budget);
+    if (bulk > 0) result.bulkOpeningSkipped = bulk;
+  } catch (e) {
+    // فشل الحسم الجماعي لا يمنع الترحيل: المسار الفردي يحسم الأحداث نفسها بالقاعدة نفسها
+    env.log('bulk opening resolve failed', { tenantId: settings.tenantId, error: errorMessage(e) });
+  }
+
+  if (store.filtersDueEventsBySourceType === true) return runLanes(env, budget, result, batchSize, seen);
+
   for (;;) {
     const stop = budgetExhausted(budget);
     if (stop) { result.stoppedBy = stop; return result; }
@@ -199,6 +212,113 @@ export async function runPoster(
       tally(result, outcome, wasBlocked, budget);
     }
   }
+}
+
+// ═══ مسارا العدالة (البند 4 (ب)) ═══
+
+export type PosterLane = 'LIVE' | 'IMPORT';
+
+export function laneOf(ev: Pick<SourceEventRecord, 'sourceType'>): PosterLane {
+  return (IMPORT_LANE_SOURCE_TYPES as readonly string[]).includes(ev.sourceType) ? 'IMPORT' : 'LIVE';
+}
+
+/**
+ * التناوب بين المستندات الحية (~60٪ بنمط POSTER_LANE_PATTERN) وأحداث الاستيراد، كلٌّ بترتيب effectAt داخل مساره.
+ * مسار فارغ يترك دوره للآخر، فالشركة بلا استيراد تعمل كما كانت، وكشف من آلاف الأسطر لا يؤخر فاتورة حية أكثر من
+ * دور واحد في النمط.
+ */
+async function runLanes(env: RunEnv, budget: SyncBudget, result: PosterRunResult, batchSize: number, seen: Set<string>): Promise<PosterRunResult> {
+  const { store, settings } = env;
+  const lanes: Record<PosterLane, { buf: SourceEventRecord[]; empty: boolean }> = {
+    LIVE: { buf: [], empty: false },
+    IMPORT: { buf: [], empty: false },
+  };
+  const counts = { live: 0, import: 0 };
+  result.lanes = counts;
+  const filter = (lane: PosterLane) => (lane === 'IMPORT' ? { in: IMPORT_LANE_SOURCE_TYPES } : { notIn: IMPORT_LANE_SOURCE_TYPES });
+  let turn = 0;
+  for (;;) {
+    const stop = budgetExhausted(budget);
+    if (stop) { result.stoppedBy = stop; return result; }
+    if (lanes.LIVE.empty && lanes.IMPORT.empty) { result.stoppedBy = 'EMPTY'; return result; }
+    let lane = POSTER_LANE_PATTERN[turn % POSTER_LANE_PATTERN.length];
+    turn++;
+    if (lanes[lane].empty) lane = lane === 'LIVE' ? 'IMPORT' : 'LIVE';
+    const st = lanes[lane];
+    if (st.buf.length === 0) {
+      const batch = await store.listDueEvents(settings.tenantId, {
+        now: env.now, limit: Math.min(batchSize, Math.max(1, budget.eventsRemaining)), excludeIds: [...seen], sourceTypes: filter(lane),
+      });
+      st.buf = batch.filter((e) => !seen.has(e.id) && laneOf(e) === lane).sort(compareEventsForPosting);
+      if (st.buf.length === 0) { st.empty = true; continue; }
+    }
+    const ev = st.buf.shift() as SourceEventRecord;
+    if (seen.has(ev.id)) continue;
+    seen.add(ev.id);
+    const wasBlocked = ev.status === 'BLOCKED';
+    const outcome = await processEvent(env, ev);
+    const before = result.attempted;
+    tally(result, outcome, wasBlocked, budget);
+    if (result.attempted > before) {
+      if (lane === 'LIVE') counts.live++; else counts.import++;
+    }
+  }
+}
+
+// ═══ حسم OPENING الجماعي (البند 4 (أ)) ═══
+
+/**
+ * هل يُحسم المرشّح SKIPPED(OPENING) بالقاعدة نفسها التي يطبقها المسار الفردي؟ planEvent يصنّف POST ذاتياً قبل أي بوابة
+ * (classifyCutover بـeffectAt وcreatedAt من الحمولة كما يقرؤه selfRow)، والحسم الجماعي أضيق عمداً: يشترط createdAt نصاً
+ * في الحمولة (وإلا يقرأ المسار الفردي المصدر)، ولا شقيق REVERSE غير نهائي.
+ */
+export function openingCandidateQualifies(
+  c: Pick<OpeningImportCandidate, 'effectAt' | 'status' | 'createdAtHint' | 'reverseStatus'>,
+  cutover: CutoverContext,
+): boolean {
+  if (c.status !== 'PENDING' && c.status !== 'BLOCKED' && c.status !== 'ERROR') return false;
+  if (c.reverseStatus !== null && c.reverseStatus !== 'DONE' && c.reverseStatus !== 'SKIPPED') return false;
+  if (typeof c.createdAtHint !== 'string') return false;
+  const created = new Date(c.createdAtHint);
+  if (Number.isNaN(created.getTime())) return false;
+  return classifyCutover({ effectAt: c.effectAt, effectDate: null, createdAt: created }, cutover).kind === 'OPENING';
+}
+
+/**
+ * تحت قفل gl-post وبمعاملة لكل دفعة OPENING_BULK_BATCH_SIZE: يقرأ مرشّحي AR_ENTRY:POST قبل بداية يوم البدء ويحسم المؤهل
+ * منهم بـupdateMany مشروط بالحالة. لا يعمل دون تاريخ بدء ولقطة، ولا مع اختلاف العملة (المسار الفردي يحجزها HELD أولاً)،
+ * ولا حين لا يدعم المخزن ذلك. يعيد عدد المحسوم.
+ */
+export async function resolveOpeningImports(env: Pick<RunEnv, 'store' | 'settings' | 'cutover' | 'now'>, budget: SyncBudget): Promise<number> {
+  const { store, settings } = env;
+  if (!settings.cutoverDate || !settings.openingSnapshotAt) return 0;
+  if (currencyMismatch('AR_ENTRY', settings.currency, settings.companyCurrency)) return 0;
+  const before = zonedStartOfDay(settings.cutoverDate, settings.timezone);
+  const startedAt = budget.clock();
+  // لا يستهلك الحسم أكثر من حصته من الزمن المتبقي: مرشّحون غير مؤهلين يُعاد مسحهم كل نبضة حتى يرحّلهم المسار الفردي
+  const bulkDeadline = startedAt + Math.max(0, budget.deadline - startedAt) * OPENING_BULK_TIME_SHARE;
+  let after: CompositeKey | null = null;
+  let total = 0;
+  for (let i = 0; i < OPENING_BULK_MAX_BATCHES; i++) {
+    if (budgetExhausted(budget)) break;
+    if (i > 0 && budget.clock() >= bulkDeadline) break;
+    const step: { scanned: number; skipped: number; last: CompositeKey | null } | null = await store.withPostLock(settings.tenantId, async (tx) => {
+      if (!tx.listOpeningImportCandidates || !tx.skipOpeningImports) return null;
+      const candidates = await tx.listOpeningImportCandidates({ before, after, limit: OPENING_BULK_BATCH_SIZE });
+      const ids = candidates.filter((c) => openingCandidateQualifies(c, env.cutover)).map((c) => c.id);
+      const skipped = ids.length ? await tx.skipOpeningImports(ids, env.now) : 0;
+      const last = candidates[candidates.length - 1];
+      return { scanned: candidates.length, skipped, last: last ? { at: last.effectAt, id: last.id } : null };
+    });
+    if (!step) break;
+    total += step.skipped;
+    // دفعة ممتلئة لم يُحسم منها شيء ⇒ الأرجح أن ما بعدها وصول متأخر أيضاً (كشف تاريخي استُورد بعد التفعيل): لا يُعاد مسح
+    // آلاف غير المؤهلين كل نبضة على حساب المستندات الحية. المؤهل بعدها يحسمه المسار الفردي بالقاعدة نفسها.
+    if (step.skipped === 0) break;
+    if (step.scanned < OPENING_BULK_BATCH_SIZE || !step.last) break;
+    after = step.last;
+  }
+  return total;
 }
 
 function tally(r: PosterRunResult, o: PostOutcome, wasBlocked: boolean, budget: SyncBudget): void {
@@ -387,8 +507,27 @@ async function decideAndPost(env: RunEnv, tx: PostingTx, stale: SourceEventRecor
     case 'ERROR':
       throw new Error(plan.error);
     case 'POST':
-      return executePost(env, tx, ev, plan);
+      return executePost(env, tx, ev, importReversalPlan(env, ev, plan));
   }
+}
+
+/**
+ * ADR‑11 (قرار المالك، 17 سبتمبر 2026؛ §5.4 P12): عكس صف مستورد (AR_ENTRY:REVERSE) يُرحَّل بتاريخ قيد أصله لا بيوم
+ * التراجع، فالتراجع ثم إعادة الاستيراد المصحَّح لا يُظهر الذمة مضاعفة في التقارير التاريخية بين البدء ويوم التراجع:
+ *  - BUILD_FROM_SOURCE — لا تعطيه البوابة لـAR_ENTRY إلا والأصل مشمول بالافتتاح (شقيق SKIPPED(OPENING)) ⇒ تاريخ البدء
+ *    (والـbuilder يأخذ max مع تاريخ الصف المحلي).
+ *  - REVERSE_LIVE — الأصل مُرحَّل: تاريخ البدء حدّاً أدنى، والمخزن يعكس بـmax(المطلوب، تاريخ القيد الحي) ⇒ تاريخ القيد الحي
+ *    نفسه (البدء إن رُحّل lateArrival، وإلا entryDate أو ما أُزيح إليه)، لأن كل قيد مرحَّل تاريخه ≥ البدء.
+ * بلا lateArrival: إزاحة الإقفال (ADR‑7) لاحقة في postMove (lockPolicy SHIFT). NETTED/SKIP/BLOCK وما عدا AR_ENTRY بلا تغيير،
+ * وكذلك CUSTOMER_ADJUSTMENT (يعكسه مستنده).
+ */
+export function importReversalPlan<P extends Extract<EventPlan, { action: 'POST' }>>(
+  env: Pick<RunEnv, 'cutover'>, ev: Pick<SourceEventRecord, 'sourceType' | 'event' | 'payload'>, plan: P,
+): P {
+  if (ev.sourceType !== 'AR_ENTRY' || ev.event !== 'REVERSE') return plan;
+  if (plan.mode !== 'REVERSE_LIVE' && plan.mode !== 'BUILD_FROM_SOURCE') return plan;
+  if (payloadOf(ev)?.origin === 'CUSTOMER_ADJUSTMENT') return plan;
+  return { ...plan, date: env.cutover.cutoverDate, lateArrival: false, originalDate: null };
 }
 
 /** حالة نهائية كتبها غيرنا (tombstone أو نبضة أخرى) */
@@ -548,6 +687,23 @@ function withPlanDate(draft: MoveDraft, plan: Extract<EventPlan, { action: 'POST
   };
 }
 
+/**
+ * البند 7 (أ): AR_ENTRY:POST بتاريخ ≥ البدء بلا وصول متأخر يُرحَّل على 319002 لا على الإيراد والضريبة ⇒ «يحتاج انتباهاً».
+ * المُنشئ importEntry.ts يبقى خالصاً؛ لا تغيير في المبالغ ولا في OPENING (يُتخطى قبل هنا) ولا lateArrival ولا REVERSE.
+ */
+export function markImportAfterCutover(
+  env: Pick<RunEnv, 'settings'>, ev: Pick<SourceEventRecord, 'sourceType' | 'event'>,
+  plan: Pick<Extract<EventPlan, { action: 'POST' }>, 'mode' | 'lateArrival'>, draft: MoveDraft,
+): MoveDraft {
+  if (ev.sourceType !== 'AR_ENTRY' || ev.event !== 'POST' || plan.mode !== 'BUILD') return draft;
+  if (!env.settings.cutoverDate || plan.lateArrival || draft.lateArrival === true) return draft;
+  // الطريقة (ب) «التاريخ الكامل»: البدء = أقدم أثر، فكل رصيد مستورد «بعده» وهو أرصدة النظام السابق فعلاً ⇒ لا علامة
+  if (env.settings.setupMethod === 'FULL_HISTORY') return draft;
+  if (compareLocalDate(draft.date, env.settings.cutoverDate) < 0) return draft;
+  if (draft.needsAttention) return draft;
+  return { ...draft, needsAttention: true, attentionReason: IMPORT_AFTER_CUTOVER_ATTENTION_REASON };
+}
+
 async function sourcePayload<T>(tx: PostingTx, ev: Pick<SourceEventRecord, 'sourceType' | 'sourceId'>, event: 'POST' | 'REVERSE', own?: SourceEventRecord['payload']): Promise<T> {
   if (own && typeof own === 'object') return own as unknown as T;
   const data = await tx.loadSourceData(ev.sourceType, ev.sourceId, event);
@@ -590,7 +746,7 @@ async function executePost(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
     await tx.updateEvent(ev.id, patch);
     return { outcome: { status: 'SKIPPED', skipReason: built.result.reason }, patch };
   }
-  const draft = withPlanDate(built.result, plan);
+  const draft = markImportAfterCutover(env, ev, plan, withPlanDate(built.result, plan));
   const posted = await tx.postMove(draft, {
     actor: env.actor,
     context: env.context ?? context,

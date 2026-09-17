@@ -1,43 +1,148 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { importApi } from '../api/client';
-import { parseExcelFile, IMPORT_TYPES, ImportKind } from '../lib/importData';
+import api, { companyApi, importApi } from '../api/client';
+import {
+  parseExcelFile, IMPORT_TYPES, ImportKind, LEDGER_IMPORT_KINDS, classifyImportRowsByCutover, classifyImportFailure,
+  openingStockGate, openingStockAckState, fileRowOf, localizedServerMessage, listSeparator, type InvalidDateRow, type OpeningStockBlock, type OpeningStockServerBlock,
+} from '../lib/importData';
 import { useTr } from '../i18n/strings';
-import { formatDate } from '../utils/format';
+import { useLang } from '../i18n/lang';
+import { ledgerKeys } from '../api/ledgerConfig';
+import { ledgerSetupKeys } from '../api/ledgerSetup';
+import { formatCurrency, formatDate, formatDateTime } from '../utils/format';
 import ConfirmDialog from './ConfirmDialog';
-import { Users, Package, Wallet, BookOpen, Tags, Upload, X, Check, AlertTriangle, Loader2, FileUp, RotateCcw, Clock } from 'lucide-react';
+import ImportLedgerNotice, {
+  useLedgerImportContext, UndatedDateChooser, CutoverSplitNotice, OpeningStockNote, OpeningStockAckPanel, type LedgerImportCtx,
+} from './ImportLedgerNotice';
+import {
+  groupRevertBlocked, batchStatusView, hasRunningBatch, classifyRevertFailure, revertFailureKey,
+  NETWORK_LOST_MESSAGE, REVERT_LEDGER_BUSY, OPENING_STOCK_REVERT_ACTIVE, REVERT_BATCH_RUNNING,
+} from '../lib/importRevert';
+import { Users, Package, Wallet, BookOpen, Tags, Boxes, Upload, X, Check, AlertTriangle, Loader2, FileUp, RotateCcw, Clock, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 
 type Rows = Record<string, unknown>[];
-interface Preview { kind: ImportKind; fileName: string; valid: Rows; errors: { row: number; message: string }[] }
-interface ImportResult { created: number; skipped: number; total: number; errors: { row: number; message: string }[] }
-interface Batch { id: string; kind: string; count: number; createdBy?: string | null; createdAt: string }
+/** سياق أدنى حين يرفض الخادم الصفوف بلا تاريخ والسياق غير متاح: الدفاتر مفعّلة، بلا تاريخ بدء ولا اقتراح */
+const MIN_ACTIVATED_CTX: LedgerImportCtx = { activated: true, cutoverDate: null, timezone: 'Asia/Riyadh', suggestedUndatedDate: null, method: null };
+const OPENING_STOCK: ImportKind = 'opening_stock';
+interface OverlapRow { customerId?: string; customerName?: string | null; existingBalance?: number | string; statementNet?: number | string }
+type Conflict =
+  /** running: دفعة الملف نفسه ما زالت تُكتب ⇒ لا «استيراد رغم التكرار» */
+  | { type: 'duplicate'; batchId?: string; createdAt?: string; running: boolean }
+  | { type: 'overlap'; overlap: OverlapRow[] }
+  | { type: 'inProgress'; kind?: string; createdAt?: string }
+  | { type: 'invalidDate'; rows: InvalidDateRow[] }
+  /** رفض نهائي للمخزون الافتتاحي: بعد التفعيل أو في طريقة التاريخ الكامل (تاريخ البدء ≤ اليوم يُعالج بالإقرار لا بتعارض) */
+  | { type: 'openingStock'; reason: OpeningStockBlock; cutoverDate?: string | null };
+interface Preview {
+  kind: ImportKind;
+  fileName: string;
+  /** صفوف الملف الخام — التحويل يُعاد مع «تاريخ الصفوف بلا تاريخ» المعتمد */
+  raw: Rows;
+  /** إقرارات المالك بعد 409: الاستيراد رغم التكرار / رغم التداخل */
+  flags: { force?: boolean; confirmOverlap?: boolean };
+  conflict: Conflict | null;
+}
+interface ImportResult {
+  created: number; skipped: number; total: number; errors: { row: number; message: string }[];
+  warnings?: { undatedAsToday?: number; skipped?: { customerName?: string | null; reason?: string }[] };
+  /** المخزون الافتتاحي: إجمالي التكلفة الصافية للبنود */
+  totalCost?: number;
+}
+interface Batch { id: string; kind: string; count: number; createdBy?: string | null; createdAt: string; status?: 'running' | 'interrupted' | 'done' | null }
+type RevertBlocked = number | { id?: string; name?: string | null; reason?: string }[];
+
+const kindLabel = (k: string | undefined) => (k ? IMPORT_TYPES[k as ImportKind]?.label || k : '');
 
 // قسم استيراد بيانات الشركة السابقة — أيقونة رفع لكل نوع بيانات (في إعدادات الشركة)
 export default function DataImportPanel() {
   const tr = useTr();
+  const lang = useLang((s) => s.lang);
   const qc = useQueryClient();
+  const ledger = useLedgerImportContext();
   const [busy, setBusy] = useState<ImportKind | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [result, setResult] = useState<{ kind: ImportKind; res: ImportResult } | null>(null);
+  const [result, setResult] = useState<{ kind: ImportKind; res: ImportResult; fileRows: number[] } | null>(null);
   const [revertId, setRevertId] = useState<string | null>(null);
+  // «تاريخ الصفوف بلا تاريخ»: المُدخَل (مقترح cutover−1) والمعتمد صراحةً
+  const [undatedInput, setUndatedInput] = useState('');
+  const [undatedDate, setUndatedDate] = useState<string | null>(null);
+  const [excludeAfter, setExcludeAfter] = useState(false);
+  // الخادم رفض الصفوف بلا تاريخ (UNDATED_ROWS_LEDGER_ACTIVE) والسياق null (الميزة مطفأة أو بلا صلاحية دفاتر):
+  // نُظهر اختيار التاريخ بسياق أدنى، ونعدّ الدفاتر مفعّلة لنص التراجع
+  const [forceUndated, setForceUndated] = useState(false);
+  const [serverActivated, setServerActivated] = useState(false);
+  const ledgerActivated = !!ledger?.activated || serverActivated;
+  // المخزون الافتتاحي: «التكلفة شاملة الضريبة»، ورفض الخادم الأخير (بعد التفعيل / التاريخ الكامل / تاريخ بدء ≤ اليوم)،
+  // والإقرار الصريح بتعديل تاريخ البدء في يوم لاحق (acknowledgeCutoverChange)
+  const [stockInclTax, setStockInclTax] = useState(false);
+  const [stockServerBlock, setStockServerBlock] = useState<OpeningStockServerBlock | null>(null);
+  const [stockAck, setStockAck] = useState(false);
 
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { warehouseEnabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const stockGate = openingStockGate({
+    warehouseEnabled: companyCfg?.warehouseEnabled === true,
+    ctx: ledger,
+    serverBlock: stockServerBlock,
+    now: new Date(),
+  });
+  const stockActiveBlock = stockGate.state === 'blocked' && stockGate.reason === 'active';
+  const stockAckInfo = openingStockAckState(stockGate, stockAck);
+
+  const invalidateBatches = () => qc.invalidateQueries({ queryKey: ['import-batches'] });
   const { data: batches } = useQuery({
     queryKey: ['import-batches'],
     queryFn: async () => (await importApi.batches()).data.data as Batch[],
+    // دفعة جارية ⇒ متابعة حالتها حتى تنتهي أو تنقطع
+    refetchInterval: (q) => (hasRunningBatch(q.state.data as Batch[] | undefined) ? 5000 : false),
   });
   const revertMut = useMutation({
     mutationFn: (id: string) => importApi.revert(id),
     onSuccess: (res) => {
-      const d = res.data.data as { removed: number; blocked: number };
-      toast.success(`${tr('تمت الإزالة')}: ${d.removed}${d.blocked ? ` · ${tr('محمي له معاملات')}: ${d.blocked}` : ''}`);
-      qc.invalidateQueries({ queryKey: ['import-batches'] });
+      const d = res.data.data as { removed: number; blocked: RevertBlocked; remaining?: number; kind?: string };
+      const blockedList = Array.isArray(d.blocked) ? d.blocked : [];
+      const blockedCount = Array.isArray(d.blocked) ? d.blocked.length : (d.blocked || 0);
+      const remaining = typeof d.remaining === 'number' ? d.remaining : 0;
+      // اسم حركة المخزون الافتتاحي نص ثابت لا اسم سجل ⇒ لا يُعدَّد
+      const showNames = d.kind !== OPENING_STOCK;
+      let msg = `${tr('تمت الإزالة')}: ${d.removed}`;
+      if (remaining > 0) {
+        const groups = groupRevertBlocked(blockedList);
+        const protectedCount = groups.filter((g) => !g.retry).reduce((a, g) => a + g.count, 0);
+        const retryCount = Math.max(0, remaining - protectedCount);
+        for (const g of groups) {
+          const names = showNames ? g.names.slice(0, 3) : [];
+          msg += ` · ${tr(g.key)}: ${g.count}${names.length ? ` (${names.join(listSeparator(lang))}${g.names.length > names.length || g.count > names.length ? '…' : ''})` : ''}`;
+        }
+        if (!groups.length) msg += ` · ${tr('بقي')} ${remaining}`;
+        if (retryCount > 0) msg += ` · ${tr('أعد المحاولة لاحقاً للمتبقي')}: ${retryCount}`;
+      } else if (blockedCount) {
+        msg += ` · ${tr('محمي له معاملات')}: ${blockedCount}`;
+      }
+      if (remaining > 0) toast(msg, { duration: 8000 }); else toast.success(msg);
+      invalidateBatches();
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['products'] });
+      if (d.kind === OPENING_STOCK) {
+        qc.invalidateQueries({ queryKey: ['warehouse-stock'] });
+        qc.invalidateQueries({ queryKey: ['warehouse-entries'] });
+      }
       setRevertId(null);
     },
-    onError: (e) => { toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر التراجع')); setRevertId(null); },
+    onError: (e) => {
+      const f = classifyRevertFailure(e);
+      const key = revertFailureKey(f);
+      toast.error(key ? tr(key) : (f.type === 'other' && localizedServerMessage(f.message, lang, tr)) || tr('تعذر التراجع'), { duration: f.type === 'network' ? 10_000 : 6000 });
+      if (f.type === 'openingStockActive') setStockServerBlock({ reason: 'active' });
+      // الانقطاع أو دفعة جارية أو متراجع عنها: السجل المعروض قديم
+      if (f.type === 'network' || f.type === 'running' || f.type === 'gone') invalidateBatches();
+      setRevertId(null);
+    },
   });
 
   const onFile = async (kind: ImportKind, file?: File) => {
@@ -46,25 +151,133 @@ export default function DataImportPanel() {
     try {
       const rows = await parseExcelFile(file);
       if (!rows.length) { toast.error(tr('الملف فارغ أو بلا صفوف بيانات')); setBusy(null); return; }
-      const { valid, errors } = IMPORT_TYPES[kind].transform(rows);
-      setPreview({ kind, fileName: file.name, valid, errors });
+      setUndatedInput(ledger?.suggestedUndatedDate ?? '');
+      setUndatedDate(null);
+      setForceUndated(false);
+      setExcludeAfter(false);
+      setStockInclTax(false);
+      setStockAck(false);
+      setPreview({ kind, fileName: file.name, raw: rows, flags: {}, conflict: null });
     } catch { toast.error(tr('تعذر قراءة الملف تأكد أنه Excel/CSV صالح')); }
     setBusy(null);
   };
 
-  const doImport = async () => {
-    if (!preview) return;
+  // المعاينة: التحويل بالتاريخ المعتمد، والتصنيف حول تاريخ البدء (للأرصدة والكشوف حين الدفاتر متاحة فقط)
+  const view = useMemo(() => {
+    if (!preview) return null;
+    const ledgerKind = LEDGER_IMPORT_KINDS.includes(preview.kind);
+    const tf = IMPORT_TYPES[preview.kind].transform(preview.raw, ledgerKind && undatedDate ? { undatedDate } : undefined);
+    const aware = !!ledger && ledgerKind;
+    const split = aware && ledger?.cutoverDate ? classifyImportRowsByCutover(tf.valid, ledger.cutoverDate, ledger.timezone) : null;
+    const keep = (_: unknown, i: number) => !(split && excludeAfter) || split.classes[i] !== 'onOrAfter';
+    const rows = tf.valid.filter(keep);
+    // رقم صف الملف لكل صف مرسل: الخادم يرقّم أخطاءه بموضع الصف المرسل
+    const sentFileRows = tf.fileRows.filter(keep);
+    const undated = tf.undated ?? 0;
+    // سياق الاختيار: سياق الدفاتر، أو سياق أدنى بعد رفض الخادم (بلا تاريخ بدء ولا اقتراح) — التصنيف يبقى على ledger وحده
+    const chooserCtx: LedgerImportCtx | null = ledger ?? (forceUndated || serverActivated ? MIN_ACTIVATED_CTX : null);
+    const needChooser = ledgerKind && !!chooserCtx;
+    return { ...tf, ledgerKind, aware, split, rows, sentFileRows, undated, chooserCtx, needUndatedChoice: needChooser && undated > 0 && !undatedDate };
+  }, [preview, ledger, undatedDate, excludeAfter, forceUndated, serverActivated]);
+
+  const doImport = async (extra?: Preview['flags']) => {
+    if (!preview || !view) return;
     const kind = preview.kind;
+    const flags = { ...preview.flags, ...extra };
+    const body: Record<string, unknown> = { rows: view.rows };
+    if (view.ledgerKind && undatedDate) body.undatedDate = undatedDate;
+    if (kind === OPENING_STOCK) Object.assign(body, { pricesIncludeTax: stockInclTax }, stockAckInfo.body);
+    if (flags.force) body.force = true;
+    if (flags.confirmOverlap) body.confirmOverlap = true;
+    const withConflict = (conflict: Conflict | null) => setPreview({ ...preview, flags, conflict });
     setBusy(kind);
     try {
-      const res = await importApi.run(IMPORT_TYPES[kind].endpoint, preview.valid);
-      setResult({ kind, res: res.data.data as ImportResult });
+      const res = await api.post(IMPORT_TYPES[kind].endpoint, body);
+      setResult({ kind, res: res.data.data as ImportResult, fileRows: view.sentFileRows });
       setPreview(null);
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['import-batches'] });
+      if (kind === OPENING_STOCK) {
+        qc.invalidateQueries({ queryKey: ['warehouse-stock'] });
+        qc.invalidateQueries({ queryKey: ['warehouse-entries'] });
+      }
+      invalidateBatches();
     } catch (e) {
-      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الاستيراد'));
+      const f = classifyImportFailure(e);
+      switch (f.type) {
+        case 'network':
+          // لا رد: قد يكون الخادم أتم الاستيراد أو ما زال يكتبه ⇒ إغلاق المعاينة فلا يُعاد الرفع قبل مراجعة السجل
+          setPreview(null);
+          invalidateBatches();
+          toast.error(tr(NETWORK_LOST_MESSAGE), { duration: 12_000 });
+          break;
+        case 'duplicate':
+          withConflict({ type: 'duplicate', batchId: f.batchId, createdAt: f.createdAt, running: f.running });
+          if (f.running) invalidateBatches();
+          break;
+        case 'overlap':
+          withConflict({ type: 'overlap', overlap: f.overlap as OverlapRow[] });
+          break;
+        case 'inProgress':
+          withConflict({ type: 'inProgress', kind: f.kind, createdAt: f.createdAt });
+          invalidateBatches();
+          break;
+        case 'undated':
+          setUndatedDate(null);
+          setForceUndated(true);
+          setServerActivated(true);
+          withConflict(null);
+          toast.error(tr('الدفاتر مفعلة: الصفوف بلا تاريخ تُرفض. اختر لها تاريخا أدناه'));
+          break;
+        case 'invalidDate':
+          if (!f.rows.length) {
+            // تاريخ «الصفوف بلا تاريخ» نفسه مرفوض ⇒ إعادة الاختيار
+            setUndatedDate(null);
+            withConflict(null);
+            toast.error(tr('تاريخ الصفوف بلا تاريخ غير صالح. اختر تاريخا آخر'));
+          } else {
+            withConflict({ type: 'invalidDate', rows: f.rows.map((r) => ({ ...r, row: fileRowOf(view.sentFileRows, r.row) })) });
+          }
+          break;
+        case 'openingStockActive':
+          setStockServerBlock({ reason: 'active' });
+          withConflict({ type: 'openingStock', reason: 'active' });
+          break;
+        case 'openingStockAfterCutover':
+          // تاريخ البدء المحفوظ ≤ اليوم: لوحة الإقرار بأقرب تاريخ بدء من الخادم، ثم إعادة الإرسال بـacknowledgeCutoverChange
+          setStockServerBlock({ reason: 'afterCutover', cutoverDate: f.cutoverDate ?? null, minCutoverDate: f.minCutoverDate ?? null });
+          setStockAck(false);
+          withConflict(null);
+          toast.error(tr('أقرّ بتعديل تاريخ البدء في يوم لاحق ثم أعد الاستيراد'));
+          qc.invalidateQueries({ queryKey: ledgerSetupKeys.setup });
+          break;
+        case 'openingStockFullHistory':
+          setStockServerBlock({ reason: 'fullHistory' });
+          withConflict({ type: 'openingStock', reason: 'fullHistory' });
+          break;
+        case 'ledgerBusy':
+          toast.error(tr(REVERT_LEDGER_BUSY));
+          break;
+        case 'ledgerStateChanged':
+          // فُعّلت الدفاتر أثناء التجهيز: لا شيء كُتب ⇒ تحديث سياق الدفاتر والمعاينة ثم الإعادة
+          setServerActivated(true);
+          qc.invalidateQueries({ queryKey: ledgerKeys.status });
+          withConflict(null);
+          toast.error(tr('فُعّلت الدفاتر أثناء تجهيز الاستيراد ولم يُكتب شيء. راجع المعاينة ثم أعد الاستيراد'), { duration: 8000 });
+          break;
+        case 'batchRunning':
+          invalidateBatches();
+          toast.error(tr(REVERT_BATCH_RUNNING));
+          break;
+        case 'warehouseDisabled':
+          setPreview(null);
+          toast.error(tr('ميزة مخزون الشركة غير مفعلة لهذه الشركة'));
+          qc.invalidateQueries({ queryKey: ['company'] });
+          break;
+        default:
+          // رسالة الخادم عربية: تُعرض كما هي بالعربية أو مترجمةً إن وُجدت، وإلا نص عام بحسب الحالة
+          toast.error(localizedServerMessage(f.message, lang, tr) ?? (f.status === 400 ? tr('بيانات غير صالحة') : tr('تعذر الاستيراد')));
+      }
     }
     setBusy(null);
   };
@@ -75,7 +288,23 @@ export default function DataImportPanel() {
     { kind: 'balances', icon: Wallet },
     { kind: 'ledger', icon: BookOpen },
     { kind: 'prices', icon: Tags },
+    ...(stockGate.state !== 'hidden' ? [{ kind: OPENING_STOCK, icon: Boxes }] : []),
   ];
+
+  const revertKind = revertId ? batches?.find((b) => b.id === revertId)?.kind : undefined;
+  const revertTouchesLedger = ledgerActivated && (revertKind === 'balances' || revertKind === 'ledger' || revertKind === 'customers');
+  const revertMessage = revertKind === OPENING_STOCK
+    ? tr('ستحذف حركة المخزون الافتتاحي ببنودها ما لم تستهلك أصنافها بعد الاستيراد بتحميل سيارات أو فواتير أو تسوية بالنقص')
+    : revertTouchesLedger
+      ? tr('يُزال من كشوف العملاء وتُكتب في الدفاتر قيود عكسية؛ لا يُحذف قيد مرحّل')
+      : tr('سيزال ما أضيف في هذه الدفعة نهائيا وتعاد الأرصدة إلى ما قبلها متابعة');
+
+  const retryConflictButton = (label: string) => (
+    <button type="button" onClick={() => doImport()} disabled={busy !== null}
+      className="mt-2 text-xs font-semibold text-[#6E6557] border border-[#E8E0D2] bg-white rounded-lg px-3 py-1.5 hover:bg-[#FBF7F0] disabled:opacity-50 inline-flex items-center gap-1">
+      <RefreshCw size={12} /> {tr(label)}
+    </button>
+  );
 
   return (
     <div className="card">
@@ -89,43 +318,81 @@ export default function DataImportPanel() {
       <p className="text-[11px] text-amber-700 bg-amber-50/70 border border-amber-100 rounded-lg px-3 py-2 mt-3">
         {tr('الترتيب الموصى به العملاء والمنتجات أولا ثم الأرصدة الافتتاحية أو دفتر الأستاذ ثم قوائم الأسعار لأنها تربط بالعملاء والأصناف بالكود أو الجوال')}
       </p>
+      <ImportLedgerNotice ctx={ledger} />
 
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
-        {active.map(({ kind, icon: Icon }) => (
-          <div key={kind} className="border border-[#E9E1D3] rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Icon size={18} className="text-[#E15A30]" />
-              <span className="font-semibold text-gray-800">{tr(IMPORT_TYPES[kind].label)}</span>
+        {active.map(({ kind, icon: Icon }) => {
+          const isStock = kind === OPENING_STOCK;
+          const blocked = isStock && stockGate.state === 'blocked';
+          const disabled = busy === kind || blocked;
+          return (
+            <div key={kind} className={`border border-[#E9E1D3] rounded-xl p-4 ${blocked ? 'bg-[#FBF7F0]' : ''}`}>
+              <div className="flex items-center gap-2 mb-3">
+                <Icon size={18} className={blocked ? 'text-gray-400' : 'text-[#E15A30]'} />
+                <span className={`font-semibold ${blocked ? 'text-gray-500' : 'text-gray-800'}`}>{tr(IMPORT_TYPES[kind].label)}</span>
+              </div>
+              {isStock && (
+                <OpeningStockNote gate={stockGate} />
+              )}
+              <label aria-disabled={disabled}
+                className={`btn-primary w-full justify-center text-xs py-2 ${disabled ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`}>
+                {busy === kind ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} {tr('رفع الملف')}
+                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={disabled}
+                  onChange={(e) => { onFile(kind, e.target.files?.[0]); e.currentTarget.value = ''; }} />
+              </label>
             </div>
-            <label className={`btn-primary w-full justify-center text-xs py-2 cursor-pointer ${busy === kind ? 'opacity-60 pointer-events-none' : ''}`}>
-              {busy === kind ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} {tr('رفع الملف')}
-              <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
-                onChange={(e) => { onFile(kind, e.target.files?.[0]); e.currentTarget.value = ''; }} />
-            </label>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* سجلّ الاستيرادات — يظهر دائماً؛ يمكن التراجع عن أيّ دفعة */}
+      {/* سجلّ الاستيرادات — يظهر دائماً؛ يمكن التراجع عن أيّ دفعة منتهية أو منقطعة */}
       <div className="mt-5 border-t border-[#E9E1D3] pt-4">
         <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> {tr('سجل الاستيرادات يمكن التراجع عن أي دفعة')}</h4>
         {batches && batches.length > 0 ? (
           <>
             <div className="space-y-2">
-              {batches.map((b) => (
-                <div key={b.id} className="flex items-center justify-between bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2">
-                  <div className="text-sm">
-                    <span className="font-semibold text-gray-800">{tr(IMPORT_TYPES[b.kind as ImportKind]?.label || b.kind)}</span>
-                    <span className="text-gray-500 text-xs mr-2">· {b.count} {tr('سجل')} · {formatDate(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
+              {batches.map((b) => {
+                const sv = batchStatusView(b);
+                const unit = b.kind === OPENING_STOCK ? tr('بند') : tr('سجل');
+                const stockLocked = b.kind === OPENING_STOCK && stockActiveBlock;
+                const canRevert = sv.revertable && !stockLocked;
+                const countText = sv.status === 'running'
+                  ? (b.count > 0 ? `${tr('حتى الآن')} ${b.count} ${unit}` : null)
+                  : sv.status === 'interrupted'
+                    ? `${tr('سجل منها قبل الانقطاع')} ${b.count} ${unit}`
+                    : `${b.count} ${unit}`;
+                return (
+                  <div key={b.id} className="flex items-center justify-between gap-2 bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2">
+                    <div className="text-sm min-w-0">
+                      <span className="font-semibold text-gray-800">{tr(kindLabel(b.kind))}</span>
+                      {sv.status === 'running' && (
+                        <span className="ms-2 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5">
+                          <Loader2 size={10} className="animate-spin" /> {tr(sv.label!)}
+                        </span>
+                      )}
+                      {sv.status === 'interrupted' && (
+                        <span className="ms-2 inline-flex items-center gap-1 text-[10px] font-semibold text-[#8E2A1F] bg-red-100 rounded-full px-2 py-0.5">
+                          <AlertTriangle size={10} /> {tr(sv.label!)}
+                        </span>
+                      )}
+                      <span className="text-gray-500 text-xs mr-2">{countText ? `· ${countText} ` : ''}· {formatDate(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
+                    </div>
+                    <button onClick={() => setRevertId(b.id)} disabled={revertMut.isPending || !canRevert}
+                      title={sv.status === 'running' ? tr('الدفعة ما زالت قيد الاستيراد — انتظر انتهاءها ثم تراجع عنها') : stockLocked ? tr(OPENING_STOCK_REVERT_ACTIVE) : undefined}
+                      className="text-red-600 hover:bg-red-50 rounded-lg px-2.5 py-1 text-xs flex items-center gap-1 shrink-0 disabled:opacity-40 disabled:hover:bg-transparent">
+                      <RotateCcw size={13} /> {tr('تراجع / إزالة')}
+                    </button>
                   </div>
-                  <button onClick={() => setRevertId(b.id)} disabled={revertMut.isPending}
-                    className="text-red-600 hover:bg-red-50 rounded-lg px-2.5 py-1 text-xs flex items-center gap-1 shrink-0">
-                    <RotateCcw size={13} /> {tr('تراجع / إزالة')}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <p className="text-[11px] text-gray-400 mt-2">{tr('التراجع يزيل ما أضيف في تلك الدفعة ويعيد حساب الأرصدة ولا يحذف العملاء الذين لديهم فواتير أو سندات حقيقية')}</p>
+            {ledgerActivated && (
+              <p className="text-[11px] text-amber-700 mt-1">{tr('يُزال من كشوف العملاء وتُكتب في الدفاتر قيود عكسية؛ لا يُحذف قيد مرحّل')}</p>
+            )}
+            {hasRunningBatch(batches) && (
+              <p className="text-[11px] text-amber-700 mt-1">{tr('دفعة قيد الاستيراد: انتظر انتهاءها قبل رفع الملف نفسه أو التراجع عنها')}</p>
+            )}
           </>
         ) : (
           <p className="text-xs text-gray-400 py-2">{tr('لا توجد دفعات استيراد بعد أي ملف تستورده من الآن سيظهر هنا كدفعة يمكن التراجع عنها بضغطة')}</p>
@@ -136,7 +403,7 @@ export default function DataImportPanel() {
         <ConfirmDialog
           danger
           title={tr('التراجع عن الاستيراد')}
-          message={tr('سيزال ما أضيف في هذه الدفعة نهائيا وتعاد الأرصدة إلى ما قبلها متابعة')}
+          message={revertMessage}
           confirmLabel={tr('نعم أزل')}
           loading={revertMut.isPending}
           onConfirm={() => revertMut.mutate(revertId)}
@@ -145,41 +412,157 @@ export default function DataImportPanel() {
       )}
 
       {/* معاينة قبل الاستيراد */}
-      {preview && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => setPreview(null))}>
+      {preview && view && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => { if (!busy) setPreview(null); })}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
               <h3 className="font-bold text-gray-800">{tr('معاينة الاستيراد')} — {tr(IMPORT_TYPES[preview.kind].label)}</h3>
-              <button onClick={() => setPreview(null)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
+              <button onClick={() => setPreview(null)} disabled={busy !== null} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-gray-600">{tr('الملف')}: <span className="font-mono">{preview.fileName}</span></p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-green-50 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-green-700">{preview.valid.length}</p>
+                  <p className="text-2xl font-bold text-green-700">{view.rows.length}</p>
                   <p className="text-xs text-green-600">{tr('صف صالح للاستيراد')}</p>
                 </div>
-                <div className={`rounded-xl p-3 text-center ${preview.errors.length ? 'bg-amber-50' : 'bg-gray-50'}`}>
-                  <p className={`text-2xl font-bold ${preview.errors.length ? 'text-amber-700' : 'text-gray-400'}`}>{preview.errors.length}</p>
+                <div className={`rounded-xl p-3 text-center ${view.errors.length ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                  <p className={`text-2xl font-bold ${view.errors.length ? 'text-amber-700' : 'text-gray-400'}`}>{view.errors.length}</p>
                   <p className="text-xs text-gray-500">{tr('صف به خطأ يتجاهل')}</p>
                 </div>
               </div>
-              {preview.errors.length > 0 && (
-                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 max-h-40 overflow-y-auto">
-                  <p className="text-xs font-semibold text-amber-800 flex items-center gap-1 mb-2"><AlertTriangle size={13} /> {tr('صفوف بها أخطاء')}</p>
-                  {preview.errors.slice(0, 20).map((er, i) => (
-                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {er.row}: {tr(er.message)}</p>
-                  ))}
-                  {preview.errors.length > 20 && <p className="text-[11px] text-amber-600 mt-1">+{preview.errors.length - 20} …</p>}
+              {preview.kind === OPENING_STOCK && (
+                <div className="rounded-xl border border-[#E8E0D2] bg-[#FBF7F0] p-3 text-[11px] text-[#6E6557] space-y-2">
+                  <p className="flex items-center justify-between gap-2">
+                    <span>{tr('إجمالي تكلفة الملف')}{stockInclTax ? ` (${tr('شاملة الضريبة')})` : ''}</span>
+                    <bdi className="tabular-nums font-bold text-gray-800">{formatCurrency(view.totalCost ?? 0)}</bdi>
+                  </p>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" checked={stockInclTax} disabled={busy !== null}
+                      onChange={(e) => { setStockInclTax(e.target.checked); setPreview({ ...preview, flags: {}, conflict: null }); }} />
+                    <span className="font-semibold">{tr('التكلفة شاملة الضريبة')}</span>
+                  </label>
+                  <p>{tr('تخصم ضريبة كل صنف من التكلفة قبل التسجيل، فيدخل المخزون بتكلفته الصافية. الأصناف تطابق بالكود ثم الباركود ثم الاسم')}</p>
                 </div>
               )}
+              {view.warnings && view.warnings.length > 0 && (
+                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
+                  {view.warnings.map((w, i) => (
+                    <p key={i} className="text-[11px] text-amber-800 flex items-start gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" /> {tr(w)}</p>
+                  ))}
+                </div>
+              )}
+              {view.errors.length > 0 && (
+                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 max-h-40 overflow-y-auto">
+                  <p className="text-xs font-semibold text-amber-800 flex items-center gap-1 mb-2"><AlertTriangle size={13} /> {tr('صفوف بها أخطاء')}</p>
+                  {view.errors.slice(0, 20).map((er, i) => (
+                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {er.row}: {tr(er.message)}{er.value ? <>: <bdi className="font-mono">{er.value}</bdi></> : null}</p>
+                  ))}
+                  {view.errors.length > 20 && <p className="text-[11px] text-amber-600 mt-1">+{view.errors.length - 20} …</p>}
+                </div>
+              )}
+
+              {view.ledgerKind && view.chooserCtx && (
+                <UndatedDateChooser ctx={view.chooserCtx} count={view.undated} input={undatedInput} onInput={setUndatedInput}
+                  confirmed={undatedDate} onConfirm={(v) => { setUndatedDate(v); setPreview({ ...preview, conflict: null }); }}
+                  onChange={() => { setUndatedInput(undatedDate ?? undatedInput); setUndatedDate(null); }} />
+              )}
+              {view.split && ledger && (
+                <CutoverSplitNotice ctx={ledger} split={view.split} excludeAfter={excludeAfter}
+                  onToggleExclude={(v) => { setExcludeAfter(v); setPreview({ ...preview, conflict: null }); }} />
+              )}
+
+              {preview.conflict?.type === 'duplicate' && preview.conflict.running && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900" role="alert">
+                  <p className="font-semibold flex items-center gap-1"><Loader2 size={13} className="animate-spin" /> {tr('دفعة الملف نفسه قيد الاستيراد')}</p>
+                  <p className="mt-1">
+                    {tr('انتظر انتهاءها ثم راجع سجل الاستيرادات. لا تعد رفع الملف قبل ذلك')}
+                    {preview.conflict.createdAt ? <> · {formatDateTime(preview.conflict.createdAt)}</> : null}
+                  </p>
+                  {retryConflictButton('إعادة الفحص')}
+                </div>
+              )}
+              {preview.conflict?.type === 'duplicate' && !preview.conflict.running && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-[11px] text-[#8E2A1F]" role="alert">
+                  <p className="font-semibold flex items-center gap-1"><AlertTriangle size={13} /> {tr('هذا الملف استورد مسبقا')}</p>
+                  <p className="mt-1">
+                    {tr('توجد دفعة غير متراجع عنها بالمحتوى نفسه')}
+                    {preview.conflict.createdAt ? <> · {formatDate(preview.conflict.createdAt)}</> : null}
+                    {'. '}{preview.kind === OPENING_STOCK ? tr('استيراده مرة أخرى يضاعف الكميات') : tr('استيراده مرة أخرى يضاعف الأرصدة')}
+                  </p>
+                  <button type="button" onClick={() => doImport({ force: true })} disabled={busy !== null}
+                    className="mt-2 text-xs font-semibold text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-100 disabled:opacity-50">
+                    {tr('استيراد رغم التكرار')}
+                  </button>
+                </div>
+              )}
+              {preview.conflict?.type === 'inProgress' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900" role="alert">
+                  <p className="font-semibold flex items-center gap-1"><Loader2 size={13} className="animate-spin" /> {tr('استيراد آخر جار الآن')}</p>
+                  <p className="mt-1">
+                    {tr('استيراد أرصدة أو كشوف حسابات جار الآن لهذه الشركة. انتظر انتهاءه ثم راجع سجل الاستيرادات قبل الإعادة')}
+                    {preview.conflict.kind ? <> · {tr(kindLabel(preview.conflict.kind))}</> : null}
+                    {preview.conflict.createdAt ? <> · {formatDateTime(preview.conflict.createdAt)}</> : null}
+                  </p>
+                  {retryConflictButton('إعادة المحاولة')}
+                </div>
+              )}
+              {preview.conflict?.type === 'invalidDate' && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-[11px] text-[#8E2A1F] max-h-48 overflow-y-auto" role="alert">
+                  <p className="font-semibold flex items-center gap-1"><AlertTriangle size={13} /> {tr('تواريخ غير صالحة في الملف')}</p>
+                  <p className="mt-1">{tr('صحح التواريخ في الملف بصيغة يوم/شهر/سنة ثم أعد رفعه')}</p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {preview.conflict.rows.slice(0, 20).map((r, i) => (
+                      <li key={i}>{r.row > 0 ? <>{tr('صف')} {r.row}: </> : null}<bdi className="font-mono">{r.date || '—'}</bdi></li>
+                    ))}
+                  </ul>
+                  {preview.conflict.rows.length > 20 && <p className="mt-1">+{preview.conflict.rows.length - 20} …</p>}
+                </div>
+              )}
+              {preview.kind === OPENING_STOCK && stockGate.state === 'ack' && (
+                <OpeningStockAckPanel cutoverDate={stockGate.cutoverDate} minCutoverDate={stockGate.minCutoverDate}
+                  checked={stockAck} disabled={busy !== null} onChange={setStockAck} />
+              )}
+              {preview.conflict?.type === 'openingStock' && (
+                <OpeningStockNote gate={{ state: 'blocked', reason: preview.conflict.reason, cutoverDate: preview.conflict.cutoverDate ?? null }} />
+              )}
+              {preview.conflict?.type === 'overlap' && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-[11px] text-[#8E2A1F]" role="alert">
+                  <p className="font-semibold flex items-center gap-1"><AlertTriangle size={13} /> {tr('عملاء لهم رصيد مستورد أو كشف سابق')}</p>
+                  <p className="mt-1">{tr('استيراد الكشف فوق رصيد قائم قد يضاعف الذمة. راجع قبل المتابعة')}</p>
+                  {preview.conflict.overlap.length > 0 && (
+                    <table className="w-full mt-2 text-[11px]">
+                      <thead><tr className="text-[#6E6557]">
+                        <th className="text-start font-medium pe-2">{tr('العميل')}</th>
+                        <th className="text-end font-medium pe-2">{tr('الرصيد القائم')}</th>
+                        <th className="text-end font-medium">{tr('صافي الكشف')}</th>
+                      </tr></thead>
+                      <tbody>
+                        {preview.conflict.overlap.slice(0, 15).map((o, i) => (
+                          <tr key={o.customerId || i}>
+                            <td className="pe-2">{o.customerName || o.customerId}</td>
+                            <td className="text-end tabular-nums pe-2" dir="ltr">{String(o.existingBalance ?? '')}</td>
+                            <td className="text-end tabular-nums" dir="ltr">{String(o.statementNet ?? '')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {preview.conflict.overlap.length > 15 && <p className="mt-1">+{preview.conflict.overlap.length - 15} …</p>}
+                  <button type="button" onClick={() => doImport({ confirmOverlap: true })} disabled={busy !== null}
+                    className="mt-2 text-xs font-semibold text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-100 disabled:opacity-50">
+                    {tr('متابعة رغم التداخل')}
+                  </button>
+                </div>
+              )}
+
               <div className="flex gap-3 pt-1">
-                <button onClick={doImport} disabled={busy !== null || preview.valid.length === 0}
+                <button onClick={() => doImport()} disabled={busy !== null || view.rows.length === 0 || view.needUndatedChoice || !!preview.conflict || (preview.kind === OPENING_STOCK && (stockAckInfo.blocksImport || stockGate.state === 'blocked'))}
                   className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-50">
                   {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                  {tr('استيراد')} {preview.valid.length} {tr('صف')}
+                  {tr('استيراد')} {view.rows.length} {tr('صف')}
                 </button>
-                <button onClick={() => setPreview(null)} className="btn-secondary">{tr('إلغاء')}</button>
+                <button onClick={() => setPreview(null)} disabled={busy !== null} className="btn-secondary">{tr('إلغاء')}</button>
               </div>
             </div>
           </div>
@@ -198,10 +581,30 @@ export default function DataImportPanel() {
                 <div><p className="text-xl font-bold text-gray-500">{result.res.skipped}</p><p className="text-xs text-gray-500">{tr('مكرر تخطي')}</p></div>
                 <div><p className="text-xl font-bold text-amber-600">{result.res.errors.length}</p><p className="text-xs text-gray-500">{tr('خطأ')}</p></div>
               </div>
+              {result.kind === OPENING_STOCK && typeof result.res.totalCost === 'number' && result.res.created > 0 && (
+                <p className="bg-[#FBF7F0] border border-[#E8E0D2] rounded-xl p-2.5 mt-4 text-[11px] text-[#6E6557] flex items-center justify-between">
+                  <span>{tr('إجمالي التكلفة الصافية')}</span>
+                  <bdi className="tabular-nums font-bold text-gray-800">{formatCurrency(result.res.totalCost)}</bdi>
+                </p>
+              )}
+              {(result.res.warnings?.undatedAsToday ?? 0) > 0 && (
+                <p className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 mt-4 text-[11px] text-amber-900 text-right">
+                  <AlertTriangle size={12} className="inline me-1" />
+                  {result.res.warnings!.undatedAsToday} {tr('صف بلا تاريخ أخذ تاريخ اليوم')}
+                </p>
+              )}
+              {(result.res.warnings?.skipped?.length ?? 0) > 0 && (
+                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
+                  <p className="text-[11px] font-semibold text-amber-800 mb-1">{tr('عملاء تخطي رصيدهم')}</p>
+                  {result.res.warnings!.skipped!.slice(0, 15).map((s, i) => (
+                    <p key={i} className="text-[11px] text-amber-700">{s.customerName || '-'}{s.reason ? `: ${tr(s.reason)}` : ''}</p>
+                  ))}
+                </div>
+              )}
               {result.res.errors.length > 0 && (
                 <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
                   {result.res.errors.slice(0, 15).map((er, i) => (
-                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {er.row}: {er.message}</p>
+                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {fileRowOf(result.fileRows, er.row)}: {tr(er.message)}</p>
                   ))}
                 </div>
               )}

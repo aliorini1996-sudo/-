@@ -5,7 +5,10 @@ import prisma from '../../config/database';
 import { requireLedgerPermission } from '../../middleware/auth';
 import { AuthRequest } from '../../types';
 import { LedgerLocals } from './context';
-import { LedgerHttpError, ledgerHandler } from './errors';
+import {
+  LEDGER_IMPORT_IN_PROGRESS_MESSAGE, LEDGER_OPENING_STOCK_AFTER_CUTOVER_MESSAGE, LEDGER_OPENING_STOCK_FULL_HISTORY_MESSAGE,
+  LEDGER_OPENING_STOCK_TOO_RECENT_MESSAGE, LEDGER_POST_CUTOVER_IMPORTS_ACK_MESSAGE, LedgerHttpError, ledgerHandler,
+} from './errors';
 import { appendAudit, ledgerActor, type GlActor, type GlTx } from '../../services/gl/audit';
 import { acquirePostLock, postMove } from '../../services/gl/post';
 import { GlNotFoundError, loadBuildContext } from '../../services/gl/resolve';
@@ -19,9 +22,11 @@ import {
 } from '../../services/gl/types';
 import { initialWatermarkAt, type SetupMethod } from '../../services/gl/sync/classify';
 import {
-  assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, derivedOpeningJson,
-  loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow, suggestedCutoverDate,
-  templatePreviewContext, validateManualBalanceRows, type ManualBalanceLine, type ManualBalanceRowInput,
+  acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, derivedOpeningJson,
+  importInProgressDetails, importedAfterCutoverJson, loadImportedAfterCutover, loadRunningImportBatch, loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow,
+  loadOpeningStockCheck, openingStockCheckJson,
+  postCutoverImportsAckMissing, suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
+  type ManualBalanceLine, type ManualBalanceRowInput,
 } from '../../services/gl/opening';
 import {
   assertHistoryNotTooLarge, backfillTransition, estimateHistory, fullHistoryCutoverDate, initialCursorRows,
@@ -33,8 +38,9 @@ import {
  *
  * - GET  /setup                 الحالة والمسودة والقيم المقترحة وتقدير التاريخ الكامل وتقدم الترحيل التاريخي.
  * - POST /setup/draft           حفظ مسودة خطوة (1 الأساس، 2 الطريقة، 3 الشجرة، 5 الأرصدة اليدوية) في GlSettings.setupDraft.
- * - POST /setup/preview-opening معاينة إرشادية للأرصدة المشتقة والقيد (لا تُخزَّن أبداً).
- * - POST /setup/commit          معاملة واحدة (60 ثانية): T0 من ساعة القاعدة ⇒ الزرع متساوي الأثر ⇒ إعادة الحساب
+ * - POST /setup/preview-opening معاينة إرشادية للأرصدة المشتقة والقيد (لا تُخزَّن أبداً)، ومعها importedAfterCutover:
+ *                               حركات مستوردة بتاريخ ≥ البدء تُرحَّل بتاريخها على 319002 لا في الافتتاح.
+ * - POST /setup/commit          معاملة واحدة (60 ثانية): T0 من ساعة القاعدة ⇒ لا دفعة استيراد جارية (409 LEDGER_IMPORT_IN_PROGRESS) ⇒ الزرع متساوي الأثر ⇒ إعادة الحساب
  *                               بـT0 ⇒ قيد OPEN ⇒ openingSnapshotAt/activatedAt ⇒ المؤشرات ⇒ backfillState=RUNNING ⇒ SETUP_COMMIT.
  * - POST /setup/backfill        «إيقاف مؤقت»/«استئناف» الترحيل التاريخي (RUNNING ⇄ PAUSED).
  *
@@ -361,6 +367,14 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
   const derived = computeDerivedOpening(sources, cut, { decimals, routing });
   const manual = validateManualBalanceRows(manualRowsOf(draft), ctx, { midVatPeriod: midPeriod });
   const move = buildOpeningMove({ derived, manual: manual.lines, ctx, salesRepNames: sources.salesRepNames });
+  // المخزون الافتتاحي المستورد خارج الافتتاح: بعد البدء، أو أحدث من لقطة الاعتماد (T0 = الآن − 10 دقائق)
+  const stockCut = openingCutoff(cutoverDate, eff.timezone, openingSnapshotFromDbNow(now));
+  const [importedAfterCutover, customers, products, openingStock] = await Promise.all([
+    loadImportedAfterCutover(prisma, tenantId, cut, decimals),
+    prisma.customer.count({ where: { tenantId } }),
+    prisma.product.count({ where: { tenantId } }),
+    loadOpeningStockCheck(prisma, tenantId, stockCut, decimals),
+  ]);
   res.json({
     success: true,
     data: {
@@ -371,6 +385,14 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
       manual: { lineCount: manual.lines.length, issues: manual.issues },
       move: openingMoveJson(move, decimals),
       draftsBeforeCutover: await draftsBeforeCutover(prisma, tenantId, cutoverDate),
+      importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, decimals),
+      /** دفعات opening_stock: fullHistoryBlocked يمنع الاعتماد، وafterCutover يتطلب إقراراً، وtooRecent يُعاد بعد retryAfter */
+      openingStock: {
+        ...openingStockCheckJson(openingStock, decimals, stockCut),
+        fullHistoryBlocked: eff.method === 'FULL_HISTORY' && openingStock.batches > 0,
+      },
+      /** للتنبيه: ذمم صفرية مع عملاء، ومخزون صفري مع منتجات */
+      tenantCounts: { customers, products },
     },
   });
 }));
@@ -380,6 +402,10 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
 const commitSchema = z.object({
   /** تنبيه السجلات النظامية قبل زر التفعيل (§9.5 G6) */
   acknowledgeStatutory: z.literal(true),
+  /** إقرار بحركات مستوردة بتاريخ ≥ البدء (تُرحَّل على 319002) — إلزامي حين عددها > 0 */
+  acknowledgePostCutoverImports: z.boolean().optional(),
+  /** إقرار بمخزون افتتاحي مستورد في تاريخ البدء أو بعده (لا يدخل الافتتاح ولا يُرحَّل قبل M9) — إلزامي حين عدده > 0 */
+  acknowledgeOpeningStockExcluded: z.boolean().optional(),
   draft: draftSchema.optional(),
 }).strict();
 
@@ -463,6 +489,14 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     const company = await companyOf(tx, tenantId);
     const before = await tx.glSettings.findUnique({ where: { tenantId } });
     assertNotActivated(before);
+    // دفعة استيراد جارية (قلبها ينبض خلال المهلة) ⇒ 409 LEDGER_IMPORT_IN_PROGRESS قبل أي كتابة: صفوفها تُكتب بسياق
+    // «قبل التفعيل» ولا يغطيها الافتتاح ولا الإقرار. قفل حجز الدفعات أولاً فلا تُحجز دفعة بين الفحص والتفعيل؛
+    // المنقطعة (نبض أقدم من المهلة) لا تمنع — ما سُجّل منها يُراجع ويُتراجع عنه من سجل الدفعات.
+    await acquireImportEntriesLock(tx, tenantId);
+    const runningImport = await loadRunningImportBatch(tx, tenantId, dbNow);
+    if (runningImport) {
+      throw new LedgerHttpError(409, LEDGER_IMPORT_IN_PROGRESS_MESSAGE, importInProgressDetails(runningImport), 'LEDGER_IMPORT_IN_PROGRESS');
+    }
     const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
     const eff = effectiveSetup(draft, before, company.countryCode);
 
@@ -479,6 +513,40 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // لا تاريخ بدء في المستقبل: 422 LEDGER_CUTOVER_IN_FUTURE (قبل أي كتابة)
     assertCutoverNotInFuture(cutoverDate, eff.timezone, dbNow);
     const { midPeriod } = checkStep1({ ...eff, cutoverDate }, dbNow);
+    // المخزون الافتتاحي المستورد (opening_stock) قبل أي كتابة وقبل حساب الافتتاح: المسند نفسه في loadOpeningSources بـT0.
+    // قفل gl-post ممسوك، واستيراد المخزون يأخذه، فلا حركة تُكتب بين الفحص والتفعيل.
+    const stockDecimals = before?.currencyDecimals ?? DEFAULT_GL_SETTINGS.currencyDecimals;
+    const stockCut = openingCutoff(cutoverDate, eff.timezone, T0);
+    const openingStock = await loadOpeningStockCheck(tx, tenantId, stockCut, stockDecimals);
+    const openingStockJson = openingStockCheckJson(openingStock, stockDecimals, stockCut);
+    if (eff.method === 'FULL_HISTORY' && openingStock.batches > 0) {
+      throw new LedgerHttpError(409, LEDGER_OPENING_STOCK_FULL_HISTORY_MESSAGE, {
+        reason: 'OPENING_STOCK_FULL_HISTORY', method: 'FULL_HISTORY', batches: openingStock.batches,
+      }, 'LEDGER_OPENING_STOCK_FULL_HISTORY');
+    }
+    if (openingStock.afterCutover.count > 0 && parsed.data.acknowledgeOpeningStockExcluded !== true) {
+      throw new LedgerHttpError(409, LEDGER_OPENING_STOCK_AFTER_CUTOVER_MESSAGE, {
+        reason: 'OPENING_STOCK_AFTER_CUTOVER', field: 'acknowledgeOpeningStockExcluded', cutoverDate,
+        count: openingStockJson.afterCutover.count, value: openingStockJson.afterCutover.value,
+        minCutoverDate: openingStockJson.afterCutover.minCutoverDate, entries: openingStockJson.afterCutover.entries,
+      }, 'LEDGER_OPENING_STOCK_AFTER_CUTOVER');
+    }
+    if (openingStock.tooRecent.count > 0) {
+      throw new LedgerHttpError(409, LEDGER_OPENING_STOCK_TOO_RECENT_MESSAGE, {
+        reason: 'OPENING_STOCK_TOO_RECENT', count: openingStockJson.tooRecent.count, value: openingStockJson.tooRecent.value,
+        batchId: openingStockJson.tooRecent.entries[0]?.batchId ?? null, createdAt: openingStockJson.tooRecent.entries[0]?.createdAt ?? null,
+        retryAfter: openingStockJson.tooRecent.retryAfter,
+      }, 'LEDGER_OPENING_STOCK_TOO_RECENT');
+    }
+    // حركات مستوردة بتاريخ ≥ البدء: 409 ما لم يُقَرّ بها (قبل أي كتابة). اللقطة dbNow لا T0 — مجموعة أشمل
+    const currencyDecimalsForCheck = before?.currencyDecimals ?? DEFAULT_GL_SETTINGS.currencyDecimals;
+    const importedAfterCutover = await loadImportedAfterCutover(tx, tenantId, openingCutoff(cutoverDate, eff.timezone, dbNow), currencyDecimalsForCheck);
+    if (postCutoverImportsAckMissing(importedAfterCutover, parsed.data.acknowledgePostCutoverImports)) {
+      throw new LedgerHttpError(409, LEDGER_POST_CUTOVER_IMPORTS_ACK_MESSAGE, {
+        reason: 'POST_CUTOVER_IMPORTS_ACK_REQUIRED', field: 'acknowledgePostCutoverImports',
+        importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, currencyDecimalsForCheck),
+      }, 'LEDGER_POST_CUTOVER_IMPORTS_ACK');
+    }
 
     // (3) الإعدادات قبل التفعيل ثم الزرع متساوي الأثر (§4.5)
     await ensureSettingsRow(tx, tenantId, eff.templateKey, company.countryCode);
@@ -578,6 +646,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
         midVatPeriod: midPeriod, preCutoverBoxes: eff.preCutoverBoxes, watermarkAt: watermarkAt.toISOString(), history, futureDated, frozenSettlements,
         seed: { created: seed.created, skipped: seed.skipped, unresolvedMappings: seed.unresolvedMappings, conflictingMappings: seed.conflictingMappings.length },
         step3: step3Report, vendorsCreated: vendors.created, manualRows: manual.lines.length,
+        importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, decimals),
+        openingStockExcluded: openingStock.afterCutover.count > 0 ? openingStockJson.afterCutover : null,
         openingMove: posted ? { id: posted.id, number: posted.number, date: posted.date } : null,
         receivablesTotal: openingJson.receivablesTotal, custodyTotal: openingJson.custodyTotal, paylinkHeld: openingJson.paylinkHeld,
         warehouse: openingJson.warehouse, equityDiff: moveJson.equityDiff, totalDebit: moveJson.totalDebit, counts: openingJson.counts,

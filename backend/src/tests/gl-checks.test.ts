@@ -6,6 +6,8 @@
 // 1m→5m→30m→2h؛ C15 يحمرّ لمؤشر متأخر بعد DONE ولا يحمرّ أثناء الترحيل التاريخي.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { accountIdOf, saContext } from '../services/gl/testing/fixtures';
 import { validateMove } from '../services/gl/validate';
 import { custodyComponentsForRep, type CustodyComponentsInput, type CustodyItem, type CustodySettlementItem } from '../services/gl/custody';
@@ -20,7 +22,11 @@ import { isLedgerError, isNoMove, type BuildResult, type Milli } from '../servic
 import {
   C15_LAG_RED_MS, c8Severity, evaluateC1, evaluateC10, evaluateC11, evaluateC12, evaluateC15, evaluateC2, evaluateC4, evaluateC4b,
   evaluateC5, evaluateC8, evaluateC9, type ProblemEvent, type RepCustodyFacts,
+  IMPORT_AFTER_CUTOVER_ROW, OPENING_DELETED_WITHOUT_EVENT, evaluateC3, openingEntryGroupsFromRows, openingEntryRole, openingEntryTotalsFromGroups,
+  type C3Input, type ImportAfterCutoverFacts,
 } from '../services/gl/checks/rules';
+import { openingRowRole } from '../services/gl/opening';
+import { toMilli } from '../services/gl/money';
 import { runChecks, type CheckSettingsFacts, type CheckStore, type PendingPartners } from '../services/gl/checks/run';
 import { planEventAction } from '../services/gl/checks/eventActions';
 import { FakePostingStore } from './gl-fake-posting-store';
@@ -408,4 +414,171 @@ test('runChecks: C3 = الافتتاح + Σ AccountEntry بعد البدء؛ ا�
   store.settings = { ...store.settings!, activatedAt: null };
   const off = await runChecks(store, 't1');
   assert.deepEqual([off.results.length, off.overall], [0, 'GREEN']);
+});
+
+// ═══ خطة الاستيراد: البند 6 (ج) صف افتتاحي حُذف بلا حدث، والبند 7 (ب) حركات مستوردة بعد البدء على 319002 ═══
+
+function c3Input(p: Partial<C3Input>): C3Input {
+  return {
+    ledger: new Map(), opening: new Map(), entriesAfterCutover: new Map(), deletedOpeningImports: new Map(),
+    names: new Map([['c1', 'عميل أول']]), pendingCustomers: new Set(), pendingAll: false, ...p,
+  };
+}
+
+test('C3 (6 ج): صف افتتاحي محذوف بلا tombstone ⇒ تعمّق أحمر «حُذف بلا حدث» رغم تطابق c3Gaps؛ والحذف مع tombstone أخضر', () => {
+  // الافتتاح شمل 300 (صفّا استيراد 100 و200)، ثم حُذف صف الـ100 في سباق مع الاعتماد بلا حدث: الأستاذ = الافتتاح
+  const opening = new Map([['c1', 300_000n]]);
+  const ledger = new Map([['c1', 300_000n]]);
+  const noTomb = evaluateC3(c3Input({ ledger, opening, openingEntries: new Map([['c1', 200_000n]]) }));
+  assert.equal(noTomb.status, 'RED');
+  assert.equal(noTomb.rows.length, 1);
+  assert.deepEqual(
+    [noTomb.rows[0].kind, noTomb.rows[0].customerId, noTomb.rows[0].openingGapMilli, noTomb.rows[0].adjustable, noTomb.rows[0].name],
+    [OPENING_DELETED_WITHOUT_EVENT, 'c1', '100000', false, 'عميل أول'],
+  );
+  assert.equal(noTomb.fix, null, 'لا قيد تصحيح من صف لا انحراف له في c3Gaps');
+  assert.match(noTomb.summary, /حُذف بلا حدث/);
+  assert.equal(noTomb.metrics.openingDeletedWithoutEvent, 1);
+
+  // الحذف نفسه مع tombstone: حدث AR_ENTRY:REVERSE (شقيقه SKIPPED(OPENING)) ثم عكس مرحَّل على الأستاذ
+  const withTomb = evaluateC3(c3Input({
+    ledger: new Map([['c1', 200_000n]]), opening, openingEntries: new Map([['c1', 200_000n]]), deletedOpeningImports: new Map([['c1', 100_000n]]),
+  }));
+  assert.deepEqual([withTomb.status, withTomb.rows.length], ['GREEN', 0]);
+
+  // بانتظار الترحيل ⇒ أصفر؛ ومخزن لا يقرأ الصفوف الافتتاحية (openingEntries غائب) ⇒ السلوك القديم أخضر
+  assert.equal(evaluateC3(c3Input({ ledger, opening, openingEntries: new Map([['c1', 200_000n]]), pendingCustomers: new Set(['c1']) })).status, 'YELLOW');
+  assert.equal(evaluateC3(c3Input({ ledger, opening })).status, 'GREEN');
+  // انحراف c3Gaps أحمر مع الصف ⇒ قيد التصحيح لصف الانحراف وحده
+  const both = evaluateC3(c3Input({ ledger: new Map([['c1', 305_000n]]), opening, openingEntries: new Map([['c1', 200_000n]]) }));
+  assert.equal(both.fix, 'CONTROL_ADJUSTMENT');
+  assert.deepEqual(both.rows.map((r) => [r.kind ?? 'GAP', r.adjustable]), [['GAP', true], [OPENING_DELETED_WITHOUT_EVENT, false]]);
+});
+
+test('C3 (6 ج): مجاميع الصفوف الافتتاحية بقاعدة computeDerivedOpening — إلغاء بلا أثر في النافذة يُسقط، والدور مرآة openingRowRole', () => {
+  const groups = [
+    { customerId: 'c1', invoiceId: null, receiptId: null, type: 'ADJUSTMENT_DEBIT', invoiceType: null, debit: 100.1, credit: 0 },
+    { customerId: 'c1', invoiceId: 'i1', receiptId: null, type: 'INVOICE_DEBIT', invoiceType: 'CREDIT', debit: 50, credit: 0 },
+    { customerId: 'c1', invoiceId: 'i1', receiptId: null, type: 'INVOICE_CREDIT', invoiceType: 'CREDIT', debit: 0, credit: 50 },
+    // فاتورة مؤرخة مستقبلاً أُلغيت قبل البدء: صف الإلغاء وحده في النافذة ⇒ يُسقط
+    { customerId: 'c2', invoiceId: 'i2', receiptId: null, type: 'INVOICE_CREDIT', invoiceType: 'CREDIT', debit: 0, credit: 70 },
+    { customerId: 'c2', invoiceId: null, receiptId: 'r1', type: 'RECEIPT_CREDIT', invoiceType: null, debit: 0, credit: 20 },
+  ];
+  const totals = openingEntryTotalsFromGroups(groups, 2);
+  assert.deepEqual([...totals.entries()], [['c1', 100_100n], ['c2', -20_000n]]);
+  const combos = ['INVOICE_DEBIT', 'INVOICE_CREDIT', 'RECEIPT_DEBIT', 'RECEIPT_CREDIT', 'ADJUSTMENT_DEBIT'];
+  for (const type of combos) {
+    for (const invoiceType of [null, 'CREDIT', 'CASH', 'RETURN']) {
+      for (const [invoiceId, receiptId] of [['i', null], [null, 'r'], ['i', 'r'], [null, null]] as const) {
+        const e = { invoiceId, receiptId, type, invoiceType };
+        assert.equal(openingEntryRole(e), openingRowRole(e), JSON.stringify(e));
+      }
+    }
+  }
+});
+
+test('C3 (مراجعة 1): تعمّق الصفوف الافتتاحية يقرّب كل صف وحده — 1.005 + 2.005 + 3.125 بمنزلتين = 6150 كالقيد الافتتاحي ⇒ أخضر', () => {
+  const rows = [1.005, 2.005, 3.125].map((debit) => ({ customerId: 'c1', invoiceId: null, receiptId: null, type: 'ADJUSTMENT_DEBIT', invoiceType: null, debit, credit: 0 }));
+  // القيد الافتتاحي (computeDerivedOpening): toMilli لكل صف ثم الجمع
+  const openMilli = rows.reduce((s, r) => s + toMilli(r.debit, 2) - toMilli(r.credit, 2), 0n);
+  assert.equal(openMilli, 6_150n);
+  // الخلل: مجموع Float واحد (groupBy) ثم التقريب ⇒ 6140 ⇒ «صف افتتاحي حُذف بلا حدث» أحمر دائم
+  const summed = openingEntryTotalsFromGroups([{ ...rows[0], debit: rows.reduce((s, r) => s + r.debit, 0) }], 2);
+  assert.equal(summed.get('c1'), 6_140n);
+  // المسار الجديد: صفاً صفاً إلى مجموعات بالملّي ثم قاعدة الإسقاط
+  const groups = [...openingEntryGroupsFromRows(rows, 2).values()];
+  assert.equal(groups.length, 1);
+  const totals = openingEntryTotalsFromGroups(groups, 2);
+  assert.equal(totals.get('c1'), openMilli);
+  const opening = new Map([['c1', openMilli]]);
+  const c3 = evaluateC3(c3Input({ ledger: new Map(opening), opening, openingEntries: totals }));
+  assert.deepEqual([c3.status, c3.rows.length], ['GREEN', 0]);
+  // تجميع تدريجي عبر الصفحات يعطي المجموع نفسه، وقاعدة إسقاط الإلغاء بلا أثر تبقى تعمل على المجموعات
+  const paged = new Map();
+  openingEntryGroupsFromRows(rows.slice(0, 1), 2, paged);
+  openingEntryGroupsFromRows([...rows.slice(1), { customerId: 'c2', invoiceId: 'i9', receiptId: null, type: 'INVOICE_CREDIT', invoiceType: 'CREDIT', debit: 0, credit: 1.005 }], 2, paged);
+  const pagedTotals = openingEntryTotalsFromGroups([...paged.values()], 2);
+  assert.deepEqual([...pagedTotals.entries()], [['c1', 6_150n]]);
+  // المخزن الحقيقي يقرأ صفاً صفاً (لا groupBy على Float)
+  const src = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'checks', 'store.prisma.ts'), 'utf8');
+  const body = src.slice(src.indexOf('async accountEntryOpeningTotals('), src.indexOf('async customerNames('));
+  assert.doesNotMatch(body, /accountEntry\.groupBy/);
+  assert.match(body, /openingEntryGroupsFromRows\(/);
+});
+
+function importFacts(netMilli: bigint): ImportAfterCutoverFacts {
+  return {
+    accountId: accountIdOf('319002'), accountCode: '319002', cutoverDate: '2027-01-01', netMilli, moveCount: 2,
+    moves: [
+      { moveId: 'm2', number: 'OPEN/2027/00003', date: '2027-02-10', attentionReason: 'حركة مستوردة بعد تاريخ البدء', amountMilli: -250_000n, reversal: false },
+      { moveId: 'm1', number: 'OPEN/2027/00002', date: '2027-01-05', attentionReason: null, amountMilli: 40_000n, reversal: false },
+    ],
+  };
+}
+
+test('C9 (7 ب): صافي 319002 من قيود IMPORT بعد البدء ⇒ أصفر مع التعمّق إلى القيود؛ ومن دونه أخضر', async () => {
+  const zero = [
+    { key: 'POSTING_SUSPENSE' as const, accountId: SUSP, accountCode: '911001', balanceMilli: 0n, attentionMoves: [] },
+    { key: 'BANK_SUSPENSE' as const, accountId: accountIdOf('112009'), accountCode: '112009', balanceMilli: 0n, attentionMoves: [] },
+  ];
+  const yellow = evaluateC9(zero, importFacts(-210_000n));
+  assert.equal(yellow.status, 'YELLOW');
+  assert.equal(yellow.fix, 'REVIEW_SUSPENSE');
+  assert.deepEqual(yellow.rows.map((r) => r.kind), [IMPORT_AFTER_CUTOVER_ROW, 'IMPORT_MOVE', 'IMPORT_MOVE']);
+  assert.deepEqual([yellow.rows[0].balanceMilli, yellow.rows[0].accountCode, yellow.rows[0].moveCount], ['-210000', '319002', 2]);
+  assert.deepEqual([yellow.rows[1].moveId, yellow.rows[1].amountMilli], ['m2', '-250000']);
+  assert.equal(yellow.metrics.importAfterCutoverMilli, '-210000');
+  assert.match(yellow.summary, /319002/);
+  // صافٍ صفري (حركة وعكسها) أو بلا حقائق ⇒ أخضر
+  assert.equal(evaluateC9(zero, importFacts(0n)).status, 'GREEN');
+  assert.equal(evaluateC9(zero).status, 'GREEN');
+
+  // عبر runChecks: المخزن يُسأل بحساب OPENING_EQUITY وتاريخ البدء؛ والطريقة (ب) لا تُسأل
+  const store = new FakeCheckStore();
+  const asked: { accountId: string; cutoverDate: string }[] = [];
+  store.mappedAccounts = async () => [{ key: 'OPENING_EQUITY', id: accountIdOf('319002'), code: '319002' }];
+  Object.assign(store, {
+    async importMovesAfterCutover(_t: string, input: { accountId: string; cutoverDate: string; limit: number }) {
+      asked.push({ accountId: input.accountId, cutoverDate: input.cutoverDate });
+      const f = importFacts(-210_000n);
+      return { netMilli: f.netMilli, moveCount: f.moveCount, moves: f.moves };
+    },
+  });
+  const r = (await runChecks(store, 't1', { only: ['C9'] })).results[0];
+  assert.deepEqual([r.key, r.status], ['C9', 'YELLOW']);
+  assert.deepEqual(asked, [{ accountId: accountIdOf('319002'), cutoverDate: '2027-01-01' }]);
+  store.settings = { ...store.settings!, setupMethod: 'FULL_HISTORY' };
+  assert.equal((await runChecks(store, 't1', { only: ['C9'] })).results[0].status, 'GREEN');
+  assert.equal(asked.length, 1);
+});
+
+test('runChecks C3 (6 ج): المخزن يُسأل عن الصفوف الافتتاحية الحالية بنافذة البدء واللقطة، والطريقة (ب) لا تُسأل', async () => {
+  const store = new FakeCheckStore();
+  store.arOpening.set('c1', 300_000n);
+  store.arLedger.set('c1', 300_000n);
+  const windows: { cutoverStart: Date; openingSnapshotAt: Date }[] = [];
+  Object.assign(store, {
+    async accountEntryOpeningTotals(_t: string, w: { cutoverStart: Date; openingSnapshotAt: Date }) {
+      windows.push(w);
+      return new Map([['c1', 200_000n]]);
+    },
+  });
+  const c3 = (await runChecks(store, 't1', { only: ['C3'] })).results[0];
+  assert.equal(c3.status, 'RED');
+  assert.equal(c3.rows[0].kind, OPENING_DELETED_WITHOUT_EVENT);
+  assert.deepEqual(windows.map((w) => [w.cutoverStart.toISOString(), w.openingSnapshotAt.toISOString()]), [['2026-12-31T21:00:00.000Z', '2027-01-15T09:00:00.000Z']]);
+  store.settings = { ...store.settings!, setupMethod: 'FULL_HISTORY' };
+  assert.equal((await runChecks(store, 't1', { only: ['C3'] })).results[0].status, 'GREEN');
+  assert.equal(windows.length, 1);
+});
+
+test('حارس ثابت: مخزن الفحوص يقرأ قيود IMPORT بعد البدء بلا وصول متأخر ومصدرها POST مع عكوسها، والقواعد لا تستورد opening.ts', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'checks', 'store.prisma.ts'), 'utf8');
+  const body = src.slice(src.indexOf('async importMovesAfterCutover('), src.indexOf('async draftsUpTo('));
+  assert.match(body, /moveType: 'IMPORT', date: \{ gte: toDbDate\(input\.cutoverDate\) \}, lateArrival: false/);
+  assert.match(body, /reversedMoveId: null, sources: \{ some: \{ event: 'POST' \} \}/);
+  assert.match(body, /reversedMove: \{ is: base \}/);
+  const rules = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'checks', 'rules.ts'), 'utf8');
+  assert.doesNotMatch(rules, /from '\.\.\/opening'/);
+  assert.doesNotMatch(src, /from '\.\.\/opening'/, 'opening.ts يجرّ config/database إلى المجدول');
 });

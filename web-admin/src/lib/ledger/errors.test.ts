@@ -54,6 +54,21 @@ test('الأسباب المضلِّلة سابقاً تُعرض بتسميتها
   assert.equal(t('LEDGER_UNBALANCED', 'UNBALANCED'), 'القيد غير متوازن');
 });
 
+test('رموز المعالج للاستيراد والمخزون الافتتاحي: تسمية بالسبب وبالرمز وحده، ولكل رمز يرده setup.ts تسمية', () => {
+  const t = (code: string, reason?: string) => ledgerErrorMessage(tr, { code, ...(reason ? { details: { reason } } : {}), status: 409 });
+  const after = 'مخزون افتتاحي مستورد في تاريخ البدء أو بعده لا يدخل القيد الافتتاحي: اعتمد في يوم لاحق بتاريخ بدء بعد يوم الاستيراد، أو تراجع عن الدفعة، أو أقرّ بالمتابعة دون قيمته';
+  assert.equal(t('LEDGER_OPENING_STOCK_AFTER_CUTOVER', 'OPENING_STOCK_AFTER_CUTOVER'), after);
+  assert.equal(t('LEDGER_OPENING_STOCK_AFTER_CUTOVER'), after);
+  assert.match(t('LEDGER_OPENING_STOCK_FULL_HISTORY', 'OPENING_STOCK_FULL_HISTORY'), /طريقة ترحيل التاريخ الكامل/);
+  assert.match(t('LEDGER_OPENING_STOCK_TOO_RECENT'), /أقل من 10 دقائق/);
+  assert.match(t('LEDGER_IMPORT_IN_PROGRESS'), /استيراد بيانات جارٍ/);
+  const setup = fs.readFileSync(path.join(backend, 'routes', 'ledger', 'setup.ts'), 'utf8');
+  const codes = [...new Set([...setup.matchAll(/'(LEDGER_[A-Z_]+)'\)/g)].map(m => m[1]))];
+  assert.ok(codes.includes('LEDGER_OPENING_STOCK_TOO_RECENT'), codes.join(','));
+  const generic = ledgerErrorText(tr, 'X_UNKNOWN');
+  assert.deepEqual(codes.filter(c => ledgerErrorText(tr, c) === generic), [], 'رموز بلا تسمية');
+});
+
 test('بلا رمز ولا سبب معروف: نص عام بحسب الحالة، لا رسالة الخادم العربية (ZodError 400 وغيره)', () => {
   const server = { success: false, message: 'بيانات غير صحيحة lines', errors: {} } as const;
   const zod = ledgerErrorMessage(tr, { ...server, status: 400 });

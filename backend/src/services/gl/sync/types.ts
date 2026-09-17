@@ -68,6 +68,21 @@ export const TOMBSTONE_SOURCE_TYPES = ['SETTLEMENT', 'AR_ENTRY'] as const satisf
 /** مصادر المخزون الخاضعة للأفق الآمن (§5.4، M9) — ومعها أحداث COGS وRESTOCK */
 export const INVENTORY_SOURCE_TYPES = ['WH_ENTRY', 'VAN_LOAD', 'RESTOCK'] as const satisfies readonly SourceType[];
 
+/**
+ * مسارا العدالة داخل الشركة (البند 4 (ب)): أحداث الاستيراد (AR_ENTRY) في مسار، وكل ما سواها (المستندات الحية) في آخر.
+ * AR_ENTRY لا يعتمد على ترتيب المخزون ولا P7، وبوابة الأشقاء تحمي REVERSE، فلا يلزم ترتيب effectAt عبر المسارين.
+ */
+export const IMPORT_LANE_SOURCE_TYPES = ['AR_ENTRY'] as const satisfies readonly SourceType[];
+/** نمط التناوب بين المسارين: 3 من 5 للمستندات الحية (~60٪) والباقي للاستيراد؛ مسار فارغ يترك دوره للآخر */
+export const POSTER_LANE_PATTERN: readonly ('LIVE' | 'IMPORT')[] = ['LIVE', 'IMPORT', 'LIVE', 'IMPORT', 'LIVE'];
+/** حسم OPENING الجماعي (البند 4 (أ)): معاملة لكل دفعة من المئات تحت قفل gl-post، وسقف دفعات لكل نبضة شركة */
+export const OPENING_BULK_BATCH_SIZE = 500;
+export const OPENING_BULK_MAX_BATCHES = 10;
+/** حصة الحسم الجماعي من زمن الميزانية المتبقي عند بدئه: الباقي للمستندات الحية والاستيراد المرحَّل في النبضة نفسها */
+export const OPENING_BULK_TIME_SHARE = 0.5;
+/** سبب «يحتاج انتباهاً» لحركة مستوردة بتاريخ ≥ البدء بلا وصول متأخر (البند 7 (أ)) */
+export const IMPORT_AFTER_CUTOVER_ATTENTION_REASON = 'حركة مستوردة بعد تاريخ البدء رُحّلت إلى 319002 — راجع تصنيفها';
+
 /** مصدر كل مؤشر ⇒ أنواع الأحداث التي يولّدها (§5.2) */
 export const CURSOR_SOURCE_EVENT_TYPES: Readonly<Record<SyncCursorSource, readonly SourceType[]>> = {
   ACCOUNT_ENTRY: ['INVOICE', 'RECEIPT', 'AR_ENTRY'],
@@ -328,6 +343,10 @@ export interface PosterRunResult {
   /** إعادة فحص BLOCKED لا تُحتسب في ميزانية الأحداث (§5.4) */
   blockedRechecks: number;
   stoppedBy: 'EMPTY' | 'EVENT_BUDGET' | 'TIME_BUDGET' | 'TICK_CUTOFF';
+  /** أحداث AR_ENTRY:POST حُسمت SKIPPED(OPENING) جماعياً قبل الحلقة (البند 4 (أ)) — لا تُحتسب في ميزانية الأحداث */
+  bulkOpeningSkipped?: number;
+  /** ما عولج (attempted) لكل مسار حين يدعم المخزن ترشيح النوع (البند 4 (ب)) */
+  lanes?: { live: number; import: number };
 }
 
 export type TenantTickSkip = 'LEASE_HELD' | 'IN_PROCESS' | 'NOT_ACTIVATED' | 'SUITE_DISABLED';

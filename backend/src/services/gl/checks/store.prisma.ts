@@ -7,6 +7,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { fromDbDate, toDbDate } from '../dates';
 import { toMilli } from '../money';
+import { openingEntryGroupsFromRows, openingEntryRole, openingEntryTotalsFromGroups } from './rules';
 import { RECONCILED_SOURCES } from '../sync/desired';
 import { siblingPostKey } from '../sync/keys';
 import { PrismaPostingTx } from '../sync/postingStore.prisma';
@@ -14,7 +15,7 @@ import { cursorLagMs } from '../sync/reconciler';
 import { createPrismaReconcilerStore } from '../sync/reconcilerStore.prisma';
 import type { BackfillState, InventoryMode, LocalDate, Milli } from '../types';
 import type { CheckSettingsFacts, CheckStore, PendingPartners } from './run';
-import type { CursorFacts, PeriodTotal, ProblemEvent } from './rules';
+import type { CursorFacts, OpeningEntryGroup, PeriodTotal, ProblemEvent } from './rules';
 
 type Db = Prisma.TransactionClient | PrismaClient;
 
@@ -163,6 +164,37 @@ export function createPrismaCheckStore(db: Db): CheckStore {
         out.set(customerId, (out.get(customerId) ?? 0n) + debit - credit);
       }
       return out;
+    },
+
+    async accountEntryOpeningTotals(tenantId, window, decimals) {
+      // صفاً صفاً بتقريب كل صف وحده ثم الجمع — مرآة computeDerivedOpening (لا groupBy على Float ثم تقريب المجموع:
+      // 1.005 + 2.005 + 3.125 بمنزلتين = 6150 ملّي في القيد و6140 في المجموع ⇒ أحمر C3 كاذب). ثم قاعدة إسقاط صف
+      // إلغاء مستند لا صف أثر له في النافذة على المجموعات (عميل، مستند، نوع).
+      const grouped = new Map<string, OpeningEntryGroup>();
+      const PAGE = 5000;
+      let cursor: string | undefined;
+      for (;;) {
+        const page = await d.accountEntry.findMany({
+          where: { tenantId, entryDate: { lt: window.cutoverStart }, createdAt: { lte: window.openingSnapshotAt } },
+          select: { id: true, customerId: true, invoiceId: true, receiptId: true, type: true, debit: true, credit: true },
+          orderBy: { id: 'asc' }, take: PAGE, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+        openingEntryGroupsFromRows(page.map((r) => ({
+          customerId: r.customerId, invoiceId: r.invoiceId, receiptId: r.receiptId, type: r.type, invoiceType: null,
+          debit: r.debit ?? 0, credit: r.credit ?? 0,
+        })), decimals, grouped);
+        if (page.length < PAGE) break;
+        cursor = page[page.length - 1].id;
+      }
+      const groups = [...grouped.values()];
+      const invoiceIds = [...new Set(groups.map((g) => g.invoiceId).filter((v): v is string => !!v))];
+      const invoiceType = new Map<string, string>();
+      for (let i = 0; i < invoiceIds.length; i += 1000) {
+        const rows = await d.invoice.findMany({ where: { tenantId, id: { in: invoiceIds.slice(i, i + 1000) } }, select: { id: true, type: true } });
+        for (const r of rows) invoiceType.set(r.id, r.type);
+      }
+      for (const g of groups) g.invoiceType = g.invoiceId ? invoiceType.get(g.invoiceId) ?? null : null;
+      return openingEntryTotalsFromGroups(groups, decimals, openingEntryRole);
     },
 
     async customerNames(tenantId, ids) {
@@ -340,6 +372,34 @@ export function createPrismaCheckStore(db: Db): CheckStore {
         moveId: l.move.id, number: l.move.number, date: fromDbDate(l.move.date), attentionReason: l.move.attentionReason,
         amountMilli: l.debitMilli - l.creditMilli,
       }));
+    },
+
+    async importMovesAfterCutover(tenantId, input) {
+      // قيد IMPORT مصدره POST بتاريخ ≥ البدء بلا وصول متأخر؛ ومعه عكسه (reversedMove) فيصفّيه. عكس صف افتتاحي مصدره
+      // REVERSE بلا قيد معكوس فلا يدخل (تصحيح للافتتاح لا حركة بعد البدء)
+      const base: Prisma.GlMoveWhereInput = {
+        tenantId, state: 'POSTED', moveType: 'IMPORT', date: { gte: toDbDate(input.cutoverDate) }, lateArrival: false,
+        reversedMoveId: null, sources: { some: { event: 'POST' } },
+      };
+      const where: Prisma.GlMoveLineWhereInput = {
+        tenantId, accountId: input.accountId, posted: true,
+        move: { OR: [base, { tenantId, state: 'POSTED', reversedMove: { is: base } }] },
+      };
+      const [agg, lines] = await Promise.all([
+        d.glMoveLine.aggregate({ where, _sum: { debitMilli: true, creditMilli: true }, _count: { _all: true } }),
+        d.glMoveLine.findMany({
+          where, orderBy: [{ date: 'desc' }, { moveId: 'desc' }], take: input.limit,
+          select: { debitMilli: true, creditMilli: true, move: { select: { id: true, number: true, date: true, attentionReason: true, reversedMoveId: true } } },
+        }),
+      ]);
+      return {
+        netMilli: (agg._sum.debitMilli ?? 0n) - (agg._sum.creditMilli ?? 0n),
+        moveCount: agg._count._all,
+        moves: lines.map((l) => ({
+          moveId: l.move.id, number: l.move.number, date: fromDbDate(l.move.date), attentionReason: l.move.attentionReason,
+          amountMilli: l.debitMilli - l.creditMilli, reversal: l.move.reversedMoveId !== null,
+        })),
+      };
     },
 
     async draftsUpTo(tenantId, date, limit) {

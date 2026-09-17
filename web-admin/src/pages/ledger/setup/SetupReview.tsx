@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { AlertTriangle, RefreshCw, ShieldCheck, Users, Wallet, CreditCard, Warehouse, Truck } from 'lucide-react';
@@ -9,9 +9,15 @@ import {
   ledgerSetupApi, ledgerSetupKeys,
   type DerivedOpeningJson, type OpeningMoveJson, type SetupCommitResult,
 } from '../../../api/ledgerSetup';
+import { ledgerErrorOf } from '../../../api/ledgerConfig';
 import { ledgerHref } from '../routes';
-import { isZeroAmount } from './setupLogic';
-import { manualIssueLabels, Notice, StepSection, useSetupErrorText } from './setupUi';
+import { useAllAccounts } from '../config/parts/configUi';
+import {
+  commitNeedsRefresh, derivedAccountKind, hasPostCutoverImports, importsAckBlocksCommit, isZeroAmount, openingDataHints, openingStockReview,
+} from './setupLogic';
+import {
+  DataImportLink, manualIssueText, Notice, OpeningStockNotice, PostCutoverImportsNotice, StepSection, useSetupErrorText, WarehouseLink,
+} from './setupUi';
 import { StepFooter, usePeriodicityLabels, type StepProps } from './SetupSteps';
 
 /**
@@ -20,9 +26,30 @@ import { StepFooter, usePeriodicityLabels, type StepProps } from './SetupSteps';
  * - 6. المراجعة والتفعيل: ملخص الاختيارات، والقيد الافتتاحي المتوقع، ومسودات يدوية قبل تاريخ البدء، وتنبيه
  *   السجلات النظامية (§9.5 G6) بإقرار صريح قبل الزر، ثم `/setup/commit` بمعاملة واحدة.
  * - النتيجة: الأرقام النهائية الملتزمة من رد الاعتماد (لا أرقام المعاينة).
+ * - تنبيهات الاستيراد: حركات مستوردة بتاريخ ≥ البدء (importedAfterCutover) بإقرار إلزامي قبل التفعيل، وإحالة الذمم
+ *   الناقصة إلى صفحة الاستيراد والمخزون الصفري إلى وارد المستودع. وفي طريقة التاريخ الكامل شرح لماذا تُعدّ كل
+ *   الاستيرادات «بعد البدء» (FullHistoryImportsNote).
+ * - دفعة استيراد جارية وقت الاعتماد ⇒ 409 LEDGER_IMPORT_IN_PROGRESS: رسالة الانتظار وتحديث المعاينة.
+ * - المخزون الافتتاحي المستورد (openingStock): التاريخ الكامل مع دفعة يمنع التفعيل بتوجيه، وبعد البدء يتطلب
+ *   acknowledgeOpeningStockExcluded أو تاريخ بدء لاحق أو التراجع، والأحدث من اللقطة ينتظر retryAfter ثم تُعاد المعاينة.
+ *   وأي 409 منها يعيد المعاينة ويلغي الإقرارات (commitNeedsRefresh).
  */
 
 const TOP_ROWS = 50;
+
+/**
+ * طريقة التاريخ الكامل: تاريخ البدء = بداية السنة المالية لأقدم حركة حساب عميل (والمستوردة منها)، فلا يسبقه صف
+ * مستورد ولا ذمم في القيد الافتتاحي، وكل استيراد يقع «بعد البدء» ويُرحَّل بتاريخه على حساب الأرصدة الافتتاحية.
+ */
+export function FullHistoryImportsNote({ method }: { method: string | null | undefined }) {
+  const tr = useTr();
+  if (method !== 'FULL_HISTORY') return null;
+  return (
+    <p className="text-xs">
+      {tr('لماذا كل الاستيرادات بعد البدء؟ في ترحيل التاريخ الكامل يكون تاريخ البدء بداية السنة المالية لأقدم حركة في حسابات العملاء، ومنها الحركات المستوردة نفسها، فلا تسبقه أي حركة ولا يحمل القيد الافتتاحي ذمما. لذلك تُرحَّل كل حركة مستوردة بتاريخها على حساب الأرصدة الافتتاحية، وهذا متوقع في هذه الطريقة. إن أردت أن تدخل الأرصدة المستوردة القيد الافتتاحي فاختر طريقة الأرصدة الافتتاحية بتاريخ بدء بعد تواريخها')}
+    </p>
+  );
+}
 
 /** الأرصدة المشتقة: الذمم لكل عميل، والعهدة لكل مندوب بمكوّناتها، والأمانات، ومخزون المستودع. */
 export function OpeningFigures({ opening, decimals, finalNumbers }: { opening: DerivedOpeningJson; decimals: number; finalNumbers?: boolean }) {
@@ -55,7 +82,13 @@ export function OpeningFigures({ opening, decimals, finalNumbers }: { opening: D
       )}
       {!finalNumbers && <Notice><Truck size={12} className="inline me-1" />{tr('بضاعة السيارات لا تُحسب هنا وتُدخل يدويا في الخطوة التالية')}</Notice>}
 
-      <StepSection title={tr('ذمم العملاء')} hint={tr('مجموع حركات حساب كل عميل قبل تاريخ البدء')}>
+      <StepSection title={tr('ذمم العملاء')} hint={finalNumbers ? tr('مجموع حركات حساب كل عميل قبل تاريخ البدء') : (
+        <>
+          {tr('مجموع حركات حساب كل عميل قبل تاريخ البدء')}
+          <br />
+          <DataImportLink className="text-[#E15A30] hover:underline">{tr('أرصدة ناقصة؟ استوردها ثم حدّث المعاينة')}</DataImportLink>
+        </>
+      )}>
         {receivables.length === 0 ? <p className="text-sm text-[#9A8F7E]">{tr('لا أرصدة')}</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -150,11 +183,30 @@ export function Step4Preview({ state, canWrite, busy, onSave, onBack }: StepProp
     gcTime: 0,
     retry: false,
   });
+  const hints = q.data ? openingDataHints(q.data) : null;
   return (
     <div className="space-y-4">
       <Notice tone="warn">
         {tr('معاينة إرشادية للقراءة فقط: لا تُخزَّن هذه الأرقام، وتُعاد حسابها داخل معاملة التفعيل بما يصل حتى لحظته')}
       </Notice>
+      {q.data && (
+        <PostCutoverImportsNotice data={q.data.importedAfterCutover} decimals={decimals}>
+          <FullHistoryImportsNote method={q.data.method} />
+        </PostCutoverImportsNotice>
+      )}
+      {q.data && <OpeningStockNotice data={q.data.openingStock} decimals={decimals} />}
+      {hints?.receivablesMissing && (
+        <Notice tone="warn">
+          {tr('ذمم العملاء صفر ولشركتك عملاء. إن كانت لهم أرصدة في نظامك السابق فاستوردها بتاريخ قبل البدء ثم حدّث المعاينة')}{' '}
+          <DataImportLink>{tr('استيراد الأرصدة الافتتاحية')}</DataImportLink>
+        </Notice>
+      )}
+      {hints?.inventoryMissing && (
+        <Notice tone="warn">
+          {tr('مخزون المستودع صفر ولشركتك منتجات. المخزون الافتتاحي يُحسب من حركات وارد المستودع بتكلفتها المسجّلة قبل تاريخ البدء')}{' '}
+          <WarehouseLink>{tr('وارد المستودع')}</WarehouseLink>
+        </Notice>
+      )}
       <div className="flex justify-end">
         <button type="button" className="btn-secondary inline-flex items-center gap-1.5 text-xs" disabled={q.isFetching} onClick={() => void q.refetch()}>
           <RefreshCw size={13} className={q.isFetching ? 'animate-spin' : ''} />{tr('تحديث المعاينة')}
@@ -173,10 +225,13 @@ export function Step4Preview({ state, canWrite, busy, onSave, onBack }: StepProp
 export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps & { onCommitted: (r: SetupCommitResult) => void }) {
   const tr = useTr();
   const errorText = useSetupErrorText();
-  const issueLabels = manualIssueLabels(tr);
   const periodicityLabels = usePeriodicityLabels();
+  const accountsQ = useAllAccounts();
   const decimals = state.status.currencyDecimals ?? 2;
   const [ack, setAck] = useState(false);
+  const [importsAck, setImportsAck] = useState(false);
+  const [stockAck, setStockAck] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const [commitError, setCommitError] = useState<string | null>(null);
   const q = useQuery({
     queryKey: [...ledgerSetupKeys.setup, 'preview', 'review'],
@@ -186,9 +241,18 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
     retry: false,
   });
   const commit = useMutation({
-    mutationFn: async () => (await ledgerSetupApi.commit()).data.data,
+    mutationFn: async () => (await ledgerSetupApi.commit(undefined, {
+      acknowledgePostCutoverImports: importsAck, acknowledgeOpeningStockExcluded: stockAck && stock.afterCutover,
+    })).data.data,
     onSuccess: r => { setCommitError(null); onCommitted(r); },
-    onError: e => setCommitError(errorText(e, tr('تعذر التفعيل'))),
+    onError: e => {
+      setCommitError(errorText(e, tr('تعذر التفعيل')));
+      // حركات مستوردة ظهرت بعد المعاينة ⇒ تُحدَّث ليظهر التنبيه وخانة الإقرار
+      // أو دفعة استيراد كانت جارية ⇒ تُحدَّث بعد انتهائها ليُعاد الإقرار على الأرقام الجديدة
+      // أو مخزون افتتاحي مستورد تغيّر حكمه (بعد البدء، التاريخ الكامل، أحدث من اللقطة) ⇒ المعاينة الجديدة وإقرار جديد
+      const code = ledgerErrorOf(e)?.code;
+      if (commitNeedsRefresh(code)) { setImportsAck(false); setStockAck(false); setNow(new Date()); void q.refetch(); }
+    },
   });
 
   const d = state.draft;
@@ -197,6 +261,23 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
   const issues = q.data?.manual.issues ?? [];
   const drafts = q.data?.draftsBeforeCutover ?? state.draftsBeforeCutover;
   const blocked = !q.data || issues.length > 0;
+  const imported = q.data?.importedAfterCutover;
+  const importsBlocked = importsAckBlocksCommit(imported, importsAck);
+  const stock = openingStockReview(q.data?.openingStock, stockAck, now);
+  const stockBlocked = stock.block !== null;
+  const stockTitle = stock.block === 'FULL_HISTORY' ? tr('المخزون الافتتاحي المستورد لا يدخل الدفاتر في طريقة التاريخ الكامل')
+    : stock.block === 'AFTER_CUTOVER_ACK' ? tr('اختر معالجة المخزون الافتتاحي المستورد بعد تاريخ البدء أولا')
+      : stock.block === 'TOO_RECENT' ? tr('أعد الاعتماد بعد اكتمال لقطة المخزون الافتتاحي') : undefined;
+
+  // مهلة لقطة المخزون الأحدث: عند انقضائها تُعاد المعاينة فيُرفع المنع بحكم الخادم
+  // refetch ثابت الهوية (كائن النتيجة يتجدد كل رسم فيؤجّل المؤقت مع كل نقرة)
+  const refetchPreview = q.refetch;
+  useEffect(() => {
+    if (!stock.tooRecent || stock.waitMs <= 0) return;
+    const t = window.setTimeout(() => { setNow(new Date()); void refetchPreview(); }, stock.waitMs + 1500);
+    return () => window.clearTimeout(t);
+  }, [stock.tooRecent, stock.waitMs, refetchPreview]);
+  const kindOf = (code: string) => derivedAccountKind(accountsQ.data?.find(a => a.code === code)?.controlKind ?? null, code);
 
   return (
     <div className="space-y-4">
@@ -236,12 +317,33 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
           <ul className="list-disc ps-5 mt-1">
             {issues.slice(0, 10).map(is => (
               <li key={`${is.index}:${is.reason}`}>
-                {tr('السطر')} <bdi className="tabular-nums">{is.index + 1}</bdi> · <bdi dir="ltr" className="font-mono">{is.accountCode || '—'}</bdi> — {issueLabels[is.reason] ?? is.reason}
+                {tr('السطر')} <bdi className="tabular-nums">{is.index + 1}</bdi> · <bdi dir="ltr" className="font-mono">{is.accountCode || '—'}</bdi> — {manualIssueText(tr, is.reason, kindOf(is.accountCode))}
               </li>
             ))}
           </ul>
           <button type="button" className="underline mt-1" onClick={onBack}>{tr('العودة إلى الأرصدة اليدوية')}</button>
         </Notice>
+      )}
+
+      {hasPostCutoverImports(imported) && (
+        <PostCutoverImportsNotice data={imported} decimals={decimals}>
+          <FullHistoryImportsNote method={q.data?.method ?? method} />
+          <label className="flex items-start gap-2 text-sm mt-1.5">
+            <input type="checkbox" className="mt-1 accent-[#E15A30]" checked={importsAck} disabled={!canWrite || commit.isPending}
+              onChange={e => setImportsAck(e.target.checked)} />
+            <span>{tr('راجعت الحركات المستوردة بعد تاريخ البدء وأوافق على ترحيلها بتواريخها')}</span>
+          </label>
+        </PostCutoverImportsNotice>
+      )}
+
+      {q.data && (
+        <OpeningStockNotice data={q.data.openingStock} decimals={decimals}>
+          <label className="flex items-start gap-2 text-sm mt-1.5">
+            <input type="checkbox" className="mt-1 accent-[#E15A30]" checked={stockAck} disabled={!canWrite || commit.isPending}
+              onChange={e => setStockAck(e.target.checked)} />
+            <span>{tr('أقرّ بالتفعيل الآن دون قيمة هذا المخزون: لا يدخل القيد الافتتاحي ولا يُرحَّل، وأصحّح حساب المخزون لاحقا بقيد يدوي أو تسوية')}</span>
+          </label>
+        </OpeningStockNotice>
       )}
 
       {drafts && drafts.count > 0 && (
@@ -267,8 +369,8 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
           <button type="button" className="btn-secondary" onClick={onBack} disabled={commit.isPending}>{tr('السابق')}</button>
           <span className="flex-1" />
           <button type="button" className="btn-primary inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={!canWrite || !ack || blocked || commit.isPending || q.isFetching}
-            title={!canWrite ? tr('لا تملك صلاحية التعديل') : blocked ? tr('أصلح الأرصدة اليدوية أولا') : undefined}
+            disabled={!canWrite || !ack || blocked || importsBlocked || stockBlocked || commit.isPending || q.isFetching}
+            title={!canWrite ? tr('لا تملك صلاحية التعديل') : blocked ? tr('أصلح الأرصدة اليدوية أولا') : importsBlocked ? tr('أقرّ بالحركات المستوردة بعد تاريخ البدء أولا') : stockTitle}
             onClick={() => commit.mutate()}>
             <ShieldCheck size={15} />{commit.isPending ? tr('جاري التفعيل...') : tr('تفعيل الدفاتر')}
           </button>

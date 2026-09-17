@@ -135,6 +135,9 @@ model ImportBatch {
   recordIds String // JSON: مصفوفة معرّفات السجلات المُنشأة (للتراجع)
   createdBy String?
   reverted  Boolean  @default(false)
+  contentHash String? // sha256 للصفوف المطبّعة المرتبة (balances/ledger) — منع إعادة استيراد الملف نفسه
+  status      String? // balances/ledger: running أثناء الكتابة ثم done؛ null = دفعة قديمة منتهية (إضافي)
+  heartbeatAt DateTime? // آخر حفظ لمعرّفات الدفعة الجارية — running بلا نبض 10 دقائق = منقطعة (إضافي)
   createdAt DateTime @default(now())
 
   @@index([tenantId])
@@ -3011,6 +3014,7 @@ model GlSourceEvent {
   shortageRecoveredMilli BigInt? // P7 فقط: المسترد من عجز العهدة على 113003 (P27)
   @@unique([tenantId, sourceKey])
   @@index([tenantId, status, effectAt])
+  @@index([tenantId, status, sourceType, effectAt]) // مسارا العدالة وحسم OPENING الجماعي (استيراد البند 4)
   @@index([status, nextAttemptAt])
   @@map("gl_source_events")
 }

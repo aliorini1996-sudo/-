@@ -71,16 +71,34 @@ test('accounting.ts وinvoices.ts وreceipts.ts وpaylink.ts وsettlement.ts (و
 
 // ═══ تراجع الاستيراد (import.ts) ═══
 
-test('تراجع الأرصدة/الأستاذ: findMany ثم glSourceEvent.createMany ثم deleteMany داخل $transaction تفاعلية واحدة', () => {
+/** فرع من معالج التراجع بين علامتين */
+function revertBranch(from: string, to: string): string {
   const body = handler(read('routes/import.ts'), "router.post('/batches/:id/revert'");
-  const branchStart = body.indexOf("batch.kind === 'balances' || batch.kind === 'ledger'");
-  assert.ok(branchStart > 0, 'فرع الأرصدة/الأستاذ مفقود');
-  const branchEnd = body.indexOf("batch.kind === 'prices'", branchStart);
-  const branch = body.slice(branchStart, branchEnd);
-  const { text: tx, start } = interactiveTx(branch);
-  ordered(tx, ['tx.accountEntry.findMany(', 'ledgerTombstones(tx', 'tx.glSourceEvent.createMany(', 'skipDuplicates: true', 'tx.accountEntry.deleteMany('],
+  const s = body.indexOf(from);
+  assert.ok(s > 0, `الفرع مفقود: ${from}`);
+  const e = body.indexOf(to, s);
+  assert.ok(e > s, `نهاية الفرع مفقودة: ${to}`);
+  return body.slice(s, e);
+}
+
+/** جسم أول معاملة تفاعلية `prisma.$transaction(async tx => {` حتى `}, { maxWait` */
+function importTx(branch: string): { text: string; start: number } {
+  const start = branch.indexOf('prisma.$transaction(async tx => {');
+  assert.ok(start >= 0, 'لا معاملة تفاعلية');
+  const end = branch.indexOf('}, { maxWait', start);
+  assert.ok(end > start, 'نهاية المعاملة مفقودة');
+  return { text: branch.slice(start, end), start };
+}
+
+test('تراجع الأرصدة/الأستاذ: acquirePostLock أولاً ثم findMany ثم glSourceEvent.createMany ثم deleteMany داخل $transaction تفاعلية واحدة', () => {
+  const branch = revertBranch("batch.kind === 'balances' || batch.kind === 'ledger'", "batch.kind === 'prices'");
+  const { text: tx, start } = importTx(branch);
+  const firstAwait = tx.indexOf('await ');
+  // مراجعة 5: SET LOCAL lock_timeout (انتظار القفل محدود) ثم acquirePostLock قبل أي قراءة
+  assert.match(tx.slice(firstAwait), /^await tx\.\$executeRaw`SET LOCAL lock_timeout = '5s'`;\s*await acquirePostLock\(tx, tid\)/, 'أول await في المعاملة ليس lock_timeout ثم acquirePostLock');
+  ordered(tx, ['acquirePostLock(tx', 'tx.accountEntry.findMany(', 'ledgerTombstones(tx', 'tx.glSourceEvent.createMany(', 'skipDuplicates: true', 'tx.accountEntry.deleteMany('],
     'ترتيب خطاف تراجع الأرصدة');
-  // لا حذف مستقل خارج المعاملة قبلها
+  // لا حذف ولا قراءة مستقلة خارج المعاملة قبلها
   assert.doesNotMatch(branch.slice(0, start), /accountEntry\.deleteMany/, 'deleteMany خارج المعاملة');
   assert.doesNotMatch(branch.slice(0, start), /accountEntry\.findMany/, 'القراءة خارج المعاملة');
   // الحمولة تحتاج كل حقول الصف
@@ -89,31 +107,52 @@ test('تراجع الأرصدة/الأستاذ: findMany ثم glSourceEvent.crea
   }
   // إعادة كتابة الأرصدة صفاً صفاً خارجها
   assert.doesNotMatch(tx, /accountEntry\.update\(/, 'إعادة كتابة الأرصدة يجب أن تبقى خارج المعاملة');
+  // القفل مشغول ⇒ 409
+  assert.match(branch, /isLockBusyError\(e\)[\s\S]*status\(409\)/);
 });
 
-test('تراجع العميل: glSourceEvent.createMany أول عنصر في مصفوفة $transaction والقراءة قبل المصفوفة', () => {
-  const body = handler(read('routes/import.ts'), "router.post('/batches/:id/revert'");
-  const branchStart = body.indexOf("batch.kind === 'customers'");
-  const branchEnd = body.indexOf("batch.kind === 'products'", branchStart);
-  const branch = body.slice(branchStart, branchEnd);
-  const arr = branch.indexOf('prisma.$transaction([');
-  assert.ok(arr > 0, 'مصفوفة معاملة العميل مفقودة');
-  const afterBracket = branch.slice(arr + 'prisma.$transaction(['.length);
-  const firstElement = afterBracket.slice(0, afterBracket.indexOf('\n', afterBracket.search(/\S/)));
-  assert.match(firstElement, /glSourceEvent\.createMany\(/, 'createMany ليس أول عنصر في المصفوفة');
-  assert.match(firstElement, /skipDuplicates: true/);
-  ordered(branch, ['ledgerTombstoneSettings(', 'accountEntry.findMany(', 'prisma.$transaction([', 'glSourceEvent.createMany(', 'prisma.accountEntry.deleteMany('],
-    'ترتيب خطاف تراجع العميل');
-  // الإعدادات تُقرأ مرة واحدة قبل الحلقة، وقراءة الصفوف مشروطة بها
-  assert.ok(branch.indexOf('ledgerTombstoneSettings(') < branch.indexOf('for (const cid of ids)'), 'قراءة التفعيل داخل الحلقة');
-  assert.match(branch, /glSettings\s*\n?\s*\?\s*arEntryTombstoneRows\(/, 'قراءة صفوف العميل غير مشروطة بالتفعيل');
+test('تراجع العميل: معاملة تفاعلية لكل عميل — acquirePostLock ثم FOR UPDATE ثم ledgerTombstoneSettings(tx) ثم العدّ ثم findMany ثم createMany ثم deleteMany بـid in', () => {
+  const branch = revertBranch("batch.kind === 'customers'", "batch.kind === 'products'");
+  assert.doesNotMatch(branch, /prisma\.\$transaction\(\[/, 'مصفوفة معاملة قديمة');
+  const loop = branch.indexOf('for (const cid of ids)');
+  assert.ok(loop > 0);
+  const { text: tx, start } = importTx(branch);
+  assert.ok(start > loop, 'المعاملة خارج الحلقة');
+  assert.doesNotMatch(branch.slice(0, start), /ledgerTombstoneSettings\(|accountEntry\.findMany\(|\.count\(/, 'قراءة قبل المعاملة');
+  const firstAwait = tx.indexOf('await ');
+  assert.match(tx.slice(firstAwait), /^await tx\.\$executeRaw`SET LOCAL lock_timeout = '5s'`;\s*await acquirePostLock\(tx, tid\)/, 'أول await ليس lock_timeout ثم acquirePostLock');
+  // القفل مشغول ⇒ break لا انتظار لكل عميل تالٍ، و409 حين لم يُحذف شيء
+  assert.match(branch, /if \(busy\) \{ ledgerBusy = true; break; \}/);
+  assert.match(branch, /ledgerBusy && removed === 0[\s\S]*?status\(409\)[\s\S]*?IMPORT_REVERT_LEDGER_BUSY/);
+  ordered(tx, [
+    'acquirePostLock(tx, tid)', /FROM customers WHERE id = \$\{cid\} AND "tenantId" = \$\{tid\} FOR UPDATE/, 'ledgerTombstoneSettings(tx, tid)',
+    'tx.invoice.count(', 'tx.receipt.count(', 'tx.customerPaymentLink.count(', 'tx.repVisit.count(',
+    'tx.accountEntry.findMany(', 'arEntryTombstoneRows(', 'tx.glSourceEvent.createMany(', 'skipDuplicates: true',
+    /tx\.accountEntry\.deleteMany\(\{ where: \{ id: \{ in: rows\.map/, 'tx.customerPrice.deleteMany(', 'tx.notification.deleteMany(',
+    /tx\.customer\.deleteMany\(\{ where: \{ id: cid, tenantId: tid \} \}\)/,
+  ], 'ترتيب تراجع العميل');
+  assert.doesNotMatch(tx, /customer\.delete\(/, 'delete يرمي P2025 عند التكرار');
+  // الفشل (FK) محمي لا عطل، والمتبقّي يُحفظ
+  assert.match(branch, /isFkBlockError\(e\)/);
 });
 
-test('products revert بلا خطاف دفاتر في M3 (حارس M9 لاحقاً)', () => {
-  const body = handler(read('routes/import.ts'), "router.post('/batches/:id/revert'");
-  const s = body.indexOf("batch.kind === 'products'");
-  const branch = body.slice(s, body.indexOf("batch.kind === 'balances'", s));
+test('تراجع المنتجات: بلا خطاف دفاتر، بلا vanLoadItem.deleteMany، وحارس بنود الفواتير والتحميلات والمستودع، وdeleteMany بالمستأجر', () => {
+  const branch = revertBranch("batch.kind === 'products'", "batch.kind === 'balances'");
   assert.doesNotMatch(branch, /glSourceEvent/);
+  assert.doesNotMatch(branch, /vanLoadItem\.deleteMany/, 'حذف تحميلات السيارات يغيّر تاريخ المخزون');
+  for (const c of ['tx.invoiceItem.count(', 'tx.vanLoadItem.count(', 'tx.warehouseEntryItem.count(']) assert.ok(branch.includes(c), `الحارس يُغفل ${c}`);
+  ordered(branch, ['tx.invoiceItem.count(', 'tx.priceTier.deleteMany(', 'tx.customerPrice.deleteMany(', 'tx.product.deleteMany({ where: { id: pid, tenantId: tid } })'], 'ترتيب تراجع المنتج');
+  assert.doesNotMatch(branch, /product\.delete\(/);
+  assert.match(branch, /isFkBlockError\(e\)/);
+});
+
+test('تراجع العملاء/المنتجات: المتبقّي يُبقي الدفعة reverted:false بمعرّفاته، والفارغ يعلّمها reverted:true', () => {
+  const body = handler(read('routes/import.ts'), "router.post('/batches/:id/revert'");
+  const s = body.indexOf("if (batch.kind === 'customers' || batch.kind === 'products' || batch.kind === OPENING_STOCK_KIND)");
+  assert.ok(s > 0);
+  const tail = body.slice(s);
+  ordered(tail, ['revertOutcome(ids, done)', 'if (reverted)', 'reverted: true', 'serializeBatchRecordIds(batch.kind, remainingIds', 'count: remainingIds.length'], 'تحديث الدفعة');
+  ordered(tail, ['categoryDeletable(', 'glProductCategoryAccount.count(', 'productCategory.deleteMany('], 'حذف الفئات اليتيمة');
 });
 
 // ═══ salesReps.ts ═══

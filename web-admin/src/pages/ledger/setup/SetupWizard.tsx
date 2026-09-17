@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, Landmark } from 'lucide-react';
+import { Check, Landmark, ListOrdered } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTr } from '../../../i18n/strings';
 import { useAuthStore } from '../../../store/authStore';
@@ -13,7 +13,7 @@ import {
 } from '../../../api/ledgerSetup';
 import { ledgerHref } from '../routes';
 import { clampStep, type SetupStepNo } from './setupLogic';
-import { BackfillStatusCard, Notice, useCommitResult, useSetupErrorText, useSetupState } from './setupUi';
+import { BackfillStatusCard, DataImportLink, Notice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
 import { Step1Basics, Step2Method, Step3Tree } from './SetupSteps';
 import ManualBalances from './ManualBalances';
 import { CommitResultPanel, Step4Preview, Step6Review } from './SetupReview';
@@ -135,6 +135,8 @@ export default function SetupWizard() {
         </ol>
       </div>
 
+      <BeforeYouStart key={current === 1 ? 'open' : 'closed'} open={current === 1} />
+
       <div className="card space-y-3">
         <h2 className="text-base font-bold text-[#1F1A13]"><bdi className="tabular-nums text-[#9A8F7E]">{current}.</bdi> {titles[current]}</h2>
         {save.isError && lastErrorCode === 'LEDGER_HISTORY_TOO_LARGE' && <Notice tone="error">{errorText(save.error)}</Notice>}
@@ -146,5 +148,34 @@ export default function SetupWizard() {
         {current === 6 && <Step6Review {...common} onCommitted={onCommitted} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * «قبل أن تبدأ»: الترتيب الموصى به بين صفحة استيراد البيانات والمعالج — المخزون الافتتاحي يُستورد قبل ضبط تاريخ البدء
+ * (يدخل الافتتاح فقط بتاريخ بدء بعد يوم استيراده، فالاعتماد في يوم لاحق)، والأرصدة المؤرخة قبل تاريخ البدء تدخل القيد
+ * الافتتاحي عند التفعيل، وما بعده يُرحَّل بتاريخه على حساب الأرصدة الافتتاحية.
+ */
+function BeforeYouStart({ open }: { open: boolean }) {
+  const tr = useTr();
+  return (
+    <details className="card group" open={open}>
+      <summary className="flex items-center gap-2 cursor-pointer select-none text-sm font-bold text-[#1F1A13]">
+        <ListOrdered size={16} className="text-[#E15A30]" />{tr('قبل أن تبدأ')}
+        <span className="text-[11px] font-normal text-[#9A8F7E]">{tr('الترتيب الموصى به لنقل بياناتك')}</span>
+      </summary>
+      <ol className="list-decimal ps-5 mt-3 space-y-1.5 text-xs text-[#6E6557] leading-relaxed">
+        <li>{tr('استورد العملاء ثم المنتجات')} — <DataImportLink>{tr('استيراد البيانات من نظامك السابق')}</DataImportLink></li>
+        <li>
+          {tr('استورد المخزون الافتتاحي قبل ضبط تاريخ البدء: يدخل القيد الافتتاحي فقط إذا كان تاريخ البدء بعد يوم الاستيراد، ولا يُقبل تاريخ بدء بعد اليوم، فيكون ضبط تاريخ البدء والاعتماد في يوم لاحق')}
+          {' — '}<DataImportLink>{tr('استيراد المخزون الافتتاحي')}</DataImportLink>
+          {' · '}{tr('أو سجّل وارد المستودع بتكلفته قبل تاريخ البدء')} <WarehouseLink>{tr('وارد المستودع')}</WarehouseLink>
+        </li>
+        <li>{tr('حدّد تاريخ البدء في الخطوة 1، ولا تفعّل الدفاتر بعد')}</li>
+        <li>{tr('استورد الأرصدة الافتتاحية بتاريخ اليوم السابق لتاريخ البدء، ولا تستورد كشف حساب يكرر الأرصدة نفسها')}</li>
+        <li>{tr('إن استوردت أرصدة بلا تاريخ أو رفعت الملف مرتين فتراجع عن الدفعة من سجل الاستيرادات وأعد استيرادها قبل التفعيل')}</li>
+        <li>{tr('في المعالج: اربط فئات المنتجات في الخطوة 3، وراجع ذمم العملاء في الخطوة 4، وأدخل النقد والبنوك والموردين ورأس المال في الخطوة 5، ثم فعّل')}</li>
+      </ol>
+    </details>
   );
 }

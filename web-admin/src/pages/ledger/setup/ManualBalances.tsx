@@ -9,9 +9,10 @@ import LedgerAmount from '../../../components/ledger/LedgerAmount';
 import { ledgerSetupApi, type ManualBalanceIssue, type ManualBalanceRowInput } from '../../../api/ledgerSetup';
 import { AccountSelect, useAllAccounts } from '../config/parts/configUi';
 import {
-  cleanManualRows, isBlankRow, MANUAL_BALANCE_MAX_ROWS, manualTotalsMilli, milliText, OPENING_BALANCE_TEMPLATE_COLUMNS, parseOpeningBalanceRecords,
+  cleanManualRows, derivedAccountKind, isBlankRow, MANUAL_BALANCE_MAX_ROWS, manualTotalsMilli, milliText, OPENING_BALANCE_TEMPLATE_COLUMNS,
+  parseOpeningBalanceRecords,
 } from './setupLogic';
-import { manualIssueLabels, Notice, StepSection, useSetupErrorText } from './setupUi';
+import { DataImportLink, manualIssueText, Notice, StepSection, useSetupErrorText, WarehouseLink } from './setupUi';
 import { StepFooter, type StepProps } from './SetupSteps';
 
 /**
@@ -29,7 +30,6 @@ const blank = (): ManualBalanceRowInput => ({ accountCode: '', debit: '', credit
 export default function ManualBalances({ state, canWrite, busy, onSave, onBack }: StepProps) {
   const tr = useTr();
   const errorText = useSetupErrorText();
-  const issueLabels = manualIssueLabels(tr);
   const decimals = state.status.currencyDecimals ?? 2;
   const accountsQ = useAllAccounts();
   const accounts = accountsQ.data ?? [];
@@ -63,7 +63,9 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
       const m = new Map<number, string>();
       for (const is of d.manual.issues as ManualBalanceIssue[]) {
         const rowIdx = sentToRow[is.index];
-        if (rowIdx !== undefined && !m.has(rowIdx)) m.set(rowIdx, issueLabels[is.reason] ?? is.reason);
+        if (rowIdx !== undefined && !m.has(rowIdx)) {
+          m.set(rowIdx, manualIssueText(tr, is.reason, derivedAccountKind(byCode.get(String(is.accountCode ?? '').trim())?.controlKind ?? null, is.accountCode)));
+        }
       }
       setIssues(m);
       if (m.size === 0) toast.success(tr('الصفوف صالحة'));
@@ -119,6 +121,12 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
       <Notice>
         {tr('أدخل هنا النقد والبنوك والأصول ومجمعاتها والموردين والقروض ورأس المال والمستحقات. ذمم العملاء وعهدة المناديب وأمانات الدفع الإلكتروني ومخزون المستودع تُحسب من المستندات في الخطوة السابقة')}
         {' '}{tr('بضاعة السيارات تُدخل هنا يدويا')}.
+        <br />
+        {tr('ذمم العملاء لا تُدخل هنا: استوردها من صفحة استيراد البيانات بتاريخ قبل البدء')}{' '}
+        <DataImportLink>{tr('استيراد الأرصدة الافتتاحية')}</DataImportLink>
+        {' · '}
+        {tr('مخزون المستودع يُحسب من وارد المستودع بتكلفته')}{' '}
+        <WarehouseLink>{tr('وارد المستودع')}</WarehouseLink>
       </Notice>
 
       <StepSection title={tr('الأرصدة اليدوية')}

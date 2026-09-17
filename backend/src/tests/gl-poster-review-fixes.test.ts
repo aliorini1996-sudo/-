@@ -5,6 +5,7 @@
 //  4. إعادة الترحيل من المصدر للاستلام تأخذ المعلّق من القيد الحيّ: فاتورة نقدية لاحقة بتاريخ سابق لا تغيّر 111001/911001.
 //  7. أخطاء الاتصال العابرة (P2024/P2028/…) لا تُحتسب محاولة.
 // 11. D2: السياق يُعاد تحميله تحت القفل حين تتغير GlSettings أثناء النبضة؛ وإعادة ترحيل عمولة قبل التاريخ بلا 116001.
+// 12. ADR‑11: عكس صف مستورد بتاريخ قيد أصله (البدء للمشمول بالافتتاح أو lateArrival، وإلا القيد الحي) ثم إزاحة الإقفال.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SYSTEM_ACTOR } from '../services/gl/audit';
@@ -22,6 +23,13 @@ import {
 import { repostFromSource, type RepostMoveFacts } from '../services/gl/sync/repost';
 import { LATE_COMMIT_WINDOW_MS, type DesiredEvent, type SourceEventPayload } from '../services/gl/sync/types';
 import { FakePostingStore, type FakeMove } from './gl-fake-posting-store';
+import { arEntryKey } from '../services/gl/sync/keys';
+import { arEntryTombstoneEvents } from '../services/gl/sync/tombstone';
+import { importReversalPlan } from '../services/gl/sync/poster';
+import { applyAutoLockShift, type LockDates } from '../services/gl/locks';
+import { evaluateC3 } from '../services/gl/checks/rules';
+import type { PostingTx, WithPostLockOptions } from '../services/gl/sync/postingStore';
+import type { MoveDraft } from '../services/gl/types';
 
 const at = (iso: string) => new Date(iso);
 const AR = accountIdOf('113001');
@@ -349,4 +357,168 @@ test('(11) إعادة ترحيل عمولة تاريخها قبل paylinkFeeTaxI
   const reposted = s.state.moves.get(r.repost.id)!;
   assert.equal(reposted.lines.filter((l) => l.accountId === INPUT_VAT).length, 0);
   assert.equal(move.lines.filter((l) => l.accountId === INPUT_VAT).length, 0);
+});
+
+// ═══ (12) ADR‑11: تاريخ عكس الاستيراد = تاريخ الأصل المحاسبي لا يوم التراجع ═══
+
+// البدء 2026-09-01 بتوقيت الرياض، واللقطة T0 = 2026-09-03T09:00Z
+const IMP_SETTINGS = {
+  cutoverDate: '2026-09-01', openingSnapshotAt: at('2026-09-03T09:00:00.000Z'), activatedAt: at('2026-09-03T09:00:00.000Z'),
+};
+const OPEQ = accountIdOf('319002');
+const AR_SCOPE = { journalType: null, touchesReceivable: true, touchesPayable: false, touchesTax: false };
+
+/** FakePostingStore بإزاحة الإقفال (ADR‑7) كما يطبّقها postMove الحقيقي بـlockPolicy SHIFT (والعكس الآلي يمر بها أيضاً) */
+class LockedStore extends FakePostingStore {
+  locks: LockDates = { salesLockDate: null, purchaseLockDate: null, taxLockDate: null, hardLockDate: null };
+  async withPostLock<T>(tenantId: string, fn: (tx: PostingTx) => Promise<T>, opts?: WithPostLockOptions): Promise<T> {
+    const store = this;
+    return super.withPostLock(tenantId, (tx) => {
+      const base = tx.postMove.bind(tx);
+      const ext = Object.create(tx) as PostingTx;
+      ext.postMove = (draft: MoveDraft, o: Parameters<PostingTx['postMove']>[1]) => base(applyAutoLockShift(draft, store.locks, AR_SCOPE), o);
+      return fn(ext);
+    }, opts);
+  }
+}
+
+function importRow(id: string, entryDate: string, createdAt: string, debit: number) {
+  return { id, customerId: 'c1', customerName: 'عميل مستورد', debit, credit: 0, description: 'رصيد مستورد', entryDate: at(entryDate), createdAt: at(createdAt) };
+}
+
+/** حدث POST كما يكتبه المُطابِق (الحمولة نفسها التي يلتقطها الـtombstone) */
+function importPost(row: ReturnType<typeof importRow>, extra: Partial<DesiredEvent> = {}): DesiredEvent {
+  const [post] = arEntryTombstoneEvents([row], 2, { deletedAt: row.createdAt });
+  return { ...post, status: 'PENDING', ...extra };
+}
+
+const importTombstone = (row: ReturnType<typeof importRow>, deletedAt: string) => arEntryTombstoneEvents([row], 2, { deletedAt: at(deletedAt) });
+
+/** رصيد 113001 للعميل كما في تاريخ (قيود تاريخها ≤ asOf) */
+function arAsOf(s: FakePostingStore, asOf: string, customerId = 'c1'): bigint {
+  let t = 0n;
+  for (const m of s.state.moves.values()) {
+    if (m.date > asOf) continue;
+    for (const l of m.lines) if (l.accountId === AR && l.customerId === customerId) t += l.debitMilli - l.creditMilli;
+  }
+  return t;
+}
+
+/** قيد الافتتاح (opening.ts) بتاريخ البدء − 1: 113001 للعميل مقابل 319002 */
+function seedOpening(s: FakePostingStore, milli: bigint): void {
+  s.state.seq++;
+  s.state.idSeq++;
+  const line = (accountId: string, debitMilli: bigint, creditMilli: bigint, customerId: string | null) => ({
+    accountId, label: 'افتتاح', debitMilli, creditMilli, customerId, salesRepId: null, partnerName: null, analyticAccountId: null, taxId: null, taxRole: null, taxBaseMilli: null,
+  });
+  const id = `mv${s.state.idSeq}`;
+  s.state.moves.set(id, {
+    id, number: 'OPEN/2026/0001', date: '2026-08-31', originalDate: null, lateArrival: false, seq: s.state.seq, sourceType: null, sourceId: null,
+    reversedMoveId: null, reversalId: null, needsAttention: false, lines: [line(AR, milli, 0n, 'c1'), line(OPEQ, 0n, milli, null)],
+  });
+}
+
+test('(12) ADR‑11: افتتاح 5,000 ثم تراجع 10-05 وإعادة استيراد 5,500 بتاريخ 08-31 ⇒ 113001 كما في 09-15 = 5,500 وكما في اليوم = 5,500، وC3 أخضر', async () => {
+  const clock = clockAt('2026-10-05T10:00:00.000Z');
+  const s = new FakePostingStore({ now: clock.now, settings: IMP_SETTINGS });
+  const original = importRow('ae1', '2026-08-20T09:00:00.000Z', '2026-08-25T09:00:00.000Z', 5000);
+  seedOpening(s, 5_000_000n);
+  // حسم التفعيل: الصف مشمول بالافتتاح
+  s.seedEvents([importPost(original, { status: 'SKIPPED', skipReason: 'OPENING' })]);
+
+  // التراجع بعد التفعيل في 10-05 (tombstone بالحمولة الكاملة؛ شقيق POST القائم لا يُمس)، ثم إعادة الاستيراد المصحَّح
+  s.seedEvents(importTombstone(original, '2026-10-05T10:00:00.000Z'));
+  const corrected = importRow('ae2', '2026-08-30T21:00:00.000Z', '2026-10-05T10:05:00.000Z', 5500); // 08-31 بالرياض
+  s.seedEvents([importPost(corrected)]);
+  clock.advance(10 * 60_000);
+  await run(s);
+
+  const rev = s.event(arEntryKey('ae1', 'REVERSE'))!;
+  const post = s.event(arEntryKey('ae2', 'POST'))!;
+  assert.equal(rev.status, 'DONE');
+  assert.equal(post.status, 'DONE');
+  const revMove = s.state.moves.get(rev.moveId!)!;
+  assert.equal(revMove.date, '2026-09-01', 'العكس بتاريخ البدء لا بيوم التراجع');
+  assert.equal(revMove.lateArrival, false);
+  assert.equal(s.state.moves.get(post.moveId!)!.date, '2026-09-01', 'إعادة الاستيراد وصول متأخر بتاريخ البدء');
+
+  assert.equal(arAsOf(s, '2026-08-31'), 5_000_000n, 'الافتتاح');
+  assert.equal(arAsOf(s, '2026-09-15'), 5_500_000n, 'كما في 09-15: لا مضاعفة (قبل ADR‑11 كانت 10,500)');
+  assert.equal(arAsOf(s, '2026-10-05'), 5_500_000n, 'كما في اليوم');
+  assert.equal(s.balance(AR, 'c1'), 5_500_000n);
+
+  const c3 = evaluateC3({
+    ledger: new Map([['c1', s.balance(AR, 'c1')]]), opening: new Map([['c1', 5_000_000n]]),
+    entriesAfterCutover: new Map([['c1', 5_500_000n]]), deletedOpeningImports: new Map([['c1', 5_000_000n]]),
+    openingEntries: new Map(), names: new Map([['c1', 'عميل مستورد']]), pendingCustomers: new Set(), pendingAll: false,
+  });
+  assert.equal(c3.status, 'GREEN');
+});
+
+test('(12) ADR‑11: أصل مُرحَّل بعد البدء ⇒ العكس بتاريخ القيد الحي؛ وأصل lateArrival ⇒ بتاريخ البدء', async () => {
+  const clock = clockAt('2026-09-10T10:00:00.000Z');
+  const s = new FakePostingStore({ now: clock.now, settings: IMP_SETTINGS });
+  const live = importRow('ae3', '2026-09-10T08:00:00.000Z', '2026-09-10T08:00:00.000Z', 700);
+  const late = importRow('ae4', '2026-08-15T08:00:00.000Z', '2026-09-10T08:00:00.000Z', 300);
+  s.seedEvents([importPost(live), importPost(late)]);
+  await run(s);
+  const liveMove = s.state.moves.get(s.event(arEntryKey('ae3'))!.moveId!)!;
+  const lateMove = s.state.moves.get(s.event(arEntryKey('ae4'))!.moveId!)!;
+  assert.equal(liveMove.date, '2026-09-10');
+  assert.deepEqual([lateMove.date, lateMove.lateArrival], ['2026-09-01', true]);
+
+  clock.set('2026-10-05T10:00:00.000Z');
+  s.seedEvents([...importTombstone(live, '2026-10-05T10:00:00.000Z'), ...importTombstone(late, '2026-10-05T10:00:00.000Z')]);
+  await run(s);
+  const liveRev = s.event(arEntryKey('ae3', 'REVERSE'))!;
+  const lateRev = s.event(arEntryKey('ae4', 'REVERSE'))!;
+  assert.deepEqual([liveRev.status, lateRev.status], ['DONE', 'DONE']);
+  assert.equal(s.state.moves.get(liveRev.moveId!)!.reversedMoveId, liveMove.id, 'عكس القيد الحيّ نفسه');
+  assert.equal(s.state.moves.get(liveRev.moveId!)!.date, '2026-09-10', 'بتاريخ القيد الحي لا 10-05');
+  assert.equal(s.state.moves.get(lateRev.moveId!)!.date, '2026-09-01', 'بتاريخ البدء');
+  assert.equal(arAsOf(s, '2026-09-30'), 0n);
+});
+
+test('(12) ADR‑11: تاريخ البدء في فترة مقفلة ⇒ العكس يُزاح إلى أول يوم مفتوح (الافتتاحي والحي)', async () => {
+  const clock = clockAt('2026-09-10T10:00:00.000Z');
+  const s = new LockedStore({ now: clock.now, settings: IMP_SETTINGS });
+  const opening = importRow('ae5', '2026-08-20T09:00:00.000Z', '2026-08-25T09:00:00.000Z', 400);
+  const live = importRow('ae6', '2026-09-05T08:00:00.000Z', '2026-09-05T08:00:00.000Z', 900);
+  seedOpening(s, 400_000n);
+  s.seedEvents([importPost(opening, { status: 'SKIPPED', skipReason: 'OPENING' }), importPost(live)]);
+  await run(s);
+  assert.equal(s.state.moves.get(s.event(arEntryKey('ae6'))!.moveId!)!.date, '2026-09-05');
+
+  s.locks = { ...s.locks, hardLockDate: '2026-09-30' };
+  clock.set('2026-10-20T10:00:00.000Z');
+  s.seedEvents([...importTombstone(opening, '2026-10-20T10:00:00.000Z'), ...importTombstone(live, '2026-10-20T10:00:00.000Z')]);
+  await run(s);
+  for (const id of ['ae5', 'ae6']) {
+    const ev = s.event(arEntryKey(id, 'REVERSE'))!;
+    assert.equal(ev.status, 'DONE');
+    const m = s.state.moves.get(ev.moveId!)!;
+    assert.deepEqual([m.date, m.lateArrival], ['2026-10-01', true], `${id}: أول يوم مفتوح لا يوم التراجع 10-20`);
+  }
+  assert.equal(s.state.moves.get(s.event(arEntryKey('ae5', 'REVERSE'))!.moveId!)!.originalDate, '2026-09-01');
+  assert.equal(s.balance(AR, 'c1'), 0n);
+});
+
+test('(12) ADR‑11: أصل غير مُرحَّل (NETTED) بلا تغيير؛ والخطة لا تُمس لغير عكس الاستيراد', async () => {
+  const clock = clockAt('2026-09-10T10:00:00.000Z');
+  const s = new FakePostingStore({ now: clock.now, settings: IMP_SETTINGS });
+  const row = importRow('ae7', '2026-09-10T08:00:00.000Z', '2026-09-10T08:00:00.000Z', 250);
+  s.seedEvents(importTombstone(row, '2026-09-10T09:00:00.000Z'));
+  await run(s);
+  const post = s.event(arEntryKey('ae7', 'POST'))!;
+  const rev = s.event(arEntryKey('ae7', 'REVERSE'))!;
+  assert.deepEqual([post.status, post.skipReason, rev.status, rev.skipReason], ['SKIPPED', 'NETTED', 'SKIPPED', 'NETTED']);
+  assert.equal(s.moves().length, 0);
+
+  const env = { cutover: { cutoverDate: '2026-09-01', openingSnapshotAt: IMP_SETTINGS.openingSnapshotAt, timezone: TZ, initialWatermarkAt: at('2026-08-30T21:00:00.000Z') } };
+  const plan = { action: 'POST' as const, mode: 'REVERSE_LIVE' as const, liveMoveId: 'm1', date: '2026-10-05', lateArrival: false, originalDate: null, futureDated: false, siblingWrite: null };
+  assert.equal(importReversalPlan(env, { sourceType: 'AR_ENTRY', event: 'REVERSE', payload: null }, plan).date, '2026-09-01');
+  assert.equal(importReversalPlan(env, { sourceType: 'INVOICE', event: 'REVERSE', payload: null }, plan), plan, 'الفاتورة: قاعدة §5.3');
+  assert.equal(importReversalPlan(env, { sourceType: 'SETTLEMENT', event: 'REVERSE', payload: null }, plan), plan);
+  assert.equal(importReversalPlan(env, { sourceType: 'AR_ENTRY', event: 'POST', payload: null }, { ...plan, mode: 'BUILD' as const }).date, '2026-10-05');
+  assert.equal(importReversalPlan(env, { sourceType: 'AR_ENTRY', event: 'REVERSE', payload: { origin: 'CUSTOMER_ADJUSTMENT' } as SourceEventPayload }, plan), plan);
 });

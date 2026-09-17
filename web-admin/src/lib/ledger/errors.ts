@@ -1,4 +1,4 @@
-import { ledgerConfigReasonLabels } from './labels';
+import { ledgerConfigCodeLabels, ledgerConfigReasonLabels } from './labels';
 
 /**
  * نصوص أخطاء الدفاتر المترجمة (صرفة، مختبَرة في errors.test.ts) — نداءات tr حرفية.
@@ -101,7 +101,11 @@ export function ledgerErrorText(tr: Tr, code: string | null | undefined, fallbac
     case 'LEDGER_PERMISSION_DENIED': return tr('لا تملك صلاحية الوصول لهذا القسم');
     case 'RATE_LIMITED': return tr('طلبات كثيرة، حاول بعد قليل');
     case 'NOT_FOUND': return tr('القيد غير موجود');
-    default: return fallback || tr('تعذر تنفيذ الإجراء');
+    default: {
+      // رموز المعالج خارج ملحق ب (LEDGER_IMPORT_IN_PROGRESS وLEDGER_OPENING_STOCK_* …) حين يغيب السبب
+      const label = code ? ledgerConfigCodeLabels(tr)[code] : undefined;
+      return label || fallback || tr('تعذر تنفيذ الإجراء');
+    }
   }
 }
 

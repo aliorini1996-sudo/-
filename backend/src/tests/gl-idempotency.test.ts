@@ -173,6 +173,32 @@ test('AR_ENTRY:<id>:POST مُدرج مسبقاً DONE ثم تشغيل المُط
   assert.equal(s.balance(AR, 'c2'), 50_000n);
 });
 
+test('استيراد بعد البدء بمساري العدالة (خطة الاستيراد 4 و7): إعادة التشغيل وP2002 على مفتاح AR_ENTRY واحد ⇒ قيد واحد ولا مفتاح يتيم', async () => {
+  const { s } = store();
+  // المخزن يعلن ترشيح النوع (ولا يطبّقه): المُرحِّل يرشّح المسار بنفسه فلا يُعالج حدث مرتين
+  Object.assign(s, { filtersDueEventsBySourceType: true });
+  const payload = {
+    entryId: 'e9', customerId: 'c3', customerName: 'عميل ثالث', debit: '80.00', credit: '0.00', description: 'كشف', entryDate: '2027-02-05T08:00:00.000Z',
+    createdAt: '2027-02-06T08:00:00.000Z', origin: 'IMPORT' as const, sourceCreatedAt: '2027-02-06T08:00:00.000Z',
+  };
+  const ev: DesiredEvent = { sourceKey: arEntryKey('e9'), sourceType: 'AR_ENTRY', sourceId: 'e9', event: 'POST', effectAt: at('2027-02-05T08:00:00.000Z'), payload };
+  s.seedEvents([ev, invoiceEvent('i9')]);
+  const stale = structuredClone(s.event(arEntryKey('e9'))!);
+  const r1 = await run(s);
+  assert.deepEqual([r1.done, r1.lanes?.live, r1.lanes?.import], [2, 1, 1]);
+  const moveId = s.event(arEntryKey('e9'))!.moveId!;
+  assert.equal(s.moves().find((m) => m.id === moveId)!.needsAttention, true, 'حركة مستوردة بعد البدء ⇒ يحتاج انتباهاً');
+  assert.equal((await run(s)).attempted, 0);
+  assert.equal(s.seedEvents([ev]), 0);
+  // نبضة ثانية قرأت الحدث PENDING قبل التزام الأولى ⇒ P2002 على [tenantId, sourceKey] ⇒ DONE بالربط القائم
+  Object.assign(s.event(arEntryKey('e9'))!, { status: 'PENDING', moveId: null });
+  const out = await postSourceEvent(s, s.settings, stale, { log: () => undefined });
+  assert.deepEqual(out, { status: 'DONE', moveId, idempotent: true });
+  assert.equal(s.moves().filter((m) => m.sourceId === 'e9').length, 1, 'لا قيد ثانٍ');
+  assert.deepEqual([...s.state.sources.keys()].filter((k) => k.startsWith('AR_ENTRY:e9')), [arEntryKey('e9')], 'لا مفتاح يتيم');
+  assert.equal(s.balance(AR, 'c3'), 80_000n);
+});
+
 test('BLOCKED: التراجع 1m ثم 5m ثم 30m ثم 2h، وإعادة الفحص لا تُحتسب في ميزانية الأحداث', async () => {
   const { s, clock } = store({ origin: () => ({ originEffectAt: at('2027-02-01T08:00:00.000Z'), originCreatedAt: at('2027-02-01T08:00:00.000Z'), sourceExists: true }) });
   s.seedEvents([invoiceEvent('b1', { entryDate: '2027-02-01' })]);

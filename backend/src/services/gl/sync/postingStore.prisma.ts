@@ -22,7 +22,8 @@ import {
 } from '../types';
 import { tombstoneOrigin, type LiveMoveState, type OriginFacts, type SiblingState } from './classify';
 import type {
-  EligibleTenant, ListDueEventsOptions, LiveMoveLine, PosterSettings, PostingStore, PostingTx, SourceData, WithPostLockOptions,
+  EligibleTenant, ListDueEventsOptions, LiveMoveLine, OpeningImportCandidate, PosterSettings, PostingStore, PostingTx, SourceData,
+  WithPostLockOptions,
 } from './postingStore';
 import {
   POST_TX_TIMEOUT_MS, SYNC_CURSOR_SOURCES, WORKER_LEASE_SECONDS,
@@ -100,6 +101,9 @@ const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() 
 // ═══ المخزن ═══
 
 export class PrismaPostingStore implements PostingStore {
+  /** listDueEvents يحترم opts.sourceTypes ⇒ المُرحِّل يعمل بمساري العدالة (البند 4 (ب)) */
+  readonly filtersDueEventsBySourceType = true;
+
   constructor(private readonly db: PrismaClient) {}
 
   async dbNow(): Promise<Date> {
@@ -209,6 +213,8 @@ export class PrismaPostingStore implements PostingStore {
         tenantId,
         OR: [{ status: 'PENDING' }, { status: { in: ['BLOCKED', 'ERROR'] }, nextAttemptAt: { lte: opts.now } }],
         ...(opts.excludeIds && opts.excludeIds.length ? { id: { notIn: [...opts.excludeIds] } } : {}),
+        // فهرس [tenantId, status, sourceType, effectAt] (البند 4 (ب))
+        ...(opts.sourceTypes?.in ? { sourceType: { in: [...opts.sourceTypes.in] } } : opts.sourceTypes?.notIn ? { sourceType: { notIn: [...opts.sourceTypes.notIn] } } : {}),
       },
       orderBy: [{ effectAt: 'asc' }, { sourceKey: 'asc' }],
       take: opts.limit,
@@ -307,6 +313,45 @@ export class PrismaPostingTx implements PostingTx {
 
   async updateEvent(id: string, patch: SourceEventPatch): Promise<void> {
     await this.tx.glSourceEvent.updateMany({ where: { id, tenantId: this.tenantId }, data: patchData(patch) });
+  }
+
+  /** البند 4 (أ): مرشّحو حسم OPENING الجماعي بترتيب (effectAt, id) — فهرس [tenantId, status, sourceType, effectAt] */
+  async listOpeningImportCandidates(opts: { before: Date; after: CompositeKey | null; limit: number }): Promise<OpeningImportCandidate[]> {
+    const rows = await this.tx.glSourceEvent.findMany({
+      where: {
+        tenantId: this.tenantId, sourceType: 'AR_ENTRY', event: 'POST', status: { in: ['PENDING', 'BLOCKED', 'ERROR'] },
+        effectAt: { lt: opts.before },
+        ...(opts.after ? { OR: [{ effectAt: { gt: opts.after.at } }, { effectAt: opts.after.at, id: { gt: opts.after.id } }] } : {}),
+      },
+      orderBy: [{ effectAt: 'asc' }, { id: 'asc' }],
+      take: opts.limit,
+      select: { id: true, sourceKey: true, sourceId: true, effectAt: true, status: true, payload: true },
+    });
+    if (rows.length === 0) return [];
+    const reverseKeys = rows.map((r) => `AR_ENTRY:${r.sourceId}:REVERSE`);
+    const reverses = await this.tx.glSourceEvent.findMany({
+      where: { tenantId: this.tenantId, sourceKey: { in: reverseKeys } }, select: { sourceKey: true, status: true },
+    });
+    const revStatus = new Map(reverses.map((r) => [r.sourceKey, r.status as EventStatus]));
+    return rows.map((r) => {
+      const p = r.payload && typeof r.payload === 'object' && !Array.isArray(r.payload) ? (r.payload as Record<string, unknown>) : null;
+      return {
+        id: r.id, sourceKey: r.sourceKey, sourceId: r.sourceId, effectAt: r.effectAt, status: r.status as EventStatus,
+        createdAtHint: p ? (p.sourceCreatedAt ?? p.createdAt ?? null) : null,
+        reverseStatus: revStatus.get(`AR_ENTRY:${r.sourceId}:REVERSE`) ?? null,
+      };
+    });
+  }
+
+  async skipOpeningImports(ids: readonly string[], now: Date): Promise<number> {
+    if (ids.length === 0) return 0;
+    const res = await this.tx.glSourceEvent.updateMany({
+      where: {
+        tenantId: this.tenantId, id: { in: [...ids] }, sourceType: 'AR_ENTRY', event: 'POST', status: { in: ['PENDING', 'BLOCKED', 'ERROR'] },
+      },
+      data: { status: 'SKIPPED', skipReason: 'OPENING', processedAt: now, lastError: null, nextAttemptAt: null },
+    });
+    return res.count;
   }
 
   async updateEventByKey(sourceKey: string, patch: SourceEventPatch, onlyIfStatusIn?: readonly EventStatus[]): Promise<number> {
