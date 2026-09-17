@@ -551,8 +551,12 @@ test('صلاحيات النقاط وفق ملحق أ: القراءة canViewLedg
   assert.equal(regs.length, all.length, 'كل مسار يبدأ بـrequireLedgerPermission');
   for (const r of regs) {
     const [method, , perm] = r.split(' ');
-    assert.equal(perm, method === 'get' ? 'canViewLedger' : 'canPostJournals', r);
+    const [, route] = r.split(' ');
+    // M3 (§6.1، ملحق أ): «إعادة الترحيل من المصدر» بصلاحية canConfigureLedger
+    const expected = method === 'get' ? 'canViewLedger' : route === '/moves/:id/repost-from-source' ? 'canConfigureLedger' : 'canPostJournals';
+    assert.equal(perm, expected, r);
   }
+  assert.ok(regs.includes('post /moves/:id/repost-from-source canConfigureLedger'), 'M3: repost-from-source');
   for (const needed of ['get /moves', 'get /moves/:id', 'post /moves', 'put /moves/:id', 'delete /moves/:id', 'post /moves/delete-drafts',
     'post /moves/post-drafts', 'post /moves/review', 'post /moves/:id/post', 'post /moves/:id/review', 'post /moves/:id/reverse',
     'post /moves/:id/reset-draft', 'post /moves/:id/notes', 'get /moves/:id/notes', 'post /moves/:id/attachments',
@@ -835,6 +839,48 @@ test('generatedLineFlags: سطر ضريبة يدوي بوعاء يساوي وع�
   assert.ok(isGeneratedTaxLabel('ضريبة المبيعات 15٪') && isGeneratedTaxLabel('وعاء مبيعات صفرية') && isGeneratedTaxLabel('ضريبة 7.5٪'));
   assert.ok(isGeneratedTaxLabel('ض (غير قابلة للخصم)') && isGeneratedTaxLabel('ض — مخرجات الاحتساب العكسي'));
   assert.ok(!isGeneratedTaxLabel('') && !isGeneratedTaxLabel('تسوية'));
+});
+
+// ═══ M3: عمود generated يحسم التمييز (التزام M2 ⇒ M3) ═══
+
+test('M3: draftRowsFromMoveDraft يكتب generated=true على المولَّد وحده، وgeneratedLineFlags تقرأ العمود مباشرة', () => {
+  const ctx = saContext();
+  const S = taxIdOf('S15_SALE');
+  // سطر ضريبة يدوي بوعاء السلة ملاصق للمولَّد: الاستنتاج بالنمط يحتاج قواعد دقيقة، والعمود يحسمه بلا نمط
+  const b = manual(ctx, [
+    { accountId: accountIdOf('411001'), label: 'مبيعات', credit: '1000', taxId: S },
+    { accountId: accountIdOf('111001'), label: 'صندوق', debit: '1300' },
+    { accountId: accountIdOf('212001'), credit: '150', taxId: S, vatBox: 'SA_1', taxBaseMilli: '1000' },
+  ]);
+  assert.deepEqual(b.generatedLineIndexes, [3]);
+  const rows = draftRowsFromMoveDraft(b.draft, ctx, {
+    tenantId: TENANT, journalId: journalIdOf('MISC'), actor: ACTOR, generatedLineIndexes: b.generatedLineIndexes,
+  });
+  assert.deepEqual(rows.lines.map((l) => l.generated), [false, false, false, true]);
+  const stored = rows.lines.map((l) => ({
+    accountId: l.accountId, label: l.label ?? '', taxRole: l.taxRole ?? null, taxId: l.taxId ?? null,
+    debitMilli: BigInt(l.debitMilli as bigint), creditMilli: BigInt(l.creditMilli as bigint),
+    taxBaseMilli: l.taxBaseMilli == null ? null : BigInt(l.taxBaseMilli as bigint), generated: l.generated === true,
+  }));
+  assert.deepEqual(generatedLineFlags(stored), [false, false, false, true]);
+  // العمود يعلو على النمط: تسمية غير مولَّدة لكن العمود true ⇒ مولَّد؛ ونمط مولَّد لكن العمود false ⇒ يدوي
+  const relabeled = stored.map((l, i) => (i === 3 ? { ...l, label: 'تسمية المستخدم' } : l));
+  assert.deepEqual(generatedLineFlags(relabeled), [false, false, false, true]);
+  assert.deepEqual(generatedLineFlags(stored.map((l) => ({ ...l, generated: false }))), [false, false, false, false]);
+  // بلا الحقل (سطور قديمة/مدخلات بلا عمود) ⇒ الاستنتاج بالنمط كما في M2
+  assert.deepEqual(generatedLineFlags(stored.map(({ generated: _g, ...l }) => l)), [false, false, false, true]);
+  // الغائب ⇒ لا مولَّد
+  const plain = draftRowsFromMoveDraft(b.draft, ctx, { tenantId: TENANT, journalId: journalIdOf('MISC'), actor: ACTOR });
+  assert.ok(plain.lines.every((l) => l.generated === false));
+});
+
+test('M3 حارس ثابت: الحفظ ونسخة «إعادة إلى مسودة» يمرّران علم التوليد، والقراءة تختار العمود', () => {
+  assert.match(fnBody('routes/ledger/moves.ts', 'saveManualDraft'), /draftRowsFromMoveDraft\([\s\S]*?generatedLineIndexes: built\.generatedLineIndexes/);
+  assert.match(fnBody('services/gl/reverse.ts', 'resetDraft'), /generatedLineIndexes = rec\.lines\.flatMap\(\(l, i\) => \(l\.generated \? \[i\] : \[\]\)\)/);
+  assert.match(fnBody('services/gl/reverse.ts', 'resetDraft'), /draftRowsFromMoveDraft\([^)]*generatedLineIndexes/);
+  assert.match(src('services/gl/resolve.ts'), /MOVE_LINE_ENGINE_SELECT = \{[\s\S]*?generated: true[\s\S]*?\} as const/);
+  assert.match(fnBody('routes/ledger/moves.ts', 'generatedLineFlags'), /typeof l\.generated === 'boolean'/);
+  assert.match(src('../prisma/schema.prisma'), /model GlMoveLine \{[\s\S]*?\n\s*generated\s+Boolean\s+@default\(false\)[\s\S]*?@@map\("gl_move_lines"\)/);
 });
 
 // ═══ نوع الحساب وI8 ═══

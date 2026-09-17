@@ -1,6 +1,8 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
+import { arEntryTombstoneRows, ledgerTombstones, ledgerTombstoneSettings } from '../services/gl/sync/tombstone';
 import { currentBalance, clean } from '../services/accounting';
 import { authenticate, requireAdmin, requireAccounting, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
@@ -339,6 +341,8 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
     let removed = 0, blocked = 0;
 
     if (batch.kind === 'customers') {
+      // الدفاتر (§5.3): null حين لم تُفعَّل يوماً — فلا قراءة ولا كتابة إضافية
+      const glSettings = await ledgerTombstoneSettings(prisma, tid);
       for (const cid of ids) {
         // حماية: لا نحذف عميلاً له فواتير/سندات حقيقية
         const [inv, rec] = await Promise.all([
@@ -346,7 +350,15 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
           prisma.receipt.count({ where: { customerId: cid } }),
         ]);
         if (inv > 0 || rec > 0) { blocked++; continue; }
+        // قبل المصفوفة: صفوف العميل وحمولتها بلقطة اسمه، ثم createMany أول عنصر في المعاملة
+        const glTombstones = glSettings
+          ? arEntryTombstoneRows(tid, await prisma.accountEntry.findMany({
+            where: { customerId: cid, tenantId: tid },
+            select: { id: true, customerId: true, debit: true, credit: true, entryDate: true, description: true, createdAt: true, customer: { select: { name: true } } },
+          }), glSettings, { batchId: batch.id })
+          : [];
         await prisma.$transaction([
+          ...(glTombstones.length > 0 ? [prisma.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true })] : []),
           prisma.accountEntry.deleteMany({ where: { customerId: cid } }),
           prisma.customerPrice.deleteMany({ where: { customerId: cid } }),
           prisma.notification.deleteMany({ where: { customerId: cid } }),
@@ -368,10 +380,21 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
       }
     } else if (batch.kind === 'balances' || batch.kind === 'ledger') {
       // احذف القيود المستوردة ثم أعد حساب أرصدة العملاء المتأثّرين (وأرصدتهم المتحرّكة)
-      const entries = await prisma.accountEntry.findMany({ where: { id: { in: ids }, tenantId: tid }, select: { customerId: true } });
-      const affected = [...new Set(entries.map(e => e.customerId))];
-      const del = await prisma.accountEntry.deleteMany({ where: { id: { in: ids }, tenantId: tid } });
-      removed = del.count;
+      // معاملة تفاعلية واحدة (§5.3): القراءة ثم أحداث الدفاتر (لا شيء حين لم تُفعَّل يوماً) ثم الحذف.
+      // إعادة كتابة الأرصدة صفاً صفاً تبقى خارجها كما كانت.
+      const affected = await prisma.$transaction(async tx => {
+        const entries = await tx.accountEntry.findMany({
+          where: { id: { in: ids }, tenantId: tid },
+          select: { id: true, customerId: true, debit: true, credit: true, entryDate: true, description: true, createdAt: true },
+        });
+        const glTombstones = await ledgerTombstones(tx, tid, entries, { batchId: batch.id });
+        if (glTombstones.length > 0) {
+          await tx.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true });
+        }
+        const del = await tx.accountEntry.deleteMany({ where: { id: { in: ids }, tenantId: tid } });
+        removed = del.count;
+        return [...new Set(entries.map(e => e.customerId))];
+      }, { maxWait: 10_000, timeout: 60_000 });
       for (const cid of affected) {
         const remaining = await prisma.accountEntry.findMany({ where: { customerId: cid }, orderBy: { entryDate: 'asc' } });
         let running = 0;

@@ -2,6 +2,7 @@ import { Response, NextFunction, RequestHandler } from 'express';
 import { Prisma } from '@prisma/client';
 import { isLedgerError, LEDGER_ERROR_HTTP, type LedgerErrorCode } from '../../services/gl/types';
 import { isGlNotFoundError } from '../../services/gl/resolve';
+import { REP_HISTORY_LOCKED_MESSAGE } from '../../services/gl/sync/tombstone';
 import { AuthRequest } from '../../types';
 
 /**
@@ -44,6 +45,11 @@ export const LEDGER_ERROR_MESSAGES: Readonly<Partial<Record<LedgerErrorCode, str
   LEDGER_VAT_LINE_UNTAGGED: 'سطر الضريبة يتطلب تحديد الضريبة ومربع الإقرار',
   LEDGER_EXPORT_TOO_LARGE: 'التصدير يتجاوز الحد المسموح',
   LEDGER_ATTACHMENT_QUOTA: 'تجاوزت سقف المرفقات',
+  // M3: الإعداد المبدئي (opening.ts وbackfill.ts) وحارس حذف المندوب (tombstone.ts)
+  LEDGER_CUTOVER_IN_FUTURE: 'لا يجوز تاريخ بدء بعد اليوم بتوقيت الشركة',
+  LEDGER_CUTOVER_MID_VAT_PERIOD: 'تاريخ البدء داخل فترة إقرار: أكّد الاختيار وأدخل مبالغ المربعات قبل البدء، أو اختر بداية فترة',
+  LEDGER_HISTORY_TOO_LARGE: 'الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية',
+  LEDGER_HISTORY_LOCKED: REP_HISTORY_LOCKED_MESSAGE,
 };
 
 /** خطأ مسار محلي بحالة HTTP صريحة (قيود تحرير لا رمز لها في ملحق ب) — يُحمل سببه في reason. */

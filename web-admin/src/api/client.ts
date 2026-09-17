@@ -213,7 +213,11 @@ export const tenantApi = {
   update: (id: string, data: unknown) => api.put(`/tenants/${id}`, data),
   resetAdmin: (id: string, data: { adminId?: string; newPassword: string }) => api.post(`/tenants/${id}/reset-admin`, data),
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
-  remove: (id: string) => api.delete(`/tenants/${id}`),
+  remove: (id: string, confirmLedgerDestroy?: boolean) => api.delete(`/tenants/${id}`, { params: { confirmLedgerDestroy: confirmLedgerDestroy ? 1 : undefined } }),
+  // الدفاتر (M3، §5.7، §8.1): إعادة الضبط بتأكيد الاسم، وتاريخ فوترة عمولة الدفع (D2) — preview لا يكتب
+  ledgerReset: (id: string, data: { confirmName: string }) => api.post(`/tenants/${id}/ledger-reset`, data),
+  setPaylinkFeeTaxInvoiceFrom: (id: string, data: { from: string | null }, preview?: boolean) =>
+    api.put(`/tenants/${id}/ledger-paylink-fee-invoice-from`, data, { params: preview ? { preview: 1 } : undefined }),
   // نظام تشغيل المالك (خطة فجوة التنفيذ)
   opsMetrics: () => api.get('/tenants/ops/metrics'),
   opsCards: () => api.get('/tenants/ops/cards'),

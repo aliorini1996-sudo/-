@@ -181,6 +181,12 @@ export const ledgerConfigReasonLabels = (tr: Tr): Record<string, string> => ({
   EXISTS: tr('الرمز موجود مسبقاً'),
   DUPLICATE_IN_FILE: tr('رمز مكرر في الملف'),
   EQUITY_UNAFFECTED: tr('أرباح السنة الجارية يحسبها النظام'),
+  ALREADY_ACTIVATED: tr('النظام المحاسبي المتكامل مفعّل مسبقا لهذه الشركة'),
+  CUTOVER_REQUIRED: tr('تاريخ البدء مطلوب'),
+  STATUTORY_ACK_REQUIRED: tr('يجب الإقرار بتنبيه السجلات المحاسبية النظامية قبل التفعيل'),
+  OPENING_BALANCE_ROWS_INVALID: tr('أرصدة افتتاحية يدوية غير صالحة'),
+  BACKFILL_STATE_CONFLICT: tr('لا يمكن تغيير حالة الترحيل التاريخي من حالتها الحالية'),
+  CATEGORY_ACCOUNT_TYPE: tr('نوع الحساب لا يوافق حقل الفئة'),
 });
 
 /** رموز ملحق ب التي تردها نقاط التهيئة. */
@@ -192,6 +198,9 @@ export const ledgerConfigCodeLabels = (tr: Tr): Record<string, string> => ({
   LEDGER_NOT_SETUP: tr('الإعداد المبدئي للدفاتر لم يكتمل بعد'),
   LEDGER_PERMISSION_DENIED: tr('لا تملك صلاحية الوصول لهذا القسم'),
   LEDGER_EXPORT_TOO_LARGE: tr('التصدير يتجاوز الحد المسموح'),
+  LEDGER_CUTOVER_IN_FUTURE: tr('لا يجوز تاريخ بدء بعد اليوم بتوقيت الشركة'),
+  LEDGER_CUTOVER_MID_VAT_PERIOD: tr('تاريخ البدء داخل فترة إقرار: أكّد الاختيار وأدخل مبالغ المربعات قبل البدء، أو اختر بداية فترة'),
+  LEDGER_HISTORY_TOO_LARGE: tr('الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية'),
 });
 
 // ═══ مساعدات عرض القوائم والتصدير ═══

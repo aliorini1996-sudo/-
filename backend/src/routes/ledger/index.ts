@@ -9,6 +9,11 @@ import lockDatesRouter from './lockDates';
 import movesRouter from './moves';
 import savedFiltersRouter from './savedFilters';
 import listsRouter from './lists';
+import checksRouter from './checks';
+import syncRouter from './sync';
+import setupRouter from './setup';
+import customersRouter from './customers';
+import reviewRouter from './review';
 
 /**
  * النظام المحاسبي المتكامل — `/api/ledger` (§9.1، ملحق أ).
@@ -63,5 +68,12 @@ router.use(lockDatesRouter);
 router.use(movesRouter);
 router.use(savedFiltersRouter);
 router.use(listsRouter);
+// M3: الإعداد المبدئي (setup)، والمزامنة والأحداث (sync)، وفحوصات السلامة (checks) — §5.1، §5.6، §5.9، ملحق أ
+router.use(setupRouter);
+router.use(syncRouter);
+router.use(checksRouter);
+// M3: قائمة «العملاء» (حالة الترحيل والعهدة والأمانات) و«مراجعة ← سجل التدقيق» — §8.2
+router.use(customersRouter);
+router.use(reviewRouter);
 
 export default router;

@@ -400,6 +400,7 @@ model SettlementEntry {
 
   @@index([tenantId, kind])
   @@index([tenantId, createdAt])
+  @@index([tenantId, createdAt, id]) // مؤشر المُطابِق المركّب للنظام المحاسبي المتكامل (§5.2، M3) — فهرس غير فريد
   @@map("settlement_entries")
 }
 
@@ -1333,6 +1334,7 @@ model RepSettlement {
   photos RepSettlementPhoto[]
 
   @@index([tenantId, salesRepId])
+  @@index([tenantId, createdAt, id]) // مؤشر المُطابِق المركّب للنظام المحاسبي المتكامل (§5.2، M3) — فهرس غير فريد
   @@map("rep_settlements")
 }
 
@@ -2704,6 +2706,7 @@ model GlSettings {
   workerLeaseUntil     DateTime? // عقد إيجار المعالج (§5.1) — لا أقفال جلسة
   workerLeaseToken     String?
   lastSyncAt           DateTime?
+  setupDraft           Json?     // M3 — مسودة معالج الإعداد (§5.6: كل خطوة تُحفظ مسودة؛ الأرصدة اليدوية للخطوة 5) — معاينة لا تُرحَّل
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   @@map("gl_settings")
@@ -2934,6 +2937,7 @@ model GlMoveLine {
   currencyCode        String?
   amountCurrencyMilli BigInt?
   bankMatchedLineId   String?   // M7 — مطابقة سطر مرحّل مباشرة على حساب البنك بسطر كشف (المرشح 7، §6.5)
+  generated           Boolean   @default(false) // M3 — سطر ضريبة/علامة ولّده buildManualMoveDraft آلياً (يُهمل ويُعاد توليده عند إعادة الحفظ)
   createdAt           DateTime  @default(now())
   @@index([moveId])
   @@index([tenantId, accountId, date])

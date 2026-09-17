@@ -77,12 +77,6 @@ export default function PlatformPage() {
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الدخول للشركة')),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => tenantApi.remove(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tenants'] }); toast.success(tr('تم حذف الشركة')); setDeleteTarget(null); },
-    onError: () => toast.error(tr('تعذر حذف الشركة')),
-  });
-
   const handleLogout = () => { logout(); window.location.replace('/owner'); };
 
   const activeCount = (tenants ?? []).filter(t => t.isActive).length;
@@ -231,8 +225,7 @@ export default function PlatformPage() {
       {deleteTarget && (
         <DeleteConfirmModal
           tenant={deleteTarget}
-          loading={deleteMutation.isPending}
-          onConfirm={() => deleteMutation.mutate(deleteTarget.id)}
+          onDone={() => { qc.invalidateQueries({ queryKey: ['tenants'] }); setDeleteTarget(null); }}
           onClose={() => setDeleteTarget(null)}
         />
       )}
@@ -329,13 +322,17 @@ function TenantColumn({
                   <td className="text-sm text-gray-500">{t.subscriptionEndsAt ? formatDate(t.subscriptionEndsAt) : tr('غير محدود')}</td>
                   <td>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span>
-                    {/* شارة الدفاتر (M0): من العَلَم وحده، وaccountingEnabled === false يُعامل «غير مفعّل».
-                        تُعرض لشركات قائمة التجربة أو المفعّلة فقط — فلا أثر مرئي لغيرها */}
-                    {(t.ledgerPilotAllowed === true || t.accountingSuiteEnabled === true) && (
-                      <span className={`block w-fit mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${t.accountingSuiteEnabled === true && t.accountingEnabled !== false ? 'bg-[#FBEBE2] text-[#C94E28]' : 'bg-gray-100 text-gray-500'}`}>
-                        {tr('الدفاتر')}: {t.accountingSuiteEnabled === true && t.accountingEnabled !== false ? tr('مفعّل') : tr('غير مفعّل')}
-                      </span>
-                    )}
+                    {/* شارة الدفاتر (M3، §8.1): ledgerStatus من الخادم بقيمه الأربع. تُعرض لشركات قائمة التجربة
+                        أو المفعّلة أو التي فُعّلت دفاترها سابقاً فقط — فلا أثر مرئي لغيرها.
+                        وخادم أقدم بلا ledgerStatus ⇒ دلالة M0 من العَلَم وحده */}
+                    {(t.ledgerPilotAllowed === true || t.accountingSuiteEnabled === true || !!t.ledgerActivatedAt) && (() => {
+                      const b = ledgerBadge(t, tr);
+                      return (
+                        <span className={`block w-fit mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${b.cls}`}>
+                          {tr('الدفاتر')}: {b.label}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td>
                     <div className="flex items-center gap-1">
@@ -377,11 +374,176 @@ function TenantColumn({
   );
 }
 
-// تأكيد حذف الشركة — يتطلب كتابة اسم الشركة لمنع الحذف الخاطئ
-function DeleteConfirmModal({ tenant, loading, onConfirm, onClose }: { tenant: Tenant; loading: boolean; onConfirm: () => void; onClose: () => void }) {
+type Tr = (ar: string) => string;
+
+/** جسم خطأ axios من مسارات المالك — `code` وتفاصيله منشورة بجانبه (ملحق ب) */
+type OwnerApiError = {
+  response?: {
+    status?: number;
+    data?: {
+      message?: string; code?: string; reason?: string; reasons?: string[];
+      retentionUntil?: string | null; postedMoves?: number;
+      current?: string | null; lastPostedFeeDate?: string | null; minDate?: string | null; maxDate?: string | null;
+    };
+  };
+};
+const errData = (err: unknown) => (err as OwnerApiError)?.response?.data;
+
+/** شارة الدفاتر في بطاقة الشركة (§8.1): OFF · PENDING_SETUP · RUNNING · STUCK */
+function ledgerBadge(t: Tenant, tr: Tr): { label: string; cls: string } {
+  switch (t.ledgerStatus) {
+    case 'OFF': return { label: tr('غير مفعّل'), cls: 'bg-gray-100 text-gray-500' };
+    case 'PENDING_SETUP': return { label: tr('مفعّل بانتظار الإعداد'), cls: 'bg-amber-100 text-amber-700' };
+    case 'RUNNING': return { label: tr('يعمل'), cls: 'bg-green-100 text-green-700' };
+    case 'STUCK': return { label: tr('أحداث متعثرة'), cls: 'bg-red-100 text-red-700' };
+    default: {
+      // خادم لم يُضف ledgerStatus بعد: دلالة M0 من العَلَم وحده
+      const on = t.accountingSuiteEnabled === true && t.accountingEnabled !== false;
+      return on ? { label: tr('مفعّل'), cls: 'bg-[#FBEBE2] text-[#C94E28]' } : { label: tr('غير مفعّل'), cls: 'bg-gray-100 text-gray-500' };
+    }
+  }
+}
+
+/** أسباب رفض إعادة ضبط الدفاتر (409 LEDGER_RESET_BLOCKED، §5.7، §8.1) بالعربية */
+function ledgerResetReasonText(reason: string, tr: Tr): string {
+  switch (reason) {
+    case 'POSTED_MOVES': return tr('توجد قيود مرحّلة — الدفاتر سجلات نظامية لا يُعاد ضبطها، والتصحيح بقيود');
+    case 'FILED_RETURN': return tr('يوجد إقرار ضريبي مقدَّم');
+    case 'SECURED_MOVES': return tr('توجد قيود مؤمَّنة');
+    case 'HARD_LOCK': return tr('يوجد تاريخ إقفال نهائي');
+    case 'CUSTOMER_ADJUSTMENTS': return tr('توجد تسويات ذمم عملاء مرحّلة');
+    default: return reason;
+  }
+}
+
+/**
+ * تأكيد حذف الشركة — يتطلب كتابة اسم الشركة لمنع الحذف الخاطئ، ويحاول الحذف أولاً كما كان (§8.1، §3.9، §9.5 G6):
+ * - 409 LEDGER_RETENTION_ACTIVE ⇒ لا مرحلة ثانية ولا تجاوز: مدة الحفظ وعدد القيود و«إيقاف الشركة» إجراءً أساسياً.
+ * - 409 LEDGER_HAS_POSTED_MOVES (بعد انقضاء المدة وحده) ⇒ مرحلة ثانية بتحذير أحمر وتأكيد «احذف الدفاتر»،
+ *   ثم إعادة المحاولة بـ?confirmLedgerDestroy=1.
+ */
+function DeleteConfirmModal({ tenant, onDone, onClose }: { tenant: Tenant; onDone: () => void; onClose: () => void }) {
   const tr = useTr();
   const [confirmText, setConfirmText] = useState('');
   const matches = confirmText.trim() === tenant.name.trim();
+  const [stage, setStage] = useState<'confirm' | 'retention' | 'destroy'>('confirm');
+  const [ledgerInfo, setLedgerInfo] = useState<{ retentionUntil: string | null; postedMoves: number } | null>(null);
+  const [destroyText, setDestroyText] = useState('');
+  const destroyPhrase = tr('احذف الدفاتر');
+  const destroyMatches = destroyText.trim() === destroyPhrase;
+
+  const deleteMutation = useMutation({
+    mutationFn: (confirmLedgerDestroy: boolean) => tenantApi.remove(tenant.id, confirmLedgerDestroy),
+    onSuccess: () => { toast.success(tr('تم حذف الشركة')); onDone(); },
+    onError: (err: unknown) => {
+      const d = errData(err);
+      if (d?.code === 'LEDGER_RETENTION_ACTIVE') {
+        setLedgerInfo({ retentionUntil: d.retentionUntil ?? null, postedMoves: d.postedMoves ?? 0 });
+        setStage('retention');
+        return;
+      }
+      if (d?.code === 'LEDGER_HAS_POSTED_MOVES') {
+        setLedgerInfo({ retentionUntil: d.retentionUntil ?? null, postedMoves: d.postedMoves ?? 0 });
+        setDestroyText('');
+        setStage('destroy');
+        return;
+      }
+      toast.error(tr('تعذر حذف الشركة'));
+    },
+  });
+
+  // إيقاف الشركة بالمسار القائم PUT /api/tenants/:id — البديل النظامي عن الحذف ضمن مدة الحفظ
+  const suspendMutation = useMutation({
+    mutationFn: async () => tenantApi.update(tenant.id, { isActive: false }),
+    onSuccess: () => { toast.success(tr('تم إيقاف الشركة')); onDone(); },
+    onError: (err: unknown) => toast.error(errData(err)?.message || tr('حدث خطأ')),
+  });
+
+  const loading = deleteMutation.isPending;
+  const spinner = <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />;
+
+  if (stage === 'retention' && ledgerInfo) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="p-6 text-center border-b border-gray-100">
+            <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+              <AlertTriangle size={28} className="text-amber-600" />
+            </div>
+            <h2 className="text-lg font-bold text-gray-800">{tr('لا يمكن حذف الشركة')}</h2>
+            <p className="text-sm text-gray-500 mt-1">{tenant.name}</p>
+          </div>
+          <div className="p-6 space-y-3">
+            <div className="bg-amber-50 text-amber-800 rounded-lg px-3 py-2.5 text-sm leading-relaxed">
+              {tr('للشركة سجلات محاسبية نظامية محفوظة حتى')} <span dir="ltr" className="font-semibold">{ledgerInfo.retentionUntil ?? '-'}</span>
+            </div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2.5 flex items-center justify-between text-sm">
+              <span className="text-gray-500">{tr('عدد القيود المرحّلة')}</span>
+              <span className="font-bold text-gray-800">{ledgerInfo.postedMoves}</span>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              {tr('الدفاتر سجلات نظامية لا تُحذف قبل انقضاء مدة حفظها — أوقف الشركة بدل حذفها')}
+            </p>
+            {!tenant.isActive && (
+              <p className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">{tr('الشركة موقوفة بالفعل')}</p>
+            )}
+          </div>
+          <div className="flex gap-3 p-6 pt-0">
+            <button onClick={() => suspendMutation.mutate()} disabled={!tenant.isActive || suspendMutation.isPending}
+              className="btn-primary flex-1 justify-center py-2.5">
+              {suspendMutation.isPending ? spinner : <Power size={15} />}
+              {tr('إيقاف الشركة')}
+            </button>
+            <button onClick={onClose} className="btn-secondary">{tr('إغلاق')}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === 'destroy' && ledgerInfo) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="p-6 text-center border-b border-gray-100">
+            <div className="w-14 h-14 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+              <AlertTriangle size={28} className="text-red-600" />
+            </div>
+            <h2 className="text-lg font-bold text-gray-800">{tr('حذف الدفاتر المحاسبية نهائيا')}</h2>
+            <p className="text-sm text-gray-500 mt-1">{tenant.name}</p>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="bg-red-600 text-white rounded-lg px-3 py-2.5 text-xs leading-relaxed font-semibold">
+              {tr('للشركة دفاتر بقيود مرحّلة انقضت مدة حفظها — ستُحذف الدفاتر وكل قيودها نهائياً مع الشركة ولا يمكن استرجاعها')}
+            </div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">{tr('عدد القيود المرحّلة')}</span>
+                <span className="font-bold text-gray-800">{ledgerInfo.postedMoves}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">{tr('انقضت مدة الحفظ في')}</span>
+                <span className="font-semibold text-gray-800" dir="ltr">{ledgerInfo.retentionUntil ?? '-'}</span>
+              </div>
+            </div>
+            <div>
+              <label className="label">{tr('اكتب العبارة للتأكيد')}: <span className="text-red-600 font-bold">{destroyPhrase}</span></label>
+              <input className="input" value={destroyText} onChange={e => setDestroyText(e.target.value)} placeholder={destroyPhrase} />
+            </div>
+          </div>
+          <div className="flex gap-3 p-6 pt-0">
+            <button onClick={() => deleteMutation.mutate(true)} disabled={!destroyMatches || loading}
+              className="flex-1 justify-center py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-semibold flex items-center gap-2">
+              {loading ? spinner : <Trash2 size={15} />}
+              {tr('حذف الشركة والدفاتر نهائيا')}
+            </button>
+            <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -402,9 +564,9 @@ function DeleteConfirmModal({ tenant, loading, onConfirm, onClose }: { tenant: T
           </div>
         </div>
         <div className="flex gap-3 p-6 pt-0">
-          <button onClick={onConfirm} disabled={!matches || loading}
+          <button onClick={() => deleteMutation.mutate(false)} disabled={!matches || loading}
             className="flex-1 justify-center py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-semibold flex items-center gap-2">
-            {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Trash2 size={15} />}
+            {loading ? spinner : <Trash2 size={15} />}
             {tr('حذف نهائي')}
           </button>
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
@@ -744,6 +906,12 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               </>
             )}
           </div>
+          {/* D2 (§8.1): يظهر حين ledgerActivatedAt مضبوط — حفظ مستقل عن زر حفظ التعديلات */}
+          {!!tenant.ledgerActivatedAt && <LedgerPaylinkFeeSection tenant={tenant} />}
+          {/* إعادة ضبط الدفاتر (M3، §5.7): تبقى ظاهرة بعد إطفاء الميزة ما دامت الدفاتر فُعّلت */}
+          {((tenant.ledgerStatus != null && tenant.ledgerStatus !== 'OFF') || !!tenant.ledgerActivatedAt) && (
+            <LedgerResetSection tenant={tenant} />
+          )}
         </div>
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3] shrink-0">
           <button onClick={submit} disabled={mutation.isPending} className="btn-primary flex-1 justify-center py-2.5">
@@ -753,6 +921,200 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** رد PUT /tenants/:id/ledger-paylink-fee-invoice-from (D2، §8.1) */
+interface PaylinkFeeFromResult {
+  paylinkFeeTaxInvoiceFrom: string | null;
+  previous: string | null;
+  lastPostedFeeDate: string | null;
+  pendingFeesAffected: { count: number; feeMilli: number; fee: string };
+  preview: boolean;
+  changed: boolean;
+}
+
+function paylinkFeeDateErrorText(d: ReturnType<typeof errData>, tr: Tr): string {
+  if (d?.code === 'LEDGER_PAYLINK_FEE_INVOICE_DATE_LOCKED') return tr('لا يمكن تعديل التاريخ أو مسحه بعد ترحيل عمولة بتاريخه أو بعده');
+  if (d?.code === 'LEDGER_NOT_SETUP') return tr('الدفاتر لم تُعدّ لهذه الشركة بعد');
+  if (d?.code === 'LEDGER_PAYLINK_FEE_INVOICE_DATE_INVALID') {
+    const base = (() => {
+      switch (d.reason) {
+        case 'FORMAT': return tr('تاريخ غير صالح');
+        case 'NOT_AFTER_LAST_POSTED_FEE': return tr('يجب أن يكون التاريخ بعد آخر عمولة مرحّلة');
+        case 'NOT_AFTER_TAX_LOCK': return tr('يجب أن يكون التاريخ بعد تاريخ الإقفال الضريبي');
+        case 'NOT_AFTER_HARD_LOCK': return tr('يجب أن يكون التاريخ بعد تاريخ الإقفال النهائي');
+        case 'TOO_FAR_IN_FUTURE': return tr('لا يجوز أن يتجاوز التاريخ 90 يوما من اليوم');
+        default: return d.message || tr('تاريخ غير صالح');
+      }
+    })();
+    const range = d.maxDate ? ` — ${tr('المسموح')}: ${d.minDate ?? '…'} ← ${d.maxDate}` : '';
+    return base + range;
+  }
+  return d?.message || tr('حدث خطأ');
+}
+
+/**
+ * تاريخ بداية الفواتير الضريبية لعمولة الدفع الإلكتروني (D2، §8.1) — حفظ مستقل بمرحلتين:
+ * معاينة (?preview=1، لا تكتب) تعرض pendingFeesAffected، ثم تأكيد الحفظ.
+ * القيمة القائمة لا يحملها GET /api/tenants ⇒ تُقرأ بمعاينة from=null (previous)، أو current من 409 LOCKED.
+ */
+function LedgerPaylinkFeeSection({ tenant }: { tenant: Tenant }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const currentKey = ['tenant-paylink-fee-invoice-from', tenant.id];
+  const currentQ = useQuery({
+    queryKey: currentKey,
+    queryFn: async () => {
+      try {
+        const res = await tenantApi.setPaylinkFeeTaxInvoiceFrom(tenant.id, { from: null }, true);
+        const d = res.data.data as PaylinkFeeFromResult;
+        return { current: d.previous, lastPostedFeeDate: d.lastPostedFeeDate, locked: false };
+      } catch (err) {
+        const d = errData(err);
+        if (d?.code === 'LEDGER_PAYLINK_FEE_INVOICE_DATE_LOCKED') {
+          return { current: d.current ?? null, lastPostedFeeDate: d.lastPostedFeeDate ?? null, locked: true };
+        }
+        throw err;
+      }
+    },
+    retry: false,
+  });
+  const current = currentQ.data?.current ?? null;
+  const locked = currentQ.data?.locked === true;
+  // null = لم يمسّه المالك بعد ⇒ يُعرض القائم
+  const [edited, setEdited] = useState<string | null>(null);
+  const value = edited ?? current ?? '';
+  const target = value || null;
+  const dirty = currentQ.isSuccess && target !== current;
+  const [preview, setPreview] = useState<PaylinkFeeFromResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const previewMutation = useMutation({
+    mutationFn: async () => (await tenantApi.setPaylinkFeeTaxInvoiceFrom(tenant.id, { from: target }, true)).data.data as PaylinkFeeFromResult,
+    onSuccess: (d) => { setError(null); setPreview(d); },
+    onError: (err: unknown) => { setPreview(null); setError(paylinkFeeDateErrorText(errData(err), tr)); },
+  });
+  const saveMutation = useMutation({
+    mutationFn: async () => (await tenantApi.setPaylinkFeeTaxInvoiceFrom(tenant.id, { from: target })).data.data as PaylinkFeeFromResult,
+    onSuccess: () => {
+      toast.success(tr('تم حفظ تاريخ فوترة عمولة الدفع الإلكتروني'));
+      setPreview(null); setError(null); setEdited(null);
+      qc.invalidateQueries({ queryKey: currentKey });
+    },
+    onError: (err: unknown) => { setPreview(null); setError(paylinkFeeDateErrorText(errData(err), tr)); },
+  });
+  const busy = previewMutation.isPending || saveMutation.isPending;
+  const spinner = <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />;
+
+  return (
+    <div className="border border-[#E9E1D3] rounded-xl p-3 bg-[#FAF7F0]">
+      <label className="label flex items-center gap-1"><CreditCard size={12} /> {tr('بداية إصدار فاتورة ضريبية بعمولة الدفع الإلكتروني')}</label>
+      <p className="text-xs text-gray-400 mb-2">{tr('من هذا التاريخ تُسترد ضريبة العمولة في دفاتر الشركة، وما قبله يبقى مصروفاً بلا ضريبة مستردة')}</p>
+      {currentQ.isLoading ? (
+        <p className="text-xs text-gray-400">{tr('جاري التحميل')}</p>
+      ) : currentQ.isError ? (
+        <p className="text-xs text-red-600">{paylinkFeeDateErrorText(errData(currentQ.error), tr)}</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <input type="date" className="input flex-1" value={value} disabled={locked || busy}
+              onChange={e => { setEdited(e.target.value); setPreview(null); setError(null); }} />
+            {!locked && value && (
+              <button type="button" onClick={() => { setEdited(''); setPreview(null); setError(null); }} disabled={busy}
+                className="p-2 rounded-lg text-gray-400 hover:bg-gray-100" title={tr('مسح التاريخ')}>
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          {currentQ.data?.lastPostedFeeDate && (
+            <p className="text-xs text-gray-500 mt-1">{tr('آخر عمولة مرحّلة')}: <span dir="ltr">{currentQ.data.lastPostedFeeDate}</span></p>
+          )}
+          {locked && (
+            <p className="text-xs text-[#C94E28] mt-1">{tr('لا يمكن تعديل التاريخ أو مسحه بعد ترحيل عمولة بتاريخه أو بعده')}</p>
+          )}
+          {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+          {preview && (
+            <div className="mt-2 bg-white border border-[#E9E1D3] rounded-lg px-3 py-2 text-xs space-y-1">
+              <p className="text-gray-600">
+                {tr('من')} <span dir="ltr" className="font-semibold">{preview.previous ?? tr('غير محدد')}</span>
+                {' ← '}
+                {tr('إلى')} <span dir="ltr" className="font-semibold">{preview.paylinkFeeTaxInvoiceFrom ?? tr('غير محدد')}</span>
+              </p>
+              {preview.paylinkFeeTaxInvoiceFrom && (
+                <p className="text-gray-700">
+                  {tr('عمولات غير مرحّلة ستُسترد ضريبتها')}: <span className="font-bold">{preview.pendingFeesAffected.count}</span>
+                  {' · '}{tr('إجمالي العمولة')}: <span className="font-bold" dir="ltr">{preview.pendingFeesAffected.fee}</span>
+                </p>
+              )}
+            </div>
+          )}
+          {!locked && dirty && (
+            <div className="flex gap-2 mt-2">
+              {!preview ? (
+                <button type="button" onClick={() => previewMutation.mutate()} disabled={busy} className="btn-secondary flex-1 justify-center py-2">
+                  {previewMutation.isPending ? <span className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" /> : <Calendar size={14} />}
+                  {tr('معاينة الأثر')}
+                </button>
+              ) : (
+                <button type="button" onClick={() => saveMutation.mutate()} disabled={busy} className="btn-primary flex-1 justify-center py-2">
+                  {saveMutation.isPending ? spinner : <Check size={14} />}
+                  {tr('تأكيد حفظ التاريخ')}
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * إعادة ضبط الدفاتر (M3، §5.7، §8.1): تأكيد باسم الشركة حرفياً (والخادم يتحقق أيضاً)،
+ * وعند 409 LEDGER_RESET_BLOCKED يُعرض كل سبب بالعربية.
+ */
+function LedgerResetSection({ tenant }: { tenant: Tenant }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const [confirmName, setConfirmName] = useState('');
+  const [reasons, setReasons] = useState<string[]>([]);
+  const matches = confirmName === tenant.name; // حرفياً كما يطابق الخادم (resetConfirmNameMatches)
+  const mutation = useMutation({
+    mutationFn: () => tenantApi.ledgerReset(tenant.id, { confirmName }),
+    onSuccess: (res) => {
+      const total = (res.data?.data as { total?: number } | undefined)?.total ?? 0;
+      toast.success(`${tr('تمت إعادة ضبط الدفاتر')} (${total})`);
+      setReasons([]); setConfirmName('');
+      qc.invalidateQueries({ queryKey: ['tenants'] });
+    },
+    onError: (err: unknown) => {
+      const d = errData(err);
+      if (d?.code === 'LEDGER_RESET_BLOCKED') { setReasons(d.reasons ?? []); return; }
+      setReasons([]);
+      toast.error(d?.code === 'LEDGER_RESET_CONFIRM_MISMATCH' ? tr('اسم التأكيد لا يطابق اسم الشركة حرفيا') : (d?.message || tr('حدث خطأ')));
+    },
+  });
+  return (
+    <div className="border border-red-200 rounded-xl p-3 bg-red-50/40">
+      <p className="text-sm font-bold text-red-700 flex items-center gap-1.5"><RotateCcw size={14} /> {tr('إعادة ضبط الدفاتر')}</p>
+      <p className="text-xs text-gray-500 mt-1 leading-relaxed">{tr('تحذف دفاتر الشركة وإعدادها قبل أول ترحيل فقط، ويبقى سجل التدقيق')}</p>
+      <label className="label mt-2">{tr('اكتب اسم الشركة حرفيا للتأكيد')}</label>
+      <input className="input" value={confirmName} onChange={e => { setConfirmName(e.target.value); setReasons([]); }} placeholder={tenant.name} />
+      {reasons.length > 0 && (
+        <div className="mt-2 bg-white border border-red-200 rounded-lg px-3 py-2">
+          <p className="text-xs font-semibold text-red-700 mb-1">{tr('إعادة ضبط الدفاتر مرفوضة')}</p>
+          <ul className="list-disc pr-4 space-y-0.5">
+            {reasons.map(r => <li key={r} className="text-xs text-red-700">{ledgerResetReasonText(r, tr)}</li>)}
+          </ul>
+        </div>
+      )}
+      <button type="button" onClick={() => mutation.mutate()} disabled={!matches || mutation.isPending}
+        className="mt-2 w-full justify-center py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm font-semibold flex items-center gap-2">
+        {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <RotateCcw size={14} />}
+        {tr('إعادة ضبط الدفاتر')}
+      </button>
     </div>
   );
 }

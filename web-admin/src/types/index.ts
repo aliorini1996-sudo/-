@@ -48,6 +48,8 @@ export interface Tenant {
   accountingEnabled?: boolean;   // النظام المحاسبي (منتجات · مخزون · فواتير · سندات) — مفعّل افتراضياً، وغيابه يعني مفعّل
   accountingSuiteEnabled?: boolean; // النظام المحاسبي المتكامل (الدفاتر) — مطفأ افتراضياً، وغيابه يعني مطفأ
   ledgerPilotAllowed?: boolean;  // الشركة في قائمة تجربة الدفاتر (LEDGER_PILOT_TENANTS) — يحسبها الخادم
+  ledgerStatus?: 'OFF' | 'PENDING_SETUP' | 'RUNNING' | 'STUCK'; // حالة الدفاتر في بطاقة الشركة (M3، §8.1) — يحسبها الخادم
+  ledgerActivatedAt?: string | null; // GlSettings.activatedAt — مضبوط ⇒ للشركة دفاتر مفعّلة ولو أُطفئت الميزة لاحقاً
   subscriptionEndsAt?: string | null;
   notes?: string | null;
   createdAt: string;

@@ -24,6 +24,9 @@ import {
 } from '../../../api/ledgerMoves';
 import { ledgerHref } from '../routes';
 import { ledgerErrorMessage, ledgerErrorText } from '../../../lib/ledger/errors';
+import { ledgerReviewApi } from '../../../api/ledgerReview';
+import { sourceDocumentHref, sourceTypeLabels } from '../../../lib/ledger/sync';
+import ConfirmDialog from '../../../components/ConfirmDialog';
 
 /**
  * نموذج قيد اليومية (JE‑04..12، JI‑01..05، §6.1، §8.3):
@@ -33,7 +36,8 @@ import { ledgerErrorMessage, ledgerErrorText } from '../../../lib/ledger/errors'
  * - الدفاتر والضرائب من GET /moves/options بصلاحية القراءة (لا يحتاج canConfigureLedger).
  * - تحذير سطر الحساب الافتراضي لدفتر بنك (`useOutstandingAccounts`).
  * - الترحيل (409 LEDGER_NOT_SETUP قبل التفعيل)، والعكس و«إعادة إلى مسودة» بسبب إلزامي لليدوي وحده (I7)،
- *   وعلى المملوك لمصدر يُخفيان ويظهر المصدر. حذف المسودة، و«تكرار كمسودة»، والمراجعة، والملاحظات والمرفقات.
+ *   وعلى المملوك لمصدر يُخفيان ويظهر رابط المصدر، و«إعادة الترحيل من المصدر» لقيد آلي مرحّل غير معكوس لمن يملك
+ *   canConfigureLedger (M3، §6.1). حذف المسودة، و«تكرار كمسودة»، والمراجعة، والملاحظات والمرفقات.
  */
 
 type Tr = (ar: string) => string;
@@ -150,6 +154,7 @@ export default function MoveForm() {
   const [loadedKey, setLoadedKey] = useState('');
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState<null | 'reverse' | 'reset'>(null);
+  const [confirmRepost, setConfirmRepost] = useState(false);
 
   // الجديد: يُهيّأ مرة بعد تحميل الدفاتر (أو فشله)، والدفتر الافتراضي المتأخر لا يُسقط ما كتبه المستخدم
   useEffect(() => {
@@ -235,6 +240,33 @@ export default function MoveForm() {
     },
     onSuccess: (r) => { toast.success(`${tr('تم ترحيل القيد')} ${r.number}`); refresh(id); },
     onError: (err) => { if ((err as Error)?.message !== SAVE_FAILED) errorToast(err); },
+  });
+
+  // «إعادة الترحيل من المصدر» (§6.1): عكس القيد الحيّ وإعادة بنائه بالربط الحالي في معاملة واحدة
+  const repost = useMutation({
+    mutationFn: async () => (await ledgerReviewApi.moves.repostFromSource(id!)).data.data,
+    onSuccess: (r) => {
+      setConfirmRepost(false);
+      toast.success(`${tr('أُعيد الترحيل من المصدر')} ${r.repost.number ?? ''}`);
+      refresh(id);
+      navigate(ledgerHref(`entries/${r.repost.id}`));
+    },
+    onError: (err) => {
+      setConfirmRepost(false);
+      const e = ledgerErrorOf(err);
+      const reasons: Record<string, string> = {
+        NOT_AUTO_ORIGIN: tr('إعادة الترحيل للقيود الآلية وحدها'),
+        NOT_POSTED: tr('القيد غير مرحّل'),
+        NOT_LIVE_MOVE: tr('القيد ليس القيد الحيّ لمصدره، افتح أحدث قيد للمصدر'),
+        SOURCE_REVERSED: tr('المستند المصدر أُلغي فلا شيء يُعاد ترحيله'),
+        NO_SOURCE: tr('القيد بلا مصدر'),
+        NOT_POST_SOURCE: tr('القيد بلا مصدر'),
+        SOURCE_NOT_FOUND: tr('المستند المصدر غير موجود'),
+        NO_RECIPE: tr('لا وصفة ترحيل لهذا المصدر'),
+        NO_MOVE: tr('المصدر لا ينتج قيدا بالربط الحالي'),
+      };
+      toast.error((typeof e?.reason === 'string' && reasons[e.reason]) || ledgerErrorMessage(tr, e), { duration: 7000 });
+    },
   });
 
   const review = useMutation({
@@ -404,10 +436,15 @@ export default function MoveForm() {
     </div>
   );
 
-  const source = owned && move?.ownership ? {
-    label: `${move.ownership.sourceType ?? tr('مستند')}${move.ownership.sourceId ? ` ${move.ownership.sourceId.slice(0, 8)}` : ''} — ${tr('يُلغى من مستنده')}`,
+  const sourceType = move?.ownership?.sourceType ?? move?.sourceType ?? null;
+  const sourceId = move?.ownership?.sourceId ?? move?.sourceId ?? null;
+  const source = (owned || move?.origin === 'AUTO') && move ? {
+    label: `${sourceType ? sourceTypeLabels(tr)[sourceType] ?? sourceType : tr('مستند')}${sourceId ? ` ${sourceId.slice(0, 8)}` : ''} — ${tr('يُلغى من مستنده')}`,
+    href: sourceDocumentHref(sourceType, { customerId: move.customerId }) ?? undefined,
     origin: move.origin,
   } : null;
+  const canRepost = !!move && move.origin === 'AUTO' && move.state === 'POSTED' && !move.reversal && !move.reversedMove && !move.secured
+    && canLedger(user, 'canConfigureLedger');
 
   const linesTab = form && (
     <div className="space-y-2">
@@ -486,6 +523,7 @@ export default function MoveForm() {
         loading={(!isNew && moveQ.isFetching) || accountsQ.isFetching || save.isPending || post.isPending}
         banner={banner}
         source={source}
+        onRepostFromSource={canRepost ? () => setConfirmRepost(true) : undefined}
         audit={!isNew && move ? { entityType: 'MOVE', entityId: move.id } : undefined}
         chatter={!isNew && move ? { moveId: move.id } : undefined}
         title={<span className="inline-flex items-center gap-2"><bdi>{title}</bdi>{move?.state === 'DRAFT' && <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-[#F1EBDF] text-[#6E6557]">{tr('مسودة')}</span>}</span>}
@@ -522,6 +560,17 @@ export default function MoveForm() {
           </div>
         )}
       </LedgerForm>
+
+      {confirmRepost && move && (
+        <ConfirmDialog
+          title={tr('إعادة الترحيل من المصدر')}
+          message={tr('يُعكس هذا القيد ويُعاد بناؤه من لقطة المستند بربط الحسابات الحالي في معاملة واحدة، ويبقى الأثر على الذمم والعهدة والأمانات صفرا')}
+          confirmLabel={tr('إعادة الترحيل')}
+          loading={repost.isPending}
+          onClose={() => setConfirmRepost(false)}
+          onConfirm={() => repost.mutate()}
+        />
+      )}
 
       {dialog && move && (
         <ReverseDialog

@@ -1,0 +1,627 @@
+import { Router, Response } from 'express';
+import { z } from 'zod';
+import { Prisma } from '@prisma/client';
+import prisma from '../../config/database';
+import { requireLedgerPermission } from '../../middleware/auth';
+import { AuthRequest } from '../../types';
+import { LedgerLocals } from './context';
+import { LedgerHttpError, ledgerHandler } from './errors';
+import { appendAudit, ledgerActor, type GlActor, type GlTx } from '../../services/gl/audit';
+import { acquirePostLock, postMove } from '../../services/gl/post';
+import { GlNotFoundError, loadBuildContext } from '../../services/gl/resolve';
+import { resolveTemplate, seedTemplate } from '../../services/gl/seed';
+import { assertArabicName } from '../../services/gl/names';
+import { addDays, daysInMonth, fromDbDate, isLocalDate, isValidTimeZone, toDbDate, todayLocal } from '../../services/gl/dates';
+import { draftsListUrl } from '../../services/gl/locks';
+import {
+  CASH_INVOICE_ROUTINGS, DEFAULT_GL_SETTINGS, LedgerError, TAX_PERIODICITIES,
+  type BackfillState, type BuildContext, type LocalDate, type TaxPeriodicity, type TemplateKey,
+} from '../../services/gl/types';
+import { initialWatermarkAt, type SetupMethod } from '../../services/gl/sync/classify';
+import {
+  assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, derivedOpeningJson,
+  loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow, suggestedCutoverDate,
+  templatePreviewContext, validateManualBalanceRows, type ManualBalanceLine, type ManualBalanceRowInput,
+} from '../../services/gl/opening';
+import {
+  assertHistoryNotTooLarge, backfillTransition, estimateHistory, fullHistoryCutoverDate, initialCursorRows,
+  freezeOpeningSettlementSplits, loadHistoryFacts, refreshBackfillState, scanFutureDatedRows,
+} from '../../services/gl/backfill';
+
+/**
+ * معالج الإعداد والقيد الافتتاحي والترحيل التاريخي — `/api/ledger/setup*` (M3، §5.6، §8.4 القسم 2، ملحق أ).
+ *
+ * - GET  /setup                 الحالة والمسودة والقيم المقترحة وتقدير التاريخ الكامل وتقدم الترحيل التاريخي.
+ * - POST /setup/draft           حفظ مسودة خطوة (1 الأساس، 2 الطريقة، 3 الشجرة، 5 الأرصدة اليدوية) في GlSettings.setupDraft.
+ * - POST /setup/preview-opening معاينة إرشادية للأرصدة المشتقة والقيد (لا تُخزَّن أبداً).
+ * - POST /setup/commit          معاملة واحدة (60 ثانية): T0 من ساعة القاعدة ⇒ الزرع متساوي الأثر ⇒ إعادة الحساب
+ *                               بـT0 ⇒ قيد OPEN ⇒ openingSnapshotAt/activatedAt ⇒ المؤشرات ⇒ backfillState=RUNNING ⇒ SETUP_COMMIT.
+ * - POST /setup/backfill        «إيقاف مؤقت»/«استئناف» الترحيل التاريخي (RUNNING ⇄ PAUSED).
+ *
+ * الصلاحية canConfigureLedger لكل المسارات. العزل بـtenantId من السياق. لا تواريخ إقفال هنا (§8.3 LockDatesDialog).
+ */
+const router = Router();
+
+const CONFIGURE = requireLedgerPermission('canConfigureLedger');
+const COMMIT_TX = { timeout: 60_000, maxWait: 10_000 };
+
+const ledgerOf = (res: Response) => res.locals.ledger as LedgerLocals;
+const actorOf = (req: AuthRequest, res: Response): GlActor =>
+  ledgerActor(ledgerOf(res), { actorName: req.user?.name ?? null, requestIp: req.ip ?? null });
+const dateOut = (d: Date | null | undefined): string | null => (d ? fromDbDate(d) : null);
+
+// ═══ المسودة ═══
+
+const localDateSchema = z.string().refine(isLocalDate, 'تاريخ غير صالح YYYY-MM-DD');
+const RECEIPT_METHODS = ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'] as const;
+const amountSchema = z.union([z.number(), z.string().max(40)]).nullish();
+
+const step1Schema = z.object({
+  timezone: z.string().min(1).refine(isValidTimeZone, 'منطقة زمنية غير صالحة'),
+  fiscalYearEndMonth: z.number().int().min(1).max(12),
+  fiscalYearEndDay: z.number().int().min(1).max(31),
+  weekStartsOn: z.number().int().min(0).max(6),
+  taxPeriodicity: z.enum(TAX_PERIODICITIES),
+  cutoverDate: localDateSchema,
+  confirmMidVatPeriod: z.boolean(),
+  preCutoverBoxes: z.record(z.string().max(20), z.union([z.number(), z.string().max(40)])).nullable(),
+}).partial().strict();
+
+const step2Schema = z.object({ method: z.enum(['OPENING', 'FULL_HISTORY']) }).strict();
+
+const step3Schema = z.object({
+  accountNames: z.array(z.object({ code: z.string().trim().min(1).max(10), name: z.string().trim().min(1).max(200) })).max(500),
+  categoryIncomeAccounts: z.array(z.object({ categoryId: z.string().min(1), accountCode: z.string().trim().min(1).max(10) })).max(2000),
+  receiptRouting: z.record(z.enum(RECEIPT_METHODS), z.enum(['CUSTODY', 'DIRECT'])).nullable(),
+  cashInvoiceRouting: z.enum(CASH_INVOICE_ROUTINGS),
+}).partial().strict();
+
+const manualRowSchema = z.object({
+  accountCode: z.union([z.string(), z.number()]).transform((v) => String(v).trim()),
+  debit: amountSchema,
+  credit: amountSchema,
+  vendorId: z.string().max(100).nullish(),
+  vendorName: z.string().max(200).nullish(),
+  dueDate: localDateSchema.nullish(),
+  salesRepId: z.string().max(100).nullish(),
+  label: z.string().max(300).nullish(),
+});
+const step5Schema = z.object({ rows: z.array(manualRowSchema).max(5000) }).strict();
+
+const draftSchema = z.object({
+  currentStep: z.number().int().min(1).max(6),
+  step1: step1Schema,
+  step2: step2Schema,
+  step3: step3Schema,
+  step5: step5Schema,
+}).partial().strict();
+
+export type SetupDraft = z.infer<typeof draftSchema>;
+
+/** المسودة المخزّنة (قد تكون قديمة الشكل) ⇒ ما يصح منها فقط */
+export function parseStoredDraft(v: unknown): SetupDraft {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out: SetupDraft = {};
+  const o = v as Record<string, unknown>;
+  for (const key of ['currentStep', 'step1', 'step2', 'step3', 'step5'] as const) {
+    const r = draftSchema.shape[key].safeParse(o[key]);
+    if (r.success && r.data !== undefined) (out as Record<string, unknown>)[key] = r.data;
+  }
+  return out;
+}
+
+/** دمج على مستوى الأقسام: قسم مُرسل يحل محل قسمه، وstep1 يُدمج حقلاً بحقل */
+export function mergeDraft(base: SetupDraft, patch: SetupDraft): SetupDraft {
+  return {
+    ...base,
+    ...patch,
+    ...(patch.step1 ? { step1: { ...(base.step1 ?? {}), ...patch.step1 } } : {}),
+  };
+}
+
+// ═══ الإعداد الفعلي من المسودة والإعدادات ═══
+
+type SettingsRow = Prisma.GlSettingsGetPayload<object>;
+
+interface EffectiveSetup {
+  templateKey: TemplateKey;
+  countryCode: string;
+  timezone: string;
+  fiscalYearEndMonth: number;
+  fiscalYearEndDay: number;
+  weekStartsOn: number;
+  taxPeriodicity: TaxPeriodicity;
+  method: SetupMethod;
+  cutoverDate: LocalDate | null;
+  confirmMidVatPeriod: boolean;
+  preCutoverBoxes: Record<string, unknown> | null;
+}
+
+async function companyOf(db: GlTx | typeof prisma, tenantId: string) {
+  const cs = await db.companySettings.findUnique({ where: { tenantId }, select: { countryCode: true, currency: true, currencyOverride: true } });
+  const countryCode = (cs?.countryCode || 'SA').toUpperCase();
+  return { countryCode, currency: cs ? (cs.currencyOverride || cs.currency) : null };
+}
+
+function effectiveSetup(draft: SetupDraft, s: SettingsRow | null, countryCode: string): EffectiveSetup {
+  const templateKey: TemplateKey = s ? (s.templateKey === 'GENERIC_6D' ? 'GENERIC_6D' : 'SA_6D') : (countryCode === 'SA' ? 'SA_6D' : 'GENERIC_6D');
+  const d1 = draft.step1 ?? {};
+  return {
+    templateKey,
+    countryCode: s?.countryCode ?? countryCode,
+    timezone: d1.timezone ?? s?.timezone ?? DEFAULT_GL_SETTINGS.timezone,
+    fiscalYearEndMonth: d1.fiscalYearEndMonth ?? s?.fiscalYearEndMonth ?? 12,
+    fiscalYearEndDay: d1.fiscalYearEndDay ?? s?.fiscalYearEndDay ?? 31,
+    weekStartsOn: d1.weekStartsOn ?? s?.weekStartsOn ?? 0,
+    taxPeriodicity: (d1.taxPeriodicity ?? (s?.taxPeriodicity as TaxPeriodicity | undefined) ?? 'QUARTERLY'),
+    method: draft.step2?.method ?? 'OPENING',
+    cutoverDate: d1.cutoverDate ?? null,
+    confirmMidVatPeriod: d1.confirmMidVatPeriod === true,
+    preCutoverBoxes: d1.preCutoverBoxes ?? null,
+  };
+}
+
+function assertFiscalYearEnd(e: EffectiveSetup) {
+  if (e.fiscalYearEndDay > daysInMonth(2001, e.fiscalYearEndMonth)) {
+    throw new LedgerHttpError(422, 'يوم نهاية السنة المالية غير صالح للشهر', {
+      reason: 'INVALID_FISCAL_YEAR_END', fiscalYearEndMonth: e.fiscalYearEndMonth, fiscalYearEndDay: e.fiscalYearEndDay,
+    });
+  }
+}
+
+/** صف GlSettings بلقطة القالب إن لم يوجد (بلا زرع حسابات) — createMany متساوي الأثر */
+async function ensureSettingsRow(tx: GlTx, tenantId: string, templateKey: TemplateKey, countryCode: string): Promise<SettingsRow> {
+  const existing = await tx.glSettings.findUnique({ where: { tenantId } });
+  if (existing) return existing;
+  let tpl;
+  try {
+    tpl = resolveTemplate(templateKey, templateKey === 'GENERIC_6D' ? { countryCode } : {});
+  } catch (e) {
+    if (e instanceof RangeError) throw new LedgerHttpError(422, 'لا قالب محاسبي لدولة الشركة', { reason: 'TEMPLATE_UNAVAILABLE', templateKey, countryCode });
+    throw e;
+  }
+  await tx.glSettings.createMany({
+    data: [{
+      tenantId, templateKey: tpl.settings.templateKey, countryCode: tpl.settings.countryCode, currency: tpl.settings.currency,
+      currencyDecimals: tpl.settings.currencyDecimals, zeroRatedSalesTaxKey: tpl.settings.zeroRatedSalesTaxKey,
+      ...(tpl.settings.taxDeadlineRule ? { taxDeadlineRule: tpl.settings.taxDeadlineRule } : {}),
+      ...(tpl.settings.taxDeadlineDays != null ? { taxDeadlineDays: tpl.settings.taxDeadlineDays } : {}),
+    }],
+    skipDuplicates: true,
+  });
+  return tx.glSettings.findUniqueOrThrow({ where: { tenantId } });
+}
+
+async function dbNowOf(db: GlTx | typeof prisma): Promise<Date> {
+  const rows = await db.$queryRaw<{ now: Date }[]>`SELECT now() AS "now"`;
+  return rows[0]?.now instanceof Date ? rows[0].now : new Date(rows[0]?.now ?? Date.now());
+}
+
+function assertNotActivated(s: { activatedAt: Date | null } | null) {
+  if (s?.activatedAt) {
+    throw new LedgerHttpError(409, 'النظام المحاسبي المتكامل مفعّل مسبقاً لهذه الشركة', { reason: 'ALREADY_ACTIVATED', activatedAt: s.activatedAt });
+  }
+}
+
+/** الخطوة 1 (الحفظ والاعتماد): لا تاريخ بدء مستقبلي ثم بداية فترة الإقرار — يعيد midPeriod */
+function checkStep1(e: EffectiveSetup, now: Date): { midPeriod: boolean } {
+  assertFiscalYearEnd(e);
+  if (!e.cutoverDate) return { midPeriod: false };
+  assertCutoverNotInFuture(e.cutoverDate, e.timezone, now);
+  return checkCutoverVatPeriod({
+    templateKey: e.templateKey, cutoverDate: e.cutoverDate, taxPeriodicity: e.taxPeriodicity,
+    fiscalYearEndMonth: e.fiscalYearEndMonth, fiscalYearEndDay: e.fiscalYearEndDay,
+    confirmMidVatPeriod: e.confirmMidVatPeriod, preCutoverBoxes: e.preCutoverBoxes,
+  });
+}
+
+function settingsStatus(s: SettingsRow | null) {
+  return {
+    seeded: !!s,
+    activatedAt: s?.activatedAt ?? null,
+    activatedBy: s?.activatedBy ?? null,
+    backfillState: (s?.backfillState ?? 'NONE') as BackfillState,
+    setupMethod: s?.setupMethod ?? null,
+    cutoverDate: dateOut(s?.cutoverDate),
+    openingSnapshotAt: s?.openingSnapshotAt ?? null,
+    templateKey: s?.templateKey ?? null,
+    countryCode: s?.countryCode ?? null,
+    currency: s?.currency ?? null,
+    currencyDecimals: s?.currencyDecimals ?? null,
+    timezone: s?.timezone ?? null,
+    inventoryMode: s?.inventoryMode ?? 'PERIODIC',
+    cashInvoiceRouting: s?.cashInvoiceRouting ?? 'MAIN_CASH',
+    receiptRouting: s?.receiptRouting ?? null,
+  };
+}
+
+async function draftsBeforeCutover(db: GlTx | typeof prisma, tenantId: string, cutoverDate: LocalDate | null) {
+  if (!cutoverDate) return null;
+  const count = await db.glMove.count({ where: { tenantId, state: 'DRAFT', date: { lt: toDbDate(cutoverDate) } } });
+  return { count, listUrl: draftsListUrl(addDays(cutoverDate, -1)) };
+}
+
+// ═══ GET /setup ═══
+
+router.get('/setup', CONFIGURE, ledgerHandler(async (_req, res) => {
+  const { tenantId } = ledgerOf(res);
+  const [s, company] = await Promise.all([prisma.glSettings.findUnique({ where: { tenantId } }), companyOf(prisma, tenantId)]);
+  const draft = parseStoredDraft(s?.setupDraft);
+  const eff = effectiveSetup(draft, s, company.countryCode);
+  const now = await dbNowOf(prisma);
+  const status = settingsStatus(s);
+  if (s?.activatedAt) {
+    const progress = await refreshBackfillState(prisma, tenantId);
+    res.json({ success: true, data: { activated: true, status: { ...status, backfillState: progress?.state ?? status.backfillState }, progress } });
+    return;
+  }
+  const facts = await loadHistoryFacts(prisma, tenantId);
+  const estimate = estimateHistory(facts.counts);
+  res.json({
+    success: true,
+    data: {
+      activated: false,
+      status,
+      draft,
+      effective: eff,
+      company,
+      today: todayLocal(now, eff.timezone),
+      suggestedCutoverDate: suggestedCutoverDate(eff.templateKey, now, eff.timezone, eff.fiscalYearEndMonth, eff.fiscalYearEndDay),
+      history: {
+        ...estimate,
+        oldestEffectAt: facts.oldestEffectAt,
+        fullHistoryCutoverDate: fullHistoryCutoverDate(facts.oldestEffectAt, eff.timezone, eff.fiscalYearEndMonth, eff.fiscalYearEndDay),
+      },
+      draftsBeforeCutover: await draftsBeforeCutover(prisma, tenantId, eff.cutoverDate),
+      progress: null,
+    },
+  });
+}));
+
+// ═══ POST /setup/draft ═══
+
+router.post('/setup/draft', CONFIGURE, ledgerHandler(async (req, res) => {
+  const { tenantId } = ledgerOf(res);
+  const patch = draftSchema.parse(req.body ?? {});
+  const actor = actorOf(req, res);
+  const out = await prisma.$transaction(async (tx) => {
+    const now = await dbNowOf(tx);
+    const company = await companyOf(tx, tenantId);
+    const before = await tx.glSettings.findUnique({ where: { tenantId } });
+    assertNotActivated(before);
+    const merged = mergeDraft(parseStoredDraft(before?.setupDraft), patch);
+    const eff = effectiveSetup(merged, before, company.countryCode);
+    // الخطوة 1: لا تاريخ بدء في المستقبل (422 LEDGER_CUTOVER_IN_FUTURE) ولا داخل فترة إقرار دون تأكيد
+    checkStep1(eff, now);
+    let history = null;
+    if (patch.step2?.method === 'FULL_HISTORY') {
+      const facts = await loadHistoryFacts(tx, tenantId);
+      const estimate = estimateHistory(facts.counts);
+      assertHistoryNotTooLarge(estimate);
+      history = { ...estimate, fullHistoryCutoverDate: fullHistoryCutoverDate(facts.oldestEffectAt, eff.timezone, eff.fiscalYearEndMonth, eff.fiscalYearEndDay) };
+    }
+    const s = await ensureSettingsRow(tx, tenantId, eff.templateKey, company.countryCode);
+    const updated = await tx.glSettings.update({ where: { tenantId }, data: { setupDraft: merged as Prisma.InputJsonValue } });
+    if (!before?.setupDraft) {
+      await appendAudit(tx, {
+        tenantId, actor, action: 'SETUP_START', entityType: 'SETTINGS', entityId: s.id,
+        summary: 'بدء معالج إعداد النظام المحاسبي المتكامل', after: { templateKey: eff.templateKey, countryCode: eff.countryCode },
+      });
+    }
+    return { draft: parseStoredDraft(updated.setupDraft), effective: eff, history };
+  }, { timeout: 30_000, maxWait: 10_000 });
+  res.json({ success: true, data: out });
+}));
+
+// ═══ السياق والأرصدة اليدوية ═══
+
+async function previewContext(tenantId: string, s: SettingsRow | null, eff: EffectiveSetup): Promise<BuildContext> {
+  if (s && (await prisma.glAccount.count({ where: { tenantId } })) > 0) {
+    const lc = await loadBuildContext(prisma, tenantId);
+    return lc.ctx;
+  }
+  try {
+    return templatePreviewContext(eff.templateKey, eff.countryCode, { timezone: eff.timezone, taxPeriodicity: eff.taxPeriodicity });
+  } catch (e) {
+    if (e instanceof RangeError) throw new LedgerHttpError(422, 'لا قالب محاسبي لدولة الشركة', { reason: 'TEMPLATE_UNAVAILABLE', templateKey: eff.templateKey, countryCode: eff.countryCode });
+    throw e;
+  }
+}
+
+function manualRowsOf(draft: SetupDraft): ManualBalanceRowInput[] {
+  return (draft.step5?.rows ?? []).map((r) => ({ ...r, accountCode: r.accountCode }));
+}
+
+// ═══ POST /setup/preview-opening ═══
+
+/** معاينة إرشادية (§5.6 الخطوة 4): لا تُخزَّن أبداً، ويُعاد الحساب في الاعتماد بـT0 */
+router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) => {
+  const { tenantId } = ledgerOf(res);
+  const patch = draftSchema.parse(req.body ?? {});
+  const [s, company] = await Promise.all([prisma.glSettings.findUnique({ where: { tenantId } }), companyOf(prisma, tenantId)]);
+  const draft = mergeDraft(parseStoredDraft(s?.setupDraft), patch);
+  const eff = effectiveSetup(draft, s, company.countryCode);
+  const now = await dbNowOf(prisma);
+  let cutoverDate = eff.cutoverDate;
+  if (eff.method === 'FULL_HISTORY') {
+    const facts = await loadHistoryFacts(prisma, tenantId);
+    cutoverDate = fullHistoryCutoverDate(facts.oldestEffectAt, eff.timezone, eff.fiscalYearEndMonth, eff.fiscalYearEndDay) ?? cutoverDate;
+  }
+  if (!cutoverDate) throw new LedgerHttpError(422, 'تاريخ البدء مطلوب', { reason: 'CUTOVER_REQUIRED', field: 'cutoverDate' });
+  const { midPeriod } = checkStep1({ ...eff, cutoverDate }, now);
+  const ctx = await previewContext(tenantId, s, eff);
+  const decimals = ctx.settings.currencyDecimals;
+  const step3 = draft.step3 ?? {};
+  const routing = {
+    receiptRouting: (step3.receiptRouting !== undefined ? step3.receiptRouting : ctx.settings.receiptRouting) ?? null,
+    cashInvoiceRouting: step3.cashInvoiceRouting ?? ctx.settings.cashInvoiceRouting,
+  };
+  const cut = openingCutoff(cutoverDate, eff.timezone, now);
+  const sources = await loadOpeningSources(prisma, tenantId, cut);
+  const derived = computeDerivedOpening(sources, cut, { decimals, routing });
+  const manual = validateManualBalanceRows(manualRowsOf(draft), ctx, { midVatPeriod: midPeriod });
+  const move = buildOpeningMove({ derived, manual: manual.lines, ctx, salesRepNames: sources.salesRepNames });
+  res.json({
+    success: true,
+    data: {
+      preview: true,
+      method: eff.method,
+      midVatPeriod: midPeriod,
+      opening: derivedOpeningJson(derived, decimals),
+      manual: { lineCount: manual.lines.length, issues: manual.issues },
+      move: openingMoveJson(move, decimals),
+      draftsBeforeCutover: await draftsBeforeCutover(prisma, tenantId, cutoverDate),
+    },
+  });
+}));
+
+// ═══ POST /setup/commit ═══
+
+const commitSchema = z.object({
+  /** تنبيه السجلات النظامية قبل زر التفعيل (§9.5 G6) */
+  acknowledgeStatutory: z.literal(true),
+  draft: draftSchema.optional(),
+}).strict();
+
+async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft): Promise<{ renamed: number; categoryAccounts: number }> {
+  const step3 = draft.step3 ?? {};
+  let renamed = 0;
+  for (const r of step3.accountNames ?? []) {
+    assertArabicName(r.name, { entity: 'ACCOUNT', code: r.code });
+    const u = await tx.glAccount.updateMany({ where: { tenantId, code: r.code, NOT: { name: r.name } }, data: { name: r.name, nameI18n: Prisma.DbNull } });
+    renamed += u.count;
+  }
+  const links = step3.categoryIncomeAccounts ?? [];
+  if (links.length) {
+    const cats = new Set((await tx.productCategory.findMany({ where: { tenantId, id: { in: links.map((l) => l.categoryId) } }, select: { id: true } })).map((c) => c.id));
+    const codes = [...new Set(links.map((l) => l.accountCode))];
+    const accounts = await tx.glAccount.findMany({ where: { tenantId, code: { in: codes } }, select: { id: true, code: true, type: true, isActive: true } });
+    const byCode = new Map(accounts.map((a) => [a.code, a]));
+    for (const l of links) {
+      if (!cats.has(l.categoryId)) throw new GlNotFoundError('ProductCategory', l.categoryId);
+      const a = byCode.get(l.accountCode);
+      if (!a) throw new LedgerError('LEDGER_ACCOUNT_NOT_FOUND', { accountCode: l.accountCode, field: 'categoryIncomeAccounts' });
+      if (!a.isActive) throw new LedgerError('LEDGER_ACCOUNT_ARCHIVED', { accountCode: l.accountCode, field: 'categoryIncomeAccounts' });
+      if (a.type !== 'income' && a.type !== 'income_other') {
+        throw new LedgerHttpError(422, 'حساب إيراد الفئة يجب أن يكون من نوع إيراد', { reason: 'CATEGORY_ACCOUNT_TYPE', accountCode: l.accountCode, categoryId: l.categoryId });
+      }
+      await tx.glProductCategoryAccount.upsert({
+        where: { tenantId_categoryId: { tenantId, categoryId: l.categoryId } },
+        create: { tenantId, categoryId: l.categoryId, incomeAccountId: a.id },
+        update: { incomeAccountId: a.id },
+      });
+    }
+  }
+  return { renamed, categoryAccounts: links.length };
+}
+
+/** سطور 211001: vendorId قائم للشركة، أو مورّد بالاسم (يُنشأ GlVendor إن لم يوجد) — I5 */
+async function resolveVendors(tx: GlTx, tenantId: string, lines: ManualBalanceLine[]): Promise<{ created: number }> {
+  const byName = new Map<string, { id: string; name: string }>();
+  let created = 0;
+  for (const l of lines) {
+    if (l.account.controlKind !== 'AP') continue;
+    if (l.vendorId) {
+      const v = await tx.glVendor.findFirst({ where: { id: l.vendorId, tenantId }, select: { id: true, name: true } });
+      if (!v) throw new GlNotFoundError('GlVendor', l.vendorId);
+      l.vendorName = v.name;
+      continue;
+    }
+    const name = (l.vendorName ?? '').trim();
+    const key = name.toLowerCase();
+    let v = byName.get(key);
+    if (!v) {
+      v = (await tx.glVendor.findFirst({ where: { tenantId, name: { equals: name, mode: 'insensitive' } }, select: { id: true, name: true } })) ?? undefined;
+      if (!v) {
+        v = await tx.glVendor.create({ data: { tenantId, name }, select: { id: true, name: true } });
+        created++;
+      }
+      byName.set(key, v);
+    }
+    l.vendorId = v.id;
+    l.vendorName = v.name;
+  }
+  return { created };
+}
+
+router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
+  const { tenantId, actorId } = ledgerOf(res);
+  const parsed = commitSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    const ack = (req.body as { acknowledgeStatutory?: unknown } | undefined)?.acknowledgeStatutory;
+    if (ack !== true) throw new LedgerHttpError(422, 'يجب الإقرار بتنبيه السجلات المحاسبية النظامية قبل التفعيل', { reason: 'STATUTORY_ACK_REQUIRED', field: 'acknowledgeStatutory' });
+    throw parsed.error;
+  }
+  const actor = actorOf(req, res);
+
+  const out = await prisma.$transaction(async (tx) => {
+    // (1) T0 من ساعة القاعدة أولاً (§5.6 الخطوة 6)
+    const dbNow = await dbNowOf(tx);
+    const T0 = openingSnapshotFromDbNow(dbNow);
+    await acquirePostLock(tx, tenantId);
+
+    const company = await companyOf(tx, tenantId);
+    const before = await tx.glSettings.findUnique({ where: { tenantId } });
+    assertNotActivated(before);
+    const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
+    const eff = effectiveSetup(draft, before, company.countryCode);
+
+    // (2) الطريقة وتاريخ البدء
+    let cutoverDate = eff.cutoverDate;
+    let history = null;
+    if (eff.method === 'FULL_HISTORY') {
+      const facts = await loadHistoryFacts(tx, tenantId);
+      history = estimateHistory(facts.counts);
+      assertHistoryNotTooLarge(history);
+      cutoverDate = fullHistoryCutoverDate(facts.oldestEffectAt, eff.timezone, eff.fiscalYearEndMonth, eff.fiscalYearEndDay) ?? cutoverDate;
+    }
+    if (!cutoverDate) throw new LedgerHttpError(422, 'تاريخ البدء مطلوب', { reason: 'CUTOVER_REQUIRED', field: 'cutoverDate' });
+    // لا تاريخ بدء في المستقبل: 422 LEDGER_CUTOVER_IN_FUTURE (قبل أي كتابة)
+    assertCutoverNotInFuture(cutoverDate, eff.timezone, dbNow);
+    const { midPeriod } = checkStep1({ ...eff, cutoverDate }, dbNow);
+
+    // (3) الإعدادات قبل التفعيل ثم الزرع متساوي الأثر (§4.5)
+    await ensureSettingsRow(tx, tenantId, eff.templateKey, company.countryCode);
+    const step3 = draft.step3 ?? {};
+    await tx.glSettings.update({
+      where: { tenantId },
+      data: {
+        timezone: eff.timezone, fiscalYearEndMonth: eff.fiscalYearEndMonth, fiscalYearEndDay: eff.fiscalYearEndDay,
+        weekStartsOn: eff.weekStartsOn, taxPeriodicity: eff.taxPeriodicity,
+        ...(step3.cashInvoiceRouting ? { cashInvoiceRouting: step3.cashInvoiceRouting } : {}),
+        ...(step3.receiptRouting !== undefined ? { receiptRouting: step3.receiptRouting === null ? Prisma.DbNull : step3.receiptRouting } : {}),
+        setupDraft: draft as Prisma.InputJsonValue,
+      },
+    });
+    let seed;
+    try {
+      seed = await seedTemplate(tx, tenantId, eff.templateKey, eff.templateKey === 'GENERIC_6D' ? { countryCode: eff.countryCode } : {});
+    } catch (e) {
+      if (e instanceof RangeError) throw new LedgerHttpError(422, 'لا قالب محاسبي لدولة الشركة', { reason: 'TEMPLATE_UNAVAILABLE', templateKey: eff.templateKey, countryCode: eff.countryCode });
+      throw e;
+    }
+    const purchaseKey = resolveTemplate(eff.templateKey, eff.templateKey === 'GENERIC_6D' ? { countryCode: eff.countryCode } : {}).defaultPurchaseTaxKey;
+    if (purchaseKey) {
+      const t = await tx.glTax.findUnique({ where: { tenantId_key: { tenantId, key: purchaseKey } }, select: { id: true } });
+      if (t) await tx.glSettings.updateMany({ where: { tenantId, defaultPurchaseTaxId: null }, data: { defaultPurchaseTaxId: t.id } });
+    }
+    const step3Report = await applyStep3(tx, tenantId, draft);
+    const context = await loadBuildContext(tx, tenantId);
+    const ctx = context.ctx;
+    const decimals = ctx.settings.currencyDecimals;
+
+    // (4) الأرصدة اليدوية (الخطوة 5)
+    const manual = validateManualBalanceRows(manualRowsOf(draft), ctx, { midVatPeriod: midPeriod });
+    if (manual.issues.length) {
+      throw new LedgerHttpError(422, 'أرصدة افتتاحية يدوية غير صالحة', { reason: 'OPENING_BALANCE_ROWS_INVALID', issues: manual.issues.slice(0, 200), count: manual.issues.length });
+    }
+    const vendors = await resolveVendors(tx, tenantId, manual.lines);
+    const manualRepIds = [...new Set(manual.lines.map((l) => l.salesRepId).filter((x): x is string => !!x))];
+    const manualReps = manualRepIds.length
+      ? await tx.salesRep.findMany({ where: { tenantId, id: { in: manualRepIds } }, select: { id: true, name: true } })
+      : [];
+    for (const id of manualRepIds) if (!manualReps.some((r) => r.id === id)) throw new GlNotFoundError('SalesRep', id);
+
+    // (5) إعادة حساب كل أرصدة الخطوة 4 داخل المعاملة بـT0 (الأثر < cutover و createdAt ≤ T0)
+    const cut = openingCutoff(cutoverDate, eff.timezone, T0);
+    const sources = await loadOpeningSources(tx, tenantId, cut);
+    const derived = computeDerivedOpening(sources, cut, {
+      decimals, routing: { receiptRouting: ctx.settings.receiptRouting, cashInvoiceRouting: ctx.settings.cashInvoiceRouting },
+    });
+    const move = buildOpeningMove({
+      derived, manual: manual.lines, ctx,
+      salesRepNames: { ...(sources.salesRepNames ?? {}), ...Object.fromEntries(manualReps.map((r) => [r.id, r.name])) },
+    });
+
+    // (6) قيد OPEN بتاريخ cutover − 1
+    const posted = move.draft
+      ? await postMove(tx, move.draft, {
+        tenantId, actor, context, validationMode: 'SYSTEM', lockPolicy: 'REJECT',
+        auditSummary: `ترحيل القيد الافتتاحي بتاريخ ${cut.openingDate}`,
+        auditExtra: { opening: true, equityDiff: openingMoveJson(move, decimals).equityDiff },
+        now: dbNow,
+      })
+      : null;
+
+    // (7) openingSnapshotAt = T0 (لا now()) وactivatedAt، ثم المؤشرات، ثم RUNNING
+    const settings = await tx.glSettings.update({
+      where: { tenantId },
+      data: {
+        setupMethod: eff.method, cutoverDate: toDbDate(cutoverDate), openingSnapshotAt: T0,
+        activatedAt: dbNow, activatedBy: actorId, backfillState: 'RUNNING',
+      },
+    });
+    const watermarkAt = initialWatermarkAt({ method: eff.method, cutoverDate, openingSnapshotAt: T0, timezone: eff.timezone });
+    await tx.glSyncCursor.updateMany({ where: { tenantId }, data: { watermarkAt, watermarkId: '', lastRunAt: null, lastCount: 0, stallTicks: 0 } });
+    const inventoryMode = settings.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC';
+    await tx.glSyncCursor.createMany({ data: initialCursorRows(tenantId, inventoryMode, watermarkAt), skipDuplicates: true });
+    const futureDated = eff.method === 'OPENING'
+      ? await scanFutureDatedRows(tx, tenantId, {
+        watermarkAt, cutoverStart: cut.cutoverStart,
+        settings: { tenantId, activatedAt: dbNow, timezone: eff.timezone, currency: company.currency ?? settings.currency, currencyDecimals: decimals },
+      })
+      : null;
+    // تقسيم P7 للاستلامات المشمولة بالافتتاح يُجمَّد بالمجموعة نفسها التي حسبها الافتتاح (لا بالواصلة متأخرة)
+    const frozenSettlements = await freezeOpeningSettlementSplits(tx, tenantId, {
+      splits: derived.settlementSplits,
+      settings: { tenantId, activatedAt: dbNow, timezone: eff.timezone, currency: company.currency ?? settings.currency, currencyDecimals: decimals },
+      processedAt: dbNow,
+    });
+
+    const openingJson = derivedOpeningJson(derived, decimals);
+    const moveJson = openingMoveJson(move, decimals);
+    await appendAudit(tx, {
+      tenantId, actor, action: 'SETUP_COMMIT', entityType: 'SETTINGS', entityId: settings.id,
+      summary: `تفعيل النظام المحاسبي المتكامل بتاريخ بدء ${cutoverDate} (${eff.method === 'OPENING' ? 'أرصدة افتتاحية' : 'التاريخ الكامل'})`,
+      after: {
+        method: eff.method, cutoverDate, openingSnapshotAt: T0.toISOString(), activatedAt: dbNow.toISOString(), templateKey: eff.templateKey,
+        midVatPeriod: midPeriod, preCutoverBoxes: eff.preCutoverBoxes, watermarkAt: watermarkAt.toISOString(), history, futureDated, frozenSettlements,
+        seed: { created: seed.created, skipped: seed.skipped, unresolvedMappings: seed.unresolvedMappings, conflictingMappings: seed.conflictingMappings.length },
+        step3: step3Report, vendorsCreated: vendors.created, manualRows: manual.lines.length,
+        openingMove: posted ? { id: posted.id, number: posted.number, date: posted.date } : null,
+        receivablesTotal: openingJson.receivablesTotal, custodyTotal: openingJson.custodyTotal, paylinkHeld: openingJson.paylinkHeld,
+        warehouse: openingJson.warehouse, equityDiff: moveJson.equityDiff, totalDebit: moveJson.totalDebit, counts: openingJson.counts,
+      },
+    });
+
+    return {
+      status: settingsStatus(settings),
+      opening: openingJson,
+      move: { ...moveJson, id: posted?.id ?? null, number: posted?.number ?? null, date: posted?.date ?? cut.openingDate },
+      watermarkAt,
+      futureDated,
+      seed: { created: seed.created, skipped: seed.skipped, unresolvedMappings: seed.unresolvedMappings, conflictingMappings: seed.conflictingMappings, conflictingAccountRefs: seed.conflictingAccountRefs },
+      vendorsCreated: vendors.created,
+    };
+  }, COMMIT_TX);
+  // الاستجابة بالأرقام النهائية الملتزمة لا بأرقام المعاينة
+  res.status(201).json({ success: true, data: out });
+}));
+
+// ═══ POST /setup/backfill ═══
+
+const backfillSchema = z.object({ action: z.enum(['PAUSE', 'RESUME']) }).strict();
+
+router.post('/setup/backfill', CONFIGURE, ledgerHandler(async (req, res) => {
+  const { tenantId } = ledgerOf(res);
+  const { action } = backfillSchema.parse(req.body ?? {});
+  const actor = actorOf(req, res);
+  const out = await prisma.$transaction(async (tx) => {
+    const s = await tx.glSettings.findUnique({ where: { tenantId }, select: { id: true, activatedAt: true, backfillState: true } });
+    if (!s?.activatedAt) throw new LedgerError('LEDGER_NOT_SETUP', { reason: 'NOT_ACTIVATED' });
+    const current = (s.backfillState || 'NONE') as BackfillState;
+    const next = backfillTransition(current, action);
+    if (!next) throw new LedgerHttpError(409, 'لا يمكن تغيير حالة الترحيل التاريخي من حالتها الحالية', { reason: 'BACKFILL_STATE_CONFLICT', backfillState: current, action });
+    const r = await tx.glSettings.updateMany({ where: { tenantId, backfillState: current }, data: { backfillState: next } });
+    if (r.count !== 1) throw new LedgerHttpError(409, 'تغيّرت حالة الترحيل التاريخي أثناء الطلب', { reason: 'BACKFILL_STATE_CONFLICT', backfillState: current, action });
+    await appendAudit(tx, {
+      tenantId, actor, action: 'SETTINGS_CHANGE', entityType: 'SETTINGS', entityId: s.id,
+      summary: action === 'PAUSE' ? 'إيقاف مؤقت للترحيل التاريخي' : 'استئناف الترحيل التاريخي',
+      before: { backfillState: current }, after: { backfillState: next },
+    });
+    return { backfillState: next };
+  }, { timeout: 15_000, maxWait: 10_000 });
+  res.json({ success: true, data: out });
+}));
+
+export default router;

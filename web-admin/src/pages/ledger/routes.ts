@@ -43,6 +43,18 @@ export const LEDGER_ROUTES: readonly LedgerRouteDef[] = [
   { path: 'config/mappings', component: 'config/MappingsPage', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M2' },
   { path: 'config/tags', component: 'config/TagList', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M2' },
   { path: 'config/fiscal-years', component: 'config/FiscalYearList', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M2' },
+  // العملاء (M3): حالة ترحيل المستندات القائمة، وعهدة المناديب (وزر «تسجيل عجز» M4)، والأمانات
+  { path: 'customers/invoices', component: 'customers/InvoicePostingList', view: 'canViewLedger', write: null, milestone: 'M3' },
+  { path: 'customers/receipts', component: 'customers/ReceiptPostingList', view: 'canViewLedger', write: null, milestone: 'M3' },
+  { path: 'customers/custody', component: 'customers/CustodyPage', view: 'canViewLedger', write: 'canPostJournals', milestone: 'M3' },
+  { path: 'customers/paylink', component: 'customers/PaylinkClearingPage', view: 'canViewLedger', write: null, milestone: 'M3' },
+  // مراجعة (M3)
+  { path: 'review/events', component: 'review/SyncEventsPage', view: 'canViewLedger', write: 'canConfigureLedger', milestone: 'M3' },
+  { path: 'review/attention', component: 'review/MoveReviewList', view: 'canViewLedger', write: 'canPostJournals', milestone: 'M3' },
+  { path: 'review/late', component: 'review/MoveReviewList', view: 'canViewLedger', write: 'canPostJournals', milestone: 'M3' },
+  { path: 'review/unreviewed', component: 'review/MoveReviewList', view: 'canViewLedger', write: 'canPostJournals', milestone: 'M3' },
+  { path: 'review/checks', component: 'review/IntegrityChecksPage', view: 'canViewLedger', write: 'canConfigureLedger', milestone: 'M3' },
+  { path: 'review/audit', component: 'review/AuditLogPage', view: 'canConfigureLedger', write: null, milestone: 'M3' },
 ];
 
 /** الحوارات بلا مسار (صف «تواريخ الإقفال…» في جدول §8.2). */
@@ -62,19 +74,37 @@ export function findLedgerRoute(path: string): LedgerRouteDef | undefined {
 
 // ═══ القوائم (مرآة Odoo) ═══
 
-/** عنصر قائمة: مسار من الجدول أو حوار — وصلاحيته تُقرأ من صفه لا تُكرَّر هنا. */
+/** عنصر قائمة: مسار من الجدول أو حوار — وصلاحيته تُقرأ من صفه لا تُكرَّر هنا (والرابط الخارجي يحمل صلاحية عرضه). */
 export type LedgerMenuItem =
   | { kind: 'route'; label: string; path: string }
-  | { kind: 'dialog'; label: string; dialog: LedgerDialogKey };
+  | { kind: 'dialog'; label: string; dialog: LedgerDialogKey }
+  /** رابط إلى صفحة قائمة خارج `/app/ledger` (لا يُسجَّل في الجدول، §8.2: «العملاء ← /app/customers») */
+  | { kind: 'link'; label: string; href: string; view: LedgerKey };
 
 export interface LedgerMenuSection { label?: string; items: LedgerMenuItem[] }
 export interface LedgerMenu { key: string; label: string; sections: LedgerMenuSection[] }
 
 /**
- * قوائم M2 من جدول §8.2 — بنداءات `tr()` **حرفية** (حارس langs.test لا يلتقط tr(متغير)).
- * القوائم الأخرى (لوحة البيانات M4، العملاء M3، الموردون M6، مراجعة M3، التقارير M4) تُضاف بمراحلها.
+ * قوائم M2 وM3 من جدول §8.2 — بنداءات `tr()` **حرفية** (حارس langs.test لا يلتقط tr(متغير)).
+ * بترتيب Odoo: العملاء، المحاسبة، مراجعة، التهيئة. القوائم الأخرى (لوحة البيانات M4، الموردون M6، التقارير M4)
+ * وبنود M4 في العملاء (تسويات الذمم) تُضاف بمراحلها.
  */
 export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
+  {
+    key: 'customers',
+    label: tr('العملاء'),
+    sections: [
+      {
+        items: [
+          { kind: 'route', label: tr('الفواتير والمرتجعات'), path: 'customers/invoices' },
+          { kind: 'route', label: tr('سندات القبض'), path: 'customers/receipts' },
+          { kind: 'route', label: tr('عهدة المناديب'), path: 'customers/custody' },
+          { kind: 'route', label: tr('أمانات الدفع الإلكتروني'), path: 'customers/paylink' },
+        ],
+      },
+      { items: [{ kind: 'link', label: tr('العملاء'), href: '/app/customers', view: 'canViewLedger' }] },
+    ],
+  },
   {
     key: 'accounting',
     label: tr('المحاسبة'),
@@ -90,6 +120,22 @@ export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
         label: tr('الإقفال'),
         items: [
           { kind: 'dialog', label: tr('تواريخ الإقفال…'), dialog: 'lockDates' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'review',
+    label: tr('مراجعة'),
+    sections: [
+      {
+        items: [
+          { kind: 'route', label: tr('أحداث الترحيل الآلي'), path: 'review/events' },
+          { kind: 'route', label: tr('قيود تحتاج انتباها'), path: 'review/attention' },
+          { kind: 'route', label: tr('مستندات وصلت متأخرة'), path: 'review/late' },
+          { kind: 'route', label: tr('قيود غير مراجعة'), path: 'review/unreviewed' },
+          { kind: 'route', label: tr('فحوصات السلامة'), path: 'review/checks' },
+          { kind: 'route', label: tr('سجل التدقيق'), path: 'review/audit' },
         ],
       },
     ],
@@ -117,6 +163,7 @@ export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
 /** صلاحية عرض عنصر القائمة من صف الجدول (مسار أو حوار). */
 export function menuItemViewPerm(item: LedgerMenuItem): LedgerKey | undefined {
   if (item.kind === 'route') return findLedgerRoute(item.path)?.view;
+  if (item.kind === 'link') return item.view;
   return LEDGER_DIALOGS.find(d => d.key === item.dialog)?.view;
 }
 

@@ -378,6 +378,11 @@ export interface DraftsBeforeLockBody {
   drafts?: { id: string; date: LocalDate; ref?: string | null; journalCode?: string | null; total?: number }[];
 }
 
+/** رد POST /sync (ManualSyncResponse في services/gl/sync/types.ts) */
+export type LedgerSyncResult =
+  | { running: true; pendingEvents: number; retryAfterSeconds?: number }
+  | { running: false; pendingEvents: number; result?: Record<string, unknown> };
+
 // ═══ النقاط ═══
 
 const L = '/ledger';
@@ -435,7 +440,11 @@ export const ledgerConfigApi = {
     update: (id: string, data: GlAccountTagInput) => api.put<LedgerEnvelope<GlAccountTag>>(`${L}/tags/${id}`, data),
   },
 
-  // «مزامنة الآن» POST /sync (§5.1) تُضاف مع M3 حين يُسجَّل مسارها في الخادم (حارس ledgerApiRoutes.test)
+  /**
+   * «مزامنة الآن» (§5.1، M3، canViewLedger): نبضة 2 ثانية عبر عقد الإيجار، مرة كل 60 ثانية لكل شركة.
+   * 202 `{running: true, pendingEvents, retryAfterSeconds?}` حين تجري نبضة أخرى أو قبل مرور الحد، و200 بالنتيجة.
+   */
+  sync: () => api.post<LedgerEnvelope<LedgerSyncResult> & { running: boolean; pendingEvents: number }>(`${L}/sync`, {}),
 
   lockDates: {
     get: () => api.get<LedgerEnvelope<LockDatesState>>(`${L}/lock-dates`),

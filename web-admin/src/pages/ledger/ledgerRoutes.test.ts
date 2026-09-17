@@ -17,7 +17,7 @@ import {
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8');
 const identity = (s: string) => s;
-const DELIVERED = new Set(['M2']);
+const DELIVERED = new Set(['M2', 'M3']);
 
 test('صفوف الجدول: مسارات فريدة، ومفاتيح صلاحيات صحيحة، ومراحل مسلَّمة وحدها', () => {
   const paths = LEDGER_ROUTES.map(r => r.path);
@@ -52,6 +52,25 @@ test('صفوف M2 من جدول §8.2 كلها موجودة بصلاحياتها
     assert.ok(r, `مسار M2 غير مسجَّل: ${p || '(الفهرس)'}`);
     assert.deepEqual({ component: r.component, view: r.view, write: r.write }, { component, view, write }, p);
   }
+  const m3: [string, string, LedgerKey, LedgerKey | null][] = [
+    ['customers/invoices', 'customers/InvoicePostingList', 'canViewLedger', null],
+    ['customers/receipts', 'customers/ReceiptPostingList', 'canViewLedger', null],
+    ['customers/custody', 'customers/CustodyPage', 'canViewLedger', 'canPostJournals'],
+    ['customers/paylink', 'customers/PaylinkClearingPage', 'canViewLedger', null],
+    ['review/events', 'review/SyncEventsPage', 'canViewLedger', 'canConfigureLedger'],
+    ['review/attention', 'review/MoveReviewList', 'canViewLedger', 'canPostJournals'],
+    ['review/late', 'review/MoveReviewList', 'canViewLedger', 'canPostJournals'],
+    ['review/unreviewed', 'review/MoveReviewList', 'canViewLedger', 'canPostJournals'],
+    ['review/checks', 'review/IntegrityChecksPage', 'canViewLedger', 'canConfigureLedger'],
+    ['review/audit', 'review/AuditLogPage', 'canConfigureLedger', null],
+  ];
+  for (const [p, component, view, write] of m3) {
+    const r = LEDGER_ROUTES.find(x => x.path === p);
+    assert.ok(r, `مسار M3 غير مسجَّل: ${p}`);
+    assert.deepEqual({ component: r.component, view: r.view, write: r.write, milestone: r.milestone }, { component, view, write, milestone: 'M3' }, p);
+  }
+  // مسارات M4+ في القائمتين لا تُسجَّل قبل مرحلتها
+  for (const p of ['customers/adjustments', 'review/uncosted']) assert.ok(!LEDGER_ROUTES.some(r => r.path === p), `مسار لمرحلة لاحقة: ${p}`);
   const lock = LEDGER_DIALOGS.find(d => d.key === 'lockDates');
   assert.deepEqual(lock && { view: lock.view, write: lock.write }, { view: 'canCloseLedgerPeriods', write: 'canCloseLedgerPeriods' });
 });
@@ -72,6 +91,9 @@ test('كل عنصر قائمة مسجّل في الجدول، وكل صفحة ق
     if (i.kind === 'route') {
       assert.ok(LEDGER_ROUTES.some(r => r.path === i.path), `عنصر قائمة غير مسجّل: ${i.path}`);
       menuPaths.add(i.path);
+    } else if (i.kind === 'link') {
+      // رابط لصفحة قائمة خارج /app/ledger (§8.2 «العملاء ← /app/customers») — لا يُسجَّل في الجدول
+      assert.match(i.href, /^\/app\/(?!ledger)/, `رابط خارجي داخل الدفاتر: ${i.href}`);
     } else {
       assert.ok(LEDGER_DIALOGS.some(d => d.key === i.dialog), `حوار غير معرَّف: ${i.dialog}`);
     }
@@ -83,6 +105,11 @@ test('كل عنصر قائمة مسجّل في الجدول، وكل صفحة ق
   }
   for (const d of LEDGER_DIALOGS) {
     assert.ok(menus.some(m => m.sections.some(s => s.items.some(i => i.kind === 'dialog' && i.dialog === d.key))), `حوار بلا عنصر: ${d.key}`);
+  }
+  // ترتيب القوائم مرآة Odoo (§8.2): العملاء قبل المحاسبة، ومراجعة بعدها وقبل التهيئة، و«العملاء ← /app/customers» فيها
+  assert.deepEqual(menus.map(m => m.key), ['customers', 'accounting', 'review', 'config']);
+  assert.ok(menus[0].sections.some(s => s.items.some(i => i.kind === 'link' && i.href === '/app/customers')));
+  {
   }
 });
 
@@ -102,16 +129,21 @@ test('App.tsx: كل صف مسجّل من LEDGER_ROUTES ملفوفاً بـLedger
 });
 
 const u = (o: Partial<User>): User => ({ id: 'x', name: 'x', role: 'MANAGER', ...o }) as User;
-const flat = (menus: LedgerMenu[]) => menus.flatMap(m => m.sections.flatMap(s => s.items.map(i => (i.kind === 'route' ? i.path : `dialog:${i.dialog}`))));
+const flat = (menus: LedgerMenu[]) => menus.flatMap(m => m.sections.flatMap(s => s.items.map(i => (i.kind === 'route' ? i.path : i.kind === 'link' ? `link:${i.href}` : `dialog:${i.dialog}`))));
 const visibleFor = (user: User) => visibleLedgerMenus(ledgerMenus(identity), k => canLedger(user, k));
 
 test('قاعدة الظهور: العنصر بصلاحية عرضه، والقائمة الفارغة تُخفى كلها', () => {
   const all = flat(ledgerMenus(identity));
   const owner = u({ role: 'ADMIN', canManageCompanyUsers: true });
-  assert.deepEqual(flat(visibleFor(owner)), all, 'مالك الشركة يرى كل عناصر M2');
+  assert.deepEqual(flat(visibleFor(owner)), all, 'مالك الشركة يرى كل عناصر M2 وM3');
 
   const viewer = u({ canViewLedger: true });
-  assert.deepEqual(flat(visibleFor(viewer)).sort(), ['config/accounts', 'entries', 'items'].sort());
+  assert.deepEqual(flat(visibleFor(viewer)).sort(), [
+    'config/accounts', 'entries', 'items',
+    'customers/invoices', 'customers/receipts', 'customers/custody', 'customers/paylink', 'link:/app/customers',
+    'review/events', 'review/attention', 'review/late', 'review/unreviewed', 'review/checks',
+  ].sort());
+  assert.ok(!flat(visibleFor(viewer)).includes('review/audit'), 'سجل التدقيق لمن يملك canConfigureLedger وحده');
   assert.deepEqual(visibleFor(viewer).find(m => m.key === 'config')?.sections.length, 1, 'القسم بلا عناصر ظاهرة يُخفى');
 
   const closer = u({ canCloseLedgerPeriods: true });
@@ -120,6 +152,7 @@ test('قاعدة الظهور: العنصر بصلاحية عرضه، والقا
 
   const configurer = u({ canConfigureLedger: true });
   assert.ok(flat(visibleFor(configurer)).includes('config/settings'));
+  assert.ok(flat(visibleFor(configurer)).includes('review/audit'));
   assert.ok(!flat(visibleFor(configurer)).includes('dialog:lockDates'));
 
   assert.deepEqual(visibleFor(u({ role: 'ADMIN', canManageCompanyUsers: true, scopeEnabled: true })), [], 'مقيّد النطاق لا يرى شيئاً');
@@ -131,5 +164,6 @@ test('LedgerLayout يبني القوائم بقاعدة الظهور ويفتح 
   assert.match(layout, /visibleLedgerMenus\(ledgerMenus\(tr\), k => canLedger\(user, k\)\)/);
   assert.match(layout, /dialog === 'lockDates' && canLedger\(user, 'canCloseLedgerPeriods'\) && <LockDatesDialog/);
   assert.match(layout, /<Outlet \/>/);
+  assert.match(layout, /i\.kind === 'link' \? \(/, 'الرابط الخارجي يُعرض في القائمة');
   assert.doesNotMatch(layout, /PermissionRoute|\bcan\(/, 'الدفاتر بـcanLedger وحدها');
 });

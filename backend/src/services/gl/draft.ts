@@ -432,9 +432,17 @@ export interface DraftRows {
 export function draftRowsFromMoveDraft(
   draft: MoveDraft,
   ctx: BuildContext,
-  opts: { tenantId: string; journalId: string; actor: GlActor; autoPostOn?: LocalDate | null; draftOfMoveId?: string | null },
+  opts: {
+    tenantId: string; journalId: string; actor: GlActor; autoPostOn?: LocalDate | null; draftOfMoveId?: string | null;
+    /**
+     * فهارس السطور المولَّدة آلياً (buildManualMoveDraft.generatedLineIndexes، أو علم generated المخزَّن لنسخة
+     * «إعادة إلى مسودة») ⇒ عمود GlMoveLine.generated=true (M3). الغائب ⇒ لا سطر مولَّد.
+     */
+    generatedLineIndexes?: readonly number[];
+  },
 ): DraftRows {
   const date = toDbDate(draft.date);
+  const generatedSet = new Set(opts.generatedLineIndexes ?? []);
   let total = 0n;
   const lines: DraftLineRow[] = draft.lines.map((l, i) => {
     const account = resolveLineAccount(l, ctx.accounts);
@@ -468,6 +476,7 @@ export function draftRowsFromMoveDraft(
       vatBox: l.vatBox ?? null,
       vatAdjustment: l.vatAdjustment === true,
       dueDate: l.dueDate ? toDbDate(l.dueDate) : null,
+      generated: generatedSet.has(i),
     };
   });
   const move: DraftMoveRow = {

@@ -14,6 +14,7 @@ import prisma from './config/database';
 import { startOpsScheduler } from './services/opsSchedule';
 import { startPetroappScheduler } from './services/petroapp';
 import { startPaylinkScheduler } from './services/paylink';
+import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -98,6 +99,8 @@ app.use(helmet({
 }));
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(compression());
+// عدّاد الطلبات الجارية لمعالج الدفاتر (§5.1: تخطّي النبضة تحت الضغط) — يعدّ فقط ولا يمسّ الطلب أو الرد
+app.use('/api', trackLedgerRequestLoad);
 // نحتفظ بالجسم الخام لتحقّق توقيع webhook واتساب (HMAC يُحسب على البايتات الأصلية لا على JSON المُعاد تسلسله)
 app.use(express.json({
   limit: '10mb',
@@ -310,6 +313,7 @@ server.listen(PORT, async () => {
   startOpsScheduler();
   startPetroappScheduler();
   startPaylinkScheduler();
+  startLedgerSyncScheduler(); // LEDGER_WORKER_ENABLED=0 للإطفاء
 });
 
 export default app;

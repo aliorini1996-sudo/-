@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const SCHEMA_PATH = path.join(__dirname, '../../prisma/schema.prisma');
 const RESET_PATH = path.join(__dirname, '../services/gl/reset.ts');
@@ -125,9 +126,10 @@ test('(أ) كل نموذج Gl* يرتبط بـTenant بـCascade أو بأبٍ �
 });
 
 test('(أ) من M3: كل نموذج Gl* في GL_RESET_ORDER أو GL_RESET_KEEP (GlAuditLog وحده)', async (t) => {
-  // TODO(M3): services/gl/reset.ts يُنشأ في M3 (§5.7)؛ حتى ذلك الحين يُتخطى هذا البند.
-  if (!fs.existsSync(RESET_PATH)) { t.skip('services/gl/reset.ts غير موجود بعد (M3)'); return; }
-  const mod = (await import(RESET_PATH)) as { GL_RESET_ORDER?: readonly string[]; GL_RESET_KEEP?: readonly string[] };
+  // M3: services/gl/reset.ts موجود (§5.7) — البند مفعّل؛ غيابه فشل لا تخطٍّ.
+  void t;
+  assert.ok(fs.existsSync(RESET_PATH), 'services/gl/reset.ts مفقود (M3)');
+  const mod = (await import(pathToFileURL(RESET_PATH).href)) as { GL_RESET_ORDER?: readonly string[]; GL_RESET_KEEP?: readonly string[] };
   const order = new Set((mod.GL_RESET_ORDER ?? []).map(String));
   const keep = new Set((mod.GL_RESET_KEEP ?? []).map(String));
   const norm = (s: string) => s.charAt(0).toUpperCase() + s.slice(1); // يقبل glMove أو GlMove
@@ -163,7 +165,24 @@ test('(ب) فهرس AccountEntry @@index([tenantId, createdAt, id]) غير فر�
   const norm = (l: string) => l.replace(/\s+/g, '');
   assert.ok(ae.body.some((l) => norm(l) === '@@index([tenantId,createdAt,id])'), 'الفهرس مفقود');
   assert.ok(!ae.body.some((l) => /^@@(unique|id)\(\[tenantId,createdAt,id\]/.test(norm(l))), 'يجب ألا يكون فريداً');
-  // يتسع في M3 لـRepSettlement وSettlementEntry وفي M9 لـVanLoad وWarehouseEntry (§3.0)
+  // يتسع في M9 لـVanLoad وWarehouseEntry (§3.0)
+});
+
+test('(ب) M3: فهرس @@index([tenantId, createdAt, id]) غير فريد على RepSettlement وSettlementEntry', () => {
+  const norm = (l: string) => l.replace(/\s+/g, '');
+  for (const n of ['RepSettlement', 'SettlementEntry']) {
+    const x = byName.get(n)!;
+    assert.ok(x, `${n} مفقود`);
+    assert.ok(x.body.some((l) => norm(l) === '@@index([tenantId,createdAt,id])'), `${n}: الفهرس مفقود`);
+    assert.ok(!x.body.some((l) => /^@@(unique|id)\(\[tenantId,createdAt,id\]/.test(norm(l))), `${n}: يجب ألا يكون فريداً`);
+  }
+});
+
+test('(أ) M3: GlMoveLine.generated Boolean @default(false)، وGlSettings.setupDraft Json?', () => {
+  const g = byName.get('GlMoveLine')!.fields.find((f) => f.name === 'generated');
+  assert.ok(g && g.type === 'Boolean' && g.attrs.trim() === '@default(false)', 'GlMoveLine.generated');
+  const d = byName.get('GlSettings')!.fields.find((f) => f.name === 'setupDraft');
+  assert.ok(d && d.type === 'Json' && /\?/.test(d.raw.split(/\s+/)[1]), 'GlSettings.setupDraft Json?');
 });
 
 test('(ب) علاقات Tenant العكسية Gl* بلا سمات، ولا حقل Gl* على نموذج قائم غير Tenant', () => {

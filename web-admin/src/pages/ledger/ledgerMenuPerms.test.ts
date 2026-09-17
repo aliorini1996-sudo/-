@@ -159,12 +159,20 @@ const satisfies = (ui: LedgerKey, server: LedgerKey) => ui === server || server 
  * لفلتر التقارير، والصفحة في التهيئة canConfigureLedger).
  */
 const ENDPOINTS: Record<string, { get: string[]; writes: string[]; helpers?: string[]; gated?: Record<string, LedgerKey>; viewLooser?: true }> = {
-  '': { get: ['/status'], writes: [] },
+  // M3 (§8.2، ملحق أ): معالج الإعداد وبطاقة الترحيل التاريخي في الفهرس مشروطان بـcanConfigureLedger (canConfigure)
+  '': {
+    get: ['/status'], writes: [],
+    gated: {
+      'GET /setup': 'canConfigureLedger', 'POST /setup/draft': 'canConfigureLedger', 'POST /setup/preview-opening': 'canConfigureLedger',
+      'POST /setup/commit': 'canConfigureLedger', 'POST /setup/backfill': 'canConfigureLedger', 'GET /mappings/categories': 'canConfigureLedger',
+    },
+  },
   entries: { get: ['/moves'], writes: ['/moves'] },
   'entries/new': { get: [], writes: ['/moves'], helpers: ['/moves/options', '/accounts', '/status'] },
-  'entries/:id': { get: ['/moves/:p'], writes: ['/moves'], helpers: ['/moves/options', '/accounts', '/status'] },
+  // «إعادة الترحيل من المصدر» (M3، §6.1) مشروطة في MoveForm بـcanConfigureLedger
+  'entries/:id': { get: ['/moves/:p'], writes: ['/moves'], helpers: ['/moves/options', '/accounts', '/status'], gated: { 'POST /moves/:p/repost-from-source': 'canConfigureLedger' } },
   items: { get: ['/items'], writes: [] },
-  'config/settings': { get: ['/settings'], writes: ['/settings', '/mappings'], helpers: ['/journals', '/taxes', '/mappings'] },
+  'config/settings': { get: ['/settings', '/setup'], writes: ['/settings', '/mappings', '/setup/backfill'], helpers: ['/journals', '/taxes', '/mappings'] },
   'config/accounts': { get: ['/accounts'], writes: ['/accounts'] },
   'config/accounts/:id': {
     get: ['/accounts/:p'], writes: ['/accounts'],
@@ -173,9 +181,20 @@ const ENDPOINTS: Record<string, { get: string[]; writes: string[]; helpers?: str
   },
   'config/taxes': { get: ['/taxes'], writes: ['/taxes'] },
   'config/journals': { get: ['/journals'], writes: ['/journals'] },
-  'config/mappings': { get: ['/mappings'], writes: ['/mappings'] },
+  'config/mappings': { get: ['/mappings', '/mappings/categories'], writes: ['/mappings'] },
   'config/tags': { get: ['/tags'], writes: ['/tags'] },
   'config/fiscal-years': { get: ['/fiscal-years'], writes: ['/fiscal-years'], gated: { 'GET /settings': 'canConfigureLedger' }, viewLooser: true },
+  // M3: العملاء (قراءة؛ «تسجيل عجز» M4) ومراجعة
+  'customers/invoices': { get: ['/customers/invoices'], writes: [] },
+  'customers/receipts': { get: ['/customers/receipts'], writes: [] },
+  'customers/custody': { get: ['/customers/custody'], writes: [] },
+  'customers/paylink': { get: ['/customers/paylink', '/customers/paylink/entries'], writes: [] },
+  'review/events': { get: ['/events'], writes: ['/events'], helpers: ['/status'] },
+  'review/attention': { get: ['/moves'], writes: ['/moves/review'] },
+  'review/late': { get: ['/moves'], writes: ['/moves/review'] },
+  'review/unreviewed': { get: ['/moves'], writes: ['/moves/review'] },
+  'review/checks': { get: ['/checks'], writes: ['/checks'], helpers: ['/status'] },
+  'review/audit': { get: ['/audit'], writes: [] },
   // ترحيل المسودات وحذفها من الحوار مشروطان بـcanPostJournals (canPost)
   'dialog:lockDates': { get: ['/lock-dates'], writes: ['/lock-dates'], gated: { 'POST /moves/:p/post': 'canPostJournals', 'DELETE /moves/:p': 'canPostJournals' } },
 };
@@ -263,8 +282,14 @@ test('المقارنة نفسها: خادم مطابق لملحق أ ⇒ لا م
     d('get', '/accounts', V), d('post', '/accounts', C), d('get', '/accounts/:p', V), d('put', '/accounts/:p', C), d('post', '/accounts/:p/archive', C),
     ...['/taxes', '/journals', '/tags'].flatMap(p => [d('get', p, C), d('post', p, C), d('put', `${p}/:p`, C)]),
     d('get', '/mappings', C), d('put', '/mappings', C),
+    d('get', '/mappings/categories', C), d('put', '/mappings/categories', C),
+    d('get', '/setup', C), d('post', '/setup/draft', C), d('post', '/setup/preview-opening', C), d('post', '/setup/commit', C), d('post', '/setup/backfill', C),
     d('get', '/fiscal-years', V), d('post', '/fiscal-years', C),
     d('get', '/lock-dates', L), d('put', '/lock-dates', L),
+    // M3
+    ...['/customers/invoices', '/customers/receipts', '/customers/custody', '/customers/paylink', '/customers/paylink/entries', '/events', '/checks'].map(p => d('get', p, V)),
+    d('post', '/events/:p/retry', C), d('post', '/events/:p/skip', C), d('post', '/events/:p/release', C), d('post', '/moves/review', P),
+    d('post', '/checks/run', C), d('post', '/checks/rebuild-balances', C), d('post', '/checks/:p/control-adjustment', C), d('get', '/audit', C), d('post', '/sync', V),
   ];
   assert.deepEqual(comparePerms(good), []);
   const badView = good.map(x => (x.method === 'get' && x.path === '/items' ? { ...x, perms: [C] } : x));
@@ -322,7 +347,7 @@ function comparePerms(decls: Decl[]): string[] {
 // ═══ مسارات عميل الويب مقابل الخادم، ونقاط كل صفحة مشتقة من استدعاءاتها ═══
 
 const webSrc = path.resolve(process.cwd(), 'src');
-const API_FILES = ['api/ledgerConfig.ts', 'api/ledgerMoves.ts'];
+const API_FILES = ['api/ledgerConfig.ts', 'api/ledgerMoves.ts', 'api/ledgerReview.ts', 'api/ledgerSetup.ts'];
 /** ملف مكوّن كل حوار (الصفوف المسارية ملفها من `component`) */
 const DIALOG_FILES: Record<string, string> = { lockDates: 'components/ledger/LockDatesDialog.tsx' };
 
@@ -391,7 +416,7 @@ function rowCalls(entry: string, client = clientRoutes()): { calls: RowCall[]; u
   for (const f of rowFiles(entry)) {
     const s = fs.readFileSync(f, 'utf8');
     const rel = path.relative(webSrc, f).split(path.sep).join('/');
-    const names = [...s.matchAll(/\b(ledger(?:Config|Moves)Api(?:\.\w+)+)/g)].map(m => m[1]);
+    const names = [...s.matchAll(/\b(ledger(?:Config|Moves|Review|Setup)Api(?:\.\w+)+)/g)].map(m => m[1]);
     if (aliasRe) for (const m of s.matchAll(aliasRe)) names.push(...client.aliases.get(m[1])!);
     for (const n of names) {
       const hits = client.routes.get(n);
@@ -504,10 +529,11 @@ test('المحلّلان نفساهما: أسماء العميل ومسارات�
     d('get', '/status', 'canViewLedger'), d('get', '/moves/:p', 'canViewLedger'), d('get', '/moves/options', 'canViewLedger'),
     d('get', '/accounts', 'canViewLedger'), d('get', '/journals', 'canConfigureLedger'), d('put', '/lock-dates', 'canCloseLedgerPeriods'),
     d('get', '/lock-dates', 'canCloseLedgerPeriods'), d('post', '/saved-filters', 'canViewLedger'),
+    d('post', '/moves/:p/repost-from-source', 'canConfigureLedger'),
   ];
   const call = (method: Method, p: string): RowCall => ({ method, path: p, via: 'fixture', file: 'fixture.tsx' });
   const only = (rowId: string, calls: RowCall[]) => (id: string) => (id === rowId ? calls : []);
-  const base = [call('get', '/moves/:p'), call('get', '/moves/options'), call('get', '/accounts'), call('get', '/status')];
+  const base = [call('get', '/moves/:p'), call('get', '/moves/options'), call('get', '/accounts'), call('get', '/status'), call('post', '/moves/:p/repost-from-source')];
   const pick = (ps: string[], row: string) => ps.filter(s => s.startsWith(`${row}:`));
   assert.deepEqual(pick(compareCalls(decls, only('entries/:id', base)), 'entries/:id'), []);
   // عودة MoveForm إلى /journals (canConfigureLedger) تُلتقط وإن لم تُذكر يدوياً
@@ -520,4 +546,35 @@ test('المحلّلان نفساهما: أسماء العميل ومسارات�
     .some(s => s.includes('POST /sync') && s.includes('غير مسجَّل')));
   // مساعدة مذكورة لا تستدعيها الصفحة
   assert.ok(pick(compareCalls(decls, only('entries/:id', base.slice(0, 2))), 'entries/:id').some(s => s.includes('GET /accounts لا تستدعيها')));
+});
+
+test('نقاط معالج الإعداد (api/ledgerSetup.ts) مشمولة بالحارس: الفهرس يستدعيها مشروطة، وخفض صلاحيتها أو إسقاط شرطها يُلتقط', () => {
+  const client = clientRoutes();
+  // العميل يُحلَّل: كل نقاط ledgerSetupApi معروفة بمساراتها
+  const setupRoutes = [...client.routes.values()].flat().filter(r => r.name.startsWith('ledgerSetupApi.')).map(r => `${r.method.toUpperCase()} ${r.path}`);
+  for (const k of ['GET /setup', 'POST /setup/draft', 'POST /setup/preview-opening', 'POST /setup/commit', 'POST /setup/backfill', 'GET /mappings/categories', 'PUT /mappings/categories']) {
+    assert.ok(setupRoutes.includes(k), `ledgerSetupApi بلا ${k}`);
+  }
+  // الفهرس يصل فعلاً إلى نقاط المعالج عبر استيراداته
+  const homeCalls = rowCalls(rowEntry(''), client).calls.map(c => `${c.method.toUpperCase()} ${c.path}`);
+  for (const k of Object.keys(ENDPOINTS[''].gated ?? {})) assert.ok(homeCalls.includes(k), `الفهرس لا يستدعي ${k}`);
+
+  const d = (method: Method, p: string, perm: LedgerKey): Decl => ({ method, path: p, perms: [perm], file: 'fixture.ts' });
+  const C: LedgerKey = 'canConfigureLedger';
+  const decls: Decl[] = [
+    d('get', '/status', 'canViewLedger'), d('get', '/setup', C), d('post', '/setup/draft', C), d('post', '/setup/preview-opening', C),
+    d('post', '/setup/commit', C), d('post', '/setup/backfill', C), d('get', '/mappings/categories', C),
+  ];
+  const call = (method: Method, p: string): RowCall => ({ method, path: p, via: 'fixture', file: 'fixture.tsx' });
+  const homeFixture = [call('get', '/status'), call('get', '/setup'), call('post', '/setup/draft'), call('post', '/setup/preview-opening'),
+    call('post', '/setup/commit'), call('post', '/setup/backfill'), call('get', '/mappings/categories')];
+  const only = (calls: RowCall[]) => (id: string) => (id === '' ? calls : []);
+  const home = (ps: string[]) => ps.filter(s => s.startsWith('(الفهرس):'));
+  assert.deepEqual(home(compareCalls(decls, only(homeFixture))), []);
+  // نقطة معالج جديدة بصلاحية التهيئة في الفهرس (عرضه canViewLedger) دون ذكرها مشروطة ⇒ تُلتقط
+  assert.ok(home(compareCalls([...decls, d('post', '/setup/reset', C)], only([...homeFixture, call('post', '/setup/reset')])))
+    .some(s => s.includes('POST /setup/reset') && s.includes('غير مذكور')));
+  // تغيّر صلاحية GET /setup في الخادم إلى ما لا يكفيه شرط الفهرس (canConfigureLedger) ⇒ يُلتقط
+  const stricter = decls.map(x => (x.method === 'get' && x.path === '/setup' ? { ...x, perms: ['canCloseLedgerPeriods' as LedgerKey] } : x));
+  assert.ok(home(compareCalls(stricter, only(homeFixture))).some(s => s.includes('GET /setup') && s.includes('canCloseLedgerPeriods')));
 });

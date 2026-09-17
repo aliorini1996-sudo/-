@@ -4,10 +4,11 @@ import {
   Search, Plus, ChevronLeft, Phone, Pencil, ShieldCheck, Banknote, Trash2, KeyRound,
   Loader2, Check, Copy, RefreshCw, Eye, EyeOff, UserRound, AlertTriangle, Wallet, Download,
   Users, Truck, Landmark, CreditCard, FileText, Paperclip, X, Image as ImageIcon,
-  ClipboardList,
+  ClipboardList, UserX,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesRepApi } from '../api/client';
+import { ledgerConfigApi, ledgerKeys } from '../api/ledgerConfig';
 import { SalesRep } from '../types';
 import { formatCurrency, formatDate, formatTime, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
@@ -291,6 +292,31 @@ function RepDetail({ repId, company, accountingOn, onBack }: {
     },
   });
 
+  /* الدفاتر مفعّلة (§8.1، M3): activatedAt مضبوط في GET /api/ledger/status ⇒ «تعطيل المندوب» إجراءً أساسياً
+   * في ورقة الحذف (يحفظ عهدته وتاريخه). الطلب للأدمن الرئيسي وحين الميزة مفعّلة فقط؛ تعذّر القراءة ⇒
+   * الورقة كما كانت، والخادم يرد LEDGER_HISTORY_LOCKED برسالته. */
+  const ledgerOn = (company as { accountingSuiteEnabled?: boolean; accountingEnabled?: boolean } | null)?.accountingSuiteEnabled === true
+    && (company as { accountingEnabled?: boolean } | null)?.accountingEnabled !== false;
+  const ledgerStatusQ = useQuery({
+    queryKey: ledgerKeys.status,
+    queryFn: async () => (await ledgerConfigApi.status()).data.data,
+    enabled: ledgerOn && isMainAdmin,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const ledgerActive = ledgerOn && !!ledgerStatusQ.data?.activatedAt;
+
+  const deactivate = useMutation({
+    mutationFn: () => salesRepApi.update(repId, { isActive: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-sales-reps'] });
+      qc.invalidateQueries({ queryKey: ['m-rep', repId] });
+      toast.success(tr('تم تعطيل المندوب'));
+      setConfirmDel(false);
+    },
+    onError: (e: unknown) => toast.error(errMsg(e, tr('حدث خطأ'))),
+  });
+
   // الترويسة تُرسم في كل الحالات: زرّ رجوعٌ حاضر ولو تعذّر تحميل المندوب نفسه
   if (repQ.isLoading || repQ.isError || !repQ.data) {
     return (
@@ -433,7 +459,17 @@ function RepDetail({ repId, company, accountingOn, onBack }: {
       </MScreen>
 
       {/* خارج `MScreen` عمداً: ورقةٌ فوق الشاشة كلّها، لا داخل الجسم الممرَّر */}
-      {confirmDel && (
+      {confirmDel && ledgerActive && (
+        <MLedgerRepDelete
+          repName={rep.name}
+          alreadyInactive={rep.isActive === false}
+          deactivating={deactivate.isPending}
+          deleting={del.isPending}
+          onDeactivate={() => deactivate.mutate()}
+          onDelete={() => del.mutate()}
+          onClose={() => setConfirmDel(false)} />
+      )}
+      {confirmDel && !ledgerActive && (
         <MConfirm
           danger
           title={tr('حذف المندوب')}
@@ -1121,6 +1157,55 @@ function MToggle({ label, hint, checked, onChange }: {
         <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${checked ? 'start-6' : 'start-1'}`} />
       </span>
     </button>
+  );
+}
+
+/**
+ * ورقة حذف المندوب حين الدفاتر مفعّلة (§8.1، §5.3): «تعطيل المندوب» إجراءٌ أساسي يحفظ عهدته وتاريخه،
+ * والحذف النهائي ثانوي يرفضه الخادم بـ409 LEDGER_HISTORY_LOCKED برسالته إن كان له أثر مالي.
+ */
+function MLedgerRepDelete({ repName, alreadyInactive, deactivating, deleting, onDeactivate, onDelete, onClose }: {
+  repName: string; alreadyInactive: boolean; deactivating: boolean; deleting: boolean;
+  onDeactivate: () => void; onDelete: () => void; onClose: () => void;
+}) {
+  const tr = useTr();
+  const busy = deactivating || deleting;
+  useBackClose(true, onClose);
+  return (
+    <div className="absolute inset-0 z-[700] bg-black/50 flex items-end"
+      onClick={() => { if (!busy) onClose(); }}>
+      <div className="w-full bg-white rounded-t-3xl p-4 space-y-3" onClick={e => e.stopPropagation()}
+        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+        <div className="flex items-start gap-3">
+          <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-[#FBEBE2] text-[#C94E28]">
+            <UserX size={20} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold text-[#1F1A13]">{tr('حذف المندوب')}</span>
+            <span className="block text-[12px] text-[#6E6557] mt-1 leading-relaxed">
+              «{repName}» — {tr('الدفاتر المحاسبية مفعلة لشركتك تعطيل المندوب يحفظ عهدته وتاريخه المالي والحذف النهائي يرفض إن كان له أثر مالي بعد التفعيل')}
+            </span>
+            {alreadyInactive && <span className="block text-[12px] text-[#2F855A] mt-1">{tr('المندوب معطل بالفعل')}</span>}
+          </span>
+        </div>
+        <button onClick={onDeactivate} disabled={busy || alreadyInactive}
+          className="w-full min-h-[48px] rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 bg-[#E15A30] disabled:bg-[#E89B7E]">
+          {deactivating ? <Loader2 size={16} className="animate-spin" /> : <UserX size={16} />}
+          {tr('تعطيل المندوب')}
+        </button>
+        <div className="flex gap-2.5">
+          <button onClick={onClose} disabled={busy}
+            className="flex-1 min-h-[48px] rounded-xl border border-[#E9E1D3] bg-white font-bold text-sm text-[#1F1A13]">
+            {tr('إلغاء')}
+          </button>
+          <button onClick={onDelete} disabled={busy}
+            className="flex-1 min-h-[48px] rounded-xl border border-[#E9C3BC] bg-white font-bold text-sm text-[#C0392B] flex items-center justify-center gap-2">
+            {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            {tr('حذف نهائي')}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

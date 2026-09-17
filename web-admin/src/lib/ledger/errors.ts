@@ -45,6 +45,9 @@ export const ledgerMoveReasonLabels = (tr: Tr): Record<string, string> => ({
   FILE_TOO_LARGE: tr('الملف أكبر من الحجم المسموح للمرفق الواحد'),
   MONTHLY_QUOTA: tr('تجاوزت شركتك سقف المرفقات الشهري'),
   TOTAL_QUOTA: tr('تجاوزت شركتك سقف المرفقات'),
+  CHECK_NOT_ADJUSTABLE: tr('قيد التصحيح متاح لفحوص ذمم العملاء والعهدة والأمانات وحدها'),
+  LEDGER_WORKER_UNAVAILABLE: tr('معالج الترحيل غير متاح حاليا'),
+  STATUS_CHANGED: tr('تغيّرت حالة الحدث، أعد التحميل'),
 });
 
 /** أسباب نص رمزها دقيق (لا تحتاج تسمية). */

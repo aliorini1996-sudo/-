@@ -2,12 +2,24 @@ import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
+import { mailLayout, sendMail } from '../services/mailer';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { cardStatuses, platformMetrics, sendWeeklyReport } from '../services/opsSchedule';
 import { isLedgerPilotTenant } from '../services/gl/pilot';
 import { appendAudit } from '../services/gl/audit';
+import type { GlActor } from '../services/gl/audit';
+import { acquirePostLock } from '../services/gl/post';
+import { DEFAULT_TIMEZONE, fromDbDate, isLocalDate, localDate, toDbDate, todayLocal, zonedStartOfDay } from '../services/gl/dates';
+import { GL_RESET_KEEP, GL_RESET_ORDER, deleteLedgerRows, ledgerResetBlockReasons, resetConfirmNameMatches, resetDelegateName, type ResetTx } from '../services/gl/reset';
+import { RetentionChangedError, isLedgerDestroyConfirmed, retentionActiveMessage, tenantDeleteRetentionGuard } from '../services/gl/retention';
+import { PAYLINK_FEE_INVOICE_DATE_MESSAGES, validatePaylinkFeeInvoiceFrom } from '../services/gl/paylinkFee';
+import {
+  LEDGER_STUCK_EVENT_STATUSES, ledgerResetSummary, ledgerStatusOf, ledgerStuckCutoff, paylinkFeeInvoiceFromSummary,
+  stuckCountsByTenant, summarizePendingFees,
+} from '../services/gl/ownerLedger';
 import { adminPermissionFields } from './auth';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
@@ -80,8 +92,28 @@ router.get('/', async (_req: AuthRequest, res: Response, next: NextFunction) => 
         glSettings: { select: { activatedAt: true, backfillState: true } },
       },
     });
+    // M3 (§8.1): استعلام واحد للأحداث المتعثرة أقدم من 24 ساعة لكل الشركات (الحالات التي يحمرّ لها C8)
+    const stuckRows = await prisma.glSourceEvent.groupBy({
+      by: ['tenantId'],
+      where: { status: { in: [...LEDGER_STUCK_EVENT_STATUSES] }, detectedAt: { lt: ledgerStuckCutoff(new Date()) } },
+      _count: { _all: true },
+    });
+    const stuck = stuckCountsByTenant(stuckRows);
     // ledgerPilotAllowed: هل تقبل الشركة تفعيل النظام المحاسبي المتكامل الآن (قائمة التجربة، بلا استعلام إضافي)
-    res.json({ success: true, data: tenants.map(t => ({ ...t, ledgerPilotAllowed: isLedgerPilotTenant(t.id, process.env) })) });
+    res.json({
+      success: true,
+      data: tenants.map(t => ({
+        ...t,
+        ledgerPilotAllowed: isLedgerPilotTenant(t.id, process.env),
+        ledgerStatus: ledgerStatusOf({
+          accountingSuiteEnabled: t.accountingSuiteEnabled,
+          accountingEnabled: t.accountingEnabled,
+          activatedAt: t.glSettings?.activatedAt ?? null,
+          stuckEvents: stuck.get(t.id) ?? 0,
+        }),
+        ledgerActivatedAt: t.glSettings?.activatedAt ?? null,
+      })),
+    });
   } catch (err) { next(err); }
 });
 
@@ -213,23 +245,121 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     const tenant = await prisma.tenant.findUnique({ where: { id: tid } });
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
 
-    await prisma.$transaction([
-      prisma.receiptInvoice.deleteMany({ where: { receipt: { tenantId: tid } } }),
-      prisma.invoiceItem.deleteMany({ where: { invoice: { tenantId: tid } } }),
-      prisma.accountEntry.deleteMany({ where: { tenantId: tid } }),
-      prisma.receipt.deleteMany({ where: { tenantId: tid } }),
-      prisma.invoice.deleteMany({ where: { tenantId: tid } }),
-      prisma.customerPrice.deleteMany({ where: { customer: { tenantId: tid } } }),
-      prisma.priceTier.deleteMany({ where: { product: { tenantId: tid } } }),
-      prisma.notification.deleteMany({ where: { tenantId: tid } }),
-      prisma.customer.deleteMany({ where: { tenantId: tid } }),
-      prisma.product.deleteMany({ where: { tenantId: tid } }),
-      prisma.productCategory.deleteMany({ where: { tenantId: tid } }),
-      prisma.companySettings.deleteMany({ where: { tenantId: tid } }),
-      prisma.salesRep.deleteMany({ where: { tenantId: tid } }),
-      prisma.admin.deleteMany({ where: { tenantId: tid } }),
-      prisma.tenant.delete({ where: { id: tid } }),
-    ]);
+    // ضمانة الحفظ G6 (§3.9، §9.5 (د) و(ط)): قبل أول عبارة حذف وقبل قراءة confirmLedgerDestroy.
+    // بلا صف GlSettings لا قيد مرحَّل ممكن ⇒ الحذف كما اليوم دون أي عدّ.
+    const glSettings = await prisma.glSettings.findUnique({
+      where: { tenantId: tid },
+      select: { fiscalYearEndMonth: true, fiscalYearEndDay: true, timezone: true },
+    });
+    let postedMoves = 0;
+    let lastPostedDate: Date | null = null;
+    if (glSettings) {
+      const agg = await prisma.glMove.aggregate({ where: { tenantId: tid, state: 'POSTED' }, _count: { _all: true }, _max: { date: true } });
+      postedMoves = agg._count._all;
+      lastPostedDate = agg._max.date ?? null;
+    }
+    const retention = tenantDeleteRetentionGuard({
+      postedMoves,
+      lastPostedDate,
+      fiscalYearEndMonth: glSettings?.fiscalYearEndMonth ?? 12,
+      fiscalYearEndDay: glSettings?.fiscalYearEndDay ?? 31,
+      timezone: glSettings?.timezone ?? DEFAULT_TIMEZONE,
+      now: new Date(),
+    });
+    if (retention.action === 'RETENTION_ACTIVE') {
+      // لا معامل يتجاوزه — البديل إيقاف الشركة (isActive=false)
+      res.status(409).json({
+        success: false, code: 'LEDGER_RETENTION_ACTIVE', message: retentionActiveMessage(retention.retentionUntil),
+        retentionUntil: retention.retentionUntil, postedMoves: retention.postedMoves,
+      });
+      return;
+    }
+    const destroyLedger = retention.action === 'EXPIRED';
+    if (destroyLedger && !isLedgerDestroyConfirmed(req.query.confirmLedgerDestroy)) {
+      res.status(409).json({
+        success: false, code: 'LEDGER_HAS_POSTED_MOVES',
+        message: 'للشركة دفاتر بقيود مرحّلة انقضت مدة حفظها — أكّد حذف الدفاتر نهائياً',
+        retentionUntil: retention.retentionUntil, postedMoves: retention.postedMoves,
+      });
+      return;
+    }
+
+    // معاملة تفاعلية أولها قفل gl-post: المُرحِّل يرحّل تحت القفل نفسه، فيُعاد حارس الحفظ داخلها قبل أي حذف
+    // (قيد رُحّل بعد القراءة أعلاه يغيّر القرار ⇒ لا يُحذف شيء، §9.5 G6 (د))
+    let finalCounts = { postedMoves, retentionUntil: retention.retentionUntil as string | null };
+    try {
+      await prisma.$transaction(async (tx) => {
+        await acquirePostLock(tx, tid);
+        const gsNow = await tx.glSettings.findUnique({
+          where: { tenantId: tid },
+          select: { fiscalYearEndMonth: true, fiscalYearEndDay: true, timezone: true },
+        });
+        const aggNow = gsNow ? await tx.glMove.aggregate({ where: { tenantId: tid, state: 'POSTED' }, _count: { _all: true }, _max: { date: true } }) : null;
+        const again = tenantDeleteRetentionGuard({
+          postedMoves: aggNow?._count._all ?? 0,
+          lastPostedDate: aggNow?._max.date ?? null,
+          fiscalYearEndMonth: gsNow?.fiscalYearEndMonth ?? 12,
+          fiscalYearEndDay: gsNow?.fiscalYearEndDay ?? 31,
+          timezone: gsNow?.timezone ?? DEFAULT_TIMEZONE,
+          now: new Date(),
+        });
+        if (again.action !== retention.action || (gsNow === null) !== (glSettings === null)) throw new RetentionChangedError(again);
+        finalCounts = { postedMoves: again.postedMoves, retentionUntil: again.retentionUntil };
+        // بعد انقضاء مدة الحفظ وبالتأكيد الثاني وحده: جداول gl صراحةً بالترتيب (الأبناء قبل الآباء) ومعها سجل التدقيق
+        const ledgerDelegates = [
+          ...(destroyLedger ? [...GL_RESET_ORDER, ...GL_RESET_KEEP].map(m => (tx as unknown as Record<string, { deleteMany(a: { where: { tenantId: string } }): Promise<{ count: number }> }>)[resetDelegateName(m)]) : []),
+        ];
+        for (const d of ledgerDelegates) await d.deleteMany({ where: { tenantId: tid } });
+        await tx.receiptInvoice.deleteMany({ where: { receipt: { tenantId: tid } } });
+        await tx.invoiceItem.deleteMany({ where: { invoice: { tenantId: tid } } });
+        await tx.accountEntry.deleteMany({ where: { tenantId: tid } });
+        await tx.receipt.deleteMany({ where: { tenantId: tid } });
+        await tx.invoice.deleteMany({ where: { tenantId: tid } });
+        await tx.customerPrice.deleteMany({ where: { customer: { tenantId: tid } } });
+        await tx.priceTier.deleteMany({ where: { product: { tenantId: tid } } });
+        await tx.notification.deleteMany({ where: { tenantId: tid } });
+        await tx.customer.deleteMany({ where: { tenantId: tid } });
+        await tx.product.deleteMany({ where: { tenantId: tid } });
+        await tx.productCategory.deleteMany({ where: { tenantId: tid } });
+        await tx.companySettings.deleteMany({ where: { tenantId: tid } });
+        await tx.salesRep.deleteMany({ where: { tenantId: tid } });
+        await tx.admin.deleteMany({ where: { tenantId: tid } });
+        await tx.tenant.delete({ where: { id: tid } });
+      }, { timeout: 120_000, maxWait: 30_000 });
+    } catch (e) {
+      if (!(e instanceof RetentionChangedError)) throw e;
+      const d = e.decision;
+      if (d.action === 'RETENTION_ACTIVE') {
+        res.status(409).json({
+          success: false, code: 'LEDGER_RETENTION_ACTIVE', message: retentionActiveMessage(d.retentionUntil),
+          retentionUntil: d.retentionUntil, postedMoves: d.postedMoves,
+        });
+        return;
+      }
+      if (d.action === 'EXPIRED' && !isLedgerDestroyConfirmed(req.query.confirmLedgerDestroy)) {
+        res.status(409).json({
+          success: false, code: 'LEDGER_HAS_POSTED_MOVES',
+          message: 'للشركة دفاتر بقيود مرحّلة انقضت مدة حفظها — أكّد حذف الدفاتر نهائياً',
+          retentionUntil: d.retentionUntil, postedMoves: d.postedMoves,
+        });
+        return;
+      }
+      // تغيّر القرار إلى ما يسمح (أو صف الإعدادات ظهر/اختفى): لا حذف في هذا الطلب — يُعاد المحاولة
+      res.status(409).json({ success: false, code: 'LEDGER_RETENTION_CHANGED', message: 'تغيّرت حالة دفاتر الشركة أثناء الحذف — أعد المحاولة' });
+      return;
+    }
+    // §9.3: الحذف لا يترك أثراً داخل جداول الشركة — سطر سجل منظّم خارجها
+    console.warn(JSON.stringify({ event: 'TENANT_DELETED', tenantId: tid, name: tenant.name, actorId: req.user?.id ?? null, hadLedger: glSettings !== null }));
+    if (glSettings !== null) {
+      // بريد للمالك إن كان مهيأً (يتخطى بهدوء غير ذلك) — لا يُدّعى أن السجل محفوظ بعد الحذف
+      void sendMail({
+        subject: `حذف شركة لها دفاتر: ${tenant.name}`,
+        html: mailLayout('حذف شركة لها دفاتر', [
+          ['الشركة', tenant.name], ['المعرّف', tid], ['المنفّذ', req.user?.name ?? req.user?.id ?? '—'],
+          ['قيود مرحّلة', String(finalCounts.postedMoves)], ['نهاية مدة الحفظ', finalCounts.retentionUntil ?? '—'],
+        ]),
+      }).catch(() => undefined);
+    }
     res.json({ success: true });
   } catch (err) { next(err); }
 });
@@ -292,6 +422,169 @@ router.post('/:id/reset-admin', async (req: AuthRequest, res: Response, next: Ne
     await prisma.admin.update({ where: { id: admin.id }, data: { passwordHash } });
     res.json({ success: true });
   } catch (err) { next(err); }
+});
+
+// ————— النظام المحاسبي المتكامل: إجراءات المالك (M3، §5.7، §8.1، §10.3 D2) —————
+
+function ownerActor(req: AuthRequest): GlActor {
+  return { actorType: 'OWNER', actorId: req.user!.id, actorName: req.user!.name ?? null, impersonated: false, requestIp: req.ip ?? null };
+}
+
+/** رمية داخل المعاملة لرد منظّم بعد تراجعها */
+class OwnerLedgerReply extends Error {
+  constructor(readonly status: number, readonly body: Record<string, unknown>) { super(String(body.code ?? 'OWNER_LEDGER_REPLY')); }
+}
+
+// إعادة ضبط الدفاتر (§5.7): قبل أول ترحيل وحده؛ القفل أول عبارة، ثم الشروط، ثم الحذف بـGL_RESET_ORDER، ثم LEDGER_RESET.
+router.post('/:id/ledger-reset', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = req.params.id;
+    const tenant = await prisma.tenant.findUnique({ where: { id: tid }, select: { id: true, name: true } });
+    if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+    // الخادم يتحقق من confirmName حرفياً ولا يكتفي بالواجهة
+    if (!resetConfirmNameMatches(req.body?.confirmName, tenant.name)) {
+      res.status(422).json({ success: false, code: 'LEDGER_RESET_CONFIRM_MISMATCH', message: 'اسم التأكيد لا يطابق اسم الشركة حرفياً' });
+      return;
+    }
+    const actor = ownerActor(req);
+    const result = await prisma.$transaction(async tx => {
+      await acquirePostLock(tx, tid);
+      const [postedMoves, securedMoves, settings, customerAdjustmentSources] = [
+        await tx.glMove.count({ where: { tenantId: tid, state: 'POSTED' } }),
+        await tx.glMove.count({ where: { tenantId: tid, secureHash: { not: null } } }),
+        await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { hardLockDate: true, activatedAt: true } }),
+        await tx.glMoveSource.count({ where: { tenantId: tid, sourceType: 'CUSTOMER_ADJUSTMENT' } }),
+      ];
+      const reasons = ledgerResetBlockReasons({
+        postedMoves,
+        filedReturns: 0, // نموذج الإقرارات يصل في M5
+        securedMoves,
+        hardLockDate: settings?.hardLockDate ?? null,
+        customerAdjustmentSources,
+      });
+      if (reasons.length > 0) {
+        throw new OwnerLedgerReply(409, {
+          success: false, code: 'LEDGER_RESET_BLOCKED', reasons,
+          message: 'إعادة ضبط الدفاتر مرفوضة — الدفاتر سجلات نظامية بعد أول ترحيل، والتصحيح بقيود',
+        });
+      }
+      const deleted = await deleteLedgerRows(tx as unknown as ResetTx, tid);
+      const summary = ledgerResetSummary(deleted);
+      await appendAudit(tx, {
+        tenantId: tid, actor, action: 'LEDGER_RESET', entityType: 'TENANT', entityId: tid,
+        summary: summary.text,
+        before: { activatedAt: settings?.activatedAt ?? null },
+        after: { deleted, total: summary.total },
+      });
+      await tx.notification.create({
+        data: {
+          tenantId: tid, type: 'LEDGER_RESET', title: 'إعادة ضبط الدفاتر', body: summary.text,
+          data: JSON.stringify({ deleted, actorId: actor.actorId, at: new Date().toISOString() }),
+        },
+      });
+      return { deleted, total: summary.total };
+    }, { maxWait: 10_000, timeout: 120_000 });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    if (err instanceof OwnerLedgerReply) { res.status(err.status).json(err.body); return; }
+    next(err);
+  }
+});
+
+// D2 (§8.1): تاريخ بداية الفواتير الضريبية لعمولة الدفع الإلكتروني — مالك المنصة وحده (router.use أعلاه).
+// ?preview=1 يتحقق ويحسب pendingFeesAffected دون كتابة (يعرضه الحوار قبل التأكيد النهائي).
+const paylinkFeeInvoiceFromSchema = z.object({
+  from: z.string().refine(isLocalDate, 'تاريخ غير صالح YYYY-MM-DD').nullable(),
+});
+
+router.put('/:id/ledger-paylink-fee-invoice-from', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = req.params.id;
+    const parsed = paylinkFeeInvoiceFromSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(422).json({ success: false, code: 'LEDGER_PAYLINK_FEE_INVOICE_DATE_INVALID', reason: 'FORMAT', message: PAYLINK_FEE_INVOICE_DATE_MESSAGES.FORMAT });
+      return;
+    }
+    const preview = req.query.preview === '1';
+    const actor = ownerActor(req);
+    const result = await prisma.$transaction(async tx => {
+      await acquirePostLock(tx, tid);
+      const s = await tx.glSettings.findUnique({
+        where: { tenantId: tid },
+        select: { id: true, activatedAt: true, timezone: true, currencyDecimals: true, paylinkFeeTaxInvoiceFrom: true, taxLockDate: true, hardLockDate: true },
+      });
+      if (!s || !s.activatedAt) {
+        throw new OwnerLedgerReply(409, { success: false, code: 'LEDGER_NOT_SETUP', message: 'الدفاتر لم تُعدّ لهذه الشركة بعد' });
+      }
+      const tz = s.timezone || DEFAULT_TIMEZONE;
+      const lastFee = await tx.glSourceEvent.aggregate({
+        where: { tenantId: tid, sourceType: 'PAYLINK_FEE', status: 'DONE' },
+        _max: { effectAt: true },
+      });
+      const lastPostedFeeDate = lastFee._max.effectAt ? localDate(lastFee._max.effectAt, tz) : null;
+      const decision = validatePaylinkFeeInvoiceFrom({
+        from: parsed.data.from,
+        current: s.paylinkFeeTaxInvoiceFrom,
+        lastPostedFeeDate,
+        taxLockDate: s.taxLockDate,
+        hardLockDate: s.hardLockDate,
+        today: todayLocal(new Date(), tz),
+      });
+      if (!decision.ok) {
+        if (decision.code === 'LEDGER_PAYLINK_FEE_INVOICE_DATE_LOCKED') {
+          throw new OwnerLedgerReply(409, {
+            success: false, code: decision.code, message: PAYLINK_FEE_INVOICE_DATE_MESSAGES.LOCKED,
+            current: decision.current, lastPostedFeeDate: decision.lastPostedFeeDate,
+          });
+        }
+        throw new OwnerLedgerReply(422, {
+          success: false, code: decision.code, reason: decision.reason, message: PAYLINK_FEE_INVOICE_DATE_MESSAGES[decision.reason],
+          minDate: decision.minDate, maxDate: decision.maxDate, lastPostedFeeDate,
+        });
+      }
+
+      // العمولات غير المرحّلة بتاريخ ≥ from (PENDING/ERROR/HELD/BLOCKED وما لم يُلتقط بعد) — لا تمنع الحفظ
+      let pendingFeesAffected = { count: 0, feeMilli: 0, fee: '0' };
+      if (decision.from !== null) {
+        const since = zonedStartOfDay(decision.from, tz);
+        const [fees, finals] = [
+          await tx.settlementEntry.findMany({ where: { tenantId: tid, kind: 'FEE', createdAt: { gte: since } }, select: { id: true, amount: true } }),
+          await tx.glSourceEvent.findMany({
+            where: { tenantId: tid, sourceType: 'PAYLINK_FEE', status: { in: ['DONE', 'SKIPPED'] }, effectAt: { gte: since } },
+            select: { sourceId: true },
+          }),
+        ];
+        pendingFeesAffected = summarizePendingFees(fees, new Set(finals.map(f => f.sourceId)), s.currencyDecimals);
+      }
+
+      const before = s.paylinkFeeTaxInvoiceFrom ? fromDbDate(s.paylinkFeeTaxInvoiceFrom) : null;
+      const out = { paylinkFeeTaxInvoiceFrom: decision.from, previous: before, lastPostedFeeDate, pendingFeesAffected, preview, changed: false };
+      if (preview || decision.unchanged) return out;
+
+      await tx.glSettings.update({
+        where: { tenantId: tid },
+        data: { paylinkFeeTaxInvoiceFrom: decision.from ? toDbDate(decision.from) : null },
+      });
+      const summary = paylinkFeeInvoiceFromSummary(before, decision.from);
+      await appendAudit(tx, {
+        tenantId: tid, actor, action: 'SETTINGS_CHANGE', entityType: 'SETTINGS', entityId: s.id,
+        summary,
+        before: { paylinkFeeTaxInvoiceFrom: before },
+        after: { paylinkFeeTaxInvoiceFrom: decision.from },
+      });
+      await tx.notification.create({
+        data: {
+          tenantId: tid, type: 'LEDGER_SETTINGS_CHANGE', title: 'ضريبة عمولة الدفع الإلكتروني', body: summary,
+          data: JSON.stringify({ before, after: decision.from, pendingFeesAffected, actorId: actor.actorId }),
+        },
+      });
+      return { ...out, changed: true };
+    }, { maxWait: 10_000, timeout: 30_000 });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    if (err instanceof OwnerLedgerReply) { res.status(err.status).json(err.body); return; }
+    next(err);
+  }
 });
 
 export default router;

@@ -785,6 +785,154 @@ router.put('/mappings', CONFIGURE, ledgerHandler(async (req, res) => {
   res.json({ success: true, data: rows.map((r) => ({ key: r.key, accountId: r.accountId, account: r.account, updatedAt: r.updatedAt })) });
 }));
 
+// ═══ حسابات فئات المنتجات (CFG‑03، §3.8، M3) ═══
+
+export const CATEGORY_ACCOUNT_FIELDS = ['incomeAccountId', 'expenseAccountId', 'cogsAccountId', 'inventoryAccountId'] as const;
+export type CategoryAccountField = (typeof CATEGORY_ACCOUNT_FIELDS)[number];
+
+/**
+ * قاعدة كل حقل في GlProductCategoryAccount: مفتاح الربط الاحتياطي حين غياب القيمة، والأنواع المقبولة
+ * (الإيراد كتحقق الخطوة 3 في setup.ts: income أو income_other)، والحساب الرئيسي حين يتطلبه (المخزون).
+ */
+export const CATEGORY_ACCOUNT_RULES: Readonly<Record<CategoryAccountField, { fallbackKey: MappingKey; allowedTypes: readonly AccountType[]; controlKind: string | null }>> = {
+  incomeAccountId: { fallbackKey: 'SALES_REVENUE', allowedTypes: ['income', 'income_other'], controlKind: null },
+  expenseAccountId: { fallbackKey: 'PURCHASES', allowedTypes: MAPPING_KEY_ALLOWED_TYPES.PURCHASES, controlKind: null },
+  cogsAccountId: { fallbackKey: 'COGS', allowedTypes: MAPPING_KEY_ALLOWED_TYPES.COGS, controlKind: null },
+  inventoryAccountId: { fallbackKey: 'INVENTORY_WAREHOUSE', allowedTypes: MAPPING_KEY_ALLOWED_TYPES.INVENTORY_WAREHOUSE, controlKind: MAPPING_KEY_CONTROL_KIND.INVENTORY_WAREHOUSE ?? null },
+};
+
+/** سبب رفض حساب لحقل فئة (صرفة): null = مقبول. */
+export function categoryAccountIssue(
+  field: CategoryAccountField,
+  acc: { type: string; controlKind: string | null; isActive: boolean },
+): 'ACCOUNT_ARCHIVED' | 'CATEGORY_ACCOUNT_TYPE' | null {
+  const rule = CATEGORY_ACCOUNT_RULES[field];
+  if (!acc.isActive) return 'ACCOUNT_ARCHIVED';
+  if (!rule.allowedTypes.includes(acc.type as AccountType)) return 'CATEGORY_ACCOUNT_TYPE';
+  if (rule.controlKind && acc.controlKind !== rule.controlKind) return 'CATEGORY_ACCOUNT_TYPE';
+  return null;
+}
+
+type CategoryAccountsPatch = { categoryId: string } & Partial<Record<CategoryAccountField, string | null>>;
+
+/**
+ * يدمج تعديل فئة على صفها القائم (صرفة): الحقل المرسَل يحل محل قيمته (null = الافتراضي)، والغائب يبقى.
+ * `remove` حين تصير الحقول الأربعة فارغة: غياب الصف = مفاتيح الربط الافتراضية (§3.8).
+ */
+export function mergeCategoryAccounts(
+  current: Partial<Record<CategoryAccountField, string | null>> | null,
+  patch: CategoryAccountsPatch,
+): { next: Record<CategoryAccountField, string | null>; changed: CategoryAccountField[]; remove: boolean } {
+  const next = {} as Record<CategoryAccountField, string | null>;
+  const changed: CategoryAccountField[] = [];
+  for (const f of CATEGORY_ACCOUNT_FIELDS) {
+    const before = current?.[f] ?? null;
+    const after = patch[f] !== undefined ? patch[f] ?? null : before;
+    next[f] = after;
+    if (after !== before) changed.push(f);
+  }
+  return { next, changed, remove: CATEGORY_ACCOUNT_FIELDS.every((f) => next[f] === null) };
+}
+
+async function categoryAccountsOut(tenantId: string) {
+  const [cats, rows, mappings] = await Promise.all([
+    prisma.productCategory.findMany({ where: { tenantId }, select: { id: true, name: true, _count: { select: { products: true } } }, orderBy: { name: 'asc' } }),
+    prisma.glProductCategoryAccount.findMany({ where: { tenantId } }),
+    prisma.glAccountMapping.findMany({ where: { tenantId, key: { in: CATEGORY_ACCOUNT_FIELDS.map((f) => CATEGORY_ACCOUNT_RULES[f].fallbackKey) } }, select: { key: true, accountId: true } }),
+  ]);
+  const byCat = new Map(rows.map((r) => [r.categoryId, r]));
+  const mapped = new Map(mappings.map((m) => [m.key, m.accountId]));
+  return {
+    categories: cats.map((c) => {
+      const r = byCat.get(c.id);
+      return {
+        categoryId: c.id, categoryName: c.name, productCount: c._count.products, customized: !!r,
+        ...Object.fromEntries(CATEGORY_ACCOUNT_FIELDS.map((f) => [f, r?.[f] ?? null])) as Record<CategoryAccountField, string | null>,
+      };
+    }),
+    fields: CATEGORY_ACCOUNT_FIELDS.map((f) => ({
+      field: f, fallbackKey: CATEGORY_ACCOUNT_RULES[f].fallbackKey, fallbackAccountId: mapped.get(CATEGORY_ACCOUNT_RULES[f].fallbackKey) ?? null,
+      allowedTypes: CATEGORY_ACCOUNT_RULES[f].allowedTypes, controlKind: CATEGORY_ACCOUNT_RULES[f].controlKind,
+    })),
+  };
+}
+
+router.get('/mappings/categories', CONFIGURE, ledgerHandler(async (_req, res) => {
+  const { tenantId } = ledgerOf(res);
+  res.json({ success: true, data: await categoryAccountsOut(tenantId) });
+}));
+
+const categoryAccountIdSchema = z.string().min(1).nullable().optional();
+const categoriesSchema = z.object({
+  categories: z.array(z.object({
+    categoryId: z.string().min(1),
+    incomeAccountId: categoryAccountIdSchema,
+    expenseAccountId: categoryAccountIdSchema,
+    cogsAccountId: categoryAccountIdSchema,
+    inventoryAccountId: categoryAccountIdSchema,
+  }).strict()).min(1).max(2000)
+    .refine((a) => new Set(a.map((c) => c.categoryId)).size === a.length, 'فئة مكررة'),
+}).strict();
+
+/** التعديل يسري على الأحداث المُلتقطة بعد الحفظ فقط (لقطة الحمولة §5.2) ولا يعيد ترحيل ما سبق. */
+router.put('/mappings/categories', CONFIGURE, ledgerHandler(async (req, res) => {
+  const { tenantId } = ledgerOf(res);
+  const { categories } = categoriesSchema.parse(req.body);
+  const actor = actorOf(req, res);
+  await prisma.$transaction(async (tx) => {
+    // كمفاتيح الربط: تحت قفل الترحيل فلا يُبنى قيد على ربط نصف محدَّث
+    await acquirePostLock(tx, tenantId);
+    const ids = categories.map((c) => c.categoryId);
+    const cats = new Set((await tx.productCategory.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true } })).map((c) => c.id));
+    const accIds = [...new Set(categories.flatMap((c) => CATEGORY_ACCOUNT_FIELDS.map((f) => c[f]).filter((x): x is string => !!x)))];
+    const accounts = accIds.length
+      ? await tx.glAccount.findMany({ where: { tenantId, id: { in: accIds } }, select: { id: true, type: true, controlKind: true, isActive: true } })
+      : [];
+    const accById = new Map(accounts.map((a) => [a.id, a]));
+    const current = new Map((await tx.glProductCategoryAccount.findMany({ where: { tenantId, categoryId: { in: ids } } })).map((r) => [r.categoryId, r]));
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    for (const c of categories) {
+      if (!cats.has(c.categoryId)) throw new GlNotFoundError('ProductCategory', c.categoryId);
+      const { next, changed, remove } = mergeCategoryAccounts(current.get(c.categoryId) ?? null, c);
+      for (const f of changed) {
+        const id = next[f];
+        if (!id) continue;
+        const acc = accById.get(id);
+        if (!acc) throw new GlNotFoundError('GlAccount', id);
+        const issue = categoryAccountIssue(f, acc);
+        if (issue === 'ACCOUNT_ARCHIVED') throw new LedgerError('LEDGER_ACCOUNT_ARCHIVED', { accountId: id, categoryId: c.categoryId, field: f });
+        if (issue) {
+          throw new LedgerHttpError(422, 'نوع الحساب لا يوافق حقل الفئة', {
+            reason: issue, categoryId: c.categoryId, field: f, accountId: id, type: acc.type,
+            allowedTypes: CATEGORY_ACCOUNT_RULES[f].allowedTypes, controlKind: CATEGORY_ACCOUNT_RULES[f].controlKind,
+          });
+        }
+      }
+      if (!changed.length) continue;
+      const cur = current.get(c.categoryId);
+      before[c.categoryId] = cur ? Object.fromEntries(CATEGORY_ACCOUNT_FIELDS.map((f) => [f, cur[f]])) : null;
+      after[c.categoryId] = remove ? null : next;
+      if (remove) {
+        await tx.glProductCategoryAccount.deleteMany({ where: { tenantId, categoryId: c.categoryId } });
+      } else {
+        await tx.glProductCategoryAccount.upsert({
+          where: { tenantId_categoryId: { tenantId, categoryId: c.categoryId } },
+          create: { tenantId, categoryId: c.categoryId, ...next },
+          update: next,
+        });
+      }
+    }
+    if (Object.keys(after).length) {
+      await appendAudit(tx, {
+        tenantId, actor, action: 'MAPPING_CHANGE', entityType: 'MAPPING', entityId: null,
+        summary: `تعديل حسابات فئات المنتجات (${Object.keys(after).length})`, before, after,
+      });
+    }
+  }, TX_OPTS);
+  res.json({ success: true, data: await categoryAccountsOut(tenantId) });
+}));
+
 // ═══ الإعدادات (§8.4، CFG‑01) وزرع القالب (TAX‑01، §4.5) ═══
 
 type SettingsRow = Prisma.GlSettingsGetPayload<object>;

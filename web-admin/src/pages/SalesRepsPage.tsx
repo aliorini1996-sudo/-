@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -17,6 +17,8 @@ import { settlementLogDocFromData, Company } from '../rep/RepDocuments';
 // الوحدة المشتركة وحدها — حدّاها (١٢٨٠px وجودة ٠٫٧) مُعايَران ليقعا تحت سقف الخادم
 import { compressImage } from '../rep/imageCompress';
 import { useAccountingOn } from '../components/AccountingGate';
+import { useLedgerOn } from '../components/LedgerGate';
+import { ledgerConfigApi, ledgerKeys } from '../api/ledgerConfig';
 
 interface Creds { name: string; username: string; password: string; }
 
@@ -76,6 +78,32 @@ export default function SalesRepsPage() {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر حذف المندوب');
       toast.error(msg);
       setDeleting(null);
+    },
+  });
+
+  /* الدفاتر مفعّلة (§8.1، M3): activatedAt مضبوط في GET /api/ledger/status ⇒ «تعطيل المندوب» إجراءً
+   * أساسياً في حوار الحذف، لأن التعطيل يحفظ عهدته وتاريخه. يُطلب للأدمن الرئيسي وحده (صاحب زر الحذف)
+   * وحين الميزة مفعّلة؛ تعذّر القراءة (403 صلاحية) ⇒ الحوار كما كان، والخادم يرد LEDGER_HISTORY_LOCKED برسالته. */
+  const { on: ledgerOn } = useLedgerOn();
+  const ledgerStatusQ = useQuery({
+    queryKey: ledgerKeys.status,
+    queryFn: async () => (await ledgerConfigApi.status()).data.data,
+    enabled: ledgerOn && isMainAdmin,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const ledgerActive = ledgerOn && !!ledgerStatusQ.data?.activatedAt;
+
+  const deactivateMutation = useMutation({
+    mutationFn: (id: string) => salesRepApi.update(id, { isActive: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sales-reps'] });
+      toast.success(tr('تم تعطيل المندوب'));
+      setDeleting(null);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('حدث خطأ');
+      toast.error(msg);
     },
   });
 
@@ -254,7 +282,18 @@ export default function SalesRepsPage() {
         />
       )}
 
-      {deleting && (
+      {deleting && ledgerActive && (
+        <LedgerRepDeleteDialog
+          rep={deleting}
+          deactivating={deactivateMutation.isPending}
+          deleting={deleteMutation.isPending}
+          onDeactivate={() => deactivateMutation.mutate(deleting.id)}
+          onDelete={() => deleteMutation.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
+        />
+      )}
+
+      {deleting && !ledgerActive && (
         <ConfirmDialog
           danger
           title={tr('حذف المندوب')}
@@ -278,6 +317,51 @@ export default function SalesRepsPage() {
       {historyRep && (
         <RepDailyReportsModal rep={historyRep} onClose={() => setHistoryRep(null)} />
       )}
+    </div>
+  );
+}
+
+// ===== حوار حذف المندوب حين الدفاتر مفعّلة (§8.1، §5.3) =====
+// «تعطيل المندوب» إجراءٌ أساسي يحفظ عهدته وتاريخه؛ والحذف النهائي باقٍ ثانوياً، والخادم يرفضه
+// بـ409 LEDGER_HISTORY_LOCKED برسالته إن كان للمندوب أثر مالي بعد التفعيل.
+function LedgerRepDeleteDialog({ rep, deactivating, deleting, onDeactivate, onDelete, onClose }: {
+  rep: SalesRep; deactivating: boolean; deleting: boolean;
+  onDeactivate: () => void; onDelete: () => void; onClose: () => void;
+}) {
+  const tr = useTr();
+  const busy = deactivating || deleting;
+  const spin = <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />;
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" onClick={() => { if (!busy) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="p-6 text-center">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 bg-[#FBEBE2]">
+            <UserX size={28} className="text-[#E15A30]" />
+          </div>
+          <h2 className="text-lg font-bold text-[#1F1A13]">{tr('حذف المندوب')}</h2>
+          <p className="text-sm text-[#6E6557] mt-2 leading-relaxed">
+            «{rep.name}» — {tr('الدفاتر المحاسبية مفعلة لشركتك تعطيل المندوب يحفظ عهدته وتاريخه المالي والحذف النهائي يرفض إن كان له أثر مالي بعد التفعيل')}
+          </p>
+          {rep.isActive === false && (
+            <p className="text-xs text-[#2F855A] mt-2">{tr('المندوب معطل بالفعل')}</p>
+          )}
+        </div>
+        <div className="flex flex-col gap-2 p-5 pt-0">
+          <button onClick={onDeactivate} disabled={busy || rep.isActive === false}
+            className="w-full justify-center py-2.5 rounded-xl text-white font-semibold flex items-center gap-2 bg-[#E15A30] hover:bg-[#C94E28] disabled:opacity-60">
+            {deactivating ? spin : <UserX size={16} />}
+            {tr('تعطيل المندوب')}
+          </button>
+          <div className="flex gap-2">
+            <button onClick={onDelete} disabled={busy}
+              className="flex-1 justify-center py-2 rounded-xl border border-[#E9C3BC] text-[#C0392B] text-sm font-semibold flex items-center gap-1.5 hover:bg-[#FBE3DF] disabled:opacity-60">
+              {deleting ? <span className="w-4 h-4 border-2 border-[#C0392B]/30 border-t-[#C0392B] rounded-full animate-spin" /> : <Trash2 size={14} />}
+              {tr('حذف نهائي')}
+            </button>
+            <button onClick={onClose} disabled={busy} className="btn-secondary">{tr('إلغاء')}</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

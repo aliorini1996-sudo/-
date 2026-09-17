@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Lock, X, AlertTriangle } from 'lucide-react';
+import { Lock, X, AlertTriangle, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTr } from '../../i18n/strings';
 import { ledgerErrorMessage } from '../../lib/ledger/errors';
@@ -19,8 +19,8 @@ import { findLedgerRoute, ledgerHref } from '../../pages/ledger/routes';
 /**
  * حوار «تواريخ الإقفال…» (LOCK‑01، §8.3، canCloseLedgerPeriods): الحقول الأربعة مع التاريخ الحالي لكلٍّ منها.
  * - 409 `LEDGER_SYNC_PENDING`: العوائق من الاستجابة (`backfillState`، المصادر المتأخرة، أول 50 حدثاً مع
- *   `eventCount`)، ورابط أحداث الترحيل مفلتراً بالتاريخ. زر «مزامنة الآن» (`POST /sync`) يصل مع M3 (§5.1) حين
- *   يُسجَّل مساره في الخادم؛ حتى ذلك الحين تنبيه بأن المزامنة تجري آلياً (حارس ledgerApiRoutes.test).
+ *   `eventCount`)، ورابط أحداث الترحيل مفلتراً بالتاريخ، وزر «مزامنة الآن» (M3، §5.1): `POST /sync` ثم إعادة محاولة الحفظ
+ *   (202 `running` ⇒ تنبيه بأن نبضة أخرى جارية؛ إعادة المحاولة تعيد عرض العوائق إن بقيت).
  * - 422 `LEDGER_DRAFTS_BEFORE_LOCK`: المسودات بروابط الترحيل والتحرير والحذف.
  * لا حقول إقفال في معالج الإعداد (§5.6) — هذا الحوار وحده.
  */
@@ -96,6 +96,21 @@ export function LockDatesDialog({ onClose }: { onClose: () => void }) {
     onError: (err: unknown) => toast.error(ledgerErrorMessage(tr, ledgerErrorOf(err))),
   });
 
+  // «مزامنة الآن» ثم إعادة المحاولة (§8.3)
+  const syncNow = useMutation({
+    mutationFn: async () => (await ledgerConfigApi.sync()).data,
+    onSuccess: (r) => {
+      if (r.running) toast(`${tr('المزامنة جارية الآن، أعد المحاولة بعد قليل')} (${r.pendingEvents})`);
+      qc.invalidateQueries({ queryKey: ledgerKeys.lockDates });
+      setBlocked(null);
+      save.mutate();
+    },
+    onError: (err: unknown) => {
+      const e = ledgerErrorOf(err);
+      toast.error(e?.reason === 'LEDGER_WORKER_UNAVAILABLE' ? tr('معالج الترحيل غير متاح حاليا') : ledgerErrorMessage(tr, e));
+    },
+  });
+
   const eventsRoute = findLedgerRoute('review/events');
 
   return (
@@ -158,6 +173,10 @@ export function LockDatesDialog({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button type="button" className="btn-secondary !py-1 !px-2 text-xs inline-flex items-center gap-1 disabled:opacity-50"
+                  disabled={syncNow.isPending || save.isPending || changed.length === 0} onClick={() => syncNow.mutate()}>
+                  <RefreshCw size={12} className={syncNow.isPending ? 'animate-spin' : ''} />{tr('مزامنة الآن')}
+                </button>
                 <span className="text-xs text-amber-900">{tr('الترحيل الآلي يلحق تلقائيا، أعد المحاولة بعد قليل')}</span>
                 {eventsRoute && canLedger(user, eventsRoute.view) && (
                   <Link to={`${ledgerHref('review/events')}${blocked.date ? `?dateTo=${blocked.date}` : ''}`} onClick={onClose} className="text-xs text-[#E15A30] hover:underline">

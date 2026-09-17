@@ -177,11 +177,22 @@ test('المؤشرات: lastRunAt أقدم من نبضتين ⇒ محجوب؛ ص
 
 // ═══ مدخلات المسار من القاعدة (مخزن مزيّف) ═══
 
-test('loadLockSyncInput: الأحداث بشرط التاريخ المحلي على الفهرس والعدد، والمؤشرات محافظة قبل M3', async () => {
+test('loadLockSyncInput: الأحداث بشرط التاريخ المحلي على الفهرس والعدد، والصفوف غير المقروءة حتى الأفق فعلياً (M3)', async () => {
   const calls: { model: string; op: string; args: any }[] = [];
   const events = [ev('PENDING', '2026-08-31T20:59:00.000Z')];
   const fake = {
-    glSyncCursor: { findMany: async (args: any) => { calls.push({ model: 'cursor', op: 'findMany', args }); return [{ source: 'ACCOUNT_ENTRY', watermarkAt: new Date('2025-01-01T00:00:00Z'), lastRunAt: new Date(NOW.getTime() - 10_000) }]; } },
+    glSyncCursor: {
+      findMany: async (args: any) => {
+        calls.push({ model: 'cursor', op: 'findMany', args });
+        return [
+          { source: 'ACCOUNT_ENTRY', watermarkAt: new Date('2025-01-01T00:00:00Z'), watermarkId: 'w1', lastRunAt: new Date(NOW.getTime() - 10_000) },
+          { source: 'REP_SETTLEMENT', watermarkAt: new Date('2025-01-01T00:00:00Z'), watermarkId: '', lastRunAt: new Date(NOW.getTime() - 10_000) },
+          { source: 'WAREHOUSE_ENTRY', watermarkAt: new Date('2025-01-01T00:00:00Z'), watermarkId: '', lastRunAt: null },
+        ];
+      },
+    },
+    accountEntry: { findFirst: async (args: any) => { calls.push({ model: 'accountEntry', op: 'findFirst', args }); return { id: 'e1' }; } },
+    repSettlement: { findFirst: async (args: any) => { calls.push({ model: 'repSettlement', op: 'findFirst', args }); return null; } },
     glSourceEvent: {
       findMany: async (args: any) => { calls.push({ model: 'event', op: 'findMany', args }); return events; },
       count: async (args: any) => { calls.push({ model: 'event', op: 'count', args }); return 7; },
@@ -199,7 +210,17 @@ test('loadLockSyncInput: الأحداث بشرط التاريخ المحلي ع�
   assert.equal(find.args.take, 50);
   assert.equal(calls.find((c) => c.model === 'cursor')!.args.where.tenantId, 't1');
   assert.equal(inp.eventSummary.eventCount, 7);
-  assert.equal(inp.cursors[0].hasUnreadRows, true, 'بلا مُطابِق بعد: المؤشر القديم يُعدّ متأخراً');
+  // M3 (الالتزام 2): EXISTS … ("createdAt","id") > المؤشر AND "createdAt" <= horizon (dbNow − 10 دقائق)
+  const unread = calls.find((c) => c.model === 'accountEntry')!;
+  assert.equal(unread.args.where.tenantId, 't1');
+  assert.equal(unread.args.where.createdAt.lte.toISOString(), new Date(NOW.getTime() - 10 * 60_000).toISOString());
+  assert.deepEqual(unread.args.where.OR, [
+    { createdAt: { gt: new Date('2025-01-01T00:00:00Z') } },
+    { createdAt: new Date('2025-01-01T00:00:00Z'), id: { gt: 'w1' } },
+  ]);
+  assert.deepEqual(inp.cursors.map((c) => [c.source, c.hasUnreadRows]), [
+    ['ACCOUNT_ENTRY', true], ['REP_SETTLEMENT', false], ['WAREHOUSE_ENTRY', true],
+  ], 'مصدر المخزون بلا مُطابِق بعد يبقى محافظاً');
   const b = lockSyncBlockers(inp);
   assert.ok(b);
   assert.equal(b.code, 'LEDGER_NOT_SETUP', 'M2: activatedAt فارغ ⇒ LEDGER_NOT_SETUP');

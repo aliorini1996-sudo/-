@@ -232,7 +232,9 @@ export async function resetDraft(tx: GlTx, opts: ResetDraftOptions): Promise<Res
 
   const context = await loadBuildContext(tx, tenantId);
   const copy: MoveDraft = { ...moveDraftFromRecord(rec), origin: 'MANUAL', sourceType: null, sourceId: null, sourceKey: null, sourceEvent: null };
-  const rows = draftRowsFromMoveDraft(copy, context.ctx, { tenantId, journalId: rec.journalId, actor, draftOfMoveId: rec.id });
+  // علم التوليد المخزَّن (M3) ينتقل إلى النسخة، فيبقى المولَّد مولَّداً عند إعادة حفظها
+  const generatedLineIndexes = rec.lines.flatMap((l, i) => (l.generated ? [i] : []));
+  const rows = draftRowsFromMoveDraft(copy, context.ctx, { tenantId, journalId: rec.journalId, actor, draftOfMoveId: rec.id, generatedLineIndexes });
   const saved = await saveDraftMove(tx, {
     tenantId, actor, rows,
     auditAction: 'MOVE_RESET_DRAFT',

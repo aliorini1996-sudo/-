@@ -155,9 +155,12 @@ test('حذف المندوب يُفرّغ مرجعه من تقاريره ولا �
 
   // والقاعدة وحدها لا تكفي: مسار الحذف يقول ما يفعل صراحةً
   const r = read('src', 'routes', 'salesReps.ts');
-  const i = r.indexOf('await prisma.$transaction([');
+  // M3 (§5.3): صارت معاملة تفاعلية أولها assertRepDeletable — فيُقاس داخل معالج الحذف أياً كان شكلها
+  const h = r.indexOf("router.delete('/:id',");
+  assert.ok(h > 0, 'مسار حذف المندوب مفقود');
+  const i = r.indexOf('prisma.$transaction(', h);
   assert.ok(i > 0, 'معاملة حذف المندوب مفقودة');
-  const tx = r.slice(i, r.indexOf('])', i));
+  const tx = r.slice(i, r.indexOf('\n});', i));
   assert.match(tx, /dailyReport\.updateMany\([^)]*salesRepId: null/, 'المعاملة لا تُفرّغ مرجع التقارير');
   // توجيه العقد للمندوب تهيئةٌ لا سجلّ — يُحذف معه
   assert.match(tx, /dailyReportOwnerRep\.deleteMany/, 'توجيهات العقد تبقى يتيمةً بعد حذف المندوب');

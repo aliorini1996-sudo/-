@@ -25,6 +25,8 @@ import {
   assertManualOwned, assertReversalReason, deleteDraftMove, deleteDraftMoves, ownershipOfRecord, resetDraft, reverseMove,
 } from '../../services/gl/reverse';
 import { collectMoveIssues } from '../../services/gl/validate';
+import { PrismaPostingTx } from '../../services/gl/sync/postingStore.prisma';
+import { RepostRejectedError, repostFromSource } from '../../services/gl/sync/repost';
 import { LedgerError, type LocalDate, type Milli } from '../../services/gl/types';
 
 /**
@@ -354,6 +356,8 @@ export interface GeneratedFlagLine {
   debitMilli: bigint;
   creditMilli: bigint;
   taxBaseMilli: bigint | null;
+  /** عمود GlMoveLine.generated (M3) — حين يوجد فهو الحاسم */
+  generated?: boolean | null;
 }
 
 /**
@@ -376,6 +380,13 @@ export function isGeneratedTaxLabel(label: string | null | undefined): boolean {
  * أول سطر من الذيل لا يطابق يوقف المسح، فيبقى سطر الضريبة اليدوي قابلاً للتحرير ولو وقع قبل المولَّد مباشرة.
  */
 export function generatedLineFlags(lines: readonly GeneratedFlagLine[]): boolean[] {
+  // M3: العمود المخزَّن حاسم (draftRowsFromMoveDraft يكتبه). الاستنتاج بالنمط أدناه للتوافق وحده: سطور بلا الحقل.
+  if (lines.some((l) => typeof l.generated === 'boolean')) return lines.map((l) => l.generated === true);
+  return inferGeneratedLineFlags(lines);
+}
+
+/** الاستنتاج القديم (M2) بالنمط — لسطور لا تحمل عمود generated. */
+export function inferGeneratedLineFlags(lines: readonly GeneratedFlagLine[]): boolean[] {
   const sums = new Map<string, bigint>();
   const add = (k: string, v: bigint) => sums.set(k, (sums.get(k) ?? 0n) + v);
   for (const l of lines) {
@@ -658,7 +669,9 @@ async function saveManualDraft(tenantId: string, actor: GlActor, body: ManualMov
       { journal, date, ref: body.ref ?? null, narration: body.narration ?? null, lines: body.lines as ManualLineInput[] },
       lc.ctx,
     );
-    const rows = draftRowsFromMoveDraft(built.draft, lc.ctx, { tenantId, journalId: journal.id, actor, autoPostOn, draftOfMoveId });
+    const rows = draftRowsFromMoveDraft(built.draft, lc.ctx, {
+      tenantId, journalId: journal.id, actor, autoPostOn, draftOfMoveId, generatedLineIndexes: built.generatedLineIndexes,
+    });
     const saved = await saveDraftMove(tx, { tenantId, actor, rows, moveId: moveId ?? null });
     return {
       id: saved.id,
@@ -831,6 +844,64 @@ router.post('/moves/:id/reset-draft', requireLedgerPermission('canPostJournals')
     data: { reversal: { id: r.reversal.id, number: r.reversal.number, date: r.reversal.date }, draft: r.draft },
   });
 }));
+
+// ═══ «إعادة الترحيل من المصدر» (M3، §6.1) ═══
+
+/**
+ * `POST /moves/:id/repost-from-source` بصلاحية canConfigureLedger ولقيد origin=AUTO وحده: في معاملة واحدة تحت قفل gl-post
+ * يُعكس القيد الحيّ بمفتاح `<base>:REPOST_REV:<n>` ويُعاد بناؤه من لقطة الحدث بالربط الحالي بمفتاح `<base>:REPOST:<n>`
+ * (services/gl/sync/repost.ts)، مع تدقيق MOVE_REPOST وإشعار للأدمن الرئيسي. الرفض: مؤمَّن ⇒ LEDGER_SECURED_MOVE؛
+ * غير AUTO، أو ليس القيد الحيّ، أو REVERSE المصدر DONE ⇒ 409 بـreason.
+ */
+router.post('/moves/:id/repost-from-source', requireLedgerPermission('canConfigureLedger'), ledgerHandler(async (req, res) => {
+  const { tenantId } = locals(res);
+  await assertLedgerActivated(tenantId);
+  const actor = actorOf(req, res);
+  const moveId = String(req.params.id);
+  try {
+    const r = await prisma.$transaction(async (tx) => {
+      await acquirePostLock(tx, tenantId);
+      const rec = await tx.glMove.findFirst({ where: { id: moveId, tenantId }, select: MOVE_RECORD_SELECT });
+      if (!rec) throw new GlNotFoundError('GlMove', moveId);
+      const settings = await tx.glSettings.findUnique({ where: { tenantId }, select: { timezone: true } });
+      const result = await repostFromSource(new PrismaPostingTx(tx, tenantId), {
+        actor,
+        timezone: settings?.timezone ?? DEFAULT_TIMEZONE,
+        move: {
+          id: rec.id, number: rec.number, state: rec.state, origin: rec.origin, date: fromDbDate(rec.date),
+          originalDate: rec.originalDate ? fromDbDate(rec.originalDate) : null, lateArrival: rec.lateArrival,
+          secureHash: rec.secureHash, sources: rec.sources,
+        },
+      });
+      await tx.notification.create({
+        data: {
+          tenantId, type: 'LEDGER_MOVE_REPOST', title: 'إعادة ترحيل قيد من المصدر',
+          body: `${rec.number ?? rec.id} ⇐ ${result.repost.number} (${result.baseKey})`,
+          data: JSON.stringify({ ...result, actorId: actor.actorId, impersonated: actor.impersonated }),
+        },
+      });
+      return result;
+    }, POST_TX_OPTIONS);
+    res.json({ success: true, data: r });
+  } catch (e) {
+    if (e instanceof RepostRejectedError) {
+      throw new LedgerHttpError(409, REPOST_REJECT_MESSAGES[e.reason] ?? e.reason, { reason: e.reason, ...e.details });
+    }
+    throw e;
+  }
+}));
+
+const REPOST_REJECT_MESSAGES: Record<string, string> = {
+  NOT_AUTO_ORIGIN: 'إعادة الترحيل من المصدر للقيود الآلية وحدها',
+  NOT_POSTED: 'القيد غير مرحّل',
+  NO_SOURCE: 'القيد بلا مستند مصدر',
+  NOT_POST_SOURCE: 'القيد ليس قيد ترحيل المستند',
+  NOT_LIVE_MOVE: 'القيد ليس القيد الحيّ للمستند (عُكس أو أعيد ترحيله)',
+  SOURCE_REVERSED: 'المستند أُلغي فلا شيء يُعاد ترحيله',
+  SOURCE_NOT_FOUND: 'لقطة المستند غير متاحة',
+  NO_RECIPE: 'لا وصفة إعادة ترحيل لهذا المصدر',
+  NO_MOVE: 'المستند لا يولّد قيداً بالربط الحالي',
+};
 
 // ═══ الملاحظات والتتبّع (JE‑10) ═══
 

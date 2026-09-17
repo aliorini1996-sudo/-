@@ -13,6 +13,10 @@ import {
   type LockDateField, type LockDates, type LockSyncInput, type SyncCursorSnapshot,
 } from '../../services/gl/locks';
 import { LedgerError, type BackfillState, type LocalDate } from '../../services/gl/types';
+import type { PrismaClient } from '@prisma/client';
+import { isReconciledSource } from '../../services/gl/sync/desired';
+import { reconcileHorizon } from '../../services/gl/sync/reconciler';
+import { createPrismaReconcilerStore } from '../../services/gl/sync/reconcilerStore.prisma';
 
 /**
  * تواريخ الإقفال — `GET/PUT /api/ledger/lock-dates` بصلاحية canCloseLedgerPeriods (M2، §2.5، LOCK‑01، §9.5 G3).
@@ -64,8 +68,9 @@ export function lockDatesOut(s: Pick<LockSettingsRow, LockDateField>): LockDates
 /**
  * مدخلات lockSyncBlockers من القاعدة لتاريخ جديد: المؤشرات، وأول 50 حدثاً حاجباً بتاريخ محلي ≤ التاريخ
  * (الفهرس [tenantId, status, effectAt]) مع عددها.
- * hasUnreadRows: لا مُطابِق قبل M3 فلا استعلام EXISTS على جداول المصادر بعد؛ القيمة المحافظة true
- * (مؤشر قديم يُعدّ متأخراً) — TODO(M3): EXISTS … ("createdAt","id") > المؤشر AND "createdAt" <= horizon (§5.2 البند 5).
+ * hasUnreadRows (M3، الالتزام 2): للمصادر الثلاثة التي يقرؤها المُطابِق استعلام EXISTS فعلي
+ * `("createdAt","id") > المؤشر AND "createdAt" <= horizon` (horizon = dbNow − LATE_COMMIT_WINDOW، §5.2 البند 5) عبر
+ * ReconcilerStore.hasUnreadRows داخل المعاملة نفسها؛ ومصادر المخزون (M9، بلا مُطابِق بعد) تبقى true المحافظة.
  */
 export async function loadLockSyncInput(
   tx: GlTx, tenantId: string, s: LockSettingsRow, newDate: LocalDate, now: Date,
@@ -73,16 +78,22 @@ export async function loadLockSyncInput(
   const tz = s.timezone;
   const where = { tenantId, ...lockSyncEventWhere(newDate, tz) };
   const [cursors, events, eventCount] = await Promise.all([
-    tx.glSyncCursor.findMany({ where: { tenantId }, select: { source: true, watermarkAt: true, lastRunAt: true } }),
+    tx.glSyncCursor.findMany({ where: { tenantId }, select: { source: true, watermarkAt: true, watermarkId: true, lastRunAt: true } }),
     tx.glSourceEvent.findMany({
       where, orderBy: { effectAt: 'asc' }, take: LOCK_SYNC_EVENT_LIMIT,
       select: { id: true, sourceKey: true, status: true, effectAt: true, lastError: true },
     }),
     tx.glSourceEvent.count({ where }),
   ]);
-  const snapshots: SyncCursorSnapshot[] = cursors.map((c) => ({
-    source: c.source, watermarkAt: c.watermarkAt, lastRunAt: c.lastRunAt, hasUnreadRows: true,
-  }));
+  const reconciler = createPrismaReconcilerStore(tx as unknown as PrismaClient);
+  const horizon = reconcileHorizon(now);
+  const snapshots: SyncCursorSnapshot[] = [];
+  for (const c of cursors) {
+    const hasUnreadRows = isReconciledSource(c.source)
+      ? await reconciler.hasUnreadRows(tenantId, c.source, { at: c.watermarkAt, id: c.watermarkId }, horizon)
+      : true;
+    snapshots.push({ source: c.source, watermarkAt: c.watermarkAt, lastRunAt: c.lastRunAt, hasUnreadRows });
+  }
   return {
     settings: {
       timezone: tz,

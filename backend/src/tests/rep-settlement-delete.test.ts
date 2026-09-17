@@ -90,7 +90,9 @@ test('الانتحال موسوم في الأثر التدقيقي', () => {
 test('حذف المندوب — الباب الأوسع على السجلّ نفسه — بالحارس نفسه', () => {
   const start = src.indexOf("router.delete('/:id'");
   assert.ok(start > 0, 'مسار حذف المندوب مفقود');
-  const h = src.slice(start, start + 2600);
+  // حتى المسار التالي لا نافذة ثابتة — تعليق يُضاف داخل المعالج لا يكسر الحارس
+  const end = src.indexOf('\nrouter.', start);
+  const h = end > 0 ? src.slice(start, end) : src.slice(start);
   assert.match(h, /isPrimaryAdmin\(req\)/, 'حذف المندوب ما زال يقرأ الدور من التوكن');
   assert.match(h, /repSettlement\.deleteMany/, 'تغيّر شكل المعاملة — أعد فحص الحارس');
   assert.match(

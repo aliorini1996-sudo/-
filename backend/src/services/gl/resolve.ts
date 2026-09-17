@@ -224,7 +224,7 @@ export const MOVE_LINE_ENGINE_SELECT = {
   id: true, seq: true, accountId: true, label: true, debitMilli: true, creditMilli: true, customerId: true, vendorId: true,
   salesRepId: true, partnerName: true, analyticAccountId: true, productId: true, quantity: true, taxId: true, taxRole: true,
   taxBaseMilli: true, vatBox: true, vatAdjustment: true, dueDate: true, currencyCode: true, amountCurrencyMilli: true,
-  posted: true,
+  posted: true, generated: true,
 } as const;
 
 export const MOVE_RECORD_SELECT = {

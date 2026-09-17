@@ -14,11 +14,12 @@ import {
 } from '../../../api/ledgerConfig';
 import { ledgerHref } from '../routes';
 import { AccountSelect, Field, Toggle, WriteButton, useAllAccounts, useConfigErrorText, useLedgerCan } from './parts/configUi';
+import { BackfillStatusCard, useSetupState } from '../setup/setupUi';
 
 /**
  * إعدادات الدفاتر (CFG‑01، §8.4) بأقسامها التسعة. في M2:
  * - «تحميل القالب/إعادة تحميله» يضيف الناقص فقط (TAX‑01)، والدولة والعملة لقطة للقراءة (TAX‑02).
- * - حالة الإعداد المبدئي للقراءة (المعالج والإيقاف المؤقت في M3)، وأسعار العملات في M13 معطّلة بتلميح.
+ * - الإعداد المبدئي (M3): رابط المعالج قبل التفعيل، وبعده تقدم الترحيل التاريخي و«إيقاف مؤقت». أسعار العملات في M13 معطّلة بتلميح.
  * - الأساس النقدي معطّل مع شرح التأجيل (TAX‑08)، وضريبة عمولة الدفع الإلكتروني للقراءة (يضبطها مالك المنصة).
  * - بعد التفعيل لا تتغير المنطقة الزمنية ونهاية السنة المالية ووضع المخزون وتاريخ بدء المستمر.
  * الحفظ يرسل الحقول المتغيّرة وحدها إلى `PUT /settings`، ومفاتيح الربط المعروضة هنا إلى `PUT /mappings`.
@@ -67,6 +68,8 @@ export default function SettingsPage() {
   const taxesQ = useQuery({ queryKey: ledgerKeys.taxes, queryFn: async () => (await ledgerConfigApi.taxes.list()).data.data, enabled: seeded });
   const mappingsQ = useQuery({ queryKey: ledgerKeys.mappings, queryFn: async () => (await ledgerConfigApi.mappings.list()).data.data, enabled: seeded });
   const accountsQ = useAllAccounts(seeded);
+  // القسم 2 بعد التفعيل: تقدم الترحيل التاريخي و«إيقاف مؤقت» (M3، GET /setup)
+  const setupQ = useSetupState(!!settingsQ.data?.activatedAt);
 
   const s = settingsQ.data;
   const [draft, setDraft] = useState<GlSettingsInput>({});
@@ -211,11 +214,23 @@ export default function SettingsPage() {
             <ReadRow label={tr('الحالة')}>{activated ? `${tr('مفعّلة منذ')} ${formatDateTime(s.activatedAt!)}` : tr('بانتظار الإعداد')}</ReadRow>
             {s.setupMethod && <ReadRow label={tr('طريقة البدء')}>{setupLabels[s.setupMethod] ?? s.setupMethod}</ReadRow>}
             {s.cutoverDate && <ReadRow label={tr('تاريخ البدء')}>{formatDayOnly(s.cutoverDate)}</ReadRow>}
-            <ReadRow label={tr('الترحيل التاريخي')}>{backfillLabels[s.backfillState] ?? s.backfillState}</ReadRow>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn-secondary opacity-50 cursor-not-allowed" disabled title={tr('يتاح مع معالج الإعداد المبدئي')}>{tr('معالج الإعداد')}</button>
-              <button type="button" className="btn-secondary opacity-50 cursor-not-allowed" disabled title={tr('يتاح مع معالج الإعداد المبدئي')}>{tr('إيقاف مؤقت')}</button>
-            </div>
+            {activated ? (
+              <div className="rounded-xl border border-[#F1EBDF] p-3 space-y-2">
+                <p className="text-sm text-[#9A8F7E]">{tr('الترحيل التاريخي')}</p>
+                <BackfillStatusCard
+                  state={(setupQ.data?.activated ? setupQ.data.status.backfillState : s.backfillState) ?? 'NONE'}
+                  progress={setupQ.data?.activated ? setupQ.data.progress : null}
+                  canWrite={canWrite} />
+              </div>
+            ) : (
+              <>
+                <ReadRow label={tr('الترحيل التاريخي')}>{backfillLabels[s.backfillState] ?? s.backfillState}</ReadRow>
+                <div className="flex flex-wrap gap-2">
+                  <Link to={ledgerHref('')} className="btn-primary inline-flex items-center gap-1.5">{tr('معالج الإعداد')}</Link>
+                </div>
+                <p className="text-[11px] text-[#9A8F7E]">{tr('المنطقة الزمنية ونهاية السنة المالية تُضبط أيضا في الخطوة الأولى من المعالج، ولا تتغير بعد التفعيل')}</p>
+              </>
+            )}
             <div className="grid gap-3 sm:grid-cols-3 pt-2">
               <Field label={tr('المنطقة الزمنية')} hint={frozen('timezone') ? frozenHint : undefined}>
                 {timezones.length ? (
@@ -357,7 +372,7 @@ export default function SettingsPage() {
             <div className="rounded-xl border border-[#F1EBDF] p-3 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-bold flex-1">{tr('حسابات المنتج الافتراضية')}</h3>
-                <span className="text-xs text-[#B8AE9C] cursor-not-allowed" title={tr('يتاح مع معالج الإعداد المبدئي')}>{tr('تخصيص لكل فئة منتجات')}</span>
+                <Link to={`${ledgerHref('config/mappings')}?tab=categories`} className="text-xs text-[#E15A30] hover:underline">{tr('تخصيص لكل فئة منتجات')} ←</Link>
               </div>
               <p className="text-[11px] text-[#9A8F7E]">{tr('تُستعمل لكل فئة منتجات بلا حسابات مخصصة، ويسري التعديل على الأحداث الجديدة فقط')}</p>
               <div className="grid gap-3 sm:grid-cols-3">{PRODUCT_KEYS.map(k => mapPicker(k))}</div>

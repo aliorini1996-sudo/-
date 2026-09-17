@@ -60,6 +60,10 @@ export default function LedgerLayout() {
                           className={({ isActive }) => `block px-4 py-1.5 text-sm ${isActive ? 'text-[#E15A30] bg-[#FBEBE2]/60' : 'hover:bg-[#FBF7F0]'}`}>
                           {i.label}
                         </NavLink>
+                      ) : i.kind === 'link' ? (
+                        <NavLink key={i.href} role="menuitem" to={i.href} className="block px-4 py-1.5 text-sm hover:bg-[#FBF7F0]">
+                          {i.label}
+                        </NavLink>
                       ) : (
                         <button key={i.dialog} role="menuitem" type="button" className="block w-full text-start px-4 py-1.5 text-sm hover:bg-[#FBF7F0]"
                           onClick={() => { setOpenMenu(null); setDialog(i.dialog); }}>

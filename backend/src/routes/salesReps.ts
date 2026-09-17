@@ -1,12 +1,15 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { adminRepFilter, adminCustomerFilter } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
+import { isLedgerError } from '../services/gl/types';
+import { assertRepDeletable, settlementTombstones } from '../services/gl/sync/tombstone';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesReps'));
@@ -201,29 +204,35 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
-    // معاملة واحدة: تفريغ مرجع المندوب من الفواتير/السندات/التقارير اليومية
-    // (حفظ السجلّ)، ثم حذف بياناته التشغيلية (إشعارات/تحميلات/مواقع/زيارات/
-    // تسويات) وأخيراً المندوب.
-    await prisma.$transaction([
-      prisma.invoice.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
-      prisma.receipt.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
+    // معاملة واحدة: تفريغ مرجع المندوب من السجلّات ثم حذف بياناته التشغيلية فالمندوب.
+    // أولها حارس الدفاتر §5.3 (409 LEDGER_HISTORY_LOCKED، قفل المندوب FOR UPDATE) — التفصيل في assertRepDeletable.
+    await prisma.$transaction(async tx => {
+      await assertRepDeletable(tx, tid, req.params.id);
+      await tx.invoice.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } });
+      await tx.receipt.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } });
       /* الإقرار اليوميّ سجلٌّ كالفاتورة: وُقِّع عليه وصدرت به حصائل. وكان يُمحى
        * تعاقبياً بحذف المندوب بلا سطرٍ هنا يقول ذلك — فتختفي تقارير شهورٍ
        * وتبقى حصائلها تُعلن أرقاماً لا مصدر لها. */
-      prisma.dailyReport.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } }),
+      await tx.dailyReport.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } });
       // توجيه العقد لهذا المندوب تهيئةٌ لا سجلّ — يُحذف
-      prisma.dailyReportOwnerRep.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } }),
-      prisma.notification.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } }),
-      prisma.vanLoadItem.deleteMany({ where: { vanLoad: { salesRepId: req.params.id } } }),
-      prisma.vanLoad.deleteMany({ where: { salesRepId: req.params.id } }),
-      prisma.repLocation.deleteMany({ where: { salesRepId: req.params.id } }),
-      prisma.repVisit.deleteMany({ where: { salesRepId: req.params.id } }), // صورها تُحذف تعاقبياً
-      prisma.repSettlement.deleteMany({ where: { salesRepId: req.params.id } }),
-      prisma.customerAssignment.deleteMany({ where: { salesRepId: req.params.id } }), // إسنادات العملاء
-      prisma.salesRep.delete({ where: { id: req.params.id } }),
-    ]);
+      await tx.dailyReportOwnerRep.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } });
+      await tx.notification.deleteMany({ where: { tenantId: tid, salesRepId: req.params.id } });
+      await tx.vanLoadItem.deleteMany({ where: { vanLoad: { salesRepId: req.params.id } } });
+      await tx.vanLoad.deleteMany({ where: { salesRepId: req.params.id } });
+      await tx.repLocation.deleteMany({ where: { salesRepId: req.params.id } });
+      await tx.repVisit.deleteMany({ where: { salesRepId: req.params.id } }); // صورها تُحذف تعاقبياً
+      await tx.repSettlement.deleteMany({ where: { salesRepId: req.params.id } });
+      await tx.customerAssignment.deleteMany({ where: { salesRepId: req.params.id } }); // إسنادات العملاء
+      await tx.salesRep.delete({ where: { id: req.params.id } });
+    }, { maxWait: 10_000, timeout: 120_000 }); // مصفوفة المعاملة لم تكن بمهلة 5 ثوانٍ؛ مواقع GPS لشهور قد تطول
     res.json({ success: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (isLedgerError(err, 'LEDGER_HISTORY_LOCKED')) {
+      res.status(409).json({ success: false, code: err.code, message: err.message, ...err.details });
+      return;
+    }
+    next(err);
+  }
 });
 
 // ===== إسناد العملاء للمندوب (عزل العملاء) =====
@@ -474,6 +483,12 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
     const when = new Date(row.settledAt).toISOString().slice(0, 10);
 
     await prisma.$transaction(async tx => {
+      // خطاف الدفاتر (§5.3): قبل الحذف وفي معاملته، SETTLEMENT:<id>:POST وSETTLEMENT:<id>:REVERSE معاً بلقطة
+      // كاملة للصف — لا شيء حين لم تُفعَّل الدفاتر يوماً (activatedAt فارغ)
+      const glTombstones = await settlementTombstones(tx, tid, row, { salesRepName: rep.name });
+      if (glTombstones.length > 0) {
+        await tx.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true });
+      }
       await tx.repSettlement.delete({ where: { id: row.id } });
       await tx.notification.create({
         data: {
