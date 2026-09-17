@@ -7,7 +7,7 @@ import {
   BALANCE_SKIP_MESSAGES, IMPORT_FLUSH_EVERY_MS, IMPORT_FLUSH_EVERY_ROWS, IMPORT_RUNNING_STALE_MS, ImportHttpError, OPENING_BALANCE_DESCRIPTION,
   assertBatchRevertible, assertNoRunningImport, assertNotDuplicateBatch, assertOverlapConfirmed, balanceSkipReason, canonicalImportRow,
   detectLedgerOverlap, existingImportReason, importBatchState, importContentHash, importFlushDue, importedEntryIndex, roundImportAmount,
-  assertImportLedgerStateUnchanged, isLockBusyError,
+  assertImportLedgerStateUnchanged, isLockBusyError, IMPORT_LEDGER_TIMEZONE_CHANGED_MESSAGE, explicitTimezone,
 } from '../services/importLedger';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
@@ -142,15 +142,15 @@ test('import.ts /ledger: البصمة والتداخل قبل أي كتابة؛ 
   const ri = s.indexOf('async function reserveEntryBatch(');
   const reserveFn = s.slice(ri, s.indexOf('\n}\n', ri));
   let p = -1;
-  for (const n of ["SET LOCAL lock_timeout = '5s'", 'pg_advisory_xact_lock(hashtext(', 'tx.glSettings.findUnique(', 'assertImportLedgerStateUnchanged(gs?.activatedAt, expectActivated)', 'tx.importBatch.findFirst(', 'assertNotDuplicateBatch(dup, force, now)', 'status: IMPORT_BATCH_RUNNING }', 'assertNoRunningImport(', 'tx.importBatch.create(', 'status: IMPORT_BATCH_RUNNING, heartbeatAt: now']) {
+  for (const n of ["SET LOCAL lock_timeout = '5s'", 'pg_advisory_xact_lock(hashtext(', 'tx.glSettings.findUnique(', 'assertImportLedgerStateUnchanged({ activatedAt: gs?.activatedAt, expectActivated, timezone: explicitTimezone(gs), expectTimezone })', 'tx.importBatch.findFirst(', 'assertNotDuplicateBatch(dup, force, now)', 'status: IMPORT_BATCH_RUNNING }', 'assertNoRunningImport(', 'tx.importBatch.create(', 'status: IMPORT_BATCH_RUNNING, heartbeatAt: now']) {
     const i = reserveFn.indexOf(n, p + 1);
     assert.ok(i > p, `reserveEntryBatch: ${n} خارج الترتيب`);
     p = i;
   }
   assert.ok(reserveFn.indexOf('prisma.$transaction(async tx => {') < reserveFn.indexOf("SET LOCAL lock_timeout = '5s'"), 'reserveEntryBatch: المهلة داخل المعاملة');
   // سباق التفعيل (مراجعة البند 5): الحالة تحت القفل، والمساران يمرّران ctx.activated الذي حُسبت به التواريخ
-  assert.match(bal, /reserveEntryBatch\(tid, 'balances', contentHash, [^\n]*body\.force === true, ctx\.activated\)/);
-  assert.match(ledger, /reserveEntryBatch\(tid, 'ledger', contentHash, [^\n]*body\.force === true, ctx\.activated\)/);
+  assert.match(bal, /reserveEntryBatch\(tid, 'balances', contentHash, [^\n]*body\.force === true, ctx\.activated, ctx\.timezone\)/);
+  assert.match(ledger, /reserveEntryBatch\(tid, 'ledger', contentHash, [^\n]*body\.force === true, ctx\.activated, ctx\.timezone\)/);
   // انتظار قفل يمسكه الاعتماد ⇒ 409 IMPORT_LEDGER_BUSY لا 500، وأخطاء الاستيراد ذات الرمز تمرّ كما هي
   assert.match(reserveFn, /catch \(e\) \{\s*if \(!isImportHttpError\(e\) && isLockBusyError\(e\)\) throw new ImportHttpError\(409, 'IMPORT_LEDGER_BUSY', LEDGER_BUSY_MESSAGE\);\s*throw e;/);
   // التراجع عن دفعة جارية مرفوض، والقائمة تعرض الحالة
@@ -243,16 +243,42 @@ test('schema.prisma: ImportBatch.contentHash String? إضافي', () => {
 });
 
 test('سباق التفعيل عند حجز دفعة الأرصدة/الكشوف: حالة الدفاتر تحت القفل تخالف ما حُسبت به التواريخ ⇒ 409 IMPORT_LEDGER_STATE_CHANGED', () => {
-  assert.doesNotThrow(() => assertImportLedgerStateUnchanged(null, false));
-  assert.doesNotThrow(() => assertImportLedgerStateUnchanged(undefined, false));
-  assert.doesNotThrow(() => assertImportLedgerStateUnchanged(new Date('2026-09-17T10:00:00Z'), true));
-  assert.throws(() => assertImportLedgerStateUnchanged(new Date('2026-09-17T10:00:00Z'), false), (e: unknown) => {
+  const ACT = new Date('2026-09-17T10:00:00Z');
+  assert.doesNotThrow(() => assertImportLedgerStateUnchanged({ activatedAt: null, expectActivated: false }));
+  assert.doesNotThrow(() => assertImportLedgerStateUnchanged({ activatedAt: undefined, expectActivated: false }));
+  assert.doesNotThrow(() => assertImportLedgerStateUnchanged({ activatedAt: ACT, expectActivated: true }));
+  assert.throws(() => assertImportLedgerStateUnchanged({ activatedAt: ACT, expectActivated: false }), (e: unknown) => {
     assert.ok(e instanceof ImportHttpError);
     assert.deepEqual([e.status, e.code], [409, 'IMPORT_LEDGER_STATE_CHANGED']);
     assert.equal(e.details.activatedAt, '2026-09-17T10:00:00.000Z');
     return true;
   });
-  assert.throws(() => assertImportLedgerStateUnchanged(null, true), (e: unknown) => e instanceof ImportHttpError && e.code === 'IMPORT_LEDGER_STATE_CHANGED' && e.details.activatedAt === null);
+  assert.throws(() => assertImportLedgerStateUnchanged({ activatedAt: null, expectActivated: true }), (e: unknown) => e instanceof ImportHttpError && e.code === 'IMPORT_LEDGER_STATE_CHANGED' && e.details.activatedAt === null);
+  // البند 25: المنطقة الزمنية تحت القفل تخالف التي حُسبت بها التواريخ (يوم كامل إزاحة) ⇒ الرمز نفسه برسالتها وتفاصيلها
+  assert.doesNotThrow(() => assertImportLedgerStateUnchanged({ activatedAt: null, expectActivated: false, timezone: 'Africa/Cairo', expectTimezone: 'Africa/Cairo' }));
+  assert.throws(() => assertImportLedgerStateUnchanged({ activatedAt: null, expectActivated: false, timezone: 'Africa/Cairo', expectTimezone: 'Asia/Riyadh' }), (e: unknown) => {
+    assert.ok(e instanceof ImportHttpError);
+    assert.deepEqual([e.status, e.code], [409, 'IMPORT_LEDGER_STATE_CHANGED']);
+    assert.deepEqual([e.details.timezone, e.details.expectedTimezone], ['Africa/Cairo', 'Asia/Riyadh']);
+    assert.equal(e.message, IMPORT_LEDGER_TIMEZONE_CHANGED_MESSAGE);
+    return true;
+  });
+  // التفعيل يُفحص أولاً، وتفاصيله تحمل المنطقتين كذلك
+  assert.throws(() => assertImportLedgerStateUnchanged({ activatedAt: ACT, expectActivated: false, timezone: 'Africa/Cairo', expectTimezone: 'Asia/Riyadh' }),
+    (e: unknown) => e instanceof ImportHttpError && e.message !== IMPORT_LEDGER_TIMEZONE_CHANGED_MESSAGE && e.details.expectedTimezone === 'Asia/Riyadh');
+  // الحجز يقرأ المنطقة تحت القفل ويقارنها بمنطقة حساب التواريخ التي مرّرها المسار
+  const src = read('routes/import.ts');
+  const rf = src.slice(src.indexOf('async function reserveEntryBatch('), src.indexOf('\n}\n', src.indexOf('async function reserveEntryBatch(')));
+  assert.match(rf, /select: \{ activatedAt: true, timezone: true, setupDraft: true \}/);
+  // البند 22: المنطقة المقارَنة تحت القفل هي المضبوطة فعلاً (explicitTimezone) — المنطقة نفسها التي كُتبت بها اللحظات
+  assert.match(rf, /timezone: explicitTimezone\(gs\), expectTimezone/);
+  assert.equal(explicitTimezone({ activatedAt: null, timezone: 'Africa/Cairo', setupDraft: { step1: { timezone: 'Asia/Riyadh' } } }), 'Asia/Riyadh', 'قبل التفعيل: مسودة الخطوة 1 أولاً');
+  assert.equal(explicitTimezone({ activatedAt: new Date(), timezone: 'Africa/Cairo', setupDraft: { step1: { timezone: 'Asia/Riyadh' } } }), 'Africa/Cairo', 'بعد التفعيل: الإعدادات');
+  // شركة بلا إعدادات دفاتر: null في الطرفين (لا افتراض الرياض) فلا 409 كاذب ولا إزاحة يوم
+  assert.equal(explicitTimezone(null), null);
+  assert.doesNotThrow(() => assertImportLedgerStateUnchanged({ activatedAt: null, expectActivated: false, timezone: null, expectTimezone: null }));
+  assert.throws(() => assertImportLedgerStateUnchanged({ activatedAt: null, expectActivated: false, timezone: 'Asia/Riyadh', expectTimezone: null }),
+    (e: unknown) => e instanceof ImportHttpError && e.message === IMPORT_LEDGER_TIMEZONE_CHANGED_MESSAGE);
   // مهلة القفل (lock_timeout) ومهلة المعاملة تُصنَّفان انشغالاً ⇒ IMPORT_LEDGER_BUSY
   assert.equal(isLockBusyError({ code: 'P2028' }), true);
   assert.equal(isLockBusyError(new Error('Raw query failed. Code: `55P03`. Message: `canceling statement due to lock timeout`')), true);

@@ -55,12 +55,27 @@ export function formatCurrency(amount: number | string, currency?: string, maxDe
   }).format(Number(amount));
 }
 
-export function formatDate(date: string | Date) {
+/**
+ * تاريخُ **لحظة**. `timeZone` اختياري: حين يُمرَّر تُعرض اللحظة بمنطقةٍ بعينها لا بمنطقة المتصفّح.
+ *
+ * كشف الحساب يُرشَّح على الخادم بأيام **الشركة** (البند 22)، فحركةُ أول يناير المخزَّنة
+ * 2025-12-31T21:00:00Z تدخل كشف يناير؛ وعرضها بمنطقة القارئ يكتب بجانبها «٣١ ديسمبر»
+ * فيبدو الكشف مبدوءاً بيوم الجار. تمريرُ منطقة الشركة يُبقي المعروض والمُرشَّح يوماً واحداً.
+ * (المعامل اختياري فلا يتغيّر شيء في النداءات القائمة.)
+ *
+ * و`null` قيمةٌ مشروعة لا خطأ: الخادم يعيد `timezone: null` حين لا تكون للشركة منطقةٌ
+ * مضبوطة، فيرتدّ العرض إلى منطقة المتصفّح **ارتداداً صريحاً**. وقبولها في التوقيع
+ * يمنع كسر `tsc` عند كل شاشةٍ تمرّر ما وصلها من الخادم كما وصل.
+ */
+export function formatDate(date: string | Date, timeZone?: string | null) {
   const d = new Date(date);
   if (isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat(locale(), {
-    year: 'numeric', month: 'short', day: 'numeric',
-  }).format(d);
+  const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+  // منطقة غير صالحة ترمي RangeError وتُسقط الشاشة كلها: العرض بمنطقة المتصفّح أهون من صفحة بيضاء
+  if (timeZone) {
+    try { return new Intl.DateTimeFormat(locale(), { ...opts, timeZone }).format(d); } catch { /* ارتداد */ }
+  }
+  return new Intl.DateTimeFormat(locale(), opts).format(d);
 }
 
 /**

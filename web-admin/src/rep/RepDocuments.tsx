@@ -1,8 +1,8 @@
 import { forwardRef, useRef, useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import { formatCurrency, formatDate, formatTime, formatDateTime, paymentMethodLabels, getActiveCurrency } from '../utils/format';
+import { formatCurrency, formatDate, formatDayOnly, formatTime, formatDateTime, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
-import { periodShape, statementFinalBalance } from './statementFacts';
+import { periodShape, statementFinalBalance, statementZone } from './statementFacts';
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef } from './warehouseNoticeFacts';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
@@ -144,6 +144,13 @@ export interface StatementDoc {
   date: string;
   fromDate?: string;
   toDate?: string;
+  /**
+   * منطقة الشركة التي رشّح بها الخادم أيام الفترة (يعيدها مع الكشف، وقد تكون `null`).
+   *
+   * الورقة تُسلَّم للعميل: حركةٌ داخل الفترة بحسب الخادم يجب ألّا يُطبع بجانبها يومٌ
+   * خارجها لأنّ جهاز المُصدِر في منطقةٍ أخرى. وغيابها ارتدادٌ صريح إلى منطقة الجهاز.
+   */
+  timezone?: string | null;
   entries: StatementEntry[];
   /** رصيد ما قبل الفترة — يُطبع صفّاً أوّل حين تكون للكشف بداية.
    *  بدونه يبدأ عمود الرصيد من رقمٍ لا تُنتجه أيّ حركةٍ في الورقة. */
@@ -658,10 +665,15 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
    * بطرفٍ واحد — ورقةٌ تقول للعميل إنّها تاريخه كلّه وهي شهرٌ منه. (ولم يظهر
    * قبل اليوم لأنّ كلّ المستدعين كانوا يطلبون الكشف بلا مدّة.) */
   const shape = periodShape(doc.fromDate, doc.toDate);
-  const period = shape === 'range' ? `${formatDate(doc.fromDate as string)} — ${formatDate(doc.toDate as string)}`
-    : shape === 'from' ? `${tr('من')} ${formatDate(doc.fromDate as string)}`
-    : shape === 'to' ? `${tr('حتى')} ${formatDate(doc.toDate as string)}`
+  /* حدّا المدّة **يومان خالصان** جاءا من حقل تاريخ (`YYYY-MM-DD`): يُقرآن بأجزائهما لا
+   * بمنطقة أحد. `formatDate` كانت تقرؤهما منتصفَ ليل غرينتش، فجهازٌ غرب غرينتش يطبع
+   * على ورقة العميل «من ٣١ ديسمبر» وهي مدّةٌ بدايتها ١ يناير. */
+  const period = shape === 'range' ? `${formatDayOnly(doc.fromDate as string)} — ${formatDayOnly(doc.toDate as string)}`
+    : shape === 'from' ? `${tr('من')} ${formatDayOnly(doc.fromDate as string)}`
+    : shape === 'to' ? `${tr('حتى')} ${formatDayOnly(doc.toDate as string)}`
     : tr('كل الفترات');
+  // ولحظاتُ الحركات بمنطقة الشركة إن وصلت مع الكشف، وإلّا بمنطقة الجهاز (ارتداد صريح)
+  const tz = statementZone(doc.timezone);
   // عدد الأصناف المباعة (مجموع الكميات) — يظهر في صف الإجماليات أسفل الكشف
   const soldUnits = (() => {
     const m = new Map<string, number>();
@@ -720,7 +732,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
           {doc.fromDate && doc.openingBalance !== undefined && (
             <tr style={{ background: '#f8fafc' }}>
               <td style={{ ...td }}>-</td>
-              <td style={{ ...td }}>{formatDate(doc.fromDate)}</td>
+              <td style={{ ...td }}>{formatDayOnly(doc.fromDate)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{tr('رصيد مرحل من قبل الفترة')}</td>
               <td style={{ ...td }}>-</td>
               <td style={{ ...td, color: '#cbd5e1' }}>-</td>
@@ -733,7 +745,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
           ) : doc.entries.map((e, i) => (
             <tr key={i}>
               <td style={{ ...td, verticalAlign: 'top' }}>{i + 1}</td>
-              <td style={{ ...td, verticalAlign: 'top' }}>{formatDate(e.date)}</td>
+              <td style={{ ...td, verticalAlign: 'top' }}>{formatDate(e.date, tz)}</td>
               <td style={{ ...td, textAlign: 'right', verticalAlign: 'top' }}>
                 {e.description}
                 {e.items && e.items.length > 0 && (
@@ -1180,8 +1192,11 @@ export function statementDocFromData(
    * `customer.balance` — وهي لقطةٌ لكلّ الزمن يحذّر الخادم نفسه من قراءتها
    * (اقرأ تعليقه في `/statement`). فتطبع ورقةُ شهرٍ ساكنٍ رصيدَ اليوم مطالَباً
    * به عن ذلك الشهر. والمستدعون القدامى لا يمرّرون شيئاً فيبقى سلوكهم كما كان.
+   *
+   * و`timezone` منطقة الشركة التي رشّح بها الخادم الفترة (يعيدها مع الكشف): مرّرها كما
+   * وصلت — بها تُطبع لحظاتُ الحركات بأيام الفترة نفسها لا بأيام جهاز المُصدِر.
    */
-  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number }
+  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number; timezone?: string | null }
 ): StatementDoc {
   const mapped: StatementEntry[] = entries.map((e: any) => ({
     date: e.entryDate,
@@ -1209,6 +1224,8 @@ export function statementDocFromData(
     date: new Date().toISOString(),
     fromDate: range?.from,
     toDate: range?.to,
+    // منطقة الشركة كما وصلت من الخادم؛ المستدعون الذين لا يمرّرونها تبقى ورقتهم بمنطقة الجهاز
+    timezone: range?.timezone ?? null,
     openingBalance: range?.openingBalance,
     entries: mapped,
     totalDebit,

@@ -12,6 +12,8 @@ import { GlNotFoundError } from '../../services/gl/resolve';
 import { seedTemplate } from '../../services/gl/seed';
 import { assertArabicName, hasArabicLetter } from '../../services/gl/names';
 import { JOURNAL_CODE_RE } from '../../services/gl/sequence';
+import { importTimezone } from '../../services/importLedger';
+import { dbNowOf, guardImportTimezone } from './setup';
 import { MAPPING_KEY_ALLOWED_TYPES, MAPPING_KEY_CONTROL_KIND, SA_6D_ACCOUNT_GROUPS } from '../../services/gl/coa/sa';
 import { addMonths, compareLocalDate, daysInMonth, fromDbDate, isLocalDate, isValidTimeZone, toDbDate } from '../../services/gl/dates';
 import {
@@ -995,7 +997,10 @@ const FROZEN_AFTER_ACTIVATION = ['timezone', 'fiscalYearEndMonth', 'fiscalYearEn
 
 router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
   const { tenantId } = ledgerOf(res);
-  const body = settingsUpdateSchema.parse(req.body);
+  // البند 25: rebaseImportDates حقل علوي للطلب لا عمود إعدادات — يُنزع قبل settingsUpdateSchema (strict) ولا يُكتب
+  const { rebaseImportDates: rawRebase, ...settingsBody } = (req.body ?? {}) as Record<string, unknown>;
+  const rebaseImportDates = z.boolean().optional().parse(rawRebase);
+  const body = settingsUpdateSchema.parse(settingsBody);
   const actor = actorOf(req, res);
   const updated = await prisma.$transaction(async (tx) => {
     await acquirePostLock(tx, tenantId);
@@ -1035,6 +1040,16 @@ router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
       if (t.use !== 'SALE' || t.rate !== 0 || !t.isActive) throw new LedgerHttpError(422, 'ربط النسبة الصفرية يتطلب ضريبة مبيعات صفرية نشطة', { reason: 'ZERO_RATED_TAX_INVALID' });
     }
 
+    // البند 25 (المنفذ الثاني): FROZEN_AFTER_ACTIVATION تحرس ما بعد التفعيل وحده، ونافذة الخطر هي ما قبله —
+    // تغيير المنطقة من هنا كان يزيح تواريخ الدفعات المستوردة يوماً كاملاً بلا 409 ولا إعادة ضبط. الحارس نفسه
+    // المستعمل في /setup/draft و/setup/commit: 409 LEDGER_TIMEZONE_IMPORTS_CONFLICT، أو إعادة الضبط مع التأكيد.
+    // المقياس هو منطقة الاستيراد **بعد** الكتابة لا العمود وحده: قبل التفعيل تسبق مسودةُ الخطوة 1 العمودَ، فتعديل
+    // العمود وحده لا يزيح شيئاً ولا يستحق إعادة ضبط — وإلا نقلنا القيود عن المنطقة التي ما زال الاستيراد يكتب بها.
+    const nextImportTimezone = body.timezone === undefined ? undefined : importTimezone({ ...s, timezone: body.timezone });
+    const rebasedImportEntries = nextImportTimezone === undefined
+      ? undefined
+      : await guardImportTimezone(tx, tenantId, s, nextImportTimezone, { rebase: rebaseImportDates, now: await dbNowOf(tx), lockHeld: false });
+
     const data: Prisma.GlSettingsUncheckedUpdateInput = {};
     for (const [k, v] of Object.entries(body)) {
       if (k === 'perpetualFromDate') data.perpetualFromDate = v ? toDbDate(v as string) : null;
@@ -1044,15 +1059,24 @@ router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
     data.taxDeadlineDays = deadlineDays;
     const u = await tx.glSettings.update({ where: { tenantId }, data });
     const d = diffOf(settingsOut(s), settingsOut(u));
-    if (d.changed.length) {
+    if (d.changed.length || rebasedImportEntries !== undefined) {
+      // إعادة ضبط تواريخ مستوردة تُدوَّن ولو لم يتغيّر عمود واحد (منطقة المسودة تخالف عمود الإعدادات قبل التفعيل)
+      const changed = [...d.changed, ...(rebasedImportEntries !== undefined ? [`إعادة ضبط تواريخ ${rebasedImportEntries} قيداً مستورداً`] : [])];
       await appendAudit(tx, {
         tenantId, actor, action: 'SETTINGS_CHANGE', entityType: 'SETTINGS', entityId: s.id,
-        summary: `تعديل إعدادات الدفاتر (${d.changed.join('، ')})`, before: d.before, after: d.after,
+        summary: `تعديل إعدادات الدفاتر (${changed.join('، ')})`, before: d.before,
+        after: { ...d.after, ...(rebasedImportEntries !== undefined ? { rebasedImportEntries } : {}) },
       });
     }
-    return u;
+    return { settings: u, rebasedImportEntries };
   }, TX_OPTS);
-  res.json({ success: true, data: settingsOut(updated) });
+  res.json({
+    success: true,
+    data: {
+      ...settingsOut(updated.settings),
+      ...(updated.rebasedImportEntries !== undefined ? { rebasedImportEntries: updated.rebasedImportEntries } : {}),
+    },
+  });
 }));
 
 /**

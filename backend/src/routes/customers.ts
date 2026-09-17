@@ -8,6 +8,8 @@ import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
 import { scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { deriveRunningBalances, clean } from '../services/accounting';
+import { statementEntryDateFilter } from '../services/statementRange';
+import { explicitTimezone } from '../services/importLedger';
 import { CustomerBuyerDataDeps, applyBuyerGateToWrite, createCustomerBuyerDataRouter } from './customersZatca';
 
 const router = Router();
@@ -244,16 +246,20 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       res.status(404).json({ success: false, message: 'العميل غير موجود' }); return;
     }
 
+    // البند 22: حدود الفترة بأيام الشركة لا بمنتصف ليل UTC — الحركة المستوردة بتاريخ 1 يناير تُخزَّن بأول لحظة
+    // من يومها المحلي (21:00Z في الرياض)، فالفلتر بـUTC كان يُسقطها من يناير ويُدخلها في المرحَّل وكشف ديسمبر.
+    // ولا يُفترض توقيت الرياض لشركة لم تضبط توقيتها أصلاً (الدفاتر اختيارية ومطفأة): explicitTimezone تعيد null
+    // فيبقى فلتر كشفها كما كان بالضبط، وإلا أزحنا فواتير شركة مصرية أو تركية بين الشهور بدعوى إصلاح الاستيراد.
+    const gl = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true } });
+    const timezone = explicitTimezone(gl);
+    const range = statementEntryDateFilter(
+      typeof from === 'string' ? from : undefined, typeof to === 'string' ? to : undefined, timezone,
+    );
     const where = {
       customerId: req.params.id,
       tenantId: tid,
       // طرفٌ واحد يكفي؛ و«إلى» تشمل يومها كاملاً — وإلا سقطت حركات آخر يوم بصمت
-      ...((from || to) && {
-        entryDate: {
-          ...(from ? { gte: new Date(from as string) } : {}),
-          ...(to ? { lte: new Date(new Date(to as string).setHours(23, 59, 59, 999)) } : {}),
-        },
-      }),
+      ...(range.entryDate && { entryDate: range.entryDate }),
     };
     const rows = await prisma.accountEntry.findMany({
       where,
@@ -279,9 +285,9 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     // الاشتقاق يجعل كل سطر ناتجَ سابقه بالضرورة، مهما كان أصل البيانات.
     // رصيد ما قبل الفترة (مُرحَّل) — بدونه يبدأ الكشف المُصفّى من صفرٍ كاذب
     let openingBalance = 0;
-    if (from) {
+    if (range.openingBefore) {
       const prior = await prisma.accountEntry.aggregate({
-        where: { customerId: req.params.id, tenantId: tid, entryDate: { lt: new Date(from as string) } },
+        where: { customerId: req.params.id, tenantId: tid, entryDate: { lt: range.openingBefore } },
         _sum: { debit: true, credit: true },
       });
       openingBalance = clean(Number(prior._sum.debit ?? 0) - Number(prior._sum.credit ?? 0));
@@ -289,7 +295,7 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
     const entries = deriveRunningBalances(rows, openingBalance);
     const closingBalance = entries.length ? entries[entries.length - 1].balance : openingBalance;
 
-    res.json({ success: true, data: { customer, entries, openingBalance, closingBalance } });
+    res.json({ success: true, data: { customer, entries, openingBalance, closingBalance, timezone } });
   } catch (err) { next(err); }
 });
 

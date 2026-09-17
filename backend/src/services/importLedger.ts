@@ -1,7 +1,7 @@
 /**
  * منطق صرف لمسارات الاستيراد (routes/import.ts) — بلا قاعدة بيانات، قابل للاختبار.
  *
- * - تطبيع التاريخ (البند 1): نص YYYY-MM-DD فقط، يُحوَّل إلى أول لحظة من اليوم بتوقيت الشركة (zonedStartOfDay).
+ * - تطبيع التاريخ (البند 1): نص YYYY-MM-DD فقط، يُحوَّل بـimportedEntryInstant — المصدر الواحد الذي يقرأ به كشف الحساب.
  * - الصفوف بلا تاريخ (البند 2ب): undatedDate، وبعد التفعيل رفض UNDATED_ROWS_LEDGER_ACTIVE.
  * - منع التكرار (البند 5): بصمة المحتوى، والرصيد القائم بمعرّفات الدفعات لا بالوصف، وتداخل الكشف مع المستورد.
  * - متانة التراجع (البند 10): تصنيف المحمي، وأخطاء FK، والمتبقّي، وشكل recordIds للمنتجات مع الفئات.
@@ -15,7 +15,8 @@
  * لا يستورد services/gl إلا dates.ts وmoney.ts (دوال صرفة)، ومن خارجها warehouseCost.ts (صرف).
  */
 import { createHash } from 'node:crypto';
-import { DEFAULT_TIMEZONE, addDays, compareLocalDate, isLocalDate, isValidTimeZone, todayLocal, zonedStartOfDay } from './gl/dates';
+import { DEFAULT_TIMEZONE, addDays, compareLocalDate, isLocalDate, isValidTimeZone, todayLocal } from './gl/dates';
+import { importedEntryInstant } from './importTimezoneRebase';
 import { fromMilli, toMilli } from './gl/money';
 import { netUnitCost } from './warehouseCost';
 
@@ -53,12 +54,19 @@ export function isImportDate(v: unknown): v is string {
   return typeof v === 'string' && YMD_RE.test(v) && isLocalDate(v);
 }
 
-/** أول لحظة من اليوم المحلي بتوقيت الشركة — الدالة نفسها المستعملة في opening.ts (zonedStartOfDay) */
-export function localDateToInstant(tz: string, ymd: string): Date {
+/**
+ * اللحظة التي يُخزَّن بها تاريخ مستورد — **المصدر الواحد** (`importedEntryInstant`) الذي يقرأ به فلتر كشف الحساب:
+ * منطقة مضبوطة ⇒ أول لحظة من يومها (zonedStartOfDay، كما في opening.ts)، و`null` (لا إعدادات دفاتر ولا مسودة)
+ * ⇒ منتصف ليل UTC.
+ *
+ * البند 22 (الإغلاقة): كان الكاتب يفترض DEFAULT_TIMEZONE لشركة بلا إعدادات بينما صار القارئ يقرؤها بـUTC،
+ * فتُكتب حركة 1 فبراير عند 2026-01-31T21:00Z وتظهر في كشف يناير. توقيتٌ واحد للطرفين أو لا توقيت لهما.
+ */
+export function localDateToInstant(tz: string | null, ymd: string): Date {
   if (!isImportDate(ymd)) {
     throw new ImportHttpError(400, 'IMPORT_INVALID_DATE', `تاريخ غير صالح: ${String(ymd)} (المتوقع YYYY-MM-DD)`, { date: ymd });
   }
-  return zonedStartOfDay(ymd, tz && isValidTimeZone(tz) ? tz : DEFAULT_TIMEZONE);
+  return importedEntryInstant(ymd, tz && isValidTimeZone(tz) ? tz : null);
 }
 
 export interface ImportGlSettings {
@@ -67,7 +75,10 @@ export interface ImportGlSettings {
   setupDraft?: unknown;
 }
 
-/** توقيت الشركة: بعد التفعيل إعدادات الدفاتر؛ قبله مسودة المعالج (الخطوة 1) ثم الإعدادات ثم الرياض */
+/**
+ * توقيت الشركة **للعرض وحدود اليوم**: بعد التفعيل إعدادات الدفاتر؛ قبله مسودة المعالج (الخطوة 1) ثم الإعدادات ثم الرياض.
+ * البند 22: لا تُستعمل لكتابة لحظة قيد مستورد (الافتراض الرياضي يزيحها عن قراءة الكشف) — تلك `explicitTimezone`.
+ */
 export function importTimezone(s: ImportGlSettings | null | undefined): string {
   if (!s) return DEFAULT_TIMEZONE;
   if (!s.activatedAt) {
@@ -78,6 +89,21 @@ export function importTimezone(s: ImportGlSettings | null | undefined): string {
   return s.timezone && isValidTimeZone(s.timezone) ? s.timezone : DEFAULT_TIMEZONE;
 }
 
+/**
+ * البند 22: التوقيت **المضبوط فعلاً** للشركة أو null — بلا افتراض الرياض. وهو توقيت **كتابة القيد المستورد
+ * وقراءة كشف الحساب معاً**: شركة لم تفتح معالج الدفاتر (وهو اختياري ومطفأ) حدودُ كشوفها بتوقيت UTC، وافتراض
+ * +3 في طرف دون طرف يزيح حركاتها بين الشهور. فتُعاد null ⇒ الطرفان على منتصف ليل UTC (importedEntryInstant).
+ */
+export function explicitTimezone(s: ImportGlSettings | null | undefined): string | null {
+  if (!s) return null;
+  if (!s.activatedAt) {
+    const d = s.setupDraft as { step1?: { timezone?: unknown } } | null | undefined;
+    const tz = d && typeof d === 'object' ? d.step1?.timezone : undefined;
+    if (typeof tz === 'string' && isValidTimeZone(tz)) return tz;
+  }
+  return s.timezone && isValidTimeZone(s.timezone) ? s.timezone : null;
+}
+
 export interface DateResolution {
   /** لحظة كل صف بالترتيب نفسه */
   dates: Date[];
@@ -86,7 +112,8 @@ export interface DateResolution {
 }
 
 export interface ResolveDatesOptions {
-  timezone: string;
+  /** البند 22: التوقيت المضبوط للشركة (explicitTimezone) — null ⇒ بلا افتراض، كما يقرأ كشف الحساب */
+  timezone: string | null;
   undatedDate?: string | null;
   /** activatedAt غير فارغ */
   activated: boolean;
@@ -344,6 +371,8 @@ export interface BatchRecordIds {
   categories: string[];
   /** prices: السعر السابق لكل CustomerPrice قبل أول كتابة في الدفعة (null = أُنشئ جديداً)؛ غيره {} */
   previous: Record<string, number | null>;
+  /** prices (البند 7): آخر سعر كتبته الدفعة لكل CustomerPrice؛ الشكل القديم بلا imported ⇒ {} */
+  imported: Record<string, number>;
 }
 
 const strIds = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : []);
@@ -359,50 +388,174 @@ function previousPrices(v: unknown): Record<string, number | null> {
   return out;
 }
 
-/** يقرأ الشكل القديم (مصفوفة) والجديد {products, categories} و{records, previous} للأسعار */
+function importedPrices(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, p] of Object.entries(v as Record<string, unknown>)) {
+    if (k && typeof p === 'number' && Number.isFinite(p)) out[k] = p;
+  }
+  return out;
+}
+
+/** يقرأ الشكل القديم (مصفوفة) والجديد {products, categories} و{records, previous, imported} للأسعار */
 export function parseBatchRecordIds(recordIds: string | null | undefined): BatchRecordIds {
-  if (!recordIds) return { records: [], categories: [], previous: {} };
+  if (!recordIds) return { records: [], categories: [], previous: {}, imported: {} };
   try {
     const v: unknown = JSON.parse(recordIds);
-    if (Array.isArray(v)) return { records: strIds(v), categories: [], previous: {} };
+    if (Array.isArray(v)) return { records: strIds(v), categories: [], previous: {}, imported: {} };
     if (v && typeof v === 'object') {
       const o = v as Record<string, unknown>;
-      return { records: strIds(o.products ?? o.records), categories: strIds(o.categories), previous: previousPrices(o.previous) };
+      return { records: strIds(o.products ?? o.records), categories: strIds(o.categories), previous: previousPrices(o.previous), imported: importedPrices(o.imported) };
     }
   } catch { /* الشكل غير المتوقع يُتجاهل */ }
-  return { records: [], categories: [], previous: {} };
+  return { records: [], categories: [], previous: {}, imported: {} };
 }
 
 /**
- * products ⇒ {products, categories}؛ prices ⇒ {records, previous}؛ البقية مصفوفة كما كانت (opening.ts يقرأ مصفوفات balances/ledger)
+ * products ⇒ {products, categories}؛ prices ⇒ {records, previous, imported} مقصوراً على records؛
+ * البقية مصفوفة كما كانت (opening.ts يقرأ مصفوفات balances/ledger)
  */
 export function serializeBatchRecordIds(
   kind: string, records: readonly string[], categories: readonly string[] = [], previous: Readonly<Record<string, number | null>> = {},
+  imported: Readonly<Record<string, number>> = {},
 ): string {
   if (kind === 'products') return JSON.stringify({ products: records, categories });
   if (kind === 'prices') {
     const prev: Record<string, number | null> = {};
-    for (const id of records) if (Object.prototype.hasOwnProperty.call(previous, id)) prev[id] = previous[id];
-    return JSON.stringify({ records, previous: prev });
+    const imp: Record<string, number> = {};
+    for (const id of records) {
+      if (Object.prototype.hasOwnProperty.call(previous, id)) prev[id] = previous[id];
+      if (Object.prototype.hasOwnProperty.call(imported, id)) imp[id] = imported[id];
+    }
+    return JSON.stringify({ records, previous: prev, imported: imp });
   }
   return JSON.stringify(records);
 }
 
-/**
- * البند 20: خطة التراجع عن دفعة أسعار. سعر سابق رقمي ⇒ استعادته، وإلا (أُنشئ في الدفعة أو شكل قديم) ⇒ حذف الصف.
- */
-export function pricesRevertPlan(parsed: Pick<BatchRecordIds, 'records' | 'previous'>): { restore: { id: string; price: number }[]; remove: string[] } {
-  const restore: { id: string; price: number }[] = [];
-  const remove: string[] = [];
-  for (const id of new Set(parsed.records)) {
-    const p = parsed.previous?.[id];
-    if (typeof p === 'number' && Number.isFinite(p)) restore.push({ id, price: p });
-    else remove.push(id);
-  }
-  return { restore, remove };
+export interface PriceRevertItem {
+  id: string;
+  /** السعر قبل الدفعة: رقم ⇒ يُستعاد، null ⇒ أُنشئ فيها، undefined ⇒ شكل قديم (حذف) */
+  previous: number | null | undefined;
+  /** آخر سعر كتبته الدفعة (undefined ⇒ دفعة قديمة بلا فحص تغيّر) */
+  imported: number | undefined;
 }
 
-export interface CustomerFootprint { invoices: number; receipts: number; paymentLinks: number; visits: number }
+/** البندان 20 و7: خطة التراجع عن دفعة أسعار — عنصر لكل معرّف فريد بسابقه ومستورده */
+export function pricesRevertPlan(parsed: Pick<BatchRecordIds, 'records' | 'previous'> & { imported?: Record<string, number> }): { items: PriceRevertItem[] } {
+  const items: PriceRevertItem[] = [];
+  for (const id of new Set(parsed.records)) {
+    const p = parsed.previous?.[id];
+    const imp = parsed.imported?.[id];
+    items.push({
+      id,
+      previous: p === null ? null : typeof p === 'number' && Number.isFinite(p) ? p : undefined,
+      imported: typeof imp === 'number' && Number.isFinite(imp) ? imp : undefined,
+    });
+  }
+  return { items };
+}
+
+/** البند 7: سبب منع استعادة سعر تغيّر بعد الاستيراد */
+export const PRICE_CHANGED_AFTER_IMPORT = 'تغيّر السعر بعد الاستيراد يدوياً أو بدفعة أحدث فلم يُعد';
+
+/**
+ * البند 7: قرار التراجع لسعر واحد بالسعر الحالي (مقفول): الصف غير موجود ⇒ gone؛ تغيّر بعد الاستيراد ⇒ blocked؛
+ * سابق رقمي ⇒ استعادته؛ وإلا ⇒ حذف.
+ */
+export function priceRevertAction(current: number | null, item: PriceRevertItem): 'gone' | 'blocked' | 'delete' | { restore: number } {
+  if (current === null || current === undefined) return 'gone';
+  if (item.imported !== undefined && Math.abs(Number(current) - item.imported) > 1e-9) return 'blocked';
+  if (typeof item.previous === 'number') return { restore: item.previous };
+  return 'delete';
+}
+
+/** قرار صف واحد في حلقة التراجع: 'already' = سبق التراجع عنه (لا كتابة)، والبقية كما في priceRevertAction */
+export type PriceRevertOutcome = 'gone' | 'already' | 'blocked' | 'delete' | { restore: number };
+
+/**
+ * البند I: القرار **الذي تنفّذه حلقة التراجع نفسها** (routes/import.ts) — دالّة واحدة تُختبر بدل إعادة بنائها في الاختبار.
+ * التراجع متعادٍ: سعر حالي = السابق يعني أن تراجعاً انقطع في منتصفه أعاده فعلاً، فيُعدّ منجزاً ('already')
+ * لا ممنوعاً أبداً بحجّة «تغيّر بعد الاستيراد». والمنع الحقيقي (≠ المستورد و≠ السابق) كما هو.
+ */
+export function priceRevertOutcome(current: number | null, item: PriceRevertItem): PriceRevertOutcome {
+  const action = priceRevertAction(current, item);
+  if (action !== 'blocked') return action;
+  // action === 'blocked' ⇒ current رقم (priceRevertAction تُعيد 'gone' للفارغ)
+  return typeof item.previous === 'number' && Math.abs(Number(current) - item.previous) <= 1e-9 ? 'already' : 'blocked';
+}
+
+/** حصيلة شريحة واحدة من التراجع عن دفعة أسعار (ما التُزم في معاملتها) */
+export interface PriceRevertChunkDelta {
+  /** معرّفات أُنجزت فعلاً: استُعيدت أو حُذفت أو لم تعد موجودة (الممنوع ليس منها فيبقى في الدفعة) */
+  done: readonly string[];
+  blocked: readonly RevertBlocked[];
+  restored: number;
+  deleted: number;
+}
+
+export interface PricesRevertTotals {
+  done: Set<string>;
+  blocked: RevertBlocked[];
+  restored: number;
+  deleted: number;
+}
+
+export function newPricesRevertTotals(): PricesRevertTotals {
+  return { done: new Set<string>(), blocked: [], restored: 0, deleted: 0 };
+}
+
+export const PRICES_REVERT_CHUNK = 500;
+
+/**
+ * البند 7 (متابعة): قائد شرائح التراجع عن دفعة أسعار.
+ *
+ * كل شريحة تلتزم في معاملتها، فتقدّمها يجب أن يُثبَّت **داخلها** (`remainingAfter` تعطي المتبقّي فيكتبه المستدعي مع
+ * previous/imported). قبل ذلك كان التثبيت بعد الحلقة كلها: فشل شريحة متأخرة يترك الدفعة بمعرّفاتها الأصلية، فتصير
+ * إعادة المحاولة تقارن السعر المستعاد بـimported القديم وتُبلّغ المالك زوراً «تغيّر السعر بعد الاستيراد».
+ *
+ * الدلتا لا تُضم إلى `totals.done` إلا بعد نجاح معاملتها (كما يفصل ImportBatchProgress بين write وcommit)،
+ * وما التُزم يبقى في `totals` حين يُرمى الخطأ فلا يضيع.
+ */
+export async function runPricesRevertChunks(
+  ids: readonly string[],
+  items: readonly PriceRevertItem[],
+  totals: PricesRevertTotals,
+  runChunk: (part: readonly PriceRevertItem[], remainingAfter: (delta: readonly string[]) => string[]) => Promise<PriceRevertChunkDelta>,
+  chunkSize: number = PRICES_REVERT_CHUNK,
+): Promise<void> {
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const part = items.slice(i, i + chunkSize);
+    const remainingAfter = (delta: readonly string[]): string[] => {
+      const d = new Set(delta);
+      return ids.filter((id) => !totals.done.has(id) && !d.has(id));
+    };
+    const out = await runChunk(part, remainingAfter);
+    for (const id of out.done) totals.done.add(id);
+    totals.blocked.push(...out.blocked);
+    totals.restored += out.restored;
+    totals.deleted += out.deleted;
+  }
+}
+
+export interface CustomerFootprint {
+  invoices: number; receipts: number; paymentLinks: number; visits: number;
+  /** البند 17: قيود العميل في دفعات balances/ledger غير متراجع عنها */
+  importedEntries?: number;
+  /** قيود كشف الحساب الأخرى */
+  otherEntries?: number;
+  /** أسعار خاصة */
+  prices?: number;
+  /** محطات خطوط سير المناديب */
+  routeStops?: number;
+  /** البند 17: إسناد العميل لمندوب (CustomerAssignment) — Cascade يمحوه بصمت مع العميل */
+  assignments?: number;
+  /**
+   * البند 17 (الإغلاقة): نطاقات مستخدمي الشركة على العميل (AdminCustomerScope، Cascade).
+   * **ليست سبب منع**: النطاق أثر صلاحيات لا بيانات عمل — يُحذف صراحةً ويُعدّ في `removedScopes` بالرد.
+   * الحقل هنا للعرض والتوثيق وحدهما، و`customerBlockReason` تتجاهله قصداً.
+   */
+  scopes?: number;
+}
 export interface ProductFootprint { invoiceItems: number; vanLoadItems: number; warehouseEntryItems: number }
 
 export function customerBlockReason(f: CustomerFootprint): string | null {
@@ -410,6 +563,12 @@ export function customerBlockReason(f: CustomerFootprint): string | null {
   if (f.receipts > 0) return 'للعميل سندات قبض';
   if (f.paymentLinks > 0) return 'للعميل روابط دفع';
   if (f.visits > 0) return 'للعميل زيارات ميدانية';
+  if ((f.importedEntries ?? 0) > 0) return 'للعميل رصيد أو كشف مستورد، تراجع عنه أولاً';
+  if ((f.otherEntries ?? 0) > 0) return 'للعميل قيود في كشف الحساب';
+  if ((f.prices ?? 0) > 0) return 'للعميل أسعار خاصة، تراجع عن دفعة الأسعار أو احذفها أولاً';
+  if ((f.routeStops ?? 0) > 0) return 'للعميل محطات في خطوط سير المناديب';
+  if ((f.assignments ?? 0) > 0) return 'العميل مُسنَد لمندوب، أزل الإسناد أولاً';
+  // f.scopes (نطاقات مستخدمي الشركة) لا تمنع: أثر صلاحيات يُحذف ويُعدّ في removedScopes
   return null;
 }
 
@@ -433,9 +592,33 @@ export const LEDGER_BUSY_MESSAGE = 'جارٍ تفعيل الدفاتر، أعد 
 /** حجز دفعة أرصدة/كشوف: activatedAt تحت القفل يخالف ما حُسبت به التواريخ ⇒ 409 IMPORT_LEDGER_STATE_CHANGED بلا كتابة */
 export const IMPORT_LEDGER_STATE_CHANGED_MESSAGE = 'تغيّرت حالة الدفاتر (فُعّلت) أثناء تجهيز الاستيراد — أعد رفع الملف';
 
-export function assertImportLedgerStateUnchanged(activatedAt: Date | null | undefined, expectActivated: boolean): void {
-  if (!!activatedAt === expectActivated) return;
-  throw new ImportHttpError(409, 'IMPORT_LEDGER_STATE_CHANGED', IMPORT_LEDGER_STATE_CHANGED_MESSAGE, { activatedAt: activatedAt ? activatedAt.toISOString() : null });
+/** البند 25: منطقة الدفاتر الزمنية تحت القفل تخالف ما حُسبت به التواريخ */
+export const IMPORT_LEDGER_TIMEZONE_CHANGED_MESSAGE = 'تغيّرت المنطقة الزمنية للدفاتر أثناء تجهيز الاستيراد، أعد رفع الملف';
+
+/**
+ * حجز دفعة أرصدة/كشوف تحت القفل: التفعيل أولاً، ثم (البند 25) المنطقة الزمنية الفعلية ≠ منطقة حساب التواريخ ⇒
+ * 409 IMPORT_LEDGER_STATE_CHANGED بتفاصيل {activatedAt, timezone, expectedTimezone}.
+ */
+export function assertImportLedgerStateUnchanged(s: {
+  // البند 22: المنطقة هنا هي المضبوطة فعلاً (explicitTimezone) — null منطقة صالحة للمقارنة لا «غير ممرَّرة»
+  activatedAt: Date | null | undefined; expectActivated: boolean; timezone?: string | null; expectTimezone?: string | null;
+}): void {
+  const activatedAt = s.activatedAt ? s.activatedAt.toISOString() : null;
+  const tz = s.expectTimezone !== undefined ? { timezone: s.timezone ?? null, expectedTimezone: s.expectTimezone } : {};
+  if (!!s.activatedAt !== s.expectActivated) {
+    throw new ImportHttpError(409, 'IMPORT_LEDGER_STATE_CHANGED', IMPORT_LEDGER_STATE_CHANGED_MESSAGE, { activatedAt, ...tz });
+  }
+  if (s.expectTimezone !== undefined && s.timezone !== s.expectTimezone) {
+    throw new ImportHttpError(409, 'IMPORT_LEDGER_STATE_CHANGED', IMPORT_LEDGER_TIMEZONE_CHANGED_MESSAGE, { activatedAt, ...tz });
+  }
+}
+
+/** البند 19(ج): دفعة أرصدة/كشوف أخرى جارية (غير المتراجع عنها بنبض حديث) ⇒ 409 IMPORT_IN_PROGRESS */
+export function otherRunningEntryImport(
+  running: readonly { id: string; kind: string; createdAt: Date; status?: string | null; heartbeatAt?: Date | null }[], batchId: string, now: Date,
+): void {
+  assertNoRunningImport(running.find((b) =>
+    b.id !== batchId && (IMPORT_ENTRY_KINDS as readonly string[]).includes(b.kind) && importBatchState(b, now) === 'running'));
 }
 
 /** انتهاء مهلة المعاملة التفاعلية أو انتظار القفل (قفل gl-post ممسوك باعتماد التفعيل) */
@@ -454,9 +637,24 @@ export function revertOutcome(ids: readonly string[], done: ReadonlySet<string>)
   return { reverted: remainingIds.length === 0, remainingIds };
 }
 
-/** فئة الدفعة تُحذف فقط إن لم يبقَ لها منتج ولا صف GlProductCategoryAccount */
-export function categoryDeletable(f: { products: number; accountRows: number }): boolean {
-  return f.products === 0 && f.accountRows === 0;
+/** فئة الدفعة تُحذف فقط إن لم يبقَ لها منتج ولا صف GlProductCategoryAccount، ولا ربط في مسودة معالج الدفاتر (البند 26) */
+export function categoryDeletable(f: { products: number; accountRows: number; draftLinked?: boolean }): boolean {
+  return f.products === 0 && f.accountRows === 0 && f.draftLinked !== true;
+}
+
+/** البند 26: معرّفات الفئات المربوطة بحساب إيراد في مسودة المعالج (setupDraft.step3.categoryIncomeAccounts) */
+export function draftCategoryLinkIds(setupDraft: unknown): Set<string> {
+  const out = new Set<string>();
+  if (!setupDraft || typeof setupDraft !== 'object' || Array.isArray(setupDraft)) return out;
+  const step3 = (setupDraft as Record<string, unknown>).step3;
+  if (!step3 || typeof step3 !== 'object' || Array.isArray(step3)) return out;
+  const links = (step3 as Record<string, unknown>).categoryIncomeAccounts;
+  if (!Array.isArray(links)) return out;
+  for (const l of links) {
+    const id = l && typeof l === 'object' ? (l as Record<string, unknown>).categoryId : undefined;
+    if (typeof id === 'string' && id) out.add(id);
+  }
+  return out;
 }
 
 /** رد التراجع: blocked عدد صفري حين لا محمي (الشكل القائم)، ومصفوفة {id,name,reason} حين فشل جزئي */
@@ -541,22 +739,66 @@ export function normImportName(s: string): string {
     .replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي').replace(/\s+/g, ' ');
 }
 
-export interface OpeningStockProduct { id: string; code: string; barcode?: string | null; name: string; taxPct: number }
+export interface OpeningStockProduct {
+  id: string; code: string; barcode?: string | null; name: string; taxPct: number;
+  /** البند 24: ACTIVE | INACTIVE */
+  status?: string | null;
+  /** البند 24: مؤرشف */
+  deletedAt?: Date | null;
+}
 
-/** مطابقة الصنف: الكود (فريد لكل شركة) ثم الباركود ثم الاسم المطبَّع — باركود أو اسم مشترك بين صنفين لا يطابق */
-export function openingStockProductFinder(products: readonly OpeningStockProduct[]) {
-  const byCode = new Map<string, OpeningStockProduct>();
-  const byBarcode = new Map<string, OpeningStockProduct | null>();
-  const byName = new Map<string, OpeningStockProduct | null>();
-  const put = (m: Map<string, OpeningStockProduct | null>, k: string, p: OpeningStockProduct) => { m.set(k, m.has(k) ? null : p); };
+export type OpeningStockMatchError = { error: 'NOT_FOUND' | 'INACTIVE' | 'AMBIGUOUS' };
+export type OpeningStockMatch = OpeningStockProduct | OpeningStockMatchError;
+
+const isInactiveProduct = (p: OpeningStockProduct) => p.deletedAt != null || p.status === 'INACTIVE';
+
+/**
+ * البند 24: مطابقة الصنف بالأصناف النشطة وحدها — الكود (فريد لكل شركة) ثم الباركود ثم الاسم المطبَّع.
+ * الكود يطابق موقوفاً/مؤرشفاً ⇒ INACTIVE؛ باركود أو اسم مشترك بين نشطين ⇒ AMBIGUOUS (ما لم تطابق خطوة لاحقة)؛
+ * لا نشط ويطابق موقوفاً بالباركود أو الاسم ⇒ INACTIVE؛ وإلا NOT_FOUND.
+ */
+export function openingStockProductMatcher(products: readonly OpeningStockProduct[]) {
+  const activeCode = new Map<string, OpeningStockProduct>();
+  const inactiveCode = new Set<string>();
+  const activeBarcode = new Map<string, OpeningStockProduct[]>();
+  const inactiveBarcode = new Set<string>();
+  const activeName = new Map<string, OpeningStockProduct[]>();
+  const inactiveName = new Set<string>();
+  const push = (m: Map<string, OpeningStockProduct[]>, k: string, p: OpeningStockProduct) => { const l = m.get(k); if (l) l.push(p); else m.set(k, [p]); };
   for (const p of products) {
-    if (p.code && p.code.trim()) byCode.set(p.code.trim(), p);
-    if (p.barcode && p.barcode.trim()) put(byBarcode, p.barcode.trim(), p);
-    if (p.name && p.name.trim()) put(byName, normImportName(p.name), p);
+    const off = isInactiveProduct(p);
+    const code = p.code?.trim(); const barcode = p.barcode?.trim(); const name = p.name?.trim() ? normImportName(p.name) : '';
+    if (code) { if (off) inactiveCode.add(code); else activeCode.set(code, p); }
+    if (barcode) { if (off) inactiveBarcode.add(barcode); else push(activeBarcode, barcode, p); }
+    if (name) { if (off) inactiveName.add(name); else push(activeName, name, p); }
   }
+  return (r: OpeningStockRowInput): OpeningStockMatch => {
+    const code = r.productCode?.trim(); const barcode = r.barcode?.trim(); const name = r.productName?.trim() ? normImportName(r.productName) : '';
+    if (code) {
+      const a = activeCode.get(code);
+      if (a) return a;
+      if (inactiveCode.has(code)) return { error: 'INACTIVE' };
+    }
+    let ambiguous = false; let inactive = false;
+    for (const [key, active, off] of [[barcode, activeBarcode, inactiveBarcode], [name, activeName, inactiveName]] as const) {
+      if (!key) continue;
+      const list = active.get(key);
+      if (list && list.length === 1) return list[0];
+      if (list && list.length > 1) ambiguous = true;
+      else if (off.has(key)) inactive = true;
+    }
+    if (ambiguous) return { error: 'AMBIGUOUS' };
+    if (inactive) return { error: 'INACTIVE' };
+    return { error: 'NOT_FOUND' };
+  };
+}
+
+/** مطابقة متوافقة: المنتج النشط أو null (الموقوف والمؤرشف والملتبس لا يطابق) */
+export function openingStockProductFinder(products: readonly OpeningStockProduct[]) {
+  const match = openingStockProductMatcher(products);
   return (r: OpeningStockRowInput): OpeningStockProduct | null => {
-    const code = r.productCode?.trim(); const barcode = r.barcode?.trim(); const name = r.productName?.trim();
-    return (code && byCode.get(code)) || (barcode && byBarcode.get(barcode)) || (name && byName.get(normImportName(name))) || null;
+    const m = match(r);
+    return 'error' in m ? null : m;
   };
 }
 
@@ -576,32 +818,95 @@ export interface OpeningStockLine { row: number; productId: string; qty: number;
  */
 export function resolveOpeningStockRows(
   rows: readonly OpeningStockRowInput[],
-  findProduct: (r: OpeningStockRowInput) => OpeningStockProduct | null,
+  findProduct: (r: OpeningStockRowInput) => OpeningStockProduct | OpeningStockMatchError | null,
   pricesIncludeTax: boolean,
-): { lines: OpeningStockLine[]; errors: { row: number; message: string }[] } {
+): { lines: OpeningStockLine[]; errors: ImportRowError[] } {
   const lines: OpeningStockLine[] = [];
-  const errors: { row: number; message: string }[] = [];
+  const errors: ImportRowError[] = [];
   rows.forEach((r, i) => {
     const row = i + 2;
+    // البند L: معرّف الصنف في كل خطأ صف (value) وعموده (field) — بلا كود الصنف يقف المالك أمام «صف 137: مشترك بين
+    // أكثر من صنف» في ملف 5000 صف. الكود ⇒ الباركود ⇒ الاسم، وصفٌّ بلا أيٍّ منها يبقى بلا value وبلا field.
+    const ident = r.productCode?.trim() || r.barcode?.trim() || r.productName?.trim() || undefined;
+    const identField = ident === undefined ? undefined
+      : r.productCode?.trim() ? 'productCode' : r.barcode?.trim() ? 'barcode' : 'productName';
     const p = findProduct(r);
-    if (!p) { errors.push({ row, message: 'الصنف غير موجود استورد المنتجات أولا' }); return; }
+    if (!p || 'error' in p) {
+      const code = !p || p.error === 'NOT_FOUND' ? 'PRODUCT_NOT_FOUND' : p.error === 'INACTIVE' ? 'PRODUCT_INACTIVE' : 'PRODUCT_AMBIGUOUS';
+      errors.push(importRowError(row, code, ident, identField));
+      return;
+    }
     const qty = r.qty;
-    if (typeof qty !== 'number' || !Number.isFinite(qty) || qty <= 0) { errors.push({ row, message: 'الكمية يجب أن تكون أكبر من صفر' }); return; }
+    if (typeof qty !== 'number' || !Number.isFinite(qty) || qty <= 0) { errors.push(importRowError(row, 'STOCK_QTY_INVALID', ident, identField)); return; }
     const cost = r.unitCost;
     if (typeof cost !== 'number' || !Number.isFinite(cost) || cost <= 0 || cost > OPENING_STOCK_MAX_UNIT_COST) {
-      errors.push({ row, message: 'تكلفة الوحدة يجب أن تكون أكبر من صفر' });
+      errors.push(importRowError(row, 'STOCK_COST_INVALID', ident, identField));
       return;
     }
     const net = netUnitCost(cost, p.taxPct ?? 0, pricesIncludeTax);
-    if (!(net > 0)) { errors.push({ row, message: 'تكلفة الوحدة الصافية صفرية بعد التقريب' }); return; }
+    if (!(net > 0)) { errors.push(importRowError(row, 'STOCK_NET_COST_ZERO', ident, identField)); return; }
     lines.push({ row, productId: p.id, qty, unitCost: net });
   });
   return { lines, errors };
 }
 
-/** بصمة الملف مع خيار «التكلفة شاملة الضريبة» (الملف نفسه بالخيار الآخر ليس تكراراً) */
-export function openingStockContentHash(rows: readonly OpeningStockRowInput[], pricesIncludeTax: boolean): string {
-  return importContentHash(`${OPENING_STOCK_KIND}:${pricesIncludeTax ? 'inclusive' : 'net'}`, rows as readonly Readonly<Record<string, unknown>>[]);
+/** البند 16: بصمة الملف وحده — خيار «التكلفة شاملة الضريبة» لا يغيّرها (إعادة الرفع بالخيار الآخر تكرار) */
+export function openingStockContentHash(rows: readonly OpeningStockRowInput[]): string {
+  return importContentHash(OPENING_STOCK_KIND, rows as readonly Readonly<Record<string, unknown>>[]);
+}
+
+/** دفعة جرد افتتاحي سابقة غير متراجع عنها: المعرّف للسجلّ، وcreatedAt هو ما يُعرض للمالك تاريخاً */
+export interface OpeningStockPriorBatch { id: string; createdAt: Date }
+
+/** الدفعة السابقة كما يمرّرها المسار: الكائن (يُنسَّق هنا) أو تاريخها YYYY-MM-DD جاهزاً */
+export type OpeningStockPriorBatchRef = OpeningStockPriorBatch | string;
+
+/** البند K: تاريخ الدفعة السابقة للعرض — والمعرّف (UUID) لا يُعرض للمالك أبداً فلا value بدله */
+function priorBatchDate(ref: OpeningStockPriorBatchRef, timezone?: string | null): string | undefined {
+  if (typeof ref === 'string') return isImportDate(ref) ? ref : undefined;
+  return importBatchDateLabel(ref.createdAt, timezone);
+}
+
+/**
+ * البند K: تاريخ الدفعة كما يراه المالك — YYYY-MM-DD بتوقيت الشركة (التوقيت نفسه المستعمل في بقية الاستيراد،
+ * zonedStartOfDay/todayLocal)، لا معرّف UUID لا يدلّه على الدفعة التي يتراجع عنها. تاريخ غير صالح ⇒ undefined (بلا value).
+ */
+export function importBatchDateLabel(createdAt: unknown, timezone?: string | null): string | undefined {
+  if (!(createdAt instanceof Date) || Number.isNaN(createdAt.getTime())) return undefined;
+  const tz = typeof timezone === 'string' && isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  return todayLocal(createdAt, tz);
+}
+
+export interface OpeningStockMovementState {
+  /**
+   * أصناف لها حركة سابقة خارج دفعات الجرد الافتتاحي (بند مستودع أو تحميل/تفريغ سيارة).
+   * تُبنى بـgroupBy في القاعدة (صفّ لكل صنف) لا بقراءة كل بنود المستودع إلى الذاكرة داخل معاملة تمسك قفل gl-post.
+   */
+  movedProductIds: ReadonlySet<string>;
+  /** الصنف ⇒ دفعة opening_stock غير متراجع عنها فيها بنده (بتاريخ إنشائها، فالمالك يُدَلّ على الدفعة التي يتراجع عنها) */
+  openingBatchOf: ReadonlyMap<string, OpeningStockPriorBatchRef>;
+  /** توقيت الشركة لعرض تاريخ الدفعة السابقة — كبقية الاستيراد (الافتراضي DEFAULT_TIMEZONE) */
+  timezone?: string | null;
+}
+
+/**
+ * البندان 15 و16: بنود الجرد الافتتاحي لأصناف لها حركات سابقة تُرفض صفاً صفاً — بند في دفعة opening_stock غير متراجع عنها ⇒
+ * OPENING_STOCK_ALREADY_IMPORTED (البند K: value = تاريخ الدفعة السابقة YYYY-MM-DD لا معرّفها)، وأي بند مستودع آخر
+ * أو تحميل/تفريغ سيارة ⇒ PRODUCT_HAS_STOCK_MOVEMENTS.
+ */
+export function openingStockMovementConflicts(
+  lines: readonly OpeningStockLine[], state: OpeningStockMovementState,
+): { lines: OpeningStockLine[]; errors: ImportRowError[] } {
+  const accepted: OpeningStockLine[] = [];
+  const errors: ImportRowError[] = [];
+  const moved = state.movedProductIds;
+  for (const l of lines) {
+    const b = state.openingBatchOf.get(l.productId);
+    if (b) { errors.push(importRowError(l.row, 'OPENING_STOCK_ALREADY_IMPORTED', priorBatchDate(b, state.timezone))); continue; }
+    if (moved.has(l.productId)) { errors.push(importRowError(l.row, 'PRODUCT_HAS_STOCK_MOVEMENTS')); continue; }
+    accepted.push(l);
+  }
+  return { lines: accepted, errors };
 }
 
 /** آثار استهلاك أصناف الحركة بعد إنشائها */
@@ -624,10 +929,13 @@ export function openingStockRevertBlockReason(f: OpeningStockFootprint): string 
 // ═══ الدفعة 1 (البنود 1 و3 و4 و8 و10 و14 و20): أخطاء الصفوف والفحوص الصرفة ═══
 
 export type ImportRowErrorCode =
-  | 'CUSTOMER_NOT_FOUND' | 'CUSTOMER_AMBIGUOUS' | 'CUSTOMER_CODE_NOT_FOUND' | 'CUSTOMER_CODE_UNREGISTERED' | 'PRODUCT_NOT_FOUND' | 'ZERO_PRICE' | 'TAX_PCT_FRACTION' | 'ROW_CONFLICT' | 'ROW_WRITE_FAILED';
+  | 'CUSTOMER_NOT_FOUND' | 'CUSTOMER_AMBIGUOUS' | 'CUSTOMER_CODE_NOT_FOUND' | 'CUSTOMER_CODE_UNREGISTERED' | 'PRODUCT_NOT_FOUND' | 'ZERO_PRICE' | 'TAX_PCT_FRACTION' | 'ROW_CONFLICT' | 'ROW_WRITE_FAILED'
+  // الدفعة 2: المخزون الافتتاحي (البنود 15 و16 و24) والمنتجات (البند 30)
+  | 'PRODUCT_INACTIVE' | 'PRODUCT_AMBIGUOUS' | 'OPENING_STOCK_ALREADY_IMPORTED' | 'PRODUCT_HAS_STOCK_MOVEMENTS'
+  | 'STOCK_QTY_INVALID' | 'STOCK_COST_INVALID' | 'STOCK_NET_COST_ZERO' | 'PRODUCT_CODE_ARCHIVED' | 'PRODUCT_DUPLICATE_IN_FILE';
 
-/** خطأ صف في ردود الاستيراد: row = موضع الصف المرسل + 2 */
-export interface ImportRowError { row: number; message: string; code?: string; value?: string }
+/** خطأ صف في ردود الاستيراد: row = موضع الصف المرسل + 2، وvalue القيمة التي أوقعت الخطأ، وfield عمودها */
+export interface ImportRowError { row: number; message: string; code?: string; value?: string; field?: string }
 
 export const IMPORT_ROW_MESSAGES: Record<Exclude<ImportRowErrorCode, 'ROW_WRITE_FAILED'>, string> = {
   CUSTOMER_NOT_FOUND: 'العميل غير موجود استورد العملاء أولا',
@@ -638,10 +946,24 @@ export const IMPORT_ROW_MESSAGES: Record<Exclude<ImportRowErrorCode, 'ROW_WRITE_
   ZERO_PRICE: 'السعر الخاص صفر، أكّد في المعاينة أنه مقصود',
   TAX_PCT_FRACTION: 'نسبة الضريبة أقل من 1٪، اكتبها نسبة مئوية (15 لا 0.15)',
   ROW_CONFLICT: 'سجل بالمعرّف نفسه أُنشئ في الوقت نفسه، أعد الاستيراد لتخطيه',
+  PRODUCT_INACTIVE: 'الصنف موقوف أو مؤرشف، فعّله أو استخدم صنفاً آخر',
+  PRODUCT_AMBIGUOUS: 'الباركود أو الاسم مشترك بين أكثر من صنف، استخدم الكود',
+  OPENING_STOCK_ALREADY_IMPORTED: 'للصنف مخزون افتتاحي في دفعة استيراد سابقة، تراجع عنها أولاً لتصحيحه',
+  PRODUCT_HAS_STOCK_MOVEMENTS: 'للصنف حركات مستودع أو تحميل سيارات سابقة، فلا يُضاف جرده الافتتاحي فوق رصيد محسوب منها. صحّح رصيده بتسوية من شاشة المستودع',
+  STOCK_QTY_INVALID: 'الكمية يجب أن تكون أكبر من صفر',
+  STOCK_COST_INVALID: 'تكلفة الوحدة يجب أن تكون أكبر من صفر',
+  STOCK_NET_COST_ZERO: 'تكلفة الوحدة الصافية صفرية بعد التقريب',
+  PRODUCT_CODE_ARCHIVED: 'الكود مستخدم بصنف مؤرشف، استخدم كوداً مختلفاً',
+  PRODUCT_DUPLICATE_IN_FILE: 'كود الصنف مكرر في الملف ببيانات مختلفة، أضف عمود الكود أو صحّح التكرار',
 };
 
-export function importRowError(row: number, code: Exclude<ImportRowErrorCode, 'ROW_WRITE_FAILED'>, value?: string): ImportRowError {
-  return { row, code, message: IMPORT_ROW_MESSAGES[code], ...(value !== undefined ? { value } : {}) };
+export function importRowError(
+  row: number, code: Exclude<ImportRowErrorCode, 'ROW_WRITE_FAILED'>, value?: string, field?: string,
+): ImportRowError {
+  return {
+    row, code, message: IMPORT_ROW_MESSAGES[code],
+    ...(value !== undefined ? { value } : {}), ...(field !== undefined ? { field } : {}),
+  };
 }
 
 /** فشل كتابة الصف: P2002 ⇒ ROW_CONFLICT، وإلا ROW_WRITE_FAILED بالرسالة الخام مقصوصة */
@@ -658,6 +980,59 @@ export function priceRowIssue(price: number, allowZero: boolean): 'ZERO_PRICE' |
 /** البند 14: نسبة ضريبة غير صفرية أقل من 1 (خلية Excel منسّقة ٪ ⇒ 0.15) */
 export function taxPctIssue(taxPct: number | null | undefined): 'TAX_PCT_FRACTION' | null {
   return typeof taxPct === 'number' && taxPct > 0 && taxPct < 1 ? 'TAX_PCT_FRACTION' : null;
+}
+
+// ═══ البند 30: تخطيط صفوف /products ═══
+
+export interface ProductImportRowInput {
+  code: string; name: string; unit?: string | null; basePrice?: number | null; taxPct?: number | null; barcode?: string | null; category?: string | null;
+}
+export type ProductSkipReason = 'CODE_EXISTS' | 'DUPLICATE_IN_FILE';
+export interface ProductSkippedRow { row: number; reason: ProductSkipReason; code?: string }
+
+/**
+ * توقيع الصف لمقارنة التكرار داخل الملف — بالقيم كما تُكتب في القاعدة تماماً (routes/import.ts: `taxPct: r.taxPct ?? defaultVat`).
+ * البند 30: بلا defaultVat يصير صفّان بالكود نفسه، أحدهما بخانة ضريبة فارغة والآخر مكتوب فيه defaultVat، «مختلفَين»
+ * ⇒ خطأ صف PRODUCT_DUPLICATE_IN_FILE كاذب بدل تخطٍّ صامت للمكرر.
+ */
+function productRowSignature(r: ProductImportRowInput, defaultVat: number | null): string {
+  return JSON.stringify([normImportName(r.name), r.unit || 'حبة', r.basePrice ?? 0, r.taxPct ?? defaultVat ?? null, r.barcode || '', normImportName(r.category || '')]);
+}
+
+/**
+ * البند 30: صفوف المنتجات ⇒ ما يُنشأ، والمتخطى برقم الصف وسببه، وأخطاء الصفوف. الكود المؤرشف ⇒ PRODUCT_CODE_ARCHIVED؛
+ * القائم غير المؤرشف ⇒ CODE_EXISTS؛ المكرر في الملف مطابقاً لأول صف منشأ ⇒ DUPLICATE_IN_FILE، ومختلفاً ⇒ PRODUCT_DUPLICATE_IN_FILE؛
+ * ثم نسبة الضريبة الكسرية.
+ * defaultVat = ضريبة الشركة الافتراضية التي تُكتب للصف بلا خانة ضريبة (companySettings.defaultVatPct).
+ */
+export function planProductImportRows<R extends ProductImportRowInput>(
+  rows: readonly R[], existing: readonly { code: string; deletedAt?: Date | null }[], defaultVat: number | null,
+): { creates: { row: number; r: R }[]; skippedRows: ProductSkippedRow[]; errors: ImportRowError[] } {
+  const archived = new Set<string>();
+  const live = new Set<string>();
+  for (const e of existing) (e.deletedAt ? archived : live).add(e.code);
+  const seen = new Map<string, string>();
+  const creates: { row: number; r: R }[] = [];
+  const skippedRows: ProductSkippedRow[] = [];
+  const errors: ImportRowError[] = [];
+  rows.forEach((r, i) => {
+    const row = i + 2;
+    if (live.has(r.code)) { skippedRows.push({ row, reason: 'CODE_EXISTS', code: r.code }); return; }
+    if (archived.has(r.code)) { errors.push(importRowError(row, 'PRODUCT_CODE_ARCHIVED', r.code)); return; }
+    const sig = productRowSignature(r, defaultVat);
+    const first = seen.get(r.code);
+    if (first !== undefined) {
+      if (first === sig) skippedRows.push({ row, reason: 'DUPLICATE_IN_FILE', code: r.code });
+      else errors.push(importRowError(row, 'PRODUCT_DUPLICATE_IN_FILE', r.code));
+      return;
+    }
+    // البند 14: خلية ضريبة منسّقة ٪ في Excel ⇒ 0.15
+    const taxIssue = taxPctIssue(r.taxPct);
+    if (taxIssue) { errors.push(importRowError(row, taxIssue)); return; }
+    seen.set(r.code, sig);
+    creates.push({ row, r });
+  });
+  return { creates, skippedRows, errors };
 }
 
 /** نتيجة مطابقة العميل (services/importMatch.ts) */

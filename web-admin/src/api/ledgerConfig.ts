@@ -320,6 +320,21 @@ export type GlSettingsInput = Partial<Omit<GlSettings,
   cashBasisEnabled?: false;
 };
 
+/**
+ * رد `PUT /settings` — البند 25: عدد قيود الاستيراد التي أُعيد ضبط تواريخها على المنطقة الجديدة،
+ * ويظهر مع `rebaseImportDates` وحده. اختياري للتوافق مع خادم أقدم لا يعرفه.
+ */
+export type LedgerSettingsUpdateResponse = LedgerEnvelope<GlSettings> & { rebasedImportEntries?: number };
+
+/**
+ * عدد القيود المُعاد ضبطها من رد الحفظ (0 حين لا إعادة ضبط).
+ * يُقرأ من الغلاف ومن `data` معاً: الرقم خبرٌ للمالك لا يُسقَط لمجرد أن الخادم وضعه في الموضع الآخر.
+ */
+export function rebasedImportEntriesOf(body: LedgerSettingsUpdateResponse | null | undefined): number {
+  const n = body?.rebasedImportEntries ?? (body?.data as { rebasedImportEntries?: number } | null | undefined)?.rebasedImportEntries;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
 export interface GlFiscalYear {
   id: string;
   name: string;
@@ -423,7 +438,13 @@ export const ledgerConfigApi = {
 
   settings: {
     get: () => api.get<LedgerEnvelope<GlSettings | null>>(`${L}/settings`),
-    update: (data: GlSettingsInput) => api.put<LedgerEnvelope<GlSettings>>(`${L}/settings`, data),
+    /**
+     * البند 25: `rebaseImportDates` علمٌ **علوي للطلب** لا حقل إعدادات — تغيير المنطقة الزمنية
+     * وللشركة أرصدة أو كشوف مستوردة يرتدّ 409 `LEDGER_TIMEZONE_IMPORTS_CONFLICT` حتى يؤكّده المالك.
+     * ولأن مخطط الخادم `strict` فلا يُرسل إلا عند التأكيد، ليبقى الحفظ العادي كما هو.
+     */
+    update: (data: GlSettingsInput, opts?: { rebaseImportDates?: boolean }) =>
+      api.put<LedgerSettingsUpdateResponse>(`${L}/settings`, { ...data, ...(opts?.rebaseImportDates ? { rebaseImportDates: true } : {}) }),
     /** «تحميل القالب/إعادة تحميله» (TAX‑01): يضيف الناقص فقط ولا يعدّل الموجود */
     loadTemplate: () => api.post<LedgerEnvelope<{ report: SeedReport; settings: GlSettings | null }>>(`${L}/settings/load-template`),
   },

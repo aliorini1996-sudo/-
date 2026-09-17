@@ -12,8 +12,8 @@ import {
   type SetupCommitResult, type SetupDraft, type SetupState, type SetupStateBefore,
 } from '../../../api/ledgerSetup';
 import { ledgerHref } from '../routes';
-import { clampStep, type SetupStepNo } from './setupLogic';
-import { BackfillStatusCard, DataImportLink, Notice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
+import { clampStep, timezoneImportsConflictOf, type SetupStepNo, type TimezoneImportsConflict } from './setupLogic';
+import { BackfillStatusCard, DataImportLink, Notice, TimezoneImportsConflictNotice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
 import { Step1Basics, Step2Method, Step3Tree } from './SetupSteps';
 import ManualBalances from './ManualBalances';
 import { CommitResultPanel, Step4Preview, Step6Review } from './SetupReview';
@@ -34,6 +34,8 @@ export default function SetupWizard() {
   const [step, setStep] = useState<SetupStepNo | null>(null);
   const [lastErrorCode, setLastErrorCode] = useState<string | null>(null);
   const [result, setResult] = useCommitResult();
+  // البند 25: 409 تعارض المنطقة الزمنية — التفاصيل والطلب المرفوض كي يُعاد إرساله بالإقرار
+  const [tzConflict, setTzConflict] = useState<{ detail: TimezoneImportsConflict; patch: SetupDraft; next: number } | null>(null);
 
   const before = q.data && !q.data.activated ? q.data : null;
   useEffect(() => {
@@ -41,10 +43,14 @@ export default function SetupWizard() {
   }, [before, step]);
 
   const save = useMutation({
-    mutationFn: async ({ patch, next }: { patch: SetupDraft; next: number }) =>
-      (await ledgerSetupApi.saveDraft({ ...patch, currentStep: next })).data.data,
+    mutationFn: async ({ patch, next, rebaseImportDates }: { patch: SetupDraft; next: number; rebaseImportDates?: boolean }) =>
+      (await ledgerSetupApi.saveDraft({ ...patch, currentStep: next }, { rebaseImportDates })).data.data,
     onSuccess: (d, { next }) => {
       setLastErrorCode(null);
+      setTzConflict(null);
+      if (d.rebasedImportEntries !== undefined) {
+        toast.success(tr('أُعيد ضبط تواريخ {count} قيداً مستورداً على المنطقة الزمنية الجديدة').replace('{count}', String(d.rebasedImportEntries)));
+      }
       qc.setQueryData<SetupState>(ledgerSetupKeys.setup, old => (old && !old.activated
         ? { ...old, draft: d.draft, effective: d.effective, history: d.history ? { ...old.history, ...d.history } : old.history }
         : old));
@@ -53,8 +59,11 @@ export default function SetupWizard() {
       setStep(clampStep(next));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    onError: e => {
+    onError: (e, { patch, next }) => {
       setLastErrorCode(ledgerErrorOf(e)?.code ?? null);
+      // تعارض المنطقة الزمنية ليس فشلاً نهائياً: يُعرض بتفاصيله وزرِّ إقرار يعيد إرسال الطلب نفسه
+      const detail = timezoneImportsConflictOf(ledgerErrorOf(e));
+      setTzConflict(detail ? { detail, patch, next } : null);
       toast.error(errorText(e));
     },
   });
@@ -140,6 +149,10 @@ export default function SetupWizard() {
       <div className="card space-y-3">
         <h2 className="text-base font-bold text-[#1F1A13]"><bdi className="tabular-nums text-[#9A8F7E]">{current}.</bdi> {titles[current]}</h2>
         {save.isError && lastErrorCode === 'LEDGER_HISTORY_TOO_LARGE' && <Notice tone="error">{errorText(save.error)}</Notice>}
+        {tzConflict && (
+          <TimezoneImportsConflictNotice detail={tzConflict.detail} busy={save.isPending} canWrite={canWrite}
+            onConfirm={() => save.mutate({ patch: tzConflict.patch, next: tzConflict.next, rebaseImportDates: true })} />
+        )}
         {current === 1 && <Step1Basics key={`s1:${state.draft.step1?.cutoverDate ?? ''}`} {...common} onBack={undefined} />}
         {current === 2 && <Step2Method {...common} />}
         {current === 3 && <Step3Tree {...common} />}

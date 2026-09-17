@@ -117,13 +117,14 @@ test('مسودة المعالج بتاريخ بدء ≤ اليوم (بتوقيت
   assert.equal(draftCutoverDate(draft('2026-02-30')), null);
 });
 
-test('البصمة: ثابتة مع ترتيب الصفوف، وتختلف بخيار «شاملة الضريبة» وعن الأنواع الأخرى؛ recordIds مصفوفة معرّف الحركة', () => {
+test('البصمة: ثابتة مع ترتيب الصفوف ومع خيار «شاملة الضريبة» (البند 16)، وتختلف بتغيّر صف؛ recordIds مصفوفة معرّف الحركة', () => {
   const rows = [{ productCode: 'A-1', qty: 10, unitCost: 5 }, { barcode: '111', qty: 1, unitCost: 2 }];
-  const h = openingStockContentHash(rows, false);
+  const h = openingStockContentHash(rows);
   assert.match(h, /^[0-9a-f]{64}$/);
-  assert.equal(openingStockContentHash([...rows].reverse(), false), h);
-  assert.notEqual(openingStockContentHash(rows, true), h);
-  assert.notEqual(openingStockContentHash([{ ...rows[0], qty: 11 }, rows[1]], false), h);
+  assert.equal(openingStockContentHash([...rows].reverse()), h);
+  // البند 16: الملف نفسه بالخيار الآخر تكرار لا دفعة ثانية (الخيار لم يعد في البصمة)
+  assert.equal(openingStockContentHash(rows), h);
+  assert.notEqual(openingStockContentHash([{ ...rows[0], qty: 11 }, rows[1]]), h);
   assert.equal(OPENING_STOCK_KIND, 'opening_stock');
   assert.equal(OPENING_STOCK_ENTRY_TYPE, 'RECEIVE');
   const ser = serializeBatchRecordIds(OPENING_STOCK_KIND, ['e1']);
@@ -161,7 +162,7 @@ test('حارس ثابت: POST /opening-stock — الرفض والبصمة قب�
   assert.match(body, /requireAccounting/);
   assert.match(body, /'WAREHOUSE_NOT_ENABLED'/);
   assertOrder(body, [
-    'guard(await settingsOf(prisma)', 'openingStockContentHash(', 'assertNotDuplicateBatch(', 'resolveOpeningStockRows(',
+    'const preSettings = await settingsOf(prisma)', 'guard(preSettings, new Date())', 'openingStockContentHash(', 'assertNotDuplicateBatch(', 'resolveOpeningStockRows(',
     'prisma.$transaction(', 'acquirePostLock(tx, tid)', 'guard(await settingsOf(tx)', 'assertNotDuplicateBatch(',
     'tx.warehouseEntry.create(', 'type: OPENING_STOCK_ENTRY_TYPE', 'items: { create:', 'tx.importBatch.create(', 'kind: OPENING_STOCK_KIND', 'contentHash',
   ], '/opening-stock');
@@ -182,6 +183,70 @@ test('حارس ثابت: تراجع opening_stock — 409 بعد التفعيل 
     "status: 'blocked'", 'tx.warehouseEntryItem.deleteMany(', 'tx.warehouseEntry.deleteMany(',
   ], 'revert opening_stock');
   assert.match(body, /if \(isImportHttpError\(e\)\) throw e;/);
+});
+
+// ═══ البند 15 (إغلاقة الدفعة 2): فحص «للصنف حركات سابقة» مُقطَّع فلا يطول حبس قفل gl-post ═══
+
+/** تقطيع كما في import.ts (idChunks) */
+function chunkOf<T>(ids: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
+
+/** محاكاة الفحص كما في import.ts: شرائح groupBy، وما ثبتت حركته في المستودع لا يُسأل عنه في التحميلات */
+function movedCheck(productIds: string[], stock: { warehouse: ReadonlySet<string>; van: ReadonlySet<string> }, size = 200) {
+  const queries: { table: 'warehouse' | 'van'; ids: string[] }[] = [];
+  const moved = new Set<string>();
+  for (const part of chunkOf(productIds, size)) {
+    queries.push({ table: 'warehouse', ids: part });
+    for (const id of part) if (stock.warehouse.has(id)) moved.add(id);
+  }
+  for (const part of chunkOf(productIds.filter((id) => !moved.has(id)), size)) {
+    queries.push({ table: 'van', ids: part });
+    for (const id of part) if (stock.van.has(id)) moved.add(id);
+  }
+  return { moved, queries };
+}
+
+test('البند 15: الفحص مُقطَّع (200) بالنتيجة نفسها، ولا شريحة تتجاوز الحجم، وما ثبتت حركته لا يُسأل عنه في التحميلات', () => {
+  const ids = Array.from({ length: 1000 }, (_, i) => `p${i + 1}`);
+  const warehouse = new Set(['p1', 'p500', 'p999']);
+  const van = new Set(['p1', 'p7', 'p1000']);
+  const r = movedCheck(ids, { warehouse, van });
+  // النتيجة اتحاد المجموعتين نفسه (كما القراءة دفعةً واحدة قبل التقطيع) ⇒ قائمة الممنوع لا تتغير
+  assert.deepEqual([...r.moved].sort(), [...new Set([...warehouse, ...van])].sort());
+  assert.ok(r.queries.every((q) => q.ids.length <= 200), 'شريحة أكبر من الحدّ');
+  assert.equal(r.queries.filter((q) => q.table === 'warehouse').length, 5, '1000 صنف ⇒ 5 شرائح');
+  const vanIds = r.queries.filter((q) => q.table === 'van').flatMap((q) => q.ids);
+  assert.equal(vanIds.length, 997);
+  for (const id of warehouse) assert.equal(vanIds.includes(id), false, `${id} سُئل عنه مرتين`);
+  // ملف صغير ⇒ استعلام لكل جدول، وملف بلا أصناف ⇒ لا استعلام أصلاً
+  assert.equal(movedCheck(['p1', 'p2'], { warehouse: new Set(), van: new Set() }).queries.length, 2);
+  assert.equal(movedCheck([], { warehouse: new Set(), van: new Set() }).queries.length, 0);
+});
+
+test('حارس ثابت (البند 15): الفحص بشرائح idChunks بمعرّفات الشريحة وحدها، بلا قراءة كل الأصناف دفعةً واحدة', () => {
+  const src = read('routes/import.ts');
+  const body = handlerBody(src, "router.post('/opening-stock'");
+  const start = body.indexOf('const productIds = ');
+  assert.ok(start > 0);
+  const check = body.slice(start, body.indexOf('openingStockMovementConflicts(', start));
+  assert.equal((check.match(/for \(const part of idChunks\(/g) ?? []).length, 3, 'استعلام غير مُقطَّع تحت القفل');
+  assert.doesNotMatch(check, /productId: \{ in: productIds \}/, 'قراءة كل أصناف الملف دفعةً واحدة');
+  assert.match(check, /productIds\.filter\(id => !movedProductIds\.has\(id\)\)/, 'التحميلات تُسأل عمّا ثبتت حركته');
+  assert.match(check, /select: \{ productId: true, entryId: true \}/, 'صفوف كاملة إلى الذاكرة');
+  assert.match(src, /const STOCK_CHECK_CHUNK = 200;/);
+});
+
+test('العقد (البند K): الخريطة تحمل {id, createdAt} والتوقيت يُمرَّر — فالمالك يرى تاريخ الدفعة لا معرّفها', () => {
+  const body = handlerBody(read('routes/import.ts'), "router.post('/opening-stock'");
+  assert.match(body, /const tz = importTimezone\(preSettings\)/);
+  assert.match(body, /select: \{ id: true, recordIds: true, createdAt: true \}/);
+  assert.match(body, /openingEntryBatch\.set\(eid, \{ id: ob\.id, createdAt: ob\.createdAt \}\)/);
+  assert.match(body, /openingStockMovementConflicts\(lines, \{ movedProductIds, openingBatchOf, timezone: tz \}\)/);
+  // التوقيت يُقرأ قبل المعاملة فلا قراءة إضافية تحت قفل gl-post
+  assert.ok(body.indexOf('const tz = importTimezone(preSettings)') < body.indexOf('prisma.$transaction('));
 });
 
 test('warehouse.ts لم يتغير سلوكه: ما زال يستدعي netUnitCost نفسه من services/warehouseCost', () => {

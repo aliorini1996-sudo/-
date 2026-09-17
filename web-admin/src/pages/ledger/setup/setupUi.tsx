@@ -11,7 +11,7 @@ import {
 } from '../../../api/ledgerSetup';
 import LedgerAmount from '../../../components/ledger/LedgerAmount';
 import { useConfigErrorText, WriteButton } from '../config/parts/configUi';
-import { DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, WAREHOUSE_HREF, hasPostCutoverImports, openingStockReview, type DerivedAccountKind } from './setupLogic';
+import { DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, WAREHOUSE_HREF, hasPostCutoverImports, openingStockReview, type DerivedAccountKind, type TimezoneImportsConflict } from './setupLogic';
 
 /**
  * أجزاء معالج الإعداد المشتركة (M3، §5.6، §8.4 القسم 2): نص أخطاء المعالج، وتسميات أسباب صفوف الأرصدة اليدوية،
@@ -158,6 +158,42 @@ export function OpeningStockNotice({ data, decimals, children }: { data: Opening
   );
 }
 
+/**
+ * البند 25: تعارض المنطقة الزمنية مع الأرصدة والكشوف المستوردة — تنبيه بتفاصيل الدفعات وزرّ إقرار.
+ *
+ * بدون هذا المسار كان الخادم يرفض كل حفظ مسودة بـ409 ولا سبيل في الواجهة إلى إرسال الإقرار،
+ * فتُحبس شركةٌ استوردت أرصدتها قبل فتح المعالج عن اختيار منطقتها الزمنية أصلاً.
+ */
+const IMPORT_KIND_LABELS: Record<string, string> = { balances: 'الأرصدة الافتتاحية', ledger: 'كشوف الحسابات / دفتر الأستاذ' };
+
+export function TimezoneImportsConflictNotice(
+  { detail, busy, canWrite, onConfirm }: { detail: TimezoneImportsConflict; busy: boolean; canWrite: boolean; onConfirm: () => void },
+) {
+  const tr = useTr();
+  return (
+    <Notice tone="warn">
+      <p>{tr('للشركة أرصدة أو كشوف مستوردة بالمنطقة الزمنية السابقة، وتغييرها يزيح تواريخها يوماً. تراجع عن الدفعات أو أكّد إعادة ضبط تواريخها على المنطقة الجديدة')}</p>
+      <p className="mt-1">
+        <bdi dir="ltr" className="font-mono">{detail.previousTimezone}</bdi> ← <bdi dir="ltr" className="font-mono">{detail.timezone}</bdi>
+      </p>
+      {detail.batches.length > 0 && (
+        <ul className="list-disc ps-5 mt-1">
+          {detail.batches.slice(0, 10).map(b => (
+            <li key={b.id}>
+              {tr(IMPORT_KIND_LABELS[b.kind] ?? b.kind)} · <bdi className="tabular-nums">{b.count}</bdi>
+              {b.createdAt ? <> · <bdi className="tabular-nums">{formatDateTime(b.createdAt)}</bdi></> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-1"><DataImportLink>{tr('سجل الاستيرادات')}</DataImportLink></p>
+      <button type="button" className="btn-secondary mt-2 text-xs" disabled={!canWrite || busy} onClick={onConfirm}>
+        {tr('أكّد إعادة ضبط تواريخ الأرصدة والكشوف المستوردة على المنطقة الزمنية الجديدة')}
+      </button>
+    </Notice>
+  );
+}
+
 /** نص خطأ نقاط المعالج: رموز الإعداد وأسبابه أولاً، ثم نص التهيئة العام. */
 export function useSetupErrorText() {
   const tr = useTr();
@@ -191,6 +227,9 @@ export function useSetupErrorText() {
       case 'LEDGER_HISTORY_TOO_LARGE': return tr('الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية');
       case 'LEDGER_POST_CUTOVER_IMPORTS_ACK': return tr('توجد حركات مستوردة بتاريخ بعد تاريخ البدء: راجعها وأقرّ بها قبل التفعيل');
       case 'ACCOUNTING_SUITE_NOT_ALLOWED': return tr('النظام المحاسبي المتكامل غير مفعل لشركتك');
+      // البند 25: تغيير المنطقة وللشركة أرصدة أو كشوف مستوردة بالسابقة ⇒ إقرار إعادة الضبط لا رسالة عامة
+      case 'LEDGER_TIMEZONE_IMPORTS_CONFLICT':
+        return tr('للشركة أرصدة أو كشوف مستوردة بالمنطقة الزمنية السابقة، وتغييرها يزيح تواريخها يوماً. تراجع عن الدفعات أو أكّد إعادة ضبط تواريخها على المنطقة الجديدة');
       default: break;
     }
     if (!b.status) return fallback ?? tr('تعذر الاتصال بالخادم، أعد المحاولة');

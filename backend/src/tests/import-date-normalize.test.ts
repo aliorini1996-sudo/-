@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  ImportHttpError, importTimezone, isImportDate, localDateToInstant, resolveImportDates,
+  ImportHttpError, explicitTimezone, importTimezone, isImportDate, localDateToInstant, resolveImportDates,
 } from '../services/importLedger';
+import { importedEntryInstant } from '../services/importTimezoneRebase';
 import { openingCutoff } from '../services/gl/opening';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
@@ -84,6 +85,46 @@ test('توقيت الشركة: قبل التفعيل مسودة الخطوة 1،
   assert.equal(importTimezone({ activatedAt: new Date(), timezone: 'Africa/Cairo', setupDraft: { step1: { timezone: 'Asia/Dubai' } } }), 'Africa/Cairo');
   assert.equal(importTimezone({ activatedAt: null, timezone: 'Not/AZone', setupDraft: { step1: { timezone: 'bad' } } }), 'Asia/Riyadh');
   assert.equal(localDateToInstant('Asia/Dubai', '2026-09-01').toISOString(), '2026-08-31T20:00:00.000Z');
+});
+
+// البند 22 (الإغلاقة): كاتب الاستيراد كان يفترض الرياض لشركة بلا إعدادات دفاتر بينما صار قارئ الكشف يقرؤها بـUTC،
+// فتُكتب حركة 1 فبراير عند 2026-01-31T21:00Z وتظهر في كشف يناير. `importTimezone` بقيت للعرض وحدود اليوم وحدهما.
+test('بلا إعدادات دفاتر: التوقيت null ⇒ لحظة القيد منتصف ليل UTC (لا 21:00Z بافتراض الرياض)', () => {
+  assert.equal(explicitTimezone(null), null);
+  assert.equal(explicitTimezone({ activatedAt: null, timezone: 'Not/AZone' }), null);
+  assert.equal(localDateToInstant(null, '2026-02-01').toISOString(), '2026-02-01T00:00:00.000Z');
+  // المصدر الواحد: ما يكتبه الاستيراد هو عين ما يبني به فلتر الكشف حدوده
+  for (const tz of [null, 'Asia/Riyadh', 'Africa/Cairo'] as const) {
+    assert.equal(localDateToInstant(tz, '2026-02-01').getTime(), importedEntryInstant('2026-02-01', tz).getTime(), String(tz));
+  }
+  assert.equal(localDateToInstant('Asia/Riyadh', '2026-02-01').toISOString(), '2026-01-31T21:00:00.000Z');
+  // منطقة غير صالحة لم تعد تُفسَّر رياضاً (لا مصدر ثانٍ للحقيقة)
+  assert.equal(localDateToInstant('Not/AZone', '2026-02-01').toISOString(), '2026-02-01T00:00:00.000Z');
+  // صفوف الملف والصفوف بلا تاريخ تمرّ كلها بالمصدر نفسه، والتحقق من الصيغة باقٍ
+  const r = resolveImportDates([{ date: '2026-02-01' }, {}], { timezone: null, undatedDate: '2026-01-31', activated: false, now: new Date() });
+  assert.equal(r.dates[0].toISOString(), '2026-02-01T00:00:00.000Z');
+  assert.equal(r.dates[1].toISOString(), '2026-01-31T00:00:00.000Z');
+  rejects400(() => localDateToInstant(null, '2026-02-30'), 'IMPORT_INVALID_DATE');
+});
+
+test('حارس ثابت (البند 22): سياق الاستيراد يبني لحظاته بالتوقيت المضبوط فعلاً لا بافتراض الرياض', () => {
+  const s = read('routes/import.ts');
+  const i = s.indexOf('async function importLedgerContext(');
+  assert.ok(i > 0);
+  const fn = s.slice(i, s.indexOf('decimals };', i));
+  assert.match(fn, /timezone: string \| null/);
+  assert.match(fn, /timezone: explicitTimezone\(s\)/);
+  assert.doesNotMatch(fn, /importTimezone\(/, 'افتراض الرياض في كتابة لحظة القيد');
+  // المنطقة الواحدة تُمرَّر إلى حساب التواريخ وإلى حجز الدفعة معاً، فلا منطقتان في الطلب الواحد
+  for (const head of ["router.post('/balances'", "router.post('/ledger'"]) {
+    const at = s.indexOf(head);
+    const body = s.slice(at, s.indexOf('router.post(', at + 10));
+    assert.match(body, /resolveImportDates\(rows, \{ timezone: ctx\.timezone/, head);
+    assert.match(body, /body\.force === true, ctx\.activated, ctx\.timezone\)/, head);
+  }
+  // المخزون الافتتاحي يبقى على importTimezone: تسمية معروضة وحدود «اليوم»، لا لحظة قيد
+  const os = s.slice(s.indexOf("router.post('/opening-stock'"));
+  assert.match(os, /const tz = importTimezone\(preSettings\)/);
 });
 
 test('import.ts: حقل date في الأرصدة والكشف YYYY-MM-DD، ولا new Date(ymd)، والتحقق قبل أي معاملة', () => {

@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { arEntryTombstoneRows, ledgerTombstones, ledgerTombstoneSettings } from '../services/gl/sync/tombstone';
 import { acquirePostLock } from '../services/gl/post';
@@ -11,15 +11,17 @@ import { customerScope } from '../services/customerScope';
 import { currencyDecimalsOf } from '../config/countries';
 import {
   ADJUSTMENT_TYPES, BALANCE_SKIP_MESSAGES, FK_BLOCK_REASON, IMPORT_BATCH_DONE, ImportHttpError, assertImportLedgerStateUnchanged, IMPORT_BATCH_RUNNING, IMPORT_ENTRY_KINDS, LEDGER_BUSY_MESSAGE,
-  OPENING_BALANCE_DESCRIPTION, YMD_RE,
+  OPENING_BALANCE_DESCRIPTION, PRICE_CHANGED_AFTER_IMPORT, YMD_RE, draftCategoryLinkIds, openingStockMovementConflicts, openingStockProductMatcher,
+  otherRunningEntryImport, planProductImportRows, priceRevertOutcome, explicitTimezone,
   assertBatchRevertible, assertNoRunningImport, assertNotDuplicateBatch, assertOverlapConfirmed, balanceSkipReason, categoryDeletable,
   customerBlockReason, detectLedgerOverlap, importBatchState, importContentHash, importErrorBody, importFlushDue, importTimezone,
   importedEntryIndex, isFkBlockError, isImportHttpError, isLockBusyError, parseBatchRecordIds, productBlockReason, resolveImportDates,
   revertOutcome, revertResponse, roundImportAmount, serializeBatchRecordIds, type RevertBlocked,
   OPENING_STOCK_ENTRY_TYPE, OPENING_STOCK_KIND, OPENING_STOCK_NOTE, assertOpeningStockAllowed, assertOpeningStockRevertAllowed,
-  openingStockContentHash, openingStockProductFinder, openingStockRevertBlockReason, resolveOpeningStockRows,
+  openingStockContentHash, openingStockRevertBlockReason, resolveOpeningStockRows, type OpeningStockPriorBatch,
   assertMasterBatchReservable, customerMatchError, groupLedgerRows, importRowError, importWriteFailure, mergeBalanceRows, normImportName,
-  priceRowIssue, pricesRevertPlan, taxPctIssue, type BalanceSkipReason, type ImportMasterKind, type ImportRowError, type ResolvedBalanceRow,
+  priceRowIssue, pricesRevertPlan, taxPctIssue, type BalanceSkipReason, type ImportMasterKind, type ImportRowError, type OpeningStockLine, type ResolvedBalanceRow,
+  newPricesRevertTotals, runPricesRevertChunks, type PriceRevertChunkDelta,
 } from '../services/importLedger';
 import { entryTotalCost } from '../services/warehouseCost';
 import {
@@ -43,12 +45,24 @@ const CHANNELS = ['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE'
 
 type ImportResult = {
   created: number; skipped: number; total: number; errors: ImportRowError[]; batchId?: string | null;
+  /** الأسعار (البند 7): أزواج كان لها سعر سابق فاستُبدل */
+  updated?: number;
   /** العملاء: أكواد رُبطت بعملاء قائمين بكود تلقائي (تعديل لا إنشاء) */
   attached?: number;
 };
 
 /** مهلة معاملات كتابة الشرائح (البند 6) */
 const IMPORT_WRITE_TX = { maxWait: 10_000, timeout: 60_000 };
+
+/** البند 15: شريحة فحص «للصنف حركات سابقة» — معاملة الجرد تمسك قفل gl-post فلا تُقرأ آلاف المعرّفات دفعةً */
+const STOCK_CHECK_CHUNK = 200;
+
+/** تقطيع معرّفات إلى شرائح بحجم ثابت (الفارغة لا تُنتج شريحة) */
+function idChunks(ids: readonly string[], size: number = STOCK_CHECK_CHUNK): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
 
 const importedBy = (req: AuthRequest): string | null => (req.user as { name?: string } | undefined)?.name || null;
 
@@ -58,15 +72,22 @@ function sendImportError(err: unknown, res: Response, next: NextFunction): void 
   next(err);
 }
 
-/** حالة الدفاتر وتوقيت الشركة ومنازل العملة (منازل الدفاتر إن وُجدت، وإلا عملة الشركة) */
-async function importLedgerContext(tid: string): Promise<{ activated: boolean; timezone: string; decimals: number }> {
+/**
+ * حالة الدفاتر وتوقيت الشركة ومنازل العملة (منازل الدفاتر إن وُجدت، وإلا عملة الشركة).
+ *
+ * البند 22 (الإغلاقة): التوقيت هنا هو **المضبوط فعلاً** (explicitTimezone) لا الافتراض الرياضي — به تُكتب لحظة
+ * القيد المستورد (localDateToInstant ⇒ importedEntryInstant)، وبه عينه يقرأ فلتر كشف الحساب حدوده
+ * (services/statementRange.ts). شركة بلا إعدادات دفاتر ⇒ null في الطرفين: منتصف ليل UTC كتابةً وقراءةً،
+ * فلا تظهر حركة 1 فبراير في كشف يناير.
+ */
+async function importLedgerContext(tid: string): Promise<{ activated: boolean; timezone: string | null; decimals: number }> {
   const s = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true, currencyDecimals: true } });
   let decimals = s?.currencyDecimals;
   if (typeof decimals !== 'number' || !Number.isInteger(decimals) || decimals < 0 || decimals > 3) {
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currency: true } });
     decimals = currencyDecimalsOf(company?.currency);
   }
-  return { activated: !!s?.activatedAt, timezone: importTimezone(s), decimals };
+  return { activated: !!s?.activatedAt, timezone: explicitTimezone(s), decimals };
 }
 
 const IMPORT_ENTRIES_LOCK_PREFIX = 'import-entries:';
@@ -79,16 +100,16 @@ const IMPORT_MASTER_LOCK_PREFIX = 'import-master:';
  * 409 IMPORT_IN_PROGRESS)، ثم الإنشاء. فلا يعمل استيرادان للقيود معاً، وفهرس المستورد في الطلب لا يتقادم.
  */
 async function reserveEntryBatch(
-  tid: string, kind: 'balances' | 'ledger', contentHash: string, by: string | null, force: boolean, expectActivated: boolean,
+  tid: string, kind: 'balances' | 'ledger', contentHash: string, by: string | null, force: boolean, expectActivated: boolean, expectTimezone: string | null,
 ): Promise<string> {
   try {
     return await prisma.$transaction(async tx => {
       // اعتماد الدفاتر يمسك القفل نفسه حتى 60 ثانية: الانتظار محدود ⇒ 409 IMPORT_LEDGER_BUSY لا 500
       await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${IMPORT_ENTRIES_LOCK_PREFIX + tid}::text))`;
-      // التواريخ حُسبت بحالة الدفاتر قبل القفل: فُعّلت بينهما ⇒ 409 IMPORT_LEDGER_STATE_CHANGED قبل أي حجز
-      const gs = await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true } });
-      assertImportLedgerStateUnchanged(gs?.activatedAt, expectActivated);
+      // التواريخ حُسبت بحالة الدفاتر ومنطقتها قبل القفل: فُعّلت أو تغيّرت منطقتها بينهما (البند 25) ⇒ 409 IMPORT_LEDGER_STATE_CHANGED قبل أي حجز
+      const gs = await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true } });
+      assertImportLedgerStateUnchanged({ activatedAt: gs?.activatedAt, expectActivated, timezone: explicitTimezone(gs), expectTimezone });
       const now = new Date();
       const dup = await tx.importBatch.findFirst({
         where: { tenantId: tid, kind, reverted: false, contentHash }, orderBy: { createdAt: 'desc' },
@@ -152,12 +173,12 @@ async function reserveMasterBatch(tid: string, kind: ImportMasterKind, contentHa
  * في دفعته تماماً. النبض خارج المعاملات. النهاية: done، أو حذف الدفعة إن لم يُكتب شيء (batchId=null).
  */
 class ImportBatchProgress {
-  private state: ImportProgressState = { records: [], categories: [], previous: {} };
+  private state: ImportProgressState = { records: [], categories: [], previous: {}, imported: {} };
   private lastWriteAt = Date.now();
   constructor(readonly id: string, readonly kind: string) {}
 
   private data(s: ImportProgressState) {
-    return { count: s.records.length, recordIds: serializeBatchRecordIds(this.kind, s.records, s.categories, s.previous), heartbeatAt: new Date() };
+    return { count: s.records.length, recordIds: serializeBatchRecordIds(this.kind, s.records, s.categories, s.previous, s.imported), heartbeatAt: new Date() };
   }
 
   /** داخل معاملة الكتابة: الملتزم سابقاً + دلتا هذه المعاملة */
@@ -357,6 +378,7 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     const body = productsBody.parse(req.body ?? {});
     const rows = body.rows;
     const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    let plan: ProductImportPlan = { creates: [], skippedRows: [], errors: [] };
 
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
     const defaultVat = company?.defaultVatPct ?? 15;
@@ -365,8 +387,8 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'products', importContentHash('products', rows), importedBy(req), body.force === true), 'products');
     try {
-      const existing = await prisma.product.findMany({ where: { tenantId: tid }, select: { code: true } });
-      const codes = new Set(existing.map(e => e.code));
+      // البند 30: المؤرشف خطأ صف، والقائم والمكرر في الملف متخطى برقم صفه وسببه
+      const existing = await prisma.product.findMany({ where: { tenantId: tid }, select: { code: true, deletedAt: true } });
 
       // خريطة الفئات بالاسم المطبَّع (مؤسسة/مؤسسه، المسافات)
       const cats = await prisma.productCategory.findMany({ where: { tenantId: tid }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } });
@@ -375,15 +397,11 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
       // فئات أُنشئت داخل معاملة لم تلتزم بعد (تُلغى معها إن فشلت)
       const txCategories = new WeakMap<object, Map<string, string>>();
 
-      const creates: { row: number; r: z.infer<typeof productRow> }[] = [];
-      rows.forEach((r, i) => {
-        if (codes.has(r.code)) { result.skipped++; return; }
-        // البند 14: خلية ضريبة منسّقة ٪ في Excel ⇒ 0.15
-        const taxIssue = taxPctIssue(r.taxPct);
-        if (taxIssue) { result.errors.push(importRowError(i + 2, taxIssue)); return; }
-        codes.add(r.code);
-        creates.push({ row: i + 2, r });
-      });
+      // تنسيق العقد: بصمة الصف (productRowSignature) تقارن الضريبة بالقيمة المكتوبة نفسها (r.taxPct ?? defaultVat)
+      plan = planProductImportRows(rows, existing, defaultVat);
+      const creates = plan.creates;
+      result.skipped = plan.skippedRows.length;
+      for (const e of plan.errors) result.errors.push(e);
       await runImportChunks({
         chunks: planImportChunks(creates, () => 1, importChunkTarget(creates.length)),
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
@@ -426,9 +444,11 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: { ...result, skippedRows: plan.skippedRows.slice(0, 500) } });
   } catch (err) { sendImportError(err, res, next); }
 });
+
+type ProductImportPlan = ReturnType<typeof planProductImportRows<z.infer<typeof productRow>>>;
 
 function productDelta(w: { id: string; newCategory: { id: string } | null }): ImportProgressDelta {
   return { records: [w.id], categories: w.newCategory ? [w.newCategory.id] : [] };
@@ -476,7 +496,7 @@ router.post('/balances', requireImportAccess('balances'), async (req: AuthReques
     result.zero = zero;
     // مراجعة 3 و7: الدفعة محجوزة قبل أي كتابة (البصمة والاستيراد الجاري تحت قفل الشركة)
     const progress = new ImportBatchProgress(
-      await reserveEntryBatch(tid, 'balances', contentHash, importedBy(req), body.force === true, ctx.activated), 'balances');
+      await reserveEntryBatch(tid, 'balances', contentHash, importedBy(req), body.force === true, ctx.activated, ctx.timezone), 'balances');
     try {
       // الدفعات السابقة وحدها (لا إضافة من هذا الطلب: العميل قيد واحد بعد الدمج)
       const idx = await loadImportedIndex(tid);
@@ -505,7 +525,8 @@ router.post('/balances', requireImportAccess('balances'), async (req: AuthReques
               balance: clean(prev + amount), description: OPENING_BALANCE_DESCRIPTION, entryDate: item.date,
             },
           });
-          await tx.customer.update({ where: { id: cid }, data: { balance: { increment: amount } } });
+          // البند 19: الرصيد المحسوب تحت قفل الصف (Σمدين − Σدائن + المبلغ) لا increment على لقطة
+          await tx.customer.update({ where: { id: cid }, data: { balance: clean(prev + amount) } });
           return { id: e.id };
         },
         // معرّفات الشريحة في آخر معاملة كتابتها نفسها، دون شرط (البند 6)
@@ -566,7 +587,7 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
     result.zero = grouped.zero;
     // مراجعة 3 و7: الدفعة محجوزة قبل فحص التداخل وأي كتابة (لا استيراد قيود آخر يعمل معه)
     const progress = new ImportBatchProgress(
-      await reserveEntryBatch(tid, 'ledger', contentHash, importedBy(req), body.force === true, ctx.activated), 'ledger');
+      await reserveEntryBatch(tid, 'ledger', contentHash, importedBy(req), body.force === true, ctx.activated, ctx.timezone), 'ledger');
     let overlap: ReturnType<typeof detectLedgerOverlap> = [];
     try {
       // التداخل مع رصيد مستورد أو كشف سابق ⇒ 409 IMPORT_OVERLAP_CONFIRM قبل أي كتابة، ما لم يُرسل confirmOverlap (والحجز يُحذف)
@@ -595,6 +616,8 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
         chunks: planImportChunks(groupItems, g => g.entries.length, importChunkTarget(totalEntries)),
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
         writeItem: async (tx: Prisma.TransactionClient, { cid, entries }) => {
+          // البند 19: قفل صف العميل قبل قراءة رصيده — فاتورة أو سند متزامن ينتظر، فلا يُكتب الرصيد من لقطة قديمة
+          await tx.$queryRaw`SELECT id FROM customers WHERE id = ${cid} AND "tenantId" = ${tid} FOR UPDATE`;
           const groupIds: string[] = [];
           let running = await currentBalance(tx, cid);
           for (const e of entries) {
@@ -650,15 +673,19 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
     const tid = tenantId(req);
     const body = pricesBody.parse(req.body ?? {});
     const rows = body.rows;
-    const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const result: ImportResult = { created: 0, updated: 0, skipped: 0, total: rows.length, errors: [] };
     // البند 20: الدفعة محجوزة قبل أي كتابة
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'prices', importContentHash('prices', rows), importedBy(req), body.force === true), 'prices');
+    // البند 7: previous أول سعر قبل الدفعة، وimported آخر سعر كتبته — التراجع يقارن به قبل أن يمس شيئاً
+    const priceDelta = (w: { id: string; previous: number | null; price: number }): ImportProgressDelta =>
+      ({ records: [w.id], previous: [[w.id, w.previous]], imported: [[w.id, w.price]] });
     try {
       const matcher = await customerMatcher(req, tid);
       const prods = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true } });
       const prodByCode = new Map(prods.map(p => [p.code, p.id]));
       const writes: { row: number; customerId: string; productId: string; price: number }[] = [];
+      const pairsCounted = new Set<string>();
       rows.forEach((r, i) => {
         const row = i + 2;
         const m = matcher(r);
@@ -682,12 +709,18 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
             update: { price: w.price },
             select: { id: true },
           });
-          return { id: cp.id, previous: before ? before.price : null };
+          return { id: cp.id, previous: before ? before.price : null, price: w.price };
         },
         flush: (tx, written) => progress.write(tx, written.map(x => priceDelta(x.result))),
         onCommitted: written => {
           progress.commit(written.map(x => priceDelta(x.result)));
-          result.created += written.length;
+          // البند 7: الزوج يُعدّ مرة واحدة — جديد (لا سعر قبل الدفعة) أو مستبدل
+          for (const x of written) {
+            if (pairsCounted.has(x.result.id)) continue;
+            pairsCounted.add(x.result.id);
+            if (x.result.previous === null) result.created++;
+            else result.updated = (result.updated ?? 0) + 1;
+          }
         },
         onItemError: (w, e) => { result.errors.push(importWriteFailure(w.row, e)); },
         isFatal: isImportHttpError,
@@ -700,9 +733,6 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
   } catch (err) { sendImportError(err, res, next); }
 });
 
-function priceDelta(w: { id: string; previous: number | null }): ImportProgressDelta {
-  return { records: [w.id], previous: [[w.id, w.previous]] };
-}
 
 
 // ===== استيراد المخزون الافتتاحي (البند 9) =====
@@ -741,18 +771,24 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
       assertOpeningStockAllowed({
         activatedAt: s?.activatedAt, setupDraft: s?.setupDraft, timezone: importTimezone(s), now, acknowledgeCutoverChange: body.acknowledgeCutoverChange === true,
       });
-    // فحص سريع قبل القراءة الكبيرة، ويُعاد تحت القفل
-    guard(await settingsOf(prisma), new Date());
-    const contentHash = openingStockContentHash(rows, body.pricesIncludeTax);
+    // فحص سريع قبل القراءة الكبيرة، ويُعاد تحت القفل. ومنه توقيت الشركة: تاريخ الدفعة السابقة يُعرض به (بلا قراءة تحت القفل)
+    const preSettings = await settingsOf(prisma);
+    guard(preSettings, new Date());
+    const tz = importTimezone(preSettings);
+    // البند 16: البصمة للصفوف وحدها — إعادة الرفع بتبديل «شاملة الضريبة» تكرار لا دفعة ثانية
+    const contentHash = openingStockContentHash(rows);
     assertNotDuplicateBatch(await duplicateBatch(tid, OPENING_STOCK_KIND, contentHash), body.force === true);
 
-    const products = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true, barcode: true, name: true, taxPct: true } });
-    const { lines, errors } = resolveOpeningStockRows(rows, openingStockProductFinder(products), body.pricesIncludeTax);
+    // البند 24: المطابقة بالأصناف النشطة وحدها — الموقوف والمؤرشف والملتبس خطأ صف صريح
+    const products = await prisma.product.findMany({
+      where: { tenantId: tid }, select: { id: true, code: true, barcode: true, name: true, taxPct: true, status: true, deletedAt: true },
+    });
+    const { lines, errors } = resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax);
     const result = { created: 0, skipped: 0, total: rows.length, errors, batchId: null as string | null, entryId: null as string | null, totalCost: 0 };
     if (!lines.length) { res.json({ success: true, data: result }); return; }
 
     const by = (req.user as { name?: string } | undefined)?.name || null;
-    let out: { batchId: string; entryId: string };
+    let out: { batchId: string | null; entryId: string | null; accepted: OpeningStockLine[]; rejected: ImportRowError[] };
     try {
       out = await prisma.$transaction(async tx => {
         await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
@@ -766,21 +802,70 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
           where: { tenantId: tid, kind: OPENING_STOCK_KIND, reverted: false, contentHash }, orderBy: { createdAt: 'desc' },
           select: { id: true, createdAt: true, status: true, heartbeatAt: true },
         }), body.force === true);
+        // البندان 15 و16: صنف له حركات مستودع أو تحميل سيارات سابقة لا يُضاف جرده فوق رصيد محسوب منها، وما دخل
+        // في دفعة opening_stock غير متراجع عنها لا يتضاعف بإعادة الرفع — صفاً صفاً، والبقية تُكتب
+        const productIds = [...new Set(lines.map(l => l.productId))];
+        // دفعات الجرد الافتتاحي أولاً: معرّفات حركاتها تُستثنى من فحص «الحركات السابقة» وتُقرأ وحدها بالتفصيل
+        const openingBatches = await tx.importBatch.findMany({
+          where: { tenantId: tid, kind: OPENING_STOCK_KIND, reverted: false }, select: { id: true, recordIds: true, createdAt: true },
+        });
+        // العقد (البند K): ما يُعرض للمالك تاريخ الدفعة السابقة (YYYY-MM-DD بتوقيت الشركة) لا معرّفها — به يعرف أي دفعة يتراجع عنها
+        const openingEntryBatch = new Map<string, OpeningStockPriorBatch>();
+        for (const ob of openingBatches) for (const eid of parseBatchRecordIds(ob.recordIds).records) if (!openingEntryBatch.has(eid)) openingEntryBatch.set(eid, { id: ob.id, createdAt: ob.createdAt });
+        const openingEntryIds = [...openingEntryBatch.keys()];
+        // البند 15: فحص وجود مُقطَّع (شرائح STOCK_CHECK_CHUNK) بـGROUP BY في القاعدة — صفٌّ لكل صنف (≤ حجم الشريحة)
+        // لا كل بنود المستودع التاريخية إلى الذاكرة، والصنف الذي ثبتت حركته لا يُسأل عنه ثانية؛ فلا يطول حبس قفل
+        // gl-post بملف فيه آلاف الأصناف. (distinct في Prisma 5.14 يُطبَّق بعد الجلب فلا يحدّ القراءة.)
+        const movedProductIds = new Set<string>();
+        for (const part of idChunks(productIds)) {
+          const movedRows = await tx.warehouseEntryItem.groupBy({
+            by: ['productId'],
+            where: {
+              productId: { in: part }, entry: { tenantId: tid },
+              ...(openingEntryIds.length ? { entryId: { notIn: openingEntryIds } } : {}),
+            },
+            _count: { _all: true },
+          });
+          for (const r of movedRows) movedProductIds.add(r.productId);
+        }
+        // ما ثبتت حركته في المستودع لا يُسأل عن تحميلاته: النتيجة اتحاد المجموعتين نفسها
+        for (const part of idChunks(productIds.filter(id => !movedProductIds.has(id)))) {
+          const vanRows = await tx.vanLoadItem.groupBy({
+            by: ['productId'],
+            where: { productId: { in: part }, vanLoad: { tenantId: tid, type: { in: ['LOAD', 'UNLOAD'] } } },
+            _count: { _all: true },
+          });
+          for (const v of vanRows) movedProductIds.add(v.productId);
+        }
+        const openingBatchOf = new Map<string, OpeningStockPriorBatch>();
+        if (openingEntryIds.length) {
+          for (const part of idChunks(productIds)) {
+            const openingItems = await tx.warehouseEntryItem.findMany({
+              where: { productId: { in: part }, entryId: { in: openingEntryIds } }, select: { productId: true, entryId: true },
+            });
+            for (const it of openingItems) {
+              const b = openingEntryBatch.get(it.entryId);
+              if (b && !openingBatchOf.has(it.productId)) openingBatchOf.set(it.productId, b);
+            }
+          }
+        }
+        const checked = openingStockMovementConflicts(lines, { movedProductIds, openingBatchOf, timezone: tz });
+        if (!checked.lines.length) return { batchId: null, entryId: null, accepted: [], rejected: checked.errors };
         const entry = await tx.warehouseEntry.create({
           data: {
             tenantId: tid, type: OPENING_STOCK_ENTRY_TYPE, note: OPENING_STOCK_NOTE, createdBy: by, createdAt: dbNow,
-            items: { create: lines.map(l => ({ productId: l.productId, qty: l.qty, unitCost: l.unitCost })) },
+            items: { create: checked.lines.map(l => ({ productId: l.productId, qty: l.qty, unitCost: l.unitCost })) },
           },
           select: { id: true },
         });
         const b = await tx.importBatch.create({
           data: {
-            tenantId: tid, kind: OPENING_STOCK_KIND, count: lines.length, recordIds: serializeBatchRecordIds(OPENING_STOCK_KIND, [entry.id]),
+            tenantId: tid, kind: OPENING_STOCK_KIND, count: checked.lines.length, recordIds: serializeBatchRecordIds(OPENING_STOCK_KIND, [entry.id]),
             createdBy: by, contentHash, status: IMPORT_BATCH_DONE, heartbeatAt: dbNow, createdAt: dbNow,
           },
           select: { id: true },
         });
-        return { batchId: b.id, entryId: entry.id };
+        return { batchId: b.id, entryId: entry.id, accepted: checked.lines, rejected: checked.errors };
       }, { maxWait: 10_000, timeout: 30_000 });
     } catch (e) {
       if (!isImportHttpError(e) && isLockBusyError(e)) {
@@ -791,7 +876,10 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
     }
     res.json({
       success: true,
-      data: { ...result, created: lines.length, batchId: out.batchId, entryId: out.entryId, totalCost: entryTotalCost(lines) },
+      data: {
+        ...result, errors: [...errors, ...out.rejected], created: out.accepted.length,
+        batchId: out.batchId, entryId: out.entryId, totalCost: entryTotalCost(out.accepted),
+      },
     });
   } catch (err) { sendImportError(err, res, next); }
 });
@@ -841,11 +929,22 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
     const parsed = parseBatchRecordIds(batch.recordIds);
     const ids = parsed.records;
     let removed = 0;
+    // الأسعار (البند 7): المستعاد والمحذوف يُفصلان في الرد
+    let restored = 0;
+    let deleted = 0;
+    // البند I: صفوف سعرها الحالي = السابق (تراجع انقطع في منتصفه) — سبق التراجع عنها فتُتخطّى، لا blocked أبدية
+    let alreadyReverted = 0;
     const blocked: RevertBlocked[] = [];
     const done = new Set<string>();
+    // البند 17: توابع العميل المحذوفة معه تُحصى وتُذكر في الرد — لا حذف صامت
+    const customerRemoved = { removedEntries: 0, removedPrices: 0, removedNotifications: 0, removedAssignments: 0, removedScopes: 0 };
+    // حصيلة شرائح الأسعار: تبقى بما التُزم حتى لو رُمي خطأ في شريحة لاحقة
+    const priceTotals = newPricesRevertTotals();
 
     if (batch.kind === 'customers') {
       let ledgerBusy = false;
+      // البند 17: قيود العميل التي جاءت من دفعات أرصدة/كشوف غير متراجع عنها (تُذكر في سبب المنع)
+      const idx = await loadImportedIndex(tid);
       const names = new Map((await prisma.customer.findMany({ where: { tenantId: tid, id: { in: ids } }, select: { id: true, name: true } })).map(c => [c.id, c.name]));
       for (const cid of ids) {
         try {
@@ -859,11 +958,23 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
             // الدفاتر (§5.3): null حين لم تُفعَّل يوماً — فلا كتابة إضافية
             const glSettings = await ledgerTombstoneSettings(tx, tid);
             // حماية: لا نحذف عميلاً له فواتير/سندات/روابط دفع/زيارات حقيقية
-            const reason = customerBlockReason({
+            const footprint = {
               invoices: await tx.invoice.count({ where: { customerId: cid } }),
               receipts: await tx.receipt.count({ where: { customerId: cid } }),
               paymentLinks: await tx.customerPaymentLink.count({ where: { customerId: cid } }),
               visits: await tx.repVisit.count({ where: { customerId: cid } }),
+            };
+            // البند 17: ولا عميلاً له رصيد أو كشف مستورد أو قيود أخرى أو أسعار خاصة أو محطات خط سير — لا حذف صامت
+            const entryIds = await tx.accountEntry.findMany({ where: { customerId: cid }, select: { id: true } });
+            const importedEntries = entryIds.filter(e => idx.balances.has(e.id) || idx.ledger.has(e.id)).length;
+            const reason = customerBlockReason({
+              ...footprint,
+              importedEntries,
+              otherEntries: entryIds.length - importedEntries,
+              prices: await tx.customerPrice.count({ where: { customerId: cid } }),
+              routeStops: await tx.repRouteStop.count({ where: { customerId: cid, tenantId: tid } }),
+              // Cascade يمحو الإسناد مع العميل بصمت: المندوب يفقد عميله بلا سبب ظاهر
+              assignments: await tx.customerAssignment.count({ where: { customerId: cid, tenantId: tid } }),
             });
             if (reason) return { status: 'blocked' as const, reason };
             const rows = await tx.accountEntry.findMany({
@@ -876,14 +987,26 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
                 await tx.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true });
               }
             }
-            await tx.accountEntry.deleteMany({ where: { id: { in: rows.map(e => e.id) } } });
-            await tx.customerPrice.deleteMany({ where: { customerId: cid } });
-            await tx.notification.deleteMany({ where: { customerId: cid } });
+            // البند 17: كل صفّ تابع يُحذف يُعدّ ويُذكر في الرد (الإسناد Cascade كان يُمحى بصمت) — لا حذف صامت
+            const removedEntries = (await tx.accountEntry.deleteMany({ where: { id: { in: rows.map(e => e.id) } } })).count;
+            const removedPrices = (await tx.customerPrice.deleteMany({ where: { customerId: cid } })).count;
+            const removedNotifications = (await tx.notification.deleteMany({ where: { customerId: cid } })).count;
+            const removedAssignments = (await tx.customerAssignment.deleteMany({ where: { customerId: cid, tenantId: tid } })).count;
+            // البند 17 (الإغلاقة): نطاقات مستخدمي الشركة (AdminCustomerScope، Cascade) كانت تُمحى بصمت — أثر
+            // صلاحيات لا بيانات عمل، فلا يمنع الحذف، لكنه يُحذف صراحةً ويُعدّ ويُذكر في الرد كبقيّة التوابع
+            const removedScopes = (await tx.adminCustomerScope.deleteMany({ where: { customerId: cid, tenantId: tid } })).count;
             await tx.customer.deleteMany({ where: { id: cid, tenantId: tid } });
-            return { status: 'removed' as const };
+            return { status: 'removed' as const, removedEntries, removedPrices, removedNotifications, removedAssignments, removedScopes };
           }, { maxWait: 10_000, timeout: 30_000 });
           if (out.status === 'blocked') { blocked.push({ id: cid, name: names.get(cid) ?? '', reason: out.reason }); continue; }
-          if (out.status === 'removed') removed++;
+          if (out.status === 'removed') {
+            removed++;
+            customerRemoved.removedEntries += out.removedEntries;
+            customerRemoved.removedPrices += out.removedPrices;
+            customerRemoved.removedNotifications += out.removedNotifications;
+            customerRemoved.removedAssignments += out.removedAssignments;
+            customerRemoved.removedScopes += out.removedScopes;
+          }
           done.add(cid);
         } catch (e) {
           // الفشل يلغي المعاملة كلها ومعها أحداث الدفاتر ذرياً
@@ -926,13 +1049,21 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
       }
     } else if (batch.kind === 'balances' || batch.kind === 'ledger') {
       // احذف القيود المستوردة ثم أعد حساب أرصدة العملاء المتأثّرين (وأرصدتهم المتحرّكة)
-      // معاملة تفاعلية واحدة (§5.3): قفل gl-post، ثم القراءة ثم أحداث الدفاتر (لا شيء حين لم تُفعَّل يوماً) ثم الحذف.
-      // إعادة كتابة الأرصدة صفاً صفاً تبقى خارجها كما كانت.
-      let affected: string[];
+      // البند 18: معاملة تفاعلية واحدة (§5.3) — قفل gl-post ثم قفل import-entries، ثم القراءة وأحداث الدفاتر ثم الحذف،
+      // ثم إعادة حساب الأرصدة تحت قفل صفوف العملاء ووسم الدفعة reverted داخلها. لا شيء منها يبقى خارج المعاملة.
       try {
-        affected = await prisma.$transaction(async tx => {
+        await prisma.$transaction(async tx => {
           await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
           await acquirePostLock(tx, tid);
+          // البند 19(ج): قفل استيراد القيود نفسه — لا تراجع مع استيراد أرصدة/كشوف جارٍ ولا تراجعان معاً
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${IMPORT_ENTRIES_LOCK_PREFIX + tid}::text))`;
+          // إعادة قراءة الدفعة تحت القفل: تراجع متزامن سبقنا ⇒ 404 لا حذف مكرر ولا وسم ثانٍ
+          const fresh = await tx.importBatch.findFirst({ where: { id: batch.id, tenantId: tid, reverted: false }, select: { id: true } });
+          if (!fresh) throw new ImportHttpError(404, 'IMPORT_BATCH_GONE', 'الدفعة غير موجودة أو متراجع عنها');
+          otherRunningEntryImport(await tx.importBatch.findMany({
+            where: { tenantId: tid, reverted: false, kind: { in: [...IMPORT_ENTRY_KINDS] } },
+            select: { id: true, kind: true, createdAt: true, status: true, heartbeatAt: true },
+          }), batch.id, new Date());
           const entries = await tx.accountEntry.findMany({
             where: { id: { in: ids }, tenantId: tid },
             select: { id: true, customerId: true, debit: true, credit: true, entryDate: true, description: true, createdAt: true },
@@ -943,38 +1074,82 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
           }
           const del = await tx.accountEntry.deleteMany({ where: { id: { in: ids }, tenantId: tid } });
           removed = del.count;
-          return [...new Set(entries.map(e => e.customerId))];
+          // إعادة الحساب بـSQL: الرصيد المتحرّك بدالة نافذة، ورصيد العميل مجموعَ قيوده الباقية — تحت قفل صفّه
+          const affected = [...new Set(entries.map(e => e.customerId))].sort();
+          for (let i = 0; i < affected.length; i += 1000) {
+            const part = Prisma.join(affected.slice(i, i + 1000));
+            await tx.$executeRaw`SELECT id FROM customers WHERE id IN (${part}) AND "tenantId" = ${tid} ORDER BY id FOR UPDATE`;
+            await tx.$executeRaw`UPDATE account_entries ae SET balance = s.run FROM (SELECT id, ROUND(SUM(debit - credit) OVER (PARTITION BY "customerId" ORDER BY "entryDate", "createdAt", debit DESC, id ROWS UNBOUNDED PRECEDING)::numeric, 6)::float8 AS run FROM account_entries WHERE "customerId" IN (${part})) s WHERE ae.id = s.id AND ae.balance IS DISTINCT FROM s.run`;
+            await tx.$executeRaw`UPDATE customers c SET balance = COALESCE((SELECT ROUND(SUM(debit - credit)::numeric, 6)::float8 FROM account_entries WHERE "customerId" = c.id), 0) WHERE c.id IN (${part}) AND c."tenantId" = ${tid}`;
+          }
+          await tx.importBatch.update({ where: { id: batch.id }, data: { reverted: true } });
         }, { maxWait: 10_000, timeout: 60_000 });
       } catch (e) {
-        if (isLockBusyError(e)) { res.status(409).json({ success: false, code: 'IMPORT_REVERT_LEDGER_BUSY', message: LEDGER_BUSY_MESSAGE }); return; }
+        if (!isImportHttpError(e) && isLockBusyError(e)) { res.status(409).json({ success: false, code: 'IMPORT_REVERT_LEDGER_BUSY', message: LEDGER_BUSY_MESSAGE }); return; }
         throw e;
       }
-      for (const cid of affected) {
-        const remaining = await prisma.accountEntry.findMany({ where: { customerId: cid }, orderBy: { entryDate: 'asc' } });
-        let running = 0;
-        for (const e of remaining) {
-          running = clean(running + Number(e.debit) - Number(e.credit));
-          await prisma.accountEntry.update({ where: { id: e.id }, data: { balance: running } });
-        }
-        await prisma.customer.update({ where: { id: cid }, data: { balance: running } });
-      }
     } else if (batch.kind === 'prices') {
-      // البند 20: السعر السابق يُستعاد (إن بقي الصف)، والمُنشأ في الدفعة (أو الشكل القديم) يُحذف — بمستأجر الشركة
-      const plan = pricesRevertPlan(parsed);
-      for (let i = 0; i < plan.restore.length; i += 500) {
-        const part = plan.restore.slice(i, i + 500);
-        removed += await prisma.$transaction(async tx => {
-          let n = 0;
-          for (const p of part) {
-            n += (await tx.customerPrice.updateMany({ where: { id: p.id, customer: { tenantId: tid } }, data: { price: p.price } })).count;
-          }
-          return n;
-        }, IMPORT_WRITE_TX);
+      // البندان 20 و7: السعر السابق يُستعاد (إن بقي الصف) والمُنشأ في الدفعة يُحذف — لكن فقط إن بقي السعر كما كتبته
+      // الدفعة؛ تغيّره بعدها (يدوياً أو بدفعة أحدث) ⇒ blocked فلا يُمحى عمل المالك. الصف مقفول داخل المعاملة.
+      // كل شريحة تثبّت تقدّمها داخل معاملتها: فشل شريحة متأخرة لا يترك الدفعة بمعرّفاتها الأصلية فتصير
+      // إعادة المحاولة blocked كاذبة على سعر استُعيد فعلاً. والقفل المزاحَم ⇒ 409 كبقية الفروع لا 500.
+      try {
+        await runPricesRevertChunks(ids, pricesRevertPlan(parsed).items, priceTotals, async (part, remainingAfter) => {
+          // البند I: ما عُدّ «سبق التراجع عنه» في الشريحة لا يُضاف إلى الحصيلة إلا بعد التزام معاملتها
+          let chunkAlready = 0;
+          const committed = await prisma.$transaction(async tx => {
+            await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
+            const locked = await tx.$queryRaw<{ id: string; price: number; name: string; code: string }[]>`
+              SELECT cp.id, cp.price, c.name, p.code FROM customer_prices cp
+              JOIN customers c ON c.id = cp."customerId" JOIN products p ON p.id = cp."productId"
+              WHERE cp.id IN (${Prisma.join(part.map(x => x.id))}) AND c."tenantId" = ${tid}
+              ORDER BY cp.id FOR UPDATE OF cp`;
+            const current = new Map(locked.map(r => [r.id, r]));
+            const delta: PriceRevertChunkDelta = { done: [], blocked: [], restored: 0, deleted: 0 };
+            const chunkDone = delta.done as string[];
+            const chunkBlocked = delta.blocked as RevertBlocked[];
+            for (const item of part) {
+              const row = current.get(item.id);
+              // البند I: القرار في دالّة واحدة مصدَّرة (priceRevertOutcome) يختبرها الاختبار بعينها — التراجع متعادٍ:
+              // سعر حالي = السابق يعني أن تراجعاً انقطع في منتصفه أعاده فعلاً، فيُعدّ منجزاً ('already') لا ممنوعاً أبداً
+              const action = priceRevertOutcome(row ? Number(row.price) : null, item);
+              if (action === 'blocked') {
+                chunkBlocked.push({ id: item.id, name: `${row?.name ?? ''} — ${row?.code ?? ''}`, reason: PRICE_CHANGED_AFTER_IMPORT });
+                continue;
+              }
+              if (action === 'already') {
+                chunkAlready++;
+                chunkDone.push(item.id);
+                continue;
+              }
+              if (action === 'delete') { delta.deleted += (await tx.customerPrice.deleteMany({ where: { id: item.id, customer: { tenantId: tid } } })).count; }
+              else if (action !== 'gone') { delta.restored += (await tx.customerPrice.updateMany({ where: { id: item.id, customer: { tenantId: tid } }, data: { price: action.restore } })).count; }
+              chunkDone.push(item.id);
+            }
+            // آخر عبارة قبل الالتزام: المتبقّي (ومعه الممنوع) بسوابقه ومستورداته وحدها
+            const remaining = remainingAfter(chunkDone);
+            await tx.importBatch.update({
+              where: { id: batch.id },
+              data: { recordIds: serializeBatchRecordIds('prices', remaining, [], parsed.previous, parsed.imported), count: remaining.length },
+            });
+            return delta;
+          }, IMPORT_WRITE_TX);
+          alreadyReverted += chunkAlready;
+          return committed;
+        });
+      } catch (e) {
+        // ما التُزم محفوظ في القاعدة وفي priceTotals؛ المزاحمة على قفل الصف ⇒ 409 لا 500
+        if (!isImportHttpError(e) && isLockBusyError(e)) {
+          res.status(409).json({ success: false, code: 'IMPORT_REVERT_LEDGER_BUSY', message: LEDGER_BUSY_MESSAGE });
+          return;
+        }
+        throw e;
       }
-      if (plan.remove.length) {
-        const del = await prisma.customerPrice.deleteMany({ where: { id: { in: plan.remove }, customer: { tenantId: tid } } });
-        removed += del.count;
-      }
+      for (const id of priceTotals.done) done.add(id);
+      blocked.push(...priceTotals.blocked);
+      restored = priceTotals.restored;
+      deleted = priceTotals.deleted;
+      removed = restored + deleted;
     } else if (batch.kind === OPENING_STOCK_KIND) {
       // البند 9: قبل التفعيل وحده (بعده 409 OPENING_STOCK_REVERT_LEDGER_ACTIVE)، تحت قفل gl-post فلا يتقاطع مع الاعتماد؛
       // والحركة تُحذف ببنودها ما لم تُستهلك أصنافها بعدها (تحميل سيارات أو فواتير أو تسوية بالنقص) ⇒ blocked
@@ -1018,11 +1193,14 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
     }
 
     if (batch.kind === 'customers' || batch.kind === 'products' || batch.kind === OPENING_STOCK_KIND) {
-      // الفئات المُنشأة في الدفعة: تُحذف فقط إن لم يبقَ لها منتج ولا ربط حساب
+      // الفئات المُنشأة في الدفعة: تُحذف فقط إن لم يبقَ لها منتج ولا ربط حساب ولا ربط في مسودة معالج الدفاتر
       const keptCategories: string[] = [];
       if (batch.kind === 'products') {
+        // البند 26: فئة مربوطة بحساب إيراد في المسودة تبقى، وإلا فشل «تفعيل الدفاتر» بـ404 بلا ما يصلحه من الواجهة
+        const draftLinks = draftCategoryLinkIds((await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { setupDraft: true } }))?.setupDraft);
         for (const catId of parsed.categories) {
           const deletable = categoryDeletable({
+            draftLinked: draftLinks.has(catId),
             products: await prisma.product.count({ where: { tenantId: tid, categoryId: catId } }),
             accountRows: await prisma.glProductCategoryAccount.count({ where: { tenantId: tid, categoryId: catId } }),
           });
@@ -1037,14 +1215,32 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
       } else {
         await prisma.importBatch.update({
           where: { id: batch.id },
-          data: { recordIds: serializeBatchRecordIds(batch.kind, remainingIds, keptCategories), count: remainingIds.length },
+          data: { recordIds: serializeBatchRecordIds(batch.kind, remainingIds, keptCategories, parsed.previous, parsed.imported), count: remainingIds.length },
         });
       }
-      res.json({ success: true, data: revertResponse(batch.kind, removed, blocked, remainingIds.length, batch.kind === 'products' ? { keptCategories: keptCategories.length } : {}) });
+      // البند 17: ردّ العملاء يذكر عدد كل تابع حُذف معهم (قيود وأسعار وإشعارات وإسنادات ونطاقات)
+      const extra = batch.kind === 'products' ? { keptCategories: keptCategories.length } : batch.kind === 'customers' ? { ...customerRemoved } : {};
+      res.json({ success: true, data: revertResponse(batch.kind, removed, blocked, remainingIds.length, extra) });
       return;
     }
 
-    await prisma.importBatch.update({ where: { id: batch.id }, data: { reverted: true } });
+    // البند 7: أسعار مُنعت (تغيّرت بعد الاستيراد) تبقى في الدفعة بسوابقها ومستورداتها، فيُعاد التراجع عنها بعد مراجعتها
+    if (batch.kind === 'prices') {
+      const out = revertOutcome(ids, done);
+      if (out.reverted) {
+        await prisma.importBatch.update({ where: { id: batch.id }, data: { reverted: true } });
+      } else {
+        await prisma.importBatch.update({
+          where: { id: batch.id },
+          data: { recordIds: serializeBatchRecordIds(batch.kind, out.remainingIds, [], parsed.previous, parsed.imported), count: out.remainingIds.length },
+        });
+      }
+      res.json({ success: true, data: revertResponse(batch.kind, removed, blocked, out.remainingIds.length, { restored, deleted, alreadyReverted }) });
+      return;
+    }
+
+    // الأرصدة/الكشوف تُوسم reverted داخل معاملة الحذف نفسها (البند 18)، فلا وسم ثانٍ هنا
+    if (!(IMPORT_ENTRY_KINDS as readonly string[]).includes(batch.kind)) await prisma.importBatch.update({ where: { id: batch.id }, data: { reverted: true } });
     res.json({ success: true, data: revertResponse(batch.kind, removed, [], 0) });
   } catch (err) { sendImportError(err, res, next); }
 });

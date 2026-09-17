@@ -47,24 +47,31 @@ test('سيناريو البند 20(ب): الملف نفسه من تبويبين 
   assert.doesNotMatch(IMPORT_IN_PROGRESS_MESSAGE, /أرصدة أو كشوف/, 'الرسالة عامة');
 });
 
-test('سيناريو البند 20(أ): recordIds للأسعار {records, previous} ذهاباً وإياباً، والشكل القديم previous={}، وخطة التراجع', () => {
-  // دفعة: cp1 كان 12.5 ثم كُتب مرتين (يبقى أول سابق)، cp2 أُنشئ جديداً
-  const state = mergeImportDeltas({ records: [], categories: [], previous: {} }, [
-    { records: ['cp1'], previous: [['cp1', 12.5]] },
-    { records: ['cp2'], previous: [['cp2', null]] },
-    { records: ['cp1'], previous: [['cp1', 9]] },
+test('سيناريو البند 20(أ): recordIds للأسعار {records, previous, imported} ذهاباً وإياباً، والشكل القديم previous={}، وخطة التراجع', () => {
+  // دفعة: cp1 كان 12.5 ثم كُتب مرتين (يبقى أول سابق وآخر مستورد)، cp2 أُنشئ جديداً
+  const state = mergeImportDeltas({ records: [], categories: [], previous: {}, imported: {} }, [
+    { records: ['cp1'], previous: [['cp1', 12.5]], imported: [['cp1', 9]] },
+    { records: ['cp2'], previous: [['cp2', null]], imported: [['cp2', 4]] },
+    { records: ['cp1'], previous: [['cp1', 9]], imported: [['cp1', 13]] },
   ]);
-  const saved = serializeBatchRecordIds('prices', state.records, [], state.previous);
-  assert.equal(saved, '{"records":["cp1","cp2"],"previous":{"cp1":12.5,"cp2":null}}');
+  const saved = serializeBatchRecordIds('prices', state.records, [], state.previous, state.imported);
+  assert.equal(saved, '{"records":["cp1","cp2"],"previous":{"cp1":12.5,"cp2":null},"imported":{"cp1":13,"cp2":4}}');
   const parsed = parseBatchRecordIds(saved);
-  assert.deepEqual(parsed, { records: ['cp1', 'cp2'], categories: [], previous: { cp1: 12.5, cp2: null } });
-  assert.deepEqual(pricesRevertPlan(parsed), { restore: [{ id: 'cp1', price: 12.5 }], remove: ['cp2'] });
+  assert.deepEqual(parsed, { records: ['cp1', 'cp2'], categories: [], previous: { cp1: 12.5, cp2: null }, imported: { cp1: 13, cp2: 4 } });
+  assert.deepEqual(pricesRevertPlan(parsed).items, [
+    { id: 'cp1', previous: 12.5, imported: 13 }, { id: 'cp2', previous: null, imported: 4 },
+  ]);
   // الشكل القديم (مصفوفة) ⇒ حذف كما كان
   const legacy = parseBatchRecordIds('["cp1","cp2"]');
   assert.deepEqual(legacy.previous, {});
-  assert.deepEqual(pricesRevertPlan(legacy), { restore: [], remove: ['cp1', 'cp2'] });
+  assert.deepEqual(legacy.imported, {});
+  assert.deepEqual(pricesRevertPlan(legacy).items, [
+    { id: 'cp1', previous: undefined, imported: undefined }, { id: 'cp2', previous: undefined, imported: undefined },
+  ]);
   // السعر السابق صفر يُستعاد لا يُحذف، والقيم التالفة تُهمل
-  assert.deepEqual(pricesRevertPlan(parseBatchRecordIds('{"records":["a","b"],"previous":{"a":0,"b":"x"}}')), { restore: [{ id: 'a', price: 0 }], remove: ['b'] });
+  assert.deepEqual(pricesRevertPlan(parseBatchRecordIds('{"records":["a","b"],"previous":{"a":0,"b":"x"}}')).items, [
+    { id: 'a', previous: 0, imported: undefined }, { id: 'b', previous: undefined, imported: undefined },
+  ]);
   // الأنواع الأخرى لا تتغير
   assert.equal(serializeBatchRecordIds('customers', ['c1']), '["c1"]');
   assert.equal(serializeBatchRecordIds('ledger', ['e1']), '["e1"]');
@@ -95,8 +102,10 @@ test('سيناريو البند 14: taxPct غير صفري أقل من 1 (خلي
   const src = read('routes/import.ts');
   const i = src.indexOf("router.post('/products'");
   const body = src.slice(i, src.indexOf('\n});', i));
-  assert.match(body, /const taxIssue = taxPctIssue\(r\.taxPct\);/);
-  assert.ok(body.indexOf('taxPctIssue(') < body.indexOf('tx.product.create('));
+  // البند 30: الفحص انتقل إلى المخطِّط الصرف، والمسار يستدعيه قبل أي كتابة بالضريبة الافتراضية التي يكتبها للصف
+  assert.match(body, /plan = planProductImportRows\(rows, existing, defaultVat\);/);
+  assert.ok(body.indexOf('planProductImportRows(') < body.indexOf('tx.product.create('));
+  assert.match(read('services/importLedger.ts'), /const taxIssue = taxPctIssue\(r\.taxPct\);/);
 });
 
 test('حارس ثابت: /customers و/products و/prices تحجز reserveMasterBatch قبل أول create/upsert، ولا recordBatch بعد الحلقة', () => {
@@ -135,6 +144,8 @@ test('حارس ثابت: /customers و/products و/prices تحجز reserveMaster
   const rv = src.slice(src.indexOf("router.post('/batches/:id/revert'"));
   const pr = rv.slice(rv.indexOf("} else if (batch.kind === 'prices') {"), rv.indexOf('} else if (batch.kind === OPENING_STOCK_KIND) {'));
   assert.match(pr, /pricesRevertPlan\(parsed\)/);
-  assert.ok(pr.indexOf('tx.customerPrice.updateMany(') < pr.indexOf('prisma.customerPrice.deleteMany('));
+  // البند 7: كلاهما داخل معاملة القفل، والحذف قبل الاستعادة في المصدر (الفرع الواحد يقرر بـpriceRevertAction)
+  assert.ok(pr.indexOf('tx.customerPrice.deleteMany(') < pr.indexOf('tx.customerPrice.updateMany('));
+  assert.doesNotMatch(pr, /prisma\.customerPrice\./, 'كتابة خارج معاملة القفل');
   assert.ok(rv.indexOf('assertBatchRevertible(batch, new Date())') < rv.indexOf('pricesRevertPlan('));
 });

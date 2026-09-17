@@ -86,6 +86,8 @@ export interface ImportProgressState {
   records: string[];
   categories: string[];
   previous: Record<string, number | null>;
+  /** البند 7: آخر سعر كتبته الدفعة لكل CustomerPrice (التراجع لا يمس سعراً تغيّر بعده) */
+  imported: Record<string, number>;
 }
 
 export interface ImportProgressDelta {
@@ -93,9 +95,11 @@ export interface ImportProgressDelta {
   categories?: readonly string[];
   /** السعر السابق: أول قيمة لكل معرّف وحدها تُحفظ */
   previous?: readonly (readonly [string, number | null])[];
+  /** السعر المكتوب: آخر قيمة لكل معرّف تفوز */
+  imported?: readonly (readonly [string, number])[];
 }
 
-/** دمج صرف: المعرّفات بلا تكرار بترتيبها، وprevious أول قيمة فقط */
+/** دمج صرف: المعرّفات بلا تكرار بترتيبها، وprevious أول قيمة فقط، وimported آخر قيمة */
 export function mergeImportProgress(base: Readonly<ImportProgressState>, delta: ImportProgressDelta): ImportProgressState {
   const records = [...base.records];
   const seen = new Set(records);
@@ -105,10 +109,12 @@ export function mergeImportProgress(base: Readonly<ImportProgressState>, delta: 
   for (const id of delta.categories ?? []) if (!seenCat.has(id)) { seenCat.add(id); categories.push(id); }
   const previous: Record<string, number | null> = { ...base.previous };
   for (const [id, p] of delta.previous ?? []) if (!Object.prototype.hasOwnProperty.call(previous, id)) previous[id] = p;
-  return { records, categories, previous };
+  const imported: Record<string, number> = { ...(base.imported ?? {}) };
+  for (const [id, p] of delta.imported ?? []) imported[id] = p;
+  return { records, categories, previous, imported };
 }
 
 /** دمج عدة دلتا بالترتيب */
 export function mergeImportDeltas(base: Readonly<ImportProgressState>, deltas: readonly ImportProgressDelta[]): ImportProgressState {
-  return deltas.reduce<ImportProgressState>((acc, d) => mergeImportProgress(acc, d), { ...base, records: [...base.records], categories: [...base.categories], previous: { ...base.previous } });
+  return deltas.reduce<ImportProgressState>((acc, d) => mergeImportProgress(acc, d), { ...base, records: [...base.records], categories: [...base.categories], previous: { ...base.previous }, imported: { ...(base.imported ?? {}) } });
 }

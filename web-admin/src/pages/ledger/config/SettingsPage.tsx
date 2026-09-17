@@ -9,12 +9,13 @@ import { activeLocale, formatDateTime, formatDayOnly } from '../../../utils/form
 import { ledgerName } from '../../../lib/ledger/format';
 import { ledgerConfigReasonLabels, mappingKeyLabels } from '../../../lib/ledger/labels';
 import {
-  ledgerConfigApi, ledgerKeys, isLedgerAccessError, RECEIPT_METHODS,
+  ledgerConfigApi, ledgerKeys, isLedgerAccessError, ledgerErrorOf, rebasedImportEntriesOf, RECEIPT_METHODS,
   type GlSettings, type GlSettingsInput, type ReceiptMethod, type SeedReport, type TaxPeriodicity,
 } from '../../../api/ledgerConfig';
 import { ledgerHref } from '../routes';
 import { AccountSelect, Field, Toggle, WriteButton, useAllAccounts, useConfigErrorText, useLedgerCan } from './parts/configUi';
-import { BackfillStatusCard, useSetupState } from '../setup/setupUi';
+import { BackfillStatusCard, Notice, TimezoneImportsConflictNotice, useSetupState } from '../setup/setupUi';
+import { timezoneImportsConflictOf, type TimezoneImportsConflict } from '../setup/setupLogic';
 
 /**
  * إعدادات الدفاتر (CFG‑01، §8.4) بأقسامها التسعة. في M2:
@@ -93,22 +94,45 @@ export default function SettingsPage() {
 
   const issue = val('taxDeadlineRule') === 'DAYS_AFTER' && !(Number(val('taxDeadlineDays')) >= 1) ? tr('عدد أيام موعد الإقرار مطلوب') : null;
 
+  /**
+   * البند 25: تغيير المنطقة الزمنية وللشركة أرصدة أو كشوف مستوردة يرتدّ 409
+   * `LEDGER_TIMEZONE_IMPORTS_CONFLICT`. بلا هذا المسار كان الحفظ يفشل برسالة عابرة بلا سبيل
+   * إلى إرسال الإقرار، فتُحبس الشركة عن تصحيح منطقتها الزمنية أصلاً.
+   */
+  const [tzConflict, setTzConflict] = useState<TimezoneImportsConflict | null>(null);
+  const [rebased, setRebased] = useState(0);
+  // إعادة جلب الإعدادات تمسح المسودة (الأثر أعلاه)، فالتنبيه معها يصير تأكيداً بلا منطقة زمنية جديدة يؤكّدها
+  useEffect(() => { setTzConflict(null); }, [s]);
+
   const save = useMutation({
-    mutationFn: async () => {
+    onMutate: () => { setRebased(0); },
+    mutationFn: async (opts?: { rebaseImportDates?: boolean }) => {
+      let rebasedImportEntries = 0;
       if (Object.keys(changedSettings).length) {
         const body = { ...changedSettings };
         if (body.taxDeadlineRule === 'END_OF_NEXT_MONTH') delete body.taxDeadlineDays;
-        await ledgerConfigApi.settings.update(body);
+        const r = await ledgerConfigApi.settings.update(body, opts);
+        rebasedImportEntries = rebasedImportEntriesOf(r.data);
       }
       if (changedMappings.length) await ledgerConfigApi.mappings.update(changedMappings.map(([key, accountId]) => ({ key, accountId })));
+      return { rebasedImportEntries };
     },
-    onSuccess: () => {
+    onSuccess: ({ rebasedImportEntries }) => {
+      setTzConflict(null);
+      setRebased(rebasedImportEntries);
       qc.invalidateQueries({ queryKey: ledgerKeys.settings });
       qc.invalidateQueries({ queryKey: ledgerKeys.status });
       qc.invalidateQueries({ queryKey: ledgerKeys.mappings });
       toast.success(tr('تم حفظ الإعدادات'));
     },
-    onError: e => { toast.error(errorText(e)); qc.invalidateQueries({ queryKey: ledgerKeys.settings }); },
+    onError: e => {
+      const conflict = timezoneImportsConflictOf(ledgerErrorOf(e));
+      setTzConflict(conflict);
+      // تعارض المنطقة: المسودة تبقى كما هي — إعادة جلب الإعدادات تمسحها فيرسل زر التأكيد جسماً فارغاً
+      if (conflict) return;
+      toast.error(errorText(e));
+      qc.invalidateQueries({ queryKey: ledgerKeys.settings });
+    },
   });
 
   const [seedReport, setSeedReport] = useState<SeedReport | null>(null);
@@ -176,13 +200,23 @@ export default function SettingsPage() {
     <div className="space-y-4 pb-10">
       <div className="sticky top-0 z-20 -mx-1 px-1 py-2 bg-[#FBF7F0]/95 backdrop-blur flex flex-wrap items-center gap-2" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
         <h1 className="text-lg font-bold text-[#1F1A13] flex-1">{tr('الإعدادات')}</h1>
-        {dirty && <button type="button" className="btn-secondary inline-flex items-center gap-1.5" onClick={() => { setDraft({}); setMapDraft({}); }}><RotateCcw size={14} />{tr('إهمال التعديلات')}</button>}
+        {/* إهمال التعديلات يُسقط تنبيه التعارض معها: تأكيدٌ بلا مسودة يرسل جسماً فارغاً ويوهم بحفظ لم يقع */}
+        {dirty && <button type="button" className="btn-secondary inline-flex items-center gap-1.5" onClick={() => { setDraft({}); setMapDraft({}); setTzConflict(null); }}><RotateCcw size={14} />{tr('إهمال التعديلات')}</button>}
         {seeded && (
-          <WriteButton allowed={canWrite} onClick={() => save.mutate()} busy={save.isPending} disabled={!dirty} reason={dirty ? issue : null} className="btn-primary inline-flex items-center gap-1.5">
+          <WriteButton allowed={canWrite} onClick={() => save.mutate(undefined)} busy={save.isPending} disabled={!dirty} reason={dirty ? issue : null} className="btn-primary inline-flex items-center gap-1.5">
             <Save size={14} />{tr('حفظ')}
           </WriteButton>
         )}
       </div>
+
+      {/* البند 25: تأكيد إعادة ضبط تواريخ الأرصدة والكشوف المستوردة قبل قبول المنطقة الزمنية الجديدة */}
+      {tzConflict && (
+        <TimezoneImportsConflictNotice detail={tzConflict} busy={save.isPending} canWrite={canWrite}
+          onConfirm={() => save.mutate({ rebaseImportDates: true })} />
+      )}
+      {rebased > 0 && (
+        <Notice tone="ok">{tr('أُعيد ضبط تواريخ {count} قيداً مستورداً على المنطقة الزمنية الجديدة').replace('{count}', String(rebased))}</Notice>
+      )}
 
       {seeded && (
         <nav className="flex flex-wrap gap-1.5 text-xs" aria-label={tr('أقسام الإعدادات')}>

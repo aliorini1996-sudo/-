@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { customerApi } from '../../api/client';
 import { Customer, AccountEntry } from '../../types';
-import { formatCurrency, formatDate, formatNumber } from '../../utils/format';
+import { formatCurrency, formatDate, formatDayOnly, formatNumber } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
+import { statementZone } from '../../rep/statementFacts';
 import { X, Printer, Download } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../../utils/excel';
 import toast from 'react-hot-toast';
@@ -39,9 +40,19 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       if (from) params.from = from;
       if (to) params.to = to;
       const res = await customerApi.statement(customer.id, Object.keys(params).length ? params : undefined);
-      return res.data.data as { customer: Customer; entries: AccountEntry[]; openingBalance: number; closingBalance: number };
+      // timezone: منطقة الشركة التي رشّح بها الخادم أيام الفترة. `null` قيمةٌ يعيدها الخادم فعلاً
+      // (شركة بلا منطقة مضبوطة)، و`undefined` للتوافق مع خادمٍ أقدم — والحالتان ارتدادٌ إلى المتصفّح.
+      return res.data.data as { customer: Customer; entries: AccountEntry[]; openingBalance: number; closingBalance: number; timezone?: string | null };
     },
   });
+
+  /* منطقة الشركة التي رشّح بها الخادم الفترة: تُعرض بها **لحظاتُ الحركات** كي لا يقرأ
+   * مشاهدٌ في منطقةٍ أخرى يوم الجار فيظنّ حركةً خارج الفترة وهي داخلها.
+   *
+   * أمّا حدّا الفترة فيومان خالصان جاءا من <input type="date">: يُقرآن بأجزائهما
+   * (`formatDayOnly`) لا بأيّ منطقة — تمريرُهما إلى `formatDate` مع منطقةٍ غرب غرينتش
+   * يطبع «٣١ ديسمبر» عنواناً لكشفٍ بدايته ١ يناير. */
+  const tz = statementZone(data?.timezone);
 
   const handlePrint = () => window.print();
 
@@ -57,11 +68,11 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     ];
     // نفس صفّ الترحيل في الملف المُصدَّر — الكشف المطبوع يجب أن يقرأ كالمعروض
     const carry: Record<string, string | number>[] = from
-      ? [{ [tr('التاريخ')]: from, [tr('البيان')]: tr('رصيد مرحل من قبل الفترة'), [tr('الأصناف')]: '',
+      ? [{ [tr('التاريخ')]: formatDayOnly(from), [tr('البيان')]: tr('رصيد مرحل من قبل الفترة'), [tr('الأصناف')]: '',
            [tr('رقم المستند')]: '', [tr('مدين')]: '', [tr('دائن')]: '', [tr('الرصيد')]: num(data.openingBalance) }]
       : [];
     const rows = data.entries.map(e => ({
-      [tr('التاريخ')]: formatDate(e.entryDate),
+      [tr('التاريخ')]: formatDate(e.entryDate, tz),
       [tr('البيان')]: e.description,
       [tr('الأصناف')]: (e.invoice?.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join(' '),
       [tr('رقم المستند')]: e.invoice?.number || e.receipt?.number || '-',
@@ -113,6 +124,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
             <label className="label">{tr('إلى')}</label>
             <input type="date" className="input w-36" value={to} onChange={e => setTo(e.target.value)} />
           </div>
+          {tz && <p className="self-end pb-2 text-[11px] text-gray-400">{tr('تواريخ الكشف بتوقيت الشركة')}: <bdi dir="ltr">{tz}</bdi></p>}
         </div>
 
         {/* Balance Summary */}
@@ -152,7 +164,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                   رقمٍ يشمل تاريخاً غير معروض، فيبدو كأنّ الحساب بدأ من العدم. */}
               {data && from && data.entries.length > 0 && (
                 <tr className="bg-gray-50">
-                  <td className="text-xs text-gray-500 align-top">{formatDate(from)}</td>
+                  <td className="text-xs text-gray-500 align-top">{formatDayOnly(from)}</td>
                   <td className="text-sm text-gray-600 font-medium align-top" colSpan={2}>{tr('رصيد مرحل من قبل الفترة')}</td>
                   <td className="text-gray-400">-</td>
                   <td className="text-gray-400">-</td>
@@ -163,7 +175,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
               )}
               {data?.entries.map(e => (
                 <tr key={e.id}>
-                  <td className="text-xs text-gray-500 align-top">{formatDate(e.entryDate)}</td>
+                  <td className="text-xs text-gray-500 align-top">{formatDate(e.entryDate, tz)}</td>
                   <td className="text-sm text-gray-700 align-top">
                     {e.description}
                     {e.type !== 'RECEIPT_CREDIT' && e.invoice?.items && e.invoice.items.length > 0 && (

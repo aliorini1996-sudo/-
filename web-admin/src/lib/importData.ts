@@ -429,6 +429,31 @@ export const BALANCE_DC_IGNORED_NOTICE = 'عمودا المدين والدائن
 export const BALANCE_DC_MISMATCH_NOTICE = 'عملاء رصيدهم لا يساوي المدين ناقص الدائن في الملف، راجعهم قبل الاستيراد';
 export const LEDGER_NO_AMOUNT_COLUMN_BLOCKER = 'لا يوجد عمود مدين/دائن أو مبلغ في الملف';
 export const CUSTOMER_OPTIONAL_IGNORED_NOTICE = 'قيم حد ائتمان أو فترة سداد غير رقمية تُركت للقيمة الافتراضية';
+// ── البند 23: صف «رصيد سابق/أول المدة» في كشف الحساب ──
+export const LEDGER_OPENING_ROW_NOTICE = 'صفوف «رصيد سابق» استُوردت أول كشف كل عميل بإشارتها (مدين أو دائن)';
+export const LEDGER_CARRIED_BALANCE_NOTICE = 'صفوف «رصيد منقول» بين صفحات الكشف استُبعدت (رصيد مكرر لا حركة جديدة)';
+export const LEDGER_BALANCE_ONLY_ROW = 'صف فيه رصيد بلا مدين ولا دائن ولم يُعرف أنه رصيد سابق: أضف له مدين أو دائن، أو اكتب في البيان «رصيد سابق»';
+export const LEDGER_CLOSING_ROW_NOTICE = 'صفوف «الرصيد الختامي» أو الإجمالي في ذيل الكشف استُبعدت (ليست حركة)';
+export const LEDGER_BALANCE_ONLY_NOTICE = 'صفوف فيها رصيد بلا مدين ولا دائن استُبعدت (الملف فيه عمودا مدين ودائن فلا مبلغ ضائع)';
+/** صف بلا أي مبلغ في الأعمدة المتعرَّف عليها: كان يسقط بصمت (ومنه رصيد سابق في عمود لم يُلتقط اسمه) */
+export const LEDGER_NO_AMOUNT_ROW_NOTICE = 'صفوف بلا مبلغ في الأعمدة المتعرَّف عليها استُبعدت: راجع اسم عمود الرصيد إن كان فيها رصيد سابق';
+// ── البند 30: تكرار كود الصنف داخل ملف المنتجات ──
+export const PRODUCT_DUPLICATE_ROWS_NOTICE = 'صفوف أصناف مكررة ببيانات متطابقة أُرسلت مرة واحدة';
+/** خانة ضريبة فارغة مقابل قيمة صريحة: الخادم يملأ الفارغة بضريبة الشركة فقد يعدّهما صفاً واحداً ⇒ تخطٍّ معدود لا خطأ */
+export const PRODUCT_BLANK_TAX_DUPLICATE_NOTICE = 'صفوف أصناف مكررة اختلفت في خانة الضريبة الفارغة وحدها أُرسلت مرة واحدة (الخادم يملأ الفارغة بضريبة الشركة)';
+export const PRODUCT_SAME_NAME_NO_CODE = 'صنفان بالاسم نفسه بلا كود وبيانات مختلفة (مثل الوحدة أو السعر): أضف عمود الكود لتمييزهما';
+export const PRODUCT_DUPLICATE_CODE = 'كود الصنف مكرر في الملف ببيانات مختلفة';
+/**
+ * افتراضيا الكتابة في الخادم (backend/src/routes/import.ts: `unit: r.unit || 'حبة'` و`basePrice: r.basePrice ?? 0`).
+ * يدخلان توقيع تكرار الصف هنا كما يدخلانه في productRowSignature (backend/src/services/importLedger.ts)،
+ * فصفّان يكتبان الصنف نفسه يُعدّان متطابقين على الطرفين. تغييرهما في import.ts يُنقل إلى الملفين معاً.
+ *
+ * وافتراضيٌّ ثالث لا يُقلَّد هنا: خانة الضريبة الفارغة تُكتب `r.taxPct ?? defaultVat` (ضريبة الشركة، افتراضها 15)،
+ * وتوقيع الخادم صار `r.taxPct ?? defaultVat ?? null` — وdefaultVat غير متاح للويب في TransformOpts. فالمقارنة هنا
+ * متساهلة في خانة الضريبة وحدها: الفارغة تطابق أي قيمة صريحة (تخطٍّ معدود لا خطأ صف يمنع ملفاً يقبله الخادم).
+ */
+export const PRODUCT_DEFAULT_UNIT = 'حبة';
+export const PRODUCT_DEFAULT_PRICE = 0;
 
 // صف مجاميع التقرير: اسم يبدأ بكلمة «إجمالي/مجموع/Total» (مع «ال» أو بعدها كلمات مثل «الأرصدة»، ولو خُتم بنقطتين) بلا كود ولا جوال.
 // المطابقة بالكلمة الأولى كاملةً: «مجموعة النور» ليست «مجموع».
@@ -615,6 +640,9 @@ const A_PROD: ImportSpec = {
 function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
   const c = makeCtx(rows, A_PROD, opts);
   const valid: Record<string, unknown>[] = []; const fileRows: number[] = []; const { errors } = c;
+  // البند 30: الكود الفعلي (عمود الكود أو الاسم المولَّد) ⇒ توقيع الصف الأول. المكرر المطابق لا يُرسل،
+  // والمكرر المختلف خطأ صف ظاهر — لا تخطٍّ صامت يضيع «ماء كرتون» خلف «ماء حبة».
+  const firstByCode = new Map<string, { sig: string; rest: string; blankTax: boolean }>();
   rows.forEach((row, i) => {
     const name = c.s(row, 'name');
     if (!name) { errors.push({ row: i + 2, message: 'اسم الصنف مفقود' }); return; }
@@ -631,11 +659,31 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       c.bump(TAX_FRACTION_NOTICE);
     }
     if (taxPct !== undefined && (taxPct < 0 || taxPct > 100)) { errors.push({ row: i + 2, message: TAX_PCT_INVALID, value: val(taxRaw), field: 'taxPct' }); return; }
+    const unit = c.s(row, 'unit'); const barcode = c.s(row, 'barcode'); const category = c.s(row, 'category');
+    // التوقيع مطابق حرفياً لـproductRowSignature في backend/src/services/importLedger.ts: الافتراضيان
+    // (الوحدة «حبة» والسعر 0) يُطبَّقان هنا كما يُطبَّقان هناك، وإلا عدَّ الويب صفّين متطابقَين مختلفَين
+    // فأظهر «كود مكرر ببيانات مختلفة» على ملف يقبله الخادم صامتاً. أي تغيير لافتراضي import.ts يُنقل إلى الاثنين.
+    const sig = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, taxPct ?? null, barcode || '', norm(category || '')]);
+    // التوقيع نفسه بلا خانة الضريبة: عليه تُقارَن الصفوف حين تكون خانة ضريبة أحدها فارغة (الخادم يملأها بضريبة الشركة)
+    const rest = JSON.stringify([norm(name), unit || PRODUCT_DEFAULT_UNIT, basePrice ?? PRODUCT_DEFAULT_PRICE, barcode || '', norm(category || '')]);
+    const blankTax = taxPct === undefined;
+    const prev = firstByCode.get(code);
+    if (prev !== undefined) {
+      if (prev.sig === sig) { c.bump(PRODUCT_DUPLICATE_ROWS_NOTICE); return; } // صف مطابق تماماً: يُرسل مرة واحدة
+      // لا يختلفان إلا في خانة ضريبة فارغة ⇒ الخادم قد يعدّهما صفاً واحداً: تخطٍّ معدود لا خطأ صف
+      if (prev.rest === rest && (prev.blankTax || blankTax)) { c.bump(PRODUCT_BLANK_TAX_DUPLICATE_NOTICE); return; }
+      // كود مولَّد من الاسم ⇒ صنفان بالاسم نفسه بلا كود؛ وإلا كود مكرر صراحةً في الملف
+      errors.push(c.s(row, 'code')
+        ? { row: i + 2, message: PRODUCT_DUPLICATE_CODE, value: code, field: 'code' }
+        : { row: i + 2, message: PRODUCT_SAME_NAME_NO_CODE, value: name, field: 'name' });
+      return;
+    }
+    firstByCode.set(code, { sig, rest, blankTax });
     fileRows.push(i + 2);
     valid.push({
-      code, name, unit: c.s(row, 'unit') || undefined,
+      code, name, unit: unit || undefined,
       basePrice, taxPct,
-      barcode: c.s(row, 'barcode') || undefined, category: c.s(row, 'category') || undefined,
+      barcode: barcode || undefined, category: category || undefined,
     });
   });
   return { valid, fileRows, errors, notices: c.notices(), columns: c.res.columns, blockers: c.res.blockers };
@@ -783,7 +831,60 @@ const A_LED: ImportSpec = {
   residual: { aliases: ['المتبقي', 'المبلغ المستحق', 'amount due', 'residual', 'balance due'], numeric: true },
   // حالة الدفع أولاً: أودو يصدّر «Status» (posted/cancel) و«Payment Status» (not_paid/paid) معاً
   status: { aliases: ['حالة الدفع', 'حالة السداد', 'payment status', 'payment state', 'الحالة', 'status', 'state'] },
+  // عمود الرصيد التراكمي: لا numeric:true كي لا يولّد مانع أعمدة ملتبسة جديداً لملفات قائمة (البند 23)
+  balance: {
+    aliases: ['الرصيد', 'رصيد', 'الرصيد التراكمي', 'الرصيد المتحرك', 'balance', 'running balance'],
+    exclude: ['مدين', 'دائن', 'debit', 'credit', 'due', 'مستحق', 'متبقي', 'residual', 'نوع', 'type', 'side', 'طبيعه',
+      // «رصيد المورد»/«رصيد المندوب» ليس رصيد العميل: لا يُلتقط عمودَ رصيد فيولّد صفوف رصيد كاذبة
+      'مورد', 'المورد', 'supplier', 'vendor', 'مندوب', 'المندوب'],
+  },
 };
+/**
+ * تسميات صف الرصيد السابق في كشوف الحسابات — مطبّعة (norm) وتُطابَق بـincludes على البيان المطبَّع.
+ *
+ * مجموعتان لا مجموعة واحدة (البند 23): التسمية الافتتاحية الحقيقية («رصيد سابق/افتتاحي/أول المدة») رصيدٌ
+ * يُستورد مرة واحدة لكل عميل **أياً كان موضعه** في الملف — فالكشف قد يكون تنازلياً أو مسبوقاً بصف عنوان.
+ * والتسمية المنقولة الصريحة («مرحل/منقول/brought forward») رصيدٌ مكرر بين الصفحات: تُستبعد متى قُبل للعميل
+ * صفُّ حركةٍ قبلها، وتُستورد رصيداً افتتاحياً إن كانت أول ما قُبل له.
+ */
+export const CARRIED_ROW_LABELS: readonly string[] = [...new Set([
+  'رصيد مرحل', 'الرصيد المرحل', 'رصيد منقول', 'الرصيد المنقول',
+  // «مدور» ترحيلٌ بين الصفحات أو المدد: يُستورد إن كان أول ما قُبل للعميل ويُستبعد بعد حركة
+  'رصيد مدور', 'الرصيد المدور',
+  'balance brought forward', 'brought forward', 'b/f', 'balance forward',
+  // b/d = brought down (منقول من الصفحة السابقة)؛ «b/d» وحدها حرفان يطابقان كلمات بريئة فلا تُدرج
+  'balance b/d', 'brought down',
+].map(norm))];
+export const TRUE_OPENING_ROW_LABELS: readonly string[] = [...new Set([
+  'رصيد سابق', 'الرصيد السابق', 'رصيد افتتاحي', 'الرصيد الافتتاحي', 'رصيد اول المده', 'رصيد أول المدة', 'اول المده',
+  // صيغ كشوف شائعة كانت تسقط: «رصيد ما قبل الفترة»، «رصيد بداية المدة/الفترة/العام»، «رصيد أول الفترة»
+  'رصيد ما قبل', 'رصيد بدايه', 'رصيد اول الفتره',
+  'opening balance', 'previous balance', 'beginning balance',
+].map(norm))];
+/** الاتحاد — يبقى مصدَّراً كما كان لمن يتحقق من التسميات كلها */
+export const OPENING_ROW_LABELS: readonly string[] = [...new Set([...TRUE_OPENING_ROW_LABELS, ...CARRIED_ROW_LABELS])];
+/**
+ * تسميات صف الختام أو الإجمالي في ذيل الكشف: ليست حركة ولا رصيداً مفقوداً، فتُستبعد بتنبيه لا بخطأ صف.
+ * («c/f» وحدها لا تُدرج: حرفان يطابقان بـincludes كلماتٍ بريئة بعد التطبيع.)
+ *
+ * وكلمات المجاميع نفسها («المجموع العام»، «Grand Total»، «Net Total»…) لا تُعدَّد هنا: البيان يُمرَّر على
+ * isTotalsName نفسه الذي يكشف صف المجاميع بالاسم، فأي تسمية مجموع يفهمها أحدهما يفهمها الآخر.
+ */
+export const CLOSING_ROW_LABELS: readonly string[] = [...new Set([
+  'الرصيد الختامي', 'رصيد ختامي', 'رصيد اخر المده', 'رصيد آخر المدة', 'رصيد نهايه المده', 'رصيد نهاية المدة',
+  'الرصيد الحالي', 'الاجمالي', 'الإجمالي', 'closing balance', 'ending balance', 'current balance',
+  'balance c/f', 'carried forward', 'total balance',
+  // ذيول كشوف شائعة كانت تُظهر خطأ صف: «الرصيد كما في 31/12»، «الرصيد النهائي»، «صافي الرصيد»
+  'الرصيد النهائي', 'رصيد نهائي', 'صافي الرصيد', 'الرصيد كما في', 'balance as of', 'balance as at',
+  'net balance', 'final balance',
+].map(norm))];
+const matchesLabel = (description: string, labels: readonly string[]): boolean => {
+  const n = norm(description);
+  return !!n && labels.some((l) => n.includes(l));
+};
+const isOpeningRowLabel = (description: string): boolean => matchesLabel(description, OPENING_ROW_LABELS);
+const isCarriedRowLabel = (description: string): boolean => matchesLabel(description, CARRIED_ROW_LABELS);
+const isClosingRowLabel = (description: string): boolean => matchesLabel(description, CLOSING_ROW_LABELS);
 const statusOf = (row: Record<string, unknown>, cands: readonly string[] | undefined): { cls: PaymentStatusClass; raw: string } => {
   const all = (cands ?? []).map((k) => ({ raw: val(row[k]), cls: classifyPaymentStatus(val(row[k])) })).filter((x) => x.cls !== 'none');
   const doc = all.find((x) => x.cls === 'cancelled') ?? all.find((x) => x.cls === 'draft');
@@ -797,10 +898,15 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
   // بلا عمود مدين/دائن ولا مبلغ ⇒ لا شيء يُستورد: مانع صريح لا صفر صفوف صامت
   if (rows.length && !c.has('debit') && !c.has('credit') && !c.has('amount')) blockers.push(LEDGER_NO_AMOUNT_COLUMN_BLOCKER);
   let undated = 0;
+  // عملاء قُبل لهم رصيد افتتاحي فعلاً (لا مجرد ظهور اسمهم): الثاني بعده رصيدٌ منقول مكرر
+  const openingTaken = new Set<string>();
+  // عملاء قُبل لهم صف حركة فعلاً: «رصيد منقول» بعده تكرارٌ بين صفحات الكشف
+  const movedCustomers = new Set<string>();
   rows.forEach((row, i) => {
     const cn = c.s(row, 'name'); const cc = c.s(row, 'code'); const ph = c.s(row, 'phone');
     if (isTotalsRow(cn, cc, ph)) { c.totalsRow(cn || cc); return; }
     if (!cn && !cc && !ph) { c.bump(NO_CUSTOMER_ROWS_NOTICE); return; } // صف بلا عميل (حسابات عامة)
+    const key = customerKey(cn, cc, ph);
     const d = c.num(row, i, 'debit'); if (d === null) return;
     const cr = c.num(row, i, 'credit'); if (cr === null) return;
     let debit = 0; let credit = 0;
@@ -809,7 +915,50 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
       if (!v) continue;
       if ((v > 0) === (side === 'd')) debit += Math.abs(v); else credit += Math.abs(v);
     }
+    // البند 23: صف قيمته في عمود الرصيد وحده (لا مدين ولا دائن ولا مبلغ) — كان يسقط بصمت فينقص رصيد العميل.
+    // خانتا المدين والدائن المكتوبتان صفراً قيدٌ صفري صحيح لا صف رصيد: لا تدخل هذا الفرع أصلاً.
+    const zeroWritten = val(c.raw(row, 'debit')) !== '' || val(c.raw(row, 'credit')) !== '';
+    if (!debit && !credit && !zeroWritten && c.has('balance') && (!c.has('amount') || val(c.raw(row, 'amount')) === '')) {
+      const balRaw = c.raw(row, 'balance');
+      if (val(balRaw) !== '') {
+        const pb = parseAmount(balRaw, c.styleOf('balance'));
+        if (!pb.ok) {
+          errors.push({ row: i + 2, message: pb.reason === 'ambiguous' ? AMBIGUOUS_AMOUNT_ERROR : NUMERIC_ERROR, value: pb.raw, field: 'balance' });
+          return;
+        }
+        const bv = pb.value;
+        if (bv !== undefined && bv !== 0) {
+          const desc = c.s(row, 'description');
+          // ذيل الكشف: «الرصيد الختامي»/«الإجمالي» ليس حركة ولا مبلغاً ضائعاً — ومعه كل بيان مجاميع
+          // يفهمه isTotalsName («المجموع العام»، «Grand Total»، «صافي الإجمالي»): تنبيه معدود لا خطأ صف
+          if (isClosingRowLabel(desc) || isTotalsName(desc)) { c.bump(LEDGER_CLOSING_ROW_NOTICE); return; }
+          if (!isOpeningRowLabel(desc)) {
+            // عمود الرصيد المصدر الوحيد للمبلغ في هذا الملف ⇒ الإسقاط الصامت يضيّع حركة: خطأ صف ظاهر.
+            // ومع عمودَي مدين ودائن (أو عمود مبلغ) لا مبلغ ضائع، فتنبيه معدود لا ضجيج أخطاء على ملف سليم.
+            if (!c.has('debit') && !c.has('credit') && !c.has('amount')) {
+              errors.push({ row: i + 2, message: LEDGER_BALANCE_ONLY_ROW, value: val(balRaw), field: 'balance' });
+              return;
+            }
+            c.bump(LEDGER_BALANCE_ONLY_NOTICE);
+            return;
+          }
+          // المنقول الصريح بعد حركة مقبولة تكرارٌ بين الصفحات؛ والافتتاحي يُقبل مرة واحدة لكل عميل أياً كان موضعه
+          if (isCarriedRowLabel(desc) ? (movedCustomers.has(key) || openingTaken.has(key)) : openingTaken.has(key)) {
+            c.bump(LEDGER_CARRIED_BALANCE_NOTICE); return;
+          }
+          if (bv > 0) debit = bv; else credit = Math.abs(bv);
+          openingTaken.add(key);
+          c.bump(LEDGER_OPENING_ROW_NOTICE);
+        }
+      }
+    }
     if (!debit && !credit) {
+      // البند 23: صفٌّ لا مبلغ مكتوباً له في أي عمود متعرَّف عليه (ولا صفر صريح) كان يسقط بصمت —
+      // ومنه صف «رصيد سابق» رصيدُه في عمود لم يُلتقط اسمه («الرصيد المتبقي»، «الرصيد المدين»…):
+      // يُستبعد بتنبيه معدود يدلّ المالك على عمود الرصيد، لا بخطأ صف ولا بصمت.
+      if (!zeroWritten && val(c.raw(row, 'balance')) === '' && (!c.has('amount') || val(c.raw(row, 'amount')) === '')) {
+        c.bump(LEDGER_NO_AMOUNT_ROW_NOTICE);
+      }
       // لا مدين/دائن ⇒ ملف فواتير: الإجمالي = مدين (على الحساب)، والمدفوع = دائن مقابل
       if (!c.has('amount')) return;
       const amt = c.num(row, i, 'amount'); if (amt === null) return;
@@ -842,6 +991,7 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
     if (date === null) return;
     if (!date) undated++;
     fileRows.push(i + 2);
+    movedCustomers.add(key); // قُبل للعميل صف فعلاً ⇒ «رصيد منقول» بعده تكرار بين الصفحات
     valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, date: date || opts?.undatedDate || undefined, description: c.s(row, 'description') || undefined, debit, credit });
   });
   const extra: ImportNotice[] = unknownStatuses.size ? [{ key: UNKNOWN_STATUS_NOTICE, count: unknownStatuses.size, values: [...unknownStatuses].slice(0, 10) }] : [];

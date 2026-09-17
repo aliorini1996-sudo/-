@@ -38,7 +38,7 @@ async function importNew(db: FakeDb, keys: readonly string[], crashAfterCommits 
       return db.tx(fn);
     },
     writeItem: async (tx, key) => { const id = tx.newId(); tx.entries.push({ id, key }); return id; },
-    flush: async (tx, written) => { tx.recordIds = mergeImportDeltas({ records: committed, categories: [], previous: {} }, written.map((w) => ({ records: [w.result] }))).records; },
+    flush: async (tx, written) => { tx.recordIds = mergeImportDeltas({ records: committed, categories: [], previous: {}, imported: {} }, written.map((w) => ({ records: [w.result] }))).records; },
     onCommitted: (written) => { commits++; committed.push(...written.map((w) => w.result)); },
     onItemError: (_k, e) => { throw e; },
     isFatal: (e) => e instanceof Crash,
@@ -124,12 +124,14 @@ test('فشل عنصر داخل شريحة ⇒ إعادة البقية فرادى
   assert.equal(chunkTxs, 3 + 50);
 });
 
-test('دمج التقدّم: المعرّفات بلا تكرار، والفئات، وأول سعر سابق وحده', () => {
-  const base = { records: ['a'], categories: ['c1'], previous: { a: 5 } };
-  const m = mergeImportProgress(base, { records: ['a', 'b'], categories: ['c1', 'c2'], previous: [['a', 9], ['b', null]] });
-  assert.deepEqual(m, { records: ['a', 'b'], categories: ['c1', 'c2'], previous: { a: 5, b: null } });
-  assert.deepEqual(base, { records: ['a'], categories: ['c1'], previous: { a: 5 } }, 'الأساس لا يتغير');
+test('دمج التقدّم: المعرّفات بلا تكرار، والفئات، وأول سعر سابق وحده وآخر سعر مستورد', () => {
+  const base = { records: ['a'], categories: ['c1'], previous: { a: 5 }, imported: { a: 7 } };
+  const m = mergeImportProgress(base, { records: ['a', 'b'], categories: ['c1', 'c2'], previous: [['a', 9], ['b', null]], imported: [['a', 11], ['b', 3]] });
+  assert.deepEqual(m, { records: ['a', 'b'], categories: ['c1', 'c2'], previous: { a: 5, b: null }, imported: { a: 11, b: 3 } });
+  assert.deepEqual(base, { records: ['a'], categories: ['c1'], previous: { a: 5 }, imported: { a: 7 } }, 'الأساس لا يتغير');
   assert.deepEqual(mergeImportDeltas(base, [{ previous: [['x', 1]] }, { records: ['x'], previous: [['x', 2]] }]).previous, { a: 5, x: 1 });
+  // البند 7: الشكل القديم (بلا imported في الأساس) يُدمج بلا انهيار
+  assert.deepEqual(mergeImportProgress({ records: [], categories: [], previous: {} } as never, { records: ['z'], imported: [['z', 4]] }).imported, { z: 4 });
 });
 
 test('حارس ثابت: لا حفظ مشروط بـdue في مسارات الكتابة، وكل مسار يكتب بـrunImportChunks ويسجّل في flush', () => {

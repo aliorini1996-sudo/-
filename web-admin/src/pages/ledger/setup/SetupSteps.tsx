@@ -14,7 +14,7 @@ import {
 import { ledgerHref } from '../routes';
 import { AccountSelect, Field, hasArabicLetter, useAllAccounts } from '../config/parts/configUi';
 import {
-  compactBoxes, daysInMonth, effectiveCutover, initialStep1, needsMidPeriodConfirm, openingDateOf,
+  compactBoxes, daysInMonth, effectiveCutover, initialStep1, keepLiveCategoryLinks, needsMidPeriodConfirm, openingDateOf,
   PRE_CUTOVER_BOX_NOS, preCutoverBoxKey,
 } from './setupLogic';
 import { Notice, StepSection } from './setupUi';
@@ -328,6 +328,10 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
   const [routing, setRouting] = useState<Partial<Record<ReceiptMethod, ReceiptRouteTarget>>>(() => d3.receiptRouting ?? state.status.receiptRouting ?? {});
   const methodLabels: Record<ReceiptMethod, string> = { CASH: tr('نقدي'), BANK_TRANSFER: tr('تحويل بنكي'), POS: tr('شبكة (نقاط البيع)'), CHEQUE: tr('شيك') };
 
+  // null = القائمة غير محمّلة (catsQ معطّلة قبل زرع الشجرة، أو قيد التحميل، أو فشلت) ⇒ لا تُصفَّى الروابط
+  const liveCategoryIds = catsQ.data && !catsQ.isError ? new Set(catsQ.data.categories.map(c => c.categoryId)) : null;
+  const staleLinks = liveCategoryIds ? Object.entries(catCodes).filter(([id, code]) => !!code && !liveCategoryIds.has(id)).length : 0;
+
   const nameIssues = Object.entries(names).filter(([code, n]) => byCode.has(code) && n.trim() !== byCode.get(code)!.name && !hasArabicLetter(n));
   const disabledReason = nameIssues.length ? tr('الاسم يجب أن يحوي حرفاً عربياً والاسم بلغة أخرى مكانه الاسم الإنجليزي') : null;
 
@@ -335,7 +339,9 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
     const accountNames = Object.entries(names)
       .map(([code, name]) => ({ code, name: name.trim() }))
       .filter(r => r.name && byCode.has(r.code) && r.name !== byCode.get(r.code)!.name);
-    const categoryIncomeAccounts = Object.entries(catCodes).filter(([, code]) => !!code).map(([categoryId, accountCode]) => ({ categoryId, accountCode }));
+    // البند 26: فئة حُذفت (بتراجع عن دفعة منتجات مثلاً) يبقى معرّفها في المسودة فيُعاد حفظه كل مرة
+    // ويُسقطه الخادم عند الاعتماد بلا علم المالك. تُصفّى هنا — **بشرط** توفّر قائمة الفئات.
+    const categoryIncomeAccounts = keepLiveCategoryLinks(catCodes, liveCategoryIds);
     onSave({
       step3: {
         accountNames,
@@ -380,6 +386,11 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
       {hasAccounts && (
         <StepSection title={tr('ربط فئات المنتجات بحسابات الإيراد')}
           hint={<>{tr('الفئة بلا حساب تُرحَّل مبيعاتها إلى حساب الإيراد الافتراضي')}{fallback ? <>: <bdi className="tabular-nums">{fallback.code}</bdi> {ledgerName(fallback, lang)}</> : null}</>}>
+          {staleLinks > 0 && (
+            <Notice tone="warn">
+              {tr('رابط فئة إلى حساب إيراد تُخطّي لأن الفئة لم تعد موجودة')}: <bdi className="tabular-nums">{staleLinks}</bdi>
+            </Notice>
+          )}
           {catsQ.isLoading && <p className="text-sm text-[#9A8F7E]">{tr('جاري التحميل...')}</p>}
           {catsQ.isError && <p className="text-sm text-[#8E2A1F]">{tr('تعذر تحميل البيانات')}</p>}
           {catsQ.data && catsQ.data.categories.length === 0 && <p className="text-sm text-[#9A8F7E]">{tr('لا توجد فئات منتجات')}</p>}

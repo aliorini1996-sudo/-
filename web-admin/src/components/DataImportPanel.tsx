@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/authStore';
 import { importAccess, importAccessNote, revertAllowed, visibleImportKinds, batchesView, IMPORT_SCOPED_NOTE } from '../lib/importAccess';
 import { ledgerKeys } from '../api/ledgerConfig';
 import { ledgerSetupKeys } from '../api/ledgerSetup';
-import { formatCurrency, formatDate, formatDateTime, getActiveCurrency } from '../utils/format';
+import { formatCurrency, formatDate, formatDateTime, formatDayOnly, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import ConfirmDialog from './ConfirmDialog';
 import ImportLedgerNotice, {
@@ -21,9 +21,11 @@ import ImportLedgerNotice, {
 import {
   groupRevertBlocked, batchStatusView, hasRunningBatch, classifyRevertFailure, revertFailureKey,
   NETWORK_LOST_MESSAGE, REVERT_LEDGER_BUSY, OPENING_STOCK_REVERT_ACTIVE, REVERT_BATCH_RUNNING,
-  accessFailureKey, importResultView, importRowErrorKey, customerSkipReasonKey, similarWarningKey, attachedCodeKey,
+  accessFailureKey, importResultView, importRowErrorKey, importRowErrorValue, customerSkipReasonKey, productSkipReasonKey, similarWarningKey, attachedCodeKey,
+  revertConfirmKey, openingStockRevertHint, OPENING_STOCK_REVERT_HINT,
   duplicateConsequenceKey, IMPORT_IN_PROGRESS_TEXT, zeroPriceGate, buildImportBody, importButtonBlocked, ZERO_PRICE_ACK_KEY,
-  REVERT_PERMISSION_DENIED, importFieldLabel, previewCellValue, type ImportResultRowError,
+  REVERT_PERMISSION_DENIED, importFieldLabel, previewCellValue, OPENING_STOCK_PREVIOUS_BATCH_DATE, type ImportResultRowError,
+  importRowErrorFieldKey, revertSummaryLines, type RevertExtras,
 } from '../lib/importRevert';
 import { Users, Package, Wallet, BookOpen, Tags, Boxes, Upload, X, Check, AlertTriangle, Loader2, FileUp, RotateCcw, Clock, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -55,6 +57,8 @@ interface Preview {
 }
 interface ImportResult {
   created: number; skipped: number; total: number; errors: ImportResultRowError[];
+  /** الأسعار: أزواج (عميل/صنف) كان لها سعر خاص فاستُبدل (البند 7) */
+  updated?: number;
   /** الأرصدة والكشوف: صفوف صفرية لم تُكتب */
   zero?: number;
   warnings?: {
@@ -65,8 +69,8 @@ interface ImportResult {
     /** العملاء: أُنشئ بكود جديد مع تطابق الاسم أو الجوال (البند 3) */
     similar?: { row: number; code?: string; matchedBy?: 'phone' | 'name' }[];
   };
-  /** العملاء: الصفوف المتخطاة بسببها (البند 3) */
-  skippedRows?: { row: number; reason?: string }[];
+  /** العملاء (البند 3) والمنتجات (البند 30): الصفوف المتخطاة بسببها */
+  skippedRows?: { row: number; reason?: string; code?: string }[];
   /** العملاء: أكواد رُبطت بعملاء قائمين بلا كود (الدفعة 2، الانحدار 3) */
   attached?: number;
   attachedRows?: { row: number; code?: string; matchedBy?: 'phone' | 'name' }[];
@@ -94,6 +98,20 @@ function NoticeLine({ n, tr }: { n: ImportNotice; tr: (s: string) => string }) {
       </span>
     </p>
   );
+}
+
+/**
+ * البند K: قيمة خطأ الصف بعد رسالته — كود الصنف أو المبلغ بخط ثابت كما في ملف المالك،
+ * وتاريخ دفعة المخزون الافتتاحي السابقة بعبارة تدلّه على الدفعة التي يتراجع عنها بتنسيق تاريخ الواجهة.
+ * والبند L: وسم خانة القيمة قبلها («كود الصنف: C1») ليعرف المالك أيّ عمود يراجع في ملفه.
+ */
+function RowErrorValue({ er, tr }: { er: { code?: string; message?: string; value?: string; field?: string }; tr: (s: string) => string }) {
+  const v = importRowErrorValue(er);
+  if (!v) return null;
+  if (v.kind === 'previousBatchDate') return <> — {tr(OPENING_STOCK_PREVIOUS_BATCH_DATE).replace('{date}', formatDayOnly(v.date))}</>;
+  // البند L: خانة القيمة حين تفيد («كود الصنف: C1») — والرسالة التي تذكرها سلفاً لا تُكرَّر
+  const field = importRowErrorFieldKey(er);
+  return <>{field ? <> — {tr(field)}</> : null}: <bdi className="font-mono">{v.value}</bdi></>;
 }
 
 // قسم استيراد بيانات الشركة السابقة — أيقونة رفع لكل نوع بيانات (في إعدادات الشركة)
@@ -155,7 +173,7 @@ export default function DataImportPanel() {
   const revertMut = useMutation({
     mutationFn: (id: string) => importApi.revert(id),
     onSuccess: (res) => {
-      const d = res.data.data as { removed: number; blocked: RevertBlocked; remaining?: number; kind?: string };
+      const d = res.data.data as { removed: number; blocked: RevertBlocked; remaining?: number; kind?: string } & RevertExtras;
       const blockedList = Array.isArray(d.blocked) ? d.blocked : [];
       const blockedCount = Array.isArray(d.blocked) ? d.blocked.length : (d.blocked || 0);
       const remaining = typeof d.remaining === 'number' ? d.remaining : 0;
@@ -175,7 +193,12 @@ export default function DataImportPanel() {
       } else if (blockedCount) {
         msg += ` · ${tr('محمي له معاملات')}: ${blockedCount}`;
       }
-      if (remaining > 0) toast(msg, { duration: 8000 }); else toast.success(msg);
+      // حقائق الرد التي لا شاشة لها غيره: ما سبق التراجع عنه (الأسعار) وكل تابع حُذف مع العملاء — لا حذف صامت
+      const summary = revertSummaryLines(d);
+      for (const l of summary) msg += ` · ${tr(l.key)}: ${l.count}`;
+      if (remaining > 0) toast(msg, { duration: 8000 });
+      // ملخّص فيه حذف تابع: مهلة أطول ليقرأه المالك قبل أن يختفي
+      else toast.success(msg, summary.length ? { duration: 8000 } : undefined);
       invalidateBatches();
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['products'] });
@@ -190,9 +213,9 @@ export default function DataImportPanel() {
       const key = revertFailureKey(f);
       toast.error(key ? tr(key) : (f.type === 'other' && localizedServerMessage(f.message, lang, tr)) || tr('تعذر التراجع'), { duration: f.type === 'network' ? 10_000 : 6000 });
       if (f.type === 'openingStockActive') setStockServerBlock({ reason: 'active' });
-      // الانقطاع أو دفعة جارية أو متراجع عنها: السجل المعروض قديم
       // الانقطاع أو دفعة جارية أو متراجع عنها أو تغيّرت الصلاحية: السجل المعروض قديم
-      if (f.type === 'network' || f.type === 'running' || f.type === 'gone' || f.type === 'scopedAdmin' || f.type === 'permissionDenied') invalidateBatches();
+      // البند 19: ودفعة قيود أخرى جارية تمنع التراجع ⇒ السجل المعروض قديم كذلك
+      if (f.type === 'network' || f.type === 'running' || f.type === 'gone' || f.type === 'inProgress' || f.type === 'scopedAdmin' || f.type === 'permissionDenied') invalidateBatches();
       setRevertId(null);
     },
   });
@@ -370,12 +393,8 @@ export default function DataImportPanel() {
   const active = allCards.filter((c) => visibleKinds.includes(c.kind));
 
   const revertKind = revertId ? batches?.find((b) => b.id === revertId)?.kind : undefined;
-  const revertTouchesLedger = ledgerActivated && (revertKind === 'balances' || revertKind === 'ledger' || revertKind === 'customers');
-  const revertMessage = revertKind === OPENING_STOCK
-    ? tr('ستحذف حركة المخزون الافتتاحي ببنودها ما لم تستهلك أصنافها بعد الاستيراد بتحميل سيارات أو فواتير أو تسوية بالنقص')
-    : revertTouchesLedger
-      ? tr('يُزال من كشوف العملاء وتُكتب في الدفاتر قيود عكسية؛ لا يُحذف قيد مرحّل')
-      : tr('سيزال ما أضيف في هذه الدفعة نهائيا وتعاد الأرصدة إلى ما قبلها متابعة');
+  // البندان 7 و17: نص صادق بحسب النوع — لا وعد بـ«إعادة الأرصدة» في الأسعار والمنتجات، وذكر ما يبقى من العملاء
+  const revertMessage = tr(revertConfirmKey(revertKind, ledgerActivated));
 
   const retryConflictButton = (label: string) => (
     <button type="button" onClick={() => doImport()} disabled={busy !== null}
@@ -587,7 +606,7 @@ export default function DataImportPanel() {
                 <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 max-h-40 overflow-y-auto">
                   <p className="text-xs font-semibold text-amber-800 flex items-center gap-1 mb-2"><AlertTriangle size={13} /> {tr('صفوف بها أخطاء')}</p>
                   {view.errors.slice(0, 20).map((er, i) => (
-                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {er.row}: {tr(er.message)}{er.value ? <>: <bdi className="font-mono">{er.value}</bdi></> : null}</p>
+                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {er.row}: {tr(er.message)}<RowErrorValue er={er} tr={tr} /></p>
                   ))}
                   {view.errors.length > 20 && <p className="text-[11px] text-amber-600 mt-1">+{view.errors.length - 20} …</p>}
                 </div>
@@ -729,6 +748,8 @@ export default function DataImportPanel() {
                 <h3 className="font-bold text-gray-800 mb-1" role={rv.tone === 'success' ? undefined : 'alert'}>{tr(rv.titleKey)} — {tr(IMPORT_TYPES[result.kind].label)}</h3>
                 <div className="flex flex-wrap justify-center gap-x-5 gap-y-3 mt-4 text-sm">
                   {stat(rv.counts.created, 'أضيف', rv.counts.created > 0 ? 'text-green-700' : 'text-gray-400')}
+                  {/* البند 7: الأسعار — ما استُبدل من أسعار قائمة كتابة فعلية منفصلة عن الإنشاء */}
+                  {stat(rv.counts.updated, 'حُدّث', 'text-green-700', typeof result.res.updated === 'number')}
                   {stat(rv.counts.attached, 'ربط كود', 'text-green-700', rv.counts.attached > 0)}
                   {stat(rv.counts.skipped, 'مكرر تخطي', 'text-gray-500')}
                   {stat(rv.counts.zero, 'صفري', 'text-gray-500', typeof result.res.zero === 'number')}
@@ -740,6 +761,13 @@ export default function DataImportPanel() {
                   <p className="bg-[#FBF7F0] border border-[#E8E0D2] rounded-xl p-2.5 mt-4 text-[11px] text-[#6E6557] flex items-center justify-between">
                     <span>{tr('إجمالي التكلفة الصافية')}</span>
                     <bdi className="tabular-nums font-bold text-gray-800">{formatCurrency(result.res.totalCost)}</bdi>
+                  </p>
+                )}
+                {/* البند 15: لم يُضف شيء لأن الأصناف مستوردة في دفعة سابقة ⇒ الطريق هو التراجع عنها */}
+                {openingStockRevertHint(result.kind, result.res) && (
+                  <p className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 mt-4 text-[11px] text-amber-900 text-right">
+                    <AlertTriangle size={12} className="inline me-1" />
+                    {tr(OPENING_STOCK_REVERT_HINT)}
                   </p>
                 )}
                 {(w?.undatedAsToday ?? 0) > 0 && (
@@ -761,8 +789,12 @@ export default function DataImportPanel() {
                 )}
                 {(skippedRows.length > 0 || similar.length > 0 || attachedRows.length > 0) && (
                   <div className="bg-[#FBF7F0] border border-[#E8E0D2] rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
+                    {/* البند 30: المنتجات لها أسبابها (الكود موجود / مكرر داخل الملف) بكود الصنف */}
                     {skippedRows.slice(0, 15).map((s, i) => (
-                      <p key={`s${i}`} className="text-[11px] text-[#6E6557]">{tr('صف')} {row(s.row)}: {tr(customerSkipReasonKey(s.reason))}</p>
+                      <p key={`s${i}`} className="text-[11px] text-[#6E6557]">
+                        {tr('صف')} {row(s.row)}{s.code ? <> (<bdi className="font-mono">{s.code}</bdi>)</> : null}
+                        : {tr(result.kind === 'products' ? productSkipReasonKey(s.reason) : customerSkipReasonKey(s.reason))}
+                      </p>
                     ))}
                     {skippedRows.length > 15 && <p className="text-[11px] text-gray-400">+{skippedRows.length - 15} …</p>}
                     {attachedRows.slice(0, 15).map((s, i) => (
@@ -791,7 +823,7 @@ export default function DataImportPanel() {
                   <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-40 overflow-y-auto text-right">
                     {result.res.errors.slice(0, 20).map((er, i) => (
                       <p key={i} className="text-[11px] text-amber-700">
-                        {tr('صف')} {row(er.row)}: {tr(importRowErrorKey(er))}{er.value ? <>: <bdi className="font-mono">{er.value}</bdi></> : null}
+                        {tr('صف')} {row(er.row)}: {tr(importRowErrorKey(er))}<RowErrorValue er={er} tr={tr} />
                       </p>
                     ))}
                     {result.res.errors.length > 20 && <p className="text-[11px] text-amber-600 mt-1">+{result.res.errors.length - 20} …</p>}

@@ -213,6 +213,14 @@ export interface OpeningPreview {
   tenantCounts?: { customers: number; products: number };
 }
 
+/** رد POST /setup/draft — rebasedImportEntries يظهر حين نُفّذت إعادة ضبط تواريخ الاستيراد */
+export interface SetupDraftResult {
+  draft: SetupDraft;
+  effective: SetupEffective;
+  history: HistoryEstimate | null;
+  rebasedImportEntries?: number;
+}
+
 export interface SetupCommitResult {
   status: SetupStatus;
   opening: DerivedOpeningJson;
@@ -227,6 +235,13 @@ export interface SetupCommitResult {
     conflictingAccountRefs: SeedAccountRefConflict[];
   };
   vendorsCreated: number;
+  /**
+   * البند 26: applyStep3 لم تعد ترمي 404 على رابط فئة محذوفة بل تتخطاه وتذكره هنا.
+   * اختياري للتوافق مع خادم أقدم لا يعيد التقرير.
+   */
+  step3?: { renamed: number; categoryAccounts: number; skippedCategoryLinks: { categoryId: string; accountCode: string }[] };
+  /** البند 25: عدد قيود الاستيراد التي أُعيد ضبط تواريخها على المنطقة الجديدة (مع rebaseImportDates) */
+  rebasedImportEntries?: number;
 }
 
 // ═══ فئات المنتجات (CFG‑03) ═══
@@ -263,8 +278,16 @@ const L = '/ledger';
 export const ledgerSetupApi = {
   get: () => api.get<LedgerEnvelope<SetupState>>(`${L}/setup`),
   /** حفظ مسودة خطوة (دمج بالأقسام؛ step1 حقلاً بحقل) — 422 LEDGER_CUTOVER_IN_FUTURE / MID_VAT_PERIOD / HISTORY_TOO_LARGE */
-  saveDraft: (draft: SetupDraft) =>
-    api.post<LedgerEnvelope<{ draft: SetupDraft; effective: SetupEffective; history: HistoryEstimate | null }>>(`${L}/setup/draft`, draft),
+  /**
+   * البند 25: `rebaseImportDates` حقل **علوي** للطلب لا للمسودة — الخادم ينزعه قبل draftSchema الصارم
+   * (routes/ledger/setup.ts) فلا يُخزَّن. بدونه يرتدّ تغييرُ المنطقة 409 LEDGER_TIMEZONE_IMPORTS_CONFLICT
+   * للشركة التي استوردت أرصدة أو كشوفاً بالمنطقة السابقة.
+   */
+  saveDraft: (draft: SetupDraft, opts?: { rebaseImportDates?: boolean }) =>
+    api.post<LedgerEnvelope<SetupDraftResult>>(`${L}/setup/draft`, {
+      ...draft,
+      ...(opts?.rebaseImportDates ? { rebaseImportDates: true } : {}),
+    }),
   /** معاينة إرشادية بلا أي كتابة (الخطوة 4) */
   previewOpening: (draft?: SetupDraft) => api.post<LedgerEnvelope<OpeningPreview>>(`${L}/setup/preview-opening`, draft ?? {}),
   /**
@@ -273,11 +296,12 @@ export const ledgerSetupApi = {
    * acknowledgeOpeningStockExcluded ⇒ 409 LEDGER_OPENING_STOCK_AFTER_CUTOVER؛ والتاريخ الكامل مع دفعة مخزون ⇒ 409
    * LEDGER_OPENING_STOCK_FULL_HISTORY؛ ودفعة أحدث من لقطة الاعتماد ⇒ 409 LEDGER_OPENING_STOCK_TOO_RECENT (retryAfter).
    */
-  commit: (draft?: SetupDraft, opts?: { acknowledgePostCutoverImports?: boolean; acknowledgeOpeningStockExcluded?: boolean }) =>
+  commit: (draft?: SetupDraft, opts?: { acknowledgePostCutoverImports?: boolean; acknowledgeOpeningStockExcluded?: boolean; rebaseImportDates?: boolean }) =>
     api.post<LedgerEnvelope<SetupCommitResult>>(`${L}/setup/commit`, {
       acknowledgeStatutory: true,
       ...(opts?.acknowledgePostCutoverImports ? { acknowledgePostCutoverImports: true } : {}),
       ...(opts?.acknowledgeOpeningStockExcluded ? { acknowledgeOpeningStockExcluded: true } : {}),
+      ...(opts?.rebaseImportDates ? { rebaseImportDates: true } : {}),
       ...(draft ? { draft } : {}),
     }, { timeout: 90_000 }),
   /** «إيقاف مؤقت» / «استئناف» الترحيل التاريخي */

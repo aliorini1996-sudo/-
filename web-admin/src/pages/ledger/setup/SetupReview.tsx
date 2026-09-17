@@ -14,9 +14,10 @@ import { ledgerHref } from '../routes';
 import { useAllAccounts } from '../config/parts/configUi';
 import {
   commitNeedsRefresh, derivedAccountKind, hasPostCutoverImports, importsAckBlocksCommit, isZeroAmount, openingDataHints, openingStockReview,
+  timezoneImportsConflictOf, type TimezoneImportsConflict,
 } from './setupLogic';
 import {
-  DataImportLink, manualIssueText, Notice, OpeningStockNotice, PostCutoverImportsNotice, StepSection, useSetupErrorText, WarehouseLink,
+  DataImportLink, manualIssueText, Notice, OpeningStockNotice, PostCutoverImportsNotice, StepSection, TimezoneImportsConflictNotice, useSetupErrorText, WarehouseLink,
 } from './setupUi';
 import { StepFooter, usePeriodicityLabels, type StepProps } from './SetupSteps';
 
@@ -233,6 +234,8 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
   const [stockAck, setStockAck] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [commitError, setCommitError] = useState<string | null>(null);
+  // البند 25: تعارض المنطقة الزمنية قد يعود من /setup/commit كذلك — إقرار يعيد الاعتماد نفسه
+  const [tzConflict, setTzConflict] = useState<TimezoneImportsConflict | null>(null);
   const q = useQuery({
     queryKey: [...ledgerSetupKeys.setup, 'preview', 'review'],
     queryFn: async () => (await ledgerSetupApi.previewOpening()).data.data,
@@ -241,12 +244,14 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
     retry: false,
   });
   const commit = useMutation({
-    mutationFn: async () => (await ledgerSetupApi.commit(undefined, {
+    mutationFn: async (opts?: { rebaseImportDates?: boolean }) => (await ledgerSetupApi.commit(undefined, {
       acknowledgePostCutoverImports: importsAck, acknowledgeOpeningStockExcluded: stockAck && stock.afterCutover,
+      rebaseImportDates: opts?.rebaseImportDates,
     })).data.data,
-    onSuccess: r => { setCommitError(null); onCommitted(r); },
+    onSuccess: r => { setCommitError(null); setTzConflict(null); onCommitted(r); },
     onError: e => {
       setCommitError(errorText(e, tr('تعذر التفعيل')));
+      setTzConflict(timezoneImportsConflictOf(ledgerErrorOf(e)));
       // حركات مستوردة ظهرت بعد المعاينة ⇒ تُحدَّث ليظهر التنبيه وخانة الإقرار
       // أو دفعة استيراد كانت جارية ⇒ تُحدَّث بعد انتهائها ليُعاد الإقرار على الأرقام الجديدة
       // أو مخزون افتتاحي مستورد تغيّر حكمه (بعد البدء، التاريخ الكامل، أحدث من اللقطة) ⇒ المعاينة الجديدة وإقرار جديد
@@ -363,7 +368,11 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
           <input type="checkbox" className="mt-1 accent-[#E15A30]" checked={ack} disabled={!canWrite || commit.isPending} onChange={e => setAck(e.target.checked)} />
           <span>{tr('قرأت التنبيه وأوافق على تفعيل الدفاتر')}</span>
         </label>
-        {commitError && <Notice tone="error">{commitError}</Notice>}
+        {commitError && !tzConflict && <Notice tone="error">{commitError}</Notice>}
+        {tzConflict && (
+          <TimezoneImportsConflictNotice detail={tzConflict} busy={commit.isPending} canWrite={canWrite}
+            onConfirm={() => commit.mutate({ rebaseImportDates: true })} />
+        )}
         {commit.isPending && <p className="text-xs text-[#6E6557]">{tr('جاري التفعيل، قد يستغرق حتى دقيقة. لا تغلق الصفحة')}</p>}
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-secondary" onClick={onBack} disabled={commit.isPending}>{tr('السابق')}</button>
@@ -371,7 +380,7 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
           <button type="button" className="btn-primary inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!canWrite || !ack || blocked || importsBlocked || stockBlocked || commit.isPending || q.isFetching}
             title={!canWrite ? tr('لا تملك صلاحية التعديل') : blocked ? tr('أصلح الأرصدة اليدوية أولا') : importsBlocked ? tr('أقرّ بالحركات المستوردة بعد تاريخ البدء أولا') : stockTitle}
-            onClick={() => commit.mutate()}>
+            onClick={() => commit.mutate(undefined)}>
             <ShieldCheck size={15} />{commit.isPending ? tr('جاري التفعيل...') : tr('تفعيل الدفاتر')}
           </button>
         </div>
@@ -405,6 +414,17 @@ export function CommitResultPanel({ result, decimals }: { result: SetupCommitRes
         <Notice>{tr('مستندات مؤرخة بعد تاريخ البدء أُدرجت للترحيل')}: <bdi className="tabular-nums">{result.futureDated.eventsInserted}</bdi></Notice>
       )}
       {result.vendorsCreated > 0 && <Notice>{tr('موردون أُنشئوا من الأرصدة اليدوية')}: <bdi className="tabular-nums">{result.vendorsCreated}</bdi></Notice>}
+      {/* البند 26: الرابط المتخطّى لم يعد يمنع الاعتماد — لكن فقده يبقى خبراً يعرفه المالك لا يُسقط بصمت */}
+      {(result.step3?.skippedCategoryLinks?.length ?? 0) > 0 && (
+        <Notice tone="warn">
+          {tr('رابط فئة إلى حساب إيراد تُخطّي لأن الفئة لم تعد موجودة')}: <bdi className="tabular-nums">{result.step3!.skippedCategoryLinks.length}</bdi>
+          {' · '}
+          <bdi dir="ltr" className="font-mono">{result.step3!.skippedCategoryLinks.slice(0, 10).map(l => l.accountCode).join(', ')}</bdi>
+        </Notice>
+      )}
+      {(result.rebasedImportEntries ?? 0) > 0 && (
+        <Notice>{tr('أُعيد ضبط تواريخ {count} قيداً مستورداً على المنطقة الزمنية الجديدة').replace('{count}', String(result.rebasedImportEntries))}</Notice>
+      )}
       {seedIssues > 0 && (
         <Notice tone="warn">
           {tr('بعض عناصر القالب لم تُربط وتحتاج مراجعتك')}{' '}

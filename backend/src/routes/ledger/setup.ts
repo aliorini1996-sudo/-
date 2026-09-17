@@ -23,7 +23,7 @@ import {
 import { initialWatermarkAt, type SetupMethod } from '../../services/gl/sync/classify';
 import {
   acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, derivedOpeningJson,
-  importInProgressDetails, importedAfterCutoverJson, loadImportedAfterCutover, loadRunningImportBatch, loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow,
+  importBatchRecordIds, importInProgressDetails, importedAfterCutoverJson, loadImportedAfterCutover, loadRunningImportBatch, loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow,
   loadOpeningStockCheck, openingStockCheckJson,
   postCutoverImportsAckMissing, suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
   type ManualBalanceLine, type ManualBalanceRowInput,
@@ -32,6 +32,10 @@ import {
   assertHistoryNotTooLarge, backfillTransition, estimateHistory, fullHistoryCutoverDate, initialCursorRows,
   freezeOpeningSettlementSplits, loadHistoryFacts, refreshBackfillState, scanFutureDatedRows,
 } from '../../services/gl/backfill';
+import { IMPORT_ENTRY_KINDS, importTimezone } from '../../services/importLedger';
+import {
+  LEDGER_TIMEZONE_IMPORTS_CONFLICT_CODE, LEDGER_TIMEZONE_IMPORTS_CONFLICT_MESSAGE, importTimezoneConflict, planImportDateRebase, plannedRebaseCount,
+} from '../../services/importTimezoneRebase';
 
 /**
  * معالج الإعداد والقيد الافتتاحي والترحيل التاريخي — `/api/ledger/setup*` (M3، §5.6، §8.4 القسم 2، ملحق أ).
@@ -198,7 +202,7 @@ async function ensureSettingsRow(tx: GlTx, tenantId: string, templateKey: Templa
   return tx.glSettings.findUniqueOrThrow({ where: { tenantId } });
 }
 
-async function dbNowOf(db: GlTx | typeof prisma): Promise<Date> {
+export async function dbNowOf(db: GlTx | typeof prisma): Promise<Date> {
   const rows = await db.$queryRaw<{ now: Date }[]>`SELECT now() AS "now"`;
   return rows[0]?.now instanceof Date ? rows[0].now : new Date(rows[0]?.now ?? Date.now());
 }
@@ -247,6 +251,75 @@ async function draftsBeforeCutover(db: GlTx | typeof prisma, tenantId: string, c
   return { count, listUrl: draftsListUrl(addDays(cutoverDate, -1)) };
 }
 
+// ═══ المنطقة الزمنية والاستيراد (البند 25) ═══
+
+const REBASE_CHUNK = 1000;
+
+/** دفعات القيود المستوردة القائمة للشركة (balances/ledger، غير متراجَع عنها) — قراءة فقط بلا قفل */
+async function loadImportEntryBatches(tx: GlTx, tenantId: string) {
+  return tx.importBatch.findMany({
+    where: { tenantId, reverted: false, kind: { in: [...IMPORT_ENTRY_KINDS] }, count: { gt: 0 } },
+    select: { id: true, kind: true, count: true, createdAt: true, recordIds: true },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+/** خطّة الإزاحة على قيود تلك الدفعات، بمجموعات لا تتجاوز REBASE_CHUNK معرّفاً — قراءة فقط */
+async function planTenantImportRebase(
+  tx: GlTx, tenantId: string, batches: readonly { recordIds: string | null }[], fromTz: string, toTz: string,
+): Promise<{ from: Date; to: Date; ids: string[] }[]> {
+  const ids = [...new Set(batches.flatMap((b) => importBatchRecordIds(b.recordIds)))];
+  const plan: { from: Date; to: Date; ids: string[] }[] = [];
+  for (let i = 0; i < ids.length; i += REBASE_CHUNK) {
+    const entries = await tx.accountEntry.findMany({
+      where: { id: { in: ids.slice(i, i + REBASE_CHUNK) }, tenantId, invoiceId: null, receiptId: null },
+      select: { id: true, entryDate: true },
+    });
+    plan.push(...planImportDateRebase(entries, fromTz, toTz));
+  }
+  return plan;
+}
+
+/**
+ * تغيير المنطقة الفعلية عن منطقة الاستيراد (importTimezone(before)) مع **إزاحة فعلية** على تواريخ قيود دفعات
+ * balances/ledger القائمة: بلا rebaseImportDates ⇒ 409 LEDGER_TIMEZONE_IMPORTS_CONFLICT؛ معه ⇒ نقل القيود المحاذية
+ * لبداية يوم المنطقة السابقة إلى بداية اليوم نفسه بالمنطقة الجديدة داخل المعاملة نفسها. قبل كتابة glSettings دائماً.
+ *
+ * البند D — الترتيب مقصود: التعارض يُقاس أولاً بالقراءة وحدها (بلا قفل)، فمنطقتان بإزاحة واحدة (Asia/Riyadh ⇄
+ * Asia/Aden) لا تُشعلان 409 ولا LEDGER_IMPORT_IN_PROGRESS ولا تأخذان قفل حجز الدفعات. القفل وفحص «استيراد جارٍ»
+ * لا يقعان إلا حين توجد إزاحة ستُكتب فعلاً، ثم يُعاد قياس الخطّة تحته فتُشمل أي دفعة وصلت أثناء القياس.
+ * lockHeld: /setup/commit أخذ القفل وفحص الجاري قبله، فالخطّة المقيسة هناك تحته أصلاً.
+ * يعيد عدد القيود المنقولة حين نُفّذت إعادة الضبط، وإلا undefined.
+ */
+export async function guardImportTimezone(
+  tx: GlTx, tenantId: string, before: SettingsRow | null, timezone: string,
+  opts: { rebase: boolean | undefined; now: Date; lockHeld: boolean },
+): Promise<number | undefined> {
+  const previousTimezone = importTimezone(before);
+  if (previousTimezone === timezone) return undefined;
+  const batches = await loadImportEntryBatches(tx, tenantId);
+  if (!batches.length) return undefined;
+  const plan = await planTenantImportRebase(tx, tenantId, batches, previousTimezone, timezone);
+  const conflict = importTimezoneConflict({ previousTimezone, timezone, batches, shiftedEntries: plannedRebaseCount(plan) });
+  if (!conflict) return undefined;
+  if (opts.rebase !== true) {
+    throw new LedgerHttpError(409, LEDGER_TIMEZONE_IMPORTS_CONFLICT_MESSAGE, { ...conflict }, LEDGER_TIMEZONE_IMPORTS_CONFLICT_CODE);
+  }
+  let finalPlan = plan;
+  if (!opts.lockHeld) {
+    await acquireImportEntriesLock(tx, tenantId);
+    const running = await loadRunningImportBatch(tx, tenantId, opts.now);
+    if (running) throw new LedgerHttpError(409, LEDGER_IMPORT_IN_PROGRESS_MESSAGE, importInProgressDetails(running), 'LEDGER_IMPORT_IN_PROGRESS');
+    finalPlan = await planTenantImportRebase(tx, tenantId, await loadImportEntryBatches(tx, tenantId), previousTimezone, timezone);
+  }
+  let rebased = 0;
+  for (const g of finalPlan) {
+    const u = await tx.accountEntry.updateMany({ where: { tenantId, id: { in: g.ids }, entryDate: g.from }, data: { entryDate: g.to } });
+    rebased += u.count;
+  }
+  return rebased;
+}
+
 // ═══ GET /setup ═══
 
 router.get('/setup', CONFIGURE, ledgerHandler(async (_req, res) => {
@@ -288,7 +361,10 @@ router.get('/setup', CONFIGURE, ledgerHandler(async (_req, res) => {
 
 router.post('/setup/draft', CONFIGURE, ledgerHandler(async (req, res) => {
   const { tenantId } = ledgerOf(res);
-  const patch = draftSchema.parse(req.body ?? {});
+  // rebaseImportDates حقل علوي للطلب لا للمسودة: يُنزع قبل draftSchema (strict) ولا يُخزَّن
+  const { rebaseImportDates: rawRebase, ...draftBody } = (req.body ?? {}) as Record<string, unknown>;
+  const rebaseImportDates = z.boolean().optional().parse(rawRebase);
+  const patch = draftSchema.parse(draftBody);
   const actor = actorOf(req, res);
   const out = await prisma.$transaction(async (tx) => {
     const now = await dbNowOf(tx);
@@ -306,6 +382,8 @@ router.post('/setup/draft', CONFIGURE, ledgerHandler(async (req, res) => {
       assertHistoryNotTooLarge(estimate);
       history = { ...estimate, fullHistoryCutoverDate: fullHistoryCutoverDate(facts.oldestEffectAt, eff.timezone, eff.fiscalYearEndMonth, eff.fiscalYearEndDay) };
     }
+    // البند 25: تغيير المنطقة بعد استيراد أرصدة/كشوف ⇒ 409 أو إعادة ضبط التواريخ، قبل أي كتابة للإعدادات
+    const rebasedImportEntries = await guardImportTimezone(tx, tenantId, before, eff.timezone, { rebase: rebaseImportDates, now, lockHeld: false });
     const s = await ensureSettingsRow(tx, tenantId, eff.templateKey, company.countryCode);
     const updated = await tx.glSettings.update({ where: { tenantId }, data: { setupDraft: merged as Prisma.InputJsonValue } });
     if (!before?.setupDraft) {
@@ -314,7 +392,10 @@ router.post('/setup/draft', CONFIGURE, ledgerHandler(async (req, res) => {
         summary: 'بدء معالج إعداد النظام المحاسبي المتكامل', after: { templateKey: eff.templateKey, countryCode: eff.countryCode },
       });
     }
-    return { draft: parseStoredDraft(updated.setupDraft), effective: eff, history };
+    return {
+      draft: parseStoredDraft(updated.setupDraft), effective: eff, history,
+      ...(rebasedImportEntries !== undefined ? { rebasedImportEntries } : {}),
+    };
   }, { timeout: 30_000, maxWait: 10_000 });
   res.json({ success: true, data: out });
 }));
@@ -406,10 +487,28 @@ const commitSchema = z.object({
   acknowledgePostCutoverImports: z.boolean().optional(),
   /** إقرار بمخزون افتتاحي مستورد في تاريخ البدء أو بعده (لا يدخل الافتتاح ولا يُرحَّل قبل M9) — إلزامي حين عدده > 0 */
   acknowledgeOpeningStockExcluded: z.boolean().optional(),
+  /** البند 25: تأكيد إعادة ضبط تواريخ الأرصدة/الكشوف المستوردة على المنطقة الزمنية الجديدة */
+  rebaseImportDates: z.boolean().optional(),
   draft: draftSchema.optional(),
 }).strict();
 
-async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft): Promise<{ renamed: number; categoryAccounts: number }> {
+export interface CategoryLink { categoryId: string; accountCode: string }
+
+/**
+ * البند 26: روابط فئة ⇒ حساب إيراد لفئات لم تعد موجودة (حُذفت بتراجع استيراد المنتجات مثلاً) تُتخطى ولا تُفشل
+ * الاعتماد بـ404 لا يُصلَح من الواجهة. دالة صرفة.
+ */
+export function partitionCategoryLinks<T extends CategoryLink>(links: readonly T[], existingIds: ReadonlySet<string>): { apply: T[]; skipped: CategoryLink[] } {
+  const apply: T[] = [];
+  const skipped: CategoryLink[] = [];
+  for (const l of links) {
+    if (existingIds.has(l.categoryId)) apply.push(l);
+    else skipped.push({ categoryId: l.categoryId, accountCode: l.accountCode });
+  }
+  return { apply, skipped };
+}
+
+async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft): Promise<{ renamed: number; categoryAccounts: number; skippedCategoryLinks: CategoryLink[] }> {
   const step3 = draft.step3 ?? {};
   let renamed = 0;
   for (const r of step3.accountNames ?? []) {
@@ -417,14 +516,18 @@ async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft): Promis
     const u = await tx.glAccount.updateMany({ where: { tenantId, code: r.code, NOT: { name: r.name } }, data: { name: r.name, nameI18n: Prisma.DbNull } });
     renamed += u.count;
   }
-  const links = step3.categoryIncomeAccounts ?? [];
+  const allLinks = step3.categoryIncomeAccounts ?? [];
+  let links: CategoryLink[] = [];
+  let skippedCategoryLinks: CategoryLink[] = [];
+  if (allLinks.length) {
+    const cats = new Set((await tx.productCategory.findMany({ where: { tenantId, id: { in: allLinks.map((l) => l.categoryId) } }, select: { id: true } })).map((c) => c.id));
+    ({ apply: links, skipped: skippedCategoryLinks } = partitionCategoryLinks(allLinks, cats));
+  }
   if (links.length) {
-    const cats = new Set((await tx.productCategory.findMany({ where: { tenantId, id: { in: links.map((l) => l.categoryId) } }, select: { id: true } })).map((c) => c.id));
     const codes = [...new Set(links.map((l) => l.accountCode))];
     const accounts = await tx.glAccount.findMany({ where: { tenantId, code: { in: codes } }, select: { id: true, code: true, type: true, isActive: true } });
     const byCode = new Map(accounts.map((a) => [a.code, a]));
     for (const l of links) {
-      if (!cats.has(l.categoryId)) throw new GlNotFoundError('ProductCategory', l.categoryId);
       const a = byCode.get(l.accountCode);
       if (!a) throw new LedgerError('LEDGER_ACCOUNT_NOT_FOUND', { accountCode: l.accountCode, field: 'categoryIncomeAccounts' });
       if (!a.isActive) throw new LedgerError('LEDGER_ACCOUNT_ARCHIVED', { accountCode: l.accountCode, field: 'categoryIncomeAccounts' });
@@ -438,7 +541,7 @@ async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft): Promis
       });
     }
   }
-  return { renamed, categoryAccounts: links.length };
+  return { renamed, categoryAccounts: links.length, skippedCategoryLinks };
 }
 
 /** سطور 211001: vendorId قائم للشركة، أو مورّد بالاسم (يُنشأ GlVendor إن لم يوجد) — I5 */
@@ -499,6 +602,10 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     }
     const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
     const eff = effectiveSetup(draft, before, company.countryCode);
+    // البند 25: قبل أي حساب بتواريخ القيود المستوردة (الافتتاح وما بعد البدء) وقبل كتابة الإعدادات؛ القفل مأخوذ أعلاه
+    const rebasedImportEntries = await guardImportTimezone(tx, tenantId, before, eff.timezone, {
+      rebase: parsed.data.rebaseImportDates, now: dbNow, lockHeld: true,
+    });
 
     // (2) الطريقة وتاريخ البدء
     let cutoverDate = eff.cutoverDate;
@@ -646,6 +753,7 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
         midVatPeriod: midPeriod, preCutoverBoxes: eff.preCutoverBoxes, watermarkAt: watermarkAt.toISOString(), history, futureDated, frozenSettlements,
         seed: { created: seed.created, skipped: seed.skipped, unresolvedMappings: seed.unresolvedMappings, conflictingMappings: seed.conflictingMappings.length },
         step3: step3Report, vendorsCreated: vendors.created, manualRows: manual.lines.length,
+        ...(rebasedImportEntries !== undefined ? { rebasedImportEntries } : {}),
         importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, decimals),
         openingStockExcluded: openingStock.afterCutover.count > 0 ? openingStockJson.afterCutover : null,
         openingMove: posted ? { id: posted.id, number: posted.number, date: posted.date } : null,
@@ -662,6 +770,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       futureDated,
       seed: { created: seed.created, skipped: seed.skipped, unresolvedMappings: seed.unresolvedMappings, conflictingMappings: seed.conflictingMappings, conflictingAccountRefs: seed.conflictingAccountRefs },
       vendorsCreated: vendors.created,
+      step3: step3Report,
+      ...(rebasedImportEntries !== undefined ? { rebasedImportEntries } : {}),
     };
   }, COMMIT_TX);
   // الاستجابة بالأرقام النهائية الملتزمة لا بأرقام المعاينة

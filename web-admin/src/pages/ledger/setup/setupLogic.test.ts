@@ -7,6 +7,7 @@ import {
   milliText, needsMidPeriodConfirm, normalizeDueDate, openingDateOf, openingFieldOf, parseOpeningBalanceRecords,
   DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, derivedAccountKind, hasPostCutoverImports, importsAckBlocksCommit, openingDataHints,
   openingStockReview, commitNeedsRefresh, COMMIT_REFRESH_CODES,
+  keepLiveCategoryLinks, timezoneImportsConflictOf, TIMEZONE_IMPORTS_CONFLICT_CODE,
 } from './setupLogic';
 import type { SetupEffective } from '../../../api/ledgerSetup';
 
@@ -230,4 +231,70 @@ test('«قبل أن تبدأ»: المخزون الافتتاحي يُستورد
   const cutover = card.indexOf('حدّد تاريخ البدء في الخطوة 1');
   assert.ok(stock > 0 && cutover > stock, 'بند المخزون قبل بند تاريخ البدء');
   assert.match(card, /في يوم لاحق/);
+});
+
+// ═══ دفعة الإصلاحات 2 (مراجعة 2026-09-17) ═══
+
+test('البند 26: روابط الفئات تُصفّى على الفئات القائمة، ولا تُمحى حين القائمة غير معروفة', () => {
+  const links = { 'cat-live': '4101', 'cat-dead': '4102', 'cat-empty': '' };
+  // القائمة معروفة ⇒ معرّف فئة محذوفة يُسقط ولا يُعاد حفظه في المسودة
+  assert.deepEqual(keepLiveCategoryLinks(links, new Set(['cat-live'])), [{ categoryId: 'cat-live', accountCode: '4101' }]);
+  // القائمة غير معروفة (catsQ معطّلة قبل زرع الشجرة أو فشل الاستعلام) ⇒ الروابط كما هي
+  assert.deepEqual(keepLiveCategoryLinks(links, null), [
+    { categoryId: 'cat-live', accountCode: '4101' }, { categoryId: 'cat-dead', accountCode: '4102' },
+  ]);
+  assert.deepEqual(keepLiveCategoryLinks({}, new Set(['cat-live'])), []);
+  // والخطوة 3 تستعملها فعلاً بدل الترشيح على وجود الكود وحده
+  const steps = read(webSrc, 'pages', 'ledger', 'setup', 'SetupSteps.tsx');
+  assert.match(steps, /keepLiveCategoryLinks\(catCodes, liveCategoryIds\)/);
+  assert.doesNotMatch(steps, /Object\.entries\(catCodes\)\.filter\(\(\[, code\]\) => !!code\)/);
+  assert.match(steps, /catsQ\.data && !catsQ\.isError/, 'الترشيح لا يتحقق من توفّر قائمة الفئات');
+  // والمتخطّى عند الاعتماد يُعرض للمالك بالعبارة المترجمة سلفاً
+  const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
+  assert.match(review, /result\.step3\?\.skippedCategoryLinks\?\.length/);
+  assert.match(review, /رابط فئة إلى حساب إيراد تُخطّي لأن الفئة لم تعد موجودة/);
+  assert.match(read(webSrc, 'api', 'ledgerSetup.ts'), /skippedCategoryLinks: \{ categoryId: string; accountCode: string \}\[\]/);
+  // والخادم يعيدها فعلاً
+  assert.match(read(backend, 'routes', 'ledger', 'setup.ts'), /skippedCategoryLinks/);
+});
+
+test('البند 25: تعارض المنطقة الزمنية يُقرأ بتفاصيله وللواجهة مسار إقرار يعيد إرسال الطلب', () => {
+  const body = {
+    code: TIMEZONE_IMPORTS_CONFLICT_CODE,
+    details: {
+      reason: 'IMPORT_TIMEZONE_CONFLICT', previousTimezone: 'Asia/Riyadh', timezone: 'Europe/Istanbul', field: 'rebaseImportDates',
+      batches: [{ id: 'b1', kind: 'ledger', count: 12, createdAt: '2026-09-01T10:00:00.000Z' }],
+    },
+  };
+  const c = timezoneImportsConflictOf(body);
+  assert.deepEqual(c, {
+    previousTimezone: 'Asia/Riyadh', timezone: 'Europe/Istanbul',
+    batches: [{ id: 'b1', kind: 'ledger', count: 12, createdAt: '2026-09-01T10:00:00.000Z' }],
+  });
+  assert.equal(timezoneImportsConflictOf({ code: 'LEDGER_IMPORT_IN_PROGRESS', details: {} }), null);
+  assert.equal(timezoneImportsConflictOf(null), null);
+  // تفاصيل ناقصة من خادم أقدم لا تُسقط الشاشة
+  assert.deepEqual(timezoneImportsConflictOf({ code: TIMEZONE_IMPORTS_CONFLICT_CODE }), { previousTimezone: '', timezone: '', batches: [] });
+
+  // الرمز نفسه في الخادم
+  assert.match(read(backend, 'services', 'importTimezoneRebase.ts'), /LEDGER_TIMEZONE_IMPORTS_CONFLICT/);
+  // واجهة: المسودة والاعتماد يمرّران الإقرار، والمعالج يلتقط الرمز ويعيد الإرسال
+  const api = read(webSrc, 'api', 'ledgerSetup.ts');
+  assert.match(api, /saveDraft: \(draft: SetupDraft, opts\?: \{ rebaseImportDates\?: boolean \}\)/);
+  assert.match(api, /rebaseImportDates: true/);
+  assert.match(api, /rebasedImportEntries\?: number/);
+  const wizard = read(webSrc, 'pages', 'ledger', 'setup', 'SetupWizard.tsx');
+  assert.match(wizard, /timezoneImportsConflictOf/);
+  assert.match(wizard, /rebaseImportDates: true/);
+  assert.match(wizard, /rebasedImportEntries/);
+  assert.match(wizard, /TimezoneImportsConflictNotice/);
+  const ui = read(webSrc, 'pages', 'ledger', 'setup', 'setupUi.tsx');
+  assert.match(ui, /أكّد إعادة ضبط تواريخ الأرصدة والكشوف المستوردة على المنطقة الزمنية الجديدة/);
+  assert.match(ui, /case 'LEDGER_TIMEZONE_IMPORTS_CONFLICT'/);
+  // ومسار الاعتماد يلتقطه كذلك
+  const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
+  assert.match(review, /timezoneImportsConflictOf/);
+  assert.match(review, /rebaseImportDates: true/);
+  // والرمز له نصّه في قائمة رموز التهيئة فلا يسقط على رسالة عامة
+  assert.match(read(webSrc, 'lib', 'ledger', 'labels.ts'), /LEDGER_TIMEZONE_IMPORTS_CONFLICT: tr\(/);
 });

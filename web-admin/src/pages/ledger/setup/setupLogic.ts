@@ -309,6 +309,60 @@ export function openingStockReview(os: OpeningStockLike, acknowledged: boolean, 
   };
 }
 
+// ═══ البند 26: روابط فئات المنتجات بحسابات الإيراد في المسودة ═══
+
+/**
+ * روابط «فئة ⇒ حساب إيراد» المحفوظة في الخطوة 3، مصفّاةً على الفئات القائمة.
+ *
+ * فئة حُذفت (بتراجع عن دفعة منتجات مثلاً) يبقى معرّفها في المسودة فيُعاد حفظه كل مرة، ويُسقطه
+ * الخادم عند الاعتماد بلا علم المالك. و`liveIds === null` يعني أن القائمة غير معروفة (الاستعلام
+ * معطّل قبل زرع شجرة الحسابات، أو قيد التحميل، أو فشل): تُحفظ الروابط كما هي، فمسحُها لمجرد
+ * فشل استعلام يضيّع ربطاً صحيحاً — وهو خطأ أسوأ من الذي نصلحه.
+ */
+export function keepLiveCategoryLinks(
+  catCodes: Record<string, string>, liveIds: ReadonlySet<string> | null,
+): { categoryId: string; accountCode: string }[] {
+  return Object.entries(catCodes)
+    .filter(([categoryId, code]) => !!code && (!liveIds || liveIds.has(categoryId)))
+    .map(([categoryId, accountCode]) => ({ categoryId, accountCode }));
+}
+
+// ═══ البند 25: تعارض المنطقة الزمنية مع الأرصدة والكشوف المستوردة ═══
+
+/** رمز الخادم: تغيير المنطقة وللشركة دفعات balances/ledger غير متراجع عنها بلا rebaseImportDates */
+export const TIMEZONE_IMPORTS_CONFLICT_CODE = 'LEDGER_TIMEZONE_IMPORTS_CONFLICT';
+
+export interface TimezoneImportsConflict {
+  previousTimezone: string;
+  timezone: string;
+  batches: { id: string; kind: string; count: number; createdAt: string }[];
+}
+
+/**
+ * جسم 409 LEDGER_TIMEZONE_IMPORTS_CONFLICT ⇒ تفاصيله، وإلا null.
+ *
+ * بدونه كان تغيير المنطقة مسدوداً في الواجهة: الخادم يطلب إقراراً (`rebaseImportDates`) ولا مسار
+ * في المعالج لإرساله، فشركةٌ استوردت أرصدتها قبل فتح المعالج لا تستطيع اختيار منطقتها إطلاقاً.
+ */
+export function timezoneImportsConflictOf(e: unknown): TimezoneImportsConflict | null {
+  const body = e as { code?: string; details?: Record<string, unknown> | null } | null | undefined;
+  if (!body || body.code !== TIMEZONE_IMPORTS_CONFLICT_CODE) return null;
+  const d = (body.details ?? {}) as Record<string, unknown>;
+  const raw = Array.isArray(d.batches) ? d.batches : [];
+  return {
+    previousTimezone: typeof d.previousTimezone === 'string' ? d.previousTimezone : '',
+    timezone: typeof d.timezone === 'string' ? d.timezone : '',
+    batches: raw.map(b => {
+      const x = (b ?? {}) as Record<string, unknown>;
+      return {
+        id: String(x.id ?? ''), kind: String(x.kind ?? ''),
+        count: typeof x.count === 'number' ? x.count : 0,
+        createdAt: typeof x.createdAt === 'string' ? x.createdAt : '',
+      };
+    }),
+  };
+}
+
 /** رفض اعتماد يستوجب إعادة المعاينة وإلغاء الإقرارات (الأرقام تغيّرت بعد المعاينة) */
 export const COMMIT_REFRESH_CODES = [
   'LEDGER_POST_CUTOVER_IMPORTS_ACK', 'LEDGER_IMPORT_IN_PROGRESS',

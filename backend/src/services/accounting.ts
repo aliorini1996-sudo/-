@@ -51,9 +51,22 @@ export function deriveRunningBalances<T extends { debit: number; credit: number 
   });
 }
 
+/**
+ * البند 19: قفل صف العميل FOR UPDATE قبل قراءة الرصيد. الفاتورة والسند والمرتجع تكتب `customer.balance` قيمةً
+ * مطلقة من مجموع القيود؛ وبلا قفل تقرأ معاملتان متزامنتان (فاتورة واستيراد كشف) المجموعَ نفسه فتمحو الأخيرةُ أثر
+ * الأولى. استيراد الكشف يقفل الصف نفسه، فتتسلسل الكتابات ويُقرأ المجموع بعد التزام السابقة.
+ * المعاملات المزيّفة في الاختبارات بلا `$queryRaw` تتخطى القفل.
+ */
+export async function lockCustomerRow(tx: Tx, customerId: string): Promise<void> {
+  const raw = (tx as { $queryRaw?: unknown }).$queryRaw;
+  if (typeof raw !== 'function') return;
+  await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customerId} FOR UPDATE`;
+}
+
 export async function postInvoiceEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
   const newBalance = clean(prevBalance + total);
 
@@ -77,6 +90,7 @@ export async function postInvoiceEntries(
 export async function postCashInvoiceEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
 
   await tx.accountEntry.create({
@@ -108,6 +122,7 @@ export async function postCashInvoiceEntries(
 export async function reverseInvoiceEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
   const newBalance = clean(prevBalance - total);
 
@@ -129,6 +144,7 @@ export async function reverseInvoiceEntries(
 export async function reverseCashInvoiceEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
 
   await tx.accountEntry.create({
@@ -158,6 +174,7 @@ export async function reverseCashInvoiceEntries(
 export async function postReceiptEntries(
   tx: Tx, tenantId: string, receiptId: string, customerId: string, amount: number, date?: Date
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
   const newBalance = clean(prevBalance - amount);
 
@@ -180,6 +197,7 @@ export async function postReceiptEntries(
 export async function reverseReceiptEntries(
   tx: Tx, tenantId: string, receiptId: string, customerId: string, amount: number
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
   const newBalance = clean(prevBalance + amount);
 
@@ -201,6 +219,7 @@ export async function reverseReceiptEntries(
 export async function postReturnEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number, date?: Date
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
   const newBalance = clean(prevBalance - total);
 
@@ -223,6 +242,7 @@ export async function postReturnEntries(
 export async function reverseReturnEntries(
   tx: Tx, tenantId: string, invoiceId: string, customerId: string, total: number
 ) {
+  await lockCustomerRow(tx, customerId);
   const prevBalance = await currentBalance(tx, customerId);
   const newBalance = clean(prevBalance + total);
 

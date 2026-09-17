@@ -19,8 +19,13 @@ import {
   resolveColumns, type ImportNotice,
   AMBIGUOUS_AMOUNT_ERROR, BALANCE_SIDE_INVALID, BALANCE_SIDE_UNRESOLVED_BLOCKER, BALANCE_DC_IGNORED_NOTICE, BALANCE_DC_MISMATCH_NOTICE,
   LEDGER_NO_AMOUNT_COLUMN_BLOCKER, CUSTOMER_OPTIONAL_IGNORED_NOTICE, isTotalsName, BALANCE_FROM_DC_NOTICE,
+  LEDGER_OPENING_ROW_NOTICE, LEDGER_CARRIED_BALANCE_NOTICE, LEDGER_BALANCE_ONLY_ROW, OPENING_ROW_LABELS,
+  LEDGER_CLOSING_ROW_NOTICE, LEDGER_BALANCE_ONLY_NOTICE, CARRIED_ROW_LABELS, TRUE_OPENING_ROW_LABELS,
+  LEDGER_NO_AMOUNT_ROW_NOTICE, CLOSING_ROW_LABELS,
+  PRODUCT_DUPLICATE_ROWS_NOTICE, PRODUCT_SAME_NAME_NO_CODE, PRODUCT_DUPLICATE_CODE,
+  PRODUCT_BLANK_TAX_DUPLICATE_NOTICE, PRODUCT_DEFAULT_UNIT, PRODUCT_DEFAULT_PRICE,
 } from './importData';
-import { importResultView, importRowErrorKey, customerSkipReasonKey, CUSTOMER_CODE_NOT_FOUND_MESSAGE } from './importRevert';
+import { importResultView, importRowErrorKey, customerSkipReasonKey, classifyRevertFailure, CUSTOMER_CODE_NOT_FOUND_MESSAGE } from './importRevert';
 
 const bal = IMPORT_TYPES.balances.transform;
 const led = IMPORT_TYPES.ledger.transform;
@@ -310,7 +315,12 @@ const unionMembers = (src: string, name: string): string[] => {
   return [...m![1].matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]);
 };
 /** رموز أخطاء الصفوف (errors[].code) ليست ردوداً فاشلة، وتُعرض في نافذة النتيجة */
-const ROW_CODES = new Set(['CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'CUSTOMER_CODE_NOT_FOUND', 'CUSTOMER_CODE_UNREGISTERED', 'PRODUCT_NOT_FOUND', 'ZERO_PRICE', 'TAX_PCT_FRACTION', 'ROW_CONFLICT', 'ROW_WRITE_FAILED']);
+const ROW_CODES = new Set(['CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'CUSTOMER_CODE_NOT_FOUND', 'CUSTOMER_CODE_UNREGISTERED', 'PRODUCT_NOT_FOUND', 'ZERO_PRICE', 'TAX_PCT_FRACTION', 'ROW_CONFLICT', 'ROW_WRITE_FAILED',
+  // الدفعة 2: رموز صفوف المخزون الافتتاحي والمنتجات (البنود 15 و16 و24 و30)
+  'PRODUCT_INACTIVE', 'PRODUCT_AMBIGUOUS', 'OPENING_STOCK_ALREADY_IMPORTED', 'PRODUCT_HAS_STOCK_MOVEMENTS',
+  'STOCK_QTY_INVALID', 'STOCK_COST_INVALID', 'STOCK_NET_COST_ZERO', 'PRODUCT_CODE_ARCHIVED', 'PRODUCT_DUPLICATE_IN_FILE']);
+/** رموز مسار التراجع وحده: تُصنَّف في classifyRevertFailure لا classifyImportFailure (وتُتحقَّق هناك) */
+const REVERT_ONLY_CODES = new Set(['IMPORT_BATCH_GONE']);
 
 test('كل رمز يرده مسار الاستيراد مصنَّف (لا يسقط إلى other)', () => {
   const src = backendSrc('routes/import.ts') + backendSrc('services/importLedger.ts') + backendSrc('services/importAccess.ts');
@@ -326,8 +336,14 @@ test('كل رمز يرده مسار الاستيراد مصنَّف (لا يسق
   assert.ok(codes.has('CUSTOMER_CODE_NOT_FOUND') && codes.has('TAX_PCT_FRACTION'), [...codes].join(','));
   // رمز صف جديد في الخادم لا يمر صامتاً: يُضاف إلى ROW_CODES ويُصنَّف في importResultView
   assert.deepEqual(rowUnion.filter((c) => !ROW_CODES.has(c)), []);
-  const unclassified = [...codes].filter((code) => !ROW_CODES.has(code) && classifyImportFailure(httpErr(409, { code })).type === 'other');
+  const unclassified = [...codes].filter((code) => !ROW_CODES.has(code) && !REVERT_ONLY_CODES.has(code)
+    && classifyImportFailure(httpErr(409, { code })).type === 'other');
   assert.deepEqual(unclassified, []);
+  // رموز التراجع وحدها لا تسقط هي الأخرى: مصنَّفة في classifyRevertFailure
+  for (const code of REVERT_ONLY_CODES) {
+    assert.ok(codes.has(code), `رمز التراجع ${code} لم يعد في الخادم، احذفه من REVERT_ONLY_CODES`);
+    assert.notEqual(classifyRevertFailure(httpErr(404, { code })).type, 'other', code);
+  }
 });
 
 test('رموز الصفوف: رسائلها مترجمة، ورموز مطابقة العميل في خانتها لا «خطأ»', () => {
@@ -948,4 +964,392 @@ test('الدفعة 2: نص CUSTOMER_CODE_UNREGISTERED في الويب يطابق
   assert.ok(backendSrc('services/importLedger.ts').includes(`CUSTOMER_CODE_UNREGISTERED: '${CUSTOMER_CODE_UNREGISTERED_MESSAGE}'`));
   const keys = phraseKeys();
   for (const k of [attachedCodeKey('phone'), attachedCodeKey('name'), BALANCE_FROM_DC_NOTICE, 'ربط كود']) assert.ok(keys.has(k), k);
+});
+
+// ═══ دفعة الإصلاحات 2 (مراجعة 2026-09-17) ═══
+
+test('البند 23: صف «رصيد سابق» في الكشف يُستورد بإشارته، والمنقول يُتجاهل، وبلا تسمية خطأ صف ظاهر', () => {
+  // التسميات مصدَّرة مطبّعة (بلا مسافات) لتُطابَق بـincludes على البيان المطبَّع
+  assert.ok(OPENING_ROW_LABELS.includes('رصيدسابق') && OPENING_ROW_LABELS.includes('openingbalance'));
+  assert.ok(OPENING_ROW_LABELS.every((l) => !!l && !/[\s.()/]/.test(l)));
+  // سيناريو التقرير: رصيد سابق 7000 ثم فاتورة ثم سند — كان يسقط بصمت فيصير الرصيد ناقصاً 7000
+  const r = led([
+    { 'التاريخ': '2026-01-01', 'اسم العميل': 'أ', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+    { 'التاريخ': '2026-01-05', 'اسم العميل': 'أ', 'البيان': 'فاتورة 1', 'مدين': 500, 'دائن': '', 'الرصيد': 7500 },
+    { 'التاريخ': '2026-01-07', 'اسم العميل': 'أ', 'البيان': 'سند قبض', 'مدين': '', 'دائن': 2000, 'الرصيد': 5500 },
+  ]);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.valid.map((v) => [v.debit, v.credit, v.description, v.date]), [
+    [7000, 0, 'رصيد سابق', '2026-01-01'], [500, 0, 'فاتورة 1', '2026-01-05'], [0, 2000, 'سند قبض', '2026-01-07'],
+  ]);
+  assert.equal(notice(r.notices, LEDGER_OPENING_ROW_NOTICE)?.count, 1);
+  assert.deepEqual(r.blockers, []);
+
+  // رصيد سابق دائن: بالأقواس أو بالسالب اللاحق
+  const cr = led([
+    { 'اسم العميل': 'ب', 'البيان': 'الرصيد السابق', 'مدين': '', 'دائن': '', 'الرصيد': '(7000)' },
+    { 'اسم العميل': 'ج', 'البيان': 'رصيد افتتاحي', 'مدين': '', 'دائن': '', 'الرصيد': '7000-' },
+    { 'اسم العميل': 'د', 'البيان': 'Opening Balance', 'مدين': '', 'دائن': '', 'الرصيد': '1500' },
+  ]);
+  assert.deepEqual(cr.errors, []);
+  assert.deepEqual(cr.valid.map((v) => [v.debit, v.credit]), [[0, 7000], [0, 7000], [1500, 0]]);
+
+  // «رصيد منقول» بعد حركات العميل (بين صفحات الكشف) ⇒ يُتجاهل بتنبيه لا يُضاعف الرصيد
+  const carried = led([
+    { 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد': 500 },
+    { 'اسم العميل': 'أ', 'البيان': 'رصيد منقول', 'مدين': '', 'دائن': '', 'الرصيد': 500 },
+    { 'اسم العميل': 'أ', 'البيان': 'فاتورة 2', 'مدين': 300, 'دائن': '', 'الرصيد': 800 },
+  ]);
+  assert.deepEqual([carried.errors, carried.valid.map((v) => v.debit)], [[], [500, 300]]);
+  assert.equal(notice(carried.notices, LEDGER_CARRIED_BALANCE_NOTICE)?.count, 1);
+
+  // صف رصيد فقط بلا تسمية افتتاحية في ملفٍ عمودُ الرصيد فيه مصدر المبلغ الوحيد ⇒ خطأ صف ظاهر بقيمته لا سقوط صامت
+  const bare = led([{ 'اسم العميل': 'هـ', 'البيان': 'تسوية', 'الرصيد': 900 }]);
+  assert.deepEqual(bare.errors.map((e) => [e.row, e.message, e.value, e.field]), [[2, LEDGER_BALANCE_ONLY_ROW, '900', 'balance']]);
+  assert.equal(bare.valid.length, 0);
+  // بلا بيان أصلاً ⇒ الخطأ نفسه
+  assert.deepEqual(led([{ 'اسم العميل': 'و', 'الرصيد': 900 }]).errors.map((e) => e.message), [LEDGER_BALANCE_ONLY_ROW]);
+
+  // قيمة رصيد غير مفهومة في صف بلا مدين ولا دائن ⇒ خطأ غير المفهوم لا صفر
+  const bad = led([{ 'اسم العميل': 'ز', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 'N/A' }]);
+  assert.deepEqual(bad.errors.map((e) => [e.message, e.value, e.field]), [[NUMERIC_ERROR, 'N/A', 'balance']]);
+
+  // رصيد صفري في صف بلا حركة: يبقى مُهمَلاً كما كان (لا خطأ ولا صف)
+  assert.deepEqual(led([{ 'اسم العميل': 'ح', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 0 }]).errors, []);
+
+  // انحدار: كشف عادي فيه عمود رصيد تراكمي على كل الصفوف ⇒ النتيجة كما قبل التعديل
+  const running = led([
+    { 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد': 500 },
+    { 'اسم العميل': 'أ', 'البيان': 'سند', 'مدين': '', 'دائن': 200, 'الرصيد': 300 },
+    { 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'مدين': 100, 'دائن': '', 'الرصيد': 400 },
+  ]);
+  assert.deepEqual([running.valid.length, running.errors, running.blockers], [3, [], []]);
+  assert.equal(notice(running.notices, LEDGER_OPENING_ROW_NOTICE), undefined);
+  // عمود الرصيد لا يُضيف مانع أعمدة ملتبسة لملف فيه رصيد حالي وافتتاحي
+  assert.deepEqual(led([{ 'اسم العميل': 'أ', 'مدين': 5, 'الرصيد الحالي': 5, 'الرصيد الافتتاحي': 0 }]).blockers, []);
+});
+
+test('البند 23: صف الرصيد السابق يُلتقط أياً كان موضعه — صف عنوان قبله، كشف تنازلي، صف صفري', () => {
+  // مجموعتان لا واحدة: «رصيد منقول» منقولٌ صريح، و«رصيد سابق» افتتاحيٌّ حقيقي
+  assert.ok(CARRIED_ROW_LABELS.includes('رصيدمنقول') && !CARRIED_ROW_LABELS.includes('رصيدسابق'));
+  assert.ok(TRUE_OPENING_ROW_LABELS.includes('رصيدسابق') && !TRUE_OPENING_ROW_LABELS.includes('رصيدمنقول'));
+  for (const l of [...CARRIED_ROW_LABELS, ...TRUE_OPENING_ROW_LABELS]) assert.ok(OPENING_ROW_LABELS.includes(l), l);
+
+  // (أ) صف عنوان للعميل بلا مبالغ قبل رصيده السابق: كان يستهلك «أول صف للعميل» فيسقط الـ7000
+  const titled = led([
+    { 'اسم العميل': 'أ', 'البيان': 'كشف حساب العميل', 'مدين': '', 'دائن': '', 'الرصيد': '' },
+    { 'التاريخ': '2026-01-01', 'اسم العميل': 'أ', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+    { 'التاريخ': '2026-01-05', 'اسم العميل': 'أ', 'البيان': 'فاتورة 1', 'مدين': 1000, 'دائن': '', 'الرصيد': 8000 },
+  ]);
+  assert.deepEqual(titled.errors, []);
+  assert.deepEqual(titled.valid.map((v) => [v.debit, v.credit]), [[7000, 0], [1000, 0]]);
+  assert.equal(notice(titled.notices, LEDGER_OPENING_ROW_NOTICE)?.count, 1);
+  assert.equal(notice(titled.notices, LEDGER_CARRIED_BALANCE_NOTICE), undefined);
+
+  // (ب) كشف تنازلي (الأحدث أولاً) ورصيده السابق آخر صف ⇒ صافي المدين ناقص الدائن = 6000
+  const desc = led([
+    { 'التاريخ': '2026-01-07', 'اسم العميل': 'ب', 'البيان': 'سند قبض', 'مدين': '', 'دائن': 2000, 'الرصيد': 6000 },
+    { 'التاريخ': '2026-01-05', 'اسم العميل': 'ب', 'البيان': 'فاتورة 1', 'مدين': 1000, 'دائن': '', 'الرصيد': 8000 },
+    { 'التاريخ': '2026-01-01', 'اسم العميل': 'ب', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+  ]);
+  assert.deepEqual(desc.errors, []);
+  assert.equal(desc.valid.reduce((s, v) => s + Number(v.debit) - Number(v.credit), 0), 6000);
+  assert.equal(notice(desc.notices, LEDGER_OPENING_ROW_NOTICE)?.count, 1);
+
+  // (ج) صف مدين 0/دائن 0 مكتوبَين قبل صف الرصيد ⇒ قيد صفري يُهمل بهدوء والرصيد يُستورد
+  const zero = led([
+    { 'اسم العميل': 'ج', 'البيان': 'بداية', 'مدين': 0, 'دائن': 0, 'الرصيد': 0 },
+    { 'اسم العميل': 'ج', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+  ]);
+  assert.deepEqual([zero.errors, zero.valid.length, zero.valid[0]?.debit], [[], 1, 7000]);
+
+  // انحدار: صفّا «رصيد سابق» لعميل واحد ⇒ الأول يُستورد والثاني رصيد مكرر بتنبيه
+  const twice = led([
+    { 'اسم العميل': 'د', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+    { 'اسم العميل': 'د', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+  ]);
+  assert.deepEqual([twice.errors, twice.valid.length], [[], 1]);
+  assert.equal(notice(twice.notices, LEDGER_CARRIED_BALANCE_NOTICE)?.count, 1);
+});
+
+test('البند 23: صفوف الرصيد الختامي والصفرية وعمود «رصيد المورد» لا تولّد أخطاء صفوف على ملفات سليمة', () => {
+  // (أ) ذيل «الرصيد الختامي» في كشف مدين/دائن/رصيد ⇒ تنبيه معدود لا خطأ
+  const closing = led([
+    { 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'مدين': 1000, 'دائن': '', 'الرصيد': 1000 },
+    { 'اسم العميل': 'أ', 'البيان': 'سند', 'مدين': '', 'دائن': 400, 'الرصيد': 600 },
+    { 'اسم العميل': 'أ', 'البيان': 'الرصيد الختامي', 'مدين': '', 'دائن': '', 'الرصيد': 600 },
+  ]);
+  assert.deepEqual([closing.errors, closing.valid.length], [[], 2]);
+  assert.equal(notice(closing.notices, LEDGER_CLOSING_ROW_NOTICE)?.count, 1);
+
+  // (ب) قيد صفري صريح (مدين 0 ودائن 0) مع رصيد تراكمي ⇒ لا خطأ
+  const zeroEntry = led([
+    { 'اسم العميل': 'ب', 'البيان': 'فاتورة', 'مدين': 1000, 'دائن': '', 'الرصيد': 1000 },
+    { 'اسم العميل': 'ب', 'البيان': 'قيد صفري', 'مدين': 0, 'دائن': 0, 'الرصيد': 1000 },
+  ]);
+  assert.deepEqual([zeroEntry.errors, zeroEntry.valid.length], [[], 1]);
+
+  // (ج) ملف فواتير فيه عمود رصيد وصفٌّ مبلغه فارغ ⇒ تنبيه معدود لا خطأ
+  const inv = led([
+    { 'اسم العميل': 'ج', 'الإجمالي': 500, 'الرصيد': 500 },
+    { 'اسم العميل': 'ج', 'الإجمالي': '', 'الرصيد': 500 },
+  ]);
+  assert.deepEqual([inv.errors, inv.valid.length], [[], 1]);
+  assert.equal(notice(inv.notices, LEDGER_BALANCE_ONLY_NOTICE)?.count, 1);
+
+  // (د) «رصيد المورد» ليس عمود رصيد العميل ⇒ لا يُلتقط ولا يولّد خطأ
+  const sup = led([{ 'اسم العميل': 'د', 'مدين': 100, 'دائن': '', 'رصيد المورد': 900 }]);
+  assert.deepEqual([sup.errors, sup.valid.length], [[], 1]);
+  assert.equal(sup.columns?.find((x) => x.field === 'balance')?.header ?? null, null);
+});
+
+// ═══ إغلاقة الدفعة 2 (البندان 23 و30) ═══
+
+test('البند 23: تسميات الرصيد السابق الشائعة («ما قبل الفترة»، «بداية المدة»، «b/d»، «مدور») تُستورد لا تسقط', () => {
+  const opening = (desc: string) => led([
+    { 'التاريخ': '2026-01-01', 'اسم العميل': 'أ', 'البيان': desc, 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+    { 'التاريخ': '2026-01-05', 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد': 7500 },
+  ]);
+  for (const desc of ['رصيد ما قبل الفترة', 'رصيد ما قبل المدة', 'رصيد بداية المدة', 'رصيد بداية الفترة',
+    'رصيد أول الفترة', 'Beginning Balance', 'Balance b/d', 'Brought Down', 'رصيد مدور', 'الرصيد المدور']) {
+    const r = opening(desc);
+    assert.deepEqual(r.errors, [], desc);
+    assert.deepEqual(r.valid.map((v) => [v.debit, v.credit]), [[7000, 0], [500, 0]], desc);
+    assert.equal(notice(r.notices, LEDGER_OPENING_ROW_NOTICE)?.count, 1, desc);
+    assert.equal(notice(r.notices, LEDGER_BALANCE_ONLY_NOTICE), undefined, desc);
+  }
+  // الصيغ المؤكَّدة من قبل تبقى: «رصيد سابق مدور» و«Previous Balance b/d»
+  for (const desc of ['رصيد سابق مدور', 'Previous Balance b/d', 'رصيد أول المدة']) {
+    assert.equal(opening(desc).valid[0]?.debit, 7000, desc);
+  }
+  // «مدور» ترحيلٌ لا افتتاحيّ: بعد حركة مقبولة يُستبعد رصيداً مكرراً (كـ«منقول») لا يُضاعف الرصيد
+  const after = led([
+    { 'اسم العميل': 'ب', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد': 500 },
+    { 'اسم العميل': 'ب', 'البيان': 'رصيد مدور', 'مدين': '', 'دائن': '', 'الرصيد': 500 },
+  ]);
+  assert.deepEqual([after.errors, after.valid.length], [[], 1]);
+  assert.equal(notice(after.notices, LEDGER_CARRIED_BALANCE_NOTICE)?.count, 1);
+  assert.ok(CARRIED_ROW_LABELS.includes('رصيدمدور') && CARRIED_ROW_LABELS.includes('balancebd'));
+  assert.ok(TRUE_OPENING_ROW_LABELS.includes('رصيدماقبل') && TRUE_OPENING_ROW_LABELS.includes('رصيدبدايه'));
+  // «b/d» وحدها (حرفان) لا تُدرج: «عبد الله» وأمثاله لا يصير رصيداً سابقاً
+  assert.ok(!CARRIED_ROW_LABELS.includes('bd'));
+  assert.equal(led([{ 'اسم العميل': 'ج', 'البيان': 'عبدالله', 'مدين': '', 'دائن': '', 'الرصيد': 900 }])
+    .valid.length, 0);
+});
+
+test('البند 23: صفّ بلا مبلغ في أي عمود متعرَّف عليه يُعدّ في تنبيه لا يسقط بصمت (عمود رصيد باسم غير ملتقَط)', () => {
+  // «الرصيد المتبقي» يُلتقط عمود «المتبقي» لا رصيد العميل ⇒ صف الرصيد السابق كان يسقط بلا خطأ ولا تنبيه
+  const residual = led([
+    { 'اسم العميل': 'أ', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد المتبقي': 7000 },
+    { 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد المتبقي': 7500 },
+  ]);
+  assert.deepEqual([residual.errors, residual.valid.length], [[], 1]);
+  assert.equal(notice(residual.notices, LEDGER_NO_AMOUNT_ROW_NOTICE)?.count, 1);
+  // صف عنوان الكشف (بلا أي مبلغ) يُعدّ هو الآخر، ولا يمنع استيراد الرصيد السابق بعده
+  const titled = led([
+    { 'اسم العميل': 'ب', 'البيان': 'كشف حساب العميل', 'مدين': '', 'دائن': '', 'الرصيد': '' },
+    { 'اسم العميل': 'ب', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+  ]);
+  assert.deepEqual([titled.errors, titled.valid.map((v) => v.debit)], [[], [7000]]);
+  assert.equal(notice(titled.notices, LEDGER_NO_AMOUNT_ROW_NOTICE)?.count, 1);
+  // قيد صفري صريح (مدين 0 ودائن 0) ليس صفاً بلا مبلغ: لا يُعدّ في التنبيه
+  const zero = led([{ 'اسم العميل': 'ج', 'البيان': 'قيد صفري', 'مدين': 0, 'دائن': 0 }]);
+  assert.equal(notice(zero.notices, LEDGER_NO_AMOUNT_ROW_NOTICE), undefined);
+  // وكشف سليم كل صفوفه حركات ⇒ لا تنبيه أصلاً
+  const clean = led([
+    { 'اسم العميل': 'د', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '' },
+    { 'اسم العميل': 'د', 'البيان': 'سند', 'مدين': '', 'دائن': 200 },
+  ]);
+  assert.deepEqual([clean.errors, clean.valid.length], [[], 2]);
+  assert.equal(notice(clean.notices, LEDGER_NO_AMOUNT_ROW_NOTICE), undefined);
+});
+
+test('البند 23: صيغ كشوف أخرى فُحصت ولم يثبت فيها إسقاط صامت (حراسة انحدار)', () => {
+  // (أ) كشف بلا عمود رصيد أصلاً ورصيده السابق في عمود المبلغ بلا حالة دفع ⇒ يُستورد مديناً
+  const amountOnly = led([
+    { 'التاريخ': '2026-01-01', 'اسم العميل': 'أ', 'البيان': 'رصيد سابق', 'المبلغ': 7000 },
+    { 'التاريخ': '2026-01-05', 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'المبلغ': 500 },
+  ]);
+  assert.deepEqual([amountOnly.errors, amountOnly.valid.map((v) => [v.debit, v.credit])], [[], [[7000, 0], [500, 0]]]);
+  assert.equal(notice(amountOnly.notices, LEDGER_NO_AMOUNT_ROW_NOTICE), undefined);
+  // (ب) أسماء أعمدة الرصيد الشائعة تُلتقط فعلاً
+  for (const h of ['الرصيد التراكمي', 'Running Balance', 'الرصيد بعد الحركة', 'الرصيد الجاري']) {
+    const r = led([
+      { 'اسم العميل': 'ب', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', [h]: 7000 },
+      { 'اسم العميل': 'ب', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', [h]: 7500 },
+    ]);
+    assert.equal(r.columns?.find((x) => x.field === 'balance')?.header, h);
+    assert.deepEqual([r.errors, r.valid.map((v) => v.debit)], [[], [7000, 500]], h);
+  }
+  // (ج) رصيد سابق نصاً بفاصل آلاف ⇒ يُقرأ كاملاً
+  const text = led([
+    { 'اسم العميل': 'ج', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': '7,000.50' },
+    { 'اسم العميل': 'ج', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد': '7,500.50' },
+  ]);
+  assert.deepEqual([text.errors, text.valid[0]?.debit], [[], 7000.5]);
+  // (د) رصيد سابق صفر: لا مبلغ فيه ⇒ لا خطأ ولا صف (ويُعدّ صفاً بلا مبلغ)
+  const zero = led([{ 'اسم العميل': 'د', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 0 }]);
+  assert.deepEqual([zero.errors, zero.valid.length], [[], 0]);
+  // (هـ) صف رصيد سابق بلا اسم عميل (الاسم في ترويسة الكشف) ليس إسقاطاً صامتاً: يُعدّ في تنبيه «صفوف بلا عميل»
+  const noName = led([
+    { 'اسم العميل': 'هـ', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد': 7500 },
+    { 'اسم العميل': '', 'البيان': 'رصيد سابق', 'مدين': '', 'دائن': '', 'الرصيد': 7000 },
+  ]);
+  assert.deepEqual([noName.errors, noName.valid.length], [[], 1]);
+  assert.equal(notice(noName.notices, NO_CUSTOMER_ROWS_NOTICE)?.count, 1);
+});
+
+test('البند 23 (انحدار): ذيل الكشف بأي تسمية مجاميع أو ختام يُستبعد بتنبيه معدود لا بخطأ صف', () => {
+  const tails = ['المجموع العام', 'Grand Total', 'الرصيد كما في 31/12/2025', 'الرصيد النهائي', 'صافي الرصيد',
+    'الرصيد الختامي', 'إجمالي الحركة', 'Net Total', 'Balance as of 31/12/2025', 'Final Balance'];
+  for (const t of tails) {
+    // (أ) ملف مدين/دائن + رصيد تراكمي: الذيل تنبيه ختام لا «رصيد بلا مدين ولا دائن»
+    const dc = led([
+      { 'اسم العميل': 'أ', 'البيان': 'فاتورة', 'مدين': 500, 'دائن': '', 'الرصيد': 500 },
+      { 'اسم العميل': 'أ', 'البيان': t, 'مدين': '', 'دائن': '', 'الرصيد': 500 },
+    ]);
+    assert.deepEqual([dc.errors, dc.valid.length], [[], 1], t);
+    assert.equal(notice(dc.notices, LEDGER_CLOSING_ROW_NOTICE)?.count, 1, t);
+    // (ب) ملف عمود الرصيد فيه وحده: الذيل نفسه لا يولّد خطأ صف
+    const only = led([
+      { 'اسم العميل': 'ب', 'البيان': 'رصيد سابق', 'الرصيد': 500 },
+      { 'اسم العميل': 'ب', 'البيان': t, 'الرصيد': 500 },
+    ]);
+    assert.deepEqual([only.errors, only.valid.length], [[], 1], t);
+    assert.equal(notice(only.notices, LEDGER_CLOSING_ROW_NOTICE)?.count, 1, t);
+  }
+  // صفّ رصيده صفر في ملف بلا مدين/دائن: لا خطأ صف (لا مبلغ يضيع)
+  const zero = led([
+    { 'اسم العميل': 'ج', 'البيان': 'رصيد سابق', 'الرصيد': 500 },
+    { 'اسم العميل': 'ج', 'البيان': 'تسوية', 'الرصيد': 0 },
+  ]);
+  assert.deepEqual([zero.errors, zero.valid.length], [[], 1]);
+  // القاعدة: خطأ الصف محجوز لمبلغ حقيقي بلا مصدر آخر — وكل ملف يبلغه محجوبٌ أصلاً بمانع «لا عمود مبلغ»،
+  // فلا ملفَ كان يمرّ نظيفاً صار يُظهر أخطاء صفوف
+  const lost = led([{ 'اسم العميل': 'د', 'البيان': 'تسوية يدوية', 'الرصيد': 900 }]);
+  assert.deepEqual(lost.errors.map((e) => [e.row, e.message, e.value, e.field]), [[2, LEDGER_BALANCE_ONLY_ROW, '900', 'balance']]);
+  assert.ok(lost.blockers?.includes(LEDGER_NO_AMOUNT_COLUMN_BLOCKER));
+  for (const rows of [
+    [{ 'اسم العميل': 'هـ', 'البيان': 'تسوية', 'الرصيد': 900, 'مدين': '', 'دائن': '' }],
+    [{ 'اسم العميل': 'و', 'البيان': 'تسوية', 'الرصيد': 900, 'الإجمالي': '' }],
+  ]) {
+    const r = led(rows as Record<string, unknown>[]);
+    assert.deepEqual(r.errors, []);
+    assert.equal(notice(r.notices, LEDGER_BALANCE_ONLY_NOTICE)?.count, 1);
+  }
+  assert.ok(CLOSING_ROW_LABELS.includes('الرصيدكمافي') && CLOSING_ROW_LABELS.includes('صافيالرصيد'));
+});
+
+test('البند 30: تكرار كود الصنف داخل ملف المنتجات — المطابق يُرسل مرة، والمختلف خطأ صف', () => {
+  // ملف بلا عمود كود: «ماء» حبة و«ماء» كرتون — كان الثانيان يُرسلان بالكود نفسه فيُتخطى الثاني بصمت
+  const p = prod([
+    { 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'سعر البيع': 1 },
+    { 'اسم الصنف': 'ماء', 'الوحدة': 'كرتون', 'سعر البيع': 20 },
+  ]);
+  assert.deepEqual(p.valid.map((v) => [v.code, v.unit, v.basePrice]), [['ماء', 'حبة', 1]]);
+  assert.deepEqual(p.errors.map((e) => [e.row, e.message]), [[3, PRODUCT_SAME_NAME_NO_CODE]]);
+  assert.deepEqual(p.fileRows, [2]);
+
+  // صف مطابق تماماً ⇒ يُرسل مرة واحدة بتنبيه غير مانع
+  const same = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الضريبة': 15 },
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'سعر البيع': 1, 'الضريبة': 15 },
+  ]);
+  assert.deepEqual([same.valid.length, same.errors], [1, []]);
+  assert.equal(notice(same.notices, PRODUCT_DUPLICATE_ROWS_NOTICE)?.count, 1);
+
+  // الكود نفسه ببيانات مختلفة ⇒ خطأ صف بقيمة الكود
+  const diff = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1 },
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 9 },
+  ]);
+  assert.deepEqual(diff.errors.map((e) => [e.row, e.message, e.value, e.field]), [[3, PRODUCT_DUPLICATE_CODE, 'P1', 'code']]);
+  assert.equal(diff.valid.length, 1);
+
+  // أصناف مختلفة الأكواد لا تتأثر
+  assert.equal(prod([{ 'كود الصنف': 'P1', 'اسم الصنف': 'ماء' }, { 'كود الصنف': 'P2', 'اسم الصنف': 'ماء' }]).valid.length, 2);
+
+  // التوقيع يطبّق افتراضيّي الكتابة كما يطبّقهما الخادم: خانة وحدة فارغة و«حبة» تكتبان الصنف نفسه
+  const unitDefault = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'الوحدة': '', 'سعر البيع': 1 },
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'سعر البيع': 1 },
+  ]);
+  assert.deepEqual([unitDefault.errors, unitDefault.valid.length], [[], 1]);
+  assert.equal(notice(unitDefault.notices, PRODUCT_DUPLICATE_ROWS_NOTICE)?.count, 1);
+
+  // وسعر فارغ مقابل صفر صريح كذلك
+  const priceDefault = prod([
+    { 'كود الصنف': 'P2', 'اسم الصنف': 'رز', 'سعر البيع': '' },
+    { 'كود الصنف': 'P2', 'اسم الصنف': 'رز', 'سعر البيع': 0 },
+  ]);
+  assert.deepEqual([priceDefault.errors, priceDefault.valid.length], [[], 1]);
+  assert.equal(notice(priceDefault.notices, PRODUCT_DUPLICATE_ROWS_NOTICE)?.count, 1);
+});
+
+test('البند 30: افتراضيا توقيع صف المنتجات في الويب هما نفساهما في الخادم حرفياً', () => {
+  // productRowSignature(r, defaultVat): [normImportName(name), unit || 'حبة', basePrice ?? 0, taxPct ?? defaultVat ?? null, …]
+  const ledgerSrc = backendSrc('services/importLedger.ts');
+  const sig = ledgerSrc.match(/function productRowSignature[\s\S]*?return JSON\.stringify\(\[([^\]]*)\]\)/);
+  assert.ok(sig, 'productRowSignature غير موجود في الخادم');
+  assert.match(sig![1], new RegExp(`r\\.unit \\|\\| '${PRODUCT_DEFAULT_UNIT}'`));
+  assert.match(sig![1], new RegExp(`r\\.basePrice \\?\\? ${PRODUCT_DEFAULT_PRICE}`));
+  // خانة الضريبة الفارغة تأخذ ضريبة الشركة على الخادم: توقيعه `r.taxPct ?? defaultVat ?? null`
+  assert.match(sig![1], /r\.taxPct \?\? defaultVat \?\? null/);
+  assert.match(ledgerSrc, /function productRowSignature\([^)]*defaultVat: number \| null\)/);
+  // وافتراضيا الكتابة في import.ts هما المصدر لكليهما
+  const write = backendSrc('routes/import.ts');
+  assert.ok(write.includes(`unit: r.unit || '${PRODUCT_DEFAULT_UNIT}'`), 'افتراضي الوحدة في import.ts تغيّر: حدّث PRODUCT_DEFAULT_UNIT');
+  assert.ok(write.includes(`basePrice: r.basePrice ?? ${PRODUCT_DEFAULT_PRICE}`), 'افتراضي السعر في import.ts تغيّر: حدّث PRODUCT_DEFAULT_PRICE');
+  assert.ok(write.includes('taxPct: r.taxPct ?? defaultVat'), 'ضريبة الصف الفارغة في import.ts تغيّرت: راجع تساهل الويب في خانة الضريبة');
+});
+
+test('البند 30: خانة ضريبة فارغة مقابل قيمة صريحة لصنفين بالكود نفسه ⇒ تخطٍّ معدود لا خطأ صف', () => {
+  // الخادم يكتب للفارغة ضريبة الشركة (defaultVat) ويعدّ الصفّين متطابقين؛ وdefaultVat غير متاح للويب ⇒ تساهل
+  const blankFirst = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1, 'الضريبة': '' },
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1, 'الضريبة': 15 },
+  ]);
+  assert.deepEqual([blankFirst.errors, blankFirst.valid.length], [[], 1]);
+  assert.equal(notice(blankFirst.notices, PRODUCT_BLANK_TAX_DUPLICATE_NOTICE)?.count, 1);
+  assert.deepEqual(blankFirst.fileRows, [2]);
+  // والعكس: الصريحة أولاً والفارغة بعدها
+  const blankSecond = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1, 'الضريبة': 15 },
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1, 'الضريبة': '' },
+  ]);
+  assert.deepEqual([blankSecond.errors, blankSecond.valid.map((v) => v.taxPct)], [[], [15]]);
+  assert.equal(notice(blankSecond.notices, PRODUCT_BLANK_TAX_DUPLICATE_NOTICE)?.count, 1);
+  // وبلا عمود كود (الكود مولَّد من الاسم) كذلك: لا «صنفان بالاسم نفسه»
+  const byName = prod([
+    { 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'الضريبة': '' },
+    { 'اسم الصنف': 'ماء', 'الوحدة': 'حبة', 'الضريبة': 15 },
+  ]);
+  assert.deepEqual([byName.errors, byName.valid.length], [[], 1]);
+  assert.equal(notice(byName.notices, PRODUCT_BLANK_TAX_DUPLICATE_NOTICE)?.count, 1);
+
+  // التساهل في خانة الضريبة وحدها: ضريبتان صريحتان مختلفتان تبقيان خطأ صف
+  const twoTax = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1, 'الضريبة': 5 },
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1, 'الضريبة': 15 },
+  ]);
+  assert.deepEqual(twoTax.errors.map((e) => [e.row, e.message, e.value]), [[3, PRODUCT_DUPLICATE_CODE, 'P1']]);
+  // واختلاف حقل آخر مع الضريبة الفارغة يبقى خطأ صف (سعر مختلف)
+  const priceDiff = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 1, 'الضريبة': '' },
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 9, 'الضريبة': 15 },
+  ]);
+  assert.deepEqual(priceDiff.errors.map((e) => [e.row, e.message]), [[3, PRODUCT_DUPLICATE_CODE]]);
+  // والمطابق تماماً يبقى تنبيه التكرار القديم لا تنبيه الضريبة
+  const same = prod([
+    { 'كود الصنف': 'P2', 'اسم الصنف': 'رز', 'الضريبة': '' },
+    { 'كود الصنف': 'P2', 'اسم الصنف': 'رز', 'الضريبة': '' },
+  ]);
+  assert.equal(notice(same.notices, PRODUCT_DUPLICATE_ROWS_NOTICE)?.count, 1);
+  assert.equal(notice(same.notices, PRODUCT_BLANK_TAX_DUPLICATE_NOTICE), undefined);
+  // وضريبة 0 صريحة ليست خانة فارغة: مقابل 15 خطأ صف
+  const zeroTax = prod([
+    { 'كود الصنف': 'P3', 'اسم الصنف': 'خبز', 'الضريبة': 0 },
+    { 'كود الصنف': 'P3', 'اسم الصنف': 'خبز', 'الضريبة': 15 },
+  ]);
+  assert.deepEqual(zeroTax.errors.map((e) => e.message), [PRODUCT_DUPLICATE_CODE]);
 });
