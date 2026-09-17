@@ -16,15 +16,17 @@ const SITE = 'https://fieldsa.net';
 // سطر «ألم محلي/امتثال» يُحقن في البريد حسب دولة العميل — يرفع الصلة والردود.
 //
 // ⚠️ **قاعدة صدق الادّعاء**: لا يُذكر اسم منظومة فوترة وطنية هنا إلا إذا كان محوّلها
-// مبنيّاً فعلاً في `src/compliance/provider.ts`. المبنيّ اليوم: **ZATCA المرحلة الأولى
-// وحدها** (رمز QR بترميز TLV، `compliance/zatca.ts`). أمّا `eta` و`peppol` و`ttn`
-// فكلّها `notImplemented`. كان هذا السطر يَعِد بـ«ZATCA المرحلة الثانية جاهزة»
-// و«ETA» و«JoFotara» — وعودٌ تصل بريداً بارداً لموزّعين يشترون على أساسها،
+// مبنيّاً فعلاً في `src/compliance/provider.ts`. المبنيّ اليوم: **ZATCA المرحلة الأولى**
+// (رمز QR بترميز TLV، `compliance/zatca.ts`) و**ربط المرحلة الثانية مع منصة فاتورة**
+// (`compliance/zatca/`، يُعلَن بقرار المالك بعد اكتمال التفعيل الفعلي). ولا يُكتب أبداً
+// «معتمد/مصادق/مرخّص من الهيئة» ولا «شريك رسمي» ولا موعد أو رقم للربط — فالهيئة لا
+// تعتمد مزوّدي البرمجيات. أمّا `eta` و`peppol` و`ttn` فكلّها `notImplemented`.
+// كان هذا السطر قديماً يَعِد بـ«ZATCA المرحلة الثانية جاهزة» قبل بنائها، و«ETA» و«JoFotara» — وعودٌ تصل بريداً بارداً لموزّعين يشترون على أساسها،
 // وأوّل ما يكتشفونه بعد الاشتراك أنّها غير موجودة. الادّعاء الكاذب لا يُكسب عميلاً،
 // يُكسب استرداداً ومراجعةً سيّئة. أبقِ الزوايا على ما هو مبنيّ: النِسَب الضريبية
 // والتحصيل والمخزون والتتبّع — كلّها حقيقية وكافية.
 const COUNTRY_ANGLES: Record<string, { ar: string; en: string }> = {
-  SA: { ar: 'فاتورة ضريبية مبسطة برمز QR وفق المرحلة الأولى من فاتورة هيئة الزكاة والضريبة والجمارك ZATCA', en: 'Simplified tax invoices with ZATCA Phase-1 QR codes, out of the box.' },
+  SA: { ar: 'فاتورة ضريبية برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك ZATCA', en: 'Tax invoices with QR codes, plus Phase 2 integration with ZATCA’s Fatoora platform.' },
   EG: { ar: 'فواتير بضريبة 14% وإيصالات تحصيل نقدي موثقة لكل مندوب في الميدان', en: '14% VAT invoicing with documented cash-collection receipts for every field rep.' },
   AE: { ar: 'فواتير ضريبة القيمة المضافة 5% متوافقة مع الهيئة الاتحادية للضرائب FTA', en: 'FTA-compliant 5% VAT invoicing for the UAE.' },
   KW: { ar: 'إدارة الذمم والتحصيل الميداني أكبر وجع في توزيع الجملة بالكويت', en: 'Receivables & field collections — the #1 pain in Kuwaiti wholesale.' },

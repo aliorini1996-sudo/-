@@ -48,8 +48,10 @@ export function guardReply(raw: string): GuardVerdict {
   }
 
   // 1) العبارات المحظورة قطعياً — حجب كامل وتصعيد
+  // يُفحص النص بتشكيله وبلا تشكيل: «مُعتمَد من الهيئة» كانت تفلت من نمط «معتمد»
+  const plain = text.replace(/[\u064B-\u0652\u0670\u0640]/g, '');
   for (const { pattern, reason } of FORBIDDEN_PHRASES) {
-    if (pattern.test(text)) {
+    if (pattern.test(text) || pattern.test(plain)) {
       violations.push(`عبارة محظورة: ${reason}`);
       forceEscalate = true;
     }

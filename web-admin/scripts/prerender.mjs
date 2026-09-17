@@ -495,7 +495,7 @@ async function main() {
     ['هل السعر لكل مندوب أم لكل شركة؟', 'لكل شركة. إضافة مندوب جديد ضمن حدّ الباقة لا تزيد فاتورتك الشهرية.'],
     ['هل هناك رسوم تأسيس أو إعداد؟', 'لا رسوم تأسيس ولا رسوم إعداد.'],
     ['هل التجربة تحتاج بطاقة ائتمان؟', 'لا. التجربة عشرة أيام بلا بطاقة ائتمان.'],
-    ['هل يدعم النظام الفاتورة الإلكترونية؟', 'يدعم المرحلة الأولى (رمز QR بترميز TLV). المرحلة الثانية غير متاحة حتى الآن، وهيئة الزكاة والضريبة والجمارك لا تعتمد مزوّدي البرمجيات.'],
+    ['هل يدعم النظام الفاتورة الإلكترونية؟', 'نعم. يُصدر فاتورة ضريبية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد مزوّدي البرمجيات.'],
   ];
 
   // النصّ الكامل لسياسة الخصوصية (انظر loadPrivacyHtml) — تعذّر التحميل ⇒ الملخّص القصير أدناه
@@ -514,8 +514,8 @@ async function main() {
 <p>السعر <strong>لكل شركة لا لكل مستخدم</strong>: إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك الشهرية. بلا رسوم تأسيس، وبلا التزام سنوي، وتجربة عشرة أيام دون بطاقة ائتمان.</p>
 <table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>السعر شهرياً</th><th>الحدّ</th></tr></thead><tbody>${planRowsFor('ar')}</tbody></table>
 <p>فوق ${pricing.high === 599 ? '٢٠' : pricing.high} مندوبًا نحدّد السعر بالمحادثة حسب حجمك — <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a> أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
-<h2>ما لا نملكه — بصراحة</h2>
-<p>ندعم الفاتورة الإلكترونية <strong>المرحلة الأولى</strong> (رمز QR بترميز TLV) فقط؛ المرحلة الثانية غير مبنية لدينا حتى الآن. وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها، وليست لدينا شهادات SOC2 أو ISO.</p>
+<h2>ما نملكه وما لا نملكه — بصراحة</h2>
+<p>ندعم الفاتورة الإلكترونية برمز QR، وندعم <strong>ربط المرحلة الثانية</strong> مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها، وليست لدينا شهادات SOC2 أو ISO.</p>
 ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}`,
       },
       en: {
@@ -531,8 +531,8 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
 <p>Priced <strong>per company, not per user</strong>: ${pricing.enSummary} per month. No setup fees, no annual lock-in, and a 10-day trial without a credit card.</p>
 <table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Monthly</th><th>Limit</th></tr></thead><tbody>${planRowsFor('en')}</tbody></table>
 <p>Above 20 reps we price in conversation — <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
-<h2>What we do not have — plainly</h2>
-<p>We support <strong>phase one</strong> of e-invoicing (TLV QR) only; phase two is not built. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.</p>`,
+<h2>What we have and do not have — plainly</h2>
+<p>We support <strong>Phase 2 integration</strong> with ZATCA’s Fatoora platform. ZATCA does not certify software vendors, so we claim no approval. We hold no SOC2 or ISO certification.</p>`,
       },
       fr: {
         t: 'Tarifs Field Sales — publiés, sans frais cachés',
@@ -541,8 +541,8 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
 <p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ${pricing.enSummary} par mois. Sans frais de mise en service ni engagement annuel, avec un essai de 10 jours sans carte bancaire.</p>
 <table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Par mois</th><th>Limite</th></tr></thead><tbody>${planRowsFor('fr')}</tbody></table>
 <p>Au-delà de 20 commerciaux, le prix se définit en conversation — <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
-<h2>Ce que nous n’avons pas — clairement</h2>
-<p>Nous prenons en charge la <strong>phase un</strong> de la facturation électronique (QR TLV) uniquement. La ZATCA ne certifie aucun éditeur ; nous ne revendiquons aucune homologation.</p>`,
+<h2>Ce que nous avons et n’avons pas — clairement</h2>
+<p>Nous prenons en charge <strong>l’intégration phase 2</strong> avec la plateforme Fatoora de la ZATCA. La ZATCA ne certifie aucun éditeur ; nous ne revendiquons aucune homologation.</p>`,
       },
     },
     about: {
@@ -623,8 +623,8 @@ ${PRICING_AR_FAQ.map(([q, a]) => `<h2>${esc(q)}</h2><p>${esc(a)}</p>`).join('')}
 <h2>ما يخدم هذا القطاع تحديداً</h2><ul>${featHtml}</ul>
 ${deepHtml}
 ${faqHtml}
-<h2>ما لا نملكه — بصراحة</h2>
-<p>ندعم الفاتورة الإلكترونية المرحلة الأولى (رمز QR بترميز TLV) فقط؛ المرحلة الثانية غير مبنية لدينا حتى الآن. وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها.</p>
+<h2>ما نملكه وما لا نملكه — بصراحة</h2>
+<p>ندعم الفاتورة الإلكترونية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد ولا تصادق مزوّدي البرمجيات فلا ندّعي اعتماداً منها.</p>
 <p><a href="/pricing">شاهد الأسعار</a> أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>.</p>
 </main>`;
     const jsonLd = {
@@ -849,7 +849,7 @@ ${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[
 <h2>الأسعار</h2>
 ${PRICING_HTML}
 <h2>أسئلة شائعة</h2>
-<p><strong>هل النظام يصدر فواتير ضريبية متوافقة؟</strong> نعم، يُصدر فاتورة ضريبية منظّمة برمز QR وطباعة حرارية، متوافقة مع ZATCA في السعودية وقابلة للتكيّف مع متطلبات الدول العربية الأخرى.</p>
+<p><strong>هل النظام يصدر فواتير ضريبية متوافقة؟</strong> نعم، يُصدر فاتورة ضريبية منظّمة برمز QR وطباعة حرارية، وندعم ربط المرحلة الثانية مع منصة فاتورة في السعودية، والنظام قابل للتكيّف مع متطلبات الدول العربية الأخرى.</p>
 <p><strong>هل يحتاج المندوب إلى جهاز خاص؟</strong> لا، يكفي هاتف ذكي وطابعة حرارية اختيارية للفوترة في الميدان.</p>
 <p><strong>هل توجد تجربة مجانية؟</strong> نعم، تجربة مجانية 10 أيام تبدأ خلال دقائق دون بطاقة ائتمان.</p>
 <h2>للتواصل وطلبات الاشتراك</h2>

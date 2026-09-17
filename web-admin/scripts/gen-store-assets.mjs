@@ -100,7 +100,7 @@ const row = (y, label, value, vColor = C.ink) =>
 // (1) الفواتير الضريبية ZATCA
 const cardInvoice = `
   ${rt(852, 90, 40, 800, C.ink, 'فاتورة ضريبية')}
-  ${chip(48, 60, 210, 'معتمدة · ZATCA', C.coralLight, C.coralDark)}
+  ${chip(48, 60, 210, 'متوافقة · ZATCA', C.coralLight, C.coralDark)}
   <line x1="48" y1="150" x2="852" y2="150" stroke="${C.border}" stroke-width="2"/>
   ${row(225, 'الإجمالي قبل الضريبة', '1,000.00 ﷼')}
   ${row(290, 'ضريبة القيمة المضافة 15%', '150.00 ﷼')}

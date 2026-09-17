@@ -37,10 +37,25 @@ test('يحجب وعد خصم', () => {
   assert.strictEqual(v.forceEscalate, true);
 });
 
-test('يحجب ادعاء ZATCA المرحلة الثانية والربط بالهيئة', () => {
-  const v = guardReply('نعم النظام يدعم المرحلة الثانية ومرتبط مع هيئة الزكاة.');
-  assert.strictEqual(v.ok, false, 'مرّ ادعاء تنظيمي كاذب');
-  assert.strictEqual(v.forceEscalate, true);
+test('يمرر صيغة دعم ربط المرحلة الثانية مع منصة فاتورة', () => {
+  const v = guardReply('نعم، ندعم ربط المرحلة الثانية مع منصة فاتورة.');
+  assert.strictEqual(v.ok, true, `حُجبت الصيغة المعتمدة: ${v.violations.join(' | ')}`);
+  assert.strictEqual(v.forceEscalate, false);
+});
+
+test('يحجب ادعاء الاعتماد والشراكة الرسمية وأي موعد للمرحلة الثانية', () => {
+  for (const t of [
+    'نظامنا معتمد من هيئة الزكاة',
+    'نظامنا مُعتمَد من الهيئة',
+    'النظام مصادق من الهيئة',
+    'شريك رسمي للهيئة',
+    'ربط المرحلة الثانية مفعّل منذ يناير 2027',
+    'ندعم المرحلة الثانية قبل الموجة 25',
+  ]) {
+    const v = guardReply(t);
+    assert.strictEqual(v.ok, false, `مرّ ادعاء تنظيمي ممنوع: ${t}`);
+    assert.strictEqual(v.forceEscalate, true, `لم يُصعَّد: ${t}`);
+  }
 });
 
 test('يحجب ذكر منافس بالاسم', () => {

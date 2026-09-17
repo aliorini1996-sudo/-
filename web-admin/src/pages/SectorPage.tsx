@@ -128,9 +128,9 @@ export default function SectorPage() {
 
             {/* صندوق الإنصاف — إلزامي حيثما لُمّح للامتثال */}
             <section className="mt-6 bg-white border border-[#E8E0D2] rounded-xl p-5">
-              <h2 className="font-semibold text-sm">ما لا نملكه بصراحة</h2>
+              <h2 className="font-semibold text-sm">ما نملكه وما لا نملكه بصراحة</h2>
               <p className="text-xs text-[#6b6357] mt-2 leading-relaxed">
-                ندعم الفاتورة الإلكترونية المرحلة الأولى رمز QR بترميز TLV فقط المرحلة الثانية غير مبنية لدينا حتى الآن 
+                ندعم الفاتورة الإلكترونية برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة 
                 وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزودي البرمجيات فلا ندعي اعتمادا منها
               </p>
             </section>

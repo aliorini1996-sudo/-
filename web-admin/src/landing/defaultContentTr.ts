@@ -60,7 +60,7 @@ export const defaultContentTr = {
   faq: {
     title: 'Sık sorulan sorular',
     items: [
-      { q: 'Faturalar mevzuata uygun mu?', a: 'Sistem, e-faturanın 1. Aşaması (oluşturma aşaması) kapsamında QR kodlu basitleştirilmiş vergi faturaları düzenler. 2. Aşama (entegrasyon) henüz hazır değildir ve ZATCA yazılım sağlayıcılarına sertifika vermez. Vergi ayarları şirketin ülkesine göre uyarlanır.' },
+      { q: 'Faturalar mevzuata uygun mu?', a: 'Sistem QR kodlu vergi faturaları düzenler ve ZATCA’nın Fatoora platformuyla 2. Aşama entegrasyonunu destekler. ZATCA yazılım sağlayıcılarına sertifika vermez. Vergi ayarları şirketin ülkesine göre uyarlanır.' },
       { q: 'Özel bir donanıma ihtiyacım var mı?', a: 'Hayır — uygulama her akıllı telefonda çalışır. Sahada yazdırmak için 58 mm termal yazıcı (Bluetooth veya dahili) yeterlidir.' },
       { q: 'Uygulama çevrimdışı çalışıyor mu?', a: 'Evet — temsilci uygulaması gün boyu internetsiz çalışır: QR kodlu vergi faturalarını ve makbuzları düzenleyip yazdırın ve müşterilere teslim edin; bağlantı geri geldiğinde her belge ofise otomatik yüklenir, mükerrer kayıt ve veri kaybı olmaz.' },
       { q: 'Kurulum ne kadar sürer?', a: 'Şirketinizi, ürünlerinizi ve temsilcilerinizi dakikalar içinde tanımlayıp hemen fatura düzenlemeye başlayabilirsiniz.' },

@@ -87,8 +87,8 @@ const T: Record<Lang, Record<string, string>> = {
     calcNote: 'الأرقام التي تدخلها افتراضاتك أنت لا نذكر اسم أي مورد هنا ولا نقدر سعرا لمن لا يعلنه',
     overLimit: 'فوق ٢٠ مندوبا نحدد السعر بالمحادثة حسب حجمك لا رقم معلن نخترعه',
     faqTitle: 'أسئلة عن التسعير',
-    fairTitle: 'ما لا نملكه بصراحة',
-    fairBody: 'ندعم الفاتورة الإلكترونية **المرحلة الأولى** رمز QR بترميز TLV فقط المرحلة الثانية الربط والتكامل غير مبنية لدينا حتى الآن وهيئة الزكاة والضريبة والجمارك لا تعتمد ولا تصادق مزودي البرمجيات فلا ندعي اعتمادا منها وليست لدينا شهادات SOC2 أو ISO',
+    fairTitle: 'ما نملكه وما لا نملكه بصراحة',
+    fairBody: 'ندعم الفاتورة الإلكترونية برمز QR وندعم **ربط المرحلة الثانية** مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك والهيئة لا تعتمد ولا تصادق مزودي البرمجيات فلا ندعي اعتمادا منها وليست لدينا شهادات SOC2 أو ISO',
   },
   en: {
     back: 'Home',
@@ -115,8 +115,8 @@ const T: Record<Lang, Record<string, string>> = {
     calcNote: 'The figures you enter are your own assumptions We name no vendor here and never estimate a price for one who does not publish it',
     overLimit: 'Above 20 reps we set the price in conversation based on your size we do not invent a published number',
     faqTitle: 'Pricing questions',
-    fairTitle: 'What we do not have plainly',
-    fairBody: 'We support **phase one** of e-invoicing TLV QR code only phase two integration is not built yet ZATCA does not certify or approve software vendors so we claim no approval from it We hold no SOC2 or ISO certification',
+    fairTitle: 'What we have and do not have plainly',
+    fairBody: 'We support **Phase 2 integration** with the Fatoora platform of ZATCA ZATCA does not certify or approve software vendors so we claim no approval from it We hold no SOC2 or ISO certification',
   },
   fr: {
     back: 'Accueil',
@@ -143,8 +143,8 @@ const T: Record<Lang, Record<string, string>> = {
     calcNote: 'Les chiffres saisis sont vos propres hypothèses Nous ne nommons aucun fournisseur ici',
     overLimit: 'Au-delà de 20 commerciaux le prix se définit en conversation nous n inventons aucun chiffre publié',
     faqTitle: 'Questions sur les tarifs',
-    fairTitle: 'Ce que nous n avons pas clairement',
-    fairBody: 'Nous prenons en charge la **phase un** de la facturation électronique QR TLV uniquement la phase deux n est pas développée La ZATCA ne certifie aucun éditeur nous ne revendiquons donc aucune homologation',
+    fairTitle: 'Ce que nous avons et n avons pas clairement',
+    fairBody: 'Nous prenons en charge **l intégration phase 2** avec la plateforme Fatoora de la ZATCA La ZATCA ne certifie aucun éditeur nous ne revendiquons donc aucune homologation',
   },
 };
 

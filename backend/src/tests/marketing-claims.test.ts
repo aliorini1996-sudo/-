@@ -4,7 +4,8 @@
  * زوايا الدول في `marketingTemplate.ts` تصل بريدا باردا إلى موزعين يقررون الشراء
  * على أساسها. كانت تعد ب«ZATCA المرحلة الثانية جاهزة» و«ETA» و«JoFotara» —
  * وثلاثتها **غير مبنية**: `provider.ts` يسجل `eta` و`peppol` و`ttn` ك`notImplemented`،
- * والمبني وحده هو ZATCA المرحلة الأولى (رمز QR بترميز TLV).
+ * والمبني من منظومات الفوترة هو ZATCA وحدها: المرحلة الأولى (رمز QR بترميز TLV) وربط المرحلة
+ * الثانية مع منصة فاتورة (يعلن بقرار المالك بعد اكتمال التفعيل الفعلي، بلا ادعاء اعتماد ولا موعد).
  *
  * الحارس يقلب السؤال: لا يسأل «هل النص جميل؟» بل **«هل ذكرت منظومة غير مبنية؟»** —
  * فإن بني محول يوما سقط اسمه من قائمة الممنوع تلقائيا وجاز الوعد به.
@@ -70,17 +71,35 @@ test('لا تذكر منظومة فوترة غير مبنية في زوايا ا
   assert.deepEqual(offenders, [], `ادعاء امتثال لمنظومة غير مبنية: ${offenders.join(' · ')}`);
 });
 
-test('لا يوعد بمرحلة ZATCA الثانية والمبني هو الأولى', () => {
-  const zatca = readSrc('compliance/zatca.ts');
-  const isPhase2 = /المرحلة الثانية|Phase.?2/.test(zatca);
-  if (isPhase2) return; // بنيت فعلا ⇒ الوعد صار صادقا
+// ربط المرحلة الثانية مع منصة فاتورة صار قدرة معلنة بقرار المالك بعد التفعيل الفعلي (مبني في
+// مجلد compliance/zatca/). الكشف القديم كان يقرأ compliance/zatca.ts — وهو محول المرحلة الأولى
+// الخالي من «المرحلة الثانية» — فكان سيفشل فور ذكر الربط الصادق. الممنوع ولو بعد التفعيل:
+// الاعتماد/المصادقة/الترخيص من الهيئة (الهيئة لا تعتمد مزودي البرمجيات)، والشراكة الرسمية، وأي موعد.
+const APPROVAL_CLAIM = /(معتمد|مصادق|مرخ.?ص)[ةه]?\s*(رسمي[اً]*\s*)?(من|لدى)\s*(هيئة|الهيئة|الزكاة|ZATCA)|شريك\s*رسمي|ZATCA[\s-]*(certified|approved|accredited)|(certified|approved|accredited)\s+by\s+(the\s+)?ZATCA/i;
+const PHASE2_DATED = /(المرحلة الثانية|Phase[- ]?2)[^.\n]{0,80}(منذ|بحلول|اعتبارا|ابتداء|(19|20)\d{2}|الموجة\s*\d|since|as\s+of|by\s+(\d|January|February|March|April|May|June|July|August|September|October|November|December))/i;
 
+test('الحارس نفسه يلتقط صيغ الاعتماد والمواعيد (فحص سلبي مزروع)', () => {
+  // حارس لا يلتقط شيئا ينجح كاذبا — نثبت أولا أن الأنماط تعض
+  for (const t of ['نظامنا معتمد من هيئة الزكاة', 'مصادق من الهيئة', 'شريك رسمي لهيئة الزكاة', 'Certified by ZATCA', 'ZATCA-approved invoicing']) {
+    assert.ok(APPROVAL_CLAIM.test(t), `نمط الاعتماد لم يلتقط: ${t}`);
+  }
+  for (const t of ['ندعم ربط المرحلة الثانية منذ سبتمبر 2026', 'المرحلة الثانية مفعلة قبل الموجة 25', 'Phase 2 integration live since January']) {
+    assert.ok(PHASE2_DATED.test(t), `نمط الموعد لم يلتقط: ${t}`);
+  }
+  // والصيغة المعتمدة تمر
+  const ok = 'فاتورة ضريبية برمز QR وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك ZATCA';
+  assert.ok(!APPROVAL_CLAIM.test(ok) && !PHASE2_DATED.test(ok), 'الصيغة المعتمدة محجوبة');
+});
+
+test('ادعاء المرحلة الثانية مسموح بصيغة الدعم وحدها: بلا اعتماد ولا شراكة ولا موعد', () => {
   for (const rel of ['services/marketingTemplate.ts', 'services/leadEmailer.ts']) {
     const p = path.join(SRC, rel);
     if (!fs.existsSync(p)) continue;
-    // التعليقات تشرح **لماذا** حذف الادعاء، فتذكره حتما — نفحص الكود المرسل وحده
+    // التعليقات تشرح **لماذا** تمنع الصيغ، فتذكرها حتما — نفحص الكود المرسل وحده
     const t = stripComments(fs.readFileSync(p, 'utf8'));
-    const bad = /المرحلة الثانية|Phase[- ]?2|Phase.?Two/i.test(t);
-    assert.equal(bad, false, `${rel}: يعد بالمرحلة الثانية من ZATCA وهي غير مبنية (المبني: المرحلة الأولى — رمز QR)`);
+    const approval = t.match(APPROVAL_CLAIM);
+    assert.equal(approval, null, `${rel}: ادعاء اعتماد/شراكة رسمية من الهيئة «${approval?.[0]}» — الهيئة لا تعتمد مزودي البرمجيات`);
+    const dated = t.match(PHASE2_DATED);
+    assert.equal(dated, null, `${rel}: موعد أو سنة قرب المرحلة الثانية «${dated?.[0]}» — لا موعد مثبت ينشر`);
   }
 });
