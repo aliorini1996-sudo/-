@@ -12,6 +12,15 @@ import {
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 
+function assertOrder(body: string, parts: readonly string[], label: string) {
+  let pos = -1;
+  for (const p of parts) {
+    const i = body.indexOf(p, pos + 1);
+    assert.ok(i > pos, `${label}: «${p}» مفقود أو خارج الترتيب`);
+    pos = i;
+  }
+}
+
 const rows = [
   { customerName: 'مؤسسة أ', balance: 1500.5, date: '2026-08-31' },
   { customerCode: 'C-2', balance: -200, date: '2026-08-31' },
@@ -97,23 +106,32 @@ test('import.ts /ledger: البصمة والتداخل قبل أي كتابة؛ 
   const reserve = ledger.indexOf("reserveEntryBatch(tid, 'ledger', contentHash");
   assert.ok(reserve > 0 && reserve < ledger.indexOf('assertOverlapConfirmed(') && reserve < firstTx, '/ledger: الحجز بعد التداخل أو الكتابة');
   assert.match(ledger, /\} finally \{\s*result\.batchId = await progress\.finish\(\);/);
-  assert.match(ledger, /progress\.due\(groupIds\.length\)\) step\.flushed = await progress\.write\(tx, groupIds\)/, '/ledger: المعرّفات تُحفظ داخل معاملة الكتابة');
+  // البند 6 (مراجعة 2026-09-17): المعرّفات تُكتب في آخر كل معاملة شريحة دون شرط due، والكتابة داخل المعاملة نفسها
+  assert.doesNotMatch(ledger, /progress\.due\(/, '/ledger: حفظ المعرّفات مشروط بـdue');
+  assertOrder(ledger, ['runImportChunks(', 'prisma.$transaction(async tx => fn(tx)', 'tx.accountEntry.create(', 'tx.customer.update(', 'flush: (tx, written) => progress.write(tx,', 'onCommitted:', 'progress.commit('], '/ledger: الكتابة والمعرّفات في المعاملة');
+  assert.ok(reserve < ledger.indexOf('runImportChunks('), '/ledger: الحجز بعد الكتابة');
   assert.doesNotMatch(ledger, /recordBatch\(/, '/ledger: الدفعة لا تُسجَّل في النهاية فقط');
-  assert.match(ledger, /debit: roundImportAmount\(r\.debit, ctx\.decimals\), credit: roundImportAmount\(r\.credit, ctx\.decimals\)/);
+  assert.match(ledger, /groupLedgerRows\(rows, await customerMatcher\(req, tid\), dates, ctx\.decimals\)/);
+  assert.match(read('services/importLedger.ts'), /const debit = roundImportAmount\(r\.debit, decimals\); const credit = roundImportAmount\(r\.credit, decimals\);/);
 
   const bi = s.indexOf("router.post('/balances'");
   const bal = s.slice(bi, s.indexOf('\n});', bi));
   assert.doesNotMatch(bal, /description: 'رصيد افتتاحي' \}/, 'فحص الوجود بالوصف ما زال قائماً');
-  const tx = bal.slice(bal.indexOf('prisma.$transaction(async tx => {'));
+  const tx = bal.slice(bal.indexOf('prisma.$transaction(async tx => fn(tx)'));
+  assert.ok(bal.indexOf('prisma.$transaction(async tx => fn(tx)') > 0, '/balances: لا معاملة كتابة');
   let pos = -1;
-  for (const n of ['FOR UPDATE', 'tx.accountEntry.findMany(', 'select: { id: true, description: true }', 'balanceSkipReason(adj, idx)', 'tx.accountEntry.create(', 'progress.write(tx, [e.id])']) {
+  for (const n of ['FOR UPDATE', 'tx.accountEntry.findMany(', 'select: { id: true, description: true }', 'balanceSkipReason(adj, idx)', 'tx.accountEntry.create(', 'flush: (tx, written) => progress.write(tx,', 'progress.commit(']) {
     const i = tx.indexOf(n, pos + 1);
     assert.ok(i > pos, `/balances: ${n} خارج الترتيب`);
     pos = i;
   }
+  assert.doesNotMatch(bal, /progress\.due\(/, '/balances: حفظ المعرّفات مشروط بـdue');
+  // البند 10: لا إضافة إلى فهرس المستورد داخل الطلب (الدمج قبل الكتابة)
+  assert.doesNotMatch(bal, /idx\.balances\.add\(/);
+  assert.ok(bal.indexOf('mergeBalanceRows(') > 0 && bal.indexOf('mergeBalanceRows(') < bal.indexOf('prisma.$transaction('));
   assert.ok(bal.indexOf('assertNotDuplicateBatch(') < bal.indexOf('prisma.$transaction('));
   assert.match(bal, /skippedWarnings\.push\(\{ customerName: [^\n]*reason: BALANCE_SKIP_MESSAGES\[out\.reason\] \}\)/);
-  assert.match(bal, /warnings: \{ undatedAsToday, skipped: skippedWarnings \}/);
+  assert.match(bal, /warnings: \{ undatedAsToday, skipped: skippedWarnings, merged: merged\.slice\(0, 500\) \}/);
   const bReserve = bal.indexOf("reserveEntryBatch(tid, 'balances', contentHash");
   assert.ok(bReserve > 0 && bReserve < bal.indexOf('prisma.$transaction(') && bReserve < bal.indexOf('loadImportedIndex('), '/balances: الحجز بعد الكتابة');
   assert.match(bal, /\} finally \{\s*result\.batchId = await progress\.finish\(\);/);
@@ -142,14 +160,17 @@ test('import.ts /ledger: البصمة والتداخل قبل أي كتابة؛ 
   assert.match(s, /status: importBatchState\(\{ \.\.\.b, heartbeatAt \}, now\)/);
 });
 
-test('مراجعة 4: رصيد افتتاحي بلا دفعة (استيراد انقطع أو سبق الدفعات) ⇒ BALANCE_ALREADY_IMPORTED احتياطاً بالوصف؛ وما في دفعة يبقى بسببه', () => {
+test('مراجعة 4 والبند 6: رصيد افتتاحي بلا دفعة (استيراد قديم أو منقطع) ⇒ BALANCE_UNBATCHED احتياطاً بالوصف؛ وما في دفعة يبقى بسببه', () => {
   const idx = importedEntryIndex([
     { kind: 'balances', recordIds: JSON.stringify(['e-bal']) },
     { kind: 'ledger', recordIds: JSON.stringify(['e-led-open']) },
   ]);
   assert.equal(OPENING_BALANCE_DESCRIPTION, 'رصيد افتتاحي');
   // يتيم: كُتب ولم تُسجَّل دفعته (انقطاع في منتصف 10,000 صف) ⇒ يُتخطى بدل مضاعفة الذمة
-  assert.equal(balanceSkipReason([{ id: 'orphan', description: 'رصيد افتتاحي' }], idx), 'BALANCE_ALREADY_IMPORTED');
+  assert.equal(balanceSkipReason([{ id: 'orphan', description: 'رصيد افتتاحي' }], idx), 'BALANCE_UNBATCHED');
+  // لا دفعة يُتراجع عنها ⇒ الرسالة لا تطلب التراجع
+  assert.doesNotMatch(BALANCE_SKIP_MESSAGES.BALANCE_UNBATCHED, /تراجع عنها أولاً/);
+  assert.match(BALANCE_SKIP_MESSAGES.BALANCE_UNBATCHED, /خارج أي دفعة استيراد/);
   // تسوية يدوية بوصف آخر لا تحجب
   assert.equal(balanceSkipReason([{ id: 'manual', description: 'تسوية' }, { id: 'x', description: null }], idx), null);
   assert.equal(balanceSkipReason([], idx), null);

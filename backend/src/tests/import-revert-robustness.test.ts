@@ -40,7 +40,7 @@ test('فشل FK في العنصر 121 ⇒ blocked، والبقية تُزال، 
   assert.equal(r.reverted, false);
   assert.deepEqual(r.remainingIds, ['p121']);
   const saved = serializeBatchRecordIds('products', r.remainingIds, ['cat1']);
-  assert.deepEqual(parseBatchRecordIds(saved), { records: ['p121'], categories: ['cat1'] });
+  assert.deepEqual(parseBatchRecordIds(saved), { records: ['p121'], categories: ['cat1'], previous: {} });
   assert.deepEqual(revertResponse('products', r.removed, r.blocked, r.remainingIds.length),
     { removed: 199, blocked: [{ id: 'p121', name: 'n-p121', reason: FK_BLOCK_REASON }], remaining: 1, kind: 'products', reverted: false });
 });
@@ -88,10 +88,10 @@ test('فئة مربوطة بحساب تبقى، وفئة يتيمة غير مر�
 });
 
 test('recordIds القديمة (مصفوفة) تُقرأ، والجديدة {products, categories}، والتالفة فارغة؛ والأنواع الأخرى تبقى مصفوفة', () => {
-  assert.deepEqual(parseBatchRecordIds('["a","b"]'), { records: ['a', 'b'], categories: [] });
-  assert.deepEqual(parseBatchRecordIds('{"products":["a"],"categories":["c"]}'), { records: ['a'], categories: ['c'] });
-  assert.deepEqual(parseBatchRecordIds('{oops'), { records: [], categories: [] });
-  assert.deepEqual(parseBatchRecordIds(null), { records: [], categories: [] });
+  assert.deepEqual(parseBatchRecordIds('["a","b"]'), { records: ['a', 'b'], categories: [], previous: {} });
+  assert.deepEqual(parseBatchRecordIds('{"products":["a"],"categories":["c"]}'), { records: ['a'], categories: ['c'], previous: {} });
+  assert.deepEqual(parseBatchRecordIds('{oops'), { records: [], categories: [], previous: {} });
+  assert.deepEqual(parseBatchRecordIds(null), { records: [], categories: [], previous: {} });
   assert.equal(serializeBatchRecordIds('balances', ['e1']), '["e1"]');
   assert.equal(serializeBatchRecordIds('customers', ['c1']), '["c1"]');
   assert.equal(serializeBatchRecordIds('products', ['p1'], []), '{"products":["p1"],"categories":[]}');

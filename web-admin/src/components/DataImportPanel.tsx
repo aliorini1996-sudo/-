@@ -2,14 +2,18 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api, { companyApi, importApi } from '../api/client';
 import {
-  parseExcelFile, IMPORT_TYPES, ImportKind, LEDGER_IMPORT_KINDS, classifyImportRowsByCutover, classifyImportFailure,
-  openingStockGate, openingStockAckState, fileRowOf, localizedServerMessage, listSeparator, type InvalidDateRow, type OpeningStockBlock, type OpeningStockServerBlock,
+  parseImportFile, ImportFileError, IMPORT_TYPES, ImportKind, LEDGER_IMPORT_KINDS, classifyImportRowsByCutover, classifyImportFailure,
+  openingStockGate, openingStockAckState, fileRowOf, localizedServerMessage, listSeparator,
+  type InvalidDateRow, type OpeningStockBlock, type OpeningStockServerBlock, type ImportNotice,
 } from '../lib/importData';
 import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
+import { useAuthStore } from '../store/authStore';
+import { importAccess, importAccessNote, revertAllowed, visibleImportKinds, batchesView, IMPORT_SCOPED_NOTE } from '../lib/importAccess';
 import { ledgerKeys } from '../api/ledgerConfig';
 import { ledgerSetupKeys } from '../api/ledgerSetup';
-import { formatCurrency, formatDate, formatDateTime } from '../utils/format';
+import { formatCurrency, formatDate, formatDateTime, getActiveCurrency } from '../utils/format';
+import { currencyDecimals } from '../i18n/countries';
 import ConfirmDialog from './ConfirmDialog';
 import ImportLedgerNotice, {
   useLedgerImportContext, UndatedDateChooser, CutoverSplitNotice, OpeningStockNote, OpeningStockAckPanel, type LedgerImportCtx,
@@ -17,6 +21,9 @@ import ImportLedgerNotice, {
 import {
   groupRevertBlocked, batchStatusView, hasRunningBatch, classifyRevertFailure, revertFailureKey,
   NETWORK_LOST_MESSAGE, REVERT_LEDGER_BUSY, OPENING_STOCK_REVERT_ACTIVE, REVERT_BATCH_RUNNING,
+  accessFailureKey, importResultView, importRowErrorKey, customerSkipReasonKey, similarWarningKey, attachedCodeKey,
+  duplicateConsequenceKey, IMPORT_IN_PROGRESS_TEXT, zeroPriceGate, buildImportBody, importButtonBlocked, ZERO_PRICE_ACK_KEY,
+  REVERT_PERMISSION_DENIED, importFieldLabel, previewCellValue, type ImportResultRowError,
 } from '../lib/importRevert';
 import { Users, Package, Wallet, BookOpen, Tags, Boxes, Upload, X, Check, AlertTriangle, Loader2, FileUp, RotateCcw, Clock, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -40,13 +47,29 @@ interface Preview {
   fileName: string;
   /** صفوف الملف الخام — التحويل يُعاد مع «تاريخ الصفوف بلا تاريخ» المعتمد */
   raw: Rows;
+  /** تنبيهات قراءة الملف (الترميز، العناوين المكررة…) — البندان 12 و27 */
+  fileNotices: ImportNotice[];
   /** إقرارات المالك بعد 409: الاستيراد رغم التكرار / رغم التداخل */
   flags: { force?: boolean; confirmOverlap?: boolean };
   conflict: Conflict | null;
 }
 interface ImportResult {
-  created: number; skipped: number; total: number; errors: { row: number; message: string }[];
-  warnings?: { undatedAsToday?: number; skipped?: { customerName?: string | null; reason?: string }[] };
+  created: number; skipped: number; total: number; errors: ImportResultRowError[];
+  /** الأرصدة والكشوف: صفوف صفرية لم تُكتب */
+  zero?: number;
+  warnings?: {
+    undatedAsToday?: number;
+    skipped?: { customerName?: string | null; reason?: string }[];
+    /** الأرصدة: أسطر عميل واحد دُمجت في قيد واحد (البند 10) */
+    merged?: { customerName?: string | null; rows?: number[]; total?: number }[];
+    /** العملاء: أُنشئ بكود جديد مع تطابق الاسم أو الجوال (البند 3) */
+    similar?: { row: number; code?: string; matchedBy?: 'phone' | 'name' }[];
+  };
+  /** العملاء: الصفوف المتخطاة بسببها (البند 3) */
+  skippedRows?: { row: number; reason?: string }[];
+  /** العملاء: أكواد رُبطت بعملاء قائمين بلا كود (الدفعة 2، الانحدار 3) */
+  attached?: number;
+  attachedRows?: { row: number; code?: string; matchedBy?: 'phone' | 'name' }[];
   /** المخزون الافتتاحي: إجمالي التكلفة الصافية للبنود */
   totalCost?: number;
 }
@@ -54,6 +77,24 @@ interface Batch { id: string; kind: string; count: number; createdBy?: string | 
 type RevertBlocked = number | { id?: string; name?: string | null; reason?: string }[];
 
 const kindLabel = (k: string | undefined) => (k ? IMPORT_TYPES[k as ImportKind]?.label || k : '');
+
+/** قيمة محوّلة في جدول المعاينة: الأرقام والتواريخ من اليسار */
+const cellText = (v: unknown): string => (v === null || v === undefined || v === '' ? '—' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+
+/** تنبيه ملف/تحويل: المفتاح مترجماً ثم العدد ثم القيم معزولة الاتجاه */
+function NoticeLine({ n, tr }: { n: ImportNotice; tr: (s: string) => string }) {
+  const values = (n.values ?? []).slice(0, 8);
+  return (
+    <p className="text-[11px] text-amber-800 flex items-start gap-1">
+      <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+      <span>
+        {tr(n.key)}
+        {typeof n.count === 'number' ? <> (<bdi className="tabular-nums">{n.count}</bdi>)</> : null}
+        {values.length > 0 && <>: {values.map((v, i) => <span key={i}>{i > 0 ? ' · ' : ''}<bdi className="font-mono">{v}</bdi></span>)}{(n.values?.length ?? 0) > values.length ? ' …' : ''}</>}
+      </span>
+    </p>
+  );
+}
 
 // قسم استيراد بيانات الشركة السابقة — أيقونة رفع لكل نوع بيانات (في إعدادات الشركة)
 export default function DataImportPanel() {
@@ -79,6 +120,12 @@ export default function DataImportPanel() {
   const [stockInclTax, setStockInclTax] = useState(false);
   const [stockServerBlock, setStockServerBlock] = useState<OpeningStockServerBlock | null>(null);
   const [stockAck, setStockAck] = useState(false);
+  // قوائم الأسعار: إقرار المالك بأن السعر الخاص الصفري مقصود (يُصفَّر مع كل ملف جديد) — البند 1
+  const [zeroPriceAck, setZeroPriceAck] = useState(false);
+  // الصلاحيات والنطاق (البندان 5 و21): الخادم يفرضها، والواجهة تخفي ما سيُرفض وتشرح
+  const user = useAuthStore((s) => s.user);
+  const access = useMemo(() => importAccess(user), [user]);
+  const accessNote = importAccessNote(access);
 
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
@@ -95,12 +142,16 @@ export default function DataImportPanel() {
   const stockAckInfo = openingStockAckState(stockGate, stockAck);
 
   const invalidateBatches = () => qc.invalidateQueries({ queryKey: ['import-batches'] });
-  const { data: batches } = useQuery({
+  const { data: batchesBody } = useQuery({
     queryKey: ['import-batches'],
-    queryFn: async () => (await importApi.batches()).data.data as Batch[],
+    queryFn: async () => (await importApi.batches()).data as { data?: Batch[]; scoped?: boolean },
+    // المقيّد النطاق لا يرى دفعات الشركة ⇒ لا طلب
+    enabled: !access.scoped,
     // دفعة جارية ⇒ متابعة حالتها حتى تنتهي أو تنقطع
-    refetchInterval: (q) => (hasRunningBatch(q.state.data as Batch[] | undefined) ? 5000 : false),
+    refetchInterval: (q) => (hasRunningBatch((q.state.data as { data?: Batch[] } | undefined)?.data) ? 5000 : false),
   });
+  const batchesState = batchesView(access, batchesBody);
+  const batches: Batch[] | undefined = batchesBody || access.scoped ? batchesState.list : undefined;
   const revertMut = useMutation({
     mutationFn: (id: string) => importApi.revert(id),
     onSuccess: (res) => {
@@ -140,7 +191,8 @@ export default function DataImportPanel() {
       toast.error(key ? tr(key) : (f.type === 'other' && localizedServerMessage(f.message, lang, tr)) || tr('تعذر التراجع'), { duration: f.type === 'network' ? 10_000 : 6000 });
       if (f.type === 'openingStockActive') setStockServerBlock({ reason: 'active' });
       // الانقطاع أو دفعة جارية أو متراجع عنها: السجل المعروض قديم
-      if (f.type === 'network' || f.type === 'running' || f.type === 'gone') invalidateBatches();
+      // الانقطاع أو دفعة جارية أو متراجع عنها أو تغيّرت الصلاحية: السجل المعروض قديم
+      if (f.type === 'network' || f.type === 'running' || f.type === 'gone' || f.type === 'scopedAdmin' || f.type === 'permissionDenied') invalidateBatches();
       setRevertId(null);
     },
   });
@@ -149,7 +201,8 @@ export default function DataImportPanel() {
     if (!file) return;
     setBusy(kind); setResult(null);
     try {
-      const rows = await parseExcelFile(file);
+      const parsed = await parseImportFile(file);
+      const rows = parsed.rows;
       if (!rows.length) { toast.error(tr('الملف فارغ أو بلا صفوف بيانات')); setBusy(null); return; }
       setUndatedInput(ledger?.suggestedUndatedDate ?? '');
       setUndatedDate(null);
@@ -157,16 +210,22 @@ export default function DataImportPanel() {
       setExcludeAfter(false);
       setStockInclTax(false);
       setStockAck(false);
-      setPreview({ kind, fileName: file.name, raw: rows, flags: {}, conflict: null });
-    } catch { toast.error(tr('تعذر قراءة الملف تأكد أنه Excel/CSV صالح')); }
+      setZeroPriceAck(false);
+      setPreview({ kind, fileName: file.name, raw: rows, fileNotices: parsed.notices ?? [], flags: {}, conflict: null });
+    } catch (e) {
+      // ترميز لا يُفك (البند 27) برسالته، وغيره الرسالة العامة
+      toast.error(e instanceof ImportFileError ? tr(e.key) : tr('تعذر قراءة الملف تأكد أنه Excel/CSV صالح'), { duration: 8000 });
+    }
     setBusy(null);
   };
 
+  const companyDecimals = currencyDecimals(getActiveCurrency());
   // المعاينة: التحويل بالتاريخ المعتمد، والتصنيف حول تاريخ البدء (للأرصدة والكشوف حين الدفاتر متاحة فقط)
   const view = useMemo(() => {
     if (!preview) return null;
     const ledgerKind = LEDGER_IMPORT_KINDS.includes(preview.kind);
-    const tf = IMPORT_TYPES[preview.kind].transform(preview.raw, ledgerKind && undatedDate ? { undatedDate } : undefined);
+    // منازل عملة الشركة: الدينار بثلاث منازل يحسم «12.500» عشرياً في عمود بلا دليل آخر (الدفعة 2، الانحدار 6)
+    const tf = IMPORT_TYPES[preview.kind].transform(preview.raw, { ...(ledgerKind && undatedDate ? { undatedDate } : {}), currencyDecimals: companyDecimals });
     const aware = !!ledger && ledgerKind;
     const split = aware && ledger?.cutoverDate ? classifyImportRowsByCutover(tf.valid, ledger.cutoverDate, ledger.timezone) : null;
     const keep = (_: unknown, i: number) => !(split && excludeAfter) || split.classes[i] !== 'onOrAfter';
@@ -177,18 +236,26 @@ export default function DataImportPanel() {
     // سياق الاختيار: سياق الدفاتر، أو سياق أدنى بعد رفض الخادم (بلا تاريخ بدء ولا اقتراح) — التصنيف يبقى على ledger وحده
     const chooserCtx: LedgerImportCtx | null = ledger ?? (forceUndated || serverActivated ? MIN_ACTIVATED_CTX : null);
     const needChooser = ledgerKind && !!chooserCtx;
-    return { ...tf, ledgerKind, aware, split, rows, sentFileRows, undated, chooserCtx, needUndatedChoice: needChooser && undated > 0 && !undatedDate };
-  }, [preview, ledger, undatedDate, excludeAfter, forceUndated, serverActivated]);
+    // تنبيهات الملف ثم التحويل، وعوائقه، وخريطة الأعمدة (البنود 9 و11 و12 و13)
+    const notices: ImportNotice[] = [...preview.fileNotices, ...(tf.notices ?? [])];
+    // قوائم الأسعار: السعر الخاص الصفري يمنع الاستيراد حتى إقرار المالك (البند 1)
+    const zeroPrice = zeroPriceGate(preview.kind, tf.zeroPriceRows, zeroPriceAck);
+    return {
+      ...tf, ledgerKind, aware, split, rows, sentFileRows, undated, chooserCtx, notices, zeroPrice,
+      blockers: tf.blockers ?? [], columns: tf.columns ?? [],
+      needUndatedChoice: needChooser && undated > 0 && !undatedDate,
+    };
+  }, [preview, ledger, undatedDate, excludeAfter, forceUndated, serverActivated, zeroPriceAck, companyDecimals]);
 
   const doImport = async (extra?: Preview['flags']) => {
     if (!preview || !view) return;
     const kind = preview.kind;
     const flags = { ...preview.flags, ...extra };
-    const body: Record<string, unknown> = { rows: view.rows };
-    if (view.ledgerKind && undatedDate) body.undatedDate = undatedDate;
-    if (kind === OPENING_STOCK) Object.assign(body, { pricesIncludeTax: stockInclTax }, stockAckInfo.body);
-    if (flags.force) body.force = true;
-    if (flags.confirmOverlap) body.confirmOverlap = true;
+    const body = buildImportBody({
+      kind, rows: view.rows, ledgerKind: view.ledgerKind, undatedDate,
+      stockInclTax, stockAckBody: stockAckInfo.body, flags,
+      zeroPriceRows: view.zeroPriceRows, zeroPriceAck,
+    });
     const withConflict = (conflict: Conflict | null) => setPreview({ ...preview, flags, conflict });
     setBusy(kind);
     try {
@@ -205,6 +272,14 @@ export default function DataImportPanel() {
     } catch (e) {
       const f = classifyImportFailure(e);
       switch (f.type) {
+        case 'scopedAdmin':
+        case 'permissionDenied':
+        case 'accountingDisabled':
+          // رفض الوصول (النطاق/الصلاحية/الدفاتر): لا فائدة من إبقاء المعاينة — البندان 5 و21
+          setPreview(null);
+          invalidateBatches();
+          toast.error(tr(accessFailureKey(f, 'import')!), { duration: 8000 });
+          break;
         case 'network':
           // لا رد: قد يكون الخادم أتم الاستيراد أو ما زال يكتبه ⇒ إغلاق المعاينة فلا يُعاد الرفع قبل مراجعة السجل
           setPreview(null);
@@ -282,7 +357,7 @@ export default function DataImportPanel() {
     setBusy(null);
   };
 
-  const active: { kind: ImportKind; icon: React.ElementType }[] = [
+  const allCards: { kind: ImportKind; icon: React.ElementType }[] = [
     { kind: 'customers', icon: Users },
     { kind: 'products', icon: Package },
     { kind: 'balances', icon: Wallet },
@@ -290,6 +365,9 @@ export default function DataImportPanel() {
     { kind: 'prices', icon: Tags },
     ...(stockGate.state !== 'hidden' ? [{ kind: OPENING_STOCK, icon: Boxes }] : []),
   ];
+  // بطاقات الأنواع غير المسموحة مخفية (البندان 5 و21)
+  const visibleKinds = visibleImportKinds(access, allCards.map((c) => c.kind));
+  const active = allCards.filter((c) => visibleKinds.includes(c.kind));
 
   const revertKind = revertId ? batches?.find((b) => b.id === revertId)?.kind : undefined;
   const revertTouchesLedger = ledgerActivated && (revertKind === 'balances' || revertKind === 'ledger' || revertKind === 'customers');
@@ -319,6 +397,11 @@ export default function DataImportPanel() {
         {tr('الترتيب الموصى به العملاء والمنتجات أولا ثم الأرصدة الافتتاحية أو دفتر الأستاذ ثم قوائم الأسعار لأنها تربط بالعملاء والأصناف بالكود أو الجوال')}
       </p>
       <ImportLedgerNotice ctx={ledger} />
+      {accessNote && (
+        <p className="text-[11px] text-[#6E6557] bg-[#FBF7F0] border border-[#E8E0D2] rounded-lg px-3 py-2 mt-3 flex items-start gap-1.5" role="note">
+          <AlertTriangle size={12} className="shrink-0 mt-0.5 text-amber-600" /> {tr(accessNote)}
+        </p>
+      )}
 
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
         {active.map(({ kind, icon: Icon }) => {
@@ -348,14 +431,17 @@ export default function DataImportPanel() {
       {/* سجلّ الاستيرادات — يظهر دائماً؛ يمكن التراجع عن أيّ دفعة منتهية أو منقطعة */}
       <div className="mt-5 border-t border-[#E9E1D3] pt-4">
         <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Clock size={15} className="text-[#E15A30]" /> {tr('سجل الاستيرادات يمكن التراجع عن أي دفعة')}</h4>
-        {batches && batches.length > 0 ? (
+        {batchesState.scoped ? (
+          <p className="text-xs text-gray-500 py-2">{tr(IMPORT_SCOPED_NOTE)}</p>
+        ) : batches && batches.length > 0 ? (
           <>
             <div className="space-y-2">
               {batches.map((b) => {
                 const sv = batchStatusView(b);
                 const unit = b.kind === OPENING_STOCK ? tr('بند') : tr('سجل');
                 const stockLocked = b.kind === OPENING_STOCK && stockActiveBlock;
-                const canRevert = sv.revertable && !stockLocked;
+                const permitted = revertAllowed(access, b.kind);
+                const canRevert = sv.revertable && !stockLocked && permitted;
                 const countText = sv.status === 'running'
                   ? (b.count > 0 ? `${tr('حتى الآن')} ${b.count} ${unit}` : null)
                   : sv.status === 'interrupted'
@@ -378,7 +464,7 @@ export default function DataImportPanel() {
                       <span className="text-gray-500 text-xs mr-2">{countText ? `· ${countText} ` : ''}· {formatDate(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
                     </div>
                     <button onClick={() => setRevertId(b.id)} disabled={revertMut.isPending || !canRevert}
-                      title={sv.status === 'running' ? tr('الدفعة ما زالت قيد الاستيراد — انتظر انتهاءها ثم تراجع عنها') : stockLocked ? tr(OPENING_STOCK_REVERT_ACTIVE) : undefined}
+                      title={!permitted ? tr(REVERT_PERMISSION_DENIED) : sv.status === 'running' ? tr('الدفعة ما زالت قيد الاستيراد — انتظر انتهاءها ثم تراجع عنها') : stockLocked ? tr(OPENING_STOCK_REVERT_ACTIVE) : undefined}
                       className="text-red-600 hover:bg-red-50 rounded-lg px-2.5 py-1 text-xs flex items-center gap-1 shrink-0 disabled:opacity-40 disabled:hover:bg-transparent">
                       <RotateCcw size={13} /> {tr('تراجع / إزالة')}
                     </button>
@@ -445,12 +531,57 @@ export default function DataImportPanel() {
                   <p>{tr('تخصم ضريبة كل صنف من التكلفة قبل التسجيل، فيدخل المخزون بتكلفته الصافية. الأصناف تطابق بالكود ثم الباركود ثم الاسم')}</p>
                 </div>
               )}
-              {view.warnings && view.warnings.length > 0 && (
-                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
-                  {view.warnings.map((w, i) => (
-                    <p key={i} className="text-[11px] text-amber-800 flex items-start gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" /> {tr(w)}</p>
+              {view.blockers.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-[11px] text-[#8E2A1F]" role="alert">
+                  <p className="font-semibold flex items-center gap-1 mb-1"><AlertTriangle size={13} /> {tr('لا يمكن استيراد هذا الملف قبل تصحيحه')}</p>
+                  {view.blockers.map((b, i) => <p key={i}>{tr(b)}</p>)}
+                </div>
+              )}
+              {((view.warnings?.length ?? 0) > 0 || view.notices.length > 0) && (
+                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 space-y-0.5">
+                  {view.notices.map((n, i) => <NoticeLine key={`n${i}`} n={n} tr={tr} />)}
+                  {(view.warnings ?? []).map((w, i) => (
+                    <p key={`w${i}`} className="text-[11px] text-amber-800 flex items-start gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" /> {tr(w)}</p>
                   ))}
                 </div>
+              )}
+              {view.columns.length > 0 && (
+                <div className="border border-[#E9E1D3] rounded-xl p-3">
+                  <p className="text-xs font-semibold text-gray-700 mb-2">{tr('عمود الملف ← الحقل')}</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px]">
+                      <thead><tr className="text-[#6E6557]">
+                        <th className="text-start font-medium pe-2 whitespace-nowrap">{tr('الحقل')}</th>
+                        <th className="text-start font-medium pe-2 whitespace-nowrap">{tr('عمود الملف')}</th>
+                        {view.rows.slice(0, 3).map((_, i) => (
+                          <th key={i} className="text-start font-medium pe-2 whitespace-nowrap">{tr('صف')} <bdi>{view.sentFileRows[i] ?? i + 2}</bdi></th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {view.columns.map((c) => (
+                          <tr key={c.field} className="border-t border-[#F1EBE0]">
+                            <td className="pe-2 py-0.5 text-gray-700 whitespace-nowrap">{tr(importFieldLabel(c.field))}</td>
+                            <td className={`pe-2 py-0.5 whitespace-nowrap ${c.header ? 'text-gray-800' : 'text-gray-400'}`}><bdi>{c.header || '—'}</bdi></td>
+                            {view.rows.slice(0, 3).map((r, i) => {
+                              const v = previewCellValue(r, c.field);
+                              return <td key={i} className="pe-2 py-0.5 text-gray-600 max-w-[8rem] truncate" dir={typeof v === 'number' || v instanceof Date ? 'ltr' : undefined}><bdi className={typeof v === 'number' ? 'tabular-nums' : ''}>{cellText(v)}</bdi></td>;
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {view.zeroPrice.required && (
+                <label className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-[11px] text-[#8E2A1F] cursor-pointer select-none">
+                  <input type="checkbox" className="mt-0.5" checked={zeroPriceAck} disabled={busy !== null}
+                    onChange={(e) => { setZeroPriceAck(e.target.checked); setPreview({ ...preview, conflict: null }); }} />
+                  <span>
+                    <span className="font-semibold">{tr(ZERO_PRICE_ACK_KEY).replace('N', String(view.zeroPriceRows ?? 0))}</span>
+                    <span className="block mt-0.5 text-[#6E6557]">{tr('وإلا فاحذف هذه الصفوف من الملف أو صحّح أسعارها ثم أعد رفعه')}</span>
+                  </span>
+                </label>
               )}
               {view.errors.length > 0 && (
                 <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 max-h-40 overflow-y-auto">
@@ -488,7 +619,7 @@ export default function DataImportPanel() {
                   <p className="mt-1">
                     {tr('توجد دفعة غير متراجع عنها بالمحتوى نفسه')}
                     {preview.conflict.createdAt ? <> · {formatDate(preview.conflict.createdAt)}</> : null}
-                    {'. '}{preview.kind === OPENING_STOCK ? tr('استيراده مرة أخرى يضاعف الكميات') : tr('استيراده مرة أخرى يضاعف الأرصدة')}
+                    {'. '}{tr(duplicateConsequenceKey(preview.kind))}
                   </p>
                   <button type="button" onClick={() => doImport({ force: true })} disabled={busy !== null}
                     className="mt-2 text-xs font-semibold text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-100 disabled:opacity-50">
@@ -500,7 +631,7 @@ export default function DataImportPanel() {
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900" role="alert">
                   <p className="font-semibold flex items-center gap-1"><Loader2 size={13} className="animate-spin" /> {tr('استيراد آخر جار الآن')}</p>
                   <p className="mt-1">
-                    {tr('استيراد أرصدة أو كشوف حسابات جار الآن لهذه الشركة. انتظر انتهاءه ثم راجع سجل الاستيرادات قبل الإعادة')}
+                    {tr(IMPORT_IN_PROGRESS_TEXT)}
                     {preview.conflict.kind ? <> · {tr(kindLabel(preview.conflict.kind))}</> : null}
                     {preview.conflict.createdAt ? <> · {formatDateTime(preview.conflict.createdAt)}</> : null}
                   </p>
@@ -557,7 +688,12 @@ export default function DataImportPanel() {
               )}
 
               <div className="flex gap-3 pt-1">
-                <button onClick={() => doImport()} disabled={busy !== null || view.rows.length === 0 || view.needUndatedChoice || !!preview.conflict || (preview.kind === OPENING_STOCK && (stockAckInfo.blocksImport || stockGate.state === 'blocked'))}
+                <button onClick={() => doImport()}
+                  disabled={busy !== null || importButtonBlocked({
+                    rows: view.rows.length, blockers: view.blockers, needUndatedChoice: view.needUndatedChoice, conflict: !!preview.conflict,
+                    stockBlocked: preview.kind === OPENING_STOCK && (stockAckInfo.blocksImport || stockGate.state === 'blocked'),
+                    zeroPrice: view.zeroPrice,
+                  })}
                   className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-50">
                   {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                   {tr('استيراد')} {view.rows.length} {tr('صف')}
@@ -570,49 +706,103 @@ export default function DataImportPanel() {
       )}
 
       {/* نتيجة الاستيراد */}
-      {result && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => setResult(null))}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 text-center">
-              <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-3"><Check size={30} className="text-green-600" /></div>
-              <h3 className="font-bold text-gray-800 mb-1">{tr('تم الاستيراد')} — {tr(IMPORT_TYPES[result.kind].label)}</h3>
-              <div className="flex justify-center gap-6 mt-4 text-sm">
-                <div><p className="text-xl font-bold text-green-700">{result.res.created}</p><p className="text-xs text-gray-500">{tr('أضيف')}</p></div>
-                <div><p className="text-xl font-bold text-gray-500">{result.res.skipped}</p><p className="text-xs text-gray-500">{tr('مكرر تخطي')}</p></div>
-                <div><p className="text-xl font-bold text-amber-600">{result.res.errors.length}</p><p className="text-xs text-gray-500">{tr('خطأ')}</p></div>
+      {result && (() => {
+        // البند 8: لون وعنوان بحسب النتيجة الفعلية، وخانات منفصلة للمكرر والصفري وغير المطابق والملتبس
+        const rv = importResultView(result.res);
+        const toneBox = rv.tone === 'success' ? 'bg-green-50' : rv.tone === 'warning' ? 'bg-amber-50' : 'bg-red-50';
+        const ToneIcon = rv.tone === 'success' ? Check : rv.tone === 'warning' ? AlertTriangle : X;
+        const toneIcon = rv.tone === 'success' ? 'text-green-600' : rv.tone === 'warning' ? 'text-amber-600' : 'text-red-600';
+        const row = (n: number) => fileRowOf(result.fileRows, n);
+        const w = result.res.warnings;
+        const merged = w?.merged ?? [];
+        const similar = w?.similar ?? [];
+        const skippedRows = result.res.skippedRows ?? [];
+        const attachedRows = result.res.attachedRows ?? [];
+        const stat = (value: number, label: string, cls: string, show = true) => show ? (
+          <div className="min-w-[4.5rem]"><p className={`text-xl font-bold tabular-nums ${cls}`}>{value}</p><p className="text-xs text-gray-500">{tr(label)}</p></div>
+        ) : null;
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => setResult(null))}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="p-6 text-center">
+                <div className={`w-14 h-14 ${toneBox} rounded-2xl flex items-center justify-center mx-auto mb-3`}><ToneIcon size={30} className={toneIcon} /></div>
+                <h3 className="font-bold text-gray-800 mb-1" role={rv.tone === 'success' ? undefined : 'alert'}>{tr(rv.titleKey)} — {tr(IMPORT_TYPES[result.kind].label)}</h3>
+                <div className="flex flex-wrap justify-center gap-x-5 gap-y-3 mt-4 text-sm">
+                  {stat(rv.counts.created, 'أضيف', rv.counts.created > 0 ? 'text-green-700' : 'text-gray-400')}
+                  {stat(rv.counts.attached, 'ربط كود', 'text-green-700', rv.counts.attached > 0)}
+                  {stat(rv.counts.skipped, 'مكرر تخطي', 'text-gray-500')}
+                  {stat(rv.counts.zero, 'صفري', 'text-gray-500', typeof result.res.zero === 'number')}
+                  {stat(rv.counts.notFound, 'عميل غير مطابق', 'text-red-600', rv.counts.notFound > 0)}
+                  {stat(rv.counts.ambiguous, 'مطابقة ملتبسة', 'text-red-600', rv.counts.ambiguous > 0)}
+                  {stat(rv.counts.otherErrors, 'خطأ', 'text-amber-600')}
+                </div>
+                {result.kind === OPENING_STOCK && typeof result.res.totalCost === 'number' && result.res.created > 0 && (
+                  <p className="bg-[#FBF7F0] border border-[#E8E0D2] rounded-xl p-2.5 mt-4 text-[11px] text-[#6E6557] flex items-center justify-between">
+                    <span>{tr('إجمالي التكلفة الصافية')}</span>
+                    <bdi className="tabular-nums font-bold text-gray-800">{formatCurrency(result.res.totalCost)}</bdi>
+                  </p>
+                )}
+                {(w?.undatedAsToday ?? 0) > 0 && (
+                  <p className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 mt-4 text-[11px] text-amber-900 text-right">
+                    <AlertTriangle size={12} className="inline me-1" />
+                    {w!.undatedAsToday} {tr('صف بلا تاريخ أخذ تاريخ اليوم')}
+                  </p>
+                )}
+                {merged.length > 0 && (
+                  <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
+                    <p className="text-[11px] font-semibold text-amber-800 mb-1">{tr('أسطر عميل واحد جُمعت')}</p>
+                    {merged.slice(0, 15).map((m, i) => (
+                      <p key={i} className="text-[11px] text-amber-700" title={(m.rows ?? []).map(row).join(', ')}>
+                        <bdi>{m.customerName || '-'}</bdi> (<bdi className="tabular-nums">{m.rows?.length ?? 0}</bdi>) = <bdi className="tabular-nums" dir="ltr">{formatCurrency(Number(m.total ?? 0))}</bdi>
+                      </p>
+                    ))}
+                    {merged.length > 15 && <p className="text-[11px] text-amber-600 mt-1">+{merged.length - 15} …</p>}
+                  </div>
+                )}
+                {(skippedRows.length > 0 || similar.length > 0 || attachedRows.length > 0) && (
+                  <div className="bg-[#FBF7F0] border border-[#E8E0D2] rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
+                    {skippedRows.slice(0, 15).map((s, i) => (
+                      <p key={`s${i}`} className="text-[11px] text-[#6E6557]">{tr('صف')} {row(s.row)}: {tr(customerSkipReasonKey(s.reason))}</p>
+                    ))}
+                    {skippedRows.length > 15 && <p className="text-[11px] text-gray-400">+{skippedRows.length - 15} …</p>}
+                    {attachedRows.slice(0, 15).map((s, i) => (
+                      <p key={`a${i}`} className="text-[11px] text-green-700">
+                        {tr('صف')} {row(s.row)}{s.code ? <> (<bdi className="font-mono">{s.code}</bdi>)</> : null}: {tr(attachedCodeKey(s.matchedBy))}
+                      </p>
+                    ))}
+                    {attachedRows.length > 15 && <p className="text-[11px] text-green-600">+{attachedRows.length - 15} …</p>}
+                    {similar.slice(0, 15).map((s, i) => (
+                      <p key={`m${i}`} className="text-[11px] text-amber-700">
+                        {tr('صف')} {row(s.row)}{s.code ? <> (<bdi className="font-mono">{s.code}</bdi>)</> : null}: {tr(similarWarningKey(s.matchedBy))}
+                      </p>
+                    ))}
+                    {similar.length > 15 && <p className="text-[11px] text-amber-600">+{similar.length - 15} …</p>}
+                  </div>
+                )}
+                {(w?.skipped?.length ?? 0) > 0 && (
+                  <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
+                    <p className="text-[11px] font-semibold text-amber-800 mb-1">{tr('عملاء تخطي رصيدهم')}</p>
+                    {w!.skipped!.slice(0, 15).map((s, i) => (
+                      <p key={i} className="text-[11px] text-amber-700">{s.customerName || '-'}{s.reason ? `: ${tr(s.reason)}` : ''}</p>
+                    ))}
+                  </div>
+                )}
+                {result.res.errors.length > 0 && (
+                  <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-40 overflow-y-auto text-right">
+                    {result.res.errors.slice(0, 20).map((er, i) => (
+                      <p key={i} className="text-[11px] text-amber-700">
+                        {tr('صف')} {row(er.row)}: {tr(importRowErrorKey(er))}{er.value ? <>: <bdi className="font-mono">{er.value}</bdi></> : null}
+                      </p>
+                    ))}
+                    {result.res.errors.length > 20 && <p className="text-[11px] text-amber-600 mt-1">+{result.res.errors.length - 20} …</p>}
+                  </div>
+                )}
+                <button onClick={() => setResult(null)} className="btn-primary w-full justify-center py-2.5 mt-5">{tr('تم')}</button>
               </div>
-              {result.kind === OPENING_STOCK && typeof result.res.totalCost === 'number' && result.res.created > 0 && (
-                <p className="bg-[#FBF7F0] border border-[#E8E0D2] rounded-xl p-2.5 mt-4 text-[11px] text-[#6E6557] flex items-center justify-between">
-                  <span>{tr('إجمالي التكلفة الصافية')}</span>
-                  <bdi className="tabular-nums font-bold text-gray-800">{formatCurrency(result.res.totalCost)}</bdi>
-                </p>
-              )}
-              {(result.res.warnings?.undatedAsToday ?? 0) > 0 && (
-                <p className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 mt-4 text-[11px] text-amber-900 text-right">
-                  <AlertTriangle size={12} className="inline me-1" />
-                  {result.res.warnings!.undatedAsToday} {tr('صف بلا تاريخ أخذ تاريخ اليوم')}
-                </p>
-              )}
-              {(result.res.warnings?.skipped?.length ?? 0) > 0 && (
-                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
-                  <p className="text-[11px] font-semibold text-amber-800 mb-1">{tr('عملاء تخطي رصيدهم')}</p>
-                  {result.res.warnings!.skipped!.slice(0, 15).map((s, i) => (
-                    <p key={i} className="text-[11px] text-amber-700">{s.customerName || '-'}{s.reason ? `: ${tr(s.reason)}` : ''}</p>
-                  ))}
-                </div>
-              )}
-              {result.res.errors.length > 0 && (
-                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 mt-4 max-h-32 overflow-y-auto text-right">
-                  {result.res.errors.slice(0, 15).map((er, i) => (
-                    <p key={i} className="text-[11px] text-amber-700">{tr('صف')} {fileRowOf(result.fileRows, er.row)}: {tr(er.message)}</p>
-                  ))}
-                </div>
-              )}
-              <button onClick={() => setResult(null)} className="btn-primary w-full justify-center py-2.5 mt-5">{tr('تم')}</button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

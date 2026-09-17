@@ -193,12 +193,33 @@ export function importBatchState(b: { status?: string | null; heartbeatAt?: Date
   return now.getTime() - beat > IMPORT_RUNNING_STALE_MS ? 'interrupted' : 'running';
 }
 
-/** استيراد أرصدة/كشوف جارٍ للشركة ⇒ 409 IMPORT_IN_PROGRESS (واحد في كل مرة، حتى مع force) */
+/** رسالة 409 IMPORT_IN_PROGRESS العامة (نوع الدفعة الجارية في details.kind) */
+export const IMPORT_IN_PROGRESS_MESSAGE = 'استيراد آخر جارٍ الآن لهذه الشركة، انتظر انتهاءه ثم راجع سجل الدفعات قبل الإعادة';
+
+/** استيراد جارٍ للشركة (قيود، أو النوع نفسه للعملاء/المنتجات/الأسعار) ⇒ 409 IMPORT_IN_PROGRESS (واحد في كل مرة، حتى مع force) */
 export function assertNoRunningImport(running: { id: string; kind: string; createdAt: Date } | null | undefined): void {
   if (!running) return;
-  throw new ImportHttpError(409, 'IMPORT_IN_PROGRESS',
-    'استيراد أرصدة أو كشوف حسابات جارٍ الآن لهذه الشركة — انتظر انتهاءه ثم راجع سجل الدفعات قبل الإعادة',
+  throw new ImportHttpError(409, 'IMPORT_IN_PROGRESS', IMPORT_IN_PROGRESS_MESSAGE,
     { batchId: running.id, kind: running.kind, createdAt: running.createdAt.toISOString() });
+}
+
+/** أنواع الدفعات الرئيسية المحجوزة قبل الكتابة (البند 20) */
+export const IMPORT_MASTER_KINDS = ['customers', 'products', 'prices'] as const;
+export type ImportMasterKind = typeof IMPORT_MASTER_KINDS[number];
+
+/**
+ * البند 20: فحص حجز دفعة عملاء/منتجات/أسعار تحت قفل النوع. البصمة أولاً (ما لم يُرسل force)، ثم دفعة جارية من النوع نفسه (حتى مع force).
+ * running: دفعات status=running غير المتراجَع عنها (النوع والنبض يُرشَّحان هنا).
+ */
+export function assertMasterBatchReservable(
+  kind: string,
+  dup: { id: string; createdAt: Date; status?: string | null; heartbeatAt?: Date | null } | null | undefined,
+  running: readonly { id: string; kind: string; createdAt: Date; status?: string | null; heartbeatAt?: Date | null }[],
+  force: boolean,
+  now: Date,
+): void {
+  assertNotDuplicateBatch(dup, force, now);
+  assertNoRunningImport(running.find((b) => b.kind === kind && importBatchState(b, now) === 'running'));
 }
 
 /** التراجع عن دفعة ما زالت تُكتب يترك قيوداً تُكتب بعده ⇒ 409 IMPORT_BATCH_RUNNING */
@@ -238,11 +259,13 @@ export function importedEntryIndex(batches: readonly { kind: string; recordIds: 
   return idx;
 }
 
-export type BalanceSkipReason = 'BALANCE_ALREADY_IMPORTED' | 'LEDGER_ALREADY_IMPORTED';
+export type BalanceSkipReason = 'BALANCE_ALREADY_IMPORTED' | 'LEDGER_ALREADY_IMPORTED' | 'BALANCE_UNBATCHED';
 
 export const BALANCE_SKIP_MESSAGES: Record<BalanceSkipReason, string> = {
   BALANCE_ALREADY_IMPORTED: 'للعميل رصيد افتتاحي في دفعة استيراد سابقة — تراجع عنها أولاً لتصحيحه',
   LEDGER_ALREADY_IMPORTED: 'للعميل كشف حساب مستورد — الرصيد الافتتاحي يضاعف ذمته؛ تراجع عن الكشف أولاً',
+  // البند 6: الاحتياط بالوصف لا دفعة له يُتراجع عنها، فلا يُطلب التراجع
+  BALANCE_UNBATCHED: 'للعميل رصيد افتتاحي مسجّل خارج أي دفعة استيراد (استيراد قديم أو منقطع)، فلا دفعة يُتراجع عنها؛ صحّحه بتسوية من كشف العميل',
 };
 
 /** /balances: صفوف العميل الحالية (معرّفات) ⇒ سبب التخطي أو null. الوصف لا يُعتدّ به. */
@@ -266,7 +289,7 @@ export function balanceSkipReason(adj: readonly { id: string; description?: stri
   const reason = existingImportReason(adj.map((e) => e.id), idx);
   if (reason) return reason;
   const legacy = adj.some((e) => e.description === OPENING_BALANCE_DESCRIPTION && !idx.ledger.has(e.id));
-  return legacy ? 'BALANCE_ALREADY_IMPORTED' : null;
+  return legacy ? 'BALANCE_UNBATCHED' : null;
 }
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -319,27 +342,64 @@ export interface BatchRecordIds {
   records: string[];
   /** فئات المنتجات المُنشأة في الدفعة (products فقط) */
   categories: string[];
+  /** prices: السعر السابق لكل CustomerPrice قبل أول كتابة في الدفعة (null = أُنشئ جديداً)؛ غيره {} */
+  previous: Record<string, number | null>;
 }
 
 const strIds = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : []);
 
-/** يقرأ الشكل القديم (مصفوفة) والجديد {products, categories} */
-export function parseBatchRecordIds(recordIds: string | null | undefined): BatchRecordIds {
-  if (!recordIds) return { records: [], categories: [] };
-  try {
-    const v: unknown = JSON.parse(recordIds);
-    if (Array.isArray(v)) return { records: strIds(v), categories: [] };
-    if (v && typeof v === 'object') {
-      const o = v as Record<string, unknown>;
-      return { records: strIds(o.products ?? o.records), categories: strIds(o.categories) };
-    }
-  } catch { /* الشكل غير المتوقع يُتجاهل */ }
-  return { records: [], categories: [] };
+function previousPrices(v: unknown): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, p] of Object.entries(v as Record<string, unknown>)) {
+    if (!k) continue;
+    if (p === null) out[k] = null;
+    else if (typeof p === 'number' && Number.isFinite(p)) out[k] = p;
+  }
+  return out;
 }
 
-/** products ⇒ {products, categories}؛ البقية مصفوفة كما كانت (opening.ts يقرأ مصفوفات balances/ledger) */
-export function serializeBatchRecordIds(kind: string, records: readonly string[], categories: readonly string[] = []): string {
-  return kind === 'products' ? JSON.stringify({ products: records, categories }) : JSON.stringify(records);
+/** يقرأ الشكل القديم (مصفوفة) والجديد {products, categories} و{records, previous} للأسعار */
+export function parseBatchRecordIds(recordIds: string | null | undefined): BatchRecordIds {
+  if (!recordIds) return { records: [], categories: [], previous: {} };
+  try {
+    const v: unknown = JSON.parse(recordIds);
+    if (Array.isArray(v)) return { records: strIds(v), categories: [], previous: {} };
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      return { records: strIds(o.products ?? o.records), categories: strIds(o.categories), previous: previousPrices(o.previous) };
+    }
+  } catch { /* الشكل غير المتوقع يُتجاهل */ }
+  return { records: [], categories: [], previous: {} };
+}
+
+/**
+ * products ⇒ {products, categories}؛ prices ⇒ {records, previous}؛ البقية مصفوفة كما كانت (opening.ts يقرأ مصفوفات balances/ledger)
+ */
+export function serializeBatchRecordIds(
+  kind: string, records: readonly string[], categories: readonly string[] = [], previous: Readonly<Record<string, number | null>> = {},
+): string {
+  if (kind === 'products') return JSON.stringify({ products: records, categories });
+  if (kind === 'prices') {
+    const prev: Record<string, number | null> = {};
+    for (const id of records) if (Object.prototype.hasOwnProperty.call(previous, id)) prev[id] = previous[id];
+    return JSON.stringify({ records, previous: prev });
+  }
+  return JSON.stringify(records);
+}
+
+/**
+ * البند 20: خطة التراجع عن دفعة أسعار. سعر سابق رقمي ⇒ استعادته، وإلا (أُنشئ في الدفعة أو شكل قديم) ⇒ حذف الصف.
+ */
+export function pricesRevertPlan(parsed: Pick<BatchRecordIds, 'records' | 'previous'>): { restore: { id: string; price: number }[]; remove: string[] } {
+  const restore: { id: string; price: number }[] = [];
+  const remove: string[] = [];
+  for (const id of new Set(parsed.records)) {
+    const p = parsed.previous?.[id];
+    if (typeof p === 'number' && Number.isFinite(p)) restore.push({ id, price: p });
+    else remove.push(id);
+  }
+  return { restore, remove };
 }
 
 export interface CustomerFootprint { invoices: number; receipts: number; paymentLinks: number; visits: number }
@@ -559,4 +619,119 @@ export function openingStockRevertBlockReason(f: OpeningStockFootprint): string 
   if (f.invoiceItems > 0) return 'بيعت أصناف المخزون الافتتاحي في فواتير';
   if (f.warehouseOut > 0) return 'سُوّي مخزون الأصناف بالنقص بعد الاستيراد';
   return null;
+}
+
+// ═══ الدفعة 1 (البنود 1 و3 و4 و8 و10 و14 و20): أخطاء الصفوف والفحوص الصرفة ═══
+
+export type ImportRowErrorCode =
+  | 'CUSTOMER_NOT_FOUND' | 'CUSTOMER_AMBIGUOUS' | 'CUSTOMER_CODE_NOT_FOUND' | 'CUSTOMER_CODE_UNREGISTERED' | 'PRODUCT_NOT_FOUND' | 'ZERO_PRICE' | 'TAX_PCT_FRACTION' | 'ROW_CONFLICT' | 'ROW_WRITE_FAILED';
+
+/** خطأ صف في ردود الاستيراد: row = موضع الصف المرسل + 2 */
+export interface ImportRowError { row: number; message: string; code?: string; value?: string }
+
+export const IMPORT_ROW_MESSAGES: Record<Exclude<ImportRowErrorCode, 'ROW_WRITE_FAILED'>, string> = {
+  CUSTOMER_NOT_FOUND: 'العميل غير موجود استورد العملاء أولا',
+  CUSTOMER_AMBIGUOUS: 'مطابقة ملتبسة: أكثر من عميل بهذا الجوال أو الاسم، أضف كود العميل',
+  CUSTOMER_CODE_NOT_FOUND: 'كود العميل غير مسجّل، ويوجد عميل بالاسم أو الجوال نفسه بلا كود: أضف الكود في بطاقة العميل أو احذف عمود الكود من الملف ليُطابَق بالجوال والاسم',
+  CUSTOMER_CODE_UNREGISTERED: 'كود العميل غير مسجّل، ولدى الشركة عملاء بلا كود: استورد ملف العملاء بعمود الكود مع الاسم أو الجوال ليُربط الكود بعملائه، أو أضف عمود الاسم أو الجوال إلى هذا الملف',
+  PRODUCT_NOT_FOUND: 'الصنف غير موجود استورد المنتجات أولا',
+  ZERO_PRICE: 'السعر الخاص صفر، أكّد في المعاينة أنه مقصود',
+  TAX_PCT_FRACTION: 'نسبة الضريبة أقل من 1٪، اكتبها نسبة مئوية (15 لا 0.15)',
+  ROW_CONFLICT: 'سجل بالمعرّف نفسه أُنشئ في الوقت نفسه، أعد الاستيراد لتخطيه',
+};
+
+export function importRowError(row: number, code: Exclude<ImportRowErrorCode, 'ROW_WRITE_FAILED'>, value?: string): ImportRowError {
+  return { row, code, message: IMPORT_ROW_MESSAGES[code], ...(value !== undefined ? { value } : {}) };
+}
+
+/** فشل كتابة الصف: P2002 ⇒ ROW_CONFLICT، وإلا ROW_WRITE_FAILED بالرسالة الخام مقصوصة */
+export function importWriteFailure(row: number, e: unknown): ImportRowError {
+  if ((e as { code?: unknown } | null)?.code === 'P2002') return importRowError(row, 'ROW_CONFLICT');
+  return { row, code: 'ROW_WRITE_FAILED', message: (e as Error | null)?.message?.slice(0, 140) || 'خطأ غير معروف' };
+}
+
+/** البند 1: السعر الخاص الصفري بلا إقرار صريح (allowZeroPrice) */
+export function priceRowIssue(price: number, allowZero: boolean): 'ZERO_PRICE' | null {
+  return price === 0 && allowZero !== true ? 'ZERO_PRICE' : null;
+}
+
+/** البند 14: نسبة ضريبة غير صفرية أقل من 1 (خلية Excel منسّقة ٪ ⇒ 0.15) */
+export function taxPctIssue(taxPct: number | null | undefined): 'TAX_PCT_FRACTION' | null {
+  return typeof taxPct === 'number' && taxPct > 0 && taxPct < 1 ? 'TAX_PCT_FRACTION' : null;
+}
+
+/** نتيجة مطابقة العميل (services/importMatch.ts) */
+export type CustomerMatch = { id: string } | { error: 'NOT_FOUND' } | { error: 'AMBIGUOUS'; value: string } | { error: 'CODE_NOT_FOUND'; value: string }
+  /** الصف بالكود وحده (بلا اسم ولا جوال) والكود غير مسجّل، والشركة فيها عملاء بكود تلقائي */
+  | { error: 'CODE_UNREGISTERED'; value: string };
+export interface CustomerMatchRow { customerCode?: string | null; phone?: string | null; customerName?: string | null }
+export type CustomerMatcher = (row: CustomerMatchRow) => CustomerMatch;
+
+/** مطابقة فاشلة ⇒ خطأ الصف؛ الناجحة ⇒ null */
+export function customerMatchError(row: number, m: CustomerMatch): ImportRowError | null {
+  if ('id' in m) return null;
+  if (m.error === 'AMBIGUOUS') return importRowError(row, 'CUSTOMER_AMBIGUOUS', m.value);
+  // كود النظام السابق غير مسجّل لعميل موجود بالجوال أو الاسم بكود تلقائي: لا «استورد العملاء أولا» (إعادة الاستيراد تكرّرهم)
+  if (m.error === 'CODE_NOT_FOUND') return importRowError(row, 'CUSTOMER_CODE_NOT_FOUND', m.value);
+  if (m.error === 'CODE_UNREGISTERED') return importRowError(row, 'CUSTOMER_CODE_UNREGISTERED', m.value);
+  return importRowError(row, 'CUSTOMER_NOT_FOUND');
+}
+
+// ═══ البند 10: دمج صفوف العميل الواحد في /balances ═══
+
+export interface ResolvedBalanceRow { row: number; customerId: string; customerName: string; amount: number; date: Date }
+export interface MergedBalanceItem { customerId: string; customerName: string; rows: number[]; amount: number; date: Date }
+
+/**
+ * صفوف العميل الواحد ⇒ قيد واحد: المبلغ = roundImportAmount(مجموع المبالغ المقرّبة)، والتاريخ = أحدثها.
+ * items بترتيب أول ظهور للعميل (الصفرية بعد الدمج مستبعدة ومعدودة في zero)، وmerged للعملاء متعددي الصفوف.
+ */
+export function mergeBalanceRows(rows: readonly ResolvedBalanceRow[], decimals: number): {
+  items: MergedBalanceItem[]; merged: { customerName: string; rows: number[]; total: number }[]; zero: number;
+} {
+  const by = new Map<string, { customerName: string; rows: number[]; milli: number; date: Date }>();
+  for (const r of rows) {
+    const milli = Math.round(roundImportAmount(r.amount, decimals) * 1000);
+    const g = by.get(r.customerId);
+    if (!g) { by.set(r.customerId, { customerName: r.customerName, rows: [r.row], milli, date: r.date }); continue; }
+    g.rows.push(r.row);
+    g.milli += milli;
+    if (r.date.getTime() > g.date.getTime()) g.date = r.date;
+  }
+  const items: MergedBalanceItem[] = [];
+  const merged: { customerName: string; rows: number[]; total: number }[] = [];
+  let zero = 0;
+  for (const [customerId, g] of by) {
+    const amount = roundImportAmount(g.milli / 1000, decimals);
+    if (g.rows.length > 1) merged.push({ customerName: g.customerName, rows: g.rows, total: amount });
+    if (!amount) { zero++; continue; }
+    items.push({ customerId, customerName: g.customerName, rows: g.rows, amount, date: g.date });
+  }
+  return { items, merged, zero };
+}
+
+// ═══ البند 8: تجميع صفوف /ledger ═══
+
+export interface LedgerRowInput extends CustomerMatchRow { description?: string | null; debit?: number | null; credit?: number | null }
+export interface LedgerGroupEntry { row: number; date: Date; description?: string; debit: number; credit: number }
+
+/**
+ * صفوف الكشف ⇒ مجموعات لكل عميل (مقرَّبة لمنازل العملة). غير المطابَق ⇒ CUSTOMER_NOT_FOUND والملتبس ⇒ CUSTOMER_AMBIGUOUS لكل صف،
+ * والصف الذي مدينه ودائنه صفر بعد التقريب لا يُكتب ويُعدّ في zero.
+ */
+export function groupLedgerRows(
+  rows: readonly LedgerRowInput[], matcher: CustomerMatcher, dates: readonly Date[], decimals: number,
+): { groups: Map<string, LedgerGroupEntry[]>; errors: ImportRowError[]; zero: number } {
+  const groups = new Map<string, LedgerGroupEntry[]>();
+  const errors: ImportRowError[] = [];
+  let zero = 0;
+  rows.forEach((r, i) => {
+    const m = matcher(r);
+    if (!('id' in m)) { errors.push(customerMatchError(i + 2, m)!); return; }
+    const debit = roundImportAmount(r.debit, decimals); const credit = roundImportAmount(r.credit, decimals);
+    if (!debit && !credit) { zero++; return; }
+    if (!groups.has(m.id)) groups.set(m.id, []);
+    groups.get(m.id)!.push({ row: i + 2, date: dates[i], description: r.description ?? undefined, debit, credit });
+  });
+  return { groups, errors, zero };
 }
