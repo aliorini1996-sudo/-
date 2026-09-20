@@ -8,7 +8,7 @@ import { filterFlat, filterNested } from '../lib/reportSearch';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
-import { elementsToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
+import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
 
@@ -431,11 +431,15 @@ export default function ReportsPage() {
         firstEl = false;
       }
     }
+    // مؤشّر «جارٍ الإنشاء» + تنفّس للمتصفّح قبل الالتقاط الثقيل (html2canvas يحجب
+    // الخيط) كي لا تبدو الصفحة معلّقةً بلا سبب. والتنزيل مباشرٌ لا مشاركة.
+    const toastId = toast.loading(tr('جارٍ إنشاء PDF'));
+    await new Promise(r => setTimeout(r, 30));
     try {
       const blob = await elementsToPdfBlob(els);
-      const out = await shareOrDownloadPdf(blob, `${safeName(title)}-${day()}.pdf`);
-      toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
-    } catch { toast.error(tr('تعذر إنشاء PDF — جرّب مدى أقصر أو صدّر Excel')); }
+      downloadPdf(blob, `${safeName(title)}-${day()}`);
+      toast.success(tr('تم التصدير'), { id: toastId });
+    } catch { toast.error(tr('تعذر إنشاء PDF — جرّب مدى أقصر أو صدّر Excel'), { id: toastId }); }
     finally { els.forEach(e => e.remove()); }
   };
 

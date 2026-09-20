@@ -3393,6 +3393,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // ——— تصدير التقارير: تقطيع PDF وحالات تقرير الزيارات ———
   'تابع': { en: 'cont.', fr: 'suite', tr: 'devam', zh: '续' },
   'تعذر إنشاء PDF — جرّب مدى أقصر أو صدّر Excel': { en: 'Could not create the PDF — try a shorter range or export to Excel', fr: 'Impossible de creer le PDF — essayez une periode plus courte ou exportez vers Excel', tr: 'PDF olusturulamadi — daha kisa bir aralik deneyin veya Excele aktarin', zh: '无法生成PDF——请缩短时间范围或导出为Excel' },
+  'جارٍ إنشاء PDF': { en: 'Creating PDF', fr: 'Creation du PDF', tr: 'PDF olusturuluyor', zh: '正在生成PDF' },
 };
 
 export function useTr() {

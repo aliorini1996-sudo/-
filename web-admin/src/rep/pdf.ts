@@ -89,6 +89,9 @@ export async function elementsToPdfBlob(els: HTMLElement[]): Promise<Blob> {
   let first = true;
   for (const el of els) {
     await waitForImages(el);
+    // تنفّسٌ للمتصفّح بين الشرائح: html2canvas يحجب الخيط، فبلا هذا تبدو الصفحة
+    // «معلّقة» طوال التقاط تقريرٍ متعدّد الشرائح
+    await new Promise((r) => setTimeout(r, 0));
     const w = el.offsetWidth || 780;
     const h = el.offsetHeight || el.scrollHeight || 1;
     const canvas = await html2canvas(el, {
@@ -114,6 +117,21 @@ export async function elementsToPdfBlob(els: HTMLElement[]): Promise<Blob> {
     }
   }
   return pdf.output('blob');
+}
+
+// تنزيلٌ فعليّ للملف (بلا مشاركة) — للوحة المكتبية حيث المتوقَّع حفظُ الملف
+// مثل Excel، لا فتح نافذة مشاركة (canShare يقبل PDF على سطح المكتب فيحوّله
+// مشاركةً، بينما يرفض xlsx فيُنزَّل — فاختلف سلوك الزرَّين على نفس الجهاز).
+export function downloadPdf(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // إمهال المتصفّح لبدء التنزيل قبل إبطال الرابط
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 // يشارك الملف عبر زر المشاركة في الجوال، وإلا يُنزّله
