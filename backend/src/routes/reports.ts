@@ -407,8 +407,12 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
     // بلا مدى: أسبوع افتراضي. وسقف ٣١ يوماً: التفصيل اليومي بنقاط GPS على مدى
     // مفتوح يعني تجميع ملايين الصفوف في طلب واحد — نقصّ ونُعلن القصّ في الاستجابة.
     const MAX_DAYS = 31;
-    const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
-    let fromDate = from ? new Date(from) : new Date(toEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // حدود المدى على **حدود اليوم المحلي** (كلحظات UTC) لا حدود يوم UTC: التجميع
+    // والملء يجريان بالأيام المحلية (tzOffsetMin)، فحدٌّ بتوقيت UTC كان يسقط أول
+    // ساعات اليوم الأول بتوقيت المندوب ويُلحق يوماً غائباً زائداً بنهاية التقرير.
+    const localDayStart = (d: string) => new Date(Date.parse(d + 'T00:00:00.000Z') - tzOffsetMin * 60000);
+    const toEnd = to ? new Date(localDayStart(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
+    let fromDate = from ? localDayStart(from) : new Date(toEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
     let rangeClamped = false;
     if (toEnd.getTime() - fromDate.getTime() > MAX_DAYS * 24 * 60 * 60 * 1000) {
       fromDate = new Date(toEnd.getTime() - MAX_DAYS * 24 * 60 * 60 * 1000);
@@ -475,13 +479,17 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
       const absentDays = days.filter((d) => d.absent).length;
       const visitsTotal = days.reduce((s, d) => s + d.visitsCount, 0);
       const sess = sessByRep.get(r.id) || [];
+      // أول/آخر ظهور من أيام **النشاط** وحدها: الأيام الغائبة تُملأ بمنتصف الليل
+      // المحلي (workDay.ts)، فحسابها من days[0]/days[len-1] كان يعرض «١٢:٠٠ ص»
+      // كأول ظهورٍ متى بدأ المدى أو انتهى بيوم غياب.
+      const active = days.filter((d) => !d.absent);
       return {
         id: r.id, name: r.name,
         totalMinutes: appTotal,
         hours: Math.floor(appTotal / 60), minutes: appTotal % 60,
         sessions: sess.length,
-        firstSeen: days.length ? days[0].firstActivity : null,
-        lastSeen: days.length ? days[days.length - 1].lastActivity : null,
+        firstSeen: active.length ? active[0].firstActivity : null,
+        lastSeen: active.length ? active[active.length - 1].lastActivity : null,
         fieldMinutesTotal: fieldTotal,
         workedDays, absentDays, visitsTotal,
         // متوسط اليوم يُقسَم على أيام **العمل** لا أيام المدى: القسمة على المدى

@@ -61,6 +61,61 @@ export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: bo
   return pdf.output('blob');
 }
 
+// حدود أبعاد canvas عبر المتصفّحات: Chrome يحدّ البُعد الواحد بـ~32767px،
+// وiOS/Safari يحدّان المساحة بـ~16.7M بكسل. نبقى دون الحدّين باحتياط.
+const MAX_CANVAS_DIM = 16384;
+const MAX_CANVAS_AREA = 16_000_000;
+
+/** أكبر مقياس لا يتجاوز به عنصرٌ بأبعاده (px) حدّي المتصفّح — بأرضية 0.6 */
+export function safeScale(w: number, h: number, desired = 2): number {
+  if (w <= 0 || h <= 0) return desired;
+  const byDim = MAX_CANVAS_DIM / Math.max(w, h);
+  const byArea = Math.sqrt(MAX_CANVAS_AREA / (w * h));
+  return Math.max(0.6, Math.min(desired, byDim, byArea));
+}
+
+/**
+ * يبني PDF متعدّد الصفحات من **عدّة عناصر** (كلٌّ شريحة صفوف مستقلّة).
+ *
+ * لماذا لا عنصرٌ واحد: جدولٌ طويل (تفاصيل زيارات آلاف المناديب) يصير أطول من
+ * حدّ الـcanvas، فتُنتج html2canvas صورةً بيضاء بلا استثناء ⇒ صفحات PDF بيضاء
+ * صامتة. التقطيعُ يُبقي كل التقاطٍ دون الحدّ، والحارسُ يرمي خطأً صريحاً بدل
+ * تسليم بياضٍ للمستخدم. المُستدعي يقسّم الصفوف ويبني عنصراً لكل شريحة.
+ */
+export async function elementsToPdfBlob(els: HTMLElement[]): Promise<Blob> {
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  let first = true;
+  for (const el of els) {
+    await waitForImages(el);
+    const w = el.offsetWidth || 780;
+    const h = el.offsetHeight || el.scrollHeight || 1;
+    const canvas = await html2canvas(el, {
+      scale: safeScale(w, h), useCORS: true, backgroundColor: '#ffffff', logging: false,
+    });
+    // حارسٌ صريح: canvas فارغ أو التقاطٌ خاوٍ ⇒ خطأ يصل المستخدم، لا صفحة بيضاء
+    if (!canvas.width || !canvas.height) throw new Error('تعذّر التقاط الجدول (كبير جداً)');
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    if (imgData.length < 2000) throw new Error('التقاط فارغ');
+    const imgW = pageW;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    let heightLeft = imgH;
+    let position = 0;
+    if (!first) pdf.addPage();
+    first = false;
+    pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+    heightLeft -= pageH;
+    while (heightLeft > 0.5) {
+      position -= pageH;
+      pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+      heightLeft -= pageH;
+    }
+  }
+  return pdf.output('blob');
+}
+
 // يشارك الملف عبر زر المشاركة في الجوال، وإلا يُنزّله
 export async function shareOrDownloadPdf(blob: Blob, filename: string): Promise<'shared' | 'downloaded'> {
   const file = new File([blob], filename, { type: 'application/pdf' });

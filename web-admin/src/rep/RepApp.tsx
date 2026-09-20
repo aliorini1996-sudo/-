@@ -2871,6 +2871,22 @@ export default function RepApp() {
     setModal(null);
   }, [visitTimer, selectedCustomer, finalizeVisit]);
 
+  /* ═══ شبكة أمان لمؤقّت الزيارة ═══
+   * closeCustomerDetail يُنهي المؤقّت عند الرجوع من ملف العميل، لكن مساراً
+   * أشيع كان يفلت: يبدأ الزيارة ⇒ يصدر فاتورة/سنداً ⇒ تُعرض نتيجة المستند
+   * (docResult) ⇒ يُغلقها فيعود لقائمةٍ (invoices/receipts) بلا مرورٍ بـ
+   * closeCustomerDetail، فيبقى العدّاد جارياً ساعاتٍ ويسجّل مدّةً خيالية.
+   * القاعدة الجامعة: متى بلغ التطبيق غلافه القاعديّ (لا نافذة ولا عارض مستند)
+   * والزيارة النشطة تخصّ العميل المحدَّد ⇒ أنهِها. كل بقاءٍ مشروع للعدّاد يُبقي
+   * modal (الملف أو نافذة فرعية) أو docResult غير فارغ، فلا يُنهى قبل أوانه. */
+  useEffect(() => {
+    if (!modal && !docResult && visitTimer && selectedCustomer
+        && visitTimer.customerId === selectedCustomer.id) {
+      void finalizeVisit(visitTimer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal, docResult, visitTimer, selectedCustomer]);
+
   /* ═══ زرّ الرجوع (أندرويد) وسحبة الحافة (آيفون) ═══
    * مرتّبة من الطبقة الأعلى بصرياً إلى الأدنى — الأعلى يُغلق أولاً.
    * تُستدعى بلا شرط دائماً (قاعدة الخطّافات) والتحكّم بالوسيط الأول. */

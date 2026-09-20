@@ -8,7 +8,7 @@ import { filterFlat, filterNested } from '../lib/reportSearch';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
-import { elementToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
+import { elementsToPdfBlob, shareOrDownloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
 
@@ -101,7 +101,7 @@ export default function ReportsPage() {
   });
 
   // تقرير زيارات العملاء — كل الزيارات في تقرير واحد (العميل، المندوب الزائر، الوقت)
-  const { data: visitsData } = useQuery({
+  const { data: visitsData, status: visitsStatus, fetchStatus: visitsFetchStatus, refetch: visitsRefetch } = useQuery({
     queryKey: ['report-customer-visits', from, to],
     queryFn: async () => {
       const res = await reportApi.customerVisits({ from, to });
@@ -396,7 +396,11 @@ export default function ReportsPage() {
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
 
-  // يحوّل أوراق البيانات إلى PDF (جداول مطبوعة، عربية سليمة عبر html2canvas)
+  // يحوّل أوراق البيانات إلى PDF (جداول مطبوعة، عربية سليمة عبر html2canvas).
+  // ═══ التقطيع إلزاميّ ═══ جدولٌ طويل (تفاصيل زيارات آلاف المناديب) في عنصرٍ
+  // واحد كان يتجاوز حدّ الـcanvas فيخرج PDF صفحاتٍ بيضاء صامتة. نقسّم صفوف كل
+  // ورقة إلى شرائح، عنصرٌ لكل شريحة، ويجمعها elementsToPdfBlob بمقياسٍ آمن.
+  const ROWS_PER_SLICE = 300;
   const sheetsToPdf = async (sheets: { name: string; rows: Record<string, unknown>[] }[], title: string) => {
     const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const linksCol = tr('روابط مواقع الزيارات'); // عمود الروابط المجمّعة يُستبعد من PDF (يطول الصف)
@@ -404,22 +408,35 @@ export default function ReportsPage() {
     const range = (tab === 'performance' && perfType === 'receivables')
       ? tr('لحظي وقت الإصدار')
       : (from && to) ? `${from} — ${to}` : tr('كل الفترات');
-    const tables = sheets.map(sh => {
+    const header = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>`;
+    const wrap = (inner: string, withHeader: boolean): HTMLElement => {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;left:-99999px;top:0;width:780px;background:#fff;padding:24px;font-family:Tahoma,Arial,sans-serif;direction:rtl';
+      el.innerHTML = (withHeader ? header : '') + inner;
+      document.body.appendChild(el);
+      return el;
+    };
+    const els: HTMLElement[] = [];
+    let firstEl = true;
+    for (const sh of sheets) {
       const cols = (sh.rows.length ? Object.keys(sh.rows[0]) : []).filter(c => c !== linksCol);
       const thead = `<tr>${cols.map(c => `<th style="border:1px solid #ddd;padding:6px 8px;background:#FAF7F0;font-size:11px;text-align:right;font-weight:700">${esc(c)}</th>`).join('')}</tr>`;
-      const tbody = sh.rows.map(r => `<tr>${cols.map(c => `<td style="border:1px solid #eee;padding:5px 8px;font-size:11px;text-align:right;word-break:break-word">${esc(r[c])}</td>`).join('')}</tr>`).join('');
-      return `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${thead}${tbody}</table>`;
-    }).join('');
-    const el = document.createElement('div');
-    el.style.cssText = 'position:fixed;left:-99999px;top:0;width:780px;background:#fff;padding:24px;font-family:Tahoma,Arial,sans-serif;direction:rtl';
-    el.innerHTML = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>${tables}`;
-    document.body.appendChild(el);
+      // كل شريحة صفحةٌ مستقلّة تحمل رأس الجدول ثانيةً، فلا تُقرأ الأرقام بلا عناوينها
+      for (let i = 0; i < Math.max(1, sh.rows.length); i += ROWS_PER_SLICE) {
+        const slice = sh.rows.slice(i, i + ROWS_PER_SLICE);
+        const cont = i > 0 ? ` (${tr('تابع')})` : '';
+        const tbody = slice.map(r => `<tr>${cols.map(c => `<td style="border:1px solid #eee;padding:5px 8px;font-size:11px;text-align:right;word-break:break-word">${esc(r[c])}</td>`).join('')}</tr>`).join('');
+        const inner = `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}${cont}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${thead}${tbody}</table>`;
+        els.push(wrap(inner, firstEl));
+        firstEl = false;
+      }
+    }
     try {
-      const blob = await elementToPdfBlob(el);
+      const blob = await elementsToPdfBlob(els);
       const out = await shareOrDownloadPdf(blob, `${safeName(title)}-${day()}.pdf`);
       toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
-    } catch { toast.error(tr('تعذر إنشاء PDF')); }
-    finally { el.remove(); }
+    } catch { toast.error(tr('تعذر إنشاء PDF — جرّب مدى أقصر أو صدّر Excel')); }
+    finally { els.forEach(e => e.remove()); }
   };
 
   // تصدير PDF للتبويب النشط
@@ -744,7 +761,21 @@ export default function ReportsPage() {
       )}
 
       {/* Customer Visits Report — كل الزيارات في تقرير واحد: العميل، المندوب، الوقت */}
-      {tab === 'balances' && custType === 'visits' && visitRows && (
+      {/* حالتا التحميل والخطأ صريحتان: visitRows مصفوفةٌ صادقة دائماً، فبلا هذا
+          كان الجدول يظهر «إجمالي الزيارات: ٠» أثناء الجلب أو عند تعطّله — كذباً
+          يدفع المشرف لظنّ أنّ المناديب لم يزوروا أحداً. */}
+      {tab === 'balances' && custType === 'visits' && visitsStatus === 'pending' && (
+        <div className="card flex items-center justify-center h-32 text-gray-400">
+          {visitsFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال') : tr('جاري التحميل')}
+        </div>
+      )}
+      {tab === 'balances' && custType === 'visits' && visitsStatus === 'error' && (
+        <div className="card flex flex-col items-center justify-center h-32 gap-2 text-gray-500">
+          <span>{tr('تعذر تحميل التقرير')}</span>
+          <button onClick={() => visitsRefetch()} className="btn-secondary">{tr('إعادة المحاولة')}</button>
+        </div>
+      )}
+      {tab === 'balances' && custType === 'visits' && visitsStatus === 'success' && visitRows && (
         <div className="card p-0">
           <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 text-sm flex-wrap">
             <span className="flex items-center gap-2"><MapPin size={16} className="text-[#E15A30]" /><b className="text-[#1F1A13]">{tr('إجمالي الزيارات')}: {visitRows.length}</b></span>

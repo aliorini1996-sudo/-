@@ -3390,6 +3390,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'استُوردت سابقاً في دفعة بتاريخ {date}': { en: 'Already imported in a batch dated {date}', fr: 'Déjà importé dans un lot daté du {date}', tr: '{date} tarihli bir partide daha önce içe aktarıldı', zh: '已在 {date} 的批次中导入过' },
   // وسم طريقة الدفع الإلكتروني (paymentMethodLabels.ONLINE) — يمرّ بـtr في سندات القبض
   'دفع الكتروني': { en: 'Online payment', fr: 'Paiement en ligne', tr: 'Çevrim içi ödeme', zh: '在线支付' },
+  // ——— تصدير التقارير: تقطيع PDF وحالات تقرير الزيارات ———
+  'تابع': { en: 'cont.', fr: 'suite', tr: 'devam', zh: '续' },
+  'تعذر إنشاء PDF — جرّب مدى أقصر أو صدّر Excel': { en: 'Could not create the PDF — try a shorter range or export to Excel', fr: 'Impossible de creer le PDF — essayez une periode plus courte ou exportez vers Excel', tr: 'PDF olusturulamadi — daha kisa bir aralik deneyin veya Excele aktarin', zh: '无法生成PDF——请缩短时间范围或导出为Excel' },
 };
 
 export function useTr() {
