@@ -176,23 +176,29 @@ export function composeWorkDays(input: {
     };
   });
 
-  // أيامٌ بلا أثر تُملأ صفوفاً فارغة داخل المدى المطلوب. حذفُها يُخفي الغياب:
-  // مندوبٌ غاب ثلاثة أيام من خمسة يبدو جدولُه مكتملاً لأن الأيام الغائبة لا
-  // تظهر أصلاً — والمشرف يقرأ ما أمامه لا ما نقص منه.
+  let scoped = built;
   if (range) {
-    const have = new Set(built.map((d) => d.date));
+    // ١) قصٌّ على المدى المطلوب: أثرٌ من زيارةٍ عالقة بدأت قبل المدى (startedAt
+    //    قديم وسجلُّها أُنشئ داخله) أو جلسةٍ تعبر منتصف ليل آخر يوم، كان يُظهر
+    //    يوماً لم يحدّده المشرف (حدّد ١٩ فظهر ١٧). الأيام خارج المدى تُحذف.
+    scoped = built.filter((d) => d.date >= range.from && d.date <= range.to);
+
+    // ٢) أيامٌ بلا أثر تُملأ صفوفاً فارغة داخل المدى. حذفُها يُخفي الغياب:
+    //    مندوبٌ غاب ثلاثة أيام من خمسة يبدو جدولُه مكتملاً لأن الأيام الغائبة لا
+    //    تظهر أصلاً — والمشرف يقرأ ما أمامه لا ما نقص منه.
+    const have = new Set(scoped.map((d) => d.date));
     for (let t = dayStartUtc(range.from, tzOffsetMin).getTime();
          t <= dayStartUtc(range.to, tzOffsetMin).getTime();
          t += DAY_MS) {
       const day = dayKey(new Date(t), tzOffsetMin);
       if (have.has(day)) continue;
       const at = new Date(t);
-      built.push({
+      scoped.push({
         date: day, firstActivity: at, lastActivity: at,
         spanMinutes: 0, appMinutes: 0, visits: [], visitsCount: 0, visitsSec: 0, absent: true,
       });
     }
   }
 
-  return built.sort((x, y) => x.date.localeCompare(y.date));
+  return scoped.sort((x, y) => x.date.localeCompare(y.date));
 }

@@ -193,6 +193,33 @@ test('يوم بلا أثر داخل المدى يظهر صفا فارغا لا �
   assert.equal(days[2].absent, false);
 });
 
+test('شكوى المالك: تحديد يومٍ واحد لا يُظهر يوماً آخر (أثرٌ خارج المدى يُقصّ)', () => {
+  // زيارةٌ عالقة بدأت ١٧ سبتمبر (at=startedAt) وسجلٌّ آخر في ١٩، والمشرف حدّد ١٩
+  const days = composeWorkDays({
+    sessions: [{ start: at('2026-09-19T05:00:00Z'), end: at('2026-09-19T13:00:00Z') }],
+    pingRanges: [],
+    visits: [
+      { customerName: 'عالق', at: at('2026-09-17T06:00:00Z'), durationSec: 1200 }, // خارج المدى
+      { customerName: 'اليوم', at: at('2026-09-19T07:00:00Z'), durationSec: 900 },  // داخله
+    ],
+    tzOffsetMin: KSA,
+    range: { from: '2026-09-19', to: '2026-09-19' },
+  });
+  assert.deepEqual(days.map(d => d.date), ['2026-09-19'], 'ظهر يومٌ خارج المدى الذي حدّده المشرف');
+  assert.equal(days[0].visitsCount, 1, 'زيارة اليوم وحدها — لا زيارة اليوم العالق');
+  assert.equal(days[0].visits[0].customerName, 'اليوم');
+});
+
+test('جلسةٌ تعبر منتصف ليل آخر يومٍ لا تُظهر اليوم التالي خارج المدى', () => {
+  const days = composeWorkDays({
+    sessions: [{ start: at('2026-09-19T20:00:00Z'), end: at('2026-09-19T22:00:00Z') }], // ١٩ ٢٣:٠٠ → ٢٠ ٠١:٠٠ بالرياض
+    pingRanges: [], visits: [],
+    tzOffsetMin: KSA,
+    range: { from: '2026-09-19', to: '2026-09-19' },
+  });
+  assert.deepEqual(days.map(d => d.date), ['2026-09-19'], 'ظهر يوم ٢٠ من جلسةٍ عبرت منتصف الليل');
+});
+
 test('بلا مدى ⇒ أيام النشاط وحدها (سلوك سابق محفوظ)', () => {
   const days = composeWorkDays({
     sessions: [], pingRanges: [],

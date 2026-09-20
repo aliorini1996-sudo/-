@@ -427,7 +427,18 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
       prisma.repVisit.findMany({
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)) },
+        // الفلتر يُوائم حقل التجميع (at = startedAt || createdAt): الفلتر على
+        // createdAt وحده كان يُدخل زيارةً بدأت قبل المدى (startedAt قديم لزيارةٍ
+        // عالقة أُنشئ سجلّها داخله) فتُنسب ليوم بدايتها خارج ما حدّده المشرف،
+        // ويُسقط زيارةً بدأت في آخر يومٍ وأُنشئ سجلُّها بعد منتصف ليله.
+        where: {
+          tenantId: tid,
+          ...(await scopedRecordWhere(req, SHAPE_VISIT)),
+          AND: [{ OR: [
+            { startedAt: { gte: fromDate, lt: toEnd } },
+            { startedAt: null, createdAt: { gte: fromDate, lt: toEnd } },
+          ] }],
+        },
         select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
         orderBy: { createdAt: 'asc' }, take: 10000,
       }),
