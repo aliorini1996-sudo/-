@@ -14,6 +14,7 @@ import syncRouter from './sync';
 import setupRouter from './setup';
 import customersRouter from './customers';
 import reviewRouter from './review';
+import reportsRouter from './reports';
 
 /**
  * النظام المحاسبي المتكامل — `/api/ledger` (§9.1، ملحق أ).
@@ -75,5 +76,7 @@ router.use(checksRouter);
 // M3: قائمة «العملاء» (حالة الترحيل والعهدة والأمانات) و«مراجعة ← سجل التدقيق» — §8.2
 router.use(customersRouter);
 router.use(reviewRouter);
+// M4: التقارير المالية (§7) — `GET /reports/:key` و`POST /reports/:key/export` بصلاحية canViewLedger
+router.use(reportsRouter);
 
 export default router;

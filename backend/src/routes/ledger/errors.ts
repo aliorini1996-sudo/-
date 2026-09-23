@@ -18,6 +18,16 @@ import { AuthRequest } from '../../types';
  * غير ذلك (ومنه ZodError) يمرّ إلى errorHandler العام.
  */
 
+/**
+ * §7.1: المدى أكبر من سقف وضع مسح البنود (12 شهراً) أو من سقف السطور الدفاعي — النصّ يقترح
+ * تضييق الفترة كما يشترط التصميم، فلا يرى المالك رمزاً إنجليزياً.
+ */
+export const RANGE_TOO_LARGE_MESSAGE =
+  'المدى المطلوب أكبر من حدّ التقرير المفلتر: ضيّق الفترة (حتى اثني عشر شهراً) أو قلّل الفلاتر والحسابات';
+
+/** §7.1 (سقوف التصدير): النصّ الموثّق حرفياً. */
+export const EXPORT_TOO_LARGE_MESSAGE = 'التصدير يتجاوز الحد المسموح: ضيّق الفترة أو الحسابات، أو صدّر XLSX';
+
 /** رسائل عربية مختصرة لكل رمز — الواجهة تترجم بالرمز، والرسالة احتياط. */
 export const LEDGER_ERROR_MESSAGES: Readonly<Partial<Record<LedgerErrorCode, string>>> = {
   ACCOUNTING_SUITE_NOT_ALLOWED: 'النظام المحاسبي المتكامل غير مفعّل لهذه الشركة تواصل مع مزود الخدمة',
@@ -43,7 +53,10 @@ export const LEDGER_ERROR_MESSAGES: Readonly<Partial<Record<LedgerErrorCode, str
   LEDGER_REVERSAL_REASON_REQUIRED: 'سبب العكس مطلوب',
   LEDGER_NAME_ARABIC_REQUIRED: 'الاسم يجب أن يحوي حرفاً عربياً والاسم بلغة أخرى مكانه الاسم الإنجليزي',
   LEDGER_VAT_LINE_UNTAGGED: 'سطر الضريبة يتطلب تحديد الضريبة ومربع الإقرار',
-  LEDGER_EXPORT_TOO_LARGE: 'التصدير يتجاوز الحد المسموح',
+  // §7.1: نصوص التقارير الموثّقة — بلا نصّ عربي يسقط الردّ على الرمز الإنجليزي أمام المالك
+  LEDGER_RANGE_TOO_LARGE: RANGE_TOO_LARGE_MESSAGE,
+  LEDGER_EXPORT_TOO_LARGE: EXPORT_TOO_LARGE_MESSAGE,
+  LEDGER_EXPORT_IN_PROGRESS: 'تصدير آخر قيد التنفيذ لهذه الشركة انتظر انتهاءه ثم أعد المحاولة',
   LEDGER_ATTACHMENT_QUOTA: 'تجاوزت سقف المرفقات',
   // M3: الإعداد المبدئي (opening.ts وbackfill.ts) وحارس حذف المندوب (tombstone.ts)
   LEDGER_CUTOVER_IN_FUTURE: 'لا يجوز تاريخ بدء بعد اليوم بتوقيت الشركة',
