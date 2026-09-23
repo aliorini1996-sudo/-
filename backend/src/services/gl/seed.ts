@@ -3,7 +3,8 @@
  *
  * «ابحث ثم أنشئ الناقص»: الحسابات بـ(tenantId, templateRef) ثم (tenantId, code)، والضرائب والربط بـ(tenantId, key)،
  * والدفاتر بـ(tenantId, code) ثم systemKey، والإعدادات بـtenantId — مع createMany({skipDuplicates: true}).
- * **الموجود لا يُعدَّل** (لا update/upsert في هذا الملف)، والناقص يُنشأ، فلا P2002 على صفوف M2 المعدّلة أو اليدوية.
+ * **الموجود لا يُعدَّل** في `seedTemplate` (لا update/upsert فيها)، والناقص يُنشأ، فلا P2002 على صفوف M2 المعدّلة أو اليدوية.
+ * الاستثناء الوحيد `backfillAccountDescriptions` (م‑5): تملأ `description` **الفارغ وحده** لحسابات القالب، ولا تمسّ اسماً ولا وصفاً كتبه المستخدم.
  * رمز دفتر ناقص يتصادم مع رمز قائم أو بادئة مرتجعه ⇒ 409 LEDGER_JOURNAL_CODE_CONFLICT (journalCodeConflict).
  * يعمل داخل معاملة المُستدعي؛ والتدقيق (TEMPLATE_SEED/SETUP_COMMIT) على المُستدعي بتقرير الزرع.
  */
@@ -158,6 +159,7 @@ export async function seedTemplate(db: SeedDb, tenantId: string, templateKey: Te
     newAccountRefs.add(a.templateRef);
     accountData.push({
       tenantId, code: a.code, name: a.names.ar, nameEn: a.names.en, nameI18n: { ...a.names },
+      description: a.description || null,
       type: a.type, reconcile: a.reconcile, isActive: a.isActive, isSystem: a.isSystem, controlKind: a.controlKind,
       cashFlowTag: a.cashFlowTag, templateRef: a.templateRef,
     });
@@ -306,4 +308,52 @@ export async function seedTemplate(db: SeedDb, tenantId: string, templateKey: Te
   }
 
   return { templateKey, created, skipped, unresolvedMappings, conflictingMappings, conflictingAccountRefs };
+}
+
+// ═══ ملء أوصاف حسابات القالب للشركات المزروعة سلفاً (م‑5) ═══
+
+export interface DescriptionBackfillReport {
+  /** حسابات الشركة التي تحمل `templateRef` من القالب */
+  scanned: number;
+  /** حسابات كان وصفها فارغاً فمُلئ من القالب */
+  filled: number;
+  /** حسابات لها وصف (ربما كتبه المستخدم) فلم تُمسّ */
+  kept: number;
+}
+
+/**
+ * تملأ `GlAccount.description` **الفارغ وحده** من القالب لشركة مزروعة سلفاً (زرّ «إعادة تحميل القالب»).
+ *
+ * القواعد (اختبار gl-seed-idempotent يفرضها):
+ *  1) المطابقة بـ`templateRef` وحده — الحساب اليدوي (templateRef=null) لا يُمسّ ولو وافق رمزه القالب.
+ *  2) `description` غير الفارغ لا يُكتب فوقه أبداً (وصف المستخدم يعلو القالب، كما `name` في §8.7).
+ *  3) لا يُكتب أيّ عمود آخر: لا الاسم ولا النوع ولا التفعيل — الوصف فقط.
+ *  4) شرط التحديث يعيد قيمة الوصف كما قُرئت، فتعديلٌ متزامن يُبطل التحديث بدل أن يُدهَس.
+ * متساوية الأثر: تشغيلها ثانيةً يملأ صفراً.
+ */
+export async function backfillAccountDescriptions(
+  db: Pick<SeedDb, 'glAccount'>,
+  tenantId: string,
+  templateKey: TemplateKey,
+  opts: Pick<SeedOptions, 'countryCode' | 'vatPct'> = {},
+): Promise<DescriptionBackfillReport> {
+  if (!tenantId) throw new RangeError('backfillAccountDescriptions: tenantId مطلوب');
+  const tpl = resolveTemplate(templateKey, opts);
+  const byRef = new Map(tpl.chart.accounts.map((a) => [a.templateRef, a.description]));
+  const rows: { id: string; templateRef: string | null; description: string | null }[] = await db.glAccount.findMany({
+    where: { tenantId, templateRef: { in: [...byRef.keys()] } },
+    select: { id: true, templateRef: true, description: true },
+  });
+  const report: DescriptionBackfillReport = { scanned: rows.length, filled: 0, kept: 0 };
+  for (const row of rows) {
+    const description = row.templateRef ? byRef.get(row.templateRef) : undefined;
+    if (!description || (row.description ?? '').trim() !== '') { report.kept++; continue; }
+    // الشرط يضمّ القيمة المقروءة: لو كتب مستخدم وصفاً بين القراءة والكتابة فلا يُدهَس (count = 0)
+    const res = await db.glAccount.updateMany({
+      where: { tenantId, id: row.id, description: row.description },
+      data: { description },
+    });
+    if (res.count > 0) report.filled++; else report.kept++;
+  }
+  return report;
 }

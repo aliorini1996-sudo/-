@@ -8,6 +8,7 @@ import {
   DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, derivedAccountKind, hasPostCutoverImports, importsAckBlocksCommit, openingDataHints,
   openingStockReview, commitNeedsRefresh, COMMIT_REFRESH_CODES,
   keepLiveCategoryLinks, timezoneImportsConflictOf, TIMEZONE_IMPORTS_CONFLICT_CODE,
+  setupStepFromSearch,
 } from './setupLogic';
 import type { SetupEffective } from '../../../api/ledgerSetup';
 
@@ -340,4 +341,56 @@ test('البند 25: تعارض المنطقة الزمنية يُقرأ بتف�
   assert.match(review, /rebaseImportDates: true/);
   // والرمز له نصّه في قائمة رموز التهيئة فلا يسقط على رسالة عامة
   assert.match(read(webSrc, 'lib', 'ledger', 'labels.ts'), /LEDGER_TIMEZONE_IMPORTS_CONFLICT: tr\(/);
+});
+
+test('«أكمل الإعداد» يفتح الخطوة المقصودة: معامل setupStep يُقرأ بحرس ويُطبَّق مرة واحدة', () => {
+  assert.equal(setupStepFromSearch('?setupStep=4'), 4);
+  assert.equal(setupStepFromSearch('setupStep=1'), 1, 'بلا علامة استفهام');
+  assert.equal(setupStepFromSearch('?a=1&setupStep=6&b=2'), 6);
+  // بلا معامل ⇒ null لا 1: المعالج يستأنف من حيث توقّفت المسودة
+  assert.equal(setupStepFromSearch(''), null);
+  assert.equal(setupStepFromSearch(null), null);
+  assert.equal(setupStepFromSearch(undefined), null);
+  assert.equal(setupStepFromSearch('?step=3'), null, 'اسم معامل آخر لا يُقرأ');
+  // حرس: خارج المدى 1..6 أو غير عشري صحيح ⇒ يُتجاهل بلا سقوط
+  for (const bad of ['0', '7', '42', '-1', '3.5', 'abc', '', ' 4 ', '٤', '0x4', '1e1', '+2', 'null']) {
+    assert.equal(setupStepFromSearch(`?setupStep=${bad}`), null, `قيمة معطوبة قُبلت: «${bad}»`);
+  }
+  // اسم المعامل نفسه الذي يبنيه setupWizardHref لزرّ «أكمل الإعداد»
+  assert.match(read(webSrc, 'lib', 'ledger', 'setupProgress.ts'), /SETUP_STEP_PARAM = 'setupStep'/);
+  const wizard = read(webSrc, 'pages', 'ledger', 'setup', 'SetupWizard.tsx');
+  assert.match(wizard, /useLocation/, 'المعالج لا يقرأ الرابط إطلاقاً فيُهدر ?setupStep');
+  // تُقرأ مرة واحدة بتهيئة كسولة، ويفتحها الأثر وحده حين `step === null`:
+  // لا إعادة فتح عند كل إعادة رسم، ولا سجن — `setStep` بعدها حرّة
+  assert.match(wizard, /useState<SetupStepNo \| null>\(\(\) => setupStepFromSearch\(search\)\)/);
+  assert.match(wizard, /if \(before && step === null\) setStep\(requestedStep \?\? clampStep\(/);
+});
+
+/**
+ * أوصاف حسابات القالب تُزرع بالعربية في `GlAccount.description` وتُعرض بـ`tr(a.description)`، ومفتاحها
+ * ديناميكي فلا يلتقطه حارس `langs.test` الذي يقرأ نداءات `tr('...')` الحرفية وحدها. فكانت ١١٢ من ١٣٧
+ * بلا ترجمة تظهر عربيةً لمستخدمي اللغات الأربع. هذا الحارس يسقط فور إضافة وصف جديد بلا ترجمة كاملة.
+ */
+test('كل وصف حساب في القالب له مفتاح مكتمل اللغات في PHRASES', () => {
+  const dict = read(webSrc, 'i18n', 'strings.ts');
+  const entries = new Map<string, string>();
+  for (const m of dict.matchAll(/^ {2}'((?:[^'\\]|\\.)*)':\s*(\{.*\}),\s*$/gm)) entries.set(m[1], m[2]);
+
+  const descriptionsOf = (file: string, name: string): [string, string][] => {
+    const body = new RegExp(`${name}[^=]*=\\s*\\{([\\s\\S]*?)\\n\\};`).exec(read(backend, 'services', 'gl', 'coa', file))?.[1];
+    assert.ok(body, `${name} غير موجود في ${file}`);
+    return [...body.matchAll(/'(\d+)':\s*'((?:[^'\\]|\\.)*)'/g)].map(m => [m[1], m[2]]);
+  };
+  const sa = descriptionsOf('sa.ts', 'SA_6D_ACCOUNT_DESCRIPTIONS');
+  const generic = descriptionsOf('generic.ts', 'GENERIC_VAT_ACCOUNT_DESCRIPTIONS');
+  assert.equal(sa.length, 137, 'عدد أوصاف قالب السعودية تغيّر — راجع الترجمات');
+
+  for (const [code, text] of [...sa, ...generic]) {
+    const body = entries.get(text);
+    assert.ok(body, `وصف الحساب ${code} بلا مفتاح في PHRASES فيظهر عربياً للغات الأربع: ${text}`);
+    for (const lang of ['en', 'fr', 'tr', 'zh']) {
+      const v = new RegExp(`(?:^|[{,])\\s*${lang}: '((?:[^'\\\\]|\\\\.)*)'`).exec(body);
+      assert.ok(v && v[1].trim(), `وصف الحساب ${code} بلا ترجمة ${lang}`);
+    }
+  }
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Landmark, ListOrdered } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -12,7 +12,7 @@ import {
   type SetupCommitResult, type SetupDraft, type SetupState, type SetupStateBefore,
 } from '../../../api/ledgerSetup';
 import { ledgerHref } from '../routes';
-import { clampStep, timezoneImportsConflictOf, type SetupStepNo, type TimezoneImportsConflict } from './setupLogic';
+import { clampStep, setupStepFromSearch, timezoneImportsConflictOf, type SetupStepNo, type TimezoneImportsConflict } from './setupLogic';
 import { BackfillStatusCard, DataImportLink, Notice, TimezoneImportsConflictNotice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
 import { Step1Basics, Step2Method, Step3Tree } from './SetupSteps';
 import ManualBalances from './ManualBalances';
@@ -31,6 +31,10 @@ export default function SetupWizard() {
   const canWrite = canLedger(user, 'canConfigureLedger');
   const errorText = useSetupErrorText();
   const q = useSetupState(canWrite);
+  // زرّ «أكمل الإعداد» يقصد خطوة بعينها (`?setupStep=N`): تُقرأ مرة واحدة عند التحميل (تهيئة كسولة،
+  // فإعادة الرسم لا تعيد فتحها)، وهي وجهة أولى لا سجن — تصفّح المستخدم بعدها حرّ.
+  const { search } = useLocation();
+  const [requestedStep] = useState<SetupStepNo | null>(() => setupStepFromSearch(search));
   const [step, setStep] = useState<SetupStepNo | null>(null);
   const [lastErrorCode, setLastErrorCode] = useState<string | null>(null);
   const [result, setResult] = useCommitResult();
@@ -39,8 +43,8 @@ export default function SetupWizard() {
 
   const before = q.data && !q.data.activated ? q.data : null;
   useEffect(() => {
-    if (before && step === null) setStep(clampStep(before.draft.currentStep ?? 1));
-  }, [before, step]);
+    if (before && step === null) setStep(requestedStep ?? clampStep(before.draft.currentStep ?? 1));
+  }, [before, step, requestedStep]);
 
   const save = useMutation({
     mutationFn: async ({ patch, next, rebaseImportDates }: { patch: SetupDraft; next: number; rebaseImportDates?: boolean }) =>

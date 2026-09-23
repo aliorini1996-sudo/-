@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Flag, Hourglass, Info, Lock, RotateCcw, Send, Undo2, X } from 'lucide-react';
@@ -23,6 +23,8 @@ import {
   type ReviewState,
 } from '../../../api/ledgerMoves';
 import { ledgerHref } from '../routes';
+import { ledgerSetupKeys, type SetupState } from '../../../api/ledgerSetup';
+import { computeSetupProgress, setupStepLabel, setupWizardHref } from '../../../lib/ledger/setupProgress';
 import { ledgerErrorMessage, ledgerErrorText } from '../../../lib/ledger/errors';
 import { ledgerReviewApi } from '../../../api/ledgerReview';
 import { sourceDocumentHref, sourceTypeLabels } from '../../../lib/ledger/sync';
@@ -351,12 +353,16 @@ export default function MoveForm() {
   const headerActions = (
     <>
       {!isNew && move?.state === 'DRAFT' && canPost && !owned && (
-        <button type="button" className="btn-primary !py-1.5 !px-3 text-sm inline-flex items-center gap-1 disabled:opacity-50"
-          disabled={post.isPending || save.isPending || !activated}
-          title={!activated ? ledgerErrorText(tr, 'LEDGER_NOT_SETUP') : undefined}
-          onClick={() => post.mutate()}>
-          <Send size={14} />{tr('ترحيل')}
-        </button>
+        <>
+          <button type="button" className="btn-primary !py-1.5 !px-3 text-sm inline-flex items-center gap-1 disabled:opacity-50"
+            disabled={post.isPending || save.isPending || !activated}
+            title={!activated ? ledgerErrorText(tr, 'LEDGER_NOT_SETUP') : undefined}
+            onClick={() => post.mutate()}>
+            <Send size={14} />{tr('ترحيل')}
+          </button>
+          {/* م‑2: سبب التعطيل مكتوبٌ بجانب الزرّ (لا في title وحده) ومعه ما بقي من خطوات وطريقٌ إلى أوّلها */}
+          {!activated && <PostBlockedReason />}
+        </>
       )}
       {reversible && (
         <>
@@ -394,8 +400,9 @@ export default function MoveForm() {
   const banner = (
     <div className="space-y-0">
       {isNew && defaultJournal?.notice && <Notice tone="warn" icon={<AlertTriangle size={15} />}>{defaultJournal.notice}</Notice>}
+      {/* ظ‑2: عنوان «بانتظار الإعداد» وتقدّمه ورابطه في الشارة المشتركة فوق الشاشة (LedgerLayout)؛ هنا ما يخصّ القيد وحده */}
       {isDraft && !activated && (
-        <Notice tone="info" icon={<Hourglass size={15} />}>{tr('الدفاتر بانتظار الإعداد')} — {tr('المسودة تُحفظ الآن، والترحيل متاح بعد اكتمال الإعداد المبدئي للدفاتر')}</Notice>
+        <Notice tone="info" icon={<Hourglass size={15} />}>{tr('المسودة تُحفظ الآن، والترحيل متاح بعد اكتمال الإعداد المبدئي للدفاتر')}</Notice>
       )}
       {optionsQ.isError && editable && (
         <Notice tone="warn" icon={<AlertTriangle size={15} />}>
@@ -582,6 +589,45 @@ export default function MoveForm() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * م‑2 (مراجعة الخبير 2026‑09‑18): «فين بقى الـPost؟ ده غير موجود خالص» — الزرّ موجود ومعطّل حتى
+ * يُعتمد الإعداد، وسببه كان مخفيّاً في `title`. هنا السبب مكتوبٌ بجانب الزرّ، ومعه ما بقي من خطوات
+ * وزرّ يفتح المعالج عند **أوّل خطوة ناقصة**. القاعدة نفسها لم تتغيّر (لا ترحيل قبل اعتماد الافتتاحية).
+ *
+ * التقدّم يُقرأ من ذاكرة استعلام `GET /setup` التي تُعمّرها الشارة المشتركة في `LedgerLayout` — ولا
+ * يُنادى من هنا: النقطة تطلب `canConfigureLedger` ولا يملكها كل من يملك `canPostJournals`، فمن لا
+ * يملكها يرى السبب بلا عدّاد ولا رابط بدل 403 صامت.
+ */
+function PostBlockedReason() {
+  const tr = useTr();
+  const { user } = useAuthStore();
+  const qc = useQueryClient();
+  const canConfigure = canLedger(user, 'canConfigureLedger');
+  const setup = useSyncExternalStore(
+    cb => qc.getQueryCache().subscribe(cb),
+    () => qc.getQueryData<SetupState>(ledgerSetupKeys.setup) ?? null,
+  );
+  const progress = computeSetupProgress({ activatedAt: null, draft: setup && !setup.activated ? setup.draft : null });
+  const remaining = progress.known && progress.remaining > 0
+    ? tr('بقيت {count} خطوات').replace('{count}', String(progress.remaining))
+    : null;
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2 rounded-xl border border-[#F3D3C4] bg-[#FBEBE2] px-2.5 py-1 text-xs text-[#1F1A13]" role="status">
+      <Hourglass size={13} className="text-[#E15A30] shrink-0" />
+      <span className="font-semibold">{tr('الترحيل يبدأ بعد اعتماد الإعداد')}</span>
+      {remaining && <bdi className="tabular-nums text-[#6E6557]">{remaining}</bdi>}
+      {canConfigure && (
+        <Link to={setupWizardHref(progress.known ? progress.firstIncomplete : null)}
+          className="shrink-0 inline-flex items-center gap-1 rounded-xl bg-[#E15A30] text-white px-2.5 py-1 font-bold hover:bg-[#C94A24]">
+          {tr('أكمل الإعداد')}
+          {progress.known && <span className="font-normal opacity-90">· {setupStepLabel(tr, progress.firstIncomplete)}</span>}
+        </Link>
+      )}
+    </span>
   );
 }
 

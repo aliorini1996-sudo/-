@@ -9,6 +9,7 @@ import { backdropClose } from '../../../../lib/backdropClose';
 import { ledgerName } from '../../../../lib/ledger/format';
 import { accountTypeLabels, ledgerConfigCodeLabels, ledgerConfigReasonLabels } from '../../../../lib/ledger/labels';
 import { fetchAllLedgerAccounts, ledgerErrorOf, ledgerKeys, type AccountType, type GlAccount } from '../../../../api/ledgerConfig';
+import { accountDescriptionText as descriptionText } from './accountTree';
 
 /**
  * أجزاء مشتركة لصفحات التهيئة (M2، §8.2–§8.4) — خارج نمط glob في App.tsx (عمق ثالث) فلا تُعدّ صفحة.
@@ -184,7 +185,8 @@ export function AccountSelect({ accounts, value, onChange, types, controlKind, a
                 className={`w-full text-start px-3 py-1.5 text-sm hover:bg-[#FBEBE2] flex items-center gap-2 ${a.id === value ? 'bg-[#FBEBE2]' : ''}`}>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate"><bdi className="tabular-nums text-[#6E6557]">{a.code}</bdi> {ledgerName(a, lang)}</span>
-                  <span className="block text-[11px] text-[#9A8F7E] truncate">{typeLabels[a.type]}{a.description ? ` · ${a.description}` : ''}</span>
+                  {/* م‑5: الوصف سطراً ثانياً — يمرّ بـtr() ليُترجَم لاحقاً (يُزرع بالعربية) */}
+                  <span className="block text-[11px] text-[#9A8F7E] truncate">{typeLabels[a.type]}{descriptionText(a.description) ? ` · ${tr(descriptionText(a.description))}` : ''}</span>
                 </span>
                 {a.id === value && <Check size={14} className="text-[#E15A30] shrink-0" />}
               </button>

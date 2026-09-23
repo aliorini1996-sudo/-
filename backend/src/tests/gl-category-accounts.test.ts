@@ -53,6 +53,22 @@ test('mergeCategoryAccounts: المرسَل يحل محل قيمته، والغ�
   assert.deepEqual(mergeCategoryAccounts(null, { categoryId: 'k' }), { next: { incomeAccountId: null, expenseAccountId: null, cogsAccountId: null, inventoryAccountId: null }, changed: [], remove: true });
 });
 
+// مراجعة الخبير (م‑1، م‑4، م‑5، م‑7) — حارس مختصر هنا لأن هذا الملف مسجَّل في `npm test`،
+// والتفصيل في gl-accounts-search.test.ts: البحث لا يفتح مؤرشفاً، والوصف في الردّ، وأسماء عقد الشجرة.
+test('بحث الحسابات: VIEW، والمؤرشف لا يتسرّب، والوصف في الردّ، وأسماء كل عقد الشجرة', () => {
+  assert.match(code, /router\.get\('\/accounts', VIEW,/);
+  const i = code.indexOf("router.get('/accounts', VIEW,");
+  const body = code.slice(i, code.indexOf('\n}));', i));
+  const activeOnly = body.indexOf('if (!q.includeArchived) and.push({ isActive: true })');
+  assert.ok(activeOnly >= 0 && activeOnly < body.indexOf('where.AND = and'), 'isActive قبل بناء where');
+  assert.match(body, /const scan = await prisma\.glAccount\.findMany\(\{\s*where, select: ACCOUNT_SEARCH_SELECT/, 'المسح بفلاتر where نفسها');
+  assert.match(body, /rankAccounts\(scan, q\.search\)/);
+  assert.match(body, /total = matched\.length/);
+  assert.match(code.slice(code.indexOf('function accountOut('), code.indexOf('const TYPE_FILTERS')), /description: a\.description/);
+  const tree = code.slice(code.indexOf("router.get('/accounts/tree', VIEW,"));
+  assert.match(tree.slice(0, tree.indexOf('\n}));')), /groupNames\.has\(prefix\) \? \{ names:/, 'اسم لكل بادئة مسمّاة (م‑7)');
+});
+
 test('حراس المسارين: canConfigureLedger، قفل الترحيل أولاً، الانتماء، التدقيق داخل المعاملة', () => {
   assert.match(code, /router\.get\('\/mappings\/categories', CONFIGURE,/);
   const i = code.indexOf("router.put('/mappings/categories', CONFIGURE,");

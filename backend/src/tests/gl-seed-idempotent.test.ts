@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { seedTemplate, resolveTemplate, type SeedDb } from '../services/gl/seed';
+import { backfillAccountDescriptions, seedTemplate, resolveTemplate, type SeedDb } from '../services/gl/seed';
 import { SA_6D_ACCOUNTS, SA_6D_JOURNALS, VAT_ACCOUNT_CODES } from '../services/gl/coa/sa';
 import { SA_TAXES } from '../services/gl/taxes/sa';
 import { MAPPING_KEYS, isLedgerError } from '../services/gl/types';
@@ -30,7 +30,12 @@ class FakeTable {
   constructor(readonly name: string, readonly uniques: string[][], readonly defaults: Row = {}) {}
 
   private matches(r: Row, where: Row = {}): boolean {
-    return Object.entries(where).every(([k, v]) => r[k] === v);
+    return Object.entries(where).every(([k, v]) => {
+      if (v && typeof v === 'object' && !Array.isArray(v) && 'in' in (v as object)) {
+        return ((v as { in: unknown[] }).in ?? []).includes(r[k]);
+      }
+      return r[k] === v;
+    });
   }
   private project(r: Row, select?: Record<string, boolean>): Row {
     if (!select) return { ...r };
@@ -83,8 +88,22 @@ class FakeTable {
       throw new Error(`${this.name}.${op} ممنوع في الزرع`);
     };
   }
+  /** الزرع لا يعدّل شيئاً؛ ملء الأوصاف (م‑5) وحده يرفع هذه الراية قبل استدعاء updateMany */
+  allowUpdateMany = false;
+  /** عدد استدعاءات updateMany المسموح بها — للتحقق من عدد التحديثات لا من عدد الصفوف فقط */
+  updateManyCalls = 0;
+  updateMany = async (args: { where: Row; data: Row }) => {
+    if (!this.allowUpdateMany) {
+      this.forbidden.push('updateMany');
+      throw new Error(`${this.name}.updateMany ممنوع في الزرع`);
+    }
+    this.updateManyCalls++;
+    const hit = this.rows.filter((r) => this.matches(r, args.where));
+    for (const r of hit) Object.assign(r, args.data);
+    return { count: hit.length };
+  };
+
   update = this.deny('update');
-  updateMany = this.deny('updateMany');
   upsert = this.deny('upsert');
   delete = this.deny('delete');
   deleteMany = this.deny('deleteMany');
@@ -92,7 +111,7 @@ class FakeTable {
 
 function fakeDb() {
   const t = {
-    glAccount: new FakeTable('glAccount', [['tenantId', 'code']], { isActive: true, isSystem: false, reconcile: false, templateRef: null }),
+    glAccount: new FakeTable('glAccount', [['tenantId', 'code']], { isActive: true, isSystem: false, reconcile: false, templateRef: null, description: null }),
     glAccountTag: new FakeTable('glAccountTag', [['tenantId', 'name']]),
     glAccountTagLink: new FakeTable('glAccountTagLink', [['accountId', 'tagId']]),
     glAccountMapping: new FakeTable('glAccountMapping', [['tenantId', 'key']]),
@@ -288,11 +307,138 @@ test('القالب العام لدولة 0٪ (الكويت): الضرائب غي
   assert.throws(() => resolveTemplate('XX' as never), RangeError);
 });
 
-test('seed.ts لا يعدّل موجوداً: لا update ولا upsert ولا delete، ويستدعي journalCodeConflict', () => {
+// ═══ أوصاف الحسابات (م‑5) ═══
+
+test('الزرع يكتب وصف القالب في description لكل حساب', async () => {
+  const { tables, db } = fakeDb();
+  await seedTemplate(db, 'ds', 'SA_6D');
+  const acc = (code: string) => tables.glAccount.rows.find((r) => r.tenantId === 'ds' && r.code === code)!;
+  for (const a of SA_6D_ACCOUNTS) assert.equal(acc(a.code).description, a.description, a.code);
+  assert.match(String(acc('611003').description), /بنزين/);
+  assertNoDuplicatesOrWrites(tables);
+});
+
+test('ملء أوصاف شركة مزروعة سلفاً: الفارغ وحده يُملأ، ووصف المستخدم واسمه والحساب اليدوي لا تُمسّ', async () => {
+  const { tables, db } = fakeDb();
+  const T = 'bf';
+  const OTHER = 'bf2';
+  // شركة قديمة: حسابات القالب كلها بلا وصف (قبل م‑5)، وشركة ثانية مثلها للتحقق من العزل
+  for (const t of [T, OTHER]) {
+    for (const a of SA_6D_ACCOUNTS) {
+      await tables.glAccount.create({ data: { tenantId: t, code: a.code, templateRef: a.templateRef, name: a.names.ar, type: a.type } });
+    }
+  }
+  const row = (code: string) => tables.glAccount.rows.find((r) => r.tenantId === T && r.code === code)!;
+  const tplDesc = (code: string) => SA_6D_ACCOUNTS.find((a) => a.code === code)!.description;
+  row('621004').name = 'أجرة المعرض (تسمية المستخدم)';           // اسم عدّله المستخدم
+  row('611003').description = 'وصف كتبه المحاسب بنفسه';          // وصف كتبه المستخدم
+  row('621006').description = '   ';                              // فراغات = فارغ
+  const manual = await tables.glAccount.create({ data: { tenantId: T, code: '611900', templateRef: null, name: 'وقود يدوي', type: 'expense' } });
+
+  tables.glAccount.allowUpdateMany = true;
+  const rep = await backfillAccountDescriptions(db, T, 'SA_6D');
+
+  assert.deepEqual(rep, { scanned: SA_6D_ACCOUNTS.length, filled: SA_6D_ACCOUNTS.length - 1, kept: 1 });
+  assert.equal(row('611003').description, 'وصف كتبه المحاسب بنفسه', 'وصف المستخدم لا يُدهَس');
+  assert.equal(row('621004').name, 'أجرة المعرض (تسمية المستخدم)', 'الاسم لا يُمسّ');
+  assert.equal(row('621004').description, tplDesc('621004'), 'الوصف الفارغ يُملأ ولو تغيّر الاسم');
+  assert.equal(row('621006').description, tplDesc('621006'), 'الفراغات تُعدّ وصفاً فارغاً');
+  assert.equal(row('113001').description, tplDesc('113001'));
+  assert.equal(manual.description, null, 'حساب يدوي بلا templateRef لا يُمسّ');
+  // عزل الشركات: الثانية لم تتغيّر
+  assert.ok(tables.glAccount.rows.filter((r) => r.tenantId === OTHER).every((r) => r.description === null), 'شركة أخرى تأثرت');
+  // متساوية الأثر: الثانية لا تملأ شيئاً
+  const again = await backfillAccountDescriptions(db, T, 'SA_6D');
+  assert.deepEqual(again, { scanned: SA_6D_ACCOUNTS.length, filled: 0, kept: SA_6D_ACCOUNTS.length });
+  // لا حذف ولا تعديل غير updateMany
+  assert.deepEqual(tables.glAccount.forbidden, []);
+  assert.equal(tables.glAccount.updateManyCalls, SA_6D_ACCOUNTS.length - 1);
+});
+
+test('ملء الأوصاف للقالب العام يستعمل صيغة الضريبة العامة، ولا يُملأ حساب رُمِّز يدوياً خارج القالب', async () => {
+  const { tables, db } = fakeDb();
+  const T = 'kwbf';
+  const kw = resolveTemplate('GENERIC_6D', { countryCode: 'KW' });
+  for (const a of kw.chart.accounts) {
+    await tables.glAccount.create({ data: { tenantId: T, code: a.code, templateRef: a.templateRef, name: a.names.ar, type: a.type } });
+  }
+  tables.glAccount.allowUpdateMany = true;
+  const rep = await backfillAccountDescriptions(db, T, 'GENERIC_6D', { countryCode: 'KW' });
+  assert.equal(rep.filled, kw.chart.accounts.length);
+  const vat = tables.glAccount.rows.find((r) => r.tenantId === T && r.code === '212001')!;
+  assert.equal(vat.description, kw.chart.accounts.find((a) => a.code === '212001')!.description);
+  assert.doesNotMatch(String(vat.description), /الهيئة/);
+  await assert.rejects(backfillAccountDescriptions(db, '', 'SA_6D'), RangeError);
+});
+
+test('تسلسل «إعادة تحميل القالب» على شركة مزروعة قبل م‑5: الزرع وحده لا يملأ الوصف، والملء بعده يوصله', async () => {
+  const { tables, db } = fakeDb();
+  const T = 'live';
+  // شركة قائمة: حسابات القالب كلها موجودة بلا وصف، وواحد كتب المحاسب وصفه بنفسه
+  for (const a of SA_6D_ACCOUNTS) {
+    await tables.glAccount.create({ data: { tenantId: T, code: a.code, templateRef: a.templateRef, name: a.names.ar, type: a.type } });
+  }
+  const row = (code: string) => tables.glAccount.rows.find((r) => r.tenantId === T && r.code === code)!;
+  row('611003').description = 'وصف كتبه المحاسب بنفسه';
+
+  // ما يفعله المسار بالترتيب نفسه وداخل المعاملة نفسها
+  const report = await seedTemplate(db, T, 'SA_6D');
+  assert.equal(report.created.accounts, 0, 'createMany({skipDuplicates}) لا تلمس صفاً قائماً');
+  assert.equal(row('113001').description, null, 'فالوصف يبقى فارغاً بعد الزرع وحده — هذا هو المانع');
+  assertNoDuplicatesOrWrites(tables);
+
+  tables.glAccount.allowUpdateMany = true;
+  const descriptions = await backfillAccountDescriptions(db, T, 'SA_6D');
+  assert.deepEqual(Object.keys(descriptions).sort(), ['filled', 'kept', 'scanned'], 'شكل التقرير في التدقيق والردّ');
+  assert.deepEqual(descriptions, { scanned: SA_6D_ACCOUNTS.length, filled: SA_6D_ACCOUNTS.length - 1, kept: 1 });
+  assert.equal(row('113001').description, SA_6D_ACCOUNTS.find((a) => a.code === '113001')!.description, 'الوصف وصل الشجرة');
+  assert.equal(row('611003').description, 'وصف كتبه المحاسب بنفسه', 'ووصف المستخدم لا يُدهَس');
+  // ضغطة ثانية على الزرّ لا تملأ شيئاً
+  assert.equal((await backfillAccountDescriptions(db, T, 'SA_6D')).filled, 0);
+});
+
+test('POST /settings/load-template ينادي ملء الأوصاف بعد الزرع، وتقريرها في تدقيق TEMPLATE_SEED وفي الردّ', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../routes/ledger/config.ts'), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const i = code.indexOf("router.post('/settings/load-template'");
+  assert.ok(i >= 0, 'المسار موجود');
+  const body = code.slice(i, code.indexOf('\n}));', i));
+  const seed = body.indexOf('await seedTemplate(tx, tenantId, templateKey');
+  const fill = body.indexOf('await backfillAccountDescriptions(tx, tenantId, templateKey');
+  assert.ok(seed >= 0, 'الزرع داخل المسار');
+  assert.ok(fill > seed, 'ملء الأوصاف يُنادى بعد الزرع مباشرة داخل المعاملة نفسها');
+  // دولة القالب العام تصل النداءين معاً
+  assert.match(body, /const opts = templateKey === 'GENERIC_6D' \? \{ countryCode \} : \{\};/);
+  assert.match(body, /seedTemplate\(tx, tenantId, templateKey, opts\)/);
+  assert.match(body, /backfillAccountDescriptions\(tx, tenantId, templateKey, opts\)/);
+  // التقرير يُرى: في التدقيق وفي ردّ المسار
+  assert.match(body, /action: 'TEMPLATE_SEED'/);
+  assert.match(body, /after: \{ countryCode, \.\.\.report, descriptions \}/);
+  assert.match(body, /return \{ report, descriptions, settings:/);
+});
+
+test('seedTemplate لا تعدّل موجوداً: لا update ولا upsert ولا delete، وتستدعي journalCodeConflict', () => {
   const src = fs.readFileSync(path.join(__dirname, '../services/gl/seed.ts'), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  assert.doesNotMatch(code, /\.(update|updateMany|upsert|delete|deleteMany)\s*\(/);
-  assert.match(code, /journalCodeConflict\(/);
-  assert.match(code, /LEDGER_JOURNAL_CODE_CONFLICT/);
-  assert.match(code, /skipDuplicates:\s*true/);
+  const seedStart = code.indexOf('export async function seedTemplate');
+  const backfillStart = code.indexOf('export async function backfillAccountDescriptions');
+  assert.ok(seedStart >= 0 && backfillStart > seedStart, 'ترتيب الدالتين في seed.ts');
+  const seedBody = code.slice(seedStart, backfillStart);
+  assert.doesNotMatch(seedBody, /\.(update|updateMany|upsert|delete|deleteMany)\s*\(/);
+  assert.match(seedBody, /journalCodeConflict\(/);
+  assert.match(seedBody, /LEDGER_JOURNAL_CODE_CONFLICT/);
+  assert.match(seedBody, /skipDuplicates:\s*true/);
+  assert.match(seedBody, /description: a\.description \|\| null/, 'الزرع يكتب وصف القالب');
+});
+
+test('backfillAccountDescriptions تكتب عمود description وحده بـupdateMany: لا اسم ولا نوع ولا حذف', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../services/gl/seed.ts'), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const body = code.slice(code.indexOf('export async function backfillAccountDescriptions'));
+  assert.doesNotMatch(body, /\.(update|upsert|delete|deleteMany)\s*\(/, 'updateMany وحدها');
+  assert.match(body, /data: \{ description \}/, 'الوصف وحده في data');
+  assert.doesNotMatch(body, /data: \{[^}]*(name|nameI18n|type|isActive|code)\b/, 'لا عمود آخر في data');
+  assert.match(body, /where: \{ tenantId, id: row\.id, description: row\.description \}/, 'الشرط يضمّ القيمة المقروءة');
+  // نطاق الشركة في كل استعلام
+  assert.equal((body.match(/tenantId/g) ?? []).length >= 3, true);
 });

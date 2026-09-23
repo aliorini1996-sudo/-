@@ -1,6 +1,7 @@
 import type { LocalDate, TaxPeriodicity } from '../../../api/ledgerConfig';
 import type { ManualBalanceRowInput, SetupDraft, SetupEffective, SetupMethod } from '../../../api/ledgerSetup';
 import { parseAmountToMilli } from '../../../lib/ledger/format';
+import { SETUP_STEP_PARAM } from '../../../lib/ledger/setupProgress';
 
 /**
  * منطق معالج الإعداد الصرف (§5.6) بلا React — مختبَر في setupLogic.test.ts:
@@ -30,6 +31,20 @@ export const clampStep = (n: unknown): SetupStepNo => {
   const v = Math.trunc(Number(n));
   return (v >= 1 && v <= 6 ? v : 1) as SetupStepNo;
 };
+
+/**
+ * خطوة الرابط `?setupStep=N` التي يبنيها `setupWizardHref` لزرّ «أكمل الإعداد» — أو `null`.
+ *
+ * `null` لا `1`: الرابط بلا معامل (أو بمعامل معطوب) يعني «افتح حيث توقّفت المسودة»، فلو أرجعنا 1
+ * لأعدنا المستخدم إلى الخطوة الأولى كلما دخل المعالج من قائمة الدفاتر. والحرس صارم: عدد صحيح
+ * عشري ضمن 1..6 وحده يُقبل، فـ`setupStep=4.7` أو `0x4` أو `٤` أو ` 4 ` من رابط ملصوق تُتجاهل.
+ */
+export function setupStepFromSearch(search: string | null | undefined): SetupStepNo | null {
+  const raw = new URLSearchParams(search ?? '').get(SETUP_STEP_PARAM);
+  if (raw === null || !/^[1-9]\d*$/.test(raw)) return null;
+  const v = Number(raw);
+  return v >= 1 && v <= 6 ? (v as SetupStepNo) : null;
+}
 
 // ═══ التواريخ (مرآة services/gl/dates.ts وopening.ts) ═══
 

@@ -19,11 +19,15 @@ import { LedgerAmount } from '../../../components/ledger/LedgerAmount';
 import { ledgerHref } from '../routes';
 import { ConfigModal, WriteButton, useConfigErrorText, useLedgerCan } from './parts/configUi';
 import { ACCOUNT_TYPE_KEYS, IMPORT_MAX_ROWS, parseImportRows, type ImportRowIssue, type ParsedImportRow } from './parts/accountImport';
+import { accountDescriptionText, treeNodeLabel, treeNodeName } from './parts/accountTree';
 
 /**
- * شجرة الحسابات (COA‑01…09): قائمة 80 صفاً بالرمز والاسم والنوع والتسوية، والتجميع حسب النوع،
+ * شجرة الحسابات (COA‑01…09): قائمة 80 صفاً بالرمز والاسم والوصف والنوع والتسوية، والتجميع حسب النوع،
  * ولوحة بادئات الرموز، والفلاتر والمفضلات (GlSavedFilter)، والاستيراد مع المعاينة، والأرشفة والتصدير XLSX.
  * القراءة canViewLedger، والكتابة canConfigureLedger (أزرارها معطّلة بتلميح دونها).
+ *
+ * مراجعة الخبير (18 سبتمبر 2026): م‑5 الوصف عمود مستقل مقتطع بتلميح كامل وفي تصدير XLSX،
+ * وم‑7 عقد شجرة البادئات تعرض الاسم مع الرمز في كل مستوى بارتداد إلى الرمز وحده حين لا اسم.
  */
 
 const SERVER_FILTERS = new Set(['debit', 'credit', 'asset', 'liability', 'equity', 'income', 'expense', 'hasMoves', 'archived', 'custom']);
@@ -131,6 +135,7 @@ export default function AccountList() {
           [tr('الرمز')]: a.code ?? '',
           [tr('الاسم')]: a.name ?? '',
           [tr('الاسم الإنجليزي')]: a.nameEn ?? '',
+          [tr('الوصف')]: accountDescriptionText(a.description),
           [tr('النوع')]: a.type ? typeLabels[a.type] ?? a.type : '',
           [tr('التسوية')]: a.reconcile ? tr('نعم') : '',
           [tr('التدفق النقدي')]: a.cashFlowTag ? flowLabels[a.cashFlowTag] ?? a.cashFlowTag : '',
@@ -139,7 +144,7 @@ export default function AccountList() {
           [tr('الحالة')]: a.isActive === false ? tr('مؤرشف') : tr('نشط'),
         };
       });
-      await exportExcel([{ name: tr('شجرة الحسابات'), rows: sheetRows, colWidths: [12, 36, 30, 22, 10, 18, 8, 20, 10] }], 'chart-of-accounts');
+      await exportExcel([{ name: tr('شجرة الحسابات'), rows: sheetRows, colWidths: [12, 36, 30, 48, 22, 10, 18, 8, 20, 10] }], 'chart-of-accounts');
     } catch (e) {
       toast.error(ledgerErrorOf(e)?.code === 'LEDGER_EXPORT_TOO_LARGE' ? tr('التصدير يتجاوز الحد المسموح') : errorText(e, tr('تعذر التصدير')));
     } finally {
@@ -151,11 +156,17 @@ export default function AccountList() {
     { key: 'code', label: tr('الرمز'), render: a => <bdi dir="ltr" className="tabular-nums font-medium">{a.code}</bdi>, className: 'w-28' },
     {
       key: 'name', label: tr('الاسم'), render: a => (
-        <span className={a.isActive ? '' : 'text-[#9A8F7E] line-through'}>
-          {ledgerName(a, lang)}
-          {a.description && <span className="block text-[11px] text-[#9A8F7E] truncate max-w-md">{a.description}</span>}
-        </span>
+        <span className={a.isActive ? '' : 'text-[#9A8F7E] line-through'}>{ledgerName(a, lang)}</span>
       ),
+    },
+    // م‑5: الوصف عمود مستقل مقتطع وتلميحه كامل — يمرّ بـtr() ليُترجَم لاحقاً (الوصف يُزرع بالعربية)
+    {
+      key: 'description', label: tr('الوصف'), optional: true, defaultVisible: true, render: a => {
+        const text = accountDescriptionText(a.description);
+        if (!text) return <span className="text-[#C9C0B2]">—</span>;
+        const shown = tr(text);
+        return <span className="block max-w-[11rem] sm:max-w-[20rem] truncate text-[13px] text-[#6E6557]" title={shown}>{shown}</span>;
+      },
     },
     { key: 'type', label: tr('النوع'), render: a => <span className="text-sm">{typeLabels[a.type]}</span> },
     {
@@ -182,8 +193,9 @@ export default function AccountList() {
   const groupCounts = new Map((q.data?.groups ?? []).map(g => [g.type, g.count]));
   const displayRows = state.groupBy[0] === 'type' ? [...rows].sort((x, y) => (typeOrder.get(x.type) ?? 0) - (typeOrder.get(y.type) ?? 0) || x.code.localeCompare(y.code)) : rows;
 
+  // م‑7: الشجرة صارت تحمل أسماء المستويات كلها لا الأرقام وحدها، فوُسّع عمودها قليلاً (والجوال يبقى صفاً كاملاً)
   return (
-    <div className={`grid gap-4 ${treeOpen ? 'lg:grid-cols-[15rem_1fr]' : ''}`}>
+    <div className={`grid gap-4 ${treeOpen ? 'lg:grid-cols-[17rem_1fr]' : ''}`}>
       {treeOpen && <PrefixTree prefix={prefix} onPick={p => { setPrefix(p); setState(s => ({ ...s, offset: 0 })); }} onClose={() => setTreeOpen(false)} />}
       <div className="min-w-0">
         <LedgerListView<GlAccount>
@@ -246,7 +258,11 @@ export default function AccountList() {
   );
 }
 
-/** لوحة بادئات الرموز (COA‑05): ثلاثة مستويات قابلة للتعمق. */
+/**
+ * لوحة بادئات الرموز (COA‑05): ثلاثة مستويات قابلة للتعمق.
+ * م‑7: الاسم يُعرض مع الرمز في **كل** مستوى (الخادم يعيد `names` للجذور وللبادئتين تحتها)،
+ * والارتداد حين لا اسم إلى الرمز وحده. التلميح يحمل التسمية كاملة لأن الخانة ضيّقة.
+ */
 function PrefixTree({ prefix, onPick, onClose }: { prefix: string | null; onPick: (p: string | null) => void; onClose: () => void }) {
   const tr = useTr();
   const lang = useLang(s => s.lang);
@@ -256,17 +272,19 @@ function PrefixTree({ prefix, onPick, onClose }: { prefix: string | null; onPick
 
   const renderNode = (n: GlAccountTreeNode, depth: number) => {
     const open = expanded.has(n.prefix);
-    const name = n.names ? (n.names[lang] ?? n.names.ar ?? '') : '';
+    const name = treeNodeName(n.names, lang);
+    const label = treeNodeLabel(n.prefix, name);
     return (
       <li key={n.prefix}>
         <div className={`flex items-center gap-1 rounded-lg ${prefix === n.prefix ? 'bg-[#FBEBE2] text-[#E15A30]' : 'hover:bg-[#FBF7F0]'}`} style={{ paddingInlineStart: `${depth * 0.75}rem` }}>
           {n.children.length > 0
-            ? <button type="button" className="p-1" aria-label={n.prefix} aria-expanded={open} onClick={() => toggle(n.prefix)}><ChevronDown size={13} className={open ? '' : '-rotate-90 rtl:rotate-90'} /></button>
-            : <span className="w-[21px]" />}
-          <button type="button" className="flex-1 flex items-center gap-1.5 text-start text-sm py-1 min-w-0" onClick={() => onPick(prefix === n.prefix ? null : n.prefix)}>
-            <bdi dir="ltr" className="font-mono tabular-nums">{n.prefix}</bdi>
+            ? <button type="button" className="p-1 shrink-0" aria-label={label} aria-expanded={open} onClick={() => toggle(n.prefix)}><ChevronDown size={13} className={open ? '' : '-rotate-90 rtl:rotate-90'} /></button>
+            : <span className="w-[21px] shrink-0" />}
+          <button type="button" className="flex-1 flex items-center gap-1.5 text-start text-sm py-1 min-w-0" title={label} aria-pressed={prefix === n.prefix}
+            onClick={() => onPick(prefix === n.prefix ? null : n.prefix)}>
+            <bdi dir="ltr" className="font-mono tabular-nums shrink-0">{n.prefix}</bdi>
             {name && <span className="truncate">{name}</span>}
-            <span className="ms-auto pe-2 text-[11px] text-[#9A8F7E] tabular-nums">{n.count}</span>
+            <span className="ms-auto ps-1 pe-2 text-[11px] text-[#9A8F7E] tabular-nums shrink-0" title={tr('عدد الحسابات')}>{n.count}</span>
           </button>
         </div>
         {open && n.children.length > 0 && <ul>{n.children.map(c => renderNode(c, depth + 1))}</ul>}

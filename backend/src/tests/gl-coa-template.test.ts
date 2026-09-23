@@ -9,7 +9,8 @@ import {
 } from '../services/gl/types';
 import {
   CASH_EQUIVALENT_CODES, LEDGER_LANGS, MAPPING_KEY_ALLOWED_TYPES, MAPPING_KEY_CONTROL_KIND, SA_6D_ACCOUNTS,
-  SA_6D_ACCOUNT_GROUPS, SA_6D_JOURNALS, SA_6D_MAPPINGS, SA_6D_TEMPLATE, VAT_ACCOUNT_CODES, mappingsFromAccounts,
+  SA_6D_ACCOUNT_DESCRIPTIONS, SA_6D_ACCOUNT_GROUPS, SA_6D_ACCOUNT_SYNONYMS, SA_6D_JOURNALS, SA_6D_MAPPINGS,
+  SA_6D_ROOT_GROUPS, SA_6D_TEMPLATE, VAT_ACCOUNT_CODES, mappingsFromAccounts,
   type TemplateNames,
 } from '../services/gl/coa/sa';
 import { SA_TAXES, SA_TAX_GROUPS } from '../services/gl/taxes/sa';
@@ -85,10 +86,10 @@ test('SA_6D يطابق جدول §4.2 في الوثيقة صفاً صفاً (ا�
     const ck = [...keyCell.matchAll(/\(([A-Z_]+)\)/g)].map((m) => m[1]).find((x) => (CONTROL_KINDS as readonly string[]).includes(x));
     assert.equal(a.controlKind, ck ?? null, `${code}: controlKind`);
   });
-  // رؤوس المجموعات
+  // رؤوس المجموعات — الجذور وحدها في الوثيقة؛ عقد المستويين الثاني والثالث للعرض (م‑7)
   const heads = section('### 4.2 الحسابات المزروعة', '### 4.3').split('\n').filter((l) => /^\| \*\*\d\*\* \|/.test(l)).map(cells);
-  assert.deepEqual(heads.map((h) => h[0].replace(/\*/g, '')), SA_6D_ACCOUNT_GROUPS.map((g) => g.code));
-  heads.forEach((h, i) => assert.equal(h[1].replace(/\*/g, ''), SA_6D_ACCOUNT_GROUPS[i].names.ar));
+  assert.deepEqual(heads.map((h) => h[0].replace(/\*/g, '')), SA_6D_ROOT_GROUPS.map((g) => g.code));
+  heads.forEach((h, i) => assert.equal(h[1].replace(/\*/g, ''), SA_6D_ROOT_GROUPS[i].names.ar));
 });
 
 test('reconcile لا يُضبط على asset_cash، والمعادلة للنقد موسومة CASH_EQUIVALENT وحدها', () => {
@@ -112,6 +113,91 @@ test('أسماء خمس لغات غير فارغة لكل حساب ومجموع�
     for (const a of g.accounts) assertNames(a.names, `${cc} حساب ${a.code}`);
     for (const t of g.taxes) assertNames(t.names, `${cc} ضريبة ${t.key}`);
     for (const tg of g.taxGroups) assertNames(tg.names, `${cc} مجموعة ${tg.key}`);
+  }
+});
+
+// ═══ أوصاف الحسابات (م‑5: «لا أوصاف تحت الحسابات») ═══
+
+test('كل حساب في القالب له وصف عربي من ١٠ إلى ٢٠ كلمة، غير مكرر ولا يعيد صياغة الاسم', () => {
+  assert.equal(Object.keys(SA_6D_ACCOUNT_DESCRIPTIONS).length, SA_6D_ACCOUNTS.length, 'عدد الأوصاف ≠ عدد الحسابات');
+  const seen = new Map<string, string>();
+  for (const a of SA_6D_ACCOUNTS) {
+    const d = a.description;
+    assert.equal(typeof d, 'string', a.code);
+    assert.ok(d.length > 0, `${a.code}: وصف فارغ`);
+    assert.equal(d, d.trim(), `${a.code}: مسافات على الطرفين`);
+    assert.match(d, ARABIC, `${a.code}: وصف بلا حرف عربي`);
+    assert.ok(!d.includes("'"), `${a.code}: فاصلة عليا ASCII في الوصف (§8.7)`);
+    const words = d.split(/\s+/).length;
+    assert.ok(words >= 10 && words <= 20, `${a.code}: ${words} كلمة (المطلوب ١٠–٢٠)`);
+    assert.notEqual(d, a.names.ar, `${a.code}: الوصف يعيد الاسم`);
+    const prev = seen.get(d);
+    assert.equal(prev, undefined, `${a.code}: وصف مكرر حرفياً مع ${prev}`);
+    seen.set(d, a.code);
+    assert.equal(SA_6D_ACCOUNT_DESCRIPTIONS[a.code], d, `${a.code}: الوصف لا يأتي من السجل`);
+  }
+  for (const code of Object.keys(SA_6D_ACCOUNT_DESCRIPTIONS)) assert.ok(byCode.has(code), `وصف لرمز خارج القالب: ${code}`);
+  // نبرة المثالين في مراجعة الخبير
+  assert.match(byCode.get('611003')!.description, /بنزين/, '611003: كلمة المحاسب');
+  assert.match(byCode.get('113001')!.description, /العملاء/, '113001: ما على العملاء');
+});
+
+// ═══ عقد شجرة الحسابات (م‑7: «أرقام عارية بلا أسماء») ═══
+
+test('كل بادئة في القالب (مستوى ١ و٢ و٣) لها عقدة مسمّاة بخمس لغات، بلا عقدة زائدة ولا اسم مكرر', () => {
+  const prefixes = new Set<string>();
+  for (const a of SA_6D_ACCOUNTS) for (const len of [1, 2, 3]) prefixes.add(a.code.slice(0, len));
+  const byGroup = new Map(SA_6D_ACCOUNT_GROUPS.map((g) => [g.code, g]));
+  assert.equal(byGroup.size, SA_6D_ACCOUNT_GROUPS.length, 'رمز عقدة مكرر');
+  for (const p of prefixes) assert.ok(byGroup.has(p), `البادئة ${p} تظهر في الشجرة رقماً عارياً`);
+  for (const g of SA_6D_ACCOUNT_GROUPS) {
+    assert.ok(prefixes.has(g.code), `عقدة ${g.code} لا يقابلها حساب في القالب`);
+    assertNames(g.names, `عقدة ${g.code}`);
+    assert.doesNotMatch(g.names.ar, /^\d+$/, `عقدة ${g.code}: اسم رقمي`);
+    if (g.code.length > 1) assert.ok(byGroup.has(g.code.slice(0, -1)), `عقدة ${g.code}: أبوها مفقود`);
+  }
+  const ar = SA_6D_ACCOUNT_GROUPS.map((g) => g.names.ar);
+  assert.equal(new Set(ar).size, ar.length, 'اسم عقدة عربي مكرر');
+  assert.deepEqual(SA_6D_ROOT_GROUPS.map((g) => g.code), ['1', '2', '3', '4', '5', '6', '7', '9']);
+  assert.equal(byGroup.get('611')?.names.ar, 'مصروفات فرق البيع والسيارات');
+  assert.equal(byGroup.get('62')?.names.ar, 'المصروفات الإدارية والعمومية');
+});
+
+// ═══ مرادفات البحث (م‑1: «بنزين» لا تطابق «وقود وزيوت السيارات») ═══
+
+test('المرادفات: كل رمز موجود، ولا مرادف يصلح لحسابين، ولا مرادف يطابق اسم حساب آخر', () => {
+  const owner = new Map<string, string>();
+  const nameToCode = new Map(SA_6D_ACCOUNTS.map((a) => [a.names.ar, a.code]));
+  for (const [code, list] of Object.entries(SA_6D_ACCOUNT_SYNONYMS)) {
+    assert.ok(byCode.has(code), `مرادفات لرمز خارج القالب: ${code}`);
+    assert.ok(list.length > 0, `${code}: قائمة مرادفات فارغة`);
+    assert.equal(new Set(list).size, list.length, `${code}: مرادف مكرر داخل الحساب`);
+    for (const s of list) {
+      assert.equal(s, s.trim(), `${code}: مسافات حول «${s}»`);
+      assert.ok(s.length >= 2, `${code}: مرادف أقصر من حرفين «${s}»`);
+      assert.match(s, ARABIC, `${code}: مرادف بلا حرف عربي «${s}»`);
+      assert.ok(!s.includes("'"), `${code}: فاصلة عليا ASCII في «${s}»`);
+      const prev = owner.get(s);
+      assert.equal(prev, undefined, `المرادف «${s}» على حسابين: ${prev} و${code}`);
+      owner.set(s, code);
+      const other = nameToCode.get(s);
+      assert.ok(other === undefined || other === code, `المرادف «${s}» هو اسم الحساب ${other}`);
+    }
+  }
+  // الكلمات التي ذكرها الخبير (وأخواتها) تصيب حسابها
+  const expected = [
+    ['بنزين', '611003'], ['محروقات', '611003'], ['سولار', '611003'],
+    ['أجرة', '621004'], ['إيجار المحل', '621004'], ['كهربا', '621006'], ['مياه', '621006'],
+    ['مرتبات', '621001'], ['أجور', '621001'], ['تليفون', '621007'], ['جوال', '621007'],
+    ['صيانة', '621010'], ['تنظيف', '621011'], ['قهوة', '621012'], ['دعاية', '611006'],
+    ['عمولة المندوب', '611002'], ['توصيل', '611010'], ['مبيعات', '411001'], ['مدينون', '113001'],
+    ['كاش', '111001'], ['بنك', '111101'], ['مخزن', '114001'], ['مشتريات', '512001'], ['زكاة', '721001'],
+  ] as const;
+  for (const [word, code] of expected) assert.equal(owner.get(word), code, `«${word}» ⇐ ${code}`);
+  // تغطية: كل مصروف تشغيلي وكل حساب إيراد ونقد وذمم له مرادف واحد على الأقل
+  for (const a of SA_6D_ACCOUNTS) {
+    const needs = /^(61|62|41|42|111|113)/.test(a.code);
+    if (needs) assert.ok(SA_6D_ACCOUNT_SYNONYMS[a.code]?.length, `${a.code} «${a.names.ar}» بلا مرادفات`);
   }
 });
 
@@ -304,6 +390,27 @@ test('GENERIC_6D: نفس هيكل SA_6D (الرموز والأنواع والم�
   assert.equal(s.templateKey, 'GENERIC_6D');
   assert.equal(s.taxDeadlineRule, 'DAYS_AFTER');
   assert.ok(Number.isInteger(s.taxDeadlineDays) && (s.taxDeadlineDays as number) >= 0);
+});
+
+test('GENERIC_6D: أوصاف الحسابات موروثة من القالب السعودي إلا حسابات الضريبة فبصيغة عامة', () => {
+  for (const cc of ['EG', 'KW']) {
+    const g = genericTemplate(cc);
+    for (const a of g.accounts) {
+      const sa = byCode.get(a.code);
+      assert.ok(sa, a.code);
+      assert.ok(a.description.trim().length > 0, `${cc} ${a.code}: وصف فارغ`);
+      const words = a.description.split(/\s+/).length;
+      assert.ok(words >= 10 && words <= 20, `${cc} ${a.code}: ${words} كلمة`);
+      if (VAT_ACCOUNT_CODES.includes(a.code)) {
+        assert.notEqual(a.description, sa.description, `${cc} ${a.code}: الوصف لم يُعمَّم`);
+        assert.doesNotMatch(a.description, /الهيئة|الزكاة/, `${cc} ${a.code}: وصف ضريبة بصيغة سعودية`);
+      } else {
+        assert.equal(a.description, sa.description, `${cc} ${a.code}`);
+      }
+    }
+    const descriptions = g.accounts.map((a) => a.description);
+    assert.equal(new Set(descriptions).size, descriptions.length, `${cc}: وصف مكرر`);
+  }
 });
 
 test('GENERIC_6D لدول 0٪ (الكويت، قطر، العراق، ليبيا، سوريا، الصومال): حسابات الضريبة مؤرشفة والضرائب غير نشطة وبلا مفتاح صفري', () => {

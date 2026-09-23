@@ -26,12 +26,23 @@ export function postingParamsOf(filters: readonly string[]): PostingListParams {
   return { type: pick('type:'), status: pick('status:'), paymentMethod: pick('method:'), posting: pick('posting:') };
 }
 
-export function NotActivatedNotice() {
+/**
+ * ظ‑1 (مراجعة الخبير 2026‑09‑18): قبل اعتماد الإعداد تظهر القائمة كلها بحالة «لم يُلتقط بعد» فتُقرأ عطلاً.
+ * السبب مكتوب هنا فوق القائمة — والالتقاط مقصودٌ تأجيله لا معطّل — ومعه عدّاد ما ينتظر.
+ * عنوان «الدفاتر بانتظار الإعداد» وتقدّمه ورابطه في الشارة المشتركة فوق الشاشة (LedgerLayout) فلا يُكرَّر.
+ */
+export function NotActivatedNotice({ pending }: { pending?: number }) {
   const tr = useTr();
+  const waiting = pending != null && pending > 0
+    ? tr('{count} مستندا في هذه القائمة بانتظار الالتقاط').replace('{count}', String(pending))
+    : null;
   return (
     <div className="flex items-start gap-2 rounded-xl border border-[#F3D3C4] bg-[#FBEBE2] px-3 py-2 text-sm text-[#1F1A13]" role="status">
       <Hourglass size={16} className="text-[#E15A30] shrink-0 mt-0.5" />
-      <p><span className="font-semibold">{tr('الدفاتر بانتظار الإعداد')}</span> — {tr('المستندات تظهر هنا، وتُرحَّل آليا بعد التفعيل')}</p>
+      <p>
+        <span className="font-semibold">{tr('يبدأ التقاط المستندات بعد اعتماد الإعداد')}</span> — {tr('المستندات تظهر هنا، وتُرحَّل آليا بعد التفعيل')}
+        {waiting && <> · <bdi className="tabular-nums">{waiting}</bdi></>}
+      </p>
     </div>
   );
 }

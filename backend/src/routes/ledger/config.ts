@@ -9,12 +9,13 @@ import { LedgerHttpError, ledgerHandler } from './errors';
 import { appendAudit, ledgerActor, type GlActor, type GlTx } from '../../services/gl/audit';
 import { acquirePostLock, assertJournalNumberingEditable } from '../../services/gl/post';
 import { GlNotFoundError } from '../../services/gl/resolve';
-import { seedTemplate } from '../../services/gl/seed';
+import { backfillAccountDescriptions, seedTemplate } from '../../services/gl/seed';
 import { assertArabicName, hasArabicLetter } from '../../services/gl/names';
 import { JOURNAL_CODE_RE } from '../../services/gl/sequence';
 import { importTimezone } from '../../services/importLedger';
 import { dbNowOf, guardImportTimezone } from './setup';
 import { MAPPING_KEY_ALLOWED_TYPES, MAPPING_KEY_CONTROL_KIND, SA_6D_ACCOUNT_GROUPS } from '../../services/gl/coa/sa';
+import { countByType, pageOfRanked, rankAccounts } from '../../services/gl/coa/search';
 import { addMonths, compareLocalDate, daysInMonth, fromDbDate, isLocalDate, isValidTimeZone, toDbDate } from '../../services/gl/dates';
 import {
   ACCOUNT_TYPES, ACCOUNT_TYPE_NATURAL_SIDE, CASH_FLOW_TAGS, CASH_INVOICE_ROUTINGS, INVENTORY_MODES, JOURNAL_TYPES,
@@ -118,6 +119,18 @@ const TYPE_FILTERS: Record<string, readonly AccountType[]> = {
   expense: ACCOUNT_TYPES.filter((t) => t.startsWith('expense')),
 };
 
+/**
+ * سقف المسح عند البحث (م‑1، م‑4): البحث بالتطبيع العربي والمرادفات في الذاكرة لا في SQL،
+ * فيُجلب المرشّحون بالفلاتر نفسها (ومنها isActive) ثم يُصفَّون ويُرتَّبون بالصلة. القالب ١٣٧
+ * حساباً، والسقف يحمي الشركة ذات الشجرة الضخمة من مسح غير محدود.
+ */
+const ACCOUNT_SEARCH_SCAN_LIMIT = 5000;
+
+/** الحقول التي يقرؤها البحث: الرمز والأسماء بكل اللغات والوصف (م‑5)، والنوع للتجميع. */
+const ACCOUNT_SEARCH_SELECT = {
+  id: true, code: true, name: true, nameEn: true, nameI18n: true, description: true, type: true,
+} as const;
+
 const accountListQuery = z.object({
   search: z.string().trim().max(100).optional(),
   type: z.string().optional(),
@@ -146,27 +159,42 @@ router.get('/accounts', VIEW, ledgerHandler(async (req, res) => {
   else if (!q.includeArchived) and.push({ isActive: true });
   if (filters.has('custom')) and.push({ templateRef: null });
   if (q.prefix) and.push({ code: { startsWith: q.prefix } });
-  if (q.search) {
-    and.push({ OR: [
-      { code: { startsWith: q.search } },
-      { name: { contains: q.search, mode: 'insensitive' } },
-      { nameEn: { contains: q.search, mode: 'insensitive' } },
-      { description: { contains: q.search, mode: 'insensitive' } },
-    ] });
-  }
   if (filters.has('hasMoves')) {
     const used = await prisma.glMoveLine.groupBy({ by: ['accountId'], where: { tenantId } });
     and.push({ id: { in: used.map((u) => u.accountId) } });
   }
   if (and.length) where.AND = and;
 
-  const [total, rows, groups] = await Promise.all([
-    prisma.glAccount.count({ where }),
-    prisma.glAccount.findMany({ where, orderBy: { code: 'asc' }, skip: q.offset, take: q.limit, include: { tagLinks: { select: { tagId: true } } } }),
-    q.groupBy === 'type'
-      ? prisma.glAccount.groupBy({ by: ['type'], where, _count: { _all: true }, orderBy: { type: 'asc' } })
-      : Promise.resolve(null),
-  ]);
+  // البحث (م‑1، م‑4): المطابقة بالتطبيع العربي والمرادفات والوصف، والترتيب بالصلة لا بالرمز
+  // أبجدياً (وإلا تصدّرت الأصول دائماً). الأرشفة والفلاتر تبقى في `where` فلا يتسرّب مؤرشف.
+  let total: number;
+  let rows: (AccountRow & { tagLinks: { tagId: string }[] })[];
+  let groups: { type: string; count: number }[] | null = null;
+  if (q.search) {
+    const scan = await prisma.glAccount.findMany({
+      where, select: ACCOUNT_SEARCH_SELECT, orderBy: { code: 'asc' }, take: ACCOUNT_SEARCH_SCAN_LIMIT,
+    });
+    const matched = rankAccounts(scan, q.search);
+    total = matched.length;
+    const pageIds = pageOfRanked(matched, q.offset, q.limit).map((r) => r.id);
+    const page = pageIds.length
+      ? await prisma.glAccount.findMany({ where: { tenantId, id: { in: pageIds } }, include: { tagLinks: { select: { tagId: true } } } })
+      : [];
+    const byId = new Map(page.map((r) => [r.id, r]));
+    rows = pageIds.map((id) => byId.get(id)).filter((r): r is (typeof page)[number] => !!r);
+    if (q.groupBy === 'type') groups = countByType(matched);
+  } else {
+    const [count, list, typeGroupRows] = await Promise.all([
+      prisma.glAccount.count({ where }),
+      prisma.glAccount.findMany({ where, orderBy: { code: 'asc' }, skip: q.offset, take: q.limit, include: { tagLinks: { select: { tagId: true } } } }),
+      q.groupBy === 'type'
+        ? prisma.glAccount.groupBy({ by: ['type'], where, _count: { _all: true }, orderBy: { type: 'asc' } })
+        : Promise.resolve(null),
+    ]);
+    total = count;
+    rows = list;
+    groups = typeGroupRows ? typeGroupRows.map((g) => ({ type: g.type, count: g._count._all })) : null;
+  }
   const ids = rows.map((r) => r.id);
   const [lineCounts, balances] = ids.length
     ? await Promise.all([
@@ -183,11 +211,14 @@ router.get('/accounts', VIEW, ledgerHandler(async (req, res) => {
       tagIds: tagLinks.map((l) => l.tagId), hasMoves: moved.has(a.id), balance: milliToNumber(bal.get(a.id) ?? 0n),
     })),
     pagination: { total, offset: q.offset, limit: q.limit },
-    ...(groups ? { groups: groups.map((g) => ({ type: g.type, count: g._count._all })) } : {}),
+    ...(groups ? { groups } : {}),
   });
 }));
 
-/** شجرة بادئات الرموز (COA‑05): المستوى الأول برأس المجموعة، ثم بادئتا الرقمين والثلاثة. */
+/**
+ * شجرة بادئات الرموز (COA‑05): المستويات الثلاثة، وكل عقدة باسمها من `SA_6D_ACCOUNT_GROUPS`
+ * إن كان للبادئة اسم في القالب (م‑7: «61» و«611» كانت تظهر أرقاماً عارية بلا أسماء).
+ */
 router.get('/accounts/tree', VIEW, ledgerHandler(async (req, res) => {
   const { tenantId } = ledgerOf(res);
   const includeArchived = boolQuery.parse(req.query.includeArchived);
@@ -206,7 +237,7 @@ router.get('/accounts/tree', VIEW, ledgerHandler(async (req, res) => {
       const prefix = code.slice(0, len);
       let node = index.get(prefix);
       if (!node) {
-        node = { prefix, count: 0, children: [], ...(len === 1 && groupNames.has(prefix) ? { names: { ...groupNames.get(prefix)! } } : {}) };
+        node = { prefix, count: 0, children: [], ...(groupNames.has(prefix) ? { names: { ...groupNames.get(prefix)! } } : {}) };
         index.set(prefix, node);
         siblings.push(node);
       }
@@ -1100,19 +1131,29 @@ router.post('/settings/load-template', CONFIGURE, ledgerHandler(async (req, res)
       countryCode = (cs?.countryCode || 'SA').toUpperCase();
       templateKey = countryCode === 'SA' ? 'SA_6D' : 'GENERIC_6D';
     }
+    const opts = templateKey === 'GENERIC_6D' ? { countryCode } : {};
     let report;
+    /**
+     * أوصاف الحسابات (م‑5): `seedTemplate` تكتب الوصف عند **الإنشاء** وحده، فشركة مزروعة قبل م‑5
+     * تبقى بعمود «الوصف» فارغاً مهما أُعيد تحميل القالب (`createMany({skipDuplicates})` لا تلمس القائم).
+     * الملء هنا — بعد الزرع مباشرة وتحت القفل نفسه — هو ما يوصل الأوصاف إلى الشركة الحيّة:
+     * الفارغ وحده يُملأ، ووصفٌ كتبه المحاسب لا يُدهَس.
+     */
+    let descriptions;
     try {
-      report = await seedTemplate(tx, tenantId, templateKey, templateKey === 'GENERIC_6D' ? { countryCode } : {});
+      report = await seedTemplate(tx, tenantId, templateKey, opts);
+      descriptions = await backfillAccountDescriptions(tx, tenantId, templateKey, opts);
     } catch (e) {
       if (e instanceof RangeError) throw new LedgerHttpError(422, 'لا قالب محاسبي لدولة الشركة', { reason: 'TEMPLATE_UNAVAILABLE', templateKey, countryCode });
       throw e;
     }
     await appendAudit(tx, {
       tenantId, actor, action: 'TEMPLATE_SEED', entityType: 'SETTINGS', entityId: null,
-      summary: `تحميل القالب ${templateKey}`, after: { countryCode, ...report },
+      summary: `تحميل القالب ${templateKey} (أوصاف مُلئت: ${descriptions.filled})`,
+      after: { countryCode, ...report, descriptions },
     });
     const s = await tx.glSettings.findUnique({ where: { tenantId } });
-    return { report, settings: s ? settingsOut(s) : null };
+    return { report, descriptions, settings: s ? settingsOut(s) : null };
   }, { timeout: 60_000, maxWait: 10_000 });
   res.json({ success: true, data: out });
 }));

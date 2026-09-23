@@ -27,6 +27,19 @@ const GENERIC_VAT_ACCOUNT_NAMES: Readonly<Record<string, TemplateNames>> = {
   '212006': n('تصحيحات ضريبية لفترات سابقة', 'Prior Period Tax Corrections', 'Corrections de taxe des périodes antérieures', 'Önceki Dönem Vergi Düzeltmeleri', '以前期间税款更正'),
 };
 
+/**
+ * أوصاف عامة لحسابات الضريبة (م‑5 مع الفرق 1): بقية الأوصاف من القالب السعودي كما هي،
+ * وهذه وحدها تُستبدل كي لا تذكر «هيئة الزكاة» ولا صيغة الإقرار السعودي.
+ */
+const GENERIC_VAT_ACCOUNT_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  '116001': 'ضريبة المشتريات والمصروفات المدفوعة للموردين، تُخصم من الضريبة المحصَّلة عند إعداد الإقرار الدوري',
+  '116002': 'رصيد مستحق للمنشأة حين تفوق ضريبة المشتريات ضريبة المبيعات في إقرار الفترة',
+  '212001': 'الضريبة المحصَّلة من العملاء على فواتير البيع، تُورَّد لمصلحة الضرائب في موعد الإقرار',
+  '212002': 'المبلغ الواجب سداده لمصلحة الضرائب بعد خصم ضريبة المشتريات من ضريبة المبيعات',
+  '212003': 'ضريبة على خدمات مستوردة تحتسبها المنشأة على نفسها وتخصمها في الإقرار ذاته',
+  '212006': 'فروق ضريبة عن فترات سابقة تُصحَّح ضمن إقرار الفترة الحالية أو بإفصاح مستقل',
+};
+
 /** إعداد الدولة للقالب العام — يرمي RangeError لدولة غير معروفة (لا سقوط صامت إلى السعودية). */
 export function genericCountry(countryCode: string): { code: string; currency: string; currencyDecimals: number; vatPct: number } {
   const cc = countryCode.trim().toUpperCase();
@@ -49,8 +62,9 @@ export function genericAccounts(vatPct: number): AccountTemplate[] {
   const archiveVat = vatPct === 0;
   return SA_6D_ACCOUNTS.map((a) => {
     const names = GENERIC_VAT_ACCOUNT_NAMES[a.code] ?? a.names;
+    const description = GENERIC_VAT_ACCOUNT_DESCRIPTIONS[a.code] ?? a.description;
     const isActive = archiveVat && VAT_ACCOUNT_CODES.includes(a.code) ? false : a.isActive;
-    return { ...a, names, isActive };
+    return { ...a, names, description, isActive };
   });
 }
 

@@ -61,7 +61,7 @@ export default function ReceiptPostingList() {
 
   return (
     <div className="space-y-3">
-      {q.data && !q.data.activated && <NotActivatedNotice />}
+      {q.data && !q.data.activated && <NotActivatedNotice pending={q.data.total} />}
       {q.data?.postingFilterCapped && (
         <p className="rounded-xl border border-[#F3D3C4] bg-[#FBEBE2] px-3 py-2 text-sm">{tr('نتائج فلتر حالة الترحيل مقتصرة على أحدث 5000 مستند؛ ضيّق نطاق التاريخ')}</p>
       )}

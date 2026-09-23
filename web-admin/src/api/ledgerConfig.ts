@@ -445,8 +445,12 @@ export const ledgerConfigApi = {
      */
     update: (data: GlSettingsInput, opts?: { rebaseImportDates?: boolean }) =>
       api.put<LedgerSettingsUpdateResponse>(`${L}/settings`, { ...data, ...(opts?.rebaseImportDates ? { rebaseImportDates: true } : {}) }),
-    /** «تحميل القالب/إعادة تحميله» (TAX‑01): يضيف الناقص فقط ولا يعدّل الموجود */
-    loadTemplate: () => api.post<LedgerEnvelope<{ report: SeedReport; settings: GlSettings | null }>>(`${L}/settings/load-template`),
+    /**
+     * «تحميل القالب/إعادة تحميله» (TAX‑01): يضيف الناقص فقط ولا يعدّل الموجود.
+     * م‑5 (مراجعة الخبير): يملأ كذلك أوصاف حسابات القالب **الفارغة** للشركات المزروعة قبل وصول الأوصاف،
+     * فيعيد `descriptions` — وهي وحدها ما يتغيّر لشركة قالبها مكتمل، فتُذكر في رسالة النجاح.
+     */
+    loadTemplate: () => api.post<LedgerEnvelope<{ report: SeedReport; settings: GlSettings | null; descriptions?: { scanned: number; filled: number; kept: number } }>>(`${L}/settings/load-template`),
   },
 
   fiscalYears: {

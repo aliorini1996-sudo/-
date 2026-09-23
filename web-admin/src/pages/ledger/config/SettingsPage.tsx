@@ -142,8 +142,17 @@ export default function SettingsPage() {
       qc.invalidateQueries({ queryKey: ledgerKeys.all });
       setSeedReport(d.report);
       const c = d.report.created;
-      const total = c.accounts + c.journals + c.taxes + c.mappings + c.tags;
-      toast.success(total === 0 ? tr('القالب محمّل بالكامل ولا ناقص') : `${tr('تم تحميل القالب')}: ${c.accounts} ${tr('حساب')} · ${c.journals} ${tr('دفتر')} · ${c.taxes} ${tr('ضريبة')} · ${c.mappings} ${tr('ربط')}`, { duration: 6000 });
+      // م‑5: الأوصاف تُملأ للحسابات القائمة، فشركةٌ قالبها مكتمل لا يُنشأ لها شيء ومع ذلك يتغيّر عندها شيء
+      const filled = d.descriptions?.filled ?? 0;
+      const total = c.accounts + c.journals + c.taxes + c.mappings + c.tags + filled;
+      const parts = [
+        c.accounts ? `${c.accounts} ${tr('حساب')}` : '',
+        c.journals ? `${c.journals} ${tr('دفتر')}` : '',
+        c.taxes ? `${c.taxes} ${tr('ضريبة')}` : '',
+        c.mappings ? `${c.mappings} ${tr('ربط')}` : '',
+        filled ? `${filled} ${tr('وصف حساب')}` : '',
+      ].filter(Boolean);
+      toast.success(total === 0 ? tr('القالب محمّل بالكامل ولا ناقص') : `${tr('تم تحميل القالب')}: ${parts.join(' · ')}`, { duration: 6000 });
     },
     onError: e => toast.error(errorText(e)),
   });

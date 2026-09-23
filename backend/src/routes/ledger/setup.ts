@@ -12,7 +12,7 @@ import {
 import { appendAudit, ledgerActor, type GlActor, type GlTx } from '../../services/gl/audit';
 import { acquirePostLock, postMove } from '../../services/gl/post';
 import { GlNotFoundError, loadBuildContext } from '../../services/gl/resolve';
-import { resolveTemplate, seedTemplate } from '../../services/gl/seed';
+import { backfillAccountDescriptions, resolveTemplate, seedTemplate } from '../../services/gl/seed';
 import { assertArabicName } from '../../services/gl/names';
 import { addDays, daysInMonth, fromDbDate, isLocalDate, isValidTimeZone, toDbDate, todayLocal } from '../../services/gl/dates';
 import { draftsListUrl } from '../../services/gl/locks';
@@ -702,12 +702,19 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       },
     });
     let seed;
+    const templateOpts = eff.templateKey === 'GENERIC_6D' ? { countryCode: eff.countryCode } : {};
     try {
-      seed = await seedTemplate(tx, tenantId, eff.templateKey, eff.templateKey === 'GENERIC_6D' ? { countryCode: eff.countryCode } : {});
+      seed = await seedTemplate(tx, tenantId, eff.templateKey, templateOpts);
     } catch (e) {
       if (e instanceof RangeError) throw new LedgerHttpError(422, 'لا قالب محاسبي لدولة الشركة', { reason: 'TEMPLATE_UNAVAILABLE', templateKey: eff.templateKey, countryCode: eff.countryCode });
       throw e;
     }
+    /*
+     * م‑5 (مراجعة الخبير): `seedTemplate` يكتب الوصف للحساب الذي **يُنشئه** وحده (createMany بـskipDuplicates)،
+     * وحسابات الشركة قد تسبق الاعتماد (إنشاء يدوي، أو استيراد شجرة، أو زرّ «تحميل القالب» قبل وصول الأوصاف).
+     * فتُملأ الأوصاف الفارغة هنا أيضاً — لا تُدهَس أوصاف عدّلها المستخدم، والنداء داخل المعاملة والقفل نفسيهما.
+     */
+    await backfillAccountDescriptions(tx, tenantId, eff.templateKey, templateOpts);
     const purchaseKey = resolveTemplate(eff.templateKey, eff.templateKey === 'GENERIC_6D' ? { countryCode: eff.countryCode } : {}).defaultPurchaseTaxKey;
     if (purchaseKey) {
       const t = await tx.glTax.findUnique({ where: { tenantId_key: { tenantId, key: purchaseKey } }, select: { id: true } });

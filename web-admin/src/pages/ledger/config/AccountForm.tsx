@@ -18,12 +18,17 @@ import { Field, Toggle, hasArabicLetter, useConfigErrorText, useLedgerCan } from
 import { ACCOUNT_TYPE_KEYS } from './parts/accountImport';
 
 /**
- * نموذج الحساب (COA‑01…03، CFG‑06): الرمز والاسم (عربي إلزاماً، G7) والنوع والتسوية وتصنيف التدفق النقدي
- * والعملة والعلامات. رمز حساب القالب أو ذي الحركة مقفل، ونوع الحساب الرئيسي ثابت، والتسوية مخفية للبنك والنقد.
+ * نموذج الحساب (COA‑01…03، CFG‑06): الرمز والاسم (عربي إلزاماً، G7) والوصف والنوع والتسوية وتصنيف التدفق
+ * النقدي والعملة والعلامات. رمز حساب القالب أو ذي الحركة مقفل، ونوع الحساب الرئيسي ثابت، والتسوية مخفية للبنك والنقد.
+ * م‑5 (مراجعة الخبير): الوصف يُحرَّر هنا ويصل الخادم في POST وPATCH معاً (`routes/ledger/config.ts`)، فما
+ * يكتبه المستخدم يعلو وصف القالب ولا يُكتَب فوقه عند إعادة الزرع.
  * الأرشفة لا الحذف (§3.2). القراءة canViewLedger والتعديل canConfigureLedger.
  */
 
 const CASH_FLOW_TAGS: CashFlowTag[] = ['OPERATING', 'INVESTING', 'FINANCING', 'EXCLUDE', 'CASH_EQUIVALENT'];
+
+/** حدّ الوصف — مرآة `z.string().max(2000)` في `routes/ledger/config.ts` (لا يُرفض الحفظ من الخادم). */
+const DESCRIPTION_MAX = 2000;
 
 interface FormState {
   code: string; name: string; nameEn: string; description: string; type: AccountType;
@@ -178,8 +183,19 @@ export default function AccountForm() {
             checked={form.reconcile} disabled={readOnly || reconcileLocked} onChange={v => set('reconcile', v)} />
         )}
 
-        <Field label={tr('الوصف')}>
-          <textarea className="input min-h-[4rem]" maxLength={2000} value={form.description} onChange={e => set('description', e.target.value)} />
+        {/* م‑5: وصف الحساب — متى يُستعمل ومثال عليه. يظهر عموداً في شجرة الحسابات وسطراً ثانياً في منتقي الحساب. */}
+        <Field
+          label={tr('الوصف')}
+          hint={<>
+            {tr('سطر يشرح متى يُستعمل هذا الحساب — يظهر في شجرة الحسابات وفي منتقي الحساب داخل القيد')}
+            <span className="block mt-0.5 tabular-nums" aria-live="polite">
+              <bdi dir="ltr">{form.description.length}/{DESCRIPTION_MAX}</bdi>
+              {form.description.length >= DESCRIPTION_MAX && <span className="text-[#C0392B] ms-1">{tr('بلغت الحد الأقصى للوصف')}</span>}
+            </span>
+          </>}>
+          <textarea className="input min-h-[4rem]" maxLength={DESCRIPTION_MAX} value={form.description}
+            placeholder={tr('مثال: بنزين وسولار وزيوت سيارات التوزيع')}
+            onChange={e => set('description', e.target.value)} />
         </Field>
 
         <div>
