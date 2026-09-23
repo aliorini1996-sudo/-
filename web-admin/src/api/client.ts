@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { sessionSpace, useAuthStore } from '../store/authStore';
+import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
 
 /** مساران واحدٌ بعد تطبيع الشرطة الأخيرة — الخادم يخدم `/m` و`/m/` معاً */
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
@@ -10,7 +11,8 @@ export const API_BASE = BASE;
 
 const api = axios.create({
   baseURL: BASE,
-  headers: { 'Content-Type': 'application/json' },
+  // قدرات الحزمة (ZATCA المرحلة الثانية): لوحة الإدارة و`/m` تمرّان من حارس الخادم كما يمرّ تطبيق المندوب — انظر api/caps.ts
+  headers: { 'Content-Type': 'application/json', [FS_CAPS_HEADER]: FS_CAPS_VALUE },
 });
 
 // مفاتيح الجلسة حسب المساحة الحالية — **مستوردة لا مكرَّرة**: تعريفان

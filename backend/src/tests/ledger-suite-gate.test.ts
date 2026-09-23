@@ -77,7 +77,8 @@ test('الموجّه مسجَّل تحت /api/ledger', () => {
 });
 
 test('الدفاتر لا تحرس مسارات التشغيل — الفواتير والسندات والأوف-لاين تعمل أياً كان العَلَم', () => {
-  for (const f of ['invoices.ts', 'receipts.ts']) {
+  // ZATCA المرحلة الثانية (نقد الخطة 36): فرع الإصدار مسارٌ تشغيليّ أيضاً — لا يحرسه علم الدفاتر
+  for (const f of ['invoices.ts', 'receipts.ts', 'invoicesZatca.ts', 'invoicesZatcaDeps.ts']) {
     assert.doesNotMatch(read('src', 'routes', f), /requireAccountingSuite/, `${f} لا يجوز أن يتوقف بإطفاء الدفاتر`);
   }
   assert.doesNotMatch(read('..', 'web-admin', 'src', 'rep', 'offlineSync.ts'), /requireAccountingSuite|ACCOUNTING_SUITE_NOT_ALLOWED/,

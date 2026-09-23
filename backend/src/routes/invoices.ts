@@ -12,6 +12,10 @@ import { netFromInclusive } from '../lib/money';
 import { computeStock } from './vanStock';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 import { buildInstallments, MAX_INSTALLMENTS } from '../services/installments';
+// ZATCA المرحلة الثانية (Z5.2): فرعٌ واحد للإصدار، وحارس قدرات العميل على القراءات — المرحلة الأولى لا تمرّ بشيء منه
+import { regimeCandidate } from '../compliance/zatca/regime';
+import { capsFromHeaders, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, type Phase2IssuanceContext } from './invoicesZatca';
+import { productionPhase2Deps } from './invoicesZatcaDeps';
 import {
   postInvoiceEntries,
   postCashInvoiceEntries,
@@ -197,7 +201,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       }),
     ]);
 
-    res.json({ success: true, data: invoices, pagination: paginationMeta(total, page, limit) });
+    /* لقطة الـXML (einvoiceSnapshot) لا تُشحن في صفوف القائمة: تُقرأ في التفصيل وفي الإرسال للهيئة وحدهما.
+     * هي كيلوبايتات لكل صفّ (البائع والمشتري وكل بند)، وتصدير اللوحة يطلب 5000 صفّ في نداء واحد — فكانت تضيف
+     * ميغابايتات لا يقرؤها أحد على قاعدةٍ هي عنق الزجاجة. قيمتها null في المرحلة الأولى فلا شيء يتغيّر لها. */
+    res.json({ success: true, data: invoices.map(({ einvoiceSnapshot, ...row }) => row), pagination: paginationMeta(total, page, limit) });
   } catch (err) { next(err); }
 });
 
@@ -224,6 +231,11 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (req.user?.role === 'SALES_REP' && invoice.customerId && !(await canAccessCustomer(req, tid, invoice.customerId))) {
       invoice.customer = redactCustomer(invoice.customer);
     }
+    // ZATCA المرحلة الثانية (نقد الخطة 6): صفٌّ مختوم لا يُسلَّم لحزمة قديمة — تبني QR المرحلة الأولى بخمس وسوم من
+    // إعدادات الشركة وتطبع «فاتورة ضريبية» غير مختومة (وقياسيةً لم تعتمدها الهيئة بعد). صفوف المرحلة الأولى: لا استعلام.
+    const p2 = isPhase2Invoice(invoice) ? await phase2ReadBody(invoice, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
+    if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }
+    if (p2) { res.json({ success: true, data: { ...invoice, einvoice: p2.einvoice } }); return; }
     res.json({ success: true, data: invoice });
   } catch (err) { next(err); }
 });
@@ -246,6 +258,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
           res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
         }
+        // ZATCA المرحلة الثانية (نقد الخطة 6): إعادة الرفع لا تُعيد صفّاً مختوماً لعميل بلا قدرات، وتُرفق إسقاط المستند لمن يفهمه
+        const p2 = isPhase2Invoice(existing) ? await phase2ReadBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
+        if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }
+        if (p2) { res.status(200).json({ success: true, data: { ...existing, einvoice: p2.einvoice }, idempotent: true }); return; }
         res.status(200).json({ success: true, data: existing, idempotent: true }); return;
       }
     }
@@ -359,7 +375,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب
     const company = await prisma.companySettings.findUnique({
       where: { tenantId: tid },
-      select: { defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true },
+      // zatcaPhase2StartedAt: قرار النظام الضريبي (Z5.2) يُقرأ من هذا الصفّ المحمَّل أصلاً — صفر استعلامات للمرحلة الأولى
+      select: { defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true },
     });
     const companyVat = company?.defaultVatPct ?? 15;
     // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
@@ -411,6 +428,49 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (installmentRows.length > MAX_INSTALLMENTS) {
         res.status(400).json({ success: false, message: `عدد الأقساط يتجاوز الحد المسموح (${MAX_INSTALLMENTS})` }); return;
       }
+    }
+
+    /* ═══ ZATCA المرحلة الثانية (Z5.2) — الفرع الوحيد ═══
+     *
+     * القرار نقيٌّ من صفّ الإعدادات المحمَّل أعلاه ومن البيئة (`regimeCandidate`): **المرحلة الأولى — وهي كلّ الشركات
+     * اليوم — لا تدفع استعلاماً واحداً ولا تنفّذ سطراً واحداً ممّا بعده**، فيبقى ما تحت هذا الفرع كما هو حرفاً بحرف:
+     * الترقيم والمعاملة وقيود الدفتر والبثّ اللحظيّ وردّ 201 بجسمه نفسه.
+     *
+     * وعودة `null` من الفرع تعني «تبيّن أنّ النظام مرحلة أولى فعلاً» (شركةٌ في قائمة البروفة وعلمُها مطفأ) — فيكمل
+     * المسار القديم كما لو لم يكن الفرع. وكلّ ما عدا ذلك ردٌّ جاهز: 201/202 للإصدار، و426 لحزمة قديمة، و409 لإعادة
+     * رفعٍ من قبل التفعيل، و422 لبيانات المشتري أو المبالغ، و503 لوحدة محجوبة.
+     */
+    if (regimeCandidate({
+      tenantId: tid,
+      settings: {
+        countryCode: company?.countryCode ?? null,
+        einvoiceProvider: company?.einvoiceProvider ?? null,
+        zatcaPhase2StartedAt: company?.zatcaPhase2StartedAt ?? null,
+        taxNumber: null,
+      },
+      env: process.env,
+    }) !== 'phase1') {
+      const phase2Ctx: Phase2IssuanceContext = {
+        tenantId: tid,
+        caps: capsFromHeaders(req.headers),
+        body,
+        customerId,
+        customer,
+        customerName: customer.name,
+        customerBalance: Number(customer.balance),
+        customerCreditLimit: Number(customer.creditLimit),
+        salesRepId,
+        companyVat,
+        engine: calc,
+        items: finalItems,
+        installments: installmentRows,
+        signatureImages,
+        creditCheck,
+        deliveryDate: deliveryOk,
+        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+      };
+      const phase2 = await issuePhase2Invoice(phase2Ctx, productionPhase2Deps());
+      if (phase2) { res.status(phase2.status).json(phase2.body); return; }
     }
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
@@ -522,6 +582,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         if (existing && existing.customerId && !(await canAccessCustomer(req, tid2, existing.customerId))) {
           res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
         }
+        // ZATCA المرحلة الثانية (نقد الخطة 6): السباق لا يفتح باباً مغلقاً هنا أيضاً — لا صفّ مختوم لعميل بلا قدرات
+        const p2 = isPhase2Invoice(existing) ? await phase2ReadBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid2) : null;
+        if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }
+        if (p2 && existing) { res.status(200).json({ success: true, data: { ...existing, einvoice: p2.einvoice }, idempotent: true }); return; }
         if (existing) { res.status(200).json({ success: true, data: existing, idempotent: true }); return; }
       } catch { /* يسقط لمعالج الأخطاء */ }
     }

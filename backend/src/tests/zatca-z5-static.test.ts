@@ -24,16 +24,66 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * هل هذا الموضع داخل حمولة كتابة في Prisma (`data: { … }`)؟ مسحٌ بالأقواس إلى الخلف حتى الكائن الحاوي.
+ * لازمٌ لأنّ **قراءةً** تُمرَّر باسمها و**كتابةً** تنسخ العمود من صفٍّ آخر لهما الشكل نفسه:
+ *   `zatcaPhase2StartedAt: company?.zatcaPhase2StartedAt` (قراءة، مُدخل النظام الضريبي في مسار الإصدار)
+ *   `data: { zatcaPhase2StartedAt: src.zatcaPhase2StartedAt }` (كتابة: نسخ إعدادات/استيراد يُرجع التفعيل أو يُقدّمه)
+ * فاستثناء «القراءة» بشكل القيمة وحده يُعمي الحارس عن أقرب طريقٍ لإفساد العمود.
+ */
+function insideDataPayload(s: string, at: number): boolean {
+  for (const m of s.matchAll(/\bdata\s*:/g)) {
+    const start = (m.index ?? 0) + m[0].length;
+    let depth = 0;
+    let i = start;
+    for (; i < s.length; i++) {                     // مدى قيمة data بالأقواس المتوازنة
+      const c = s[i];
+      if (c === '{' || c === '(' || c === '[') depth++;
+      else if (c === '}' || c === ')' || c === ']') { if (depth === 0) break; depth--; }
+      else if ((c === ',' || c === ';') && depth === 0) break;
+    }
+    if (at > start && at < i) return true;          // يشمل data: rows.map(r => ({ … }))
+  }
+  return false;
+}
+
+/**
+ * هل يكتب هذا المصدر عمودَ التفعيل؟
+ * كتابةٌ = قيمةٌ ليست select (true) ولا where (null) ولا نوعاً (Date)، **أو** أيّ ورودٍ داخل حمولة data مهما كان شكل
+ * قيمته — فالقراءة المُمرَّرة باسمها (Z5.2: `zatcaPhase2StartedAt: company?.zatcaPhase2StartedAt` عند بناء مُدخل
+ * النظام الضريبي) مستثناةٌ خارج data وحدها.
+ */
+function writesPhase2StartedAt(s: string): boolean {
+  for (const m of s.matchAll(/zatcaPhase2StartedAt\s*:\s*([^,\n}]*)/g)) {
+    const val = m[1].trim();
+    const meta = /^(?:true|null|Date\b)/.test(val);                                // select / where / نوع
+    const readThrough = /^[A-Za-z_$][\w$]*\??\.zatcaPhase2StartedAt\b/.test(val);   // قراءةٌ تُمرَّر باسمها
+    if (insideDataPayload(s, m.index ?? 0) || !(meta || readThrough)) return true;
+  }
+  return /\.zatcaPhase2StartedAt\s*=(?!=)/.test(s) || /"zatcaPhase2StartedAt"\s*=(?!=)/.test(s);
+}
+
+test('حارس عمود التفعيل يفرّق بين قراءةٍ تُمرَّر باسمها وكتابةٍ تنسخه داخل data', () => {
+  // يمرّ: القراءة الوحيدة المسموح بها (routes/invoices.ts) وselect وwhere والنوع
+  assert.equal(writesPhase2StartedAt('regimeCandidate({ settings: { zatcaPhase2StartedAt: company?.zatcaPhase2StartedAt ?? null } })'), false);
+  assert.equal(writesPhase2StartedAt('select: { zatcaPhase2StartedAt: true }'), false);
+  assert.equal(writesPhase2StartedAt('where: { tenantId, zatcaPhase2StartedAt: null }'), false);
+  assert.equal(writesPhase2StartedAt('interface S { zatcaPhase2StartedAt: Date | null; }'), false);
+  // يُمسك: النسخ والإرجاع والتقديم بكل أشكالها
+  assert.equal(writesPhase2StartedAt('prisma.companySettings.create({ data: { zatcaPhase2StartedAt: src.zatcaPhase2StartedAt } })'), true);
+  assert.equal(writesPhase2StartedAt('update({ where: { tenantId }, data: { zatcaPhase2StartedAt: null } })'), true);
+  assert.equal(writesPhase2StartedAt('createMany({ data: rows.map(r => ({ tenantId: r.id, zatcaPhase2StartedAt: r.zatcaPhase2StartedAt })) })'), true);
+  assert.equal(writesPhase2StartedAt('data: { zatcaPhase2StartedAt: at }'), true);
+  assert.equal(writesPhase2StartedAt('s.zatcaPhase2StartedAt = new Date()'), true);
+});
+
 test('zatcaPhase2StartedAt لا يكتبه إلا setPhase2StartedAtOnce (onboardingStore.ts)، ولا يستدعيه إلا goLive في onboarding.ts', () => {
   const ALLOWED_WRITER = 'compliance/zatca/onboardingStore.ts';
   const writers = new Set<string>();
   const callers = new Set<string>();
   for (const f of walk(SRC)) {
     const s = stripComments(read(f));
-    // data: { zatcaPhase2StartedAt: x } — لا select (true) ولا where (null) ولا نوع (Date)
-    if (/zatcaPhase2StartedAt\s*:(?!\s*(?:true|null|Date)\b)/.test(s)) writers.add(f);
-    if (/\.zatcaPhase2StartedAt\s*=(?!=)/.test(s)) writers.add(f);
-    if (/"zatcaPhase2StartedAt"\s*=(?!=)/.test(s)) writers.add(f);
+    if (writesPhase2StartedAt(s)) writers.add(f);
     if (/\.setPhase2StartedAtOnce\(/.test(s)) callers.add(f);
   }
   assert.deepEqual([...writers], [ALLOWED_WRITER], `كاتب غير goLive: ${[...writers].join('، ')}`);
@@ -61,7 +111,9 @@ test('مسار التفعيل ما زال 409 GO_LIVE_UNAVAILABLE (حتى Z5.8) 
 test('compliance/zatca/* وroutes/invoicesZatca.ts لا تستورد services/gl', () => {
   const files = walk(path.join(SRC, 'compliance', 'zatca')).filter(f => f.startsWith('compliance/zatca/'));
   assert.ok(files.includes('compliance/zatca/regime.ts') && files.includes('compliance/zatca/documentStore.prisma.ts'));
-  if (fs.existsSync(path.join(SRC, 'routes', 'invoicesZatca.ts'))) files.push('routes/invoicesZatca.ts');
+  for (const r of ['routes/invoicesZatca.ts', 'routes/invoicesZatcaDeps.ts']) {
+    if (fs.existsSync(path.join(SRC, r))) files.push(r);
+  }
   for (const f of files) {
     const s = read(f);
     assert.doesNotMatch(s, /from\s+['"][^'"]*services\/gl[^'"]*['"]|require\(\s*['"][^'"]*services\/gl/, f);
@@ -81,9 +133,9 @@ const NULLABLE_PHASE2_COLUMNS = [
 /** الملفات التي يلمسها Z5 (الموجود منها). */
 const Z5_FILES = [
   'compliance/zatca/regime.ts', 'compliance/zatca/status.ts', 'compliance/zatca/errors.ts', 'compliance/zatca/documentStore.ts',
-  'compliance/zatca/documentStore.prisma.ts', 'compliance/zatca/settingsGuards.ts', 'routes/invoicesZatca.ts', 'routes/invoices.ts',
+  'compliance/zatca/documentStore.prisma.ts', 'compliance/zatca/settingsGuards.ts', 'routes/invoicesZatca.ts', 'routes/invoicesZatcaDeps.ts', 'routes/invoices.ts',
   'routes/receipts.ts', 'routes/customers.ts', 'routes/products.ts', 'routes/company.ts', 'routes/tenants.ts', 'routes/tracking.ts',
-  'routes/zatca.ts', 'routes/customersZatca.ts', 'routes/productsZatca.ts', 'compliance/zatca/buyerData.ts', 'compliance/zatca/buyerParty.ts', 'compliance/zatca/productVat.ts', 'routes/import.ts', 'services/paylink.ts', 'services/repHeartbeat.ts', 'services/erp.ts', 'routes/dashboard.ts', 'routes/reports.ts',
+  'routes/zatca.ts', 'routes/customersZatca.ts', 'routes/productsZatca.ts', 'compliance/zatca/buyerData.ts', 'compliance/zatca/buyerParty.ts', 'compliance/zatca/productVat.ts', 'compliance/zatca/issue.ts', 'compliance/zatca/issueChain.ts', 'compliance/zatca/issueSigner.ts', 'compliance/zatca/issueTx.ts', 'compliance/zatca/issueStore.prisma.ts', 'routes/import.ts', 'services/paylink.ts', 'services/repHeartbeat.ts', 'services/erp.ts', 'routes/dashboard.ts', 'routes/reports.ts',
 ];
 
 test('فخّ NULL: لا { not: … } على أعمدة المرحلة الثانية في ملفات Z5، وكل notIn عليها داخل OR مع { col: null }', () => {

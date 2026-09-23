@@ -885,6 +885,8 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   // 'unassigned' = نزعت الإدارة هذا العميل (عزل العملاء)، 'offline' = تعذّر الاتصال.
   // نميّزهما عن «لا توجد حركات» كي لا يظنّ المندوب أن العميل بلا حركات فعلاً.
   const [statementError, setStatementError] = useState<'unassigned' | 'offline' | null>(null);
+  // سبب تعذّر فتح مستند حركة من الكشف (رسالة الخادم) — يُعرض فوق الحركات
+  const [docError, setDocError] = useState('');
   const [payLinkOpen, setPayLinkOpen] = useState(false);
   useBackClose(payLinkOpen, () => setPayLinkOpen(false));
 
@@ -896,12 +898,17 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
     try {
       if (invId) {
         const res = await repApi.get(`/invoices/${invId}`);
+        setDocError('');
         onOpenDoc(invoiceDocFromDetail(res.data.data, repName, company));
       } else {
         const res = await repApi.get(`/receipts/${recId}`);
+        setDocError('');
         onOpenDoc(receiptDocFromDetail(res.data.data, repName, company));
       }
-    } catch { /* */ }
+    } catch (err: any) {
+      // رسالة الخادم كما هي (426 «حدّث التطبيق» لفاتورة مرحلة ثانية) — لا نقرةٌ لا تفعل شيئاً
+      setDocError(String(err?.response?.data?.message || tr('تعذر فتح المستند تحقق من الاتصال')));
+    }
     setOpeningId(null);
   };
   // العميل نُزع من هذا المندوب ⇒ كل إجراء عليه سيُرفض من الخادم، فنمنعه في الواجهة
@@ -1063,6 +1070,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
         {/* Statement — القسم كلّه (عنوانه ولافتاته وحركاته) يُحذف عند الإطفاء */}
         {accountingOn && <>
         <p className="font-bold text-gray-700 text-sm mt-5 mb-2">{tr('كشف الحساب')}</p>
+        {docError && <p className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2.5 mb-2 text-[11px] leading-5">{docError}</p>}
         {!canViewStatement ? (
           <p className="text-center text-gray-400 py-6 text-sm">{tr('لا تملك صلاحية عرض كشف الحساب')}</p>
         ) : loading ? (
@@ -1432,6 +1440,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const printItems = lines.map((l, i) => ({ name: l.name, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct, lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt }));
     try {
       const res = await repApi.post('/invoices', payload);
+      /* ZATCA المرحلة الثانية: الفاتورة القياسية تُصدَّق من الهيئة قبل تسليمها، فيردّ الخادم 202
+       * (ZATCA_CLEARANCE_PENDING) بـ success: true — وأكسيوس لا يرمي على 2xx. لا نفتح مستند الطباعة
+       * بردٍّ غير 201: ورقةٌ عنوانها «فاتورة ضريبية» عن مستند لم تعتمده الهيئة تخرج بيد العميل. */
+      if (res.status !== 201) {
+        setLoading(false);
+        setMsg(String(res.data?.message || tr('صدرت الفاتورة وبانتظار اعتماد الهيئة لا تسلم فاتورة ضريبية الآن')));
+        return;
+      }
       const inv = res.data.data;
       // حارس نشرٍ حقيقيّ: زود يجرّد الحقول التي لا يعرفها بصمت، فواجهةٌ جديدة
       // على خادم قديم تُصدر فاتورة آجلة بلا أقساط بلا خطأ. لا تُطبع ورقة أقساط
@@ -2389,6 +2405,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [openErr, setOpenErr] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -2419,7 +2436,10 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
 
   const open = async (id: string) => {
     setOpeningId(id);
-    try { const res = await repApi.get(`${endpoint}/${id}`); onOpen(res.data.data); } catch { /* */ }
+    // فشل الفتح يُقال ولا يُبتلع: حزمةٌ قديمة تفتح فاتورة مرحلة ثانية تُردّ 426 برسالة «حدّث التطبيق»،
+    // وابتلاعها يجعل النقر لا يفعل شيئاً بلا تفسير.
+    try { const res = await repApi.get(`${endpoint}/${id}`); setOpenErr(''); onOpen(res.data.data); }
+    catch (err: any) { setOpenErr(String(err?.response?.data?.message || tr('تعذر فتح المستند تحقق من الاتصال'))); }
     setOpeningId(null);
   };
 
@@ -2439,6 +2459,9 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
         </div>
         {!loading && <p className="text-[10px] text-gray-400 mt-1.5">{tr('الإجمالي')}: {total}</p>}
       </div>
+
+      {/* سبب تعذّر فتح المستند (426 «حدّث التطبيق» مثلاً) — لا نقرةٌ صامتة بلا أثر */}
+      {openErr && <p className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2.5 mb-2 text-[11px] leading-5">{openErr}</p>}
 
       {loading ? <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</div>
         : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد بيانات')}</div>

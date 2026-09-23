@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { FS_CAPS_HEADER, FS_CAPS_VALUE } from '../api/caps';
 import { refClear } from './offlineDb';
 import { renewToken } from './renew';
 
@@ -16,7 +17,8 @@ const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api
 // عميل API مستقل للمندوب — يستخدم مفتاح token خاص حتى لا يتعارض مع جلسة الأدمن
 const repApi = axios.create({
   baseURL: BASE,
-  headers: { 'Content-Type': 'application/json' },
+  // قدرات الحزمة (ZATCA المرحلة الثانية) — انظر api/caps.ts
+  headers: { 'Content-Type': 'application/json', [FS_CAPS_HEADER]: FS_CAPS_VALUE },
 });
 
 repApi.interceptors.request.use(config => {

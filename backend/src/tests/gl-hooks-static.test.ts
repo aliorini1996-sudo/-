@@ -76,7 +76,13 @@ test('compliance/zatca/* وroutes/invoicesZatca.ts لا تستورد services/gl
     .filter((e) => e.isFile() && /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name))
     .map((e) => path.join('compliance', 'zatca', e.name));
   assert.ok(files.includes(path.join('compliance', 'zatca', 'regime.ts')), 'regime.ts مفقود من الفحص');
-  if (fs.existsSync(path.join(SRC, 'routes', 'invoicesZatca.ts'))) files.push(path.join('routes', 'invoicesZatca.ts'));
+  // Z5.2: نواة الإصدار داخل الفحص نفسه (القفل والسلسلة والختم ومحوّل Prisma)
+  for (const f of ['issue.ts', 'issueChain.ts', 'issueSigner.ts', 'issueTx.ts', 'issueStore.prisma.ts', 'unitMutex.ts']) {
+    assert.ok(files.includes(path.join('compliance', 'zatca', f)), `${f} مفقود من الفحص`);
+  }
+  for (const r of ['invoicesZatca.ts', 'invoicesZatcaDeps.ts']) {
+    if (fs.existsSync(path.join(SRC, 'routes', r))) files.push(path.join('routes', r));
+  }
   for (const f of files) {
     const s = read(f);
     assert.doesNotMatch(s, /from\s+['"][^'"]*services\/gl[^'"]*['"]/, `${f} يستورد services/gl`);
