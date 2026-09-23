@@ -80,49 +80,72 @@ jobs:
           #
           # المفتاح هنا لا في الباكند عمداً: مفتاح Render يملك الحساب كلّه، فوضعه
           # في خدمة مكشوفة للإنترنت يجعل اختراقها اختراقاً للحساب بأسره.
+          #
+          # ولا يُكتب سقفٌ هنا إطلاقاً — كلّها تُقرأ من Render. كان سقف الذاكرة
+          # مكتوباً (٢٥٦ ميغابايت)، فلمّا رقّى المالك الخطّة إلى ١ غيغابايت بقيت
+          # القسمة على الرقم القديم فأعلنت اللوحة «الذاكرة ١٣٥٪ — رقِّ الخطة» عن
+          # خطّةٍ رُقّيت للتوّ (٢٣ سبتمبر): إنذارٌ كاذب يدفع إلى صرفٍ لا داعي له،
+          # وأسوأ منه أنّه يُفقد الثقة بالمؤشّر كلّه. ولـRender مقاييسُ للسقوف
+          # نفسها تتبع الخطّة لحظةً بلحظة: memory-limit وconnections-limit
+          # وdisk-capacity — فلا يبقى رقمٌ يشيخ بصمت.
           if [ -n "$RENDER_API_KEY" ]; then
             DB_ID=dpg-d8rp9dho3t8c73ecg2r0-a
-            DB_MEM_LIMIT=268435456   # خطة basic_256mb
-            DB_CONN_LIMIT=100
-            mem=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/metrics/memory?resource=$DB_ID&resolutionSeconds=3600" \
-              | grep -oE '"value":[0-9.]+' | tail -1 | cut -d: -f2)
-            con=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/metrics/active-connections?resource=$DB_ID&resolutionSeconds=3600" \
-              | grep -oE '"value":[0-9.]+' | tail -1 | cut -d: -f2)
-            if [ -n "$mem" ]; then
-              pct=$(awk -v m="$mem" -v l="$DB_MEM_LIMIT" 'BEGIN{printf "%.0f", (m/l)*100}')
-              echo "ذاكرة القاعدة: ${pct}% · الاتصالات: ${con:-؟}"
+            rmetric() {
+              curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
+                "https://api.render.com/v1/metrics/$1?resource=$DB_ID&resolutionSeconds=3600" \
+                | grep -oE '"value":[0-9.]+' | tail -1 | cut -d: -f2
+            }
+            # فراغٌ أو صفر = «لم يُقَس» لا «السقف صفر»: القسمة على صفر تُنتج قيمة
+            # لا معنى لها تُعرض في اللوحة كأنّها قياس
+            num() { case "$1" in ''|0|0.0) echo "" ;; *) echo "$1" ;; esac; }
+            mem=$(rmetric memory);             mem_limit=$(num "$(rmetric memory-limit)")
+            con=$(rmetric active-connections); con_limit=$(num "$(rmetric connections-limit)")
+            disk=$(rmetric disk-usage);        disk_limit=$(num "$(rmetric disk-capacity)")
+            mib() { awk -v b="$1" 'BEGIN{printf "%.0f", b/1048576}'; }
+            gbd() { awk -v b="$1" 'BEGIN{printf "%.1f", b/1000000000}'; }
+
+            if [ -n "$mem" ] && [ -n "$mem_limit" ]; then
+              pct=$(awk -v m="$mem" -v l="$mem_limit" 'BEGIN{printf "%.0f", (m/l)*100}')
+              echo "ذاكرة القاعدة: ${pct}% من $(mib "$mem_limit") ميغابايت · الاتصالات: ${con:-؟}/${con_limit:-؟}"
               # التنبيه عند ٨٠٪: يترك مهلة للترقية قبل أن يشعر عميل بشيء
-              [ "$pct" -ge 80 ] && note "ذاكرة قاعدة البيانات ${pct}% من ٢٥٦ ميغابايت — رقِّ الخطة قبل أن تمتلئ"
-              [ "${con:-0}" -ge 70 ] && note "اتصالات القاعدة ${con} من ١٠٠ — راجع حوض Prisma"
+              [ "$pct" -ge 80 ] && note "ذاكرة قاعدة البيانات ${pct}% من $(mib "$mem_limit") ميغابايت — رقِّ الخطة قبل أن تمتلئ"
             else
-              note "تعذّر قياس ذاكرة قاعدة البيانات من Render"
+              note "تعذّر قياس ذاكرة قاعدة البيانات أو سقفها من Render"
+            fi
+            # نسبةً لا عدداً: «٧٠ اتصالاً» تنبيهٌ صحيح على سقف ١٠٠ وضجيجٌ على سقفٍ
+            # أكبر — والسقف يتغيّر بالخطّة
+            if [ -n "$con" ] && [ -n "$con_limit" ]; then
+              cpct=$(awk -v c="$con" -v l="$con_limit" 'BEGIN{printf "%.0f", (c/l)*100}')
+              [ "$cpct" -ge 70 ] && note "اتصالات القاعدة ${con} من ${con_limit} (${cpct}%) — راجع حوض Prisma"
             fi
 
             # مساحة التخزين — كادت تُعلِّق القاعدة (١٦ سبتمبر) بلا تنبيه منّا: كنّا
-            # نقيس الذاكرة وحدها، والإنذار جاء من بريد Render.
+            # نقيس الذاكرة وحدها، والإنذار الذي أنقذ الموقف جاء من بريد Render.
             #
-            # السعة تُقرأ من Render لا تُكتب هنا: الزيادة التلقائية تغيّرها بلا علمنا،
-            # ورقمٌ مكتوب كان سيجعل النسبة تتجاوز ١٠٠٪ بعد أول توسيع.
-            #
-            # والقسمة على 10^9 لا 2^30: Render يحسب الغيغابايت عشرياً. قِيس ٨٦٢ MiB
-            # فأرسل Render «أكثر من ٩٠٪» — ÷10^9 = ٩٠٫٤٪ و÷2^30 = ٨٤٪ فقط.
+            # والسعة من مقياس disk-capacity لا من diskSizeGB×10⁹: القرص المهيّأ أكبر
+            # قليلاً من المطلوب (٥ GB ⇒ ٥٫٢٥)، والزيادة التلقائية تغيّره بلا علمنا.
+            # وهي عشريّة لا ثنائيّة: ٨٦٢ MiB ÷ 10^9 = ٩٠٫٤٪ وهو ما أرسله Render،
+            # و÷2^30 = ٨٤٪ فقط — أي أن الثنائيّة تُظهر الامتلاء أقلّ من حقيقته.
             dbj=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
               "https://api.render.com/v1/postgres/$DB_ID")
-            disk_gb=$(echo "$dbj" | grep -oE '"diskSizeGB":[0-9]+' | head -1 | cut -d: -f2)
             disk_auto=$(echo "$dbj" | grep -oE '"diskAutoscalingEnabled":(true|false)' | head -1 | cut -d: -f2)
-            disk=$(curl -s --max-time 30 -H "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/metrics/disk-usage?resource=$DB_ID&resolutionSeconds=3600" \
-              | grep -oE '"value":[0-9.]+' | tail -1 | cut -d: -f2)
-            disk_limit=0
-            if [ -n "$disk" ] && [ -n "$disk_gb" ]; then
-              disk_limit=$((disk_gb * 1000000000))
+
+            # انحراف render.yaml عن الحيّ — الوجه الثاني لنفس العلّة: ترقيةٌ تُجرى على
+            # لوحة Render ولا يعلمها الملف. وهنا الضرر أفدح من مؤشّرٍ كاذب: مزامنة
+            # Blueprint تلقائيّة (autoSync) على هذا المستودع، فأوّل تعديلٍ يمسّ
+            # render.yaml بعد الترقية يدفع Render إلى تطبيق الخطّة **الأدنى** المكتوبة.
+            # (الشرطة في الملف وتحتها الشرطة السفليّة في الواجهة: basic-1gb ≡ basic_1gb)
+            want_plan=$(awk '/databases:/{d=1} d && /^[[:space:]]*plan:/{print $2; exit}' render.yaml | tr -d '"' | tr '-' '_')
+            live_plan=$(echo "$dbj" | grep -oE '"plan":"[a-z0-9_]+"' | head -1 | cut -d'"' -f4)
+            if [ -n "$want_plan" ] && [ -n "$live_plan" ] && [ "$want_plan" != "$live_plan" ]; then
+              note "render.yaml يعلن خطّة القاعدة $want_plan والحيّة $live_plan — واءم الملف قبل أن تُرجِع مزامنة Blueprint الترقيةَ"
+            fi
+            if [ -n "$disk" ] && [ -n "$disk_limit" ]; then
               dpct=$(awk -v u="$disk" -v l="$disk_limit" 'BEGIN{printf "%.0f", (u/l)*100}')
-              echo "مساحة القاعدة: ${dpct}% من ${disk_gb} GB · التوسيع التلقائي: ${disk_auto:-؟}"
+              echo "مساحة القاعدة: ${dpct}% من $(gbd "$disk_limit") غيغابايت · التوسيع التلقائي: ${disk_auto:-؟}"
               # ٨٥٪ لا ٩٠٪: Render يوسّع عند ٩٠٪ ولا يوسّع أكثر من مرّة كل ٦ ساعات،
               # فنموٌّ سريع بعد توسيعٍ حديث قد يبلغ الامتلاء قبل أن يُسمح بالتالي.
-              [ "$dpct" -ge 85 ] && note "مساحة قاعدة البيانات ${dpct}% من ${disk_gb} GB — تحقّق أن التوسيع التلقائي يعمل"
+              [ "$dpct" -ge 85 ] && note "مساحة قاعدة البيانات ${dpct}% من $(gbd "$disk_limit") غيغابايت — تحقّق أن التوسيع التلقائي يعمل"
             else
               note "تعذّر قياس مساحة قاعدة البيانات من Render"
             fi
@@ -130,11 +153,12 @@ jobs:
             # (يدوياً أو بمزامنة render.yaml) يستحقّ تنبيهاً حتى لو كانت المساحة فارغة
             [ "$disk_auto" = "false" ] && note "التوسيع التلقائي لمساحة قاعدة البيانات مطفأ — القاعدة ستُعلَّق عند امتلائها"
 
-            # ادفع القياس للوحة المالك ما دام قيس شيءٌ منه (فشل الدفع لا يُسقط النبضة)
-            if [ -n "$OPS_TOKEN" ] && { [ -n "$mem" ] || [ -n "$disk" ]; }; then
+            # ادفع القياس للوحة المالك — يلزمه سقف الذاكرة لأن البطاقة تقسم عليه،
+            # ولا يُرسَل سقفٌ مُخمَّن: بطاقةٌ تشيخ وتختفي أصدق من نسبةٍ مبنيّة على وهم
+            if [ -n "$OPS_TOKEN" ] && [ -n "$mem_limit" ]; then
               curl -s -o /dev/null --max-time 20 -X POST \
                 -H "x-ops-token: $OPS_TOKEN" -H 'Content-Type: application/json' \
-                -d "{\"memoryBytes\":${mem:-0},\"memoryLimitBytes\":$DB_MEM_LIMIT,\"connections\":${con:-0},\"connectionLimit\":$DB_CONN_LIMIT,\"diskBytes\":${disk:-0},\"diskLimitBytes\":$disk_limit,\"diskAutoscaling\":${disk_auto:-null}}" \
+                -d "{\"memoryBytes\":${mem:-0},\"memoryLimitBytes\":$mem_limit,\"connections\":${con:-0},\"connectionLimit\":${con_limit:-0},\"diskBytes\":${disk:-0},\"diskLimitBytes\":${disk_limit:-0},\"diskAutoscaling\":${disk_auto:-null}}" \
                 https://dsd-backend.onrender.com/api/analytics/infra-metrics || true
             fi
           fi

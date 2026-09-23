@@ -88,6 +88,7 @@ function DbGauge({ infra }: { infra?: Infra | null }) {
   // حدود البطاقة بلون أسوأ المؤشّرين: خطرٌ في أحدهما لا يخفيه سلامة الآخر
   const tone = diskTone.rank > memTone.rank ? diskTone : memTone;
   const gb = (b: number) => (b / 1e9).toLocaleString('en-US', { maximumFractionDigits: 1 });
+  const mb = (b: number) => Math.round(b / 1048576).toLocaleString('en-US');
 
   return (
     <div className="rounded-xl px-3 py-2 border flex items-center gap-2.5"
@@ -95,7 +96,10 @@ function DbGauge({ infra }: { infra?: Infra | null }) {
       title={[
         disk !== null ? `مساحة القاعدة ${gb(infra.diskBytes)} من ${gb(infra.diskLimitBytes)} GB (${disk}%)` : '',
         infra.diskAutoscaling === true ? 'التوسيع التلقائي مفعّل عند ٩٠٪' : noAuto ? 'التوسيع التلقائي مطفأ' : '',
-        `ذاكرة القاعدة ${mem}%`,
+        // الرقمان المطلقان لا النسبة وحدها: «١٣٥٪» بقيت يوماً تُقرأ «القاعدة تختنق»
+        // بينما كانت تعني سقفاً بائتاً (٣٥٣ م.ب من سقفٍ مكتوبٍ ٢٥٦) — والبسط
+        // والمقام مكتوبين يكشفان ذلك في لمحة
+        `ذاكرة القاعدة ${mb(infra.memoryBytes)} من ${mb(infra.memoryLimitBytes)} م.ب (${mem}%)`,
         `الاتصالات ${infra.connections} من ${infra.connectionLimit}`,
         `آخر قياس ${fmtAge(infra.ageMinutes)}`,
       ].filter(Boolean).join(' · ')}>
