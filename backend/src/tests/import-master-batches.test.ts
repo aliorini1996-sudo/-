@@ -9,6 +9,8 @@ import {
   importRowError, parseBatchRecordIds, priceRowIssue, pricesRevertPlan, serializeBatchRecordIds, taxPctIssue,
 } from '../services/importLedger';
 import { mergeImportDeltas } from '../services/importChunks';
+// البند 39: قاعدة «أقصى تاريخ أثر مقبول» الوحيدة في المنظومة — المسار يستدعيها نفسها
+import { IMPORT_FUTURE_DATE_GRACE_DAYS, isImportDateTooFarAhead, maxImportEntryDate } from '../services/gl/opening';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 const NOW = new Date('2026-09-17T10:00:00Z');
@@ -85,10 +87,14 @@ test('سيناريو البند 1 (الخادم): السعر الخاص صفر �
   const src = read('routes/import.ts');
   const i = src.indexOf("router.post('/prices'");
   const body = src.slice(i, src.indexOf('\n});', i));
-  assert.match(body, /priceRowIssue\(r\.price, body\.allowZeroPrice === true\)/);
+  // البندان 43 و44: الفحص انتقل إلى المخطِّط الصرف، والمسار يمرّر الإقرار إليه قبل أي كتابة
+  assert.match(body, /planPriceImportRows\(rows, matcher, prods, body\.allowZeroPrice === true\)/);
+  assert.match(read('services/importLedger.ts'), /const zeroIssue = priceRowIssue\(r\.price, allowZeroPrice\);/);
   assert.match(body, /importContentHash\('prices', rows\)/, 'البصمة للصفوف وحدها');
   assert.match(src, /allowZeroPrice: z\.boolean\(\)\.optional\(\)/);
-  assert.ok(body.indexOf('priceRowIssue(') < body.indexOf('runImportChunks('));
+  // البند 31: خيار «شاملة الضريبة» لا يدخل البصمة (كالمخزون الافتتاحي) فلا يصير تبديله دفعةً ثانية
+  assert.ok(body.indexOf('importContentHash(') < body.indexOf('pricesIncludeTax === true'), 'البصمة قبل التحويل');
+  assert.ok(body.indexOf('planPriceImportRows(') < body.indexOf('runImportChunks('));
 });
 
 test('سيناريو البند 14: taxPct غير صفري أقل من 1 (خلية 15% ⇒ 0.15) ⇒ TAX_PCT_FRACTION، والصفر و15 مقبولان', () => {
@@ -148,4 +154,82 @@ test('حارس ثابت: /customers و/products و/prices تحجز reserveMaster
   assert.ok(pr.indexOf('tx.customerPrice.deleteMany(') < pr.indexOf('tx.customerPrice.updateMany('));
   assert.doesNotMatch(pr, /prisma\.customerPrice\./, 'كتابة خارج معاملة القفل');
   assert.ok(rv.indexOf('assertBatchRevertible(batch, new Date())') < rv.indexOf('pricesRevertPlan('));
+});
+
+// ═══ الدفعة 3: البند 51 (عقد تاريخ الواجهة) والبند 39 (تاريخ بعد اليوم) في مساري الأرصدة والكشوف ═══
+
+/** جسم مُعالِج المسار (حتى المسار التالي) كما في بقية الحراس الثابتة */
+function entryRouteBody(src: string, marker: string): string {
+  const i = src.indexOf(marker);
+  assert.ok(i >= 0, marker);
+  const end = src.indexOf('\nrouter.', i + marker.length);
+  return src.slice(i, end < 0 ? undefined : end);
+}
+
+test('حارس ثابت (البند 51): /balances و/ledger يفحصان dateContract قبل أي قراءة أو كتابة، و409 IMPORT_CLIENT_OUTDATED بالعربية', () => {
+  const src = read('routes/import.ts');
+  // العقد نفسه الذي ترسله الواجهة (web-admin/src/lib/importRevert.ts: IMPORT_DATE_CONTRACT)
+  assert.match(src, /const IMPORT_DATE_CONTRACT = 'local-ymd-v2';/);
+  // الرسالة العربية شرط لا زينة: التبويب القديم لا يعرف الرمز، ويعرض رسالة الخادم كما هي
+  assert.match(src, /const IMPORT_CLIENT_OUTDATED_MESSAGE = 'هذه الصفحة مفتوحة من قبل تحديث النظام ولم يُكتب شيء\. حدّث الصفحة ثم أعد رفع الملف';/);
+  assert.match(src, /throw new ImportHttpError\(409, 'IMPORT_CLIENT_OUTDATED', IMPORT_CLIENT_OUTDATED_MESSAGE/);
+  // الغائب مخالف كالمختلف: التبويب الذي لا يرسله هو عين الذي يرسل تواريخ متأخرة يوماً
+  assert.match(src, /if \(contract === IMPORT_DATE_CONTRACT\) return;/);
+  for (const wrapper of ['balancesBody', 'ledgerBody']) {
+    const start = src.indexOf(`const ${wrapper} = z.object({`);
+    assert.ok(start > 0, wrapper);
+    assert.match(src.slice(start, src.indexOf('});', start)), /dateContract: z\.string\(\)\.trim\(\)\.optional\(\)/, wrapper);
+  }
+  for (const marker of ["router.post('/balances'", "router.post('/ledger'"]) {
+    const body = entryRouteBody(src, marker);
+    const at = body.indexOf('assertImportDateContract(body.dateContract);');
+    assert.ok(at > 0, `${marker}: لا فحص للعقد`);
+    // قبل فحص الصفوف وقبل حالة الدفاتر والحجز والكتابة
+    for (const after of ['parseImportBodyRows(', 'importLedgerContext(tid)', 'resolveImportDates(', 'importContentHash(', 'reserveEntryBatch(']) {
+      assert.ok(at < body.indexOf(after), `${marker}: ${after} قبل فحص العقد`);
+    }
+  }
+  // العقد يخصّ مساري القيود وحدهما (البيانات الأساسية بلا تواريخ)
+  assert.doesNotMatch(entryRouteBody(src, "router.post('/customers'"), /assertImportDateContract\(/);
+  assert.doesNotMatch(entryRouteBody(src, "router.post('/products'"), /assertImportDateContract\(/);
+});
+
+test('سيناريو البند 39: تاريخ 2052 بعد «اليوم + يوم» بتوقيت الشركة ⇒ تنبيه معدود بصفوفه، و«غداً» يمرّ', () => {
+  const tz = 'Asia/Riyadh';
+  // 17 سبتمبر 2026 الساعة 23:30 بتوقيت الرياض ⇒ اليوم المحلي 2026-09-17، والحدّ 2026-09-18 (شامل)
+  const now = new Date('2026-09-17T20:30:00.000Z');
+  assert.equal(maxImportEntryDate(now, tz), '2026-09-18');
+  assert.equal(IMPORT_FUTURE_DATE_GRACE_DAYS, 1);
+  // الحدّ نفسه يمرّ، وما بعده تنبيه — والمقارنة بالأيام المحلية لا باللحظات
+  assert.equal(isImportDateTooFarAhead(new Date('2026-09-18T20:00:00.000Z'), now, tz), false, 'غد الشركة مقبول');
+  assert.equal(isImportDateTooFarAhead(new Date('2026-09-19T00:00:00.000Z'), now, tz), true, 'بعد غدٍ تنبيه');
+  assert.equal(isImportDateTooFarAhead(new Date('2052-03-15T00:00:00.000Z'), now, tz), true, 'خطأ السنة');
+  assert.equal(isImportDateTooFarAhead(new Date('2020-01-01T00:00:00.000Z'), now, tz), false, 'الماضي مقبول دائماً');
+  // منطق التنبيه في المسار: رقم السطر = الفهرس + 2، ولا تنبيه حين لا صفّ مخالف
+  const dates = [new Date('2025-01-01T00:00:00.000Z'), new Date('2052-03-15T00:00:00.000Z'), new Date('2060-01-01T00:00:00.000Z')];
+  const rows = dates.map((d, i) => [d, i + 2] as const).filter(([d]) => isImportDateTooFarAhead(d, now, tz)).map(([, r]) => r);
+  assert.deepEqual(rows, [3, 4]);
+  assert.equal(dates.filter((d) => isImportDateTooFarAhead(d, now, tz)).length, 2);
+});
+
+test('حارس ثابت (البند 39): التنبيه معدود لا مانع — لا يُرمى خطأ ولا يُمنع صفّ، ويُرسَل في warnings للمسارين', () => {
+  const src = read('routes/import.ts');
+  // الإغلاقة: لا نسخة ثانية للقاعدة في المسار — المصدر الوحيد `resolveImportDates` بالتوقيت المضبوط نفسه
+  // الذي تُكتب به التواريخ (البند 22)، فلا تنبيه كاذب لشركة بلا توقيت مضبوط قرب منتصف الليل.
+  assert.doesNotMatch(src, /function futureDatedWarning\(/, 'عادت نسخة ثانية من قاعدة التاريخ المستقبلي إلى المسار');
+  assert.doesNotMatch(src, /isImportDateTooFarAhead\(/, 'المسار يحسب القاعدة بنفسه بدل resolveImportDates');
+  const svc = read('services/importLedger.ts');
+  const fn = svc.slice(svc.indexOf('export function resolveImportDates('), svc.indexOf('\n}\n', svc.indexOf('export function resolveImportDates(')));
+  assert.match(fn, /maxImportEntryDate\(opts\.now/, 'القاعدة من services/gl/opening بلحظة الطلب نفسها');
+  assert.match(fn, /future\.push\(\{ row: i \+ 2/, 'رقم السطر = الفهرس + 2');
+  assert.match(fn, /futureDates: future\.length/, 'تنبيه معدود في نتيجة الحلّ');
+  assert.doesNotMatch(fn, /throw [^;]*FUTURE/i, 'التنبيه صار مانعاً');
+  for (const marker of ["router.post('/balances'", "router.post('/ledger'"]) {
+    const body = entryRouteBody(src, marker);
+    // اللحظة نفسها التي تُحسب بها التواريخ (now واحد لا new Date() مرتين)
+    assert.match(body, /const now = new Date\(\);/, marker);
+    assert.match(body, /activated: ctx\.activated, now \}\)/, marker);
+    assert.match(body, /futureDates: futureDated \} = resolveImportDates\(/, marker);
+    assert.match(body, /\.\.\.\(futureDated \? \{ futureDated \} : \{\}\)/, marker);
+  }
 });

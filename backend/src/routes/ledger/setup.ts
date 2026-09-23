@@ -25,7 +25,8 @@ import {
   acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, derivedOpeningJson,
   importBatchRecordIds, importInProgressDetails, importedAfterCutoverJson, loadImportedAfterCutover, loadRunningImportBatch, loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow,
   loadOpeningStockCheck, openingStockCheckJson,
-  postCutoverImportsAckMissing, suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
+  postCutoverImportsAckMissing, postCutoverImportsAckStale, suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
+  LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE,
   type ManualBalanceLine, type ManualBalanceRowInput,
 } from '../../services/gl/opening';
 import {
@@ -44,7 +45,7 @@ import {
  * - POST /setup/draft           حفظ مسودة خطوة (1 الأساس، 2 الطريقة، 3 الشجرة، 5 الأرصدة اليدوية) في GlSettings.setupDraft.
  * - POST /setup/preview-opening معاينة إرشادية للأرصدة المشتقة والقيد (لا تُخزَّن أبداً)، ومعها importedAfterCutover:
  *                               حركات مستوردة بتاريخ ≥ البدء تُرحَّل بتاريخها على 319002 لا في الافتتاح.
- * - POST /setup/commit          معاملة واحدة (60 ثانية): T0 من ساعة القاعدة ⇒ لا دفعة استيراد جارية (409 LEDGER_IMPORT_IN_PROGRESS) ⇒ الزرع متساوي الأثر ⇒ إعادة الحساب
+ * - POST /setup/commit          معاملة واحدة (60 ثانية): القفلان ثم T0 من ساعة القاعدة بعدهما (البند 42) ⇒ لا دفعة استيراد جارية (409 LEDGER_IMPORT_IN_PROGRESS) ⇒ الزرع متساوي الأثر ⇒ إعادة الحساب
  *                               بـT0 ⇒ قيد OPEN ⇒ openingSnapshotAt/activatedAt ⇒ المؤشرات ⇒ backfillState=RUNNING ⇒ SETUP_COMMIT.
  * - POST /setup/backfill        «إيقاف مؤقت»/«استئناف» الترحيل التاريخي (RUNNING ⇄ PAUSED).
  *
@@ -204,6 +205,16 @@ async function ensureSettingsRow(tx: GlTx, tenantId: string, templateKey: Templa
 
 export async function dbNowOf(db: GlTx | typeof prisma): Promise<Date> {
   const rows = await db.$queryRaw<{ now: Date }[]>`SELECT now() AS "now"`;
+  return rows[0]?.now instanceof Date ? rows[0].now : new Date(rows[0]?.now ?? Date.now());
+}
+
+/**
+ * البند 42: `now()` داخل المعاملة = لحظة **بدئها**، فلا يرى ما كُتب أثناء انتظار قفل gl-post (والقفل بلا مهلة)،
+ * فتمرّ حركات مستوردة كُتبت في الانتظار دون أن تُعرض ولا يُقَرّ بها. `clock_timestamp()` يتقدّم مع المعاملة،
+ * فهو مقياس اللقطة **بعد** حيازة الأقفال. خارج المعاملة القيمتان واحدة.
+ */
+export async function dbClockOf(db: GlTx | typeof prisma): Promise<Date> {
+  const rows = await db.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS "now"`;
   return rows[0]?.now instanceof Date ? rows[0].now : new Date(rows[0]?.now ?? Date.now());
 }
 
@@ -480,11 +491,22 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
 
 // ═══ POST /setup/commit ═══
 
+/**
+ * البند 41: الإقرار مربوط باللقطة المعروضة (العدد والمدين والدائن ولحظتها) لا قيمةً منطقية، فلا يصحّ إقرار قديم
+ * على واقع جديد. الشكل المنطقي يبقى مقبولاً للتوافق (نداءات قديمة) لكنه غير مربوط، والواجهة تُرسل اللقطة.
+ */
+const postCutoverImportsAckSchema = z.object({
+  count: z.number().int().min(0),
+  debit: z.string().max(40),
+  credit: z.string().max(40),
+  snapshotAt: z.string().max(40).nullish(),
+}).strict();
+
 const commitSchema = z.object({
   /** تنبيه السجلات النظامية قبل زر التفعيل (§9.5 G6) */
   acknowledgeStatutory: z.literal(true),
-  /** إقرار بحركات مستوردة بتاريخ ≥ البدء (تُرحَّل على 319002) — إلزامي حين عددها > 0 */
-  acknowledgePostCutoverImports: z.boolean().optional(),
+  /** إقرار بحركات مستوردة بتاريخ ≥ البدء (تُرحَّل على 319002) — إلزامي حين عددها > 0، ومربوط باللقطة المعروضة */
+  acknowledgePostCutoverImports: z.union([z.boolean(), postCutoverImportsAckSchema]).optional(),
   /** إقرار بمخزون افتتاحي مستورد في تاريخ البدء أو بعده (لا يدخل الافتتاح ولا يُرحَّل قبل M9) — إلزامي حين عدده > 0 */
   acknowledgeOpeningStockExcluded: z.boolean().optional(),
   /** البند 25: تأكيد إعادة ضبط تواريخ الأرصدة/الكشوف المستوردة على المنطقة الزمنية الجديدة */
@@ -584,9 +606,7 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
   const actor = actorOf(req, res);
 
   const out = await prisma.$transaction(async (tx) => {
-    // (1) T0 من ساعة القاعدة أولاً (§5.6 الخطوة 6)
-    const dbNow = await dbNowOf(tx);
-    const T0 = openingSnapshotFromDbNow(dbNow);
+    // (1) قفل الترحيل أولاً (§5.6 الخطوة 6)
     await acquirePostLock(tx, tenantId);
 
     const company = await companyOf(tx, tenantId);
@@ -596,6 +616,10 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // «قبل التفعيل» ولا يغطيها الافتتاح ولا الإقرار. قفل حجز الدفعات أولاً فلا تُحجز دفعة بين الفحص والتفعيل؛
     // المنقطعة (نبض أقدم من المهلة) لا تمنع — ما سُجّل منها يُراجع ويُتراجع عنه من سجل الدفعات.
     await acquireImportEntriesLock(tx, tenantId);
+    // البند 42: ساعة القاعدة **بعد** حيازة القفلين (clock_timestamp لا now المجمَّد على بدء المعاملة)، فتشمل اللقطة
+    // كل ما كُتب أثناء انتظار القفل. T0 ومنه openingSnapshotAt وactivatedAt وفحوص الإقرار كلها على هذه اللحظة.
+    const dbNow = await dbClockOf(tx);
+    const T0 = openingSnapshotFromDbNow(dbNow);
     const runningImport = await loadRunningImportBatch(tx, tenantId, dbNow);
     if (runningImport) {
       throw new LedgerHttpError(409, LEDGER_IMPORT_IN_PROGRESS_MESSAGE, importInProgressDetails(runningImport), 'LEDGER_IMPORT_IN_PROGRESS');
@@ -645,7 +669,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
         retryAfter: openingStockJson.tooRecent.retryAfter,
       }, 'LEDGER_OPENING_STOCK_TOO_RECENT');
     }
-    // حركات مستوردة بتاريخ ≥ البدء: 409 ما لم يُقَرّ بها (قبل أي كتابة). اللقطة dbNow لا T0 — مجموعة أشمل
+    // حركات مستوردة بتاريخ ≥ البدء: 409 ما لم يُقَرّ بها (قبل أي كتابة). اللقطة dbNow لا T0 — مجموعة أشمل،
+    // وهي مقروءة بساعة ما بعد القفلين (البند 42) فتشمل ما استُورد أثناء انتظار القفل.
     const currencyDecimalsForCheck = before?.currencyDecimals ?? DEFAULT_GL_SETTINGS.currencyDecimals;
     const importedAfterCutover = await loadImportedAfterCutover(tx, tenantId, openingCutoff(cutoverDate, eff.timezone, dbNow), currencyDecimalsForCheck);
     if (postCutoverImportsAckMissing(importedAfterCutover, parsed.data.acknowledgePostCutoverImports)) {
@@ -653,6 +678,14 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
         reason: 'POST_CUTOVER_IMPORTS_ACK_REQUIRED', field: 'acknowledgePostCutoverImports',
         importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, currencyDecimalsForCheck),
       }, 'LEDGER_POST_CUTOVER_IMPORTS_ACK');
+    }
+    // البند 41: الإقرار على لقطة غير التي يراها الاعتماد ⇒ 409 بالأرقام القديمة والجديدة، والواجهة تحدّث المعاينة
+    const ackDiff = postCutoverImportsAckStale(importedAfterCutover, currencyDecimalsForCheck, parsed.data.acknowledgePostCutoverImports);
+    if (ackDiff) {
+      throw new LedgerHttpError(409, LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE, {
+        reason: 'POST_CUTOVER_IMPORTS_CHANGED', field: 'acknowledgePostCutoverImports',
+        acknowledged: ackDiff.acked, importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, currencyDecimalsForCheck),
+      }, 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED');
     }
 
     // (3) الإعدادات قبل التفعيل ثم الزرع متساوي الأثر (§4.5)
@@ -755,6 +788,10 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
         step3: step3Report, vendorsCreated: vendors.created, manualRows: manual.lines.length,
         ...(rebasedImportEntries !== undefined ? { rebasedImportEntries } : {}),
         importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, decimals),
+        // البند 41: ما أقرّ به المالك بالضبط (لقطة مربوطة أو إقرار منطقي غير مربوط) — يُثبت في سجل التدقيق
+        postCutoverImportsAck: typeof parsed.data.acknowledgePostCutoverImports === 'object' && parsed.data.acknowledgePostCutoverImports !== null
+          ? { bound: true, ...parsed.data.acknowledgePostCutoverImports }
+          : { bound: false, acknowledged: parsed.data.acknowledgePostCutoverImports === true },
         openingStockExcluded: openingStock.afterCutover.count > 0 ? openingStockJson.afterCutover : null,
         openingMove: posted ? { id: posted.id, number: posted.number, date: posted.date } : null,
         receivablesTotal: openingJson.receivablesTotal, custodyTotal: openingJson.custodyTotal, paylinkHeld: openingJson.paylinkHeld,

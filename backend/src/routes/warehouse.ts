@@ -7,7 +7,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { computeWarehouseStock } from '../services/warehouseStock';
+import { computeWarehouseStock, tenantCurrencyDecimals } from '../services/warehouseStock';
 import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost';
 
 const router = Router();
@@ -47,7 +47,11 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
 // رصيد مخزون الشركة لكل منتج (مع تفصيل الوارد/الخارج للسيارات/العائد)
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    res.json({ success: true, data: await computeWarehouseStock(tenantId(req)) });
+    const tid = tenantId(req);
+    // خانات عملة الشركة تُقرأ **مرّة واحدة** لهذا الطلب ثم تمرّ إلى التقييم كلّه:
+    // شركةٌ بالدينار كانت ترى قيمة كل صنفٍ مقرَّبةً إلى خانتين (٠٫٣٧ بدل ٠٫٣٧١).
+    const dec = await tenantCurrencyDecimals(tid);
+    res.json({ success: true, data: await computeWarehouseStock(tid, dec) });
   } catch (err) { next(err); }
 });
 
@@ -117,12 +121,16 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
 router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const entries = await prisma.warehouseEntry.findMany({
-      where: { tenantId: tid },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { items: { include: { product: { select: { name: true, unit: true } } } } },
-    });
+    // الخانات تُقرأ مرّة واحدة مع الحركات — لا داخل حلقة الأسطر أدناه
+    const [dec, entries] = await Promise.all([
+      tenantCurrencyDecimals(tid),
+      prisma.warehouseEntry.findMany({
+        where: { tenantId: tid },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        include: { items: { include: { product: { select: { name: true, unit: true } } } } },
+      }),
+    ]);
     // الإجمالي يُحسب هنا بالدالّة المختبَرة لا في المتصفّح: حسابان لرقمٍ واحد
     // ينزاحان يوماً — وقاعدة التقريب (جمعُ أسطرٍ مقرَّبة) تعيش في مكان واحد.
     //
@@ -133,8 +141,8 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
       success: true,
       data: entries.map((e) => ({
         ...e,
-        items: e.items.map((i) => ({ ...i, lineCost: lineCost(i.qty, i.unitCost) })),
-        totalCost: entryTotalCost(e.items),
+        items: e.items.map((i) => ({ ...i, lineCost: lineCost(i.qty, i.unitCost, dec) })),
+        totalCost: entryTotalCost(e.items, dec),
       })),
     });
   } catch (err) { next(err); }

@@ -244,8 +244,13 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
     retry: false,
   });
   const commit = useMutation({
+    // البند 41: الإقرار يُرسَل **لقطةً** بالأرقام المعروضة لحظة التأشير لا `true`، فيقارنها الخادم بلقطة الاعتماد
+    // ويرفض بـ409 LEDGER_POST_CUTOVER_IMPORTS_CHANGED إن تغيّرت — فلا يمرّ إقرار ثلاث حركات على ثمانية آلاف
     mutationFn: async (opts?: { rebaseImportDates?: boolean }) => (await ledgerSetupApi.commit(undefined, {
-      acknowledgePostCutoverImports: importsAck, acknowledgeOpeningStockExcluded: stockAck && stock.afterCutover,
+      acknowledgePostCutoverImports: importsAck && imported
+        ? { count: imported.count, debit: imported.debit, credit: imported.credit, snapshotAt: q.data?.opening.snapshotAt }
+        : false,
+      acknowledgeOpeningStockExcluded: stockAck && stock.afterCutover,
       rebaseImportDates: opts?.rebaseImportDates,
     })).data.data,
     onSuccess: r => { setCommitError(null); setTzConflict(null); onCommitted(r); },
@@ -277,6 +282,14 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
   // مهلة لقطة المخزون الأحدث: عند انقضائها تُعاد المعاينة فيُرفع المنع بحكم الخادم
   // refetch ثابت الهوية (كائن النتيجة يتجدد كل رسم فيؤجّل المؤقت مع كل نقرة)
   const refetchPreview = q.refetch;
+  // البند 41: الإقرار مربوط بالأرقام المعروضة، فتغيّرها (زر «تحديث المعاينة»، أو إعادة الجلب بعد 409، أو دفعة
+  // استيراد وصلت أثناء المراجعة) يُسقطه، فلا يبقى إقرار مؤشَّر على أرقام لم تعد معروضة يرفضه الخادم بلا سبب ظاهر.
+  // التوقيع على القيم لا على لحظة الجلب: إعادة جلب تردّ الأرقام نفسها (عودة إلى التبويب مثلاً) لا تُلغي إقراراً صحيحاً.
+  const importsAckSig = imported ? `${imported.count}|${imported.debit}|${imported.credit}` : '';
+  const os = q.data?.openingStock;
+  const stockAckSig = os ? `${os.afterCutover.count}|${os.afterCutover.value}|${os.fullHistoryBlocked}` : '';
+  useEffect(() => { setImportsAck(false); }, [importsAckSig]);
+  useEffect(() => { setStockAck(false); }, [stockAckSig]);
   useEffect(() => {
     if (!stock.tooRecent || stock.waitMs <= 0) return;
     const t = window.setTimeout(() => { setNow(new Date()); void refetchPreview(); }, stock.waitMs + 1500);
@@ -330,13 +343,22 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
         </Notice>
       )}
 
-      {hasPostCutoverImports(imported) && (
+      {imported && hasPostCutoverImports(imported) && (
         <PostCutoverImportsNotice data={imported} decimals={decimals}>
           <FullHistoryImportsNote method={q.data?.method ?? method} />
+          {/* البند 41: الإقرار على أرقام بعينها تُعرض في نصّه — لا مربع اختيار على مجهول */}
           <label className="flex items-start gap-2 text-sm mt-1.5">
             <input type="checkbox" className="mt-1 accent-[#E15A30]" checked={importsAck} disabled={!canWrite || commit.isPending}
               onChange={e => setImportsAck(e.target.checked)} />
-            <span>{tr('راجعت الحركات المستوردة بعد تاريخ البدء وأوافق على ترحيلها بتواريخها')}</span>
+            <span>
+              {tr('راجعت هذه الأرقام وأوافق على ترحيل الحركات المستوردة بعد تاريخ البدء بتواريخها')}:{' '}
+              <bdi className="tabular-nums font-semibold">{imported.count}</bdi> {tr('حركة')}
+              {' · '}{tr('مدين')}: <LedgerAmount value={imported.debit} decimals={decimals} />
+              {' · '}{tr('دائن')}: <LedgerAmount value={imported.credit} decimals={decimals} />
+              <span className="block text-[11px] opacity-80">
+                {tr('الإقرار مربوط بهذه الأرقام وحدها: إن تغيّرت قبل ضغط التفعيل رُفض الاعتماد وأُعيدت المعاينة لتقرّ بالجديدة')}
+              </span>
+            </span>
           </label>
         </PostCutoverImportsNotice>
       )}

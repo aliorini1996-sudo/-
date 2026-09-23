@@ -175,7 +175,9 @@ test('تراجع العملاء/المنتجات: المتبقّي يُبقي ا
   assert.ok(s > 0);
   const tail = body.slice(s);
   ordered(tail, ['revertOutcome(ids, done)', 'if (reverted)', 'reverted: true', 'serializeBatchRecordIds(batch.kind, remainingIds', 'count: remainingIds.length'], 'تحديث الدفعة');
-  ordered(tail, ['categoryDeletable(', 'glProductCategoryAccount.count(', 'productCategory.deleteMany('], 'حذف الفئات اليتيمة');
+  // البندان 46 و48: قرار الفئة انتقل إلى معاملة واحدة بقفل صفّها (deleteImportCategory)، والكنس يشمل فئات الدفعات الأخرى
+  ordered(tail, ['deleteImportCategory(tid, catId, draftLinks.has(catId))', 'orphanImportCategories(tid, batch.id, parsed.categories)'], 'حذف الفئات اليتيمة');
+  ordered(read('routes/import.ts'), ['async function deleteImportCategory(', 'FOR UPDATE', 'categoryDeletable(', 'glProductCategoryAccount.count(', 'productCategory.deleteMany('], 'معاملة حذف الفئة');
 });
 
 // ═══ salesReps.ts ═══

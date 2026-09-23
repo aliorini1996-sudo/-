@@ -60,8 +60,9 @@ test('الخادم يرسل قيمة كل سطر بالدالّة نفسها ا�
   const s = read('..', 'backend', 'src', 'routes', 'warehouse.ts');
   const i = s.indexOf("router.get('/entries'");
   const body = s.slice(i, s.indexOf('\n});', i));
-  assert.match(body, /lineCost: lineCost\(i\.qty, i\.unitCost\)/, 'قيمة السطر لا تُرسَل — والمتصفّح سيحسبها بقاعدةٍ ثانية');
-  assert.match(body, /totalCost: entryTotalCost\(e\.items\)/, 'الإجمالي يجب أن يبقى من الخادم');
+  // البند 40: القيمة تُقرَّب بمنازل عملة الشركة (dec) لا بخانتين ثابتتين — والحساب يبقى كله في الخادم
+  assert.match(body, /lineCost: lineCost\(i\.qty, i\.unitCost, dec\)/, 'قيمة السطر لا تُرسَل بمنازل العملة — والمتصفّح سيحسبها بقاعدةٍ ثانية');
+  assert.match(body, /totalCost: entryTotalCost\(e\.items, dec\)/, 'الإجمالي يجب أن يبقى من الخادم بمنازل العملة');
 });
 
 test('الإشعار المطبوع لا يحسب قيمة سطرٍ ولا إجمالياً بنفسه', () => {

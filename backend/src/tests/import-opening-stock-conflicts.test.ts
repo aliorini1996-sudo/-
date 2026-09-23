@@ -70,7 +70,6 @@ test('سيناريو البند 24: كود مؤرشف أو موقوف ⇒ PRODUC
   assert.equal((m({ productName: 'زيت' }) as { id: string }).id, 'p3');
   assert.deepEqual(m({ productName: 'شاي' }), { error: 'AMBIGUOUS' });
   assert.deepEqual(m({ productCode: 'nope' }), { error: 'NOT_FOUND' });
-  assert.equal((m({ productCode: 'nope', barcode: '111' }) as { id: string }).id, 'p1');
   // الواجهة المتوافقة تعيد المنتج أو null وتتجاهل المؤرشف
   const find = openingStockProductFinder(products);
   assert.equal(find({ productCode: 'OLD-1' }), null);
@@ -107,6 +106,34 @@ test('سيناريو البند 24: كود مؤرشف أو موقوف ⇒ PRODUC
   const bare = resolveOpeningStockRows([{ qty: 1, unitCost: 1 }], m, false);
   assert.equal('value' in bare.errors[0], false);
   assert.equal('field' in bare.errors[0], false);
+});
+
+// البند 35: الخلل الأخطر في المطابقة — كود مكتوب وغير موجود كان يسقط إلى الباركود أو الاسم، فيُكتب جرد صنف
+// لصنف آخر بصمت (لا خطأ ولا تنبيه). الكود المكتوب حكمٌ نهائي.
+test('البند 35: كود مكتوب وغير موجود ⇒ NOT_FOUND ولا مطابقة بالباركود أو الاسم؛ وبلا كود تبقى المطابقة كما كانت', () => {
+  const m = openingStockProductMatcher(products);
+  // الخلل: كود مطبوع خطأً مع باركود أو اسم صنف آخر كان يُطابق ذلك الآخر
+  assert.deepEqual(m({ productCode: 'nope', barcode: '111' }), { error: 'NOT_FOUND' }, 'سقط إلى الباركود');
+  assert.deepEqual(m({ productCode: 'A-9', productName: 'سكر' }), { error: 'NOT_FOUND' }, 'سقط إلى الاسم');
+  assert.deepEqual(m({ productCode: 'nope', barcode: '111', productName: 'شاي' }), { error: 'NOT_FOUND' });
+  assert.deepEqual(m({ productCode: '  nope  ', barcode: '111' }), { error: 'NOT_FOUND' }, 'الكود المقصوص كذلك');
+  // الكود الموقوف أو المؤرشف يبقى INACTIVE (لا NOT_FOUND) ولا يسقط هو أيضاً إلى الباركود
+  assert.deepEqual(m({ productCode: 'OLD-1', barcode: '111' }), { error: 'INACTIVE' });
+  assert.deepEqual(m({ productCode: 'OFF-1', productName: 'سكر' }), { error: 'INACTIVE' });
+  // لا انحدار: الصفّ بلا كود (أو بكود فارغ) يُطابَق بالباركود ثم الاسم كما اليوم
+  assert.equal((m({ barcode: '111' }) as { id: string }).id, 'p1');
+  assert.equal((m({ productCode: '', barcode: '111' }) as { id: string }).id, 'p1');
+  assert.equal((m({ productCode: '   ', productName: 'سكر' }) as { id: string }).id, 'p2');
+  assert.equal((m({ productName: 'زيت' }) as { id: string }).id, 'p3');
+  assert.equal((m({ productCode: 'A-1', barcode: '222' }) as { id: string }).id, 'p1', 'الكود الصحيح أسبق من باركود غيره');
+  assert.equal(openingStockProductFinder(products)({ productCode: 'nope', barcode: '111' }), null);
+  // النتيجة على الملف: لا بند يُكتب لصنف لم يُقصد، والخطأ يدلّ على الكود المكتوب وعموده
+  const { lines, errors } = resolveOpeningStockRows([
+    { productCode: 'A-9', productName: 'سكر', qty: 5, unitCost: 10 },
+    { productCode: 'B-2', qty: 2, unitCost: 3 },
+  ], m, false);
+  assert.deepEqual(lines.map((l) => l.productId), ['p2'], 'كُتب جرد لصنف لم يذكره الملف');
+  assert.deepEqual(errors, [{ row: 2, code: 'PRODUCT_NOT_FOUND', message: IMPORT_ROW_MESSAGES.PRODUCT_NOT_FOUND, value: 'A-9', field: 'productCode' }]);
 });
 
 // البند K (عقد مشترك): الواجهة تقول للمالك «تراجع عن دفعة كذا» — فالخادم يضع تاريخها لا معرّفها
@@ -168,5 +195,11 @@ test('حارس ثابت: فحص الحركات السابقة بين acquirePost
     assert.ok(k > pos, `/opening-stock: ${n} خارج الترتيب`);
     pos = k;
   }
-  assert.match(body, /totalCost: entryTotalCost\(out\.accepted\)/);
+  // البند 40: الإجمالي بمنازل عملة الشركة لا بخانتين ثابتتين — والمنازل تُقرأ **بعد** المعاملة (خارج قفل
+  // gl-post) وقبل الردّ مباشرةً، فقراءة الإعدادات لا تطيل حبس القفل على كل استيراد جرد.
+  assert.match(body, /totalCost: entryTotalCost\(out\.accepted, decimals\)/);
+  const txEnd = body.indexOf('}, { maxWait: 10_000, timeout: 30_000 });');
+  const decimals = body.indexOf('const { decimals } = await importLedgerContext(tid);');
+  assert.ok(txEnd > 0 && decimals > txEnd, 'منازل العملة تُقرأ داخل معاملة قفل gl-post');
+  assert.ok(decimals < body.indexOf('totalCost: entryTotalCost('), 'المنازل تُقرأ بعد استعمالها');
 });

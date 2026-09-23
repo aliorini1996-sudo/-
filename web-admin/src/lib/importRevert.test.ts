@@ -170,8 +170,9 @@ test('البند 1: السعر الخاص الصفري يمنع الزر حتى 
 
 test('buildImportBody يحفظ السلوك القائم: التاريخ للأرصدة والكشوف، وحقول المخزون، وforce وconfirmOverlap', () => {
   const rows = [{ a: 1 }];
+  // البند 51: الأرصدة والكشوف تحمل عقد التاريخ كذلك — الحقول الأخرى كما كانت
   assert.deepEqual(buildImportBody({ kind: 'ledger', rows, ledgerKind: true, undatedDate: '2026-01-01', flags: { force: true, confirmOverlap: true } }),
-    { rows, undatedDate: '2026-01-01', force: true, confirmOverlap: true });
+    { rows, undatedDate: '2026-01-01', dateContract: 'local-ymd-v2', force: true, confirmOverlap: true });
   assert.deepEqual(buildImportBody({ kind: 'customers', rows, ledgerKind: false, undatedDate: '2026-01-01' }), { rows });
   assert.deepEqual(buildImportBody({ kind: 'opening_stock', rows, ledgerKind: false, stockInclTax: true, stockAckBody: { acknowledgeCutoverChange: true } }),
     { rows, pricesIncludeTax: true, acknowledgeCutoverChange: true });
@@ -419,4 +420,367 @@ test('البند L: خانة قيمة خطأ الصف تُعرض حين تفيد
   const panel = fs.readFileSync(path.resolve(process.cwd(), 'src', 'components', 'DataImportPanel.tsx'), 'utf8');
   assert.match(panel, /importRowErrorFieldKey\(er\)/, 'عرض خطأ الصف لا يقرأ الخانة');
   assert.match(panel, /field \? <> — \{tr\(field\)\}<\/> : null/);
+});
+
+const panelSource = async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  return fs.readFileSync(path.resolve(process.cwd(), 'src', 'components', 'DataImportPanel.tsx'), 'utf8');
+};
+
+test('البند 31: خانة «الأسعار شاملة الضريبة» في المنتجات والأسعار وحدهما، وتأكيد تلقائي من عنوان العمود', async () => {
+  const {
+    inclusiveTaxKind, inclusiveTaxDetected, buildImportBody: build,
+  } = await import('./importRevert');
+  // الكشف نفسه المستعمل في المعاينة (importData) لا قاعدة محلية ثانية
+  const { headerSaysPriceIncludesTax } = await import('./importData');
+  assert.equal(inclusiveTaxKind('products'), true);
+  assert.equal(inclusiveTaxKind('prices'), true);
+  // للمخزون الافتتاحي خانته الخاصة، والأنواع الأخرى بلا أسعار
+  assert.equal(inclusiveTaxKind('opening_stock'), false);
+  assert.equal(inclusiveTaxKind('balances'), false);
+  assert.equal(inclusiveTaxKind('toString'), false);
+
+  // عنوان عمود السعر: «شامل/شاملة» بالتشكيل أو بالتطويل، و«incl» بأي حالة — مع كلمة ضريبة
+  assert.equal(headerSaysPriceIncludesTax('السعر شامل الضريبة'), true);
+  assert.equal(headerSaysPriceIncludesTax('سعر البيع شاملة الضريبة'), true);
+  assert.equal(headerSaysPriceIncludesTax('شـامل الضريبة'), true);
+  assert.equal(headerSaysPriceIncludesTax('Unit Price Incl. VAT'), true);
+  assert.equal(headerSaysPriceIncludesTax('سعر البيع'), false);
+  assert.equal(headerSaysPriceIncludesTax(null), false);
+
+  // المنتجات على basePrice والأسعار على price — وعنوان عمود آخر لا يحسم
+  assert.equal(inclusiveTaxDetected('products', [{ field: 'basePrice', header: 'السعر شامل الضريبة' }]), true);
+  assert.equal(inclusiveTaxDetected('products', [{ field: 'taxPct', header: 'الضريبة شاملة' }, { field: 'basePrice', header: 'سعر البيع' }]), false);
+  assert.equal(inclusiveTaxDetected('prices', [{ field: 'price', header: 'السعر الخاص شامل الضريبة' }]), true);
+  assert.equal(inclusiveTaxDetected('prices', [{ field: 'price', header: null }]), false);
+  assert.equal(inclusiveTaxDetected('customers', [{ field: 'basePrice', header: 'شامل' }]), false);
+  assert.equal(inclusiveTaxDetected('products', undefined), false);
+
+  // 🔴 خلل مالي: «شامل» بلا كلمة ضريبة، أو منفيّة، لا تُحدِّد الخانة — وإلا قُسمت أسعار المالك الصافية على 1.15
+  for (const header of [
+    'غير شامل الضريبة', 'السعر غير شامل الضريبة', 'Price excl. VAT', 'السعر قبل الضريبة', 'السعر بدون ضريبة',
+    'السعر شامل الخصم', 'السعر شامل التوصيل', 'Price incl. delivery', 'شامل', 'incl',
+  ]) {
+    assert.equal(headerSaysPriceIncludesTax(header), false, `عنوان بريء يُحدِّد الخانة: ${header}`);
+    assert.equal(inclusiveTaxDetected('products', [{ field: 'basePrice', header }]), false, `المنتجات: ${header}`);
+    assert.equal(inclusiveTaxDetected('prices', [{ field: 'price', header }]), false, `الأسعار: ${header}`);
+  }
+  // وما يقوله فعلاً يبقى مكشوفاً
+  for (const header of ['السعر شامل الضريبة', 'شامل ضريبة القيمة المضافة', 'Unit Price Incl. Tax', 'price incl vat']) {
+    assert.equal(headerSaysPriceIncludesTax(header), true, `عنوان شامل الضريبة لم يُكشف: ${header}`);
+    assert.equal(inclusiveTaxDetected('products', [{ field: 'basePrice', header }]), true, `المنتجات: ${header}`);
+  }
+
+  // الإرسال: العلم مع المنتجات والأسعار حين يُحدَّد وحده، ولا يتسرّب إلى نوع آخر
+  const rows = [{ code: 'P1', basePrice: 115 }];
+  assert.deepEqual(build({ kind: 'products', rows, ledgerKind: false, pricesIncludeTax: true }), { rows, pricesIncludeTax: true });
+  assert.deepEqual(build({ kind: 'products', rows, ledgerKind: false, pricesIncludeTax: false }), { rows });
+  assert.deepEqual(build({ kind: 'products', rows, ledgerKind: false }), { rows });
+  assert.deepEqual(build({ kind: 'prices', rows, ledgerKind: false, pricesIncludeTax: true }), { rows, pricesIncludeTax: true });
+  assert.deepEqual(build({ kind: 'customers', rows, ledgerKind: false, pricesIncludeTax: true }), { rows });
+  // خانة المخزون الافتتاحي كما كانت: تُرسل دائماً بقيمتها
+  assert.deepEqual(build({ kind: 'opening_stock', rows, ledgerKind: false, stockInclTax: false, pricesIncludeTax: true }), { rows, pricesIncludeTax: false });
+
+  const panel = await panelSource();
+  assert.match(panel, /const inclusiveChosen = priceInclTax \?\? inclusiveDetected;/, 'الخانة لا تأخذ قرار المالك ثم عنوان العمود');
+  assert.match(panel, /pricesIncludeTax = view\?\.inclusiveChosen \?\? priceInclTax \?\? false/, 'العلم المُرسل لا يتبع الخانة المعروضة');
+  assert.match(panel, /zeroPriceAck, pricesIncludeTax,/, 'العلم لا يُرسل مع جسم الاستيراد');
+  assert.match(panel, /setPriceInclTax\(null\)/, 'الخانة لا تُصفَّر مع كل ملف جديد');
+});
+
+test('البند 31: اقتراح «فعّل الخيار» يسكت بعد تأشير الخانة (لا تنبيه لا يُطفأ)', async () => {
+  const { PRICE_INCL_TAX_SUGGESTED_NOTICE, IMPORT_TYPES } = await import('./importData');
+  const rows = [{ 'كود الصنف': 'P1', 'اسم الصنف': 'صنف', 'السعر شامل الضريبة': '115' }];
+  const has = (o?: { pricesIncludeTax?: boolean }) =>
+    (IMPORT_TYPES.products.transform(rows, o).notices ?? []).some((n) => n.key === PRICE_INCL_TAX_SUGGESTED_NOTICE);
+  // بلا خيار: الاقتراح يظهر — ومع الخيار: يسكت (chosen يصل التحويل)
+  assert.equal(has(), true, 'الاقتراح لا يظهر والعنوان يقول شامل الضريبة');
+  assert.equal(has({ pricesIncludeTax: false }), true);
+  assert.equal(has({ pricesIncludeTax: true }), false, 'الاقتراح يبقى بعد تأشير الخانة');
+
+  const panel = await panelSource();
+  // خيار المالك الصريح يصل التحويل، والتأشير التلقائي يُسقط الاقتراح من قائمة التنبيهات
+  assert.match(panel, /pricesIncludeTax: priceInclTax === true,/, 'التحويل لا يعرف بخيار المالك');
+  assert.match(panel, /\.filter\(\(n\) => !\(inclusiveChosen && n\.key === PRICE_INCL_TAX_SUGGESTED_NOTICE\)\)/, 'الاقتراح لا يُسقَط والخانة مؤشّرة');
+  // إعادة التحويل عند تبديل الخانة: بلا هذه الاعتمادية يبقى التنبيه من حساب قديم
+  assert.match(panel, /zeroPriceAck, companyDecimals, priceInclTax\]\)/, 'تبديل الخانة لا يعيد حساب المعاينة');
+});
+
+test('البند 31: نتيجة الاستيراد تقول إن الأسعار حُفظت صافية، وبعددها إن أرسله الخادم', async () => {
+  const { netFromInclusiveCount, PRICES_SAVED_NET } = await import('./importRevert');
+  // الجذر أولاً ثم التنبيهات — أيّهما وضع فيه الخادم العدّ
+  assert.equal(netFromInclusiveCount({ netFromInclusive: 12 }), 12);
+  assert.equal(netFromInclusiveCount({ warnings: { netFromInclusive: 7 } }), 7);
+  // خادم لا يرسل العدّ (أو يرسل صفراً أو قيمة غريبة): العبارة بلا عدد لا عدد مختلَق
+  assert.equal(netFromInclusiveCount({}), 0);
+  assert.equal(netFromInclusiveCount({ netFromInclusive: 0 }), 0);
+  assert.equal(netFromInclusiveCount({ netFromInclusive: '12' as unknown as number }), 0);
+  assert.equal(netFromInclusiveCount({ warnings: null }), 0);
+  assert.equal(netFromInclusiveCount(undefined), 0);
+
+  const panel = await panelSource();
+  // العبارة معلّقة على ما أُرسل فعلاً في الجسم لا على حالة الخانة بعد إغلاق المعاينة
+  assert.match(panel, /sentInclusiveTax: body\.pricesIncludeTax === true && inclusiveTaxKind\(kind\)/, 'النتيجة لا تعرف بم أُرسل الملف');
+  // لا تُقال العبارة إن لم يُكتب سعر واحد («لم يُستورد شيء» لا يُخصم فيه شيء)
+  assert.match(panel, /result\.sentInclusiveTax && rv\.counts\.created \+ rv\.counts\.updated > 0/, 'نتيجة الاستيراد لا تذكر خصم الضريبة');
+  assert.ok(panel.includes('{tr(PRICES_SAVED_NET)}'), 'عبارة الحفظ الصافي غائبة عن النافذة');
+  assert.ok(PRICES_SAVED_NET.includes('صافي'), 'العبارة لا تقول للمالك إن المحفوظ صافٍ');
+});
+
+test('البند 36: حد صفوف الخادم يُعرض قبل الإرسال، ورفض الملف كله يُفصَّل بسطره وسببه', async () => {
+  const {
+    rowsOverMax, IMPORT_MAX_ROWS, importButtonBlocked: blocked, importValidationRejection, isPayloadTooLarge,
+    payloadBytes, megabytes,
+  } = await import('./importRevert');
+  assert.equal(IMPORT_MAX_ROWS.customers, 5000);
+  assert.equal(IMPORT_MAX_ROWS.ledger, 20000);
+  assert.deepEqual(rowsOverMax('customers', 5001), { rows: 5001, max: 5000 });
+  assert.equal(rowsOverMax('customers', 5000), null);
+  assert.equal(rowsOverMax('ledger', 5001), null);
+  // نوع لا يعرفه الجدول: لا ادّعاء حدّ — الخادم يحسم
+  assert.equal(rowsOverMax('mystery', 99999), null);
+  assert.equal(blocked({ rows: 5001, overMax: true }), true);
+  assert.equal(blocked({ rows: 5001, overMax: false }), false);
+
+  // خادم يرسل issues بمسارها: موضع الصف المرسل ⇒ ترقيم الخادم (+2) ليمرّ على fileRowOf، والحقل معه
+  const withIssues = {
+    isAxiosError: true,
+    response: { status: 400, data: { success: false, message: 'بيانات غير صحيحة rows', issues: [
+      { path: ['rows', 3, 'creditLimit'], message: 'Number must be greater than or equal to 0' },
+      { path: ['rows', 40, 'taxPct'], message: 'Number must be less than or equal to 100' },
+      { path: ['rows'], message: 'Array must contain at most 5000 element(s)' },
+    ] } },
+  };
+  assert.deepEqual(importValidationRejection(withIssues)?.details, [
+    { row: 5, field: 'creditLimit', message: 'Number must be greater than or equal to 0' },
+    { row: 42, field: 'taxPct', message: 'Number must be less than or equal to 100' },
+    { row: undefined, field: undefined, message: 'Array must contain at most 5000 element(s)' },
+  ]);
+  // الخادم القائم يرسل fieldErrors وحدها: الرسالة تُعرض ولو بلا سطر
+  const fieldErrors = { isAxiosError: true, response: { status: 400, data: { success: false, errors: { rows: ['بيانات غير صحيحة'] } } } };
+  assert.deepEqual(importValidationRejection(fieldErrors)?.details, [{ row: undefined, field: undefined, message: 'بيانات غير صحيحة' }]);
+  // مفتاح رقمي = موضع صف
+  const numericKeys = { isAxiosError: true, response: { status: 400, data: { errors: { 7: ['قيمة غير صالحة'] } } } };
+  assert.deepEqual(importValidationRejection(numericKeys)?.details, [{ row: 9, field: undefined, message: 'قيمة غير صالحة' }]);
+  // لا تفصيل ⇒ null فتبقى الرسالة العامة، و409 ليست رفض تحقق
+  assert.equal(importValidationRejection({ isAxiosError: true, response: { status: 400, data: { message: 'x' } } }), null);
+  assert.equal(importValidationRejection({ isAxiosError: true, response: { status: 409, data: { errors: { rows: ['x'] } } } }), null);
+
+  // حدّ حجم الطلب: 413، أو 500 برسالة express
+  assert.equal(isPayloadTooLarge({ type: 'other', status: 413 }), true);
+  assert.equal(isPayloadTooLarge({ type: 'other', status: 500, message: 'request entity too large' }), true);
+  assert.equal(isPayloadTooLarge({ type: 'other', status: 500, message: 'خطأ في الخادم' }), false);
+  assert.equal(isPayloadTooLarge({ type: 'network' }), false);
+  assert.equal(payloadBytes({ rows: [{ name: 'أب' }] }), new TextEncoder().encode(JSON.stringify({ rows: [{ name: 'أب' }] })).length);
+  assert.equal(megabytes(1572864), 1.5);
+
+  const panel = await panelSource();
+  assert.match(panel, /overMax: rowsOverMax\(preview\.kind, rows\.length\)/, 'حد الصفوف لا يُحسب على الصفوف المرسلة');
+  assert.match(panel, /overMax: !!view\.overMax/, 'زر الاستيراد يبقى مفعّلاً فوق الحد');
+  assert.match(panel, /importValidationRejection\(e\)/, 'رفض الملف كله لا يُقرأ تفصيله');
+  assert.match(panel, /type: 'tooLarge', bytes: payloadBytes\(body\)/, 'حجم الجسم لا يُعرض على المالك');
+});
+
+test('البندان 43 و44: تخطّي الأسعار بسببه العربي، بعدّاد لكل سبب وأزواج اختلف فيها السعر', async () => {
+  const {
+    priceSkipReasonKey, skipReasonKey, skipReasonCounts, conflictingPricePairs,
+    PRICE_SKIP_PRODUCT_ARCHIVED, PRICE_SKIP_DUPLICATE_PAIR, PRICE_DUPLICATE_PAIRS_TITLE,
+  } = await import('./importRevert');
+  assert.equal(priceSkipReasonKey('PRODUCT_ARCHIVED'), PRICE_SKIP_PRODUCT_ARCHIVED);
+  assert.equal(priceSkipReasonKey('DUPLICATE_PAIR'), PRICE_SKIP_DUPLICATE_PAIR);
+  assert.equal(priceSkipReasonKey(undefined), 'مكرر تخطي');
+  // لا تُخلط بأسباب نوع آخر: «الكود موجود» سبب منتجات لا أسعار
+  assert.equal(priceSkipReasonKey('CODE_EXISTS'), 'مكرر تخطي');
+  assert.equal(skipReasonKey('prices', 'PRODUCT_ARCHIVED'), PRICE_SKIP_PRODUCT_ARCHIVED);
+  assert.equal(skipReasonKey('products', 'CODE_EXISTS'), 'الكود موجود');
+  assert.equal(skipReasonKey('customers', 'PHONE_EXISTS'), 'الجوال موجود');
+  assert.equal(skipReasonKey('products', 'PRODUCT_ARCHIVED'), 'مكرر تخطي');
+  assert.equal(skipReasonKey(undefined, 'CODE_EXISTS'), 'الكود موجود');
+
+  // العدّاد: لكل سبب عدده بترتيب أول ظهوره — القائمة تُقتطع عند 15 سطراً والعدّ كامل
+  assert.deepEqual(
+    skipReasonCounts('prices', [
+      { reason: 'DUPLICATE_PAIR' }, { reason: 'PRODUCT_ARCHIVED' }, { reason: 'DUPLICATE_PAIR' }, { reason: 'PRODUCT_ARCHIVED' }, { reason: 'PRODUCT_ARCHIVED' },
+    ]),
+    [{ key: PRICE_SKIP_DUPLICATE_PAIR, count: 2 }, { key: PRICE_SKIP_PRODUCT_ARCHIVED, count: 3 }],
+  );
+  assert.deepEqual(skipReasonCounts('prices', []), []);
+  assert.deepEqual(skipReasonCounts('prices', undefined), []);
+  assert.deepEqual(skipReasonCounts('customers', [{}]), [{ key: 'مكرر تخطي', count: 1 }]);
+
+  // أزواج التكرار: المختلفة سعراً وحدها تُعرض (المتطابقة تكرار بلا أثر يكفيه عدّاد التخطي)
+  const pairs = [
+    { rows: [2, 9], kept: 9, prices: [10, 12], conflict: true, code: 'P1', customerName: 'بقالة الحي' },
+    { rows: [3, 4], kept: 4, prices: [5, 5], conflict: false, code: 'P2', customerName: 'سوبر ماركت' },
+  ];
+  assert.deepEqual(conflictingPricePairs(pairs).map((d) => d.code), ['P1']);
+  assert.deepEqual(conflictingPricePairs([]), []);
+  assert.deepEqual(conflictingPricePairs(undefined), []);
+
+  // خانة العدّ: «مكرر تخطي» ليست صادقة في الأسعار (الصنف المؤرشف ليس مكرراً)
+  const { skippedStatLabel, SKIPPED_ROWS_LABEL } = await import('./importRevert');
+  assert.equal(skippedStatLabel('prices'), SKIPPED_ROWS_LABEL);
+  assert.equal(skippedStatLabel('products'), 'مكرر تخطي');
+  assert.equal(skippedStatLabel(undefined), 'مكرر تخطي');
+
+  const panel = await panelSource();
+  assert.match(panel, /skippedStatLabel\(result\.kind\)/, 'خانة المتخطى تقول «مكرر» في الأسعار');
+  assert.match(panel, /tr\(skipReasonKey\(result\.kind, s\.reason\)\)/, 'سبب تخطي الأسعار يُعرض بسبب نوع آخر');
+  assert.match(panel, /skipReasonCounts\(result\.kind, skippedRows\)/, 'لا عدّاد لأسباب التخطي في النافذة');
+  assert.match(panel, /conflictingPricePairs\(w\?\.duplicates\)/, 'أزواج التكرار المختلفة سعراً لا تُعرض');
+  assert.ok(panel.includes('{tr(PRICE_DUPLICATE_PAIRS_TITLE)}'), 'عنوان أزواج التكرار غائب');
+  assert.ok(PRICE_DUPLICATE_PAIRS_TITLE.includes('المحفوظ آخرها'));
+});
+
+test('البند 49: العملاء بجوال لا تقبله بطاقتهم يُنبَّه عليهم بعددهم وصفوفهم', async () => {
+  const { phoneNotEditableWarning, CUSTOMER_PHONE_NOT_EDITABLE, CUSTOMER_PHONE_NOT_EDITABLE_FIX } = await import('./importRevert');
+  assert.deepEqual(phoneNotEditableWarning({ count: 3, rows: [2, 5, 9] }), { count: 3, rows: [2, 5, 9] });
+  // عدد بلا صفوف (خادم قصّها) يبقى تنبيهاً، والصفر والغياب والتشويه بلا كتلة
+  assert.deepEqual(phoneNotEditableWarning({ count: 2 }), { count: 2, rows: [] });
+  assert.deepEqual(phoneNotEditableWarning({ count: 2, rows: [4, 'x', null] }), { count: 2, rows: [4] });
+  assert.equal(phoneNotEditableWarning({ count: 0, rows: [] }), null);
+  assert.equal(phoneNotEditableWarning({ rows: [3] }), null);
+  assert.equal(phoneNotEditableWarning(null), null);
+  assert.equal(phoneNotEditableWarning(undefined), null);
+  // العبارة تقول للمالك ما يعطّله وما يصلحه
+  assert.ok(CUSTOMER_PHONE_NOT_EDITABLE.includes('لا يُحفظ أي تعديل'));
+  assert.ok(CUSTOMER_PHONE_NOT_EDITABLE_FIX.includes('جوالاً صالحاً'));
+
+  const panel = await panelSource();
+  assert.match(panel, /phoneNotEditableWarning\(w\?\.phoneNotEditable\)/, 'تحذير الجوال لا يُقرأ من رد الخادم');
+  assert.ok(panel.includes('{tr(CUSTOMER_PHONE_NOT_EDITABLE)}'), 'نص تحذير الجوال غائب عن النافذة');
+});
+
+test('البند 39: تنبيه «تواريخ بعد اليوم» يصل المالك بعدده وأقصى تاريخ مقبول وأمثلة صفوفه', async () => {
+  const { futureDatedWarning, IMPORT_FUTURE_DATED, IMPORT_FUTURE_DATED_MAX, IMPORT_FUTURE_DATED_FIX } = await import('./importRevert');
+  // شكل warnings.futureDated في ردّ /import/balances و/import/ledger
+  assert.deepEqual(futureDatedWarning({ count: 3, rows: [2, 5, 9], maxDate: '2026-09-24', message: 'x' }),
+    { count: 3, rows: [2, 5, 9], maxDate: '2026-09-24' });
+  // الشكل الذي يرسله الخادم فعلاً: rows = [{ row, date }] (services/importLedger.ts resolveImportDates)
+  assert.deepEqual(
+    futureDatedWarning({ count: 2, rows: [{ row: 7, date: '2052-01-03' }, { row: 11, date: '2052-02-09' }], maxDate: '2026-09-24' }),
+    { count: 2, rows: [7, 11], maxDate: '2026-09-24' },
+  );
+  // خلط الشكلين وقيم مشوّهة: تُقرأ الأرقام وحدها ولا تُختلق صفوف
+  assert.deepEqual(futureDatedWarning({ count: 3, rows: [4, { row: 9, date: 'x' }, { date: 'y' }, {}, 'z'], maxDate: '' }),
+    { count: 3, rows: [4, 9], maxDate: '' });
+  // عدد بلا صفوف، وصفوف بلا عدد (خادم أقدم صيغةً): كلاهما تنبيه بعدد صادق
+  assert.deepEqual(futureDatedWarning({ count: 2, maxDate: '2026-09-24' }), { count: 2, rows: [], maxDate: '2026-09-24' });
+  assert.deepEqual(futureDatedWarning({ rows: [4, 7] }), { count: 2, rows: [4, 7], maxDate: '' });
+  assert.deepEqual(futureDatedWarning({ count: 2, rows: [4, 'x', null], maxDate: 9 }), { count: 2, rows: [4], maxDate: '' });
+  // الحقل غائب من خادم أقدم، أو صفر ⇒ لا كتلة ولا عدد مختلَق
+  assert.equal(futureDatedWarning({ count: 0, rows: [] }), null);
+  assert.equal(futureDatedWarning({}), null);
+  assert.equal(futureDatedWarning(null), null);
+  assert.equal(futureDatedWarning(undefined), null);
+  // النص نفسه الذي يرسله الخادم (backend/src/routes/import.ts IMPORT_FUTURE_DATE_WARNING) فيُترجَم عندنا
+  assert.equal(IMPORT_FUTURE_DATED, 'تواريخ بعد اليوم بتوقيت الشركة — تحقّق من سنة التاريخ قبل الاعتماد');
+  assert.ok(IMPORT_FUTURE_DATED_MAX.includes('أقصى تاريخ'));
+  assert.ok(IMPORT_FUTURE_DATED_FIX.includes('التراجع'), 'لا يُقال للمالك كيف يصلحها');
+
+  const panel = await panelSource();
+  assert.match(panel, /futureDatedWarning\(w\?\.futureDated\)/, 'تنبيه التاريخ المستقبلي لا يُقرأ من رد الخادم');
+  assert.ok(panel.includes('{tr(IMPORT_FUTURE_DATED)}'), 'نص التنبيه غائب عن نافذة النتيجة');
+  assert.ok(panel.includes('{tr(IMPORT_FUTURE_DATED_MAX)}'), 'أقصى تاريخ مقبول لا يُعرض');
+  assert.match(panel, /futureDated\.rows\.slice\(0, 20\)\.map\(row\)/, 'أمثلة الصفوف لا تُرقَّم بأرقام صفوف الملف');
+});
+
+test('البند 36: خطأ الصف بلا قيمة يُعرض باسم خانته، فلا يبقى «خانة مطلوبة» بلا عمود', async () => {
+  const { importRowFieldOnlyKey } = await import('./importRevert');
+  // parseImportRows: خانة فارغة ⇒ رسالة عامة بلا قيمة، فالوسم وحده يدلّ على العمود
+  assert.equal(importRowFieldOnlyKey({ message: 'خانة مطلوبة في هذا الصف فارغة', field: 'creditLimit' }), 'الحد الائتماني');
+  assert.equal(importRowFieldOnlyKey({ message: 'نوع القيمة لا يناسب هذه الخانة (نص في خانة رقمية أو العكس)', field: 'qty' }), 'الكمية');
+  // مع قيمة: الوسم يظهر معها (importRowErrorFieldKey) فلا يُكرَّر هنا
+  assert.equal(importRowFieldOnlyKey({ message: 'خانة مطلوبة في هذا الصف فارغة', value: '0', field: 'qty' }), null);
+  // الرسالة تذكر الخانة سلفاً، أو الخانة بلا وسم عربي، أو لا خانة أصلاً
+  assert.equal(importRowFieldOnlyKey({ message: 'الكمية يجب أن تكون أكبر من صفر', field: 'qty' }), null);
+  assert.equal(importRowFieldOnlyKey({ message: 'خطأ', field: 'mystery' }), null);
+  assert.equal(importRowFieldOnlyKey({ message: 'خطأ', field: '  ' }), null);
+  assert.equal(importRowFieldOnlyKey({ message: 'خطأ' }), null);
+  assert.equal(importRowFieldOnlyKey(undefined), null);
+
+  const panel = await panelSource();
+  assert.match(panel, /importRowFieldOnlyKey\(er\)/, 'خطأ الصف بلا قيمة يسقط بلا اسم خانة');
+});
+
+test('البند 51: عقد التاريخ يُختم به طلب الأرصدة والكشوف، ورمز عدم التوافق يعرض «حدّث الصفحة»', async () => {
+  const { buildImportBody: build, isClientOutdated, IMPORT_DATE_CONTRACT } = await import('./importRevert');
+  const rows = [{ a: 1 }];
+  assert.equal(IMPORT_DATE_CONTRACT, 'local-ymd-v2');
+  assert.equal(build({ kind: 'balances', rows, ledgerKind: true }).dateContract, IMPORT_DATE_CONTRACT);
+  assert.equal(build({ kind: 'ledger', rows, ledgerKind: true }).dateContract, IMPORT_DATE_CONTRACT);
+  // الأنواع بلا تواريخ لا تحمله
+  assert.equal('dateContract' in build({ kind: 'customers', rows, ledgerKind: false }), false);
+  assert.equal('dateContract' in build({ kind: 'opening_stock', rows, ledgerKind: false }), false);
+
+  assert.equal(isClientOutdated({ isAxiosError: true, response: { status: 409, data: { code: 'IMPORT_CLIENT_OUTDATED', message: 'حدّث الصفحة' } } }), true);
+  assert.equal(isClientOutdated({ isAxiosError: true, response: { status: 409, data: { code: 'IMPORT_DUPLICATE_BATCH' } } }), false);
+  assert.equal(isClientOutdated({ isAxiosError: true, code: 'ERR_NETWORK' }), false);
+  assert.equal(isClientOutdated(undefined), false);
+
+  const panel = await panelSource();
+  assert.match(panel, /if \(isClientOutdated\(e\)\) \{ withConflict\(\{ type: 'outdated' \}\);/, 'عدم التوافق يسقط في الرسالة العامة');
+  assert.match(panel, /window\.location\.reload\(\)/, 'لا زرّ تحديث للصفحة');
+});
+
+test('البند 52: انقطاع النشر ليس «تعذر الاستيراد»، وسجل الدفعات يُصفَّح بلا ادّعاء ما لم يصل', async () => {
+  const {
+    isServiceUnavailable, SERVICE_UNAVAILABLE_MESSAGE, classifyRevertFailure: classify, revertFailureKey: key,
+    mergeBatchPages, canLoadOlderBatches, BATCHES_PAGE_SIZE,
+  } = await import('./importRevert');
+  assert.equal(isServiceUnavailable({ type: 'other', status: 502 }), true);
+  assert.equal(isServiceUnavailable({ type: 'other', status: 503 }), true);
+  assert.equal(isServiceUnavailable({ type: 'other', status: 504 }), true);
+  assert.equal(isServiceUnavailable({ type: 'other', status: 500 }), false);
+  assert.equal(isServiceUnavailable({ type: 'other' }), false);
+  assert.equal(isServiceUnavailable({ type: 'network' }), false);
+  // 502 بجسم HTML أثناء النشر: لا code ولا message ⇒ يُصنَّف other بحالته وتُقرأ رسالته الصحيحة
+  const deploying = classify({ isAxiosError: true, response: { status: 503, data: '<html>Service Unavailable</html>' } });
+  assert.deepEqual(deploying, { type: 'other', message: undefined, status: 503 });
+  assert.equal(key(deploying), SERVICE_UNAVAILABLE_MESSAGE);
+  assert.equal(key({ type: 'other', message: 'خطأ داخلي', status: 500 }), null);
+
+  // الدمج: بترتيب المعروض، بلا تكرار معرّف، وadded=0 حين لا جديد (خادم بلا cursor)
+  const shown = [{ id: 'b1' }, { id: 'b2' }];
+  const m = mergeBatchPages(shown, [{ id: 'b2' }, { id: 'b3' }]);
+  assert.deepEqual(m.list.map((b) => b.id), ['b1', 'b2', 'b3']);
+  assert.deepEqual(m.fresh.map((b) => b.id), ['b3']);
+  assert.equal(m.added, 1);
+  assert.equal(mergeBatchPages(shown, [{ id: 'b1' }, { id: 'b2' }]).added, 0);
+  assert.equal(mergeBatchPages(shown, []).added, 0);
+  assert.deepEqual(mergeBatchPages(shown, []).list.map((b) => b.id), ['b1', 'b2']);
+
+  // الزر: hasMore من الخادم يحسم؛ وبدونها صفحة ممتلئة قد يكون خلفها أقدم؛ والمقيّد النطاق لا سجل له
+  assert.equal(canLoadOlderBatches({ shown: BATCHES_PAGE_SIZE, exhausted: false, scoped: false }), true);
+  assert.equal(canLoadOlderBatches({ shown: 12, exhausted: false, scoped: false }), false);
+  assert.equal(canLoadOlderBatches({ shown: 12, hasMore: true, exhausted: false, scoped: false }), true);
+  assert.equal(canLoadOlderBatches({ shown: BATCHES_PAGE_SIZE, hasMore: false, exhausted: false, scoped: false }), false);
+  assert.equal(canLoadOlderBatches({ shown: BATCHES_PAGE_SIZE, exhausted: true, scoped: false }), false);
+  assert.equal(canLoadOlderBatches({ shown: BATCHES_PAGE_SIZE, hasMore: true, exhausted: false, scoped: true }), false);
+
+  // عقد الصفحة: data وhasMore وnextCursor — وما ينقص منها (خادم أقدم) لا يُخترع
+  const { batchesPage, nextBatchesCursor } = await import('./importRevert');
+  assert.deepEqual(
+    batchesPage<{ id: string }>({ success: true, data: [{ id: 'b7' }, { id: 'b8' }], hasMore: true, nextCursor: 'b8' }),
+    { rows: [{ id: 'b7' }, { id: 'b8' }], hasMore: true, nextCursor: 'b8' },
+  );
+  assert.deepEqual(batchesPage<{ id: string }>({ data: [], hasMore: false, nextCursor: null }), { rows: [], hasMore: false, nextCursor: null });
+  assert.deepEqual(batchesPage<{ id: string }>({ data: [{ id: 'b1' }, { id: 5 }, null, 'x'] }), { rows: [{ id: 'b1' }], hasMore: undefined, nextCursor: null });
+  assert.deepEqual(batchesPage<{ id: string }>({ data: 'x', hasMore: 'yes', nextCursor: 3 }), { rows: [], hasMore: undefined, nextCursor: null });
+  assert.deepEqual(batchesPage<{ id: string }>(undefined), { rows: [], hasMore: undefined, nextCursor: null });
+  // الاستئناف: ما أعطاه الخادم، وإلا آخر معرّف معروض، ولا شيء ⇒ لا طلب
+  assert.equal(nextBatchesCursor('b8', 'b9'), 'b8');
+  assert.equal(nextBatchesCursor(null, 'b9'), 'b9');
+  assert.equal(nextBatchesCursor(undefined, undefined), undefined);
+  assert.equal(nextBatchesCursor('', ''), undefined);
+
+  const panel = await panelSource();
+  assert.match(panel, /if \(isServiceUnavailable\(f\)\) \{ withConflict\(\{ type: 'unavailable' \}\); invalidateBatches\(\); break; \}/);
+  assert.match(panel, /params: \{ cursor, limit: BATCHES_PAGE_SIZE \}/, 'جلب الأقدم بلا cursor');
+  assert.match(panel, /nextBatchesCursor\(olderCursor \?\? firstPageCursor, batches\?\.\[batches\.length - 1\]\?\.id\)/, 'الصفحة التالية لا تستأنف من nextCursor');
+  assert.match(panel, /hasMore: olderHasMore \?\? batchesBody\?\.hasMore/, 'زرّ «عرض المزيد» يبقى بعد نهاية السجل');
+  assert.match(panel, /else setOlderExhausted\(true\)/, 'لا شيء جديد يُعرض على أنه دفعات');
+  assert.match(panel, /resetOlderBatches\(\)/, 'الأقدم تبقى بعد التراجع فيُعرض سجل قديم');
+  assert.match(panel, /setOlderCursor\(null\); setOlderHasMore\(undefined\)/, 'التراجع لا يصفّر موضع الاستئناف');
 });

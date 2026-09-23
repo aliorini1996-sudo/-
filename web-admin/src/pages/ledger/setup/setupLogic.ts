@@ -363,9 +363,13 @@ export function timezoneImportsConflictOf(e: unknown): TimezoneImportsConflict |
   };
 }
 
-/** رفض اعتماد يستوجب إعادة المعاينة وإلغاء الإقرارات (الأرقام تغيّرت بعد المعاينة) */
+/**
+ * رفض اعتماد يستوجب إعادة المعاينة وإلغاء الإقرارات (الأرقام تغيّرت بعد المعاينة).
+ * البند 41: LEDGER_POST_CUTOVER_IMPORTS_CHANGED — اللقطة المُقَرّ بها لم تعد مطابقة لواقع لحظة الاعتماد،
+ * فلا يكفي إعادة الضغط: تُعاد المعاينة ويُقرّ المالك بالأرقام الجديدة.
+ */
 export const COMMIT_REFRESH_CODES = [
-  'LEDGER_POST_CUTOVER_IMPORTS_ACK', 'LEDGER_IMPORT_IN_PROGRESS',
+  'LEDGER_POST_CUTOVER_IMPORTS_ACK', 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED', 'LEDGER_IMPORT_IN_PROGRESS',
   'LEDGER_OPENING_STOCK_AFTER_CUTOVER', 'LEDGER_OPENING_STOCK_FULL_HISTORY', 'LEDGER_OPENING_STOCK_TOO_RECENT',
 ] as const;
 export const commitNeedsRefresh = (code: string | null | undefined): boolean =>

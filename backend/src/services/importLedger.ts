@@ -12,10 +12,13 @@
  * - المخزون الافتتاحي (البند 9): opening_stock قبل التفعيل فقط، وبطريقة الأرصدة الافتتاحية، وتاريخ بدء محفوظ ≤ اليوم يتطلب إقراراً
  *   (لا يدخل الافتتاح إلا بتاريخ بدء بعد يوم الاستيراد)، بتكلفة صافية من netUnitCost. الحسم النهائي في /setup/commit.
  *
- * لا يستورد services/gl إلا dates.ts وmoney.ts (دوال صرفة)، ومن خارجها warehouseCost.ts (صرف).
+ * لا يستورد services/gl إلا dates.ts وmoney.ts (دوال صرفة)، ومن خارجها warehouseCost.ts (صرف)، وقاعدةَ أقصى
+ * تاريخ مستورد وحدها من gl/opening.ts (البند 39: مصدر واحد للقاعدة لا نسخة ثانية منها؛ الملفان يستورد أحدهما
+ * الآخر، ولا يُستعمل المستورَد وقت تحميل الوحدة بل داخل الدوال، فلا أثر للدورة).
  */
 import { createHash } from 'node:crypto';
 import { DEFAULT_TIMEZONE, addDays, compareLocalDate, isLocalDate, isValidTimeZone, todayLocal } from './gl/dates';
+import { maxImportEntryDate } from './gl/opening';
 import { importedEntryInstant } from './importTimezoneRebase';
 import { fromMilli, toMilli } from './gl/money';
 import { netUnitCost } from './warehouseCost';
@@ -104,11 +107,26 @@ export function explicitTimezone(s: ImportGlSettings | null | undefined): string
   return s.timezone && isValidTimeZone(s.timezone) ? s.timezone : null;
 }
 
+/**
+ * البند 39: تنبيه الصفوف التي تاريخها أبعد من أقصى تاريخ مقبول — معدود، بصفوفه وتواريخها، ويمرّ كما هو في
+ * `warnings.futureDates` (رسالته عربية جاهزة كسائر تنبيهات الاستيراد).
+ */
+export interface ImportFutureDatesWarning {
+  /** عدد الصفوف كلها (rows مقصوصة على 50) */
+  count: number;
+  /** أقصى تاريخ مقبول كما حُسب: اليوم المحلي بتوقيت الشركة + IMPORT_FUTURE_DATE_GRACE_DAYS */
+  maxDate: string;
+  message: string;
+  rows: { row: number; date: string }[];
+}
+
 export interface DateResolution {
   /** لحظة كل صف بالترتيب نفسه */
   dates: Date[];
   /** صفوف بلا تاريخ أخذت لحظة الاستيراد (قبل التفعيل فقط) */
   undatedAsToday: number;
+  /** البند 39: صفوف بتاريخ بعد الحدّ — تنبيه لا مانع (null حين لا شيء) */
+  futureDates: ImportFutureDatesWarning | null;
 }
 
 export interface ResolveDatesOptions {
@@ -121,27 +139,48 @@ export interface ResolveDatesOptions {
 }
 
 /**
+ * البند 39: نصّ تنبيه التواريخ المستقبلية — الصفّ يُستورد بتاريخه كما كُتب ولا يُسقط ولا يُمنع، ويُعرض عدده
+ * وأسطره ليكتشف المالك خطأ السنة (2052 بدل 2025) قبل أن يستقرّ في الدفاتر.
+ */
+export const IMPORT_FUTURE_DATE_MESSAGE =
+  'صفوف بتاريخ بعد اليوم: تحقّق من سنة التاريخ في الملف — استُوردت كما هي ولم تُسقط';
+
+/**
  * يتحقق من كل التواريخ قبل أي كتابة (لا يُسقط سطر واحد مجموعة عميل كاملة) ويحوّلها:
  * - تاريخ غير حقيقي ⇒ 400 IMPORT_INVALID_DATE بالصفوف (رقم السطر = الفهرس + 2).
  * - بلا تاريخ: undatedDate إن وُجد؛ وإلا بعد التفعيل ⇒ 400 UNDATED_ROWS_LEDGER_ACTIVE؛ وقبله لحظة الاستيراد.
+ * - البند 39: تاريخ بعد «اليوم المحلي + IMPORT_FUTURE_DATE_GRACE_DAYS» (القاعدة الواحدة في gl/opening.ts،
+ *   وهي نفسها التي يعدّ بها الافتتاحُ `futureDated`) ⇒ تنبيه معدود بصفوفه، لا مانع ولا إسقاط صامت.
+ *   الحدّ يُحسب بالتوقيت المضبوط للشركة، وبلا توقيت بالافتراضي (يوم السماح يغطّي فرق المناطق).
  */
 export function resolveImportDates(rows: readonly { date?: string | null }[], opts: ResolveDatesOptions): DateResolution {
   let undatedInstant: Date | null = null;
+  let undatedYmd = '';
   if (opts.undatedDate != null && opts.undatedDate !== '') {
     if (!isImportDate(opts.undatedDate)) {
       throw new ImportHttpError(400, 'IMPORT_INVALID_DATE', `تاريخ الصفوف بلا تاريخ غير صالح: ${opts.undatedDate} (المتوقع YYYY-MM-DD)`, { undatedDate: opts.undatedDate });
     }
     undatedInstant = localDateToInstant(opts.timezone, opts.undatedDate);
+    undatedYmd = opts.undatedDate;
   }
+  // البند 39: الحدّ المحلي مرة واحدة للملف كله (المقارنة بالأيام المحلية لا باللحظات)
+  const maxDate = maxImportEntryDate(opts.now, opts.timezone && isValidTimeZone(opts.timezone) ? opts.timezone : DEFAULT_TIMEZONE);
+  const tooFar = (ymd: string) => compareLocalDate(ymd, maxDate) > 0;
+  const undatedTooFar = undatedYmd !== '' && tooFar(undatedYmd);
+  const future: { row: number; date: string }[] = [];
   const invalid: { row: number; date: string }[] = [];
   let undated = 0;
   const dates: Date[] = rows.map((r, i) => {
     const d = typeof r.date === 'string' ? r.date.trim() : '';
     if (d) {
       if (!isImportDate(d)) { invalid.push({ row: i + 2, date: d }); return opts.now; }
+      if (tooFar(d)) future.push({ row: i + 2, date: d });
       return localDateToInstant(opts.timezone, d);
     }
-    if (undatedInstant) return undatedInstant;
+    if (undatedInstant) {
+      if (undatedTooFar) future.push({ row: i + 2, date: undatedYmd });
+      return undatedInstant;
+    }
     undated++;
     return opts.now;
   });
@@ -152,7 +191,13 @@ export function resolveImportDates(rows: readonly { date?: string | null }[], op
     throw new ImportHttpError(400, 'UNDATED_ROWS_LEDGER_ACTIVE',
       `الدفاتر مفعّلة: ${undated} سطر بلا تاريخ — حدّد تاريخاً للصفوف بلا تاريخ`, { count: undated });
   }
-  return { dates, undatedAsToday: undated };
+  return {
+    dates,
+    undatedAsToday: undated,
+    futureDates: future.length
+      ? { count: future.length, maxDate, message: IMPORT_FUTURE_DATE_MESSAGE, rows: future.slice(0, 50) }
+      : null,
+  };
 }
 
 // ═══ البند 5(أ): البصمة ═══
@@ -756,6 +801,10 @@ const isInactiveProduct = (p: OpeningStockProduct) => p.deletedAt != null || p.s
  * البند 24: مطابقة الصنف بالأصناف النشطة وحدها — الكود (فريد لكل شركة) ثم الباركود ثم الاسم المطبَّع.
  * الكود يطابق موقوفاً/مؤرشفاً ⇒ INACTIVE؛ باركود أو اسم مشترك بين نشطين ⇒ AMBIGUOUS (ما لم تطابق خطوة لاحقة)؛
  * لا نشط ويطابق موقوفاً بالباركود أو الاسم ⇒ INACTIVE؛ وإلا NOT_FOUND.
+ *
+ * البند 35: **الكود المكتوب حكمٌ نهائي**. صفٌّ كُتب فيه كود لا يطابق صنفاً ⇒ NOT_FOUND (أو INACTIVE) ولا يُجرَّب
+ * باركوده ولا اسمه: السقوط إلى الاسم كان يكتب المخزون الافتتاحي لصنف آخر بصمت (كود مطبوع خطأً + اسم عام
+ * «زيت» ⇒ جرد صنف غير المقصود بلا خطأ ولا تنبيه). الصفّ **بلا كود** يُطابَق بالباركود ثم الاسم كما كان.
  */
 export function openingStockProductMatcher(products: readonly OpeningStockProduct[]) {
   const activeCode = new Map<string, OpeningStockProduct>();
@@ -778,6 +827,8 @@ export function openingStockProductMatcher(products: readonly OpeningStockProduc
       const a = activeCode.get(code);
       if (a) return a;
       if (inactiveCode.has(code)) return { error: 'INACTIVE' };
+      // البند 35: كود مكتوب وغير موجود ⇒ لا يُطابَق بالباركود ولا بالاسم (جرد صنف خاطئ بصمت)
+      return { error: 'NOT_FOUND' };
     }
     let ambiguous = false; let inactive = false;
     for (const [key, active, off] of [[barcode, activeBarcode, inactiveBarcode], [name, activeName, inactiveName]] as const) {
@@ -1109,4 +1160,178 @@ export function groupLedgerRows(
     groups.get(m.id)!.push({ row: i + 2, date: dates[i], description: r.description ?? undefined, debit, credit });
   });
   return { groups, errors, zero };
+}
+
+// ═══ الدفعة 3 (البند 36): رفض الشكل يدلّ على سطر الملف وخانته ═══
+
+/**
+ * البند 36: `z.array(row).max(N).parse` مرة واحدة يرد «بيانات غير صحيحة rows» — لا سطر ولا خانة ولا قيمة، فيقف
+ * المالك أمام ملف آلاف الصفوف بلا دليل. الفحص هنا صفاً صفاً (safeParse) ⇒ خطأ صف برقم الصف المرسل (i + 2،
+ * كبقية أخطاء الاستيراد، والويب يحوّله إلى سطر الملف بـfileRowOf) وباسم الخانة وقيمتها المرفوضة.
+ *
+ * بلا رمز (code) عمداً: رسائل هذه الأخطاء عربية جاهزة يعرضها الويب كما هي (importRowErrorKey يسقط إلى message)،
+ * فلا رمز جديد يحتاج تصنيفاً في classifyImportFailure ولا صفاً في ROW_CODES.
+ *
+ * ولا يتغيّر شيء في الملف السليم: rows الناتجة هي عينها ما كان ينتجه parse (المخطط نفسه بقصّه وافتراضاته)،
+ * فالبصمة (importContentHash) والعدّ كما هما.
+ */
+export interface ImportRowSchema<T> { safeParse(value: unknown): { success: boolean; data?: T; error?: unknown } }
+
+export const SCHEMA_FIELD_REQUIRED = 'خانة مطلوبة في هذا الصف فارغة';
+export const SCHEMA_FIELD_TYPE = 'نوع القيمة لا يناسب هذه الخانة (نص في خانة رقمية أو العكس)';
+export const SCHEMA_FIELD_TOO_SMALL = 'القيمة أقل من المسموح في هذه الخانة';
+export const SCHEMA_FIELD_TOO_BIG = 'القيمة أكبر من المسموح في هذه الخانة';
+export const SCHEMA_FIELD_INVALID = 'قيمة غير مقبولة في هذه الخانة';
+/** الملف فوق حدّ الدفعة: العدد والحدّ في value ليبقى النص ثابتاً مترجماً */
+export const IMPORT_ROWS_OVER_LIMIT = 'عدد صفوف الملف فوق الحد المسموح في الدفعة الواحدة، قسّمه إلى ملفات أصغر وارفعها واحداً بعد الآخر';
+
+/** أول خانة نصية في مسار خطأ zod (['creditLimit'] ⇒ creditLimit) */
+function schemaIssueField(path: unknown): string | undefined {
+  if (!Array.isArray(path)) return undefined;
+  for (const p of path) if (typeof p === 'string' && p) return p;
+  return undefined;
+}
+
+/** نص خانة الصف المرفوضة (الطويل مقصوص)، أو undefined للفارغ وغير البسيط */
+function schemaCellText(cell: unknown): string | undefined {
+  if (cell === undefined || cell === null || typeof cell === 'object') return undefined;
+  const s = String(cell).trim();
+  return s ? s.slice(0, 80) : undefined;
+}
+
+/** سبب الرفض بالعربية: الخانة الفارغة «مطلوبة»، ثم نوع القيمة وحدّاها */
+function schemaIssueMessage(code: unknown, empty: boolean): string {
+  if (empty) return SCHEMA_FIELD_REQUIRED;
+  if (code === 'invalid_type') return SCHEMA_FIELD_TYPE;
+  if (code === 'too_small') return SCHEMA_FIELD_TOO_SMALL;
+  if (code === 'too_big') return SCHEMA_FIELD_TOO_BIG;
+  return SCHEMA_FIELD_INVALID;
+}
+
+/**
+ * فحص شكل الصفوف صفاً صفاً: rows الصالحة بترتيبها، وerrors لكل صف رفضه المخطط (أول علّة فيه).
+ * الصف الفاشل لا يدخل rows، فلا يُعتدّ بـrows إلا حين errors فارغة (المسار يرد الأخطاء قبل أي كتابة).
+ */
+export function parseImportRows<T>(schema: ImportRowSchema<T>, raw: readonly unknown[]): { rows: T[]; errors: ImportRowError[] } {
+  const rows: T[] = [];
+  const errors: ImportRowError[] = [];
+  raw.forEach((r, i) => {
+    const out = schema.safeParse(r);
+    if (out.success) { rows.push(out.data as T); return; }
+    const issues = (out.error as { issues?: unknown } | null | undefined)?.issues;
+    const issue = (Array.isArray(issues) ? issues[0] : undefined) as { code?: unknown; path?: unknown } | undefined;
+    const field = schemaIssueField(issue?.path);
+    const cell = field && r && typeof r === 'object' ? (r as Record<string, unknown>)[field] : undefined;
+    const value = schemaCellText(cell);
+    const empty = field !== undefined && (cell === undefined || cell === null || (typeof cell === 'string' && cell.trim() === ''));
+    errors.push({
+      row: i + 2,
+      message: schemaIssueMessage(issue?.code, empty),
+      ...(value !== undefined ? { value } : {}),
+      ...(field !== undefined ? { field } : {}),
+    });
+  });
+  return { rows, errors };
+}
+
+/** البند 36: ملف فوق حدّ الدفعة ⇒ خطأ صف على أول صف زائد (لا رفض عام بلا سطر) */
+export function importRowLimitError(count: number, max: number): ImportRowError | null {
+  if (!Number.isInteger(count) || !Number.isInteger(max) || max < 0 || count <= max) return null;
+  return { row: max + 2, message: IMPORT_ROWS_OVER_LIMIT, value: `${count} / ${max}` };
+}
+
+// ═══ الدفعة 3 (البندان 43 و44): تخطيط صفوف /prices ═══
+
+export interface PriceImportRowInput extends CustomerMatchRow { productCode: string; price: number }
+export interface PriceImportWrite { row: number; customerId: string; productId: string; price: number }
+/** الصنف الذي تُطابَق به أسعار الملف: المؤرشف (deletedAt) يشغل كوده ولا يُسعَّر */
+export interface ImportProductRef { id: string; code: string; deletedAt?: Date | null }
+export type PriceSkipReason = 'PRODUCT_ARCHIVED' | 'DUPLICATE_PAIR';
+export interface PriceSkippedRow { row: number; reason: PriceSkipReason; code?: string }
+/** زوج (عميل/صنف) تكرر في الملف: صفوفه وأسعارها، والفائز آخرها صراحةً */
+export interface PriceDuplicatePair { rows: number[]; kept: number; prices: number[]; conflict: boolean; code: string; customerName: string }
+
+/** اسم العميل كما يعرفه المالك في ملفه (كصفوف /balances) */
+function priceRowLabel(r: CustomerMatchRow): string {
+  return (r.customerName || r.customerCode || r.phone || '').trim();
+}
+
+/**
+ * صفوف /prices ⇒ ما يُكتب، والمتخطى برقم صفه وسببه، وأزواج التكرار، وأخطاء الصفوف.
+ *
+ * البند 44: الصنف المؤرشف لا يُسعَّر — أرشفته حذفت أسعاره الخاصة عمداً (routes/products.ts)، وملف أسعار قديم كان
+ * يعيدها ويعدّها «أضيف». يُستبعد بتخطٍّ معدود لا بخطأ: ليس غلطاً في الملف، وكوده قائم فلا هو «صنف غير موجود».
+ *
+ * البند 43: صفّان لنفس العميل والصنف بسعرين كانا upsert مرتين — آخرهما يفوز بصمت، والصف الملغى لا يُعدّ في شيء
+ * (created يُحسب بالأزواج). هنا يُوحَّد الزوج في كتابة واحدة: آخر سعر يفوز **صراحةً** (kept)، والصفوف الملغاة
+ * متخطاة معدودة، والتعارض (سعران مختلفان) موسوم في duplicates ليراه المالك.
+ */
+export function planPriceImportRows<R extends PriceImportRowInput>(
+  rows: readonly R[], matcher: CustomerMatcher, products: readonly ImportProductRef[], allowZeroPrice: boolean,
+): { writes: PriceImportWrite[]; skippedRows: PriceSkippedRow[]; duplicates: PriceDuplicatePair[]; errors: ImportRowError[] } {
+  const live = new Map<string, string>();
+  const archived = new Set<string>();
+  for (const p of products) { if (p.deletedAt) archived.add(p.code); else if (!live.has(p.code)) live.set(p.code, p.id); }
+  const errors: ImportRowError[] = [];
+  const skippedRows: PriceSkippedRow[] = [];
+  const pairs = new Map<string, { write: PriceImportWrite; code: string; customerName: string; rows: number[]; prices: number[] }>();
+  rows.forEach((r, i) => {
+    const row = i + 2;
+    const m = matcher(r);
+    if (!('id' in m)) { errors.push(customerMatchError(row, m)!); return; }
+    const code = r.productCode;
+    const productId = live.get(code);
+    if (!productId) {
+      if (archived.has(code)) { skippedRows.push({ row, reason: 'PRODUCT_ARCHIVED', code }); return; }
+      errors.push(importRowError(row, 'PRODUCT_NOT_FOUND'));
+      return;
+    }
+    const zeroIssue = priceRowIssue(r.price, allowZeroPrice);
+    if (zeroIssue) { errors.push(importRowError(row, zeroIssue)); return; }
+    const write: PriceImportWrite = { row, customerId: m.id, productId, price: r.price };
+    const key = `${m.id} ${productId}`;
+    const g = pairs.get(key);
+    if (!g) { pairs.set(key, { write, code, customerName: priceRowLabel(r), rows: [row], prices: [r.price] }); return; }
+    // آخر سعر في الملف هو المحفوظ (كما كان upsert يفعل)، لكن معلَناً معدوداً
+    g.write = write;
+    g.code = code;
+    g.customerName = priceRowLabel(r) || g.customerName;
+    g.rows.push(row);
+    g.prices.push(r.price);
+  });
+  const writes: PriceImportWrite[] = [];
+  const duplicates: PriceDuplicatePair[] = [];
+  for (const g of pairs.values()) {
+    writes.push(g.write);
+    if (g.rows.length < 2) continue;
+    duplicates.push({ rows: g.rows, kept: g.write.row, prices: g.prices, conflict: new Set(g.prices).size > 1, code: g.code, customerName: g.customerName });
+    for (const row of g.rows) if (row !== g.write.row) skippedRows.push({ row, reason: 'DUPLICATE_PAIR', code: g.code });
+  }
+  skippedRows.sort((a, b) => a.row - b.row);
+  return { writes, skippedRows, duplicates, errors };
+}
+
+// ═══ الدفعة 3 (البند 49): جوال العميل المستورد وقاعدة تعديل بطاقته ═══
+
+/**
+ * قاعدة بطاقة العميل حرفياً (backend/src/routes/customers.ts: `phone: z.string().min(9)` في customerSchema،
+ * وPUT يفحصها بـ`.partial()`): أقل من تسع خانات يوقف **كل** تعديل لاحق للعميل.
+ *
+ * والاستيراد يخزّن «—» للجوال الفارغ أو التافه (importMatch.ts: storedCustomerPhone)، فيخرج العميل من الاستيراد
+ * غير قابل للتعديل. ولا يُرفض صفّه هنا: ملف عملاء بلا عمود جوال كان يُستورد نظيفاً، ورفضه انحدار — يُعدّ ويُنبَّه
+ * عليه بصفوفه ليصحّحه المالك، ويبقى توحيد القاعدة نفسها في بطاقة العميل (قبول القيمة غير المتغيّرة في PUT).
+ */
+export const CUSTOMER_PHONE_MIN = 9;
+
+export function isEditableCustomerPhone(phone: string | null | undefined): boolean {
+  return typeof phone === 'string' && phone.trim().length >= CUSTOMER_PHONE_MIN;
+}
+
+export const CUSTOMER_PHONE_NOT_EDITABLE = 'عملاء بلا جوال صالح: لا يُحفظ أي تعديل لبطاقاتهم حتى يُكتب لهم جوال لا يقل عن تسع خانات';
+
+/** البند 49: صفوف العملاء المنشأة بجوال لا تقبله بطاقة العميل ⇒ تنبيه معدود بصفوفه (أو null) */
+export function phoneNotEditableRows(created: readonly { row: number; phone: string }[]): { count: number; rows: number[] } | null {
+  const rows: number[] = [];
+  for (const c of created) if (!isEditableCustomerPhone(c.phone)) rows.push(c.row);
+  return rows.length ? { count: rows.length, rows: rows.slice(0, 500) } : null;
 }

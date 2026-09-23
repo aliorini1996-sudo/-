@@ -24,8 +24,13 @@ import {
   LEDGER_NO_AMOUNT_ROW_NOTICE, CLOSING_ROW_LABELS,
   PRODUCT_DUPLICATE_ROWS_NOTICE, PRODUCT_SAME_NAME_NO_CODE, PRODUCT_DUPLICATE_CODE,
   PRODUCT_BLANK_TAX_DUPLICATE_NOTICE, PRODUCT_DEFAULT_UNIT, PRODUCT_DEFAULT_PRICE,
+  importFileLine, detectDateOrder, DATE_ORDER_MDY_NOTICE, DATE_ORDER_AMBIGUOUS_NOTICE, DATE_ORDER_CONFLICT_BLOCKER,
+  headerSaysPriceIncludesTax, PRICE_INCL_TAX_SUGGESTED_NOTICE,
+  TAX_PCT_INVALID, IMPORT_TEXT_MAX, TEXT_TOO_LONG,
+  FUTURE_DATE_NOTICE, maxImportDateYmd, IMPORT_FUTURE_DATE_GRACE_DAYS,
 } from './importData';
-import { importResultView, importRowErrorKey, customerSkipReasonKey, classifyRevertFailure, CUSTOMER_CODE_NOT_FOUND_MESSAGE } from './importRevert';
+import { currencyDecimals } from '../i18n/countries';
+import { importResultView, importRowErrorKey, customerSkipReasonKey, classifyRevertFailure, CUSTOMER_CODE_NOT_FOUND_MESSAGE, IMPORT_MAX_ROWS, rowsOverMax, isClientOutdated } from './importRevert';
 
 const bal = IMPORT_TYPES.balances.transform;
 const led = IMPORT_TYPES.ledger.transform;
@@ -321,6 +326,13 @@ const ROW_CODES = new Set(['CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'CUSTOMER
   'STOCK_QTY_INVALID', 'STOCK_COST_INVALID', 'STOCK_NET_COST_ZERO', 'PRODUCT_CODE_ARCHIVED', 'PRODUCT_DUPLICATE_IN_FILE']);
 /** رموز مسار التراجع وحده: تُصنَّف في classifyRevertFailure لا classifyImportFailure (وتُتحقَّق هناك) */
 const REVERT_ONLY_CODES = new Set(['IMPORT_BATCH_GONE']);
+/** البند 51: رمز يُفحص قبل التصنيف (isClientOutdated) فلا يمرّ بـclassifyImportFailure أصلاً */
+const PRE_CLASSIFIED_CODES = new Set(['IMPORT_CLIENT_OUTDATED']);
+/**
+ * رموز تراجع يعتمد عرضها على رسالة الخادم العربية نفسها (localizedServerMessage) لا على مفتاح ويب:
+ * تسقط عمداً إلى other، والشرط أن تصل الرسالة العربية سليمة فلا يرى المالك «تعذر التراجع» العامة.
+ */
+const REVERT_SERVER_MESSAGE_CODES = new Set(['IMPORT_REVERT_OUTBOX_PENDING']);
 
 test('كل رمز يرده مسار الاستيراد مصنَّف (لا يسقط إلى other)', () => {
   const src = backendSrc('routes/import.ts') + backendSrc('services/importLedger.ts') + backendSrc('services/importAccess.ts');
@@ -337,12 +349,26 @@ test('كل رمز يرده مسار الاستيراد مصنَّف (لا يسق
   // رمز صف جديد في الخادم لا يمر صامتاً: يُضاف إلى ROW_CODES ويُصنَّف في importResultView
   assert.deepEqual(rowUnion.filter((c) => !ROW_CODES.has(c)), []);
   const unclassified = [...codes].filter((code) => !ROW_CODES.has(code) && !REVERT_ONLY_CODES.has(code)
+    && !PRE_CLASSIFIED_CODES.has(code) && !REVERT_SERVER_MESSAGE_CODES.has(code)
     && classifyImportFailure(httpErr(409, { code })).type === 'other');
   assert.deepEqual(unclassified, []);
   // رموز التراجع وحدها لا تسقط هي الأخرى: مصنَّفة في classifyRevertFailure
   for (const code of REVERT_ONLY_CODES) {
     assert.ok(codes.has(code), `رمز التراجع ${code} لم يعد في الخادم، احذفه من REVERT_ONLY_CODES`);
     assert.notEqual(classifyRevertFailure(httpErr(404, { code })).type, 'other', code);
+  }
+  // البند 51: الرمز المفحوص قبل التصنيف يُكشف فعلاً (وإلا صار «خطأ غير معروف» بعد النشر)
+  for (const code of PRE_CLASSIFIED_CODES) {
+    assert.ok(codes.has(code), `${code} لم يعد في الخادم، احذفه من PRE_CLASSIFIED_CODES`);
+    assert.equal(isClientOutdated(httpErr(409, { code })), true, code);
+  }
+  // ورسالة الخادم العربية تصل سليمة لرموز التراجع التي لا مفتاح ويب لها
+  for (const code of REVERT_SERVER_MESSAGE_CODES) {
+    assert.ok(codes.has(code), `${code} لم يعد في الخادم، احذفه من REVERT_SERVER_MESSAGE_CODES`);
+    const message = 'مستندات لم تُرفع بعد من أجهزة المناديب، أكمل المزامنة ثم أعد التراجع';
+    assert.ok(backendSrc('routes/import.ts').includes(`= '${message}'`), `${code}: نص الخادم تغيّر`);
+    assert.deepEqual(classifyRevertFailure(httpErr(409, { code, message })), { type: 'other', message, status: 409 });
+    assert.equal(localizedServerMessage(message, 'ar', (s) => s), message);
   }
 });
 
@@ -1299,7 +1325,9 @@ test('البند 30: افتراضيا توقيع صف المنتجات في ال
   // وافتراضيا الكتابة في import.ts هما المصدر لكليهما
   const write = backendSrc('routes/import.ts');
   assert.ok(write.includes(`unit: r.unit || '${PRODUCT_DEFAULT_UNIT}'`), 'افتراضي الوحدة في import.ts تغيّر: حدّث PRODUCT_DEFAULT_UNIT');
-  assert.ok(write.includes(`basePrice: r.basePrice ?? ${PRODUCT_DEFAULT_PRICE}`), 'افتراضي السعر في import.ts تغيّر: حدّث PRODUCT_DEFAULT_PRICE');
+  // البند 31 أدخل تحويل «شامل الضريبة» قبل الافتراضي (`netPriceByRow.get(row) ?? r.basePrice ?? 0`):
+  // المحروس هو الافتراضي نفسه — ما يُكتب حين تكون خانة السعر فارغة — لا شكل التعبير كاملاً
+  assert.match(write, new RegExp(`basePrice: [^,\\n]*r\\.basePrice \\?\\? ${PRODUCT_DEFAULT_PRICE}\\b`), 'افتراضي السعر في import.ts تغيّر: حدّث PRODUCT_DEFAULT_PRICE');
   assert.ok(write.includes('taxPct: r.taxPct ?? defaultVat'), 'ضريبة الصف الفارغة في import.ts تغيّرت: راجع تساهل الويب في خانة الضريبة');
 });
 
@@ -1352,4 +1380,367 @@ test('البند 30: خانة ضريبة فارغة مقابل قيمة صريح
     { 'كود الصنف': 'P3', 'اسم الصنف': 'خبز', 'الضريبة': 15 },
   ]);
   assert.deepEqual(zeroTax.errors.map((e) => e.message), [PRODUCT_DUPLICATE_CODE]);
+});
+
+// ═══ الدفعة 3 (البنود 31 و37 و38 و40 و50) ═══
+
+test('البند 38: رقم الصف في الخطأ هو سطر الملف الحقيقي مع عنوان تقرير فوقي وأسطر فارغة', async () => {
+  // سطر 1 عنوان تقرير، سطر 2 فارغ، سطر 3 العناوين، والبيانات في 4 و5 و7 (سطر 6 فارغ)
+  const csv = 'تقرير أرصدة العملاء\n\nالاسم,الرصيد,التاريخ\nأ,10,01/02/2026\nب,abc,01/02/2026\n\nج,20,31/02/2026\n';
+  const rows = await parseExcelFile(new File([csv], 'balances.csv'));
+  assert.deepEqual(rows.map((r) => importFileLine(r, 0)), [4, 5, 7]);
+  const r = bal(rows);
+  // كان يعرض «صف 3» و«صف 4» لأن الترقيم كان بموضع الصف بعد حذف العنوان الفوقي والأسطر الفارغة
+  assert.deepEqual(r.errors.map((e) => [e.row, e.message]), [[5, NUMERIC_ERROR], [7, DATE_ERROR_MESSAGE]]);
+  assert.deepEqual(r.fileRows, [4]);
+  assert.equal(fileRowOf(r.fileRows, 2), 4);
+
+  // والمنتجات كذلك: خطأ الصف يشير إلى السطر 4 لا 2
+  const prodRows = await parseExcelFile(new File(['قائمة الأصناف\n\nاسم الصنف,سعر البيع\n,5\n'], 'p.csv'));
+  assert.deepEqual(prod(prodRows).errors.map((e) => e.row), [4]);
+
+  // وصفوف مبنية يدوياً (بلا قارئ ملف) تبقى على الموضع + 2 — لا انحدار في المستدعين الآخرين
+  assert.equal(bal([{ 'الاسم': 'أ', 'الرصيد': 'abc' }]).errors[0].row, 2);
+  assert.equal(importFileLine({ 'الاسم': 'أ' }, 3), 5);
+  assert.equal(importFileLine(null, 0), 2);
+});
+
+test('البند 37: صيغة الشهر أولاً تُكشف من الملف كله بشاهدين، والملتبس ينبّه، والمتناقض يمنع', () => {
+  // «25» و«28» لا يكونان شهراً ⇒ شاهدان ⇒ الملف كله m/d، فلا ينقلب «1/5» بصمت إلى 1 مايو
+  const mdy = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '1/5/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '1/25/2025' },
+    { 'الاسم': 'ج', 'الرصيد': 30, 'التاريخ': '2/28/2025' },
+  ]);
+  assert.deepEqual(mdy.errors, []);
+  assert.deepEqual(mdy.valid.map((v) => v.date), ['2025-01-05', '2025-01-25', '2025-02-28']);
+  assert.ok(notice(mdy.notices, DATE_ORDER_MDY_NOTICE));
+
+  // دليل اليوم أولاً ⇒ الافتراضي السعودي بلا تنبيه
+  const dmy = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '5/1/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '25/1/2025' },
+  ]);
+  assert.deepEqual(dmy.valid.map((v) => v.date), ['2025-01-05', '2025-01-25']);
+  assert.equal(notice(dmy.notices, DATE_ORDER_MDY_NOTICE), undefined);
+  assert.equal(notice(dmy.notices, DATE_ORDER_AMBIGUOUS_NOTICE), undefined);
+
+  // بلا دليل حاسم: تُقرأ اليوم أولاً كما كانت، لكن بتنبيه معدود لا بصمت
+  const amb = bal([{ 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '5/1/2025' }]);
+  assert.equal(amb.valid[0].date, '2025-01-05');
+  assert.equal(notice(amb.notices, DATE_ORDER_AMBIGUOUS_NOTICE)?.count, 1);
+
+  // دليلان متناقضان في الملف نفسه ⇒ مانع صريح لا قراءة بأحدهما
+  const mix = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '25/1/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '1/25/2025' },
+  ]);
+  assert.ok(mix.blockers?.includes(DATE_ORDER_CONFLICT_BLOCKER));
+  assert.equal(notice(mix.notices, DATE_ORDER_MDY_NOTICE), undefined);
+
+  // والكشوف تتبع الكشف نفسه
+  const l = led([
+    { 'الاسم': 'أ', 'مدين': 5, 'التاريخ': '1/5/2025' },
+    { 'الاسم': 'ب', 'مدين': 5, 'التاريخ': '1/25/2025' },
+    { 'الاسم': 'ج', 'مدين': 5, 'التاريخ': '2/28/2025' },
+  ]);
+  assert.deepEqual(l.valid.map((v) => v.date), ['2025-01-05', '2025-01-25', '2025-02-28']);
+
+  // الصيغ غير الملتبسة لا تدخل الكشف، وما لا يصحّ بأي ترتيب لا يُعدّ دليلاً
+  assert.deepEqual(detectDateOrder(['2025-01-05', '15-Jan-2025', new Date(2025, 0, 5), '']),
+    { order: 'dmy', detected: false, conflict: false, ambiguous: 0 });
+  assert.deepEqual(detectDateOrder(['25/25/2025']), { order: 'dmy', detected: false, conflict: false, ambiguous: 0 });
+  // شاهد أمريكي واحد لا يحسم (يبقى dmy)، وشاهدان يحسمان
+  assert.deepEqual(detectDateOrder(['1/25/2025', '3/4/2025']), { order: 'dmy', detected: false, conflict: false, ambiguous: 1 });
+  assert.deepEqual(detectDateOrder(['1/25/2025', '2/28/2025', '3/4/2025']), { order: 'mdy', detected: true, conflict: false, ambiguous: 1 });
+
+  // normDate بترتيب صريح، والصيغ غير الرقمية لا تتأثر به
+  assert.equal(normDate('01/15/2025', 'mdy'), '2025-01-15');
+  assert.equal(normDate('15/01/2025', 'mdy'), null);
+  assert.equal(normDate('2025-01-15', 'mdy'), '2025-01-15');
+  assert.equal(normDate('15-Jan-2025', 'mdy'), '2025-01-15');
+  assert.equal(normDate('01/02/2026'), '2026-02-01'); // الافتراضي اليوم أولاً كما كان
+});
+
+test('انحدار البند 37: شاهد أمريكي واحد لا يقلب العمود كله، بل يبقى خطأ صفّه وحده', () => {
+  // ملف يوم/شهر كل أيامه ≤ 12 (لا شاهد قاطع) وفيه صفّ واحد كُتب بالأمريكي خطأً
+  const one = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '03/04/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '07/04/2025' },
+    { 'الاسم': 'ج', 'الرصيد': 30, 'التاريخ': '5/25/2025' },
+  ]);
+  assert.deepEqual(one.valid.map((v) => v.date), ['2025-04-03', '2025-04-07']); // ٣ و٧ أبريل لا ٤ مارس و٤ يوليو
+  assert.equal(notice(one.notices, DATE_ORDER_MDY_NOTICE), undefined);
+  assert.deepEqual(one.blockers, []);
+  assert.deepEqual(one.errors, [{ row: 4, message: DATE_ERROR_MESSAGE, value: '5/25/2025' }]); // الصفّ وحده كما كان قبل الدفعة
+  assert.equal(notice(one.notices, DATE_ORDER_AMBIGUOUS_NOTICE)?.count, 2); // ومع ذلك يُنبَّه المالك على التباس الباقي
+
+  // كشف كبير فيه شاهدان وسط عشرات القيم الملتبسة: الحصّة تمنع قلب العمود كله بشاهدين شاردين
+  const big = bal([
+    ...Array.from({ length: 20 }, (_, i) => ({ 'الاسم': `ع${i}`, 'الرصيد': 10, 'التاريخ': '03/04/2025' })),
+    { 'الاسم': 'س', 'الرصيد': 20, 'التاريخ': '5/25/2025' },
+    { 'الاسم': 'ص', 'الرصيد': 20, 'التاريخ': '6/30/2025' },
+  ]);
+  assert.equal(big.valid[0].date, '2025-04-03');
+  assert.equal(big.valid.length, 20);
+  assert.equal(big.errors.length, 2);
+  assert.equal(notice(big.notices, DATE_ORDER_MDY_NOTICE), undefined);
+
+  // ملف يوم/شهر خالص: شاهد اليوم الواحد (> 12) يحسم الافتراضي فلا تنبيه ولا خطأ
+  const dmy = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '03/04/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '25/04/2025' },
+  ]);
+  assert.deepEqual(dmy.errors, []);
+  assert.deepEqual(dmy.valid.map((v) => v.date), ['2025-04-03', '2025-04-25']);
+  assert.deepEqual(dmy.blockers, []);
+  assert.equal(notice(dmy.notices, DATE_ORDER_MDY_NOTICE), undefined);
+  assert.equal(notice(dmy.notices, DATE_ORDER_AMBIGUOUS_NOTICE), undefined);
+
+  // ملف أمريكي خالص (شاهدان فأكثر): يُقرأ شهراً أولاً كله بتنبيه واحد بلا أخطاء صفوف
+  const us = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '01/15/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '02/28/2025' },
+    { 'الاسم': 'ج', 'الرصيد': 30, 'التاريخ': '03/04/2025' },
+  ]);
+  assert.deepEqual(us.errors, []);
+  assert.deepEqual(us.valid.map((v) => v.date), ['2025-01-15', '2025-02-28', '2025-03-04']);
+  assert.deepEqual(us.blockers, []);
+  assert.ok(notice(us.notices, DATE_ORDER_MDY_NOTICE));
+
+  // ملف ملتبس كله (كل أجزائه ≤ 12): الافتراضي يوم/شهر بتنبيه معدود لا بانقلاب صامت
+  const amb = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '03/04/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '05/06/2025' },
+  ]);
+  assert.deepEqual(amb.errors, []);
+  assert.deepEqual(amb.valid.map((v) => v.date), ['2025-04-03', '2025-06-05']);
+  assert.equal(notice(amb.notices, DATE_ORDER_MDY_NOTICE), undefined);
+  assert.equal(notice(amb.notices, DATE_ORDER_AMBIGUOUS_NOTICE)?.count, 2);
+
+  // والكشوف مثلها: الشاهد الواحد خطأ صفّه، وبقيّة الكشف على الافتراضي
+  const l = led([
+    { 'الاسم': 'أ', 'مدين': 5, 'التاريخ': '03/04/2025' },
+    { 'الاسم': 'ب', 'مدين': 5, 'التاريخ': '5/25/2025' },
+  ]);
+  assert.deepEqual(l.valid.map((v) => v.date), ['2025-04-03']);
+  assert.deepEqual(l.errors.map((e) => e.row), [3]);
+  assert.equal(notice(l.notices, DATE_ORDER_MDY_NOTICE), undefined);
+});
+
+test('البند 40: إجمالي تكلفة المخزون يُقرَّب بمنازل عملة الشركة لا بخانتين دائماً', () => {
+  const rows = [{ 'كود الصنف': 'A', 'الكمية': 3, 'تكلفة الوحدة': '0.1235' }];
+  assert.equal(stock(rows, { currencyDecimals: 3 }).totalCost, 0.371); // كان 0.370
+  assert.equal(stock(rows, { currencyDecimals: 2 }).totalCost, 0.37);
+  assert.equal(stock(rows).totalCost, 0.37);                            // بلا سياق ⇒ خانتان كما كان
+  assert.equal(stock(rows, { currencyDecimals: null }).totalCost, 0.37);
+  assert.equal(stock(rows, { currencyDecimals: 0 }).totalCost, 0);
+  // مصدر المنازل هو currencyDecimals في i18n/countries (يمرّرها DataImportPanel) لا رقم مخترع
+  assert.equal(currencyDecimals('KWD'), 3);
+  assert.equal(currencyDecimals('BHD'), 3);
+  assert.equal(currencyDecimals('SAR'), 2);
+});
+
+test('البند 50: «Company» و«Company Type» في تصدير أودو ليسا اسماً تجارياً، والاسم الصريح يبقى', () => {
+  const odoo = cust([{ Name: 'أ', Company: 'مؤسستي للتجارة', 'Company Type': 'Individual', Phone: '0500000000' }]);
+  assert.deepEqual(odoo.errors, []);
+  assert.equal(odoo.valid[0].businessName, undefined);
+  assert.equal(odoo.columns?.find((x) => x.field === 'businessName')?.header, null);
+
+  // العناوين التي تسمّي الاسم التجاري صراحةً تبقى مُلتقَطة
+  for (const h of ['اسم المنشأة', 'اسم الشركة', 'Company Name', 'Business Name', 'النشاط التجاري']) {
+    const r = cust([{ 'الاسم': 'أ', [h]: 'مؤسسة النور' }]);
+    assert.equal(r.valid[0].businessName, 'مؤسسة النور', h);
+  }
+  // وعمود النوع ليس اسماً
+  for (const h of ['نوع المنشأة', 'طبيعة المنشأة']) {
+    assert.equal(cust([{ 'الاسم': 'أ', [h]: 'فردية' }]).valid[0].businessName, undefined, h);
+  }
+});
+
+test('البند 31: «السعر شامل الضريبة» يُكشف من العنوان ويُخرج العلم، والويب لا يحوّل ولا يقرأ 115 ضريبةً', () => {
+  const row = { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'السعر شامل الضريبة': 115 };
+  const p = prod([row]);
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.valid[0].basePrice, 115);    // التحويل على الخادم بـnetFromInclusive لا هنا
+  assert.equal(p.valid[0].taxPct, undefined); // العنوان لا يُلتقط نسبة ضريبة 115 فيُرفض الملف كله
+  assert.equal(p.priceInclTaxSuggested, true);
+  assert.equal(p.pricesIncludeTax, undefined);
+  assert.ok(notice(p.notices, PRICE_INCL_TAX_SUGGESTED_NOTICE));
+
+  // اختيار المالك ⇒ العلم في الحمولة، والتنبيه يسقط
+  const chosen = prod([row], { pricesIncludeTax: true });
+  assert.equal(chosen.pricesIncludeTax, true);
+  assert.equal(chosen.valid[0].basePrice, 115);
+  assert.equal(notice(chosen.notices, PRICE_INCL_TAX_SUGGESTED_NOTICE), undefined);
+
+  // وقوائم الأسعار كذلك
+  const pr = prc([{ 'الاسم': 'أ', 'كود الصنف': 'P1', 'Price incl. VAT': 115 }]);
+  assert.deepEqual(pr.errors, []);
+  assert.equal(pr.valid[0].price, 115);
+  assert.equal(pr.priceInclTaxSuggested, true);
+  assert.equal(prc([{ 'الاسم': 'أ', 'كود الصنف': 'P1', 'السعر الخاص': 100 }], { pricesIncludeTax: true }).pricesIncludeTax, true);
+  // عنوان عادي لا يرفع اقتراحاً
+  assert.equal(prod([{ 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'سعر البيع': 100 }]).priceInclTaxSuggested, undefined);
+
+  // الكشف لا يُخطئ: «شامل» بلا كلمة ضريبة أو مع نفيها ليس شمولاً
+  assert.deepEqual(['السعر شامل الضريبة', 'Price incl. VAT', 'الإجمالي شامل ضريبة القيمة المضافة', 'Unit Price Including Tax'].map(headerSaysPriceIncludesTax),
+    [true, true, true, true]);
+  assert.deepEqual(['السعر شامل الخصم', 'السعر غير شامل الضريبة', 'Price excl. VAT', 'Untaxed Amount', 'سعر البيع', '', null].map(headerSaysPriceIncludesTax),
+    [false, false, false, false, false, false, false]);
+
+  // والتحويل عقدُ الخادم: netFromInclusive موجودة فيه
+  assert.match(backendSrc('lib/money.ts'), /export function netFromInclusive\(price: number, taxPct: number\)/);
+});
+
+// ═══ الدفعة 3 — إتمام (البندان 36 و39، وانحدار 37 و38) ═══
+
+test('البند 36: قيود zod نفسها أخطاء صفوف في المعاينة لا رفض ملف كامل', () => {
+  // حد ائتمان سالب وفترة سداد كسرية: الخادم يرفض بهما الملف كله بـ400 بلا سطر — والمعاينة تعزل الصف وتُبقي الباقي
+  const c = cust([
+    { 'الاسم': 'أ', 'حد الائتمان': '-500' },
+    { 'الاسم': 'ب', 'فترة السداد': '15.5' },
+    { 'الاسم': 'ج', 'حد الائتمان': '1000', 'فترة السداد': '30' },
+  ]);
+  assert.deepEqual(c.errors.map((e) => [e.row, e.message, e.field]), [
+    [2, NEGATIVE_CREDIT_LIMIT, 'creditLimit'],
+    [3, PAYMENT_DAYS_INVALID, 'paymentDays'],
+  ]);
+  assert.deepEqual(c.valid.map((v) => v.name), ['ج']);
+  assert.equal(c.valid[0].creditLimit, 1000);
+  assert.equal(c.valid[0].paymentDays, 30);
+
+  // نسبة الضريبة خارج 0..100 خطأ صف واحد، والصف السليم يمضي
+  const p = prod([
+    { 'كود الصنف': 'P1', 'اسم الصنف': 'ماء', 'الضريبة': '115' },
+    { 'كود الصنف': 'P2', 'اسم الصنف': 'خبز', 'الضريبة': '15' },
+  ]);
+  assert.deepEqual(p.errors.map((e) => [e.row, e.message, e.field]), [[2, TAX_PCT_INVALID, 'taxPct']]);
+  assert.deepEqual(p.valid.map((v) => v.code), ['P2']);
+
+  // نص أطول من حدّ zod (200 حرفاً) في المخزون الافتتاحي: كان يرفض الملف كله بلا سطر ولا سبب
+  const long = 'ص'.repeat(IMPORT_TEXT_MAX + 1);
+  const s = stock([
+    { 'اسم الصنف': long, 'الكمية': 2, 'تكلفة الوحدة': 5 },
+    { 'اسم الصنف': 'ماء', 'الكمية': 2, 'تكلفة الوحدة': 5 },
+  ]);
+  assert.deepEqual(s.errors.map((e) => [e.row, e.message, e.field]), [[2, TEXT_TOO_LONG, 'name']]);
+  assert.deepEqual(s.valid.map((v) => v.productName), ['ماء']);
+  // الحدّ نفسه بالضبط يمرّ (لا انحدار على ملف كان يُقبل)
+  assert.deepEqual(stock([{ 'اسم الصنف': 'ص'.repeat(IMPORT_TEXT_MAX), 'الكمية': 1, 'تكلفة الوحدة': 1 }]).errors, []);
+
+  // حارس ثابت: القيود التي تُقلَّد هنا ما زالت هي قيود zod في الخادم حرفياً
+  const src = backendSrc('routes/import.ts');
+  assert.match(src, /creditLimit: z\.number\(\)\.nonnegative\(\)/);
+  assert.match(src, /paymentDays: z\.number\(\)\.int\(\)\.nonnegative\(\)/);
+  assert.match(src, /taxPct: z\.number\(\)\.min\(0\)\.max\(100\)/);
+  assert.match(src, new RegExp(`z\\.string\\(\\)\\.trim\\(\\)\\.max\\(${IMPORT_TEXT_MAX}\\)`));
+});
+
+test('البند 36: حدّ صفوف الدفعة في الويب هو حدّ الخادم نفسه (يُكشف قبل الإرسال)', () => {
+  const src = backendSrc('routes/import.ts');
+  const kindOf: Record<string, string> = {
+    customerRow: 'customers', productRow: 'products', balanceRow: 'balances',
+    ledgerRow: 'ledger', priceRow: 'prices', openingStockRow: 'opening_stock',
+  };
+  const found: Record<string, number> = {};
+  for (const m of src.matchAll(/rows: z\.array\((\w+)\)(?:\.min\(\d+\))?\.max\((\d+)\)/g)) {
+    const kind = kindOf[m[1]];
+    if (kind) found[kind] = Number(m[2]);
+  }
+  if (Object.keys(found).length === Object.keys(kindOf).length) {
+    assert.deepEqual(found, { ...IMPORT_MAX_ROWS }); // الشكل القائم: الحدّ داخل مخطط zod
+  } else {
+    // شكل آخر (الحدّ ثابتٌ بجوار المخطط بعد نقل الفحص صفاً صفاً): يبقى وجود الرقم شرطاً
+    for (const [kind, max] of Object.entries(IMPORT_MAX_ROWS)) {
+      assert.ok(new RegExp(`\\b${max}\\b`).test(src), `${kind}: الحد ${max} لم يعد في backend/src/routes/import.ts — أعد توجيه هذا الحارس`);
+    }
+  }
+  // والكشف قبل الإرسال: الحدّ تماماً يمرّ، وما فوقه يُعلن العددين للمالك
+  assert.equal(rowsOverMax('customers', IMPORT_MAX_ROWS.customers), null);
+  assert.deepEqual(rowsOverMax('ledger', IMPORT_MAX_ROWS.ledger + 1), { rows: IMPORT_MAX_ROWS.ledger + 1, max: IMPORT_MAX_ROWS.ledger });
+});
+
+test('البند 39: تاريخ أبعد من الغد تنبيه معدود بسطره لا مانع، والحدّ هو حدّ الخادم', () => {
+  const now = new Date('2026-09-23T10:00:00+03:00');
+  const at = { now, timezone: 'Asia/Riyadh' };
+  assert.equal(maxImportDateYmd(now, 'Asia/Riyadh'), '2026-09-24');
+  assert.equal(IMPORT_FUTURE_DATE_GRACE_DAYS, 1);
+
+  const b = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '2052-03-15' }, // 2052 بدل 2025
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '2026-09-24' }, // الغد: داخل السعة
+    { 'الاسم': 'ج', 'الرصيد': 30, 'التاريخ': '2026-09-01' },
+  ], at);
+  assert.deepEqual(b.errors, []);   // تنبيه لا خطأ: الحكم للخادم
+  assert.deepEqual(b.blockers, []); // ولا يمنع الاستيراد
+  assert.equal(b.valid.length, 3);  // ولا يُسقط الصف
+  assert.deepEqual(notice(b.notices, FUTURE_DATE_NOTICE), { key: FUTURE_DATE_NOTICE, count: 1, values: ['2: 2052-03-15'] });
+
+  // اليوم التالي للغد يُعدّ، والسطر هو سطر الملف الحقيقي (البند 38)
+  assert.deepEqual(notice(bal([{ 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '2026-09-25' }], at).notices, FUTURE_DATE_NOTICE)?.values, ['2: 2026-09-25']);
+
+  // الكشوف كذلك، ومعها تاريخ الصفوف بلا تاريخ الذي يختاره المالك
+  assert.equal(notice(led([{ 'الاسم': 'أ', 'مدين': 5, 'التاريخ': '2030-01-01' }], at).notices, FUTURE_DATE_NOTICE)?.count, 1);
+  const undated = led([{ 'الاسم': 'أ', 'مدين': 5 }], { ...at, undatedDate: '2031-05-05' });
+  assert.deepEqual(notice(undated.notices, FUTURE_DATE_NOTICE)?.values, ['2: 2031-05-05']);
+
+  // ملف بتواريخ ماضية لا تنبيه فيه (لا ضجيج على ملف سليم)
+  assert.equal(notice(bal([{ 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '2026-01-05' }], at).notices, FUTURE_DATE_NOTICE), undefined);
+
+  // القاعدة نفسها في الخادم حرفياً (اليوم المحلي + يوم، شامل)
+  const opening = backendSrc('services/gl/opening.ts');
+  assert.match(opening, /export const IMPORT_FUTURE_DATE_GRACE_DAYS = 1;/);
+  assert.match(opening, /addDays\(todayLocal\(now, timezone\), IMPORT_FUTURE_DATE_GRACE_DAYS\)/);
+});
+
+test('انحدار البندين 37 و38: الصيغ الشائعة تبقى نظيفة بلا أخطاء ولا تنبيهات ترتيب', () => {
+  // كل صيغة في ملفها: اليوم 15 لا يلتبس، فالترتيب محسوم أو غير ملتبس أصلاً
+  const formats: [string, string][] = [
+    ['2025-01-15', '2025-01-15'], ['2025/01/15', '2025-01-15'], ['2025-1-5', '2025-01-05'],
+    ['15/01/2025', '2025-01-15'], ['15-01-2025', '2025-01-15'], ['15.01.2025', '2025-01-15'],
+    ['15-Jan-2025', '2025-01-15'], ['15 Jan 2025', '2025-01-15'], ['Jan 15, 2025', '2025-01-15'],
+    ['15 يناير 2025', '2025-01-15'], ['15 ديسمبر 2025', '2025-12-15'],
+    ['15/01/2025 13:20', '2025-01-15'], ['2025-01-15T10:00:00', '2025-01-15'],
+  ];
+  for (const [raw, want] of formats) {
+    const r = bal([{ 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': raw }]);
+    assert.deepEqual(r.errors, [], raw);
+    assert.equal(r.valid[0]?.date, want, raw);
+    assert.deepEqual(r.blockers, [], raw);
+    assert.equal(notice(r.notices, DATE_ORDER_MDY_NOTICE), undefined, raw);
+    assert.equal(notice(r.notices, DATE_ORDER_AMBIGUOUS_NOTICE), undefined, raw);
+  }
+  // خلية تاريخ Excel حقيقية (لا تدخل كشف الترتيب أصلاً)
+  const xl = bal([{ 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': new Date(2025, 0, 15) }]);
+  assert.deepEqual(xl.errors, []);
+  assert.equal(xl.valid[0].date, '2025-01-15');
+  assert.equal(notice(xl.notices, DATE_ORDER_AMBIGUOUS_NOTICE), undefined);
+
+  // عمود يوم/شهر فيه قيمة ملتبسة واحدة: الدليل يحسمه فلا تنبيه ولا انقلاب
+  const dmy = bal([
+    { 'الاسم': 'أ', 'الرصيد': 10, 'التاريخ': '05/01/2025' },
+    { 'الاسم': 'ب', 'الرصيد': 20, 'التاريخ': '31/12/2025' },
+  ]);
+  assert.deepEqual(dmy.valid.map((v) => v.date), ['2025-01-05', '2025-12-31']);
+  assert.equal(notice(dmy.notices, DATE_ORDER_AMBIGUOUS_NOTICE), undefined);
+});
+
+test('انحدار البند 38: ملف نظيف بعنوان فوقي وأسطر فارغة لا يُظهر خطأ صف، وأسطره حقيقية', async () => {
+  const csv = 'كشف حساب العملاء\n\nالاسم,الرصيد,التاريخ\nأ,1500,15/01/2025\n\nب,"2,750.50",31/12/2025\nج,10,"Jan 15, 2025"\n';
+  const rows = await parseExcelFile(new File([csv], 'balances.csv'));
+  const r = bal(rows);
+  assert.deepEqual(r.errors, []);          // ملف كان يُستورد نظيفاً يبقى نظيفاً
+  assert.deepEqual(r.fileRows, [4, 6, 7]); // أسطر الملف الحقيقية بعد حذف العنوان الفوقي والفراغ
+  assert.deepEqual(r.valid.map((v) => v.balance), [1500, 2750.5, 10]);
+  assert.deepEqual(r.valid.map((v) => v.date), ['2025-01-15', '2025-12-31', '2025-01-15']);
+  assert.deepEqual(r.blockers, []);
+  assert.equal(notice(r.notices, DATE_ORDER_MDY_NOTICE), undefined);
+
+  // وملف أمريكي نظيف: يُقرأ شهراً أولاً بتنبيه واحد لا بأخطاء صفوف
+  const ur = bal(await parseExcelFile(new File(['Name,Balance,Date\nA,10,01/15/2025\nB,20,02/28/2025\n'], 'us.csv')));
+  assert.deepEqual(ur.errors, []);
+  assert.deepEqual(ur.valid.map((v) => v.date), ['2025-01-15', '2025-02-28']);
+  assert.ok(notice(ur.notices, DATE_ORDER_MDY_NOTICE));
+  assert.deepEqual(ur.fileRows, [2, 3]);
 });

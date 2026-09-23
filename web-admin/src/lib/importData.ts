@@ -34,17 +34,22 @@ const MONTHS: Record<string, number> = {
   'اغسطس': 8, 'سبتمبر': 9, 'اكتوبر': 10, 'نوفمبر': 11, 'ديسمبر': 12,
 };
 const monthOf = (name: string): number | undefined => MONTHS[name.toLowerCase().replace(/[أإآ]/g, 'ا')];
+/** ترتيب أجزاء التاريخ الرقمي ذي الجزأين: اليوم أولاً (d/m/yyyy) أو الشهر أولاً (m/d/yyyy الأمريكية) */
+export type DateOrder = 'dmy' | 'mdy';
+/** الصيغة الرقمية الملتبسة وحدها: جزآن من رقم أو رقمين ثم سنة رباعية (yyyy-mm-dd وأسماء الأشهر لا تلتبس) */
+const TWO_PART_DATE = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:[ T].*)?$/;
 /**
  * تطبيع تاريخ من الملف إلى YYYY-MM-DD: يقبل yyyy-mm-dd (وyyyy/mm/dd)، وd/m/yyyy وd-m-yyyy وd.m.yyyy **اليوم أولاً**
- * (لا الصيغة الأمريكية)، وأسماء الأشهر (15-Jan-2025، Jan 15, 2025، «15 يناير 2025»)، مع جزء وقت اختياري يُهمل. الفارغ ⇒ ''، وغير المفهوم أو غير الحقيقي (31/02) ⇒ null.
+ * افتراضاً (`order` يقلبها إلى الصيغة الأمريكية حين يكشفها الملف كله — البند 37)، وأسماء الأشهر (15-Jan-2025،
+ * Jan 15, 2025، «15 يناير 2025»)، مع جزء وقت اختياري يُهمل. الفارغ ⇒ ''، وغير المفهوم أو غير الحقيقي (31/02) ⇒ null.
  */
-export function normDate(input: string): string | null {
+export function normDate(input: string, order: DateOrder = 'dmy'): string | null {
   const s = toAsciiDigits(String(input ?? '').trim());
   if (!s) return '';
   let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T].*)?$/);
   if (m) return validYmd(+m[1], +m[2], +m[3]);
-  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:[ T].*)?$/);
-  if (m) return validYmd(+m[3], +m[2], +m[1]);
+  m = s.match(TWO_PART_DATE);
+  if (m) return order === 'mdy' ? validYmd(+m[3], +m[1], +m[2]) : validYmd(+m[3], +m[2], +m[1]);
   // اسم الشهر: اليوم أولاً (15-Jan-2025، «15 يناير 2025») ثم الشهر أولاً (Jan 15, 2025)
   m = s.match(/^(\d{1,2})[-\s/.,]+([A-Za-z؀-ۿ]+)\.?[-\s/.,]+(\d{4})(?:[ T,].*)?$/i);
   if (m) { const mon = monthOf(m[2]); return mon ? validYmd(+m[3], mon, +m[1]) : null; }
@@ -52,6 +57,49 @@ export function normDate(input: string): string | null {
   if (m) { const mon = monthOf(m[1]); return mon ? validYmd(+m[3], mon, +m[2]) : null; }
   return null;
 }
+export interface DateOrderScan {
+  /** الترتيب المعتمد لقراءة عمود التاريخ كله */
+  order: DateOrder;
+  /** الترتيب محسوم بدليل كافٍ: شاهد واحد لليوم أولاً، أو شواهد الصيغة الأمريكية بالحدّ الأدنى أدناه */
+  detected: boolean;
+  /** في الملف دليلان متناقضان (25/01/2026 و01/25/2026 معاً) ⇒ لا ترتيب واحد يصحّ */
+  conflict: boolean;
+  /** عدد القيم التي تصحّ بالقراءتين (جزآها 12 فأقل) ولم يحسمها دليل */
+  ambiguous: number;
+}
+/**
+ * حسم الصيغة الأمريكية (الشهر أولاً) لا يقع بشاهد واحد: شاهدان مستقلّان على الأقل **و** حصّة معقولة من
+ * قيم العمود الملتبسة الصيغة. السبب: ملف يوم/شهر كل أيامه ≤ 12 وفيه صفّ واحد مكتوب خطأً بالأمريكي
+ * (5/25/2025) كان يقلب العمود كله بصمت، فيصير 03/04/2025 «٤ مارس» بدل «٣ أبريل». الشاهد الوحيد يبقى
+ * خطأ صفّه وحده (تاريخ غير مفهوم)، وبقيّة العمود تُقرأ بالافتراضي مع تنبيه الالتباس المعدود.
+ * وملفٌّ أمريكي حقيقي أكثرُ تواريخه يومُها > 12 (19 من 31) فيتجاوز الحدَّين بيسر.
+ */
+const MDY_MIN_WITNESSES = 2;
+const MDY_MIN_SHARE = 0.2;
+/**
+ * البند 37: كشف ترتيب التاريخ من عمود التاريخ **كله** لا من كل قيمة على حدة. الجزء الأول > 12 ⇒ اليوم
+ * أولاً (شاهد واحد يكفي: هو الافتراضي أصلاً فلا انقلاب)، والثاني > 12 ⇒ شاهدُ صيغةٍ أمريكية لا يحسمها
+ * وحده (MDY_MIN_WITNESSES وMDY_MIN_SHARE). الصيغ غير الملتبسة (yyyy-mm-dd وأسماء الأشهر وخلايا تاريخ
+ * Excel) لا تدخل الكشف، وما لا يصحّ بأي ترتيب (25/25) يُترك لخطأ الصف. دليلان متناقضان في الملف نفسه
+ * ⇒ تعارض: لا يُقرأ بأيّهما بل يُطلب من المالك توحيد الصيغة.
+ */
+export function detectDateOrder(values: readonly unknown[]): DateOrderScan {
+  let dayFirst = 0; let monthFirst = 0; let ambiguous = 0;
+  for (const v of values) {
+    const m = toAsciiDigits(val(v)).match(TWO_PART_DATE);
+    if (!m) continue;
+    const a = +m[1]; const b = +m[2];
+    if (a > 12 && b > 12) continue;
+    if (a > 12) dayFirst++;
+    else if (b > 12) monthFirst++;
+    else ambiguous++;
+  }
+  const conflict = dayFirst > 0 && monthFirst > 0;
+  const scanned = dayFirst + monthFirst + ambiguous;
+  const mdy = !conflict && monthFirst >= MDY_MIN_WITNESSES && monthFirst >= scanned * MDY_MIN_SHARE;
+  return { order: mdy ? 'mdy' : 'dmy', detected: !conflict && (dayFirst > 0 || mdy), conflict, ambiguous };
+}
+
 /** إزاحة تاريخ تقويمي YYYY-MM-DD بعدد أيام (صرف، بلا منطقة زمنية) — لاقتراح «اليوم السابق لتاريخ البدء». */
 export function addDaysYmd(ymd: string, days: number): string {
   const [y, mo, d] = ymd.split('-').map(Number);
@@ -63,6 +111,16 @@ function ymdInZone(at: Date, tz: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at);
   const g = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
   return `${g('year')}-${g('month')}-${g('day')}`;
+}
+/** اليوم التقويمي بتقويم المتصفح (حين لا تُمرَّر منطقة الشركة) */
+const localYmd = (at: Date): string => `${at.getFullYear()}-${pad2(at.getMonth() + 1)}-${pad2(at.getDate())}`;
+/**
+ * البند 39: أبعد تاريخ أثر مقبول لصفّ مستورد = «اليوم» بتوقيت الشركة + يوم واحد (شامل) — سعةً لفروق المناطق
+ * الزمنية. القاعدة نفسها حرفياً في backend/src/services/gl/opening.ts (IMPORT_FUTURE_DATE_GRACE_DAYS وmaxImportEntryDate).
+ */
+export const IMPORT_FUTURE_DATE_GRACE_DAYS = 1;
+export function maxImportDateYmd(now: Date, tz?: string | null): string {
+  return addDaysYmd(tz ? todayInZone(now, tz) : localYmd(now), IMPORT_FUTURE_DATE_GRACE_DAYS);
 }
 
 export type ImportCutoverClass = 'before' | 'onOrAfter' | 'undated';
@@ -113,6 +171,18 @@ export const IMPORT_DUP_HEADERS_NOTICE = 'أعمدة مكررة الاسم أُ�
 export class ImportFileError extends Error {
   key: string;
   constructor(key: string) { super(key); this.name = 'ImportFileError'; this.key = key; }
+}
+
+/**
+ * البند 38: رقم السطر الحقيقي في الملف لكل صف. يُوضع **رمزاً غير معدود** لا مفتاحاً نصياً، فلا يظهر
+ * عموداً في headersOf ولا يُطابَق حقلاً ولا يُنسخ مع الصف. سببه أن rows تُحذف منها العناوين الفوقية
+ * والأسطر الفارغة، فموضع الصف لم يعد يدلّ على سطره: خطأ السطر 7 كان يُعرض «صف 3».
+ */
+export const IMPORT_FILE_ROW: unique symbol = Symbol('importFileRow');
+/** رقم سطر الصف في الملف: الرمز إن وُجد، وإلا الموضع + 2 (صفوف مبنية يدوياً بلا قارئ ملف) */
+export function importFileLine(row: unknown, i: number): number {
+  const v = row && typeof row === 'object' ? (row as { [IMPORT_FILE_ROW]?: unknown })[IMPORT_FILE_ROW] : undefined;
+  return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : i + 2;
 }
 
 // كشف صف العناوين (يفضّل الصف ذا النصوص الأكثر) — يتجاوز عناوين التقارير الفوقية
@@ -235,6 +305,8 @@ export async function parseImportBuffer(buf: ArrayBuffer, fileName = ''): Promis
     if (!row || row.every((c) => val(c) === '')) continue;
     const o: Record<string, unknown> = {};
     heads.forEach((hd, j) => { if (hd) o[hd] = row[j] ?? ''; });
+    // سطر الصف في الملف (البند 38): موضع الصف في الورقة + 1، محسوباً قبل حذف ما قبل العناوين والأسطر الفارغة
+    Object.defineProperty(o, IMPORT_FILE_ROW, { value: r + 1, enumerable: false });
     rows.push(o);
   }
   return { rows, headers: heads.filter(Boolean), notices, encoding, format };
@@ -357,7 +429,10 @@ export interface ImportRowError {
 }
 export interface TransformOut {
   valid: Record<string, unknown>[];
-  /** رقم صف الملف لكل عنصر في valid (بالموضع نفسه): الخادم يرقّم بموضع الصف المرسل (i + 2) لا بصف الملف */
+  /**
+   * سطر الملف لكل عنصر في valid (بالموضع نفسه): الخادم يرقّم بموضع الصف المرسل (i + 2) لا بسطر الملف.
+   * والسطر هنا هو السطر الحقيقي كما قرأه parseImportBuffer (البند 38) لا موضع الصف بعد حذف العناوين الفوقية والأسطر الفارغة.
+   */
   fileRows: number[];
   errors: ImportRowError[];
   /** تنبيهات غير مانعة (نص عربي يُمرَّر عبر tr) — للتوافق */
@@ -374,12 +449,28 @@ export interface TransformOut {
   undated?: number;
   /** المخزون الافتتاحي: Σ الكمية × تكلفة الوحدة كما في الملف (قبل خصم الضريبة إن كانت شاملة) */
   totalCost?: number;
+  /**
+   * البند 31 (المنتجات والأسعار): عنوان عمود السعر في الملف يقول إنه شامل الضريبة ⇒ ترفع الواجهة
+   * خيار «الأسعار شاملة الضريبة» مقترحاً. اقتراحٌ لا تحويل: الويب لا يمسّ السعر.
+   */
+  priceInclTaxSuggested?: boolean;
+  /**
+   * البند 31: علم يُرسل مع الحمولة إلى الخادم ليحوّل السعر بـnetFromInclusive حسب ضريبة كل صنف.
+   * يُخرَج حين يختاره المالك (`opts.pricesIncludeTax`) وحده — لا بمجرد الاقتراح.
+   */
+  pricesIncludeTax?: boolean;
 }
 export interface TransformOpts {
   /** YYYY-MM-DD يُطبَّق على الصفوف بلا تاريخ فقط (يختاره المالك صراحةً) */
   undatedDate?: string | null;
-  /** منازل عملة الشركة: 3 (KWD/BHD/OMR/JOD) تحسم «12.500» عشرياً في عمود بلا دليل آخر */
+  /** منازل عملة الشركة: 3 (KWD/BHD/OMR/JOD) تحسم «12.500» عشرياً في عمود بلا دليل آخر، وتقرِّب إجمالي تكلفة المخزون */
   currencyDecimals?: number | null;
+  /** البند 31: اختيار المالك «الأسعار شاملة الضريبة» في معاينة المنتجات والأسعار (الخادم هو من يحوّل) */
+  pricesIncludeTax?: boolean;
+  /** البند 39: لحظة «الآن» لحساب حدّ التاريخ البعيد (الاختبارات تثبّتها؛ الافتراض لحظة التحويل) */
+  now?: Date | null;
+  /** البند 39: منطقة الشركة (importContextTimezone) — بدونها يُحسب «اليوم» بتقويم المتصفح */
+  timezone?: string | null;
 }
 /** رقم صف الخادم (موضع الصف المرسل + 2) ⇒ رقم صف الملف؛ خارج النطاق (ومنه 0) يبقى كما هو */
 export function fileRowOf(fileRows: readonly number[] | undefined, serverRow: number): number {
@@ -402,6 +493,15 @@ export function localizedServerMessage(message: string | null | undefined, lang:
 export const listSeparator = (lang: string): string => (lang === 'ar' ? '، ' : ', ');
 
 export const DATE_ERROR_MESSAGE = 'تاريخ غير مفهوم';
+// ── البند 37: ترتيب اليوم والشهر في التواريخ الرقمية ──
+export const DATE_ORDER_MDY_NOTICE = 'تواريخ الملف بصيغة شهر/يوم (أمريكية) — كُشفت من الملف نفسه وقُرئت على هذا الأساس';
+export const DATE_ORDER_AMBIGUOUS_NOTICE = 'تواريخ يصحّ فيها اليوم والشهر معاً (5/1/2026) ولا دليل حاسم في الملف: قُرئت اليوم أولاً (5 يناير). إن كان ملفك بصيغة شهر/يوم فحوّل عمود التاريخ إلى YYYY-MM-DD قبل الاستيراد';
+export const DATE_ORDER_CONFLICT_BLOCKER = 'عمود التاريخ يخلط صيغتَي يوم/شهر وشهر/يوم في الملف نفسه، وحّد التواريخ بصيغة YYYY-MM-DD قبل الاستيراد';
+/**
+ * البند 39: تاريخ أبعد من «اليوم + يوم» بتوقيت الشركة — خطأ سنة غالباً (2052 بدل 2025). تنبيه معدود لا مانع:
+ * الحكم للخادم، والمعاينة تُري المالك السطر والتاريخ قبل أن يكتبه في دفاتره. القيم «السطر: التاريخ».
+ */
+export const FUTURE_DATE_NOTICE = 'صفوف تاريخها أبعد من الغد بتوقيت الشركة (خطأ سنة غالباً): راجعها قبل الاستيراد — السطر ثم التاريخ';
 export const CUSTOMER_BALANCE_WARNING = 'عمود الرصيد لا يُستورد مع العملاء؛ استخدم بطاقة الأرصدة الافتتاحية بالملف نفسه';
 // مفاتيح الأخطاء والتنبيهات الجديدة (نصوص tr)
 export const NUMERIC_ERROR = 'قيمة رقمية غير مفهومة';
@@ -512,8 +612,29 @@ function makeCtx(rows: Record<string, unknown>[], spec: ImportSpec, opts?: Trans
     if (!styles.has(f)) styles.set(f, columnDecimalStyle(rows.map((r) => rawOf(r, res.candidates[f])), fallback));
     return styles.get(f);
   };
+  // البند 37: ترتيب اليوم/الشهر يُكشف من عمود التاريخ كله مرة واحدة، لا صفاً صفاً — والتعارض مانع لا قلب صامت
+  const dateScan = spec.date ? detectDateOrder(rows.map((r) => rawOf(r, res.candidates.date))) : null;
+  if (dateScan?.conflict && !res.blockers.includes(DATE_ORDER_CONFLICT_BLOCKER)) res.blockers.push(DATE_ORDER_CONFLICT_BLOCKER);
+  const dateNotices = (): ImportNotice[] => {
+    if (!dateScan || dateScan.conflict) return [];
+    if (dateScan.order === 'mdy') return [{ key: DATE_ORDER_MDY_NOTICE }];
+    return dateScan.detected || !dateScan.ambiguous ? [] : [{ key: DATE_ORDER_AMBIGUOUS_NOTICE, count: dateScan.ambiguous }];
+  };
+  const dateOrder: DateOrder = dateScan?.order ?? 'dmy';
+  // البند 39: أبعد تاريخ أثر مقبول (اليوم بتوقيت الشركة + يوم) — ما بعده يُعدّ بسطره ولا يمنع
+  const maxDate = maxImportDateYmd(opts?.now ?? new Date(), opts?.timezone);
+  const future: string[] = [];
+  let futureCount = 0;
   return {
-    res, errors, styleOf,
+    res, errors, styleOf, dateOrder, maxDate,
+    /** البند 39: التاريخ الفعلي للصفّ (تاريخه أو تاريخ الصفوف بلا تاريخ) بعد الحدّ ⇒ تنبيه معدود بسطره */
+    futureDate(line: number, ymd: string) {
+      if (!ymd || ymd <= maxDate) return;
+      futureCount++;
+      if (future.length < 10) future.push(`${line}: ${ymd}`);
+    },
+    /** رقم سطر الصف في الملف (البند 38) — لا موضعه بعد حذف العناوين الفوقية والأسطر الفارغة */
+    line: (row: Record<string, unknown>, i: number) => importFileLine(row, i),
     raw: (row: Record<string, unknown>, f: string) => rawOf(row, res.candidates[f]),
     s: (row: Record<string, unknown>, f: string) => val(rawOf(row, res.candidates[f])),
     has: (f: string) => (res.candidates[f]?.length ?? 0) > 0,
@@ -526,12 +647,41 @@ function makeCtx(rows: Record<string, unknown>[], spec: ImportSpec, opts?: Trans
       const st = styleOf(f);
       const p = percent ? parsePercent(r, st) : parseAmount(r === '' ? undefined : r, st);
       if (p.ok) return p.value;
-      errors.push({ row: i + 2, message: p.reason === 'ambiguous' ? AMBIGUOUS_AMOUNT_ERROR : NUMERIC_ERROR, value: p.raw, field: f });
+      errors.push({ row: importFileLine(row, i), message: p.reason === 'ambiguous' ? AMBIGUOUS_AMOUNT_ERROR : NUMERIC_ERROR, value: p.raw, field: f });
       return null;
     },
     notices(extra: ImportNotice[] = []): ImportNotice[] {
-      return [...res.notices, ...[...counts].map(([key, count]) => (key === TOTALS_ROWS_NOTICE ? { key, count, values: totals } : { key, count })), ...extra];
+      const fut: ImportNotice[] = futureCount ? [{ key: FUTURE_DATE_NOTICE, count: futureCount, values: future }] : [];
+      return [...res.notices, ...dateNotices(), ...[...counts].map(([key, count]) => (key === TOTALS_ROWS_NOTICE ? { key, count, values: totals } : { key, count })), ...fut, ...extra];
     },
+  };
+}
+
+// ── البند 31: «السعر شامل الضريبة» في استيراد المنتجات والأسعار ──
+/** مقاطع تنفي الشمول (تُفحص أولاً): «غير شامل»، «قبل الضريبة»، «excl.»، «untaxed» */
+const PRICE_EXCL_TOKENS = ['غيرشامل', 'بدونضريبه', 'بدونالضريبه', 'قبلالضريبه', 'excl', 'untaxed'];
+/** كلمة ضريبة في العنوان: «شامل» وحدها قد تعني شامل الخصم أو التوصيل */
+const PRICE_TAX_WORDS = ['ضريب', 'قيمهمضافه', 'vat', 'tax'];
+/**
+ * هل عنوان عمود السعر يقول إنه شامل الضريبة؟ («السعر شامل الضريبة»، «Price incl. VAT»).
+ * يُشترط مع «شامل»/«incl» كلمةُ ضريبة: اقتراحٌ خاطئ يدفع المالك إلى قسمة أسعاره على 1.15 بلا سبب.
+ */
+export function headerSaysPriceIncludesTax(header: string | null | undefined): boolean {
+  const n = norm(header ?? '');
+  if (!n || PRICE_EXCL_TOKENS.some((t) => n.includes(t))) return false;
+  return ['شامل', 'incl'].some((t) => n.includes(t)) && PRICE_TAX_WORDS.some((t) => n.includes(t));
+}
+export const PRICE_INCL_TAX_SUGGESTED_NOTICE = 'عنوان عمود السعر يقول إنه شامل الضريبة: فعّل خيار «الأسعار شاملة الضريبة» قبل الاستيراد، وإلا حُفظ السعر صافياً فتُضاف الضريبة فوقه عند البيع';
+/**
+ * علم «الأسعار شاملة الضريبة» في حمولة المعاينة: كشفٌ من العنوان يرفع الاقتراح، واختيار المالك يُخرج العلم.
+ * الويب لا يحوّل السعر: التحويل بـnetFromInclusive على الخادم حسب ضريبة كل صنف (وضريبة الشركة للخانة الفارغة).
+ */
+function priceInclTax(c: ReturnType<typeof makeCtx>, field: string, opts?: TransformOpts): { notices: ImportNotice[]; out: Pick<TransformOut, 'priceInclTaxSuggested' | 'pricesIncludeTax'> } {
+  const suggested = (c.res.candidates[field] ?? []).some(headerSaysPriceIncludesTax);
+  const chosen = opts?.pricesIncludeTax === true;
+  return {
+    notices: suggested && !chosen ? [{ key: PRICE_INCL_TAX_SUGGESTED_NOTICE }] : [],
+    out: { ...(suggested ? { priceInclTaxSuggested: true } : {}), ...(chosen ? { pricesIncludeTax: true } : {}) },
   };
 }
 
@@ -557,7 +707,13 @@ const BALANCE_EXCLUDE = ['مدين', 'دائن', 'debit', 'credit', 'سابق', 
 const A_CUST: ImportSpec = {
   ...CUST_ID,
   email: { aliases: ['البريد الإلكتروني', 'البريد', 'الايميل', 'email', 'e-mail', 'mail'] },
-  businessName: { aliases: ['اسم المنشأة', 'المنشأة', 'النشاط التجاري', 'business name', 'company'] },
+  // البند 50: «Company» و«Company Type» في تصدير أودو ليسا اسماً تجارياً للعميل — الأول اسم منشأتك أنت
+  // والثاني «Individual/Company». لا يُقبل إلا عنوان يسمّي الاسم صراحةً («Company Name»، «اسم الشركة»)،
+  // وعناوين «النوع» تُستبعد من مطابقة الاحتواء («نوع المنشأة» ليس اسمها). الاسم التجاري يظهر مشترياً في الفاتورة الضريبية.
+  businessName: {
+    aliases: ['اسم المنشأة', 'المنشأة', 'اسم الشركة', 'النشاط التجاري', 'business name', 'company name', 'trade name'],
+    exclude: ['نوع', 'طبيعه', 'type', 'category'],
+  },
   commercialReg: { aliases: ['السجل التجاري', 'رقم السجل', 'commercial reg', 'cr'] },
   taxNumber: { aliases: ['الرقم الضريبي', 'الرقم الضريبى', 'tax number', 'vat', 'vat number'] },
   city: { aliases: ['المدينة', 'city'] },
@@ -591,19 +747,20 @@ function toCustomers(rows: Record<string, unknown>[], opts?: TransformOpts): Tra
   let balanceIgnored = false;
   const ignored: string[] = [];
   rows.forEach((row, i) => {
+    const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const name = c.s(row, 'name'); const code = c.s(row, 'code'); const phone = c.s(row, 'phone');
     if (isTotalsRow(name, code, phone)) { c.totalsRow(name || code); return; }
     // عمود «الرصيد» لا يُستورد مع العملاء — تنبيه غير مانع حين يحمل قيمة غير صفرية
     if (!balanceIgnored) { const b = parseAmount(c.raw(row, 'balance')); if (!b.ok || (b.value !== undefined && b.value !== 0)) balanceIgnored = true; }
-    if (!name) { errors.push({ row: i + 2, message: 'اسم العميل مفقود' }); return; }
+    if (!name) { errors.push({ row: line, message: 'اسم العميل مفقود' }); return; }
     // حقلان ثانويان: النص غير الرقمي («غير محدود»، «30 يوم») لا يُسقط العميل؛ يُترك للافتراضي بتنبيه معدود
     const creditLimit = optionalCustomerNumber(c.raw(row, 'creditLimit'), false, ignored);
-    if (creditLimit !== undefined && creditLimit < 0) { errors.push({ row: i + 2, message: NEGATIVE_CREDIT_LIMIT, value: c.s(row, 'creditLimit'), field: 'creditLimit' }); return; }
+    if (creditLimit !== undefined && creditLimit < 0) { errors.push({ row: line, message: NEGATIVE_CREDIT_LIMIT, value: c.s(row, 'creditLimit'), field: 'creditLimit' }); return; }
     const paymentDays = optionalCustomerNumber(c.raw(row, 'paymentDays'), true, ignored);
     if (paymentDays !== undefined && (!Number.isInteger(paymentDays) || paymentDays < 0)) {
-      errors.push({ row: i + 2, message: PAYMENT_DAYS_INVALID, value: c.s(row, 'paymentDays'), field: 'paymentDays' }); return;
+      errors.push({ row: line, message: PAYMENT_DAYS_INVALID, value: c.s(row, 'paymentDays'), field: 'paymentDays' }); return;
     }
-    fileRows.push(i + 2);
+    fileRows.push(line);
     // الجوال يُرسل كما هو: الخادم يطبّعه (normImportPhone) ويعامل التافه «—»
     valid.push({
       name, phone, code: code || undefined,
@@ -644,12 +801,13 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
   // والمكرر المختلف خطأ صف ظاهر — لا تخطٍّ صامت يضيع «ماء كرتون» خلف «ماء حبة».
   const firstByCode = new Map<string, { sig: string; rest: string; blankTax: boolean }>();
   rows.forEach((row, i) => {
+    const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const name = c.s(row, 'name');
-    if (!name) { errors.push({ row: i + 2, message: 'اسم الصنف مفقود' }); return; }
+    if (!name) { errors.push({ row: line, message: 'اسم الصنف مفقود' }); return; }
     const code = c.s(row, 'code') || name; // توليد الكود من الاسم عند غيابه (أنظمة كثيرة لا تُصدّر كوداً)
     const basePrice = c.num(row, i, 'basePrice');
     if (basePrice === null) return;
-    if (basePrice !== undefined && basePrice < 0) { errors.push({ row: i + 2, message: NEGATIVE_PRICE, value: c.s(row, 'basePrice'), field: 'basePrice' }); return; }
+    if (basePrice !== undefined && basePrice < 0) { errors.push({ row: line, message: NEGATIVE_PRICE, value: c.s(row, 'basePrice'), field: 'basePrice' }); return; }
     const taxRaw = c.raw(row, 'taxPct');
     let taxPct = c.num(row, i, 'taxPct', true);
     if (taxPct === null) return;
@@ -658,7 +816,7 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       taxPct = Math.round(taxPct * 100 * 1e6) / 1e6;
       c.bump(TAX_FRACTION_NOTICE);
     }
-    if (taxPct !== undefined && (taxPct < 0 || taxPct > 100)) { errors.push({ row: i + 2, message: TAX_PCT_INVALID, value: val(taxRaw), field: 'taxPct' }); return; }
+    if (taxPct !== undefined && (taxPct < 0 || taxPct > 100)) { errors.push({ row: line, message: TAX_PCT_INVALID, value: val(taxRaw), field: 'taxPct' }); return; }
     const unit = c.s(row, 'unit'); const barcode = c.s(row, 'barcode'); const category = c.s(row, 'category');
     // التوقيع مطابق حرفياً لـproductRowSignature في backend/src/services/importLedger.ts: الافتراضيان
     // (الوحدة «حبة» والسعر 0) يُطبَّقان هنا كما يُطبَّقان هناك، وإلا عدَّ الويب صفّين متطابقَين مختلفَين
@@ -674,19 +832,20 @@ function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       if (prev.rest === rest && (prev.blankTax || blankTax)) { c.bump(PRODUCT_BLANK_TAX_DUPLICATE_NOTICE); return; }
       // كود مولَّد من الاسم ⇒ صنفان بالاسم نفسه بلا كود؛ وإلا كود مكرر صراحةً في الملف
       errors.push(c.s(row, 'code')
-        ? { row: i + 2, message: PRODUCT_DUPLICATE_CODE, value: code, field: 'code' }
-        : { row: i + 2, message: PRODUCT_SAME_NAME_NO_CODE, value: name, field: 'name' });
+        ? { row: line, message: PRODUCT_DUPLICATE_CODE, value: code, field: 'code' }
+        : { row: line, message: PRODUCT_SAME_NAME_NO_CODE, value: name, field: 'name' });
       return;
     }
     firstByCode.set(code, { sig, rest, blankTax });
-    fileRows.push(i + 2);
+    fileRows.push(line);
     valid.push({
       code, name, unit: unit || undefined,
       basePrice, taxPct,
       barcode: barcode || undefined, category: category || undefined,
     });
   });
-  return { valid, fileRows, errors, notices: c.notices(), columns: c.res.columns, blockers: c.res.blockers };
+  const incl = priceInclTax(c, 'basePrice', opts);
+  return { valid, fileRows, errors, notices: c.notices(incl.notices), columns: c.res.columns, blockers: c.res.blockers, ...incl.out };
 }
 
 // ============ الأرصدة الافتتاحية ============
@@ -719,9 +878,9 @@ const sideOf = (raw: string): 'credit' | 'debit' | 'empty' | null => {
   return SIDE_CREDIT.has(n) ? 'credit' : SIDE_DEBIT.has(n) ? 'debit' : null;
 };
 // تاريخ الصف: '' بلا تاريخ، وnull غير مفهوم (يُسجَّل خطأً ويُستبعد الصف من valid)
-function rowDate(raw: string, i: number, errors: ImportRowError[]): string | null {
-  const d = normDate(raw);
-  if (d === null) errors.push({ row: i + 2, message: DATE_ERROR_MESSAGE, value: raw });
+function rowDate(raw: string, line: number, errors: ImportRowError[], order: DateOrder): string | null {
+  const d = normDate(raw, order);
+  if (d === null) errors.push({ row: line, message: DATE_ERROR_MESSAGE, value: raw });
   return d;
 }
 /** مفتاح العميل داخل الملف: الكود، وإلا أرقام الجوال، وإلا الاسم المطبَّع */
@@ -764,9 +923,10 @@ function toBalances(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
   const seen = new Map<string, { label: string; n: number }>();
   let undated = 0;
   rows.forEach((row, i) => {
+    const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const cn = c.s(row, 'name'); const cc = c.s(row, 'code'); const ph = c.s(row, 'phone');
     if (isTotalsRow(cn, cc, ph)) { c.totalsRow(cn || cc); return; }
-    if (!cn && !cc && !ph) { errors.push({ row: i + 2, message: 'معرف العميل مفقود الاسم/الكود/الجوال' }); return; }
+    if (!cn && !cc && !ph) { errors.push({ row: line, message: 'معرف العميل مفقود الاسم/الكود/الجوال' }); return; }
     let bal: number | undefined;
     // خانة رصيد فارغة مع مدين/دائن: تُحسب من المدين والدائن لا صفراً صامتاً
     const balBlank = hasBal && hasDC && val(c.raw(row, 'balance')) === '';
@@ -777,7 +937,7 @@ function toBalances(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       if (hasSide && bal !== undefined && bal !== 0) {
         const sideRaw = c.s(row, 'balanceSide');
         const side = sideOf(sideRaw);
-        if (side === null) { errors.push({ row: i + 2, message: BALANCE_SIDE_INVALID, value: sideRaw, field: 'balanceSide' }); return; }
+        if (side === null) { errors.push({ row: line, message: BALANCE_SIDE_INVALID, value: sideRaw, field: 'balanceSide' }); return; }
         if (side === 'credit') bal = -Math.abs(bal); else if (side === 'debit') bal = Math.abs(bal);
       }
       if (hasBal && hasDC && bal !== undefined) {
@@ -793,13 +953,14 @@ function toBalances(rows: Record<string, unknown>[], opts?: TransformOpts): Tran
       if (balBlank && bal !== undefined && bal !== 0) fromDC++;
     }
     if (bal === undefined || bal === 0) { c.bump(ZERO_BALANCE_NOTICE); return; } // بلا رصيد — يُتجاهَل بتنبيه
-    const date = rowDate(c.s(row, 'date'), i, errors);
+    const date = rowDate(c.s(row, 'date'), line, errors, c.dateOrder);
     if (date === null) return;
     if (!date) undated++;
+    c.futureDate(line, date || opts?.undatedDate || ''); // البند 39: سنة خاطئة تُرى في المعاينة لا في الدفاتر
     const key = customerKey(cn, cc, ph);
     const e = seen.get(key);
     if (e) e.n++; else seen.set(key, { label: cn || cc || ph, n: 1 });
-    fileRows.push(i + 2);
+    fileRows.push(line);
     valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, balance: bal, date: date || opts?.undatedDate || undefined });
   });
   const dups = [...seen.values()].filter((x) => x.n > 1);
@@ -903,6 +1064,7 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
   // عملاء قُبل لهم صف حركة فعلاً: «رصيد منقول» بعده تكرارٌ بين صفحات الكشف
   const movedCustomers = new Set<string>();
   rows.forEach((row, i) => {
+    const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const cn = c.s(row, 'name'); const cc = c.s(row, 'code'); const ph = c.s(row, 'phone');
     if (isTotalsRow(cn, cc, ph)) { c.totalsRow(cn || cc); return; }
     if (!cn && !cc && !ph) { c.bump(NO_CUSTOMER_ROWS_NOTICE); return; } // صف بلا عميل (حسابات عامة)
@@ -923,7 +1085,7 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
       if (val(balRaw) !== '') {
         const pb = parseAmount(balRaw, c.styleOf('balance'));
         if (!pb.ok) {
-          errors.push({ row: i + 2, message: pb.reason === 'ambiguous' ? AMBIGUOUS_AMOUNT_ERROR : NUMERIC_ERROR, value: pb.raw, field: 'balance' });
+          errors.push({ row: line, message: pb.reason === 'ambiguous' ? AMBIGUOUS_AMOUNT_ERROR : NUMERIC_ERROR, value: pb.raw, field: 'balance' });
           return;
         }
         const bv = pb.value;
@@ -936,7 +1098,7 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
             // عمود الرصيد المصدر الوحيد للمبلغ في هذا الملف ⇒ الإسقاط الصامت يضيّع حركة: خطأ صف ظاهر.
             // ومع عمودَي مدين ودائن (أو عمود مبلغ) لا مبلغ ضائع، فتنبيه معدود لا ضجيج أخطاء على ملف سليم.
             if (!c.has('debit') && !c.has('credit') && !c.has('amount')) {
-              errors.push({ row: i + 2, message: LEDGER_BALANCE_ONLY_ROW, value: val(balRaw), field: 'balance' });
+              errors.push({ row: line, message: LEDGER_BALANCE_ONLY_ROW, value: val(balRaw), field: 'balance' });
               return;
             }
             c.bump(LEDGER_BALANCE_ONLY_NOTICE);
@@ -971,13 +1133,13 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
       const p = c.num(row, i, 'paid'); if (p === null) return;
       const r = c.num(row, i, 'residual'); if (r === null) return;
       if (p !== undefined) {
-        if (p < 0 || p > abs) { errors.push({ row: i + 2, message: PAID_OUT_OF_RANGE, value: c.s(row, 'paid'), field: 'paid' }); return; }
+        if (p < 0 || p > abs) { errors.push({ row: line, message: PAID_OUT_OF_RANGE, value: c.s(row, 'paid'), field: 'paid' }); return; }
         paidAmt = p;
       } else if (r !== undefined) {
-        if (r < 0 || r > abs) { errors.push({ row: i + 2, message: PAID_OUT_OF_RANGE, value: c.s(row, 'residual'), field: 'residual' }); return; }
+        if (r < 0 || r > abs) { errors.push({ row: line, message: PAID_OUT_OF_RANGE, value: c.s(row, 'residual'), field: 'residual' }); return; }
         paidAmt = Math.round((abs - r) * 1e6) / 1e6;
       } else if (st.cls === 'partial') {
-        errors.push({ row: i + 2, message: PARTIAL_NO_PAID_COLUMN, value: st.raw, field: 'status' }); return;
+        errors.push({ row: line, message: PARTIAL_NO_PAID_COLUMN, value: st.raw, field: 'status' }); return;
       } else if (st.cls === 'paid') {
         paidAmt = abs;
       } else {
@@ -987,10 +1149,11 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
       if (amt > 0) { debit = abs; credit = paidAmt; } else { credit = abs; debit = paidAmt; }
     }
     if (!debit && !credit) return;
-    const date = rowDate(c.s(row, 'date'), i, errors);
+    const date = rowDate(c.s(row, 'date'), line, errors, c.dateOrder);
     if (date === null) return;
     if (!date) undated++;
-    fileRows.push(i + 2);
+    c.futureDate(line, date || opts?.undatedDate || ''); // البند 39: سنة خاطئة تُرى في المعاينة لا في الدفاتر
+    fileRows.push(line);
     movedCustomers.add(key); // قُبل للعميل صف فعلاً ⇒ «رصيد منقول» بعده تكرار بين الصفحات
     valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, date: date || opts?.undatedDate || undefined, description: c.s(row, 'description') || undefined, debit, credit });
   });
@@ -1010,26 +1173,34 @@ function toPrices(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
   const valid: Record<string, unknown>[] = []; const fileRows: number[] = []; const { errors } = c;
   let zeroPriceRows = 0;
   rows.forEach((row, i) => {
+    const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const cn = c.s(row, 'name'); const cc = c.s(row, 'code'); const ph = c.s(row, 'phone');
     if (isTotalsRow(cn, cc, ph)) { c.totalsRow(cn || cc); return; }
     const pc = c.s(row, 'productCode');
-    if (!cn && !cc && !ph) { errors.push({ row: i + 2, message: 'معرف العميل مفقود' }); return; }
-    if (!pc) { errors.push({ row: i + 2, message: 'كود الصنف مفقود' }); return; }
+    if (!cn && !cc && !ph) { errors.push({ row: line, message: 'معرف العميل مفقود' }); return; }
+    if (!pc) { errors.push({ row: line, message: 'كود الصنف مفقود' }); return; }
     const price = c.num(row, i, 'price');
     if (price === null) return;
-    if (price === undefined) { errors.push({ row: i + 2, message: 'السعر مفقود' }); return; }
-    if (price < 0) { errors.push({ row: i + 2, message: NEGATIVE_PRICE, value: c.s(row, 'price'), field: 'price' }); return; }
+    if (price === undefined) { errors.push({ row: line, message: 'السعر مفقود' }); return; }
+    if (price < 0) { errors.push({ row: line, message: NEGATIVE_PRICE, value: c.s(row, 'price'), field: 'price' }); return; }
     if (price === 0) zeroPriceRows++; // صالح، لكن الإرسال يحتاج إقرار المالك (allowZeroPrice)
-    fileRows.push(i + 2);
+    fileRows.push(line);
     valid.push({ customerName: cn || undefined, customerCode: cc || undefined, phone: ph || undefined, productCode: pc, price });
   });
-  return { valid, fileRows, errors, notices: c.notices(), columns: c.res.columns, blockers: c.res.blockers, zeroPriceRows };
+  const incl = priceInclTax(c, 'price', opts);
+  return { valid, fileRows, errors, notices: c.notices(incl.notices), columns: c.res.columns, blockers: c.res.blockers, zeroPriceRows, ...incl.out };
 }
 
 // ============ المخزون الافتتاحي (opening_stock) ============
 // عقد الخادم POST /import/opening-stock: { rows: {productCode?, barcode?, productName?, qty?, unitCost?}[], pricesIncludeTax?, force? }
 // المطابقة على الخادم: الكود ثم الباركود ثم الاسم المطبَّع. هنا التقاط الأعمدة ورفض ما يرفضه الخادم مسبقاً.
 export const OPENING_STOCK_MAX_UNIT_COST = 1e9;
+/**
+ * البند 36: حدّ zod لنصوص صف المخزون الافتتاحي (backend/src/routes/import.ts: `optText = z.string().trim().max(200)`).
+ * تجاوزه كان يرفض **الملف كله** بـ400 بلا سطر ولا سبب؛ صار خطأ صفّ واحد في المعاينة كبقية قيود الصفوف.
+ */
+export const IMPORT_TEXT_MAX = 200;
+export const TEXT_TOO_LONG = 'نص هذه الخانة أطول من 200 حرف فيرفض الخادم الملف كله، اختصره قبل الاستيراد';
 export const STOCK_ID_MISSING = 'معرف الصنف مفقود الكود/الباركود/الاسم';
 /** نصوص الخادم حرفياً (backend/src/services/importLedger.ts resolveOpeningStockRows) */
 export const STOCK_QTY_INVALID = 'الكمية يجب أن تكون أكبر من صفر';
@@ -1051,31 +1222,44 @@ const A_STOCK: ImportSpec = {
     exclude: ['اجمالي', 'مجموع', 'total', 'قيمه', 'value'], numeric: true,
   },
 };
-const round2 = (n: number) => Math.round(n * 100) / 100;
+/**
+ * البند 40: تقريب مبلغ بمنازل عملة الشركة لا بخانتين ثابتتين — الدينار الكويتي/البحريني/العُماني/الأردني
+ * بثلاث منازل يخسر فلساً لكل صنف حين يُقرَّب لخانتين، فيبلغ الفرق ديناراً مع ألف صنف.
+ * المصدر currencyDecimals في web-admin/src/i18n/countries.ts، يمرّرها DataImportPanel في opts. نصف لأعلى كبقية المنظومة.
+ */
+const roundMoney = (n: number, decimals: number | null | undefined): number => {
+  const d = typeof decimals === 'number' && Number.isInteger(decimals) && decimals >= 0 && decimals <= 6 ? decimals : 2;
+  const f = 10 ** d;
+  return Math.round(n * f) / f;
+};
 function toOpeningStock(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
   const c = makeCtx(rows, A_STOCK, opts);
   const valid: Record<string, unknown>[] = []; const fileRows: number[] = []; const { errors } = c;
   let zeroQty = false; let total = 0;
   rows.forEach((row, i) => {
+    const line = c.line(row, i); // سطر الصف في الملف (البند 38)
     const productCode = c.s(row, 'code'); const barcode = c.s(row, 'barcode'); const productName = c.s(row, 'name');
     const qtyRaw = c.s(row, 'qty'); const costRaw = c.s(row, 'unitCost');
-    if (!productCode && !barcode && !productName) { errors.push({ row: i + 2, message: STOCK_ID_MISSING }); return; }
+    if (!productCode && !barcode && !productName) { errors.push({ row: line, message: STOCK_ID_MISSING }); return; }
+    // البند 36: قيد zod نفسه (200 حرفاً) خطأ صفّ لا رفض ملف
+    const tooLong = ([['code', productCode], ['barcode', barcode], ['name', productName]] as const).find(([, v]) => v.length > IMPORT_TEXT_MAX);
+    if (tooLong) { errors.push({ row: line, message: TEXT_TOO_LONG, value: tooLong[1].slice(0, 40), field: tooLong[0] }); return; }
     const qty = c.num(row, i, 'qty');
     if (qty === null) return;
     if (qty === undefined || qty === 0) { zeroQty = true; return; } // صنف بلا رصيد في تقرير المخزون — يُتجاهل بلا خطأ
-    if (!(qty > 0)) { errors.push({ row: i + 2, message: STOCK_QTY_INVALID, value: qtyRaw }); return; }
+    if (!(qty > 0)) { errors.push({ row: line, message: STOCK_QTY_INVALID, value: qtyRaw }); return; }
     const unitCost = c.num(row, i, 'unitCost');
     if (unitCost === null) return;
     if (unitCost === undefined || !(unitCost > 0) || unitCost > OPENING_STOCK_MAX_UNIT_COST) {
-      errors.push({ row: i + 2, message: STOCK_COST_INVALID, ...(costRaw ? { value: costRaw } : {}) }); return;
+      errors.push({ row: line, message: STOCK_COST_INVALID, ...(costRaw ? { value: costRaw } : {}) }); return;
     }
     total += qty * unitCost;
-    fileRows.push(i + 2);
+    fileRows.push(line);
     valid.push({
       ...(productCode ? { productCode } : {}), ...(barcode ? { barcode } : {}), ...(productName ? { productName } : {}), qty, unitCost,
     });
   });
-  return { valid, fileRows, errors, warnings: zeroQty ? [STOCK_ZERO_QTY_WARNING] : [], totalCost: round2(total), notices: c.notices(), columns: c.res.columns, blockers: c.res.blockers };
+  return { valid, fileRows, errors, warnings: zeroQty ? [STOCK_ZERO_QTY_WARNING] : [], totalCost: roundMoney(total, opts?.currencyDecimals), notices: c.notices(), columns: c.res.columns, blockers: c.res.blockers };
 }
 
 // ============ سجلّ الأنواع ============

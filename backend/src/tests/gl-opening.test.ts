@@ -9,6 +9,8 @@ import path from 'node:path';
 import {
   assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, computeImportedAfterCutover, importBatchRecordIds,
   importedAfterCutoverJson, includedInOpening, isVatPeriodStart, openingCutoff, openingSnapshotFromDbNow, postCutoverImportsAckMissing,
+  postCutoverImportsAckStale, postCutoverImportsAcknowledged, IMPORT_FUTURE_DATE_GRACE_DAYS, isImportDateTooFarAhead, maxImportEntryDate,
+  LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE,
   suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
   IMPORT_ENTRIES_LOCK_PREFIX, findRunningImportBatch, importInProgressDetails, type ImportBatchStateRow,
   type OpeningAccountEntryRow, type OpeningSources, type ManualBalanceRowInput,
@@ -168,6 +170,25 @@ test('مخزون المستودع = valueStock على الحركات قبل ال
   assert.equal(d.warehouse.uncostedProducts, 1);
 });
 
+test('البند 40: قيمة المخزون تُقرَّب بخانات الدفاتر لا بخانتين ثابتتين قبل toMilli', () => {
+  // شركةٌ بالدينار (ثلاث خانات): ٢٥٠ كرتوناً بـ٤٫١٢٣٥ ⇒ ١٠٣٠٫٨٧٥.
+  // قبل توصيل الخانات كان composeWarehouse يقرّبها إلى ١٠٣٠٫٨٨ ثمّ يستقبلها
+  // toMilli بثلاث خانات ⇒ 1_030_880n، فتُولَد خمسة فلوسٍ من التقريب وحده.
+  const stock = (decimals: number) => computeDerivedOpening(sources({
+    warehouseItems: [{ productId: 'p1', qty: 250, type: 'RECEIVE', unitCost: 4.1235, createdAt: at('2026-11-01T08:00:00Z') }],
+  }), CUT, { decimals, routing: ROUTING }).warehouse.valueMilli;
+  assert.equal(stock(3), 1_030_875n);
+  assert.equal(stock(2), 1_030_880n, 'شركة الريال لا تنحدر: خانتان كما كانت');
+  // ألف صنفٍ بقيمة ٠٫١٢٣٥: ١٢٤ ديناراً بثلاث خانات و١٢٠ بخانتين
+  const many = (decimals: number) => computeDerivedOpening(sources({
+    warehouseItems: Array.from({ length: 1000 }, (_, i) => ({
+      productId: `p${i}`, qty: 1, type: 'RECEIVE', unitCost: 0.1235, createdAt: at('2026-11-01T08:00:00Z'),
+    })),
+  }), CUT, { decimals, routing: ROUTING }).warehouse.valueMilli;
+  assert.equal(many(3), 124_000n);
+  assert.equal(many(2), 120_000n, 'أربعة دنانير كانت تضيع من القيد الافتتاحيّ');
+});
+
 // ═══ سباق اللقطة ═══
 
 test('سباق اللقطة: صف createdAt ≤ T0 التزم بعد معاينة الخطوة 4 يدخل الافتتاح في الاعتماد', () => {
@@ -297,11 +318,14 @@ function assertOrder(body: string, needles: string[], label: string) {
 
 test('حارس ثابت: /setup/commit يرفض cutoverDate مستقبلياً قبل أي كتابة، وT0 من ساعة القاعدة أولاً، والمعاملة 60 ثانية', () => {
   const commit = handlerBody(SETUP_SRC, "router.post('/setup/commit'");
+  // البند 42: القفلان ثم ساعة القاعدة (clock_timestamp) ثم T0 — لا now() المجمَّد على بدء المعاملة
   assertOrder(commit, [
-    'prisma.$transaction(async (tx)', 'dbNowOf(tx)', 'openingSnapshotFromDbNow(dbNow)', 'acquirePostLock(tx, tenantId)',
+    'prisma.$transaction(async (tx)', 'acquirePostLock(tx, tenantId)', 'acquireImportEntriesLock(tx, tenantId)',
+    'dbClockOf(tx)', 'openingSnapshotFromDbNow(dbNow)',
     'assertCutoverNotInFuture(cutoverDate', 'ensureSettingsRow(', 'seedTemplate(tx', 'loadOpeningSources(tx', 'computeDerivedOpening(',
     'postMove(tx', 'openingSnapshotAt: T0', "backfillState: 'RUNNING'", 'initialWatermarkAt(', 'glSyncCursor.createMany', "'SETUP_COMMIT'",
   ], '/setup/commit');
+  assert.doesNotMatch(commit, /dbNowOf\(tx\)/, 'الاعتماد لا يستعمل now() المجمَّد');
   assert.match(commit, /\}, COMMIT_TX\);/);
   assert.match(SETUP_SRC, /const COMMIT_TX = \{ timeout: 60_000, maxWait: 10_000 \};/);
   assert.doesNotMatch(commit, /openingSnapshotAt:\s*(new Date\(|dbNow)/, 'openingSnapshotAt = T0 لا now()');
@@ -473,7 +497,9 @@ test('importedAfterCutover: صف مستورد بتاريخ ≥ البدء وcrea
   assert.equal(s.customers, 2);
   assert.equal(s.debitMilli, 500_000n);
   assert.equal(s.creditMilli, 120_250n);
-  assert.deepEqual(importedAfterCutoverJson(s, DEC), { count: 2, customers: 2, debit: '500.00', credit: '120.25' });
+  assert.deepEqual(importedAfterCutoverJson(s, DEC), {
+    count: 2, customers: 2, debit: '500.00', credit: '120.25', futureDated: 0, maxEntryDate: '2027-01-05',
+  });
   // لا يدخل سطور AR: الافتتاح يأخذ صف ما قبل البدء وحده
   const d = computeDerivedOpening(sources({ accountEntries: rows }), CUT, { decimals: DEC, routing: ROUTING });
   assert.deepEqual(d.receivables.map((r) => [r.customerId, r.balanceMilli]), [['c1', 1_000_000n]]);
@@ -501,7 +527,7 @@ test('/setup/commit: حركات مستوردة بعد البدء بلا إقرا
     'postCutoverImportsAckMissing(importedAfterCutover, parsed.data.acknowledgePostCutoverImports)', "'LEDGER_POST_CUTOVER_IMPORTS_ACK'",
     'ensureSettingsRow(', 'seedTemplate(tx', 'postMove(tx',
   ], '/setup/commit ack');
-  assert.match(SETUP_SRC, /acknowledgePostCutoverImports: z\.boolean\(\)\.optional\(\)/);
+  assert.match(SETUP_SRC, /acknowledgePostCutoverImports: z\.union\(\[z\.boolean\(\), postCutoverImportsAckSchema\]\)\.optional\(\)/);
   const preview = handlerBody(SETUP_SRC, "router.post('/setup/preview-opening'");
   assert.match(preview, /loadImportedAfterCutover\(prisma, tenantId, cut, decimals\)/);
   assert.match(preview, /importedAfterCutover: importedAfterCutoverJson\(/);
@@ -591,4 +617,96 @@ test('opening_stock: حركة وارد مستوردة بتكلفة صافية و
   const after = computeDerivedOpening(sources({ warehouseItems: asItems(CUT.cutoverStart) }), CUT, { decimals: DEC, routing: ROUTING });
   assert.equal(after.warehouse.valueMilli, 0n);
   assert.equal(after.counts.warehouseMovesIncluded, 0);
+});
+
+// ═══ البنود 39 و41 و42 (مراجعة الاستيراد 2026-09-17، الدفعة 3) ═══
+
+test('البند 39: حركة مستوردة بتاريخ أبعد من اليوم + يوم تُعدّ تنبيهاً معدوداً (خطأ سنة) ولا تمنع', () => {
+  // الحدّ: «اليوم» بتوقيت الشركة + يوم واحد (سعة لفروق المناطق)
+  assert.equal(IMPORT_FUTURE_DATE_GRACE_DAYS, 1);
+  assert.equal(maxImportEntryDate(COMMIT_NOW, TZ), '2027-01-16');
+  assert.equal(isImportDateTooFarAhead(at('2027-01-16T20:00:00Z'), COMMIT_NOW, TZ), false, 'الحدّ نفسه مقبول');
+  assert.equal(isImportDateTooFarAhead(at('2027-01-16T21:00:00Z'), COMMIT_NOW, TZ), true, '17 يناير بتوقيت الرياض');
+  assert.equal(isImportDateTooFarAhead(at('2052-03-15T09:00:00Z'), COMMIT_NOW, TZ), true);
+  assert.equal(isImportDateTooFarAhead(at('2020-03-15T09:00:00Z'), COMMIT_NOW, TZ), false);
+  // 21:30 UTC = يوم تالٍ بالرياض ⇒ الحدّ يتقدّم يوماً عن UTC
+  assert.equal(maxImportEntryDate(new Date('2027-01-15T21:30:00.000Z'), TZ), '2027-01-17');
+  assert.equal(maxImportEntryDate(new Date('2027-01-15T21:30:00.000Z'), 'UTC'), '2027-01-16');
+
+  const rows = [
+    entry({ id: 'ok', customerId: 'c1', type: 'ADJUSTMENT_DEBIT', debit: 100, entryDate: at('2027-01-05T08:00:00Z'), createdAt: at('2027-01-10T08:00:00Z') }),
+    // 2052 بدل 2025: تدخل العدّ والمجموع كغيرها، وتُوسم futureDated
+    entry({ id: 'yr', customerId: 'c2', type: 'ADJUSTMENT_DEBIT', debit: 40, entryDate: at('2052-03-15T09:00:00Z'), createdAt: at('2027-01-10T08:00:00Z') }),
+  ];
+  const s = computeImportedAfterCutover(rows, new Set(rows.map((r) => r.id)), CUT, DEC);
+  assert.equal(s.count, 2);
+  assert.equal(s.futureDated, 1);
+  assert.equal(s.maxEntryDate, '2052-03-15');
+  assert.equal(importedAfterCutoverJson(s, DEC).futureDated, 1);
+  assert.equal(importedAfterCutoverJson(s, DEC).maxEntryDate, '2052-03-15');
+  // بلا حركات ⇒ لا تاريخ ولا تنبيه
+  const none = computeImportedAfterCutover([], new Set(), CUT, DEC);
+  assert.deepEqual([none.count, none.futureDated, none.maxEntryDate], [0, 0, null]);
+});
+
+test('البند 41: الإقرار مربوط باللقطة المعروضة — اختلاف العدد أو المبلغ ⇒ إقرار قديم على واقع جديد', () => {
+  const snap = (count: number, debit: bigint, credit: bigint) =>
+    ({ count, customers: count, debitMilli: debit, creditMilli: credit, futureDated: 0, maxEntryDate: '2027-01-05' as const });
+  const current = snap(3, 500_000n, 0n);
+  // الإقرار المنطقي القديم: يمرّ كما كان (توافق) لكنه غير مربوط
+  assert.equal(postCutoverImportsAcknowledged(true), true);
+  assert.equal(postCutoverImportsAcknowledged(false), false);
+  assert.equal(postCutoverImportsAcknowledged(undefined), false);
+  assert.equal(postCutoverImportsAckMissing({ count: 3 }, true), false);
+  assert.equal(postCutoverImportsAckMissing({ count: 3 }, { count: 3, debit: '500.00', credit: '0.00' }), false);
+  assert.equal(postCutoverImportsAckMissing({ count: 3 }, undefined), true);
+  assert.equal(postCutoverImportsAckStale(current, DEC, true), null, 'المنطقي لا يُقارن');
+  // اللقطة المطابقة تمرّ
+  assert.equal(postCutoverImportsAckStale(current, DEC, { count: 3, debit: '500.00', credit: '0.00', snapshotAt: '2027-01-15T08:55:00.000Z' }), null);
+  // 8000 حركة استُوردت بعد الإقرار ⇒ اختلاف العدد
+  const grown = postCutoverImportsAckStale(snap(8003, 900_000n, 0n), DEC, { count: 3, debit: '500.00', credit: '0.00' });
+  assert.ok(grown);
+  assert.deepEqual(grown!.acked, { count: 3, debit: '500.00', credit: '0.00' });
+  assert.deepEqual(grown!.current, { count: 8003, debit: '900.00', credit: '0.00' });
+  // العدد نفسه والمبلغ مختلف (صفوف بُدّلت) ⇒ اختلاف كذلك
+  assert.ok(postCutoverImportsAckStale(snap(3, 700_000n, 0n), DEC, { count: 3, debit: '500.00', credit: '0.00' }));
+  assert.ok(postCutoverImportsAckStale(current, DEC, { count: 3, debit: '500.00', credit: '120.25' }));
+  // المقارنة بالملّي: اختلاف منازل العرض بين المعاينة والاعتماد لا يُفشل إقراراً صحيحاً
+  assert.equal(postCutoverImportsAckStale(current, DEC, { count: 3, debit: '500', credit: '0' }), null);
+  assert.equal(postCutoverImportsAckStale(current, 3, { count: 3, debit: '500.000', credit: '0.000' }), null);
+  // مبلغ غير صالح لا يرمي بل يُعدّ اختلافاً
+  assert.ok(postCutoverImportsAckStale(current, DEC, { count: 3, debit: 'خمسمائة', credit: '0.00' }));
+
+  const r = ledgerErrorResponse(new LedgerHttpError(409, LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE, {
+    reason: 'POST_CUTOVER_IMPORTS_CHANGED', acknowledged: grown!.acked,
+  }, 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED'))!;
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED');
+  assert.equal(r.body.reason, 'POST_CUTOVER_IMPORTS_CHANGED');
+
+  // حارس ثابت: الفحص بعد فحص «الإقرار مفقود» وقبل أي كتابة، والتدقيق يثبت ما أُقرّ به
+  const commit = handlerBody(SETUP_SRC, "router.post('/setup/commit'");
+  assertOrder(commit, [
+    'loadImportedAfterCutover(tx', 'postCutoverImportsAckMissing(importedAfterCutover',
+    'postCutoverImportsAckStale(importedAfterCutover, currencyDecimalsForCheck, parsed.data.acknowledgePostCutoverImports)',
+    "'LEDGER_POST_CUTOVER_IMPORTS_CHANGED'", 'ensureSettingsRow(', 'seedTemplate(tx',
+  ], '/setup/commit ack snapshot');
+  assert.match(commit, /postCutoverImportsAck: typeof parsed\.data\.acknowledgePostCutoverImports === 'object'/);
+  assert.match(SETUP_SRC, /const postCutoverImportsAckSchema = z\.object\(\{/);
+});
+
+test('البند 42: لقطة الاعتماد تُقرأ بساعة القاعدة بعد حيازة القفلين (clock_timestamp لا now)', () => {
+  assert.match(SETUP_SRC, /export async function dbClockOf\(/);
+  assert.match(SETUP_SRC, /SELECT clock_timestamp\(\) AS "now"/);
+  // now() يبقى لغير الاعتماد (المسودة والحالة وPUT /ledger/settings) كما كان
+  assert.match(SETUP_SRC, /SELECT now\(\) AS "now"/);
+  const commit = handlerBody(SETUP_SRC, "router.post('/setup/commit'");
+  assertOrder(commit, [
+    'acquirePostLock(tx, tenantId)', 'acquireImportEntriesLock(tx, tenantId)', 'const dbNow = await dbClockOf(tx)',
+    'const T0 = openingSnapshotFromDbNow(dbNow)', 'loadRunningImportBatch(tx, tenantId, dbNow)', 'loadImportedAfterCutover(tx',
+    'activatedAt: dbNow',
+  ], '/setup/commit clock');
+  // لا قراءة ساعة قبل القفلين داخل المعاملة (وإلا فاتتها كتابات الانتظار)
+  const beforeLocks = commit.slice(0, commit.indexOf('acquirePostLock(tx, tenantId)'));
+  assert.doesNotMatch(beforeLocks, /dbNowOf\(|dbClockOf\(/);
 });

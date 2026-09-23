@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { composeWarehouse } from '../services/warehouseStock';
 import { netUnitCost, lineCost, entryTotalCost, valueStock } from '../services/warehouseCost';
+
+/** قراءة مصدرٍ للحراس الثابتة (البند 40) — بسطورٍ موحَّدة فلا يفرّقها ويندوز */
+const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 
 const P = [
   { id: 'a', name: 'صنف أ', code: 'A', unit: 'كرتون' },
@@ -338,4 +343,110 @@ test('صنف نصفه مسعر عبر المسار الكامل — الفجوة
   assert.equal(a.stockValue, 120);
   assert.notEqual(a.stockValue, a.onHand * a.avgCost, 'القيمة ليست الرصيد كله × المتوسط');
   assert.equal(a.uncostedQty, 10000);
+});
+
+// ═══ العيب الثالث: خانتان ثابتتان في قيمة الرصيد تبتلعان كسر الدينار ═══
+
+test('قيمة الرصيد تُقرَّب بخانات عملة الشركة لا بخانتين ثابتتين', () => {
+  // شركةٌ بالدينار (ثلاث خانات): ٢٥٠ كرتوناً بـ٤٫١٢٣٥ ⇒ ١٠٣٠٫٨٧٥
+  const mv = [{ qty: 250, kind: 'RECEIVE' as const, unitCost: 4.1235 }];
+  assert.equal(valueStock(mv, 3).stockValue, 1030.875);
+  assert.equal(valueStock(mv, 2).stockValue, 1030.88, 'خانتان ترفعان القيمة نصف فلس');
+  assert.equal(
+    valueStock(mv).stockValue, 1030.88,
+    'والافتراضي يبقى خانتين — لا انحدار على الريال حيث لا يمرّر المستدعي شيئاً',
+  );
+  // الخسارة المعلنة في المراجعة: ألف صنفٍ تفقد كلٌّ منها نصف فلسٍ ⇒ نصف دينار
+  const gap = Math.abs(valueStock(mv, 2).stockValue - valueStock(mv, 3).stockValue);
+  assert.equal(
+    Number(gap.toFixed(4)), 0.005,
+    'خمسة فلوسٍ في الصنف الواحد — وألفُ صنفٍ تجعلها خمسة دنانير في الرصيد الافتتاحيّ',
+  );
+});
+
+test('عملةٌ بلا كسور: تقريبٌ واحدٌ بخاناتها لا تقريبان متتاليان', () => {
+  // ٣ × ٠٫١٦٥ = ٠٫٤٩٥. بخانتين تصير ٠٫٥٠ ثمّ يرفعها toMilli إلى ديناراً كاملاً،
+  // والصواب صفرٌ — التقريب مرّتين يخلق وحدةَ عملةٍ من العدم.
+  const mv = [{ qty: 3, kind: 'RECEIVE' as const, unitCost: 0.165 }];
+  assert.equal(valueStock(mv, 0).stockValue, 0);
+  assert.equal(valueStock(mv, 2).stockValue, 0.5, 'هذه هي القيمة التي كانت تُمرَّر فتصير ديناراً');
+  assert.equal(valueStock(mv, 3).stockValue, 0.495);
+});
+
+test('خانات عملة فاسدة لا تُسقط شاشة المخزون — تعود إلى خانتين', () => {
+  const mv = [{ qty: 250, kind: 'RECEIVE' as const, unitCost: 4.1235 }];
+  for (const bad of [NaN, 5, 1.5, -1, undefined as unknown as number]) {
+    assert.equal(valueStock(mv, bad).stockValue, 1030.88, `خانات ${bad} ⇐ الافتراضي`);
+  }
+});
+
+test('خانات العملة تمسّ القيمة وحدها: المتوسّط بأربع خانات والكمّيات كما هي', () => {
+  // ٣ حبّات بريال ⇒ ٠٫٣٣٣٣ للوحدة، وهي خانات تكلفةٍ لا خانات عملة
+  const mv = [{ qty: 3, kind: 'RECEIVE' as const, unitCost: 1 / 3 }, { qty: 0.5, kind: 'OTHER' as const }];
+  for (const dec of [0, 2, 3]) {
+    const v = valueStock(mv, dec);
+    assert.equal(v.avgCost, 0.3333, 'المتوسّط أوسع من العملة عمداً — COST_DECIMALS');
+    assert.equal(v.costedQty, 3.5, 'الكمّية كمّيةٌ لا مبلغ');
+    assert.equal(v.uncostedQty, 0);
+  }
+});
+
+// ═══ البند 40: الخانات موصولةٌ فعلاً من المسار إلى الحساب، لا معامِلاً معطَّلاً ═══
+//
+// المعامل وحده لا يكفي: قبل هذه الجولة كان `valueStock(moves, decimals)` يقبل
+// الخانات ولا يمرّرها أحد، فكانت شاشة المخزون والقيد الافتتاحيّ وإشعار الوارد
+// تُقرَّب كلّها إلى خانتين حتى في الدينار. فالاختبار هنا على `composeWarehouse`
+// (المدخل الإنتاجيّ الوحيد إلى التقييم) لا على `valueStock` وحدها.
+
+const sumStockValue = (rows: ReturnType<typeof composeWarehouse>) =>
+  Number(rows.reduce((s, r) => s + r.stockValue, 0).toFixed(6));
+
+test('البند 40: ألف صنفٍ بـ٠٫١٢٣٥ ⇒ ١٢٤ بثلاث خانات و١٢٠ بخانتين — الفرق أربعة دنانير', () => {
+  // كل صنفٍ حبّةٌ واحدة بـ٠٫١٢٣٥: بثلاث خاناتٍ ٠٫١٢٤ وبخانتين ٠٫١٢. الخسارة
+  // نصف فلسٍ في الصنف الواحد لا تُرى، وألفُ صنفٍ تجعلها أربعة دنانير في الشاشة.
+  const products = Array.from({ length: 1000 }, (_, i) => ({ id: `p${i}`, name: `صنف ${i}`, code: `P${i}`, unit: 'حبة' }));
+  const items = products.map((p) => ({ productId: p.id, qty: 1, type: 'RECEIVE', unitCost: 0.1235 }));
+
+  assert.equal(sumStockValue(composeWarehouse(products, items, [], 3)), 124);
+  assert.equal(sumStockValue(composeWarehouse(products, items, [], 2)), 120);
+  assert.equal(
+    sumStockValue(composeWarehouse(products, items, [])), 120,
+    'الافتراضي خانتان — الريال لا ينحدر حين لا يمرّر المستدعي شيئاً',
+  );
+  // العملة بلا كسور (الدينار العراقيّ) تُقرَّب مرّةً واحدة بخاناتها هي
+  assert.equal(sumStockValue(composeWarehouse(products, items, [], 0)), 0);
+});
+
+test('البند 40: المثال المعلن في المراجعة — ٠٫٣٧١ بثلاث خانات لا ٠٫٣٧', () => {
+  const p = [{ id: 'a', name: 'صنف أ', code: 'A', unit: 'حبة' }];
+  const items = [{ productId: 'a', qty: 3, type: 'RECEIVE', unitCost: 0.1235 }]; // ٠٫٣٧٠٥
+  assert.equal(byId(composeWarehouse(p, items, [], 3), 'a').stockValue, 0.371);
+  assert.equal(byId(composeWarehouse(p, items, [], 2), 'a').stockValue, 0.37, 'هذا ما كانت تعطيه الشاشة دائماً');
+});
+
+test('البند 40: حارسٌ ثابت — لا مستدعيَ إنتاجيّاً يعود ينادي التقييم بلا خانات', () => {
+  const stock = read('services/warehouseStock.ts');
+  // المحرّك: `valueStock` يأخذ خانات `composeWarehouse` لا افتراضَها
+  assert.match(stock, /const val = valueStock\(mv, decimals\);/, 'composeWarehouse يمرّر خاناته إلى valueStock');
+  assert.match(stock, /decimals: number = DEFAULT_CURRENCY_DECIMALS,/, 'المعامل اختياريّ بافتراض خانتين');
+  // الغلاف: خانات الشركة من مصدرها الحقيقيّ، ومرّةً واحدة
+  assert.match(stock, /import \{ currencyDecimalsOf \} from '\.\.\/config\/countries';/);
+  assert.match(stock, /export async function tenantCurrencyDecimals\(tid: string\): Promise<number>/);
+  assert.match(stock, /decimals \?\? tenantCurrencyDecimals\(tid\)/, '?? لا || — صفر خانات عملةٌ صحيحة');
+  assert.match(stock, /at: i\.vanLoad\.createdAt \}\)\),\n\s*dec,\n\s*\);/, 'غلاف القاعدة يمرّر dec رابعةً لا يكتفي بثلاث وسائط');
+
+  // المسار: قراءةٌ واحدة لكل طلب، وتمريرٌ إلى الأسطر والإجمالي معاً
+  const route = read('routes/warehouse.ts');
+  assert.match(route, /import \{ computeWarehouseStock, tenantCurrencyDecimals \} from '\.\.\/services\/warehouseStock';/);
+  assert.match(route, /computeWarehouseStock\(tid, dec\)/);
+  assert.match(route, /lineCost\(i\.qty, i\.unitCost, dec\)/);
+  assert.match(route, /entryTotalCost\(e\.items, dec\)/);
+  assert.equal(
+    (route.match(/tenantCurrencyDecimals\(tid\)/g) || []).length, 2,
+    'نداءٌ واحد لكل مسار من المسارين — لا داخل حلقة',
+  );
+
+  // القيد الافتتاحيّ: خانات الدفاتر نفسها التي يقرأ بها toMilli
+  const opening = read('services/gl/opening.ts');
+  assert.match(opening, /vans\.map\(\(i\) => \(\{[^\n]*\}\)\),\n(?:\s*\/\/[^\n]*\n)*\s*dec,\n\s*\);/, 'composeWarehouse في opening.ts يأخذ dec');
 });

@@ -8,7 +8,9 @@ import {
   assertBatchRevertible, assertNoRunningImport, assertNotDuplicateBatch, assertOverlapConfirmed, balanceSkipReason, canonicalImportRow,
   detectLedgerOverlap, existingImportReason, importBatchState, importContentHash, importFlushDue, importedEntryIndex, roundImportAmount,
   assertImportLedgerStateUnchanged, isLockBusyError, IMPORT_LEDGER_TIMEZONE_CHANGED_MESSAGE, explicitTimezone,
+  IMPORT_FUTURE_DATE_MESSAGE, resolveImportDates,
 } from '../services/importLedger';
+import { IMPORT_FUTURE_DATE_GRACE_DAYS, maxImportEntryDate } from '../services/gl/opening';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 
@@ -131,7 +133,8 @@ test('import.ts /ledger: البصمة والتداخل قبل أي كتابة؛ 
   assert.ok(bal.indexOf('mergeBalanceRows(') > 0 && bal.indexOf('mergeBalanceRows(') < bal.indexOf('prisma.$transaction('));
   assert.ok(bal.indexOf('assertNotDuplicateBatch(') < bal.indexOf('prisma.$transaction('));
   assert.match(bal, /skippedWarnings\.push\(\{ customerName: [^\n]*reason: BALANCE_SKIP_MESSAGES\[out\.reason\] \}\)/);
-  assert.match(bal, /warnings: \{ undatedAsToday, skipped: skippedWarnings, merged: merged\.slice\(0, 500\) \}/);
+  // تنبيهات /balances الثلاثة ما زالت في الرد (الحارس على أجزائها لا على نصّ السطر كاملاً، فتنبيه جديد لا يكسره)
+  assert.match(bal, /warnings: \{ undatedAsToday, skipped: skippedWarnings, merged: merged\.slice\(0, 500\)/);
   const bReserve = bal.indexOf("reserveEntryBatch(tid, 'balances', contentHash");
   assert.ok(bReserve > 0 && bReserve < bal.indexOf('prisma.$transaction(') && bReserve < bal.indexOf('loadImportedIndex('), '/balances: الحجز بعد الكتابة');
   assert.match(bal, /\} finally \{\s*result\.batchId = await progress\.finish\(\);/);
@@ -231,6 +234,63 @@ test('مراجعة 1: مبالغ الاستيراد تُقرَّب لمنازل 
   assert.equal(roundImportAmount(0.004, 2), 0, 'يُتخطى كصفر');
   // مجموع المخزَّن = مجموع toMilli لكل صف (القيد الافتتاحي)
   assert.equal(Math.round([1.005, 2.005, 3.125].reduce((a, v) => a + roundImportAmount(v, 2), 0) * 1000), 6150);
+});
+
+// البند 39: «أقصى تاريخ مقبول لصفّ مستورد = اليوم المحلي بتوقيت الشركة + يوم سماح» — قاعدة واحدة يشترك فيها
+// الاستيراد والدفاتر (gl/opening.ts). في الاستيراد تنبيهٌ معدود: الصفّ يُكتب بتاريخه ولا يُمنع ولا يُسقط بصمت.
+test('البند 39: تاريخ بعد الحدّ ⇒ تنبيه معدود بصفوفه وتواريخه، والصفّ يُكتب كما هو', () => {
+  const now = new Date('2026-09-17T10:00:00Z'); // 13:00 بالرياض من 17 سبتمبر
+  const opts = { timezone: 'Asia/Riyadh', activated: false, now };
+  const r = resolveImportDates([{ date: '2026-09-17' }, { date: '2026-09-18' }, { date: '2052-03-15' }, { date: '2026-09-19' }], opts);
+  assert.equal(r.dates.length, 4, 'صفّ سقط بسبب تاريخه');
+  assert.equal(r.dates[2].toISOString(), '2052-03-14T21:00:00.000Z', 'التاريخ المستقبلي يُكتب كما هو لا كاليوم');
+  assert.equal(r.futureDates?.count, 2);
+  assert.deepEqual(r.futureDates?.rows, [{ row: 4, date: '2052-03-15' }, { row: 5, date: '2026-09-19' }]);
+  assert.equal(r.futureDates?.maxDate, '2026-09-18');
+  assert.equal(r.futureDates?.message, IMPORT_FUTURE_DATE_MESSAGE);
+  assert.match(IMPORT_FUTURE_DATE_MESSAGE, /سنة التاريخ/);
+  // اليوم وغدُه مقبولان بلا تنبيه (يوم السماح يغطّي فرق المناطق الزمنية)
+  assert.equal(resolveImportDates([{ date: '2026-09-17' }, { date: '2026-09-18' }], opts).futureDates, null);
+  assert.equal(resolveImportDates([], opts).futureDates, null);
+  // القاعدة من مصدر واحد مع الدفاتر، ومحسوبة بتوقيت الشركة لا بـUTC
+  assert.equal(IMPORT_FUTURE_DATE_GRACE_DAYS, 1);
+  assert.equal(maxImportEntryDate(now, 'Asia/Riyadh'), '2026-09-18');
+  const late = new Date('2026-09-17T22:00:00Z'); // 18 سبتمبر بالرياض، 17 بـUTC
+  assert.equal(resolveImportDates([{ date: '2026-09-19' }], { ...opts, now: late }).futureDates, null);
+  // بلا توقيت مضبوط للشركة: الافتراضي (الرياض) لا انهيار ولا تنبيه كاذب
+  assert.equal(resolveImportDates([{ date: '2026-09-19' }], { timezone: null, activated: false, now: late }).futureDates, null);
+  // تاريخ الصفوف بلا تاريخ يُفحص كذلك، بأرقام صفوفه هو
+  const u = resolveImportDates([{}, { date: '2026-09-01' }, {}], { ...opts, undatedDate: '2052-01-01' });
+  assert.equal(u.futureDates?.count, 2);
+  assert.deepEqual(u.futureDates?.rows, [{ row: 2, date: '2052-01-01' }, { row: 4, date: '2052-01-01' }]);
+  // بعد التفعيل تنبيه كذلك لا مانع (المانع الوحيد هو الصفوف بلا تاريخ)
+  assert.equal(resolveImportDates([{ date: '2052-03-15' }], { ...opts, activated: true }).futureDates?.count, 1);
+  // أكثر من خمسين صفاً: العدّ كامل والقائمة مقصوصة
+  const many = Array.from({ length: 60 }, () => ({ date: '2052-03-15' }));
+  const big = resolveImportDates(many, opts);
+  assert.equal(big.futureDates?.count, 60);
+  assert.equal(big.futureDates?.rows.length, 50);
+  // حارس ثابت: القاعدة مستوردة من gl/opening لا منسوخة في الاستيراد
+  const src = read('services/importLedger.ts');
+  assert.match(src, /import \{ maxImportEntryDate \} from '\.\/gl\/opening';/);
+  assert.doesNotMatch(src, /IMPORT_FUTURE_DATE_GRACE_DAYS\s*=/, 'نسخة ثانية من قاعدة الحدّ');
+});
+
+// البند 39 (سلامة الدورة): مصدرٌ واحد للقاعدة يعني أن importLedger.ts وgl/opening.ts يستورد أحدهما الآخر.
+// الدورة سليمة **بشرط** ألّا يُستعمل المستورَد وقت تحميل الوحدة: من يُحمَّل ثانياً يرى صادرات الأول كاملة،
+// أما من يُحمَّل أولاً فيرى وحدة الآخر نصف مهيّأة. استعمالٌ واحد على مستوى الوحدة (ثابت مُهيّأ بنداء) يجعل
+// القيمة undefined في أحد ترتيبَي التحميل وحده — عطلٌ لا يظهر إلا في الإنتاج. الحارس: كل نداء متبادل مُزاح
+// (داخل دالّة)، وسطور الاستيراد وحدها في العمود صفر.
+test('البند 39: دورة importLedger ↔ gl/opening تبقى آمنة — لا استعمال متبادل وقت تحميل الوحدة', () => {
+  const atTopLevel = (file: string, needle: RegExp) => read(file).split('\n')
+    .filter((l) => needle.test(l) && !/^\s*(import|export)\s/.test(l) && !/^\s*\*/.test(l))
+    .filter((l) => !/^\s/.test(l));
+  assert.deepEqual(atTopLevel('services/importLedger.ts', /\bmaxImportEntryDate\s*\(/), [],
+    'importLedger يستدعي قاعدة الحدّ وقت تحميل الوحدة — undefined حين يُحمَّل قبل gl/opening');
+  assert.deepEqual(atTopLevel('services/gl/opening.ts', /\bimportBatchState\s*\(|\bIMPORT_BATCH_RUNNING\b/), [],
+    'gl/opening يستعمل صادرات importLedger وقت تحميل الوحدة — undefined حين يُحمَّل قبله');
+  // والدورة قائمة فعلاً في الاتجاهين (لو انقطعت سقط الحارس صامتاً عن غير عمد)
+  assert.match(read('services/gl/opening.ts'), /from '\.\.\/importLedger'/);
 });
 
 test('schema.prisma: ImportBatch.contentHash String? إضافي', () => {

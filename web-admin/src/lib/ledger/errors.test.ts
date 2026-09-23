@@ -62,6 +62,12 @@ test('رموز المعالج للاستيراد والمخزون الافتتا
   assert.match(t('LEDGER_OPENING_STOCK_FULL_HISTORY', 'OPENING_STOCK_FULL_HISTORY'), /طريقة ترحيل التاريخ الكامل/);
   assert.match(t('LEDGER_OPENING_STOCK_TOO_RECENT'), /أقل من 10 دقائق/);
   assert.match(t('LEDGER_IMPORT_IN_PROGRESS'), /استيراد بيانات جارٍ/);
+  // البند 41: الإقرار المربوط باللقطة — نص الرمز والسبب هو رسالة الخادم الحيّة بعينها
+  const openingSrc = fs.readFileSync(path.join(backend, 'services', 'gl', 'opening.ts'), 'utf8');
+  const changed = /LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE\s*=\s*'([^']+)'/.exec(openingSrc)?.[1];
+  assert.ok(changed, 'رسالة LEDGER_POST_CUTOVER_IMPORTS_CHANGED غير موجودة في services/gl/opening.ts');
+  assert.equal(t('LEDGER_POST_CUTOVER_IMPORTS_CHANGED'), changed);
+  assert.equal(t('LEDGER_POST_CUTOVER_IMPORTS_CHANGED', 'POST_CUTOVER_IMPORTS_CHANGED'), changed);
   const setup = fs.readFileSync(path.join(backend, 'routes', 'ledger', 'setup.ts'), 'utf8');
   const codes = [...new Set([...setup.matchAll(/'(LEDGER_[A-Z_]+)'\)/g)].map(m => m[1]))];
   assert.ok(codes.includes('LEDGER_OPENING_STOCK_TOO_RECENT'), codes.join(','));

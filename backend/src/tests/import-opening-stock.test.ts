@@ -34,10 +34,12 @@ function httpErr(fn: () => void): ImportHttpError {
   assert.fail('متوقع ImportHttpError');
 }
 
-test('مطابقة الصنف: الكود ثم الباركود ثم الاسم المطبَّع؛ الباركود أو الاسم المشترك بين صنفين لا يطابق', () => {
+test('مطابقة الصنف: الكود حكمٌ نهائي (البند 35)، وبلا كود الباركود ثم الاسم المطبَّع؛ والمشترك بين صنفين لا يطابق', () => {
   assert.equal(find({ productCode: ' A-1 ' })?.id, 'p1');
   assert.equal(find({ barcode: '111' })?.id, 'p1');
-  assert.equal(find({ productCode: 'غير-موجود', barcode: '111' })?.id, 'p1', 'كود غير مطابق ثم باركود');
+  // البند 35: كود مكتوب وغير موجود ⇒ لا سقوط إلى الباركود ولا إلى الاسم (كان يكتب جرد صنف آخر بصمت)
+  assert.equal(find({ productCode: 'غير-موجود', barcode: '111' }), null, 'كود غير موجود لا يسقط إلى الباركود');
+  assert.equal(find({ productCode: 'غير-موجود', productName: 'أرز بسمتي' }), null, 'كود غير موجود لا يسقط إلى الاسم');
   assert.equal(find({ productName: 'مكرونه ايطاليه' })?.id, 'p5', 'التاء المربوطة والهمزة');
   assert.equal(find({ barcode: '222' }), null, 'باركود مشترك');
   assert.equal(find({ productName: 'زيت' }), null, 'اسم مشترك');
@@ -132,6 +134,8 @@ test('البصمة: ثابتة مع ترتيب الصفوف ومع خيار «ش
   assert.deepEqual(parseBatchRecordIds(ser).records, ['e1']);
 });
 
+// البند 34: الدالّة نفسها لم تتغيّر، لكن المسار صار يمرّر invoiceItems: 0 — الفاتورة لا تمسّ رصيد المستودع
+// (انظر الحارس الثابت لتراجع opening_stock أدناه). الحقل يبقى في التوقيع حتى تُنظَّف importLedger.ts.
 test('حارس التراجع: تحميل سيارات أو فواتير أو تسوية بالنقص بعد الحركة ⇒ blocked', () => {
   assert.equal(openingStockRevertBlockReason({ vanLoads: 0, invoiceItems: 0, warehouseOut: 0 }), null);
   assert.match(openingStockRevertBlockReason({ vanLoads: 1, invoiceItems: 0, warehouseOut: 0 })!, /السيارات/);
@@ -168,8 +172,10 @@ test('حارس ثابت: POST /opening-stock — الرفض والبصمة قب�
   ], '/opening-stock');
   assert.equal((body.match(/warehouseEntry\.create\(/g) ?? []).length, 1, 'حركة واحدة');
   assert.match(body, /sendImportError\(err, res, next\)/);
-  // لا خطاف ولا استيراد لـservices/gl سوى قفل الترحيل القائم
-  assert.doesNotMatch(src, /from '\.\.\/services\/gl\/opening'/);
+  // لا خطاف ولا حساب افتتاح في المسار: المسموح من services/gl/opening قاعدتا التاريخ الصرفتان وحدهما (البند 39)
+  assert.doesNotMatch(src, /from '\.\.\/services\/gl\/opening'/, 'المسار لا يستورد من حساب الافتتاح — قاعدتا التاريخ في services/importLedger.ts (البند 39، الإغلاقة)');
+  // ولا يُستدعى شيء من حساب الافتتاح أو الترحيل في مسار المخزون الافتتاحي
+  assert.doesNotMatch(src, /loadOpening|buildOpeningMove|openingCutoff|postMove\(/);
 });
 
 test('حارس ثابت: تراجع opening_stock — 409 بعد التفعيل قبل الحلقة وتحت القفل، وفحص الاستهلاك قبل الحذف', () => {
@@ -179,10 +185,12 @@ test('حارس ثابت: تراجع opening_stock — 409 بعد التفعيل 
   const body = src.slice(start, src.indexOf("if (batch.kind === 'customers' || batch.kind === 'products' || batch.kind === OPENING_STOCK_KIND)", start));
   assertOrder(body, [
     'assertOpeningStockRevertAllowed(', 'for (const eid of ids)', 'acquirePostLock(tx, tid)', 'assertOpeningStockRevertAllowed(',
-    'FOR UPDATE', 'openingStockRevertBlockReason(', "type: 'LOAD'", 'tx.invoiceItem.count(', 'qty: { lt: 0 }',
+    'FOR UPDATE', 'openingStockRevertBlockReason(', "type: 'LOAD'", 'invoiceItems: 0', 'qty: { lt: 0 }',
     "status: 'blocked'", 'tx.warehouseEntryItem.deleteMany(', 'tx.warehouseEntry.deleteMany(',
   ], 'revert opening_stock');
   assert.match(body, /if \(isImportHttpError\(e\)\) throw e;/);
+  // البند 34: الفاتورة لا تمسّ رصيد المستودع، فلا تُعدّ ولا تمنع التراجع — المانع ما يمسّه وحده
+  assert.doesNotMatch(body, /invoiceItem\.count\(/, 'الفواتير ما زالت تمنع التراجع عن المخزون الافتتاحي');
 });
 
 // ═══ البند 15 (إغلاقة الدفعة 2): فحص «للصنف حركات سابقة» مُقطَّع فلا يطول حبس قفل gl-post ═══
@@ -330,8 +338,11 @@ function ledgerHandlerBody(src: string, marker: string): string {
 test('حارس ثابت: /setup/commit يفحص المخزون المستورد تحت القفل قبل أي كتابة وقبل حساب الافتتاح (buildOpeningMove)، والمعاينة تعيده', () => {
   const setup = read('routes/ledger/setup.ts');
   const commit = ledgerHandlerBody(setup, "router.post('/setup/commit'");
+  // البند 42: القفلان أولاً، ثم ساعة القاعدة واللقطة T0 منها (فتشمل ما كُتب أثناء انتظار القفل)، ثم الفحوص، ثم الكتابة.
+  // الترتيب القديم (اللقطة قبل القفل) كان يترك صفوفاً تُكتب بين اللقطة وحيازة القفل خارج الافتتاح وخارج الفحص.
   assertOrder(commit, [
-    'openingSnapshotFromDbNow(dbNow)', 'acquirePostLock(tx, tenantId)', 'loadRunningImportBatch(tx, tenantId, dbNow)',
+    'acquirePostLock(tx, tenantId)', 'acquireImportEntriesLock(tx, tenantId)', 'const dbNow = await dbClockOf(tx)',
+    'openingSnapshotFromDbNow(dbNow)', 'loadRunningImportBatch(tx, tenantId, dbNow)',
     'assertCutoverNotInFuture(cutoverDate', 'checkStep1({ ...eff, cutoverDate }, dbNow)',
     'openingCutoff(cutoverDate, eff.timezone, T0)', 'loadOpeningStockCheck(tx, tenantId, stockCut',
     "eff.method === 'FULL_HISTORY' && openingStock.batches > 0", "'LEDGER_OPENING_STOCK_FULL_HISTORY'",

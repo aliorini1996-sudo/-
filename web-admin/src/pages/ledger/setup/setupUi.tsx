@@ -97,6 +97,13 @@ export function PostCutoverImportsNotice({ data, decimals, children }: { data: I
         {tr('لا تدخل هذه الحركات القيد الافتتاحي، وتُرحَّل بعد التفعيل بتواريخها على حساب الأرصدة الافتتاحية لا إيرادا ولا ضريبة. إن كانت أرصدة افتتاحية فتراجع عن دفعتها وأعد استيرادها بتاريخ قبل البدء')}{' '}
         <DataImportLink>{tr('سجل الاستيرادات')}</DataImportLink>
       </p>
+      {/* البند 39: تاريخ أبعد من الغد بتوقيت الشركة = خطأ سنة غالباً — تنبيه معدود لا يمنع التفعيل */}
+      {(data.futureDated ?? 0) > 0 && (
+        <p className="font-semibold">
+          {tr('منها حركات بتاريخ مستقبلي بعيد — راجع سنة التاريخ قبل التفعيل')}: <bdi className="tabular-nums">{data.futureDated}</bdi>
+          {data.maxEntryDate ? <>{' · '}{tr('أبعد تاريخ')}: <bdi className="tabular-nums">{formatDayOnly(data.maxEntryDate)}</bdi></> : null}
+        </p>
+      )}
       {children}
     </Notice>
   );
@@ -210,6 +217,8 @@ export function useSetupErrorText() {
       BACKFILL_STATE_CONFLICT: tr('لا يمكن تغيير حالة الترحيل التاريخي من حالتها الحالية'),
       CATEGORY_ACCOUNT_TYPE: tr('نوع الحساب لا يوافق حقل الفئة'),
       POST_CUTOVER_IMPORTS_ACK_REQUIRED: tr('توجد حركات مستوردة بتاريخ بعد تاريخ البدء: راجعها وأقرّ بها قبل التفعيل'),
+      // البند 41: اللقطة المُقَرّ بها لم تعد مطابقة لواقع لحظة الاعتماد — المعاينة تُعاد تلقائياً (COMMIT_REFRESH_CODES)
+      POST_CUTOVER_IMPORTS_CHANGED: tr('تغيّرت الحركات المستوردة بعد تاريخ البدء عمّا أقررت به: حدّث المعاينة وراجع الأرقام الجديدة ثم أقرّ بها من جديد'),
       IMPORT_IN_PROGRESS: tr('استيراد بيانات جارٍ الآن لهذه الشركة: انتظر انتهاءه وراجع سجل الدفعات ثم أعد التفعيل'),
       OPENING_STOCK_FULL_HISTORY: tr('يوجد مخزون افتتاحي مستورد لا يدخل الدفاتر في طريقة ترحيل التاريخ الكامل: اختر طريقة الأرصدة الافتتاحية أو تراجع عن دفعة المخزون من سجل الاستيرادات'),
       OPENING_STOCK_AFTER_CUTOVER: tr('مخزون افتتاحي مستورد في تاريخ البدء أو بعده لا يدخل القيد الافتتاحي: اعتمد في يوم لاحق بتاريخ بدء بعد يوم الاستيراد، أو تراجع عن الدفعة، أو أقرّ بالمتابعة دون قيمته'),
@@ -226,6 +235,7 @@ export function useSetupErrorText() {
       case 'LEDGER_CUTOVER_MID_VAT_PERIOD': return tr('تاريخ البدء داخل فترة إقرار: أكّد الاختيار وأدخل مبالغ المربعات قبل البدء، أو اختر بداية فترة');
       case 'LEDGER_HISTORY_TOO_LARGE': return tr('الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية');
       case 'LEDGER_POST_CUTOVER_IMPORTS_ACK': return tr('توجد حركات مستوردة بتاريخ بعد تاريخ البدء: راجعها وأقرّ بها قبل التفعيل');
+      case 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED': return tr('تغيّرت الحركات المستوردة بعد تاريخ البدء عمّا أقررت به: حدّث المعاينة وراجع الأرقام الجديدة ثم أقرّ بها من جديد');
       case 'ACCOUNTING_SUITE_NOT_ALLOWED': return tr('النظام المحاسبي المتكامل غير مفعل لشركتك');
       // البند 25: تغيير المنطقة وللشركة أرصدة أو كشوف مستوردة بالسابقة ⇒ إقرار إعادة الضبط لا رسالة عامة
       case 'LEDGER_TIMEZONE_IMPORTS_CONFLICT':

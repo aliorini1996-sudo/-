@@ -10,8 +10,9 @@
 // لا كلفة حمولة زميله — انظر `valueStock`.
 // ============================================================================
 import prisma from '../config/database';
+import { currencyDecimalsOf } from '../config/countries';
 import { roundDecimal } from '../utils/helpers';
-import { valueStock, CostMove } from './warehouseCost';
+import { valueStock, CostMove, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
 
 export interface WarehouseRow {
   productId: string;
@@ -37,8 +38,22 @@ interface ProdMeta { id: string; name: string; code: string; unit: string }
 interface WhItem { productId: string; qty: number; type: string; unitCost?: number | null; at?: Date | string | number }
 interface VanItem { productId: string; qty: number; type: string; salesRepId?: string | null; at?: Date | string | number }
 
-/** دالّة نقيّة (بلا قاعدة بيانات) — تُختبَر وحدها. تُظهر كل المنتجات المُمرَّرة. */
-export function composeWarehouse(products: ProdMeta[], warehouseItems: WhItem[], vanItems: VanItem[]): WarehouseRow[] {
+/**
+ * دالّة نقيّة (بلا قاعدة بيانات) — تُختبَر وحدها. تُظهر كل المنتجات المُمرَّرة.
+ *
+ * @param decimals خانات عملة الشركة لتقريب **قيمة الرصيد** لكل صنف. اختياريّ
+ *   بافتراض خانتين كي لا ينكسر مستدعٍ لم يُحدَّث، لكنّ كل مستدعٍ إنتاجيّ يمرّرها:
+ *   شركةٌ بالدينار (ثلاث خانات) كانت تفقد الخانة الثالثة في **كل صنف** — ألفُ
+ *   صنفٍ بقيمة ٠٫١٢٣٥ تعطي ١٢٠ بخانتين و١٢٤ بثلاث، وأربعةُ دنانير تضيع من
+ *   القيد الافتتاحيّ وشاشة المخزون معاً. والرقم يأتي من خانات عملة الشركة
+ *   (`tenantCurrencyDecimals` أدناه) لا من تخمين.
+ */
+export function composeWarehouse(
+  products: ProdMeta[],
+  warehouseItems: WhItem[],
+  vanItems: VanItem[],
+  decimals: number = DEFAULT_CURRENCY_DECIMALS,
+): WarehouseRow[] {
   const acc = new Map<string, { received: number; adjusted: number; loadedToVans: number; returnedFromVans: number }>();
   const ensure = (pid: string) => {
     if (!acc.has(pid)) acc.set(pid, { received: 0, adjusted: 0, loadedToVans: 0, returnedFromVans: 0 });
@@ -84,7 +99,7 @@ export function composeWarehouse(products: ProdMeta[], warehouseItems: WhItem[],
     const onHand = roundDecimal(m.received + m.adjusted + m.returnedFromVans - m.loadedToVans, 4);
     // الترتيب زمنيّ، وعند تساوي اللحظة يُحفظ ترتيب الورود (فرزٌ مستقرّ)
     const mv = (moves.get(p.id) || []).slice().sort((x, y) => x.t - y.t || x.i - y.i);
-    const val = valueStock(mv);
+    const val = valueStock(mv, decimals);
     return {
       productId: p.id, name: p.name, code: p.code, unit: p.unit, ...m, onHand,
       avgCost: val.avgCost,
@@ -97,9 +112,37 @@ export function composeWarehouse(products: ProdMeta[], warehouseItems: WhItem[],
   return rows;
 }
 
-/** غلاف قاعدة البيانات: يجمع منتجات الشركة ووارد المستودع وحركات السيارات ثم يحسب. */
-export async function computeWarehouseStock(tid: string): Promise<WarehouseRow[]> {
-  const [products, whItems, vanItems] = await Promise.all([
+/** أقصى خانات عملة تقبلها الدفاتر (services/gl/money.ts) — ما جاوزها إعدادٌ فاسد */
+const MAX_LEDGER_DECIMALS = 3;
+
+/**
+ * خانات عملة الشركة من **مصدرها الحقيقيّ**، بنفس أسبقية `importLedgerContext`
+ * في `routes/import.ts`: خانات الدفاتر إن كانت مضبوطةً وصالحة، وإلّا فمن عملة
+ * الشركة عبر `currencyDecimalsOf` (ثلاثٌ للدينار الكويتيّ والبحرينيّ والعمانيّ
+ * والأردنيّ، وصفرٌ للدينار العراقيّ، وخانتان للريال).
+ *
+ * تُقرأ **مرّة واحدة لكل طلب** ثم تُمرَّر إلى الحساب: لا داخل حلقة الأصناف، ولا
+ * داخل معاملةٍ تمسك قفل `gl-post` — فالقيد الافتتاحيّ يأخذ خاناته من
+ * `opts.decimals` المقروءة قبل المعاملة (`services/gl/opening.ts`) لا من هنا.
+ */
+export async function tenantCurrencyDecimals(tid: string): Promise<number> {
+  const s = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { currencyDecimals: true } });
+  const d = s?.currencyDecimals;
+  if (typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= MAX_LEDGER_DECIMALS) return d;
+  const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currency: true } });
+  return currencyDecimalsOf(company?.currency);
+}
+
+/**
+ * غلاف قاعدة البيانات: يجمع منتجات الشركة ووارد المستودع وحركات السيارات ثم يحسب.
+ *
+ * @param decimals خانات العملة حين يكون المسار قد قرأها أصلاً. وحين تُترك،
+ *   تُقرأ هنا مرّةً واحدة ضمن نفس دفعة القراءات (لا استعلامٌ إضافيّ متسلسل).
+ *   و`??` لا `||` عمداً: صفرُ خاناتٍ عملةٌ صحيحة (الدينار العراقيّ) لا غياب.
+ */
+export async function computeWarehouseStock(tid: string, decimals?: number): Promise<WarehouseRow[]> {
+  const [dec, products, whItems, vanItems] = await Promise.all([
+    decimals ?? tenantCurrencyDecimals(tid),
     prisma.product.findMany({
       where: { tenantId: tid, status: { not: 'INACTIVE' } },
       select: { id: true, name: true, code: true, unit: true },
@@ -117,5 +160,6 @@ export async function computeWarehouseStock(tid: string): Promise<WarehouseRow[]
     products,
     whItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.entry.type, unitCost: i.unitCost, at: i.entry.createdAt })),
     vanItems.map((i) => ({ productId: i.productId, qty: i.qty, type: i.vanLoad.type, salesRepId: i.vanLoad.salesRepId, at: i.vanLoad.createdAt })),
+    dec,
   );
 }

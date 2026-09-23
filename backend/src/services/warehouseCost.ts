@@ -19,6 +19,34 @@ import { roundDecimal } from '../utils/helpers';
 export const COST_DECIMALS = 4;
 
 /**
+ * خانات العملة حين لا يمرّرها المستدعي — خانتان كالريال.
+ *
+ * والمصدر الحقيقيّ للرقم `COUNTRIES[..].currencyDecimals` في `config/countries.ts`
+ * (ومنه `settings.currencyDecimals` في الدفاتر): ثلاث خانات للدينار الكويتيّ
+ * والبحرينيّ والأردنيّ، وصفرٌ للدينار العراقيّ. وهذا الملف حسابٌ نقيّ لا يقرأ
+ * إعداداً ولا قاعدة، فتصله الخانات **معامِلاً** من مستدعيه لا غير.
+ */
+export const DEFAULT_CURRENCY_DECIMALS = 2;
+
+/** أقصى خانات عملة مدعومة — كوحدة «الملّي» في الدفاتر (services/gl/money.ts). */
+const MAX_CURRENCY_DECIMALS = 3;
+
+/**
+ * يقبل ما يصلح خاناتِ عملةٍ ويعود إلى الافتراضيّ فيما سواه.
+ * لا يرمي استثناءً عمداً: هذه الدالّة تُستدعى في شاشة المخزون وفي بناء الرصيد
+ * الافتتاحيّ، فإسقاط الشاشة كلّها لأجل إعدادٍ فاسد أسوأ من تقييمٍ بخانتين.
+ *
+ * ولا تخلط بينها وبين `currencyDecimalsOf(currency)` في `config/countries.ts`:
+ * تلك تُخرج الخانات من **رمز العملة**، وهذه تتحقّق من **رقم** وصل إليها.
+ */
+function normalizeCurrencyDecimals(decimals: number | null | undefined): number {
+  return typeof decimals === 'number' && Number.isInteger(decimals)
+    && decimals >= 0 && decimals <= MAX_CURRENCY_DECIMALS
+    ? decimals
+    : DEFAULT_CURRENCY_DECIMALS;
+}
+
+/**
  * تكلفة الوحدة الصافية من الرقم الذي كتبه المستخدم.
  *
  * @param entered   ما كُتب في الخانة (صافياً أو شاملاً بحسب `inclusive`)
@@ -32,7 +60,11 @@ export function netUnitCost(entered: number, taxPct: number, inclusive: boolean)
 }
 
 /** قيمة سطر = الكمية × تكلفة الوحدة (بخانات العملة، فهي مبلغ يُقرأ لا معامل) */
-export function lineCost(qty: number, unitCost: number | null | undefined, decimals = 2): number {
+export function lineCost(
+  qty: number,
+  unitCost: number | null | undefined,
+  decimals = DEFAULT_CURRENCY_DECIMALS,
+): number {
   if (unitCost == null || !Number.isFinite(unitCost) || !Number.isFinite(qty)) return 0;
   return roundDecimal(qty * unitCost, decimals);
 }
@@ -46,7 +78,7 @@ export function lineCost(qty: number, unitCost: number | null | undefined, decim
  */
 export function entryTotalCost(
   items: { qty: number; unitCost?: number | null }[],
-  decimals = 2,
+  decimals = DEFAULT_CURRENCY_DECIMALS,
 ): number {
   return roundDecimal(
     items.reduce((s, i) => s + lineCost(i.qty, i.unitCost, decimals), 0),
@@ -160,8 +192,15 @@ function addAtAvg(s: CostState, qty: number): void {
  *
  * الترتيب مسؤولية المستدعي — والمرور غير مرتَّب يعطي رقماً خاطئاً بصمت،
  * فلذلك تُرتَّب في `composeWarehouse` قبل الاستدعاء لا هنا.
+ *
+ * @param decimals خانات عملة الشركة لتقريب **قيمة الرصيد**. خانتان ثابتتان كانت
+ *   تبتلع الخانة الثالثة في الدينار (الكويتيّ والبحرينيّ والأردنيّ والتونسيّ…):
+ *   ألفُ صنفٍ يخسر كلٌّ منها نصف فلسٍ ⇒ فرقٌ يبلغ ديناراً في الرصيد الافتتاحيّ،
+ *   ولا يستردّه `toMilli(stockValue, dec)` بعدها لأنّ الكسر ضاع قبل أن يصل إليه.
+ *   وفي العملات بلا كسور (الدينار العراقيّ) يمنع التقريبَ مرّتين: ٠٫٤٩٥ كانت تصير
+ *   ٠٫٥٠ ثمّ ديناراً كاملاً، وصوابها صفر.
  */
-export function valueStock(moves: CostMove[]): Valuation {
+export function valueStock(moves: CostMove[], decimals: number = DEFAULT_CURRENCY_DECIMALS): Valuation {
   const s: CostState = { costedQty: 0, costedValue: 0, uncostedQty: 0 };
   // ما على كلّ سيارةٍ الآن، بترتيب خروجه — يُستهلَك من آخره.
   // المفتاح معرّف السيارة؛ وحركةٌ بلا معرّف تقع في مكدّسٍ مشترك واحد.
@@ -251,10 +290,12 @@ export function valueStock(moves: CostMove[]): Valuation {
     }
   }
 
+  // متوسّط الوحدة يبقى بخانات التكلفة الأربع لا بخانات العملة — أوسع عمداً
+  // (انظر COST_DECIMALS)، والكمّيات بأربع خانات لأنّها كمّيات لا مبالغ.
   const avgCost = roundDecimal(avgOf(s), COST_DECIMALS);
   return {
     avgCost,
-    stockValue: roundDecimal(s.costedValue, 2),
+    stockValue: roundDecimal(s.costedValue, normalizeCurrencyDecimals(decimals)),
     costedQty: roundDecimal(s.costedQty, 4),
     uncostedQty: roundDecimal(Math.max(0, s.uncostedQty), 4),
   };

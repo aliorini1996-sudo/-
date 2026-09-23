@@ -118,8 +118,12 @@ test('حراس الصفحات: الإقرار النظامي قبل التفعي
   const home = read(webSrc, 'pages', 'ledger', 'LedgerHome.tsx');
   assert.match(home, /SetupWizard/);
   assert.match(home, /canConfigure\s*\?/, 'المعالج لمن يملك canConfigureLedger وإلا «بانتظار الإعداد»');
-  // المعاينة لا تُخزَّن ولا تُمرَّر أرقامها إلى الاعتماد (§5.6 الخطوة 4)
-  assert.doesNotMatch(review, /commit\([^)]*opening/);
+  // المعاينة لا تُخزَّن ولا تُمرَّر أرقامها إلى الاعتماد (§5.6 الخطوة 4). البند 41 يستثني لقطة إقرار الحركات
+  // المستوردة وحدها: تُرسَل لتُقارَن فيُرفض الاعتماد إن تغيّرت، ولا يُبنى عليها قيد ولا رصيد.
+  const commitCall = review.slice(review.indexOf('ledgerSetupApi.commit(undefined, {'), review.indexOf('onSuccess:'));
+  assert.ok(commitCall.length > 0, 'نداء الاعتماد غير موجود');
+  assert.doesNotMatch(commitCall, /opening\.(?!snapshotAt\b)/, 'لا تُمرَّر أرقام القيد الافتتاحي المعروضة إلى الاعتماد');
+  assert.doesNotMatch(commitCall, /q\.data\.(?:move|manual|receivables)/);
 });
 
 test('حركات مستوردة بعد تاريخ البدء: التنبيه عند count>0، والإقرار شرط التفعيل، ومرآة الخادم', () => {
@@ -130,14 +134,53 @@ test('حركات مستوردة بعد تاريخ البدء: التنبيه ع�
   assert.equal(importsAckBlocksCommit({ count: 2 }, true), false);
   assert.equal(importsAckBlocksCommit({ count: 0 }, false), false);
   const api = read(webSrc, 'api', 'ledgerSetup.ts');
-  assert.match(api, /acknowledgePostCutoverImports: true/);
+  // البند 41: اللقطة تُمرَّر كما هي إلى جسم الطلب (لا `true`)، والقيمة الكاذبة تُسقط الحقل
+  assert.match(api, /\.\.\.\(opts\?\.acknowledgePostCutoverImports \? \{ acknowledgePostCutoverImports: opts\.acknowledgePostCutoverImports \} : \{\}\)/);
   const setup = read(backend, 'routes', 'ledger', 'setup.ts');
-  assert.match(setup, /acknowledgePostCutoverImports: z\.boolean\(\)\.optional\(\)/);
+  assert.match(setup, /acknowledgePostCutoverImports: z\.union\(\[z\.boolean\(\), postCutoverImportsAckSchema\]\)\.optional\(\)/);
   assert.match(setup, /'LEDGER_POST_CUTOVER_IMPORTS_ACK'/);
   const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
   assert.match(review, /disabled=\{[^}]*importsBlocked/, 'زر التفعيل معطّل قبل الإقرار بالحركات المستوردة');
-  assert.match(review, /ledgerSetupApi\.commit\(undefined, \{\s*acknowledgePostCutoverImports: importsAck, acknowledgeOpeningStockExcluded: /);
+  assert.match(review, /ledgerSetupApi\.commit\(undefined, \{\s*acknowledgePostCutoverImports: importsAck && imported/);
   assert.match(review, /<PostCutoverImportsNotice data=\{q\.data\.importedAfterCutover\}/, 'التنبيه في الخطوة 4');
+});
+
+test('البند 41: الإقرار لقطةً بالأرقام المعروضة، تُعرض في نصّه ويسقط الإقرار بتغيّرها', () => {
+  const setup = read(backend, 'routes', 'ledger', 'setup.ts');
+  // مخطط اللقطة في الخادم: الحقول الأربعة بعينها
+  const schema = /const postCutoverImportsAckSchema = z\.object\(\{([\s\S]*?)\}\)\.strict\(\);/.exec(setup)?.[1] ?? '';
+  assert.ok(schema, 'مخطط اللقطة غير موجود في setup.ts');
+  for (const f of ['count', 'debit', 'credit', 'snapshotAt']) assert.match(schema, new RegExp(`\\b${f}:`), f);
+  // الرمز الجديد يُرمى من الخادم ويُدرَج في رموز إعادة المعاينة
+  assert.match(setup, /'LEDGER_POST_CUTOVER_IMPORTS_CHANGED'\)/);
+  assert.equal(commitNeedsRefresh('LEDGER_POST_CUTOVER_IMPORTS_CHANGED'), true);
+  assert.ok((COMMIT_REFRESH_CODES as readonly string[]).includes('LEDGER_POST_CUTOVER_IMPORTS_CHANGED'));
+
+  const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
+  // اللقطة المرسلة هي الأرقام المعروضة ولحظة المعاينة نفسها
+  assert.match(review, /\{ count: imported\.count, debit: imported\.debit, credit: imported\.credit, snapshotAt: q\.data\?\.opening\.snapshotAt \}/);
+  // أرقام اللقطة داخل نصّ الإقرار لا مربع اختيار على مجهول
+  const ackAt = review.indexOf('onChange={e => setImportsAck(');
+  assert.ok(ackAt > 0, 'خانة إقرار الحركات المستوردة غير موجودة');
+  const label = review.slice(ackAt, review.indexOf('</PostCutoverImportsNotice>', ackAt));
+  assert.match(label, /راجعت هذه الأرقام وأوافق على ترحيل الحركات المستوردة بعد تاريخ البدء بتواريخها/);
+  assert.match(label, /\{imported\.count\}/, 'عدد الحركات في نصّ الإقرار');
+  assert.match(label, /value=\{imported\.debit\}/, 'مجموع المدين في نصّ الإقرار');
+  assert.match(label, /value=\{imported\.credit\}/, 'مجموع الدائن في نصّ الإقرار');
+  // تغيّر الأرقام المعروضة ⇒ الإقرار يسقط (لا إقرار مؤشَّر على أرقام لم تعد معروضة)، والتوقيع على القيم
+  // لا على لحظة الجلب فلا يُلغى إقرار صحيح لمجرد إعادة جلب ردّت الأرقام نفسها
+  assert.ok(review.includes('const importsAckSig = imported ? `${imported.count}|${imported.debit}|${imported.credit}` : \'\';'), 'توقيع لقطة الحركات المستوردة');
+  assert.ok(review.includes('const stockAckSig = os ? `${os.afterCutover.count}|${os.afterCutover.value}|${os.fullHistoryBlocked}` : \'\';'), 'توقيع حكم المخزون الافتتاحي');
+  assert.match(review, /useEffect\(\(\) => \{ setImportsAck\(false\); \}, \[importsAckSig\]\);/);
+  assert.match(review, /useEffect\(\(\) => \{ setStockAck\(false\); \}, \[stockAckSig\]\);/);
+
+  // نصّ الرمز في الواجهة = رسالة الخادم الحيّة نفسها
+  const opening = read(backend, 'services', 'gl', 'opening.ts');
+  const serverText = /LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE\s*=\s*'([^']+)'/.exec(opening)?.[1];
+  assert.ok(serverText, 'رسالة الخادم غير موجودة في services/gl/opening.ts');
+  const ui = read(webSrc, 'pages', 'ledger', 'setup', 'setupUi.tsx');
+  assert.ok(ui.includes(`case 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED': return tr('${serverText}')`), 'نص المعالج لا يطابق رسالة الخادم');
+  assert.ok(ui.includes(`POST_CUTOVER_IMPORTS_CHANGED: tr('${serverText}')`), 'نص السبب لا يطابق رسالة الخادم');
 });
 
 test('تلميحات الخطوة 4: ذمم صفرية مع عملاء، ومخزون صفري مع منتجات', () => {

@@ -1,10 +1,13 @@
 // البندان 3 و4 (مراجعة استيراد البيانات 2026-09-17): مطابقة العملاء في الاستيراد. منطق صرف بلا قاعدة بيانات.
+// والدفعة 3: البند 49 — جوال الاستيراد وقاعدة تعديل بطاقة العميل نفسها.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildCustomerMatcher, normImportPhone, planCustomerImport, storedCustomerPhone } from '../services/importMatch';
-import { IMPORT_ROW_MESSAGES, customerMatchError } from '../services/importLedger';
+import {
+  CUSTOMER_PHONE_MIN, CUSTOMER_PHONE_NOT_EDITABLE, IMPORT_ROW_MESSAGES, customerMatchError, isEditableCustomerPhone, phoneNotEditableRows,
+} from '../services/importLedger';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 
@@ -104,12 +107,15 @@ test('حارس ثابت: /customers بالمخطِّط وskippedRows وwarnings.
   const customers = body("router.post('/customers'");
   assert.match(customers, /customerImportPlanner\(existing\)/);
   assert.doesNotMatch(customers, /names\.has\(|phones\.has\(/, 'التخطي بشرط OR القديم');
-  assert.match(customers, /data: \{ \.\.\.result, skippedRows, attachedRows, warnings: \{ similar \} \}/);
+  // البند 49: التنبيه المعدود يُضاف إلى warnings القائمة ولا يزيح similar
+  assert.match(customers, /data: \{ \.\.\.result, \.\.\.cappedErrors\(result\.errors\), skippedRows, attachedRows, warnings: \{ similar, \.\.\.\(phoneNotEditable \? \{ phoneNotEditable \} : \{\}\) \} \}/);
   assert.doesNotMatch(src, /async function customerFinder\(/);
+  assert.match(body("router.post('/balances'"), /customerMatchError\(/);
+  // البندان 43 و44: /prices يطابق داخل المخطِّط (planPriceImportRows) بالمطابق نفسه ورموزه
+  assert.match(body("router.post('/prices'"), /planPriceImportRows\(rows, matcher, prods, body\.allowZeroPrice === true\)/);
+  assert.match(read('services/importLedger.ts'), /errors\.push\(customerMatchError\(row, m\)!\);/);
   for (const m of ["router.post('/balances'", "router.post('/prices'"]) {
-    const b = body(m);
-    assert.match(b, /customerMatchError\(/, m);
-    assert.doesNotMatch(b, /'العميل غير موجود استورد العملاء أولا'/, `${m}: نص حرفي بلا رمز`);
+    assert.doesNotMatch(body(m), /'العميل غير موجود استورد العملاء أولا'/, `${m}: نص حرفي بلا رمز`);
   }
   assert.match(body("router.post('/ledger'"), /groupLedgerRows\(/);
   assert.doesNotMatch(body("router.post('/ledger'"), /result\.skipped\+\+/, '/ledger: غير المطابَق «مكرر تخطي»');
@@ -262,4 +268,38 @@ test('حارس ثابت: /customers يكتب الكود المربوط بشرط 
   assert.match(customers, /updateMany\(\{\s*where: \{ id: a\.customerId, tenantId: tid, \.\.\.\(a\.fromCode !== null \? \{ code: a\.fromCode \} : \{\}\) \}/);
   const attachLoop = customers.slice(customers.indexOf('for (let k = 0; k < attaches.length'), customers.indexOf('} finally {'));
   assert.doesNotMatch(attachLoop, /progress\.(write|commit)\(/, 'العميل المربوط لا يدخل سجلات الدفعة فيحذفه التراجع');
+});
+
+test('سيناريو البند 49: جوال «—» أو قصير يمرّ في الاستيراد ثم يفشل كل تعديل للعميل ⇒ تنبيه معدود بصفوفه بقاعدة البطاقة نفسها', () => {
+  // قاعدة بطاقة العميل حرفياً: تعديلها يفحص phone بـmin(9) ولو لم يتغيّر، فما دونها يوقف كل تعديل لاحق
+  assert.match(read('routes/customers.ts'), /phone: z\.string\(\)\.min\(9\)/);
+  assert.equal(CUSTOMER_PHONE_MIN, 9);
+  // ما يخزّنه الاستيراد للجوال التافه أو الفارغ لا تقبله البطاقة — وهو أصل البند
+  assert.equal(isEditableCustomerPhone(storedCustomerPhone('')), false);
+  assert.equal(isEditableCustomerPhone(storedCustomerPhone('0')), false);
+  assert.equal(isEditableCustomerPhone(storedCustomerPhone('0501234567')), true);
+  assert.equal(isEditableCustomerPhone(storedCustomerPhone('011 234 5678')), true);
+  // هاتف أرضي بثمانية أرقام: يُطابِق ويُخزَّن، ولا تقبله البطاقة ⇒ يُعدّ في التنبيه لا يُرفض صفّه
+  assert.equal(storedCustomerPhone('01123456'), '01123456');
+  assert.equal(isEditableCustomerPhone('01123456'), false);
+  const gap = phoneNotEditableRows([
+    { row: 2, phone: storedCustomerPhone('') },
+    { row: 3, phone: storedCustomerPhone('0501234567') },
+    { row: 4, phone: '01123456' },
+  ]);
+  assert.deepEqual(gap, { count: 2, rows: [2, 4] });
+  assert.equal(phoneNotEditableRows([{ row: 2, phone: '0501234567' }]), null, 'ملف بجوالات صالحة بلا تنبيه');
+  assert.match(CUSTOMER_PHONE_NOT_EDITABLE, /لا يقل عن تسع خانات/);
+});
+
+test('حارس ثابت (البند 49): /customers يحسب التنبيه من creates قبل الكتابة، ولا يرفض الصفّ ولا يعدّه متخطياً', () => {
+  const src = read('routes/import.ts');
+  const i = src.indexOf("router.post('/customers'");
+  const body = src.slice(i, src.indexOf('\nrouter.', i + 20));
+  // الحساب على ما سيُنشأ (creates: {row, phone}) قبل حلقة الكتابة، فالتنبيه يصل ولو انقطعت الكتابة
+  assert.match(body, /phoneNotEditable = phoneNotEditableRows\(creates\);/);
+  assert.ok(body.indexOf('phoneNotEditableRows(creates)') < body.indexOf('runImportChunks('), 'التنبيه بعد الكتابة');
+  // انحدار: الصفّ بجوال قصير يُنشأ كما كان (تنبيه لا رفض ولا تخطٍّ)
+  assert.doesNotMatch(body, /isEditableCustomerPhone\(/, 'الجوال صار شرط إنشاء');
+  assert.match(body, /warnings: \{ similar, \.\.\.\(phoneNotEditable \? \{ phoneNotEditable \} : \{\}\) \}/);
 });

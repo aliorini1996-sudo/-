@@ -1,6 +1,6 @@
 // تجميع «المتبقي» بعد التراجع الجزئي عن دفعة استيراد حسب السبب (blocked[].reason من الخادم):
 // المحمي بمعاملات حقيقية لا يُعاد، أما انشغال قفل الدفاتر أو خطأ الحذف العابر فيُعاد لاحقاً.
-import { errorDetail, errorResponseOf } from './importData';
+import { errorDetail, errorResponseOf, headerSaysPriceIncludesTax } from './importData';
 import { IMPORT_SCOPED_NOTE } from './importAccess';
 
 /** نص الخادم حرفياً (backend/src/services/importLedger.ts LEDGER_BUSY_MESSAGE) */
@@ -118,7 +118,8 @@ export type RevertFailure =
   | { type: 'scopedAdmin' }
   | { type: 'permissionDenied'; kind?: string; permission?: string }
   | { type: 'accountingDisabled' }
-  | { type: 'other'; message?: string };
+  /** status محفوظ ليُميَّز انقطاع النشر المؤقّت (502/503/504) عن خطأ تطبيق — البند 52 */
+  | { type: 'other'; message?: string; status?: number };
 
 export function classifyRevertFailure(e: unknown): RevertFailure {
   const { status, body: b, network } = errorResponseOf(e);
@@ -133,7 +134,7 @@ export function classifyRevertFailure(e: unknown): RevertFailure {
     case 'OPENING_STOCK_REVERT_LEDGER_ACTIVE': return { type: 'openingStockActive' };
   }
   if (status === 404) return { type: 'gone' };
-  return { type: 'other', message: typeof b.message === 'string' ? b.message : undefined };
+  return { type: 'other', message: typeof b.message === 'string' ? b.message : undefined, status };
 }
 
 /** المفتاح العربي (يُمرَّر عبر tr) لرسالة فشل التراجع؛ other بلا رسالة ⇒ null (الافتراضي «تعذر التراجع») */
@@ -149,6 +150,8 @@ export function revertFailureKey(f: RevertFailure): string | null {
     case 'permissionDenied':
     case 'accountingDisabled':
       return accessFailureKey(f, 'revert');
+    // البند 52: 502/503/504 أثناء النشر ليست خطأ تطبيق — نصّها يقول إن الخدمة تُحدَّث
+    case 'other': return isServiceUnavailable(f) ? SERVICE_UNAVAILABLE_MESSAGE : null;
     default: return null;
   }
 }
@@ -311,18 +314,48 @@ export function importRowErrorFieldKey(
   return message.includes(label) ? null : label;
 }
 
+/**
+ * البند 36: خطأ صفٍّ أرسله الخادم بلا قيمة — الخانة الفارغة لا قيمة لها تُعرض، ورسالتها عامة
+ * («خانة مطلوبة في هذا الصف فارغة»)، فوسم الخانة وحده ما يدلّ المالك على العمود الذي يصحّحه.
+ * null حين يرسل الخادم قيمةً (وسمها يظهر معها في importRowErrorFieldKey)، أو الخانة بلا وسم عربي،
+ * أو الرسالة تذكرها سلفاً.
+ */
+export function importRowFieldOnlyKey(
+  e: { code?: string; message?: string; value?: string; field?: string } | null | undefined,
+): string | null {
+  if (e?.value?.trim()) return null;
+  const field = e?.field?.trim();
+  const label = field ? FIELD_LABELS[field] : undefined;
+  if (!label) return null;
+  const message = (e?.code && ROW_CODE_MESSAGES[e.code]) || e?.message || '';
+  return message.includes(label) ? null : label;
+}
+
 const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
 
-export function importResultView(res: { created?: number; updated?: number; attached?: number; skipped?: number; zero?: number; errors?: readonly ImportResultRowError[] | null }): ImportResultView {
+/**
+ * البند 36: الخادم يقصّ `errors` على 500 ويرسل العدد الكامل في `errorsTotal`. العدّادات المعروضة للمالك
+ * تُقاس على العدد الكامل (وإلا قال «500 خطأ» لملف فيه 20 ألفاً فظنّ الباقي نجح)، بينما القائمة نفسها تبقى
+ * المقصوصة. خادم أقدم بلا `errorsTotal` ⇒ طول القائمة كما كان.
+ */
+export const errorsTotalOf = (res: { errors?: readonly unknown[] | null; errorsTotal?: unknown }): number => {
+  const shown = Array.isArray(res.errors) ? res.errors.length : 0;
+  const total = count(res.errorsTotal);
+  return total > shown ? total : shown;
+};
+
+export function importResultView(res: { created?: number; updated?: number; attached?: number; skipped?: number; zero?: number; errors?: readonly ImportResultRowError[] | null; errorsTotal?: number }): ImportResultView {
   const errors = Array.isArray(res.errors) ? res.errors : [];
   let notFound = 0; let ambiguous = 0;
   for (const e of errors) {
     if (NOT_FOUND_ROW_CODES.has(String(e?.code))) notFound++;
     else if (e?.code === 'CUSTOMER_AMBIGUOUS') ambiguous++;
   }
+  // الباقي وراء السقف يُضاف إلى «أخطاء أخرى» فلا يضيع من عدّاد المالك
+  const hidden = Math.max(0, errorsTotalOf(res) - errors.length);
   const counts = {
     created: count(res.created), updated: count(res.updated), attached: count(res.attached), skipped: count(res.skipped), zero: count(res.zero),
-    notFound, ambiguous, otherErrors: errors.length - notFound - ambiguous,
+    notFound, ambiguous, otherErrors: errors.length - notFound - ambiguous + hidden,
   };
   // ربط الأكواد بعملاء قائمين، واستبدال سعر خاص قائم (البند 7): كتابة فعلية ليست «لم يُستورد شيء»
   if (counts.created === 0 && counts.attached === 0 && counts.updated === 0) return { tone: 'failure', titleKey: RESULT_FAILURE_TITLE, counts };
@@ -349,6 +382,105 @@ export function productSkipReasonKey(reason: string | undefined): string {
     case 'DUPLICATE_IN_FILE': return 'مكرر داخل الملف بالبيانات نفسها';
     default: return 'مكرر تخطي';
   }
+}
+
+// ═══ البندان 43 و44: تخطّي صفوف الأسعار بسببه المعلن (planPriceImportRows) ═══
+//
+// كان صفّ الصنف المؤرشف يُعاد سعره الخاص ويُعدّ «أضيف»، وصفّان لنفس العميل والصنف يكتب آخرهما فوق أولهما
+// بصمت. صار كلاهما تخطياً معدوداً برقم صفه، فيرى المالك **لماذا** نقص عدد ما كُتب عن عدد صفوف ملفه.
+
+/** الرمز من الخادم حرفياً (services/importLedger.ts PriceSkipReason) */
+export const PRICE_SKIP_PRODUCT_ARCHIVED = 'الصنف مؤرشف، فلا يُعاد سعره الخاص';
+export const PRICE_SKIP_DUPLICATE_PAIR = 'صف مكرر لنفس العميل والصنف، آخر سعر في الملف هو المحفوظ';
+/** عنوان كتلة أزواج التكرار المختلفة السعر — المتطابقة سعراً تكرار بلا أثر يكفيه عدّاد التخطي */
+export const PRICE_DUPLICATE_PAIRS_TITLE = 'أزواج عميل وصنف تكررت في الملف بسعرين مختلفين، المحفوظ آخرها';
+export const PRICE_DUPLICATE_KEPT_ROW = 'المحفوظ صف';
+
+/** سبب تخطي صف الأسعار (skippedRows[].reason) ⇒ مفتاح tr */
+export function priceSkipReasonKey(reason: string | undefined): string {
+  switch (reason) {
+    case 'PRODUCT_ARCHIVED': return PRICE_SKIP_PRODUCT_ARCHIVED;
+    case 'DUPLICATE_PAIR': return PRICE_SKIP_DUPLICATE_PAIR;
+    default: return 'مكرر تخطي';
+  }
+}
+
+/** سبب التخطي بحسب نوع الدفعة: لكل نوع أسبابه، ولا تُخلط (سبب نوع آخر ⇒ النص العام) */
+export function skipReasonKey(kind: string | undefined, reason: string | undefined): string {
+  switch (kind) {
+    case 'products': return productSkipReasonKey(reason);
+    case 'prices': return priceSkipReasonKey(reason);
+    default: return customerSkipReasonKey(reason);
+  }
+}
+
+/**
+ * عدّاد لكل سبب تخطٍّ بترتيب أول ظهوره: قائمة الصفوف تُقتطع عند خمسة عشر سطراً في النافذة،
+ * فالعدّاد وحده يقول للمالك كم صفاً سقط بكل سبب.
+ */
+export function skipReasonCounts(
+  kind: string | undefined, rows: readonly { reason?: string }[] | null | undefined,
+): { key: string; count: number }[] {
+  const map = new Map<string, number>();
+  for (const r of rows ?? []) {
+    const key = skipReasonKey(kind, r?.reason);
+    map.set(key, (map.get(key) ?? 0) + 1);
+  }
+  return [...map.entries()].map(([key, count]) => ({ key, count }));
+}
+
+/**
+ * وسم خانة «المتخطى» في نافذة النتيجة: تخطّي الأسعار ليس تكراراً وحده (الصنف المؤرشف منه)،
+ * فالوسم العام أصدق، وعدّاد الأسباب تحته يفصّل.
+ */
+export const SKIPPED_ROWS_LABEL = 'صف متخطى';
+export const skippedStatLabel = (kind: string | undefined): string => (kind === 'prices' ? SKIPPED_ROWS_LABEL : 'مكرر تخطي');
+
+/** زوج (عميل/صنف) تكرر في الملف — عقد الخادم warnings.duplicates */
+export interface PriceDuplicatePair { rows?: number[]; kept?: number; prices?: number[]; conflict?: boolean; code?: string; customerName?: string | null }
+
+/** أزواج اختلف فيها السعر وحدها: هي ما يفاجئ المالك، والمتطابقة سعراً تكرار بلا أثر */
+export const conflictingPricePairs = (list: readonly PriceDuplicatePair[] | null | undefined): PriceDuplicatePair[] =>
+  (list ?? []).filter((d) => d?.conflict === true);
+
+// ═══ البند 49: عملاء استُوردوا بجوال لا تقبله بطاقة العميل ═══
+
+/** نص الخادم حرفياً (services/importLedger.ts CUSTOMER_PHONE_NOT_EDITABLE) */
+export const CUSTOMER_PHONE_NOT_EDITABLE = 'عملاء بلا جوال صالح: لا يُحفظ أي تعديل لبطاقاتهم حتى يُكتب لهم جوال لا يقل عن تسع خانات';
+export const CUSTOMER_PHONE_NOT_EDITABLE_FIX = 'اكتب لهم جوالاً صالحاً في بطاقة العميل، أو صحّح عمود الجوال في الملف وأعد استيراده بعد التراجع عن هذه الدفعة';
+
+/** تحذير warnings.phoneNotEditable ({count, rows}) — الغائب أو الصفري أو المشوّه بلا كتلة */
+export function phoneNotEditableWarning(
+  w: { count?: unknown; rows?: unknown } | null | undefined,
+): { count: number; rows: number[] } | null {
+  const n = count(w?.count);
+  if (n <= 0) return null;
+  const rows = (Array.isArray(w?.rows) ? w!.rows : []).filter((r): r is number => typeof r === 'number' && Number.isFinite(r));
+  return { count: n, rows };
+}
+
+// ═══ البند 39: صفوف تاريخها بعد اليوم (خطأ سنة: 2052 بدل 2025) ═══
+
+/** نص الخادم حرفياً (backend/src/routes/import.ts IMPORT_FUTURE_DATE_WARNING) — يُترجَم عندنا لا يُعرض خاماً */
+export const IMPORT_FUTURE_DATED = 'تواريخ بعد اليوم بتوقيت الشركة — تحقّق من سنة التاريخ قبل الاعتماد';
+export const IMPORT_FUTURE_DATED_MAX = 'أقصى تاريخ مقبول';
+export const IMPORT_FUTURE_DATED_FIX = 'صحّح سنة التاريخ في هذه الصفوف ثم أعد الاستيراد بعد التراجع عن هذه الدفعة';
+
+/**
+ * تحذير warnings.futureDated ({count, rows, maxDate}) في ردّ الأرصدة والكشوف: الصفوف كُتبت فعلاً،
+ * فالتنبيه معدود بأمثلة صفوفه. الحقل غائب من خادم أقدم ⇒ null بلا كتلة (ولا عدد مختلَق حين لا عدّ).
+ */
+export function futureDatedWarning(
+  w: { count?: unknown; rows?: unknown; maxDate?: unknown; message?: unknown } | null | undefined,
+): { count: number; rows: number[]; maxDate: string } | null {
+  // الخادم يرسل `rows: [{ row, date }]` (services/importLedger.ts resolveImportDates)، والشكل الرقمي مقبول
+  // كذلك لخادم أقدم — فأيّهما جاء تُقرأ منه أرقام الصفوف، ولا تبقى الكتلة بلا صفوف كما كانت.
+  const rows = (Array.isArray(w?.rows) ? w!.rows : [])
+    .map((r) => (typeof r === 'number' ? r : (r && typeof r === 'object' && typeof (r as { row?: unknown }).row === 'number' ? (r as { row: number }).row : null)))
+    .filter((r): r is number => r !== null && Number.isFinite(r));
+  const n = count(w?.count) || rows.length;
+  if (n <= 0) return null;
+  return { count: n, rows, maxDate: typeof w?.maxDate === 'string' ? w.maxDate : '' };
 }
 
 /** صف عملاء رُبط كوده بعميل قائم بلا كود (attachedRows[].matchedBy) ⇒ مفتاح tr */
@@ -400,11 +532,16 @@ export interface ImportBodyInput {
   flags?: { force?: boolean; confirmOverlap?: boolean };
   zeroPriceRows?: number;
   zeroPriceAck?: boolean;
+  /** البند 31: المنتجات والأسعار — عمود السعر في الملف شامل الضريبة، يحوّله الخادم إلى صافٍ بضريبة الصنف */
+  pricesIncludeTax?: boolean;
 }
 
 export function buildImportBody(i: ImportBodyInput): Record<string, unknown> {
   const body: Record<string, unknown> = { rows: i.rows };
   if (i.ledgerKind && i.undatedDate) body.undatedDate = i.undatedDate;
+  // البند 51: عقد التاريخ يميّز هذه النسخة من الواجهة عن تبويب مفتوح من قبل النشر (يرسل تواريخ متأخرة يوماً)
+  if (i.ledgerKind) body.dateContract = IMPORT_DATE_CONTRACT;
+  if (inclusiveTaxKind(i.kind) && i.pricesIncludeTax === true) body.pricesIncludeTax = true;
   if (i.kind === 'opening_stock') Object.assign(body, { pricesIncludeTax: i.stockInclTax === true }, i.stockAckBody ?? {});
   if (i.flags?.force) body.force = true;
   if (i.flags?.confirmOverlap) body.confirmOverlap = true;
@@ -412,12 +549,13 @@ export function buildImportBody(i: ImportBodyInput): Record<string, unknown> {
   return body;
 }
 
-/** زر الاستيراد معطّل: لا صفوف، أو عوائق التحويل، أو تاريخ بلا اختيار، أو تعارض، أو إقرار ناقص */
+/** زر الاستيراد معطّل: لا صفوف، أو عوائق التحويل، أو تاريخ بلا اختيار، أو تعارض، أو إقرار ناقص، أو صفوف فوق الحد */
 export function importButtonBlocked(i: {
   rows: number; blockers?: readonly string[] | null; needUndatedChoice?: boolean; conflict?: boolean;
-  stockBlocked?: boolean; zeroPrice?: { blocksImport: boolean };
+  stockBlocked?: boolean; zeroPrice?: { blocksImport: boolean }; overMax?: boolean;
 }): boolean {
-  return i.rows === 0 || (i.blockers?.length ?? 0) > 0 || !!i.needUndatedChoice || !!i.conflict || !!i.stockBlocked || !!i.zeroPrice?.blocksImport;
+  return i.rows === 0 || (i.blockers?.length ?? 0) > 0 || !!i.needUndatedChoice || !!i.conflict || !!i.stockBlocked
+    || !!i.zeroPrice?.blocksImport || !!i.overMax;
 }
 
 // ═══ خريطة «عمود الملف ← الحقل» في المعاينة (البند 13) ═══
@@ -489,3 +627,195 @@ export function revertSummaryLines(d: RevertExtras | null | undefined): { key: s
   }
   return out;
 }
+
+// ═══ البند 31: «الأسعار شاملة الضريبة» في المنتجات وقوائم الأسعار ═══
+//
+// قائمة أسعار مصدَّرة شاملة الضريبة كانت تُحفظ كما هي، فيضيف تطبيق المندوب الضريبة فوقها مرة ثانية.
+// الخانة تُرسل pricesIncludeTax، والخادم يخصم ضريبة كل صنف (netFromInclusive) قبل الحفظ — كما يفعل
+// المخزون الافتتاحي اليوم. غير مؤشّرة افتراضاً، إلا أن يقول عنوان عمود السعر نفسه إنه شامل الضريبة.
+
+export const PRICES_INCLUDE_TAX_LABEL = 'الأسعار في الملف شاملة الضريبة';
+export const PRICES_INCLUDE_TAX_NOTE = 'تُخصم ضريبة كل صنف من السعر قبل الحفظ فيُخزَّن صافياً، ويضيفها التطبيق عند البيع. اتركها فارغة إن كان عمود السعر صافياً';
+export const PRICES_INCLUDE_TAX_DETECTED = 'عنوان عمود السعر في ملفك يقول «شامل الضريبة» فحُدِّدت الخانة تلقائياً — ألغِ التحديد إن كان السعر صافياً';
+/** نتيجة الاستيراد: ما فعله الخادم بالأسعار فعلاً، فلا يبقى الخصم وعداً في المعاينة وحدها */
+export const PRICES_SAVED_NET = 'خُصمت ضريبة كل صنف من أسعار الملف فحُفظت صافيةً، ويضيفها التطبيق عند البيع';
+export const PRICES_SAVED_NET_ROWS = 'سعر حُوّل';
+
+/**
+ * عدد الأسعار التي حوّلها الخادم من شاملة إلى صافية — حقل اختياري في الرد (خادم لا يرسله ⇒ 0
+ * فتُعرض العبارة بلا عدد، ولا يُدّعى عدد لم يصل).
+ */
+export function netFromInclusiveCount(res: { netFromInclusive?: unknown; warnings?: { netFromInclusive?: unknown } | null } | null | undefined): number {
+  return count(res?.netFromInclusive) || count(res?.warnings?.netFromInclusive);
+}
+
+/** حقل السعر في خريطة الأعمدة لكل نوع يقبل الخانة (المخزون الافتتاحي له خانة «التكلفة شاملة الضريبة») */
+const INCLUSIVE_TAX_PRICE_FIELD: Readonly<Record<string, string>> = { products: 'basePrice', prices: 'price' };
+
+export const inclusiveTaxKind = (kind: string): boolean => Object.prototype.hasOwnProperty.call(INCLUSIVE_TAX_PRICE_FIELD, kind);
+
+/**
+ * البند 31: تأكيد تلقائي للخانة حين يقول عنوان عمود السعر إنه شامل الضريبة.
+ * الحكم واحد مع المعاينة (headerSaysPriceIncludesTax): تُشترط كلمة ضريبة/VAT/tax وتُنفى «غير شامل»
+ * و«قبل الضريبة». «شامل» وحدها لا تكفي: «السعر شامل الخصم» أو «شامل التوصيل» أو «Price incl. delivery»
+ * كانت تُحدِّد الخانة فيقسم الخادم أسعار المالك الصافية على ١٫١٥ ويحفظها ناقصة.
+ */
+export function inclusiveTaxDetected(kind: string, columns: readonly { field: string; header: string | null }[] | undefined): boolean {
+  const field = INCLUSIVE_TAX_PRICE_FIELD[kind];
+  if (!field) return false;
+  return (columns ?? []).some((c) => c.field === field && headerSaysPriceIncludesTax(c.header));
+}
+
+// ═══ البند 36: رفض الملف كله — الحد الأقصى للصفوف، وحجم الطلب، وتفصيل الخادم ═══
+
+/** مطابق لـ z.array(...).max(N) في backend/src/routes/import.ts — الخادم يرفض الملف كله قبل أي كتابة */
+export const IMPORT_MAX_ROWS: Readonly<Record<string, number>> = {
+  customers: 5000, products: 5000, balances: 10000, ledger: 20000, prices: 20000, opening_stock: 5000,
+};
+export const IMPORT_ROWS_OVER_MAX = 'هذا الملف يرسل {rows} صفاً والحد الأقصى {max} صف في المرة الواحدة، فيرفضه الخادم كله. قسّم الملف ثم ارفع كل جزء على حدة';
+
+/** null ما دام العدد ضمن الحد (أو النوع غير معروف: الخادم يحسم) */
+export function rowsOverMax(kind: string, rows: number): { rows: number; max: number } | null {
+  const max = IMPORT_MAX_ROWS[kind];
+  return typeof max === 'number' && rows > max ? { rows, max } : null;
+}
+
+export const IMPORT_FILE_REJECTED_TITLE = 'رفض الخادم الملف كله ولم يُكتب منه صف واحد';
+export const IMPORT_FILE_REJECTED_HINT = 'صحّح ما يلي في الملف ثم أعد رفعه';
+export const IMPORT_PAYLOAD_TOO_LARGE = 'حجم بيانات هذا الملف أكبر مما يقبله الخادم في طلب واحد. قسّمه إلى ملفات أصغر ثم ارفع كل ملف';
+export const IMPORT_PAYLOAD_SIZE_LABEL = 'حجم بيانات ملفك';
+export const MEGABYTE_UNIT = 'ميغابايت';
+
+/** سطر واحد من تفصيل الرفض: رقم الصف كما يرقّمه الخادم (موضع الصف المرسل + 2) إن أرسله */
+export interface ImportRejectionDetail { row?: number; field?: string; message: string }
+
+const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
+
+/**
+ * البند 36: رفض zod للملف كله (400) — يُقرأ منه ما يدلّ المالك على السطر والسبب:
+ *  • `issues` بمسارها (rows, ‹موضع الصف›, ‹الحقل›) إن أرسلها الخادم ⇒ رقم صف وحقل؛
+ *  • وإلا `errors` (fieldErrors): مفتاح رقمي = موضع صف، و«rows» رسائل بلا سطر.
+ * null حين لا تفصيل يُعرض — تبقى الرسالة العامة كما كانت.
+ */
+export function importValidationRejection(e: unknown): { details: ImportRejectionDetail[] } | null {
+  const { status, body } = errorResponseOf(e);
+  if (status !== 400) return null;
+  const details: ImportRejectionDetail[] = [];
+  const issues = body.issues ?? errorDetail(body, 'issues');
+  if (Array.isArray(issues)) {
+    for (const raw of issues) {
+      const it = asObj(raw);
+      const message = typeof it.message === 'string' ? it.message : '';
+      if (!message) continue;
+      const path: unknown[] = Array.isArray(it.path) ? it.path : [];
+      const idx = path.find((p) => typeof p === 'number');
+      const field = [...path].reverse().find((p) => typeof p === 'string' && p !== 'rows');
+      details.push({
+        row: typeof idx === 'number' ? idx + 2 : undefined,
+        field: typeof field === 'string' ? field : undefined,
+        message,
+      });
+    }
+  }
+  if (!details.length) {
+    for (const [k, v] of Object.entries(asObj(body.errors))) {
+      const numeric = /^\d+$/.test(k);
+      for (const m of Array.isArray(v) ? v : []) {
+        if (typeof m !== 'string' || !m) continue;
+        details.push({ row: numeric ? Number(k) + 2 : undefined, field: !numeric && k !== 'rows' ? k : undefined, message: m });
+      }
+    }
+  }
+  return details.length ? { details } : null;
+}
+
+const TOO_LARGE_RE = /entity too large|payload too large|request too large/i;
+/** حدّ جسم الطلب في الخادم (express.json limit) — يصل 413، أو 500 برسالة الحدّ */
+export function isPayloadTooLarge(f: { type: string; status?: number; message?: string }): boolean {
+  return f.type === 'other' && (f.status === 413 || TOO_LARGE_RE.test(f.message ?? ''));
+}
+
+/** حجم الجسم المرسل بالبايت (UTF-8) — يُحسب عند الفشل وحده ليُعرض للمالك بالميغابايت */
+export function payloadBytes(body: unknown): number {
+  try { return new TextEncoder().encode(JSON.stringify(body) ?? '').length; } catch { return 0; }
+}
+export const megabytes = (bytes: number): number => Math.round((bytes / 1048576) * 10) / 10;
+
+// ═══ البند 51: حارس نسخة الواجهة (تبويب أو نافذة Electron مفتوحة من قبل النشر) ═══
+//
+// نسخة قديمة من الواجهة كانت تحوّل خلية التاريخ بـtoISOString فتتأخر يوماً بتوقيت الرياض، وتمرّر
+// التواريخ النصية خاماً. الخادم لا يميّزها، فتُستورد حركات بتاريخ خاطئ بصمت أو يُرفض الملف برسالة عامة.
+// هذه النسخة تختم طلبها بعقد التاريخ، والخادم يردّ IMPORT_CLIENT_OUTDATED على الطلب الذي لا يحمله.
+
+export const IMPORT_DATE_CONTRACT = 'local-ymd-v2';
+export const IMPORT_CLIENT_OUTDATED_CODE = 'IMPORT_CLIENT_OUTDATED';
+export const IMPORT_CLIENT_OUTDATED_MESSAGE = 'هذه الصفحة مفتوحة من قبل تحديث النظام ولم يُكتب شيء. حدّث الصفحة ثم أعد رفع الملف';
+export const RELOAD_PAGE_LABEL = 'حدّث الصفحة';
+
+/** رمز عدم التوافق يُقرأ من جسم الرد مباشرةً، فلا ينتظر إضافته إلى تصنيف الفشل العام */
+export function isClientOutdated(e: unknown): boolean {
+  return errorResponseOf(e).body.code === IMPORT_CLIENT_OUTDATED_CODE;
+}
+
+// ═══ البند 52: انقطاع الخدمة أثناء النشر، وتصفّح سجلّ الدفعات ═══
+
+export const SERVICE_UNAVAILABLE_MESSAGE = 'الخدمة تُحدَّث الآن، أعد المحاولة بعد لحظات';
+export const SERVICE_UNAVAILABLE_HINT = 'إن كان الاستيراد قد بدأ فستجده في سجل الاستيرادات، وإعادة الإرسال تتوقف عند التكرار';
+const UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
+/** 502/503/504 (وسيط النشر برد HTML بلا success): انقطاع مؤقّت لا خطأ تطبيق */
+export function isServiceUnavailable(f: { type: string; status?: number }): boolean {
+  return f.type === 'other' && typeof f.status === 'number' && UNAVAILABLE_STATUSES.has(f.status);
+}
+
+/** حجم صفحة GET /import/batches في الخادم (take) */
+export const BATCHES_PAGE_SIZE = 50;
+export const BATCHES_LOAD_MORE = 'عرض المزيد';
+export const BATCHES_NO_OLDER = 'لم تصل دفعات أقدم من الخادم';
+export const BATCHES_LOAD_MORE_FAILED = 'تعذّر جلب الدفعات الأقدم';
+export const DUPLICATE_BATCH_OUT_OF_VIEW = 'الدفعة المكرّرة قد تكون أقدم مما يعرضه السجل: اضغط «عرض المزيد» فيه';
+
+/**
+ * دمج صفحة أقدم في المعروض بترتيبه وبلا تكرار معرّف.
+ * added=0 ⇒ لا جديد: نهاية السجل، أو خادم لا يفهم cursor فأعاد الصفحة الأولى نفسها.
+ */
+export function mergeBatchPages<T extends { id: string }>(shown: readonly T[], page: readonly T[]): { list: T[]; fresh: T[]; added: number } {
+  const seen = new Set(shown.map((b) => b.id));
+  const fresh: T[] = [];
+  for (const b of page) {
+    if (!b || typeof b.id !== 'string' || seen.has(b.id)) continue;
+    seen.add(b.id);
+    fresh.push(b);
+  }
+  return { list: fresh.length ? [...shown, ...fresh] : [...shown], fresh, added: fresh.length };
+}
+
+/**
+ * زرّ «عرض المزيد»: يظهر حين يقول الخادم إن خلفها المزيد (hasMore)، أو — مع خادم لا يرسلها —
+ * حين تكون الصفحة ممتلئة فقد يكون خلفها أقدم. المقيّد النطاق لا يرى السجل أصلاً.
+ */
+export function canLoadOlderBatches(i: { shown: number; hasMore?: boolean; exhausted: boolean; scoped: boolean }): boolean {
+  if (i.scoped || i.exhausted) return false;
+  if (typeof i.hasMore === 'boolean') return i.hasMore;
+  return i.shown >= BATCHES_PAGE_SIZE;
+}
+
+/**
+ * صفحة من سجلّ الدفعات كما يردّها العقد: `{ data, hasMore, nextCursor }`.
+ * hasMore غير المنطقية ⇒ undefined (خادم أقدم لا يرسلها: يحسم امتلاء الصفحة)، وnextCursor غير النصية ⇒ null
+ * (يُستأنف من معرّف آخر دفعة معروضة)، والصفوف بلا معرّف نصّي تُسقط فلا تُعرض بطاقة بلا هوية.
+ */
+export function batchesPage<T extends { id: string }>(body: unknown): { rows: T[]; hasMore?: boolean; nextCursor: string | null } {
+  const b = asObj(body);
+  const rows = (Array.isArray(b.data) ? b.data : [])
+    .filter((r): r is T => !!r && typeof r === 'object' && typeof (r as { id?: unknown }).id === 'string');
+  return {
+    rows,
+    hasMore: typeof b.hasMore === 'boolean' ? b.hasMore : undefined,
+    nextCursor: typeof b.nextCursor === 'string' && b.nextCursor ? b.nextCursor : null,
+  };
+}
+
+/** موضع الاستئناف: ما أعطاه الخادم، وإلا معرّف آخر دفعة معروضة (خادم أقدم بلا nextCursor) */
+export const nextBatchesCursor = (serverCursor: string | null | undefined, lastShownId: string | undefined): string | undefined =>
+  (serverCursor || lastShownId || undefined);

@@ -71,6 +71,23 @@ export function includedInOpening(row: { effectAt: Instant; createdAt: Instant }
   return isIncludedInOpening(row, { cutoverDate: cut.cutoverDate, openingSnapshotAt: cut.snapshotAt, timezone: cut.timezone });
 }
 
+/**
+ * البند 39: أقصى تاريخ أثر معقول لحركة مستوردة = «اليوم» بتوقيت الشركة + يوم واحد (سعة لفروق المناطق الزمنية).
+ * ما بعده ليس حركة بل خطأ سنة (2052 بدل 2025). الحارس الأصل مكانه الاستيراد نفسه (رفض الصف برسالة تدلّ على
+ * التاريخ)، وما دخل قبله يُعدّ هنا فيظهر تنبيهاً معدوداً في معاينة الإعداد وفي تفاصيل 409 قبل التفعيل.
+ */
+export const IMPORT_FUTURE_DATE_GRACE_DAYS = 1;
+
+/** أبعد تاريخ أثر مقبول لصفّ مستورد (شامل) بتوقيت الشركة */
+export function maxImportEntryDate(now: Date, timezone: string): LocalDate {
+  return addDays(todayLocal(now, timezone), IMPORT_FUTURE_DATE_GRACE_DAYS);
+}
+
+/** هل تاريخ أثر الصفّ أبعد من الحدّ المعقول؟ (المقارنة بالأيام المحلية لا باللحظات) */
+export function isImportDateTooFarAhead(entryDate: Instant, now: Date, timezone: string): boolean {
+  return compareLocalDate(todayLocal(new Date(entryDate), timezone), maxImportEntryDate(now, timezone)) > 0;
+}
+
 // ═══ الخطوة 1: تاريخ البدء ═══
 
 /**
@@ -408,6 +425,11 @@ export function computeDerivedOpening(src: OpeningSources, cut: OpeningCutoff, o
       productIds.map((id) => ({ id, name: id, code: id, unit: '' })),
       wh.map((i) => ({ productId: i.productId, qty: i.qty, type: i.type, unitCost: i.unitCost, at: i.createdAt })),
       vans.map((i) => ({ productId: i.productId, qty: i.qty, type: i.type, salesRepId: i.salesRepId, at: i.createdAt })),
+      // خانات عملة الشركة نفسها التي يقرأ بها `toMilli` أدناه: بدونها كانت قيمة كل
+      // صنفٍ تُقرَّب إلى خانتين قبل أن تصل إلى `toMilli(dec)`، فتضيع الخانة الثالثة
+      // في الدينار ولا يستردّها شيء بعدها. و`dec` هنا مقروءةٌ قبل المعاملة (opts)
+      // فلا استعلامَ جديداً تحت قفل `gl-post`.
+      dec,
     );
     for (const r of rows) {
       if (Number.isFinite(r.stockValue)) warehouseValueMilli += toMilli(r.stockValue, dec);
@@ -441,7 +463,15 @@ export interface ImportedAfterCutover {
   customers: number;
   debitMilli: Milli;
   creditMilli: Milli;
+  /** البند 39: كم منها بتاريخ أبعد من الحدّ المعقول (خطأ سنة) — تنبيه معدود لا خطأ */
+  futureDated: number;
+  /** أبعد تاريخ أثر في المجموعة بتوقيت الشركة (null حين لا حركات) */
+  maxEntryDate: LocalDate | null;
 }
+
+const EMPTY_IMPORTED_AFTER_CUTOVER: ImportedAfterCutover = {
+  count: 0, customers: 0, debitMilli: 0n as Milli, creditMilli: 0n as Milli, futureDated: 0, maxEntryDate: null,
+};
 
 /**
  * صفوف مستوردة (ضمن دفعة ImportBatch غير متراجَع عنها) بتاريخ أثر ≥ البدء وcreatedAt ≤ اللقطة: لا تدخل القيد
@@ -458,8 +488,12 @@ export function computeImportedAfterCutover(
   let count = 0;
   let debitMilli = 0n;
   let creditMilli = 0n;
+  let futureDated = 0;
+  let maxEntryDate: LocalDate | null = null;
   const snap = cut.snapshotAt.getTime();
   const start = cut.cutoverStart.getTime();
+  // البند 39: الحدّ الأعلى المعقول للتاريخ المستورد بتوقيت الشركة (لقطة الفحص هي «الآن» العملي)
+  const maxDate = maxImportEntryDate(cut.snapshotAt, cut.timezone);
   for (const e of rows) {
     if (!importedIds.has(e.id)) continue;
     if (e.invoiceId || e.receiptId) continue;
@@ -470,14 +504,73 @@ export function computeImportedAfterCutover(
     customers.add(e.customerId);
     debitMilli += toMilli(e.debit, decimals);
     creditMilli += toMilli(e.credit, decimals);
+    const day = todayLocal(new Date(e.entryDate), cut.timezone);
+    if (maxEntryDate === null || compareLocalDate(day, maxEntryDate) > 0) maxEntryDate = day;
+    if (compareLocalDate(day, maxDate) > 0) futureDated++;
   }
-  return { count, customers: customers.size, debitMilli, creditMilli };
+  return { count, customers: customers.size, debitMilli, creditMilli, futureDated, maxEntryDate };
 }
 
-/** /setup/commit: حركات مستوردة بعد البدء بلا acknowledgePostCutoverImports=true ⇒ 409 LEDGER_POST_CUTOVER_IMPORTS_ACK */
-export function postCutoverImportsAckMissing(s: Pick<ImportedAfterCutover, 'count'>, acknowledged: boolean | null | undefined): boolean {
-  return s.count > 0 && acknowledged !== true;
+/** /setup/commit: حركات مستوردة بعد البدء بلا acknowledgePostCutoverImports ⇒ 409 LEDGER_POST_CUTOVER_IMPORTS_ACK */
+export function postCutoverImportsAckMissing(s: Pick<ImportedAfterCutover, 'count'>, acknowledged: PostCutoverImportsAckInput): boolean {
+  return s.count > 0 && !postCutoverImportsAcknowledged(acknowledged);
 }
+
+// ═══ البند 41: الإقرار مربوط بلقطة محدّدة ═══
+
+/**
+ * لقطة الحركات المستوردة بعد البدء **كما عُرضت على المالك** وأقرّ بها. الإقرار المنطقي وحده لا يعرف بماذا أُقرّ:
+ * ثلاث حركات بـ500 تُقرّ ثم يستورد أحد 8000 حركة قبل ضغط «تفعيل» فيمرّ الإقرار القديم على واقع جديد.
+ */
+export interface PostCutoverImportsAckSnapshot {
+  count: number;
+  debit: string;
+  credit: string;
+  /** لحظة اللقطة المعروضة — للتدقيق فقط، لا تدخل المقارنة (لقطة الاعتماد أحدث دوماً) */
+  snapshotAt?: string | null;
+}
+
+/** الإقرار المرسل: لقطة (المطلوب) أو منطقي (الشكل القديم) */
+export type PostCutoverImportsAckInput = boolean | PostCutoverImportsAckSnapshot | null | undefined;
+
+export function isPostCutoverImportsAckSnapshot(ack: PostCutoverImportsAckInput): ack is PostCutoverImportsAckSnapshot {
+  return typeof ack === 'object' && ack !== null;
+}
+
+/** أقرّ بشيء ما؟ (لقطة مرسلة أو true) */
+export function postCutoverImportsAcknowledged(ack: PostCutoverImportsAckInput): boolean {
+  return ack === true || isPostCutoverImportsAckSnapshot(ack);
+}
+
+export interface PostCutoverImportsAckDiff {
+  acked: { count: number; debit: string; credit: string };
+  current: { count: number; debit: string; credit: string };
+}
+
+/**
+ * البند 41 (مع البند 42): تُقارن اللقطة المُقَرّ بها بلقطة الاعتماد المقروءة **بعد حيازة القفلين**؛ اختلاف العدد
+ * أو المدين أو الدائن ⇒ إقرار قديم على واقع جديد فيُرفض بـ409. المقارنة بالملّي لا بالنص، فلا يُفشلها اختلاف
+ * منازل العرض بين المعاينة والاعتماد. إقرار منطقي (بلا لقطة) لا يُقارن — الواجهة تُرسل اللقطة.
+ */
+export function postCutoverImportsAckStale(
+  current: ImportedAfterCutover, decimals: number, ack: PostCutoverImportsAckInput,
+): PostCutoverImportsAckDiff | null {
+  if (!isPostCutoverImportsAckSnapshot(ack)) return null;
+  const parse = (v: string): Milli | null => {
+    try { return toMilli(v, decimals); } catch { return null; }
+  };
+  const debit = parse(ack.debit);
+  const credit = parse(ack.credit);
+  if (ack.count === current.count && debit !== null && credit !== null && debit === current.debitMilli && credit === current.creditMilli) return null;
+  return {
+    acked: { count: ack.count, debit: ack.debit, credit: ack.credit },
+    current: { count: current.count, debit: formatMilli(current.debitMilli, decimals), credit: formatMilli(current.creditMilli, decimals) },
+  };
+}
+
+/** رسالة 409 LEDGER_POST_CUTOVER_IMPORTS_CHANGED (رمز مسار محلي، كأخواته في routes/ledger/errors.ts) */
+export const LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE =
+  'تغيّرت الحركات المستوردة بعد تاريخ البدء عمّا أقررت به: حدّث المعاينة وراجع الأرقام الجديدة ثم أقرّ بها من جديد';
 
 /** معرّفات AccountEntry في recordIds (مصفوفة JSON) — الشكل غير المتوقع يُتجاهل */
 export function importBatchRecordIds(recordIds: string | null | undefined): string[] {
@@ -811,7 +904,7 @@ export async function loadImportedAfterCutover(db: GlDb, tenantId: string, cut: 
     select: { recordIds: true },
   });
   const ids = [...new Set(batches.flatMap((b) => importBatchRecordIds(b.recordIds)))];
-  if (!ids.length) return { count: 0, customers: 0, debitMilli: 0n, creditMilli: 0n };
+  if (!ids.length) return { ...EMPTY_IMPORTED_AFTER_CUTOVER };
   const CHUNK = 5000;
   const rows: OpeningAccountEntryRow[] = [];
   for (let i = 0; i < ids.length; i += CHUNK) {
@@ -992,7 +1085,11 @@ export function openingStockCheckJson(s: OpeningStockCheck, decimals: number, cu
 // ═══ JSON للاستجابة ═══
 
 export function importedAfterCutoverJson(s: ImportedAfterCutover, decimals: number) {
-  return { count: s.count, customers: s.customers, debit: formatMilli(s.debitMilli, decimals), credit: formatMilli(s.creditMilli, decimals) };
+  return {
+    count: s.count, customers: s.customers, debit: formatMilli(s.debitMilli, decimals), credit: formatMilli(s.creditMilli, decimals),
+    // البند 39: تنبيه معدود على تواريخ أبعد من المعقول (خطأ سنة) — لا يمنع التفعيل
+    futureDated: s.futureDated, maxEntryDate: s.maxEntryDate,
+  };
 }
 
 export function derivedOpeningJson(d: DerivedOpening, decimals: number) {

@@ -22,7 +22,11 @@ import {
   assertMasterBatchReservable, customerMatchError, groupLedgerRows, importRowError, importWriteFailure, mergeBalanceRows, normImportName,
   priceRowIssue, pricesRevertPlan, taxPctIssue, type BalanceSkipReason, type ImportMasterKind, type ImportRowError, type OpeningStockLine, type ResolvedBalanceRow,
   newPricesRevertTotals, runPricesRevertChunks, type PriceRevertChunkDelta,
+  // الدفعة 3 (البنود 31 و36 و43 و44 و49): فحص الصفوف صفاً صفاً، وتخطيط الأسعار، وجوال البطاقة
+  importRowLimitError, parseImportRows, phoneNotEditableRows, planPriceImportRows, type ImportRowSchema,
 } from '../services/importLedger';
+// البند 31: ردّ السعر الشامل إلى صافيه بالدالّة المالية الموحّدة نفسها (نصف-لأعلى)
+import { netFromInclusive, roundHalfUp } from '../lib/money';
 import { entryTotalCost } from '../services/warehouseCost';
 import {
   ACCOUNTING_NOT_ALLOWED_MESSAGE, importAccessBody, importAccessDecision, importKindsAllowed, isImportAccountingKind, loadImportActor, requireImportAccess,
@@ -42,6 +46,52 @@ const router = Router();
 router.use(authenticate, requireAdmin);
 
 const CHANNELS = ['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE'];
+
+/**
+ * البند 36: حدّ صفوف الدفعة الواحدة لكل نوع — الحدود نفسها التي كانت في `z.array(row).max(N)` حرفاً بحرف،
+ * لكنها صارت خطأ صفّ يذكر عدد صفوف الملف والحدّ، لا رفضاً عاماً «بيانات غير صحيحة rows» بلا سطر.
+ */
+const IMPORT_ROW_LIMITS = { customers: 5000, products: 5000, balances: 10000, ledger: 20000, prices: 20000 } as const;
+
+/**
+ * البند 36: فحص الصفوف صفاً صفاً قبل أي شيء. الملف السليم يعطي عين ما كان يعطيه `z.array(row).parse`
+ * (القصّ والافتراضات — مُثبَت في import-products-skipped.test.ts)، فالبصمة والعدّ والحجز لا تتبدّل؛ والصفّ
+ * المخالف يصير خطأ صفّ برقم سطره في الملف واسم خانته وقيمتها بدل رفض الملف كله قبل قراءة صف واحد.
+ */
+function parseImportBodyRows<T>(schema: ImportRowSchema<T>, raw: readonly unknown[], max: number): { rows: T[]; errors: ImportRowError[] } {
+  const out = parseImportRows(schema, raw);
+  const over = importRowLimitError(raw.length, max);
+  return { rows: out.rows, errors: over ? [over, ...out.errors] : out.errors };
+}
+
+/** البند 51: عقد تاريخ الواجهة — تبويب مفتوح من قبل النشر لا يرسله (أو يرسل غيره) فلا يُكتب منه صفّ */
+const IMPORT_DATE_CONTRACT = 'local-ymd-v2';
+const IMPORT_CLIENT_OUTDATED_MESSAGE = 'هذه الصفحة مفتوحة من قبل تحديث النظام ولم يُكتب شيء. حدّث الصفحة ثم أعد رفع الملف';
+
+/** البند 51: العقد غائب أو مختلف ⇒ 409 IMPORT_CLIENT_OUTDATED قبل أي قراءة أو كتابة */
+function assertImportDateContract(contract: string | undefined): void {
+  if (contract === IMPORT_DATE_CONTRACT) return;
+  throw new ImportHttpError(409, 'IMPORT_CLIENT_OUTDATED', IMPORT_CLIENT_OUTDATED_MESSAGE, { expected: IMPORT_DATE_CONTRACT, received: contract ?? null });
+}
+
+/**
+ * البند 39 (الإغلاقة): تنبيه «تواريخ بعد اليوم» له **مصدر واحد** هو `resolveImportDates` — وهي تحسبه بـ
+ * `maxImportEntryDate`/`compareLocalDate` من `services/gl/opening.ts` بالتوقيت **المضبوط** نفسه الذي تُكتب به
+ * تواريخ الاستيراد (`explicitTimezone`، البند 22). النسخة الثانية التي كانت هنا تحسبه بـ`ctx.timezone ?? 'UTC'`
+ * على اللحظات لا على الأيام المحلية، فتعطي الشركةَ بلا توقيت مضبوط تنبيهاً كاذباً على صفّ تاريخُه غدُها المحلي.
+ */
+
+/**
+ * البند 36: سقف أخطاء الصفوف في الردّ — 500 كأخواتها (`skippedRows` و`merged` و`duplicates`). ملف 20000 صفّ
+ * بعمود «مدين» نصّي كان يردّ خطأ لكل صفّ (جسم بالميغابايتات يخنق المتصفّح)؛ الآن 500 خطأ والعدد الكامل في
+ * `errorsTotal` فلا يظنّ المالك أن الباقي نجح. الواجهة القائمة تقرأ `errors` كما هي، والعدّاد الصادق `errorsTotal`.
+ */
+const IMPORT_ERRORS_CAP = 500;
+
+/** يُنشر بعد `...result` في كل ردّ استيراد: القائمة مقصوصة على السقف، وعددها الكامل معها */
+function cappedErrors(errors: readonly ImportRowError[]): { errors: ImportRowError[]; errorsTotal: number } {
+  return { errors: errors.slice(0, IMPORT_ERRORS_CAP), errorsTotal: errors.length };
+}
 
 type ImportResult = {
   created: number; skipped: number; total: number; errors: ImportRowError[]; batchId?: string | null;
@@ -226,6 +276,116 @@ async function duplicateBatch(tid: string, kind: string, contentHash: string) {
   });
 }
 
+// ═══ الدفعة 3 (البنود 32 و33 و45 و46 و48): أثر الدفاتر والصفّ الصادر وفئات التراجع ═══
+
+/** البند 33: أثر العميل في الدفاتر — GlMove.customerId وGlMoveLine.customerId بلا مفتاح أجنبي */
+export const CUSTOMER_GL_BLOCK_REASON = 'للعميل حركات في الدفاتر';
+/** البند 45: أثر الصنف في الدفاتر — GlMoveLine.productId بلا مفتاح أجنبي */
+export const PRODUCT_GL_BLOCK_REASON = 'للصنف سطور قيود';
+/** البند 32: مستندات في الصفّ الصادر على أجهزة المناديب لم تُرفع بعد */
+const OUTBOX_PENDING_REASON = 'مستندات لم تُرفع بعد من أجهزة المناديب، أكمل المزامنة ثم أعد التراجع';
+/** البند 32: أقصى عمر لإبلاغ نبضة يُعتدّ به — جهاز لم يُرَ منذ أسبوع لا يحبس التراجع إلى الأبد */
+export const OUTBOX_REPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * البند 33: أثر العميل في الدفاتر — سطر قيد أو قيد على اسمه. الحقلان بلا مفتاح أجنبي، فحذف العميل يترك
+ * سطوراً تشير إلى عميل غير موجود: فحص C3 يبقى أحمر لعميل بلا اسم، وزرّ «قيد التصحيح» يفشل بـ500.
+ */
+export async function customerLedgerBlockReason(tx: Prisma.TransactionClient, tid: string, cid: string): Promise<string | null> {
+  if ((await tx.glMoveLine.count({ where: { tenantId: tid, customerId: cid } })) > 0) return CUSTOMER_GL_BLOCK_REASON;
+  return (await tx.glMove.count({ where: { tenantId: tid, customerId: cid } })) > 0 ? CUSTOMER_GL_BLOCK_REASON : null;
+}
+
+/** البند 45: سطور قيود على الصنف (بلا مفتاح أجنبي) — الحذف يتركها تشير إلى صنف غير موجود فلا تُحفظ مسودة القيد */
+export async function productLedgerBlockReason(tx: Prisma.TransactionClient, tid: string, pid: string): Promise<string | null> {
+  return (await tx.glMoveLine.count({ where: { tenantId: tid, productId: pid } })) > 0 ? PRODUCT_GL_BLOCK_REASON : null;
+}
+
+/** البند 32: أقدم إبلاغ نبضة يُعتدّ به — بعد إنشاء الدفعة (ما قبلها لا يخصّ عملاءها)، وداخل النافذة */
+export function outboxReportFloor(batchCreatedAt: Date, now: Date): Date {
+  return new Date(Math.max(batchCreatedAt.getTime(), now.getTime() - OUTBOX_REPORT_MAX_AGE_MS));
+}
+
+/** البند 32: مجموع ما أبلغت به الأجهزة من مستندات لم تُرفع (الحقل الغائب = حزمة قديمة لا تُبلغ ⇒ صفر) */
+export function outboxPendingTotal(reps: readonly { outboxPending?: number | null }[]): number {
+  return reps.reduce((s, r) => s + (typeof r.outboxPending === 'number' && r.outboxPending > 0 ? r.outboxPending : 0), 0);
+}
+
+/**
+ * البند 32: الصفّ الصادر يعيش على جهاز المندوب وحده — الخادم لا يرى مستنداته ولا عميلها، بل عدّها في النبضة
+ * (SalesRep.outboxPending/outboxReportedAt من الحزمة الحديثة). جهازٌ أُبلغ عنه بعد إنشاء دفعة العملاء وما زال
+ * يحمل مستندات: فاتورة أو سند لعميل من الدفعة قد يكون فيه، وحذف العميل يجعله «مرفوضاً» بلا إمكان إعادة ربط
+ * (فيختل مخزون السيارة والعهدة). فالمنع مؤقّت يزول بأول نبضة تُبلغ صفراً، والدفعة تبقى قابلة للتراجع.
+ */
+async function pendingOutboxDocs(tid: string, batchCreatedAt: Date, now: Date): Promise<number> {
+  const reps = await prisma.salesRep.findMany({
+    where: { tenantId: tid, outboxPending: { gt: 0 }, outboxReportedAt: { gte: outboxReportFloor(batchCreatedAt, now) } },
+    select: { outboxPending: true },
+  });
+  return outboxPendingTotal(reps);
+}
+
+/**
+ * البند 48: فحص الفئة وحذفها في معاملة واحدة تحت قفل صفّها. العلاقة Product.categoryId عليها SET NULL، فلا
+ * يُرمى P2003 أبداً ولا ينفع isFkBlockError حارساً: الحارس هو إعادة العدّ داخل المعاملة نفسها. ولا قفل استشاري
+ * هنا (لا gl-post ولا import-entries) فلا يتوسّع نطاق الأقفال القائم ولا يتبدّل ترتيبها.
+ */
+async function deleteImportCategory(tid: string, catId: string, draftLinked: boolean): Promise<'deleted' | 'kept' | 'gone'> {
+  try {
+    return await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
+      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM product_categories WHERE id = ${catId} AND "tenantId" = ${tid} FOR UPDATE`;
+      if (locked.length === 0) return 'gone' as const;
+      const deletable = categoryDeletable({
+        draftLinked,
+        products: await tx.product.count({ where: { tenantId: tid, categoryId: catId } }),
+        accountRows: await tx.glProductCategoryAccount.count({ where: { tenantId: tid, categoryId: catId } }),
+      });
+      if (!deletable) return 'kept' as const;
+      await tx.productCategory.deleteMany({ where: { id: catId, tenantId: tid } });
+      return 'deleted' as const;
+    }, IMPORT_WRITE_TX);
+  } catch (e) {
+    // ارتباط طارئ أو مزاحمة على القفل: الفئة تبقى ويُعيد التراجع التالي فحصها — لا يفشل تراجع الدفعة كلها
+    if (isFkBlockError(e) || isLockBusyError(e)) return 'kept';
+    throw e;
+  }
+}
+
+/** البند 46: فئات أنشأتها دفعات المنتجات المذكورة، بلا تكرار ولا ما استُثني، وبسقف */
+export function importBatchCategoryIds(batches: readonly { recordIds: string | null }[], exclude: readonly string[], cap = 200): string[] {
+  const seen = new Set(exclude);
+  const out: string[] = [];
+  for (const b of batches) {
+    for (const c of parseBatchRecordIds(b.recordIds).categories) {
+      if (seen.has(c)) continue;
+      seen.add(c);
+      out.push(c);
+      if (out.length >= cap) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * البند 46: فئة أنشأتها دفعة A واستعملتها دفعة B تبقى عند التراجع عن A (لها منتجات B) ثم تسقط من التتبّع، فلا
+ * تحذفها واجهة ولا تراجع وتبقى فارغة في القوائم ومعالج الدفاتر. فكل تراجع عن دفعة منتجات يفحص فئات دفعات
+ * المنتجات الأخرى كذلك — ومنها المتراجَع عنها: وسم reverted لا يمحو recordIds. المرشّح ما بقي قائماً بلا منتج
+ * (استعلام واحد)، والقرار النهائي داخل معاملة deleteImportCategory.
+ */
+async function orphanImportCategories(tid: string, exceptBatchId: string, exclude: readonly string[]): Promise<string[]> {
+  const batches = await prisma.importBatch.findMany({
+    where: { tenantId: tid, kind: 'products', id: { not: exceptBatchId } },
+    select: { recordIds: true }, orderBy: { createdAt: 'desc' }, take: 100,
+  });
+  const ids = importBatchCategoryIds(batches, exclude);
+  if (!ids.length) return [];
+  const rows = await prisma.productCategory.findMany({
+    where: { tenantId: tid, id: { in: ids } }, select: { id: true, _count: { select: { products: true } } },
+  });
+  return rows.filter(r => r._count.products === 0).map(r => r.id);
+}
+
 /**
  * مطابق العملاء (البندان 3 و4): الكود وحده إن أُعطي، وإلا الجوال المطبَّع ثم الاسم الفريد؛ الغموض خطأ صف لا عميل عشوائي.
  * مُقيَّد بنطاق المستخدم (المقيّد ممنوع من الاستيراد أصلاً، والقيد لا يضر).
@@ -259,7 +419,8 @@ const customerRow = z.object({
   paymentDays: z.number().int().nonnegative().optional(),
 });
 const customersBody = z.object({
-  rows: z.array(customerRow).max(5000),
+  // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
+  rows: z.array(z.unknown()),
   force: z.boolean().optional(),
 });
 
@@ -267,11 +428,16 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
   try {
     const tid = tenantId(req);
     const body = customersBody.parse(req.body ?? {});
-    const rows = body.rows;
-    const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const parsedRows = parseImportBodyRows(customerRow, body.rows, IMPORT_ROW_LIMITS.customers);
+    const rows = parsedRows.rows;
+    const result: ImportResult = { created: 0, skipped: 0, total: body.rows.length, errors: [...parsedRows.errors] };
     const skippedRows: { row: number; reason: CustomerSkipReason }[] = [];
     const similar: { row: number; code: string; matchedBy: 'phone' | 'name' }[] = [];
     const attachedRows: { row: number; code: string; matchedBy: 'phone' | 'name' }[] = [];
+    // البند 49: عملاء أُنشئوا بجوال لا تقبله بطاقة العميل ⇒ تنبيه معدود بصفوفه (لا رفض: ملف بلا عمود جوال كان يمرّ)
+    let phoneNotEditable: ReturnType<typeof phoneNotEditableRows> = null;
+    // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة (الرد بشكله نفسه بأصفار)
+    if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } }); return; }
     // البند 20: الدفعة محجوزة قبل أي كتابة (البصمة والاستيراد الجاري تحت قفل النوع)
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'customers', importContentHash('customers', rows), importedBy(req), body.force === true), 'customers');
@@ -293,6 +459,8 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
         if (d.similar && r.code && similar.length < 500) similar.push({ row: d.row, code: r.code, matchedBy: d.similar });
         creates.push({ row: d.row, phone: d.phone, r });
       });
+      // البند 49: قاعدة بطاقة العميل نفسها (تسع خانات) — تُحسب على ما سيُنشأ قبل الكتابة
+      phoneNotEditable = phoneNotEditableRows(creates);
       await runImportChunks({
         chunks: planImportChunks(creates, () => 1, importChunkTarget(creates.length)),
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
@@ -353,7 +521,7 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: { ...result, skippedRows, attachedRows, warnings: { similar } } });
+    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar, ...(phoneNotEditable ? { phoneNotEditable } : {}) } } });
   } catch (err) { sendImportError(err, res, next); }
 });
 
@@ -368,7 +536,10 @@ const productRow = z.object({
   category: z.string().trim().optional(),         // اسم الفئة — تُنشأ إن لزم
 });
 const productsBody = z.object({
-  rows: z.array(productRow).max(5000),
+  // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
+  rows: z.array(z.unknown()),
+  /** البند 31: عمود السعر في الملف شامل الضريبة ⇒ يُردّ إلى صافيه قبل الحفظ (لا يدخل البصمة، كالمخزون الافتتاحي) */
+  pricesIncludeTax: z.boolean().optional().default(false),
   force: z.boolean().optional(),
 });
 
@@ -376,12 +547,21 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
   try {
     const tid = tenantId(req);
     const body = productsBody.parse(req.body ?? {});
-    const rows = body.rows;
-    const result: ImportResult = { created: 0, skipped: 0, total: rows.length, errors: [] };
+    const parsedRows = parseImportBodyRows(productRow, body.rows, IMPORT_ROW_LIMITS.products);
+    const rows = parsedRows.rows;
+    const result: ImportResult = { created: 0, skipped: 0, total: body.rows.length, errors: [...parsedRows.errors] };
     let plan: ProductImportPlan = { creates: [], skippedRows: [], errors: [] };
+    // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة
+    if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows: [], netFromInclusive: 0 } }); return; }
 
-    const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
+    const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true, currency: true } });
     const defaultVat = company?.defaultVatPct ?? 15;
+    // البند 31: الصافي مقرَّب بمنازل عملة الشركة بالدالّة المالية الموحّدة (نصف-لأعلى)، وعدد ما تحوّل يُذكر في الرد
+    const decimals = currencyDecimalsOf(company?.currency);
+    const inclTax = body.pricesIncludeTax === true;
+    let netFromInclusiveRows = 0;
+    /** البند 31: سعر الصفّ بعد ردّه إلى صافيه — يُحسب مرّة قبل الكتابة، فلا تُعيد شريحة فاشلة العدّ */
+    const netPriceByRow = new Map<number, number>();
 
     // البند 20: الدفعة محجوزة قبل أي كتابة (والفئات تُطابَق تحت قفل النوع فلا تتكرر)
     const progress = new ImportBatchProgress(
@@ -402,10 +582,19 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
       const creates = plan.creates;
       result.skipped = plan.skippedRows.length;
       for (const e of plan.errors) result.errors.push(e);
+      // البند 31: ضريبة الصف إن كُتبت وإلا ضريبة الشركة الافتراضية — وهي عين ما يُخزَّن في taxPct أدناه
+      if (inclTax) {
+        for (const c of creates) {
+          const gross = c.r.basePrice ?? 0;
+          const net = roundHalfUp(netFromInclusive(gross, c.r.taxPct ?? defaultVat ?? 0), decimals);
+          if (net !== gross) netFromInclusiveRows++;
+          netPriceByRow.set(c.row, net);
+        }
+      }
       await runImportChunks({
         chunks: planImportChunks(creates, () => 1, importChunkTarget(creates.length)),
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
-        writeItem: async (tx: Prisma.TransactionClient, { r }) => {
+        writeItem: async (tx: Prisma.TransactionClient, { r, row }) => {
           let categoryId: string | null = null;
           let newCategory: { key: string; id: string } | null = null;
           const catName = r.category?.trim();
@@ -424,7 +613,8 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
           const p = await tx.product.create({
             data: {
               tenantId: tid, code: r.code, name: r.name, unit: r.unit || 'حبة',
-              basePrice: r.basePrice ?? 0, taxPct: r.taxPct ?? defaultVat,
+              // البند 31: الشامل مردود إلى صافيه (netPriceByRow)، وإلا السعر كما كُتب
+              basePrice: netPriceByRow.get(row) ?? r.basePrice ?? 0, taxPct: r.taxPct ?? defaultVat,
               barcode: r.barcode || null, categoryId,
             } as never,
             select: { id: true },
@@ -444,7 +634,7 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: { ...result, skippedRows: plan.skippedRows.slice(0, 500) } });
+    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows: plan.skippedRows.slice(0, 500), netFromInclusive: netFromInclusiveRows } });
   } catch (err) { sendImportError(err, res, next); }
 });
 
@@ -465,19 +655,30 @@ const balanceRow = z.object({
   date: importDate,
 });
 const balancesBody = z.object({
-  rows: z.array(balanceRow).max(10000),
+  // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
+  rows: z.array(z.unknown()),
   undatedDate: undatedDateField,
+  /** البند 51: عقد التاريخ — تبويب من قبل النشر يرسل تواريخ متأخرة يوماً، فلا يُقبل منه صفّ */
+  dateContract: z.string().trim().optional(),
   force: z.boolean().optional(),
 });
 router.post('/balances', requireImportAccess('balances'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const body = balancesBody.parse(req.body ?? {});
-    const rows = body.rows;
-    const result: ImportResult & { zero: number } = { created: 0, skipped: 0, zero: 0, total: rows.length, errors: [] };
+    // البند 51: قبل أي قراءة أو كتابة — عميل قديم ⇒ 409 IMPORT_CLIENT_OUTDATED برسالة «حدّث الصفحة» العربية
+    assertImportDateContract(body.dateContract);
+    const parsedRows = parseImportBodyRows(balanceRow, body.rows, IMPORT_ROW_LIMITS.balances);
+    const rows = parsedRows.rows;
+    const result: ImportResult & { zero: number } = { created: 0, skipped: 0, zero: 0, total: body.rows.length, errors: [...parsedRows.errors] };
+    // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة
+    if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), warnings: { undatedAsToday: 0, skipped: [], merged: [] } } }); return; }
     // كل التواريخ قبل أي كتابة: غير الصالح أو (بعد التفعيل) بلا تاريخ ⇒ 400 ولا شيء يُكتب
+    const now = new Date();
     const ctx = await importLedgerContext(tid);
-    const { dates, undatedAsToday } = resolveImportDates(rows, { timezone: ctx.timezone, undatedDate: body.undatedDate, activated: ctx.activated, now: new Date() });
+    // البند 39: تنبيه معدود بصفوف تاريخها أبعد من «اليوم + يوم» بتوقيت الشركة (خطأ سنة: 2052 بدل 2025) —
+    // من `resolveImportDates` نفسها: قاعدة واحدة وتوقيت واحد، فلا تنبيه كاذب على غدِ الشركة المحلي
+    const { dates, undatedAsToday, futureDates: futureDated } = resolveImportDates(rows, { timezone: ctx.timezone, undatedDate: body.undatedDate, activated: ctx.activated, now });
     const contentHash = importContentHash('balances', rows);
     assertNotDuplicateBatch(await duplicateBatch(tid, 'balances', contentHash), body.force === true);
     const skippedWarnings: { customerName: string; reason: string }[] = [];
@@ -550,7 +751,7 @@ router.post('/balances', requireImportAccess('balances'), async (req: AuthReques
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: { ...result, warnings: { undatedAsToday, skipped: skippedWarnings, merged: merged.slice(0, 500) } } });
+    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), warnings: { undatedAsToday, skipped: skippedWarnings, merged: merged.slice(0, 500), ...(futureDated ? { futureDated } : {}) } } });
   } catch (err) { sendImportError(err, res, next); }
 });
 
@@ -565,8 +766,11 @@ const ledgerRow = z.object({
   credit: z.number().optional(),
 });
 const ledgerBody = z.object({
-  rows: z.array(ledgerRow).max(20000),
+  // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
+  rows: z.array(z.unknown()),
   undatedDate: undatedDateField,
+  /** البند 51: عقد التاريخ — تبويب من قبل النشر يرسل تواريخ متأخرة يوماً، فلا يُقبل منه صفّ */
+  dateContract: z.string().trim().optional(),
   force: z.boolean().optional(),
   confirmOverlap: z.boolean().optional(),
 });
@@ -574,10 +778,18 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
   try {
     const tid = tenantId(req);
     const body = ledgerBody.parse(req.body ?? {});
-    const rows = body.rows;
-    const result: ImportResult & { zero: number } = { created: 0, skipped: 0, zero: 0, total: rows.length, errors: [] };
+    // البند 51: قبل أي قراءة أو كتابة — عميل قديم ⇒ 409 IMPORT_CLIENT_OUTDATED برسالة «حدّث الصفحة» العربية
+    assertImportDateContract(body.dateContract);
+    const parsedRows = parseImportBodyRows(ledgerRow, body.rows, IMPORT_ROW_LIMITS.ledger);
+    const rows = parsedRows.rows;
+    const result: ImportResult & { zero: number } = { created: 0, skipped: 0, zero: 0, total: body.rows.length, errors: [...parsedRows.errors] };
+    // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة
+    if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), warnings: { undatedAsToday: 0, overlap: [] } } }); return; }
+    const now = new Date();
     const ctx = await importLedgerContext(tid);
-    const { dates, undatedAsToday } = resolveImportDates(rows, { timezone: ctx.timezone, undatedDate: body.undatedDate, activated: ctx.activated, now: new Date() });
+    // البند 39: تنبيه معدود بصفوف تاريخها أبعد من «اليوم + يوم» بتوقيت الشركة (خطأ سنة: 2052 بدل 2025) —
+    // من `resolveImportDates` نفسها: قاعدة واحدة وتوقيت واحد، فلا تنبيه كاذب على غدِ الشركة المحلي
+    const { dates, undatedAsToday, futureDates: futureDated } = resolveImportDates(rows, { timezone: ctx.timezone, undatedDate: body.undatedDate, activated: ctx.activated, now });
     const contentHash = importContentHash('ledger', rows);
     assertNotDuplicateBatch(await duplicateBatch(tid, 'ledger', contentHash), body.force === true);
     // البند 8: غير المطابَق والملتبس خطأ صف لكل صف (لا «مكرر تخطي»)؛ المبالغ مقرَّبة لمنازل العملة (groupLedgerRows)
@@ -650,7 +862,7 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: { ...result, warnings: { undatedAsToday, overlap } } });
+    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), warnings: { undatedAsToday, overlap, ...(futureDated ? { futureDated } : {}) } } });
   } catch (err) { sendImportError(err, res, next); }
 });
 
@@ -663,17 +875,26 @@ const priceRow = z.object({
   price: z.number().nonnegative(),
 });
 const pricesBody = z.object({
-  rows: z.array(priceRow).max(20000),
+  // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
+  rows: z.array(z.unknown()),
   force: z.boolean().optional(),
   /** البند 1: السعر الخاص الصفري بإقرار المالك في المعاينة وحده (لا يدخل البصمة) */
   allowZeroPrice: z.boolean().optional(),
+  /** البند 31: عمود السعر في الملف شامل الضريبة ⇒ يُردّ إلى صافيه بضريبة الصنف قبل الحفظ (لا يدخل البصمة) */
+  pricesIncludeTax: z.boolean().optional().default(false),
 });
 router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const body = pricesBody.parse(req.body ?? {});
-    const rows = body.rows;
-    const result: ImportResult = { created: 0, updated: 0, skipped: 0, total: rows.length, errors: [] };
+    const parsedRows = parseImportBodyRows(priceRow, body.rows, IMPORT_ROW_LIMITS.prices);
+    const rows = parsedRows.rows;
+    const result: ImportResult = { created: 0, updated: 0, skipped: 0, total: body.rows.length, errors: [...parsedRows.errors] };
+    // البندان 43 و44: خطة الصفوف (زوج مكرر ⇒ كتابة واحدة بآخر سعر، والمؤرشف تخطٍّ معدود)
+    let plan: PriceImportPlan = { writes: [], skippedRows: [], duplicates: [], errors: [] };
+    let netFromInclusiveRows = 0;
+    // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة
+    if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows: [], warnings: { duplicates: [] }, netFromInclusive: 0 } }); return; }
     // البند 20: الدفعة محجوزة قبل أي كتابة
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'prices', importContentHash('prices', rows), importedBy(req), body.force === true), 'prices');
@@ -682,20 +903,25 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
       ({ records: [w.id], previous: [[w.id, w.previous]], imported: [[w.id, w.price]] });
     try {
       const matcher = await customerMatcher(req, tid);
-      const prods = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true } });
-      const prodByCode = new Map(prods.map(p => [p.code, p.id]));
-      const writes: { row: number; customerId: string; productId: string; price: number }[] = [];
+      // البند 44: المؤرشف (deletedAt) يشغل كوده ولا يُسعَّر — يُقرأ ليُميَّز عن «الصنف غير موجود»؛ وضريبته للبند 31
+      const prods = await prisma.product.findMany({ where: { tenantId: tid }, select: { id: true, code: true, deletedAt: true, taxPct: true } });
+      // البندان 43 و44: الزوج المكرر كتابة واحدة بآخر سعر (معلَناً)، والمؤرشف تخطٍّ معدود لا «أضيف»
+      plan = planPriceImportRows(rows, matcher, prods, body.allowZeroPrice === true);
+      const writes = plan.writes;
+      result.skipped = plan.skippedRows.length;
+      for (const e of plan.errors) result.errors.push(e);
+      // البند 31: الضريبة من الصنف المطابَق (لا من الصف)، وإلا ضريبة الشركة الافتراضية؛ والتقريب بمنازل عملة الشركة
+      if (body.pricesIncludeTax === true) {
+        const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true, currency: true } });
+        const decimals = currencyDecimalsOf(company?.currency);
+        const taxByProduct = new Map(prods.map(p => [p.id, p.taxPct]));
+        for (const w of writes) {
+          const net = roundHalfUp(netFromInclusive(w.price, taxByProduct.get(w.productId) ?? company?.defaultVatPct ?? 0), decimals);
+          if (net !== w.price) netFromInclusiveRows++;
+          w.price = net;
+        }
+      }
       const pairsCounted = new Set<string>();
-      rows.forEach((r, i) => {
-        const row = i + 2;
-        const m = matcher(r);
-        if (!('id' in m)) { result.errors.push(customerMatchError(row, m)!); return; }
-        const pid = prodByCode.get(r.productCode);
-        if (!pid) { result.errors.push(importRowError(row, 'PRODUCT_NOT_FOUND')); return; }
-        const zeroIssue = priceRowIssue(r.price, body.allowZeroPrice === true);
-        if (zeroIssue) { result.errors.push(importRowError(row, zeroIssue)); return; }
-        writes.push({ row, customerId: m.id, productId: pid, price: r.price });
-      });
       await runImportChunks({
         chunks: planImportChunks(writes, () => 1, importChunkTarget(writes.length)),
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
@@ -729,11 +955,17 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: {
+        ...result, ...cappedErrors(result.errors), skippedRows: plan.skippedRows.slice(0, 500),
+        warnings: { duplicates: plan.duplicates.slice(0, 500) }, netFromInclusive: netFromInclusiveRows,
+      },
+    });
   } catch (err) { sendImportError(err, res, next); }
 });
 
-
+type PriceImportPlan = ReturnType<typeof planPriceImportRows<z.infer<typeof priceRow>>>;
 
 // ===== استيراد المخزون الافتتاحي (البند 9) =====
 // حركة وارد واحدة (RECEIVE) ببنودها وتكلفة صافية بـnetUnitCost كمسار الوارد اليدوي، فتدخل قيمة المستودع في القيد
@@ -785,7 +1017,7 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
     });
     const { lines, errors } = resolveOpeningStockRows(rows, openingStockProductMatcher(products), body.pricesIncludeTax);
     const result = { created: 0, skipped: 0, total: rows.length, errors, batchId: null as string | null, entryId: null as string | null, totalCost: 0 };
-    if (!lines.length) { res.json({ success: true, data: result }); return; }
+    if (!lines.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors) } }); return; }
 
     const by = (req.user as { name?: string } | undefined)?.name || null;
     let out: { batchId: string | null; entryId: string | null; accepted: OpeningStockLine[]; rejected: ImportRowError[] };
@@ -874,31 +1106,53 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
       }
       throw e;
     }
+    // البند 40: إجمالي الجرد بمنازل عملة الشركة لا بخانتين ثابتتين (دينار بثلاث خانات، ين بلا كسور).
+    // القراءة **بعد** المعاملة وقبل الردّ مباشرةً: داخلها يكون قفل gl-post ممسوكاً فلا تُضاف إليه قراءة إعدادات.
+    const { decimals } = await importLedgerContext(tid);
     res.json({
       success: true,
       data: {
-        ...result, errors: [...errors, ...out.rejected], created: out.accepted.length,
-        batchId: out.batchId, entryId: out.entryId, totalCost: entryTotalCost(out.accepted),
+        ...result, ...cappedErrors([...errors, ...out.rejected]), created: out.accepted.length,
+        batchId: out.batchId, entryId: out.entryId, totalCost: entryTotalCost(out.accepted, decimals),
       },
     });
   } catch (err) { sendImportError(err, res, next); }
 });
 
 // ===== سجلّ الدفعات + التراجع =====
+/** البند 52: حجم الصفحة الافتراضي (السلوك القائم) وحدّها الأعلى */
+const BATCHES_PAGE_SIZE = 50;
+const BATCHES_PAGE_MAX = 200;
+/** البند 52: التصفّح — بلا cursor الصفحة الأولى نفسها، ومعه ما بعد الدفعة المعروضة بالترتيب نفسه */
+const batchesQuery = z.object({
+  cursor: z.string().trim().min(1).max(64).optional(),
+  limit: z.coerce.number().int().min(1).max(BATCHES_PAGE_MAX).optional(),
+});
 // قائمة الدفعات غير المتراجَع عنها
 router.get('/batches', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     // البندان 5 و21: المقيّد النطاق لا يرى دفعات الشركة، وغيره يرى أنواع صلاحياته وحدها
     const actor = await loadImportActor(req);
-    if (actor?.scopeEnabled === true) { res.json({ success: true, data: [], scoped: true }); return; }
-    const batches = await prisma.importBatch.findMany({
-      where: { tenantId: tid, reverted: false, kind: { in: importKindsAllowed(actor) } }, orderBy: { createdAt: 'desc' }, take: 50,
+    if (actor?.scopeEnabled === true) { res.json({ success: true, data: [], hasMore: false, nextCursor: null, scoped: true }); return; }
+    const q = batchesQuery.parse(req.query ?? {});
+    const limit = q.limit ?? BATCHES_PAGE_SIZE;
+    // صفّ زائد واحد يحسم hasMore بلا عدّ ثانٍ؛ وcursor على المعرّف بالترتيب الزمني نفسه (skip:1 = بعد المعروضة)
+    const page = await prisma.importBatch.findMany({
+      where: { tenantId: tid, reverted: false, kind: { in: importKindsAllowed(actor) } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+      ...(q.cursor ? { skip: 1, cursor: { id: q.cursor } } : {}),
       select: { id: true, kind: true, count: true, createdBy: true, createdAt: true, status: true, heartbeatAt: true },
     });
+    const hasMore = page.length > limit;
+    const batches = hasMore ? page.slice(0, limit) : page;
     // status: running (قيد الاستيراد) | interrupted (انقطع — ما سُجّل منه قابل للتراجع) | done
     const now = new Date();
-    res.json({ success: true, data: batches.map(({ heartbeatAt, ...b }) => ({ ...b, status: importBatchState({ ...b, heartbeatAt }, now) })), scoped: false });
+    res.json({
+      success: true,
+      data: batches.map(({ heartbeatAt, ...b }) => ({ ...b, status: importBatchState({ ...b, heartbeatAt }, now) })),
+      hasMore, nextCursor: hasMore && batches.length ? batches[batches.length - 1].id : null, scoped: false,
+    });
   } catch (err) { next(err); }
 });
 
@@ -944,6 +1198,13 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
     if (batch.kind === 'customers') {
       let ledgerBusy = false;
       // البند 17: قيود العميل التي جاءت من دفعات أرصدة/كشوف غير متراجع عنها (تُذكر في سبب المنع)
+      // البند 32: مستندات لم تُرفع بعد من أجهزة المناديب (الصفّ الصادر) — عدّ النبضة وحده ما يراه الخادم، ولا
+      // يقول لأي عميل مستنده؛ فالمنع للدفعة كلها قبل حذف أي عميل، ولا شيء يتغيّر فتُعاد المحاولة بعد المزامنة
+      const outboxPending = await pendingOutboxDocs(tid, batch.createdAt, new Date());
+      if (outboxPending > 0) {
+        res.status(409).json({ success: false, code: 'IMPORT_REVERT_OUTBOX_PENDING', message: OUTBOX_PENDING_REASON, details: { pending: outboxPending } });
+        return;
+      }
       const idx = await loadImportedIndex(tid);
       const names = new Map((await prisma.customer.findMany({ where: { tenantId: tid, id: { in: ids } }, select: { id: true, name: true } })).map(c => [c.id, c.name]));
       for (const cid of ids) {
@@ -975,7 +1236,8 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
               routeStops: await tx.repRouteStop.count({ where: { customerId: cid, tenantId: tid } }),
               // Cascade يمحو الإسناد مع العميل بصمت: المندوب يفقد عميله بلا سبب ظاهر
               assignments: await tx.customerAssignment.count({ where: { customerId: cid, tenantId: tid } }),
-            });
+              // البند 33: حركات الدفاتر تُفحص بعدها (استعلاماها لا يُنفَّذان إن كفى سبب قائم)
+            }) ?? await customerLedgerBlockReason(tx, tid, cid);
             if (reason) return { status: 'blocked' as const, reason };
             const rows = await tx.accountEntry.findMany({
               where: { customerId: cid },
@@ -1028,11 +1290,12 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
           const out = await prisma.$transaction(async tx => {
             const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM products WHERE id = ${pid} AND "tenantId" = ${tid} FOR UPDATE`;
             if (locked.length === 0) return { status: 'gone' as const };
+            // البند 45: وسطور القيود على الصنف بعدها (استعلامها لا يُنفَّذ إن كفى سبب قائم)
             const reason = productBlockReason({
               invoiceItems: await tx.invoiceItem.count({ where: { productId: pid } }),
               vanLoadItems: await tx.vanLoadItem.count({ where: { productId: pid } }),
               warehouseEntryItems: await tx.warehouseEntryItem.count({ where: { productId: pid } }),
-            });
+            }) ?? await productLedgerBlockReason(tx, tid, pid);
             if (reason) return { status: 'blocked' as const, reason };
             await tx.priceTier.deleteMany({ where: { productId: pid } });
             await tx.customerPrice.deleteMany({ where: { productId: pid } });
@@ -1167,7 +1430,9 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
             const since = { gte: entry.createdAt };
             const reason = productIds.length ? openingStockRevertBlockReason({
               vanLoads: await tx.vanLoadItem.count({ where: { productId: { in: productIds }, vanLoad: { tenantId: tid, type: 'LOAD', createdAt: since } } }),
-              invoiceItems: await tx.invoiceItem.count({ where: { productId: { in: productIds }, invoice: { tenantId: tid, createdAt: since } } }),
+              // البند 34: الفاتورة لا تمسّ رصيد المستودع (composeWarehouse لا يقرأ الفواتير أصلاً — تُخصم من مخزون
+              // السيارة) فبيعٌ بعد الجرد لا يمنع التراجع عنه؛ المانع ما يمسّ المستودع: التحميل والتسوية بالنقص
+              invoiceItems: 0,
               warehouseOut: await tx.warehouseEntryItem.count({
                 where: { productId: { in: productIds }, qty: { lt: 0 }, entryId: { not: eid }, entry: { tenantId: tid, createdAt: since } },
               }),
@@ -1198,15 +1463,14 @@ router.post('/batches/:id/revert', async (req: AuthRequest, res: Response, next:
       if (batch.kind === 'products') {
         // البند 26: فئة مربوطة بحساب إيراد في المسودة تبقى، وإلا فشل «تفعيل الدفاتر» بـ404 بلا ما يصلحه من الواجهة
         const draftLinks = draftCategoryLinkIds((await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { setupDraft: true } }))?.setupDraft);
+        // البند 48: الفحص والحذف في معاملة واحدة تحت قفل صفّ الفئة (deleteImportCategory)
         for (const catId of parsed.categories) {
-          const deletable = categoryDeletable({
-            draftLinked: draftLinks.has(catId),
-            products: await prisma.product.count({ where: { tenantId: tid, categoryId: catId } }),
-            accountRows: await prisma.glProductCategoryAccount.count({ where: { tenantId: tid, categoryId: catId } }),
-          });
-          if (!deletable) { keptCategories.push(catId); continue; }
-          try { await prisma.productCategory.deleteMany({ where: { id: catId, tenantId: tid } }); }
-          catch (e) { if (isFkBlockError(e)) keptCategories.push(catId); else throw e; }
+          if (await deleteImportCategory(tid, catId, draftLinks.has(catId)) === 'kept') keptCategories.push(catId);
+        }
+        // البند 46: وفئات دفعات المنتجات الأخرى التي صارت فارغة — فلا تبقى فئة مستوردة يتيمة لا تحذفها واجهة
+        // ولا تراجع. (لا تدخل keptCategories: ملكيتها لدفعاتها لا لهذه.)
+        for (const catId of await orphanImportCategories(tid, batch.id, parsed.categories)) {
+          await deleteImportCategory(tid, catId, draftLinks.has(catId));
         }
       }
       const { reverted, remainingIds } = revertOutcome(ids, done);

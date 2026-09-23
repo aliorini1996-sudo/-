@@ -169,7 +169,30 @@ export interface DerivedOpeningJson {
 export interface OpeningMoveJson { equityDiff: string; totalDebit: string; manualDebit: string; manualCredit: string; lineCount: number }
 
 /** حركات مستوردة (دفعات balances/ledger غير متراجَع عنها) بتاريخ ≥ البدء — تُرحَّل بتاريخها على 319002 لا في الافتتاح */
-export interface ImportedAfterCutoverJson { count: number; customers: number; debit: string; credit: string }
+export interface ImportedAfterCutoverJson {
+  count: number;
+  customers: number;
+  debit: string;
+  credit: string;
+  /** البند 39: منها بتاريخ أبعد من اليوم المحلي + يوم (خطأ سنة غالباً) — تنبيه لا مانع. اختياري لخادم أقدم */
+  futureDated?: number;
+  /** أقصى تاريخ حركة مستوردة بعد البدء — اختياري لخادم أقدم */
+  maxEntryDate?: LocalDate | null;
+}
+
+/**
+ * البند 41: إقرار الحركات المستوردة بعد البدء **لقطةً** لا قيمةً منطقية — الأرقام التي عُرضت على المالك وأقرّ بها
+ * بعينها. الخادم يقارنها بلقطة ما بعد القفل ويرفض بـ409 `LEDGER_POST_CUTOVER_IMPORTS_CHANGED` عند الاختلاف،
+ * فلا يمرّ إقرار قديم (ثلاث حركات) على واقع جديد (ثمانية آلاف استُوردت قبل ضغط «تفعيل»).
+ * مرآة `PostCutoverImportsAckSnapshot` في services/gl/opening.ts.
+ */
+export interface PostCutoverImportsAckSnapshot {
+  count: number;
+  debit: string;
+  credit: string;
+  /** لحظة المعاينة المعروضة — للتدقيق في الخادم، لا تدخل المقارنة */
+  snapshotAt?: string | null;
+}
 
 /** حركة مخزون افتتاحي مستورد خارج لقطة الافتتاح (openingStockCheckJson) — القيمة Σ الكمية × التكلفة **إرشادية** */
 export interface OpeningStockEntryJson {
@@ -295,11 +318,18 @@ export const ledgerSetupApi = {
    * acknowledgePostCutoverImports ⇒ 409 LEDGER_POST_CUTOVER_IMPORTS_ACK. مخزون افتتاحي مستورد في تاريخ البدء أو بعده بلا
    * acknowledgeOpeningStockExcluded ⇒ 409 LEDGER_OPENING_STOCK_AFTER_CUTOVER؛ والتاريخ الكامل مع دفعة مخزون ⇒ 409
    * LEDGER_OPENING_STOCK_FULL_HISTORY؛ ودفعة أحدث من لقطة الاعتماد ⇒ 409 LEDGER_OPENING_STOCK_TOO_RECENT (retryAfter).
+   *
+   * البند 41: `acknowledgePostCutoverImports` **لقطة** الأرقام المعروضة (count/debit/credit/snapshotAt) لا `true`،
+   * فاختلافها عن لقطة الاعتماد ⇒ 409 LEDGER_POST_CUTOVER_IMPORTS_CHANGED بلا كتابة.
    */
-  commit: (draft?: SetupDraft, opts?: { acknowledgePostCutoverImports?: boolean; acknowledgeOpeningStockExcluded?: boolean; rebaseImportDates?: boolean }) =>
+  commit: (draft?: SetupDraft, opts?: {
+    acknowledgePostCutoverImports?: PostCutoverImportsAckSnapshot | false | null;
+    acknowledgeOpeningStockExcluded?: boolean;
+    rebaseImportDates?: boolean;
+  }) =>
     api.post<LedgerEnvelope<SetupCommitResult>>(`${L}/setup/commit`, {
       acknowledgeStatutory: true,
-      ...(opts?.acknowledgePostCutoverImports ? { acknowledgePostCutoverImports: true } : {}),
+      ...(opts?.acknowledgePostCutoverImports ? { acknowledgePostCutoverImports: opts.acknowledgePostCutoverImports } : {}),
       ...(opts?.acknowledgeOpeningStockExcluded ? { acknowledgeOpeningStockExcluded: true } : {}),
       ...(opts?.rebaseImportDates ? { rebaseImportDates: true } : {}),
       ...(draft ? { draft } : {}),
