@@ -771,6 +771,28 @@ async function executePost(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
 /** عكس القيد الحيّ (P4، P8، P12، وP6 لغير الإلكتروني) — ولسند ONLINE: P6 بالـbuilder مقابل القيد الحيّ */
 async function reverseLive(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, plan: Extract<EventPlan, { action: 'POST' }>): Promise<Decision> {
   const liveMoveId = plan.liveMoveId as string;
+  /* عكسٌ جزئيّ لفاتورة نقدية (ZATCA Z5.4 / قرار المالك Q1): عكسُ القيد الحيّ كاملاً كان يقلب ساق النقدية أيضاً
+   * فينقص من عهدة المندوب نقدٌ ما زال بيده، ويتباعد حساب الذمم الرقابي عن دفتر العملاء بمقدار الفاتورة. فيُبنى
+   * العكس من الحمولة بلا تلك الساق — كما يفعل سند «أونلاين» أعلاه — وتبقى الذمة دائنةً بالإجمالي = رصيد العميل. */
+  if (ev.sourceType === 'INVOICE' && (payloadOf(ev) as Partial<InvoiceReverseEventPayload> | null)?.keepCashLeg === true) {
+    const context = await contextOf(env, tx);
+    const original = await postPayloadOf<InvoicePayload>(tx, ev);
+    const result = buildInvoiceMove(original, context.ctx, { event: 'REVERSE', reverseDate: plan.date, keepCashLeg: true });
+    if (isNoMove(result)) {
+      const patch = skippedPatch(env.now, result.reason);
+      await tx.updateEvent(ev.id, patch);
+      return { outcome: { status: 'SKIPPED', skipReason: result.reason }, patch };
+    }
+    const posted = await tx.postMove(withPlanDate(result, plan), {
+      actor: env.actor, context, validationMode: 'SYSTEM', lockPolicy: 'SHIFT',
+      reversedMoveId: liveMoveId, reversalReason: AUTO_REVERSAL_REASONS.INVOICE,
+      auditAction: 'MOVE_REVERSE', auditSummary: `عكس آلي ${ev.sourceKey}`,
+      auditExtra: { sourceKey: ev.sourceKey, eventId: ev.id, mode: plan.mode },
+    });
+    const patch = donePatch(env.now, posted.id, {});
+    await tx.updateEvent(ev.id, patch);
+    return { outcome: { status: 'DONE', moveId: posted.id, idempotent: false }, patch };
+  }
   if (ev.sourceType === 'RECEIPT') {
     const original = await postPayloadOf<ReceiptPostEventPayload>(tx, ev);
     if (original.paymentMethod === 'ONLINE' && original.paylinkId) {
@@ -824,7 +846,9 @@ async function buildFor(
   switch (ev.sourceType) {
     case 'INVOICE': {
       const payload = reverse ? await postPayloadOf<InvoicePayload>(tx, ev) : await sourcePayload<InvoicePayload>(tx, ev, 'POST', ev.payload);
-      const opts = reverse ? { event: 'REVERSE' as const, reverseDate: plan.date } : {};
+      // عكس نقديّ بلا شقّ التحصيل (Q1): الحمولة المحفوظة تقوله، والبناء يحذف ساق النقدية فتبقى العهدة كما هي
+      const keepCashLeg = reverse && (payloadOf(ev) as Partial<InvoiceReverseEventPayload> | null)?.keepCashLeg === true;
+      const opts = reverse ? { event: 'REVERSE' as const, reverseDate: plan.date, ...(keepCashLeg ? { keepCashLeg: true } : {}) } : {};
       let result = buildInvoiceMove(payload, context.ctx, opts);
       const missing = missingAutoSalePercents(result, context);
       if (missing.length > 0) {

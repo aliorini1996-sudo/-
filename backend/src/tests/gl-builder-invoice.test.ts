@@ -259,6 +259,33 @@ test('P4 عكس من المستند لكل نوع: قلب الجانبين وس�
   assert.equal(invertInvoiceDraft(d, '2026-09-20').lines[0].creditMilli, d.lines[0].debitMilli);
 });
 
+/* ZATCA Z5.4 وقرار المالك Q1 (مراجعة عدائية): فاتورة نقدية رفضتها الهيئة فأُبطلت — البضاعة سُلّمت والنقد بيد
+ * المندوب، فيُعكس شقّ الفاتورة وحده ويبقى المحصَّل رصيداً دائناً للعميل. لو عُكست ساق النقدية أيضاً لنقصت عهدة
+ * المندوب نقداً يحمله، ولانفرج فرقٌ دائم بين حساب الذمم الرقابي ودفتر العملاء بمقدار الفاتورة. */
+test('عكس نقديّ جزئيّ (Q1): بلا ساق النقدية — الذمة دائنة بالإجمالي والعهدة لا تُمسّ', () => {
+  for (const routing of ['MAIN_CASH', 'CUSTODY'] as const) {
+    const ctx = saContext({ settings: { cashInvoiceRouting: routing } });
+    const p = invoice('CASH', [{ qty: 2, unitPrice: 50, taxPct: 15 }]);
+    const full = checked(buildInvoiceMove(p, ctx, { event: 'REVERSE', reverseDate: '2026-09-15' }), ctx);
+    const partial = checked(buildInvoiceMove(p, ctx, { event: 'REVERSE', reverseDate: '2026-09-15', keepCashLeg: true }), ctx);
+
+    assert.equal(net(on(full, ctx, '113001')), 0n, 'العكس الكامل يصفّي الذمة (وهو ما لا يريده Q1)');
+    assert.equal(net(on(partial, ctx, '113001')), -M(115), 'الذمة لم تبقَ دائنة بالإجمالي = رصيد العميل');
+    assert.equal(on(partial, ctx, '113001').length, 1);
+    assert.equal(on(partial, ctx, routing === 'CUSTODY' ? '111003' : '111001').length, 0, 'عُكست النقدية رغم بقائها بيد المندوب');
+    assert.equal(partial.lines.length, full.lines.length - 2);
+    // الإيراد والضريبة يُعكسان كاملين في الحالتين
+    assert.equal(net(on(partial, ctx, '411001')), net(on(full, ctx, '411001')));
+    assert.equal(net(on(partial, ctx, '212001')), net(on(full, ctx, '212001')));
+  }
+  // الترحيل لا يتأثّر بالعلم إطلاقاً (للعكس وحده)
+  const ctx = saContext();
+  const p = invoice('CASH', [{ qty: 1, unitPrice: 100, taxPct: 15 }]);
+  const post = checked(buildInvoiceMove(p, ctx, { keepCashLeg: true }), ctx);
+  assert.equal(net(on(post, ctx, '113001')), 0n);
+  assert.equal(net(on(post, ctx, '111001')), M(115));
+});
+
 // ═══ العلامات الصفرية (§4.4) ═══
 
 test('فاتورة مختلطة 15٪ + 0٪: سطر TAX للـ15 وعلامة Z_SALE على 212001 بـ0/0 والوعاء والمربع SA_3', () => {

@@ -125,6 +125,13 @@ export interface InvoiceReverseEventPayload extends EventPayloadMeta {
   invoiceId: string;
   type: InvoicePayload['type'];
   entryDate: LocalDate;
+  /**
+   * عكسٌ جزئيّ لفاتورة نقدية: شقّ الفاتورة وحده يُعكس وساق النقدية تبقى (ZATCA Z5.4 / قرار المالك Q1 — فاتورة نقدية
+   * رفضتها الهيئة فأُبطلت والمحصَّل بيد المندوب يبقى رصيداً دائناً للعميل). يُشتقّ من الصفوف: مجموعةُ عكسٍ لفاتورة
+   * CASH بلا صفّ RECEIPT_DEBIT. بدونه كان الأستاذ يعكس ساق النقدية أيضاً فينقص من عهدة المندوب نقدٌ بيده،
+   * ويتباعد حساب الذمم الرقابي عن دفتر العملاء بمقدار الفاتورة إلى الأبد.
+   */
+  keepCashLeg?: boolean;
 }
 
 /** RECEIPT:<id>:POST — ReceiptPostPayload (paylinkId من CustomerPaymentLink.receiptId لا clientRef) ومعها لقطات العرض */

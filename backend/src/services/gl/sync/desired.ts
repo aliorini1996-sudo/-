@@ -19,6 +19,7 @@
  * يوجد بين صفوف المفتاح إلا المقترن فأصغر entryDate تحته.
  * الحمولة (§5.2): لقطة دنيا ثابتة، المبالغ نصوص بمنازل العملة، و sourceCreatedAt = أكبر createdAt بين صفوف المفتاح.
  */
+import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../../../lib/ledgerNotes';
 import { localDate } from '../dates';
 import { formatMilli, toMilli } from '../money';
 import { invoicePayloadFromRows, INVOICE_KINDS, type InvoiceKind } from '../builders/invoice';
@@ -248,7 +249,17 @@ function accountEntryPayload(g: KeyGroup, effectAt: Date, ctx: DeriveContext): S
     const inv = ctx.invoices?.get(plan.sourceId);
     if (!inv || !INVOICE_KINDS.includes(inv.type as InvoiceKind)) return null;
     if (plan.event === 'REVERSE') {
-      const p: InvoiceReverseEventPayload = { invoiceId: inv.id, type: inv.type as InvoiceKind, entryDate, sourceCreatedAt };
+      /* عكس نقديّ بلا شقّ التحصيل (ZATCA Z5.4 / قرار المالك Q1). الدليل **وسمُ صفّ العكس نفسه**: كاتب Q1 وحده يكتب
+       * `CASH_VOID_KEEP_COLLECTION_NOTE` على صفّ INVOICE_CREDIT، والوسم ثابتٌ بعد الكتابة فلا يقلب اشتقاقاً سابقاً.
+       * (مرآة الفاتورة لا تصلح دليلاً — مراجعة عدائية ٢: تُكتب بعد صفوف الدفتر بزمنٍ عشوائيّ، فإعادةُ اشتقاقٍ لاحقة
+       * كانت تُرحّل عكساً جزئياً فوق عكسٍ كامل ويتباعد حساب الذمم عن دفتر العملاء بمقدار الفاتورة.)
+       * وصفُّ RECEIPT_DEBIT في المجموعة يمنع الجزئية مهما كان الوسم: وجودُه يعني أنّ التحصيل عُكس فعلاً. */
+      const keepCashLeg = inv.type === 'CASH'
+        && g.rows.some((r) => r.type === 'INVOICE_CREDIT' && r.description === CASH_VOID_KEEP_COLLECTION_NOTE)
+        && !g.rows.some((r) => r.type === 'RECEIPT_DEBIT');
+      const p: InvoiceReverseEventPayload = {
+        invoiceId: inv.id, type: inv.type as InvoiceKind, entryDate, sourceCreatedAt, ...(keepCashLeg ? { keepCashLeg: true } : {}),
+      };
       return p;
     }
     return {

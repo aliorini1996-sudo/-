@@ -16,8 +16,12 @@
 // ============================================================================
 
 import type { Prisma, PrismaClient } from '@prisma/client';
+import {
+  INLINE_CLEARANCE_CALL_TIMEOUT_MS, INLINE_CLEARANCE_TIMEOUT_MS, clearanceOutcome, clearancePendingError,
+  clearanceRejectedError, clearanceWithdrawnError, clearedNoXmlError, withDeadline,
+} from '../compliance/zatca/clearance';
 import type { DocumentProjection, ZatcaDocumentStore } from '../compliance/zatca/documentStore';
-import { ZATCA_ERROR_CATALOGUE, ZatcaHttpError, unitUnavailableError } from '../compliance/zatca/errors';
+import { ZatcaHttpError, unitUnavailableError } from '../compliance/zatca/errors';
 import {
   issuanceHttpError, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, prepareIssuance,
   type EngineTotals, type IssuanceCustomer, type IssuanceProduct, type IssuanceRequest, type PreparedIssuance,
@@ -28,7 +32,7 @@ import { runIssuance, stampInTx, type StampInTxResult } from '../compliance/zatc
 import type { EgsUnitStore } from '../compliance/zatca/onboardingStore';
 import { REHEARSAL_ENVIRONMENT, resolveInvoiceRegime, type RegimeDb, type RegimeMode, type RegimeSettings } from '../compliance/zatca/regime';
 import type { SecretKeyring } from '../compliance/zatca/secrets';
-import { isOverdue, isPrintableMirror, subtypeOfTypeName, type Subtype } from '../compliance/zatca/status';
+import { isOverdue, isPrintableMirror, mirrorQrOf, mirrorStatusOf, subtypeOfTypeName, type DocumentStatus, type Subtype } from '../compliance/zatca/status';
 import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
 
 // ─── ترويسات قدرات العميل (نقد 1، 2) ───
@@ -189,17 +193,117 @@ export type Phase2InvoiceRow = EinvoiceMirrorLike & { id: string; zatcaPhase?: n
  * ردّ قراءة صفّ من المرحلة الثانية: 426 لعميل بلا قدرات (نقد 6)، وإلا الصفّ نفسه + einvoice من آخر محاولة مستند.
  * null ⇒ الصفّ من المرحلة الأولى: المستدعي يردّ كما اليوم بلا أيّ استعلام إضافي.
  */
-export async function phase2ReadBody(
+export interface Phase2ReadResult {
+  status: number;
+  einvoice: EinvoiceView | null;
+  error: ZatcaHttpError | null;
+}
+
+async function readPhase2(
   invoice: Phase2InvoiceRow | null | undefined, caps: ClientCapsHeaders, deps: Phase2ReadDeps, tenantId: string,
-): Promise<{ status: number; einvoice: EinvoiceView | null; error: ZatcaHttpError | null } | null> {
+): Promise<(Phase2ReadResult & { projection: DocumentProjection | null }) | null> {
   if (!isPhase2Invoice(invoice) || !invoice) return null;
   if (!hasZatca2Cap(caps)) {
     const e = new ZatcaHttpError('ZATCA_CLIENT_UPDATE_REQUIRED', { logDetail: { source: 'CAPS', code: 'READ_NO_CAPS' } });
-    return { status: e.status, einvoice: null, error: e };
+    return { status: e.status, einvoice: null, error: e, projection: null };
   }
   const p: DocumentProjection | null = await deps.documents.loadProjection(tenantId, invoice.id);
-  if (!p) return { status: 200, einvoice: null, error: null };
-  return { status: 200, einvoice: einvoiceView(p, invoice, deps.now(), storedWarnings(invoice.einvoiceWarnings)), error: null };
+  if (!p) return { status: 200, einvoice: null, error: null, projection: null };
+  return {
+    status: 200, einvoice: einvoiceView(p, invoice, deps.now(), storedWarnings(invoice.einvoiceWarnings)), error: null, projection: p,
+  };
+}
+
+export async function phase2ReadBody(
+  invoice: Phase2InvoiceRow | null | undefined, caps: ClientCapsHeaders, deps: Phase2ReadDeps, tenantId: string,
+): Promise<Phase2ReadResult | null> {
+  const r = await readPhase2(invoice, caps, deps, tenantId);
+  if (!r) return null;
+  const { projection: _p, ...out } = r;
+  return out;
+}
+
+/** حالات المستند التي تُجرَّب مرّة واحدة على مسار إعادة الرفع (ما عداها إمّا نهائيّ أو قيد الإرسال الآن). */
+const REPLAY_RETRYABLE: readonly string[] = Object.freeze(['SIGNED', 'RETRY_WAIT']);
+
+/**
+ * Z5.4: قراءة إعادة الرفع (clientRef) — كـ`phase2ReadBody`، إلا أنّ القياسية العالقة «بانتظار الاعتماد» تُجرَّب
+ * **مرّة واحدة محدودة** إن حان موعد محاولتها. شرط الموعد مقصود: بلا تراجع الإعادة يصير كلّ رفعٍ مكرَّر نداءً جديداً
+ * للهيئة، وتصبح حزمةٌ تُعيد المحاولة قصفاً. والاستيلاء نفسه ذرّيّ: مستندٌ يرسله عاملٌ الآن يُردّ «لم يُستولَ عليه».
+ */
+export type Phase2ReplayResult = Phase2ReadResult & {
+  /** جرت محاولة اعتماد فعلاً ⇒ صفّ الفاتورة الذي بيد المستدعي قديم (قد تكون أُبطلت): يعيد قراءته قبل الردّ. */
+  reload: boolean;
+};
+
+/**
+ * ردّ إعادة الرفع لقياسية = ردّ الرفع الأوّل حرفاً بحرف (مراجعة عدائية): كان يعود 200 «تمّ» دائماً ولو كانت الهيئة
+ * رفضت الفاتورة وأُبطلت — فحزمةٌ أضاعت ردّ الرفع الأول (وهو عين ما وُضع له clientRef) تقرأ نجاحاً عن فاتورة ملغاة.
+ */
+function replayReply(documentStatus: string | null, validation: unknown): { status: number; error: ZatcaHttpError | null } {
+  const outcome = clearanceOutcome(documentStatus, '01');
+  if (outcome.kind === 'rejected') {
+    const e = clearanceRejectedError(validation);
+    return { status: e.status, error: e };
+  }
+  if (outcome.kind === 'cleared_no_xml') {
+    const e = clearedNoXmlError();
+    return { status: e.status, error: e };
+  }
+  // سُحبت وأُلغيت: الحزمة المُعيدة للرفع تُخبَر بذلك بدل أن تنتظر فاتورةً لن تأتي (مراجعة عدائية ٢)
+  if (outcome.kind === 'withdrawn') {
+    const e = clearanceWithdrawnError();
+    return { status: e.status, error: e };
+  }
+  if (outcome.kind === 'pending') {
+    const e = clearancePendingError(outcome.pendingReason ?? 'UNKNOWN');
+    return { status: e.status, error: e };
+  }
+  return { status: 200, error: null };
+}
+
+export async function phase2ReplayBody(
+  invoice: Phase2InvoiceRow | null | undefined, caps: ClientCapsHeaders,
+  deps: Phase2ReadDeps & { submitInline?: InlineSubmitFn | null }, tenantId: string,
+): Promise<Phase2ReplayResult | null> {
+  const first = await readPhase2(invoice, caps, deps, tenantId);
+  if (!first) return null;
+  const { projection: p, ...base } = first;
+  const due = p !== null && (p.nextAttemptAt === null || p.nextAttemptAt.getTime() <= deps.now().getTime());
+  if (!deps.submitInline || !p || !due || !REPLAY_RETRYABLE.includes(p.status)
+    || base.error || base.einvoice?.subtype !== '01' || base.einvoice.status !== 'clearance_pending') {
+    // بلا محاولة: الحالة المخزَّنة وحدها تقرّر الردّ (مرفوضة ⇒ 422 كالرفع الأوّل، معلّقة ⇒ 202، معتمدة ⇒ 200)
+    if (!base.error && p && base.einvoice?.subtype === '01') {
+      const reply = replayReply(p.status, p.validation);
+      return { ...base, ...reply, reload: false };
+    }
+    return { ...base, reload: false };
+  }
+  await withDeadline(
+    (async () => deps.submitInline!({ documentId: p.id, tenantId }, { inline: true, timeoutMs: INLINE_CLEARANCE_CALL_TIMEOUT_MS }))(),
+    INLINE_CLEARANCE_TIMEOUT_MS,
+  );
+  // المرآة تُعاد بناؤها من المستند بعد المحاولة: صفّ الفاتورة الذي بيدنا كُتب قبلها
+  let after: DocumentProjection | null = null;
+  try {
+    after = await deps.documents.loadProjection(tenantId, (invoice as Phase2InvoiceRow).id);
+  } catch {
+    after = null;
+  }
+  if (!after) return { ...base, reload: true };
+  const status = after.status as DocumentStatus;
+  const view = einvoiceView(
+    after,
+    {
+      einvoiceStatus: mirrorStatusOf(status, '01'),
+      einvoiceQr: mirrorQrOf({ subtype: '01', status, qr: after.qr, clearedQr: after.clearedQr }),
+      documentKind: (invoice as Phase2InvoiceRow).documentKind,
+      invoiceSubtype: '01',
+      issuedAt: (invoice as Phase2InvoiceRow).issuedAt,
+    },
+    deps.now(),
+  );
+  return { ...replayReply(status, after.validation), einvoice: view, reload: true };
 }
 
 // ─── الإصدار ───
@@ -264,7 +368,18 @@ export interface Phase2IssuanceDeps extends Phase2ReadDeps {
   env?: NodeJS.ProcessEnv;
   /** null = بلا قفل داخل العملية (اختبار). الافتراضي issuanceUnitMutex. */
   mutex?: KeyedAsyncMutex | null;
+  /**
+   * Z5.4: إرسال المستند إلى الهيئة وانتظار حسمها داخل الطلب الحيّ (services/zatcaSubmit.submitDocumentNow بـinline).
+   * غيابه (أو null) = لا اعتماد حيّ: القياسية تبقى «بانتظار الاعتماد» ويكملها المسح الدوري — وهو سلوك Z5.2 نفسه.
+   * لا يُنتظر ردّه: القرار يُقرأ من حالة المستند المخزَّنة بعد المحاولة (انهيارٌ أو سبقُ عاملٍ آخر يُقرأ منها أيضاً).
+   */
+  submitInline?: InlineSubmitFn | null;
 }
+
+/** توقيع الإرسال الحيّ الذي يحقنه الإنتاج (نتيجته مُهمَلة عمداً — الحقيقة في الصفّ المخزَّن). */
+export type InlineSubmitFn = (
+  ref: { documentId: string; tenantId: string }, opts: { inline: true; timeoutMs: number },
+) => Promise<unknown>;
 
 /** ما حمّله المسار القديم وتحقّق منه قبل الفرع. */
 export interface Phase2IssuanceContext {
@@ -470,12 +585,94 @@ async function issueNow(
     issued.warnings,
   );
   const data = { ...(created as Record<string, unknown>), einvoice: view };
-  // القياسية (01) تنتظر اعتماد الهيئة قبل تسليمها فاتورةً ضريبية — الاعتماد نفسه في Z5.4
+  // القياسية (01) لا تُسلَّم فاتورةً ضريبية قبل اعتماد الهيئة (D5) — الاعتماد الحيّ هنا (Z5.4)
   if (prepared.subtype === '01') {
-    return {
-      status: ZATCA_ERROR_CATALOGUE.ZATCA_CLEARANCE_PENDING.status,
-      body: { success: true, code: 'ZATCA_CLEARANCE_PENDING', message: ZATCA_ERROR_CATALOGUE.ZATCA_CLEARANCE_PENDING.messageAr, data },
-    };
+    return clearStandardInline(deps, { tenantId: ctx.tenantId, invoiceId: issued.invoiceId, documentId: issued.documentId }, data, {
+      view, warnings: issued.warnings, issuedAt: issued.issuedAt, documentKind: prepared.kind,
+    }, now);
   }
   return { status: 201, body: { success: true, data } };
+}
+
+// ─── الاعتماد الحيّ قبل المشاركة (Z5.4، قرار المالك D5) ───
+
+/** ردّ «بانتظار الاعتماد» كما كان في Z5.2 (بلا اعتماد حيّ أو بتعذّر قراءة المستند). */
+function pendingResult(data: Record<string, unknown>, reason: Parameters<typeof clearancePendingError>[0]): Phase2Result {
+  const e = clearancePendingError(reason, data);
+  return { status: e.status, body: e.body() };
+}
+
+/**
+ * ينتظر حسم الهيئة بحدٍّ أقصى ثمّ **يقرأ حالة المستند المخزَّنة** ويبني الردّ منها — لا من قيمةٍ أعادها الاستدعاء:
+ *   • CLEARED/CLEARED_WARN (وREPORTED/REPORTED_WARN بعد 303، نقد 10) ⇒ 201 بفاتورة قابلة للطباعة ورمزها النهائي.
+ *   • REJECTED ⇒ 422 برسائل الهيئة، وقد أُبطلت الفاتورة في معاملة النتيجة نفسها (نقد 7) فيُعاد صفّها CANCELLED.
+ *   • CLEARED_NO_XML ⇒ 202 خاصّ (U8): نهائية عند الهيئة ولا نسخة معتمدة لدينا فلا تُطبع.
+ *   • ما عداها (انقضت مهلتنا، أو عطل الهيئة، أو حجب) ⇒ 202 «بانتظار الاعتماد»: مذكّرة تسليم لا فاتورة، والمسح يُكمل.
+ * لا يرمي: الفاتورة التُزمت فعلاً، وأيّ خللٍ بعدها يُقرأ «بانتظار الاعتماد».
+ */
+async function clearStandardInline(
+  deps: Phase2IssuanceDeps,
+  ref: { tenantId: string; invoiceId: string; documentId: string },
+  data: Record<string, unknown>,
+  fallback: { view: EinvoiceView; warnings: readonly unknown[]; issuedAt: Date; documentKind: string },
+  now: Date,
+): Promise<Phase2Result> {
+  const submit = deps.submitInline;
+  if (!submit) return pendingResult(data, 'IN_FLIGHT');
+  const startedAt = Date.now();
+
+  const attempt = async (budgetMs: number): Promise<DocumentProjection | null> => {
+    // نتيجة الاستدعاء مُهمَلة عمداً: ما بعد المهلة يكمل في الخلفية (المستند مُستولى عليه بعقد)، والحقيقة في الصفّ
+    await withDeadline(
+      (async () => submit({ documentId: ref.documentId, tenantId: ref.tenantId }, {
+        inline: true, timeoutMs: Math.min(INLINE_CLEARANCE_CALL_TIMEOUT_MS, budgetMs),
+      }))(),
+      budgetMs,
+    );
+    try {
+      return await deps.documents.loadProjection(ref.tenantId, ref.invoiceId);
+    } catch {
+      return null;
+    }
+  };
+
+  let p = await attempt(INLINE_CLEARANCE_TIMEOUT_MS);
+  /* نقد 10: ردّت الهيئة 303 «الاعتماد موقوف» فتحوّل المستند إلى تدفّق الإبلاغ وعاد موقَّعاً. وهذه حالٌ **دائمة** لا
+   * عارضة: لو اكتفينا بمحاولة واحدة لخرجت كلّ فاتورة منشأة بـ202 ما دام الاعتماد موقوفاً، فيسلّم المندوب مذكّرة
+   * تسليم في كل بيع بلا سبب. فمحاولةٌ ثانية واحدة (ضمن ما تبقّى من نافذتنا) تُبلّغها فتصير قابلة للطباعة. */
+  const budgetLeft = INLINE_CLEARANCE_TIMEOUT_MS - (Date.now() - startedAt);
+  if (p && p.flow === 'REPORTING' && REPLAY_RETRYABLE.includes(p.status) && budgetLeft > 2000
+    && (p.nextAttemptAt === null || p.nextAttemptAt.getTime() <= now.getTime())) {
+    p = await attempt(budgetLeft);
+  }
+  if (!p) return pendingResult(data, 'UNKNOWN');
+
+  const outcome = clearanceOutcome(p.status, '01');
+  const qr = mirrorQrOf({ subtype: '01', status: p.status as DocumentStatus, qr: p.qr, clearedQr: p.clearedQr });
+  const body: Record<string, unknown> = { ...data };
+  body.einvoiceStatus = outcome.mirror;
+  body.einvoiceQr = qr;
+  // الرفض (أو السحب) أبطل الفاتورة: الصفّ المُعاد يقول ذلك بدل أن يقول CONFIRMED كاذباً
+  if (outcome.kind === 'rejected' || outcome.kind === 'withdrawn') body.status = 'CANCELLED';
+  body.einvoice = einvoiceView(
+    p,
+    { einvoiceStatus: outcome.mirror, einvoiceQr: qr, documentKind: fallback.documentKind, invoiceSubtype: '01', issuedAt: fallback.issuedAt },
+    now,
+    fallback.warnings,
+  );
+
+  if (outcome.kind === 'cleared') return { status: 201, body: { success: true, data: body } };
+  if (outcome.kind === 'rejected') {
+    const e = clearanceRejectedError(p.validation, body);
+    return { status: e.status, body: e.body() };
+  }
+  if (outcome.kind === 'cleared_no_xml') {
+    const e = clearedNoXmlError(body);
+    return { status: e.status, body: e.body() };
+  }
+  if (outcome.kind === 'withdrawn') {
+    const e = clearanceWithdrawnError(body);
+    return { status: e.status, body: e.body() };
+  }
+  return pendingResult(body, outcome.pendingReason ?? 'UNKNOWN');
 }

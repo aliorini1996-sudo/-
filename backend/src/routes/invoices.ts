@@ -14,16 +14,23 @@ import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 import { buildInstallments, MAX_INSTALLMENTS } from '../services/installments';
 // ZATCA المرحلة الثانية (Z5.2): فرعٌ واحد للإصدار، وحارس قدرات العميل على القراءات — المرحلة الأولى لا تمرّ بشيء منه
 import { regimeCandidate } from '../compliance/zatca/regime';
-import { capsFromHeaders, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, type Phase2IssuanceContext } from './invoicesZatca';
+import { ALLOCATION_ALLOWED_WHERE } from '../compliance/zatca/status';
+import { ZatcaHttpError } from '../compliance/zatca/errors';
+import { issuanceHttpError } from '../compliance/zatca/issue';
+import {
+  capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody, type Phase2IssuanceContext,
+} from './invoicesZatca';
 import { productionPhase2Deps } from './invoicesZatcaDeps';
+import { withdrawPhase2Invoice } from '../services/invoiceVoid';
+import { reissuePhase2Invoice } from '../services/invoiceReissue';
+import { retryPhase2Document } from '../services/zatcaSubmit';
 import {
   postInvoiceEntries,
   postCashInvoiceEntries,
-  reverseInvoiceEntries,
-  reverseCashInvoiceEntries,
   postReturnEntries,
-  reverseReturnEntries,
 } from '../services/accounting';
+// عكس قيود فاتورة أُلغيت — نسخةٌ واحدة يتشاركها الإلغاء اليدويّ وإبطال المرحلة الثانية (Z5.4)
+import { reverseInvoiceInTx } from '../services/invoiceVoid';
 
 const router = Router();
 router.use(authenticate);
@@ -72,6 +79,8 @@ router.get('/open', requireAdminPermission('canManageReceipts'), async (req: Aut
         status: 'CONFIRMED',
         type: 'CREDIT',
         remainingAmt: { gt: 0.004 },
+        // ZATCA المرحلة الثانية (F2): لا تُعرض للتحصيل فاتورةٌ لم تصر نهائية عند الهيئة — والشرط نفسه حرفياً في الخادم
+        ...ALLOCATION_ALLOWED_WHERE,
       },
       orderBy: { invoiceDate: 'asc' },
       select: { id: true, number: true, remainingAmt: true, invoiceDate: true },
@@ -208,6 +217,37 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * ZATCA المرحلة الثانية (Z5.4): قراءة فاتورة بمفتاح المنع من التكرار (clientRef) — للحزمة التي أضاعت ردّ الرفع
+ * فتسأل «ماذا صار لفاتورتي؟» بلا إعادة رفع. نطاقه نطاق إعادة الرفع نفسه، ولا ينادي الهيئة أبداً (قراءة محضة).
+ * **مُعرَّف قبل `/:id`** وإلّا التقطه كمعرّف فاتورة اسمه by-client-ref.
+ */
+router.get('/by-client-ref/:clientRef', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const clientRef = req.params.clientRef;
+    if (!clientRef) { res.status(400).json({ success: false, message: 'المرجع مطلوب' }); return; }
+    // نطاق مستخدم الشركة كاملاً كما في GET /:id: العميل **والمندوب** معاً (adminScope: الجمع بـAND لا OR) —
+    // وإلّا كشف مرجعُ فاتورةٍ مندوباً خارج النطاق لمن يعرفه. القيد الفريد (tenantId, clientRef) يبقى يخدم القراءة.
+    const invoice = await prisma.invoice.findFirst({
+      where: { tenantId: tid, clientRef, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+      include: { items: true, customer: true },
+    });
+    if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    // النطاق يسبق الردّ (كإعادة الرفع): لا يُكشف عميلٌ خارج النطاق لمن يعرف مرجع فاتورته
+    if (invoice.customerId && !(await canAccessCustomer(req, tid, invoice.customerId))) {
+      res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
+    }
+    if (req.user?.role === 'SALES_REP' && invoice.salesRepId !== req.user.id) {
+      res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
+    }
+    const p2 = isPhase2Invoice(invoice) ? await phase2ReadBody(invoice, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
+    if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }
+    if (p2) { res.json({ success: true, data: { ...invoice, einvoice: p2.einvoice } }); return; }
+    res.json({ success: true, data: invoice });
+  } catch (err) { next(err); }
+});
+
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -258,10 +298,22 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
           res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return;
         }
-        // ZATCA المرحلة الثانية (نقد الخطة 6): إعادة الرفع لا تُعيد صفّاً مختوماً لعميل بلا قدرات، وتُرفق إسقاط المستند لمن يفهمه
-        const p2 = isPhase2Invoice(existing) ? await phase2ReadBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
-        if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }
-        if (p2) { res.status(200).json({ success: true, data: { ...existing, einvoice: p2.einvoice }, idempotent: true }); return; }
+        // ZATCA المرحلة الثانية (نقد الخطة 6): إعادة الرفع لا تُعيد صفّاً مختوماً لعميل بلا قدرات، وتُرفق إسقاط المستند لمن يفهمه.
+        // وZ5.4: قياسيةٌ عالقة «بانتظار الاعتماد» حان موعد محاولتها تُجرَّب مرّة واحدة هنا — فإن جرت، الصفّ الذي بيدنا قديم.
+        const p2 = isPhase2Invoice(existing) ? await phase2ReplayBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
+        if (p2) {
+          const row = p2.reload
+            ? (await prisma.invoice.findUnique({ where: { id: existing.id }, include: { items: true, customer: true } })) ?? existing
+            : existing;
+          // ردّ إعادة الرفع = ردّ الرفع الأوّل: مرفوضة ⇒ 422، معلّقة ⇒ 202، معتمدة ⇒ 200. والصفّ يُرفق مع الردود
+          // المشتقّة من حالة المستند وحدها — لا مع حارس القدرات (صفٌّ مختوم لا يصل حزمةً لا تفهمه، نقد 6).
+          if (p2.error) {
+            const body = p2.error.body();
+            if (p2.einvoice) body.data = { ...row, einvoice: p2.einvoice };
+            res.status(p2.status).json(body); return;
+          }
+          res.status(200).json({ success: true, data: { ...row, einvoice: p2.einvoice }, idempotent: true }); return;
+        }
         res.status(200).json({ success: true, data: existing, idempotent: true }); return;
       }
     }
@@ -602,6 +654,13 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
     if (invoice.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'الفاتورة ملغاة مسبقا' }); return; }
+    /* ZATCA المرحلة الثانية (مراجعة عدائية ٢): الإلغاء اليدويّ يعكس القيود ولا يمسّ zatca_documents إطلاقاً، فكان
+     * المسحُ يواصل إرسال مستند فاتورةٍ عُكست قيودها — ضريبة مخرجات مُقرَّة على بيعٍ مُلغى بلا إشعار دائن. المخرجان
+     * المحروسان وحدهما: السحب قبل أن تستلم الهيئة، والإشعار الدائن بعد الاعتماد. */
+    if (invoice.zatcaPhase === 2) {
+      const e = new ZatcaHttpError('ZATCA_CANCEL_NOT_ALLOWED', { reason: invoice.einvoiceStatus ?? 'UNKNOWN' });
+      res.status(e.status).json(e.body()); return;
+    }
 
     if (req.user?.role === 'SALES_REP') {
       if (invoice.salesRepId !== req.user.id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
@@ -618,13 +677,13 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
 
     const updated = await prisma.$transaction(async tx => {
       const inv = await tx.invoice.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
-      if (inv.type === 'RETURN') {
-        await reverseReturnEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
-      } else if (inv.type === 'CASH') {
-        await reverseCashInvoiceEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
-      } else {
-        await reverseInvoiceEntries(tx as never, tid, inv.id, inv.customerId, Number(inv.total));
-      }
+      // نسخةٌ واحدة من فرع العكس يتشاركها الإلغاء اليدويّ وإبطالُ المرحلة الثانية (Z5.4) — والوضع 'CANCEL' هو
+      // السلوك القديم حرفاً بحرف (مرتجع ⇒ عكس المرتجع، نقدية ⇒ عكس شقّيها، وإلا عكس الآجلة)
+      await reverseInvoiceInTx(
+        tx as never,
+        { id: inv.id, tenantId: tid, type: inv.type, customerId: inv.customerId, total: Number(inv.total) },
+        'CANCEL',
+      );
       await tx.notification.create({
         data: {
           tenantId: tid,
@@ -648,6 +707,113 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     publishInvoicesChanged(tid);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
+});
+
+// ═══ ZATCA المرحلة الثانية (Z5.4): إجراءان إداريّان على المستند الضريبي ═══
+
+/** يقرأ صفّ الفاتورة داخل نطاق المستخدم (لا يُكشف ما خارجه، ولا يُفعَل به شيء). */
+async function scopedInvoiceId(req: AuthRequest, tid: string): Promise<string | null> {
+  const row = await prisma.invoice.findFirst({
+    where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+    select: { id: true },
+  });
+  return row?.id ?? null;
+}
+
+/**
+ * سحب فاتورة ضريبية قياسية عالقة «بانتظار الاعتماد» (نقد 11): مخرجٌ وحيد حين يرفض العميل البضاعة ولا الهيئة حسمت.
+ * لا يمرّ إلا بإثبات أنّ الهيئة **لم تستلم** المستند (سجلّ الطلبات شاهده) — والسحب بعد وصوله مخالفة، فيُردّ 409.
+ */
+router.post('/:id/einvoice/withdraw', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const id = await scopedInvoiceId(req, tid);
+    if (!id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    const r = await withdrawPhase2Invoice({ tenantId: tid, invoiceId: id });
+    if (!r.ok) {
+      const e = new ZatcaHttpError('ZATCA_WITHDRAW_NOT_ALLOWED', {
+        messageAr: r.decision.ok ? undefined : r.decision.messageAr,
+        reason: r.decision.ok ? 'STATE_CHANGED' : r.decision.refusal,
+      });
+      res.status(e.status).json(e.body()); return;
+    }
+    res.json({
+      success: true,
+      data: { id, number: r.outcome?.number ?? null, status: 'CANCELLED', einvoiceStatus: 'withdrawn', proof: r.decision.ok ? r.decision.proof : null },
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * إعادة إرسال يدوية (مدير الشركة) — مخرج المستند المحجوب (401 أو عطل إعداد) بعد إصلاح سببه: البايتات نفسها تُعاد
+ * إلى الطابور وتُرسل الآن. بلا هذا المسار كان الحجب يعني فوات مهلة الإبلاغ على القياسية التي لا استرداد تلقائيّ لها.
+ */
+const RETRY_REFUSAL_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  NO_DOCUMENT: 'لا يوجد مستند ضريبي لهذه الفاتورة',
+  DOCUMENT_FINAL: 'حسمت الهيئة هذا المستند — لا إعادة إرسال',
+  IN_FLIGHT: 'المستند قيد الإرسال إلى الهيئة الآن — أعد المحاولة بعد دقيقة',
+  PAUSED: 'الإرسال إلى الهيئة موقوف مؤقّتاً — أعد المحاولة لاحقاً',
+  NOT_RETRYABLE: 'تعذّرت إعادة إرسال المستند الآن — أعد المحاولة',
+});
+
+router.post('/:id/einvoice/retry', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const id = await scopedInvoiceId(req, tid);
+    if (!id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    const r = await retryPhase2Document({ tenantId: tid, invoiceId: id });
+    if (!r.ok) {
+      const e = new ZatcaHttpError('ZATCA_RETRY_NOT_ALLOWED', {
+        messageAr: RETRY_REFUSAL_MESSAGES[r.refusal ?? 'NOT_RETRYABLE'],
+        reason: r.refusal ?? 'NOT_RETRYABLE',
+      });
+      res.status(e.status).json(e.body()); return;
+    }
+    // 202 حين انقضت نافذة الانتظار والإرسال يكمل في الخلفية (المسح شبكة الأمان) — لا «تمّ» عن شيء لم يُحسم بعد
+    res.status(r.pending === true ? 202 : 200)
+      .json({ success: true, data: { id, documentId: r.documentId, documentStatus: r.documentStatus, einvoiceStatus: r.mirror, pending: r.pending === true } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * إعادة إصدار مستند **مبسّط** رفضته الهيئة (design Z5.9): الورقة عند المشتري فعلاً فلا إبطال — مستندٌ جديد بالرقم
+ * والتاريخ نفسيهما ومحاولة جديدة. القياسية المرفوضة لا تمرّ من هنا: أُبطلت تلقائياً وتُصدَر فاتورةٌ جديدة.
+ */
+router.post('/:id/einvoice/reissue', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    // نقد 6: الرمز الجديد لا يصل حزمةً لا تفهم المرحلة الثانية (تبني QR المرحلة الأولى وتطبعه)
+    const gate = capsGate(capsFromHeaders(req.headers));
+    if (gate) { res.status(gate.status).json(gate.body()); return; }
+    const id = await scopedInvoiceId(req, tid);
+    if (!id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    const r = await reissuePhase2Invoice({ tenantId: tid, invoiceId: id });
+    if (!r.ok || !r.result) {
+      const e = new ZatcaHttpError('ZATCA_REISSUE_NOT_ALLOWED', {
+        messageAr: r.decision.ok ? undefined : r.decision.messageAr,
+        reason: r.decision.ok ? 'UNKNOWN' : r.decision.refusal,
+      });
+      res.status(e.status).json(e.body()); return;
+    }
+    res.json({
+      success: true,
+      data: {
+        id,
+        attemptNo: r.result.attemptNo,
+        documentStatus: r.documentStatus,
+        einvoiceStatus: r.result.mirror.einvoiceStatus,
+        einvoiceQr: r.result.mirror.einvoiceQr,
+        icv: r.result.icv,
+        uuid: r.result.uuid,
+        reportDeadline: r.result.reportDeadline ? r.result.reportDeadline.toISOString() : null,
+        warnings: r.result.warnings,
+      },
+    });
+  } catch (err) {
+    const e = issuanceHttpError(err);
+    if (e) { res.status(e.status).json(e.body()); return; }
+    next(err);
+  }
 });
 
 // تحكّم الأدمن: هل يعود هذا المرتجع لمخزون السيارة؟ (يغيّر حساب المخزون فوراً — للمرتجعات فقط)

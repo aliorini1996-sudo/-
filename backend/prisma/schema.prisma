@@ -2668,6 +2668,7 @@ model ZatcaDocument {
   httpStatus      Int?
   validation      Json?        // آخر validationResults (منقّحة)
   attempts        Int          @default(0)
+  sentAttempts    Int          @default(0) // Z5.4: محاولات **غادرت** العملية فعلاً (تُرفع قبل نداء الهيئة مباشرةً). attempts يرفعه الاستيلاء ولو حُسم المستند محلياً بلا نداء — فهو ليس دليل إرسال، وهذا هو.
   priorEmpty400   Int          @default(0) // EscalationCounts لـZ3: ردود 400 بلا رسائل سابقة لنفس البايتات
   priorPayload413 Int          @default(0) // EscalationCounts لـZ3: ردود 413 سابقة لنفس البايتات
   nextAttemptAt   DateTime?
@@ -2685,6 +2686,8 @@ model ZatcaDocument {
   @@unique([invoiceId, attemptNo])
   @@index([status, nextAttemptAt])
   @@index([tenantId, createdAt])
+  // Z5.3: تمريرة التأخّر (listOverdue) ترشّح بـreportDeadline وoverdueAlertLevel وترتّب بالمهلة — بلا هذا الفهرس مسحٌ تسلسليّ لجدولٍ يحمل بايتات XML كلّ عشر دورات
+  @@index([reportDeadline, overdueAlertLevel])
   @@map("zatca_documents")
 }
 

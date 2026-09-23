@@ -6,6 +6,9 @@ import { postCollectionEntries, postRefundEntry } from './settlement';
 import { generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries, clean } from './accounting';
 import { publishInvoicesChanged } from './liveEvents';
+// ZATCA المرحلة الثانية (Z5.4، F2): فاتورةٌ لم تعتمدها الهيئة لا يُصدر لها رابط دفع، والمتبقّي يُقرأ مقفلاً (نقد 13)
+import { ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
+import { ZATCA_ERROR_CATALOGUE } from '../compliance/zatca/errors';
 
 /**
  * روابط دفع فواتير العملاء — «الدفع الإلكتروني» (ميزة اشتراك يفعّلها المالك).
@@ -60,7 +63,7 @@ export async function issueLink(params: {
     prisma.invoice.findFirst({
       where: { id: params.invoiceId, tenantId: params.tenantId },
       select: {
-        id: true, number: true, status: true, type: true, customerId: true, remainingAmt: true,
+        id: true, number: true, status: true, type: true, customerId: true, remainingAmt: true, einvoiceStatus: true,
         tenant: { select: { name: true, paylinkEnabled: true } },
       },
     }),
@@ -71,6 +74,10 @@ export async function issueLink(params: {
   if (!invoice.tenant.paylinkEnabled) return { ok: false, message: 'ميزة الدفع الالكتروني غير مفعلة لاشتراك شركتك' };
   if (invoice.status !== 'CONFIRMED' || invoice.type === 'RETURN') {
     return { ok: false, message: 'الرابط يصدر من فاتورة معتمدة غير مرتجعة فقط' };
+  }
+  // ZATCA المرحلة الثانية (F2): لا رابط دفع على فاتورة لم تصر نهائية عند الهيئة — القائمة والسند يحرسان الشرط نفسه
+  if (invoice.einvoiceStatus !== null && (ALLOCATION_BLOCKED_MIRRORS as readonly string[]).includes(invoice.einvoiceStatus)) {
+    return { ok: false, message: ZATCA_ERROR_CATALOGUE.ZATCA_ALLOCATION_BLOCKED.messageAr };
   }
   // ميسر بالريال حصراً — الشركات بعملة أخرى مقفلة (قرار المالك)
   if ((company?.currency || 'SAR') !== 'SAR') {
@@ -244,10 +251,11 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
   const receipt = await withNumberRetry(async () => {
     const number = await generateReceiptNumber(link.tenantId);
     return prisma.$transaction(async tx => {
-      const inv = await tx.invoice.findUnique({
-        where: { id: link.invoiceId },
-        select: { paidAmt: true, remainingAmt: true },
-      });
+      // نقد 13: يُقرأ الصفّ **مقفلاً** (FOR UPDATE) لا بلقطةٍ حرّة — وإلا دهست الكتابةُ المطلقة أدناه أيّ تغييرٍ
+      // متزامن على المتبقّي (إبطال فاتورة رفضتها الهيئة، أو سند قبض في اللحظة نفسها) فطُولب العميل بما دفعه
+      const locked = await tx.$queryRaw<{ paidAmt: number; remainingAmt: number }[]>`
+        SELECT "paidAmt", "remainingAmt" FROM invoices WHERE id = ${link.invoiceId} FOR UPDATE`;
+      const inv = locked[0] ?? null;
       const remaining = roundHalfUp(Number(inv?.remainingAmt ?? 0), 2);
       // سُدّدت نقداً في السباق؟ التخصيص بقدر المتبقي والباقي رصيد دائن للعميل —
       // لا نبتلع مالاً دفعه العميل ولا نصنع تسديداً فوق التسديد

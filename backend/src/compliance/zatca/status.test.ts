@@ -137,6 +137,8 @@ test('مرآة الفاتورة: الجدول كاملاً، والمستحيل 
     AUTH_BLOCKED: ['report_blocked', 'clearance_blocked'], CONFIG_ERROR: ['report_blocked', 'clearance_blocked'],
     REPORTED: ['reported', 'reported'], REPORTED_WARN: ['reported_warn', 'reported_warn'],
     CLEARED: [null, 'cleared'], CLEARED_WARN: [null, 'cleared_warn'], CLEARED_NO_XML: [null, 'cleared_no_xml'], REJECTED: ['rejected', 'rejected'],
+    // Z5.4 (نقد 11): السحب قبل أن تستلم الهيئة المستند — الفاتورة مُبطلة فمرآتها withdrawn لكلا النوعين
+    WITHDRAWN: ['withdrawn', 'withdrawn'],
   };
   for (const s of DOCUMENT_STATUSES) {
     assert.equal(mirrorStatusOf(s, '02'), expect[s][0], `02 ${s}`);
@@ -151,13 +153,14 @@ test('رمز المرآة: المبسّطة ختمنا؛ القياسية cleare
   assert.equal(b2b('CLEARED'), 'zatca');
   assert.equal(b2b('CLEARED_WARN'), 'zatca');
   assert.equal(b2b('CLEARED', null), null);
-  for (const s of ['SIGNED', 'SUBMITTING', 'RETRY_WAIT', 'AUTH_BLOCKED', 'CONFIG_ERROR', 'REJECTED', 'CLEARED_NO_XML'] as DocumentStatus[]) assert.equal(b2b(s), null, s);
+  for (const s of ['SIGNED', 'SUBMITTING', 'RETRY_WAIT', 'AUTH_BLOCKED', 'CONFIG_ERROR', 'REJECTED', 'CLEARED_NO_XML', 'WITHDRAWN'] as DocumentStatus[]) assert.equal(b2b(s), null, s);
 });
 
 test('قابلية الطباعة: المبسّطة عدا المرفوضة؛ القياسية معتمدة أو مُبلَّغة فقط', () => {
   for (const m of INVOICE_MIRROR_STATUSES) {
     const b2c = mirrorStatusValidFor02(m);
-    assert.equal(isPrintableMirror(m, '02'), b2c && m !== 'rejected', `02 ${m}`);
+    // Z5.4: المسحوبة كالمرفوضة — الفاتورة تحتها مُبطلة فلا تُطبع ولو كانت مبسّطة
+    assert.equal(isPrintableMirror(m, '02'), b2c && m !== 'rejected' && m !== 'withdrawn', `02 ${m}`);
     assert.equal(isPrintableMirror(m, '01'), ['cleared', 'cleared_warn', 'reported', 'reported_warn'].includes(m), `01 ${m}`);
   }
   for (const bad of [null, undefined, '', 'generated', 'pending']) {

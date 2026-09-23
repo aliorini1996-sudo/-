@@ -64,6 +64,12 @@ export interface BuildInvoiceOptions {
   event?: Extract<SourceEvent, 'POST' | 'REVERSE'>;
   /** تاريخ قيد العكس = entryDate لصف العكس في AccountEntry — إلزامي مع REVERSE */
   reverseDate?: LocalDate;
+  /**
+   * عكسٌ جزئيّ لفاتورة نقدية (REVERSE وحده): يُبنى القيد بلا ساق النقدية فلا تُعكس، والذمة تبقى دائنةً بالإجمالي =
+   * رصيد العميل الدائن. مصدره صفوف AccountEntry نفسها (INVOICE_CREDIT بلا RECEIPT_DEBIT) — ZATCA Z5.4 وقرار
+   * المالك Q1: المندوب حصّل فعلاً فلا يُنقص من عهدته نقدٌ بيده.
+   */
+  keepCashLeg?: boolean;
 }
 
 // ═══ أدوات داخلية ═══
@@ -329,8 +335,10 @@ export function buildInvoiceMove(payload: InvoicePayload, ctx: BuildContext, opt
     pushAmount(lines, balance, diff, 'C'); // diff موجب ⇒ دائن، سالب ⇒ مدين
   }
 
-  // P2: النقدية — مدين الصندوق أو العهدة، دائن الذمة بالإجمالي (يطابق صفّي AccountEntry)
-  if (payload.type === 'CASH') {
+  // P2: النقدية — مدين الصندوق أو العهدة، دائن الذمة بالإجمالي (يطابق صفّي AccountEntry).
+  // عكسٌ جزئيّ (keepCashLeg): لا ساق نقدية أصلاً فلا تُعكس — القيد يبقى متّزناً لأنّ الساق مغلقة على نفسها.
+  const cashLeg = payload.type === 'CASH' && !(event === 'REVERSE' && opts.keepCashLeg === true);
+  if (cashLeg) {
     const toCustody = s.cashInvoiceRouting === 'CUSTODY' && !!repId;
     pushAmount(lines, toCustody
       ? { accountKey: 'REP_CUSTODY', label: `تحصيل نقدي لفاتورة ${refText} (عهدة المندوب)`, salesRepId: repId, partnerName: repName }

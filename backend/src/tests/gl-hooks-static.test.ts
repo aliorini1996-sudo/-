@@ -83,6 +83,10 @@ test('compliance/zatca/* وroutes/invoicesZatca.ts لا تستورد services/gl
   for (const r of ['invoicesZatca.ts', 'invoicesZatcaDeps.ts']) {
     if (fs.existsSync(path.join(SRC, 'routes', r))) files.push(path.join('routes', r));
   }
+  // Z5.3/Z5.4 (نقد 36): توصيل الإرسال والإبطال وإعادة الإصدار بالإنتاج داخل الفحص نفسه
+  for (const f of ['zatcaSubmit.ts', 'invoiceVoid.ts', 'invoiceReissue.ts']) {
+    if (fs.existsSync(path.join(SRC, 'services', f))) files.push(path.join('services', f));
+  }
   for (const f of files) {
     const s = read(f);
     assert.doesNotMatch(s, /from\s+['"][^'"]*services\/gl[^'"]*['"]/, `${f} يستورد services/gl`);

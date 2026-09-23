@@ -5,6 +5,7 @@
 //   لكل عميل: رصيد 113001 في الأستاذ + رصيده الافتتاحي = Σ(مدين − دائن) في AccountEntry.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../lib/ledgerNotes';
 import { accountIdOf } from '../services/gl/testing/fixtures';
 import { invoicePayloadFromRows } from '../services/gl/builders/invoice';
 import { localDate, compareLocalDate } from '../services/gl/dates';
@@ -35,7 +36,7 @@ function mulberry32(seed: number) {
   };
 }
 
-interface SimInvoice { id: string; type: 'CASH' | 'CREDIT' | 'RETURN'; customerId: string; total: number; subtotal: number; tax: number; cancelled: boolean }
+interface SimInvoice { id: string; type: 'CASH' | 'CREDIT' | 'RETURN'; customerId: string; total: number; subtotal: number; tax: number; cancelled: boolean; zatcaVoid?: boolean }
 interface SimReceipt { id: string; customerId: string; amount: number; method: 'CASH' | 'ONLINE'; paylinkId: string | null; refund: { entryId: string; amount: number } | null; cancelled: boolean }
 
 class Sim {
@@ -45,6 +46,8 @@ class Sim {
   seq = 0;
   opening = new Map<string, bigint>();
   openingTaken = false;
+  /** إبطال نقديّ بقاعدة Q1 (ZATCA Z5.4): شقّ الفاتورة وحده يُعكس والمحصَّل يبقى رصيداً دائناً للعميل. */
+  zatcaVoids = 0;
   constructor(public now: number) {}
 
   id(prefix: string) { this.seq++; return `${prefix}${String(this.seq).padStart(6, '0')}`; }
@@ -233,8 +236,16 @@ async function scenario(seed: number, ops: number) {
       if (inv.type === 'RETURN') {
         sim.add({ customerId: inv.customerId, invoiceId: inv.id, receiptId: null, type: 'INVOICE_DEBIT', debit: inv.total, credit: 0, entryDate: at });
       } else {
-        sim.add({ customerId: inv.customerId, invoiceId: inv.id, receiptId: null, type: 'INVOICE_CREDIT', debit: 0, credit: inv.total, entryDate: at });
-        if (inv.type === 'CASH') {
+        /* ZATCA Z5.4 وقرار المالك Q1: فاتورة نقدية رفضتها الهيئة فأُبطلت — يُكتب شقّ الفاتورة وحده بوسمه المميّز
+         * (reverseCashInvoiceKeepingCollection) ويبقى المحصَّل بيد المندوب رصيداً دائناً للعميل. على الأستاذ ألّا
+         * يعكس ساق النقدية حينها، وإلّا انفرج فرقٌ دائم بين حساب الذمم الرقابي ودفتر العملاء بمقدار الفاتورة. */
+        const q1 = inv.type === 'CASH' && rnd() < 0.5;
+        if (q1) { inv.zatcaVoid = true; sim.zatcaVoids++; }
+        sim.add({
+          customerId: inv.customerId, invoiceId: inv.id, receiptId: null, type: 'INVOICE_CREDIT', debit: 0, credit: inv.total,
+          entryDate: at, ...(q1 ? { description: CASH_VOID_KEEP_COLLECTION_NOTE } : {}),
+        });
+        if (inv.type === 'CASH' && !q1) {
           sim.add({ customerId: inv.customerId, invoiceId: inv.id, receiptId: null, type: 'RECEIPT_DEBIT', debit: inv.total, credit: 0, entryDate: at, createdAt: new Date(sim.now + 3) });
         }
       }
@@ -306,6 +317,7 @@ for (const seed of [11, 2027, 90210, 424242]) {
     const kinds = new Set(events.map((e) => `${e.event}:${e.status}:${e.skipReason ?? ''}`));
     assert.ok(kinds.has('POST:DONE:'), [...kinds].join(','));
     assert.ok(store.moves().some((m) => m.reversedMoveId), 'عكس قيد حيّ');
+    assert.ok(sim.zatcaVoids > 0, 'لم يمرّ إبطالٌ نقديّ بقاعدة Q1 (عكس بلا ساق نقدية)');
     assert.ok(store.moves().some((m) => m.lateArrival), 'وصول متأخر بتاريخ البدء');
   });
 }

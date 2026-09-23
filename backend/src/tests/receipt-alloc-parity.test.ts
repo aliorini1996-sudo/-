@@ -236,3 +236,66 @@ test('جدول الأقساط يُبنى على الخادم ويُحرَس مج
   assert.match(invoices, /buildInstallments\(total,/, 'الجدول لا يُبنى من إجمالي الخادم');
   assert.match(invoices, /تعذر تقسيم إجمالي الفاتورة على الأقساط بالضبط/, 'بلا حارس على مساواة المجموع للإجمالي');
 });
+
+// ═══ ZATCA المرحلة الثانية (Z5.4، F2) ═══
+//
+// القاعدة الجديدة فوق التكافؤ نفسه: **فاتورةٌ لم تصر نهائية عند الهيئة لا تُحصَّل**. والمواضع ثلاثة (قائمة الواجهة،
+// توزيع الخادم، رابط الدفع الإلكتروني) — فإن حرس موضعان وأفلت ثالثٌ لم يُحرَس شيء: يكفي أن يفتح المستخدم الشاشة
+// التي تصدر الرابط. ولذلك نسخةٌ واحدة من الشرط (`ALLOCATION_ALLOWED_WHERE`) تُنثر في الاستعلامين، ومصدرها نفسه
+// (`ALLOCATION_BLOCKED_MIRRORS`) يحرس الرابط — لا ثلاث نسخ نصّية تتباعد مع الوقت.
+
+import { ALLOCATION_ALLOWED_WHERE, ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
+
+const paylink = read(path.join(B, 'src', 'services', 'paylink.ts'));
+
+test('الشرط نسخةٌ واحدة تُنثر في الاستعلامين — لا نصّان يتباعدان', () => {
+  assert.match(openHandler(), /\.\.\.ALLOCATION_ALLOWED_WHERE/, 'قائمة /invoices/open بلا شرط المرحلة الثانية');
+  const server = receipts.slice(receipts.indexOf('const openInvoices = await prisma.invoice.findMany'), receipts.indexOf('const filled ='));
+  assert.match(server, /\.\.\.ALLOCATION_ALLOWED_WHERE/, 'توزيع الخادم بلا شرط المرحلة الثانية — يوزّع على ما لا تعرضه الواجهة');
+});
+
+test('الشرط يمنع الأربع ويسمح بالمرحلة الأولى (فخّ NULL مذكور صراحةً)', () => {
+  assert.deepEqual(
+    [...ALLOCATION_BLOCKED_MIRRORS].sort(),
+    ['clearance_blocked', 'clearance_pending', 'rejected', 'withdrawn'],
+    'تغيّرت قائمة المرايا الممنوعة',
+  );
+  const or = (ALLOCATION_ALLOWED_WHERE as { OR: { einvoiceStatus: unknown }[] }).OR;
+  assert.equal(or.length, 2, 'الشرط ليس بشقّين');
+  assert.equal(or[0].einvoiceStatus, null, 'شقّ NULL مفقود — NOT IN وحده يُسقط كلّ صفوف المرحلة الأولى');
+  assert.deepEqual(or[1].einvoiceStatus, { notIn: [...ALLOCATION_BLOCKED_MIRRORS] }, 'الشقّ الثاني لا يطابق القائمة');
+  // المرحلة الأولى (generated/pending) تمرّ — وإلا توقّف التحصيل عن كل الشركات يوم النشر
+  for (const legacy of ['generated', 'pending', 'submitted', 'cleared', 'not_implemented', 'error']) {
+    assert.ok(!(ALLOCATION_BLOCKED_MIRRORS as readonly string[]).includes(legacy), `حالة المرحلة الأولى ${legacy} مُنعت`);
+  }
+});
+
+test('نقد 22: الشرط OR أعلى المستوى لا AND — وإلا دهس نطاق مستخدم الشركة', () => {
+  assert.ok(!Object.prototype.hasOwnProperty.call(ALLOCATION_ALLOWED_WHERE, 'AND'), 'مفتاح AND يدهس scopedRecordWhere');
+  const open = openHandler();
+  const scope = open.indexOf('scopedRecordWhere');
+  const cond = open.indexOf('ALLOCATION_ALLOWED_WHERE');
+  assert.ok(scope > 0 && cond > scope, 'الشرط قبل نطاق المستخدم أو أحدهما مفقود');
+});
+
+test('رابط الدفع يحرس الشرط نفسه من المصدر نفسه', () => {
+  assert.match(paylink, /ALLOCATION_BLOCKED_MIRRORS/, 'رابط الدفع يُصدَر على فاتورة لم تعتمدها الهيئة');
+  const issue = paylink.slice(paylink.indexOf('export async function issueLink'), paylink.indexOf('const existing = await prisma.customerPaymentLink'));
+  assert.match(issue, /einvoiceStatus/, 'حالة الفوترة غير مقروءة في مسار إصدار الرابط');
+  assert.match(issue, /einvoiceStatus !== null/, 'فخّ NULL: الشرط لا يذكر NULL صراحةً');
+});
+
+test('نقد 13: المتبقّي يُقرأ مقفلاً قبل الكتابة المطلقة (السند ورابط الدفع)', () => {
+  const tx = receipts.slice(receipts.indexOf('const remainingById = new Map'), receipts.indexOf('const rcp = await tx.receipt.create'));
+  assert.match(tx, /FOR UPDATE/, 'توزيع السند يقرأ المتبقّي بلا قفل ثم يكتب قيمة مطلقة');
+  assert.match(tx, /ORDER BY id/, 'بلا ترتيب ثابت للقفل — سندان متزامنان يتشابكان');
+  const confirm = paylink.slice(paylink.indexOf('const collected = roundHalfUp'), paylink.indexOf('await postReceiptEntries'));
+  assert.match(confirm, /FOR UPDATE/, 'تأكيد الدفع يقرأ المتبقّي بلا قفل');
+});
+
+test('نقد 13: تخصيص أوف-لاين تجاوز المتبقّي يُقلَّم للمرحلة الثانية ولا يُرمى 500', () => {
+  const tx = receipts.slice(receipts.indexOf('for (const alloc of allocations)'), receipts.indexOf('const rcp = await tx.receipt.create'));
+  assert.match(tx, /phase2ById\.get\(alloc\.invoiceId\)/, 'لا تمييز بين المرحلتين — إمّا 500 للجميع أو تغيير سلوك المرحلة الأولى');
+  assert.match(tx, /alloc\.amount = clean\(Math\.max\(0, remaining\)\)/, 'لا تقليم — يبقى الرمي 500 فيتوقّف صندوق عمل الهاتف');
+  assert.match(tx, /throw new Error\('مبلغ التخصيص أكبر من المتبقي على إحدى الفواتير'\)/, 'سلوك المرحلة الأولى تغيّر');
+});

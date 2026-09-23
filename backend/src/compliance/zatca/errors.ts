@@ -23,7 +23,8 @@ export type ZatcaErrorCode =
   | 'ZATCA_CURRENCY' | 'ZATCA_SETTINGS_LOCKED' | 'ZATCA_UNIT_UNAVAILABLE' | 'ZATCA_UNIT_BUSY' | 'ZATCA_STAMP_FAILED'
   | 'ZATCA_CHAIN_CONFLICT' | 'ZATCA_CLEARANCE_PENDING' | 'ZATCA_REJECTED' | 'ZATCA_USE_CREDIT_NOTE' | 'ZATCA_RETURN_NEEDS_ORIGINAL'
   | 'ZATCA_ORIGINAL_NOT_CLEARED' | 'ZATCA_CREDIT_QTY_EXCEEDED' | 'ZATCA_NOTHING_TO_CREDIT' | 'ZATCA_CLIENT_UPDATE_REQUIRED'
-  | 'ZATCA_CUTOVER_REVIEW' | 'ZATCA_OFFLINE_BLOCKED' | 'ZATCA_INTERNAL' | 'CUSTOMER_ZATCA_INVALID' | 'TENANT_HAS_EINVOICE_ARCHIVE';
+  | 'ZATCA_CLEARED_NO_XML' | 'ZATCA_ALLOCATION_BLOCKED' | 'ZATCA_WITHDRAW_NOT_ALLOWED' | 'ZATCA_REISSUE_NOT_ALLOWED'
+  | 'ZATCA_RETRY_NOT_ALLOWED' | 'ZATCA_CANCEL_NOT_ALLOWED' | 'ZATCA_WITHDRAWN' | 'ZATCA_CUTOVER_REVIEW' | 'ZATCA_OFFLINE_BLOCKED' | 'ZATCA_INTERNAL' | 'CUSTOMER_ZATCA_INVALID' | 'TENANT_HAS_EINVOICE_ARCHIVE';
 
 export interface ZatcaCatalogueEntry {
   status: number;
@@ -52,6 +53,22 @@ export const ZATCA_ERROR_CATALOGUE: Readonly<Record<ZatcaErrorCode, Readonly<Zat
   ZATCA_ORIGINAL_NOT_CLEARED: { status: 409, messageAr: 'لا يمكن إصدار إشعار على فاتورة لم تعتمدها الهيئة بعد', alert: false },
   ZATCA_CREDIT_QTY_EXCEEDED: { status: 422, messageAr: 'الكمية المرتجعة تتجاوز المتاح', alert: false },
   ZATCA_NOTHING_TO_CREDIT: { status: 409, messageAr: 'كل كميات هذه الفاتورة مُرتجعة سابقاً', alert: false },
+  // Z5.4: اعتمدت الهيئة ولم تُعد النسخة المعتمدة — نهائية عند الهيئة وغير قابلة للطباعة حتى تُسترجع (U8)
+  ZATCA_CLEARED_NO_XML: { status: 202, messageAr: 'اعتمدت الهيئة الفاتورة ولم تُعد نسختها المعتمدة — لا تُسلِّم فاتورة ضريبية الآن، وأُبلغت الإدارة لاسترجاعها', alert: true },
+  // Z5.4 (F2): لا تحصيل ولا رابط دفع على فاتورة لم تصر نهائية عند الهيئة
+  ZATCA_ALLOCATION_BLOCKED: { status: 409, messageAr: 'لا يمكن تحصيل فاتورة لم تعتمدها الهيئة بعد — انتظر الاعتماد ثم حصّل', alert: false },
+  // Z5.4 (نقد 11): السحب لا يُسمح إلا بإثبات أنّ الهيئة لم تستلم المستند
+  ZATCA_WITHDRAW_NOT_ALLOWED: { status: 409, messageAr: 'لا يمكن سحب هذه الفاتورة', alert: false },
+  ZATCA_REISSUE_NOT_ALLOWED: { status: 409, messageAr: 'لا يمكن إعادة إصدار هذه الفاتورة', alert: false },
+  ZATCA_RETRY_NOT_ALLOWED: { status: 409, messageAr: 'لا يمكن إعادة إرسال هذا المستند الآن', alert: false },
+  // Z5.4 (مراجعة عدائية ٢): الإلغاء اليدويّ لا يمسّ مستند الهيئة، فكان يترك المسح يرسل فاتورةً عُكست قيودها
+  ZATCA_CANCEL_NOT_ALLOWED: {
+    status: 409,
+    messageAr: 'لا يُلغى مستند الفوترة الإلكترونية يدوياً — إن لم تعتمده الهيئة بعد فاسحب الفاتورة، وإن اعتمدته فأصدر إشعاراً دائناً كاملاً',
+    alert: false,
+  },
+  // Z5.4 (مراجعة عدائية ٢): إعادة رفع فاتورة سُحبت وأُلغيت — لا «بانتظار الاعتماد» عن مستند لن يُرسل أبداً
+  ZATCA_WITHDRAWN: { status: 409, messageAr: 'سُحبت هذه الفاتورة قبل وصولها إلى الهيئة وأُلغيت — أصدر فاتورة جديدة', alert: false },
   ZATCA_CLIENT_UPDATE_REQUIRED: { status: 426, messageAr: 'حدّث التطبيق لإصدار الفواتير الضريبية (أغلق التطبيق وافتحه من جديد)', alert: false },
   ZATCA_CUTOVER_REVIEW: { status: 409, messageAr: 'مستند دون اتصال من قبل التفعيل — بانتظار مراجعة الإدارة', alert: false },
   ZATCA_OFFLINE_BLOCKED: { status: 409, messageAr: 'لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال — المرحلة الثانية مفعّلة', alert: false },

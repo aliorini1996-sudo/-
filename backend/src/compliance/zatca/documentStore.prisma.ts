@@ -13,9 +13,10 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
   CLAIM_SCAN_FACTOR, CLAIM_SCAN_MAX, DEFAULT_SUBMIT_UNIT_STATUSES, gunzipXml, gzipXml, validateSignedInput, type ClaimedDocument,
-  type DocumentProjection, type LockedUnitRow, type ZatcaDocumentStore,
+  type DocumentProjection, type LockedUnitRow, type OverdueDocument, type ZatcaDocumentStore,
 } from './documentStore';
-import type { Flow } from './status';
+import { FINAL_DOCUMENT_STATUSES, type Flow } from './status';
+import { NOT_RECEIVED_HTTP_STATUSES } from './void';
 
 type Db = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | 'zatcaDocument' | 'zatcaApiLog' | 'invoice'>;
 export type DocumentStoreTx = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw' | 'zatcaDocument' | 'invoice'>;
@@ -23,7 +24,8 @@ export type DocumentStoreTx = Pick<Prisma.TransactionClient, '$queryRaw' | '$exe
 const PROJECTION_SELECT = {
   id: true, egsUnitId: true, attemptNo: true, icv: true, uuid: true, pih: true, invoiceHash: true, typeCode: true, typeName: true,
   issueDate: true, issueTime: true, flow: true, qr: true, clearedQr: true, status: true, httpStatus: true, validation: true, attempts: true,
-  nextAttemptAt: true, firstSubmitAt: true, finalizedAt: true, reportDeadline: true, keyVersion: true, createdAt: true, updatedAt: true,
+  sentAttempts: true, nextAttemptAt: true, leaseUntil: true, firstSubmitAt: true, finalizedAt: true, reportDeadline: true, keyVersion: true,
+  createdAt: true, updatedAt: true,
   egsUnit: { select: { environment: true } },
 } satisfies Prisma.ZatcaDocumentSelect;
 
@@ -71,9 +73,14 @@ export function prismaZatcaDocumentStore(prisma: Db): ZatcaDocumentStore<Documen
       const rows = await prisma.$queryRaw<ClaimedRaw[]>`
         UPDATE zatca_documents SET status = 'SUBMITTING', "leaseUntil" = NOW() + ${leaseInterval(opts.leaseMs)}::interval,
           attempts = attempts + 1, "firstSubmitAt" = COALESCE("firstSubmitAt", NOW()), "updatedAt" = NOW()
-        WHERE id = ${id} AND (
+        WHERE id = ${id}
+          -- Z5.4 (مراجعة عدائية): فاتورةٌ أُلغيت لا يُرسل مستندها إلى الهيئة أبداً — حزامٌ ثانٍ تحت حارس المسار
+          AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.id = zatca_documents."invoiceId" AND i.status = 'CANCELLED')
+          AND (
           (status IN ('SIGNED', 'RETRY_WAIT') AND ("leaseUntil" IS NULL OR "leaseUntil" < NOW())
             AND (${ignore}::boolean OR "nextAttemptAt" IS NULL OR "nextAttemptAt" <= NOW()))
+          OR (status IN ('AUTH_BLOCKED', 'CONFIG_ERROR') AND ("leaseUntil" IS NULL OR "leaseUntil" < NOW())
+            AND "nextAttemptAt" IS NOT NULL AND "nextAttemptAt" <= NOW())
           OR (status = 'SUBMITTING' AND "leaseUntil" IS NOT NULL AND "leaseUntil" < NOW()))
         RETURNING id, "tenantId", "egsUnitId", "invoiceId", "attemptNo", icv, uuid, "invoiceHash", "typeName", flow, attempts, "leaseUntil",
           "priorEmpty400", "priorPayload413", "reportDeadline", "keyVersion", "createdAt"`;
@@ -86,16 +93,25 @@ export function prismaZatcaDocumentStore(prisma: Db): ZatcaDocumentStore<Documen
       if (limit === 0 || perUnit === 0) return [];
       const scan = Math.min(CLAIM_SCAN_MAX, limit * CLAIM_SCAN_FACTOR);
       const statuses = [...(opts.unitStatuses ?? DEFAULT_SUBMIT_UNIT_STATUSES)];
+      // نقد 16: شركة موقوفة تُستبعد هنا لا بعد الاستيلاء. LEFT JOIN عمداً: شركة بلا صفّ إعدادات لا تُحرم من الإرسال
+      const skipPaused = opts.excludePausedTenants !== false;
       // FOR UPDATE لا يجتمع مع دوالّ النوافذ في المستوى نفسه: القفل في candidates، والعدل (row_number لكل وحدة) خارجه
       const rows = await prisma.$queryRaw<ClaimedRaw[]>`
         WITH candidates AS (
           SELECT d.id, d."egsUnitId", d.icv, d."reportDeadline", d."createdAt"
           FROM zatca_documents d
           JOIN zatca_egs_units u ON u.id = d."egsUnitId"
+          LEFT JOIN company_settings cs ON cs."tenantId" = d."tenantId"
           WHERE u.status = ANY(${statuses}::text[])
+            AND (NOT ${skipPaused}::boolean OR cs."zatcaSubmitPausedAt" IS NULL)
+            -- Z5.4 (مراجعة عدائية): فاتورةٌ أُلغيت لا يُرسل مستندها أبداً (حزامٌ ثانٍ تحت حارس مسار الإلغاء)
+            AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.id = d."invoiceId" AND i.status = 'CANCELLED')
             AND (
               (d.status IN ('SIGNED', 'RETRY_WAIT') AND (d."leaseUntil" IS NULL OR d."leaseUntil" < NOW())
                 AND (d."nextAttemptAt" IS NULL OR d."nextAttemptAt" <= NOW()))
+              -- الحجب المؤقّت (Z5.3، مراجعة عدائية): موعدٌ صريح شرطٌ — بلا موعد لا يُستولى عليه أبداً
+              OR (d.status IN ('AUTH_BLOCKED', 'CONFIG_ERROR') AND (d."leaseUntil" IS NULL OR d."leaseUntil" < NOW())
+                AND d."nextAttemptAt" IS NOT NULL AND d."nextAttemptAt" <= NOW())
               OR (d.status = 'SUBMITTING' AND d."leaseUntil" IS NOT NULL AND d."leaseUntil" < NOW()))
           ORDER BY d."reportDeadline" ASC NULLS LAST, d."egsUnitId", d.icv
           LIMIT ${scan}
@@ -138,11 +154,93 @@ export function prismaZatcaDocumentStore(prisma: Db): ZatcaDocumentStore<Documen
       const r = await db.invoice.updateMany({
         where: { id: invoiceId, zatcaPhase: 2 },
         data: {
-          einvoiceStatus: mirror.einvoiceStatus, einvoiceQr: mirror.einvoiceQr, einvoiceWarnings: mirror.einvoiceWarnings,
+          einvoiceStatus: mirror.einvoiceStatus, einvoiceWarnings: mirror.einvoiceWarnings,
+          ...(mirror.einvoiceQr !== undefined ? { einvoiceQr: mirror.einvoiceQr } : {}),
           ...(mirror.einvoiceSubmittedAt !== undefined ? { einvoiceSubmittedAt: mirror.einvoiceSubmittedAt } : {}),
         },
       });
       return r.count === 1;
+    },
+
+    async requeueForRetry(id, fromStatuses, at) {
+      if (fromStatuses.length === 0) return false;
+      const r = await prisma.zatcaDocument.updateMany({
+        where: { id, status: { in: [...fromStatuses] } },
+        data: { status: 'RETRY_WAIT', nextAttemptAt: at, leaseUntil: null },
+      });
+      return r.count === 1;
+    },
+
+    async listOverdue(q) {
+      const limit = Math.max(0, Math.trunc(q.limit));
+      if (limit === 0) return [];
+      // reportDeadline قابل للإفراغ: مقارنة lte تُسقط NULL من تلقائها (مستندات الاعتماد بلا مهلة) — لا مرشّح not هنا.
+      // status وoverdueAlertLevel غير قابلين للإفراغ فـnotIn/lt عليهما آمنان.
+      const rows = await prisma.zatcaDocument.findMany({
+        where: {
+          reportDeadline: { lte: new Date(q.now.getTime() + Math.max(0, q.withinMs)) },
+          status: { notIn: [...FINAL_DOCUMENT_STATUSES] },
+          overdueAlertLevel: { lt: Math.trunc(q.maxLevel) },
+        },
+        orderBy: [{ reportDeadline: 'asc' }, { icv: 'asc' }],
+        take: limit,
+        select: {
+          id: true, tenantId: true, egsUnitId: true, invoiceId: true, status: true, flow: true, typeName: true, icv: true,
+          reportDeadline: true, overdueAlertLevel: true,
+        },
+      });
+      const out: OverdueDocument[] = [];
+      for (const r of rows) {
+        if (!r.reportDeadline) continue;
+        out.push({ ...r, flow: r.flow as Flow, reportDeadline: r.reportDeadline });
+      }
+      return out;
+    },
+
+    async bumpOverdueAlertLevel(id, fromLevel, toLevel) {
+      if (!(toLevel > fromLevel)) return false;
+      const r = await prisma.zatcaDocument.updateMany({
+        where: { id, overdueAlertLevel: fromLevel },
+        data: { overdueAlertLevel: toLevel },
+      });
+      return r.count === 1;
+    },
+
+    async casDocumentStatus(tx, i) {
+      if (i.fromStatuses.length === 0) return false;
+      const db = tx ?? prisma;
+      // شرط العقد داخل الجملة نفسها (NOW() ساعة القاعدة): مستندٌ يرسله عاملٌ حيّ لا يُسحب من تحته.
+      // والتسييج بـattempts (Z5.4، مراجعة عدائية): عاملٌ استولى عليه بين قراءة الإسقاط وهذه الجملة رفع العدّاد فيسقط
+      // التحويل — فلا يُسحب مستندٌ أُرسلت بايتاته بعد القرار. القيمة undefined ⇒ بلا تسييج (استعمالات أخرى).
+      const fenced = i.attempts ?? null;
+      const n = await db.$executeRaw`
+        UPDATE zatca_documents SET status = ${i.toStatus}, "leaseUntil" = NULL, "nextAttemptAt" = NULL,
+          "finalizedAt" = ${i.at}, "updatedAt" = ${i.at}
+        WHERE id = ${i.id} AND status = ANY(${[...i.fromStatuses]}::text[])
+          AND (${fenced}::int IS NULL OR attempts = ${fenced}::int)
+          AND ("leaseUntil" IS NULL OR "leaseUntil" < NOW())`;
+      return n === 1;
+    },
+
+    async countPossiblyDeliveredAttempts(documentId) {
+      // فخّ NULL: notIn وحده يُسقط الصفوف التي حالتها NULL (انقطاع شبكة أو مهلة) — وهي أخطرها، فتُذكر صراحةً
+      return prisma.zatcaApiLog.count({
+        where: {
+          documentId,
+          OR: [{ httpStatus: null }, { httpStatus: { notIn: [...NOT_RECEIVED_HTTP_STATUSES] } }],
+        },
+      });
+    },
+
+    async countAttemptLogs(documentId) {
+      return prisma.zatcaApiLog.count({ where: { documentId } });
+    },
+
+    async markDispatched(id) {
+      // جملة واحدة بالمفتاح الأساسي قبل نداء الهيئة مباشرةً: أثرٌ دائم يقول «بايتات غادرت» ولو مات العامل بعدها
+      const n = await prisma.$executeRaw`
+        UPDATE zatca_documents SET "sentAttempts" = "sentAttempts" + 1, "updatedAt" = NOW() WHERE id = ${id}`;
+      return n === 1;
     },
 
     async writeApiLog(row) {

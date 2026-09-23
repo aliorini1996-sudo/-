@@ -14,6 +14,7 @@ import prisma from './config/database';
 import { startOpsScheduler } from './services/opsSchedule';
 import { startPetroappScheduler } from './services/petroapp';
 import { startPaylinkScheduler } from './services/paylink';
+import { startZatcaSweep } from './services/zatcaSubmit';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
 
 import authRouter from './routes/auth';
@@ -132,6 +133,33 @@ app.post('/api/ops/run-reports', async (req, res) => {
     res.json({ success: true, data: await ensureScheduledReports() });
   } catch (e) {
     console.error('run-reports error:', (e as Error).message);
+    res.status(500).json({ success: false });
+  }
+});
+
+// ZATCA المرحلة الثانية (Z5.3) — تشغيل يدوي لدورة إرسال المستندات، ومفتاح إيقاف الإرسال لشركة.
+// قبل محدِّد المعدّل (كشبكة أمان التقارير): نداءٌ تشغيليّ نادر يجب ألّا يُحجب بـ429 حين يلاحق مهلة الـ24 ساعة.
+// الحارس: x-ops-token بمقارنة زمنية ثابتة مع ZATCA_SWEEP_TOKEN — بلا المتغيّر النقطةُ مغلقة (401 دائماً).
+app.post('/api/ops/zatca-sweep', async (req, res) => {
+  const expected = (process.env.ZATCA_SWEEP_TOKEN || '').trim();
+  const got = req.get('x-ops-token') || '';
+  const a = Buffer.from(got); const b = Buffer.from(expected);
+  if (!expected || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    res.sendStatus(401); return;
+  }
+  try {
+    const body = (req.body ?? {}) as { action?: unknown; tenantId?: unknown };
+    const action = typeof body.action === 'string' ? body.action : 'run';
+    const { runZatcaSweepNow, setTenantSubmitPaused } = await import('./services/zatcaSubmit');
+    if (action === 'pause' || action === 'resume') {
+      const tenantId = typeof body.tenantId === 'string' ? body.tenantId.trim() : '';
+      if (!tenantId) { res.status(400).json({ success: false, message: 'tenantId مطلوب' }); return; }
+      res.json({ success: true, data: await setTenantSubmitPaused(tenantId, action === 'pause') });
+      return;
+    }
+    res.json({ success: true, data: await runZatcaSweepNow() });
+  } catch (e) {
+    console.error('zatca-sweep error:', (e as Error).message);
     res.status(500).json({ success: false });
   }
 });
@@ -319,6 +347,7 @@ server.listen(PORT, async () => {
   startPetroappScheduler();
   startPaylinkScheduler();
   startLedgerSyncScheduler(); // LEDGER_WORKER_ENABLED=0 للإطفاء
+  startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
 });
 
 export default app;

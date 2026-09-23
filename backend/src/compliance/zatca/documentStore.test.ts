@@ -219,7 +219,43 @@ test('المحوّل: الإسقاط بلا xmlGz/clearedXmlGz؛ القفل FOR 
     assert.match(body(n), /"leaseUntil" = NOW\(\) \+/, n);
     assert.match(body(n), /attempts = (z\.)?attempts \+ 1/, n);
     assert.match(body(n), /"updatedAt" = NOW\(\)/, n);
+    // مراجعة عدائية ٢: مستند فاتورةٍ ملغاة لا يُستولى عليه (حزامٌ ثانٍ تحت حارس مسار الإلغاء)
+    assert.match(body(n), /NOT EXISTS \(SELECT 1 FROM invoices i WHERE i\.id = \S+\."invoiceId" AND i\.status = 'CANCELLED'\)/, n);
+    // ولا يُرفع عدّاد الإرسال بالاستيلاء: دليلُ السحب جملةٌ مستقلّة قبل النداء
+    assert.doesNotMatch(body(n), /sentAttempts/, n);
   }
+  assert.match(body('markDispatched'), /UPDATE zatca_documents SET "sentAttempts" = "sentAttempts" \+ 1/);
+});
+
+/* مراجعة عدائية ٢ (النتيجتان 2 و5): مستند فاتورةٍ أُلغيت كان يُستولى عليه ويُرسل إلى الهيئة بعد عكس قيوده. */
+test('لا استيلاء على مستند فاتورةٍ ملغاة — مفردةً وجماعةً', async () => {
+  const { store } = harness();
+  const a = await store.insertSigned(null, doc());
+  const b = await store.insertSigned(null, doc());
+  const cancelled = [...store.documents.values()].find(d => d.id === a.id) as { invoiceId: string };
+  store.invoices.set(cancelled.invoiceId, {
+    id: cancelled.invoiceId, tenantId: 't1', status: 'CANCELLED', zatcaPhase: 2,
+    einvoiceStatus: 'clearance_pending', einvoiceQr: null, einvoiceWarnings: null, einvoiceSubmittedAt: null,
+  });
+  assert.equal(await store.claim(a.id, { leaseMs: 60_000, ignoreSchedule: true }), null, 'استُولي على مستند فاتورةٍ ملغاة');
+  const claimed = await store.claimBatch({ limit: 10, perUnit: 10, leaseMs: 60_000 });
+  // صفّ فاتورة غائب من المخزن (كأغلب اختبارات هذا الملف) لا يمنع الاستيلاء — المنع بحالة CANCELLED وحدها
+  assert.deepEqual(claimed.map(c => c.id), [b.id], 'الدفعة حملت مستند فاتورةٍ ملغاة أو حرمت مستنداً سليماً');
+});
+
+/* مراجعة عدائية ٢ (النتائج 3/4/8): دليل «بايتات غادرت» عدّادٌ مستقلّ يُرفع قبل النداء — لا عدّاد المطالبة. */
+test('markDispatched يرفع sentAttempts وحده، والمطالبة لا تمسّه', async () => {
+  const { store } = harness();
+  const a = await store.insertSigned(null, doc());
+  await store.claim(a.id, { leaseMs: 60_000, ignoreSchedule: true });
+  const row = [...store.documents.values()].find(d => d.id === a.id) as { attempts: number; sentAttempts: number; invoiceId: string };
+  assert.equal(row.attempts, 1);
+  assert.equal(row.sentAttempts, 0, 'المطالبة رفعت عدّاد الإرسال — فصار الحسم المحلّيّ يبدو إرسالاً');
+  assert.equal(await store.markDispatched(a.id), true);
+  assert.equal(row.sentAttempts, 1);
+  assert.equal(await store.markDispatched('لا-وجود-له'), false);
+  const proj = await store.loadProjection('t1', row.invoiceId);
+  assert.equal(proj?.sentAttempts, 1, 'الإسقاط لا يحمل دليل الإرسال');
 });
 
 test('المحوّل: النتيجة مسيَّجة برمز المطالبة، والمرآة لـzatcaPhase: 2 وحدها، والسجل بمعرّف المستند، ولا مرشّح not ولا JSON null', () => {

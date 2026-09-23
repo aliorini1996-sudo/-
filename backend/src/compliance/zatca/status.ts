@@ -17,16 +17,23 @@ export { IN_FLIGHT_DOCUMENT_STATUSES };
 
 export const DOCUMENT_STATUSES = Object.freeze([
   'SIGNED', 'SUBMITTING', 'RETRY_WAIT', 'REPORTED', 'REPORTED_WARN', 'CLEARED', 'CLEARED_WARN', 'CLEARED_NO_XML', 'REJECTED',
-  'AUTH_BLOCKED', 'CONFIG_ERROR',
+  'AUTH_BLOCKED', 'CONFIG_ERROR', 'WITHDRAWN',
 ] as const);
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
 /** نهائية لهذه المحاولة: لا مطالبة بعدها. (AUTH_BLOCKED وCONFIG_ERROR ليستا نهائيتين: إعادة يدوية.) */
 export const FINAL_DOCUMENT_STATUSES: readonly DocumentStatus[] = Object.freeze([
-  'REPORTED', 'REPORTED_WARN', 'CLEARED', 'CLEARED_WARN', 'CLEARED_NO_XML', 'REJECTED',
+  'REPORTED', 'REPORTED_WARN', 'CLEARED', 'CLEARED_WARN', 'CLEARED_NO_XML', 'REJECTED', 'WITHDRAWN',
 ] as DocumentStatus[]);
 /** تُطالَب حين يحين موعدها (والمطالبة تستولي أيضاً على SUBMITTING منتهي العقد). */
 export const CLAIMABLE_STATUSES: readonly DocumentStatus[] = Object.freeze(['SIGNED', 'RETRY_WAIT'] as DocumentStatus[]);
+/**
+ * حالات الحجب: تُطالَب **بموعدٍ صريح وحده** (nextAttemptAt غير فارغ وقد حان). مستندُ إبلاغٍ حُجب بـ401 أو بعطل إعداد
+ * كان يعلق إلى الأبد ومهلة الـ24 ساعة تفوت يقيناً بلا إعادة محاولة واحدة؛ فصار الحجب مؤقّتاً بتراجع طويل. وبلا موعد
+ * (وهو حال الاعتماد: إعادة إرسال بايتات موقَّعة بشهادة سابقة قد تُرفض فتُبطل فاتورة سليمة) يبقى الحجب نهائياً
+ * حتى إعادة يدوية.
+ */
+export const BLOCKED_RETRY_STATUSES: readonly DocumentStatus[] = Object.freeze(['AUTH_BLOCKED', 'CONFIG_ERROR'] as DocumentStatus[]);
 /** الإعادة اليدوية (مدير الشركة): إلى RETRY_WAIT الآن بالبايتات نفسها. */
 export const MANUAL_RETRY_FROM: readonly DocumentStatus[] = Object.freeze(['RETRY_WAIT', 'AUTH_BLOCKED', 'CONFIG_ERROR'] as DocumentStatus[]);
 
@@ -71,6 +78,23 @@ export function retryDelayMs(attempts: number, retryAfterSeconds?: number): numb
   return Math.max(base, ra);
 }
 
+/** استرداد المحجوب (401 أو عطل إعداد): 15د ثم يتضاعف حتى 6 ساعات — يكفي للتعافي بعد تجديد الشهادة بلا قصف. */
+export const BLOCKED_RETRY_BASE_MS = 15 * 60 * 1000;
+export const BLOCKED_RETRY_MAX_MS = 6 * 60 * 60 * 1000;
+
+export function blockedRetryDelayMs(attempts: number): number {
+  const n = Number.isInteger(attempts) && attempts > 0 ? attempts : 1;
+  return Math.min(BLOCKED_RETRY_BASE_MS * 2 ** Math.min(n - 1, 10), BLOCKED_RETRY_MAX_MS);
+}
+
+/**
+ * موعد استرداد المستند المحجوب: للإبلاغ وحده (مهلة الـ24 ساعة مخالفةٌ مؤكّدة إن فاتت، وإعادة إرسال البايتات نفسها
+ * آمنة لأنّ التكرار نجاح). للاعتماد null: إعادة إرسالٍ قد تُرفض فتُبطل فاتورة سليمة، ومخرجه السحب أو الإعادة اليدوية.
+ */
+export function blockedNextAttemptAt(flow: Flow, attempts: number, now: Date): Date | null {
+  return flow === 'REPORTING' ? new Date(now.getTime() + blockedRetryDelayMs(attempts)) : null;
+}
+
 // ─── المطالبة ───
 
 export interface ClaimableView {
@@ -88,6 +112,11 @@ export function isClaimable(doc: ClaimableView, now: Date, opts: { ignoreSchedul
   const leaseFree = doc.leaseUntil === null || doc.leaseUntil.getTime() < t;
   if ((CLAIMABLE_STATUSES as readonly string[]).includes(doc.status)) {
     return leaseFree && (opts.ignoreSchedule === true || doc.nextAttemptAt === null || doc.nextAttemptAt.getTime() <= t);
+  }
+  // المحجوب: الموعد الصريح شرطٌ لا يتخطّاه ignoreSchedule — بلا موعد لا يُطالَب به المسح أبداً (الإعادة اليدوية
+  // تمرّ بـrequeueForRetry فتصير RETRY_WAIT أولاً).
+  if ((BLOCKED_RETRY_STATUSES as readonly string[]).includes(doc.status)) {
+    return leaseFree && doc.nextAttemptAt !== null && doc.nextAttemptAt.getTime() <= t;
   }
   return doc.status === 'SUBMITTING' && doc.leaseUntil !== null && doc.leaseUntil.getTime() < t;
 }
@@ -164,10 +193,11 @@ export function transitionForOutcome(outcome: Outcome, ctx: OutcomeContext): Out
       if (outcome.reason === 'payload') w.priorPayload413 = ctx.priorPayload413 + 1;
       return w;
     }
+    // الحجب مؤقّت لمستند الإبلاغ (موعد استرداد طويل) ونهائيّ للاعتماد (مخرجه السحب أو الإعادة اليدوية)
     case 'AUTH':
-      return { ...base('AUTH_BLOCKED'), alert: 'AUTH', authFailure: true };
+      return { ...base('AUTH_BLOCKED'), nextAttemptAt: blockedNextAttemptAt(ctx.flow, ctx.attempts, ctx.now), alert: 'AUTH', authFailure: true };
     case 'CONFIG':
-      return { ...base('CONFIG_ERROR'), alert: 'CONFIG' };
+      return { ...base('CONFIG_ERROR'), nextAttemptAt: blockedNextAttemptAt(ctx.flow, ctx.attempts, ctx.now), alert: 'CONFIG' };
   }
 }
 
@@ -191,12 +221,25 @@ export function authFailureConfirmed(
 
 export const INVOICE_MIRROR_STATUSES = Object.freeze([
   'signed', 'clearance_pending', 'report_blocked', 'clearance_blocked', 'reported', 'reported_warn', 'cleared', 'cleared_warn',
-  'cleared_no_xml', 'rejected',
+  'cleared_no_xml', 'rejected', 'withdrawn',
 ] as const);
 export type InvoiceMirrorStatus = (typeof INVOICE_MIRROR_STATUSES)[number];
 
 /** مرايا تمنع التخصيص (سند قبض، رابط دفع) حتى الاعتماد — Z5.4 يستعملها بشرط NULL الآمن. */
-export const ALLOCATION_BLOCKED_MIRRORS: readonly InvoiceMirrorStatus[] = Object.freeze(['clearance_pending', 'clearance_blocked', 'rejected'] as InvoiceMirrorStatus[]);
+export const ALLOCATION_BLOCKED_MIRRORS: readonly InvoiceMirrorStatus[] = Object.freeze(['clearance_pending', 'clearance_blocked', 'rejected', 'withdrawn'] as InvoiceMirrorStatus[]);
+
+/**
+ * Z5.4 (F2) — شرط Prisma الواحد الذي تتشارك فيه المواضع الثلاثة (قائمة `/open`، توزيع سند القبض، رابط الدفع):
+ * فاتورةٌ لم تصر نهائيةً عند الهيئة لا تُحصَّل ولا يُصدَر لها رابط دفع.
+ *   • `einvoiceStatus: null` مذكورة صراحةً: فخّ NULL في SQL — `NOT IN` وحده يُسقط كلّ صفوف المرحلة الأولى (وهي كلّها
+ *     خارج الموضوع)، وصفوف المرحلة الأولى قيمتها `generated`/`pending` فلا تدخل القائمة الممنوعة أصلاً.
+ *   • `OR` أعلى المستوى لا `AND` (نقد 22): نطاق مستخدم الشركة يُنثر كـ`{AND:[…]}` في الـwhere نفسه، ومفتاح `AND` ثانٍ
+ *     كان سيدهسه فيفتح فواتير خارج النطاق لكلّ شركة.
+ * يُستعمل بالنثر: `...ALLOCATION_ALLOWED_WHERE` — نسخةٌ واحدة لا ثلاث نسخ تتباعد (tests/receipt-alloc-parity).
+ */
+export const ALLOCATION_ALLOWED_WHERE = Object.freeze({
+  OR: [{ einvoiceStatus: null }, { einvoiceStatus: { notIn: ALLOCATION_BLOCKED_MIRRORS as readonly string[] as string[] } }],
+});
 
 /**
  * Invoice.einvoiceStatus من حالة المستند ونوعه. null لتركيبة مستحيلة (مبسّطة معتمدة) — خطأ داخلي عند المستدعي.
@@ -213,6 +256,8 @@ export function mirrorStatusOf(docStatus: DocumentStatus, subtype: Subtype): Inv
     case 'CLEARED_WARN': return b2b ? 'cleared_warn' : null;
     case 'CLEARED_NO_XML': return b2b ? 'cleared_no_xml' : null;
     case 'REJECTED': return 'rejected';
+    // Z5.4 (نقد 11): سُحبت قبل أن تصل الهيئة — مستند لا يُرسل أبداً وفاتورة مُبطلة
+    case 'WITHDRAWN': return 'withdrawn';
   }
 }
 
@@ -227,10 +272,16 @@ export function mirrorQrOf(input: { subtype: Subtype; status: DocumentStatus; qr
   return null;
 }
 
+/** مرايا لا تُطبع أبداً مهما كان النوع: أُبطلت الفاتورة تحتها (رفض الهيئة أو سحب قبل الوصول). */
+const NEVER_PRINTABLE_MIRRORS: readonly string[] = Object.freeze(['rejected', 'withdrawn']);
+
 /** قابلة للطباعة/المشاركة: المبسّطة بأي حالة عدا المرفوضة؛ القياسية بعد الاعتماد أو بعد الإبلاغ (إيقاف الاعتماد). */
 export function isPrintableMirror(mirror: string | null | undefined, subtype: Subtype): boolean {
   if (typeof mirror !== 'string') return false;
-  if (subtype === '02') return (INVOICE_MIRROR_STATUSES as readonly string[]).includes(mirror) && mirror !== 'rejected' && !mirror.startsWith('clear');
+  if (subtype === '02') {
+    return (INVOICE_MIRROR_STATUSES as readonly string[]).includes(mirror) && !NEVER_PRINTABLE_MIRRORS.includes(mirror)
+      && !mirror.startsWith('clear');
+  }
   return mirror === 'cleared' || mirror === 'cleared_warn' || mirror === 'reported' || mirror === 'reported_warn';
 }
 

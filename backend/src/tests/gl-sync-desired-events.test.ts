@@ -7,6 +7,7 @@ import {
   sourceEventCreateRow,
   type AccountEntrySourceRow, type DeriveContext, type InvoiceFacts, type ReceiptFacts, type SettlementEntrySourceRow,
 } from '../services/gl/sync/desired';
+import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../lib/ledgerNotes';
 import { decodeEventNote } from '../services/gl/sync/classify';
 import { arEntryKey } from '../services/gl/sync/keys';
 import type { DesiredEvent, InvoicePostEventPayload, ReceiptPostEventPayload, ReceiptReverseEventPayload } from '../services/gl/sync/types';
@@ -82,6 +83,52 @@ test('إلغاء نقدي: INVOICE_CREDIT وRECEIPT_DEBIT بمللي ثانية 
   assert.equal(evs[0].event, 'REVERSE');
   const p = evs[0].payload as { invoiceId: string; type: string; entryDate: string };
   assert.deepEqual({ invoiceId: p.invoiceId, type: p.type, entryDate: p.entryDate }, { invoiceId: 'i1', type: 'CASH', entryDate: '2026-09-10' });
+});
+
+/* ZATCA Z5.4 / Q1 (مراجعة عدائية ٢): الإبطال الجزئيّ يُعرف من **وسم صفّ العكس نفسه** — لا من مرآة الفاتورة
+ * (تُكتب بعد صفوف الدفتر بزمنٍ عشوائيّ، فإعادةُ اشتقاقٍ لاحقة كانت تقلب عكساً كاملاً إلى جزئيّ ويتباعد حساب الذمم
+ * عن دفتر العملاء بمقدار الفاتورة)، ولا من مجرّد غياب RECEIPT_DEBIT (قد تفصلهما صفحة مُطابِق). */
+test('إبطال نقديّ بقاعدة Q1 (وسم صفّ الإبطال) ⇒ حمولة العكس تحمل keepCashLeg', () => {
+  const c = ctx([inv('i1', 'CASH')]);
+  const evs = deriveAccountEntryEvents(
+    [row('b1', 'INVOICE_CREDIT', { invoiceId: 'i1', createdMs: 60_000, description: CASH_VOID_KEEP_COLLECTION_NOTE })], c,
+  );
+  assert.deepEqual(keys(evs), ['INVOICE:i1:REVERSE']);
+  assert.equal((evs[0].payload as { keepCashLeg?: boolean }).keepCashLeg, true);
+  // والمرآة لا تُغيّر القرار: صفٌّ موسومٌ يبقى جزئياً مهما قالت (وهي تتغيّر بعد الكتابة)
+  for (const extra of [{ invoiceSubtype: '01', einvoiceStatus: 'cleared' }, { einvoiceStatus: null }]) {
+    const withMirror = deriveAccountEntryEvents(
+      [row('b1', 'INVOICE_CREDIT', { invoiceId: 'i1', createdMs: 60_000, description: CASH_VOID_KEEP_COLLECTION_NOTE })],
+      ctx([inv('i1', 'CASH', extra as Partial<InvoiceFacts>)]),
+    );
+    assert.equal((withMirror[0].payload as { keepCashLeg?: boolean }).keepCashLeg, true, JSON.stringify(extra));
+  }
+});
+
+/* حزامٌ ثانٍ: وجود RECEIPT_DEBIT في المجموعة يعني أنّ التحصيل عُكس فعلاً — فلا عكس جزئيّ مهما كان الوسم. */
+test('صفّ RECEIPT_DEBIT في المجموعة يمنع keepCashLeg ولو حمل صفُّ الفاتورة وسم Q1', () => {
+  const both = deriveAccountEntryEvents([
+    row('b1', 'INVOICE_CREDIT', { invoiceId: 'i1', createdMs: 60_000, description: CASH_VOID_KEEP_COLLECTION_NOTE }),
+    row('b2', 'RECEIPT_DEBIT', { invoiceId: 'i1', createdMs: 60_004 }),
+  ], ctx([inv('i1', 'CASH')]));
+  assert.deepEqual(keys(both), ['INVOICE:i1:REVERSE']);
+  assert.equal((both[0].payload as { keepCashLeg?: boolean }).keepCashLeg, undefined);
+});
+
+test('الإلغاء اليدويّ والسحب والمبسّطة المرفوضة: عكسٌ كامل بلا keepCashLeg', () => {
+  // كلّها تكتب صفّ INVOICE_CREDIT بوصفٍ آخر (إلغاء فاتورة مبيعات نقدية) — الوسم وحده يميّز Q1
+  for (const description of [null, 'إلغاء فاتورة مبيعات نقدية', 'إلغاء فاتورة مبيعات آجلة']) {
+    const evs = deriveAccountEntryEvents(
+      [row('b1', 'INVOICE_CREDIT', { invoiceId: 'i1', createdMs: 60_000, description })], ctx([inv('i1', 'CASH')]),
+    );
+    assert.equal((evs[0].payload as { keepCashLeg?: boolean }).keepCashLeg, undefined, String(description));
+  }
+  // والآجلة لا ساق نقدية لها أصلاً
+  const credit = deriveAccountEntryEvents(
+    [row('b1', 'INVOICE_CREDIT', { invoiceId: 'i2', createdMs: 60_000, description: CASH_VOID_KEEP_COLLECTION_NOTE })],
+    ctx([inv('i2', 'CREDIT')]),
+  );
+  assert.equal((credit[0].payload as { keepCashLeg?: boolean }).keepCashLeg, undefined);
 });
 
 // ═══ الآجلة والمرتجع ═══

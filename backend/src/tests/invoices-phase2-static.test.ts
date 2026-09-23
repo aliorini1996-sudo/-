@@ -77,24 +77,30 @@ test('قرار النظام الضريبي يُبنى من صفّ الإعداد
 
 test('القراءات: حارس القدرات لا يُستدعى إلا لصفّ zatcaPhase = 2 (لا اعتماديات ولا استعلام للمرحلة الأولى)', () => {
   const s = stripComments(read('routes/invoices.ts'));
-  const hits = [...s.matchAll(/phase2ReadBody\(/g)];
-  assert.equal(hits.length, 3, 'مواضع القراءة الثلاثة (GET /:id، إعادة الرفع، سباق P2002) غير مكتملة');
+  // أربعة مواضع منذ Z5.4: GET /:id، وإعادة الرفع (وحدها تُجرّب اعتماداً)، وسباق P2002، والقراءة بالمرجع
+  const hits = [...s.matchAll(/phase2Re(ad|play)Body\(/g)];
+  assert.equal(hits.length, 4, 'مواضع القراءة الأربعة (GET /:id، إعادة الرفع، سباق P2002، القراءة بالمرجع) غير مكتملة');
   for (const m of hits) {
     const line = s.slice(s.lastIndexOf('\n', m.index ?? 0), m.index);
     assert.match(line, /isPhase2Invoice\((invoice|existing)\) \? await $/, `نداء غير محروس: ${line.trim()}`);
   }
-  // كل موضع يردّ 426 قبل أن يعيد الصفّ
+  // كل موضع يردّ 426 قبل أن يعيد الصفّ: ثلاثة بالشكل المختصر، وإعادة الرفع تردّ حالة المستند نفسها (422/202/200)
+  // مع إرفاق الصفّ بعد إعادة قراءته — فردّ إعادة الرفع = ردّ الرفع الأوّل حرفاً بحرف (مراجعة عدائية)
   assert.equal(s.split('if (p2?.error) { res.status(p2.status).json(p2.error.body()); return; }').length - 1, 3);
+  assert.match(s, /if \(p2\.error\) \{\s*const body = p2\.error\.body\(\);/, 'إعادة الرفع لا تردّ حالة الخطأ نفسها');
 });
 
 // ═══ الفرع نفسه ═══
 
-test('routes/invoicesZatca.ts: لا قاعدة بيانات مباشرة ولا شبكة ولا نداء للهيئة (الإرسال في Z5.3)', () => {
-  const s = read('routes/invoicesZatca.ts');
+test('routes/invoicesZatca.ts: لا قاعدة بيانات مباشرة ولا شبكة ولا عميل هيئة — والاعتماد الحيّ محقون (Z5.4)', () => {
+  const s = stripComments(read('routes/invoicesZatca.ts'));
   assert.doesNotMatch(s, /from '\.\.\/config\/database'/, 'الفرع يستورد عميل Prisma مباشرة (يمنع حقنه في الاختبار)');
   assert.doesNotMatch(s, /\bfetch\(|require\('https?'\)|from 'node:https?'|from 'https?'/, 'نداء شبكة في فرع الإصدار');
-  assert.doesNotMatch(s, /compliance\/zatca\/api'|createFatooraClient|submitDocument|reportInvoice|clearInvoice/, 'Z5.2 لا يتّصل بالهيئة');
+  assert.doesNotMatch(s, /compliance\/zatca\/api'|createFatooraClient|reportInvoice|clearInvoice/, 'الفرع يبني عميل الهيئة بنفسه');
+  assert.doesNotMatch(s, /from '\.\.\/services\/zatcaSubmit'/, 'الفرع يستورد محرّك الإرسال — فلا يُحقن في الاختبار');
   assert.doesNotMatch(s, /from '\.\.\/services\/accounting'/, 'قيود الدفتر تُحقن لا تُستورد هنا');
+  // Z5.4: الاعتماد الحيّ دالّةٌ **محقونة اختيارية** — غيابها يعيد سلوك Z5.2 حرفياً (202 بانتظار الاعتماد)
+  assert.match(s, /submitInline\?: InlineSubmitFn \| null/, 'الاعتماد الحيّ ليس حقناً اختيارياً');
 });
 
 test('ترتيب المعاملة (نقد 38): القفل ثمّ الرقم ثمّ الختم ثمّ الفاتورة ثمّ المستند ثمّ دفتر العميل', () => {

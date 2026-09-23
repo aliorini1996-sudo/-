@@ -9,6 +9,9 @@ import { postReceiptEntries, reverseReceiptEntries, clean } from '../services/ac
 import { fillAllocationsFifo } from '../services/allocate';
 import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 import { publishInvoicesChanged } from '../services/liveEvents';
+// ZATCA المرحلة الثانية (Z5.4، F2 ونقد 13): لا تحصيل على فاتورة لم تصر نهائية عند الهيئة، والمتبقّي يُقرأ مقفلاً
+import { ALLOCATION_ALLOWED_WHERE, ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
+import { ZatcaHttpError } from '../compliance/zatca/errors';
 
 const router = Router();
 router.use(authenticate);
@@ -226,7 +229,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // أوف‑لاين المندوب، تطبيق الإدارة، أو تكامل خارجيّ. والفائض عن مديونية
     // العميل يبقى رصيداً دائناً له كما كان.
     const openInvoices = await prisma.invoice.findMany({
-      where: { tenantId: tid, customerId, status: 'CONFIRMED', type: 'CREDIT', remainingAmt: { gt: 0.004 } },
+      // ZATCA المرحلة الثانية (F2): الشرط نفسه حرفياً الذي يعرضه GET /invoices/open للواجهة — ولا يُكمَّل السند
+      // تلقائياً على فاتورة لم تعتمدها الهيئة بعد
+      where: { tenantId: tid, customerId, status: 'CONFIRMED', type: 'CREDIT', remainingAmt: { gt: 0.004 }, ...ALLOCATION_ALLOWED_WHERE },
       orderBy: { invoiceDate: 'asc' },
       select: { id: true, remainingAmt: true, invoiceDate: true },
     });
@@ -245,27 +250,43 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // وتستهلكان في الضبط المنظف بعد انشاء السند
       const remainingById = new Map<string, number>();
       const paidById = new Map<string, number>();
+      const phase2ById = new Map<string, boolean>();
       if (allocations.length) {
-        const invoices = await tx.invoice.findMany({
-          where: {
-            id: { in: allocations.map(a => a.invoiceId) },
-            tenantId: tid,
-            customerId: customerId,
-            status: 'CONFIRMED',
-            type: 'CREDIT',
-          },
-          select: { id: true, remainingAmt: true, paidAmt: true },
-        });
+        /* نقد 13: كان هذا قراءةً بلا قفل ثمّ كتابةً بقيمةٍ مطلقة — فأيّ تغييرٍ متزامن على المتبقّي (إبطال فاتورة
+         * رفضتها الهيئة، وإشعارٌ دائن لاحقاً) يُدهَس فيُطالَب العميل بما سدّده. الصفوف تُقرأ الآن مقفلةً
+         * (FOR UPDATE) بترتيب المعرّف — استعلامٌ واحد كالسابق، وسلوكٌ واحد لكل الشركات، والترتيب يمنع تشابك
+         * قفلين. الشروط الأربعة كما كانت حرفاً بحرف. */
+        const invoices = await tx.$queryRaw<{ id: string; remainingAmt: number; paidAmt: number; zatcaPhase: number | null; einvoiceStatus: string | null }[]>`
+          SELECT id, "remainingAmt", "paidAmt", "zatcaPhase", "einvoiceStatus"
+          FROM invoices
+          WHERE id = ANY(${allocations.map(a => a.invoiceId)}::text[])
+            AND "tenantId" = ${tid} AND "customerId" = ${customerId}
+            AND status = 'CONFIRMED' AND type = 'CREDIT'
+          ORDER BY id
+          FOR UPDATE`;
         if (invoices.length !== allocations.length) throw new Error('توجد فاتورة غير صالحة في التخصيص');
 
         for (const inv of invoices) {
           remainingById.set(inv.id, Number(inv.remainingAmt));
           paidById.set(inv.id, Number(inv.paidAmt));
+          phase2ById.set(inv.id, inv.zatcaPhase === 2);
+          // F2: فاتورةٌ لم تصر نهائية عند الهيئة لا تُحصَّل (409 بالعربية لا 500)
+          if (inv.einvoiceStatus !== null && (ALLOCATION_BLOCKED_MIRRORS as readonly string[]).includes(inv.einvoiceStatus)) {
+            throw new ZatcaHttpError('ZATCA_ALLOCATION_BLOCKED', { data: { invoiceId: inv.id } });
+          }
         }
         for (const alloc of allocations) {
           const remaining = remainingById.get(alloc.invoiceId) ?? 0;
-          if (alloc.amount > remaining + 0.0005) throw new Error('مبلغ التخصيص أكبر من المتبقي على إحدى الفواتير');
+          if (alloc.amount > remaining + 0.0005) {
+            /* نقد 13: سندٌ أوف-لاين وُزّع على متبقٍّ تغيّر قبل رفعه. الرمي هنا كان يردّ 500 فيتوقّف صندوق عمل
+             * الهاتف كلّه عن المزامنة (يُعامَل كعطل خادم) — ومعه الزيارات والتقارير. لفواتير المرحلة الثانية
+             * (حيث الإبطال والإشعار الدائن يُنقصان المتبقّي) يُقلَّم التخصيص إلى المتبقّي والفائض رصيد دائن
+             * للعميل (postReceiptEntries يقيّد المبلغ كاملاً على كل حال). وغيرها يبقى سلوكها كما هو حرفياً. */
+            if (!phase2ById.get(alloc.invoiceId)) throw new Error('مبلغ التخصيص أكبر من المتبقي على إحدى الفواتير');
+            alloc.amount = clean(Math.max(0, remaining));
+          }
         }
+        allocations = allocations.filter(a => a.amount > 0.0005);
       }
 
       const rcp = await tx.receipt.create({
@@ -329,6 +350,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     publishInvoicesChanged(tid);
     res.status(201).json({ success: true, data: withLinks ?? receipt });
   } catch (err) {
+    // ZATCA المرحلة الثانية: رفضٌ مفهوم بالعربية (409) لا عطل خادم — الحارس داخل المعاملة يرمي هذا النوع وحده
+    if (err instanceof ZatcaHttpError) { res.status(err.status).json(err.body()); return; }
     // سباق تزامن: رفعان متزامنان بنفس clientRef — نعيد السند القائم بدل الفشل
     const e = err as { code?: string; meta?: { target?: unknown } };
     if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('clientRef') && req.body?.clientRef) {

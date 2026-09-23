@@ -15,7 +15,8 @@
 
 import crypto from 'crypto';
 import zlib from 'zlib';
-import { isClaimable, reportDeadlineFor, subtypeOfTypeName, type DocumentStatus, type Flow, type InvoiceMirrorStatus } from './status';
+import { FINAL_DOCUMENT_STATUSES, isClaimable, reportDeadlineFor, subtypeOfTypeName, type DocumentStatus, type Flow, type InvoiceMirrorStatus } from './status';
+import { NOT_RECEIVED_HTTP_STATUSES } from './void';
 
 // ─── الضغط ───
 
@@ -122,6 +123,11 @@ export interface ClaimBatchOptions {
   leaseMs: number;
   /** حالات الوحدة المسموح إرسال مستنداتها. الافتراضي ACTIVE وRENEWING. */
   unitStatuses?: readonly string[];
+  /**
+   * Z5.3 (نقد الخطة 16): شركة أوقف المالك إرسالها (CompanySettings.zatcaSubmitPausedAt) تُستبعد في الاستعلام نفسه.
+   * الافتراضي true — لولاه لاستُولي على مستنداتها كلّ دورة (attempts يزيد والتراجع يتضخّم بلا أيّ إرسال).
+   */
+  excludePausedTenants?: boolean;
 }
 
 export const DEFAULT_SUBMIT_UNIT_STATUSES: readonly string[] = Object.freeze(['ACTIVE', 'RENEWING']);
@@ -155,6 +161,31 @@ export interface OutcomeFence {
   attempts: number;
 }
 
+// ─── تنبيهات التأخّر (Z5.3) ───
+
+/** مستند مبسّط اقتربت مهلته أو فاتته، بدرجة التنبيه المُسجَّلة عليه. */
+export interface OverdueDocument {
+  id: string;
+  tenantId: string;
+  egsUnitId: string;
+  invoiceId: string;
+  status: string;
+  flow: Flow;
+  typeName: string;
+  icv: number;
+  reportDeadline: Date;
+  overdueAlertLevel: number;
+}
+
+export interface OverdueQuery {
+  now: Date;
+  /** يُلتقط المستند حين reportDeadline ≤ now + withinMs (12 ساعة = الدرجة الأولى). */
+  withinMs: number;
+  /** لا تُقرأ الصفوف التي بلغت هذه الدرجة أو تجاوزتها. */
+  maxLevel: number;
+  limit: number;
+}
+
 /** ما تكتبه نتيجة الإرسال (status.ts transitionForOutcome + ما التقطه المستدعي من سجل الطلب). */
 export interface DocumentOutcomePatch {
   status: DocumentStatus;
@@ -173,7 +204,8 @@ export interface DocumentOutcomePatch {
 
 export interface InvoiceMirror {
   einvoiceStatus: InvoiceMirrorStatus;
-  einvoiceQr: string | null;
+  /** undefined = لا يُلمس العمود (قيمة الرمز غير معروفة في هذه النتيجة — حسمٌ محلّي قبل قراءة البايتات). */
+  einvoiceQr?: string | null;
   /** تحذيرات الهيئة JSON نصاً (العمود نصّي). */
   einvoiceWarnings: string | null;
   einvoiceSubmittedAt?: Date;
@@ -215,7 +247,11 @@ export interface DocumentProjection {
   httpStatus: number | null;
   validation: unknown;
   attempts: number;
+  /** Z5.4: محاولات غادرت العملية فعلاً (تُرفع قبل نداء الهيئة). دليلُ السحب — لا `attempts` الذي يرفعه الاستيلاء. */
+  sentAttempts: number;
   nextAttemptAt: Date | null;
+  /** عقد الإيجار الحيّ (Z5.4): السحب يرفض مستنداً يرسله عاملٌ الآن — يُقرأ ولا يُعرض في أيّ واجهة. */
+  leaseUntil: Date | null;
   firstSubmitAt: Date | null;
   finalizedAt: Date | null;
   reportDeadline: Date | null;
@@ -226,7 +262,8 @@ export interface DocumentProjection {
 
 export const PROJECTION_KEYS: readonly (keyof DocumentProjection)[] = Object.freeze([
   'id', 'egsUnitId', 'environment', 'attemptNo', 'icv', 'uuid', 'pih', 'invoiceHash', 'typeCode', 'typeName', 'issueDate', 'issueTime',
-  'flow', 'qr', 'clearedQr', 'status', 'httpStatus', 'validation', 'attempts', 'nextAttemptAt', 'firstSubmitAt', 'finalizedAt',
+  'flow', 'qr', 'clearedQr', 'status', 'httpStatus', 'validation', 'attempts', 'sentAttempts', 'nextAttemptAt', 'leaseUntil',
+  'firstSubmitAt', 'finalizedAt',
   'reportDeadline', 'keyVersion', 'createdAt', 'updatedAt',
 ] as (keyof DocumentProjection)[]);
 
@@ -243,6 +280,39 @@ export interface ZatcaDocumentStore<Tx = unknown> {
   claimBatch(opts: ClaimBatchOptions): Promise<ClaimedDocument[]>;
   applyOutcome(tx: Tx | null, fence: OutcomeFence, patch: DocumentOutcomePatch): Promise<boolean>;
   mirrorInvoice(tx: Tx | null, invoiceId: string, mirror: InvoiceMirror): Promise<boolean>;
+  /**
+   * Z5.3 (الإعادة اليدوية): من حالة متوقّفة (RETRY_WAIT / AUTH_BLOCKED / CONFIG_ERROR) إلى RETRY_WAIT الآن بالبايتات نفسها.
+   * لا تمسّ SUBMITTING (عاملٌ حيّ) ولا الحالات النهائية. تعيد هل طُبِّق.
+   */
+  requeueForRetry(id: string, fromStatuses: readonly string[], at: Date): Promise<boolean>;
+  /** Z5.3: مستندات الإبلاغ التي اقتربت مهلتها (أو فاتتها) ولم تبلغ maxLevel — استعلام واحد مرتَّب بالمهلة. */
+  listOverdue(q: OverdueQuery): Promise<OverdueDocument[]>;
+  /** Z5.3: رفع درجة التنبيه بشرط الدرجة السابقة (CAS) — التنبيه يُطلق مرة واحدة لكل درجة. */
+  bumpOverdueAlertLevel(id: string, fromLevel: number, toLevel: number): Promise<boolean>;
+  /**
+   * Z5.4 (نقد 11): تحويل حالة المستند بشرط حالته السابقة وحرّية عقده — يُستعمل للسحب داخل معاملة الإبطال نفسها،
+   * فلا يُسحب مستندٌ عاملٌ يرسله الآن ولا يُعاد إرساله بعد السحب. يعيد هل طُبِّق.
+   */
+  casDocumentStatus(tx: Tx | null, input: {
+    id: string; fromStatuses: readonly string[]; toStatus: DocumentStatus; at: Date;
+    /** تسييج بعدّاد المطالبة الذي قُرئ لحظة القرار: عاملٌ استولى عليه بيننا يُفشل التحويل (لا سباق TOCTOU). */
+    attempts?: number;
+  }): Promise<boolean>;
+  /**
+   * Z5.4 (نقد 11): عدد محاولات الإرسال التي **قد** تكون وصلت الهيئة (من سجلّ الطلبات): كل صفّ إلا ما رُدّ عليه
+   * بـ401/403/429. انقطاع الشبكة والمهلة يُحسبان «قد وصلت» — السحب دليلٌ لا ظنّ.
+   */
+  countPossiblyDeliveredAttempts(documentId: string): Promise<number>;
+  /**
+   * Z5.4: عدد صفوف سجلّ الطلبات لهذا المستند مهما كان ردّها. الفارق بينه وبين `attempts` هو المحاولات التي بدأت ولم
+   * يُكتب لها سجلّ — موتُ العملية بعد إرسال البايتات وقبل الردّ، وهي الحالة الوحيدة التي لا نعرف فيها ماذا وصل الهيئة.
+   */
+  countAttemptLogs(documentId: string): Promise<number>;
+  /**
+   * Z5.4 (مراجعة عدائية): يُرفع `sentAttempts` **قبل** نداء الهيئة مباشرةً — هو وحده دليل «بايتات غادرت». يعيد هل
+   * كُتب؛ وحين لا يُكتب **لا يُنادى الهيئة**: نداءٌ بلا أثرٍ دائم يجعل السحب يظنّ أنّ شيئاً لم يُرسل وقد أُرسل.
+   */
+  markDispatched(id: string): Promise<boolean>;
   writeApiLog(row: DocumentApiLogRow): Promise<void>;
   loadProjection(tenantId: string, invoiceId: string): Promise<DocumentProjection | null>;
   /** البايتات (للإرسال وتنزيل XML) — القراءة الوحيدة التي تلمس xmlGz/clearedXmlGz. */
@@ -290,6 +360,7 @@ export interface MemoryDocumentRow {
   httpStatus: number | null;
   validation: unknown;
   attempts: number;
+  sentAttempts: number;
   priorEmpty400: number;
   priorPayload413: number;
   nextAttemptAt: Date | null;
@@ -298,6 +369,7 @@ export interface MemoryDocumentRow {
   finalizedAt: Date | null;
   reportDeadline: Date | null;
   keyVersion: number | null;
+  overdueAlertLevel: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -317,6 +389,8 @@ export interface MemoryUnitChainRow {
 export interface MemoryInvoiceMirrorRow {
   id: string;
   tenantId: string;
+  /** حالة الفاتورة (CONFIRMED/CANCELLED…): مستندُ فاتورةٍ ملغاة لا يُستولى عليه — كشرط SQL في المحوّل. */
+  status?: string;
   zatcaPhase: number | null;
   einvoiceStatus: string | null;
   einvoiceQr: string | null;
@@ -329,6 +403,8 @@ export interface MemoryZatcaDocumentStore extends ZatcaDocumentStore<unknown> {
   readonly units: Map<string, MemoryUnitChainRow>;
   readonly invoices: Map<string, MemoryInvoiceMirrorRow>;
   readonly apiLogs: DocumentApiLogRow[];
+  /** شركات أوقف المالك إرسالها (بديل CompanySettings.zatcaSubmitPausedAt في المحوّل). */
+  readonly pausedTenants: Set<string>;
   /** ساعة المخزن (بديل NOW() في المحوّل). */
   now: () => Date;
 }
@@ -356,6 +432,10 @@ export function memoryZatcaDocumentStore(opts: { now?: () => Date } = {}): Memor
   const units = new Map<string, MemoryUnitChainRow>();
   const invoices = new Map<string, MemoryInvoiceMirrorRow>();
   const apiLogs: DocumentApiLogRow[] = [];
+  const pausedTenants = new Set<string>();
+
+  /** فاتورةٌ ألغيت ⇒ مستندها لا يُرسل أبداً (شرطٌ مقابلٌ لـNOT EXISTS في المحوّل). */
+  const cancelledInvoice = (r: MemoryDocumentRow): boolean => invoices.get(r.invoiceId)?.status === 'CANCELLED';
 
   const claimRow = (r: MemoryDocumentRow, now: Date, leaseMs: number): ClaimedDocument => {
     r.status = 'SUBMITTING';
@@ -367,7 +447,7 @@ export function memoryZatcaDocumentStore(opts: { now?: () => Date } = {}): Memor
   };
 
   const store: MemoryZatcaDocumentStore = {
-    documents, units, invoices, apiLogs,
+    documents, units, invoices, apiLogs, pausedTenants,
     now: opts.now ?? (() => new Date()),
 
     async lockUnitForIssuance(_tx, unitId) {
@@ -398,8 +478,10 @@ export function memoryZatcaDocumentStore(opts: { now?: () => Date } = {}): Memor
         id, tenantId: doc.tenantId, egsUnitId: doc.egsUnitId, invoiceId: doc.invoiceId, attemptNo: doc.attemptNo, icv: doc.icv, uuid: doc.uuid,
         pih: doc.pih, invoiceHash: doc.invoiceHash, typeCode: doc.typeCode, typeName: doc.typeName, issueDate: doc.issueDate,
         issueTime: doc.issueTime, flow, xmlGz, qr: doc.qr, clearedXmlGz: null, clearedQr: null, status: 'SIGNED', httpStatus: null,
-        validation: null, attempts: 0, priorEmpty400: 0, priorPayload413: 0, nextAttemptAt: null, leaseUntil: null, firstSubmitAt: null,
-        finalizedAt: null, reportDeadline, keyVersion: doc.keyVersion, createdAt: new Date(now.getTime()), updatedAt: new Date(now.getTime()),
+        validation: null, attempts: 0, sentAttempts: 0, priorEmpty400: 0, priorPayload413: 0, nextAttemptAt: null, leaseUntil: null,
+        firstSubmitAt: null,
+        finalizedAt: null, reportDeadline, keyVersion: doc.keyVersion, overdueAlertLevel: 0,
+        createdAt: new Date(now.getTime()), updatedAt: new Date(now.getTime()),
       });
       return { id, flow, reportDeadline: copyDate(reportDeadline) };
     },
@@ -407,7 +489,7 @@ export function memoryZatcaDocumentStore(opts: { now?: () => Date } = {}): Memor
     async claim(id, o) {
       const now = store.now();
       const r = documents.get(id);
-      if (!r || !isClaimable(r, now, { ignoreSchedule: o.ignoreSchedule === true })) return null;
+      if (!r || !isClaimable(r, now, { ignoreSchedule: o.ignoreSchedule === true }) || cancelledInvoice(r)) return null;
       return claimRow(r, now, o.leaseMs);
     },
 
@@ -417,8 +499,10 @@ export function memoryZatcaDocumentStore(opts: { now?: () => Date } = {}): Memor
       const limit = Math.max(0, Math.trunc(o.limit));
       const perUnit = Math.max(0, Math.trunc(o.perUnit));
       if (limit === 0 || perUnit === 0) return [];
+      const skipPaused = o.excludePausedTenants !== false;
       const candidates = [...documents.values()]
-        .filter(r => isClaimable(r, now) && allowed.includes(units.get(r.egsUnitId)?.status ?? ''));
+        .filter(r => isClaimable(r, now) && allowed.includes(units.get(r.egsUnitId)?.status ?? '')
+          && !(skipPaused && pausedTenants.has(r.tenantId)) && !cancelledInvoice(r));
       const byUnit = new Map<string, MemoryDocumentRow[]>();
       for (const r of candidates) byUnit.set(r.egsUnitId, [...(byUnit.get(r.egsUnitId) ?? []), r]);
       const fair: MemoryDocumentRow[] = [];
@@ -457,9 +541,72 @@ export function memoryZatcaDocumentStore(opts: { now?: () => Date } = {}): Memor
       const inv = invoices.get(invoiceId);
       if (!inv || inv.zatcaPhase !== 2) return false;
       inv.einvoiceStatus = mirror.einvoiceStatus;
-      inv.einvoiceQr = mirror.einvoiceQr;
+      if (mirror.einvoiceQr !== undefined) inv.einvoiceQr = mirror.einvoiceQr;
       inv.einvoiceWarnings = mirror.einvoiceWarnings;
       if (mirror.einvoiceSubmittedAt !== undefined) inv.einvoiceSubmittedAt = copyDate(mirror.einvoiceSubmittedAt);
+      return true;
+    },
+
+    async requeueForRetry(id, fromStatuses, at) {
+      const r = documents.get(id);
+      if (!r || !fromStatuses.includes(r.status)) return false;
+      r.status = 'RETRY_WAIT';
+      r.nextAttemptAt = new Date(at.getTime());
+      r.leaseUntil = null;
+      r.updatedAt = new Date(at.getTime());
+      return true;
+    },
+
+    async listOverdue(q) {
+      const limit = Math.max(0, Math.trunc(q.limit));
+      if (limit === 0) return [];
+      const until = q.now.getTime() + Math.max(0, q.withinMs);
+      return [...documents.values()]
+        .filter(r => r.reportDeadline !== null && r.reportDeadline.getTime() <= until
+          && !(FINAL_DOCUMENT_STATUSES as readonly string[]).includes(r.status) && r.overdueAlertLevel < q.maxLevel)
+        .sort((a, b) => (a.reportDeadline as Date).getTime() - (b.reportDeadline as Date).getTime() || a.icv - b.icv)
+        .slice(0, limit)
+        .map(r => ({
+          id: r.id, tenantId: r.tenantId, egsUnitId: r.egsUnitId, invoiceId: r.invoiceId, status: r.status, flow: r.flow,
+          typeName: r.typeName, icv: r.icv, reportDeadline: new Date((r.reportDeadline as Date).getTime()), overdueAlertLevel: r.overdueAlertLevel,
+        }));
+    },
+
+    async bumpOverdueAlertLevel(id, fromLevel, toLevel) {
+      const r = documents.get(id);
+      if (!r || r.overdueAlertLevel !== fromLevel || !(toLevel > fromLevel)) return false;
+      r.overdueAlertLevel = toLevel;
+      r.updatedAt = store.now();
+      return true;
+    },
+
+    async casDocumentStatus(_tx, i) {
+      const r = documents.get(i.id);
+      if (!r || !i.fromStatuses.includes(r.status)) return false;
+      if (i.attempts !== undefined && r.attempts !== i.attempts) return false;
+      if (r.leaseUntil !== null && r.leaseUntil.getTime() > i.at.getTime()) return false;
+      r.status = i.toStatus;
+      r.leaseUntil = null;
+      r.nextAttemptAt = null;
+      r.finalizedAt = new Date(i.at.getTime());
+      r.updatedAt = new Date(i.at.getTime());
+      return true;
+    },
+
+    async countPossiblyDeliveredAttempts(documentId) {
+      return apiLogs.filter(l => l.documentId === documentId
+        && !(typeof l.httpStatus === 'number' && NOT_RECEIVED_HTTP_STATUSES.includes(l.httpStatus))).length;
+    },
+
+    async countAttemptLogs(documentId) {
+      return apiLogs.filter(l => l.documentId === documentId).length;
+    },
+
+    async markDispatched(id) {
+      const r = documents.get(id);
+      if (!r) return false;
+      r.sentAttempts += 1;
+      r.updatedAt = store.now();
       return true;
     },
 
@@ -476,7 +623,9 @@ export function memoryZatcaDocumentStore(opts: { now?: () => Date } = {}): Memor
         pih: r.pih, invoiceHash: r.invoiceHash, typeCode: r.typeCode, typeName: r.typeName, issueDate: r.issueDate, issueTime: r.issueTime,
         flow: r.flow, qr: r.qr, clearedQr: r.clearedQr, status: r.status, httpStatus: r.httpStatus,
         validation: r.validation === null ? null : JSON.parse(JSON.stringify(r.validation)), attempts: r.attempts,
-        nextAttemptAt: copyDate(r.nextAttemptAt), firstSubmitAt: copyDate(r.firstSubmitAt), finalizedAt: copyDate(r.finalizedAt),
+        sentAttempts: r.sentAttempts,
+        nextAttemptAt: copyDate(r.nextAttemptAt), leaseUntil: copyDate(r.leaseUntil),
+        firstSubmitAt: copyDate(r.firstSubmitAt), finalizedAt: copyDate(r.finalizedAt),
         reportDeadline: copyDate(r.reportDeadline), keyVersion: r.keyVersion, createdAt: new Date(r.createdAt.getTime()), updatedAt: new Date(r.updatedAt.getTime()),
       };
     },

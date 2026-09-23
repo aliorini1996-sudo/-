@@ -17,6 +17,7 @@ import { keyringFromEnv } from '../compliance/zatca/secrets';
 import { issuanceUnitMutex } from '../compliance/zatca/unitMutex';
 import { postCashInvoiceEntries, postInvoiceEntries } from '../services/accounting';
 import { publishInvoicesChanged } from '../services/liveEvents';
+import { submitDocumentNow } from '../services/zatcaSubmit';
 import type { Phase2IssuanceDeps, Phase2Tx } from './invoicesZatca';
 
 /** مهل معاملة الإصدار (§2.2). */
@@ -74,6 +75,15 @@ export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): Phas
     now: () => new Date(),
     env,
     mutex: issuanceUnitMutex,
+    // Z5.4: الاعتماد الحيّ للقياسية — مقعد الإرسال المحجوز للطلب الحيّ (Z5.3 §الحصص)، ولا يرمي أبداً
+    submitInline: async (ref, opts) => {
+      try {
+        return await submitDocumentNow(ref, { inline: true, timeoutMs: opts.timeoutMs });
+      } catch (e) {
+        console.error(`[zatca:clearance] inline submit failed doc=${ref.documentId}: ${(e as Error).message}`);
+        return null;
+      }
+    },
   };
   return cached;
 }
