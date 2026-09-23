@@ -55,6 +55,13 @@ export const LEDGER_ROUTES: readonly LedgerRouteDef[] = [
   { path: 'review/unreviewed', component: 'review/MoveReviewList', view: 'canViewLedger', write: 'canPostJournals', milestone: 'M3' },
   { path: 'review/checks', component: 'review/IntegrityChecksPage', view: 'canViewLedger', write: 'canConfigureLedger', milestone: 'M3' },
   { path: 'review/audit', component: 'review/AuditLogPage', view: 'canConfigureLedger', write: null, milestone: 'M3' },
+  // إعداد التقارير (M4، §7.1 إلى §7.5): صفحةٌ لكل تقرير فوق قشرة `reports/ReportView` المشتركة.
+  // **المفتاح واحد في كل موضع**: `income-statement` مسارُ الواجهة ومفتاحُ النقطة معاً، و`profit-and-loss`
+  // مرادفُ مدخلٍ على الخادم وحده فلا يُسجَّل هنا ولا يظهر في ردٍّ (انظر رأس routes/ledger/reports.ts).
+  { path: 'reports/balance-sheet', component: 'reports/BalanceSheetPage', view: 'canViewLedger', write: null, milestone: 'M4' },
+  { path: 'reports/income-statement', component: 'reports/IncomeStatementPage', view: 'canViewLedger', write: null, milestone: 'M4' },
+  { path: 'reports/trial-balance', component: 'reports/TrialBalancePage', view: 'canViewLedger', write: null, milestone: 'M4' },
+  { path: 'reports/general-ledger', component: 'reports/GeneralLedgerPage', view: 'canViewLedger', write: null, milestone: 'M4' },
 ];
 
 /** الحوارات بلا مسار (صف «تواريخ الإقفال…» في جدول §8.2). */
@@ -85,9 +92,10 @@ export interface LedgerMenuSection { label?: string; items: LedgerMenuItem[] }
 export interface LedgerMenu { key: string; label: string; sections: LedgerMenuSection[] }
 
 /**
- * قوائم M2 وM3 من جدول §8.2 — بنداءات `tr()` **حرفية** (حارس langs.test لا يلتقط tr(متغير)).
- * بترتيب Odoo: العملاء، المحاسبة، مراجعة، التهيئة. القوائم الأخرى (لوحة البيانات M4، الموردون M6، التقارير M4)
- * وبنود M4 في العملاء (تسويات الذمم) تُضاف بمراحلها.
+ * قوائم M2 وM3 وM4 من جدول §8.2 — بنداءات `tr()` **حرفية** (حارس langs.test لا يلتقط tr(متغير)).
+ * بترتيب Odoo: العملاء، المحاسبة، مراجعة، إعداد التقارير، التهيئة. القوائم الأخرى (لوحة البيانات M4،
+ * الموردون M6) وبنود M4 في العملاء (تسويات الذمم) تُضاف بمراحلها، وكذلك بقيّة صفوف «إعداد التقارير»
+ * (دفتر أستاذ الشركاء وأعمار الذمم M6، والتقرير الضريبي M5، والتدفقات النقدية M7، والملخّص التنفيذي).
  */
 export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
   {
@@ -136,6 +144,26 @@ export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
           { kind: 'route', label: tr('قيود غير مراجعة'), path: 'review/unreviewed' },
           { kind: 'route', label: tr('فحوصات السلامة'), path: 'review/checks' },
           { kind: 'route', label: tr('سجل التدقيق'), path: 'review/audit' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'reports',
+    label: tr('إعداد التقارير'),
+    sections: [
+      {
+        label: tr('كشوف الحساب'),
+        items: [
+          { kind: 'route', label: tr('الميزانية العمومية'), path: 'reports/balance-sheet' },
+          { kind: 'route', label: tr('قائمة الدخل'), path: 'reports/income-statement' },
+        ],
+      },
+      {
+        label: tr('دفاتر الأستاذ'),
+        items: [
+          { kind: 'route', label: tr('ميزان المراجعة'), path: 'reports/trial-balance' },
+          { kind: 'route', label: tr('دفتر الأستاذ العام'), path: 'reports/general-ledger' },
         ],
       },
     ],

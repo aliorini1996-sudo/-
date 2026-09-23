@@ -50,6 +50,20 @@ export const ledgerMoveReasonLabels = (tr: Tr): Record<string, string> => ({
   STATUS_CHANGED: tr('تغيّرت حالة الحدث، أعد التحميل'),
 });
 
+/**
+ * أسباب نقاط التقارير (M4، `routes/ledger/reports.ts`). كلّها تُقرأ في شاشة تقرير، فنصّها يقول
+ * للمالك **ما العمل** لا ما وقع فقط: أيُّ زرّ يضغط أو أيُّ خيار يغيّر ليخرج من الحالة.
+ */
+export const ledgerReportReasonLabels = (tr: Tr): Record<string, string> => ({
+  RANGE_REQUIRED: tr('المدة المخصصة تحتاج تاريخي البداية والنهاية: حدّدهما أو اختر شهراً أو ربعاً أو سنة مالية'),
+  INVALID_CURSOR: tr('مؤشّر الصفحة لا يطابق هذا التقرير: أعد فتح دفتر الأستاذ ثم حمّل المزيد من جديد'),
+  TOO_MANY_LINES: tr('سطور المدى أكثر من سقف التقرير: ضيّق الفترة أو حدّد حسابات أقل'),
+  CURSOR_REQUIRED: tr('الصفحة التالية تُحمَّل بزرّ «تحميل المزيد» لا برقم صفحة: أعد فتح التقرير من أوله'),
+  CURSOR_ACCOUNT_NOT_IN_REPORT: tr('الحساب المطلوب ليس ضمن هذا التقرير: أعد تحميل الصفحة أو وسّع الفترة أو ارفع فلتر الحسابات'),
+  REPORT_NOT_AVAILABLE: tr('هذا التقرير يُتاح مع مرحلته اللاحقة: اختر تقريراً من قائمة إعداد التقارير'),
+  UNKNOWN_REPORT: tr('تقرير غير معروف: افتحه من قائمة إعداد التقارير بدل تعديل الرابط'),
+});
+
 /** أسباب نص رمزها دقيق (لا تحتاج تسمية). */
 export const LEDGER_REASONS_CODE_TEXT = [
   'ACCOUNT_ARCHIVED', 'ACCOUNT_NOT_FOUND', 'CONTROL_ACCOUNT_MANUAL', 'CUSTOMER_REQUIRED', 'VENDOR_REQUIRED',
@@ -59,7 +73,9 @@ export const LEDGER_REASONS_CODE_TEXT = [
 /** أسباب داخلية لا تصل جسم خطأ في الواجهة (فحص سلسلة التدقيق، تخطي المجدول، قيد صفري آلي). */
 export const LEDGER_REASONS_INTERNAL = ['HASH', 'PREV_HASH', 'SEQ_GAP', 'SUITE_OFF', 'ZERO_VALUE'] as const;
 
-export const ledgerReasonLabels = (tr: Tr): Record<string, string> => ({ ...ledgerConfigReasonLabels(tr), ...ledgerMoveReasonLabels(tr) });
+export const ledgerReasonLabels = (tr: Tr): Record<string, string> => ({
+  ...ledgerConfigReasonLabels(tr), ...ledgerMoveReasonLabels(tr), ...ledgerReportReasonLabels(tr),
+});
 
 /** نص عام بحسب حالة HTTP حين لا رمز ولا سبب معروف. */
 export function ledgerStatusText(tr: Tr, status: number | null | undefined): string {

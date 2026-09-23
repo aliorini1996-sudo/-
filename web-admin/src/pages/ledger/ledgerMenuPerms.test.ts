@@ -195,6 +195,14 @@ const ENDPOINTS: Record<string, { get: string[]; writes: string[]; helpers?: str
   'review/unreviewed': { get: ['/moves'], writes: ['/moves/review'] },
   'review/checks': { get: ['/checks'], writes: ['/checks'], helpers: ['/status'] },
   'review/audit': { get: ['/audit'], writes: [] },
+  // M4 (§7.1، ملحق أ): نقطتان لكل تقرير — `GET /reports/:key` و`POST /reports/:key/export`،
+  // كلتاهما `requireLedgerPermission('canViewLedger')` (والتصدير معه `ledgerExportLimiter`).
+  // التصدير قراءةٌ لا كتابةَ عمودٍ: يعيد مجموعة البيانات ليبنيها المتصفح ملفاً (ADR‑9)، فلا
+  // عمود كتابة لهذه الصفوف ولا يُنسَب إليها في `writes`.
+  'reports/balance-sheet': { get: ['/reports/:p'], writes: [] },
+  'reports/income-statement': { get: ['/reports/:p'], writes: [] },
+  'reports/trial-balance': { get: ['/reports/:p'], writes: [] },
+  'reports/general-ledger': { get: ['/reports/:p'], writes: [] },
   // ترحيل المسودات وحذفها من الحوار مشروطان بـcanPostJournals (canPost)
   'dialog:lockDates': { get: ['/lock-dates'], writes: ['/lock-dates'], gated: { 'POST /moves/:p/post': 'canPostJournals', 'DELETE /moves/:p': 'canPostJournals' } },
 };
@@ -290,6 +298,8 @@ test('المقارنة نفسها: خادم مطابق لملحق أ ⇒ لا م
     ...['/customers/invoices', '/customers/receipts', '/customers/custody', '/customers/paylink', '/customers/paylink/entries', '/events', '/checks'].map(p => d('get', p, V)),
     d('post', '/events/:p/retry', C), d('post', '/events/:p/skip', C), d('post', '/events/:p/release', C), d('post', '/moves/review', P),
     d('post', '/checks/run', C), d('post', '/checks/rebuild-balances', C), d('post', '/checks/:p/control-adjustment', C), d('get', '/audit', C), d('post', '/sync', V),
+    // M4: نقطتا التقارير، كلتاهما canViewLedger
+    d('get', '/reports/:p', V), d('post', '/reports/:p/export', V),
   ];
   assert.deepEqual(comparePerms(good), []);
   const badView = good.map(x => (x.method === 'get' && x.path === '/items' ? { ...x, perms: [C] } : x));

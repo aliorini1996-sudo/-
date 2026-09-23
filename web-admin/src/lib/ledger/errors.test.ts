@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   LEDGER_REASONS_CODE_TEXT, LEDGER_REASONS_INTERNAL, ledgerErrorMessage, ledgerErrorText, ledgerReasonLabels,
+  ledgerReportReasonLabels, ledgerStatusText,
 } from './errors';
 
 /**
@@ -52,6 +53,34 @@ test('الأسباب المضلِّلة سابقاً تُعرض بتسميتها
   assert.equal(ledgerErrorMessage(tr, { reason: 'UNKNOWN_LIST', status: 400 }), 'قائمة التصدير غير معروفة');
   // سبب بلا تسمية ⇒ نص الرمز
   assert.equal(t('LEDGER_UNBALANCED', 'UNBALANCED'), 'القيد غير متوازن');
+});
+
+test('أسباب نقاط التقارير (M4): لكلٍّ نصٌّ يقول ما العمل، ويتقدّم على نص الرمز والحالة', () => {
+  const generic = ledgerErrorText(tr, 'X_UNKNOWN');
+  const labels = ledgerReportReasonLabels(tr);
+  const reasons = [
+    'RANGE_REQUIRED', 'INVALID_CURSOR', 'TOO_MANY_LINES', 'CURSOR_REQUIRED',
+    'CURSOR_ACCOUNT_NOT_IN_REPORT', 'REPORT_NOT_AVAILABLE', 'UNKNOWN_REPORT',
+  ];
+  const seen = new Map<string, string>();
+  for (const r of reasons) {
+    const text = ledgerErrorMessage(tr, { reason: r, status: 400 });
+    assert.equal(text, labels[r], `${r}: التسمية لا تصل ledgerErrorMessage`);
+    assert.notEqual(text, generic, `${r}: نص عام بدل الإرشاد`);
+    assert.notEqual(text, ledgerStatusText(tr, 400), `${r}: «بيانات غير صالحة» بدل الإرشاد`);
+    // «ما العمل» لا «ما وقع» فقط: لكل نصّ شقٌّ إرشادي بعد النقطتين
+    const [, action] = text.split(':');
+    assert.ok(action && action.trim().length > 10, `${r}: النص يصف الخلل ولا يقول للمالك ما يفعل`);
+    assert.ok(!seen.has(text), `${r}: النصّ نفسه المستعمل لـ${seen.get(text)}`);
+    seen.set(text, r);
+  }
+  // السبب يتقدّم على الرمز: 422 المدى الكبير يعرض إرشاد التضييق لا نص الرمز العام
+  assert.equal(
+    ledgerErrorMessage(tr, { code: 'LEDGER_RANGE_TOO_LARGE', details: { reason: 'TOO_MANY_LINES' }, status: 422 }),
+    labels.TOO_MANY_LINES,
+  );
+  // و404 «تقرير غير معروف» في جذر الجسم (spread) كما يرسله assertKnownKey
+  assert.equal(ledgerErrorMessage(tr, { reason: 'UNKNOWN_REPORT', status: 404 }), labels.UNKNOWN_REPORT);
 });
 
 test('رموز المعالج للاستيراد والمخزون الافتتاحي: تسمية بالسبب وبالرمز وحده، ولكل رمز يرده setup.ts تسمية', () => {

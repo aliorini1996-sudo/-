@@ -17,7 +17,7 @@ import {
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8');
 const identity = (s: string) => s;
-const DELIVERED = new Set(['M2', 'M3']);
+const DELIVERED = new Set(['M2', 'M3', 'M4']);
 
 test('صفوف الجدول: مسارات فريدة، ومفاتيح صلاحيات صحيحة، ومراحل مسلَّمة وحدها', () => {
   const paths = LEDGER_ROUTES.map(r => r.path);
@@ -69,7 +69,19 @@ test('صفوف M2 من جدول §8.2 كلها موجودة بصلاحياتها
     assert.ok(r, `مسار M3 غير مسجَّل: ${p}`);
     assert.deepEqual({ component: r.component, view: r.view, write: r.write, milestone: r.milestone }, { component, view, write, milestone: 'M3' }, p);
   }
-  // مسارات M4+ في القائمتين لا تُسجَّل قبل مرحلتها
+  // M4 (§7.1 إلى §7.5): صفحةٌ لكل تقرير فوق قشرة reports/ReportView المشتركة، بلا عمود كتابة
+  const m4: [string, string, LedgerKey, LedgerKey | null][] = [
+    ['reports/balance-sheet', 'reports/BalanceSheetPage', 'canViewLedger', null],
+    ['reports/income-statement', 'reports/IncomeStatementPage', 'canViewLedger', null],
+    ['reports/trial-balance', 'reports/TrialBalancePage', 'canViewLedger', null],
+    ['reports/general-ledger', 'reports/GeneralLedgerPage', 'canViewLedger', null],
+  ];
+  for (const [p, component, view, write] of m4) {
+    const r = LEDGER_ROUTES.find(x => x.path === p);
+    assert.ok(r, `مسار M4 غير مسجَّل: ${p}`);
+    assert.deepEqual({ component: r.component, view: r.view, write: r.write, milestone: r.milestone }, { component, view, write, milestone: 'M4' }, p);
+  }
+  // مسارات M5+ في القائمتين لا تُسجَّل قبل مرحلتها
   for (const p of ['customers/adjustments', 'review/uncosted']) assert.ok(!LEDGER_ROUTES.some(r => r.path === p), `مسار لمرحلة لاحقة: ${p}`);
   const lock = LEDGER_DIALOGS.find(d => d.key === 'lockDates');
   assert.deepEqual(lock && { view: lock.view, write: lock.write }, { view: 'canCloseLedgerPeriods', write: 'canCloseLedgerPeriods' });
@@ -106,8 +118,8 @@ test('كل عنصر قائمة مسجّل في الجدول، وكل صفحة ق
   for (const d of LEDGER_DIALOGS) {
     assert.ok(menus.some(m => m.sections.some(s => s.items.some(i => i.kind === 'dialog' && i.dialog === d.key))), `حوار بلا عنصر: ${d.key}`);
   }
-  // ترتيب القوائم مرآة Odoo (§8.2): العملاء قبل المحاسبة، ومراجعة بعدها وقبل التهيئة، و«العملاء ← /app/customers» فيها
-  assert.deepEqual(menus.map(m => m.key), ['customers', 'accounting', 'review', 'config']);
+  // ترتيب القوائم مرآة Odoo (§8.2): العملاء قبل المحاسبة، ومراجعة بعدها، ثم «إعداد التقارير» (M4)، والتهيئة آخراً
+  assert.deepEqual(menus.map(m => m.key), ['customers', 'accounting', 'review', 'reports', 'config']);
   assert.ok(menus[0].sections.some(s => s.items.some(i => i.kind === 'link' && i.href === '/app/customers')));
   {
   }
@@ -142,6 +154,8 @@ test('قاعدة الظهور: العنصر بصلاحية عرضه، والقا
     'config/accounts', 'entries', 'items',
     'customers/invoices', 'customers/receipts', 'customers/custody', 'customers/paylink', 'link:/app/customers',
     'review/events', 'review/attention', 'review/late', 'review/unreviewed', 'review/checks',
+    // M4: التقارير الأربعة كلها بـcanViewLedger، فيراها صاحب العرض وحده بلا تهيئة
+    'reports/balance-sheet', 'reports/income-statement', 'reports/trial-balance', 'reports/general-ledger',
   ].sort());
   assert.ok(!flat(visibleFor(viewer)).includes('review/audit'), 'سجل التدقيق لمن يملك canConfigureLedger وحده');
   assert.deepEqual(visibleFor(viewer).find(m => m.key === 'config')?.sections.length, 1, 'القسم بلا عناصر ظاهرة يُخفى');
