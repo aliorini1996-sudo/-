@@ -144,7 +144,10 @@ function fakeModels(): Record<string, unknown> {
         return pick(db.tenants.get(where.id as string), select);
       },
     },
-    // مسار الحذف: لا عقد في سلسلة التقرير اليومي، وتنظيف مستلمي التقرير الشامل ثم الحذف في «معاملة»
+    // مسار الحذف: عهدةٌ صفر (يمنع الحذف لو كان في يده مال)، ولا عقد في سلسلة
+    // التقرير اليومي، وتنظيف مستلمي التقرير الشامل ثم الحذف في «معاملة»
+    repSettlement: { aggregate: async () => ({ _sum: { amount: 0 } }), groupBy: async () => [] },
+    userSettlement: { aggregate: async () => ({ _sum: { amount: 0 } }), groupBy: async () => [] },
     dailyReportLevelOwner: { findMany: async () => [] },
     dailyReportDigestViewer: { deleteMany: async () => ({ count: 0 }) },
     // PUT /company-users/:id/scope بلا قوائم: عدّاد النطاق وحده

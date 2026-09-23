@@ -20,6 +20,8 @@ export interface User {
   canManageCompanySettings?: boolean;
   canManageDailyReport?: boolean;
   canManageCompanyUsers?: boolean;
+  /** استلام عهدة التحصيل من مستخدمي الشركة — تُقرأ من جلسة الدخول لإظهار الأيقونة */
+  canReceiveUserCollections?: boolean;
   // صلاحيات الدفاتر — تُقرأ بـcanLedger (true الصريحة وحدها، والغائب منع)
   canViewLedger?: boolean;
   canPostJournals?: boolean;
@@ -124,6 +126,10 @@ export interface CompanyUser {
   canManageCompanySettings: boolean;
   canManageDailyReport: boolean;
   canManageCompanyUsers: boolean;
+  /** استلام (توريد) عهدة التحصيل من مستخدمي الشركة — مطفأة افتراضياً */
+  canReceiveUserCollections?: boolean;
+  /** رصيد عهدة التحصيل لدى المستخدم — يحسبه الخادم في قائمة المستخدمين */
+  custody?: number;
   canViewLedger?: boolean;
   canPostJournals?: boolean;
   canManagePayables?: boolean;

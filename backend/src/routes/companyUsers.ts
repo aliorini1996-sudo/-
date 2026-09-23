@@ -2,8 +2,10 @@ import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { authenticate, requireAdmin, tenantId } from '../middleware/auth';
+import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
+import { clean } from '../services/accounting';
 import { getAdminScope, setAdminScope, adminScopeEnabled } from '../services/adminScope';
+import { userCustody, lockCustody, handoverAllowed, CustodyExceeded, CUSTODY_EPS } from '../services/userCustody';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -29,6 +31,7 @@ const userSchema = z.object({
   canManageCompanySettings: z.boolean().optional(),
   canManageDailyReport: z.boolean().optional(),
   canManageCompanyUsers: z.boolean().optional(),
+  canReceiveUserCollections: z.boolean().optional(),
   // صلاحيات الدفاتر (§9.2) — تُنزع في الإنشاء والتعديل ما لم تكن الميزة مفعّلة للشركة
   canViewLedger: z.boolean().optional(),
   canPostJournals: z.boolean().optional(),
@@ -64,6 +67,7 @@ const userSelect = {
   canManageCompanySettings: true,
   canManageDailyReport: true,
   canManageCompanyUsers: true,
+  canReceiveUserCollections: true,
   // بدونها يقرأ نموذج التعديل undefined فيعيد كل حفظٍ كتابة صلاحيات الدفاتر
   canViewLedger: true,
   canPostJournals: true,
@@ -181,6 +185,27 @@ async function blocksLastAdmin(tid: string, target: { id: string; role: string; 
   return otherAdmins === 0;
 }
 
+/**
+ * حارس شاشة عهدة التحصيل: من يدير مستخدمي الشركة **وغير مقيّد بنطاق**.
+ *
+ * ولماذا يُستثنى المقيّد بنطاق: رصيد العهدة مجموعُ استلاماتٍ من مناديب الشركة
+ * كلّهم، وتقييدُ النطاق إنّما وُضع ليحجب عن صاحبه ما ليس في نطاقه (تفرضه
+ * `scopedRecordWhere` في كلّ شاشةٍ أخرى). فلو مرّ من هنا لقرأ في عمودٍ واحد
+ * حصيلةَ مناديب مُنع من رؤية صفحاتهم، ولاستلم نقداً من عهدةٍ لا تخصّه.
+ *
+ * والحارس الثابت في `adminScope.test` يعرف هذا الاسم: لا يقبل مساراً في هذا
+ * الملفّ إلّا بأحد حرّاسه، وهذا أوّلُ ما يفعله استدعاءُ `requireCompanyOwner`.
+ */
+async function guardCustody(req: AuthRequest, res: Response): Promise<{ role: string } | null> {
+  const caller = await requireCompanyOwner(req, res);
+  if (!caller) return null;
+  if (await adminScopeEnabled(req)) {
+    res.status(403).json({ success: false, message: 'حسابك مقيد بنطاق محدد وعهدة التحصيل تخص مناديب الشركة كلهم' });
+    return null;
+  }
+  return caller;
+}
+
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!(await requireCompanyOwner(req, res))) return;
@@ -190,9 +215,195 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       orderBy: [{ role: 'asc' }, { name: 'asc' }],
       select: userSelect,
     });
-    res.json({ success: true, data: users });
+    // عمود العهدة لغير المقيّد بنطاق وحده (لماذا: `guardCustody` أعلاه). والقائمة
+    // تُردّ كما هي للمقيّد فلا تنكسر صفحته — العمود وحده يغيب.
+    if (await adminScopeEnabled(req)) { res.json({ success: true, data: users }); return; }
+    // عهدة كل مستخدم بتجميعتين لا باستعلامٍ لكلّ صفّ (N+1)
+    const [recAgg, delAgg] = await Promise.all([
+      prisma.repSettlement.groupBy({ by: ['receivedByUserId'], where: { tenantId: tid, receivedByUserId: { not: null } }, _sum: { amount: true } }),
+      prisma.userSettlement.groupBy({ by: ['fromUserId'], where: { tenantId: tid }, _sum: { amount: true } }),
+    ]);
+    const recMap = new Map(recAgg.map((g) => [g.receivedByUserId as string, g._sum.amount ?? 0]));
+    const delMap = new Map(delAgg.map((g) => [g.fromUserId, g._sum.amount ?? 0]));
+    const withCustody = users.map((u) => ({ ...u, custody: clean((recMap.get(u.id) ?? 0) - (delMap.get(u.id) ?? 0)) }));
+    res.json({ success: true, data: withCustody });
   } catch (err) { next(err); }
 });
+
+// ملخّص عهدة مستخدم (للإدارة)
+router.get('/:id/custody', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!(await guardCustody(req, res))) return;
+    const tid = tenantId(req);
+    const target = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!target) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+    res.json({ success: true, data: await userCustody(prisma, tid, target.id) });
+  } catch (err) { next(err); }
+});
+
+// استلام (توريد نهائيّ) عهدة مستخدم — يخرج المبلغ من النظام ولا يدخل عهدة المستلِم.
+// محروسٌ بصلاحية مستقلّة مطفأة (canReceiveUserCollections)، ولا يستلم أحدٌ من نفسه.
+router.post('/:id/settlements', requireAdminPermission('canReceiveUserCollections'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    // حارسان: صلاحية الاستلام (الوسيط أعلاه) **و**حارس صفحة مستخدمي الشركة غير
+    // المقيّد — الأيقونة تسكن تلك الصفحة، فمن لا يبلغها لا يستلم من مسارها.
+    if (!(await guardCustody(req, res))) return;
+    const tid = tenantId(req);
+    if (req.params.id === req.user?.id) { res.status(400).json({ success: false, message: 'لا يمكنك استلام عهدتك من نفسك' }); return; }
+    /* جلسة انتحال المالك لا تقبض نقداً: توكنها موقَّعٌ بمعرّف أقدم مديرٍ في
+     * الشركة، فالتوريد يُسجَّل باسم رجلٍ لم يستلم شيئاً — وخروج المال نهائيّ لا
+     * يُراجَع. من يقبض المبلغ يوقّعه بحسابه. */
+    if (req.user?.impersonated === true) {
+      res.status(403).json({ success: false, message: 'استلام العهدة يسجل من حساب الشركة نفسه لا من جلسة الدعم الفني' });
+      return;
+    }
+    const target = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!target) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ success: false, message: 'أدخل مبلغا صحيحا أكبر من صفر' }); return; }
+    const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : undefined;
+    const METHODS = ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'];
+    const method = METHODS.includes(String(req.body?.method)) ? String(req.body.method) : 'CASH';
+
+    /* المرفقات: رفضٌ صريح لا إسقاطٌ صامت. إسقاطُ صورةٍ كبيرة بصمتٍ يعني أن
+     * المستلِم يظنّ إثباتَه محفوظاً وليس في القاعدة منه شيء — وهو إثبات نقدٍ. */
+    const rawPhotos = Array.isArray(req.body?.photos) ? req.body.photos : [];
+    if (rawPhotos.length > 4) { res.status(400).json({ success: false, message: 'أربع صور إثبات كحد أقصى' }); return; }
+    const badPhoto = rawPhotos.some((p: unknown) => typeof p !== 'string'
+      || !/^data:image\/(png|jpe?g|webp);base64,/i.test(p) || p.length > 2_500_000);
+    if (badPhoto) { res.status(400).json({ success: false, message: 'المرفقات صور فقط وبحجم أصغر لكل صورة' }); return; }
+    const photos = rawPhotos as string[];
+
+    const by = req.user;
+    /* المعاملة والقفل: السقف يُقرأ ويُكتب داخل قفلٍ واحد. قراءتُه قبلها تسمح
+     * لطلبين متزامنين أن يمرّ كلٌّ منهما بالعهدة كاملةً فتصير سالبة. */
+    await prisma.$transaction(async tx => {
+      await lockCustody(tx, tid, target.id);
+      const { outstanding } = await userCustody(tx, tid, target.id);
+      if (!handoverAllowed(outstanding, amount)) throw new CustodyExceeded(outstanding, amount);
+      await tx.userSettlement.create({
+        data: {
+          tenantId: tid, fromUserId: target.id, amount, method, note,
+          receivedBy: `${by?.name || by?.id || 'الادمن'}`, receivedByUserId: by?.id,
+          ...(photos.length && { photos: { create: photos.map((data) => ({ data })) } }),
+        },
+      });
+    });
+    res.status(201).json({ success: true, data: await userCustody(prisma, tid, target.id) });
+  } catch (err) {
+    if (err instanceof CustodyExceeded) { res.status(400).json({ success: false, message: err.message }); return; }
+    next(err);
+  }
+});
+
+// سجلّ توريدات مستخدم (مع تصفية مدى على الخادم، سقف ١٠٠)
+router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!(await guardCustody(req, res))) return;
+    const tid = tenantId(req);
+    const target = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
+    if (!target) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+    const from = typeof req.query.from === 'string' ? req.query.from : '';
+    const to = typeof req.query.to === 'string' ? req.query.to : '';
+    const gte = from ? new Date(from) : null;
+    const lte = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : null;
+    const items = await prisma.userSettlement.findMany({
+      where: {
+        tenantId: tid, fromUserId: target.id,
+        ...((gte || lte) && { settledAt: { ...(gte && { gte }), ...(lte && { lte }) } }),
+      },
+      orderBy: { settledAt: 'desc' }, take: 100,
+      // معرّفات الصور لا محتواها: مئةُ صفٍّ بأربع صورٍ base64 تعني عشرات
+      // الميجابايتات في ردٍّ لا يعرض منها إلّا عدّاداً. المحتوى بمساره أدناه.
+      include: { photos: { select: { id: true } } },
+    });
+    res.json({ success: true, data: items });
+  } catch (err) { next(err); }
+});
+
+// صور إثبات توريدٍ واحد — تُطلب عند فتح العارض وحده (انظر سقفَ الردّ أعلاه)
+router.get('/:id/settlements/:sid/photos', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!(await guardCustody(req, res))) return;
+    const tid = tenantId(req);
+    // الشرطان معاً: لا صفّ شركةٍ أخرى ولا صفّ مستخدمٍ آخر بمعرّفٍ منقول
+    const row = await prisma.userSettlement.findFirst({
+      where: { id: req.params.sid, tenantId: tid, fromUserId: req.params.id },
+      select: { id: true },
+    });
+    if (!row) { res.status(404).json({ success: false, message: 'سجل التوريد غير موجود' }); return; }
+    const photos = await prisma.userSettlementPhoto.findMany({
+      where: { settlementId: row.id }, orderBy: { createdAt: 'asc' }, select: { id: true, data: true },
+    });
+    res.json({ success: true, data: photos });
+  } catch (err) { next(err); }
+});
+
+/**
+ * حذف توريدٍ سُجِّل خطأً — يعيد مبلغه إلى عهدة المستخدم.
+ *
+ * ولماذا يلزم مسارٌ للحذف: التوريد خروجُ مالٍ نهائيّ، ورقمٌ يُكتب خطأً (٥٠٠٠
+ * بدل ٥٠٠) يخفض العهدة إلى ما لا يمثّل الواقع، ولا يعالَج بتوريدٍ مضادّ لأنّ
+ * المبالغ لا تُسجَّل سالبة. فبلا هذا المسار لا علاج إلّا في قاعدة البيانات.
+ *
+ * وحرّاسه كحذف استلام المندوب: المدير الرئيسيّ وحده، وإشعارٌ يحمل ما يلزم
+ * لإعادة التسجيل يدوياً — فلا يُمحى أثرُ نقدٍ بصمت.
+ */
+router.delete('/:id/settlements/:sid', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const caller = await guardCustody(req, res);
+    if (!caller) return;
+    if (caller.role !== 'ADMIN') {
+      res.status(403).json({ success: false, message: 'حذف سجل التوريد متاح للمدير الرئيسي فقط' });
+      return;
+    }
+    const tid = tenantId(req);
+    const target = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, name: true } });
+    if (!target) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+    const row = await prisma.userSettlement.findFirst({
+      where: { id: req.params.sid, tenantId: tid, fromUserId: target.id },
+    });
+    if (!row) { res.status(404).json({ success: false, message: 'سجل التوريد غير موجود' }); return; }
+
+    const by = req.user;
+    const actor = `${by?.name || 'الادمن'}${by?.impersonated ? ' (الدعم الفني)' : ''}`;
+    const when = new Date(row.settledAt).toISOString().slice(0, 10);
+    await prisma.$transaction(async tx => {
+      // الصور تمضي مع الصفّ (onDelete: Cascade في المخطّط)
+      await tx.userSettlement.delete({ where: { id: row.id } });
+      await tx.notification.create({
+        data: {
+          tenantId: tid,
+          type: 'USER_SETTLEMENT_DELETED',
+          title: 'حذف توريد عهدة',
+          body: `حذف ${actor} توريد عهدة بمبلغ ${clean(row.amount)} كان مسجلا بتاريخ ${when}`
+            + ` من المستخدم ${target.name} واستلمه ${row.receivedBy || 'غير معروف'}`
+            + ` — عاد المبلغ إلى عهدة المستخدم`,
+          data: JSON.stringify({
+            settlementId: row.id, amount: row.amount, method: row.method, note: row.note,
+            fromUserId: row.fromUserId, receivedBy: row.receivedBy, receivedByUserId: row.receivedByUserId,
+            settledAt: row.settledAt, deletedBy: actor, deletedById: by?.id,
+          }),
+        },
+      });
+    });
+    res.json({ success: true, data: await userCustody(prisma, tid, target.id) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * صلاحية استلام عهدة التحصيل — **منحُها** لمدير الشركة وحده.
+ *
+ * الثقب الذي يسدّه: من يملك `canManageCompanyUsers` (مشرفاً أو محاسباً) يعدّل
+ * المستخدمين، فلولا هذا الحارس لمنح نفسه بطلبٍ واحد صلاحيةَ استلام نقدٍ من
+ * عهدة أيّ زميل — وهي صلاحيةٌ قرّر المالك أن تكون مطفأة افتراضياً لأنّ المال
+ * يخرج بها من النظام نهائياً. السحب (`false`) يبقى متاحاً لكلّ من يدير
+ * المستخدمين: تقليل صلاحيةٍ لا يُحبس عن أحد.
+ */
+function blocksCustodyGrant(caller: { role: string }, requested: unknown, currentHas?: boolean): boolean {
+  return requested === true && currentHas !== true && caller.role !== 'ADMIN';
+}
 
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -200,6 +411,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!caller) return;
     const tid = tenantId(req);
     const body = userSchema.parse(req.body);
+    if (blocksCustodyGrant(caller, body.canReceiveUserCollections)) {
+      res.status(403).json({ success: false, message: 'منح صلاحية استلام التحصيل من المستخدمين يخص مدير الشركة' });
+      return;
+    }
     if (!(await guardAdminAccountChange(req, res, caller, { targetRole: null, newRole: body.role }))) return;
     if (!body.password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
     if (body.password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
@@ -237,6 +452,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         canManageCompanySettings: body.canManageCompanySettings ?? true,
         canManageDailyReport: body.canManageDailyReport ?? true,
         canManageCompanyUsers: body.canManageCompanyUsers ?? false,
+        canReceiveUserCollections: body.canReceiveUserCollections ?? false,
         // الدفاتر ميزة جديدة: ?? false لا ?? true كنظائرها
         canViewLedger: body.canViewLedger ?? false,
         canPostJournals: body.canPostJournals ?? false,
@@ -260,6 +476,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!current) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
 
     const { password, ...data } = userSchema.partial().parse(req.body);
+    if (blocksCustodyGrant(caller, data.canReceiveUserCollections, current.canReceiveUserCollections)) {
+      res.status(403).json({ success: false, message: 'منح صلاحية استلام التحصيل من المستخدمين يخص مدير الشركة' });
+      return;
+    }
     if (!(await guardAdminAccountChange(req, res, caller, { targetRole: current.role, newRole: data.role, password: !!password }))) return;
     if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (data.email && await duplicateEmail(data.email, current.id)) {
@@ -300,7 +520,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
  *
  * ولا يُترك للحذف أثرٌ يتيم: `AdminCustomerScope` و`AdminRepScope` معرَّفان
  * بـ`onDelete: Cascade` فيمضيان مع السجلّ. والفواتير والسندات تُنسَب للمندوب لا
- * لمستخدم اللوحة، فلا سجلّ ماليّ يُمسّ.
+ * لمستخدم اللوحة، فلا سجلّ ماليّ يُمسّ — إلّا عهدةَ التحصيل: رصيدٌ في يده يمنع
+ * الحذف حتى يُستلم (أوّل الحرّاس أدناه).
  *
  * ويبقى **جدولان** يشيران إلى Admin بلا مفتاح أجنبيّ، وكلاهما مُعالَج أدناه:
  * أصحاب عقد سلسلة التقرير اليومي (حارساً وتنظيفاً)، ومستلمو التقرير الشامل
@@ -328,6 +549,23 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     // حذف الذات يقطع الجلسة الحاليّة ويترك المستخدم أمام شاشة لا يفهمها
     if (target.id === req.user?.id) {
       res.status(400).json({ success: false, message: 'لا يمكنك حذف حسابك الخاص' });
+      return;
+    }
+
+    /* عهدةٌ في يده: الحذف يُسقط المبلغ من كلّ شاشة.
+     *
+     * `RepSettlement.receivedByUserId` نصٌّ **بلا مفتاح أجنبيّ** (كعقد التقرير
+     * اليومي أدناه): حذفُ الحساب لا يمسّ صفوفه، لكن لا شاشة تعرضها بعده —
+     * فالعمود يُقرأ بأسماء المستخدمين الأحياء. فيختفي نقدٌ استلمه الرجل من
+     * المناديب ولم يورّده، بلا أثرٍ يسأل عنه أحد. وبما أنّ الرصيد قد يكون
+     * سالباً في حالةٍ عارضة، الشرط قيمةٌ مطلقة لا «أكبر من صفر».
+     */
+    const custody = await userCustody(prisma, tid, target.id);
+    if (Math.abs(custody.outstanding) > CUSTODY_EPS) {
+      res.status(400).json({
+        success: false,
+        message: `في عهدة ${target.name} مبلغ ${clean(custody.outstanding)} استلم عهدته من صفحة مستخدمي الشركة قبل حذفه`,
+      });
       return;
     }
 

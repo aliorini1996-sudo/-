@@ -18,6 +18,9 @@ export type AdminPermission =
   | 'canManageCompanySettings'
   | 'canManageCompanyUsers'
   | 'canManageDailyReport'
+  // استلام (توريد) عهدة التحصيل من مستخدمي الشركة — افتراضها false، فيحرسها
+  // requireAdminPermission بأمان (يمنع عند القيمة false، فلا يمرّ إلا المفعَّل له)
+  | 'canReceiveUserCollections'
   // صلاحيات الدفاتر — تُحرس بـrequireLedgerPermission لا بـrequireAdminPermission
   // (ذاك يمنع عند === false وحدها ويتجاهل الدور، وهذه افتراضها false)
   | 'canViewLedger'

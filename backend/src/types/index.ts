@@ -18,6 +18,7 @@ export interface AuthPayload {
   canManageCompanySettings?: boolean;
   canManageDailyReport?: boolean;
   canManageCompanyUsers?: boolean;
+  canReceiveUserCollections?: boolean;
 }
 
 export interface AuthRequest extends Request {

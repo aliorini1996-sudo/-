@@ -172,6 +172,9 @@ model Admin {
   /// وهي **أخطر من نظائرها**: من يملكها يجعل نفسه مستقبِل كل التقارير
   /// عند كل عقدة ثم يعتمدها بنفسه — فاسحبها ممّن لا يبني المسار.
   canManageDailyReport     Boolean @default(true)
+  // استلام (توريد) عهدة التحصيل من مستخدمي الشركة — مطفأة افتراضياً كالدفاتر:
+  // الحارس يمنع عند false، فلا يراها إلا من فُعّلت له صراحةً (لا ضمناً للمدير).
+  canReceiveUserCollections Boolean @default(false)
 
   /// صلاحيات النظام المحاسبي المتكامل (الدفاتر) — **`false` افتراضاً خلافاً لنظائرها**:
   /// الدفاتر ميزة جديدة لا يُمنح أحدٌ مفاتيحها بالنشر. مالك الشركة (ADMIN مع
@@ -923,6 +926,7 @@ model CompanySettings {
   vatGroupTin          String?   // TIN من 10 أرقام لـOU في CSR حين الخانة 11 من الرقم الضريبي = 1
   zatcaPhase2StartedAt DateTime? // يُضبط مرة واحدة عند التفعيل ولا تمسحه واجهة الشركة
   zatcaOfflineOrders   Boolean   @default(false) // قرار المالك D1: مطفأ ما لم يُعتمد
+  zatcaSubmitPausedAt  DateTime? // Z5.3: إيقاف إرسال مستندات هذه الشركة إلى الهيئة (مفتاح تشغيلي للمالك) — NULL = يعمل
 
   @@map("company_settings")
 }
@@ -1339,12 +1343,16 @@ model RepSettlement {
   method     String   @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
   note       String?
   createdBy  String? // اسم/معرّف الأدمن الذي استلم
+  // معرّف مستخدم الشركة الذي استلم من المندوب — يدخل هذا المبلغ في عهدته.
+  // اختياري: صفوف ما قبل الميزة تبقى null فلا تُنسب لعهدة أحد (تاريخ سابق).
+  receivedByUserId String?
   settledAt  DateTime @default(now())
   createdAt  DateTime @default(now())
 
   photos RepSettlementPhoto[]
 
   @@index([tenantId, salesRepId])
+  @@index([tenantId, receivedByUserId])
   @@index([tenantId, createdAt, id]) // مؤشر المُطابِق المركّب للنظام المحاسبي المتكامل (§5.2، M3) — فهرس غير فريد
   @@map("rep_settlements")
 }
@@ -1361,6 +1369,43 @@ model RepSettlementPhoto {
 
   @@index([settlementId])
   @@map("rep_settlement_photos")
+}
+
+// توريد عهدة مستخدم الشركة — **توريدٌ نهائيّ** (قرار المالك): صاحب صلاحية
+// canReceiveUserCollections يستلم من مستخدمٍ له عهدة، فيخرج المبلغ من النظام
+// (خزنة/بنك) ولا يدخل عهدة المستلِم. عهدة المستخدم = مجموع ما استلمه من
+// المناديب (RepSettlement.receivedByUserId) ناقص مجموع ما ورّده هنا (fromUserId).
+// tenantId حقلٌ لا علاقة (كـcreatedBy): تجنّباً للمساس بنموذج Tenant المشترك.
+model UserSettlement {
+  id         String   @id @default(uuid())
+  tenantId   String
+  fromUserId String // المستخدم صاحب العهدة الذي ورّد (معرّف admin)
+  amount     Float
+  method     String   @default("CASH") // CASH | BANK_TRANSFER | POS | CHEQUE
+  note       String?
+  receivedBy String? // اسم صاحب الصلاحية الذي استلم التوريد (للعرض)
+  // معرّفه الموثّق: خروج المال نهائيّ فلا يُوثَّق باسمٍ حرٍّ وحده. null لجلسة
+  // انتحال المالك (ليست حساب شركة) — ويُميّزها الوسم في receivedBy.
+  receivedByUserId String?
+  settledAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  photos UserSettlementPhoto[]
+
+  @@index([tenantId, fromUserId])
+  @@index([tenantId, createdAt])
+  @@map("user_settlements")
+}
+
+model UserSettlementPhoto {
+  id           String         @id @default(uuid())
+  settlementId String
+  settlement   UserSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  data         String // data URL
+  createdAt    DateTime       @default(now())
+
+  @@index([settlementId])
+  @@map("user_settlement_photos")
 }
 
 // جلسة حضور: تُمدَّد بنبضات القلب من تطبيق المندوب أثناء فتحه، لحساب ساعات العمل
@@ -2631,6 +2676,7 @@ model ZatcaDocument {
   finalizedAt     DateTime?
   reportDeadline  DateTime?    // issuedAt + 24 ساعة (المبسّطة فقط)
   keyVersion      Int?         // Z5.0: ZatcaEgsUnit.keyVersion الذي وُقِّعت به البايتات (إعادة محاولة بعد تجديد الشهادة تُكشف)
+  overdueAlertLevel Int        @default(0) // Z5.3: آخر درجة تنبيه تأخّر أُطلقت (1 قبل المهلة بـ12س، 2 بـ4س، 3 بعدها) — تمنع تكرار الإشعار
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 

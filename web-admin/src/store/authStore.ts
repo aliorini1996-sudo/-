@@ -12,6 +12,7 @@ interface AuthState {
   isAdmin: () => boolean;
   isSuperAdmin: () => boolean;
   impersonate: (token: string, user: User, companyName: string) => void;
+  patchUser: (patch: Partial<User>) => void;
   stopImpersonating: () => void;
 }
 
@@ -131,6 +132,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // «الانتحال» شأن اللوحة وحدها — لا يُمسّ من مساحة تطبيق الجوال
     if (space.tokenKey !== 'm_token') localStorage.removeItem('impersonating');
     set({ token, user, impersonating: space.tokenKey === 'm_token' ? get().impersonating : null });
+  },
+
+  /**
+   * تحديث حقول حساب الجلسة في مكانها — بعد أن يعدّل المستخدمُ حسابَه من صفحة
+   * مستخدمي الشركة. الصلاحيات تُقرأ من هذا الكائن في كلّ شاشة، وهو مخزَّنٌ في
+   * localStorage، فبلا هذا التحديث لا تظهر صلاحيةٌ منحها لنفسه (ولا تختفي
+   * واحدةٌ نزعها) حتى يخرج ويدخل — فيبدو الحفظ وكأنّه لم يقع.
+   */
+  patchUser: (patch) => {
+    const cur = get().user;
+    if (!cur) return;
+    const next = { ...cur, ...patch };
+    const space = cur.role === 'SUPER_ADMIN'
+      ? { tokenKey: 'sa_token', userKey: 'sa_user' }
+      : sessionSpace();
+    try { localStorage.setItem(space.userKey, JSON.stringify(next)); } catch { /* تجاهل */ }
+    set({ user: next });
   },
 
   /**

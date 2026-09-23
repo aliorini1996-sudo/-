@@ -189,6 +189,16 @@ export const companyUserApi = {
   // null لقائمة = «لا تلمسها» (تحديث إحداهما وحدها)
   setScope: (id: string, data: { customerIds?: string[] | null; salesRepIds?: string[] | null; scopeEnabled?: boolean }) =>
     api.put(`/company-users/${id}/scope`, data),
+  // عهدة التحصيل: ما استلمه المستخدم من المناديب ناقص ما ورّده (توريدٌ نهائيّ)
+  custody: (id: string) => api.get(`/company-users/${id}/custody`),
+  settlements: (id: string, params?: Record<string, string>) => api.get(`/company-users/${id}/settlements`, { params }),
+  settle: (id: string, data: { amount: number; method?: string; note?: string; photos?: string[] }) =>
+    api.post(`/company-users/${id}/settlements`, data),
+  // صور إثبات توريدٍ واحد — السجلّ يحمل معرّفاتها فقط (الردّ كان عشرات الميجابايتات)
+  settlementPhotos: (id: string, settlementId: string) =>
+    api.get(`/company-users/${id}/settlements/${settlementId}/photos`),
+  deleteSettlement: (id: string, settlementId: string) =>
+    api.delete(`/company-users/${id}/settlements/${settlementId}`),
 };
 
 export const erpApi = {

@@ -8,6 +8,7 @@ import { adminRepFilter, adminCustomerFilter } from '../services/adminScope';
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
+import { userCustody, lockCustody, removalKeepsCustodySane, CustodyBlocked } from '../services/userCustody';
 import { isLedgerError } from '../services/gl/types';
 import { assertRepDeletable, settlementTombstones } from '../services/gl/sync/tombstone';
 
@@ -374,11 +375,16 @@ router.post('/:id/settlements', async (req: AuthRequest, res: Response, next: Ne
     const photos: string[] = rawPhotos
       .filter((p: unknown): p is string => typeof p === 'string' && p.length <= 2_500_000)
       .slice(0, 4);
-    const by = req.user as { name?: string; id?: string } | undefined;
+    const by = req.user; // AuthPayload كاملاً — تضييقه يُسقط `impersonated`
+    /* من يستلم المبلغ تدخل قيمته عهدته، والدور مضمونٌ بـrequireAdmin أعلى الملف.
+     * الاستثناء جلسةُ انتحال المالك: توكنها موقَّعٌ بمعرّف **أقدم مديرٍ نشط** في
+     * الشركة لا بمعرّف المالك، فلولا هذا الفحص لقُيّدت العهدة على مديرٍ لم يقبض
+     * ريالاً ولا يملك إغلاقها إلا بتوريد نقدٍ ليس لديه. */
+    const receivedByUserId = by?.impersonated === true ? undefined : by?.id;
     await prisma.repSettlement.create({
       data: {
         tenantId: tid, salesRepId: req.params.id, amount, method, note,
-        createdBy: by?.name || by?.id,
+        createdBy: `${by?.name || by?.id || 'الادمن'}${by?.impersonated ? ' (الدعم الفني)' : ''}`, receivedByUserId,
         // في نفس الكتابة: استلامٌ بلا إيصاله ليس أفضل من لا استلام
         ...(photos.length && { photos: { create: photos.map((data) => ({ data })) } }),
       },
@@ -480,9 +486,30 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
     const by = req.user;
     // من نفّذ الحذف — وجلسة تصفّح المالك تُوسَم كي لا يُنسب فعله لأدمن الشركة
     const actor = `${by?.name || 'الادمن'}${by?.impersonated ? ' (الدعم الفني)' : ''}`;
+    // صاحب العهدة التي دخلها هذا المبلغ — للرسالة، وللحارس داخل المعاملة
+    const holder = row.receivedByUserId
+      ? await prisma.admin.findFirst({ where: { id: row.receivedByUserId, tenantId: tid }, select: { id: true, name: true } })
+      : null;
     const when = new Date(row.settledAt).toISOString().slice(0, 10);
 
     await prisma.$transaction(async tx => {
+      /* حارس العهدة قبل أيّ كتابة.
+       *
+       * هذا المبلغ دخل عهدة مستخدمٍ حين استُلم. فإن كان قد ورّده — كلّه أو
+       * بعضه — صار «ورّد» أكبر من «استلم»: عهدةٌ سالبة تختفي من الشاشة (شرط
+       * العرض موجب) وتمنع كلّ توريدٍ لاحق لأنّ سقفه صار سالباً، ولا يصلحها
+       * إلّا تدخّلٌ في القاعدة. فيُحذف التوريد أوّلاً من صفحة مستخدمي الشركة.
+       * والقفل هنا يمنع توريداً متزامناً يمرّ بين الفحص والحذف. */
+      if (holder) {
+        await lockCustody(tx, tid, holder.id);
+        const { outstanding } = await userCustody(tx, tid, holder.id);
+        if (!removalKeepsCustodySane(outstanding, row.amount)) {
+          throw new CustodyBlocked(
+            `هذا المبلغ في عهدة ${holder.name} وقد ورد منه ما يمنع حذفه`
+            + ` — احذف توريده من صفحة مستخدمي الشركة أولا (المتبقي في عهدته ${clean(outstanding)})`,
+          );
+        }
+      }
       // خطاف الدفاتر (§5.3): قبل الحذف وفي معاملته، SETTLEMENT:<id>:POST وSETTLEMENT:<id>:REVERSE معاً بلقطة
       // كاملة للصف — لا شيء حين لم تُفعَّل الدفاتر يوماً (activatedAt فارغ)
       const glTombstones = await settlementTombstones(tx, tid, row, { salesRepName: rep.name });
@@ -513,7 +540,10 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
 
     // الرصيد بعد الحذف — لتُحدّث الواجهة بطاقاتها من مصدرٍ واحد لا من حسابٍ محلّي
     res.json({ success: true, data: await repCollection(tid, rep.id) });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err instanceof CustodyBlocked) { res.status(400).json({ success: false, message: err.message }); return; }
+    next(err);
+  }
 });
 
 export default router;

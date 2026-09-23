@@ -307,7 +307,10 @@ export default function SalesRepsPage() {
 
       {collectRep && (
         <ReceiveCollectionModal rep={collectRep} onClose={() => setCollectRep(null)}
-          onDone={() => qc.invalidateQueries({ queryKey: ['sales-reps'] })} />
+          /* واستلامُ التحصيل يدخل عهدة المستخدم الذي استلمه ⇒ عمود العهدة في
+             صفحة مستخدمي الشركة بات قديماً. إبطالٌ لا إعادةَ جلب: الصفحة
+             الأخرى قد لا تكون مفتوحة. */
+          onDone={() => { qc.invalidateQueries({ queryKey: ['sales-reps'] }); qc.invalidateQueries({ queryKey: ['company-users'], refetchType: 'none' }); }} />
       )}
 
       {assignRep && (

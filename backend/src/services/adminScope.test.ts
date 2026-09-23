@@ -178,7 +178,9 @@ test('حارس ثابت: كل مسار في companyUsers يفتتح بحارس �
   const file = path.join(process.cwd(), 'src', 'routes', 'companyUsers.ts');
   assert.ok(fs.existsSync(file), `الملف غير موجود: ${file}`);
   const lines = fs.readFileSync(file, 'utf8').split('\n');
-  const GUARDS = /requireCompanyOwner|guardScopeAdmin/;
+  // الثلاثة مقبولة: `guardScopeAdmin` و`guardCustody` أولُ ما يفعلان استدعاءُ
+  // `requireCompanyOwner`، ويزيدان عليه رفضَ صاحب النطاق المقيّد.
+  const GUARDS = /requireCompanyOwner|guardScopeAdmin|guardCustody/;
   const unguarded: string[] = [];
 
   lines.forEach((line, i) => {
