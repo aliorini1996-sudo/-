@@ -225,7 +225,8 @@ test('أسماء عقد الشجرة: القالب يسمّي مستويات ا�
       assert.ok(n[lang] && n[lang].trim().length > 1, `اسم ناقص للبادئة ${p} بلغة ${lang}`);
     }
   }
-  assert.ok([...groups.keys()].every((c) => /^\d{1,3}$/.test(c)), 'رموز المجموعات بادئات من رقم إلى ثلاثة');
+  // م‑6: المستوى الرابع مسموح حيث يفيد (1110 الصناديق، 1111 البنوك) — وما فوقه لا
+  assert.ok([...groups.keys()].every((c) => /^\d{1,4}$/.test(c)), 'رموز المجموعات بادئات من رقم إلى أربعة');
 });
 
 // ═══ حراس المسار الثابتة ═══
@@ -260,7 +261,7 @@ test('الردّ يحمل الوصف والرمز والنوع، وحقول ال
   }
 });
 
-test('GET /accounts/tree: اسم لكل بادئة يسمّيها القالب في المستويات الثلاثة (م‑7)', () => {
+test('GET /accounts/tree: اسم لكل بادئة يسمّيها القالب، ورابعٌ حيث سمّاه (م‑7 وم‑6)', () => {
   const i = code.indexOf("router.get('/accounts/tree', VIEW,");
   assert.ok(i >= 0, 'الشجرة بصلاحية VIEW');
   const body = code.slice(i, code.indexOf('\n}));', i));
@@ -268,5 +269,7 @@ test('GET /accounts/tree: اسم لكل بادئة يسمّيها القالب �
   assert.ok(!/len === 1 && groupNames/.test(body), 'لم يعد الاسم للمستوى الأول وحده');
   // شكل الردّ كما تقرؤه الواجهة
   assert.match(body, /type Node = \{ prefix: string; count: number; names\?: Record<string, string>; children: Node\[\] \}/);
-  assert.match(body, /for \(let len = 1; len <= Math\.min\(3, code\.length\); len\+\+\)/);
+  // م‑6: ثلاثة مستويات دائماً، ورابعٌ **فقط** حيث سمّاه القالب (1110 الصناديق، 1111 البنوك)
+  assert.match(body, /for \(let len = 1; len <= Math\.min\(4, code\.length\); len\+\+\)/);
+  assert.match(body, /if \(len === 4 && !groupNames\.has\(prefix\)\) break;/, 'مستوى رابع بلا اسم = عقدة رقمية عارية');
 });

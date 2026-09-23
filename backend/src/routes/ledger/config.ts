@@ -216,7 +216,7 @@ router.get('/accounts', VIEW, ledgerHandler(async (req, res) => {
 }));
 
 /**
- * شجرة بادئات الرموز (COA‑05): المستويات الثلاثة، وكل عقدة باسمها من `SA_6D_ACCOUNT_GROUPS`
+ * شجرة بادئات الرموز (COA‑05): ثلاثة مستويات، ورابعٌ حيث سمّاه القالب، وكل عقدة باسمها من `SA_6D_ACCOUNT_GROUPS`
  * إن كان للبادئة اسم في القالب (م‑7: «61» و«611» كانت تظهر أرقاماً عارية بلا أسماء).
  */
 router.get('/accounts/tree', VIEW, ledgerHandler(async (req, res) => {
@@ -233,8 +233,11 @@ router.get('/accounts/tree', VIEW, ledgerHandler(async (req, res) => {
   const groupNames = new Map(SA_6D_ACCOUNT_GROUPS.map((g) => [g.code, g.names]));
   for (const { code } of rows) {
     let siblings = root;
-    for (let len = 1; len <= Math.min(3, code.length); len++) {
+    // المستويات الثلاثة دائماً، والرابع **فقط** إن كان للبادئة اسم في القالب (م‑6: 1110 الصناديق و1111 البنوك)
+    // فلا تمتلئ الشجرة عقداً رقمية عارية لا معنى لها.
+    for (let len = 1; len <= Math.min(4, code.length); len++) {
       const prefix = code.slice(0, len);
+      if (len === 4 && !groupNames.has(prefix)) break;
       let node = index.get(prefix);
       if (!node) {
         node = { prefix, count: 0, children: [], ...(groupNames.has(prefix) ? { names: { ...groupNames.get(prefix)! } } : {}) };

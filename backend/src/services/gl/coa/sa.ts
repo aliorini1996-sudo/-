@@ -98,6 +98,11 @@ export const SA_6D_ACCOUNT_GROUPS: readonly AccountGroupTemplate[] = [
   { code: '1', names: n('الأصول', 'Assets', 'Actifs', 'Varlıklar', '资产') },
   { code: '11', names: n('الأصول المتداولة', 'Current Assets', 'Actifs courants', 'Dönen Varlıklar', '流动资产') },
   { code: '111', names: n('النقد بالصندوق والبنك', 'Cash on Hand and at Bank', 'Caisse et banque', 'Kasa ve Banka', '库存现金及银行存款') },
+  // م‑6 (قرار مراجعة الخبير): «الصندوق حاجة رئيسية وتحتها النقدية» — المستوى الرابع يفصل الصناديق عن البنوك
+  // تحت «111 النقد بالصندوق والبنك»، فتُقرأ الشجرة: النقد ← الصناديق ← الصندوق الرئيسي. أودو نفسه يجمّع
+  // ببادئة الرمز (account.group) بلا حسابات أب، فلا داعي لتغيير النموذج ولا لإعادة تسمية حسابٍ قائم.
+  { code: '1110', names: n('الصناديق', 'Cash Boxes', 'Caisses', 'Kasalar', '现金柜') },
+  { code: '1111', names: n('البنوك', 'Banks', 'Banques', 'Bankalar', '银行') },
   { code: '112', names: n('حسابات التحصيل والتسوية النقدية', 'Cash Clearing Accounts', 'Comptes de compensation de trésorerie', 'Nakit Mutabakat Hesapları', '现金结算账户') },
   { code: '113', names: n('الذمم المدينة', 'Receivables', 'Créances', 'Alacaklar', '应收款项') },
   { code: '114', names: n('المخزون', 'Inventory', 'Stocks', 'Stoklar', '存货') },

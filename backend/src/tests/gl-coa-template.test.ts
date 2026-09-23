@@ -147,11 +147,15 @@ test('كل حساب في القالب له وصف عربي من ١٠ إلى ٢٠
 test('كل بادئة في القالب (مستوى ١ و٢ و٣) لها عقدة مسمّاة بخمس لغات، بلا عقدة زائدة ولا اسم مكرر', () => {
   const prefixes = new Set<string>();
   for (const a of SA_6D_ACCOUNTS) for (const len of [1, 2, 3]) prefixes.add(a.code.slice(0, len));
+  // م‑6: المستوى الرابع **اختياري** — يُسمّى حيث يفيد (1110 الصناديق، 1111 البنوك) ولا يُطلب لكل بادئة،
+  // فيبقى شرط «لا بادئة عارية» على المستويات الثلاثة، ويبقى شرط «لا عقدة بلا حسابات» شاملاً الرابع.
+  const withLevel4 = new Set(prefixes);
+  for (const a of SA_6D_ACCOUNTS) withLevel4.add(a.code.slice(0, 4));
   const byGroup = new Map(SA_6D_ACCOUNT_GROUPS.map((g) => [g.code, g]));
   assert.equal(byGroup.size, SA_6D_ACCOUNT_GROUPS.length, 'رمز عقدة مكرر');
   for (const p of prefixes) assert.ok(byGroup.has(p), `البادئة ${p} تظهر في الشجرة رقماً عارياً`);
   for (const g of SA_6D_ACCOUNT_GROUPS) {
-    assert.ok(prefixes.has(g.code), `عقدة ${g.code} لا يقابلها حساب في القالب`);
+    assert.ok(withLevel4.has(g.code), `عقدة ${g.code} لا يقابلها حساب في القالب`);
     assertNames(g.names, `عقدة ${g.code}`);
     assert.doesNotMatch(g.names.ar, /^\d+$/, `عقدة ${g.code}: اسم رقمي`);
     if (g.code.length > 1) assert.ok(byGroup.has(g.code.slice(0, -1)), `عقدة ${g.code}: أبوها مفقود`);
@@ -161,6 +165,11 @@ test('كل بادئة في القالب (مستوى ١ و٢ و٣) لها عقد�
   assert.deepEqual(SA_6D_ROOT_GROUPS.map((g) => g.code), ['1', '2', '3', '4', '5', '6', '7', '9']);
   assert.equal(byGroup.get('611')?.names.ar, 'مصروفات فرق البيع والسيارات');
   assert.equal(byGroup.get('62')?.names.ar, 'المصروفات الإدارية والعمومية');
+  // م‑6: شجرة النقد تُقرأ «النقد ← الصناديق/البنوك ← الحساب»
+  assert.equal(byGroup.get('1110')?.names.ar, 'الصناديق');
+  assert.equal(byGroup.get('1111')?.names.ar, 'البنوك');
+  for (const code of ['111001', '111002', '111003']) assert.ok(code.startsWith('1110'), `${code} خارج عقدة الصناديق`);
+  assert.ok('111101'.startsWith('1111'), 'البنك الرئيسي خارج عقدة البنوك');
 });
 
 // ═══ مرادفات البحث (م‑1: «بنزين» لا تطابق «وقود وزيوت السيارات») ═══
