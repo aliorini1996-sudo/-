@@ -23,7 +23,9 @@ async function waitForImages(el: HTMLElement, timeout = 4000): Promise<void> {
 // يحوّل عنصر DOM إلى PDF بصيغة Blob (صفحة A4، يدعم تعدد الصفحات)
 // `singlePage`: يُصغَّر الالتقاط ليسع صفحة واحدة دائماً — عنصرٌ بمقاس 794×1123px أطول من
 // نسبة A4 بجزءٍ من النقطة، فكان يُنتج صفحةً ثانية فارغة تقريباً
-export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: boolean }): Promise<Blob> {
+// `lossless`: PNG بدل JPEG — لورقةٍ تحمل رمز QR مختوماً من المرحلة الثانية. ضغط JPEG الفاقد يُلطّخ حواف
+// الحُجَيرات في نمطٍ ثنائيّ دقيق، والورقة هذه هي التي يمسحها العميل والمفتّش. وغيرُها يبقى JPEG (أخفّ حجماً).
+export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: boolean; lossless?: boolean }): Promise<Blob> {
   await waitForImages(el);
   const canvas = await html2canvas(el, {
     scale: 2,
@@ -31,7 +33,8 @@ export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: bo
     backgroundColor: '#ffffff',
     logging: false,
   });
-  const imgData = canvas.toDataURL('image/jpeg', 0.95);
+  const fmt = opts?.lossless ? 'PNG' : 'JPEG';
+  const imgData = opts?.lossless ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.95);
   const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
@@ -40,7 +43,7 @@ export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: bo
     const fit = Math.min(pageW / canvas.width, pageH / canvas.height);
     const w = canvas.width * fit;
     const h = canvas.height * fit;
-    pdf.addImage(imgData, 'JPEG', (pageW - w) / 2, 0, w, h);
+    pdf.addImage(imgData, fmt, (pageW - w) / 2, 0, w, h);
     return pdf.output('blob');
   }
 
@@ -49,13 +52,13 @@ export async function elementToPdfBlob(el: HTMLElement, opts?: { singlePage?: bo
 
   let heightLeft = imgH;
   let position = 0;
-  pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+  pdf.addImage(imgData, fmt, 0, position, imgW, imgH);
   heightLeft -= pageH;
 
   while (heightLeft > 0) {
     position -= pageH;
     pdf.addPage();
-    pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+    pdf.addImage(imgData, fmt, 0, position, imgW, imgH);
     heightLeft -= pageH;
   }
   return pdf.output('blob');

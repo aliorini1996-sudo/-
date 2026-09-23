@@ -8,6 +8,7 @@ import { computeInvoiceTotals, priceFromLineTotal } from '../../rep/invoiceCalc'
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../../lib/installments';
 import DecimalInput from '../DecimalInput';
 import { InvoiceDoc, Company } from '../../rep/RepDocuments';
+import { zatcaDocView } from '../../lib/zatca/docStatus';
 import { X, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
@@ -93,6 +94,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         deliveryDate: deliveryDate || undefined,
         subtotal, discount: totalDiscount, tax: taxTotal, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
+        /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): مستند ما بعد الحفظ يُبنى هنا لا من
+         * `invoiceDocFromDetail` — وبدونه تطبع اللوحة رمز المرحلة الأولى لفاتورة مختومة. */
+        zatca: zatcaDocView(inv),
       };
       toast.success(tr('تم إنشاء الفاتورة'));
       onSaved(doc);

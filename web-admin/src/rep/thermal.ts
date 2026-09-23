@@ -5,6 +5,7 @@ import { paymentMethodLabels, getActiveCurrency, getActiveNumerals } from '../ut
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
 import type { InvoiceDoc, ReceiptDoc } from './RepDocuments';
 import { isSaudiDoc, isSignatureSrc } from './RepDocuments';
+import { zatcaPrintDecision } from '../lib/zatca/docPrint';
 import { receiptLinkView } from './receiptLinks';
 
 function esc(s: unknown): string {
@@ -83,6 +84,20 @@ async function qrBlock(company: InvoiceDoc['company'], date: string, total: numb
   } catch { return ''; }
 }
 
+/**
+ * رمز المرحلة الثانية المختوم — يُرسم كما وصل من الخادم بلا بناء ولا تعديل.
+ *
+ * وحمولته نحو ٧٠٠ محرف (التوقيع والمفتاح العامّ والبصمة) مقابل ~١٢٠ في المرحلة الأولى، فنسخته أكبر بكثير وحُجَيراتها
+ * أدقّ: صورة ١٢٤px كانت تعطي أقلّ من ٣ نقاط للحُجَيرة على طابعة ٥٨مم/٢٠٣dpi فلا يقرؤها ماسح. فالصورة ١٦٨px من مصدر
+ * ٤٢٠px، وتصحيح الخطأ L (لا M) ليقلّ عدد الحُجَيرات — والمعيار لا يشترط مستوى تصحيح.
+ */
+async function stampedQrBlock(value: string): Promise<string> {
+  try {
+    const url = await QRCode.toDataURL(value, { width: 420, margin: 0, errorCorrectionLevel: 'L' });
+    return `<div class="qr"><img src="${url}" width="168" height="168"/></div>`;
+  } catch { return ''; }
+}
+
 function head(company: InvoiceDoc['company']): string {
   return `
     <div class="c b lg">${esc(company?.name || 'الشركة')}</div>
@@ -93,11 +108,16 @@ function head(company: InvoiceDoc['company']): string {
 
 export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
   const isSimplified = !doc.customer.taxNumber;
-  // تصنيف ZATCA سعوديّ — خارج السعودية يبقى العنوان محايداً (انظر isSaudiDoc)
-  const title = doc.isReturn ? 'إشعار دائن مرتجع'
-    : !isSaudiDoc(doc.company) ? 'فاتورة'
-    : (isSimplified ? 'فاتورة ضريبية مبسطة' : 'فاتورة ضريبية');
-  const qr = await qrBlock(doc.company, doc.date, doc.total, doc.tax);
+  /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): القرار نفسه الذي يحكم قالب A4 يحكم الشريط الحراريّ —
+   * وإلا طُبع الرمز المبنيّ محلياً على ورقة مستندٍ مختوم. تصنيف ZATCA سعوديّ؛ خارج السعودية العنوان محايد. */
+  const d = zatcaPrintDecision(
+    { isReturn: !!doc.isReturn, buyerHasTaxNumber: !isSimplified, saudi: isSaudiDoc(doc.company) },
+    doc.zatca,
+  );
+  const title = d.title;
+  const qr = d.qr.source === 'stamped' && d.qr.value ? await stampedQrBlock(d.qr.value)
+    : d.qr.source === 'phase1' ? await qrBlock(doc.company, doc.date, doc.total, doc.tax)
+    : '';
   const items = doc.items.map(it => `
     <div class="item">
       <div class="iname">${esc(it.name)}${it.unit ? ` <span class="muted">(${esc(it.unit)})</span>` : ''}</div>
@@ -108,11 +128,15 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
   // مدمجة لا وجود لها قانونيا عند اختلاط بنود بنسب مختلفة (15% + معفى → «8%»)
   const vatPcts = [...new Set(doc.items.map(it => Number(it.taxPct)))];
   const vatRate = vatPcts.length === 1 ? `${vatPcts[0]}%` : 'نسب متعددة';
+  // الأسعار شاملة؟ العلم الصريح ثمّ الاستدلال الحسابي — كقالب A4 حرفاً بحرف
+  const inclusiveDoc = doc.pricesIncludeTax ?? (doc.tax > 0 && Math.abs((doc.subtotal - doc.discount) - doc.total) < 0.005);
 
   printHTML(`
     ${head(doc.company)}
     <div class="sep"></div>
-    <div class="c b">${title}</div>
+    <div class="c b">${esc(title)}</div>
+    ${d.watermark ? `<div class="c b muted">${esc(d.watermark)}</div>` : ''}
+    ${d.notice ? `<div class="sep"></div><div class="c muted">${esc(d.notice)}</div>` : ''}
     <div class="sep"></div>
     <div class="row"><span>رقم</span><span class="b">${esc(doc.number)}</span></div>
     <div class="row"><span>التاريخ</span><span>${dt(doc.date)}</span></div>
@@ -123,10 +147,12 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
     <div class="sep"></div>
     ${items}
     <div class="sep"></div>
-    <div class="row"><span>المجموع قبل الضريبة</span><span>${money(doc.total - doc.tax)}</span></div>
+    ${d.showTaxBreakdown ? `<div class="row"><span>المجموع قبل الضريبة</span><span>${money(doc.total - doc.tax)}</span></div>` : ''}
     ${doc.discount > 0 ? `<div class="row"><span>الخصم</span><span>${money(doc.discount)}</span></div>` : ''}
-    <div class="row"><span>ض.ق.م ${vatRate}</span><span>${money(doc.tax)}</span></div>
-    <div class="row b lg"><span>${doc.isReturn ? 'إجمالي المرتجع' : 'الإجمالي'}</span><span>${money(doc.total)}</span></div>
+    ${d.showTaxBreakdown ? `<div class="row"><span>ض.ق.م ${vatRate}</span><span>${money(doc.tax)}</span></div>` : ''}
+    <div class="row b lg"><span>${doc.isReturn ? 'إجمالي المرتجع'
+      : !d.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? 'المبلغ المستحق شامل الضرائب'
+      : 'الإجمالي'}</span><span>${money(doc.total)}</span></div>
     ${!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined ? `
       <div class="row muted"><span>المدفوع</span><span>${money(doc.paidAmt ?? 0)}</span></div>
       <div class="row muted"><span>المتبقي</span><span>${money(doc.remainingAmt)}</span></div>` : ''}
@@ -135,6 +161,8 @@ export async function printThermalInvoice(doc: InvoiceDoc): Promise<void> {
       ? `<div class="c"><img src="${esc(src)}" alt="" style="max-width:70%;max-height:60px"><div class="muted">${label}</div></div><div class="sep"></div>`
       : '').join('')}
     ${qr}
+    ${doc.zatca && doc.zatca.icv !== null ? `<div class="c muted">ICV ${localizeDigits(String(doc.zatca.icv))}</div>` : ''}
+    ${doc.zatca?.uuid ? `<div class="c muted" style="word-break:break-all;direction:ltr">${esc(doc.zatca.uuid)}</div>` : ''}
     <div class="c muted">${esc(doc.company?.name || '')}</div>
     <div class="c muted">شكرا لتعاملكم معنا</div>
   `);

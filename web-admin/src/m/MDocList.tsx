@@ -7,6 +7,7 @@ import { Invoice } from '../types';
 import { formatCurrency, formatDate, formatTime, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { invalidateAfterReceipt } from '../lib/receiptEffects';
+import { zatcaStatusChip } from '../lib/zatca/docStatus';
 import { useBackClose } from '../lib/useBackClose';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { MCard, MRow, MEmpty, MError, MSpinner } from './mobileUi';
@@ -178,9 +179,20 @@ export default function MDocList({ kind, company, userName, onSwitchKind }: {
   );
 }
 
+/** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
+const M_CHIP_TONE: Record<string, string> = {
+  pending: 'bg-[#E6EEFB] text-[#2C5282]',
+  ok: 'bg-[#E9F6EF] text-[#2F855A]',
+  warn: 'bg-[#FDF3E2] text-[#B7791F]',
+  danger: 'bg-[#FDF2F0] text-[#C0392B]',
+  muted: 'bg-[#F1EBDF] text-[#9A8F7E]',
+};
+
 function DocRow({ kind, d, onOpen }: { kind: Kind; d: Record<string, unknown>; onOpen: () => void }) {
   const tr = useTr();
   const cancelled = d.status === 'CANCELLED';
+  // صفّ فاتورة من المرحلة الثانية ⇒ شارة حالته لدى الهيئة؛ وغيره null فلا شيء يُرسم
+  const zChip = kind === 'invoice' ? zatcaStatusChip(d) : null;
   const inv = d as unknown as Invoice;
   const isReturn = kind === 'invoice' && inv.type === 'RETURN';
   const isCash = kind === 'invoice' && inv.type === 'CASH';
@@ -201,9 +213,11 @@ function DocRow({ kind, d, onOpen }: { kind: Kind; d: Record<string, unknown>; o
       onClick={onOpen}
       leading={<span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${tone}`}><Icon size={16} /></span>}
       title={
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5 flex-wrap">
           <span dir="ltr">{String(d.number || '')}</span>
           {cancelled && <span className="text-[9px] bg-[#F1EBDF] text-[#9A8F7E] rounded-full px-1.5 py-0.5">{tr('ملغي')}</span>}
+          {/* حالة المستند لدى الهيئة — لصفوف المرحلة الثانية وحدها (null لغيرها: /m كما اليوم حرفياً) */}
+          {zChip && <span title={tr(zChip.hint)} className={`text-[9px] rounded-full px-1.5 py-0.5 ${M_CHIP_TONE[zChip.tone]}`}>{tr(zChip.label)}</span>}
         </span>
       }
       subtitle={`${customerName} · ${repName} · ${issuedAt ? `${formatDate(issuedAt)} ${formatTime(issuedAt)}` : ''}`}

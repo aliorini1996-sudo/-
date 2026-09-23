@@ -118,6 +118,11 @@ export const invoiceApi = {
   cancel: (id: string) => api.patch(`/invoices/${id}/cancel`),
   // تحكّم الأدمن: هل يعود المرتجع لمخزون السيارة؟
   setRestock: (id: string, returnToStock: boolean) => api.patch(`/invoices/${id}/restock`, { returnToStock }),
+  /* فوترة ZATCA المرحلة الثانية (Z5.4) — الإجراءات الثلاثة التي يفتحها الخادم لمستخدمي الشركة (requireAdmin):
+   * إعادة إرسال مستند محجوب، وسحب قياسية عالقة قبل وصولها الهيئة، وإعادة إصدار مبسّطة مرفوضة. */
+  einvoiceRetry: (id: string) => api.post(`/invoices/${id}/einvoice/retry`),
+  einvoiceWithdraw: (id: string) => api.post(`/invoices/${id}/einvoice/withdraw`),
+  einvoiceReissue: (id: string) => api.post(`/invoices/${id}/einvoice/reissue`),
 };
 
 export const receiptApi = {

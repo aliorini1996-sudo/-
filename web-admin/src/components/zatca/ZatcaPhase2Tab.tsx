@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  AlertTriangle, Ban, CheckCircle2, ChevronDown, ChevronUp, CircleDashed, Eye, History, Info, KeyRound, Loader2, Lock, Pencil, Plug,
-  RefreshCw, Rocket, Save, ShieldCheck, XCircle,
+  AlertTriangle, Ban, CheckCircle2, ChevronDown, ChevronUp, CircleDashed, ClipboardList, Eye, History, Info, KeyRound, Loader2, Lock,
+  Pencil, Plug, RefreshCw, Rocket, Save, ShieldCheck, XCircle,
 } from 'lucide-react';
 import { zatcaApi } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
@@ -18,6 +18,7 @@ import {
   overviewView, readinessErrors, sellerBaselineAfterSave, sellerPatch, shouldRetryUnitFetch, unitPollInterval,
 } from './zatcaLogic';
 import { useZatcaTr as useTr } from './zatcaPhrases';
+import ZatcaTabBoundary from './ZatcaTabBoundary';
 
 /**
  * تبويب «الفوترة الإلكترونية — المرحلة الثانية (فاتورة)» في إعدادات الشركة (design §5.1).
@@ -172,6 +173,8 @@ function ZatcaPhase2Body({ ov, overviewUpdatedAt, refreshError }: {
     <div className={`space-y-5 max-w-4xl ${TAB_DISABLED_BUTTONS}`} dir="rtl">
       {refreshError && <OverviewRefreshError {...refreshError} />}
       <StatusHeader ov={ov} units={units} ownerSession={ownerSession} />
+      {/* الشركة المفعّلة حيّاً وحدها لها طابور مستندات تُتابَع — وغيرها لا يرى الشاشة ولا يحمّل حزمتها */}
+      {ov.regime === 'PHASE2' && <DocsFollowUpCard />}
       <SellerCard ov={ov} />
       <div className="card">
         <SectionTitle icon={<Plug size={20} />} title={tr('ربط وحدة الفوترة مع هيئة الزكاة والضريبة والجمارك')}
@@ -183,6 +186,42 @@ function ZatcaPhase2Body({ ov, overviewUpdatedAt, refreshError }: {
       </div>
       <GoLiveCard ov={ov} />
       {retired.length > 0 && <RetiredUnits units={retired} />}
+    </div>
+  );
+}
+
+// ─── متابعة المستندات الضريبية (Z5.6c) ───
+
+/**
+ * شاشة الطابور تُحمَّل بنقرةٍ لا مع التبويب: التبويب يفتحه كلّ من يربط وحدته أو يجدّد شهادته، والطابور لا يقرؤه إلا
+ * من يتابع مستنداته فعلاً — ولها جدولها وحواراتها فلا تُحشر في حزمة الربط. وحاجز الأخطاء نفسه يحرسها: فشل تحميل
+ * حزمتها (نشرٌ جديد والصفحة مفتوحة) يُظهر لافتة «إعادة المحاولة» ولا يُسقط التبويب ومسوّدة بيانات المنشأة فيه.
+ */
+const loadZatcaDocsPanel = () => import('./ZatcaDocsPanel');
+
+function DocsFollowUpCard() {
+  const tr = useTr();
+  const [open, setOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const Panel = useMemo(() => lazy(loadZatcaDocsPanel), [attempt]);
+  return (
+    <div className="card">
+      <SectionTitle icon={<ClipboardList size={20} />} title={tr('متابعة المستندات الضريبية')}
+        subtitle={tr('حالة مستندات الفوترة الإلكترونية لدى الهيئة وما يلزم من إجراء لكل مستند')} />
+      {open ? (
+        <div className="space-y-3">
+          <ZatcaTabBoundary onRetry={() => setAttempt(n => n + 1)}>
+            <Suspense fallback={<div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-[#E15A30]" /></div>}>
+              <Panel />
+            </Suspense>
+          </ZatcaTabBoundary>
+          <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>{tr('إغلاق')}</button>
+        </div>
+      ) : (
+        <button type="button" className="btn-secondary" onClick={() => setOpen(true)}>
+          <ClipboardList size={14} /> {tr('فتح شاشة المتابعة')}
+        </button>
+      )}
     </div>
   );
 }

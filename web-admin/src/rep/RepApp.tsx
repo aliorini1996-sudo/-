@@ -24,7 +24,9 @@ import { useRepTracking } from './useRepTracking';
 import { useHeartbeat } from './useHeartbeat';
 import { underCutoverReview } from './outboxReview';
 import { companyRefreshDue } from './companyRefresh';
-import { zatcaCollectOn } from '../lib/zatcaRegime';
+import { zatcaCollectOn, zatcaRegimeOf } from '../lib/zatcaRegime';
+import { zatcaDocView, zatcaStatusChip } from '../lib/zatca/docStatus';
+import { isZatcaOutdatedClient, zatcaIssueOutcome, zatcaReloadForUpdate } from '../lib/zatca/issueOutcome';
 import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
@@ -1286,6 +1288,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const [showScanner, setShowScanner] = useState(false); // ماسح الباركود
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  /* ZATCA المرحلة الثانية (426): حزمةٌ بقيت مفتوحة من قبل النشر لا تفهم المستند المختوم فيردّها الخادم. رسالته تقول
+   * «أغلق التطبيق وافتحه»، وهي في جوّال المندوب زرٌّ واحد: إلغاء تسجيل عامل الخدمة (هو من يقدّم الحزمة القديمة) ثم تحميل. */
+  const [needsUpdate, setNeedsUpdate] = useState(false);
 
   // جلب قائمة المنتجات كاملة (الاختيار عبر قائمة منسدلة بالتصفية + شبكة للتصفّح)
   useEffect(() => {
@@ -1395,6 +1400,19 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   useBackClose(showScanner, () => setShowScanner(false));
   useBackClose(!showScanner && showCart, () => setShowCart(false));
 
+  /* فوترة ZATCA المرحلة الثانية (D1‑i): المستند الضريبي يُختم ويُرقَّم على الخادم داخل سلسلة الوحدة، فلا يُصدَر
+   * دون اتصال بحال — ولا يُلتقط في الصفّ الصادر ليُطبع برقمٍ محليّ ورمز المرحلة الأولى. */
+  const zatcaPhase2 = zatcaRegimeOf(company).phase === 2;
+  // حالة الاتصال الحيّة: المنع يُقال **قبل** ملء السلّة لا بعد الضغط على «إصدار» (والحارس في submit يبقى الفاصل)
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
+  }, []);
+
   // معاينة جدول الأقساط من الإجمالي المحليّ — والخادم يكتب الجدول الحقيقي
   // من إجماليّه هو، فتتطابق المعاينة معه ما دام الإجمالي واحداً
   const insPreview = plan === 'INSTALLMENT'
@@ -1414,6 +1432,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // يطبع برقم مؤقّت ويحسب محلياً، وأيّ انحراف بين الورقة والسجلّ خصومةٌ مع
       // عميل حقيقي — فتُمنع حتى يعود الاتصال.
       if (!navigator.onLine) { setMsg(tr('إصدار فاتورة تقسيط يتطلب اتصالا بالانترنت')); return; }
+    }
+    // الفاصل يبقى `navigator.onLine` لحظةَ الإرسال لا حالةَ الواجهة (قد تكون قديمة بلمسة واحدة)
+    if (zatcaPhase2 && !navigator.onLine) {
+      setMsg(tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')); return;
     }
     setLoading(true); setMsg('');
     const clientRef = newClientRef();
@@ -1445,7 +1467,22 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
        * بردٍّ غير 201: ورقةٌ عنوانها «فاتورة ضريبية» عن مستند لم تعتمده الهيئة تخرج بيد العميل. */
       if (res.status !== 201) {
         setLoading(false);
-        setMsg(String(res.data?.message || tr('صدرت الفاتورة وبانتظار اعتماد الهيئة لا تسلم فاتورة ضريبية الآن')));
+        // Z5.6c (D5): قياسيةٌ لم تُعتمد والبضاعة خرجت ⇒ سند تسليم من الصفّ المرفق؛ وما لا ورقة له فرسالة الخادم وحدها
+        const pendingMsg = tr('صدرت الفاتورة وبانتظار اعتماد الهيئة لا تسلم فاتورة ضريبية الآن');
+        const out = zatcaIssueOutcome(res, pendingMsg);
+        setMsg(String(res.data?.message || (out.kind === 'deliveryNote' ? out.message : pendingMsg)));
+        if (out.kind !== 'deliveryNote') return;
+        const row = out.row as any;
+        onDone({
+          kind: 'invoice', number: String(row.number), date: row.invoiceDate ?? clientCreatedAt,
+          deliveryDate: row.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
+          recipientSignature: signatureOn && signatures.recipient ? signatures.recipient.png : null,
+          repSignature: signatureOn && signatures.rep ? signatures.rep.png : null,
+          company, customer, repName, items: printItems,
+          subtotal, discount, tax, total,
+          paidAmt: Number(row.paidAmt ?? 0), remainingAmt: Number(row.remainingAmt ?? total),
+          zatca: out.view,
+        });
         return;
       }
       const inv = res.data.data;
@@ -1468,10 +1505,17 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         company, customer, repName, items: printItems,
         subtotal, discount, tax, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
+        /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): الطباعة بعد الإصدار مباشرة تُبنى هنا لا من
+         * `invoiceDocFromDetail`، فلولا هذا السطر لطُبع رمز المرحلة الأولى على أوّل فاتورة مختومة. */
+        zatca: zatcaDocView(inv),
       });
     } catch (err: any) {
       // انقطاع الشبكة ⇒ نلتقط الفاتورة في الصفّ الصادر ونطبع برقم مؤقّت (ترتفع عند الاتصال)
       if (isNetworkError(err)) {
+        // انقطاع أثناء الإرسال في المرحلة الثانية: لا صفّ ولا ورقة — الخادم وحده يعرف هل خُتمت الفاتورة
+        if (zatcaPhase2) {
+          setMsg(tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')); setLoading(false); return;
+        }
         const provider = (company as any)?.einvoiceProvider;
         if (['eta', 'peppol', 'ttn'].includes(provider)) {
           // أسواق التخليص الحكومي اللحظي: لا يُسمح بالإصدار أوف‑لاين (قرار المالك)
@@ -1489,6 +1533,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
         });
       } else {
+        // 426: لا فائدة من إعادة المحاولة بالحزمة نفسها — يُعرض زرّ التحديث تحت الرسالة
+        if (isZatcaOutdatedClient(err)) setNeedsUpdate(true);
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
@@ -1743,7 +1789,20 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                 )}
               </div>
             )}
+            {/* D1‑i: لا مستند ضريبيّ دون اتصال — يُقال في السلّة قبل الضغط على «إصدار» لا بعده */}
+            {zatcaPhase2 && !online && (
+              <p className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2.5 mt-2 text-[11px] leading-5 text-center">
+                {tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')}
+              </p>
+            )}
             {msg && <p className="text-red-500 text-xs mt-2 text-center">{msg}</p>}
+            {/* حزمة قديمة (426): إعادة المحاولة بها تُردّ مرّة أخرى — الزرّ وحده يُخرج المندوب من الحلقة */}
+            {needsUpdate && (
+              <button onClick={() => { void zatcaReloadForUpdate({ sw: navigator.serviceWorker ?? null, reload: () => window.location.reload() }); }}
+                className="w-full mt-2 bg-[#1F1A13] text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2">
+                <RefreshCw size={14} /> {tr('تحديث التطبيق وإعادة الفتح')}
+              </button>
+            )}
           </div>
 
           <div className="p-4 border-t bg-white">
@@ -2395,6 +2454,15 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
 }
 
 // ============ قائمة بسيطة (فواتير/سندات) ============
+/** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
+const REP_CHIP_TONE: Record<string, string> = {
+  pending: 'bg-blue-100 text-blue-700',
+  ok: 'bg-green-100 text-green-700',
+  warn: 'bg-amber-100 text-amber-700',
+  danger: 'bg-red-100 text-red-700',
+  muted: 'bg-gray-100 text-gray-600',
+};
+
 function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoice' | 'receipt'; onOpen: (detail: any) => void }) {
   const tr = useTr();
   const PAGE = 30;
@@ -2406,6 +2474,7 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
   const [loadingMore, setLoadingMore] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [openErr, setOpenErr] = useState('');
+  const [openOutdated, setOpenOutdated] = useState(false); // 426 على قراءة مستندٍ مختوم بحزمةٍ قديمة
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -2438,8 +2507,11 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
     setOpeningId(id);
     // فشل الفتح يُقال ولا يُبتلع: حزمةٌ قديمة تفتح فاتورة مرحلة ثانية تُردّ 426 برسالة «حدّث التطبيق»،
     // وابتلاعها يجعل النقر لا يفعل شيئاً بلا تفسير.
-    try { const res = await repApi.get(`${endpoint}/${id}`); setOpenErr(''); onOpen(res.data.data); }
-    catch (err: any) { setOpenErr(String(err?.response?.data?.message || tr('تعذر فتح المستند تحقق من الاتصال'))); }
+    try { const res = await repApi.get(`${endpoint}/${id}`); setOpenErr(''); setOpenOutdated(false); onOpen(res.data.data); }
+    catch (err: any) {
+      setOpenOutdated(isZatcaOutdatedClient(err));
+      setOpenErr(String(err?.response?.data?.message || tr('تعذر فتح المستند تحقق من الاتصال')));
+    }
     setOpeningId(null);
   };
 
@@ -2461,7 +2533,16 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
       </div>
 
       {/* سبب تعذّر فتح المستند (426 «حدّث التطبيق» مثلاً) — لا نقرةٌ صامتة بلا أثر */}
-      {openErr && <p className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2.5 mb-2 text-[11px] leading-5">{openErr}</p>}
+      {openErr && <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2.5 mb-2 text-[11px] leading-5">
+        <p>{openErr}</p>
+        {/* 426: الحزمة نفسها ستُردّ مرّة أخرى — الخروج من الحلقة زرٌّ يُلغي عامل الخدمة ويعيد التحميل */}
+        {openOutdated && (
+          <button onClick={() => { void zatcaReloadForUpdate({ sw: navigator.serviceWorker ?? null, reload: () => window.location.reload() }); }}
+            className="w-full mt-2 bg-[#1F1A13] text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2">
+            <RefreshCw size={13} /> {tr('تحديث التطبيق وإعادة الفتح')}
+          </button>
+        )}
+      </div>}
 
       {loading ? <div className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</div>
         : items.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">{tr('لا توجد بيانات')}</div>
@@ -2476,9 +2557,14 @@ function SimpleList({ endpoint, kind, onOpen }: { endpoint: string; kind: 'invoi
                 {isReturn ? <RotateCcw size={16} /> : kind === 'invoice' ? <FileText size={16} /> : <ReceiptIcon size={16} />}
               </span>
               <div>
-                <p className="font-semibold text-xs text-gray-800 flex items-center gap-1.5">
+                <p className="font-semibold text-xs text-gray-800 flex items-center gap-1.5 flex-wrap">
                   {it.number}
                   {isReturn && <span className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0.5 rounded-full">{tr('مرتجع')}</span>}
+                  {/* حالة المستند لدى الهيئة — لصفوف المرحلة الثانية وحدها (null لغيرها فلا شيء يتغيّر) */}
+                  {(() => {
+                    const chip = zatcaStatusChip(it);
+                    return chip ? <span title={tr(chip.hint)} className={`text-[9px] px-1.5 py-0.5 rounded-full ${REP_CHIP_TONE[chip.tone]}`}>{tr(chip.label)}</span> : null;
+                  })()}
                 </p>
                 <p className="text-[11px] text-gray-400">{it.customer?.name} • {formatDate(kind === 'invoice' ? it.invoiceDate : it.receiptDate)}</p>
                 {/* لا يظهر السطر إلا لفاتورةٍ لها موعد تسليم — سطرٌ فارغ في كل
@@ -2662,6 +2748,14 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
           <div className="text-center py-16 text-gray-400">
             <Check size={40} className="mx-auto mb-2 text-green-500" />
             <p className="text-sm">{tr('كل المستندات مرفوعة لا شيء بانتظار الرفع')}</p>
+          </div>
+        )}
+
+        {/* Z5.0: مستندٌ صدر دون اتصال قبل تفعيل الفوترة الإلكترونية يحجزه الخادم للمراجعة — يبقى في الصفّ ولا يضيع،
+            والمزامنة تتابع بقيّة المستندات خلفه. الوسم وحده كان يقول «قيد مراجعة الإدارة» بلا تفسير لما يفعله المندوب. */}
+        {docs.some(underCutoverReview) && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-[11px] text-blue-800 leading-relaxed">
+            {tr('مستندات صدرت دون اتصال قبل تفعيل الفوترة الإلكترونية محجوزة لمراجعة الإدارة ولن تضيع ولا يلزمك شيء')}
           </div>
         )}
 

@@ -10,8 +10,22 @@ import InvoiceModal from '../components/forms/InvoiceModal';
 import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { InvoiceDoc, invoiceDocFromDetail, Company } from '../rep/RepDocuments';
+import { zatcaRegimeOf } from '../lib/zatcaRegime';
+import { ZATCA_ACTION_LABELS, zatcaRowActions, zatcaStatusChip } from '../lib/zatca/docStatus';
+import { type ZatcaActionKind } from '../lib/zatca/docQueue';
+import ZatcaActionDialog from '../components/zatca/ZatcaActionDialog';
+import { useAuthStore } from '../store/authStore';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
+
+/** ألوان شارة حالة الفوترة الإلكترونية (المرحلة الثانية) — مفتاحها `ZatcaChipTone`. */
+const ADMIN_CHIP_TONE: Record<string, string> = {
+  pending: 'bg-blue-50 text-blue-700',
+  ok: 'bg-green-50 text-green-700',
+  warn: 'bg-amber-50 text-amber-700',
+  danger: 'bg-red-50 text-red-700',
+  muted: 'bg-gray-100 text-gray-600',
+};
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
@@ -90,6 +104,33 @@ export default function InvoicesPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success(tr('تم تحديث عودة المرتجع للمخزون')); },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('خطأ')),
   });
+
+  /* فوترة ZATCA المرحلة الثانية (Z5.6b): عمود «الفوترة الإلكترونية» وإجراءاته لا يظهران إلا لشركةٍ نظامُها
+   * المرحلة الثانية — ولوحةُ من لم يُفعَّل كما هي اليوم عموداً بعمود. والإجراءات لمستخدمي الشركة وحدهم
+   * (requireAdmin على الخادم)، فالمندوب لا يرى زرّاً يُردّ عليه 403. */
+  const phase2 = zatcaRegimeOf(company).phase === 2;
+  const canZatcaAct = useAuthStore(s => s.isAdmin)();
+  const [zatcaBusyId, setZatcaBusyId] = useState<string | null>(null);
+  /* لا إجراء من هذه الخلية بنقرةٍ واحدة: السحب يُبطل الفاتورة نهائياً ويعكس قيدها ولا رجعة فيه، وأزرارُه مرصوصة
+   * بجوار «الإلغاء» في خليّة ضيّقة. والحوار هو حوار شاشة المتابعة نفسه فلا يفترق حكم الشاشتين على الفعل الواحد. */
+  const [zatcaAsk, setZatcaAsk] = useState<{ id: string; number: string; kind: ZatcaActionKind } | null>(null);
+
+  const zatcaAction = async (id: string, kind: ZatcaActionKind) => {
+    setZatcaBusyId(id);
+    try {
+      const call = kind === 'retry' ? invoiceApi.einvoiceRetry : kind === 'withdraw' ? invoiceApi.einvoiceWithdraw : invoiceApi.einvoiceReissue;
+      await call(id);
+      setZatcaAsk(null);
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success(kind === 'retry' ? tr('أعيد إرسال المستند إلى الهيئة')
+        : kind === 'withdraw' ? tr('سحبت الفاتورة وأبطلت')
+        : tr('أعيد إصدار المستند للهيئة'));
+    } catch (err: unknown) {
+      // رسالة الخادم أوّلاً: هي التي تحمل سبب الرفض (المستند قيد الإرسال، أو قد تكون الهيئة استلمته)
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر تنفيذ الإجراء'));
+    }
+    setZatcaBusyId(null);
+  };
 
   // تصدير/مشاركة الفواتير (وفق الفلاتر الحالية)
   const handleExport = async () => {
@@ -195,14 +236,15 @@ export default function InvoicesPage() {
                 <th>{tr('الإجمالي')}</th><th>{tr('المدفوع')}</th><th>{tr('المتبقي')}</th><th>{tr('التاريخ')}</th>
                 <th>{tr('الوقت')}</th>
                 <th>{tr('وقت التسليم')}</th>
+                {phase2 && <th>{tr('الفوترة الإلكترونية')}</th>}
                 <th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={12} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
+                <tr><td colSpan={phase2 ? 13 : 12} className="text-center py-12 text-gray-400">{tr('جاري التحميل')}</td></tr>
               ) : data?.data.length === 0 ? (
-                <tr><td colSpan={12} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
+                <tr><td colSpan={phase2 ? 13 : 12} className="text-center py-12 text-gray-400">{tr('لا توجد فواتير')}</td></tr>
               ) : data?.data.map(inv => (
                 <tr key={inv.id}>
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
@@ -225,6 +267,15 @@ export default function InvoicesPage() {
                       ? <span className="text-[#1F1A13] font-medium">{formatDayOnly(inv.deliveryDate)}</span>
                       : <span className="text-gray-300">—</span>}
                   </td>
+                  {phase2 && (
+                    <td className="whitespace-nowrap">
+                      {(() => {
+                        const chip = zatcaStatusChip(inv as unknown as Record<string, unknown>);
+                        if (!chip) return <span className="text-gray-300 text-xs">—</span>;
+                        return <span title={tr(chip.hint)} className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${ADMIN_CHIP_TONE[chip.tone]}`}>{tr(chip.label)}</span>;
+                      })()}
+                    </td>
+                  )}
                   <td>{statusBadge(inv.status)}</td>
                   <td>
                     <div className="flex items-center gap-2">
@@ -242,6 +293,24 @@ export default function InvoicesPage() {
                           {inv.returnToStock ? `↩ ${tr('يعود للمخزون')}` : `✕ ${tr('لا يعود')}`}
                         </button>
                       )}
+                      {/* إجراءات الفوترة الإلكترونية التي يفتحها الخادم لهذا الصفّ وحدها — لا زرّ يُردّ عليه برفض */}
+                      {phase2 && (() => {
+                        const acts = zatcaRowActions(inv as unknown as Record<string, unknown>, { allowed: canZatcaAct });
+                        const busy = zatcaBusyId === inv.id;
+                        const btn = (k: ZatcaActionKind, cls: string) => (
+                          <button key={k} disabled={busy} onClick={() => setZatcaAsk({ id: inv.id, number: inv.number, kind: k })}
+                            className={`px-2 py-1 rounded text-[11px] font-semibold whitespace-nowrap disabled:opacity-50 ${cls}`}>
+                            {tr(ZATCA_ACTION_LABELS[k])}
+                          </button>
+                        );
+                        return (
+                          <>
+                            {acts.retry && btn('retry', 'bg-blue-50 text-blue-700 hover:bg-blue-100')}
+                            {acts.withdraw && btn('withdraw', 'bg-amber-50 text-amber-700 hover:bg-amber-100')}
+                            {acts.reissue && btn('reissue', 'bg-green-50 text-green-700 hover:bg-green-100')}
+                          </>
+                        );
+                      })()}
                       {inv.status === 'CONFIRMED' && (
                         <button
                           onClick={() => setCancelId(inv.id)}
@@ -282,6 +351,16 @@ export default function InvoicesPage() {
         />
       )}
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
+      {zatcaAsk && (
+        <ZatcaActionDialog
+          kind={zatcaAsk.kind}
+          subject={zatcaAsk.number}
+          busy={zatcaBusyId === zatcaAsk.id}
+          tr={tr}
+          onConfirm={() => { void zatcaAction(zatcaAsk.id, zatcaAsk.kind); }}
+          onClose={() => setZatcaAsk(null)}
+        />
+      )}
       {cancelId && (
         <ConfirmDialog
           title={tr('إلغاء الفاتورة')}

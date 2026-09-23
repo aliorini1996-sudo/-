@@ -7,23 +7,31 @@ import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef } fro
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
+import { zatcaChipOf, zatcaDocView, type ZatcaDocView } from '../lib/zatca/docStatus';
+import { zatcaPrintDecision } from '../lib/zatca/docPrint';
 import { printThermalInvoice, printThermalReceipt } from './thermal';
 import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from './receiptLinks';
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
-import { Share2, Download, Check, ArrowRight, Printer, X } from 'lucide-react';
+import { Share2, Download, Check, ArrowRight, Printer, X, AlertTriangle } from 'lucide-react';
 
 // رمز QR كصورة PNG (data URL) بدل <canvas> — لأن html2canvas لا يلتقط محتوى الـcanvas
 // عند توليد الـPDF فيختفي الرمز. الصورة (data URL) تُلتقط بثبات في PDF والطباعة والمشاركة.
-function QrImage({ value, size }: { value: string; size: number }) {
+/* `ec`/`scale`: حمولة المرحلة الثانية (نحو ٧٠٠ محرف: التوقيع والمفتاح العامّ والبصمة) تعطي نسخةً بضعفَي حُجَيرات
+ * رمز المرحلة الأولى. والورقة تمرّ على html2canvas بمقياس 2 ثمّ على ضغطٍ في الـPDF، فالافتراضيّ (١٢٤px من مصدر
+ * ٣٧٢px بتصحيح M) ينزل بها دون ٣ بكسل للحُجَيرة — وهو الحدّ الذي حُكم في `thermal.ts` بأنّ الماسح لا يقرؤه.
+ * فالمرحلة الثانية تمرّر مقاساً أكبر وتصحيح L (والمعيار لا يشترط مستوى تصحيح)، والمرحلة الأولى كما هي اليوم. */
+function QrImage({ value, size, ec = 'M', scale = 3 }: {
+  value: string; size: number; ec?: 'L' | 'M' | 'Q' | 'H'; scale?: number;
+}) {
   const [src, setSrc] = useState('');
   useEffect(() => {
     let alive = true;
-    QRCode.toDataURL(value, { width: size * 3, margin: 1, errorCorrectionLevel: 'M' })
+    QRCode.toDataURL(value, { width: size * scale, margin: 1, errorCorrectionLevel: ec })
       .then((url) => { if (alive) setSrc(url); })
       .catch(() => { if (alive) setSrc(''); });
     return () => { alive = false; };
-  }, [value, size]);
+  }, [value, size, ec, scale]);
   // عنصر بنفس المقاس دائماً (يحجز المساحة)، وتظهر الصورة فور جهوزيتها قبل ضغط زر المشاركة
   return <img src={src || undefined} width={size} height={size} alt="QR" style={{ display: 'block', width: size, height: size }} />;
 }
@@ -92,6 +100,11 @@ export interface InvoiceDoc {
   paidAmt?: number;
   remainingAmt?: number;
   einvoice?: { provider?: string | null; status?: string | null; uuid?: string | null; qr?: string | null } | null;
+  /**
+   * فوترة ZATCA المرحلة الثانية (Z5.6b) — عرض المستند الضريبي من الخادم، أو `null`/غياب للمرحلة الأولى.
+   * وجودُه وحده يحوّل القالب إلى فرع المرحلة الثانية؛ فما لم يبنه `zatcaDocView` لا يتغيّر فيه شيء.
+   */
+  zatca?: ZatcaDocView | null;
   offline?: boolean; // أُنشئت دون اتصال — رقم مؤقّت، ترتفع للخادم عند الاتصال
 }
 
@@ -351,12 +364,16 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   const addr = fullAddress(doc.customer);
   // تصنيف الفاتورة وفق ZATCA: مبسّطة (B2C) إن لم يكن للعميل رقم ضريبي، وقياسية (B2B) إن وُجد
   const isSimplified = !doc.customer.taxNumber;
-  const docTitle = doc.isReturn
-    ? tr('إشعار دائن مرتجع')
-    : !isSaudiDoc(doc.company) ? tr('فاتورة')
-    : (isSimplified ? tr('فاتورة ضريبية مبسطة') : tr('فاتورة ضريبية'));
-  // رمز QR وفق هيئة الزكاة والضريبة — يظهر فقط إذا كان للشركة رقم ضريبي
-  const qrValue = doc.company?.taxNumber
+  /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): القرار الواحد قبل القالب — عنوانه ورمزه وهل يُظهر ضريبة.
+   * `doc.zatca` فارغ لكلّ من لم يُفعَّل، فالقرار يعود `phase1` والقالب أدناه كما هو اليوم حرفاً بحرف. */
+  const zDecision = zatcaPrintDecision(
+    { isReturn: !!doc.isReturn, buyerHasTaxNumber: !isSimplified, saudi: isSaudiDoc(doc.company) },
+    doc.zatca,
+  );
+  const docTitle = tr(zDecision.title);
+  /* رمز QR للمرحلة الأولى — يُبنى محلياً من إعدادات الشركة. لا يُبنى أبداً لصفٍّ من المرحلة الثانية:
+   * رمزه مختومٌ من الخادم، ورمزٌ من صنعنا فوق عنوان «فاتورة ضريبية» ورقةٌ كاذبة. */
+  const qrValue = zDecision.qr.source === 'phase1' && doc.company?.taxNumber
     ? buildZatcaQr({
         sellerName: doc.company.name || '',
         vatNumber: doc.company.taxNumber,
@@ -374,6 +391,19 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   return (
     <div ref={ref} style={PAGE}>
       <Header title={docTitle} company={doc.company} />
+
+      {/* المرحلة الثانية: بيئة المحاكاة تُوسَم على الورقة نفسها — ورقة بروفة لا تُقرأ فاتورةً حقيقية */}
+      {zDecision.watermark && (
+        <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', color: '#92400E', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+          {tr(zDecision.watermark)}
+        </div>
+      )}
+      {/* سند التسليم والمستند المُبطل: سبب الورقة مكتوبٌ عليها لا في شاشةٍ تُغلق */}
+      {zDecision.notice && (
+        <div style={{ background: zDecision.kind === 'void' ? '#FEE2E2' : '#EFF6FF', border: `1px solid ${zDecision.kind === 'void' ? '#FCA5A5' : '#BFDBFE'}`, color: zDecision.kind === 'void' ? '#991B1B' : '#1E40AF', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, lineHeight: 1.7 }}>
+          {tr(zDecision.notice)}
+        </div>
+      )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 20 }}>
         <div style={{ flex: 1, background: doc.isReturn ? '#fffbeb' : '#eff6ff', borderRadius: 10, padding: 14 }}>
@@ -404,9 +434,10 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
             <th style={{ ...th, borderRadius: '0 8px 0 0' }}>#</th>
             <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
             <th style={th}>{tr('الكمية')}</th>
-            <th style={th}>{inclusiveDoc ? tr('السعر شامل الضريبة') : tr('السعر')}</th>
+            {/* سند التسليم ينفي عن نفسه الصفة الضريبية، فلا يصرّح عمودُه بأنّ سعره شامل ضريبة القيمة المضافة */}
+            <th style={th}>{zDecision.showTaxBreakdown && inclusiveDoc ? tr('السعر شامل الضريبة') : tr('السعر')}</th>
             <th style={th}>{tr('الخصم')}</th>
-            <th style={th}>{tr('الضريبة')}</th>
+            {zDecision.showTaxBreakdown && <th style={th}>{tr('الضريبة')}</th>}
             <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('الإجمالي')}</th>
           </tr>
         </thead>
@@ -421,21 +452,22 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
               <td style={td}>{it.qty}</td>
               <td style={td}>
                 {formatCurrency(it.unitPrice)}
-                {/* الفاتورة الضريبية القياسية توجب اظهار سعر الوحدة غير شامل الضريبة */}
-                {inclusiveDoc && !isSimplified && it.taxPct > 0 && (
+                {/* الفاتورة الضريبية القياسية توجب اظهار سعر الوحدة غير شامل الضريبة — والتصنيف من القرار
+                    (مصدره الخادم في المرحلة الثانية) لا من رقم المشتري الضريبي، وإلا خالف الجسمُ العنوان */}
+                {zDecision.showTaxBreakdown && inclusiveDoc && zDecision.standardLayout && it.taxPct > 0 && (
                   <div style={{ color: '#9ca3af', fontSize: 10.5, marginTop: 2 }}>
                     {tr('قبل الضريبة')}: {formatCurrency((it.unitPrice * 100) / (100 + Number(it.taxPct)))}
                   </div>
                 )}
               </td>
               <td style={td}>{it.discountPct > 0 ? `${it.discountPct}%` : '-'}</td>
-              <td style={td}>{it.taxPct}%</td>
+              {zDecision.showTaxBreakdown && <td style={td}>{it.taxPct}%</td>}
               <td style={{ ...td, fontWeight: 700 }}>{formatCurrency(it.lineTotal)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {inclusiveDoc && (
+      {zDecision.showTaxBreakdown && inclusiveDoc && (
         <div style={{ fontSize: 10.5, color: '#9ca3af', marginBottom: 10 }}>
           {tr('الأسعار المعروضة شاملة ضريبة القيمة المضافة')}
         </div>
@@ -447,6 +479,26 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           const einv = doc.einvoice;
           const gov = !!einv?.provider && ['eta', 'peppol', 'ttn'].includes(einv.provider);
           const box: React.CSSProperties = { background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'block', width: 'fit-content', margin: '0 auto' };
+          /* المرحلة الثانية أوّلاً: الرمز المختوم كما أعاده الخادم (لا بناء محليّ)، ومعه تسلسل المستند ومعرّفه
+           * الفريد — بهما تُطابَق الورقةُ سجلَّ الهيئة. وبلا رمزٍ (سند تسليم أو مستند معلَّق) يُكتب السبب. */
+          if (doc.zatca) {
+            if (zDecision.qr.source === 'stamped' && zDecision.qr.value) {
+              return (
+                <div style={{ textAlign: 'center' }}>
+                  <div style={box}><QrImage value={zDecision.qr.value} size={176} ec="L" scale={4} /></div>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 6, maxWidth: 160 }}>{tr(zDecision.qr.caption || '')}</div>
+                  <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 2, maxWidth: 160, wordBreak: 'break-all', direction: 'ltr' }}>
+                    {doc.zatca.icv !== null ? `ICV ${doc.zatca.icv}` : ''}{doc.zatca.uuid ? ` · ${doc.zatca.uuid}` : ''}
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div style={{ fontSize: 10.5, color: '#b45309', maxWidth: 190, lineHeight: 1.7, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px' }}>
+                {tr('لا يحمل هذا المستند رمز فاتورة ضريبية')}
+              </div>
+            );
+          }
           // فاتورة إلكترونية حكومية معتمدة (لها UUID) — عرض رمزها ومعرّفها
           if (gov && einv?.uuid) {
             return (
@@ -485,10 +537,15 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         <div style={{ width: 300, fontSize: 14 }}>
           <Row label={tr('المجموع قبل الخصم')} value={formatCurrency(doc.subtotal)} />
           {doc.discount > 0 && <Row label={tr('الخصم')} value={`- ${formatCurrency(doc.discount)}`} color="#dc2626" />}
-          {doc.tax > 0 && <Row label={tr('الوعاء الخاضع للضريبة')} value={formatCurrency(doc.total - doc.tax)} />}
-          <Row label={`${inclusiveDoc ? tr('منها ضريبة القيمة المضافة') : tr('ضريبة القيمة المضافة')} ${vatRate}`} value={formatCurrency(doc.tax)} color="#1E7A52" />
+          {/* سند التسليم ورقةٌ غير ضريبية: لا وعاء ولا نسبة ولا مبلغ ضريبة عليها — وإلا قُرئت فاتورةً ضريبية */}
+          {zDecision.showTaxBreakdown && doc.tax > 0 && <Row label={tr('الوعاء الخاضع للضريبة')} value={formatCurrency(doc.total - doc.tax)} />}
+          {zDecision.showTaxBreakdown && <Row label={`${inclusiveDoc ? tr('منها ضريبة القيمة المضافة') : tr('ضريبة القيمة المضافة')} ${vatRate}`} value={formatCurrency(doc.tax)} color="#1E7A52" />}
+          {/* ورقةٌ بلا تفصيل ضريبة وأسعارها غير شاملة: «المجموع − الخصم» لا يساوي الإجمالي، والفرق بلا سطر يفسّره.
+              فيقوله عنوانُ السطر نفسه — بلا نسبة ولا وعاء، فتبقى الورقة غير ضريبية */}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: 18, color: doc.isReturn ? '#b45309' : brand }}>
-            <span>{doc.isReturn ? tr('إجمالي المرتجع دائن') : tr('الإجمالي النهائي')}</span>
+            <span>{doc.isReturn ? tr('إجمالي المرتجع دائن')
+              : !zDecision.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? tr('المبلغ المستحق شامل الضرائب')
+              : tr('الإجمالي النهائي')}</span>
             <span>{formatCurrency(doc.total)}</span>
           </div>
           {!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined && (
@@ -1146,6 +1203,9 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
       uuid: inv.einvoiceUuid ?? null,
       qr: inv.einvoiceQr ?? null,
     },
+    /* فوترة ZATCA المرحلة الثانية: البانية الواحدة تغذّي ثلاث واجهات (المندوب، اللوحة، /m) — فالقرار يُتّخذ مرّة
+     * واحدة هنا ولا يُنسى في واحدةٍ منها. `null` لصفوف المرحلة الأولى وهي كلّ ما عدا المفعَّلين. */
+    zatca: zatcaDocView(inv),
   };
 }
 
@@ -1400,7 +1460,21 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
   const headerBg = 'bg-[#1F1A13]';
   const accentBtn = green ? 'bg-[#1E7A52] hover:bg-[#176A46]' : 'bg-[#E15A30] hover:bg-[#C94E28]';
   const confirmBg = green ? 'bg-[#E4F1EA] border-[#cfe8db]' : 'bg-[#FBEBE2] border-[#F5DACE]';
-  const canThermal = doc.kind === 'invoice' || doc.kind === 'receipt';
+  /* فوترة ZATCA المرحلة الثانية (Z5.6b): القرار نفسه الذي يبني الورقة يحكم أزرارها — مستندٌ لا ورقة له
+   * لا زرّ طباعة له ولا مشاركة، ومستندٌ صار سند تسليم يُسمّى الزرُّ باسمه لا «مشاركة الفاتورة». */
+  const zDoc = doc.kind === 'invoice' ? doc.zatca ?? null : null;
+  const zDecision = doc.kind === 'invoice'
+    ? zatcaPrintDecision({ isReturn: !!doc.isReturn, buyerHasTaxNumber: !!doc.customer.taxNumber, saudi: isSaudiDoc(doc.company) }, zDoc)
+    : null;
+  const zChip = zDoc ? zatcaChipOf(zDoc) : null;
+  const zBlocked = zDecision !== null && !zDecision.canPrint;
+  const canThermal = (doc.kind === 'invoice' || doc.kind === 'receipt') && !zBlocked;
+  /* صندوق التأكيد يتبع القرار: مستندٌ رفضته الهيئة أو سُحب كان يظهر بعلامة صحّ خضراء فوق «المستند مبطل لدى الهيئة»
+   * — أوّل ما يراه المندوب علامةُ نجاح ثمّ يقرأ تحتها البطلان. فالمُبطل بالأحمر، وما لم تحسمه الهيئة بالكهرمانيّ. */
+  const zTone: 'void' | 'wait' | null = zDecision === null ? null
+    : zDecision.kind === 'void' ? 'void'
+    : zDecision.kind === 'pending' ? 'wait'
+    : null;
 
   const printThermal = async () => {
     setBusy(true); setStatus('');
@@ -1427,13 +1501,13 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     : doc.kind === 'loadNotice' ? `${noticeLabel} — ${doc.repName}`
     : doc.kind === 'warehouseNotice' ? `${warehouseLabel} — ${doc.ref}`
     : `${tr('كشف حساب')} — ${doc.customer.name}`;
-  const filename = (doc.kind === 'invoice' ? `${isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
+  const filename = (doc.kind === 'invoice' ? `${zDecision?.kind === 'deliveryNote' ? tr('سند تسليم') : isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند قبض')}-${doc.number}`
     : doc.kind === 'settlement' ? `${doc.entries.length === 1 ? tr('سند تحصيل') : tr('سجل تحصيل')}-${doc.repName}`
     : doc.kind === 'loadNotice' ? `${noticeLabel}-${doc.repName}`
     : doc.kind === 'warehouseNotice' ? `${warehouseLabel}-${doc.ref}`
     : `${tr('كشف حساب')}-${doc.customer.name}`) + '.pdf';
-  const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : (isLoadNotice || isWarehouseNotice) ? tr('الإشعار جاهز') : isStatement ? tr('كشف الحساب جاهز') : tr('تم الإصدار بنجاح');
+  const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : (isLoadNotice || isWarehouseNotice) ? tr('الإشعار جاهز') : isStatement ? tr('كشف الحساب جاهز') : tr(zDecision ? zDecision.confirmText : 'تم الإصدار بنجاح');
 
   const renderDoc = (refProp?: React.Ref<HTMLDivElement>) => {
     if (doc.kind === 'invoice') return <PrintableInvoice ref={refProp} doc={doc} />;
@@ -1448,7 +1522,8 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
     if (!printRef.current) return;
     setBusy(true); setStatus('');
     try {
-      const blob = await elementToPdfBlob(printRef.current);
+      // الرمز المختوم لا يمرّ على ضغطٍ فاقد: حُجَيراته أدقّ من أن تحتمله (انظر elementToPdfBlob)
+      const blob = await elementToPdfBlob(printRef.current, { lossless: zDecision?.qr.source === 'stamped' });
       const result = await shareOrDownloadPdf(blob, filename);
       setStatus(result === 'shared' ? tr('✓ تمت المشاركة') : tr('✓ تم حفظ الملف في جهازك'));
     } catch {
@@ -1465,16 +1540,29 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {/* تأكيد */}
-        <div className={`${confirmBg} border rounded-2xl p-4 mb-4 flex items-center gap-3`}>
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${accentBtn} text-white`}>
-            <Check size={20} />
+        {/* تأكيد — ولونه وأيقونته من حال المستند لا من نوعه وحده */}
+        <div className={`${zTone === 'void' ? 'bg-red-50 border-red-200' : zTone === 'wait' ? 'bg-amber-50 border-amber-200' : confirmBg} border rounded-2xl p-4 mb-4 flex items-center gap-3`}>
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white ${
+            zTone === 'void' ? 'bg-red-600' : zTone === 'wait' ? 'bg-amber-500' : accentBtn}`}>
+            {zTone ? <AlertTriangle size={20} /> : <Check size={20} />}
           </div>
           <div>
             <p className="font-bold text-gray-800 text-sm">{confirmText}</p>
             <p className="text-xs text-gray-500">{subjectName}</p>
           </div>
         </div>
+
+        {/* حالة المستند لدى الهيئة (المرحلة الثانية) — شارةٌ وشرحٌ عربيّ لما يفعله المندوب الآن */}
+        {zChip && (
+          <div className={`rounded-2xl p-3 mb-4 text-xs leading-relaxed border ${
+            zChip.tone === 'danger' ? 'bg-red-50 border-red-200 text-red-800'
+            : zChip.tone === 'warn' ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : zChip.tone === 'ok' ? 'bg-green-50 border-green-200 text-green-800'
+            : zChip.tone === 'muted' ? 'bg-gray-50 border-gray-200 text-gray-600'
+            : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+            <b>{tr(zChip.label)}</b> — {tr(zChip.hint)}
+          </div>
+        )}
 
         {/* تنبيه العمل دون اتصال: المستند مُلتقَط محلياً برقم مؤقّت، يرتفع للخادم عند الاتصال */}
         {(doc.kind === 'invoice' || doc.kind === 'receipt') && doc.offline && (
@@ -1506,11 +1594,18 @@ export function DocumentResult({ doc, onClose }: { doc: AnyDoc; onClose: () => v
             <Printer size={17} /> {tr('طباعة حرارية 58 مم')}
           </button>
         )}
-        <button onClick={makePdf} disabled={busy}
-          className={`w-full ${accentBtn} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60`}>
-          {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Share2 size={17} />}
-          {tr('مشاركة / حفظ PDF')}
-        </button>
+        {/* مستند لا ورقة له (مُبطل أو لم تحسمه الهيئة): لا زرّ مشاركة يُخرج ورقةً تُقرأ مستنداً ضريبياً */}
+        {zBlocked ? (
+          <p className="w-full bg-red-50 border border-red-200 text-red-800 text-xs leading-relaxed rounded-xl p-3 text-center">
+            {tr(zDecision?.notice || 'لا يحمل هذا المستند رمز فاتورة ضريبية')}
+          </p>
+        ) : (
+          <button onClick={makePdf} disabled={busy}
+            className={`w-full ${accentBtn} text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60`}>
+            {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Share2 size={17} />}
+            {tr(zDecision ? zDecision.shareLabel : 'مشاركة / حفظ PDF')}
+          </button>
+        )}
         <button onClick={onClose} className="w-full bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">{tr('تم')}</button>
       </div>
 
