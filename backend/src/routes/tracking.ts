@@ -237,6 +237,18 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
       select: { lat: true, lng: true, accuracy: true, speed: true, capturedAt: true },
     });
 
+    // بصمة الحضور/الانصراف لهذا اليوم — لتوضيح «من أين بدأ عمله بالضبط» على الخريطة.
+    // أوّل بصمة حضور لها موقع، وآخر بصمة انصراف لها موقع (قد تختلف عن أوّل/آخر رصد GPS).
+    const shifts = await prisma.repAttendance.findMany({
+      where: { tenantId: tid, salesRepId, checkInAt: { gte: start, lt: end }, ...(await scopedRepRecordWhere(req)) },
+      orderBy: { checkInAt: 'asc' },
+      select: { checkInAt: true, checkInLat: true, checkInLng: true, checkOutAt: true, checkOutLat: true, checkOutLng: true },
+    });
+    const inShift = shifts.find((s) => s.checkInLat != null && s.checkInLng != null);
+    const outShift = [...shifts].reverse().find((s) => s.checkOutAt && s.checkOutLat != null && s.checkOutLng != null);
+    const checkIn = inShift ? { lat: inShift.checkInLat, lng: inShift.checkInLng, at: inShift.checkInAt } : null;
+    const checkOut = outShift ? { lat: outShift.checkOutLat, lng: outShift.checkOutLng, at: outShift.checkOutAt } : null;
+
     // بناء شكل المسار: مطابقةٌ للأثر الكثيف وتوجيهٌ للفراغات، مقاطعَ موسومة
     // (مرصود/مُرجَّح). راجع services/routeShape.ts — المطابقة وحدها كانت تفشل
     // كلّياً على أي فجوة تتجاوز ٢ كم فيسقط الخطّ مستقيماً فوق البحر والمباني.
@@ -270,7 +282,7 @@ router.get('/route', requireAdmin, async (req: AuthRequest, res: Response, next:
       ? shape.segments.flatMap((sg) => sg.points)
       : null;
 
-    res.json({ success: true, data: points, snapped, shape });
+    res.json({ success: true, data: points, snapped, shape, checkIn, checkOut });
   } catch (err) { next(err); }
 });
 

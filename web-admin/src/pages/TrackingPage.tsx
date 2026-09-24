@@ -24,7 +24,8 @@ interface RouteShape {
   observedMeters: number; inferredMeters: number; rawMeters: number;
   truncated: boolean; degraded: boolean;
 }
-interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; shape: RouteShape | null; }
+interface Punch { lat: number; lng: number; at: string }
+interface RouteResp { points: RoutePoint[]; snapped: { lat: number; lng: number }[] | null; shape: RouteShape | null; checkIn: Punch | null; checkOut: Punch | null; }
 interface Visit {
   id: string; note: string | null; lat: number | null; lng: number | null; createdAt: string;
   durationSec: number | null; // مدّة الزيارة بالثواني (null = زيارة ملاحظة بلا توقيت)
@@ -61,6 +62,17 @@ function visitIcon(n: number) {
     className: '',
     html: `<div style="width:24px;height:24px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#5FBE92;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);color:#fff;font-size:11px;font-weight:700">${n}</span></div>`,
     iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -22],
+  });
+}
+
+// بصمة الحضور/الانصراف — دبّوس مميّز يوضّح من أين بدأ المندوب عمله بالضبط (لا مجرّد أوّل رصد GPS)
+function punchIcon(kind: 'in' | 'out') {
+  const bg = kind === 'in' ? '#E11D48' : '#9333EA';
+  const glyph = kind === 'in' ? '▶' : '■';
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${bg};border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);color:#fff;font-size:12px;font-weight:700">${glyph}</span></div>`,
+    iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -26],
   });
 }
 
@@ -160,6 +172,8 @@ export default function TrackingPage() {
         points: res.data.data as RoutePoint[],
         snapped: (res.data.snapped ?? null) as RouteResp['snapped'],
         shape: (res.data.shape ?? null) as RouteShape | null,
+        checkIn: ((res.data as { checkIn?: Punch }).checkIn ?? null),
+        checkOut: ((res.data as { checkOut?: Punch }).checkOut ?? null),
       };
     },
     enabled: !!selected && enabled,
@@ -216,6 +230,8 @@ export default function TrackingPage() {
   const reps = liveQ.data || [];
   const route = routeQ.data?.points || [];
   const snapped = routeQ.data?.snapped || null;
+  const checkIn = routeQ.data?.checkIn || null;
+  const checkOut = routeQ.data?.checkOut || null;
   const shape = routeQ.data?.shape || null;
   const visits = visitsQ.data || [];
   const customerLocs = showCustomers ? (customerLocsQ.data || []) : [];
@@ -255,11 +271,12 @@ export default function TrackingPage() {
       // **الخطّة تدخل الإطار**: مندوبٌ لم يتحرّك بعد وله خطّ سير كانت خريطته
       // تبقى على السعودية كلّها وخطّه البنفسجيّ خارج الشاشة — فيظنّ المشرف
       // أنّ الميزة معطوبة وهي تعمل.
-      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...planLatLng];
+      const punchPts = [checkIn, checkOut].filter((p): p is Punch => !!p).map(p => [p.lat, p.lng] as [number, number]);
+      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...planLatLng, ...punchPts];
       if (pts.length) return pts;
     }
     return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
-  }, [selected, rawLatLng, visitPins, planLatLng, reps]);
+  }, [selected, rawLatLng, visitPins, planLatLng, reps, checkIn, checkOut]);
 
   const selectedRep = reps.find(r => r.id === selected);
 
@@ -519,6 +536,28 @@ export default function TrackingPage() {
                       </>
                     )}
                   </>
+                )}
+
+                {/* بصمة الحضور/الانصراف — تظهر ولو كان التتبّع مطفأً (من أين بدأ المندوب عمله بالضبط) */}
+                {selected && checkIn && (
+                  <Marker position={[checkIn.lat, checkIn.lng]} icon={punchIcon('in')}>
+                    <Popup>
+                      <div style={{ direction: 'rtl', textAlign: 'center', minWidth: 120 }}>
+                        <strong style={{ color: '#E11D48' }}>{tr('بدأ العمل هنا')}</strong><br />
+                        <span style={{ color: '#6E6557', fontSize: 12 }}>{tr('بصمة الحضور')}: {timeText(checkIn.at)}</span>
+                      </div>
+                    </Popup>
+                  </Marker>
+                )}
+                {selected && checkOut && (
+                  <Marker position={[checkOut.lat, checkOut.lng]} icon={punchIcon('out')}>
+                    <Popup>
+                      <div style={{ direction: 'rtl', textAlign: 'center', minWidth: 120 }}>
+                        <strong style={{ color: '#9333EA' }}>{tr('أنهى العمل هنا')}</strong><br />
+                        <span style={{ color: '#6E6557', fontSize: 12 }}>{tr('بصمة الانصراف')}: {timeText(checkOut.at)}</span>
+                      </div>
+                    </Popup>
+                  </Marker>
                 )}
 
                 {/* دبابيس الزيارات على الخريطة (للمندوب المحدّد) */}

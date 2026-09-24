@@ -2763,6 +2763,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // بصمة الحضور والانصراف (تطبيق المندوب) — بديل حساب الساعات من نبضة الاتصال
   'بصمة الحضور': { en: 'Attendance', fr: 'Présence', tr: 'Yoklama', zh: '考勤' },
   'بصمة الحضور والانصراف': { en: 'Check-in & Check-out', fr: 'Pointage entrée/sortie', tr: 'Giriş ve Çıkış', zh: '上下班打卡' },
+  'بدأ العمل هنا': { en: 'Started work here', fr: 'Travail commencé ici', tr: 'İşe burada başladı', zh: '在此开始工作' },
+  'أنهى العمل هنا': { en: 'Ended work here', fr: 'Travail terminé ici', tr: 'İşi burada bitirdi', zh: '在此结束工作' },
+  'بصمة الانصراف': { en: 'Check-out', fr: 'Pointage de sortie', tr: 'Çıkış', zh: '签退' },
   'أنت في العمل الآن': { en: 'You are on shift', fr: 'Vous êtes en service', tr: 'Şu an mesaidesiniz', zh: '您正在上班' },
   'سُجّل موقع الحضور': { en: 'Check-in location saved', fr: 'Position d’entrée enregistrée', tr: 'Giriş konumu kaydedildi', zh: '已记录签到位置' },
   'انتهى عملك اليوم': { en: 'Your shift today has ended', fr: 'Votre service du jour est terminé', tr: 'Bugünkü mesainiz bitti', zh: '今日班次已结束' },
