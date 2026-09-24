@@ -737,6 +737,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [paylinkEnabled, setPaylinkEnabled] = useState(!!tenant.paylinkEnabled);
   const [warehouseEnabled, setWarehouseEnabled] = useState(!!tenant.warehouseEnabled);
   const [dailyReportEnabled, setDailyReportEnabled] = useState(!!tenant.dailyReportEnabled);
+  const [attendanceEnabled, setAttendanceEnabled] = useState(!!tenant.attendanceEnabled);
   const [invoiceSignatureEnabled, setInvoiceSignatureEnabled] = useState(!!tenant.invoiceSignatureEnabled);
   // ربط فوترة ZATCA المرحلة الثانية — مطفأ افتراضياً ⇒ `!!`؛ الخادم يشترط أيضاً أن تكون الشركة سعودية
   const [zatcaPhase2Enabled, setZatcaPhase2Enabled] = useState(!!tenant.zatcaPhase2Enabled);
@@ -771,6 +772,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       paylinkEnabled,
       warehouseEnabled,
       dailyReportEnabled,
+      attendanceEnabled,
       invoiceSignatureEnabled,
       zatcaPhase2Enabled,
       accountingEnabled,
@@ -887,6 +889,10 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={dailyReportEnabled} onChange={e => setDailyReportEnabled(e.target.checked)} />
               {tr('تفعيل التقرير اليومي لهذه الشركة')}
+            </label>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={attendanceEnabled} onChange={e => setAttendanceEnabled(e.target.checked)} />
+              {tr('تفعيل بصمة الحضور والانصراف لهذه الشركة')}
             </label>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={invoiceSignatureEnabled} onChange={e => setInvoiceSignatureEnabled(e.target.checked)} />

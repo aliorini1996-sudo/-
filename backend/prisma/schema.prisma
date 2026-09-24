@@ -47,6 +47,7 @@ model Tenant {
   paylinkFeePct             Float     @default(4) // نسبة عمولتنا على كل تحصيل إلكتروني — لكل شركة على حدة (شاملة الضريبة)
   paylinkFeeFlat            Float     @default(1) // الريال الثابت لكل دفعة — شامل الضريبة
   dailyReportEnabled        Boolean   @default(false) // التقرير اليومي للمندوب وسلسلة اعتماده — يفعّلها المالك لكل شركة حسب الاشتراك
+  attendanceEnabled         Boolean   @default(false) // بصمة الحضور والانصراف للمندوب — يفعّلها المالك لكل شركة حسب الاشتراك
   invoiceSignatureEnabled   Boolean   @default(false) // توقيع المستلم اليدويّ على فواتير تطبيق المندوب (يُطبع آخر الفاتورة) — يفعّله المالك لكل شركة
   zatcaPhase2Enabled        Boolean   @default(false) // تبويب ربط فوترة ZATCA المرحلة الثانية (/api/zatca) — يفعّله المالك لكل شركة سعودية؛ لا يغيّر إصدار الفواتير
   accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
@@ -929,6 +930,7 @@ model CompanySettings {
   zatcaPhase2StartedAt DateTime? // يُضبط مرة واحدة عند التفعيل ولا تمسحه واجهة الشركة
   zatcaOfflineOrders   Boolean   @default(false) // قرار المالك D1: مطفأ ما لم يُعتمد
   zatcaSubmitPausedAt  DateTime? // Z5.3: إيقاف إرسال مستندات هذه الشركة إلى الهيئة (مفتاح تشغيلي للمالك) — NULL = يعمل
+  zatcaGoLiveArmedAt   DateTime? // Z5.8 (نقد 4): «تسليح» التفعيل — بعده يُرفض إصدار المرحلة الأولى لمستند أُنشئ على الجهاز بعد هذه اللحظة، وتُحسب مزامنة المناديب منها؛ NULL = غير مُسلَّح (لا أثر)
 
   @@map("company_settings")
 }
@@ -3243,3 +3245,29 @@ model GlProductCategoryAccount { // النموذج في M2 (غياب الصف = 
   @@map("gl_product_category_accounts")
 }
 // ═══ نهاية النظام المحاسبي المتكامل ═══
+
+// ZATCA المرحلة الثانية (Z5.8، نقد 3/4 D11) — طابور مراجعة الانتقال: مستندٌ دون اتصال أُنشئ قبل التفعيل ويُرفع بعده
+// خارج مهلة القبول (٧٢ ساعة) أو أُنشئ بعد لحظة التفعيل — يُحفظ هنا بحمولته الكاملة ليقبله المدير (مرحلة أولى أو ثانية)
+// أو يرفضه، لا رفض صامت أبداً. جدولٌ مستقلّ بلا علاقة إلى Tenant (tenantId بلا FK — إضافيّ تماماً، لا مساس بالجداول القائمة).
+model ZatcaCutoverReview {
+  id              String    @id @default(uuid())
+  tenantId        String
+  clientRef       String?   // مفتاح منع التكرار للجهاز — رفعٌ مكرَّر لا يُنشئ صفّاً ثانياً
+  clientCreatedAt DateTime? // لحظة إنشاء المستند على الجهاز (المعيار في قرار الانتقال)
+  reason          String    // CREATED_AFTER_GOLIVE | WINDOW_EXPIRED | TOO_OLD | NO_CLIENT_TIME
+  status          String    @default("PENDING") // PENDING | ACCEPTED_PHASE1 | ACCEPTED_PHASE2 | REJECTED
+  payload         Json      // حمولة الطلب كاملةً (الجسم والعميل والبنود والإجماليات) — لإعادة الإصدار عند القبول
+  salesRepId      String?
+  customerId      String?
+  amount          Float?    // إجمالي المستند (للعرض في قائمة المراجعة)
+  note            String?   // ملاحظة المدير عند الحسم
+  reviewedBy      String?   // معرّف المدير (أو الحساب المنتحَل) الذي حسم
+  reviewedAt      DateTime?
+  resultInvoiceId String?   // الفاتورة الناتجة إن أُعيد الإصدار
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId, status])
+  @@map("zatca_cutover_reviews")
+}

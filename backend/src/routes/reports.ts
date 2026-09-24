@@ -3,7 +3,7 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, scopedRepRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT, SHAPE_VISIT } from '../services/adminScope';
 import { AuthRequest } from '../types';
-import { composeWorkDays } from '../services/workDay';
+import { composeWorkDays, attendanceByDay, overlayAttendance } from '../services/workDay';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -420,7 +420,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
     }
 
     const repWhere = { tenantId: tid, isActive: true, ...(await adminRepFilter(req)) };
-    const [reps, sessions, visits, pingRows] = await Promise.all([
+    const [reps, sessions, visits, pingRows, attendance] = await Promise.all([
       prisma.salesRep.findMany({ where: repWhere, select: { id: true, name: true } }),
       prisma.repSession.findMany({
         where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
@@ -454,6 +454,11 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         FROM "rep_locations"
         WHERE "tenantId" = ${tid} AND "capturedAt" >= ${fromDate} AND "capturedAt" < ${toEnd}
         GROUP BY 1, 2`,
+      // بصمات الحضور: تُنسب ليومها المحلي ببصمة الحضور — نوبةٌ عبرت منتصف الليل تبقى ليوم بدايتها
+      prisma.repAttendance.findMany({
+        where: { tenantId: tid, checkInAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
+        select: { salesRepId: true, checkInAt: true, checkOutAt: true },
+      }),
     ]);
 
     const byRep = <T extends { salesRepId: string }>(rows: T[]) => {
@@ -464,9 +469,10 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
     const sessByRep = byRep(sessions);
     const visitsByRep = byRep(visits);
     const pingsByRep = byRep(pingRows);
+    const attByRep = byRep(attendance);
 
     const data = reps.map(r => {
-      const days = composeWorkDays({
+      const daysRaw = composeWorkDays({
         sessions: (sessByRep.get(r.id) || []).map(s => ({ start: s.startedAt, end: s.lastBeatAt })),
         pingRanges: (pingsByRep.get(r.id) || []).map(p => ({ day: p.day, min: p.min, max: p.max })),
         visits: (visitsByRep.get(r.id) || []).map(v => ({
@@ -482,8 +488,11 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         },
       });
 
-      // الحقول القديمة تبقى كما كانت (نشاط التطبيق) — الواجهة المنشورة تقرؤها
-      // أثناء انزلاق النشر، والمقياس الجديد يُضاف جوارها لا مكانها.
+      // بصمة الحضور تعلو مقياس الأثر: يومٌ ببصمة ⇒ بدايته حضوره، ونهايته انصرافه، وإجماليه بينهما.
+      // «نشاط التطبيق» (appMinutes) يبقى كما هو. الأيام بلا بصمة على مقياسها القديم (توافق).
+      const days = overlayAttendance(daysRaw, attendanceByDay(attByRep.get(r.id) || [], tzOffsetMin));
+
+      // نشاط التطبيق (نبضة الاتصال) لا يتغيّر بالبصمة — الواجهة المنشورة تقرؤه أثناء انزلاق النشر.
       const appTotal = days.reduce((s, d) => s + d.appMinutes, 0);
       const fieldTotal = days.reduce((s, d) => s + d.spanMinutes, 0);
       const workedDays = days.filter((d) => !d.absent).length;

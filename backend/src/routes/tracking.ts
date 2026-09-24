@@ -115,6 +115,20 @@ const punchSchema = z.object({
   lng: z.number().min(-180).max(180).optional(),
 });
 
+// حارس الميزة: يفعّلها المالك لكل شركة (Tenant.attendanceEnabled). مطفأة ⇒ 403 حتى لو نادى التطبيقُ النقطةَ مباشرة.
+// المندوب المصرّح وحده يصل هنا (الفحص في كل معالج)؛ هذا يضيف شرط الاشتراك دفاعاً في العمق فوق إخفاء الزرّ.
+async function attendanceEnabled(tid: string): Promise<boolean> {
+  const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { attendanceEnabled: true } });
+  return t?.attendanceEnabled === true;
+}
+
+async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ tid: string; repId: string } | null> {
+  if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return null; }
+  const tid = tenantId(req);
+  if (!(await attendanceEnabled(tid))) { res.status(403).json({ success: false, code: 'ATTENDANCE_DISABLED', message: 'ميزة بصمة الحضور غير مفعّلة' }); return null; }
+  return { tid, repId: req.user.id };
+}
+
 /** النوبة المفتوحة لهذا المندوب (بلا انصراف)، أو null. */
 async function openShift(tid: string, repId: string) {
   return prisma.repAttendance.findFirst({
@@ -127,9 +141,8 @@ async function openShift(tid: string, repId: string) {
 // حالة اليوم: النوبة المفتوحة إن وُجدت، وإلا آخر نوبة مغلقة اليوم — ليعرف التطبيق أيّ زرّ يعرض.
 router.get('/attendance/today', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
-    const tid = tenantId(req);
-    const repId = req.user.id;
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    const { tid, repId } = ctx;
     const open = await openShift(tid, repId);
     if (open) { res.json({ success: true, data: { status: 'in', shift: open } }); return; }
     // آخر نوبة انتهت اليوم (يوم المندوب بإزاحته) — لعرض «انصرفت اليوم» بدل «سجّل الحضور» فوراً بعد الانصراف
@@ -149,9 +162,8 @@ router.get('/attendance/today', async (req: AuthRequest, res: Response, next: Ne
 // تسجيل الحضور — يفتح نوبة. نوبةٌ مفتوحة سلفاً تُعاد كما هي (لا تُفتح ثانية) فيأمن الضغط المكرّر.
 router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
-    const tid = tenantId(req);
-    const repId = req.user.id;
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    const { tid, repId } = ctx;
     const { lat, lng } = punchSchema.parse(req.body ?? {});
     const existing = await openShift(tid, repId);
     if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true } }); return; }
@@ -166,9 +178,8 @@ router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next:
 // تسجيل الانصراف — يغلق النوبة المفتوحة. بلا نوبة مفتوحة ⇒ 409 (لم يسجّل حضوراً بعد).
 router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
-    const tid = tenantId(req);
-    const repId = req.user.id;
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    const { tid, repId } = ctx;
     const { lat, lng } = punchSchema.parse(req.body ?? {});
     const open = await openShift(tid, repId);
     if (!open) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }

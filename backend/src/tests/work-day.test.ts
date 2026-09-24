@@ -239,3 +239,77 @@ test('اليوم الغائب لا يضخم أي مجموع', () => {
   assert.equal(days.reduce((a, d) => a + d.spanMinutes, 0), 0);
   assert.equal(days.reduce((a, d) => a + d.visitsCount, 0), 0);
 });
+
+// ═══ بصمة الحضور والانصراف (بديل حساب الساعات) ═══
+import { attendanceByDay, overlayAttendance, type WorkDay } from '../services/workDay';
+
+const RIY = 180; // الرياض +3
+const iso = (s: string) => new Date(s);
+
+test('attendanceByDay: نوبة مغلقة ⇒ بداية ونهاية ومجموع الدقائق بينهما', () => {
+  const m = attendanceByDay([{ checkInAt: iso('2026-09-25T05:00:00Z'), checkOutAt: iso('2026-09-25T13:30:00Z') }], RIY);
+  const d = m.get('2026-09-25')!;
+  assert.strictEqual(d.start.toISOString(), '2026-09-25T05:00:00.000Z');
+  assert.strictEqual(d.end!.toISOString(), '2026-09-25T13:30:00.000Z');
+  assert.strictEqual(d.minutes, 510); // 8 ساعات ونصف
+});
+
+test('attendanceByDay: نوبتان في يوم ⇒ أول حضور وآخر انصراف ومجموع النوبتين', () => {
+  const m = attendanceByDay([
+    { checkInAt: iso('2026-09-25T05:00:00Z'), checkOutAt: iso('2026-09-25T08:00:00Z') },   // 180د
+    { checkInAt: iso('2026-09-25T10:00:00Z'), checkOutAt: iso('2026-09-25T12:00:00Z') },   // 120د
+  ], RIY);
+  const d = m.get('2026-09-25')!;
+  assert.strictEqual(d.start.toISOString(), '2026-09-25T05:00:00.000Z');
+  assert.strictEqual(d.end!.toISOString(), '2026-09-25T12:00:00.000Z');
+  assert.strictEqual(d.minutes, 300);
+});
+
+test('attendanceByDay: نوبة مفتوحة ⇒ بداية بلا نهاية ولا دقائق حتى الانصراف', () => {
+  const m = attendanceByDay([{ checkInAt: iso('2026-09-25T06:00:00Z'), checkOutAt: null }], RIY);
+  const d = m.get('2026-09-25')!;
+  assert.strictEqual(d.end, null);
+  assert.strictEqual(d.minutes, 0);
+});
+
+test('attendanceByDay: النوبة تُنسب ليوم بصمة الحضور المحلي (الرياض)', () => {
+  // 2026-09-25T21:30Z = 26 سبتمبر 00:30 بالرياض ⇒ يوم 26، لا 25
+  const m = attendanceByDay([{ checkInAt: iso('2026-09-25T21:30:00Z'), checkOutAt: iso('2026-09-25T22:30:00Z') }], RIY);
+  assert.ok(m.has('2026-09-26'));
+  assert.ok(!m.has('2026-09-25'));
+});
+
+test('overlayAttendance: يومٌ ببصمة يأخذ البداية/النهاية/الإجمالي منها، ويُرفع الغياب، ويبقى نشاط التطبيق', () => {
+  const base: WorkDay = {
+    date: '2026-09-25', firstActivity: iso('2026-09-25T04:00:00Z'), lastActivity: iso('2026-09-25T15:00:00Z'),
+    spanMinutes: 660, appMinutes: 42, visits: [], visitsCount: 3, visitsSec: 900, absent: false,
+  };
+  const m = attendanceByDay([{ checkInAt: iso('2026-09-25T05:00:00Z'), checkOutAt: iso('2026-09-25T13:00:00Z') }], RIY);
+  const [d] = overlayAttendance([base], m);
+  assert.strictEqual(d.firstActivity.toISOString(), '2026-09-25T05:00:00.000Z'); // الحضور
+  assert.strictEqual(d.lastActivity.toISOString(), '2026-09-25T13:00:00.000Z');  // الانصراف
+  assert.strictEqual(d.spanMinutes, 480); // 8 ساعات بين البصمتين
+  assert.strictEqual(d.appMinutes, 42);   // نشاط التطبيق كما هو
+  assert.strictEqual(d.visitsCount, 3);
+});
+
+test('overlayAttendance: بصمةٌ في يومٍ كان غياباً ⇒ يصير حاضراً', () => {
+  const absentDay: WorkDay = {
+    date: '2026-09-25', firstActivity: iso('2026-09-25T00:00:00Z'), lastActivity: iso('2026-09-25T00:00:00Z'),
+    spanMinutes: 0, appMinutes: 0, visits: [], visitsCount: 0, visitsSec: 0, absent: true,
+  };
+  const m = attendanceByDay([{ checkInAt: iso('2026-09-25T06:00:00Z'), checkOutAt: iso('2026-09-25T14:00:00Z') }], RIY);
+  const [d] = overlayAttendance([absentDay], m);
+  assert.strictEqual(d.absent, false);
+  assert.strictEqual(d.spanMinutes, 480);
+});
+
+test('overlayAttendance: يومٌ بلا بصمة يبقى على مقياسه القديم (توافق ما قبل الميزة)', () => {
+  const base: WorkDay = {
+    date: '2026-09-17', firstActivity: iso('2026-09-17T09:00:00Z'), lastActivity: iso('2026-09-17T20:00:00Z'),
+    spanMinutes: 660, appMinutes: 40, visits: [], visitsCount: 11, visitsSec: 6000, absent: false,
+  };
+  const [d] = overlayAttendance([base], new Map());
+  assert.strictEqual(d.spanMinutes, 660);
+  assert.strictEqual(d.firstActivity.toISOString(), '2026-09-17T09:00:00.000Z');
+});

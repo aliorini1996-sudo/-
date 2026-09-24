@@ -513,7 +513,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -728,7 +728,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       <div>
         <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إجراءات سريعة')}</p>
         <div className="grid grid-cols-3 gap-3">
-          {quick(tr('بصمة الحضور'), Fingerprint, 'text-rose-600', 'bg-rose-50 border-rose-100', 'attendance')}
+          {attendanceOn && quick(tr('بصمة الحضور'), Fingerprint, 'text-rose-600', 'bg-rose-50 border-rose-100', 'attendance')}
           {accountingOn && quick(tr('فاتورة'), FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
           {accountingOn && quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
           {quick(tr('العملاء'), Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
@@ -3305,6 +3305,7 @@ export default function RepApp() {
   const zatcaCollect = zatcaCollectOn(company);
   // مطفأ افتراضياً: === true لا !== false، وإلا فُتحت البلاطة لكل شركة
   const dailyReportOn = (company as { dailyReportEnabled?: boolean } | null)?.dailyReportEnabled === true;
+  const attendanceOn = (company as { attendanceEnabled?: boolean } | null)?.attendanceEnabled === true;
   const ACCOUNTING_TABS: Screen[] = ['invoices', 'receipts', 'vanstock'];
   const tabs: { id: Screen; label: string; icon: React.ElementType }[] = [
     { id: 'home', label: 'الرئيسية', icon: Home },
@@ -3323,7 +3324,8 @@ export default function RepApp() {
     // والتقرير اليومي مثلها: شاشةٌ لا تبويب لها في الشريط السفلي، فإطفاء الميزة
     // والمندوب واقفٌ عليها يتركه أمام شاشةٍ لا مخرج منها.
     if (!dailyReportOn && screen === 'dailyreport') setScreen('home');
-  }, [accountingOn, dailyReportOn, screen]);
+    if (!attendanceOn && screen === 'attendance') setScreen('home');
+  }, [accountingOn, dailyReportOn, attendanceOn, screen]);
 
   // إطار الجوّال يظهر فقط على سطح المكتب (للمعاينة). أمّا على الجوّال الحقيقي أو داخل
   // التطبيق (PWA/TWA) فيُعرض المحتوى ملء الشاشة — وإلا ظهر «جوال داخل جوال».
@@ -3441,7 +3443,7 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}

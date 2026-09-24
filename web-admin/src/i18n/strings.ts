@@ -293,6 +293,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تقرير يومي': { en: 'Daily report', fr: 'Rapport quotidien', tr: 'Günlük rapor', zh: '每日报告' },
   'إقرار المندوب اليومي وسلسلة اعتماده حتى التقرير الشامل': { en: 'The rep daily declaration and its approval chain through to the team report', fr: 'La declaration quotidienne du representant et sa chaine d approbation jusqu au rapport global', tr: 'Temsilcinin gunluk beyani ve ekip raporuna kadar onay zinciri', zh: '业务代表的每日申报及其审批链直至团队报告' },
   'تفعيل التقرير اليومي لهذه الشركة': { en: 'Enable the daily report for this company', fr: 'Activer le rapport quotidien pour cette societe', tr: 'Bu sirket icin gunluk raporu etkinlestir', zh: '为该公司启用每日报告' },
+  'تفعيل بصمة الحضور والانصراف لهذه الشركة': { en: 'Enable check-in/out for this company', fr: 'Activer le pointage pour cette société', tr: 'Bu şirket için giriş/çıkış yoklamasını etkinleştir', zh: '为该公司启用上下班打卡' },
   'ما أقر به المندوب': { en: 'What the rep declared', fr: 'Ce que le representant a declare', tr: 'Temsilcinin beyan ettigi', zh: '业务代表的申报内容' },
   'مستويات الاعتماد': { en: 'Approval levels', fr: 'Niveaux d approbation', tr: 'Onay seviyeleri', zh: '审批层级' },
   'خانات النموذج': { en: 'Form fields', fr: 'Champs du formulaire', tr: 'Form alanlari', zh: '表单字段' },

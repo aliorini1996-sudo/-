@@ -45,6 +45,7 @@ export interface Tenant {
   paylinkEnabled?: boolean;      // ميزة الدفع الإلكتروني — روابط دفع ميسر (يتحكّم بها المالك)
   warehouseEnabled?: boolean;    // مخزون الشركة (المستودع) — يُفعّله المالك لكل شركة
   dailyReportEnabled?: boolean;  // التقرير اليومي وسلسلة اعتماده — يُفعّله المالك لكل شركة
+  attendanceEnabled?: boolean;   // بصمة الحضور والانصراف للمندوب — يُفعّله المالك لكل شركة
   invoiceSignatureEnabled?: boolean; // توقيع المستلم اليدويّ على فواتير المندوب — يُفعّله المالك لكل شركة
   zatcaPhase2Enabled?: boolean;  // تبويب ربط فوترة ZATCA المرحلة الثانية — مطفأ افتراضياً، يُفعّله المالك لكل شركة سعودية
   receivablesSummaryEnabled?: boolean; // سطر «إجمالي مديونية العملاء المُسنَدين» — يُفعّله المالك لكل شركة

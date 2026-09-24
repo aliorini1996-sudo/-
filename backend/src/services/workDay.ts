@@ -119,6 +119,41 @@ export function splitByLocalDay(iv: Interval, tzOffsetMin: number): Array<{ day:
 }
 
 /** يجمع المصادر الثلاثة في قائمة أيام عمل مرتّبة تصاعدياً */
+// ═══ بصمة الحضور والانصراف: مقياس «يعلنه المندوب» يعلو مقياس الأثر الرقمي ═══
+// حين تُفعَّل الميزة ويبصم المندوب، تصير بداية اليوم = بصمة الحضور، ونهايته = بصمة الانصراف،
+// وإجمالي وقت العمل = الساعات بين البصمتين. «نشاط التطبيق» (appMinutes) يبقى كما هو (نبضة الاتصال).
+export interface AttendanceShift { checkInAt: Date; checkOutAt: Date | null }
+export interface AttendanceDay { start: Date; end: Date | null; minutes: number }
+
+/** تجميع بصمات المندوب على يومه المحلي: أول حضور، آخر انصراف، ومجموع دقائق النوبات المغلقة. */
+export function attendanceByDay(shifts: readonly AttendanceShift[], tzOffsetMin: number): Map<string, AttendanceDay> {
+  const m = new Map<string, AttendanceDay>();
+  for (const s of shifts) {
+    const key = dayKey(s.checkInAt, tzOffsetMin);
+    const cur = m.get(key) ?? { start: s.checkInAt, end: null as Date | null, minutes: 0 };
+    if (s.checkInAt < cur.start) cur.start = s.checkInAt;
+    if (s.checkOutAt) {
+      if (!cur.end || s.checkOutAt > cur.end) cur.end = s.checkOutAt;
+      // نوبةٌ مغلقة فقط تُحسب دقائقها؛ نوبةٌ مفتوحة تُظهر بداية بلا نهاية ولا تُضاف حتى الانصراف
+      cur.minutes += Math.max(0, Math.round((s.checkOutAt.getTime() - s.checkInAt.getTime()) / 60000));
+    }
+    m.set(key, cur);
+  }
+  return m;
+}
+
+/**
+ * تركيب البصمة فوق أيام النشاط: يومٌ له بصمة تُؤخذ منه البداية والنهاية والإجمالي، ويُرفع عنه «غياب»
+ * (فالمندوب أعلن حضوره). الأيام بلا بصمة تبقى على مقياس الأثر الرقمي كما كانت (توافق مع ما قبل الميزة).
+ */
+export function overlayAttendance(days: readonly WorkDay[], byDay: Map<string, AttendanceDay>): WorkDay[] {
+  return days.map((d) => {
+    const att = byDay.get(d.date);
+    if (!att) return d;
+    return { ...d, firstActivity: att.start, lastActivity: att.end ?? att.start, spanMinutes: att.minutes, absent: false };
+  });
+}
+
 export function composeWorkDays(input: {
   sessions: Interval[];
   pingRanges: PingRange[];   // مُجمَّعة مسبقاً لكل يوم محلي (min/max) — النقاط الخام كثيرة

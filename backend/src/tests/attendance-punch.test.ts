@@ -48,7 +48,9 @@ const repAttendance = {
   },
 };
 
-stub('config/database', { default: { repAttendance } });
+let featureOn = true;
+const tenant = { async findUnique() { return { attendanceEnabled: featureOn }; } };
+stub('config/database', { default: { repAttendance, tenant } });
 stub('middleware/auth', {
   authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -84,7 +86,7 @@ async function call(method: 'get' | 'post', p: string, opts: { user?: unknown; b
 const data = (res: { body: Record<string, unknown> | null }) => (res.body!.data as Record<string, unknown>);
 
 test('قبل أي بصمة: اليوم status=none', async () => {
-  rows = []; seq = 0;
+  rows = []; seq = 0; featureOn = true;
   const res = await call('get', '/attendance/today');
   assert.equal(res.statusCode, 200);
   assert.equal(data(res).status, 'none');
@@ -133,10 +135,19 @@ test('انصراف بلا حضور مفتوح ⇒ 409 NO_OPEN_SHIFT', async () =
 });
 
 test('غير المندوب ممنوع (403) من كل النقاط', async () => {
-  rows = []; seq = 0;
+  rows = []; seq = 0; featureOn = true;
   const admin = { role: 'ADMIN', id: 'a1', tenantId: 't1' };
   for (const [m, p] of [['get', '/attendance/today'], ['post', '/attendance/checkin'], ['post', '/attendance/checkout']] as const) {
     const res = await call(m, p, { user: admin });
     assert.equal(res.statusCode, 403, `${m} ${p}`);
   }
+});
+
+test('الميزة مطفأة للشركة ⇒ 403 ATTENDANCE_DISABLED ولا كتابة', async () => {
+  rows = []; seq = 0; featureOn = false;
+  const res = await call('post', '/attendance/checkin', {});
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body!.code, 'ATTENDANCE_DISABLED');
+  assert.equal(rows.length, 0, 'لم تُفتح نوبة والميزة مطفأة');
+  featureOn = true;
 });
