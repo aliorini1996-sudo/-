@@ -1,5 +1,5 @@
 import {
-  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, formatDateShort, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon,
+  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, formatDateShort, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon, Fingerprint, LogIn,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { compressImage } from './imageCompress';
@@ -32,7 +32,7 @@ import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit' | 'buyerData';
 
 interface RepUser {
@@ -140,6 +140,127 @@ interface WorkNumSummary {
   enabled: boolean;
   channel?: { e164: string; label?: string | null; kind: string } | null;
   lastCalls?: { direction: string; fromE164: string; toE164: string; startedAt: string; durationSec: number; aiSummary?: string | null }[];
+}
+
+// بصمة الحضور والانصراف — يعلن المندوب بداية عمله ونهايته بضغطة، مع موقعه ووقته.
+// بديلٌ صريح عن حساب الساعات من نبضة الاتصال: هنا «اليوم كما يعلنه المندوب».
+type AttendanceState =
+  | { status: 'in'; shift: { checkInAt: string; checkInLat: number | null; checkInLng: number | null } }
+  | { status: 'out'; last: { checkInAt: string; checkOutAt: string } | null }
+  | { status: 'none'; last?: null };
+
+// موقع أفضل جهد: ثماني ثوانٍ ثم نمضي بلا موقع — البصمة أهمّ من الإحداثيات.
+function grabLocation(): Promise<{ lat: number; lng: number } | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    );
+  });
+}
+
+const clockTime = (iso: string): string => {
+  try { return new Date(iso).toLocaleTimeString(activeLocale(), { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+};
+
+function shiftDuration(fromIso: string, toIso: string, tr: (s: string) => string): string {
+  const mins = Math.max(0, Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 60000));
+  const h = Math.floor(mins / 60); const m = mins % 60;
+  return `${h} ${tr('ساعة')} ${m} ${tr('دقيقة')}`;
+}
+
+function RepAttendance() {
+  const tr = useTr();
+  const [state, setState] = useState<AttendanceState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const tzOffsetMin = -new Date().getTimezoneOffset();
+
+  const load = useCallback(() => {
+    repApi.get('/tracking/attendance/today', { params: { tzOffsetMin } })
+      .then((r) => setState(r.data.data as AttendanceState))
+      .catch(() => setErr(tr('تعذّر تحميل حالة الحضور')));
+  }, [tr, tzOffsetMin]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const punch = async (kind: 'checkin' | 'checkout') => {
+    setBusy(true); setErr('');
+    try {
+      const loc = await grabLocation();
+      const r = await repApi.post(`/tracking/attendance/${kind}`, loc ?? {});
+      setState(r.data.data as AttendanceState);
+    } catch (e) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setErr(msg || tr('تعذّر التسجيل، حاول ثانية'));
+    } finally { setBusy(false); }
+  };
+
+  const checkedIn = state?.status === 'in';
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <Fingerprint size={22} className="text-rose-600" />
+        <h2 className="text-base font-bold text-[#1F1A13]">{tr('بصمة الحضور والانصراف')}</h2>
+      </div>
+
+      {state === null ? (
+        <p className="text-sm text-[#8A8072] py-8 text-center">{tr('جارٍ التحميل…')}</p>
+      ) : (
+        <>
+          <div className={`rounded-2xl border p-5 text-center ${checkedIn ? 'bg-green-50 border-green-200' : 'bg-[#FBF7F0] border-[#EFE7D8]'}`}>
+            {checkedIn ? (
+              <>
+                <p className="text-xs text-green-700 font-semibold mb-1">{tr('أنت في العمل الآن')}</p>
+                <p className="text-2xl font-bold text-green-800 tabular-nums" dir="ltr">{clockTime(state.shift.checkInAt)}</p>
+                <p className="text-[11px] text-green-700 mt-1 flex items-center justify-center gap-1">
+                  {state.shift.checkInLat != null
+                    ? <><MapPin size={12} /> {tr('سُجّل موقع الحضور')}</>
+                    : tr('بلا موقع')}
+                </p>
+              </>
+            ) : state.status === 'out' && state.last ? (
+              <>
+                <p className="text-xs text-[#8A8072] font-semibold mb-2">{tr('انتهى عملك اليوم')}</p>
+                <div className="flex items-center justify-center gap-6 tabular-nums" dir="ltr">
+                  <div><p className="text-[10px] text-[#8A8072]">{tr('الحضور')}</p><p className="text-lg font-bold text-[#1F1A13]">{clockTime(state.last.checkInAt)}</p></div>
+                  <div><p className="text-[10px] text-[#8A8072]">{tr('الانصراف')}</p><p className="text-lg font-bold text-[#1F1A13]">{clockTime(state.last.checkOutAt)}</p></div>
+                </div>
+                <p className="text-xs text-[#8A8072] mt-2">{tr('مدّة العمل')}: {shiftDuration(state.last.checkInAt, state.last.checkOutAt, tr)}</p>
+              </>
+            ) : (
+              <p className="text-sm text-[#8A8072] py-2">{tr('لم تسجّل حضورك اليوم بعد')}</p>
+            )}
+          </div>
+
+          {err && <p className="text-xs text-[#C0392B] text-center">{err}</p>}
+
+          {checkedIn ? (
+            <button
+              onClick={() => punch('checkout')} disabled={busy}
+              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#C0392B] text-white font-bold py-4 text-base disabled:opacity-50"
+            >
+              <LogOut size={20} /> {busy ? tr('جارٍ التسجيل…') : tr('تسجيل الانصراف')}
+            </button>
+          ) : (
+            <button
+              onClick={() => punch('checkin')} disabled={busy}
+              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-green-600 text-white font-bold py-4 text-base disabled:opacity-50"
+            >
+              <LogIn size={20} /> {busy ? tr('جارٍ التسجيل…') : tr('تسجيل الحضور')}
+            </button>
+          )}
+
+          <p className="text-[11px] text-[#8A8072] text-center leading-relaxed">
+            {tr('تُحسب ساعات عملك من حضورك وانصرافك المسجّلين هنا.')}
+          </p>
+        </>
+      )}
+    </div>
+  );
 }
 
 function RepWorkNumber() {
@@ -607,6 +728,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       <div>
         <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إجراءات سريعة')}</p>
         <div className="grid grid-cols-3 gap-3">
+          {quick(tr('بصمة الحضور'), Fingerprint, 'text-rose-600', 'bg-rose-50 border-rose-100', 'attendance')}
           {accountingOn && quick(tr('فاتورة'), FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
           {accountingOn && quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
           {quick(tr('العملاء'), Users, 'text-orange-600', 'bg-orange-50 border-orange-100', 'customers')}
@@ -3328,6 +3450,7 @@ export default function RepApp() {
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
+                {screen === 'attendance' && <RepAttendance />}
               </div>
 
               {/* Bottom nav */}

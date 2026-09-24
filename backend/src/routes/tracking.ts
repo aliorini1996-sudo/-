@@ -106,6 +106,81 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
   } catch (err) { next(err); }
 });
 
+// ═══ بصمة الحضور والانصراف ═══
+// المندوب يعلن بداية عمله ونهايته بضغطة، فتُحسب ساعاته من إعلانه لا من نبضة الاتصال.
+// نوبة واحدة مفتوحة (checkOutAt = null) في كل لحظة: الحضور يفتحها، والانصراف يغلقها.
+
+const punchSchema = z.object({
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
+});
+
+/** النوبة المفتوحة لهذا المندوب (بلا انصراف)، أو null. */
+async function openShift(tid: string, repId: string) {
+  return prisma.repAttendance.findFirst({
+    where: { tenantId: tid, salesRepId: repId, checkOutAt: null },
+    orderBy: { checkInAt: 'desc' },
+    select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
+  });
+}
+
+// حالة اليوم: النوبة المفتوحة إن وُجدت، وإلا آخر نوبة مغلقة اليوم — ليعرف التطبيق أيّ زرّ يعرض.
+router.get('/attendance/today', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
+    const tid = tenantId(req);
+    const repId = req.user.id;
+    const open = await openShift(tid, repId);
+    if (open) { res.json({ success: true, data: { status: 'in', shift: open } }); return; }
+    // آخر نوبة انتهت اليوم (يوم المندوب بإزاحته) — لعرض «انصرفت اليوم» بدل «سجّل الحضور» فوراً بعد الانصراف
+    const off = Number(req.query.tzOffsetMin || 0);
+    const dayStart = new Date(Date.now() + (Number.isFinite(off) ? off : 0) * 60000);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const since = new Date(dayStart.getTime() - (Number.isFinite(off) ? off : 0) * 60000);
+    const last = await prisma.repAttendance.findFirst({
+      where: { tenantId: tid, salesRepId: repId, checkOutAt: { gte: since } },
+      orderBy: { checkOutAt: 'desc' },
+      select: { checkInAt: true, checkOutAt: true },
+    });
+    res.json({ success: true, data: { status: last ? 'out' : 'none', last } });
+  } catch (err) { next(err); }
+});
+
+// تسجيل الحضور — يفتح نوبة. نوبةٌ مفتوحة سلفاً تُعاد كما هي (لا تُفتح ثانية) فيأمن الضغط المكرّر.
+router.post('/attendance/checkin', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
+    const tid = tenantId(req);
+    const repId = req.user.id;
+    const { lat, lng } = punchSchema.parse(req.body ?? {});
+    const existing = await openShift(tid, repId);
+    if (existing) { res.json({ success: true, data: { status: 'in', shift: existing, already: true } }); return; }
+    const shift = await prisma.repAttendance.create({
+      data: { tenantId: tid, salesRepId: repId, checkInAt: new Date(), checkInLat: lat ?? null, checkInLng: lng ?? null },
+      select: { id: true, checkInAt: true, checkInLat: true, checkInLng: true },
+    });
+    res.json({ success: true, data: { status: 'in', shift } });
+  } catch (err) { next(err); }
+});
+
+// تسجيل الانصراف — يغلق النوبة المفتوحة. بلا نوبة مفتوحة ⇒ 409 (لم يسجّل حضوراً بعد).
+router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.role !== 'SALES_REP') { res.status(403).json({ success: false, message: 'غير مسموح' }); return; }
+    const tid = tenantId(req);
+    const repId = req.user.id;
+    const { lat, lng } = punchSchema.parse(req.body ?? {});
+    const open = await openShift(tid, repId);
+    if (!open) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }
+    const shift = await prisma.repAttendance.update({
+      where: { id: open.id },
+      data: { checkOutAt: new Date(), checkOutLat: lat ?? null, checkOutLng: lng ?? null },
+      select: { checkInAt: true, checkOutAt: true },
+    });
+    res.json({ success: true, data: { status: 'out', last: shift } });
+  } catch (err) { next(err); }
+});
+
 // المواقع الحالية لكل المناديب — للأدمن (الخريطة الحيّة) مع عدّاد زيارات اليوم
 router.get('/live', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

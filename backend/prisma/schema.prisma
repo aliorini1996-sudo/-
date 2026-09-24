@@ -84,6 +84,7 @@ model Tenant {
   RepVisit             RepVisit[]
   repRoutes            RepRoute[]
   RepSession           RepSession[]
+  RepAttendance        RepAttendance[]
   customerPaymentLinks CustomerPaymentLink[]
   settlementEntries    SettlementEntry[]
   invoiceInstallments  InvoiceInstallment[]
@@ -315,6 +316,7 @@ model SalesRep {
   RepVisit      RepVisit[]
   repRoutes     RepRoute[]
   RepSession    RepSession[]
+  attendance    RepAttendance[]
 
   // عزل العملاء: العملاء المُسنَدون لهذا المندوب، والعملاء الذين فتحهم بنفسه
   customerAssignments CustomerAssignment[]
@@ -1422,6 +1424,27 @@ model RepSession {
 
   @@index([tenantId, salesRepId, startedAt])
   @@map("rep_sessions")
+}
+
+// بصمة الحضور والانصراف — يسجّلها المندوب بنفسه بضغطة: بداية العمل ونهايته وموقعهما.
+// نبضة الجلسة (RepSession) تقيس «متصل وفاتح التطبيق»؛ هذه تقيس «اليوم كما يعلنه المندوب»:
+// نوبة واحدة مفتوحة في كل لحظة (checkOutAt = null)، تُغلق بالانصراف، فمدّتها = الانصراف − الحضور.
+model RepAttendance {
+  id           String    @id @default(uuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId   String
+  salesRep     SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  checkInAt    DateTime // بداية العمل (وقت الخادم)
+  checkInLat   Float?
+  checkInLng   Float?
+  checkOutAt   DateTime? // نهاية العمل — null ما دامت النوبة مفتوحة
+  checkOutLat  Float?
+  checkOutLng  Float?
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId, salesRepId, checkInAt])
+  @@map("rep_attendance")
 }
 
 // ============================================================================
