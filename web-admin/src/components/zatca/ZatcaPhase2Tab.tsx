@@ -19,6 +19,8 @@ import {
 } from './zatcaLogic';
 import { useZatcaTr as useTr } from './zatcaPhrases';
 import ZatcaTabBoundary from './ZatcaTabBoundary';
+// Z5.8: قسم التفعيل (تسليح + go-live) ومراجعة الانتقال (D11) — منطقهما النقيّ وعرضهما الشرطيّ في ملفات مستقلّة
+import { activationVisible } from './goLiveLogic';
 
 /**
  * تبويب «الفوترة الإلكترونية — المرحلة الثانية (فاتورة)» في إعدادات الشركة (design §5.1).
@@ -175,6 +177,8 @@ function ZatcaPhase2Body({ ov, overviewUpdatedAt, refreshError }: {
       <StatusHeader ov={ov} units={units} ownerSession={ownerSession} />
       {/* الشركة المفعّلة حيّاً وحدها لها طابور مستندات تُتابَع — وغيرها لا يرى الشاشة ولا يحمّل حزمتها */}
       {ov.regime === 'PHASE2' && <DocsFollowUpCard />}
+      {/* Z5.8: مراجعة مستندات الانتقال (D11) — تظهر فقط لمن عنده مستند معلّق (الشاشة تُخفي نفسها حين لا معلّق أو 404) */}
+      {ov.regime === 'PHASE2' && <CutoverReviewCard />}
       <SellerCard ov={ov} />
       <div className="card">
         <SectionTitle icon={<Plug size={20} />} title={tr('ربط وحدة الفوترة مع هيئة الزكاة والضريبة والجمارك')}
@@ -223,6 +227,26 @@ function DocsFollowUpCard() {
         </button>
       )}
     </div>
+  );
+}
+
+// ─── مراجعة مستندات الانتقال (Z5.8، D11) ───
+
+/**
+ * كسولةٌ مثل شاشة المتابعة، وتُخفي نفسها تماماً حين لا مستند بحاجة إلى قرار (ZatcaCutoverPanel يعيد null): فلا كارت
+ * فارغ لكل شركة مفعّلة، ولا حزمتها تدخل حزمة الربط. حاجز الأخطاء نفسه يحرسها (فشل تحميل الحزمة عند نشرٍ جديد).
+ */
+const loadZatcaCutoverPanel = () => import('./ZatcaCutoverPanel');
+
+function CutoverReviewCard() {
+  const [attempt, setAttempt] = useState(0);
+  const Panel = useMemo(() => lazy(loadZatcaCutoverPanel), [attempt]);
+  return (
+    <ZatcaTabBoundary onRetry={() => setAttempt(n => n + 1)}>
+      <Suspense fallback={null}>
+        <Panel />
+      </Suspense>
+    </ZatcaTabBoundary>
   );
 }
 
@@ -1061,19 +1085,37 @@ function UnitCard({ initial, overviewUpdatedAt, ov }: { initial: ZatcaUnitPayloa
 
 // ─── التفعيل ───
 
+/**
+ * قسم التفعيل (Z5.8): شركةٌ فتح لها علم المنصّة الإطلاق (activationVisible) ترى الشاشة الغنيّة الكسولة (تسليح +
+ * go-live بقائمة جاهزية وتأكيد «تفعيل»)؛ وغيرها ترى الزرّ المعطَّل كما اليوم تماماً — لا شيء جديد لمن لم تُفتح له.
+ */
+const loadZatcaActivationSection = () => import('./ZatcaActivationSection');
+
 function GoLiveCard({ ov }: { ov: ZatcaOverview }) {
   const tr = useTr();
+  const [attempt, setAttempt] = useState(0);
+  const Activation = useMemo(() => lazy(loadZatcaActivationSection), [attempt]);
   return (
     <div className="card">
       <SectionTitle icon={<Rocket size={20} />} title={tr('الخطوة 3: تفعيل المرحلة الثانية')}
         subtitle={tr('بعد التفعيل توقع كل فاتورة وترسل للهيئة ولا عودة للمرحلة الأولى')} />
-      <button type="button" className="btn-primary opacity-50 cursor-not-allowed" disabled aria-disabled="true">
-        <Lock size={16} /> {tr('تفعيل المرحلة الثانية')}
-      </button>
-      <p className="text-xs text-[#6E6557] mt-2 flex items-start gap-1.5">
-        <Info size={13} className="mt-0.5 shrink-0" />
-        {ov.goLiveAvailable ? null : tr('غير متاح قبل اكتمال ربط إصدار الفواتير')}
-      </p>
+      {activationVisible(ov) ? (
+        <ZatcaTabBoundary onRetry={() => setAttempt(n => n + 1)}>
+          <Suspense fallback={<div className="flex justify-center py-6"><Loader2 size={20} className="animate-spin text-[#E15A30]" /></div>}>
+            <Activation ov={ov} />
+          </Suspense>
+        </ZatcaTabBoundary>
+      ) : (
+        <>
+          <button type="button" className="btn-primary opacity-50 cursor-not-allowed" disabled aria-disabled="true">
+            <Lock size={16} /> {tr('تفعيل المرحلة الثانية')}
+          </button>
+          <p className="text-xs text-[#6E6557] mt-2 flex items-start gap-1.5">
+            <Info size={13} className="mt-0.5 shrink-0" />
+            {ov.goLiveAvailable ? null : tr('غير متاح قبل اكتمال ربط إصدار الفواتير')}
+          </p>
+        </>
+      )}
     </div>
   );
 }

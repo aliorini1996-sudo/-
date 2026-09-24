@@ -14,6 +14,7 @@ import { prismaEgsUnitStore } from '../compliance/zatca/onboardingStore';
 import { keyringFromEnv } from '../compliance/zatca/secrets';
 import { ZatcaRouteDeps, zatcaEnvConfig } from './zatca';
 import { buyerDataReadiness } from './customersZatca';
+import { prismaGoLiveStore } from '../compliance/zatca/goLiveStore.prisma';
 
 export function productionZatcaDeps(env: NodeJS.ProcessEnv = process.env): ZatcaRouteDeps {
   return {
@@ -35,5 +36,8 @@ export function productionZatcaDeps(env: NodeJS.ProcessEnv = process.env): Zatca
     config: zatcaEnvConfig(env),
     // Z5.1a (D2): عدّادات جاهزية بيانات الفوترة (مسح محدود بالمؤشّر، إعلامي)
     loadReadiness: tenantId => buyerDataReadiness(prisma, tenantId),
+    // Z5.8: مخزن التفعيل (تسليح، جاهزية المناديب، طابور مراجعة الانتقال) وعلم ZATCA_GO_LIVE (افتراضياً off)
+    goLiveStore: prismaGoLiveStore(prisma),
+    goLiveEnv: env,
   };
 }

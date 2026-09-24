@@ -35,10 +35,16 @@ import { CsrError, CsrParams, FunctionMap, validateCsrParams } from '../complian
 import { mapSellerParty } from '../compliance/zatca/mapInvoice';
 import {
   CsrFieldOverrides, EgsUnitView, EnvironmentPolicy, FatooraClientFactory, ONBOARDING_CODES, ONBOARDING_DEFAULTS, OnboardingCode,
-  OnboardingFailure, RETIRE_CONFIRMATION_TEXT, RetireReason, SignerFactory, StepMessage, abortRenewal, createUnit, onboardUnit, renewUnit,
+  OnboardingFailure, RETIRE_CONFIRMATION_TEXT, RetireReason, SignerFactory, StepMessage, abortRenewal, createUnit, goLive, onboardUnit, renewUnit,
   retireUnit, sellerSourceFromSettings, toEgsUnitView,
 } from '../compliance/zatca/onboarding';
 import type { EgsUnitRecord, EgsUnitStore, SellerSettingsRecord } from '../compliance/zatca/onboardingStore';
+// ZATCA المرحلة الثانية (Z5.8): تسليح التفعيل، قرار الانتقال (D11)، جاهزية المناديب — المنطق نقيّ في compliance/zatca/goLive.ts
+import {
+  computeGoLiveGate, goLiveEnvAllows, goLiveNotReadyMessage, isCutoverStatus, type CutoverStatus, type GoLiveGate,
+} from '../compliance/zatca/goLive';
+import type { CutoverReviewRow, GoLiveStore } from '../compliance/zatca/goLiveStore';
+import { LIVE_ENVIRONMENT } from '../compliance/zatca/regime';
 import { compileSecrets } from '../compliance/zatca/responses';
 import { SecretKeyring, SecretsError } from '../compliance/zatca/secrets';
 import { IssueLike, SELLER_ID_SCHEMES, isAlphanumericId, isBuildingNo, isPostalCode, isSaudiVat, sellerIssues } from '../compliance/zatca/validators';
@@ -149,6 +155,13 @@ export interface ZatcaRouteDeps {
    * قديمة). الإنتاج: buyerDataReadiness في customersZatca.ts. غيابها ⇒ GET /readiness 404.
    */
   loadReadiness?: (tenantId: string) => Promise<unknown>;
+  /**
+   * Z5.8: مخزن التفعيل (تسليح، جاهزية المناديب، طابور مراجعة الانتقال D11). غيابه ⇒ التفعيل يبقى 409 GO_LIVE_UNAVAILABLE
+   * كما اليوم تماماً، ومسارات الجاهزية والمراجعة 404 — فلا يتغيّر شيء لمن لم يُحقن له المخزن.
+   */
+  goLiveStore?: GoLiveStore;
+  /** Z5.8: بيئة قراءة علم ZATCA_GO_LIVE (افتراضياً process.env). off (الافتراضي) ⇒ التفعيل غير متاح. */
+  goLiveEnv?: NodeJS.ProcessEnv;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -790,6 +803,24 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
   const allowedEnvs = [...deps.config.allowedEnvs];
   const envAllowed = (env: string) => (allowedEnvs as string[]).includes(env);
 
+  // Z5.8: بوابة التفعيل الكاملة (وحدة إنتاج مفعّلة + بائع + SAR + تسليح + مزامنة المناديب + علم البيئة). تُستطلع من
+  // /overview و/go-live/readiness، ويُحسب منها goLiveAvailable. بلا مخزن ⇒ غير متاح (كما اليوم).
+  const goLiveEnvOf = () => deps.goLiveEnv ?? process.env;
+  const goLiveGateFor = async (ctx: Ctx): Promise<GoLiveGate> => {
+    const store = deps.goLiveStore;
+    const units = await deps.store.listUnits(ctx.tenantId, { environment: LIVE_ENVIRONMENT, statuses: ['ACTIVE'] });
+    const armedAt = store ? await store.loadArmedAt(ctx.tenantId) : null;
+    const reps = store ? await store.loadRepSync(ctx.tenantId) : [];
+    return computeGoLiveGate({
+      settings: ctx.settings,
+      units: units.map(u => ({
+        id: u.id, tenantId: u.tenantId, environment: u.environment, status: u.status, keyVersion: u.keyVersion,
+        vatNumber: u.vatNumber, certNotAfter: u.certNotAfter, lastIcv: u.lastIcv, lastInvoiceHash: u.lastInvoiceHash,
+      })),
+      armedAt, reps, policy, envAllows: goLiveEnvAllows(goLiveEnvOf(), ctx.tenantId), storeReady: !!store, now: deps.now(),
+    });
+  };
+
   if (deps.config.issues.length) {
     log('zatca.config.allowed-envs', { issues: deps.config.issues.map(i => `${i.code}:${i.value}`).join(','), allowed: allowedEnvs.join(',') });
   }
@@ -926,14 +957,18 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
     const units = await deps.store.listUnits(tenantId);
     let secretsReady = true;
     try { deps.loadKeyring(); } catch { secretsReady = false; }
+    // Z5.8: التفعيل متاح فقط حين يُسلَّح وتكتمل الجاهزية وعلم البيئة مفتوح. بلا مخزن التفعيل (الحال قبل حقنه) تبقى النظرة
+    // العامة كما اليوم تماماً: goLiveAvailable false ورسالةٌ ثابتة — لا تُحسب البوابة ولا يتغيّر شكل الردّ.
+    const goLiveGate = deps.goLiveStore && !settings.zatcaPhase2StartedAt ? await goLiveGateFor(ctxOf(res)) : null;
     res.json({
       success: true,
       data: {
         gate: { zatcaPhase2Enabled: tenantFlag, countryCode: settings.countryCode },
         regime: settings.zatcaPhase2StartedAt ? 'PHASE2' : 'PHASE1',
         phase2StartedAt: settings.zatcaPhase2StartedAt,
-        goLiveAvailable: false,
-        goLiveUnavailableMessage: ZATCA_ROUTE_CODES.GO_LIVE_UNAVAILABLE,
+        goLiveAvailable: goLiveGate?.available ?? false,
+        goLiveReadiness: goLiveGate,
+        goLiveUnavailableMessage: goLiveGate && !goLiveGate.available ? goLiveNotReadyMessage(goLiveGate) : ZATCA_ROUTE_CODES.GO_LIVE_UNAVAILABLE,
         allowedEnvs,
         envConfigIssues: deps.config.issues.map(i => i.code),
         productionBackend: deps.config.productionBackend,
@@ -1150,11 +1185,87 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
     res.json({ success: true, data: { ...unitPayload(result.unit, ctx.tenantId), alreadyRetired: result.alreadyRetired } });
   }));
 
-  // ─── التفعيل: غير متاح قبل Z5 ───
+  // ─── التفعيل (go-live، Z5.8) — مُسلَّح + جاهز + علم البيئة ───
+  // بلا مخزن التفعيل أو بعلم ZATCA_GO_LIVE مطفأ ⇒ POST /go-live يبقى 409 GO_LIVE_UNAVAILABLE كما اليوم تماماً.
 
-  router.post('/go-live', (_req, res) => {
-    sendRouteError(res, 409, 'GO_LIVE_UNAVAILABLE');
+  // تسليح التفعيل: يضبط armedAt مرّة واحدة (idempotent) — يبدأ عدّ مزامنة المناديب وترفض الأجهزة الإصدار دون اتصال
+  router.post('/go-live/arm', h(log, async (_req, res) => {
+    const store = deps.goLiveStore;
+    if (!store) { sendRouteError(res, 409, 'GO_LIVE_UNAVAILABLE'); return; }
+    const ctx = ctxOf(res);
+    // نقد 2/4: لا يُسلَّح قبل أن تفتح المنصّة بيئة الإطلاق لهذه الشركة (كـ /go-live) — فلا تُحبس شركةٌ في «مُسلَّح وعلمها مطفأ» بلا تعافٍ
+    if (!goLiveEnvAllows(goLiveEnvOf(), ctx.tenantId)) { sendRouteError(res, 409, 'GO_LIVE_UNAVAILABLE'); return; }
+    const r = await store.setArmedAtOnce(ctx.tenantId, deps.now());
+    if (!r.armedAt) { sendServiceError(res, 'TENANT_NOT_FOUND'); return; }
+    res.json({ success: true, data: { armedAt: r.armedAt, applied: r.applied, readiness: await goLiveGateFor(ctx) } });
+  }));
+
+  // نزع التسليح: تعافٍ من تسليحٍ خاطئ — يمسح armedAt ما لم تكن الشركة قد فُعّلت حيّاً (startedAt). غير محروسٍ بعلم البيئة عمداً:
+  // شركةٌ سُلِّحت ثمّ أُطفئ علمها يجب أن تستعيد إصدارها دون اتصال بلا تدخّل يدويّ في القاعدة.
+  router.post('/go-live/disarm', h(log, async (_req, res) => {
+    const store = deps.goLiveStore;
+    if (!store) { sendRouteError(res, 409, 'GO_LIVE_UNAVAILABLE'); return; }
+    const ctx = ctxOf(res);
+    if (ctx.settings.zatcaPhase2StartedAt != null) { sendError(res, 409, 'GO_LIVE_ALREADY_LIVE', 'تم التفعيل الحيّ — لا يمكن نزع التسليح بعده'); return; }
+    const r = await store.clearArmedAt(ctx.tenantId);
+    res.json({ success: true, data: { armedAt: null, applied: r.applied, readiness: await goLiveGateFor(ctx) } });
+  }));
+
+  // جاهزية التفعيل: الفحوص + قائمة المناديب غير المزامنين (تستطلعها الواجهة)
+  router.get('/go-live/readiness', h(log, async (_req, res) => {
+    if (!deps.goLiveStore) { sendError(res, 404, 'GO_LIVE_UNAVAILABLE', ZATCA_ROUTE_CODES.GO_LIVE_UNAVAILABLE); return; }
+    res.json({ success: true, data: await goLiveGateFor(ctxOf(res)) });
+  }));
+
+  router.post('/go-live', h(log, async (req, res) => {
+    const ctx = ctxOf(res);
+    if (!deps.goLiveStore || !goLiveEnvAllows(goLiveEnvOf(), ctx.tenantId)) { sendRouteError(res, 409, 'GO_LIVE_UNAVAILABLE'); return; }
+    const gate = await goLiveGateFor(ctx);
+    if (!gate.available) { sendError(res, 409, 'GO_LIVE_NOT_READY', goLiveNotReadyMessage(gate), { readiness: gate }); return; }
+    const b = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    const confirmations = {
+      repsSynced: b.repsSynced === true,
+      typedConfirmation: typeof b.typedConfirmation === 'string' ? b.typedConfirmation : '',
+    };
+    // نفس آلة الحالة النقيّة (onboarding.goLive): تشترط وحدة إنتاج مفعّلة وبائعاً كاملاً وSAR وتأكيداً «تفعيل» + repsSynced،
+    // وتضبط zatcaPhase2StartedAt مرّة واحدة (CAS على NULL) — وجلسة انتحال المالك تكتب كالمدير (سطر التدقيق أعلاه).
+    const r = await goLive({ store: deps.store, policy, now: deps.now, tenantId: ctx.tenantId, actorId: ctx.actorId, confirmations });
+    if (!r.ok) { sendFailure(res, r); return; }
+    res.json({ success: true, data: { startedAt: r.startedAt, alreadyLive: r.alreadyLive, unitId: r.unitId } });
+  }));
+
+  // ─── مراجعة الانتقال (D11 cut-over): قائمة + قبول/رفض ───
+
+  const cutoverView = (r: CutoverReviewRow) => ({
+    id: r.id, clientRef: r.clientRef, clientCreatedAt: r.clientCreatedAt, reason: r.reason, status: r.status,
+    salesRepId: r.salesRepId, customerId: r.customerId, amount: r.amount, note: r.note,
+    reviewedBy: r.reviewedBy, reviewedAt: r.reviewedAt, resultInvoiceId: r.resultInvoiceId, createdAt: r.createdAt,
   });
+  const CUTOVER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+  router.get('/cutover', h(log, async (req, res) => {
+    if (!deps.goLiveStore) { sendError(res, 404, 'GO_LIVE_UNAVAILABLE', ZATCA_ROUTE_CODES.GO_LIVE_UNAVAILABLE); return; }
+    const q = typeof req.query.status === 'string' && isCutoverStatus(req.query.status) ? req.query.status : undefined;
+    const rows = await deps.goLiveStore.listCutover(ctxOf(res).tenantId, { ...(q ? { status: q } : {}), limit: 200 });
+    res.json({ success: true, data: { items: rows.map(cutoverView) } });
+  }));
+
+  const resolveCutoverRoute = (accept: boolean) => h(log, async (req, res) => {
+    const store = deps.goLiveStore;
+    if (!store) { sendError(res, 404, 'GO_LIVE_UNAVAILABLE', ZATCA_ROUTE_CODES.GO_LIVE_UNAVAILABLE); return; }
+    const ctx = ctxOf(res);
+    const id = typeof req.params.id === 'string' && CUTOVER_ID_RE.test(req.params.id) ? req.params.id : '';
+    if (!id) { sendError(res, 404, 'CUTOVER_NOT_FOUND', 'مستند مراجعة الانتقال غير موجود'); return; }
+    const b = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    const note = typeof b.note === 'string' ? b.note.slice(0, 1000) : null;
+    const status: CutoverStatus = accept ? (b.mode === 'PHASE2' ? 'ACCEPTED_PHASE2' : 'ACCEPTED_PHASE1') : 'REJECTED';
+    const r = await store.resolveCutover(ctx.tenantId, id, { status, reviewedBy: ctx.actorId, reviewedAt: deps.now(), note });
+    if (!r) { sendError(res, 404, 'CUTOVER_NOT_FOUND', 'مستند مراجعة الانتقال غير موجود'); return; }
+    if (!r.applied) { sendError(res, 409, 'CUTOVER_ALREADY_RESOLVED', 'سبق حسم هذا المستند', { item: cutoverView(r.row) }); return; }
+    res.json({ success: true, data: { item: cutoverView(r.row) } });
+  });
+  router.post('/cutover/:id/accept', resolveCutoverRoute(true));
+  router.post('/cutover/:id/reject', resolveCutoverRoute(false));
 
   router.idle = async () => {
     while (running.size) await Promise.allSettled([...running]);

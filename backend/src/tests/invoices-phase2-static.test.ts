@@ -70,8 +70,8 @@ test('قرار النظام الضريبي يُبنى من صفّ الإعداد
   const call = post.slice(i, post.indexOf("}) !== 'phase1'", i));
   assert.match(call, /zatcaPhase2StartedAt: company\?\.zatcaPhase2StartedAt/, 'العمود لا يُقرأ من الصفّ المحمَّل');
   assert.doesNotMatch(call, /await /, 'قرار النظام الضريبي يستعلم — المرحلة الأولى تدفع الثمن');
-  // العمود مضاف إلى select الموجود لا باستعلام ثانٍ
-  assert.match(read('routes/invoices.ts'), /select: \{ defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true \}/);
+  // العمودان (Z5.2 startedAt وZ5.8 armedAt) مضافان إلى select الموجود لا باستعلام ثانٍ
+  assert.match(read('routes/invoices.ts'), /select: \{ defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true \}/);
   assert.equal(read('routes/invoices.ts').split('prisma.companySettings.findUnique').length - 1, 1, 'استعلام إعدادات ثانٍ في المسار');
 });
 

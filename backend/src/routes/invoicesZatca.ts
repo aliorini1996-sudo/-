@@ -34,6 +34,8 @@ import { REHEARSAL_ENVIRONMENT, resolveInvoiceRegime, type RegimeDb, type Regime
 import type { SecretKeyring } from '../compliance/zatca/secrets';
 import { isOverdue, isPrintableMirror, mirrorQrOf, mirrorStatusOf, subtypeOfTypeName, type DocumentStatus, type Subtype } from '../compliance/zatca/status';
 import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
+// ZATCA المرحلة الثانية (Z5.8، نقد 3/4 D11): قرار الانتقال — مستندٌ دون اتصال من قبل التفعيل يُرفع بعده
+import { cutoverDecision, type CutoverReason, type CutoverRecordInput, type CutoverStatus } from '../compliance/zatca/goLive';
 
 // ─── ترويسات قدرات العميل (نقد 1، 2) ───
 
@@ -375,6 +377,18 @@ export interface Phase2IssuanceDeps extends Phase2ReadDeps {
    * لا يُنتظر ردّه: القرار يُقرأ من حالة المستند المخزَّنة بعد المحاولة (انهيارٌ أو سبقُ عاملٍ آخر يُقرأ منها أيضاً).
    */
   submitInline?: InlineSubmitFn | null;
+  /**
+   * Z5.8 (D11): حفظ مستندٍ انتقاليّ لمراجعة الإدارة (مخزن التفعيل). غيابه ⇒ لا حفظ (الردّ 409 كما هو): يُبقى القرار
+   * السلوكيّ كما اليوم لمن لم يُحقن له المخزن. الإنتاج: prismaGoLiveStore.recordCutover.
+   */
+  cutover?: Phase2CutoverHook | null;
+}
+
+/** خطّاف مراجعة الانتقال (D11): حفظ مستندٍ انتقاليّ، وقراءةُ حسم الإدارة له بمفتاح إعادة الرفع (نقد 3). */
+export interface Phase2CutoverHook {
+  record(input: CutoverRecordInput): Promise<unknown>;
+  /** حالة مراجعة الانتقال لمستندٍ بمفتاح (tenantId, clientRef) — null إن لم يُحفظ بعد. غيابه ⇒ سلوك ما قبل نقد 3. */
+  find?(tenantId: string, clientRef: string): Promise<{ status: CutoverStatus } | null>;
 }
 
 /** توقيع الإرسال الحيّ الذي يحقنه الإنتاج (نتيجته مُهمَلة عمداً — الحقيقة في الصفّ المخزَّن). */
@@ -424,6 +438,28 @@ export function regimeSettingsOf(seller: { countryCode: string | null; einvoiceP
   };
 }
 
+/** حمولة مستند انتقاليّ للمراجعة (D11): تكفي لإعادة الإصدار مرحلةً أولى أو ثانية عند القبول. */
+function cutoverRecordFrom(ctx: Phase2IssuanceContext, reason: CutoverReason, at: Date): CutoverRecordInput {
+  return {
+    tenantId: ctx.tenantId,
+    clientRef: ctx.body.clientRef ?? null,
+    clientCreatedAt: ctx.body.clientCreatedAt ? new Date(ctx.body.clientCreatedAt) : null,
+    reason,
+    salesRepId: ctx.salesRepId ?? null,
+    customerId: ctx.customerId ?? null,
+    amount: typeof ctx.engine?.total === 'number' ? ctx.engine.total : null,
+    at,
+    payload: {
+      body: ctx.body,
+      customerId: ctx.customerId,
+      customerName: ctx.customerName,
+      salesRepId: ctx.salesRepId,
+      items: ctx.items,
+      engine: { subtotal: ctx.engine.subtotal, discountAmt: ctx.engine.discountAmt, taxAmt: ctx.engine.taxAmt, total: ctx.engine.total },
+    },
+  };
+}
+
 /**
  * فرع المرحلة الثانية في POST /invoices.
  *
@@ -438,6 +474,35 @@ export async function issuePhase2Invoice(ctx: Phase2IssuanceContext, deps: Phase
     ...(deps.env ? { env: deps.env } : {}), now, seller,
   });
   if (regime.phase === 1) return null; // ← المرحلة الأولى: المسار القديم يكمل بلا تغيير
+
+  // D11 cut-over (Z5.8، نقد 3/4): بعد التفعيل الحيّ، مستندٌ أُعيد رفعه (X-FS-Replay) بلحظة جهازٍ من قبل التفعيل يُقبل
+  // مرحلةً أولى ضمن مهلة ٧٢ ساعة (بعودة null فيسجّله المسار القديم)، وإلا يُحفظ لمراجعة الإدارة (لا رفض صامت أبداً).
+  // شرط X-FS-Replay ولحظة الجهاز مقصود (نقد 2): الطلب الحيّ الأوّل — ومنه رفع المندوب المتّصل — لا يمرّ من هنا.
+  if (regime.mode === 'live' && seller?.zatcaPhase2StartedAt && isReplayRequest(ctx.caps) && typeof ctx.body.clientCreatedAt === 'string') {
+    // نقد 3: مستندٌ سبق للإدارة حسمه (بمفتاح إعادة الرفع clientRef) نتيجتُه نهائيّة توقف إعادة الرفع — لا حلقةٌ لا تنتهي ولا رفض
+    // صامت. REJECTED ⇒ 422 (يُنقل لقائمة المرفوضات)، ACCEPTED_PHASE1 ⇒ null (المسار القديم يسجّلها مرحلة أولى)، وACCEPTED_PHASE2 ⇒
+    // يمضي لإصدار المرحلة الثانية أدناه. PENDING أو بلا حسم ⇒ قرار الانتقال المعتاد.
+    const clientRef = ctx.body.clientRef ?? null;
+    const decided = clientRef && deps.cutover?.find ? await deps.cutover.find(ctx.tenantId, clientRef) : null;
+    if (decided && decided.status !== 'PENDING') {
+      if (decided.status === 'REJECTED') return errorResult(new ZatcaHttpError('ZATCA_CUTOVER_REJECTED', { logDetail: { source: 'CUTOVER', code: 'REJECTED' } }));
+      if (decided.status === 'ACCEPTED_PHASE1') return null; // المسار القديم يسجّلها مرحلة أولى (startedAt مضبوط ⇒ رفض التسليح لا يمسّها)
+      // ACCEPTED_PHASE2 ⇒ يمضي لإصدار المرحلة الثانية المعتاد أدناه (يُختم ويُرسَل)، وإعادة الرفع التالية يلتقطها منع التكرار (clientRef)
+    } else {
+      const cut = cutoverDecision({
+        startedAt: seller.zatcaPhase2StartedAt,
+        clientCreatedAt: new Date(ctx.body.clientCreatedAt),
+        now,
+      });
+      if (cut.kind === 'ACCEPT_PHASE1') return null; // المسار القديم يسجّلها مرحلة أولى (armedAt يمرّرها لأنّ لحظتها قبل التسليح)
+      if (deps.cutover) {
+        try {
+          await deps.cutover.record(cutoverRecordFrom(ctx, cut.reason, now));
+        } catch { /* فشل الحفظ لا يغيّر الردّ — يبقى 409 مراجعة الإدارة */ }
+      }
+      return errorResult(new ZatcaHttpError('ZATCA_CUTOVER_REVIEW', { logDetail: { source: 'CUTOVER', code: cut.reason } }));
+    }
+  }
 
   // نقد 2: حارس القدرات قبل كلّ قرار آخر من المرحلة الثانية (الحجب، وقاعدة الانتقال في Z5.8)
   const gate = capsGate(ctx.caps);

@@ -480,12 +480,26 @@ export type ZatcaSellerData = Record<ZatcaSellerField, string | null>;
 
 export interface ZatcaSellerWarning { code: string; messageAr: string; unitId?: string }
 
+// ── Z5.8: تفعيل المرحلة الثانية (go-live) — جاهزية التفعيل وقائمة المناديب غير المزامنين (backend GoLiveGate) ──
+export type ZatcaGoLiveCheckKey = 'unitActive' | 'sellerReady' | 'currencySar' | 'repsSynced';
+export type ZatcaRepUnsyncedReason = 'NO_REPORT' | 'STALE_REPORT' | 'OUTBOX_PENDING';
+export interface ZatcaGoLiveReadiness {
+  available: boolean;
+  envAllows: boolean;
+  armed: boolean;
+  armedAt: string | null;
+  checks: Record<ZatcaGoLiveCheckKey, boolean>;
+  reps: { ready: boolean; total: number; synced: number; unsynced: Array<{ id: string; name: string; reason: ZatcaRepUnsyncedReason }> };
+}
+
 export interface ZatcaOverview {
   gate: { zatcaPhase2Enabled: boolean; countryCode: string };
   regime: 'PHASE1' | 'PHASE2';
   phase2StartedAt: string | null;
   goLiveAvailable: boolean;
   goLiveUnavailableMessage: string;
+  /** Z5.8: بوابة التفعيل الكاملة — تُرجَع فقط لشركةٍ غير مفعّلة والمخزن مهيّأ (غيابها ⇒ كما اليوم). */
+  goLiveReadiness?: ZatcaGoLiveReadiness | null;
   allowedEnvs: ZatcaEnv[];
   envConfigIssues: string[];
   productionBackend: boolean;

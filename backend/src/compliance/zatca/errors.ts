@@ -25,7 +25,7 @@ export type ZatcaErrorCode =
   | 'ZATCA_ORIGINAL_NOT_CLEARED' | 'ZATCA_CREDIT_QTY_EXCEEDED' | 'ZATCA_CREDIT_AMOUNT_EXCEEDED' | 'ZATCA_NOTHING_TO_CREDIT'
   | 'ZATCA_NOTE_ON_NOTE' | 'ZATCA_NOTE_LINES_INVALID' | 'ZATCA_NOTE_NOT_ALLOWED' | 'ZATCA_CLIENT_UPDATE_REQUIRED'
   | 'ZATCA_CLEARED_NO_XML' | 'ZATCA_ALLOCATION_BLOCKED' | 'ZATCA_WITHDRAW_NOT_ALLOWED' | 'ZATCA_REISSUE_NOT_ALLOWED'
-  | 'ZATCA_RETRY_NOT_ALLOWED' | 'ZATCA_CANCEL_NOT_ALLOWED' | 'ZATCA_WITHDRAWN' | 'ZATCA_CUTOVER_REVIEW' | 'ZATCA_OFFLINE_BLOCKED' | 'ZATCA_INTERNAL' | 'CUSTOMER_ZATCA_INVALID' | 'TENANT_HAS_EINVOICE_ARCHIVE';
+  | 'ZATCA_RETRY_NOT_ALLOWED' | 'ZATCA_CANCEL_NOT_ALLOWED' | 'ZATCA_WITHDRAWN' | 'ZATCA_CUTOVER_REVIEW' | 'ZATCA_CUTOVER_REJECTED' | 'ZATCA_OFFLINE_BLOCKED' | 'ZATCA_INTERNAL' | 'CUSTOMER_ZATCA_INVALID' | 'TENANT_HAS_EINVOICE_ARCHIVE';
 
 export interface ZatcaCatalogueEntry {
   status: number;
@@ -80,6 +80,8 @@ export const ZATCA_ERROR_CATALOGUE: Readonly<Record<ZatcaErrorCode, Readonly<Zat
   ZATCA_WITHDRAWN: { status: 409, messageAr: 'سُحبت هذه الفاتورة قبل وصولها إلى الهيئة وأُلغيت — أصدر فاتورة جديدة', alert: false },
   ZATCA_CLIENT_UPDATE_REQUIRED: { status: 426, messageAr: 'حدّث التطبيق لإصدار الفواتير الضريبية (أغلق التطبيق وافتحه من جديد)', alert: false },
   ZATCA_CUTOVER_REVIEW: { status: 409, messageAr: 'مستند دون اتصال من قبل التفعيل — بانتظار مراجعة الإدارة', alert: false },
+  // Z5.8 (D11، نقد 3): مستندٌ انتقاليّ رفضته الإدارة — نتيجةٌ نهائية توقف إعادة الرفع (يُنقل لقائمة المرفوضات، لا يُعاد إلى ما لا نهاية)
+  ZATCA_CUTOVER_REJECTED: { status: 422, messageAr: 'رفضت الإدارة هذا المستند الانتقاليّ — لن يُصدَر', alert: false },
   ZATCA_OFFLINE_BLOCKED: { status: 409, messageAr: 'لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال — المرحلة الثانية مفعّلة', alert: false },
   ZATCA_INTERNAL: { status: 500, messageAr: 'تعذّر إكمال عملية الفوترة الإلكترونية — أعد المحاولة، وأُبلغت الإدارة', alert: true },
   CUSTOMER_ZATCA_INVALID: { status: 400, messageAr: 'بيانات الفوترة الإلكترونية للعميل غير صحيحة', alert: false },

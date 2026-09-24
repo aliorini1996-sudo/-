@@ -303,6 +303,10 @@ export function prismaEgsUnitStore(prisma: PrismaLike): EgsUnitStore {
       });
     },
     async setPhase2StartedAtOnce(tenantId, at) {
+      // نقد الخطة 4.4 (ترتيب الأقفال): UPDATE الذرّيّ هذا يأخذ قفل صفّ الإعدادات حصرياً (ROW EXCLUSIVE) لحظة كتابة التفعيل،
+      // فيتعارض مع القفل المشترك (FOR SHARE) الذي يعيد به مسارُ إصدار المرحلة الأولى قراءةَ الصفّ داخل معاملته
+      // (routes/invoicesGoLiveRace.ts): إمّا تلتزم فاتورةُ مرحلةٍ أولى متزامنة قبل التفعيل، أو تُحجب ثم تراه فتُرفض — فلا يلتزم
+      // مستندٌ غير مختوم على شركةٍ صارت حيّة. لا حاجة لقفلٍ صريح هنا (يبقى المحوّل بلا SQL خام واستعلامين كما هو مُدقَّق).
       const r = await prisma.companySettings.updateMany({ where: { tenantId, zatcaPhase2StartedAt: null }, data: { zatcaPhase2StartedAt: at } });
       if (r.count === 1) return { applied: true, startedAt: at };
       const s = await prisma.companySettings.findUnique({ where: { tenantId }, select: { zatcaPhase2StartedAt: true } });

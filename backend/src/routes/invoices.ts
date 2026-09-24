@@ -14,6 +14,9 @@ import { canAccessCustomer, redactCustomer } from '../services/customerScope';
 import { buildInstallments, MAX_INSTALLMENTS } from '../services/installments';
 // ZATCA المرحلة الثانية (Z5.2): فرعٌ واحد للإصدار، وحارس قدرات العميل على القراءات — المرحلة الأولى لا تمرّ بشيء منه
 import { regimeCandidate } from '../compliance/zatca/regime';
+// ZATCA المرحلة الثانية (Z5.8، نقد 4): رفض إصدار المرحلة الأولى بعد «تسليح» التفعيل — دالّة نقيّة، مطفأة حين armedAt == null
+import { phase1ArmRefusal } from '../compliance/zatca/goLive';
+import { assertNotWentLiveInTx, Phase2WentLiveError, type GoLiveRaceTx } from './invoicesGoLiveRace';
 import { ALLOCATION_ALLOWED_WHERE } from '../compliance/zatca/status';
 import { ZatcaHttpError } from '../compliance/zatca/errors';
 import { issuanceHttpError } from '../compliance/zatca/issue';
@@ -440,7 +443,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const company = await prisma.companySettings.findUnique({
       where: { tenantId: tid },
       // zatcaPhase2StartedAt: قرار النظام الضريبي (Z5.2) يُقرأ من هذا الصفّ المحمَّل أصلاً — صفر استعلامات للمرحلة الأولى
-      select: { defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true },
+      // zatcaGoLiveArmedAt (Z5.8، نقد 4): رفض إصدار المرحلة الأولى بعد التسليح — NULL لكلّ الشركات اليوم فلا أثر
+      select: { defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true },
     });
     const companyVat = company?.defaultVatPct ?? 15;
     // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
@@ -562,11 +566,31 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
 
+    // ZATCA (Z5.8، نقد 4): بعد «تسليح» التفعيل تُرفض فاتورةُ مرحلةٍ أولى أُنشئت على الجهاز عند/بعد لحظة التسليح — شبكةُ أمانٍ
+    // خلف رفض العميل دون اتصال. مطفأ تماماً لمن لم يُسلَّح (armedAt == null) وبعد التفعيل الفعليّ (startedAt، يحكمه فرع
+    // المرحلة الثانية) — فصفر أثر على أيّ شركة اليوم، ولا يمسّ مستنداً قُبل انتقالياً (D11).
+    {
+      const armed = phase1ArmRefusal({
+        armedAt: company?.zatcaGoLiveArmedAt ?? null,
+        startedAt: company?.zatcaPhase2StartedAt ?? null,
+        clientCreatedAt: body.clientCreatedAt ? new Date(body.clientCreatedAt) : null,
+      });
+      if (armed) { res.status(armed.status).json(armed.body); return; }
+    }
+
+    // ZATCA (Z5.8، نقد 4.4): شركةٌ مُسلَّحة صفُّ إعداداتها «لم يُفعَّل بعد» عند القراءة أعلاه قد تُفعَّل حيّاً أثناء تجهيز هذه الفاتورة
+    // (سباق التفعيل). عندئذٍ فقط تُعاد قراءة الصفّ بقفلٍ مشترك داخل المعاملة (assertNotWentLiveInTx) فلا يلتزم صفٌّ غير مختوم.
+    // NULL لكلّ الشركات اليوم (غير مُسلَّحة) ⇒ armRaceActive=false ⇒ لا قراءة ولا قفل: مسار المرحلة الأولى كما اليوم حرفاً بحرف.
+    // (startedAt مضبوطٌ عند القراءة ⇒ ليست مرحلةً أولى أصلاً — ومنه إعادة رفعٍ قُبل انتقالياً مرحلةً أولى، فلا يمسّها هذا).
+    const armRaceActive = (company?.zatcaGoLiveArmedAt ?? null) != null && (company?.zatcaPhase2StartedAt ?? null) == null;
+
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const invoice = await withNumberRetry(async () => {
     // البادئة تُشتقّ من تاريخ الفاتورة (docDate) لا وقت الرفع — يحفظ تسلسل الفترة للمستندات الأوف-لاين
     const number = isReturn ? await generateReturnNumber(tid, docDate) : await generateInvoiceNumber(tid, docDate);
     return prisma.$transaction(async tx => {
+      // نقد 4.4: يرمي Phase2WentLiveError إن صار التفعيل مضبوطاً بين قراءة الإعدادات أعلاه والتزام هذه المعاملة (مطفأ لغير المُسلَّح)
+      await assertNotWentLiveInTx(tx as unknown as GoLiveRaceTx, tid, armRaceActive);
       const inv = await tx.invoice.create({
         data: {
           tenantId: tid,
@@ -657,6 +681,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     publishInvoicesChanged(tid);
     res.status(201).json({ success: true, data: invoice });
   } catch (err) {
+    // ZATCA (Z5.8، نقد 4.4): فُعّلت الشركة حيّاً أثناء تجهيز فاتورة المرحلة الأولى — تُرفض بدل التزام صفّ غير مختوم (لا فاتورة)
+    if (err instanceof Phase2WentLiveError) { res.status(err.httpError.status).json(err.httpError.body()); return; }
     // سباق تزامن: رفعان متزامنان بنفس clientRef تجاوزا الفحص المبكر — الثاني يصطدم بالقيد.
     // نعيد الفاتورة القائمة بدل الفشل (idempotency تحت التزامن).
     const e = err as { code?: string; meta?: { target?: unknown } };

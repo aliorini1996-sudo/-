@@ -13,6 +13,7 @@ import prisma from '../config/database';
 import { prismaZatcaDocumentStore } from '../compliance/zatca/documentStore.prisma';
 import { prismaIssuanceStore } from '../compliance/zatca/issueStore.prisma';
 import { prismaEgsUnitStore } from '../compliance/zatca/onboardingStore';
+import { prismaGoLiveStore } from '../compliance/zatca/goLiveStore.prisma';
 import { keyringFromEnv } from '../compliance/zatca/secrets';
 import { issuanceUnitMutex } from '../compliance/zatca/unitMutex';
 import { postCashInvoiceEntries, postInvoiceEntries, postReturnEntries } from '../services/accounting';
@@ -85,6 +86,15 @@ export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): Note
     now: () => new Date(),
     env,
     mutex: issuanceUnitMutex,
+    // Z5.8 (D11): حفظ المستند الانتقاليّ لمراجعة الإدارة — طابور ZatcaCutoverReview (لا رفض صامت). ونقد 3: قراءة حسم الإدارة
+    // لإعادة الرفع بمفتاح clientRef فتنتهي دورة الرفع (قبول ⇒ يُصدَر/يُسجَّل، رفض ⇒ يُرفض نهائياً) بدل حلقةٍ لا تنتهي.
+    cutover: {
+      record: input => prismaGoLiveStore(prisma).recordCutover(input),
+      find: async (tenantId, clientRef) => {
+        const row = await prismaGoLiveStore(prisma).findCutoverByClientRef(tenantId, clientRef);
+        return row ? { status: row.status } : null;
+      },
+    },
     // Z5.4: الاعتماد الحيّ للقياسية — مقعد الإرسال المحجوز للطلب الحيّ (Z5.3 §الحصص)، ولا يرمي أبداً
     submitInline: async (ref, opts) => {
       try {

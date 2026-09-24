@@ -1,6 +1,6 @@
 // فوترة ZATCA المرحلة الثانية — حرّاس Z5 الثابتة (z5_plan §3 Z5.0 «Tests»): نصّية على المصدر، لا قاعدة بيانات ولا شبكة.
 //   1) لا يكتب zatcaPhase2StartedAt إلا goLive (onboarding.ts عبر setPhase2StartedAtOnce في onboardingStore.ts).
-//   2) مسار التفعيل يبقى 409 حتى Z5.8 (يُحدَّث هذا الحارس عمداً حينها).
+//   2) Z5.8: مسار التفعيل موصولٌ بـ goLive ومحروسٌ بعلم البيئة (بلا مخزن/بعلم مطفأ يبقى 409 GO_LIVE_UNAVAILABLE).
 //   3) compliance/zatca/* وroutes/invoicesZatca.ts لا تستورد services/gl.
 //   4) لا مرشّح { not: … } على أعمدة المرحلة الثانية القابلة للإفراغ في ملفات Z5، وكل notIn عليها داخل OR مع null.
 import { test } from 'node:test';
@@ -101,11 +101,16 @@ test('zatcaPhase2StartedAt لا يكتبه إلا setPhase2StartedAtOnce (onboar
   assert.doesNotMatch(tenants, /zatcaPhase2StartedAt/);
 });
 
-test('مسار التفعيل ما زال 409 GO_LIVE_UNAVAILABLE (حتى Z5.8) والنظرة العامة goLiveAvailable: false', () => {
+test('Z5.8: مسار التفعيل موصولٌ بـ goLive ومحروسٌ بعلم البيئة (بلا مخزن/بعلم مطفأ يبقى 409 GO_LIVE_UNAVAILABLE)', () => {
   const route = stripComments(read('routes/zatca.ts'));
-  assert.match(route, /router\.post\('\/go-live', \(_req, res\) => \{\s*sendRouteError\(res, 409, 'GO_LIVE_UNAVAILABLE'\);\s*\}\);/);
-  assert.match(route, /goLiveAvailable: false,/);
-  assert.doesNotMatch(route, /\bgoLive\b(?!Available|UnavailableMessage)/, 'goLive موصول قبل Z5.8');
+  // المسار الآن معالجٌ غير متزامن يستدعي آلة الحالة goLive
+  assert.match(route, /router\.post\('\/go-live', h\(log, async \(req, res\) => \{/);
+  assert.match(route, /goLive\(\{\s*store: deps\.store, policy, now: deps\.now, tenantId: ctx\.tenantId, actorId: ctx\.actorId, confirmations\s*\}\)/);
+  // شبكة الأمان: بلا مخزن التفعيل أو بعلم ZATCA_GO_LIVE مطفأ ⇒ 409 GO_LIVE_UNAVAILABLE كما اليوم
+  assert.match(route, /if \(!deps\.goLiveStore \|\| !goLiveEnvAllows\(goLiveEnvOf\(\), ctx\.tenantId\)\) \{ sendRouteError\(res, 409, 'GO_LIVE_UNAVAILABLE'\); return; \}/);
+  // النظرة العامة: goLiveAvailable محسوبة لا حرفية false
+  assert.match(route, /goLiveAvailable: goLiveGate\?\.available \?\? false,/);
+  // ما زال goLive وحده يكتب zatcaPhase2StartedAt (يحرسه اختبار الكاتب أعلاه)
 });
 
 test('compliance/zatca/* وroutes/invoicesZatca.ts لا تستورد services/gl', () => {

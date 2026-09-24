@@ -110,6 +110,8 @@ test('كل مفتاح يُنادى في الكود موجود في القامو�
   const zatcaDir = path.join(srcDir, 'components', 'zatca') + path.sep;
   const zatcaHave = new Set<string>();
   for (const m of read('src', 'components', 'zatca', 'zatcaPhrases.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) zatcaHave.add(m[1]);
+  // Z5.8: قسما التفعيل (go-live) ومراجعة الانتقال (D11) يحملان عباراتهما في حزمتهما الكسولة (goLivePhrases.ts، عبر useGoLiveTr) — تُحتسب لملفّات مجلد zatca نفسه
+  for (const m of read('src', 'components', 'zatca', 'goLivePhrases.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) zatcaHave.add(m[1]);
   /* Z5.7 — صفحة المشتري العلنية (`/e/:token`) كسولةٌ أيضاً وقاموسها معها في lib/zatca/shareView.ts: يفتحها
    * مشترٍ خارج المنصّة، فلا تُثقَل حزمة الدخول بنصوصها. تُحتسب لملفّ الصفحة وحده. */
   const shareFile = path.join(srcDir, 'pages', 'EinvoicePublicPage.tsx');

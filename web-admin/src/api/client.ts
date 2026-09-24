@@ -184,6 +184,18 @@ export const zatcaApi = {
   abortRenewal: (id: string) => api.post(`/zatca/units/${encodeURIComponent(id)}/abort-renewal`, {}),
   retire: (id: string, data: { confirmation: string; reason: 'revoked-in-portal' | 'abandoned' }) =>
     api.post(`/zatca/units/${encodeURIComponent(id)}/retire`, data),
+  // Z5.8: تفعيل المرحلة الثانية (go-live) — جاهزية تُستطلع، تسليح، ثم تفعيل بتأكيد «تفعيل» + repsSynced
+  goLiveReadiness: () => api.get('/zatca/go-live/readiness'),
+  armGoLive: () => api.post('/zatca/go-live/arm', {}),
+  // Z5.8 (نقد 2/4): نزع التسليح — تعافٍ من تسليحٍ خاطئ يعيد الإصدار دون اتصال (ما لم تكن الشركة قد فُعّلت حيّاً)
+  disarmGoLive: () => api.post('/zatca/go-live/disarm', {}),
+  goLive: (data: { typedConfirmation: string; repsSynced: boolean }) => api.post('/zatca/go-live', data),
+  // Z5.8: طابور مراجعة الانتقال (D11) — قائمة + قبول (مرحلة أولى/ثانية) / رفض
+  cutoverList: (status?: string) => api.get('/zatca/cutover', status ? { params: { status } } : undefined),
+  cutoverAccept: (id: string, data: { mode: 'PHASE1' | 'PHASE2'; note?: string }) =>
+    api.post(`/zatca/cutover/${encodeURIComponent(id)}/accept`, data),
+  cutoverReject: (id: string, data: { note?: string }) =>
+    api.post(`/zatca/cutover/${encodeURIComponent(id)}/reject`, data),
 };
 
 // مستخدمو الشركة الذين يدخلون لوحة الإدارة
