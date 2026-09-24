@@ -526,7 +526,18 @@ export default function TrackingPage() {
                   <Marker key={v.id} position={[v.lat!, v.lng!]} icon={visitIcon(visitNo.get(v.id) ?? 0)}>
                     <Popup>
                       <div style={{ direction: 'rtl', minWidth: 160 }}>
-                        <strong>{v.customer?.name || tr('زيارة')}</strong><br />
+                        {/* الاسم يفتح تفاصيل الزيارة كما تفتحها «صورة» — وهو أوّل ما
+                            تقع عليه العين وأكبر هدفٍ للإصبع. ويفتحها ولو لم تكن ثمّة
+                            صورة: النافذة تعرض المدّة والملاحظة أيضاً. */}
+                        <button type="button" onClick={() => setOpenVisit(v.id)} title={tr('تفاصيل الزيارة')}
+                          style={{
+                            background: 'none', border: 'none', padding: 0, font: 'inherit',
+                            color: '#1F1A13', fontWeight: 700, cursor: 'pointer',
+                            textAlign: 'right', textDecoration: 'underline', textUnderlineOffset: 3,
+                            textDecorationColor: '#E15A30',
+                          }}>
+                          {v.customer?.name || tr('زيارة')}
+                        </button><br />
                         <span style={{ color: '#6E6557', fontSize: 12 }}>{timeText(v.createdAt)}</span>
                         {v.note ? <><br /><span style={{ fontSize: 12 }}>{v.note}</span></> : null}
                         {v._count.photos > 0 && (
