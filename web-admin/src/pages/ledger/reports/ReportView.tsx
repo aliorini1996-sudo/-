@@ -392,9 +392,11 @@ export function ReportView<TRow = Record<string, unknown>, TTotals = Record<stri
             ) : <span className="w-[14px]" />}
             {node.code ? <bdi className="font-mono text-[11px] text-[#9A8F7E]">{node.code}</bdi> : null}
             <span className={emph === 'normal' ? '' : 'font-semibold'}>
-              {node.labelHref
-                ? <Link to={node.labelHref} className="text-[#E15A30] hover:underline">{node.label}</Link>
-                : node.label}
+              {node.accountId && reportKey !== 'general-ledger'
+                ? <Link to={drilldown(node.accountId)} title={tr('كشف حساب — دفتر الأستاذ')} className="text-[#E15A30] hover:underline">{node.label}</Link>
+                : node.labelHref
+                  ? <Link to={node.labelHref} className="text-[#E15A30] hover:underline">{node.label}</Link>
+                  : node.label}
             </span>
             {/* RPT‑12: معادلة السطر خلف أيقونة (i) — عنوانٌ للفأرة ونصٌّ يُفتح بالنقر تحت التسمية */}
             {node.hint ? (

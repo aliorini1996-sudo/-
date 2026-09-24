@@ -3778,6 +3778,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'بالملايين': { en: 'In millions', fr: 'En millions', tr: 'Milyon olarak', zh: '以百万为单位' },
   'التقرير أكبر من سقف التصدير: ضيّق الفترة أو الحسابات، أو صدّر XLSX': { en: 'The report exceeds the export cap — narrow the period or the accounts, or export XLSX', fr: 'Le rapport dépasse le plafond d’export — réduisez la période ou les comptes, ou exportez en XLSX', tr: 'Rapor dışa aktarma sınırını aşıyor — dönemi veya hesapları daraltın ya da XLSX olarak dışa aktarın', zh: '报表超出导出上限——请缩小期间或科目范围，或导出 XLSX' },
   'التعمّق في دفتر الأستاذ العام': { en: 'Drill down into the general ledger', fr: 'Explorer dans le grand livre', tr: 'Büyük defterde ayrıntıya in', zh: '下钻到总分类账' },
+  'كشف حساب — دفتر الأستاذ': { en: 'Account statement — general ledger', fr: 'Relevé de compte — grand livre', tr: 'Hesap ekstresi — büyük defter', zh: '科目明细 — 总账' },
   'تاريخ داخل الفترة': { en: 'A date inside the period', fr: 'Une date dans la période', tr: 'Dönem içinde bir tarih', zh: '期间内的某一日期' },
   'مفلتر، أبطأ': { en: 'Filtered, slower', fr: 'Filtré, plus lent', tr: 'Filtreli, daha yavaş', zh: '已筛选，较慢' },
   'المقارنة': { en: 'Comparison', fr: 'Comparaison', tr: 'Karşılaştırma', zh: '比较' },
