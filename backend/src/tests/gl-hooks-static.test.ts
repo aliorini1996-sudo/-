@@ -80,7 +80,7 @@ test('compliance/zatca/* وroutes/invoicesZatca.ts لا تستورد services/gl
   for (const f of ['issue.ts', 'issueChain.ts', 'issueSigner.ts', 'issueTx.ts', 'issueStore.prisma.ts', 'unitMutex.ts']) {
     assert.ok(files.includes(path.join('compliance', 'zatca', f)), `${f} مفقود من الفحص`);
   }
-  for (const r of ['invoicesZatca.ts', 'invoicesZatcaDeps.ts']) {
+  for (const r of ['invoicesZatca.ts', 'invoicesZatcaDeps.ts', 'invoicesNotes.ts']) {
     if (fs.existsSync(path.join(SRC, 'routes', r))) files.push(path.join('routes', r));
   }
   // Z5.3/Z5.4 (نقد 36): توصيل الإرسال والإبطال وإعادة الإصدار بالإنتاج داخل الفحص نفسه

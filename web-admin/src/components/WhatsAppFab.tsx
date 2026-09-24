@@ -45,7 +45,7 @@ import { trackWhatsApp } from '../lib/ads';
 //   `?ref=` في الاستعلام لا في المسار. دفع زبائن الشركات يعود إلى `/pay/<token>` لا إليها.
 // القاعدة **نفسها حرفياً** في استثناءات VisitTracker في App.tsx — whatsappFab.test.ts
 // يفرض التطابق، و`ax` آخر البدائل لأن affiliate/hiding.test.ts يفحص ذلك.
-const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|ax)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home

@@ -21,6 +21,11 @@ import {
   capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody, type Phase2IssuanceContext,
 } from './invoicesZatca';
 import { productionPhase2Deps } from './invoicesZatcaDeps';
+// ZATCA المرحلة الثانية (Z5.5): الإشعارات الدائنة والمدينة — المرتجع بعد الربط إشعارٌ مرتبط بأصله (D3/D4/Q5)
+import {
+  creditNotePermission, creditScopeOf, creditableProjection, debitNotePermission, issueCreditNote, issueDebitNote,
+  issueReturnAsCreditNote, type NoteActor,
+} from './invoicesNotes';
 import { withdrawPhase2Invoice } from '../services/invoiceVoid';
 import { reissuePhase2Invoice } from '../services/invoiceReissue';
 import { retryPhase2Document } from '../services/zatcaSubmit';
@@ -95,6 +100,9 @@ router.use(requireAdminPermission('canManageInvoices'));
 
 const invoiceItemSchema = z.object({
   productId: z.string(),
+  // ZATCA المرحلة الثانية (Z5.5): بند الفاتورة الأصلية الذي يُرجَع هذا البند منه — للمرتجع في شركةٍ مربوطة وحده،
+  // ويُهمَل في المرحلة الأولى تماماً (الحقل لا يُقرأ هناك ولا يُكتب).
+  invoiceItemId: z.string().optional(),
   qty: z.number().positive(),
   unitPrice: z.number().min(0),
   discountPct: z.number().min(0).max(100).default(0),
@@ -122,6 +130,10 @@ const createInvoiceSchema = z.object({
   type: z.enum(['CASH', 'CREDIT', 'RETURN']).default('CREDIT'),
   // سبب الإرجاع (يُستخدم فقط عند type=RETURN): عادي/تالف/استبدال
   returnReason: z.enum(['NORMAL', 'DAMAGED', 'EXCHANGE']).optional(),
+  // ZATCA المرحلة الثانية (D3): المرتجع بعد الربط إشعارٌ دائن مرتبط بفاتورةٍ أصلية — معرّفها وسببه.
+  // في المرحلة الأولى لا يُقرأ الحقلان إطلاقاً ويبقى المرتجع مستنداً عادياً كما هو اليوم.
+  originalInvoiceId: z.string().optional(),
+  noteReason: z.string().max(1000).optional(),
   // هل يعود المرتجع لمخزون السيارة؟ (اختياري — يُشتقّ من السبب إن غاب)
   returnToStock: z.boolean().optional(),
   dueDate: z.string().optional(),
@@ -521,8 +533,33 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         deliveryDate: deliveryOk,
         dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
       };
-      const phase2 = await issuePhase2Invoice(phase2Ctx, productionPhase2Deps());
-      if (phase2) { res.status(phase2.status).json(phase2.body); return; }
+      /* D3 (Z5.5): المرتجع في شركةٍ مربوطة ليس مستنداً سالباً بل **إشعارٌ دائن** يشير إلى فاتورته الأصلية —
+       * بنوده وأسعاره وضريبته من بنود الأصل، وكميّاته محروسةٌ بما لم يُرجَع منها بعد. وبلا أصلٍ في الطلب يُردّ 422
+       * «اختر الفاتورة أولاً» كما هو اليوم. عودة null تعني مرحلةً أولى فعلاً فيكمل المسار القديم بلا أثر. */
+      if (body.type === 'RETURN') {
+        const note = await issueReturnAsCreditNote({
+          tenantId: tid,
+          caps: capsFromHeaders(req.headers),
+          originalInvoiceId: body.originalInvoiceId ?? null,
+          items: body.items.map(i => ({ productId: i.productId, invoiceItemId: i.invoiceItemId ?? null, qty: i.qty })),
+          customer,
+          salesRepId,
+          decimals: dec,
+          // Q5 يُقاس على أثر الإشعار لا على صيغته: مرتجعٌ يستنفد الفاتورة كلّها إلغاءٌ في المعنى (صفّ المندوب مقروء أعلاه)
+          actor: req.user?.role === 'SALES_REP'
+            ? { role: 'SALES_REP', canCreateInvoice: rep.canCreateInvoice === true, canCancelInvoice: rep.canCancelInvoice === true }
+            : { role: req.user?.role ?? 'ADMIN' },
+          reason: body.noteReason ?? body.notes ?? '',
+          reasonCode: body.returnReason ?? null,
+          returnToStock: body.returnToStock ?? null,
+          clientRef: body.clientRef ?? null,
+          clientCreatedAt: body.clientCreatedAt ?? null,
+        }, productionPhase2Deps());
+        if (note) { res.status(note.status).json(note.body); return; }
+      } else {
+        const phase2 = await issuePhase2Invoice(phase2Ctx, productionPhase2Deps());
+        if (phase2) { res.status(phase2.status).json(phase2.body); return; }
+      }
     }
 
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
@@ -657,8 +694,28 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     /* ZATCA المرحلة الثانية (مراجعة عدائية ٢): الإلغاء اليدويّ يعكس القيود ولا يمسّ zatca_documents إطلاقاً، فكان
      * المسحُ يواصل إرسال مستند فاتورةٍ عُكست قيودها — ضريبة مخرجات مُقرَّة على بيعٍ مُلغى بلا إشعار دائن. المخرجان
      * المحروسان وحدهما: السحب قبل أن تستلم الهيئة، والإشعار الدائن بعد الاعتماد. */
+    /* D4 (Z5.5): وبديلُ الإلغاء يُرفَق بالردّ نفسه — ما يمكن إرجاعه من هذه الفاتورة الآن (creditable)، فتفتح
+     * الواجهة شاشة «إشعار دائن كامل» بلا نداءٍ ثانٍ ولا رسالةٍ مسدودة. وتعذّر بناء المعاينة لا يغيّر الردّ. */
     if (invoice.zatcaPhase === 2) {
-      const e = new ZatcaHttpError('ZATCA_CANCEL_NOT_ALLOWED', { reason: invoice.einvoiceStatus ?? 'UNKNOWN' });
+      const e = new ZatcaHttpError('ZATCA_CANCEL_NOT_ALLOWED', {
+        reason: invoice.einvoiceStatus ?? 'UNKNOWN',
+        data: { invoiceId: invoice.id, creditable: await cancelCreditablePayload(req, tid) },
+      });
+      res.status(e.status).json(e.body()); return;
+    }
+
+    /* Z5.5 (مراجعة «مال ومخزون»): صدر على هذه الفاتورة إشعارٌ دائن أو مدين — وإلغاؤها يعكس **إجماليها** فوق ما
+     * عكسه الإشعار (ائتمانٌ مزدوج للعميل)، ويُخفي كمّياتها المباعة من حساب المخزون بينما يبقى صفُّ الإشعار يضيفها
+     * (كمّيةٌ وهمية في السيارة). يقع عملياً على فواتير ما قبل الربط: المربوطة ممنوعة الإلغاء أصلاً بالحارس أعلاه. */
+    const notesOnInvoice = await prisma.invoice.count({
+      where: { tenantId: tid, originalInvoiceId: invoice.id, status: 'CONFIRMED' },
+    });
+    if (notesOnInvoice > 0) {
+      const e = new ZatcaHttpError('ZATCA_CANCEL_NOT_ALLOWED', {
+        messageAr: 'صدر على هذه الفاتورة إشعار دائن أو مدين — لا تُلغى؛ أصدر إشعاراً دائناً بما تبقّى منها',
+        reason: 'HAS_NOTES',
+        data: { invoiceId: invoice.id, creditable: await cancelCreditablePayload(req, tid) },
+      });
       res.status(e.status).json(e.body()); return;
     }
 
@@ -707,6 +764,219 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     publishInvoicesChanged(tid);
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
+});
+
+// ═══ ZATCA المرحلة الثانية (Z5.5): الإشعارات الدائنة والمدينة ═══
+
+const creditNoteSchema = z.object({
+  clientRef: z.string().uuid().optional(),
+  clientCreatedAt: z.string().optional(),
+  reason: z.string().min(3, 'سبب الإشعار مطلوب').max(1000),
+  reasonCode: z.enum(['NORMAL', 'DAMAGED', 'EXCHANGE']).optional(),
+  returnToStock: z.boolean().optional(),
+  // 'FULL' = كلّ ما لم يُرجَع بعد (بديل الإلغاء — D4)؛ وإلا بنود الأصل بكمّياتها
+  lines: z.union([
+    z.literal('FULL'),
+    z.array(z.object({ invoiceItemId: z.string(), qty: z.number().positive() })).min(1),
+  ]),
+});
+
+const debitNoteSchema = z.object({
+  clientRef: z.string().uuid().optional(),
+  clientCreatedAt: z.string().optional(),
+  reason: z.string().min(3, 'سبب الإشعار مطلوب').max(1000),
+  lines: z.array(z.object({
+    description: z.string().min(1).max(300),
+    qty: z.number().positive(),
+    unitPrice: z.number().positive(),
+    // النسبة مطلوبة صراحةً: الإشعار المدين يتبع معاملة الأصل الضريبية، ولا تُفترض له نسبةٌ من إعدادات اليوم
+    taxPct: z.number().min(0).max(100),
+    vatCategory: z.string().max(4).optional(),
+    vatExemptionCode: z.string().max(16).optional(),
+    vatExemptionReason: z.string().max(300).optional(),
+  })).min(1),
+});
+
+/** حمولة الإلغاء المرفوض: ما يمكن إرجاعه من الفاتورة، أو null إن تعذّر بناؤها (لا يغيّر الردّ). */
+async function cancelCreditablePayload(req: AuthRequest, tid: string): Promise<unknown> {
+  try {
+    const target = await noteTarget(req, tid);
+    if (!target) return null;
+    const view = await creditableProjection(
+      { tenantId: tid, invoiceId: target.invoiceId, customer: target.customer, actor: target.actor },
+      productionPhase2Deps(),
+    );
+    return view ? (view.body as { data?: unknown }).data ?? null : null;
+  } catch { return null; }
+}
+
+/** أعلام المندوب التي تقرّر صلاحية الإشعار (Q5)؛ ومستخدم الشركة مرّ ببوابة canManageInvoices أعلاه. */
+async function noteActor(req: AuthRequest, tid: string): Promise<NoteActor> {
+  if (req.user?.role !== 'SALES_REP') return { role: req.user?.role ?? 'ADMIN' };
+  const rep = await prisma.salesRep.findFirst({
+    where: { id: req.user.id, tenantId: tid },
+    select: { canCreateInvoice: true, canCancelInvoice: true },
+  });
+  return { role: 'SALES_REP', canCreateInvoice: rep?.canCreateInvoice === true, canCancelInvoice: rep?.canCancelInvoice === true };
+}
+
+type NoteTarget = {
+  invoiceId: string;
+  customer: NonNullable<Awaited<ReturnType<typeof prisma.customer.findFirst>>>;
+  actor: NoteActor;
+};
+
+/**
+ * الفاتورة الأصلية داخل نطاق الطالب + بطاقة عميلها + أعلامه.
+ *
+ * نطاق المندوب هنا **بالعميل** لا بمُصدر الفاتورة (نقد 20): المرتجع يقع على بضاعة العميل الذي يزوره المندوب،
+ * وقد باعها زميله. أمّا نطاق مستخدم الشركة (scopedRecordWhere) فيبقى كما هو في كلّ قراءة فاتورة.
+ */
+async function noteTarget(req: AuthRequest, tid: string): Promise<NoteTarget | null> {
+  const row = await prisma.invoice.findFirst({
+    where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+    select: { id: true, customerId: true },
+  });
+  if (!row) return null;
+  if (!(await canAccessCustomer(req, tid, row.customerId))) return null;
+  const customer = await prisma.customer.findFirst({ where: { id: row.customerId, tenantId: tid } });
+  if (!customer) return null;
+  return { invoiceId: row.id, customer, actor: await noteActor(req, tid) };
+}
+
+/** ردّ الشركة غير المربوطة: لا إشعارات في المرحلة الأولى، والمرتجع يبقى مستنداً عادياً. */
+const NOTES_NOT_ENABLED = 'الإشعارات الدائنة والمدينة للشركات المربوطة بالفوترة الإلكترونية (المرحلة الثانية) — سجّل مرتجعاً عادياً';
+
+/**
+ * منع التكرار بمفتاح العميل (clientRef) للإشعارات كما للفواتير: رفعٌ مكرَّر يعيد المستند القائم بحالته عند الهيئة
+ * بدل أن يُصدر إشعاراً ثانياً بـICV لا يُمحى. يعيد true إن ردّ فعلاً.
+ */
+async function replyIfClientRefExists(req: AuthRequest, res: Response, tid: string, clientRef: string): Promise<boolean> {
+  const existing = await prisma.invoice.findUnique({
+    where: { tenantId_clientRef: { tenantId: tid, clientRef } },
+    include: { items: true, customer: true },
+  });
+  if (!existing) return false;
+  // النطاق يسبق الـidempotency (كما في POST /): لا يُكشف عميل خارج النطاق لمن يعرف مرجع مستنده
+  if (existing.customerId && !(await canAccessCustomer(req, tid, existing.customerId))) {
+    res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return true;
+  }
+  const p2 = isPhase2Invoice(existing) ? await phase2ReplayBody(existing, capsFromHeaders(req.headers), productionPhase2Deps(), tid) : null;
+  if (p2) {
+    const row = p2.reload
+      ? (await prisma.invoice.findUnique({ where: { id: existing.id }, include: { items: true, customer: true } })) ?? existing
+      : existing;
+    if (p2.error) {
+      const body = p2.error.body();
+      if (p2.einvoice) body.data = { ...row, einvoice: p2.einvoice };
+      res.status(p2.status).json(body); return true;
+    }
+    res.status(200).json({ success: true, data: { ...row, einvoice: p2.einvoice }, idempotent: true }); return true;
+  }
+  res.status(200).json({ success: true, data: existing, idempotent: true }); return true;
+}
+
+/** سباق رفعين بنفس clientRef: الثاني يصطدم بالقيد الفريد فيقرأ القائم بدل أن يفشل. */
+async function handleNoteClientRefRace(req: AuthRequest, res: Response, err: unknown): Promise<boolean> {
+  const e = err as { code?: string; meta?: { target?: unknown } };
+  const clientRef = typeof req.body?.clientRef === 'string' ? req.body.clientRef : '';
+  if (e?.code !== 'P2002' || !String(e?.meta?.target ?? '').includes('clientRef') || !clientRef) return false;
+  try {
+    return await replyIfClientRefExists(req, res, tenantId(req), clientRef);
+  } catch { return false; }
+}
+
+/**
+ * ما يمكن إرجاعه من هذه الفاتورة الآن: بنودها بالمتاح من كلٍّ منها (المُباع − ما أُرجع في إشعارات سابقة)، وسبب
+ * المنع إن مُنع. هي شاشة «إشعار دائن» قبل إصدارها، وهي أيضاً حمولة الـ409 على الإلغاء بعد الربط.
+ */
+router.get('/:id/creditable', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const target = await noteTarget(req, tid);
+    if (!target) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    const r = await creditableProjection(
+      { tenantId: tid, invoiceId: target.invoiceId, customer: target.customer, actor: target.actor },
+      productionPhase2Deps(),
+    );
+    if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
+    res.status(r.status).json(r.body);
+  } catch (err) { next(err); }
+});
+
+/**
+ * إشعار دائن (381) على فاتورة: مرتجعٌ جزئيّ، أو `lines: 'FULL'` بديلاً عن الإلغاء بعد الربط (D4).
+ * الصلاحية (Q5): الكامل لمدير الشركة أو لمندوبٍ يملك «إلغاء الفاتورة»، والجزئيّ على قاعدة المرتجع اليوم.
+ */
+router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const body = creditNoteSchema.parse(req.body);
+    if (body.clientRef && await replyIfClientRefExists(req, res, tid, body.clientRef)) return;
+    const target = await noteTarget(req, tid);
+    if (!target) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    const perm = creditNotePermission(target.actor, creditScopeOf(body.lines));
+    if (!perm.ok) { res.status(403).json({ success: false, message: perm.messageAr }); return; }
+    const r = await issueCreditNote({
+      tenantId: tid,
+      caps: capsFromHeaders(req.headers),
+      originalInvoiceId: target.invoiceId,
+      customer: target.customer,
+      salesRepId: req.user?.role === 'SALES_REP' ? req.user.id : null,
+      actor: target.actor,
+      reason: body.reason,
+      lines: body.lines,
+      reasonCode: body.reasonCode ?? null,
+      returnToStock: body.returnToStock ?? null,
+      clientRef: body.clientRef ?? null,
+      clientCreatedAt: body.clientCreatedAt ?? null,
+    }, productionPhase2Deps());
+    if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
+    res.status(r.status).json(r.body);
+  } catch (err) {
+    if (await handleNoteClientRefRace(req, res, err)) return;
+    next(err);
+  }
+});
+
+/**
+ * إشعار مدين (383): زيادةٌ على فاتورةٍ صدرت (فرق سعر، بندٌ سقط). بنوده وصفيّة بلا أصناف — فلا يمسّ مخزون السيارة
+ * ولا مبيعات الصنف — وقيودُه قيود فاتورة آجلة. لإدارة الشركة وحدها.
+ */
+router.post('/:id/debit-note', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const body = debitNoteSchema.parse(req.body);
+    if (body.clientRef && await replyIfClientRefExists(req, res, tid, body.clientRef)) return;
+    const target = await noteTarget(req, tid);
+    if (!target) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
+    const perm = debitNotePermission(target.actor);
+    if (!perm.ok) { res.status(403).json({ success: false, message: perm.messageAr }); return; }
+    const r = await issueDebitNote({
+      tenantId: tid,
+      caps: capsFromHeaders(req.headers),
+      originalInvoiceId: target.invoiceId,
+      customer: target.customer,
+      salesRepId: null,
+      reason: body.reason,
+      lines: body.lines.map(l => ({
+        description: l.description,
+        qty: l.qty,
+        unitPrice: l.unitPrice,
+        taxPct: l.taxPct,
+        vatCategory: l.vatCategory ?? null,
+        vatExemptionCode: l.vatExemptionCode ?? null,
+        vatExemptionReason: l.vatExemptionReason ?? null,
+      })),
+      clientRef: body.clientRef ?? null,
+      clientCreatedAt: body.clientCreatedAt ?? null,
+    }, productionPhase2Deps());
+    if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
+    res.status(r.status).json(r.body);
+  } catch (err) {
+    if (await handleNoteClientRefRace(req, res, err)) return;
+    next(err);
+  }
 });
 
 // ═══ ZATCA المرحلة الثانية (Z5.4): إجراءان إداريّان على المستند الضريبي ═══

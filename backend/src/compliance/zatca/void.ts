@@ -90,8 +90,26 @@ const sar = (v: number): string => `${(Math.round(Number(v) * 100) / 100).toFixe
  * والمحصَّل نقداً بقي رصيداً دائناً للعميل (Q1) فالبديل يُصدر **آجلاً** ليُسدَّد منه لا نقداً فيتضاعف التحصيل.
  */
 export function voidNotificationText(
-  reason: VoidReason, number: string, ctx: { reversal?: VoidReversalKind | null; total?: number | null } = {},
+  reason: VoidReason, number: string,
+  ctx: { reversal?: VoidReversalKind | null; total?: number | null; documentKind?: string | null } = {},
 ): { title: string; body: string } {
+  /* Z5.5: الصفّ المُبطل قد يكون **إشعاراً دائناً** لا فاتورة، وكلّ اتجاهٍ في النصّ ينقلب حينها (مراجعة «امتثال»):
+   * الكمّيات خرجت من رصيد مخزون السيارة لا عادت إليه، والبضاعة عند المندوب لا عند العميل، والبديل إشعارٌ دائن
+   * جديد لا فاتورة. ولا رصيد دائن يُذكر: عكسُ المرتجع ردّ الدَّين إلى ما كان. */
+  if (ctx.documentKind === 'CREDIT_NOTE') {
+    if (reason === 'WITHDRAWN') {
+      return {
+        title: 'سحب إشعار دائن قبل الاعتماد',
+        body: `سُحب الإشعار الدائن ${number} قبل أن تستلمه الهيئة وأُبطل — كمّياته خرجت من رصيد مخزون السيارة`
+          + ' ومتبقّي الفاتورة الأصلية عاد كما كان؛ أعد إصدار الإشعار إن كانت البضاعة مرتجعةً فعلاً.',
+      };
+    }
+    return {
+      title: 'رفض الهيئة إشعاراً دائناً وأُبطل',
+      body: `رفضت الهيئة الإشعار الدائن ${number} فأُبطل — كمّياته خرجت من رصيد مخزون السيارة ومتبقّي الفاتورة`
+        + ' الأصلية عاد كما كان؛ صحّح البيانات وأصدر إشعاراً دائناً جديداً اليوم نفسه.',
+    };
+  }
   const credit = ctx.reversal === 'CASH_KEEP_COLLECTION' && typeof ctx.total === 'number' && ctx.total > 0
     ? ` والمحصَّل نقداً (${sar(ctx.total)}) بقي رصيداً دائناً للعميل — أصدر البديل آجلاً ليُسدَّد منه.` : '';
   if (reason === 'WITHDRAWN') {

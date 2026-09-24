@@ -77,9 +77,9 @@ test('قرار النظام الضريبي يُبنى من صفّ الإعداد
 
 test('القراءات: حارس القدرات لا يُستدعى إلا لصفّ zatcaPhase = 2 (لا اعتماديات ولا استعلام للمرحلة الأولى)', () => {
   const s = stripComments(read('routes/invoices.ts'));
-  // أربعة مواضع منذ Z5.4: GET /:id، وإعادة الرفع (وحدها تُجرّب اعتماداً)، وسباق P2002، والقراءة بالمرجع
+  // خمسة مواضع منذ Z5.5: GET /:id، وإعادة الرفع، وسباق P2002، والقراءة بالمرجع، وإعادة رفع الإشعارات (clientRef)
   const hits = [...s.matchAll(/phase2Re(ad|play)Body\(/g)];
-  assert.equal(hits.length, 4, 'مواضع القراءة الأربعة (GET /:id، إعادة الرفع، سباق P2002، القراءة بالمرجع) غير مكتملة');
+  assert.equal(hits.length, 5, 'مواضع القراءة الخمسة (GET /:id، إعادة الرفع، سباق P2002، القراءة بالمرجع، إعادة رفع الإشعار) غير مكتملة');
   for (const m of hits) {
     const line = s.slice(s.lastIndexOf('\n', m.index ?? 0), m.index);
     assert.match(line, /isPhase2Invoice\((invoice|existing)\) \? await $/, `نداء غير محروس: ${line.trim()}`);

@@ -31,7 +31,7 @@ test('الوسم ممنوع داخل التطبيق والبوابات الخا�
     '/app', '/app/', '/app/customers', '/app/ledger/moves', '/platform', '/owner', '/login', '/verify-email',
     '/rep', '/rep/', '/m', '/m/', '/ax', '/ax/', '/hx', '/q-fs7k2m', '/qt',
     '/pos', '/kds', '/app-r', // مسارات المطعم — خارج القائمة تلقائياً
-    '/c/tenant1/rep1', '/pay/tok123', '/payment/success', '/rep-app', '/hookb',
+    '/c/tenant1/rep1', '/pay/tok123', '/e/tok123', '/payment/success', '/rep-app', '/hookb',
     '/en/app', '/fr/login',
   ];
   const leaked = denied.filter((p) => isAdsTagRoute(p));
@@ -70,7 +70,7 @@ test('كل مسارات App.tsx مصنّفة صراحةً، والتصنيف ي�
   ]);
   const PRIVATE = new Set([
     '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email',
-    '/rep-app', '/payment/success', '/c/:tenantId/:repId', '/pay/:token', '/platform', '/app',
+    '/rep-app', '/payment/success', '/c/:tenantId/:repId', '/pay/:token', '/e/:token', '/platform', '/app',
   ]);
   const src = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const paths = [...src.matchAll(/<Route\s+path="(\/[^"]*)"/g)].map((m) => m[1]);

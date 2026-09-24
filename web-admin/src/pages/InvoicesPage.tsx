@@ -4,7 +4,7 @@ import { invoiceApi, companyApi, salesRepApi } from '../api/client';
 import { Invoice, SalesRep } from '../types';
 import { formatCurrency, formatDate, formatTime, formatDateTime, statusLabels, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
-import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { Plus, Search, FileText, XCircle, ChevronLeft, ChevronRight, Download, Link2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import InvoiceModal from '../components/forms/InvoiceModal';
 import DocumentModal from '../components/DocumentModal';
@@ -14,6 +14,8 @@ import { zatcaRegimeOf } from '../lib/zatcaRegime';
 import { ZATCA_ACTION_LABELS, zatcaRowActions, zatcaStatusChip } from '../lib/zatca/docStatus';
 import { type ZatcaActionKind } from '../lib/zatca/docQueue';
 import ZatcaActionDialog from '../components/zatca/ZatcaActionDialog';
+import ZatcaShareDialog from '../components/zatca/ZatcaShareDialog';
+import { isShareableRow } from '../lib/zatca/shareView';
 import { useAuthStore } from '../store/authStore';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
@@ -114,6 +116,8 @@ export default function InvoicesPage() {
   /* لا إجراء من هذه الخلية بنقرةٍ واحدة: السحب يُبطل الفاتورة نهائياً ويعكس قيدها ولا رجعة فيه، وأزرارُه مرصوصة
    * بجوار «الإلغاء» في خليّة ضيّقة. والحوار هو حوار شاشة المتابعة نفسه فلا يفترق حكم الشاشتين على الفعل الواحد. */
   const [zatcaAsk, setZatcaAsk] = useState<{ id: string; number: string; kind: ZatcaActionKind } | null>(null);
+  // Z5.7 — رابط المشتري لمستندٍ حسمته الهيئة: يُفتح من الصفّ نفسه ليُرسل لصاحب الفاتورة
+  const [shareRow, setShareRow] = useState<{ id: string; number: string } | null>(null);
 
   const zatcaAction = async (id: string, kind: ZatcaActionKind) => {
     setZatcaBusyId(id);
@@ -311,6 +315,16 @@ export default function InvoicesPage() {
                           </>
                         );
                       })()}
+                      {/* رابط المشتري — للمستند الذي حسمته الهيئة وحده (المرايا الأربع النهائية) */}
+                      {phase2 && isShareableRow(inv as unknown as Record<string, unknown>) && (
+                        <button
+                          onClick={() => setShareRow({ id: inv.id, number: inv.number })}
+                          className="p-1.5 hover:bg-[#F1EBDF] rounded text-[#6E6557]"
+                          title={tr('رابط المشتري')}
+                        >
+                          <Link2 size={14} />
+                        </button>
+                      )}
                       {inv.status === 'CONFIRMED' && (
                         <button
                           onClick={() => setCancelId(inv.id)}
@@ -351,6 +365,9 @@ export default function InvoicesPage() {
         />
       )}
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
+      {shareRow && (
+        <ZatcaShareDialog invoiceId={shareRow.id} number={shareRow.number} tr={tr} onClose={() => setShareRow(null)} />
+      )}
       {zatcaAsk && (
         <ZatcaActionDialog
           kind={zatcaAsk.kind}

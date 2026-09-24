@@ -95,6 +95,9 @@ export async function reverseInvoiceInTx(tx: LedgerTx, inv: ReversibleInvoice, m
 
 interface LockedInvoiceRow extends VoidableInvoiceRow {
   number: string;
+  /** Z5.5: إشعارٌ دائن مُبطل يردّ ما أسقطه من متبقّي أصله (F1). */
+  documentKind?: string | null;
+  originalInvoiceId?: string | null;
 }
 
 /** يقفل صفّ الفاتورة (FOR UPDATE) ويقرأ ما يلزم القرار. المعاملات المزيّفة بلا $queryRaw تقرأ بلا قفل. */
@@ -102,10 +105,35 @@ async function lockInvoice(tx: VoidTx, invoiceId: string): Promise<LockedInvoice
   const raw = (tx as { $queryRaw?: unknown }).$queryRaw;
   const r = typeof raw === 'function'
     ? (await tx.$queryRaw<LockedInvoiceRow[]>`
-        SELECT id, "tenantId", number, status, type, "zatcaPhase", "invoiceSubtype", "einvoiceStatus", "customerId", total
+        SELECT id, "tenantId", number, status, type, "zatcaPhase", "invoiceSubtype", "einvoiceStatus", "customerId", total,
+               "documentKind", "originalInvoiceId"
         FROM invoices WHERE id = ${invoiceId} FOR UPDATE`)[0] ?? null
     : (await tx.invoice.findUnique({ where: { id: invoiceId } })) as unknown as LockedInvoiceRow | null;
   return r ? { ...r, total: Number(r.total) } : null;
+}
+
+/**
+ * Z5.5 (F1 ونقد 13): إشعارٌ دائن أُبطل (رفضته الهيئة أو سُحب) يردّ إلى أصله ما أسقطه من متبقّيه — **زيادةً نسبية**
+ * مسقوفةً بما على الفاتورة فعلاً (`total - paidAmt`)، فلا يدهس سندَ قبضٍ التُزم بينهما ولا يرفع المتبقّي فوق الدَّين.
+ * والنقدية متبقّيها صفر أصلاً فلا يردّ إليها شيء (ما حُصّل بقي رصيداً دائناً — Q1).
+ */
+async function restoreOriginalRemaining(tx: VoidTx, tenantId: string, originalInvoiceId: string, noteTotal: number): Promise<void> {
+  const amount = Math.round(Math.max(0, Number(noteTotal) || 0) * 100) / 100;
+  if (amount <= 0) return;
+  const raw = (tx as { $executeRaw?: unknown }).$executeRaw;
+  if (typeof raw === 'function') {
+    await tx.$executeRaw`
+      UPDATE invoices
+         SET "remainingAmt" = LEAST("total" - "paidAmt", "remainingAmt" + ${amount}), "updatedAt" = NOW()
+       WHERE id = ${originalInvoiceId} AND "tenantId" = ${tenantId}`;
+    return;
+  }
+  // معاملة مزيّفة (اختبار) بلا SQL: القراءة ثم الكتابة بالسقف نفسه
+  const row = await tx.invoice.findUnique({ where: { id: originalInvoiceId } }) as { total?: number; paidAmt?: number; remainingAmt?: number } | null;
+  if (!row) return;
+  const owed = Math.max(0, Number(row.total ?? 0) - Number(row.paidAmt ?? 0));
+  const next = Math.min(owed, Number(row.remainingAmt ?? 0) + amount);
+  await tx.invoice.update({ where: { id: originalInvoiceId }, data: { remainingAmt: Math.round(next * 100) / 100 } });
 }
 
 export interface VoidInvoiceInput {
@@ -142,6 +170,14 @@ export async function voidInvoiceInTx(tx: VoidTx, input: VoidInvoiceInput): Prom
     where: { id: inv.id },
     data: { status: 'CANCELLED', ...(input.mirror !== undefined ? { einvoiceStatus: input.mirror } : {}) },
   });
+  /* Z5.5: إشعارٌ دائن سقط ⇒ متبقّي أصله يعود كما كان (وإلّا سقط الدَّين بإشعارٍ لم تقبله الهيئة أصلاً).
+   * وموضعه **قبل** عكس القيود عمداً (مراجعة «تراجع/امتثال»): ترتيب الأقفال في المنصّة كلّها invoices ⇒ customers
+   * (سند القبض، رابط الدفع، الإلغاء اليدويّ، ومعاملة إصدار الإشعار نفسها)، وعكسُ القيود يقفل صفّ العميل أوّلاً —
+   * فلو تأخّر ردُّ المتبقّي عنه لانقلب الترتيب على الصفّين نفسيهما وتشابكت الأقفال (40P01) مع إشعارٍ يُصدَر على
+   * الأصل في اللحظة نفسها، فتُجهض معاملةُ كتابة نتيجة الهيئة. والأثر الحسابيّ واحد: المعاملة واحدة. */
+  if (inv.documentKind === 'CREDIT_NOTE' && typeof inv.originalInvoiceId === 'string' && inv.originalInvoiceId !== '') {
+    await restoreOriginalRemaining(tx, input.tenantId, inv.originalInvoiceId, inv.total);
+  }
   /* الوضع من سبب الإبطال (مراجعة عدائية): Q1 قرارُ **رفض الهيئة** وحده (البضاعة سُلّمت والمال حُصّل والبديل قادم)،
    * أمّا السحب الإداريّ فمخرجُ فاتورةٍ لم تصل الهيئة أصلاً — غالبها رفضُ العميل للبضاعة وردُّ النقد له، فيُعكس
    * التحصيل كاملاً كما يفعل الإلغاء اليدويّ اليوم. وإلّا بقيت في الدفاتر مديونيةٌ وهمية لعميلٍ استردّ ماله. */
@@ -149,7 +185,7 @@ export async function voidInvoiceInTx(tx: VoidTx, input: VoidInvoiceInput): Prom
   await reverseInvoiceInTx(tx as unknown as LedgerTx, inv, mode);
 
   const text = voidNotificationText(input.reason, inv.number, {
-    reversal: mode === 'ZATCA_VOID' ? decision.reversal : null, total: inv.total,
+    reversal: mode === 'ZATCA_VOID' ? decision.reversal : null, total: inv.total, documentKind: inv.documentKind ?? null,
   });
   await tx.notification.create({
     data: {

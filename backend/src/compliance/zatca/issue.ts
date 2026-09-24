@@ -99,6 +99,12 @@ export interface BuildInvoiceSourceInput {
   note?: IssuanceNoteContext | null;
   /** رقم الفاتورة (داخل القفل)؛ غيابه ⇒ PLACEHOLDER_INVOICE_NUMBER. */
   number?: string;
+  /**
+   * Z5.5: بنود جاهزة تحلّ محلّ `request.items` وبطاقات الأصناف — الإشعار يُبنى من **بنود الفاتورة الأصلية**
+   * (سعرها وخصمها ونسبتها وفئتها كما صدرت) لا من أسعار اليوم ولا من بطاقة صنفٍ تغيّرت بعد البيع. غيابها =
+   * المسار القديم حرفاً بحرف (الفواتير).
+   */
+  lines?: readonly LineSource[];
 }
 
 const issue = (rule: string, field: string, messageAr: string): ZatcaIssue => ({ rule, field, messageAr, severity: 'error' });
@@ -140,7 +146,7 @@ export function buildInvoiceSource(input: BuildInvoiceSourceInput): InvoiceSourc
   const subtype = issuanceSubtype(input.customer, kind, input.note);
   const byId = new Map(input.products.map(p => [p.id, p]));
   const missing: ZatcaIssue[] = [];
-  const items: LineSource[] = input.request.items.map((it, i) => {
+  const items: LineSource[] = input.lines ? input.lines.map(l => ({ ...l })) : input.request.items.map((it, i) => {
     const p = byId.get(it.productId);
     if (!p) missing.push(issue('BR-25', `items[${i}].productId`, `الصنف في البند ${i + 1} غير موجود أو غير نشط`));
     const line: LineSource = {

@@ -46,6 +46,8 @@ const PaylinkPage = lazy(() => import('./pages/PaylinkPage'));
 const HatifPage = lazy(() => import('./pages/HatifPage'));
 const CatalogPage = lazy(() => import('./pages/CatalogPage'));
 const PayPage = lazy(() => import('./pages/PayPage'));
+// ZATCA المرحلة الثانية (Z5.7) — صفحة المشتري العلنية لمستندٍ واحد (كسولة: لا تدخل حزمة أي زائر آخر)
+const EinvoicePublicPage = lazy(() => import('./pages/EinvoicePublicPage'));
 const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
@@ -155,7 +157,7 @@ function LocaleSync() {
 // - `/signup` **مُسجَّل**: صفحة القمع التي تُحوِّل، ونقرة إعلان تهبط عليها مباشرة
 //   (رابط فرعي «ابدأ التجربة») كانت تضيع بلا زيارة ولا أول لمسة.
 // - مستثنى مع لوحات الدخول: `/hx` (بوابة الصيد) و`/c/…` (منيو مندوب شركة مشتركة)
-//   و`/pay/…` (الرمز في المسار هو الإذن نفسه) — ليست موقعنا العام،
+//   و`/pay/…` و`/e/…` (الرمز في المسار هو الإذن نفسه) — ليست موقعنا العام،
 //   وسياسة الخصوصية (القسم ٥) تَعِد بأن الإحصاءات للموقع العام وحده.
 // - `/payment/success` **مُسجَّل**: صفحة عامة يعود إليها عملاؤنا نحن من ميسر بعد دفع
 //   الاشتراك (لا زبائن الشركات)، ولا يصل منها إلا المسار؛ معرّف الدفع في الاستعلام لا يُرسل.
@@ -165,7 +167,7 @@ function LocaleSync() {
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|ax)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|login|verify-email|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/.test(pathname)) return;
     // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — وعند رفض التتبّع تُرسل {optOut:true} وحده
     analyticsApi.track({
       path: pathname,
@@ -259,6 +261,8 @@ export default function App() {
         <Route path="/c/:tenantId/:repId" element={<CatalogPage />} />
         {/* صفحة الدفع العامة — يفتحها عميل الشركة من رابط واتساب */}
         <Route path="/pay/:token" element={<PayPage />} />
+        {/* المستند الضريبي المعتمد — يفتحه المشتري من رابطٍ أرسله له المندوب (الرمز وحده هو الإذن، noindex) */}
+        <Route path="/e/:token" element={<EinvoicePublicPage />} />
         <Route path="/blog" element={<BlogIndexPage />} />
         <Route path="/blog/:slug" element={<BlogPostPage />} />
         {/* النسخة الإنجليزية على /en — نفس المكوّنات تُعرَض بالإنجليزية (دولي + hreflang) */}

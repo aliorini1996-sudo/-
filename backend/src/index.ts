@@ -22,6 +22,8 @@ import customersRouter from './routes/customers';
 import productsRouter from './routes/products';
 import salesRepsRouter from './routes/salesReps';
 import invoicesRouter from './routes/invoices';
+// ZATCA المرحلة الثانية (Z5.7): شاشة متابعة المستندات وتنزيل الـXML — موجّه مستقلّ على المسار نفسه
+import invoicesEinvoiceDocsRouter from './routes/invoicesEinvoiceDocs';
 import receiptsRouter from './routes/receipts';
 import dashboardRouter from './routes/dashboard';
 import reportsRouter from './routes/reports';
@@ -43,6 +45,7 @@ import erpRouter from './routes/erp';
 import petroappRouter from './routes/petroapp';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
+import publicEinvoiceRouter from './routes/publicEinvoice';
 import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
 import analyticsRouter from './routes/analytics';
@@ -65,6 +68,8 @@ import { createZatcaRouter, zatcaErrorGuard } from './routes/zatca';
 import { productionZatcaDeps } from './routes/zatcaDeps';
 import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
+// ZATCA المرحلة الثانية (Z5.7): رمز رابط المشتري لا يُكتب في سطر morgan — يُقنَّع قبل التوجيه
+import { redactShareTokensInLogs } from './middleware/shareUrlPrivacy';
 
 const app = express();
 // خلف بروكسي Render — لاحتساب IP الحقيقي في حدود المعدّل
@@ -110,6 +115,10 @@ app.use(express.json({
   verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; },
 }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+// مباشرةً بعد morgan وقبل كلّ موجّه: صيغة combined تطبع :url و:referrer، وهما يحملان رمز رابط المشتري
+// (`/e/:token` و`/api/public/einvoice/:token`) وهو الإذن كلّه. morgan يقرؤهما عند انتهاء الردّ فيرى المقنَّع،
+// و`req.url` لا يُمسّ فالتوجيه يرى الرمز الحقيقي. لا يمسّ أيّ مسارٍ آخر.
+app.use(redactShareTokensInLogs);
 
 // webhook واتساب — قبل محدِّد المعدّل: Meta ترسل دفعات كثيفة وتعيد المحاولة عند أي 429
 app.use('/api/whatsapp', whatsappWebhookRouter);
@@ -180,6 +189,9 @@ app.use('/api/customers', customersRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/sales-reps', salesRepsRouter);
 app.use('/api/invoices', invoicesRouter);
+// ZATCA المرحلة الثانية (Z5.7) — **بعد** الموجّه الأصليّ عمداً: ما يطابقه ذاك يُحسم فيه بلا تغيير، وما لا يطابقه
+// (einvoice/summary، einvoice/documents، :id/einvoice/messages، :id/einvoice/xml، einvoice/submit-pause) يسقط هنا.
+app.use('/api/invoices', invoicesEinvoiceDocsRouter);
 app.use('/api/receipts', receiptsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/reports', reportsRouter);
@@ -203,6 +215,8 @@ app.use('/api/erp', erpRouter);
 app.use('/api/petroapp', petroappRouter);
 app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
+// ZATCA المرحلة الثانية (Z5.7) — رابط المشتري: `/api/public/einvoice/:token` بلا مصادقة، الرمز وحده هو الإذن
+app.use('/api/public', publicEinvoiceRouter);
 app.use('/api/leads', leadsRouter);
 app.use('/api/leads-cron', leadsCronRouter);
 app.use('/api/analytics', analyticsRouter);

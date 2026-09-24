@@ -15,18 +15,19 @@ import { prismaIssuanceStore } from '../compliance/zatca/issueStore.prisma';
 import { prismaEgsUnitStore } from '../compliance/zatca/onboardingStore';
 import { keyringFromEnv } from '../compliance/zatca/secrets';
 import { issuanceUnitMutex } from '../compliance/zatca/unitMutex';
-import { postCashInvoiceEntries, postInvoiceEntries } from '../services/accounting';
+import { postCashInvoiceEntries, postInvoiceEntries, postReturnEntries } from '../services/accounting';
 import { publishInvoicesChanged } from '../services/liveEvents';
 import { submitDocumentNow } from '../services/zatcaSubmit';
-import type { Phase2IssuanceDeps, Phase2Tx } from './invoicesZatca';
+import type { NoteIssuanceDeps } from './invoicesNotes';
+import type { Phase2Tx } from './invoicesZatca';
 
 /** مهل معاملة الإصدار (§2.2). */
 export const ISSUANCE_TX_MAX_WAIT_MS = 10_000;
 export const ISSUANCE_TX_TIMEOUT_MS = 20_000;
 
-let cached: Phase2IssuanceDeps | null = null;
+let cached: NoteIssuanceDeps | null = null;
 
-export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): Phase2IssuanceDeps {
+export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): NoteIssuanceDeps {
   if (cached) return cached;
   const units = prismaEgsUnitStore(prisma);
   const documents = prismaZatcaDocumentStore(prisma);
@@ -40,6 +41,9 @@ export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): Phas
     ledger: {
       postCashInvoice: (tx, tenantId, invoiceId, customerId, total, at) => postCashInvoiceEntries(tx as never, tenantId, invoiceId, customerId, total, at),
       postCreditInvoice: (tx, tenantId, invoiceId, customerId, total, at) => postInvoiceEntries(tx as never, tenantId, invoiceId, customerId, total, at),
+      // Z5.5: الإشعار الدائن قيودُه قيود مرتجع، والمدين قيود فاتورة آجلة — البُناة القائمة نفسها بلا نسخة ثانية
+      postReturn: (tx, tenantId, invoiceId, customerId, total, at) => postReturnEntries(tx as never, tenantId, invoiceId, customerId, total, at),
+      postDebitNote: (tx, tenantId, invoiceId, customerId, total, at) => postInvoiceEntries(tx as never, tenantId, invoiceId, customerId, total, at),
       creditLimitNotice: async (tx, i) => {
         await tx.notification.create({
           data: {
@@ -57,6 +61,12 @@ export function productionPhase2Deps(env: NodeJS.ProcessEnv = process.env): Phas
     transaction: <T>(fn: (tx: Phase2Tx) => Promise<T>): Promise<T> =>
       prisma.$transaction(tx => fn(tx), { maxWait: ISSUANCE_TX_MAX_WAIT_MS, timeout: ISSUANCE_TX_TIMEOUT_MS }),
     publish: publishInvoicesChanged,
+    // Z5.5 (نقد 13): رابط دفعٍ قائم على فاتورةٍ أُسقط جزء من قيمتها بإشعار دائن لا يبقى حيّاً — خارج المعاملة دائماً
+    expireLinks: (tenantId, invoiceId) => {
+      void import('../services/paylink')
+        .then(m => m.expireStaleLinks(tenantId, invoiceId))
+        .catch(e => console.error('[zatca:note] expire links failed:', (e as Error).message));
+    },
     alert: async (err, at) => {
       console.error(`[zatca:issue] ${err.code} tenant=${at.tenantId} source=${err.logDetail?.source ?? '-'} code=${err.logDetail?.code ?? '-'}`);
       try {

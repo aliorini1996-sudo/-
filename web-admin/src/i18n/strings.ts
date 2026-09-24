@@ -1221,6 +1221,17 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'ملاحظة': { en: 'Note', fr: 'Note', tr: 'Not', zh: '备注' },
   'الموقع': { en: 'Location', fr: 'Localisation', tr: 'Konum', zh: '位置' },
   'نسخ الرابط': { en: 'Copy link', fr: 'Copier le lien', tr: 'Bağlantıyı kopyala', zh: '复制链接' },
+  /* Z5.7 — حوار «رابط المشتري» (ZatcaShareDialog): يُفتح من شاشة المتابعة الكسولة ومن جدول الفواتير معاً،
+   * فنصوصه في القاموس العامّ ليقرأهما الطرفان — كما في ZatcaActionDialog. */
+  // Z5.7 — رابط المشتري (حوار ZatcaShareDialog)
+  'رابط المشتري': { en: 'Buyer link', fr: 'Lien acheteur', tr: 'Alıcı bağlantısı', zh: '买方链接' },
+  'تعذر جلب رابط المشتري': { en: 'Could not fetch the buyer link', fr: 'Impossible d’obtenir le lien acheteur', tr: 'Alıcı bağlantısı alınamadı', zh: '无法获取买方链接' },
+  'خاصية الرابط غير مهيأة على الخادم': { en: 'The link feature is not configured on the server', fr: 'La fonction de lien n’est pas configurée sur le serveur', tr: 'Bağlantı özelliği sunucuda yapılandırılmamış', zh: '服务器未配置链接功能' },
+  'الرابط يفتح بعد أن تحسم الهيئة المستند فالمعلق والمرفوض والمسحوب لا رابط لها': { en: 'The link opens only after ZATCA settles the document — pending, rejected and withdrawn documents have no link', fr: 'Le lien ne s’ouvre qu’après la décision de la ZATCA — les documents en attente, rejetés ou retirés n’ont pas de lien', tr: 'Bağlantı yalnızca ZATCA belgeyi sonuçlandırdıktan sonra açılır — bekleyen, reddedilen ve geri çekilen belgelerin bağlantısı olmaz', zh: '仅在 ZATCA 处理完单据后链接才可用——待处理、被拒和已撤回的单据没有链接' },
+  'الرمز في الرابط هو الإذن ومن يملكه يرى هذا المستند وحده': { en: 'The token in the link is the permission — whoever holds it sees this document only', fr: 'Le jeton du lien constitue l’autorisation — quiconque le détient ne voit que ce document', tr: 'Bağlantıdaki belirteç iznin kendisidir — onu elinde tutan yalnızca bu belgeyi görür', zh: '链接中的令牌即为权限——持有者只能看到这一份单据' },
+  'تم نسخ الرابط': { en: 'Link copied', fr: 'Lien copié', tr: 'Bağlantı kopyalandı', zh: '链接已复制' },
+  'إرسال بواتساب': { en: 'Send on WhatsApp', fr: 'Envoyer sur WhatsApp', tr: 'WhatsApp ile gönder', zh: '通过 WhatsApp 发送' },
+  'فتح الصفحة': { en: 'Open the page', fr: 'Ouvrir la page', tr: 'Sayfayı aç', zh: '打开页面' },
   'صف': { en: 'Row', fr: 'Ligne', tr: 'Satır', zh: '行' },
   'ابحث عن عميل': { en: 'Search for a customer', fr: 'Rechercher un client', tr: 'Müşteri ara', zh: '搜索客户' },
   'قناة البيع': { en: 'Sales channel', fr: 'Canal de vente', tr: 'Satış kanalı', zh: '销售渠道' },

@@ -11,6 +11,8 @@ import {
   zatcaQueueFilterRows, zatcaQueueRows, type ZatcaActionKind, type ZatcaQueueFilter, type ZatcaQueueRow,
 } from '../../lib/zatca/docQueue';
 import ZatcaActionDialog from './ZatcaActionDialog';
+import ZatcaShareDialog from './ZatcaShareDialog';
+import { isShareableMirror } from '../../lib/zatca/shareView';
 import { useZatcaTr as useTr } from './zatcaPhrases';
 
 /**
@@ -55,6 +57,8 @@ export default function ZatcaDocsPanel() {
   const [filter, setFilter] = useState<ZatcaQueueFilter>('all');
   const [ask, setAsk] = useState<{ row: ZatcaQueueRow; kind: ZatcaActionKind } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Z5.7 — رابط المشتري: صفٌّ واحد في كلّ مرّة، والخادم هو من يحكم بتوفّر الرابط لا هذه الشاشة
+  const [share, setShare] = useState<ZatcaQueueRow | null>(null);
   // الإجراءات خلف `requireAdmin` في الخادم — لا يُعرض زرٌّ يُردّ عليه 403
   const allowed = useAuthStore(s => s.isAdmin)();
 
@@ -200,6 +204,13 @@ export default function ZatcaDocsPanel() {
                   </td>
                   <td className="py-2 px-2">
                     <div className="flex flex-col gap-1 items-stretch">
+                      {/* الرابط يُعرض لما حسمته الهيئة وتجوز طباعته وحده — وما عداه يردّه الخادم بسببه */}
+                      {isShareableMirror(r.view.mirror) && (
+                        <button type="button" onClick={() => setShare(r)}
+                          className="px-2 py-1 rounded text-[11px] font-semibold whitespace-nowrap bg-[#F1EBDF] text-[#4A4239]">
+                          {tr('رابط المشتري')}
+                        </button>
+                      )}
                       {(['retry', 'withdraw', 'reissue'] as const).filter(k => r.actions[k]).map(k => (
                         <button key={k} type="button" disabled={busyId === r.id} onClick={() => setAsk({ row: r, kind: k })}
                           className={`px-2 py-1 rounded text-[11px] font-semibold whitespace-nowrap disabled:opacity-50 ${
@@ -214,6 +225,10 @@ export default function ZatcaDocsPanel() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {share && (
+        <ZatcaShareDialog invoiceId={share.id} number={share.number} tr={tr} onClose={() => setShare(null)} />
       )}
 
       {ask && (

@@ -123,6 +123,9 @@ export const invoiceApi = {
   einvoiceRetry: (id: string) => api.post(`/invoices/${id}/einvoice/retry`),
   einvoiceWithdraw: (id: string) => api.post(`/invoices/${id}/einvoice/withdraw`),
   einvoiceReissue: (id: string) => api.post(`/invoices/${id}/einvoice/reissue`),
+  /* فوترة ZATCA المرحلة الثانية (Z5.7) — رابط المشتري لمستندٍ نهائيّ: الخادم يشتقّ الرمز ولا يخزّنه،
+   * فنداءان لنفس الفاتورة يعطيان الرابط نفسه، ومستندٌ لم تحسمه الهيئة يعود `available:false` بسببه. */
+  einvoiceShare: (id: string) => api.get(`/invoices/${id}/einvoice/share`),
 };
 
 export const receiptApi = {

@@ -354,7 +354,8 @@ export interface Phase2LedgerHooks {
 }
 
 export interface Phase2IssuanceDeps extends Phase2ReadDeps {
-  db: RegimeDb & Pick<PrismaClient, 'product'>;
+  /** Z5.5: `invoice` للإشعارات (الأصل وإشعاراته السابقة) — المرحلة الأولى لا تقرأ منه شيئاً. */
+  db: RegimeDb & Pick<PrismaClient, 'product' | 'invoice'>;
   units: Pick<EgsUnitStore, 'loadSellerSettings' | 'loadUnit' | 'loadUnitCredentials'>;
   documents: Pick<ZatcaDocumentStore<Phase2Tx>, 'insertSigned' | 'advanceUnitChain'> & Pick<ZatcaDocumentStore<never>, 'loadProjection'>;
   chain: Phase2ChainStore;
@@ -415,7 +416,7 @@ const PRODUCT_PHASE2_SELECT = {
 } satisfies Prisma.ProductSelect;
 
 /** الإعدادات التي يقرأ منها النظامُ الضريبيُّ قرارَه (جزء من صفّ البائع المحمَّل). */
-function regimeSettingsOf(seller: { countryCode: string | null; einvoiceProvider: string | null; zatcaPhase2StartedAt: Date | null; taxNumber: string | null } | null): RegimeSettings | null {
+export function regimeSettingsOf(seller: { countryCode: string | null; einvoiceProvider: string | null; zatcaPhase2StartedAt: Date | null; taxNumber: string | null } | null): RegimeSettings | null {
   if (!seller) return null;
   return {
     countryCode: seller.countryCode, einvoiceProvider: seller.einvoiceProvider,
@@ -610,11 +611,15 @@ function pendingResult(data: Record<string, unknown>, reason: Parameters<typeof 
  *   • ما عداها (انقضت مهلتنا، أو عطل الهيئة، أو حجب) ⇒ 202 «بانتظار الاعتماد»: مذكّرة تسليم لا فاتورة، والمسح يُكمل.
  * لا يرمي: الفاتورة التُزمت فعلاً، وأيّ خللٍ بعدها يُقرأ «بانتظار الاعتماد».
  */
-async function clearStandardInline(
+export async function clearStandardInline(
   deps: Phase2IssuanceDeps,
   ref: { tenantId: string; invoiceId: string; documentId: string },
   data: Record<string, unknown>,
-  fallback: { view: EinvoiceView; warnings: readonly unknown[]; issuedAt: Date; documentKind: string },
+  fallback: {
+    view: EinvoiceView; warnings: readonly unknown[]; issuedAt: Date; documentKind: string;
+    /** Z5.5: حقول تعود إلى ما كانت عليه حين يُبطل المستندُ نفسه بالرفض/السحب (متبقّي الفاتورة الأصلية مثلاً). */
+    restoreOnVoid?: Record<string, unknown>;
+  },
   now: Date,
 ): Promise<Phase2Result> {
   const submit = deps.submitInline;
@@ -652,8 +657,11 @@ async function clearStandardInline(
   const body: Record<string, unknown> = { ...data };
   body.einvoiceStatus = outcome.mirror;
   body.einvoiceQr = qr;
-  // الرفض (أو السحب) أبطل الفاتورة: الصفّ المُعاد يقول ذلك بدل أن يقول CONFIRMED كاذباً
-  if (outcome.kind === 'rejected' || outcome.kind === 'withdrawn') body.status = 'CANCELLED';
+  // الرفض (أو السحب) أبطل الفاتورة: الصفّ المُعاد يقول ذلك بدل أن يقول CONFIRMED كاذباً — ومعه ما ردّه الإبطال
+  if (outcome.kind === 'rejected' || outcome.kind === 'withdrawn') {
+    body.status = 'CANCELLED';
+    Object.assign(body, fallback.restoreOnVoid ?? {});
+  }
   body.einvoice = einvoiceView(
     p,
     { einvoiceStatus: outcome.mirror, einvoiceQr: qr, documentKind: fallback.documentKind, invoiceSubtype: '01', issuedAt: fallback.issuedAt },

@@ -22,7 +22,8 @@ export type ZatcaErrorCode =
   | 'ZATCA_PREFLIGHT' | 'ZATCA_BUYER_INCOMPLETE' | 'ZATCA_INCLUSIVE_HEAD_DISCOUNT' | 'ZATCA_ZERO_VALUE_LINE' | 'ZATCA_AMOUNTS'
   | 'ZATCA_CURRENCY' | 'ZATCA_SETTINGS_LOCKED' | 'ZATCA_UNIT_UNAVAILABLE' | 'ZATCA_UNIT_BUSY' | 'ZATCA_STAMP_FAILED'
   | 'ZATCA_CHAIN_CONFLICT' | 'ZATCA_CLEARANCE_PENDING' | 'ZATCA_REJECTED' | 'ZATCA_USE_CREDIT_NOTE' | 'ZATCA_RETURN_NEEDS_ORIGINAL'
-  | 'ZATCA_ORIGINAL_NOT_CLEARED' | 'ZATCA_CREDIT_QTY_EXCEEDED' | 'ZATCA_NOTHING_TO_CREDIT' | 'ZATCA_CLIENT_UPDATE_REQUIRED'
+  | 'ZATCA_ORIGINAL_NOT_CLEARED' | 'ZATCA_CREDIT_QTY_EXCEEDED' | 'ZATCA_CREDIT_AMOUNT_EXCEEDED' | 'ZATCA_NOTHING_TO_CREDIT'
+  | 'ZATCA_NOTE_ON_NOTE' | 'ZATCA_NOTE_LINES_INVALID' | 'ZATCA_NOTE_NOT_ALLOWED' | 'ZATCA_CLIENT_UPDATE_REQUIRED'
   | 'ZATCA_CLEARED_NO_XML' | 'ZATCA_ALLOCATION_BLOCKED' | 'ZATCA_WITHDRAW_NOT_ALLOWED' | 'ZATCA_REISSUE_NOT_ALLOWED'
   | 'ZATCA_RETRY_NOT_ALLOWED' | 'ZATCA_CANCEL_NOT_ALLOWED' | 'ZATCA_WITHDRAWN' | 'ZATCA_CUTOVER_REVIEW' | 'ZATCA_OFFLINE_BLOCKED' | 'ZATCA_INTERNAL' | 'CUSTOMER_ZATCA_INVALID' | 'TENANT_HAS_EINVOICE_ARCHIVE';
 
@@ -52,7 +53,15 @@ export const ZATCA_ERROR_CATALOGUE: Readonly<Record<ZatcaErrorCode, Readonly<Zat
   ZATCA_RETURN_NEEDS_ORIGINAL: { status: 422, messageAr: 'المرتجع يُصدر إشعاراً دائناً مرتبطاً بالفاتورة الأصلية — اختر الفاتورة أولاً', alert: false },
   ZATCA_ORIGINAL_NOT_CLEARED: { status: 409, messageAr: 'لا يمكن إصدار إشعار على فاتورة لم تعتمدها الهيئة بعد', alert: false },
   ZATCA_CREDIT_QTY_EXCEEDED: { status: 422, messageAr: 'الكمية المرتجعة تتجاوز المتاح', alert: false },
+  // Z5.5: حارس القيمة على مستوى الفاتورة — شبكة أمان خلف حارس الكمية (البنود منسوخة من الأصل فلا تزيد قيمتها إلا بخلل)
+  ZATCA_CREDIT_AMOUNT_EXCEEDED: { status: 422, messageAr: 'قيمة الإشعارات الدائنة تتجاوز قيمة الفاتورة الأصلية', alert: false },
   ZATCA_NOTHING_TO_CREDIT: { status: 409, messageAr: 'كل كميات هذه الفاتورة مُرتجعة سابقاً', alert: false },
+  // Z5.5 (D3): الإشعار يُبنى على فاتورة — لا على إشعارٍ ولا على مرتجع (ولا إلغاء لإشعار في v1)
+  ZATCA_NOTE_ON_NOTE: { status: 409, messageAr: 'لا يُصدر إشعار على إشعار أو مرتجع — أصدر الإشعار على الفاتورة الأصلية', alert: false },
+  // Z5.5: بنود الإشعار لا تطابق بنود الأصل (بند غريب، أو مكرَّر، أو كمية غير موجبة)
+  ZATCA_NOTE_LINES_INVALID: { status: 422, messageAr: 'بنود الإشعار غير صحيحة', alert: false },
+  // Z5.5 (Q5، مراجعة): الصلاحية تُقاس بأثر الإشعار لا بصيغة الطلب — إشعارٌ يستنفد كلّ ما في الفاتورة إلغاءٌ في المعنى
+  ZATCA_NOTE_NOT_ALLOWED: { status: 403, messageAr: 'لا تملك صلاحية إصدار هذا الإشعار', alert: false },
   // Z5.4: اعتمدت الهيئة ولم تُعد النسخة المعتمدة — نهائية عند الهيئة وغير قابلة للطباعة حتى تُسترجع (U8)
   ZATCA_CLEARED_NO_XML: { status: 202, messageAr: 'اعتمدت الهيئة الفاتورة ولم تُعد نسختها المعتمدة — لا تُسلِّم فاتورة ضريبية الآن، وأُبلغت الإدارة لاسترجاعها', alert: true },
   // Z5.4 (F2): لا تحصيل ولا رابط دفع على فاتورة لم تصر نهائية عند الهيئة
@@ -200,6 +209,47 @@ export function rejectedError(errors: ReadonlyArray<{ message: string | null; co
   return new ZatcaHttpError('ZATCA_REJECTED', {
     messageAr: msgs.length ? `${base}: ${msgs.join('؛ ')}. صحّح البيانات وأصدر فاتورة جديدة` : `${base}. صحّح البيانات وأصدر فاتورة جديدة`,
     errors: errors.map(e => ({ code: e.code, message: e.message })), ...(data !== undefined ? { data } : {}),
+  });
+}
+
+// ─── الإشعارات الدائنة والمدينة (Z5.5) ───
+
+/** كمية للعرض: بلا أصفار زائدة («2» لا «2.0000») وبأربع خانات كحدّ أقصى. */
+const qty = (v: number): string => String(Math.round(Number(v) * 10000) / 10000);
+/** مبلغ للعرض (D9: الريال وحده). */
+const money = (v: number): string => (Math.round(Number(v) * 100) / 100).toFixed(2);
+
+/** حارس الكمية: بندٌ (أو بنود) طُلب إرجاع أكثر من المتاح منه ⇒ 422 باسم الصنف والمتاح — رسالة يفهمها المندوب. */
+export function creditQtyExceededError(
+  lines: ReadonlyArray<{ itemName: string; requested: number; available: number }>,
+): ZatcaHttpError {
+  const issues: ZatcaIssue[] = lines.map((l, i) => ({
+    rule: 'CREDIT-QTY',
+    field: `lines[${i}].qty`,
+    messageAr: `الكمية المرتجعة للصنف «${l.itemName}» (${qty(l.requested)}) تتجاوز المتاح (${qty(l.available)})`,
+    severity: 'error',
+  }));
+  return new ZatcaHttpError('ZATCA_CREDIT_QTY_EXCEEDED', {
+    messageAr: issuesSummaryAr(issues) || ZATCA_ERROR_CATALOGUE.ZATCA_CREDIT_QTY_EXCEEDED.messageAr,
+    issues,
+    data: { lines: lines.map(l => ({ itemName: l.itemName, requested: l.requested, available: l.available })) },
+  });
+}
+
+/** حارس القيمة على مستوى الفاتورة (شبكة أمان خلف حارس الكمية) ⇒ 422 بالأرقام الثلاثة. */
+export function creditAmountExceededError(input: { noteTotal: number; alreadyCredited: number; originalTotal: number }): ZatcaHttpError {
+  const available = Math.max(0, Math.round((input.originalTotal - input.alreadyCredited) * 100) / 100);
+  return new ZatcaHttpError('ZATCA_CREDIT_AMOUNT_EXCEEDED', {
+    messageAr: `${ZATCA_ERROR_CATALOGUE.ZATCA_CREDIT_AMOUNT_EXCEEDED.messageAr}: قيمة الإشعار ${money(input.noteTotal)} والمتاح ${money(available)}`
+      + ` (إجمالي الفاتورة ${money(input.originalTotal)} ومُرتجع سابقاً ${money(input.alreadyCredited)})`,
+    data: { noteTotal: input.noteTotal, alreadyCredited: input.alreadyCredited, originalTotal: input.originalTotal, available },
+  });
+}
+
+/** بنود الإشعار لا تطابق بنود الأصل (بند غريب أو مكرَّر أو كمية غير موجبة) ⇒ 422 بقائمة الحقول. */
+export function noteLinesError(issues: readonly ZatcaIssue[]): ZatcaHttpError {
+  return new ZatcaHttpError('ZATCA_NOTE_LINES_INVALID', {
+    messageAr: withList(ZATCA_ERROR_CATALOGUE.ZATCA_NOTE_LINES_INVALID.messageAr, issues), issues: [...issues],
   });
 }
 
