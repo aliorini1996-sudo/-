@@ -5,6 +5,7 @@ import { formatCurrency, activeLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
+import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
@@ -38,6 +39,10 @@ interface RecvCustomer { id: string; name: string; businessName: string | null; 
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
 interface CustVisit { id: string; customerId: string; customerName: string; repName: string; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
 interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
+/* سند القبض وتجميعةُ المندوب: أنواع وحدة `lib/collectionsByRep` نفسها —
+   نسخةٌ ثانية منهما تنحرف عن الحساب الذي تختبره وحدتُه. */
+type CollReceipt = CollReceiptLike;
+type CollRepRow = CollRepGroup<CollReceipt>;
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -59,9 +64,14 @@ export default function ReportsPage() {
   const [perfTypeState, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
   const perfType = accountingOn ? perfTypeState : 'hours';
   // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
+  // نوع تقرير التحصيل: ملخّصٌ عامّ (كما كان) أو تفصيلٌ لكلّ مندوب
+  const [collType, setCollType] = useState<'summary' | 'byRep'>('summary');
+  const [expandedColl, setExpandedColl] = useState<string | null>(null); // صفّ المندوب المفتوح
   const [custTypeState, setCustType] = useState<'balances' | 'visits'>('balances');
   const custType = accountingOn ? custTypeState : 'visits';
 
+  // اسم المندوب للعرض: الفارغ هو دلو «بلا مندوب» (سندٌ من اللوحة أو مندوبٌ حُذف)
+  const collRepName = (r: { name: string }) => r.name || tr('بدون مندوب سند من الإدارة');
   const methodLabel = (m: string) => m === 'CASH' ? tr('نقدي') : m === 'BANK_TRANSFER' ? tr('تحويل بنكي') : m === 'POS' ? tr('شبكة') : tr('شيك');
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -86,7 +96,7 @@ export default function ReportsPage() {
     queryKey: ['report-collections', from, to],
     queryFn: async () => {
       const res = await reportApi.collections({ from, to });
-      return res.data.data as { receipts: unknown[]; summary: { total: number; count: number; byMethod: Record<string, number> } };
+      return res.data.data as { receipts: CollReceipt[]; summary: { total: number; count: number; byMethod: Record<string, number> } };
     },
     enabled: accountingReady && accountingOn && tab === 'collections',
   });
@@ -192,6 +202,27 @@ export default function ReportsPage() {
     () => filterFlat(balancesData || [], q, c => [c.name, c.phone]),
     [balancesData, q],
   );
+
+  /**
+   * تجميع سندات القبض على المناديب — في الواجهة لا الخادم.
+   *
+   * مسار `/reports/collections` يردّ السندات كاملةً ومعها مندوب كلّ سند، فالتجميع
+   * هنا لا يكلّف طلباً ولا يفتح مساراً جديداً يحتاج حارس نطاق.
+   *
+   * ودلوُ «بلا مندوب» ليس حالةً نادرة: `Receipt.salesRepId` اختياريّ (سندٌ يصدره
+   * إداريّ من اللوحة)، و`onDelete: SetNull` يُفرغه حين يُحذف المندوب. فإسقاطُه
+   * يعني اختفاء مالٍ محصَّل من التقرير بلا أثر — ومجموعُ الأعمدة لا يطابق
+   * البطاقة فوقه، وهو أسوأ من عرض صفٍّ بلا اسم.
+   */
+  const collRepRows = useMemo<CollRepRow[]>(() => groupCollectionsByRep(collectData?.receipts), [collectData]);
+
+  // البحث يصفّي بالمندوب **أو** بعميلٍ في سنداته — فيعرف المشرف من حصّل من ذاك العميل
+  const collRepShown = useMemo(
+    () => filterFlat(collRepRows, q, r => [collRepName(r), ...r.receipts.map(rc => rc.customer?.name), ...r.receipts.map(rc => rc.receiptNumber)]),
+    [collRepRows, q, tr],
+  );
+  // مجاميع المعروض — تُقارَن بالبطاقة أعلى الشاشة فيُكشف أيّ سقوطٍ في التجميع
+  const collShownTotals = useMemo(() => collectionTotals(collRepShown), [collRepShown]);
 
   // إجمالي مديونية الشركة: مجموع أرصدة العملاء المعروضين (كلٌّ مرّة، من المعروض
   // فيحترم النطاق والبحث). تقرير الأرصدة يعرض المدينين (رصيد موجب).
@@ -374,6 +405,35 @@ export default function ReportsPage() {
         [tr('إجمالي مديونية الشركة')]: num(balanceTotal.total), [tr('عدد العملاء المدينين')]: balanceTotal.count,
       }], colWidths: [28, 20] });
       fname = tr('أرصدة العملاء');
+    } else if (tab === 'collections' && collType === 'byRep' && collRepShown.length) {
+      /* التصدير يتبع المعروض (البحث ضمناً) كبقيّة التقارير — ورقتان: تجميعة
+       * المناديب، ثمّ كلّ سندٍ بمندوبه كي يُراجَع المبلغ سنداً سنداً. */
+      sheets = [
+        { name: tr('التحصيل حسب المندوب'), rows: collRepShown.map(r => ({
+          [tr('المندوب')]: collRepName(r),
+          [tr('عدد السندات')]: r.count,
+          [tr('نقدي')]: num(r.byMethod.CASH || 0),
+          [tr('شبكة')]: num(r.byMethod.POS || 0),
+          [tr('تحويل')]: num(r.byMethod.BANK_TRANSFER || 0),
+          [tr('شيك')]: num(r.byMethod.CHEQUE || 0),
+          [tr('الإجمالي')]: num(r.total),
+        })), colWidths: [24, 12, 14, 14, 14, 14, 16] },
+        { name: tr('السندات'), rows: collRepShown.flatMap(r => r.receipts.map(rc => ({
+          [tr('المندوب')]: collRepName(r),
+          [tr('رقم السند')]: rc.receiptNumber,
+          [tr('التاريخ')]: fmtDateTime(rc.receiptDate),
+          [tr('العميل')]: rc.customer?.name || '—',
+          [tr('طريقة الدفع')]: methodLabel(rc.paymentMethod),
+          [tr('المبلغ')]: num(Number(rc.amount) || 0),
+        }))), colWidths: [24, 16, 18, 24, 14, 14] },
+      ];
+      // صفّ الإجماليّ في رأس الملفّ: من يفتح الورقة يقرأ الحصيلة قبل الصفوف
+      sheets.unshift({ name: tr('الإجمالي'), rows: [{
+        [tr('إجمالي التحصيل')]: num(collShownTotals.total),
+        [tr('عدد السندات')]: collShownTotals.count,
+        [tr('عدد المناديب المحصلين')]: collRepShown.length,
+      }], colWidths: [20, 16, 22] });
+      fname = tr('التحصيل حسب المندوب');
     } else if (tab === 'collections' && collectData) {
       sheets = [{ name: tr('التحصيل'), rows: [
         { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(collectData.summary.total) },
@@ -566,8 +626,8 @@ export default function ReportsPage() {
           ) : (
             <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية تعكس وضع المديونية الآن لا فترة محددة')}</p>
           )}
-          {/* البحث: يظهر حيث يوجد ما يُصفّى — تبويب التحصيل ملخّصٌ بلا صفوف */}
-          {tab !== 'collections' && (
+          {/* البحث: يظهر حيث يوجد ما يُصفّى — وملخّص التحصيل بطاقاتٌ بلا صفوف */}
+          {!(tab === 'collections' && collType === 'summary') && (
             <div className="flex-1 min-w-[200px]">
               <label className="label">{tr('بحث')}</label>
               <div className="relative">
@@ -598,6 +658,15 @@ export default function ReportsPage() {
               </select>
             </div>
           )}
+          {tab === 'collections' && (
+            <div>
+              <label className="label">{tr('نوع التقرير')}</label>
+              <select className="input w-44" value={collType} onChange={e => { setCollType(e.target.value as 'summary' | 'byRep'); setExpandedColl(null); }}>
+                <option value="summary">{tr('ملخص التحصيل')}</option>
+                <option value="byRep">{tr('التحصيل حسب المندوب')}</option>
+              </select>
+            </div>
+          )}
           {tab === 'performance' && accountingOn && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
@@ -624,6 +693,7 @@ export default function ReportsPage() {
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
       {q && (() => {
         const shown = tab === 'sales' ? (Array.isArray(salesRows) ? salesRows.length : 0)
+          : tab === 'collections' ? collRepShown.length
           : tab === 'balances' ? (custType === 'visits' ? custGroups.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
           : perfType === 'hours' ? hoursRows.length
@@ -705,6 +775,103 @@ export default function ReportsPage() {
               </div>
             ))}
           </div>
+
+          {/* التحصيل حسب المندوب — صفٌّ لكلّ مندوب يُفتح على سنداته */}
+          {collType === 'byRep' && (
+            collRepShown.length === 0 ? (
+              <div className="card text-center py-12 text-gray-400">
+                {q ? tr('لا نتائج مطابقة للبحث') : tr('لا سندات قبض في هذه الفترة')}
+              </div>
+            ) : (
+              <div className="card p-0">
+                <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 text-sm flex-wrap">
+                  <span className="flex items-center gap-2"><UserCheck size={16} className="text-[#E15A30]" /><b className="text-[#1F1A13]">{tr('عدد المناديب المحصلين')}: {collRepShown.length}</b></span>
+                  <span className="text-[#9A8F7E]">•</span>
+                  <span className="text-[#6E6557]">{tr('إجمالي المعروض')}: <b className="text-green-700 tabular-nums">{formatCurrency(collShownTotals.total)}</b> ({collShownTotals.count} {tr('سند')})</span>
+                </div>
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>#</th><th>{tr('المندوب')}</th><th>{tr('عدد السندات')}</th>
+                        <th>{tr('نقدي')}</th><th>{tr('شبكة')}</th><th>{tr('تحويل')}</th><th>{tr('شيك')}</th>
+                        <th>{tr('الإجمالي')}</th><th>{tr('النسبة')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {collRepShown.map((r, i) => {
+                        /* النسبة من إجمالي **المعروض** لا من إجمالي الفترة: مع بحثٍ
+                           نشط تجمع النسب ١٠٠٪ بدل أن تبدو ناقصةً بلا سبب ظاهر. */
+                        const pct = collShownTotals.total > 0 ? Math.round((r.total / collShownTotals.total) * 100) : 0;
+                        return (
+                          <Fragment key={r.id}>
+                            <tr className="cursor-pointer hover:bg-[#FAF7F0]" onClick={() => setExpandedColl(p => p === r.id ? null : r.id)}>
+                              <td className="text-gray-400">{i + 1}</td>
+                              <td className="font-medium text-gray-800">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="text-[#E15A30] text-xs w-3">{expandedColl === r.id ? '▲' : '▾'}</span>
+                                  {collRepName(r)}
+                                </span>
+                              </td>
+                              <td className="tabular-nums text-gray-700">{r.count}</td>
+                              <td className="tabular-nums text-gray-600">{r.byMethod.CASH ? formatCurrency(r.byMethod.CASH) : <span className="text-gray-300">—</span>}</td>
+                              <td className="tabular-nums text-gray-600">{r.byMethod.POS ? formatCurrency(r.byMethod.POS) : <span className="text-gray-300">—</span>}</td>
+                              <td className="tabular-nums text-gray-600">{r.byMethod.BANK_TRANSFER ? formatCurrency(r.byMethod.BANK_TRANSFER) : <span className="text-gray-300">—</span>}</td>
+                              <td className="tabular-nums text-gray-600">{r.byMethod.CHEQUE ? formatCurrency(r.byMethod.CHEQUE) : <span className="text-gray-300">—</span>}</td>
+                              <td className="tabular-nums font-bold text-green-600">{formatCurrency(r.total)}</td>
+                              <td>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 min-w-[40px] bg-gray-200 rounded-full h-1.5">
+                                    <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${pct}%` }} />
+                                  </div>
+                                  <span className="text-xs text-gray-600 w-9 tabular-nums">{pct}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                            {expandedColl === r.id && (
+                              <tr>
+                                <td colSpan={9} className="bg-[#FAF7F0] p-0">
+                                  <div className="p-3">
+                                    <p className="text-xs font-semibold text-[#6E6557] mb-2">{tr('سندات')} {collRepName(r)} ({r.count})</p>
+                                    <div className="overflow-x-auto rounded-lg border border-[#F1EBDF] bg-white">
+                                      <table className="w-full text-sm">
+                                        <thead>
+                                          <tr className="text-[11px] text-[#9A8F7E] border-b border-[#F1EBDF]">
+                                            <th className="text-start font-medium py-1.5 px-3">#</th>
+                                            <th className="text-start font-medium py-1.5 px-3">{tr('رقم السند')}</th>
+                                            <th className="text-start font-medium py-1.5 px-3">{tr('التاريخ')}</th>
+                                            <th className="text-start font-medium py-1.5 px-3">{tr('العميل')}</th>
+                                            <th className="text-start font-medium py-1.5 px-3">{tr('طريقة الدفع')}</th>
+                                            <th className="text-start font-medium py-1.5 px-3">{tr('المبلغ')}</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {r.receipts.map((rc, j) => (
+                                            <tr key={rc.id} className="border-b border-[#F6F1E8] last:border-0">
+                                              <td className="py-1.5 px-3 text-gray-400">{j + 1}</td>
+                                              <td className="py-1.5 px-3 font-medium text-gray-700" dir="ltr">{rc.receiptNumber}</td>
+                                              <td className="py-1.5 px-3 text-gray-500">{fmtDateTime(rc.receiptDate)}</td>
+                                              <td className="py-1.5 px-3 text-gray-700">{rc.customer?.name || '—'}</td>
+                                              <td className="py-1.5 px-3 text-gray-500">{methodLabel(rc.paymentMethod)}</td>
+                                              <td className="py-1.5 px-3 tabular-nums font-semibold text-green-600">{formatCurrency(Number(rc.amount) || 0)}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          )}
         </div>
       )}
 

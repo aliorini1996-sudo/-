@@ -3955,6 +3955,11 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'الحساب المطلوب ليس ضمن هذا التقرير: أعد تحميل الصفحة أو وسّع الفترة أو ارفع فلتر الحسابات': { en: 'The requested account is not part of this report — reload the page, widen the period, or clear the account filter', fr: 'Le compte demandé ne fait pas partie de ce rapport — rechargez la page, élargissez la période ou retirez le filtre de comptes', tr: 'İstenen hesap bu raporda yok — sayfayı yenileyin, dönemi genişletin veya hesap filtresini kaldırın', zh: '所请求的科目不在此报表中——请刷新页面、扩大期间或清除科目筛选' },
   'هذا التقرير يُتاح مع مرحلته اللاحقة: اختر تقريراً من قائمة إعداد التقارير': { en: 'This report arrives with its own milestone — pick one of the reports already in the Reporting menu', fr: 'Ce rapport arrivera avec son jalon — choisissez un rapport déjà présent dans le menu Rapports', tr: 'Bu rapor kendi aşamasıyla birlikte gelecek — Raporlama menüsündeki mevcut raporlardan birini seçin', zh: '该报表将随其对应阶段推出——请从报表菜单中选择现有报表' },
   'تقرير غير معروف: افتحه من قائمة إعداد التقارير بدل تعديل الرابط': { en: 'Unknown report — open it from the Reporting menu instead of editing the address', fr: 'Rapport inconnu — ouvrez-le depuis le menu Rapports plutôt qu’en modifiant l’adresse', tr: 'Bilinmeyen rapor — adresi düzenlemek yerine Raporlama menüsünden açın', zh: '未知报表——请从报表菜单打开，而不要手动修改网址' },
+  // ——— تقرير التحصيل حسب المندوب ———
+  'التحصيل حسب المندوب': { en: 'Collections by rep', fr: 'Encaissements par commercial', tr: 'Temsilciye gore tahsilat', zh: '按业务员收款' },
+  'بدون مندوب سند من الإدارة': { en: 'No rep, receipt issued by the office', fr: 'Sans commercial, recu emis par le bureau', tr: 'Temsilcisiz, ofisten duzenlenen makbuz', zh: '无业务员（由管理端开具）' },
+  'عدد المناديب المحصلين': { en: 'Collecting reps', fr: 'Commerciaux ayant encaisse', tr: 'Tahsilat yapan temsilciler', zh: '有收款的业务员数' },
+  'لا سندات قبض في هذه الفترة': { en: 'No receipts in this period', fr: 'Aucun recu sur cette periode', tr: 'Bu donemde makbuz yok', zh: '此期间没有收据' },
 };
 
 export function useTr() {
