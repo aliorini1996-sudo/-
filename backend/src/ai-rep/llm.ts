@@ -8,6 +8,10 @@
  *   AI_REP_LLM_MODEL       معرّف النموذج لدى المضيف
  *   AI_REP_LLM_EXTRA_BODY  (اختياري) JSON يُدمج في جسم الطلب — مثل مفتاح إطفاء «التفكير» الخاص بالمضيف
  *   AI_REP_LLM_TIMEOUT_MS  (اختياري) مهلة النداء الواحد، افتراضياً 20000
+ *   AI_REP_LLM_MAX_TOKENS  (اختياري) حدّ رموز الرد، افتراضياً 4096 — يشمل «التفكير» فلا يُصغَّر وهو مفعّل
+ * الإعداد المقرّر (DeepSeek V4.1 Flash عبر Fireworks بنقطة أمريكية حصرية):
+ *   BASE_URL=https://us.api.fireworks.ai/inference/v1  MODEL=accounts/fireworks/routers/deepseek-v4p1-flash-us
+ *   EXTRA_BODY={"reasoning_effort":"high"}  (يُرسل صراحةً: بعض المضيفين يطفئ التفكير بغيابه)
  * غياب أيٍّ من الثلاثة الأولى ⇒ المستشار «غير مضبوط»، وكل ما هو حتمي يبقى يعمل.
  */
 
@@ -17,6 +21,8 @@ export interface LlmMessage {
   content: string | null;
   tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
+  /** «تفكير» النموذج في دورة الأدوات — يجب إعادته كما هو مع رسالة المساعد (DeepSeek يرفض الطلب بدونه). */
+  reasoning_content?: string;
 }
 export interface LlmToolSpec { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }
 export interface LlmRequest {
@@ -28,10 +34,10 @@ export interface LlmRequest {
 }
 export interface LlmUsage { promptTokens: number; completionTokens: number; cachedTokens: number }
 export type LlmResult =
-  | { ok: true; content: string; toolCalls: LlmToolCall[]; usage: LlmUsage; finishReason: string }
+  | { ok: true; content: string; toolCalls: LlmToolCall[]; usage: LlmUsage; finishReason: string; reasoning?: string }
   | { ok: false; code: 'LLM_NOT_CONFIGURED' | 'LLM_AUTH' | 'LLM_RATE_LIMIT' | 'LLM_TIMEOUT' | 'LLM_BAD_REQUEST' | 'LLM_UNAVAILABLE'; status?: number };
 
-export interface LlmConfig { baseUrl: string; apiKey: string; model: string; extraBody: Record<string, unknown>; timeoutMs: number }
+export interface LlmConfig { baseUrl: string; apiKey: string; model: string; extraBody: Record<string, unknown>; timeoutMs: number; maxTokens: number }
 
 export function llmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | null {
   const baseUrl = (env.AI_REP_LLM_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -44,7 +50,12 @@ export function llmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | nul
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) extraBody = parsed as Record<string, unknown>;
   } catch { /* إعداد فاسد يُتجاهل بدل إسقاط المستشار */ }
   const t = Number(env.AI_REP_LLM_TIMEOUT_MS);
-  return { baseUrl, apiKey, model, extraBody, timeoutMs: Number.isFinite(t) && t >= 3000 && t <= 60000 ? t : 20000 };
+  const mt = Number(env.AI_REP_LLM_MAX_TOKENS);
+  return {
+    baseUrl, apiKey, model, extraBody,
+    timeoutMs: Number.isFinite(t) && t >= 3000 && t <= 90000 ? t : 20000,
+    maxTokens: Number.isFinite(mt) && mt >= 256 && mt <= 32768 ? Math.floor(mt) : 4096,
+  };
 }
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
@@ -58,7 +69,7 @@ export async function chatCompletion(cfg: LlmConfig | null, req: LlmRequest, fet
     ...cfg.extraBody,
     model: cfg.model,
     messages: req.messages,
-    max_tokens: req.maxTokens ?? 700,
+    max_tokens: req.maxTokens ?? cfg.maxTokens,
     temperature: req.temperature ?? 0.3,
     stream: false,
   };
@@ -85,7 +96,7 @@ export async function chatCompletion(cfg: LlmConfig | null, req: LlmRequest, fet
 /** ردّ Chat Completions ← شكلنا. يتسامح مع مضيفين يُسقطون حقولاً اختيارية. */
 export function parseCompletion(raw: unknown): LlmResult {
   const r = raw as {
-    choices?: { message?: { content?: string | null; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[] }; finish_reason?: string }[];
+    choices?: { message?: { content?: string | null; reasoning_content?: string | null; reasoning?: string | null; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[] }; finish_reason?: string }[];
     usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number }; prompt_cache_hit_tokens?: number };
   };
   const choice = r?.choices?.[0];
@@ -98,6 +109,7 @@ export function parseCompletion(raw: unknown): LlmResult {
     content: typeof choice.message.content === 'string' ? choice.message.content : '',
     toolCalls,
     finishReason: choice.finish_reason || 'stop',
+    reasoning: typeof choice.message.reasoning_content === 'string' ? choice.message.reasoning_content : typeof choice.message.reasoning === 'string' ? choice.message.reasoning : undefined,
     usage: {
       promptTokens: Number(r.usage?.prompt_tokens) || 0,
       completionTokens: Number(r.usage?.completion_tokens) || 0,

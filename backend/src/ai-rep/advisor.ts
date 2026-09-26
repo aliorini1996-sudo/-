@@ -139,13 +139,26 @@ export async function runAdvisor(opts: {
   let badArgRetries = 0;
 
   for (;;) {
-    const res = await opts.llm({ messages, tools: hops < maxHops ? toolSpecs : undefined, toolChoice: hops < maxHops ? 'auto' : 'none' });
+    const req: LlmRequest = { messages, tools: hops < maxHops ? toolSpecs : undefined, toolChoice: hops < maxHops ? 'auto' : 'none' };
+    let res = await opts.llm(req);
     if (!res.ok) return { error: 'LLM', code: res.code };
     addUsage(res.usage);
+    // خللان معروفان في DeepSeek V4.x لدى بعض المضيفين: أوامر الأدوات تتسرّب نصاً (DSML) بدل tool_calls، أو ردّ فارغ.
+    // إعادة واحدة، ثم فشلٌ صريح (المستدعي يعرض الخطة الحتمية) — لا نعرض للمندوب وسوماً داخلية ولا فراغاً.
+    if (isMalformed(res)) {
+      res = await opts.llm(req);
+      if (!res.ok) return { error: 'LLM', code: res.code };
+      addUsage(res.usage);
+      if (isMalformed(res)) return { error: 'LLM', code: 'LLM_BAD_OUTPUT' };
+    }
 
     if (res.toolCalls.length && hops < maxHops) {
       hops++;
-      messages.push({ role: 'assistant', content: res.content || null, tool_calls: res.toolCalls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })) });
+      messages.push({
+        role: 'assistant', content: res.content || null,
+        tool_calls: res.toolCalls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
+        ...(res.reasoning ? { reasoning_content: res.reasoning } : {}),
+      });
       for (const call of res.toolCalls) {
         const tool = opts.tools[call.name];
         let out: ToolOutput | { error: string };
@@ -198,6 +211,13 @@ export async function runAdvisor(opts: {
   function finalize(text: string, guard: GuardResult): AdvisorResult {
     return { text, refs: [...refs], guard, hops, usage, toolNames };
   }
+}
+
+/** ردّ لا يصلح: لا أدوات ولا نص، أو وسوم أدوات داخلية تسرّبت إلى النص. */
+export function isMalformed(res: Extract<LlmResult, { ok: true }>): boolean {
+  if (res.toolCalls.length) return false;
+  const t = (res.content || '').trim();
+  return !t || /DSML|<\uFF5C|\uFF5C>|<\/?(tool_call|function_calls?|invoke)\b/i.test(t);
 }
 
 function fallbackText(summaries: string[]): string {

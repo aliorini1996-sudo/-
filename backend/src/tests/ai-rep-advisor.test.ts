@@ -228,3 +228,23 @@ test('الخطة الحتمية: الفرص الجديدة غير المرفوض
 test('مراجع خطة العقل: بترتيب الظهور، مقصورةً على الفرص الجديدة، بلا تكرار', () => {
   assert.deepEqual(planFromText('ابدأ بـ P4 ثم P1، وتجنّب P2، ثم عد إلى P4. P9 غير موجود', new Set(['P1', 'P4'])), ['P4', 'P1']);
 });
+
+test('DeepSeek: «التفكير» يُعاد مع رسالة الأدوات، والرد المعطوب (وسوم DSML أو فراغ) يُعاد مرة ثم فشل صريح', async () => {
+  const withReasoning: LlmResult = { ok: true, content: '', toolCalls: [{ id: 'c1', name: 'outlet_estimate', arguments: '{"ref":"P1"}' }], usage: U, finishReason: 'tool_calls', reasoning: 'أفكر في المحل' };
+  const a = scripted([withReasoning, say('تمام.')]);
+  await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: { outlet_estimate: tool('outlet_estimate', {}) }, llm: a.llm });
+  const asst = a.seen[1].messages.find(m => m.role === 'assistant');
+  assert.equal(asst?.reasoning_content, 'أفكر في المحل');
+  const b = scripted([say('<｜DSML｜function_calls>…'), say('ابدأ بالمياه.')]);
+  const rb = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: b.llm });
+  assert.ok(!('error' in rb) && rb.text === 'ابدأ بالمياه.');
+  const c = scripted([say(''), say('   ')]);
+  assert.deepEqual(await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: c.llm }), { error: 'LLM', code: 'LLM_BAD_OUTPUT' });
+});
+
+test('الإعداد: حدّ الرد افتراضياً 4096 ويُضبط، والتفكير يُقرأ من reasoning_content أو reasoning', () => {
+  assert.equal(llmConfig({ AI_REP_LLM_BASE_URL: 'https://a', AI_REP_LLM_API_KEY: 'k', AI_REP_LLM_MODEL: 'm' })!.maxTokens, 4096);
+  assert.equal(llmConfig({ AI_REP_LLM_BASE_URL: 'https://a', AI_REP_LLM_API_KEY: 'k', AI_REP_LLM_MODEL: 'm', AI_REP_LLM_MAX_TOKENS: '16000' })!.maxTokens, 16000);
+  const r = parseCompletion({ choices: [{ message: { content: 'x', reasoning: 'r' } }] });
+  assert.ok(r.ok && r.reasoning === 'r');
+});
