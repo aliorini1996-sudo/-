@@ -51,3 +51,16 @@ test('كل تسمية ثابتة (الأنواع والنتائج) لها ترج
   assert.equal(aiRepTranslate('ar', 'مهتم'), 'مهتم');
   for (const [k, v] of Object.entries(AI_REP_PHRASES)) assert.ok(v.en && v.fr && v.tr && v.zh, `ترجمة ناقصة: ${k}`);
 });
+
+import { refsFor, renderRefs } from './aiRepLogic';
+
+test('سياق المستشار: مراجع P بترتيب القائمة، وعرض الأسماء مكانها', () => {
+  const items = [
+    { outletType: 'GROCERY', lat: 1, lng: 2, distanceM: 400, relation: 'NEW', lastOutcome: null, customerId: null, name: 'بقالة الخير' },
+    { outletType: 'PHARMACY', lat: 1, lng: 3, distanceM: 900, relation: 'CUSTOMER', lastOutcome: 'INTERESTED', customerId: 'c1', name: 'صيدلية' },
+  ];
+  const refs = refsFor(items);
+  assert.deepEqual(refs.map(r => r.ref), ['P1', 'P2']);
+  assert.equal((refs[0] as Record<string, unknown>).name, undefined, 'الاسم لا يُرسل');
+  assert.equal(renderRefs('ابدأ بـ P1 ثم P2 وليس P10', [{ ref: 'P1', label: 'بقالة الخير' }, { ref: 'P2', label: 'صيدلية' }]), 'ابدأ بـ «بقالة الخير» ثم «صيدلية» وليس P10');
+});

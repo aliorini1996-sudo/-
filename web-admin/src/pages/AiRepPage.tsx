@@ -15,10 +15,11 @@ import { useAiRepTr } from '../i18n/aiRepPhrases';
 interface Settings {
   targetOutletTypes: string[]; searchRadiusM: number; priorityProductIds: string[]; estimateWindowMonths: number;
   minPeers: number; showMoney: boolean; repScope: 'ALL' | 'SELECTED'; repIds: string[]; dailySearchesPerRep: number; playbook: string | null;
+  advisorEnabled: boolean; dailyChatTurnsPerRep: number;
 }
 interface TypeRow { code: string; label: string; targeted: boolean; classified: number; withLocation: number; withRegularSales: number; ready: boolean }
 interface Overview {
-  settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean;
+  settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean; advisorConfigured?: boolean;
   readiness: { window: { from: string; to: string }; unclassified: number; classifiedWithoutLocation: number; perType: TypeRow[] };
 }
 interface ClassRow { id: string; name: string; businessName: string | null; district: string | null; city: string | null; outletType: string | null; suggested: string | null; hasLocation: boolean }
@@ -201,6 +202,21 @@ export default function AiRepPage() {
                 })}
               </div>
             )}
+          </div>
+
+          <div className="rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 space-y-3">
+            <p className="text-sm font-semibold text-[#1F1A13]">{tr('المستشار الذكي (العقل)')}</p>
+            <p className="text-xs text-[#6E6557]">{data.advisorConfigured ? tr('العقل مفعّل لدى مزوّد الخدمة: يفحص المحلات المجاورة ويعطي المندوب خطة وتوجيهاً ويجيب أسئلته — الأرقام دائماً من بيانات شركتك') : tr('العقل لم يُفعَّل بعد لدى مزوّد الخدمة — المندوب يحصل الآن على خطة حتمية من بيانات شركتك')}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none">
+                <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={form.advisorEnabled} onChange={e => set('advisorEnabled', e.target.checked)} />
+                {tr('تفعيل المستشار الذكي لمناديب الشركة')}
+              </label>
+              <label className="block">
+                <span className="label">{tr('حدّ أسئلة المستشار اليومي لكل مندوب')}</span>
+                <input type="number" min={5} max={150} className="input mt-1" value={form.dailyChatTurnsPerRep} onChange={e => set('dailyChatTurnsPerRep', Math.max(5, Math.min(150, Number(e.target.value) || 5)))} />
+              </label>
+            </div>
           </div>
 
           <label className="block">

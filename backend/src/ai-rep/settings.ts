@@ -16,6 +16,8 @@ export interface AiRepSettingsView {
   repIds: string[];
   dailySearchesPerRep: number;
   playbook: string | null;
+  advisorEnabled: boolean;
+  dailyChatTurnsPerRep: number;
 }
 
 export const DEFAULT_AI_REP_SETTINGS: AiRepSettingsView = Object.freeze({
@@ -29,6 +31,8 @@ export const DEFAULT_AI_REP_SETTINGS: AiRepSettingsView = Object.freeze({
   repIds: [],
   dailySearchesPerRep: 30,
   playbook: null,
+  advisorEnabled: true,
+  dailyChatTurnsPerRep: 40,
 }) as AiRepSettingsView;
 
 const outletCode = z.enum(OUTLET_TYPE_CODES as unknown as [string, ...string[]]);
@@ -45,6 +49,8 @@ export const aiRepSettingsSchema = z.object({
   repIds: z.array(z.string().min(1)).max(5000).optional(),
   dailySearchesPerRep: z.number().int().min(5).max(100).optional(),
   playbook: z.string().max(4000).nullish(),
+  advisorEnabled: z.boolean().optional(),
+  dailyChatTurnsPerRep: z.number().int().min(5).max(150).optional(),
 });
 export type AiRepSettingsInput = z.infer<typeof aiRepSettingsSchema>;
 
@@ -64,6 +70,8 @@ export function settingsView(row: Partial<AiRepSettingsView> | null | undefined)
     repIds: row.repIds ?? [],
     dailySearchesPerRep: row.dailySearchesPerRep ?? d.dailySearchesPerRep,
     playbook: row.playbook ?? null,
+    advisorEnabled: row.advisorEnabled ?? d.advisorEnabled,
+    dailyChatTurnsPerRep: row.dailyChatTurnsPerRep ?? d.dailyChatTurnsPerRep,
   };
 }
 

@@ -3298,6 +3298,8 @@ model AiRepSettings {
   repScope             String   @default("ALL") // ALL | SELECTED
   repIds               String[] @default([]) // المناديب المفعّل لهم عند SELECTED
   dailySearchesPerRep  Int      @default(30) // سقف بحث المحلات لكل مندوب يومياً (كلفة Google)
+  advisorEnabled       Boolean  @default(true) // المستشار الذكي (محادثة) — للشركة إيقافه مع بقاء القوائم والتوقّعات
+  dailyChatTurnsPerRep Int      @default(40) // سقف أسئلة المستشار لكل مندوب يومياً (كلفة النموذج)
   playbook             String? // دليل البيع للشركة (نقاط البيع والعروض وسياسة الآجل) — يقرؤه المستشار
   updatedById          String?
   createdAt            DateTime @default(now())
@@ -3387,6 +3389,11 @@ model AiUsageDaily {
   searches   Int      @default(0)
   estimates  Int      @default(0)
   outcomes   Int      @default(0)
+  chatTurns  Int      @default(0)
+  tokensIn   Int      @default(0)
+  tokensOut  Int      @default(0)
+  guardRegen Int      @default(0) // ردود أُعيد توليدها لرقم بلا مصدر
+  guardFallback Int   @default(0) // ردود قُصّت أو استُبدلت بقالب حتمي
   updatedAt  DateTime @updatedAt
 
   @@unique([tenantId, salesRepId, day])
