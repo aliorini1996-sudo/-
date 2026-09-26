@@ -309,10 +309,11 @@ const RETRYABLE_DOCUMENT_STATUSES: readonly string[] = Object.freeze(['RETRY_WAI
  */
 export function zatcaRowActions(
   row: ZatcaInvoiceRowLike | null | undefined,
-  opts: { allowed: boolean } = { allowed: false },
+  opts: { allowed: boolean; now?: Date } = { allowed: false },
 ): ZatcaRowActions {
   if (!opts.allowed) return NO_ACTIONS;
-  const v = zatcaDocView(row);
+  // `now` للاختبار (التأخّر يُحسب من الساعة) — الواجهة تمرّر لحظتها الحالية ضمناً
+  const v = zatcaDocView(row, opts.now ?? new Date());
   if (!v) return NO_ACTIONS;
   const blocked = v.mirror === 'report_blocked' || v.mirror === 'clearance_blocked';
   const retryByDocument = v.documentStatus !== null && RETRYABLE_DOCUMENT_STATUSES.includes(v.documentStatus);
