@@ -30,21 +30,27 @@ export function MCard({ children, className = '', onClick }: {
 }
 
 /** بطاقة رقم — عمودية لا أفقية: العرض على 360px لا يحتمل أيقونةً بجانب النصّ */
-export function MStat({ label, value, tone = 'default', icon: Icon }: {
+export function MStat({ label, value, tone = 'default', icon: Icon, compact = false }: {
   label: string; value: string; tone?: 'default' | 'good' | 'warn' | 'bad';
   icon?: React.ElementType;
+  /** لشبكة ثلاثية ضيّقة: رقمٌ أصغر يُعرض كاملاً بلا قصّ «…»، والعملة تنزل لسطرها إن ضاق المكان */
+  compact?: boolean;
 }) {
   const color = tone === 'good' ? 'text-[#2F855A]'
     : tone === 'warn' ? 'text-[#B7791F]'
     : tone === 'bad' ? 'text-[#C0392B]'
     : 'text-[#1F1A13]';
   return (
-    <div className={`${CARD} p-3.5`}>
+    <div className={`${CARD} ${compact ? 'p-2.5' : 'p-3.5'}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-[#9A8F7E] mb-1">
         {Icon && <Icon size={13} />}
         <span className="truncate">{label}</span>
       </div>
-      <p className={`text-lg font-bold ${color} truncate`} dir="auto">{value}</p>
+      {compact
+        /* Intl يفصل الرقم عن العملة بمسافة غير قابلة للكسر؛ تُستبدل بعادية كي تنزل
+           «ر.س.» لسطرٍ ثانٍ بدل أن يُقصّ الرقم */
+        ? <p className={`text-sm leading-tight font-bold tabular-nums ${color}`} dir="auto">{value.replace(/[  ]/g, ' ')}</p>
+        : <p className={`text-lg font-bold ${color} truncate`} dir="auto">{value}</p>}
     </div>
   );
 }
