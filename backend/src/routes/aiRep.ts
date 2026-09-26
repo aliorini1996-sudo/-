@@ -110,7 +110,8 @@ export const MAX_ESTIMATES_PER_DAY = 300;
 /** مفتاح خرائط المتصفّح — **لعرض الخريطة وحده** (Maps JavaScript API)، مقيَّد بنطاق الموقع وحصة يومية في Google Cloud. */
 function mapsBrowserKey(): string | null {
   const k = (process.env.GOOGLE_MAPS_BROWSER_KEY || '').trim();
-  return k || null;
+  if (!k || k === placesApiKey()) return null; // مفتاح الخادم لا يغادر الخادم أبداً
+  return k;
 }
 
 function estimateAt(c: RepCtx, data: TenantEstimateData, o: { lat: number; lng: number; outletType: string; customerId: string | null }): EstimateResult {
@@ -413,11 +414,12 @@ rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) =>
     const cfg = llmConfig();
     if (!cfg) { res.status(503).json({ success: false, code: 'AI_LLM_NOT_CONFIGURED', message: 'المستشار الذكي لم يُفعَّل بعد لدى مزوّد الخدمة — القوائم والتوقّعات تعمل كالمعتاد' }); return; }
     const body = chatSchema.parse(req.body);
+    const s = body.searchId ? getSession(c.tid, c.repId, body.searchId) : null;
+    if (body.searchId && !s) { res.status(409).json(NO_SESSION); return; }
     if (!(await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
       res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ أسئلة المستشار اليومي (${c.settings.dailyChatTurnsPerRep}) — القوائم والأرقام تعمل كالمعتاد` });
       return;
     }
-    const s = body.searchId ? getSession(c.tid, c.repId, body.searchId) : null;
     const actx = await advisorContext(c, s ? s.outlets.map(toOutletCtx) : [], s?.origin ?? null);
     const started = Date.now();
     const result = await runAdvisor({

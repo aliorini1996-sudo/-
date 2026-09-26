@@ -73,8 +73,10 @@ export function mergeNearby(places: NearbyPlace[], opts: {
   for (const p of places) {
     const outletType = outletTypeFromGoogle(p.primaryType, p.types, opts.targetTypes);
     if (!outletType) continue;
-    const mem = memory.get(p.placeId) ?? null;
+    let mem = memory.get(p.placeId) ?? null;
     if (mem?.status === 'CLOSED') continue;
+    // مع العزل: محلٌّ حُوِّل لعميل غير مرئي لهذا المندوب يُعامَل كأن لا ذاكرة له (الوسم نفسه يكشف عميل الزميل)
+    if (opts.isolation && mem?.status === 'CONVERTED' && !(mem.convertedCustomerId && byId.has(mem.convertedCustomerId))) mem = null;
 
     let relation: Relation = 'NEW';
     let customer: CustomerPin | null = byPlace.get(p.placeId) ?? null;

@@ -20,6 +20,11 @@ const match = (r: Row, w: Record<string, unknown>) => Object.entries(w).every(([
   return r[k] === v;
 });
 const aiUsageDaily = {
+  async createMany(a: { data: Row[] }) {
+    let count = 0;
+    for (const d of a.data) if (!rows.find(x => x.tenantId === d.tenantId && x.salesRepId === d.salesRepId && x.day === d.day)) { rows.push({ searches: 0, estimates: 0, chatTurns: 0, ...d }); count++; }
+    return { count };
+  },
   async upsert(a: { where: { tenantId_salesRepId_day: Row }; create: Row; update: Record<string, { increment: number }> }) {
     const w = a.where.tenantId_salesRepId_day;
     let r = rows.find(x => x.tenantId === w.tenantId && x.salesRepId === w.salesRepId && x.day === w.day);

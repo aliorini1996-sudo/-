@@ -22,7 +22,7 @@ export async function reserveUsage(tid: string, repId: string, field: CounterFie
   if (n <= 0) return true;
   if (limit < n) return false;
   const day = usageDay();
-  await prisma.aiUsageDaily.upsert({ where: key(tid, repId, day), create: { tenantId: tid, salesRepId: repId, day }, update: {} });
+  await prisma.aiUsageDaily.createMany({ data: [{ tenantId: tid, salesRepId: repId, day }], skipDuplicates: true });
   const r = await prisma.aiUsageDaily.updateMany({
     where: { tenantId: tid, salesRepId: repId, day, [field]: { lte: limit - n } } as never,
     data: { [field]: { increment: n } } as never,

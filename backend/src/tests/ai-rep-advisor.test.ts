@@ -26,7 +26,7 @@ test('توحيد الأرقام: الهندية والفارسية والفاص�
 });
 
 test('القائمة البيضاء: النسب تُقبل مئوية، ولا إعفاء للأرقام الصغيرة إلا الترقيم ومراجع المحلات', () => {
-  const allowed = numbersIn({ penetration: 0.7, qty: { low: 6, median: 8, high: 12 }, note: 'من ٩ بقالات' });
+  const allowed = numbersIn({ penetration: 0.7, qty: { low: 6, median: 8, high: 12 }, basis: 'من ٩ بقالات' });
   assert.deepEqual(unsupportedNumbers('٧٠٪ من المحلات تشتريه، شهرياً ٦–١٢ والوسيط ٨، من ٩ بقالات', allowed), []);
   assert.deepEqual(unsupportedNumbers('اعرض عليه ٢٠ كرتون', allowed), [20]);
   assert.deepEqual(unsupportedNumbers('اعرض ٣ كراتين تجريبية', allowed), [3], 'الطلب التجريبي المخترع لا يمرّ');
@@ -283,4 +283,16 @@ test('إعادة التوليد المعطوبة لا تصل المندوب (و�
 test('خطة العقل: من الأسطر المرقّمة (أول مرجع في كل خطوة)، والمذكور للتجنّب لا يدخل', () => {
   const allowed = new Set(['P1', 'P4', 'P7']);
   assert.deepEqual(planFromText('1) ابدأ بـ P4 لأن ...\n2) ثم P1 وتجاوز P7 لأنه غير مهتم', allowed), ['P4', 'P1']);
+});
+
+test('الحارس بعد التحقّق: الحقول الوصفية لا تُدخل أرقاماً، والكيلومتر مسموح، والمئات والأعداد ١١–١٩ والآلاف', () => {
+  const allowed = numbersIn({ note: 'fewer than 5 buyers — no quantity', distance_m: 1250, penetration: 0.4, qty: 0.4 });
+  assert.deepEqual(unsupportedNumbers('اعرض 5 كراتين', allowed), [5], 'رقم الملاحظة الوصفية ليس كمية');
+  assert.deepEqual(unsupportedNumbers('المحل على بعد 1.3 كم', allowed), [], 'المسافة بالكيلومتر من المتر');
+  assert.deepEqual(unsupportedNumbers('40٪ من المحلات تشتريه', allowed), [], 'نسبة لحقل النسبة');
+  assert.deepEqual(unsupportedNumbers('7 - كراتين عصير', allowed), [7], 'كمية في أول السطر تُفحص');
+  assert.deepEqual(unsupportedNumbers('خمسمية ريال', new Set()), [500]);
+  assert.deepEqual(unsupportedNumbers('خمسطعش كرتون', new Set()), [15]);
+  assert.deepEqual(unsupportedNumbers('ثلاثة آلاف ريال', new Set()), [3000]);
+  assert.deepEqual(unsupportedNumbers('ألف مبروك عليك العميل', new Set()), []);
 });

@@ -50,7 +50,11 @@ export default function AiRepPage() {
 
   const save = useMutation({
     mutationFn: async (s: Settings) => (await aiRepApi.saveSettings(s)).data,
-    onSuccess: () => { toast.success(tr('تم حفظ إعدادات المندوب الذكي')); qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] }); },
+    onSuccess: (res: { data?: { settings?: Settings } }) => {
+      toast.success(tr('تم حفظ إعدادات المندوب الذكي'));
+      if (res.data?.settings) setForm(res.data.settings);
+      qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] });
+    },
     onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e.response?.data?.message || tr('تعذّر الحفظ')),
   });
 
@@ -188,7 +192,7 @@ export default function AiRepPage() {
                 <div className="flex flex-wrap gap-2 mt-2">
                   {missing.map(id => (
                     <button key={id} type="button" onClick={() => toggleIn('priorityProductIds', id)} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-800">
-                      {tr('منتج غير نشط')} ✕
+                      {tr('منتج غير ظاهر في القائمة')} ✕
                     </button>
                   ))}
                 </div>

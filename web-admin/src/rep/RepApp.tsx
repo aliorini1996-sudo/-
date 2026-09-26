@@ -48,7 +48,7 @@ class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode 
       <div className="p-6 text-center space-y-3">
         <p className="text-sm text-gray-600">تعذّر فتح المندوب الذكي — تحقّق من الاتصال</p>
         <div className="flex gap-2 justify-center">
-          <button onClick={() => this.setState({ failed: false })} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold">أعد المحاولة</button>
+          <button onClick={() => window.location.reload()} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold">أعد المحاولة</button>
           <button onClick={this.props.onBack} className="rounded-xl bg-[#1F1A13] text-white px-4 py-2 text-sm font-semibold">رجوع</button>
         </div>
       </div>
@@ -3466,7 +3466,7 @@ export default function RepApp() {
           ) : modal === 'addCustomer' ? (
             <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect}
               prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
-              onCreated={(c) => { if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
+              onCreated={(c) => { if (aiPrefill?.aiPlaceId && !c._offline) markConverted(aiPrefill.aiPlaceId, c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (
             <>
               {/* Top bar */}

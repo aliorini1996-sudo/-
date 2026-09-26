@@ -32,6 +32,13 @@ export function saveAiSession(s: AiRepSessionState): void { state = s; }
 
 export function clearAiSession(): void { state = null; }
 
+/** تحديث جزئي للجلسة من داخل طلب غير متزامن — تُطبَّق النتيجة ولو فُكّت الشاشة قبل وصولها. */
+export function patchAiSession(repId: string, patch: Partial<AiRepSessionState>): void {
+  const base: AiRepSessionState = state && state.repId === repId ? state
+    : { repId, searchId: null, items: null, origin: null, guide: null, routeIds: [], chat: [], askDraft: '', tab: 'near' };
+  state = { ...base, ...patch };
+}
+
 /** بعد إنشاء عميل من محلٍّ مقترح: يصير المحل «عميلاً حالياً» في القائمة فلا يُضاف مرة ثانية. */
 export function markConverted(placeId: string, customerId: string): void {
   if (state?.items) {

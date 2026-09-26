@@ -45,7 +45,7 @@ export async function syncOutbox(): Promise<SyncResult> {
   let sent = 0, rejected = 0, stopped = false;
   try {
     // ترتيب التبعية: العميل قبل فاتورته/سنده/زيارته — يضمن حلّ customerClientRef على الخادم
-    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : k === 'visit' ? 3 : k === 'dailyReport' ? 4 : 5);
+    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : k === 'visit' ? 3 : k === 'aiOutcome' ? 4 : 5);
     const endpointOf = (k: OutboxDoc['kind']) =>
       k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : k === 'receipt' ? '/receipts'
       : k === 'visit' ? '/visits' : k === 'aiOutcome' ? '/ai-rep/rep/outcomes' : '/daily-reports';
@@ -69,11 +69,6 @@ export async function syncOutbox(): Promise<SyncResult> {
           // ليس رفض أعمال: الميزة أُطفئت أو سلسلة الاعتماد ناقصة بعد كتابة التقرير
           // على الجهاز. يبقى التقرير مصفوفاً حتى يُصلح المالك التهيئة، ولا يُعدَم
           // ولا يُعاد إرساله أبداً في حلقةٍ لا تنتهي.
-          stopped = true;
-          break;
-        }
-        if (code === 'AI_REP_NOT_ALLOWED') {
-          // المندوب الذكي أُطفئ بعد تسجيل النتيجة على الجهاز: تبقى مصفوفة حتى يُعاد التفعيل (آخر الصفّ رتبةً)
           stopped = true;
           break;
         }

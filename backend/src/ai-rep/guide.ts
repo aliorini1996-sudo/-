@@ -9,6 +9,7 @@
  */
 import { haversineKm, EstimateResult } from './estimate';
 import { orderStops } from './advisorTools';
+import { normalizeDigits } from './advisor';
 
 export interface PlanCandidate {
   ref: string;
@@ -21,7 +22,7 @@ export interface PlanCandidate {
   estimate: EstimateResult;
 }
 
-const REJECTED = new Set(['NOT_INTERESTED', 'EXCLUSIVE_SUPPLIER', 'CLOSED']);
+const REJECTED = new Set(['NOT_INTERESTED', 'EXCLUSIVE_SUPPLIER', 'CLOSED', 'CONVERTED']);
 const CONF_WEIGHT: Record<string, number> = { HIGH: 1, MEDIUM: 0.8, LOW: 0.5 };
 export const PLAN_MAX_STOPS = 5;
 
@@ -91,14 +92,16 @@ export function planFromText(text: string, allowed: Set<string>, max = PLAN_MAX_
   const out: string[] = [];
   const take = (ref: string) => { if (allowed.has(ref) && !out.includes(ref) && out.length < max) out.push(ref); };
   // الخطوات المرقّمة أولاً («1) P4 …»): أول مرجع في كل سطر مرقّم هو محطّته — فالمذكور للتجنّب في آخر السطر لا يدخل
-  const numbered = [...text.matchAll(/^\s*\d{1,2}\s*[).\-–:]\s*(.*)$/gm)];
+  // أرقام هندية وترقيم مُبرَز (**1.** أو ### 2)) يُوحَّدان قبل المطابقة
+  const plain = normalizeDigits(text);
+  const numbered = [...plain.matchAll(/^\s*[*#>\s]*\d{1,2}\s*[).\-–:]\**\s*(.*)$/gm)];
   for (const line of numbered) {
     const m = line[1].match(/\bP\d{1,3}\b/);
     if (m) take(m[0]);
   }
   if (out.length) return out;
   // بلا ترقيم: بترتيب أول ظهور
-  for (const m of text.matchAll(/\bP\d{1,3}\b/g)) take(m[0]);
+  for (const m of plain.matchAll(/\bP\d{1,3}\b/g)) take(m[0]);
   return out;
 }
 

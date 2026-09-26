@@ -15,6 +15,7 @@ import { OUTLET_TYPE_CODES } from '../ai-rep/taxonomy';
 import { linkConvertedCustomer } from '../ai-rep/convert';
 import { aiRepForRep } from '../ai-rep/access';
 import { invalidateEstimateData } from '../ai-rep/estimateData';
+import { patchSessionOutlet } from '../ai-rep/session';
 
 const router = Router();
 router.use(authenticate);
@@ -199,7 +200,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // المندوب الذكي: محلٌّ مقترح صار عميلاً ⇒ يُعلَّم في سجلّ الشركة وتُحفظ لقطة توقّعه (لا يُسقط الإنشاء إن فشل)
     if (customer.outletType) invalidateEstimateData(tid);
     if (customer.aiPlaceId) {
-      try { await linkConvertedCustomer(tid, customer, creatorRepId); }
+      try {
+        await linkConvertedCustomer(tid, customer, creatorRepId);
+        if (creatorRepId) patchSessionOutlet(tid, creatorRepId, customer.aiPlaceId, { relation: 'CUSTOMER', customerId: customer.id, lastOutcome: 'CONVERTED' });
+      }
       catch (e) { console.error('[ai-rep] ربط التحويل تعذّر:', (e as Error)?.message); }
     }
     res.status(201).json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });

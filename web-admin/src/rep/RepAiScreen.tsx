@@ -8,7 +8,7 @@ import { formatCurrency } from '../utils/format';
 import { useBackClose } from '../lib/useBackClose';
 import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
-import { loadAiSession, onConverted, saveAiSession, type AiAddPrefill } from './aiRepSession';
+import { loadAiSession, onConverted, patchAiSession, saveAiSession, type AiAddPrefill } from './aiRepSession';
 import { CONFIDENCE_LABEL, OUTCOMES, OUTCOME_LABEL, distKm, fmtDistance, fmtRange, multiStopUrl, navUrl, orderRoute, routeLegs, renderRefs } from './aiRepLogic';
 
 /**
@@ -108,7 +108,13 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     setRouteIds(ids => ids.filter(id => id !== placeId));
   }), []);
 
-  // التحميل مرّة واحدة عند التركيب (لا تبعيات متغيّرة — كانت تُسبّب حلقة طلبات)
+  // التحميل عند التركيب وعند عودة الاتصال (لا تبعيات متغيّرة أخرى — كانت تُسبّب حلقة طلبات)
+  const [meTick, setMeTick] = useState(0);
+  useEffect(() => {
+    const on = () => setMeTick(n => n + 1);
+    window.addEventListener('online', on);
+    return () => window.removeEventListener('online', on);
+  }, []);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -127,16 +133,16 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
           else setMeErr('OFFLINE');
         } else setMeErr(errMsg(e) || 'LOAD_FAILED');
       }
-      if (!restored?.items) {
-        const hit = await cacheGet<{ savedAt: number; items: Item[] }>(LAST_KEY).catch(() => null);
-        if (alive && hit?.data?.items?.length && Date.now() - hit.data.savedAt < LAST_MAX_AGE_MS) {
-          setItems(prev => prev ?? hit.data.items); setCachedAt(hit.data.savedAt);
-        }
+      if (!restored?.items && meTick === 0) {
+        const hit = await cacheGet<{ savedAt: number; items: Item[] } | null>(LAST_KEY).catch(() => null);
+        const saved = hit?.data;
+        if (saved && Date.now() - saved.savedAt >= LAST_MAX_AGE_MS) void cacheSet(LAST_KEY, null); // انتهت: تُحذف لا تُتجاهل
+        else if (alive && saved?.items?.length) { setItems(prev => prev ?? saved.items); setCachedAt(saved.savedAt); }
       }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [meTick]);
 
   // الخريطة داخل التطبيق (مفتاح عرض فقط) — بمهلة وإعادة محاولة
   useEffect(() => {
@@ -157,18 +163,23 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   const money = useCallback((n: number) => formatCurrency(n, undefined, 0), []);
   const limitReached = !!me && me.dailySearches.used >= me.dailySearches.limit;
 
+  const routeEditedRef = useRef(false);
   const runGuide = useCallback(async (sid: string, list: Item[]) => {
     setGuiding(true);
     try {
       const gr = await repApi.post('/ai-rep/rep/guide', { searchId: sid });
-      if (searchIdRef.current !== sid) return; // بحث أحدث وصل — لا نخلط الخطط
       const gd = gr.data.data as Guide;
-      setGuide(gd);
       const byRef = new Map(list.map(i => [i.ref, i.placeId]));
-      setRouteIds(gd.plan.map(r => byRef.get(r)).filter((x): x is string => !!x));
+      const planIds = gd.plan.map(r => byRef.get(r)).filter((x): x is string => !!x);
+      if (loadAiSession(repId)?.searchId === sid) patchAiSession(repId, { guide: gd, routeIds: planIds });
+      if (searchIdRef.current !== sid) return; // بحث أحدث وصل — لا نخلط الخطط
+      setGuide(gd);
+      // خطة المستشار أولاً ثم ما أضافه المندوب يدوياً أثناء الانتظار
+      setRouteIds(ids => (routeEditedRef.current ? [...planIds, ...ids.filter(id => !planIds.includes(id))] : planIds));
+      if (gd.source === 'AI') setMe(m => (m?.advisor ? { ...m, advisor: { ...m.advisor, used: m.advisor.used + 1 } } : m));
     } catch { /* التوجيه اختياري: القائمة والخريطة تبقيان */ }
     finally { if (searchIdRef.current === sid) setGuiding(false); }
-  }, []);
+  }, [repId]);
 
   const search = useCallback(async () => {
     if (!me || busy) return;
@@ -181,8 +192,10 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       const sid = r.data.data.searchId as string;
       const list = (r.data.data.items ?? []) as Item[];
       searchIdRef.current = sid;
+      routeEditedRef.current = false;
+      patchAiSession(repId, { searchId: sid, items: list, origin: gps, guide: null, routeIds: [], chat: [] });
       setOrigin(gps); setSearchId(sid); setItems(list); setCachedAt(null);
-      setChat([]); setGuide(null); setRouteIds([]); setOpen(null);
+      setChat([]); setGuide(null); setRouteIds([]); setOpen(null); setGuiding(false);
       setMe(m => (m ? { ...m, dailySearches: { ...m.dailySearches, used: m.dailySearches.used + 1 } } : m));
       // الحفظ دون اتصال بلا أسماء ولا عناوين، ولمدة يوم (شروط Google)
       void cacheSet(LAST_KEY, { savedAt: Date.now(), items: list.map(i => ({ ...i, name: '', address: null })) });
@@ -192,10 +205,10 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — البحث يحتاج الإنترنت') : tr('تعذّر البحث')));
       if (errCode(e) === 'AI_REP_DAILY_LIMIT') setMe(m => (m ? { ...m, dailySearches: { ...m.dailySearches, used: m.dailySearches.limit } } : m));
     } finally { setBusy(false); }
-  }, [me, busy, limitReached, types, tr, runGuide]);
+  }, [me, busy, limitReached, types, tr, runGuide, repId]);
 
   const inRoute = useCallback((id: string) => routeIds.includes(id), [routeIds]);
-  const toggleRoute = (it: Item) => setRouteIds(ids => (ids.includes(it.placeId) ? ids.filter(x => x !== it.placeId) : [...ids, it.placeId]));
+  const toggleRoute = (it: Item) => { routeEditedRef.current = true; setRouteIds(ids => (ids.includes(it.placeId) ? ids.filter(x => x !== it.placeId) : [...ids, it.placeId])); };
   const shortestOrder = () => { if (origin) setRouteIds(orderRoute(origin, routeItems).map(i => i.placeId)); };
 
   const onOutcome = (placeId: string, kind: string) => {
@@ -257,7 +270,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
           {cachedAt && <p className="text-[11px] text-amber-700 text-center">{tr('نتائج محفوظة من')} {new Date(cachedAt).toLocaleTimeString()} — {tr('الأسماء تظهر عند البحث من جديد')}</p>}
 
           {me?.mapsKey && !offline && (g
-            ? <RepAiMap g={g} origin={origin} items={mapItems} plan={routeIds} fitKey={searchId} onSelect={selectOnMap} />
+            ? <RepAiMap g={g} origin={origin} items={mapItems} plan={routeIds} fitKey={searchId} visible={tab === 'near'} onSelect={selectOnMap} />
             : (
               <div className="w-full h-64 rounded-2xl bg-gray-100 flex flex-col items-center justify-center gap-2 text-xs text-gray-500">
                 {mapErr
@@ -284,6 +297,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
             </div>
           )}
 
+          {!!visibleItems.length && !(me?.mapsKey && g && !offline) && <GoogleAttribution />}
           {visibleItems.map(it => (
             <div key={it.placeId} className={`rounded-2xl border p-3.5 ${it.rejectedRecently ? 'border-gray-100 bg-gray-50 opacity-80' : 'border-gray-100 bg-white'}`}>
               <button className="w-full text-right" onClick={() => setOpen(it)}>
@@ -314,7 +328,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
           <AskTab me={me} offline={offline} searchId={searchId} names={names} chat={chat} setChat={setChat} draft={askDraft} setDraft={setAskDraft}
             searchIdRef={searchIdRef}
             onUsed={() => setMe(m => (m?.advisor ? { ...m, advisor: { ...m.advisor, used: m.advisor.used + 1 } } : m))}
-            onOpenRef={ref => { const it = (items ?? []).find(i => i.ref === ref && !i.closed); if (it) setOpen(it); }} />
+            onOpenRef={ref => { const it = (items ?? []).find(i => i.ref === ref && !i.closed); if (it) setOpen(it); }}
+            onExpired={() => { searchIdRef.current = null; setSearchId(null); setMsg(tr('انتهت نتيجة البحث — ابحث من جديد')); }} />
         )}
       </div>
 
@@ -342,7 +357,7 @@ function Header({ onBack, title, right }: { onBack: () => void; title: string; r
 
 /** نسب Google Maps بجوار أي اسم أو عنوان من Places يُعرض بلا خريطة (شرط Google). */
 function GoogleAttribution() {
-  return <p className="text-[10px] text-gray-400 text-left" dir="ltr">Google Maps</p>;
+  return <p className="text-xs text-gray-500 text-left" dir="ltr">Google Maps</p>;
 }
 
 function RelationTag({ it }: { it: Item }) {
@@ -403,10 +418,10 @@ function RouteTab({ legs, hasOrigin, onRemove, onOpen, onShortest }: {
   );
 }
 
-function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, searchIdRef, onUsed, onOpenRef }: {
+function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, searchIdRef, onUsed, onOpenRef, onExpired }: {
   me: Me | null; offline: boolean; searchId: string | null; names: { ref: string; label: string }[];
   chat: ChatMsg[]; setChat: (f: (c: ChatMsg[]) => ChatMsg[]) => void; draft: string; setDraft: (s: string) => void;
-  searchIdRef: { current: string | null }; onUsed: () => void; onOpenRef: (ref: string) => void;
+  searchIdRef: { current: string | null }; onUsed: () => void; onOpenRef: (ref: string) => void; onExpired: () => void;
 }) {
   const tr = useAiRepTr();
   const [busy, setBusy] = useState(false);
@@ -437,6 +452,7 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
       if (searchIdRef.current !== sid) return;
       setErr(errMsg(e) || (isNetworkError(e) ? tr('المستشار يحتاج الإنترنت') : tr('المستشار غير متاح مؤقتاً')));
       setChat(c => c.slice(0, -1)); setDraft(q);
+      if (errCode(e) === 'AI_REP_SEARCH_EXPIRED') onExpired();
     } finally { setBusy(false); }
   };
   const chips = searchId
@@ -488,6 +504,9 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
   const [adding, setAdding] = useState(false);
+  const [outcomeErr, setOutcomeErr] = useState('');
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
   // زر الرجوع وسحبة الحافة يغلقان الطبقة (لا يُخرجان من الشاشة فتضيع النتائج)
   useBackClose(true, onClose);
   useBackClose(mode === 'outcome', () => setMode('view'));
@@ -504,7 +523,7 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
 
   const submitOutcome = async () => {
     if (!kind) return;
-    setSaving(true);
+    setSaving(true); setOutcomeErr('');
     const gps = await getGps().catch(() => null);
     const clientRef = newClientRef();
     const body = {
@@ -516,16 +535,18 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
       await repApi.post('/ai-rep/rep/outcomes', body);
       setSaved(tr('سُجّلت النتيجة'));
     } catch (e) {
-      if (isNetworkError(e)) {
-        // صفّ الإرسال الرسمي: يبقى بعد الخروج ويُرفع تلقائياً مع بقية مستندات المندوب
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (isNetworkError(e) || (status != null && status >= 500)) {
+        // صفّ الإرسال الرسمي: يبقى بعد الخروج ويُرفع تلقائياً مع بقية مستندات المندوب (الخادم يمنع التكرار بـclientRef)
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'aiOutcome', payload: body, status: 'queued', clientCreatedAt: body.occurredAt });
         setSaved(tr('حُفظت وسترسل عند عودة الاتصال'));
       } else {
-        setSaved(errMsg(e) || tr('تعذّر التسجيل'));
+        setOutcomeErr(errMsg(e) || tr('تعذّر التسجيل'));
         setSaving(false);
         return;
       }
     }
+    if (!alive.current) return;
     onOutcome(kind);
     setSaving(false); setMode('view');
   };
@@ -534,6 +555,7 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
     setAdding(true);
     // الموقع من GPS المندوب عند الباب فقط (لا من Google): يُعبّأ إن كان قريباً من المحل ودقيقاً، وإلا يلتقطه المندوب بنفسه
     const gps = await getGps().catch(() => null);
+    if (!alive.current) return; // أُغلقت الطبقة أثناء انتظار الموقع
     setAdding(false);
     const near = gps && gps.accuracy <= 50 && distKm(gps, item) * 1000 <= ADD_PIN_MAX_M;
     onAddCustomer({ outletType: item.outletType, aiPlaceId: item.placeId, ...(near && gps ? { lat: gps.lat, lng: gps.lng } : {}) });
@@ -542,7 +564,7 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
   const openCustomer = async () => {
     if (!item.customerId) return;
     const ok = await onOpenCustomer(item.customerId);
-    if (!ok) setErr(tr('تعذّر فتح ملف العميل — تحقّق من الاتصال'));
+    if (!ok && alive.current) setErr(tr('تعذّر فتح ملف العميل — تحقّق من الاتصال'));
   };
 
   return (
@@ -568,6 +590,7 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
             </div>
             <input className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" maxLength={120} placeholder={tr('اسم المحل كما في اللوحة (اختياري)')} value={name} onChange={e => setName(e.target.value)} />
             <textarea className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm min-h-[72px]" maxLength={500} placeholder={tr('ملاحظة (اختياري)')} value={note} onChange={e => setNote(e.target.value)} />
+            {outcomeErr && <p className="text-xs text-red-600">{outcomeErr}</p>}
             <div className="flex gap-2">
               <button onClick={() => setMode('view')} className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm">{tr('رجوع')}</button>
               <button onClick={submitOutcome} disabled={!kind || saving} className="flex-1 rounded-xl bg-[#E15A30] disabled:opacity-50 text-white py-2.5 text-sm font-bold">{saving ? tr('جاري الحفظ') : tr('سجّل')}</button>
@@ -576,6 +599,7 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
         ) : (
           <>
             {saved && <p className="text-xs text-center text-green-700 bg-green-50 rounded-xl py-2">{saved}</p>}
+            {est && err && <p className="text-xs text-center text-red-600 bg-red-50 rounded-xl py-2">{err}</p>}
             {!est ? (
               <p className="text-center text-sm text-gray-400 py-8">{err || tr('أحسب المتوقع من بيانات شركتك…')}</p>
             ) : !est.ok ? (

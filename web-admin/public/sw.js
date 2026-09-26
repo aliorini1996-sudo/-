@@ -70,6 +70,8 @@ self.addEventListener('fetch', (event) => {
 
   // القياس الإعلاني يمرّ إلى الشبكة مباشرةً بلا تخزين (انظر isAdMeasurement أعلاه)
   if (isAdMeasurement(url)) return;
+  // خرائط Google داخل المندوب الذكي: لا تخزين (الشروط تمنع تخزين محتواها، وتحمي حصّة صفّ الإرسال)
+  if (/(^|\.)(maps\.googleapis\.com|maps\.gstatic\.com|ggpht\.com)$/i.test(url.hostname)) return;
 
   // طلبات API لا تُخزَّن إطلاقاً — الأوف-لاين لها عبر IndexedDB لا SW
   if (url.pathname.startsWith('/api/')) return;

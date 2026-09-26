@@ -15,12 +15,13 @@ export interface MapItem { placeId: string; lat: number; lng: number; relation: 
 
 const COLORS = { NEW: '#16A34A', CUSTOMER: '#2563EB', POSSIBLE_CUSTOMER: '#60A5FA', REJECTED: '#9CA3AF', PLAN: '#E15A30' };
 
-export default function RepAiMap({ g, origin, items, plan, fitKey, onSelect }: {
+export default function RepAiMap({ g, origin, items, plan, fitKey, visible = true, onSelect }: {
   g: G;
   origin: { lat: number; lng: number } | null;
   items: MapItem[];
   plan: string[]; // placeIds بترتيب «مساري»
   fitKey: string | null; // يتغيّر مع كل بحث جديد ⇒ إعادة ضبط الإطار
+  visible?: boolean;
   onSelect: (placeId: string) => void;
 }) {
   const box = useRef<HTMLDivElement | null>(null);
@@ -64,11 +65,12 @@ export default function RepAiMap({ g, origin, items, plan, fitKey, onSelect }: {
       });
       bounds.extend(origin);
     }
-    if (fitKey && lastFit.current !== fitKey && items.length) { m.fitBounds(bounds, 40); lastFit.current = fitKey; }
+    const shown = visible && (box.current?.offsetWidth ?? 0) > 0;
+    if (shown && fitKey && lastFit.current !== fitKey && items.length) { m.fitBounds(bounds, 40); lastFit.current = fitKey; }
     else if (!items.length && origin) m.setCenter(origin);
     styleMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [g, itemsKey, fitKey, origin?.lat, origin?.lng]);
+  }, [g, itemsKey, fitKey, origin?.lat, origin?.lng, visible]);
 
   // الخطة: أيقونات مرقّمة وخطّ المسار — بلا إعادة ضبط للإطار
   const planKey = plan.join('|');

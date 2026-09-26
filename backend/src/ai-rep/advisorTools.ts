@@ -136,7 +136,7 @@ export function buildAdvisorTools(ctx: AdvisorCtx): Record<string, AdvisorTool> 
           ...(pr.buyers != null && { bought_by: `${pr.buyers}/${pr.peers}` }),
           monthly_qty: pr.monthlyQty, first_order_qty: pr.firstOrderQty, trial_order_qty: pr.trialQty,
           ...(ctx.showMoney && pr.monthlyValue && { monthly_value: pr.monthlyValue }),
-          note: pr.hidden === 'FEW_BUYERS' ? 'fewer than 5 buyers — no quantity' : pr.hidden === 'DOMINANT' ? 'one buyer dominates — no reliable quantity' : undefined,
+          note: pr.hidden === 'FEW_BUYERS' ? `fewer than ${ctx.minPeers} buyers — no quantity` : pr.hidden === 'DOMINANT' ? 'one buyer dominates — no reliable quantity' : undefined,
         }));
         const trial = e.products.filter(pr => pr.trialQty).map(pr => `${pr.name}: ${pr.trialQty} ${pr.unit}`).join('، ');
         return {

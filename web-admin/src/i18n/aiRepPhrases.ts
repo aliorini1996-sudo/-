@@ -170,6 +170,8 @@ export const AI_REP_PHRASES: Record<string, P> = {
   'من أول طلبات المحلات المشابهة أو أدنى مشترياتها الشهرية، للأصناف التي يشتريها نصفها على الأقل': { en: "From similar outlets’ first orders or their lower monthly purchases, for items at least half of them buy", fr: "D’après les premières commandes des points similaires ou leurs achats mensuels bas, pour les articles achetés par au moins la moitié", tr: "Benzer noktaların ilk siparişlerinden veya düşük aylık alımlarından, en az yarısının aldığı ürünler için", zh: "依据类似网点的首单或较低的月采购量，适用于至少半数网点购买的商品" },
   'يشتريه أقل من': { en: "Bought by fewer than", fr: "Acheté par moins de", tr: "Alan nokta sayısı", zh: "购买的类似网点少于" },
   'من المحلات المشابهة — لا رقم حفاظاً على الخصوصية': { en: "similar outlets — no number, for privacy", fr: "points similaires — pas de chiffre (confidentialité)", tr: "benzer noktanın altında — gizlilik için rakam yok", zh: "家——为保护隐私不显示数字" },
+  'انتهت نتيجة البحث — ابحث من جديد': { en: 'The search result expired — search again', fr: 'Le résultat de recherche a expiré — relancez la recherche', tr: 'Arama sonucunun süresi doldu — yeniden arayın', zh: '搜索结果已过期——请重新搜索' },
+  'منتج غير ظاهر في القائمة': { en: 'Product not in the list', fr: 'Produit absent de la liste', tr: 'Listede olmayan ürün', zh: '不在列表中的产品' },
 };
 
 /** tr() للشاشتين: العربية كما هي، وإلا ترجمة الميزة ثم القاموس العامّ ثم العربية. */

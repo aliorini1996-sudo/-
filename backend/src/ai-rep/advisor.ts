@@ -61,6 +61,25 @@ export function normalizeDigits(s: string): string {
 
 // أعداد بالكلمات (فصحى وخليجية) ← أرقام، ليخضع كل عدد للحارس. «واحد» و«الاثنين» مستثنيان عمداً (استعمال غير عددي شائع).
 const WORD_NUMBERS: [RegExp, string][] = [
+  // المئات المركّبة والأعداد ١١–١٩ (فصحى ولهجة) والدرزن والمثنّى على العملة
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(ثلاثمية|ثلاثمائة|ثلثمية|ثلاث ?مئة)(?=$|[\s،,.:؛)])/g, '$1 300 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(أربعمية|اربعمية|أربعمائة|أربع ?مئة)(?=$|[\s،,.:؛)])/g, '$1 400 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(خمسمية|خمسمائة|خمس ?مئة)(?=$|[\s،,.:؛)])/g, '$1 500 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(ستمية|ستمائة|ست ?مئة)(?=$|[\s،,.:؛)])/g, '$1 600 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(سبعمية|سبعمائة|سبع ?مئة)(?=$|[\s،,.:؛)])/g, '$1 700 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(ثمنمية|ثمانمية|ثمانمائة|ثمان ?مئة)(?=$|[\s،,.:؛)])/g, '$1 800 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(تسعمية|تسعمائة|تسع ?مئة)(?=$|[\s،,.:؛)])/g, '$1 900 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(احدعش|إحدعش|أحد عشر|احد عشر|إحدى عشرة)(?=$|[\s،,.:؛)])/g, '$1 11 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(اثنعش|اثنا عشر|اثني عشر|اثنتا عشرة)(?=$|[\s،,.:؛)])/g, '$1 12 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(ثلطعش|ثلاثطعش|ثلاثة عشر|ثلاث عشرة)(?=$|[\s،,.:؛)])/g, '$1 13 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(اربعطعش|أربعطعش|أربعة عشر|اربعة عشر|أربع عشرة)(?=$|[\s،,.:؛)])/g, '$1 14 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(خمسطعش|خمستعش|خمسة عشر|خمس عشرة)(?=$|[\s،,.:؛)])/g, '$1 15 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(ستطعش|سطعش|ستة عشر|ست عشرة)(?=$|[\s،,.:؛)])/g, '$1 16 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(سبعطعش|سبعة عشر|سبع عشرة)(?=$|[\s،,.:؛)])/g, '$1 17 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(ثمنطعش|ثمانطعش|ثمانية عشر|ثماني عشرة)(?=$|[\s،,.:؛)])/g, '$1 18 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(تسعطعش|تسعة عشر|تسع عشرة)(?=$|[\s،,.:؛)])/g, '$1 19 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(درزن|دستة|دسته)(?=$|[\s،,.:؛)])/g, '$1 12 '],
+  [/(^|[\s،,.:؛(])(?:[وبلف])?(ريالين|درزنين|دستتين)(?=$|[\s،,.:؛)])/g, '$1 2 $2 '],
   [/(^|[\s،,.:؛(])(?:[وبلف])?(اثنين|اثنان|ثنتين|اثنتين)(?=$|[\s،,.:؛)])/g, '$1 2 '],
   [/(^|[\s،,.:؛(])(?:[وبلف])?(ثلاث|ثلاثة|ثلاثه)(?=$|[\s،,.:؛)])/g, '$1 3 '],
   [/(^|[\s،,.:؛(])(?:[وبلف])?(أربع|اربع|أربعة|اربعة|اربعه)(?=$|[\s،,.:؛)])/g, '$1 4 '],
@@ -90,11 +109,20 @@ const WORD_NUMBERS: [RegExp, string][] = [
 
 /** نص الرد مهيّأً لفحص الأرقام: الأعداد بالكلمات أرقاماً، بلا مراجع المحلات (P3) ولا ترقيم أول السطر. */
 export function numericView(s: string): string {
-  let t = normalizeDigits(s);
+  let t = normalizeDigits(s)
+    // عبارات دارجة ليست أعداداً
+    .replace(/(ألف|الف)\s+(مبروك|شكر|سلامة|سلامه|مرحبا|الحمد)/g, ' ')
+    .replace(/(مية|مئة)\s+(ب|في)\s*(المية|المئة)/g, ' ')
+    .replace(/ـ/g, '');
+  // الآلاف بعد عدد: «3 آلاف» ⇒ 3000
+  t = t.replace(/(\d+(?:\.\d+)?)\s*(آلاف|الاف|ألف|الف)/g, (_m, n) => ` ${Number(n) * 1000} `);
   for (const [re, rep] of WORD_NUMBERS) t = t.replace(re, rep);
+  // «ثلاثة آلاف» بعد تحويل الكلمات ⇒ 3000
+  t = t.replace(/(\d+(?:\.\d+)?)\s*(آلاف|الاف|ألف|الف)(?=$|[\s،,.:؛)])/g, (_m, n) => ` ${Number(n) * 1000} `);
   return t
-    .replace(/\bP\d{1,3}\b/g, ' ')
-    .replace(/^\s*\d{1,2}\s*[).\-–:]\s+/gm, '');
+    // الترقيم يُعفى فقط في سطرٍ يذكر مرجع محلّ («1) P4 …») — «7 - كراتين» كمية تُفحص
+    .replace(/^\s*[*#>\s]*\d{1,2}\s*[).\-–:]\**\s+(?=[^\n]*\bP\d{1,3}\b)/gm, '')
+    .replace(/\bP\d{1,3}\b/g, ' ');
 }
 
 /** كل الأرقام في نص (بعد التوحيد وتحويل الأعداد بالكلمات). */
@@ -107,24 +135,28 @@ export function extractNumbers(s: string): number[] {
   return out;
 }
 
-const SKIP_KEYS = new Set(['ref', 'refs', 'order']);
+const SKIP_KEYS = new Set(['ref', 'refs', 'order', 'note']);
+const PCT_KEY = /penetration|pct/i;
 
 /**
  * كل الأرقام في قيمة JSON (القيم العددية والأرقام داخل النصوص). النسب بين 0 و1 تُضاف بصيغة مئوية أيضاً.
  * حقول المراجع والترتيب لا تُدخل أرقامها (رقم المرجع P7 ليس كمية).
  */
-export function numbersIn(value: unknown, acc: Set<number> = new Set()): Set<number> {
+export function numbersIn(value: unknown, acc: Set<number> = new Set(), key = ''): Set<number> {
   const add = (n: number) => {
     if (!Number.isFinite(n)) return;
     acc.add(round1(n));
-    acc.add(Math.round(n));
-    if (n > 0 && n < 1) acc.add(Math.round(n * 100));
+    if (Number.isInteger(n)) acc.add(n);
+    // النسبة المئوية لحقول النسب وحدها (لا تصير كل قيمة بين ٠ و١ «نسبة» مسموحة)
+    if (PCT_KEY.test(key) && n > 0 && n <= 1) acc.add(Math.round(n * 100));
+    // المسافة بالمتر تُذكر عادةً بالكيلومتر
+    if (/_m$/.test(key)) { acc.add(round1(n / 1000)); acc.add(Math.round(n / 10) / 100); }
   };
   if (typeof value === 'number') add(value);
   else if (typeof value === 'string') extractNumbers(value).forEach(add);
-  else if (Array.isArray(value)) value.forEach(v => numbersIn(v, acc));
+  else if (Array.isArray(value)) value.forEach(v => numbersIn(v, acc, key));
   else if (value && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) if (!SKIP_KEYS.has(k)) numbersIn(v, acc);
+    for (const [k, v] of Object.entries(value)) if (!SKIP_KEYS.has(k)) numbersIn(v, acc, k);
   }
   return acc;
 }
@@ -135,7 +167,8 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 export function unsupportedNumbers(text: string, allowed: Set<number>): number[] {
   const bad: number[] = [];
   for (const n of extractNumbers(text)) {
-    if (allowed.has(round1(n)) || allowed.has(Math.round(n))) continue;
+    // مطابقة بدقة منزلة عشرية واحدة — لا يُقبل كسرٌ مخترع لقربه من عدد صحيح مسموح
+    if (allowed.has(round1(n))) continue;
     bad.push(n);
   }
   return [...new Set(bad)];
