@@ -81,9 +81,10 @@ export interface ProductEstimate {
   unit: string;
   priority: boolean;
   /** عدد المحلات المشابهة التي تشتريه، ومن أصل كم. */
-  buyers: number;
+  /** null للصنف المحجوب لقلّة مشتريه (أقل من الحدّ) — لا عدد يكشف عميلاً بعينه. */
+  buyers: number | null;
   peers: number;
-  penetration: number;
+  penetration: number | null;
   /** الكمية الشهرية المتوقعة إن اشتراه (null = لا تكفي البيانات أو مهيمَن). */
   monthlyQty: Range | null;
   monthlyValue: Range | null;
@@ -185,6 +186,13 @@ export function harrellDavis(values: readonly number[], p: number): number {
     prev = cur;
   }
   return sum;
+}
+
+function plainMedian(values: readonly number[]): number {
+  const x = [...values].sort((a, b) => a - b);
+  const n = x.length;
+  if (!n) return 0;
+  return n % 2 ? x[(n - 1) / 2] : (x[n / 2 - 1] + x[n / 2]) / 2;
 }
 
 function hdRange(values: readonly number[]): Range {
@@ -315,9 +323,11 @@ export function estimateOutlet(input: EngineInput, typeLabel: string): EstimateR
 
   const peersN = chosen.length;
   const tenures = chosen.map(c => months.get(c.p.id) ?? 0);
-  const medianTenure = harrellDavis(tenures, 0.5);
+  // الأقدمية بوسيط عادي لا Harrell–Davis: سقفها طول النافذة، والمتوسط الموزون لا يبلغ السقف إلا إن بلغه الجميع
+  const medianTenure = plainMedian(tenures);
+  const tenureNeeded = Math.min(6, ymIndex(window.to) - ymIndex(window.from) + 1);
   const near = ringKm != null && ringKm <= 2;
-  const confidence: Confidence = ringKm == null ? 'LOW' : near && peersN >= 8 && medianTenure >= 6 ? 'HIGH' : 'MEDIUM';
+  const confidence: Confidence = ringKm == null ? 'LOW' : near && peersN >= 8 && medianTenure >= tenureNeeded ? 'HIGH' : 'MEDIUM';
 
   // أول طلب لكل عميل مشابه
   const firstByPeer = new Map<string, Map<string, number>>();
@@ -371,14 +381,15 @@ export function estimateOutlet(input: EngineInput, typeLabel: string): EstimateR
 
     products.push({
       productId: prod.id, name: prod.name, unit: prod.unit, priority: !!prod.priority,
-      buyers, peers: peersN, penetration: Math.round(penetration * 100) / 100,
+      buyers: hidden === 'FEW_BUYERS' ? null : buyers, peers: peersN,
+      penetration: hidden === 'FEW_BUYERS' ? null : Math.round(penetration * 100) / 100,
       monthlyQty, monthlyValue, firstOrderQty, trialQty, confidence: pConf, hidden,
     });
   }
 
   products.sort((a, b) =>
     Number(b.priority) - Number(a.priority) ||
-    b.penetration - a.penetration ||
+    (b.penetration ?? 0) - (a.penetration ?? 0) ||
     (b.monthlyValue?.median ?? 0) - (a.monthlyValue?.median ?? 0) ||
     a.name.localeCompare(b.name, 'ar'));
 

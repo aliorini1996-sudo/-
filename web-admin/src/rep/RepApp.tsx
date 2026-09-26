@@ -31,12 +31,30 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
-import { lazy, Suspense } from 'react';
+import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { Sparkles } from 'lucide-react';
-import type { AiAddPrefill } from './RepAiScreen';
+import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
 const RepAiScreen = lazy(() => import('./RepAiScreen'));
+
+/** فشل تحميل حزمة الشاشة الكسولة (دون اتصال أو بعد نشر جديد) لا يُسقط التطبيق كله في شاشة بيضاء. */
+class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="p-6 text-center space-y-3">
+        <p className="text-sm text-gray-600">تعذّر فتح المندوب الذكي — تحقّق من الاتصال</p>
+        <div className="flex gap-2 justify-center">
+          <button onClick={() => this.setState({ failed: false })} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold">أعد المحاولة</button>
+          <button onClick={this.props.onBack} className="rounded-xl bg-[#1F1A13] text-white px-4 py-2 text-sm font-semibold">رجوع</button>
+        </div>
+      </div>
+    );
+  }
+}
 
 type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit' | 'buyerData';
@@ -2876,7 +2894,7 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
   const load = () => outboxDocs().then(setDocs);
   useEffect(() => { load(); const off = onOutboxChange(load); const iv = window.setInterval(load, 4000); return () => { off(); window.clearInterval(iv); }; }, []);
 
-  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : k === 'visit' ? tr('زيارة') : k === 'dailyReport' ? tr('تقرير يومي') : tr('عميل');
+  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : k === 'visit' ? tr('زيارة') : k === 'dailyReport' ? tr('تقرير يومي') : k === 'aiOutcome' ? tr('نتيجة زيارة محل') : tr('عميل');
   const custName = (d: OutboxDoc) => (d.payload as any)?.name || (d.payload as any)?.customerName || '';
   const pendingList = docs.filter(d => d.status === 'queued');
   const rejectedList = docs.filter(d => d.status === 'rejected');
@@ -3157,7 +3175,7 @@ export default function RepApp() {
   useBackClose(showOutbox, () => setShowOutbox(false));
   useBackClose(!!(!token || !user) && showLogin, () => setShowLogin(false));
   useBackClose(!!docResult, closeDocResult);
-  useBackClose(modal === 'addCustomer', () => setModal(null));
+  useBackClose(modal === 'addCustomer', () => { setModal(null); setAiPrefill(null); });
   useBackClose(
     modal === 'createInvoice' || modal === 'createReturn'
     || modal === 'createReceipt' || modal === 'logVisit' || modal === 'editCustomer',
@@ -3309,7 +3327,7 @@ export default function RepApp() {
   // الصفّ الصادر لا يُمسح (مستندات لم تُرفع بعد)، بل يُرفَع كلٌّ بجلسة صاحبه.
   const login = async (t: string, u: RepUser) => {
     const prev = currentRepId();
-    if (prev && prev !== u.id) await refClear();
+    if (prev && prev !== u.id) { await refClear(); clearAiSession(); }
     localStorage.setItem('rep_token', t);
     localStorage.setItem('rep_user', JSON.stringify(u));
     clearRenewRejection(); // دخولٌ جديد: أي رفض تجديد سابق لم يعد قائماً
@@ -3320,13 +3338,15 @@ export default function RepApp() {
     const hit = await cacheGet<any[]>('customers');
     let c = Array.isArray(hit?.data) ? hit!.data.find(x => x.id === id) : null;
     if (!c) { try { c = (await repApi.get(`/customers/${id}`)).data.data; } catch { c = null; } }
-    if (c) { setSelectedCustomer(c); setModal('customerDetail'); }
+    if (c) { setSelectedCustomer(c); setModal('customerDetail'); return true; }
+    return false;
   };
   const logout = async () => {
     // زيارة جارية عند تسجيل الخروج تُنهى وتُرفع أولاً كي لا تضيع مدّتها
     const t = getVisitTimer();
     if (t) await finalizeVisit(t);
     await refClear();
+    clearAiSession();
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
     setToken(null); setUser(null);
   };
@@ -3446,7 +3466,7 @@ export default function RepApp() {
           ) : modal === 'addCustomer' ? (
             <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect}
               prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
-              onCreated={(c) => { setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
+              onCreated={(c) => { if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (
             <>
               {/* Top bar */}
@@ -3484,17 +3504,19 @@ export default function RepApp() {
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
-                {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => setModal('addCustomer')} accountingOn={accountingOn} zatcaCollect={zatcaCollect} />}
+                {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => { setAiPrefill(null); setModal('addCustomer'); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
                 {screen === 'attendance' && <RepAttendance />}
                 {screen === 'airep' && aiRepOn && (
-                  <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>
-                    <RepAiScreen onBack={() => setScreen('home')}
-                      onAddCustomer={(p) => { setAiPrefill(p); setModal('addCustomer'); }}
-                      onOpenCustomer={openCustomerById} />
-                  </Suspense>
+                  <AiRepBoundary onBack={() => setScreen('home')}>
+                    <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>
+                      <RepAiScreen repId={user.id} canAddCustomer={!!user.canAddCustomer} onBack={() => setScreen('home')}
+                        onAddCustomer={(p) => { setAiPrefill(p); setModal('addCustomer'); }}
+                        onOpenCustomer={openCustomerById} />
+                    </Suspense>
+                  </AiRepBoundary>
                 )}
               </div>
 

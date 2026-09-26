@@ -19,7 +19,7 @@ interface Settings {
 }
 interface TypeRow { code: string; label: string; targeted: boolean; classified: number; withLocation: number; withRegularSales: number; ready: boolean }
 interface Overview {
-  settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean; advisorConfigured?: boolean;
+  settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean; mapsConfigured?: boolean; advisorConfigured?: boolean;
   readiness: { window: { from: string; to: string }; unclassified: number; classifiedWithoutLocation: number; perType: TypeRow[] };
 }
 interface ClassRow { id: string; name: string; businessName: string | null; district: string | null; city: string | null; outletType: string | null; suggested: string | null; hasLocation: boolean }
@@ -75,10 +75,14 @@ export default function AiRepPage() {
         </div>
       </div>
 
-      {!data.placesConfigured && (
+      {(!data.placesConfigured || !data.mapsConfigured) && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-          <span>{tr('البحث عن المحلات القريبة يحتاج مفتاح خرائط Google يضبطه مزوّد الخدمة — الإعدادات والتصنيف متاحة الآن')}</span>
+          <span>
+            {!data.placesConfigured
+              ? tr('البحث عن المحلات القريبة يحتاج مفتاح خرائط Google يضبطه مزوّد الخدمة — الإعدادات والتصنيف متاحة الآن')
+              : tr('عرض الخريطة داخل تطبيق المندوب ينتظر مفتاح العرض لدى مزوّد الخدمة — البحث والتوقّع يعملان بالقائمة')}
+          </span>
         </div>
       )}
 
@@ -176,6 +180,20 @@ export default function AiRepPage() {
                 );
               })}
             </div>
+            {/* منتج أولوية أُوقف أو خارج القائمة: يظهر هنا ليُزال — لا يبقى مختاراً خفياً (الخادم يُسقطه عند الحفظ أيضاً) */}
+            {(() => {
+              const known = new Set((products ?? []).map(x => x.id));
+              const missing = products ? form.priorityProductIds.filter(id => !known.has(id)) : [];
+              return missing.length ? (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {missing.map(id => (
+                    <button key={id} type="button" onClick={() => toggleIn('priorityProductIds', id)} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-800">
+                      {tr('منتج غير نشط')} ✕
+                    </button>
+                  ))}
+                </div>
+              ) : null;
+            })()}
             <p className="text-[11px] text-[#8A8178] mt-1">{tr('المختار')}: {form.priorityProductIds.length} / 20</p>
           </div>
 
@@ -246,7 +264,7 @@ function ClassifySection({ outletTypes, onSaved }: { outletTypes: { code: string
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [picks, setPicks] = useState<Record<string, string>>({});
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['ai-rep', 'classify', filter, search, page],
     queryFn: async () => {
       const res = await aiRepApi.classifyList({ filter, page, limit: 100, ...(search.trim() && { search: search.trim() }) });
@@ -281,6 +299,8 @@ function ClassifySection({ outletTypes, onSaved }: { outletTypes: { code: string
       </div>
       {isLoading ? (
         <p className="py-4 text-center text-xs text-[#6E6557]">{tr('جاري التحميل')}</p>
+      ) : isError ? (
+        <p className="py-4 text-center text-xs text-red-600">{tr('تعذّر تحميل قائمة العملاء')}</p>
       ) : !data?.rows.length ? (
         <p className="py-4 text-center text-xs text-[#6E6557]">{filter === 'unclassified' ? tr('كل عملائك مصنّفون') : tr('لا نتائج')}</p>
       ) : (

@@ -38,7 +38,7 @@ export const DEFAULT_AI_REP_SETTINGS: AiRepSettingsView = Object.freeze({
 const outletCode = z.enum(OUTLET_TYPE_CODES as unknown as [string, ...string[]]);
 
 export const aiRepSettingsSchema = z.object({
-  targetOutletTypes: z.array(outletCode).min(1, 'اختر نوع محل واحداً على الأقل').max(8).optional(),
+  targetOutletTypes: z.array(outletCode).min(1, 'اختر نوع محل واحداً على الأقل').max(11).optional(),
   searchRadiusM: z.number().int().min(300).max(10000).optional(),
   priorityProductIds: z.array(z.string().min(1)).max(20).optional(),
   estimateWindowMonths: z.number().int().min(3).max(12).optional(),

@@ -122,14 +122,6 @@ export const OUTLET_TYPE_OPTIONS: { code: string; label: string }[] = [
   { code: 'FUEL_SHOP', label: 'متجر محطة وقود' },
 ];
 
-/** سياق المستشار: المحلات الحالية بمراجع معتمة P1… (الإحداثيات للخادم وحده، لا تصل للنموذج). */
-export function refsFor(items: Array<{ outletType: string; lat: number; lng: number; distanceM: number; relation: string; lastOutcome: string | null; customerId: string | null }>) {
-  return items.slice(0, 20).map((it, i) => ({
-    ref: `P${i + 1}`, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM,
-    relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId,
-  }));
-}
-
 /** نص المستشار للعرض: كل مرجع P3 يُستبدل باسم المحل «…» (الاسم لا يغادر الجهاز). */
 export function renderRefs(text: string, names: { ref: string; label: string }[]): string {
   const map = new Map(names.map(n => [n.ref, n.label]));

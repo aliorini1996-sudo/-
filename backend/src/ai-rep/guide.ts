@@ -17,6 +17,7 @@ export interface PlanCandidate {
   distanceM: number;
   relation: 'NEW' | 'CUSTOMER' | 'POSSIBLE_CUSTOMER';
   lastOutcome: string | null;
+  closed?: boolean;
   estimate: EstimateResult;
 }
 
@@ -33,8 +34,8 @@ export function opportunityScore(c: PlanCandidate): number {
     w = CONF_WEIGHT[e.confidence] ?? 0.5;
     if (e.monthlyTotalValue) value = 1 + e.monthlyTotalValue.median;
     else {
-      const top = e.products.filter(p => p.buyers > 0).slice(0, 3);
-      value = 1 + (top.length ? (top.reduce((s, p) => s + p.penetration, 0) / top.length) * 100 : 0);
+      const top = e.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3);
+      value = 1 + (top.length ? (top.reduce((s, p) => s + (p.penetration ?? 0), 0) / top.length) * 100 : 0);
     }
   }
   return (value * w) / (0.3 + c.distanceM / 1000);
@@ -43,7 +44,7 @@ export function opportunityScore(c: PlanCandidate): number {
 /** الخطة الحتمية: أفضل الفرص الجديدة ثم أقصر ترتيب من موقع المندوب. */
 export function rulePlan(cands: PlanCandidate[], origin: { lat: number; lng: number } | null, maxStops = PLAN_MAX_STOPS): string[] {
   const pool = cands
-    .filter(c => c.relation === 'NEW' && !(c.lastOutcome && REJECTED.has(c.lastOutcome)))
+    .filter(c => c.relation === 'NEW' && !c.closed && !(c.lastOutcome && REJECTED.has(c.lastOutcome)))
     .map(c => ({ c, s: opportunityScore(c) }))
     .sort((a, b) => b.s - a.s || a.c.distanceM - b.c.distanceM)
     .slice(0, maxStops)
@@ -65,9 +66,9 @@ export function ruleGuideText(plan: string[], byRef: Map<string, PlanCandidate &
     const e = c.estimate;
     let line = `${i + 1}) ${ref} — ${c.typeLabel} على بعد ${c.distanceM} م`;
     if (e.ok) {
-      if (e.monthlyTotalValue) line += `: متوقع ${e.monthlyTotalValue.low}–${e.monthlyTotalValue.high} ${currency} شهرياً`;
+      if (e.monthlyTotalValue) line += `: متوقع ${e.monthlyTotalValue.low}–${e.monthlyTotalValue.high} ${currency} شهرياً قبل الضريبة`;
       const trial = e.products.filter(p => p.trialQty).slice(0, 2).map(p => `${p.name} ${p.trialQty} ${p.unit}`);
-      const top = e.products.find(p => p.buyers > 0);
+      const top = e.products.find(p => (p.buyers ?? 0) > 0);
       if (trial.length) line += `؛ اعرض طلباً تجريبياً: ${trial.join('، ')}`;
       else if (top) line += `؛ ابدأ بعرض ${top.name}`;
     } else {
@@ -88,10 +89,20 @@ export const GUIDE_QUESTION =
 /** مراجع الخطة من نص العقل: بترتيب أول ظهور، مقصورةً على الفرص الجديدة المعروفة. */
 export function planFromText(text: string, allowed: Set<string>, max = PLAN_MAX_STOPS): string[] {
   const out: string[] = [];
-  for (const m of text.matchAll(/\bP(\d{1,3})\b/g)) {
-    const ref = m[0];
-    if (allowed.has(ref) && !out.includes(ref)) out.push(ref);
-    if (out.length >= max) break;
+  const take = (ref: string) => { if (allowed.has(ref) && !out.includes(ref) && out.length < max) out.push(ref); };
+  // الخطوات المرقّمة أولاً («1) P4 …»): أول مرجع في كل سطر مرقّم هو محطّته — فالمذكور للتجنّب في آخر السطر لا يدخل
+  const numbered = [...text.matchAll(/^\s*\d{1,2}\s*[).\-–:]\s*(.*)$/gm)];
+  for (const line of numbered) {
+    const m = line[1].match(/\bP\d{1,3}\b/);
+    if (m) take(m[0]);
   }
+  if (out.length) return out;
+  // بلا ترقيم: بترتيب أول ظهور
+  for (const m of text.matchAll(/\bP\d{1,3}\b/g)) take(m[0]);
   return out;
+}
+
+/** الفرص المسموح دخولها خطة العقل: جديدة، وغير مرفوضة، وغير مغلقة. */
+export function planEligible(cands: Array<Pick<PlanCandidate, 'ref' | 'relation' | 'lastOutcome'> & { closed?: boolean }>): Set<string> {
+  return new Set(cands.filter(c => c.relation === 'NEW' && !c.closed && !(c.lastOutcome && REJECTED.has(c.lastOutcome))).map(c => c.ref));
 }

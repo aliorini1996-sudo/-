@@ -3,6 +3,7 @@
  * RepAiScreen) لا في حزمة الدخول. ما يُعرض خارجهما (خانة المالك، زرّ المندوب، نوع المحل في إضافة العميل، أسماء الأنواع)
  * باقٍ في i18n/strings.ts. useAiRepTr يبحث هنا ثم في PHRASES العامّ.
  */
+import { useCallback } from 'react';
 import { useLang } from './lang';
 import { PHRASES } from './strings';
 
@@ -153,6 +154,22 @@ export const AI_REP_PHRASES: Record<string, P> = {
   'اسأل المستشار…': { en: "Ask the advisor…", fr: "Demandez au conseiller…", tr: "Danışmana sor…", zh: "向顾问提问…" },
   'أسئلة اليوم': { en: "Questions today", fr: "Questions du jour", tr: "Bugünkü sorular", zh: "今日提问" },
   'الأرقام من بيانات شركتك؛ المستشار لا يخترعها': { en: "Numbers come from your company data; the advisor never makes them up", fr: "Les chiffres viennent de vos données ; le conseiller ne les invente jamais", tr: "Rakamlar şirket verilerinizden gelir; danışman uydurmaz", zh: "数字来自公司数据；顾问从不编造" },
+  // ——— ما بعد المراجعة ———
+  'عرض الخريطة داخل تطبيق المندوب ينتظر مفتاح العرض لدى مزوّد الخدمة — البحث والتوقّع يعملان بالقائمة': { en: "The in-app map is waiting for the display key from the provider — search and estimates work as a list", fr: "La carte intégrée attend la clé d’affichage du fournisseur — recherche et estimations fonctionnent en liste", tr: "Uygulama içi harita sağlayıcının görüntüleme anahtarını bekliyor — arama ve tahmin liste olarak çalışır", zh: "应用内地图正在等待服务商的显示密钥——搜索和预测以列表方式可用" },
+  'منتج غير نشط': { en: "Inactive product", fr: "Produit inactif", tr: "Pasif ürün", zh: "停用产品" },
+  'تعذّر تحميل قائمة العملاء': { en: "Could not load the customer list", fr: "Impossible de charger la liste des clients", tr: "Müşteri listesi yüklenemedi", zh: "无法加载客户列表" },
+  'بلغت حدّ البحث اليومي — نتائجك الحالية تبقى متاحة': { en: "Daily search limit reached — your current results stay available", fr: "Limite quotidienne de recherche atteinte — vos résultats actuels restent disponibles", tr: "Günlük arama sınırına ulaşıldı — mevcut sonuçlarınız kullanılabilir", zh: "已达每日搜索上限——当前结果仍可使用" },
+  'أنت دون اتصال — تظهر آخر نتائجك، والبحث والمستشار يعودان مع الاتصال': { en: "You are offline — your last results are shown; search and the advisor return when online", fr: "Hors ligne — vos derniers résultats s’affichent ; recherche et conseiller reviennent avec la connexion", tr: "Çevrimdışısınız — son sonuçlarınız gösteriliyor; arama ve danışman bağlantıyla döner", zh: "您已离线——显示最近结果；联网后可搜索和使用顾问" },
+  'البحث عن المحلات لم يُفعَّل بعد لدى مزوّد الخدمة': { en: "Outlet search is not enabled by the provider yet", fr: "La recherche de points de vente n’est pas encore activée par le fournisseur", tr: "Nokta arama henüz sağlayıcı tarafından etkinleştirilmedi", zh: "服务商尚未启用网点搜索" },
+  'بلغت حدّ البحث اليومي': { en: "Daily search limit reached", fr: "Limite quotidienne atteinte", tr: "Günlük arama sınırı doldu", zh: "已达每日搜索上限" },
+  'مسارك': { en: "Your route", fr: "Votre itinéraire", tr: "Rotanız", zh: "您的路线" },
+  'بترتيب الخطة؛ الزمن تقديري': { en: "In plan order; times are estimates", fr: "Dans l’ordre du plan ; durées estimées", tr: "Plan sırasıyla; süreler tahminidir", zh: "按计划顺序；时间为估算" },
+  'رتّب الأقصر': { en: "Shortest order", fr: "Ordre le plus court", tr: "En kısa sıra", zh: "最短顺序" },
+  'ابحث من جديد لحساب التوقّع': { en: "Search again to compute the estimate", fr: "Relancez la recherche pour calculer l’estimation", tr: "Tahmin için yeniden arayın", zh: "请重新搜索以计算预测" },
+  'تعذّر فتح ملف العميل — تحقّق من الاتصال': { en: "Could not open the customer file — check your connection", fr: "Impossible d’ouvrir la fiche client — vérifiez la connexion", tr: "Müşteri dosyası açılamadı — bağlantıyı kontrol edin", zh: "无法打开客户档案——请检查网络" },
+  'من أول طلبات المحلات المشابهة أو أدنى مشترياتها الشهرية، للأصناف التي يشتريها نصفها على الأقل': { en: "From similar outlets’ first orders or their lower monthly purchases, for items at least half of them buy", fr: "D’après les premières commandes des points similaires ou leurs achats mensuels bas, pour les articles achetés par au moins la moitié", tr: "Benzer noktaların ilk siparişlerinden veya düşük aylık alımlarından, en az yarısının aldığı ürünler için", zh: "依据类似网点的首单或较低的月采购量，适用于至少半数网点购买的商品" },
+  'يشتريه أقل من': { en: "Bought by fewer than", fr: "Acheté par moins de", tr: "Alan nokta sayısı", zh: "购买的类似网点少于" },
+  'من المحلات المشابهة — لا رقم حفاظاً على الخصوصية': { en: "similar outlets — no number, for privacy", fr: "points similaires — pas de chiffre (confidentialité)", tr: "benzer noktanın altında — gizlilik için rakam yok", zh: "家——为保护隐私不显示数字" },
 };
 
 /** tr() للشاشتين: العربية كما هي، وإلا ترجمة الميزة ثم القاموس العامّ ثم العربية. */
@@ -162,7 +179,8 @@ export function aiRepTranslate(lang: string, ar: string): string {
   return AI_REP_PHRASES[ar]?.[l] ?? PHRASES[ar]?.[l] ?? ar;
 }
 
+/** مرجعها ثابت ما لم تتغيّر اللغة — آمنة في تبعيات التأثيرات. */
 export function useAiRepTr() {
   const lang = useLang(s => s.lang);
-  return (ar: string): string => aiRepTranslate(lang, ar);
+  return useCallback((ar: string): string => aiRepTranslate(lang, ar), [lang]);
 }

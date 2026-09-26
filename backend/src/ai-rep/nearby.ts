@@ -3,8 +3,9 @@
  *
  *   - نوع المحل: من نوع Google مقيّداً بالأنواع المستهدفة؛ ما لا يطابقها يُسقط.
  *   - عميل قائم: مطابقة place_id أولاً، ثم أقرب عميل ضمن ٤٠ م من النوع نفسه («ربما عميل حالي»).
- *   - عزل العملاء: محلٌّ يطابق عميلاً غير مرئي لهذا المندوب **يُسقط** — وسمُه «عميل للشركة»
- *     يكشف موقع عميل زميلٍ حجبه العزل عمداً.
+ *   - عزل العملاء: العملاء غير المرئيين لهذا المندوب **لا يدخلون المطابقة أصلاً** — فلا يُسقط محلٌّ ولا يُوسم
+ *     بسببهم (الإسقاط نفسه كان يكشف موقع عميل الزميل بمجرّد غياب المحل من القائمة). التكرار عند «أضفه عميلاً»
+ *     يمنعه الخادم عند الإنشاء برسالة محايدة لا تسمّي المندوب المالك.
  *   - المغلق يُسقط، والمرفوض خلال ٣٠ يوماً ينزل آخر القائمة موسوماً.
  * الترتيب: الجديد أولاً (الأقرب فالأبعد)، ثم العملاء القائمون، ثم المرفوض حديثاً.
  */
@@ -59,9 +60,11 @@ export function mergeNearby(places: NearbyPlace[], opts: {
   isolation: boolean;
   now: Date;
 }): NearbyItem[] {
+  // مع العزل: المرئيون وحدهم — العميل المحجوب لا يغيّر المخرجات بأي أثر
+  const pool = opts.isolation ? opts.customers.filter(c => c.visible) : opts.customers;
   const byPlace = new Map<string, CustomerPin>();
-  for (const c of opts.customers) if (c.aiPlaceId) byPlace.set(c.aiPlaceId, c);
-  const byId = new Map(opts.customers.map(c => [c.id, c]));
+  for (const c of pool) if (c.aiPlaceId) byPlace.set(c.aiPlaceId, c);
+  const byId = new Map(pool.map(c => [c.id, c]));
   const memory = new Map<string, OutletMemory>();
   for (const o of opts.outlets) if (o.placeId) memory.set(o.placeId, o);
   const rejectCutoff = opts.now.getTime() - REJECT_MEMORY_DAYS * 86400000;
@@ -78,11 +81,11 @@ export function mergeNearby(places: NearbyPlace[], opts: {
     if (!customer && mem?.convertedCustomerId) customer = byId.get(mem.convertedCustomerId) ?? null;
     if (customer) {
       relation = 'CUSTOMER';
-    } else if (mem?.status === 'CONVERTED') {
-      relation = 'CUSTOMER'; // حُوِّل ثم حُذف العميل أو لا نعرف موقعه — لا يُعرض كجديد
+    } else if (mem?.status === 'CONVERTED' && !opts.isolation) {
+      relation = 'CUSTOMER'; // حُوِّل ثم حُذف العميل أو لا نعرف موقعه — لا يُعرض كجديد (ومع العزل: قد يكون عميل زميل ⇒ لا وسم)
     } else {
       let best: { c: CustomerPin; m: number } | null = null;
-      for (const c of opts.customers) {
+      for (const c of pool) {
         if (c.lat == null || c.lng == null) continue;
         if (c.outletType && c.outletType !== outletType) continue;
         const m = haversineKm(p.lat, p.lng, c.lat, c.lng) * 1000;
@@ -90,8 +93,6 @@ export function mergeNearby(places: NearbyPlace[], opts: {
       }
       if (best) { customer = best.c; relation = 'POSSIBLE_CUSTOMER'; }
     }
-    if (customer && !customer.visible && opts.isolation) continue;
-
     const rejectedRecently = !!mem?.lastOutcome && REJECT_KINDS.has(mem.lastOutcome)
       && !!mem.lastOutcomeAt && mem.lastOutcomeAt.getTime() >= rejectCutoff;
 

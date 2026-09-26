@@ -133,7 +133,8 @@ test('أقل من ٥ مشترين: الانتشار يظهر والكمية تُ
   assert.ok(r.ok);
   if (!r.ok) return;
   const j = r.products.find(p => p.productId === 'juice')!;
-  assert.equal(j.buyers, 2);
+  assert.equal(j.buyers, null, 'لا عدد مشترين للصنف المحجوب (حدّ الخصوصية)');
+  assert.equal(j.penetration, null);
   assert.equal(j.monthlyQty, null);
   assert.equal(j.hidden, 'FEW_BUYERS');
   assert.equal(j.trialQty, null);
@@ -284,9 +285,13 @@ test('الدمج: عميل بمعرّف المكان، وعميل قريب ⇒ �
   assert.equal(items.find(i => i.placeId === 'rej')!.rejectedRecently, true);
 });
 
-test('عزل العملاء: محلٌّ يطابق عميل زميل غير مرئي يُسقط ولا يُوسَم', () => {
-  const base = { origin: BASE, targetTypes: ['GROCERY'], now: NOW, outlets: [], customers: [{ id: 'other', lat: null, lng: null, outletType: 'GROCERY', aiPlaceId: 'x', visible: false }] };
-  assert.equal(mergeNearby([P('x', 100)], { ...base, isolation: true }).length, 0);
+test('عزل العملاء: عميل الزميل غير المرئي لا يؤثّر في المخرجات إطلاقاً (لا إسقاط يكشف موقعه ولا وسم)', () => {
+  const base = { origin: BASE, targetTypes: ['GROCERY'], now: NOW, outlets: [], customers: [{ id: 'other', lat: BASE.lat, lng: BASE.lng + 100 / 101000, outletType: 'GROCERY', aiPlaceId: 'x', visible: false }] };
+  const iso = mergeNearby([P('x', 100), P('y', 100)], { ...base, isolation: true });
+  assert.deepEqual(iso.map(i => [i.placeId, i.relation, i.customerId]), [['x', 'NEW', null], ['y', 'NEW', null]]);
+  // محلٌّ حوّله زميل (في سجلّ الشركة) لا يُوسم «عميل» مع العزل
+  const conv = mergeNearby([P('z', 50)], { ...base, customers: [], isolation: true, outlets: [{ placeId: 'z', status: 'CONVERTED', lastOutcome: 'CONVERTED', lastOutcomeAt: NOW, convertedCustomerId: 'other' }] });
+  assert.equal(conv[0].relation, 'NEW');
   const open = mergeNearby([P('x', 100)], { ...base, isolation: false });
   assert.equal(open[0].relation, 'CUSTOMER');
   assert.equal(open[0].customerId, null, 'لا معرّف لعميل غير مرئي');
@@ -301,6 +306,7 @@ test('الإعدادات: افتراضيات، وحدّ الخصوصية ٥ لا
   assert.equal(aiRepSettingsSchema.safeParse({ minPeers: 3 }).success, false);
   assert.equal(aiRepSettingsSchema.safeParse({ targetOutletTypes: ['NOPE'] }).success, false);
   assert.equal(aiRepSettingsSchema.safeParse({ targetOutletTypes: [] }).success, false);
+  assert.equal(aiRepSettingsSchema.safeParse({ targetOutletTypes: ['GROCERY', 'MINIMARKET', 'SUPERMARKET', 'HYPERMARKET', 'WHOLESALE', 'PHARMACY', 'CAFE', 'CAFETERIA', 'RESTAURANT', 'BAKERY', 'FUEL_SHOP'] }).success, true, 'كل الأنواع الـ11 مسموحة');
   assert.equal(repInScope({ repScope: 'ALL', repIds: [] }, 'r1'), true);
   assert.equal(repInScope({ repScope: 'SELECTED', repIds: ['r2'] }, 'r1'), false);
 });

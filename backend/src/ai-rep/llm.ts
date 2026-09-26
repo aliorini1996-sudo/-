@@ -8,7 +8,7 @@
  *   AI_REP_LLM_MODEL       معرّف النموذج لدى المضيف
  *   AI_REP_LLM_EXTRA_BODY  (اختياري) JSON يُدمج في جسم الطلب — مثل مفتاح إطفاء «التفكير» الخاص بالمضيف
  *   AI_REP_LLM_TIMEOUT_MS  (اختياري) مهلة النداء الواحد، افتراضياً 20000
- *   AI_REP_LLM_MAX_TOKENS  (اختياري) حدّ رموز الرد، افتراضياً 4096 — يشمل «التفكير» فلا يُصغَّر وهو مفعّل
+ *   AI_REP_LLM_MAX_TOKENS  (اختياري) حدّ رموز الرد، افتراضياً 8192 — يشمل «التفكير» فلا يُصغَّر وهو مفعّل
  * الإعداد المقرّر (DeepSeek V4.1 Flash عبر Fireworks بنقطة أمريكية حصرية):
  *   BASE_URL=https://us.api.fireworks.ai/inference/v1  MODEL=accounts/fireworks/routers/deepseek-v4p1-flash-us
  *   EXTRA_BODY={"reasoning_effort":"high"}  (يُرسل صراحةً: بعض المضيفين يطفئ التفكير بغيابه)
@@ -54,7 +54,7 @@ export function llmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | nul
   return {
     baseUrl, apiKey, model, extraBody,
     timeoutMs: Number.isFinite(t) && t >= 3000 && t <= 90000 ? t : 20000,
-    maxTokens: Number.isFinite(mt) && mt >= 256 && mt <= 32768 ? Math.floor(mt) : 4096,
+    maxTokens: Number.isFinite(mt) && mt >= 256 && mt <= 32768 ? Math.floor(mt) : 8192,
   };
 }
 
@@ -101,19 +101,28 @@ export function parseCompletion(raw: unknown): LlmResult {
   };
   const choice = r?.choices?.[0];
   if (!choice?.message) return { ok: false, code: 'LLM_UNAVAILABLE' };
+  // بعض المضيفين يعيد التفكير داخل النص بين <think>…</think> — يُفصل عنه (وإن لم يُغلق فالنص كله تفكير)
+  const think = splitThink(typeof choice.message.content === 'string' ? choice.message.content : '');
   const toolCalls: LlmToolCall[] = (choice.message.tool_calls ?? [])
     .filter(t => t?.function?.name)
     .map((t, i) => ({ id: t.id || `call_${i}`, name: String(t.function!.name), arguments: typeof t.function!.arguments === 'string' ? t.function!.arguments : '{}' }));
   return {
     ok: true,
-    content: typeof choice.message.content === 'string' ? choice.message.content : '',
+    content: think.content,
     toolCalls,
     finishReason: choice.finish_reason || 'stop',
-    reasoning: typeof choice.message.reasoning_content === 'string' ? choice.message.reasoning_content : typeof choice.message.reasoning === 'string' ? choice.message.reasoning : undefined,
+    reasoning: typeof choice.message.reasoning_content === 'string' ? choice.message.reasoning_content : typeof choice.message.reasoning === 'string' ? choice.message.reasoning : think.reasoning,
     usage: {
       promptTokens: Number(r.usage?.prompt_tokens) || 0,
       completionTokens: Number(r.usage?.completion_tokens) || 0,
       cachedTokens: Number(r.usage?.prompt_tokens_details?.cached_tokens ?? r.usage?.prompt_cache_hit_tokens) || 0,
     },
   };
+}
+
+/** فصل وسم التفكير من أول النص. */
+export function splitThink(content: string): { content: string; reasoning?: string } {
+  const m = content.match(/^\s*<think>([\s\S]*?)(<\/think>|$)/i);
+  if (!m) return { content };
+  return { content: m[2] ? content.slice(m[0].length).trim() : '', reasoning: m[1].trim() };
 }

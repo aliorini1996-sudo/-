@@ -20,6 +20,8 @@ export interface OutletCtx {
   relation: 'NEW' | 'CUSTOMER' | 'POSSIBLE_CUSTOMER';
   lastOutcome: string | null;
   customerId?: string | null;
+  /** سجّل المندوب «مغلق» في هذه الجلسة — لا يُقترح. */
+  closed?: boolean;
 }
 
 export interface AdvisorCtx {
@@ -74,14 +76,15 @@ function outletBrief(ctx: AdvisorCtx, o: OutletCtx) {
     type: outletTypeLabel(o.outletType),
     distance_m: o.distanceM,
     status: REL_AR[o.relation] ?? o.relation,
-    last_visit_outcome: o.lastOutcome ? OUTCOME_AR[o.lastOutcome] ?? o.lastOutcome : null,
+    // نتيجة معروفة فقط — لا نص حرّ من الجهاز يصل للنموذج
+    last_visit_outcome: o.lastOutcome ? OUTCOME_AR[o.lastOutcome] ?? null : null,
     estimate: e.ok
       ? {
           confidence: e.confidence,
           similar_outlets: e.peers,
           ...(ctx.showMoney && e.monthlyTotalValue && { expected_monthly_value: e.monthlyTotalValue }),
-          top_products: e.products.filter(p => p.buyers > 0).slice(0, 3).map(p => ({
-            product: p.name, unit: p.unit, bought_by_pct: Math.round(p.penetration * 100), monthly_qty_median: p.monthlyQty?.median ?? null,
+          top_products: e.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3).map(p => ({
+            product: p.name, unit: p.unit, bought_by_pct: Math.round((p.penetration ?? 0) * 100), monthly_qty_median: p.monthlyQty?.median ?? null,
           })),
         }
       : { insufficient_data: true, similar_outlets_found: e.eligiblePeers, needed: e.minPeers },
@@ -106,9 +109,9 @@ export function buildAdvisorTools(ctx: AdvisorCtx): Record<string, AdvisorTool> 
       },
       async run(): Promise<ToolOutput> {
         if (!ctx.outlets.length) return { data: { outlets: [], note: 'no nearby list yet — ask the rep to press the search button in the Nearby tab' }, summaryAr: 'لا توجد قائمة محلات بعد — اضغط «ابحث عن فرص حولي» في تبويب القريبة.' };
-        const list = ctx.outlets.slice(0, 20).map(o => outletBrief(ctx, o));
+        const list = ctx.outlets.filter(o => !o.closed).slice(0, 20).map(o => outletBrief(ctx, o));
         const newOnes = list.filter(o => o.status === REL_AR.NEW).length;
-        return { data: { outlets: list }, summaryAr: `حولك ${list.length} محلات، منها ${newOnes} فرص جديدة.`, refs: list.slice(0, 5).map(o => o.ref) };
+        return { data: { outlets_count: list.length, new_opportunities_count: newOnes, outlets: list }, summaryAr: `حولك ${list.length} محلات، منها ${newOnes} فرص جديدة.`, refs: list.slice(0, 5).map(o => o.ref) };
       },
     },
     outlet_estimate: {
@@ -124,12 +127,13 @@ export function buildAdvisorTools(ctx: AdvisorCtx): Record<string, AdvisorTool> 
         const p = refSchema.safeParse(args);
         if (!p.success) return { error: 'ref must look like P3' };
         const o = byRef.get(p.data.ref);
-        if (!o) return { error: `unknown ref ${p.data.ref} — call list_opportunities first` };
+        if (!o || o.closed) return { error: `unknown ref ${p.data.ref} — call list_opportunities first` };
         const e = estimateFor(ctx, o);
         if (!e.ok) return { data: { ref: o.ref, insufficient_data: true, reason: e.why }, summaryAr: e.why, refs: [o.ref] };
         const products = e.products.slice(0, 15).map(pr => ({
           product: pr.name, unit: pr.unit, priority: pr.priority,
-          bought_by: `${pr.buyers}/${pr.peers}`,
+          // الصنف المحجوب لقلّة مشتريه: لا عدد ولا نسبة (حدّ الخصوصية)
+          ...(pr.buyers != null && { bought_by: `${pr.buyers}/${pr.peers}` }),
           monthly_qty: pr.monthlyQty, first_order_qty: pr.firstOrderQty, trial_order_qty: pr.trialQty,
           ...(ctx.showMoney && pr.monthlyValue && { monthly_value: pr.monthlyValue }),
           note: pr.hidden === 'FEW_BUYERS' ? 'fewer than 5 buyers — no quantity' : pr.hidden === 'DOMINANT' ? 'one buyer dominates — no reliable quantity' : undefined,

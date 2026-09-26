@@ -13,6 +13,8 @@ import { explicitTimezone } from '../services/importLedger';
 import { CustomerBuyerDataDeps, applyBuyerGateToWrite, createCustomerBuyerDataRouter } from './customersZatca';
 import { OUTLET_TYPE_CODES } from '../ai-rep/taxonomy';
 import { linkConvertedCustomer } from '../ai-rep/convert';
+import { aiRepForRep } from '../ai-rep/access';
+import { invalidateEstimateData } from '../ai-rep/estimateData';
 
 const router = Router();
 router.use(authenticate);
@@ -164,6 +166,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef });
     if (!buyerGate.ok) { res.status(buyerGate.status).json(buyerGate.body); return; }
 
+    // المندوب الذكي: معرّف مكان Google يُربط فقط لمندوب مفعّلة له الميزة، ولمحلٍّ ليس عميلاً للشركة أصلاً.
+    // عميل قائم بالمعرّف نفسه ⇒ 409 برسالة محايدة (لا تسمّي المندوب المالك — عزل العملاء)؛ وعند إعادة الرفع من صفّ
+    // الإرسال دون اتصال لا يُرفض الإنشاء (القاعدة: مستند الصفّ لا يُعدَم) بل يُسقط الربط وحده.
+    if (data.aiPlaceId) {
+      const replay = String(req.headers['x-fs-replay'] || '') === '1';
+      const allowedForRep = !creatorRepId || (await aiRepForRep(tid, creatorRepId));
+      const taken = allowedForRep ? await prisma.customer.findFirst({ where: { tenantId: tid, aiPlaceId: data.aiPlaceId }, select: { id: true } }) : null;
+      if (taken && !replay) {
+        res.status(409).json({ success: false, code: 'AI_PLACE_ALREADY_CUSTOMER', message: 'هذا المحل مسجّل عميلاً في الشركة مسبقاً — راجع الإدارة بدل إضافته مرة ثانية' });
+        return;
+      }
+      if (!allowedForRep || taken) data.aiPlaceId = null;
+    }
     const { clientCreatedAt, locationUrl, ...rest } = data;
     // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل
     if (locationUrl) {
@@ -182,6 +197,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
     if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
     // المندوب الذكي: محلٌّ مقترح صار عميلاً ⇒ يُعلَّم في سجلّ الشركة وتُحفظ لقطة توقّعه (لا يُسقط الإنشاء إن فشل)
+    if (customer.outletType) invalidateEstimateData(tid);
     if (customer.aiPlaceId) {
       try { await linkConvertedCustomer(tid, customer, creatorRepId); }
       catch (e) { console.error('[ai-rep] ربط التحويل تعذّر:', (e as Error)?.message); }
@@ -236,6 +252,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل
       data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }) },
     });
+    // نوع المنفذ أو الموقع تغيّر ⇒ توقّعات المحلات المشابهة تُعاد من القاعدة
+    if (data.outletType !== undefined || data.lat !== undefined || data.lng !== undefined) invalidateEstimateData(tid);
     res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
   } catch (err) { next(err); }
 });

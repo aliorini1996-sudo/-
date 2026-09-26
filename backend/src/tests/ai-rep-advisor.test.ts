@@ -25,11 +25,12 @@ test('توحيد الأرقام: الهندية والفارسية والفاص�
   assert.deepEqual(extractNumbers('من ٦ إلى 12 كرتون، والوسيط ٨٫٥'), [6, 12, 8.5]);
 });
 
-test('القائمة البيضاء: النسب تُقبل مئوية، والأرقام الصغيرة للترقيم حرّة', () => {
+test('القائمة البيضاء: النسب تُقبل مئوية، ولا إعفاء للأرقام الصغيرة إلا الترقيم ومراجع المحلات', () => {
   const allowed = numbersIn({ penetration: 0.7, qty: { low: 6, median: 8, high: 12 }, note: 'من ٩ بقالات' });
   assert.deepEqual(unsupportedNumbers('٧٠٪ من المحلات تشتريه، شهرياً ٦–١٢ والوسيط ٨، من ٩ بقالات', allowed), []);
   assert.deepEqual(unsupportedNumbers('اعرض عليه ٢٠ كرتون', allowed), [20]);
-  assert.deepEqual(unsupportedNumbers('أول ٣ محلات', allowed), []);
+  assert.deepEqual(unsupportedNumbers('اعرض ٣ كراتين تجريبية', allowed), [3], 'الطلب التجريبي المخترع لا يمرّ');
+  assert.deepEqual(unsupportedNumbers('1) ابدأ بـ P17\n2) ثم P12', allowed), [], 'الترقيم والمراجع ليست كميات');
 });
 
 test('حذف الجمل ذات الأرقام المخترعة فقط', () => {
@@ -82,7 +83,7 @@ test('الحارس: الإعادة مخالفة أيضاً ⇒ قصّ الجمل
 
 test('أرقام رسالة المندوب ودليل الشركة مسموحة', async () => {
   const { llm } = scripted([say('طلبت ١٥ كرتون، والحد الأدنى في دليلكم 5 كراتين والآجل 30 يوماً.')]);
-  const r = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'العميل يبي ١٥ كرتون' }], baseAllowed: new Set([30]), tools: {}, llm });
+  const r = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'العميل يبي ١٥ كرتون' }], baseAllowed: new Set([5, 30]), tools: {}, llm });
   assert.ok(!('error' in r) && r.guard === 'PASS');
 });
 
@@ -102,13 +103,12 @@ test('حدّ القفزات: بعد 4 يُمنع استدعاء الأدوات �
   const { llm, seen } = scripted([...steps, say('خلاصة.')]);
   const r = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: { outlet_estimate: tool('outlet_estimate', {}) }, llm });
   assert.ok(!('error' in r) && r.hops === 4);
-  assert.equal(seen[4].tools, undefined);
-  assert.equal(seen[4].toolChoice, 'none');
+  assert.equal(seen[4].toolChoice, 'none', 'الأدوات تُرسل ومنعُها بـ none');
 });
 
 test('فشل النموذج ⇒ خطأ صريح لا رد مخترع', async () => {
   const r = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: async () => ({ ok: false, code: 'LLM_TIMEOUT' }) });
-  assert.deepEqual(r, { error: 'LLM', code: 'LLM_TIMEOUT' });
+  assert.deepEqual(r, { error: 'LLM', code: 'LLM_TIMEOUT', usage: { promptTokens: 0, completionTokens: 0, cachedTokens: 0 } });
 });
 
 test('رسالة المندوب تُرسل للنموذج محجوبة البيانات الشخصية', async () => {
@@ -239,12 +239,48 @@ test('DeepSeek: «التفكير» يُعاد مع رسالة الأدوات، �
   const rb = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: b.llm });
   assert.ok(!('error' in rb) && rb.text === 'ابدأ بالمياه.');
   const c = scripted([say(''), say('   ')]);
-  assert.deepEqual(await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: c.llm }), { error: 'LLM', code: 'LLM_BAD_OUTPUT' });
+  const rc = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: c.llm });
+  assert.ok('error' in rc && rc.code === 'LLM_BAD_OUTPUT' && rc.usage.promptTokens === 200, 'الفشل يحمل استهلاكه ليُحتسب');
 });
 
-test('الإعداد: حدّ الرد افتراضياً 4096 ويُضبط، والتفكير يُقرأ من reasoning_content أو reasoning', () => {
-  assert.equal(llmConfig({ AI_REP_LLM_BASE_URL: 'https://a', AI_REP_LLM_API_KEY: 'k', AI_REP_LLM_MODEL: 'm' })!.maxTokens, 4096);
+test('الإعداد: حدّ الرد افتراضياً 8192 ويُضبط، والتفكير يُقرأ من reasoning_content أو reasoning أو <think>', () => {
+  assert.equal(llmConfig({ AI_REP_LLM_BASE_URL: 'https://a', AI_REP_LLM_API_KEY: 'k', AI_REP_LLM_MODEL: 'm' })!.maxTokens, 8192);
+  const th = parseCompletion({ choices: [{ message: { content: '<think>أفكر 12</think>ابدأ بالمياه' } }] });
+  assert.ok(th.ok && th.content === 'ابدأ بالمياه' && th.reasoning === 'أفكر 12');
   assert.equal(llmConfig({ AI_REP_LLM_BASE_URL: 'https://a', AI_REP_LLM_API_KEY: 'k', AI_REP_LLM_MODEL: 'm', AI_REP_LLM_MAX_TOKENS: '16000' })!.maxTokens, 16000);
   const r = parseCompletion({ choices: [{ message: { content: 'x', reasoning: 'r' } }] });
   assert.ok(r.ok && r.reasoning === 'r');
+});
+
+
+test('الأعداد بالكلمات والمثنّى تخضع للحارس كغيرها', () => {
+  const allowed = numbersIn({ trial: 4, monthly: { median: 8 } });
+  assert.deepEqual(unsupportedNumbers('اعرض عليه عشرين كرتون', allowed), [20]);
+  assert.deepEqual(unsupportedNumbers('اعرض كرتونين عصير', allowed), [2]);
+  assert.deepEqual(unsupportedNumbers('خذ نص كرتون', allowed), [0.5]);
+  assert.deepEqual(unsupportedNumbers('اعرض أربعة كراتين وشهرياً ثمانية', allowed), []);
+  assert.deepEqual(unsupportedNumbers('كل واحد من المحلات مهم', allowed), [], '«واحد» غير عددي هنا');
+});
+
+test('رد انقطع بحدّ الرموز: يُعاد بحدّ أعلى، وإلا تُحذف الجملة المبتورة', async () => {
+  const cut = (content: string): LlmResult => ({ ok: true, content, toolCalls: [], usage: U, finishReason: 'length' });
+  const a = scripted([cut('ابدأ بالمياه. واعرض عليه 1'), say('ابدأ بالمياه.')]);
+  const ra = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: a.llm });
+  assert.ok(!('error' in ra) && ra.text === 'ابدأ بالمياه.' && ra.guard === 'PASS');
+  assert.equal(a.seen[1].maxTokens, 16384);
+  const b = scripted([cut('ابدأ بالمياه. واعرض عليه 1'), cut('ابدأ بالمياه. واعرض 1')]);
+  const rb = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'x' }], baseAllowed: new Set(), tools: {}, llm: b.llm });
+  assert.ok(!('error' in rb) && rb.text === 'ابدأ بالمياه.' && rb.guard === 'TRIM');
+});
+
+test('إعادة التوليد المعطوبة لا تصل المندوب (وسوم أو أدوات)', async () => {
+  const s1 = scripted([call('outlet_estimate', { ref: 'P1' }), say('اعرض ٥٠ كرتون.'), say('<\uFF5CDSML\uFF5Cinvoke name="x">')]);
+  const r = await runAdvisor({ system: 's', history: [{ role: 'user', text: 'كم؟' }], baseAllowed: new Set(), tools: { outlet_estimate: tool('outlet_estimate', { trial: 4 }, 'P1: الطلب التجريبي 4') }, llm: s1.llm });
+  assert.ok(!('error' in r));
+  if (!('error' in r)) { assert.doesNotMatch(r.text, /DSML|invoke/); assert.equal(r.guard, 'TEMPLATE'); }
+});
+
+test('خطة العقل: من الأسطر المرقّمة (أول مرجع في كل خطوة)، والمذكور للتجنّب لا يدخل', () => {
+  const allowed = new Set(['P1', 'P4', 'P7']);
+  assert.deepEqual(planFromText('1) ابدأ بـ P4 لأن ...\n2) ثم P1 وتجاوز P7 لأنه غير مهتم', allowed), ['P4', 'P1']);
 });
