@@ -14,7 +14,7 @@ test('صفّ المرحلة الأولى: كلّ شيء null — لا شارة �
     assert.equal(isZatcaPhase2Row(row), false, JSON.stringify(row));
     assert.equal(zatcaDocView(row, NOW), null, JSON.stringify(row));
     assert.equal(zatcaStatusChip(row, NOW), null, JSON.stringify(row));
-    assert.deepEqual(zatcaRowActions(row, { allowed: true }), { retry: false, withdraw: false, reissue: false });
+    assert.deepEqual(zatcaRowActions(row, { allowed: true, now: NOW }), { retry: false, withdraw: false, reissue: false });
   }
   // حتى «einvoice» من مزوّد آخر (مصر/بيبول) لا يجعل الصفّ مرحلةً ثانية
   assert.equal(zatcaDocView({ einvoice: { phase: 1 } }, NOW), null);
@@ -129,21 +129,21 @@ test('الإجراءات: للمصرَّح له وحده، وبشرط الخاد
   const none = { retry: false, withdraw: false, reissue: false };
 
   // المندوب (غير مصرَّح) لا يرى شيئاً ولو كانت الحالة تسمح
-  assert.deepEqual(zatcaRowActions(row('clearance_blocked', '01'), { allowed: false }), none);
+  assert.deepEqual(zatcaRowActions(row('clearance_blocked', '01'), { allowed: false, now: NOW }), none);
 
-  assert.deepEqual(zatcaRowActions(row('report_blocked', '02'), { allowed: true }), { retry: true, withdraw: false, reissue: false });
-  assert.deepEqual(zatcaRowActions(row('clearance_blocked', '01'), { allowed: true }), { retry: true, withdraw: true, reissue: false });
-  assert.deepEqual(zatcaRowActions(row('clearance_pending', '01'), { allowed: true }), { retry: false, withdraw: true, reissue: false });
-  assert.deepEqual(zatcaRowActions(row('rejected', '02'), { allowed: true }), { retry: false, withdraw: false, reissue: true });
+  assert.deepEqual(zatcaRowActions(row('report_blocked', '02'), { allowed: true, now: NOW }), { retry: true, withdraw: false, reissue: false });
+  assert.deepEqual(zatcaRowActions(row('clearance_blocked', '01'), { allowed: true, now: NOW }), { retry: true, withdraw: true, reissue: false });
+  assert.deepEqual(zatcaRowActions(row('clearance_pending', '01'), { allowed: true, now: NOW }), { retry: false, withdraw: true, reissue: false });
+  assert.deepEqual(zatcaRowActions(row('rejected', '02'), { allowed: true, now: NOW }), { retry: false, withdraw: false, reissue: true });
   // القياسية المرفوضة أُبطلت تلقائياً: لا إعادة إصدار من هنا (الخادم يرفضها)
-  assert.deepEqual(zatcaRowActions(row('rejected', '01'), { allowed: true }), none);
+  assert.deepEqual(zatcaRowActions(row('rejected', '01'), { allowed: true, now: NOW }), none);
   // مبسّطة سليمة أو معتمدة: لا إجراء
-  assert.deepEqual(zatcaRowActions(row('signed', '02'), { allowed: true }), none, 'signed يحتمل «قيد الإرسال» فلا زرّ من القائمة');
-  assert.deepEqual(zatcaRowActions(row('reported', '02'), { allowed: true }), none);
-  assert.deepEqual(zatcaRowActions(row('cleared', '01'), { allowed: true }), none);
+  assert.deepEqual(zatcaRowActions(row('signed', '02'), { allowed: true, now: NOW }), none, 'signed يحتمل «قيد الإرسال» فلا زرّ من القائمة');
+  assert.deepEqual(zatcaRowActions(row('reported', '02'), { allowed: true, now: NOW }), none);
+  assert.deepEqual(zatcaRowActions(row('cleared', '01'), { allowed: true, now: NOW }), none);
   // حالة المستند من التفصيل تفتح الإعادة لـRETRY_WAIT
-  assert.equal(zatcaRowActions(row('signed', '02', 'RETRY_WAIT'), { allowed: true }).retry, true);
-  assert.equal(zatcaRowActions(row('signed', '02', 'SUBMITTING'), { allowed: true }).retry, false);
+  assert.equal(zatcaRowActions(row('signed', '02', 'RETRY_WAIT'), { allowed: true, now: NOW }).retry, true);
+  assert.equal(zatcaRowActions(row('signed', '02', 'SUBMITTING'), { allowed: true, now: NOW }).retry, false);
 });
 
 test('القياسية المحوَّلة إلى الإبلاغ (ردّ ٣٠٣) تُقرأ متأخّرة — لا «بانتظار اعتماد الهيئة»', () => {
@@ -195,10 +195,10 @@ test('المُبطلة تسبق التأخّر في الشارة — لا «تأ
 test('المتأخّر يُفتح له زرّ إعادة الإرسال ولو كانت مرآته «بانتظار»', () => {
   const NOW2 = new Date('2026-09-23T12:00:00.000Z');
   const late = { zatcaPhase: 2, einvoiceStatus: 'signed', invoiceSubtype: '02', documentKind: 'INVOICE', issuedAt: new Date(NOW2.getTime() - 26 * 60 * 60 * 1000).toISOString() };
-  assert.equal(zatcaRowActions(late, { allowed: true }).retry, true);
+  assert.equal(zatcaRowActions(late, { allowed: true, now: NOW2 }).retry, true);
   // والمعلّق في مهلته يبقى بلا زرّ (يُردّ 409 بلا فائدة)
   const fresh = { ...late, issuedAt: new Date(NOW2.getTime() - 60_000).toISOString() };
-  assert.equal(zatcaRowActions(fresh, { allowed: true }).retry, false);
+  assert.equal(zatcaRowActions(fresh, { allowed: true, now: NOW2 }).retry, false);
   // والصلاحية أوّلاً
-  assert.equal(zatcaRowActions(late, { allowed: false }).retry, false);
+  assert.equal(zatcaRowActions(late, { allowed: false, now: NOW2 }).retry, false);
 });

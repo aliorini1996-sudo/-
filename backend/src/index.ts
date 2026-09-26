@@ -43,6 +43,7 @@ import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
 import petroappRouter from './routes/petroapp';
+import aiRepRouter from './routes/aiRep';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
 import publicEinvoiceRouter from './routes/publicEinvoice';
@@ -213,6 +214,7 @@ app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/petroapp', petroappRouter);
+app.use('/api/ai-rep', aiRepRouter); // المندوب الذكي AI — خامل حتى يفعّله المالك لكل شركة
 app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
 // ZATCA المرحلة الثانية (Z5.7) — رابط المشتري: `/api/public/einvoice/:token` بلا مصادقة، الرمز وحده هو الإذن

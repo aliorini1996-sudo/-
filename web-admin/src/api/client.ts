@@ -229,6 +229,14 @@ export const erpApi = {
   logs: () => api.get('/erp/logs'),
 };
 
+// المندوب الذكي AI — إعدادات الشركة وتصنيف أنواع العملاء (خامل حتى يفعّله المالك)
+export const aiRepApi = {
+  settings: () => api.get('/ai-rep/admin/settings'),
+  saveSettings: (data: unknown) => api.put('/ai-rep/admin/settings', data),
+  classifyList: (params: Record<string, string | number>) => api.get('/ai-rep/admin/classify', { params }),
+  classify: (items: { customerId: string; outletType: string | null }[]) => api.post('/ai-rep/admin/classify', { items }),
+};
+
 export const petroappApi = {
   settings: () => api.get('/petroapp/settings'),
   saveSettings: (data: unknown) => api.put('/petroapp/settings', data),

@@ -11,6 +11,8 @@ import { deriveRunningBalances, clean } from '../services/accounting';
 import { statementEntryDateFilter } from '../services/statementRange';
 import { explicitTimezone } from '../services/importLedger';
 import { CustomerBuyerDataDeps, applyBuyerGateToWrite, createCustomerBuyerDataRouter } from './customersZatca';
+import { OUTLET_TYPE_CODES } from '../ai-rep/taxonomy';
+import { linkConvertedCustomer } from '../ai-rep/convert';
 
 const router = Router();
 router.use(authenticate);
@@ -44,6 +46,9 @@ const customerSchema = z.object({
   locationUrl: z.string().max(2000).optional(),
   // قناة البيع (تصنيف مؤسسي) — يقبل قيمة صحيحة أو فارغ/null/غياب (كلها = غير محدّد)
   channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).nullish().or(z.literal('')),
+  // المندوب الذكي: نوع المنفذ (أساس مقارنة المحلات المتشابهة) ومعرّف المكان في Google لمحلٍّ مقترح حُوِّل عميلاً
+  outletType: z.enum(OUTLET_TYPE_CODES as unknown as [string, ...string[]]).nullish().or(z.literal('')),
+  aiPlaceId: z.string().min(1).max(300).nullish(),
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
   creditLimit: z.number().min(0).optional(),
   paymentDays: z.number().int().min(0).optional(),
@@ -169,13 +174,18 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // المزامنة متسلسلة على جهاز واحد فلا تكرار متزامن؛ والفحص أعلاه يمنع إعادة الرفع.
     const customer = await prisma.customer.create({
       data: {
-        ...rest, email: data.email || null, channel: data.channel || null, tenantId: tid,
+        ...rest, email: data.email || null, channel: data.channel || null, outletType: data.outletType || null, aiPlaceId: data.aiPlaceId || null, tenantId: tid,
         clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
       } as any,
     });
     // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
     if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
+    // المندوب الذكي: محلٌّ مقترح صار عميلاً ⇒ يُعلَّم في سجلّ الشركة وتُحفظ لقطة توقّعه (لا يُسقط الإنشاء إن فشل)
+    if (customer.aiPlaceId) {
+      try { await linkConvertedCustomer(tid, customer, creatorRepId); }
+      catch (e) { console.error('[ai-rep] ربط التحويل تعذّر:', (e as Error)?.message); }
+    }
     res.status(201).json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
   } catch (err) { next(err); }
 });
@@ -202,8 +212,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
-    const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, ...data } = customerSchema.partial().parse(req.body);
-    void _cr; void _cc;
+    const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, aiPlaceId: _ap, ...data } = customerSchema.partial().parse(req.body);
+    void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
     if (req.user?.role === 'SALES_REP') {
@@ -224,7 +234,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
       // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل
-      data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }) },
+      data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }) },
     });
     res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
   } catch (err) { next(err); }

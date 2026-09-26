@@ -741,6 +741,8 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   const [invoiceSignatureEnabled, setInvoiceSignatureEnabled] = useState(!!tenant.invoiceSignatureEnabled);
   // ربط فوترة ZATCA المرحلة الثانية — مطفأ افتراضياً ⇒ `!!`؛ الخادم يشترط أيضاً أن تكون الشركة سعودية
   const [zatcaPhase2Enabled, setZatcaPhase2Enabled] = useState(!!tenant.zatcaPhase2Enabled);
+  // المندوب الذكي AI — مطفأ افتراضياً ⇒ `!!`
+  const [aiRepEnabled, setAiRepEnabled] = useState(!!tenant.aiRepEnabled);
   const [accountingEnabled, setAccountingEnabled] = useState(tenant.accountingEnabled !== false);
   // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. الخانة ظاهرة لكل الشركات والمالك يفعّلها
   // بنفسه (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة).
@@ -775,6 +777,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       attendanceEnabled,
       invoiceSignatureEnabled,
       zatcaPhase2Enabled,
+      aiRepEnabled,
       accountingEnabled,
       accountingSuiteEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
@@ -903,6 +906,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               {tr('ربط فوترة المرحلة الثانية (فاتورة)')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('يظهر لمدير الشركة السعودية تبويب ربط وحدة الفوترة مع هيئة الزكاة في إعدادات الشركة — لا يغير إصدار الفواتير الحالي')}</p>
+            <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={aiRepEnabled} onChange={e => setAiRepEnabled(e.target.checked)} />
+              {tr('تفعيل المندوب الذكي AI لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('محلات قريبة مقترحة للمندوب، وتوقّع مشتريات كل محل لكل منتج من مبيعات الشركة، ومسار زيارة — تظهر للشركة صفحة «المندوب الذكي» وللمندوب زرّه')}</p>
             <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2">
               <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={accountingEnabled} onChange={e => setAccountingEnabled(e.target.checked)} />
               {tr('تفعيل النظام المحاسبي لهذه الشركة')}

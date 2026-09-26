@@ -117,6 +117,10 @@ test('كل مفتاح يُنادى في الكود موجود في القامو�
   const shareFile = path.join(srcDir, 'pages', 'EinvoicePublicPage.tsx');
   const shareHave = new Set<string>();
   for (const m of read('src', 'lib', 'zatca', 'shareView.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) shareHave.add(m[1]);
+  // المندوب الذكي: صفحة الشركة وشاشة المندوب كسولتان وعباراتهما في i18n/aiRepPhrases.ts (عبر useAiRepTr) — تُحتسب لهما وحدهما
+  const aiRepFiles = new Set([path.join(srcDir, 'pages', 'AiRepPage.tsx'), path.join(srcDir, 'rep', 'RepAiScreen.tsx')]);
+  const aiRepHave = new Set<string>();
+  for (const m of read('src', 'i18n', 'aiRepPhrases.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) aiRepHave.add(m[1]);
   const missing = new Set<string>();
   for (const f of walk(srcDir)) {
     if (f === strings) continue;
@@ -124,7 +128,7 @@ test('كل مفتاح يُنادى في الكود موجود في القامو�
     for (const m of s.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)) {
       const k = m[1];
       if (/[؀-ۿ]/.test(k) && !have.has(k) && !(f.startsWith(zatcaDir) && zatcaHave.has(k))
-          && !(f === shareFile && shareHave.has(k))) missing.add(k);
+          && !(f === shareFile && shareHave.has(k)) && !(aiRepFiles.has(f) && aiRepHave.has(k))) missing.add(k);
     }
   }
   assert.deepEqual([...missing], [], 'مفاتيح تُنادى ولا وجود لها في القاموس: ' + [...missing].slice(0, 20).join(' | '));

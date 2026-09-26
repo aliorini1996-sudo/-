@@ -143,6 +143,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'nav.erp': { ar: 'تكامل ERP', en: 'ERP integration', fr: 'Intégration ERP', tr: 'ERP entegrasyonu', zh: 'ERP 对接' },
   'nav.petroapp': { ar: 'بترو اب', en: 'PetroApp', fr: 'PetroApp', tr: 'PetroApp', zh: 'PetroApp' },
   'nav.hatif': { ar: 'ارقام العمل', en: 'Work numbers', fr: 'Numéros pro', tr: 'İş numaraları', zh: '工作号码' },
+  'nav.aiRep': { ar: 'المندوب الذكي', en: 'AI rep', fr: 'Commercial IA', tr: 'Akıllı temsilci', zh: '智能业务员' },
   'nav.ledger': { ar: 'الدفاتر', en: 'Books', fr: 'Livres', tr: 'Defterler', zh: '账簿' },
   'nav.paylink': { ar: 'المدفوعات الالكترونية', en: 'E-payments', fr: 'Paiements en ligne', tr: 'E-ödemeler', zh: '电子支付' },
   'nav.company': { ar: 'إعدادات الشركة', en: 'Company settings', fr: 'Paramètres de l entreprise', tr: 'Şirket ayarları', zh: '企业设置' },
@@ -3961,6 +3962,24 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'بدون مندوب سند من الإدارة': { en: 'No rep, receipt issued by the office', fr: 'Sans commercial, recu emis par le bureau', tr: 'Temsilcisiz, ofisten duzenlenen makbuz', zh: '无业务员（由管理端开具）' },
   'عدد المناديب المحصلين': { en: 'Collecting reps', fr: 'Commerciaux ayant encaisse', tr: 'Tahsilat yapan temsilciler', zh: '有收款的业务员数' },
   'لا سندات قبض في هذه الفترة': { en: 'No receipts in this period', fr: 'Aucun recu sur cette periode', tr: 'Bu donemde makbuz yok', zh: '此期间没有收据' },
+  // ——— المندوب الذكي AI (ما يُعرض خارج شاشتيه الكسولتين؛ البقية في i18n/aiRepPhrases.ts) ———
+  'المندوب الذكي': { en: 'AI rep', fr: 'Commercial IA', tr: 'Akıllı temsilci', zh: '智能业务员' },
+  'تفعيل المندوب الذكي AI لهذه الشركة': { en: 'Enable the AI rep for this company', fr: 'Activer le commercial IA pour cette société', tr: 'Bu şirket için akıllı temsilciyi etkinleştir', zh: '为该公司启用智能业务员' },
+  'محلات قريبة مقترحة للمندوب، وتوقّع مشتريات كل محل لكل منتج من مبيعات الشركة، ومسار زيارة — تظهر للشركة صفحة «المندوب الذكي» وللمندوب زرّه': { en: 'Suggested nearby outlets, an expected purchase for every outlet and product from the company’s own sales, and a visit route — the company gets an “AI rep” page and reps get its button', fr: 'Points de vente proches suggérés, achats attendus par point de vente et par produit d’après les ventes réelles, et itinéraire — la société obtient une page « Commercial IA » et les commerciaux son bouton', tr: 'Önerilen yakın satış noktaları, şirketin kendi satışlarından her nokta ve ürün için beklenen alım ve ziyaret rotası — şirket «Akıllı temsilci» sayfasını, temsilciler düğmesini görür', zh: '为业务员推荐附近网点，并根据公司实际销售预测每个网点每种产品的采购量和拜访路线——公司可见“智能业务员”页面，业务员可见其按钮' },
+  'نوع المحل': { en: 'Outlet type', fr: 'Type de point de vente', tr: 'Nokta türü', zh: '网点类型' },
+  'بقالة / تموينات': { en: 'Grocery', fr: 'Épicerie', tr: 'Bakkal', zh: '杂货店' },
+  'ميني ماركت': { en: 'Minimarket', fr: 'Supérette', tr: 'Mini market', zh: '便利店' },
+  'سوبرماركت': { en: 'Supermarket', fr: 'Supermarché', tr: 'Süpermarket', zh: '超市' },
+  'هايبر ماركت': { en: 'Hypermarket', fr: 'Hypermarché', tr: 'Hipermarket', zh: '大卖场' },
+  'جملة': { en: 'Wholesale', fr: 'Grossiste', tr: 'Toptan', zh: '批发' },
+  'صيدلية': { en: 'Pharmacy', fr: 'Pharmacie', tr: 'Eczane', zh: '药店' },
+  'مقهى / كوفي': { en: 'Café', fr: 'Café', tr: 'Kafe', zh: '咖啡馆' },
+  'كافتيريا / بوفيه': { en: 'Cafeteria', fr: 'Cafétéria', tr: 'Kafeterya', zh: '小食店' },
+  'مطعم': { en: 'Restaurant', fr: 'Restaurant', tr: 'Restoran', zh: '餐厅' },
+  'مخبز': { en: 'Bakery', fr: 'Boulangerie', tr: 'Fırın', zh: '面包店' },
+  'متجر محطة وقود': { en: 'Fuel-station shop', fr: 'Boutique de station-service', tr: 'Akaryakıt istasyonu marketi', zh: '加油站便利店' },
+  'غير محدّد': { en: 'Not set', fr: 'Non défini', tr: 'Belirtilmedi', zh: '未设置' },
+  'يساعد المندوب الذكي على توقّع مشتريات المحلات المشابهة': { en: 'Helps the AI rep estimate purchases of similar outlets', fr: 'Aide le commercial IA à estimer les achats des points similaires', tr: 'Akıllı temsilcinin benzer noktaların alımlarını tahmin etmesine yardımcı olur', zh: '帮助智能业务员预测类似网点的采购量' },
 };
 
 export function useTr() {

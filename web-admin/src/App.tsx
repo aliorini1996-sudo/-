@@ -42,6 +42,7 @@ const CompanySettingsPage = lazy(() => import('./pages/CompanySettingsPage'));
 const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
 const ErpIntegrationPage = lazy(() => import('./pages/ErpIntegrationPage'));
 const PetroappPage = lazy(() => import('./pages/PetroappPage'));
+const AiRepPage = lazy(() => import('./pages/AiRepPage'));
 const PaylinkPage = lazy(() => import('./pages/PaylinkPage'));
 const HatifPage = lazy(() => import('./pages/HatifPage'));
 const CatalogPage = lazy(() => import('./pages/CatalogPage'));
@@ -334,6 +335,7 @@ export default function App() {
           <Route path="company-users" element={<PermissionRoute permission="canManageCompanyUsers"><CompanyUsersPage /></PermissionRoute>} />
           <Route path="erp" element={<PermissionRoute permission="canManageCompanySettings"><ErpIntegrationPage /></PermissionRoute>} />
           <Route path="petroapp" element={<PermissionRoute permission="canManageCompanySettings"><PetroappPage /></PermissionRoute>} />
+          <Route path="ai-rep" element={<PermissionRoute permission="canManageCompanySettings"><AiRepPage /></PermissionRoute>} />
           <Route path="paylink" element={<PermissionRoute permission="canManageReceipts"><PaylinkPage /></PermissionRoute>} />
           <Route path="hatif" element={<PermissionRoute permission="canManageCompanySettings"><HatifPage /></PermissionRoute>} />
           <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />

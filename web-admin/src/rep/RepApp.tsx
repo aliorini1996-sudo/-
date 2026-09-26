@@ -31,8 +31,14 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
+import { lazy, Suspense } from 'react';
+import { Sparkles } from 'lucide-react';
+import type { AiAddPrefill } from './RepAiScreen';
+import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
+// المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
+const RepAiScreen = lazy(() => import('./RepAiScreen'));
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit' | 'buyerData';
 
 interface RepUser {
@@ -513,7 +519,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -728,6 +734,7 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
       <div>
         <p className="text-[#1F1A13] font-bold text-sm mb-3">{tr('إجراءات سريعة')}</p>
         <div className="grid grid-cols-3 gap-3">
+          {aiRepOn && quick(tr('المندوب الذكي'), Sparkles, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'airep')}
           {attendanceOn && quick(tr('بصمة الحضور'), Fingerprint, 'text-rose-600', 'bg-rose-50 border-rose-100', 'attendance')}
           {accountingOn && quick(tr('فاتورة'), FileText, 'text-[#E15A30]', 'bg-[#FBEBE2] border-[#F5DACE]', 'invoices')}
           {accountingOn && quick(tr('سند قبض'), CreditCard, 'text-green-600', 'bg-green-50 border-green-100', 'receipts')}
@@ -2242,7 +2249,7 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 }
 
 // ============ إضافة عميل جديد ============
-function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean }) {
+function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, prefill = null, outletTypes }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[] }) {
   const tr = useTr();
   const [form, setForm] = useState({
     name: '', businessName: '', phone: '', commercialReg: '', taxNumber: '',
@@ -2255,9 +2262,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   // الموقع على الخريطة (اختياري): التقاط GPS مباشر أو لصق رابط خرائط Google
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(prefill?.lat != null && prefill?.lng != null ? { lat: prefill.lat, lng: prefill.lng } : null);
   const [locUrl, setLocUrl] = useState('');
-  const [gps, setGps] = useState<'idle' | 'getting' | 'ok' | 'denied'>('idle');
+  const [gps, setGps] = useState<'idle' | 'getting' | 'ok' | 'denied'>(prefill?.lat != null ? 'ok' : 'idle');
+  // المندوب الذكي: نوع المنفذ (أساس التوقّع للمحلات المشابهة) — معبّأ من المحل المقترح
+  const [outletType, setOutletType] = useState(prefill?.outletType ?? '');
 
   const captureGps = () => {
     if (!navigator.geolocation) { setGps('denied'); return; }
@@ -2300,6 +2309,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       creditLimit: accountingOn && form.creditLimit ? Number(form.creditLimit) : undefined,
       paymentDays: accountingOn && form.paymentDays ? Number(form.paymentDays) : undefined,
       clientRef, clientCreatedAt,
+      ...(outletType && { outletType }),
+      ...(prefill?.aiPlaceId && { aiPlaceId: prefill.aiPlaceId }),
       ...(zatcaCollect ? buyerCreatePayload(buyer) : {}),
     };
     try {
@@ -2359,6 +2370,18 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
           </div>
           <div className="mt-3">{field(tr('العنوان التفصيلي'), 'address')}</div>
         </div>
+
+        {outletTypes && (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 mb-2">{tr('نوع المحل')}</p>
+            <select value={outletType} onChange={e => setOutletType(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white">
+              <option value="">{tr('غير محدّد')}</option>
+              {outletTypes.map(t => <option key={t.code} value={t.code}>{tr(t.label)}</option>)}
+            </select>
+            <p className="text-[10px] text-gray-400 mt-1">{tr('يساعد المندوب الذكي على توقّع مشتريات المحلات المشابهة')}</p>
+          </div>
+        )}
 
         {zatcaCollect && (
           <BuyerDataFields values={{ ...buyerView, name: form.name }} stored={null} errors={buyerErrors}
@@ -2992,6 +3015,8 @@ export default function RepApp() {
   const [screen, setScreen] = useState<Screen>('home');
   const [modal, setModal] = useState<Modal>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  // المندوب الذكي: «أضفه عميلاً» يفتح إضافة العميل معبّأةً بنوع المحل ومعرّفه وموقع المندوب
+  const [aiPrefill, setAiPrefill] = useState<AiAddPrefill | null>(null);
   // «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ يُقرأ بـ=== true — غيابه يعني غير مقيَّد
   const proximityOn = user?.requireCustomerProximity === true;
   const [geoVerdict, setGeoVerdict] = useState<GeoVerdict | null>(null);
@@ -3290,6 +3315,13 @@ export default function RepApp() {
     clearRenewRejection(); // دخولٌ جديد: أي رفض تجديد سابق لم يعد قائماً
     setToken(t); setUser(u);
   };
+  // المندوب الذكي: فتح ملف عميلٍ قائم من المحل المقترح — من الكاش أولاً ثم من الخادم (يحترم عزل العملاء)
+  const openCustomerById = async (id: string) => {
+    const hit = await cacheGet<any[]>('customers');
+    let c = Array.isArray(hit?.data) ? hit!.data.find(x => x.id === id) : null;
+    if (!c) { try { c = (await repApi.get(`/customers/${id}`)).data.data; } catch { c = null; } }
+    if (c) { setSelectedCustomer(c); setModal('customerDetail'); }
+  };
   const logout = async () => {
     // زيارة جارية عند تسجيل الخروج تُنهى وتُرفع أولاً كي لا تضيع مدّتها
     const t = getVisitTimer();
@@ -3306,6 +3338,8 @@ export default function RepApp() {
   // مطفأ افتراضياً: === true لا !== false، وإلا فُتحت البلاطة لكل شركة
   const dailyReportOn = (company as { dailyReportEnabled?: boolean } | null)?.dailyReportEnabled === true;
   const attendanceOn = (company as { attendanceEnabled?: boolean } | null)?.attendanceEnabled === true;
+  // المندوب الذكي: الخادم يُرجع العلم مقيّداً بنطاق المندوب (مناديب محدّدون) — مطفأ افتراضياً
+  const aiRepOn = (company as { aiRepEnabled?: boolean } | null)?.aiRepEnabled === true;
   const ACCOUNTING_TABS: Screen[] = ['invoices', 'receipts', 'vanstock'];
   const tabs: { id: Screen; label: string; icon: React.ElementType }[] = [
     { id: 'home', label: 'الرئيسية', icon: Home },
@@ -3325,7 +3359,8 @@ export default function RepApp() {
     // والمندوب واقفٌ عليها يتركه أمام شاشةٍ لا مخرج منها.
     if (!dailyReportOn && screen === 'dailyreport') setScreen('home');
     if (!attendanceOn && screen === 'attendance') setScreen('home');
-  }, [accountingOn, dailyReportOn, attendanceOn, screen]);
+    if (!aiRepOn && screen === 'airep') setScreen('home');
+  }, [accountingOn, dailyReportOn, attendanceOn, aiRepOn, screen]);
 
   // إطار الجوّال يظهر فقط على سطح المكتب (للمعاينة). أمّا على الجوّال الحقيقي أو داخل
   // التطبيق (PWA/TWA) فيُعرض المحتوى ملء الشاشة — وإلا ظهر «جوال داخل جوال».
@@ -3409,8 +3444,9 @@ export default function RepApp() {
                 setModal('customerDetail');
               }} />
           ) : modal === 'addCustomer' ? (
-            <AddCustomer onClose={() => setModal(null)} accountingOn={accountingOn} zatcaCollect={zatcaCollect}
-              onCreated={(c) => { setModal('customerDetail'); setSelectedCustomer(c); }} />
+            <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect}
+              prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
+              onCreated={(c) => { setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (
             <>
               {/* Top bar */}
@@ -3443,7 +3479,7 @@ export default function RepApp() {
 
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
@@ -3453,6 +3489,13 @@ export default function RepApp() {
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
                 {screen === 'attendance' && <RepAttendance />}
+                {screen === 'airep' && aiRepOn && (
+                  <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>
+                    <RepAiScreen onBack={() => setScreen('home')}
+                      onAddCustomer={(p) => { setAiPrefill(p); setModal('addCustomer'); }}
+                      onOpenCustomer={openCustomerById} />
+                  </Suspense>
+                )}
               </div>
 
               {/* Bottom nav */}

@@ -51,6 +51,7 @@ model Tenant {
   invoiceSignatureEnabled   Boolean   @default(false) // توقيع المستلم اليدويّ على فواتير تطبيق المندوب (يُطبع آخر الفاتورة) — يفعّله المالك لكل شركة
   zatcaPhase2Enabled        Boolean   @default(false) // تبويب ربط فوترة ZATCA المرحلة الثانية (/api/zatca) — يفعّله المالك لكل شركة سعودية؛ لا يغيّر إصدار الفواتير
   accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
+  aiRepEnabled              Boolean   @default(false) // «المندوب الذكي AI» — محلات قريبة وتوقّع مشتريات كل محل ومسار؛ يفعّله المالك لكل شركة
   subscriptionEndsAt        DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -123,6 +124,13 @@ model Tenant {
   glCategoryAccounts    GlProductCategoryAccount[]
   glRepAnalyticDefaults GlRepAnalyticDefault[]
   glVendors             GlVendor[] // النموذج في M2 (§3.5)
+
+  // المندوب الذكي AI — علاقات عكسية فقط
+  aiRepSettings         AiRepSettings?
+  aiOutlets             AiOutlet[]
+  aiOutletEvents        AiOutletEvent[]
+  aiEstimateShots       AiEstimateSnapshot[]
+  aiUsageDaily          AiUsageDaily[]
 
   @@map("tenants")
 }
@@ -552,6 +560,8 @@ model Customer {
   lat           Float? // موقع العميل على الخريطة (اختياري) — يرفعه المندوب من الميدان
   lng           Float?
   channel       String? // قناة البيع: MT | WHOLESALE | TT | DISCOUNTER | CASH_VAN | ECOMMERCE
+  outletType    String? // نوع المنفذ للمندوب الذكي: GROCERY | MINIMARKET | SUPERMARKET | … (ai-rep/taxonomy.ts) — أساس مقارنة المحلات المتشابهة
+  aiPlaceId     String? // معرّف المكان في Google (مسموح تخزينه بلا حدّ) — يربط العميل بمحلٍّ اقترحه المندوب الذكي ويمنع تكراره
   status        String  @default("ACTIVE") // ACTIVE | INACTIVE | BLOCKED
 
   creditLimit    Float @default(0)
@@ -742,6 +752,7 @@ model Invoice {
   @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@index([originalInvoiceId])
+  @@index([tenantId, invoiceDate]) // المندوب الذكي: تجميع مشتريات العملاء لنافذة أشهر
   @@map("invoices")
 }
 
@@ -3270,4 +3281,114 @@ model ZatcaCutoverReview {
   @@unique([tenantId, clientRef])
   @@index([tenantId, status])
   @@map("zatca_cutover_reviews")
+}
+
+// ═══ المندوب الذكي AI ═══
+// إعدادات الميزة لكل شركة (تحرّرها إدارة الشركة؛ العلم نفسه Tenant.aiRepEnabled بيد المالك)
+model AiRepSettings {
+  id                   String   @id @default(uuid())
+  tenantId             String   @unique
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  targetOutletTypes    String[] @default(["GROCERY", "MINIMARKET", "SUPERMARKET"]) // أنواع المحلات المستهدفة (taxonomy.ts)
+  searchRadiusM        Int      @default(2000) // نصف قطر البحث عن المحلات حول المندوب
+  priorityProductIds   String[] @default([]) // منتجات تُعرض أولاً في التوقّع
+  estimateWindowMonths Int      @default(6) // نافذة المبيعات التي يُبنى عليها التوقّع (أشهر مكتملة)
+  minPeers             Int      @default(5) // أقل عدد محلات مشابهة لعرض رقم (حدّ خصوصية لا ينزل عن ٥)
+  showMoney            Boolean  @default(true) // عرض القيم المالية (تُتجاهل إن أُطفئ النظام المحاسبي)
+  repScope             String   @default("ALL") // ALL | SELECTED
+  repIds               String[] @default([]) // المناديب المفعّل لهم عند SELECTED
+  dailySearchesPerRep  Int      @default(30) // سقف بحث المحلات لكل مندوب يومياً (كلفة Google)
+  playbook             String? // دليل البيع للشركة (نقاط البيع والعروض وسياسة الآجل) — يقرؤه المستشار
+  updatedById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("ai_rep_settings")
+}
+
+// محلٌّ تفاعل معه مندوب (زيارة/نتيجة/تحويل) — بيانات الشركة الدائمة. لا يُخزَّن اسم Google ولا عنوانه:
+// الاسم يكتبه المندوب من اللوحة، والموقع من GPS المندوب عند الباب، وplaceId وحده من Google (مسموح بلا حدّ).
+model AiOutlet {
+  id                  String    @id @default(uuid())
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  placeId             String? // Google place_id
+  outletType          String
+  repTypedName        String?
+  lat                 Float? // GPS المندوب عند تسجيل النتيجة
+  lng                 Float?
+  status              String    @default("OPEN") // OPEN | CLOSED | CONVERTED
+  lastOutcome         String? // آخر نتيجة (AiOutletEvent.kind)
+  lastOutcomeAt       DateTime?
+  lastSalesRepId      String?
+  convertedCustomerId String?
+  createdBySalesRepId String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  events AiOutletEvent[]
+
+  @@unique([tenantId, placeId])
+  @@index([tenantId, status])
+  @@map("ai_outlets")
+}
+
+// نتيجة زيارة محلٍّ مقترح — مفتاح منع التكرار clientRef (الرفع المؤجَّل دون اتصال)
+model AiOutletEvent {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outletId   String
+  outlet     AiOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  salesRepId String
+  kind       String // INTERESTED | CALL_BACK | QUOTE | NOT_INTERESTED | CLOSED | EXCLUSIVE_SUPPLIER | CONVERTED
+  note       String?
+  lat        Float?
+  lng        Float?
+  accuracyM  Float?
+  clientRef  String
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId, outletId])
+  @@map("ai_outlet_events")
+}
+
+// لقطة التوقّع لحظة تحويل المحل إلى عميل — تُقارن لاحقاً بمشترياته الفعلية لقياس دقّة المحرّك
+model AiEstimateSnapshot {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outletId      String?
+  customerId    String?
+  engineVersion String
+  outletType    String
+  ringKm        Float?
+  peers         Int
+  confidence    String
+  windowFrom    String // YYYY-MM
+  windowTo      String
+  payload       Json // التوقّع لكل منتج كما عُرض
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, customerId])
+  @@map("ai_estimate_snapshots")
+}
+
+// عدّاد الاستخدام اليومي لكل مندوب (بلا محتوى) — للحدود والكلفة
+model AiUsageDaily {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String
+  day        String // YYYY-MM-DD بتوقيت الرياض
+  searches   Int      @default(0)
+  estimates  Int      @default(0)
+  outcomes   Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantId, salesRepId, day])
+  @@map("ai_usage_daily")
 }
