@@ -368,7 +368,9 @@ export interface ApiResponse<T> {
 
 export interface DashboardStats {
   today: { salesTotal: number; invoicesCount: number; collectionsTotal: number; receiptsCount: number };
-  month: { salesTotal: number; invoicesCount: number; collectionsTotal: number; receiptsCount: number };
+  month: { salesTotal: number; invoicesCount: number; collectionsTotal: number; receiptsCount: number; purchasesTotal?: number; purchaseEntriesCount?: number };
+  /** ميزة مخزون الشركة مفعّلة؟ — عندها تظهر بطاقة المشتريات الشهرية */
+  warehouseEnabled?: boolean;
   customers: { total: number; withBalance: number; creditExceeded: number };
   topReps: { id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number }[];
   topCustomers: { id: string; name: string; totalSales: number; balance: number }[];

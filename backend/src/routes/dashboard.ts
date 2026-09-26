@@ -66,8 +66,24 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     // «النظام المحاسبي» مطفأ ⇒ لا تغادر أرقامُ المبيعات والتحصيل الخادمَ أصلاً.
     // الدلالة `!== false`: العَلَم افتراضه مفعّل، فغيابه يعني مفعّل لا مطفأ.
-    const tenantFlag = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true } });
+    const tenantFlag = await prisma.tenant.findUnique({ where: { id: tid }, select: { accountingEnabled: true, warehouseEnabled: true } });
     const accountingOn = tenantFlag?.accountingEnabled !== false;
+    const warehouseOn = tenantFlag?.warehouseEnabled === true;
+
+    // المشتريات الشهرية = قيمة الوارد إلى مخزون الشركة (WarehouseEntry type='RECEIVE'): Σ الكمية×سعر التكلفة.
+    // تُحسب فقط حين تُفعَّل ميزة المستودع (وإلا لا معنى للبطاقة ولا داعي للاستعلام على قاعدة 0.1 نواة).
+    // مبلغٌ على مستوى الشركة (المستودع مركزيّ لا يُنسَب لمندوب)، فلا يمرّ بنطاق السجلات.
+    let monthPurchases = { purchasesTotal: 0, entriesCount: 0 };
+    if (warehouseOn && accountingOn) {
+      const rows = await prisma.$queryRaw<{ total: number | null; entries: number | bigint }[]>`
+        SELECT COALESCE(SUM(i.qty * i."unitCost"), 0)::float8 AS total,
+               COUNT(DISTINCT e.id) AS entries
+        FROM "warehouse_entry_items" i
+        JOIN "warehouse_entries" e ON e.id = i."entryId"
+        WHERE e."tenantId" = ${tid} AND e.type = 'RECEIVE'
+          AND e."createdAt" >= ${startOfMonth} AND i."unitCost" IS NOT NULL`;
+      monthPurchases = { purchasesTotal: Number(rows[0]?.total ?? 0), entriesCount: Number(rows[0]?.entries ?? 0) };
+    }
 
     const topRepsWithStats = topReps.map(r => ({
       id: r.id,
@@ -88,14 +104,18 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
             receiptsCount: dailyReceipts._count.id,
           }
           : { salesTotal: 0, invoicesCount: 0, collectionsTotal: 0, receiptsCount: 0 },
+        warehouseEnabled: warehouseOn,
         month: accountingOn
           ? {
             salesTotal: Number(monthSales._sum.total ?? 0),
             invoicesCount: monthSales._count.id,
             collectionsTotal: Number(monthReceipts._sum.amount ?? 0),
             receiptsCount: monthReceipts._count.id,
+            // المشتريات الشهرية (مخزون الشركة) — 0 حين الميزة مطفأة، والواجهة تُظهر البطاقة بـwarehouseEnabled
+            purchasesTotal: monthPurchases.purchasesTotal,
+            purchaseEntriesCount: monthPurchases.entriesCount,
           }
-          : { salesTotal: 0, invoicesCount: 0, collectionsTotal: 0, receiptsCount: 0 },
+          : { salesTotal: 0, invoicesCount: 0, collectionsTotal: 0, receiptsCount: 0, purchasesTotal: 0, purchaseEntriesCount: 0 },
         customers: { total: totalCustomers, withBalance: overdueCustomers, creditExceeded },
         topReps: accountingOn ? topRepsWithStats : [],
         topCustomers: accountingOn ? topCustomers : [],

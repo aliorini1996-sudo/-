@@ -82,14 +82,18 @@ export default function MHome({ accountingOn = true, onOpenCustomer, onOpenSecti
         </p>
       </Section>)}
 
-      {/* الشهر */}
+      {/* الشهر — بطاقة ثالثة «المشتريات» تظهر لشركات مخزون الشركة (المستودع) وحدها */}
       {accountingOn && (<Section title={tr('هذا الشهر')}>
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className={`grid gap-2.5 ${d.warehouseEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}>
           <MStat icon={ShoppingCart} label={tr('المبيعات')} value={formatCurrency(d.month.salesTotal)} />
           <MStat icon={TrendingUp} label={tr('التحصيل')} value={formatCurrency(d.month.collectionsTotal)} tone="good" />
+          {d.warehouseEnabled && (
+            <MStat icon={Warehouse} label={tr('المشتريات')} value={formatCurrency(d.month.purchasesTotal ?? 0)} tone="warn" />
+          )}
         </div>
         <p className="text-[11px] text-[#9A8F7E] px-1">
           {d.month.invoicesCount} {tr('فاتورة')} · {d.month.receiptsCount} {tr('سند')}
+          {d.warehouseEnabled ? ` · ${d.month.purchaseEntriesCount ?? 0} ${tr('وارد')}` : ''}
         </p>
       </Section>)}
 
