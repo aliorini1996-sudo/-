@@ -1089,41 +1089,50 @@ function LedgerResetSection({ tenant }: { tenant: Tenant }) {
   const qc = useQueryClient();
   const [confirmName, setConfirmName] = useState('');
   const [reasons, setReasons] = useState<string[]>([]);
+  const [canForce, setCanForce] = useState(false); // 409 قابل للتجاوز من مالك المنصّة
   const matches = confirmName === tenant.name; // حرفياً كما يطابق الخادم (resetConfirmNameMatches)
   const mutation = useMutation({
-    mutationFn: () => tenantApi.ledgerReset(tenant.id, { confirmName }),
+    mutationFn: (force: boolean) => tenantApi.ledgerReset(tenant.id, { confirmName, ...(force ? { force: true } : {}) }),
     onSuccess: (res) => {
       const total = (res.data?.data as { total?: number } | undefined)?.total ?? 0;
       toast.success(`${tr('تمت إعادة ضبط الدفاتر')} (${total})`);
-      setReasons([]); setConfirmName('');
+      setReasons([]); setCanForce(false); setConfirmName('');
       qc.invalidateQueries({ queryKey: ['tenants'] });
     },
     onError: (err: unknown) => {
       const d = errData(err);
-      if (d?.code === 'LEDGER_RESET_BLOCKED') { setReasons(d.reasons ?? []); return; }
-      setReasons([]);
+      if (d?.code === 'LEDGER_RESET_BLOCKED') { setReasons(d.reasons ?? []); setCanForce((d as { canForce?: boolean }).canForce === true); return; }
+      setReasons([]); setCanForce(false);
       toast.error(d?.code === 'LEDGER_RESET_CONFIRM_MISMATCH' ? tr('اسم التأكيد لا يطابق اسم الشركة حرفيا') : (d?.message || tr('حدث خطأ')));
     },
   });
   return (
     <div className="border border-red-200 rounded-xl p-3 bg-red-50/40">
       <p className="text-sm font-bold text-red-700 flex items-center gap-1.5"><RotateCcw size={14} /> {tr('إعادة ضبط الدفاتر')}</p>
-      <p className="text-xs text-gray-500 mt-1 leading-relaxed">{tr('تحذف دفاتر الشركة وإعدادها قبل أول ترحيل فقط، ويبقى سجل التدقيق')}</p>
+      <p className="text-xs text-gray-500 mt-1 leading-relaxed">{tr('تحذف دفاتر الشركة وإعدادها فقط (فواتيرها ومخزونها وسنداتها وبياناتها لا تتأثر)، ويبقى سجل التدقيق')}</p>
       <label className="label mt-2">{tr('اكتب اسم الشركة حرفيا للتأكيد')}</label>
-      <input className="input" value={confirmName} onChange={e => { setConfirmName(e.target.value); setReasons([]); }} placeholder={tenant.name} />
+      <input className="input" value={confirmName} onChange={e => { setConfirmName(e.target.value); setReasons([]); setCanForce(false); }} placeholder={tenant.name} />
       {reasons.length > 0 && (
         <div className="mt-2 bg-white border border-red-200 rounded-lg px-3 py-2">
-          <p className="text-xs font-semibold text-red-700 mb-1">{tr('إعادة ضبط الدفاتر مرفوضة')}</p>
+          <p className="text-xs font-semibold text-red-700 mb-1">{canForce ? tr('للدفاتر سجلات نظامية — سيُحذف رغم:') : tr('إعادة ضبط الدفاتر مرفوضة')}</p>
           <ul className="list-disc pr-4 space-y-0.5">
             {reasons.map(r => <li key={r} className="text-xs text-red-700">{ledgerResetReasonText(r, tr)}</li>)}
           </ul>
         </div>
       )}
-      <button type="button" onClick={() => mutation.mutate()} disabled={!matches || mutation.isPending}
-        className="mt-2 w-full justify-center py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm font-semibold flex items-center gap-2">
-        {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <RotateCcw size={14} />}
-        {tr('إعادة ضبط الدفاتر')}
-      </button>
+      {canForce ? (
+        <button type="button" onClick={() => mutation.mutate(true)} disabled={!matches || mutation.isPending}
+          className="mt-2 w-full justify-center py-2 rounded-xl bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white text-sm font-semibold flex items-center gap-2">
+          {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <RotateCcw size={14} />}
+          {tr('حذف الدفاتر كاملة رغم ذلك')}
+        </button>
+      ) : (
+        <button type="button" onClick={() => mutation.mutate(false)} disabled={!matches || mutation.isPending}
+          className="mt-2 w-full justify-center py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm font-semibold flex items-center gap-2">
+          {mutation.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <RotateCcw size={14} />}
+          {tr('إعادة ضبط الدفاتر')}
+        </button>
+      )}
     </div>
   );
 }

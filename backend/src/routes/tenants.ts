@@ -443,6 +443,11 @@ router.post('/:id/ledger-reset', async (req: AuthRequest, res: Response, next: N
       res.status(422).json({ success: false, code: 'LEDGER_RESET_CONFIRM_MISMATCH', message: 'اسم التأكيد لا يطابق اسم الشركة حرفياً' });
       return;
     }
+    // تجاوز مالك المنصّة (§5.7، قرار المالك): الأسباب النظامية تحجب الأدمن، لكن مالك المنصّة — وهو
+    // الوحيد على هذا المسار (requireSuperAdmin) — يستطيع الحذف الكامل بـforce، فتعود الشركة كأنّ
+    // الدفاتر لم تُفعَّل قطّ. لا يُمَسّ إلا gl_* (لا فواتير ولا مخزون ولا سندات ولا account_entries)،
+    // وسجل التدقيق يبقى ويُكتب فيه ما جرى تجاوزه.
+    const force = req.body?.force === true;
     const actor = ownerActor(req);
     const result = await prisma.$transaction(async tx => {
       await acquirePostLock(tx, tid);
@@ -459,19 +464,20 @@ router.post('/:id/ledger-reset', async (req: AuthRequest, res: Response, next: N
         hardLockDate: settings?.hardLockDate ?? null,
         customerAdjustmentSources,
       });
-      if (reasons.length > 0) {
+      if (reasons.length > 0 && !force) {
         throw new OwnerLedgerReply(409, {
-          success: false, code: 'LEDGER_RESET_BLOCKED', reasons,
-          message: 'إعادة ضبط الدفاتر مرفوضة — الدفاتر سجلات نظامية بعد أول ترحيل، والتصحيح بقيود',
+          success: false, code: 'LEDGER_RESET_BLOCKED', reasons, canForce: true,
+          message: 'الدفاتر سجلات نظامية بعد أول ترحيل. يمكنك — بصفتك مالك المنصّة — الحذف الكامل رغم ذلك',
         });
       }
       const deleted = await deleteLedgerRows(tx as unknown as ResetTx, tid);
       const summary = ledgerResetSummary(deleted);
+      const forced = reasons.length > 0; // وصلنا هنا معها ⇒ تجاوزٌ صريح من المالك
       await appendAudit(tx, {
         tenantId: tid, actor, action: 'LEDGER_RESET', entityType: 'TENANT', entityId: tid,
-        summary: summary.text,
-        before: { activatedAt: settings?.activatedAt ?? null },
-        after: { deleted, total: summary.total },
+        summary: forced ? `${summary.text} (تجاوز مالك المنصّة: ${reasons.join(', ')})` : summary.text,
+        before: { activatedAt: settings?.activatedAt ?? null, ...(forced ? { overrodeReasons: reasons } : {}) },
+        after: { deleted, total: summary.total, forced },
       });
       await tx.notification.create({
         data: {

@@ -265,7 +265,7 @@ export const tenantApi = {
   impersonate: (id: string) => api.post(`/tenants/${id}/impersonate`),
   remove: (id: string, confirmLedgerDestroy?: boolean) => api.delete(`/tenants/${id}`, { params: { confirmLedgerDestroy: confirmLedgerDestroy ? 1 : undefined } }),
   // الدفاتر (M3، §5.7، §8.1): إعادة الضبط بتأكيد الاسم، وتاريخ فوترة عمولة الدفع (D2) — preview لا يكتب
-  ledgerReset: (id: string, data: { confirmName: string }) => api.post(`/tenants/${id}/ledger-reset`, data),
+  ledgerReset: (id: string, data: { confirmName: string; force?: boolean }) => api.post(`/tenants/${id}/ledger-reset`, data),
   setPaylinkFeeTaxInvoiceFrom: (id: string, data: { from: string | null }, preview?: boolean) =>
     api.put(`/tenants/${id}/ledger-paylink-fee-invoice-from`, data, { params: preview ? { preview: 1 } : undefined }),
   // نظام تشغيل المالك (خطة فجوة التنفيذ)
