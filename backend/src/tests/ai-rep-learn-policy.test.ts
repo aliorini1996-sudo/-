@@ -187,7 +187,7 @@ test('buildPlanLabels: زيارات المندوب نفسه فقط، ضمن ٧٢
 test('concordance: مثال محسوب يدوياً (التعادل ½، أوزان الباب، سقف ٣٥٪ للمندوب)', () => {
   // المندوب A: a1 نقاطه ٢٠٠، a2 و a3 نقاطهما ١٠٠ (تعادل)
   const tA = turn('tA', 'A', [feat('a1', { v: 100, b: 0 }), feat('a2', { v: 50, b: 0 }), feat('a3', { v: 50, b: 0 })]);
-  const tB = turn('tB', 'B', [feat('b1', { v: 100, b: 0 }), feat('b2', { v: 10, b: 0 })]);
+  const tB = turn('tB', 'B', [feat('b1', { v: 100, b: 0 }), feat('b2', { v: 10, b: 0, fr: 2 })]);
   const tC = turn('tC', 'C', [feat('c1', { v: 100, b: 0 }), feat('c2', { v: 10, b: 0 })]);
   const labels = new Map<string, Label[]>([
     ['tA', [lab('a1', 0, 1), lab('a2', 0.6, 0.7), lab('a3', 0.3, 0.4)]],
@@ -196,19 +196,61 @@ test('concordance: مثال محسوب يدوياً (التعادل ½، أوز�
   ]);
   // A: (a2>a1) 0.7×0 + (a2>a3) 0.28×½ + (a3>a1) 0.4×0 ⇒ num 0.14، den 1.38
   const numA = 0.28 * 0.5, denA = 0.7 + 0.28 + 0.4;
-  const W = denA + 0.5 + 1;
-  const k = (0.35 * W) / denA; // حصة A = 0.479 > 0.35 ⇒ تُقيَّس
-  const want = (k * numA + 0.5 + 1) / (k * denA + 0.5 + 1);
+  // B: b2 محطّة مخطّطة غير مزورة (تخطٍّ، w=½) و b1 ليس في الخطة المسجّلة (fr=0) ⇒ الزوج يُسقط (تحيّز الاختيار):
+  //    لا يُقارن المتخطّى إلا بمحطّة مخطّطة زارها المندوب ⇒ B بلا أزواج ولا يدخل التجميع.
+  // C: (c1>c2) 1×1 ⇒ num 1، den 1.
+  // W = 1.38 + 1 = 2.38: حصة A = 0.58 وحصة C = 0.42 — كلاهما > 0.35 ⇒ كلاهما يُقيَّس إلى 0.35·W، فيتساوى وزناهما:
+  // C = (0.35W·numA/denA + 0.35W·1) / (0.35W + 0.35W) = (0.14/1.38 + 1) / 2 = 0.5507
+  const W = denA + 1;
+  const kA = (0.35 * W) / denA, kC = 0.35 * W;
+  const want = (kA * numA + kC * 1) / (kA * denA + kC * 1);
+  assert.ok(Math.abs(want - (numA / denA + 1) / 2) < 1e-12);
   const r = P.concordance([tA, tB, tC], labels, DEFAULT_POLICY);
   assert.ok(Math.abs(r.c - want) < 1e-12, `${r.c} ≠ ${want}`);
-  assert.ok(Math.abs(r.c - 0.6389) < 1e-3);
-  assert.deepEqual({ pairs: r.pairs, turns: r.turns, reps: r.reps }, { pairs: 5, turns: 3, reps: 3 });
+  assert.ok(Math.abs(r.c - 0.5507) < 1e-3);
+  assert.deepEqual({ pairs: r.pairs, turns: r.turns, reps: r.reps }, { pairs: 4, turns: 2, reps: 2 });
+
+  // b1 في الخطة وزاره المندوب (fr=1) ⇒ زوج التخطّي يُقارن من جديد (0.5×1 متوافق)، فتعود قيمة المثال الأصلية:
+  // W = 1.38 + 0.5 + 1 = 2.88، حصة A = 0.479 > 0.35 ⇒ تُقيَّس وحدها
+  const tB1 = turn('tB', 'B', [feat('b1', { v: 100, b: 0, fr: 1 }), feat('b2', { v: 10, b: 0, fr: 2 })]);
+  const W1 = denA + 0.5 + 1;
+  const k1 = (0.35 * W1) / denA;
+  const want1 = (k1 * numA + 0.5 + 1) / (k1 * denA + 0.5 + 1);
+  const r1 = P.concordance([tA, tB1, tC], labels, DEFAULT_POLICY);
+  assert.ok(Math.abs(r1.c - want1) < 1e-12, `${r1.c} ≠ ${want1}`);
+  assert.ok(Math.abs(r1.c - 0.6389) < 1e-3);
+  assert.deepEqual({ pairs: r1.pairs, turns: r1.turns, reps: r1.reps }, { pairs: 5, turns: 3, reps: 3 });
 
   // مندوب واحد: السقف مقياس موحّد لا يغيّر النسبة
   const solo = P.concordance([tA], labels, DEFAULT_POLICY);
   assert.ok(Math.abs(solo.c - numA / denA) < 1e-12);
   // بلا أزواج ⇒ ٠٫٥
   assert.equal(P.concordance([], labels, DEFAULT_POLICY).c, 0.5);
+  assert.equal(P.concordance([tB], labels, DEFAULT_POLICY).c, 0.5, 'زوج التخطّي مع غير المخطّط وحده ⇒ بلا أزواج');
+});
+
+test('concordance: المتخطّى لا يُقارن بمحلٍّ خارج الخطة المسجّلة (fr=0)، ويُقارن بالمحطّة المخطّطة المزورة', () => {
+  // x مخطّط ومزور وإيجابي، y مخطّط ومتخطّى (نقاطه الأعلى)، z مزور وإيجابي أكثر
+  const mk = (zfr: number) => turn('sb', 'r1', [feat('x', { v: 100, fr: 1 }), feat('y', { v: 300, fr: 2 }), feat('z', { v: 200, fr: zfr })]);
+  const labels = new Map<string, Label[]>([['sb', [lab('x', 0.6, 1), lab('y', 0, 0.5), lab('z', 0.7, 1)]]]);
+  // z خارج الخطة: (x>y) 0.5×0 + (z>x) 1×1، و(z>y) يُسقط ⇒ ١ / ١٫٥
+  const out = P.concordance([mk(0)], labels, DEFAULT_POLICY);
+  assert.equal(out.pairs, 2);
+  assert.ok(Math.abs(out.c - 1 / 1.5) < 1e-12, String(out.c));
+  // z في الخطة: يُضاف (z>y) 0.5×0 ⇒ ١ / ٢
+  const inPlan = P.concordance([mk(3)], labels, DEFAULT_POLICY);
+  assert.equal(inPlan.pairs, 3);
+  assert.ok(Math.abs(inPlan.c - 0.5) < 1e-12, String(inPlan.c));
+});
+
+test('concordance: فترة اليوم المخزّنة في الدورة (hb) تُفضَّل على إعادة حسابها بتوقيت الرياض', () => {
+  // T0 = ١٠ صباحاً بالرياض (الفترة ٠)؛ البقالة مغلقة غالباً في الفترة ٢ فقط
+  const p = pol({ useClosed: true, closedRisk: { GROCERY: [0, 0, 0.9, 0, 0] } });
+  const cs = [feat('g', { t: 'GROCERY', v: 100 }), feat('k', { t: 'CAFE', v: 50 })];
+  const labels = new Map<string, Label[]>([['h', [lab('g', 0), lab('k', 0.6)]]]);
+  assert.equal(P.concordance([turn('h', 'r1', cs)], labels, p).c, 0, 'بلا hb ⇒ الفترة ٠: البقالة (١٠٠) فوق المقهى (٥٠)');
+  assert.equal(P.concordance([turn('h', 'r1', cs, { hb: null })], labels, p).c, 0, 'hb فارغ ⇒ الرياض');
+  assert.equal(P.concordance([turn('h', 'r1', cs, { hb: 2 })], labels, p).c, 1, 'hb = ٢ ⇒ البقالة ١٠ تحت المقهى ٥٠');
 });
 
 // ───────────── الملاءمة ─────────────
@@ -499,12 +541,13 @@ test('describePolicy بالعربية وبأرقام عربية، و samePolicy'
 
 // ───────────── الاستعلام ─────────────
 
-test('loadPlanEvents: مقيّد بالشركة على طرفي الربط، وبمعرّف مكان، وبحدّ ٦٠٠٠٠', async () => {
+test('loadPlanEvents: مقيّد بالشركة على طرفي الربط، وبمعرّف مكان، وبحدّ ٦٠٠٠٠ للأحدث، ثم بالترتيب الزمني', async () => {
   rawCalls = [];
-  const at = new Date('2026-09-02T08:00:00Z'), conv = new Date('2026-09-05T08:00:00Z');
+  const at = new Date('2026-09-02T08:00:00Z'), later = new Date('2026-09-03T08:00:00Z'), conv = new Date('2026-09-05T08:00:00Z');
+  // القاعدة تعيد الأحدث أولاً (DESC) — والدالة تعكسها إلى الترتيب الزمني
   rawRows = [
+    { rep: 'r2', placeId: 'man:24.7,46.7', kind: 'CLOSED', occurredAt: later, atDoor: null, convertedAt: null },
     { rep: 'r1', placeId: 'gp1', kind: 'INTERESTED', occurredAt: at, atDoor: true, convertedAt: conv },
-    { rep: 'r2', placeId: 'man:24.7,46.7', kind: 'CLOSED', occurredAt: at, atDoor: null, convertedAt: null },
   ];
   const since = new Date('2026-07-29T00:00:00Z');
   const out = await P.loadPlanEvents('tenant-A', since);
@@ -512,11 +555,23 @@ test('loadPlanEvents: مقيّد بالشركة على طرفي الربط، و�
   const q = rawCalls[0];
   const text = q.strings.join('?').replace(/\s+/g, ' ');
   assert.match(text, /FROM ai_outlet_events e JOIN ai_outlets o ON o\.id = e\."outletId" AND o\."tenantId" = \? WHERE e\."tenantId" = \?/);
-  assert.match(text, /o\."placeId" IS NOT NULL/);
-  assert.match(text, /ORDER BY e\."occurredAt" LIMIT 60000/);
+  assert.match(text, /e\."occurredAt" >= \? AND o\."placeId" IS NOT NULL/, 'بلا حدّ أعلى ⇒ لا قيد إضافي');
+  assert.match(text, /ORDER BY e\."occurredAt" DESC LIMIT 60000$/);
   assert.deepEqual(q.values, ['tenant-A', 'tenant-A', since]);
   assert.deepEqual(out, [
     { rep: 'r1', placeId: 'gp1', kind: 'INTERESTED', occurredAt: at, atDoor: true, convertedAt: conv },
-    { rep: 'r2', placeId: 'man:24.7,46.7', kind: 'CLOSED', occurredAt: at, atDoor: null, convertedAt: null },
+    { rep: 'r2', placeId: 'man:24.7,46.7', kind: 'CLOSED', occurredAt: later, atDoor: null, convertedAt: null },
   ]);
+
+  // حدّ أعلى اختياري (مقطع Prisma.sql بلا جداول): قيد الشركة على الطرفين باقٍ
+  rawCalls = [];
+  rawRows = [];
+  const until = new Date('2026-09-10T00:00:00Z');
+  assert.deepEqual(await P.loadPlanEvents('tenant-A', since, until), []);
+  const q2 = rawCalls[0];
+  const text2 = q2.strings.join('?').replace(/\s+/g, ' ');
+  assert.match(text2, /JOIN ai_outlets o ON o\.id = e\."outletId" AND o\."tenantId" = \? WHERE e\."tenantId" = \?/);
+  assert.match(text2, /e\."occurredAt" >= \? AND e\."occurredAt" < \? AND o\."placeId" IS NOT NULL/);
+  assert.match(text2, /ORDER BY e\."occurredAt" DESC LIMIT 60000$/);
+  assert.deepEqual(q2.values, ['tenant-A', 'tenant-A', since, until]);
 });

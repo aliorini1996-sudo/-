@@ -22,12 +22,12 @@ import {
 } from './policy';
 import { buildDigest, loadSelfEval, runReflection } from './reflect';
 import { fnv1a32, pGreater, riyadhDay } from './stats';
-import { invalidateLearned, promoteModel, pruneLearning, rollbackModel, saneCalibration, sanePolicy } from './store';
+import { invalidateLearned, promotionHold, promoteModel, pruneLearning, rollbackModel, saneCalibration, sanePolicy } from './store';
 import { DEFAULT_POLICY, type CandFeature, type FieldStats, type PolicyParams } from './types';
 
 const DAY = 86400000;
 const STEP_BUDGET_MS = 30000;
-const LLM_BUDGET_MS = 90000;
+const LLM_BUDGET_MS = 180000; // نداءان كحدّ أقصى بمهلة ٦٠ ث + إعادة
 
 let nightRunning = false;
 
@@ -77,13 +77,22 @@ export async function runAiLearningNight(now = new Date()): Promise<void> {
     const day = riyadhDay(now);
     const budget = createNightBudget();
     const llm = llmLearningEnabled() ? llmConfig() : null;
+    const learned = new Set<string>();
     for (const tid of await tenantsToLearn(now)) {
+      learned.add(tid);
       const run = await claimRun(tid, day, new Date()).catch(e => { console.error('[ai-learn] claim', tid, e); return null; });
       if (!run) continue;
       await runTenantLearning(tid, run, { now: new Date(), budget, llm }).catch(async e => {
         console.error('[ai-learn] ليلة فشلت', tid, e);
         await prisma.aiLearningRun.updateMany({ where: { tenantId: tid, id: run.id }, data: { status: 'FAILED', finishedAt: new Date() } }).catch(() => undefined);
       });
+    }
+    // مدة الحفظ (٤٥/٧٥ يوماً للدورات) تسري على كل شركة لها سجلات — لا المفعّلة النشطة وحدها
+    // cross-tenant: tenant-list
+    const withData = await prisma.aiTurn.groupBy({ by: ['tenantId'], where: { createdAt: { lt: new Date(now.getTime() - 45 * DAY) } }, _count: { _all: true } });
+    for (const { tenantId } of withData) {
+      if (learned.has(tenantId)) continue;
+      await pruneLearning(tenantId, now).catch(e => console.error('[ai-learn] prune', tenantId, e));
     }
   } finally {
     nightRunning = false;
@@ -137,17 +146,21 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
   // ٣ تسميات الخطط: دورات التوجيه (٦٠ يوماً) × زيارات المندوب نفسه خلال ٧٢ ساعة
   const since60 = new Date(Math.max(now.getTime() - 60 * DAY, resetAt?.getTime() ?? 0));
   const planning = await step('labels', async () => {
+    // الدورات الأحدث من ٧٢ ساعة لم تكتمل زياراتها بعد — تسميتها الآن تعدّ محطّاتها غير المزورة «متخطّاة» ظلماً.
+    // عند بلوغ السقف تُبقى الأحدث (لا الأقدم) ثم تُرتَّب زمنياً.
+    const matured = new Date(now.getTime() - 72 * 3600000);
     const rows = await prisma.aiTurn.findMany({
-      where: { tenantId: tid, kind: 'GUIDE', createdAt: { gte: since60 } },
-      select: { id: true, salesRepId: true, createdAt: true, arm: true, policyVersion: true, candidates: true },
-      orderBy: { createdAt: 'asc' }, take: 8000,
+      where: { tenantId: tid, kind: 'GUIDE', createdAt: { gte: since60, lte: matured } },
+      select: { id: true, salesRepId: true, createdAt: true, arm: true, policyVersion: true, candidates: true, hourBand: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 8000,
     });
-    // الدورات الأحدث من ٧٢ ساعة لم تكتمل زياراتها بعد — تسميتها الآن تعدّ محطّاتها غير المزورة «متخطّاة» ظلماً
-    const matured = now.getTime() - 72 * 3600000;
-    const turns: PlanTurn[] = rows
-      .filter(r => Array.isArray(r.candidates) && r.createdAt.getTime() <= matured)
-      .map(r => ({ id: r.id, salesRepId: r.salesRepId, createdAt: r.createdAt, arm: r.arm, policyVersion: r.policyVersion, candidates: r.candidates as unknown as CandFeature[] }));
-    const events = turns.length ? await loadPlanEvents(tid, turns[0].createdAt) : [];
+    rows.reverse();
+    let turns: PlanTurn[] = rows
+      .filter(r => Array.isArray(r.candidates))
+      .map(r => ({ id: r.id, salesRepId: r.salesRepId, createdAt: r.createdAt, arm: r.arm, policyVersion: r.policyVersion, hb: r.hourBand, candidates: r.candidates as unknown as CandFeature[] }));
+    const events = turns.length ? await loadPlanEvents(tid, turns[0].createdAt, new Date(turns[turns.length - 1].createdAt.getTime() + 72 * 3600000)) : [];
+    // بلغت الزيارات حدّها: الدورات الأقدم من أقدم زيارة محمّلة نوافذها ناقصة — تُسقط لا تُسمّى خطأً
+    if (events.length >= 60000) turns = turns.filter(t => t.createdAt >= events[0].occurredAt);
     const labels = buildPlanLabels(turns, events);
     return { turns, labels, arms: armAggregates(turns, labels), armReps: armRepSpread(turns, labels) };
   });
@@ -168,20 +181,36 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
         const sincePromotion = planning.turns.filter(t => t.createdAt >= active.promotedAt!);
         const rb = checkPolicyRollback({ sincePromotion, labels: planning.labels, active: champion, previous, arms: armAggregates(sincePromotion, planning.labels) });
         if (rb.rollback) {
-          await rollbackModel(tid, 'POLICY', rb.reason === 'AB_WORSE' ? 0 : prevV, 'SYSTEM', rb.reason);
+          const target = rb.reason === 'AB_WORSE' ? 0 : prevV;
+          const r = await rollbackModel(tid, 'POLICY', target, 'SYSTEM', rb.reason);
+          // النسخة السابقة حُذفت أو تغيّرت حالتها ⇒ إلى الافتراضي (لا نبلّغ نجاحاً لم يقع)
+          if (!r.ok) await rollbackModel(tid, 'POLICY', 0, 'SYSTEM', rb.reason);
           policyMetrics = { rolledBack: rb.reason };
           return;
         }
       }
+      const hold = await promotionHold(tid, 'POLICY', now);
       const { train, heldOut } = splitTrainHeldOut(planning.turns);
-      const challenger = fitPolicy(train, planning.labels, champion, field);
-      if (!samePolicy(challenger, champion)) {
-        const gate = shouldPromote(heldOut, planning.labels, champion, challenger, seed, activeReps);
-        if (gate.ok) await promoteModel(tid, 'POLICY', challenger, { gate: 'PASS', ...gate });
-        policyMetrics = { lastGate: gate };
+      if (hold) {
+        policyMetrics = { hold: { until: hold.until.toISOString(), by: hold.by } };
+      } else {
+        // مضاعفات النوع وخطر الإغلاق للمتحدّي من الميدان **قبل** الفترة المحجوبة — وإلا «أكّدت» البوابة ما صُنع من بياناتها
+        let fitField = field;
+        if (heldOut.length) {
+          const pre = await loadFieldRows(tid, new Date(now.getTime() - 90 * DAY), data.timezone, heldOut[0].createdAt);
+          fitField = computeFieldStats(pre.episodes, pre.closedRows, { now: heldOut[0].createdAt, activeReps });
+        }
+        const challenger = fitPolicy(train, planning.labels, champion, fitField);
+        if (!samePolicy(challenger, champion)) {
+          const gate = shouldPromote(heldOut, planning.labels, champion, challenger, seed, activeReps);
+          if (gate.ok) await promoteModel(tid, 'POLICY', challenger, { gate: 'PASS', ...gate });
+          policyMetrics = { lastGate: gate };
+        }
       }
-      const nowActive = await prisma.aiLearnedModel.findFirst({ where: { tenantId: tid, kind: 'POLICY', status: 'ACTIVE' }, select: { version: true, params: true } });
-      const lift = counterfactualLift(planning.turns, planning.labels, (nowActive && sanePolicy(nowActive.params)) || DEFAULT_POLICY, seed);
+      const nowActive = await prisma.aiLearnedModel.findFirst({ where: { tenantId: tid, kind: 'POLICY', status: 'ACTIVE' }, select: { version: true, params: true, promotedAt: true } });
+      // الأثر المعروض للإدارة على دورات بعد الترقية وحدها (خارج عيّنة الملاءمة)
+      const outOfSample = nowActive?.promotedAt ? planning.turns.filter(t => t.createdAt >= nowActive.promotedAt!) : planning.turns;
+      const lift = counterfactualLift(outOfSample, planning.labels, (nowActive && sanePolicy(nowActive.params)) || DEFAULT_POLICY, seed);
       policyMetrics = { ...(policyMetrics ?? {}), ...lift, activeVersion: nowActive?.version ?? 0 };
     });
   }
@@ -199,7 +228,7 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
       const active = await prisma.aiLearnedModel.findFirst({ where: { tenantId: tid, kind: 'CALIBRATION', status: 'ACTIVE' }, select: { version: true, params: true } });
       const current = active ? saneCalibration(active.params) : null;
       if (active) {
-        const rb = checkCalRollback(snap, active.version);
+        const rb = checkCalRollback(snap, active.version, s.minPeers);
         if (rb.rollback) { await rollbackModel(tid, 'CALIBRATION', 0, 'SYSTEM', 'AUTO_REGRESSION'); trialMetrics = { rolledBack: true, ...rb }; return; }
       }
       const fit = fitCalibration(pairs, s.minPeers);
@@ -208,7 +237,8 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
       if (fit.active) {
         gate = locoGate(pairs, s.minPeers, current);
         const changed = JSON.stringify(fit.params.trial) !== JSON.stringify(current?.trial ?? null);
-        if (gate.ok && changed) await promoteModel(tid, 'CALIBRATION', fit.params, { gate: 'PASS', ...gate, customers: fit.customers, pairs: pairs.length });
+        const hold = await promotionHold(tid, 'CALIBRATION', now);
+        if (gate.ok && changed && !hold) await promoteModel(tid, 'CALIBRATION', fit.params, { gate: 'PASS', ...gate, customers: fit.customers, pairs: pairs.length });
       }
       trialMetrics = calMetrics(pairs, gate) as unknown as Record<string, unknown>;
     });
@@ -219,7 +249,7 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
   else {
     await step('lessons', async () => {
       const selfAgg = await loadSelfAgg(tid, new Date(Math.max(now.getTime() - 14 * DAY, resetAt?.getTime() ?? 0)));
-      return nightlyLessons(tid, { now, field, selfAgg, typeLabel: outletTypeLabel, mode: s.learningMode });
+      return nightlyLessons(tid, { now, field, selfAgg, typeLabel: outletTypeLabel, mode: s.learningMode, playbook: s.playbook });
     });
   }
 
@@ -232,6 +262,7 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
   else if (await isQuiet(tid, now)) { llmStatus = 'SKIPPED_QUIET'; skip('reflection', llmStatus); }
   else {
     overrun = false; // للمراجعة ميزانيتها الخاصة
+    let timedOut = false;
     await step('reflection', async () => {
       const t0 = Date.now();
       const since30 = new Date(now.getTime() - 30 * DAY);
@@ -268,8 +299,9 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
       });
       const r = await Promise.race([
         runReflection(tid, { cfg: deps.llm!, budget: deps.budget, digest, aliasToId, settings: { learningMode: s.learningMode, targetOutletTypes: s.targetOutletTypes, playbook: s.playbook }, now }),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('REFLECTION_TIMEOUT')), LLM_BUDGET_MS)),
+        new Promise<never>((_, rej) => setTimeout(() => { timedOut = true; rej(new Error('REFLECTION_TIMEOUT')); }, LLM_BUDGET_MS)),
       ]);
+      if (timedOut) return r;
       llmStatus = r.status;
       tokens = r.tokens;
       reflection = { created: r.created, rejected: r.rejected, retired: r.retired };
@@ -379,10 +411,10 @@ async function buildMetrics(tid: string, i: {
   const pLearnedBetter = arms ? pGreater(arms.LEARNED.pos, arms.LEARNED.visited, arms.BASELINE.pos, arms.BASELINE.visited) : null;
 
   // الخط الأساس: يُجمَّد مرة واحدة بعد ٢٨ يوماً من أول دورة (أو من إعادة الضبط) ويُنسخ للأمام
-  const prev = await prisma.aiLearningRun.findFirst({
-    where: { tenantId: tid, status: { in: ['DONE', 'PARTIAL'] }, NOT: { day: riyadhDay(now) } }, orderBy: { startedAt: 'desc' }, select: { metrics: true },
+  const prevRuns = await prisma.aiLearningRun.findMany({
+    where: { tenantId: tid, status: { in: ['DONE', 'PARTIAL'] }, NOT: { day: riyadhDay(now) } }, orderBy: { startedAt: 'desc' }, select: { metrics: true }, take: 60,
   });
-  let baseline: Baseline | null = (prev?.metrics as { baseline?: Baseline } | null)?.baseline ?? null;
+  let baseline: Baseline | null = prevRuns.map(r => (r.metrics as { baseline?: Baseline } | null)?.baseline).find(Boolean) ?? null;
   if (baseline && i.resetAt && new Date(baseline.frozenAt) < i.resetAt) baseline = null;
   if (!baseline) {
     const first = await prisma.aiTurn.findFirst({

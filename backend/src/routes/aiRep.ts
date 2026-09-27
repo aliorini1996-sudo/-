@@ -43,7 +43,7 @@ import { learningView } from '../ai-rep/learn/view';
 import { assignArm } from '../ai-rep/learn/policy';
 import { resolveTuning } from '../ai-rep/learn/calibration';
 import { applyLessonAction, renderLessonsBlock, selectLessons } from '../ai-rep/learn/lessons';
-import { atDoor, candidateFeatures, classifyIntent, FEEDBACK_REASONS, hourBand, OBJECTION_CODES, outcomeObjection, parseManPlace, selfCheckFlags } from '../ai-rep/learn/signals';
+import { atDoor, candidateFeatures, classifyIntent, FEEDBACK_REASONS, hourBand, INTENTS, OBJECTION_CODES, outcomeObjection, parseManPlace, selfCheckFlags } from '../ai-rep/learn/signals';
 import { riyadhDay } from '../ai-rep/learn/stats';
 import type { Intent, Learned } from '../ai-rep/learn/types';
 import type { LearnedCtx } from '../ai-rep/advisorTools';
@@ -402,7 +402,7 @@ rep.post('/guide', async (req: AuthRequest, res: Response, next: NextFunction) =
     const rules = { text: ruleGuideText(plan, byRef, s.origin, actx.currency), plan, source: 'RULES' as const };
     const turnId = randomUUID();
     const turnBase = {
-      id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'GUIDE' as const, intent: 'GUIDE', arm, policyVersion: policy.version,
+      id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'GUIDE' as const, intent: 'GUIDE', arm, policyVersion: policy.version, hourBand: hb,
       lessonIds: [] as string[], heldOutIds: [] as string[],
     };
     const rulesTurn = (candidatesPlan: string[]) => recordTurn({
@@ -480,6 +480,8 @@ const chatSchema = z.object({
     .refine(m => m[m.length - 1].role === 'user', 'آخر رسالة يجب أن تكون سؤال المندوب')
     .refine(m => m.every(x => x.role === 'assistant' || x.text.length <= 1500), 'السؤال أطول من 1500 حرف'),
   searchId: z.string().uuid().optional(),
+  /** نيّة السؤال الجاهز (رمز فقط — لا يصل للعقل) */
+  intentHint: z.enum(INTENTS as unknown as [string, ...string[]]).optional(),
 });
 
 rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -498,7 +500,7 @@ rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) =>
     const [actx, learned] = await Promise.all([advisorContext(c, s ? s.outlets.map(toOutletCtx) : [], s?.origin ?? null), getLearned(c.tid)]);
     const now = new Date();
     // حلقة التعلّم: نيّة السؤال رمزاً (النص لا يُخزَّن)، والذراع، والدروس، وأداة «ما واجهه الفريق»
-    const intent: Intent = classifyIntent(scrubPii(body.messages[body.messages.length - 1].text));
+    const intent: Intent = (body.intentHint as Intent | undefined) ?? classifyIntent(scrubPii(body.messages[body.messages.length - 1].text));
     const arm = assignArm(c.tid, c.repId, riyadhDay(now), c.settings);
     const policy = policyFor(learned, arm);
     const learnedOn = arm === 'LEARNED' && learned.mode !== 'OFF';
@@ -526,7 +528,7 @@ rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) =>
       llm: r => chatCompletion(cfg, r),
     });
     const turnBase = {
-      id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'CHAT' as const, intent, arm, policyVersion: policy.version,
+      id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'CHAT' as const, intent, arm, policyVersion: policy.version, hourBand: hb,
       lessonIds: lessons.injected.map(l => l.id), heldOutIds: lessons.heldOut,
       tokensIn: result.usage.promptTokens, tokensOut: result.usage.completionTokens,
     };
@@ -746,9 +748,14 @@ admin.post('/learning/lessons/:id', requireAdminPermission('canManageCompanySett
     const tid = tenantId(req);
     if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
     const { action } = lessonActionSchema.parse(req.body);
-    const r = await applyLessonAction(tid, String(req.params.id), action, req.user!.id);
+    const settings = await readSettings(tid);
+    const r = await applyLessonAction(tid, String(req.params.id), action, req.user!.id, settings.playbook);
     if (!r.ok) {
-      res.status(r.status).json({ success: false, message: r.status === 404 ? 'الدرس غير موجود' : 'لا يمكن تطبيق هذا الإجراء على حالة الدرس الحالية' });
+      const message = r.status === 404 ? 'الدرس غير موجود'
+        : r.code === 'TRIAL_CAP' ? 'دروس التجربة بلغت حدّها (٤) — عطّل درساً قيد التجربة أولاً ثم أعد المحاولة'
+        : r.code === 'INVALID_TEXT' ? 'نص الدرس لم يعد يوافق دليل البيع الحالي — لا يمكن تفعيله'
+        : 'لا يمكن تطبيق هذا الإجراء على حالة الدرس الحالية';
+      res.status(r.status).json({ success: false, code: r.code, message });
       return;
     }
     invalidateLearned(tid);

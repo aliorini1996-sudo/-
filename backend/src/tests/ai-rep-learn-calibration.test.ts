@@ -185,15 +185,19 @@ test('بوابة LOCO: لا ترقية تحت حدّ التفعيل ولو كا�
 
 // ───────────── الرجوع التلقائي ─────────────
 
-test('الرجوع: المعروض أسوأ من الخام باحتمال ≥ ٠٫٩ مع n ≥ ١٠ ⇒ رجوع؛ وإلا لا', () => {
+test('الرجوع: صوت لكل عميل؛ المعروض أسوأ من الخام باحتمال ≥ ٠٫٩ مع n ≥ max(٨، الحدّ الأدنى) عميلاً ⇒ رجوع؛ وإلا لا', () => {
   // المعروض أسوأ: الفعلي = الخام، والمعروض مخفَّض
   const worse = (c: string) => pair(c, 'GROCERY', 10, 10, { shown: 6, calVersion: 3 });
   const better = (c: string) => pair(c, 'GROCERY', 10, 6, { shown: 6, calVersion: 3 });
   const set = [...Array.from({ length: 10 }, (_, i) => worse(`w${i}`)), better('b1'), better('b2')];
   assert.deepEqual(checkCalRollback(set, 3), { rollback: true, k: 2, n: 12 });
 
-  // n < 10 ⇒ لا رجوع ولو كانت كلها أسوأ
-  assert.equal(checkCalRollback(set.slice(0, 9), 3).rollback, false);
+  // n < 8 عملاء ⇒ لا رجوع ولو كانت كلها أسوأ؛ ٨ تكفي بالحدّ الافتراضي
+  assert.deepEqual(checkCalRollback(set.slice(0, 7), 3), { rollback: false, k: 0, n: 7 });
+  assert.deepEqual(checkCalRollback(set.slice(0, 8), 3), { rollback: true, k: 0, n: 8 });
+  // الحدّ الأدنى للشركة أعلى من ٨ ⇒ يُعتمد (٩ عملاء < ١٠)
+  assert.deepEqual(checkCalRollback(set.slice(0, 9), 3, 10), { rollback: false, k: 0, n: 9 });
+  assert.equal(checkCalRollback(set.slice(0, 10), 3, 10).rollback, true);
   // ٤ من ١٠ أفضل ⇒ P ≈ ٠٫٧٣ < ٠٫٩
   const mixed = [...Array.from({ length: 6 }, (_, i) => worse(`w${i}`)), ...Array.from({ length: 4 }, (_, i) => better(`b${i}`))];
   assert.equal(checkCalRollback(mixed, 3).rollback, false);
@@ -201,6 +205,23 @@ test('الرجوع: المعروض أسوأ من الخام باحتمال ≥ �
   const other = [...set.map(p => ({ ...p, calVersion: 2 })), ...set.map(p => ({ ...p, source: 'LOO' as const })),
     pair('tie', 'GROCERY', 10, 8, { shown: 10, calVersion: 3 })];
   assert.deepEqual(checkCalRollback(other, 3), { rollback: false, k: 0, n: 0 });
+});
+
+test('الرجوع: عميلٌ واحد بطلبٍ كبير (١٢ صنفاً أسوأ) لا يُسقط المعايرة وحده', () => {
+  // اثنا عشر صنفاً لعميل واحد، كلها المعروض فيها أسوأ من الخام ⇒ صوت واحد (لو عُدّت الأصناف لكان n = ١٢ ⇒ رجوع)
+  const big = Array.from({ length: 12 }, (_, i) => pair('bigC', 'GROCERY', 10 + i, 10 + i, { shown: 6 + i, calVersion: 3 }));
+  assert.deepEqual(checkCalRollback(big, 3), { rollback: false, k: 0, n: 1 });
+  // ومع سبعة عملاء أفضل: العميل الكبير صوت واحد مقابل سبعة ⇒ لا رجوع (٨ عملاء، k = ٧)
+  const betters = Array.from({ length: 7 }, (_, i) => pair(`b${i}`, 'GROCERY', 10, 6, { shown: 6, calVersion: 3 }));
+  assert.deepEqual(checkCalRollback([...big, ...betters], 3), { rollback: false, k: 7, n: 8 });
+  // الصوت = مجموع فروق أصناف العميل: صنف أفضل قليلاً وآخر أسوأ كثيراً ⇒ العميل «أسوأ»
+  const netWorse = [
+    pair('mix', 'GROCERY', 10, 10, { shown: 5, calVersion: 3 }), // أسوأ بـ ln(11/6) ≈ ٠٫٦١
+    pair('mix', 'GROCERY', 10, 8, { shown: 9, calVersion: 3 }), // أفضل بـ ln(11/10) ≈ ٠٫١٠
+  ];
+  assert.deepEqual(checkCalRollback(netWorse, 3), { rollback: false, k: 0, n: 1 });
+  const sevenWorse = Array.from({ length: 7 }, (_, i) => pair(`w${i}`, 'GROCERY', 10, 10, { shown: 6, calVersion: 3 }));
+  assert.deepEqual(checkCalRollback([...netWorse, ...sevenWorse], 3), { rollback: true, k: 0, n: 8 });
 });
 
 // ───────────── المؤشرات ─────────────

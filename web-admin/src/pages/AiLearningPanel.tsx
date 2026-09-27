@@ -8,7 +8,7 @@ import { useAiRepTr } from '../i18n/aiRepPhrases';
 import { useLang } from '../i18n/lang';
 import { activeLocale, formatDate, formatDayOnly, formatNumber } from '../utils/format';
 import {
-  LESSON_ORIGIN_LABEL, LESSON_REASON_LABEL, OUTLET_TYPE_OPTIONS, VERDICT_LABEL, autoRolledBack, betaAbove, lessonActions, toRate,
+  LESSON_ORIGIN_LABEL, LESSON_REASON_LABEL, VERDICT_LABEL, autoRolledBack, betaAbove, lessonActions, toRate,
   verdictOfCI, verdictOfP, type Verdict,
 } from '../rep/aiRepLogic';
 
@@ -168,7 +168,7 @@ export default function AiLearningPanel() {
 
   // ٣) ردود بلا تصحيح (٧ أيام) مقابل الأساس المجمَّد
   const turns7 = num(m?.self?.turns7) ?? 0;
-  const badNow = toRate(num(m?.self?.guardBad7), turns7);
+  const badNow = turns7 ? toRate(num(m?.self?.guardBad7), turns7) : null;
   const badBase = num(m?.baseline?.guardBad);
   const guardVerdict: Verdict = badNow == null || badBase == null || !turns7 ? 'NEEDS_DATA'
     : verdictOfP(1 - betaAbove(Math.round(badNow * turns7), turns7, badBase), turns7, 30);
@@ -399,7 +399,8 @@ function ModelStatus({ status }: { status: string }) {
 function LessonItem({ l, arrow, busy, onAction }: { l: LessonRow; arrow: string; busy: boolean; onAction: (a: LessonAction) => void }) {
   const tr = useAiRepTr();
   const [open, setOpen] = useState(false);
-  const typeLabel = l.outletType ? OUTLET_TYPE_OPTIONS.find(o => o.code === l.outletType)?.label ?? null : null;
+  // الخادم يرسل اسم النوع بالعربية (view.ts) — يُترجم عند العرض
+  const typeLabel = l.outletType || null;
   const statusText = (s: string | null | undefined) => {
     switch (s) {
       case 'ACTIVE': return tr('فعّالة');

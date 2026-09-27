@@ -41,19 +41,26 @@ export function assignArm(tid: string, repId: string, day: string, s: { learning
 
 // ───────────── البيانات والتسميات ─────────────
 
-export interface PlanTurn { id: string; salesRepId: string; createdAt: Date; arm: string; policyVersion: number; candidates: CandFeature[] }
+export interface PlanTurn {
+  id: string; salesRepId: string; createdAt: Date; arm: string; policyVersion: number; candidates: CandFeature[];
+  /** فترة اليوم كما خُدمت الدورة (بتوقيت الشركة) — تُفضَّل على إعادة حسابها بتوقيت الرياض */
+  hb?: number | null;
+}
 export interface PlanEvent { rep: string; placeId: string; kind: string; occurredAt: Date; atDoor: boolean | null; convertedAt: Date | null }
 /** تسمية مرشّح: u قيمة النتيجة (٠…١)، w وزنها، wasted = وُجد مغلقاً فقط (خارج الأزواج). */
 export interface Label { p: string; u: number; w: number; wasted: boolean }
 
 /** نتائج الزيارات منذ `since` (بمعرّف المكان) — مقيّدة بالشركة على طرفي الربط. */
-export async function loadPlanEvents(tid: string, since: Date): Promise<PlanEvent[]> {
+export async function loadPlanEvents(tid: string, since: Date, until?: Date): Promise<PlanEvent[]> {
+  const upper = until ? Prisma.sql` AND e."occurredAt" < ${until}` : Prisma.empty;
   const rows = await prisma.$queryRaw<Array<{ rep: string; placeId: string; kind: string; occurredAt: Date; atDoor: boolean | null; convertedAt: Date | null }>>(Prisma.sql`
     SELECT e."salesRepId" AS rep, o."placeId" AS "placeId", e.kind AS kind, e."occurredAt" AS "occurredAt",
            e."atDoor" AS "atDoor", o."convertedAt" AS "convertedAt"
     FROM ai_outlet_events e JOIN ai_outlets o ON o.id = e."outletId" AND o."tenantId" = ${tid}
-    WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since} AND o."placeId" IS NOT NULL
-    ORDER BY e."occurredAt" LIMIT 60000`);
+    WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since}${upper} AND o."placeId" IS NOT NULL
+    ORDER BY e."occurredAt" DESC LIMIT 60000`);
+  // الأحدث أولاً عند بلوغ الحدّ (لا تُسقط الزيارات الأحدث)، ثم بالترتيب الزمني
+  rows.reverse();
   return rows.map(r => ({
     rep: r.rep, placeId: r.placeId, kind: r.kind, occurredAt: new Date(r.occurredAt),
     atDoor: r.atDoor ?? null, convertedAt: r.convertedAt ? new Date(r.convertedAt) : null,
@@ -126,7 +133,7 @@ function turnBand(d: Date): number {
   return b;
 }
 
-interface Prepared { rep: string; hb: number; items: { f: CandFeature; u: number; w: number }[] }
+interface Prepared { rep: string; hb: number; items: { f: CandFeature; u: number; w: number; skip: boolean }[] }
 interface TurnStat { rep: string; num: number; den: number; n: number }
 
 function prepare(turns: PlanTurn[], labels: Map<string, Label[]>): Prepared[] {
@@ -139,9 +146,9 @@ function prepare(turns: PlanTurn[], labels: Map<string, Label[]>): Prepared[] {
     for (const l of ls) {
       if (l.wasted || !(l.w > 0)) continue;
       const f = byP.get(l.p);
-      if (f) items.push({ f, u: l.u, w: l.w });
+      if (f) items.push({ f, u: l.u, w: l.w, skip: !isVisit(l) });
     }
-    if (items.length >= 2) out.push({ rep: t.salesRepId, hb: turnBand(t.createdAt), items });
+    if (items.length >= 2) out.push({ rep: t.salesRepId, hb: t.hb ?? turnBand(t.createdAt), items });
   }
   return out;
 }
@@ -155,6 +162,9 @@ function turnStat(pt: Prepared, p: PolicyParams): TurnStat {
     for (let j = i + 1; j < pt.items.length; j++) {
       const a = pt.items[i], b = pt.items[j];
       if (a.u === b.u) continue;
+      // تحيّز الاختيار: المتخطّى لا يُقارن إلا بمحطّة مخطّطة زارها المندوب (كلاهما عُرض عليه) — وإلا عوقبت السياسة
+      // التي أنتجت الخطة وحدها على تخطّياتها، وكوفئت أي سياسة أخرى بلا تنبّؤ أفضل
+      if ((a.skip && b.f.fr === 0) || (b.skip && a.f.fr === 0)) continue;
       const [hi, lo] = a.u > b.u ? [i, j] : [j, i];
       const pw = a.w * b.w;
       den += pw;
@@ -284,7 +294,7 @@ function closedShare(turns: PlanTurn[], labels: Map<string, Label[]>, p: PolicyP
   for (const t of turns) {
     const ls = labels.get(t.id);
     if (!ls?.length) continue;
-    const hb = turnBand(t.createdAt);
+    const hb = t.hb ?? turnBand(t.createdAt);
     const top = new Set((t.candidates ?? [])
       .map(f => ({ f, s: scoreFeature(f, p, hb) }))
       .sort((a, b) => b.s - a.s || a.f.rr - b.f.rr)

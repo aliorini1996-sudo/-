@@ -70,26 +70,44 @@ test('خمسة أحداث لمندوب واحد على محل واحد داخل 
   assert.equal(rank.get('QUOTE'), 4);
   assert.equal(rank.get('CLOSED'), undefined, 'المغلق ELSE 0');
 
+  // أول نتيجة مقيَّمة وعدد المقيَّمة: بلا المغلق والتحويل
+  assert.match(q1.text, /\(array_agg\(e\.kind ORDER BY e\."occurredAt"\) FILTER \(WHERE e\.kind NOT IN \('CLOSED', 'CONVERTED'\)\)\)\[1\] AS "firstKind"/);
+  assert.match(q1.text, /COUNT\(\*\) FILTER \(WHERE e\.kind NOT IN \('CLOSED', 'CONVERTED'\)\)::int AS "nRated"/);
+
   assert.equal(rows.episodes.length, 1);
   assert.equal(rows.episodes[0].best, 4);
   assert.equal(rows.episodes[0].doorUnknown, true);
   assert.equal(rows.episodes[0].anyDoor, null);
   assert.ok(rows.episodes[0].firstAt instanceof Date);
+  assert.equal(rows.episodes[0].firstKind, null, 'صفّ بلا العمود ⇒ null');
+  assert.equal(rows.episodes[0].nRated, undefined);
   assert.deepEqual(rows.closedRows, [{ type: 'GROCERY', h: 15, rep: 'r1', n: 3, closed: 1 }]);
   const fs1 = stats(rows.episodes, rows.closedRows);
   assert.equal(fs1.byType.GROCERY.n, 1);
   assert.equal(fs1.byType.GROCERY.posRate, 1);
+
+  // العمودان الجديدان يُفكّان (nRated رقماً)
+  episodesOut = [{ ...(episodesOut[0] as object), firstKind: 'CALL_BACK', nRated: '3' }];
+  const rows2 = await F.loadFieldRows('t1', ago(90), 'Asia/Riyadh');
+  assert.equal(rows2.episodes[0].firstKind, 'CALL_BACK');
+  assert.equal(rows2.episodes[0].nRated, 3);
 });
 
 test('العزل: كل جدول في FROM/JOIN مقيّد بـ"tenantId" = ${tid} في نص field.ts، وفي الاستعلامين المنفَّذين', async () => {
   const src = fs.readFileSync(path.join(SRC, 'ai-rep/learn/field.ts'), 'utf8');
   assert.ok(!/\$queryRawUnsafe|\$executeRawUnsafe|Prisma\.raw/.test(src), 'لا SQL نصي');
   const blocks = [...src.matchAll(/Prisma\.sql`([\s\S]*?)`/g)].map(m => m[1]);
-  assert.equal(blocks.length, 2);
-  for (const b of blocks) {
+  // استعلامان كاملان + مقطع الحدّ الأعلى الاختياري (بلا جداول)
+  const queries = blocks.filter(b => /\b(?:FROM|JOIN)\b/.test(b));
+  const fragments = blocks.filter(b => !/\b(?:FROM|JOIN)\b/.test(b));
+  assert.equal(queries.length, 2);
+  assert.equal(fragments.length, 1);
+  assert.match(fragments[0], /^\s*AND e\."occurredAt" < \$\{until\}\s*$/, 'المقطع قيد زمني فقط — لا جدول ولا شرط آخر');
+  assert.match(src, /const upper = until \? Prisma\.sql`[^`]*` : Prisma\.empty;/);
+  for (const b of queries) {
     assert.match(b, /FROM ai_outlet_events e/);
     assert.match(b, /JOIN ai_outlets o ON o\.id = e\."outletId" AND o\."tenantId" = \$\{tid\}/);
-    assert.match(b, /WHERE e\."tenantId" = \$\{tid\}/);
+    assert.match(b, /WHERE e\."tenantId" = \$\{tid\} AND e\."occurredAt" >= \$\{since\}\$\{upper\}/);
     for (const m of b.matchAll(/(?:FROM|JOIN)\s+(\w+)\s+(\w+)/g)) {
       assert.ok(b.includes(`${m[2]}."tenantId" = \${tid}`), `${m[1]} (${m[2]}) بلا tenantId`);
     }
@@ -101,6 +119,18 @@ test('العزل: كل جدول في FROM/JOIN مقيّد بـ"tenantId" = ${tid
     assert.match(c.text, /o\."tenantId" = \$\d+/);
     assert.match(c.text, /e\."tenantId" = \$\d+/);
     assert.equal(c.values.filter(v => v === 't1').length, 2);
+    assert.doesNotMatch(c.text, /"occurredAt" < /, 'بلا حدّ أعلى');
+  }
+  // بحدّ أعلى: القيد الزمني يُضاف للاستعلامين، وقيد الشركة على الطرفين باقٍ
+  calls.length = 0;
+  const until = ago(10);
+  await F.loadFieldRows('t1', ago(90), 'Asia/Riyadh', until);
+  assert.equal(calls.length, 2);
+  for (const c of calls) {
+    assert.match(c.text, /o\."tenantId" = \$\d+/);
+    assert.match(c.text, /WHERE e\."tenantId" = \$\d+ AND e\."occurredAt" >= \$\d+ AND e\."occurredAt" < \$\d+/);
+    assert.equal(c.values.filter(v => v === 't1').length, 2);
+    assert.equal(c.values.filter(v => v === until).length, 1);
   }
 });
 
@@ -249,6 +279,34 @@ test('العودة بعد «عُد لاحقاً»: أول حلقة ٣ ولاحق
   assert.equal(cb.exposed, false);
 });
 
+test('العودة داخل الحلقة نفسها: «عُد لاحقاً» ثم «مهتم» في النافذة نفسها = عودة إيجابية (firstKind لا أفضل الحلقة)', () => {
+  const eps = [
+    // عُد لاحقاً ثم مهتم في النافذة نفسها: أفضل الحلقة ٤ لكن أول نتيجة CALL_BACK ⇒ عودة إيجابية
+    ep({ outletId: 'S', best: 4, firstKind: 'CALL_BACK', nRated: 2, firstAt: ago(40) }),
+    // عُد لاحقاً مرتين في النافذة نفسها ⇒ عودة غير إيجابية
+    ep({ outletId: 'U', best: 3, firstKind: 'CALL_BACK', nRated: 2, firstAt: ago(40) }),
+    // أول نتيجة «مهتم» ⇒ ليست عودة، ولو كان فيها متابعة
+    ep({ outletId: 'T', best: 4, firstKind: 'INTERESTED', nRated: 2, firstAt: ago(40) }),
+    // عُد لاحقاً وحدها بلا متابعة ولا حلقة لاحقة ⇒ خارج المقام
+    ep({ outletId: 'V', best: 3, firstKind: 'CALL_BACK', nRated: 1, firstAt: ago(40) }),
+    // عُد لاحقاً وحدها ثم حلقة لاحقة إيجابية خلال ٦٠ يوماً ⇒ عودة إيجابية (المسار القديم باقٍ)
+    ep({ outletId: 'X', best: 3, firstKind: 'CALL_BACK', nRated: 1, firstAt: ago(80) }), ep({ outletId: 'X', best: 4, firstKind: 'INTERESTED', nRated: 1, firstAt: ago(45) }),
+  ];
+  const cb = stats(eps).byType.GROCERY.callback!;
+  assert.equal(cb.n, 3, 'S و U و X');
+  assert.equal(cb.rate, 0.6667);
+
+  // الحالة وحدها: عودة واحدة إيجابية
+  const only = stats([ep({ outletId: 'S1', best: 4, firstKind: 'CALL_BACK', nRated: 2 })]).byType.GROCERY.callback!;
+  assert.equal(only.n, 1);
+  assert.equal(only.rate, 1);
+  // ومتابعة إيجابية في الحلقة نفسها تكفي ولو تلتها حلقة سلبية
+  const thenNeg = stats([
+    ep({ outletId: 'S2', best: 4, firstKind: 'CALL_BACK', nRated: 3, firstAt: ago(80) }), ep({ outletId: 'S2', best: 1, firstKind: 'NOT_INTERESTED', nRated: 1, firstAt: ago(45) }),
+  ]).byType.GROCERY.callback!;
+  assert.deepEqual([thenNeg.n, thenNeg.rate], [1, 1]);
+});
+
 test('مضاعف النوع: انكماش بقوة ١٥ نحو متوسط الشركة ومقصوص [0.6، 1.6]، و١ دون العتبات', () => {
   const s = stats([...many(12, { best: 4 }), ...many(8, { best: 1 }), ...many(2, { type: 'PHARMACY', best: 4 }), ...many(18, { type: 'PHARMACY', best: 1 })]);
   near(s.tenantPosRate, 0.35);
@@ -273,6 +331,10 @@ test('الاقتراحات تظهر فقط حين يخلو دليل البيع �
   assert.deepEqual(codes('نقبل البيع بالأجل لمدة أسبوعين'), ['PLAYBOOK_PRICE'], 'الأجل بالهمزة يُطابق بعد التوحيد');
   assert.deepEqual(codes('الأسعار ثابتة والخصم للكميات الكبيرة'), ['PLAYBOOK_CREDIT']);
   assert.deepEqual(codes('البيع آجل حسب الاتفاق، وعرض خاص للجملة'), []);
+  // «عاجل» و«من أجل» ليستا سياسة آجل (تفويض صريح عبر playbookAuthorizes)
+  assert.deepEqual(codes('نوصّل الطلبات العاجلة في اليوم نفسه، والأسعار ثابتة'), ['PLAYBOOK_CREDIT']);
+  assert.deepEqual(codes('نعمل من أجل رضا العميل، والأسعار ثابتة'), ['PLAYBOOK_CREDIT']);
+  assert.deepEqual(codes('التقسيط متاح، والأسعار ثابتة'), []);
   const credit = F.fieldHints({ ...base, playbook: null }).find(h => h.code === 'PLAYBOOK_CREDIT')!;
   assert.equal(credit.textAr, 'مناديبك يواجهون طلب الآجل ودليل البيع لا يذكر سياستكم — أضفها ليجيب المستشار');
   assert.equal(F.fieldHints({ ...base, playbook: null }).find(h => h.code === 'PLAYBOOK_PRICE')!.textAr, 'مناديبك يُسألون عن الأسعار ودليل البيع لا يذكرها');
@@ -312,6 +374,12 @@ test('classifyIntent', () => {
   assert.equal(S.classifyIntent('رتّب لي مسار'), 'ROUTE');
   assert.equal(S.classifyIntent('وش تعلّمت من زيارات فريقنا؟'), 'TEAM_EXPERIENCE');
   assert.equal(S.classifyIntent('السلام عليكم'), 'OTHER');
+  // لغات الواجهة الأخرى (بعد التحويل لحروف صغيرة)
+  assert.equal(S.classifyIntent('What have you learned from our team’s visits?'), 'TEAM_EXPERIENCE');
+  assert.equal(S.classifyIntent('Where should I start?'), 'WHERE_START');
+  assert.equal(S.classifyIntent('He says he already has a supplier'), 'OBJ_SUPPLIER');
+  assert.equal(S.classifyIntent('Combien dois-je proposer ?'), 'HOW_MUCH');
+  assert.equal(S.classifyIntent('WHERE SHOULD I START'), 'WHERE_START');
 });
 
 test('outcomeObjection: الزر > الضمني > الكلمات', () => {

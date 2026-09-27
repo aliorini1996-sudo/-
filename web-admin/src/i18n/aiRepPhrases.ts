@@ -326,6 +326,7 @@ export const AI_REP_PHRASES: Record<string, P> = {
   'أوقفته الإدارة': { en: "Stopped by management", fr: "Arrêtée par la direction", tr: "Yönetim tarafından durduruldu", zh: "已被管理层停用" },
   'إعادة الضبط': { en: "Reset", fr: "Réinitialisation", tr: "Sıfırlama", zh: "重置" },
   'انتهت مهلة المراجعة': { en: "Review period expired", fr: "Délai de validation expiré", tr: "İnceleme süresi doldu", zh: "审核期已过" },
+  'لم يعد يوافق دليل البيع': { en: 'No longer matches the sales playbook', fr: 'Ne correspond plus au guide de vente', tr: 'Artık satış rehberiyle uyumlu değil', zh: '已不符合销售手册' },
 };
 
 /** tr() للشاشتين: العربية كما هي، وإلا ترجمة الميزة ثم القاموس العامّ ثم العربية. */

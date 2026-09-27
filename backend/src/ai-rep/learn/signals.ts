@@ -24,6 +24,55 @@ export function normalizeAr(s: string): string {
     .trim();
 }
 
+// ───────────── تفويض دليل البيع ─────────────
+
+const AR_B = '(?:^|[^\\u0621-\\u064A])';
+/** أنماط تفويض صريحة (على نصٍّ بلا تشكيل يبقي الهمزات والمدّ): «أجل/لأجل/عاجل» لا تفوّض الآجل، و«لضمان» لا تفوّض الضمان. */
+const PLAYBOOK_AUTH: Record<string, RegExp> = {
+  اجل: new RegExp(`${AR_B}(?:بال|وال|فال|ال)[اأآ]جل|${AR_B}(?:و|ب|ف)?آجل|دفع\\s*(?:لاحق|مؤجل)|الدفع\\s*(?:اللاحق|المؤجل)|تأجيل\\s*(?:الدفع|السداد)|تقسيط`),
+  ضمان: new RegExp(`${AR_B}(?:وال|بال|ال|و|ب)?ضمان`),
+};
+
+/** نفيٌ قبل التعبير في الجملة نفسها («لا نبيع بالآجل»، «بدون ضمان») ⇒ ليس تفويضاً. */
+const NEGATION = /(?:^|[^ء-ي])(?:و|ف)?(?:لا|ليس|ليست|لسنا|بدون|بلا|دون|غير|ما|لن|لم|ممنوع|يمنع|نمنع|يُمنع|مو)(?:$|[^ء-ي])/;
+
+/** نفيٌ بعد التعبير («البيع بالآجل غير متاح»، «الضمان موقوف»). */
+const POST_NEGATION = /غير\s*(?:متاح|متوفر|مسموح|مقبول|وارد)|ممنوع|موقوف|متوقف|ملغ[ىي]|لا\s*(?:يوجد|يتوفر|نقبل|نقدم|نقدّم)|ليس\s*(?:متاح|متوفر)/;
+const SENTENCE_END = /[.،؛!?؟\n]/;
+
+/** هل يطابق النمطُ الدليلَ في موضعٍ واحد على الأقل غير منفيّ (قبله أو بعده داخل الجملة نفسها)؟ */
+function affirmed(text: string, re: RegExp): boolean {
+  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  for (const m of text.matchAll(g)) {
+    const at = m.index ?? 0;
+    const sentenceStart = Math.max(text.lastIndexOf('.', at), text.lastIndexOf('،', at), text.lastIndexOf('؛', at), text.lastIndexOf('\n', at)) + 1;
+    const before = text.slice(Math.max(sentenceStart, at - 15), at);
+    const tail = text.slice(at + m[0].length, at + m[0].length + 25);
+    const cut = tail.search(SENTENCE_END);
+    const after = cut >= 0 ? tail.slice(0, cut) : tail;
+    if (!NEGATION.test(before) && !POST_NEGATION.test(after)) return true;
+  }
+  return false;
+}
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * هل يفوّض دليلُ البيع الوعدَ الذي يحمله الجذر؟ (غير متماثل عمداً: في نص الدرس يكفي الجذر ليُرفض — الرفض آمن —
+ * وفي الدليل يلزم تعبير صريح غير منفيّ). «مجان» يلزمه الاسم نفسه لكل عبارة في الدرس («عينة مجانية» لا يفوّضها
+ * «التوصيل مجاني»).
+ */
+export function playbookAuthorizes(stem: string, playbook: string | null | undefined, lessonNorm?: string): boolean {
+  const raw = playbook ?? '';
+  const auth = PLAYBOOK_AUTH[stem];
+  if (auth) return affirmed(raw.replace(/[ً-ْٰـ]/g, ''), auth);
+  const pb = normalizeAr(raw);
+  if (stem === 'مجان' && lessonNorm) {
+    const nouns = [...lessonNorm.matchAll(/(\S+)\s+مجان/g)].map(m => m[1]);
+    if (nouns.length) return nouns.every(n => affirmed(pb, new RegExp(`${escapeRe(n)}\\s+مجان`)));
+  }
+  return affirmed(pb, new RegExp(escapeRe(stem)));
+}
+
 /** كلمات تبدأ بعد حدّ (بداية، أو محرف غير عربي) مع سابقة اختيارية (و، ف، ب، ل، ال، بال، وال، لل) — بلا حدّ نهاية (تُقبل اللواحق). */
 function words(list: string[]): RegExp {
   const alts = list.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
@@ -35,23 +84,32 @@ function words(list: string[]): RegExp {
 export const INTENTS: readonly Intent[] = ['GUIDE', 'WHERE_START', 'ROUTE', 'WHAT_OFFER', 'HOW_MUCH', 'OBJ_PRICE', 'OBJ_SUPPLIER', 'OBJ_SHELF',
   'OBJ_CREDIT', 'OPENING', 'PRODUCT', 'TEAM_EXPERIENCE', 'OTHER'];
 
+/** كلمات لاتينية (إنجليزي/فرنسي/تركي) بحدّ كلمة يشمل الحروف المشكولة — «cher» لا تطابق «chercher» ولا «butcher». */
+function latin(list: string[]): string {
+  const L = '(?<![a-z\\u00C0-\\u024F])', R = '(?![a-z\\u00C0-\\u024F])';
+  return `${L}(?:${list.join('|')})${R}`;
+}
+const rx = (arabic: string, lat: string[], cjk = ''): RegExp => new RegExp([arabic, latin(lat), cjk].filter(Boolean).join('|'));
+
+// العربية أولاً، ومعها كلمات الواجهات الأخرى (إنجليزي/فرنسي/تركي/صيني) لأسئلة يكتبها المندوب بلغة واجهته
 const INTENT_RULES: [Exclude<Intent, 'GUIDE' | 'OTHER'>, RegExp][] = [
-  ['TEAM_EXPERIENCE', /تعلمت|وش تعلم|زيارات فريق|تجارب الفريق|وش لاحظت/],
-  ['OBJ_SUPPLIER', /مورد|عنده شركه|متعامل مع/],
-  ['OBJ_PRICE', /غالي|السعر|اسعار|ارخص/],
-  ['OBJ_SHELF', /الرف|رفوف|مساحه/],
+  ['TEAM_EXPERIENCE', rx('تعلمت|وش تعلم|زيارات فريق|تجارب الفريق|وش لاحظت', ['learned', 'learnt', 'appris', 'öğrendin', 'öğrendiniz'], '学到')],
+  ['OBJ_SUPPLIER', rx('مورد|عنده شركه|متعامل مع', ['suppliers?', 'fournisseurs?', 'tedarikçi(?:si)?'], '供应商')],
+  ['OBJ_PRICE', rx('غالي|السعر|اسعار|ارخص', ['prices?', 'expensive', 'prix', 'cher', 'chère', 'fiyat(?:ı)?', 'pahalı'], '价格|太贵')],
+  ['OBJ_SHELF', rx('الرف|رفوف|مساحه', ['shelf', 'shelves', 'étagères?', 'rayons?', 'raf(?:ta)?'], '货架')],
   ['OBJ_CREDIT', words(['اجل', 'بالدين', 'تقسيط'])],
-  ['ROUTE', /مسار|رتب|ترتيب|الطريق/],
-  ['WHERE_START', /ابدا|من وين|من اين|اي محل|اول محل/],
-  ['HOW_MUCH', /(^| )كم( |$|[؟?])|كميه|كم كرتون/],
-  ['WHAT_OFFER', /وش اعرض|ماذا اعرض|ايش اعرض|اعرض عليه|وش ابيع/],
-  ['OPENING', /افتح الحديث|اول كلام|كيف اكلم|اسلوب/],
-  ['PRODUCT', /منتج|صنف|اصناف/],
+  ['OBJ_CREDIT', rx('', ['credit', 'crédit', 'vadeli', 'veresiye'], '赊账')],
+  ['ROUTE', rx('مسار|رتب|ترتيب|الطريق', ['route', 'itinéraire', 'itineraire', 'rota'], '路线')],
+  ['WHERE_START', rx('ابدا|من وين|من اين|اي محل|اول محل', ['where (?:should i|do i|to) start', 'start with', 'commencer', 'par où', 'nereden başla(?:malıyım)?'], '从哪')],
+  ['HOW_MUCH', rx('(^| )كم( |$|[؟?])|كميه|كم كرتون', ['how much', 'how many', 'combien', 'kaç'], '多少')],
+  ['WHAT_OFFER', rx('وش اعرض|ماذا اعرض|ايش اعرض|اعرض عليه|وش ابيع', ['what (?:should i|to) offer', 'what to sell', 'proposer', 'ne öner(?:eyim)?'], '推荐什么|卖什么')],
+  ['OPENING', rx('افتح الحديث|اول كلام|كيف اكلم|اسلوب', ['start the conversation', 'open the conversation', 'engager la conversation', 'konuşmaya'], '开场')],
+  ['PRODUCT', rx('منتج|صنف|اصناف', ['products?', 'produits?', 'ürün(?:ler)?'], '产品')],
 ];
 
 /** نيّة سؤال المندوب (بعد حجب البيانات الشخصية) — أول قاعدة تطابق. */
 export function classifyIntent(scrubbed: string): Intent {
-  const t = normalizeAr(scrubbed);
+  const t = normalizeAr(scrubbed).toLowerCase();
   for (const [intent, re] of INTENT_RULES) if (re.test(t)) return intent;
   return 'OTHER';
 }

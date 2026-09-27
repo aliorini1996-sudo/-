@@ -15,7 +15,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { extractNumbers, normalizeDigits, scrubPii } from '../advisor';
 import { HOUR_BAND_LABEL_AR, OBJECTION_LABEL_AR } from './labels';
-import { normalizeAr, OBJECTION_CODES } from './signals';
+import { normalizeAr, OBJECTION_CODES, playbookAuthorizes } from './signals';
 import { hashPct, pGreater } from './stats';
 import type { AiLessonLite, FieldCell, FieldStats, LearningMode, LessonKind, LessonOrigin, LessonStatus, ObjectionCode } from './types';
 
@@ -58,9 +58,14 @@ export function validateLessonText(text: string, o: { origin: LessonOrigin; play
   if (SYNTAX.test(t) || (t.match(IDENT) ?? []).some(w => !TOOL_IDENTS.has(w))) return { ok: false, reason: 'SYNTAX' };
   const n = normalizeAr(t);
   if (INJECTION.test(n)) return { ok: false, reason: 'INJECTION' };
-  const pb = normalizeAr(o.playbook ?? '');
-  if (CAPABILITY_STEMS.some(s => n.includes(s) && !pb.includes(s))) return { ok: false, reason: 'CAPABILITY' };
+  if (!capabilityAllowed(t, o.playbook)) return { ok: false, reason: 'CAPABILITY' };
   return { ok: true };
+}
+
+/** هل يفوّض دليل البيع كل وعد يحمله النص؟ (الشقّ الوحيد من التحقّق الذي يتغيّر بتغيّر الدليل) */
+export function capabilityAllowed(text: string, playbook: string | null | undefined): boolean {
+  const n = normalizeAr(text);
+  return !CAPABILITY_STEMS.some(s => n.includes(s) && !playbookAuthorizes(s, playbook, n));
 }
 
 // ───────────── القوالب ─────────────
@@ -314,8 +319,8 @@ export function nextLessonStatus(
     return null;
   }
   if (l.status === 'ACTIVE') {
-    const b = ctx.baseline;
-    if (b && on.n >= 40 && b.n >= 20 && pGreater(on.q, on.n, b.q, b.n) <= 0.1) return { status: 'RETIRED', reason: 'HARMFUL', missNights: l.missNights };
+    // مقارنة بدوراتٍ حُجب عنها الدرس نفسه (١٠٪ مستمرة) — نطاقه ونيّته نفسها، لا خليط كل دورات ذراع الأساس
+    if (on.n >= 40 && off.n >= 20 && pGreater(on.q, on.n, off.q, off.n) <= 0.1) return { status: 'RETIRED', reason: 'HARMFUL', missNights: l.missNights };
   }
   return null;
 }
@@ -329,7 +334,7 @@ export function appendHistory(prev: unknown, e: HistoryEntry): HistoryEntry[] {
 
 type LessonRow = {
   id: string; key: string; kind: string; origin: string; status: string; statusReason: string | null;
-  trialStartedAt: Date | null; missNights: number; createdAt: Date; history: unknown;
+  trialStartedAt: Date | null; missNights: number; createdAt: Date; history: unknown; textAr?: string;
 };
 const life = (l: LessonRow): LifeLesson => ({
   status: l.status as LessonStatus, origin: l.origin as LessonOrigin, kind: l.kind as LessonKind,
@@ -346,7 +351,7 @@ const isUniqueViolation = (e: unknown): boolean => (e as { code?: string } | nul
  */
 export async function nightlyLessons(
   tid: string,
-  i: { now: Date; field: FieldStats | null; selfAgg: SelfAgg; typeLabel: (c: string) => string; mode: LearningMode },
+  i: { now: Date; field: FieldStats | null; selfAgg: SelfAgg; typeLabel: (c: string) => string; mode: LearningMode; playbook?: string | null },
 ): Promise<{ created: number; activated: number; retired: number; expired: number }> {
   const res = { created: 0, activated: 0, retired: 0, expired: 0 };
   if (i.mode === 'OFF') return res;
@@ -355,7 +360,7 @@ export async function nightlyLessons(
   const [rows, onOff] = await Promise.all([
     prisma.aiLesson.findMany({
       where: { tenantId: tid },
-      select: { id: true, key: true, kind: true, origin: true, status: true, statusReason: true, trialStartedAt: true, missNights: true, createdAt: true, history: true },
+      select: { id: true, key: true, kind: true, origin: true, status: true, statusReason: true, trialStartedAt: true, missNights: true, createdAt: true, history: true, textAr: true },
       orderBy: { createdAt: 'desc' }, take: 2000,
     }),
     loadLessonOnOff(tid, new Date(now.getTime() - 30 * DAY_MS)),
@@ -391,6 +396,12 @@ export async function nightlyLessons(
   // ١) التجربة والفعّالة والمنتظرة
   for (const l of lessons) {
     if (l.origin === 'STATS') continue;
+    // دليل البيع تغيّر فلم يعد يفوّض وعداً في درسٍ حيّ (آجل/خصم/ضمان…) ⇒ يتقاعد
+    if (['ACTIVE', 'TRIAL', 'PENDING'].includes(l.status) && l.textAr
+      && !capabilityAllowed(l.textAr, i.playbook ?? null)) {
+      await apply(l, { status: 'RETIRED', reason: 'PLAYBOOK_CHANGED', missNights: l.missNights });
+      continue;
+    }
     await apply(l, nextLessonStatus(life(l), { now, evidencePasses: null, onOff: onOff.byLesson.get(l.id) ?? null, baseline: onOff.baseline }));
   }
 
@@ -458,8 +469,8 @@ const ADMIN_REASON: Record<LessonAction, string> = {
 };
 
 /** اعتماد/رفض/تعطيل/تفعيل/استعادة درسٍ من الإدارة — درس شركة أخرى 404، وانتقال غير مسموح أو متسابق 409. */
-export async function applyLessonAction(tid: string, id: string, action: LessonAction, by: string):
-  Promise<{ ok: true; lesson: object } | { ok: false; status: 404 | 409 }> {
+export async function applyLessonAction(tid: string, id: string, action: LessonAction, by: string, playbook: string | null = null):
+  Promise<{ ok: true; lesson: object } | { ok: false; status: 404 | 409; code?: 'TRIAL_CAP' | 'INVALID_TEXT' }> {
   const l = await prisma.aiLesson.findFirst({ where: { id, tenantId: tid } });
   if (!l) return { ok: false, status: 404 };
   const to = adminLessonTarget(l.status, l.origin, action);
@@ -467,7 +478,10 @@ export async function applyLessonAction(tid: string, id: string, action: LessonA
   // سقف دروس التجربة (مكتبة التصحيح + المراجعة الذاتية) يسري على اعتماد الإدارة أيضاً
   if (to === 'TRIAL' && l.origin !== 'STATS') {
     const trials = await prisma.aiLesson.count({ where: { tenantId: tid, status: 'TRIAL', origin: { in: ['SELF', 'REFLECTION'] } } });
-    if (trials >= 4) return { ok: false, status: 409 };
+    if (trials >= TRIAL_CAP) return { ok: false, status: 409, code: 'TRIAL_CAP' };
+  }
+  if ((to === 'TRIAL' || to === 'ACTIVE') && !capabilityAllowed(l.textAr, playbook)) {
+    return { ok: false, status: 409, code: 'INVALID_TEXT' };
   }
   const now = new Date();
   const reason = ADMIN_REASON[action];
@@ -514,7 +528,8 @@ export function selectLessons(all: AiLessonLite[], q: { turnId: string; intent: 
     if (injected.length >= MAX_INJECTED) break;
     const cost = l.textAr.length + 3;
     if (chars + cost > MAX_CHARS) continue;
-    if (l.status === 'TRIAL' && hashPct(`${q.turnId}|${l.id}`) >= 50) { heldOut.push(l.id); continue; }
+    const h = hashPct(`${q.turnId}|${l.id}`);
+    if ((l.status === 'TRIAL' && h >= 50) || (l.status === 'ACTIVE' && l.origin !== 'STATS' && h >= 90)) { heldOut.push(l.id); continue; }
     injected.push(l);
     chars += cost;
   }
@@ -541,6 +556,7 @@ const STATUS_REASON_AR: Record<string, string> = {
   ADMIN_RESET: 'إعادة الضبط',
   EXPIRED: 'انتهت مهلة المراجعة',
   REFLECTION: 'بمراجعة العقل الذاتية',
+  PLAYBOOK_CHANGED: 'لم يعد يوافق دليل البيع',
   // أسباب السجلّ (history) للإدارة
   ADMIN_APPROVE: 'اعتمدته الإدارة',
   ADMIN_REJECT: 'رفضته الإدارة',

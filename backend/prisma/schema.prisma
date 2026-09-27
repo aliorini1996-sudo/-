@@ -3435,6 +3435,7 @@ model AiTurn {
   flags         String[]  @default([]) // INELIGIBLE_REF | EMPTY_PLAN | NO_TOOL | OVER_LENGTH | TOOL_ERRORS | LLM_ERROR
   tools         String[]  @default([])
   hops          Int       @default(0)
+  hourBand      Int? // فترة اليوم كما خُدمت (بتوقيت الشركة) — التعلّم يقيس بها نفسها
   lessonIds     String[]  @default([]) // دروس حُقنت في التعليمات
   heldOutIds    String[]  @default([]) // دروس تجربة مؤهّلة حُجبت (مقارنة)
   candidates    Json? // التوجيه فقط: ≤٢٠ × {p,t,b,c,v,lo,rr,fr} — بلا مسافات ولا إحداثيات ولا أسماء
@@ -3464,6 +3465,7 @@ model AiLearnedModel {
   trainedAt   DateTime  @default(now())
   promotedAt  DateTime?
   changedById String?
+  changedAt   DateTime? // لحظة الرجوع عنها (آلياً أو من الإدارة) — مهلة قبل أي ترقية آلية جديدة
 
   @@unique([tenantId, kind, version])
   @@index([tenantId, kind, status])

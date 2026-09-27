@@ -122,6 +122,8 @@ export interface TurnRecord {
   flags: string[];
   tools: string[];
   hops: number;
+  /** فترة اليوم كما خُدمت الدورة (بتوقيت الشركة) */
+  hourBand?: number | null;
   lessonIds: string[];
   heldOutIds: string[];
   candidates?: unknown;
@@ -136,7 +138,7 @@ export async function recordTurn(t: TurnRecord): Promise<void> {
       data: {
         id: t.id, tenantId: t.tenantId, salesRepId: t.salesRepId, kind: t.kind, source: t.source, intent: t.intent, arm: t.arm,
         policyVersion: t.policyVersion, guard: t.guard, badKinds: t.badKinds, flags: t.flags, tools: [...new Set(t.tools)].slice(0, 12),
-        hops: t.hops, lessonIds: t.lessonIds, heldOutIds: t.heldOutIds,
+        hops: t.hops, hourBand: t.hourBand ?? null, lessonIds: t.lessonIds, heldOutIds: t.heldOutIds,
         ...(t.candidates != null && { candidates: t.candidates as object }),
         tokensIn: t.tokensIn, tokensOut: t.tokensOut,
       },
@@ -177,35 +179,68 @@ export async function promoteModel(tid: string, kind: ModelKind, params: object,
  * by = معرّف المستخدم أو 'SYSTEM' (رجوع آلي).
  */
 export async function rollbackModel(tid: string, kind: ModelKind, toVersion: number, by: string, reason: string): Promise<{ ok: true } | { ok: false; status: 404 }> {
+  const now = new Date();
   const res = await prisma.$transaction(async tx => {
     if (toVersion > 0) {
       const target = await tx.aiLearnedModel.findFirst({ where: { tenantId: tid, kind, version: toVersion }, select: { id: true, status: true } });
       if (!target || !['SUPERSEDED', 'ROLLED_BACK'].includes(target.status)) return false;
-      await tx.aiLearnedModel.updateMany({ where: { tenantId: tid, kind, status: 'ACTIVE' }, data: { status: 'ROLLED_BACK', reason, changedById: by } });
-      await tx.aiLearnedModel.updateMany({ where: { tenantId: tid, id: target.id }, data: { status: 'ACTIVE', promotedAt: new Date(), changedById: by } });
+      await tx.aiLearnedModel.updateMany({ where: { tenantId: tid, kind, status: 'ACTIVE' }, data: { status: 'ROLLED_BACK', reason, changedById: by, changedAt: now } });
+      await tx.aiLearnedModel.updateMany({ where: { tenantId: tid, id: target.id }, data: { status: 'ACTIVE', promotedAt: now, changedById: by, changedAt: now } });
       return true;
     }
-    await tx.aiLearnedModel.updateMany({ where: { tenantId: tid, kind, status: 'ACTIVE' }, data: { status: 'ROLLED_BACK', reason, changedById: by } });
+    await tx.aiLearnedModel.updateMany({ where: { tenantId: tid, kind, status: 'ACTIVE' }, data: { status: 'ROLLED_BACK', reason, changedById: by, changedAt: now } });
     return true;
   });
   invalidateLearned(tid);
   return res ? { ok: true } : { ok: false, status: 404 };
 }
 
+const HOLD_DAYS = { SYSTEM: { POLICY: 28, CALIBRATION: 45 }, ADMIN: 60 } as const;
+
+/**
+ * مهلة قبل أي ترقية آلية بعد رجوع: الرجوع الآلي ٢٨ يوماً (الترتيب) أو ٤٥ (المعايرة — تنتظر نضج لقطات جديدة)،
+ * ورجوع الإدارة ٦٠ يوماً — فلا تُلغي ليلةٌ واحدة قرارَ رجوعٍ بإعادة ترقية النسخة نفسها. إعادة الضبط لا تحجز.
+ */
+export async function promotionHold(tid: string, kind: ModelKind, now: Date): Promise<{ until: Date; by: 'SYSTEM' | 'ADMIN' } | null> {
+  // أطول مهلة سارية من الرجوعات الأخيرة (رجوعٌ آلي لاحق لا يقصّر مهلةَ رجوعِ الإدارة)
+  const recent = await prisma.aiLearnedModel.findMany({
+    where: { tenantId: tid, kind, status: 'ROLLED_BACK', changedAt: { gte: new Date(now.getTime() - HOLD_DAYS.ADMIN * DAY_MS) } },
+    orderBy: { changedAt: 'desc' }, select: { changedAt: true, changedById: true }, take: 10,
+  });
+  let best: { until: Date; by: 'SYSTEM' | 'ADMIN' } | null = null;
+  for (const r of recent) {
+    if (!r.changedAt) continue;
+    const by = r.changedById === 'SYSTEM' ? 'SYSTEM' : 'ADMIN';
+    const days = by === 'SYSTEM' ? HOLD_DAYS.SYSTEM[kind] : HOLD_DAYS.ADMIN;
+    const until = new Date(r.changedAt.getTime() + days * DAY_MS);
+    if (until > now && (!best || until > best.until)) best = { until, by };
+  }
+  return best;
+}
+
+const DAY_MS = 86400000;
+
 const pushHistory = (history: unknown, entry: object): object[] => {
   const arr = Array.isArray(history) ? history as object[] : [];
   return [...arr, entry].slice(-20);
 };
 
-/** «إعادة التعلّم من الصفر»: النسخ الفعّالة ← SUPERSEDED، والدروس الحيّة ← RETIRED. البيانات الخام تبقى. */
+/**
+ * «إعادة التعلّم من الصفر»: النسخ الفعّالة ← SUPERSEDED، والدروس الحيّة ← RETIRED. البيانات الخام تبقى.
+ * مفتاح الدرس المتقاعد يُحرَّر (لاحقة #reset) فيُعاد تعلّمه من جديد بدليله — لا يُحجب ١٨٠ يوماً — والصفّ يبقى للتدقيق.
+ */
 export async function resetLearning(tid: string, by: string): Promise<void> {
   const now = new Date();
-  await prisma.aiLearnedModel.updateMany({ where: { tenantId: tid, status: 'ACTIVE' }, data: { status: 'SUPERSEDED', reason: 'ADMIN_RESET', changedById: by } });
-  const live = await prisma.aiLesson.findMany({ where: { tenantId: tid, status: { in: ['ACTIVE', 'TRIAL', 'PENDING'] } }, select: { id: true, status: true, history: true }, take: 500 });
+  await prisma.aiLearnedModel.updateMany({ where: { tenantId: tid, status: 'ACTIVE' }, data: { status: 'SUPERSEDED', reason: 'ADMIN_RESET', changedById: by, changedAt: now } });
+  const live = await prisma.aiLesson.findMany({ where: { tenantId: tid, status: { in: ['ACTIVE', 'TRIAL', 'PENDING'] } }, select: { id: true, key: true, status: true, history: true }, take: 500 });
   for (const l of live) {
     await prisma.aiLesson.updateMany({
       where: { tenantId: tid, id: l.id },
-      data: { status: 'RETIRED', statusReason: 'ADMIN_RESET', history: pushHistory(l.history, { at: now.toISOString(), from: l.status, to: 'RETIRED', by, reason: 'ADMIN_RESET' }) },
+      data: {
+        key: `${l.key}#reset:${now.getTime()}`,
+        status: 'RETIRED', statusReason: 'ADMIN_RESET',
+        history: pushHistory(l.history, { at: now.toISOString(), from: l.status, to: 'RETIRED', by, reason: 'ADMIN_RESET' }),
+      },
     });
   }
   await prisma.aiRepSettings.upsert({ where: { tenantId: tid }, create: { tenantId: tid, learningResetAt: now, updatedById: by }, update: { learningResetAt: now } });

@@ -613,6 +613,16 @@ function RouteTab({ legs, hasOrigin, onRemove, onOpen, onShortest }: {
   );
 }
 
+/** نيّة كل سؤال جاهز (لتصنيف الخادم مهما كانت لغة الواجهة). */
+const CHIP_INTENT: Record<string, string> = {
+  'من أي محل أبدأ؟ ولماذا؟': 'WHERE_START',
+  'رتّب لي مساراً لأفضل الفرص الجديدة': 'ROUTE',
+  'وش أعرض على أقرب فرصة جديدة؟': 'WHAT_OFFER',
+  'كيف أرد إذا قال: عندي مورّد؟': 'OBJ_SUPPLIER',
+  'كيف أفتح الحديث مع صاحب بقالة جديد؟': 'OPENING',
+  'وش تعلّمت من زيارات فريقنا؟': 'TEAM_EXPERIENCE',
+};
+
 function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, searchIdRef, onUsed, onOpenRef, onExpired }: {
   me: Me | null; offline: boolean; searchId: string | null; names: { ref: string; label: string }[];
   chat: ChatMsg[]; setChat: (f: (c: ChatMsg[]) => ChatMsg[]) => void; draft: string; setDraft: (s: string) => void;
@@ -627,7 +637,7 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
   if (!adv.available) {
     return <p className="text-center text-sm text-gray-500 py-10">{adv.reason === 'DISABLED_BY_COMPANY' ? tr('المستشار الذكي متوقف لشركتك') : tr('المستشار الذكي لم يُفعَّل بعد لدى مزوّد الخدمة')}</p>;
   }
-  const ask = async (text: string) => {
+  const ask = async (text: string, intentHint?: string) => {
     const q = text.trim().slice(0, 1500);
     if (!q || busy) return;
     if (!navigator.onLine) { setErr(tr('المستشار يحتاج الإنترنت')); return; }
@@ -638,6 +648,8 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
       const r = await repApi.post('/ai-rep/rep/chat', {
         messages: next.slice(-8).map(m => ({ role: m.role, text: m.text.slice(0, m.role === 'assistant' ? 6000 : 1500) })),
         ...(sid && { searchId: sid }),
+        // نيّة الزرّ الجاهز رمزاً (تصنيف الخادم عربي — والنص يُرسل بلغة المندوب)
+        ...(intentHint && { intentHint }),
       });
       if (searchIdRef.current !== sid) return; // بحث جديد بدأ محادثة جديدة — الرد القديم لا يُلحق بها
       const d = r.data.data as { text: string; refs: string[]; turnId?: string };
@@ -660,7 +672,7 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
       {!searchId && <p className="text-[11px] text-amber-700 bg-amber-50 rounded-xl p-2">{tr('ابحث عن الفرص أولاً ليعرف المستشار المحلات حولك')}</p>}
       {chat.length === 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {chips.map(c => <button key={c} onClick={() => ask(tr(c))} className="text-xs rounded-full px-3 py-1.5 border border-[#F5DACE] bg-[#FBEBE2] text-[#C94E28]">{tr(c)}</button>)}
+          {chips.map(c => <button key={c} onClick={() => ask(tr(c), CHIP_INTENT[c])} className="text-xs rounded-full px-3 py-1.5 border border-[#F5DACE] bg-[#FBEBE2] text-[#C94E28]">{tr(c)}</button>)}
         </div>
       )}
       {chat.map((m, i) => (

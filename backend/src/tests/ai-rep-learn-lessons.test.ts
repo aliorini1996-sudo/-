@@ -60,7 +60,8 @@ stub('config/database', { default: { aiLesson, $queryRaw } });
 const L = require('../ai-rep/learn/lessons') as typeof import('../ai-rep/learn/lessons');
 const { extractNumbers } = require('../ai-rep/advisor') as typeof import('../ai-rep/advisor');
 const { OUTLET_TYPES, outletTypeLabel } = require('../ai-rep/taxonomy') as typeof import('../ai-rep/taxonomy');
-const { OBJECTION_CODES } = require('../ai-rep/learn/signals') as typeof import('../ai-rep/learn/signals');
+const S = require('../ai-rep/learn/signals') as typeof import('../ai-rep/learn/signals');
+const { OBJECTION_CODES } = S;
 /* eslint-enable @typescript-eslint/no-var-requires */
 import type { AiLessonLite, FieldStats, FieldTypeStats } from '../ai-rep/learn/types';
 
@@ -122,6 +123,41 @@ test('المدقّق: «خصم» و«آجل» مرفوضان إلا إن ورد�
   assert.deepEqual(V(credit, 'البيع بالآجل متاح للعملاء المعتمدين فقط'), { ok: true });
   // الهدية والإرجاع كذلك
   rejects('قل لصاحب المحل إن أول طلب يأتي مع هدية مجانية من الشركة.', 'CAPABILITY');
+});
+
+test('تفويض دليل البيع غير متماثل: الجذر في الدرس يكفي للرفض، وفي الدليل يلزم تعبير صريح', () => {
+  const credit = 'إن طلب المحل الدفع الآجل فوضّح أن الآجل متاح للعملاء المنتظمين';
+  const guarantee = 'إذا تردّد صاحب المحل في صنف جديد فأخبره أن الصنف عليه ضمان من الشركة';
+  const sample = 'اعرض عينة مجانية من الصنف الجديد على صاحب المحل المتردّد';
+  // «العاجلة» و«من أجل» تحويان حروف «اجل» بعد التوحيد لكنها لا تفوّض البيع الآجل
+  rejects(credit, 'CAPABILITY', 'نوصّل الطلبات العاجلة في اليوم نفسه');
+  rejects(credit, 'CAPABILITY', 'نعمل من أجل رضا العميل');
+  // «لضمان الجودة» غاية لا وعد بضمان
+  rejects(guarantee, 'CAPABILITY', 'لضمان الجودة نبيع المبرّد');
+  // «التوصيل مجاني» لا يفوّض «عينة مجانية»
+  rejects(sample, 'CAPABILITY', 'التوصيل مجاني');
+  // التعبير الصريح يفوّض
+  assert.deepEqual(V(credit, 'البيع بالآجل متاح للعملاء المنتظمين'), { ok: true });
+  assert.deepEqual(V(guarantee, 'نقدّم ضمان استرجاع'), { ok: true });
+  assert.deepEqual(V(sample, 'نقدّم عينة مجانية للمحلات الجديدة'), { ok: true });
+
+  // capabilityAllowed وحدها (الشقّ الذي يتغيّر بتغيّر الدليل)
+  assert.equal(L.capabilityAllowed(credit, null), false);
+  assert.equal(L.capabilityAllowed(credit, 'نعمل من أجل رضا العميل'), false);
+  assert.equal(L.capabilityAllowed(credit, 'البيع بالآجل متاح للعملاء المنتظمين'), true);
+  assert.equal(L.capabilityAllowed('اعرض الأصناف الأوسع انتشاراً عند المحلات المشابهة.', null), true, 'بلا وعد ⇒ لا حاجة لتفويض');
+
+  // playbookAuthorizes مباشرةً
+  assert.equal(S.playbookAuthorizes('اجل', 'نوصّل الطلبات العاجلة في اليوم نفسه'), false);
+  assert.equal(S.playbookAuthorizes('اجل', 'نعمل من أجل رضا العميل'), false);
+  assert.equal(S.playbookAuthorizes('اجل', 'البيع بالآجل متاح للعملاء المنتظمين'), true);
+  assert.equal(S.playbookAuthorizes('اجل', 'البيع آجل حسب الاتفاق'), true);
+  assert.equal(S.playbookAuthorizes('ضمان', 'لضمان الجودة نبيع المبرّد'), false);
+  assert.equal(S.playbookAuthorizes('ضمان', 'نقدّم ضمان استرجاع'), true);
+  assert.equal(S.playbookAuthorizes('اجل', null), false);
+  const sampleNorm = S.normalizeAr(sample);
+  assert.equal(S.playbookAuthorizes('مجان', 'التوصيل مجاني', sampleNorm), false);
+  assert.equal(S.playbookAuthorizes('مجان', 'نقدّم عينة مجانية للمحلات الجديدة', sampleNorm), true);
 });
 
 test('المدقّق يرفض الجوال والآيبان والبريد', () => {
@@ -243,11 +279,21 @@ test('دورة الحياة: أحكام التجربة', () => {
   assert.equal(L.nextLessonStatus(life({ trialStartedAt: ago(29) }), ctx()), null);
 });
 
-test('دورة الحياة: الفعّال (SELF/REFLECTION) أسوأ من ذراع الأساس ⇒ ضرر؛ المنتظر ينتهي بعد ١٤ يوماً', () => {
+test('دورة الحياة: الفعّال (SELF/REFLECTION) أسوأ من حجبه المستمر (١٠٪) ⇒ ضرر؛ ذراع الأساس لا تُستعمل؛ المنتظر ينتهي بعد ١٤ يوماً', () => {
   const active = life({ status: 'ACTIVE', statusReason: 'PROVEN' });
-  assert.deepEqual(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 50, q: 20 }), baseline: { n: 30, q: 28, up: 0, down: 0 } })), { status: 'RETIRED', reason: 'HARMFUL', missNights: 0 });
-  assert.equal(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 50, q: 20 }), baseline: { n: 19, q: 19, up: 0, down: 0 } })), null, 'أساس < ٢٠');
-  assert.equal(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 50, q: 45 }), baseline: { n: 30, q: 27, up: 0, down: 0 } })), null);
+  const refl = life({ status: 'ACTIVE', origin: 'REFLECTION', kind: 'FIELD', statusReason: 'NON_INFERIOR' });
+  const worse = oo({ n: 50, q: 20 }, { n: 30, q: 28 });
+  assert.deepEqual(L.nextLessonStatus(active, ctx({ onOff: worse })), { status: 'RETIRED', reason: 'HARMFUL', missNights: 0 });
+  assert.deepEqual(L.nextLessonStatus(refl, ctx({ onOff: worse })), { status: 'RETIRED', reason: 'HARMFUL', missNights: 0 });
+  // العتبات: ON ≥ ٤٠ و OFF ≥ ٢٠
+  assert.equal(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 50, q: 20 }, { n: 19, q: 19 }) })), null, 'محجوب < ٢٠');
+  assert.deepEqual(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 50, q: 20 }, { n: 20, q: 20 }) })), { status: 'RETIRED', reason: 'HARMFUL', missNights: 0 }, 'محجوب = ٢٠');
+  assert.equal(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 39, q: 10 }, { n: 30, q: 28 }) })), null, 'مع الدرس < ٤٠');
+  // لا يسوء ⇒ يبقى
+  assert.equal(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 50, q: 45 }, { n: 30, q: 27 }) })), null);
+  // ذراع الأساس لم تعد مرجعاً: أساس ممتاز بلا حجب للدرس ⇒ لا حكم، وأساس رديء لا يُنقذ درساً أسوأ من حجبه
+  assert.equal(L.nextLessonStatus(active, ctx({ onOff: oo({ n: 50, q: 20 }), baseline: { n: 90, q: 88, up: 0, down: 0 } })), null);
+  assert.deepEqual(L.nextLessonStatus(active, ctx({ onOff: worse, baseline: { n: 90, q: 5, up: 0, down: 0 } })), { status: 'RETIRED', reason: 'HARMFUL', missNights: 0 });
   const pending = (d: number) => life({ status: 'PENDING', origin: 'REFLECTION', trialStartedAt: null, createdAt: ago(d) });
   assert.deepEqual(L.nextLessonStatus(pending(15), ctx()), { status: 'REJECTED', reason: 'EXPIRED', missNights: 0 });
   assert.equal(L.nextLessonStatus(pending(13), ctx()), null);
@@ -348,6 +394,52 @@ test('الليلة: سبع ليالٍ بلا دليل ⇒ تقاعد، وعود�
   assert.equal(calls.length + raw.length, 0);
 });
 
+const CREDIT_TEXT = 'إن طلب المحل الدفع الآجل فوضّح أن الآجل متاح للعملاء المنتظمين';
+const GUARANTEE_TEXT = 'إذا تردّد صاحب المحل في صنف جديد فأخبره أن الصنف عليه ضمان من الشركة';
+const PLAIN_TEXT = 'اعرض على صاحب المحل الأصناف الأوسع انتشاراً عند المحلات المشابهة.';
+
+test('الليلة: دليل البيع لم يعد يفوّض وعد درسٍ حيّ غير إحصائي ⇒ تقاعد PLAYBOOK_CHANGED؛ والإحصاء والمعطّل وشركة أخرى لا تُمسّ', async () => {
+  reset();
+  const credit = seed({ key: 'REFL:credit', origin: 'REFLECTION', kind: 'FIELD', status: 'ACTIVE', statusReason: 'NON_INFERIOR', textAr: CREDIT_TEXT });
+  const guar = seed({ key: 'REFL:guar', origin: 'REFLECTION', kind: 'FIELD', status: 'TRIAL', textAr: GUARANTEE_TEXT });
+  const pend = seed({ key: 'REFL:pend', origin: 'REFLECTION', kind: 'FIELD', status: 'PENDING', trialStartedAt: null, createdAt: ago(2), textAr: GUARANTEE_TEXT });
+  const plain = seed({ key: 'SELF:BRIEF', status: 'ACTIVE', statusReason: 'PROVEN', textAr: PLAIN_TEXT });
+  const statsL = seed({ key: 'OBJ:GROCERY:NEEDS_CREDIT', origin: 'STATS', kind: 'FIELD', status: 'ACTIVE', textAr: GUARANTEE_TEXT });
+  const disabled = seed({ key: 'REFL:off', origin: 'REFLECTION', kind: 'FIELD', status: 'DISABLED', statusReason: 'ADMIN', textAr: GUARANTEE_TEXT });
+  const retiredL = seed({ key: 'REFL:old', origin: 'REFLECTION', kind: 'FIELD', status: 'RETIRED', statusReason: 'INCONCLUSIVE', textAr: GUARANTEE_TEXT });
+  const other = seed({ tenantId: 'B', key: 'REFL:guar', origin: 'REFLECTION', kind: 'FIELD', status: 'TRIAL', textAr: GUARANTEE_TEXT });
+  const base = { typeLabel: outletTypeLabel, mode: 'AUTO' as const, selfAgg: agg(), field: null };
+
+  // الدليل يفوّض الآجل لا الضمان
+  const r1 = await L.nightlyLessons('A', { ...base, now: NOW, playbook: 'البيع بالآجل متاح للعملاء المنتظمين' });
+  assert.deepEqual(r1, { created: 0, activated: 0, retired: 2, expired: 0 });
+  assert.deepEqual([credit.status, credit.statusReason], ['ACTIVE', 'NON_INFERIOR'], 'الآجل ما زال مفوَّضاً');
+  assert.deepEqual([guar.status, guar.statusReason], ['RETIRED', 'PLAYBOOK_CHANGED']);
+  assert.deepEqual([pend.status, pend.statusReason], ['RETIRED', 'PLAYBOOK_CHANGED']);
+  assert.deepEqual(guar.history.map((h: Row) => [h.from, h.to, h.by, h.reason]), [['TRIAL', 'RETIRED', 'SYSTEM', 'PLAYBOOK_CHANGED']]);
+  assert.deepEqual(pend.history.map((h: Row) => [h.from, h.to, h.reason]), [['PENDING', 'RETIRED', 'PLAYBOOK_CHANGED']]);
+  assert.equal(L.statusReasonAr('PLAYBOOK_CHANGED'), 'لم يعد يوافق دليل البيع');
+  assert.equal(plain.status, 'ACTIVE', 'بلا وعد ⇒ لا يتأثر');
+  assert.equal(statsL.status, 'ACTIVE', 'الإحصاء خارج هذا الحارس');
+  assert.equal(disabled.status, 'DISABLED');
+  assert.deepEqual([retiredL.status, retiredL.statusReason], ['RETIRED', 'INCONCLUSIVE']);
+  assert.equal(other.status, 'TRIAL', 'شركة أخرى لا تُمسّ');
+
+  // حُذف الآجل من الدليل (أو لا دليل) ⇒ درس الآجل الفعّال يتقاعد
+  const r2 = await L.nightlyLessons('A', { ...base, now: new Date(NOW.getTime() + DAY), playbook: 'نعمل من أجل رضا العميل' });
+  assert.deepEqual(r2, { created: 0, activated: 0, retired: 1, expired: 0 });
+  assert.deepEqual([credit.status, credit.statusReason], ['RETIRED', 'PLAYBOOK_CHANGED']);
+  assert.deepEqual(credit.history.map((h: Row) => [h.from, h.to, h.reason]), [['ACTIVE', 'RETIRED', 'PLAYBOOK_CHANGED']]);
+  // المتقاعد لا يُعاد تقاعده ليلةً بعد ليلة
+  const r3 = await L.nightlyLessons('A', { ...base, now: new Date(NOW.getTime() + 2 * DAY), playbook: null });
+  assert.deepEqual(r3, { created: 0, activated: 0, retired: 0, expired: 0 });
+  assert.equal(credit.history.length, 1);
+
+  assert.ok(calls.length > 0);
+  for (const c of calls) assert.match(JSON.stringify(c.args), /"tenantId":"A"/, c.op);
+  assert.ok(calls.every(c => !JSON.stringify(c.args).includes('"tenantId":"B"')));
+});
+
 // ───────────── قرارات الإدارة ─────────────
 
 test('الإدارة: استعادة إلى تجربة، وتفعيل الإحصاء، واعتماد ورفض، و٤٠٤ لشركة أخرى، و٤٠٩ لانتقال غير مسموح، والسجلّ ≤ ٢٠', async () => {
@@ -383,10 +475,71 @@ test('الإدارة: استعادة إلى تجربة، وتفعيل الإحص
   for (const c of calls) assert.match(JSON.stringify(c.args), /"tenantId":"A"/, c.op);
 });
 
+test('الإدارة: سقف التجارب (SELF + REFLECTION) يسري على الاعتماد والاستعادة ⇒ 409 TRIAL_CAP، ولا يسري على الإحصاء ولا الرفض', async () => {
+  reset();
+  for (let k = 0; k < 4; k++) seed({ key: `T:${k}`, origin: k % 2 ? 'SELF' : 'REFLECTION', status: 'TRIAL' });
+  for (let k = 0; k < 4; k++) seed({ tenantId: 'B', key: `T:${k}`, origin: 'SELF', status: 'TRIAL' });
+  const pend = seed({ key: 'REFL:p', origin: 'REFLECTION', kind: 'FIELD', status: 'PENDING', trialStartedAt: null, textAr: PLAIN_TEXT });
+  const retired = seed({ key: 'SELF:MONEY', status: 'RETIRED', statusReason: 'HARMFUL', textAr: PLAIN_TEXT });
+  const statsOff = seed({ key: 'OBJ:GROCERY:PRICE', origin: 'STATS', kind: 'FIELD', status: 'DISABLED', statusReason: 'ADMIN', textAr: PLAIN_TEXT });
+  const cap = { ok: false, status: 409, code: 'TRIAL_CAP' };
+
+  assert.deepEqual(await L.applyLessonAction('A', pend.id, 'approve', 'u1'), cap);
+  assert.deepEqual(await L.applyLessonAction('A', retired.id, 'restore', 'u1'), cap);
+  assert.deepEqual(await L.applyLessonAction('A', retired.id, 'enable', 'u1'), cap);
+  assert.deepEqual([pend.status, pend.history.length, retired.status, retired.history.length], ['PENDING', 0, 'RETIRED', 0], 'بلا كتابة');
+  assert.ok(!calls.some(c => c.op === 'aiLesson.updateMany'), 'لا تحديث عند السقف');
+  const counts = calls.filter(c => c.op === 'aiLesson.count');
+  assert.ok(counts.length >= 3);
+  for (const c of counts) assert.deepEqual(c.args.where, { tenantId: 'A', status: 'TRIAL', origin: { in: ['SELF', 'REFLECTION'] } });
+
+  // الإحصاء يعود فعّالاً (ليس تجربة) ⇒ خارج السقف؛ والرفض كذلك
+  assert.equal((await L.applyLessonAction('A', statsOff.id, 'enable', 'u1')).ok, true);
+  assert.equal(statsOff.status, 'ACTIVE');
+  // انتهت تجربة ⇒ اتّسع السقف (تجارب الشركة B لا تُحتسب لـA)
+  db.find(r => r.tenantId === 'A' && r.key === 'T:0')!.status = 'RETIRED';
+  assert.equal((await L.applyLessonAction('A', retired.id, 'restore', 'u1')).ok, true);
+  assert.equal(retired.status, 'TRIAL');
+  assert.deepEqual(await L.applyLessonAction('A', pend.id, 'approve', 'u1'), cap, 'امتلأ من جديد');
+  assert.equal((await L.applyLessonAction('A', pend.id, 'reject', 'u1')).ok, true);
+  assert.equal(pend.status, 'REJECTED');
+  for (const c of calls) assert.match(JSON.stringify(c.args), /"tenantId":"A"/, c.op);
+});
+
+test('الإدارة: تفعيل/اعتماد درسٍ لا يفوّض الدليلُ وعدَه ⇒ 409 INVALID_TEXT؛ والدليل المفوِّض يمرّ؛ والتعطيل لا يُفحص', async () => {
+  reset();
+  const invalid = { ok: false, status: 409, code: 'INVALID_TEXT' };
+  const credit = seed({ key: 'REFL:c', origin: 'REFLECTION', kind: 'FIELD', status: 'PENDING', trialStartedAt: null, textAr: CREDIT_TEXT });
+  const guarOff = seed({ key: 'REFL:g', origin: 'REFLECTION', kind: 'FIELD', status: 'DISABLED', statusReason: 'ADMIN', textAr: GUARANTEE_TEXT });
+  const statsOff = seed({ key: 'OBJ:X', origin: 'STATS', kind: 'FIELD', status: 'DISABLED', statusReason: 'ADMIN', textAr: GUARANTEE_TEXT });
+
+  assert.deepEqual(await L.applyLessonAction('A', credit.id, 'approve', 'u1'), invalid, 'بلا دليل');
+  assert.deepEqual(await L.applyLessonAction('A', credit.id, 'approve', 'u1', 'نوصّل الطلبات العاجلة في اليوم نفسه'), invalid);
+  assert.deepEqual(await L.applyLessonAction('A', credit.id, 'approve', 'u1', 'نعمل من أجل رضا العميل'), invalid);
+  assert.deepEqual(await L.applyLessonAction('A', guarOff.id, 'enable', 'u1', 'لضمان الجودة نبيع المبرّد'), invalid);
+  assert.deepEqual(await L.applyLessonAction('A', guarOff.id, 'restore', 'u1', null), invalid);
+  assert.deepEqual(await L.applyLessonAction('A', statsOff.id, 'enable', 'u1', null), invalid, 'الوجهة ACTIVE تُفحص كذلك');
+  assert.deepEqual([credit.status, guarOff.status, statsOff.status], ['PENDING', 'DISABLED', 'DISABLED']);
+  assert.ok(!calls.some(c => c.op === 'aiLesson.updateMany'), 'لا تحديث لنص غير مفوَّض');
+
+  assert.equal((await L.applyLessonAction('A', credit.id, 'approve', 'u1', 'البيع بالآجل متاح للعملاء المنتظمين')).ok, true);
+  assert.equal(credit.status, 'TRIAL');
+  assert.equal((await L.applyLessonAction('A', guarOff.id, 'enable', 'u1', 'نقدّم ضمان استرجاع')).ok, true);
+  assert.equal(guarOff.status, 'TRIAL');
+  assert.equal((await L.applyLessonAction('A', statsOff.id, 'enable', 'u1', 'نقدّم ضمان استرجاع')).ok, true);
+  assert.equal(statsOff.status, 'ACTIVE');
+  // التعطيل والرفض لا يتطلّبان تفويضاً
+  assert.equal((await L.applyLessonAction('A', credit.id, 'disable', 'u1', null)).ok, true);
+  assert.equal(credit.status, 'DISABLED');
+  for (const c of calls) assert.match(JSON.stringify(c.args), /"tenantId":"A"/, c.op);
+});
+
 // ───────────── الاختيار والعرض ─────────────
 
+// الافتراضي STATS: الفعّال منه لا يُحجب أبداً، فتبقى اختبارات السعة والنطاق حتمية.
+// حجب الفعّال غير الإحصائي (١٠٪) له اختباره أدناه.
 const lesson = (o: Partial<AiLessonLite>): AiLessonLite => ({
-  id: `id-${Math.random().toString(36).slice(2)}`, kind: 'PROCESS', origin: 'SELF', outletType: null, intent: null,
+  id: `id-${Math.random().toString(36).slice(2)}`, kind: 'PROCESS', origin: 'STATS', outletType: null, intent: null,
   textAr: 'التزم بالاختصار الشديد؛ المندوب يقرأ وهو واقف عند باب المحل.', status: 'ACTIVE', n: 10, ...o,
 });
 
@@ -416,7 +569,7 @@ test('الاختيار: نطاق نوع المحل والنيّة، وغير ا�
 });
 
 test('الاختيار: تجربة مقسومة بالتجزئة نحو النصف، والمحجوب يُسجَّل فقط لما حُجب بالتجزئة', () => {
-  const trial = lesson({ id: 'trial-1', status: 'TRIAL' });
+  const trial = lesson({ id: 'trial-1', status: 'TRIAL', origin: 'SELF' });
   let on = 0, off = 0;
   for (let k = 0; k < 2000; k++) {
     const s = L.selectLessons([trial], { turnId: `turn-${k}`, intent: 'OTHER', types: new Set() });
@@ -431,11 +584,40 @@ test('الاختيار: تجربة مقسومة بالتجزئة نحو النص
   const b = L.selectLessons([trial], { turnId: 'fixed', intent: 'OTHER', types: new Set() });
   assert.deepEqual(a, b);
   // سعة ممتلئة بالفعّالة ⇒ التجربة لا تُحقن ولا تُحجب
-  const full = [...Array.from({ length: 8 }, (_, k) => lesson({ id: `a${k}` })), lesson({ id: 'tt', status: 'TRIAL', n: 0 })];
+  const full = [...Array.from({ length: 8 }, (_, k) => lesson({ id: `a${k}` })), lesson({ id: 'tt', status: 'TRIAL', origin: 'SELF', n: 0 })];
   for (let k = 0; k < 50; k++) {
     const s = L.selectLessons(full, { turnId: `z${k}`, intent: 'OTHER', types: new Set() });
     assert.equal(s.injected.length, 8); assert.deepEqual(s.heldOut, []);
   }
+});
+
+test('الاختيار: الفعّال غير الإحصائي (SELF/REFLECTION) محجوب باستمرار نحو ١٠٪ بالتجزئة، والإحصاء لا يُحجب أبداً', () => {
+  const refl = lesson({ id: 'refl-active-1', status: 'ACTIVE', origin: 'REFLECTION', kind: 'FIELD' });
+  const self = lesson({ id: 'self-active-1', status: 'ACTIVE', origin: 'SELF' });
+  const stats = lesson({ id: 'stats-active-1', status: 'ACTIVE', origin: 'STATS', kind: 'FIELD' });
+  let reflOff = 0, selfOff = 0;
+  for (let k = 0; k < 2000; k++) {
+    const q = { turnId: `turn-${k}`, intent: 'OTHER', types: new Set<string>() };
+    const r = L.selectLessons([refl], q);
+    assert.equal(r.injected.length + r.heldOut.length, 1);
+    if (r.heldOut.length) { reflOff++; assert.deepEqual(r.heldOut, ['refl-active-1']); }
+    if (L.selectLessons([self], q).heldOut.length) selfOff++;
+    const s = L.selectLessons([stats], q);
+    assert.deepEqual([s.injected.map(l => l.id), s.heldOut], [['stats-active-1'], []], 'الإحصاء لا يُحجب');
+    // معاً: الإحصاء يُحقن دائماً، والانعكاس يُحجب بتجزئته هو (turnId|id)
+    const both = L.selectLessons([stats, refl], q);
+    assert.ok(both.injected.some(l => l.id === 'stats-active-1'));
+    assert.equal(both.heldOut.includes('refl-active-1'), r.heldOut.length === 1);
+  }
+  assert.ok(reflOff >= 150 && reflOff <= 250, `REFLECTION محجوب ${reflOff} من ٢٠٠٠`);
+  assert.ok(selfOff >= 150 && selfOff <= 250, `SELF محجوب ${selfOff} من ٢٠٠٠`);
+  // حتمي لكل دورة، والتجربة ما زالت نحو النصف
+  const q1 = { turnId: 'fixed', intent: 'OTHER', types: new Set<string>() };
+  assert.deepEqual(L.selectLessons([refl], q1), L.selectLessons([refl], q1));
+  let trialOff = 0;
+  const trial = lesson({ id: 'refl-trial-1', status: 'TRIAL', origin: 'REFLECTION' });
+  for (let k = 0; k < 2000; k++) if (L.selectLessons([trial], { turnId: `turn-${k}`, intent: 'OTHER', types: new Set() }).heldOut.length) trialOff++;
+  assert.ok(Math.abs(trialOff / 2000 - 0.5) < 0.05, `trialOff=${trialOff}`);
 });
 
 test('العرض: نقاط بلا معرّفات ولا أرقام، وفارغ بلا دروس، وأسباب الحالة بالعربية', () => {

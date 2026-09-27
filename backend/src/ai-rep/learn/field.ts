@@ -11,7 +11,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { clamp } from './stats';
-import { hourOfDayBand, normalizeAr, OBJECTION_CODES } from './signals';
+import { hourOfDayBand, normalizeAr, OBJECTION_CODES, playbookAuthorizes } from './signals';
 import type { FieldCell, FieldStats, FieldTypeStats, ObjectionCode } from './types';
 
 export interface EpisodeRow {
@@ -31,6 +31,10 @@ export interface EpisodeRow {
   objection: string | null;
   wasCustomer: boolean | null;
   convertedAt: Date | null;
+  /** أول نتيجة مقيَّمة في الحلقة (غير المغلق والتحويل) */
+  firstKind?: string | null;
+  /** عدد النتائج المقيَّمة في الحلقة (≥٢ = متابعة داخل الحلقة نفسها) */
+  nRated?: number;
 }
 
 export interface ClosedRow { type: string; h: number; rep: string; n: number; closed: number }
@@ -39,7 +43,9 @@ const DAY_MS = 86_400_000;
 const r4 = (x: number): number => Math.round(x * 1e4) / 1e4;
 
 /** الاستعلامان (قراءة فقط، نافذة منذ since، الساعة المحلية بمنطقة الشركة tz). */
-export async function loadFieldRows(tid: string, since: Date, tz: string): Promise<{ episodes: EpisodeRow[]; closedRows: ClosedRow[] }> {
+export async function loadFieldRows(tid: string, since: Date, tz: string, until?: Date): Promise<{ episodes: EpisodeRow[]; closedRows: ClosedRow[] }> {
+  // حدّ أعلى اختياري: ملاءمة الترتيب تستعمل الميدان **قبل** فترة التحقّق المحجوبة
+  const upper = until ? Prisma.sql` AND e."occurredAt" < ${until}` : Prisma.empty;
   const [eps, closed] = await Promise.all([
     prisma.$queryRaw<EpisodeRow[]>(Prisma.sql`
       SELECT o."outletType" AS type, e."outletId" AS "outletId",
@@ -52,10 +58,12 @@ export async function loadFieldRows(tid: string, since: Date, tz: string): Promi
              bool_or(e."atDoor") AS "anyDoor", bool_and(e."atDoor" IS NULL) AS "doorUnknown",
              (array_agg(e.objection ORDER BY e."occurredAt") FILTER (WHERE e.objection IS NOT NULL))[1] AS objection,
              bool_or(e.relation = 'CUSTOMER') AS "wasCustomer",
-             MIN(o."convertedAt") AS "convertedAt"
+             MIN(o."convertedAt") AS "convertedAt",
+             (array_agg(e.kind ORDER BY e."occurredAt") FILTER (WHERE e.kind NOT IN ('CLOSED', 'CONVERTED')))[1] AS "firstKind",
+             COUNT(*) FILTER (WHERE e.kind NOT IN ('CLOSED', 'CONVERTED'))::int AS "nRated"
       FROM ai_outlet_events e
       JOIN ai_outlets o ON o.id = e."outletId" AND o."tenantId" = ${tid}
-      WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since}
+      WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since}${upper}
       GROUP BY 1, 2, 3
       ORDER BY "firstAt" DESC
       LIMIT 20000`),
@@ -66,7 +74,7 @@ export async function loadFieldRows(tid: string, since: Date, tz: string): Promi
              e."salesRepId" AS rep, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE e.kind = 'CLOSED')::int AS closed
       FROM ai_outlet_events e
       JOIN ai_outlets o ON o.id = e."outletId" AND o."tenantId" = ${tid}
-      WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since} AND e.kind <> 'CONVERTED'
+      WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since}${upper} AND e.kind <> 'CONVERTED'
       GROUP BY 1, 2, 3
       LIMIT 20000`),
   ]);
@@ -75,6 +83,7 @@ export async function loadFieldRows(tid: string, since: Date, tz: string): Promi
       type: r.type, outletId: r.outletId, bucket: Number(r.bucket), best: Number(r.best), onlyClosed: r.onlyClosed === true,
       rep: r.rep, firstAt: new Date(r.firstAt), anyDoor: r.anyDoor ?? null, doorUnknown: r.doorUnknown === true,
       objection: r.objection ?? null, wasCustomer: r.wasCustomer ?? null, convertedAt: r.convertedAt ? new Date(r.convertedAt) : null,
+      firstKind: r.firstKind ?? null, nRated: r.nRated == null ? undefined : Number(r.nRated),
     })),
     closedRows: closed.map(r => ({ type: r.type, h: Number(r.h), rep: r.rep, n: Number(r.n), closed: Number(r.closed) })),
   };
@@ -187,12 +196,15 @@ export function computeFieldStats(episodes: EpisodeRow[], closedRows: ClosedRow[
     for (const list of byOutlet.values()) {
       list.sort((a, b) => a.e.firstAt.getTime() - b.e.firstAt.getTime());
       const first = list[0];
-      if (first.e.best !== 3) continue;
+      // أول نتيجة مقيَّمة «عُد لاحقاً» (لا أفضل الحلقة: العودة في الحلقة نفسها ترفع أفضلها فتُخفي أنها كانت عودة)
+      const firstKind = first.e.firstKind ?? (first.e.best === 3 ? 'CALL_BACK' : null);
+      if (firstKind !== 'CALL_BACK') continue;
       const t0 = first.e.firstAt.getTime();
       const later = list.slice(1).filter(x => x.e.firstAt.getTime() > t0 && x.e.firstAt.getTime() <= t0 + 60 * DAY_MS);
-      if (!later.length) continue;
+      const sameBucketFollowUp = (first.e.nRated ?? 1) >= 2;
+      if (!later.length && !sameBucketFollowUp) continue;
       cbItems.push(first);
-      if (later.some(x => isPos(x.e))) cbPos.add(first);
+      if ((sameBucketFollowUp && first.e.best >= 4) || later.some(x => isPos(x.e))) cbPos.add(first);
     }
     const cb = cbItems.length ? cellOf(cbItems.map(toRep), activeReps) : null;
     const callback = cb ? { ...cb.cell, rate: r4(cbItems.reduce((s, x) => s + (cbPos.has(x) ? x.w : 0), 0) / cb.sumW) } : null;
@@ -220,7 +232,6 @@ export function computeFieldStats(episodes: EpisodeRow[], closedRows: ClosedRow[
 // ───────────── اقتراحات للإدارة (لا تُحقن في العقل أبداً) ─────────────
 
 /** جذور دليل البيع بعد التوحيد (آجل/أجل ← اجل، أسعار ← اسعار). */
-const CREDIT_STEM = /اجل|دفع لاحق/;
 const PRICE_STEM = /سعر|اسعار|خصم|عرض/;
 
 /** ما ينقص دليل البيع بحسب ما يواجهه المناديب، والأنواع التي ينقصها تصنيف عملائها. */
@@ -233,7 +244,7 @@ export function fieldHints(i: {
   const objHigh = (code: ObjectionCode) => cells.some(c => c.objections?.exposed && (c.objections.shares[code] ?? 0) >= 0.25);
   const asked = (intent: string) => i.chatTotal >= 30 && (i.intentCounts[intent] ?? 0) / i.chatTotal >= 0.1;
   const hints: { code: string; textAr: string }[] = [];
-  if ((objHigh('NEEDS_CREDIT') || asked('OBJ_CREDIT')) && !CREDIT_STEM.test(pb)) {
+  if ((objHigh('NEEDS_CREDIT') || asked('OBJ_CREDIT')) && !playbookAuthorizes('اجل', i.playbook)) {
     hints.push({ code: 'PLAYBOOK_CREDIT', textAr: 'مناديبك يواجهون طلب الآجل ودليل البيع لا يذكر سياستكم — أضفها ليجيب المستشار' });
   }
   if ((objHigh('PRICE') || asked('OBJ_PRICE')) && !PRICE_STEM.test(pb)) {

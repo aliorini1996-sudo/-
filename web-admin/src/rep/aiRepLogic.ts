@@ -214,7 +214,7 @@ export function autoRolledBack(models: { kind: string; version: number; status: 
 export const LESSON_REASON_LABEL: Record<string, string> = {
   HARMFUL: 'ضرر مقاس', REP_FEEDBACK: 'تقييم المناديب', INCONCLUSIVE: 'بلا أثر حاسم', EVIDENCE_GONE: 'زال الدليل',
   PROVEN: 'أثبت فائدته', NON_INFERIOR: 'لا يضرّ', ADMIN: 'أوقفته الإدارة', ADMIN_RESET: 'إعادة الضبط', EXPIRED: 'انتهت مهلة المراجعة',
-  REFLECTION: 'مراجعة ذاتية',
+  REFLECTION: 'مراجعة ذاتية', PLAYBOOK_CHANGED: 'لم يعد يوافق دليل البيع',
 };
 
 export const LESSON_ORIGIN_LABEL: Record<string, string> = { STATS: 'إحصاء', REFLECTION: 'مراجعة ذاتية', SELF: 'مكتبة التصحيح' };

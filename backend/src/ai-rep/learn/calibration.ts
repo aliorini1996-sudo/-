@@ -276,19 +276,26 @@ export function locoGate(pairs: CalPair[], minPeers: number, current: CalParams 
 
 /**
  * رجوع تلقائي: على لقطات عُرضت بالنسخة النشطة، هل المعروض أقرب للفعلي من الخام؟
- * k = مرات فوز المعروض، n = غير المتعادلة. رجوع إن n ≥ 10 و P(Beta(1+k,1+n−k) < ½) ≥ 0.9.
+ * **صوت واحد لكل عميل** (مجموع فروق أصنافه) — طلبٌ كبير واحد بأصناف كثيرة لا يُسقط المعايرة وحده.
+ * k = عملاء فاز فيهم المعروض، n = غير المتعادلين. رجوع إن n ≥ max(٨، الحدّ الأدنى) و P(Beta(1+k,1+n−k) < ½) ≥ 0.9.
  */
-export function checkCalRollback(pairs: CalPair[], activeVersion: number): { rollback: boolean; k: number; n: number } {
-  let k = 0, n = 0;
+export function checkCalRollback(pairs: CalPair[], activeVersion: number, minPeers = 8): { rollback: boolean; k: number; n: number } {
+  const byCustomer = new Map<string, { cal: number; raw: number }>();
   for (const p of pairs) {
     if (p.source !== 'SNAPSHOT' || p.calVersion !== activeVersion || p.shown == null || !(p.actual > 0) || !(p.pred > 0)) continue;
     const la = Math.log(p.actual + 1);
-    const dCal = Math.abs(la - Math.log(p.shown + 1)), dRaw = Math.abs(la - Math.log(p.pred + 1));
-    if (Math.abs(dCal - dRaw) < 1e-12) continue;
-    n++;
-    if (dCal < dRaw) k++;
+    const c = byCustomer.get(p.customerId) ?? { cal: 0, raw: 0 };
+    c.cal += Math.abs(la - Math.log(p.shown + 1));
+    c.raw += Math.abs(la - Math.log(p.pred + 1));
+    byCustomer.set(p.customerId, c);
   }
-  if (n < 10) return { rollback: false, k, n };
+  let k = 0, n = 0;
+  for (const c of byCustomer.values()) {
+    if (Math.abs(c.cal - c.raw) < 1e-12) continue;
+    n++;
+    if (c.cal < c.raw) k++;
+  }
+  if (n < calNeeded(minPeers)) return { rollback: false, k, n };
   const { mean, v } = betaMeanVar(k, n);
   return { rollback: normalCdf((0.5 - mean) / Math.sqrt(v)) >= 0.9, k, n };
 }
