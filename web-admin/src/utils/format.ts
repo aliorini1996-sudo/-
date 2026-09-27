@@ -125,6 +125,34 @@ export function formatTime(date: string | Date) {
   }).format(d);
 }
 
+/**
+ * يومُ لحظةٍ بالنسبة لليوم الحالي على الجهاز: '' لليوم، و«أمس» (بلغة الواجهة)، وإلا تاريخ مختصر.
+ *
+ * عرضُ الساعة وحدها للحظةٍ من يوم سابق يوهم أنها في المستقبل: «آخر ظهور ١٠:٤٧ م» تُقرأ صباحاً وقتاً
+ * لم يأتِ بعد وهي أمس ليلاً، و«أنت في العمل منذ ١٠:٥٤ ص» لنوبة فُتحت أمس ولم تُغلق تبدو ساعةً قادمة.
+ */
+export function dayLabel(date: string | Date): string {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOf(now) - startOf(d)) / 86400000);
+  if (diff === 0) return '';
+  if (diff === 1) {
+    try { return new Intl.RelativeTimeFormat(locale(), { numeric: 'auto' }).format(-1, 'day'); } catch { /* ارتداد للتاريخ */ }
+  }
+  return new Intl.DateTimeFormat(locale(), { month: 'short', day: 'numeric' }).format(d);
+}
+
+/** الساعة، ويسبقها يومها إن لم تكن من اليوم: «١٠:٤٧ م» أو «أمس ١٠:٤٧ م» أو «٢٥ سبتمبر ١٠:٤٧ م». */
+export function formatMoment(date: string | Date): string {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '-';
+  const time = new Intl.DateTimeFormat(locale(), { hour: '2-digit', minute: '2-digit' }).format(d);
+  const day = dayLabel(d);
+  return day ? `${day} ${time}` : time;
+}
+
 export function formatNumber(n: number | string) {
   return new Intl.NumberFormat(locale()).format(Number(n));
 }

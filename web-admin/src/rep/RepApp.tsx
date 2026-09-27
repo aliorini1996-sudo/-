@@ -1,5 +1,5 @@
 import {
-  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, formatDateShort, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon, Fingerprint, LogIn,
+  useState, useEffect, useCallback } from 'react'; import { judgeProximity, GEOFENCE_RADIUS_M, type GeoVerdict } from './geofence'; import repApi from './repApi'; import { fetchThenCache, cacheGet, cacheSet, requestPersistentStorage, newClientRef, outboxAdd, refClear, currentRepId } from './offlineDb'; import { isNetworkError, startAutoSync, syncOutbox, pendingCount, rejectedCount, onOutboxChange, outboxDocs, requeue, discard } from './offlineSync'; import type { OutboxDoc } from './offlineDb'; import { formatCurrency, formatDate, formatDateShort, setActiveCurrency, setActiveNumerals, getActiveCurrency, activeLocale, formatDayOnly, dayLabel } from '../utils/format'; import { currencyDecimals } from '../i18n/countries'; import { DocumentResult, invoiceDocFromDetail, receiptDocFromDetail, statementDocFromData, InvoiceDoc, ReceiptDoc, StatementDoc, Company } from './RepDocuments'; import { receiptInvoicesFrom } from './receiptLinks'; import {   TrendingUp, Eye, EyeOff, Pencil, Home, FileText, CreditCard, Users, Plus, Trash2, ArrowRight, LogOut, Receipt as ReceiptIcon, User, Wallet, FileDown, FileBarChart2, RotateCcw, Image as ImageIcon, Truck, Package, ArrowDownToLine, Check, MapPin, ScanLine, RefreshCw, Fuel, BookOpen, Copy, ExternalLink, PhoneCall, PhoneIncoming, PhoneOutgoing, PhoneMissed, Camera, X, ClipboardCheck, Timer, Square, Link2, ClipboardList, MessageCircle, Route as RouteIcon, Fingerprint, LogIn,
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { compressImage } from './imageCompress';
@@ -164,6 +164,8 @@ function grabLocation(): Promise<{ lat: number; lng: number } | null> {
 const clockTime = (iso: string): string => {
   try { return new Date(iso).toLocaleTimeString(activeLocale(), { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
 };
+/** يوم اللحظة إن لم تكن من اليوم («أمس» أو تاريخ) — فلا تُقرأ ساعةُ أمسِ وقتاً قادماً. */
+const dayOf = (iso: string): string => { try { return dayLabel(iso); } catch { return ''; } };
 
 function shiftDuration(fromIso: string, toIso: string, tr: (s: string) => string): string {
   const mins = Math.max(0, Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 60000));
@@ -215,7 +217,9 @@ function RepAttendance() {
             {checkedIn ? (
               <>
                 <p className="text-xs text-green-700 font-semibold mb-1">{tr('أنت في العمل الآن')}</p>
+                {dayOf(state.shift.checkInAt) && <p className="text-xs text-green-800 font-semibold">{tr('منذ')} {dayOf(state.shift.checkInAt)}</p>}
                 <p className="text-2xl font-bold text-green-800 tabular-nums" dir="ltr">{clockTime(state.shift.checkInAt)}</p>
+                {dayOf(state.shift.checkInAt) && <p className="text-[11px] text-amber-700 mt-1">{tr('يبدو أنك نسيت تسجيل الانصراف — سجّل الانصراف ثم الحضور من جديد')}</p>}
                 <p className="text-[11px] text-green-700 mt-1 flex items-center justify-center gap-1">
                   {state.shift.checkInLat != null
                     ? <><MapPin size={12} /> {tr('سُجّل موقع الحضور')}</>

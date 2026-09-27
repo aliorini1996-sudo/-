@@ -3961,6 +3961,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'بدون مندوب سند من الإدارة': { en: 'No rep, receipt issued by the office', fr: 'Sans commercial, recu emis par le bureau', tr: 'Temsilcisiz, ofisten duzenlenen makbuz', zh: '无业务员（由管理端开具）' },
   'عدد المناديب المحصلين': { en: 'Collecting reps', fr: 'Commerciaux ayant encaisse', tr: 'Tahsilat yapan temsilciler', zh: '有收款的业务员数' },
   'لا سندات قبض في هذه الفترة': { en: 'No receipts in this period', fr: 'Aucun recu sur cette periode', tr: 'Bu donemde makbuz yok', zh: '此期间没有收据' },
+  // ——— البصمة: نوبة من يوم سابق ———
+  'منذ': { en: "Since", fr: "Depuis", tr: "Şu tarihten beri", zh: "自" },
+  'يبدو أنك نسيت تسجيل الانصراف — سجّل الانصراف ثم الحضور من جديد': { en: "Looks like you forgot to check out — check out, then check in again", fr: "Vous semblez avoir oublié de pointer la sortie — pointez la sortie puis l’entrée à nouveau", tr: "Çıkış yapmayı unutmuş görünüyorsunuz — çıkış yapıp yeniden giriş yapın", zh: "您似乎忘记签退——请先签退再重新签到" },
 };
 
 export function useTr() {

@@ -11,6 +11,7 @@ import RepRoutesModal from './RepRoutesPage';
 import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer, Route as RouteIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
+import { formatMoment } from '../utils/format';
 
 interface LiveRep {
   id: string; name: string; phone: string; isActive: boolean;
@@ -146,7 +147,8 @@ export default function TrackingPage() {
     if (h < 24) return `${tr('قبل')} ${h} ${tr('س')}`.trim();
     return `${tr('قبل')} ${Math.floor(h / 24)} ${tr('يوم')}`.trim();
   };
-  const timeText = (iso: string) => new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+  // بيومها إن لم تكن من اليوم — «آخر ظهور ١٠:٤٧ م» صباحاً كانت تُقرأ وقتاً لم يأتِ (وهي أمس ليلاً)
+  const timeText = (iso: string) => formatMoment(iso);
   // «12:05» أو «1:03:20» — يطابق تنسيق الخادم والمندوب
   const fmtDur = (sec: number | null | undefined): string | null => {
     if (sec === null || sec === undefined || !Number.isFinite(sec) || sec < 0) return null;
