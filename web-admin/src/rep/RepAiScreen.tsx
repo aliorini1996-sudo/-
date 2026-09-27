@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Crosshair, MapPin, Navigation, Plus, Route as RouteIcon, Sparkles, Store, UserPlus, X, ClipboardCheck, Trash2, MessageCircle, Send, Shuffle } from 'lucide-react';
+import { ChevronRight, Crosshair, MapPin, Navigation, Plus, Route as RouteIcon, Sparkles, Store, UserPlus, X, ClipboardCheck, Trash2, MessageCircle, Send, Shuffle, ThumbsUp, ThumbsDown } from 'lucide-react';
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
@@ -9,7 +9,10 @@ import { useBackClose } from '../lib/useBackClose';
 import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { loadAiSession, onConverted, patchAiSession, saveAiSession, type AiAddPrefill } from './aiRepSession';
-import { CONFIDENCE_LABEL, OUTCOMES, OUTCOME_LABEL, distKm, fmtDistance, fmtRange, multiStopUrl, navUrl, orderRoute, routeLegs, renderRefs } from './aiRepLogic';
+import {
+  CONFIDENCE_LABEL, FEEDBACK_REASONS, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, OUTCOME_LABEL, distKm, fmtDistance, fmtRange, multiStopUrl, navUrl,
+  orderRoute, routeLegs, renderRefs,
+} from './aiRepLogic';
 
 /**
  * المندوب الذكي — شاشة المندوب:
@@ -19,6 +22,7 @@ import { CONFIDENCE_LABEL, OUTCOMES, OUTCOME_LABEL, distKm, fmtDistance, fmtRang
  *   «مساري»: المحطات بترتيب الخطة (أو الأقصر عند الطلب) وروابط الملاحة. «اسأل»: أسئلة حرّة للمستشار.
  * المراجع P1… والإحداثيات يثبّتها الخادم عند البحث (جلسة البحث)، فالجهاز يرسل المرجع لا الإحداثيات.
  * الأسماء من Google تبقى في الذاكرة أثناء الجلسة فقط؛ النسخة المحفوظة دون اتصال بلا أسماء ولمدة يوم واحد.
+ * حلقة التعلّم: سبب التردّد بزر (لا نص حرّ للعقل)، و👍/👎 بأسباب ثابتة على كل رد يحمل turnId.
  */
 
 interface Range { low: number; median: number; high: number }
@@ -35,12 +39,14 @@ interface Me {
   placesConfigured: boolean; placesMode?: 'AUTO' | 'MANUAL'; mapsKey?: string | null; showMoney: boolean; searchRadiusM: number; minPeers?: number;
   targetTypes: { code: string; label: string }[]; dailySearches: { used: number; limit: number };
   advisor?: { available: boolean; reason: string | null; used: number; limit: number };
+  learning?: { on: boolean };
 }
-interface ChatMsg { role: 'user' | 'assistant'; text: string; refs?: string[] }
-interface Guide { text: string; plan: string[]; source: 'AI' | 'RULES' }
+interface ChatMsg { role: 'user' | 'assistant'; text: string; refs?: string[]; turnId?: string }
+interface Guide { text: string; plan: string[]; source: 'AI' | 'RULES'; turnId?: string; learned?: boolean }
 interface ProductEst {
   productId: string; name: string; unit: string; priority: boolean; buyers: number | null; peers: number; penetration: number | null;
   monthlyQty: Range | null; monthlyValue: Range | null; firstOrderQty: number | null; trialQty: number | null; confidence: string; hidden: null | 'FEW_BUYERS' | 'DOMINANT';
+  trialCalibrated?: boolean;
 }
 interface Estimate { ok: boolean; confidence?: string; peers?: number; ringKm?: number | null; monthlyTotalValue?: Range | null; products?: ProductEst[]; why: string; minPeers?: number }
 type Tab = 'near' | 'route' | 'ask';
@@ -304,6 +310,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
           {guide && (
             <div className="rounded-2xl border border-[#F5DACE] bg-[#FBEBE2] p-4 space-y-2">
               <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1.5"><Sparkles size={14} /> {guide.source === 'AI' ? tr('توجيه المستشار الذكي') : tr('خطة من بيانات شركتك')}</p>
+              {guide.learned && <p className="text-[11px] text-[#C94E28]/80">{tr('الترتيب متعلَّم من نتائج زيارات فريقك')}</p>}
               <p className="text-sm text-[#1F1A13] whitespace-pre-wrap leading-6">{renderRefs(guide.text, names)}</p>
               <GoogleAttribution />
               {!!routeItems.length && (() => {
@@ -315,6 +322,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
                   </div>
                 );
               })()}
+              {guide.turnId && !offline && <FeedbackBar key={guide.turnId} turnId={guide.turnId} />}
             </div>
           )}
 
@@ -340,6 +348,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
             </div>
           ))}
           {!!visibleItems.length && <GoogleAttribution />}
+          {me?.learning?.on && !!visibleItems.length && <LearningFooter />}
         </div>
 
         {tab === 'route' && (
@@ -492,6 +501,60 @@ function GoogleAttribution() {
   return <p className="text-xs text-gray-500 text-left" dir="ltr">Google Maps</p>;
 }
 
+function LearningFooter() {
+  const tr = useAiRepTr();
+  return <p className="text-[10px] text-gray-400 text-center">{tr('المستشار يتعلّم من نتائج زيارات شركتك — الأرقام من بياناتكم فقط')}</p>;
+}
+
+/** تقييمات الجلسة لكل turnId: الرجوع بين التبويبات لا يعيد سؤال «هل أفادك؟» عن رد قُيّم. */
+const feedbackGiven = new Map<string, { vote: 1 | -1; reason: string | null }>();
+
+/**
+ * 👍/👎 على رد المستشار (best-effort). 👎 يفتح أسباباً ثابتة اختيارية (لا نص حرّ). إعادة التقييم تستبدل السابق على الخادم.
+ * الشكر يظهر بعد قبول الخادم فقط؛ رد انتهت مهلته (404) يُخفي الشريط، وخطأ الشبكة يُعيده ليُعاد المحاولة.
+ */
+function FeedbackBar({ turnId }: { turnId: string }) {
+  const tr = useAiRepTr();
+  const [fb, setFb] = useState(() => feedbackGiven.get(turnId) ?? null);
+  const [sending, setSending] = useState(false);
+  const [gone, setGone] = useState(false);
+  const send = async (vote: 1 | -1, reason: string | null = null) => {
+    if (sending) return;
+    const prev = fb;
+    setFb({ vote, reason }); setSending(true);
+    try {
+      await repApi.post('/ai-rep/rep/feedback', { turnId, vote, ...(reason ? { reason } : {}) });
+      feedbackGiven.set(turnId, { vote, reason });
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 404) setGone(true); else setFb(prev);
+    } finally { setSending(false); }
+  };
+  if (gone) return null;
+  const saved = !sending && feedbackGiven.has(turnId);
+  return (
+    <div className="pt-2 space-y-1.5">
+      {!fb ? (
+        <div className="flex items-center gap-2 text-[11px] text-gray-500">
+          <span>{tr('هل أفادك؟')}</span>
+          <button onClick={() => send(1)} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-gray-600"><ThumbsUp size={12} /> {tr('مفيد')}</button>
+          <button onClick={() => send(-1)} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-gray-600"><ThumbsDown size={12} /> {tr('غير مفيد')}</button>
+        </div>
+      ) : fb.vote === -1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {FEEDBACK_REASONS.map(r => (
+            <button key={r.code} disabled={sending} onClick={() => send(-1, fb.reason === r.code ? null : r.code)}
+              className={`text-[11px] rounded-full px-2.5 py-1 border ${fb.reason === r.code ? 'bg-[#FBEBE2] border-[#F5DACE] text-[#C94E28] font-semibold' : 'bg-white border-gray-200 text-gray-500'}`}>
+              {tr(r.label)}
+            </button>
+          ))}
+        </div>
+      )}
+      {fb && saved && <p className="text-[11px] text-green-700">{tr('شكراً — المستشار يتعلّم من تقييمك')}</p>}
+    </div>
+  );
+}
+
 function RelationTag({ it }: { it: Item }) {
   const tr = useAiRepTr();
   if (it.rejectedRecently) return <span className="shrink-0 text-[10px] rounded-full px-2 py-0.5 bg-gray-200 text-gray-600">{tr(OUTCOME_LABEL[it.lastOutcome ?? ''] ?? 'زرته')}</span>;
@@ -577,8 +640,8 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
         ...(sid && { searchId: sid }),
       });
       if (searchIdRef.current !== sid) return; // بحث جديد بدأ محادثة جديدة — الرد القديم لا يُلحق بها
-      const d = r.data.data as { text: string; refs: string[] };
-      setChat(c => [...c, { role: 'assistant', text: d.text, refs: d.refs }]);
+      const d = r.data.data as { text: string; refs: string[]; turnId?: string };
+      setChat(c => [...c, { role: 'assistant', text: d.text, refs: d.refs, ...(d.turnId ? { turnId: d.turnId } : {}) }]);
       onUsed();
     } catch (e) {
       if (searchIdRef.current !== sid) return;
@@ -587,9 +650,11 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
       if (errCode(e) === 'AI_REP_SEARCH_EXPIRED') onExpired();
     } finally { setBusy(false); }
   };
+  // سؤال خبرة الفريق يظهر حين يكون التعلّم مفعّلاً (أداة field_insights لا تُتاح للعقل وهو متوقف)
+  const team = me?.learning?.on ? ['وش تعلّمت من زيارات فريقنا؟'] : [];
   const chips = searchId
-    ? ['من أي محل أبدأ؟ ولماذا؟', 'رتّب لي مساراً لأفضل الفرص الجديدة', 'وش أعرض على أقرب فرصة جديدة؟', 'كيف أرد إذا قال: عندي مورّد؟']
-    : ['كيف أرد إذا قال: عندي مورّد؟', 'كيف أفتح الحديث مع صاحب بقالة جديد؟'];
+    ? ['من أي محل أبدأ؟ ولماذا؟', 'رتّب لي مساراً لأفضل الفرص الجديدة', 'وش أعرض على أقرب فرصة جديدة؟', 'كيف أرد إذا قال: عندي مورّد؟', ...team]
+    : ['كيف أرد إذا قال: عندي مورّد؟', 'كيف أفتح الحديث مع صاحب بقالة جديد؟', ...team];
   return (
     <div className="space-y-3">
       {!searchId && <p className="text-[11px] text-amber-700 bg-amber-50 rounded-xl p-2">{tr('ابحث عن الفرص أولاً ليعرف المستشار المحلات حولك')}</p>}
@@ -606,6 +671,7 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
               {m.refs.slice(0, 6).map(r => <button key={r} onClick={() => onOpenRef(r)} className="text-[11px] rounded-full px-2.5 py-1 bg-[#FBEBE2] text-[#C94E28]">{names.find(n => n.ref === r)?.label ?? r}</button>)}
             </div>
           )}
+          {m.role === 'assistant' && m.turnId && <FeedbackBar key={m.turnId} turnId={m.turnId} />}
         </div>
       ))}
       {busy && <p className="text-xs text-gray-400">{tr('المستشار يحسب من بيانات شركتك…')}</p>}
@@ -617,6 +683,7 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
         <button onClick={() => ask(draft)} disabled={busy || !draft.trim()} className="rounded-xl bg-[#E15A30] disabled:opacity-50 text-white px-3"><Send size={16} /></button>
       </div>
       <p className="text-[10px] text-gray-400 text-center">{tr('أسئلة اليوم')}: {adv.used} / {adv.limit} · {tr('الأرقام من بيانات شركتك؛ المستشار لا يخترعها')}</p>
+      {me?.learning?.on && <LearningFooter />}
     </div>
   );
 }
@@ -631,6 +698,7 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
   const [err, setErr] = useState('');
   const [mode, setMode] = useState<'view' | 'outcome'>('view');
   const [kind, setKind] = useState<string>('');
+  const [objection, setObjection] = useState('');
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -658,8 +726,10 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
     setSaving(true); setOutcomeErr('');
     const gps = await getGps().catch(() => null);
     const clientRef = newClientRef();
+    // السبب زرٌّ اختياري يُرسل مع النتائج المؤهّلة وحدها؛ الجسم نفسه يدخل صفّ الإرسال دون اتصال
     const body = {
       clientRef, placeId: item.placeId, outletType: item.outletType, kind,
+      ...(objection && OBJECTION_OUTCOMES.has(kind) ? { objection } : {}),
       ...(name.trim() && { repTypedName: name.trim() }), ...(note.trim() && { note: note.trim() }),
       ...(gps && { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy }), occurredAt: new Date().toISOString(),
     };
@@ -720,6 +790,19 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
                   className={`rounded-xl border py-2.5 text-sm ${kind === o.kind ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28] font-semibold' : 'border-gray-200 text-gray-600'}`}>{tr(o.label)}</button>
               ))}
             </div>
+            {OBJECTION_OUTCOMES.has(kind) && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-gray-500">{tr('سبب التردّد أو الرفض (يساعد العقل على التعلّم)')}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {OBJECTIONS.map(o => (
+                    <button key={o.code} onClick={() => setObjection(x => (x === o.code ? '' : o.code))}
+                      className={`text-xs rounded-full px-3 py-1.5 border ${objection === o.code ? 'bg-[#FBEBE2] border-[#F5DACE] text-[#C94E28] font-semibold' : 'bg-white border-gray-200 text-gray-500'}`}>
+                      {tr(o.label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <input className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" maxLength={120} placeholder={tr('اسم المحل كما في اللوحة (اختياري)')} value={name} onChange={e => setName(e.target.value)} />
             <textarea className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm min-h-[72px]" maxLength={500} placeholder={tr('ملاحظة (اختياري)')} value={note} onChange={e => setNote(e.target.value)} />
             {outcomeErr && <p className="text-xs text-red-600">{outcomeErr}</p>}
@@ -751,7 +834,9 @@ function OutletSheet({ item, searchId, showMoney, money, minPeers, canAddCustome
                         <p key={p.productId} className="text-sm flex justify-between"><span>{p.name}</span><b>{p.trialQty} {p.unit}</b></p>
                       ))}
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-2">{tr('من أول طلبات المحلات المشابهة أو أدنى مشترياتها الشهرية، للأصناف التي يشتريها نصفها على الأقل')}</p>
+                    <p className="text-[10px] text-gray-400 mt-2">{est.products.some(p => p.trialQty && p.trialCalibrated)
+                      ? tr('مُعايَر بأول طلبات عملائك الجدد الفعلية')
+                      : tr('من أول طلبات المحلات المشابهة أو أدنى مشترياتها الشهرية، للأصناف التي يشتريها نصفها على الأقل')}</p>
                   </div>
                 )}
                 <div className="rounded-2xl border border-gray-100 p-4">

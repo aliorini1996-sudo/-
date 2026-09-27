@@ -330,6 +330,10 @@ async function tick() {
     if (riyadhNow().getUTCHours() === 8) {
       await ensureScheduledReports();
     }
+    // المندوب الذكي — حلقة التعلّم الليلية لكل شركة (٢–٤ فجراً بتوقيت الرياض؛ الساعتان الأخيرتان إعادة محاولة بقفل الليلة)
+    if ([2, 3, 4].includes(riyadhNow().getUTCHours())) {
+      void import('../ai-rep/learn/jobs').then(m => m.runAiLearningNight()).catch(e => console.error('ai-learn night error:', e));
+    }
   } catch (e) {
     console.error('opsSchedule tick error:', e);
   }
@@ -362,5 +366,5 @@ export function startOpsScheduler() {
   // النظام المحاسبي المتكامل: ترحيل مسودات autoPostOn كل ساعة (يتخطى الشركة قبل activatedAt، DESIGN §6.1)
   startLedgerAutoPostScheduler();
 
-  console.log('🗓️ Ops scheduler started (reminders 8am Riyadh · monthly finance report 1st 8am · presence snapshot 5min · request flush 1min)');
+  console.log('🗓️ Ops scheduler started (reminders 8am Riyadh · monthly finance report 1st 8am · presence snapshot 5min · request flush 1min · AI rep learning 2–4am Riyadh)');
 }

@@ -4,19 +4,26 @@ import { AlertTriangle, CheckCircle2, MapPin, Save, Sparkles, Tags, XCircle } fr
 import toast from 'react-hot-toast';
 import { aiRepApi, productApi, salesRepApi } from '../api/client';
 import { useAiRepTr } from '../i18n/aiRepPhrases';
+import { activeLocale } from '../utils/format';
+import AiLearningPanel from './AiLearningPanel';
 
 /**
  * المندوب الذكي AI — صفحة إدارة الشركة:
  *   1) جاهزية البيانات: التوقّع لكل محل يُبنى من عملاء الشركة المشابهين (النوع نفسه، بموقع، بمبيعات منتظمة).
- *   2) الإعدادات: أنواع المحلات المستهدفة، ونطاق البحث، والمنتجات ذات الأولوية، ومن يستخدم الميزة.
- *   3) تصنيف العملاء: نوع كل منفذ — مقترحٌ من الاسم، والإدارة تؤكّده.
+ *   2) الإعدادات: أنواع المحلات المستهدفة، ونطاق البحث، والمنتجات ذات الأولوية، ومن يستخدم الميزة، وطريقة التعلّم.
+ *   3) «ما تعلّمه العقل»: حلقة التعلّم الليلية بأرقامها قبل/بعد ودروسها ونسخها (AiLearningPanel).
+ *   4) تصنيف العملاء: نوع كل منفذ — مقترحٌ من الاسم، والإدارة تؤكّده.
  */
 
+type LearningMode = 'AUTO' | 'REVIEW' | 'OFF';
 interface Settings {
   targetOutletTypes: string[]; searchRadiusM: number; priorityProductIds: string[]; estimateWindowMonths: number;
   minPeers: number; showMoney: boolean; repScope: 'ALL' | 'SELECTED'; repIds: string[]; dailySearchesPerRep: number; playbook: string | null;
   advisorEnabled: boolean; dailyChatTurnsPerRep: number;
+  /** حلقة التعلّم (الخادم يعيدهما بافتراضيَّي AUTO و٢٠) */
+  learningMode?: LearningMode; holdoutPct?: number;
 }
+const HOLDOUTS = [0, 10, 20, 30];
 interface TypeRow { code: string; label: string; targeted: boolean; classified: number; withLocation: number; withRegularSales: number; ready: boolean }
 interface Overview {
   settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean; mapsConfigured?: boolean; advisorConfigured?: boolean;
@@ -54,6 +61,7 @@ export default function AiRepPage() {
       toast.success(tr('تم حفظ إعدادات المندوب الذكي'));
       if (res.data?.settings) setForm(res.data.settings);
       qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] });
+      qc.invalidateQueries({ queryKey: ['ai-rep', 'learning'] });
     },
     onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e.response?.data?.message || tr('تعذّر الحفظ')),
   });
@@ -242,6 +250,32 @@ export default function AiRepPage() {
             </div>
           </div>
 
+          <div className="rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 space-y-3">
+            <p className="text-sm font-semibold text-[#1F1A13]">{tr('حلقة التعلّم')}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="label">{tr('طريقة التعلّم')}</span>
+                <select className="input mt-1" value={form.learningMode ?? 'AUTO'} onChange={e => set('learningMode', e.target.value as LearningMode)}>
+                  <option value="AUTO">{tr('تلقائي')}</option>
+                  <option value="REVIEW">{tr('بمراجعتي')}</option>
+                  <option value="OFF">{tr('متوقف')}</option>
+                </select>
+                <span className="text-[11px] text-[#8A8178]">
+                  {(form.learningMode ?? 'AUTO') === 'OFF' ? tr('متوقف: المستشار يعمل كما كان قبل التعلّم (الترتيب الافتراضي بلا دروس ولا معايرة)، وتُسجَّل نتائج الزيارات فقط')
+                    : form.learningMode === 'REVIEW' ? tr('بمراجعتي: دروس المراجعة الذاتية تنتظر اعتمادك قبل تجربتها')
+                      : tr('تلقائي: يعتمد العقل ما يثبت بالأرقام، ودروس المراجعة الذاتية تبدأ تجربةً قبل اعتمادها')}
+                </span>
+              </label>
+              <label className="block">
+                <span className="label">{tr('نسبة المجموعة الضابطة')}</span>
+                <select className="input mt-1" value={form.holdoutPct ?? 20} onChange={e => set('holdoutPct', Number(e.target.value))}>
+                  {HOLDOUTS.map(p => <option key={p} value={p}>{new Intl.NumberFormat(activeLocale(), { style: 'percent' }).format(p / 100)}</option>)}
+                </select>
+                <span className="text-[11px] text-[#8A8178]">{tr('أيام من عمل المناديب تبقى على الترتيب الافتراضي بلا دروس، لقياس أثر التعلّم بإنصاف')}</span>
+              </label>
+            </div>
+          </div>
+
           <label className="block">
             <span className="label">{tr('دليل البيع (يقرؤه المستشار الذكي)')}</span>
             <textarea className="input mt-1 min-h-[96px]" maxLength={4000} value={form.playbook ?? ''} onChange={e => set('playbook', e.target.value)}
@@ -256,6 +290,8 @@ export default function AiRepPage() {
           </div>
         </div>
       )}
+
+      <AiLearningPanel />
 
       <ClassifySection outletTypes={data.outletTypes} onSaved={() => qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] })} />
     </div>

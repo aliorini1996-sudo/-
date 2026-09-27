@@ -235,6 +235,12 @@ export const aiRepApi = {
   saveSettings: (data: unknown) => api.put('/ai-rep/admin/settings', data),
   classifyList: (params: Record<string, string | number>) => api.get('/ai-rep/admin/classify', { params }),
   classify: (items: { customerId: string; outletType: string | null }[]) => api.post('/ai-rep/admin/classify', { items }),
+  // حلقة التعلّم: «ما تعلّمه العقل» وإجراءات الإدارة عليه
+  learning: () => api.get('/ai-rep/admin/learning'),
+  lessonAction: (id: string, action: 'approve' | 'reject' | 'disable' | 'enable' | 'restore') =>
+    api.post(`/ai-rep/admin/learning/lessons/${encodeURIComponent(id)}`, { action }),
+  rollbackModel: (kind: 'POLICY' | 'CALIBRATION', version: number) => api.post(`/ai-rep/admin/learning/models/${kind}/rollback`, { version }),
+  resetLearning: () => api.post('/ai-rep/admin/learning/reset', { confirm: true }),
 };
 
 export const petroappApi = {

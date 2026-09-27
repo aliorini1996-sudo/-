@@ -34,12 +34,21 @@ import { placesApiKey, searchNearby, NearbyPlace } from '../ai-rep/places';
 import { mergeNearby } from '../ai-rep/nearby';
 import { chatCompletion, llmConfig } from '../ai-rep/llm';
 import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
-import { runAdvisor, numbersIn } from '../ai-rep/advisor';
+import { runAdvisor, numbersIn, scrubPii } from '../ai-rep/advisor';
 import { advisorSystemPrompt, baseAllowedNumbers, buildAdvisorTools, OutletCtx } from '../ai-rep/advisorTools';
 import { getCountryTax } from '../config/countries';
-import { GUIDE_QUESTION, planEligible, planFromText, rulePlan, ruleGuideText, PlanCandidate } from '../ai-rep/guide';
+import { GUIDE_QUESTION, GUIDE_QUESTION_LEARNED, planEligible, planFromText, rankCandidates, rulePlan, ruleGuideText, PlanCandidate } from '../ai-rep/guide';
+import { getLearned, invalidateLearned, policyFor, recordTurn, resetLearning, rollbackModel } from '../ai-rep/learn/store';
+import { learningView } from '../ai-rep/learn/view';
+import { assignArm } from '../ai-rep/learn/policy';
+import { resolveTuning } from '../ai-rep/learn/calibration';
+import { applyLessonAction, renderLessonsBlock, selectLessons } from '../ai-rep/learn/lessons';
+import { atDoor, candidateFeatures, classifyIntent, FEEDBACK_REASONS, hourBand, OBJECTION_CODES, outcomeObjection, parseManPlace, selfCheckFlags } from '../ai-rep/learn/signals';
+import { riyadhDay } from '../ai-rep/learn/stats';
+import type { Intent, Learned } from '../ai-rep/learn/types';
+import type { LearnedCtx } from '../ai-rep/advisorTools';
 import { addUsage, refundUsage, reserveUsage, usageDay, usageToday } from '../ai-rep/usage';
-import { getSession, patchSessionOutlet, saveSession, SessionOutlet } from '../ai-rep/session';
+import { getSession, patchSessionOutlet, peekSession, saveSession, SessionOutlet } from '../ai-rep/session';
 
 export { usageDay };
 
@@ -115,11 +124,13 @@ function mapsBrowserKey(): string | null {
   return k;
 }
 
-function estimateAt(c: RepCtx, data: TenantEstimateData, o: { lat: number; lng: number; outletType: string; customerId: string | null }): EstimateResult {
+function estimateAt(c: RepCtx, data: TenantEstimateData, o: { lat: number; lng: number; outletType: string; customerId: string | null }, learned?: Learned | null): EstimateResult {
+  const tuning = learned ? resolveTuning(learned, o.outletType, c.settings.learningMode) : { trialFactor: 1, calibrationVersion: null };
   return estimateOutlet({
     target: { lat: o.lat, lng: o.lng, outletType: o.outletType, excludeCustomerId: o.customerId },
     now: new Date(), window: data.window, peers: data.peers, monthly: data.monthly, firstOrders: data.firstOrders,
     products: data.products, minPeers: c.settings.minPeers, showMoney: c.showMoney,
+    trialFactor: tuning.trialFactor, calibrationVersion: tuning.calibrationVersion,
   }, outletTypeLabel(o.outletType));
 }
 
@@ -161,6 +172,7 @@ rep.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) => {
           used: usage?.chatTurns ?? 0,
           limit: c.settings.dailyChatTurnsPerRep,
         },
+        learning: { on: c.settings.learningMode !== 'OFF' },
       },
     });
   } catch (err) { next(err); }
@@ -235,13 +247,13 @@ async function mergeAndEstimate(req: AuthRequest, c: RepCtx, origin: { lat: numb
     origin, targetTypes: types, customers: near.map(n => ({ ...n, visible: visibleIds.has(n.id) })), outlets, isolation, now: new Date(),
   });
   // التوقّع: مرّة لكل (نوع، خلية، عميل مستبعَد) — العميل القائم لا يدخل ضمن المحلات المشابهة له نفسه
-  const data = await loadData(c);
+  const [data, learned] = await Promise.all([loadData(c), getLearned(c.tid)]);
   const memo = new Map<string, ReturnType<typeof summarize>>();
   const withEstimates = items.map((it, i) => {
     const cell = snapPoint(it.lat, it.lng);
     const key = `${it.outletType}|${cell.lat}|${cell.lng}|${it.customerId ?? ''}`;
     let s = memo.get(key);
-    if (!s) { s = summarize(estimateAt(c, data, it)); memo.set(key, s); }
+    if (!s) { s = summarize(estimateAt(c, data, it, learned)); memo.set(key, s); }
     return { ...it, ref: `P${i + 1}`, outletTypeLabel: outletTypeLabel(it.outletType), estimate: s };
   });
   return { items: withEstimates, window: data.window };
@@ -260,7 +272,8 @@ rep.post('/estimate', async (req: AuthRequest, res: Response, next: NextFunction
       res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: 'بلغت حدّ التوقّعات اليومي — يتجدّد غداً' });
       return;
     }
-    const result = estimateAt(c, await loadData(c), o);
+    const [data, learned] = await Promise.all([loadData(c), getLearned(c.tid)]);
+    const result = estimateAt(c, data, o, learned);
     res.json({ success: true, data: { ...result, outletTypeLabel: outletTypeLabel(o.outletType), maxPeers: MAX_PEERS, minPeers: c.settings.minPeers } });
   } catch (err) { next(err); }
 });
@@ -277,6 +290,7 @@ const outcomeSchema = z.object({
   lng: z.number().min(-180).max(180).optional(),
   accuracyM: z.number().min(0).max(100000).optional(),
   occurredAt: z.string().datetime().optional(),
+  objection: z.enum(OBJECTION_CODES as [string, ...string[]]).optional(),
 }).refine(b => !!b.placeId || !!b.repTypedName, { message: 'اكتب اسم المحل', path: ['repTypedName'] });
 
 /** الحالة بعد النتيجة: المحوَّل يبقى محوَّلاً، والمغلق مغلق، وما عداهما مفتوح. */
@@ -299,6 +313,10 @@ rep.post('/outcomes', async (req: AuthRequest, res: Response, next: NextFunction
     if (!Number.isFinite(at) || at > now + 5 * 60000 || at < now - 30 * 86400000) at = now;
     const occurredAt = new Date(at);
     const gps = b.lat != null && b.lng != null ? { lat: b.lat, lng: b.lng } : null;
+    // حلقة التعلّم: هل كان عند المحل؟ (موقع المحل من الجلسة في الذاكرة أو من معرّف man: — رفعٌ مؤجَّل بلا جلسة ⇒ null)
+    const so = b.placeId ? peekSession(c.tid, c.repId)?.outlets.find(x => x.placeId === b.placeId) : undefined;
+    const door = gps ? atDoor({ ...gps, accuracyM: b.accuracyM ?? null }, so ?? parseManPlace(b.placeId)) : null;
+    const obj = outcomeObjection(b.kind, (b.objection ?? null) as never, b.note);
 
     const result = await prisma.$transaction(async tx => {
       const existing = b.placeId ? await tx.aiOutlet.findUnique({ where: { tenantId_placeId: { tenantId: c.tid, placeId: b.placeId } } }) : null;
@@ -323,6 +341,7 @@ rep.post('/outcomes', async (req: AuthRequest, res: Response, next: NextFunction
         data: {
           tenantId: c.tid, outletId: outlet.id, salesRepId: c.repId, kind: b.kind, note: b.note ?? null,
           lat: gps?.lat ?? null, lng: gps?.lng ?? null, accuracyM: b.accuracyM ?? null, clientRef: b.clientRef, occurredAt,
+          objection: obj.objection, objectionSource: obj.source, atDoor: door, relation: so?.relation ?? null,
         },
       });
       return { eventId: ev.id, outletId: outlet.id, status: outlet.status };
@@ -368,19 +387,55 @@ rep.post('/guide', async (req: AuthRequest, res: Response, next: NextFunction) =
     const s = getSession(c.tid, c.repId, body.searchId);
     if (!s) { res.status(409).json(NO_SESSION); return; }
     const outlets = s.outlets.map(toOutletCtx);
-    const actx = await advisorContext(c, outlets, s.origin);
-    const cands = s.outlets.map(o => ({ ...o, typeLabel: outletTypeLabel(o.outletType), estimate: estimateAt(c, actx.data, o) }));
+    const [actx, learned] = await Promise.all([advisorContext(c, outlets, s.origin), getLearned(c.tid)]);
+    // حلقة التعلّم: ذراع اليوم لهذا المندوب (ضابطة بالنسبة المختارة)، وسياسة الترتيب، وفترة اليوم
+    const now = new Date();
+    const arm = assignArm(c.tid, c.repId, riyadhDay(now), c.settings);
+    const policy = policyFor(learned, arm);
+    const hb = hourBand(now, actx.data.timezone);
+    const cands = s.outlets.map(o => ({ ...o, typeLabel: outletTypeLabel(o.outletType), estimate: estimateAt(c, actx.data, o, learned) }));
     const byRef = new Map(cands.map(x => [x.ref, x]));
-    const plan = rulePlan(cands as PlanCandidate[], s.origin);
+    const ranked = rankCandidates(cands as Array<PlanCandidate & typeof cands[number]>, policy.params, hb);
+    const plan = rulePlan(cands as PlanCandidate[], s.origin, undefined, policy.params, hb);
+    const learnedOn = arm === 'LEARNED' && learned.mode !== 'OFF';
+    const learnedFlag = learnedOn && !!learned.policy;
     const rules = { text: ruleGuideText(plan, byRef, s.origin, actx.currency), plan, source: 'RULES' as const };
+    const turnId = randomUUID();
+    const turnBase = {
+      id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'GUIDE' as const, intent: 'GUIDE', arm, policyVersion: policy.version,
+      lessonIds: [] as string[], heldOutIds: [] as string[],
+    };
+    const rulesTurn = (candidatesPlan: string[]) => recordTurn({
+      ...turnBase, source: 'RULES', guard: 'NONE', badKinds: [], flags: [], tools: [], hops: 0, tokensIn: 0, tokensOut: 0,
+      candidates: candidateFeatures(ranked, candidatesPlan),
+    });
 
-    // العقل: إن كان مفعّلاً ومضبوطاً (مفتاح الشركة) — والدورة تُحجز ذرّياً قبل النداء، وإلا الخطة الحتمية (لا كلفة نموذج)
+    // العقل: إن كان مفعّلاً ومضبوطاً (مفتاح المنصّة الموحّد) — والدورة تُحجز ذرّياً قبل النداء، وإلا الخطة الحتمية (لا كلفة نموذج)
     const cfg = llmConfig();
-    if (!cfg || !c.settings.advisorEnabled || !outlets.some(o => !o.closed)) { res.json({ success: true, data: rules }); return; }
-    if (!(await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) { res.json({ success: true, data: rules }); return; }
+    if (!cfg || !c.settings.advisorEnabled || !outlets.some(o => !o.closed)) {
+      await rulesTurn(plan);
+      res.json({ success: true, data: { ...rules, turnId, learned: learnedFlag } }); return;
+    }
+    if (!(await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
+      await rulesTurn(plan);
+      res.json({ success: true, data: { ...rules, turnId, learned: learnedFlag } }); return;
+    }
+    const lessons = learnedOn
+      ? selectLessons(learned.lessons, { turnId, intent: 'GUIDE', types: new Set(outlets.map(o => o.outletType)) })
+      : { injected: [], heldOut: [] };
+    const lctx: LearnedCtx | null = learned.mode !== 'OFF' ? {
+      mode: learned.mode, arm, field: learned.field, policy: policy.params, hb,
+      recommended: ranked.slice(0, 5).map(x => x.ref),
+      calVersion: learned.calibration?.version ?? null,
+      trialFactorFor: t => resolveTuning(learned, t, c.settings.learningMode).trialFactor,
+      calCustomers: learned.calibration?.params.customers ?? null,
+    } : null;
+    const actxL = { ...actx, learned: lctx };
+    const question = learnedOn && learned.field ? GUIDE_QUESTION_LEARNED : GUIDE_QUESTION;
     const result = await runAdvisor({
-      system: advisorSystemPrompt(actx), history: [{ role: 'user', text: GUIDE_QUESTION }],
-      baseAllowed: baseAllowedNumbers(actx, numbersIn), tools: buildAdvisorTools(actx), llm: r => chatCompletion(cfg, r),
+      system: advisorSystemPrompt(actxL, { learned: learnedOn, lessonsBlock: renderLessonsBlock(lessons.injected) }),
+      history: [{ role: 'user', text: question, serverAuthored: true }],
+      baseAllowed: baseAllowedNumbers(actxL, numbersIn), tools: buildAdvisorTools(actxL), llm: r => chatCompletion(cfg, r),
     });
     // الرموز تُحتسب في كل الأحوال — ومنها الفشل والقالب
     await addUsage(c.tid, c.repId, {
@@ -388,14 +443,32 @@ rep.post('/guide', async (req: AuthRequest, res: Response, next: NextFunction) =
       guardRegen: 'guard' in result && result.guard === 'REGEN' ? 1 : 0,
       guardFallback: 'guard' in result && (result.guard === 'TRIM' || result.guard === 'TEMPLATE') ? 1 : 0,
     });
+    const eligible = planEligible(cands);
+    const lessonsRec = { lessonIds: lessons.injected.map(l => l.id), heldOutIds: lessons.heldOut };
     if ('error' in result || result.guard === 'TEMPLATE') {
       if ('error' in result) console.warn('[ai-rep] التوجيه بالعقل تعذّر:', result.code, 'tenant', c.tid);
-      res.json({ success: true, data: rules }); return;
+      await recordTurn({
+        ...turnBase, ...lessonsRec,
+        source: 'error' in result ? 'ERROR' : 'AI', guard: 'error' in result ? 'NONE' : 'TEMPLATE',
+        badKinds: 'error' in result ? [] : result.violation?.kinds ?? [],
+        flags: 'error' in result ? ['LLM_ERROR'] : ['EMPTY_PLAN'],
+        tools: 'error' in result ? [] : result.toolNames, hops: 'error' in result ? 0 : result.hops,
+        tokensIn: result.usage.promptTokens, tokensOut: result.usage.completionTokens,
+        candidates: candidateFeatures(ranked, plan),
+      });
+      res.json({ success: true, data: { ...rules, turnId, learned: learnedFlag } }); return;
     }
     // خطة العقل بترتيب خطواته المرقّمة (بلا إعادة ترتيب تناقض نصّه)، ومن الفرص الجديدة غير المرفوضة وحدها
-    const aiPlan = planFromText(result.text, planEligible(cands));
-    console.info('[ai-rep] توجيه', JSON.stringify({ tenant: c.tid, hops: result.hops, guard: result.guard, tin: result.usage.promptTokens, tout: result.usage.completionTokens }));
-    res.json({ success: true, data: { text: result.text, plan: aiPlan.length ? aiPlan : plan, source: 'AI' } });
+    const aiPlan = planFromText(result.text, eligible);
+    const finalPlan = aiPlan.length ? aiPlan : plan;
+    await recordTurn({
+      ...turnBase, ...lessonsRec, source: 'AI', guard: result.guard, badKinds: result.violation?.kinds ?? [],
+      flags: selfCheckFlags({ kind: 'GUIDE', source: 'AI', intent: 'GUIDE', text: result.text, toolNames: result.toolNames, toolErrors: result.toolErrors, eligibleRefs: eligible }),
+      tools: result.toolNames, hops: result.hops, tokensIn: result.usage.promptTokens, tokensOut: result.usage.completionTokens,
+      candidates: candidateFeatures(ranked, finalPlan),
+    });
+    console.info('[ai-rep] توجيه', JSON.stringify({ tenant: c.tid, hops: result.hops, guard: result.guard, arm, tin: result.usage.promptTokens, tout: result.usage.completionTokens }));
+    res.json({ success: true, data: { text: result.text, plan: finalPlan, source: 'AI', turnId, learned: learnedFlag } });
   } catch (err) { next(err); }
 });
 
@@ -422,29 +495,80 @@ rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) =>
       res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ أسئلة المستشار اليومي (${c.settings.dailyChatTurnsPerRep}) — القوائم والأرقام تعمل كالمعتاد` });
       return;
     }
-    const actx = await advisorContext(c, s ? s.outlets.map(toOutletCtx) : [], s?.origin ?? null);
+    const [actx, learned] = await Promise.all([advisorContext(c, s ? s.outlets.map(toOutletCtx) : [], s?.origin ?? null), getLearned(c.tid)]);
+    const now = new Date();
+    // حلقة التعلّم: نيّة السؤال رمزاً (النص لا يُخزَّن)، والذراع، والدروس، وأداة «ما واجهه الفريق»
+    const intent: Intent = classifyIntent(scrubPii(body.messages[body.messages.length - 1].text));
+    const arm = assignArm(c.tid, c.repId, riyadhDay(now), c.settings);
+    const policy = policyFor(learned, arm);
+    const learnedOn = arm === 'LEARNED' && learned.mode !== 'OFF';
+    const hb = hourBand(now, actx.data.timezone);
+    const turnId = randomUUID();
+    const types = new Set(s ? s.outlets.map(o => o.outletType) : c.settings.targetOutletTypes);
+    const lessons = learnedOn ? selectLessons(learned.lessons, { turnId, intent, types }) : { injected: [], heldOut: [] };
+    const recommended = s
+      ? rankCandidates(s.outlets.map(o => ({ ...o, estimate: estimateAt(c, actx.data, o, learned) })) as PlanCandidate[], policy.params, hb).slice(0, 5).map(x => x.ref)
+      : [];
+    const lctx: LearnedCtx | null = learned.mode !== 'OFF' ? {
+      mode: learned.mode, arm, field: learned.field, policy: policy.params, hb, recommended,
+      calVersion: learned.calibration?.version ?? null,
+      trialFactorFor: t => resolveTuning(learned, t, c.settings.learningMode).trialFactor,
+      calCustomers: learned.calibration?.params.customers ?? null,
+    } : null;
+    const actxL = { ...actx, learned: lctx };
     const started = Date.now();
     const result = await runAdvisor({
-      system: advisorSystemPrompt(actx),
+      system: advisorSystemPrompt(actxL, { learned: learnedOn, lessonsBlock: renderLessonsBlock(lessons.injected) }),
       // ردود المستشار السابقة تُقصّ (لا تُرفض) — والأسئلة محدودة بـ1500
       history: body.messages.map(m => ({ role: m.role, text: m.role === 'assistant' ? m.text.slice(0, 3000) : m.text })),
-      baseAllowed: baseAllowedNumbers(actx, numbersIn),
-      tools: buildAdvisorTools(actx),
+      baseAllowed: baseAllowedNumbers(actxL, numbersIn),
+      tools: buildAdvisorTools(actxL),
       llm: r => chatCompletion(cfg, r),
     });
+    const turnBase = {
+      id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'CHAT' as const, intent, arm, policyVersion: policy.version,
+      lessonIds: lessons.injected.map(l => l.id), heldOutIds: lessons.heldOut,
+      tokensIn: result.usage.promptTokens, tokensOut: result.usage.completionTokens,
+    };
     await addUsage(c.tid, c.repId, {
       tokensIn: result.usage.promptTokens, tokensOut: result.usage.completionTokens,
       guardRegen: 'guard' in result && result.guard === 'REGEN' ? 1 : 0,
       guardFallback: 'guard' in result && (result.guard === 'TRIM' || result.guard === 'TEMPLATE') ? 1 : 0,
     });
     if ('error' in result) {
+      await recordTurn({ ...turnBase, source: 'ERROR', guard: 'NONE', badKinds: [], flags: ['LLM_ERROR'], tools: [], hops: 0 });
       console.warn('[ai-rep] المستشار تعذّر:', result.code, 'tenant', c.tid);
       res.status(result.code === 'LLM_RATE_LIMIT' ? 429 : 503).json({ success: false, code: 'AI_' + result.code, message: 'المستشار غير متاح مؤقتاً — القوائم والتوقّعات تعمل كالمعتاد، حاول بعد قليل' });
       return;
     }
     // سجلّ بلا محتوى محادثة: الشركة والقفزات والرموز والحارس والزمن
     console.info('[ai-rep] دورة مستشار', JSON.stringify({ tenant: c.tid, hops: result.hops, tools: result.toolNames, guard: result.guard, tin: result.usage.promptTokens, tout: result.usage.completionTokens, cached: result.usage.cachedTokens, ms: Date.now() - started }));
-    res.json({ success: true, data: { text: result.text, refs: result.refs, guard: result.guard, searchId: s?.searchId ?? null } });
+    await recordTurn({
+      ...turnBase, source: 'AI', guard: result.guard, badKinds: result.violation?.kinds ?? [],
+      flags: selfCheckFlags({ kind: 'CHAT', source: 'AI', intent, text: result.text, toolNames: result.toolNames, toolErrors: result.toolErrors }),
+      tools: result.toolNames, hops: result.hops,
+    });
+    res.json({ success: true, data: { text: result.text, refs: result.refs, guard: result.guard, searchId: s?.searchId ?? null, turnId } });
+  } catch (err) { next(err); }
+});
+
+const feedbackSchema = z.object({
+  turnId: z.string().uuid(),
+  vote: z.union([z.literal(1), z.literal(-1)]),
+  reason: z.enum(FEEDBACK_REASONS as unknown as [string, ...string[]]).optional(),
+});
+
+rep.post('/feedback', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const c = ctxOf(req);
+    const b = feedbackSchema.parse(req.body);
+    const now = new Date();
+    const r = await prisma.aiTurn.updateMany({
+      where: { id: b.turnId, tenantId: c.tid, salesRepId: c.repId, createdAt: { gte: new Date(now.getTime() - 48 * 3600000) } },
+      data: { vote: b.vote, voteReason: b.vote === -1 ? b.reason ?? null : null, votedAt: now },
+    });
+    if (r.count === 0) { res.status(404).json({ success: false, code: 'AI_TURN_NOT_FOUND', message: 'انتهت مهلة تقييم هذا الرد' }); return; }
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 
@@ -597,7 +721,63 @@ admin.put('/settings', requireAdminPermission('canManageCompanySettings'), async
     const row = await prisma.aiRepSettings.upsert({ where: { tenantId: tid }, create: { tenantId: tid, ...data }, update: data });
     invalidateEstimateData(tid);
     clearGateCache(tid);
+    invalidateLearned(tid);
     res.json({ success: true, data: { settings: settingsView(row as Partial<AiRepSettingsView>) } });
+  } catch (err) { next(err); }
+});
+
+// ───────────── «ما تعلّمه العقل» (حلقة التعلّم) ─────────────
+
+const SCOPED_LEARNING = { success: false, message: 'حسابك مقيد بنطاق محدد — «ما تعلّمه العقل» يحتاج صلاحية غير مقيدة' };
+
+admin.get('/learning', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
+    const settings = await readSettings(tid);
+    res.json({ success: true, data: await learningView(tid, settings) });
+  } catch (err) { next(err); }
+});
+
+const lessonActionSchema = z.object({ action: z.enum(['approve', 'reject', 'disable', 'enable', 'restore']) });
+
+admin.post('/learning/lessons/:id', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
+    const { action } = lessonActionSchema.parse(req.body);
+    const r = await applyLessonAction(tid, String(req.params.id), action, req.user!.id);
+    if (!r.ok) {
+      res.status(r.status).json({ success: false, message: r.status === 404 ? 'الدرس غير موجود' : 'لا يمكن تطبيق هذا الإجراء على حالة الدرس الحالية' });
+      return;
+    }
+    invalidateLearned(tid);
+    res.json({ success: true, data: { lesson: r.lesson } });
+  } catch (err) { next(err); }
+});
+
+const rollbackSchema = z.object({ version: z.number().int().min(0).max(100000) });
+
+admin.post('/learning/models/:kind/rollback', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
+    const kind = req.params.kind === 'POLICY' || req.params.kind === 'CALIBRATION' ? req.params.kind : null;
+    if (!kind) { res.status(400).json({ success: false, message: 'نوع غير معروف' }); return; }
+    const { version } = rollbackSchema.parse(req.body);
+    const r = await rollbackModel(tid, kind, version, req.user!.id, 'ADMIN');
+    if (!r.ok) { res.status(404).json({ success: false, message: 'النسخة غير موجودة أو لا يمكن الرجوع إليها' }); return; }
+    res.json({ success: true, data: { ok: true } });
+  } catch (err) { next(err); }
+});
+
+admin.post('/learning/reset', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
+    z.object({ confirm: z.literal(true) }).parse(req.body);
+    await resetLearning(tid, req.user!.id);
+    res.json({ success: true, data: { ok: true } });
   } catch (err) { next(err); }
 });
 

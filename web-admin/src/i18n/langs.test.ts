@@ -117,8 +117,10 @@ test('كل مفتاح يُنادى في الكود موجود في القامو�
   const shareFile = path.join(srcDir, 'pages', 'EinvoicePublicPage.tsx');
   const shareHave = new Set<string>();
   for (const m of read('src', 'lib', 'zatca', 'shareView.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) shareHave.add(m[1]);
-  // المندوب الذكي: صفحة الشركة وشاشة المندوب كسولتان وعباراتهما في i18n/aiRepPhrases.ts (عبر useAiRepTr) — تُحتسب لهما وحدهما
-  const aiRepFiles = new Set([path.join(srcDir, 'pages', 'AiRepPage.tsx'), path.join(srcDir, 'rep', 'RepAiScreen.tsx')]);
+  // المندوب الذكي: صفحة الشركة (ولوحة «ما تعلّمه العقل» داخلها) وشاشة المندوب كسولة وعباراتها في i18n/aiRepPhrases.ts
+  // (عبر useAiRepTr) — تُحتسب لها وحدها
+  const aiRepFiles = new Set([path.join(srcDir, 'pages', 'AiRepPage.tsx'), path.join(srcDir, 'pages', 'AiLearningPanel.tsx'), path.join(srcDir, 'rep', 'RepAiScreen.tsx')]);
+  for (const f of aiRepFiles) assert.ok(fs.existsSync(f), `ملف غير موجود: ${f}`);
   const aiRepHave = new Set<string>();
   for (const m of read('src', 'i18n', 'aiRepPhrases.ts').matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*:\s*\{/gm)) aiRepHave.add(m[1]);
   const missing = new Set<string>();

@@ -57,3 +57,83 @@ import { renderRefs } from './aiRepLogic';
 test('عرض الأسماء مكان مراجع المستشار (الاسم لا يغادر الجهاز)', () => {
   assert.equal(renderRefs('ابدأ بـ P1 ثم P2 وليس P10', [{ ref: 'P1', label: 'بقالة الخير' }, { ref: 'P2', label: 'صيدلية' }]), 'ابدأ بـ «بقالة الخير» ثم «صيدلية» وليس P10');
 });
+
+// ───────────── حلقة التعلّم ─────────────
+import {
+  FEEDBACK_REASONS, LESSON_ORIGIN_LABEL, LESSON_REASON_LABEL, OBJECTIONS, OBJECTION_OUTCOMES, VERDICT_LABEL,
+  autoRolledBack, betaAbove, lessonActions, toRate, verdictOfCI, verdictOfP,
+} from './aiRepLogic';
+
+test('أسباب الرفض: عشرة رموز فريدة مطابقة للخادم، ولا أزرار مع مغلق/أصبح عميلاً/مورّد حصري', () => {
+  const codes = OBJECTIONS.map(o => o.code);
+  assert.equal(codes.length, 10);
+  assert.equal(new Set(codes).size, 10, 'رمز مكرّر');
+  assert.equal(new Set(OBJECTIONS.map(o => o.label)).size, 10, 'تسمية مكرّرة');
+  // نسخة الخادم: backend/src/ai-rep/learn/signals.ts OBJECTION_CODES — الخادم يرفض أي رمز غيرها بـ400
+  assert.deepEqual(codes, ['PRICE', 'HAS_SUPPLIER', 'NO_SHELF_SPACE', 'NEEDS_CREDIT', 'SLOW_MOVING', 'DECISION_MAKER_ABSENT', 'WANTS_SAMPLE', 'UNKNOWN_BRAND', 'TIMING', 'OTHER']);
+  for (const k of ['CLOSED', 'CONVERTED', 'EXCLUSIVE_SUPPLIER']) assert.ok(!OBJECTION_OUTCOMES.has(k), `أزرار السبب لا تظهر مع ${k}`);
+  for (const k of ['INTERESTED', 'CALL_BACK', 'QUOTE', 'NOT_INTERESTED']) assert.ok(OBJECTION_OUTCOMES.has(k));
+  for (const k of OBJECTION_OUTCOMES) assert.ok(OUTCOMES.some(o => o.kind === k), `نتيجة غير معروفة: ${k}`);
+});
+
+test('أسباب «غير مفيد» مطابقة لرموز الخادم', () => {
+  assert.deepEqual(FEEDBACK_REASONS.map(r => r.code), ['WRONG_OUTLET', 'WRONG_QTY', 'NOT_PRACTICAL', 'WRONG_INFO', 'TOO_LONG']);
+});
+
+test('كل تسمية حلقة التعلّم لها ترجمة باللغات الأربع', () => {
+  const labels = [
+    ...OBJECTIONS.map(o => o.label), ...FEEDBACK_REASONS.map(r => r.label), ...Object.values(VERDICT_LABEL),
+    ...Object.values(LESSON_REASON_LABEL), ...Object.values(LESSON_ORIGIN_LABEL),
+  ];
+  for (const lang of ['en', 'fr', 'tr', 'zh']) {
+    for (const l of labels) assert.notEqual(aiRepTranslate(lang, l), l, `بلا ترجمة ${lang}: ${l}`);
+  }
+});
+
+test('الأحكام لا تدّعي تحسّناً ما لم يستبعد المجال الصفر', () => {
+  // نسب: ≥0.9 مؤكَّد، 0.7–0.9 مؤشّر، وإلا لا أثر؛ ودون الحدّ الأدنى للعدد لا يُدّعى شيء
+  assert.equal(verdictOfP(0.95), 'CONFIRMED');
+  assert.equal(verdictOfP(0.8), 'HINT');
+  assert.equal(verdictOfP(0.6), 'NONE');
+  assert.equal(verdictOfP(0.99, 5, 20), 'NONE');
+  assert.equal(verdictOfP(null), 'NEEDS_DATA');
+  // الترتيب: lo90 > 0 وحده «مؤكَّد»
+  assert.equal(verdictOfCI(0.05, 0.01, 0.09, 100, 40), 'CONFIRMED');
+  assert.equal(verdictOfCI(0.03, -0.01, 0.07, 100, 40), 'HINT');
+  assert.equal(verdictOfCI(0, -0.04, 0.04, 100, 40), 'NONE');
+  assert.equal(verdictOfCI(0.2, 0.1, 0.3, 12, 40), 'NONE', 'أزواج أقل من المطلوب');
+  assert.equal(verdictOfCI(null, null, null), 'NEEDS_DATA');
+});
+
+test('betaAbove: احتمال أن تتجاوز النسبة عتبة (تقريب طبيعي كما في الخادم)', () => {
+  assert.ok(betaAbove(90, 100, 0.5) > 0.99);
+  assert.ok(betaAbove(10, 100, 0.5) < 0.01);
+  assert.ok(Math.abs(betaAbove(50, 100, 0.5) - 0.5) < 0.01);
+  assert.ok(betaAbove(3, 4, 0.5) < 0.9, 'أربع حالات لا تكفي لادّعاء');
+});
+
+test('toRate يقبل العدّاد والنسبة', () => {
+  assert.equal(toRate(3, 30), 0.1);
+  assert.equal(toRate(0.25, 30), 0.25);
+  assert.equal(toRate(0, 30), 0);
+  assert.equal(toRate(null, 30), null);
+  assert.equal(toRate(40, 30), null);
+});
+
+test('أسوأ — أُعيد للأساس: آخر نسخة أُرجعت تلقائياً لا بيد الإدارة', () => {
+  const m = (version: number, status: string, reason: string | null = null) => ({ kind: 'POLICY', version, status, reason });
+  assert.equal(autoRolledBack([m(1, 'SUPERSEDED'), m(2, 'ROLLED_BACK', 'AUTO_REGRESSION')], 'POLICY'), true);
+  assert.equal(autoRolledBack([m(1, 'ACTIVE'), m(2, 'ROLLED_BACK', 'ADMIN_ROLLBACK')], 'POLICY'), false);
+  assert.equal(autoRolledBack([m(1, 'ROLLED_BACK', 'AB_WORSE'), m(2, 'ACTIVE')], 'POLICY'), false, 'نسخة أحدث فعّالة');
+  assert.equal(autoRolledBack([m(1, 'ROLLED_BACK', 'AB_WORSE')], 'CALIBRATION'), false);
+  assert.equal(autoRolledBack([], 'POLICY'), false);
+});
+
+test('إجراءات الدرس لكل حالة (الخادم يرفض غيرها بـ409)', () => {
+  assert.deepEqual(lessonActions('PENDING'), ['approve', 'reject']);
+  assert.deepEqual(lessonActions('TRIAL'), ['disable']);
+  assert.deepEqual(lessonActions('ACTIVE'), ['disable']);
+  assert.deepEqual(lessonActions('DISABLED'), ['enable']);
+  assert.deepEqual(lessonActions('RETIRED'), ['restore']);
+  assert.deepEqual(lessonActions('REJECTED'), []);
+});
