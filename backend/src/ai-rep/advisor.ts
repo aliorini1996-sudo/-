@@ -15,6 +15,7 @@
  * الدالة صرفة بتبعيات محقونة (النموذج والأدوات) — مختبَرة بلا شبكة.
  */
 import type { LlmMessage, LlmRequest, LlmResult, LlmToolSpec, LlmUsage } from './llm';
+import { categorizeBadNumbers, type BadKind } from './badNumbers';
 
 export const MAX_HOPS = 4;
 /** حدّ الرموز لإعادة رد انقطع بحدّ الرموز (التفكير من ضمنه). */
@@ -32,7 +33,12 @@ export interface AdvisorTool {
   spec: LlmToolSpec;
   run(args: Record<string, unknown>): Promise<ToolOutput | { error: string }>;
 }
-export interface AdvisorTurn { role: 'user' | 'assistant'; text: string }
+export interface AdvisorTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  /** نصٌّ كتبه الخادم (سؤال التوجيه): يُرسل للنموذج لكن أرقامه لا تدخل القائمة البيضاء («حتى ٥» ليست كمية). */
+  serverAuthored?: boolean;
+}
 export type GuardResult = 'PASS' | 'REGEN' | 'TRIM' | 'TEMPLATE';
 export interface AdvisorResult {
   text: string;
@@ -41,6 +47,10 @@ export interface AdvisorResult {
   hops: number;
   usage: LlmUsage;
   toolNames: string[];
+  /** استدعاءات أدوات فاشلة (وسائط خاطئة، أداة مجهولة، تكرار). */
+  toolErrors: number;
+  /** مخالفة الحارس في أول مسودة (للتعلّم من النفس) — المسودة نفسها لا تُعاد ولا تُخزَّن. */
+  violation: { count: number; kinds: BadKind[] } | null;
 }
 export interface AdvisorError { error: 'LLM'; code: string; usage: LlmUsage }
 
@@ -135,7 +145,8 @@ export function extractNumbers(s: string): number[] {
   return out;
 }
 
-const SKIP_KEYS = new Set(['ref', 'refs', 'order', 'note']);
+// مفاتيح مراجع وترتيب: أرقامها ليست كميات (الترتيب المتعلَّم يُعطى مراجعَ P لا أرقاماً، واحتياطاً تُستثنى مفاتيح الرتبة)
+const SKIP_KEYS = new Set(['ref', 'refs', 'order', 'note', 'recommended_order', 'rank', 'planner_rank']);
 const PCT_KEY = /penetration|pct/i;
 
 /**
@@ -221,8 +232,12 @@ export async function runAdvisor(opts: {
     ...opts.history.map(h => ({ role: h.role, content: h.role === 'user' ? scrubPii(h.text) : h.text }) as LlmMessage),
   ];
   const allowed = new Set(opts.baseAllowed);
-  // أرقام رسائل المندوب، وأرقام ردود المستشار السابقة (مرّت على الحارس في دورتها)
-  for (const h of opts.history) extractNumbers(h.role === 'user' ? scrubPii(h.text) : h.text).forEach(n => { allowed.add(n); allowed.add(round1(n)); });
+  // أرقام رسائل المندوب، وأرقام ردود المستشار السابقة (مرّت على الحارس في دورتها) — لا أرقام نصوص الخادم
+  for (const h of opts.history) {
+    if (h.serverAuthored) continue;
+    extractNumbers(h.role === 'user' ? scrubPii(h.text) : h.text).forEach(n => { allowed.add(n); allowed.add(round1(n)); });
+  }
+  let violation: AdvisorResult['violation'] = null;
   const usage: LlmUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
   const addUsage = (u: LlmUsage) => { usage.promptTokens += u.promptTokens; usage.completionTokens += u.completionTokens; usage.cachedTokens += u.cachedTokens; };
   const fail = (code: string): AdvisorError => ({ error: 'LLM', code, usage });
@@ -302,6 +317,7 @@ export async function runAdvisor(opts: {
     // حارس الأرقام
     if (unsupportedNumbers(text, allowed).length === 0) return finalize(text, truncated ? 'TRIM' : 'PASS');
     const bad = unsupportedNumbers(text, allowed);
+    violation = { count: bad.length, kinds: categorizeBadNumbers(numericView(text), bad, allowed) };
     const regen = await opts.llm({
       messages: [...messages, { role: 'assistant', content: text }, {
         role: 'user',
@@ -321,7 +337,7 @@ export async function runAdvisor(opts: {
   }
 
   function finalize(text: string, guard: GuardResult): AdvisorResult {
-    return { text, refs: [...refs], guard, hops, usage, toolNames };
+    return { text, refs: [...refs], guard, hops, usage, toolNames, toolErrors: badArgRetries, violation };
   }
 }
 

@@ -131,6 +131,10 @@ model Tenant {
   aiOutletEvents        AiOutletEvent[]
   aiEstimateShots       AiEstimateSnapshot[]
   aiUsageDaily          AiUsageDaily[]
+  aiTurns               AiTurn[]
+  aiLearnedModels       AiLearnedModel[]
+  aiLessons             AiLesson[]
+  aiLearningRuns        AiLearningRun[]
 
   @@map("tenants")
 }
@@ -3301,6 +3305,9 @@ model AiRepSettings {
   advisorEnabled       Boolean  @default(true) // المستشار الذكي (محادثة) — للشركة إيقافه مع بقاء القوائم والتوقّعات
   dailyChatTurnsPerRep Int      @default(40) // سقف أسئلة المستشار لكل مندوب يومياً (كلفة النموذج)
   playbook             String? // دليل البيع للشركة (نقاط البيع والعروض وسياسة الآجل) — يقرؤه المستشار
+  learningMode         String    @default("AUTO") // حلقة التعلّم: AUTO | REVIEW | OFF — REVIEW يخصّ دروس المراجعة الذاتية وحدها
+  holdoutPct           Int       @default(20) // 0 | 10 | 20 | 30 — مجموعة ضابطة (ترتيب الفرص + الدروس فقط)
+  learningResetAt      DateTime? // تكتبه «إعادة التعلّم من الصفر» وحدها
   updatedById          String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
@@ -3324,6 +3331,7 @@ model AiOutlet {
   lastOutcomeAt       DateTime?
   lastSalesRepId      String?
   convertedCustomerId String?
+  convertedAt         DateTime? // لحظة التحويل (لا تُكتب فوقها نتائج لاحقة)
   createdBySalesRepId String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -3348,12 +3356,17 @@ model AiOutletEvent {
   lat        Float?
   lng        Float?
   accuracyM  Float?
+  objection       String? // سبب التردّد/الرفض (learn/signals.ts OBJECTION_CODES) — من زرّ المندوب أو تصنيف كلمات الملاحظة؛ النص لا يغادر القاعدة
+  objectionSource String? // REP | KW | IMPLIED
+  atDoor          Boolean? // هل كان المندوب عند المحل (من إحداثيات الجلسة في الذاكرة) — null = غير معروف
+  relation        String? // NEW | CUSTOMER | POSSIBLE_CUSTOMER من الجلسة
   clientRef  String
   occurredAt DateTime
   createdAt  DateTime @default(now())
 
   @@unique([tenantId, clientRef])
   @@index([tenantId, outletId])
+  @@index([tenantId, occurredAt])
   @@map("ai_outlet_events")
 }
 
@@ -3372,6 +3385,9 @@ model AiEstimateSnapshot {
   windowFrom    String // YYYY-MM
   windowTo      String
   payload       Json // التوقّع لكل منتج كما عُرض
+  calibrationVersion Int? // نسخة معايرة الطلب التجريبي المعروضة (null = بلا معايرة)
+  evaluatedAt        DateTime? // قورنت بأول فاتورة فعلية (حلقة التعلّم)
+  actual             Json? // {first:{productId:qty}, noPurchase}
   createdAt     DateTime @default(now())
 
   @@index([tenantId, createdAt])
@@ -3398,4 +3414,106 @@ model AiUsageDaily {
 
   @@unique([tenantId, salesRepId, day])
   @@map("ai_usage_daily")
+}
+
+
+// ───────────── المندوب الذكي: حلقة التعلّم (لكل شركة على حدة — لا تنتقل خبرة شركة لأخرى) ─────────────
+
+// دورة مستشار واحدة (توجيه أو محادثة) — بلا أي نص سؤال أو رد
+model AiTurn {
+  id            String    @id // uuid يُولَّد قبل نداء النموذج ويُعاد للجهاز turnId
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId    String
+  kind          String // GUIDE | CHAT
+  source        String // AI | RULES | ERROR
+  intent        String // learn/signals.ts INTENTS
+  arm           String // LEARNED | BASELINE
+  policyVersion Int       @default(0) // 0 = DEFAULT_POLICY
+  guard         String    @default("NONE") // PASS | REGEN | TRIM | TEMPLATE | NONE
+  badKinds      String[]  @default([]) // ARITH | MONEY | PCT | DIST_TIME | QTY | OTHER (أول مسودة خالفت الحارس)
+  flags         String[]  @default([]) // INELIGIBLE_REF | EMPTY_PLAN | NO_TOOL | OVER_LENGTH | TOOL_ERRORS | LLM_ERROR
+  tools         String[]  @default([])
+  hops          Int       @default(0)
+  lessonIds     String[]  @default([]) // دروس حُقنت في التعليمات
+  heldOutIds    String[]  @default([]) // دروس تجربة مؤهّلة حُجبت (مقارنة)
+  candidates    Json? // التوجيه فقط: ≤٢٠ × {p,t,b,c,v,lo,rr,fr} — بلا مسافات ولا إحداثيات ولا أسماء
+  vote          Int? // 1 | -1
+  voteReason    String? // WRONG_OUTLET | WRONG_QTY | NOT_PRACTICAL | WRONG_INFO | TOO_LONG
+  votedAt       DateTime?
+  tokensIn      Int       @default(0)
+  tokensOut     Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, salesRepId, createdAt])
+  @@map("ai_turns")
+}
+
+// معاملات متعلَّمة بإصدارات (لكل شركة): POLICY ترتيب الفرص، CALIBRATION معايرة الطلب التجريبي
+model AiLearnedModel {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind        String // POLICY | CALIBRATION
+  version     Int
+  status      String    @default("CANDIDATE") // CANDIDATE | ACTIVE | REJECTED | SUPERSEDED | ROLLED_BACK
+  params      Json
+  metrics     Json // دليل البوابة
+  reason      String?
+  trainedAt   DateTime  @default(now())
+  promotedAt  DateTime?
+  changedById String?
+
+  @@unique([tenantId, kind, version])
+  @@index([tenantId, kind, status])
+  @@map("ai_learned_models")
+}
+
+// ذاكرة الدروس (لكل شركة) — نص عربي بلا أرقام، بدليل، قابل للمراجعة والتعطيل والاستعادة
+model AiLesson {
+  id               String    @id @default(uuid())
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key              String // OBJ:GROCERY:HAS_SUPPLIER | TIME:GROCERY:2 | REVISIT:GROCERY | SELF:QTY_GROUNDING | REFL:<sha1-12>
+  kind             String // FIELD | PROCESS
+  origin           String // STATS | SELF | REFLECTION
+  outletType       String?
+  intent           String?
+  textAr           String
+  status           String    @default("TRIAL") // PENDING | TRIAL | ACTIVE | RETIRED | DISABLED | REJECTED
+  statusReason     String?
+  evidence         Json // للإدارة فقط، لا يُرسل للعقل
+  trialStartedAt   DateTime?
+  missNights       Int       @default(0)
+  lastReinforcedAt DateTime  @default(now())
+  history          Json      @default("[]") // آخر ٢٠: {at,from,to,by,reason}
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId, status])
+  @@map("ai_lessons")
+}
+
+// ليلة تعلّم لكل شركة: قفل + سجلّ خطوات + إحصاء الميدان + مؤشرات
+model AiLearningRun {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  day        String // YYYY-MM-DD بتوقيت الرياض
+  status     String // RUNNING | DONE | PARTIAL | FAILED
+  attempts   Int       @default(1)
+  steps      Json      @default("{}")
+  llm        String    @default("NOT_RUN") // USED | SKIPPED_NO_KEY | SKIPPED_MODE | SKIPPED_QUIET | SKIPPED_BUDGET | SKIPPED_RATE_LIMIT | FAILED
+  tokensIn   Int       @default(0)
+  tokensOut  Int       @default(0)
+  field      Json?
+  metrics    Json      @default("{}")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@unique([tenantId, day])
+  @@index([tenantId, startedAt])
+  @@map("ai_learning_runs")
 }

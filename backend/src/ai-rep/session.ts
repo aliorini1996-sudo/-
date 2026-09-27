@@ -51,6 +51,13 @@ export function getSession(tid: string, repId: string, searchId: string | null |
   return s;
 }
 
+/** جلسة المندوب الحالية أياً كان معرّفها (لقراءة موقع المحل عند تسجيل نتيجة — «هل كان عند الباب»). */
+export function peekSession(tid: string, repId: string, now = Date.now()): SearchSession | null {
+  const s = store.get(k(tid, repId));
+  if (!s || now - s.createdAt > SESSION_TTL_MS) return null;
+  return s;
+}
+
 /** تحديث محلٍّ في الجلسة بعد نتيجة زيارة أو تحويل (المرجع لا يتغيّر). */
 export function patchSessionOutlet(tid: string, repId: string, placeId: string, patch: Partial<SessionOutlet>): void {
   const s = store.get(k(tid, repId));

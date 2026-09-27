@@ -10,6 +10,7 @@
 import { haversineKm, EstimateResult } from './estimate';
 import { orderStops } from './advisorTools';
 import { normalizeDigits } from './advisor';
+import { DEFAULT_POLICY, type ConfLevel, type PolicyParams } from './learn/types';
 
 export interface PlanCandidate {
   ref: string;
@@ -20,36 +21,58 @@ export interface PlanCandidate {
   lastOutcome: string | null;
   closed?: boolean;
   estimate: EstimateResult;
+  outletType: string;
 }
 
 const REJECTED = new Set(['NOT_INTERESTED', 'EXCLUSIVE_SUPPLIER', 'CLOSED', 'CONVERTED']);
-const CONF_WEIGHT: Record<string, number> = { HIGH: 1, MEDIUM: 0.8, LOW: 0.5 };
 export const PLAN_MAX_STOPS = 5;
 
-/** قيمة الفرصة: الوسيط الشهري المتوقّع إن ظهر المال، وإلا متوسط انتشار أعلى الأصناف (مقياس نسبي). */
-export function opportunityScore(c: PlanCandidate): number {
+/** قيمة الفرصة V: الوسيط الشهري المتوقّع إن ظهر المال، وإلا متوسط انتشار أعلى الأصناف (مقياس نسبي). */
+export function candidateValue(c: Pick<PlanCandidate, 'estimate'>): number {
   const e = c.estimate;
-  let value = 1;
-  let w = 0.4;
-  if (e.ok) {
-    w = CONF_WEIGHT[e.confidence] ?? 0.5;
-    if (e.monthlyTotalValue) value = 1 + e.monthlyTotalValue.median;
-    else {
-      const top = e.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3);
-      value = 1 + (top.length ? (top.reduce((s, p) => s + (p.penetration ?? 0), 0) / top.length) * 100 : 0);
-    }
-  }
-  return (value * w) / (0.3 + c.distanceM / 1000);
+  if (!e.ok) return 1;
+  if (e.monthlyTotalValue) return 1 + e.monthlyTotalValue.median;
+  const top = e.products.filter(p => (p.buyers ?? 0) > 0 && p.penetration != null).slice(0, 3);
+  return 1 + (top.length ? (top.reduce((s, p) => s + (p.penetration ?? 0), 0) / top.length) * 100 : 0);
 }
 
-/** الخطة الحتمية: أفضل الفرص الجديدة ثم أقصر ترتيب من موقع المندوب. */
-export function rulePlan(cands: PlanCandidate[], origin: { lat: number; lng: number } | null, maxStops = PLAN_MAX_STOPS): string[] {
-  const pool = cands
-    .filter(c => c.relation === 'NEW' && !c.closed && !(c.lastOutcome && REJECTED.has(c.lastOutcome)))
-    .map(c => ({ c, s: opportunityScore(c) }))
+export function candidateConf(c: Pick<PlanCandidate, 'estimate'>): ConfLevel {
+  return c.estimate.ok ? c.estimate.confidence : 'NONE';
+}
+
+/**
+ * نقاط الفرصة بسياسة ترتيب (متعلَّمة أو افتراضية):
+ *   V · confW[conf] · typeMult[type] · (1 − خطر الإغلاق في فترة اليوم) / (0.3 + km)^alpha
+ * بالسياسة الافتراضية = معادلة ما قبل التعلّم حرفياً (اختبار انحدار يقفلها).
+ */
+export function scoreWith(c: Pick<PlanCandidate, 'estimate' | 'distanceM' | 'outletType'>, p: PolicyParams, hb: number): number {
+  const conf = candidateConf(c);
+  const w = p.confW[conf] ?? (conf === 'NONE' ? 0.4 : 0.5);
+  const tm = p.typeMult[c.outletType] ?? 1;
+  const risk = p.useClosed && p.closedRisk?.[c.outletType] ? 1 - (p.closedRisk[c.outletType][hb] ?? 0) : 1;
+  const km = c.distanceM / 1000;
+  const denom = p.alpha === 1 ? 0.3 + km : Math.pow(0.3 + km, p.alpha);
+  return (candidateValue(c) * w * tm * risk) / denom;
+}
+
+/** النقاط بالسياسة الافتراضية (توافقاً مع ما قبل التعلّم). */
+export function opportunityScore(c: PlanCandidate): number { return scoreWith(c, DEFAULT_POLICY, 0); }
+
+const eligible = (c: Pick<PlanCandidate, 'relation' | 'lastOutcome'> & { closed?: boolean }) =>
+  c.relation === 'NEW' && !c.closed && !(c.lastOutcome && REJECTED.has(c.lastOutcome));
+
+/** المؤهّلون مرتّبين بالنقاط ثم الأقرب. */
+export function rankCandidates<T extends PlanCandidate>(cands: T[], p: PolicyParams = DEFAULT_POLICY, hb = 0): T[] {
+  return cands
+    .filter(eligible)
+    .map(c => ({ c, s: scoreWith(c, p, hb) }))
     .sort((a, b) => b.s - a.s || a.c.distanceM - b.c.distanceM)
-    .slice(0, maxStops)
     .map(x => x.c);
+}
+
+/** الخطة الحتمية: أفضل الفرص الجديدة (بسياسة الترتيب) ثم أقصر ترتيب من موقع المندوب. */
+export function rulePlan(cands: PlanCandidate[], origin: { lat: number; lng: number } | null, maxStops = PLAN_MAX_STOPS, p: PolicyParams = DEFAULT_POLICY, hb = 0): string[] {
+  const pool = rankCandidates(cands, p, hb).slice(0, maxStops);
   if (!origin) return pool.sort((a, b) => a.distanceM - b.distanceM).map(c => c.ref);
   return orderStops(origin, pool).map(c => c.ref);
 }
@@ -87,18 +110,32 @@ export const GUIDE_QUESTION =
   'أعطني توجيهاً عملياً مرقّماً: بأي محل أبدأ ولماذا، والترتيب، وماذا أعرض على كل محل وكم (الطلب التجريبي)، وجملة افتتاحية قصيرة للحديث مع صاحب المحل. ' +
   'اذكر كل محل بمرجعه (مثل P3).';
 
+/** سؤال التوجيه في الذراع المتعلّمة (ترتيب موصى به من نتائج زيارات الشركة + الاعتراض الأرجح). */
+export const GUIDE_QUESTION_LEARNED =
+  'افحص كل المحلات المجاورة (استدعِ list_opportunities)، وابدأ من الترتيب الموصى به recommended_order المتعلَّم من نتائج زيارات شركتك، ثم استدعِ outlet_estimate لأفضل الفرص الجديدة (حتى ٥)، ثم plan_route لترتيبها. ' +
+  'التزم بالترتيب الموصى به ما لم تذكر سبباً ظاهراً في نتائج الأدوات. أعطني توجيهاً عملياً مرقّماً: بأي محل أبدأ ولماذا، وماذا أعرض على كل محل وكم (الطلب التجريبي)، وجملة افتتاحية، والاعتراض الأرجح common_objection إن ظهر وكيف أردّ عليه من دليل البيع. ' +
+  'اذكر كل محل بمرجعه (مثل P3).';
+
+/**
+ * أول مرجع في كل سطر مرقّم («1) P4 …») بترتيبه — محطّات الخطة كما كتبها العقل (قد تتكرّر أو تكون غير مؤهّلة).
+ * أرقام هندية وترقيم مُبرَز (**1.** أو ### 2)) يُوحَّدان قبل المطابقة.
+ */
+export function numberedStepRefs(text: string): string[] {
+  const out: string[] = [];
+  for (const line of normalizeDigits(text).matchAll(/^\s*[*#>\s]*\d{1,2}\s*[).\-–:]\**\s*(.*)$/gm)) {
+    const m = line[1].match(/\bP\d{1,3}\b/);
+    if (m) out.push(m[0]);
+  }
+  return out;
+}
+
 /** مراجع الخطة من نص العقل: بترتيب أول ظهور، مقصورةً على الفرص الجديدة المعروفة. */
 export function planFromText(text: string, allowed: Set<string>, max = PLAN_MAX_STOPS): string[] {
   const out: string[] = [];
   const take = (ref: string) => { if (allowed.has(ref) && !out.includes(ref) && out.length < max) out.push(ref); };
-  // الخطوات المرقّمة أولاً («1) P4 …»): أول مرجع في كل سطر مرقّم هو محطّته — فالمذكور للتجنّب في آخر السطر لا يدخل
-  // أرقام هندية وترقيم مُبرَز (**1.** أو ### 2)) يُوحَّدان قبل المطابقة
+  // الخطوات المرقّمة أولاً: أول مرجع في كل سطر مرقّم هو محطّته — فالمذكور للتجنّب في آخر السطر لا يدخل
   const plain = normalizeDigits(text);
-  const numbered = [...plain.matchAll(/^\s*[*#>\s]*\d{1,2}\s*[).\-–:]\**\s*(.*)$/gm)];
-  for (const line of numbered) {
-    const m = line[1].match(/\bP\d{1,3}\b/);
-    if (m) take(m[0]);
-  }
+  for (const ref of numberedStepRefs(plain)) take(ref);
   if (out.length) return out;
   // بلا ترقيم: بترتيب أول ظهور
   for (const m of plain.matchAll(/\bP\d{1,3}\b/g)) take(m[0]);
@@ -107,5 +144,5 @@ export function planFromText(text: string, allowed: Set<string>, max = PLAN_MAX_
 
 /** الفرص المسموح دخولها خطة العقل: جديدة، وغير مرفوضة، وغير مغلقة. */
 export function planEligible(cands: Array<Pick<PlanCandidate, 'ref' | 'relation' | 'lastOutcome'> & { closed?: boolean }>): Set<string> {
-  return new Set(cands.filter(c => c.relation === 'NEW' && !c.closed && !(c.lastOutcome && REJECTED.has(c.lastOutcome))).map(c => c.ref));
+  return new Set(cands.filter(eligible).map(c => c.ref));
 }

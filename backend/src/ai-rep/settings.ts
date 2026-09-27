@@ -18,6 +18,10 @@ export interface AiRepSettingsView {
   playbook: string | null;
   advisorEnabled: boolean;
   dailyChatTurnsPerRep: number;
+  /** حلقة التعلّم: AUTO | REVIEW (دروس المراجعة الذاتية بانتظار الإدارة) | OFF (سلوك ما قبل التعلّم؛ الإشارات تُسجَّل) */
+  learningMode: 'AUTO' | 'REVIEW' | 'OFF';
+  /** نسبة المجموعة الضابطة (ترتيب الفرص والدروس فقط): 0 | 10 | 20 | 30 */
+  holdoutPct: number;
 }
 
 export const DEFAULT_AI_REP_SETTINGS: AiRepSettingsView = Object.freeze({
@@ -33,6 +37,8 @@ export const DEFAULT_AI_REP_SETTINGS: AiRepSettingsView = Object.freeze({
   playbook: null,
   advisorEnabled: true,
   dailyChatTurnsPerRep: 40,
+  learningMode: 'AUTO',
+  holdoutPct: 20,
 }) as AiRepSettingsView;
 
 const outletCode = z.enum(OUTLET_TYPE_CODES as unknown as [string, ...string[]]);
@@ -51,6 +57,8 @@ export const aiRepSettingsSchema = z.object({
   playbook: z.string().max(4000).nullish(),
   advisorEnabled: z.boolean().optional(),
   dailyChatTurnsPerRep: z.number().int().min(5).max(150).optional(),
+  learningMode: z.enum(['AUTO', 'REVIEW', 'OFF']).optional(),
+  holdoutPct: z.union([z.literal(0), z.literal(10), z.literal(20), z.literal(30)]).optional(),
 });
 export type AiRepSettingsInput = z.infer<typeof aiRepSettingsSchema>;
 
@@ -72,6 +80,8 @@ export function settingsView(row: Partial<AiRepSettingsView> | null | undefined)
     playbook: row.playbook ?? null,
     advisorEnabled: row.advisorEnabled ?? d.advisorEnabled,
     dailyChatTurnsPerRep: row.dailyChatTurnsPerRep ?? d.dailyChatTurnsPerRep,
+    learningMode: row.learningMode === 'REVIEW' || row.learningMode === 'OFF' ? row.learningMode : 'AUTO',
+    holdoutPct: [0, 10, 20, 30].includes(row.holdoutPct as number) ? (row.holdoutPct as number) : d.holdoutPct,
   };
 }
 

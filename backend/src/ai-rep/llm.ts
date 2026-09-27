@@ -32,6 +32,12 @@ export interface LlmRequest {
   toolChoice?: 'auto' | 'none';
   maxTokens?: number;
   temperature?: number;
+  /** يغلب reasoning_effort الإعداد (إن كان المضيف يستعمله) — للمراجعة الليلية. */
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  /** طلب JSON صالح من المضيف. */
+  responseFormat?: 'json_object';
+  /** مهلة هذا النداء (٣–١٢٠ ث). */
+  timeoutMs?: number;
 }
 export interface LlmUsage { promptTokens: number; completionTokens: number; cachedTokens: number }
 export type LlmResult =
@@ -75,7 +81,7 @@ export async function chatCompletion(cfg: LlmConfig | null, req: LlmRequest, fet
   if (!cfg) return { ok: false, code: 'LLM_NOT_CONFIGURED' };
   const f: FetchLike = fetchImpl ?? (fetch as unknown as FetchLike);
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), cfg.timeoutMs);
+  const timer = setTimeout(() => ctrl.abort(), Math.min(120000, Math.max(3000, req.timeoutMs ?? cfg.timeoutMs)));
   const body: Record<string, unknown> = {
     ...cfg.extraBody,
     model: cfg.model,
@@ -84,6 +90,8 @@ export async function chatCompletion(cfg: LlmConfig | null, req: LlmRequest, fet
     temperature: req.temperature ?? 0.3,
     stream: false,
   };
+  if (req.reasoningEffort && 'reasoning_effort' in cfg.extraBody) body.reasoning_effort = req.reasoningEffort;
+  if (req.responseFormat) body.response_format = { type: 'json_object' };
   if (req.tools?.length) { body.tools = req.tools; body.tool_choice = req.toolChoice ?? 'auto'; }
   try {
     const res = await f(`${cfg.baseUrl}/chat/completions`, {

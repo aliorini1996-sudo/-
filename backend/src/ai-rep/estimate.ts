@@ -71,6 +71,10 @@ export interface EngineInput {
   products: EngineProduct[];
   minPeers: number;
   showMoney: boolean;
+  /** معامل معايرة الطلب التجريبي المتعلَّم (حلقة التعلّم) — ١ = بلا معايرة. لا يمسّ أرقام المحلات المشابهة. */
+  trialFactor?: number;
+  /** نسخة المعايرة المستعملة (تُحفظ في لقطة التحويل). */
+  calibrationVersion?: number | null;
 }
 
 export interface Range { low: number; median: number; high: number }
@@ -90,8 +94,12 @@ export interface ProductEstimate {
   monthlyValue: Range | null;
   /** أول طلب متوقع (null = لا تكفي البيانات). */
   firstOrderQty: number | null;
-  /** طلب تجريبي مقترح (null = الصنف ليس واسع الانتشار). */
+  /** طلب تجريبي مقترح كما يُعرض (null = الصنف ليس واسع الانتشار) — مُعايَر إن وُجدت معايرة. */
   trialQty: number | null;
+  /** الطلب التجريبي قبل المعايرة (للقياس). */
+  trialQtyRaw: number | null;
+  /** هل عُويِر الطلب التجريبي بأول طلبات العملاء الجدد الفعلية؟ */
+  trialCalibrated: boolean;
   confidence: Confidence;
   hidden: null | 'FEW_BUYERS' | 'DOMINANT';
 }
@@ -110,6 +118,8 @@ export type EstimateResult =
       monthlyTotalValue: Range | null;
       products: ProductEstimate[];
       why: string;
+      /** نسخة معايرة الطلب التجريبي المطبّقة (null = بلا معايرة). */
+      calibrationVersion?: number | null;
     }
   | {
       ok: false;
@@ -373,17 +383,23 @@ export function estimateOutlet(input: EngineInput, typeLabel: string): EstimateR
     }
     const firstOrderQty = fo.length >= minPeers ? Math.max(1, roundQty(harrellDavis(fo, 0.5))) : null;
 
-    // طلب تجريبي: للأصناف التي يشتريها نصف المشابهين فأكثر، ولها رقم معروض
+    // طلب تجريبي: للأصناف التي يشتريها نصف المشابهين فأكثر، ولها رقم معروض — ومعايرته (إن وُجدت) عليه وحده
     let trialQty: number | null = null;
+    let trialQtyRaw: number | null = null;
+    let trialCalibrated = false;
     if (penetration >= 0.5 && hidden === null && monthlyQty) {
-      trialQty = Math.max(1, Math.round(firstOrderQty ?? monthlyQty.low));
+      const base = firstOrderQty ?? monthlyQty.low;
+      trialQtyRaw = Math.max(1, Math.round(base));
+      const f = input.trialFactor ?? 1;
+      trialCalibrated = Number.isFinite(f) && f > 0 && f !== 1;
+      trialQty = trialCalibrated ? Math.max(1, Math.round(base * f)) : trialQtyRaw;
     }
 
     products.push({
       productId: prod.id, name: prod.name, unit: prod.unit, priority: !!prod.priority,
       buyers: hidden === 'FEW_BUYERS' ? null : buyers, peers: peersN,
       penetration: hidden === 'FEW_BUYERS' ? null : Math.round(penetration * 100) / 100,
-      monthlyQty, monthlyValue, firstOrderQty, trialQty, confidence: pConf, hidden,
+      monthlyQty, monthlyValue, firstOrderQty, trialQty, trialQtyRaw, trialCalibrated, confidence: pConf, hidden,
     });
   }
 
@@ -404,6 +420,7 @@ export function estimateOutlet(input: EngineInput, typeLabel: string): EstimateR
     ok: true, engineVersion: ENGINE_VERSION, outletType: input.target.outletType,
     ringKm, peers: peersN, medianTenureMonths: Math.round(medianTenure), confidence, window,
     monthlyTotalValue, products,
+    calibrationVersion: products.some(p => p.trialCalibrated) ? input.calibrationVersion ?? null : null,
     why: `مبني على ${peersN} من «${typeLabel}» من عملاء شركتك ${ringLabel(ringKm)}، ومشترياتها الفعلية من ${ymLabelAr(window.from)} إلى ${ymLabelAr(window.to)}.`,
   };
 }
