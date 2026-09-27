@@ -87,7 +87,16 @@ async function fetchMaps(u: string, ms = 8000): Promise<Response | null> {
   } catch { return null; }
 }
 
-export async function resolveLocationUrl(input: string): Promise<LatLng | null> {
+/** نطاقات خرائط Google (للمسارات التي لا تجلب إلا روابط Google في كل تحويلة). */
+export function isGoogleMapsUrl(u: string): boolean {
+  try {
+    const url = new URL(u);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+    return /^(maps\.app\.goo\.gl|goo\.gl|maps\.google\.(com|[a-z]{2}|com?\.[a-z]{2})|(www\.)?google\.(com|[a-z]{2}|com?\.[a-z]{2}))$/.test(url.hostname.toLowerCase());
+  } catch { return false; }
+}
+
+export async function resolveLocationUrl(input: string, opts: { googleOnly?: boolean } = {}): Promise<LatLng | null> {
   if (!input) return null;
 
   // محاولة مباشرة أولاً
@@ -101,6 +110,7 @@ export async function resolveLocationUrl(input: string): Promise<LatLng | null> 
   let placeName: string | null = null;
   // روابط maps.app.goo.gl قد تمرّ بـ4 تحويلات قبل صفحة الخرائط — نسمح بعدد كافٍ
   for (let hop = 0; hop < 6; hop++) {
+    if (opts.googleOnly && !isGoogleMapsUrl(cur)) break; // لا يتبع تحويلةً خارج Google
     const r = await fetchMaps(cur);
     if (!r) break;
 

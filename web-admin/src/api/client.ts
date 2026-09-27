@@ -235,6 +235,8 @@ export const aiRepApi = {
   saveSettings: (data: unknown) => api.put('/ai-rep/admin/settings', data),
   classifyList: (params: Record<string, string | number>) => api.get('/ai-rep/admin/classify', { params }),
   classify: (items: { customerId: string; outletType: string | null }[]) => api.post('/ai-rep/admin/classify', { items }),
+  saveLlm: (data: { provider: string; model?: string; apiKey?: string; clearKey?: boolean }) => api.put('/ai-rep/admin/llm', data),
+  testLlm: () => api.post('/ai-rep/admin/llm/test'),
 };
 
 export const petroappApi = {

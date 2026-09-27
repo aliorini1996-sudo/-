@@ -28,11 +28,13 @@ import { customerScope, isolationEnabled } from '../services/customerScope';
 import { adminScopeEnabled } from '../services/adminScope';
 import { OUTLET_TYPES, OUTLET_TYPE_CODES, googleTypesFor, isOutletType, outletTypeLabel, suggestOutletType } from '../ai-rep/taxonomy';
 import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
-import { estimateOutlet, snapPoint, activeMonths, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
+import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
 import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
 import { placesApiKey, searchNearby, NearbyPlace } from '../ai-rep/places';
 import { mergeNearby } from '../ai-rep/nearby';
-import { chatCompletion, llmConfig } from '../ai-rep/llm';
+import { chatCompletion } from '../ai-rep/llm';
+import { LLM_PROVIDERS, LLM_PROVIDER_CODES, clearTenantLlmCache, encryptLlmKey, keyHint, llmConfigFromRow, secretsReady, tenantLlmConfig } from '../ai-rep/llmTenant';
+import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
 import { runAdvisor, numbersIn } from '../ai-rep/advisor';
 import { advisorSystemPrompt, baseAllowedNumbers, buildAdvisorTools, OutletCtx } from '../ai-rep/advisorTools';
 import { getCountryTax } from '../config/countries';
@@ -141,12 +143,13 @@ const ctxOf = (req: AuthRequest): RepCtx => (req as AuthRequest & { aiRep: RepCt
 rep.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);
-    const usage = await usageToday(c.tid, c.repId);
+    const [usage, llm] = await Promise.all([usageToday(c.tid, c.repId), tenantLlmConfig(c.tid)]);
     res.json({
       success: true,
       data: {
         enabled: true,
         placesConfigured: !!placesApiKey(),
+        placesMode: placesApiKey() ? 'AUTO' : 'MANUAL',
         mapsKey: mapsBrowserKey(),
         showMoney: c.showMoney,
         searchRadiusM: c.settings.searchRadiusM,
@@ -154,8 +157,8 @@ rep.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) => {
         targetTypes: c.settings.targetOutletTypes.map(code => ({ code, label: outletTypeLabel(code) })),
         dailySearches: { used: usage?.searches ?? 0, limit: c.settings.dailySearchesPerRep },
         advisor: {
-          available: c.settings.advisorEnabled && !!llmConfig(),
-          reason: !c.settings.advisorEnabled ? 'DISABLED_BY_COMPANY' : !llmConfig() ? 'NOT_CONFIGURED' : null,
+          available: c.settings.advisorEnabled && !!llm,
+          reason: !c.settings.advisorEnabled ? 'DISABLED_BY_COMPANY' : !llm ? 'NOT_CONFIGURED' : null,
           used: usage?.chatTurns ?? 0,
           limit: c.settings.dailyChatTurnsPerRep,
         },
@@ -372,8 +375,8 @@ rep.post('/guide', async (req: AuthRequest, res: Response, next: NextFunction) =
     const plan = rulePlan(cands as PlanCandidate[], s.origin);
     const rules = { text: ruleGuideText(plan, byRef, s.origin, actx.currency), plan, source: 'RULES' as const };
 
-    // العقل: إن كان مفعّلاً ومضبوطاً — والدورة تُحجز ذرّياً قبل النداء، وإلا الخطة الحتمية (لا كلفة نموذج)
-    const cfg = llmConfig();
+    // العقل: إن كان مفعّلاً ومضبوطاً (مفتاح الشركة) — والدورة تُحجز ذرّياً قبل النداء، وإلا الخطة الحتمية (لا كلفة نموذج)
+    const cfg = await tenantLlmConfig(c.tid);
     if (!cfg || !c.settings.advisorEnabled || !outlets.some(o => !o.closed)) { res.json({ success: true, data: rules }); return; }
     if (!(await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) { res.json({ success: true, data: rules }); return; }
     const result = await runAdvisor({
@@ -411,8 +414,8 @@ rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) =>
   try {
     const c = ctxOf(req);
     if (!c.settings.advisorEnabled) { res.status(403).json({ success: false, code: 'AI_ADVISOR_DISABLED', message: 'المستشار الذكي متوقف لشركتك — القوائم والتوقّعات تعمل كالمعتاد' }); return; }
-    const cfg = llmConfig();
-    if (!cfg) { res.status(503).json({ success: false, code: 'AI_LLM_NOT_CONFIGURED', message: 'المستشار الذكي لم يُفعَّل بعد لدى مزوّد الخدمة — القوائم والتوقّعات تعمل كالمعتاد' }); return; }
+    const cfg = await tenantLlmConfig(c.tid);
+    if (!cfg) { res.status(503).json({ success: false, code: 'AI_LLM_NOT_CONFIGURED', message: 'لم تُضف شركتك مفتاح الذكاء الاصطناعي بعد (صفحة «المندوب الذكي» في لوحة الشركة) — القوائم والتوقّعات تعمل كالمعتاد' }); return; }
     const body = chatSchema.parse(req.body);
     const s = body.searchId ? getSession(c.tid, c.repId, body.searchId) : null;
     if (body.searchId && !s) { res.status(409).json(NO_SESSION); return; }
@@ -443,6 +446,67 @@ rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) =>
     // سجلّ بلا محتوى محادثة: الشركة والقفزات والرموز والحارس والزمن
     console.info('[ai-rep] دورة مستشار', JSON.stringify({ tenant: c.tid, hops: result.hops, tools: result.toolNames, guard: result.guard, tin: result.usage.promptTokens, tout: result.usage.completionTokens, cached: result.usage.cachedTokens, ms: Date.now() - started }));
     res.json({ success: true, data: { text: result.text, refs: result.refs, guard: result.guard, searchId: s?.searchId ?? null } });
+  } catch (err) { next(err); }
+});
+
+// ───────────── إضافة محلٍّ من خرائط Google بحساب المندوب (بلا مفتاح Google) ─────────────
+// المندوب يبحث في تطبيق خرائط Google بحسابه كأي مستخدم، ثم يلصق رابط المحل (أو نصّ المشاركة) هنا، أو يضغط
+// «أنا عند المحل الآن». الخادم يحلّ الرابط إلى موقع (كما يفعل لموقع العميل)، ويضيف المحل لجلسة البحث بمرجع ثابت،
+// ويحسب توقّع مشترياته. الاسم يكتبه/يشاركه المندوب بنفسه.
+const manualSchema = z.object({
+  searchId: z.string().uuid().optional(),
+  text: z.string().trim().max(2000).optional(),
+  name: z.string().trim().max(120).optional(),
+  outletType: z.string().refine(isOutletType, 'نوع محل غير معروف'),
+  here: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).optional() }).optional(),
+  gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional(),
+}).refine(b => !!b.text || !!b.here, { message: 'الصق رابط المحل من خرائط Google أو اختر «أنا عند المحل الآن»' });
+
+/** الاسم من نصّ المشاركة: أول سطر ليس رابطاً. */
+export function nameFromShare(text: string): string {
+  return (text.split(/\r?\n/).map(l => l.replace(/https?:\/\/\S+/g, '').trim()).find(l => l.length > 1) || '').slice(0, 120);
+}
+
+rep.post('/manual', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const c = ctxOf(req);
+    const b = manualSchema.parse(req.body);
+    let loc: { lat: number; lng: number } | null = null;
+    if (b.here) {
+      if ((b.here.accuracyM ?? 0) > 100) { res.status(400).json({ success: false, code: 'GPS_INACCURATE', message: 'دقّة موقعك ضعيفة — اقترب من باب المحل وحاول مجدداً' }); return; }
+      loc = { lat: b.here.lat, lng: b.here.lng };
+    } else {
+      const url = (b.text || '').match(/https?:\/\/\S+/)?.[0];
+      if (url && !isGoogleMapsUrl(url)) { res.status(400).json({ success: false, code: 'NOT_GOOGLE_MAPS', message: 'الصق رابط المحل من خرائط Google فقط' }); return; }
+      // روابط Google وحدها، وفي كل تحويلة — لا يجلب الخادم عنواناً يكتبه المستخدم خارج Google
+      loc = await resolveLocationUrl(url || b.text || '', { googleOnly: true });
+      if (!loc) { res.status(422).json({ success: false, code: 'LINK_UNRESOLVED', message: 'تعذّر قراءة موقع المحل من الرابط — افتح المحل في خرائط Google واضغط «مشاركة» ثم انسخ الرابط' }); return; }
+    }
+    if (!(await reserveUsage(c.tid, c.repId, 'estimates', MAX_ESTIMATES_PER_DAY))) {
+      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: 'بلغت حدّ التوقّعات اليومي — يتجدّد غداً' });
+      return;
+    }
+    const name = (b.name || nameFromShare(b.text || '')).trim();
+    // معرّف ثابت للمحل من موقعه (لمنع التكرار وربط نتائج الزيارات) — ليس معرّف Google
+    const placeId = `man:${loc.lat.toFixed(5)},${loc.lng.toFixed(5)}`;
+    let s = getSession(c.tid, c.repId, b.searchId);
+    if (!s) {
+      s = { searchId: randomUUID(), createdAt: Date.now(), origin: b.gps ?? loc, radiusM: c.settings.searchRadiusM, outlets: [] };
+      saveSession(c.tid, c.repId, s);
+    }
+    const existing = s.outlets.find(o => o.placeId === placeId);
+    // المطابقة بالعملاء حول موقع المحل نفسه (قد يكون بعيداً عن المندوب)، والمسافة من نقطة الجلسة
+    const merged = await mergeAndEstimate(req, c, loc, 300, [b.outletType], [{
+      placeId, name, address: null, lat: loc.lat, lng: loc.lng, primaryType: null, types: googleTypesFor([b.outletType]),
+    }]);
+    const found = merged.items[0];
+    if (!found) { res.status(409).json({ success: false, message: 'تعذّرت إضافة المحل' }); return; }
+    const it = { ...found, distanceM: Math.round(haversineKm(s.origin.lat, s.origin.lng, loc.lat, loc.lng) * 1000) };
+    const ref = existing?.ref ?? `P${s.outlets.length + 1}`;
+    if (!existing) {
+      s.outlets.push({ ref, placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId });
+    }
+    res.status(existing ? 200 : 201).json({ success: true, data: { searchId: s.searchId, item: { ...it, ref, name } } });
   } catch (err) { next(err); }
 });
 
@@ -498,7 +562,8 @@ admin.get('/settings', requireAdminPermission('canManageCompanySettings'), async
         outletTypes: OUTLET_TYPES.map(t => ({ code: t.code, label: t.ar })),
         placesConfigured: !!placesApiKey(),
         mapsConfigured: !!mapsBrowserKey(),
-        advisorConfigured: !!llmConfig(),
+        advisorConfigured: !!(await tenantLlmConfig(tid)),
+        brain: await brainView(tid),
         readiness: await readiness(tid, settings),
       },
     });
@@ -602,6 +667,73 @@ admin.post('/classify', requireAdminPermission('canManageCustomers'), async (req
     });
     invalidateEstimateData(tid);
     res.json({ success: true, data: { updated, skipped: items.length - updated } });
+  } catch (err) { next(err); }
+});
+
+async function brainView(tid: string) {
+  const row = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { llmProvider: true, llmModel: true, llmKeyEnc: true, llmKeyHint: true, llmUpdatedAt: true } });
+  return {
+    provider: row?.llmProvider ?? null,
+    model: row?.llmModel ?? null,
+    keySet: !!row?.llmKeyEnc,
+    keyHint: row?.llmKeyHint ?? null,
+    updatedAt: row?.llmUpdatedAt ?? null,
+    secretsReady: secretsReady(),
+    providers: LLM_PROVIDER_CODES.map(code => ({ code, label: LLM_PROVIDERS[code].label, defaultModel: LLM_PROVIDERS[code].defaultModel, keyHelpUrl: LLM_PROVIDERS[code].keyHelpUrl })),
+  };
+}
+
+const llmSchema = z.object({
+  provider: z.enum(LLM_PROVIDER_CODES as [string, ...string[]]),
+  model: z.string().trim().max(120).regex(/^[A-Za-z0-9._:/@-]*$/, 'اسم نموذج غير صالح').optional(),
+  apiKey: z.string().trim().min(8).max(500).optional(),
+  clearKey: z.boolean().optional(),
+});
+
+admin.put('/llm', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (await adminScopeEnabled(req)) { res.status(403).json({ success: false, message: 'حسابك مقيد بنطاق محدد — مفتاح الذكاء الاصطناعي يحتاج صلاحية غير مقيدة' }); return; }
+    const b = llmSchema.parse(req.body);
+    if (b.apiKey && !secretsReady()) { res.status(503).json({ success: false, code: 'SECRETS_NOT_CONFIGURED', message: 'تخزين المفاتيح غير مهيّأ على الخادم — تواصل مع مزوّد الخدمة' }); return; }
+    // مفتاح مزوّد لا يصلح لآخر: تغيير المزوّد يحتاج مفتاحه الجديد (أو إزالة المفتاح)
+    const cur = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { llmProvider: true, llmKeyEnc: true } });
+    if (cur?.llmKeyEnc && cur.llmProvider !== b.provider && !b.apiKey && !b.clearKey) {
+      res.status(400).json({ success: false, code: 'KEY_REQUIRED', message: 'غيّرت المزوّد — أدخل مفتاح API من المزوّد الجديد' });
+      return;
+    }
+    const data = {
+      llmProvider: b.provider,
+      llmModel: b.model || null,
+      ...(b.apiKey && { llmKeyEnc: encryptLlmKey(tid, b.apiKey), llmKeyHint: keyHint(b.apiKey) }),
+      ...(b.clearKey && { llmKeyEnc: null, llmKeyHint: null }),
+      llmUpdatedAt: new Date(),
+      updatedById: req.user!.id,
+    };
+    await prisma.aiRepSettings.upsert({ where: { tenantId: tid }, create: { tenantId: tid, ...data }, update: data });
+    clearTenantLlmCache(tid);
+    res.json({ success: true, data: { brain: await brainView(tid) } });
+  } catch (err) { next(err); }
+});
+
+// اختبار المفتاح بسؤال قصير (رموز قليلة على حساب الشركة)
+admin.post('/llm/test', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const row = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { llmProvider: true, llmModel: true, llmKeyEnc: true } });
+    if (!row?.llmKeyEnc) { res.status(400).json({ success: false, code: 'NO_KEY', message: 'أضف مفتاح الذكاء الاصطناعي أولاً' }); return; }
+    const cfg = llmConfigFromRow(tid, row, {});
+    if (!cfg) { res.status(400).json({ success: false, code: 'KEY_UNREADABLE', message: 'تعذّر قراءة المفتاح المحفوظ — أعد إدخاله' }); return; }
+    const r = await chatCompletion({ ...cfg, maxTokens: 2048 }, { messages: [{ role: 'user', content: 'ردّ بكلمة واحدة: تمام' }], maxTokens: 2048 });
+    const msg: Record<string, string> = {
+      LLM_AUTH: 'المفتاح مرفوض من المزوّد — تأكد من نسخه كاملاً ومن تفعيل الحساب',
+      LLM_RATE_LIMIT: 'المزوّد رفض لكثرة الطلبات أو لنفاد الرصيد — تحقّق من حسابك',
+      LLM_BAD_REQUEST: 'المزوّد رفض الطلب — تأكد من اسم النموذج',
+      LLM_TIMEOUT: 'لم يرد المزوّد في الوقت — حاول مجدداً',
+      LLM_UNAVAILABLE: 'المزوّد غير متاح الآن — حاول بعد قليل',
+    };
+    if (!r.ok) { res.json({ success: true, data: { ok: false, code: r.code, message: msg[r.code] || 'تعذّر الاتصال بالمزوّد' } }); return; }
+    res.json({ success: true, data: { ok: true, message: 'المفتاح يعمل — العقل جاهز لمناديب شركتك' } });
   } catch (err) { next(err); }
 });
 

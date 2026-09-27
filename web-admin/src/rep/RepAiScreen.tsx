@@ -32,7 +32,7 @@ interface Item {
   lastOutcome: string | null; lastOutcomeAt: string | null; rejectedRecently: boolean; estimate: Summary; closed?: boolean;
 }
 interface Me {
-  placesConfigured: boolean; mapsKey?: string | null; showMoney: boolean; searchRadiusM: number; minPeers?: number;
+  placesConfigured: boolean; placesMode?: 'AUTO' | 'MANUAL'; mapsKey?: string | null; showMoney: boolean; searchRadiusM: number; minPeers?: number;
   targetTypes: { code: string; label: string }[]; dailySearches: { used: number; limit: number };
   advisor?: { available: boolean; reason: string | null; used: number; limit: number };
 }
@@ -162,6 +162,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   const selectOnMap = useCallback((id: string) => { const it = itemById.get(id); if (it) setOpen(it); }, [itemById]);
   const money = useCallback((n: number) => formatCurrency(n, undefined, 0), []);
   const limitReached = !!me && me.dailySearches.used >= me.dailySearches.limit;
+  // بلا مفتاح بحث Google: خرائط Google بحساب المندوب، وهو يضيف المحلات (رابط مشاركة أو «أنا عند المحل الآن»)
+  const manual = !!me && (me.placesMode ? me.placesMode === 'MANUAL' : !me.placesConfigured);
 
   const routeEditedRef = useRef(false);
   const runGuide = useCallback(async (sid: string, list: Item[]) => {
@@ -207,6 +209,22 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     } finally { setBusy(false); }
   }, [me, busy, limitReached, types, tr, runGuide, repId]);
 
+  // محلٌّ أضافه المندوب يدوياً: يُلحق بالجلسة نفسها، أو يبدأ جلسة جديدة إن انتهت القديمة على الخادم
+  const onManualAdded = useCallback((sid: string, item: Item, gps: { lat: number; lng: number; accuracy: number } | null) => {
+    if (sid !== searchIdRef.current) {
+      searchIdRef.current = sid;
+      routeEditedRef.current = false;
+      setSearchId(sid); setItems([item]); setGuide(null); setRouteIds([]); setChat([]);
+    } else {
+      setItems(list => {
+        const l = list ?? [];
+        return l.some(x => x.placeId === item.placeId) ? l.map(x => (x.placeId === item.placeId ? item : x)) : [...l, item];
+      });
+    }
+    if (gps) setOrigin(o => o ?? gps);
+    setCachedAt(null); setMsg(''); setOpen(item);
+  }, []);
+
   const inRoute = useCallback((id: string) => routeIds.includes(id), [routeIds]);
   const toggleRoute = (it: Item) => { routeEditedRef.current = true; setRouteIds(ids => (ids.includes(it.placeId) ? ids.filter(x => x !== it.placeId) : [...ids, it.placeId])); };
   const shortestOrder = () => { if (origin) setRouteIds(orderRoute(origin, routeItems).map(i => i.placeId)); };
@@ -233,9 +251,6 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         <Header onBack={onBack} title={tr('المندوب الذكي')}
           right={origin ? <span className="text-[11px] text-gray-400 flex items-center gap-1"><Crosshair size={11} /> {origin.accuracy <= 50 ? tr('موقعك دقيق') : tr('موقعك تقريبي')}</span> : null} />
         {offline && <p className="text-xs rounded-xl bg-amber-50 border border-amber-200 text-amber-800 p-2.5">{tr('أنت دون اتصال — تظهر آخر نتائجك، والبحث والمستشار يعودان مع الاتصال')}</p>}
-        {me && !me.placesConfigured && !offline && (
-          <p className="text-xs rounded-xl bg-amber-50 border border-amber-200 text-amber-800 p-2.5">{tr('البحث عن المحلات لم يُفعَّل بعد لدى مزوّد الخدمة')}</p>
-        )}
         <div className="grid grid-cols-3 gap-2 bg-gray-100 rounded-xl p-1">
           {(['near', 'route', 'ask'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} className={`py-2 rounded-lg text-sm font-semibold ${tab === t ? 'bg-white text-[#E15A30] shadow-sm' : 'text-gray-500'}`}>
@@ -248,7 +263,11 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       <div className="flex-1 overflow-y-auto px-4 pb-24">
         {/* «القريبة» تبقى مركّبة (مخفية) بين التبويبات: الخريطة لا تُنشأ من جديد (تحميل مدفوع) */}
         <div hidden={tab !== 'near'} className="space-y-3">
-          {me && (
+          {me && manual && (
+            <ManualPanel me={me} offline={offline} searchId={searchId} origin={origin} onOrigin={setOrigin} onAdded={onManualAdded}
+              canGuide={!!searchId && !!visibleItems.length} guiding={guiding} onGuide={() => { if (searchId && items) void runGuide(searchId, items); }} />
+          )}
+          {me && !manual && (
             <div className="flex flex-wrap gap-1.5">
               {me.targetTypes.map(t => {
                 const on = types.includes(t.code);
@@ -261,15 +280,17 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
               })}
             </div>
           )}
-          <button onClick={search} disabled={busy || !me?.placesConfigured || offline || limitReached}
-            className="w-full flex items-center justify-center gap-2 bg-[#E15A30] disabled:opacity-50 text-white rounded-2xl py-3.5 font-bold">
-            <Sparkles size={18} /> {busy ? tr('أبحث في المحلات القريبة…') : limitReached ? tr('بلغت حدّ البحث اليومي') : tr('ابحث عن فرص حولي')}
-          </button>
-          {me && <p className="text-[11px] text-gray-400 text-center">{tr('بحث اليوم')}: {me.dailySearches.used} / {me.dailySearches.limit} · {tr('النطاق')} {fmtDistance(me.searchRadiusM)}</p>}
+          {!manual && (
+            <button onClick={search} disabled={busy || !me?.placesConfigured || offline || limitReached}
+              className="w-full flex items-center justify-center gap-2 bg-[#E15A30] disabled:opacity-50 text-white rounded-2xl py-3.5 font-bold">
+              <Sparkles size={18} /> {busy ? tr('أبحث في المحلات القريبة…') : limitReached ? tr('بلغت حدّ البحث اليومي') : tr('ابحث عن فرص حولي')}
+            </button>
+          )}
+          {me && !manual && <p className="text-[11px] text-gray-400 text-center">{tr('بحث اليوم')}: {me.dailySearches.used} / {me.dailySearches.limit} · {tr('النطاق')} {fmtDistance(me.searchRadiusM)}</p>}
           {msg && <p className="text-sm text-center text-gray-500">{msg}</p>}
           {cachedAt && <p className="text-[11px] text-amber-700 text-center">{tr('نتائج محفوظة من')} {new Date(cachedAt).toLocaleTimeString()} — {tr('الأسماء تظهر عند البحث من جديد')}</p>}
 
-          {me?.mapsKey && !offline && (g
+          {me?.mapsKey && !manual && !offline && (g
             ? <RepAiMap g={g} origin={origin} items={mapItems} plan={routeIds} fitKey={searchId} visible={tab === 'near'} onSelect={selectOnMap} />
             : (
               <div className="w-full h-64 rounded-2xl bg-gray-100 flex flex-col items-center justify-center gap-2 text-xs text-gray-500">
@@ -355,6 +376,115 @@ function Header({ onBack, title, right }: { onBack: () => void; title: string; r
   );
 }
 
+/**
+ * خرائط Google بحساب المندوب (بلا مفتاح Google): خريطة Google المضمّنة حوله بنوع المحل المختار، وزرّ يفتح تطبيق
+ * خرائط Google بحسابه. المندوب يختار المحل هناك ويشاركه (الرابط) هنا، أو يضغط «أنا عند المحل الآن» عند بابه —
+ * فيضيفه الخادم للجلسة ويحسب توقّع مشترياته، ثم يوجّهه العقل على المحلات المضافة.
+ */
+function ManualPanel({ me, offline, searchId, origin, onOrigin, onAdded, canGuide, guiding, onGuide }: {
+  me: Me; offline: boolean; searchId: string | null; origin: { lat: number; lng: number; accuracy: number } | null;
+  onOrigin: (o: { lat: number; lng: number; accuracy: number }) => void;
+  onAdded: (sid: string, item: Item, gps: { lat: number; lng: number; accuracy: number } | null) => void;
+  canGuide: boolean; guiding: boolean; onGuide: () => void;
+}) {
+  const tr = useAiRepTr();
+  const [type, setType] = useState(me.targetTypes[0]?.code ?? '');
+  const [text, setText] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState<'' | 'map' | 'link' | 'here'>('');
+  const [err, setErr] = useState('');
+  const word = tr(me.targetTypes.find(t => t.code === type)?.label ?? '');
+  const hl = (document.documentElement.lang || 'ar').slice(0, 2);
+  const embed = origin
+    ? `https://maps.google.com/maps?q=${encodeURIComponent(word)}&ll=${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}&z=15&hl=${hl}&output=embed`
+    : null;
+  const appUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(word)}`;
+
+  const locate = async () => {
+    setBusy('map'); setErr('');
+    const gps = await getGps().catch(() => null);
+    setBusy('');
+    if (!gps) { setErr(tr('فعّل الموقع لنعرف المحلات القريبة منك')); return; }
+    onOrigin(gps);
+  };
+
+  const paste = async () => {
+    try { const t = await navigator.clipboard.readText(); if (t) setText(t.slice(0, 2000)); } catch { /* المتصفح منع القراءة: يلصق المندوب بنفسه */ }
+  };
+
+  const add = async (here: boolean) => {
+    if (!type || busy) return;
+    setBusy(here ? 'here' : 'link'); setErr('');
+    try {
+      const gps = await getGps().catch(() => null);
+      if (here && !gps) { setErr(tr('فعّل الموقع لنعرف المحلات القريبة منك')); return; }
+      const body = {
+        outletType: type,
+        ...(searchId && { searchId }),
+        ...(name.trim() && { name: name.trim() }),
+        ...(here && gps ? { here: { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy } } : { text: text.trim() }),
+        ...(gps && { gps: { lat: gps.lat, lng: gps.lng } }),
+      };
+      const r = await repApi.post('/ai-rep/rep/manual', body);
+      onAdded(r.data.data.searchId as string, r.data.data.item as Item, gps);
+      setText(''); setName('');
+    } catch (e) {
+      setErr(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — البحث يحتاج الإنترنت') : tr('تعذّرت إضافة المحل')));
+    } finally { setBusy(''); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1.5">
+        {me.targetTypes.map(t => (
+          <button key={t.code} onClick={() => setType(t.code)}
+            className={`text-xs rounded-full px-3 py-1.5 border ${type === t.code ? 'bg-[#FBEBE2] border-[#F5DACE] text-[#C94E28] font-semibold' : 'bg-white border-gray-200 text-gray-500'}`}>
+            {tr(t.label)}
+          </button>
+        ))}
+      </div>
+
+      {embed && !offline ? (
+        <iframe title={tr('خريطة Google')} src={embed} className="w-full h-64 rounded-2xl border border-gray-100" loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+      ) : (
+        <button onClick={locate} disabled={offline || busy === 'map'} className="w-full h-40 rounded-2xl bg-gray-100 flex flex-col items-center justify-center gap-2 text-sm text-gray-600 disabled:opacity-60">
+          <MapPin size={22} className="text-[#E15A30]" /> {busy === 'map' ? tr('أحدد موقعك…') : tr('اعرض المحلات حولي على خريطة Google')}
+        </button>
+      )}
+      <a href={appUrl} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#1F1A13] text-white py-3 text-sm font-bold">
+        <Navigation size={16} /> {tr('افتح خرائط Google بحسابك')}
+      </a>
+
+      <div className="rounded-2xl border border-gray-100 bg-white p-3.5 space-y-2">
+        <p className="text-sm font-bold text-[#1F1A13] flex items-center gap-1.5"><Plus size={15} className="text-[#E15A30]" /> {tr('أضف محلاً ليحسب له العقل التوقّع')}</p>
+        <p className="text-[11px] text-gray-500">{tr('في خرائط Google افتح المحل واضغط «مشاركة» ثم «نسخ الرابط»، والصقه هنا')}</p>
+        <div className="flex gap-2">
+          <textarea value={text} onChange={e => setText(e.target.value)} maxLength={2000} dir="auto" rows={2}
+            placeholder={tr('الصق رابط المحل من خرائط Google')} className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+          <button onClick={paste} className="rounded-xl border border-gray-200 px-3 text-xs font-semibold text-gray-600">{tr('الصق')}</button>
+        </div>
+        <input value={name} onChange={e => setName(e.target.value)} maxLength={120} placeholder={tr('اسم المحل (اختياري)')}
+          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => add(false)} disabled={offline || !!busy || !text.trim()} className="rounded-xl bg-[#E15A30] disabled:opacity-50 text-white py-2.5 text-sm font-bold">
+            {busy === 'link' ? tr('أحسب المتوقع من بيانات شركتك…') : tr('أضف وتوقّع')}
+          </button>
+          <button onClick={() => add(true)} disabled={offline || !!busy} className="rounded-xl border border-[#E15A30] text-[#E15A30] disabled:opacity-50 py-2.5 text-sm font-bold flex items-center justify-center gap-1">
+            <Crosshair size={14} /> {busy === 'here' ? tr('أحدد موقعك…') : tr('أنا عند المحل الآن')}
+          </button>
+        </div>
+        {err && <p className="text-xs text-red-600">{err}</p>}
+      </div>
+
+      {canGuide && (
+        <button onClick={onGuide} disabled={guiding || offline} className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-[#E15A30] text-[#C94E28] disabled:opacity-50 py-3 text-sm font-bold">
+          <Sparkles size={16} /> {guiding ? tr('المستشار يفحص المحلات المجاورة…') : tr('اطلب توجيه المستشار للمحلات المضافة')}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** نسب Google Maps بجوار أي اسم أو عنوان من Places يُعرض بلا خريطة (شرط Google). */
 function GoogleAttribution() {
   return <p className="text-xs text-gray-500 text-left" dir="ltr">Google Maps</p>;
@@ -430,7 +560,7 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
   if (!adv) return <p className="text-center text-sm text-gray-400 py-10">{tr('جاري التحميل')}</p>;
   if (offline) return <p className="text-center text-sm text-gray-500 py-10">{tr('المستشار يحتاج الإنترنت')}</p>;
   if (!adv.available) {
-    return <p className="text-center text-sm text-gray-500 py-10">{adv.reason === 'DISABLED_BY_COMPANY' ? tr('المستشار الذكي متوقف لشركتك') : tr('المستشار الذكي لم يُفعَّل بعد لدى مزوّد الخدمة')}</p>;
+    return <p className="text-center text-sm text-gray-500 py-10">{adv.reason === 'DISABLED_BY_COMPANY' ? tr('المستشار الذكي متوقف لشركتك') : tr('لم تُضف شركتك مفتاح الذكاء الاصطناعي بعد — تواصل مع مدير الشركة')}</p>;
   }
   const ask = async (text: string) => {
     const q = text.trim().slice(0, 1500);
