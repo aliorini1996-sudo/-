@@ -7,6 +7,9 @@
  *      effectDate ≥ cutover ⇒ POST_AT(effectDate)؛
  *      effectDate < cutover وcreatedAt > T0 ⇒ POST_AT(cutover) مع lateArrival وoriginalDate (ومنه (T0, commit])؛
  *      futureDated: التاريخ المحلي لـcreatedAt < cutover وeffectDate ≥ cutover (فحص لمرة واحدة).
+ *    **البداية النظيفة (CLEAN — ملاحظة الخبير المحاسبي، ٢٧ سبتمبر ٢٠٢٦):** كل ما أُنشئ قبل لحظة التفعيل
+ *    (createdAt ≤ T0) خارج الدفاتر أياً كان تاريخ أثره ⇒ OPENING (SKIPPED(OPENING)): لا مستند اليوم السابق للتفعيل
+ *    ولا المؤرخ مستقبلاً ولا المستورد. وعكس ما لم يدخل الدفاتر لا يُبنى من المصدر أياً كان نوعه (siblingGate).
  *  - siblingGate: بوابة الأشقاء لأحداث REVERSE/COGS/RESTOCK (§5.4).
  *  - planEvent: التصنيف الذاتي ثم البوابة ثم تاريخ القيد.
  *  - بوابات مساعدة: العملة، أفق المخزون، ترتيب P7، الترتيب، التراجع، ترميز ملاحظة الحالة في lastError.
@@ -32,12 +35,22 @@ export interface CutoverContext {
   timezone: string;
   /** المؤشر الابتدائي للمصادر (initialWatermarkAt) — للبوابة (ب) */
   initialWatermarkAt: Date;
+  /** البداية النظيفة (setupMethod = CLEAN): كل ما أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخ أثره */
+  cleanStart?: boolean;
 }
 
-export type SetupMethod = 'OPENING' | 'FULL_HISTORY';
+/**
+ * OPENING: أرصدة افتتاحية بتاريخ بدء (تفعيلات سابقة). FULL_HISTORY: ترحيل التاريخ الكامل (تفعيلات سابقة).
+ * CLEAN: البداية النظيفة — الطريقة الوحيدة لكل تفعيل جديد (ملاحظة الخبير المحاسبي): تاريخ البدء يوم التفعيل،
+ * ولا يُرحَّل ولا يُستورد شيءٌ كان في حساب الشركة قبل لحظته.
+ */
+export type SetupMethod = 'OPENING' | 'FULL_HISTORY' | 'CLEAN';
+
+/** سياق التصنيف الذي تحتاجه القاعدتان */
+type CutoverRule = Pick<CutoverContext, 'cutoverDate' | 'openingSnapshotAt' | 'timezone' | 'cleanStart'>;
 
 /**
- * المؤشر الابتدائي عند التفعيل (§5.6 الخطوة 6): الطريقة (أ) min(بداية اليوم المحلي cutover − 1 يوم، T0)،
+ * المؤشر الابتدائي عند التفعيل (§5.6 الخطوة 6): الطريقة (أ) والبداية النظيفة min(بداية اليوم المحلي cutover − 1 يوم، T0)،
  * والطريقة (ب) epoch. المعرّف دائماً ''.
  */
 export function initialWatermarkAt(input: { method: SetupMethod; cutoverDate: LocalDate; openingSnapshotAt: Date; timezone: string }): Date {
@@ -65,15 +78,21 @@ export function effectDateOf(row: Pick<CutoverRow, 'effectAt' | 'effectDate'>, t
   return row.effectDate ?? localDate(toDate(row.effectAt), timezone);
 }
 
-/** مشمول بالافتتاح ⇔ effectDate < cutover و createdAt ≤ openingSnapshotAt */
-export function isIncludedInOpening(row: CutoverRow, c: Pick<CutoverContext, 'cutoverDate' | 'openingSnapshotAt' | 'timezone'>): boolean {
-  return compareLocalDate(effectDateOf(row, c.timezone), c.cutoverDate) < 0
-    && toDate(row.createdAt).getTime() <= c.openingSnapshotAt.getTime();
+/**
+ * مشمول بالافتتاح ⇔ effectDate < cutover و createdAt ≤ openingSnapshotAt.
+ * البداية النظيفة: createdAt ≤ openingSnapshotAt وحده يكفي — ما سبق التفعيل خارج الدفاتر أياً كان تاريخه.
+ */
+export function isIncludedInOpening(row: CutoverRow, c: CutoverRule): boolean {
+  const before = toDate(row.createdAt).getTime() <= c.openingSnapshotAt.getTime();
+  if (c.cleanStart) return before;
+  return compareLocalDate(effectDateOf(row, c.timezone), c.cutoverDate) < 0 && before;
 }
 
-export function classifyCutover(row: CutoverRow, c: Pick<CutoverContext, 'cutoverDate' | 'openingSnapshotAt' | 'timezone'>): CutoverClass {
+export function classifyCutover(row: CutoverRow, c: CutoverRule): CutoverClass {
   const effectDate = effectDateOf(row, c.timezone);
   const createdAt = toDate(row.createdAt);
+  // البداية النظيفة: مستند أُنشئ قبل لحظة التفعيل لا يُرحَّل ولو كان مؤرخاً يوم البدء أو بعده (مؤرخ مستقبلاً)
+  if (c.cleanStart && createdAt.getTime() <= c.openingSnapshotAt.getTime()) return { kind: 'OPENING', effectDate };
   if (compareLocalDate(effectDate, c.cutoverDate) >= 0) {
     const futureDated = compareLocalDate(localDate(createdAt, c.timezone), c.cutoverDate) < 0;
     return { kind: 'POST_AT', date: effectDate, effectDate, lateArrival: false, originalDate: null, futureDated };
@@ -176,6 +195,18 @@ export interface SiblingGateInput {
 const NON_FINAL: readonly EventStatus[] = ['PENDING', 'BLOCKED', 'ERROR', 'HELD'];
 
 export function siblingGate(input: SiblingGateInput): SiblingGateDecision {
+  const d = siblingGateInner(input);
+  // البداية النظيفة: BUILD_FROM_SOURCE لا يقع إلا لعكس مصدرٍ POST شقيقه SKIPPED(OPENING) — أي مستندٍ سبق التفعيل ولم يدخل
+  // الدفاتر. بناء عكسه يرحّل طرفاً واحداً بلا أصله (إيراد وضريبة وذمة سالبة لفاتورة لم تُرحَّل، أو نقص من أرصدة المحاسب
+  // لاستيراد حُذف) — وهو ترحيلٌ لمعلومة سابقة للتفعيل. فيُتخطّى أياً كان نوع المصدر، والمحاسب يسوّي يدوياً إن لزم.
+  // (مراجعة عدائية، ٢٧ سبتمبر ٢٠٢٦: كان الاستثناء مقصوراً على AR_ENTRY فبقي عكس الفاتورة والسند والاستلام من طرف واحد.)
+  if (d.action === 'BUILD_FROM_SOURCE' && input.cutover.cleanStart) {
+    return { action: 'SKIP', skipReason: 'OPENING', siblingWrite: d.siblingWrite };
+  }
+  return d;
+}
+
+function siblingGateInner(input: SiblingGateInput): SiblingGateDecision {
   const { sibling, cutover } = input;
   const isReverse = input.event === 'REVERSE';
 

@@ -53,14 +53,17 @@ export interface OpeningCutoff {
   cutoverStart: Date;
   /** cutover − 1 يوم: تاريخ قيد OPEN */
   openingDate: LocalDate;
+  /** البداية النظيفة: «مشمول» = أُنشئ حتى snapshotAt أياً كان تاريخ أثره (مرآة classifyCutover) */
+  cleanStart?: boolean;
 }
 
-export function openingCutoff(cutoverDate: LocalDate, timezone: string, snapshotAt: Date): OpeningCutoff {
+export function openingCutoff(cutoverDate: LocalDate, timezone: string, snapshotAt: Date, opts: { cleanStart?: boolean } = {}): OpeningCutoff {
   if (!isLocalDate(cutoverDate)) throw new RangeError(`تاريخ بدء غير صالح: ${String(cutoverDate)}`);
   return {
     cutoverDate, timezone, snapshotAt,
     cutoverStart: zonedStartOfDay(cutoverDate, timezone),
     openingDate: addDays(cutoverDate, -1),
+    ...(opts.cleanStart ? { cleanStart: true } : {}),
   };
 }
 
@@ -68,7 +71,7 @@ type Instant = Date | string | number;
 
 /** مسند الافتتاح نفسه الذي يستعمله المُرحِّل (classify.isIncludedInOpening) */
 export function includedInOpening(row: { effectAt: Instant; createdAt: Instant }, cut: OpeningCutoff): boolean {
-  return isIncludedInOpening(row, { cutoverDate: cut.cutoverDate, openingSnapshotAt: cut.snapshotAt, timezone: cut.timezone });
+  return isIncludedInOpening(row, { cutoverDate: cut.cutoverDate, openingSnapshotAt: cut.snapshotAt, timezone: cut.timezone, cleanStart: cut.cleanStart === true });
 }
 
 /**
@@ -910,22 +913,25 @@ export function templatePreviewContext(templateKey: TemplateKey, countryCode: st
  * computeDerivedOpening الترشيح نفسه. داخل معاملة التفعيل يُمرَّر tx فتُقرأ الصفوف بلقطتها.
  */
 export async function loadOpeningSources(db: GlDb, tenantId: string, cut: OpeningCutoff, opts: { includeInventory?: boolean } = {}): Promise<OpeningSources> {
+  // البداية النظيفة: كل ما أُنشئ حتى اللقطة أياً كان تاريخ أثره (includedInOpening يعيد الفحص على كل صف)
+  const clean = cut.cleanStart === true;
   const before = { lt: cut.cutoverStart };
   const upTo = { lte: cut.snapshotAt };
+  const createdWindow = clean ? upTo : { lt: cut.cutoverStart, lte: cut.snapshotAt };
   const [accountEntries, settlements, settlementEntries] = await Promise.all([
     db.accountEntry.findMany({
-      where: { tenantId, entryDate: before, createdAt: upTo },
+      where: { tenantId, ...(clean ? {} : { entryDate: before }), createdAt: upTo },
       select: {
         id: true, customerId: true, invoiceId: true, receiptId: true, type: true, debit: true, credit: true, entryDate: true, createdAt: true,
         invoice: { select: { type: true } },
       },
     }).then((rows) => rows.map(({ invoice, ...r }) => ({ ...r, invoiceType: invoice?.type ?? null }))),
     db.repSettlement.findMany({
-      where: { tenantId, settledAt: before, createdAt: upTo },
+      where: { tenantId, ...(clean ? {} : { settledAt: before }), createdAt: upTo },
       select: { id: true, salesRepId: true, amount: true, settledAt: true, createdAt: true },
     }),
     db.settlementEntry.findMany({
-      where: { tenantId, createdAt: { lt: cut.cutoverStart, lte: cut.snapshotAt } },
+      where: { tenantId, createdAt: createdWindow },
       select: { id: true, amount: true, createdAt: true },
     }),
   ]);
@@ -965,11 +971,11 @@ export async function loadOpeningSources(db: GlDb, tenantId: string, cut: Openin
   if (opts.includeInventory !== false) {
     const [wh, van] = await Promise.all([
       db.warehouseEntryItem.findMany({
-        where: { entry: { tenantId, createdAt: { lt: cut.cutoverStart, lte: cut.snapshotAt } } },
+        where: { entry: { tenantId, createdAt: createdWindow } },
         select: { productId: true, qty: true, unitCost: true, entry: { select: { type: true, createdAt: true } } },
       }),
       db.vanLoadItem.findMany({
-        where: { vanLoad: { tenantId, createdAt: { lt: cut.cutoverStart, lte: cut.snapshotAt } } },
+        where: { vanLoad: { tenantId, createdAt: createdWindow } },
         select: { productId: true, qty: true, vanLoad: { select: { type: true, createdAt: true, salesRepId: true } } },
       }),
     ]);

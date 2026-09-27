@@ -343,7 +343,7 @@ test('كل رمز يرده مسار الاستيراد مصنَّف (لا يسق
   for (const m of src.matchAll(/importRowError\(\s*[^,()]+,\s*'([A-Z_]+)'/g)) codes.add(m[1]);
   const rowUnion = unionMembers(backendSrc('services/importLedger.ts'), 'ImportRowErrorCode');
   for (const c of rowUnion) codes.add(c);
-  assert.ok(codes.has('OPENING_STOCK_FULL_HISTORY') && codes.has('IMPORT_LEDGER_STATE_CHANGED') && codes.has('IMPORT_REVERT_LEDGER_BUSY'), [...codes].join(','));
+  assert.ok(codes.has('OPENING_STOCK_LEDGER_ACTIVE') && codes.has('IMPORT_LEDGER_STATE_CHANGED') && codes.has('IMPORT_REVERT_LEDGER_BUSY'), [...codes].join(','));
   assert.ok(codes.has('IMPORT_SCOPED_ADMIN') && codes.has('IMPORT_PERMISSION_DENIED') && codes.has('ACCOUNTING_NOT_ALLOWED'), [...codes].join(','));
   assert.ok(codes.has('CUSTOMER_CODE_NOT_FOUND') && codes.has('TAX_PCT_FRACTION'), [...codes].join(','));
   // رمز صف جديد في الخادم لا يمر صامتاً: يُضاف إلى ROW_CODES ويُصنَّف في importResultView
@@ -416,54 +416,35 @@ test('أسباب التخطي في importMatch وimportLedger معروفة وم�
   }
 });
 
-test('openingStockGate: مخفية بلا مستودع، ومحجوبة بعد التفعيل وفي التاريخ الكامل، وإقرار حين تاريخ البدء ≤ اليوم بتوقيت الشركة', () => {
-  // 2026-09-16T21:30Z = 17 سبتمبر 00:30 بالرياض، وما زال 16 سبتمبر في UTC
+test('openingStockGate: مخفية بلا مستودع، ومحجوبة بعد التفعيل؛ وفي البداية النظيفة مفتوحة قبل التفعيل بلا إقرار أياً كان تاريخ البدء', () => {
   const now = new Date('2026-09-16T21:30:00Z');
   assert.equal(todayInZone(now, 'Asia/Riyadh'), '2026-09-17');
   assert.equal(todayInZone(now, 'Not/AZone'), '2026-09-17');
   const ctx = (o: Partial<{ activated: boolean; cutoverDate: string | null; timezone: string; method: string | null }>) =>
-    ({ activated: false, cutoverDate: null, timezone: 'Asia/Riyadh', method: 'OPENING', ...o });
+    ({ activated: false, cutoverDate: null, timezone: 'Asia/Riyadh', method: 'CLEAN', ...o });
 
   assert.deepEqual(openingStockGate({ warehouseEnabled: false, ctx: null, serverBlock: null, now }), { state: 'hidden' });
   assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: null, serverBlock: null, now }), { state: 'open' });
   assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: ctx({ activated: true, cutoverDate: '2026-01-01' }), serverBlock: null, now }),
     { state: 'blocked', reason: 'active', cutoverDate: '2026-01-01' });
-  // تاريخ بدء اليوم أو قبله ⇒ إقرار، وأقرب تاريخ بدء الغد بتوقيت الشركة
-  assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: ctx({ cutoverDate: '2026-09-17' }), serverBlock: null, now }),
-    { state: 'ack', cutoverDate: '2026-09-17', minCutoverDate: '2026-09-18' });
-  assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: ctx({ cutoverDate: '2026-09-01' }), serverBlock: null, now }),
-    { state: 'ack', cutoverDate: '2026-09-01', minCutoverDate: '2026-09-18' });
-  assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: ctx({ cutoverDate: '2026-09-17', timezone: 'UTC' }), serverBlock: null, now }), { state: 'open' });
-  assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: ctx({ cutoverDate: '2026-10-01' }), serverBlock: null, now }), { state: 'open' });
-  // التاريخ الكامل في المسودة ⇒ محجوبة (الخادم 409 OPENING_STOCK_FULL_HISTORY) برسالة tr
-  const fh = openingStockGate({ warehouseEnabled: true, ctx: ctx({ cutoverDate: '2024-01-01', method: 'FULL_HISTORY' }), serverBlock: null, now });
-  assert.deepEqual(fh, { state: 'blocked', reason: 'fullHistory', cutoverDate: '2024-01-01' });
-  assert.equal(openingStockNoteKey(fh), OPENING_STOCK_FULL_HISTORY_NOTE);
-  assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: null, serverBlock: { reason: 'fullHistory' }, now }),
-    { state: 'blocked', reason: 'fullHistory', cutoverDate: null });
-  // رفض الخادم يغلب سياقاً غائباً، وminCutoverDate من الخادم
-  assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: null, serverBlock: { reason: 'afterCutover', cutoverDate: '2026-09-01', minCutoverDate: '2026-09-18' }, now }),
-    { state: 'ack', cutoverDate: '2026-09-01', minCutoverDate: '2026-09-18' });
-  assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: null, serverBlock: { reason: 'afterCutover', cutoverDate: '2026-09-01' }, now }),
-    { state: 'ack', cutoverDate: '2026-09-01', minCutoverDate: '2026-09-18' });
+  // البداية النظيفة: تاريخ البدء يوم التفعيل (اليوم) ولا إقرار — المخزون المستورد لا يدخل الدفاتر أصلاً
+  for (const cutoverDate of ['2026-09-17', '2026-09-01', null]) {
+    assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: ctx({ cutoverDate }), serverBlock: null, now }), { state: 'open' });
+  }
   assert.deepEqual(openingStockGate({ warehouseEnabled: true, ctx: null, serverBlock: { reason: 'active' }, now }),
     { state: 'blocked', reason: 'active', cutoverDate: null });
 });
 
-test('نصوص بطاقة المخزون الافتتاحي تطابق الشرط الفعلي، والإقرار يُرسل عند طلبه فقط', () => {
+test('نصوص بطاقة المخزون الافتتاحي صادقة مع البداية النظيفة: لا وعد بدخول القيد الافتتاحي', () => {
   assert.equal(openingStockNoteKey({ state: 'hidden' }), null);
   assert.equal(openingStockNoteKey({ state: 'open' }), OPENING_STOCK_OPEN_NOTE);
   assert.equal(openingStockNoteKey({ state: 'blocked', reason: 'active', cutoverDate: null }), OPENING_STOCK_ACTIVE_NOTE);
   assert.equal(openingStockNoteKey({ state: 'ack', cutoverDate: '2026-09-01', minCutoverDate: '2026-09-18' }), OPENING_STOCK_AFTER_CUTOVER_NOTE);
-  // لا وعد بالدخول «عند التفعيل» مطلقاً: الدخول مشروط بتاريخ بدء بعد يوم الاستيراد
-  assert.doesNotMatch(OPENING_STOCK_OPEN_NOTE, /وتدخل قيمتها القيد الافتتاحي عند تفعيل/);
-  assert.match(OPENING_STOCK_OPEN_NOTE, /إلا إذا كان تاريخ البدء بعد يوم الاستيراد/);
-  assert.match(OPENING_STOCK_AFTER_CUTOVER_NOTE, /في يوم لاحق/);
-
-  const ack = { state: 'ack', cutoverDate: '2026-09-01', minCutoverDate: '2026-09-18' } as const;
-  assert.deepEqual(openingStockAckState(ack, false), { required: true, blocksImport: true, body: {} });
-  assert.deepEqual(openingStockAckState(ack, true), { required: true, blocksImport: false, body: { acknowledgeCutoverChange: true } });
+  assert.match(OPENING_STOCK_OPEN_NOTE, /ولا تدخل الدفاتر/);
+  assert.doesNotMatch(OPENING_STOCK_OPEN_NOTE, /تدخل قيمتها القيد الافتتاحي/);
+  assert.doesNotMatch(OPENING_STOCK_ACTIVE_NOTE, /يدخل القيد الافتتاحي/);
   assert.deepEqual(openingStockAckState({ state: 'open' }, true), { required: false, blocksImport: false, body: {} });
+  void OPENING_STOCK_FULL_HISTORY_NOTE;
 });
 
 // ============ مواءمة الويب مع عقد الخادم ============

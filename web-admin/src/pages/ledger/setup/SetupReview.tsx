@@ -115,11 +115,14 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
   });
 
   const d = state.draft;
-  const method = d.step2?.method ?? state.effective.method;
+  // الطريقة من الخادم وحده (CLEAN لكل تفعيل جديد) — step2 القديمة في المسودة لا أثر لها
+  const method = state.effective.method;
   const s1 = d.step1 ?? {};
   const issues = q.data?.manual.issues ?? [];
   const drafts = q.data?.draftsBeforeCutover ?? state.draftsBeforeCutover;
-  const blocked = !q.data || issues.length > 0;
+  // البداية النظيفة: الخطوة الأولى (ومبالغ الإقرار) والأرصدة «حتى لحظة التفعيل» — حُفظت في يوم آخر ⇒ الخادم يرفض بـ409
+  const dayChanged = method === 'CLEAN' && !!d.step1?.cutoverDate && d.step1.cutoverDate !== state.today;
+  const blocked = !q.data || issues.length > 0 || dayChanged;
   const imported = q.data?.importedAfterCutover;
   const importsBlocked = importsAckBlocksCommit(imported, importsAck);
   const stock = openingStockReview(q.data?.openingStock, stockAck, now);
@@ -153,7 +156,7 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
             [tr('القالب'), state.effective.templateKey],
             [tr('المنطقة الزمنية'), s1.timezone ?? state.effective.timezone],
             [tr('دورية الإقرار'), periodicityLabels[s1.taxPeriodicity ?? state.effective.taxPeriodicity]],
-            [tr('طريقة البدء'), method === 'FULL_HISTORY' ? tr('ترحيل التاريخ الكامل') : tr('أرصدة افتتاحية')],
+            [tr('طريقة البدء'), method === 'CLEAN' ? tr('بداية نظيفة من يوم التفعيل') : method === 'FULL_HISTORY' ? tr('ترحيل التاريخ الكامل') : tr('أرصدة افتتاحية')],
             [tr('تاريخ البدء'), q.data ? formatDayOnly(q.data.cutoff.cutoverDate) : s1.cutoverDate ? formatDayOnly(s1.cutoverDate) : '—'],
             [tr('الأرصدة اليدوية'), String(d.step5?.rows.length ?? 0)],
           ] as [string, string][]).map(([k, v]) => (
@@ -175,6 +178,10 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
           )}>
           <MoveSummary move={q.data.move} decimals={decimals} manualCount={q.data.manual.lineCount} />
         </StepSection>
+      )}
+
+      {dayChanged && (
+        <Notice tone="warn">{tr('تغيّر يوم التفعيل منذ حفظ الخطوة الأولى: احفظ الخطوة الأولى من جديد اليوم وراجع الأرصدة الافتتاحية لتكون حتى لحظة التفعيل')}</Notice>
       )}
 
       {issues.length > 0 && (

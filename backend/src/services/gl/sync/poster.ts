@@ -114,12 +114,14 @@ export function cutoverContextOf(s: Pick<PosterSettings, 'setupMethod' | 'cutove
   if (!s.cutoverDate || !s.openingSnapshotAt) {
     return { cutoverDate: '1970-01-01', openingSnapshotAt: EPOCH, timezone: s.timezone, initialWatermarkAt: EPOCH };
   }
-  const method = s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : 'OPENING';
+  const method = s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : s.setupMethod === 'CLEAN' ? 'CLEAN' : 'OPENING';
   return {
     cutoverDate: s.cutoverDate,
     openingSnapshotAt: s.openingSnapshotAt,
     timezone: s.timezone,
     initialWatermarkAt: initialWatermarkAt({ method, cutoverDate: s.cutoverDate, openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone }),
+    // البداية النظيفة: كل ما أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخه (classifyCutover)
+    cleanStart: method === 'CLEAN',
   };
 }
 

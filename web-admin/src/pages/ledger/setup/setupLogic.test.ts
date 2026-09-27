@@ -185,15 +185,20 @@ test('البند 41: الإقرار لقطةً بالأرقام المعروضة
   assert.ok(ui.includes(`POST_CUTOVER_IMPORTS_CHANGED: tr('${serverText}')`), 'نص السبب لا يطابق رسالة الخادم');
 });
 
-test('إزالة الأرصدة المشتقة (قرار الخبير المحاسبي): خمس خطوات، والانتقال يتخطّى 4، ومسودة واقفة على 4 تُفتح على الأرصدة اليدوية', () => {
-  assert.deepEqual([...SETUP_STEPS], [1, 2, 3, 5, 6]);
+test('إزالة «طريقة البدء» و«الأرصدة المشتقة» (قرار الخبير المحاسبي): أربع خطوات، والانتقال يتخطّاهما، ومسودة واقفة عليهما تُفتح على التالية', () => {
+  assert.deepEqual([...SETUP_STEPS], [1, 3, 5, 6]);
+  assert.equal(clampStep(2), 3);
   assert.equal(clampStep(4), 5);
   assert.equal(clampStep(6), 6);
   assert.equal(clampStep(0), 1);
-  assert.deepEqual([prevStep(5), prevStep(6), prevStep(1)], [3, 5, 1]);
-  assert.deepEqual([nextStep(3), nextStep(5), nextStep(6)], [5, 6, 6]);
+  assert.deepEqual([prevStep(3), prevStep(5), prevStep(6), prevStep(1)], [1, 3, 5, 1]);
+  assert.deepEqual([nextStep(1), nextStep(3), nextStep(5), nextStep(6)], [3, 5, 6, 6]);
   const wizard = read(webSrc, 'pages', 'ledger', 'setup', 'SetupWizard.tsx');
-  assert.doesNotMatch(wizard, /Step4Preview|tr\('الأرصدة المشتقة'\)/);
+  assert.doesNotMatch(wizard, /Step4Preview|Step2Method|tr\('الأرصدة المشتقة'\)|tr\('طريقة البدء'\)/);
+  const steps = read(webSrc, 'pages', 'ledger', 'setup', 'SetupSteps.tsx');
+  assert.doesNotMatch(steps, /export function Step2Method|type="date"[^>]*cutoverDate/, 'لا اختيار للطريقة ولا لتاريخ البدء');
+  assert.match(steps, /\}, 3\); \/\/ خطوة «طريقة البدء» \(2\) أُزيلت/, 'الأساس ينتقل إلى الشجرة');
+  assert.match(steps, /const cutoverDate = state\.today;/, 'تاريخ البدء يوم التفعيل');
   assert.match(wizard, /onBack: \(\) => setStep\(s => prevStep\(/, 'الرجوع من الأرصدة اليدوية إلى الشجرة لا إلى 4');
   assert.match(read(webSrc, 'pages', 'ledger', 'setup', 'SetupSteps.tsx'), /\}, 5\); \/\/ خطوة «الأرصدة المشتقة»/, 'الشجرة تنتقل إلى الأرصدة اليدوية');
   const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
@@ -284,12 +289,13 @@ test('رفض الاعتماد بسبب الاستيراد أو المخزون ي
   assert.match(ui, /tr\('قيمة إرشادية/, 'القيمة إرشادية');
 });
 
-test('«قبل أن تبدأ»: المستورد يخدم التطبيق ولا يدخل القيد الافتتاحي آلياً، والأرصدة الافتتاحية كلها في الخطوة 4', () => {
+test('«قبل أن تبدأ»: بداية نظيفة — المستورد يخدم التطبيق ولا يدخل الدفاتر، والأرصدة الافتتاحية كلها في الخطوة 3', () => {
   const wizard = read(webSrc, 'pages', 'ledger', 'setup', 'SetupWizard.tsx');
   const card = wizard.slice(wizard.indexOf('function BeforeYouStart'));
   assert.match(card, /ولا تدخل القيد الافتتاحي آليا/);
-  assert.match(card, /وأدخل كل الأرصدة الافتتاحية من دفاترك السابقة في الخطوة 4/);
-  assert.doesNotMatch(card, /راجع ذمم العملاء في الخطوة 4/);
+  assert.match(card, /تبدأ الدفاتر نظيفة يوم التفعيل/);
+  assert.match(card, /وأدخل كل الأرصدة الافتتاحية من دفاترك السابقة في الخطوة 3/);
+  assert.doesNotMatch(card, /حدّد تاريخ البدء في الخطوة 1/);
 });
 
 // ═══ دفعة الإصلاحات 2 (مراجعة 2026-09-17) ═══

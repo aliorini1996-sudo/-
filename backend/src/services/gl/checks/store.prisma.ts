@@ -48,7 +48,7 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       if (!s) return null;
       return {
         activatedAt: s.activatedAt, backfillState: s.backfillState as BackfillState,
-        setupMethod: s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : s.setupMethod === 'OPENING' ? 'OPENING' : null,
+        setupMethod: s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : s.setupMethod === 'OPENING' ? 'OPENING' : s.setupMethod === 'CLEAN' ? 'CLEAN' : null,
         cutoverDate: dateOut(s.cutoverDate), openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone,
         currencyDecimals: s.currencyDecimals, lastSyncAt: s.lastSyncAt,
         inventoryMode: (s.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC') as InventoryMode,
@@ -134,7 +134,19 @@ export function createPrismaCheckStore(db: Db): CheckStore {
     async accountEntryTotals(tenantId, excludeOpening, decimals) {
       const where: Prisma.AccountEntryWhereInput = {
         tenantId,
-        ...(excludeOpening ? { NOT: { entryDate: { lt: excludeOpening.cutoverStart }, createdAt: { lte: excludeOpening.openingSnapshotAt } } } : {}),
+        // البداية النظيفة: كل صف أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخه (مرآة classifyCutover)، وكذا صفوف إلغاء
+        // مستندٍ (فاتورة أو سند) أُنشئ حتى T0 وإن أُلغي بعده — عكسه SKIPPED(OPENING) لا يُرحَّل (مرآة siblingGate)
+        ...(excludeOpening
+          ? excludeOpening.cleanStart
+            ? {
+              createdAt: { gt: excludeOpening.openingSnapshotAt },
+              NOT: [
+                { invoice: { is: { createdAt: { lte: excludeOpening.openingSnapshotAt } } } },
+                { receipt: { is: { createdAt: { lte: excludeOpening.openingSnapshotAt } } } },
+              ],
+            }
+            : { NOT: { entryDate: { lt: excludeOpening.cutoverStart }, createdAt: { lte: excludeOpening.openingSnapshotAt } } }
+          : {}),
       };
       const rows = await d.accountEntry.groupBy({ by: ['customerId'], where, _sum: { debit: true, credit: true } });
       const out = new Map<string, Milli>();

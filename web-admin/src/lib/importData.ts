@@ -1392,10 +1392,10 @@ export function todayInZone(now: Date, tz: string): string {
   try { return ymdInZone(now, tz); } catch { return ymdInZone(now, 'Asia/Riyadh'); }
 }
 /** نصوص البطاقة (مفاتيح tr) — الشرط الفعلي في الخادم: الحركة تدخل القيد الافتتاحي فقط حين يسبق يومُ استيرادها تاريخَ البدء */
-export const OPENING_STOCK_ACTIVE_NOTE = 'الدفاتر مفعّلة: المخزون الافتتاحي يدخل القيد الافتتاحي وحده — سجّل الكميات من شاشة المستودع كوارد عادي';
+export const OPENING_STOCK_ACTIVE_NOTE = 'الدفاتر مفعّلة: لا استيراد للمخزون الافتتاحي بعد التفعيل — سجّل الكميات من شاشة المستودع كوارد عادي';
 export const OPENING_STOCK_FULL_HISTORY_NOTE = 'طريقة ترحيل التاريخ الكامل مختارة في معالج الدفاتر، والمخزون الافتتاحي المستورد لا يدخل الدفاتر فيها. اختر طريقة الأرصدة الافتتاحية في الخطوة 2 ثم استورد المخزون';
 export const OPENING_STOCK_AFTER_CUTOVER_NOTE = 'تاريخ البدء المحفوظ في المعالج اليوم أو قبله، فالمخزون المستورد الآن لا يدخل القيد الافتتاحي به. يدخله فقط إذا عدّلت تاريخ البدء في يوم لاحق إلى تاريخ لا يسبق أقرب تاريخ بدء يشمله، ثم اعتمدت الدفاتر';
-export const OPENING_STOCK_OPEN_NOTE = 'تُسجَّل الكميات حركة وارد واحدة بتكلفة صافية من الضريبة، ولا تدخل قيمتها القيد الافتتاحي إلا إذا كان تاريخ البدء بعد يوم الاستيراد، أي باعتماد الدفاتر في يوم لاحق. التراجع متاح قبل التفعيل فقط';
+export const OPENING_STOCK_OPEN_NOTE = 'تُسجَّل الكميات حركة وارد واحدة بتكلفة صافية من الضريبة في المستودع، ولا تدخل الدفاتر: قيمة مخزون المستودع الافتتاحية يُدخلها المحاسب في معالج الدفاتر. التراجع متاح قبل التفعيل فقط';
 
 export type OpeningStockBlock = 'active' | 'fullHistory';
 /** آخر رفض من الخادم: بعد التفعيل، أو التاريخ الكامل، أو تاريخ بدء ≤ اليوم (يُقبل بإقرار) */
@@ -1423,7 +1423,9 @@ export function openingStockGate(i: {
   const c = i.ctx;
   const sb = i.serverBlock;
   if (c?.activated || sb?.reason === 'active') return { state: 'blocked', reason: 'active', cutoverDate: c?.cutoverDate ?? null };
-  if (sb?.reason === 'fullHistory' || (c && c.method === 'FULL_HISTORY')) {
+  // البداية النظيفة (كل تفعيل جديد): المخزون المستورد لا يدخل الدفاتر أياً كان تاريخ البدء، فلا حجب ولا إقرار قبل التفعيل
+  if (!c || c.method === 'CLEAN') return { state: 'open' };
+  if (sb?.reason === 'fullHistory' || c.method === 'FULL_HISTORY') {
     return { state: 'blocked', reason: 'fullHistory', cutoverDate: c?.cutoverDate ?? null };
   }
   const today = todayInZone(i.now, c?.timezone || 'Asia/Riyadh');

@@ -14,16 +14,16 @@ import {
 import { ledgerHref } from '../routes';
 import { clampStep, prevStep, SETUP_STEPS, setupStepFromSearch, timezoneImportsConflictOf, type SetupStepNo, type TimezoneImportsConflict } from './setupLogic';
 import { BackfillStatusCard, DataImportLink, Notice, TimezoneImportsConflictNotice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
-import { Step1Basics, Step2Method, Step3Tree } from './SetupSteps';
+import { Step1Basics, Step3Tree } from './SetupSteps';
 import ManualBalances from './ManualBalances';
 import { CommitResultPanel, Step6Review } from './SetupReview';
 
 /**
  * معالج «إعداد النظام المحاسبي المتكامل» (§5.6، §8.2 الفهرس) — يظهر في LedgerHome قبل التفعيل لمن يملك
  * canConfigureLedger. ست خطوات، وكل خطوة تُحفظ مسودة في `GlSettings.setupDraft` (POST /setup/draft) مع
- * `currentStep` فيستأنف المستخدم من حيث توقف، والخطوة الأخيرة معاملة التفعيل الواحدة. خمس خطوات: خطوة «الأرصدة
- * المشتقة» أُزيلت بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) — أرقامها الداخلية 1·2·3·5·6 كما في المسودات المخزّنة،
- * والمعروض ترتيبها 1..5.
+ * `currentStep` فيستأنف المستخدم من حيث توقف، والخطوة الأخيرة معاملة التفعيل الواحدة. أربع خطوات: «طريقة البدء»
+ * و«الأرصدة المشتقة» أُزيلتا بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) — كل تفعيل بداية نظيفة من يومه. أرقامها
+ * الداخلية 1·3·5·6 كما في المسودات المخزّنة، والمعروض ترتيبها 1..4.
  * بعد التفعيل تُعرض الأرقام النهائية الملتزمة وتقدم الترحيل التاريخي.
  */
 export default function SetupWizard() {
@@ -100,7 +100,7 @@ export default function SetupWizard() {
       <div className="max-w-5xl mx-auto space-y-4">
         {result && <div className="card"><CommitResultPanel result={result} decimals={decimals} /></div>}
         <div className="card space-y-3">
-          <h2 className="text-base font-bold text-[#1F1A13]">{tr('الترحيل التاريخي')}</h2>
+          <h2 className="text-base font-bold text-[#1F1A13]">{status.setupMethod === 'CLEAN' ? tr('الترحيل الآلي للمستندات الجديدة') : tr('الترحيل التاريخي')}</h2>
           <BackfillStatusCard progress={progress} state={q.data?.activated ? q.data.status.backfillState : status.backfillState} canWrite={canWrite} />
           <Link to={ledgerHref('config/settings')} className="text-xs text-[#E15A30] hover:underline">{tr('الإعدادات')} ←</Link>
         </div>
@@ -111,13 +111,13 @@ export default function SetupWizard() {
   const state = before as SetupStateBefore;
   const current = step ?? 1;
   const titles: Record<SetupStepNo, string> = {
-    1: tr('الأساس'), 2: tr('طريقة البدء'), 3: tr('الشجرة'), 5: tr('الأرصدة اليدوية'), 6: tr('المراجعة والتفعيل'),
+    1: tr('الأساس'), 3: tr('الشجرة'), 5: tr('الأرصدة اليدوية'), 6: tr('المراجعة والتفعيل'),
   };
   const reached = clampStep(state.draft.currentStep ?? 1);
   const common = {
     state, canWrite, busy: save.isPending, lastErrorCode,
     onSave: (patch: SetupDraft, next: number) => save.mutate({ patch, next }),
-    onBack: () => setStep(s => prevStep(s ?? 2)),
+    onBack: () => setStep(s => prevStep(s ?? 3)),
   };
 
   return (
@@ -130,7 +130,7 @@ export default function SetupWizard() {
             <p className="text-xs text-[#9A8F7E] mt-0.5 leading-relaxed">{tr('كل خطوة تُحفظ مسودة، ويمكنك العودة لإكمالها لاحقا. لا يُرحَّل شيء قبل التفعيل في الخطوة الأخيرة')}</p>
           </div>
         </div>
-        <ol className="mt-4 grid grid-cols-3 sm:grid-cols-5 gap-2" aria-label={tr('خطوات الإعداد')}>
+        <ol className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2" aria-label={tr('خطوات الإعداد')}>
           {SETUP_STEPS.map((n, idx) => {
             const done = n < current;
             const active = n === current;
@@ -160,7 +160,6 @@ export default function SetupWizard() {
             onConfirm={() => save.mutate({ patch: tzConflict.patch, next: tzConflict.next, rebaseImportDates: true })} />
         )}
         {current === 1 && <Step1Basics key={`s1:${state.draft.step1?.cutoverDate ?? ''}`} {...common} onBack={undefined} />}
-        {current === 2 && <Step2Method {...common} />}
         {current === 3 && <Step3Tree {...common} />}
         {current === 5 && <ManualBalances {...common} />}
         {current === 6 && <Step6Review {...common} onCommitted={onCommitted} />}
@@ -170,8 +169,8 @@ export default function SetupWizard() {
 }
 
 /**
- * «قبل أن تبدأ»: الترتيب الموصى به بين صفحة استيراد البيانات والمعالج. بعد إزالة الأرصدة المشتقة لا يدخل القيد
- * الافتتاحي شيءٌ من المستورد آلياً (أرصدة العملاء ولا المخزون): المستورد يخدم التشغيل، والقيد الافتتاحي يُدخله المحاسب.
+ * «قبل أن تبدأ»: البداية النظيفة (ملاحظة الخبير المحاسبي) — لا يدخل الدفاتر شيءٌ سبق التفعيل: لا مستند ولا حركة ولا
+ * رصيد مستورد. المستورد يخدم التشغيل، والقيد الافتتاحي يُدخله المحاسب.
  */
 function BeforeYouStart({ open }: { open: boolean }) {
   const tr = useTr();
@@ -188,8 +187,8 @@ function BeforeYouStart({ open }: { open: boolean }) {
           {' — '}<DataImportLink>{tr('استيراد البيانات من نظامك السابق')}</DataImportLink>
           {' · '}<WarehouseLink>{tr('وارد المستودع')}</WarehouseLink>
         </li>
-        <li>{tr('حدّد تاريخ البدء في الخطوة 1، ولا تفعّل الدفاتر بعد')}</li>
-        <li>{tr('في المعالج: اربط فئات المنتجات في الخطوة 3، وأدخل كل الأرصدة الافتتاحية من دفاترك السابقة في الخطوة 4 (ومنها ذمم كل عميل وعهدة كل مندوب ومخزون المستودع)، ثم راجع وفعّل في الخطوة 5')}</li>
+        <li>{tr('تبدأ الدفاتر نظيفة يوم التفعيل: لا يُرحَّل إليها ولا يُستورد شيء سبق التفعيل، وما يُنشأ بعده وحده يُرحَّل')}</li>
+        <li>{tr('في المعالج: اربط فئات المنتجات في الخطوة 2، وأدخل كل الأرصدة الافتتاحية من دفاترك السابقة في الخطوة 3 (ومنها ذمم كل عميل وعهدة كل مندوب ومخزون المستودع)، ثم راجع وفعّل في الخطوة 4')}</li>
       </ol>
     </details>
   );

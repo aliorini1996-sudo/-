@@ -133,7 +133,7 @@ export class PrismaPostingStore implements PostingStore {
       suiteEnabled: row.tenant?.accountingSuiteEnabled === true && row.tenant?.accountingEnabled !== false,
       activatedAt: row.activatedAt,
       backfillState: (row.backfillState || 'NONE') as BackfillState,
-      setupMethod: row.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : row.setupMethod === 'OPENING' ? 'OPENING' : null,
+      setupMethod: row.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : row.setupMethod === 'OPENING' ? 'OPENING' : row.setupMethod === 'CLEAN' ? 'CLEAN' : null,
       cutoverDate: row.cutoverDate ? fromDbDate(row.cutoverDate) : null,
       openingSnapshotAt: row.openingSnapshotAt,
       timezone: snapshot.timezone,

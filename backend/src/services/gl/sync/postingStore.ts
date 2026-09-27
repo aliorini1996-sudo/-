@@ -27,7 +27,7 @@ export interface PosterSettings {
   suiteEnabled: boolean;
   activatedAt: Date | null;
   backfillState: BackfillState;
-  setupMethod: 'OPENING' | 'FULL_HISTORY' | null;
+  setupMethod: 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | null;
   cutoverDate: LocalDate | null;
   /** T0 */
   openingSnapshotAt: Date | null;

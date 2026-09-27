@@ -22,7 +22,7 @@ import { CHECK_KEYS, worstStatus, type CheckKey, type CheckResult, type ChecksRe
 export interface CheckSettingsFacts {
   activatedAt: Date | null;
   backfillState: BackfillState;
-  setupMethod: 'OPENING' | 'FULL_HISTORY' | null;
+  setupMethod: 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | null;
   cutoverDate: LocalDate | null;
   openingSnapshotAt: Date | null;
   timezone: string;
@@ -62,7 +62,7 @@ export interface CheckStore {
 
   // C3
   /** Σ(مدين − دائن) لصفوف AccountEntry لكل عميل، مستبعَداً منها المشمول بالافتتاح (entryDate < cutoverStart و createdAt ≤ T0) */
-  accountEntryTotals(tenantId: string, excludeOpening: { cutoverStart: Date; openingSnapshotAt: Date } | null, decimals: number): Promise<Map<string, Milli>>;
+  accountEntryTotals(tenantId: string, excludeOpening: { cutoverStart: Date; openingSnapshotAt: Date; cleanStart?: boolean } | null, decimals: number): Promise<Map<string, Milli>>;
   /** صفوف استيراد مشمولة بالافتتاح تُراجع عنها: حمولة AR_ENTRY:<id>:REVERSE وشقيقها POST = SKIPPED(OPENING) */
   deletedOpeningImports(tenantId: string, decimals: number): Promise<Map<string, Milli>>;
   /**
@@ -134,7 +134,7 @@ export async function loadC3Input(store: CheckStore, tenantId: string, s: CheckS
   const ar = idsOf(acc, 'AR');
   const cut = cutoverContextOf({ setupMethod: s.setupMethod, cutoverDate: s.cutoverDate, openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone });
   const exclude = s.cutoverDate && s.openingSnapshotAt
-    ? { cutoverStart: zonedStartOfDay(cut.cutoverDate, cut.timezone), openingSnapshotAt: cut.openingSnapshotAt }
+    ? { cutoverStart: zonedStartOfDay(cut.cutoverDate, cut.timezone), openingSnapshotAt: cut.openingSnapshotAt, cleanStart: cut.cleanStart === true }
     : null;
   // تعمّق «صف افتتاحي حُذف بلا حدث» (البند 6 (ج)) موقوف: كان يفترض أن سطور الذمم في القيد الافتتاحي مشتقّة من
   // صفوف AccountEntry قبل البدء فيقارن بينهما. أُزيلت الأرصدة المشتقة بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) وصار

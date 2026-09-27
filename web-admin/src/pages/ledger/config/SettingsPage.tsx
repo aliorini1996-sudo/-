@@ -176,7 +176,7 @@ export default function SettingsPage() {
   };
   const receiptLabels: Record<ReceiptMethod, string> = { CASH: tr('نقدي'), BANK_TRANSFER: tr('تحويل بنكي'), POS: tr('شبكة (نقاط البيع)'), CHEQUE: tr('شيك') };
   const backfillLabels: Record<string, string> = { NONE: tr('لم يبدأ'), RUNNING: tr('جار'), DONE: tr('مكتمل'), PAUSED: tr('موقوف مؤقتا') };
-  const setupLabels: Record<string, string> = { OPENING: tr('أرصدة افتتاحية'), FULL_HISTORY: tr('ترحيل التاريخ الكامل') };
+  const setupLabels: Record<string, string> = { OPENING: tr('أرصدة افتتاحية'), FULL_HISTORY: tr('ترحيل التاريخ الكامل'), CLEAN: tr('بداية نظيفة من يوم التفعيل') };
   const frozenHint = tr('لا يتغير بعد تفعيل الدفاتر');
 
   if (settingsQ.isLoading) return <p className="text-sm text-[#9A8F7E] py-10 text-center">{tr('جاري التحميل...')}</p>;

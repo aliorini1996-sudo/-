@@ -25,12 +25,14 @@ export interface LedgerImportCtx {
   timezone: string;
   /** قبل التفعيل ومع مسودة: اليوم السابق لتاريخ البدء — اقتراح «تاريخ الصفوف بلا تاريخ» */
   suggestedUndatedDate: string | null;
-  /** طريقة الإعداد: OPENING قيد افتتاحي، FULL_HISTORY كل حركة بتاريخها على 319002 (لا قيد افتتاحي) */
-  method: 'OPENING' | 'FULL_HISTORY' | null;
+  /** طريقة الإعداد: CLEAN بداية نظيفة (كل تفعيل جديد)، OPENING قيد افتتاحي، FULL_HISTORY كل حركة بتاريخها على 319002 */
+  method: 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | null;
 }
 
 export const FULL_HISTORY_IMPORT_NOTE = 'طريقة التاريخ الكامل: تُرحَّل كل حركة مستوردة بتاريخها على الأرصدة الافتتاحية 319002، ولا يُكتب قيد افتتاحي';
-const asMethod = (m: unknown): LedgerImportCtx['method'] => (m === 'OPENING' || m === 'FULL_HISTORY' ? m : null);
+const asMethod = (m: unknown): LedgerImportCtx['method'] => (m === 'OPENING' || m === 'FULL_HISTORY' || m === 'CLEAN' ? m : null);
+/** البداية النظيفة (ملاحظة الخبير المحاسبي): لا يدخل الدفاتر شيءٌ مستورد قبل التفعيل */
+export const CLEAN_START_IMPORT_NOTE = 'الدفاتر تبدأ نظيفة يوم التفعيل: لا يُستورد إليها ولا يُرحَّل شيء من البيانات السابقة للتفعيل، والأرصدة الافتتاحية يُدخلها المحاسب في معالج الدفاتر';
 
 export const LEDGER_WIZARD_HREF = '/app/ledger';
 
@@ -59,7 +61,7 @@ export function useLedgerImportContext(): LedgerImportCtx | null {
   const setup = setupQ.data && !setupQ.data.activated ? setupQ.data : null;
   const method = activated
     ? asMethod(status.setupMethod)
-    : asMethod(setup?.effective?.method ?? setup?.draft?.step2?.method ?? status.setupMethod);
+    : asMethod(setup?.effective?.method ?? status.setupMethod);
   // التاريخ الكامل قبل التفعيل: /setup/commit يستبدل التاريخ المُدخل بأقدم أثر (fullHistoryCutoverDate) ⇒ لا تاريخ step1
   const cutoverDate = activated
     ? status.cutoverDate ?? null
@@ -73,7 +75,7 @@ export function useLedgerImportContext(): LedgerImportCtx | null {
     cutoverDate,
     timezone,
     // لا قيد افتتاحي في التاريخ الكامل ⇒ لا اقتراح «اليوم السابق لتاريخ البدء»
-    suggestedUndatedDate: !activated && method !== 'FULL_HISTORY' && cutoverDate ? addDaysYmd(cutoverDate, -1) : null,
+    suggestedUndatedDate: !activated && method === 'OPENING' && cutoverDate ? addDaysYmd(cutoverDate, -1) : null,
     method,
   };
 }
@@ -93,8 +95,10 @@ export default function ImportLedgerNotice({ ctx }: { ctx: LedgerImportCtx | nul
           <span>
             {ctx.method === 'FULL_HISTORY'
               ? tr(FULL_HISTORY_IMPORT_NOTE)
-              : tr('الأرصدة المؤرخة قبل تاريخ البدء تدخل القيد الافتتاحي عند التفعيل؛ استوردها قبل التفعيل بتاريخ اليوم السابق لتاريخ البدء')}
-            {ctx.cutoverDate && <> · {tr('تاريخ البدء')}: <bdi className="tabular-nums">{formatDayOnly(ctx.cutoverDate)}</bdi></>}
+              : ctx.method === 'OPENING'
+                ? tr('الأرصدة المؤرخة قبل تاريخ البدء تدخل القيد الافتتاحي عند التفعيل؛ استوردها قبل التفعيل بتاريخ اليوم السابق لتاريخ البدء')
+                : tr(CLEAN_START_IMPORT_NOTE)}
+            {ctx.cutoverDate && ctx.method !== 'CLEAN' && <> · {tr('تاريخ البدء')}: <bdi className="tabular-nums">{formatDayOnly(ctx.cutoverDate)}</bdi></>}
             {' · '}<Link to={LEDGER_WIZARD_HREF} className="font-semibold text-[#E15A30] hover:underline">{tr('معالج إعداد الدفاتر')}</Link>
           </span>
         </p>

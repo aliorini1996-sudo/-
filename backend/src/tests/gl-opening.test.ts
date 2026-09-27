@@ -19,7 +19,8 @@ import {
   HISTORY_MAX_ROWS, assertHistoryNotTooLarge, backfillProgress, backfillTransition, conservativeEventsPerMinute, estimateHistory, fullHistoryCutoverDate,
   initialCursorRows, shouldReconcile,
 } from '../services/gl/backfill';
-import { classifyCutover, initialWatermarkAt } from '../services/gl/sync/classify';
+import { classifyCutover, initialWatermarkAt, isIncludedInOpening, siblingGate } from '../services/gl/sync/classify';
+import { cutoverContextOf } from '../services/gl/sync/poster';
 import { LATE_COMMIT_WINDOW_MS } from '../services/gl/sync/types';
 import { validateMove } from '../services/gl/validate';
 import { saContext, accountIdOf } from '../services/gl/testing/fixtures';
@@ -731,7 +732,7 @@ test('البند 42: لقطة الاعتماد تُقرأ بساعة القاع�
   const commit = handlerBody(SETUP_SRC, "router.post('/setup/commit'");
   assertOrder(commit, [
     'acquirePostLock(tx, tenantId)', 'acquireImportEntriesLock(tx, tenantId)', 'const dbNow = await dbClockOf(tx)',
-    'const T0 = openingSnapshotFromDbNow(dbNow)', 'loadRunningImportBatch(tx, tenantId, dbNow)', 'loadImportedAfterCutover(tx',
+    'const T0 = clean ? dbNow : openingSnapshotFromDbNow(dbNow)', 'loadRunningImportBatch(tx, tenantId, dbNow)', 'loadImportedAfterCutover(tx',
     'activatedAt: dbNow',
   ], '/setup/commit clock');
   // لا قراءة ساعة قبل القفلين داخل المعاملة (وإلا فاتتها كتابات الانتظار)
@@ -794,4 +795,96 @@ test('حارس ثابت: المعاينة والاعتماد يبنيان الق
   const build = opening.slice(opening.indexOf('export function buildOpeningMove('), opening.indexOf('// ═══ حلّ شركاء'));
   assert.doesNotMatch(build, /accountKey: '(AR_CONTROL|REP_CUSTODY|PAYLINK_CLEARING|INVENTORY_WAREHOUSE)'/);
   assert.doesNotMatch(build, /derived\./);
+});
+
+// ═══ البداية النظيفة (ملاحظة الخبير المحاسبي، 2026-09-27) ═══
+// «في حال إعادة التهيئة لأي دفاتر أو أي حساب جديد أو شركة موجودة مسبقاً وبدأت تستخدم الدفاتر فيجب أن تكون الدفاتر
+// وشجرة الحسابات وجميع الأفرع بدون أي استيراد أو ترحيل لأي معلومات متوفرة مسبقاً في حسابات الشركة أياً كانت»
+
+test('البداية النظيفة: كل ما أُنشئ حتى لحظة التفعيل خارج الدفاتر أياً كان تاريخ أثره، وما بعدها يُرحَّل', () => {
+  const T0 = at('2027-01-15T09:00:00.000Z');
+  const clean = { cutoverDate: '2027-01-15', openingSnapshotAt: T0, timezone: TZ, cleanStart: true };
+  const legacy = { ...clean, cleanStart: false };
+  const before = at('2027-01-15T08:59:00.000Z');
+  const after = at('2027-01-15T09:01:00.000Z');
+  // فاتورة يوم التفعيل أُنشئت قبله: الطريقة القديمة ترحّلها، والنظيفة لا
+  assert.equal(classifyCutover({ effectAt: before, createdAt: before }, legacy).kind, 'POST_AT');
+  assert.equal(classifyCutover({ effectAt: before, createdAt: before }, clean).kind, 'OPENING');
+  // مؤرخة مستقبلاً وأُنشئت قبل التفعيل ⇒ خارج الدفاتر
+  assert.equal(classifyCutover({ effectAt: at('2027-03-01T10:00:00Z'), createdAt: before }, clean).kind, 'OPENING');
+  // سابقة التاريخ وسابقة الإنشاء ⇒ خارج الدفاتر (كما كانت)
+  assert.equal(classifyCutover({ effectAt: at('2026-12-01T10:00:00Z'), createdAt: at('2026-12-01T10:00:00Z') }, clean).kind, 'OPENING');
+  // ما أُنشئ بعد التفعيل يُرحَّل بتاريخه، والمتأخر الوصول (مؤرخ أمس، أُنشئ بعد التفعيل) بتاريخ البدء
+  const now = classifyCutover({ effectAt: after, createdAt: after }, clean);
+  assert.deepEqual([now.kind, now.kind === 'POST_AT' && now.date], ['POST_AT', '2027-01-15']);
+  const late = classifyCutover({ effectAt: at('2027-01-14T10:00:00Z'), createdAt: after }, clean);
+  assert.deepEqual([late.kind, late.kind === 'POST_AT' && late.lateArrival, late.kind === 'POST_AT' && late.date], ['POST_AT', true, '2027-01-15']);
+  // المسند نفسه في isIncludedInOpening (بوابة الأشقاء والمحمّل)
+  assert.equal(isIncludedInOpening({ effectAt: at('2027-03-01T10:00:00Z'), createdAt: before }, clean), true);
+  assert.equal(isIncludedInOpening({ effectAt: at('2027-03-01T10:00:00Z'), createdAt: before }, legacy), false);
+  assert.equal(isIncludedInOpening({ effectAt: before, createdAt: after }, clean), false);
+  // والقطع الافتتاحي بالعلامة يرى ما رآه المصنّف
+  const cut = openingCutoff('2027-01-15', TZ, T0, { cleanStart: true });
+  assert.equal(includedInOpening({ effectAt: at('2027-02-01T10:00:00Z'), createdAt: before }, cut), true);
+  assert.equal(includedInOpening({ effectAt: at('2027-02-01T10:00:00Z'), createdAt: before }, openingCutoff('2027-01-15', TZ, T0)), false);
+});
+
+test('البداية النظيفة: عكس أي مصدر سبق التفعيل (استيراد أو فاتورة أو سند أو استلام) لا يُرحَّل من طرف واحد، وعكس القيد الحيّ لا يتأثر', () => {
+  const ctx = { cutoverDate: '2027-01-15', openingSnapshotAt: at('2027-01-15T09:00:00Z'), timezone: TZ, initialWatermarkAt: at('2027-01-14T00:00:00Z') };
+  const skippedOpening = { status: 'SKIPPED' as const, skipReason: 'OPENING' as const, moveId: null };
+  const importRev = (cleanStart: boolean) => siblingGate({ sourceType: 'AR_ENTRY', event: 'REVERSE', sibling: skippedOpening, cutover: { ...ctx, cleanStart } });
+  assert.deepEqual(importRev(true), { action: 'SKIP', skipReason: 'OPENING', siblingWrite: null });
+  assert.equal(importRev(false).action, 'BUILD_FROM_SOURCE', 'التفعيلات السابقة كما كانت');
+  // صف استيراد حُذف قبل أن يُكتب شقيقه POST: الشقيق يُدرج SKIPPED(OPENING) والعكس لا يُرحَّل
+  const noSibling = siblingGate({
+    sourceType: 'AR_ENTRY', event: 'REVERSE', sibling: null, cutover: { ...ctx, cleanStart: true },
+    origin: { originEffectAt: at('2027-03-01T10:00:00Z'), originCreatedAt: at('2027-01-10T10:00:00Z'), sourceExists: false },
+  });
+  assert.deepEqual(noSibling, { action: 'SKIP', skipReason: 'OPENING', siblingWrite: { op: 'INSERT', status: 'SKIPPED', skipReason: 'OPENING' } });
+  // فاتورة/سند/استلام سبق التفعيل ثم أُلغي بعده: أصله لم يدخل الدفاتر، فعكسه لا يُبنى من المصدر (وإلا إيراد وذمة سالبان بلا أصل)
+  for (const sourceType of ['INVOICE', 'RECEIPT', 'SETTLEMENT'] as const) {
+    assert.deepEqual(siblingGate({ sourceType, event: 'REVERSE', sibling: skippedOpening, cutover: { ...ctx, cleanStart: true } }),
+      { action: 'SKIP', skipReason: 'OPENING', siblingWrite: null }, sourceType);
+    assert.equal(siblingGate({ sourceType, event: 'REVERSE', sibling: skippedOpening, cutover: { ...ctx, cleanStart: false } }).action, 'BUILD_FROM_SOURCE', `${sourceType}: التفعيلات السابقة كما كانت`);
+  }
+  // عكس قيد حيّ (تسوية عميل رُحّلت بعد التفعيل) لا يتأثر
+  assert.deepEqual(siblingGate({
+    sourceType: 'AR_ENTRY', event: 'REVERSE', sibling: { status: 'DONE', skipReason: null, moveId: 'm1' }, live: { liveMoveId: 'm1', existingReversalMoveId: null },
+    cutover: { ...ctx, cleanStart: true },
+  }), { action: 'REVERSE_LIVE', liveMoveId: 'm1' });
+});
+
+test('البداية النظيفة: سياق المُرحِّل من الإعدادات — CLEAN وحدها تفعّل القاعدة، والتفعيلات السابقة كما كانت', () => {
+  const base = { cutoverDate: '2027-01-15', openingSnapshotAt: at('2027-01-15T09:00:00Z'), timezone: TZ };
+  assert.equal(cutoverContextOf({ ...base, setupMethod: 'CLEAN' }).cleanStart, true);
+  assert.equal(cutoverContextOf({ ...base, setupMethod: 'OPENING' }).cleanStart, false);
+  assert.equal(cutoverContextOf({ ...base, setupMethod: 'FULL_HISTORY' }).cleanStart, false);
+  // المؤشر الابتدائي للبداية النظيفة كالطريقة (أ): يمسح ما حول يوم البدء فيُحسم SKIPPED(OPENING) لا يُرحَّل
+  assert.deepEqual(cutoverContextOf({ ...base, setupMethod: 'CLEAN' }).initialWatermarkAt, cutoverContextOf({ ...base, setupMethod: 'OPENING' }).initialWatermarkAt);
+});
+
+test('حارس ثابت: كل تفعيل جديد بداية نظيفة — الطريقة CLEAN، وتاريخ البدء يوم التفعيل بساعة القاعدة، وT0 لحظة التفعيل، ولا إقرار استيراد ولا مخزون', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'setup.ts'), 'utf8');
+  const eff = src.slice(src.indexOf('function effectiveSetup('), src.indexOf('function assertFiscalYearEnd('));
+  assert.match(eff, /method: 'CLEAN',/);
+  assert.match(eff, /cutoverDate: todayLocal\(now, /);
+  assert.doesNotMatch(eff, /draft\.step2\?\.method|d1\.cutoverDate/, 'لا يختار المستخدم الطريقة ولا تاريخ البدء');
+  const commit = src.slice(src.indexOf("router.post('/setup/commit'"), src.indexOf("router.post('/setup/backfill'"));
+  assert.match(commit, /const eff = effectiveSetup\(draft, before, company\.countryCode, dbNow\);/);
+  assert.match(commit, /const T0 = clean \? dbNow : openingSnapshotFromDbNow\(dbNow\);/);
+  assert.match(commit, /if \(!clean && postCutoverImportsAckMissing\(/);
+  assert.match(commit, /if \(!clean && openingStock\.afterCutover\.count > 0/);
+  assert.match(commit, /if \(!clean && openingStock\.tooRecent\.count > 0\)/);
+  assert.match(commit, /openingCutoff\(cutoverDate, eff\.timezone, T0, \{ cleanStart: clean \}\)/);
+  // يوم الاعتماد غير يوم حفظ الخطوة الأولى ⇒ 409 قبل أي كتابة (مربعات الإقرار والأرصدة «حتى لحظة التفعيل»)
+  assert.match(commit, /if \(clean && savedDay && savedDay !== eff\.cutoverDate\) \{/);
+  assert.ok(commit.indexOf("'LEDGER_SETUP_DAY_CHANGED'") < commit.indexOf('ensureSettingsRow(tx'));
+  // C3 يستبعد ما استبعده المُرحِّل: صفوف ما قبل T0 وصفوف إلغاء مستندٍ سبق T0
+  const store = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'checks', 'store.prisma.ts'), 'utf8');
+  assert.match(store, /createdAt: \{ gt: excludeOpening\.openingSnapshotAt \}/);
+  assert.match(store, /\{ invoice: \{ is: \{ createdAt: \{ lte: excludeOpening\.openingSnapshotAt \} \} \} \}/);
+  assert.match(store, /\{ receipt: \{ is: \{ createdAt: \{ lte: excludeOpening\.openingSnapshotAt \} \} \} \}/);
+  // الشجرة من القالب وحده: الزرع لا يقرأ عملاء ولا مناديب ولا مستودعات الشركة
+  const seed = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'seed.ts'), 'utf8');
+  assert.doesNotMatch(seed, /db\.(customer|salesRep|invoice|receipt|warehouse\w*|accountEntry)\./);
 });
