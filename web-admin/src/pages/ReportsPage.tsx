@@ -16,7 +16,7 @@ import { useAccountingOn } from '../components/AccountingGate';
 type Tab = 'sales' | 'collections' | 'balances' | 'performance';
 
 // زيارة **مدموجة**: سجلّ المؤقّت وسجلّ الملاحظة للعميل الواحد وقفةٌ واحدة
-interface WorkVisit { customerName: string; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number }
+interface WorkVisit { customerName: string; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number; lat?: number | null; lng?: number | null }
 interface WorkDayRow {
   date: string; firstActivity: string; lastActivity: string;
   spanMinutes: number; appMinutes: number;
@@ -337,12 +337,13 @@ export default function ReportsPage() {
         { name: tr('تفاصيل الزيارات'), rows: hoursRows.flatMap(r => r.days.flatMap(d => d.visits.map(v => ({
           [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
           [tr('اسم العميل')]: v.customerName,
+          [tr('رابط الموقع')]: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
           [tr('بداية الزيارة')]: fmtClock(v.start),
           [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
           [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
           [tr('ملاحظة/صور')]: v.hasNote ? tr('نعم') : '',
           [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
-        })))), colWidths: [22, 12, 24, 12, 12, 12, 12, 16] },
+        })))), colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
     } else if (tab === 'performance' && perfType === 'receivables' && recvRows?.some(r => r.customersCount > 0)) {
@@ -537,9 +538,10 @@ export default function ReportsPage() {
         [tr('عدد الزيارات')]: d.visitsCount,
         [tr('وقت داخل الزيارات')]: fmtVisitDur(d.visitsSec) || '—',
       })) },
-    { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 12, 12, 12, 12, 16],
+    { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 34, 12, 12, 12, 12, 16],
       rows: r.days.flatMap(d => d.visits.map(v => ({
         [tr('التاريخ')]: d.date, [tr('اسم العميل')]: v.customerName,
+        [tr('رابط الموقع')]: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
         [tr('بداية الزيارة')]: fmtClock(v.start),
         [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
         [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'),
@@ -1185,7 +1187,7 @@ export default function ReportsPage() {
                                 <table className="table">
                                   <thead>
                                     <tr>
-                                      <th>{tr('اسم العميل')}</th><th>{tr('بداية الزيارة')}</th>
+                                      <th>{tr('اسم العميل')}</th><th>{tr('الزيارات والموقع')}</th><th>{tr('بداية الزيارة')}</th>
                                       <th>{tr('نهاية الزيارة')}</th><th>{tr('مدة الزيارة')}</th>
                                     </tr>
                                   </thead>
@@ -1195,6 +1197,21 @@ export default function ReportsPage() {
                                         <td className="font-medium text-gray-800">
                                           {v.customerName}
                                           {v.hasNote && <span className="ms-1.5 text-[10px] text-[#2E6FB0]" title={tr('رافقتها ملاحظة أو صور')}>📝</span>}
+                                        </td>
+                                        {/* عدد وقفات هذا العميل في هذا اليوم، ودبّوسٌ يفتح موقع الوقفة
+                                            على الخريطة — بشكل عمود «عدد الزيارات» في تقرير العملاء.
+                                            والموقع قد يغيب: زيارةٌ سُجّلت والـGPS مغلق. */}
+                                        <td>
+                                          <span className="inline-flex items-center gap-1.5">
+                                            <span className="font-bold text-[#2563EB] tabular-nums">{d.visits.filter(x => x.customerName === v.customerName).length}</span>
+                                            {v.lat != null && v.lng != null ? (
+                                              <a href={`https://www.google.com/maps?q=${v.lat},${v.lng}`} target="_blank" rel="noopener noreferrer"
+                                                onClick={e => e.stopPropagation()} title={tr('عرض موقع الزيارة على الخريطة')}
+                                                className="text-[#E15A30] hover:text-[#C2410C]"><MapPin size={14} /></a>
+                                            ) : (
+                                              <span className="text-gray-300" title={tr('لا موقع مسجل لهذه الزيارة')}><MapPin size={14} /></span>
+                                            )}
+                                          </span>
                                         </td>
                                         <td className="tabular-nums text-[#1E7A52] font-semibold">{fmtClock(v.start)}</td>
                                         <td className="tabular-nums text-[#C0392B] font-semibold">{v.end ? fmtClock(v.end) : <span className="text-gray-400 font-normal">{tr('بلا توقيت')}</span>}</td>

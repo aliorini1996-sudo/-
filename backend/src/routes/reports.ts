@@ -439,7 +439,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
             { startedAt: null, createdAt: { gte: fromDate, lt: toEnd } },
           ] }],
         },
-        select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
+        select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
         orderBy: { createdAt: 'asc' }, take: 10000,
       }),
       // نقاط GPS تُختزل في القاعدة إلى (مندوب × يوم محلي → أول/آخر التقاط):
@@ -479,6 +479,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
           customerName: v.customer?.name || '—',
           at: v.startedAt || v.createdAt,   // بداية المؤقّت أدقّ؛ زيارة الملاحظة بوقت تسجيلها
           durationSec: v.durationSec,
+          lat: v.lat, lng: v.lng,
         })),
         tzOffsetMin,
         // مدى الأيام المحلّية: يُملأ الغائب منها بصفوفٍ فارغة كي يظهر الغياب

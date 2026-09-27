@@ -18,7 +18,7 @@
  */
 
 export interface Interval { start: Date; end: Date }
-export interface VisitLike { customerName: string; at: Date; durationSec: number | null }
+export interface VisitLike { customerName: string; at: Date; durationSec: number | null; lat?: number | null; lng?: number | null }
 
 /**
  * زيارةٌ واحدة كما يفهمها المشرف — لا كما تُخزَّن.
@@ -39,6 +39,9 @@ export interface MergedVisit {
   hasNote: boolean;
   /** كم سجلاً اندمج فيها (٢ = مؤقّت + ملاحظة) */
   parts: number;
+  /** موقع الوقفة — من السجلّ المؤقّت، وإلّا من سجلّ الملاحظة الذي اندمج فيه */
+  lat: number | null;
+  lng: number | null;
 }
 
 /**
@@ -59,6 +62,8 @@ export function mergeVisits(visits: VisitLike[]): MergedVisit[] {
     durationSec: v.durationSec,
     hasNote: false,
     parts: 1,
+    lat: v.lat ?? null,
+    lng: v.lng ?? null,
   }));
 
   for (const u of sorted.filter((v) => !isTimed(v))) {
@@ -67,8 +72,14 @@ export function mergeVisits(visits: VisitLike[]): MergedVisit[] {
       h.customerName === u.customerName &&
       t >= h.start.getTime() - MERGE_TOLERANCE_MS &&
       t <= (h.end ? h.end.getTime() : h.start.getTime()) + MERGE_TOLERANCE_MS);
-    if (host) { host.hasNote = true; host.parts += 1; }
-    else out.push({ customerName: u.customerName, start: u.at, end: null, durationSec: null, hasNote: true, parts: 1 });
+    if (host) {
+      host.hasNote = true;
+      host.parts += 1;
+      // سجلّ الملاحظة يحمل موقعاً أحياناً والمؤقّت لا — فلا يُهدَر الموقع الوحيد
+      if (host.lat == null && u.lat != null) { host.lat = u.lat; host.lng = u.lng ?? null; }
+    } else {
+      out.push({ customerName: u.customerName, start: u.at, end: null, durationSec: null, hasNote: true, parts: 1, lat: u.lat ?? null, lng: u.lng ?? null });
+    }
   }
   return out.sort((a, b) => a.start.getTime() - b.start.getTime());
 }

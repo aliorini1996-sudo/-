@@ -4013,6 +4013,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   // ——— البصمة: نوبة من يوم سابق ———
   'منذ': { en: "Since", fr: "Depuis", tr: "Şu tarihten beri", zh: "自" },
   'يبدو أنك نسيت تسجيل الانصراف — سجّل الانصراف ثم الحضور من جديد': { en: "Looks like you forgot to check out — check out, then check in again", fr: "Vous semblez avoir oublié de pointer la sortie — pointez la sortie puis l’entrée à nouveau", tr: "Çıkış yapmayı unutmuş görünüyorsunuz — çıkış yapıp yeniden giriş yapın", zh: "您似乎忘记签退——请先签退再重新签到" },
+  'الزيارات والموقع': { en: 'Visits and location', fr: 'Visites et position', tr: 'Ziyaretler ve konum', zh: '拜访次数与位置' },
+  'عرض موقع الزيارة على الخريطة': { en: 'Show the visit location on the map', fr: 'Afficher la position de la visite sur la carte', tr: 'Ziyaret konumunu haritada goster', zh: '在地图上查看拜访位置' },
+  'لا موقع مسجل لهذه الزيارة': { en: 'No location recorded for this visit', fr: 'Aucune position enregistree pour cette visite', tr: 'Bu ziyaret icin kayitli konum yok', zh: '此次拜访没有位置记录' },
 };
 
 export function useTr() {
