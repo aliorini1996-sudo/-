@@ -46,7 +46,14 @@ export interface ManualBalanceRowInput {
   vendorId?: string | null;
   vendorName?: string | null;
   dueDate?: LocalDate | null;
+  /** مندوب سطر العهدة 111003 (إلزامي لها) أو بضاعة السيارات */
   salesRepId?: string | null;
+  /** اسم المندوب من ملف XLSX — يحلّه الخادم */
+  salesRepName?: string | null;
+  /** عميل سطر ذمم العملاء 113001 (إلزامي لها) */
+  customerId?: string | null;
+  /** رمز العميل أو اسمه — يحلّه الخادم (مطابقة تامّة لا تتكرّر) */
+  customerRef?: string | null;
   label?: string | null;
 }
 
@@ -143,29 +150,8 @@ export type SetupState = SetupStateBefore | SetupStateAfter;
 
 // ═══ المعاينة والاعتماد ═══
 
-export interface OpeningReceivableJson { customerId: string; customerName: string | null; balance: string; rows: number }
-export interface OpeningCustodyJson {
-  salesRepId: string;
-  salesRepName: string | null;
-  ledgerCustody: string;
-  onlineUncleared: string;
-  nonCustodyCleared: string;
-  suspenseCleared: string;
-  cashSalesOutsideCustody: string;
-  opsOutstanding: string;
-}
-export interface DerivedOpeningJson {
-  cutoverDate: LocalDate;
-  openingDate: LocalDate;
-  snapshotAt: string;
-  receivables: OpeningReceivableJson[];
-  receivablesTotal: string;
-  custody: OpeningCustodyJson[];
-  custodyTotal: string;
-  paylinkHeld: string;
-  warehouse: { value: string; uncostedQty: number | string; uncostedProducts: number };
-  counts: Record<string, number>;
-}
+/** لحظة القطع التي حُسبت عليها المعاينة */
+export interface OpeningCutoffJson { cutoverDate: LocalDate; openingDate: LocalDate; snapshotAt: string }
 export interface OpeningMoveJson { equityDiff: string; totalDebit: string; manualDebit: string; manualCredit: string; lineCount: number }
 
 /** حركات مستوردة (دفعات balances/ledger غير متراجَع عنها) بتاريخ ≥ البدء — تُرحَّل بتاريخها على 319002 لا في الافتتاح */
@@ -225,7 +211,8 @@ export interface OpeningPreview {
   preview: true;
   method: SetupMethod;
   midVatPeriod: boolean;
-  opening: DerivedOpeningJson;
+  /** الأرصدة المشتقة أُزيلت (قرار الخبير المحاسبي): القيد الافتتاحي من الأرصدة اليدوية وحدها */
+  cutoff: OpeningCutoffJson;
   manual: { lineCount: number; issues: ManualBalanceIssue[] };
   move: OpeningMoveJson;
   draftsBeforeCutover: DraftsBeforeCutover | null;
@@ -246,7 +233,6 @@ export interface SetupDraftResult {
 
 export interface SetupCommitResult {
   status: SetupStatus;
-  opening: DerivedOpeningJson;
   move: OpeningMoveJson & { id: string | null; number: string | null; date: LocalDate };
   watermarkAt: string;
   futureDated: { accountEntries: number; repSettlements: number; eventsInserted: number } | null;

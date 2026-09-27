@@ -1,7 +1,7 @@
 import type { LocalDate, TaxPeriodicity } from '../../../api/ledgerConfig';
 import type { ManualBalanceRowInput, SetupDraft, SetupEffective, SetupMethod } from '../../../api/ledgerSetup';
 import { parseAmountToMilli } from '../../../lib/ledger/format';
-import { SETUP_STEP_PARAM } from '../../../lib/ledger/setupProgress';
+import { SETUP_STEP_PARAM, SETUP_STEPS as PROGRESS_STEPS } from '../../../lib/ledger/setupProgress';
 
 /**
  * منطق معالج الإعداد الصرف (§5.6) بلا React — مختبَر في setupLogic.test.ts:
@@ -14,23 +14,30 @@ import { SETUP_STEP_PARAM } from '../../../lib/ledger/setupProgress';
 /** سقف صفوف الأرصدة اليدوية في المسودة */
 export const MANUAL_BALANCE_MAX_ROWS = 5000;
 /** أعمدة قالب XLSX للأرصدة اليدوية */
-export const OPENING_BALANCE_TEMPLATE_COLUMNS = ['accountCode', 'debit', 'credit', 'vendorName', 'dueDate'] as const;
+export const OPENING_BALANCE_TEMPLATE_COLUMNS = ['accountCode', 'debit', 'credit', 'vendorName', 'dueDate', 'customer', 'salesRep'] as const;
 export const MANUAL_BALANCE_ISSUES = [
-  'ACCOUNT_NOT_FOUND', 'ACCOUNT_ARCHIVED', 'DERIVED_ACCOUNT', 'OPENING_EQUITY', 'EQUITY_UNAFFECTED', 'OFF_BALANCE',
+  'ACCOUNT_NOT_FOUND', 'ACCOUNT_ARCHIVED', 'OPENING_EQUITY', 'EQUITY_UNAFFECTED', 'OFF_BALANCE',
   'VAT_REQUIRES_MID_PERIOD', 'VENDOR_REQUIRED', 'INVALID_AMOUNT', 'NEGATIVE_AMOUNT', 'DEBIT_AND_CREDIT', 'ZERO_AMOUNT',
-  'INVALID_DUE_DATE',
+  'INVALID_DUE_DATE', 'CUSTOMER_REQUIRED', 'CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'SALES_REP_REQUIRED', 'SALES_REP_NOT_FOUND',
+  'SALES_REP_AMBIGUOUS',
 ] as const;
 export type ManualBalanceIssueReason = (typeof MANUAL_BALANCE_ISSUES)[number];
 
 // ═══ الخطوات ═══
 
-export const SETUP_STEPS = [1, 2, 3, 4, 5, 6] as const;
+/** خطوة «الأرصدة المشتقة» (4) أُزيلت بقرار الخبير المحاسبي — الأرقام الداخلية مخزّنة في المسودات فتبقى (انظر setupProgress) */
+export const SETUP_STEPS = PROGRESS_STEPS;
 export type SetupStepNo = (typeof SETUP_STEPS)[number];
 
 export const clampStep = (n: unknown): SetupStepNo => {
   const v = Math.trunc(Number(n));
+  if (v === 4) return 5;
   return (v >= 1 && v <= 6 ? v : 1) as SetupStepNo;
 };
+
+/** الخطوة السابقة/التالية في المعالج (تتخطّى 4 المُزالة) */
+export const prevStep = (s: SetupStepNo): SetupStepNo => SETUP_STEPS[Math.max(0, SETUP_STEPS.indexOf(s) - 1)];
+export const nextStep = (s: SetupStepNo): SetupStepNo => SETUP_STEPS[Math.min(SETUP_STEPS.length - 1, SETUP_STEPS.indexOf(s) + 1)];
 
 /**
  * خطوة الرابط `?setupStep=N` التي يبنيها `setupWizardHref` لزرّ «أكمل الإعداد» — أو `null`.
@@ -43,7 +50,7 @@ export function setupStepFromSearch(search: string | null | undefined): SetupSte
   const raw = new URLSearchParams(search ?? '').get(SETUP_STEP_PARAM);
   if (raw === null || !/^[1-9]\d*$/.test(raw)) return null;
   const v = Number(raw);
-  return v >= 1 && v <= 6 ? (v as SetupStepNo) : null;
+  return v >= 1 && v <= 6 ? clampStep(v) : null;
 }
 
 // ═══ التواريخ (مرآة services/gl/dates.ts وopening.ts) ═══
@@ -143,6 +150,8 @@ const HEADER_SYNONYMS: Record<OpeningImportField, string[]> = {
   credit: ['credit', 'دائن', 'الدائن'],
   vendorName: ['vendorName', 'vendor name', 'vendor', 'supplier', 'المورد', 'المورّد', 'اسم المورد', 'اسم المورّد'],
   dueDate: ['dueDate', 'due date', 'due', 'تاريخ الاستحقاق', 'الاستحقاق'],
+  customer: ['customer', 'customerCode', 'customer code', 'customerName', 'customer name', 'client', 'العميل', 'رمز العميل', 'اسم العميل'],
+  salesRep: ['salesRep', 'sales rep', 'salesRepName', 'rep', 'المندوب', 'اسم المندوب'],
 };
 
 const normHeader = (s: string) => s.trim().toLowerCase().replace(/[ّ]/g, '').replace(/[\s_\-.]+/g, ' ').replace(/[أإآ]/g, 'ا');
@@ -204,12 +213,16 @@ export function parseOpeningBalanceRecords(records: readonly Record<string, unkn
       if (!accountCode && !debit && !credit) { skippedEmpty++; continue; }
       const vendorName = cellText(get(rec, 'vendorName'));
       const dueDate = normalizeDueDate(get(rec, 'dueDate'));
+      const customerRef = cellText(get(rec, 'customer'));
+      const salesRepName = cellText(get(rec, 'salesRep'));
       rows.push({
         accountCode,
         debit: debit || null,
         credit: credit || null,
         ...(vendorName ? { vendorName } : {}),
         ...(dueDate ? { dueDate } : {}),
+        ...(customerRef ? { customerRef } : {}),
+        ...(salesRepName ? { salesRepName } : {}),
       });
     }
   }
@@ -218,7 +231,8 @@ export function parseOpeningBalanceRecords(records: readonly Record<string, unkn
 
 /** صف فارغ تماماً (لا يُرسل) */
 export const isBlankRow = (r: ManualBalanceRowInput) =>
-  !String(r.accountCode ?? '').trim() && !String(r.debit ?? '').trim() && !String(r.credit ?? '').trim() && !String(r.vendorName ?? '').trim();
+  !String(r.accountCode ?? '').trim() && !String(r.debit ?? '').trim() && !String(r.credit ?? '').trim() && !String(r.vendorName ?? '').trim()
+  && !String(r.customerRef ?? '').trim() && !r.customerId && !r.salesRepId && !String(r.salesRepName ?? '').trim();
 
 /** الصفوف المرسلة: بلا الفارغة، والمبالغ نصوص مطبّعة (أرقام عربية هندية ⇒ لاتينية) */
 export function cleanManualRows(rows: readonly ManualBalanceRowInput[]): ManualBalanceRowInput[] {
@@ -233,6 +247,9 @@ export function cleanManualRows(rows: readonly ManualBalanceRowInput[]): ManualB
     if (vendorName) out.vendorName = vendorName;
     if (r.dueDate) out.dueDate = r.dueDate;
     if (r.salesRepId) out.salesRepId = r.salesRepId;
+    else if (String(r.salesRepName ?? '').trim()) out.salesRepName = String(r.salesRepName).trim();
+    if (r.customerId) out.customerId = r.customerId;
+    else if (String(r.customerRef ?? '').trim()) out.customerRef = String(r.customerRef).trim();
     if (r.label) out.label = r.label;
     return out;
   });
@@ -389,33 +406,3 @@ export const COMMIT_REFRESH_CODES = [
 ] as const;
 export const commitNeedsRefresh = (code: string | null | undefined): boolean =>
   !!code && (COMMIT_REFRESH_CODES as readonly string[]).includes(code);
-
-/** تلميحات الخطوة 4: ذمم صفرية وللشركة عملاء، ومخزون صفري وللشركة منتجات */
-export function openingDataHints(p: {
-  opening: { receivablesTotal: string; warehouse: { value: string } };
-  tenantCounts?: { customers: number; products: number } | null;
-  openingStock?: { batches: number } | null;
-}): { receivablesMissing: boolean; inventoryMissing: boolean } {
-  const c = p.tenantCounts;
-  return {
-    receivablesMissing: !!c && c.customers > 0 && isZeroAmount(p.opening.receivablesTotal),
-    // مخزون مستورد خارج الافتتاح يُشرح في تنبيهه، لا «مخزون صفري»
-    inventoryMissing: !!c && c.products > 0 && isZeroAmount(p.opening.warehouse.value) && !(p.openingStock && p.openingStock.batches > 0),
-  };
-}
-
-export type DerivedAccountKind = 'AR' | 'INVENTORY' | 'OTHER';
-
-/**
- * نوع الحساب المشتق لنص DERIVED_ACCOUNT: الذمم ⇒ صفحة الاستيراد، ومخزون المستودع ⇒ وارد المستودع، والباقي النص العام.
- * بلا نوع رئيسي (الشجرة لم تُزرع بعد) يُستدل بالرمز القالبي 113001/114001.
- */
-export function derivedAccountKind(controlKind: string | null | undefined, accountCode?: string | number | null): DerivedAccountKind {
-  if (controlKind === 'AR') return 'AR';
-  if (controlKind === 'INVENTORY') return 'INVENTORY';
-  if (controlKind) return 'OTHER';
-  const code = String(accountCode ?? '').trim();
-  if (code === '113001') return 'AR';
-  if (code === '114001') return 'INVENTORY';
-  return 'OTHER';
-}

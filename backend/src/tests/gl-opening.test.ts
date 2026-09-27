@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, computeImportedAfterCutover, importBatchRecordIds,
+  assertCutoverNotInFuture, buildOpeningMove, resolveManualPartners, checkCutoverVatPeriod, computeDerivedOpening, computeImportedAfterCutover, importBatchRecordIds,
   importedAfterCutoverJson, includedInOpening, isVatPeriodStart, openingCutoff, openingSnapshotFromDbNow, postCutoverImportsAckMissing,
   postCutoverImportsAckStale, postCutoverImportsAcknowledged, IMPORT_FUTURE_DATE_GRACE_DAYS, isImportDateTooFarAhead, maxImportEntryDate,
   LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE,
@@ -364,13 +364,15 @@ test('SA_6D: تاريخ بدء داخل فترة إقرار ⇒ LEDGER_CUTOVER_M
 
 // ═══ الأرصدة اليدوية والقيد ═══
 
-test('الأرصدة اليدوية: الحسابات المشتقة ممنوعة، 211001 بمورّد، و212001/116001 فقط داخل فترة مؤكَّدة', () => {
+test('الأرصدة اليدوية: الذمم بعميل والعهدة بمندوب (لا أرصدة مشتقة)، 211001 بمورّد، و212001/116001 فقط داخل فترة مؤكَّدة', () => {
   const ctx = saContext();
   const rows: ManualBalanceRowInput[] = [
     { accountCode: '113001', debit: 100 },
     { accountCode: '111003', debit: 100 },
     { accountCode: '112005', debit: 100 },
     { accountCode: '114001', debit: 100 },
+    { accountCode: '113001', debit: 100, customerRef: 'مؤسسة النور' },
+    { accountCode: '111003', debit: 100, salesRepName: 'حسام' },
     { accountCode: '319002', credit: 100 },
     { accountCode: '211001', credit: 100 },
     { accountCode: '212001', credit: 100 },
@@ -379,28 +381,39 @@ test('الأرصدة اليدوية: الحسابات المشتقة ممنوع�
     { accountCode: '111101', debit: 0 },
   ];
   const r = validateManualBalanceRows(rows, ctx, { midVatPeriod: false });
+  // الذمم بلا عميل والعهدة بلا مندوب مرفوضتان؛ الأمانات 112005 ومخزون المستودع 114001 تُقبلان كحسابين عاديين
   assert.deepEqual(r.issues.map((i) => i.reason), [
-    'DERIVED_ACCOUNT', 'DERIVED_ACCOUNT', 'DERIVED_ACCOUNT', 'DERIVED_ACCOUNT', 'OPENING_EQUITY', 'VENDOR_REQUIRED',
+    'CUSTOMER_REQUIRED', 'SALES_REP_REQUIRED', 'OPENING_EQUITY', 'VENDOR_REQUIRED',
     'VAT_REQUIRES_MID_PERIOD', 'DEBIT_AND_CREDIT', 'ACCOUNT_NOT_FOUND', 'ZERO_AMOUNT',
   ]);
+  assert.deepEqual(r.issues.slice(0, 2).map((i) => i.index), [0, 1]);
+  const ar = r.lines.find((l) => l.index === 4)!;
+  assert.equal(ar.customerRef, 'مؤسسة النور');
+  assert.equal(ar.customerId, null);
+  assert.equal(r.lines.find((l) => l.index === 5)!.salesRepName, 'حسام');
+  assert.ok(r.lines.some((l) => l.index === 2) && r.lines.some((l) => l.index === 3));
   const ok = validateManualBalanceRows([{ accountCode: '212001', credit: '1,500.00' }, { accountCode: '114002', debit: 80, salesRepId: 'rep1' }], ctx, { midVatPeriod: true });
   assert.equal(ok.issues.length, 0);
   assert.equal(ok.lines[0].creditMilli, 1_500_000n);
 });
 
-test('قيد OPEN متوازن بتاريخ cutover − 1 والفرق إلى 319002، ويجتاز validateMove بوضع SYSTEM (I5 للمورّد والعميل)', () => {
+test('قيد OPEN من الأرصدة اليدوية وحدها: متوازن بتاريخ cutover − 1 والفرق إلى 319002، ويجتاز validateMove بوضع SYSTEM (I5 للمورّد والعميل)', () => {
   const ctx = saContext();
-  const derived = computeDerivedOpening(custodyFixture('MAIN_CASH'), CUT, { decimals: DEC, routing: ROUTING });
-  const withPaylink = { ...derived, paylinkHeldMilli: 250_000n, warehouse: { valueMilli: 90_000n, uncostedQty: 0, uncostedProducts: 0 } };
   const manual = validateManualBalanceRows([
     { accountCode: '111101', debit: 20_000 },
     { accountCode: '311001', credit: 50_000 },
     { accountCode: '211001', credit: 3_000, vendorName: 'مصنع الخليج', dueDate: '2027-02-15' },
     { accountCode: '212002', credit: 1_200 },
+    { accountCode: '113001', debit: 1_450, customerRef: 'مؤسسة النور' },
+    { accountCode: '111003', debit: 750, salesRepId: 'rep1' },
+    { accountCode: '112005', credit: 250 },
+    { accountCode: '114001', debit: 90 },
   ], ctx, { midVatPeriod: false });
   assert.equal(manual.issues.length, 0);
   manual.lines[2].vendorId = 'v1'; // resolveVendors في الاعتماد
-  const res = buildOpeningMove({ derived: withPaylink, manual: manual.lines, ctx });
+  manual.lines[4].customerId = 'c1'; // resolveManualPartners في الاعتماد
+  manual.lines[4].customerName = 'مؤسسة النور';
+  const res = buildOpeningMove({ openingDate: CUT.openingDate, manual: manual.lines, ctx, salesRepNames: { rep1: 'حسام' } });
   const draft = res.draft!;
   assert.equal(draft.date, '2026-12-31');
   assert.equal(draft.moveType, 'OPENING');
@@ -410,7 +423,10 @@ test('قيد OPEN متوازن بتاريخ cutover − 1 والفرق إلى 31
   const cr = draft.lines.reduce((s, l) => s + l.creditMilli, 0n);
   assert.equal(dr, cr);
   const eq = draft.lines.find((l) => l.accountKey === 'OPENING_EQUITY')!;
-  // ذمم c1 دائنة 1450 (سندات قبل البدء) + عهدة 750 + أمانات 250 + مخزون 90 + بنك 20000؛ دائن 50000 + 3000 + 1200
+  // لا سطر آلي واحد: كل سطر غير الفرق رصيدٌ أدخله المحاسب (8 سطور) — ذمم 1450 + عهدة 750 + مخزون 90 + بنك 20000؛
+  // دائن 50000 + 3000 + 1200 + أمانات 250
+  assert.equal(draft.lines.filter((l) => l !== eq).length, 8);
+  assert.ok(draft.lines.every((l) => l === eq || !!l.accountId), 'لا سطر بمفتاح مشتق (AR_CONTROL/REP_CUSTODY/PAYLINK/INVENTORY)');
   const net = draft.lines.filter((l) => l !== eq).reduce((s, l) => s + l.debitMilli - l.creditMilli, 0n);
   assert.equal(eq.creditMilli - eq.debitMilli, net);
   assert.equal(res.equityDiffMilli, net);
@@ -418,21 +434,28 @@ test('قيد OPEN متوازن بتاريخ cutover − 1 والفرق إلى 31
   assert.equal(ap.vendorId, 'v1');
   assert.equal(ap.dueDate, '2027-02-15');
   assert.equal(ap.partnerName, 'مصنع الخليج');
-  const custody = draft.lines.find((l) => l.accountKey === 'REP_CUSTODY')!;
+  const ar = draft.lines.find((l) => l.accountId === accountIdOf('113001'))!;
+  assert.equal(ar.customerId, 'c1');
+  assert.equal(ar.partnerName, 'مؤسسة النور');
+  assert.equal(ar.dueDate, '2026-12-31');
+  const custody = draft.lines.find((l) => l.accountId === accountIdOf('111003'))!;
   assert.equal(custody.salesRepId, 'rep1');
+  assert.equal(custody.partnerName, 'حسام');
   assert.equal(custody.debitMilli, 750_000n);
   assert.doesNotThrow(() => validateMove(draft, ctx, { mode: 'SYSTEM' }));
   // بلا مورّد ⇒ I5
-  const noVendor = buildOpeningMove({ derived: withPaylink, manual: manual.lines.map((l) => ({ ...l, vendorId: null })), ctx });
+  const noVendor = buildOpeningMove({ openingDate: CUT.openingDate, manual: manual.lines.map((l) => ({ ...l, vendorId: null })), ctx });
   assert.throws(() => validateMove(noVendor.draft!, ctx, { mode: 'SYSTEM' }), /LEDGER_PARTNER_REQUIRED/);
+  // ذمم بلا عميل محلول ⇒ I5 أيضاً (الحارس الأخير لو تسرّب سطر لم يمرّ بـresolveManualPartners)
+  const noCustomer = buildOpeningMove({ openingDate: CUT.openingDate, manual: manual.lines.map((l, i) => (i === 4 ? { ...l, customerId: null } : l)), ctx });
+  assert.throws(() => validateMove(noCustomer.draft!, ctx, { mode: 'SYSTEM' }), /LEDGER_PARTNER_REQUIRED/);
 });
 
 test('لا أرصدة إطلاقاً ⇒ لا قيد OPEN؛ وسياق القالب قبل الزرع يحلّ الرموز للمعاينة', () => {
   const ctx = templatePreviewContext('SA_6D', 'SA');
-  const d = computeDerivedOpening(sources({}), CUT, { decimals: DEC, routing: ROUTING });
-  assert.equal(buildOpeningMove({ derived: d, manual: [], ctx }).draft, null);
+  assert.equal(buildOpeningMove({ openingDate: CUT.openingDate, manual: [], ctx }).draft, null);
   const v = validateManualBalanceRows([{ accountCode: '311001', credit: 10 }, { accountCode: '113001', debit: 1 }], ctx, { midVatPeriod: false });
-  assert.deepEqual(v.issues.map((i) => i.reason), ['DERIVED_ACCOUNT']);
+  assert.deepEqual(v.issues.map((i) => i.reason), ['CUSTOMER_REQUIRED']);
   assert.equal(ctx.accounts.byKey('OPENING_EQUITY')?.code, '319002');
 });
 
@@ -588,7 +611,7 @@ test('/setup/commit: دفعة استيراد جارية ⇒ 409 LEDGER_IMPORT_IN
 // ═══ البند 9: المخزون الافتتاحي المستورد (opening_stock) ═══
 import { openingStockProductFinder, resolveOpeningStockRows } from '../services/importLedger';
 
-test('opening_stock: حركة وارد مستوردة بتكلفة صافية وcreatedAt قبل البدء تظهر في قيمة المستودع بالقيد الافتتاحي، وبعد البدء لا', () => {
+test('opening_stock: حركة وارد مستوردة بتكلفة صافية وcreatedAt قبل البدء تُحسب في قيمة المستودع (معلومة) ولا تُرحَّل آلياً في القيد الافتتاحي', () => {
   const find = openingStockProductFinder([
     { id: 'p1', code: 'A-1', barcode: null, name: 'أرز', taxPct: 15 },
     { id: 'p2', code: 'B-2', barcode: '628000', name: 'سكر', taxPct: 15 },
@@ -607,9 +630,14 @@ test('opening_stock: حركة وارد مستوردة بتكلفة صافية و
   assert.equal(d.warehouse.valueMilli, 220_000n);
   assert.equal(d.warehouse.uncostedQty, 0);
   assert.equal(d.counts.warehouseMovesIncluded, 2);
-  const move = buildOpeningMove({ derived: d, manual: [], ctx: saContext() });
-  const inv = move.draft!.lines.find((l) => l.accountKey === 'INVENTORY_WAREHOUSE')!;
+  // قرار الخبير المحاسبي: لا سطر مخزون آلي — بلا رصيد يدوي لا قيد افتتاحي إطلاقاً، والمحاسب يُدخل 114001 بنفسه
+  assert.equal(buildOpeningMove({ openingDate: CUT.openingDate, manual: [], ctx: saContext() }).draft, null);
+  const manual = validateManualBalanceRows([{ accountCode: '114001', debit: 220 }], saContext(), { midVatPeriod: false });
+  assert.equal(manual.issues.length, 0);
+  const move = buildOpeningMove({ openingDate: CUT.openingDate, manual: manual.lines, ctx: saContext() });
+  const inv = move.draft!.lines.find((l) => l.accountId === accountIdOf('114001'))!;
   assert.equal(inv.debitMilli, 220_000n);
+  assert.equal(move.draft!.lines.filter((l) => l.accountKey === 'INVENTORY_WAREHOUSE').length, 0);
   const eq = move.draft!.lines.find((l) => l.accountKey === 'OPENING_EQUITY')!;
   assert.equal(eq.creditMilli, 220_000n);
   assert.doesNotThrow(() => validateMove(move.draft!, saContext(), { mode: 'SYSTEM' }));
@@ -709,4 +737,61 @@ test('البند 42: لقطة الاعتماد تُقرأ بساعة القاع�
   // لا قراءة ساعة قبل القفلين داخل المعاملة (وإلا فاتتها كتابات الانتظار)
   const beforeLocks = commit.slice(0, commit.indexOf('acquirePostLock(tx, tenantId)'));
   assert.doesNotMatch(beforeLocks, /dbNowOf\(|dbClockOf\(/);
+});
+
+// ═══ إزالة الأرصدة المشتقة (قرار الخبير المحاسبي، 2026-09-27) ═══
+
+test('resolveManualPartners: عميل الذمم بالمعرّف أو الرمز أو الاسم التامّ، والمندوب بالاسم — مقيّدان بالشركة، والمجهول والمكرّر مخالفتان', async () => {
+  const customers = [
+    { id: 'c1', tenantId: 't1', code: 'CUST-001', name: 'مؤسسة النور' },
+    { id: 'c2', tenantId: 't1', code: 'CUST-002', name: 'بقالة الأمل' },
+    { id: 'c3', tenantId: 't1', code: 'CUST-003', name: 'بقالة الأمل' },
+    { id: 'x9', tenantId: 't2', code: 'CUST-009', name: 'شركة أخرى' },
+  ];
+  const reps = [
+    { id: 'r1', tenantId: 't1', name: 'حسام' },
+    { id: 'r2', tenantId: 't1', name: 'علي' },
+    { id: 'r3', tenantId: 't1', name: 'علي' },
+    { id: 'r9', tenantId: 't2', name: 'سالم' },
+  ];
+  const tenantRows = <T extends { tenantId: string }>(rows: T[]) => async ({ where }: { where: { tenantId: string } }) =>
+    rows.filter((r) => r.tenantId === where.tenantId);
+  const db = { customer: { findMany: tenantRows(customers) }, salesRep: { findMany: tenantRows(reps) } } as never;
+  const v = validateManualBalanceRows([
+    { accountCode: '113001', debit: 10, customerId: 'c1' },
+    { accountCode: '113001', debit: 10, customerRef: ' cust-002 ' },
+    { accountCode: '113001', debit: 10, customerRef: 'مؤسسة  النور' },
+    { accountCode: '113001', debit: 10, customerRef: 'بقالة الأمل' },
+    { accountCode: '113001', debit: 10, customerId: 'x9' },
+    { accountCode: '113001', debit: 10, customerRef: 'غير موجود' },
+    { accountCode: '111003', debit: 10, salesRepName: 'حسام' },
+    { accountCode: '111003', debit: 10, salesRepName: 'علي' },
+    { accountCode: '111003', debit: 10, salesRepId: 'r9' },
+  ], saContext(), { midVatPeriod: false });
+  assert.equal(v.issues.length, 0);
+  const r = await resolveManualPartners(db, 't1', v.lines);
+  assert.deepEqual(r.issues.map((i) => [i.index, i.reason]), [
+    [3, 'CUSTOMER_AMBIGUOUS'], [4, 'CUSTOMER_NOT_FOUND'], [5, 'CUSTOMER_NOT_FOUND'], [7, 'SALES_REP_AMBIGUOUS'], [8, 'SALES_REP_NOT_FOUND'],
+  ]);
+  assert.deepEqual(v.lines.slice(0, 3).map((l) => [l.customerId, l.customerName]), [['c1', 'مؤسسة النور'], ['c2', 'بقالة الأمل'], ['c1', 'مؤسسة النور']]);
+  assert.equal(v.lines[6].salesRepId, 'r1');
+  assert.deepEqual(r.salesRepNames, { r1: 'حسام' });
+  // معرّف عميل من شركة أخرى لا يُكتب في السطر
+  assert.equal(v.lines[4].customerId, 'x9');
+  assert.equal(v.lines[4].customerName, null);
+});
+
+test('حارس ثابت: المعاينة والاعتماد يبنيان القيد الافتتاحي من الأرصدة اليدوية وحدها ويحلّان الشركاء، ولا يُرجعان الأرصدة المشتقة', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'setup.ts'), 'utf8');
+  assert.doesNotMatch(src, /buildOpeningMove\(\{\s*derived/);
+  assert.doesNotMatch(src, /derivedOpeningJson/);
+  assert.equal((src.match(/resolveManualPartners\((prisma|tx), tenantId, manual\.lines\)/g) ?? []).length, 2);
+  const commit = src.slice(src.indexOf("router.post('/setup/commit'"), src.indexOf("router.post('/setup/backfill'"));
+  // الحلّ يسبق الترحيل، والمخالفة ترفض بـ422 قبل أي قيد
+  assert.ok(commit.indexOf('resolveManualPartners(tx') < commit.indexOf('postMove(tx'));
+  assert.match(commit, /openingSource: 'MANUAL_ONLY'/);
+  const opening = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'opening.ts'), 'utf8');
+  const build = opening.slice(opening.indexOf('export function buildOpeningMove('), opening.indexOf('// ═══ حلّ شركاء'));
+  assert.doesNotMatch(build, /accountKey: '(AR_CONTROL|REP_CUSTODY|PAYLINK_CLEARING|INVENTORY_WAREHOUSE)'/);
+  assert.doesNotMatch(build, /derived\./);
 });

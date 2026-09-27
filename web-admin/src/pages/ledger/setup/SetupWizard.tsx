@@ -12,16 +12,18 @@ import {
   type SetupCommitResult, type SetupDraft, type SetupState, type SetupStateBefore,
 } from '../../../api/ledgerSetup';
 import { ledgerHref } from '../routes';
-import { clampStep, setupStepFromSearch, timezoneImportsConflictOf, type SetupStepNo, type TimezoneImportsConflict } from './setupLogic';
+import { clampStep, prevStep, SETUP_STEPS, setupStepFromSearch, timezoneImportsConflictOf, type SetupStepNo, type TimezoneImportsConflict } from './setupLogic';
 import { BackfillStatusCard, DataImportLink, Notice, TimezoneImportsConflictNotice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
 import { Step1Basics, Step2Method, Step3Tree } from './SetupSteps';
 import ManualBalances from './ManualBalances';
-import { CommitResultPanel, Step4Preview, Step6Review } from './SetupReview';
+import { CommitResultPanel, Step6Review } from './SetupReview';
 
 /**
  * معالج «إعداد النظام المحاسبي المتكامل» (§5.6، §8.2 الفهرس) — يظهر في LedgerHome قبل التفعيل لمن يملك
  * canConfigureLedger. ست خطوات، وكل خطوة تُحفظ مسودة في `GlSettings.setupDraft` (POST /setup/draft) مع
- * `currentStep` فيستأنف المستخدم من حيث توقف. الخطوة 4 معاينة إرشادية، والخطوة 6 معاملة التفعيل الواحدة.
+ * `currentStep` فيستأنف المستخدم من حيث توقف، والخطوة الأخيرة معاملة التفعيل الواحدة. خمس خطوات: خطوة «الأرصدة
+ * المشتقة» أُزيلت بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) — أرقامها الداخلية 1·2·3·5·6 كما في المسودات المخزّنة،
+ * والمعروض ترتيبها 1..5.
  * بعد التفعيل تُعرض الأرقام النهائية الملتزمة وتقدم الترحيل التاريخي.
  */
 export default function SetupWizard() {
@@ -109,13 +111,13 @@ export default function SetupWizard() {
   const state = before as SetupStateBefore;
   const current = step ?? 1;
   const titles: Record<SetupStepNo, string> = {
-    1: tr('الأساس'), 2: tr('طريقة البدء'), 3: tr('الشجرة'), 4: tr('الأرصدة المشتقة'), 5: tr('الأرصدة اليدوية'), 6: tr('المراجعة والتفعيل'),
+    1: tr('الأساس'), 2: tr('طريقة البدء'), 3: tr('الشجرة'), 5: tr('الأرصدة اليدوية'), 6: tr('المراجعة والتفعيل'),
   };
   const reached = clampStep(state.draft.currentStep ?? 1);
   const common = {
     state, canWrite, busy: save.isPending, lastErrorCode,
     onSave: (patch: SetupDraft, next: number) => save.mutate({ patch, next }),
-    onBack: () => setStep(s => clampStep((s ?? 2) - 1)),
+    onBack: () => setStep(s => prevStep(s ?? 2)),
   };
 
   return (
@@ -128,8 +130,8 @@ export default function SetupWizard() {
             <p className="text-xs text-[#9A8F7E] mt-0.5 leading-relaxed">{tr('كل خطوة تُحفظ مسودة، ويمكنك العودة لإكمالها لاحقا. لا يُرحَّل شيء قبل التفعيل في الخطوة الأخيرة')}</p>
           </div>
         </div>
-        <ol className="mt-4 grid grid-cols-3 sm:grid-cols-6 gap-2" aria-label={tr('خطوات الإعداد')}>
-          {([1, 2, 3, 4, 5, 6] as SetupStepNo[]).map(n => {
+        <ol className="mt-4 grid grid-cols-3 sm:grid-cols-5 gap-2" aria-label={tr('خطوات الإعداد')}>
+          {SETUP_STEPS.map((n, idx) => {
             const done = n < current;
             const active = n === current;
             const reachable = n <= Math.max(reached, current) && !save.isPending;
@@ -138,7 +140,7 @@ export default function SetupWizard() {
                 <button type="button" disabled={!reachable} onClick={() => setStep(n)} aria-current={active ? 'step' : undefined}
                   className={`w-full text-start rounded-xl border px-2.5 py-2 transition-colors ${active ? 'border-[#E15A30] bg-[#FBEBE2]/60' : done ? 'border-[#E8E0D2] bg-white' : 'border-[#F1EBDF] bg-[#FBF7F0]'} ${reachable ? 'hover:border-[#E15A30]' : 'cursor-not-allowed opacity-60'}`}>
                   <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center text-[11px] font-bold ${active ? 'bg-[#E15A30] text-white' : done ? 'bg-emerald-600 text-white' : 'bg-[#E8E0D2] text-[#6E6557]'}`}>
-                    {done ? <Check size={12} /> : <bdi className="tabular-nums">{n}</bdi>}
+                    {done ? <Check size={12} /> : <bdi className="tabular-nums">{idx + 1}</bdi>}
                   </span>
                   <span className="block text-xs mt-1 text-[#1F1A13] leading-tight">{titles[n]}</span>
                 </button>
@@ -151,7 +153,7 @@ export default function SetupWizard() {
       <BeforeYouStart key={current === 1 ? 'open' : 'closed'} open={current === 1} />
 
       <div className="card space-y-3">
-        <h2 className="text-base font-bold text-[#1F1A13]"><bdi className="tabular-nums text-[#9A8F7E]">{current}.</bdi> {titles[current]}</h2>
+        <h2 className="text-base font-bold text-[#1F1A13]"><bdi className="tabular-nums text-[#9A8F7E]">{SETUP_STEPS.indexOf(current) + 1}.</bdi> {titles[current]}</h2>
         {save.isError && lastErrorCode === 'LEDGER_HISTORY_TOO_LARGE' && <Notice tone="error">{errorText(save.error)}</Notice>}
         {tzConflict && (
           <TimezoneImportsConflictNotice detail={tzConflict.detail} busy={save.isPending} canWrite={canWrite}
@@ -160,7 +162,6 @@ export default function SetupWizard() {
         {current === 1 && <Step1Basics key={`s1:${state.draft.step1?.cutoverDate ?? ''}`} {...common} onBack={undefined} />}
         {current === 2 && <Step2Method {...common} />}
         {current === 3 && <Step3Tree {...common} />}
-        {current === 4 && <Step4Preview {...common} />}
         {current === 5 && <ManualBalances {...common} />}
         {current === 6 && <Step6Review {...common} onCommitted={onCommitted} />}
       </div>
@@ -169,9 +170,8 @@ export default function SetupWizard() {
 }
 
 /**
- * «قبل أن تبدأ»: الترتيب الموصى به بين صفحة استيراد البيانات والمعالج — المخزون الافتتاحي يُستورد قبل ضبط تاريخ البدء
- * (يدخل الافتتاح فقط بتاريخ بدء بعد يوم استيراده، فالاعتماد في يوم لاحق)، والأرصدة المؤرخة قبل تاريخ البدء تدخل القيد
- * الافتتاحي عند التفعيل، وما بعده يُرحَّل بتاريخه على حساب الأرصدة الافتتاحية.
+ * «قبل أن تبدأ»: الترتيب الموصى به بين صفحة استيراد البيانات والمعالج. بعد إزالة الأرصدة المشتقة لا يدخل القيد
+ * الافتتاحي شيءٌ من المستورد آلياً (أرصدة العملاء ولا المخزون): المستورد يخدم التشغيل، والقيد الافتتاحي يُدخله المحاسب.
  */
 function BeforeYouStart({ open }: { open: boolean }) {
   const tr = useTr();
@@ -184,14 +184,12 @@ function BeforeYouStart({ open }: { open: boolean }) {
       <ol className="list-decimal ps-5 mt-3 space-y-1.5 text-xs text-[#6E6557] leading-relaxed">
         <li>{tr('استورد العملاء ثم المنتجات')} — <DataImportLink>{tr('استيراد البيانات من نظامك السابق')}</DataImportLink></li>
         <li>
-          {tr('استورد المخزون الافتتاحي قبل ضبط تاريخ البدء: يدخل القيد الافتتاحي فقط إذا كان تاريخ البدء بعد يوم الاستيراد، ولا يُقبل تاريخ بدء بعد اليوم، فيكون ضبط تاريخ البدء والاعتماد في يوم لاحق')}
-          {' — '}<DataImportLink>{tr('استيراد المخزون الافتتاحي')}</DataImportLink>
-          {' · '}{tr('أو سجّل وارد المستودع بتكلفته قبل تاريخ البدء')} <WarehouseLink>{tr('وارد المستودع')}</WarehouseLink>
+          {tr('المخزون وأرصدة العملاء المستوردة تخدم التطبيق (المستودع وكشوف العملاء) ولا تدخل القيد الافتتاحي آليا')}
+          {' — '}<DataImportLink>{tr('استيراد البيانات من نظامك السابق')}</DataImportLink>
+          {' · '}<WarehouseLink>{tr('وارد المستودع')}</WarehouseLink>
         </li>
         <li>{tr('حدّد تاريخ البدء في الخطوة 1، ولا تفعّل الدفاتر بعد')}</li>
-        <li>{tr('استورد الأرصدة الافتتاحية بتاريخ اليوم السابق لتاريخ البدء، ولا تستورد كشف حساب يكرر الأرصدة نفسها')}</li>
-        <li>{tr('إن استوردت أرصدة بلا تاريخ أو رفعت الملف مرتين فتراجع عن الدفعة من سجل الاستيرادات وأعد استيرادها قبل التفعيل')}</li>
-        <li>{tr('في المعالج: اربط فئات المنتجات في الخطوة 3، وراجع ذمم العملاء في الخطوة 4، وأدخل النقد والبنوك والموردين ورأس المال في الخطوة 5، ثم فعّل')}</li>
+        <li>{tr('في المعالج: اربط فئات المنتجات في الخطوة 3، وأدخل كل الأرصدة الافتتاحية من دفاترك السابقة في الخطوة 4 (ومنها ذمم كل عميل وعهدة كل مندوب ومخزون المستودع)، ثم راجع وفعّل في الخطوة 5')}</li>
       </ol>
     </details>
   );

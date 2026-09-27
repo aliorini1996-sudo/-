@@ -586,7 +586,7 @@ export function importBatchRecordIds(recordIds: string | null | undefined): stri
 // ═══ الأرصدة اليدوية (الخطوة 5) ═══
 
 /** أعمدة قالب XLSX بالترتيب (الويب يحلّل الملف ويرسل الصفوف JSON) */
-export const OPENING_BALANCE_TEMPLATE_COLUMNS = ['accountCode', 'debit', 'credit', 'vendorName', 'dueDate'] as const;
+export const OPENING_BALANCE_TEMPLATE_COLUMNS = ['accountCode', 'debit', 'credit', 'vendorName', 'dueDate', 'customer', 'salesRep'] as const;
 
 export interface ManualBalanceRowInput {
   accountCode: string;
@@ -597,15 +597,22 @@ export interface ManualBalanceRowInput {
   /** اسم المورّد: يُنشأ GlVendor إن لم يوجد (سطور 211001) */
   vendorName?: string | null;
   dueDate?: LocalDate | null;
-  /** بضاعة السيارات 114002 قبل M8، وسُلف الموظفين */
+  /** عهدة المندوب 111003 (إلزامي لها)، وبضاعة السيارات 114002 قبل M8، وسُلف الموظفين */
   salesRepId?: string | null;
+  /** اسم المندوب من ملف XLSX — يُحلّ إلى salesRepId بالمطابقة التامّة (resolveManualPartners) */
+  salesRepName?: string | null;
+  /** عميل قائم (Customer.id) — لسطور ذمم العملاء 113001 (I5) */
+  customerId?: string | null;
+  /** رمز العميل أو اسمه (إدخال يدوي أو ملف XLSX) — يُحلّ إلى customerId (resolveManualPartners) */
+  customerRef?: string | null;
   label?: string | null;
 }
 
 export const MANUAL_BALANCE_ISSUES = [
-  'ACCOUNT_NOT_FOUND', 'ACCOUNT_ARCHIVED', 'DERIVED_ACCOUNT', 'OPENING_EQUITY', 'EQUITY_UNAFFECTED', 'OFF_BALANCE',
+  'ACCOUNT_NOT_FOUND', 'ACCOUNT_ARCHIVED', 'OPENING_EQUITY', 'EQUITY_UNAFFECTED', 'OFF_BALANCE',
   'VAT_REQUIRES_MID_PERIOD', 'VENDOR_REQUIRED', 'INVALID_AMOUNT', 'NEGATIVE_AMOUNT', 'DEBIT_AND_CREDIT', 'ZERO_AMOUNT',
-  'INVALID_DUE_DATE',
+  'INVALID_DUE_DATE', 'CUSTOMER_REQUIRED', 'CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'SALES_REP_REQUIRED', 'SALES_REP_NOT_FOUND',
+  'SALES_REP_AMBIGUOUS',
 ] as const;
 export type ManualBalanceIssueReason = (typeof MANUAL_BALANCE_ISSUES)[number];
 
@@ -624,12 +631,13 @@ export interface ManualBalanceLine {
   vendorName: string | null;
   dueDate: LocalDate | null;
   salesRepId: string | null;
+  salesRepName: string | null;
+  customerId: string | null;
+  customerRef: string | null;
+  /** اسم العميل المحلول (لقطة partnerName) — يملؤه resolveManualPartners */
+  customerName: string | null;
   label: string | null;
 }
-
-/** مفاتيح الحسابات التي تُشتق أرصدتها من المصادر فلا تُدخل يدوياً */
-export const DERIVED_OPENING_KEYS: readonly MappingKey[] = ['AR_CONTROL', 'REP_CUSTODY', 'PAYLINK_CLEARING', 'INVENTORY_WAREHOUSE'];
-const DERIVED_CONTROL_KINDS = new Set(['AR', 'CUSTODY', 'PAYLINK']);
 
 function amountOf(v: number | string | null | undefined, dec: number): Milli | 'INVALID' {
   if (v === null || v === undefined || v === '') return 0n;
@@ -652,7 +660,7 @@ export function validateManualBalanceRows(
   const dec = ctx.settings.currencyDecimals;
   const lines: ManualBalanceLine[] = [];
   const issues: ManualBalanceIssue[] = [];
-  const derivedIds = new Set(DERIVED_OPENING_KEYS.map((k) => ctx.accounts.byKey(k)?.id).filter((x): x is string => !!x));
+  const custodyId = ctx.accounts.byKey('REP_CUSTODY')?.id ?? null;
   const equityId = ctx.accounts.byKey('OPENING_EQUITY')?.id ?? null;
   rows.forEach((row, index) => {
     const code = String(row.accountCode ?? '').trim();
@@ -663,7 +671,6 @@ export function validateManualBalanceRows(
     if (account.type === 'equity_unaffected') return push('EQUITY_UNAFFECTED');
     if (account.type === 'off_balance') return push('OFF_BALANCE');
     if (account.id === equityId) return push('OPENING_EQUITY');
-    if (derivedIds.has(account.id) || (account.controlKind && DERIVED_CONTROL_KINDS.has(account.controlKind))) return push('DERIVED_ACCOUNT');
     if ((account.controlKind === 'VAT_OUT' || account.controlKind === 'VAT_IN') && ctx.settings.templateKey === 'SA_6D' && !opts.midVatPeriod) {
       return push('VAT_REQUIRES_MID_PERIOD');
     }
@@ -679,11 +686,22 @@ export function validateManualBalanceRows(
     const dueDate = row.dueDate ? String(row.dueDate).trim() : null;
     if (dueDate && !isLocalDate(dueDate)) return push('INVALID_DUE_DATE');
     const isAp = account.controlKind === 'AP';
+    // الأرصدة المشتقة أُزيلت (قرار الخبير المحاسبي): ذمم العملاء وعهدة المناديب يُدخلها المحاسب هنا بشريكها —
+    // الذمم بعميل (I5، وكشف كل عميل في الأستاذ)، والعهدة بمندوب (C4 يطابق عهدة كل مندوب)
+    const isAr = account.controlKind === 'AR';
+    const isCustody = account.controlKind === 'CUSTODY' || account.id === custodyId;
+    const customerId = isAr ? (row.customerId?.trim() || null) : null;
+    const customerRef = isAr ? (row.customerRef?.trim() || null) : null;
+    if (isAr && !customerId && !customerRef) return push('CUSTOMER_REQUIRED');
+    const salesRepId = row.salesRepId?.trim() || null;
+    const salesRepName = row.salesRepName?.trim() || null;
+    if (isCustody && !salesRepId && !salesRepName) return push('SALES_REP_REQUIRED');
     lines.push({
       index, account, debitMilli: d, creditMilli: c,
       vendorId: isAp ? vendorId : null, vendorName: isAp ? vendorName : null,
-      dueDate: isAp ? (dueDate || null) : null,
-      salesRepId: row.salesRepId?.trim() || null,
+      dueDate: isAp || isAr ? (dueDate || null) : null,
+      salesRepId, salesRepName: salesRepId ? null : salesRepName,
+      customerId, customerRef: customerId ? null : customerRef, customerName: null,
       label: row.label?.trim() || null,
     });
   });
@@ -693,7 +711,8 @@ export function validateManualBalanceRows(
 // ═══ القيد الافتتاحي ═══
 
 export interface OpeningMoveInput {
-  derived: DerivedOpening;
+  /** تاريخ القيد = cutover − 1 (OpeningCutoff.openingDate) */
+  openingDate: LocalDate;
   manual: readonly ManualBalanceLine[];
   ctx: BuildContext;
   /** أسماء المناديب لسطور يدوية تحمل salesRepId (لقطة partnerName) */
@@ -715,29 +734,18 @@ function signed(line: Omit<LineDraft, 'debitMilli' | 'creditMilli'>, amount: Mil
   return { ...line, debitMilli: amount > 0n ? amount : 0n, creditMilli: amount < 0n ? -amount : 0n };
 }
 
-/** قيد OPEN بتاريخ cutover − 1: الذمم والعهدة والأمانات والمخزون والأرصدة اليدوية، والفرق إلى 319002 (P25) */
+/**
+ * قيد OPEN بتاريخ cutover − 1 من **الأرصدة التي يُدخلها المحاسب وحدها**، والفرق إلى 319002 (P25).
+ *
+ * الأرصدة المشتقة (الذمم والعهدة والأمانات ومخزون المستودع محسوبةً من المستندات) أُزيلت من القيد بقرار الخبير المحاسبي
+ * (٢٧ سبتمبر ٢٠٢٦): كانت تولّد سطوراً آلية إجبارية. صارت هذه الحسابات تُدخل يدوياً — الذمم بعميلها والعهدة بمندوبها.
+ * computeDerivedOpening باقية لتجميد تقسيم الاستلامات السابقة للبدء (freezeOpeningSettlementSplits) فقط، ولا تُرحِّل شيئاً.
+ */
 export function buildOpeningMove(input: OpeningMoveInput): OpeningMoveResult {
-  const { derived, ctx } = input;
+  const { ctx } = input;
   const s = ctx.settings;
-  const date = derived.cutoff.openingDate;
+  const date = input.openingDate;
   const lines: LineDraft[] = [];
-  for (const r of derived.receivables) {
-    lines.push(signed({
-      accountKey: 'AR_CONTROL', label: `رصيد افتتاحي — ${r.customerName}`, customerId: r.customerId, partnerName: r.customerName, dueDate: date,
-    }, r.balanceMilli));
-  }
-  for (const c of derived.custody) {
-    if (c.ledgerCustodyMilli === 0n) continue;
-    lines.push(signed({
-      accountKey: 'REP_CUSTODY', label: `عهدة افتتاحية — ${c.salesRepName}`, salesRepId: c.salesRepId, partnerName: c.salesRepName,
-    }, c.ledgerCustodyMilli));
-  }
-  if (derived.paylinkHeldMilli !== 0n) {
-    lines.push(signed({ accountKey: 'PAYLINK_CLEARING', label: 'أمانات الدفع الإلكتروني الافتتاحية' }, derived.paylinkHeldMilli));
-  }
-  if (derived.warehouse.valueMilli !== 0n) {
-    lines.push(signed({ accountKey: 'INVENTORY_WAREHOUSE', label: 'مخزون المستودع الافتتاحي' }, derived.warehouse.valueMilli));
-  }
   let manualDebitMilli = 0n;
   let manualCreditMilli = 0n;
   const repNames = input.salesRepNames ?? {};
@@ -745,15 +753,19 @@ export function buildOpeningMove(input: OpeningMoveInput): OpeningMoveResult {
     manualDebitMilli += m.debitMilli;
     manualCreditMilli += m.creditMilli;
     const isAp = m.account.controlKind === 'AP';
+    const isAr = m.account.controlKind === 'AR' && !!m.customerId;
     const repName = m.salesRepId ? (repNames[m.salesRepId]?.trim() || `مندوب ${m.salesRepId}`) : null;
+    const customerName = isAr ? (m.customerName?.trim() || `عميل ${m.customerId}`) : null;
+    const partner = isAp ? (m.vendorName ?? null) : isAr ? customerName : repName;
     lines.push({
       accountId: m.account.id,
-      label: m.label || (isAp && m.vendorName ? `رصيد افتتاحي — ${m.vendorName}` : `رصيد افتتاحي — ${m.account.name}`),
+      label: m.label || (partner && (isAp || isAr || repName) ? `رصيد افتتاحي — ${partner}` : `رصيد افتتاحي — ${m.account.name}`),
       debitMilli: m.debitMilli, creditMilli: m.creditMilli,
       vendorId: isAp ? m.vendorId : null,
-      partnerName: isAp ? (m.vendorName ?? null) : repName,
+      customerId: isAr ? m.customerId : null,
+      partnerName: partner,
       salesRepId: m.salesRepId,
-      dueDate: isAp ? (m.dueDate ?? date) : null,
+      dueDate: isAp || isAr ? (m.dueDate ?? date) : null,
     });
   }
   let net = 0n;
@@ -787,6 +799,80 @@ export function buildOpeningMove(input: OpeningMoveInput): OpeningMoveResult {
     lines,
   };
   return { draft, equityDiffMilli, totalDebitMilli, manualDebitMilli, manualCreditMilli, lineCount: lines.length };
+}
+
+// ═══ حلّ شركاء الأرصدة اليدوية (العملاء والمناديب) ═══
+
+const partnerKey = (v: string) => v.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * يحلّ عميل سطور الذمم (customerId قائم للشركة، أو رمز العميل، أو اسمه مطابقةً تامّة لا تتكرّر) ومندوب سطور
+ * العهدة (salesRepId قائم للشركة، أو اسمه). يكتب customerId/customerName/salesRepId في السطور نفسها، ويعيد
+ * المخالفات بفهرس الصف (المعاينة تعرضها، والاعتماد يرفض بـ422) وأسماء المناديب للقطة partnerName.
+ * العزل: كل استعلام مقيّد بـtenantId، فمعرّف عميل من شركة أخرى = CUSTOMER_NOT_FOUND.
+ */
+export async function resolveManualPartners(
+  db: GlDb, tenantId: string, lines: ManualBalanceLine[],
+): Promise<{ issues: ManualBalanceIssue[]; salesRepNames: Record<string, string> }> {
+  const issues: ManualBalanceIssue[] = [];
+  const push = (l: ManualBalanceLine, reason: ManualBalanceIssueReason) => issues.push({ index: l.index, accountCode: l.account.code, reason });
+  const salesRepNames: Record<string, string> = {};
+
+  const needCustomers = lines.some((l) => l.customerId || l.customerRef);
+  if (needCustomers) {
+    const customers = await db.customer.findMany({ where: { tenantId }, select: { id: true, code: true, name: true } });
+    const byId = new Map(customers.map((c) => [c.id, c]));
+    const byCode = new Map<string, typeof customers>();
+    const byName = new Map<string, typeof customers>();
+    for (const c of customers) {
+      const ck = partnerKey(c.code ?? '');
+      if (ck) byCode.set(ck, [...(byCode.get(ck) ?? []), c]);
+      const nk = partnerKey(c.name ?? '');
+      if (nk) byName.set(nk, [...(byName.get(nk) ?? []), c]);
+    }
+    for (const l of lines) {
+      if (l.customerId) {
+        const c = byId.get(l.customerId);
+        if (!c) { push(l, 'CUSTOMER_NOT_FOUND'); continue; }
+        l.customerName = c.name;
+        continue;
+      }
+      if (!l.customerRef) continue;
+      const k = partnerKey(l.customerRef);
+      const hits = byCode.get(k) ?? byName.get(k) ?? [];
+      if (hits.length === 0) { push(l, 'CUSTOMER_NOT_FOUND'); continue; }
+      if (hits.length > 1) { push(l, 'CUSTOMER_AMBIGUOUS'); continue; }
+      l.customerId = hits[0].id;
+      l.customerName = hits[0].name;
+    }
+  }
+
+  const needReps = lines.some((l) => l.salesRepId || l.salesRepName);
+  if (needReps) {
+    const reps = await db.salesRep.findMany({ where: { tenantId }, select: { id: true, name: true } });
+    const byId = new Map(reps.map((r) => [r.id, r]));
+    const byName = new Map<string, typeof reps>();
+    for (const r of reps) {
+      const k = partnerKey(r.name ?? '');
+      if (k) byName.set(k, [...(byName.get(k) ?? []), r]);
+    }
+    for (const l of lines) {
+      if (l.salesRepId) {
+        const r = byId.get(l.salesRepId);
+        if (!r) { push(l, 'SALES_REP_NOT_FOUND'); continue; }
+        salesRepNames[r.id] = r.name;
+        continue;
+      }
+      if (!l.salesRepName) continue;
+      const hits = byName.get(partnerKey(l.salesRepName)) ?? [];
+      if (hits.length === 0) { push(l, 'SALES_REP_NOT_FOUND'); continue; }
+      if (hits.length > 1) { push(l, 'SALES_REP_AMBIGUOUS'); continue; }
+      l.salesRepId = hits[0].id;
+      l.salesRepName = null;
+      salesRepNames[hits[0].id] = hits[0].name;
+    }
+  }
+  return { issues, salesRepNames };
 }
 
 // ═══ سياق القالب قبل الزرع (للمعاينة) ═══

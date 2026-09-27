@@ -552,8 +552,9 @@ test('C9 (7 ب): صافي 319002 من قيود IMPORT بعد البدء ⇒ أص
   assert.equal(asked.length, 1);
 });
 
-test('runChecks C3 (6 ج): المخزن يُسأل عن الصفوف الافتتاحية الحالية بنافذة البدء واللقطة، والطريقة (ب) لا تُسأل', async () => {
+test('runChecks C3 (6 ج) موقوف: الافتتاح يُدخله المحاسب (لا أرصدة مشتقة) فلا يُقارن بصفوف ما قبل البدء — لا سؤال للمخزن ولا أحمر كاذب', async () => {
   const store = new FakeCheckStore();
+  // المحاسب أدخل ذمم c1 الافتتاحية 300 من دفاتره السابقة، والتطبيق فيه 200 قبل البدء: اختلافٌ مشروع لا عطل
   store.arOpening.set('c1', 300_000n);
   store.arLedger.set('c1', 300_000n);
   const windows: { cutoverStart: Date; openingSnapshotAt: Date }[] = [];
@@ -564,12 +565,15 @@ test('runChecks C3 (6 ج): المخزن يُسأل عن الصفوف الافت�
     },
   });
   const c3 = (await runChecks(store, 't1', { only: ['C3'] })).results[0];
-  assert.equal(c3.status, 'RED');
-  assert.equal(c3.rows[0].kind, OPENING_DELETED_WITHOUT_EVENT);
-  assert.deepEqual(windows.map((w) => [w.cutoverStart.toISOString(), w.openingSnapshotAt.toISOString()]), [['2026-12-31T21:00:00.000Z', '2027-01-15T09:00:00.000Z']]);
+  assert.equal(c3.status, 'GREEN');
+  assert.ok(!c3.rows.some((r) => r.kind === OPENING_DELETED_WITHOUT_EVENT));
   store.settings = { ...store.settings!, setupMethod: 'FULL_HISTORY' };
   assert.equal((await runChecks(store, 't1', { only: ['C3'] })).results[0].status, 'GREEN');
-  assert.equal(windows.length, 1);
+  assert.equal(windows.length, 0);
+  // المعادلة الأساسية باقية: أستاذ c1 ≠ افتتاحه + حركاته ⇒ أحمر
+  store.arLedger.set('c1', 250_000n);
+  store.settings = { ...store.settings!, setupMethod: 'OPENING' };
+  assert.equal((await runChecks(store, 't1', { only: ['C3'] })).results[0].status, 'RED');
 });
 
 test('حارس ثابت: مخزن الفحوص يقرأ قيود IMPORT بعد البدء بلا وصول متأخر ومصدرها POST مع عكوسها، والقواعد لا تستورد opening.ts', () => {

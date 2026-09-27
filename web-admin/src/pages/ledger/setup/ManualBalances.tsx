@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2, Upload, FileDown, ShieldCheck, ChevronRight, ChevronLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTr } from '../../../i18n/strings';
@@ -7,23 +7,26 @@ import { parseExcelFile } from '../../../lib/importData';
 import { exportExcel } from '../../../utils/excel';
 import LedgerAmount from '../../../components/ledger/LedgerAmount';
 import { ledgerSetupApi, type ManualBalanceIssue, type ManualBalanceRowInput } from '../../../api/ledgerSetup';
+import { customerApi, salesRepApi } from '../../../api/client';
 import { AccountSelect, useAllAccounts } from '../config/parts/configUi';
 import {
-  cleanManualRows, derivedAccountKind, isBlankRow, MANUAL_BALANCE_MAX_ROWS, manualTotalsMilli, milliText, OPENING_BALANCE_TEMPLATE_COLUMNS,
+  cleanManualRows, isBlankRow, MANUAL_BALANCE_MAX_ROWS, manualTotalsMilli, milliText, OPENING_BALANCE_TEMPLATE_COLUMNS,
   parseOpeningBalanceRecords,
 } from './setupLogic';
-import { DataImportLink, manualIssueText, Notice, StepSection, useSetupErrorText, WarehouseLink } from './setupUi';
+import { manualIssueText, Notice, StepSection, useSetupErrorText } from './setupUi';
 import { StepFooter, type StepProps } from './SetupSteps';
 
 /**
- * الخطوة 5 — الأرصدة اليدوية (§5.6): جدول أو استيراد XLSX بقالب (رمز الحساب، مدين، دائن، المورد، تاريخ الاستحقاق)
- * للنقد والبنوك والأصول والموردين والقروض ورأس المال والمستحقات. الأرصدة المشتقة (الذمم والعهدة والأمانات ومخزون
- * المستودع) من الخطوة 4 لا تُدخل هنا، والفرق يذهب مؤقتاً إلى حساب الأرصدة الافتتاحية ويُعاد حسابه عند التفعيل.
- * «تحقق» يستدعي المعاينة بالصفوف دون حفظها ويعرض أسباب الرفض لكل صف.
+ * الأرصدة اليدوية (§5.6) — **مصدر القيد الافتتاحي الوحيد**: جدول أو استيراد XLSX بقالب (رمز الحساب، مدين، دائن،
+ * المورد، تاريخ الاستحقاق، العميل، المندوب). الأرصدة المشتقة أُزيلت بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦): لا يُنشئ
+ * النظام رصيداً افتتاحياً آلياً، فذمم العملاء (سطر لكل عميل) وعهدة المناديب (سطر لكل مندوب) وأمانات الدفع الإلكتروني
+ * ومخزون المستودع تُدخل هنا كسائر الحسابات. الفرق يذهب إلى حساب الأرصدة الافتتاحية ويُعاد حسابه عند التفعيل.
+ * «تحقق» يستدعي المعاينة بالصفوف دون حفظها ويعرض أسباب الرفض لكل صف (ومنها العميل أو المندوب المجهول).
  */
 
 const PAGE = 50;
-const DERIVED_KINDS = new Set(['AR', 'CUSTODY', 'PAYLINK', 'INVENTORY']);
+interface PickCustomer { id: string; name: string; code?: string | null }
+interface PickRep { id: string; name: string }
 
 const blank = (): ManualBalanceRowInput => ({ accountCode: '', debit: '', credit: '' });
 
@@ -34,7 +37,7 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
   const accountsQ = useAllAccounts();
   const accounts = accountsQ.data ?? [];
   const byCode = useMemo(() => new Map(accounts.map(a => [a.code, a])), [accounts]);
-  const pickable = useMemo(() => accounts.filter(a => a.type !== 'equity_unaffected' && a.type !== 'off_balance' && !(a.controlKind && DERIVED_KINDS.has(a.controlKind))), [accounts]);
+  const pickable = useMemo(() => accounts.filter(a => a.type !== 'equity_unaffected' && a.type !== 'off_balance'), [accounts]);
 
   const [rows, setRows] = useState<ManualBalanceRowInput[]>(() => {
     const saved = state.draft.step5?.rows ?? [];
@@ -47,6 +50,24 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
   const fileRef = useRef<HTMLInputElement>(null);
 
   const cleaned = useMemo(() => cleanManualRows(rows), [rows]);
+  // قوائم الاختيار تُجلب حين يوجد سطر ذمم أو عهدة فقط
+  const kindOfRow = (r: ManualBalanceRowInput) => byCode.get(String(r.accountCode ?? '').trim())?.controlKind ?? null;
+  const hasAr = rows.some(r => kindOfRow(r) === 'AR');
+  const hasCustody = rows.some(r => kindOfRow(r) === 'CUSTODY');
+  const customersQ = useQuery({
+    queryKey: ['ledger-setup', 'opening-customers'],
+    enabled: hasAr,
+    staleTime: 5 * 60_000,
+    queryFn: async () => ((await customerApi.list({ limit: 1000 })).data?.data ?? []) as PickCustomer[],
+  });
+  const repsQ = useQuery({
+    queryKey: ['ledger-setup', 'opening-reps'],
+    enabled: hasCustody,
+    staleTime: 5 * 60_000,
+    queryFn: async () => ((await salesRepApi.list({ limit: 500 })).data?.data ?? []) as PickRep[],
+  });
+  const customers = customersQ.data ?? [];
+  const reps = repsQ.data ?? [];
   /** فهرس الصف المرسَل ⇒ فهرسه في الجدول (الفارغة لا تُرسل) */
   const sentToRow = useMemo(() => rows.map((r, i) => (isBlankRow(r) ? -1 : i)).filter(i => i >= 0), [rows]);
   const totals = useMemo(() => manualTotalsMilli(cleaned, decimals), [cleaned, decimals]);
@@ -64,7 +85,7 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
       for (const is of d.manual.issues as ManualBalanceIssue[]) {
         const rowIdx = sentToRow[is.index];
         if (rowIdx !== undefined && !m.has(rowIdx)) {
-          m.set(rowIdx, manualIssueText(tr, is.reason, derivedAccountKind(byCode.get(String(is.accountCode ?? '').trim())?.controlKind ?? null, is.accountCode)));
+          m.set(rowIdx, manualIssueText(tr, is.reason));
         }
       }
       setIssues(m);
@@ -103,10 +124,12 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
   const downloadTemplate = () => exportExcel([{
     name: tr('الأرصدة الافتتاحية'),
     rows: [
-      Object.fromEntries(OPENING_BALANCE_TEMPLATE_COLUMNS.map(c => [c, ({ accountCode: '111001', debit: '25000', credit: '', vendorName: '', dueDate: '' } as Record<string, string>)[c]])),
-      Object.fromEntries(OPENING_BALANCE_TEMPLATE_COLUMNS.map(c => [c, ({ accountCode: '211001', debit: '', credit: '12000', vendorName: 'مؤسسة المورد', dueDate: '2026-12-31' } as Record<string, string>)[c]])),
+      Object.fromEntries(OPENING_BALANCE_TEMPLATE_COLUMNS.map(c => [c, ({ accountCode: '111001', debit: '25000' } as Record<string, string>)[c] ?? ''])),
+      Object.fromEntries(OPENING_BALANCE_TEMPLATE_COLUMNS.map(c => [c, ({ accountCode: '211001', credit: '12000', vendorName: 'مؤسسة المورد', dueDate: '2026-12-31' } as Record<string, string>)[c] ?? ''])),
+      Object.fromEntries(OPENING_BALANCE_TEMPLATE_COLUMNS.map(c => [c, ({ accountCode: '113001', debit: '4500', customer: 'CUST-001' } as Record<string, string>)[c] ?? ''])),
+      Object.fromEntries(OPENING_BALANCE_TEMPLATE_COLUMNS.map(c => [c, ({ accountCode: '111003', debit: '1200', salesRep: 'اسم المندوب' } as Record<string, string>)[c] ?? ''])),
     ],
-    colWidths: [14, 14, 14, 30, 14],
+    colWidths: [14, 14, 14, 30, 14, 24, 20],
   }], 'opening-balances-template');
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
@@ -119,18 +142,13 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
   return (
     <div className="space-y-4">
       <Notice>
-        {tr('أدخل هنا النقد والبنوك والأصول ومجمعاتها والموردين والقروض ورأس المال والمستحقات. ذمم العملاء وعهدة المناديب وأمانات الدفع الإلكتروني ومخزون المستودع تُحسب من المستندات في الخطوة السابقة')}
-        {' '}{tr('بضاعة السيارات تُدخل هنا يدويا')}.
+        {tr('أدخل هنا كل الأرصدة الافتتاحية من دفاترك السابقة: النقد والبنوك والأصول ومجمعاتها والموردين والقروض ورأس المال والمستحقات، وذمم العملاء بسطر لكل عميل، وعهدة المناديب بسطر لكل مندوب، وأمانات الدفع الإلكتروني ومخزون المستودع وبضاعة السيارات')}.
         <br />
-        {tr('ذمم العملاء لا تُدخل هنا: استوردها من صفحة استيراد البيانات بتاريخ قبل البدء')}{' '}
-        <DataImportLink>{tr('استيراد الأرصدة الافتتاحية')}</DataImportLink>
-        {' · '}
-        {tr('مخزون المستودع يُحسب من وارد المستودع بتكلفته')}{' '}
-        <WarehouseLink>{tr('وارد المستودع')}</WarehouseLink>
+        {tr('لا يُنشئ النظام أي رصيد افتتاحي آليا: القيد الافتتاحي هو ما تُدخله هنا وحده')}.
       </Notice>
 
       <StepSection title={tr('الأرصدة اليدوية')}
-        hint={tr('سطر واحد لكل رصيد: مدين أو دائن. اسم المورد إلزامي لسطور الموردين، وتاريخ الاستحقاق اختياري')}
+        hint={tr('سطر واحد لكل رصيد: مدين أو دائن. اسم المورد إلزامي لسطور الموردين، والعميل لسطور ذمم العملاء، والمندوب لسطور العهدة، وتاريخ الاستحقاق اختياري')}
         actions={(
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-secondary inline-flex items-center gap-1.5 text-xs" onClick={() => void downloadTemplate()}><FileDown size={14} />{tr('تنزيل نموذج')}</button>
@@ -142,7 +160,7 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
         )}>
         {fileName && <p className="text-[11px] text-[#9A8F7E]">{tr('الملف')}: <bdi>{fileName}</bdi></p>}
         <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-sm min-w-[52rem]">
+          <table className="w-full text-sm min-w-[64rem]">
             <thead>
               <tr className="text-xs text-[#9A8F7E]">
                 <th className="text-start font-medium py-1 px-1 w-8">#</th>
@@ -150,6 +168,7 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
                 <th className="text-start font-medium py-1 px-1 w-32">{tr('مدين')}</th>
                 <th className="text-start font-medium py-1 px-1 w-32">{tr('دائن')}</th>
                 <th className="text-start font-medium py-1 px-1 w-44">{tr('المورد')}</th>
+                <th className="text-start font-medium py-1 px-1 w-48">{tr('العميل أو المندوب')}</th>
                 <th className="text-start font-medium py-1 px-1 w-36">{tr('تاريخ الاستحقاق')}</th>
                 <th className="w-8" />
               </tr>
@@ -159,6 +178,8 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
                 const i = page * PAGE + k;
                 const acc = byCode.get(String(r.accountCode ?? '').trim());
                 const isAp = acc?.controlKind === 'AP';
+                const isAr = acc?.controlKind === 'AR';
+                const isCustody = acc?.controlKind === 'CUSTODY';
                 const issue = issues?.get(i);
                 return (
                   <tr key={i} className={`align-top ${issue ? 'bg-red-50/60' : ''}`}>
@@ -188,7 +209,23 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
                         onChange={e => update(i, { vendorName: e.target.value })} />
                     </td>
                     <td className="py-1 px-1">
-                      <input type="date" className="input" value={r.dueDate ?? ''} disabled={ro || (!!acc && !isAp)}
+                      {isAr ? (
+                        <input className={`input ${!String(r.customerRef ?? '').trim() && !r.customerId ? '!border-amber-400' : ''}`} list="opening-balance-customers"
+                          value={String(r.customerRef ?? (r.customerId ? customers.find(c => c.id === r.customerId)?.name ?? '' : ''))} disabled={ro}
+                          placeholder={tr('رمز العميل أو اسمه')} maxLength={200}
+                          onChange={e => update(i, { customerRef: e.target.value, customerId: null })} />
+                      ) : isCustody ? (
+                        <select className={`input ${!r.salesRepId && !String(r.salesRepName ?? '').trim() ? '!border-amber-400' : ''}`} value={r.salesRepId ?? ''} disabled={ro}
+                          onChange={e => update(i, { salesRepId: e.target.value || null, salesRepName: null })}>
+                          <option value="">{String(r.salesRepName ?? '').trim() || tr('اختر المندوب')}</option>
+                          {reps.map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
+                        </select>
+                      ) : (
+                        <input className="input" value="" disabled aria-hidden="true" />
+                      )}
+                    </td>
+                    <td className="py-1 px-1">
+                      <input type="date" className="input" value={r.dueDate ?? ''} disabled={ro || (!!acc && !isAp && !isAr)}
                         onChange={e => update(i, { dueDate: e.target.value || null })} />
                     </td>
                     <td className="py-1 px-1 pt-2">
@@ -202,6 +239,9 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
               })}
             </tbody>
           </table>
+          <datalist id="opening-balance-customers">
+            {customers.map(c => <option key={c.id} value={c.name}>{c.code ?? ''}</option>)}
+          </datalist>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-secondary inline-flex items-center gap-1.5 text-xs disabled:opacity-50" disabled={ro || rows.length >= MANUAL_BALANCE_MAX_ROWS}
@@ -226,7 +266,7 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
             <LedgerAmount value={milliText(diff)} decimals={decimals} className="font-semibold" />
           </div>
         </div>
-        <p className="text-[11px] text-[#9A8F7E]">{tr('الفرق النهائي يشمل الأرصدة المشتقة ويُعاد حسابه داخل معاملة التفعيل')}</p>
+        <p className="text-[11px] text-[#9A8F7E]">{tr('الفرق النهائي يُعاد حسابه داخل معاملة التفعيل')}</p>
 
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-secondary inline-flex items-center gap-1.5 disabled:opacity-50" disabled={validate.isPending || cleaned.length === 0}

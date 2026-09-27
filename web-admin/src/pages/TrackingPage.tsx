@@ -268,17 +268,21 @@ export default function TrackingPage() {
   const visitNo = useMemo(() => new Map(visits.map((v, i) => [v.id, visits.length - i])), [visits]);
 
   // النقاط المعروضة على الخريطة لضبط الحدود
+  // نقطتا البصمة تدخلان الإطار: من بصم ولم يتحرّك (أو GPS مطفأ) تظهر نقطة بدايته
+  const punchPts: [number, number][] = useMemo(
+    () => [checkIn, checkOut].filter((p): p is Punch => !!p).map(p => [p.lat, p.lng] as [number, number]),
+    [checkIn, checkOut],
+  );
   const focusPoints: [number, number][] = useMemo(() => {
     if (selected) {
       // **الخطّة تدخل الإطار**: مندوبٌ لم يتحرّك بعد وله خطّ سير كانت خريطته
       // تبقى على السعودية كلّها وخطّه البنفسجيّ خارج الشاشة — فيظنّ المشرف
       // أنّ الميزة معطوبة وهي تعمل.
-      const punchPts = [checkIn, checkOut].filter((p): p is Punch => !!p).map(p => [p.lat, p.lng] as [number, number]);
-      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...planLatLng, ...punchPts];
+      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...punchPts, ...planLatLng];
       if (pts.length) return pts;
     }
     return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
-  }, [selected, rawLatLng, visitPins, planLatLng, reps, checkIn, checkOut]);
+  }, [selected, rawLatLng, visitPins, punchPts, planLatLng, reps]);
 
   const selectedRep = reps.find(r => r.id === selected);
 

@@ -5,10 +5,10 @@ import path from 'node:path';
 import {
   MANUAL_BALANCE_ISSUES, OPENING_BALANCE_TEMPLATE_COLUMNS, cleanManualRows, clampStep, compactBoxes, effectiveCutover, fiscalYearStart, initialStep1, isVatPeriodStart, manualTotalsMilli,
   milliText, needsMidPeriodConfirm, normalizeDueDate, openingDateOf, openingFieldOf, parseOpeningBalanceRecords,
-  DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, derivedAccountKind, hasPostCutoverImports, importsAckBlocksCommit, openingDataHints,
+  DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, hasPostCutoverImports, importsAckBlocksCommit,
   openingStockReview, commitNeedsRefresh, COMMIT_REFRESH_CODES,
   keepLiveCategoryLinks, timezoneImportsConflictOf, TIMEZONE_IMPORTS_CONFLICT_CODE,
-  setupStepFromSearch,
+  setupStepFromSearch, SETUP_STEPS, prevStep, nextStep,
 } from './setupLogic';
 import type { SetupEffective } from '../../../api/ledgerSetup';
 
@@ -57,7 +57,8 @@ test('التاريخ الفعلي والقيد الافتتاحي', () => {
   assert.equal(effectiveCutover('FULL_HISTORY', '2026-07-01', null), '2026-07-01', 'بلا مستندات ⇒ تاريخ الطريقة (أ)');
   assert.equal(openingDateOf('2026-01-01'), '2025-12-31');
   assert.equal(clampStep(9), 1);
-  assert.equal(clampStep('4'), 4);
+  assert.equal(clampStep('4'), 5, 'الخطوة 4 المُزالة ⇒ الأرصدة اليدوية');
+  assert.equal(clampStep('3'), 3);
   const eff: SetupEffective = {
     templateKey: 'SA_6D', countryCode: 'SA', timezone: 'Asia/Riyadh', fiscalYearEndMonth: 12, fiscalYearEndDay: 31, weekStartsOn: 0,
     taxPeriodicity: 'QUARTERLY', method: 'OPENING', cutoverDate: null, confirmMidVatPeriod: false, preCutoverBoxes: null,
@@ -143,7 +144,7 @@ test('حركات مستوردة بعد تاريخ البدء: التنبيه ع�
   const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
   assert.match(review, /disabled=\{[^}]*importsBlocked/, 'زر التفعيل معطّل قبل الإقرار بالحركات المستوردة');
   assert.match(review, /ledgerSetupApi\.commit\(undefined, \{\s*acknowledgePostCutoverImports: importsAck && imported/);
-  assert.match(review, /<PostCutoverImportsNotice data=\{q\.data\.importedAfterCutover\}/, 'التنبيه في الخطوة 4');
+  assert.match(review, /<PostCutoverImportsNotice data=\{imported\}/, 'التنبيه في المراجعة قبل التفعيل (خطوة المعاينة المشتقة أُزيلت)');
 });
 
 test('البند 41: الإقرار لقطةً بالأرقام المعروضة، تُعرض في نصّه ويسقط الإقرار بتغيّرها', () => {
@@ -159,7 +160,7 @@ test('البند 41: الإقرار لقطةً بالأرقام المعروضة
 
   const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
   // اللقطة المرسلة هي الأرقام المعروضة ولحظة المعاينة نفسها
-  assert.match(review, /\{ count: imported\.count, debit: imported\.debit, credit: imported\.credit, snapshotAt: q\.data\?\.opening\.snapshotAt \}/);
+  assert.match(review, /\{ count: imported\.count, debit: imported\.debit, credit: imported\.credit, snapshotAt: q\.data\?\.cutoff\.snapshotAt \}/);
   // أرقام اللقطة داخل نصّ الإقرار لا مربع اختيار على مجهول
   const ackAt = review.indexOf('onChange={e => setImportsAck(');
   assert.ok(ackAt > 0, 'خانة إقرار الحركات المستوردة غير موجودة');
@@ -184,30 +185,48 @@ test('البند 41: الإقرار لقطةً بالأرقام المعروضة
   assert.ok(ui.includes(`POST_CUTOVER_IMPORTS_CHANGED: tr('${serverText}')`), 'نص السبب لا يطابق رسالة الخادم');
 });
 
-test('تلميحات الخطوة 4: ذمم صفرية مع عملاء، ومخزون صفري مع منتجات', () => {
-  const p = (ar: string, wh: string, customers: number, products: number) =>
-    openingDataHints({ opening: { receivablesTotal: ar, warehouse: { value: wh } }, tenantCounts: { customers, products } });
-  assert.deepEqual(p('0.00', '0.00', 5, 3), { receivablesMissing: true, inventoryMissing: true });
-  assert.deepEqual(p('0.00', '0.00', 0, 0), { receivablesMissing: false, inventoryMissing: false });
-  assert.deepEqual(p('150.00', '20.50', 5, 3), { receivablesMissing: false, inventoryMissing: false });
-  assert.deepEqual(openingDataHints({ opening: { receivablesTotal: '0', warehouse: { value: '0' } } }), { receivablesMissing: false, inventoryMissing: false });
+test('إزالة الأرصدة المشتقة (قرار الخبير المحاسبي): خمس خطوات، والانتقال يتخطّى 4، ومسودة واقفة على 4 تُفتح على الأرصدة اليدوية', () => {
+  assert.deepEqual([...SETUP_STEPS], [1, 2, 3, 5, 6]);
+  assert.equal(clampStep(4), 5);
+  assert.equal(clampStep(6), 6);
+  assert.equal(clampStep(0), 1);
+  assert.deepEqual([prevStep(5), prevStep(6), prevStep(1)], [3, 5, 1]);
+  assert.deepEqual([nextStep(3), nextStep(5), nextStep(6)], [5, 6, 6]);
+  const wizard = read(webSrc, 'pages', 'ledger', 'setup', 'SetupWizard.tsx');
+  assert.doesNotMatch(wizard, /Step4Preview|tr\('الأرصدة المشتقة'\)/);
+  assert.match(wizard, /onBack: \(\) => setStep\(s => prevStep\(/, 'الرجوع من الأرصدة اليدوية إلى الشجرة لا إلى 4');
+  assert.match(read(webSrc, 'pages', 'ledger', 'setup', 'SetupSteps.tsx'), /\}, 5\); \/\/ خطوة «الأرصدة المشتقة»/, 'الشجرة تنتقل إلى الأرصدة اليدوية');
+  const review = read(webSrc, 'pages', 'ledger', 'setup', 'SetupReview.tsx');
+  assert.doesNotMatch(review, /OpeningFigures|Step4Preview|receivablesTotal|custodyTotal|paylinkHeld/);
+  assert.match(review, /q\.data\?\.cutoff\.snapshotAt/, 'لقطة إقرار الاستيرادات من cutoff');
 });
 
-test('نص DERIVED_ACCOUNT حسب نوع الحساب: الذمم للاستيراد، والمخزون للمستودع، والباقي عام', () => {
-  assert.equal(derivedAccountKind('AR', '113001'), 'AR');
-  assert.equal(derivedAccountKind('INVENTORY', '114001'), 'INVENTORY');
-  assert.equal(derivedAccountKind('CUSTODY', '111003'), 'OTHER');
-  assert.equal(derivedAccountKind('PAYLINK', null), 'OTHER');
-  assert.equal(derivedAccountKind(null, '113001'), 'AR', 'قبل زرع الشجرة يُستدل بالرمز');
-  assert.equal(derivedAccountKind(null, 114001), 'INVENTORY');
-  assert.equal(derivedAccountKind(null, '112005'), 'OTHER');
+test('الأرصدة اليدوية تقبل الذمم والعهدة والأمانات والمخزون: الذمم بعميل والعهدة بمندوب، والقالب بعمودَي العميل والمندوب', () => {
+  const r = parseOpeningBalanceRecords([
+    { 'رمز الحساب': '113001', 'مدين': '4500', 'العميل': 'CUST-001' },
+    { 'رمز الحساب': '111003', 'مدين': '1200', 'المندوب': 'حسام' },
+  ]);
+  assert.deepEqual(r.rows, [
+    { accountCode: '113001', debit: '4500', credit: null, customerRef: 'CUST-001' },
+    { accountCode: '111003', debit: '1200', credit: null, salesRepName: 'حسام' },
+  ]);
+  assert.deepEqual(cleanManualRows([
+    { accountCode: '113001', debit: '10', customerRef: ' مؤسسة النور ' },
+    { accountCode: '111003', debit: '5', salesRepId: 'r1', salesRepName: 'قديم' },
+    { accountCode: '', debit: '', credit: '', customerRef: 'x' },
+  ]), [
+    { accountCode: '113001', debit: '10', credit: null, customerRef: 'مؤسسة النور' },
+    { accountCode: '111003', debit: '5', credit: null, salesRepId: 'r1' },
+    { accountCode: '', debit: null, credit: null, customerRef: 'x' },
+  ]);
+  const manual = read(webSrc, 'pages', 'ledger', 'setup', 'ManualBalances.tsx');
+  assert.doesNotMatch(manual, /DERIVED_KINDS|derivedAccountKind/, 'لا حسابات ممنوعة لأنها «مشتقة»');
+  assert.match(manual, /list="opening-balance-customers"/);
+  assert.match(manual, /isCustody \?/);
   const ui = read(webSrc, 'pages', 'ledger', 'setup', 'setupUi.tsx');
-  const fn = ui.slice(ui.indexOf('export function derivedAccountText('), ui.indexOf('export function manualIssueText('));
-  assert.match(fn, /kind === 'AR'[\s\S]*صفحة استيراد البيانات/);
-  assert.match(fn, /kind === 'INVENTORY'[\s\S]*وارد المستودع/);
-  assert.match(fn, /رصيد هذا الحساب يُحسب من المستندات ولا يُدخل يدويا/);
-  for (const f of ['ManualBalances.tsx', 'SetupReview.tsx']) {
-    assert.match(read(webSrc, 'pages', 'ledger', 'setup', f), /manualIssueText\(tr, is\.reason, /, `${f}: نص السبب حسب نوع الحساب`);
+  assert.doesNotMatch(ui, /DERIVED_ACCOUNT|derivedAccountText/);
+  for (const k of ['CUSTOMER_REQUIRED', 'CUSTOMER_NOT_FOUND', 'CUSTOMER_AMBIGUOUS', 'SALES_REP_REQUIRED', 'SALES_REP_NOT_FOUND', 'SALES_REP_AMBIGUOUS']) {
+    assert.match(ui, new RegExp(`${k}: tr\\('`), k);
   }
 });
 
@@ -246,9 +265,6 @@ test('المخزون الافتتاحي في المعاينة: التاريخ ا
   // ترتيب فحوص الخادم: بعد البدء قبل الأحدث من اللقطة
   assert.equal(openingStockReview(os({ after: 1, recent: 1, retry: '2026-09-17T10:04:00.000Z' }), false, now).block, 'AFTER_CUTOVER_ACK');
   assert.equal(openingStockReview(os({ after: 1, recent: 1, retry: '2026-09-17T10:04:00.000Z' }), true, now).block, 'TOO_RECENT');
-
-  // مخزون مستورد خارج الافتتاح ⇒ لا تلميح «مخزون صفري»
-  assert.equal(openingDataHints({ opening: { receivablesTotal: '0', warehouse: { value: '0' } }, tenantCounts: { customers: 0, products: 3 }, openingStock: { batches: 1 } }).inventoryMissing, false);
 });
 
 test('رفض الاعتماد بسبب الاستيراد أو المخزون يعيد المعاينة، ورموزه مرآة setup.ts', () => {
@@ -268,13 +284,12 @@ test('رفض الاعتماد بسبب الاستيراد أو المخزون ي
   assert.match(ui, /tr\('قيمة إرشادية/, 'القيمة إرشادية');
 });
 
-test('«قبل أن تبدأ»: المخزون الافتتاحي يُستورد قبل ضبط تاريخ البدء، والاعتماد في يوم لاحق', () => {
+test('«قبل أن تبدأ»: المستورد يخدم التطبيق ولا يدخل القيد الافتتاحي آلياً، والأرصدة الافتتاحية كلها في الخطوة 4', () => {
   const wizard = read(webSrc, 'pages', 'ledger', 'setup', 'SetupWizard.tsx');
   const card = wizard.slice(wizard.indexOf('function BeforeYouStart'));
-  const stock = card.indexOf('استورد المخزون الافتتاحي');
-  const cutover = card.indexOf('حدّد تاريخ البدء في الخطوة 1');
-  assert.ok(stock > 0 && cutover > stock, 'بند المخزون قبل بند تاريخ البدء');
-  assert.match(card, /في يوم لاحق/);
+  assert.match(card, /ولا تدخل القيد الافتتاحي آليا/);
+  assert.match(card, /وأدخل كل الأرصدة الافتتاحية من دفاترك السابقة في الخطوة 4/);
+  assert.doesNotMatch(card, /راجع ذمم العملاء في الخطوة 4/);
 });
 
 // ═══ دفعة الإصلاحات 2 (مراجعة 2026-09-17) ═══
@@ -344,7 +359,8 @@ test('البند 25: تعارض المنطقة الزمنية يُقرأ بتف�
 });
 
 test('«أكمل الإعداد» يفتح الخطوة المقصودة: معامل setupStep يُقرأ بحرس ويُطبَّق مرة واحدة', () => {
-  assert.equal(setupStepFromSearch('?setupStep=4'), 4);
+  assert.equal(setupStepFromSearch('?setupStep=4'), 5, 'الخطوة 4 المُزالة ⇒ الأرصدة اليدوية');
+  assert.equal(setupStepFromSearch('?setupStep=3'), 3);
   assert.equal(setupStepFromSearch('setupStep=1'), 1, 'بلا علامة استفهام');
   assert.equal(setupStepFromSearch('?a=1&setupStep=6&b=2'), 6);
   // بلا معامل ⇒ null لا 1: المعالج يستأنف من حيث توقّفت المسودة
