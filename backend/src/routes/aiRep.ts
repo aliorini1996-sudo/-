@@ -32,8 +32,7 @@ import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, M
 import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
 import { placesApiKey, searchNearby, NearbyPlace } from '../ai-rep/places';
 import { mergeNearby } from '../ai-rep/nearby';
-import { chatCompletion } from '../ai-rep/llm';
-import { LLM_PROVIDERS, LLM_PROVIDER_CODES, clearTenantLlmCache, encryptLlmKey, keyHint, llmConfigFromRow, secretsReady, tenantLlmConfig } from '../ai-rep/llmTenant';
+import { chatCompletion, llmConfig } from '../ai-rep/llm';
 import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
 import { runAdvisor, numbersIn } from '../ai-rep/advisor';
 import { advisorSystemPrompt, baseAllowedNumbers, buildAdvisorTools, OutletCtx } from '../ai-rep/advisorTools';
@@ -143,7 +142,7 @@ const ctxOf = (req: AuthRequest): RepCtx => (req as AuthRequest & { aiRep: RepCt
 rep.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);
-    const [usage, llm] = await Promise.all([usageToday(c.tid, c.repId), tenantLlmConfig(c.tid)]);
+    const [usage, llm] = await Promise.all([usageToday(c.tid, c.repId), Promise.resolve(llmConfig())]);
     res.json({
       success: true,
       data: {
@@ -376,7 +375,7 @@ rep.post('/guide', async (req: AuthRequest, res: Response, next: NextFunction) =
     const rules = { text: ruleGuideText(plan, byRef, s.origin, actx.currency), plan, source: 'RULES' as const };
 
     // العقل: إن كان مفعّلاً ومضبوطاً (مفتاح الشركة) — والدورة تُحجز ذرّياً قبل النداء، وإلا الخطة الحتمية (لا كلفة نموذج)
-    const cfg = await tenantLlmConfig(c.tid);
+    const cfg = llmConfig();
     if (!cfg || !c.settings.advisorEnabled || !outlets.some(o => !o.closed)) { res.json({ success: true, data: rules }); return; }
     if (!(await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) { res.json({ success: true, data: rules }); return; }
     const result = await runAdvisor({
@@ -414,8 +413,8 @@ rep.post('/chat', async (req: AuthRequest, res: Response, next: NextFunction) =>
   try {
     const c = ctxOf(req);
     if (!c.settings.advisorEnabled) { res.status(403).json({ success: false, code: 'AI_ADVISOR_DISABLED', message: 'المستشار الذكي متوقف لشركتك — القوائم والتوقّعات تعمل كالمعتاد' }); return; }
-    const cfg = await tenantLlmConfig(c.tid);
-    if (!cfg) { res.status(503).json({ success: false, code: 'AI_LLM_NOT_CONFIGURED', message: 'لم تُضف شركتك مفتاح الذكاء الاصطناعي بعد (صفحة «المندوب الذكي» في لوحة الشركة) — القوائم والتوقّعات تعمل كالمعتاد' }); return; }
+    const cfg = llmConfig();
+    if (!cfg) { res.status(503).json({ success: false, code: 'AI_LLM_NOT_CONFIGURED', message: 'المستشار الذكي لم يُفعَّل بعد لدى المنصّة — القوائم والتوقّعات تعمل كالمعتاد' }); return; }
     const body = chatSchema.parse(req.body);
     const s = body.searchId ? getSession(c.tid, c.repId, body.searchId) : null;
     if (body.searchId && !s) { res.status(409).json(NO_SESSION); return; }
@@ -562,8 +561,7 @@ admin.get('/settings', requireAdminPermission('canManageCompanySettings'), async
         outletTypes: OUTLET_TYPES.map(t => ({ code: t.code, label: t.ar })),
         placesConfigured: !!placesApiKey(),
         mapsConfigured: !!mapsBrowserKey(),
-        advisorConfigured: !!(await tenantLlmConfig(tid)),
-        brain: await brainView(tid),
+        advisorConfigured: !!llmConfig(),
         readiness: await readiness(tid, settings),
       },
     });
@@ -667,73 +665,6 @@ admin.post('/classify', requireAdminPermission('canManageCustomers'), async (req
     });
     invalidateEstimateData(tid);
     res.json({ success: true, data: { updated, skipped: items.length - updated } });
-  } catch (err) { next(err); }
-});
-
-async function brainView(tid: string) {
-  const row = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { llmProvider: true, llmModel: true, llmKeyEnc: true, llmKeyHint: true, llmUpdatedAt: true } });
-  return {
-    provider: row?.llmProvider ?? null,
-    model: row?.llmModel ?? null,
-    keySet: !!row?.llmKeyEnc,
-    keyHint: row?.llmKeyHint ?? null,
-    updatedAt: row?.llmUpdatedAt ?? null,
-    secretsReady: secretsReady(),
-    providers: LLM_PROVIDER_CODES.map(code => ({ code, label: LLM_PROVIDERS[code].label, defaultModel: LLM_PROVIDERS[code].defaultModel, keyHelpUrl: LLM_PROVIDERS[code].keyHelpUrl })),
-  };
-}
-
-const llmSchema = z.object({
-  provider: z.enum(LLM_PROVIDER_CODES as [string, ...string[]]),
-  model: z.string().trim().max(120).regex(/^[A-Za-z0-9._:/@-]*$/, 'اسم نموذج غير صالح').optional(),
-  apiKey: z.string().trim().min(8).max(500).optional(),
-  clearKey: z.boolean().optional(),
-});
-
-admin.put('/llm', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const tid = tenantId(req);
-    if (await adminScopeEnabled(req)) { res.status(403).json({ success: false, message: 'حسابك مقيد بنطاق محدد — مفتاح الذكاء الاصطناعي يحتاج صلاحية غير مقيدة' }); return; }
-    const b = llmSchema.parse(req.body);
-    if (b.apiKey && !secretsReady()) { res.status(503).json({ success: false, code: 'SECRETS_NOT_CONFIGURED', message: 'تخزين المفاتيح غير مهيّأ على الخادم — تواصل مع مزوّد الخدمة' }); return; }
-    // مفتاح مزوّد لا يصلح لآخر: تغيير المزوّد يحتاج مفتاحه الجديد (أو إزالة المفتاح)
-    const cur = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { llmProvider: true, llmKeyEnc: true } });
-    if (cur?.llmKeyEnc && cur.llmProvider !== b.provider && !b.apiKey && !b.clearKey) {
-      res.status(400).json({ success: false, code: 'KEY_REQUIRED', message: 'غيّرت المزوّد — أدخل مفتاح API من المزوّد الجديد' });
-      return;
-    }
-    const data = {
-      llmProvider: b.provider,
-      llmModel: b.model || null,
-      ...(b.apiKey && { llmKeyEnc: encryptLlmKey(tid, b.apiKey), llmKeyHint: keyHint(b.apiKey) }),
-      ...(b.clearKey && { llmKeyEnc: null, llmKeyHint: null }),
-      llmUpdatedAt: new Date(),
-      updatedById: req.user!.id,
-    };
-    await prisma.aiRepSettings.upsert({ where: { tenantId: tid }, create: { tenantId: tid, ...data }, update: data });
-    clearTenantLlmCache(tid);
-    res.json({ success: true, data: { brain: await brainView(tid) } });
-  } catch (err) { next(err); }
-});
-
-// اختبار المفتاح بسؤال قصير (رموز قليلة على حساب الشركة)
-admin.post('/llm/test', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const tid = tenantId(req);
-    const row = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { llmProvider: true, llmModel: true, llmKeyEnc: true } });
-    if (!row?.llmKeyEnc) { res.status(400).json({ success: false, code: 'NO_KEY', message: 'أضف مفتاح الذكاء الاصطناعي أولاً' }); return; }
-    const cfg = llmConfigFromRow(tid, row, {});
-    if (!cfg) { res.status(400).json({ success: false, code: 'KEY_UNREADABLE', message: 'تعذّر قراءة المفتاح المحفوظ — أعد إدخاله' }); return; }
-    const r = await chatCompletion({ ...cfg, maxTokens: 2048 }, { messages: [{ role: 'user', content: 'ردّ بكلمة واحدة: تمام' }], maxTokens: 2048 });
-    const msg: Record<string, string> = {
-      LLM_AUTH: 'المفتاح مرفوض من المزوّد — تأكد من نسخه كاملاً ومن تفعيل الحساب',
-      LLM_RATE_LIMIT: 'المزوّد رفض لكثرة الطلبات أو لنفاد الرصيد — تحقّق من حسابك',
-      LLM_BAD_REQUEST: 'المزوّد رفض الطلب — تأكد من اسم النموذج',
-      LLM_TIMEOUT: 'لم يرد المزوّد في الوقت — حاول مجدداً',
-      LLM_UNAVAILABLE: 'المزوّد غير متاح الآن — حاول بعد قليل',
-    };
-    if (!r.ok) { res.json({ success: true, data: { ok: false, code: r.code, message: msg[r.code] || 'تعذّر الاتصال بالمزوّد' } }); return; }
-    res.json({ success: true, data: { ok: true, message: 'المفتاح يعمل — العقل جاهز لمناديب شركتك' } });
   } catch (err) { next(err); }
 });
 

@@ -377,8 +377,8 @@ function Header({ onBack, title, right }: { onBack: () => void; title: string; r
 }
 
 /**
- * خرائط Google بحساب المندوب (بلا مفتاح Google): خريطة Google المضمّنة حوله بنوع المحل المختار، وزرّ يفتح تطبيق
- * خرائط Google بحسابه. المندوب يختار المحل هناك ويشاركه (الرابط) هنا، أو يضغط «أنا عند المحل الآن» عند بابه —
+ * خريطة Google الموحّدة داخل التطبيق قبل ضبط مفتاح البحث للمنصّة: خريطة Google مضمّنة حول المندوب بنوع المحل
+ * المختار (نفسها لكل من فُعّلت له الميزة). المندوب يضغط «أنا عند المحل الآن» عند باب المحل، أو يلصق رابط محل —
  * فيضيفه الخادم للجلسة ويحسب توقّع مشترياته، ثم يوجّهه العقل على المحلات المضافة.
  */
 function ManualPanel({ me, offline, searchId, origin, onOrigin, onAdded, canGuide, guiding, onGuide }: {
@@ -398,15 +398,20 @@ function ManualPanel({ me, offline, searchId, origin, onOrigin, onAdded, canGuid
   const embed = origin
     ? `https://maps.google.com/maps?q=${encodeURIComponent(word)}&ll=${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}&z=15&hl=${hl}&output=embed`
     : null;
-  const appUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(word)}`;
-
-  const locate = async () => {
+  const locate = useCallback(async () => {
     setBusy('map'); setErr('');
     const gps = await getGps().catch(() => null);
     setBusy('');
     if (!gps) { setErr(tr('فعّل الموقع لنعرف المحلات القريبة منك')); return; }
     onOrigin(gps);
-  };
+  }, [onOrigin, tr]);
+  // الخريطة تظهر مباشرة عند فتح الشاشة (موقع المندوب مطلوب لتوسيطها)
+  const autoLocated = useRef(false);
+  useEffect(() => {
+    if (autoLocated.current || origin || offline) return;
+    autoLocated.current = true;
+    void locate();
+  }, [origin, offline, locate]);
 
   const paste = async () => {
     try { const t = await navigator.clipboard.readText(); if (t) setText(t.slice(0, 2000)); } catch { /* المتصفح منع القراءة: يلصق المندوب بنفسه */ }
@@ -451,13 +456,10 @@ function ManualPanel({ me, offline, searchId, origin, onOrigin, onAdded, canGuid
           <MapPin size={22} className="text-[#E15A30]" /> {busy === 'map' ? tr('أحدد موقعك…') : tr('اعرض المحلات حولي على خريطة Google')}
         </button>
       )}
-      <a href={appUrl} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#1F1A13] text-white py-3 text-sm font-bold">
-        <Navigation size={16} /> {tr('افتح خرائط Google بحسابك')}
-      </a>
 
       <div className="rounded-2xl border border-gray-100 bg-white p-3.5 space-y-2">
         <p className="text-sm font-bold text-[#1F1A13] flex items-center gap-1.5"><Plus size={15} className="text-[#E15A30]" /> {tr('أضف محلاً ليحسب له العقل التوقّع')}</p>
-        <p className="text-[11px] text-gray-500">{tr('في خرائط Google افتح المحل واضغط «مشاركة» ثم «نسخ الرابط»، والصقه هنا')}</p>
+        <p className="text-[11px] text-gray-500">{tr('عند باب المحل اضغط «أنا عند المحل الآن»، أو الصق رابط المحل من خرائط Google')}</p>
         <div className="flex gap-2">
           <textarea value={text} onChange={e => setText(e.target.value)} maxLength={2000} dir="auto" rows={2}
             placeholder={tr('الصق رابط المحل من خرائط Google')} className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm" />
@@ -560,7 +562,7 @@ function AskTab({ me, offline, searchId, names, chat, setChat, draft, setDraft, 
   if (!adv) return <p className="text-center text-sm text-gray-400 py-10">{tr('جاري التحميل')}</p>;
   if (offline) return <p className="text-center text-sm text-gray-500 py-10">{tr('المستشار يحتاج الإنترنت')}</p>;
   if (!adv.available) {
-    return <p className="text-center text-sm text-gray-500 py-10">{adv.reason === 'DISABLED_BY_COMPANY' ? tr('المستشار الذكي متوقف لشركتك') : tr('لم تُضف شركتك مفتاح الذكاء الاصطناعي بعد — تواصل مع مدير الشركة')}</p>;
+    return <p className="text-center text-sm text-gray-500 py-10">{adv.reason === 'DISABLED_BY_COMPANY' ? tr('المستشار الذكي متوقف لشركتك') : tr('المستشار الذكي لم يُفعَّل بعد لدى مزوّد الخدمة')}</p>;
   }
   const ask = async (text: string) => {
     const q = text.trim().slice(0, 1500);

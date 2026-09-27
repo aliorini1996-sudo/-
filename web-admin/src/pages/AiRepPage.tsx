@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, KeyRound, MapPin, PlugZap, Save, Sparkles, Tags, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, MapPin, Save, Sparkles, Tags, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { aiRepApi, productApi, salesRepApi } from '../api/client';
 import { useAiRepTr } from '../i18n/aiRepPhrases';
@@ -18,12 +18,8 @@ interface Settings {
   advisorEnabled: boolean; dailyChatTurnsPerRep: number;
 }
 interface TypeRow { code: string; label: string; targeted: boolean; classified: number; withLocation: number; withRegularSales: number; ready: boolean }
-interface Brain {
-  provider: string | null; model: string | null; keySet: boolean; keyHint: string | null; updatedAt: string | null; secretsReady: boolean;
-  providers: { code: string; label: string; defaultModel: string; keyHelpUrl: string }[];
-}
 interface Overview {
-  settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean; mapsConfigured?: boolean; advisorConfigured?: boolean; brain?: Brain;
+  settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean; mapsConfigured?: boolean; advisorConfigured?: boolean;
   readiness: { window: { from: string; to: string }; unclassified: number; classifiedWithoutLocation: number; perType: TypeRow[] };
 }
 interface ClassRow { id: string; name: string; businessName: string | null; district: string | null; city: string | null; outletType: string | null; suggested: string | null; hasLocation: boolean }
@@ -86,7 +82,7 @@ export default function AiRepPage() {
       {!data.placesConfigured ? (
         <div className="flex items-start gap-2 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 text-sm text-[#44403a]">
           <MapPin size={18} className="shrink-0 mt-0.5 text-[#E15A30]" />
-          <span>{tr('خرائط Google بحساب المندوب: يفتح المندوب خرائط Google كأي مستخدم، ويضيف المحل برابط المشاركة أو بزر «أنا عند المحل الآن»، فيحسب له التوقّع ويوجّهه العقل. البحث التلقائي عن كل المحلات المجاورة يُضاف لاحقاً بمفتاح Google')}</span>
+          <span>{tr('خريطة Google واحدة داخل التطبيق لكل من فُعّلت له الميزة. حتى يُضبط مفتاح Google الموحّد للمنصّة: يرى المندوب المحلات حوله على الخريطة ويضيف المحل بزر «أنا عند المحل الآن» أو برابطه، فيحسب له التوقّع ويوجّهه العقل — والبحث التلقائي عن كل المحلات المجاورة يعمل فور ضبط المفتاح')}</span>
         </div>
       ) : !data.mapsConfigured && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -94,8 +90,6 @@ export default function AiRepPage() {
           <span>{tr('عرض الخريطة داخل تطبيق المندوب ينتظر مفتاح العرض لدى مزوّد الخدمة — البحث والتوقّع يعملان بالقائمة')}</span>
         </div>
       )}
-
-      {data.brain && <BrainSection brain={data.brain} onSaved={() => qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] })} />}
 
       {/* جاهزية البيانات */}
       <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5">
@@ -235,7 +229,7 @@ export default function AiRepPage() {
 
           <div className="rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 space-y-3">
             <p className="text-sm font-semibold text-[#1F1A13]">{tr('المستشار الذكي (العقل)')}</p>
-            <p className="text-xs text-[#6E6557]">{data.advisorConfigured ? tr('العقل جاهز بمفتاح شركتك: يفحص المحلات المجاورة ويعطي المندوب خطة وتوجيهاً ويجيب أسئلته — الأرقام دائماً من بيانات شركتك') : tr('أضف مفتاح الذكاء الاصطناعي لشركتك (أعلى الصفحة) ليعمل العقل — حتى ذلك يحصل المندوب على خطة حتمية من بيانات شركتك')}</p>
+            <p className="text-xs text-[#6E6557]">{data.advisorConfigured ? tr('العقل مفعّل لدى مزوّد الخدمة: يفحص المحلات المجاورة ويعطي المندوب خطة وتوجيهاً ويجيب أسئلته — الأرقام دائماً من بيانات شركتك') : tr('العقل لم يُفعَّل بعد لدى مزوّد الخدمة — المندوب يحصل الآن على خطة حتمية من بيانات شركتك')}</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer select-none">
                 <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={form.advisorEnabled} onChange={e => set('advisorEnabled', e.target.checked)} />
@@ -264,84 +258,6 @@ export default function AiRepPage() {
       )}
 
       <ClassifySection outletTypes={data.outletTypes} onSaved={() => qc.invalidateQueries({ queryKey: ['ai-rep', 'settings'] })} />
-    </div>
-  );
-}
-
-/**
- * «العقل»: مفتاح مزوّد الذكاء الاصطناعي الخاص بالشركة (والكلفة على حسابها لدى المزوّد مباشرة).
- * المفتاح لا يعود من الخادم بعد الحفظ — آخر ٤ محارف فقط.
- */
-function BrainSection({ brain, onSaved }: { brain: Brain; onSaved: () => void }) {
-  const tr = useAiRepTr();
-  const [provider, setProvider] = useState(brain.provider ?? brain.providers[0]?.code ?? '');
-  const [model, setModel] = useState(brain.model ?? '');
-  const [apiKey, setApiKey] = useState('');
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const preset = brain.providers.find(p => p.code === provider);
-  const providerChanged = !!brain.provider && provider !== brain.provider;
-  const needKey = !brain.keySet || providerChanged;
-  const errOf = (e: unknown) => (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
-
-  const save = useMutation({
-    mutationFn: async (body: { provider: string; model?: string; apiKey?: string; clearKey?: boolean }) => (await aiRepApi.saveLlm(body)).data,
-    onSuccess: (_r: unknown, body) => {
-      toast.success(body.clearKey ? tr('أُزيل مفتاح الذكاء الاصطناعي') : tr('تم حفظ إعداد العقل'));
-      setApiKey(''); setResult(null); onSaved();
-    },
-    onError: (e: unknown) => toast.error(errOf(e) || tr('تعذّر الحفظ')),
-  });
-  const test = useMutation({
-    mutationFn: async () => (await aiRepApi.testLlm()).data.data as { ok: boolean; message: string },
-    onSuccess: d => setResult(d),
-    onError: (e: unknown) => setResult({ ok: false, message: errOf(e) || tr('تعذّر الاختبار') }),
-  });
-
-  return (
-    <div className="bg-white rounded-2xl border border-[#E9E1D3] p-5 space-y-3">
-      <p className="font-bold text-[#1F1A13] flex items-center gap-2"><KeyRound size={18} className="text-[#E15A30]" /> {tr('العقل: مفتاح الذكاء الاصطناعي لشركتك')}</p>
-      <p className="text-xs text-[#6E6557]">{tr('العقل يفحص المحلات المجاورة ويرتّب للمندوب خطة الزيارات ويجيب أسئلته. أنشئ مفتاح API من حساب شركتك لدى المزوّد والصقه هنا — الكلفة على حساب شركتك لدى المزوّد مباشرة، والمفتاح يُحفظ مشفّراً ولا يظهر لأحد بعد الحفظ')}</p>
-      {!brain.secretsReady && (
-        <p className="text-xs rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-800">{tr('تخزين المفاتيح غير مهيّأ على الخادم — تواصل مع مزوّد الخدمة')}</p>
-      )}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <label className="block">
-          <span className="label">{tr('المزوّد')}</span>
-          <select className="input mt-1" value={provider} onChange={e => { setProvider(e.target.value); setModel(''); setResult(null); }}>
-            {brain.providers.map(p => <option key={p.code} value={p.code}>{tr(p.label)}</option>)}
-          </select>
-          {preset && <a href={preset.keyHelpUrl} target="_blank" rel="noreferrer" className="text-[11px] text-[#E15A30] underline">{tr('احصل على مفتاح من موقع المزوّد')}</a>}
-        </label>
-        <label className="block">
-          <span className="label">{tr('النموذج (اختياري)')}</span>
-          <input className="input mt-1" dir="ltr" maxLength={120} value={model} placeholder={preset?.defaultModel} onChange={e => setModel(e.target.value.trim())} />
-          <span className="text-[11px] text-[#8A8178]">{tr('اتركه فارغاً للنموذج الموصى به')}</span>
-        </label>
-      </div>
-      <label className="block">
-        <span className="label">{tr('مفتاح API')}</span>
-        <input className="input mt-1" type="password" dir="ltr" autoComplete="off" maxLength={500} value={apiKey} onChange={e => setApiKey(e.target.value)}
-          placeholder={brain.keySet && !providerChanged ? `${tr('مضبوط')} ••••${brain.keyHint ?? ''}` : tr('الصق مفتاح API هنا')} />
-        {providerChanged && brain.keySet && <span className="text-[11px] text-amber-700">{tr('غيّرت المزوّد — أدخل مفتاح API من المزوّد الجديد')}</span>}
-      </label>
-      {result && (
-        <p className={`text-xs rounded-lg p-2 ${result.ok ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{result.message}</p>
-      )}
-      <div className="flex flex-wrap justify-end gap-2">
-        {brain.keySet && (
-          <button type="button" className="btn-secondary inline-flex items-center gap-1.5 text-red-600" disabled={save.isPending}
-            onClick={() => { if (window.confirm(tr('إزالة مفتاح الذكاء الاصطناعي؟ يتوقف العقل حتى تضيف مفتاحاً جديداً'))) save.mutate({ provider: brain.provider ?? provider, clearKey: true }); }}>
-            <Trash2 size={15} /> {tr('إزالة المفتاح')}
-          </button>
-        )}
-        <button type="button" className="btn-secondary inline-flex items-center gap-1.5" disabled={!brain.keySet || providerChanged || !!apiKey || test.isPending} onClick={() => { setResult(null); test.mutate(); }}>
-          <PlugZap size={15} /> {test.isPending ? tr('جاري الاختبار') : tr('اختبر المفتاح')}
-        </button>
-        <button type="button" className="btn-primary inline-flex items-center gap-1.5" disabled={save.isPending || !provider || !brain.secretsReady || (needKey && apiKey.trim().length < 8)}
-          onClick={() => save.mutate({ provider, ...(model && { model }), ...(apiKey.trim() && { apiKey: apiKey.trim() }) })}>
-          <Save size={15} /> {save.isPending ? tr('جاري الحفظ') : tr('حفظ العقل')}
-        </button>
-      </div>
     </div>
   );
 }

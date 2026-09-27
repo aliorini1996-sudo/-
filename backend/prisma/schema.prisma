@@ -3300,11 +3300,6 @@ model AiRepSettings {
   dailySearchesPerRep  Int      @default(30) // سقف بحث المحلات لكل مندوب يومياً (كلفة Google)
   advisorEnabled       Boolean  @default(true) // المستشار الذكي (محادثة) — للشركة إيقافه مع بقاء القوائم والتوقّعات
   dailyChatTurnsPerRep Int      @default(40) // سقف أسئلة المستشار لكل مندوب يومياً (كلفة النموذج)
-  llmProvider          String? // مزوّد العقل للشركة: FIREWORKS_US | DEEPINFRA | GEMINI | OPENAI (ai-rep/llmTenant.ts)
-  llmModel             String? // النموذج (فارغ ⇒ الافتراضي للمزوّد)
-  llmKeyEnc            String? // مفتاح API للشركة مشفّراً (AES-256-GCM، مربوطاً بالشركة) — لا يُعاد للواجهة
-  llmKeyHint           String? // آخر ٤ محارف للعرض
-  llmUpdatedAt         DateTime?
   playbook             String? // دليل البيع للشركة (نقاط البيع والعروض وسياسة الآجل) — يقرؤه المستشار
   updatedById          String?
   createdAt            DateTime @default(now())

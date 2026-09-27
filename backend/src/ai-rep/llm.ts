@@ -1,18 +1,19 @@
 /**
  * المندوب الذكي — عميل النموذج اللغوي (واجهة متوافقة مع OpenAI Chat Completions).
  *
- * لا يرتبط بمزوّد بعينه: العنوان والمفتاح والنموذج من البيئة، فالتبديل (DeepSeek عبر مضيف أمريكي، أو Gemini،
- * أو خادم خاص لاحقاً) إعدادٌ لا كود:
+ * العقل واحد للمنصّة كلها (قرار المالك ٢٧ سبتمبر): **Groq بنموذج openai/gpt-oss-120b** — لا مفتاح لكل شركة.
+ * يكفي مفتاح Groq في البيئة (AI_REP_LLM_API_KEY أو GROQ_API_KEY)؛ العنوان والنموذج وخيارات التفكير افتراضية لـGroq.
+ * التبديل لمضيف آخر متوافق مع OpenAI يبقى إعداداً لا كوداً:
  *   AI_REP_LLM_BASE_URL    مثل https://api.deepinfra.com/v1/openai
  *   AI_REP_LLM_API_KEY     مفتاح المضيف (لا يُطبع ولا يُسجَّل)
  *   AI_REP_LLM_MODEL       معرّف النموذج لدى المضيف
  *   AI_REP_LLM_EXTRA_BODY  (اختياري) JSON يُدمج في جسم الطلب — مثل مفتاح إطفاء «التفكير» الخاص بالمضيف
  *   AI_REP_LLM_TIMEOUT_MS  (اختياري) مهلة النداء الواحد، افتراضياً 20000
  *   AI_REP_LLM_MAX_TOKENS  (اختياري) حدّ رموز الرد، افتراضياً 8192 — يشمل «التفكير» فلا يُصغَّر وهو مفعّل
- * الإعداد المقرّر (DeepSeek V4.1 Flash عبر Fireworks بنقطة أمريكية حصرية):
- *   BASE_URL=https://us.api.fireworks.ai/inference/v1  MODEL=accounts/fireworks/routers/deepseek-v4p1-flash-us
- *   EXTRA_BODY={"reasoning_effort":"high"}  (يُرسل صراحةً: بعض المضيفين يطفئ التفكير بغيابه)
- * غياب أيٍّ من الثلاثة الأولى ⇒ المستشار «غير مضبوط»، وكل ما هو حتمي يبقى يعمل.
+ * الافتراضي (Groq): BASE_URL=https://api.groq.com/openai/v1  MODEL=openai/gpt-oss-120b
+ *   EXTRA_BODY={"reasoning_effort":"high","include_reasoning":false} — التفكير يُحسب عندهم ولا يُعاد في الرد،
+ *   ولا يُرسل راجعاً في دورة الأدوات (Groq يرفض الحقل reasoning_content).
+ * غياب المفتاح ⇒ المستشار «غير مضبوط»، وكل ما هو حتمي يبقى يعمل.
  */
 
 export interface LlmToolCall { id: string; name: string; arguments: string }
@@ -37,16 +38,25 @@ export type LlmResult =
   | { ok: true; content: string; toolCalls: LlmToolCall[]; usage: LlmUsage; finishReason: string; reasoning?: string }
   | { ok: false; code: 'LLM_NOT_CONFIGURED' | 'LLM_AUTH' | 'LLM_RATE_LIMIT' | 'LLM_TIMEOUT' | 'LLM_BAD_REQUEST' | 'LLM_UNAVAILABLE'; status?: number };
 
-export interface LlmConfig { baseUrl: string; apiKey: string; model: string; extraBody: Record<string, unknown>; timeoutMs: number; maxTokens: number }
+export interface LlmConfig {
+  baseUrl: string; apiKey: string; model: string; extraBody: Record<string, unknown>; timeoutMs: number; maxTokens: number;
+  /** إعادة «التفكير» مع رسالة المساعد في دورة الأدوات (DeepSeek يشترطها، Groq يرفضها). */
+  echoReasoning?: boolean;
+}
+
+export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+export const GROQ_DEFAULT_MODEL = 'openai/gpt-oss-120b';
+const GROQ_EXTRA_BODY = { reasoning_effort: 'high', include_reasoning: false };
 
 export function llmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | null {
-  const baseUrl = (env.AI_REP_LLM_BASE_URL || '').trim().replace(/\/+$/, '');
-  const apiKey = (env.AI_REP_LLM_API_KEY || '').trim();
-  const model = (env.AI_REP_LLM_MODEL || '').trim();
+  const baseUrl = (env.AI_REP_LLM_BASE_URL || GROQ_BASE_URL).trim().replace(/\/+$/, '');
+  const isGroq = /^https:\/\/api\.groq\.com\//i.test(baseUrl + '/');
+  const apiKey = (env.AI_REP_LLM_API_KEY || (isGroq ? env.GROQ_API_KEY : '') || '').trim();
+  const model = (env.AI_REP_LLM_MODEL || (isGroq ? GROQ_DEFAULT_MODEL : '')).trim();
   if (!baseUrl || !apiKey || !model || !/^https:\/\//i.test(baseUrl)) return null;
-  let extraBody: Record<string, unknown> = {};
+  let extraBody: Record<string, unknown> = isGroq && !env.AI_REP_LLM_EXTRA_BODY ? { ...GROQ_EXTRA_BODY } : {};
   try {
-    const parsed = env.AI_REP_LLM_EXTRA_BODY ? JSON.parse(env.AI_REP_LLM_EXTRA_BODY) : {};
+    const parsed = env.AI_REP_LLM_EXTRA_BODY ? JSON.parse(env.AI_REP_LLM_EXTRA_BODY) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) extraBody = parsed as Record<string, unknown>;
   } catch { /* إعداد فاسد يُتجاهل بدل إسقاط المستشار */ }
   const t = Number(env.AI_REP_LLM_TIMEOUT_MS);
@@ -55,6 +65,7 @@ export function llmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | nul
     baseUrl, apiKey, model, extraBody,
     timeoutMs: Number.isFinite(t) && t >= 3000 && t <= 90000 ? t : 20000,
     maxTokens: Number.isFinite(mt) && mt >= 256 && mt <= 32768 ? Math.floor(mt) : 8192,
+    echoReasoning: !isGroq,
   };
 }
 
@@ -68,7 +79,7 @@ export async function chatCompletion(cfg: LlmConfig | null, req: LlmRequest, fet
   const body: Record<string, unknown> = {
     ...cfg.extraBody,
     model: cfg.model,
-    messages: req.messages,
+    messages: cfg.echoReasoning === false ? req.messages.map(({ reasoning_content: _r, ...m }) => m) : req.messages,
     max_tokens: req.maxTokens ?? cfg.maxTokens,
     temperature: req.temperature ?? 0.3,
     stream: false,
