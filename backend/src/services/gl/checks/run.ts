@@ -136,8 +136,11 @@ export async function loadC3Input(store: CheckStore, tenantId: string, s: CheckS
   const exclude = s.cutoverDate && s.openingSnapshotAt
     ? { cutoverStart: zonedStartOfDay(cut.cutoverDate, cut.timezone), openingSnapshotAt: cut.openingSnapshotAt }
     : null;
-  // تعمّق «صف افتتاحي حُذف بلا حدث» (البند 6 (ج)): للطريقة (أ) وحدها — (ب) لا قيد افتتاحي لها
-  const withOpeningEntries = !!exclude && s.setupMethod !== 'FULL_HISTORY' && typeof store.accountEntryOpeningTotals === 'function';
+  // تعمّق «صف افتتاحي حُذف بلا حدث» (البند 6 (ج)) موقوف: كان يفترض أن سطور الذمم في القيد الافتتاحي مشتقّة من
+  // صفوف AccountEntry قبل البدء فيقارن بينهما. أُزيلت الأرصدة المشتقة بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) وصار
+  // الافتتاح ما يُدخله المحاسب بنفسه، فالمقارنة تُظهر كل اختلاف مشروع بين دفاتره السابقة والتطبيق عطلاً أحمر كاذباً.
+  // المعادلة الأساسية لـC3 (الأستاذ = افتتاح الأستاذ + حركات ما بعد البدء) تبقى كما هي.
+  const withOpeningEntries = false as boolean;
   const [ledger, opening, entriesAfterCutover, deletedOpeningImports, openingEntries] = await Promise.all([
     ar.length ? store.ledgerByPartner(tenantId, ar, 'customerId') : Promise.resolve(new Map<string, Milli>()),
     ar.length ? store.ledgerByPartner(tenantId, ar, 'customerId', { moveType: 'OPENING' }) : Promise.resolve(new Map<string, Milli>()),

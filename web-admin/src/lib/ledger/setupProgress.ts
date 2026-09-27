@@ -12,19 +12,22 @@ import { LEDGER_BASE } from '../../pages/ledger/routes';
  * كما في `backend/src/routes/ledger/setup.ts`). المسودة تحتاج `canConfigureLedger`، فمن لا
  * يملكها يرى الحالة بلا عدّاد (`known === false`) لا رقماً مخترعاً.
  *
- * قاعدة «تمّت الخطوة»: أثرها في المسودة، **أو** أن المسودة تجاوزتها (`currentStep > n`) — لأن
- * الخطوة 4 (الأرصدة المشتقة) معاينة لا تحفظ حقلاً خاصاً بها (`onSave({}, 5)` في SetupReview.tsx).
+ * قاعدة «تمّت الخطوة»: أثرها في المسودة، **أو** أن المسودة تجاوزتها (`currentStep > n`).
+ *
+ * خطوة «الأرصدة المشتقة» (4) أُزيلت بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦). أرقام الخطوات الداخلية تبقى
+ * 1·2·3·5·6 لأنها مخزّنة في مسودات الشركات (`currentStep`) ومفاتيحها (`step5`)، والمعروض للمستخدم ترتيبها
+ * 1..5 (`setupStepDisplayNo`). مسودة قديمة واقفة على 4 تُفتح على الأرصدة اليدوية (5).
  */
 
-export const SETUP_STEPS = [1, 2, 3, 4, 5, 6] as const;
+export const SETUP_STEPS = [1, 2, 3, 5, 6] as const;
 export type SetupStepNo = (typeof SETUP_STEPS)[number];
 export const SETUP_STEP_COUNT = SETUP_STEPS.length;
 
-export type SetupStepKey = 'basics' | 'method' | 'tree' | 'derived' | 'manual' | 'review';
+export type SetupStepKey = 'basics' | 'method' | 'tree' | 'manual' | 'review';
 
 /** مفاتيح ثابتة للخطوات (للاختبار والتتبّع) — الترتيب نفسه في SetupWizard.tsx */
 export const SETUP_STEP_KEYS: Record<SetupStepNo, SetupStepKey> = {
-  1: 'basics', 2: 'method', 3: 'tree', 4: 'derived', 5: 'manual', 6: 'review',
+  1: 'basics', 2: 'method', 3: 'tree', 5: 'manual', 6: 'review',
 };
 
 /** معامل الرابط الذي يفتح المعالج على خطوة بعينها */
@@ -32,11 +35,15 @@ export const SETUP_STEP_PARAM = 'setupStep';
 
 type Tr = (ar: string) => string;
 
-/** رقم خطوة صالح 1..6 (أي شيء آخر ⇒ 1) — مرآة clampStep في pages/ledger/setup/setupLogic.ts */
+/** رقم خطوة صالح (أي شيء آخر ⇒ 1، و4 المُزالة ⇒ 5) — مرآة clampStep في pages/ledger/setup/setupLogic.ts */
 export const clampSetupStep = (n: unknown): SetupStepNo => {
   const v = Math.trunc(Number(n));
+  if (v === 4) return 5;
   return (v >= 1 && v <= 6 ? v : 1) as SetupStepNo;
 };
+
+/** ترتيب الخطوة المعروض للمستخدم (1..5) */
+export const setupStepDisplayNo = (step: SetupStepNo): number => SETUP_STEPS.indexOf(step) + 1;
 
 /** ما يلزم من `GET /ledger/setup.draft` (شكل بنيوي يقبل `SetupDraft` كما هي) */
 export interface SetupDraftLike {
@@ -82,8 +89,6 @@ export function computeSetupProgress(input: SetupProgressInput): SetupProgress {
     1: activated || !!draft?.step1?.cutoverDate || passed(1),
     2: activated || !!draft?.step2?.method || passed(2),
     3: activated || !!(step3 && (step3.cashInvoiceRouting || step3.receiptRouting)) || passed(3),
-    // الخطوة 4 معاينة إرشادية بلا حقل في المسودة: دليلها الوحيد تجاوزها
-    4: activated || passed(4),
     5: activated || Array.isArray(draft?.step5?.rows) || passed(5),
     6: activated,
   };
@@ -123,7 +128,6 @@ export function setupStepLabel(tr: Tr, step: SetupStepNo): string {
     case 1: return tr('الأساس');
     case 2: return tr('طريقة البدء');
     case 3: return tr('الشجرة');
-    case 4: return tr('الأرصدة المشتقة');
     case 5: return tr('الأرصدة اليدوية');
     case 6: return tr('المراجعة والتفعيل');
   }

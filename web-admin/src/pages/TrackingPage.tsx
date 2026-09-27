@@ -11,6 +11,7 @@ import RepRoutesModal from './RepRoutesPage';
 import { MapPin, Navigation, Calendar, Radio, Power, ClipboardCheck, Camera, X, ChevronLeft, Store, Timer, Route as RouteIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
+import { formatMoment } from '../utils/format';
 
 interface LiveRep {
   id: string; name: string; phone: string; isActive: boolean;
@@ -146,7 +147,8 @@ export default function TrackingPage() {
     if (h < 24) return `${tr('قبل')} ${h} ${tr('س')}`.trim();
     return `${tr('قبل')} ${Math.floor(h / 24)} ${tr('يوم')}`.trim();
   };
-  const timeText = (iso: string) => new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+  // بيومها إن لم تكن من اليوم — «آخر ظهور ١٠:٤٧ م» صباحاً كانت تُقرأ وقتاً لم يأتِ (وهي أمس ليلاً)
+  const timeText = (iso: string) => formatMoment(iso);
   // «12:05» أو «1:03:20» — يطابق تنسيق الخادم والمندوب
   const fmtDur = (sec: number | null | undefined): string | null => {
     if (sec === null || sec === undefined || !Number.isFinite(sec) || sec < 0) return null;
@@ -266,17 +268,21 @@ export default function TrackingPage() {
   const visitNo = useMemo(() => new Map(visits.map((v, i) => [v.id, visits.length - i])), [visits]);
 
   // النقاط المعروضة على الخريطة لضبط الحدود
+  // نقطتا البصمة تدخلان الإطار: من بصم ولم يتحرّك (أو GPS مطفأ) تظهر نقطة بدايته
+  const punchPts: [number, number][] = useMemo(
+    () => [checkIn, checkOut].filter((p): p is Punch => !!p).map(p => [p.lat, p.lng] as [number, number]),
+    [checkIn, checkOut],
+  );
   const focusPoints: [number, number][] = useMemo(() => {
     if (selected) {
       // **الخطّة تدخل الإطار**: مندوبٌ لم يتحرّك بعد وله خطّ سير كانت خريطته
       // تبقى على السعودية كلّها وخطّه البنفسجيّ خارج الشاشة — فيظنّ المشرف
       // أنّ الميزة معطوبة وهي تعمل.
-      const punchPts = [checkIn, checkOut].filter((p): p is Punch => !!p).map(p => [p.lat, p.lng] as [number, number]);
-      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...planLatLng, ...punchPts];
+      const pts = [...rawLatLng, ...visitPins.map(v => [v.lat!, v.lng!] as [number, number]), ...punchPts, ...planLatLng];
       if (pts.length) return pts;
     }
     return reps.filter(r => r.lastLat != null && r.lastLng != null).map(r => [r.lastLat!, r.lastLng!] as [number, number]);
-  }, [selected, rawLatLng, visitPins, planLatLng, reps, checkIn, checkOut]);
+  }, [selected, rawLatLng, visitPins, punchPts, planLatLng, reps]);
 
   const selectedRep = reps.find(r => r.id === selected);
 

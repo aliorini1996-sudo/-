@@ -350,7 +350,7 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
         // قرار المالك D3 (ب): الشاشة التشغيلية للتحصيل لا تتغير، فنقد الفواتير النقدية إلى الصندوق الرئيسي دائماً
         cashInvoiceRouting: 'MAIN_CASH',
       },
-    }, 4);
+    }, 5); // خطوة «الأرصدة المشتقة» (4) أُزيلت بقرار الخبير المحاسبي
   };
 
   const incomeRule = catsQ.data?.fields.find(f => f.field === 'incomeAccountId');

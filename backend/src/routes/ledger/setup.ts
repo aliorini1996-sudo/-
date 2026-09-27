@@ -22,7 +22,7 @@ import {
 } from '../../services/gl/types';
 import { initialWatermarkAt, type SetupMethod } from '../../services/gl/sync/classify';
 import {
-  acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, derivedOpeningJson,
+  acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, resolveManualPartners,
   importBatchRecordIds, importInProgressDetails, importedAfterCutoverJson, loadImportedAfterCutover, loadRunningImportBatch, loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow,
   loadOpeningStockCheck, openingStockCheckJson,
   postCutoverImportsAckMissing, postCutoverImportsAckStale, suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
@@ -95,6 +95,9 @@ const manualRowSchema = z.object({
   vendorName: z.string().max(200).nullish(),
   dueDate: localDateSchema.nullish(),
   salesRepId: z.string().max(100).nullish(),
+  salesRepName: z.string().max(200).nullish(),
+  customerId: z.string().max(100).nullish(),
+  customerRef: z.string().max(200).nullish(),
   label: z.string().max(300).nullish(),
 });
 const step5Schema = z.object({ rows: z.array(manualRowSchema).max(5000) }).strict();
@@ -449,16 +452,15 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
   const { midPeriod } = checkStep1({ ...eff, cutoverDate }, now);
   const ctx = await previewContext(tenantId, s, eff);
   const decimals = ctx.settings.currencyDecimals;
-  const step3 = draft.step3 ?? {};
-  const routing = {
-    receiptRouting: (step3.receiptRouting !== undefined ? step3.receiptRouting : ctx.settings.receiptRouting) ?? null,
-    cashInvoiceRouting: step3.cashInvoiceRouting ?? ctx.settings.cashInvoiceRouting,
-  };
   const cut = openingCutoff(cutoverDate, eff.timezone, now);
-  const sources = await loadOpeningSources(prisma, tenantId, cut);
-  const derived = computeDerivedOpening(sources, cut, { decimals, routing });
+  // الافتتاح = الأرصدة اليدوية وحدها (أُزيلت الأرصدة المشتقة بقرار الخبير المحاسبي)
   const manual = validateManualBalanceRows(manualRowsOf(draft), ctx, { midVatPeriod: midPeriod });
-  const move = buildOpeningMove({ derived, manual: manual.lines, ctx, salesRepNames: sources.salesRepNames });
+  const partners = await resolveManualPartners(prisma, tenantId, manual.lines);
+  const issues = [...manual.issues, ...partners.issues].sort((a, b) => a.index - b.index);
+  const badRows = new Set(partners.issues.map((i) => i.index));
+  const move = buildOpeningMove({
+    openingDate: cut.openingDate, manual: manual.lines.filter((l) => !badRows.has(l.index)), ctx, salesRepNames: partners.salesRepNames,
+  });
   // المخزون الافتتاحي المستورد خارج الافتتاح: بعد البدء، أو أحدث من لقطة الاعتماد (T0 = الآن − 10 دقائق)
   const stockCut = openingCutoff(cutoverDate, eff.timezone, openingSnapshotFromDbNow(now));
   const [importedAfterCutover, customers, products, openingStock] = await Promise.all([
@@ -473,8 +475,9 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
       preview: true,
       method: eff.method,
       midVatPeriod: midPeriod,
-      opening: derivedOpeningJson(derived, decimals),
-      manual: { lineCount: manual.lines.length, issues: manual.issues },
+      /** لحظة القطع التي حُسبت عليها المعاينة (كانت ضمن opening المشتقة) — لقطة إقرار الاستيرادات وملخّص المراجعة */
+      cutoff: { cutoverDate: cut.cutoverDate, openingDate: cut.openingDate, snapshotAt: cut.snapshotAt.toISOString() },
+      manual: { lineCount: manual.lines.length - badRows.size, issues },
       move: openingMoveJson(move, decimals),
       draftsBeforeCutover: await draftsBeforeCutover(prisma, tenantId, cutoverDate),
       importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, decimals),
@@ -730,23 +733,21 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     if (manual.issues.length) {
       throw new LedgerHttpError(422, 'أرصدة افتتاحية يدوية غير صالحة', { reason: 'OPENING_BALANCE_ROWS_INVALID', issues: manual.issues.slice(0, 200), count: manual.issues.length });
     }
+    // عميل سطور الذمم ومندوب سطور العهدة: مقيّدان بالشركة، والمجهول أو المكرّر ⇒ 422 بفهرس الصف
+    const partners = await resolveManualPartners(tx, tenantId, manual.lines);
+    if (partners.issues.length) {
+      throw new LedgerHttpError(422, 'أرصدة افتتاحية يدوية غير صالحة', { reason: 'OPENING_BALANCE_ROWS_INVALID', issues: partners.issues.slice(0, 200), count: partners.issues.length });
+    }
     const vendors = await resolveVendors(tx, tenantId, manual.lines);
-    const manualRepIds = [...new Set(manual.lines.map((l) => l.salesRepId).filter((x): x is string => !!x))];
-    const manualReps = manualRepIds.length
-      ? await tx.salesRep.findMany({ where: { tenantId, id: { in: manualRepIds } }, select: { id: true, name: true } })
-      : [];
-    for (const id of manualRepIds) if (!manualReps.some((r) => r.id === id)) throw new GlNotFoundError('SalesRep', id);
 
-    // (5) إعادة حساب كل أرصدة الخطوة 4 داخل المعاملة بـT0 (الأثر < cutover و createdAt ≤ T0)
+    // (5) القيد الافتتاحي من الأرصدة اليدوية وحدها — أُزيلت الأرصدة المشتقة (الذمم والعهدة والأمانات والمخزون محسوبةً
+    // من المستندات) بقرار الخبير المحاسبي. computeDerivedOpening تبقى لتقسيم الاستلامات السابقة للبدء فقط (لا تُرحِّل).
     const cut = openingCutoff(cutoverDate, eff.timezone, T0);
     const sources = await loadOpeningSources(tx, tenantId, cut);
     const derived = computeDerivedOpening(sources, cut, {
       decimals, routing: { receiptRouting: ctx.settings.receiptRouting, cashInvoiceRouting: ctx.settings.cashInvoiceRouting },
     });
-    const move = buildOpeningMove({
-      derived, manual: manual.lines, ctx,
-      salesRepNames: { ...(sources.salesRepNames ?? {}), ...Object.fromEntries(manualReps.map((r) => [r.id, r.name])) },
-    });
+    const move = buildOpeningMove({ openingDate: cut.openingDate, manual: manual.lines, ctx, salesRepNames: partners.salesRepNames });
 
     // (6) قيد OPEN بتاريخ cutover − 1
     const posted = move.draft
@@ -783,7 +784,6 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       processedAt: dbNow,
     });
 
-    const openingJson = derivedOpeningJson(derived, decimals);
     const moveJson = openingMoveJson(move, decimals);
     await appendAudit(tx, {
       tenantId, actor, action: 'SETUP_COMMIT', entityType: 'SETTINGS', entityId: settings.id,
@@ -801,14 +801,12 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
           : { bound: false, acknowledged: parsed.data.acknowledgePostCutoverImports === true },
         openingStockExcluded: openingStock.afterCutover.count > 0 ? openingStockJson.afterCutover : null,
         openingMove: posted ? { id: posted.id, number: posted.number, date: posted.date } : null,
-        receivablesTotal: openingJson.receivablesTotal, custodyTotal: openingJson.custodyTotal, paylinkHeld: openingJson.paylinkHeld,
-        warehouse: openingJson.warehouse, equityDiff: moveJson.equityDiff, totalDebit: moveJson.totalDebit, counts: openingJson.counts,
+        openingSource: 'MANUAL_ONLY', equityDiff: moveJson.equityDiff, totalDebit: moveJson.totalDebit,
       },
     });
 
     return {
       status: settingsStatus(settings),
-      opening: openingJson,
       move: { ...moveJson, id: posted?.id ?? null, number: posted?.number ?? null, date: posted?.date ?? cut.openingDate },
       watermarkAt,
       futureDated,

@@ -11,7 +11,7 @@ import {
 } from '../../../api/ledgerSetup';
 import LedgerAmount from '../../../components/ledger/LedgerAmount';
 import { useConfigErrorText, WriteButton } from '../config/parts/configUi';
-import { DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, WAREHOUSE_HREF, hasPostCutoverImports, openingStockReview, type DerivedAccountKind, type TimezoneImportsConflict } from './setupLogic';
+import { DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, WAREHOUSE_HREF, hasPostCutoverImports, openingStockReview, type TimezoneImportsConflict } from './setupLogic';
 
 /**
  * أجزاء معالج الإعداد المشتركة (M3، §5.6، §8.4 القسم 2): نص أخطاء المعالج، وتسميات أسباب صفوف الأرصدة اليدوية،
@@ -24,7 +24,6 @@ type Tr = (ar: string) => string;
 export const manualIssueLabels = (tr: Tr): Record<string, string> => ({
   ACCOUNT_NOT_FOUND: tr('الحساب غير موجود'),
   ACCOUNT_ARCHIVED: tr('الحساب مؤرشف'),
-  DERIVED_ACCOUNT: tr('رصيد هذا الحساب يُحسب من المستندات ولا يُدخل يدويا'),
   OPENING_EQUITY: tr('حساب الأرصدة الافتتاحية يأخذ الفرق آليا'),
   EQUITY_UNAFFECTED: tr('أرباح السنة الجارية يحسبها النظام'),
   OFF_BALANCE: tr('لا تُدخل أرصدة افتتاحية لحسابات خارج الميزانية'),
@@ -35,18 +34,16 @@ export const manualIssueLabels = (tr: Tr): Record<string, string> => ({
   DEBIT_AND_CREDIT: tr('السطر لا يحمل مدينا ودائنا معا'),
   ZERO_AMOUNT: tr('سطر بلا مبلغ'),
   INVALID_DUE_DATE: tr('تاريخ الاستحقاق غير صالح'),
+  CUSTOMER_REQUIRED: tr('سطر ذمم العملاء يتطلب العميل'),
+  CUSTOMER_NOT_FOUND: tr('العميل غير موجود: اكتب رمزه أو اسمه كما في قائمة العملاء'),
+  CUSTOMER_AMBIGUOUS: tr('أكثر من عميل بهذا الاسم: اكتب رمز العميل'),
+  SALES_REP_REQUIRED: tr('سطر عهدة المناديب يتطلب المندوب'),
+  SALES_REP_NOT_FOUND: tr('المندوب غير موجود'),
+  SALES_REP_AMBIGUOUS: tr('أكثر من مندوب بهذا الاسم: اختره من القائمة'),
 });
 
-/** نص DERIVED_ACCOUNT حسب نوع الحساب: الذمم ⇒ صفحة الاستيراد، ومخزون المستودع ⇒ وارد المستودع، والباقي النص العام */
-export function derivedAccountText(tr: Tr, kind: DerivedAccountKind): string {
-  if (kind === 'AR') return tr('ذمم العملاء تُحسب من حركات حساباتهم: استورد الأرصدة الافتتاحية من صفحة استيراد البيانات ثم حدّث المعاينة');
-  if (kind === 'INVENTORY') return tr('مخزون المستودع يُحسب من حركات وارد المستودع بتكلفتها المسجّلة قبل تاريخ البدء: راجعها في المستودع');
-  return tr('رصيد هذا الحساب يُحسب من المستندات ولا يُدخل يدويا');
-}
-
-/** نص سبب رفض صف يدوي، وDERIVED_ACCOUNT حسب نوع الحساب */
-export function manualIssueText(tr: Tr, reason: string, kind: DerivedAccountKind = 'OTHER'): string {
-  if (reason === 'DERIVED_ACCOUNT') return derivedAccountText(tr, kind);
+/** نص سبب رفض صف يدوي */
+export function manualIssueText(tr: Tr, reason: string): string {
   return manualIssueLabels(tr)[reason] ?? reason;
 }
 

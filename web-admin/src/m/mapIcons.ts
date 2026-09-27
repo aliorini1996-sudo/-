@@ -1,4 +1,5 @@
 import L from 'leaflet';
+import { formatMoment } from '../utils/format';
 
 /**
  * أيقونات الخريطة ودوالّها الزمنية.
@@ -51,5 +52,5 @@ export function fmtDur(sec: number | null | undefined): string | null {
   return h > 0 ? `${h}:${two(m)}:${two(ss)}` : `${m}:${two(ss)}`;
 }
 
-export const timeText = (iso: string) =>
-  new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+// بيومها إن لم تكن من اليوم — «آخر ظهور ١٠:٤٧ م» صباحاً كانت تُقرأ وقتاً لم يأتِ (وهي أمس ليلاً)
+export const timeText = (iso: string) => formatMoment(iso);
