@@ -52,7 +52,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { gte: startOfMonth } }, select: { total: true } } },
       }),
       prisma.customer.findMany({
-        where: { tenantId: tid, ...custScope },
+        // المحذوف يسقط من «أفضل العملاء» كما سقط من قوائمهم
+        where: { tenantId: tid, ...custScope, status: { not: 'DELETED' } },
         take: 5, orderBy: { totalSales: 'desc' },
         select: { id: true, name: true, totalSales: true, balance: true },
       }),

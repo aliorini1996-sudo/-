@@ -123,9 +123,12 @@ export default function CustomersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => customerApi.remove(id),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['customers'] });
-      toast.success(tr('تم حذف العميل'));
+      /* الخادم يقول إن كان للعميل أثرٌ ماليّ: عندها يختفي من كل شاشة وتبقى
+       * فواتيره في الدفاتر. قولُ «تم الحذف» وحده يوهم أنّ الفواتير مضت معه. */
+      const archived = (res as { data?: { data?: { archived?: boolean } } })?.data?.data?.archived === true;
+      toast.success(archived ? tr('تم حذف العميل وفواتيره وسنداته محفوظة في الدفاتر') : tr('تم حذف العميل'));
       setDeleting(null);
     },
     onError: (err: unknown) => {
@@ -391,7 +394,7 @@ export default function CustomersPage() {
         <ConfirmDialog
           danger
           title={tr('حذف العميل')}
-          message={`${tr('سيتم حذف العميل')} «${deleting.name}» ${tr('نهائيا ولا يمكن التراجع إن كان لديه فواتير أو سندات أو حركات في كشف حسابه فلن يحذف ويمكنك تعطيله بدلا من ذلك')}`}
+          message={`${tr('سيتم حذف العميل')} «${deleting.name}» ${tr('نهائيا ولا يمكن التراجع ويختفي من كل القوائم والتقارير وتبقى فواتيره وسنداته محفوظة في الدفاتر كما تقتضيه الأنظمة')}`}
           confirmLabel={tr('حذف نهائي')}
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate(deleting.id)}

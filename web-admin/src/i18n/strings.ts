@@ -4016,6 +4016,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'الزيارات والموقع': { en: 'Visits and location', fr: 'Visites et position', tr: 'Ziyaretler ve konum', zh: '拜访次数与位置' },
   'عرض موقع الزيارة على الخريطة': { en: 'Show the visit location on the map', fr: 'Afficher la position de la visite sur la carte', tr: 'Ziyaret konumunu haritada goster', zh: '在地图上查看拜访位置' },
   'لا موقع مسجل لهذه الزيارة': { en: 'No location recorded for this visit', fr: 'Aucune position enregistree pour cette visite', tr: 'Bu ziyaret icin kayitli konum yok', zh: '此次拜访没有位置记录' },
+  'تم حذف العميل وفواتيره وسنداته محفوظة في الدفاتر': { en: 'Customer deleted, their invoices and receipts are kept in the books', fr: 'Client supprime, ses factures et recus sont conserves dans les livres', tr: 'Musteri silindi, faturalari ve makbuzlari defterlerde saklandi', zh: '客户已删除，其发票与收据保留在账簿中' },
+  'نهائيا ولا يمكن التراجع ويختفي من كل القوائم والتقارير وتبقى فواتيره وسنداته محفوظة في الدفاتر كما تقتضيه الأنظمة': { en: 'permanently and irreversibly, they disappear from every list and report, and their invoices and receipts stay in the books as the regulations require', fr: 'definitivement et sans retour, il disparait de toutes les listes et rapports, et ses factures et recus restent dans les livres comme l exige la reglementation', tr: 'kalici ve geri alinamaz, tum listelerden ve raporlardan kaybolur, faturalari ve makbuzlari mevzuatin gerektirdigi gibi defterlerde kalir', zh: '永久且不可撤销，该客户将从所有列表与报表中消失，其发票与收据按法规要求保留在账簿中' },
 };
 
 export function useTr() {
