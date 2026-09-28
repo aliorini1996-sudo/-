@@ -240,10 +240,11 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       return tx.loadCustodyInputs(salesRepId);
     },
 
-    async repCollections(tenantId, decimals) {
+    async repCollections(tenantId, decimals, opts = {}) {
+      const after = opts.createdAfter ? { createdAt: { gt: opts.createdAfter } } : {};
       const [collected, settled] = await Promise.all([
-        d.receipt.groupBy({ by: ['salesRepId'], where: { tenantId, status: 'ACTIVE', salesRepId: { not: null } }, _sum: { amount: true } }),
-        d.repSettlement.groupBy({ by: ['salesRepId'], where: { tenantId }, _sum: { amount: true } }),
+        d.receipt.groupBy({ by: ['salesRepId'], where: { tenantId, status: 'ACTIVE', salesRepId: { not: null }, ...after }, _sum: { amount: true } }),
+        d.repSettlement.groupBy({ by: ['salesRepId'], where: { tenantId, ...after }, _sum: { amount: true } }),
       ]);
       const out = new Map<string, Milli>();
       for (const r of collected) if (r.salesRepId) out.set(r.salesRepId, toMilli(r._sum.amount ?? 0, decimals));

@@ -555,7 +555,8 @@ export class PrismaPostingTx implements PostingTx {
     };
     if (openingCustody) {
       const opening = (openingCustody._sum.debitMilli ?? 0n) - (openingCustody._sum.creditMilli ?? 0n);
-      // العهدة الافتتاحية نقدٌ بيد المندوب ينتظر التوريد: تدخل رصيد الدفاتر والمعلّق التشغيلي معاً (فيغطّيها أول توريد، ويبقى C4b متّسقاً)
+      // العهدة الافتتاحية نقدٌ بيد المندوب ينتظر التوريد: تدخل رصيد الدفاتر والمعلّق معاً فيغطّيها أول توريد (والمعلّق التشغيلي لـC4b
+      // وصفحة العهدة يضيف الافتتاحي نفسه في loadRepCustodyFacts)
       if (opening !== 0n) out.opening = { [salesRepId]: { ledgerCustodyMilli: opening, activeReceiptsMilli: opening } };
     }
     for (const r of receipts) {

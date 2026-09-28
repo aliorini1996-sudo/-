@@ -27,7 +27,7 @@ import {
 } from '../services/gl/checks/rules';
 import { openingRowRole } from '../services/gl/opening';
 import { toMilli } from '../services/gl/money';
-import { runChecks, type CheckSettingsFacts, type CheckStore, type PendingPartners } from '../services/gl/checks/run';
+import { loadC5Input, loadRepCustodyFacts, runChecks, type CheckSettingsFacts, type CheckStore, type PendingPartners } from '../services/gl/checks/run';
 import { planEventAction } from '../services/gl/checks/eventActions';
 import { FakePostingStore } from './gl-fake-posting-store';
 
@@ -585,4 +585,51 @@ test('حارس ثابت: مخزن الفحوص يقرأ قيود IMPORT بعد �
   const rules = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'checks', 'rules.ts'), 'utf8');
   assert.doesNotMatch(rules, /from '\.\.\/opening'/);
   assert.doesNotMatch(src, /from '\.\.\/opening'/, 'opening.ts يجرّ config/database إلى المجدول');
+});
+
+// ═══ البداية النظيفة: فحوص العهدة والأمانات بلا تاريخ ما قبل التفعيل (2026-09-28) ═══
+
+test('البداية النظيفة: المعلّق التشغيلي (C4b) = العهدة الافتتاحية + ما بعد التفعيل، والأمانات (C5) = ما بعد التفعيل + الافتتاحي', async () => {
+  const T0 = at('2027-01-15T09:00:00.000Z');
+  const seen: { collections: unknown[]; balance: unknown[]; totals: unknown[] } = { collections: [], balance: [], totals: [] };
+  class CleanStore extends FakeCheckStore {
+    constructor() {
+      super();
+      this.settings = { ...this.settings!, setupMethod: 'CLEAN', cutoverDate: '2027-01-15', openingSnapshotAt: T0 };
+    }
+    override async ledgerByPartner(t: string, a: readonly string[], partner: 'customerId' | 'salesRepId', opts: { moveType?: string } = {}) {
+      if (partner === 'customerId') return super.ledgerByPartner(t, a, partner, opts);
+      // عهدة rep1 الافتتاحية 5000 كما أدخلها المحاسب، والأستاذ كله 5000 (لم يُورَّد بعد)
+      return new Map<string, Milli>([['rep1', 5_000_000n]]);
+    }
+    override async repCollections(_t: string, _d: number, opts: { createdAfter?: Date } = {}) {
+      seen.collections.push(opts.createdAfter ?? null);
+      // تاريخ ما قبل التفعيل (سندات 7000) لا يُقرأ؛ بعد التفعيل لا شيء
+      return opts.createdAfter ? new Map<string, Milli>() : new Map<string, Milli>([['rep1', 7_000_000n]]);
+    }
+    override async settlementBalance(_t: string, _d: number, opts: { createdAfter?: Date } = {}) {
+      seen.balance.push(opts.createdAfter ?? null);
+      return opts.createdAfter ? 300_000n : 9_000_000n;
+    }
+    override async ledgerTotal(_t: string, _a: readonly string[], opts: { moveType?: 'OPENING' } = {}) {
+      seen.totals.push(opts.moveType ?? null);
+      return opts.moveType === 'OPENING' ? 700_000n : 1_000_000n;
+    }
+  }
+  const store = new CleanStore();
+  const pending: PendingPartners = { customerIds: new Set(), salesRepIds: new Set(), settlement: false, unknown: false };
+  const reps = await loadRepCustodyFacts(store, 't1', store.settings!, pending);
+  const r1 = reps.find((r) => r.salesRepId === 'rep1')!;
+  assert.equal(r1.opsOutstandingMilli, 5_000_000n, 'العهدة الافتتاحية وحدها، لا سندات ما قبل التفعيل (7000)');
+  assert.deepEqual(seen.collections, [T0]);
+  const c5 = await loadC5Input(store, 't1', store.settings!, pending);
+  assert.equal(c5.settlementBalanceMilli, 1_000_000n, '300 بعد التفعيل + 700 افتتاحي — لا 9000 من التاريخ كله');
+  assert.deepEqual(seen.balance, [T0]);
+  assert.ok(seen.totals.includes('OPENING'));
+  // التفعيلات السابقة كما كانت: التاريخ كله
+  const legacy = new CleanStore();
+  legacy.settings = { ...legacy.settings!, setupMethod: 'OPENING' };
+  seen.collections = [];
+  assert.equal((await loadRepCustodyFacts(legacy, 't1', legacy.settings!, pending)).find((r) => r.salesRepId === 'rep1')!.opsOutstandingMilli, 7_000_000n);
+  assert.deepEqual(seen.collections, [null]);
 });

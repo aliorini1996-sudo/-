@@ -75,7 +75,7 @@ export interface CheckStore {
   // C4/C4b
   salesReps(tenantId: string): Promise<{ id: string; name: string; isActive: boolean }[]>;
   custodyInputs(tenantId: string, salesRepId: string): Promise<CustodyComponentsInput>;
-  repCollections(tenantId: string, decimals: number): Promise<Map<string, Milli>>;
+  repCollections(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Map<string, Milli>>;
 
   // C5
   settlementBalance(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Milli>;
@@ -162,11 +162,17 @@ export async function loadC3Input(store: CheckStore, tenantId: string, s: CheckS
 export async function loadRepCustodyFacts(store: CheckStore, tenantId: string, s: CheckSettingsFacts, pending: PendingPartners, accounts?: ControlAccountFacts[], onlyRepId?: string): Promise<RepCustodyFacts[]> {
   const acc = accounts ?? await store.controlAccounts(tenantId);
   const custody = idsOf(acc, 'CUSTODY');
-  const [reps, ledger, ops] = await Promise.all([
+  // البداية النظيفة: المعلّق التشغيلي لكل مندوب (C4b وصفحة العهدة) = عهدته الافتتاحية كما أدخلها المحاسب + تحصيل وتوريد ما
+  // بعد التفعيل وحده — لا تاريخ ما قبل التفعيل (مرآة المحمّل الموحّد loadCustodyInputs؛ مراجعة عدائية ٢٨ سبتمبر ٢٠٢٦)
+  const clean = s.setupMethod === 'CLEAN' && !!s.openingSnapshotAt;
+  const [reps, ledger, opsSince, openingByRep] = await Promise.all([
     store.salesReps(tenantId),
     custody.length ? store.ledgerByPartner(tenantId, custody, 'salesRepId') : Promise.resolve(new Map<string, Milli>()),
-    store.repCollections(tenantId, s.currencyDecimals),
+    store.repCollections(tenantId, s.currencyDecimals, clean ? { createdAfter: s.openingSnapshotAt as Date } : {}),
+    clean && custody.length ? store.ledgerByPartner(tenantId, custody, 'salesRepId', { moveType: 'OPENING' }) : Promise.resolve(new Map<string, Milli>()),
   ]);
+  const ops = new Map<string, Milli>(opsSince);
+  for (const [id, m] of openingByRep) ops.set(id, (ops.get(id) ?? 0n) + m);
   const byId = new Map(reps.map((r) => [r.id, r]));
   const ids = new Set<string>([...reps.map((r) => r.id), ...[...ledger.keys()]]);
   const out: RepCustodyFacts[] = [];
