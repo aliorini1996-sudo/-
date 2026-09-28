@@ -688,8 +688,25 @@ export default function TrackingPage() {
                       )}
                     </div>
                   )}
-                  {/* الملاحظة */}
-                  <p className="text-[11px] font-semibold text-[#9A8F7E] mb-1">{tr('ملاحظة الزيارة')}</p>
+                  {/* الملاحظة، ومعها زرّ موقع الزيارة.
+                      الموقع هو **حيث سُجّلت الزيارة** لا عنوان العميل المحفوظ —
+                      وهو ما يريد المشرف التحقّق منه. ويغيب حين كان الـGPS مغلقاً
+                      فلا يُعرض زرٌّ يفتح خريطة فارغة. */}
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <p className="text-[11px] font-semibold text-[#9A8F7E]">{tr('ملاحظة الزيارة')}</p>
+                    {visitDetailQ.data?.lat != null && visitDetailQ.data?.lng != null ? (
+                      <a href={`https://www.google.com/maps?q=${visitDetailQ.data.lat},${visitDetailQ.data.lng}`}
+                        target="_blank" rel="noopener noreferrer" title={tr('عرض موقع الزيارة على الخريطة')}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#E15A30] bg-[#FBEBE2] hover:bg-[#F7DCCC] rounded-lg px-2.5 py-1.5">
+                        <MapPin size={13} /> {tr('موقع الزيارة')}
+                      </a>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 bg-[#F6F1E8] rounded-lg px-2.5 py-1.5"
+                        title={tr('لا موقع مسجل لهذه الزيارة')}>
+                        <MapPin size={13} /> {tr('بلا موقع')}
+                      </span>
+                    )}
+                  </div>
                   {visitDetailQ.data?.note
                     ? <p className="text-sm text-[#1F1A13] bg-[#FAF7F0] rounded-xl p-3 mb-4 whitespace-pre-wrap">{visitDetailQ.data.note}</p>
                     : <p className="text-sm text-gray-400 bg-[#FAF7F0] rounded-xl p-3 mb-4">{tr('لا توجد ملاحظة')}</p>}
