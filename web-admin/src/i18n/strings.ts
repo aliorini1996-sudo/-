@@ -4018,6 +4018,15 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'لا موقع مسجل لهذه الزيارة': { en: 'No location recorded for this visit', fr: 'Aucune position enregistree pour cette visite', tr: 'Bu ziyaret icin kayitli konum yok', zh: '此次拜访没有位置记录' },
   'تم حذف العميل وفواتيره وسنداته محفوظة في الدفاتر': { en: 'Customer deleted, their invoices and receipts are kept in the books', fr: 'Client supprime, ses factures et recus sont conserves dans les livres', tr: 'Musteri silindi, faturalari ve makbuzlari defterlerde saklandi', zh: '客户已删除，其发票与收据保留在账簿中' },
   'نهائيا ولا يمكن التراجع ويختفي من كل القوائم والتقارير وتبقى فواتيره وسنداته محفوظة في الدفاتر كما تقتضيه الأنظمة': { en: 'permanently and irreversibly, they disappear from every list and report, and their invoices and receipts stay in the books as the regulations require', fr: 'definitivement et sans retour, il disparait de toutes les listes et rapports, et ses factures et recus restent dans les livres comme l exige la reglementation', tr: 'kalici ve geri alinamaz, tum listelerden ve raporlardan kaybolur, faturalari ve makbuzlari mevzuatin gerektirdigi gibi defterlerde kalir', zh: '永久且不可撤销，该客户将从所有列表与报表中消失，其发票与收据按法规要求保留在账簿中' },
+  // ——— تقرير الطلبات ———
+  'تقرير الطلبات': { en: 'Orders report', fr: 'Rapport des commandes', tr: 'Siparis raporu', zh: '订单报表' },
+  'تقرير المبيعات': { en: 'Sales report', fr: 'Rapport des ventes', tr: 'Satis raporu', zh: '销售报表' },
+  'لا طلبات بتاريخ تسليم في هذه الفترة': { en: 'No orders with a delivery date in this period', fr: 'Aucune commande avec date de livraison sur cette periode', tr: 'Bu donemde teslim tarihi olan siparis yok', zh: '此期间没有设定交付日期的订单' },
+  'عدد الطلبات': { en: 'Orders', fr: 'Nombre de commandes', tr: 'Siparis sayisi', zh: '订单数' },
+  'إجمالي قيمة الطلبات': { en: 'Orders total value', fr: 'Valeur totale des commandes', tr: 'Siparislerin toplam degeri', zh: '订单总金额' },
+  'المتبقي على الطلبات': { en: 'Outstanding on orders', fr: 'Reste du sur les commandes', tr: 'Siparislerde kalan tutar', zh: '订单未结余额' },
+  'المدى محسوب على تاريخ التسليم لا تاريخ الفاتورة والترتيب بالأقرب تسليما': { en: 'The range applies to the delivery date, not the invoice date, and rows are sorted by the nearest delivery', fr: 'La periode porte sur la date de livraison et non la date de facture, et le tri suit la livraison la plus proche', tr: 'Aralik fatura tarihine degil teslim tarihine uygulanir ve siralama en yakin teslime goredir', zh: '时间范围按交付日期而非开票日期计算，并按最近交付排序' },
+  'مسدد': { en: 'Paid', fr: 'Regle', tr: 'Odendi', zh: '已结清' },
 };
 
 export function useTr() {

@@ -142,6 +142,8 @@ export const dashboardApi = {
 
 export const reportApi = {
   sales: (params?: Record<string, string>) => api.get('/reports/sales', { params }),
+  // تقرير الطلبات: الفواتير ذات تاريخ التسليم (المدى على تاريخ التسليم)
+  orders: (params?: Record<string, string>) => api.get('/reports/orders', { params }),
   collections: (params?: Record<string, string>) => api.get('/reports/collections', { params }),
   balances: (params?: Record<string, string>) => api.get('/reports/balances', { params }),
   repPerformance: (params?: Record<string, string>) => api.get('/reports/rep-performance', { params }),

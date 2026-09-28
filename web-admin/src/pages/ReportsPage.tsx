@@ -38,6 +38,13 @@ interface PerfRow {
 interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
 interface CustVisit { id: string; customerId: string; customerName: string; repName: string; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
+/** فاتورةٌ حُدّد لها تاريخ تسليم — صفّ «تقرير الطلبات». */
+interface OrderRow {
+  id: string; number: string; invoiceDate: string; deliveryDate: string;
+  total: number; paidAmt: number; status: string;
+  customer: { id: string; name: string; phone: string; city: string | null } | null;
+  salesRep: { id: string; name: string } | null;
+}
 interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
 /* سند القبض وتجميعةُ المندوب: أنواع وحدة `lib/collectionsByRep` نفسها —
    نسخةٌ ثانية منهما تنحرف عن الحساب الذي تختبره وحدتُه. */
@@ -64,6 +71,8 @@ export default function ReportsPage() {
   const [perfTypeState, setPerfType] = useState<'performance' | 'hours' | 'receivables'>('performance');
   const perfType = accountingOn ? perfTypeState : 'hours';
   // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
+  // نوع تقرير المبيعات: التجميعة كما كانت، أو قائمة الطلبات (فواتير بتاريخ تسليم)
+  const [salesType, setSalesType] = useState<'summary' | 'orders'>('summary');
   // نوع تقرير التحصيل: ملخّصٌ عامّ (كما كان) أو تفصيلٌ لكلّ مندوب
   const [collType, setCollType] = useState<'summary' | 'byRep'>('summary');
   const [expandedColl, setExpandedColl] = useState<string | null>(null); // صفّ المندوب المفتوح
@@ -89,7 +98,18 @@ export default function ReportsPage() {
       const res = await reportApi.sales({ from, to, groupBy });
       return res.data.data;
     },
-    enabled: accountingReady && accountingOn && tab === 'sales',
+    enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'summary',
+  });
+
+  /* الطلبات: المدى يُطبَّق على **تاريخ التسليم** لا تاريخ الفاتورة — السؤال
+   * «ما الذي عليّ تسليمه بين هذين التاريخين». */
+  const ordersQ = useQuery({
+    queryKey: ['report-orders', from, to],
+    queryFn: async () => {
+      const res = await reportApi.orders({ from, to });
+      return res.data.data as { orders: OrderRow[]; summary: { count: number; total: number; paid: number }; rangeApplied: boolean; defaultDays: number | null };
+    },
+    enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'orders',
   });
 
   const { data: collectData } = useQuery({
@@ -197,6 +217,17 @@ export default function ReportsPage() {
     const rows = salesData as { name: string; total: number; count?: number; qty?: number; code?: string }[];
     return filterFlat(rows, q, r => [r.name, displayName(r.name), r.code]);
   }, [salesData, q, groupBy]);
+
+  // البحث: رقم الطلب أو العميل أو المندوب أو المدينة
+  const orderRows = useMemo(
+    () => filterFlat(ordersQ.data?.orders || [], q, o => [o.number, o.customer?.name, o.customer?.phone, o.customer?.city, o.salesRep?.name]),
+    [ordersQ.data, q],
+  );
+  const orderTotals = useMemo(() => ({
+    count: orderRows.length,
+    total: Math.round(orderRows.reduce((t, o) => t + Number(o.total || 0), 0) * 1e6) / 1e6,
+    remaining: Math.round(orderRows.reduce((t, o) => t + (Number(o.total || 0) - Number(o.paidAmt || 0)), 0) * 1e6) / 1e6,
+  }), [orderRows]);
 
   const balanceRows = useMemo(
     () => filterFlat(balancesData || [], q, c => [c.name, c.phone]),
@@ -381,7 +412,20 @@ export default function ReportsPage() {
       })));
       if (locRows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: locRows, colWidths: [22, 22, 18, 40] });
       fname = tr('أداء المناديب');
-    } else if (tab === 'sales' && Array.isArray(salesRows) && salesRows.length) {
+    } else if (tab === 'sales' && salesType === 'orders' && orderRows.length) {
+      sheets = [{ name: tr('تقرير الطلبات'), rows: orderRows.map(o => ({
+        [tr('رقم الفاتورة')]: o.number,
+        [tr('العميل')]: o.customer?.name || '—',
+        [tr('الجوال')]: o.customer?.phone || '',
+        [tr('المدينة')]: o.customer?.city || '',
+        [tr('المندوب')]: o.salesRep?.name || '—',
+        [tr('تاريخ الفاتورة')]: fmtDay(o.invoiceDate),
+        [tr('تاريخ التسليم')]: fmtDay(o.deliveryDate),
+        [tr('الإجمالي')]: num(Number(o.total || 0)),
+        [tr('المتبقي')]: num(Number(o.total || 0) - Number(o.paidAmt || 0)),
+      })), colWidths: [16, 24, 16, 14, 20, 14, 14, 14, 14] }];
+      fname = tr('تقرير الطلبات');
+    } else if (tab === 'sales' && salesType === 'summary' && Array.isArray(salesRows) && salesRows.length) {
       sheets = [{ name: tr('المبيعات'), rows: (salesRows as { name: string; total: number; count?: number; qty?: number }[]).map(r => ({
         [tr('الاسم')]: r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '', [tr('الإجمالي')]: num(r.total),
       })), colWidths: [28, 14, 16] }];
@@ -650,6 +694,15 @@ export default function ReportsPage() {
           )}
           {tab === 'sales' && (
             <div>
+              <label className="label">{tr('نوع التقرير')}</label>
+              <select className="input w-44" value={salesType} onChange={e => setSalesType(e.target.value as 'summary' | 'orders')}>
+                <option value="summary">{tr('تقرير المبيعات')}</option>
+                <option value="orders">{tr('تقرير الطلبات')}</option>
+              </select>
+            </div>
+          )}
+          {tab === 'sales' && salesType === 'summary' && (
+            <div>
               <label className="label">{tr('تجميع حسب')}</label>
               <select className="input w-36" value={groupBy} onChange={e => setGroupBy(e.target.value)}>
                 <option value="rep">{tr('المندوب')}</option>
@@ -694,7 +747,7 @@ export default function ReportsPage() {
       {/* حصيلة البحث: بلا هذا السطر يبدو الفراغُ الناتج عن بحثٍ ضيّق كأنه
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
       {q && (() => {
-        const shown = tab === 'sales' ? (Array.isArray(salesRows) ? salesRows.length : 0)
+        const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
           : tab === 'collections' ? collRepShown.length
           : tab === 'balances' ? (custType === 'visits' ? custGroups.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
@@ -711,7 +764,7 @@ export default function ReportsPage() {
       })()}
 
       {/* Sales Report */}
-      {tab === 'sales' && (
+      {tab === 'sales' && salesType === 'summary' && (
         <div className="space-y-4">
           {salesLoading ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل')}</div>
@@ -754,6 +807,81 @@ export default function ReportsPage() {
             </>
           ) : (
             <div className="card text-center text-gray-400 py-12">{tr('لا توجد بيانات')}</div>
+          )}
+        </div>
+      )}
+
+      {/* تقرير الطلبات: الفواتير التي حُدّد لها تاريخ تسليم، الأقرب تسليماً أوّلاً */}
+      {tab === 'sales' && salesType === 'orders' && (
+        <div className="space-y-4">
+          {ordersQ.isPending ? (
+            <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل')}</div>
+          ) : ordersQ.isError ? (
+            <div className="card flex flex-col items-center gap-3 py-10 text-gray-500">
+              <span>{tr('تعذر تحميل التقرير')}</span>
+              <button onClick={() => ordersQ.refetch()} className="btn-secondary">{tr('إعادة المحاولة')}</button>
+            </div>
+          ) : orderRows.length === 0 ? (
+            <div className="card text-center text-gray-400 py-12">
+              {q ? tr('لا نتائج مطابقة للبحث') : tr('لا طلبات بتاريخ تسليم في هذه الفترة')}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('عدد الطلبات')}</p>
+                  <p className="text-xl font-bold text-gray-700 tabular-nums">{orderTotals.count}</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('إجمالي قيمة الطلبات')}</p>
+                  <p className="text-xl font-bold text-[#E15A30] tabular-nums">{formatCurrency(orderTotals.total)}</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-xs text-gray-500">{tr('المتبقي على الطلبات')}</p>
+                  <p className="text-xl font-bold text-red-600 tabular-nums">{formatCurrency(orderTotals.remaining)}</p>
+                </div>
+              </div>
+              <div className="card p-0">
+                <div className="px-5 py-2.5 border-b border-[#F1EBDF] text-[12px] text-[#6E6557]">
+                  {tr('المدى محسوب على تاريخ التسليم لا تاريخ الفاتورة والترتيب بالأقرب تسليما')}
+                </div>
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>#</th><th>{tr('رقم الفاتورة')}</th><th>{tr('العميل')}</th><th>{tr('المندوب')}</th>
+                        <th>{tr('تاريخ الفاتورة')}</th><th>{tr('تاريخ التسليم')}</th>
+                        <th>{tr('الإجمالي')}</th><th>{tr('المتبقي')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderRows.map((o, i) => {
+                        const remaining = Number(o.total || 0) - Number(o.paidAmt || 0);
+                        // تسليمٌ مضى موعده: ما لم يُسلَّم بعدُ عملٌ متأخّر، والمشرف يريده بارزاً
+                        const late = new Date(o.deliveryDate).getTime() < new Date(new Date().toDateString()).getTime();
+                        return (
+                          <tr key={o.id}>
+                            <td className="text-gray-400">{i + 1}</td>
+                            <td className="font-medium text-gray-800" dir="ltr">{o.number}</td>
+                            <td className="text-gray-700">{o.customer?.name || '—'}</td>
+                            <td className="text-gray-600">{o.salesRep?.name || '—'}</td>
+                            <td className="text-gray-500 text-sm">{fmtDay(o.invoiceDate)}</td>
+                            <td className={`text-sm font-semibold ${late ? 'text-[#C0392B]' : 'text-[#1E7A52]'}`}>
+                              {fmtDay(o.deliveryDate)}
+                              {late && <span className="ms-1.5 text-[10px]">{tr('متأخر')}</span>}
+                            </td>
+                            <td className="tabular-nums font-semibold text-[#E15A30]">{formatCurrency(Number(o.total || 0))}</td>
+                            <td className="tabular-nums">{remaining > 0.004
+                              ? <b className="text-red-600">{formatCurrency(remaining)}</b>
+                              : <span className="text-[#1E7A52]">{tr('مسدد')}</span>}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}
