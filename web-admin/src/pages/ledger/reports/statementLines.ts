@@ -68,6 +68,8 @@ export interface StatementAccountRow {
 // ── قائمة الدخل (§7.3) ──
 
 export const INCOME_STATEMENT_LINE_KEYS = [
+  'grossRevenue',
+  'salesDeductions',
   'revenue',
   'costOfRevenue',
   'grossProfit',
@@ -85,11 +87,14 @@ export type IncomeStatementLineKey = (typeof INCOME_STATEMENT_LINE_KEYS)[number]
 
 /** الأسطر المجمّعة (تُعرض عريضة، RPT‑13). */
 export const INCOME_STATEMENT_TOTAL_KEYS: readonly IncomeStatementLineKey[] = [
-  'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings',
+  'revenue', 'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings',
 ];
 
+/** مجموعات المصروفات التشغيلية (البيع والتوزيع 61…، العمومية والإدارية 62…، وغيرها) و«الإهلاك» مع الخيار */
+export type IncomeStatementGroupKey = 'selling' | 'admin' | 'otherOperating' | 'depreciation';
+
 export interface IncomeStatementGroupRow {
-  key: 'depreciation';
+  key: IncomeStatementGroupKey | string;
   label: string;
   amountMilli: MilliText;
   accounts: StatementAccountRow[];
@@ -235,15 +240,20 @@ export function hasPeriodMovement(row: StatementAccountRow): boolean {
 
 export type Tr = (ar: string) => string;
 
-/** تسميات أسطر قائمة الدخل حرفياً من جدول §7.3. */
+/**
+ * تسميات أسطر قائمة الدخل بالعربية المحاسبية المعتادة (طلب المالك، ٢٨ سبتمبر ٢٠٢٦): إجمالي المبيعات ثم المردودات
+ * والخصومات ثم صافي الإيرادات، وتكلفة البضاعة المباعة ومجمل الربح، والمصروفات بأسمائها — مرآة الخادم incomeStatement.ts.
+ */
 export const incomeLineLabels = (tr: Tr): Record<IncomeStatementLineKey, string> => ({
-  revenue: tr('الإيرادات'),
-  costOfRevenue: tr('تكلفة الإيرادات'),
-  grossProfit: tr('إجمالي الربح'),
-  operatingExpenses: tr('نفقات التشغيل'),
-  operatingIncome: tr('الدخل التشغيلي'),
-  otherIncome: tr('دخل آخر'),
-  otherExpenses: tr('النفقات الأخرى'),
+  grossRevenue: tr('إجمالي المبيعات والإيرادات'),
+  salesDeductions: tr('يُطرح: مردودات وخصومات المبيعات'),
+  revenue: tr('صافي الإيرادات'),
+  costOfRevenue: tr('تكلفة البضاعة المباعة'),
+  grossProfit: tr('مجمل الربح'),
+  operatingExpenses: tr('المصروفات التشغيلية'),
+  operatingIncome: tr('الربح التشغيلي'),
+  otherIncome: tr('إيرادات أخرى'),
+  otherExpenses: tr('مصروفات أخرى'),
   profitBeforeZakat: tr('صافي الربح قبل الزكاة'),
   zakat: tr('الزكاة وضريبة الدخل'),
   netProfit: tr('صافي الربح'),
@@ -251,11 +261,19 @@ export const incomeLineLabels = (tr: Tr): Record<IncomeStatementLineKey, string>
   netProfitAfterDrawings: tr('صافي الربح المتبقي بعد المخصصات والمسحوبات'),
 });
 
-/** §7.3: «الدخل التشغيلي (أو الخسائر التشغيلية)» — المفتاح ثابت والتسمية تتبع الإشارة. */
-export const operatingLossLabel = (tr: Tr): string => tr('الخسائر التشغيلية');
+/** §7.3: «الربح التشغيلي (أو الخسارة التشغيلية)» — المفتاح ثابت والتسمية تتبع الإشارة. */
+export const operatingLossLabel = (tr: Tr): string => tr('الخسارة التشغيلية');
 
-/** السطر الفرعي المسمّى تحت نفقات التشغيل مع خيار `depreciationInOperatingExpenses`. */
+/** السطر الفرعي المسمّى تحت المصروفات التشغيلية مع خيار `depreciationInOperatingExpenses`. */
 export const depreciationGroupLabel = (tr: Tr): string => tr('الإهلاك');
+
+/** تسميات مجموعات المصروفات التشغيلية (مرآة GROUP_LABELS في الخادم) */
+export const incomeGroupLabels = (tr: Tr): Record<IncomeStatementGroupKey, string> => ({
+  selling: tr('مصروفات البيع والتوزيع'),
+  admin: tr('المصروفات العمومية والإدارية'),
+  otherOperating: tr('مصروفات تشغيلية أخرى'),
+  depreciation: depreciationGroupLabel(tr),
+});
 
 /** تسميات أسطر الميزانية حرفياً من هيكل §7.4. */
 export const balanceLineLabels = (tr: Tr): Record<BalanceSheetLineKey, string> => ({
@@ -294,18 +312,20 @@ export interface StatementFormulaOptions {
 export const incomeLineFormulas = (tr: Tr, o: StatementFormulaOptions = {}): Record<IncomeStatementLineKey, string> => {
   const dep = o.depreciationInOperatingExpenses === true;
   return {
-    revenue: tr('−Σ حسابات الإيرادات'),
-    costOfRevenue: tr('Σ حسابات تكلفة الإيرادات'),
-    grossProfit: tr('الإيرادات − تكلفة الإيرادات'),
+    grossRevenue: tr('−Σ حسابات الإيرادات عدا المردودات والخصومات'),
+    salesDeductions: tr('Σ حسابات مردودات المبيعات والخصم المسموح به'),
+    revenue: tr('إجمالي المبيعات والإيرادات − مردودات وخصومات المبيعات'),
+    costOfRevenue: tr('Σ حسابات تكلفة البضاعة المباعة'),
+    grossProfit: tr('صافي الإيرادات − تكلفة البضاعة المباعة'),
     operatingExpenses: dep
-      ? tr('Σ حسابات نفقات التشغيل + Σ حسابات الإهلاك')
-      : tr('Σ حسابات نفقات التشغيل'),
-    operatingIncome: tr('إجمالي الربح − نفقات التشغيل'),
+      ? tr('Σ حسابات المصروفات التشغيلية + Σ حسابات الإهلاك')
+      : tr('Σ حسابات المصروفات التشغيلية'),
+    operatingIncome: tr('مجمل الربح − المصروفات التشغيلية'),
     otherIncome: tr('−Σ حسابات الإيرادات الأخرى'),
     otherExpenses: dep
       ? tr('Σ حسابات المصروفات الأخرى')
       : tr('Σ حسابات الإهلاك + Σ حسابات المصروفات الأخرى'),
-    profitBeforeZakat: tr('الدخل التشغيلي + دخل آخر − النفقات الأخرى'),
+    profitBeforeZakat: tr('الربح التشغيلي + إيرادات أخرى − مصروفات أخرى'),
     zakat: tr('Σ حسابات الزكاة وضريبة الدخل'),
     netProfit: tr('صافي الربح قبل الزكاة − الزكاة وضريبة الدخل'),
     drawings: tr('Σ حركة حسابات وسم المسحوبات في الفترة (مدين)'),
@@ -412,7 +432,7 @@ export function incomeStatementDisplayRows(
   const labels = incomeLineLabels(o.tr);
   const formulas = incomeLineFormulas(o.tr, { depreciationInOperatingExpenses: o.depreciationInOperatingExpenses });
   const lossLabel = operatingLossLabel(o.tr);
-  const depLabel = depreciationGroupLabel(o.tr);
+  const groupLabels = incomeGroupLabels(o.tr);
   const showNoMovement = o.showAccountsWithoutMovement === true;
   const known = (k: string): k is IncomeStatementLineKey =>
     (INCOME_STATEMENT_LINE_KEYS as readonly string[]).includes(k);
@@ -447,7 +467,7 @@ export function incomeStatementDisplayRows(
         kind: 'group',
         depth: 1,
         key: gk,
-        label: g.key === 'depreciation' ? depLabel : g.label,
+        label: (groupLabels as Record<string, string>)[String(g.key)] ?? g.label,
         code: null,
         amountMilli: g.amountMilli,
         total: false,

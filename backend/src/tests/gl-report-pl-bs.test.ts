@@ -155,10 +155,17 @@ const amt = (st: ReturnType<typeof goldStatement>, key: IncomeStatementLineKey):
 // ═══ 1) أدوار الحسابات ═══
 
 test('reportAccountRoles: الربط ثم الوسم ثم رمز القالب، والأرباح المبقاة ليست مسحوبات', () => {
-  assert.deepEqual(GOLD_ROLES, { drawings: ['draw'], retainedEarnings: 're' });
+  assert.deepEqual(GOLD_ROLES, { drawings: ['draw'], retainedEarnings: 're', salesDeductions: [] });
 
   // احتياط بالرمز حين لا يصل ربط ولا وسم (315001 / 313001 من القالب)
-  assert.deepEqual(reportAccountRoles({ accounts: GOLD_ACC }), { drawings: ['draw'], retainedEarnings: 're' });
+  assert.deepEqual(reportAccountRoles({ accounts: GOLD_ACC }), { drawings: ['draw'], retainedEarnings: 're', salesDeductions: [] });
+  // مردودات وخصومات المبيعات: مفتاحا SALES_RETURNS/SALES_DISCOUNT، وإلا رمزا القالب 412001/413001
+  assert.deepEqual(reportAccountRoles({
+    accounts: GOLD_ACC, mappings: [{ key: 'SALES_RETURNS', accountId: 'ret' }, { key: 'SALES_DISCOUNT', accountId: 'disc' }],
+  }).salesDeductions, ['disc', 'ret']);
+  assert.deepEqual(reportAccountRoles({
+    accounts: [...GOLD_ACC, acc('r2', '412001', 'مردودات', 'income'), acc('d2', '413001', 'خصم', 'income')],
+  }).salesDeductions, ['d2', 'r2']);
 
   // مفتاح DRAWINGS على حساب الأرباح المبقاة يُسقَط (لا يكون الحساب نفسه في السطرين)
   assert.deepEqual(
@@ -166,7 +173,7 @@ test('reportAccountRoles: الربط ثم الوسم ثم رمز القالب، 
       accounts: GOLD_ACC,
       mappings: [{ key: 'RETAINED_EARNINGS', accountId: 're' }, { key: 'DRAWINGS', accountId: 're' }],
     }),
-    { drawings: [], retainedEarnings: 're' },
+    { drawings: [], retainedEarnings: 're', salesDeductions: [] },
   );
 
   // معرّف غريب عن قائمة الحسابات لا يمرّ
@@ -204,13 +211,69 @@ test('PL‑01: سنة 2026 كاملة — المعادلات والمتجه ال
   assert.equal(amt(st, 'netProfit'), amt(st, 'profitBeforeZakat') - amt(st, 'zakat'));
   assert.equal(amt(st, 'netProfitAfterDrawings'), amt(st, 'netProfit') - amt(st, 'drawings'));
 
-  // أسطر الإيرادات الفرعية: المردودات والخصم بالسالب (§7.3)
-  const revenue = incomeStatementLine(st, 'revenue');
-  assert.ok(revenue);
-  assert.deepEqual(revenue.accounts.map((r) => r.code), ['411001', '411002', '411003']);
-  assert.equal(revenue.accounts[0].amountMilli, M('620000.00'));
-  assert.equal(revenue.accounts[1].amountMilli, -M('6500.00'));
-  assert.equal(revenue.accounts[2].amountMilli, -M('3498.91'));
+  // بلا ربط للمردودات والخصم (رموز الفيديو 411002/411003 ليست رموز القالب): كلها في إجمالي المبيعات بالسالب، وصافي
+  // الإيرادات سطر مجموع بلا حسابات يساوي الإجمالي
+  const gross = incomeStatementLine(st, 'grossRevenue');
+  assert.ok(gross);
+  assert.deepEqual(gross.accounts.map((r) => r.code), ['411001', '411002', '411003']);
+  assert.equal(gross.accounts[0].amountMilli, M('620000.00'));
+  assert.equal(gross.accounts[1].amountMilli, -M('6500.00'));
+  assert.equal(gross.accounts[2].amountMilli, -M('3498.91'));
+  assert.equal(amt(st, 'salesDeductions'), 0n);
+  assert.equal(incomeStatementLine(st, 'revenue')?.total, true);
+  assert.deepEqual(incomeStatementLine(st, 'revenue')?.accounts, []);
+});
+
+test('صافي الإيرادات: إجمالي المبيعات − مردودات وخصومات المبيعات (طلب المالك)، وتكلفة البضاعة ومجمل الربح والمصروفات بأسمائها', () => {
+  const period = resolveReportPeriod({ mode: 'fiscalYear', from: '2026-05-05' }, FY_DEC);
+  const balances = composeBalances({ period, accounts: GOLD_ACC, lines: GOLD_LINES });
+  const roles = { ...GOLD_ROLES, salesDeductions: ['ret', 'disc'] };
+  const st = buildIncomeStatement({ period, accounts: GOLD_ACC, balances, roles });
+  assert.equal(amt(st, 'grossRevenue'), M('620000.00'));
+  // المردودات والخصم موجبة في سطرها وتُطرح
+  assert.equal(amt(st, 'salesDeductions'), M('9998.91'));
+  assert.deepEqual(incomeStatementLine(st, 'salesDeductions')?.accounts.map((r) => [r.code, r.amountMilli]), [['411002', M('6500.00')], ['411003', M('3498.91')]]);
+  assert.equal(amt(st, 'revenue'), M('610001.09'), 'صافي الإيرادات لا يتغيّر عن الإيرادات القديمة');
+  assert.equal(amt(st, 'revenue'), amt(st, 'grossRevenue') - amt(st, 'salesDeductions'));
+  assert.equal(amt(st, 'grossProfit'), amt(st, 'revenue') - amt(st, 'costOfRevenue'));
+  const labels = Object.fromEntries(st.lines.map((l) => [l.key, l.label]));
+  assert.equal(labels.grossRevenue, 'إجمالي المبيعات والإيرادات');
+  assert.equal(labels.salesDeductions, 'يُطرح: مردودات وخصومات المبيعات');
+  assert.equal(labels.revenue, 'صافي الإيرادات');
+  assert.equal(labels.costOfRevenue, 'تكلفة البضاعة المباعة');
+  assert.equal(labels.grossProfit, 'مجمل الربح');
+  assert.equal(labels.operatingExpenses, 'المصروفات التشغيلية');
+  assert.equal(labels.otherIncome, 'إيرادات أخرى');
+  assert.equal(labels.otherExpenses, 'مصروفات أخرى');
+});
+
+test('المصروفات التشغيلية مجمّعة: البيع والتوزيع (61…) والعمومية والإدارية (62…) وغيرها، والمجموع لا يتغيّر', () => {
+  const period = resolveReportPeriod({ mode: 'fiscalYear', from: '2026-05-05' }, FY_DEC);
+  const accounts = [
+    acc('s1', '611001', 'رواتب المناديب', 'expense'), acc('s2', '611003', 'وقود السيارات', 'expense'),
+    acc('a1', '621004', 'الإيجار', 'expense'), acc('o1', '690001', 'مصروف تشغيلي آخر', 'expense'),
+  ];
+  const balances = composeBalances({
+    period, accounts, lines: [
+      { accountId: 's1', date: '2026-02-01', debitMilli: M('100.00'), creditMilli: 0n },
+      { accountId: 's2', date: '2026-02-01', debitMilli: M('50.00'), creditMilli: 0n },
+      { accountId: 'a1', date: '2026-02-01', debitMilli: M('300.00'), creditMilli: 0n },
+      { accountId: 'o1', date: '2026-02-01', debitMilli: M('20.00'), creditMilli: 0n },
+    ],
+  });
+  const st = buildIncomeStatement({ period, accounts, balances });
+  const opex = incomeStatementLine(st, 'operatingExpenses')!;
+  assert.equal(opex.amountMilli, M('470.00'));
+  assert.deepEqual(opex.accounts, [], 'الحسابات داخل مجموعاتها');
+  assert.deepEqual(opex.groups.map((g) => [g.key, g.label, g.amountMilli]), [
+    ['selling', 'مصروفات البيع والتوزيع', M('150.00')],
+    ['admin', 'المصروفات العمومية والإدارية', M('300.00')],
+    ['otherOperating', 'مصروفات تشغيلية أخرى', M('20.00')],
+  ]);
+  // بلا حساب 61/62: لا مجموعة وحيدة — الحسابات تحت السطر مباشرةً
+  const plain = buildIncomeStatement({ period, accounts: [accounts[3]], balances: composeBalances({ period, accounts: [accounts[3]], lines: [{ accountId: 'o1', date: '2026-02-01', debitMilli: M('20.00'), creditMilli: 0n }] }) });
+  assert.deepEqual(incomeStatementLine(plain, 'operatingExpenses')?.groups, []);
+  assert.deepEqual(incomeStatementLine(plain, 'operatingExpenses')?.accounts.map((r) => r.code), ['690001']);
 });
 
 test('PL‑04: يوليو–أغسطس 2026 — إعادة الحساب لفترة مخصصة', () => {
@@ -261,7 +324,7 @@ test('drawingsAfterNetProfit: يضيف سطري التخصيصات والمتب�
   const on = goldStatement({ from: '2026-01-01', to: '2026-12-31', drawings: true });
 
   assert.deepEqual(off.lines.map((l) => l.key), [
-    'revenue', 'costOfRevenue', 'grossProfit', 'operatingExpenses', 'operatingIncome',
+    'grossRevenue', 'salesDeductions', 'revenue', 'costOfRevenue', 'grossProfit', 'operatingExpenses', 'operatingIncome',
     'otherIncome', 'otherExpenses', 'profitBeforeZakat', 'zakat', 'netProfit',
   ]);
   assert.deepEqual(on.lines.map((l) => l.key), [...off.lines.map((l) => l.key), 'drawings', 'netProfitAfterDrawings']);
@@ -301,7 +364,7 @@ test('RPT‑15: البحث يصفّي صفوف الحسابات ولا يمسّ 
 
   assert.equal(found.options.searchFiltered, true);
   assert.equal(amt(found, 'revenue'), amt(all, 'revenue'));
-  assert.deepEqual(incomeStatementLine(found, 'revenue')?.accounts.map((r) => r.code), ['411002']);
+  assert.deepEqual(incomeStatementLine(found, 'grossRevenue')?.accounts.map((r) => r.code), ['411002']);
   assert.equal(buildIncomeStatement({ ...base, search: '' }).options.searchFiltered, false);
 });
 
@@ -709,8 +772,9 @@ test('toJsonMilli: كل حقل Milli نصّ عدد صحيح بالملّي وا�
   const json = toJsonMilli(st);
   assert.equal(json.netProfitMilli, '104186330');
   assert.equal(json.netProfitAfterDrawingsMilli, '-3210340');
-  assert.equal(json.lines[0].key, 'revenue');
-  assert.equal(json.lines[0].amountMilli, '610001090');
+  assert.equal(json.lines[0].key, 'grossRevenue');
+  assert.equal(json.lines[2].key, 'revenue');
+  assert.equal(json.lines[2].amountMilli, '610001090');
   assert.equal(json.period.to, '2026-12-31');
   assert.equal(JSON.parse(JSON.stringify(json)).options.unit, 1);
 
@@ -722,14 +786,14 @@ test('toJsonMilli: كل حقل Milli نصّ عدد صحيح بالملّي وا�
   assert.equal(bs.sections[0].children[0].children[0].accounts[0].amountMilli, '247080390');
 });
 
-test('التسميات العربية: الخسائر التشغيلية حين يكون الدخل التشغيلي سالباً', () => {
+test('التسميات العربية: الخسارة التشغيلية حين يكون الربح التشغيلي سالباً', () => {
   const profit = goldStatement({ from: '2026-01-01', to: '2026-12-31' });
-  assert.equal(incomeStatementLine(profit, 'operatingIncome')?.label, 'الدخل التشغيلي');
+  assert.equal(incomeStatementLine(profit, 'operatingIncome')?.label, 'الربح التشغيلي');
   // فترة فيها مصروفات بلا إيراد
   const loss = goldStatement({ from: '2026-10-01', to: '2026-12-31' });
   assert.ok(amt(loss, 'operatingIncome') <= 0n);
-  assert.equal(incomeStatementLine(loss, 'operatingIncome')?.label, 'الدخل التشغيلي');
+  assert.equal(incomeStatementLine(loss, 'operatingIncome')?.label, 'الربح التشغيلي');
   const forced = goldStatement({ from: '2026-03-20', to: '2026-03-31' });
   assert.equal(amt(forced, 'operatingIncome'), -M('306584.69'));
-  assert.equal(incomeStatementLine(forced, 'operatingIncome')?.label, 'الخسائر التشغيلية');
+  assert.equal(incomeStatementLine(forced, 'operatingIncome')?.label, 'الخسارة التشغيلية');
 });

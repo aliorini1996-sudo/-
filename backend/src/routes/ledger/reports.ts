@@ -18,7 +18,7 @@ import {
 import { comparisonPeriods, resolveReportPeriod, type FiscalYearConfig } from '../../services/gl/reports/period';
 import { buildTrialBalance, serializeTrialBalance } from '../../services/gl/reports/trialBalance';
 import {
-  DRAWINGS_KEY, EMPTY_ACCOUNT_ROLES, RETAINED_EARNINGS_KEY, buildIncomeStatement, reportAccountRoles,
+  DRAWINGS_KEY, SALES_DEDUCTION_KEYS, EMPTY_ACCOUNT_ROLES, RETAINED_EARNINGS_KEY, buildIncomeStatement, reportAccountRoles,
   type IncomeStatement, type ReportAccountRoles,
 } from '../../services/gl/reports/incomeStatement';
 import { buildBalanceSheet, flattenBalanceSheet, type BalanceSheet } from '../../services/gl/reports/balanceSheet';
@@ -450,7 +450,8 @@ export async function loadReportAccountRoles(
 ): Promise<ReportAccountRoles> {
   const [mappings, tagLinks] = await Promise.all([
     tx.glAccountMapping.findMany({
-      where: { tenantId, key: { in: [DRAWINGS_KEY, RETAINED_EARNINGS_KEY] } },
+      // مفاتيح مردودات وخصومات المبيعات أيضاً: تُطرح من إجمالي المبيعات إلى «صافي الإيرادات»
+      where: { tenantId, key: { in: [DRAWINGS_KEY, RETAINED_EARNINGS_KEY, ...SALES_DEDUCTION_KEYS] } },
       select: { key: true, accountId: true },
     }),
     tx.glAccountTagLink.findMany({

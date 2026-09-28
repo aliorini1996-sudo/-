@@ -48,7 +48,7 @@ test('قائمة الدخل: السطر ثم حساباته ثم سطره الف
     ['account', 2, 'a2'],
   ]);
   // التسمية من الجدول المحلّي لا من نصّ الخادم (§8.7)
-  assert.equal(rows[0].label, 'نفقات التشغيل');
+  assert.equal(rows[0].label, 'المصروفات التشغيلية');
   assert.equal(rows[2].label, 'الإهلاك');
   assert.equal(rows[1].label, 'حساب a1');
   assert.equal(rows[1].code, 'a1');
@@ -79,26 +79,32 @@ test('RPT‑14: حساب بلا حركة في الفترة يختفي، ويظه
   assert.equal(hasPeriodMovement({ accountId: 'b', code: '1', name: 'n', type: 'asset_cash', amountMilli: '0' }), true);
 });
 
-test('أسطر المجاميع الخمسة تُوسم total ولو أغفل الخادم الوسم، وغيرها لا يُوسم', () => {
-  const keys = ['revenue', 'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings', 'zakat'];
+test('أسطر المجاميع الستة (ومنها صافي الإيرادات) تُوسم total ولو أغفل الخادم الوسم، وغيرها لا يُوسم', () => {
+  const keys = ['grossRevenue', 'salesDeductions', 'revenue', 'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings', 'zakat'];
   const rows = incomeStatementDisplayRows(keys.map(k => line({ key: k, total: false })), base);
   assert.deepEqual(rows.filter(r => r.total).map(r => r.key), [
-    'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings',
+    'revenue', 'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings',
   ]);
+  // التسميات بالعربية المحاسبية المعتادة (طلب المالك)
+  const labels = Object.fromEntries(incomeStatementDisplayRows(keys.map(k => line({ key: k })), base).map(r => [r.key, r.label]));
+  assert.equal(labels.grossRevenue, 'إجمالي المبيعات والإيرادات');
+  assert.equal(labels.salesDeductions, 'يُطرح: مردودات وخصومات المبيعات');
+  assert.equal(labels.revenue, 'صافي الإيرادات');
+  assert.equal(labels.grossProfit, 'مجمل الربح');
 });
 
-test('«الدخل التشغيلي» يصير «الخسائر التشغيلية» حين يكون سالباً (§7.3)', () => {
+test('«الربح التشغيلي» يصير «الخسارة التشغيلية» حين يكون سالباً (§7.3)', () => {
   const neg = incomeStatementDisplayRows([line({ key: 'operatingIncome', amountMilli: '-1' })], base);
-  assert.equal(neg[0].label, 'الخسائر التشغيلية');
+  assert.equal(neg[0].label, 'الخسارة التشغيلية');
   const pos = incomeStatementDisplayRows([line({ key: 'operatingIncome', amountMilli: '0' })], base);
-  assert.equal(pos[0].label, 'الدخل التشغيلي');
+  assert.equal(pos[0].label, 'الربح التشغيلي');
 });
 
 test('المعادلة (RPT‑12): الجدول المحلّي يتبع خيار الإهلاك، والمفتاح المجهول يأخذ نصّ الخادم', () => {
   const off = incomeLineFormulas(tr);
   const on = incomeLineFormulas(tr, { depreciationInOperatingExpenses: true });
-  assert.equal(off.operatingExpenses, 'Σ حسابات نفقات التشغيل');
-  assert.equal(on.operatingExpenses, 'Σ حسابات نفقات التشغيل + Σ حسابات الإهلاك');
+  assert.equal(off.operatingExpenses, 'Σ حسابات المصروفات التشغيلية');
+  assert.equal(on.operatingExpenses, 'Σ حسابات المصروفات التشغيلية + Σ حسابات الإهلاك');
   assert.equal(off.otherExpenses, 'Σ حسابات الإهلاك + Σ حسابات المصروفات الأخرى');
   assert.equal(on.otherExpenses, 'Σ حسابات المصروفات الأخرى');
 
@@ -274,7 +280,7 @@ test('statementNodes: العمق يصير تداخلاً، والمعادلة hi
 
   const [expenses, netProfit] = nodes;
   // RPT‑12: معادلة الجدول المحلّي تصير تلميح السطر
-  assert.equal(expenses.hint, 'Σ حسابات نفقات التشغيل + Σ حسابات الإهلاك');
+  assert.equal(expenses.hint, 'Σ حسابات المصروفات التشغيلية + Σ حسابات الإهلاك');
   // RPT‑11: مبلغ الحساب وحده يتعمّق — والسطر المجمَّع لا يدّعي حساباً
   assert.equal(expenses.accountId, null);
   assert.equal(expenses.children?.[0].accountId, 'a1');
