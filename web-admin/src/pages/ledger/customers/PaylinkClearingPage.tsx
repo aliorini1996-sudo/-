@@ -13,7 +13,7 @@ import { ledgerErrorOf } from '../../../api/ledgerConfig';
 import { ledgerReviewApi, ledgerReviewKeys, type PaylinkEntryKind, type PaylinkEntryRow } from '../../../api/ledgerReview';
 import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
-import { NotActivatedNotice } from './postingFilters';
+import { NotActivatedNotice, ManualLedgerNotice } from './postingFilters';
 
 /**
  * «العملاء ← أمانات الدفع الإلكتروني» (M3، PAY‑01، §5.5 P5/P6/P9/P10، §5.9 C5): رصيد 112005 في الأستاذ مقابل رصيد
@@ -68,7 +68,7 @@ export default function PaylinkClearingPage() {
   return (
     <div className="space-y-3">
       <h1 className="text-lg font-bold text-[#1F1A13]">{tr('أمانات الدفع الإلكتروني')}</h1>
-      {summaryQ.data && !summaryQ.data.activated && <NotActivatedNotice />}
+      {(summaryQ.data as { manualLedger?: boolean } | undefined)?.manualLedger ? <ManualLedgerNotice /> : summaryQ.data && !summaryQ.data.activated && <NotActivatedNotice />}
       {summaryQ.isError && <p className="text-sm text-[#C0392B]">{ledgerErrorMessage(tr, ledgerErrorOf(summaryQ.error))}</p>}
 
       {s && (

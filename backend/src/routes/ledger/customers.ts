@@ -189,6 +189,8 @@ async function ledgerFacts(tenantId: string) {
      * ديناميكياً — تُعرض المستندات المنشأة بعد لحظة التفعيل وحدها. التفعيلات السابقة (OPENING/FULL_HISTORY) كما كانت.
      */
     booksSince: s?.activatedAt && s.setupMethod === 'CLEAN' && s.openingSnapshotAt ? s.openingSnapshotAt : null,
+    /** الدفاتر اليدوية المستقلة (CLEAN): لا يدخلها مستند تشغيل إطلاقاً، فهذه القوائم فارغة دائماً */
+    manual: s?.setupMethod === 'CLEAN',
     timezone: s?.timezone || DEFAULT_TIMEZONE,
     meta: {
       activatedAt: s?.activatedAt ?? null,
@@ -200,9 +202,15 @@ async function ledgerFacts(tenantId: string) {
   };
 }
 
-/** قبل التفعيل الدفاتر لم تبدأ: لا تُعرض فيها مستندات التشغيل (لا إدخال ديناميكي لمعلومة سابقة) */
+/**
+ * قبل التفعيل الدفاتر لم تبدأ، والدفاتر اليدوية المستقلة (CLEAN) لا يدخلها مستند تشغيل أصلاً: قائمة فارغة بلا قراءة واحدة
+ * لجداول التشغيل. `manualLedger` يُعلم الواجهة أن الصفحة لا تنطبق.
+ */
 function notStarted(res: Response, f: Awaited<ReturnType<typeof ledgerFacts>>, page: { limit: number; offset: number }, extra: Record<string, unknown> = {}) {
-  res.json({ success: true, data: { ...f.meta, activated: false, total: 0, ...page, postingFilterCapped: false, ...extra, rows: [] } });
+  res.json({
+    success: true,
+    data: { ...f.meta, activated: f.manual ? f.activated : false, manualLedger: f.manual, total: 0, ...page, postingFilterCapped: false, ...extra, rows: [] },
+  });
 }
 
 /** نافذة الإنشاء في الدفاتر: بعد لحظة التفعيل (البداية النظيفة) مدموجةً مع نطاق التاريخ إن كان على createdAt */
@@ -221,7 +229,7 @@ router.get('/customers/invoices', VIEW, ledgerHandler(async (req, res) => {
   const q = req.query as Q;
   const f = await ledgerFacts(tenantId);
   const page = pageOf(q);
-  if (!f.activated) { notStarted(res, f, page); return; }
+  if (!f.activated || f.manual) { notStarted(res, f, page); return; }
   const where: Prisma.InvoiceWhereInput = { tenantId, ...(f.booksSince ? { createdAt: { gt: f.booksSince } } : {}) };
   const and: Prisma.InvoiceWhereInput[] = [];
   const types = listOf(q.type, INVOICE_TYPES);
@@ -279,7 +287,7 @@ router.get('/customers/receipts', VIEW, ledgerHandler(async (req, res) => {
   const q = req.query as Q;
   const f = await ledgerFacts(tenantId);
   const page = pageOf(q);
-  if (!f.activated) { notStarted(res, f, page); return; }
+  if (!f.activated || f.manual) { notStarted(res, f, page); return; }
   const where: Prisma.ReceiptWhereInput = { tenantId, ...(f.booksSince ? { createdAt: { gt: f.booksSince } } : {}) };
   const and: Prisma.ReceiptWhereInput[] = [];
   const methods = listOf(q.paymentMethod, RECEIPT_METHODS);
@@ -356,8 +364,8 @@ router.get('/customers/custody', VIEW, ledgerHandler(async (req, res) => {
   const onlyRepId = str(q.salesRepId);
   const store = createPrismaCheckStore(prisma);
   const s = await store.loadSettings(tenantId);
-  if (!s?.activatedAt) {
-    res.json({ success: true, data: { activated: false, reps: [], totals: null } });
+  if (!s?.activatedAt || s.setupMethod === 'CLEAN') {
+    res.json({ success: true, data: { activated: !!s?.activatedAt, manualLedger: s?.setupMethod === 'CLEAN', reps: [], totals: null } });
     return;
   }
   const pending = await loadPendingPartners(store, tenantId, s);
@@ -397,8 +405,8 @@ router.get('/customers/paylink', VIEW, ledgerHandler(async (_req, res) => {
   const { tenantId } = locals(res);
   const store = createPrismaCheckStore(prisma);
   const s = await store.loadSettings(tenantId);
-  if (!s?.activatedAt) {
-    res.json({ success: true, data: { activated: false, summary: null } });
+  if (!s?.activatedAt || s.setupMethod === 'CLEAN') {
+    res.json({ success: true, data: { activated: !!s?.activatedAt, manualLedger: s?.setupMethod === 'CLEAN', summary: null } });
     return;
   }
   const pending = await loadPendingPartners(store, tenantId, s);
@@ -427,7 +435,7 @@ router.get('/customers/paylink/entries', VIEW, ledgerHandler(async (req, res) =>
   const f = await ledgerFacts(tenantId);
   const page = pageOf(q);
   const range = instantRange(q, f.timezone);
-  if (!f.activated) { notStarted(res, f, page, { kind }); return; }
+  if (!f.activated || f.manual) { notStarted(res, f, page, { kind }); return; }
   const createdSince = createdWindow(f.booksSince, range);
 
   if (kind === 'ONLINE') {

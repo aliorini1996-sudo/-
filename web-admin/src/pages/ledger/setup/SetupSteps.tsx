@@ -250,10 +250,12 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
   const accountsQ = useAllAccounts();
   const accounts = accountsQ.data ?? [];
   const hasAccounts = accounts.length > 0;
+  // الدفاتر اليدوية المستقلة (CLEAN): لا ربط لفئات المنتجات ولا مسار لطرق القبض — كلاهما لترحيل التشغيل الآلي الذي لم يعد
+  const manual = state.effective.method === 'CLEAN';
   const catsQ = useQuery({
     queryKey: ledgerSetupKeys.categories,
     queryFn: async () => (await ledgerSetupApi.categories.list()).data.data,
-    enabled: hasAccounts,
+    enabled: hasAccounts && !manual,
   });
   const d3 = state.draft.step3 ?? {};
   const byId = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
@@ -321,7 +323,7 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
         </StepSection>
       )}
 
-      {hasAccounts && (
+      {hasAccounts && !manual && (
         <StepSection title={tr('ربط فئات المنتجات بحسابات الإيراد')}
           hint={<>{tr('الفئة بلا حساب تُرحَّل مبيعاتها إلى حساب الإيراد الافتراضي')}{fallback ? <>: <bdi className="tabular-nums">{fallback.code}</bdi> {ledgerName(fallback, lang)}</> : null}</>}>
           {staleLinks > 0 && (
@@ -354,6 +356,7 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
         </StepSection>
       )}
 
+      {!manual && (
       <StepSection title={tr('مسار كل طريقة قبض')} hint={tr('عهدة المندوب: يبقى المبلغ على المندوب حتى الاستلام. الحساب مباشرة: يُرحَّل إلى حساب الطريقة فور السند')}>
         <div className="grid gap-2 sm:grid-cols-2">
           {RECEIPT_METHODS.map(m => (
@@ -372,6 +375,7 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
           <span className="block text-[11px] text-[#9A8F7E]">{tr('شاشة التحصيل التشغيلية لا تعد نقد الفواتير النقدية على المندوب، فيُرحَّل إلى الصندوق الرئيسي')}</span>
         </ReadRow>
       </StepSection>
+      )}
 
       <StepFooter onBack={onBack} onNext={save} busy={busy} disabledReason={disabledReason} canWrite={canWrite} />
     </div>

@@ -22,7 +22,7 @@ import {
 } from '../../services/gl/types';
 import { initialWatermarkAt, type SetupMethod } from '../../services/gl/sync/classify';
 import {
-  acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, computeDerivedOpening, resolveManualPartners,
+  acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, classifyOpeningStockEntries, computeDerivedOpening, computeImportedAfterCutover, resolveManualPartners,
   importBatchRecordIds, importInProgressDetails, importedAfterCutoverJson, loadImportedAfterCutover, loadRunningImportBatch, loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow,
   loadOpeningStockCheck, openingStockCheckJson,
   postCutoverImportsAckMissing, postCutoverImportsAckStale, suggestedCutoverDate, templatePreviewContext, validateManualBalanceRows,
@@ -474,8 +474,8 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
   // البداية النظيفة: لا حركة مستوردة ولا مخزون مستورد يدخل الدفاتر، فلا تنبيه ولا إقرار لهما
   const [importedAfterCutover, customers, products, openingStock] = await Promise.all([
     clean ? null : loadImportedAfterCutover(prisma, tenantId, cut, decimals),
-    prisma.customer.count({ where: { tenantId } }),
-    prisma.product.count({ where: { tenantId } }),
+    clean ? 0 : prisma.customer.count({ where: { tenantId } }),
+    clean ? 0 : prisma.product.count({ where: { tenantId } }),
     clean ? null : loadOpeningStockCheck(prisma, tenantId, stockCut, decimals),
   ]);
   res.json({
@@ -547,7 +547,7 @@ export function partitionCategoryLinks<T extends CategoryLink>(links: readonly T
   return { apply, skipped };
 }
 
-async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft): Promise<{ renamed: number; categoryAccounts: number; skippedCategoryLinks: CategoryLink[] }> {
+async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft, opts: { manual?: boolean } = {}): Promise<{ renamed: number; categoryAccounts: number; skippedCategoryLinks: CategoryLink[] }> {
   const step3 = draft.step3 ?? {};
   let renamed = 0;
   for (const r of step3.accountNames ?? []) {
@@ -555,7 +555,8 @@ async function applyStep3(tx: GlTx, tenantId: string, draft: SetupDraft): Promis
     const u = await tx.glAccount.updateMany({ where: { tenantId, code: r.code, NOT: { name: r.name } }, data: { name: r.name, nameI18n: Prisma.DbNull } });
     renamed += u.count;
   }
-  const allLinks = step3.categoryIncomeAccounts ?? [];
+  // الدفاتر اليدوية المستقلة: ربط فئات المنتجات (التشغيل) بحسابات الإيراد لا يُطبَّق — لا ترحيل آلي للفواتير يستعمله
+  const allLinks = opts.manual ? [] : step3.categoryIncomeAccounts ?? [];
   let links: CategoryLink[] = [];
   let skippedCategoryLinks: CategoryLink[] = [];
   if (allLinks.length) {
@@ -678,7 +679,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     const stockDecimals = before?.currencyDecimals ?? DEFAULT_GL_SETTINGS.currencyDecimals;
     const stockCut = openingCutoff(cutoverDate, eff.timezone, T0);
     // البداية النظيفة: المخزون المستورد لا يدخل الدفاتر إطلاقاً، فلا منع ولا إقرار (الفحص يُحسب للتدقيق فقط)
-    const openingStock = await loadOpeningStockCheck(tx, tenantId, stockCut, stockDecimals);
+    // الدفاتر اليدوية: لا قراءة للمخزون المستورد (فحص فارغ صرف بلا قاعدة)
+    const openingStock = clean ? classifyOpeningStockEntries([], stockCut, stockDecimals) : await loadOpeningStockCheck(tx, tenantId, stockCut, stockDecimals);
     const openingStockJson = openingStockCheckJson(openingStock, stockDecimals, stockCut);
     if (clean) { /* لا حراسة للمخزون المستورد */ } else if (eff.method === 'FULL_HISTORY' && openingStock.batches > 0) {
       throw new LedgerHttpError(409, LEDGER_OPENING_STOCK_FULL_HISTORY_MESSAGE, {
@@ -702,7 +704,10 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // حركات مستوردة بتاريخ ≥ البدء: 409 ما لم يُقَرّ بها (قبل أي كتابة). اللقطة dbNow لا T0 — مجموعة أشمل،
     // وهي مقروءة بساعة ما بعد القفلين (البند 42) فتشمل ما استُورد أثناء انتظار القفل.
     const currencyDecimalsForCheck = before?.currencyDecimals ?? DEFAULT_GL_SETTINGS.currencyDecimals;
-    const importedAfterCutover = await loadImportedAfterCutover(tx, tenantId, openingCutoff(cutoverDate, eff.timezone, dbNow), currencyDecimalsForCheck);
+    // الدفاتر اليدوية: لا قراءة للحركات المستوردة (لا تُرحَّل أبداً) — مجموعة فارغة صرفة
+    const importedAfterCutover = clean
+      ? computeImportedAfterCutover([], new Set(), openingCutoff(cutoverDate, eff.timezone, dbNow), currencyDecimalsForCheck)
+      : await loadImportedAfterCutover(tx, tenantId, openingCutoff(cutoverDate, eff.timezone, dbNow), currencyDecimalsForCheck);
     // البداية النظيفة: الحركات المستوردة قبل التفعيل لا تُرحَّل أياً كان تاريخها (classifyCutover)، فلا إقرار لها
     if (!clean && postCutoverImportsAckMissing(importedAfterCutover, parsed.data.acknowledgePostCutoverImports)) {
       throw new LedgerHttpError(409, LEDGER_POST_CUTOVER_IMPORTS_ACK_MESSAGE, {
@@ -751,7 +756,7 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       const t = await tx.glTax.findUnique({ where: { tenantId_key: { tenantId, key: purchaseKey } }, select: { id: true } });
       if (t) await tx.glSettings.updateMany({ where: { tenantId, defaultPurchaseTaxId: null }, data: { defaultPurchaseTaxId: t.id } });
     }
-    const step3Report = await applyStep3(tx, tenantId, draft);
+    const step3Report = await applyStep3(tx, tenantId, draft, { manual: clean });
     const context = await loadBuildContext(tx, tenantId);
     const ctx = context.ctx;
     const decimals = ctx.settings.currencyDecimals;
@@ -771,8 +776,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // (5) القيد الافتتاحي من الأرصدة اليدوية وحدها — أُزيلت الأرصدة المشتقة (الذمم والعهدة والأمانات والمخزون محسوبةً
     // من المستندات) بقرار الخبير المحاسبي. computeDerivedOpening تبقى لتقسيم الاستلامات السابقة للبدء فقط (لا تُرحِّل).
     const cut = openingCutoff(cutoverDate, eff.timezone, T0, { cleanStart: clean });
-    const sources = await loadOpeningSources(tx, tenantId, cut, { includeInventory: !clean });
-    const derived = computeDerivedOpening(sources, cut, {
+    // الدفاتر اليدوية المستقلة (CLEAN): لا قراءة واحدة لجداول التشغيل عند التفعيل (لا سندات ولا استلامات ولا مخزون)
+    const derived = clean ? null : computeDerivedOpening(await loadOpeningSources(tx, tenantId, cut), cut, {
       decimals, routing: { receiptRouting: ctx.settings.receiptRouting, cashInvoiceRouting: ctx.settings.cashInvoiceRouting },
     });
     const move = buildOpeningMove({ openingDate: cut.openingDate, manual: manual.lines, ctx, salesRepNames: partners.salesRepNames });
@@ -792,13 +797,17 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       where: { tenantId },
       data: {
         setupMethod: eff.method, cutoverDate: toDbDate(cutoverDate), openingSnapshotAt: T0,
-        activatedAt: dbNow, activatedBy: actorId, backfillState: 'RUNNING',
+        // الدفاتر اليدوية: لا ترحيل آلي ولا تاريخي يجري — DONE من لحظة التفعيل
+        activatedAt: dbNow, activatedBy: actorId, backfillState: clean ? 'DONE' : 'RUNNING',
       },
     });
     const watermarkAt = initialWatermarkAt({ method: eff.method, cutoverDate, openingSnapshotAt: T0, timezone: eff.timezone });
-    await tx.glSyncCursor.updateMany({ where: { tenantId }, data: { watermarkAt, watermarkId: '', lastRunAt: null, lastCount: 0, stallTicks: 0 } });
-    const inventoryMode = settings.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC';
-    await tx.glSyncCursor.createMany({ data: initialCursorRows(tenantId, inventoryMode, watermarkAt), skipDuplicates: true });
+    // مؤشرات المُطابِق للترحيل الآلي وحده — لا تُنشأ للدفاتر اليدوية (المجدول يتخطّاها أصلاً: MANUAL_LEDGER)
+    if (!clean) {
+      await tx.glSyncCursor.updateMany({ where: { tenantId }, data: { watermarkAt, watermarkId: '', lastRunAt: null, lastCount: 0, stallTicks: 0 } });
+      const inventoryMode = settings.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC';
+      await tx.glSyncCursor.createMany({ data: initialCursorRows(tenantId, inventoryMode, watermarkAt), skipDuplicates: true });
+    }
     const futureDated = eff.method === 'OPENING'
       ? await scanFutureDatedRows(tx, tenantId, {
         watermarkAt, cutoverStart: cut.cutoverStart,
@@ -806,11 +815,11 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       })
       : null;
     // تقسيم P7 للاستلامات المشمولة بالافتتاح يُجمَّد بالمجموعة نفسها التي حسبها الافتتاح (لا بالواصلة متأخرة)
-    const frozenSettlements = await freezeOpeningSettlementSplits(tx, tenantId, {
+    const frozenSettlements = derived ? await freezeOpeningSettlementSplits(tx, tenantId, {
       splits: derived.settlementSplits,
       settings: { tenantId, activatedAt: dbNow, timezone: eff.timezone, currency: company.currency ?? settings.currency, currencyDecimals: decimals },
       processedAt: dbNow,
-    });
+    }) : 0;
 
     const moveJson = openingMoveJson(move, decimals);
     await appendAudit(tx, {

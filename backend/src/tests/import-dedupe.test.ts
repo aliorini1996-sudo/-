@@ -145,7 +145,7 @@ test('import.ts /ledger: البصمة والتداخل قبل أي كتابة؛ 
   const ri = s.indexOf('async function reserveEntryBatch(');
   const reserveFn = s.slice(ri, s.indexOf('\n}\n', ri));
   let p = -1;
-  for (const n of ["SET LOCAL lock_timeout = '5s'", 'pg_advisory_xact_lock(hashtext(', 'tx.glSettings.findUnique(', 'assertImportLedgerStateUnchanged({ activatedAt: gs?.activatedAt, expectActivated, timezone: explicitTimezone(gs), expectTimezone })', 'tx.importBatch.findFirst(', 'assertNotDuplicateBatch(dup, force, now)', 'status: IMPORT_BATCH_RUNNING }', 'assertNoRunningImport(', 'tx.importBatch.create(', 'status: IMPORT_BATCH_RUNNING, heartbeatAt: now']) {
+  for (const n of ["SET LOCAL lock_timeout = '5s'", 'pg_advisory_xact_lock(hashtext(', 'tx.glSettings.findUnique(', 'assertImportLedgerStateUnchanged({ activatedAt: coupledActivatedAt(gs), expectActivated, timezone: explicitTimezone(gs), expectTimezone })', 'tx.importBatch.findFirst(', 'assertNotDuplicateBatch(dup, force, now)', 'status: IMPORT_BATCH_RUNNING }', 'assertNoRunningImport(', 'tx.importBatch.create(', 'status: IMPORT_BATCH_RUNNING, heartbeatAt: now']) {
     const i = reserveFn.indexOf(n, p + 1);
     assert.ok(i > p, `reserveEntryBatch: ${n} خارج الترتيب`);
     p = i;
@@ -329,7 +329,7 @@ test('سباق التفعيل عند حجز دفعة الأرصدة/الكشوف
   // الحجز يقرأ المنطقة تحت القفل ويقارنها بمنطقة حساب التواريخ التي مرّرها المسار
   const src = read('routes/import.ts');
   const rf = src.slice(src.indexOf('async function reserveEntryBatch('), src.indexOf('\n}\n', src.indexOf('async function reserveEntryBatch(')));
-  assert.match(rf, /select: \{ activatedAt: true, timezone: true, setupDraft: true \}/);
+  assert.match(rf, /select: \{ activatedAt: true, timezone: true, setupDraft: true, setupMethod: true \}/);
   // البند 22: المنطقة المقارَنة تحت القفل هي المضبوطة فعلاً (explicitTimezone) — المنطقة نفسها التي كُتبت بها اللحظات
   assert.match(rf, /timezone: explicitTimezone\(gs\), expectTimezone/);
   assert.equal(explicitTimezone({ activatedAt: null, timezone: 'Africa/Cairo', setupDraft: { step1: { timezone: 'Asia/Riyadh' } } }), 'Asia/Riyadh', 'قبل التفعيل: مسودة الخطوة 1 أولاً');

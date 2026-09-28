@@ -99,11 +99,18 @@ export default function SetupWizard() {
     return (
       <div className="max-w-5xl mx-auto space-y-4">
         {result && <div className="card"><CommitResultPanel result={result} decimals={decimals} /></div>}
-        <div className="card space-y-3">
-          <h2 className="text-base font-bold text-[#1F1A13]">{status.setupMethod === 'CLEAN' ? tr('الترحيل الآلي للمستندات الجديدة') : tr('الترحيل التاريخي')}</h2>
-          <BackfillStatusCard progress={progress} state={q.data?.activated ? q.data.status.backfillState : status.backfillState} canWrite={canWrite} />
-          <Link to={ledgerHref('config/settings')} className="text-xs text-[#E15A30] hover:underline">{tr('الإعدادات')} ←</Link>
-        </div>
+        {status.setupMethod === 'CLEAN' ? (
+          <div className="card space-y-2">
+            <Notice>{tr('دفاتر يدوية مستقلة: منفصلة تماما عن المبيعات والمخزون والتحصيل، لا يُرحَّل إليها شيء آليا، وكل قيد فيها يُدخله المحاسب')}</Notice>
+            <Link to={ledgerHref('entries')} className="text-xs text-[#E15A30] hover:underline">{tr('قيود اليومية')} ←</Link>
+          </div>
+        ) : (
+          <div className="card space-y-3">
+            <h2 className="text-base font-bold text-[#1F1A13]">{tr('الترحيل التاريخي')}</h2>
+            <BackfillStatusCard progress={progress} state={q.data?.activated ? q.data.status.backfillState : status.backfillState} canWrite={canWrite} />
+            <Link to={ledgerHref('config/settings')} className="text-xs text-[#E15A30] hover:underline">{tr('الإعدادات')} ←</Link>
+          </div>
+        )}
       </div>
     );
   }

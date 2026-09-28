@@ -257,7 +257,9 @@ export default function SettingsPage() {
             <ReadRow label={tr('الحالة')}>{activated ? `${tr('مفعّلة منذ')} ${formatDateTime(s.activatedAt!)}` : tr('بانتظار الإعداد')}</ReadRow>
             {s.setupMethod && <ReadRow label={tr('طريقة البدء')}>{setupLabels[s.setupMethod] ?? s.setupMethod}</ReadRow>}
             {s.cutoverDate && <ReadRow label={tr('تاريخ البدء')}>{formatDayOnly(s.cutoverDate)}</ReadRow>}
-            {activated ? (
+            {activated && s.setupMethod === 'CLEAN' ? (
+              <Notice>{tr('دفاتر يدوية مستقلة: منفصلة تماما عن المبيعات والمخزون والتحصيل، لا يُرحَّل إليها شيء آليا، وكل قيد فيها يُدخله المحاسب')}</Notice>
+            ) : activated ? (
               <div className="rounded-xl border border-[#F1EBDF] p-3 space-y-2">
                 <p className="text-sm text-[#9A8F7E]">{tr('الترحيل التاريخي')}</p>
                 <BackfillStatusCard
@@ -267,7 +269,7 @@ export default function SettingsPage() {
               </div>
             ) : (
               <>
-                <ReadRow label={tr('الترحيل التاريخي')}>{backfillLabels[s.backfillState] ?? s.backfillState}</ReadRow>
+                {s.setupMethod !== 'CLEAN' && s.backfillState !== 'NONE' && <ReadRow label={tr('الترحيل التاريخي')}>{backfillLabels[s.backfillState] ?? s.backfillState}</ReadRow>}
                 <div className="flex flex-wrap gap-2">
                   <Link to={ledgerHref('')} className="btn-primary inline-flex items-center gap-1.5">{tr('معالج الإعداد')}</Link>
                 </div>

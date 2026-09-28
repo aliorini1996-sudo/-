@@ -12,7 +12,7 @@ import { ledgerErrorOf } from '../../../api/ledgerConfig';
 import { ledgerReviewApi, ledgerReviewKeys, type PostingListParams, type ReceiptPostingRow } from '../../../api/ledgerReview';
 import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
-import { NotActivatedNotice, postingFilterDefs, postingParamsOf } from './postingFilters';
+import { NotActivatedNotice, ManualLedgerNotice, postingFilterDefs, postingParamsOf } from './postingFilters';
 
 /**
  * «العملاء ← سندات القبض» (M3، INV‑01، §8.2): السندات القائمة للقراءة بطريقة القبض وحالة ترحيلها (RECEIPT:<id>:POST/REVERSE)،
@@ -61,7 +61,7 @@ export default function ReceiptPostingList() {
 
   return (
     <div className="space-y-3">
-      {q.data && !q.data.activated && <NotActivatedNotice pending={q.data.total} />}
+      {(q.data as { manualLedger?: boolean } | undefined)?.manualLedger ? <ManualLedgerNotice /> : q.data && !q.data.activated && <NotActivatedNotice pending={q.data.total} />}
       {q.data?.postingFilterCapped && (
         <p className="rounded-xl border border-[#F3D3C4] bg-[#FBEBE2] px-3 py-2 text-sm">{tr('نتائج فلتر حالة الترحيل مقتصرة على أحدث 5000 مستند؛ ضيّق نطاق التاريخ')}</p>
       )}

@@ -88,6 +88,10 @@ export async function runTenantTick(deps: TickDeps, tenantId: string, budget: Sy
   const settings = await store.loadPosterSettings(tenantId);
   if (!settings || !settings.activatedAt) return skippedResult(tenantId, 'NOT_ACTIVATED', settings, 0, started, clock);
   if (!settings.suiteEnabled) return skippedResult(tenantId, 'SUITE_DISABLED', settings, 0, started, clock);
+// الدفاتر اليدوية المستقلة (أمر المالك، ٢٨ سبتمبر ٢٠٢٦): «اجعل الدفاتر مفصولة بشكل كامل عن المبيعات والمخزون وكل شيء، وكل شيء
+// فيها يدوي». التفعيل بطريقة CLEAN = دفاتر لا يدخلها شيء من التشغيل آلياً، قديماً ولا جديداً.
+  // فلا مُطابِق يمسح مستندات التشغيل ولا مُرحِّل يرحّلها — لا في النبضة ولا في «مزامنة الآن».
+  if (settings.setupMethod === 'CLEAN') return skippedResult(tenantId, 'MANUAL_LEDGER', settings, 0, started, clock);
   if (inProcess.has(tenantId)) {
     return skippedResult(tenantId, 'IN_PROCESS', settings, await store.countPendingEvents(tenantId), started, clock);
   }

@@ -21,7 +21,9 @@ import {
 } from '../services/gl/backfill';
 import { classifyCutover, initialWatermarkAt, isIncludedInOpening, planEvent, siblingGate } from '../services/gl/sync/classify';
 import { custodyComponents } from '../services/gl/custody';
-import { cutoverContextOf } from '../services/gl/sync/poster';
+import { createSyncBudget, cutoverContextOf } from '../services/gl/sync/poster';
+import { runTenantTick } from '../services/gl/sync/tick';
+import { assertRepDeletable, ledgerTombstoneSettings } from '../services/gl/sync/tombstone';
 import { LATE_COMMIT_WINDOW_MS } from '../services/gl/sync/types';
 import { validateMove } from '../services/gl/validate';
 import { saContext, accountIdOf } from '../services/gl/testing/fixtures';
@@ -324,8 +326,8 @@ test('حارس ثابت: /setup/commit يرفض cutoverDate مستقبلياً �
   assertOrder(commit, [
     'prisma.$transaction(async (tx)', 'acquirePostLock(tx, tenantId)', 'acquireImportEntriesLock(tx, tenantId)',
     'dbClockOf(tx)', 'openingSnapshotFromDbNow(dbNow)',
-    'assertCutoverNotInFuture(cutoverDate', 'ensureSettingsRow(', 'seedTemplate(tx', 'loadOpeningSources(tx', 'computeDerivedOpening(',
-    'postMove(tx', 'openingSnapshotAt: T0', "backfillState: 'RUNNING'", 'initialWatermarkAt(', 'glSyncCursor.createMany', "'SETUP_COMMIT'",
+    'assertCutoverNotInFuture(cutoverDate', 'ensureSettingsRow(', 'seedTemplate(tx', 'computeDerivedOpening(await loadOpeningSources(tx',
+    'postMove(tx', 'openingSnapshotAt: T0', "backfillState: clean ? 'DONE' : 'RUNNING'", 'initialWatermarkAt(', 'glSyncCursor.createMany', "'SETUP_COMMIT'",
   ], '/setup/commit');
   assert.doesNotMatch(commit, /dbNowOf\(tx\)/, 'الاعتماد لا يستعمل now() المجمَّد');
   assert.match(commit, /\}, COMMIT_TX\);/);
@@ -936,7 +938,52 @@ test('حارس ثابت: المحمّل الموحّد للعهدة والأما
   assert.match(run, /store\.ledgerTotal\(tenantId, paylink, \{ moveType: 'OPENING' \}\)/);
   assert.match(run, /settlementBalanceMilli: opsSinceMilli \+ openingMilli/);
   const customers = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'customers.ts'), 'utf8');
-  assert.equal((customers.match(/if \(!f\.activated\) \{ notStarted\(res, f, page/g) ?? []).length, 3, 'قبل التفعيل لا مستند في الدفاتر');
+  assert.equal((customers.match(/if \(!f\.activated \|\| f\.manual\) \{ notStarted\(res, f, page/g) ?? []).length, 3, 'قبل التفعيل وفي الدفاتر اليدوية لا مستند فيها');
   assert.equal((customers.match(/\.\.\.\(f\.booksSince \? \{ createdAt: \{ gt: f\.booksSince \} \} : \{\}\)/g) ?? []).length, 3);
   assert.match(customers, /booksSince: s\?\.activatedAt && s\.setupMethod === 'CLEAN' && s\.openingSnapshotAt \? s\.openingSnapshotAt : null/);
+});
+
+// ═══ الدفاتر اليدوية المستقلة (أمر المالك، 2026-09-28): «مفصولة بشكل كامل عن المبيعات والمخزون وكل شيء، وكل شيء فيها يدوي» ═══
+
+test('الدفاتر اليدوية: نبضة المزامنة و«مزامنة الآن» تتخطّيان الشركة (لا مُطابِق ولا مُرحِّل)', async () => {
+  const calls: string[] = [];
+  const store = {
+    async loadPosterSettings() { calls.push('settings'); return { activatedAt: at('2027-01-15T09:00:00Z'), suiteEnabled: true, setupMethod: 'CLEAN' }; },
+    async tryAcquireLease() { calls.push('lease'); return true; },
+    async countPendingEvents() { return 0; },
+  };
+  const budget = createSyncBudget({ clock: () => 1_000, timeMs: 5_000, events: 100 });
+  const r = await runTenantTick({ store, reconcile: async () => { calls.push('reconcile'); return []; } } as never, 't1', budget);
+  assert.equal(r.skipped, 'MANUAL_LEDGER');
+  assert.deepEqual(calls, ['settings'], 'لا قفل ولا مُطابِق ولا مُرحِّل');
+});
+
+test('الدفاتر اليدوية: حذف استلام أو التراجع عن استيراد لا يكتب حدثاً، وحذف المندوب تحجبه سطور القيود وحدها', async () => {
+  const settingsDb = (setupMethod: string) => ({ glSettings: { findUnique: async () => ({ activatedAt: at('2027-01-15T09:00:00Z'), currencyDecimals: 2, setupMethod }) } });
+  assert.equal(await ledgerTombstoneSettings(settingsDb('CLEAN') as never, 't1'), null);
+  assert.ok(await ledgerTombstoneSettings(settingsDb('OPENING') as never, 't1'));
+  const counted: string[] = [];
+  const counter = (name: string, n: number) => ({ count: async () => { counted.push(name); return n; } });
+  const repDb = {
+    glSettings: { findUnique: async () => ({ activatedAt: at('2027-01-15T09:00:00Z'), setupMethod: 'CLEAN' }) },
+    repSettlement: counter('settlements', 5), invoice: counter('invoices', 9), receipt: counter('receipts', 7), vanLoad: counter('vanLoads', 2),
+    glMoveLine: counter('moveLines', 0),
+  };
+  await assertRepDeletable(repDb as never, 't1', 'rep1');
+  assert.deepEqual(counted, ['moveLines'], 'بصمة التشغيل لا تُعدّ ولا تحجب');
+});
+
+test('حارس ثابت: الدفاتر اليدوية لا تقرأ التشغيل عند التفعيل ولا تنشئ مؤشرات مزامنة، وصفحات العملاء والاستيراد منفصلة', () => {
+  const setup = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'setup.ts'), 'utf8');
+  const commit = setup.slice(setup.indexOf("router.post('/setup/commit'"), setup.indexOf("router.post('/setup/backfill'"));
+  assert.match(commit, /const derived = clean \? null : computeDerivedOpening\(await loadOpeningSources\(tx/);
+  assert.match(commit, /backfillState: clean \? 'DONE' : 'RUNNING'/);
+  assert.match(commit, /if \(!clean\) \{\n\s+await tx\.glSyncCursor\.updateMany/);
+  assert.match(commit, /const openingStock = clean \? classifyOpeningStockEntries\(\[\], stockCut, stockDecimals\)/);
+  assert.match(commit, /applyStep3\(tx, tenantId, draft, \{ manual: clean \}\)/);
+  const customers = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'customers.ts'), 'utf8');
+  assert.equal((customers.match(/s\.setupMethod === 'CLEAN'\) \{\n\s+res\.json\(\{ success: true, data: \{ activated: !!s\?\.activatedAt, manualLedger/g) ?? []).length, 2, 'العهدة والأمانات');
+  const imp = fs.readFileSync(path.join(__dirname, '..', 'routes', 'import.ts'), 'utf8');
+  assert.match(imp, /s\?\.activatedAt && s\.setupMethod !== 'CLEAN' \? s\.activatedAt : null/);
+  assert.equal((imp.match(/coupledActivatedAt\(/g) ?? []).length >= 5, true);
 });

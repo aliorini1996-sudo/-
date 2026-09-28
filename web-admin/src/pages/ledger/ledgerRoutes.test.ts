@@ -181,3 +181,18 @@ test('LedgerLayout يبني القوائم بقاعدة الظهور ويفتح 
   assert.match(layout, /i\.kind === 'link' \? \(/, 'الرابط الخارجي يُعرض في القائمة');
   assert.doesNotMatch(layout, /PermissionRoute|\bcan\(/, 'الدفاتر بـcanLedger وحدها');
 });
+
+// ═══ الدفاتر اليدوية المستقلة (أمر المالك، 2026-09-28) ═══
+import { isManualLedger, manualLedgerMenus, MANUAL_LEDGER_HIDDEN_PATHS } from './routes';
+
+test('الدفاتر اليدوية: القائمة بلا «العملاء» (مستندات التشغيل) ولا أحداث الترحيل الآلي والمستندات المتأخرة، والباقي كما هو', () => {
+  const all = ledgerMenus((s: string) => s);
+  const manual = manualLedgerMenus(all);
+  assert.ok(!manual.some(m => m.key === 'customers'));
+  const paths = manual.flatMap(m => m.sections.flatMap(s => s.items.flatMap(i => (i.kind === 'route' ? [i.path] : []))));
+  for (const p of MANUAL_LEDGER_HIDDEN_PATHS) assert.ok(!paths.includes(p), p);
+  assert.ok(paths.includes('entries') && paths.includes('review/checks'));
+  assert.equal(isManualLedger({ activatedAt: '2027-01-15T09:00:00Z', setupMethod: 'CLEAN' }), true);
+  assert.equal(isManualLedger({ activatedAt: null, setupMethod: null }), true);
+  assert.equal(isManualLedger({ activatedAt: '2026-01-01T00:00:00Z', setupMethod: 'OPENING' }), false, 'التفعيلات السابقة كما كانت');
+});
