@@ -48,7 +48,7 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       if (!s) return null;
       return {
         activatedAt: s.activatedAt, backfillState: s.backfillState as BackfillState,
-        setupMethod: s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : s.setupMethod === 'OPENING' ? 'OPENING' : null,
+        setupMethod: s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : s.setupMethod === 'OPENING' ? 'OPENING' : s.setupMethod === 'CLEAN' ? 'CLEAN' : null,
         cutoverDate: dateOut(s.cutoverDate), openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone,
         currencyDecimals: s.currencyDecimals, lastSyncAt: s.lastSyncAt,
         inventoryMode: (s.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC') as InventoryMode,
@@ -123,18 +123,42 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       return out;
     },
 
-    async ledgerTotal(tenantId, accountIds) {
+    async ledgerTotal(tenantId, accountIds, opts = {}) {
       if (accountIds.length === 0) return 0n;
       const agg = await d.glMoveLine.aggregate({
-        where: { tenantId, posted: true, accountId: { in: [...accountIds] } }, _sum: { debitMilli: true, creditMilli: true },
+        where: {
+          tenantId, posted: true, accountId: { in: [...accountIds] },
+          ...(opts.moveType ? { move: { moveType: opts.moveType, state: 'POSTED' } } : {}),
+        },
+        _sum: { debitMilli: true, creditMilli: true },
       });
       return (agg._sum.debitMilli ?? 0n) - (agg._sum.creditMilli ?? 0n);
     },
 
     async accountEntryTotals(tenantId, excludeOpening, decimals) {
+      // البداية النظيفة: صفوف AR_ENTRY (استيراد/رصيد افتتاحي من التطبيق) لا تُرحَّل أبداً (planEvent)، إلا تسوية العميل من
+      // الدفاتر التي يكتب مستندها حدثها DONE — فتُحسب صفوف الفاتورة والسند، وصفوف التسوية المرحَّلة وحدها
+      const doneAdjustments = excludeOpening?.cleanStart
+        ? (await d.glSourceEvent.findMany({
+          where: { tenantId, sourceType: 'AR_ENTRY', event: 'POST', status: 'DONE' }, select: { sourceId: true },
+        })).map((e) => e.sourceId)
+        : null;
       const where: Prisma.AccountEntryWhereInput = {
         tenantId,
-        ...(excludeOpening ? { NOT: { entryDate: { lt: excludeOpening.cutoverStart }, createdAt: { lte: excludeOpening.openingSnapshotAt } } } : {}),
+        ...(doneAdjustments ? { AND: [{ OR: [{ invoiceId: { not: null } }, { receiptId: { not: null } }, { id: { in: doneAdjustments } }] }] } : {}),
+        // البداية النظيفة: كل صف أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخه (مرآة classifyCutover)، وكذا صفوف إلغاء
+        // مستندٍ (فاتورة أو سند) أُنشئ حتى T0 وإن أُلغي بعده — عكسه SKIPPED(OPENING) لا يُرحَّل (مرآة siblingGate)
+        ...(excludeOpening
+          ? excludeOpening.cleanStart
+            ? {
+              createdAt: { gt: excludeOpening.openingSnapshotAt },
+              NOT: [
+                { invoice: { is: { createdAt: { lte: excludeOpening.openingSnapshotAt } } } },
+                { receipt: { is: { createdAt: { lte: excludeOpening.openingSnapshotAt } } } },
+              ],
+            }
+            : { NOT: { entryDate: { lt: excludeOpening.cutoverStart }, createdAt: { lte: excludeOpening.openingSnapshotAt } } }
+          : {}),
       };
       const rows = await d.accountEntry.groupBy({ by: ['customerId'], where, _sum: { debit: true, credit: true } });
       const out = new Map<string, Milli>();
@@ -216,10 +240,11 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       return tx.loadCustodyInputs(salesRepId);
     },
 
-    async repCollections(tenantId, decimals) {
+    async repCollections(tenantId, decimals, opts = {}) {
+      const after = opts.createdAfter ? { createdAt: { gt: opts.createdAfter } } : {};
       const [collected, settled] = await Promise.all([
-        d.receipt.groupBy({ by: ['salesRepId'], where: { tenantId, status: 'ACTIVE', salesRepId: { not: null } }, _sum: { amount: true } }),
-        d.repSettlement.groupBy({ by: ['salesRepId'], where: { tenantId }, _sum: { amount: true } }),
+        d.receipt.groupBy({ by: ['salesRepId'], where: { tenantId, status: 'ACTIVE', salesRepId: { not: null }, ...after }, _sum: { amount: true } }),
+        d.repSettlement.groupBy({ by: ['salesRepId'], where: { tenantId, ...after }, _sum: { amount: true } }),
       ]);
       const out = new Map<string, Milli>();
       for (const r of collected) if (r.salesRepId) out.set(r.salesRepId, toMilli(r._sum.amount ?? 0, decimals));
@@ -227,16 +252,19 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       return out;
     },
 
-    async settlementBalance(tenantId, decimals) {
-      const agg = await d.settlementEntry.aggregate({ where: { tenantId }, _sum: { amount: true } });
+    async settlementBalance(tenantId, decimals, opts = {}) {
+      const agg = await d.settlementEntry.aggregate({
+        where: { tenantId, ...(opts.createdAfter ? { createdAt: { gt: opts.createdAfter } } : {}) }, _sum: { amount: true },
+      });
       return toMilli(Number(agg._sum.amount ?? 0), decimals);
     },
 
-    async paylinkExplanations(tenantId, decimals) {
+    async paylinkExplanations(tenantId, decimals, opts = {}) {
+      const after = opts.createdAfter ? { createdAt: { gt: opts.createdAfter } } : {};
       const [refundRows, refundedLinks, cancelledOnline] = await Promise.all([
         d.settlementEntry.findMany({ where: { tenantId, kind: 'REFUND', linkId: { not: null } }, select: { linkId: true } }),
-        d.customerPaymentLink.findMany({ where: { tenantId, status: 'refunded' }, select: { id: true, receiptId: true, amount: true } }),
-        d.receipt.findMany({ where: { tenantId, paymentMethod: 'ONLINE', status: 'CANCELLED' }, select: { id: true, number: true, amount: true }, take: 500 }),
+        d.customerPaymentLink.findMany({ where: { tenantId, status: 'refunded', ...after }, select: { id: true, receiptId: true, amount: true } }),
+        d.receipt.findMany({ where: { tenantId, paymentMethod: 'ONLINE', status: 'CANCELLED', ...after }, select: { id: true, number: true, amount: true }, take: 500 }),
       ]);
       const refunded = new Set(refundRows.map((r) => r.linkId as string));
       const links = cancelledOnline.length

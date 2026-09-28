@@ -88,33 +88,17 @@ test('بعد التفعيل ⇒ 409 OPENING_STOCK_LEDGER_ACTIVE؛ والتراج
   assert.doesNotThrow(() => assertOpeningStockRevertAllowed(null));
 });
 
-test('مسودة المعالج بتاريخ بدء ≤ اليوم (بتوقيت الشركة) ⇒ 409 OPENING_STOCK_AFTER_CUTOVER برسالة صادقة ما لم يُقَرّ؛ بلا تاريخ أو بعد اليوم مسموح', () => {
+test('البداية النظيفة: قبل التفعيل يُستورد المخزون إلى المستودع بلا إقرار أياً كان تاريخ البدء في المسودة (لا يدخل الدفاتر أصلاً)', () => {
   const draft = (cutoverDate: unknown) => ({ step1: { cutoverDate } });
-  for (const d of ['2026-09-17', '2026-01-01']) {
-    const e = httpErr(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: draft(d), timezone: TZ, now: NOW }));
-    assert.equal(e.status, 409);
-    assert.equal(e.code, 'OPENING_STOCK_AFTER_CUTOVER');
-    assert.equal(e.message, OPENING_STOCK_AFTER_CUTOVER_MESSAGE);
-    assert.doesNotMatch(e.message, /عدّل تاريخ البدء في المعالج/, 'المعالج لا يقبل تاريخ بدء مستقبلياً اليوم');
-    assert.match(e.message, /بعد يوم الاستيراد/);
-    assert.match(e.message, /من الغد/);
-    const body = importErrorBody(e);
-    assert.equal(body.cutoverDate, d);
-    assert.equal(body.today, '2026-09-17');
-    assert.equal(body.minCutoverDate, '2026-09-18');
-    assert.equal(body.field, 'acknowledgeCutoverChange');
-    // الإقرار يسمح (الحسم في /setup/commit)، وfalse أو غيابه لا
-    assert.doesNotThrow(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: draft(d), timezone: TZ, now: NOW, acknowledgeCutoverChange: true }));
-    assert.equal(httpErr(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: draft(d), timezone: TZ, now: NOW, acknowledgeCutoverChange: false })).code, 'OPENING_STOCK_AFTER_CUTOVER');
+  for (const d of ['2026-09-17', '2026-01-01', '2026-09-18']) {
+    assert.doesNotThrow(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: draft(d), timezone: TZ, now: NOW }));
+    assert.doesNotThrow(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: draft(d), timezone: 'Asia/Karachi', now: NOW, acknowledgeCutoverChange: false }));
   }
-  // الإقرار لا يتجاوز التفعيل
-  assert.equal(httpErr(() => assertOpeningStockAllowed({ activatedAt: new Date('2026-09-01T00:00:00Z'), setupDraft: draft('2026-09-17'), timezone: TZ, now: NOW, acknowledgeCutoverChange: true })).code, 'OPENING_STOCK_LEDGER_ACTIVE');
-  // 23:30 الرياض = 20:30 UTC: في UTC ما زال 17، وفي توقيت +5 صار 18 ⇒ 18 سبتمبر مرفوض هناك ومسموح في الرياض
-  assert.doesNotThrow(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: draft('2026-09-18'), timezone: TZ, now: NOW }));
-  assert.equal(httpErr(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: draft('2026-09-18'), timezone: 'Asia/Karachi', now: NOW })).code, 'OPENING_STOCK_AFTER_CUTOVER');
   for (const d of [null, undefined, {}, { step1: {} }, draft('2026-02-31'), draft(''), 'x', []]) {
     assert.doesNotThrow(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: d, timezone: TZ, now: NOW }));
   }
+  // التفعيل يبقى الحاجز الوحيد، والإقرار لا يتجاوزه
+  assert.equal(httpErr(() => assertOpeningStockAllowed({ activatedAt: new Date('2026-09-01T00:00:00Z'), setupDraft: draft('2026-09-17'), timezone: TZ, now: NOW, acknowledgeCutoverChange: true })).code, 'OPENING_STOCK_LEDGER_ACTIVE');
   assert.equal(draftCutoverDate(draft('2026-10-01')), '2026-10-01');
   assert.equal(draftCutoverDate(draft('2026-02-30')), null);
 });
@@ -266,22 +250,15 @@ test('warehouse.ts لم يتغير سلوكه: ما زال يستدعي netUnitC
 
 // ═══ مراجعة الجولة 2: التاريخ الكامل، والحركات خارج الافتتاح، وحراس الاعتماد ═══
 
-test('FULL_HISTORY في المسودة ⇒ 409 OPENING_STOCK_FULL_HISTORY بلا تاريخ وبتاريخ مستقبلي، ولو مع الإقرار', () => {
+test('البداية النظيفة: «التاريخ الكامل» في مسودة قديمة لا يحجب استيراد المخزون قبل التفعيل (لم تعد طريقة)', () => {
   for (const step1 of [undefined, {}, { cutoverDate: '2026-10-01' }, { cutoverDate: '2026-09-01' }]) {
-    const e = httpErr(() => assertOpeningStockAllowed({
-      activatedAt: null, setupDraft: { step1, step2: { method: 'FULL_HISTORY' } }, timezone: TZ, now: NOW, acknowledgeCutoverChange: true,
+    assert.doesNotThrow(() => assertOpeningStockAllowed({
+      activatedAt: null, setupDraft: { step1, step2: { method: 'FULL_HISTORY' } }, timezone: TZ, now: NOW,
     }));
-    assert.equal(e.status, 409);
-    assert.equal(e.code, 'OPENING_STOCK_FULL_HISTORY');
-    assert.equal(e.message, OPENING_STOCK_FULL_HISTORY_MESSAGE);
-    assert.deepEqual(e.details, { method: 'FULL_HISTORY' });
   }
-  // OPENING أو بلا طريقة ⇒ القاعدة العادية
-  assert.doesNotThrow(() => assertOpeningStockAllowed({ activatedAt: null, setupDraft: { step2: { method: 'OPENING' } }, timezone: TZ, now: NOW }));
   assert.equal(draftMethod({ step2: { method: 'FULL_HISTORY' } }), 'FULL_HISTORY');
   assert.equal(draftMethod({ step2: { method: 'OPENING' } }), 'OPENING');
   for (const d of [null, {}, { step2: null }, { step2: { method: 'x' } }, { step2: [] }, 'x']) assert.equal(draftMethod(d), null);
-  // التفعيل أولاً
   assert.equal(httpErr(() => assertOpeningStockAllowed({ activatedAt: new Date('2026-09-01T00:00:00Z'), setupDraft: { step2: { method: 'FULL_HISTORY' } }, timezone: TZ, now: NOW })).code, 'OPENING_STOCK_LEDGER_ACTIVE');
 });
 
@@ -348,7 +325,7 @@ test('حارس ثابت: /setup/commit يفحص المخزون المستورد 
     "eff.method === 'FULL_HISTORY' && openingStock.batches > 0", "'LEDGER_OPENING_STOCK_FULL_HISTORY'",
     'openingStock.afterCutover.count > 0 && parsed.data.acknowledgeOpeningStockExcluded !== true', "'LEDGER_OPENING_STOCK_AFTER_CUTOVER'",
     'openingStock.tooRecent.count > 0', "'LEDGER_OPENING_STOCK_TOO_RECENT'",
-    'ensureSettingsRow(', 'seedTemplate(tx', 'const cut = openingCutoff(cutoverDate, eff.timezone, T0)', 'loadOpeningSources(tx', 'buildOpeningMove(', 'postMove(tx',
+    'ensureSettingsRow(', 'seedTemplate(tx', 'const cut = openingCutoff(cutoverDate, eff.timezone, T0, { cleanStart: clean })', 'loadOpeningSources(tx', 'buildOpeningMove(', 'postMove(tx',
   ], '/setup/commit opening_stock');
   assert.match(setup, /acknowledgeOpeningStockExcluded: z\.boolean\(\)\.optional\(\)/);
   const preview = ledgerHandlerBody(setup, "router.post('/setup/preview-opening'");
@@ -361,7 +338,9 @@ test('حارس ثابت: /setup/commit يفحص المخزون المستورد 
   assert.match(loader, /where: \{ tenantId, reverted: false, kind: OPENING_STOCK_BATCH_KIND \}/);
   assert.match(loader, /db\.warehouseEntry\.findMany\(/);
   assert.doesNotMatch(loader, /\.(create|update|upsert|delete)(Many)?\(/);
-  assert.match(opening, /createdAt: \{ lt: cut\.cutoverStart, lte: cut\.snapshotAt \}/, 'مسند المحرك لم يتغير');
+  // مسند المحرك للطرق السابقة لم يتغير؛ والبداية النظيفة (CLEAN) تأخذ كل ما أُنشئ حتى اللقطة أياً كان تاريخه
+  assert.match(opening, /const createdWindow = clean \? upTo : \{ lt: cut\.cutoverStart, lte: cut\.snapshotAt \}/, 'مسند المحرك لم يتغير');
+  assert.match(opening, /where: \{ entry: \{ tenantId, createdAt: createdWindow \} \}/);
   // الاستيراد يكتب createdAt من ساعة القاعدة ويمرّر الإقرار
   const body = handlerBody(read('routes/import.ts'), "router.post('/opening-stock'");
   assertOrder(body, ['acquirePostLock(tx, tid)', 'SELECT now()', 'guard(await settingsOf(tx), dbNow)', 'createdAt: dbNow', 'tx.importBatch.create(', 'createdAt: dbNow'], 'opening-stock dbNow');

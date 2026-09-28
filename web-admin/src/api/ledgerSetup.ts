@@ -15,7 +15,8 @@ import type {
 
 // ═══ المسودة (GlSettings.setupDraft) ═══
 
-export type SetupMethod = 'OPENING' | 'FULL_HISTORY';
+/** CLEAN: البداية النظيفة — طريقة كل تفعيل جديد (ملاحظة الخبير المحاسبي). OPENING/FULL_HISTORY: تفعيلات سابقة */
+export type SetupMethod = 'OPENING' | 'FULL_HISTORY' | 'CLEAN';
 export type CashInvoiceRouting = 'MAIN_CASH' | 'CUSTODY';
 export type ReceiptRouteTarget = 'CUSTODY' | 'DIRECT';
 

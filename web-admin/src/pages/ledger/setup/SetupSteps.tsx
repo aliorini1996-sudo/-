@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Lock, Sparkles, History, Scale } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Lock, Sparkles } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import { useLang } from '../../../i18n/lang';
 import { activeLocale, formatDayOnly } from '../../../utils/format';
@@ -9,18 +9,19 @@ import { ledgerName } from '../../../lib/ledger/format';
 import { RECEIPT_METHODS, type GlAccount, type ReceiptMethod, type TaxPeriodicity } from '../../../api/ledgerConfig';
 import {
   ledgerSetupApi, ledgerSetupKeys,
-  type ReceiptRouteTarget, type SetupDraft, type SetupMethod, type SetupStateBefore,
+  type ReceiptRouteTarget, type SetupDraft, type SetupStateBefore,
 } from '../../../api/ledgerSetup';
 import { ledgerHref } from '../routes';
 import { AccountSelect, Field, hasArabicLetter, useAllAccounts } from '../config/parts/configUi';
 import {
-  compactBoxes, daysInMonth, effectiveCutover, initialStep1, keepLiveCategoryLinks, needsMidPeriodConfirm, openingDateOf,
+  compactBoxes, daysInMonth, initialStep1, keepLiveCategoryLinks, needsMidPeriodConfirm,
   PRE_CUTOVER_BOX_NOS, preCutoverBoxKey,
 } from './setupLogic';
 import { Notice, StepSection } from './setupUi';
 
 /**
- * خطوات المعالج 1–3 (§5.6): الأساس، وطريقة البدء (CFG‑02)، والشجرة (الأسماء وفئات المنتجات ومسار كل طريقة قبض).
+ * خطوتا المعالج الأوليان (§5.6): الأساس، والشجرة (الأسماء وفئات المنتجات ومسار كل طريقة قبض). خطوة «طريقة البدء»
+ * أُزيلت بقرار الخبير المحاسبي: كل تفعيل بداية نظيفة من يومه، فلا يختار المستخدم طريقة ولا تاريخ بدء.
  * كل خطوة تُحفظ مسودة عبر `onSave(patch, nextStep)` في SetupWizard (POST /setup/draft).
  */
 
@@ -119,25 +120,22 @@ export function Step1Basics({ state, canWrite, busy, onSave, lastErrorCode }: St
   }, []);
 
   const tpl = state.effective.templateKey;
-  const method = state.draft.step2?.method ?? state.effective.method;
-  const checkDate = effectiveCutover(method, v.cutoverDate, state.history.fullHistoryCutoverDate);
-  const mid = needsMidPeriodConfirm(tpl, checkDate, v.taxPeriodicity, v.fiscalYearEndMonth, v.fiscalYearEndDay) || lastErrorCode === 'LEDGER_CUTOVER_MID_VAT_PERIOD';
-  const future = !!v.cutoverDate && v.cutoverDate > state.today;
+  // البداية النظيفة: تاريخ البدء يوم التفعيل نفسه (الخادم يحسبه بساعته عند الاعتماد) — المعروض «اليوم» بتوقيت الشركة
+  const cutoverDate = state.today;
+  const mid = needsMidPeriodConfirm(tpl, cutoverDate, v.taxPeriodicity, v.fiscalYearEndMonth, v.fiscalYearEndDay) || lastErrorCode === 'LEDGER_CUTOVER_MID_VAT_PERIOD';
   const packed = compactBoxes(boxes);
-  const disabledReason = !v.cutoverDate ? tr('تاريخ البدء مطلوب')
-    : future ? tr('لا يجوز تاريخ بدء بعد اليوم بتوقيت الشركة')
-      : mid && !v.confirmMidVatPeriod ? tr('أكّد تاريخ البدء داخل فترة الإقرار')
-        : mid && !packed ? tr('أدخل مبالغ المربعات قبل البدء')
-          : null;
+  const disabledReason = mid && !v.confirmMidVatPeriod ? tr('أكّد تاريخ البدء داخل فترة الإقرار')
+    : mid && !packed ? tr('أدخل مبالغ المربعات قبل البدء')
+      : null;
 
   const save = () => onSave({
     step1: {
       timezone: v.timezone, fiscalYearEndMonth: v.fiscalYearEndMonth, fiscalYearEndDay: v.fiscalYearEndDay, weekStartsOn: v.weekStartsOn,
-      taxPeriodicity: v.taxPeriodicity, cutoverDate: v.cutoverDate,
+      taxPeriodicity: v.taxPeriodicity, cutoverDate,
       confirmMidVatPeriod: mid ? v.confirmMidVatPeriod : false,
       preCutoverBoxes: mid ? packed : null,
     },
-  }, 2);
+  }, 3); // خطوة «طريقة البدء» (2) أُزيلت: كل تفعيل بداية نظيفة
 
   const ro = !canWrite;
   return (
@@ -193,33 +191,16 @@ export function Step1Basics({ state, canWrite, busy, onSave, lastErrorCode }: St
         {tpl === 'SA_6D' && <p className="text-[11px] text-[#9A8F7E]">{tr('يُتحقق من الحد في دليل هيئة الزكاة والضريبة والجمارك قبل اعتماده')}</p>}
       </StepSection>
 
-      <StepSection title={tr('تاريخ البدء')}
-        hint={tpl === 'SA_6D'
-          ? tr('يوافق بداية فترة إقرار وفق الدورية المختارة، والمقترح بداية السنة المالية. ما قبله يدخل القيد الافتتاحي وما بعده يُرحَّل مستندا مستندا')
-          : tr('الافتراضي أول الشهر الحالي. ما قبله يدخل القيد الافتتاحي وما بعده يُرحَّل مستندا مستندا')}>
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label={tr('تاريخ البدء')} className="w-48">
-            <input type="date" className={`input ${future ? '!border-[#C0392B]' : ''}`} value={v.cutoverDate ?? ''} max={state.today} disabled={ro}
-              onChange={e => setV(s => ({ ...s, cutoverDate: e.target.value, confirmMidVatPeriod: false }))} />
-          </Field>
-          {v.cutoverDate !== state.suggestedCutoverDate && (
-            <button type="button" className="btn-secondary inline-flex items-center gap-1.5 text-xs" disabled={ro}
-              onClick={() => setV(s => ({ ...s, cutoverDate: state.suggestedCutoverDate, confirmMidVatPeriod: false }))}>
-              <Sparkles size={13} />{tr('التاريخ المقترح')}: {formatDayOnly(state.suggestedCutoverDate)}
-            </button>
-          )}
-        </div>
-        {v.cutoverDate && !future && (
-          <p className="text-xs text-[#6E6557]">{tr('تاريخ القيد الافتتاحي')}: <bdi className="tabular-nums">{formatDayOnly(openingDateOf(v.cutoverDate))}</bdi></p>
-        )}
-        {future && <Notice tone="error">{tr('لا يجوز تاريخ بدء بعد اليوم بتوقيت الشركة')}</Notice>}
-        {method === 'FULL_HISTORY' && state.history.fullHistoryCutoverDate && (
-          <Notice>{tr('طريقة التاريخ الكامل تبدأ من بداية السنة المالية لأقدم مستند')}: <bdi className="tabular-nums">{formatDayOnly(state.history.fullHistoryCutoverDate)}</bdi></Notice>
-        )}
+      <StepSection title={tr('تاريخ البدء')}>
+        <Notice>
+          <Sparkles size={12} className="inline me-1" />
+          {tr('بداية نظيفة: تبدأ الدفاتر وشجرة الحسابات يوم التفعيل بلا استيراد ولا ترحيل لأي مستند أو حركة أو رصيد سبق التفعيل. ما يُنشأ بعد التفعيل وحده يُرحَّل، والأرصدة الافتتاحية يُدخلها المحاسب في خطوة الأرصدة')}
+        </Notice>
+        <ReadRow label={tr('تاريخ البدء')}>{tr('يوم التفعيل')} · <bdi className="tabular-nums">{formatDayOnly(cutoverDate)}</bdi> {tr('إن فعّلت اليوم')}</ReadRow>
         {mid && (
           <div className="space-y-3">
             <Notice tone="warn">
-              {tr('تاريخ البدء داخل فترة إقرار. دون مبالغ ما قبل البدء تنقص مربعات الإقرار الأول للفترة كلها، ويلزم إدخال أرصدة ضريبة المخرجات والمدخلات للفترة المفتوحة في الخطوة 5')}
+              {tr('تاريخ البدء داخل فترة إقرار. أدخل مبالغ المربعات لكل ما سبق لحظة التفعيل في هذه الفترة، ومنها مستندات يوم التفعيل السابقة له، وإلا نقصت مربعات الإقرار الأول. ويلزم إدخال أرصدة ضريبة المخرجات والمدخلات للفترة المفتوحة في خطوة الأرصدة')}
             </Notice>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1 accent-[#E15A30]" checked={v.confirmMidVatPeriod} disabled={ro}
@@ -257,49 +238,6 @@ export function Step1Basics({ state, canWrite, busy, onSave, lastErrorCode }: St
       </StepSection>
 
       <StepFooter onNext={save} busy={busy} disabledReason={disabledReason} canWrite={canWrite} />
-    </div>
-  );
-}
-
-// ═══ الخطوة 2: طريقة البدء ═══
-
-export function Step2Method({ state, canWrite, busy, onSave, onBack }: StepProps) {
-  const tr = useTr();
-  const [method, setMethod] = useState<SetupMethod>(state.draft.step2?.method ?? state.effective.method ?? 'OPENING');
-  const h = state.history;
-  const fullBlocked = h.tooLarge;
-  const disabledReason = method === 'FULL_HISTORY' && fullBlocked ? tr('الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية') : null;
-  const opt = (m: SetupMethod, icon: ReactNode, title: string, body: ReactNode, disabled = false) => (
-    <label className={`block rounded-xl border p-3 sm:p-4 ${method === m ? 'border-[#E15A30] bg-[#FBEBE2]/40' : 'border-[#E8E0D2]'} ${disabled || !canWrite ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
-      <div className="flex items-start gap-3">
-        <input type="radio" name="setupMethod" className="mt-1 accent-[#E15A30]" checked={method === m} disabled={disabled || !canWrite} onChange={() => setMethod(m)} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="flex items-center gap-2 font-semibold text-[#1F1A13]"><span className="text-[#E15A30]">{icon}</span>{title}</p>
-          <div className="text-xs text-[#6E6557] leading-relaxed space-y-1">{body}</div>
-        </div>
-      </div>
-    </label>
-  );
-  return (
-    <div className="space-y-3">
-      {opt('OPENING', <Scale size={16} />, `${tr('أرصدة افتتاحية')} · ${tr('موصى به')}`, (
-        <p>{tr('ما قبل تاريخ البدء يدخل في قيد افتتاحي واحد، وما بعده يُرحَّل مستندا مستندا')}</p>
-      ))}
-      {opt('FULL_HISTORY', <History size={16} />, tr('ترحيل التاريخ الكامل'), (
-        <>
-          <p>{tr('يبدأ من بداية السنة المالية لأقدم مستند، وتُرحَّل كل المستندات بإيقاع محدد في الخلفية')}</p>
-          <p className="flex flex-wrap gap-x-4 gap-y-0.5">
-            <span>{tr('الصفوف المتوقعة')}: <bdi className="tabular-nums">{h.rows.toLocaleString(activeLocale())}</bdi> / <bdi className="tabular-nums">{h.maxRows.toLocaleString(activeLocale())}</bdi></span>
-            <span>{tr('المدة التقديرية')}: <bdi className="tabular-nums">{h.estimatedMinutes}</bdi> {tr('دقيقة')}</span>
-            {h.fullHistoryCutoverDate && <span>{tr('تاريخ البدء')}: <bdi className="tabular-nums">{formatDayOnly(h.fullHistoryCutoverDate)}</bdi></span>}
-          </p>
-          {fullBlocked && <p className="text-[#8E2A1F]">{tr('الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية')}</p>}
-        </>
-      ), fullBlocked)}
-      {method === 'FULL_HISTORY' && !fullBlocked && (
-        <Notice>{tr('الترحيل التاريخي كتابة على دفاترك تُطلق من هذه الواجهة، ويمكن إيقافها مؤقتا من الإعدادات')}</Notice>
-      )}
-      <StepFooter onBack={onBack} onNext={() => onSave({ step2: { method } }, 3)} busy={busy} disabledReason={disabledReason} canWrite={canWrite} />
     </div>
   );
 }

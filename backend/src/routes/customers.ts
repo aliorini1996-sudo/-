@@ -3,6 +3,10 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
+
+/* العميل المحذوف: صفُّه باقٍ لتقرأ فواتيرُه اسمَه، فيُستثنى صراحةً من كلّ
+ * قائمةٍ لا تفلتر ACTIVE. وما يفلترها (تقرير الأرصدة مثلاً) يُسقطه وحده. */
+const NOT_DELETED = { status: { not: 'DELETED' } } as const;
 import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
@@ -82,7 +86,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           { code: { contains: search } },
         ],
       }),
-      ...(status && { status: status as 'ACTIVE' | 'INACTIVE' | 'BLOCKED' }),
+      // «جميع الحالات» تعني الأحياء جميعاً لا المحذوفين — والحالة المطلوبة
+      // تُقيَّد بها إن أُرسلت (وDELETED ليست خياراً في الواجهة)
+      ...(status ? { status: status as 'ACTIVE' | 'INACTIVE' | 'BLOCKED' } : NOT_DELETED),
       ...(channel && { channel }),
     };
 
@@ -104,7 +110,7 @@ router.get('/locations', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const tid = tenantId(req);
     const customers = await prisma.customer.findMany({
-      where: { tenantId: tid, lat: { not: null }, lng: { not: null }, ...(await customerScope(req, tid)) },
+      where: { tenantId: tid, ...NOT_DELETED, lat: { not: null }, lng: { not: null }, ...(await customerScope(req, tid)) },
       select: { id: true, name: true, businessName: true, phone: true, city: true, district: true, address: true, lat: true, lng: true },
       take: 5000,
     });
@@ -367,31 +373,60 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
   } catch (err) { next(err); }
 });
 
-// حذف عميل — للإدارة فقط (لا المناديب). يُمنع الحذف إن كانت له حركات مالية حفاظاً على سلامة السجلّات.
+/**
+ * حذف عميل — للإدارة وحدها، **ويمضي دائماً**.
+ *
+ * كان يُرفض بـ409 متى كانت للعميل فاتورةٌ أو سندٌ أو حركةُ كشف، فيبقى في
+ * قائمة المشترك أبداً ولا يفيده «تعطيله» لأنّه يظلّ معروضاً. والقرار (المالك):
+ * يختفي نهائياً، وتبقى فواتيره.
+ *
+ * فمساران بحسب ما له من أثر ماليّ:
+ *  • بلا أثر ⇒ حذفٌ فعليّ من القاعدة كما كان.
+ *  • بأثر ⇒ **أرشفة**: `status = 'DELETED'` فيسقط من كل قائمة وبحثٍ وتقرير،
+ *    وتُقطع إسناداته ومحطّاته وأسعاره الخاصّة فلا يبلغه مندوب. وصفّه يبقى في
+ *    القاعدة لسببٍ واحد: فواتيره وسنداته تشير إليه، وقراءةُ اسمها منه. محوُه
+ *    معها كان يُنقص المبيعات والتحصيل في تقاريرَ سبق إقرارها ضريبياً، ويخالف
+ *    إلزام الهيئة بحفظ الفاتورة ستّ سنوات.
+ *
+ * ومن ثمّ لا مسار «استرجاع» في الواجهة: الحذف نهائيّ كما وُعد المستخدم.
+ */
 router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const customer = await prisma.customer.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true, name: true } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
 
-    // منع الحذف عند وجود فواتير/سندات/حركات كشف حساب — يُقترح التعطيل بدلاً منه
     const [invoices, receipts, entries] = await Promise.all([
-      prisma.invoice.count({ where: { customerId: req.params.id } }),
-      prisma.receipt.count({ where: { customerId: req.params.id } }),
-      prisma.accountEntry.count({ where: { customerId: req.params.id } }),
+      prisma.invoice.count({ where: { customerId: customer.id } }),
+      prisma.receipt.count({ where: { customerId: customer.id } }),
+      prisma.accountEntry.count({ where: { customerId: customer.id } }),
     ]);
-    if (invoices > 0 || receipts > 0 || entries > 0) {
-      res.status(409).json({ success: false, message: 'لا يمكن حذف العميل لوجود فواتير أو سندات أو حركات في كشف حسابه يمكنك تعطيله تغيير حالته إلى غير نشط بدلا من الحذف' });
+    const hasRecords = invoices > 0 || receipts > 0 || entries > 0;
+
+    // ما يُقطع في الحالين: إسنادُه لمندوب، ومحطّاته في خطوط السير، وأسعاره الخاصّة
+    const detach = [
+      prisma.customerAssignment.deleteMany({ where: { customerId: customer.id } }),
+      prisma.repRouteStop.deleteMany({ where: { customerId: customer.id } }),
+      prisma.customerPrice.deleteMany({ where: { customerId: customer.id } }),
+    ];
+
+    if (hasRecords) {
+      await prisma.$transaction([
+        ...detach,
+        // `status` لا حقلٌ جديد: كلّ شاشةٍ تفلتر ACTIVE تُسقطه فوراً، وما لا
+        // يفلتر استُثني صراحةً (قائمة العملاء والخريطة ولوحة التحكّم).
+        prisma.customer.update({ where: { id: customer.id }, data: { status: 'DELETED' } }),
+      ]);
+      res.json({ success: true, data: { archived: true, invoices, receipts, entries } });
       return;
     }
 
-    // حذف البيانات التابعة غير المالية ثم العميل، في معاملة واحدة
     await prisma.$transaction([
-      prisma.customerPrice.deleteMany({ where: { customerId: req.params.id } }),
-      prisma.notification.deleteMany({ where: { customerId: req.params.id } }),
-      prisma.customer.delete({ where: { id: req.params.id } }),
+      ...detach,
+      prisma.notification.deleteMany({ where: { customerId: customer.id } }),
+      prisma.customer.delete({ where: { id: customer.id } }),
     ]);
-    res.json({ success: true });
+    res.json({ success: true, data: { archived: false } });
   } catch (err) { next(err); }
 });
 

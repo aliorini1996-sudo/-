@@ -157,19 +157,26 @@ async function companyOf(db: GlTx | typeof prisma, tenantId: string) {
   return { countryCode, currency: cs ? (cs.currencyOverride || cs.currency) : null };
 }
 
-function effectiveSetup(draft: SetupDraft, s: SettingsRow | null, countryCode: string): EffectiveSetup {
+/**
+ * الإعدادات الفعلية للمعالج. **البداية النظيفة** (ملاحظة الخبير المحاسبي، ٢٧ سبتمبر ٢٠٢٦): كل تفعيل — لشركة جديدة
+ * أو قائمة أو بعد إعادة ضبط — تبدأ دفاتره وشجرته وفروعها بلا استيراد ولا ترحيل لأي شيء سبق التفعيل. فالطريقة
+ * CLEAN دائماً (step2 القديمة في المسودات المخزّنة تُتجاهل)، وتاريخ البدء يوم التفعيل نفسه بتوقيت الشركة
+ * (step1.cutoverDate القديم يُتجاهل) — `now` ساعة القاعدة.
+ */
+function effectiveSetup(draft: SetupDraft, s: SettingsRow | null, countryCode: string, now: Date): EffectiveSetup {
   const templateKey: TemplateKey = s ? (s.templateKey === 'GENERIC_6D' ? 'GENERIC_6D' : 'SA_6D') : (countryCode === 'SA' ? 'SA_6D' : 'GENERIC_6D');
   const d1 = draft.step1 ?? {};
+  const timezone = d1.timezone ?? s?.timezone ?? DEFAULT_GL_SETTINGS.timezone;
   return {
     templateKey,
     countryCode: s?.countryCode ?? countryCode,
-    timezone: d1.timezone ?? s?.timezone ?? DEFAULT_GL_SETTINGS.timezone,
+    timezone,
     fiscalYearEndMonth: d1.fiscalYearEndMonth ?? s?.fiscalYearEndMonth ?? 12,
     fiscalYearEndDay: d1.fiscalYearEndDay ?? s?.fiscalYearEndDay ?? 31,
     weekStartsOn: d1.weekStartsOn ?? s?.weekStartsOn ?? 0,
     taxPeriodicity: (d1.taxPeriodicity ?? (s?.taxPeriodicity as TaxPeriodicity | undefined) ?? 'QUARTERLY'),
-    method: draft.step2?.method ?? 'OPENING',
-    cutoverDate: d1.cutoverDate ?? null,
+    method: 'CLEAN',
+    cutoverDate: todayLocal(now, isValidTimeZone(timezone) ? timezone : DEFAULT_GL_SETTINGS.timezone),
     confirmMidVatPeriod: d1.confirmMidVatPeriod === true,
     preCutoverBoxes: d1.preCutoverBoxes ?? null,
   };
@@ -340,8 +347,8 @@ router.get('/setup', CONFIGURE, ledgerHandler(async (_req, res) => {
   const { tenantId } = ledgerOf(res);
   const [s, company] = await Promise.all([prisma.glSettings.findUnique({ where: { tenantId } }), companyOf(prisma, tenantId)]);
   const draft = parseStoredDraft(s?.setupDraft);
-  const eff = effectiveSetup(draft, s, company.countryCode);
   const now = await dbNowOf(prisma);
+  const eff = effectiveSetup(draft, s, company.countryCode, now);
   const status = settingsStatus(s);
   if (s?.activatedAt) {
     const progress = await refreshBackfillState(prisma, tenantId);
@@ -386,7 +393,7 @@ router.post('/setup/draft', CONFIGURE, ledgerHandler(async (req, res) => {
     const before = await tx.glSettings.findUnique({ where: { tenantId } });
     assertNotActivated(before);
     const merged = mergeDraft(parseStoredDraft(before?.setupDraft), patch);
-    const eff = effectiveSetup(merged, before, company.countryCode);
+    const eff = effectiveSetup(merged, before, company.countryCode, now);
     // الخطوة 1: لا تاريخ بدء في المستقبل (422 LEDGER_CUTOVER_IN_FUTURE) ولا داخل فترة إقرار دون تأكيد
     checkStep1(eff, now);
     let history = null;
@@ -441,8 +448,9 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
   const patch = draftSchema.parse(req.body ?? {});
   const [s, company] = await Promise.all([prisma.glSettings.findUnique({ where: { tenantId } }), companyOf(prisma, tenantId)]);
   const draft = mergeDraft(parseStoredDraft(s?.setupDraft), patch);
-  const eff = effectiveSetup(draft, s, company.countryCode);
   const now = await dbNowOf(prisma);
+  const eff = effectiveSetup(draft, s, company.countryCode, now);
+  const clean = eff.method === 'CLEAN';
   let cutoverDate = eff.cutoverDate;
   if (eff.method === 'FULL_HISTORY') {
     const facts = await loadHistoryFacts(prisma, tenantId);
@@ -452,7 +460,7 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
   const { midPeriod } = checkStep1({ ...eff, cutoverDate }, now);
   const ctx = await previewContext(tenantId, s, eff);
   const decimals = ctx.settings.currencyDecimals;
-  const cut = openingCutoff(cutoverDate, eff.timezone, now);
+  const cut = openingCutoff(cutoverDate, eff.timezone, now, { cleanStart: clean });
   // الافتتاح = الأرصدة اليدوية وحدها (أُزيلت الأرصدة المشتقة بقرار الخبير المحاسبي)
   const manual = validateManualBalanceRows(manualRowsOf(draft), ctx, { midVatPeriod: midPeriod });
   const partners = await resolveManualPartners(prisma, tenantId, manual.lines);
@@ -463,11 +471,12 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
   });
   // المخزون الافتتاحي المستورد خارج الافتتاح: بعد البدء، أو أحدث من لقطة الاعتماد (T0 = الآن − 10 دقائق)
   const stockCut = openingCutoff(cutoverDate, eff.timezone, openingSnapshotFromDbNow(now));
+  // البداية النظيفة: لا حركة مستوردة ولا مخزون مستورد يدخل الدفاتر، فلا تنبيه ولا إقرار لهما
   const [importedAfterCutover, customers, products, openingStock] = await Promise.all([
-    loadImportedAfterCutover(prisma, tenantId, cut, decimals),
+    clean ? null : loadImportedAfterCutover(prisma, tenantId, cut, decimals),
     prisma.customer.count({ where: { tenantId } }),
     prisma.product.count({ where: { tenantId } }),
-    loadOpeningStockCheck(prisma, tenantId, stockCut, decimals),
+    clean ? null : loadOpeningStockCheck(prisma, tenantId, stockCut, decimals),
   ]);
   res.json({
     success: true,
@@ -480,12 +489,14 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
       manual: { lineCount: manual.lines.length - badRows.size, issues },
       move: openingMoveJson(move, decimals),
       draftsBeforeCutover: await draftsBeforeCutover(prisma, tenantId, cutoverDate),
-      importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, decimals),
+      ...(importedAfterCutover ? { importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, decimals) } : {}),
       /** دفعات opening_stock: fullHistoryBlocked يمنع الاعتماد، وafterCutover يتطلب إقراراً، وtooRecent يُعاد بعد retryAfter */
-      openingStock: {
-        ...openingStockCheckJson(openingStock, decimals, stockCut),
-        fullHistoryBlocked: eff.method === 'FULL_HISTORY' && openingStock.batches > 0,
-      },
+      ...(openingStock ? {
+        openingStock: {
+          ...openingStockCheckJson(openingStock, decimals, stockCut),
+          fullHistoryBlocked: eff.method === 'FULL_HISTORY' && openingStock.batches > 0,
+        },
+      } : {}),
       /** للتنبيه: ذمم صفرية مع عملاء، ومخزون صفري مع منتجات */
       tenantCounts: { customers, products },
     },
@@ -493,6 +504,9 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
 }));
 
 // ═══ POST /setup/commit ═══
+
+export const LEDGER_SETUP_DAY_CHANGED_MESSAGE =
+  'تغيّر يوم التفعيل منذ حفظ الخطوة الأولى: راجع الأساس (ومبالغ الإقرار قبل البدء إن طُلبت) والأرصدة الافتتاحية لتكون حتى لحظة التفعيل، ثم احفظ الخطوة الأولى من جديد اليوم';
 
 /**
  * البند 41: الإقرار مربوط باللقطة المعروضة (العدد والمدين والدائن ولحظتها) لا قيمةً منطقية، فلا يصحّ إقرار قديم
@@ -622,13 +636,25 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // البند 42: ساعة القاعدة **بعد** حيازة القفلين (clock_timestamp لا now المجمَّد على بدء المعاملة)، فتشمل اللقطة
     // كل ما كُتب أثناء انتظار القفل. T0 ومنه openingSnapshotAt وactivatedAt وفحوص الإقرار كلها على هذه اللحظة.
     const dbNow = await dbClockOf(tx);
-    const T0 = openingSnapshotFromDbNow(dbNow);
+    const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
+    const eff = effectiveSetup(draft, before, company.countryCode, dbNow);
+    const clean = eff.method === 'CLEAN';
+    // البداية النظيفة: الخطوة الأولى (ومعها مبالغ الإقرار قبل البدء) والأرصدة الافتتاحية تُراجع «حتى لحظة التفعيل»؛ فإن
+    // حُفظت الخطوة الأولى في يومٍ غير يوم الاعتماد فتاريخ البدء تغيّر ومستندات الأيام الفاصلة لا تقع في المربعات ولا في
+    // الأرصدة ولا في الدفاتر ⇒ 409 قبل أي كتابة حتى تُحفظ الخطوة الأولى اليوم (مراجعة عدائية، ٢٧ سبتمبر ٢٠٢٦).
+    const savedDay = draft.step1?.cutoverDate ?? null;
+    if (clean && savedDay && savedDay !== eff.cutoverDate) {
+      throw new LedgerHttpError(409, LEDGER_SETUP_DAY_CHANGED_MESSAGE, {
+        reason: 'SETUP_DAY_CHANGED', savedCutoverDate: savedDay, cutoverDate: eff.cutoverDate,
+      }, 'LEDGER_SETUP_DAY_CHANGED');
+    }
+    // البداية النظيفة: T0 = لحظة التفعيل نفسها — كل ما أُنشئ حتى هنا خارج الدفاتر. نافذة الدقائق العشر (LATE_COMMIT_WINDOW)
+    // كانت لتتّسق الأرصدة المشتقة مع صفوف لم تُلتزم بعد؛ لا اشتقاق الآن، وصفٌّ أُنشئ قبل التفعيل والتُزم بعده خارج الدفاتر أيضاً.
+    const T0 = clean ? dbNow : openingSnapshotFromDbNow(dbNow);
     const runningImport = await loadRunningImportBatch(tx, tenantId, dbNow);
     if (runningImport) {
       throw new LedgerHttpError(409, LEDGER_IMPORT_IN_PROGRESS_MESSAGE, importInProgressDetails(runningImport), 'LEDGER_IMPORT_IN_PROGRESS');
     }
-    const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
-    const eff = effectiveSetup(draft, before, company.countryCode);
     // البند 25: قبل أي حساب بتواريخ القيود المستوردة (الافتتاح وما بعد البدء) وقبل كتابة الإعدادات؛ القفل مأخوذ أعلاه
     const rebasedImportEntries = await guardImportTimezone(tx, tenantId, before, eff.timezone, {
       rebase: parsed.data.rebaseImportDates, now: dbNow, lockHeld: true,
@@ -651,21 +677,22 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // قفل gl-post ممسوك، واستيراد المخزون يأخذه، فلا حركة تُكتب بين الفحص والتفعيل.
     const stockDecimals = before?.currencyDecimals ?? DEFAULT_GL_SETTINGS.currencyDecimals;
     const stockCut = openingCutoff(cutoverDate, eff.timezone, T0);
+    // البداية النظيفة: المخزون المستورد لا يدخل الدفاتر إطلاقاً، فلا منع ولا إقرار (الفحص يُحسب للتدقيق فقط)
     const openingStock = await loadOpeningStockCheck(tx, tenantId, stockCut, stockDecimals);
     const openingStockJson = openingStockCheckJson(openingStock, stockDecimals, stockCut);
-    if (eff.method === 'FULL_HISTORY' && openingStock.batches > 0) {
+    if (clean) { /* لا حراسة للمخزون المستورد */ } else if (eff.method === 'FULL_HISTORY' && openingStock.batches > 0) {
       throw new LedgerHttpError(409, LEDGER_OPENING_STOCK_FULL_HISTORY_MESSAGE, {
         reason: 'OPENING_STOCK_FULL_HISTORY', method: 'FULL_HISTORY', batches: openingStock.batches,
       }, 'LEDGER_OPENING_STOCK_FULL_HISTORY');
     }
-    if (openingStock.afterCutover.count > 0 && parsed.data.acknowledgeOpeningStockExcluded !== true) {
+    if (!clean && openingStock.afterCutover.count > 0 && parsed.data.acknowledgeOpeningStockExcluded !== true) {
       throw new LedgerHttpError(409, LEDGER_OPENING_STOCK_AFTER_CUTOVER_MESSAGE, {
         reason: 'OPENING_STOCK_AFTER_CUTOVER', field: 'acknowledgeOpeningStockExcluded', cutoverDate,
         count: openingStockJson.afterCutover.count, value: openingStockJson.afterCutover.value,
         minCutoverDate: openingStockJson.afterCutover.minCutoverDate, entries: openingStockJson.afterCutover.entries,
       }, 'LEDGER_OPENING_STOCK_AFTER_CUTOVER');
     }
-    if (openingStock.tooRecent.count > 0) {
+    if (!clean && openingStock.tooRecent.count > 0) {
       throw new LedgerHttpError(409, LEDGER_OPENING_STOCK_TOO_RECENT_MESSAGE, {
         reason: 'OPENING_STOCK_TOO_RECENT', count: openingStockJson.tooRecent.count, value: openingStockJson.tooRecent.value,
         batchId: openingStockJson.tooRecent.entries[0]?.batchId ?? null, createdAt: openingStockJson.tooRecent.entries[0]?.createdAt ?? null,
@@ -676,14 +703,15 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // وهي مقروءة بساعة ما بعد القفلين (البند 42) فتشمل ما استُورد أثناء انتظار القفل.
     const currencyDecimalsForCheck = before?.currencyDecimals ?? DEFAULT_GL_SETTINGS.currencyDecimals;
     const importedAfterCutover = await loadImportedAfterCutover(tx, tenantId, openingCutoff(cutoverDate, eff.timezone, dbNow), currencyDecimalsForCheck);
-    if (postCutoverImportsAckMissing(importedAfterCutover, parsed.data.acknowledgePostCutoverImports)) {
+    // البداية النظيفة: الحركات المستوردة قبل التفعيل لا تُرحَّل أياً كان تاريخها (classifyCutover)، فلا إقرار لها
+    if (!clean && postCutoverImportsAckMissing(importedAfterCutover, parsed.data.acknowledgePostCutoverImports)) {
       throw new LedgerHttpError(409, LEDGER_POST_CUTOVER_IMPORTS_ACK_MESSAGE, {
         reason: 'POST_CUTOVER_IMPORTS_ACK_REQUIRED', field: 'acknowledgePostCutoverImports',
         importedAfterCutover: importedAfterCutoverJson(importedAfterCutover, currencyDecimalsForCheck),
       }, 'LEDGER_POST_CUTOVER_IMPORTS_ACK');
     }
     // البند 41: الإقرار على لقطة غير التي يراها الاعتماد ⇒ 409 بالأرقام القديمة والجديدة، والواجهة تحدّث المعاينة
-    const ackDiff = postCutoverImportsAckStale(importedAfterCutover, currencyDecimalsForCheck, parsed.data.acknowledgePostCutoverImports);
+    const ackDiff = clean ? null : postCutoverImportsAckStale(importedAfterCutover, currencyDecimalsForCheck, parsed.data.acknowledgePostCutoverImports);
     if (ackDiff) {
       throw new LedgerHttpError(409, LEDGER_POST_CUTOVER_IMPORTS_CHANGED_MESSAGE, {
         reason: 'POST_CUTOVER_IMPORTS_CHANGED', field: 'acknowledgePostCutoverImports',
@@ -742,8 +770,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
 
     // (5) القيد الافتتاحي من الأرصدة اليدوية وحدها — أُزيلت الأرصدة المشتقة (الذمم والعهدة والأمانات والمخزون محسوبةً
     // من المستندات) بقرار الخبير المحاسبي. computeDerivedOpening تبقى لتقسيم الاستلامات السابقة للبدء فقط (لا تُرحِّل).
-    const cut = openingCutoff(cutoverDate, eff.timezone, T0);
-    const sources = await loadOpeningSources(tx, tenantId, cut);
+    const cut = openingCutoff(cutoverDate, eff.timezone, T0, { cleanStart: clean });
+    const sources = await loadOpeningSources(tx, tenantId, cut, { includeInventory: !clean });
     const derived = computeDerivedOpening(sources, cut, {
       decimals, routing: { receiptRouting: ctx.settings.receiptRouting, cashInvoiceRouting: ctx.settings.cashInvoiceRouting },
     });
@@ -787,7 +815,7 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     const moveJson = openingMoveJson(move, decimals);
     await appendAudit(tx, {
       tenantId, actor, action: 'SETUP_COMMIT', entityType: 'SETTINGS', entityId: settings.id,
-      summary: `تفعيل النظام المحاسبي المتكامل بتاريخ بدء ${cutoverDate} (${eff.method === 'OPENING' ? 'أرصدة افتتاحية' : 'التاريخ الكامل'})`,
+      summary: `تفعيل النظام المحاسبي المتكامل بتاريخ بدء ${cutoverDate} (${clean ? 'بداية نظيفة بلا ترحيل لما سبق التفعيل' : eff.method === 'OPENING' ? 'أرصدة افتتاحية' : 'التاريخ الكامل'})`,
       after: {
         method: eff.method, cutoverDate, openingSnapshotAt: T0.toISOString(), activatedAt: dbNow.toISOString(), templateKey: eff.templateKey,
         midVatPeriod: midPeriod, preCutoverBoxes: eff.preCutoverBoxes, watermarkAt: watermarkAt.toISOString(), history, futureDated, frozenSettlements,

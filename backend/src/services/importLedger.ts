@@ -745,30 +745,18 @@ export function draftMethod(setupDraft: unknown): 'OPENING' | 'FULL_HISTORY' | n
 }
 
 /**
- * الاستيراد مسموح ما دام activatedAt فارغاً، متسقاً مع المعالج الذي لا يقبل تاريخ بدء بعد اليوم (assertCutoverNotInFuture):
- * - FULL_HISTORY في المسودة ⇒ 409 OPENING_STOCK_FULL_HISTORY (البداية من أقدم حركة فتقع الحركة بعدها، ولا ترحيل مستودع قبل M9).
- * - تاريخ بدء محفوظ ≤ اليوم (بتوقيت الشركة) ⇒ 409 OPENING_STOCK_AFTER_CUTOVER ما لم يُقَرّ (acknowledgeCutoverChange):
- *   حركة تُنشأ الآن createdAt ≥ بداية اليوم، فلا تدخل الافتتاح إلا بتاريخ بدء بعد اليوم ⇒ اعتماد في يوم لاحق (minCutoverDate).
- *   الإقرار آمن لأن /setup/commit يرفض الاعتماد بحركة مستوردة خارج الافتتاح (LEDGER_OPENING_STOCK_AFTER_CUTOVER).
- * - بلا تاريخ بدء ⇒ مسموح، والحسم في الاعتماد.
+ * الاستيراد مسموح ما دام activatedAt فارغاً، ومحجوب بعد التفعيل (409 OPENING_STOCK_LEDGER_ACTIVE).
+ *
+ * البداية النظيفة (ملاحظة الخبير المحاسبي، ٢٧ سبتمبر ٢٠٢٦): المخزون المستورد يخدم المستودع وحده ولا يدخل الدفاتر
+ * أياً كان تاريخ البدء — قيمة مخزون المستودع الافتتاحية يُدخلها المحاسب في الأرصدة اليدوية. فسقط حارسا المسودة:
+ * «التاريخ الكامل» (لم تعد طريقة) و«تاريخ بدء ≤ اليوم يتطلب إقراراً» (كان لأن المخزون المستورد يدخل الافتتاح).
+ * `setupDraft` و`acknowledgeCutoverChange` يُقبلان للتوافق مع النداءات القائمة ولا أثر لهما.
  */
 export function assertOpeningStockAllowed(i: {
   activatedAt: Date | null | undefined; setupDraft?: unknown; timezone: string; now: Date; acknowledgeCutoverChange?: boolean;
 }): void {
   if (i.activatedAt) {
     throw new ImportHttpError(409, 'OPENING_STOCK_LEDGER_ACTIVE', OPENING_STOCK_LEDGER_ACTIVE_MESSAGE, { activatedAt: i.activatedAt.toISOString() });
-  }
-  if (draftMethod(i.setupDraft) === 'FULL_HISTORY') {
-    throw new ImportHttpError(409, 'OPENING_STOCK_FULL_HISTORY', OPENING_STOCK_FULL_HISTORY_MESSAGE, { method: 'FULL_HISTORY' });
-  }
-  const cutoverDate = draftCutoverDate(i.setupDraft);
-  if (!cutoverDate) return;
-  const tz = i.timezone && isValidTimeZone(i.timezone) ? i.timezone : DEFAULT_TIMEZONE;
-  const today = todayLocal(i.now, tz);
-  if (compareLocalDate(cutoverDate, today) <= 0 && i.acknowledgeCutoverChange !== true) {
-    throw new ImportHttpError(409, 'OPENING_STOCK_AFTER_CUTOVER', OPENING_STOCK_AFTER_CUTOVER_MESSAGE, {
-      cutoverDate, today, timezone: tz, minCutoverDate: addDays(today, 1), field: 'acknowledgeCutoverChange',
-    });
   }
 }
 

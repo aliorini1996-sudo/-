@@ -25,17 +25,18 @@ export type ManualBalanceIssueReason = (typeof MANUAL_BALANCE_ISSUES)[number];
 
 // ═══ الخطوات ═══
 
-/** خطوة «الأرصدة المشتقة» (4) أُزيلت بقرار الخبير المحاسبي — الأرقام الداخلية مخزّنة في المسودات فتبقى (انظر setupProgress) */
+/** خطوتا «طريقة البدء» (2) و«الأرصدة المشتقة» (4) أُزيلتا بقرار الخبير المحاسبي — الأرقام الداخلية مخزّنة في المسودات فتبقى (انظر setupProgress) */
 export const SETUP_STEPS = PROGRESS_STEPS;
 export type SetupStepNo = (typeof SETUP_STEPS)[number];
 
 export const clampStep = (n: unknown): SetupStepNo => {
   const v = Math.trunc(Number(n));
+  if (v === 2) return 3;
   if (v === 4) return 5;
   return (v >= 1 && v <= 6 ? v : 1) as SetupStepNo;
 };
 
-/** الخطوة السابقة/التالية في المعالج (تتخطّى 4 المُزالة) */
+/** الخطوة السابقة/التالية في المعالج (تتخطّى 2 و4 المُزالتين) */
 export const prevStep = (s: SetupStepNo): SetupStepNo => SETUP_STEPS[Math.max(0, SETUP_STEPS.indexOf(s) - 1)];
 export const nextStep = (s: SetupStepNo): SetupStepNo => SETUP_STEPS[Math.min(SETUP_STEPS.length - 1, SETUP_STEPS.indexOf(s) + 1)];
 

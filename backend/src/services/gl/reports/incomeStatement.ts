@@ -8,14 +8,19 @@
  *
  * | السطر | المعادلة |
  * |---|---|
- * | الإيرادات | −Σ `income` |
- * | تكلفة الإيرادات | Σ `expense_direct_cost` |
- * | **إجمالي الربح** | الإيرادات − تكلفة الإيرادات |
- * | نفقات التشغيل | Σ `expense` (ومعها `expense_depreciation` سطراً فرعياً «الإهلاك» **فقط** مع `depreciationInOperatingExpenses`) |
- * | **الدخل التشغيلي** | إجمالي الربح − نفقات التشغيل |
- * | دخل آخر | −Σ `income_other` |
- * | النفقات الأخرى | Σ `expense_depreciation` (افتراضياً) + Σ `expense_other` |
- * | **صافي الربح قبل الزكاة** | الدخل التشغيلي + دخل آخر − النفقات الأخرى |
+ * | إجمالي المبيعات والإيرادات | −Σ `income` عدا حسابات المردودات والخصومات |
+ * | يُطرح: مردودات وخصومات المبيعات | Σ حسابات `SALES_RETURNS` و`SALES_DISCOUNT` (412001/413001) — مدين موجب |
+ * | **صافي الإيرادات** | إجمالي المبيعات − المردودات والخصومات (= −Σ `income` كاملةً) |
+ * | تكلفة البضاعة المباعة | Σ `expense_direct_cost` |
+ * | **مجمل الربح** | صافي الإيرادات − تكلفة البضاعة المباعة |
+ * | المصروفات التشغيلية | Σ `expense` مجمّعة: البيع والتوزيع (61…) والعمومية والإدارية (62…) وغيرها (ومعها `expense_depreciation` مجموعةً «الإهلاك» **فقط** مع `depreciationInOperatingExpenses`) |
+ * | **الربح التشغيلي** | مجمل الربح − المصروفات التشغيلية |
+ * | إيرادات أخرى | −Σ `income_other` |
+ * | مصروفات أخرى | Σ `expense_depreciation` (افتراضياً) + Σ `expense_other` |
+ * | **صافي الربح قبل الزكاة** | الربح التشغيلي + إيرادات أخرى − مصروفات أخرى |
+ *
+ * التسميات بالعربية المحاسبية المعتادة (طلب المالك، ٢٨ سبتمبر ٢٠٢٦): كانت القائمة تجمع المبيعات ومردوداتها
+ * وخصوماتها في سطر «الإيرادات» وحده، فبدت بلا صافي إيرادات ولا تكلفة بضاعة ولا مصروفات بأسمائها.
  * | الزكاة وضريبة الدخل | Σ `expense_zakat` |
  * | **صافي الربح** | ما قبل الزكاة − الزكاة |
  * | التخصيصات والمسحوبات (خيار `drawingsAfterNetProfit`) | Σ حركة حسابات وسم `DRAWINGS` في الفترة (مدين) |
@@ -47,6 +52,10 @@ export const RETAINED_EARNINGS_TEMPLATE_CODE = '313001';
 /** اسم وسم المسحوبات ومفتاح ربطه معاً (§4.2: 315001 بوسم `DRAWINGS` ومفتاح `DRAWINGS`). */
 export const DRAWINGS_KEY = 'DRAWINGS';
 export const RETAINED_EARNINGS_KEY = 'RETAINED_EARNINGS';
+/** مفاتيح ربط حسابات مردودات وخصومات المبيعات (حسابات `income` مدينة الطبيعة تُطرح من الإيراد) */
+export const SALES_DEDUCTION_KEYS = ['SALES_RETURNS', 'SALES_DISCOUNT'] as const;
+/** رموزها في قالب `SA_6D` — احتياط حين لا يصل الربط */
+export const SALES_DEDUCTION_TEMPLATE_CODES = ['412001', '413001'] as const;
 
 /**
  * أدوار الحسابات التي لا يعرفها `ReportAccount` (لا يحمل مفاتيح الربط ولا الوسوم):
@@ -56,9 +65,11 @@ export const RETAINED_EARNINGS_KEY = 'RETAINED_EARNINGS';
 export interface ReportAccountRoles {
   drawings: readonly string[];
   retainedEarnings: string | null;
+  /** حسابات مردودات وخصومات المبيعات (تُطرح من إجمالي المبيعات إلى صافي الإيرادات) */
+  salesDeductions?: readonly string[];
 }
 
-export const EMPTY_ACCOUNT_ROLES: ReportAccountRoles = { drawings: [], retainedEarnings: null };
+export const EMPTY_ACCOUNT_ROLES: ReportAccountRoles = { drawings: [], retainedEarnings: null, salesDeductions: [] };
 
 export interface ReportAccountRolesInput {
   /** حسابات التقرير — تُستعمل للاحتياط بالرمز ولإسقاط المعرّفات الغريبة */
@@ -97,12 +108,22 @@ export function reportAccountRoles(input: ReportAccountRolesInput): ReportAccoun
   }
   if (retained !== null) drawings.delete(retained);
 
-  return { drawings: [...drawings].sort(), retainedEarnings: retained };
+  const deductions = new Set<string>();
+  for (const m of input.mappings ?? []) {
+    if ((SALES_DEDUCTION_KEYS as readonly string[]).includes(m.key) && ok(m.accountId)) deductions.add(m.accountId);
+  }
+  if (deductions.size === 0) {
+    for (const a of accounts) if ((SALES_DEDUCTION_TEMPLATE_CODES as readonly string[]).includes(a.code)) deductions.add(a.id);
+  }
+
+  return { drawings: [...drawings].sort(), retainedEarnings: retained, salesDeductions: [...deductions].sort() };
 }
 
 // ═══ أسطر قائمة الدخل (§7.3) ═══
 
 export const INCOME_STATEMENT_LINE_KEYS = [
+  'grossRevenue',
+  'salesDeductions',
   'revenue',
   'costOfRevenue',
   'grossProfit',
@@ -120,7 +141,7 @@ export type IncomeStatementLineKey = (typeof INCOME_STATEMENT_LINE_KEYS)[number]
 
 /** الأسطر المجمّعة (تُعرض عريضة، RPT‑13) — لا حسابات تحتها. */
 export const INCOME_STATEMENT_TOTAL_KEYS: readonly IncomeStatementLineKey[] = [
-  'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings',
+  'revenue', 'grossProfit', 'operatingIncome', 'profitBeforeZakat', 'netProfit', 'netProfitAfterDrawings',
 ];
 
 /** سطر حساب داخل سطر التقرير (التعمّق PL‑03/RPT‑11). */
@@ -138,9 +159,15 @@ export interface IncomeStatementAccountRow {
   creditMilli: Milli;
 }
 
-/** سطر فرعي مسمّى داخل سطر رئيسي — «الإهلاك» تحت نفقات التشغيل مع الخيار (§7.3). */
+/** مجموعات المصروفات التشغيلية بالبادئة في قالب الرموز السداسي */
+export type IncomeStatementGroupKey = 'selling' | 'admin' | 'otherOperating' | 'depreciation';
+
+/**
+ * سطر فرعي مسمّى داخل سطر رئيسي: مجموعات المصروفات التشغيلية (البيع والتوزيع 61…، العمومية والإدارية 62…، وغيرها)،
+ * و«الإهلاك» تحتها مع الخيار (§7.3).
+ */
 export interface IncomeStatementGroup {
-  key: 'depreciation';
+  key: IncomeStatementGroupKey;
   label: string;
   amountMilli: Milli;
   accounts: IncomeStatementAccountRow[];
@@ -217,13 +244,15 @@ export interface IncomeStatementInput {
 // ═══ التسميات والمعادلات (§7.3، RPT‑12) ═══
 
 const LABELS: Readonly<Record<IncomeStatementLineKey, string>> = {
-  revenue: 'الإيرادات',
-  costOfRevenue: 'تكلفة الإيرادات',
-  grossProfit: 'إجمالي الربح',
-  operatingExpenses: 'نفقات التشغيل',
-  operatingIncome: 'الدخل التشغيلي',
-  otherIncome: 'دخل آخر',
-  otherExpenses: 'النفقات الأخرى',
+  grossRevenue: 'إجمالي المبيعات والإيرادات',
+  salesDeductions: 'يُطرح: مردودات وخصومات المبيعات',
+  revenue: 'صافي الإيرادات',
+  costOfRevenue: 'تكلفة البضاعة المباعة',
+  grossProfit: 'مجمل الربح',
+  operatingExpenses: 'المصروفات التشغيلية',
+  operatingIncome: 'الربح التشغيلي',
+  otherIncome: 'إيرادات أخرى',
+  otherExpenses: 'مصروفات أخرى',
   profitBeforeZakat: 'صافي الربح قبل الزكاة',
   zakat: 'الزكاة وضريبة الدخل',
   netProfit: 'صافي الربح',
@@ -231,8 +260,8 @@ const LABELS: Readonly<Record<IncomeStatementLineKey, string>> = {
   netProfitAfterDrawings: 'صافي الربح المتبقي بعد المخصصات والمسحوبات',
 };
 
-/** §7.3: «الدخل التشغيلي (أو الخسائر التشغيلية)» — المفتاح ثابت والتسمية تتبع الإشارة. */
-export const OPERATING_LOSS_LABEL = 'الخسائر التشغيلية';
+/** §7.3: «الربح التشغيلي (أو الخسارة التشغيلية)» — المفتاح ثابت والتسمية تتبع الإشارة. */
+export const OPERATING_LOSS_LABEL = 'الخسارة التشغيلية';
 
 function labelOf(key: IncomeStatementLineKey, amount: Milli): string {
   if (key === 'operatingIncome' && amount < 0n) return OPERATING_LOSS_LABEL;
@@ -241,16 +270,18 @@ function labelOf(key: IncomeStatementLineKey, amount: Milli): string {
 
 function formulaOf(key: IncomeStatementLineKey, depInOpex: boolean): string {
   switch (key) {
-    case 'revenue': return '−Σ حسابات الإيرادات';
-    case 'costOfRevenue': return 'Σ حسابات تكلفة الإيرادات';
-    case 'grossProfit': return 'الإيرادات − تكلفة الإيرادات';
+    case 'grossRevenue': return '−Σ حسابات الإيرادات عدا المردودات والخصومات';
+    case 'salesDeductions': return 'Σ حسابات مردودات المبيعات والخصم المسموح به';
+    case 'revenue': return 'إجمالي المبيعات والإيرادات − مردودات وخصومات المبيعات';
+    case 'costOfRevenue': return 'Σ حسابات تكلفة البضاعة المباعة';
+    case 'grossProfit': return 'صافي الإيرادات − تكلفة البضاعة المباعة';
     case 'operatingExpenses':
-      return depInOpex ? 'Σ حسابات نفقات التشغيل + Σ حسابات الإهلاك' : 'Σ حسابات نفقات التشغيل';
-    case 'operatingIncome': return 'إجمالي الربح − نفقات التشغيل';
+      return depInOpex ? 'Σ حسابات المصروفات التشغيلية + Σ حسابات الإهلاك' : 'Σ حسابات المصروفات التشغيلية';
+    case 'operatingIncome': return 'مجمل الربح − المصروفات التشغيلية';
     case 'otherIncome': return '−Σ حسابات الإيرادات الأخرى';
     case 'otherExpenses':
       return depInOpex ? 'Σ حسابات المصروفات الأخرى' : 'Σ حسابات الإهلاك + Σ حسابات المصروفات الأخرى';
-    case 'profitBeforeZakat': return 'الدخل التشغيلي + دخل آخر − النفقات الأخرى';
+    case 'profitBeforeZakat': return 'الربح التشغيلي + إيرادات أخرى − مصروفات أخرى';
     case 'zakat': return 'Σ حسابات الزكاة وضريبة الدخل';
     case 'netProfit': return 'صافي الربح قبل الزكاة − الزكاة وضريبة الدخل';
     case 'drawings': return 'Σ حركة حسابات وسم المسحوبات في الفترة (مدين)';
@@ -259,6 +290,19 @@ function formulaOf(key: IncomeStatementLineKey, depInOpex: boolean): string {
 }
 
 const DEPRECIATION_GROUP_LABEL = 'الإهلاك';
+const GROUP_LABELS: Readonly<Record<IncomeStatementGroupKey, string>> = {
+  selling: 'مصروفات البيع والتوزيع',
+  admin: 'المصروفات العمومية والإدارية',
+  otherOperating: 'مصروفات تشغيلية أخرى',
+  depreciation: DEPRECIATION_GROUP_LABEL,
+};
+
+/** مجموعة حساب مصروف تشغيلي من بادئة رمزه (قالب الرموز السداسي: 61 البيع والتوزيع، 62 العمومية والإدارية) */
+export function operatingExpenseGroupOf(code: string): Exclude<IncomeStatementGroupKey, 'depreciation'> {
+  if (code.startsWith('61')) return 'selling';
+  if (code.startsWith('62')) return 'admin';
+  return 'otherOperating';
+}
 
 // ═══ البناء ═══
 
@@ -329,7 +373,10 @@ export function buildIncomeStatement(input: IncomeStatementInput): IncomeStateme
   };
 
   // ── مجموعات الحسابات بالنوع تماماً (§4.1) ──
+  const deductionIds = new Set(roles.salesDeductions ?? []);
   const incomeAccounts = pick('income');
+  const grossRevenueAccounts = incomeAccounts.filter((a) => !deductionIds.has(a.id));
+  const deductionAccounts = incomeAccounts.filter((a) => deductionIds.has(a.id));
   const directCostAccounts = pick('expense_direct_cost');
   const operatingAccounts = pick('expense');
   const depreciationAccounts = pick('expense_depreciation');
@@ -344,7 +391,10 @@ export function buildIncomeStatement(input: IncomeStatementInput): IncomeStateme
     .sort(byCode);
 
   // ── المعادلات حرفياً من جدول §7.3 ──
-  const revenueMilli = -netOf(incomeAccounts);
+  const grossRevenueMilli = -netOf(grossRevenueAccounts);
+  // المردودات والخصومات حسابات income مدينة الطبيعة: تُعرض موجبة وتُطرح
+  const salesDeductionsMilli = netOf(deductionAccounts);
+  const revenueMilli = grossRevenueMilli - salesDeductionsMilli;
   const costOfRevenueMilli = netOf(directCostAccounts);
   const grossProfitMilli = revenueMilli - costOfRevenueMilli;
   const depreciationMilli = netOf(depreciationAccounts);
@@ -383,11 +433,37 @@ export function buildIncomeStatement(input: IncomeStatementInput): IncomeStateme
     }]
     : [];
 
+  // المصروفات التشغيلية مجمّعةً بالبادئة — إن لم يطابق أيّ حساب 61/62 تبقى الحسابات تحت السطر مباشرةً بلا مجموعة وحيدة
+  const byGroup = new Map<Exclude<IncomeStatementGroupKey, 'depreciation'>, ReportAccount[]>();
+  for (const a of operatingAccounts) {
+    const g = operatingExpenseGroupOf(a.code);
+    const list = byGroup.get(g);
+    if (list) list.push(a); else byGroup.set(g, [a]);
+  }
+  const grouped = byGroup.has('selling') || byGroup.has('admin');
+  const operatingGroups: IncomeStatementGroup[] = [];
+  if (grouped) {
+    for (const key of ['selling', 'admin', 'otherOperating'] as const) {
+      const list = byGroup.get(key);
+      if (!list) continue;
+      const accountsRows = rowsFor(list, true);
+      const amountMilli = netOf(list);
+      if (accountsRows.length === 0 && amountMilli === 0n) continue;
+      operatingGroups.push({ key, label: GROUP_LABELS[key], amountMilli, accounts: accountsRows });
+    }
+  }
+
   const lines: IncomeStatementLine[] = [
-    line('revenue', revenueMilli, rowsFor(incomeAccounts, true)),
+    line('grossRevenue', grossRevenueMilli, rowsFor(grossRevenueAccounts, true)),
+    line('salesDeductions', salesDeductionsMilli, rowsFor(deductionAccounts, false)),
+    line('revenue', revenueMilli),
     line('costOfRevenue', costOfRevenueMilli, rowsFor(directCostAccounts, true)),
     line('grossProfit', grossProfitMilli),
-    line('operatingExpenses', operatingExpensesMilli, rowsFor(operatingAccounts, true), depreciationGroups),
+    line(
+      'operatingExpenses', operatingExpensesMilli,
+      grouped ? [] : rowsFor(operatingAccounts, true),
+      [...operatingGroups, ...depreciationGroups],
+    ),
     line('operatingIncome', operatingIncomeMilli),
     line('otherIncome', otherIncomeMilli, rowsFor(otherIncomeAccounts, true)),
     line(

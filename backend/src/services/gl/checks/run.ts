@@ -22,7 +22,7 @@ import { CHECK_KEYS, worstStatus, type CheckKey, type CheckResult, type ChecksRe
 export interface CheckSettingsFacts {
   activatedAt: Date | null;
   backfillState: BackfillState;
-  setupMethod: 'OPENING' | 'FULL_HISTORY' | null;
+  setupMethod: 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | null;
   cutoverDate: LocalDate | null;
   openingSnapshotAt: Date | null;
   timezone: string;
@@ -58,11 +58,11 @@ export interface CheckStore {
   mappedAccounts(tenantId: string, keys: readonly string[]): Promise<{ key: string; id: string; code: string }[]>;
   /** Σ(مدين − دائن) للسطور المرحّلة على الحسابات مجمّعة بالشريك؛ moveType اختياري (OPENING) */
   ledgerByPartner(tenantId: string, accountIds: readonly string[], partner: 'customerId' | 'salesRepId', opts?: { moveType?: string }): Promise<Map<string, Milli>>;
-  ledgerTotal(tenantId: string, accountIds: readonly string[]): Promise<Milli>;
+  ledgerTotal(tenantId: string, accountIds: readonly string[], opts?: { moveType?: 'OPENING' }): Promise<Milli>;
 
   // C3
   /** Σ(مدين − دائن) لصفوف AccountEntry لكل عميل، مستبعَداً منها المشمول بالافتتاح (entryDate < cutoverStart و createdAt ≤ T0) */
-  accountEntryTotals(tenantId: string, excludeOpening: { cutoverStart: Date; openingSnapshotAt: Date } | null, decimals: number): Promise<Map<string, Milli>>;
+  accountEntryTotals(tenantId: string, excludeOpening: { cutoverStart: Date; openingSnapshotAt: Date; cleanStart?: boolean } | null, decimals: number): Promise<Map<string, Milli>>;
   /** صفوف استيراد مشمولة بالافتتاح تُراجع عنها: حمولة AR_ENTRY:<id>:REVERSE وشقيقها POST = SKIPPED(OPENING) */
   deletedOpeningImports(tenantId: string, decimals: number): Promise<Map<string, Milli>>;
   /**
@@ -75,11 +75,11 @@ export interface CheckStore {
   // C4/C4b
   salesReps(tenantId: string): Promise<{ id: string; name: string; isActive: boolean }[]>;
   custodyInputs(tenantId: string, salesRepId: string): Promise<CustodyComponentsInput>;
-  repCollections(tenantId: string, decimals: number): Promise<Map<string, Milli>>;
+  repCollections(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Map<string, Milli>>;
 
   // C5
-  settlementBalance(tenantId: string, decimals: number): Promise<Milli>;
-  paylinkExplanations(tenantId: string, decimals: number): Promise<Pick<C5Input, 'refundedLinksWithoutRefund' | 'cancelledOnlineWithoutRefund'>>;
+  settlementBalance(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Milli>;
+  paylinkExplanations(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Pick<C5Input, 'refundedLinksWithoutRefund' | 'cancelledOnlineWithoutRefund'>>;
 
   // المزامنة
   pendingPartners(tenantId: string, since: Date | null): Promise<PendingPartners>;
@@ -134,7 +134,7 @@ export async function loadC3Input(store: CheckStore, tenantId: string, s: CheckS
   const ar = idsOf(acc, 'AR');
   const cut = cutoverContextOf({ setupMethod: s.setupMethod, cutoverDate: s.cutoverDate, openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone });
   const exclude = s.cutoverDate && s.openingSnapshotAt
-    ? { cutoverStart: zonedStartOfDay(cut.cutoverDate, cut.timezone), openingSnapshotAt: cut.openingSnapshotAt }
+    ? { cutoverStart: zonedStartOfDay(cut.cutoverDate, cut.timezone), openingSnapshotAt: cut.openingSnapshotAt, cleanStart: cut.cleanStart === true }
     : null;
   // تعمّق «صف افتتاحي حُذف بلا حدث» (البند 6 (ج)) موقوف: كان يفترض أن سطور الذمم في القيد الافتتاحي مشتقّة من
   // صفوف AccountEntry قبل البدء فيقارن بينهما. أُزيلت الأرصدة المشتقة بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) وصار
@@ -162,11 +162,17 @@ export async function loadC3Input(store: CheckStore, tenantId: string, s: CheckS
 export async function loadRepCustodyFacts(store: CheckStore, tenantId: string, s: CheckSettingsFacts, pending: PendingPartners, accounts?: ControlAccountFacts[], onlyRepId?: string): Promise<RepCustodyFacts[]> {
   const acc = accounts ?? await store.controlAccounts(tenantId);
   const custody = idsOf(acc, 'CUSTODY');
-  const [reps, ledger, ops] = await Promise.all([
+  // البداية النظيفة: المعلّق التشغيلي لكل مندوب (C4b وصفحة العهدة) = عهدته الافتتاحية كما أدخلها المحاسب + تحصيل وتوريد ما
+  // بعد التفعيل وحده — لا تاريخ ما قبل التفعيل (مرآة المحمّل الموحّد loadCustodyInputs؛ مراجعة عدائية ٢٨ سبتمبر ٢٠٢٦)
+  const clean = s.setupMethod === 'CLEAN' && !!s.openingSnapshotAt;
+  const [reps, ledger, opsSince, openingByRep] = await Promise.all([
     store.salesReps(tenantId),
     custody.length ? store.ledgerByPartner(tenantId, custody, 'salesRepId') : Promise.resolve(new Map<string, Milli>()),
-    store.repCollections(tenantId, s.currencyDecimals),
+    store.repCollections(tenantId, s.currencyDecimals, clean ? { createdAfter: s.openingSnapshotAt as Date } : {}),
+    clean && custody.length ? store.ledgerByPartner(tenantId, custody, 'salesRepId', { moveType: 'OPENING' }) : Promise.resolve(new Map<string, Milli>()),
   ]);
+  const ops = new Map<string, Milli>(opsSince);
+  for (const [id, m] of openingByRep) ops.set(id, (ops.get(id) ?? 0n) + m);
   const byId = new Map(reps.map((r) => [r.id, r]));
   const ids = new Set<string>([...reps.map((r) => r.id), ...[...ledger.keys()]]);
   const out: RepCustodyFacts[] = [];
@@ -186,12 +192,16 @@ export async function loadRepCustodyFacts(store: CheckStore, tenantId: string, s
 export async function loadC5Input(store: CheckStore, tenantId: string, s: CheckSettingsFacts, pending: PendingPartners, accounts?: ControlAccountFacts[]): Promise<C5Input> {
   const acc = accounts ?? await store.controlAccounts(tenantId);
   const paylink = idsOf(acc, 'PAYLINK');
-  const [ledgerMilli, settlementBalanceMilli, explanations] = await Promise.all([
+  // البداية النظيفة: دفتر الأمانات التشغيلي بعد التفعيل وحده + ما أدخله المحاسب افتتاحياً على 112005 (لا تاريخ ما قبل التفعيل)
+  const clean = s.setupMethod === 'CLEAN' && !!s.openingSnapshotAt;
+  const after = clean ? { createdAfter: s.openingSnapshotAt as Date } : {};
+  const [ledgerMilli, opsSinceMilli, openingMilli, explanations] = await Promise.all([
     paylink.length ? store.ledgerTotal(tenantId, paylink) : Promise.resolve(0n),
-    store.settlementBalance(tenantId, s.currencyDecimals),
-    store.paylinkExplanations(tenantId, s.currencyDecimals),
+    store.settlementBalance(tenantId, s.currencyDecimals, after),
+    clean && paylink.length ? store.ledgerTotal(tenantId, paylink, { moveType: 'OPENING' }) : Promise.resolve(0n),
+    store.paylinkExplanations(tenantId, s.currencyDecimals, after),
   ]);
-  return { ledgerMilli, settlementBalanceMilli, pending: pending.unknown || pending.settlement, ...explanations };
+  return { ledgerMilli, settlementBalanceMilli: opsSinceMilli + openingMilli, pending: pending.unknown || pending.settlement, ...explanations };
 }
 
 /**

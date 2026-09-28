@@ -138,6 +138,63 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
   } catch (err) { next(err); }
 });
 
+/**
+ * تقرير الطلبات — الفواتير التي **حُدّد لها تاريخ تسليم** وحدها.
+ *
+ * والمدى يُطبَّق على `deliveryDate` لا على `invoiceDate`: سؤال المشرف هنا «ما
+ * الذي عليّ تسليمه بين هذين التاريخين»، لا «أيّ فواتيرَ أصدرتُ فيهما». وفاتورةٌ
+ * أُصدرت اليوم لتسليم الشهر القادم تخصّ الشهر القادم.
+ *
+ * والملغاة تسقط: طلبٌ أُلغي ليس عملاً معلّقاً على أحد.
+ */
+router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { from, to } = req.query as Record<string, string>;
+    // كتقرير المبيعات: الطرف الغائب بلا حدّ، وغيابهما معاً يُقصَر على مدىً افتراضيّ
+    const DEFAULT_DAYS = 90;
+    const rangeApplied = !!(from || to);
+    const deliveryFilter = rangeApplied
+      ? {
+        ...(from ? { gte: new Date(from) } : {}),
+        ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
+      }
+      : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
+
+    const orders = await prisma.invoice.findMany({
+      where: {
+        tenantId: tid,
+        ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+        status: { not: 'CANCELLED' },
+        // الشرط الذي يصنع التقرير: تاريخ تسليمٍ محدَّد
+        deliveryDate: { not: null, ...deliveryFilter },
+      },
+      select: {
+        id: true, number: true, invoiceDate: true, deliveryDate: true,
+        total: true, paidAmt: true, status: true,
+        customer: { select: { id: true, name: true, phone: true, city: true } },
+        salesRep: { select: { id: true, name: true } },
+      },
+      orderBy: { deliveryDate: 'asc' },   // الأقرب تسليماً أوّلاً — ترتيب العمل لا ترتيب الإصدار
+      take: 5000,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        orders,
+        summary: {
+          count: orders.length,
+          total: orders.reduce((s, o) => s + Number(o.total || 0), 0),
+          paid: orders.reduce((s, o) => s + Number(o.paidAmt || 0), 0),
+        },
+        rangeApplied,
+        defaultDays: rangeApplied ? null : DEFAULT_DAYS,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 router.get('/collections', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -439,7 +496,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
             { startedAt: null, createdAt: { gte: fromDate, lt: toEnd } },
           ] }],
         },
-        select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, customer: { select: { name: true } } },
+        select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
         orderBy: { createdAt: 'asc' }, take: 10000,
       }),
       // نقاط GPS تُختزل في القاعدة إلى (مندوب × يوم محلي → أول/آخر التقاط):
@@ -479,6 +536,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
           customerName: v.customer?.name || '—',
           at: v.startedAt || v.createdAt,   // بداية المؤقّت أدقّ؛ زيارة الملاحظة بوقت تسجيلها
           durationSec: v.durationSec,
+          lat: v.lat, lng: v.lng,
         })),
         tzOffsetMin,
         // مدى الأيام المحلّية: يُملأ الغائب منها بصفوفٍ فارغة كي يظهر الغياب

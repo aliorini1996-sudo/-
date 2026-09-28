@@ -14,20 +14,21 @@ import { LEDGER_BASE } from '../../pages/ledger/routes';
  *
  * قاعدة «تمّت الخطوة»: أثرها في المسودة، **أو** أن المسودة تجاوزتها (`currentStep > n`).
  *
- * خطوة «الأرصدة المشتقة» (4) أُزيلت بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦). أرقام الخطوات الداخلية تبقى
- * 1·2·3·5·6 لأنها مخزّنة في مسودات الشركات (`currentStep`) ومفاتيحها (`step5`)، والمعروض للمستخدم ترتيبها
- * 1..5 (`setupStepDisplayNo`). مسودة قديمة واقفة على 4 تُفتح على الأرصدة اليدوية (5).
+ * خطوتا «طريقة البدء» (2) و«الأرصدة المشتقة» (4) أُزيلتا بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦): كل تفعيل بداية
+ * نظيفة من يومه، والقيد الافتتاحي ما يُدخله المحاسب. أرقام الخطوات الداخلية تبقى 1·3·5·6 لأنها مخزّنة في مسودات
+ * الشركات (`currentStep`) ومفاتيحها (`step5`)، والمعروض ترتيبها 1..4 (`setupStepDisplayNo`). مسودة قديمة واقفة على
+ * 2 تُفتح على الشجرة (3)، وعلى 4 تُفتح على الأرصدة اليدوية (5).
  */
 
-export const SETUP_STEPS = [1, 2, 3, 5, 6] as const;
+export const SETUP_STEPS = [1, 3, 5, 6] as const;
 export type SetupStepNo = (typeof SETUP_STEPS)[number];
 export const SETUP_STEP_COUNT = SETUP_STEPS.length;
 
-export type SetupStepKey = 'basics' | 'method' | 'tree' | 'manual' | 'review';
+export type SetupStepKey = 'basics' | 'tree' | 'manual' | 'review';
 
 /** مفاتيح ثابتة للخطوات (للاختبار والتتبّع) — الترتيب نفسه في SetupWizard.tsx */
 export const SETUP_STEP_KEYS: Record<SetupStepNo, SetupStepKey> = {
-  1: 'basics', 2: 'method', 3: 'tree', 5: 'manual', 6: 'review',
+  1: 'basics', 3: 'tree', 5: 'manual', 6: 'review',
 };
 
 /** معامل الرابط الذي يفتح المعالج على خطوة بعينها */
@@ -35,9 +36,10 @@ export const SETUP_STEP_PARAM = 'setupStep';
 
 type Tr = (ar: string) => string;
 
-/** رقم خطوة صالح (أي شيء آخر ⇒ 1، و4 المُزالة ⇒ 5) — مرآة clampStep في pages/ledger/setup/setupLogic.ts */
+/** رقم خطوة صالح (أي شيء آخر ⇒ 1، و2 المُزالة ⇒ 3، و4 المُزالة ⇒ 5) — مرآة clampStep في pages/ledger/setup/setupLogic.ts */
 export const clampSetupStep = (n: unknown): SetupStepNo => {
   const v = Math.trunc(Number(n));
+  if (v === 2) return 3;
   if (v === 4) return 5;
   return (v >= 1 && v <= 6 ? v : 1) as SetupStepNo;
 };
@@ -87,7 +89,6 @@ export function computeSetupProgress(input: SetupProgressInput): SetupProgress {
 
   const doneOf: Record<SetupStepNo, boolean> = {
     1: activated || !!draft?.step1?.cutoverDate || passed(1),
-    2: activated || !!draft?.step2?.method || passed(2),
     3: activated || !!(step3 && (step3.cashInvoiceRouting || step3.receiptRouting)) || passed(3),
     5: activated || Array.isArray(draft?.step5?.rows) || passed(5),
     6: activated,
@@ -126,7 +127,6 @@ export function setupWizardHref(step?: number | null): string {
 export function setupStepLabel(tr: Tr, step: SetupStepNo): string {
   switch (step) {
     case 1: return tr('الأساس');
-    case 2: return tr('طريقة البدء');
     case 3: return tr('الشجرة');
     case 5: return tr('الأرصدة اليدوية');
     case 6: return tr('المراجعة والتفعيل');
