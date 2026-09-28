@@ -80,6 +80,50 @@ export async function searchNearby(opts: {
   }
 }
 
+// ───────────── تفاصيل محلٍّ ضغطه المندوب على الخريطة ─────────────
+
+/** حقول Essentials/Pro فقط: النوع والموقع والاسم للعرض والحالة. */
+export const PLACE_DETAILS_FIELD_MASK = 'id,displayName,location,primaryType,types,businessStatus';
+
+/** معرّف مكان Google (كما يأتي من ضغطة على محلٍّ في Maps JavaScript API). */
+export const isGooglePlaceId = (s: unknown): s is string => typeof s === 'string' && /^[A-Za-z0-9_-]{10,300}$/.test(s);
+
+type GetFetchLike = (url: string, init: { method: 'GET'; headers: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+
+export type PlaceDetailsResult =
+  | { ok: true; place: NearbyPlace; closed: boolean }
+  | { ok: false; code: 'PLACES_NOT_CONFIGURED' | 'PLACES_AUTH' | 'PLACES_QUOTA' | 'PLACES_NOT_FOUND' | 'PLACES_UNAVAILABLE'; message: string };
+
+export async function placeDetails(opts: { apiKey: string | null; placeId: string; fetchImpl?: GetFetchLike; timeoutMs?: number }): Promise<PlaceDetailsResult> {
+  if (!opts.apiKey) return { ok: false, code: 'PLACES_NOT_CONFIGURED', message: 'مفتاح خرائط Google لم يُضبط بعد — تواصل مع مزوّد الخدمة' };
+  if (!isGooglePlaceId(opts.placeId)) return { ok: false, code: 'PLACES_NOT_FOUND', message: 'محل غير معروف' };
+  const f: GetFetchLike = opts.fetchImpl ?? (fetch as unknown as GetFetchLike);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 8000);
+  try {
+    const res = await f(`https://places.googleapis.com/v1/places/${encodeURIComponent(opts.placeId)}?languageCode=ar`, {
+      method: 'GET',
+      headers: { 'X-Goog-Api-Key': opts.apiKey, 'X-Goog-FieldMask': PLACE_DETAILS_FIELD_MASK },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) return { ok: false, code: 'PLACES_AUTH', message: 'مفتاح خرائط Google مرفوض أو غير مفعّل لخدمة الأماكن' };
+      if (res.status === 429) return { ok: false, code: 'PLACES_QUOTA', message: 'بلغت خدمة الأماكن حدّها مؤقتاً — حاول بعد قليل' };
+      if (res.status === 404 || res.status === 400) return { ok: false, code: 'PLACES_NOT_FOUND', message: 'تعذّر العثور على هذا المحل في خرائط Google' };
+      return { ok: false, code: 'PLACES_UNAVAILABLE', message: 'خدمة الأماكن غير متاحة مؤقتاً' };
+    }
+    const raw = (await res.json()) as Record<string, unknown>;
+    const status = typeof raw.businessStatus === 'string' ? raw.businessStatus : 'OPERATIONAL';
+    const parsed = parsePlaces([{ ...raw, businessStatus: 'OPERATIONAL' }])[0];
+    if (!parsed) return { ok: false, code: 'PLACES_NOT_FOUND', message: 'تعذّر العثور على هذا المحل في خرائط Google' };
+    return { ok: true, place: parsed, closed: status === 'CLOSED_PERMANENTLY' || status === 'CLOSED_TEMPORARILY' };
+  } catch {
+    return { ok: false, code: 'PLACES_UNAVAILABLE', message: 'تعذّر الوصول لخدمة الأماكن — تحقّق من الاتصال' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** تحويل ردّ Google إلى شكلنا — يُسقط المغلق وما لا موقع له. */
 export function parsePlaces(raw: Array<Record<string, unknown>>): NearbyPlace[] {
   const out: NearbyPlace[] = [];

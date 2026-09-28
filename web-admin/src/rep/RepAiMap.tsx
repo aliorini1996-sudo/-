@@ -15,7 +15,7 @@ export interface MapItem { placeId: string; lat: number; lng: number; relation: 
 
 const COLORS = { NEW: '#16A34A', CUSTOMER: '#2563EB', POSSIBLE_CUSTOMER: '#60A5FA', REJECTED: '#9CA3AF', PLAN: '#E15A30' };
 
-export default function RepAiMap({ g, origin, items, plan, fitKey, visible = true, onSelect }: {
+export default function RepAiMap({ g, origin, items, plan, fitKey, visible = true, onSelect, onPoi, full = false, recenterKey = 0 }: {
   g: G;
   origin: { lat: number; lng: number } | null;
   items: MapItem[];
@@ -23,6 +23,12 @@ export default function RepAiMap({ g, origin, items, plan, fitKey, visible = tru
   fitKey: string | null; // يتغيّر مع كل بحث جديد ⇒ إعادة ضبط الإطار
   visible?: boolean;
   onSelect: (placeId: string) => void;
+  /** ضغطة على محلٍّ من محلات Google نفسها (لا علاماتنا) ⇒ دراسته */
+  onPoi?: (p: { placeId: string; lat: number; lng: number }) => void;
+  /** تملأ الشاشة كلها */
+  full?: boolean;
+  /** يتغيّر ⇒ تتمركز الخريطة على موقع المندوب */
+  recenterKey?: number;
 }) {
   const box = useRef<HTMLDivElement | null>(null);
   const map = useRef<G>(null);
@@ -31,13 +37,21 @@ export default function RepAiMap({ g, origin, items, plan, fitKey, visible = tru
   const line = useRef<G>(null);
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
+  const poiRef = useRef(onPoi);
+  poiRef.current = onPoi;
 
   // إنشاء الخريطة مرّة واحدة
   useEffect(() => {
     if (!g || !box.current || map.current) return;
     map.current = new g.maps.Map(box.current, {
       center: origin ?? { lat: 24.7136, lng: 46.6753 },
-      zoom: 15, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy', clickableIcons: false,
+      zoom: full ? 17 : 15, disableDefaultUI: true, zoomControl: !full, gestureHandling: 'greedy', clickableIcons: !!poiRef.current,
+    });
+    // ضغطة على محلٍّ من محلات Google: بطاقة Google الافتراضية لا تظهر — ندرسه نحن
+    map.current.addListener('click', (e: G) => {
+      if (!e?.placeId || !poiRef.current) return;
+      e.stop();
+      poiRef.current({ placeId: e.placeId, lat: e.latLng.lat(), lng: e.latLng.lng() });
     });
   }, [g, origin]);
 
@@ -99,5 +113,11 @@ export default function RepAiMap({ g, origin, items, plan, fitKey, visible = tru
       : null;
   }
 
-  return <div ref={box} className="w-full h-64 rounded-2xl overflow-hidden border border-gray-100 bg-gray-100" />;
+  // التمركز على موقع المندوب عند الطلب
+  useEffect(() => {
+    if (recenterKey && map.current && origin) { map.current.panTo(origin); map.current.setZoom(Math.max(map.current.getZoom() ?? 17, 16)); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recenterKey]);
+
+  return <div ref={box} className={full ? 'w-full h-full bg-gray-100' : 'w-full h-64 rounded-2xl overflow-hidden border border-gray-100 bg-gray-100'} />;
 }

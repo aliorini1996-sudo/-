@@ -44,3 +44,26 @@ test('حارس الروابط: خرائط Google وحدها', () => {
     assert.equal(isGoogleMapsUrl(u), false, u);
   }
 });
+
+test('تفاصيل محلٍّ ضُغط على الخريطة: النوع والموقع، والمغلق، والأخطاء بلا مفتاح', async () => {
+  const { placeDetails, isGooglePlaceId } = await import('../ai-rep/places');
+  assert.equal(isGooglePlaceId('ChIJN1t_tDeuEmsRUsoyG83frY4'), true);
+  assert.equal(isGooglePlaceId('../../etc'), false);
+  assert.equal(isGooglePlaceId('short'), false);
+  let url = '';
+  let headers: Record<string, string> = {};
+  const ok = (body: unknown, status = 200) => async (u: string, init: { headers: Record<string, string> }) => {
+    url = u; headers = init.headers;
+    return { ok: status < 400, status, json: async () => body };
+  };
+  const r = await placeDetails({ apiKey: 'k', placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4', fetchImpl: ok({ id: 'ChIJN1t_tDeuEmsRUsoyG83frY4', displayName: { text: 'تموينات النرجس' }, location: { latitude: 24.8, longitude: 46.6 }, primaryType: 'grocery_store', types: ['grocery_store', 'store'] }) });
+  assert.ok(r.ok);
+  if (r.ok) { assert.equal(r.place.name, 'تموينات النرجس'); assert.equal(r.place.primaryType, 'grocery_store'); assert.equal(r.closed, false); }
+  assert.match(url, /places\/ChIJN1t_tDeuEmsRUsoyG83frY4\?languageCode=ar$/);
+  assert.equal(headers['X-Goog-FieldMask'], 'id,displayName,location,primaryType,types,businessStatus');
+  const closed = await placeDetails({ apiKey: 'k', placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4', fetchImpl: ok({ id: 'x1234567890', location: { latitude: 1, longitude: 2 }, businessStatus: 'CLOSED_PERMANENTLY' }) });
+  assert.ok(closed.ok && closed.closed);
+  assert.deepEqual((await placeDetails({ apiKey: null, placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4' })).ok, false);
+  const quota = await placeDetails({ apiKey: 'k', placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4', fetchImpl: ok({}, 429) });
+  assert.ok(!quota.ok && quota.code === 'PLACES_QUOTA');
+});

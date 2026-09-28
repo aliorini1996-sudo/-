@@ -327,6 +327,14 @@ export const AI_REP_PHRASES: Record<string, P> = {
   'إعادة الضبط': { en: "Reset", fr: "Réinitialisation", tr: "Sıfırlama", zh: "重置" },
   'انتهت مهلة المراجعة': { en: "Review period expired", fr: "Délai de validation expiré", tr: "İnceleme süresi doldu", zh: "审核期已过" },
   'لم يعد يوافق دليل البيع': { en: 'No longer matches the sales playbook', fr: 'Ne correspond plus au guide de vente', tr: 'Artık satış rehberiyle uyumlu değil', zh: '已不符合销售手册' },
+  // ——— الصفحة خريطة كاملة: ادرس أي محل بضغطة ———
+  'اضغط على أي محل في الخريطة لدراسته': { en: "Tap any shop on the map to study it", fr: "Touchez un commerce sur la carte pour l’étudier", tr: "İncelemek için haritada herhangi bir dükkâna dokunun", zh: "点击地图上的任意门店进行分析" },
+  'ادرس المحل الذي أنا عنده الآن': { en: "Study the shop I’m at now", fr: "Étudier le commerce où je suis", tr: "Şu an bulunduğum dükkânı incele", zh: "分析我现在所在的门店" },
+  'أدرس المحل من بيانات شركتك…': { en: "Studying the shop from your company data…", fr: "Étude du commerce à partir des données de votre entreprise…", tr: "Dükkân şirket verilerinizle inceleniyor…", zh: "正在根据贵公司数据分析门店…" },
+  'تعذّرت دراسة المحل': { en: "Could not study the shop", fr: "Impossible d’étudier le commerce", tr: "Dükkân incelenemedi", zh: "无法分析该门店" },
+  'أنت دون اتصال — الدراسة تحتاج الإنترنت': { en: "You are offline — studying needs the internet", fr: "Vous êtes hors ligne — l’étude nécessite Internet", tr: "Çevrimdışısınız — inceleme için internet gerekir", zh: "您处于离线状态——分析需要联网" },
+  'ما نوع هذا المحل؟': { en: "What type of shop is this?", fr: "Quel type de commerce ?", tr: "Bu dükkân hangi türde?", zh: "这是什么类型的门店？" },
+  'موقعي': { en: "My location", fr: "Ma position", tr: "Konumum", zh: "我的位置" },
 };
 
 /** tr() للشاشتين: العربية كما هي، وإلا ترجمة الميزة ثم القاموس العامّ ثم العربية. */
