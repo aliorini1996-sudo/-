@@ -260,7 +260,7 @@ function cursorOf(r: { source: string; watermarkAt: Date; watermarkId: string; l
 
 
 export class PrismaPostingTx implements PostingTx {
-  private settingsCache: { timezone: string; currency: string; decimals: number; routing: unknown; cashInvoiceRouting: string } | null = null;
+  private settingsCache: { timezone: string; currency: string; decimals: number; routing: unknown; cashInvoiceRouting: string; cleanSince: Date | null } | null = null;
 
   constructor(private readonly tx: GlDb, readonly tenantId: string) {}
 
@@ -268,11 +268,16 @@ export class PrismaPostingTx implements PostingTx {
     if (!this.settingsCache) {
       const s = await this.tx.glSettings.findUnique({
         where: { tenantId: this.tenantId },
-        select: { timezone: true, currency: true, currencyDecimals: true, receiptRouting: true, cashInvoiceRouting: true },
+        select: {
+          timezone: true, currency: true, currencyDecimals: true, receiptRouting: true, cashInvoiceRouting: true,
+          setupMethod: true, openingSnapshotAt: true,
+        },
       });
       this.settingsCache = {
         timezone: s?.timezone || 'Asia/Riyadh', currency: s?.currency ?? 'SAR', decimals: s?.currencyDecimals ?? 2,
         routing: s?.receiptRouting ?? null, cashInvoiceRouting: s?.cashInvoiceRouting ?? 'MAIN_CASH',
+        // البداية النظيفة: ما أُنشئ حتى T0 خارج الدفاتر — نافذة محمّل العهدة
+        cleanSince: s?.setupMethod === 'CLEAN' && s.openingSnapshotAt ? s.openingSnapshotAt : null,
       };
     }
     return this.settingsCache;
@@ -488,24 +493,36 @@ export class PrismaPostingTx implements PostingTx {
     const dec = s.decimals;
     const tenantId = this.tenantId;
     const routing = (s.routing && typeof s.routing === 'object' ? s.routing : null) as Parameters<typeof receiptCustodyClass>[0]['routing'];
+    // البداية النظيفة (ملاحظة الخبير المحاسبي): عهدة المندوب في الدفاتر = ما أدخله المحاسب في القيد الافتتاحي + عمليات ما بعد
+    // التفعيل وحدها. لا يُعاد تشغيل تاريخ التشغيل السابق للتفعيل (سندات واستلامات لم تدخل الدفاتر قط) — لا في قسمة التوريد
+    // عند ترحيله، ولا في فحص C4، ولا في صفحة العهدة. المحمّل واحد للثلاثة فيبقون متّسقين.
+    const since = s.cleanSince;
+    const win = since ? { createdAt: { gt: since } } : {};
 
-    const [receipts, invoices, settlements, settlementEvents] = await Promise.all([
+    const [receipts, invoices, settlements, settlementEvents, openingCustody] = await Promise.all([
       this.tx.receipt.findMany({
-        where: { tenantId, salesRepId },
+        where: { tenantId, salesRepId, ...win },
         select: { id: true, amount: true, paymentMethod: true, receiptDate: true, createdAt: true },
       }),
       this.tx.invoice.findMany({
-        where: { tenantId, salesRepId, type: 'CASH' },
+        where: { tenantId, salesRepId, type: 'CASH', ...win },
         select: { id: true, total: true, invoiceDate: true, createdAt: true },
       }),
       this.tx.repSettlement.findMany({
-        where: { tenantId, salesRepId },
+        where: { tenantId, salesRepId, ...win },
         select: { id: true, amount: true, settledAt: true, createdAt: true },
       }),
       this.tx.glSourceEvent.findMany({
         where: { tenantId, sourceType: 'SETTLEMENT', payload: { path: ['salesRepId'], equals: salesRepId } },
         select: { sourceId: true, event: true, status: true, effectAt: true, payload: true, nonCustodyClearedMilli: true, shortageRecoveredMilli: true },
       }),
+      // عهدة المندوب الافتتاحية كما أدخلها المحاسب (سطور 111003 بمندوبه في قيد OPENING)
+      since
+        ? this.tx.glMoveLine.aggregate({
+          where: { tenantId, posted: true, salesRepId, account: { controlKind: 'CUSTODY' }, move: { moveType: 'OPENING', state: 'POSTED' } },
+          _sum: { debitMilli: true, creditMilli: true },
+        })
+        : Promise.resolve(null),
     ]);
 
     // آثار الإلغاء من account_entries (الإلحاقية)
@@ -536,6 +553,11 @@ export class PrismaPostingTx implements PostingTx {
       receipts: [], onlineReceipts: [], outsideReceipts: [], cashInvoices: [], settlements: [], shortages: [], custodyExpenses: [],
       routing: { cashInvoice: s.cashInvoiceRouting === 'CUSTODY' ? 'CUSTODY' : 'MAIN_CASH', receipt: routing ?? null },
     };
+    if (openingCustody) {
+      const opening = (openingCustody._sum.debitMilli ?? 0n) - (openingCustody._sum.creditMilli ?? 0n);
+      // العهدة الافتتاحية نقدٌ بيد المندوب ينتظر التوريد: تدخل رصيد الدفاتر والمعلّق التشغيلي معاً (فيغطّيها أول توريد، ويبقى C4b متّسقاً)
+      if (opening !== 0n) out.opening = { [salesRepId]: { ledgerCustodyMilli: opening, activeReceiptsMilli: opening } };
+    }
     for (const r of receipts) {
       const item: CustodyItem = {
         id: r.id, salesRepId, amountMilli: toMilli(r.amount, dec), effectAt: receiptEffect.get(r.id) ?? r.receiptDate,
@@ -576,6 +598,8 @@ export class PrismaPostingTx implements PostingTx {
     // استلامات محذوفة: من حمولة الـtombstone، معكوسة بتاريخ حدث REVERSE
     for (const [id, t] of tombstones) {
       if (live.has(id)) continue;
+      // البداية النظيفة: استلامٌ محذوف أُنشئ حتى T0 (أو مجهول الإنشاء) لم يدخل الدفاتر
+      if (since && (!t.createdAt || new Date(t.createdAt).getTime() <= since.getTime())) continue;
       const v = stored.get(id);
       (out.settlements as CustodySettlementItem[]).push({
         id, salesRepId, amountMilli: toMilli(t.amount, dec), effectAt: t.settledAt, createdAt: t.createdAt,

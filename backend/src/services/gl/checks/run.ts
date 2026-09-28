@@ -58,7 +58,7 @@ export interface CheckStore {
   mappedAccounts(tenantId: string, keys: readonly string[]): Promise<{ key: string; id: string; code: string }[]>;
   /** Σ(مدين − دائن) للسطور المرحّلة على الحسابات مجمّعة بالشريك؛ moveType اختياري (OPENING) */
   ledgerByPartner(tenantId: string, accountIds: readonly string[], partner: 'customerId' | 'salesRepId', opts?: { moveType?: string }): Promise<Map<string, Milli>>;
-  ledgerTotal(tenantId: string, accountIds: readonly string[]): Promise<Milli>;
+  ledgerTotal(tenantId: string, accountIds: readonly string[], opts?: { moveType?: 'OPENING' }): Promise<Milli>;
 
   // C3
   /** Σ(مدين − دائن) لصفوف AccountEntry لكل عميل، مستبعَداً منها المشمول بالافتتاح (entryDate < cutoverStart و createdAt ≤ T0) */
@@ -78,8 +78,8 @@ export interface CheckStore {
   repCollections(tenantId: string, decimals: number): Promise<Map<string, Milli>>;
 
   // C5
-  settlementBalance(tenantId: string, decimals: number): Promise<Milli>;
-  paylinkExplanations(tenantId: string, decimals: number): Promise<Pick<C5Input, 'refundedLinksWithoutRefund' | 'cancelledOnlineWithoutRefund'>>;
+  settlementBalance(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Milli>;
+  paylinkExplanations(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Pick<C5Input, 'refundedLinksWithoutRefund' | 'cancelledOnlineWithoutRefund'>>;
 
   // المزامنة
   pendingPartners(tenantId: string, since: Date | null): Promise<PendingPartners>;
@@ -186,12 +186,16 @@ export async function loadRepCustodyFacts(store: CheckStore, tenantId: string, s
 export async function loadC5Input(store: CheckStore, tenantId: string, s: CheckSettingsFacts, pending: PendingPartners, accounts?: ControlAccountFacts[]): Promise<C5Input> {
   const acc = accounts ?? await store.controlAccounts(tenantId);
   const paylink = idsOf(acc, 'PAYLINK');
-  const [ledgerMilli, settlementBalanceMilli, explanations] = await Promise.all([
+  // البداية النظيفة: دفتر الأمانات التشغيلي بعد التفعيل وحده + ما أدخله المحاسب افتتاحياً على 112005 (لا تاريخ ما قبل التفعيل)
+  const clean = s.setupMethod === 'CLEAN' && !!s.openingSnapshotAt;
+  const after = clean ? { createdAfter: s.openingSnapshotAt as Date } : {};
+  const [ledgerMilli, opsSinceMilli, openingMilli, explanations] = await Promise.all([
     paylink.length ? store.ledgerTotal(tenantId, paylink) : Promise.resolve(0n),
-    store.settlementBalance(tenantId, s.currencyDecimals),
-    store.paylinkExplanations(tenantId, s.currencyDecimals),
+    store.settlementBalance(tenantId, s.currencyDecimals, after),
+    clean && paylink.length ? store.ledgerTotal(tenantId, paylink, { moveType: 'OPENING' }) : Promise.resolve(0n),
+    store.paylinkExplanations(tenantId, s.currencyDecimals, after),
   ]);
-  return { ledgerMilli, settlementBalanceMilli, pending: pending.unknown || pending.settlement, ...explanations };
+  return { ledgerMilli, settlementBalanceMilli: opsSinceMilli + openingMilli, pending: pending.unknown || pending.settlement, ...explanations };
 }
 
 /**

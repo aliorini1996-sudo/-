@@ -109,11 +109,15 @@ export default function ImportLedgerNotice({ ctx }: { ctx: LedgerImportCtx | nul
     <div className={`${box('warn')} mt-3`} role="status">
       <p className="flex items-start gap-1.5">
         <BookOpen size={13} className="shrink-0 mt-0.5" />
-        <span>
-          {tr('الدفاتر مفعلة: الأرصدة الافتتاحية وكشوف الحسابات المستوردة تُرحَّل قيودا في الدفاتر')}
-          {ctx.cutoverDate && <> · {tr('تاريخ البدء')}: <bdi className="tabular-nums">{formatDayOnly(ctx.cutoverDate)}</bdi></>}
-          {'. '}{tr('التصحيح بعد الترحيل بالتراجع عن الدفعة فقط')}
-        </span>
+        {ctx.method === 'CLEAN' ? (
+          <span>{tr('الدفاتر مفعّلة ببداية نظيفة: ما يُستورد يخدم التطبيق ولا يُرحَّل إلى الدفاتر، وأي رصيد فيها يُدخله المحاسب يدويا')}</span>
+        ) : (
+          <span>
+            {tr('الدفاتر مفعلة: الأرصدة الافتتاحية وكشوف الحسابات المستوردة تُرحَّل قيودا في الدفاتر')}
+            {ctx.cutoverDate && <> · {tr('تاريخ البدء')}: <bdi className="tabular-nums">{formatDayOnly(ctx.cutoverDate)}</bdi></>}
+            {'. '}{tr('التصحيح بعد الترحيل بالتراجع عن الدفعة فقط')}
+          </span>
+        )}
       </p>
     </div>
   );

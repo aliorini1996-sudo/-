@@ -123,17 +123,29 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       return out;
     },
 
-    async ledgerTotal(tenantId, accountIds) {
+    async ledgerTotal(tenantId, accountIds, opts = {}) {
       if (accountIds.length === 0) return 0n;
       const agg = await d.glMoveLine.aggregate({
-        where: { tenantId, posted: true, accountId: { in: [...accountIds] } }, _sum: { debitMilli: true, creditMilli: true },
+        where: {
+          tenantId, posted: true, accountId: { in: [...accountIds] },
+          ...(opts.moveType ? { move: { moveType: opts.moveType, state: 'POSTED' } } : {}),
+        },
+        _sum: { debitMilli: true, creditMilli: true },
       });
       return (agg._sum.debitMilli ?? 0n) - (agg._sum.creditMilli ?? 0n);
     },
 
     async accountEntryTotals(tenantId, excludeOpening, decimals) {
+      // البداية النظيفة: صفوف AR_ENTRY (استيراد/رصيد افتتاحي من التطبيق) لا تُرحَّل أبداً (planEvent)، إلا تسوية العميل من
+      // الدفاتر التي يكتب مستندها حدثها DONE — فتُحسب صفوف الفاتورة والسند، وصفوف التسوية المرحَّلة وحدها
+      const doneAdjustments = excludeOpening?.cleanStart
+        ? (await d.glSourceEvent.findMany({
+          where: { tenantId, sourceType: 'AR_ENTRY', event: 'POST', status: 'DONE' }, select: { sourceId: true },
+        })).map((e) => e.sourceId)
+        : null;
       const where: Prisma.AccountEntryWhereInput = {
         tenantId,
+        ...(doneAdjustments ? { AND: [{ OR: [{ invoiceId: { not: null } }, { receiptId: { not: null } }, { id: { in: doneAdjustments } }] }] } : {}),
         // البداية النظيفة: كل صف أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخه (مرآة classifyCutover)، وكذا صفوف إلغاء
         // مستندٍ (فاتورة أو سند) أُنشئ حتى T0 وإن أُلغي بعده — عكسه SKIPPED(OPENING) لا يُرحَّل (مرآة siblingGate)
         ...(excludeOpening
@@ -239,16 +251,19 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       return out;
     },
 
-    async settlementBalance(tenantId, decimals) {
-      const agg = await d.settlementEntry.aggregate({ where: { tenantId }, _sum: { amount: true } });
+    async settlementBalance(tenantId, decimals, opts = {}) {
+      const agg = await d.settlementEntry.aggregate({
+        where: { tenantId, ...(opts.createdAfter ? { createdAt: { gt: opts.createdAfter } } : {}) }, _sum: { amount: true },
+      });
       return toMilli(Number(agg._sum.amount ?? 0), decimals);
     },
 
-    async paylinkExplanations(tenantId, decimals) {
+    async paylinkExplanations(tenantId, decimals, opts = {}) {
+      const after = opts.createdAfter ? { createdAt: { gt: opts.createdAfter } } : {};
       const [refundRows, refundedLinks, cancelledOnline] = await Promise.all([
         d.settlementEntry.findMany({ where: { tenantId, kind: 'REFUND', linkId: { not: null } }, select: { linkId: true } }),
-        d.customerPaymentLink.findMany({ where: { tenantId, status: 'refunded' }, select: { id: true, receiptId: true, amount: true } }),
-        d.receipt.findMany({ where: { tenantId, paymentMethod: 'ONLINE', status: 'CANCELLED' }, select: { id: true, number: true, amount: true }, take: 500 }),
+        d.customerPaymentLink.findMany({ where: { tenantId, status: 'refunded', ...after }, select: { id: true, receiptId: true, amount: true } }),
+        d.receipt.findMany({ where: { tenantId, paymentMethod: 'ONLINE', status: 'CANCELLED', ...after }, select: { id: true, number: true, amount: true }, take: 500 }),
       ]);
       const refunded = new Set(refundRows.map((r) => r.linkId as string));
       const links = cancelledOnline.length

@@ -308,6 +308,12 @@ export interface PlanEventInput {
  * إزاحة الإقفال (ADR‑7) لاحقة في postMove.
  */
 export function planEvent(input: PlanEventInput): EventPlan {
+  // البداية النظيفة: «لا نريد أي استيراد غير يدوي» (المالك والخبير، ٢٨ سبتمبر ٢٠٢٦) — صفوف AR_ENTRY (الأرصدة وكشوف الحسابات
+  // المستوردة، ورصيد العميل الافتتاحي من التطبيق) لا تُرحَّل إلى الدفاتر أبداً، قبل التفعيل ولا بعده. تسوية العميل من الدفاتر
+  // (CUSTOMER_ADJUSTMENT) يكتب مستندُها حدثَها DONE بنفسه فلا تمرّ من هنا، وعكسها REVERSE_LIVE في بوابة الأشقاء.
+  if (input.cutover.cleanStart && input.sourceType === 'AR_ENTRY' && input.event === 'POST') {
+    return { action: 'SKIP', skipReason: 'OPENING', siblingWrite: null };
+  }
   const own = classifyCutover(input.self, input.cutover);
   if (own.kind === 'OPENING') return { action: 'SKIP', skipReason: 'OPENING', siblingWrite: null };
   const post = (mode: 'BUILD' | 'REVERSE_LIVE' | 'BUILD_FROM_SOURCE', liveMoveId: string | null, siblingWrite: SiblingWrite | null): EventPlan => ({

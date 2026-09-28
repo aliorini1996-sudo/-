@@ -19,7 +19,8 @@ import {
   HISTORY_MAX_ROWS, assertHistoryNotTooLarge, backfillProgress, backfillTransition, conservativeEventsPerMinute, estimateHistory, fullHistoryCutoverDate,
   initialCursorRows, shouldReconcile,
 } from '../services/gl/backfill';
-import { classifyCutover, initialWatermarkAt, isIncludedInOpening, siblingGate } from '../services/gl/sync/classify';
+import { classifyCutover, initialWatermarkAt, isIncludedInOpening, planEvent, siblingGate } from '../services/gl/sync/classify';
+import { custodyComponents } from '../services/gl/custody';
 import { cutoverContextOf } from '../services/gl/sync/poster';
 import { LATE_COMMIT_WINDOW_MS } from '../services/gl/sync/types';
 import { validateMove } from '../services/gl/validate';
@@ -887,4 +888,55 @@ test('حارس ثابت: كل تفعيل جديد بداية نظيفة — ال
   // الشجرة من القالب وحده: الزرع لا يقرأ عملاء ولا مناديب ولا مستودعات الشركة
   const seed = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'seed.ts'), 'utf8');
   assert.doesNotMatch(seed, /db\.(customer|salesRep|invoice|receipt|warehouse\w*|accountEntry)\./);
+});
+
+// ═══ لا استيراد غير يدوي ولا إدخال ديناميكي لمعلومة سابقة (المالك والخبير، 2026-09-28) ═══
+
+test('البداية النظيفة: صف AR_ENTRY (استيراد/رصيد افتتاحي من التطبيق) لا يُرحَّل أبداً — ولو أُنشئ بعد التفعيل', () => {
+  const T0 = at('2027-01-15T09:00:00Z');
+  const cutover = { cutoverDate: '2027-01-15', openingSnapshotAt: T0, timezone: TZ, initialWatermarkAt: at('2027-01-14T00:00:00Z') };
+  const after = { effectAt: at('2027-01-20T10:00:00Z'), createdAt: at('2027-01-20T10:00:00Z') };
+  assert.deepEqual(planEvent({ sourceType: 'AR_ENTRY', event: 'POST', self: after, cutover: { ...cutover, cleanStart: true } }),
+    { action: 'SKIP', skipReason: 'OPENING', siblingWrite: null });
+  // التفعيلات السابقة: استيراد بعد البدء يُرحَّل كما كان
+  assert.equal(planEvent({ sourceType: 'AR_ENTRY', event: 'POST', self: after, cutover: { ...cutover, cleanStart: false } }).action, 'POST');
+  // مستندات التشغيل بعد التفعيل تُرحَّل
+  assert.equal(planEvent({ sourceType: 'INVOICE', event: 'POST', self: after, cutover: { ...cutover, cleanStart: true } }).action, 'POST');
+  // عكس تسوية عميل مرحَّلة (شقيقها DONE بقيد حيّ) لا يمسّه المنع
+  assert.deepEqual(planEvent({
+    sourceType: 'AR_ENTRY', event: 'REVERSE', self: after, cutover: { ...cutover, cleanStart: true },
+    sibling: { status: 'DONE', skipReason: null, moveId: 'm1' }, live: { liveMoveId: 'm1', existingReversalMoveId: null },
+  }).action, 'POST');
+});
+
+test('البداية النظيفة: عهدة المندوب الافتتاحية التي أدخلها المحاسب يغطّيها أول توريد بعد التفعيل، بلا تاريخ ما قبل التفعيل', () => {
+  const rep = 'rep1';
+  const base = { receipts: [], onlineReceipts: [], outsideReceipts: [], cashInvoices: [], shortages: [], custodyExpenses: [], routing: { cashInvoice: 'MAIN_CASH' as const } };
+  const settlement = { id: 's1', salesRepId: rep, amountMilli: 5_000_000n, effectAt: at('2027-01-20T10:00:00Z'), createdAt: at('2027-01-20T10:00:00Z') };
+  // المحاسب أدخل عهدة 5000 للمندوب؛ التوريد بعد التفعيل 5000 ⇒ يغطّيها كاملة وتصفر العهدة والمعلّق
+  const c = custodyComponents({ ...base, settlements: [settlement], opening: { [rep]: { ledgerCustodyMilli: 5_000_000n, activeReceiptsMilli: 5_000_000n } } })[rep];
+  assert.equal(c.settlements[0].coveredMilli, 5_000_000n);
+  assert.equal(c.ledgerCustody, 0n);
+  assert.equal(c.opsOutstanding, 0n);
+  // بلا عهدة افتتاحية: التوريد لا يغطّي عهدةً لم تدخل الدفاتر (يذهب لما بعد العهدة ويكشفه C4)
+  const none = custodyComponents({ ...base, settlements: [settlement] })[rep];
+  assert.equal(none.settlements[0].coveredMilli, 0n);
+});
+
+test('حارس ثابت: المحمّل الموحّد للعهدة والأمانات وصفحات العملاء في الدفاتر لا تُدخل تاريخ ما قبل التفعيل', () => {
+  const store = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'sync', 'postingStore.prisma.ts'), 'utf8');
+  const loader = store.slice(store.indexOf('async loadCustodyInputs('), store.indexOf('async resolveOrigin('));
+  assert.match(loader, /const win = since \? \{ createdAt: \{ gt: since \} \} : \{\};/);
+  assert.equal((loader.match(/salesRepId(, type: 'CASH')?, \.\.\.win \}/g) ?? []).length, 3, 'السندات والفواتير النقدية والاستلامات بعد التفعيل وحدها');
+  assert.match(loader, /move: \{ moveType: 'OPENING', state: 'POSTED' \}/);
+  assert.match(loader, /out\.opening = \{ \[salesRepId\]: \{ ledgerCustodyMilli: opening, activeReceiptsMilli: opening \} \}/);
+  assert.match(loader, /if \(since && \(!t\.createdAt \|\| new Date\(t\.createdAt\)\.getTime\(\) <= since\.getTime\(\)\)\) continue;/);
+  const run = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'checks', 'run.ts'), 'utf8');
+  assert.match(run, /store\.settlementBalance\(tenantId, s\.currencyDecimals, after\)/);
+  assert.match(run, /store\.ledgerTotal\(tenantId, paylink, \{ moveType: 'OPENING' \}\)/);
+  assert.match(run, /settlementBalanceMilli: opsSinceMilli \+ openingMilli/);
+  const customers = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'customers.ts'), 'utf8');
+  assert.equal((customers.match(/if \(!f\.activated\) \{ notStarted\(res, f, page/g) ?? []).length, 3, 'قبل التفعيل لا مستند في الدفاتر');
+  assert.equal((customers.match(/\.\.\.\(f\.booksSince \? \{ createdAt: \{ gt: f\.booksSince \} \} : \{\}\)/g) ?? []).length, 3);
+  assert.match(customers, /booksSince: s\?\.activatedAt && s\.setupMethod === 'CLEAN' && s\.openingSnapshotAt \? s\.openingSnapshotAt : null/);
 });

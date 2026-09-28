@@ -176,10 +176,19 @@ export async function sourceIdsWithPostStatus(
 
 async function ledgerFacts(tenantId: string) {
   const s = await prisma.glSettings.findUnique({
-    where: { tenantId }, select: { activatedAt: true, cutoverDate: true, timezone: true, currencyDecimals: true, backfillState: true, lastSyncAt: true },
+    where: { tenantId },
+    select: {
+      activatedAt: true, cutoverDate: true, timezone: true, currencyDecimals: true, backfillState: true, lastSyncAt: true,
+      setupMethod: true, openingSnapshotAt: true,
+    },
   });
   return {
     activated: !!s?.activatedAt,
+    /**
+     * البداية النظيفة (ملاحظة الخبير المحاسبي): هذه الصفحات جزء من الدفاتر، فلا تُدخلها مستندات التشغيل السابقة للتفعيل
+     * ديناميكياً — تُعرض المستندات المنشأة بعد لحظة التفعيل وحدها. التفعيلات السابقة (OPENING/FULL_HISTORY) كما كانت.
+     */
+    booksSince: s?.activatedAt && s.setupMethod === 'CLEAN' && s.openingSnapshotAt ? s.openingSnapshotAt : null,
     timezone: s?.timezone || DEFAULT_TIMEZONE,
     meta: {
       activatedAt: s?.activatedAt ?? null,
@@ -189,6 +198,17 @@ async function ledgerFacts(tenantId: string) {
       currencyDecimals: s?.currencyDecimals ?? 2,
     },
   };
+}
+
+/** قبل التفعيل الدفاتر لم تبدأ: لا تُعرض فيها مستندات التشغيل (لا إدخال ديناميكي لمعلومة سابقة) */
+function notStarted(res: Response, f: Awaited<ReturnType<typeof ledgerFacts>>, page: { limit: number; offset: number }, extra: Record<string, unknown> = {}) {
+  res.json({ success: true, data: { ...f.meta, activated: false, total: 0, ...page, postingFilterCapped: false, ...extra, rows: [] } });
+}
+
+/** نافذة الإنشاء في الدفاتر: بعد لحظة التفعيل (البداية النظيفة) مدموجةً مع نطاق التاريخ إن كان على createdAt */
+function createdWindow(since: Date | null, range?: Prisma.DateTimeFilter | null): Prisma.DateTimeFilter | undefined {
+  if (!since) return range ?? undefined;
+  return { ...(range ?? {}), gt: since };
 }
 
 // ═══ الفواتير والمرتجعات ═══
@@ -201,7 +221,8 @@ router.get('/customers/invoices', VIEW, ledgerHandler(async (req, res) => {
   const q = req.query as Q;
   const f = await ledgerFacts(tenantId);
   const page = pageOf(q);
-  const where: Prisma.InvoiceWhereInput = { tenantId };
+  if (!f.activated) { notStarted(res, f, page); return; }
+  const where: Prisma.InvoiceWhereInput = { tenantId, ...(f.booksSince ? { createdAt: { gt: f.booksSince } } : {}) };
   const and: Prisma.InvoiceWhereInput[] = [];
   const types = listOf(q.type, INVOICE_TYPES);
   if (types.length) where.type = { in: types };
@@ -258,7 +279,8 @@ router.get('/customers/receipts', VIEW, ledgerHandler(async (req, res) => {
   const q = req.query as Q;
   const f = await ledgerFacts(tenantId);
   const page = pageOf(q);
-  const where: Prisma.ReceiptWhereInput = { tenantId };
+  if (!f.activated) { notStarted(res, f, page); return; }
+  const where: Prisma.ReceiptWhereInput = { tenantId, ...(f.booksSince ? { createdAt: { gt: f.booksSince } } : {}) };
   const and: Prisma.ReceiptWhereInput[] = [];
   const methods = listOf(q.paymentMethod, RECEIPT_METHODS);
   if (methods.length) where.paymentMethod = { in: methods };
@@ -405,9 +427,13 @@ router.get('/customers/paylink/entries', VIEW, ledgerHandler(async (req, res) =>
   const f = await ledgerFacts(tenantId);
   const page = pageOf(q);
   const range = instantRange(q, f.timezone);
+  if (!f.activated) { notStarted(res, f, page, { kind }); return; }
+  const createdSince = createdWindow(f.booksSince, range);
 
   if (kind === 'ONLINE') {
-    const where: Prisma.ReceiptWhereInput = { tenantId, paymentMethod: 'ONLINE', ...(range ? { receiptDate: range } : {}) };
+    const where: Prisma.ReceiptWhereInput = {
+      tenantId, paymentMethod: 'ONLINE', ...(range ? { receiptDate: range } : {}), ...(f.booksSince ? { createdAt: { gt: f.booksSince } } : {}),
+    };
     const [rows, total] = await Promise.all([
       prisma.receipt.findMany({
         where, orderBy: [{ receiptDate: 'desc' }, { id: 'desc' }], skip: page.offset, take: page.limit,
@@ -436,7 +462,7 @@ router.get('/customers/paylink/entries', VIEW, ledgerHandler(async (req, res) =>
   }
 
   if (kind === 'FEE') {
-    const where: Prisma.SettlementEntryWhereInput = { tenantId, kind: 'FEE', ...(range ? { createdAt: range } : {}) };
+    const where: Prisma.SettlementEntryWhereInput = { tenantId, kind: 'FEE', ...(createdSince ? { createdAt: createdSince } : {}) };
     const [rows, total] = await Promise.all([
       prisma.settlementEntry.findMany({
         where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page.offset, take: page.limit,
@@ -455,7 +481,7 @@ router.get('/customers/paylink/entries', VIEW, ledgerHandler(async (req, res) =>
     return;
   }
 
-  const where: Prisma.PayoutWhereInput = { tenantId, ...(range ? { createdAt: range } : {}) };
+  const where: Prisma.PayoutWhereInput = { tenantId, ...(createdSince ? { createdAt: createdSince } : {}) };
   const [rows, total] = await Promise.all([
     prisma.payout.findMany({
       where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page.offset, take: page.limit,

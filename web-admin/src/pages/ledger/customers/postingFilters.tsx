@@ -31,17 +31,17 @@ export function postingParamsOf(filters: readonly string[]): PostingListParams {
  * السبب مكتوب هنا فوق القائمة — والالتقاط مقصودٌ تأجيله لا معطّل — ومعه عدّاد ما ينتظر.
  * عنوان «الدفاتر بانتظار الإعداد» وتقدّمه ورابطه في الشارة المشتركة فوق الشاشة (LedgerLayout) فلا يُكرَّر.
  */
-export function NotActivatedNotice({ pending }: { pending?: number }) {
+/**
+ * قبل التفعيل (البداية النظيفة — ملاحظة الخبير المحاسبي): الدفاتر لم تبدأ فلا مستند فيها، ولا يدخلها لاحقاً ما سبق التفعيل.
+ * `pending` باقٍ في التوقيع للتوافق ولا يُعرض (الخادم لا يعدّ مستندات التشغيل هنا).
+ */
+export function NotActivatedNotice(_props: { pending?: number }) {
   const tr = useTr();
-  const waiting = pending != null && pending > 0
-    ? tr('{count} مستندا في هذه القائمة بانتظار الالتقاط').replace('{count}', String(pending))
-    : null;
   return (
     <div className="flex items-start gap-2 rounded-xl border border-[#F3D3C4] bg-[#FBEBE2] px-3 py-2 text-sm text-[#1F1A13]" role="status">
       <Hourglass size={16} className="text-[#E15A30] shrink-0 mt-0.5" />
       <p>
-        <span className="font-semibold">{tr('يبدأ التقاط المستندات بعد اعتماد الإعداد')}</span> — {tr('المستندات تظهر هنا، وتُرحَّل آليا بعد التفعيل')}
-        {waiting && <> · <bdi className="tabular-nums">{waiting}</bdi></>}
+        <span className="font-semibold">{tr('الدفاتر لم تُفعَّل بعد: لا يظهر هنا ولا يُرحَّل أي مستند سبق التفعيل')}</span> — {tr('بعد التفعيل تظهر هنا المستندات المنشأة بعده وحدها وتُرحَّل آليا')}
       </p>
     </div>
   );
