@@ -94,14 +94,17 @@ test('حارس ثابت: حذف استلام المندوب يفحص عهدة م
     'إسقاط استلام ورده صاحبه يجعل عهدته سالبة فتمنع كل توريد لاحق');
 });
 
-test('حارس ثابت: جلسة انتحال المالك لا تقيد عهدة ولا تستلمها', () => {
+test('حارس ثابت: جلسة انتحال المالك تستلم التحصيل والعهدة دون أن تُقيَّد على حساب توكنها', () => {
   const reps = read('routes', 'salesReps.ts');
   assert.match(reps, /const receivedByUserId = by\?\.impersonated === true \? undefined : by\?\.id;/,
-    'توكن الانتحال موقع بمعرف أقدم مدير — لا تقيد العهدة عليه');
+    'توكن الانتحال موقع بمعرف مدير في الشركة — لا تقيد العهدة عليه');
+  // أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء»: الجلسة تستلم عهدة المستخدم، والمستلم «مالك المنصة» لا حساب التوكن
   const users = read('routes', 'companyUsers.ts');
   const post = users.slice(users.indexOf("router.post('/:id/settlements'"));
-  assert.ok(post.slice(0, post.indexOf('userSettlement.create')).includes('impersonated'),
-    'من يقبض النقد يوقعه بحسابه لا بجلسة الدعم الفني');
+  const body = post.slice(0, post.indexOf('\nrouter.'));
+  assert.ok(!body.includes('جلسة الدعم الفني'), 'رفض الاستلام من جلسة المالك عاد');
+  assert.match(body, /by\?\.impersonated === true\s*\? \{ receivedBy: 'مالك المنصة \(الدعم الفني\)' \}/,
+    'الاستلام من الجلسة يُنسب إلى حساب مدير لم يقبض شيئاً');
 });
 
 test('حارس ثابت: منح صلاحية استلام التحصيل محصور في مدير الشركة', () => {

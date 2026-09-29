@@ -97,6 +97,8 @@ async function requireCompanyOwner(req: AuthRequest, res: Response): Promise<{ r
     res.status(403).json({ success: false, message: 'غير مسموح' });
     return null;
   }
+  // جلسة مالك المنصة: مالك الشركة ضمناً — تدير المستخدمين كلهم أياً كانت صلاحيات حساب التوكن
+  if (req.user.impersonated === true) return { role: 'ADMIN' };
   const admin = await prisma.admin.findUnique({
     where: { id: req.user.id },
     select: { isActive: true, canManageCompanyUsers: true, role: true },
@@ -249,14 +251,10 @@ router.post('/:id/settlements', requireAdminPermission('canReceiveUserCollection
     // المقيّد — الأيقونة تسكن تلك الصفحة، فمن لا يبلغها لا يستلم من مسارها.
     if (!(await guardCustody(req, res))) return;
     const tid = tenantId(req);
-    if (req.params.id === req.user?.id) { res.status(400).json({ success: false, message: 'لا يمكنك استلام عهدتك من نفسك' }); return; }
-    /* جلسة انتحال المالك لا تقبض نقداً: توكنها موقَّعٌ بمعرّف أقدم مديرٍ في
-     * الشركة، فالتوريد يُسجَّل باسم رجلٍ لم يستلم شيئاً — وخروج المال نهائيّ لا
-     * يُراجَع. من يقبض المبلغ يوقّعه بحسابه. */
-    if (req.user?.impersonated === true) {
-      res.status(403).json({ success: false, message: 'استلام العهدة يسجل من حساب الشركة نفسه لا من جلسة الدعم الفني' });
-      return;
-    }
+    // جلسة مالك المنصة ليست صاحب حساب التوكن: تستلم عهدته كأي مستخدم
+    if (req.params.id === req.user?.id && req.user?.impersonated !== true) { res.status(400).json({ success: false, message: 'لا يمكنك استلام عهدتك من نفسك' }); return; }
+    /* جلسة مالك المنصة تستلم العهدة (أمر المالك (٢٩ سبتمبر ٢٠٢٦): «اجعل لي كمالك صلاحية تعديل كل شيء بلا استثناء»). توكنها موقَّعٌ بمعرّف مديرٍ في الشركة لم يقبض شيئاً، فلا يُنسب
+     * الاستلام إليه: المستلم «مالك المنصة (الدعم الفني)» بلا receivedByUserId — كتوريد المناديب من الجلسة نفسها. */
     const target = await prisma.admin.findFirst({ where: { id: req.params.id, tenantId: tid }, select: { id: true } });
     if (!target) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
 
@@ -285,7 +283,9 @@ router.post('/:id/settlements', requireAdminPermission('canReceiveUserCollection
       await tx.userSettlement.create({
         data: {
           tenantId: tid, fromUserId: target.id, amount, method, note,
-          receivedBy: `${by?.name || by?.id || 'الادمن'}`, receivedByUserId: by?.id,
+          ...(by?.impersonated === true
+            ? { receivedBy: 'مالك المنصة (الدعم الفني)' }
+            : { receivedBy: `${by?.name || by?.id || 'الادمن'}`, receivedByUserId: by?.id }),
           ...(photos.length && { photos: { create: photos.map((data) => ({ data })) } }),
         },
       });

@@ -64,6 +64,30 @@ test('الانتحال والتسجيل ينشران صلاحيات صاحب ا�
   assert.match(signupBody, /\.\.\.adminPermissionFields\(created\.admin\)/, 'استجابة التسجيل لا تحمل صلاحيات الحساب ونطاقه');
 });
 
+test('جلسة مالك المنصة (الانتحال) تفتح كل صلاحية ولا نطاق — في الخادم والويب (أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء»)', () => {
+  const mw = read('src', 'middleware', 'auth.ts');
+  assert.match(mw, /export function isOwnerSession\([^)]*\): boolean \{\s*return req\.user\?\.impersonated === true;/);
+  // الوسيطان العامان: تجاوز بعد فحص الدور/الشركة وقبل قراءة صفّ الصلاحيات
+  for (const fn of ['requireAdminPermission', 'requireLedgerPermission']) {
+    const i = mw.indexOf(`export function ${fn}(`);
+    const body = mw.slice(i, mw.indexOf('\n}', i));
+    const bypass = body.indexOf('if (isOwnerSession(req)) { next(); return; }');
+    assert.ok(bypass > 0, `${fn} بلا تجاوز جلسة المالك`);
+    assert.ok(bypass < body.indexOf('prisma.admin.findUnique'), `${fn}: التجاوز بعد قراءة الصفّ`);
+  }
+  const scope = read('src', 'services', 'adminScope.ts');
+  const s0 = scope.indexOf('export async function adminScopeEnabled(');
+  assert.ok(scope.slice(s0, scope.indexOf('\n}', s0)).includes('if (req.user?.impersonated === true) return false;'), 'النطاق يقيّد جلسة المالك');
+  // الويب يرى كل المفاتيح مفتوحة: بدء الجلسة و/auth/me
+  const a = read('src', 'routes', 'auth.ts');
+  assert.match(a, /export function ownerSessionPermissionFields\(\) \{\s*return \{ \.\.\.Object\.fromEntries\(Object\.keys\(adminPermissionSelect\)\.map\(\(key\) => \[key, true\]\)\), scopeEnabled: false \};/);
+  const me = a.slice(a.indexOf("router.get('/me'"));
+  assert.ok(me.slice(0, me.indexOf('\n});')).includes('req.user.impersonated === true ? { ...admin, ...ownerSessionPermissionFields() } : admin'));
+  const t = read('src', 'routes', 'tenants.ts');
+  const imp = t.slice(t.indexOf("router.post('/:id/impersonate'"));
+  assert.match(imp.slice(0, imp.indexOf('\n});')), /\.\.\.adminPermissionFields\(admin\), \.\.\.ownerSessionPermissionFields\(\)/);
+});
+
 test('حمولة الأدمن تحمل scopeEnabled — في الدخول و/auth/me', () => {
   const s = read('src', 'routes', 'auth.ts');
   const login = s.indexOf("router.post('/login'");

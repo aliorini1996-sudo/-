@@ -45,6 +45,8 @@ function isCompanyUser(req: AuthRequest): boolean {
  */
 export async function adminScopeEnabled(req: AuthRequest): Promise<boolean> {
   if (!isCompanyUser(req)) return false;
+  // جلسة مالك المنصة لا نطاق يقيّدها (يرى الشركة كلها ويعمل فيها بلا استثناء)
+  if (req.user?.impersonated === true) return false;
   const admin = await prisma.admin.findUnique({
     where: { id: req.user!.id },
     select: { scopeEnabled: true },

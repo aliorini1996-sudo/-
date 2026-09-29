@@ -449,6 +449,8 @@ router.get('/:id/settlements', async (req: AuthRequest, res: Response, next: Nex
 async function isPrimaryAdmin(req: AuthRequest): Promise<boolean> {
   const id = req.user?.id;
   if (!id) return false;
+  // جلسة مالك المنصة: مديرٌ رئيسيّ ضمناً (أمر المالك ٢٩ سبتمبر ٢٠٢٦ «صلاحية تعديل كل شيء بلا استثناء») — والشركة من توكنها
+  if (req.user?.impersonated === true) return true;
   const admin = await prisma.admin.findUnique({ where: { id }, select: { role: true, tenantId: true, isActive: true } });
   return !!admin && admin.isActive && admin.role === 'ADMIN' && admin.tenantId === tenantId(req);
 }

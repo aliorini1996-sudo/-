@@ -19,7 +19,7 @@ import {
   LEDGER_STUCK_EVENT_STATUSES, ledgerResetSummary, ledgerStatusOf, ledgerStuckCutoff, paylinkFeeInvoiceFromSummary,
   stuckCountsByTenant, summarizePendingFees,
 } from '../services/gl/ownerLedger';
-import { adminPermissionFields } from './auth';
+import { adminPermissionFields, ownerSessionPermissionFields } from './auth';
 import { tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
@@ -214,7 +214,9 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
     // نشطاً أوّلاً: `requireAdmin` صار يتحقّق من الحساب نفسه، فانتحالُ أقدمِ
     // مديرٍ ولو كان معطَّلاً يُصدر توكناً يُرفض على كل مسار إداري.
-    const admin = await prisma.admin.findFirst({ where: { tenantId: tenant.id, isActive: true }, orderBy: { createdAt: 'asc' } })
+    // مدير الشركة (ADMIN) أولاً: بعض بوابات الخادم تشترط دور المدير من القاعدة (زاتكا وحقول البائع) — ثم أي حساب نشط
+    const admin = await prisma.admin.findFirst({ where: { tenantId: tenant.id, isActive: true, role: 'ADMIN' }, orderBy: { createdAt: 'asc' } })
+      ?? await prisma.admin.findFirst({ where: { tenantId: tenant.id, isActive: true }, orderBy: { createdAt: 'asc' } })
       ?? await prisma.admin.findFirst({ where: { tenantId: tenant.id }, orderBy: { createdAt: 'asc' } });
     if (!admin) { res.status(404).json({ success: false, message: 'لا يوجد مدير لهذه الشركة' }); return; }
     if (!admin.isActive) { res.status(409).json({ success: false, message: 'كل مديري هذه الشركة معطلون فعل حسابا قبل الدخول' }); return; }
@@ -227,7 +229,8 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
     res.json({
       success: true,
       // صلاحيات صاحب الحساب ونطاقه — وإلا أخفى الويب الدفاتر التي يسمح بها الخادم (§9.1)
-      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, companyName: tenant.name, ...adminPermissionFields(admin) } },
+      // جلسة مالك المنصة: كل الصلاحيات مفتوحة ولا نطاق (أمر المالك: «صلاحية تعديل كل شيء بلا استثناء») — الخادم يطابقها بـisOwnerSession
+      data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, tenantId: tenant.id, companyName: tenant.name, ...adminPermissionFields(admin), ...ownerSessionPermissionFields() } },
     });
   } catch (err) { next(err); }
 });

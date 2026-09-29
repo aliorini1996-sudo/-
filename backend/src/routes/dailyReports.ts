@@ -42,7 +42,8 @@ const actorName = (req: AuthRequest) => req.user?.name || 'مستخدم';
 async function hasDailyReportAdminRight(req: AuthRequest): Promise<boolean> {
   const uid = req.user?.id;
   if (!uid) return false;
-  if (req.user?.role === 'ADMIN') return true;
+  // والدور ADMIN وجلسة مالك المنصة يمرّان دائماً
+  if (req.user?.role === 'ADMIN' || req.user?.impersonated === true) return true;
   const row = await prisma.admin.findUnique({
     where: { id: uid },
     select: { canViewReports: true, canManageDailyReport: true },
