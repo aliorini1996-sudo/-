@@ -533,18 +533,21 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     if (!caller) return;
     const tid = tenantId(req);
 
-    // القيد: المدير الرئيسي فقط (لا مشرف/محاسب) — مطابقةً لحذف المندوب. الدور من القاعدة لا التوكن (كالإنشاء والتعديل):
-    // مدير خُفِّض إلى مشرف وبقي توكنه ADMIN لا يحذف حتى انتهائه
-    if (caller.role !== 'ADMIN') {
-      res.status(403).json({ success: false, message: 'حذف مستخدم الشركة متاح للمدير الرئيسي فقط' });
-      return;
-    }
-
     const target = await prisma.admin.findFirst({
       where: { id: req.params.id, tenantId: tid },
       select: { id: true, name: true, role: true, isActive: true, canManageCompanyUsers: true },
     });
     if (!target) { res.status(404).json({ success: false, message: 'المستخدم غير موجود' }); return; }
+
+    /* الدور: كان الحذف مقصوراً على مدير الشركة فيفشل حذفُ المشرف بـ403.
+     * وصار كسائر التعديلات على الحسابات — يحرسه `guardAdminAccountChange`:
+     * من يدير المستخدمين يحذف زملاءه، و**حسابُ المدير** لا يحذفه إلّا مدير.
+     * فلا يرفع مشرفٌ نفسَه بحذف من فوقه، ولا يُحبَس عن عملٍ يملك أدواته. */
+    if (target.role === 'ADMIN' && caller.role !== 'ADMIN') {
+      res.status(403).json({ success: false, message: ADMIN_ACCOUNT_REFUSALS.COMPANY_ADMIN_ACCOUNT_ONLY, code: 'COMPANY_ADMIN_ACCOUNT_ONLY' });
+      return;
+    }
+    if (!(await guardAdminAccountChange(req, res, caller, { targetRole: target.role, newRole: target.role }))) return;
 
     // حذف الذات يقطع الجلسة الحاليّة ويترك المستخدم أمام شاشة لا يفهمها
     if (target.id === req.user?.id) {
@@ -603,6 +606,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       select: { id: true, levelId: true, isDefault: true },
     });
     const feature = await prisma.tenant.findUnique({ where: { id: tid }, select: { dailyReportEnabled: true } });
+    /* وكان الحذف يُرفض هنا حين يكون المستخدم آخر صاحبٍ لمستوى أو آخر
+     * افتراضيّ — فيقف المشترك أمام بابٍ لا يعرف مفتاحه. والآن: عقدُه تُحذف
+     * معه وتُرفع الحالة في **إشعار** يسمّي المستوى الذي شغر، فيعيّن المشرف
+     * صاحباً من شاشة التقرير اليومي متى شاء. تعطُّلُ سلسلةٍ يُعالَج بنقرة،
+     * أمّا منعُ الحذف فلا يُعالَج إطلاقاً. */
+    const orphanedLevels: string[] = [];
     if (myNodes.length && feature?.dailyReportEnabled === true) {
       const levelIds = [...new Set(myNodes.map(n => n.levelId))];
       const [levels, siblings, liveAdmins] = await Promise.all([
@@ -619,20 +628,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       for (const lid of levelIds) {
         const label = nameOf.get(lid) || 'مستوى';
         const rest = siblings.filter(s => s.levelId === lid && liveIds.has(s.adminId));
-        if (!rest.length) {
-          res.status(400).json({
-            success: false,
-            message: `${target.name} آخر صاحب لمستوى «${label}» في سلسلة التقرير اليومي عين صاحبا غيره من صفحة التقرير اليومي قبل حذفه`,
-          });
-          return;
-        }
         const mineHere = myNodes.filter(n => n.levelId === lid);
-        if (mineHere.some(n => n.isDefault) && !rest.some(s => s.isDefault)) {
-          res.status(400).json({
-            success: false,
-            message: `${target.name} الصاحب الافتراضي لمستوى «${label}» في سلسلة التقرير اليومي عين افتراضيا غيره قبل حذفه`,
-          });
-          return;
+        // شاغرٌ فعلاً: لا خلَف حيّ للمستوى، أو ذهب صاحبه الافتراضيّ الوحيد
+        if (!rest.length || (mineHere.some(n => n.isDefault) && !rest.some(s => s.isDefault))) {
+          orphanedLevels.push(label);
         }
       }
     }
@@ -652,6 +651,19 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       : [];
     await prisma.$transaction([
       ...chainCleanup,
+      /* المستويات التي شغرت: إشعارٌ يسمّيها كي لا تتوقّف سلسلة التقرير صامتةً.
+       * (القائمة فارغة في الغالب، فلا إشعار حينها.) */
+      ...(orphanedLevels.length ? [prisma.notification.create({
+        data: {
+          tenantId: tid,
+          type: 'DAILY_REPORT_OWNER_VACANT',
+          title: 'مستوى بلا صاحب في سلسلة التقرير اليومي',
+          body: `بحذف ${target.name} شغر ${orphanedLevels.length > 1 ? 'مستويات' : 'مستوى'}`
+            + ` ${orphanedLevels.map(l => `«${l}»`).join(' و')} في سلسلة التقرير اليومي`
+            + ` — عين صاحبا جديدا من صفحة التقرير اليومي كي تستأنف تقاريره`,
+          data: JSON.stringify({ deletedAdminId: target.id, deletedAdminName: target.name, levels: orphanedLevels }),
+        },
+      })] : []),
       /* ومستلمو التقرير الشامل — الجدول الثاني بلا مفتاح أجنبيّ.
        *
        * تعليقُ عموده في المخطّط يقول «بلا FK كي لا يمحو حذفُه تاريخ الإسناد»،

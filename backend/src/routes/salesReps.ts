@@ -190,18 +190,21 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (err) { next(err); }
 });
 
-// حذف مندوب — للأدمن الرئيسي فقط (role=ADMIN، لا MANAGER/ACCOUNTANT)، مهما ارتبط بأي شيء.
-// الفواتير والسندات (سجلّات مالية) تُحفظ ويُفرَّغ مرجع المندوب منها؛ بياناته التشغيلية تُحذف.
+/**
+  * حذف مندوب — لمن يملك إدارة المناديب، مهما ارتبط بأيّ شيء.
+  *
+  * الفواتير والسندات والإقرارات اليومية (سجلّات مالية) تبقى ويُفرَّغ مرجع
+  * المندوب منها، وبياناته التشغيلية (مواقع، زيارات، تحميل سيارة، إسنادات)
+  * تُحذف.
+  *
+  * وكان مقصوراً على مدير الشركة فقط، فيفشل حذفُ المشرف بـ403 ولا يفهم سبباً.
+  * والراوتر كلّه محروسٌ بـ`canManageSalesReps` — صلاحيةٌ يمنحها مدير الشركة
+  * عمداً — فمن ائتُمن على إنشاء المناديب وتعديل صلاحياتهم يُؤتمن على حذفهم.
+  * (حذفُ **استلام تحصيل** بعينه يبقى للمدير الرئيسي: ذاك مبلغٌ بذاته.)
+ */
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    // القيد: الأدمن الرئيسي فقط (لا مدير/محاسب) — والدور من القاعدة لا من التوكن.
-    // هذا المسار يمحو في معاملته كل استلامات تحصيل المندوب، فلا يصحّ أن يكون
-    // حارسه أضعف من حارس حذف استلامٍ واحد.
-    if (!(await isPrimaryAdmin(req))) {
-      res.status(403).json({ success: false, message: 'حذف المندوب متاح للأدمن الرئيسي فقط' });
-      return;
-    }
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 

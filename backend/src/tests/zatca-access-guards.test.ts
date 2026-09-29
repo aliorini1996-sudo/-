@@ -667,17 +667,33 @@ test('رسائل رفض حسابات المدير لا تذكر ما يُسمح 
   assert.equal(db.admins.get('admin-1')!.scopeEnabled, false);
 });
 
-test('DELETE /api/company-users/:id: الدور من القاعدة لا التوكن — توكن ADMIN وصفّ القاعدة MANAGER (يملك إدارة المستخدمين) ⇒ 403 بلا حذف، والمدير يحذف', async () => {
+/**
+ * حذف مستخدم الشركة: من يدير المستخدمين يحذف زميله، وحسابُ **المدير** لا
+ * يحذفه إلّا مدير.
+ *
+ * كان الحذف مقصوراً على مدير الشركة فيفشل حذفُ المشرف بـ403 (قرار المالك:
+ * يمضي). والحارس الآن `guardAdminAccountChange` نفسه الذي يحرس الإنشاء
+ * والترقية وكلمة المرور — فلا يرفع مشرفٌ نفسَه بحذف من فوقه، ولا يُحبَس عن
+ * عملٍ يملك أدواته. والدور يُقرأ من القاعدة لا من التوكن كما كان.
+ */
+test('DELETE /api/company-users/:id: المشرف يحذف زميله، وحساب المدير للمدير وحده (والدور من القاعدة لا التوكن)', async () => {
+  reset();
+  // المشرف يحذف المحاسب — زميلٌ لا مدير
+  const byManager = await send('DELETE', '/api/company-users/accountant-1', token('manager-1', 'MANAGER'));
+  assert.equal(byManager.status, 200, byManager.text);
+  assert.ok(!db.admins.has('accountant-1'));
+
+  // وحساب المدير يُرفض عليه: الدور من **القاعدة** — توكن ADMIN وصفّه MANAGER لا يمرّ
   reset();
   db.admins.get('admin-2')!.role = 'MANAGER';
-  const demoted = await send('DELETE', '/api/company-users/accountant-1', token('admin-2', 'ADMIN'));
+  const demoted = await send('DELETE', '/api/company-users/admin-1', token('admin-2', 'ADMIN'));
   assert.equal(demoted.status, 403, demoted.text);
-  assert.match(demoted.body.message, /للمدير الرئيسي فقط/);
-  assert.ok(db.admins.has('accountant-1'));
+  assert.ok(db.admins.has('admin-1'));
   assert.deepEqual(db.writes, []);
-  // الأدوار كما في التوكن والقاعدة: المشرف 403، والمدير يحذف
-  assert.equal((await send('DELETE', '/api/company-users/accountant-1', token('manager-1', 'MANAGER'))).status, 403);
-  const ok = await send('DELETE', '/api/company-users/accountant-1', token('admin-1', 'ADMIN'));
+
+  // والمدير يحذف من دونه (وحارس «آخر مدير نشط» يبقى فوق ذلك كلّه)
+  reset();
+  const ok = await send('DELETE', '/api/company-users/manager-1', token('admin-1', 'ADMIN'));
   assert.equal(ok.status, 200, ok.text);
-  assert.ok(!db.admins.has('accountant-1'));
+  assert.ok(!db.admins.has('manager-1'));
 });
