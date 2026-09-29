@@ -79,6 +79,26 @@ test('حارس ثابت: سقف التوريد يفحص داخل المعامل�
   assert.ok(tx.includes('$transaction'), 'الفحص والكتابة في معاملة واحدة');
 });
 
+test('حارس ثابت: القفل الاستشاري بـ$executeRaw لا $queryRaw — في العهدة وفي الخادم كله', () => {
+  // الدالة تُرجع void، و$queryRaw يقرأ العمود فيفشل «Failed to deserialize column of type 'void'» — فسقط كل استلام عهدة
+  // بخطأ خادم (بلاغ المالك، ٢٩ سبتمبر ٢٠٢٦). المعاملات الوهمية في الاختبارات لا تلتقطه، فالحارس نصّي.
+  const custody = read('services', 'userCustody.ts');
+  assert.match(custody, /await tx\.\$executeRaw`SELECT pg_advisory_xact_lock\(hashtext\(\$\{`custody:\$\{tid\}:\$\{userId\}`\}::text\)\)`;/);
+  const bad: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(f); continue; }
+      if (!/\.ts$/.test(e.name) || /\.test\.ts$/.test(e.name)) continue;
+      fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+        if (/\$queryRaw(Unsafe)?\s*[`(<][^\n]*pg_advisory(_xact)?_lock\s*\(/.test(line)) bad.push(`${path.relative(process.cwd(), f)}:${i + 1}`);
+      });
+    }
+  };
+  walk(path.join(process.cwd(), 'src'));
+  assert.deepEqual(bad, [], 'pg_advisory_*lock بـ$queryRaw يسقط بخطأ void');
+});
+
 test('حارس ثابت: حذف مستخدم الشركة يفحص عهدته', () => {
   const src = read('routes', 'companyUsers.ts');
   const del = src.slice(src.indexOf("router.delete('/:id',"));
