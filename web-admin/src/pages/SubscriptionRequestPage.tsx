@@ -25,7 +25,7 @@ export default function SubscriptionRequestPage() {
       'Register your company’s subscription request for the FieldSales field sales platform — we receive it instantly and get back to you.',
       'Enregistrez la demande d’abonnement de votre entreprise à la plateforme FieldSales — nous la recevons instantanément et vous recontactons.'
     ),
-    keywords: tr('طلب اشتراك تسجيل شركة نظام مبيعات ميدانية', 'subscription request, register company, field sales system', 'demande d’abonnement, inscription entreprise, ventes terrain'),
+    keywords: tr('طلب اشتراك, تسجيل شركة, نظام مبيعات ميدانية', 'subscription request, register company, field sales system', 'demande d’abonnement, inscription entreprise, ventes terrain'),
     canonical: seoUrl.canonical, alternates: seoUrl.alternates,
     image: 'https://fieldsa.net/og-image.png', locale: lang,
   });

@@ -117,19 +117,19 @@ const SEO = {
   ar: {
     title: 'حاسبة تسريب الإيرادات لشركات التوزيع كم تخسر شهريا | FieldSales',
     description: 'أداة مجانية احسب كم تخسر شركة التوزيع شهريا من فواتير مفقودة وتحصيل غير موثق وعجز مخزون سيارات المناديب وأوقف التسريب',
-    keywords: 'حاسبة تسريب الإيرادات حاسبة خسائر الشركات حساب خسائر المبيعات تسريب الأرباح هدر الإيرادات خسائر شركات التوزيع حاسبة خسائر التوزيع إدارة مناديب المبيعات التحصيل الميداني عجز مخزون السيارة فروقات مخزون سيارات المناديب نظام مبيعات ميدانية أدوات مجانية للشركات حاسبة مجانية اون لاين',
+    keywords: 'حاسبة تسريب الإيرادات, حاسبة خسائر الشركات, حساب خسائر المبيعات, تسريب الأرباح, هدر الإيرادات, خسائر شركات التوزيع, حاسبة خسائر التوزيع, إدارة مناديب المبيعات, التحصيل الميداني, عجز مخزون السيارة, فروقات مخزون سيارات المناديب, نظام مبيعات ميدانية, أدوات مجانية للشركات, حاسبة مجانية اون لاين',
     locale: 'ar' as const,
   },
   en: {
     title: 'Revenue Leak Calculator for Distributors How Much Do You Lose Monthly? | FieldSales',
     description: 'Free tool calculate how much your distribution company loses each month to lost invoices undocumented cash collections and van stock shrinkage and stop the leak',
-    keywords: 'revenue leak calculator distribution losses calculator field sales losses van sales shrinkage stock discrepancy calculator cash collection losses sales rep management free business tools wholesale distribution calculator',
+    keywords: 'revenue leak calculator, distribution losses calculator, field sales losses, van sales shrinkage, stock discrepancy calculator, cash collection losses, sales rep management, free business tools, wholesale distribution calculator',
     locale: 'en' as const,
   },
   fr: {
     title: 'Calculateur de fuite de revenus pour distributeurs | FieldSales',
     description: 'Outil gratuit calculez combien votre entreprise de distribution perd chaque mois factures perdues encaissements non documentés écarts de stock et stoppez la fuite',
-    keywords: 'calculateur de pertes distribution fuite de revenus calcul pertes entreprise vente terrain encaissement espèces écarts de stock véhicule gestion commerciaux outil gratuit entreprise',
+    keywords: 'calculateur de pertes distribution, fuite de revenus, calcul pertes entreprise, vente terrain, encaissement espèces, écarts de stock véhicule, gestion commerciaux, outil gratuit entreprise',
     locale: 'fr' as const,
   },
 };

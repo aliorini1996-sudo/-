@@ -149,7 +149,8 @@ export async function runAutoHuntBatch(createdBy = 'auto-hunt'): Promise<{
 
   // تدوير المدينة تلقائياً (إن لم يحدّد المالك مدينة ثابتة) — كل دفعة تبحث منطقة جديدة
   // فتتضاعف مساحة الصيد الطازجة بدل استنزاف نتائج مستوى الدولة نفسها.
-  const cities = CITY_BANK[country] || [];
+  // «عمان» بلا ضمة: إعدادٌ حُفظ بعد تنظيف ٢٠ أغسطس الذي أسقطها — هي الدولة، والعاصمة الأردنية «عمّان» بشدّتها
+  const cities = CITY_BANK[country] || CITY_BANK[country === 'عمان' ? 'عُمان' : country] || [];
   const activeCity = cfg.city || (cities.length ? cities[(cfg.cityIndex ?? 0) % cities.length] : null);
 
   // الكلمات المستخدمة مؤخراً (لتجنّب التكرار)

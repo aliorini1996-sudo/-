@@ -487,7 +487,7 @@ router.post('/hunt', hunterAuth, huntLimiter, async (req: HunterRequest, res: Re
 
     await prisma.hunterSearch.create({
       data: {
-        userId, providers: sources.join('+'), keywords: keywords.join(' '),
+        userId, providers: sources.join('+'), keywords: keywords.join('، '),
         country: countries[0] || null, city: cities[0] || null,
         found, added: created.length, merged,
         errors: errors.length ? errors.join(' | ') : null,

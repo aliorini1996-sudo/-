@@ -4,7 +4,7 @@ import { siteContentApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { POSTS, emptyPost, slugify, type BlogPost } from '../blog/posts';
 import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw, Eraser } from 'lucide-react';
-import { cleanText } from '../lib/textClean';
+import { cleanContent } from '../lib/siteContentClean';
 import toast from 'react-hot-toast';
 
 const DEFAULT_HERO = '/hero-rep-phones.svg';
@@ -108,38 +108,6 @@ const setIn = (obj: Draft, path: string, val: string): Draft => {
   o[keys[keys.length - 1]] = val;
   return clone;
 };
-
-// زر «تنظيف النصوص» يلمس النص العادي وحده؛ ما يلي بيانات تقنية تُترك كما هي:
-// مفاتيح تدلّ أسماؤها على رابط أو صورة أو بريد أو كلمات مفتاحية أو تنسيق
-const SKIP_KEY = /url|href|src|image|img|logo|icon|video|link|keywords|kw|email|slug|path|color|css|style|phone|whatsapp/i;
-// قيمة هي بأكملها رابط أو مسار أو نطاق
-const LOOKS_LIKE_LINK = /^(?:https?:|mailto:|tel:|data:|\/)|www\.|^[\w-]+(?:\.[\w-]+)+(?:\/\S*)?$/i;
-// داخل النص الطويل: روابط Markdown وصوره ووسوم HTML والروابط والنطاقات تُحمى ويُنظَّف ما بينها
-const KEEP_IN_TEXT = /(!?\[[^\]\n]*\]\([^)\s]*\)|<\/?[a-zA-Z!][^>]*>|(?:https?:\/\/|www\.)[^\s<>"')\]]+|\b[\w-]+(?:\.[\w-]+)*\.[a-zA-Z]{2,}(?:\/[\w\-./?=&%#~]*[\w\-/=&%#~])?)/;
-
-const cleanPlain = (s: string): string =>
-  s.split(KEEP_IN_TEXT).map((part, i) => (i % 2 ? part : cleanText(part))).join('');
-
-function cleanContent<T>(node: T): { value: T; changed: number } {
-  let changed = 0;
-  const walk = (n: unknown, key = ''): unknown => {
-    if (SKIP_KEY.test(key)) return n;
-    if (typeof n === 'string') {
-      if (LOOKS_LIKE_LINK.test(n.trim())) return n;
-      const out = cleanPlain(n);
-      if (out !== n) changed++;
-      return out;
-    }
-    if (Array.isArray(n)) return n.map((v) => walk(v, key));
-    if (n && typeof n === 'object') {
-      const o: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(n as Record<string, unknown>)) o[k] = walk(v, k);
-      return o;
-    }
-    return n;
-  };
-  return { value: walk(node) as T, changed };
-}
 
 // محرّر مقالات المدوّنة — يضيف/يحرّر/يحذف مقالات تُخزَّن في محتوى الـCMS تحت المفتاح blog
 function BlogManager({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft | null>> }) {

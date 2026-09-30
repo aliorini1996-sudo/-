@@ -880,19 +880,19 @@ export default function LandingPage() {
       title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
       // ≤155 حرفاً + الكلمة المفتاحية في المقدّمة — مطابق لوصف index.html (المصدر الذي يقرؤه الزاحف)
       description: 'نظام مبيعات المناديب والتوزيع فواتير ضريبية تحصيل مخزون السيارة وتتبع GPS للسعودية ومصر والخليج جرب مجانا 10 أيام',
-      keywords: 'نظام مبيعات ميدانية إدارة مناديب التوزيع نظام توزيع برنامج توزيع فواتير ضريبية ZATCA الفوترة الإلكترونية فاتورة ضريبية مبسطة تحصيل المدفوعات إدارة الذمم المدينة سندات قبض مخزون سيارة المندوب البيع المتنقل van sales تتبع المناديب GPS إدارة العملاء وحدود الائتمان كتالوج المنتجات والأسعار تكامل ERP نظام مبيعات للأسواق العربية نظام مبيعات مصر نظام توزيع المغرب برنامج مناديب الجزائر وتونس وليبيا نظام مبيعات السعودية فيلد سيلز',
+      keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات للأسواق العربية, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
       locale: 'ar' as const,
     },
     en: {
       title: 'FieldSales | Field Sales & Distribution Management System',
       description: 'FieldSales is a complete platform to manage field distribution reps ZATCA e-invoices collection van stock GPS tracking and reports Free 10-day trial',
-      keywords: 'field sales system sales rep management software distribution management software route accounting ZATCA e-invoicing tax invoice payment collection accounts receivable van sales van stock management GPS rep tracking customer management product catalog ERP integration',
+      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       locale: 'en' as const,
     },
     fr: {
       title: 'FieldSales | Système de gestion des ventes terrain et de la distribution',
       description: 'FieldSales est une plateforme complète pour gérer les commerciaux de distribution factures fiscales encaissement stock du véhicule suivi GPS et rapports Essai gratuit de 10 jours',
-      keywords: 'système de vente terrain logiciel de gestion des commerciaux logiciel de gestion de distribution facturation électronique facture fiscale encaissement gestion des créances stock du véhicule suivi GPS des commerciaux gestion des clients catalogue produits intégration ERP logiciel de distribution Maroc logiciel commercial Algérie Tunisie',
+      keywords: 'système de vente terrain, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP, logiciel de distribution Maroc, logiciel commercial Algérie Tunisie',
       locale: 'fr' as const,
     },
     tr: {
