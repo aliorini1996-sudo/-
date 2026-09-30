@@ -30,7 +30,8 @@ import { OUTLET_TYPES, OUTLET_TYPE_CODES, googleTypesFor, isOutletType, outletTy
 import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
 import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
 import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
-import { isGooglePlaceId, placeDetails, placesApiKey, searchNearby, NearbyPlace } from '../ai-rep/places';
+import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace } from '../ai-rep/places';
+import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
 import { mergeNearby } from '../ai-rep/nearby';
 import { chatCompletion, llmConfig } from '../ai-rep/llm';
 import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
@@ -221,7 +222,8 @@ rep.post('/nearby', async (req: AuthRequest, res: Response, next: NextFunction) 
 });
 
 /** دمج محلات Google بسجلّ الشركة (عميل قائم، نتيجة سابقة، عزل العملاء)، ومراجع ثابتة P1…، وملخّص التوقّع لكل محل. */
-async function mergeAndEstimate(req: AuthRequest, c: RepCtx, origin: { lat: number; lng: number }, radiusM: number, types: string[], places: NearbyPlace[]) {
+/** دمج محلات Google بسجلّ الشركة فقط (عميل قائم، نتيجة سابقة، عزل العملاء) — بلا توقّع. */
+async function mergeOnly(req: AuthRequest, c: RepCtx, origin: { lat: number; lng: number }, radiusM: number, types: string[], places: NearbyPlace[]) {
   const dLat = (radiusM + 200) / 111320;
   const dLng = dLat / Math.max(0.2, Math.cos((origin.lat * Math.PI) / 180));
   const placeIds = places.map(p => p.placeId);
@@ -246,6 +248,11 @@ async function mergeAndEstimate(req: AuthRequest, c: RepCtx, origin: { lat: numb
   const items = mergeNearby(places, {
     origin, targetTypes: types, customers: near.map(n => ({ ...n, visible: visibleIds.has(n.id) })), outlets, isolation, now: new Date(),
   });
+  return items;
+}
+
+async function mergeAndEstimate(req: AuthRequest, c: RepCtx, origin: { lat: number; lng: number }, radiusM: number, types: string[], places: NearbyPlace[]) {
+  const items = await mergeOnly(req, c, origin, radiusM, types, places);
   // التوقّع: مرّة لكل (نوع، خلية، عميل مستبعَد) — العميل القائم لا يدخل ضمن المحلات المشابهة له نفسه
   const [data, learned] = await Promise.all([loadData(c), getLearned(c.tid)]);
   const memo = new Map<string, ReturnType<typeof summarize>>();
@@ -592,100 +599,95 @@ export function nameFromShare(text: string): string {
   return (text.split(/\r?\n/).map(l => l.replace(/https?:\/\/\S+/g, '').trim()).find(l => l.length > 1) || '').slice(0, 120);
 }
 
-// ───────────── «ادرس هذا المحل»: ضغطة على محلٍّ في خريطة Google، أو «أنا عند المحل الآن» ─────────────
-// الشاشة خريطة كاملة؛ المندوب يضغط أي محل ⇒ نوعه وموقعه من Google (في الخادم، بلا تخزين للاسم) ⇒ توقّع مشترياته
-// لكل منتج من محلات الشركة المشابهة، في ردٍّ واحد. النوع المجهول يُسأل عنه المندوب بزرّ.
+// ───────────── «ادرس هذا المحل» من ملفه في خرائط Google (لا من مبيعات الشركة السابقة) ─────────────
+// المندوب يضغط محلاً على الخريطة (أو «أنا عند المحل الآن» ⇒ أقرب محل في خرائط Google خلال ٦٠ م) ⇒ ملف المحل من
+// Google في الخادم (التقييم، عدد المقيّمين، ساعات العمل، حتى ٥ مراجعات نصية) ⇒ دراسة بالعقل (أو حتمية) في ردٍّ واحد.
+// لا يُخزَّن شيء من الملف؛ الجلسة تحفظ المرجع والموقع ونوع المحل فقط (لتسجيل النتيجة وإضافته عميلاً).
 const studySchema = z.object({
   searchId: z.string().uuid().optional(),
   placeId: z.string().refine(isGooglePlaceId, 'محل غير معروف').optional(),
-  // موضع المحل كما في الخريطة — احتياط حين لا مفتاح أماكن في الخادم
-  lat: z.number().min(-90).max(90).optional(),
-  lng: z.number().min(-180).max(180).optional(),
   here: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).optional() }).optional(),
   gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional(),
-  outletType: z.string().refine(isOutletType, 'نوع محل غير معروف').optional(),
-  name: z.string().trim().max(120).optional(),
 }).refine(b => !!b.placeId || !!b.here, { message: 'اختر محلاً من الخريطة' });
+
+const HERE_RADIUS_M = 60;
 
 rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);
     const b = studySchema.parse(req.body);
-    let loc: { lat: number; lng: number } | null = null;
-    let placeId: string;
-    let name = b.name?.trim() || '';
-    let outletType: string | null = b.outletType ?? null;
-
-    if (b.placeId) {
-      placeId = b.placeId;
-      const key = placesApiKey();
-      if (key) {
-        // تفاصيل المكان (كلفة Google) بحصة البحث اليومية — تُعاد الحصة إن فشل النداء
-        if (!(await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep))) {
-          res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ دراسة المحلات اليومي (${c.settings.dailySearchesPerRep}) — يتجدّد غداً` });
-          return;
-        }
-        const d = await placeDetails({ apiKey: key, placeId });
-        if (!d.ok) {
-          await refundUsage(c.tid, c.repId, 'searches');
-          if (b.lat == null || b.lng == null) {
-            res.status(d.code === 'PLACES_QUOTA' ? 429 : 502).json({ success: false, code: d.code, message: d.message });
-            return;
-          }
-        } else {
-          if (d.closed) { res.status(422).json({ success: false, code: 'PLACE_CLOSED', message: 'هذا المحل مغلق حسب خرائط Google' }); return; }
-          loc = { lat: d.place.lat, lng: d.place.lng };
-          name = name || d.place.name;
-          outletType = outletType ?? outletTypeFromGoogle(d.place.primaryType, d.place.types, OUTLET_TYPE_CODES) ?? suggestOutletType(d.place.name);
-        }
-      }
-      if (!loc) {
-        if (b.lat == null || b.lng == null) { res.status(400).json({ success: false, message: 'موقع المحل غير معروف' }); return; }
-        loc = { lat: b.lat, lng: b.lng };
-      }
-    } else {
-      const here = b.here!;
-      if ((here.accuracyM ?? 0) > 100) { res.status(400).json({ success: false, code: 'GPS_INACCURATE', message: 'دقّة موقعك ضعيفة — اقترب من باب المحل وحاول مجدداً' }); return; }
-      loc = { lat: here.lat, lng: here.lng };
-      placeId = `man:${loc.lat.toFixed(5)},${loc.lng.toFixed(5)}`;
-      outletType = outletType ?? (name ? suggestOutletType(name) : null);
-    }
-
-    // النوع غير معروف ⇒ يسأل التطبيقُ المندوبَ بزرّ (بلا حجز حصة)
-    if (!outletType) {
-      res.json({ success: true, data: { needsType: true, name: name || null, types: c.settings.targetOutletTypes.map(code => ({ code, label: outletTypeLabel(code) })) } });
+    const key = placesApiKey();
+    if (!key) { res.status(503).json({ success: false, code: 'PLACES_NOT_CONFIGURED', message: 'دراسة المحل من خرائط Google تحتاج مفتاح Google للمنصّة — لم يُضبط بعد' }); return; }
+    // نداءات Google (كلفة) بحصة الدراسة اليومية — تُعاد الحصة إن فشل النداء
+    if (!(await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep))) {
+      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ دراسة المحلات اليومي (${c.settings.dailySearchesPerRep}) — يتجدّد غداً` });
       return;
     }
-    if (!(await reserveUsage(c.tid, c.repId, 'estimates', MAX_ESTIMATES_PER_DAY))) {
-      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: 'بلغت حدّ التوقّعات اليومي — يتجدّد غداً' });
-      return;
+    const fail = async (status: number, body: object) => { await refundUsage(c.tid, c.repId, 'searches'); res.status(status).json({ success: false, ...body }); };
+
+    // «أنا عند المحل الآن»: أقرب محل في خرائط Google لموقع المندوب
+    let placeId = b.placeId ?? null;
+    if (!placeId && b.here) {
+      if ((b.here.accuracyM ?? 0) > 100) { await fail(400, { code: 'GPS_INACCURATE', message: 'دقّة موقعك ضعيفة — اقترب من باب المحل وحاول مجدداً' }); return; }
+      const near = await searchNearby({ apiKey: key, lat: b.here.lat, lng: b.here.lng, radiusM: HERE_RADIUS_M, includedTypes: googleTypesFor(OUTLET_TYPE_CODES as string[]), regionCode: c.countryCode });
+      if (!near.ok) { await fail(near.code === 'PLACES_QUOTA' ? 429 : 502, { code: near.code, message: near.message }); return; }
+      if (!near.places.length) { await fail(404, { code: 'NO_SHOP_HERE', message: 'لا يوجد محل في خرائط Google عند موقعك — اضغط المحل على الخريطة مباشرة' }); return; }
+      placeId = near.places[0].placeId;
     }
+
+    const got = await placeProfile({ apiKey: key, placeId: placeId! });
+    if (!got.ok) { await fail(got.code === 'PLACES_QUOTA' ? 429 : got.code === 'PLACES_NOT_FOUND' ? 404 : 502, { code: got.code, message: got.message }); return; }
+    const p = got.profile;
+    if (p.closed) { res.status(422).json({ success: false, code: 'PLACE_CLOSED', message: 'هذا المحل مغلق حسب خرائط Google' }); return; }
+
+    // نوع المحل (للتسجيل والإضافة عميلاً فقط — الدراسة لا تحتاجه)
+    const outletType = outletTypeFromGoogle(p.primaryType, p.types, OUTLET_TYPE_CODES) ?? suggestOutletType(p.name) ?? c.settings.targetOutletTypes[0] ?? 'GROCERY';
+    const [merged] = await mergeOnly(req, c, { lat: p.lat, lng: p.lng }, 300, [outletType], [{
+      placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([outletType]),
+    }]);
+
     let s = getSession(c.tid, c.repId, b.searchId);
     if (!s || s.outlets.length >= 500) {
-      s = { searchId: randomUUID(), createdAt: Date.now(), origin: b.gps ?? loc, radiusM: c.settings.searchRadiusM, outlets: [] };
+      s = { searchId: randomUUID(), createdAt: Date.now(), origin: b.gps ?? { lat: p.lat, lng: p.lng }, radiusM: c.settings.searchRadiusM, outlets: [] };
       saveSession(c.tid, c.repId, s);
     }
-    const existing = s.outlets.find(o => o.placeId === placeId);
-    // المطابقة بالعملاء حول موقع المحل نفسه، والمسافة من موقع المندوب
-    const merged = await mergeAndEstimate(req, c, loc, 300, [outletType], [{
-      placeId, name, address: null, lat: loc.lat, lng: loc.lng, primaryType: null, types: googleTypesFor([outletType]),
-    }]);
-    const found = merged.items[0];
-    if (!found) { res.status(409).json({ success: false, message: 'تعذّرت دراسة المحل' }); return; }
-    const from = b.gps ?? s.origin;
-    const it = { ...found, distanceM: Math.round(haversineKm(from.lat, from.lng, loc.lat, loc.lng) * 1000) };
+    const from = b.gps ?? b.here ?? s.origin;
+    const distanceM = Math.round(haversineKm(from.lat, from.lng, p.lat, p.lng) * 1000);
+    const existing = s.outlets.find(o => o.placeId === p.placeId);
     const ref = existing?.ref ?? `P${s.outlets.length + 1}`;
+    const relation = merged?.relation ?? 'NEW';
+    const customerId = merged?.customerId ?? null;
     if (!existing) {
-      s.outlets.push({ ref, placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId });
+      s.outlets.push({ ref, placeId: p.placeId, outletType, lat: p.lat, lng: p.lng, distanceM, relation, lastOutcome: merged?.lastOutcome ?? null, customerId });
     }
-    const [data, learned] = await Promise.all([loadData(c), getLearned(c.tid)]);
-    const est = estimateAt(c, data, { lat: loc.lat, lng: loc.lng, outletType: it.outletType, customerId: it.customerId }, learned);
+
+    // الدراسة: بالعقل إن ضُبط وتوفّرت حصته، وإلا حتمية من الملف نفسه
+    let study: ShopStudy = ruleStudy(p);
+    const cfg = llmConfig();
+    if (cfg && c.settings.advisorEnabled && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
+      const products = (await prisma.product.findMany({
+        where: { tenantId: c.tid, status: 'ACTIVE', deletedAt: null }, select: { name: true }, orderBy: { name: 'asc' }, take: 60,
+      })).map(x => x.name);
+      const ai = await aiStudy(p, { cfg, products, playbook: c.settings.playbook });
+      await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.study ? {} : { guardFallback: 1 }) });
+      if (ai.study) study = ai.study;
+      else console.warn('[ai-rep] دراسة المحل بالعقل تعذّرت:', ai.code, 'tenant', c.tid);
+    }
+
     res.json({
       success: true,
       data: {
         searchId: s.searchId,
-        item: { ...it, ref, name },
-        estimate: { ...est, outletTypeLabel: outletTypeLabel(it.outletType), maxPeers: MAX_PEERS, minPeers: c.settings.minPeers },
+        item: {
+          ref, placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, outletType, outletTypeLabel: outletTypeLabel(outletType),
+          distanceM, relation, customerId, lastOutcome: merged?.lastOutcome ?? null, lastOutcomeAt: merged?.lastOutcomeAt ?? null,
+          rejectedRecently: merged?.rejectedRecently ?? false,
+        },
+        profile: {
+          name: p.name, typeLabel: p.typeLabel, address: p.address, mapsUri: p.mapsUri, rating: p.rating, ratingCount: p.ratingCount,
+          openNow: p.openNow, hours: p.hours, reviews: p.reviews,
+        },
+        study,
       },
     });
   } catch (err) { next(err); }

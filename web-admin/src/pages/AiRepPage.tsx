@@ -83,19 +83,19 @@ export default function AiRepPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title flex items-center gap-2"><Sparkles className="text-[#E15A30]" size={22} /> {tr('المندوب الذكي')}</h1>
-          <p className="text-sm text-[#6E6557] mt-1">{tr('يقترح على المندوب المحلات القريبة التي لا تشتري منكم بعد، ويتوقّع لكل محل كم يمكن أن يشتري من كل منتج — من مبيعات شركتك الفعلية للمحلات المشابهة')}</p>
+          <p className="text-sm text-[#6E6557] mt-1">{tr('يضغط المندوب أي محل على خريطة Google داخل تطبيقه فيدرسه العقل من ملفه في خرائط Google: التقييم وعدد المقيّمين وساعات العمل ومراجعات العملاء — ما يمدحونه وما يشتكون منه، وفرصة المندوب، وما يعرضه من منتجاتكم، وكيف يفتح الحديث')}</p>
         </div>
       </div>
 
       {!data.placesConfigured ? (
         <div className="flex items-start gap-2 rounded-xl border border-[#E9E1D3] bg-[#FAF7F0] p-3 text-sm text-[#44403a]">
           <MapPin size={18} className="shrink-0 mt-0.5 text-[#E15A30]" />
-          <span>{tr('خريطة Google واحدة داخل التطبيق لكل من فُعّلت له الميزة. حتى يُضبط مفتاح Google الموحّد للمنصّة: يرى المندوب المحلات حوله على الخريطة ويضيف المحل بزر «أنا عند المحل الآن» أو برابطه، فيحسب له التوقّع ويوجّهه العقل — والبحث التلقائي عن كل المحلات المجاورة يعمل فور ضبط المفتاح')}</span>
+          <span>{tr('دراسة المحلات تحتاج مفتاح Google للمنصّة (الخرائط والأماكن) — لم يُضبط بعد. حين يُضبط: يضغط المندوب أي محل على الخريطة فيُدرس من مراجعاته في خرائط Google')}</span>
         </div>
       ) : !data.mapsConfigured && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-          <span>{tr('عرض الخريطة داخل تطبيق المندوب ينتظر مفتاح العرض لدى مزوّد الخدمة — البحث والتوقّع يعملان بالقائمة')}</span>
+          <span>{tr('مفتاح عرض الخريطة لم يُضبط بعد — المندوب يدرس المحل الذي هو عنده بزر «أنا عند المحل الآن»')}</span>
         </div>
       )}
 

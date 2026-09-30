@@ -1,45 +1,49 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Crosshair, MapPin, Navigation, Sparkles, Store, UserPlus, X, ClipboardCheck } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight, Crosshair, MapPin, Navigation, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock } from 'lucide-react';
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
 import { useAiRepTr } from '../i18n/aiRepPhrases';
-import { formatCurrency } from '../utils/format';
 import { useBackClose } from '../lib/useBackClose';
 import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { loadAiSession, onConverted, saveAiSession, type AiAddPrefill } from './aiRepSession';
-import { CONFIDENCE_LABEL, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, fmtRange, navUrl } from './aiRepLogic';
+import { OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, navUrl } from './aiRepLogic';
 
 /**
- * المندوب الذكي — شاشة المندوب: **الصفحة كلها خريطة Google**.
- *   - بمفتاح الخريطة: يضغط المندوب أي محل على الخريطة ⇒ يدرسه الخادم (نوعه وموقعه من Google، وتوقّع مشترياته
- *     لكل منتج من محلات شركته المشابهة) وتظهر الدراسة في لوحة سفلية فوق الخريطة.
- *   - بلا مفتاح: خريطة Google مضمّنة (لا تُبلغ التطبيق بالمحل المضغوط) وزرّ «ادرس المحل الذي أنا عنده الآن» بموقعه.
- * لا تبويبات ولا قوائم — الدراسة وحدها، ومنها: الملاحة، وتسجيل نتيجة الزيارة، وإضافته عميلاً.
- * الأسماء من Google تُعرض ولا تُخزَّن؛ المراجع P1… والإحداثيات يثبّتها الخادم في جلسة الدراسة.
+ * المندوب الذكي — شاشة المندوب: **الصفحة كلها خريطة Google**، والضغط على أي محل يدرسه **من ملفه في خرائط Google**
+ * (التقييم، عدد المقيّمين، ساعات العمل، ومراجعات العملاء النصية) — لا من مبيعات الشركة السابقة.
+ *   - بمفتاح الخريطة: يضغط المندوب المحل على الخريطة. بلا مفتاح الخريطة: خريطة Google المضمّنة وزرّ
+ *     «ادرس المحل الذي أنا عنده الآن» (أقرب محل في خرائط Google لموقعه).
+ *   - الدراسة من العقل إن ضُبط (مدموغةً «بالذكاء الاصطناعي»)، وإلا ملخّص حتمي من المراجعات نفسها.
+ * ملف Google يُعرض ولا يُخزَّن؛ يبقى في ذاكرة الشاشة لإعادة فتح المحل دون نداء جديد.
  */
 
-interface Range { low: number; median: number; high: number }
 interface Item {
   ref: string; placeId: string; name: string; address: string | null; lat: number; lng: number; outletType: string; outletTypeLabel: string;
   distanceM: number; relation: 'NEW' | 'CUSTOMER' | 'POSSIBLE_CUSTOMER'; customerId: string | null;
   lastOutcome: string | null; lastOutcomeAt: string | null; rejectedRecently: boolean; closed?: boolean;
+  profile?: Profile; study?: Study;
+}
+interface Review { rating: number | null; text: string; when: string | null; author: string | null; authorUri: string | null }
+interface Profile {
+  name: string; typeLabel: string | null; address: string | null; mapsUri: string | null; rating: number | null; ratingCount: number;
+  openNow: boolean | null; hours: string[]; reviews: Review[];
+}
+interface Study {
+  source: 'AI' | 'RULES'; summary: string; activity: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN'; activityWhy: string;
+  praise: string[]; complaints: string[]; opportunity: string[]; offer: string[];
+  openingLine: string | null; objection: string | null; objectionReply: string | null; visitTip: string | null;
 }
 interface Me {
-  placesConfigured: boolean; mapsKey?: string | null; showMoney: boolean; minPeers?: number;
+  placesConfigured: boolean; mapsKey?: string | null;
   targetTypes: { code: string; label: string }[];
 }
-interface ProductEst {
-  productId: string; name: string; unit: string; priority: boolean; buyers: number | null; peers: number; penetration: number | null;
-  monthlyQty: Range | null; monthlyValue: Range | null; firstOrderQty: number | null; trialQty: number | null; confidence: string; hidden: null | 'FEW_BUYERS' | 'DOMINANT';
-  trialCalibrated?: boolean;
-}
-interface Estimate { ok: boolean; confidence?: string; peers?: number; ringKm?: number | null; monthlyTotalValue?: Range | null; products?: ProductEst[]; why: string; minPeers?: number }
-type StudyReq = { placeId?: string; lat?: number; lng?: number; here?: { lat: number; lng: number; accuracyM: number }; outletType?: string };
+type StudyReq = { placeId?: string; here?: { lat: number; lng: number; accuracyM: number } };
 
 const ME_KEY = 'ai-rep:me';
 const ADD_PIN_MAX_M = 75;
+const ACTIVITY_LABEL: Record<Study['activity'], string> = { HIGH: 'محل نشِط', MEDIUM: 'نشاط متوسط', LOW: 'محل هادئ', UNKNOWN: 'النشاط غير معروف' };
 
 function getGps(): Promise<{ lat: number; lng: number; accuracy: number }> {
   return new Promise((resolve, reject) => {
@@ -69,10 +73,9 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   const [items, setItems] = useState<Item[]>((restored?.items as Item[] | null) ?? []);
   const [searchId, setSearchId] = useState<string | null>(restored?.searchId ?? null);
   const [origin, setOrigin] = useState<{ lat: number; lng: number; accuracy: number } | null>(restored?.origin ?? null);
-  const [open, setOpen] = useState<{ item: Item; estimate?: Estimate } | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  const [askType, setAskType] = useState<{ pending: StudyReq; name: string | null; types: { code: string; label: string }[] } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [g, setG] = useState<any>(null);
   const [mapErr, setMapErr] = useState(false);
@@ -82,8 +85,9 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   searchIdRef.current = searchId;
   const originRef = useRef(origin);
   originRef.current = origin;
+  const busyRef = useRef(false);
 
-  // حالة الشاشة في ذاكرة الجلسة: الرجوع أو «أضفه عميلاً» يفكّكان الشاشة، فتعود كما كانت
+  // حالة الشاشة في ذاكرة الجلسة (لا القرص): الرجوع أو «أضفه عميلاً» يفكّكان الشاشة، فتعود كما كانت
   useEffect(() => {
     saveAiSession({ repId, searchId, items, origin, guide: null, routeIds: [], chat: [], askDraft: '', tab: 'near' });
   }, [repId, searchId, items, origin]);
@@ -145,8 +149,9 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   }, [locate, offline]);
 
   const study = useCallback(async (req: StudyReq) => {
-    if (busy) return;
-    setBusy(true); setMsg(''); setAskType(null);
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true); setMsg(''); setOpenId(null);
     try {
       const o = originRef.current;
       const r = await repApi.post('/ai-rep/rep/study', {
@@ -154,42 +159,40 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         ...(searchIdRef.current && { searchId: searchIdRef.current }),
         ...(o && { gps: { lat: o.lat, lng: o.lng } }),
       });
-      const d = r.data.data as { needsType?: boolean; name?: string | null; types?: { code: string; label: string }[]; searchId: string; item: Item; estimate: Estimate };
-      if (d.needsType) { setAskType({ pending: req, name: d.name ?? null, types: d.types ?? me?.targetTypes ?? [] }); return; }
-      if (d.searchId !== searchIdRef.current) {
-        searchIdRef.current = d.searchId;
-        setSearchId(d.searchId);
-        setItems([d.item]);
-      } else {
-        setItems(list => (list.some(x => x.placeId === d.item.placeId) ? list.map(x => (x.placeId === d.item.placeId ? d.item : x)) : [...list, d.item]));
-      }
-      setOpen({ item: d.item, estimate: d.estimate });
+      const d = r.data.data as { searchId: string; item: Item; profile: Profile; study: Study };
+      const item: Item = { ...d.item, profile: d.profile, study: d.study };
+      searchIdRef.current = d.searchId;
+      setSearchId(d.searchId);
+      // جلسة جديدة (إعادة تشغيل الخادم) لا تمسح المحلات المدروسة سابقاً
+      setItems(list => (list.some(x => x.placeId === item.placeId) ? list.map(x => (x.placeId === item.placeId ? { ...x, ...item } : x)) : [...list, item]));
+      setOpenId(item.placeId);
     } catch (e) {
       setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل')));
-    } finally { setBusy(false); }
-  }, [busy, me?.targetTypes, tr]);
+    } finally { busyRef.current = false; setBusy(false); }
+  }, [tr]);
 
-  const onPoi = useCallback((p: { placeId: string; lat: number; lng: number }) => { void study({ placeId: p.placeId, lat: p.lat, lng: p.lng }); }, [study]);
+  const onPoi = useCallback((p: { placeId: string }) => {
+    const known = items.find(x => x.placeId === p.placeId && x.study);
+    if (known) { setOpenId(known.placeId); return; } // لا نداء جديد لمحلٍّ دُرس في هذه الجلسة
+    void study({ placeId: p.placeId });
+  }, [items, study]);
   const studyHere = async () => {
     const gps = await locate();
     if (gps) void study({ here: { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy } });
   };
-  const selectStudied = useCallback((placeId: string) => {
-    const it = items.find(x => x.placeId === placeId);
-    if (it) setOpen({ item: it });
-  }, [items]);
 
   const onOutcome = (placeId: string, kind: string) => {
     setItems(list => list.map(x => (x.placeId === placeId
       ? { ...x, lastOutcome: kind, lastOutcomeAt: new Date().toISOString(), rejectedRecently: kind === 'NOT_INTERESTED' || kind === 'EXCLUSIVE_SUPPLIER', closed: kind === 'CLOSED' || x.closed }
       : x)));
-    if (kind === 'CLOSED') setOpen(null);
+    if (kind === 'CLOSED') setOpenId(null);
   };
 
-  const money = useCallback((n: number) => formatCurrency(n, undefined, 0), []);
+  const open = openId ? items.find(x => x.placeId === openId) ?? null : null;
   const mapItems = useMemo(() => items.filter(i => !i.closed).map(i => ({ placeId: i.placeId, lat: i.lat, lng: i.lng, relation: i.relation, rejectedRecently: i.rejectedRecently, name: i.name, closed: i.closed })), [items]);
   const keyed = !!me?.mapsKey && !offline;
-  // بلا مفتاح: خريطة Google المضمّنة حول المندوب بمحلات النوع المستهدف الأول
+  const canStudy = !!me?.placesConfigured && !offline;
+  // بلا مفتاح الخريطة: خريطة Google المضمّنة حول المندوب بمحلات النوع المستهدف الأول
   const embedQuery = (me?.targetTypes[0]?.label ?? 'بقالة').split('/')[0].trim();
   const embed = origin
     ? `https://maps.google.com/maps?q=${encodeURIComponent(tr(embedQuery))}&ll=${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}&z=16&hl=${(document.documentElement.lang || 'ar').slice(0, 2)}&output=embed`
@@ -212,7 +215,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       {/* الخريطة تملأ الصفحة */}
       <div className="absolute inset-0">
         {keyed ? (
-          g ? <RepAiMap full g={g} origin={origin} items={mapItems} plan={[]} fitKey={null} onSelect={selectStudied} onPoi={onPoi} recenterKey={recenter} />
+          g ? <RepAiMap full g={g} origin={origin} items={mapItems} plan={[]} fitKey={null} onSelect={id => setOpenId(id)} onPoi={onPoi} recenterKey={recenter} />
             : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-sm text-gray-500">
                 {mapErr
@@ -237,77 +240,67 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       </div>
 
       {/* تلميح/زرّ سفلي */}
-      {!open && !askType && (
+      {!open && (
         <div className="absolute bottom-4 inset-x-4 space-y-2">
           {msg && <p className="rounded-xl bg-white shadow-md p-2.5 text-sm text-center text-gray-700">{msg}</p>}
-          {keyed ? (
+          {me && !me.placesConfigured && !offline ? (
+            <p className="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs text-center p-2.5 shadow-md">{tr('دراسة المحل من خرائط Google تحتاج مفتاح Google للمنصّة — لم يُضبط بعد')}</p>
+          ) : keyed ? (
             <p className="rounded-full bg-[#1F1A13]/90 text-white text-sm text-center py-2.5 px-4 shadow-md">
-              {busy ? tr('أدرس المحل من بيانات شركتك…') : tr('اضغط على أي محل في الخريطة لدراسته')}
+              {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('اضغط على أي محل في الخريطة لدراسته')}
             </p>
           ) : (
-            <button onClick={studyHere} disabled={busy || offline || !me}
+            <button onClick={studyHere} disabled={busy || !canStudy}
               className="w-full rounded-2xl bg-[#E15A30] disabled:opacity-60 text-white py-3.5 font-bold shadow-lg flex items-center justify-center gap-2">
-              <Crosshair size={18} /> {busy ? tr('أدرس المحل من بيانات شركتك…') : tr('ادرس المحل الذي أنا عنده الآن')}
+              <Crosshair size={18} /> {busy ? tr('أدرس المحل من مراجعاته في خرائط Google…') : tr('ادرس المحل الذي أنا عنده الآن')}
             </button>
           )}
         </div>
       )}
 
-      {/* نوع المحل حين لا تعرفه Google */}
-      {askType && (
-        <TypeSheet name={askType.name} types={askType.types} onClose={() => setAskType(null)}
-          onPick={code => void study({ ...askType.pending, outletType: code })} />
-      )}
-
       {open && (
-        <OutletSheet item={open.item} initial={open.estimate} searchId={searchId} showMoney={!!me?.showMoney} money={money} minPeers={me?.minPeers ?? 5}
-          canAddCustomer={canAddCustomer} offline={offline} onClose={() => setOpen(null)}
+        <ShopSheet item={open} canAddCustomer={canAddCustomer} onClose={() => setOpenId(null)}
           onAddCustomer={onAddCustomer} onOpenCustomer={onOpenCustomer}
-          onOutcome={kind => onOutcome(open.item.placeId, kind)} />
+          onOutcome={kind => onOutcome(open.placeId, kind)} />
       )}
     </div>
   );
 }
 
-/** نوع المحل حين لم تحدّده Google (زرّ واحد ثم الدراسة). */
-function TypeSheet({ name, types, onPick, onClose }: { name: string | null; types: { code: string; label: string }[]; onPick: (code: string) => void; onClose: () => void }) {
-  const tr = useAiRepTr();
-  useBackClose(true, onClose);
+/** نسب Google Maps (شرط Google حين يُعرض محتوى الأماكن فوق الخريطة أو بعيداً عنها). */
+function GoogleAttribution() {
+  return <p className="text-[12px] text-gray-500 text-left" dir="ltr" style={{ fontFamily: 'Roboto, Arial, sans-serif' }}>Google Maps</p>;
+}
+
+function Stars({ value }: { value: number | null }) {
+  if (value == null) return null;
+  return <span className="inline-flex items-center gap-0.5 text-amber-500 text-xs font-bold"><Star size={12} fill="currentColor" /> {value}</span>;
+}
+
+function Bullets({ icon, title, items, tone }: { icon: ReactNode; title: string; items: string[]; tone: string }) {
+  if (!items.length) return null;
   return (
-    <div className="absolute inset-x-0 bottom-0 z-40 bg-white rounded-t-3xl shadow-2xl p-4 space-y-3" dir="rtl">
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-[#1F1A13]">{tr('ما نوع هذا المحل؟')}</p>
-          {name && <p className="text-xs text-gray-500 truncate">{name}</p>}
-        </div>
-        <button onClick={onClose} className="p-1.5 text-gray-500"><X size={18} /></button>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {types.map(t => (
-          <button key={t.code} onClick={() => onPick(t.code)} className="rounded-full border border-[#F5DACE] bg-[#FBEBE2] text-[#C94E28] px-3.5 py-2 text-sm font-semibold">{tr(t.label)}</button>
-        ))}
-      </div>
+    <div className="space-y-1">
+      <p className={`text-xs font-bold flex items-center gap-1 ${tone}`}>{icon} {title}</p>
+      <ul className="space-y-0.5">
+        {items.map((x, i) => <li key={i} className="text-sm text-[#1F1A13] leading-6">• {x}</li>)}
+      </ul>
     </div>
   );
 }
 
-/** نسب Google Maps بجوار أي اسم من Places (شرط Google). */
-function GoogleAttribution() {
-  return <p className="text-xs text-gray-500 text-left" dir="ltr">Google Maps</p>;
-}
-
-/** دراسة المحل: لوحة سفلية فوق الخريطة. */
-function OutletSheet({ item, initial, searchId, showMoney, money, minPeers, canAddCustomer, offline, onClose, onAddCustomer, onOpenCustomer, onOutcome }: {
-  item: Item; initial?: Estimate; searchId: string | null; showMoney: boolean; money: (n: number) => string; minPeers: number; canAddCustomer: boolean; offline: boolean;
+/** دراسة المحل: ملفه في خرائط Google + دراسة العقل (أو الملخّص الحتمي) — لوحة سفلية فوق الخريطة. */
+function ShopSheet({ item, canAddCustomer, onClose, onAddCustomer, onOpenCustomer, onOutcome }: {
+  item: Item; canAddCustomer: boolean;
   onClose: () => void; onAddCustomer: (p: AiAddPrefill) => void; onOpenCustomer: (id: string) => Promise<boolean>; onOutcome: (kind: string) => void;
 }) {
   const tr = useAiRepTr();
-  const [est, setEst] = useState<Estimate | null>(initial ?? null);
+  const p = item.profile;
+  const s = item.study;
   const [err, setErr] = useState('');
   const [mode, setMode] = useState<'view' | 'outcome'>('view');
   const [kind, setKind] = useState<string>('');
   const [objection, setObjection] = useState('');
-  const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
@@ -319,19 +312,6 @@ function OutletSheet({ item, initial, searchId, showMoney, money, minPeers, canA
   useBackClose(true, onClose);
   useBackClose(mode === 'outcome', () => setMode('view'));
 
-  // الدراسة تصل مع الضغطة؛ إعادة فتح محلٍّ مدروس سابقاً تجلبها من جديد
-  useEffect(() => {
-    if (initial) { setEst(initial); return; }
-    let alive = true;
-    setEst(null); setErr('');
-    if (!searchId || offline) { setErr(offline ? tr('أنت دون اتصال') : tr('تعذّرت دراسة المحل')); return; }
-    repApi.post('/ai-rep/rep/estimate', { searchId, ref: item.ref })
-      .then(r => { if (alive) setEst(r.data.data as Estimate); })
-      .catch(e => { if (alive) setErr(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال') : tr('تعذّر حساب التوقّع'))); });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.placeId, searchId, offline, initial]);
-
   const submitOutcome = async () => {
     if (!kind) return;
     setSaving(true); setOutcomeErr('');
@@ -341,7 +321,7 @@ function OutletSheet({ item, initial, searchId, showMoney, money, minPeers, canA
     const body = {
       clientRef, placeId: item.placeId, outletType: item.outletType, kind,
       ...(objection && OBJECTION_OUTCOMES.has(kind) ? { objection } : {}),
-      ...(name.trim() && { repTypedName: name.trim() }), ...(note.trim() && { note: note.trim() }),
+      ...(note.trim() && { note: note.trim() }),
       ...(gps && { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracy }), occurredAt: new Date().toISOString(),
     };
     try {
@@ -381,15 +361,19 @@ function OutletSheet({ item, initial, searchId, showMoney, money, minPeers, canA
   };
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-40 max-h-[82%] bg-white rounded-t-3xl shadow-2xl flex flex-col" dir="rtl">
+    <div className="absolute inset-x-0 bottom-0 z-40 max-h-[85%] bg-white rounded-t-3xl shadow-2xl flex flex-col" dir="rtl">
       <div className="p-4 pb-3 flex items-start gap-2 border-b border-gray-100 flex-shrink-0">
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-[#1F1A13] flex items-center gap-1.5"><Store size={17} className="text-[#E15A30] shrink-0" /> <span className="truncate">{item.name || tr(item.outletTypeLabel)}</span></p>
-          <p className="text-[11px] text-gray-400 mt-0.5">
-            {tr(item.outletTypeLabel)} · {fmtDistance(item.distanceM)}
-            {item.relation === 'CUSTOMER' ? ` · ${tr('عميل حالي')}` : item.relation === 'POSSIBLE_CUSTOMER' ? ` · ${tr('ربما عميل حالي')}` : ''}
+          <p className="font-bold text-[#1F1A13] flex items-center gap-1.5"><Store size={17} className="text-[#E15A30] shrink-0" /> <span className="truncate">{p?.name || item.name || tr(item.outletTypeLabel)}</span></p>
+          <p className="text-[11px] text-gray-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            {p?.rating != null && <><Stars value={p.rating} /><span>({p.ratingCount} {tr('مقيّماً')})</span></>}
+            <span>{p?.typeLabel || tr(item.outletTypeLabel)}</span>
+            <span>{fmtDistance(item.distanceM)}</span>
+            {p?.openNow === true && <span className="text-green-700">{tr('مفتوح الآن')}</span>}
+            {p?.openNow === false && <span className="text-red-600">{tr('مغلق الآن')}</span>}
+            {item.relation === 'CUSTOMER' && <span className="text-blue-700">{tr('عميل حالي')}</span>}
+            {item.relation === 'POSSIBLE_CUSTOMER' && <span className="text-blue-600">{tr('ربما عميل حالي')}</span>}
           </p>
-          {item.name && <GoogleAttribution />}
         </div>
         <button onClick={onClose} className="p-2 text-gray-500"><X size={20} /></button>
       </div>
@@ -417,7 +401,6 @@ function OutletSheet({ item, initial, searchId, showMoney, money, minPeers, canA
                 </div>
               </div>
             )}
-            <input className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" maxLength={120} placeholder={tr('اسم المحل كما في اللوحة (اختياري)')} value={name} onChange={e => setName(e.target.value)} />
             <textarea className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm min-h-[72px]" maxLength={500} placeholder={tr('ملاحظة (اختياري)')} value={note} onChange={e => setNote(e.target.value)} />
             {outcomeErr && <p className="text-xs text-red-600">{outcomeErr}</p>}
             <div className="flex gap-2">
@@ -428,58 +411,72 @@ function OutletSheet({ item, initial, searchId, showMoney, money, minPeers, canA
         ) : (
           <>
             {saved && <p className="text-xs text-center text-green-700 bg-green-50 rounded-xl py-2">{saved}</p>}
-            {est && err && <p className="text-xs text-center text-red-600 bg-red-50 rounded-xl py-2">{err}</p>}
-            {!est ? (
-              <p className="text-center text-sm text-gray-400 py-8">{err || tr('أحسب المتوقع من بيانات شركتك…')}</p>
-            ) : !est.ok ? (
-              <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">{est.why}</div>
-            ) : (
-              <>
-                <div className="rounded-2xl bg-[#FBEBE2] border border-[#F5DACE] p-4">
-                  <p className="text-xs text-[#C94E28]">{tr('المتوقع لمحل مثل هذا')}</p>
-                  {showMoney && est.monthlyTotalValue && <p className="text-xl font-extrabold text-[#1F1A13] mt-1">{fmtRange(est.monthlyTotalValue, money)} <span className="text-xs font-normal text-gray-500">/ {tr('شهر')} {tr('قبل الضريبة')}</span></p>}
-                  <p className="text-[11px] text-gray-600 mt-1">{tr(CONFIDENCE_LABEL[est.confidence ?? 'LOW'])} · {est.why}</p>
+            {err && <p className="text-xs text-center text-red-600 bg-red-50 rounded-xl py-2">{err}</p>}
+
+            {/* الدراسة */}
+            {s ? (
+              <div className="rounded-2xl bg-[#FBEBE2] border border-[#F5DACE] p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Sparkles size={13} /> {s.source === 'AI' ? tr('دراسة بالذكاء الاصطناعي من مراجعات Google') : tr('ملخّص من مراجعات Google')}</p>
+                  <span className="text-[11px] rounded-full bg-white/80 px-2 py-0.5 text-[#1F1A13] font-semibold">{tr(ACTIVITY_LABEL[s.activity])}</span>
                 </div>
-                {est.products?.some(p => p.trialQty) && (
-                  <div className="rounded-2xl border border-gray-100 p-4">
-                    <p className="font-bold text-sm mb-2 flex items-center gap-1.5"><ClipboardCheck size={15} className="text-[#E15A30]" /> {tr('طلب تجريبي مقترح')}</p>
-                    <div className="space-y-1">
-                      {est.products.filter(p => p.trialQty).map(p => (
-                        <p key={p.productId} className="text-sm flex justify-between"><span>{p.name}</span><b>{p.trialQty} {p.unit}</b></p>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-2">{est.products.some(p => p.trialQty && p.trialCalibrated)
-                      ? tr('مُعايَر بأول طلبات عملائك الجدد الفعلية')
-                      : tr('من أول طلبات المحلات المشابهة أو أدنى مشترياتها الشهرية، للأصناف التي يشتريها نصفها على الأقل')}</p>
+                <p className="text-sm text-[#1F1A13] leading-6">{s.summary}</p>
+                {s.activityWhy && <p className="text-[11px] text-gray-600">{s.activityWhy}</p>}
+                <Bullets icon={<ThumbsUp size={12} />} title={tr('ما يمدحه العملاء')} items={s.praise} tone="text-green-700" />
+                <Bullets icon={<ThumbsDown size={12} />} title={tr('ما يشتكي منه العملاء')} items={s.complaints} tone="text-red-600" />
+                <Bullets icon={<Lightbulb size={12} />} title={tr('فرصتك')} items={s.opportunity} tone="text-[#C94E28]" />
+                {s.offer.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><ShoppingBag size={12} /> {tr('اعرض عليه')}</p>
+                    <div className="flex flex-wrap gap-1.5">{s.offer.map(o => <span key={o} className="text-xs rounded-full bg-white px-2.5 py-1 border border-[#F5DACE]">{o}</span>)}</div>
                   </div>
                 )}
-                <div className="rounded-2xl border border-gray-100 p-4">
-                  <p className="font-bold text-sm mb-2">{tr('المتوقع لكل منتج')}</p>
-                  <div className="space-y-2.5">
-                    {est.products?.map(p => (
-                      <div key={p.productId} className="border-b border-gray-50 pb-2 last:border-0">
-                        <div className="flex justify-between gap-2">
-                          <p className="text-sm font-semibold">{p.name}{p.priority && <span className="text-[10px] text-[#E15A30] mr-1">★</span>}</p>
-                          {p.buyers != null && <p className="text-[11px] text-gray-500 shrink-0">{p.buyers} {tr('من')} {p.peers} {tr('يشترونه')}</p>}
-                        </div>
-                        {p.monthlyQty ? (
-                          <p className="text-xs text-gray-700 mt-0.5">
-                            {tr('شهرياً')}: <b>{fmtRange(p.monthlyQty)}</b> {p.unit} ({tr('الوسيط')} {p.monthlyQty.median})
-                            {showMoney && p.monthlyValue && <> · {fmtRange(p.monthlyValue, money)}</>}
-                            {p.firstOrderQty != null && <> · {tr('أول طلب')} ~{p.firstOrderQty}</>}
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-gray-400 mt-0.5">
-                            {p.buyers === 0 ? tr('لا تشتريه المحلات المشابهة بعد')
-                              : p.hidden === 'DOMINANT' ? tr('مشترٍ واحد يطغى على الكمية — لا رقم موثوق')
-                              : `${tr('يشتريه أقل من')} ${est.minPeers ?? minPeers} ${tr('من المحلات المشابهة — لا رقم حفاظاً على الخصوصية')}`}
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                {s.openingLine && (
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-[11px] font-bold text-gray-500 flex items-center gap-1"><MessageSquareQuote size={12} /> {tr('ابدأ الحديث بـ')}</p>
+                    <p className="text-sm text-[#1F1A13] mt-0.5">«{s.openingLine}»</p>
                   </div>
+                )}
+                {s.objection && (
+                  <div className="text-sm leading-6">
+                    <p><b>{tr('الاعتراض المتوقع')}:</b> {s.objection}</p>
+                    {s.objectionReply && <p><b>{tr('ردّك')}:</b> {s.objectionReply}</p>}
+                  </div>
+                )}
+                {s.visitTip && <p className="text-xs text-gray-700 flex items-start gap-1"><Clock size={12} className="mt-1 shrink-0" /> {s.visitTip}</p>}
+                {s.source === 'AI' && <p className="text-[10px] text-gray-500">{tr('تحليل آلي من مراجعات العملاء في خرائط Google — تحقّق منه بزيارتك')}</p>}
+              </div>
+            ) : (
+              <p className="text-center text-sm text-gray-400 py-4">{tr('لا دراسة لهذا المحل بعد')}</p>
+            )}
+
+            {/* مراجعات Google كما هي */}
+            {p && (
+              <div className="rounded-2xl border border-gray-100 p-4 space-y-3">
+                <p className="font-bold text-sm">{tr('مراجعات العملاء في خرائط Google')}</p>
+                {p.reviews.length ? p.reviews.map((r, i) => (
+                  <div key={i} className="border-b border-gray-50 pb-2 last:border-0">
+                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                      <Stars value={r.rating} />
+                      {r.author && (r.authorUri
+                        ? <a href={r.authorUri} target="_blank" rel="noreferrer" className="underline">{r.author}</a>
+                        : <span>{r.author}</span>)}
+                      {r.when && <span>· {r.when}</span>}
+                    </div>
+                    {r.text && <p className="text-sm text-[#1F1A13] mt-1 leading-6 whitespace-pre-wrap">{r.text}</p>}
+                  </div>
+                )) : <p className="text-xs text-gray-500">{tr('لا مراجعات نصية لهذا المحل في خرائط Google')}</p>}
+                {p.hours.length > 0 && (
+                  <details className="text-xs text-gray-600">
+                    <summary className="cursor-pointer font-semibold">{tr('ساعات العمل')}</summary>
+                    <ul className="mt-1 space-y-0.5">{p.hours.map((h, i) => <li key={i}>{h}</li>)}</ul>
+                  </details>
+                )}
+                <div className="flex items-center justify-between">
+                  {p.mapsUri ? <a href={p.mapsUri} target="_blank" rel="noreferrer" className="text-xs text-[#1D4ED8] underline">{tr('افتح في خرائط Google')}</a> : <span />}
+                  <GoogleAttribution />
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
