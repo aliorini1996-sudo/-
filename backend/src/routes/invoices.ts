@@ -39,6 +39,7 @@ import {
 } from '../services/accounting';
 // عكس قيود فاتورة أُلغيت — نسخةٌ واحدة يتشاركها الإلغاء اليدويّ وإبطال المرحلة الثانية (Z5.4)
 import { reverseInvoiceInTx } from '../services/invoiceVoid';
+import { CancelRefused, lockInvoiceForCancel } from '../services/docCancel';
 
 const router = Router();
 router.use(authenticate);
@@ -759,7 +760,9 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     }
 
     const updated = await prisma.$transaction(async tx => {
-      const inv = await tx.invoice.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
+      // الفحوص أعلاه على قراءةٍ سابقة للمعاملة: القفل وإعادتها تحته أولاً، وإلا عكس طلبان متقاربان القيد مرّتين
+      await lockInvoiceForCancel(tx, tid, invoice.id);
+      const inv = await tx.invoice.update({ where: { id: invoice.id }, data: { status: 'CANCELLED' } });
       // نسخةٌ واحدة من فرع العكس يتشاركها الإلغاء اليدويّ وإبطالُ المرحلة الثانية (Z5.4) — والوضع 'CANCEL' هو
       // السلوك القديم حرفاً بحرف (مرتجع ⇒ عكس المرتجع، نقدية ⇒ عكس شقّيها، وإلا عكس الآجلة)
       await reverseInvoiceInTx(
@@ -789,7 +792,21 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
 
     publishInvoicesChanged(tid);
     res.json({ success: true, data: updated });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err instanceof CancelRefused && err.reason === 'HAS_NOTES') {
+      // صدر إشعارٌ بين الفحص والقفل ⇒ ردّ الحارس أعلاه نفسه (409 وما يمكن إرجاعه)
+      try {
+        const e = new ZatcaHttpError('ZATCA_CANCEL_NOT_ALLOWED', {
+          messageAr: err.message,
+          reason: 'HAS_NOTES',
+          data: { invoiceId: req.params.id, creditable: await cancelCreditablePayload(req, tenantId(req)) },
+        });
+        res.status(e.status).json(e.body()); return;
+      } catch (e2) { next(e2); return; }
+    }
+    if (err instanceof CancelRefused) { res.status(400).json({ success: false, message: err.message }); return; }
+    next(err);
+  }
 });
 
 // ═══ ZATCA المرحلة الثانية (Z5.5): الإشعارات الدائنة والمدينة ═══

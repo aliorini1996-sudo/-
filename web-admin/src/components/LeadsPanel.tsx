@@ -10,6 +10,7 @@ import {
 import WhatsAppBridgePanel from './WhatsAppBridgePanel';
 import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
+import { safeHttpUrl } from '../lib/safeUrl';
 
 const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const STAGE_LABEL: Record<LeadStage, string> = {
@@ -1504,6 +1505,9 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
   });
 
   if (!lead) return null;
+  // مصدرهما عام (OSM ونتائج البحث): http/https وحدهما رابطاً، وإلا نصّاً — javascript: هنا يسرق جلسة المالك
+  const websiteHref = safeHttpUrl(lead.website);
+  const mapsHref = safeHttpUrl(lead.mapsUrl);
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-start" dir="rtl">
@@ -1521,11 +1525,15 @@ function LeadDrawer({ id, onClose, onChanged }: { id: string; onClose: () => voi
           {/* بيانات التواصل */}
           <div className="space-y-1.5 text-sm">
             {lead.phone && <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-gray-700"><Phone size={14} className="text-[#E15A30]" /> {lead.phone}</a>}
-            {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 truncate"><Globe2 size={14} /> {lead.website}</a>}
+            {lead.website && (websiteHref
+              ? <a href={websiteHref} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 truncate"><Globe2 size={14} /> {lead.website}</a>
+              : <div className="flex items-center gap-2 text-gray-600 truncate"><Globe2 size={14} className="text-gray-400" /> {lead.website}</div>)}
             {lead.address && <div className="flex items-center gap-2 text-gray-600"><MapPin size={14} className="text-gray-400" /> {lead.address}</div>}
-            {lead.mapsUrl && (lead.mapsUrl.includes('linkedin.com')
-              ? <a href={lead.mapsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[#0A66C2]"><Globe2 size={14} /> الملف على LinkedIn</a>
-              : <a href={lead.mapsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-700"><MapPin size={14} /> عرض على الخريطة</a>)}
+            {lead.mapsUrl && (!mapsHref
+              ? <div className="flex items-center gap-2 text-gray-600 truncate"><MapPin size={14} className="text-gray-400" /> {lead.mapsUrl}</div>
+              : mapsHref.includes('linkedin.com')
+                ? <a href={mapsHref} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[#0A66C2]"><Globe2 size={14} /> الملف على LinkedIn</a>
+                : <a href={mapsHref} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-700"><MapPin size={14} /> عرض على الخريطة</a>)}
             {lead.score != null && <div className="flex items-center gap-2"><Sparkles size={14} className="text-amber-500" /> ملاءمة {lead.score}/10 {lead.scoreNote && <span className="text-gray-400">— {lead.scoreNote}</span>}</div>}
           </div>
 

@@ -6,6 +6,7 @@ import { postCollectionEntries, postRefundEntry } from './settlement';
 import { generateReceiptNumber, withNumberRetry } from '../utils/helpers';
 import { postReceiptEntries, reverseReceiptEntries, clean } from './accounting';
 import { publishInvoicesChanged } from './liveEvents';
+import { claimReceiptCancel, restoreAllocations } from './docCancel';
 // ZATCA المرحلة الثانية (Z5.4، F2): فاتورةٌ لم تعتمدها الهيئة لا يُصدر لها رابط دفع، والمتبقّي يُقرأ مقفلاً (نقد 13)
 import { ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
 import { ZATCA_ERROR_CATALOGUE } from '../compliance/zatca/errors';
@@ -440,42 +441,38 @@ export async function reverseLinkPayment(linkId: string, reason: string): Promis
     include: { invoiceItems: true },
   });
   if (!receipt) return { ok: false, state: 'no-receipt' };
-  if (receipt.status === 'CANCELLED') {
-    await prisma.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'refunded' } }).catch(() => { /* سباق */ });
-    return { ok: true, state: 'already-refunded' };
-  }
 
-  await prisma.$transaction(async tx => {
-    await tx.receipt.update({ where: { id: receipt.id }, data: { status: 'CANCELLED' } });
-    for (const item of receipt.invoiceItems) {
-      const inv = await tx.invoice.findUnique({ where: { id: item.invoiceId }, select: { paidAmt: true, remainingAmt: true } });
-      if (!inv) continue;
-      await tx.invoice.update({
-        where: { id: item.invoiceId },
-        data: {
-          paidAmt: clean(Number(inv.paidAmt) - Number(item.amount)),
-          remainingAmt: clean(Number(inv.remainingAmt) + Number(item.amount)),
-        },
-      });
-    }
-    await reverseReceiptEntries(tx as never, link.tenantId, receipt.id, link.customerId, Number(receipt.amount));
+  const reversed = await prisma.$transaction(async tx => {
+    /* مقارنةٌ وتبديل على الرابط أولاً (مراجعة ٣٠ سبتمبر ٢٠٢٦): الفحوص أعلاه على قراءةٍ سابقة للمعاملة، فكان webhook
+     * مكرّر يعكس القيد مرّتين. من يفوز بتبديل الرابط paid→refunded يكتب قيد REFUND في الأمانات **دائماً**: ميسر ردّ
+     * المال من حسابنا أياً كانت حالة السند — وكان سندٌ أُلغي يدوياً قبل الاسترداد يُسقط هذا القيد، فيدفع التوريد
+     * الأسبوعي للشركة مالاً رُدّ لعميلها (MD-8). أما عكس ذمّة العميل فلمن يفوز بإلغاء السند وحده. */
+    const linkClaim = await tx.customerPaymentLink.updateMany({ where: { id: link.id, status: 'paid' }, data: { status: 'refunded' } });
+    if (linkClaim.count !== 1) return null;
     await postRefundEntry(tx, {
       tenantId: link.tenantId,
       linkId: link.id,
       refunded: Number(receipt.amount),
       invoiceNumber: link.invoice.number,
     });
-    await tx.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'refunded' } });
+    // سندٌ أُلغي يدوياً (قبل الاسترداد أو معه) عُكست ذمّته هناك — لا عكس ثانٍ
+    const receiptCancelled = await claimReceiptCancel(tx, link.tenantId, receipt.id);
+    if (receiptCancelled) {
+      await restoreAllocations(tx, link.tenantId, receipt.invoiceItems);
+      await reverseReceiptEntries(tx as never, link.tenantId, receipt.id, link.customerId, Number(receipt.amount));
+    }
     await tx.notification.create({
       data: {
         tenantId: link.tenantId,
         type: 'PAYLINK_REFUNDED',
         title: 'استرداد دفعة الكترونية',
-        body: `رُدَّ مبلغ ${Number(receipt.amount)} لفاتورة ${link.invoice.number} — الغي سند ${receipt.number} (${reason})`,
+        body: `رُدَّ مبلغ ${Number(receipt.amount)} لفاتورة ${link.invoice.number} — ${receiptCancelled ? 'الغي' : 'كان ملغى'} سند ${receipt.number} (${reason})`,
       },
     }).catch(() => { /* كمالي */ });
+    return receiptCancelled;
   });
-  console.error(`paylink refund ${link.id}: reversed receipt ${receipt.number} (${reason})`);
+  if (reversed === null) return { ok: true, state: 'already-refunded' };
+  console.error(`paylink refund ${link.id}: ${reversed ? 'reversed' : 'refund booked, already-cancelled'} receipt ${receipt.number} (${reason})`);
   publishInvoicesChanged(link.tenantId);
   return { ok: true, state: 'refunded' };
 }

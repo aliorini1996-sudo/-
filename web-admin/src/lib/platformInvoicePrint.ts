@@ -27,17 +27,28 @@ export interface SellerInfo {
   address: string;
 }
 
-const sar = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sar = (n: number) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export async function printPlatformInvoice(inv: PrintableInvoice, seller: SellerInfo): Promise<void> {
-  // رمز ZATCA: المحتوى هو سلسلة TLV بترميز base64 كما تنصّ المواصفة
-  const qrDataUrl = await QRCode.toDataURL(inv.qrBase64, { width: 180, margin: 1 }).catch(() => '');
+/**
+ * هروب HTML — **حارس ضروري لا تجميل** (مراجعة ٣٠ سبتمبر ٢٠٢٦، SEC-1). اسم المشتري ورقمه الضريبي والبيان يكتبها
+ * المشترك بنفسه عند الدفع، والصفحة تُكتب في نافذة من أصل fieldsa.net نفسه: شيفرةٌ في اسم الشركة كانت تُنفَّذ حين
+ * يطبع المالك الفاتورة، فتقرأ توكن جلسته من localStorage وبه تدخل كل الشركات.
+ */
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  const issued = new Date(inv.issuedAt);
-  const dateStr = issued.toLocaleDateString('ar-SA-u-nu-latn', { timeZone: 'Asia/Riyadh', year: 'numeric', month: 'long', day: 'numeric' });
-
-  const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
-<title>فاتورة ضريبية ${inv.number}</title>
+/** صفحة الفاتورة كاملةً — صرفة. كل حقلٍ نصّي يُهرَّب، ولا سكربت فيها أصلاً وسياسة المحتوى تمنع أيّ سكربت يتسلّل. */
+export function buildPlatformInvoiceHtml(inv: PrintableInvoice, seller: SellerInfo, qrDataUrl: string, dateStr: string): string {
+  const qr = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(qrDataUrl) ? qrDataUrl : '';
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
+<title>فاتورة ضريبية ${esc(inv.number)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; }
   body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; color: #1F1A13; background: #fff; padding: 32px; }
@@ -60,20 +71,20 @@ export async function printPlatformInvoice(inv: PrintableInvoice, seller: Seller
   @media print { body { padding: 0; } }
 </style></head><body><div class="sheet">
   <div class="head">
-    <div class="brand">${seller.name}
-      <small>س.ت ${seller.crNumber} · الرقم الضريبي ${seller.vatNumber}</small>
-      <small>${seller.address}</small>
+    <div class="brand">${esc(seller.name)}
+      <small>س.ت ${esc(seller.crNumber)} · الرقم الضريبي ${esc(seller.vatNumber)}</small>
+      <small>${esc(seller.address)}</small>
     </div>
     <div class="title">
       <h1>فاتورة ضريبية</h1>
-      <div class="num">${inv.number}</div>
-      <div class="num">${dateStr}</div>
+      <div class="num">${esc(inv.number)}</div>
+      <div class="num">${esc(dateStr)}</div>
     </div>
   </div>
 
   <table>
-    <tr><th style="width:120px">المشتري</th><td>${inv.buyerName}${inv.buyerVatNo ? ` — الرقم الضريبي ${inv.buyerVatNo}` : ''}</td></tr>
-    <tr><th>البيان</th><td>${inv.description}</td></tr>
+    <tr><th style="width:120px">المشتري</th><td>${esc(inv.buyerName)}${inv.buyerVatNo ? ` — الرقم الضريبي ${esc(inv.buyerVatNo)}` : ''}</td></tr>
+    <tr><th>البيان</th><td>${esc(inv.description)}</td></tr>
   </table>
 
   <table class="totals">
@@ -83,17 +94,28 @@ export async function printPlatformInvoice(inv: PrintableInvoice, seller: Seller
   </table>
 
   <div class="qr">
-    ${qrDataUrl ? `<img src="${qrDataUrl}" alt="ZATCA QR">` : ''}
+    ${qr ? `<img src="${qr}" alt="ZATCA QR">` : ''}
     <p>رمز الاستجابة السريعة وفق متطلّبات هيئة الزكاة والضريبة والجمارك — المرحلة الأولى من الفوترة الإلكترونية (ترميز TLV).</p>
   </div>
 
   <div class="foot">أُصدرت هذه الفاتورة آلياً عند تأكيد الدفع عبر بوابة الدفع الإلكتروني · fieldsa.net</div>
 </div>
-<script>window.onload = () => { window.print(); };</script>
 </body></html>`;
+}
+
+export async function printPlatformInvoice(inv: PrintableInvoice, seller: SellerInfo): Promise<void> {
+  // رمز ZATCA: المحتوى هو سلسلة TLV بترميز base64 كما تنصّ المواصفة
+  const qrDataUrl = await QRCode.toDataURL(inv.qrBase64, { width: 180, margin: 1 }).catch(() => '');
+
+  const issued = new Date(inv.issuedAt);
+  const dateStr = issued.toLocaleDateString('ar-SA-u-nu-latn', { timeZone: 'Asia/Riyadh', year: 'numeric', month: 'long', day: 'numeric' });
 
   const w = window.open('', '_blank', 'width=820,height=900');
   if (!w) return;
-  w.document.write(html);
+  w.document.write(buildPlatformInvoiceHtml(inv, seller, qrDataUrl, dateStr));
   w.document.close();
+  // الطباعة من هنا لا من سكربتٍ داخل الصفحة: سياسة محتواها تمنع كل سكربت
+  const print = () => { w.focus(); w.print(); };
+  if (w.document.readyState === 'complete') print();
+  else w.addEventListener('load', print, { once: true });
 }
