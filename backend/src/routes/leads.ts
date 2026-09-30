@@ -608,7 +608,7 @@ router.post('/search', async (req: AuthRequest, res: Response, next: NextFunctio
     const rawAll: RawLead[] = [];
     const errors: string[] = [];
     for (const p of providers) {
-      if (!ready[p]) { errors.push(`مصدر ${p}يتطلب مفتاحا في الخادم تخطي`); continue; } // تخطّي مرّة واحدة بدل خطأ لكل نشاط
+      if (!ready[p]) { errors.push(`مصدر ${p} يتطلب مفتاحا في الخادم تخطي`); continue; } // تخطّي مرّة واحدة بدل خطأ لكل نشاط
       for (const q of queries) {
         try {
           const r = await runSearch(p, q, body.country, body.city, body.limit);

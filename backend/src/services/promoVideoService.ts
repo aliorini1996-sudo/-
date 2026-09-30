@@ -310,7 +310,7 @@ async function resolveHeygenDefaults(): Promise<{ avatarId: string; voiceId: str
     if (!r.ok) throw new Error(`HeyGen تعذر جلب قائمة الAvatars (${r.status}) تأكد من صحة المفتاح`);
     const d = (await r.json()) as { data?: { avatars?: { avatar_id: string }[] } };
     avatarId = d.data?.avatars?.[0]?.avatar_id || '';
-    if (!avatarId) throw new Error('HeyGen لا يوجد Avatar في حسابك أضف واحدا من heygen com أو اضبط HEYGEN_AVATAR_ID');
+    if (!avatarId) throw new Error('HeyGen لا يوجد Avatar في حسابك أضف واحدا من heygen.com أو اضبط HEYGEN_AVATAR_ID');
   }
 
   if (!voiceId) {

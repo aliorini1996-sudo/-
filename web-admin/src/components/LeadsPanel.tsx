@@ -451,7 +451,7 @@ function SearchModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           {enrich && (
             <label className="flex items-center gap-2 text-sm text-purple-700 pr-6">
               <input type="checkbox" checked={enrichHunter} onChange={(e) => setEnrichHunter(e.target.checked)} />
-              + استخدام Hunter io للبريد الاحترافي يتطلب مفتاحا حصة محدودة
+              + استخدام Hunter.io للبريد الاحترافي يتطلب مفتاحا حصة محدودة
             </label>
           )}
         </div>
@@ -706,7 +706,7 @@ function WhatsAppModal({
         <div className="bg-[#dcf8e8] rounded-lg p-3 text-sm text-[#166534]">
           يرسل آليا لمن لديه <b>هاتف</b> و<b>لم يراسل واتساب</b> و<b>لم ينسحب</b> ضمن الفلاتر الحالية
           <b> {recipients}</b> متاح سيرسل الآن ل<b> {willSend}</b>.
-          <br />من يصله تنقل حالته إلى <b>تم التواصل</b>ومن يرد ترفع حالته إلى <b>مؤهل</b> تلقائيا
+          <br />من يصله تنقل حالته إلى <b>تم التواصل</b> ومن يرد ترفع حالته إلى <b>مؤهل</b> تلقائيا
         </div>
 
         {/* الحصّة اليومية — تجاوزها يقيّد الرقم في Meta لا يزيد المبيعات */}
@@ -866,7 +866,7 @@ function EnrichModal({
           </label>
           <label className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 ${status?.hunter ? 'border-[#E9E1D3]' : 'border-[#E9E1D3] opacity-60'}`}>
             <input type="checkbox" checked={useHunter} disabled={!status?.hunter} onChange={(e) => setUseHunter(e.target.checked)} />
-            <span>Hunter io بريد احترافي {status?.hunter ? <span className="text-green-600 text-xs">جاهز</span> : <span className="text-red-500 text-xs">أضف HUNTER_API_KEY في الخادم</span>}</span>
+            <span>Hunter.io بريد احترافي {status?.hunter ? <span className="text-green-600 text-xs">جاهز</span> : <span className="text-red-500 text-xs">أضف HUNTER_API_KEY في الخادم</span>}</span>
           </label>
         </div>
         <div>

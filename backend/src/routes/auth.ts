@@ -353,7 +353,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response, next: 
         ['تنتهي التجربة', trialEndsAt.toISOString().slice(0, 10)],
       ], 'سجل عميل جديد للتجربة المجانية عبر fieldsa.net ينصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك'),
     });
-    if (!mailSent) console.error('mail فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
+    if (!mailSent) console.error('[mail] فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
 
     // بريد تأكيد للعميل — يحقّق ملكية البريد (دخول فوري + لافتة تأكيد بالواجهة)
     const verifyUrl = `${frontendBase()}/verify-email?token=${signVerifyToken(created.admin.id)}`;

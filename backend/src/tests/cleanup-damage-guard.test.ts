@@ -29,18 +29,30 @@ test('لا محرف تحكّم في الشيفرة (كان المنظّف يضع
 });
 
 test('النطاق يُكتب بنقطته في كل نصٍّ يصل العملاء، لا اسمه بمسافة', () => {
-  const broken = new RegExp('fieldsa' + ' net\\b');
-  const bad = files.filter(f => broken.test(fs.readFileSync(f, 'utf8')));
+  // تُبنى من جزأين كي لا يطابق الحارسُ نفسه
+  const broken = [['fieldsa', 'net'], ['heygen', 'com'], ['hunter', 'io']].map(([a, b]) => new RegExp(`\\b${a} ${b}\\b`, 'i'));
+  const bad = files.filter(f => { const s = fs.readFileSync(f, 'utf8'); return broken.some(re => re.test(s)); });
+  assert.deepEqual(bad.map(f => path.relative(ROOT, f)), []);
+});
+
+test('لا كلمة ملتصقة بمتغيّر أو بوسم مغلق (حذف «: » أو «، » بينهما)', () => {
+  const glued = /\$\{[^}]+\}[ء-ي]{2,}|<\/(b|strong|a|code|span|em)>[ء-ي]{2,}/;
+  const bad = files.filter(f => !/\.test\.tsx?$/.test(f) && glued.test(fs.readFileSync(f, 'utf8')));
   assert.deepEqual(bad.map(f => path.relative(ROOT, f)), []);
 });
 
 test('قوالب البريد وتنسيق المدوّنة: CSS بنقطتيه، ومحدّد المقال بنقطته', () => {
   const read = (...p: string[]) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
-  for (const f of [['backend', 'src', 'routes', 'auth.ts'], ['backend', 'src', 'services', 'marketingTemplate.ts'], ['backend', 'src', 'routes', 'leadsCron.ts']]) {
+  for (const f of [['backend', 'src', 'routes', 'auth.ts'], ['backend', 'src', 'services', 'marketingTemplate.ts'], ['backend', 'src', 'routes', 'leadsCron.ts'], ['backend', 'src', 'services', 'opsSchedule.ts']]) {
     const s = read(...f);
-    assert.doesNotMatch(s, /style="(background|display|color) #?[A-Za-z0-9]/, `${f.join('/')}: style بلا نقطتين`);
+    const noColon = [...s.matchAll(/style="([^"]*)"/g)].map(m => m[1]).filter(v => !v.includes(':'));
+    assert.deepEqual(noColon, [], `${f.join('/')}: style بلا نقطتين`);
   }
+  assert.match(read('backend', 'src', 'routes', 'auth.ts'), /style="background:#E15A30;color:#fff;/, 'زرّ تأكيد البريد');
   assert.match(read('backend', 'src', 'routes', 'leadsCron.ts'), /<!doctype html>/);
+  // وسم السجلّ [mail] يُبحث به في سجلات Render
+  const mailLogs = [...read('backend', 'src', 'services', 'mailer.ts').matchAll(/console\.\w+\('([^']*)'/g)].map(m => m[1]);
+  assert.ok(mailLogs.length >= 4 && mailLogs.every(m => m.startsWith('[mail] ')), `mailer.ts: ${JSON.stringify(mailLogs)}`);
   const blog = read('web-admin', 'src', 'pages', 'BlogPostPage.tsx');
   assert.match(blog, /\.article-prose \{ font-size:16\.5px; line-height:1\.95;/);
   assert.doesNotMatch(blog, /^\s*article-prose\b/m, 'محدّد المقال بلا نقطة');
