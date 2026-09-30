@@ -1,7 +1,9 @@
 /**
  * حلقة التعلّم — «ما تعلّمه العقل» لإدارة الشركة: آخر الليالي، والمؤشرات قبل/بعد، ونسخ الترتيب والمعايرة، والدروس
- * بدليلها وأثرها (مع/بدون)، والاعتراضات حسب نوع المحل (الخلايا المكشوفة فقط). للإدارة وحدها — لا يصل للعقل.
+ * بدليلها وأثرها (مع/بدون) وكم دورة مسح أو دراسة طُبّقت فيها، والاعتراضات حسب نوع المحل (الخلايا المكشوفة فقط).
+ * للإدارة وحدها — لا يصل للعقل.
  */
+import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { llmConfig } from '../llm';
 import { outletTypeLabel } from '../taxonomy';
@@ -9,7 +11,7 @@ import { OBJECTION_LABEL_AR } from './labels';
 import { loadLessonOnOff, statusReasonAr } from './lessons';
 import { describePolicy } from './policy';
 import { sanePolicy, saneCalibration } from './store';
-import { DEFAULT_POLICY, type FieldStats, type ObjectionCode } from './types';
+import { SCAN_DEFAULT_POLICY, type FieldStats, type ObjectionCode } from './types';
 
 const DAY = 86400000;
 const arNum = (x: number, d = 2) => x.toLocaleString('ar-SA', { maximumFractionDigits: d });
@@ -21,8 +23,18 @@ function calSummary(params: unknown): string {
   return `الطلب التجريبي ×${arNum(c.trial.tenant)}${types.length ? ` (${types.join('، ')})` : ''} — من ${arNum(c.customers, 0)} عميلاً`;
 }
 
+/** كم دورة (مسح أو دراسة أو محادثة، بأي مصدر) عُرض فيها كل درس منذ since — «مطبَّق على المسح». */
+async function appliedCounts(tid: string, since: Date): Promise<Map<string, number>> {
+  const rows = await prisma.$queryRaw<Array<{ lessonId: string; n: number }>>(Prisma.sql`
+    SELECT x.id AS "lessonId", COUNT(*)::int AS n
+    FROM ai_turns t, LATERAL unnest(t."lessonIds") AS x(id)
+    WHERE t."tenantId" = ${tid} AND t."createdAt" >= ${since}
+    GROUP BY 1`);
+  return new Map(rows.map(r => [r.lessonId, Number(r.n) || 0]));
+}
+
 export async function learningView(tid: string, s: { learningMode: string; holdoutPct: number }, now = new Date()) {
-  const [runs, models, lessons, onOff] = await Promise.all([
+  const [runs, models, lessons, onOff, applied] = await Promise.all([
     prisma.aiLearningRun.findMany({
       where: { tenantId: tid }, orderBy: { startedAt: 'desc' }, take: 14,
       select: { day: true, status: true, llm: true, tokensIn: true, tokensOut: true, steps: true, metrics: true, field: true, finishedAt: true },
@@ -36,6 +48,7 @@ export async function learningView(tid: string, s: { learningMode: string; holdo
       select: { id: true, kind: true, origin: true, outletType: true, textAr: true, status: true, statusReason: true, evidence: true, history: true, createdAt: true },
     }),
     loadLessonOnOff(tid, new Date(now.getTime() - 30 * DAY)).catch(() => null),
+    appliedCounts(tid, new Date(now.getTime() - 30 * DAY)).catch(() => null),
   ]);
 
   const latest = runs.find(r => r.status === 'DONE' || r.status === 'PARTIAL');
@@ -47,7 +60,7 @@ export async function learningView(tid: string, s: { learningMode: string; holdo
       const prevV = Number((m.metrics as { previousVersion?: number } | null)?.previousVersion ?? 0);
       const prev = prevV > 0 ? sanePolicy(byKindVersion.get(`POLICY|${prevV}`)?.params) : null;
       const next = sanePolicy(m.params);
-      summaryAr = next ? describePolicy(prev ?? DEFAULT_POLICY, next) : 'سياسة ترتيب';
+      summaryAr = next ? describePolicy(prev ?? SCAN_DEFAULT_POLICY, next) : 'سياسة ترتيب';
     } else {
       summaryAr = calSummary(m.params);
     }
@@ -87,6 +100,8 @@ export async function learningView(tid: string, s: { learningMode: string; holdo
         id: l.id, kind: l.kind, origin: l.origin, outletType: l.outletType ? outletTypeLabel(l.outletType) : null, textAr: l.textAr,
         status: l.status, statusReason: l.statusReason, statusReasonAr: l.statusReason ? statusReasonAr(l.statusReason) : null,
         evidence: l.evidence, history: l.history, createdAt: l.createdAt.toISOString(),
+        // دورات ٣٠ يوماً عُرض فيها الدرس (تعليمات العقل أو سطر «من تجربة فريقك»)
+        applied: applied?.get(l.id) ?? 0,
         onOff: oo ? {
           on: oo.on.n, off: oo.off.n,
           qOn: oo.on.n ? oo.on.q / oo.on.n : null, qOff: oo.off.n ? oo.off.q / oo.off.n : null,

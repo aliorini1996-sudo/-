@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, MapPin, Navigation, RefreshCw, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, MapPin, Navigation, RefreshCw, Sparkles, Star, Store, UserPlus, X, ThumbsUp, ThumbsDown, Lightbulb, ShoppingBag, MessageSquareQuote, Clock, Users } from 'lucide-react';
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
@@ -9,7 +9,7 @@ import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { aiScanInFlight, loadAiSession, onConverted, saveAiSession, trackAiScan, type AiAddPrefill } from './aiRepSession';
 import {
-  CLOSED_OUTCOMES, COARSE_GPS_M, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, gpsErrorKind, mergeStudied, navUrl,
+  CLOSED_OUTCOMES, COARSE_GPS_M, FEEDBACK_REASONS, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, distKm, fmtDistance, gpsErrorKind, mergeStudied, navUrl,
   needsRescan, refreshHoldMs, shopBadge, type ShopBadgeTone,
 } from './aiRepLogic';
 
@@ -18,6 +18,7 @@ import {
  * الفتح (من خرائط Google — بلا أي عمل من المندوب) فيوجّهه: بأي الفرص الجديدة يبدأ وبأي ترتيب ولماذا، وكل محل بدراسته
  * (تقييمه ونوعه وحالة فتحه، وبمراجعاته النصية حين يُضبط مفتاح Google الرسمي). لا من مبيعات الشركة السابقة.
  * بمفتاح الخريطة: الضغط على أي محل في الخريطة يدرسه بمراجعاته. نتائج Google تُعرض ولا تُخزَّن.
+ * حلقة التعلّم: الترتيب قد يكون متعلَّماً من نتائج زيارات الفريق، وسطر «من تجربة فريقك» في التوجيه والدراسة، و👍/👎 عليهما.
  */
 
 interface Item {
@@ -31,6 +32,8 @@ interface Item {
   withReviews?: boolean;
   /** أُضيف عميلاً دون اتصال: في صفّ الإرسال حتى يُرفع */
   pendingCustomer?: boolean;
+  /** دورة دراسة المراجعات (حلقة التعلّم) — لتقييم المندوب 👍/👎 */
+  studyTurnId?: string | null;
 }
 interface Review { rating: number | null; text: string; when: string | null; author: string | null; authorUri: string | null }
 interface Profile {
@@ -41,13 +44,21 @@ interface Study {
   source: 'AI' | 'RULES'; summary: string; activity: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN'; activityWhy: string;
   praise: string[]; complaints: string[]; opportunity: string[]; offer: string[];
   openingLine: string | null; objection: string | null; objectionReply: string | null; visitTip: string | null;
+  /** من تجربة فريقك: درس من نتائج زيارات الشركة لنوع المحل */
+  teamTip?: string | null;
 }
 interface Me {
   placesConfigured: boolean; mapsKey?: string | null;
   targetTypes: { code: string; label: string }[];
 }
-/** kind: فرصة جديدة أو متابعة (مهتم/عرض سعر/عُد لاحقاً بعد التهدئة) — اختياري لجلسات محفوظة قبل إضافته */
-interface Guide { source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string; kind?: 'NEW' | 'FOLLOW_UP' }[] }
+/**
+ * kind: فرصة جديدة أو متابعة (مهتم/عرض سعر/عُد لاحقاً بعد التهدئة) — اختياري لجلسات محفوظة قبل إضافته.
+ * حلقة التعلّم: turnId دورة المسح للتقييم 👍/👎، و learned الترتيب متعلَّم، و tip سطر «من تجربة فريقك».
+ */
+interface Guide {
+  source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string; kind?: 'NEW' | 'FOLLOW_UP' }[];
+  turnId?: string | null; learned?: boolean; tip?: string | null;
+}
 
 const BADGE_CLASS: Record<ShopBadgeTone, string> = {
   customer: 'bg-blue-50 text-blue-700', possible: 'bg-sky-50 text-sky-700', followup: 'bg-amber-50 text-amber-700',
@@ -315,8 +326,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     try {
       const o = originRef.current;
       const r = await repApi.post('/ai-rep/rep/study', { placeId: p.placeId, ...(searchIdRef.current && { searchId: searchIdRef.current }), ...(o && { gps: { lat: o.lat, lng: o.lng } }) });
-      const d = r.data.data as { searchId: string; item: Item; profile: Profile; study: Study };
-      const item: Item = { ...d.item, profile: d.profile, study: d.study, withReviews: true };
+      const d = r.data.data as { searchId: string; turnId?: string; item: Item; profile: Profile; study: Study };
+      const item: Item = { ...d.item, profile: d.profile, study: d.study, withReviews: true, studyTurnId: d.turnId ?? null };
       searchIdRef.current = d.searchId;
       setSearchId(d.searchId);
       // المحل في القائمة يحتفظ بمرجعه (خطة التوجيه تشير إليه)؛ جلسة خادمٍ انتهت تعيد P1 فلا يُؤخذ مرجعها
@@ -455,8 +466,14 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
         <div className="max-h-[48vh] overflow-y-auto px-4 pb-4 space-y-3">
           {guide && (
             <div className="rounded-2xl bg-[#FBEBE2] border border-[#F5DACE] p-3 space-y-2">
-              <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Sparkles size={13} /> {guide.source === 'AI' ? tr('توجيه المستشار الذكي') : tr('ابدأ بهذه المحلات')}</p>
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><Sparkles size={13} /> {guide.source === 'AI' ? tr('توجيه المستشار الذكي') : tr('ابدأ بهذه المحلات')}</p>
+                {/* key: تقييمٌ لمسحٍ سابق لا ينتقل إلى مسح جديد */}
+                {guide.turnId && <Feedback key={guide.turnId} turnId={guide.turnId} />}
+              </div>
+              {guide.learned && <p className="text-[10px] text-[#C94E28]">{tr('الترتيب متعلَّم من نتائج زيارات فريقك')}</p>}
               <p className="text-sm text-[#1F1A13] leading-6">{guide.summary}</p>
+              {guide.tip && <TeamTip text={guide.tip} />}
               <ol className="space-y-1.5">
                 {guide.stops.map((s, i) => {
                   const it = byRef.get(s.ref);
@@ -503,6 +520,52 @@ function NearbyPanel({ items, guide, open, onToggle, onOpen }: {
         </div>
       )}
     </div>
+  );
+}
+
+/** سطر «من تجربة فريقك»: درسٌ من نتائج زيارات مناديب الشركة (حلقة التعلّم) — يظهر ولو بلا عقل. */
+function TeamTip({ text }: { text: string }) {
+  const tr = useAiRepTr();
+  return (
+    <p className="text-xs text-[#1F1A13] leading-5 flex items-start gap-1">
+      <Users size={12} className="mt-1 shrink-0 text-[#C94E28]" />
+      <span><b className="text-[#C94E28]">{tr('من تجربة فريقك')}:</b> {text}</span>
+    </p>
+  );
+}
+
+// «الكمية غير مناسبة» لا تخصّ المسح ولا الدراسة (بلا كميات)
+const VOTE_REASONS = FEEDBACK_REASONS.filter(r => r.code !== 'WRONG_QTY');
+
+/**
+ * 👍/👎 على التوجيه أو دراسة المحل ⇒ /rep/feedback بمعرّف الدورة (رضا المناديب وتجارب الدروس)، والسبب اختياري بعد 👎.
+ * التعذّر (دون اتصال أو انتهت مهلة التقييم) يعيد الأزرار بصمت — لا يُقاطع عمل المندوب.
+ */
+function Feedback({ turnId }: { turnId: string }) {
+  const tr = useAiRepTr();
+  const [vote, setVote] = useState<0 | 1 | -1>(0);
+  const [reason, setReason] = useState('');
+  const send = (v: 1 | -1, r = '') => {
+    const prev = { vote, reason };
+    setVote(v); setReason(r);
+    repApi.post('/ai-rep/rep/feedback', { turnId, vote: v, ...(r && { reason: r }) }).catch(() => { setVote(prev.vote); setReason(prev.reason); });
+  };
+  if (vote === 0) {
+    return (
+      <span className="flex items-center gap-1 text-[11px] text-gray-500">
+        {tr('هل أفادك؟')}
+        <button type="button" onClick={() => send(1)} title={tr('مفيد')} aria-label={tr('مفيد')} className="w-7 h-7 rounded-full bg-white/80 flex items-center justify-center text-gray-600"><ThumbsUp size={13} /></button>
+        <button type="button" onClick={() => send(-1)} title={tr('غير مفيد')} aria-label={tr('غير مفيد')} className="w-7 h-7 rounded-full bg-white/80 flex items-center justify-center text-gray-600"><ThumbsDown size={13} /></button>
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-1 text-[11px]">
+      <span className="text-green-700">{tr('شكراً — المستشار يتعلّم من تقييمك')}</span>
+      {vote === -1 && !reason && VOTE_REASONS.map(r => (
+        <button key={r.code} type="button" onClick={() => send(-1, r.code)} className="rounded-full border border-[#F5DACE] bg-white px-2 py-0.5 text-gray-600">{tr(r.label)}</button>
+      ))}
+    </span>
   );
 }
 
@@ -700,7 +763,9 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
                   </div>
                 )}
                 {s.visitTip && <p className="text-xs text-gray-700 flex items-start gap-1"><Clock size={12} className="mt-1 shrink-0" /> {s.visitTip}</p>}
+                {s.teamTip && <TeamTip text={s.teamTip} />}
                 {s.source === 'AI' && <p className="text-[10px] text-gray-500">{tr('تحليل آلي من مراجعات العملاء في خرائط Google — تحقّق منه بزيارتك')}</p>}
+                {item.studyTurnId && <Feedback key={item.studyTurnId} turnId={item.studyTurnId} />}
               </div>
             ) : (
               <p className="text-center text-sm text-gray-400 py-4">{tr('لا دراسة لهذا المحل بعد')}</p>

@@ -31,10 +31,10 @@ import { adminScopeEnabled } from '../services/adminScope';
 import { OUTLET_TYPES, OUTLET_TYPE_CODES, googleTypesFor, isOutletType, outletTypeFromGoogle, outletTypeLabel, suggestOutletType } from '../ai-rep/taxonomy';
 import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
 import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
-import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
+import { loadEstimateData, invalidateEstimateData, tenantTimezone, TenantEstimateData } from '../ai-rep/estimateData';
 import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace, type PlaceReview } from '../ai-rep/places';
 import { notePublicScanShops, noteRepScanFailed, publicScan, REP_RETRY_MS, repRetryLeftMs } from '../ai-rep/publicMaps';
-import { aiGuide, ruleGuide, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
+import { aiGuide, baselineScore, learnedScorer, rankedPool, ruleGuide, scanCandidates, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
 import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
 import { CLOSED_KINDS, CLOSED_MEMORY_DAYS, customerBox, mergeNearby, sameDay } from '../ai-rep/nearby';
 import { chatCompletion, llmConfig } from '../ai-rep/llm';
@@ -43,14 +43,14 @@ import { runAdvisor, numbersIn, scrubPii } from '../ai-rep/advisor';
 import { advisorSystemPrompt, baseAllowedNumbers, buildAdvisorTools, OutletCtx } from '../ai-rep/advisorTools';
 import { getCountryTax } from '../config/countries';
 import { GUIDE_QUESTION, GUIDE_QUESTION_LEARNED, planEligible, planFromText, rankCandidates, rulePlan, ruleGuideText, PlanCandidate } from '../ai-rep/guide';
-import { getLearned, invalidateLearned, policyFor, recordTurn, resetLearning, rollbackModel } from '../ai-rep/learn/store';
+import { getLearned, invalidateLearned, policyFor, recordTurn, resetLearning, rollbackModel, type TurnRecord } from '../ai-rep/learn/store';
 import { learningView } from '../ai-rep/learn/view';
 import { assignArm } from '../ai-rep/learn/policy';
 import { resolveTuning } from '../ai-rep/learn/calibration';
-import { applyLessonAction, renderLessonsBlock, selectLessons } from '../ai-rep/learn/lessons';
+import { applyLessonAction, renderLessonsBlock, selectLessons, statsHint } from '../ai-rep/learn/lessons';
 import { atDoor, candidateFeatures, classifyIntent, FEEDBACK_REASONS, hourBand, INTENTS, OBJECTION_CODES, outcomeObjection, parseManPlace, selfCheckFlags } from '../ai-rep/learn/signals';
 import { riyadhDay } from '../ai-rep/learn/stats';
-import type { Intent, Learned } from '../ai-rep/learn/types';
+import type { AiLessonLite, Intent, Learned } from '../ai-rep/learn/types';
 import type { LearnedCtx } from '../ai-rep/advisorTools';
 import { addUsage, refundUsage, reserveUsage, usageDay, usageToday } from '../ai-rep/usage';
 import { getSession, patchSessionOutlet, peekSession, saveSession, SessionOutlet } from '../ai-rep/session';
@@ -678,6 +678,31 @@ const studySchema = z.object({
 
 const HERE_RADIUS_M = 60;
 
+// ───────────── حلقة التعلّم في المسح والدراسة ─────────────
+
+type TurnGuard = Pick<TurnRecord, 'source' | 'guard' | 'badKinds' | 'flags' | 'tokensIn' | 'tokensOut'>;
+const RULES_TURN: TurnGuard = { source: 'RULES', guard: 'NONE', badKinds: [], flags: [], tokensIn: 0, tokensOut: 0 };
+const uniq = (ids: (string | null | undefined)[]): string[] => [...new Set(ids.filter((x): x is string => !!x))];
+
+/** ما تعلّمته الشركة، وذراع اليوم لهذا المندوب (ضابطة بالنسبة المختارة)، وفترة اليوم بتوقيت الشركة (قراءة صفّ واحد). */
+async function learningCtx(c: RepCtx, now: Date) {
+  const [learned, tz] = await Promise.all([getLearned(c.tid), tenantTimezone(c.tid).catch(() => 'Asia/Riyadh')]);
+  const arm = assignArm(c.tid, c.repId, riyadhDay(now), c.settings);
+  return { learned, arm, hb: hourBand(now, tz), learnedOn: arm === 'LEARNED' && learned.mode !== 'OFF' };
+}
+
+/** دورة توجيه واحدة لكل مسح، وبحدّ دورة كل دقيقتين للمندوب — «حدّث» المتكرّر لا يُغرق التسميات بدورات متداخلة المرشّحين. */
+export const SCAN_TURN_GAP_MS = 2 * 60_000;
+const scanTurnAt = new Map<string, number>();
+
+export function claimScanTurn(key: string, now = Date.now()): boolean {
+  const last = scanTurnAt.get(key);
+  if (last != null && now - last >= 0 && now - last < SCAN_TURN_GAP_MS) return false;
+  if (scanTurnAt.size > 5000) for (const [k, t] of scanTurnAt) if (now - t >= SCAN_TURN_GAP_MS) scanTurnAt.delete(k);
+  scanTurnAt.set(key, now);
+  return true;
+}
+
 rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);
@@ -729,23 +754,39 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
       s.outlets.push({ ref, placeId: p.placeId, outletType, lat: p.lat, lng: p.lng, distanceM, relation, lastOutcome: merged?.lastOutcome ?? null, customerId });
     }
 
+    // حلقة التعلّم: ذراع اليوم لهذا المندوب، ودروس الشركة لنوع المحل وسطر «من تجربة فريقك» في الذراع المتعلّمة وحدها
+    const lc = await learningCtx(c, new Date());
+    const turnId = randomUUID();
+    const lessons = lc.learnedOn
+      ? selectLessons(lc.learned.lessons, { turnId, intent: 'STUDY', types: new Set([outletType]), noTools: true })
+      : { injected: [], heldOut: [] };
+    const tip = lc.learnedOn ? statsHint(lc.learned.lessons, { types: [outletType], hb: lc.hb, prefer: 'STUDY' }) : null;
+
     // الدراسة: بالعقل إن ضُبط وتوفّرت حصته، وإلا حتمية من الملف نفسه
-    let study: ShopStudy = ruleStudy(p);
+    let study: ShopStudy = ruleStudy(p, tip?.textAr ?? null);
+    let rec: TurnGuard = RULES_TURN;
     const cfg = llmConfig();
     if (cfg && c.settings.advisorEnabled && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
       const products = (await prisma.product.findMany({
         where: { tenantId: c.tid, status: 'ACTIVE', deletedAt: null }, select: { name: true }, orderBy: { name: 'asc' }, take: 60,
       })).map(x => x.name);
-      const ai = await aiStudy(p, { cfg, products, playbook: c.settings.playbook });
+      const ai = await aiStudy(p, { cfg, products, playbook: c.settings.playbook, lessonsBlock: renderLessonsBlock(lessons.injected) });
       await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.study ? {} : { guardFallback: 1 }) });
-      if (ai.study) study = ai.study;
+      rec = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
+      if (ai.study) study = { ...ai.study, teamTip: tip?.textAr ?? null };
       else console.warn('[ai-rep] دراسة المحل بالعقل تعذّرت:', ai.code, 'tenant', c.tid);
     }
+    // دورة دراسة بلا مرشّحين ولا نص: الحارس وأعلامه والدروس المعروضة — تغذّي تقييم المناديب وتجارب الدروس
+    await recordTurn({
+      id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'STUDY', intent: 'STUDY', arm: lc.arm, policyVersion: 0, hourBand: lc.hb,
+      ...rec, tools: [], hops: 0, lessonIds: uniq([...lessons.injected.map(l => l.id), tip?.id]), heldOutIds: lessons.heldOut,
+    });
 
     res.json({
       success: true,
       data: {
         searchId: s.searchId,
+        turnId,
         item: {
           ref, placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, outletType, outletTypeLabel: outletTypeLabel(outletType),
           distanceM, relation, customerId, lastOutcome: merged?.lastOutcome ?? null, lastOutcomeAt: merged?.lastOutcomeAt ?? null,
@@ -850,6 +891,14 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     })));
     const byId = new Map(places.map(p => [p.placeId, p]));
     const searchId = randomUUID();
+    // حلقة التعلّم: ذراع اليوم وسياسة الترتيب وفترة اليوم — وسطر «من تجربة فريقك» لكل نوع في الذراع المتعلّمة وحدها
+    const now = new Date();
+    const lc = await learningCtx(c, now);
+    const tips = new Map<string, AiLessonLite | null>();
+    const studyTip = (t: string): AiLessonLite | null => {
+      if (!tips.has(t)) tips.set(t, lc.learnedOn ? statsHint(lc.learned.lessons, { types: [t], hb: lc.hb, prefer: 'STUDY' }) : null);
+      return tips.get(t) ?? null;
+    };
     const items = merged.map((m, i) => {
       const p = byId.get(m.placeId)!;
       // عدد المقيّمين من البحث العام (0 = غير معروف: الواجهة لا تعرضه)، وساعات الأسبوع وحدها (لا سطر الحالة)
@@ -863,7 +912,8 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
         relation: m.relation, customerId: m.customerId, lastOutcome: m.lastOutcome, lastOutcomeAt: m.lastOutcomeAt, rejectedRecently: m.rejectedRecently,
         reportedClosed: m.reportedClosed,
         profile,
-        study: ruleStudy({ ...profile, placeId: p.placeId, primaryType: null, types: [], lat: p.lat, lng: p.lng, priceLevel: null, closed: false, typeLabel: p.category }),
+        study: ruleStudy({ ...profile, placeId: p.placeId, primaryType: null, types: [], lat: p.lat, lng: p.lng, priceLevel: null, closed: false, typeLabel: p.category },
+          studyTip(m.outletType)?.textAr ?? null),
       };
     });
     saveSession(c.tid, c.repId, {
@@ -872,20 +922,50 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     });
     // ذاكرة الزيارات (آخر نتيجة ولحظتها) تصل التوجيه: ما زاره الفريق مؤخراً لا يعود «فرصة جديدة»، والمهتم يصير متابعة
     const shops: ScanShop[] = items.map(it => ({
-      ref: it.ref, name: it.name, category: it.profile.typeLabel, rating: it.profile.rating, ratingCount: byId.get(it.placeId)?.ratingCount ?? null, openNow: it.profile.openNow,
+      ref: it.ref, placeId: it.placeId, outletType: it.outletType,
+      name: it.name, category: it.profile.typeLabel, rating: it.profile.rating, ratingCount: byId.get(it.placeId)?.ratingCount ?? null, openNow: it.profile.openNow,
       distanceM: it.distanceM, lat: it.lat, lng: it.lng, relation: it.relation, rejectedRecently: it.rejectedRecently,
       lastOutcome: it.lastOutcome, lastOutcomeAt: it.lastOutcomeAt, reportedClosed: it.reportedClosed,
     }));
-    const now = new Date();
-    let guide: ScanGuide = ruleGuide(shops, origin, now);
+    // الترتيب: السياسة المتعلَّمة في الذراع المتعلّمة إن رُقّيت نسخة، وإلا ترتيب ما قبل التعلّم — فالذراعان سواء حتى يثبت شيء
+    const policy = policyFor(lc.learned, lc.arm);
+    const score = policy.version > 0 ? learnedScorer(policy.params, lc.hb) : baselineScore;
+    const turnId = randomUUID();
+    const lessons = lc.learnedOn
+      ? selectLessons(lc.learned.lessons, { turnId, intent: 'GUIDE', types: new Set(items.map(it => it.outletType)), noTools: true })
+      : { injected: [], heldOut: [] };
+    let guide: ScanGuide = ruleGuide(shops, origin, now, score);
+    let rec: TurnGuard = RULES_TURN;
     const cfg = llmConfig();
     if (cfg && c.settings.advisorEnabled && shops.length && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
-      const ai = await aiGuide(shops, { cfg, playbook: c.settings.playbook, origin, now });
+      const ai = await aiGuide(shops, {
+        cfg, playbook: c.settings.playbook, origin, now,
+        recommended: rankedPool(shops, now, score).map(x => x.s.ref), lessonsBlock: renderLessonsBlock(lessons.injected),
+      });
       await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.guide ? {} : { guardFallback: 1 }) });
+      rec = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
       if (ai.guide) guide = ai.guide;
     }
-    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, guide: guide.source, partial }));
-    res.json({ success: true, data: { searchId, source, items, guide, partial } });
+    // «من تجربة فريقك» للخطة: أنواع محطاتها بترتيبها ثم بقية الأنواع حوله
+    const typeOf = new Map(items.map(it => [it.ref, it.outletType]));
+    const tip = lc.learnedOn
+      ? statsHint(lc.learned.lessons, { types: uniq([...guide.stops.map(st => typeOf.get(st.ref)), ...items.map(it => it.outletType)]), hb: lc.hb, prefer: 'GUIDE' })
+      : null;
+    guide = { ...guide, tip: tip?.textAr ?? null };
+    // دورة توجيه لهذا المسح: المرشّحون بميزات Google وموضعهم في الخطة (تُسمّى ليلاً بزيارات المندوب نفسه خلال ٧٢ ساعة)
+    const recorded = shops.length > 0 && claimScanTurn(`${c.tid}|${c.repId}`, now.getTime());
+    if (recorded) {
+      await recordTurn({
+        id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'GUIDE', intent: 'GUIDE', arm: lc.arm, policyVersion: policy.version, hourBand: lc.hb,
+        ...rec, tools: [], hops: 0, heldOutIds: lessons.heldOut,
+        lessonIds: uniq([...lessons.injected.map(l => l.id), tip?.id, ...[...tips.values()].map(l => l?.id)]),
+        candidates: scanCandidates(shops, now, score, guide.stops.map(st => st.ref)),
+      });
+    }
+    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, guide: guide.source, partial, arm: lc.arm, turn: recorded }));
+    // turnId داخل التوجيه (يُحفظ معه في جلسة الشاشة) لتقييم المندوب 👍/👎 — null حين لم تُسجَّل دورة
+    const shownTurn = recorded ? turnId : null;
+    res.json({ success: true, data: { searchId, source, items, guide: { ...guide, turnId: shownTurn, learned: policy.version > 0 }, partial, turnId: shownTurn } });
   } catch (err) { next(err); }
 });
 

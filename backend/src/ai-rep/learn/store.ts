@@ -66,7 +66,7 @@ export async function getLearned(tid: string): Promise<Learned> {
       prisma.aiLearnedModel.findMany({ where: { tenantId: tid, status: 'ACTIVE' }, select: { kind: true, version: true, params: true }, orderBy: { version: 'desc' }, take: 4 }),
       prisma.aiLesson.findMany({
         where: { tenantId: tid, status: { in: ['ACTIVE', 'TRIAL'] } },
-        select: { id: true, kind: true, origin: true, outletType: true, intent: true, textAr: true, status: true, evidence: true },
+        select: { id: true, key: true, kind: true, origin: true, outletType: true, intent: true, textAr: true, status: true, evidence: true },
         orderBy: { updatedAt: 'desc' }, take: 40,
       }),
       prisma.aiLearningRun.findMany({
@@ -87,7 +87,7 @@ export async function getLearned(tid: string): Promise<Learned> {
       calibration: cal && calParams ? { version: cal.version, params: calParams } : null,
       field,
       lessons: lessons.map(l => ({
-        id: l.id, kind: l.kind as LessonKind, origin: l.origin as LessonOrigin, outletType: l.outletType, intent: l.intent,
+        id: l.id, key: l.key, kind: l.kind as LessonKind, origin: l.origin as LessonOrigin, outletType: l.outletType, intent: l.intent,
         textAr: l.textAr, status: l.status as LessonStatus, n: lessonN(l.evidence),
       } satisfies AiLessonLite)),
     };
@@ -112,7 +112,8 @@ export interface TurnRecord {
   id: string;
   tenantId: string;
   salesRepId: string;
-  kind: 'GUIDE' | 'CHAT';
+  /** GUIDE توجيه (المسح بمرشّحيه)، CHAT محادثة، STUDY دراسة محل (بلا مرشّحين) */
+  kind: 'GUIDE' | 'CHAT' | 'STUDY';
   source: 'AI' | 'RULES' | 'ERROR';
   intent: string;
   arm: 'LEARNED' | 'BASELINE';
@@ -262,7 +263,7 @@ async function deleteInBatches(find: () => Promise<{ id: string }[]>, del: (ids:
   return total;
 }
 
-/** حذف القديم: المحادثات >٤٥ يوماً، التوجيه >٧٥، سقف ٣٠ ألف دورة؛ الليالي >٤٠٠؛ الدروس المرفوضة/المتقاعدة >١٨٠؛ آخر ١٠ نسخ. */
+/** حذف القديم: المحادثات والدراسات >٤٥ يوماً، التوجيه >٧٥، سقف ٣٠ ألف دورة؛ الليالي >٤٠٠؛ الدروس المرفوضة/المتقاعدة >١٨٠؛ آخر ١٠ نسخ. */
 export async function pruneLearning(tid: string, now: Date): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   const turnsBy = (where: object) => deleteInBatches(
@@ -271,6 +272,7 @@ export async function pruneLearning(tid: string, now: Date): Promise<Record<stri
   );
   out.chat = await turnsBy({ kind: 'CHAT', createdAt: { lt: new Date(now.getTime() - 45 * DAY) } });
   out.guide = await turnsBy({ kind: 'GUIDE', createdAt: { lt: new Date(now.getTime() - 75 * DAY) } });
+  out.study = await turnsBy({ kind: 'STUDY', createdAt: { lt: new Date(now.getTime() - 45 * DAY) } });
   const cut = await prisma.aiTurn.findMany({ where: { tenantId: tid }, orderBy: { createdAt: 'desc' }, skip: 30000, take: 1, select: { createdAt: true } });
   out.cap = cut.length ? await turnsBy({ createdAt: { lte: cut[0].createdAt } }) : 0;
   out.runs = (await prisma.aiLearningRun.deleteMany({ where: { tenantId: tid, startedAt: { lt: new Date(now.getTime() - 400 * DAY) } } })).count;

@@ -3,7 +3,8 @@
  *
  * حين يُنشأ عميل ومعه aiPlaceId (من شاشة المندوب الذكي):
  *   1) يُعلَّم المحل في سجلّ الشركة «محوَّلاً» ويُربط بالعميل.
- *   2) تُحفظ **لقطة التوقّع** كما عُرضت للمندوب — تُقارن لاحقاً بمشترياته الفعلية لقياس دقّة المحرّك.
+ *   2) تُحفظ **لقطة التوقّع** (محسوبةً الآن — لا يُعرض التوقّع للمندوب في الشاشة الحالية) — تُقارن لاحقاً بمشترياته
+ *      الفعلية لقياس دقّة المحرّك ومعايرة الطلب التجريبي.
  * أي فشل هنا لا يُسقط إنشاء العميل (المستدعي يلتقطه).
  */
 import prisma from '../config/database';
@@ -46,7 +47,8 @@ export async function linkConvertedCustomer(
   const row = await prisma.aiRepSettings.findUnique({ where: { tenantId: tid } });
   const settings = settingsView(row as Partial<AiRepSettingsView> | null);
   const data = await loadEstimateData(tid, { windowMonths: settings.estimateWindowMonths, priorityProductIds: settings.priorityProductIds });
-  // الطلب التجريبي كما عُرض (مُعايَر إن وُجدت معايرة) — واللقطة تحفظ الخام والمعروض معاً لقياس المعايرة لاحقاً
+  // الطلب التجريبي المحسوب (مُعايَر إن وُجدت معايرة؛ لا يُعرض للمندوب في الشاشة الحالية) — واللقطة تحفظ الخام والمُعايَر
+  // معاً لقياس المعايرة لاحقاً
   const tuning = resolveTuning(await getLearned(tid), outletType, settings.learningMode);
   const r = estimateOutlet({
     target: { lat: customer.lat, lng: customer.lng, outletType, excludeCustomerId: customer.id },

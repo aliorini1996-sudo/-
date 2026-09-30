@@ -1,8 +1,9 @@
 /**
  * حلقة التعلّم — الليلة (٢–٤ فجراً بتوقيت الرياض): لكل شركة مفعّلة ونشطة، بقفل ليلة واحدة (AiLearningRun):
- *   ١ الاحتفاظ ← ٢ إحصاء الميدان ← ٣ تسميات الخطط ← ٤ سياسة الترتيب (ملاءمة/بوابة/ترقية/رجوع آلي)
- *   ← ٥ معايرة الطلب التجريبي (لقطات التحويل + ترك-واحد-خارجاً/بوابة/رجوع) ← ٦ الدروس (قوالب الإحصاء ومكتبة
- *   التصحيح وأحكام التجربة) ← ٧ المراجعة الذاتية بالعقل (Groq، ملخّص رقمي مجهول الهوية، بميزانية) ← ٨ المؤشرات.
+ *   ١ الاحتفاظ ← ٢ إحصاء الميدان ← ٣ تسميات خطط المسح ← ٤ سياسة ترتيب المسح (ملاءمة/بوابة/ترقية/رجوع آلي)
+ *   ← ٥ معايرة الطلب التجريبي (لقطات التحويل + ترك-واحد-خارجاً/بوابة/رجوع؛ توقّعٌ لا يُعرض للمندوب في الشاشة الحالية)
+ *   ← ٦ الدروس (قوالب الإحصاء ومكتبة التصحيح وأحكام التجربة) ← ٧ المراجعة الذاتية بالعقل (Groq، ملخّص رقمي مجهول
+ *   الهوية، بميزانية، وتُتخطّى بلا ردود للعقل) ← ٨ المؤشرات.
  * كل خطوة مستقلة (خطؤها يُسجَّل ولا يوقف غيرها). الوضع OFF يشغّل ١ و٢ و٣ و٨ فقط (قياس بلا تغيير سلوك).
  * لا تنتقل خبرة شركة إلى أخرى: كل خطوة تأخذ tid وحده، والمراجعة الذاتية ترى ملخّص شركة واحدة.
  */
@@ -17,13 +18,13 @@ import { calMetrics, checkCalRollback, evaluateSnapshots, fitCalibration, locoGa
 import { computeFieldStats, fieldHints, loadFieldRows } from './field';
 import { loadLessonOnOff, loadSelfAgg, nightlyLessons } from './lessons';
 import {
-  armAggregates, buildPlanLabels, checkPolicyRollback, counterfactualLift, fitPolicy, loadPlanEvents, samePolicy, shouldPromote, splitTrainHeldOut,
-  type PlanTurn,
+  armAggregates, buildPlanLabels, checkPolicyRollback, counterfactualLift, fitPolicy, loadPlanEvents, samePolicy, scanPlanTurns, shouldPromote,
+  splitTrainHeldOut, type PlanTurn,
 } from './policy';
 import { buildDigest, loadSelfEval, runReflection } from './reflect';
 import { fnv1a32, pGreater, riyadhDay } from './stats';
 import { invalidateLearned, promotionHold, promoteModel, pruneLearning, rollbackModel, saneCalibration, sanePolicy } from './store';
-import { DEFAULT_POLICY, type CandFeature, type FieldStats, type PolicyParams } from './types';
+import { SCAN_DEFAULT_POLICY, type FieldStats, type PolicyParams } from './types';
 
 const DAY = 86400000;
 const STEP_BUDGET_MS = 30000;
@@ -143,7 +144,7 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
   });
   const activeReps = field?.activeReps ?? 0;
 
-  // ٣ تسميات الخطط: دورات التوجيه (٦٠ يوماً) × زيارات المندوب نفسه خلال ٧٢ ساعة
+  // ٣ تسميات الخطط: دورات المسح (٦٠ يوماً، بميزات Google وحدها) × زيارات المندوب نفسه خلال ٧٢ ساعة بمعرّف المكان
   const since60 = new Date(Math.max(now.getTime() - 60 * DAY, resetAt?.getTime() ?? 0));
   const planning = await step('labels', async () => {
     // الدورات الأحدث من ٧٢ ساعة لم تكتمل زياراتها بعد — تسميتها الآن تعدّ محطّاتها غير المزورة «متخطّاة» ظلماً.
@@ -155,9 +156,8 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 8000,
     });
     rows.reverse();
-    let turns: PlanTurn[] = rows
-      .filter(r => Array.isArray(r.candidates))
-      .map(r => ({ id: r.id, salesRepId: r.salesRepId, createdAt: r.createdAt, arm: r.arm, policyVersion: r.policyVersion, hb: r.hourBand, candidates: r.candidates as unknown as CandFeature[] }));
+    // دورات /guide القديمة (ميزات التوقّع) لا تُسمّى — معنى ميزاتها غير معنى ميزات المسح
+    let turns: PlanTurn[] = scanPlanTurns(rows);
     const events = turns.length ? await loadPlanEvents(tid, turns[0].createdAt, new Date(turns[turns.length - 1].createdAt.getTime() + 72 * 3600000)) : [];
     // بلغت الزيارات حدّها: الدورات الأقدم من أقدم زيارة محمّلة نوافذها ناقصة — تُسقط لا تُسمّى خطأً
     if (events.length >= 60000) turns = turns.filter(t => t.createdAt >= events[0].occurredAt);
@@ -171,13 +171,13 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
   else if (planning) {
     await step('policy', async () => {
       const active = await prisma.aiLearnedModel.findFirst({ where: { tenantId: tid, kind: 'POLICY', status: 'ACTIVE' }, select: { version: true, params: true, metrics: true, promotedAt: true } });
-      const champion: PolicyParams = (active && sanePolicy(active.params)) || DEFAULT_POLICY;
+      const champion: PolicyParams = (active && sanePolicy(active.params)) || SCAN_DEFAULT_POLICY;
       const seed = fnv1a32(tid + day);
       // رجوع آلي خلال ٢٨ يوماً من الترقية
       if (active?.promotedAt && now.getTime() - active.promotedAt.getTime() <= 28 * DAY) {
         const prevV = Number((active.metrics as { previousVersion?: number } | null)?.previousVersion ?? 0);
         const prevRow = prevV > 0 ? await prisma.aiLearnedModel.findFirst({ where: { tenantId: tid, kind: 'POLICY', version: prevV }, select: { params: true } }) : null;
-        const previous = (prevRow && sanePolicy(prevRow.params)) || DEFAULT_POLICY;
+        const previous = (prevRow && sanePolicy(prevRow.params)) || SCAN_DEFAULT_POLICY;
         const sincePromotion = planning.turns.filter(t => t.createdAt >= active.promotedAt!);
         const rb = checkPolicyRollback({ sincePromotion, labels: planning.labels, active: champion, previous, arms: armAggregates(sincePromotion, planning.labels) });
         if (rb.rollback) {
@@ -210,7 +210,7 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
       const nowActive = await prisma.aiLearnedModel.findFirst({ where: { tenantId: tid, kind: 'POLICY', status: 'ACTIVE' }, select: { version: true, params: true, promotedAt: true } });
       // الأثر المعروض للإدارة على دورات بعد الترقية وحدها (خارج عيّنة الملاءمة)
       const outOfSample = nowActive?.promotedAt ? planning.turns.filter(t => t.createdAt >= nowActive.promotedAt!) : planning.turns;
-      const lift = counterfactualLift(outOfSample, planning.labels, (nowActive && sanePolicy(nowActive.params)) || DEFAULT_POLICY, seed);
+      const lift = counterfactualLift(outOfSample, planning.labels, (nowActive && sanePolicy(nowActive.params)) || SCAN_DEFAULT_POLICY, seed, SCAN_DEFAULT_POLICY);
       policyMetrics = { ...(policyMetrics ?? {}), ...lift, activeVersion: nowActive?.version ?? 0 };
     });
   }
@@ -259,6 +259,8 @@ export async function runTenantLearning(tid: string, run: { id: string }, deps: 
   let reflection: { created: number; rejected: Record<string, number>; retired: number } | null = null;
   if (!deps.llm) { llmStatus = 'SKIPPED_NO_KEY'; skip('reflection', llmStatus); }
   else if (off) { llmStatus = 'SKIPPED_MODE'; skip('reflection', llmStatus); }
+  // بلا ردود للعقل خلال ٣٠ يوماً لا يُحكم على درس تجربة (المقارنة مع/بدون على ردود العقل وحدها) — فلا تُستهلك حصة Groq
+  else if (!(await hasAiTurns(tid, new Date(now.getTime() - 30 * DAY)))) { llmStatus = 'SKIPPED_NO_TURNS'; skip('reflection', llmStatus); }
   else if (await isQuiet(tid, now)) { llmStatus = 'SKIPPED_QUIET'; skip('reflection', llmStatus); }
   else {
     overrun = false; // للمراجعة ميزانيتها الخاصة
@@ -342,6 +344,11 @@ export function armRepSpread(turns: PlanTurn[], labels: Map<string, { p: string;
     return { reps: m.size, topRepShare: total ? Math.max(...m.values()) / total : 1 };
   };
   return { LEARNED: spread(count.LEARNED), BASELINE: spread(count.BASELINE) };
+}
+
+/** هل للعقل ردود (توجيه مسح أو دراسة أو محادثة) منذ since؟ */
+export async function hasAiTurns(tid: string, since: Date): Promise<boolean> {
+  return !!(await prisma.aiTurn.findFirst({ where: { tenantId: tid, source: 'AI', createdAt: { gte: since } }, select: { id: true } }));
 }
 
 /** المراجعة الذاتية «هادئة» إن لم يجدّ ما يكفي منذ آخر مراجعة (≥٢٠ وحدة، أو ≥٥ مع مرور ٧ أيام). */

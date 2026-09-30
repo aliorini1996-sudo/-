@@ -7,12 +7,13 @@
  *   - بلا عقل أو عند تعثّره: ملخّص حتمي من التقييم والعدد وكلمات المراجعات.
  * كل رقم في الدراسة يجب أن يكون في ملف المحل أو أسماء المنتجات أو دليل البيع (حارس الأرقام)، وإلا يُحذف سطره.
  * لا يُخزَّن شيء من ملف المحل في القاعدة. (مرحلة تجربة بقرار المالك — شروط Google تُراجَع قبل الإطلاق.)
+ * حلقة التعلّم: دروس الشركة في آخر تعليمات العقل، وسطر «من تجربة فريقك» الحتمي (teamTip) من درس إحصاء فعّال لنوع المحل.
  */
 import { z } from 'zod';
 import { chatCompletion, type LlmConfig, type LlmRequest, type LlmResult } from './llm';
 import { numbersIn, normalizeDigits, unsupportedNumbers } from './advisor';
 import type { PlaceProfile } from './places';
-import { capabilityAllowed } from './learn/lessons';
+import { capabilityAllowed, lessonsSection } from './learn/lessons';
 import { countAr, RATER_AR } from './scanGuide';
 
 export type Activity = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
@@ -30,6 +31,8 @@ export interface ShopStudy {
   objection: string | null;
   objectionReply: string | null;
   visitTip: string | null;
+  /** من تجربة فريقك: نص درس إحصاء فعّال لنوع المحل (ذراع التعلّم وحدها) — null/غائب = لا شيء */
+  teamTip?: string | null;
 }
 
 // ───────────── إشارات حتمية ─────────────
@@ -82,8 +85,8 @@ export function reviewThemes(p: Pick<PlaceProfile, 'reviews'>): { praise: string
 
 const ACTIVITY_AR: Record<Activity, string> = { HIGH: 'نشِط', MEDIUM: 'متوسط النشاط', LOW: 'هادئ', UNKNOWN: 'غير معروف' };
 
-/** دراسة حتمية (بلا عقل) من الملف نفسه. */
-export function ruleStudy(p: PlaceProfile): ShopStudy {
+/** دراسة حتمية (بلا عقل) من الملف نفسه، وسطر «من تجربة فريقك» إن وُجد. */
+export function ruleStudy(p: PlaceProfile, teamTip: string | null = null): ShopStudy {
   const activity = activityOf(p.ratingCount);
   const { praise, complaints } = reviewThemes(p);
   const rated = p.rating != null;
@@ -107,6 +110,7 @@ export function ruleStudy(p: PlaceProfile): ShopStudy {
     openingLine: null, objection: null, objectionReply: null,
     // hours ساعات الأسبوع وحدها (لا سطر «مفتوح الآن») — فلا يُحال المندوب إلى ساعات غير معروضة
     visitTip: p.hours.length ? 'راجع ساعات العمل أدناه وتجنّب أوقات الذروة.' : null,
+    teamTip,
   };
 }
 
@@ -165,7 +169,8 @@ function parseJson(raw: string): unknown {
  * مخرجات العقل ← دراسة آمنة: أرقام بلا مصدر تُسقط العنصر، والمنتجات من الكتالوج وحده.
  * null = لا يصلح (يُستعمل الحتمي).
  */
-export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], playbook: string | null): ShopStudy | null {
+export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], playbook: string | null,
+  dropped: { numbers: number; promises: number } = { numbers: 0, promises: 0 }): ShopStudy | null {
   const parsed = studyShape.safeParse(parseJson(raw));
   if (!parsed.success) return null;
   const d = parsed.data;
@@ -176,8 +181,10 @@ export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], 
   const clean = (s: string | null | undefined): string | null => {
     const t = (s ?? '').replace(/\s+/g, ' ').trim();
     if (!t) return null;
-    // رقم بلا مصدر، أو وعدٌ (خصم/آجل/مجاني/ضمان…) لا يفوّضه دليل البيع ⇒ يُسقط
-    return unsupportedNumbers(t, allowed).length || !capabilityAllowed(t, playbook) ? null : t;
+    // رقم بلا مصدر، أو وعدٌ (خصم/آجل/مجاني/ضمان…) لا يفوّضه دليل البيع ⇒ يُسقط (ويُعدّ للحارس)
+    if (unsupportedNumbers(t, allowed).length) { dropped.numbers++; return null; }
+    if (!capabilityAllowed(t, playbook)) { dropped.promises++; return null; }
+    return t;
   };
   const list = (xs: string[] | undefined, max: number) => (xs ?? []).map(clean).filter((x): x is string => !!x).slice(0, max);
   const catalog = new Map(products.map(n => [n.trim(), n]));
@@ -200,15 +207,31 @@ export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], 
   };
 }
 
-/** الدراسة بالعقل مع إعادة واحدة؛ أي تعثّر ⇒ null (والمستدعي يعرض الحتمي). */
+/** نتيجة الدراسة بالعقل مع ما تحتاجه حلقة التعلّم (الحارس وأعلامه) — study = null ⇒ المستدعي يعرض الحتمي. */
+export interface AiStudyResult {
+  study: ShopStudy | null;
+  tokensIn: number;
+  tokensOut: number;
+  code?: string;
+  source: 'AI' | 'ERROR';
+  /** PASS بلا حذف، REGEN نجحت الإعادة، TRIM حُذف عنصر (رقم بلا مصدر أو وعد)، TEMPLATE رُدّ للحتمي، NONE تعذّر النداء */
+  guard: 'PASS' | 'REGEN' | 'TRIM' | 'TEMPLATE' | 'NONE';
+  badKinds: string[];
+  flags: string[];
+}
+
+/** الدراسة بالعقل مع إعادة واحدة؛ أي تعثّر ⇒ study = null (والمستدعي يعرض الحتمي). */
 export async function aiStudy(p: PlaceProfile, opts: {
   cfg: LlmConfig; products: string[]; playbook: string | null;
+  /** دروس الشركة المختارة لهذه الدورة (renderLessonsBlock) */
+  lessonsBlock?: string;
   llm?: (cfg: LlmConfig, req: LlmRequest) => Promise<LlmResult>;
-}): Promise<{ study: ShopStudy | null; tokensIn: number; tokensOut: number; code?: string }> {
+}): Promise<AiStudyResult> {
   const call = opts.llm ?? chatCompletion;
   const req: LlmRequest = {
     messages: [
-      { role: 'system', content: STUDY_SYSTEM_AR },
+      // الدروس في آخر التعليمات (بعد الجزء الثابت)
+      { role: 'system', content: STUDY_SYSTEM_AR + lessonsSection(opts.lessonsBlock ?? '') },
       { role: 'user', content: `ملف المحل وقائمة منتجات الشركة ودليل البيع (بيانات):\n<<<\n${studyInput(p, opts.products, opts.playbook)}\n>>>` },
     ],
     responseFormat: 'json_object', reasoningEffort: 'medium', maxTokens: 3000, temperature: 0.3, timeoutMs: 30000,
@@ -218,10 +241,21 @@ export async function aiStudy(p: PlaceProfile, opts: {
     let r = await call(opts.cfg, req);
     // بعض المضيفين يرفض response_format — إعادة بدونه
     if (!r.ok && r.code === 'LLM_BAD_REQUEST') r = await call(opts.cfg, { ...req, responseFormat: undefined });
-    if (!r.ok) return { study: null, tokensIn, tokensOut, code: r.code };
+    if (!r.ok) {
+      return tokensIn
+        ? { study: null, tokensIn, tokensOut, code: r.code, source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: ['BAD_OUTPUT', 'LLM_ERROR'] }
+        : { study: null, tokensIn, tokensOut, code: r.code, source: 'ERROR', guard: 'NONE', badKinds: [], flags: ['LLM_ERROR'] };
+    }
     tokensIn += r.usage.promptTokens; tokensOut += r.usage.completionTokens;
-    const s = sanitizeStudy(r.content, p, opts.products, opts.playbook);
-    if (s) return { study: s, tokensIn, tokensOut };
+    const dropped = { numbers: 0, promises: 0 };
+    const s = sanitizeStudy(r.content, p, opts.products, opts.playbook, dropped);
+    if (s) {
+      return {
+        study: s, tokensIn, tokensOut, source: 'AI',
+        guard: dropped.numbers || dropped.promises ? 'TRIM' : attempt ? 'REGEN' : 'PASS',
+        badKinds: dropped.numbers ? ['OTHER'] : [], flags: dropped.promises ? ['PROMISE'] : [],
+      };
+    }
   }
-  return { study: null, tokensIn, tokensOut, code: 'LLM_BAD_OUTPUT' };
+  return { study: null, tokensIn, tokensOut, code: 'LLM_BAD_OUTPUT', source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: ['BAD_OUTPUT'] };
 }

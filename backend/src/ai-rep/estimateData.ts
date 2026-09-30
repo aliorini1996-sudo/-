@@ -30,10 +30,15 @@ export function invalidateEstimateData(tenantId: string): void {
   for (const k of cache.keys()) if (k.startsWith(`${tenantId}|`)) cache.delete(k);
 }
 
+/** منطقة الشركة الزمنية وحدها (قراءة صفّ واحد) — لفترة اليوم في حلقة التعلّم دون تحميل بيانات المحرّك. */
+export async function tenantTimezone(tenantId: string): Promise<string> {
+  const gl = await prisma.glSettings.findUnique({ where: { tenantId }, select: { timezone: true, activatedAt: true, setupDraft: true } });
+  return importTimezone(gl);
+}
+
 export async function loadEstimateData(tenantId: string, opts: { windowMonths: number; priorityProductIds: string[]; now?: Date }): Promise<TenantEstimateData> {
   const now = opts.now ?? new Date();
-  const gl = await prisma.glSettings.findUnique({ where: { tenantId }, select: { timezone: true, activatedAt: true, setupDraft: true } });
-  const timezone = importTimezone(gl);
+  const timezone = await tenantTimezone(tenantId);
   const window = completeWindow(ymInTz(now, timezone), opts.windowMonths);
   const key = `${tenantId}|${window.from}|${window.to}`;
   const hit = cache.get(key);
