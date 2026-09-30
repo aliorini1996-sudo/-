@@ -280,7 +280,8 @@ function singular(lang: string, n: number): boolean {
   try { return new Intl.PluralRules(LOCALE[lang] ?? lang).select(n) === 'one'; } catch { return n === 1; }
 }
 
-const colon = (lang: string) => (lang === 'zh' ? '：' : ': ');
+// الفرنسية بمسافة قبل النقطتين كعباراتها في aiRepPhrases («Commencez par celui-ci :»)
+const colon = (lang: string) => (lang === 'zh' ? '：' : lang === 'fr' ? ' : ' : ': ');
 
 /** وقائع سبب المحطة الحتمي (نسخة الواجهة من StopFacts في backend/src/ai-rep/scanGuide.ts). */
 export interface StopFacts {

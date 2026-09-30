@@ -13,6 +13,7 @@ import {
 } from '../ai-rep/scanGuide';
 import { publicOutletType, searchTermsFor } from '../ai-rep/taxonomy';
 import { mergeNearby } from '../ai-rep/nearby';
+import { promiseAllowed } from '../ai-rep/learn/lessons';
 
 // ── مدخلات اصطناعية بشكل ردّ Google الحقيقي (المواضع مأخوذة من ردٍّ حقيقي لُقط مرةً للتطوير، بلا بياناته) ──
 
@@ -550,6 +551,8 @@ test('لغة المندوب: العقل يُطلب بلغة واجهته (وال
   const base = { cfg, playbook: null, origin: { lat: 24.7, lng: 46.6 }, now: NOW, rulesSummary: rules.summary, rulesFacts: rules.facts };
   const en = await aiGuide(shops, { ...base, lang: 'en', llm: reply({ summary: 'Start with the nearest shop.', plan: [{ ref: 'P1', why: 'Close by and open now' }] }) });
   assert.match(systems[0], /لغة الإجابة: اكتب كل نصوص الرد بـالإنجليزية \(English\) وحدها/);
+  // الأعداد أرقاماً بنقطة عشرية: حارس الأرقام يقرأ «4,2» عددين
+  assert.match(systems[0], /كل عدد بالأرقام لا بالكلمات، والكسر العشري بنقطة/);
   assert.equal(en.guide?.stops[0].why, 'Close by and open now');
   assert.equal(en.guide?.facts, undefined, 'خلاصة العقل بلغة المندوب ⇒ بلا وقائع');
   await aiGuide(shops, { ...base, lang: 'ar', llm: reply({ summary: 'ابدأ بالأقرب', plan: [{ ref: 'P1', why: 'قريب' }] }) });
@@ -581,6 +584,18 @@ test('حارس الوعود بلغات الواجهة: الخصم والمجان
   // الدليل يفوّض الآجل ⇒ «vadeli» يمرّ، والباقي يبقى محذوفاً
   const ok = await run('البيع بالآجل ٣٠ يوماً للعملاء بسجل تجاري');
   assert.deepEqual(ok.guide?.stops.map(s => s.why !== ''), [false, false, true, false, true]);
+  // «八折/9.5折» خصمٌ بالصينية، و«折叠» (طيّ) ليس خصماً
+  assert.deepEqual(['首单打八折', '可享9.5折', '三折叠货架'].map(t => promiseAllowed(t, null)), [false, false, true]);
+  // «مجاني» يفوّض الشيء نفسه وحده كالعربية: «التوصيل مجاني» يفوّض التوصيل المجاني بكل لغة لا العينات المجانية، وما لا
+  // نعرف اسمه (feel free…) يُرفض
+  const delivery = 'التوصيل مجاني للطلبات فوق ٥٠٠ ريال';
+  assert.deepEqual(['Free delivery on his first order', 'Livraison gratuite dès la première commande', 'Ücretsiz teslimat', '免费送货', '全场包邮']
+    .map(t => promiseAllowed(t, delivery)), [true, true, true, true, true]);
+  assert.deepEqual(['Offer him free samples', 'Échantillons gratuits', '免费样品', 'Feel free to ask about the range', 'Free delivery and free samples']
+    .map(t => promiseAllowed(t, delivery)), [false, false, false, false, false]);
+  assert.equal(promiseAllowed('توصيل مجاني وعينات مجانية', delivery), false, 'العربية كما كانت');
+  assert.deepEqual(['Offer him free samples', 'Free delivery'].map(t => promiseAllowed(t, 'نقدّم عينات مجانية لكل عميل جديد')), [true, false]);
+  assert.equal(promiseAllowed('Free delivery', 'التوصيل مجاني غير متاح حالياً'), false, 'النفي لا يفوّض');
 });
 
 test('البحث العام ببلد الشركة: gl منه وكلمات البحث بلغته (العربية لبلدان العربية والإنجليزية لغيرها)، وردّ Google عربي دائماً (hl=ar)', async () => {

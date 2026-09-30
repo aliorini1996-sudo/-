@@ -80,8 +80,9 @@ const NOT_PROMISE = /(?:^|[^ء-ي])(?:من\s+اجل|لاجل|لضمان)(?=$|[^�
 // وحده (الجمع واللواحق التركية تُقبل)، و«free/credit/vade/prim» بحدّ نهايتها أيضاً (لا «freezer»). الرفض آمن: يُحذف السطر.
 const LB = '(?<![\\p{L}])';
 const FOREIGN_PROMISES: [string, RegExp][] = ([
-  ['خصم', `${LB}(?:discount|rebate|remise|rabais|r[ée]duction|indirim|iskonto)|折扣|打折|优惠|减价`],
-  ['مجان', `${LB}(?:free(?![\\p{L}])|gratuit|offert|ücretsiz|bedava)|免费|赠送`],
+  // «八折/9.5折» = خصم بالصينية
+  ['خصم', `${LB}(?:discount|rebate|remise|rabais|r[ée]duction|indirim|iskonto)|折扣|打折|优惠|减价|[一二两三四五六七八九\\d](?:\\.\\d)?\\s*折(?!叠|腾|磨|服|返)`],
+  ['مجان', `${LB}(?:free(?![\\p{L}])|gratuit|offert|ücretsiz|bedava)|免费|赠送|包邮`],
   ['هديه', `${LB}(?:gift|cadeau|hediye)|赠品|礼品|礼物`],
   ['بونص', `${LB}(?:bonus|prim(?![\\p{L}]))|返利|奖励`],
   ['اجل', `${LB}(?:credit(?![\\p{L}])|cr[ée]dit(?![\\p{L}])|pay later|deferred payment|paiement diff[ée]r[ée]|vadeli|vade(?![\\p{L}])|veresiye)|赊账|赊销|账期|延期付款`],
@@ -91,6 +92,18 @@ const FOREIGN_PROMISES: [string, RegExp][] = ([
   ['ارجاع', `${LB}(?:refund|money back|rembours|iade)|退货|退款`],
 ] as [string, string][]).map(([s, re]) => [s, new RegExp(re, 'iu')]);
 
+// «مجاني» في الدليل يفوّض الشيء نفسه وحده كالعربية («التوصيل مجاني» لا يفوّض «عينات مجانية») ⇒ المجاني بلغة أخرى
+// يُطابَق باسمه العربي، وما لا نعرف اسمه لا يفوّضه الدليل (الرفض آمن)
+const FOREIGN_FREE_NOUNS: [RegExp, string[]][] = ([
+  [`${LB}(?:deliver|shipping|livraison|teslimat|kargo)|送货|配送|运费|包邮`, ['توصيل', 'شحن']],
+  [`${LB}(?:samples?(?![\\p{L}])|[ée]chantillon|numune)|样品|试用|试吃`, ['عينه', 'عينات']],
+] as [string, string[]][]).map(([re, nouns]) => [new RegExp(re, 'iu'), nouns]);
+
+function foreignFreeAuthorized(text: string, playbook: string | null | undefined): boolean {
+  const hits = FOREIGN_FREE_NOUNS.filter(([re]) => re.test(text));
+  return hits.length > 0 && hits.every(([, nouns]) => nouns.some(n => playbookAuthorizes('مجان', playbook, `${n} مجان`)));
+}
+
 /**
  * نسخة حارس الوعود لمخرجات العقل (أسباب المحطات وسطور العرض في الدراسة): الجذر في أول كلمة (بسوابقها) لا في
  * وسطها، و«من أجل/لأجل/لضمان» ليست وعوداً — والوعود نفسها بالإنجليزية والفرنسية والتركية والصينية حين يكتب العقل
@@ -99,7 +112,7 @@ const FOREIGN_PROMISES: [string, RegExp][] = ([
 export function promiseAllowed(text: string, playbook: string | null | undefined): boolean {
   const n = normalizeAr(text).replace(NOT_PROMISE, ' ');
   if (CAPABILITY_STEMS.some((s, i) => PROMISE_RES[i].test(n) && !playbookAuthorizes(s, playbook, n))) return false;
-  return !FOREIGN_PROMISES.some(([s, re]) => re.test(text) && !playbookAuthorizes(s, playbook));
+  return !FOREIGN_PROMISES.some(([s, re]) => re.test(text) && !(s === 'مجان' ? foreignFreeAuthorized(text, playbook) : playbookAuthorizes(s, playbook)));
 }
 
 // روابط ونطاقات وبريد وواتساب، ومحارف خفية أو اتجاهية

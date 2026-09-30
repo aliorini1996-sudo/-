@@ -418,9 +418,11 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   // بلا مفتاح الخريطة: خريطة Google المضمّنة حول المندوب — تبقى كما هي مع فتح بطاقة المحل وإغلاقها (لا إعادة تحميل
   // على بيانات الجوال في كل مرة، والبطاقة تغطّي معظمها أصلاً؛ موقع المحل الدقيق في «ابدأ الملاحة» و«افتح في خرائط Google»)
   const hl = (document.documentElement.lang || 'ar').slice(0, 2);
-  const embedQuery = (me?.targetTypes[0]?.label ?? 'بقالة').split('/')[0].trim();
+  // البحث في الخريطة المضمّنة بلغة المندوب: العربية أول شقّي التسمية («بقالة»)، وغيرها ترجمة التسمية كاملةً (لا ترجمة لشقّها)
+  const embedType = me?.targetTypes[0]?.label ?? 'بقالة / تموينات';
+  const embedQuery = lang === 'ar' ? embedType.split('/')[0].trim() : tr(embedType);
   const embed = origin
-    ? `https://maps.google.com/maps?q=${encodeURIComponent(tr(embedQuery))}&ll=${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}&z=16&hl=${hl}&output=embed`
+    ? `https://maps.google.com/maps?q=${encodeURIComponent(embedQuery)}&ll=${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}&z=16&hl=${hl}&output=embed`
     : null;
   // سبب تعذّر الموقع: فوق الخريطة إن ظهرت، وإلا مكانها بزرّ إعادة المحاولة
   const notice = [(keyed || embed) && locErr, msg].filter(Boolean).join('\n');

@@ -296,3 +296,22 @@ test('الحارس بعد التحقّق: الحقول الوصفية لا تُ�
   assert.deepEqual(unsupportedNumbers('ثلاثة آلاف ريال', new Set()), [3000]);
   assert.deepEqual(unsupportedNumbers('ألف مبروك عليك العميل', new Set()), []);
 });
+
+test('حارس الأرقام بلغات الواجهة الأخرى: الأعداد بالكلمات الإنجليزية والفرنسية والتركية والصينية أرقامٌ تُفحص', () => {
+  const none = new Set<number>();
+  // كمية مخترعة بالكلمات لا تفلت حين يكتب العقل بلغة المندوب
+  assert.deepEqual(unsupportedNumbers('Suggest a trial order of two cartons', none), [2]);
+  assert.deepEqual(unsupportedNumbers('Sells about nine hundred cases a month', none), [900]);
+  assert.deepEqual(unsupportedNumbers('Proposez une commande de deux mille unités et dix-sept cartons', none), [2000, 17]);
+  assert.deepEqual(unsupportedNumbers('Ona dokuz yüz koli ve İki kasa öner', none), [900, 2]);
+  assert.deepEqual(unsupportedNumbers('建议先订两箱，每月卖九百件，打八折', none), [2, 900, 8]);
+  assert.deepEqual(unsupportedNumbers('一万元', none), [10000]);
+  // ليست أعداداً: «one/un/bir»، «often/sixth»، «on»، «güler yüz»، «neuf»، «seize»، «五金/百货/一些/第三/千万/十分»
+  for (const t of ['One shop, often busy, the sixth on the street', 'Un commerce neuf, seize the moment', 'Güler yüz ve temiz bir dükkân',
+    '五金店和百货店，一些顾客', '第三家店千万别错过，十分重要', 'Soit 20 pour cent des ventes']) {
+    assert.deepEqual(unsupportedNumbers(t, new Set([20])), [], t);
+  }
+  // مسموحٌ بالكلمات كما بالأرقام، ونقطة الجملة الصينية تقطع الجملة المخالفة وحدها
+  assert.deepEqual(unsupportedNumbers('Rated by twelve customers', numbersIn({ rating_count: 12 })), []);
+  assert.equal(trimSentences('店铺很干净。每月卖九百箱。营业中。', none), '店铺很干净。 营业中。');
+});

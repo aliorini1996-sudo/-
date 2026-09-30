@@ -218,7 +218,7 @@ test('خلاصة التوجيه: العربية نصّ الخادم، وغيره
   assert.equal(guideSummaryText(g, 'ar', trOf('ar')), g.summary);
   assert.equal(guideSummaryText(g, 'en', en), 'Shops around you: 8 — New opportunities: 6 · To follow up: 1 · Your customers: 1. Start in this order:');
   assert.equal(guideSummaryText({ summary: 'x', facts: { ...facts, stops: 1, open: 0 } }, 'en', en).endsWith('Closed now — visit it when it opens:'), true);
-  assert.equal(guideSummaryText({ summary: 'x', facts: { ...facts, stops: 0 } }, 'fr', trOf('fr')), 'Commerces autour de vous: 8 — aucune nouvelle opportunité ni aucun suivi à faire pour l’instant — essayez une autre zone.');
+  assert.equal(guideSummaryText({ summary: 'x', facts: { ...facts, stops: 0 } }, 'fr', trOf('fr')), 'Commerces autour de vous : 8 — aucune nouvelle opportunité ni aucun suivi à faire pour l’instant — essayez une autre zone.');
   assert.equal(guideSummaryText({ summary: 'x', facts: { ...facts, shops: 0 } }, 'en', en), 'No target shops around you right now — try another area.');
   assert.match(guideSummaryText(g, 'zh', trOf('zh')), /^您附近的门店：8 — .+。按此顺序开始：$/);
   assert.equal(guideSummaryText({ summary: 'Start with the nearest.' }, 'en', en), 'Start with the nearest.');
