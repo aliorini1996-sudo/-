@@ -36,6 +36,19 @@ stub('ai-rep/usage', {
   reserveUsage: async () => true, refundUsage: async () => undefined,
 });
 
+// العقل: غير مضبوط إلا في اختبار الدروس المحقونة (llmCfg)، ورده خطة من أقرب محل — قبل أي وحدة تستورده (publicMaps ← scanGuide)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const realLlm = require('../ai-rep/llm') as typeof import('../ai-rep/llm');
+let llmCfg: import('../ai-rep/llm').LlmConfig | null = null;
+const llmSystems: string[] = [];
+stub('ai-rep/llm', {
+  ...realLlm, llmConfig: () => llmCfg,
+  chatCompletion: async (_c: unknown, req: { messages: { content: string }[] }) => {
+    llmSystems.push(req.messages[0].content);
+    return { ok: true, content: JSON.stringify({ summary: 'ابدأ بالأقرب', plan: [{ ref: 'P1', why: 'الأقرب إليك' }] }), usage: { promptTokens: 5, completionTokens: 2, cachedTokens: 0 } };
+  },
+});
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const realPlaces = require('../ai-rep/places') as typeof import('../ai-rep/places');
 let placesKey: string | null = null;
@@ -287,6 +300,26 @@ test('درس إحصاء فعّال يظهر للمندوب بلا عقل: سطر
   assert.equal(off.data.guide.tip, null);
   assert.equal(off.data.items[0].study.teamTip, null);
   assert.deepEqual(turns[1].lessonIds, []);
+});
+
+test('«مطبَّق على المسح» صادق: بلا عقل لا تُسجَّل إلا دروس السطر المعروض، وبالعقل تُسجَّل المحقونة في تعليماته', async () => {
+  turns.length = 0;
+  const obj = lesson({});
+  // درس «العودة» للبقالة لا يظهر سطراً (الاعتراض أولى في الخطة والدراسة)
+  const revisit = lesson({ id: 'l3', key: 'REVISIT:GROCERY', textAr: 'في «بقالة» كثير ممن طلبوا العودة لاحقاً تجاوبوا عند العودة — عُد إليهم في موعدهم ولا تُسقطهم.' });
+  learned = { ...T.EMPTY_LEARNED, lessons: [obj, revisit] };
+  await scan('rep-applied-1');
+  assert.deepEqual(turns[0].lessonIds, ['l1'], 'بلا عقل: السطر المعروض وحده — لا ما اختير لتعليمات عقلٍ لم يُنادَ');
+  assert.deepEqual(turns[0].heldOutIds, []);
+  llmCfg = { provider: 'groq', apiKey: 'k', model: 'm', baseUrl: 'http://x' } as never;
+  llmSystems.length = 0;
+  try {
+    await scan('rep-applied-2', { advisorEnabled: true });
+    assert.equal(turns[1].source, 'AI');
+    assert.equal(turns[1].guard, 'PASS');
+    assert.deepEqual(new Set(turns[1].lessonIds), new Set(['l1', 'l3']), 'بالعقل: الدروس المحقونة في تعليماته والسطر المعروض');
+    assert.ok(llmSystems[0].includes(revisit.textAr), 'الدرس المسجَّل وصل تعليمات العقل فعلاً');
+  } finally { llmCfg = null; }
 });
 
 test('الدراسة: دورة STUDY بلا مرشّحين، ومعرّفها في الرد للتقييم، وسطر «من تجربة فريقك» لنوع المحل', async () => {

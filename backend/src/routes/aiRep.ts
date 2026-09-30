@@ -684,6 +684,18 @@ type TurnGuard = Pick<TurnRecord, 'source' | 'guard' | 'badKinds' | 'flags' | 't
 const RULES_TURN: TurnGuard = { source: 'RULES', guard: 'NONE', badKinds: [], flags: [], tokensIn: 0, tokensOut: 0 };
 const uniq = (ids: (string | null | undefined)[]): string[] => [...new Set(ids.filter((x): x is string => !!x))];
 
+/**
+ * دروس الدورة كما طُبّقت فعلاً: المحقونة والمحجوبة حين قرأ العقل تعليماته (مصدر AI) وحده — بلا عقل (أو تعذّر النداء) لم
+ * تصل شيئاً فلا تُعدّ «مطبَّقة على المسح» — وسطر «من تجربة فريقك» المعروض دائماً.
+ */
+function shownLessons(rec: TurnGuard, lessons: { injected: AiLessonLite[]; heldOut: string[] }, tips: (AiLessonLite | null | undefined)[]) {
+  const brain = rec.source === 'AI';
+  return {
+    lessonIds: uniq([...(brain ? lessons.injected.map(l => l.id) : []), ...tips.map(l => l?.id)]),
+    heldOutIds: brain ? lessons.heldOut : [],
+  };
+}
+
 /** ما تعلّمته الشركة، وذراع اليوم لهذا المندوب (ضابطة بالنسبة المختارة)، وفترة اليوم بتوقيت الشركة (قراءة صفّ واحد). */
 async function learningCtx(c: RepCtx, now: Date) {
   const [learned, tz] = await Promise.all([getLearned(c.tid), tenantTimezone(c.tid).catch(() => 'Asia/Riyadh')]);
@@ -779,7 +791,7 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
     // دورة دراسة بلا مرشّحين ولا نص: الحارس وأعلامه والدروس المعروضة — تغذّي تقييم المناديب وتجارب الدروس
     await recordTurn({
       id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'STUDY', intent: 'STUDY', arm: lc.arm, policyVersion: 0, hourBand: lc.hb,
-      ...rec, tools: [], hops: 0, lessonIds: uniq([...lessons.injected.map(l => l.id), tip?.id]), heldOutIds: lessons.heldOut,
+      ...rec, tools: [], hops: 0, ...shownLessons(rec, lessons, [tip]),
     });
 
     res.json({
@@ -957,8 +969,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     if (recorded) {
       await recordTurn({
         id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'GUIDE', intent: 'GUIDE', arm: lc.arm, policyVersion: policy.version, hourBand: lc.hb,
-        ...rec, tools: [], hops: 0, heldOutIds: lessons.heldOut,
-        lessonIds: uniq([...lessons.injected.map(l => l.id), tip?.id, ...[...tips.values()].map(l => l?.id)]),
+        ...rec, tools: [], hops: 0, ...shownLessons(rec, lessons, [tip, ...tips.values()]),
         candidates: scanCandidates(shops, now, score, guide.stops.map(st => st.ref)),
       });
     }
