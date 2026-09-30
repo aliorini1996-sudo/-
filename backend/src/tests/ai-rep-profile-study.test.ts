@@ -198,3 +198,43 @@ test('مدخل الدراسة: المنتجات ذات الأولوية في ح�
   assert.ok(s.sales_playbook.endsWith('عرض الشهر في آخر الدليل'));
   assert.equal((JSON.parse(studyInput(p, [], null)) as { priority_products: unknown }).priority_products, null);
 });
+
+test('لغة المندوب: الدراسة الحتمية نصٌّ عربي ومعها وقائعها (الخلاصة، وعدد المقيّمين، ورموز المحاور والفرص ونصيحة الساعات)', () => {
+  const p = parsePlaceProfile(RAW)!;
+  const s = ruleStudy(p, 'نص الدرس', 'OBJ:GROCERY:PRICE');
+  assert.equal(s.teamTipKey, 'OBJ:GROCERY:PRICE');
+  assert.deepEqual(s.facts?.summary, { name: 'تموينات النرجس', rating: 4.2, ratingCount: 128, openNow: true, reviews: 3 });
+  assert.equal(s.facts?.activityN, 128);
+  assert.deepEqual(s.facts?.praise, ['STOCK', 'CLEAN', 'SERVICE']);
+  assert.deepEqual(s.facts?.complaints, ['PRICE', 'STOCK']);
+  // الرموز والنصوص العربية متطابقة بترتيبها
+  assert.deepEqual(s.praise, ['توفّر الأصناف', 'النظافة', 'التعامل والخدمة']);
+  assert.deepEqual(s.facts?.opportunity, ['STOCK_GAP', 'PRICE_SENSITIVE', 'VARIETY']);
+  assert.equal(s.opportunity.length, 3);
+  assert.equal(s.facts?.visitTip, 'HOURS');
+  const bare = ruleStudy({ ...p, hours: [], ratingCount: 0, rating: null, reviews: [] });
+  assert.deepEqual([bare.facts?.visitTip, bare.facts?.activityN, bare.facts?.summary?.reviews], [null, 0, 0]);
+  assert.equal(ruleStudy(p).teamTipKey, null);
+});
+
+test('لغة المندوب: الدراسة بالعقل تُطلب بلغة واجهته (العربية بلا سطر)، وخلاصة القواعد البديلة تحمل وقائعها', async () => {
+  const p = parsePlaceProfile(RAW)!;
+  const cfg: LlmConfig = { baseUrl: 'https://x', apiKey: 'k', model: 'm', extraBody: {}, timeoutMs: 1000, maxTokens: 100 };
+  const usage = { promptTokens: 10, completionTokens: 5, cachedTokens: 0 };
+  const systems: string[] = [];
+  const reply = (content: string) => async (_c: unknown, req: { messages: { content: string }[] }): Promise<LlmResult> => {
+    systems.push(req.messages[0].content);
+    return { ok: true, content, toolCalls: [], usage, finishReason: 'stop' };
+  };
+  const fr = await aiStudy(p, { cfg, products: [], playbook: null, lang: 'fr', llm: reply('{"summary":"Épicerie propre et bien tenue.","opening_line":"Bonjour !"}') });
+  assert.match(systems[0], /لغة الإجابة: اكتب كل نصوص الرد بـالفرنسية/);
+  assert.equal(fr.study?.summary, 'Épicerie propre et bien tenue.');
+  assert.equal(fr.study?.facts, undefined);
+  await aiStudy(p, { cfg, products: [], playbook: null, llm: reply('{"summary":"بقالة مرتبة"}') });
+  assert.doesNotMatch(systems[1], /لغة الإجابة/);
+  // خلاصة برقمٍ بلا مصدر ⇒ خلاصة القواعد ووقائعها وحدها (بقية الدراسة من العقل)
+  const bad = await aiStudy(p, { cfg, products: [], playbook: null, lang: 'en', llm: reply('{"summary":"Sells 900 cartons a month.","opening_line":"Hello!"}') });
+  assert.equal(bad.study?.summary, ruleStudy(p).summary);
+  assert.deepEqual(bad.study?.facts, { summary: ruleStudy(p).facts?.summary });
+  assert.equal(bad.study?.openingLine, 'Hello!');
+});

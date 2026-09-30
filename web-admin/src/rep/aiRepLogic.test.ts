@@ -194,3 +194,121 @@ test('توجيه العقل بعد المسح: ما زاره المندوب أو
   assert.deepEqual(aiStopsAfterScan(stops, items, scannedAt).map(s => s.ref), ['P2', 'P6']);
   assert.deepEqual(aiStopsAfterScan(stops, [], scannedAt).length, 6, 'محلٌّ غير معروف في القائمة لا يُسقط');
 });
+
+// ───────────── لغة المندوب: وقائع الخادم ← نصوص بلغته ─────────────
+import {
+  FOLLOW_UP_WHAT, HOUR_BAND_TEXT, OBJECTION_TACTIC, OPPORTUNITY_TEXT, THEME_LABEL, VISIT_TIP_TEXT,
+  aiErrOf, aiErrorText, guideSummaryText, shopTypeText, stopWhyText, studyTexts, teamTipText,
+} from './aiRepLogic';
+
+const trOf = (lang: string) => (ar: string) => aiRepTranslate(lang, ar);
+const en = trOf('en');
+
+test('المسافة بوحدات لغة المندوب وفاصلتها العشرية، والعربية كما كانت', () => {
+  assert.deepEqual([fmtDistance(437, 'en'), fmtDistance(2350, 'en'), fmtDistance(12345, 'en')], ['440 m', '2.4 km', '12 km']);
+  assert.equal(fmtDistance(2350, 'fr'), '2,4 km');
+  assert.equal(fmtDistance(2350, 'tr'), '2,4 km');
+  assert.deepEqual([fmtDistance(437, 'zh'), fmtDistance(2350, 'zh')], ['440 米', '2.4 公里']);
+  assert.equal(fmtDistance(2350, 'ar'), '2.4 كم');
+});
+
+test('خلاصة التوجيه: العربية نصّ الخادم، وغيرها من وقائع خلاصة القواعد، وبلا وقائع (نصّ العقل بلغة المندوب) كما هو', () => {
+  const facts = { shops: 8, fresh: 6, follow: 1, customers: 1, possible: 0, stops: 5, open: 5 };
+  const g = { summary: 'حولك 8 محلات، منها 6 فرص جديدة. ابدأ بهذا الترتيب:', facts };
+  assert.equal(guideSummaryText(g, 'ar', trOf('ar')), g.summary);
+  assert.equal(guideSummaryText(g, 'en', en), 'Shops around you: 8 — New opportunities: 6 · To follow up: 1 · Your customers: 1. Start in this order:');
+  assert.equal(guideSummaryText({ summary: 'x', facts: { ...facts, stops: 1, open: 0 } }, 'en', en).endsWith('Closed now — visit it when it opens:'), true);
+  assert.equal(guideSummaryText({ summary: 'x', facts: { ...facts, stops: 0 } }, 'fr', trOf('fr')), 'Commerces autour de vous: 8 — aucune nouvelle opportunité ni aucun suivi à faire pour l’instant — essayez une autre zone.');
+  assert.equal(guideSummaryText({ summary: 'x', facts: { ...facts, shops: 0 } }, 'en', en), 'No target shops around you right now — try another area.');
+  assert.match(guideSummaryText(g, 'zh', trOf('zh')), /^您附近的门店：8 — .+。按此顺序开始：$/);
+  assert.equal(guideSummaryText({ summary: 'Start with the nearest.' }, 'en', en), 'Start with the nearest.');
+});
+
+test('سبب المحطة بلغة المندوب: المتابعة وأيامها، والزيارة السابقة، والتقييم ومقيّموه (مفرداً وجمعاً)، والفتح، والمسافة', () => {
+  const f = { fu: 'QUOTE', days: 4, rating: 4.2, ratingCount: 30, openNow: true, distanceM: 400 };
+  assert.equal(stopWhyText({ why: 'عربي', f }, 'ar', trOf('ar')), 'عربي');
+  assert.equal(stopWhyText({ why: 'عربي', f }, 'en', en), 'Follow-up: Asked for a quote — 4 days ago · Rated 4.2 (30 ratings) on Google Maps · Open now · 400 m away');
+  assert.equal(stopWhyText({ why: 'x', f: { prev: 'CLOSED', rating: 5, ratingCount: 1, openNow: false, distanceM: 2350 } }, 'en', en),
+    'Found closed on an earlier visit · Rated 5 (1 rating) on Google Maps · Closed now — visit later · 2.4 km away');
+  assert.equal(stopWhyText({ why: 'x', f: { rating: 4.5, ratingCount: null, openNow: null, distanceM: 90 } }, 'fr', trOf('fr')), 'Noté 4,5 sur Google Maps · à 90 m');
+  assert.equal(stopWhyText({ why: 'x', f: { prev: 'NOT_FOUND', rating: null, ratingCount: null, openNow: null, distanceM: 90 } }, 'zh', trOf('zh')),
+    '此前曾报告未找到 · Google 地图上暂无评分 · 距离 90 米');
+  assert.equal(stopWhyText({ why: 'Close by' }, 'en', en), 'Close by', 'سبب العقل بلا وقائع كما هو');
+});
+
+test('الدراسة بلغة المندوب: الحتمي من وقائعه (الخلاصة والنشاط والمحاور والفرص والساعات)، ونصّ العقل كما هو، والرمز المجهول يُبقي النص', () => {
+  const s = {
+    summary: 'عربي', activityWhy: 'عربي', praise: ['النظافة'], complaints: ['الأسعار'], opportunity: ['عربي'], visitTip: 'عربي',
+    facts: {
+      summary: { name: 'Baqala', rating: 4.2, ratingCount: 128, openNow: true, reviews: 3 }, activityN: 128,
+      praise: ['CLEAN'], complaints: ['PRICE'], opportunity: ['PRICE_SENSITIVE'], visitTip: 'HOURS',
+    },
+  };
+  assert.deepEqual(studyTexts(s, 'ar', trOf('ar')), { summary: 'عربي', activityWhy: 'عربي', praise: ['النظافة'], complaints: ['الأسعار'], opportunity: ['عربي'], visitTip: 'عربي' });
+  assert.deepEqual(studyTexts(s, 'en', en), {
+    summary: 'Baqala: Rated 4.2 (128 ratings) on Google Maps · Open now',
+    activityWhy: 'Based on the number of ratings (128) — the more ratings, the more customer traffic.',
+    praise: ['Cleanliness'], complaints: ['Prices'], opportunity: ['Customers are price-sensitive — start with the best-value products.'],
+    visitTip: 'Check the opening hours below and avoid peak times.',
+  });
+  const noRating = studyTexts({ ...s, facts: { summary: { name: 'B', rating: null, ratingCount: 0, openNow: null, reviews: 1 }, activityN: 0, visitTip: null } }, 'en', en);
+  assert.deepEqual([noRating.summary, noRating.activityWhy, noRating.visitTip], ['B: study based on 1 review from Google Maps.', '', null]);
+  assert.equal(studyTexts({ ...s, facts: { summary: { name: 'B', rating: null, ratingCount: 0, openNow: null, reviews: 0 } } }, 'en', en).summary,
+    'B: no ratings on Google Maps yet — the study relies on your visit.');
+  // دراسة العقل (بلا وقائع إلا خلاصة القواعد البديلة): النصوص كما كتبها العقل بلغة المندوب
+  const ai = studyTexts({ ...s, praise: ['Clean aisles'], facts: { summary: s.facts.summary } }, 'en', en);
+  assert.deepEqual([ai.summary.startsWith('Baqala: '), ai.praise, ai.visitTip], [true, ['Clean aisles'], 'عربي']);
+  assert.deepEqual(studyTexts({ ...s, facts: { praise: ['NEW_THEME'] } }, 'en', en).praise, ['النظافة'], 'رمز من خادمٍ أحدث ⇒ النص');
+});
+
+test('«من تجربة فريقك» بلغة المندوب من مفتاح الدرس (الاعتراض والوقت والعودة)، وبلا مفتاح أو بمفتاح مجهول نصّه العربي', () => {
+  assert.equal(teamTipText('OBJ:GROCERY:PRICE', 'عربي', 'ar', trOf('ar')), 'عربي');
+  assert.equal(teamTipText('OBJ:GROCERY:PRICE', 'عربي', 'en', en),
+    'At “Grocery” shops, one of the most common objections your reps hear: “Price is too high” — Focus on his profit margin and how fast the item sells, and stick to the playbook prices.');
+  assert.equal(teamTipText('TIME:BAKERY:4', 'عربي', 'en', en), `“${en('مخبز')}” shops are often found closed at night — plan your visit for another time.`);
+  assert.match(teamTipText('REVISIT:PHARMACY', 'عربي', 'tr', trOf('tr')), /dönüşte olumlu yanıt verdi/);
+  for (const k of [null, 'OBJ:GROCERY:OTHER', 'TIME:GROCERY:9', 'OBJ:NOPE:PRICE', 'NEW:GROCERY']) assert.equal(teamTipText(k, 'عربي', 'en', en), 'عربي', String(k));
+});
+
+test('نوع المحل: العربية تصنيف Google كما جاء، وغيرها تسمية نوعه عندنا مترجمة', () => {
+  const it = { outletTypeLabel: 'بقالة / تموينات', profile: { typeLabel: 'متجر بقالة' } };
+  assert.equal(shopTypeText(it, 'ar', trOf('ar')), 'متجر بقالة');
+  assert.equal(shopTypeText(it, 'en', en), 'Grocery');
+  assert.equal(shopTypeText({ outletTypeLabel: 'مطعم', profile: null }, 'ar', trOf('ar')), 'مطعم');
+});
+
+test('أخطاء الخادم برموزها: العربية رسالته، وغيرها مترجمة بسياقها وحدّها ودقائقها، والرمز المجهول يُترك للرسالة العامة', () => {
+  const axiosErr = (status: number, data: unknown) => ({ response: { status, data } });
+  const limit = aiErrOf(axiosErr(429, { code: 'AI_REP_DAILY_LIMIT', limit: 20, message: 'بلغت حدّ المسح اليومي (20) — نتائجك الحالية تبقى متاحة' }));
+  assert.deepEqual(limit, { status: 429, code: 'AI_REP_DAILY_LIMIT', limit: 20, message: 'بلغت حدّ المسح اليومي (20) — نتائجك الحالية تبقى متاحة', retryAfterS: undefined });
+  assert.equal(aiErrOf(new Error('net')), null);
+  assert.equal(aiErrorText(limit, 'scan', 'ar', trOf('ar')), limit!.message);
+  assert.equal(aiErrorText(limit, 'scan', 'en', en), 'You’ve reached the daily scan limit (20) — your current results stay available');
+  assert.equal(aiErrorText(limit, 'study', 'en', en), 'You’ve reached the daily scan and study limit (20) — it resets tomorrow');
+  assert.equal(aiErrorText({ code: 'AI_REP_DAILY_LIMIT' }, 'outcome', 'en', en), 'You’ve reached the daily limit for recording outcomes — it resets tomorrow');
+  assert.equal(aiErrorText({ status: 429, code: 'SCAN_COOLDOWN', retryAfterS: 20 }, 'scan', 'en', en), 'The scan failed a moment ago — wait half a minute, then refresh');
+  assert.equal(aiErrorText({ status: 503, code: 'SCAN_COOLDOWN', retryAfterS: 600 }, 'scan', 'en', en), 'Google Maps is limiting searches right now — try again in 10 minutes');
+  assert.equal(aiErrorText({ status: 503, code: 'SCAN_COOLDOWN', retryAfterS: 30 }, 'scan', 'en', en), 'Google Maps is limiting searches right now — try again in 1 minute');
+  assert.equal(aiErrorText({ code: 'GPS_INACCURATE' }, 'scan', 'zh', trOf('zh')), '您的位置过于粗略——请在手机设置中为此应用开启“精确位置”，然后刷新');
+  assert.equal(aiErrorText({ code: 'PLACE_CLOSED' }, 'study', 'fr', trOf('fr')), 'Ce commerce est fermé selon Google Maps');
+  assert.equal(aiErrorText({ code: 'SOMETHING_NEW', message: 'رسالة' }, 'scan', 'en', en), null);
+  assert.equal(aiErrorText({ code: 'SOMETHING_NEW', message: 'رسالة' }, 'scan', 'ar', trOf('ar')), 'رسالة');
+  // كل رمز معروف له عبارة مترجمة (لا عربي لمندوبٍ بلغة أخرى)
+  for (const code of ['AI_REP_NOT_ALLOWED', 'GPS_INACCURATE', 'SCAN_FAILED', 'SOURCE_CHANGED', 'PLACES_NOT_CONFIGURED', 'PLACES_QUOTA', 'PLACES_NOT_FOUND', 'PLACES_AUTH', 'PLACES_UNAVAILABLE', 'PLACE_CLOSED']) {
+    for (const lang of ['en', 'fr', 'tr', 'zh']) assert.doesNotMatch(aiErrorText({ code }, 'scan', lang, trOf(lang)) ?? '', /[؀-ۿ]/, `${code} ${lang}`);
+  }
+});
+
+test('عبارات لغة المندوب: كل رمزٍ في جداول الوقائع مترجم باللغات الأربع، وكل ترجمة تحمل متغيّرات عبارتها العربية', () => {
+  const tables = [
+    ...Object.values(FOLLOW_UP_WHAT), ...Object.values(THEME_LABEL), ...Object.values(OPPORTUNITY_TEXT), ...Object.values(VISIT_TIP_TEXT),
+    ...HOUR_BAND_TEXT, ...Object.values(OBJECTION_TACTIC),
+  ];
+  for (const lang of ['en', 'fr', 'tr', 'zh']) for (const t of tables) assert.notEqual(aiRepTranslate(lang, t), t, `بلا ترجمة ${lang}: ${t}`);
+  assert.deepEqual(Object.keys(OBJECTION_TACTIC), OBJECTIONS.map(o => o.code).filter(c => c !== 'OTHER'), 'تكتيك لكل اعتراض يولّد درساً');
+  const vars = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort().join(',');
+  for (const [k, v] of Object.entries(AI_REP_PHRASES)) {
+    const want = vars(k);
+    for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.equal(vars(v[lang]), want, `متغيّرات ${lang}: ${k}`);
+  }
+});

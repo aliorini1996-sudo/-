@@ -8,7 +8,7 @@
  * محلات المسح في مدخلات توجيه العقل المؤجَّل (aiGuide).
  */
 import type { Relation } from './nearby';
-import type { ScanGuide, ScanShop, ShopScorer } from './scanGuide';
+import type { RepLang, ScanGuide, ScanShop, ShopScorer } from './scanGuide';
 import type { AiLessonLite } from './learn/types';
 
 /**
@@ -29,6 +29,8 @@ export interface PendingScanGuide {
   /** دروس سطر «من تجربة فريقك» المعروض (للدورة) */
   tips: (AiLessonLite | null)[];
   playbook: string | null;
+  /** لغة واجهة المندوب عند المسح — يكتب بها العقل */
+  lang?: RepLang;
   result?: Promise<unknown>;
 }
 

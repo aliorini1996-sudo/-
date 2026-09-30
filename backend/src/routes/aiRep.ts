@@ -21,6 +21,8 @@
  *   POST /admin/hidden-outlets/:id/unhide  «أعد إظهاره»
  *
  * العقل يكتب ولا يخترع: كل رقم في ردّه من مدخلاته، ولا روابط ولا هواتف ولا وعود خارج دليل البيع (حرّاس scanGuide/profileStudy).
+ * لغة المندوب (lang في المسح والدراسة): العقل يكتب بها (العربية السعودية افتراضاً)، والحتمي نصٌّ عربي ومعه وقائعه تركّبها
+ * الواجهة بلغتها، وكل خطأ برمزه (code، ومعه limit وretryAfterS حين تلزم) تترجمه الواجهة.
  * الإحداثيات والمراجع لا تأتي من الجهاز بعد البحث — فلا تلفيق نقاط لكشف عملاء الزملاء ولا استعلام عند إحداثيات حرّة.
  * أفعال جلسة المالك (الدعم الفني) تُسجَّل OWNER:<المعرّف> لا باسم مدير الشركة (actorOf).
  */
@@ -38,7 +40,7 @@ import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, M
 import { loadEstimateData, invalidateEstimateData, tenantTimezone, TenantEstimateData } from '../ai-rep/estimateData';
 import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace, type PlaceReview } from '../ai-rep/places';
 import { notePublicScanShops, noteRepScanFailed, publicScan, REP_RETRY_MS, repRetryLeftMs } from '../ai-rep/publicMaps';
-import { aiGuide, baselineScore, learnedScorer, rankedPool, ruleGuide, scanCandidates, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
+import { aiGuide, baselineScore, learnedScorer, rankedPool, repLang, ruleGuide, scanCandidates, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
 import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
 import { CLOSED_KINDS, CLOSED_MEMORY_DAYS, customerBox, mergeNearby, sameDay } from '../ai-rep/nearby';
 import { chatCompletion, llmConfig } from '../ai-rep/llm';
@@ -674,6 +676,8 @@ const studySchema = z.object({
   searchId: z.string().uuid().optional(),
   placeId: z.string().refine(isGooglePlaceId, 'محل غير معروف'),
   gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional(),
+  /** لغة واجهة المندوب (repLang: غير المعروفة عربية) — يكتب بها العقل */
+  lang: z.string().max(8).optional(),
 });
 
 /** دراسات مجانية (بلا خصم من المسح اليومي) لمحلات المسح الواحد. */
@@ -792,7 +796,7 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!free) {
       charged = await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep);
       if (!charged) {
-        res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ المسح والدراسة اليومي (${c.settings.dailySearchesPerRep}) — يتجدّد غداً` });
+        res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', limit: c.settings.dailySearchesPerRep, message: `بلغت حدّ المسح والدراسة اليومي (${c.settings.dailySearchesPerRep}) — يتجدّد غداً` });
         return;
       }
     }
@@ -840,8 +844,8 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
       : { injected: [], heldOut: [] };
     const tip = lc.learnedOn ? statsHint(lc.learned.lessons, { types: [outletType], hb: lc.hb, prefer: 'STUDY' }) : null;
 
-    // الدراسة: بالعقل إن ضُبط وتوفّرت حصته، وإلا حتمية من الملف نفسه (ونفاد الحصة يُقال للمندوب)
-    let study: ShopStudy = ruleStudy(p, tip?.textAr ?? null);
+    // الدراسة: بالعقل (بلغة المندوب) إن ضُبط وتوفّرت حصته، وإلا حتمية من الملف نفسه (ونفاد الحصة يُقال للمندوب)
+    let study: ShopStudy = ruleStudy(p, tip?.textAr ?? null, tip?.key ?? null);
     let rec: TurnGuard = RULES_TURN;
     let aiQuota = false;
     const cfg = llmConfig();
@@ -850,10 +854,10 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
       if (!aiDay) aiQuota = true;
       else {
         const { products, priority } = await studyProducts(c.tid, c.settings.priorityProductIds);
-        const ai = await aiStudy(p, { cfg, products, priority, playbook: c.settings.playbook, lessonsBlock: renderLessonsBlock(lessons.injected) });
+        const ai = await aiStudy(p, { cfg, products, priority, playbook: c.settings.playbook, lessonsBlock: renderLessonsBlock(lessons.injected), lang: repLang(b.lang) });
         await settleAi(c, aiDay, ai);
         rec = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
-        if (ai.study) study = { ...ai.study, teamTip: tip?.textAr ?? null };
+        if (ai.study) study = { ...ai.study, teamTip: tip?.textAr ?? null, teamTipKey: tip?.key ?? null };
         else console.warn('[ai-rep] دراسة المحل بالعقل تعذّرت:', ai.code, 'tenant', c.tid);
       }
     }
@@ -897,6 +901,8 @@ const scanSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   accuracyM: z.number().min(0).max(100000).optional(),
+  /** لغة واجهة المندوب (repLang: غير المعروفة عربية) — يكتب بها توجيه العقل */
+  lang: z.string().max(8).optional(),
 });
 
 /** أسوأ دقّة موقع يُمسح حولها: فوقها (الموقع الدقيق مطفأ في الجوال) المحلات والمسافات من نقطةٍ على بعد كيلومترات. */
@@ -923,7 +929,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     }
     charged = await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep);
     if (!charged) {
-      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ المسح اليومي (${c.settings.dailySearchesPerRep}) — نتائجك الحالية تبقى متاحة` });
+      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', limit: c.settings.dailySearchesPerRep, message: `بلغت حدّ المسح اليومي (${c.settings.dailySearchesPerRep}) — نتائجك الحالية تبقى متاحة` });
       return;
     }
     const origin = { lat: b.lat, lng: b.lng };
@@ -952,8 +958,8 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     }
     if (!found.size) {
       source = 'PUBLIC';
-      // نافذتان لكل نوع عبر الذاكرة المؤقتة والقاطع وحدّ التزامن، والنوع من تصنيف Google للمحل (publicMaps.ts)
-      const r = await publicScan({ types, targets, lat: b.lat, lng: b.lng, radiusM });
+      // نافذتان لكل نوع عبر الذاكرة المؤقتة والقاطع وحدّ التزامن، والنوع من تصنيف Google للمحل، وبلد البحث بلد الشركة (publicMaps.ts)
+      const r = await publicScan({ types, targets, lat: b.lat, lng: b.lng, radiusM, country: c.countryCode });
       if (!r.ok) {
         // صيغة مجهولة أو حجب أو قاطع: تُعاد الحصة (ما لم يُفوتَر بحث الأماكن) ويُمهَل المندوب — لا «لا محلات حولك»
         if (!spent) await refundUsage(c.tid, c.repId, 'searches', 1, charged);
@@ -1010,7 +1016,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
         reportedClosed: m.reportedClosed,
         profile,
         study: ruleStudy({ ...profile, placeId: p.placeId, primaryType: null, types: [], lat: p.lat, lng: p.lng, priceLevel: null, closed: false, typeLabel: p.category },
-          studyTip(m.outletType)?.textAr ?? null),
+          studyTip(m.outletType)?.textAr ?? null, studyTip(m.outletType)?.key ?? null),
       };
     });
     // ذاكرة الزيارات (آخر نتيجة ولحظتها) تصل التوجيه: ما زاره الفريق مؤخراً لا يعود «فرصة جديدة»، والمهتم يصير متابعة
@@ -1033,7 +1039,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     const tip = lc.learnedOn
       ? statsHint(lc.learned.lessons, { types: uniq([...guide.stops.map(st => typeOf.get(st.ref)), ...items.map(it => it.outletType)]), hb: lc.hb, prefer: 'GUIDE' })
       : null;
-    guide = { ...guide, tip: tip?.textAr ?? null };
+    guide = { ...guide, tip: tip?.textAr ?? null, tipKey: tip?.key ?? null };
     // دورة توجيه لهذا المسح: المرشّحون بميزات Google وموضعهم في الخطة (تُسمّى ليلاً بزيارات المندوب نفسه خلال ٧٢ ساعة)؛
     // يحدّثها توجيه العقل حين يصل (updateTurn)
     const recorded = shops.length > 0 && claimScanTurn(repKey, now.getTime());
@@ -1054,7 +1060,10 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       searchId, createdAt: Date.now(), origin, radiusM, scan: true,
       outlets: items.map(it => ({ ref: it.ref, placeId: it.placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId })),
       ...(aiGuidePending && {
-        aiGuide: { at: now, shops, recommended, score, rules: guide, learned: learnedFlag, turnId: shownTurn, lessons, tips: [tip, ...tips.values()], playbook: c.settings.playbook },
+        aiGuide: {
+          at: now, shops, recommended, score, rules: guide, learned: learnedFlag, turnId: shownTurn, lessons, tips: [tip, ...tips.values()],
+          playbook: c.settings.playbook, lang: repLang(b.lang),
+        },
       }),
     });
     console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, partial, arm: lc.arm, turn: recorded, ai: aiGuidePending }));
@@ -1079,8 +1088,8 @@ async function runScanGuide(c: RepCtx, pg: PendingScanGuide, origin: { lat: numb
   const day = await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep);
   if (!day) return { guide: null, reason: 'AI_QUOTA' as const };
   const ai = await aiGuide(pg.shops, {
-    cfg, playbook: pg.playbook, origin, now: pg.at, recommended: pg.recommended,
-    lessonsBlock: renderLessonsBlock(pg.lessons.injected), rulesSummary: pg.rules.summary,
+    cfg, playbook: pg.playbook, origin, now: pg.at, recommended: pg.recommended, lang: pg.lang,
+    lessonsBlock: renderLessonsBlock(pg.lessons.injected), rulesSummary: pg.rules.summary, rulesFacts: pg.rules.facts,
   });
   await settleAi(c, day, ai);
   const rec: TurnGuard = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
@@ -1095,7 +1104,7 @@ async function runScanGuide(c: RepCtx, pg: PendingScanGuide, origin: { lat: numb
     return { guide: null, reason: ai.source === 'ERROR' ? 'AI_UNAVAILABLE' as const : 'AI_REJECTED' as const };
   }
   console.info('[ai-rep] توجيه المسح', JSON.stringify({ tenant: c.tid, guard: ai.guard, tin: ai.tokensIn, tout: ai.tokensOut }));
-  return { guide: { ...ai.guide, tip: pg.rules.tip ?? null, turnId: pg.turnId, learned: pg.learned }, reason: null };
+  return { guide: { ...ai.guide, tip: pg.rules.tip ?? null, tipKey: pg.rules.tipKey ?? null, turnId: pg.turnId, learned: pg.learned }, reason: null };
 }
 
 const scanGuideSchema = z.object({ searchId: z.string().uuid() });

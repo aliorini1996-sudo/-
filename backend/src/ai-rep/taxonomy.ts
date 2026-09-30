@@ -5,21 +5,21 @@
  * أنواع Google من Table A في Places API (New) — تحقّقنا من وجودها كلها في includedTypes.
  * الكلمات المفتاحية لمصنِّف أسماء العملاء القائمين: **يقترح** والإدارة **تؤكّد**.
  * search: كلمتا البحث العام في خرائط Google (الأولى للنافذة الواسعة والثانية لنافذة المركز — صياغتان فلا تعود
- * المحلات البارزة نفسها في الطلبين).
+ * المحلات البارزة نفسها في الطلبين). searchEn: مثلهما بالإنجليزية لبلدٍ لا يُبحث فيه بالعربية.
  */
 
 export const OUTLET_TYPES = [
-  { code: 'GROCERY', ar: 'بقالة / تموينات', search: ['بقالة', 'تموينات'], google: ['grocery_store', 'food_store', 'market'], keywords: ['بقاله', 'بقالة', 'تموينات', 'تموين', 'مواد غذائيه', 'مواد غذائية', 'grocery'] },
-  { code: 'MINIMARKET', ar: 'ميني ماركت', search: ['ميني ماركت', 'ماركت'], google: ['convenience_store'], keywords: ['ميني ماركت', 'مينى ماركت', 'مني ماركت', 'mini market', 'minimarket', 'اسواق صغيره'] },
-  { code: 'SUPERMARKET', ar: 'سوبرماركت', search: ['سوبرماركت', 'أسواق'], google: ['supermarket', 'discount_store'], keywords: ['سوبرماركت', 'سوبر ماركت', 'سوبر', 'اسواق', 'أسواق', 'supermarket', 'market'] },
-  { code: 'HYPERMARKET', ar: 'هايبر ماركت', search: ['هايبر ماركت', 'هايبر'], google: ['hypermarket', 'warehouse_store', 'department_store'], keywords: ['هايبر', 'hyper', 'كارفور', 'لولو', 'بنده', 'الدانوب', 'العثيم'] },
-  { code: 'WHOLESALE', ar: 'جملة', search: ['محل مواد غذائية بالجملة', 'جملة مواد غذائية'], google: ['wholesaler'], keywords: ['جمله', 'جملة', 'موزع', 'توزيع', 'wholesale'] },
-  { code: 'PHARMACY', ar: 'صيدلية', search: ['صيدلية', 'صيدليات'], google: ['pharmacy', 'drugstore'], keywords: ['صيدليه', 'صيدلية', 'صيدليات', 'pharmacy'] },
-  { code: 'CAFE', ar: 'مقهى / كوفي', search: ['كوفي', 'مقهى'], google: ['cafe', 'coffee_shop'], keywords: ['كافيه', 'كوفي', 'قهوه', 'قهوة', 'مقهى', 'cafe', 'coffee'] },
-  { code: 'CAFETERIA', ar: 'كافتيريا / بوفيه', search: ['كافتيريا', 'بوفية'], google: ['cafeteria', 'fast_food_restaurant'], keywords: ['كافتيريا', 'كفتيريا', 'بوفيه', 'بوفية', 'cafeteria'] },
-  { code: 'RESTAURANT', ar: 'مطعم', search: ['مطعم', 'مطاعم'], google: ['restaurant'], keywords: ['مطعم', 'مطاعم', 'مشويات', 'بروستد', 'restaurant'] },
-  { code: 'BAKERY', ar: 'مخبز', search: ['مخبز', 'أفران'], google: ['bakery'], keywords: ['مخبز', 'مخابز', 'فرن', 'افران', 'أفران', 'bakery'] },
-  { code: 'FUEL_SHOP', ar: 'متجر محطة وقود', search: ['محطة وقود', 'محطة بنزين'], google: ['gas_station'], keywords: ['محطه', 'محطة', 'بنزين', 'وقود', 'station'] },
+  { code: 'GROCERY', ar: 'بقالة / تموينات', search: ['بقالة', 'تموينات'], searchEn: ['grocery store', 'grocery'], google: ['grocery_store', 'food_store', 'market'], keywords: ['بقاله', 'بقالة', 'تموينات', 'تموين', 'مواد غذائيه', 'مواد غذائية', 'grocery'] },
+  { code: 'MINIMARKET', ar: 'ميني ماركت', search: ['ميني ماركت', 'ماركت'], searchEn: ['mini market', 'convenience store'], google: ['convenience_store'], keywords: ['ميني ماركت', 'مينى ماركت', 'مني ماركت', 'mini market', 'minimarket', 'اسواق صغيره'] },
+  { code: 'SUPERMARKET', ar: 'سوبرماركت', search: ['سوبرماركت', 'أسواق'], searchEn: ['supermarket', 'market'], google: ['supermarket', 'discount_store'], keywords: ['سوبرماركت', 'سوبر ماركت', 'سوبر', 'اسواق', 'أسواق', 'supermarket', 'market'] },
+  { code: 'HYPERMARKET', ar: 'هايبر ماركت', search: ['هايبر ماركت', 'هايبر'], searchEn: ['hypermarket', 'hyper market'], google: ['hypermarket', 'warehouse_store', 'department_store'], keywords: ['هايبر', 'hyper', 'كارفور', 'لولو', 'بنده', 'الدانوب', 'العثيم'] },
+  { code: 'WHOLESALE', ar: 'جملة', search: ['محل مواد غذائية بالجملة', 'جملة مواد غذائية'], searchEn: ['food wholesale store', 'wholesale grocery'], google: ['wholesaler'], keywords: ['جمله', 'جملة', 'موزع', 'توزيع', 'wholesale'] },
+  { code: 'PHARMACY', ar: 'صيدلية', search: ['صيدلية', 'صيدليات'], searchEn: ['pharmacy', 'drugstore'], google: ['pharmacy', 'drugstore'], keywords: ['صيدليه', 'صيدلية', 'صيدليات', 'pharmacy'] },
+  { code: 'CAFE', ar: 'مقهى / كوفي', search: ['كوفي', 'مقهى'], searchEn: ['coffee shop', 'cafe'], google: ['cafe', 'coffee_shop'], keywords: ['كافيه', 'كوفي', 'قهوه', 'قهوة', 'مقهى', 'cafe', 'coffee'] },
+  { code: 'CAFETERIA', ar: 'كافتيريا / بوفيه', search: ['كافتيريا', 'بوفية'], searchEn: ['cafeteria', 'snack bar'], google: ['cafeteria', 'fast_food_restaurant'], keywords: ['كافتيريا', 'كفتيريا', 'بوفيه', 'بوفية', 'cafeteria'] },
+  { code: 'RESTAURANT', ar: 'مطعم', search: ['مطعم', 'مطاعم'], searchEn: ['restaurant', 'restaurants'], google: ['restaurant'], keywords: ['مطعم', 'مطاعم', 'مشويات', 'بروستد', 'restaurant'] },
+  { code: 'BAKERY', ar: 'مخبز', search: ['مخبز', 'أفران'], searchEn: ['bakery', 'bakeries'], google: ['bakery'], keywords: ['مخبز', 'مخابز', 'فرن', 'افران', 'أفران', 'bakery'] },
+  { code: 'FUEL_SHOP', ar: 'متجر محطة وقود', search: ['محطة وقود', 'محطة بنزين'], searchEn: ['gas station', 'petrol station'], google: ['gas_station'], keywords: ['محطه', 'محطة', 'بنزين', 'وقود', 'station'] },
 ] as const;
 
 export type OutletTypeCode = (typeof OUTLET_TYPES)[number]['code'];
@@ -33,9 +33,10 @@ export function outletTypeLabel(code: string | null | undefined): string {
   return OUTLET_TYPES.find(t => t.code === code)?.ar ?? 'غير مصنّف';
 }
 
-/** كلمات البحث العام لنوع (لا تقطيع لاسمه المعروض: «جملة» وحدها تجلب كل ما هبّ). */
-export function searchTermsFor(code: string): readonly string[] {
-  return OUTLET_TYPES.find(t => t.code === code)?.search ?? [];
+/** كلمات البحث العام لنوع بلغة البحث (لا تقطيع لاسمه المعروض: «جملة» وحدها تجلب كل ما هبّ). */
+export function searchTermsFor(code: string, lang: 'ar' | 'en' = 'ar'): readonly string[] {
+  const t = OUTLET_TYPES.find(x => x.code === code);
+  return (lang === 'en' ? t?.searchEn : t?.search) ?? [];
 }
 
 /** أنواع Google لقائمة رموز (بلا تكرار) — تُمرَّر إلى includedTypes. */

@@ -520,3 +520,93 @@ test('توجيه العقل: الأسماء مقصوصة بلا محارف ات�
   assert.ok(name.length <= 40 && !name.includes('‮'));
   assert.deepEqual([fail.source, fail.code, fail.tokensIn], ['ERROR', 'LLM_TIMEOUT', 0]);
 });
+
+// ───────────── لغة المندوب والبلد ─────────────
+
+test('لغة المندوب: التوجيه الحتمي نصٌّ عربي ومعه وقائعه (أعداد الخلاصة، والمتابعة والزيارة السابقة والتقييم والفتح والمسافة لكل محطة)', () => {
+  const shops = [
+    shop('P1', { lastOutcome: 'QUOTE', lastOutcomeAt: ago(4 * 24), distanceM: 400, rating: 4.2, ratingCount: 30 }),
+    shop('P2', { lastOutcome: 'CLOSED', lastOutcomeAt: ago(30), distanceM: 300, rating: null, openNow: false }),
+    shop('P3', { relation: 'CUSTOMER' }),
+    shop('P4', { relation: 'POSSIBLE_CUSTOMER' }),
+  ];
+  const g = ruleGuide(shops, { lat: 24.7, lng: 46.6 }, NOW);
+  assert.deepEqual(g.facts, { shops: 4, fresh: 1, follow: 1, customers: 1, possible: 1, stops: 2, open: 1 });
+  const f = new Map(g.stops.map(s => [s.ref, s.f]));
+  assert.deepEqual(f.get('P1'), { fu: 'QUOTE', days: 4, rating: 4.2, ratingCount: 30, openNow: true, distanceM: 400 });
+  assert.deepEqual(f.get('P2'), { prev: 'CLOSED', rating: null, ratingCount: null, openNow: false, distanceM: 300 });
+  assert.deepEqual(ruleGuide([], { lat: 0, lng: 0 }).facts, { shops: 0, fresh: 0, follow: 0, customers: 0, possible: 0, stops: 0, open: 0 });
+});
+
+test('لغة المندوب: العقل يُطلب بلغة واجهته (والعربية بلا سطر — اللهجة السعودية في التعليمات)، وخلاصة القواعد البديلة تحمل وقائعها', async () => {
+  const cfg = { provider: 'groq', apiKey: 'k', model: 'm', baseUrl: 'http://x' } as never;
+  const shops = [shop('P1'), shop('P2')];
+  const rules = ruleGuide(shops, { lat: 24.7, lng: 46.6 }, NOW);
+  const systems: string[] = [];
+  const reply = (o: unknown) => (async (_c: unknown, req: { messages: { content: string }[] }) => {
+    systems.push(req.messages[0].content);
+    return { ok: true as const, content: JSON.stringify(o), usage: { promptTokens: 1, completionTokens: 1 } };
+  }) as never;
+  const base = { cfg, playbook: null, origin: { lat: 24.7, lng: 46.6 }, now: NOW, rulesSummary: rules.summary, rulesFacts: rules.facts };
+  const en = await aiGuide(shops, { ...base, lang: 'en', llm: reply({ summary: 'Start with the nearest shop.', plan: [{ ref: 'P1', why: 'Close by and open now' }] }) });
+  assert.match(systems[0], /لغة الإجابة: اكتب كل نصوص الرد بـالإنجليزية \(English\) وحدها/);
+  assert.equal(en.guide?.stops[0].why, 'Close by and open now');
+  assert.equal(en.guide?.facts, undefined, 'خلاصة العقل بلغة المندوب ⇒ بلا وقائع');
+  await aiGuide(shops, { ...base, lang: 'ar', llm: reply({ summary: 'ابدأ بالأقرب', plan: [{ ref: 'P1', why: 'قريب' }] }) });
+  assert.doesNotMatch(systems[1], /لغة الإجابة/);
+  // خلاصةٌ رفضها الحارس (رقم بلا مصدر) ⇒ خلاصة القواعد بوقائعها، والمحطات تبقى
+  const bad = await aiGuide(shops, { ...base, lang: 'en', llm: reply({ summary: 'This area sells 900 cartons a month', plan: [{ ref: 'P2', why: 'Open now' }] }) });
+  assert.equal(bad.guide?.summary, rules.summary);
+  assert.deepEqual(bad.guide?.facts, rules.facts);
+  assert.deepEqual(bad.guide?.stops.map(s => s.ref), ['P2']);
+});
+
+test('حارس الوعود بلغات الواجهة: الخصم والمجاني والآجل والهدية بالإنجليزية والفرنسية والتركية والصينية تُسقط ما لم يفوّضها الدليل', async () => {
+  const cfg = { provider: 'groq', apiKey: 'k', model: 'm', baseUrl: 'http://x' } as never;
+  const shops = ['P1', 'P2', 'P3', 'P4', 'P5'].map(r => shop(r));
+  const plan = [
+    { ref: 'P1', why: 'Offer him a discount on the first order' },
+    { ref: 'P2', why: 'Livraison gratuite pour la première commande' },
+    { ref: 'P3', why: 'Ona vadeli satış öner' },
+    { ref: 'P4', why: '首单免费送货' },
+    { ref: 'P5', why: 'Freshly stocked shelves and friendly staff' },
+  ];
+  const run = (playbook: string | null) => aiGuide(shops, {
+    cfg, playbook, origin: { lat: 24.7, lng: 46.6 }, now: NOW, lang: 'en',
+    llm: (async () => ({ ok: true as const, content: JSON.stringify({ summary: 'Start nearby.', plan }), usage: { promptTokens: 1, completionTokens: 1 } })) as never,
+  });
+  const r = await run(null);
+  assert.deepEqual(r.guide?.stops.map(s => s.why), ['', '', '', '', 'Freshly stocked shelves and friendly staff'], '«Freshly» ليست «free»');
+  assert.ok(r.flags.includes('PROMISE'));
+  // الدليل يفوّض الآجل ⇒ «vadeli» يمرّ، والباقي يبقى محذوفاً
+  const ok = await run('البيع بالآجل ٣٠ يوماً للعملاء بسجل تجاري');
+  assert.deepEqual(ok.guide?.stops.map(s => s.why !== ''), [false, false, true, false, true]);
+});
+
+test('البحث العام ببلد الشركة: gl منه وكلمات البحث بلغته (العربية لبلدان العربية والإنجليزية لغيرها)، وردّ Google عربي دائماً (hl=ar)', async () => {
+  const tr = new URL(publicSearchUrl('grocery store', 41, 29, 1000, 'TR'));
+  assert.equal(tr.searchParams.get('gl'), 'tr');
+  assert.equal(tr.searchParams.get('hl'), 'ar', 'قراءة حالة الفتح والتصنيف بالعربية');
+  assert.equal(new URL(publicSearchUrl('بقالة', 24.7, 46.6, 1000)).searchParams.get('gl'), 'sa');
+  assert.equal(new URL(publicSearchUrl('بقالة', 24.7, 46.6, 1000, 'x1')).searchParams.get('gl'), 'sa', 'رمز غير صالح ⇒ السعودية');
+  assert.deepEqual(searchTermsFor('GROCERY', 'en'), ['grocery store', 'grocery']);
+  const calls: { query: string; country: string }[] = [];
+  const search = async (o: { query: string; country: string }) => { calls.push({ query: o.query, country: o.country }); return found(); };
+  await publicScan({ types: ['GROCERY'], targets: ['GROCERY'], lat: 41, lng: 29, radiusM: 2000, country: 'TR', search });
+  await publicScan({ types: ['GROCERY'], targets: ['GROCERY'], lat: 30, lng: 31, radiusM: 2000, country: 'eg', search });
+  await publicScan({ types: ['GROCERY'], targets: ['GROCERY'], lat: 24.7, lng: 46.6, radiusM: 2000, search });
+  assert.deepEqual(calls, [
+    { query: 'grocery store', country: 'TR' }, { query: 'grocery', country: 'TR' },
+    { query: 'بقالة', country: 'EG' }, { query: 'تموينات', country: 'EG' },
+    { query: 'بقالة', country: 'SA' }, { query: 'تموينات', country: 'SA' },
+  ]);
+  // الذاكرة المؤقتة لكل بلد: الاستعلام نفسه في بلد آخر طلبٌ جديد
+  resetPublicSearchState();
+  let fetched = 0;
+  const f = async () => { fetched++; return { ok: true, status: 200, text: async () => body(null) }; };
+  await publicSearch({ query: 'market', lat: 24.7, lng: 46.6, spanM: 1000, country: 'SA', fetchImpl: f });
+  await publicSearch({ query: 'market', lat: 24.7, lng: 46.6, spanM: 1000, country: 'AE', fetchImpl: f });
+  await publicSearch({ query: 'market', lat: 24.7, lng: 46.6, spanM: 1000, country: 'AE', fetchImpl: f });
+  assert.equal(fetched, 2);
+  resetPublicSearchState();
+});

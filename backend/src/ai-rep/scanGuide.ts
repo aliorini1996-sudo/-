@@ -7,6 +7,8 @@
  *   - بالعقل (إن ضُبط): يكتب سبباً عملياً لكل محطة وخلاصة للمنطقة — بلا أرقام إلا ما في القائمة.
  *   - حلقة التعلّم: الترتيب بسياسة متعلَّمة من نتائج زيارات الشركة في الذراع المتعلّمة (learnedScorer) وإلا shopScore،
  *     ومرشّحو كل مسح بميزات Google (scanCandidates) تُسمّى ليلاً بزيارات المندوب نفسه خلال ٧٢ ساعة.
+ *   - لغة المندوب: الحتمي نصٌّ عربي (العدد والمعدود هنا) ومعه وقائعه (facts وf لكل محطة) تركّبها الواجهة بلغات
+ *     الواجهة الأخرى؛ والعقل يكتب بلغة المندوب (answerLangSection) والعربية السعودية افتراضاً.
  */
 import { z } from 'zod';
 import { chatCompletion, completeUntruncated, type LlmConfig, type LlmRequest, type LlmResult } from './llm';
@@ -42,12 +44,52 @@ export interface ScanShop {
 
 export type StopKind = 'NEW' | 'FOLLOW_UP';
 
+/** وقائع سبب المحطة الحتمي (why نصّها العربي) — تركّبها الواجهة بلغة المندوب. */
+export interface StopFacts {
+  /** متابعة: نتيجة الزيارة السابقة (مفتاح FOLLOW_UP_KINDS) وقبل كم يوماً */
+  fu?: string;
+  days?: number;
+  /** زيارة سابقة وجدته مغلقاً، أو بلاغٌ أنه لم يُعثر عليه */
+  prev?: 'CLOSED' | 'NOT_FOUND';
+  rating: number | null;
+  /** عدد المقيّمين (null = غير معروف) */
+  ratingCount: number | null;
+  openNow: boolean | null;
+  distanceM: number;
+}
+
+/** وقائع خلاصة القواعد (summary نصّها العربي): أعداد المنطقة، ومحطات الخطة ومفتوحها. */
+export interface GuideFacts { shops: number; fresh: number; follow: number; customers: number; possible: number; stops: number; open: number }
+
 export interface ScanGuide {
   source: 'AI' | 'RULES';
   summary: string;
-  stops: { ref: string; why: string; kind: StopKind }[];
+  /** f: وقائع السبب الحتمي (غائبة في سبب العقل — مكتوبٌ بلغة المندوب) */
+  stops: { ref: string; why: string; kind: StopKind; f?: StopFacts }[];
+  /** وقائع الخلاصة حين تكون خلاصة القواعد (الحتمي، أو خلاصة عقلٍ رفضها الحارس) */
+  facts?: GuideFacts;
   /** سطر «من تجربة فريقك» من درس إحصاء فعّال (حتمي، بلا عقل) — ذراع التعلّم وحدها */
   tip?: string | null;
+  /** مفتاح درسه (OBJ:نوع:اعتراض، TIME:نوع:فترة، REVISIT:نوع) — تركّبه الواجهة بلغة المندوب */
+  tipKey?: string | null;
+}
+
+/** لغات واجهة المندوب — غيرها (أو غيابها) عربية سعودية. */
+export const REP_LANGS = ['ar', 'en', 'fr', 'tr', 'zh'] as const;
+export type RepLang = (typeof REP_LANGS)[number];
+export const repLang = (x: unknown): RepLang => ((REP_LANGS as readonly unknown[]).includes(x) ? (x as RepLang) : 'ar');
+
+const LANG_NAME_AR: Record<Exclude<RepLang, 'ar'>, string> = {
+  en: 'الإنجليزية (English)', fr: 'الفرنسية (Français)', tr: 'التركية (Türkçe)', zh: 'الصينية المبسّطة (简体中文)',
+};
+
+/**
+ * لغة الإجابة بعد التعليمات الثابتة (فتبقى قابلة للتخزين المؤقت): العربية ⇒ '' (اللهجة السعودية في التعليمات نفسها)،
+ * وغيرها ⇒ نصوص الرد بلغة واجهة المندوب، والمفاتيح والرموز وأسماء المحلات والمنتجات كما وردت.
+ */
+export function answerLangSection(lang: RepLang | null | undefined): string {
+  if (!lang || lang === 'ar') return '';
+  return `\nلغة الإجابة: اكتب كل نصوص الرد بـ${LANG_NAME_AR[lang]} وحدها، لا بالعربية ولا باللهجة السعودية — ومفاتيح JSON والرموز (مثل P3 وHIGH) وأسماء المحلات والمنتجات كما وردت.`;
 }
 
 const MAX_STOPS = 5;
@@ -186,6 +228,17 @@ export function scanCandidates(shops: ScanShop[], now: Date, score: ShopScorer, 
     .map(x => ({ ...scanFeature(x.s), rr: x.rr, fr: x.fr }));
 }
 
+/** وقائع سبب المحطة (بلا نص) — نفس ما يكتبه ruleGuide بالعربية. */
+function stopFacts(s: ScanShop, now: Date): StopFacts {
+  const age = ageMs(s, now);
+  const fu = s.lastOutcome && FOLLOW_UP_KINDS[s.lastOutcome] && Number.isFinite(age) ? s.lastOutcome : null;
+  const prev = s.lastOutcome === 'CLOSED' || s.lastOutcome === 'NOT_FOUND' ? s.lastOutcome : null;
+  return {
+    ...(fu ? { fu, days: Math.max(0, Math.floor(age / DAY_MS)) } : {}), ...(prev ? { prev } : {}),
+    rating: s.rating, ratingCount: s.ratingCount || null, openNow: s.openNow, distanceM: s.distanceM,
+  };
+}
+
 /** التوجيه الحتمي. المغلق الآن لا يزاحم المفتوح: يُكمل الخطة إن نقصت، وفي آخرها «زره لاحقاً». */
 export function ruleGuide(shops: ScanShop[], origin: { lat: number; lng: number }, now = new Date(), score: ShopScorer = baselineScore): ScanGuide {
   const cands = planPool(shops, now, score);
@@ -205,6 +258,7 @@ export function ruleGuide(shops: ScanShop[], origin: { lat: number; lng: number 
       s.openNow === true ? 'مفتوح الآن' : s.openNow === false ? 'مغلق الآن — زره لاحقاً' : null,
       `على بعد ${distAr(s.distanceM)}`,
     ].filter(Boolean).join('، '),
+    f: stopFacts(s, now),
   }));
   // «من عملائك» للعملاء المؤكَّدين وحدهم؛ المطابقة بالقرب تُذكر وحدها
   const fresh = cands.filter(x => x.kind === 'NEW').length;
@@ -228,7 +282,8 @@ export function ruleGuide(shops: ScanShop[], origin: { lat: number; lng: number 
     : stops.length
       ? `${lead} ${parts.join(' و')}. ${tail}`
       : `حولك ${around} ولا فرص جديدة ولا متابعات مستحقّة الآن — جرّب منطقة أخرى.`;
-  return { source: 'RULES', summary, stops };
+  const facts: GuideFacts = { shops: shops.length, fresh, follow, customers, possible, stops: stops.length, open: open.length };
+  return { source: 'RULES', summary, stops, facts };
 }
 
 const guideShape = z.object({
@@ -275,8 +330,10 @@ export async function aiGuide(shops: ScanShop[], opts: {
   cfg: LlmConfig; playbook: string | null; origin: { lat: number; lng: number }; now?: Date;
   /** ترتيب الذراع (مراجع) ودروس الشركة المختارة لهذه الدورة (renderLessonsBlock) */
   recommended?: string[]; lessonsBlock?: string;
-  /** خلاصة التوجيه الحتمي — بديل الخلاصة المرفوضة */
-  rulesSummary?: string;
+  /** خلاصة التوجيه الحتمي ووقائعها — بديل الخلاصة المرفوضة */
+  rulesSummary?: string; rulesFacts?: GuideFacts;
+  /** لغة واجهة المندوب (العربية السعودية افتراضاً) */
+  lang?: RepLang;
   llm?: (cfg: LlmConfig, req: LlmRequest) => Promise<LlmResult>;
 }): Promise<AiGuideResult> {
   const call = opts.llm ?? chatCompletion;
@@ -304,8 +361,8 @@ export async function aiGuide(shops: ScanShop[], opts: {
   const payload = { shops: list, counts, recommended_order: recommended.length ? recommended : null, sales_playbook: opts.playbook?.slice(0, 4000) || null };
   const { r, tokensIn, tokensOut, widened } = await completeUntruncated(call, opts.cfg, {
     messages: [
-      // الدروس في آخر التعليمات (بعد الجزء الثابت)
-      { role: 'system', content: GUIDE_SYSTEM_AR + lessonsSection(opts.lessonsBlock ?? '') },
+      // لغة الإجابة ثم الدروس في آخر التعليمات (بعد الجزء الثابت)
+      { role: 'system', content: GUIDE_SYSTEM_AR + answerLangSection(opts.lang) + lessonsSection(opts.lessonsBlock ?? '') },
       { role: 'user', content: `المحلات المرشّحة حول المندوب${opts.playbook ? ' ودليل البيع' : ''} (بيانات):\n<<<\n${JSON.stringify(payload)}\n>>>` },
     ],
     responseFormat: 'json_object', reasoningEffort: 'medium', maxTokens: 2500, temperature: 0.3, timeoutMs: AI_GUIDE_TIMEOUT_MS,
@@ -344,17 +401,19 @@ export async function aiGuide(shops: ScanShop[], opts: {
   const stops = [...picked.filter(p => !closedNow.has(p.ref)), ...picked.filter(p => closedNow.has(p.ref))]
     .slice(0, MAX_STOPS)
     .map(p => ({ ref: p.ref, why: ok(p.why) ?? '', kind: kindOf.get(p.ref)! }));
-  // الخلاصة المرفوضة: جملها السليمة، وإلا خلاصة القواعد — محطات العقل تبقى
+  // الخلاصة المرفوضة: جملها السليمة، وإلا خلاصة القواعد بوقائعها (تركّبها الواجهة بلغة المندوب) — محطات العقل تبقى
   let summary = ok(d.data.summary);
+  let summaryFacts: GuideFacts | undefined;
   if (!summary) {
     const raw = (d.data.summary ?? '').replace(/\s+/g, ' ').trim();
     const trimmed = raw ? trimSentences(raw, allowed) : '';
-    summary = trimmed && !outputUnsafe(trimmed) && promiseAllowed(trimmed, opts.playbook) ? scrubPii(trimmed) : opts.rulesSummary?.trim() || null;
+    summary = trimmed && !outputUnsafe(trimmed) && promiseAllowed(trimmed, opts.playbook) ? scrubPii(trimmed) : null;
+    if (!summary && opts.rulesSummary?.trim()) { summary = opts.rulesSummary.trim(); summaryFacts = opts.rulesFacts; }
   }
   if (dropped.promises) flags.push('PROMISE');
   if (dropped.unsafe) flags.push('UNSAFE_TEXT');
   const badKinds = dropped.numbers ? ['OTHER'] : [];
   if (!summary || !stops.length) return template(['EMPTY_PLAN'], badKinds);
   const trimmedAny = dropped.numbers || dropped.promises || dropped.unsafe;
-  return { guide: { source: 'AI', summary, stops }, ...base, guard: trimmedAny ? 'TRIM' : 'PASS', badKinds, flags };
+  return { guide: { source: 'AI', summary, stops, ...(summaryFacts && { facts: summaryFacts }) }, ...base, guard: trimmedAny ? 'TRIM' : 'PASS', badKinds, flags };
 }

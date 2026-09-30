@@ -9,15 +9,29 @@
  * الروابط والهواتف ومعجم الحقن (نصوص Google تصل العقل كما هي)، والوعود في سطور العرض وحدها.
  * لا يُخزَّن شيء من ملف المحل في القاعدة. (مرحلة تجربة بقرار المالك — شروط Google تُراجَع قبل الإطلاق.)
  * حلقة التعلّم: دروس الشركة في آخر تعليمات العقل، وسطر «من تجربة فريقك» الحتمي (teamTip) من درس إحصاء فعّال لنوع المحل.
+ * لغة المندوب: الحتمي نصٌّ عربي ومعه وقائعه (facts) تركّبها الواجهة بلغات الواجهة الأخرى؛ والعقل يكتب بلغة المندوب.
  */
 import { z } from 'zod';
 import { chatCompletion, completeUntruncated, type LlmConfig, type LlmRequest, type LlmResult } from './llm';
 import { numbersIn, normalizeDigits, scrubPii, unsupportedNumbers } from './advisor';
 import type { PlaceProfile } from './places';
 import { cleanName, lessonsSection, outputUnsafe, promiseAllowed } from './learn/lessons';
-import { countAr, RATER_AR } from './scanGuide';
+import { answerLangSection, countAr, RATER_AR, type RepLang } from './scanGuide';
 
 export type Activity = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+export type ThemeCode = 'PRICE' | 'STOCK' | 'CLEAN' | 'SERVICE' | 'SPEED' | 'DELIVERY' | 'HOURS';
+export type OpportunityCode = 'STOCK_GAP' | 'PRICE_SENSITIVE' | 'VARIETY' | 'BUSY';
+
+/** وقائع الدراسة الحتمية (بلا نص): كل حقل حاضر مصدرُ الحقل النصّي بالاسم نفسه — تركّبه الواجهة بلغة المندوب. */
+export interface StudyFacts {
+  summary?: { name: string; rating: number | null; ratingCount: number; openNow: boolean | null; reviews: number };
+  /** عدد المقيّمين لسطر النشاط (0 ⇒ لا سطر) */
+  activityN?: number;
+  praise?: ThemeCode[];
+  complaints?: ThemeCode[];
+  opportunity?: OpportunityCode[];
+  visitTip?: 'HOURS' | null;
+}
 
 export interface ShopStudy {
   source: 'AI' | 'RULES';
@@ -34,6 +48,10 @@ export interface ShopStudy {
   visitTip: string | null;
   /** من تجربة فريقك: نص درس إحصاء فعّال لنوع المحل (ذراع التعلّم وحدها) — null/غائب = لا شيء */
   teamTip?: string | null;
+  /** مفتاح ذلك الدرس (OBJ:/TIME:/REVISIT:) — تركّبه الواجهة بلغة المندوب */
+  teamTipKey?: string | null;
+  /** وقائع الحتمي (وخلاصة القواعد إن حلّت محلّ خلاصة العقل) */
+  facts?: StudyFacts;
 }
 
 // ───────────── إشارات حتمية ─────────────
@@ -46,7 +64,7 @@ export function activityOf(ratingCount: number): Activity {
   return 'UNKNOWN';
 }
 
-const THEMES: { key: string; label: string; re: RegExp }[] = [
+const THEMES: { key: ThemeCode; label: string; re: RegExp }[] = [
   { key: 'PRICE', label: 'الأسعار', re: /غالي|غاليه|السعر|الاسعار|أسعار|اسعار|رخيص|مناسبه|مناسبة/ },
   { key: 'STOCK', label: 'توفّر الأصناف', re: /متوفر|كل شي|كل شيء|ناقص|نواقص|ما فيه|مافيه|تشكيله|تشكيلة|منتجات|اصناف|أصناف/ },
   { key: 'CLEAN', label: 'النظافة', re: /نظيف|نظافه|نظافة|وسخ|ريحه|ريحة|مرتب/ },
@@ -68,50 +86,70 @@ function polarity(rating: number | null, t: string): 1 | -1 | 0 {
   return pos && !neg ? 1 : neg && !pos ? -1 : 0;
 }
 
-/** محاور المراجعات: ما يُمدح (مراجعة إيجابية) وما يُشتكى منه (سلبية). */
-export function reviewThemes(p: Pick<PlaceProfile, 'reviews'>): { praise: string[]; complaints: string[] } {
-  const praise = new Set<string>(), complaints = new Set<string>();
+/** محاور المراجعات برموزها: ما يُمدح (مراجعة إيجابية) وما يُشتكى منه (سلبية). */
+export function reviewThemeCodes(p: Pick<PlaceProfile, 'reviews'>): { praise: ThemeCode[]; complaints: ThemeCode[] } {
+  const praise = new Set<ThemeCode>(), complaints = new Set<ThemeCode>();
   for (const r of p.reviews) {
     const t = normalizeDigits(r.text || '');
     if (!t) continue;
     const pol = polarity(r.rating, t);
     for (const th of THEMES) {
       if (!th.re.test(t)) continue;
-      if (pol > 0) praise.add(th.label);
-      else if (pol < 0) complaints.add(th.label);
+      if (pol > 0) praise.add(th.key);
+      else if (pol < 0) complaints.add(th.key);
     }
   }
   return { praise: [...praise].slice(0, 4), complaints: [...complaints].slice(0, 4) };
 }
 
-const ACTIVITY_AR: Record<Activity, string> = { HIGH: 'نشِط', MEDIUM: 'متوسط النشاط', LOW: 'هادئ', UNKNOWN: 'غير معروف' };
+const THEME_AR = new Map(THEMES.map(t => [t.key, t.label]));
+const themeLabels = (codes: ThemeCode[]): string[] => codes.map(c => THEME_AR.get(c)!);
 
-/** دراسة حتمية (بلا عقل) من الملف نفسه، وسطر «من تجربة فريقك» إن وُجد. */
-export function ruleStudy(p: PlaceProfile, teamTip: string | null = null): ShopStudy {
+/** محاور المراجعات بأسمائها العربية. */
+export function reviewThemes(p: Pick<PlaceProfile, 'reviews'>): { praise: string[]; complaints: string[] } {
+  const { praise, complaints } = reviewThemeCodes(p);
+  return { praise: themeLabels(praise), complaints: themeLabels(complaints) };
+}
+
+const OPPORTUNITY_AR: Record<OpportunityCode, string> = {
+  STOCK_GAP: 'العملاء يشتكون من نقص الأصناف — اعرض توريداً منتظماً يضمن توفّرها.',
+  PRICE_SENSITIVE: 'العملاء حسّاسون للسعر — ابدأ بالأصناف الأوفر.',
+  VARIETY: 'يُمدح بتنوّع أصنافه — اعرض أصنافاً جديدة تكمّل تشكيلته.',
+  BUSY: 'حركة العملاء عالية — المحل يحتاج توريداً أكبر وأسرع.',
+};
+
+/** دراسة حتمية (بلا عقل) من الملف نفسه بوقائعها، وسطر «من تجربة فريقك» ومفتاح درسه إن وُجد. */
+export function ruleStudy(p: PlaceProfile, teamTip: string | null = null, teamTipKey: string | null = null): ShopStudy {
   const activity = activityOf(p.ratingCount);
-  const { praise, complaints } = reviewThemes(p);
+  const { praise, complaints } = reviewThemeCodes(p);
   const rated = p.rating != null;
   const summary = rated
     ? `${p.name}: تقييمه ${p.rating}${p.ratingCount ? ` من ${countAr(p.ratingCount, RATER_AR)}` : ''} في خرائط Google${p.openNow === true ? '، ومفتوح الآن' : p.openNow === false ? '، ومغلق الآن' : ''}.`
     : p.reviews.length
       ? `${p.name}: دراسة من ${p.reviews.length} مراجعة من خرائط Google.`
       : `${p.name}: لا تقييمات له في خرائط Google بعد — الدراسة تعتمد على زيارتك.`;
-  const opportunity: string[] = [];
-  if (complaints.includes('توفّر الأصناف')) opportunity.push('العملاء يشتكون من نقص الأصناف — اعرض توريداً منتظماً يضمن توفّرها.');
-  if (complaints.includes('الأسعار')) opportunity.push('العملاء حسّاسون للسعر — ابدأ بالأصناف الأوفر.');
-  if (praise.includes('توفّر الأصناف')) opportunity.push('يُمدح بتنوّع أصنافه — اعرض أصنافاً جديدة تكمّل تشكيلته.');
-  if (activity === 'HIGH') opportunity.push('حركة العملاء عالية — المحل يحتاج توريداً أكبر وأسرع.');
+  const opps: OpportunityCode[] = [];
+  if (complaints.includes('STOCK')) opps.push('STOCK_GAP');
+  if (complaints.includes('PRICE')) opps.push('PRICE_SENSITIVE');
+  if (praise.includes('STOCK')) opps.push('VARIETY');
+  if (activity === 'HIGH') opps.push('BUSY');
+  const opportunity = opps.slice(0, 3);
+  // hours ساعات الأسبوع وحدها (لا سطر «مفتوح الآن») — فلا يُحال المندوب إلى ساعات غير معروضة
+  const visitTip = p.hours.length ? 'HOURS' as const : null;
   return {
     source: 'RULES',
     summary,
     activity,
     // عدد المقيّمين مجهول ⇒ لا حكم ولا سطر (الواجهة تُخفي «النشاط» UNKNOWN)
     activityWhy: p.ratingCount ? `بحسب عدد المقيّمين (${p.ratingCount}) — كلما زاد دلّ على حركة أكبر.` : '',
-    praise, complaints, opportunity: opportunity.slice(0, 3), offer: [],
+    praise: themeLabels(praise), complaints: themeLabels(complaints), opportunity: opportunity.map(c => OPPORTUNITY_AR[c]), offer: [],
     openingLine: null, objection: null, objectionReply: null,
-    // hours ساعات الأسبوع وحدها (لا سطر «مفتوح الآن») — فلا يُحال المندوب إلى ساعات غير معروضة
-    visitTip: p.hours.length ? 'راجع ساعات العمل أدناه وتجنّب أوقات الذروة.' : null,
-    teamTip,
+    visitTip: visitTip ? 'راجع ساعات العمل أدناه وتجنّب أوقات الذروة.' : null,
+    teamTip, teamTipKey,
+    facts: {
+      summary: { name: p.name, rating: p.rating, ratingCount: p.ratingCount, openNow: p.openNow, reviews: p.reviews.length },
+      activityN: p.ratingCount || 0, praise, complaints, opportunity, visitTip,
+    },
   };
 }
 
@@ -247,13 +285,15 @@ export async function aiStudy(p: PlaceProfile, opts: {
   priority?: string[];
   /** دروس الشركة المختارة لهذه الدورة (renderLessonsBlock) */
   lessonsBlock?: string;
+  /** لغة واجهة المندوب (العربية السعودية افتراضاً) */
+  lang?: RepLang;
   llm?: (cfg: LlmConfig, req: LlmRequest) => Promise<LlmResult>;
 }): Promise<AiStudyResult> {
   const call = opts.llm ?? chatCompletion;
   const req: LlmRequest = {
     messages: [
-      // الدروس في آخر التعليمات (بعد الجزء الثابت)
-      { role: 'system', content: STUDY_SYSTEM_AR + lessonsSection(opts.lessonsBlock ?? '') },
+      // لغة الإجابة ثم الدروس في آخر التعليمات (بعد الجزء الثابت)
+      { role: 'system', content: STUDY_SYSTEM_AR + answerLangSection(opts.lang) + lessonsSection(opts.lessonsBlock ?? '') },
       { role: 'user', content: `ملف المحل وقائمة منتجات الشركة ودليل البيع (بيانات):\n<<<\n${studyInput(p, opts.products, opts.playbook, opts.priority)}\n>>>` },
     ],
     responseFormat: 'json_object', reasoningEffort: 'medium', maxTokens: 3000, temperature: 0.3, timeoutMs: AI_STUDY_TIMEOUT_MS,
@@ -271,8 +311,11 @@ export async function aiStudy(p: PlaceProfile, opts: {
       : { study: null, tokensIn, tokensOut, code: r.code, source: 'ERROR', guard: 'NONE', badKinds: [], flags: ['LLM_ERROR'] };
   }
   const dropped: StudyDrops = { numbers: 0, promises: 0, unsafe: 0 };
-  const s = sanitizeStudy(r.content, p, opts.products, opts.playbook, dropped, ruleStudy(p).summary);
+  const rules = ruleStudy(p);
+  const s = sanitizeStudy(r.content, p, opts.products, opts.playbook, dropped, rules.summary);
   if (!s) return { study: null, tokensIn, tokensOut, code: 'LLM_BAD_OUTPUT', source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: [...truncated, 'BAD_OUTPUT'] };
+  // خلاصة القواعد حلّت محلّ خلاصة العقل المرفوضة ⇒ وقائعها معها (بلغة المندوب في الواجهة)
+  if (s.summary === rules.summary) s.facts = { summary: rules.facts?.summary };
   const flags = [...truncated, ...(dropped.promises ? ['PROMISE'] : []), ...(dropped.unsafe ? ['UNSAFE_TEXT'] : [])];
   return {
     study: s, tokensIn, tokensOut, source: 'AI',

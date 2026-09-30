@@ -4,6 +4,7 @@
  *   - نتائج الزيارة وأسبابها، ووسم كل محل في قائمة المسح، وإيقاف «حدّث» بعد مسحٍ فاشل.
  *   - موقع المندوب: سبب تعذّره، وقرار إعادة المسح عند العودة للشاشة، ودمج محلٍّ دُرس بمراجعاته في القائمة.
  *   - حلقة التعلّم: أسباب 👎، وأحكام لوحة «ما تعلّمه العقل».
+ *   - لغة المندوب: وقائع التوجيه والدراسة ودروس الفريق ورموز الأخطاء ← نصوص بلغته (tr من useAiRepTr يُمرَّر).
  */
 
 export interface Pt { lat: number; lng: number }
@@ -22,10 +23,21 @@ export function navUrl(dest: { lat: number; lng: number; placeId?: string | null
   return `https://www.google.com/maps/dir/?${q.toString()}`;
 }
 
-/** مسافة للعرض بالعربية. */
-export function fmtDistance(m: number): string {
+const LOCALE: Record<string, string> = { en: 'en-US', fr: 'fr-FR', tr: 'tr-TR', zh: 'zh-CN' };
+const UNITS: Record<string, [string, string]> = { ar: ['م', 'كم'], zh: ['米', '公里'] };
+
+/** رقم بلغة المندوب (الفاصلة العشرية في الفرنسية والتركية) — العربية كما كانت. */
+function fmtNum(lang: string, x: number, minDigits: number, maxDigits = minDigits): string {
+  const loc = LOCALE[lang];
+  if (!loc) return minDigits === maxDigits ? x.toFixed(minDigits) : String(Number(x.toFixed(maxDigits)));
+  return new Intl.NumberFormat(loc, { minimumFractionDigits: minDigits, maximumFractionDigits: maxDigits, useGrouping: false }).format(x);
+}
+
+/** مسافة للعرض بلغة المندوب ووحداتها (العربية افتراضاً). */
+export function fmtDistance(m: number, lang = 'ar'): string {
   if (!Number.isFinite(m)) return '—';
-  return m < 1000 ? `${Math.round(m / 10) * 10} م` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} كم`;
+  const [mu, ku] = UNITS[lang] ?? ['m', 'km'];
+  return m < 1000 ? `${Math.round(m / 10) * 10} ${mu}` : `${fmtNum(lang, m / 1000, m < 10000 ? 1 : 0)} ${ku}`;
 }
 
 export const OUTCOMES: { kind: string; label: string }[] = [
@@ -249,5 +261,217 @@ export function lessonActions(status: string): ('approve' | 'reject' | 'disable'
     case 'DISABLED': return ['enable'];
     case 'RETIRED': return ['restore'];
     default: return [];
+  }
+}
+
+// ───────────── لغة المندوب: وقائع الخادم ← نصوص بلغته ─────────────
+// العربية يكتبها الخادم نفسه (العدد والمعدود والمثنّى في scanGuide.ts)، فتُعرض كما هي؛ واللغات الأربع الأخرى تُركَّب هنا
+// من الوقائع بعبارات aiRepPhrases. بلا وقائع (جلسة محفوظة قبلها، أو نصّ العقل المكتوب بلغة المندوب) ⇒ النص كما هو.
+
+type Tr = (ar: string) => string;
+
+/** يملأ {x} في العبارة المترجمة — بدالّة استبدال: «$» في اسم محلٍّ لا يُفسَّر. */
+function fill(t: string, vars: Record<string, string | number>): string {
+  return t.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
+}
+
+/** صيغة المفرد في لغة المندوب؟ (الفرنسية تُفرد الصفر، والصينية لا تفرّق) */
+function singular(lang: string, n: number): boolean {
+  try { return new Intl.PluralRules(LOCALE[lang] ?? lang).select(n) === 'one'; } catch { return n === 1; }
+}
+
+const colon = (lang: string) => (lang === 'zh' ? '：' : ': ');
+
+/** وقائع سبب المحطة الحتمي (نسخة الواجهة من StopFacts في backend/src/ai-rep/scanGuide.ts). */
+export interface StopFacts {
+  fu?: string; days?: number; prev?: 'CLOSED' | 'NOT_FOUND';
+  rating: number | null; ratingCount: number | null; openNow: boolean | null; distanceM: number;
+}
+/** وقائع خلاصة القواعد (نسخة الواجهة من GuideFacts). */
+export interface GuideFacts { shops: number; fresh: number; follow: number; customers: number; possible: number; stops: number; open: number }
+/** وقائع الدراسة الحتمية (نسخة الواجهة من StudyFacts في profileStudy.ts): كل حقل حاضر مصدرُ الحقل النصّي بالاسم نفسه. */
+export interface StudyFacts {
+  summary?: { name: string; rating: number | null; ratingCount: number; openNow: boolean | null; reviews: number };
+  activityN?: number; praise?: string[]; complaints?: string[]; opportunity?: string[]; visitTip?: string | null;
+}
+
+/** وصف نتيجة الزيارة التي تستحقّ متابعة (نسخة الواجهة من FOLLOW_UP_KINDS في الخادم). */
+export const FOLLOW_UP_WHAT: Record<string, string> = { QUOTE: 'طلب عرض سعر', INTERESTED: 'أبدى اهتماماً', CALL_BACK: 'طلب العودة لاحقاً' };
+/** محاور المراجعات (نسخة الواجهة من THEMES في profileStudy.ts). */
+export const THEME_LABEL: Record<string, string> = {
+  PRICE: 'الأسعار', STOCK: 'توفّر الأصناف', CLEAN: 'النظافة', SERVICE: 'التعامل والخدمة', SPEED: 'السرعة والزحمة', DELIVERY: 'التوصيل', HOURS: 'ساعات العمل',
+};
+/** فرص الدراسة الحتمية (نسخة الواجهة من OPPORTUNITY_AR). */
+export const OPPORTUNITY_TEXT: Record<string, string> = {
+  STOCK_GAP: 'العملاء يشتكون من نقص الأصناف — اعرض توريداً منتظماً يضمن توفّرها.',
+  PRICE_SENSITIVE: 'العملاء حسّاسون للسعر — ابدأ بالأصناف الأوفر.',
+  VARIETY: 'يُمدح بتنوّع أصنافه — اعرض أصنافاً جديدة تكمّل تشكيلته.',
+  BUSY: 'حركة العملاء عالية — المحل يحتاج توريداً أكبر وأسرع.',
+};
+export const VISIT_TIP_TEXT: Record<string, string> = { HOURS: 'راجع ساعات العمل أدناه وتجنّب أوقات الذروة.' };
+/** فترات اليوم لدروس الوقت (نسخة الواجهة من HOUR_BAND_LABEL_AR) — بحرف الجرّ لتقع في جملة الدرس. */
+export const HOUR_BAND_TEXT = ['في الصباح', 'وقت الظهيرة', 'بعد الظهر', 'في المساء', 'في الليل'];
+/** تكتيك كل اعتراض في دروس الإحصاء (نسخة الواجهة من TACTIC في learn/lessons.ts — «غير ذلك» لا يولّد درساً). */
+export const OBJECTION_TACTIC: Record<string, string> = {
+  PRICE: 'ركّز على هامش ربحه وسرعة دوران الصنف، والتزم بأسعار دليل البيع.',
+  HAS_SUPPLIER: 'اقترح طلباً تجريبياً صغيراً بجانب مورّده بدل مطالبته بالاستبدال.',
+  NO_SHELF_SPACE: 'اقترح صنفاً واحداً سريع الدوران في مكان صغير بدل تشكيلة كاملة.',
+  NEEDS_CREDIT: 'وضّح سياسة الدفع كما في دليل البيع فقط، واقترح طلباً نقدياً صغيراً أولاً.',
+  SLOW_MOVING: 'اعرض أصنافاً سريعة الدوران وابدأ بكمية صغيرة يرى بها حركتها عنده.',
+  DECISION_MAKER_ABSENT: 'اسأل عن وقت وجود صاحب القرار وسجّل «عُد لاحقاً» لتعود إليه في موعده.',
+  WANTS_SAMPLE: 'اقترح طلباً تجريبياً صغيراً من صنف سريع الدوران ليجرّب حركته عنده.',
+  UNKNOWN_BRAND: 'ابدأ بتعريف قصير بالعلامة وبأنها تُباع عند محلات مشابهة دون ذكر أسماء.',
+  TIMING: 'اسأل عن أنسب وقت للعودة وسجّله «عُد لاحقاً».',
+};
+
+/** «تقييمه ٤٫٣ (١٢٠ مقيّماً) في خرائط Google» بلغة المندوب. */
+function ratingText(lang: string, tr: Tr, rating: number | null, count: number | null): string {
+  if (rating == null) return tr('بلا تقييم في خرائط Google');
+  const r = fmtNum(lang, rating, 0, 1);
+  if (!count) return fill(tr('تقييمه {rating} في خرائط Google'), { rating: r });
+  const c = fill(singular(lang, count) ? tr('{n} مقيّم') : tr('{n} مقيّمين'), { n: count });
+  return fill(tr('تقييمه {rating} ({count}) في خرائط Google'), { rating: r, count: c });
+}
+
+/** سبب المحطة بلغة المندوب: العربية نصّ الخادم، وغيرها من وقائعها (f). */
+export function stopWhyText(stop: { why: string; f?: StopFacts }, lang: string, tr: Tr): string {
+  const f = stop.f;
+  if (lang === 'ar' || !f) return stop.why;
+  const days = f.days ?? 0;
+  const when = fill(tr('قبل {days}'), { days: fill(singular(lang, days) ? tr('{n} يوم') : tr('{n} أيام'), { n: days }) });
+  return [
+    f.fu && FOLLOW_UP_WHAT[f.fu] ? `${tr('متابعة زيارة')}${colon(lang)}${tr(FOLLOW_UP_WHAT[f.fu])} — ${when}` : null,
+    f.prev === 'CLOSED' ? tr('وُجد مغلقاً في زيارة سابقة') : f.prev === 'NOT_FOUND' ? tr('أُبلغ سابقاً أنه لم يُعثر عليه') : null,
+    ratingText(lang, tr, f.rating, f.ratingCount),
+    f.openNow === true ? tr('مفتوح الآن') : f.openNow === false ? tr('مغلق الآن — زره لاحقاً') : null,
+    fill(tr('على بعد {d}'), { d: fmtDistance(f.distanceM, lang) }),
+  ].filter(Boolean).join(' · ');
+}
+
+/** خلاصة التوجيه بلغة المندوب: العربية نصّ الخادم، وغيرها من وقائع خلاصة القواعد. */
+export function guideSummaryText(g: { summary: string; facts?: GuideFacts }, lang: string, tr: Tr): string {
+  const f = g.facts;
+  if (lang === 'ar' || !f) return g.summary;
+  if (!f.shops) return tr('لا محلات مستهدفة حولك الآن — جرّب منطقة أخرى.');
+  const c = colon(lang);
+  const head = `${tr('المحلات حولك')}${c}${f.shops}`;
+  if (!f.stops) return `${head} — ${tr('لا فرص جديدة ولا متابعات مستحقّة الآن — جرّب منطقة أخرى.')}`;
+  const parts = [
+    f.fresh ? `${tr('فرص جديدة')}${c}${f.fresh}` : null,
+    f.follow ? `${tr('للمتابعة')}${c}${f.follow}` : null,
+    f.customers ? `${tr('من عملائك')}${c}${f.customers}` : null,
+    f.possible ? `${tr('ربما من عملائك')}${c}${f.possible}` : null,
+  ].filter(Boolean);
+  const tail = f.stops === 1
+    ? (f.open ? tr('ابدأ به:') : tr('مغلق الآن — زره حين يفتح:'))
+    : (f.open ? tr('ابدأ بهذا الترتيب:') : tr('كلها مغلقة الآن — زرها بهذا الترتيب حين تفتح:'));
+  return `${head} — ${parts.join(' · ')}${lang === 'zh' ? '。' : '. '}${tail}`;
+}
+
+/** خلاصة الدراسة الحتمية بلغة المندوب. */
+function studySummaryText(x: NonNullable<StudyFacts['summary']>, lang: string, tr: Tr): string {
+  if (x.rating != null) {
+    const open = x.openNow === true ? ` · ${tr('مفتوح الآن')}` : x.openNow === false ? ` · ${tr('مغلق الآن')}` : '';
+    return `${x.name}${colon(lang)}${ratingText(lang, tr, x.rating, x.ratingCount || null)}${open}`;
+  }
+  if (x.reviews > 0) {
+    const reviews = fill(singular(lang, x.reviews) ? tr('{n} مراجعة') : tr('{n} مراجعات'), { n: x.reviews });
+    return fill(tr('{name}: دراسة من {reviews} من خرائط Google.'), { name: x.name, reviews });
+  }
+  return fill(tr('{name}: لا تقييمات له في خرائط Google بعد — الدراسة تعتمد على زيارتك.'), { name: x.name });
+}
+
+/** رموز ← نصوص مترجمة؛ رمزٌ لا تعرفه الواجهة (خادم أحدث) ⇒ النصوص العربية كما وصلت. */
+function codesText(codes: string[] | undefined, table: Record<string, string>, text: string[], tr: Tr): string[] {
+  return codes && codes.every(c => table[c]) ? codes.map(c => tr(table[c])) : text;
+}
+
+/**
+ * نصوص الدراسة بلغة المندوب: كل حقل له وقائع يُركَّب منها (غير العربية)، وإلا نصّه كما وصل — العربية، ونصّ العقل
+ * المكتوب بلغة المندوب.
+ */
+export function studyTexts(s: {
+  summary: string; activityWhy: string; praise: string[]; complaints: string[]; opportunity: string[]; visitTip: string | null; facts?: StudyFacts;
+}, lang: string, tr: Tr): { summary: string; activityWhy: string; praise: string[]; complaints: string[]; opportunity: string[]; visitTip: string | null } {
+  const f = lang === 'ar' ? undefined : s.facts;
+  const tip = f?.visitTip;
+  return {
+    summary: f?.summary ? studySummaryText(f.summary, lang, tr) : s.summary,
+    activityWhy: f?.activityN == null ? s.activityWhy
+      : f.activityN > 0 ? fill(tr('بحسب عدد المقيّمين ({n}) — كلما زاد دلّ على حركة أكبر.'), { n: f.activityN }) : '',
+    praise: codesText(f?.praise, THEME_LABEL, s.praise, tr),
+    complaints: codesText(f?.complaints, THEME_LABEL, s.complaints, tr),
+    opportunity: codesText(f?.opportunity, OPPORTUNITY_TEXT, s.opportunity, tr),
+    visitTip: tip === undefined || (tip && !VISIT_TIP_TEXT[tip]) ? s.visitTip : tip ? tr(VISIT_TIP_TEXT[tip]) : null,
+  };
+}
+
+/** سطر «من تجربة فريقك» بلغة المندوب من مفتاح درسه (OBJ:نوع:اعتراض، TIME:نوع:فترة، REVISIT:نوع) — وإلا نصّه العربي. */
+export function teamTipText(key: string | null | undefined, text: string | null | undefined, lang: string, tr: Tr): string {
+  const fallback = text ?? '';
+  if (lang === 'ar' || !key) return fallback;
+  const [kind, code, x] = key.split(':');
+  const typeLabel = OUTLET_TYPE_OPTIONS.find(t => t.code === code)?.label;
+  if (!typeLabel) return fallback;
+  const type = tr(typeLabel);
+  if (kind === 'REVISIT') return fill(tr('في «{type}» كثير ممن طلبوا العودة لاحقاً تجاوبوا عند العودة — عُد إليهم في موعدهم ولا تُسقطهم.'), { type });
+  if (kind === 'TIME') {
+    const band = HOUR_BAND_TEXT[Number(x)];
+    return band ? fill(tr('محلات «{type}» تُوجد مغلقة كثيراً {band} — رتّب زيارتها في وقت آخر.'), { type, band: tr(band) }) : fallback;
+  }
+  if (kind === 'OBJ') {
+    const o = OBJECTIONS.find(y => y.code === x);
+    const tactic = OBJECTION_TACTIC[x];
+    return o && tactic ? fill(tr('في «{type}» من أكثر الاعتراضات التي يواجهها مناديب شركتك: «{objection}» — {tactic}'), { type, objection: tr(o.label), tactic: tr(tactic) }) : fallback;
+  }
+  return fallback;
+}
+
+/** نوع المحل للعرض: العربية تصنيف Google كما جاء (أدقّ)، وغيرها تسمية نوعه عندنا مترجمةً (تصنيف البحث العام عربي). */
+export function shopTypeText(it: { outletTypeLabel: string; profile?: { typeLabel: string | null } | null }, lang: string, tr: Tr): string {
+  return (lang === 'ar' && it.profile?.typeLabel) || tr(it.outletTypeLabel);
+}
+
+// ───────────── رموز أخطاء الخادم ← رسائل بلغة المندوب ─────────────
+
+export interface AiErr { status?: number; code?: string; message?: string; retryAfterS?: number; limit?: number }
+export type AiErrCtx = 'me' | 'scan' | 'study' | 'outcome';
+
+/** ردّ الخادم من خطأ الطلب (null = لا ردّ: شبكة أو استثناء محلي). */
+export function aiErrOf(e: unknown): AiErr | null {
+  const r = (e as { response?: { status?: number; data?: unknown } } | null)?.response;
+  if (!r) return null;
+  const d = (r.data && typeof r.data === 'object' ? r.data : {}) as AiErr;
+  return { status: r.status, code: d.code, message: d.message, retryAfterS: d.retryAfterS, limit: d.limit };
+}
+
+/**
+ * رسالة خطأ الخادم بلغة المندوب: العربية رسالته كما هي، وغيرها من رمزه (ومعه limit وretryAfterS) — null ⇒ المستدعي
+ * يعرض رسالته العامة المترجمة (رمزٌ لا تعرفه الواجهة لا يُعرض عربياً لمندوبٍ بلغة أخرى).
+ */
+export function aiErrorText(err: AiErr | null, ctx: AiErrCtx, lang: string, tr: Tr): string | null {
+  if (!err) return null;
+  if (lang === 'ar') return err.message || null;
+  switch (err.code) {
+    case 'AI_REP_NOT_ALLOWED': return tr('ميزة المندوب الذكي غير مفعّلة لاشتراك شركتك — تواصل مع مزوّد الخدمة لتفعيلها');
+    case 'GPS_INACCURATE': return tr('موقعك تقريبي جداً — فعّل «الموقع الدقيق» لهذا التطبيق من إعدادات الجوال ثم حدّث');
+    case 'SCAN_COOLDOWN': {
+      // 429: مهلة المندوب بعد مسحٍ فاشل (نصف دقيقة)؛ وإلا قاطع المسح العام بدقائقه
+      if (err.status === 429) return tr('تعذّر المسح قبل لحظات — انتظر نصف دقيقة ثم حدّث');
+      const n = Math.max(1, Math.ceil((err.retryAfterS ?? 60) / 60));
+      return fill(tr('خرائط Google تحدّ من البحث الآن — أعد المحاولة بعد {time}'), { time: fill(singular(lang, n) ? tr('{n} دقيقة') : tr('{n} دقائق'), { n }) });
+    }
+    case 'SCAN_FAILED': return tr('تعذّر مسح المحلات حولك — حاول بعد قليل');
+    case 'SOURCE_CHANGED': return tr('تعذّرت قراءة نتائج خرائط Google الآن (تغيّرت صيغتها) — حاول لاحقاً');
+    case 'AI_REP_DAILY_LIMIT':
+      if (ctx === 'outcome') return tr('بلغت حدّ تسجيل النتائج اليومي — يتجدّد غداً');
+      if (err.limit == null) return null;
+      return fill(ctx === 'study' ? tr('بلغت حدّ المسح والدراسة اليومي ({n}) — يتجدّد غداً') : tr('بلغت حدّ المسح اليومي ({n}) — نتائجك الحالية تبقى متاحة'), { n: err.limit });
+    case 'PLACES_NOT_CONFIGURED': return tr('دراسة المحل من خرائط Google تحتاج مفتاح Google للمنصّة — لم يُضبط بعد');
+    case 'PLACES_QUOTA': return tr('بلغت خدمة الأماكن حدّها مؤقتاً — حاول بعد قليل');
+    case 'PLACES_NOT_FOUND': return tr('تعذّر العثور على هذا المحل في خرائط Google');
+    case 'PLACES_AUTH': case 'PLACES_UNAVAILABLE': return tr('خدمة الأماكن غير متاحة مؤقتاً');
+    case 'PLACE_CLOSED': return tr('هذا المحل مغلق حسب خرائط Google');
+    default: return null;
   }
 }

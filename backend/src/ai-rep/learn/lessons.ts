@@ -76,13 +76,30 @@ const PROMISE_RES = CAPABILITY_STEMS.map(s => new RegExp(AR_WORD_START + s.repla
 // «من أجل/لأجل» (بمعنى لكي) ليست آجلاً و«لضمان» (لكي يضمن) ليست ضماناً — «عاجل» لا يطابق أصلاً (حدّ الكلمة)
 const NOT_PROMISE = /(?:^|[^ء-ي])(?:من\s+اجل|لاجل|لضمان)(?=$|[^ء-ي])/g;
 
+// الوعود نفسها بلغات الواجهة الأخرى (العقل يكتب بلغة المندوب) ← جذرها العربي لتفويض الدليل. حدّ الكلمة في أولها
+// وحده (الجمع واللواحق التركية تُقبل)، و«free/credit/vade/prim» بحدّ نهايتها أيضاً (لا «freezer»). الرفض آمن: يُحذف السطر.
+const LB = '(?<![\\p{L}])';
+const FOREIGN_PROMISES: [string, RegExp][] = ([
+  ['خصم', `${LB}(?:discount|rebate|remise|rabais|r[ée]duction|indirim|iskonto)|折扣|打折|优惠|减价`],
+  ['مجان', `${LB}(?:free(?![\\p{L}])|gratuit|offert|ücretsiz|bedava)|免费|赠送`],
+  ['هديه', `${LB}(?:gift|cadeau|hediye)|赠品|礼品|礼物`],
+  ['بونص', `${LB}(?:bonus|prim(?![\\p{L}]))|返利|奖励`],
+  ['اجل', `${LB}(?:credit(?![\\p{L}])|cr[ée]dit(?![\\p{L}])|pay later|deferred payment|paiement diff[ée]r[ée]|vadeli|vade(?![\\p{L}])|veresiye)|赊账|赊销|账期|延期付款`],
+  ['تقسيط', `${LB}(?:instal+ment|[ée]chelonn|taksit)|分期`],
+  ['عرض خاص', `${LB}(?:special (?:offer|deal|price)|offre sp[ée]ciale|prix sp[ée]cial|özel (?:teklif|fiyat|kampanya))|特价|特惠`],
+  ['ضمان', `${LB}(?:guarantee|warrant(?:y|ies)|garantie|garanti)|担保|保修`],
+  ['ارجاع', `${LB}(?:refund|money back|rembours|iade)|退货|退款`],
+] as [string, string][]).map(([s, re]) => [s, new RegExp(re, 'iu')]);
+
 /**
  * نسخة حارس الوعود لمخرجات العقل (أسباب المحطات وسطور العرض في الدراسة): الجذر في أول كلمة (بسوابقها) لا في
- * وسطها، و«من أجل/لأجل/لضمان» ليست وعوداً. أخفّ من capabilityAllowed عمداً — مدقّق الدروس يبقى على المطابقة الجزئية.
+ * وسطها، و«من أجل/لأجل/لضمان» ليست وعوداً — والوعود نفسها بالإنجليزية والفرنسية والتركية والصينية حين يكتب العقل
+ * بلغة المندوب. أخفّ من capabilityAllowed عمداً — مدقّق الدروس يبقى على المطابقة الجزئية.
  */
 export function promiseAllowed(text: string, playbook: string | null | undefined): boolean {
   const n = normalizeAr(text).replace(NOT_PROMISE, ' ');
-  return !CAPABILITY_STEMS.some((s, i) => PROMISE_RES[i].test(n) && !playbookAuthorizes(s, playbook, n));
+  if (CAPABILITY_STEMS.some((s, i) => PROMISE_RES[i].test(n) && !playbookAuthorizes(s, playbook, n))) return false;
+  return !FOREIGN_PROMISES.some(([s, re]) => re.test(text) && !playbookAuthorizes(s, playbook));
 }
 
 // روابط ونطاقات وبريد وواتساب، ومحارف خفية أو اتجاهية

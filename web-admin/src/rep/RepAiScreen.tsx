@@ -4,13 +4,15 @@ import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId, newClientRef, outboxAdd } from './offlineDb';
 import { isNetworkError } from './offlineSync';
 import { useAiRepTr } from '../i18n/aiRepPhrases';
+import { useLang } from '../i18n/lang';
 import { useBackClose } from '../lib/useBackClose';
 import { loadGoogleMaps } from './googleMaps';
 import RepAiMap from './RepAiMap';
 import { aiScanInFlight, loadAiSession, onConverted, saveAiSession, trackAiScan, type AiAddPrefill } from './aiRepSession';
 import {
-  CLOSED_OUTCOMES, COARSE_GPS_M, FEEDBACK_REASONS, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, aiStopsAfterScan, distKm, fmtDistance, gpsErrorKind, mergeStudied, navUrl,
-  needsRescan, refreshHoldMs, shopBadge, type ShopBadgeTone,
+  CLOSED_OUTCOMES, COARSE_GPS_M, FEEDBACK_REASONS, GPS_ERROR_TEXT, OBJECTIONS, OBJECTION_OUTCOMES, OUTCOMES, aiErrOf, aiErrorText, aiStopsAfterScan, distKm, fmtDistance,
+  gpsErrorKind, guideSummaryText, mergeStudied, navUrl, needsRescan, refreshHoldMs, shopBadge, shopTypeText, stopWhyText, studyTexts, teamTipText,
+  type AiErr, type GuideFacts, type ShopBadgeTone, type StopFacts, type StudyFacts,
 } from './aiRepLogic';
 
 /**
@@ -21,6 +23,8 @@ import {
  * حلقة التعلّم: الترتيب قد يكون متعلَّماً من نتائج زيارات الفريق، وسطر «من تجربة فريقك» في التوجيه والدراسة، و👍/👎 عليهما.
  * المسح يعود فوراً بالقائمة والخطة الحتمية، وتوجيه العقل (إن ضُبط) يصل بنداء ثانٍ /scan/guide فيحلّ محلّها؛ والمسح المتبقّي
  * اليوم ظاهر، ونفاد تحليلات العقل يُقال (الخطة والدراسة حينها من القواعد).
+ * لغة المندوب تُرسل مع المسح والدراسة فيكتب بها العقل؛ والحتمي ودروس الفريق والأخطاء تُركَّب هنا من وقائعها ورموزها
+ * بلغته (aiRepLogic) — والعربية نصّ الخادم كما هو.
  */
 
 interface Item {
@@ -46,8 +50,10 @@ interface Study {
   source: 'AI' | 'RULES'; summary: string; activity: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN'; activityWhy: string;
   praise: string[]; complaints: string[]; opportunity: string[]; offer: string[];
   openingLine: string | null; objection: string | null; objectionReply: string | null; visitTip: string | null;
-  /** من تجربة فريقك: درس من نتائج زيارات الشركة لنوع المحل */
-  teamTip?: string | null;
+  /** من تجربة فريقك: درس من نتائج زيارات الشركة لنوع المحل (ومفتاحه لغير العربية) */
+  teamTip?: string | null; teamTipKey?: string | null;
+  /** وقائع الحتمي — تُركَّب بلغة المندوب */
+  facts?: StudyFacts;
 }
 interface Me {
   placesConfigured: boolean; mapsKey?: string | null;
@@ -60,8 +66,10 @@ interface Me {
  * حلقة التعلّم: turnId دورة المسح للتقييم 👍/👎، و learned الترتيب متعلَّم، و tip سطر «من تجربة فريقك».
  */
 interface Guide {
-  source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string; kind?: 'NEW' | 'FOLLOW_UP' }[];
-  turnId?: string | null; learned?: boolean; tip?: string | null;
+  source: 'AI' | 'RULES'; summary: string; stops: { ref: string; why: string; kind?: 'NEW' | 'FOLLOW_UP'; f?: StopFacts }[];
+  turnId?: string | null; learned?: boolean; tip?: string | null; tipKey?: string | null;
+  /** وقائع خلاصة القواعد — تُركَّب بلغة المندوب */
+  facts?: GuideFacts;
   /** توجيه العقل منتظَر لهذا المسح (/scan/guide) — يُحفظ مع الجلسة فتطلبه الشاشة المركّبة من جديد (بلا كلفة ثانية) */
   aiPending?: boolean;
   /** نفدت تحليلات العقل اليوم ⇒ بقيت الخطة الحتمية */
@@ -107,7 +115,6 @@ async function getFix(): Promise<Fix> {
   return b && b.accuracy < a.accuracy ? b : a;
 }
 
-const errMsg = (e: unknown): string | undefined => (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
 /** خطة المسح كما تُعرض وتُحفظ: الحتمية فوراً، ومعلَّمةً بانتظار توجيه العقل إن كان سيصل. */
 const scanGuide = (d: ScanData): Guide => ({ ...d.guide, aiPending: !!d.aiGuidePending });
 
@@ -119,10 +126,12 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   onOpenCustomer: (customerId: string) => Promise<boolean>;
 }) {
   const tr = useAiRepTr();
+  const lang = useLang(s => s.lang);
   const restored = useRef(loadAiSession(repId)).current;
   const [me, setMe] = useState<Me | null>(null);
   const [offline, setOffline] = useState(false);
-  const [meErr, setMeErr] = useState<string | null>(null);
+  // ردّ الخادم (يُعرض بلغة المندوب عند العرض) أو OFFLINE/LOAD_FAILED
+  const [meErr, setMeErr] = useState<AiErr | 'OFFLINE' | 'LOAD_FAILED' | null>(null);
   const [items, setItems] = useState<Item[]>((restored?.items as Item[] | null) ?? []);
   const [guide, setGuide] = useState<Guide | null>((restored?.guide as Guide | null) ?? null);
   const [searchId, setSearchId] = useState<string | null>(restored?.searchId ?? null);
@@ -201,7 +210,10 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
         if (isNetworkError(e)) {
           const hit = await cacheGet<Me>(ME_KEY).catch(() => null);
           if (hit?.data) { setMe(hit.data); setOffline(true); } else setMeErr('OFFLINE');
-        } else setMeErr(errMsg(e) || 'LOAD_FAILED');
+        } else {
+          const info = aiErrOf(e);
+          setMeErr(info?.code || info?.message ? info : 'LOAD_FAILED');
+        }
       }
     })();
     return () => { alive = false; };
@@ -247,14 +259,15 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
   }, [tr]);
 
   const scanFailed = useCallback((e: unknown) => {
-    setMsg(errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّر مسح المحلات حولك')));
-    const hold = refreshHoldMs((e as { response?: { data?: { code?: string; retryAfterS?: number } } })?.response?.data);
+    const info = aiErrOf(e);
+    setMsg(aiErrorText(info, 'scan', lang, tr) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّر مسح المحلات حولك')));
+    const hold = refreshHoldMs(info);
     if (hold) {
       setRefreshHold(true);
       if (holdTimer.current) clearTimeout(holdTimer.current);
       holdTimer.current = setTimeout(() => setRefreshHold(false), hold);
     }
-  }, [tr]);
+  }, [lang, tr]);
 
   // المسح: العقل يفحص كل المحلات حول المندوب في خرائط Google ويوجّهه — بلا أي عمل من المندوب.
   // fresh («حدّث»): حول موقع المندوب الآن لا حول آخر موقع معروف
@@ -275,14 +288,15 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       setOpenId(null);
       const from = at;
       // النتيجة تُحفظ في الجلسة ولو خرج المندوب من الشاشة أثناء المسح، والشاشة التي تُركَّب أثناءه تنتظره
+      // لغة المندوب: توجيه العقل (/scan/guide) يُكتب بها
       const run = trackAiScan(repId,
-        repApi.post('/ai-rep/rep/scan', { lat: from.lat, lng: from.lng, accuracyM: from.accuracy }).then(r => ({ at: from, d: r.data.data as ScanData })),
+        repApi.post('/ai-rep/rep/scan', { lat: from.lat, lng: from.lng, accuracyM: from.accuracy, lang }).then(r => ({ at: from, d: r.data.data as ScanData })),
         ({ at: a, d }) => ({ searchId: d.searchId, items: d.items, guide: scanGuide(d), origin: a, scanOrigin: a, scannedAt: Date.now() }));
       applyScan(await run, notes);
     } catch (e) {
       scanFailed(e);
     } finally { busyRef.current = false; setScanning(false); }
-  }, [applyScan, scanFailed, locate, repId, tr]);
+  }, [applyScan, scanFailed, locate, repId, lang, tr]);
 
   // توجيه العقل المؤجَّل: يحلّ محلّ الخطة الحتمية حين يصل (مرّة لكل مسح؛ الشاشة المركّبة من جديد تطلبه ثانيةً والخادم
   // يعيد النتيجة نفسها بلا حصة ولا نموذج). محطاتٌ انتهت زيارتها منذ المسح لا تعود، وتعذّره يُبقي الحتمية بصمت
@@ -361,7 +375,7 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     setBusy(true); setMsg(''); setSheetNote(null);
     try {
       const o = originRef.current;
-      const r = await repApi.post('/ai-rep/rep/study', { placeId: p.placeId, ...(searchIdRef.current && { searchId: searchIdRef.current }), ...(o && { gps: { lat: o.lat, lng: o.lng } }) });
+      const r = await repApi.post('/ai-rep/rep/study', { placeId: p.placeId, lang, ...(searchIdRef.current && { searchId: searchIdRef.current }), ...(o && { gps: { lat: o.lat, lng: o.lng } }) });
       const d = r.data.data as { searchId: string; turnId?: string; item: Item; profile: Profile; study: Study; aiQuota?: boolean; searchesLeft?: number };
       const item: Item = { ...d.item, profile: d.profile, study: d.study, withReviews: true, studyTurnId: d.turnId ?? null };
       searchIdRef.current = d.searchId;
@@ -373,12 +387,12 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       if (d.aiQuota) setSheetNote({ placeId: item.placeId, text: tr('نفدت تحليلات العقل لهذا اليوم — الدراسة من ملف المحل بالقواعد') });
       setOpenId(item.placeId);
     } catch (e) {
-      const text = errMsg(e) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل'));
+      const text = aiErrorText(aiErrOf(e), 'study', lang, tr) || (isNetworkError(e) ? tr('أنت دون اتصال — الدراسة تحتاج الإنترنت') : tr('تعذّرت دراسة المحل'));
       // محلٌّ من قائمة المسح: بطاقته تُفتح بدراسة المسح (الملاحة وتسجيل النتيجة لا تتوقّف على المراجعات) والسبب داخلها
       if (itemsRef.current.some(x => x.placeId === p.placeId)) { setSheetNote({ placeId: p.placeId, text }); setOpenId(p.placeId); }
       else setMsg(text);
     } finally { busyRef.current = false; setBusy(false); }
-  }, [items, me?.placesConfigured, tr]);
+  }, [items, me?.placesConfigured, lang, tr]);
 
   // فتح محلٍّ من القائمة أو من علامته على الخريطة: بالمفتاح الرسمي يُدرس بمراجعاته أولاً، وإلا بطاقته بدراسة المسح
   const openItem = useCallback((it: Item) => {
@@ -418,7 +432,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
           <button onClick={onBack} className="p-2 -mr-2 text-gray-500"><ChevronRight size={20} /></button>
           <p className="flex-1 font-bold text-[#1F1A13] flex items-center gap-1.5"><Sparkles size={17} className="text-[#E15A30]" /> {tr('المندوب الذكي')}</p>
         </div>
-        <p className="text-center text-sm text-gray-500 py-10">{meErr === 'OFFLINE' ? tr('أنت دون اتصال') : meErr === 'LOAD_FAILED' ? tr('تعذّر تحميل المندوب الذكي') : meErr}</p>
+        <p className="text-center text-sm text-gray-500 py-10">{meErr === 'OFFLINE' ? tr('أنت دون اتصال')
+          : (meErr !== 'LOAD_FAILED' && aiErrorText(meErr, 'me', lang, tr)) || tr('تعذّر تحميل المندوب الذكي')}</p>
       </div>
     );
   }
@@ -488,6 +503,7 @@ function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
   items: Item[]; guide: Guide | null; searchesLeft: number | null; open: boolean; onToggle: () => void; onOpen: (it: Item) => void;
 }) {
   const tr = useAiRepTr();
+  const lang = useLang(s => s.lang);
   // المغلق الذي سُجّل الآن يخرج من القائمة (والخادم يخفيه بقية اليوم)
   const shown = items.filter(i => !i.closed);
   const byRef = new Map(shown.map(i => [i.ref, i]));
@@ -511,8 +527,8 @@ function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
                 {guide.turnId && <Feedback key={guide.turnId} turnId={guide.turnId} />}
               </div>
               {guide.learned && <p className="text-[10px] text-[#C94E28]">{tr('الترتيب متعلَّم من نتائج زيارات فريقك')}</p>}
-              <p className="text-sm text-[#1F1A13] leading-6">{guide.summary}</p>
-              {guide.tip && <TeamTip text={guide.tip} />}
+              <p className="text-sm text-[#1F1A13] leading-6">{guideSummaryText(guide, lang, tr)}</p>
+              {guide.tip && <TeamTip text={teamTipText(guide.tipKey, guide.tip, lang, tr)} />}
               {guide.aiPending && <p className="text-[11px] text-[#C94E28] animate-pulse">{tr('العقل يراجع الخطة…')}</p>}
               {guide.aiQuota && <p className="text-[11px] text-gray-600">{tr('نفدت تحليلات العقل لهذا اليوم — الخطة من التقييم والفتح والمسافة')}</p>}
               <ol className="space-y-1.5">
@@ -528,7 +544,7 @@ function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
                             <span className="truncate">{it.name}</span>
                             {s.kind === 'FOLLOW_UP' && <span className="text-[10px] font-normal rounded-full px-2 py-0.5 bg-amber-50 text-amber-700 shrink-0">{tr('متابعة زيارة')}</span>}
                           </span>
-                          {s.why && <span className="block text-[11px] text-gray-600 leading-5">{s.why}</span>}
+                          {s.why && <span className="block text-[11px] text-gray-600 leading-5">{stopWhyText(s, lang, tr)}</span>}
                         </span>
                       </button>
                     </li>
@@ -545,7 +561,7 @@ function NearbyPanel({ items, guide, searchesLeft, open, onToggle, onOpen }: {
                   <span className="block text-sm font-semibold text-[#1F1A13] truncate">{it.name}</span>
                   <span className="block text-[11px] text-gray-500">
                     {it.profile?.rating != null && <>★ {it.profile.rating} · </>}
-                    {it.profile?.typeLabel || tr(it.outletTypeLabel)} · {fmtDistance(it.distanceM)}
+                    {shopTypeText(it, lang, tr)} · {fmtDistance(it.distanceM, lang)}
                     {it.profile?.openNow === false && <> · <span className="text-red-600">{tr('مغلق الآن')}</span></>}
                   </span>
                 </span>
@@ -643,8 +659,11 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
   onClose: () => void; onAddCustomer: (p: AiAddPrefill) => void; onOpenCustomer: (id: string) => Promise<boolean>; onOutcome: (kind: string) => void;
 }) {
   const tr = useAiRepTr();
+  const lang = useLang(st => st.lang);
   const p = item.profile;
   const s = item.study;
+  // نصوص الدراسة بلغة المندوب (الحتمي من وقائعه، ونصّ العقل كما كُتب بلغته)
+  const sv = s ? studyTexts(s, lang, tr) : null;
   const [err, setErr] = useState('');
   const [mode, setMode] = useState<'view' | 'outcome'>('view');
   const [kind, setKind] = useState<string>('');
@@ -684,7 +703,7 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'aiOutcome', payload: body, status: 'queued', clientCreatedAt: body.occurredAt });
         setSaved(tr('حُفظت وسترسل عند عودة الاتصال'));
       } else {
-        setOutcomeErr(errMsg(e) || tr('تعذّر التسجيل'));
+        setOutcomeErr(aiErrorText(aiErrOf(e), 'outcome', lang, tr) || tr('تعذّر التسجيل'));
         setSaving(false);
         return;
       }
@@ -724,8 +743,8 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
           <p className="font-bold text-[#1F1A13] flex items-center gap-1.5"><Store size={17} className="text-[#E15A30] shrink-0" /> <span className="truncate">{p?.name || item.name || tr(item.outletTypeLabel)}</span></p>
           <p className="text-[11px] text-gray-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
             {p?.rating != null && <><Stars value={p.rating} />{p.ratingCount > 0 && <span>({p.ratingCount} {tr('مقيّماً')})</span>}</>}
-            <span>{p?.typeLabel || tr(item.outletTypeLabel)}</span>
-            <span>{fmtDistance(item.distanceM)}</span>
+            <span>{shopTypeText(item, lang, tr)}</span>
+            <span>{fmtDistance(item.distanceM, lang)}</span>
             {p?.openNow === true && <span className="text-green-700">{tr('مفتوح الآن')}</span>}
             {p?.openNow === false && <span className="text-red-600">{tr('مغلق الآن')}</span>}
             {item.relation === 'CUSTOMER' && <span className="text-blue-700">{tr('عميل حالي')}</span>}
@@ -773,7 +792,7 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
             {notice && <p className="text-xs text-center text-amber-700 bg-amber-50 rounded-xl py-2 px-3">{notice}</p>}
 
             {/* الدراسة */}
-            {s ? (
+            {s && sv ? (
               <div className="rounded-2xl bg-[#FBEBE2] border border-[#F5DACE] p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   {/* بلا مراجعات نصية (المسح العام) لا تدّعي الدراسة أنها منها — ملف المحل وحده */}
@@ -783,11 +802,11 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
                   {/* النشاط من عدد المقيّمين: مجهولٌ ⇒ لا وسم */}
                   {s.activity !== 'UNKNOWN' && <span className="text-[11px] rounded-full bg-white/80 px-2 py-0.5 text-[#1F1A13] font-semibold">{tr(ACTIVITY_LABEL[s.activity])}</span>}
                 </div>
-                <p className="text-sm text-[#1F1A13] leading-6">{s.summary}</p>
-                {s.activityWhy && <p className="text-[11px] text-gray-600">{s.activityWhy}</p>}
-                <Bullets icon={<ThumbsUp size={12} />} title={tr('ما يمدحه العملاء')} items={s.praise} tone="text-green-700" />
-                <Bullets icon={<ThumbsDown size={12} />} title={tr('ما يشتكي منه العملاء')} items={s.complaints} tone="text-red-600" />
-                <Bullets icon={<Lightbulb size={12} />} title={tr('فرصتك')} items={s.opportunity} tone="text-[#C94E28]" />
+                <p className="text-sm text-[#1F1A13] leading-6">{sv.summary}</p>
+                {sv.activityWhy && <p className="text-[11px] text-gray-600">{sv.activityWhy}</p>}
+                <Bullets icon={<ThumbsUp size={12} />} title={tr('ما يمدحه العملاء')} items={sv.praise} tone="text-green-700" />
+                <Bullets icon={<ThumbsDown size={12} />} title={tr('ما يشتكي منه العملاء')} items={sv.complaints} tone="text-red-600" />
+                <Bullets icon={<Lightbulb size={12} />} title={tr('فرصتك')} items={sv.opportunity} tone="text-[#C94E28]" />
                 {s.offer.length > 0 && (
                   <div className="space-y-1">
                     <p className="text-xs font-bold text-[#C94E28] flex items-center gap-1"><ShoppingBag size={12} /> {tr('اعرض عليه')}</p>
@@ -806,8 +825,8 @@ function ShopSheet({ item, placesConfigured, canAddCustomer, notice, onClose, on
                     {s.objectionReply && <p><b>{tr('ردّك')}:</b> {s.objectionReply}</p>}
                   </div>
                 )}
-                {s.visitTip && <p className="text-xs text-gray-700 flex items-start gap-1"><Clock size={12} className="mt-1 shrink-0" /> {s.visitTip}</p>}
-                {s.teamTip && <TeamTip text={s.teamTip} />}
+                {sv.visitTip && <p className="text-xs text-gray-700 flex items-start gap-1"><Clock size={12} className="mt-1 shrink-0" /> {sv.visitTip}</p>}
+                {s.teamTip && <TeamTip text={teamTipText(s.teamTipKey, s.teamTip, lang, tr)} />}
                 {s.source === 'AI' && <p className="text-[10px] text-gray-500">{tr('تحليل آلي من مراجعات العملاء في خرائط Google — تحقّق منه بزيارتك')}</p>}
                 {item.studyTurnId && <Feedback key={item.studyTurnId} turnId={item.studyTurnId} />}
               </div>

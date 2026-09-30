@@ -72,13 +72,16 @@ const realLlm = require('../ai-rep/llm') as typeof import('../ai-rep/llm');
 let llmCfg: import('../ai-rep/llm').LlmConfig | null = null;
 let llmCalls = 0;
 let llmSent = '';
+let llmSystem = '';
 let llmReply: () => import('../ai-rep/llm').LlmResult = () => ({
   ok: true, content: JSON.stringify({ summary: 'ابدأ بالأقرب', plan: [{ ref: 'P1', why: 'الأقرب إليك' }] }),
   toolCalls: [], usage: { promptTokens: 5, completionTokens: 2, cachedTokens: 0 }, finishReason: 'stop',
 });
 stub('ai-rep/llm', {
   ...realLlm, llmConfig: () => llmCfg,
-  chatCompletion: async (_c: unknown, req: { messages: { content: string }[] }) => { llmCalls++; llmSent = req.messages[1]?.content ?? ''; return llmReply(); },
+  chatCompletion: async (_c: unknown, req: { messages: { content: string }[] }) => {
+    llmCalls++; llmSystem = req.messages[0]?.content ?? ''; llmSent = req.messages[1]?.content ?? ''; return llmReply();
+  },
 });
 
 // ───────────── Google: البحث الرسمي والملف (بمفتاح) والمسح العام (بلا مفتاح) ─────────────
@@ -106,10 +109,10 @@ const pub = (id: string, m: number, type = 'GROCERY'): Pub => ({
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const realMaps = require('../ai-rep/publicMaps') as typeof import('../ai-rep/publicMaps');
 let publicResult: import('../ai-rep/publicMaps').PublicScanResult = { ok: true, places: [], partial: false, codes: [] };
-const publicCalls: { types: readonly string[]; targets: readonly string[]; radiusM: number }[] = [];
+const publicCalls: { types: readonly string[]; targets: readonly string[]; radiusM: number; country?: string | null }[] = [];
 stub('ai-rep/publicMaps', {
   ...realMaps, repRetryLeftMs: () => 0, notePublicScanShops: () => undefined, noteRepScanFailed: () => undefined,
-  publicScan: async (o: { types: readonly string[]; targets: readonly string[]; radiusM: number }) => { publicCalls.push(o); return publicResult; },
+  publicScan: async (o: { types: readonly string[]; targets: readonly string[]; radiusM: number; country?: string | null }) => { publicCalls.push(o); return publicResult; },
 });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -143,10 +146,10 @@ const settings = (o: Record<string, unknown> = {}) => ({
   dailySearchesPerRep: 30, dailyChatTurnsPerRep: 30, searchRadiusM: 2000, targetOutletTypes: ['GROCERY', 'MINIMARKET'], priorityProductIds: [],
   advisorEnabled: false, playbook: null, learningMode: 'AUTO', holdoutPct: 0, ...o,
 });
-async function call(p: string, body: unknown, repId: string, s: Record<string, unknown> = {}) {
+async function call(p: string, body: unknown, repId: string, s: Record<string, unknown> = {}, countryCode = 'SA') {
   const res = mockRes();
   let err: unknown = null;
-  const ctx = { tid: 't1', repId, showMoney: false, countryCode: 'SA', settings: settings(s) };
+  const ctx = { tid: 't1', repId, showMoney: false, countryCode, settings: settings(s) };
   await handler(p)({ body, user: { role: 'SALES_REP', id: repId, tenantId: 't1' }, aiRep: ctx }, res, (e?: unknown) => { err = e ?? null; });
   return { res, err };
 }
@@ -352,4 +355,50 @@ test('الدراسة بالعقل: نفاد تحليلات اليوم ⇒ الد
     assert.match(llmSent, /"priority_products":\["مياه"\]/);
     assert.equal(usage.count('refund', 'chatTurns'), 0);
   } finally { llmReply = prev; }
+});
+
+// ───────────── لغة المندوب وبلد الشركة ─────────────
+
+test('لغة المندوب: المسح يحمل وقائع التوجيه والدراسة الحتميين، وتوجيه العقل يُطلب بلغة المسح (غير المعروفة عربية)، والبحث العام ببلد الشركة', async () => {
+  reset();
+  llmCfg = { baseUrl: 'https://x', apiKey: 'k', model: 'm', extraBody: {}, timeoutMs: 1000, maxTokens: 100 };
+  publicResult = { ok: true, partial: false, codes: [], places: [pub('ChIJaa00000001', 100), pub('ChIJbb00000001', 300)] };
+  const r = await call('/scan', { ...O, accuracyM: 10, lang: 'tr' }, 'rep-lang', { advisorEnabled: true }, 'AE');
+  const s = dataOf<ScanData & { guide: { facts?: { shops: number }; stops: { f?: { distanceM: number } }[] }; items: { study: { facts?: { activityN?: number } } }[] }>(r);
+  assert.equal(publicCalls[0].country, 'AE');
+  assert.equal(s.guide.facts?.shops, 2);
+  assert.ok(s.guide.stops.every(st => st.f && st.f.distanceM > 0), 'لكل محطة وقائعها');
+  assert.equal(s.items[0].study.facts?.activityN, 50);
+  await call('/scan/guide', { searchId: s.searchId }, 'rep-lang', { advisorEnabled: true });
+  assert.match(llmSystem, /لغة الإجابة: اكتب كل نصوص الرد بـالتركية/);
+  // لغة غير معروفة ⇒ العربية السعودية (بلا سطر لغة)، لا رفض للمسح
+  const x = dataOf<ScanData>(await call('/scan', { ...O, accuracyM: 10, lang: 'xx' }, 'rep-lang-x', { advisorEnabled: true }));
+  await call('/scan/guide', { searchId: x.searchId }, 'rep-lang-x', { advisorEnabled: true });
+  assert.doesNotMatch(llmSystem, /لغة الإجابة/);
+});
+
+test('أخطاء برموزها: حدّ المسح اليومي يحمل الحدّ نفسه (limit) لتركّب الواجهة رسالته بلغة المندوب، والدراسة بالعقل بلغته', async () => {
+  reset();
+  usage.deny.add('searches');
+  const r = await scan('rep-limit', { dailySearchesPerRep: 12 });
+  assert.equal(r.res.statusCode, 429);
+  assert.deepEqual([r.res.body?.code, r.res.body?.limit], ['AI_REP_DAILY_LIMIT', 12]);
+  placesKey = 'k';
+  const st = await call('/study', { placeId: 'ChIJlimit00001' }, 'rep-limit', { dailySearchesPerRep: 12 });
+  assert.deepEqual([st.res.statusCode, st.res.body?.code, st.res.body?.limit], [429, 'AI_REP_DAILY_LIMIT', 12]);
+
+  reset();
+  placesKey = 'k';
+  llmCfg = { baseUrl: 'https://x', apiKey: 'k', model: 'm', extraBody: {}, timeoutMs: 1000, maxTokens: 100 };
+  const prev = llmReply;
+  llmReply = () => ({
+    ok: true, content: JSON.stringify({ summary: '杂货店，营业中。' }),
+    toolCalls: [], usage: { promptTokens: 5, completionTokens: 2, cachedTokens: 0 }, finishReason: 'stop',
+  });
+  try {
+    const d = dataOf<{ study: { source: string; summary: string; teamTipKey: string | null } }>(
+      await call('/study', { placeId: 'ChIJlang000001', lang: 'zh' }, 'rep-study-zh', { advisorEnabled: true }));
+    assert.match(llmSystem, /لغة الإجابة: اكتب كل نصوص الرد بـالصينية المبسّطة/);
+    assert.deepEqual([d.study.source, d.study.summary, d.study.teamTipKey], ['AI', '杂货店，营业中。', null]);
+  } finally { llmReply = prev; placesKey = null; }
 });

@@ -46,14 +46,29 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 type FetchText = (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
-export function publicSearchUrl(query: string, lat: number, lng: number, spanM: number): string {
+/**
+ * بلدان يُبحث فيها بكلمات البحث العربية؛ وغيرها بالإنجليزية (تفهمها Google في كل بلد). أما لغة الردّ فعربية دائماً
+ * (hl=ar): قراءة حالة الفتح («مفتوح/مغلق/يغلق…») والإغلاق النهائي وتصنيف المحل (publicOutletType) كلها بالعربية.
+ */
+const ARABIC_SEARCH = new Set(['SA', 'EG', 'AE', 'KW', 'QA', 'BH', 'OM', 'MA', 'DZ', 'TN', 'JO', 'IQ', 'LB', 'LY', 'PS', 'SD', 'YE', 'SY', 'MR', 'DJ', 'SO', 'KM']);
+
+/** بلد الشركة ← gl للبحث العام (حرفان؛ غيرهما ⇒ السعودية). */
+export function searchCountry(code: string | null | undefined): string {
+  const c = (code ?? '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(c) ? c : 'SA';
+}
+
+/** لغة كلمات البحث في بلد الشركة. */
+export const searchLang = (country: string | null | undefined): 'ar' | 'en' => (ARABIC_SEARCH.has(searchCountry(country)) ? 'ar' : 'en');
+
+export function publicSearchUrl(query: string, lat: number, lng: number, spanM: number, country = 'SA'): string {
   const q = Buffer.from(query, 'utf8').toString('base64').replace(/=+$/, '');
   const pb = PUBLIC_SEARCH_PB
     .replace('{Q}', q)
     .replace('{SPAN}', String(Math.round(Math.min(20000, Math.max(500, spanM)))))
     .replace('{LNG}', lng.toFixed(6))
     .replace('{LAT}', lat.toFixed(6));
-  return `https://www.google.com/search?tbm=map&authuser=0&hl=ar&gl=sa&q=${encodeURIComponent(query)}&pb=${encodeURIComponent(pb)}`;
+  return `https://www.google.com/search?tbm=map&authuser=0&hl=ar&gl=${searchCountry(country).toLowerCase()}&q=${encodeURIComponent(query)}&pb=${encodeURIComponent(pb)}`;
 }
 
 const at = (x: unknown, ...path: number[]): unknown => {
@@ -250,11 +265,11 @@ export function noteRepScanFailed(key: string, now = Date.now()): void {
 }
 
 /** طلب واحد إلى Google (بلا ذاكرة ولا قاطع). */
-async function fetchSearch(query: string, lat: number, lng: number, spanM: number, f: FetchText, timeoutMs: number): Promise<PublicSearchResult> {
+async function fetchSearch(query: string, lat: number, lng: number, spanM: number, country: string, f: FetchText, timeoutMs: number): Promise<PublicSearchResult> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await f(publicSearchUrl(query, lat, lng, spanM), {
+    const res = await f(publicSearchUrl(query, lat, lng, spanM, country), {
       headers: { 'User-Agent': UA, 'Accept-Language': 'ar,en;q=0.8', Cookie: 'CONSENT=YES+' },
       signal: ctrl.signal,
     });
@@ -279,19 +294,23 @@ export type PublicScanResult =
  * المسح العام حول المندوب: لكل نوع نافذة واسعة (٢٫٥× نصف القطر) ونافذة صغيرة على المندوب (Google ترتّب بالشهرة لا
  * بالقرب، فأقرب البقالات الصغيرة تغيب عن الواسعة) بصياغتين مختلفتين، كلها عبر الذاكرة المؤقتة والقاطع وحدّ التزامن.
  * بلا تكرار، والمغلق نهائياً/مؤقتاً يُسقط، والنوع من تصنيف Google للمحل (publicOutletType) لا من البحث الذي وجده.
- * فشل الطلبات كلها ⇒ خطأ بسببه؛ فشل بعضها ⇒ partial (القائمة قد تكون ناقصة).
+ * البلد (gl) بلد الشركة، وكلمات البحث بلغته (searchLang). فشل الطلبات كلها ⇒ خطأ بسببه؛ فشل بعضها ⇒ partial.
  */
 export async function publicScan(opts: {
   types: readonly string[]; targets: readonly string[]; lat: number; lng: number; radiusM: number;
-  search?: (o: { query: string; lat: number; lng: number; spanM: number }) => Promise<PublicSearchResult>;
+  /** بلد الشركة (CompanySettings.countryCode) — غيابه ⇒ السعودية */
+  country?: string | null;
+  search?: (o: { query: string; lat: number; lng: number; spanM: number; country: string }) => Promise<PublicSearchResult>;
 }): Promise<PublicScanResult> {
   const search = opts.search ?? publicSearch;
+  const country = searchCountry(opts.country);
+  const lang = searchLang(country);
   const nearSpan = Math.max(600, Math.min(1500, opts.radiusM * 0.5));
   const jobs = opts.types.flatMap(t => {
-    const [wide, near = wide] = searchTermsFor(t);
+    const [wide, near = wide] = searchTermsFor(t, lang);
     return wide ? [{ t, query: wide, spanM: opts.radiusM * 2.5 }, { t, query: near, spanM: nearSpan }] : [];
   });
-  const results = await Promise.all(jobs.map(j => search({ query: j.query, lat: opts.lat, lng: opts.lng, spanM: j.spanM }).then(r => ({ t: j.t, r }))));
+  const results = await Promise.all(jobs.map(j => search({ query: j.query, lat: opts.lat, lng: opts.lng, spanM: j.spanM, country }).then(r => ({ t: j.t, r }))));
   const codes = results.flatMap(x => (x.r.ok ? [] : [x.r.code]));
   if (!results.length || codes.length === results.length) {
     const cool = results.map(x => x.r).find(r => !r.ok && r.code === 'COOLDOWN');
@@ -322,11 +341,14 @@ export async function publicScan(opts: {
 }
 
 /** بحث عام واحد حول نقطة: من الذاكرة المؤقتة إن وُجد، وإلا عبر القاطع وحدّ التزامن. */
-export async function publicSearch(opts: { query: string; lat: number; lng: number; spanM: number; fetchImpl?: FetchText; timeoutMs?: number; now?: () => number }): Promise<PublicSearchResult> {
+export async function publicSearch(opts: {
+  query: string; lat: number; lng: number; spanM: number; country?: string | null; fetchImpl?: FetchText; timeoutMs?: number; now?: () => number;
+}): Promise<PublicSearchResult> {
   const clock = opts.now ?? Date.now;
   const lat = Math.round(opts.lat / GRID_DEG) * GRID_DEG, lng = Math.round(opts.lng / GRID_DEG) * GRID_DEG;
   const span = Math.round(opts.spanM / 100) * 100;
-  const key = `${opts.query}|${lat.toFixed(3)}|${lng.toFixed(3)}|${span}`;
+  const country = searchCountry(opts.country);
+  const key = `${opts.query}|${country}|${lat.toFixed(3)}|${lng.toFixed(3)}|${span}`;
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);
@@ -339,7 +361,7 @@ export async function publicSearch(opts: { query: string; lat: number; lng: numb
     // القاطع قد يُفتح أثناء الانتظار
     const l2 = breakerLeftMs(clock());
     if (l2) return cooldown(l2);
-    const r = await fetchSearch(opts.query, lat, lng, span, opts.fetchImpl ?? (fetch as unknown as FetchText), opts.timeoutMs ?? 9000);
+    const r = await fetchSearch(opts.query, lat, lng, span, country, opts.fetchImpl ?? (fetch as unknown as FetchText), opts.timeoutMs ?? 9000);
     if (r.ok) {
       cache.set(key, { at: clock(), places: r.places });
       while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
