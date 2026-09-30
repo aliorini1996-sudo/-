@@ -25,7 +25,7 @@ test('طباعة فاتورة المنصّة: كل حقلٍ يكتبه المش�
   const html = buildPlatformInvoiceHtml(inv, seller, 'data:image/png;base64,iVBORw0KGgo=', '٣٠ سبتمبر ٢٠٢٦');
   assert.doesNotMatch(html, /<script/i, 'سكربت في الصفحة');
   // وسمٌ حقيقي يحمل معالج حدث (النصّ المُهرَّب يبقى كلماتٍ بلا وسم)
-  assert.doesNotMatch(html, /<img src=x|<svg|<[a-z][^>]*on(error|load)=/i, 'وسمٌ من بيانات المشترك');
+  assert.doesNotMatch(html, /<img src=x|<svg|<[a-z][^>]*\bon(error|load)=/i, 'وسمٌ من بيانات المشترك');
   assert.ok(html.includes('&lt;img src=x onerror=&quot;'), 'الاسم لم يُعرض نصّاً');
   assert.ok(html.includes('مؤسسة &#39;x&#39; &amp; &quot;y&quot;'));
   assert.ok(html.includes('&lt;b&gt;الرياض&lt;/b&gt;'));
@@ -37,7 +37,7 @@ test('طباعة فاتورة المنصّة: سياسة محتوى تمنع ك�
   assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">/);
   assert.ok(html.indexOf('Content-Security-Policy') < html.indexOf('<title>'), 'السياسة بعد أول محتوى');
   assert.ok(!html.includes('alt="ZATCA QR"'), 'QR غير صالح عُرض');
-  assert.doesNotMatch(html, /<[a-z][^>]*onerror=/i);
+  assert.doesNotMatch(html, /<[a-z][^>]*\bonerror=/i);
   assert.doesNotMatch(buildPlatformInvoiceHtml(inv, seller, 'javascript:alert(1)', 'd'), /javascript:/);
 });
 
@@ -56,8 +56,8 @@ test('safeHttpUrl: http/https وحدهما، وكل مخطّط آخر (javascrip
 test('حارس: لوحة العملاء المحتملين لا تضع موقع العميل ولا رابط خريطته في href إلا عبر safeHttpUrl', () => {
   const src = fs.readFileSync(path.resolve(process.cwd(), 'src', 'components', 'LeadsPanel.tsx'), 'utf8');
   // أيّ صيغة: href أو window.open يحملان website أو mapsUrl خاماً (lead. أو l. أو قالب) — لا تمرّ إلا عبر safeHttpUrl
-  assert.doesNotMatch(src, /href=\{[^}]*\.(website|mapsUrl)/, 'رابطٌ خام من مصدر عام');
-  assert.doesNotMatch(src, /window\.open\([^)]*\.(website|mapsUrl)/, 'فتحُ رابطٍ خام من مصدر عام');
+  assert.doesNotMatch(src, /href=\{[^}]*\.(website|mapsUrl)\b/, 'رابطٌ خام من مصدر عام');
+  assert.doesNotMatch(src, /window\.open\([^)]*\.(website|mapsUrl)\b/, 'فتحُ رابطٍ خام من مصدر عام');
   assert.match(src, /const websiteHref = safeHttpUrl\(lead\.website\);/);
   assert.match(src, /const mapsHref = safeHttpUrl\(lead\.mapsUrl\);/);
 });
