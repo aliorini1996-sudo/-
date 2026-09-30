@@ -244,8 +244,8 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
       if (!at && opts?.fresh) {
         at = await locate();
         if (!at && originRef.current) { at = originRef.current; notes.push(tr('تعذّر تحديد موقعك الآن — أعرض المحلات حول آخر موقع معروف')); }
-      }
-      at = at ?? originRef.current ?? await locate();
+      } else if (!at) at = originRef.current ?? await locate();
+      // تعذّر الموقع ولا موقع سابق: سببه ظاهر (locErr) — لا انتظار GPS ثانٍ
       if (!at) return;
       setOpenId(null);
       const from = at;
@@ -266,17 +266,26 @@ export default function RepAiScreen({ repId, canAddCustomer, onBack, onAddCustom
     try { applyScan(await pending); } catch (e) { scanFailed(e); } finally { busyRef.current = false; setScanning(false); }
   }, [applyScan, scanFailed]);
 
-  // عند الفتح والعودة للشاشة: الموقع الآن ثم القرار — مسحٌ جديد إن لم تكن قائمة، أو ابتعد المندوب عن موضع آخر مسح،
-  // أو قدُم المسح؛ وإلا تبقى القائمة بمسافاتها من موقعه الآن. لا مسح تلقائي يُغلق بطاقة محلٍّ مفتوحة
-  const refreshHere = useCallback(async () => {
-    if (busyRef.current) return;
+  // الانتظار من لحظة التركيب لا بعد تحميل الإعداد: وإلا وصلت نتيجته قبله فغطّتها حالة الشاشة المستعادة (الأقدم)
+  // عند أول حفظ، أو بدأ «حدّث» مسحاً ثانياً مدفوعاً
+  useEffect(() => {
     const pending = aiScanInFlight<ScanRun>(repId);
-    if (pending) { void locate(); await adoptScan(pending); return; }
+    if (pending) void adoptScan(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // عند الفتح والعودة للشاشة: الموقع الآن ثم القرار — مسحٌ جديد إن لم يُعرف مسحٌ سابق، أو ابتعد المندوب عن موضعه،
+  // أو قدُم؛ وإلا تبقى القائمة بمسافاتها من موقعه الآن (والمنطقة الخالية لا تُمسح مع كل عودة فتستنزف الحصة).
+  // لا مسح تلقائي يُغلق بطاقة محلٍّ مفتوحة
+  const refreshHere = useCallback(async () => {
+    // مسحٌ جارٍ أو منتظَر: الموقع وحده — نتيجته تكفي
+    if (busyRef.current) { void locate(); return; }
     const fix = await locate();
     if (!fix) return;
-    if (!openIdRef.current && (!itemsRef.current.length || needsRescan(fix, scanMetaRef.current))) { void scan(fix); return; }
+    if (!openIdRef.current && needsRescan(fix, scanMetaRef.current)) { void scan(fix); return; }
     if (itemsRef.current.length) setItems(list => list.map(x => ({ ...x, distanceM: Math.round(distKm(fix, x) * 1000) })));
-  }, [adoptScan, locate, repId, scan]);
+    else if (!busyRef.current) setMsg(tr('لم أجد محلات مستهدفة حولك في خرائط Google — تحرّك قليلاً ثم حدّث'));
+  }, [locate, scan, tr]);
 
   const started = useRef(false);
   useEffect(() => {
