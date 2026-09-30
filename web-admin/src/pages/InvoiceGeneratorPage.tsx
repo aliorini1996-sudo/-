@@ -588,7 +588,7 @@ export default function InvoiceGeneratorPage() {
               <div style={{ marginTop: 30, paddingTop: 12, borderTop: '1px solid #F1EBDF', textAlign: 'center', fontSize: 11.5, color: '#9A8F7E' }}>
                 شكرا لتعاملكم معنا Thank you for your business
                 <div style={{ marginTop: 5, fontSize: 9.5, color: '#c3bcae' }}>
-                  أنشئت مجانا عبر منصة Field Sales fieldsa net/invoice-generator
+                  أنشئت مجانا عبر منصة Field Sales fieldsa.net/invoice-generator
                 </div>
               </div>
             </div>

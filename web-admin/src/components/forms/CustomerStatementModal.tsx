@@ -74,7 +74,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     const rows = data.entries.map(e => ({
       [tr('التاريخ')]: formatDate(e.entryDate, tz),
       [tr('البيان')]: e.description,
-      [tr('الأصناف')]: (e.invoice?.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join(' '),
+      [tr('الأصناف')]: (e.invoice?.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، '),
       [tr('رقم المستند')]: e.invoice?.number || e.receipt?.number || '-',
       [tr('مدين')]: num(e.debit),
       [tr('دائن')]: num(e.credit),
@@ -181,7 +181,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
                     {e.type !== 'RECEIPT_CREDIT' && e.invoice?.items && e.invoice.items.length > 0 && (
                       <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
                         <span className="font-semibold text-gray-600">{e.invoice.items.length} {tr('صنف')}:</span>{' '}
-                        {e.invoice.items.map(it => `${it.product.name} ×${Number(it.qty)}`).join(' ')}
+                        {e.invoice.items.map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ')}
                       </div>
                     )}
                   </td>

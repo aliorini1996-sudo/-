@@ -158,16 +158,16 @@ function renderCalculatorSection(lang: Lang = 'ar'): string {
       </a>
       <div style="position:relative; color:#9A8F7E; font-size:13px; margin-top:16px;">${t.note}</div>
       <!-- الأداة الثانية مولد الفواتير أيقونة عائمة مميزة أصغر من أيقونة الحاسبة 80px مقابل 116px بتدرج أخضر -->
-      <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(0,240,.12);">
+      <div style="position:relative; margin-top:38px; padding-top:30px; border-top:1px solid rgba(250,247,240,.12);">
         <a href="/invoice-generator" class="fs-inv-link" style="display:inline-block; text-decoration:none;">
-          <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 1s ease-in-out infinite, fsInvGlow 2s ease-in-out infinite;">
-            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <span style="display:inline-flex; width:80px; height:80px; border-radius:24px; background:linear-gradient(145deg,#1E7A52,#155C3D); align-items:center; justify-content:center; animation:fsInvFloat 4.2s ease-in-out infinite, fsInvGlow 4.2s ease-in-out infinite;">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FAF7F0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"></path>
               <path d="M9 7h6M9 11h6"></path>
-              <rect x="9" y="14" width="4" height="5" rx="6" stroke-width="7"></rect>
+              <rect x="9" y="14" width="3.2" height="3.2" rx="0.6" stroke-width="1.5"></rect>
             </svg>
           </span>
-          <span class="fs-inv-title" style="display:block; color:#FAF7F0; font-size:clamp(16px,8vw,19px); font-weight:800; margin-top:14px; transition:color .2s;">${t.tool2Title}</span>
+          <span class="fs-inv-title" style="display:block; color:#FAF7F0; font-size:clamp(16px,2.4vw,19px); font-weight:800; margin-top:14px; transition:color .2s;">${t.tool2Title}</span>
           <span style="display:block; color:#B7AD9D; font-size:clamp(13px,1.9vw,14.5px); margin-top:6px;">${t.cta2} ↗</span>
         </a>
       </div>

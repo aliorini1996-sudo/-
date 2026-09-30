@@ -476,7 +476,7 @@ function EmailModal({
   const [body, setBody] = useState(
     'مرحبا فريق {{name}} \n\n'
     + 'Field Sales منصة متكاملة لإدارة مبيعات المناديب الميدانيين والتوزيع فواتير ضريبية متوافقة مع ZATCA تحصيل وإدارة ذمم مخزون سيارة المندوب وتتبع المواقع بالGPS في لوحة واحدة سهلة \n\n'
-    + 'يسعدنا أن نعرض عليكم النظام في جولة قصيرة أو جربوه مجانا على fieldsa net \n\n'
+    + 'يسعدنا أن نعرض عليكم النظام في جولة قصيرة أو جربوه مجانا على fieldsa.net \n\n'
     + '— — —\n\n'
     + 'Hello {{name}} team,\n\n'
     + 'Field Sales is an all-in-one platform to run your field reps and distribution: ZATCA-compliant tax invoicing, collections & receivables, van inventory, and live GPS tracking — all in one simple dashboard.\n\n'
@@ -978,7 +978,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     leadApi.huntConfig().then((r) => {
       const c = r.data.data as HuntConfig;
       setCfg(c);
-      setCountriesText(c.countries.join(' '));
+      setCountriesText(c.countries.join('، '));
     });
   }, []);
 
@@ -991,7 +991,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     try {
       const res = await leadApi.huntRun();
       const d = res.data.data as { country: string; keywords: string[]; found: number; imported: number; enrichedEmail: number };
-      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join(' ')})`, ...l].slice(0, 25));
+      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join('، ')})`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
       onDone();
@@ -1061,7 +1061,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
             <button
               onClick={async () => {
                 const all = (await leadApi.arabCountries()).data.data as string[];
-                setCountriesText(all.join(' '));
+                setCountriesText(all.join('، '));
                 await save({ countries: all });
                 toast.success(`فعلت ${all.length} دولة عربية 🌍`);
               }}
@@ -1286,7 +1286,7 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
   });
 
   useEffect(() => {
-    leadApi.communityConfig().then((r) => { const c = r.data.data as CommunityConfig; setCfg(c); setCountriesText(c.countries.join(' ')); });
+    leadApi.communityConfig().then((r) => { const c = r.data.data as CommunityConfig; setCfg(c); setCountriesText(c.countries.join('، ')); });
   }, []);
 
   const save = async (patch: Partial<CommunityConfig>) => {

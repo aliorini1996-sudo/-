@@ -61,12 +61,12 @@ const cta = (L) => P(L,
 const taxLine = (c, L) => {
   if (c.vat != null) {
     return P(L,
-      `تبلغ ضريبة القيمة المضافة ${c.inAr} نحو ${c.vat}٪ وتتولاها ${c.tax.ar}و${c.einv.ar}لذا يجب أن يصدر مندوبك فاتورة ضريبية منظمة من الميدان مباشرة`,
+      `تبلغ ضريبة القيمة المضافة ${c.inAr} نحو ${c.vat}٪ وتتولاها ${c.tax.ar} و${c.einv.ar} لذا يجب أن يصدر مندوبك فاتورة ضريبية منظمة من الميدان مباشرة`,
       `Value added tax ${c.inEn} is around ${c.vat}% and is administered by ${c.tax.en}, and ${c.einv.en}. Your rep must therefore issue a structured tax invoice directly from the field.`,
       `La TVA ${c.inFr} est d'environ ${c.vat} % et gérée par ${c.tax.fr} ; ${c.einv.fr}. Votre commercial doit donc émettre une facture structurée directement sur le terrain.`);
   }
   return P(L,
-    `${c.einv.ar} ${c.inAr}ومع ذلك يبقى إصدار فواتير منظمة وكشوف حساب دقيقة ضرورة إدارية ورقابية لكل شركة توزيع`,
+    `${c.einv.ar} ${c.inAr} ومع ذلك يبقى إصدار فواتير منظمة وكشوف حساب دقيقة ضرورة إدارية ورقابية لكل شركة توزيع`,
     `${c.einv.en} ${c.inEn}. Even so, issuing structured invoices and accurate customer statements remains an operational necessity for every distributor.`,
     `${c.einv.fr} ${c.inFr}. Malgré cela, émettre des factures structurées et des relevés précis reste indispensable pour tout distributeur.`);
 };
@@ -327,7 +327,7 @@ const PRIORITY_OPS = {
     fr: `<p>Avec des canaux répartis entre continent et zones franches, la marge par canal et par article compte plus que le chiffre brut. FieldSales affiche ventes et encaissement par client et article, et applique plusieurs listes de prix.</p>`,
   },
   EG: {
-    ar: `<p>في سوق يغلب عليه البيع الآجل المقياس الأهم هو معدل التحصيل وعمر الدين لا حجم البيع تقسم منصة FieldSales الذمم إلى شرائح عمرية ١ ٣٠ ٣١ ٦٠ ٦١ ٩٠ وما فوق ٩٠ يوما وتمنع البيع لعميل تجاوز حده الائتماني </p>`,
+    ar: `<p>في سوق يغلب عليه البيع الآجل المقياس الأهم هو معدل التحصيل وعمر الدين لا حجم البيع تقسم منصة FieldSales الذمم إلى شرائح عمرية ١–٣٠ ٣١–٦٠ ٦١–٩٠ وما فوق ٩٠ يوما وتمنع البيع لعميل تجاوز حده الائتماني </p>`,
     en: `<p>In a credit-driven market, the key metric is collection rate and debt age, not sale size. FieldSales splits receivables into ageing buckets (1–30, 31–60, 61–90, 90+ days) and raises an immediate alert when a customer goes over their credit limit, so management can act before the next drop.</p>`,
     fr: `<p>Dans un marché à crédit, l'indicateur clé est le taux d'encaissement et l'ancienneté de la dette, pas la taille de la vente. FieldSales répartit les créances par tranches d'âge (1–30, 31–60, 61–90, plus de 90 jours).</p>`,
   },
@@ -403,7 +403,7 @@ const S = {
     `<h2>ما معنى كاش فان ومن هو مندوب الكاش فان </h2>
      <p><strong>كاش فان Van Sales </strong> أسلوب توزيع يحمل فيه المندوب البضاعة في سيارته ويبيعها ويسلمها ويصدر فاتورتها ويحصل قيمتها في الزيارة نفسها بيع وتسليم وتحصيل في خطوة واحدة عند باب العميل لا طلب اليوم وتسليم غدا ويسمى أيضا البيع من السيارة أو البيع النقدي المتنقل </p>
      <p><strong>مندوب الكاش فان</strong> هو من ينفذ هذه الدورة يحمل سيارته صباحا بكميات محددة من كل صنف يمر على عملائه في خط سير مخطط يبيع ويطبع الفاتورة فورا يحصل نقدا أو آجلا وتظهر لوحة الإدارة آخر اليوم ما حمل وما بيع وما تبقى لكل صنف </p>
-     <p><strong>الفرق عن البيع بالطلب Pre-Sales </strong> في الكاش فان تنجز الصفقة والتسليم معا من مخزون السيارة أما في البيع بالطلب فيأخذ المندوب الطلب فقط ثم يسلم لاحقا من المستودع الكاش فان أسرع دورانا وأنسب للمواد الغذائية والاستهلاكية سريعة الحركة ${c.inAr}لكنه يحتاج ضبطا دقيقا لعهدة السيارة وإلا تسربت البضاعة والتحصيل </p>`,
+     <p><strong>الفرق عن البيع بالطلب Pre-Sales </strong> في الكاش فان تنجز الصفقة والتسليم معا من مخزون السيارة أما في البيع بالطلب فيأخذ المندوب الطلب فقط ثم يسلم لاحقا من المستودع الكاش فان أسرع دورانا وأنسب للمواد الغذائية والاستهلاكية سريعة الحركة ${c.inAr} لكنه يحتاج ضبطا دقيقا لعهدة السيارة وإلا تسربت البضاعة والتحصيل </p>`,
     `<h2>What is van sales (cash van)? And who is a van sales rep?</h2>
      <p><strong>Van sales</strong> — also called cash van or mobile selling — is a distribution model where the rep carries stock in their vehicle and sells, delivers, invoices and collects payment in the same visit, right at the customer's door, instead of taking an order today and delivering tomorrow.</p>
      <p>A <strong>van sales rep</strong> runs that full cycle: loads the van each morning with set quantities per item, follows a planned route, sells and prints the invoice on the spot, collects cash or credit, and management sees at day's end what was loaded, what was sold and what remains per item.</p>
@@ -425,7 +425,7 @@ const S = {
      <p>تصدر منصة FieldSales الفاتورة المبسطة برمز QR وطباعة حرارية فور إتمام البيع في الميدان وهي الأنسب لبيع المندوب المباشر حدد نوع الفاتورة حسب عميلك وراجع دائما مستشارا ضريبيا محليا لأحدث متطلبات ${c.tax.ar}</p>
      <h3>وما الفرق بين الفاتورة الضريبية والفاتورة الإلكترونية </h3>
      <p>سؤال يتكرر كثيرا وجوابه أنهما <strong>ليستا نوعين متقابلين</strong> الضريبية تصف <em>مضمون</em> الفاتورة بيانات البائع والمشتري والضريبة كما يفرضها النظام أما الإلكترونية فتصف <em>شكل إصدارها وحفظها</em> ملف رقمي منظم تقرأه الأنظمة بدل ورقة تكتب باليد </p>
-     <p>لذلك الفاتورة الواحدة تكون <strong>ضريبية وإلكترونية معا</strong> وهو المطلوب عمليا ${c.inAr}فاتورة تحمل الحقول الضريبية وتصدر رقميا برمز QR يقرأه الماسح والمقابل الحقيقي للفاتورة الإلكترونية هو الفاتورة الورقية لا الفاتورة الضريبية </p>`,
+     <p>لذلك الفاتورة الواحدة تكون <strong>ضريبية وإلكترونية معا</strong> وهو المطلوب عمليا ${c.inAr} فاتورة تحمل الحقول الضريبية وتصدر رقميا برمز QR يقرأه الماسح والمقابل الحقيقي للفاتورة الإلكترونية هو الفاتورة الورقية لا الفاتورة الضريبية </p>`,
     `<h2>Tax invoice vs simplified tax invoice: the difference</h2>
      <p>Under VAT ${c.inEn} there are two invoice types. A full <strong>tax invoice</strong> is issued for business-to-business (B2B) deals and includes the buyer's name, tax number and a tax breakdown. A <strong>simplified tax invoice</strong> is issued to the end consumer (B2C) at the point of sale, with fewer fields and a QR code — the right fit for a rep selling directly in the field.</p>
      <p>FieldSales issues the simplified invoice with a QR code and thermal printing the moment a sale closes in the field — the right fit for a rep selling directly. Choose the invoice type per customer, and always confirm the latest ${c.tax.en} requirements with a local tax advisor.</p>`,
@@ -616,7 +616,7 @@ const S = {
        <li><strong>نسبة التحصيل من المبيعات الآجلة </strong> استهدف 95٪ فأكثر خلال فترة الاستحقاق </li>
        <li><strong>الزيارات المنتجة لكل مندوب يوميا </strong> ما بين 20 و35 زيارة تنتهي بطلب أو تحصيل حسب كثافة المنطقة </li>
        <li><strong>فروقات مخزون السيارة </strong> أقل من 1٪ من قيمة البضاعة المحملة شهريا </li>
-       <li><strong>عمر الذمم المدينة </strong> يفضل ألا يتجاوز متوسطه 30 45 يوما ${c.inAr}</li>
+       <li><strong>عمر الذمم المدينة </strong> يفضل ألا يتجاوز متوسطه 30–45 يوما ${c.inAr}</li>
        <li><strong>زمن إصدار الفاتورة في الموقع </strong> أقل من دقيقتين من الطلب إلى الطباعة </li>
      </ul>
      <p>هذه المؤشرات الخمسة تلخص صحة عملية التوزيع إن تحسنت معا تحسنت سيولتك وهوامشك </p>`,
@@ -711,8 +711,8 @@ const S = {
     if (c.vat != null) {
       return P(L,
         `<h2>البيئة التنظيمية للتوزيع ${c.inAr}</h2>
-     <p>تعمل شركات التوزيع ${c.inAr} ضمن إطار ${c.tax.ar}تبلغ ضريبة القيمة المضافة نحو ${c.vat}٪ و${c.einv.ar}عمليا يعني ذلك أن كل فاتورة تصدر من الميدان يجب أن تكون منظمة وقابلة للتحقق لا ورقة مكتوبة بخط اليد${dAr}</p>
-     <p>تصدر منصة FieldSales فاتورة منظمة برمز QR وطباعة حرارية بعملة ${c.cur.ar}وتضبط التحصيل وكشوف الحساب وحدود الائتمان سواء عمل فريقك في ${cityJoin} أو المدن الأصغر هكذا يلتزم مندوبك بمتطلبات ${c.tax.ar} من أول زيارة ويبقى سجلك جاهزا للمراجعة </p>`,
+     <p>تعمل شركات التوزيع ${c.inAr} ضمن إطار ${c.tax.ar} تبلغ ضريبة القيمة المضافة نحو ${c.vat}٪ و${c.einv.ar} عمليا يعني ذلك أن كل فاتورة تصدر من الميدان يجب أن تكون منظمة وقابلة للتحقق لا ورقة مكتوبة بخط اليد${dAr}</p>
+     <p>تصدر منصة FieldSales فاتورة منظمة برمز QR وطباعة حرارية بعملة ${c.cur.ar} وتضبط التحصيل وكشوف الحساب وحدود الائتمان سواء عمل فريقك في ${cityJoin} أو المدن الأصغر هكذا يلتزم مندوبك بمتطلبات ${c.tax.ar} من أول زيارة ويبقى سجلك جاهزا للمراجعة </p>`,
         `<h2>The regulatory environment for distribution ${c.inEn}</h2>
      <p>Distributors ${c.inEn} operate under ${c.tax.en}: value added tax is around ${c.vat}%, and ${c.einv.en}. In practice, every invoice issued from the field must be structured and verifiable — not a handwritten note.${dEn}</p>
      <p>FieldSales issues a structured invoice with a QR code and thermal printing in ${c.cur.en}, and manages collection, statements and credit limits — whether your team covers ${cityJoin} or smaller towns. Your reps stay aligned with ${c.tax.en} from the first visit, and your records stay audit-ready.</p>`,
@@ -722,8 +722,8 @@ const S = {
     }
     return P(L,
       `<h2>البيئة التنظيمية للتوزيع ${c.inAr}</h2>
-     <p>${c.einv.ar} ${c.inAr}وتشرف ${c.tax.ar} على الجوانب الضريبية ومع غياب ضريبة قيمة مضافة عامة يبقى إصدار فواتير منظمة وكشوف حساب دقيقة ضرورة إدارية ورقابية لكل موزع يريد ضبط ذممه وحماية هوامشه${dAr}</p>
-     <p>تصدر منصة FieldSales فاتورة منظمة برمز QR بعملة ${c.cur.ar}وتضبط التحصيل وحدود الائتمان ومخزون السيارة سواء عمل فريقك في ${cityJoin} أو المدن الأصغر فتبقى بياناتك دقيقة وقراراتك مبنية على أرقام لحظية </p>`,
+     <p>${c.einv.ar} ${c.inAr} وتشرف ${c.tax.ar} على الجوانب الضريبية ومع غياب ضريبة قيمة مضافة عامة يبقى إصدار فواتير منظمة وكشوف حساب دقيقة ضرورة إدارية ورقابية لكل موزع يريد ضبط ذممه وحماية هوامشه${dAr}</p>
+     <p>تصدر منصة FieldSales فاتورة منظمة برمز QR بعملة ${c.cur.ar} وتضبط التحصيل وحدود الائتمان ومخزون السيارة سواء عمل فريقك في ${cityJoin} أو المدن الأصغر فتبقى بياناتك دقيقة وقراراتك مبنية على أرقام لحظية </p>`,
       `<h2>The regulatory environment for distribution ${c.inEn}</h2>
      <p>${c.einv.en} ${c.inEn}, with ${c.tax.en} overseeing tax matters. With no general VAT in place, issuing structured invoices and accurate statements is still an operational necessity for any distributor that wants to control receivables and protect margins.${dEn}</p>
      <p>FieldSales issues a structured invoice with a QR code in ${c.cur.en}, and manages collection, credit limits and van stock — whether your team covers ${cityJoin} or smaller towns — keeping your data accurate and your decisions based on live numbers.</p>`,
@@ -760,7 +760,7 @@ const S = {
   best: (c, L) => P(L,
     `<h2>كيف تقارن بين الأنظمة المتاحة ${c.inAr}</h2>
      <p>عند تقييم أي نظام مبيعات ميدانية ${c.inAr} قارن على خمسة محاور التوافق الضريبي المحلي (${c.tax.ar} و${c.cur.ar}) اكتمال دورة الميدان (طلب → فاتورة → تحصيل → مخزون سيارة) دعم العربية الكامل في التطبيق والمستندات سهولة بدء الاستخدام دون تركيب معقد وتكلفة واضحة بلا رسوم خفية </p>
-     <p>تتفوق <strong>منصة FieldSales</strong> في هذه المقارنة لأنها بنيت خصيصا لموزعي الأسواق العربية واجهة عربية أصلية فاتورة منظمة برمز QR تحصيل وكشوف حساب ب${c.cur.ar}مخزون سيارة وتتبع GPS وكلها تعمل من هاتف المندوب وتبدأ بتجربة مجانية 10 أيام دون بطاقة الأنظمة العالمية العامة غالبا ما تفتقر إلى التوطين الضريبي والعربية الكاملة والحلول المحلية الصغيرة تفتقر إلى اكتمال الدورة والمعيار الحاسم دائما جرب النظام على دورة بيع حقيقية كاملة قبل الالتزام </p>`,
+     <p>تتفوق <strong>منصة FieldSales</strong> في هذه المقارنة لأنها بنيت خصيصا لموزعي الأسواق العربية واجهة عربية أصلية فاتورة منظمة برمز QR تحصيل وكشوف حساب ب${c.cur.ar} مخزون سيارة وتتبع GPS وكلها تعمل من هاتف المندوب وتبدأ بتجربة مجانية 10 أيام دون بطاقة الأنظمة العالمية العامة غالبا ما تفتقر إلى التوطين الضريبي والعربية الكاملة والحلول المحلية الصغيرة تفتقر إلى اكتمال الدورة والمعيار الحاسم دائما جرب النظام على دورة بيع حقيقية كاملة قبل الالتزام </p>`,
     `<h2>How to compare the systems available ${c.inEn}</h2>
      <p>When evaluating any field sales system ${c.inEn}, compare on five axes: local tax compliance (${c.tax.en} and ${c.cur.en}), completeness of the field cycle (order → invoice → collection → van stock), full Arabic support in the app and documents, ease of starting without complex installation, and transparent pricing with no hidden fees.</p>
      <p><strong>FieldSales</strong> leads this comparison because it was built specifically for distributors in Arab markets: a native Arabic interface, structured QR invoices, collection and statements in ${c.cur.en}, van stock and GPS tracking — all from the rep's phone, with a free 10-day trial and no card required. Generic global tools often lack tax localization and full Arabic; small local tools lack cycle completeness. The decisive test: run one full real sales cycle before committing.</p>`,
@@ -800,7 +800,7 @@ const ANSWERS = {
     `Une application de vente en camion transforme le véhicule du commercial en entrepôt mobile et en point de vente : il voit exactement ce qu'il transporte, vend, imprime la facture sur une imprimante thermique, et l'article est déduit immédiatement du solde du véhicule. La différence essentielle avec la prévente : livraison, facturation et encaissement se font dans la même visite.`),
 
   'einvoicing-compliance': (c, L) => P(L,
-    `الفوترة الإلكترونية تعني إصدار الفاتورة بصيغة رقمية منظمة تقرأها الأنظمة لا الإنسان وحده بدل ورقة مكتوبة يدويا عمليا على المندوب تحمل الفاتورة بيانات البائع والمشتري والتاريخ والمبلغ والضريبة في رمز QR مقروء آليا وتخزن نسخة منها لا تعدل بأثر رجعي السياق الضريبي ${c.inAr}: ${c.einv.ar}وراجع دائما متطلبات ${c.tax.ar} السارية قبل اعتماد أي إعداد`,
+    `الفوترة الإلكترونية تعني إصدار الفاتورة بصيغة رقمية منظمة تقرأها الأنظمة لا الإنسان وحده بدل ورقة مكتوبة يدويا عمليا على المندوب تحمل الفاتورة بيانات البائع والمشتري والتاريخ والمبلغ والضريبة في رمز QR مقروء آليا وتخزن نسخة منها لا تعدل بأثر رجعي السياق الضريبي ${c.inAr}: ${c.einv.ar} وراجع دائما متطلبات ${c.tax.ar} السارية قبل اعتماد أي إعداد`,
     `E-invoicing means issuing the invoice in a structured digital format that systems can read, rather than a hand-written slip. In practice for the rep: the invoice carries seller, buyer, date, amount and tax in a machine-readable QR code, and a copy is stored that cannot be edited retroactively. Tax context ${c.inEn}: ${c.einv.en}. Always check the current requirements of ${c.tax.en} before settling on a configuration.`,
     `La facturation électronique consiste à émettre la facture dans un format numérique structuré, lisible par les systèmes, plutôt qu'un ticket manuscrit. Concrètement pour le commercial : la facture porte vendeur, acheteur, date, montant et taxe dans un code QR lisible par machine, et une copie non modifiable est conservée. Contexte fiscal ${c.inFr} : ${c.einv.fr}. Vérifiez toujours les exigences en vigueur de ${c.tax.fr}.`),
 
@@ -810,7 +810,7 @@ const ANSWERS = {
     `La gestion des commerciaux repose sur trois éléments mesurables plutôt que sur des impressions : ce que chacun a vendu, ce qu'il a encaissé sur les créances, et où il se trouvait pendant la journée. Le système attribue des droits explicites — quels clients il voit, s'il peut vendre à crédit ou au comptant seulement, et s'il peut vendre sous le prix catalogue et jusqu'à quelle remise maximale.`),
 
   'collection-receivables': (c, L) => P(L,
-    `التحصيل في التوزيع يفشل غالبا لسبب واحد لا أحد يعرف الرصيد الحقيقي للعميل لحظة الزيارة الحل أن يرى المندوب على جواله قبل أن يبيع رصيد العميل وأعمار ديونه وحد ائتمانه وأن يصدر سند القبض في مكانه فيخصم من الرصيد فورا عمليا تقسم الذمم إلى شرائح ١ ٣٠ ٣١ ٦٠ ٦١ ٩٠ أكثر من ٩٠ يوما لأن دينا عمره أربعة أشهر يحتاج تدخلا مختلفا عن دين هذا الأسبوع`,
+    `التحصيل في التوزيع يفشل غالبا لسبب واحد لا أحد يعرف الرصيد الحقيقي للعميل لحظة الزيارة الحل أن يرى المندوب على جواله قبل أن يبيع رصيد العميل وأعمار ديونه وحد ائتمانه وأن يصدر سند القبض في مكانه فيخصم من الرصيد فورا عمليا تقسم الذمم إلى شرائح ١–٣٠ ٣١–٦٠ ٦١–٩٠ أكثر من ٩٠ يوما لأن دينا عمره أربعة أشهر يحتاج تدخلا مختلفا عن دين هذا الأسبوع`,
     `Collection in distribution usually fails for one reason: nobody knows the customer's true balance at the moment of the visit. The fix is for the rep to see — before selling — the balance, the ageing of the debt and the credit limit on their phone, and to issue the receipt on the spot so the balance drops immediately. In practice receivables are split into buckets (1–30, 31–60, 61–90, 90+ days) because a four-month-old debt needs a different intervention from this week's.`,
     `L'encaissement en distribution échoue souvent pour une seule raison : personne ne connaît le solde réel du client au moment de la visite. La solution : que le commercial voie sur son téléphone — avant de vendre — le solde, l'ancienneté de la créance et la limite de crédit, et qu'il émette le reçu sur place. Les créances se répartissent en tranches (1–30, 31–60, 61–90, plus de 90 jours).`),
 
@@ -850,7 +850,7 @@ const ANSWERS = {
     `La gestion des clients en distribution diffère d'un CRM de vente : le client est ici un solde courant, pas une affaire à conclure. Chaque client porte sa propre liste de prix (gros, détail ou palier de quantité), une limite de crédit dont le dépassement déclenche une alerte immédiate, et un délai de paiement convenu. Une limite raisonnable se déduit du réel : achats mensuels moyens × délai ÷ trente.`),
 
   'best-field-sales-software': (c, L) => P(L,
-    `لا يوجد أفضل نظام مطلق يوجد أنسب نظام لحجمك وقطاعك اختبر أي مرشح على خمسة محاور قابلة للفحص قبل الالتزام هل يغطي الدورة كاملة طلب ← فاتورة ← تحصيل ← مخزون سيارة هل يعمل بلا إنترنت هل الواجهة والمستندات بالعربية فعلا لا مترجمة آليا هل يتوافق مع متطلبات ${c.tax.ar}وهل السعر معلن الاختبار الحاسم واحد نفذ دورة بيع حقيقية كاملة على النظام قبل الشراء`,
+    `لا يوجد أفضل نظام مطلق يوجد أنسب نظام لحجمك وقطاعك اختبر أي مرشح على خمسة محاور قابلة للفحص قبل الالتزام هل يغطي الدورة كاملة طلب ← فاتورة ← تحصيل ← مخزون سيارة هل يعمل بلا إنترنت هل الواجهة والمستندات بالعربية فعلا لا مترجمة آليا هل يتوافق مع متطلبات ${c.tax.ar} وهل السعر معلن الاختبار الحاسم واحد نفذ دورة بيع حقيقية كاملة على النظام قبل الشراء`,
     `There is no absolute "best system" — there is the system that fits your size and sector. Test any candidate on five checkable axes before committing: does it cover the full cycle (order → invoice → collection → van stock), does it work offline, is the interface and are the documents genuinely in Arabic rather than machine-translated, does it meet the requirements of ${c.tax.en}, and is the price published. The decisive test is one thing: run a complete real sales cycle on it before buying.`,
     `Il n'existe pas de « meilleur système » absolu — il existe celui qui convient à votre taille et à votre secteur. Évaluez tout candidat sur cinq axes vérifiables : couvre-t-il le cycle complet (commande → facture → encaissement → stock), fonctionne-t-il hors ligne, l'interface est-elle réellement en arabe, répond-il aux exigences de ${c.tax.fr}, et le prix est-il publié. Le test décisif : réaliser un cycle de vente réel complet avant d'acheter.`),
 
@@ -876,7 +876,7 @@ const ANSWERS = {
     `Les bonnes pratiques de la vente en camion tiennent à trois contrôles quotidiens : charger le véhicule d'après les ventes réelles de la tournée et non l'estimation du commercial, facturer pendant la visite plutôt qu'en fin de journée, et inventorier au retour en rapprochant le reliquat de l'attendu. L'erreur la plus coûteuse est de reporter l'inventaire à la fin du mois.`),
 
   'reduce-overdue-receivables': (c, L) => P(L,
-    `الذمم المتعثرة تعالج بالوقاية لا بالملاحقة ثلاثة إجراءات تحدث الفرق حد ائتمان مفعل ينبه الإدارة فور تجاوزه لتقرر إيقاف الآجل عن العميل وعرض رصيد العميل وأعمار ديونه على شاشة المندوب قبل أن يبيع وسند قبض يصدر في الزيارة فيخصم فورا أما التصنيف بشرائح ١ ٣٠ و٣١ ٦٠ و٦١ ٩٠ وأكثر فوظيفته ترتيب الأولوية الدين الأقدم أقل احتمالا للتحصيل وأولى بالتدخل`,
+    `الذمم المتعثرة تعالج بالوقاية لا بالملاحقة ثلاثة إجراءات تحدث الفرق حد ائتمان مفعل ينبه الإدارة فور تجاوزه لتقرر إيقاف الآجل عن العميل وعرض رصيد العميل وأعمار ديونه على شاشة المندوب قبل أن يبيع وسند قبض يصدر في الزيارة فيخصم فورا أما التصنيف بشرائح ١–٣٠ و٣١–٦٠ و٦١–٩٠ وأكثر فوظيفته ترتيب الأولوية الدين الأقدم أقل احتمالا للتحصيل وأولى بالتدخل`,
     `Overdue receivables are solved by prevention, not pursuit. Three measures make the difference: an enforced credit limit that blocks the sale rather than an alert that gets ignored, showing the customer's balance and debt ageing on the rep's screen before they sell, and issuing the receipt during the visit so the balance drops immediately. Bucketing into 1–30, 31–60, 61–90 and 90+ days exists to rank priority: older debt is less likely to be recovered and deserves intervention first.`,
     `Les impayés se traitent par la prévention, pas par la poursuite. Trois mesures font la différence : une limite de crédit qui bloque réellement la vente plutôt qu'une alerte ignorée, l'affichage du solde et de l'ancienneté de la dette sur l'écran du commercial avant qu'il ne vende, et l'émission du reçu pendant la visite. Les tranches 1–30, 31–60, 61–90 et plus servent à hiérarchiser.`),
 
@@ -886,7 +886,7 @@ const ANSWERS = {
     `La productivité d'un commercial terrain se mesure aux visites productives plutôt qu'au nombre de visites : combien se sont conclues par une commande réelle. L'améliorer commence par supprimer ce qui consomme du temps sans vendre — rédiger les factures à la main, appeler le bureau pour un solde ou une disponibilité, et tout ressaisir en fin de journée.`),
 
   'field-sales-kpis': (c, L) => P(L,
-    `ستة مؤشرات تكفي لقيادة فريق ميداني نسبة التغطية المنافذ المزارة ÷ المخططة الزيارة المنتجة الزيارات المنتهية بطلب ÷ الزيارات متوسط قيمة الفاتورة نسبة التحصيل إلى المستحق عمر الدين المتوسط ونسبة العجز في مخزون السيارة ما يجعل هذه المؤشرات صالحة ليس تعريفها بل مصدرها إن كانت مبنية على إدخال مكتبي مؤجل فهي تقيس الإدخال وإن كانت ملتقطة في الميدان لحظة الحدث فهي تقيس العمل`,
+    `ستة مؤشرات تكفي لقيادة فريق ميداني نسبة التغطية (المنافذ المزارة ÷ المخططة) الزيارة المنتجة (الزيارات المنتهية بطلب ÷ الزيارات) متوسط قيمة الفاتورة نسبة التحصيل إلى المستحق عمر الدين المتوسط ونسبة العجز في مخزون السيارة ما يجعل هذه المؤشرات صالحة ليس تعريفها بل مصدرها إن كانت مبنية على إدخال مكتبي مؤجل فهي تقيس الإدخال وإن كانت ملتقطة في الميدان لحظة الحدث فهي تقيس العمل`,
     `Six indicators are enough to run a field team: coverage rate (outlets visited ÷ planned), productive visit rate (visits ending in an order ÷ visits), average invoice value, collection against amount due, average debt age, and van stock shortage rate. What makes these valid is not their definition but their source: built on deferred office entry they measure the data entry; captured in the field at the moment of the event they measure the work.`,
     `Six indicateurs suffisent à piloter une équipe terrain : taux de couverture (points visités ÷ prévus), visites productives (visites avec commande ÷ visites), valeur moyenne de la facture, encaissement rapporté à l'échu, âge moyen de la créance, et taux d'écart sur le stock du véhicule. Leur validité tient à leur source : saisis sur le terrain, ils mesurent le travail.`),
 
@@ -901,7 +901,7 @@ const ANSWERS = {
     `L'impression thermique sur le terrain utilise une imprimante Bluetooth portable de 58 ou 80 mm qui imprime par la chaleur, sans encre. Trois points comptent : que le texte arabe s'imprime correctement, que le code QR soit assez net pour être lu depuis un téléphone, et que l'impression fonctionne hors ligne puisque l'imprimante est appairée directement à l'appareil.`),
 
   'credit-limit-control': (c, L) => P(L,
-    `حد الائتمان يعمل فعلا حين يمنع الفاتورة لا حين ينبه بعدها الفرق جوهري التنبيه يتجاهل تحت ضغط البيع أما المنع فيحول القرار من المندوب إلى سياسة الشركة ويجعل تجاوزه استثناء موثقا بموافقة لا حدثا صامتا تحديد الحد نفسه يشتق من الواقع متوسط مشتريات العميل الشهرية × مدة السداد ÷ ٣٠ ثم يراجع دوريا مع تغير سلوك السداد`,
+    `حد الائتمان يعمل فعلا حين يمنع الفاتورة لا حين ينبه بعدها الفرق جوهري التنبيه يتجاهل تحت ضغط البيع أما المنع فيحول القرار من المندوب إلى سياسة الشركة ويجعل تجاوزه استثناء موثقا بموافقة لا حدثا صامتا تحديد الحد نفسه يشتق من الواقع متوسط مشتريات العميل الشهرية × (مدة السداد ÷ ٣٠) ثم يراجع دوريا مع تغير سلوك السداد`,
     `A credit limit works when it blocks the invoice, not when it warns after the fact. The difference is structural: a warning is ignored under selling pressure, whereas a block moves the decision from the rep to company policy and turns an override into a documented, approved exception rather than a silent event. The limit itself is derived from reality: the customer's average monthly purchases × (payment term ÷ 30), reviewed periodically as payment behaviour changes.`,
     `Une limite de crédit fonctionne lorsqu'elle bloque la facture, pas lorsqu'elle avertit après coup. La différence est structurelle : un avertissement est ignoré sous la pression commerciale, alors qu'un blocage déplace la décision du commercial vers la politique de l'entreprise. La limite se déduit du réel : achats mensuels moyens × (délai de paiement ÷ 30).`),
 
@@ -950,19 +950,19 @@ function topicVat(c, L) {
 // (العملة، المدن، الجهة الضريبية) لا صفة عامّة.
 const LOCAL_ANCHOR = {
   'field-sales-software': (c, L) => P(L,
-    `وتدار بهذا الشكل ${c.inAr} خطوط سير تربط بين ${c.cap.ar} و${c.cities[0].ar}وتسجل المبالغ ب${c.cur.ar}.`,
+    `وتدار بهذا الشكل ${c.inAr} خطوط سير تربط بين ${c.cap.ar} و${c.cities[0].ar} وتسجل المبالغ ب${c.cur.ar}.`,
     `Run this way ${c.inEn}, routes link ${c.cap.en} with ${c.cities[0].en}, and amounts are recorded in ${c.cur.en}.`,
     `Ainsi organisées ${c.inFr}, les tournées relient ${c.cap.fr} à ${c.cities[0].fr}, et les montants sont enregistrés en ${c.cur.fr}.`),
   'best-field-sales-software': (c, L) => P(L,
-    `ونفذها على بيانات حقيقية من خط سير فعلي ${c.inAr} وبالمبالغ ب${c.cur.ar}لا على بيانات عرض جاهزة`,
+    `ونفذها على بيانات حقيقية من خط سير فعلي ${c.inAr} وبالمبالغ ب${c.cur.ar} لا على بيانات عرض جاهزة`,
     `Run it on real data from an actual route ${c.inEn}, with amounts in ${c.cur.en}, not on a prepared demo dataset.`,
     `Faites-le sur des données réelles d'une tournée effective ${c.inFr}, avec des montants en ${c.cur.fr}, et non sur un jeu de démonstration.`),
   'distribution-management-system': (c, L) => P(L,
-    `والتطبيق العملي ${c.inAr} يعني أن تصدر الفواتير وكشوف الحساب ب${c.cur.ar}وأن يغطي خط السير الواحد منافذ متباعدة بين ${c.cap.ar} و${c.cities[0].ar}.`,
+    `والتطبيق العملي ${c.inAr} يعني أن تصدر الفواتير وكشوف الحساب ب${c.cur.ar} وأن يغطي خط السير الواحد منافذ متباعدة بين ${c.cap.ar} و${c.cities[0].ar}.`,
     `In practice ${c.inEn}, invoices and statements are issued in ${c.cur.en}, and a single route often spans outlets scattered between ${c.cap.en} and ${c.cities[0].en}.`,
     `En pratique ${c.inFr}, les factures et relevés sont émis en ${c.cur.fr}, et une seule tournée couvre souvent des points de vente dispersés entre ${c.cap.fr} et ${c.cities[0].fr}.`),
   'van-sales-app': (c, L) => P(L,
-    `ويستخدم هذا النموذج ${c.inAr} لتغطية المنافذ الصغيرة المتناثرة في ${c.cap.ar} و${c.cities[0].ar}حيث الطلب يومي والكميات صغيرة فلا تحتمل دورة طلب وتوريد منفصلة`,
+    `ويستخدم هذا النموذج ${c.inAr} لتغطية المنافذ الصغيرة المتناثرة في ${c.cap.ar} و${c.cities[0].ar} حيث الطلب يومي والكميات صغيرة فلا تحتمل دورة طلب وتوريد منفصلة`,
     `This model is used ${c.inEn} to cover small outlets scattered across ${c.cap.en} and ${c.cities[0].en}, where demand is daily and quantities small — too small to justify a separate order-then-deliver cycle.`,
     `Ce modèle est utilisé ${c.inFr} pour couvrir les petits points de vente dispersés entre ${c.cap.fr} et ${c.cities[0].fr}, où la demande est quotidienne et les quantités faibles.`),
   'sales-rep-management': (c, L) => P(L,
@@ -990,7 +990,7 @@ const LOCAL_ANCHOR = {
     `This bites hardest ${c.inEn} in seasons when demand jumps suddenly, vans are loaded beyond the norm and tracking what left them becomes hard.`,
     `L'effet est maximal ${c.inFr} lors des saisons où la demande bondit, les véhicules étant chargés au-delà de la normale. La <strong>distribution laitière</strong> en est le cas le plus vif dans son segment frais : lait frais et yaourts se comptent en jours, tandis que l'UHT, la poudre et les fromages à pâte dure se comportent comme des produits secs — une même tournée transporte souvent les deux.`),
   'fmcg-distribution': (c, L) => P(L,
-    `وتتركز هذه المنافذ ${c.inAr} في ${c.cap.ar} و${c.cities[0].ar}فيصير تخطيط خط السير هو ما يحدد كم منفذا يمكن تغطيته في اليوم الواحد`,
+    `وتتركز هذه المنافذ ${c.inAr} في ${c.cap.ar} و${c.cities[0].ar} فيصير تخطيط خط السير هو ما يحدد كم منفذا يمكن تغطيته في اليوم الواحد`,
     `These outlets cluster ${c.inEn} around ${c.cap.en} and ${c.cities[0].en}, so route planning is what determines how many can be covered in a single day.`,
     `Ces points de vente se concentrent ${c.inFr} autour de ${c.cap.fr} et ${c.cities[0].fr} ; la planification de la tournée détermine donc combien peuvent être couverts en une journée.`),
   'mobile-field-invoicing': (c, L) => P(L,
@@ -998,7 +998,7 @@ const LOCAL_ANCHOR = {
     `The invoice ${c.inEn} is issued in ${c.cur.en} according to what applies at ${c.tax.en} at the time of issue.`,
     `La facture ${c.inFr} est émise en ${c.cur.fr} selon ce qui s'applique auprès de ${c.tax.fr} au moment de l'émission.`),
   'distribution-customer-management': (c, L) => P(L,
-    `وتحدد الحدود ${c.inAr} ب${c.cur.ar}وتراجع دوريا مع تغير سلوك السداد لكل عميل بدل تثبيتها مرة واحدة`,
+    `وتحدد الحدود ${c.inAr} ب${c.cur.ar} وتراجع دوريا مع تغير سلوك السداد لكل عميل بدل تثبيتها مرة واحدة`,
     `Limits ${c.inEn} are set in ${c.cur.en} and revisited periodically as each customer's payment behaviour changes, rather than fixed once.`,
     `Les limites ${c.inFr} sont fixées en ${c.cur.fr} et révisées périodiquement selon l'évolution du comportement de paiement de chaque client.`),
 };
@@ -1026,128 +1026,128 @@ const TOPICS = [
   // ---------- موضوعات خاصة بكل دولة (13) ----------
   { id: 'field-sales-software', cs: true, rm: 7,
     label: svc('برنامج إدارة مناديب المبيعات الميدانية', 'Field Sales Management Software', 'Logiciel de gestion des ventes terrain'),
-    kw: (c, L) => P(L, `برنامج مبيعات ميدانية ${c.ar}نظام إدارة مناديب ${c.ar}برنامج توزيع فاتورة ضريبية تحصيل`, `field sales software ${c.en}, sales rep management ${c.en}, distribution software, tax invoice, collection`, `logiciel de vente terrain ${c.fr}, gestion des commerciaux ${c.fr}, distribution, facturation`),
+    kw: (c, L) => P(L, `برنامج مبيعات ميدانية ${c.ar}, نظام إدارة مناديب ${c.ar}, برنامج توزيع, فاتورة ضريبية, تحصيل`, `field sales software ${c.en}, sales rep management ${c.en}, distribution software, tax invoice, collection`, `logiciel de vente terrain ${c.fr}, gestion des commerciaux ${c.fr}, distribution, facturation`),
     secs: ['why', 'invoice', 'tax', 'collect', 'features', 'howstart', 'cta'] },
   { id: 'distribution-management-system', cs: true, rm: 7,
     // «Distributor Management System Software» = الصيغة الصاعدة +140% في مؤشرات Google — مطابقة تامّة في العنوان/H1.
     label: svc('نظام إدارة الموزعين وشركات التوزيع والجملة DMS', 'Distributor Management System (DMS) Software', 'Logiciel de gestion de la distribution et des distributeurs (DMS)'),
-    kw: (c, L) => P(L, `نظام إدارة الموزعين ${c.ar}نظام توزيع ${c.ar}برنامج شركات الجملة ${c.ar}مخزون كشوف حساب`, `distributor management system software ${c.en}, distributor management system ${c.en}, DMS software ${c.en}, distribution management system ${c.en}, wholesale software ${c.en}`, `système de gestion de la distribution ${c.fr}, logiciel de gestion des distributeurs ${c.fr}, distribution fmcg ${c.fr}, système de gestion des distributeurs fmcg, DMS ${c.fr}, logiciel de gros ${c.fr}`),
+    kw: (c, L) => P(L, `نظام إدارة الموزعين ${c.ar}, نظام توزيع ${c.ar}, برنامج شركات الجملة ${c.ar}, مخزون, كشوف حساب`, `distributor management system software ${c.en}, distributor management system ${c.en}, DMS software ${c.en}, distribution management system ${c.en}, wholesale software ${c.en}`, `système de gestion de la distribution ${c.fr}, logiciel de gestion des distributeurs ${c.fr}, distribution fmcg ${c.fr}, système de gestion des distributeurs fmcg, DMS ${c.fr}, logiciel de gros ${c.fr}`),
     secs: ['why', 'vanstock', 'crm', 'reports', 'collect', 'cta'] },
   { id: 'van-sales-app', cs: true, rm: 6,
     // ⚠️ «البيع من السيارة» يُرجع 10/10 مواقع سيارات مستعملة (قياس SERP مصر والخليج) — انقلاب نيّة تامّ.
     // المصطلح العامل هو المنقول «كاش فان» + «مناديب التوزيع» (يعمل في مصر أيضاً).
     label: svc('تطبيق كاش فان لمناديب التوزيع Van Sales', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
-    kw: (c, L) => P(L, `تطبيق فان سيلز ${c.ar}البيع من السيارة ${c.ar}مخزون سيارة المندوب توزيع متنقل`, `van sales app ${c.en}, mobile selling ${c.en}, van stock, mobile distribution`, `application van sales ${c.fr}, vente en camion ${c.fr}, stock véhicule`),
+    kw: (c, L) => P(L, `تطبيق فان سيلز ${c.ar}, البيع من السيارة ${c.ar}, مخزون سيارة المندوب, توزيع متنقل`, `van sales app ${c.en}, mobile selling ${c.en}, van stock, mobile distribution`, `application van sales ${c.fr}, vente en camion ${c.fr}, stock véhicule`),
     secs: ['vansalesmeaning', 'why', 'vanstock', 'invoice', 'gps', 'offline', 'cta'] },
   { id: 'einvoicing-compliance', cs: true, rm: 6,
     label: svc('الفوترة الإلكترونية والالتزام الضريبي', 'E-Invoicing & Tax Compliance', 'Facturation électronique et conformité'),
-    kw: (c, L) => P(L, `الفوترة الإلكترونية ${c.ar}فاتورة ضريبية ${c.ar}ضريبة القيمة المضافة ${c.tax.ar}`, `e-invoicing ${c.en}, tax invoice ${c.en}, VAT, ${c.tax.en}`, `facturation électronique ${c.fr}, TVA ${c.fr}, ${c.tax.fr}`),
+    kw: (c, L) => P(L, `الفوترة الإلكترونية ${c.ar}, فاتورة ضريبية ${c.ar}, ضريبة القيمة المضافة, ${c.tax.ar}`, `e-invoicing ${c.en}, tax invoice ${c.en}, VAT, ${c.tax.en}`, `facturation électronique ${c.fr}, TVA ${c.fr}, ${c.tax.fr}`),
     secs: ['tax', 'invoice', 'invoicetypes', 'features', 'faq', 'cta'] },
   { id: 'sales-rep-management', cs: true, rm: 6,
     label: svc('برنامج متابعة المناديب والتحصيل', 'Sales Rep Management', 'Gestion des commerciaux'),
-    kw: (c, L) => P(L, `إدارة مناديب ${c.ar}صلاحيات المندوب متابعة أداء المندوبين ${c.ar}تحصيل`, `sales rep management ${c.en}, rep permissions, rep performance ${c.en}`, `gestion des commerciaux ${c.fr}, droits, performance ${c.fr}`),
+    kw: (c, L) => P(L, `إدارة مناديب ${c.ar}, صلاحيات المندوب, متابعة أداء المندوبين ${c.ar}, تحصيل`, `sales rep management ${c.en}, rep permissions, rep performance ${c.en}`, `gestion des commerciaux ${c.fr}, droits, performance ${c.fr}`),
     secs: ['reps', 'gps', 'reports', 'collect', 'cta'] },
   { id: 'collection-receivables', cs: true, rm: 6,
     label: svc('برنامج تحصيل المناديب والذمم والمديونيات', 'Collection & Receivables', 'Recouvrement de créances et encaissement terrain'),
-    kw: (c, L) => P(L, `تحصيل ${c.ar}إدارة الذمم ${c.ar}كشف حساب العميل حد ائتمان ديون متعثرة`, `collection ${c.en}, receivables ${c.en}, customer statement, credit limit`, `recouvrement de créances ${c.fr}, recouvrement de créances en ${c.fr}, encaissement ${c.fr}, créances ${c.fr}, relevé client, limite de crédit`),
+    kw: (c, L) => P(L, `تحصيل ${c.ar}, إدارة الذمم ${c.ar}, كشف حساب العميل, حد ائتمان, ديون متعثرة`, `collection ${c.en}, receivables ${c.en}, customer statement, credit limit`, `recouvrement de créances ${c.fr}, recouvrement de créances en ${c.fr}, encaissement ${c.fr}, créances ${c.fr}, relevé client, limite de crédit`),
     secs: ['collect', 'crm', 'reports', 'roi', 'cta'] },
   { id: 'gps-rep-tracking', cs: true, rm: 5,
     label: svc('برنامج متابعة وتتبع المناديب GPS وخط السير', 'GPS Rep Tracking', 'Suivi GPS des commerciaux'),
-    kw: (c, L) => P(L, `تتبع المناديب ${c.ar}GPS مندوب خطوط سير تغطية مناطق ${c.ar}`, `rep tracking ${c.en}, GPS sales, route planning ${c.en}`, `suivi commerciaux ${c.fr}, GPS, tournées ${c.fr}`),
+    kw: (c, L) => P(L, `تتبع المناديب ${c.ar}, GPS مندوب, خطوط سير, تغطية مناطق ${c.ar}`, `rep tracking ${c.en}, GPS sales, route planning ${c.en}`, `suivi commerciaux ${c.fr}, GPS, tournées ${c.fr}`),
     secs: ['gps', 'reps', 'reports', 'cta'] },
   { id: 'van-stock-inventory', cs: true, rm: 5,
     label: svc('جرد عهدة المندوب وبضاعة سيارة التوزيع', 'Van Stock & Inventory', 'Stock du véhicule et inventaire'),
-    kw: (c, L) => P(L, `مخزون سيارة المندوب ${c.ar}جرد المخزون ${c.ar}عجز وفروقات توزيع`, `van stock ${c.en}, inventory ${c.en}, stock variance, distribution`, `stock véhicule ${c.fr}, inventaire ${c.fr}, écarts`),
+    kw: (c, L) => P(L, `مخزون سيارة المندوب ${c.ar}, جرد المخزون ${c.ar}, عجز وفروقات, توزيع`, `van stock ${c.en}, inventory ${c.en}, stock variance, distribution`, `stock véhicule ${c.fr}, inventaire ${c.fr}, écarts`),
     secs: ['vanstock', 'reports', 'features', 'cta'] },
   { id: 'sales-reports-analytics', cs: true, rm: 5,
     label: svc('تقارير وتحليلات المبيعات', 'Sales Reports & Analytics', 'Rapports et analyses des ventes'),
-    kw: (c, L) => P(L, `تقارير مبيعات ${c.ar}تحليلات ${c.ar}أداء المناديب لوحة تحكم`, `sales reports ${c.en}, analytics ${c.en}, rep performance, dashboard`, `rapports de ventes ${c.fr}, analyses ${c.fr}, tableau de bord`),
+    kw: (c, L) => P(L, `تقارير مبيعات ${c.ar}, تحليلات ${c.ar}, أداء المناديب, لوحة تحكم`, `sales reports ${c.en}, analytics ${c.en}, rep performance, dashboard`, `rapports de ventes ${c.fr}, analyses ${c.fr}, tableau de bord`),
     secs: ['reports', 'collect', 'roi', 'cta'] },
   { id: 'wholesale-food-distributors', cs: true, rm: 6,
     label: svc('حلول موزعي المواد الغذائية والجملة', 'Food, Dairy & Wholesale Distribution Solutions', 'Solutions pour la distribution alimentaire, laitière et de gros'),
-    kw: (c, L) => P(L, `موزع مواد غذائية ${c.ar}تجارة جملة ${c.ar}توزيع أغذية توزيع ألبان فاتورة تحصيل`, `food distributor ${c.en}, dairy distribution ${c.en}, wholesale ${c.en}, FMCG distribution, invoicing`, `distributeur alimentaire ${c.fr}, distribution laitière ${c.fr}, gros ${c.fr}, distribution`),
+    kw: (c, L) => P(L, `موزع مواد غذائية ${c.ar}, تجارة جملة ${c.ar}, توزيع أغذية, توزيع ألبان, فاتورة, تحصيل`, `food distributor ${c.en}, dairy distribution ${c.en}, wholesale ${c.en}, FMCG distribution, invoicing`, `distributeur alimentaire ${c.fr}, distribution laitière ${c.fr}, gros ${c.fr}, distribution`),
     secs: ['why', 'vanstock', 'crm', 'invoice', 'cta'] },
   { id: 'fmcg-distribution', cs: true, rm: 6,
     label: svc('برنامج مناديب توزيع FMCG والمواد الغذائية', 'FMCG Trade Marketing & Distribution', 'Distribution de produits de grande consommation (FMCG)'),
-    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}سلع استهلاكية ${c.ar}تسويق تجاري مناديب توزيع مخزون سيارة`, `FMCG distribution ${c.en}, FMCG distributors ${c.en}, trade marketing and distribution ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, marketing commercial ${c.fr}, biens de consommation ${c.fr}`),
+    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, تسويق تجاري, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, FMCG distributors ${c.en}, trade marketing and distribution ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, marketing commercial ${c.fr}, biens de consommation ${c.fr}`),
     secs: ['why', 'gps', 'vanstock', 'reports', 'cta'] },
   { id: 'mobile-field-invoicing', cs: true, rm: 5,
     label: svc('تطبيق فواتير المناديب من الجوال', 'Offline Field Sales App & Mobile Invoicing', 'Application de vente terrain hors ligne et facturation mobile'),
-    kw: (c, L) => P(L, `فوترة من الجوال ${c.ar}طباعة حرارية فاتورة QR ${c.ar}تطبيق مندوب`, `mobile invoicing ${c.en}, thermal printing, QR invoice ${c.en}`, `facturation mobile ${c.fr}, impression thermique, facture QR`),
+    kw: (c, L) => P(L, `فوترة من الجوال ${c.ar}, طباعة حرارية, فاتورة QR ${c.ar}, تطبيق مندوب`, `mobile invoicing ${c.en}, thermal printing, QR invoice ${c.en}`, `facturation mobile ${c.fr}, impression thermique, facture QR`),
     secs: ['invoice', 'tax', 'offline', 'howstart', 'cta'] },
   { id: 'distribution-customer-management', cs: true, rm: 5,
     label: svc('إدارة عملاء التوزيع وحدود الائتمان', 'Distribution Customer & Credit Management', 'Gestion des clients et du crédit'),
-    kw: (c, L) => P(L, `إدارة عملاء ${c.ar}حدود ائتمان ${c.ar}كشوف حساب شرائح أسعار`, `customer management ${c.en}, credit limits ${c.en}, statements, price tiers`, `gestion des clients ${c.fr}, limites de crédit ${c.fr}, relevés`),
+    kw: (c, L) => P(L, `إدارة عملاء ${c.ar}, حدود ائتمان ${c.ar}, كشوف حساب, شرائح أسعار`, `customer management ${c.en}, credit limits ${c.en}, statements, price tiers`, `gestion des clients ${c.fr}, limites de crédit ${c.fr}, relevés`),
     secs: ['crm', 'collect', 'reports', 'cta'] },
 
   // ---------- موضوعات عامة (14) ----------
   { id: 'what-is-field-sales-management', cs: false, rm: 6,
     label: svc('ما هو برنامج إدارة المناديب نظام المبيعات الميدانية', 'What Is Field Sales Management Software?', "Qu'est-ce qu'un logiciel de vente terrain ?"),
-    kw: (c, L) => P(L, `نظام إدارة مبيعات ميدانية تعريف مناديب توزيع فاتورة`, `field sales management software, definition, reps, distribution`, `logiciel de vente terrain, définition, commerciaux, distribution`),
+    kw: (c, L) => P(L, `نظام إدارة مبيعات ميدانية, تعريف, مناديب, توزيع, فاتورة`, `field sales management software, definition, reps, distribution`, `logiciel de vente terrain, définition, commerciaux, distribution`),
     secs: ['why', 'invoice', 'collect', 'reports', 'features', 'cta'] },
   // مقال ركيزة عام (صفحة واحدة لا 22) — «retail execution» طلبه ضعف DMS في مؤشرات Google،
   // ومصطلح دقيق بلا التباس، وميزاته قائمة فعلاً (زيارات ميدانية بصور + تصنيف قنوات البيع).
   { id: 'retail-execution', cs: false, rm: 7,
     label: svc('التنفيذ في نقاط البيع Retail Execution', 'Retail Execution for FMCG Distributors', 'Exécution retail pour les distributeurs FMCG'),
-    kw: (c, L) => P(L, `التنفيذ في نقاط البيع زيارات المناديب قنوات البيع تغطية المنافذ حصة الرف`, `retail execution, retail execution software, field visits, outlet coverage, sales channel, perfect store`, `exécution retail, visites terrain, couverture des points de vente, canaux de vente`),
+    kw: (c, L) => P(L, `التنفيذ في نقاط البيع, زيارات المناديب, قنوات البيع, تغطية المنافذ, حصة الرف`, `retail execution, retail execution software, field visits, outlet coverage, sales channel, perfect store`, `exécution retail, visites terrain, couverture des points de vente, canaux de vente`),
     secs: ['why', 'crm', 'gps', 'reports', 'features', 'cta'] },
   { id: 'how-to-choose-field-sales-system', cs: false, rm: 6,
     label: svc('كيف تختار نظام مبيعات ميدانية مناسبا', 'How to Choose a Field Sales System', 'Comment choisir un système de vente terrain'),
-    kw: (c, L) => P(L, `اختيار نظام مبيعات ميدانية معايير مقارنة برنامج توزيع`, `choose field sales system, criteria, comparison, distribution software`, `choisir un système de vente terrain, critères, comparaison`),
+    kw: (c, L) => P(L, `اختيار نظام مبيعات ميدانية, معايير, مقارنة, برنامج توزيع`, `choose field sales system, criteria, comparison, distribution software`, `choisir un système de vente terrain, critères, comparaison`),
     secs: ['features', 'tax', 'reps', 'faq', 'cta'] },
   { id: 'van-sales-best-practices', cs: false, rm: 6,
     label: svc('أفضل ممارسات البيع من السيارة', 'Van Sales Best Practices', 'Bonnes pratiques de la vente en camion'),
-    kw: (c, L) => P(L, `البيع من السيارة أفضل الممارسات مخزون سيارة خطوط سير`, `van sales best practices, van stock, routes`, `vente en camion, bonnes pratiques, tournées`),
+    kw: (c, L) => P(L, `البيع من السيارة, أفضل الممارسات, مخزون سيارة, خطوط سير`, `van sales best practices, van stock, routes`, `vente en camion, bonnes pratiques, tournées`),
     secs: ['vanstock', 'gps', 'invoice', 'reports', 'cta'] },
   { id: 'reduce-overdue-receivables', cs: false, rm: 6,
     label: svc('كيف تقلل الذمم المتعثرة', 'How to Reduce Overdue Receivables', 'Comment réduire les impayés'),
-    kw: (c, L) => P(L, `تقليل الديون المتعثرة تحصيل حدود ائتمان سيولة`, `reduce overdue receivables, collection, credit limits, cash flow`, `réduire les impayés, encaissement, trésorerie`),
+    kw: (c, L) => P(L, `تقليل الديون المتعثرة, تحصيل, حدود ائتمان, سيولة`, `reduce overdue receivables, collection, credit limits, cash flow`, `réduire les impayés, encaissement, trésorerie`),
     secs: ['collect', 'crm', 'roi', 'reports', 'cta'] },
   { id: 'increase-rep-productivity', cs: false, rm: 6,
     label: svc('رفع إنتاجية المندوب الميداني', 'Increase Field Rep Productivity', 'Augmenter la productivité des commerciaux'),
-    kw: (c, L) => P(L, `إنتاجية المندوب زيارات منتجة تتبع تقارير أداء`, `rep productivity, productive visits, tracking, performance`, `productivité commerciale, visites, suivi`),
+    kw: (c, L) => P(L, `إنتاجية المندوب, زيارات منتجة, تتبع, تقارير أداء`, `rep productivity, productive visits, tracking, performance`, `productivité commerciale, visites, suivi`),
     secs: ['gps', 'reps', 'reports', 'offline', 'cta'] },
   { id: 'field-sales-kpis', cs: false, rm: 6,
     label: svc('أهم مؤشرات أداء المبيعات الميدانية', 'Key Field Sales KPIs', 'Indicateurs clés de la vente terrain'),
-    kw: (c, L) => P(L, `مؤشرات أداء المبيعات KPI تحصيل زيارات أداء مناديب`, `field sales KPIs, collection, visits, rep performance`, `indicateurs de vente, KPI, visites, performance`),
+    kw: (c, L) => P(L, `مؤشرات أداء المبيعات, KPI, تحصيل, زيارات, أداء مناديب`, `field sales KPIs, collection, visits, rep performance`, `indicateurs de vente, KPI, visites, performance`),
     secs: ['reports', 'collect', 'gps', 'roi', 'cta'] },
   { id: 'offline-field-sales-app', cs: false, rm: 5,
     label: svc('تطبيق مناديب يعمل بدون إنترنت أوفلاين', 'Why Offline Matters in Field Sales', "L'importance du mode hors ligne"),
-    kw: (c, L) => P(L, `تطبيق بلا إنترنت مزامنة ميدان مبيعات`, `offline app, sync, field sales`, `application hors ligne, synchronisation, terrain`),
+    kw: (c, L) => P(L, `تطبيق بلا إنترنت, مزامنة, ميدان, مبيعات`, `offline app, sync, field sales`, `application hors ligne, synchronisation, terrain`),
     secs: ['offline', 'invoice', 'vanstock', 'cta'] },
   { id: 'thermal-printing-invoices', cs: false, rm: 5,
     label: svc('الطباعة الحرارية للفواتير في الميدان', 'Thermal Printing of Field Invoices', 'Impression thermique des factures'),
-    kw: (c, L) => P(L, `طباعة حرارية فاتورة 58مم طابعة محمولة فوترة ميدانية`, `thermal printing, 58mm invoice, portable printer`, `impression thermique, facture 58 mm, imprimante portable`),
+    kw: (c, L) => P(L, `طباعة حرارية, فاتورة 58مم, طابعة محمولة, فوترة ميدانية`, `thermal printing, 58mm invoice, portable printer`, `impression thermique, facture 58 mm, imprimante portable`),
     secs: ['invoice', 'tax', 'howstart', 'cta'] },
   { id: 'credit-limit-control', cs: false, rm: 5,
     label: svc('ضبط حدود الائتمان لعملاء التوزيع', 'Controlling Credit Limits', 'Maîtriser les limites de crédit'),
-    kw: (c, L) => P(L, `حدود ائتمان ديون العملاء تنبيهات تحصيل`, `credit limits, customer debt, alerts, collection`, `limites de crédit, dettes clients, alertes`),
+    kw: (c, L) => P(L, `حدود ائتمان, ديون العملاء, تنبيهات, تحصيل`, `credit limits, customer debt, alerts, collection`, `limites de crédit, dettes clients, alertes`),
     secs: ['collect', 'crm', 'reports', 'cta'] },
   { id: 'pricing-tiers-strategy', cs: false, rm: 5,
     label: svc('سياسات التسعير وشرائح الأسعار', 'Pricing Tiers Strategy', 'Stratégie de grilles tarifaires'),
-    kw: (c, L) => P(L, `شرائح أسعار تسعير جملة وتجزئة قوائم أسعار عملاء`, `price tiers, wholesale retail pricing, price lists`, `grilles tarifaires, prix gros détail, listes de prix`),
+    kw: (c, L) => P(L, `شرائح أسعار, تسعير جملة وتجزئة, قوائم أسعار, عملاء`, `price tiers, wholesale retail pricing, price lists`, `grilles tarifaires, prix gros détail, listes de prix`),
     secs: ['crm', 'reps', 'reports', 'cta'] },
   { id: 'digital-transformation-distribution', cs: false, rm: 6,
     label: svc('التحول الرقمي لشركات التوزيع', 'Digital Transformation for Distributors', 'Transformation digitale des distributeurs'),
-    kw: (c, L) => P(L, `تحول رقمي شركات توزيع أتمتة مبيعات ميدانية`, `digital transformation, distributors, automation, field sales`, `transformation digitale, distributeurs, automatisation`),
+    kw: (c, L) => P(L, `تحول رقمي, شركات توزيع, أتمتة, مبيعات ميدانية`, `digital transformation, distributors, automation, field sales`, `transformation digitale, distributeurs, automatisation`),
     secs: ['why', 'invoice', 'reports', 'roi', 'cta'] },
   { id: 'route-planning-sales', cs: false, rm: 5,
     label: svc('تخطيط خطوط سير المناديب', 'Sales Route Planning', 'Planification des tournées'),
-    kw: (c, L) => P(L, `خطوط سير تخطيط زيارات تغطية مناطق تتبع`, `route planning, visit planning, coverage, tracking`, `planification des tournées, couverture, suivi`),
+    kw: (c, L) => P(L, `خطوط سير, تخطيط زيارات, تغطية مناطق, تتبع`, `route planning, visit planning, coverage, tracking`, `planification des tournées, couverture, suivi`),
     secs: ['gps', 'reps', 'reports', 'cta'] },
   { id: 'whatsapp-sales-followup', cs: false, rm: 5,
     label: svc('متابعة مبيعات التوزيع عبر واتساب', 'Following Up Distribution Sales on WhatsApp', 'Suivi des ventes via WhatsApp'),
-    kw: (c, L) => P(L, `واتساب مبيعات متابعة عملاء تواصل توزيع`, `whatsapp sales, customer follow-up, distribution`, `ventes WhatsApp, suivi clients, distribution`),
+    kw: (c, L) => P(L, `واتساب مبيعات, متابعة عملاء, تواصل, توزيع`, `whatsapp sales, customer follow-up, distribution`, `ventes WhatsApp, suivi clients, distribution`),
     secs: ['crm', 'collect', 'reports', 'cta'] },
   { id: 'field-sales-system-roi', cs: false, rm: 6,
     label: svc('العائد على الاستثمار من نظام المبيعات الميدانية', 'ROI of a Field Sales System', "Le ROI d'un système de vente terrain"),
-    kw: (c, L) => P(L, `عائد استثمار تكلفة نظام توفير تحصيل فاقد`, `ROI, system cost, savings, collection, waste`, `ROI, coût, économies, encaissement`),
+    kw: (c, L) => P(L, `عائد استثمار, تكلفة نظام, توفير, تحصيل, فاقد`, `ROI, system cost, savings, collection, waste`, `ROI, coût, économies, encaissement`),
     secs: ['roi', 'collect', 'vanstock', 'features', 'cta'] },
 
   // ---------- موضوع المقارنة (يستهدف نية الشراء «أفضل نظام») — مُضاف في النهاية للحفاظ على تواريخ المقالات السابقة ----------
   { id: 'best-field-sales-software', cs: true, rm: 8,
     label: svc('أفضل برنامج إدارة مناديب وتوزيع', 'Best Field Sales & Distribution Software', 'Meilleurs logiciels de vente terrain et distribution'),
-    kw: (c, L) => P(L, `أفضل برنامج مبيعات ميدانية ${c.ar}أفضل نظام توزيع ${c.ar}مقارنة برامج المناديب أفضل تطبيق فان سيلز ${c.ar}برنامج مبيعات موصى به`, `best field sales software ${c.en}, top distribution system ${c.en}, van sales app comparison, recommended sales rep software ${c.en}`, `meilleur logiciel de vente terrain ${c.fr}, meilleur système de distribution ${c.fr}, comparatif applications commerciaux`),
+    kw: (c, L) => P(L, `أفضل برنامج مبيعات ميدانية ${c.ar}, أفضل نظام توزيع ${c.ar}, مقارنة برامج المناديب, أفضل تطبيق فان سيلز ${c.ar}, برنامج مبيعات موصى به`, `best field sales software ${c.en}, top distribution system ${c.en}, van sales app comparison, recommended sales rep software ${c.en}`, `meilleur logiciel de vente terrain ${c.fr}, meilleur système de distribution ${c.fr}, comparatif applications commerciaux`),
     secs: ['best', 'features', 'tax', 'roi', 'faq', 'cta'] },
 ];
 
@@ -1237,7 +1237,7 @@ const titleOf = (topic, c, L) => (topic.cs ? `${topic.label[L]} ${c[`in${L === '
 const descOf = (topic, c, L) => {
   const t = titleOf(topic, c, L);
   return P(L,
-    `${t}دليل عملي من FieldSales لشركات التوزيع فواتير ضريبية تحصيل مخزون سيارة تتبع وتقارير لحظية جرب مجانا 10 أيام`,
+    `${t} دليل عملي من FieldSales لشركات التوزيع فواتير ضريبية تحصيل مخزون سيارة تتبع وتقارير لحظية جرب مجانا 10 أيام`,
     `${t}: a practical FieldSales guide for distributors — tax invoices, collection, van stock, tracking and live reports. Free 10-day trial.`,
     `${t} : un guide FieldSales pour les distributeurs — factures, encaissement, stock, suivi et rapports en temps réel. Essai gratuit 10 jours.`).slice(0, 300);
 };
@@ -1291,7 +1291,7 @@ function relatedLinks(topic, c, L) {
 // يبني قائمة المقالات (بيانات وصفية فقط) للغة معيّنة — للفهرس وخريطة الموقع
 // طبقة كلمات مفتاحية عالية النية تُضاف لكل مقال — تقوّي تغطية مصطلحات الشراء في الأسواق العربية
 const EXTRA_KW = (c, L) => P(L,
-  `فان سيلز ${c.ar}البيع من السيارة ${c.ar}, DSD ${c.ar}أتمتة قوة المبيعات برنامج مناديب ${c.ar}برنامج توزيع FMCG ${c.ar}برنامج شركات الجملة ${c.ar}تطبيق مندوب مبيعات ${c.ar}حسابات خطوط السير إدارة الموزعين ${c.ar}برنامج توزيع مواد غذائية ${c.ar}نظام نقاط بيع متنقل`,
+  `فان سيلز ${c.ar}, البيع من السيارة ${c.ar}, DSD ${c.ar}, أتمتة قوة المبيعات, برنامج مناديب ${c.ar}, برنامج توزيع FMCG ${c.ar}, برنامج شركات الجملة ${c.ar}, تطبيق مندوب مبيعات ${c.ar}, حسابات خطوط السير, إدارة الموزعين ${c.ar}, برنامج توزيع مواد غذائية ${c.ar}, نظام نقاط بيع متنقل`,
   `distributor management system ${c.en}, DMS software ${c.en}, van sales software ${c.en}, DSD software ${c.en}, sales force automation ${c.en}, field force automation, FMCG distribution software ${c.en}, wholesale distribution software ${c.en}, route accounting ${c.en}, mobile sales app ${c.en}, food distribution software ${c.en}`,
   `logiciel van sales ${c.fr}, DSD ${c.fr}, automatisation force de vente ${c.fr}, gestion des distributeurs ${c.fr}, logiciel distribution FMCG ${c.fr}, logiciel de gros ${c.fr}, comptabilité de tournée, application commerciale mobile ${c.fr}`);
 

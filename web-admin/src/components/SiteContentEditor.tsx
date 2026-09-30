@@ -4,7 +4,7 @@ import { siteContentApi } from '../api/client';
 import { defaultContent } from '../landing/defaultContent';
 import { POSTS, emptyPost, slugify, type BlogPost } from '../blog/posts';
 import { X, Save, Globe, Plus, Trash2, ChevronDown, Image as ImageIcon, RotateCcw, Eraser } from 'lucide-react';
-import { cleanDeep } from '../lib/textClean';
+import { cleanText } from '../lib/textClean';
 import toast from 'react-hot-toast';
 
 const DEFAULT_HERO = '/hero-rep-phones.svg';
@@ -109,6 +109,38 @@ const setIn = (obj: Draft, path: string, val: string): Draft => {
   return clone;
 };
 
+// زر «تنظيف النصوص» يلمس النص العادي وحده؛ ما يلي بيانات تقنية تُترك كما هي:
+// مفاتيح تدلّ أسماؤها على رابط أو صورة أو بريد أو كلمات مفتاحية أو تنسيق
+const SKIP_KEY = /url|href|src|image|img|logo|icon|video|link|keywords|kw|email|slug|path|color|css|style|phone|whatsapp/i;
+// قيمة هي بأكملها رابط أو مسار أو نطاق
+const LOOKS_LIKE_LINK = /^(?:https?:|mailto:|tel:|data:|\/)|www\.|^[\w-]+(?:\.[\w-]+)+(?:\/\S*)?$/i;
+// داخل النص الطويل: روابط Markdown وصوره ووسوم HTML والروابط والنطاقات تُحمى ويُنظَّف ما بينها
+const KEEP_IN_TEXT = /(!?\[[^\]\n]*\]\([^)\s]*\)|<\/?[a-zA-Z!][^>]*>|(?:https?:\/\/|www\.)[^\s<>"')\]]+|\b[\w-]+(?:\.[\w-]+)*\.[a-zA-Z]{2,}(?:\/[\w\-./?=&%#~]*[\w\-/=&%#~])?)/;
+
+const cleanPlain = (s: string): string =>
+  s.split(KEEP_IN_TEXT).map((part, i) => (i % 2 ? part : cleanText(part))).join('');
+
+function cleanContent<T>(node: T): { value: T; changed: number } {
+  let changed = 0;
+  const walk = (n: unknown, key = ''): unknown => {
+    if (SKIP_KEY.test(key)) return n;
+    if (typeof n === 'string') {
+      if (LOOKS_LIKE_LINK.test(n.trim())) return n;
+      const out = cleanPlain(n);
+      if (out !== n) changed++;
+      return out;
+    }
+    if (Array.isArray(n)) return n.map((v) => walk(v, key));
+    if (n && typeof n === 'object') {
+      const o: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(n as Record<string, unknown>)) o[k] = walk(v, k);
+      return o;
+    }
+    return n;
+  };
+  return { value: walk(node) as T, changed };
+}
+
 // محرّر مقالات المدوّنة — يضيف/يحرّر/يحذف مقالات تُخزَّن في محتوى الـCMS تحت المفتاح blog
 function BlogManager({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft | null>> }) {
   const [open, setOpen] = useState<number | null>(null);
@@ -134,9 +166,9 @@ function BlogManager({ draft, setDraft }: { draft: Draft; setDraft: React.Dispat
   return (
     <div className="space-y-3">
       <div className="bg-[#FBEBE2] border border-[#F1D9CC] rounded-xl p-3 text-xs text-[#8A4B33] leading-relaxed">
-        أضف أو حرر مقالات تظهر على <b>fieldsa.net/blog</b>في حقل المحتوى اكتب بصيغة بسيطة 
+        أضف أو حرر مقالات تظهر على <b>fieldsa.net/blog</b> في حقل المحتوى اكتب بصيغة بسيطة 
         سطر يبدأ ب <code className="font-mono">## </code> = عنوان فرعي أسطر تبدأ ب <code className="font-mono">- </code> = قائمة
-        <code className="font-mono"> **نص** </code> = عريض <code className="font-mono">نص رابط</code> = رابط أو الصق HTML مباشرة
+        <code className="font-mono"> **نص** </code> = عريض <code className="font-mono">[نص](رابط)</code> = رابط أو الصق HTML مباشرة
       </div>
       <button onClick={add} className="btn-primary w-full justify-center py-2.5"><Plus size={16} /> مقال جديد</button>
 
@@ -287,7 +319,7 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
   // على المسوّدة لا على المحفوظ، فيراجعه المالك ثم يحفظ أو يغلق بلا حفظ.
   const cleanAll = () => {
     if (!draft) return;
-    const { value, changed } = cleanDeep(draft);
+    const { value, changed } = cleanContent(draft);
     if (!changed) { toast('النصوص نظيفة أصلاً — لا تشكيل ولا علامات ترقيم'); return; }
     setDraft(value);
     toast.success(`نُظّف ${changed} نصاً — راجعها ثم اضغط حفظ`);
@@ -348,7 +380,7 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
         )}
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
-          <button onClick={cleanAll} disabled={!draft} title="يزيل التشكيل وعلامات الترقيم من كل نصوص الموقع"
+          <button onClick={cleanAll} disabled={!draft} title="يزيل التشكيل وعلامات الترقيم من النصوص العادية ويترك الروابط والصور والكلمات المفتاحية كما هي"
             className="px-4 py-2.5 rounded-xl border border-[#E9E1D3] text-[#6E6557] hover:border-[#E8C9BC] hover:text-[#1F1A13] text-sm font-bold flex items-center gap-2 transition-colors">
             <Eraser size={15} /> تنظيف النصوص
           </button>

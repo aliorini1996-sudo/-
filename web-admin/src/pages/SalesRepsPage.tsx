@@ -909,7 +909,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   const collectTotal = receipts.reduce((s, r) => s + Number(r.amount), 0);
   const periodLabel = from && to ? `${formatDate(from)} — ${formatDate(to)}` : tr('كل الفترات');
   // ملخّص أصناف الفاتورة: «اسم ×كمية، …» (لعمود الأصناف في الكشف)
-  const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join(' ');
+  const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${Number(it.qty)}`).join('، ');
   // إجماليات أسفل الكشف: مجموع مبالغ الفواتير + مجموع الوحدات المباعة مفصّلة حسب الوحدة (كرتون/قطعة/…)
   const invoicesAmountTotal = invoices.reduce((s, i) => s + Number(i.total), 0);
   const soldUnits = (() => {

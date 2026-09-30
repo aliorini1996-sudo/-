@@ -144,25 +144,25 @@ export default function BlogPostPage() {
     <div dir={rtl ? 'rtl' : 'ltr'} className="min-h-screen bg-[#FAF7F0] text-[#1F1A13]"
       style={{ fontFamily: rtl ? "'Noto Kufi Arabic', 'IBM Plex Sans', system-ui, sans-serif" : "'IBM Plex Sans', sans-serif" }}>
       <style>{`
-        article-prose { font-size:0px; line-height:{ font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-{ margin:14px 0; }px; }; color:#3a342b; }
-         article-prose h2 { font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-{ margin:14px 0; }px; }
-         article-prose p { margin:14px 0; }
-         article-prose ul { margin:14px 0; padding-inline-start:24px; list-style:disc; }
-         article-prose ol { margin:14px 0; padding-inline-start:24px; list-style:decimal; }
-         article-prose li { margin:7px 0; }
-         article-prose strong { color:#1F1A13; font-weight:700; }
-         article-prose a { color:#E15A30; font-weight:600; text-decoration:none; }
-         article-prose a hover { text-decoration:underline; }
-         article-prose table { width:100%; margin:16px 0; border-collapse:collapse; font-size:3px; background:#fff; border-radius:12px; overflow:hidden; }
-         article-prose th { background:#FBEBE2; color:#1F1A13; font-weight:700; padding:10px 12px; text-align:start; border:1px solid #E9E1D3; }
-         article-prose td { padding:10px 12px; border:1px solid #E9E1D3; vertical-align:top; }
+        .article-prose { font-size:16.5px; line-height:1.95; color:#3a342b; }
+        .article-prose h2 { font-size:25px; font-weight:800; color:#1F1A13; margin:34px 0 12px; letter-spacing:-0.3px; }
+        .article-prose p { margin:14px 0; }
+        .article-prose ul { margin:14px 0; padding-inline-start:24px; list-style:disc; }
+        .article-prose ol { margin:14px 0; padding-inline-start:24px; list-style:decimal; }
+        .article-prose li { margin:7px 0; }
+        .article-prose strong { color:#1F1A13; font-weight:700; }
+        .article-prose a { color:#E15A30; font-weight:600; text-decoration:none; }
+        .article-prose a:hover { text-decoration:underline; }
+        .article-prose table { width:100%; margin:16px 0; border-collapse:collapse; font-size:14.5px; background:#fff; border-radius:12px; overflow:hidden; }
+        .article-prose th { background:#FBEBE2; color:#1F1A13; font-weight:700; padding:10px 12px; text-align:start; border:1px solid #E9E1D3; }
+        .article-prose td { padding:10px 12px; border:1px solid #E9E1D3; vertical-align:top; }
         /* كتلة الإجابة المختصرة أول ما يقرؤه الزائر ومحرك التوليد تمنح
            تمييزا بصريا لأن دورها مختلف عن بقية المقال تقرأ وحدها */
-         article-prose geo-answer { margin:0 0 26px; padding:18px 20px; background:#FBEBE2;
+        .article-prose .geo-answer { margin:0 0 26px; padding:18px 20px; background:#FBEBE2;
           border-inline-start:4px solid #E15A30; border-radius:12px; }
-         article-prose geo-answer h2 { font-size:15px; font-weight:700; color:#E15A30;
+        .article-prose .geo-answer h2 { font-size:15px; font-weight:700; color:#E15A30;
           margin:0 0 8px; letter-spacing:0; text-transform:none; }
-         article-prose geo-answer p { margin:0; font-size:17px; line-height:4; color:#1F1A13; }
+        .article-prose .geo-answer p { margin:0; font-size:17px; line-height:1.85; color:#1F1A13; }
       `}</style>
 
       <header className="sticky top-0 z-20 border-b border-[#E9E1D3] bg-[#FAF7F0]/85 backdrop-blur">

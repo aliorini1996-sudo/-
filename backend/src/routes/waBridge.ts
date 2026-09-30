@@ -168,7 +168,8 @@ router.get('/stats', requireBridge, async (_req: Request, res: Response, next: N
     const [byStatus, noWaId, unregistered, total] = await Promise.all([
       prisma.waMessage.groupBy({ by: ['status'], where: { direction: 'OUT' }, _count: true }),
       prisma.waMessage.count({ where: { direction: 'OUT', status: 'SENT', waId: null } }),
-      prisma.waMessage.count({ where: { direction: 'OUT', error: { contains: 'غير مسجل على واتساب' } } }),
+      // الكاتب (wa-bridge) يكتب «مسجّل» بالشدّة؛ نطابق الصيغتين حتى لا يكسرها تنظيف نصي
+      prisma.waMessage.count({ where: { direction: 'OUT', OR: [{ error: { contains: 'غير مسجّل على واتساب' } }, { error: { contains: 'غير مسجل على واتساب' } }] } }),
       prisma.waMessage.count({ where: { direction: 'OUT' } }),
     ]);
     res.json({

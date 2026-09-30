@@ -26,17 +26,17 @@ const PAGE_SEO: Record<PageKey, { path: string; ar: SeoText; en: SeoText; fr: Se
     ar: {
       title: 'من نحن | FieldSales نظام إدارة المبيعات الميدانية والتوزيع في السعودية',
       description: 'تعرف على FieldSales المنصة السعودية لإدارة مبيعات مناديب التوزيع الطلبات فواتير ZATCA التحصيل مخزون سيارة المندوب وتتبع المناديب لإدارة فرقك الميدانية بكفاءة وشفافية',
-      keywords: 'من نحن FieldSales فيلد سيلز نظام مبيعات ميدانية شركة برمجيات توزيع إدارة مناديب التوزيع السعودية',
+      keywords: 'من نحن, FieldSales فيلد سيلز, نظام مبيعات ميدانية, شركة برمجيات توزيع, إدارة مناديب التوزيع, السعودية',
     },
     en: {
       title: 'About Us | FieldSales Field Sales & Distribution Management System',
       description: 'Learn about FieldSales the platform to manage field distribution reps orders ZATCA invoices payment collection van stock and GPS tracking run your field teams efficiently and transparently',
-      keywords: 'about FieldSales field sales system distribution software company sales rep management route accounting',
+      keywords: 'about FieldSales, field sales system, distribution software company, sales rep management, route accounting',
     },
     fr: {
       title: 'À propos | FieldSales Système de gestion des ventes terrain et de la distribution',
       description: 'Découvrez FieldSales la plateforme de gestion des commerciaux de distribution commandes factures encaissement stock du véhicule et suivi GPS gérez vos équipes terrain efficacement et en toute transparence',
-      keywords: 'à propos FieldSales système de vente terrain logiciel de distribution gestion des commerciaux Maroc Algérie Tunisie',
+      keywords: 'à propos FieldSales, système de vente terrain, logiciel de distribution, gestion des commerciaux, Maroc, Algérie, Tunisie',
     },
   },
   terms: {
@@ -44,17 +44,17 @@ const PAGE_SEO: Record<PageKey, { path: string; ar: SeoText; en: SeoText; fr: Se
     ar: {
       title: 'الشروط والأحكام | FieldSales فيلد سيلز',
       description: 'الشروط والأحكام لاستخدام منصة FieldSales لإدارة المبيعات الميدانية والتوزيع الفوترة الضريبية ZATCA والتحصيل',
-      keywords: 'الشروط والأحكام شروط الاستخدام اتفاقية المستخدم FieldSales',
+      keywords: 'الشروط والأحكام, شروط الاستخدام, اتفاقية المستخدم, FieldSales',
     },
     en: {
       title: 'Terms & Conditions | FieldSales',
       description: 'Terms and conditions for using the FieldSales field sales and distribution platform e-invoicing and collection',
-      keywords: 'terms and conditions terms of use user agreement FieldSales',
+      keywords: 'terms and conditions, terms of use, user agreement, FieldSales',
     },
     fr: {
       title: 'Conditions générales | FieldSales',
       description: 'Conditions générales d utilisation de la plateforme FieldSales de gestion des ventes terrain et de la distribution facturation électronique et encaissement',
-      keywords: 'conditions générales conditions d utilisation contrat utilisateur FieldSales',
+      keywords: 'conditions générales, conditions d utilisation, contrat utilisateur, FieldSales',
     },
   },
   serviceAgreement: {
@@ -62,17 +62,17 @@ const PAGE_SEO: Record<PageKey, { path: string; ar: SeoText; en: SeoText; fr: Se
     ar: {
       title: 'اتفاقية الخدمة | FieldSales فيلد سيلز',
       description: 'اتفاقية خدمة FieldSales نطاق الخدمة ومستوى التوفر والدعم لنظام إدارة مبيعات المناديب الميدانيين والتوزيع',
-      keywords: 'اتفاقية الخدمة مستوى الخدمة SLA الدعم الفني FieldSales',
+      keywords: 'اتفاقية الخدمة, مستوى الخدمة SLA, الدعم الفني, FieldSales',
     },
     en: {
       title: 'Service Agreement | FieldSales',
       description: 'FieldSales service agreement service scope availability and support for the field sales and distribution management system',
-      keywords: 'service agreement SLA technical support FieldSales',
+      keywords: 'service agreement, SLA, technical support, FieldSales',
     },
     fr: {
       title: 'Contrat de service | FieldSales',
       description: 'Contrat de service FieldSales étendue du service disponibilité et support du système de gestion des ventes terrain et de la distribution',
-      keywords: 'contrat de service SLA support technique FieldSales',
+      keywords: 'contrat de service, SLA, support technique, FieldSales',
     },
   },
   privacy: {
@@ -80,17 +80,17 @@ const PAGE_SEO: Record<PageKey, { path: string; ar: SeoText; en: SeoText; fr: Se
     ar: {
       title: 'سياسة الخصوصية | FieldSales فيلد سيلز',
       description: 'سياسة خصوصية FieldSales وحماية بيانات شركتك في نظام إدارة المبيعات الميدانية عزل كامل لكل شركة واتصال مشفر',
-      keywords: 'سياسة الخصوصية حماية البيانات خصوصية البيانات أمان المعلومات FieldSales',
+      keywords: 'سياسة الخصوصية, حماية البيانات, خصوصية البيانات, أمان المعلومات, FieldSales',
     },
     en: {
       title: 'Privacy Policy | FieldSales',
       description: 'FieldSales privacy policy and how we protect your company data in the field sales management system full per-company isolation and encrypted connections',
-      keywords: 'privacy policy data protection data privacy information security FieldSales',
+      keywords: 'privacy policy, data protection, data privacy, information security, FieldSales',
     },
     fr: {
       title: 'Politique de confidentialité | FieldSales',
       description: 'Politique de confidentialité de FieldSales et protection des données de votre entreprise isolation logique par entreprise et connexions chiffrées',
-      keywords: 'politique de confidentialité protection des données sécurité de l information FieldSales',
+      keywords: 'politique de confidentialité, protection des données, sécurité de l information, FieldSales',
     },
   },
 };

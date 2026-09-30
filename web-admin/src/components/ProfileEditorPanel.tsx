@@ -154,7 +154,7 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
           <div>
             <h2 className="text-lg font-bold text-[#1F1A13]">محتوى البروفايل</h2>
-            <p className="text-xs text-[#6E6557]">كل نص في صفحة fieldsa net/profile عدل واحفظ ويظهر فورا</p>
+            <p className="text-xs text-[#6E6557]">كل نص في صفحة fieldsa.net/profile عدل واحفظ ويظهر فورا</p>
           </div>
           <div className="flex items-center gap-2">
             <a href="/profile" target="_blank" rel="noopener noreferrer"
