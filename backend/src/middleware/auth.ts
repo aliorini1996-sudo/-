@@ -113,6 +113,15 @@ export function isOwnerSession(req: { user?: { impersonated?: boolean } | null }
   return req.user?.impersonated === true;
 }
 
+/**
+ * «من فعلها» لحقول التدقيق النصية (updatedById، changedById، سجلّ الدرس): توكن الانتحال يحمل معرّف مدير الشركة،
+ * فجلسة المالك تُسجَّل OWNER:<المعرّف> لا باسم المدير — وعد اتفاقية البيانات «لا يدخل حسابك إلا مديره».
+ */
+export function actorOf(req: { user?: { id?: string; impersonated?: boolean } | null }): string {
+  const id = req.user?.id ?? '';
+  return isOwnerSession(req) ? `OWNER:${id}` : id;
+}
+
 /** دور لوحة الشركة. حياة الحساب (حذف/تعطيل) تُفحص في `authenticate` قبله. */
 export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user || !COMPANY_ROLES.includes(req.user.role)) {

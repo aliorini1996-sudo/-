@@ -3,33 +3,37 @@
  *
  * خاملة عند أي شركة لم يفعّل لها المالك Tenant.aiRepEnabled: كل مسار يُردّ AI_REP_NOT_ALLOWED.
  *
- * للمندوب:
- *   GET  /rep/me         حالة الميزة له وإعداداتها واستهلاك اليوم ومفتاح الخريطة (عرض فقط)
- *   POST /rep/nearby     بحث المحلات المستهدفة حول المندوب (Google من الخادم وحده، بحصة محجوزة ذرّياً)،
- *                        مدموجةً بسجلّ الشركة + ملخّص التوقّع — ويحفظ الخادم «جلسة البحث» بمراجع ثابتة P1…
- *   POST /rep/estimate   توقّع مشتريات محلٍّ من الجلسة لكل منتج (بالمرجع لا بإحداثيات من الجهاز)
- *   POST /rep/guide      التوجيه: العقل يفحص محلات الجلسة ويكتب خطة (أو خطة حتمية)
- *   POST /rep/chat       أسئلة المندوب الحرّة للمستشار
- *   POST /rep/outcomes   نتيجة زيارة محلٍّ مقترح (منع التكرار بـclientRef؛ تُرفع من صفّ الإرسال دون اتصال)
+ * للمندوب (الشاشة الحالية):
+ *   GET  /rep/me         ما تحتاجه الشاشة: مفتاح الأماكن مضبوط؟ مفتاح الخريطة (عرض فقط)، الأنواع المستهدفة، والمسح المتبقّي اليوم
+ *   POST /rep/scan       المسح عند الفتح: كل المحلات حول المندوب (بمفتاح الأماكن، وإلا خرائط Google العامة) مدموجةً بسجلّ
+ *                        الشركة، ودراسة حتمية لكل محل، وخطة حتمية فوراً — ويحفظ الخادم «جلسة البحث» بمراجع ثابتة P1…
+ *   POST /rep/scan/guide توجيه العقل لذلك المسح من الجلسة (نداء ثانٍ تستبدل به الشاشة الخطة الحتمية حين يصل)
+ *   POST /rep/study      دراسة محلٍّ بمراجعاته النصية (مفتاح الأماكن) — بالعقل إن ضُبط وإلا حتمية
+ *   POST /rep/outcomes   نتيجة زيارة محلٍّ (منع التكرار بـclientRef؛ تُرفع من صفّ الإرسال دون اتصال)
+ *   POST /rep/feedback   👍/👎 على التوجيه أو الدراسة (حلقة التعلّم)
+ * مسارات قديمة بلا واجهة حالية (بانتظار قرار المالك): /rep/nearby و/rep/estimate (التوقّع من مبيعات الشركة)،
+ *   /rep/guide و/rep/chat (المستشار بالأدوات)، /rep/manual (إضافة محل برابط ملصق).
  * لإدارة الشركة:
  *   GET/PUT /admin/settings   إعدادات الميزة + جاهزية البيانات
- *   GET/POST /admin/classify  تصنيف أنواع العملاء (مقترحٌ من الاسم تؤكّده الإدارة)
+ *   GET/POST /admin/classify  تصنيف أنواع العملاء (مقترحٌ من الاسم تؤكّده الإدارة) — لتمييز «ربما عميل حالي» في المسح
+ *   GET  /admin/learning …    «ما تعلّمه العقل» وإجراءات الإدارة عليه
  *   GET  /admin/hidden-outlets             المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً) ومن أبلغ عنها
  *   POST /admin/hidden-outlets/:id/unhide  «أعد إظهاره»
  *
- * الأرقام كلها من المحرّك الحتمي؛ العقل يشرح ولا يخترع (حارس الأرقام في advisor.ts).
+ * العقل يكتب ولا يخترع: كل رقم في ردّه من مدخلاته، ولا روابط ولا هواتف ولا وعود خارج دليل البيع (حرّاس scanGuide/profileStudy).
  * الإحداثيات والمراجع لا تأتي من الجهاز بعد البحث — فلا تلفيق نقاط لكشف عملاء الزملاء ولا استعلام عند إحداثيات حرّة.
+ * أفعال جلسة المالك (الدعم الفني) تُسجَّل OWNER:<المعرّف> لا باسم مدير الشركة (actorOf).
  */
 import { Router, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
-import { authenticate, requireAdmin, requireAdminPermission, requireSalesRep, tenantId } from '../middleware/auth';
+import { actorOf, authenticate, requireAdmin, requireAdminPermission, requireSalesRep, tenantId } from '../middleware/auth';
 import { customerScope, isolationEnabled } from '../services/customerScope';
 import { adminScopeEnabled } from '../services/adminScope';
 import { OUTLET_TYPES, OUTLET_TYPE_CODES, googleTypesFor, isOutletType, outletTypeFromGoogle, outletTypeLabel, suggestOutletType } from '../ai-rep/taxonomy';
-import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
+import { aiRepSettingsSchema, NO_SELECTED_REPS, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
 import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
 import { loadEstimateData, invalidateEstimateData, tenantTimezone, TenantEstimateData } from '../ai-rep/estimateData';
 import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace, type PlaceReview } from '../ai-rep/places';
@@ -43,7 +47,7 @@ import { runAdvisor, numbersIn, scrubPii } from '../ai-rep/advisor';
 import { advisorSystemPrompt, baseAllowedNumbers, buildAdvisorTools, OutletCtx } from '../ai-rep/advisorTools';
 import { getCountryTax } from '../config/countries';
 import { GUIDE_QUESTION, GUIDE_QUESTION_LEARNED, planEligible, planFromText, rankCandidates, rulePlan, ruleGuideText, PlanCandidate } from '../ai-rep/guide';
-import { getLearned, invalidateLearned, policyFor, recordTurn, resetLearning, rollbackModel, type TurnRecord } from '../ai-rep/learn/store';
+import { getLearned, invalidateLearned, policyFor, recordTurn, resetLearning, rollbackModel, updateTurn, type TurnRecord } from '../ai-rep/learn/store';
 import { learningView } from '../ai-rep/learn/view';
 import { assignArm } from '../ai-rep/learn/policy';
 import { resolveTuning } from '../ai-rep/learn/calibration';
@@ -53,7 +57,7 @@ import { riyadhDay } from '../ai-rep/learn/stats';
 import type { AiLessonLite, Intent, Learned } from '../ai-rep/learn/types';
 import type { LearnedCtx } from '../ai-rep/advisorTools';
 import { addUsage, refundUsage, reserveUsage, usageDay, usageToday } from '../ai-rep/usage';
-import { getSession, patchSessionOutlet, peekSession, saveSession, SessionOutlet } from '../ai-rep/session';
+import { getSession, patchSessionOutlet, peekSession, saveSession, SessionOutlet, type PendingScanGuide } from '../ai-rep/session';
 
 export { usageDay };
 
@@ -155,29 +159,24 @@ rep.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 const ctxOf = (req: AuthRequest): RepCtx => (req as AuthRequest & { aiRep: RepCtx }).aiRep;
 
+/** المسح (ودراسة المراجعات) المتبقّي اليوم لهذا المندوب. */
+async function searchesLeft(c: RepCtx): Promise<number> {
+  const u = await usageToday(c.tid, c.repId);
+  return Math.max(0, c.settings.dailySearchesPerRep - (u?.searches ?? 0));
+}
+
 rep.get('/me', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);
-    const [usage, llm] = await Promise.all([usageToday(c.tid, c.repId), Promise.resolve(llmConfig())]);
+    const usage = await usageToday(c.tid, c.repId);
+    // ما تقرؤه الشاشة وحده
     res.json({
       success: true,
       data: {
-        enabled: true,
         placesConfigured: !!placesApiKey(),
-        placesMode: placesApiKey() ? 'AUTO' : 'MANUAL',
         mapsKey: mapsBrowserKey(),
-        showMoney: c.showMoney,
-        searchRadiusM: c.settings.searchRadiusM,
-        minPeers: c.settings.minPeers,
         targetTypes: c.settings.targetOutletTypes.map(code => ({ code, label: outletTypeLabel(code) })),
         dailySearches: { used: usage?.searches ?? 0, limit: c.settings.dailySearchesPerRep },
-        advisor: {
-          available: c.settings.advisorEnabled && !!llm,
-          reason: !c.settings.advisorEnabled ? 'DISABLED_BY_COMPANY' : !llm ? 'NOT_CONFIGURED' : null,
-          used: usage?.chatTurns ?? 0,
-          limit: c.settings.dailyChatTurnsPerRep,
-        },
-        learning: { on: c.settings.learningMode !== 'OFF' },
       },
     });
   } catch (err) { next(err); }
@@ -666,17 +665,51 @@ export function nameFromShare(text: string): string {
 }
 
 // ───────────── «ادرس هذا المحل» من ملفه في خرائط Google (لا من مبيعات الشركة السابقة) ─────────────
-// المندوب يضغط محلاً على الخريطة (أو «أنا عند المحل الآن» ⇒ أقرب محل في خرائط Google خلال ٦٠ م) ⇒ ملف المحل من
-// Google في الخادم (التقييم، عدد المقيّمين، ساعات العمل، حتى ٥ مراجعات نصية) ⇒ دراسة بالعقل (أو حتمية) في ردٍّ واحد.
+// المندوب يفتح محلاً من قائمة المسح أو يضغطه على الخريطة (بمفتاح الأماكن) ⇒ ملف المحل من Google في الخادم (التقييم،
+// عدد المقيّمين، ساعات العمل، حتى ٥ مراجعات نصية) ⇒ دراسة بالعقل (أو حتمية) في ردٍّ واحد.
 // لا يُخزَّن شيء من الملف؛ الجلسة تحفظ المرجع والموقع ونوع المحل فقط (لتسجيل النتيجة وإضافته عميلاً).
+// الحصة: محلٌّ من المسح الأخير يُدرس بلا خصم من «المسح اليومي» (حتى FREE_STUDIES_PER_SCAN لكل مسح) — فالمسح التلقائي
+// عند كل فتح لا يلتهم دراسات المندوب؛ وغيره (محلٌّ ضُغط على الخريطة خارج القائمة) بحصة المسح (كلفة Google).
 const studySchema = z.object({
   searchId: z.string().uuid().optional(),
-  placeId: z.string().refine(isGooglePlaceId, 'محل غير معروف').optional(),
-  here: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).optional() }).optional(),
+  placeId: z.string().refine(isGooglePlaceId, 'محل غير معروف'),
   gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional(),
-}).refine(b => !!b.placeId || !!b.here, { message: 'اختر محلاً من الخريطة' });
+});
 
-const HERE_RADIUS_M = 60;
+/** دراسات مجانية (بلا خصم من المسح اليومي) لمحلات المسح الواحد. */
+export const FREE_STUDIES_PER_SCAN = 10;
+
+/**
+ * منتجات دراسة المحل (أسماءً): ذات الأولوية الفعّالة أولاً بترتيب الإدارة، ثم الأكثر مبيعاً في ٩٠ يوماً، ثم بالاسم — حتى ٦٠.
+ * priority = ذات الأولوية وحدها (حقلها في مدخل العقل).
+ */
+export async function studyProducts(tid: string, priorityIds: string[], max = 60): Promise<{ products: string[]; priority: string[] }> {
+  const live = { tenantId: tid, status: 'ACTIVE', deletedAt: null };
+  const since = new Date(Date.now() - 90 * DAY_MS);
+  const [pri, top] = await Promise.all([
+    priorityIds.length ? prisma.product.findMany({ where: { ...live, id: { in: priorityIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+    prisma.invoiceItem.groupBy({
+      by: ['productId'], where: { productId: { not: null }, invoice: { tenantId: tid, status: 'CONFIRMED', invoiceDate: { gte: since } } },
+      _sum: { lineTotal: true }, orderBy: { _sum: { lineTotal: 'desc' } }, take: max * 2,
+    }).catch(() => [] as { productId: string | null }[]),
+  ]);
+  const byId = new Map(pri.map(x => [x.id, x.name]));
+  const priority = priorityIds.map(id => byId.get(id)).filter((n): n is string => !!n);
+  const used = new Set(pri.map(x => x.id));
+  const topIds = top.map(t => t.productId).filter((id): id is string => !!id && !used.has(id));
+  const sold = topIds.length ? await prisma.product.findMany({ where: { ...live, id: { in: topIds } }, select: { id: true, name: true } }) : [];
+  const soldName = new Map(sold.map(x => [x.id, x.name]));
+  const names = [...priority];
+  for (const id of topIds) {
+    const n = soldName.get(id);
+    if (n && names.length < max) { names.push(n); used.add(id); }
+  }
+  if (names.length < max) {
+    const rest = await prisma.product.findMany({ where: { ...live, id: { notIn: [...used] } }, select: { name: true }, orderBy: { name: 'asc' }, take: max - names.length });
+    names.push(...rest.map(x => x.name));
+  }
+  return { products: [...new Set(names)].slice(0, max), priority };
+}
 
 // ───────────── حلقة التعلّم في المسح والدراسة ─────────────
 
@@ -715,33 +748,51 @@ export function claimScanTurn(key: string, now = Date.now()): boolean {
   return true;
 }
 
+/**
+ * بعد نداء العقل: الرموز تُحتسب، والدورة المحجوزة (chatTurns) تُردّ إن تعذّر النداء بلا رموز مصروفة (حدّ المضيف أو
+ * دلو المنصّة، مهلة، مفتاح، تعذّر)، و«الاحتياط» (guardFallback) يُعدّ لما قصّه الحارس أو ردّه للحتمي وحده — لا لتعذّر النداء.
+ */
+async function settleAi(c: RepCtx, day: string, ai: { source: 'AI' | 'ERROR'; guard: string; tokensIn: number; tokensOut: number }): Promise<void> {
+  if (!(ai.tokensIn + ai.tokensOut)) await refundUsage(c.tid, c.repId, 'chatTurns', 1, day);
+  await addUsage(c.tid, c.repId, {
+    tokensIn: ai.tokensIn, tokensOut: ai.tokensOut,
+    guardFallback: ai.source === 'AI' && (ai.guard === 'TRIM' || ai.guard === 'TEMPLATE') ? 1 : 0,
+  });
+}
+
 rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  // الوحدة المحجوزة (يومها) وهل صُرفت عند Google — استثناءٌ بعد الحجز يردّها ما لم تُصرف
+  let charged: string | null = null;
+  let billed = false;
   try {
     const c = ctxOf(req);
     const b = studySchema.parse(req.body);
     const key = placesApiKey();
     if (!key) { res.status(503).json({ success: false, code: 'PLACES_NOT_CONFIGURED', message: 'دراسة المحل من خرائط Google تحتاج مفتاح Google للمنصّة — لم يُضبط بعد' }); return; }
-    // نداءات Google (كلفة) بحصة الدراسة اليومية — تُعاد الحصة إن فشل النداء
-    if (!(await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep))) {
-      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ دراسة المحلات اليومي (${c.settings.dailySearchesPerRep}) — يتجدّد غداً` });
-      return;
+    // محلٌّ من المسح الأخير: بلا خصم (حتى FREE_STUDIES_PER_SCAN، وإعادة دراسته لا تُحسب ثانيةً)
+    const scanSession = getSession(c.tid, c.repId, b.searchId);
+    const freeList = scanSession?.scan ? (scanSession.freeStudies ??= []) : null;
+    const free = !!freeList && !!scanSession?.outlets.some(o => o.placeId === b.placeId)
+      && (freeList.includes(b.placeId) || freeList.length < FREE_STUDIES_PER_SCAN);
+    if (!free) {
+      charged = await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep);
+      if (!charged) {
+        res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ المسح والدراسة اليومي (${c.settings.dailySearchesPerRep}) — يتجدّد غداً` });
+        return;
+      }
     }
-    const fail = async (status: number, body: object) => { await refundUsage(c.tid, c.repId, 'searches'); res.status(status).json({ success: false, ...body }); };
+    // فشل Google (لا يُفوتر) والمحل المغلق نهائياً (لا دراسة للمندوب) يعيدان الوحدة
+    const fail = async (status: number, body: object) => {
+      if (charged) { await refundUsage(c.tid, c.repId, 'searches', 1, charged); charged = null; }
+      res.status(status).json({ success: false, ...body });
+    };
 
-    // «أنا عند المحل الآن»: أقرب محل في خرائط Google لموقع المندوب
-    let placeId = b.placeId ?? null;
-    if (!placeId && b.here) {
-      if ((b.here.accuracyM ?? 0) > 100) { await fail(400, { code: 'GPS_INACCURATE', message: 'دقّة موقعك ضعيفة — اقترب من باب المحل وحاول مجدداً' }); return; }
-      const near = await searchNearby({ apiKey: key, lat: b.here.lat, lng: b.here.lng, radiusM: HERE_RADIUS_M, includedTypes: googleTypesFor(OUTLET_TYPE_CODES as string[]), regionCode: c.countryCode });
-      if (!near.ok) { await fail(near.code === 'PLACES_QUOTA' ? 429 : 502, { code: near.code, message: near.message }); return; }
-      if (!near.places.length) { await fail(404, { code: 'NO_SHOP_HERE', message: 'لا يوجد محل في خرائط Google عند موقعك — اضغط المحل على الخريطة مباشرة' }); return; }
-      placeId = near.places[0].placeId;
-    }
-
-    const got = await placeProfile({ apiKey: key, placeId: placeId! });
+    const got = await placeProfile({ apiKey: key, placeId: b.placeId });
     if (!got.ok) { await fail(got.code === 'PLACES_QUOTA' ? 429 : got.code === 'PLACES_NOT_FOUND' ? 404 : 502, { code: got.code, message: got.message }); return; }
+    billed = true;
+    if (free && freeList && !freeList.includes(b.placeId)) freeList.push(b.placeId);
     const p = got.profile;
-    // مغلق نهائياً حسب Google: لا دراسة ⇒ تُعاد الحصة كأي فشل
+    // مغلق نهائياً حسب Google: لا دراسة ⇒ تُعاد الحصة
     if (p.closed) { await fail(422, { code: 'PLACE_CLOSED', message: 'هذا المحل مغلق حسب خرائط Google' }); return; }
 
     // نوع المحل (للتسجيل والإضافة عميلاً فقط — الدراسة لا تحتاجه)
@@ -751,12 +802,12 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
       placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([outletType]),
     }], { keepHidden: true });
 
-    let s = getSession(c.tid, c.repId, b.searchId);
+    let s = scanSession;
     if (!s || s.outlets.length >= 500) {
       s = { searchId: randomUUID(), createdAt: Date.now(), origin: b.gps ?? { lat: p.lat, lng: p.lng }, radiusM: c.settings.searchRadiusM, outlets: [] };
       saveSession(c.tid, c.repId, s);
     }
-    const from = b.gps ?? b.here ?? s.origin;
+    const from = b.gps ?? s.origin;
     const distanceM = Math.round(haversineKm(from.lat, from.lng, p.lat, p.lng) * 1000);
     const existing = s.outlets.find(o => o.placeId === p.placeId);
     const ref = existing?.ref ?? `P${s.outlets.length + 1}`;
@@ -774,19 +825,22 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
       : { injected: [], heldOut: [] };
     const tip = lc.learnedOn ? statsHint(lc.learned.lessons, { types: [outletType], hb: lc.hb, prefer: 'STUDY' }) : null;
 
-    // الدراسة: بالعقل إن ضُبط وتوفّرت حصته، وإلا حتمية من الملف نفسه
+    // الدراسة: بالعقل إن ضُبط وتوفّرت حصته، وإلا حتمية من الملف نفسه (ونفاد الحصة يُقال للمندوب)
     let study: ShopStudy = ruleStudy(p, tip?.textAr ?? null);
     let rec: TurnGuard = RULES_TURN;
+    let aiQuota = false;
     const cfg = llmConfig();
-    if (cfg && c.settings.advisorEnabled && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
-      const products = (await prisma.product.findMany({
-        where: { tenantId: c.tid, status: 'ACTIVE', deletedAt: null }, select: { name: true }, orderBy: { name: 'asc' }, take: 60,
-      })).map(x => x.name);
-      const ai = await aiStudy(p, { cfg, products, playbook: c.settings.playbook, lessonsBlock: renderLessonsBlock(lessons.injected) });
-      await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.study ? {} : { guardFallback: 1 }) });
-      rec = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
-      if (ai.study) study = { ...ai.study, teamTip: tip?.textAr ?? null };
-      else console.warn('[ai-rep] دراسة المحل بالعقل تعذّرت:', ai.code, 'tenant', c.tid);
+    if (cfg && c.settings.advisorEnabled) {
+      const aiDay = await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep);
+      if (!aiDay) aiQuota = true;
+      else {
+        const { products, priority } = await studyProducts(c.tid, c.settings.priorityProductIds);
+        const ai = await aiStudy(p, { cfg, products, priority, playbook: c.settings.playbook, lessonsBlock: renderLessonsBlock(lessons.injected) });
+        await settleAi(c, aiDay, ai);
+        rec = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
+        if (ai.study) study = { ...ai.study, teamTip: tip?.textAr ?? null };
+        else console.warn('[ai-rep] دراسة المحل بالعقل تعذّرت:', ai.code, 'tenant', c.tid);
+      }
     }
     // دورة دراسة بلا مرشّحين ولا نص: الحارس وأعلامه والدروس المعروضة — تغذّي تقييم المناديب وتجارب الدروس
     await recordTurn({
@@ -809,13 +863,21 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
           openNow: p.openNow, hours: p.hours, reviews: p.reviews,
         },
         study,
+        aiQuota,
+        searchesLeft: await searchesLeft(c),
       },
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    const c = (req as AuthRequest & { aiRep?: RepCtx }).aiRep;
+    if (charged && !billed && c) await refundUsage(c.tid, c.repId, 'searches', 1, charged).catch(() => undefined);
+    next(err);
+  }
 });
 
-// ───────────── المسح: كل المحلات حول المندوب من خرائط Google + توجيه العقل (بلا عمل من المندوب) ─────────────
-// بمفتاح الأماكن: البحث الرسمي. بلا مفتاح: بحث خرائط Google العام (وضع تجربة، publicMaps.ts) — بلا مراجعات نصية.
+// ───────────── المسح: كل المحلات حول المندوب من خرائط Google + توجيه (بلا عمل من المندوب) ─────────────
+// بمفتاح الأماكن: البحث الرسمي. بلا مفتاح: بحث خرائط Google العام (publicMaps.ts) — بلا مراجعات نصية.
+// الرد فوري بالقائمة والخطة الحتمية؛ وتوجيه العقل (إن ضُبط) نداءٌ ثانٍ POST /rep/scan/guide من الجلسة تستبدل به الشاشة
+// الخطة حين يصل — فلا ينتظر المندوب النموذج فوق بحث Google.
 const scanSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
@@ -826,6 +888,9 @@ const scanSchema = z.object({
 export const SCAN_MAX_ACCURACY_M = 500;
 
 rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  // الوحدة المحجوزة (يومها) وهل صُرفت (بحث Google نجح) — استثناءٌ بعد الحجز يردّها ما لم تُصرف
+  let charged: string | null = null;
+  let spent = false;
   try {
     const c = ctxOf(req);
     const b = scanSchema.parse(req.body);
@@ -841,7 +906,8 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       res.status(429).json({ success: false, code: 'SCAN_COOLDOWN', retryAfterS: Math.ceil(wait / 1000), message: 'تعذّر المسح قبل لحظات — انتظر نصف دقيقة ثم حدّث' });
       return;
     }
-    if (!(await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep))) {
+    charged = await reserveUsage(c.tid, c.repId, 'searches', c.settings.dailySearchesPerRep);
+    if (!charged) {
       res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: `بلغت حدّ المسح اليومي (${c.settings.dailySearchesPerRep}) — نتائجك الحالية تبقى متاحة` });
       return;
     }
@@ -861,6 +927,8 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
     if (key) {
       const r = await searchNearby({ apiKey: key, lat: b.lat, lng: b.lng, radiusM, includedTypes: googleTypesFor(types), regionCode: c.countryCode });
       if (r.ok) {
+        // بحثٌ ناجح مُفوتَر ولو خلا — لا تُعاد وحدته
+        spent = true;
         for (const p of r.places) {
           const type = outletTypeFromGoogle(p.primaryType, p.types, types) ?? types[0];
           found.set(p.placeId, { placeId: p.placeId, name: p.name, rating: null, ratingCount: null, lat: p.lat, lng: p.lng, category: outletTypeLabel(type), openNow: null, hours: [], address: p.address, type });
@@ -872,13 +940,15 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       // نافذتان لكل نوع عبر الذاكرة المؤقتة والقاطع وحدّ التزامن، والنوع من تصنيف Google للمحل (publicMaps.ts)
       const r = await publicScan({ types, targets, lat: b.lat, lng: b.lng, radiusM });
       if (!r.ok) {
-        // صيغة مجهولة أو حجب أو قاطع: تُعاد الحصة ويُمهَل المندوب — لا «لا محلات حولك»
-        await refundUsage(c.tid, c.repId, 'searches');
+        // صيغة مجهولة أو حجب أو قاطع: تُعاد الحصة (ما لم يُفوتَر بحث الأماكن) ويُمهَل المندوب — لا «لا محلات حولك»
+        if (!spent) await refundUsage(c.tid, c.repId, 'searches', 1, charged);
+        charged = null;
         noteRepScanFailed(repKey);
         console.warn('[ai-rep] المسح العام تعذّر', r.code, r.codes.join(','), 'tenant', c.tid);
         res.status(r.code === 'SCAN_COOLDOWN' ? 503 : 502).json({ success: false, code: r.code, message: r.message, retryAfterS: r.retryAfterS ?? Math.ceil(REP_RETRY_MS / 1000) });
         return;
       }
+      spent = true;
       // صفرُ محلات لمناديب متتالين ⇒ نبضة الصحة تُنذر المالك (publicScanHealth)؛ الناقص الخالي لا يُحسب (حجبٌ لا صيغة)
       if (r.places.length || !r.partial) notePublicScanShops(repKey, r.places.length);
       if (r.partial) {
@@ -928,10 +998,6 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
           studyTip(m.outletType)?.textAr ?? null),
       };
     });
-    saveSession(c.tid, c.repId, {
-      searchId, createdAt: Date.now(), origin, radiusM,
-      outlets: items.map(it => ({ ref: it.ref, placeId: it.placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId })),
-    });
     // ذاكرة الزيارات (آخر نتيجة ولحظتها) تصل التوجيه: ما زاره الفريق مؤخراً لا يعود «فرصة جديدة»، والمهتم يصير متابعة
     const shops: ScanShop[] = items.map(it => ({
       ref: it.ref, placeId: it.placeId, outletType: it.outletType,
@@ -947,36 +1013,88 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       ? selectLessons(lc.learned.lessons, { turnId, intent: 'GUIDE', types: new Set(items.map(it => it.outletType)), noTools: true })
       : { injected: [], heldOut: [] };
     let guide: ScanGuide = ruleGuide(shops, origin, now, score);
-    let rec: TurnGuard = RULES_TURN;
-    const cfg = llmConfig();
-    if (cfg && c.settings.advisorEnabled && shops.length && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
-      const ai = await aiGuide(shops, {
-        cfg, playbook: c.settings.playbook, origin, now,
-        recommended: rankedPool(shops, now, score).map(x => x.s.ref), lessonsBlock: renderLessonsBlock(lessons.injected),
-      });
-      await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.guide ? {} : { guardFallback: 1 }) });
-      rec = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
-      if (ai.guide) guide = ai.guide;
-    }
     // «من تجربة فريقك» للخطة: أنواع محطاتها بترتيبها ثم بقية الأنواع حوله
     const typeOf = new Map(items.map(it => [it.ref, it.outletType]));
     const tip = lc.learnedOn
       ? statsHint(lc.learned.lessons, { types: uniq([...guide.stops.map(st => typeOf.get(st.ref)), ...items.map(it => it.outletType)]), hb: lc.hb, prefer: 'GUIDE' })
       : null;
     guide = { ...guide, tip: tip?.textAr ?? null };
-    // دورة توجيه لهذا المسح: المرشّحون بميزات Google وموضعهم في الخطة (تُسمّى ليلاً بزيارات المندوب نفسه خلال ٧٢ ساعة)
-    const recorded = shops.length > 0 && claimScanTurn(`${c.tid}|${c.repId}`, now.getTime());
+    // دورة توجيه لهذا المسح: المرشّحون بميزات Google وموضعهم في الخطة (تُسمّى ليلاً بزيارات المندوب نفسه خلال ٧٢ ساعة)؛
+    // يحدّثها توجيه العقل حين يصل (updateTurn)
+    const recorded = shops.length > 0 && claimScanTurn(repKey, now.getTime());
     if (recorded) {
       await recordTurn({
         id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'GUIDE', intent: 'GUIDE', arm: lc.arm, policyVersion: policy.version, hourBand: lc.hb,
-        ...rec, tools: [], hops: 0, ...shownLessons(rec, lessons, [tip, ...tips.values()]),
+        ...RULES_TURN, tools: [], hops: 0, ...shownLessons(RULES_TURN, lessons, [tip, ...tips.values()]),
         candidates: scanCandidates(shops, now, score, guide.stops.map(st => st.ref)),
       });
     }
-    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, guide: guide.source, partial, arm: lc.arm, turn: recorded }));
     // turnId داخل التوجيه (يُحفظ معه في جلسة الشاشة) لتقييم المندوب 👍/👎 — null حين لم تُسجَّل دورة
     const shownTurn = recorded ? turnId : null;
-    res.json({ success: true, data: { searchId, source, items, guide: { ...guide, turnId: shownTurn, learned: policy.version > 0 }, partial, turnId: shownTurn } });
+    const learnedFlag = policy.version > 0;
+    // العقل: إن ضُبط ومفعّلٌ للشركة وفي المنطقة فرصة أو متابعة — مدخلاته في الجلسة لنداء /scan/guide (الحصة تُحجز هناك)
+    const recommended = rankedPool(shops, now, score).map(x => x.s.ref);
+    const aiGuidePending = !!llmConfig() && c.settings.advisorEnabled && recommended.length > 0;
+    saveSession(c.tid, c.repId, {
+      searchId, createdAt: Date.now(), origin, radiusM, scan: true,
+      outlets: items.map(it => ({ ref: it.ref, placeId: it.placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId })),
+      ...(aiGuidePending && {
+        aiGuide: { at: now, shops, recommended, score, rules: guide, learned: learnedFlag, turnId: shownTurn, lessons, tips: [tip, ...tips.values()], playbook: c.settings.playbook },
+      }),
+    });
+    console.info('[ai-rep] مسح', JSON.stringify({ tenant: c.tid, source, shops: items.length, partial, arm: lc.arm, turn: recorded, ai: aiGuidePending }));
+    res.json({
+      success: true,
+      data: { searchId, source, items, guide: { ...guide, turnId: shownTurn, learned: learnedFlag }, partial, turnId: shownTurn, aiGuidePending, searchesLeft: await searchesLeft(c) },
+    });
+  } catch (err) {
+    const c = (req as AuthRequest & { aiRep?: RepCtx }).aiRep;
+    if (charged && !spent && c) await refundUsage(c.tid, c.repId, 'searches', 1, charged).catch(() => undefined);
+    next(err);
+  }
+});
+
+/**
+ * توجيه العقل لمسحٍ من جلسته: دورة محجوزة (chatTurns) تُردّ إن تعذّر النموذج بلا رموز، ودورة المسح تُحدَّث بمصدرها وحارسها
+ * وخطتها. guide = null ⇒ تبقى الخطة الحتمية، وreason يقول لماذا (نفاد الحصة يُقال للمندوب).
+ */
+async function runScanGuide(c: RepCtx, pg: PendingScanGuide, origin: { lat: number; lng: number }) {
+  const cfg = llmConfig();
+  if (!cfg || !c.settings.advisorEnabled) return { guide: null, reason: 'AI_UNAVAILABLE' as const };
+  const day = await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep);
+  if (!day) return { guide: null, reason: 'AI_QUOTA' as const };
+  const ai = await aiGuide(pg.shops, {
+    cfg, playbook: pg.playbook, origin, now: pg.at, recommended: pg.recommended,
+    lessonsBlock: renderLessonsBlock(pg.lessons.injected), rulesSummary: pg.rules.summary,
+  });
+  await settleAi(c, day, ai);
+  const rec: TurnGuard = { source: ai.source, guard: ai.guard, badKinds: ai.badKinds, flags: ai.flags, tokensIn: ai.tokensIn, tokensOut: ai.tokensOut };
+  if (pg.turnId) {
+    await updateTurn(c.tid, c.repId, pg.turnId, {
+      ...rec, ...shownLessons(rec, pg.lessons, pg.tips),
+      ...(ai.guide && { candidates: scanCandidates(pg.shops, pg.at, pg.score, ai.guide.stops.map(st => st.ref)) }),
+    });
+  }
+  if (!ai.guide) {
+    console.warn('[ai-rep] توجيه المسح بالعقل تعذّر:', ai.code ?? ai.flags.join(','), 'tenant', c.tid);
+    return { guide: null, reason: ai.source === 'ERROR' ? 'AI_UNAVAILABLE' as const : 'AI_REJECTED' as const };
+  }
+  console.info('[ai-rep] توجيه المسح', JSON.stringify({ tenant: c.tid, guard: ai.guard, tin: ai.tokensIn, tout: ai.tokensOut }));
+  return { guide: { ...ai.guide, tip: pg.rules.tip ?? null, turnId: pg.turnId, learned: pg.learned }, reason: null };
+}
+
+const scanGuideSchema = z.object({ searchId: z.string().uuid() });
+
+rep.post('/scan/guide', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const c = ctxOf(req);
+    const b = scanGuideSchema.parse(req.body);
+    const s = getSession(c.tid, c.repId, b.searchId);
+    const pg = s?.aiGuide;
+    if (!s || !pg) { res.status(409).json(NO_SESSION); return; }
+    // نداءٌ واحد لكل مسح: الثاني (إعادة محاولة الشبكة أو شاشة أُعيد تركيبها) ينتظر الأول ولا يُكلّف شيئاً
+    if (!pg.result) pg.result = runScanGuide(c, pg, s.origin).catch(e => { pg.result = undefined; throw e; });
+    res.json({ success: true, data: await pg.result });
   } catch (err) { next(err); }
 });
 
@@ -1098,16 +1216,20 @@ admin.put('/settings', requireAdminPermission('canManageCompanySettings'), async
       const ok = new Set(valid.map(v => v.id));
       priority = [...new Set(priority)].filter(id => ok.has(id));
     }
-    if (input.repIds?.length) {
-      const ok = await prisma.salesRep.count({ where: { tenantId: tid, id: { in: input.repIds } } });
-      if (ok !== new Set(input.repIds).size) { res.status(400).json({ success: false, message: 'مندوب مختار غير موجود في شركتك' }); return; }
+    // مندوبٌ محذوف أو من شركة أخرى يُسقط بصمت (كالمنتجات) — لا يرفض كل حفظٍ لاحق؛ و«محدّدون» بلا أحدٍ بعدها مرفوض
+    let repIds = input.repIds;
+    if (repIds?.length) {
+      const valid = await prisma.salesRep.findMany({ where: { tenantId: tid, id: { in: repIds } }, select: { id: true } });
+      const ok = new Set(valid.map(v => v.id));
+      repIds = [...new Set(repIds)].filter(id => ok.has(id));
     }
+    if (input.repScope === 'SELECTED' && repIds && !repIds.length) { res.status(400).json({ success: false, message: NO_SELECTED_REPS }); return; }
     const data = {
       ...input,
       ...(priority && { priorityProductIds: priority }),
-      ...(input.repIds && { repIds: [...new Set(input.repIds)] }),
+      ...(repIds && { repIds }),
       playbook: input.playbook === undefined ? undefined : (input.playbook || null),
-      updatedById: req.user!.id,
+      updatedById: actorOf(req),
     };
     const row = await prisma.aiRepSettings.upsert({ where: { tenantId: tid }, create: { tenantId: tid, ...data }, update: data });
     invalidateEstimateData(tid);
@@ -1138,7 +1260,7 @@ admin.post('/learning/lessons/:id', requireAdminPermission('canManageCompanySett
     if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
     const { action } = lessonActionSchema.parse(req.body);
     const settings = await readSettings(tid);
-    const r = await applyLessonAction(tid, String(req.params.id), action, req.user!.id, settings.playbook);
+    const r = await applyLessonAction(tid, String(req.params.id), action, actorOf(req), settings.playbook);
     if (!r.ok) {
       const message = r.status === 404 ? 'الدرس غير موجود'
         : r.code === 'TRIAL_CAP' ? 'دروس التجربة بلغت حدّها (٤) — عطّل درساً قيد التجربة أولاً ثم أعد المحاولة'
@@ -1161,7 +1283,7 @@ admin.post('/learning/models/:kind/rollback', requireAdminPermission('canManageC
     const kind = req.params.kind === 'POLICY' || req.params.kind === 'CALIBRATION' ? req.params.kind : null;
     if (!kind) { res.status(400).json({ success: false, message: 'نوع غير معروف' }); return; }
     const { version } = rollbackSchema.parse(req.body);
-    const r = await rollbackModel(tid, kind, version, req.user!.id, 'ADMIN');
+    const r = await rollbackModel(tid, kind, version, actorOf(req), 'ADMIN');
     if (!r.ok) { res.status(404).json({ success: false, message: 'النسخة غير موجودة أو لا يمكن الرجوع إليها' }); return; }
     res.json({ success: true, data: { ok: true } });
   } catch (err) { next(err); }
@@ -1172,7 +1294,7 @@ admin.post('/learning/reset', requireAdminPermission('canManageCompanySettings')
     const tid = tenantId(req);
     if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
     z.object({ confirm: z.literal(true) }).parse(req.body);
-    await resetLearning(tid, req.user!.id);
+    await resetLearning(tid, actorOf(req));
     res.json({ success: true, data: { ok: true } });
   } catch (err) { next(err); }
 });
@@ -1302,14 +1424,5 @@ admin.post('/classify', requireAdminPermission('canManageCustomers'), async (req
 });
 
 router.use('/admin', admin);
-
-// قائمة الأنواع (ثابتة) — لأي مستخدم مسجّل في شركة مفعّلة
-router.get('/types', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const gate = await tenantGate(tenantId(req));
-    if (!gate.ok) { res.status(403).json(NOT_ALLOWED); return; }
-    res.json({ success: true, data: OUTLET_TYPES.map(t => ({ code: t.code, label: t.ar })) });
-  } catch (err) { next(err); }
-});
 
 export default router;

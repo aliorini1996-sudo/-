@@ -43,6 +43,8 @@ export const DEFAULT_AI_REP_SETTINGS: AiRepSettingsView = Object.freeze({
 
 const outletCode = z.enum(OUTLET_TYPE_CODES as unknown as [string, ...string[]]);
 
+export const NO_SELECTED_REPS = 'اختر مندوباً واحداً على الأقل';
+
 export const aiRepSettingsSchema = z.object({
   targetOutletTypes: z.array(outletCode).min(1, 'اختر نوع محل واحداً على الأقل').max(11).optional(),
   searchRadiusM: z.number().int().min(300).max(10000).optional(),
@@ -59,6 +61,11 @@ export const aiRepSettingsSchema = z.object({
   dailyChatTurnsPerRep: z.number().int().min(5).max(150).optional(),
   learningMode: z.enum(['AUTO', 'REVIEW', 'OFF']).optional(),
   holdoutPct: z.union([z.literal(0), z.literal(10), z.literal(20), z.literal(30)]).optional(),
+}).superRefine((s, ctx) => {
+  // «مناديب محدّدون» بلا أحد ⇒ الزرّ يختفي عن كل المناديب بلا تفسير
+  if (s.repScope === 'SELECTED' && s.repIds && !s.repIds.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['repIds'], message: NO_SELECTED_REPS });
+  }
 });
 export type AiRepSettingsInput = z.infer<typeof aiRepSettingsSchema>;
 

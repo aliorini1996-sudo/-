@@ -227,6 +227,11 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       await tx.repVisit.deleteMany({ where: { salesRepId: req.params.id } }); // صورها تُحذف تعاقبياً
       await tx.repSettlement.deleteMany({ where: { salesRepId: req.params.id } });
       await tx.customerAssignment.deleteMany({ where: { salesRepId: req.params.id } }); // إسنادات العملاء
+      // «مناديب محدّدون» للمندوب الذكي: قائمة معرّفات بلا مفتاح أجنبي — مندوبٌ محذوف يبقى فيها فيرفض كل حفظٍ لاحق للإعدادات
+      const ai = await tx.aiRepSettings.findUnique({ where: { tenantId: tid }, select: { repIds: true } });
+      if (ai?.repIds.includes(req.params.id)) {
+        await tx.aiRepSettings.update({ where: { tenantId: tid }, data: { repIds: ai.repIds.filter(x => x !== req.params.id) } });
+      }
       await tx.salesRep.delete({ where: { id: req.params.id } });
     }, { maxWait: 10_000, timeout: 120_000 }); // مصفوفة المعاملة لم تكن بمهلة 5 ثوانٍ؛ مواقع GPS لشهور قد تطول
     res.json({ success: true });

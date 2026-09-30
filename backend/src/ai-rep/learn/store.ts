@@ -149,6 +149,24 @@ export async function recordTurn(t: TurnRecord): Promise<void> {
   }
 }
 
+/**
+ * تحديث دورة مسحٍ حين يصل توجيه العقل بعد القائمة (/rep/scan/guide): المصدر والحارس والرموز والدروس، والمرشّحون
+ * بموضعهم في خطة العقل (fr) — مقيّد بالشركة والمندوب، أفضل جهد كالتسجيل.
+ */
+export async function updateTurn(tid: string, repId: string, id: string, patch: Pick<TurnRecord, 'source' | 'guard' | 'badKinds' | 'flags' | 'lessonIds' | 'heldOutIds' | 'tokensIn' | 'tokensOut'> & { candidates?: unknown }): Promise<void> {
+  try {
+    await prisma.aiTurn.updateMany({
+      where: { id, tenantId: tid, salesRepId: repId },
+      data: {
+        source: patch.source, guard: patch.guard, badKinds: patch.badKinds, flags: patch.flags, lessonIds: patch.lessonIds, heldOutIds: patch.heldOutIds,
+        tokensIn: patch.tokensIn, tokensOut: patch.tokensOut, ...(patch.candidates != null && { candidates: patch.candidates as object }),
+      },
+    });
+  } catch (e) {
+    console.warn('[ai-learn] updateTurn فشل:', (e as Error)?.message);
+  }
+}
+
 // ───────────── نسخ المعاملات ─────────────
 
 type ModelKind = 'POLICY' | 'CALIBRATION';

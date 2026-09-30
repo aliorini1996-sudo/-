@@ -69,6 +69,40 @@ export function capabilityAllowed(text: string, playbook: string | null | undefi
   return !CAPABILITY_STEMS.some(s => n.includes(s) && !playbookAuthorizes(s, playbook, n));
 }
 
+// ───────────── حارس مخرجات العقل للمندوب (التوجيه والدراسة) ─────────────
+
+const AR_WORD_START = '(?:^|[^\\u0621-\\u064A])(?:وال|بال|فال|لل|ال|و|ف|ب|ل)?';
+const PROMISE_RES = CAPABILITY_STEMS.map(s => new RegExp(AR_WORD_START + s.replace(/ /g, '\\s+')));
+// «من أجل/لأجل» (بمعنى لكي) ليست آجلاً و«لضمان» (لكي يضمن) ليست ضماناً — «عاجل» لا يطابق أصلاً (حدّ الكلمة)
+const NOT_PROMISE = /(?:^|[^ء-ي])(?:من\s+اجل|لاجل|لضمان)(?=$|[^ء-ي])/g;
+
+/**
+ * نسخة حارس الوعود لمخرجات العقل (أسباب المحطات وسطور العرض في الدراسة): الجذر في أول كلمة (بسوابقها) لا في
+ * وسطها، و«من أجل/لأجل/لضمان» ليست وعوداً. أخفّ من capabilityAllowed عمداً — مدقّق الدروس يبقى على المطابقة الجزئية.
+ */
+export function promiseAllowed(text: string, playbook: string | null | undefined): boolean {
+  const n = normalizeAr(text).replace(NOT_PROMISE, ' ');
+  return !CAPABILITY_STEMS.some((s, i) => PROMISE_RES[i].test(n) && !playbookAuthorizes(s, playbook, n));
+}
+
+// روابط ونطاقات وبريد وواتساب، ومحارف خفية أو اتجاهية
+const OUTPUT_LINK = /https?:|www\.|wa\.me|@|\b[a-z0-9-]{2,}\.(?:com|net|org|sa|io|me|co|app|link|ly|info|biz|store|shop)\b|[​-‏‪-‮⁦-⁩﻿]/i;
+
+/**
+ * سطرٌ من مخرجات العقل لا يُعرض على المندوب: رابط أو نطاق أو بريد أو «wa.me»، أو رقم من ٧ خانات فأكثر (هاتف —
+ * ولو مفصولاً بمسافات)، أو معجم الحقن. نصوص Google (أسماء ومراجعات) تصل العقل كما هي، فلا يُزرع منها «اتصل على …».
+ */
+export function outputUnsafe(text: string): boolean {
+  if (OUTPUT_LINK.test(text)) return true;
+  if (/\d{7,}/.test(normalizeDigits(text).replace(/(?<=\d)[\s-]+(?=\d)/g, ''))) return true;
+  return INJECTION.test(normalizeAr(text));
+}
+
+/** اسم من Google قبل إرساله للعقل: بلا محارف خفية أو اتجاهية، وحتى ٤٠ حرفاً. */
+export function cleanName(s: string | null | undefined, max = 40): string {
+  return (s ?? '').replace(/[​-‏‪-‮⁦-⁩﻿]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 // ───────────── القوالب ─────────────
 
 /** تكتيك ثابت لكل اعتراض — بشري، بلا أرقام ولا وعود. */

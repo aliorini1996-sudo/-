@@ -359,7 +359,3 @@ export function baseAllowedNumbers(ctx: Pick<AdvisorCtx, 'playbook' | 'data'>, n
   numbersIn(ctx.data.products.map(p => `${p.name} ${p.unit}`), acc);
   return acc;
 }
-
-export function isValidOutletCtx(o: OutletCtx): boolean {
-  return /^P\d{1,3}$/.test(o.ref) && isOutletType(o.outletType) && Number.isFinite(o.lat) && Number.isFinite(o.lng);
-}

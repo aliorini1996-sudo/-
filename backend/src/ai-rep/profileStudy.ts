@@ -5,15 +5,16 @@
  *   - بالعقل (إن ضُبط): قراءة المراجعات وكتابة دراسة قصيرة للمندوب — ماذا يمدح العملاء وماذا يشتكون، ومدى نشاط
  *     المحل، وفرصة المندوب، وماذا يعرض من منتجات شركته (أسماءً من كتالوجها فقط)، وجملة افتتاحية، والاعتراض المتوقع.
  *   - بلا عقل أو عند تعثّره: ملخّص حتمي من التقييم والعدد وكلمات المراجعات.
- * كل رقم في الدراسة يجب أن يكون في ملف المحل أو أسماء المنتجات أو دليل البيع (حارس الأرقام)، وإلا يُحذف سطره.
+ * كل رقم في الدراسة يجب أن يكون في ملف المحل أو أسماء المنتجات أو دليل البيع (حارس الأرقام)، وإلا يُحذف سطره؛ وكذلك
+ * الروابط والهواتف ومعجم الحقن (نصوص Google تصل العقل كما هي)، والوعود في سطور العرض وحدها.
  * لا يُخزَّن شيء من ملف المحل في القاعدة. (مرحلة تجربة بقرار المالك — شروط Google تُراجَع قبل الإطلاق.)
  * حلقة التعلّم: دروس الشركة في آخر تعليمات العقل، وسطر «من تجربة فريقك» الحتمي (teamTip) من درس إحصاء فعّال لنوع المحل.
  */
 import { z } from 'zod';
-import { chatCompletion, type LlmConfig, type LlmRequest, type LlmResult } from './llm';
-import { numbersIn, normalizeDigits, unsupportedNumbers } from './advisor';
+import { chatCompletion, completeUntruncated, type LlmConfig, type LlmRequest, type LlmResult } from './llm';
+import { numbersIn, normalizeDigits, scrubPii, unsupportedNumbers } from './advisor';
 import type { PlaceProfile } from './places';
-import { capabilityAllowed, lessonsSection } from './learn/lessons';
+import { cleanName, lessonsSection, outputUnsafe, promiseAllowed } from './learn/lessons';
 import { countAr, RATER_AR } from './scanGuide';
 
 export type Activity = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
@@ -122,9 +123,9 @@ export const STUDY_SYSTEM_AR = [
   'قواعد ملزمة:',
   '١) استند إلى الملف وحده. لا تنسب إلى العملاء شيئاً لم يقولوه، ولا تخترع أرقاماً: أي رقم تكتبه يجب أن يكون في الملف أو في أسماء المنتجات.',
   '٢) إن كانت المراجعات قليلة أو غائبة فقل ذلك صراحةً في activity_why ولا تبالغ في الاستنتاج.',
-  '٣) offer من قائمة منتجات الشركة المرفقة فقط (بأسمائها كما هي)، أو قائمة فارغة إن لم يتّضح ما يناسب.',
+  '٣) offer من قائمة منتجات الشركة المرفقة فقط (بأسمائها كما هي)، أو قائمة فارغة إن لم يتّضح ما يناسب. priority_products منتجات تريد الشركة ترويجها — قدّمها متى ناسبت المحل.',
   '٤) لا وعود بأسعار أو خصومات أو آجل أو هدايا إلا ما ورد في دليل البيع المرفق.',
-  '٥) بلهجة سعودية مهذّبة وباختصار: كل عنصر جملة واحدة.',
+  '٥) بلهجة سعودية مهذّبة وباختصار: كل عنصر جملة واحدة، بلا روابط ولا أرقام هواتف.',
   'أعد JSON فقط بهذا الشكل:',
   '{"summary":"جملتان عن المحل","activity":"HIGH|MEDIUM|LOW|UNKNOWN","activity_why":"لماذا","praise":["ما يمدحه العملاء"],"complaints":["ما يشتكون منه"],"opportunity":["فرصة المندوب"],"offer":["اسم منتج من القائمة"],"opening_line":"جملة افتتاحية","objection":"الاعتراض المتوقع","objection_reply":"كيف يرد","visit_tip":"أنسب وقت أو طريقة للزيارة من ساعات العمل"}',
   'الحدود: praise وcomplaints حتى ٤، وopportunity حتى ٣، وoffer حتى ٤.',
@@ -144,16 +145,20 @@ const studyShape = z.object({
   visit_tip: z.string().max(300).nullish(),
 });
 
-/** مدخل العقل: الملف بلا أسماء المراجعين وروابطهم. */
-export function studyInput(p: PlaceProfile, products: string[], playbook: string | null): string {
+/**
+ * مدخل العقل: الملف بلا أسماء المراجعين وروابطهم، والاسم مقصوص بلا محارف خفية، ونصوص المراجعات بلا بيانات شخصية
+ * (هاتف أو بريد يزرعه مراجِع). المنتجات: ذات الأولوية أولاً (وفي حقلها)، ودليل البيع كاملاً (حتى ٤٠٠٠ حرف).
+ */
+export function studyInput(p: PlaceProfile, products: string[], playbook: string | null, priority: string[] = []): string {
   return JSON.stringify({
     shop: {
-      name: p.name, type: p.typeLabel, rating: p.rating, rating_count: p.ratingCount,
+      name: cleanName(p.name), type: p.typeLabel, rating: p.rating, rating_count: p.ratingCount,
       open_now: p.openNow, hours: p.hours, price_level: p.priceLevel,
-      reviews: p.reviews.map(r => ({ stars: r.rating, when: r.when, text: r.text })),
+      reviews: p.reviews.map(r => ({ stars: r.rating, when: r.when, text: scrubPii(cleanName(r.text, 1500)) })),
     },
     company_products: products.slice(0, 60),
-    sales_playbook: (playbook ?? '').slice(0, 1500) || null,
+    priority_products: priority.length ? priority.slice(0, 20) : null,
+    sales_playbook: (playbook ?? '').slice(0, 4000) || null,
   });
 }
 
@@ -165,31 +170,40 @@ function parseJson(raw: string): unknown {
   return null;
 }
 
+/** ما أسقطه حارس الدراسة: رقم بلا مصدر، ووعدٌ لا يفوّضه الدليل، ونصٌّ غير آمن (رابط/هاتف/حقن). */
+export interface StudyDrops { numbers: number; promises: number; unsafe: number }
+
 /**
- * مخرجات العقل ← دراسة آمنة: أرقام بلا مصدر تُسقط العنصر، والمنتجات من الكتالوج وحده.
- * null = لا يصلح (يُستعمل الحتمي).
+ * مخرجات العقل ← دراسة آمنة: أرقام بلا مصدر تُسقط العنصر، والروابط والهواتف والحقن تُسقطه، والوعود (خصم/آجل/مجاني…)
+ * تُفحص في سطور العرض وحدها (الافتتاحية والردّ والفرصة ونصيحة الزيارة) — وصف المحل ومراجعاته ليس وعداً. المنتجات
+ * من الكتالوج وحده. الخلاصة المرفوضة تحلّ محلّها fallbackSummary (خلاصة القواعد) ويبقى الباقي. null = لا يصلح.
  */
 export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], playbook: string | null,
-  dropped: { numbers: number; promises: number } = { numbers: 0, promises: 0 }): ShopStudy | null {
+  dropped: StudyDrops = { numbers: 0, promises: 0, unsafe: 0 }, fallbackSummary: string | null = null): ShopStudy | null {
   const parsed = studyShape.safeParse(parseJson(raw));
   if (!parsed.success) return null;
   const d = parsed.data;
   const allowed = new Set<number>();
   numbersIn({ rating: p.rating, count: p.ratingCount, stars: p.reviews.map(r => r.rating), hours: p.hours, reviews: p.reviews.map(r => r.text), when: p.reviews.map(r => r.when) }, allowed);
+  // «أسواق 2000» في الاسم أو النوع رقمٌ من الملف
+  numbersIn(p.name ?? '', allowed);
+  numbersIn(p.typeLabel ?? '', allowed);
   numbersIn(products, allowed);
   numbersIn(playbook ?? '', allowed);
-  const clean = (s: string | null | undefined): string | null => {
+  // سبع خانات فأكثر من مراجعةٍ أو اسم ليست رقماً مسموحاً (هاتف مزروع)
+  for (const n of allowed) if (Math.abs(n) >= 1_000_000) allowed.delete(n);
+  const clean = (s: string | null | undefined, promise = false): string | null => {
     const t = (s ?? '').replace(/\s+/g, ' ').trim();
     if (!t) return null;
-    // رقم بلا مصدر، أو وعدٌ (خصم/آجل/مجاني/ضمان…) لا يفوّضه دليل البيع ⇒ يُسقط (ويُعدّ للحارس)
+    if (outputUnsafe(t)) { dropped.unsafe++; return null; }
     if (unsupportedNumbers(t, allowed).length) { dropped.numbers++; return null; }
-    if (!capabilityAllowed(t, playbook)) { dropped.promises++; return null; }
-    return t;
+    if (promise && !promiseAllowed(t, playbook)) { dropped.promises++; return null; }
+    return scrubPii(t);
   };
-  const list = (xs: string[] | undefined, max: number) => (xs ?? []).map(clean).filter((x): x is string => !!x).slice(0, max);
+  const list = (xs: string[] | undefined, max: number, promise = false) => (xs ?? []).map(x => clean(x, promise)).filter((x): x is string => !!x).slice(0, max);
   const catalog = new Map(products.map(n => [n.trim(), n]));
   const offer = (d.offer ?? []).map(o => catalog.get(o.trim())).filter((x): x is string => !!x).slice(0, 4);
-  const summary = clean(d.summary);
+  const summary = clean(d.summary) ?? (fallbackSummary?.trim() || null);
   if (!summary) return null;
   return {
     source: 'AI',
@@ -198,12 +212,12 @@ export function sanitizeStudy(raw: string, p: PlaceProfile, products: string[], 
     activityWhy: clean(d.activity_why) ?? '',
     praise: list(d.praise, 4),
     complaints: list(d.complaints, 4),
-    opportunity: list(d.opportunity, 3),
+    opportunity: list(d.opportunity, 3, true),
     offer,
-    openingLine: clean(d.opening_line),
+    openingLine: clean(d.opening_line, true),
     objection: clean(d.objection),
-    objectionReply: clean(d.objection_reply),
-    visitTip: clean(d.visit_tip),
+    objectionReply: clean(d.objection_reply, true),
+    visitTip: clean(d.visit_tip, true),
   };
 }
 
@@ -214,15 +228,23 @@ export interface AiStudyResult {
   tokensOut: number;
   code?: string;
   source: 'AI' | 'ERROR';
-  /** PASS بلا حذف، REGEN نجحت الإعادة، TRIM حُذف عنصر (رقم بلا مصدر أو وعد)، TEMPLATE رُدّ للحتمي، NONE تعذّر النداء */
+  /** PASS بلا حذف، TRIM حُذف عنصر (رقم بلا مصدر أو وعد أو نصّ غير آمن)، TEMPLATE رُدّ للحتمي، NONE تعذّر النداء (REGEN لم يعد يُنتج) */
   guard: 'PASS' | 'REGEN' | 'TRIM' | 'TEMPLATE' | 'NONE';
   badKinds: string[];
   flags: string[];
 }
 
-/** الدراسة بالعقل مع إعادة واحدة؛ أي تعثّر ⇒ study = null (والمستدعي يعرض الحتمي). */
+/** مهلة الدراسة بالعقل (المندوب ينتظرها بعد ضغط المحل). */
+export const AI_STUDY_TIMEOUT_MS = 15_000;
+
+/**
+ * الدراسة بالعقل بمحاولة واحدة: لا يُعاد طلبٌ مطابق بعد مخرج معطوب أو مرفوض — المبتور بحدّ الرموز وحده يُعاد بتفكير
+ * منخفض (completeUntruncated)، ورفض المضيف لـresponse_format يُعاد بدونه. أي تعثّر ⇒ study = null (الحتمي).
+ */
 export async function aiStudy(p: PlaceProfile, opts: {
   cfg: LlmConfig; products: string[]; playbook: string | null;
+  /** المنتجات ذات الأولوية (أسماءً — ضمن products) */
+  priority?: string[];
   /** دروس الشركة المختارة لهذه الدورة (renderLessonsBlock) */
   lessonsBlock?: string;
   llm?: (cfg: LlmConfig, req: LlmRequest) => Promise<LlmResult>;
@@ -232,30 +254,29 @@ export async function aiStudy(p: PlaceProfile, opts: {
     messages: [
       // الدروس في آخر التعليمات (بعد الجزء الثابت)
       { role: 'system', content: STUDY_SYSTEM_AR + lessonsSection(opts.lessonsBlock ?? '') },
-      { role: 'user', content: `ملف المحل وقائمة منتجات الشركة ودليل البيع (بيانات):\n<<<\n${studyInput(p, opts.products, opts.playbook)}\n>>>` },
+      { role: 'user', content: `ملف المحل وقائمة منتجات الشركة ودليل البيع (بيانات):\n<<<\n${studyInput(p, opts.products, opts.playbook, opts.priority)}\n>>>` },
     ],
-    responseFormat: 'json_object', reasoningEffort: 'medium', maxTokens: 3000, temperature: 0.3, timeoutMs: 30000,
+    responseFormat: 'json_object', reasoningEffort: 'medium', maxTokens: 3000, temperature: 0.3, timeoutMs: AI_STUDY_TIMEOUT_MS,
   };
-  let tokensIn = 0, tokensOut = 0;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    let r = await call(opts.cfg, req);
-    // بعض المضيفين يرفض response_format — إعادة بدونه
-    if (!r.ok && r.code === 'LLM_BAD_REQUEST') r = await call(opts.cfg, { ...req, responseFormat: undefined });
-    if (!r.ok) {
-      return tokensIn
-        ? { study: null, tokensIn, tokensOut, code: r.code, source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: ['BAD_OUTPUT', 'LLM_ERROR'] }
-        : { study: null, tokensIn, tokensOut, code: r.code, source: 'ERROR', guard: 'NONE', badKinds: [], flags: ['LLM_ERROR'] };
-    }
-    tokensIn += r.usage.promptTokens; tokensOut += r.usage.completionTokens;
-    const dropped = { numbers: 0, promises: 0 };
-    const s = sanitizeStudy(r.content, p, opts.products, opts.playbook, dropped);
-    if (s) {
-      return {
-        study: s, tokensIn, tokensOut, source: 'AI',
-        guard: dropped.numbers || dropped.promises ? 'TRIM' : attempt ? 'REGEN' : 'PASS',
-        badKinds: dropped.numbers ? ['OTHER'] : [], flags: dropped.promises ? ['PROMISE'] : [],
-      };
-    }
+  let first = await completeUntruncated(call, opts.cfg, req, AI_STUDY_TIMEOUT_MS + 5000);
+  // بعض المضيفين يرفض response_format — إعادة بدونه (طلبٌ مختلف)
+  if (!first.r.ok && first.r.code === 'LLM_BAD_REQUEST' && !first.tokensIn) {
+    first = await completeUntruncated(call, opts.cfg, { ...req, responseFormat: undefined }, AI_STUDY_TIMEOUT_MS + 5000);
   }
-  return { study: null, tokensIn, tokensOut, code: 'LLM_BAD_OUTPUT', source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: ['BAD_OUTPUT'] };
+  const { r, tokensIn, tokensOut, widened } = first;
+  const truncated = widened ? ['TRUNCATED'] : [];
+  if (!r.ok) {
+    return tokensIn || tokensOut
+      ? { study: null, tokensIn, tokensOut, code: r.code, source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: [...truncated, 'BAD_OUTPUT', 'LLM_ERROR'] }
+      : { study: null, tokensIn, tokensOut, code: r.code, source: 'ERROR', guard: 'NONE', badKinds: [], flags: ['LLM_ERROR'] };
+  }
+  const dropped: StudyDrops = { numbers: 0, promises: 0, unsafe: 0 };
+  const s = sanitizeStudy(r.content, p, opts.products, opts.playbook, dropped, ruleStudy(p).summary);
+  if (!s) return { study: null, tokensIn, tokensOut, code: 'LLM_BAD_OUTPUT', source: 'AI', guard: 'TEMPLATE', badKinds: [], flags: [...truncated, 'BAD_OUTPUT'] };
+  const flags = [...truncated, ...(dropped.promises ? ['PROMISE'] : []), ...(dropped.unsafe ? ['UNSAFE_TEXT'] : [])];
+  return {
+    study: s, tokensIn, tokensOut, source: 'AI',
+    guard: dropped.numbers || dropped.promises || dropped.unsafe ? 'TRIM' : 'PASS',
+    badKinds: dropped.numbers ? ['OTHER'] : [], flags,
+  };
 }

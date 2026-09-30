@@ -79,7 +79,11 @@ const realStore = require('../ai-rep/learn/store') as typeof import('../ai-rep/l
 const T = require('../ai-rep/learn/types') as typeof import('../ai-rep/learn/types');
 let learned: Learned = { ...T.EMPTY_LEARNED };
 const turns: import('../ai-rep/learn/store').TurnRecord[] = [];
-stub('ai-rep/learn/store', { ...realStore, getLearned: async () => learned, recordTurn: async (t: import('../ai-rep/learn/store').TurnRecord) => { turns.push(t); } });
+// توجيه العقل يصل بنداء ثانٍ (/scan/guide) فيحدّث دورة المسح نفسها
+stub('ai-rep/learn/store', {
+  ...realStore, getLearned: async () => learned, recordTurn: async (t: import('../ai-rep/learn/store').TurnRecord) => { turns.push(t); },
+  updateTurn: async (_tid: string, _rep: string, id: string, patch: Partial<import('../ai-rep/learn/store').TurnRecord>) => { const t = turns.find(x => x.id === id); if (t) Object.assign(t, patch); },
+});
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const mod = require('../routes/aiRep') as typeof import('../routes/aiRep');
@@ -314,7 +318,10 @@ test('«مطبَّق على المسح» صادق: بلا عقل لا تُسجَ
   llmCfg = { provider: 'groq', apiKey: 'k', model: 'm', baseUrl: 'http://x' } as never;
   llmSystems.length = 0;
   try {
-    await scan('rep-applied-2', { advisorEnabled: true });
+    const sc = await scan('rep-applied-2', { advisorEnabled: true });
+    assert.equal(turns[1].source, 'RULES', 'المسح يعود بالخطة الحتمية فوراً');
+    assert.equal((sc.data as unknown as { aiGuidePending: boolean }).aiGuidePending, true);
+    await call('/scan/guide', { searchId: sc.data.searchId }, 'rep-applied-2', { advisorEnabled: true });
     assert.equal(turns[1].source, 'AI');
     assert.equal(turns[1].guard, 'PASS');
     assert.deepEqual(new Set(turns[1].lessonIds), new Set(['l1', 'l3']), 'بالعقل: الدروس المحقونة في تعليماته والسطر المعروض');

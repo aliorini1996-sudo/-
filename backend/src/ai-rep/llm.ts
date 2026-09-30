@@ -10,10 +10,15 @@
  *   AI_REP_LLM_EXTRA_BODY  (اختياري) JSON يُدمج في جسم الطلب — مثل مفتاح إطفاء «التفكير» الخاص بالمضيف
  *   AI_REP_LLM_TIMEOUT_MS  (اختياري) مهلة النداء الواحد، افتراضياً 20000
  *   AI_REP_LLM_MAX_TOKENS  (اختياري) حدّ رموز الرد، افتراضياً 8192 — يشمل «التفكير» فلا يُصغَّر وهو مفعّل
+ *   AI_REP_LLM_TPM         (اختياري) حدّ الرموز في الدقيقة لكل نداءات العملية (المسح والدراسة والمراجعة الليلية
+ *                          والمستشار): مفتاح واحد للمنصّة ⇒ دلوٌ واحد. افتراضياً ٨٠٠٠ مع Groq (الباقة المجانية لـgpt-oss-120b)
+ *                          وبلا حدّ مع غيره؛ 0 يطفئه. يُضبط من باقة المضيف الفعلية.
  * الافتراضي (Groq): BASE_URL=https://api.groq.com/openai/v1  MODEL=openai/gpt-oss-120b
  *   EXTRA_BODY={"reasoning_effort":"high","include_reasoning":false} — التفكير يُحسب عندهم ولا يُعاد في الرد،
  *   ولا يُرسل راجعاً في دورة الأدوات (Groq يرفض الحقل reasoning_content).
  * غياب المفتاح ⇒ المستشار «غير مضبوط»، وكل ما هو حتمي يبقى يعمل.
+ * الدلو يحجز قبل النداء تقديراً متحفّظاً (محارف الطلب ÷٣ + سقف الرد) ويردّ الفرق بالاستهلاك الفعلي بعده؛ ما لا يتّسع
+ * خلال مهلة الانتظار (queueMs، افتراضياً ٣ ث) يُردّ محلياً LLM_RATE_LIMIT فيعرض المستدعي الحتمي — لا ٤٢٩ من المضيف.
  */
 
 export interface LlmToolCall { id: string; name: string; arguments: string }
@@ -38,6 +43,8 @@ export interface LlmRequest {
   responseFormat?: 'json_object';
   /** مهلة هذا النداء (٣–١٢٠ ث). */
   timeoutMs?: number;
+  /** أقصى انتظار لسعة الدلو المشترك قبل النداء (افتراضياً ٣ ث؛ المراجعة الليلية تنتظر أطول). */
+  queueMs?: number;
 }
 export interface LlmUsage { promptTokens: number; completionTokens: number; cachedTokens: number }
 export type LlmResult =
@@ -77,8 +84,98 @@ export function llmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | nul
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
+// ───────────── دلو الرموز المشترك (حصة المضيف في الدقيقة) ─────────────
+
+/** حدّ الرموز في الدقيقة: AI_REP_LLM_TPM، وإلا ٨٠٠٠ مع Groq، وإلا بلا حدّ (0). */
+export function llmTpm(baseUrl: string, env: NodeJS.ProcessEnv = process.env): number {
+  const raw = (env.AI_REP_LLM_TPM ?? '').trim();
+  const n = Number(raw);
+  if (raw !== '' && Number.isFinite(n) && n >= 0) return Math.floor(n);
+  return /^https:\/\/api\.groq\.com\//i.test(baseUrl + '/') ? 8000 : 0;
+}
+
+/**
+ * دلو رموز يمتلئ بمعدّل tpm في الدقيقة وسعته tpm. take يحجز فوراً (قد يصير الرصيد سالباً فينتظر من بعده أطول)
+ * وينتظر حتى يسدّ العجز — أو يرفض إن تجاوز الانتظار maxWaitMs (بلا حجز). settle يردّ فرق التقدير بعد النداء.
+ */
+export class TokenBucket {
+  private level: number;
+  private at: number;
+  constructor(readonly tpm: number, private now: () => number = Date.now) { this.level = tpm; this.at = now(); }
+  private refill(): void {
+    const t = this.now();
+    this.level = Math.min(this.tpm, this.level + ((t - this.at) * this.tpm) / 60_000);
+    this.at = t;
+  }
+  /** مدة الانتظار (مللي ثانية) بعد الحجز، أو null إن لم يتّسع خلال maxWaitMs. */
+  take(est: number, maxWaitMs: number): number | null {
+    this.refill();
+    const need = Math.min(Math.max(1, est), this.tpm);
+    const after = this.level - need;
+    const wait = after >= 0 ? 0 : Math.ceil((-after * 60_000) / this.tpm);
+    if (wait > maxWaitMs) return null;
+    this.level = after;
+    return wait;
+  }
+  settle(est: number, actual: number): void {
+    this.refill();
+    this.level = Math.min(this.tpm, this.level + Math.min(est, this.tpm) - actual);
+  }
+}
+
+let bucket: TokenBucket | null = null;
+function bucketFor(tpm: number): TokenBucket | null {
+  if (tpm <= 0) return null;
+  if (!bucket || bucket.tpm !== tpm) bucket = new TokenBucket(tpm);
+  return bucket;
+}
+/** للاختبارات. */
+export function resetLlmBucket(): void { bucket = null; }
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/** تقدير متحفّظ للرموز قبل النداء: محارف الطلب ÷٣ + سقف الرد (يشمل التفكير). */
+export function estimateTokens(cfg: Pick<LlmConfig, 'maxTokens'>, req: LlmRequest): number {
+  const chars = req.messages.reduce((s, m) => s + (m.content?.length ?? 0), 0) + (req.tools ? JSON.stringify(req.tools).length : 0);
+  return Math.ceil(chars / 3) + (req.maxTokens ?? cfg.maxTokens);
+}
+
+/** نداء النموذج عبر دلو الرموز المشترك للعملية كلها (AI_REP_LLM_TPM). */
 export async function chatCompletion(cfg: LlmConfig | null, req: LlmRequest, fetchImpl?: FetchLike): Promise<LlmResult> {
   if (!cfg) return { ok: false, code: 'LLM_NOT_CONFIGURED' };
+  const b = bucketFor(llmTpm(cfg.baseUrl));
+  if (!b) return rawCompletion(cfg, req, fetchImpl);
+  const est = estimateTokens(cfg, req);
+  const wait = b.take(est, req.queueMs ?? 3000);
+  if (wait == null) return { ok: false, code: 'LLM_RATE_LIMIT', status: 0 };
+  if (wait > 0) await sleep(wait);
+  const r = await rawCompletion(cfg, req, fetchImpl);
+  // الفعلي إن أبلغ عنه المضيف؛ الفشل قبل الرد لا يستهلك، والمهلة المنقضية قد تكون استُهلكت عندهم فتُحسب احتياطاً
+  b.settle(est, r.ok ? (r.usage.promptTokens + r.usage.completionTokens || est) : r.code === 'LLM_TIMEOUT' ? est : 0);
+  return r;
+}
+
+/**
+ * نداءٌ بردٍّ كامل: الرد المبتور بحدّ الرموز (finish_reason=length — غالباً استهلكه «التفكير») يُعاد مرّة واحدة بتفكير
+ * منخفض وسقفٍ أعلى إن بقي من المهلة الكلية totalMs ما يكفي — ولا يُعاد طلبٌ مطابق أبداً. الاستهلاك مجموع النداءين.
+ */
+export async function completeUntruncated(
+  call: (cfg: LlmConfig, req: LlmRequest) => Promise<LlmResult>, cfg: LlmConfig, req: LlmRequest, totalMs: number,
+): Promise<{ r: LlmResult; tokensIn: number; tokensOut: number; widened: boolean }> {
+  const started = Date.now();
+  let tokensIn = 0, tokensOut = 0;
+  const add = (x: LlmResult) => { if (x.ok) { tokensIn += x.usage.promptTokens; tokensOut += x.usage.completionTokens; } };
+  const r = await call(cfg, req);
+  add(r);
+  const left = totalMs - (Date.now() - started);
+  if (!r.ok || r.finishReason !== 'length' || left < 3000) return { r, tokensIn, tokensOut, widened: false };
+  const max = req.maxTokens ?? cfg.maxTokens;
+  const r2 = await call(cfg, { ...req, reasoningEffort: 'low', maxTokens: Math.min(8192, Math.ceil(max * 1.5)), timeoutMs: Math.min(req.timeoutMs ?? left, left) });
+  add(r2);
+  return { r: r2, tokensIn, tokensOut, widened: true };
+}
+
+async function rawCompletion(cfg: LlmConfig, req: LlmRequest, fetchImpl?: FetchLike): Promise<LlmResult> {
   const f: FetchLike = fetchImpl ?? (fetch as unknown as FetchLike);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), Math.min(120000, Math.max(3000, req.timeoutMs ?? cfg.timeoutMs)));
