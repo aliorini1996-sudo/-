@@ -704,7 +704,8 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
     const got = await placeProfile({ apiKey: key, placeId: placeId! });
     if (!got.ok) { await fail(got.code === 'PLACES_QUOTA' ? 429 : got.code === 'PLACES_NOT_FOUND' ? 404 : 502, { code: got.code, message: got.message }); return; }
     const p = got.profile;
-    if (p.closed) { res.status(422).json({ success: false, code: 'PLACE_CLOSED', message: 'هذا المحل مغلق حسب خرائط Google' }); return; }
+    // مغلق نهائياً حسب Google: لا دراسة ⇒ تُعاد الحصة كأي فشل
+    if (p.closed) { await fail(422, { code: 'PLACE_CLOSED', message: 'هذا المحل مغلق حسب خرائط Google' }); return; }
 
     // نوع المحل (للتسجيل والإضافة عميلاً فقط — الدراسة لا تحتاجه)
     const outletType = outletTypeFromGoogle(p.primaryType, p.types, OUTLET_TYPE_CODES) ?? suggestOutletType(p.name) ?? c.settings.targetOutletTypes[0] ?? 'GROCERY';
@@ -768,10 +769,18 @@ const scanSchema = z.object({
   accuracyM: z.number().min(0).max(100000).optional(),
 });
 
+/** أسوأ دقّة موقع يُمسح حولها: فوقها (الموقع الدقيق مطفأ في الجوال) المحلات والمسافات من نقطةٍ على بعد كيلومترات. */
+export const SCAN_MAX_ACCURACY_M = 500;
+
 rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const c = ctxOf(req);
     const b = scanSchema.parse(req.body);
+    // قبل الحجز: الموقع التقريبي جداً لا يستهلك حصة ولا طلبات Google — والواجهة تنبّه لما دونه
+    if ((b.accuracyM ?? 0) > SCAN_MAX_ACCURACY_M) {
+      res.status(400).json({ success: false, code: 'GPS_INACCURATE', message: 'موقعك تقريبي جداً — فعّل «الموقع الدقيق» لهذا التطبيق من إعدادات الجوال ثم حدّث' });
+      return;
+    }
     // مهلة بعد مسحٍ فاشل (قبل الحجز): «حدّث» المتكرّر أثناء حجب Google لا يطرقها من جديد
     const repKey = `${c.tid}|${c.repId}`;
     const wait = repRetryLeftMs(repKey);

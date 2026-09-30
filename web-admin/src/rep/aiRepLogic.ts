@@ -121,9 +121,11 @@ export type ShopBadgeTone = 'customer' | 'possible' | 'followup' | 'muted' | 'ne
  * وإلا «فرصة جديدة». «مغلق الآن» من يوم سابق لا يَسِم — المحل فرصة من جديد.
  */
 export function shopBadge(it: {
-  relation: string; reportedClosed?: boolean; lastOutcome?: string | null; lastOutcomeAt?: string | null;
+  relation: string; reportedClosed?: boolean; lastOutcome?: string | null; lastOutcomeAt?: string | null; pendingCustomer?: boolean;
 }, now = new Date()): { label: string; tone: ShopBadgeTone } {
   if (it.relation === 'CUSTOMER') return { label: 'عميل حالي', tone: 'customer' };
+  // أُضيف عميلاً دون اتصال: في صفّ الإرسال حتى يُرفع — لا «فرصة جديدة» تُغري بإضافته ثانيةً
+  if (it.pendingCustomer) return { label: 'بانتظار المزامنة', tone: 'customer' };
   if (it.relation === 'POSSIBLE_CUSTOMER') return { label: 'ربما عميل حالي', tone: 'possible' };
   if (it.reportedClosed) return { label: 'أُبلغ أنه مغلق', tone: 'muted' };
   const k = it.lastOutcome;
@@ -142,6 +144,50 @@ const SCAN_RETRY_CODES = new Set(['SCAN_FAILED', 'SCAN_COOLDOWN', 'SOURCE_CHANGE
 export function refreshHoldMs(err: { code?: string; retryAfterS?: number } | null | undefined): number {
   if (!err?.code || !SCAN_RETRY_CODES.has(err.code)) return 0;
   return Math.min(30, Math.max(5, err.retryAfterS ?? 8)) * 1000;
+}
+
+// ───────────── موقع المندوب وإعادة المسح ─────────────
+
+/** أسوأ دقّة تُقبل بلا تنبيه: فوقها قراءة ثانية طازجة، ثم المسح بتنبيه «موقعك تقريبي» (الخادم يرفض فوق ٥٠٠ م). */
+export const COARSE_GPS_M = 150;
+
+export type GpsErrorKind = 'DENIED' | 'TIMEOUT' | 'UNAVAILABLE';
+
+/** سبب تعذّر الموقع من رمز GeolocationPositionError: ١ رفض الإذن، ٣ انتهاء المهلة، وغيرهما (٢ أو جهاز بلا GPS) غير متاح. */
+export function gpsErrorKind(e: unknown): GpsErrorKind {
+  const code = (e as { code?: unknown } | null)?.code;
+  return code === 1 ? 'DENIED' : code === 3 ? 'TIMEOUT' : 'UNAVAILABLE';
+}
+
+/** رسالة كل سبب (تمرّ بـtr() متغيّرةً ⇒ ترجمتها مختبَرة). */
+export const GPS_ERROR_TEXT: Record<GpsErrorKind, string> = {
+  DENIED: 'اسمح للتطبيق بالوصول إلى موقعك (من إعدادات الجوال أو المتصفح) لنعرف المحلات القريبة منك',
+  TIMEOUT: 'تأخّر تحديد موقعك — تأكّد أن الموقع (GPS) يعمل ثم أعد المحاولة',
+  UNAVAILABLE: 'تعذّر تحديد موقعك — شغّل الموقع (GPS) في الجوال ثم أعد المحاولة',
+};
+
+/** العودة للشاشة تمسح من جديد إن ابتعد المندوب عن موضع آخر مسح أكثر من هذا (أو من دقّة موقعه إن كانت أسوأ). */
+export const RESCAN_MOVE_M = 300;
+/** …أو قدُم آخر مسح أكثر من هذا. */
+export const RESCAN_AGE_MS = 45 * 60_000;
+
+/** هل قائمة المسح المحفوظة لم تعد لمكان المندوب؟ بلا مسحٍ سابق معروف ⇒ نعم. */
+export function needsRescan(fix: Pt & { accuracy?: number }, last: { at: Pt; when: number } | null, now = Date.now()): boolean {
+  if (!last) return true;
+  if (now - last.when > RESCAN_AGE_MS) return true;
+  return distKm(fix, last.at) * 1000 > Math.max(RESCAN_MOVE_M, fix.accuracy ?? 0);
+}
+
+/**
+ * دمج محلٍّ دُرس بمراجعاته في قائمة المسح: الموجود يحتفظ بمرجعه (خطة التوجيه تشير إليه بالمرجع)، والجديد بمرجعٍ
+ * لا يتكرّر — جلسة الخادم إن انتهت (٤ ساعات أو إعادة نشر) تبدأ من P1 فيصطدم مرجعها بمراجع المسح.
+ */
+export function mergeStudied<T extends { placeId: string; ref: string }>(list: T[], item: T): T[] {
+  if (list.some(x => x.placeId === item.placeId)) return list.map(x => (x.placeId === item.placeId ? { ...x, ...item, ref: x.ref } : x));
+  const refs = new Set(list.map(x => x.ref));
+  let ref = item.ref;
+  for (let n = list.length + 1; refs.has(ref); n++) ref = `P${n}`;
+  return [...list, { ...item, ref }];
 }
 
 /** أنواع المنافذ (نسخة الواجهة من backend/src/ai-rep/taxonomy.ts — الخادم يتحقّق من الرموز). */

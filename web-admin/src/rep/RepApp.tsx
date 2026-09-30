@@ -2275,9 +2275,10 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
 // ============ إضافة عميل جديد ============
 function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, prefill = null, outletTypes }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[] }) {
   const tr = useTr();
+  // من محلٍّ اقترحه المندوب الذكي: اسم المنشأة وعنوانها معبّآن من خرائط Google (لا يعيد المندوب كتابتهما)
   const [form, setForm] = useState({
-    name: '', businessName: '', phone: '', commercialReg: '', taxNumber: '',
-    city: '', district: '', address: '', creditLimit: '', paymentDays: '30',
+    name: '', businessName: prefill?.businessName ?? '', phone: '', commercialReg: '', taxNumber: '',
+    city: '', district: '', address: prefill?.address ?? '', creditLimit: '', paymentDays: '30',
   });
   // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — تُفحص قبل الإرسال وتبقى مع العميل في الصفّ دون اتصال
   const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(null));
@@ -2289,6 +2290,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(prefill?.lat != null && prefill?.lng != null ? { lat: prefill.lat, lng: prefill.lng } : null);
   const [locUrl, setLocUrl] = useState('');
   const [gps, setGps] = useState<'idle' | 'getting' | 'ok' | 'denied'>(prefill?.lat != null ? 'ok' : 'idle');
+  // الموقع المعبّأ من خريطة Google (المندوب ليس عند الباب) — يُوسم بمصدره ويزول الوسم حين يلتقط المندوب موقعه
+  const [pinFromMap, setPinFromMap] = useState(!!prefill?.pinFromMap && prefill?.lat != null);
   // المندوب الذكي: نوع المنفذ (أساس التوقّع للمحلات المشابهة) — معبّأ من المحل المقترح
   const [outletType, setOutletType] = useState(prefill?.outletType ?? '');
 
@@ -2296,7 +2299,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
     if (!navigator.geolocation) { setGps('denied'); return; }
     setGps('getting');
     navigator.geolocation.getCurrentPosition(
-      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); },
+      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); setPinFromMap(false); },
       () => setGps('denied'),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
     );
@@ -2421,6 +2424,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
             {coords ? tr('تم تحديد الموقع ✓') : gps === 'getting' ? tr('جار تحديد الموقع') : tr('التقاط موقعي الحالي عند العميل')}
           </button>
           {coords && <p className="text-[11px] text-green-600 mt-1 text-center" dir="ltr">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</p>}
+          {coords && pinFromMap && <p className="text-[11px] text-amber-600 mt-1 text-center">{tr('الموقع من خريطة Google — اضغط الزر عند باب المحل لالتقاطه أدق')}</p>}
           {gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr('تعذر الوصول للموقع الصق الرابط أدناه بدلا منه')}</p>}
           <div className="mt-2">
             <input className="input" dir="ltr" placeholder={tr('أو الصق رابط الموقع من خرائط Google')}
@@ -3508,7 +3512,7 @@ export default function RepApp() {
           ) : modal === 'addCustomer' ? (
             <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect}
               prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
-              onCreated={(c) => { if (aiPrefill?.aiPlaceId && !c._offline) markConverted(aiPrefill.aiPlaceId, c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
+              onCreated={(c) => { if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c._offline ? null : c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (
             <>
               {/* Top bar */}

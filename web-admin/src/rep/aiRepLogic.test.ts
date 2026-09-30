@@ -165,6 +165,45 @@ test('وسم المسح: العميل و«ربما عميل» والمُبلَّ
   assert.ok(CLOSED_OUTCOMES.has('CLOSED') && CLOSED_OUTCOMES.has('NOT_FOUND'));
   assert.equal(OUTCOME_LABEL.NOT_FOUND, 'أُغلق نهائياً / لم أجده');
   // تسميات الوسم تمرّ بـtr() متغيّرةً (لا يلتقطها فحص المفاتيح الحرفية) ⇒ ترجمتها هنا
-  const labels = ['عميل حالي', 'ربما عميل حالي', 'أُبلغ أنه مغلق', 'فرصة جديدة', ...Object.values(OUTCOME_LABEL)];
+  const labels = ['عميل حالي', 'ربما عميل حالي', 'أُبلغ أنه مغلق', 'فرصة جديدة', 'بانتظار المزامنة', ...Object.values(OUTCOME_LABEL)];
   for (const lang of ['en', 'fr', 'tr', 'zh']) for (const l of labels) assert.notEqual(aiRepTranslate(lang, l), l, `بلا ترجمة ${lang}: ${l}`);
+  // أُضيف عميلاً دون اتصال: لا «فرصة جديدة» تُغري بإضافته ثانيةً، والعميل الفعلي يسبقه
+  assert.deepEqual(b({ pendingCustomer: true }), { label: 'بانتظار المزامنة', tone: 'customer' });
+  assert.equal(b({ pendingCustomer: true, relation: 'CUSTOMER' }).label, 'عميل حالي');
+});
+
+// ───────────── موقع المندوب وإعادة المسح ─────────────
+import { GPS_ERROR_TEXT, RESCAN_AGE_MS, RESCAN_MOVE_M, gpsErrorKind, mergeStudied, needsRescan } from './aiRepLogic';
+
+test('سبب تعذّر الموقع: رفض الإذن غير انتهاء المهلة غير «غير متاح»، ولكلٍّ رسالة مترجمة', () => {
+  assert.equal(gpsErrorKind({ code: 1 }), 'DENIED');
+  assert.equal(gpsErrorKind({ code: 3 }), 'TIMEOUT');
+  assert.equal(gpsErrorKind({ code: 2 }), 'UNAVAILABLE');
+  assert.equal(gpsErrorKind(new Error('no-geo')), 'UNAVAILABLE', 'جهاز بلا GPS');
+  assert.equal(gpsErrorKind(null), 'UNAVAILABLE');
+  const texts = Object.values(GPS_ERROR_TEXT);
+  assert.equal(new Set(texts).size, 3, 'ثلاث رسائل مختلفة');
+  for (const lang of ['en', 'fr', 'tr', 'zh']) for (const t of texts) assert.notEqual(aiRepTranslate(lang, t), t, `بلا ترجمة ${lang}: ${t}`);
+});
+
+test('إعادة المسح عند العودة: الابتعاد عن موضع آخر مسح أو قِدَمه، وارتعاش الموقع التقريبي لا يُحسب ابتعاداً', () => {
+  const now = 1_000_000_000;
+  const last = { at: O, when: now - 60_000 };
+  const moved = (m: number) => ({ lat: O.lat + m / 111_000, lng: O.lng });
+  assert.equal(needsRescan(moved(0), null, now), true, 'لا مسح سابق معروف');
+  assert.equal(needsRescan({ ...moved(RESCAN_MOVE_M - 50), accuracy: 10 }, last, now), false, 'في المكان نفسه تقريباً');
+  assert.equal(needsRescan({ ...moved(RESCAN_MOVE_M + 100), accuracy: 10 }, last, now), true, 'حيٌّ آخر');
+  assert.equal(needsRescan({ ...moved(RESCAN_MOVE_M + 100), accuracy: 800 }, last, now), false, 'الفرق دون دقّة الموقع ⇒ ارتعاش');
+  assert.equal(needsRescan(moved(0), { at: O, when: now - RESCAN_AGE_MS - 1 }, now), true, 'مسحٌ قديم');
+});
+
+test('دمج محلٍّ دُرس بمراجعاته: الموجود يحتفظ بمرجعه، والجديد لا يصطدم بمرجع جلسة خادمٍ انتهت', () => {
+  const list = [{ placeId: 'a', ref: 'P1', v: 1 }, { placeId: 'b', ref: 'P2', v: 1 }];
+  // جلسة الخادم انتهت: أعادت P1 لمحلٍّ هو P2 في القائمة
+  const m1 = mergeStudied(list, { placeId: 'b', ref: 'P1', v: 2 });
+  assert.deepEqual(m1.map(x => [x.placeId, x.ref, x.v]), [['a', 'P1', 1], ['b', 'P2', 2]], 'خطة التوجيه تبقى تشير إلى المحل الصحيح');
+  const m2 = mergeStudied(list, { placeId: 'c', ref: 'P1', v: 2 });
+  assert.deepEqual(m2.map(x => x.ref), ['P1', 'P2', 'P3'], 'الجديد بمرجعٍ غير مأخوذ');
+  assert.equal(new Set(mergeStudied(m2, { placeId: 'd', ref: 'P3', v: 2 }).map(x => x.ref)).size, 4);
+  assert.deepEqual(mergeStudied(list, { placeId: 'c', ref: 'P3', v: 2 }).map(x => x.ref), ['P1', 'P2', 'P3'], 'مرجع الخادم إن لم يُؤخذ');
 });

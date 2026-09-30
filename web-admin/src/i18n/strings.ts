@@ -4035,6 +4035,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'متجر محطة وقود': { en: 'Fuel-station shop', fr: 'Boutique de station-service', tr: 'Akaryakıt istasyonu marketi', zh: '加油站便利店' },
   'غير محدّد': { en: 'Not set', fr: 'Non défini', tr: 'Belirtilmedi', zh: '未设置' },
   'يساعد المندوب الذكي على توقّع مشتريات المحلات المشابهة': { en: 'Helps the AI rep estimate purchases of similar outlets', fr: 'Aide le commercial IA à estimer les achats des points similaires', tr: 'Akıllı temsilcinin benzer noktaların alımlarını tahmin etmesine yardımcı olur', zh: '帮助智能业务员预测类似网点的采购量' },
+  'الموقع من خريطة Google — اضغط الزر عند باب المحل لالتقاطه أدق': { en: 'Location taken from Google Maps — tap the button at the shop door for a more precise one', fr: 'Position issue de Google Maps — touchez le bouton à la porte du magasin pour plus de précision', tr: 'Konum Google Haritalar’dan alındı — daha kesin konum için dükkân kapısında düğmeye dokunun', zh: '位置取自 Google 地图——在店门口点击按钮可获取更精确的位置' },
   // ——— البصمة: نوبة من يوم سابق ———
   'منذ': { en: "Since", fr: "Depuis", tr: "Şu tarihten beri", zh: "自" },
   'يبدو أنك نسيت تسجيل الانصراف — سجّل الانصراف ثم الحضور من جديد': { en: "Looks like you forgot to check out — check out, then check in again", fr: "Vous semblez avoir oublié de pointer la sortie — pointez la sortie puis l’entrée à nouveau", tr: "Çıkış yapmayı unutmuş görünüyorsunuz — çıkış yapıp yeniden giriş yapın", zh: "您似乎忘记签退——请先签退再重新签到" },
