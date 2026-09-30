@@ -3326,7 +3326,7 @@ model AiOutlet {
   repTypedName        String?
   lat                 Float? // GPS المندوب عند تسجيل النتيجة
   lng                 Float?
-  status              String    @default("OPEN") // OPEN | CLOSED | CONVERTED
+  status              String    @default("OPEN") // OPEN | CLOSED («لم أجده» مؤكَّد — يُخفى زمناً محدوداً) | CONVERTED
   lastOutcome         String? // آخر نتيجة (AiOutletEvent.kind)
   lastOutcomeAt       DateTime?
   lastSalesRepId      String?
@@ -3351,7 +3351,7 @@ model AiOutletEvent {
   outletId   String
   outlet     AiOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
   salesRepId String
-  kind       String // INTERESTED | CALL_BACK | QUOTE | NOT_INTERESTED | CLOSED | EXCLUSIVE_SUPPLIER | CONVERTED
+  kind       String // INTERESTED | CALL_BACK | QUOTE | NOT_INTERESTED | CLOSED (مغلق الآن) | NOT_FOUND (أُغلق نهائياً / لم أجده) | EXCLUSIVE_SUPPLIER | CONVERTED
   note       String?
   lat        Float?
   lng        Float?

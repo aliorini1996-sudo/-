@@ -7,7 +7,7 @@ import {
 } from '../ai-rep/estimate';
 import { googleTypesFor, outletTypeFromGoogle, suggestOutletType } from '../ai-rep/taxonomy';
 import { parsePlaces, searchNearby, PLACES_FIELD_MASK } from '../ai-rep/places';
-import { mergeNearby } from '../ai-rep/nearby';
+import { CLOSED_MEMORY_DAYS, customerBox, hiddenByMemory, mergeNearby, sameDay } from '../ai-rep/nearby';
 import { aiRepSettingsSchema, repInScope, settingsView } from '../ai-rep/settings';
 
 const NOW = new Date('2026-09-20T09:00:00Z');
@@ -295,6 +295,83 @@ test('عزل العملاء: عميل الزميل غير المرئي لا يؤ
   const open = mergeNearby([P('x', 100)], { ...base, isolation: false });
   assert.equal(open[0].relation, 'CUSTOMER');
   assert.equal(open[0].customerId, null, 'لا معرّف لعميل غير مرئي');
+});
+
+const HOUR = 3600000;
+const mem = (placeId: string, lastOutcome: string, ago: number, status = 'OPEN') =>
+  ({ placeId, status, lastOutcome, lastOutcomeAt: new Date(NOW.getTime() - ago), convertedCustomerId: null });
+const merge = (places: ReturnType<typeof P>[], outlets: ReturnType<typeof mem>[], customers: Parameters<typeof mergeNearby>[1]['customers'] = [], extra: { keepHidden?: boolean } = {}) =>
+  mergeNearby(places, { origin: BASE, targetTypes: ['GROCERY'], isolation: false, now: NOW, customers, outlets, ...extra });
+
+test('الإخفاء بزمن: «مغلق الآن» بقية اليوم فقط، ثم يعود بآخر نتيجته (لا إلى الأبد)', () => {
+  assert.ok(sameDay(new Date(NOW.getTime() - 2 * HOUR), NOW));
+  assert.ok(!sameDay(new Date(NOW.getTime() - 24 * HOUR), NOW));
+  // صباح اليوم ⇒ مخفي؛ أمس ⇒ ظاهر بلا وسم الإغلاق النهائي؛ والصفّ القديم (status CLOSED بنتيجة CLOSED) يُعامَل مؤقتاً
+  const items = merge([P('today', 100), P('yday', 200), P('legacy', 300)], [
+    mem('today', 'CLOSED', 2 * HOUR), mem('yday', 'CLOSED', 24 * HOUR), mem('legacy', 'CLOSED', 40 * 86400000, 'CLOSED'),
+  ]);
+  assert.deepEqual(items.map(i => i.placeId), ['yday', 'legacy']);
+  assert.equal(items[0].lastOutcome, 'CLOSED');
+  assert.equal(items[0].reportedClosed, false);
+  assert.equal(items[0].relation, 'NEW');
+});
+
+test('«لم أجده»: البلاغ الواحد بقية اليوم ثم موسوماً آخر القائمة، والمؤكَّد CLOSED_MEMORY_DAYS ثم يعود موسوماً', () => {
+  const D = 86400000;
+  const items = merge([P('one-today', 50), P('one-old', 60), P('conf-recent', 70), P('conf-expired', 80), P('fresh', 400)], [
+    mem('one-today', 'NOT_FOUND', HOUR), mem('one-old', 'NOT_FOUND', 3 * D),
+    mem('conf-recent', 'NOT_FOUND', 10 * D, 'CLOSED'), mem('conf-expired', 'NOT_FOUND', (CLOSED_MEMORY_DAYS + 1) * D, 'CLOSED'),
+  ]);
+  assert.deepEqual(items.map(i => i.placeId), ['fresh', 'one-old', 'conf-expired'], 'المُبلَّغ عنه آخر القائمة كالمرفوض');
+  assert.ok(items.filter(i => i.placeId !== 'fresh').every(i => i.reportedClosed));
+  assert.equal(hiddenByMemory(mem('x', 'NOT_FOUND', 10 * D, 'CLOSED'), NOW), true);
+  assert.equal(hiddenByMemory(mem('x', 'NOT_FOUND', 3 * D), NOW), false);
+  assert.equal(hiddenByMemory(mem('x', 'INTERESTED', HOUR), NOW), false);
+  // الدراسة بضغطة المندوب: المخفي يعود بذاكرته
+  const kept = merge([P('conf-recent', 70)], [mem('conf-recent', 'NOT_FOUND', 10 * D, 'CLOSED')], [], { keepHidden: true });
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].reportedClosed, true);
+});
+
+test('العميل لا يُخفى أبداً: القائم بمعرّف المكان والمحتمل بالقرب يبقيان ولو أُبلغ عن إغلاقهما', () => {
+  const items = merge([P('cust', 100), P('maybe', 300)], [mem('cust', 'NOT_FOUND', HOUR, 'CLOSED'), mem('maybe', 'CLOSED', HOUR)], [
+    { id: 'c1', lat: null, lng: null, outletType: 'GROCERY', aiPlaceId: 'cust', visible: true },
+    { id: 'c2', lat: BASE.lat, lng: BASE.lng + 310 / 101000, outletType: 'GROCERY', aiPlaceId: null, visible: true },
+  ]);
+  assert.deepEqual(items.map(i => [i.placeId, i.relation]), [['cust', 'CUSTOMER'], ['maybe', 'POSSIBLE_CUSTOMER']]);
+  assert.ok(items.every(i => !i.reportedClosed), 'وسم الإغلاق للفرص وحدها');
+});
+
+test('المطابقة بالقرب واحداً لواحد: عميل واحد وسط صفّ محلات يُلصق بأقربها وحده، وكلٌّ بأقرب محل له', () => {
+  // صفّ من أربعة محلات متلاصقة (كل ١٠ م) وعميل واحد عند الثالث
+  const strip = [P('s1', 1000), P('s2', 1010), P('s3', 1020), P('s4', 1030)];
+  const one = merge(strip, [], [{ id: 'c1', lat: BASE.lat, lng: BASE.lng + 1021 / 101000, outletType: null, aiPlaceId: null, visible: true }]);
+  assert.deepEqual(one.filter(i => i.relation === 'POSSIBLE_CUSTOMER').map(i => [i.placeId, i.customerId]), [['s3', 'c1']]);
+  assert.equal(one.filter(i => i.relation === 'NEW').length, 3, 'البقية فرص جديدة');
+  // عميلان: كلٌّ يأخذ أقرب محل له — لا يسرق الأقربُ للجميع محلَّ غيره
+  const two = merge(strip, [], [
+    { id: 'a', lat: BASE.lat, lng: BASE.lng + 1002 / 101000, outletType: 'GROCERY', aiPlaceId: null, visible: true },
+    { id: 'b', lat: BASE.lat, lng: BASE.lng + 1004 / 101000, outletType: 'GROCERY', aiPlaceId: null, visible: true },
+  ]);
+  const got = new Map(two.filter(i => i.customerId).map(i => [i.customerId, i.placeId]));
+  assert.equal(got.get('a'), 's1');
+  assert.equal(got.get('b'), 's2');
+  // عميلٌ مطابقٌ صراحةً بمعرّف المكان لا يُلصق بمحلٍّ مجاور أيضاً
+  const explicit = merge([P('mine', 1000), P('next', 1015)], [], [{ id: 'c9', lat: BASE.lat, lng: BASE.lng + 1012 / 101000, outletType: 'GROCERY', aiPlaceId: 'mine', visible: true }]);
+  assert.deepEqual(explicit.map(i => [i.placeId, i.relation]), [['next', 'NEW'], ['mine', 'CUSTOMER']]);
+});
+
+test('صندوق العملاء يغطّي محلات الحافة (حتى ×١٫٢٥ من النطاق) لا دائرة نصف القطر', () => {
+  // نطاق ٢٠٠٠ م: محلٌّ على بعد ٢٤٠٠ م وعميل ٣٠ م خلفه — كان خارج صندوق (النطاق + ٢٠٠) فيظهر «فرصة جديدة»
+  const edge = { lat: BASE.lat, lng: BASE.lng + 2400 / 101000 };
+  const cust = { lat: BASE.lat, lng: BASE.lng + 2430 / 101000 };
+  const box = customerBox([{ lat: BASE.lat, lng: BASE.lng + 100 / 101000 }, edge])!;
+  assert.ok(cust.lng <= box.maxLng && cust.lng >= box.minLng && cust.lat <= box.maxLat && cust.lat >= box.minLat);
+  const oldReach = BASE.lng + (2000 + 200) / 111320 / Math.cos((BASE.lat * Math.PI) / 180);
+  assert.ok(cust.lng > oldReach, 'الصندوق القديم كان يُسقطه');
+  assert.equal(customerBox([]), null);
+  const items = merge([P('edge', 2400)], [], [{ id: 'c1', ...cust, outletType: 'GROCERY', aiPlaceId: null, visible: true }]);
+  assert.equal(items[0].relation, 'POSSIBLE_CUSTOMER');
 });
 
 // ───────────── الإعدادات ─────────────

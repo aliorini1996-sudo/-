@@ -69,10 +69,16 @@ test('خمسة أحداث لمندوب واحد على محل واحد داخل 
   assert.equal(rank.get('CONVERTED'), 5);
   assert.equal(rank.get('QUOTE'), 4);
   assert.equal(rank.get('CLOSED'), undefined, 'المغلق ELSE 0');
+  assert.equal(rank.get('NOT_FOUND'), undefined, '«لم أجده» ELSE 0');
 
-  // أول نتيجة مقيَّمة وعدد المقيَّمة: بلا المغلق والتحويل
-  assert.match(q1.text, /\(array_agg\(e\.kind ORDER BY e\."occurredAt"\) FILTER \(WHERE e\.kind NOT IN \('CLOSED', 'CONVERTED'\)\)\)\[1\] AS "firstKind"/);
-  assert.match(q1.text, /COUNT\(\*\) FILTER \(WHERE e\.kind NOT IN \('CLOSED', 'CONVERTED'\)\)::int AS "nRated"/);
+  // أول نتيجة مقيَّمة وعدد المقيَّمة: بلا المغلق و«لم أجده» والتحويل؛ و«مغلق فقط» يشمل «لم أجده» (مشوار ضائع)
+  assert.match(q1.text, /\(array_agg\(e\.kind ORDER BY e\."occurredAt"\) FILTER \(WHERE e\.kind NOT IN \('CLOSED', 'NOT_FOUND', 'CONVERTED'\)\)\)\[1\] AS "firstKind"/);
+  assert.match(q1.text, /COUNT\(\*\) FILTER \(WHERE e\.kind NOT IN \('CLOSED', 'NOT_FOUND', 'CONVERTED'\)\)::int AS "nRated"/);
+  assert.match(q1.text, /bool_and\(e\.kind IN \('CLOSED', 'NOT_FOUND'\)\) AS "onlyClosed"/);
+  // نسبة الإغلاق لكل فترة: «مغلق الآن» وحده — «لم أجده» خارج البسط والمقام
+  const q2 = calls.find(c => !c.text.includes('bool_and'))!;
+  assert.match(q2.text, /COUNT\(\*\) FILTER \(WHERE e\.kind = 'CLOSED'\)::int AS closed/);
+  assert.match(q2.text, /AND e\.kind NOT IN \('CONVERTED', 'NOT_FOUND'\)/);
 
   assert.equal(rows.episodes.length, 1);
   assert.equal(rows.episodes[0].best, 4);

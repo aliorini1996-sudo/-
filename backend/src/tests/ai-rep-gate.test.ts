@@ -72,10 +72,13 @@ test('النظام المحاسبي مطفأ ⇒ لا مال ولو فعّلت �
   assert.equal(ctx!.showMoney, false);
 });
 
-test('حالة المحل بعد النتيجة: المحوَّل يبقى محوَّلاً', () => {
+test('حالة المحل بعد النتيجة: المحوَّل يبقى محوَّلاً، و«مغلق الآن» لا يُغلق، و«لم أجده» يُغلق حين يتأكّد فقط', () => {
   assert.equal(nextOutletStatus(null, 'INTERESTED'), 'OPEN');
-  assert.equal(nextOutletStatus('OPEN', 'CLOSED'), 'CLOSED');
+  assert.equal(nextOutletStatus('OPEN', 'CLOSED'), 'OPEN', '«مغلق الآن» لحظيّ');
+  assert.equal(nextOutletStatus('OPEN', 'NOT_FOUND'), 'OPEN', 'بلاغ واحد لا يُغلق');
+  assert.equal(nextOutletStatus('OPEN', 'NOT_FOUND', true), 'CLOSED');
   assert.equal(nextOutletStatus('CLOSED', 'INTERESTED'), 'OPEN');
   assert.equal(nextOutletStatus('CONVERTED', 'NOT_INTERESTED'), 'CONVERTED');
+  assert.equal(nextOutletStatus('CONVERTED', 'NOT_FOUND', true), 'CONVERTED');
   assert.equal(nextOutletStatus('OPEN', 'CONVERTED'), 'CONVERTED');
 });

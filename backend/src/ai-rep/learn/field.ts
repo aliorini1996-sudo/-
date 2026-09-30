@@ -6,6 +6,8 @@
  *   - بوابة التعرّض: لا تُعرض خانة (للمندوب أو العقل أو الدروس أو الملخّص) إلا بوزن كافٍ ومناديب كافين وحصة أكبر مندوب محدودة.
  *   - القبول لكل نوع، والتحويل بعد الاهتمام، وأسباب الرفض (ديريشليه)، وما يحدث عند العودة، والإغلاق لكل فترة من اليوم (انكماش بيتا).
  * الحلقات التي كان المحل فيها عميلاً تُستبعد، والحلقات «مغلق فقط» تذهب لإحصاء الإغلاق وحده.
+ * «مغلق الآن» (CLOSED) و«أُغلق نهائياً / لم أجده» (NOT_FOUND) كلاهما مشوار ضائع (لا تقييم)، لكن الأول وحده يغذّي
+ * نسبة الإغلاق لكل فترة من اليوم — المحل المختفي لا يقول شيئاً عن ساعات فتح نوعه.
  * العزل: الاستعلامان مقيّدان بـ"tenantId" على طرفي الربط (الأحداث والمحلات).
  */
 import { Prisma } from '@prisma/client';
@@ -19,7 +21,7 @@ export interface EpisodeRow {
   outletId: string;
   /** floor(epoch / ٣٠ يوماً) */
   bucket: number;
-  /** أفضل نتيجة: تحويل ٥، اهتمام/عرض سعر ٤، عُد لاحقاً ٣، رفض/مورّد حصري ١، مغلق ٠ */
+  /** أفضل نتيجة: تحويل ٥، اهتمام/عرض سعر ٤، عُد لاحقاً ٣، رفض/مورّد حصري ١، مغلق/لم أجده ٠ */
   best: number;
   onlyClosed: boolean;
   /** مندوب أول حدث في الحلقة */
@@ -52,29 +54,30 @@ export async function loadFieldRows(tid: string, since: Date, tz: string, until?
              floor(extract(epoch from e."occurredAt") / 2592000)::int AS bucket,
              MAX(CASE e.kind WHEN 'CONVERTED' THEN 5 WHEN 'QUOTE' THEN 4 WHEN 'INTERESTED' THEN 4
                   WHEN 'CALL_BACK' THEN 3 WHEN 'NOT_INTERESTED' THEN 1 WHEN 'EXCLUSIVE_SUPPLIER' THEN 1 ELSE 0 END)::int AS best,
-             bool_and(e.kind = 'CLOSED') AS "onlyClosed",
+             bool_and(e.kind IN ('CLOSED', 'NOT_FOUND')) AS "onlyClosed",
              (array_agg(e."salesRepId" ORDER BY e."occurredAt"))[1] AS rep,
              MIN(e."occurredAt") AS "firstAt",
              bool_or(e."atDoor") AS "anyDoor", bool_and(e."atDoor" IS NULL) AS "doorUnknown",
              (array_agg(e.objection ORDER BY e."occurredAt") FILTER (WHERE e.objection IS NOT NULL))[1] AS objection,
              bool_or(e.relation = 'CUSTOMER') AS "wasCustomer",
              MIN(o."convertedAt") AS "convertedAt",
-             (array_agg(e.kind ORDER BY e."occurredAt") FILTER (WHERE e.kind NOT IN ('CLOSED', 'CONVERTED')))[1] AS "firstKind",
-             COUNT(*) FILTER (WHERE e.kind NOT IN ('CLOSED', 'CONVERTED'))::int AS "nRated"
+             (array_agg(e.kind ORDER BY e."occurredAt") FILTER (WHERE e.kind NOT IN ('CLOSED', 'NOT_FOUND', 'CONVERTED')))[1] AS "firstKind",
+             COUNT(*) FILTER (WHERE e.kind NOT IN ('CLOSED', 'NOT_FOUND', 'CONVERTED'))::int AS "nRated"
       FROM ai_outlet_events e
       JOIN ai_outlets o ON o.id = e."outletId" AND o."tenantId" = ${tid}
       WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since}${upper}
       GROUP BY 1, 2, 3
       ORDER BY "firstAt" DESC
       LIMIT 20000`),
-    // حدث التحويل يُكتب لحظة إنشاء العميل (غالباً من المكتب) — ليس زيارة، فلا يدخل مقام الإغلاق
+    // حدث التحويل يُكتب لحظة إنشاء العميل (غالباً من المكتب) — ليس زيارة، فلا يدخل مقام الإغلاق؛
+    // و«لم أجده» لا يدلّ على ساعات الفتح فلا يدخل البسط ولا المقام
     prisma.$queryRaw<ClosedRow[]>(Prisma.sql`
       SELECT o."outletType" AS type,
              extract(hour from (e."occurredAt" AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::int AS h,
              e."salesRepId" AS rep, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE e.kind = 'CLOSED')::int AS closed
       FROM ai_outlet_events e
       JOIN ai_outlets o ON o.id = e."outletId" AND o."tenantId" = ${tid}
-      WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since}${upper} AND e.kind <> 'CONVERTED'
+      WHERE e."tenantId" = ${tid} AND e."occurredAt" >= ${since}${upper} AND e.kind NOT IN ('CONVERTED', 'NOT_FOUND')
       GROUP BY 1, 2, 3
       LIMIT 20000`),
   ]);

@@ -7,8 +7,8 @@
  */
 import prisma from '../config/database';
 
-export type CounterField = 'searches' | 'estimates' | 'chatTurns';
-export type UsageField = CounterField | 'outcomes' | 'tokensIn' | 'tokensOut' | 'guardRegen' | 'guardFallback';
+export type CounterField = 'searches' | 'estimates' | 'chatTurns' | 'outcomes';
+export type UsageField = CounterField | 'tokensIn' | 'tokensOut' | 'guardRegen' | 'guardFallback';
 
 /** يوم الاستهلاك بتوقيت الرياض (YYYY-MM-DD). */
 export function usageDay(now = new Date()): string {

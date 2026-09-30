@@ -14,6 +14,8 @@
  * لإدارة الشركة:
  *   GET/PUT /admin/settings   إعدادات الميزة + جاهزية البيانات
  *   GET/POST /admin/classify  تصنيف أنواع العملاء (مقترحٌ من الاسم تؤكّده الإدارة)
+ *   GET  /admin/hidden-outlets             المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً) ومن أبلغ عنها
+ *   POST /admin/hidden-outlets/:id/unhide  «أعد إظهاره»
  *
  * الأرقام كلها من المحرّك الحتمي؛ العقل يشرح ولا يخترع (حارس الأرقام في advisor.ts).
  * الإحداثيات والمراجع لا تأتي من الجهاز بعد البحث — فلا تلفيق نقاط لكشف عملاء الزملاء ولا استعلام عند إحداثيات حرّة.
@@ -34,7 +36,7 @@ import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace,
 import { publicSearch } from '../ai-rep/publicMaps';
 import { aiGuide, ruleGuide, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
 import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
-import { mergeNearby } from '../ai-rep/nearby';
+import { CLOSED_KINDS, CLOSED_MEMORY_DAYS, customerBox, mergeNearby, sameDay } from '../ai-rep/nearby';
 import { chatCompletion, llmConfig } from '../ai-rep/llm';
 import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
 import { runAdvisor, numbersIn, scrubPii } from '../ai-rep/advisor';
@@ -210,7 +212,7 @@ rep.post('/nearby', async (req: AuthRequest, res: Response, next: NextFunction) 
       return;
     }
     const origin = { lat: body.lat, lng: body.lng };
-    const out = await mergeAndEstimate(req, c, origin, radiusM, types, found.places);
+    const out = await mergeAndEstimate(req, c, origin, types, found.places);
     const searchId = randomUUID();
     saveSession(c.tid, c.repId, {
       searchId, createdAt: Date.now(), origin, radiusM,
@@ -223,18 +225,18 @@ rep.post('/nearby', async (req: AuthRequest, res: Response, next: NextFunction) 
   } catch (err) { next(err); }
 });
 
-/** دمج محلات Google بسجلّ الشركة (عميل قائم، نتيجة سابقة، عزل العملاء)، ومراجع ثابتة P1…، وملخّص التوقّع لكل محل. */
 /** دمج محلات Google بسجلّ الشركة فقط (عميل قائم، نتيجة سابقة، عزل العملاء) — بلا توقّع. */
-async function mergeOnly(req: AuthRequest, c: RepCtx, origin: { lat: number; lng: number }, radiusM: number, types: string[], places: NearbyPlace[]) {
-  const dLat = (radiusM + 200) / 111320;
-  const dLng = dLat / Math.max(0.2, Math.cos((origin.lat * Math.PI) / 180));
+async function mergeOnly(req: AuthRequest, c: RepCtx, origin: { lat: number; lng: number }, types: string[], places: NearbyPlace[], opts: { keepHidden?: boolean } = {}) {
+  // العملاء حول المحلات المدموجة نفسها (+ هامش المطابقة) — لا حول المندوب بنصف قطر البحث: المسح يُبقي محلات حتى ×١٫٢٥
+  const box = customerBox(places);
+  if (!box) return [];
   const placeIds = places.map(p => p.placeId);
   const [isolation, scope] = await Promise.all([isolationEnabled(c.tid), customerScope(req, c.tid)]);
   const near = await prisma.customer.findMany({
     where: {
       tenantId: c.tid,
       OR: [
-        { lat: { gte: origin.lat - dLat, lte: origin.lat + dLat }, lng: { gte: origin.lng - dLng, lte: origin.lng + dLng } },
+        { lat: { gte: box.minLat, lte: box.maxLat }, lng: { gte: box.minLng, lte: box.maxLng } },
         { aiPlaceId: { in: placeIds } },
       ],
     },
@@ -249,12 +251,14 @@ async function mergeOnly(req: AuthRequest, c: RepCtx, origin: { lat: number; lng
   });
   const items = mergeNearby(places, {
     origin, targetTypes: types, customers: near.map(n => ({ ...n, visible: visibleIds.has(n.id) })), outlets, isolation, now: new Date(),
+    keepHidden: opts.keepHidden,
   });
   return items;
 }
 
-async function mergeAndEstimate(req: AuthRequest, c: RepCtx, origin: { lat: number; lng: number }, radiusM: number, types: string[], places: NearbyPlace[]) {
-  const items = await mergeOnly(req, c, origin, radiusM, types, places);
+/** دمج محلات Google بسجلّ الشركة (عميل قائم، نتيجة سابقة، عزل العملاء)، ومراجع ثابتة P1…، وملخّص التوقّع لكل محل. */
+async function mergeAndEstimate(req: AuthRequest, c: RepCtx, origin: { lat: number; lng: number }, types: string[], places: NearbyPlace[]) {
+  const items = await mergeOnly(req, c, origin, types, places);
   // التوقّع: مرّة لكل (نوع، خلية، عميل مستبعَد) — العميل القائم لا يدخل ضمن المحلات المشابهة له نفسه
   const [data, learned] = await Promise.all([loadData(c), getLearned(c.tid)]);
   const memo = new Map<string, ReturnType<typeof summarize>>();
@@ -287,34 +291,80 @@ rep.post('/estimate', async (req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 });
 
-export const OUTCOME_KINDS = ['INTERESTED', 'CALL_BACK', 'QUOTE', 'NOT_INTERESTED', 'CLOSED', 'EXCLUSIVE_SUPPLIER', 'CONVERTED'] as const;
+export const OUTCOME_KINDS = ['INTERESTED', 'CALL_BACK', 'QUOTE', 'NOT_INTERESTED', 'CLOSED', 'NOT_FOUND', 'EXCLUSIVE_SUPPLIER', 'CONVERTED'] as const;
+/** ما يسجّله المندوب — «أصبح عميلاً» يكتبه إنشاء العميل وحده (linkConvertedCustomer)، فلا يزوّره جهاز. */
+export const REP_OUTCOME_KINDS = ['INTERESTED', 'CALL_BACK', 'QUOTE', 'NOT_INTERESTED', 'CLOSED', 'NOT_FOUND', 'EXCLUSIVE_SUPPLIER'] as const;
 const outcomeSchema = z.object({
   clientRef: z.string().uuid(),
   placeId: z.string().min(1).max(300).optional(),
   outletType: z.string().refine(isOutletType, 'نوع محل غير معروف'),
   repTypedName: z.string().trim().max(120).optional(),
-  kind: z.enum(OUTCOME_KINDS),
+  kind: z.enum(REP_OUTCOME_KINDS),
   note: z.string().trim().max(500).optional(),
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
   accuracyM: z.number().min(0).max(100000).optional(),
   occurredAt: z.string().datetime().optional(),
   objection: z.enum(OBJECTION_CODES as [string, ...string[]]).optional(),
+  // موقع المحل وعلاقته كما رآهما المندوب — احتياطٌ حين تنتهي جلسة البحث في الذاكرة (رفعٌ مؤجَّل أو بعد إعادة نشر)
+  placeLat: z.number().min(-90).max(90).optional(),
+  placeLng: z.number().min(-180).max(180).optional(),
+  relation: z.enum(['NEW', 'CUSTOMER', 'POSSIBLE_CUSTOMER']).optional(),
 }).refine(b => !!b.placeId || !!b.repTypedName, { message: 'اكتب اسم المحل', path: ['repTypedName'] });
 
-/** الحالة بعد النتيجة: المحوَّل يبقى محوَّلاً، والمغلق مغلق، وما عداهما مفتوح. */
-export function nextOutletStatus(current: string | null, kind: string): string {
+export const MAX_OUTCOMES_PER_DAY = 300;
+/** أقصى بُعد مقبول بين موقع المحل المرسَل من الجهاز وموقع المندوب — ما وراءه خطأ أو عبث فيُهمَل. */
+export const PLACE_SANITY_KM = 10;
+const DAY_MS = 86_400_000;
+
+/** الحالة بعد النتيجة: المحوَّل يبقى محوَّلاً، و«لم أجده» المؤكَّد مغلق، وما عداهما مفتوح («مغلق الآن» لحظيّ لا يُغلق المحل). */
+export function nextOutletStatus(current: string | null, kind: string, notFoundConfirmed = false): string {
   if (current === 'CONVERTED' || kind === 'CONVERTED') return 'CONVERTED';
-  if (kind === 'CLOSED') return 'CLOSED';
+  if (kind === 'NOT_FOUND' && notFoundConfirmed) return 'CLOSED';
   return 'OPEN';
 }
 
+/** «لم أجده» مؤكَّد: بلاغان متتاليان (بلا نتيجة أخرى بينهما) من مندوبين مختلفين أو في يومين مختلفين، ضمن ذاكرة الإغلاق. */
+export function notFoundConfirmed(prev: { lastOutcome: string | null; lastOutcomeAt: Date | null; lastSalesRepId: string | null } | null, repId: string, at: Date): boolean {
+  if (!prev || prev.lastOutcome !== 'NOT_FOUND' || !prev.lastOutcomeAt) return false;
+  if (at.getTime() - prev.lastOutcomeAt.getTime() > CLOSED_MEMORY_DAYS * DAY_MS) return false;
+  return prev.lastSalesRepId !== repId || !sameDay(prev.lastOutcomeAt, at);
+}
+
+/**
+ * هل تكتب النتيجة ذاكرة المحل (الحالة وآخر نتيجة ومندوبها وموقعه)؟ الحدث يُسجَّل دائماً، أما الذاكرة فلا:
+ *   - المحوَّل (عميل قائم، وقد يكون عميل زميل تحت العزل) لا يُمسّ.
+ *   - نتيجة أقدم من المخزّنة (رفعٌ مؤجَّل قديم) لا تمحو الأحدث.
+ */
+export function outcomeWritesMemory(existing: { status: string; lastOutcomeAt: Date | null } | null, occurredAt: Date): boolean {
+  if (!existing) return true;
+  if (existing.status === 'CONVERTED') return false;
+  return !existing.lastOutcomeAt || existing.lastOutcomeAt.getTime() <= occurredAt.getTime();
+}
+
+/** موقع المحل لـ«عند الباب»: الجلسة في الذاكرة، ثم معرّف man:، ثم ما أرسله الجهاز إن كان معقولاً قرب موقع المندوب. */
+export function outcomePlace(session: { lat: number; lng: number } | null | undefined, placeId: string | null | undefined,
+  sent: { lat: number; lng: number } | null, gps: { lat: number; lng: number } | null): { lat: number; lng: number } | null {
+  if (session) return { lat: session.lat, lng: session.lng };
+  const man = parseManPlace(placeId);
+  if (man) return man;
+  if (sent && gps && haversineKm(sent.lat, sent.lng, gps.lat, gps.lng) <= PLACE_SANITY_KM) return sent;
+  return null;
+}
+
 rep.post('/outcomes', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  let reserved: RepCtx | null = null;
   try {
     const c = ctxOf(req);
     const b = outcomeSchema.parse(req.body);
     const dup = await prisma.aiOutletEvent.findUnique({ where: { tenantId_clientRef: { tenantId: c.tid, clientRef: b.clientRef } } });
     if (dup) { res.json({ success: true, data: { eventId: dup.id, outletId: dup.outletId }, idempotent: true }); return; }
+    // سقف يومي عالٍ يمنع الإغراق لا العمل — يُحجز ذرّياً ويُعاد إن تعذّر الحفظ
+    if (!(await reserveUsage(c.tid, c.repId, 'outcomes', MAX_OUTCOMES_PER_DAY))) {
+      res.status(429).json({ success: false, code: 'AI_REP_DAILY_LIMIT', message: 'بلغت حدّ تسجيل النتائج اليومي — يتجدّد غداً' });
+      return;
+    }
+    reserved = c;
 
     // لحظة الحدث من الجهاز (دون اتصال) مقيّدة: لا مستقبل ولا أقدم من ٣٠ يوماً
     const now = Date.now();
@@ -322,14 +372,29 @@ rep.post('/outcomes', async (req: AuthRequest, res: Response, next: NextFunction
     if (!Number.isFinite(at) || at > now + 5 * 60000 || at < now - 30 * 86400000) at = now;
     const occurredAt = new Date(at);
     const gps = b.lat != null && b.lng != null ? { lat: b.lat, lng: b.lng } : null;
-    // حلقة التعلّم: هل كان عند المحل؟ (موقع المحل من الجلسة في الذاكرة أو من معرّف man: — رفعٌ مؤجَّل بلا جلسة ⇒ null)
+    // حلقة التعلّم: هل كان عند المحل؟ الجلسة في الذاكرة أولاً (تعيش ٤ ساعات وتضيع بإعادة النشر)، ثم ما أرسله الجهاز
     const so = b.placeId ? peekSession(c.tid, c.repId)?.outlets.find(x => x.placeId === b.placeId) : undefined;
-    const door = gps ? atDoor({ ...gps, accuracyM: b.accuracyM ?? null }, so ?? parseManPlace(b.placeId)) : null;
+    const sent = b.placeLat != null && b.placeLng != null ? { lat: b.placeLat, lng: b.placeLng } : null;
+    const door = gps ? atDoor({ ...gps, accuracyM: b.accuracyM ?? null }, outcomePlace(so, b.placeId, sent, gps)) : null;
+    const relation = so?.relation ?? b.relation ?? null;
     const obj = outcomeObjection(b.kind, (b.objection ?? null) as never, b.note);
 
     const result = await prisma.$transaction(async tx => {
       const existing = b.placeId ? await tx.aiOutlet.findUnique({ where: { tenantId_placeId: { tenantId: c.tid, placeId: b.placeId } } }) : null;
-      const status = nextOutletStatus(existing?.status ?? null, b.kind);
+      // المحوَّل عميلٌ في الحقيقة ولو رآه المندوب جديداً (عزل) — فلا تدخل زيارته إحصاء الفرص
+      const rel = existing?.status === 'CONVERTED' ? 'CUSTOMER' : relation;
+      const event = (outletId: string) => tx.aiOutletEvent.create({
+        data: {
+          tenantId: c.tid, outletId, salesRepId: c.repId, kind: b.kind, note: b.note ?? null,
+          lat: gps?.lat ?? null, lng: gps?.lng ?? null, accuracyM: b.accuracyM ?? null, clientRef: b.clientRef, occurredAt,
+          objection: obj.objection, objectionSource: obj.source, atDoor: door, relation: rel,
+        },
+      });
+      if (existing && !outcomeWritesMemory(existing, occurredAt)) {
+        const ev = await event(existing.id);
+        return { eventId: ev.id, outletId: existing.id, applied: false };
+      }
+      const status = nextOutletStatus(existing?.status ?? null, b.kind, b.kind === 'NOT_FOUND' && notFoundConfirmed(existing, c.repId, occurredAt));
       const outlet = existing
         ? await tx.aiOutlet.update({
             where: { id: existing.id },
@@ -346,19 +411,14 @@ rep.post('/outcomes', async (req: AuthRequest, res: Response, next: NextFunction
               lastSalesRepId: c.repId, createdBySalesRepId: c.repId,
             },
           });
-      const ev = await tx.aiOutletEvent.create({
-        data: {
-          tenantId: c.tid, outletId: outlet.id, salesRepId: c.repId, kind: b.kind, note: b.note ?? null,
-          lat: gps?.lat ?? null, lng: gps?.lng ?? null, accuracyM: b.accuracyM ?? null, clientRef: b.clientRef, occurredAt,
-          objection: obj.objection, objectionSource: obj.source, atDoor: door, relation: so?.relation ?? null,
-        },
-      });
-      return { eventId: ev.id, outletId: outlet.id, status: outlet.status };
+      const ev = await event(outlet.id);
+      return { eventId: ev.id, outletId: outlet.id, applied: true };
     });
-    if (b.placeId) patchSessionOutlet(c.tid, c.repId, b.placeId, { lastOutcome: b.kind, ...(b.kind === 'CLOSED' && { closed: true }) });
-    await addUsage(c.tid, c.repId, { outcomes: 1 });
-    res.status(201).json({ success: true, data: result });
+    if (b.placeId && result.applied) patchSessionOutlet(c.tid, c.repId, b.placeId, { lastOutcome: b.kind, ...(CLOSED_KINDS.has(b.kind) && { closed: true }) });
+    // الردّ لا يحمل حالة المحل (كان يكشف تحويل زميلٍ لمحلٍّ يراه المندوب جديداً تحت العزل)
+    res.status(201).json({ success: true, data: { eventId: result.eventId, outletId: result.outletId } });
   } catch (err) {
+    if (reserved) await refundUsage(reserved.tid, reserved.repId, 'outcomes').catch(() => undefined);
     // سباق رفعين بالـclientRef نفسه: القيد الفريد يرفض الثاني ⇒ نعيد الأول
     if ((err as { code?: string })?.code === 'P2002') {
       const b = req.body as { clientRef?: string };
@@ -644,9 +704,10 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
 
     // نوع المحل (للتسجيل والإضافة عميلاً فقط — الدراسة لا تحتاجه)
     const outletType = outletTypeFromGoogle(p.primaryType, p.types, OUTLET_TYPE_CODES) ?? suggestOutletType(p.name) ?? c.settings.targetOutletTypes[0] ?? 'GROCERY';
-    const [merged] = await mergeOnly(req, c, { lat: p.lat, lng: p.lng }, 300, [outletType], [{
+    // ضغطة المندوب على محلٍّ مخفي (أُبلغ عن إغلاقه) تُعيده بذاكرته — لعلّه وجده مفتوحاً
+    const [merged] = await mergeOnly(req, c, { lat: p.lat, lng: p.lng }, [outletType], [{
       placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([outletType]),
-    }]);
+    }], { keepHidden: true });
 
     let s = getSession(c.tid, c.repId, b.searchId);
     if (!s || s.outlets.length >= 500) {
@@ -683,7 +744,7 @@ rep.post('/study', async (req: AuthRequest, res: Response, next: NextFunction) =
         item: {
           ref, placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, outletType, outletTypeLabel: outletTypeLabel(outletType),
           distanceM, relation, customerId, lastOutcome: merged?.lastOutcome ?? null, lastOutcomeAt: merged?.lastOutcomeAt ?? null,
-          rejectedRecently: merged?.rejectedRecently ?? false,
+          rejectedRecently: merged?.rejectedRecently ?? false, reportedClosed: merged?.reportedClosed ?? false,
         },
         profile: {
           name: p.name, typeLabel: p.typeLabel, address: p.address, mapsUri: p.mapsUri, rating: p.rating, ratingCount: p.ratingCount,
@@ -752,7 +813,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       .filter(p => p.distanceM <= radiusM * 1.25)
       .sort((a, z2) => a.distanceM - z2.distanceM)
       .slice(0, 40);
-    const merged = await mergeOnly(req, c, origin, radiusM, types, places.map(p => ({
+    const merged = await mergeOnly(req, c, origin, types, places.map(p => ({
       placeId: p.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng, primaryType: null, types: googleTypesFor([p.type]),
     })));
     const byId = new Map(places.map(p => [p.placeId, p]));
@@ -767,6 +828,7 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
         ref: `P${i + 1}`, placeId: m.placeId, name: p.name, address: p.address, lat: p.lat, lng: p.lng,
         outletType: m.outletType, outletTypeLabel: outletTypeLabel(m.outletType), distanceM: m.distanceM,
         relation: m.relation, customerId: m.customerId, lastOutcome: m.lastOutcome, lastOutcomeAt: m.lastOutcomeAt, rejectedRecently: m.rejectedRecently,
+        reportedClosed: m.reportedClosed,
         profile,
         study: ruleStudy({ ...profile, placeId: p.placeId, primaryType: null, types: [], lat: p.lat, lng: p.lng, priceLevel: null, closed: false, typeLabel: p.category }),
       };
@@ -775,14 +837,17 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
       searchId, createdAt: Date.now(), origin, radiusM,
       outlets: items.map(it => ({ ref: it.ref, placeId: it.placeId, outletType: it.outletType, lat: it.lat, lng: it.lng, distanceM: it.distanceM, relation: it.relation, lastOutcome: it.lastOutcome, customerId: it.customerId })),
     });
+    // ذاكرة الزيارات (آخر نتيجة ولحظتها) تصل التوجيه: ما زاره الفريق مؤخراً لا يعود «فرصة جديدة»، والمهتم يصير متابعة
     const shops: ScanShop[] = items.map(it => ({
       ref: it.ref, name: it.name, category: it.profile.typeLabel, rating: it.profile.rating, openNow: it.profile.openNow,
       distanceM: it.distanceM, lat: it.lat, lng: it.lng, relation: it.relation, rejectedRecently: it.rejectedRecently,
+      lastOutcome: it.lastOutcome, lastOutcomeAt: it.lastOutcomeAt, reportedClosed: it.reportedClosed,
     }));
-    let guide: ScanGuide = ruleGuide(shops, origin);
+    const now = new Date();
+    let guide: ScanGuide = ruleGuide(shops, origin, now);
     const cfg = llmConfig();
     if (cfg && c.settings.advisorEnabled && shops.length && (await reserveUsage(c.tid, c.repId, 'chatTurns', c.settings.dailyChatTurnsPerRep))) {
-      const ai = await aiGuide(shops, { cfg, playbook: c.settings.playbook, origin });
+      const ai = await aiGuide(shops, { cfg, playbook: c.settings.playbook, origin, now });
       await addUsage(c.tid, c.repId, { tokensIn: ai.tokensIn, tokensOut: ai.tokensOut, ...(ai.guide ? {} : { guardFallback: 1 }) });
       if (ai.guide) guide = ai.guide;
     }
@@ -821,7 +886,7 @@ rep.post('/manual', async (req: AuthRequest, res: Response, next: NextFunction) 
     }
     const existing = s.outlets.find(o => o.placeId === placeId);
     // المطابقة بالعملاء حول موقع المحل نفسه (قد يكون بعيداً عن المندوب)، والمسافة من نقطة الجلسة
-    const merged = await mergeAndEstimate(req, c, loc, 300, [b.outletType], [{
+    const merged = await mergeAndEstimate(req, c, loc, [b.outletType], [{
       placeId, name, address: null, lat: loc.lat, lng: loc.lng, primaryType: null, types: googleTypesFor([b.outletType]),
     }]);
     const found = merged.items[0];
@@ -984,6 +1049,63 @@ admin.post('/learning/reset', requireAdminPermission('canManageCompanySettings')
     if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_LEARNING); return; }
     z.object({ confirm: z.literal(true) }).parse(req.body);
     await resetLearning(tid, req.user!.id);
+    res.json({ success: true, data: { ok: true } });
+  } catch (err) { next(err); }
+});
+
+// ───────────── المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً) ─────────────
+// اسم المحل من Google لا يُخزَّن — القائمة بنوعه واسمه الذي كتبه المندوب إن وُجد ورابطه في خرائط Google ومن أبلغ ومتى.
+
+const SCOPED_HIDDEN = { success: false, message: 'حسابك مقيد بنطاق محدد — المحلات المخفية تحتاج صلاحية غير مقيدة' };
+
+admin.get('/hidden-outlets', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_HIDDEN); return; }
+    const since = new Date(Date.now() - CLOSED_MEMORY_DAYS * DAY_MS);
+    const rows = await prisma.aiOutlet.findMany({
+      where: { tenantId: tid, status: 'CLOSED', lastOutcome: 'NOT_FOUND', lastOutcomeAt: { gte: since } },
+      orderBy: { lastOutcomeAt: 'desc' }, take: 200,
+      select: { id: true, placeId: true, outletType: true, repTypedName: true, lat: true, lng: true, lastOutcomeAt: true, lastSalesRepId: true },
+    });
+    const evs = rows.length ? await prisma.aiOutletEvent.findMany({
+      where: { tenantId: tid, outletId: { in: rows.map(r => r.id) }, kind: 'NOT_FOUND', occurredAt: { gte: since } },
+      orderBy: { occurredAt: 'desc' }, take: 1000, select: { outletId: true, salesRepId: true, occurredAt: true },
+    }) : [];
+    const repIds = [...new Set([...rows.map(r => r.lastSalesRepId).filter((x): x is string => !!x), ...evs.map(e => e.salesRepId)])];
+    const reps = repIds.length ? await prisma.salesRep.findMany({ where: { tenantId: tid, id: { in: repIds } }, select: { id: true, name: true } }) : [];
+    const repName = new Map(reps.map(r => [r.id, r.name]));
+    res.json({
+      success: true,
+      data: {
+        memoryDays: CLOSED_MEMORY_DAYS,
+        items: rows.map(r => {
+          const man = parseManPlace(r.placeId);
+          const pin = man ?? (r.lat != null && r.lng != null ? { lat: r.lat, lng: r.lng } : null);
+          return {
+            id: r.id, outletType: r.outletType, outletTypeLabel: outletTypeLabel(r.outletType), name: r.repTypedName,
+            mapsUri: r.placeId && isGooglePlaceId(r.placeId) ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(r.placeId)}`
+              : pin ? `https://www.google.com/maps?q=${pin.lat},${pin.lng}` : null,
+            reportedAt: r.lastOutcomeAt,
+            hiddenUntil: r.lastOutcomeAt ? new Date(r.lastOutcomeAt.getTime() + CLOSED_MEMORY_DAYS * DAY_MS) : null,
+            reports: evs.filter(e => e.outletId === r.id).slice(0, 5).map(e => ({ repName: repName.get(e.salesRepId) ?? null, at: e.occurredAt })),
+          };
+        }),
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+admin.post('/hidden-outlets/:id/unhide', requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    if (await adminScopeEnabled(req)) { res.status(403).json(SCOPED_HIDDEN); return; }
+    // مفتوح بلا آخر نتيجة (فلا يؤكّده بلاغٌ واحد لاحق)، ولحظة الإظهار سياجٌ يمنع رفعاً مؤجَّلاً أقدم منها أن يعيد إخفاءه
+    const r = await prisma.aiOutlet.updateMany({
+      where: { id: String(req.params.id), tenantId: tid, status: 'CLOSED' },
+      data: { status: 'OPEN', lastOutcome: null, lastOutcomeAt: new Date() },
+    });
+    if (r.count === 0) { res.status(404).json({ success: false, message: 'المحل غير موجود أو لم يعد مخفياً' }); return; }
     res.json({ success: true, data: { ok: true } });
   } catch (err) { next(err); }
 });
