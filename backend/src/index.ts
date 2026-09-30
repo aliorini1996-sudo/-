@@ -44,6 +44,7 @@ import companyUsersRouter from './routes/companyUsers';
 import erpRouter from './routes/erp';
 import petroappRouter from './routes/petroapp';
 import aiRepRouter from './routes/aiRep';
+import { publicScanHealth } from './ai-rep/publicMaps';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
 import publicEinvoiceRouter from './routes/publicEinvoice';
@@ -289,6 +290,8 @@ app.get('/api/health', async (_req, res) => {
     status: dbOk ? 'ok' : 'degraded',
     db: dbOk ? 'up' : 'down',
     dbLatencyMs: ms,
+    // المندوب الذكي: المسح العام لخرائط Google (معلومة لا تُغيّر status — النبضة تُنذر بـsource_changed/empty)
+    aiRepScan: publicScanHealth(),
     timestamp: new Date(),
     version: (process.env.RENDER_GIT_COMMIT || 'dev').slice(0, 7),
   });

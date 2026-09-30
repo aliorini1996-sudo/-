@@ -4,8 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BREAKER_OPEN_MS, REP_RETRY_MS, breakerLeftMs, noteRepScanFailed, openFlag, parsePublicSearch, publicScan, publicSearch, publicSearchUrl,
-  repRetryLeftMs, resetPublicSearchState, type PublicPlace, type PublicSearchResult,
+  BREAKER_OPEN_MS, REP_RETRY_MS, breakerLeftMs, notePublicScanShops, noteRepScanFailed, openFlag, parsePublicSearch, publicScan, publicScanHealth,
+  publicSearch, publicSearchUrl, repRetryLeftMs, resetPublicSearchState, type PublicPlace, type PublicSearchResult,
 } from '../ai-rep/publicMaps';
 import {
   CHANCE_AR, RATER_AR, SHOP_AR, aiGuide, countAr, daysAgoAr, distAr, eligibleShops, followUpShops, ruleGuide, shopScore, shrunkRating,
@@ -106,6 +106,14 @@ test('المسح العام: المنطقة الخالية [] والصيغة ا�
   // لا صدى ولا قائمة، أو قائمة لا يُقرأ منها محل ⇒ غيّرت Google صيغتها
   assert.equal(parsePublicSearch(body(null, null)), 'CHANGED');
   assert.equal(parsePublicSearch(body([[null, 'ليس محلاً'], [null, [1, 2, 3]]])), 'CHANGED');
+  // الردّ الخالي الحقيقي يحمل مكان المنطقة نفسها في [0] — يبقى منطقة خالية
+  const emptyWithArea = JSON.parse(body(null).slice(5)) as unknown[];
+  (emptyWithArea[0] as unknown[])[1] = [entry({ name: 'الملز', placeId: 'ChIJj9AA0tirLz4R6f5u831V3GI', lat: 24.7, lng: 46.7 })];
+  assert.deepEqual(parsePublicSearch(`)]}'\n${JSON.stringify(emptyWithArea)}`), []);
+  // القائمة انتقلت من [64] والصدى باقٍ ⇒ CHANGED لا «لا محلات حولك» بصمت
+  const moved = JSON.parse(body(null).slice(5)) as unknown[];
+  moved[65] = [entry({ name: 'أ', placeId: 'ChIJmovedPlace01', lat: 1, lng: 1 })];
+  assert.equal(parsePublicSearch(`)]}'\n${JSON.stringify(moved)}`), 'CHANGED');
   assert.equal(parsePublicSearch('<html>unusual traffic</html>'), null);
   // الغلاف القديم {c, d} ما زال يُقرأ
   const wrapped = `)]}'\n${JSON.stringify({ c: 0, d: body([entry({ name: 'أ', placeId: 'ChIJw', lat: 1, lng: 1 })]) })}`;
@@ -200,6 +208,28 @@ test('مهلة المندوب بعد مسحٍ فاشل: له وحده وتنقض
   assert.equal(repRetryLeftMs('t|r', 1000 + REP_RETRY_MS), 0);
 });
 
+test('صحّة المصدر لنبضة المالك: الصيغة المجهولة نصف ساعة، وصفرُ محلات لثلاثة مناديب تباعاً، والحجب للعرض', async () => {
+  resetPublicSearchState();
+  assert.equal(publicScanHealth(), 'ok');
+  // مندوبٌ واحد يحدّث في منطقة خالية لا يكفي، وثلاثة مختلفون بلا مسحٍ مثمر بينهم يكفون
+  notePublicScanShops('t1|r1', 0); notePublicScanShops('t1|r1', 0); notePublicScanShops('t2|r9', 0);
+  assert.equal(publicScanHealth(), 'ok');
+  notePublicScanShops('t3|r4', 0);
+  assert.equal(publicScanHealth(), 'empty');
+  notePublicScanShops('t1|r1', 12);
+  assert.equal(publicScanHealth(), 'ok', 'مسحٌ مثمر يمحو السلسلة');
+  // صيغة مجهولة من Google ⇒ source_changed حتى نصف ساعة
+  const t = 9_000_000;
+  const changed = async () => ({ ok: true, status: 200, text: async () => body(null, null) });
+  await publicSearch({ query: 'بقالة', lat: 24.7, lng: 46.6, spanM: 5000, fetchImpl: changed, now: () => t });
+  assert.equal(publicScanHealth(t + 60_000), 'source_changed');
+  assert.equal(publicScanHealth(t + 31 * 60_000), 'ok');
+  // القاطع مفتوح ⇒ blocked (النبضة لا تُنذر به)
+  for (let i = 0; i < 3; i++) await publicSearch({ query: `ق${i}`, lat: 24.7, lng: 46.6, spanM: 5000, fetchImpl: async () => ({ ok: false, status: 429, text: async () => '' }), now: () => t + 40 * 60_000 });
+  assert.equal(publicScanHealth(t + 41 * 60_000), 'blocked');
+  resetPublicSearchState();
+});
+
 const found = (...ps: Partial<PublicPlace>[]): PublicSearchResult => ({
   ok: true,
   places: ps.map((p, i) => ({
@@ -249,6 +279,11 @@ test('نوع محل البحث العام: تصنيف Google أولاً ثم ا�
   assert.equal(publicOutletType({ categories: ['سوبرماركت'], name: 'س' }, 'GROCERY', ['GROCERY']), null);
   // الاسم وحده لا يُسقط: «أسواق…» لشركة بقالات تبقى بنوع البحث
   assert.equal(publicOutletType({ categories: ['متجر'], name: 'أسواق المريشد' }, 'GROCERY', ['GROCERY']), 'GROCERY');
+  // ويُبقي ما أسقطه التصنيف: Google تصنّف بقالات كثيرة «سوبرماركت» (من ردٍّ حقيقي) — لا تغيب عن شركة بقالات
+  assert.equal(publicOutletType({ categories: ['سوپر مارکت', 'سوبرماركت'], name: 'بقالة ميد meed' }, 'GROCERY', ['GROCERY']), 'GROCERY');
+  assert.equal(publicOutletType({ categories: ['سوبرماركت'], name: 'تموينات أسطورة الخليج' }, 'GROCERY', ['GROCERY']), 'GROCERY');
+  // والسلسلة يُسقطها تصنيفها واسمها معاً
+  assert.equal(publicOutletType({ categories: ['سوبرماركت'], name: 'أسواق العثيم' }, 'GROCERY', ['GROCERY']), null);
   assert.equal(publicOutletType({ categories: [], name: 'محل' }, 'MINIMARKET', T), 'MINIMARKET');
   assert.deepEqual(searchTermsFor('WHOLESALE'), ['محل مواد غذائية بالجملة', 'جملة مواد غذائية']);
   assert.equal(searchTermsFor('CAFE')[0], 'كوفي');
@@ -373,10 +408,13 @@ test('توجيه المسح: المغلق الآن لا يزاحم المفتو�
   // خمسة مفتوحة تملأ الخطة ⇒ المغلق خارجها
   const five = ['A', 'B', 'C', 'D', 'E'].map((r, i) => shop(r, { distanceM: 1500 + i * 10, lat: 24.7135 + i * 0.0001 }));
   assert.ok(!ruleGuide([near, ...five], O).stops.some(s => s.ref === 'P1'));
-  // كلها مغلقة ⇒ الخطة تبقى بتنبيه
+  // كلها مغلقة ⇒ الخطة تبقى بتنبيه (بصيغة المفرد للمحطة الواحدة)
   const allClosed = ruleGuide([near], O);
   assert.deepEqual(allClosed.stops.map(s => s.ref), ['P1']);
-  assert.match(allClosed.summary, /كلها مغلقة الآن — زرها بهذا الترتيب حين تفتح:$/);
+  assert.match(allClosed.summary, /\. مغلق الآن — زره حين يفتح:$/);
+  const twoClosed = ruleGuide([near, shop('P3', { openNow: false, distanceM: 200, lat: 24.7018, lng: 46.6 })], O);
+  assert.equal(twoClosed.stops.length, 2);
+  assert.match(twoClosed.summary, /^حولك محلّان، منهما فرصتان جديدتان\. كلها مغلقة الآن — زرها بهذا الترتيب حين تفتح:$/);
 });
 
 test('توجيه المسح بالعقل: المغلق الآن يُؤخَّر بعد المفتوح مهما رتّبه العقل', async () => {
@@ -403,7 +441,8 @@ test('التقييم يُشدّ بعدد مقيّميه، والعدد والم�
   const g = ruleGuide([shop('P1', { distanceM: 40, rating: 4.2, ratingCount: 3 })], { lat: 24.7, lng: 46.6 });
   assert.match(g.stops[0].why, /تقييمه 4\.2 من 3 مقيّمين في خرائط Google/);
   assert.match(g.stops[0].why, /على بعد 40 م$/, 'لا «على بعد 0 كم»');
-  assert.equal(g.summary, 'حولك محل واحد، منها فرصة جديدة واحدة. ابدأ بهذا الترتيب:');
-  assert.equal(ruleGuide([shop('P1'), shop('P2', { relation: 'CUSTOMER' })], { lat: 24.7, lng: 46.6 }).summary, 'حولك محلّان، منها فرصة جديدة واحدة وواحد من عملائك. ابدأ بهذا الترتيب:');
+  // الضمير يطابق العدد (لا «محل واحد، منها» ولا «محلّان، منها»)، و«ابدأ به» للمحطة الواحدة
+  assert.equal(g.summary, 'حولك محل واحد: فرصة جديدة واحدة. ابدأ به:');
+  assert.equal(ruleGuide([shop('P1'), shop('P2', { relation: 'CUSTOMER' })], { lat: 24.7, lng: 46.6 }).summary, 'حولك محلّان، منهما فرصة جديدة واحدة وواحد من عملائك. ابدأ به:');
   assert.equal(ruleGuide([], { lat: 0, lng: 0 }).summary, 'لا محلات مستهدفة حولك الآن — جرّب منطقة أخرى.');
 });

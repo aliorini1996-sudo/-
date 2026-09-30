@@ -157,10 +157,15 @@ export function ruleGuide(shops: ScanShop[], origin: { lat: number; lng: number 
     possible ? `${oneAr(possible)} ربما من عملائك` : null,
   ].filter(Boolean);
   const around = countAr(shops.length, SHOP_AR);
+  // الضمير يطابق العدد: «محل واحد: …»، «محلّان، منهما …»، «8 محلات، منها …»
+  const lead = shops.length === 1 ? `حولك ${around}:` : `حولك ${around}، ${shops.length === 2 ? 'منهما' : 'منها'}`;
+  const tail = stops.length === 1
+    ? (open.length ? 'ابدأ به:' : 'مغلق الآن — زره حين يفتح:')
+    : (open.length ? 'ابدأ بهذا الترتيب:' : 'كلها مغلقة الآن — زرها بهذا الترتيب حين تفتح:');
   const summary = !shops.length
     ? 'لا محلات مستهدفة حولك الآن — جرّب منطقة أخرى.'
     : stops.length
-      ? `حولك ${around}، منها ${parts.join(' و')}. ${open.length ? 'ابدأ بهذا الترتيب:' : 'كلها مغلقة الآن — زرها بهذا الترتيب حين تفتح:'}`
+      ? `${lead} ${parts.join(' و')}. ${tail}`
       : `حولك ${around} ولا فرص جديدة ولا متابعات مستحقّة الآن — جرّب منطقة أخرى.`;
   return { source: 'RULES', summary, stops };
 }

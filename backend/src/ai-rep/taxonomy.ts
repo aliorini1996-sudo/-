@@ -91,12 +91,14 @@ export function suggestOutletType(...names: (string | null | undefined)[]): Outl
 
 /**
  * نوع محلٍّ من البحث العام (تصنيفه المعروض نصٌّ مترجَم لا رمز Google، فلا outletTypeFromGoogle): تصنيف Google أولاً ثم
- * الاسم ثم نوع البحث الذي وجده. null = تصنيف Google نوعٌ لا تستهدفه الشركة (كسلاسل الهايبر لشركة بقالات) ⇒ يُسقط.
- * الاسم وحده لا يُسقط محلاً — «أسواق…» كثيرٌ منها بقالات.
+ * الاسم ثم نوع البحث الذي وجده. null = تصنيف Google **والاسم** نوعان لا تستهدفهما الشركة (كسلاسل الهايبر لشركة
+ * بقالات) ⇒ يُسقط. الاسم وحده لا يُسقط محلاً — «أسواق…» كثيرٌ منها بقالات؛ ويُبقي ما أسقطه التصنيف: Google تصنّف
+ * بقالات كثيرة «سوبرماركت» («بقالة ميد»، «تموينات أسطورة الخليج» في ردٍّ حقيقي)، فلا تغيب عن شركة بقالات.
  */
 export function publicOutletType(p: { categories: readonly string[]; name: string }, queryType: string, targets: readonly string[]): string | null {
   const byCategory = suggestOutletType(p.categories.join(' '));
-  if (byCategory) return targets.includes(byCategory) ? byCategory : null;
+  if (byCategory && targets.includes(byCategory)) return byCategory;
   const byName = suggestOutletType(p.name);
-  return byName && targets.includes(byName) ? byName : queryType;
+  if (byName && targets.includes(byName)) return byName;
+  return byCategory ? null : queryType;
 }

@@ -66,6 +66,7 @@ const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFi
 
 const STATUS_RE = /^(مفتوح|مغلق|س?يفتح|س?يغلق)/;
 const CLOSED_FOR_GOOD = /مغلقة?\s*(نهائي|مؤقت)/;
+const PLACE_ID_RE = /^ChIJ[\w-]{10,}$/;
 
 /** أول نصّ يطابق re داخل جزء (بعمق محدود). */
 function findText(x: unknown, re: RegExp, depth = 0): string | null {
@@ -110,7 +111,8 @@ export function weeklyHours(h: unknown): string[] {
 /**
  * ردّ البحث العام ← محلات (صرف ومتسامح: أي مدخل غير متوقّع يُتجاوز).
  * null = ليس ردّ بحث (حجب/صفحة موافقة). 'CHANGED' = ردّ بحث بشكل لا نعرفه (غيّرت Google صيغتها) — لا يُعرض كمنطقة خالية.
- * المنطقة الخالية فعلاً: الردّ يعيد الاستعلام في [0][0] بلا قائمة [64] ⇒ [].
+ * المنطقة الخالية فعلاً: الردّ يعيد الاستعلام في [0][0] بلا قائمة [64] ولا معرّف مكان خارج [0] (فيه مكان المنطقة
+ * نفسها) ⇒ []. معرّفات أماكن في موضع آخر = القائمة انتقلت ⇒ CHANGED (لا «لا محلات حولك» بصمت).
  */
 export function parsePublicSearch(body: string): PublicPlace[] | 'CHANGED' | null {
   let data: unknown;
@@ -121,7 +123,7 @@ export function parsePublicSearch(body: string): PublicPlace[] | 'CHANGED' | nul
   } catch { return null; }
   if (!Array.isArray(data)) return null;
   const list = at(data, 64);
-  if (!Array.isArray(list)) return typeof at(data, 0, 0) === 'string' ? [] : 'CHANGED';
+  if (!Array.isArray(list)) return typeof at(data, 0, 0) === 'string' && !findText(data.slice(1), PLACE_ID_RE) ? [] : 'CHANGED';
   const out: PublicPlace[] = [];
   for (const e of list) {
     const x = at(e, 1);
@@ -171,10 +173,35 @@ let openUntil = 0;
 let active = 0;
 const queue: (() => void)[] = [];
 const repFailedAt = new Map<string, number>();
+/** صحّة المصدر للنبضة (health.yml): آخر صيغة مجهولة، ومناديب متتالون (عبر الشركات) نجح مسحهم بلا محل واحد. */
+const CHANGED_ALERT_MS = 30 * 60_000;
+const EMPTY_REPS_ALERT = 3;
+let changedAt = 0;
+const emptyReps = new Set<string>();
 
 /** للاختبارات: حالة نظيفة. */
 export function resetPublicSearchState(): void {
   cache.clear(); rejects = []; openUntil = 0; active = 0; queue.length = 0; repFailedAt.clear();
+  changedAt = 0; emptyReps.clear();
+}
+
+/**
+ * نتيجة مسحٍ عام نجح: صفرُ محلات لمناديب مختلفين تباعاً (بلا مسحٍ مثمر بينهم) علامةُ صيغةٍ تغيّرت بصمت — لا منطقة
+ * خالية؛ مندوبٌ واحد يحدّث في صحراء لا يكفي.
+ */
+export function notePublicScanShops(repKey: string, shops: number): void {
+  if (shops > 0) emptyReps.clear();
+  else if (emptyReps.size < 100) emptyReps.add(repKey);
+}
+
+/**
+ * حالة المسح العام لنبضة الصحة: source_changed (صيغة مجهولة خلال نصف ساعة)، empty (مناديب متتالون بلا محلات)،
+ * blocked (القاطع مفتوح — للعرض؛ الحجب عابر فلا يُنذر به)، وإلا ok. تعطّله يصيب الشركات كلها معاً.
+ */
+export function publicScanHealth(now = Date.now()): 'ok' | 'blocked' | 'source_changed' | 'empty' {
+  if (changedAt && now - changedAt < CHANGED_ALERT_MS) return 'source_changed';
+  if (emptyReps.size >= EMPTY_REPS_ALERT) return 'empty';
+  return breakerLeftMs(now) ? 'blocked' : 'ok';
 }
 
 /** ما بقي من القاطع بالملّي ثانية (0 = الطلبات تمرّ). */
@@ -316,7 +343,10 @@ export async function publicSearch(opts: { query: string; lat: number; lng: numb
     if (r.ok) {
       cache.set(key, { at: clock(), places: r.places });
       while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
-    } else if (r.code === 'BLOCKED' || r.code === 'SOURCE_CHANGED') noteReject(r.code, clock());
+    } else if (r.code === 'BLOCKED' || r.code === 'SOURCE_CHANGED') {
+      if (r.code === 'SOURCE_CHANGED') changedAt = clock();
+      noteReject(r.code, clock());
+    }
     return r;
   });
 }

@@ -33,7 +33,7 @@ import { aiRepSettingsSchema, repInScope, settingsView, AiRepSettingsView } from
 import { estimateOutlet, snapPoint, activeMonths, haversineKm, EstimateResult, MAX_PEERS } from '../ai-rep/estimate';
 import { loadEstimateData, invalidateEstimateData, TenantEstimateData } from '../ai-rep/estimateData';
 import { isGooglePlaceId, placeProfile, placesApiKey, searchNearby, NearbyPlace, type PlaceReview } from '../ai-rep/places';
-import { noteRepScanFailed, publicScan, REP_RETRY_MS, repRetryLeftMs } from '../ai-rep/publicMaps';
+import { notePublicScanShops, noteRepScanFailed, publicScan, REP_RETRY_MS, repRetryLeftMs } from '../ai-rep/publicMaps';
 import { aiGuide, ruleGuide, type ScanGuide, type ScanShop } from '../ai-rep/scanGuide';
 import { aiStudy, ruleStudy, type ShopStudy } from '../ai-rep/profileStudy';
 import { CLOSED_KINDS, CLOSED_MEMORY_DAYS, customerBox, mergeNearby, sameDay } from '../ai-rep/nearby';
@@ -817,6 +817,8 @@ rep.post('/scan', async (req: AuthRequest, res: Response, next: NextFunction) =>
         res.status(r.code === 'SCAN_COOLDOWN' ? 503 : 502).json({ success: false, code: r.code, message: r.message, retryAfterS: r.retryAfterS ?? Math.ceil(REP_RETRY_MS / 1000) });
         return;
       }
+      // صفرُ محلات لمناديب متتالين ⇒ نبضة الصحة تُنذر المالك (publicScanHealth)؛ الناقص الخالي لا يُحسب (حجبٌ لا صيغة)
+      if (r.places.length || !r.partial) notePublicScanShops(repKey, r.places.length);
       if (r.partial) {
         partial = true;
         console.warn('[ai-rep] المسح العام ناقص', r.codes.join(','), 'tenant', c.tid);
